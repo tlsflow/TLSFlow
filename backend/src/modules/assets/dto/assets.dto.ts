@@ -6,6 +6,7 @@ import type {
   ProviderType,
 } from '../../../shared/enums/core.enums.js';
 import type { BindingVerifyMethod, CertificateBindingDto, CreateCertificateBindingDto, DriftState } from '../../bindings/dto/bindings.dto.js';
+import type { WorkflowCredentialBinding } from '../../workflow-templates/dto/workflow-templates.dto.js';
 
 export type HostStatus = 'ACTIVE' | 'INACTIVE' | 'UNKNOWN' | 'STALE' | 'DISABLED' | 'RETIRED' | 'DELETED';
 export type ServiceInstanceStatus = 'ACTIVE' | 'STALE' | 'UNREACHABLE' | 'DISABLED' | 'RETIRED' | 'DELETED';
@@ -42,17 +43,6 @@ export interface AgentDeploymentStrategyDto {
   managedTargetId?: string;
   certificateFormatId?: string;
   deploymentMode?: string;
-  plugin?: {
-    mountId?: string;
-    pluginPackageId: string;
-    pluginVersionId: string;
-    variableBindings: Record<string, unknown>;
-    secretBindings: Record<string, string>;
-    certificateArtifactBindings: Record<string, {
-      certificateFormatId: string;
-      outputBindings: Record<string, string>;
-    }>;
-  };
 }
 
 export interface ManagedTargetDeploymentStrategyDto {
@@ -79,20 +69,14 @@ export interface WorkflowDeploymentStrategyDto {
     verifyUrl?: string;
     sniName?: string;
   };
-  credentialRefs?: Record<string, string>;
+  credentialBindings?: Record<string, { credentialId: string }>;
+  credentials?: Record<string, WorkflowCredentialBinding & { profileVersion: number; snapshotSha256: string }>;
   connectionBindings?: Record<string, {
     host?: string;
     port?: number;
     username?: string;
     credentialRef?: string;
-    credential?: {
-      id: string;
-      kind: 'username_password' | 'ssh_key' | 'curl_bearer' | 'curl_api_key';
-      type: 'password' | 'ssh_key' | 'api_token';
-      username?: string;
-      apiKeyName?: string;
-      apiKeyIn?: 'header' | 'query';
-    };
+    credential?: WorkflowCredentialBinding;
     expectedHostKeyFingerprint?: string;
   }>;
   parameterBindings?: Record<string, unknown>;
@@ -112,7 +96,7 @@ export interface WorkflowBindingProjectionRequestDto {
   target?: Record<string, unknown>;
   connectionBindings?: WorkflowDeploymentStrategyDto['connectionBindings'];
   parameterBindings?: Record<string, unknown>;
-  credentialRefs?: Record<string, string>;
+  credentialBindings?: Record<string, { credentialId: string }>;
 }
 
 export interface DeploymentStrategyDto {

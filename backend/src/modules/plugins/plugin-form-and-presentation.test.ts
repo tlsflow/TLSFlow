@@ -9,12 +9,12 @@ import { PluginPresentationSchemaService } from './presentations/plugin-presenta
 import type { UnifiedPluginManifestV1 } from './dto/unified-plugins.dto.js';
 import { PluginPackageResourcesService } from './application/plugin-package-resources.service.js';
 
-test('标准字段 Registry 覆盖连接、认证、TLS、Gateway 和 SecretRef', () => {
+test('标准字段 Registry 覆盖连接、认证、TLS、Gateway 和 CredentialRef', () => {
   const registry = new StandardPluginFieldRegistry();
   assert.equal(registry.require('connection.address').type, 'text');
   assert.equal(registry.require('connection.gatewayId').valueKind, 'RESOURCE_REF');
-  assert.equal(registry.require('authentication.passwordSecretRef').valueKind, 'SECRET_REF');
-  assert.equal(registry.require('authentication.passwordSecretRef').sensitive, true);
+  assert.equal(registry.require('authentication.credentialId').valueKind, 'CREDENTIAL_REF');
+  assert.equal(registry.require('authentication.credentialId').sensitive, true);
   assert.equal(registry.require('tls.verifyPeer').defaultValue, true);
 });
 
@@ -30,13 +30,15 @@ test('插件表单支持完整字段类型并拒绝覆盖 Secret 安全属性', 
         key: `field_${index}`,
         type,
         labelKey: `plugin.test.forms.all.field_${index}.label`,
+        ...(type === 'credential_ref' ? { acceptedCredentialKinds: ['USERNAME_PASSWORD'], purpose: 'test' } : {}),
       })),
     }],
   }, []);
   assert.equal(schema.sections[0]?.fields.length, pluginFieldTypes.length - 1);
   assert.throws(() => service.validate({
     schemaVersion: 'gcac.plugin-form/v1', mode: 'BOTH', sections: [{ id: 'secret', titleKey: 'plugin.test.secret', fields: [{
-      key: 'password', type: 'secret_ref', labelKey: 'plugin.test.password', standardField: 'authentication.passwordSecretRef', sensitive: false,
+      key: 'credential', type: 'credential_ref', labelKey: 'plugin.test.credential', standardField: 'authentication.credentialId', sensitive: false,
+      acceptedCredentialKinds: ['USERNAME_PASSWORD'], purpose: 'test',
     }] }],
   }, []), /不能取消敏感标记/);
 });

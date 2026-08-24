@@ -67,6 +67,24 @@ test('统一插件目录保留正交分类和能力声明', async () => {
   assert.equal(item?.capabilities[0]?.key, 'certificate.deploy');
 });
 
+test('统一插件目录同一插件只返回最高语义版本', async () => {
+  const service = new UnifiedPluginsApplicationService(memoryRepository(new Map()));
+  await service.importVersion('tenant-1', {
+    ...workflowPluginInput(),
+    manifest: { ...(workflowPluginInput().manifest as Record<string, unknown>), permissions: [], version: '1.9.0' },
+  });
+  await service.importVersion('tenant-1', {
+    ...workflowPluginInput(),
+    packageContent: 'package-1.10.0',
+    manifest: { ...(workflowPluginInput().manifest as Record<string, unknown>), permissions: [], version: '1.10.0' },
+  });
+
+  const catalog = await service.listCatalog('tenant-1');
+
+  assert.equal(catalog.length, 1);
+  assert.equal(catalog[0]?.version, '1.10.0');
+});
+
 test('统一插件升级差异和退休状态可追踪', async () => {
   const service = new UnifiedPluginsApplicationService(memoryRepository(new Map()));
   const first = await service.importVersion('tenant-1', {

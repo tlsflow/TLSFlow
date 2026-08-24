@@ -14,8 +14,7 @@ import { WorkflowTemplatesApplicationService } from '../../workflow-templates/ap
 import type { WorkflowConnectionBinding, WorkflowExecutorDispatchResult, WorkflowRunProgress, WorkflowRunResult } from '../../workflow-templates/dto/workflow-templates.dto.js';
 import type { ExecutionStepEntity } from '../schema/executions.schema.js';
 import { AgentActionDispatchRegistry } from './agent-action-dispatch-registry.js';
-import type { AgentDeploymentPluginsApplicationService } from '../../plugins/application/agent-deployment-plugins.application-service.js';
-import type { AgentPluginBindingInput } from '../../plugins/dto/agent-deployment-plugins.dto.js';
+import type { UnifiedAgentPlanCompilerService } from '../../plugins/application/unified-agent-plan-compiler.service.js';
 import { buildTlsVerifyTargetFromUrl, certificateMatchesDomain, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
 import { WorkflowRecoveryLedgerService, type WorkflowRecoveryLedgerRecord } from './workflow-recovery-ledger.service.js';
 import { PluginResourceLockService, type PluginResourceLockRecord } from './plugin-resource-lock.service.js';
@@ -71,7 +70,7 @@ export interface DefaultExecutorDependencies {
   gatewayTaskAuditWriter?: GatewayTaskAuditWriter;
   secrets?: SecretService;
   workflows?: WorkflowTemplatesApplicationService;
-  agentPlugins?: AgentDeploymentPluginsApplicationService;
+  agentPlanCompiler?: UnifiedAgentPlanCompilerService;
   workflowRecovery?: WorkflowRecoveryLedgerService;
   pluginResourceLocks?: PluginResourceLockService;
   executionGrants?: ExecutionGrantService;
@@ -137,7 +136,7 @@ function createDefaultExecutors(dependencies: DefaultExecutorDependencies = {}):
 	    new WorkflowExecutorAdapter({ workflows: dependencies.workflows, curlExecutor, sshExecutor, recovery: dependencies.workflowRecovery, resourceLocks: dependencies.pluginResourceLocks, executionGrants: dependencies.executionGrants }),
 	    new WindowsRemoteExecutorAdapter('WINRM'),
     new WindowsRemoteExecutorAdapter('SMB_WMI'),
-    new AgentExecutorAdapter(dependencies.agents, new AgentActionDispatchRegistry(), dependencies.agentPlugins),
+    new AgentExecutorAdapter(dependencies.agents, new AgentActionDispatchRegistry(), dependencies.agentPlanCompiler),
     new GatewayRouteExecutorAdapter({ agents: dependencies.agents, gatewayTasks: dependencies.gatewayTasks, auditWriter: dependencies.gatewayTaskAuditWriter }),
     new ControlPlaneTlsExecutor(),
     new LegacyAgentExecutorAdapter(),
@@ -176,7 +175,7 @@ export class AgentExecutorAdapter implements Executor {
   constructor(
     private readonly agents = new AgentsApplicationService(),
     private readonly actionDispatch = new AgentActionDispatchRegistry(),
-    private readonly agentPlugins?: AgentDeploymentPluginsApplicationService,
+    private readonly agentPlanCompiler?: UnifiedAgentPlanCompilerService,
   ) {}
 
   async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
@@ -254,19 +253,19 @@ export class AgentExecutorAdapter implements Executor {
     if (snapshot.actionType !== 'agent.atomic_plan.execute') {
       return { payload: { ...snapshot, stepType: input.step.stepType, runType: input.runType, dryRun: input.dryRun } };
     }
-    if (!this.agentPlugins) {
-      return { error: { success: false, errorCode: 'AGENT_PLUGIN_SERVICE_REQUIRED', errorMessage: 'Agent 插件执行服务未配置' } };
+    if (!this.agentPlanCompiler) {
+      return { error: { success: false, errorCode: 'AGENT_PLUGIN_SERVICE_REQUIRED', errorMessage: '统一 Agent Plan 编译器未配置' } };
     }
-    const binding = readRecord(snapshot.pluginBinding) as AgentPluginBindingInput | undefined;
-    if (!binding) return { error: { success: false, errorCode: 'AGENT_PLUGIN_BINDING_REQUIRED', errorMessage: 'Agent 插件执行缺少绑定快照' } };
+    const pluginBindingId = stringFromSnapshot(snapshot.pluginBindingId);
+    if (!pluginBindingId) return { error: { success: false, errorCode: 'AGENT_PLUGIN_BINDING_REQUIRED', errorMessage: 'Agent 插件执行缺少统一 Binding ID' } };
     const artifact = readRecord(snapshot.deploymentArtifact) ?? {};
-    const artifacts = readRecord(artifact.workflowCertificateMaterials) ?? buildDefaultAgentPluginArtifacts(binding, artifact);
-    const plan = await this.agentPlugins.compileExecutionPlan({
+    const artifacts = readRecord(artifact.workflowCertificateMaterials) ?? {};
+    const plan = await this.agentPlanCompiler.compile({
       tenantId: input.step.tenantId ?? '',
       agentId,
       executionRunId: input.step.executionRunId,
       executionStepId: input.step.id,
-      binding,
+      pluginBindingId,
       artifacts,
       executionMode: input.runType === 'rollback' ? 'ROLLBACK' : input.dryRun ? 'PREFLIGHT' : 'APPLY',
     });
@@ -276,13 +275,6 @@ export class AgentExecutorAdapter implements Executor {
         plan,
       } };
   }
-}
-
-function buildDefaultAgentPluginArtifacts(binding: AgentPluginBindingInput, artifact: Record<string, unknown>): Record<string, unknown> {
-  const material = buildWorkflowCertificateMaterial(artifact, {
-    expectedCertificateFingerprintSha256: artifact.expectedFingerprintSha256,
-  });
-  return Object.fromEntries(Object.keys(binding.certificateArtifactBindings ?? {}).map((name) => [name, material]));
 }
 
 export class WorkflowExecutorAdapter implements Executor {
@@ -343,6 +335,7 @@ export class WorkflowExecutorAdapter implements Executor {
       userVariables: {
         ...(readRecord(request.variableBindings) ?? {}),
         ...(readRecord(request.parameterBindings) ?? {}),
+        ...(readRecord(request.credentials) ?? {}),
       },
       assetVariables: buildWorkflowAssetVariables(input.step.inputSnapshot, request),
       connectionBindings: (readRecord(request.connectionBindings) ?? {}) as Record<string, WorkflowConnectionBinding>,

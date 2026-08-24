@@ -1,0 +1,16 @@
+{
+  "plugin.builtin.apache.name": "Apache HTTPS 证书部署",
+  "plugin.builtin.apache.description": "通过 SSH 原子替换 Apache 证书和私钥，检查配置、重载服务并验证 HTTPS。",
+  "plugin.builtin.synology.name": "Synology DSM 证书部署",
+  "plugin.builtin.synology.description": "通过 DSM API 导入证书、私钥和中间证书链，并验证管理站点 HTTPS。",
+  "plugin.builtin.nginx.name": "NGINX PEM 证书部署",
+  "plugin.builtin.nginx.description": "备份并原子替换 NGINX PEM 证书和私钥，检查配置、重载服务并验证 TLS。",
+  "plugin.builtin.iis.name": "IIS PFX 证书部署",
+  "plugin.builtin.iis.description": "检查并导入 PFX，授权应用池私钥，更新 IIS HTTPS Binding 并验证 TLS。",
+  "plugin.builtin.rabbitmq.name": "RabbitMQ PEM 证书部署",
+  "plugin.builtin.rabbitmq.description": "原子替换 RabbitMQ PEM 证书和私钥，重启服务并验证 TLS。",
+  "plugin.builtin.java.name": "Java PKCS#12 / KeyStore 部署",
+  "plugin.builtin.java.description": "原子替换 Java 服务使用的 PKCS#12 或 KeyStore 文件并重启服务。",
+  "plugin.builtin.windowsService.name": "Windows Service 证书文件部署",
+  "plugin.builtin.windowsService.description": "原子替换 Windows 服务读取的证书文件并重启指定服务。"
+}

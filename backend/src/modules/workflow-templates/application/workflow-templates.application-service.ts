@@ -120,6 +120,13 @@ export class WorkflowTemplatesApplicationService {
     return this.domain.testRun(input);
   }
 
+  async execute(input: WorkflowRuntimeInput, reporter?: WorkflowProgressReporter) {
+    if (!this.options.stepDispatcher) {
+      throw new AppError('CAPABILITY_MISSING', '工作流正式执行器未注册');
+    }
+    return this.domain.runWithDispatcher(input, this.options.stepDispatcher, reporter);
+  }
+
   async testStep(input: WorkflowStepRuntimeInput) {
     if (input.mode === 'real_test' && this.options.stepDispatcher) {
       return this.domain.testStepWithDispatcher(input, this.options.stepDispatcher);

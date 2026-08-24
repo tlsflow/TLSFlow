@@ -104,6 +104,18 @@ export interface UnifiedPluginCatalogItem {
   version: string;
   name: string;
   displayNameKey: string;
+  descriptionKey?: string;
+  displayName?: string;
+  description?: string;
+  tags: string[];
+  platforms: string[];
+  stepCount: number;
+  rollbackCount: number;
+  configuration?: {
+    variables: Record<string, unknown>;
+    artifactInputs: Record<string, unknown>;
+    compatibility: Record<string, unknown>;
+  };
   source: UnifiedPluginSource;
   runtime: UnifiedPluginRuntime;
   scope: UnifiedPluginScope;

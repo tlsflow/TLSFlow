@@ -99,7 +99,7 @@ function runtimeInput(versionId: string) {
     mode: 'mock' as const,
     userVariables: {
       deviceHost: 'edge-01.example.com',
-      credential: { id: 'sec_device_login', kind: 'username_password', type: 'password', username: 'admin' },
+      credential: { credentialId: 'cred_device_login', kind: 'USERNAME_PASSWORD', username: 'admin', secretRefs: { password: 'secret://password/sec_device_login#current' } },
     },
     certificateMaterials: {
       cert: {
@@ -525,7 +525,7 @@ describe('WorkflowTemplates', () => {
       mode: 'mock',
       userVariables: {
         deviceHost: 'edge-01.example.com',
-        credential: { id: 'sec_device_login', kind: 'username_password', type: 'password', username: 'admin' },
+        credential: { credentialId: 'cred_device_login', kind: 'USERNAME_PASSWORD', username: 'admin', secretRefs: { password: 'secret://password/sec_device_login#current' } },
       },
     }, async ({ step, renderedPlan }) => {
       if (step.name === 'prepare_auth') {
@@ -633,7 +633,7 @@ describe('WorkflowTemplates', () => {
       mode: 'mock',
       userVariables: {
         deviceHost: 'edge-01.example.com',
-        credential: { id: 'sec_device_login', kind: 'username_password', type: 'password', username: 'admin' },
+        credential: { credentialId: 'cred_device_login', kind: 'USERNAME_PASSWORD', username: 'admin', secretRefs: { password: 'secret://password/sec_device_login#current' } },
       },
       mockResponses: {
         prepare_auth: {
@@ -924,7 +924,7 @@ describe('WorkflowTemplates', () => {
     content.variables.apiCredential = {
       type: 'credential',
       required: true,
-      default: { id: 'sec_device_api', kind: 'curl_bearer', type: 'api_token' },
+      default: { credentialId: 'cred_device_api', kind: 'BEARER_TOKEN', secretRefs: { token: 'secret://api_token/sec_device_api#current' } },
       sensitive: true,
     };
     content.steps = [
@@ -1099,7 +1099,7 @@ describe('WorkflowTemplates', () => {
           port: 2222,
           username: 'root',
           credentialRef: 'sec_ssh',
-          credential: { id: 'sec_ssh', kind: 'ssh_key' as const, type: 'ssh_key' as const },
+          credential: { credentialId: 'cred_ssh', kind: 'SSH_KEY' as const, secretRefs: { privateKey: 'secret://ssh_key/sec_ssh#current' } },
         },
       },
     };
@@ -1119,7 +1119,7 @@ describe('WorkflowTemplates', () => {
     content.variables.apiCredential = {
       type: 'credential',
       required: true,
-      default: { id: 'sec_device_api', kind: 'curl_bearer', type: 'api_token' },
+      default: { credentialId: 'cred_device_api', kind: 'BEARER_TOKEN', secretRefs: { token: 'secret://api_token/sec_device_api#current' } },
       sensitive: true,
     };
     content.steps = [
@@ -1189,7 +1189,7 @@ describe('WorkflowTemplates', () => {
     content.variables.apiCredential = {
       type: 'credential',
       required: true,
-      default: { id: 'sec_device_login', kind: 'username_password', type: 'password', username: 'admin' },
+      default: { credentialId: 'cred_device_login', kind: 'USERNAME_PASSWORD', username: 'admin', secretRefs: { password: 'secret://password/sec_device_login#current' } },
       sensitive: true,
     };
     content.steps = [
@@ -1382,7 +1382,7 @@ describe('WorkflowTemplates', () => {
       templateVersionId: version.id,
       mode: 'mock',
       userVariables: {
-        synologyCredential: { id: 'sec_synology_login', kind: 'username_password', type: 'password', username: 'admin' },
+        synologyCredential: { credentialId: 'cred_synology_login', kind: 'USERNAME_PASSWORD', username: 'admin', secretRefs: { password: 'secret://password/sec_synology_login#current' } },
       },
       certificateMaterials: {
         serverCert: {

@@ -744,6 +744,8 @@ function collectValuePaths(path: string, value: unknown, paths: Set<string>): vo
 
 function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRuntimeInput['mode'], output?: WorkflowMockStepOutput): unknown {
   if (step.type === 'http') {
+    const renderedHeaders = renderUnknown(step.request.headers ?? {}, context.values, mode === 'render_only') as Record<string, string>;
+    const promotedHeaders = promoteSecretHeaders(renderedHeaders, step.request.headerRefs);
     const curlRequest = {
       idempotencyKey: `workflow:${step.name}`,
       dryRun: mode !== 'real_test',
@@ -751,8 +753,8 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
         method: step.request.method,
         url: renderString(step.request.url, context.values, mode === 'render_only'),
         query: renderUnknown(step.request.query, context.values, mode === 'render_only'),
-        headers: renderUnknown(step.request.headers ?? {}, context.values, mode === 'render_only'),
-        headerRefs: step.request.headerRefs,
+        headers: promotedHeaders.headers,
+        headerRefs: renderUnknown(promotedHeaders.headerRefs, context.values, mode === 'render_only'),
         bodyType: step.request.bodyType,
         body: renderUnknown(step.request.body, context.values, mode === 'render_only'),
         form: renderUnknown(step.request.form, context.values, mode === 'render_only'),
@@ -908,6 +910,19 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
   }
   if (step.type === 'wait') return { executor: 'workflow.wait', seconds: step.seconds, plannedOnly: true };
   return { executor: 'workflow.manual', instruction: renderString(step.instruction, context.values, mode === 'render_only'), plannedOnly: true };
+}
+
+function promoteSecretHeaders(
+  headers: Record<string, string>,
+  declaredRefs: Record<string, string> | undefined,
+): { headers: Record<string, string>; headerRefs: Record<string, string> | undefined } {
+  const plainHeaders: Record<string, string> = {};
+  const headerRefs: Record<string, string> = { ...(declaredRefs ?? {}) };
+  for (const [name, value] of Object.entries(headers)) {
+    if (/^secret:\/\/[a-zA-Z0-9/_#.-]+$/.test(value)) headerRefs[name] = value;
+    else plainHeaders[name] = value;
+  }
+  return { headers: plainHeaders, headerRefs: Object.keys(headerRefs).length > 0 ? headerRefs : undefined };
 }
 
 function adaptHttpTls(
@@ -1291,12 +1306,15 @@ function resolveCredentialBinding(value: unknown, values: Record<string, unknown
 
 function isCredentialBinding(value: unknown): value is WorkflowCredentialBinding {
   if (!isRecord(value)) return false;
-  return typeof value.id === 'string' && value.id.trim().length > 0
-    && ['password', 'ssh_key', 'api_token'].includes(String(value.type));
+  return typeof value.credentialId === 'string' && value.credentialId.trim().length > 0
+    && isRecord(value.secretRefs)
+    && Object.values(value.secretRefs).every((secretRef) => typeof secretRef === 'string' && secretRef.startsWith('secret://'));
 }
 
 function credentialToSecretRef(credential: WorkflowCredentialBinding): string {
-  return `secret://${credential.type}/${credential.id}#current`;
+  const secretRef = credential.secretRefs.password ?? credential.secretRefs.token ?? credential.secretRefs.privateKey;
+  if (!secretRef) throw new AppError('VALIDATION_FAILED', '凭据没有适用于当前认证方式的 Secret Slot', { credentialId: credential.credentialId });
+  return secretRef;
 }
 
 function normalizeStepOutput(step: WorkflowStep, output: WorkflowMockStepOutput): WorkflowMockStepOutput {

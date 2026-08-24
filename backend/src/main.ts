@@ -52,15 +52,25 @@ async function start(): Promise<void> {
 
   const agentsService = app.getResource<AgentsApplicationService>('agentsService');
   if (agentsService) {
-    const evaluatorIntervalMs = Number(process.env.AGENT_OFFLINE_EVALUATOR_INTERVAL_MS ?? '30000');
-    const offlineTimeoutSeconds = Number(process.env.AGENT_OFFLINE_TIMEOUT_SECONDS ?? '180');
-    setInterval(() => {
-      void agentsService.evaluateOfflineAgents({ offlineTimeoutSeconds }).catch((error: unknown) => {
-        structuredLogger.warn('Agent offline evaluator failed', {
-          error: error instanceof Error ? error.message : String(error),
-        }, { module: 'agents-offline-evaluator' });
-      });
-    }, evaluatorIntervalMs);
+    const evaluatorIntervalMs = positiveNumber(process.env.AGENT_OFFLINE_EVALUATOR_INTERVAL_MS, 10_000);
+    const offlineTimeoutSeconds = positiveNumber(process.env.AGENT_OFFLINE_TIMEOUT_SECONDS, 180);
+    const requiredConsecutiveTimeouts = positiveNumber(process.env.AGENT_OFFLINE_REQUIRED_CONSECUTIVE_TIMEOUTS, 2);
+    let evaluating = false;
+    const evaluateOfflineAgents = () => {
+      if (evaluating) return;
+      evaluating = true;
+      void agentsService.evaluateOfflineAgents({ offlineTimeoutSeconds, requiredConsecutiveTimeouts })
+        .catch((error: unknown) => {
+          structuredLogger.warn('Agent offline evaluator failed', {
+            error: error instanceof Error ? error.message : String(error),
+          }, { module: 'agents-offline-evaluator' });
+        })
+        .finally(() => {
+          evaluating = false;
+        });
+    };
+    evaluateOfflineAgents();
+    setInterval(evaluateOfflineAgents, evaluatorIntervalMs);
   }
 
   const executionsService = app.getResource<ExecutionsApplicationService>('executionsService');
@@ -220,6 +230,11 @@ async function start(): Promise<void> {
       port: app.config.port,
     }, { module: 'bootstrap' });
   });
+}
+
+function positiveNumber(value: string | undefined, fallback: number): number {
+  const parsed = Number(value ?? fallback);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 async function drainNotificationDeliveries(worker: NotificationWorker, maxDeliveriesPerTick: number): Promise<void> {

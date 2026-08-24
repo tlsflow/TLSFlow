@@ -66,7 +66,7 @@ test('设备资产 API 创建、查询和更新不暴露密码', async () => {
   assert.equal((updated.body as Record<string, unknown>).displayName, 'ADC 生产集群');
 });
 
-test('未注册 NITRO 测试器时连接测试返回能力缺失', async () => {
+test('旧设备连接测试入口已移除', async () => {
   const app = await createTestApp();
   const created = await app.inject({
     method: 'POST',
@@ -80,11 +80,10 @@ test('未注册 NITRO 测试器时连接测试返回能力缺失', async () => {
     headers: { 'x-tenant-id': 'tenant-a' },
     body: { deviceAssetId: (created.body as Record<string, unknown>).id },
   });
-  assert.equal(tested.statusCode, 422);
-  assert.equal((tested.body as { errorCode?: string }).errorCode, 'CAPABILITY_MISSING');
+  assert.equal(tested.statusCode, 404);
 });
 
-test('重新发现设备资源使用独立接口并记录审计事件', async () => {
+test('旧设备重新发现入口已移除', async () => {
   const discoveredIds: string[] = [];
   const tester: DeviceConnectionTester = {
     async test(device) {
@@ -117,11 +116,9 @@ test('重新发现设备资源使用独立接口并记录审计事件', async ()
     body: { deviceAssetId },
   });
 
-  assert.equal(discovered.statusCode, 200);
-  assert.equal((discovered.body as { reachable?: boolean }).reachable, true);
-  assert.equal((discovered.body as { fingerprintedCertificateCount?: number }).fingerprintedCertificateCount, 9);
-  assert.deepEqual(discoveredIds, [deviceAssetId]);
-  assert.deepEqual(events, ['device_asset.created', 'device_asset.discovery_refreshed']);
+  assert.equal(discovered.statusCode, 404);
+  assert.deepEqual(discoveredIds, []);
+  assert.deepEqual(events, ['device_asset.created']);
 });
 
 test('设备资产写操作产生脱敏审计事件', async () => {

@@ -106,8 +106,8 @@ export class DeploymentStrategyResolver {
       });
     }
     const mode = agent.mode ?? 'NATIVE_HANDLER';
-    if (mode === 'PLUGIN' && (!agent.plugin?.pluginPackageId || !agent.plugin.pluginVersionId)) {
-      throw new AppError('VALIDATION_FAILED', 'AGENT 插件策略缺少插件包和版本信息', {
+    if (mode === 'PLUGIN' && !agent.pluginBindingId) {
+      throw new AppError('VALIDATION_FAILED', 'AGENT 插件策略缺少统一 PluginBinding', {
         code: 'DEPLOYMENT_STRATEGY_INVALID',
         applicationAssetId: input.applicationAsset.id,
       });
@@ -179,7 +179,8 @@ export class DeploymentStrategyResolver {
           runner: workflow.runner,
           gatewayId: workflow.gatewayId,
           target: workflow.target,
-          credentialRefs: workflow.credentialRefs ?? {},
+          credentialBindings: workflow.credentialBindings ?? {},
+          credentials: workflow.credentials ?? {},
           connectionBindings: workflow.connectionBindings ?? {},
           parameterBindings: workflow.parameterBindings ?? {},
           variableBindings: workflow.variableBindings ?? {},

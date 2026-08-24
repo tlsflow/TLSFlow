@@ -11,6 +11,10 @@ export interface CertificateArtifactGeneratorPort {
   }>;
 }
 
+type CreatePluginBindingInput = Omit<PluginBindingV1, 'id' | 'tenantId' | 'status' | 'version' | 'createdAt' | 'updatedAt' | 'credentialBindings'> & {
+  credentialBindings?: PluginBindingV1['credentialBindings'];
+};
+
 export class PluginBindingsApplicationService {
   constructor(private readonly repository = new PluginBindingsRepository()) {}
 
@@ -27,7 +31,7 @@ export class PluginBindingsApplicationService {
   async updateBinding(
     tenantId: string,
     bindingId: string,
-    input: Partial<Pick<PluginBindingV1, 'variableBindings' | 'secretBindings' | 'certificateArtifactBindings' | 'connectionBindings' | 'managedContext' | 'status'>> & { expectedVersion: number },
+    input: Partial<Pick<PluginBindingV1, 'variableBindings' | 'credentialBindings' | 'secretBindings' | 'certificateArtifactBindings' | 'connectionBindings' | 'managedContext' | 'status'>> & { expectedVersion: number },
   ): Promise<PluginBindingV1> {
     const binding = await this.getTenantBinding(tenantId, bindingId);
     if (binding.version !== input.expectedVersion) throw new AppError('RESOURCE_VERSION_CONFLICT', 'PluginBinding 版本冲突', { bindingId, expectedVersion: input.expectedVersion, actualVersion: binding.version });
@@ -35,6 +39,7 @@ export class PluginBindingsApplicationService {
     const next = {
       ...binding,
       variableBindings: input.variableBindings ?? binding.variableBindings,
+      credentialBindings: input.credentialBindings ?? binding.credentialBindings,
       secretBindings: input.secretBindings ?? binding.secretBindings,
       certificateArtifactBindings: input.certificateArtifactBindings ?? binding.certificateArtifactBindings,
       connectionBindings: input.connectionBindings ?? binding.connectionBindings,
@@ -46,12 +51,16 @@ export class PluginBindingsApplicationService {
     return this.repository.saveBinding(next);
   }
 
-  async createBinding(tenantId: string, input: Omit<PluginBindingV1, 'id' | 'tenantId' | 'status' | 'version' | 'createdAt' | 'updatedAt'>): Promise<PluginBindingV1> {
+  async createBinding(tenantId: string, input: CreatePluginBindingInput): Promise<PluginBindingV1> {
     if (input.mode === 'MANAGED' && !input.managedContext?.hostId) throw new AppError('VALIDATION_FAILED', 'Managed Binding 必须提供 hostId');
     if (input.mode === 'STANDALONE' && input.managedContext) throw new AppError('VALIDATION_FAILED', 'Standalone Binding 不能保存 managedContext');
+    const credentialBindings = input.credentialBindings ?? {};
+    for (const [slot, value] of Object.entries(credentialBindings)) {
+      if (!slot.trim() || !value.credentialId?.trim()) throw new AppError('VALIDATION_FAILED', 'Credential Binding 必须使用非空 credentialId');
+    }
     for (const [key, value] of Object.entries(input.secretBindings)) if (!key || !value) throw new AppError('VALIDATION_FAILED', 'Secret Binding 必须使用非空 SecretRef');
     const now = new Date().toISOString();
-    return this.repository.saveBinding({ ...input, id: newId('plgb'), tenantId, status: 'ACTIVE', version: 1, createdAt: now, updatedAt: now });
+    return this.repository.saveBinding({ ...input, credentialBindings, id: newId('plgb'), tenantId, status: 'ACTIVE', version: 1, createdAt: now, updatedAt: now });
   }
 
   async assignCapability(tenantId: string, input: Omit<CapabilityAssignmentV1, 'id' | 'tenantId' | 'status' | 'createdAt' | 'updatedAt'>): Promise<CapabilityAssignmentV1> {
@@ -73,7 +82,7 @@ export class PluginBindingsApplicationService {
     if (!binding || binding.status !== 'ACTIVE') throw new AppError('RESOURCE_NOT_FOUND', '可用 PluginBinding 不存在', { bindingId });
     const payload = {
       pluginVersionId: binding.pluginVersionId, mode: binding.mode, capabilityKey, executionLocation: options.executionLocation,
-      connections: binding.connectionBindings, variables: binding.variableBindings,
+      connections: binding.connectionBindings, variables: binding.variableBindings, credentials: binding.credentialBindings,
       secrets: Object.fromEntries(Object.entries(binding.secretBindings).map(([purpose, secretRef]) => [purpose, { secretRef, purpose }])),
       certificateMaterials: options.certificateMaterials ?? {}, target: options.target,
     };

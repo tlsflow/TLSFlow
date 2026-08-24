@@ -8,8 +8,9 @@ import { securityErrors } from '../../shared/security-error.js';
 import { CryptoService, type EnvelopeEncryptedPayload } from './crypto.service.js';
 import { buildSecretRef, parseSecretRef } from './secret-ref.js';
 import type { ExecutionGrantService } from '../executions/execution-grant.service.js';
-import type { AuditService } from '../audits/audit.service.js';
+import { AuditService } from '../audits/audit.service.js';
 import { AUDIT_EVENT_TYPES } from '../audits/audit-event-types.js';
+import type { DatabasePort } from '../../database/database-port.js';
 
 export interface CreateSecretInput {
   name: string;
@@ -87,6 +88,67 @@ export class SecretService {
   ) {}
 
   async create(input: CreateSecretInput, context: RequestContext = {}): Promise<SecretMetadataOutput> {
+    const result = await this.persistCreate(input, this.secrets, this.versions);
+    await this.auditCreated(input, result.secret, result.versionId, result.fingerprint, context);
+    return this.toMetadata(result.secret);
+  }
+
+  async createInTransaction(input: CreateSecretInput, db: DatabasePort, context: RequestContext = {}): Promise<SecretMetadataOutput> {
+    const repositories = this.repositoriesFor(db);
+    const result = await this.persistCreate(input, repositories.secrets, repositories.versions);
+    await this.auditCreatedWith(new AuditService(new PgDocumentRepository(db, 'security.audit_logs')), input, result.secret, result.versionId, result.fingerprint, context);
+    return this.toMetadataFrom(result.secret, repositories.versions);
+  }
+
+  async rotateInTransaction(secretId: string, plainText: string, actorId: string, db: DatabasePort, context: RequestContext = {}): Promise<SecretMetadataOutput> {
+    const repositories = this.repositoriesFor(db);
+    const secret = await repositories.secrets.get(secretId);
+    if (!secret || secret.status === 'deleted') throw securityErrors.secretNotFound({ secretId });
+    const versions = await repositories.versions.list((version) => version.secretId === secretId);
+    const versionNo = Math.max(0, ...versions.map((version) => version.versionNo)) + 1;
+    const encrypted = this.crypto.encryptSecret(plainText);
+    const versionId = newId('secv');
+    await repositories.versions.create({
+      id: versionId, secretId, versionNo,
+      encryptedData: encrypted.encryptedData, encryptedDek: encrypted.encryptedDek,
+      kekVersion: encrypted.kekVersion, algorithm: encrypted.algorithm, iv: encrypted.iv,
+      authTag: encrypted.authTag, dekIv: encrypted.dekIv, dekAuthTag: encrypted.dekAuthTag,
+      fingerprint: encrypted.fingerprint, status: 'active', createdAt: new Date().toISOString(),
+    });
+    const updated = await repositories.secrets.update(secretId, {
+      currentVersionId: versionId,
+      updatedAt: new Date().toISOString(),
+    });
+    await new AuditService(new PgDocumentRepository(db, 'security.audit_logs')).write({
+      eventType: AUDIT_EVENT_TYPES.SECRET_ROTATED,
+      actorType: 'user', actorId, action: 'secret.rotate', resourceType: 'secret', resourceId: secretId,
+      result: 'success', riskLevel: 'high', context, failClosed: true,
+      detail: { versionNo, versionId, fingerprint: encrypted.fingerprint },
+    });
+    return this.toMetadataFrom(updated, repositories.versions);
+  }
+
+  async deleteInTransaction(secretId: string, actorId: string, db: DatabasePort, context: RequestContext = {}): Promise<void> {
+    const repositories = this.repositoriesFor(db);
+    const secret = await repositories.secrets.get(secretId);
+    if (!secret || secret.status === 'deleted') return;
+    for (const version of await repositories.versions.list((item) => item.secretId === secretId)) {
+      await repositories.versions.update(version.id, { status: 'revoked' });
+    }
+    await repositories.secrets.update(secretId, { status: 'deleted', updatedAt: new Date().toISOString() });
+    await new AuditService(new PgDocumentRepository(db, 'security.audit_logs')).write({
+      eventType: AUDIT_EVENT_TYPES.SECRET_DELETED,
+      actorType: 'user', actorId, action: 'secret.delete', resourceType: 'secret', resourceId: secretId,
+      result: 'success', riskLevel: 'high', context, failClosed: true,
+      detail: { type: secret.type, scopeType: secret.scopeType, scopeId: secret.scopeId },
+    });
+  }
+
+  private async persistCreate(
+    input: CreateSecretInput,
+    secrets: AsyncRepositoryPort<SecretEntity>,
+    versions: AsyncRepositoryPort<SecretVersionEntity & { dekIv: string; dekAuthTag: string }>,
+  ) {
     if (input.scopeType !== 'global' && !input.scopeId) {
       throw securityErrors.secretRefInvalid({ reason: 'scopeId required for non-global secret' });
     }
@@ -96,7 +158,7 @@ export class SecretService {
     const encrypted = this.crypto.encryptSecret(input.plainText);
     const versionId = newId('secv');
 
-    await this.versions.create({
+    await versions.create({
       id: versionId,
       secretId,
       versionNo: 1,
@@ -113,7 +175,7 @@ export class SecretService {
       createdAt: now,
     });
 
-    const secret = await this.secrets.create({
+    const secret = await secrets.create({
       id: secretId,
       name: input.name,
       type: input.type,
@@ -127,7 +189,15 @@ export class SecretService {
       updatedAt: now,
     });
 
-    await this.audit.write({
+    return { secret, versionId, fingerprint: encrypted.fingerprint };
+  }
+
+  private async auditCreated(input: CreateSecretInput, secret: SecretEntity, versionId: string, fingerprint: string, context: RequestContext): Promise<void> {
+    return this.auditCreatedWith(this.audit, input, secret, versionId, fingerprint, context);
+  }
+
+  private async auditCreatedWith(audit: AuditService, input: CreateSecretInput, secret: SecretEntity, versionId: string, fingerprint: string, context: RequestContext): Promise<void> {
+    await audit.write({
       eventType: AUDIT_EVENT_TYPES.SECRET_CREATED,
       actorType: 'user',
       actorId: input.createdBy,
@@ -144,11 +214,11 @@ export class SecretService {
         scopeType: input.scopeType,
         scopeId: input.scopeId,
         metadataKeys: Object.keys(input.metadata ?? {}),
-        fingerprint: encrypted.fingerprint,
+        fingerprint,
       },
     });
 
-    await this.audit.write({
+    await audit.write({
       eventType: AUDIT_EVENT_TYPES.SECRET_VERSION_CREATED,
       actorType: 'user',
       actorId: input.createdBy,
@@ -159,10 +229,8 @@ export class SecretService {
       riskLevel: 'high',
       context,
       failClosed: true,
-      detail: { secretId: secret.id, versionNo: 1, fingerprint: encrypted.fingerprint },
+      detail: { secretId: secret.id, versionNo: 1, fingerprint },
     });
-
-    return this.toMetadata(secret);
   }
 
   async listMetadata(): Promise<SecretMetadataOutput[]> {
@@ -317,7 +385,14 @@ export class SecretService {
   }
 
   private async toMetadata(secret: SecretEntity): Promise<SecretMetadataOutput> {
-    const version = await this.versions.get(secret.currentVersionId);
+    return this.toMetadataFrom(secret, this.versions);
+  }
+
+  private async toMetadataFrom(
+    secret: SecretEntity,
+    versions: AsyncRepositoryPort<SecretVersionEntity & { dekIv: string; dekAuthTag: string }>,
+  ): Promise<SecretMetadataOutput> {
+    const version = await versions.get(secret.currentVersionId);
     if (!version) {
       throw securityErrors.secretNotFound({ reason: 'version missing' });
     }
@@ -334,6 +409,13 @@ export class SecretService {
       createdBy: secret.createdBy,
       createdAt: secret.createdAt,
       updatedAt: secret.updatedAt,
+    };
+  }
+
+  private repositoriesFor(db: DatabasePort) {
+    return {
+      secrets: new PgDocumentRepository<SecretEntity>(db, 'security.secrets'),
+      versions: new PgDocumentRepository<SecretVersionEntity & { dekIv: string; dekAuthTag: string }>(db, 'security.secret_versions'),
     };
   }
 }

@@ -23,6 +23,7 @@ import type { ExecutionDetailStreamService } from '../../executions/application/
 
 export class AgentsApplicationService {
   private readonly directClient = new AgentDirectClient();
+  private readonly offlineTimeoutCounts = new Map<string, number>();
 
   constructor(
     private readonly repository: AgentsRepository = new PgAgentsRepository(),
@@ -54,13 +55,18 @@ export class AgentsApplicationService {
     if (input.enrollmentToken) {
       const token = await this.repository.findEnrollmentTokenByHash(tenantId, this.domain.hashEnrollmentToken(input.enrollmentToken));
       if (!token) throw new AppError('AUTH_FORBIDDEN', '注册令牌无效');
-      this.domain.assertEnrollmentAllowed(token, input);
-      const usedCount = token.usedCount + 1;
-      await this.repository.updateEnrollmentToken(token.id, {
-        usedCount,
-        lastUsedAt: new Date().toISOString(),
-        status: usedCount >= token.maxUses ? 'exhausted' : 'active',
-      });
+      const reusingOriginalEnrollment = existing?.enrollmentTokenId === token.id;
+      if (reusingOriginalEnrollment) {
+        if (token.status === 'revoked') throw new AppError('AUTH_FORBIDDEN', '注册令牌已撤销', { tokenId: token.id });
+      } else {
+        this.domain.assertEnrollmentAllowed(token, input);
+        const usedCount = token.usedCount + 1;
+        await this.repository.updateEnrollmentToken(token.id, {
+          usedCount,
+          lastUsedAt: new Date().toISOString(),
+          status: usedCount >= token.maxUses ? 'exhausted' : 'active',
+        });
+      }
       enrollmentTokenId = token.id;
     }
     const now = new Date().toISOString();
@@ -886,24 +892,44 @@ export class AgentsApplicationService {
     });
   }
 
-  async evaluateOfflineAgents(options: { offlineTimeoutSeconds?: number; now?: Date } = {}) {
+  async evaluateOfflineAgents(options: {
+    offlineTimeoutSeconds?: number;
+    requiredConsecutiveTimeouts?: number;
+    now?: Date;
+  } = {}) {
     const offlineTimeoutSeconds = options.offlineTimeoutSeconds && options.offlineTimeoutSeconds > 0
       ? options.offlineTimeoutSeconds
       : 180;
+    const requiredConsecutiveTimeouts = options.requiredConsecutiveTimeouts && options.requiredConsecutiveTimeouts > 0
+      ? Math.ceil(options.requiredConsecutiveTimeouts)
+      : 2;
     const now = options.now ?? new Date();
     const nowIso = now.toISOString();
     const registrations = await this.repository.listAllRegistrations();
     let transitioned = 0;
 
     for (const agent of registrations) {
-      if (agent.status === 'DISABLED') continue;
-      if (agent.revokedAt || agent.certificateRevoked) continue;
+      const timeoutKey = `${agent.tenantId}:${agent.id}`;
+      if (agent.status === 'DISABLED' || agent.revokedAt || agent.certificateRevoked) {
+        this.offlineTimeoutCounts.delete(timeoutKey);
+        continue;
+      }
       const latestHeartbeat = await this.repository.getLatestHeartbeat(agent.tenantId, agent.id);
       const referenceAt = latestHeartbeat?.receivedAt ?? agent.updatedAt ?? agent.registeredAt;
       const referenceTime = Date.parse(referenceAt);
       if (Number.isNaN(referenceTime)) continue;
       const stale = now.getTime()- referenceTime > offlineTimeoutSeconds * 1000;
-      if (!stale || agent.status === 'OFFLINE') continue;
+      if (!stale) {
+        this.offlineTimeoutCounts.delete(timeoutKey);
+        continue;
+      }
+      if (agent.status === 'OFFLINE') {
+        this.offlineTimeoutCounts.delete(timeoutKey);
+        continue;
+      }
+      const timeoutCount = (this.offlineTimeoutCounts.get(timeoutKey) ?? 0) + 1;
+      this.offlineTimeoutCounts.set(timeoutKey, timeoutCount);
+      if (timeoutCount < requiredConsecutiveTimeouts) continue;
 
       const updated = await this.repository.updateRegistration(agent.id, {
         status: 'OFFLINE',
@@ -911,6 +937,7 @@ export class AgentsApplicationService {
         updatedAt: nowIso,
         lastRequestId: `offline_evaluator:${now.getTime()}`,
       });
+      this.offlineTimeoutCounts.delete(timeoutKey);
       transitioned += 1;
       this.syncGatewayRegistryInBackground(agent.tenantId, updated);
     }
@@ -919,6 +946,7 @@ export class AgentsApplicationService {
       evaluated: registrations.length,
       transitioned,
       offlineTimeoutSeconds,
+      requiredConsecutiveTimeouts,
       evaluatedAt: nowIso,
     };
   }
@@ -1131,7 +1159,7 @@ export class AgentsApplicationService {
     ].filter(Boolean);
 
     return {
-      status: runtimeHealth?.status ?? (offline ? 'failed' : degradedReasons.length > 0 ? 'degraded' : 'unknown'),
+      status: offline ? 'failed' : runtimeHealth?.status ?? (degradedReasons.length > 0 ? 'degraded' : 'unknown'),
       offline,
       offlineTimeoutSeconds,
       lastHeartbeatAt,

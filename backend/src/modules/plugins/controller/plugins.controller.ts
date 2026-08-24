@@ -4,7 +4,6 @@ import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import { pageResponseSchema } from '../../../common/openapi/schemas.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
 import { PluginsApplicationService } from '../application/plugins.application-service.js';
-import { AgentDeploymentPluginsApplicationService } from '../application/agent-deployment-plugins.application-service.js';
 import { UnifiedPluginsApplicationService } from '../application/unified-plugins.application-service.js';
 import { PluginBindingsApplicationService } from '../application/plugin-bindings.application-service.js';
 import type { ImportUnifiedPluginVersionInput } from '../dto/unified-plugins.dto.js';
@@ -27,7 +26,6 @@ export class PluginsController {
   private readonly capabilityRegistry = new PluginCapabilityRegistry();
   constructor(
     private readonly service = new PluginsApplicationService(),
-    private readonly agentPlugins = new AgentDeploymentPluginsApplicationService(),
     private readonly unifiedPlugins = new UnifiedPluginsApplicationService(),
     private readonly pluginBindings = new PluginBindingsApplicationService(),
     private readonly promotions?: PluginPromotionService,
@@ -65,20 +63,6 @@ export class PluginsController {
     router.post('/api/v1/plugin-promotions/revoke', '撤销 Standalone 目标归集', tags, (request) => this.revokePromotion(request));
     router.get('/api/v1/plugin-promotions', '查询 Standalone 目标归集记录', tags, (request) => this.getPromotion(request));
     router.get('/api/v1/plugin-runtime/metrics', '查询插件运行指标', tags, (request) => ({ items: pluginRuntimeGuard.listMetrics(tenantId(request)) }));
-    router.post('/api/v1/plugin-catalog/workflow-templates/enable', '启用 DSL 模板插件', tags, (request) => this.enableWorkflowTemplatePlugin(request));
-    router.post('/api/v1/plugin-catalog/workflow-templates/disable', '禁用 DSL 模板插件', tags, (request) => this.disableWorkflowTemplatePlugin(request));
-    router.get('/api/v1/plugins/agent-packages', '查询 Agent 插件包', tags, (request) => this.listAgentPackages(request));
-    router.post('/api/v1/plugins/agent-packages', '上传 Agent 插件包', tags, (request) => this.uploadAgentPackage(request));
-    router.post('/api/v1/plugins/agent-packages/permissions/approve', '审批 Agent 插件权限', tags, (request) => this.approveAgentPermissions(request));
-    router.post('/api/v1/plugins/agent-packages/enable', '启用 Agent 插件', tags, (request) => this.enableAgentPackage(request));
-    router.post('/api/v1/plugins/agent-packages/disable', '禁用 Agent 插件', tags, (request) => this.disableAgentPackage(request));
-    router.get('/api/v1/plugins/agent-mounts', '查询 Agent 插件挂载', tags, (request) => this.listAgentMounts(request));
-    router.post('/api/v1/plugins/agent-mounts/validate', '校验 Agent 插件挂载', tags, (request) => this.validateAgentMount(request));
-    router.post('/api/v1/plugins/agent-mounts', '创建 Agent 插件挂载', tags, (request) => this.createAgentMount(request));
-    router.post('/api/v1/plugins/agent-mounts/disable', '禁用 Agent 插件挂载', tags, (request) => this.disableAgentMount(request));
-    router.delete('/api/v1/plugins/agent-mounts', '删除 Agent 插件挂载', tags, (request) => this.deleteAgentMount(request));
-    router.post('/api/v1/plugins/agent-binding/preview', '预览 Agent 插件资产绑定', tags, (request) => this.previewAgentBinding(request));
-    router.post('/api/v1/plugins/agent-plan/compile', '编译 Agent 插件执行计划', tags, (request) => this.compileAgentPlan(request));
   }
 
   getApplicationService(): PluginsApplicationService {
@@ -159,11 +143,8 @@ export class PluginsController {
   }
 
   private async listCatalog(request: HttpRequest) {
-    const [legacyItems, unifiedItems] = await Promise.all([
-      this.agentPlugins.listCatalog(tenantId(request)),
-      this.unifiedPlugins.listCatalog(tenantId(request)),
-    ]);
-    const items = [...unifiedItems, ...legacyItems];
+    const locale = typeof request.query['filter[locale]'] === 'string' ? request.query['filter[locale]'] : 'zh-CN';
+    const items = await this.unifiedPlugins.listCatalog(tenantId(request), locale);
     return { items, page: 1, pageSize: items.length, total: items.length };
   }
 
@@ -225,12 +206,13 @@ export class PluginsController {
   private createPluginBinding(request: HttpRequest) {
     const body = validateObject(request.body, {
       pluginVersionId: { type: 'string', required: true }, mode: { type: 'string', required: true },
-      variableBindings: { type: 'object' }, secretBindings: { type: 'object' }, certificateArtifactBindings: { type: 'object' },
+      variableBindings: { type: 'object' }, credentialBindings: { type: 'object' }, secretBindings: { type: 'object' }, certificateArtifactBindings: { type: 'object' },
       connectionBindings: { type: 'object' }, managedContext: { type: 'object' },
     });
     return this.pluginBindings.createBinding(tenantId(request), {
       pluginVersionId: String(body.pluginVersionId), mode: body.mode as 'MANAGED' | 'STANDALONE',
       variableBindings: (body.variableBindings ?? {}) as Record<string, unknown>,
+      credentialBindings: (body.credentialBindings ?? {}) as Record<string, { credentialId: string }>,
       secretBindings: (body.secretBindings ?? {}) as Record<string, string>,
       certificateArtifactBindings: (body.certificateArtifactBindings ?? {}) as never,
       connectionBindings: (body.connectionBindings ?? {}) as Record<string, unknown>,
@@ -246,7 +228,7 @@ export class PluginsController {
   private updatePluginBinding(request: HttpRequest) {
     const body = validateObject(request.body, {
       bindingId: { type: 'string', required: true }, expectedVersion: { type: 'number', required: true },
-      variableBindings: { type: 'object' }, secretBindings: { type: 'object' }, certificateArtifactBindings: { type: 'object' },
+      variableBindings: { type: 'object' }, credentialBindings: { type: 'object' }, secretBindings: { type: 'object' }, certificateArtifactBindings: { type: 'object' },
       connectionBindings: { type: 'object' }, managedContext: { type: 'object' }, status: { type: 'string' },
     });
     return this.pluginBindings.updateBinding(tenantId(request), String(body.bindingId), body as never);
@@ -302,103 +284,6 @@ export class PluginsController {
     return this.promotions;
   }
 
-  private enableWorkflowTemplatePlugin(request: HttpRequest) {
-    const body = validateObject(request.body, { fileTemplateId: { type: 'string', required: true } });
-    return this.agentPlugins.enableWorkflowTemplatePlugin(tenantId(request), String(body.fileTemplateId));
-  }
-
-  private disableWorkflowTemplatePlugin(request: HttpRequest) {
-    const body = validateObject(request.body, { fileTemplateId: { type: 'string', required: true } });
-    return this.agentPlugins.disableWorkflowTemplatePlugin(tenantId(request), String(body.fileTemplateId));
-  }
-
-  private async listAgentPackages(request: HttpRequest) {
-    const items = await this.agentPlugins.listPackages(tenantId(request));
-    return { items, page: 1, pageSize: items.length, total: items.length };
-  }
-
-  private async uploadAgentPackage(request: HttpRequest) {
-    const body = validateObject(request.body, {
-      manifest: { type: 'object', required: true },
-      packageContent: { type: 'string', required: true },
-      expectedHash: { type: 'string' },
-      signature: { type: 'string' },
-    });
-    return { statusCode: 201, body: await this.agentPlugins.uploadPackage(body as never, tenantId(request)) };
-  }
-
-  private approveAgentPermissions(request: HttpRequest) {
-    const body = validateObject(request.body, {
-      pluginPackageId: { type: 'string', required: true },
-      approvedBy: { type: 'string', required: true },
-      approvedPermissions: { type: 'array', required: true },
-    });
-    return this.agentPlugins.approvePermissions(body as never);
-  }
-
-  private enableAgentPackage(request: HttpRequest) {
-    const body = validateObject(request.body, { pluginPackageId: { type: 'string', required: true } });
-    return this.agentPlugins.enablePackage(body as never);
-  }
-
-  private disableAgentPackage(request: HttpRequest) {
-    const body = validateObject(request.body, { pluginPackageId: { type: 'string', required: true } });
-    return this.agentPlugins.disablePackage(body as never);
-  }
-
-  private async listAgentMounts(request: HttpRequest) {
-    const agentId = typeof request.query.agentId === 'string' ? request.query.agentId : undefined;
-    const items = await this.agentPlugins.listMounts(tenantId(request), agentId);
-    return { items, page: 1, pageSize: items.length, total: items.length };
-  }
-
-  private validateAgentMount(request: HttpRequest) {
-    const body = validateObject(request.body, {
-      agentId: { type: 'string', required: true },
-      pluginPackageId: { type: 'string', required: true },
-    });
-    return this.agentPlugins.validateMount(tenantId(request), body as never);
-  }
-
-  private createAgentMount(request: HttpRequest) {
-    const body = validateObject(request.body, {
-      agentId: { type: 'string', required: true },
-      pluginPackageId: { type: 'string', required: true },
-    });
-    return this.agentPlugins.createMount(tenantId(request), body as never);
-  }
-
-  private disableAgentMount(request: HttpRequest) {
-    const body = validateObject(request.body, { mountId: { type: 'string', required: true } });
-    return this.agentPlugins.disableMount(tenantId(request), String(body.mountId));
-  }
-
-  private async deleteAgentMount(request: HttpRequest) {
-    const mountId = typeof request.query.mountId === 'string' ? request.query.mountId : '';
-    await this.agentPlugins.deleteMount(tenantId(request), mountId);
-    return { deleted: true, mountId };
-  }
-
-  private previewAgentBinding(request: HttpRequest) {
-    const body = validateObject(request.body, {
-      agentId: { type: 'string', required: true },
-      binding: { type: 'object', required: true },
-    });
-    return this.agentPlugins.previewBinding(tenantId(request), String(body.agentId), body.binding as never);
-  }
-
-  private compileAgentPlan(request: HttpRequest) {
-    const body = validateObject(request.body, {
-      agentId: { type: 'string', required: true },
-      executionRunId: { type: 'string', required: true },
-      executionStepId: { type: 'string', required: true },
-      binding: { type: 'object', required: true },
-      artifacts: { type: 'object', required: true },
-      executionVariables: { type: 'object' },
-      ttlSeconds: { type: 'number' },
-    });
-    return this.agentPlugins.compileExecutionPlan({ tenantId: tenantId(request), ...body } as never);
-  }
 }
 
 function tenantId(request: HttpRequest): string {
@@ -435,20 +320,6 @@ export function getPluginsRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/plugin-promotions/revoke', operationId: 'revokePluginPromotion', summary: '撤销 Standalone 目标归集', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/plugin-promotions', operationId: 'getPluginPromotion', summary: '查询 Standalone 目标归集记录', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/plugin-runtime/metrics', operationId: 'listPluginRuntimeMetrics', summary: '查询插件运行指标', tags, responseSchema: pageResponseSchema },
-    { method: 'POST', path: '/api/v1/plugin-catalog/workflow-templates/enable', operationId: 'enableWorkflowTemplatePlugin', summary: '启用 DSL 模板插件', tags, responseSchema: objectSchema() },
-    { method: 'POST', path: '/api/v1/plugin-catalog/workflow-templates/disable', operationId: 'disableWorkflowTemplatePlugin', summary: '禁用 DSL 模板插件', tags, responseSchema: objectSchema() },
-    { method: 'GET', path: '/api/v1/plugins/agent-packages', operationId: 'listAgentPluginPackages', summary: '查询 Agent 插件包', tags, responseSchema: pageResponseSchema },
-    { method: 'POST', path: '/api/v1/plugins/agent-packages', operationId: 'uploadAgentPluginPackage', summary: '上传 Agent 插件包', tags, responseSchema: objectSchema() },
-    { method: 'POST', path: '/api/v1/plugins/agent-packages/permissions/approve', operationId: 'approveAgentPluginPermissions', summary: '审批 Agent 插件权限', tags, responseSchema: objectSchema() },
-    { method: 'POST', path: '/api/v1/plugins/agent-packages/enable', operationId: 'enableAgentPluginPackage', summary: '启用 Agent 插件', tags, responseSchema: objectSchema() },
-    { method: 'POST', path: '/api/v1/plugins/agent-packages/disable', operationId: 'disableAgentPluginPackage', summary: '禁用 Agent 插件', tags, responseSchema: objectSchema() },
-    { method: 'GET', path: '/api/v1/plugins/agent-mounts', operationId: 'listAgentPluginMounts', summary: '查询 Agent 插件挂载', tags, responseSchema: pageResponseSchema },
-    { method: 'POST', path: '/api/v1/plugins/agent-mounts/validate', operationId: 'validateAgentPluginMount', summary: '校验 Agent 插件挂载', tags, responseSchema: objectSchema() },
-    { method: 'POST', path: '/api/v1/plugins/agent-mounts', operationId: 'createAgentPluginMount', summary: '创建 Agent 插件挂载', tags, responseSchema: objectSchema() },
-    { method: 'POST', path: '/api/v1/plugins/agent-mounts/disable', operationId: 'disableAgentPluginMount', summary: '禁用 Agent 插件挂载', tags, responseSchema: objectSchema() },
-    { method: 'DELETE', path: '/api/v1/plugins/agent-mounts', operationId: 'deleteAgentPluginMount', summary: '删除 Agent 插件挂载', tags, responseSchema: objectSchema() },
-    { method: 'POST', path: '/api/v1/plugins/agent-binding/preview', operationId: 'previewAgentPluginBinding', summary: '预览 Agent 插件资产绑定', tags, responseSchema: objectSchema() },
-    { method: 'POST', path: '/api/v1/plugins/agent-plan/compile', operationId: 'compileAgentPluginPlan', summary: '编译 Agent 插件执行计划', tags, responseSchema: objectSchema() },
   ];
 }
 

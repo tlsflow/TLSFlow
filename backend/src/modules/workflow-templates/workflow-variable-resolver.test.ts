@@ -142,7 +142,7 @@ describe('WorkflowVariableResolver', () => {
           host: '10.255.0.127',
           username: 'root',
           credentialRef: 'sec_ssh',
-          credential: { id: 'sec_ssh', kind: 'ssh_key', type: 'ssh_key' },
+          credential: { credentialId: 'cred_ssh', kind: 'SSH_KEY', secretRefs: { privateKey: 'secret://ssh_key/sec_ssh#current' } },
         },
       },
       parameterBindings: {

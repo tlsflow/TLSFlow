@@ -9,6 +9,7 @@ export interface PluginBindingV1 {
   pluginVersionId: string;
   mode: 'MANAGED' | 'STANDALONE';
   variableBindings: Record<string, unknown>;
+  credentialBindings: Record<string, { credentialId: string }>;
   secretBindings: Record<string, string>;
   certificateArtifactBindings: Record<string, CertificateArtifactBindingV1>;
   connectionBindings: Record<string, unknown>;
@@ -45,6 +46,7 @@ export interface NormalizedPluginRuntimeInput {
   executionLocation: 'AGENT' | 'CONTROL_PLANE' | 'GATEWAY';
   connections: Record<string, unknown>;
   variables: Record<string, unknown>;
+  credentials: Record<string, { credentialId: string }>;
   secrets: Record<string, { secretRef: string; purpose: string }>;
   certificateMaterials: Record<string, CertificateMaterialDescriptor>;
   target: Record<string, unknown>;

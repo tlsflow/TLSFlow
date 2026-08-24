@@ -47,7 +47,7 @@ test('Spec033.2 统一 PluginBinding 策略标记为 UNIFIED', () => {
   assert.equal(validated.compatibilityMode, 'UNIFIED');
 });
 
-test('Spec033.2 新旧证书产物配置一致时标记为 LEGACY_ADAPTED', () => {
+test('Spec033.2 ManagedTarget 引用统一 Binding 后移除宿主证书格式副本', () => {
   const strategy = normalizeDeploymentStrategy({
     type: 'MANAGED_TARGET',
     managedTarget: {
@@ -65,50 +65,63 @@ test('Spec033.2 新旧证书产物配置一致时标记为 LEGACY_ADAPTED', () =
       },
     },
   }));
-  assert.equal(validated.compatibilityMode, 'LEGACY_ADAPTED');
+  assert.equal(validated.compatibilityMode, 'UNIFIED');
+  assert.equal(validated.managedTarget?.certificateFormatId, undefined);
 });
 
-test('Spec033.2 新旧证书产物配置冲突时失败关闭', () => {
+test('Spec033.2 Workflow 的变量和产物只从统一 Binding 投影', () => {
   const strategy = normalizeDeploymentStrategy({
-    type: 'MANAGED_TARGET',
-    managedTarget: {
-      managedTargetId: 'target_spec033_strategy',
+    type: 'WORKFLOW',
+    workflow: {
       pluginBindingId: 'plgb_spec033_strategy',
-      certificateFormatId: 'format_legacy',
+      runner: 'CONTROL_PLANE',
+      parameterBindings: { legacyParameter: 'legacy' },
+      variableBindings: { legacyVariable: 'legacy' },
+      certificateArtifactBindings: {
+        legacyCertificate: {
+          certificateFormatId: 'format_legacy',
+          outputBindings: { certificatePem: 'legacy' },
+        },
+      },
     },
   }, context);
-
-  assert.throws(() => validateDeploymentStrategyPluginBinding(strategy, pluginBinding({
+  const validated = validateDeploymentStrategyPluginBinding(strategy, pluginBinding({
+    variableBindings: { bindingVariable: 'binding' },
+    credentialBindings: { credential: { credentialId: 'cred_spec033' } },
+    connectionBindings: { target: { host: '192.0.2.10' } },
     certificateArtifactBindings: {
       certificate: {
         certificateFormatId: 'format_unified',
         outputBindings: { certificatePem: 'certificatePem' },
       },
     },
-  })), (error: unknown) => typeof error === 'object' && error !== null
-    && (error as { details?: { code?: string } }).details?.code === 'CERTIFICATE_ARTIFACT_BINDING_CONFLICT');
+  }));
+
+  assert.equal(validated.compatibilityMode, 'UNIFIED');
+  assert.equal(validated.workflow?.parameterBindings, undefined);
+  assert.deepEqual(validated.workflow?.variableBindings, { bindingVariable: 'binding' });
+  assert.deepEqual(validated.workflow?.credentialBindings, { credential: { credentialId: 'cred_spec033' } });
+  assert.deepEqual(validated.workflow?.connectionBindings, { target: { host: '192.0.2.10' } });
+  assert.deepEqual(validated.workflow?.certificateArtifactBindings, {
+    certificate: {
+      certificateFormatId: 'format_unified',
+      outputBindings: { certificatePem: 'certificatePem' },
+    },
+  });
 });
 
-test('Spec033.2 Agent Plugin 版本冲突时失败关闭', () => {
+test('Spec033.2 Agent Plugin 只保留统一 PluginBinding 引用', () => {
   const strategy = normalizeDeploymentStrategy({
     type: 'AGENT',
     agent: {
       mode: 'PLUGIN',
       pluginBindingId: 'plgb_spec033_strategy',
       agentId: 'agent_spec033_strategy',
-      plugin: {
-        pluginPackageId: 'plugin_spec033_strategy',
-        pluginVersionId: 'version_legacy',
-        variableBindings: {},
-        secretBindings: {},
-        certificateArtifactBindings: {},
-      },
     },
   }, context);
 
-  assert.throws(() => validateDeploymentStrategyPluginBinding(strategy, pluginBinding({ pluginVersionId: 'version_unified' })),
-    (error: unknown) => typeof error === 'object' && error !== null
-      && (error as { details?: { code?: string } }).details?.code === 'PLUGIN_BINDING_CONFLICT');
+  assert.equal(strategy.agent?.pluginBindingId, 'plgb_spec033_strategy');
+  assert.equal(validateDeploymentStrategyPluginBinding(strategy, pluginBinding()).compatibilityMode, 'UNIFIED');
 });
 
 test('Spec033 旧 AGENT 策略归一为统一受管意图且保持原策略兼容', () => {
@@ -140,6 +153,7 @@ function pluginBinding(patch: Partial<PluginBindingV1> = {}): PluginBindingV1 {
     pluginVersionId: 'version_spec033_strategy',
     mode: 'MANAGED',
     variableBindings: {},
+    credentialBindings: {},
     secretBindings: {},
     certificateArtifactBindings: {},
     connectionBindings: {},

@@ -88,7 +88,7 @@ export function resolveWorkflowConnection(definition: WorkflowConnectionDefiniti
     port: Number(portValue ?? 22),
     username: typeof username === 'string' ? username : undefined,
     credential,
-    credentialRef: binding?.credentialRef ?? binding?.credential?.id,
+    credentialRef: binding?.credentialRef ?? binding?.credential?.credentialId,
     expectedHostKeyFingerprint: binding?.expectedHostKeyFingerprint,
     hostKeyPolicy: definition.hostKey?.policy,
   };

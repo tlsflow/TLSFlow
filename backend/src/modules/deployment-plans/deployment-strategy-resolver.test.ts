@@ -180,7 +180,7 @@ describe('DeploymentStrategyResolver', () => {
                 port: 22,
                 username: 'root',
                 credentialRef: 'sec_ssh',
-                credential: { id: 'sec_ssh', kind: 'ssh_key', type: 'ssh_key' },
+                credential: { credentialId: 'cred_ssh', kind: 'SSH_KEY', secretRefs: { privateKey: 'secret://ssh_key/sec_ssh#current' } },
               },
             },
             parameterBindings: {
@@ -201,7 +201,7 @@ describe('DeploymentStrategyResolver', () => {
         port: 22,
         username: 'root',
         credentialRef: 'sec_ssh',
-        credential: { id: 'sec_ssh', kind: 'ssh_key', type: 'ssh_key' },
+        credential: { credentialId: 'cred_ssh', kind: 'SSH_KEY', secretRefs: { privateKey: 'secret://ssh_key/sec_ssh#current' } },
       },
     });
     assert.deepEqual(workflowRequest.parameterBindings, {

@@ -178,8 +178,23 @@ export class UnifiedPluginsApplicationService {
     };
   }
 
-  async listCatalog(tenantId: string): Promise<UnifiedPluginCatalogItem[]> {
-    return (await this.repository.listVersions(tenantId)).map((record) => ({
+  async listCatalog(tenantId: string, locale = 'zh-CN'): Promise<UnifiedPluginCatalogItem[]> {
+    const versions = (await this.repository.listVersions(tenantId))
+      .filter((record) => record.status !== 'RETIRED' && record.status !== 'QUARANTINED');
+    const latestVersions = new Map<string, UnifiedPluginVersionRecord>();
+    for (const record of versions) {
+      const current = latestVersions.get(record.pluginId);
+      if (!current || compareSemanticVersions(record.version, current.version) > 0) latestVersions.set(record.pluginId, record);
+    }
+    return [...latestVersions.values()].sort((left, right) => left.pluginId.localeCompare(right.pluginId)).map((record) => {
+      const validatedResources = this.packageResources.validate(record.manifest, record.resources);
+      const messages = validatedResources.locales;
+      const displayName = messages ? new PluginLocaleService().resolve(messages, locale, record.manifest.displayNameKey) : undefined;
+      const description = messages && record.manifest.descriptionKey
+        ? new PluginLocaleService().resolve(messages, locale, record.manifest.descriptionKey)
+        : undefined;
+      const executionSummary = summarizeExecutionResources(record);
+      return {
       id: record.id,
       catalogType: 'UNIFIED_PLUGIN' as const,
       pluginId: record.pluginId,
@@ -187,6 +202,14 @@ export class UnifiedPluginsApplicationService {
       version: record.version,
       name: record.pluginId,
       displayNameKey: record.manifest.displayNameKey,
+      descriptionKey: record.manifest.descriptionKey,
+      displayName,
+      description,
+      tags: record.manifest.compatibility?.products ?? [],
+      platforms: record.manifest.compatibility?.platforms ?? [],
+      stepCount: executionSummary.stepCount,
+      rollbackCount: executionSummary.rollbackCount,
+      configuration: executionSummary.configuration,
       source: record.source,
       runtime: record.runtime,
       scope: record.scope,
@@ -196,8 +219,66 @@ export class UnifiedPluginsApplicationService {
       capabilities: record.manifest.capabilities,
       compatibility: record.manifest.compatibility,
       detailRef: { pluginVersionId: record.id },
-    }));
+      };
+    });
   }
+}
+
+function summarizeExecutionResources(record: UnifiedPluginVersionRecord): {
+  stepCount: number;
+  rollbackCount: number;
+  configuration?: UnifiedPluginCatalogItem['configuration'];
+} {
+  const resourcePaths = record.runtime === 'AGENT_ATOMIC'
+    ? Object.values(record.manifest.resources.agentRecipes ?? {})
+    : Object.values(record.manifest.resources.workflows ?? {});
+  let stepCount = 0;
+  let rollbackCount = 0;
+  let configuration: UnifiedPluginCatalogItem['configuration'];
+  for (const path of [...new Set(resourcePaths)]) {
+    const content = record.resources[path];
+    if (!content) continue;
+    try {
+      const parsed = JSON.parse(content) as Record<string, unknown>;
+      if (record.runtime === 'AGENT_ATOMIC') {
+        stepCount += Array.isArray(parsed.operations) ? parsed.operations.length : 0;
+        rollbackCount += Array.isArray(parsed.rollback) ? parsed.rollback.length : 0;
+        configuration ??= {
+          variables: readRecordField(parsed.variables),
+          artifactInputs: readRecordField(parsed.artifactInputs),
+          compatibility: readRecordField(parsed.compatibility),
+        };
+      } else {
+        const steps = Array.isArray(parsed.steps) ? parsed.steps : [];
+        stepCount += steps.length;
+        rollbackCount += steps.filter((step) => readStringField(step, 'stage') === 'rollback').length;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return { stepCount, rollbackCount, configuration };
+}
+
+function readRecordField(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function readStringField(value: unknown, key: string): string | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) && typeof (value as Record<string, unknown>)[key] === 'string'
+    ? String((value as Record<string, unknown>)[key])
+    : undefined;
+}
+
+function compareSemanticVersions(left: string, right: string): number {
+  const leftParts = left.split(/[.-]/).map((part) => Number.parseInt(part, 10));
+  const rightParts = right.split(/[.-]/).map((part) => Number.parseInt(part, 10));
+  for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index += 1) {
+    const difference = (Number.isFinite(leftParts[index]) ? leftParts[index]! : 0)
+      - (Number.isFinite(rightParts[index]) ? rightParts[index]! : 0);
+    if (difference !== 0) return difference;
+  }
+  return left.localeCompare(right);
 }
 
 function diffKeys(before: string[], after: string[]): { added: string[]; removed: string[] } {

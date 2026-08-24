@@ -26,12 +26,10 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
       managedTarget: {
         managedTargetId: requireNonEmpty(managedTarget.managedTargetId, 'managedTarget.managedTargetId'),
         pluginBindingId,
-        certificateFormatId: optionalNonEmpty(managedTarget.certificateFormatId),
-        deploymentMode: optionalNonEmpty(managedTarget.deploymentMode),
+        certificateFormatId: pluginBindingId ? undefined : optionalNonEmpty(managedTarget.certificateFormatId),
+        deploymentMode: pluginBindingId ? undefined : optionalNonEmpty(managedTarget.deploymentMode),
       },
-      compatibilityMode: resolveCompatibilityMode(pluginBindingId, Boolean(
-        optionalNonEmpty(managedTarget.certificateFormatId) || optionalNonEmpty(managedTarget.deploymentMode),
-      )),
+      compatibilityMode: pluginBindingId ? 'UNIFIED' : 'LEGACY',
       updatedAt: now,
       updatedBy: context.actorId,
     };
@@ -42,8 +40,7 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
     const mode = agent.mode ?? 'NATIVE_HANDLER';
     if (mode !== 'NATIVE_HANDLER' && mode !== 'PLUGIN') throw strategyError('agent.mode 只支持 NATIVE_HANDLER/PLUGIN');
     const pluginBindingId = optionalNonEmpty(agent.pluginBindingId);
-    const plugin = mode === 'PLUGIN' && agent.plugin ? normalizeAgentPluginBinding(agent.plugin) : undefined;
-    if (mode === 'PLUGIN' && !plugin && !pluginBindingId) strategyError('PLUGIN 模式必须提供 pluginBindingId 或历史 agent.plugin 配置');
+    if (mode === 'PLUGIN' && !pluginBindingId) strategyError('PLUGIN 模式必须提供 pluginBindingId');
     if (mode === 'NATIVE_HANDLER' && pluginBindingId) pluginBindingConflict('NATIVE_HANDLER 不能引用统一 PluginBinding');
     assertLegacyTargetRelation(agent, context.targetBinding);
     const normalized = {
@@ -52,14 +49,13 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
       agentId: requireNonEmpty(agent.agentId, 'agent.agentId'),
       siteAssetId: mode === 'NATIVE_HANDLER' ? requireNonEmpty(agent.siteAssetId, 'agent.siteAssetId') : optionalNonEmpty(agent.siteAssetId),
       managedTargetId: mode === 'NATIVE_HANDLER' ? requireNonEmpty(agent.managedTargetId, 'agent.managedTargetId') : optionalNonEmpty(agent.managedTargetId),
-      certificateFormatId: optionalNonEmpty(agent.certificateFormatId),
-      deploymentMode: optionalNonEmpty(agent.deploymentMode),
-      plugin,
+      certificateFormatId: pluginBindingId ? undefined : optionalNonEmpty(agent.certificateFormatId),
+      deploymentMode: pluginBindingId ? undefined : optionalNonEmpty(agent.deploymentMode),
     };
     return {
       type: 'AGENT',
       agent: normalized,
-      compatibilityMode: resolveCompatibilityMode(pluginBindingId, Boolean(plugin)),
+      compatibilityMode: pluginBindingId ? 'UNIFIED' : 'LEGACY',
       updatedAt: now,
       updatedBy: context.actorId,
     };
@@ -72,7 +68,7 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
     const runner = workflow.runner;
     if (runner !== 'CONTROL_PLANE' && runner !== 'GATEWAY') throw strategyError('workflow.runner 只支持 CONTROL_PLANE/GATEWAY');
     if (runner === 'GATEWAY' && !optionalNonEmpty(workflow.gatewayId)) throw strategyError('runner=GATEWAY 时 gatewayId 必填');
-    const credentialRefs = normalizeSecretRefRecord(workflow.credentialRefs, 'workflow.credentialRefs');
+    const credentialBindings = pluginBindingId ? undefined : normalizeCredentialBindings(workflow.credentialBindings);
     const workflowVersionSelection = normalizeWorkflowVersionSelection(workflow.workflowVersionSelection, workflow.workflowVersionId);
     return {
       type: 'WORKFLOW',
@@ -86,14 +82,14 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
         runner,
         gatewayId: optionalNonEmpty(workflow.gatewayId),
         target: normalizeWorkflowTarget(workflow.target),
-        credentialRefs,
-        connectionBindings: normalizeWorkflowConnectionBindings(workflow.connectionBindings),
-        parameterBindings: isRecord(workflow.parameterBindings) ? workflow.parameterBindings : workflow.parameterBindings === undefined ? undefined : strategyError('workflow.parameterBindings 必须是对象'),
-        certificateArtifactBindings: normalizeCertificateArtifactBindings(workflow.certificateArtifactBindings),
-        variableBindings: isRecord(workflow.variableBindings) ? workflow.variableBindings : workflow.variableBindings === undefined ? undefined : strategyError('workflow.variableBindings 必须是对象'),
+        credentialBindings,
+        connectionBindings: pluginBindingId ? undefined : normalizeWorkflowConnectionBindings(workflow.connectionBindings),
+        parameterBindings: pluginBindingId ? undefined : isRecord(workflow.parameterBindings) ? workflow.parameterBindings : workflow.parameterBindings === undefined ? undefined : strategyError('workflow.parameterBindings 必须是对象'),
+        certificateArtifactBindings: pluginBindingId ? undefined : normalizeCertificateArtifactBindings(workflow.certificateArtifactBindings),
+        variableBindings: pluginBindingId ? undefined : isRecord(workflow.variableBindings) ? workflow.variableBindings : workflow.variableBindings === undefined ? undefined : strategyError('workflow.variableBindings 必须是对象'),
         rollbackWorkflowVersionId: optionalNonEmpty(workflow.rollbackWorkflowVersionId),
       },
-      compatibilityMode: resolveCompatibilityMode(pluginBindingId, true),
+      compatibilityMode: pluginBindingId ? 'UNIFIED' : 'LEGACY',
       updatedAt: now,
       updatedBy: context.actorId,
     };
@@ -118,10 +114,42 @@ export function validateDeploymentStrategyPluginBinding(
   if (binding.id !== pluginBindingId || binding.status !== 'ACTIVE') {
     pluginBindingConflict('部署策略引用的 PluginBinding 不可用', { pluginBindingId, bindingStatus: binding.status });
   }
-  if (strategy.type === 'MANAGED_TARGET') assertManagedTargetBindingCompatibility(strategy, binding);
-  if (strategy.type === 'AGENT') assertAgentBindingCompatibility(strategy, binding);
-  if (strategy.type === 'WORKFLOW') assertWorkflowBindingCompatibility(strategy, binding);
-  return strategy;
+  if (strategy.type === 'MANAGED_TARGET') {
+    assertManagedTargetBindingCompatibility(strategy, binding);
+    return {
+      ...strategy,
+      managedTarget: {
+        ...strategy.managedTarget!,
+        certificateFormatId: undefined,
+        deploymentMode: undefined,
+      },
+      compatibilityMode: 'UNIFIED',
+    };
+  }
+  if (strategy.type === 'AGENT') {
+    assertAgentBindingCompatibility(strategy, binding);
+    return {
+      ...strategy,
+      agent: {
+        ...strategy.agent!,
+        certificateFormatId: undefined,
+        deploymentMode: undefined,
+      },
+      compatibilityMode: 'UNIFIED',
+    };
+  }
+  return {
+    ...strategy,
+    workflow: {
+      ...strategy.workflow!,
+      parameterBindings: undefined,
+      variableBindings: binding.variableBindings,
+      credentialBindings: binding.credentialBindings,
+      connectionBindings: binding.connectionBindings as NonNullable<DeploymentStrategyDto['workflow']>['connectionBindings'],
+      certificateArtifactBindings: binding.certificateArtifactBindings,
+    },
+    compatibilityMode: 'UNIFIED',
+  };
 }
 
 function assertManagedTargetBindingCompatibility(strategy: DeploymentStrategyDto, binding: PluginBindingV1): void {
@@ -133,15 +161,6 @@ function assertManagedTargetBindingCompatibility(strategy: DeploymentStrategyDto
       bindingManagedTargetId: binding.managedContext.managedTargetId,
     });
   }
-  if (managedTarget.certificateFormatId) {
-    const formatIds = [...new Set(Object.values(binding.certificateArtifactBindings).map((item) => item.certificateFormatId))];
-    if (formatIds.length !== 1 || formatIds[0] !== managedTarget.certificateFormatId) {
-      certificateArtifactBindingConflict('历史 certificateFormatId 与统一证书产物绑定不一致', {
-        legacyCertificateFormatId: managedTarget.certificateFormatId,
-        bindingCertificateFormatIds: formatIds,
-      });
-    }
-  }
 }
 
 function assertAgentBindingCompatibility(strategy: DeploymentStrategyDto, binding: PluginBindingV1): void {
@@ -151,59 +170,6 @@ function assertAgentBindingCompatibility(strategy: DeploymentStrategyDto, bindin
   if (binding.managedContext?.agentId && binding.managedContext.agentId !== agent.agentId) {
     pluginBindingConflict('PluginBinding 与 Agent 不一致', { strategyAgentId: agent.agentId, bindingAgentId: binding.managedContext.agentId });
   }
-  if (!agent.plugin) return;
-  if (agent.plugin.pluginVersionId !== binding.pluginVersionId) {
-    pluginBindingConflict('历史 Agent Plugin 版本与统一 PluginBinding 不一致', {
-      legacyPluginVersionId: agent.plugin.pluginVersionId,
-      bindingPluginVersionId: binding.pluginVersionId,
-    });
-  }
-  assertRecordCompatibility('agent.plugin.variableBindings', agent.plugin.variableBindings, binding.variableBindings);
-  assertRecordCompatibility('agent.plugin.secretBindings', agent.plugin.secretBindings, binding.secretBindings);
-  assertArtifactBindingsCompatibility(agent.plugin.certificateArtifactBindings, binding.certificateArtifactBindings);
-}
-
-function assertWorkflowBindingCompatibility(strategy: DeploymentStrategyDto, binding: PluginBindingV1): void {
-  const workflow = strategy.workflow!;
-  assertRecordCompatibility('workflow.variableBindings', workflow.variableBindings, binding.variableBindings);
-  assertRecordCompatibility('workflow.parameterBindings', workflow.parameterBindings, binding.variableBindings);
-  assertRecordCompatibility('workflow.credentialRefs', workflow.credentialRefs, binding.secretBindings);
-  assertRecordCompatibility('workflow.connectionBindings', workflow.connectionBindings, binding.connectionBindings);
-  if (workflow.certificateArtifactBindings) {
-    assertArtifactBindingsCompatibility(workflow.certificateArtifactBindings, binding.certificateArtifactBindings);
-  }
-}
-
-function assertRecordCompatibility(path: string, legacy: Record<string, unknown> | undefined, unified: Record<string, unknown>): void {
-  if (legacy === undefined) return;
-  if (stableStringify(legacy) !== stableStringify(unified)) {
-    pluginBindingConflict(`${path} 与统一 PluginBinding 不一致`, { path });
-  }
-}
-
-function assertArtifactBindingsCompatibility(
-  legacy: NonNullable<DeploymentStrategyDto['workflow']>['certificateArtifactBindings'],
-  unified: PluginBindingV1['certificateArtifactBindings'],
-): void {
-  if (stableStringify(legacy ?? {}) !== stableStringify(unified)) {
-    certificateArtifactBindingConflict('历史证书产物绑定与统一 PluginBinding 不一致');
-  }
-}
-
-function resolveCompatibilityMode(pluginBindingId: string | undefined, hasLegacyConfiguration: boolean): NonNullable<DeploymentStrategyDto['compatibilityMode']> {
-  if (!pluginBindingId) return 'LEGACY';
-  return hasLegacyConfiguration ? 'LEGACY_ADAPTED' : 'UNIFIED';
-}
-
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
-  if (isRecord(value)) {
-    return `{${Object.entries(value)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(value);
 }
 
 export function normalizeManagedDeploymentIntent(strategy: DeploymentStrategyDto, context: DeploymentStrategyContext): ManagedDeploymentIntentDto | undefined {
@@ -231,21 +197,6 @@ export function normalizeManagedDeploymentIntent(strategy: DeploymentStrategyDto
   };
 }
 
-function normalizeAgentPluginBinding(value: unknown): NonNullable<NonNullable<DeploymentStrategyDto['agent']>['plugin']> {
-  if (!isRecord(value)) return strategyError('agent.plugin 必须是对象');
-  const variableBindings = isRecord(value.variableBindings) ? value.variableBindings : value.variableBindings === undefined ? {} : strategyError('agent.plugin.variableBindings 必须是对象');
-  const secretBindings = normalizeSecretRefRecord(value.secretBindings, 'agent.plugin.secretBindings') ?? {};
-  const certificateArtifactBindings = normalizeCertificateArtifactBindings(value.certificateArtifactBindings) ?? {};
-  return {
-    mountId: optionalNonEmpty(value.mountId),
-    pluginPackageId: requireNonEmpty(value.pluginPackageId, 'agent.plugin.pluginPackageId'),
-    pluginVersionId: requireNonEmpty(value.pluginVersionId, 'agent.plugin.pluginVersionId'),
-    variableBindings,
-    secretBindings,
-    certificateArtifactBindings,
-  };
-}
-
 function normalizeWorkflowConnectionBindings(value: unknown): NonNullable<DeploymentStrategyDto['workflow']>['connectionBindings'] | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) return strategyError('workflow.connectionBindings 必须是对象');
@@ -260,7 +211,7 @@ function normalizeWorkflowConnectionBindings(value: unknown): NonNullable<Deploy
       host: optionalNonEmpty(rawBinding.host),
       port,
       username: optionalNonEmpty(rawBinding.username),
-      credentialRef: optionalNonEmpty(rawBinding.credentialRef) ?? credential?.id,
+      credentialRef: optionalNonEmpty(rawBinding.credentialRef) ?? credential?.credentialId,
       credential,
       expectedHostKeyFingerprint: optionalNonEmpty(rawBinding.expectedHostKeyFingerprint),
     };
@@ -271,21 +222,26 @@ function normalizeWorkflowConnectionBindings(value: unknown): NonNullable<Deploy
 function normalizeWorkflowCredentialBinding(value: unknown, path: string): NonNullable<NonNullable<DeploymentStrategyDto['workflow']>['connectionBindings']>[string]['credential'] | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) return strategyError(`${path} 必须是对象`);
-  const id = requireNonEmpty(value.id, `${path}.id`);
+  const credentialId = requireNonEmpty(value.credentialId, `${path}.credentialId`);
   const kind = value.kind;
-  const type = value.type;
-  if (!['username_password', 'ssh_key', 'curl_bearer', 'curl_api_key'].includes(String(kind))) return strategyError(`${path}.kind 不支持`);
-  if (!['password', 'ssh_key', 'api_token'].includes(String(type))) return strategyError(`${path}.type 不支持`);
-  const apiKeyIn = value.apiKeyIn;
-  if (apiKeyIn !== undefined && apiKeyIn !== 'header' && apiKeyIn !== 'query') return strategyError(`${path}.apiKeyIn 不支持`);
+  if (!['USERNAME_PASSWORD', 'SSH_KEY', 'BEARER_TOKEN', 'API_KEY', 'CLIENT_CERTIFICATE'].includes(String(kind))) return strategyError(`${path}.kind 不支持`);
+  if (!isRecord(value.secretRefs)) return strategyError(`${path}.secretRefs 必须是对象`);
+  const secretRefs = Object.fromEntries(Object.entries(value.secretRefs).map(([slot, secretRef]) => [slot, requireSecretRef(secretRef, `${path}.secretRefs.${slot}`)]));
+  const delivery = value.delivery === undefined ? undefined : normalizeCredentialDelivery(value.delivery, `${path}.delivery`);
   return {
-    id,
-    kind: kind as 'username_password' | 'ssh_key' | 'curl_bearer' | 'curl_api_key',
-    type: type as 'password' | 'ssh_key' | 'api_token',
+    credentialId,
+    kind: kind as 'USERNAME_PASSWORD' | 'SSH_KEY' | 'BEARER_TOKEN' | 'API_KEY' | 'CLIENT_CERTIFICATE',
     username: optionalNonEmpty(value.username),
-    apiKeyName: optionalNonEmpty(value.apiKeyName),
-    apiKeyIn,
+    delivery,
+    secretRefs,
   };
+}
+
+function normalizeCredentialDelivery(value: unknown, path: string) {
+  if (!isRecord(value)) return strategyError(`${path} 必须是对象`);
+  const location = value.location;
+  if (location !== undefined && !['header', 'query', 'cookie'].includes(String(location))) return strategyError(`${path}.location 不支持`);
+  return { location: location as 'header' | 'query' | 'cookie' | undefined, name: optionalNonEmpty(value.name) };
 }
 
 function normalizeWorkflowVersionSelection(value: unknown, workflowVersionId: unknown): 'PINNED' | 'LATEST_PUBLISHED' {
@@ -349,6 +305,17 @@ function normalizeSecretRefRecord(value: unknown, path: string): Record<string, 
   return output;
 }
 
+function normalizeCredentialBindings(value: unknown): Record<string, { credentialId: string }> | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) strategyError('workflow.credentialBindings 必须是对象');
+  return Object.fromEntries(Object.entries(value).map(([slot, binding]) => {
+    if (!isRecord(binding) || typeof binding.credentialId !== 'string' || !binding.credentialId.trim()) {
+      throw strategyError(`workflow.credentialBindings.${slot}.credentialId 不能为空`);
+    }
+    return [slot, { credentialId: binding.credentialId.trim() }];
+  }));
+}
+
 function normalizeCertificateArtifactBindings(value: unknown): NonNullable<DeploymentStrategyDto['workflow']>['certificateArtifactBindings'] | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) throw strategyError('workflow.certificateArtifactBindings 必须是对象');
@@ -372,6 +339,11 @@ function requireNonEmpty(value: unknown, field: string): string {
   const normalized = optionalNonEmpty(value);
   if (!normalized) throw strategyError(`${field} 必填`);
   return normalized;
+}
+
+function requireSecretRef(value: unknown, field: string): string {
+  if (!isSecretRef(value)) throw strategyError(`${field} 必须是 SecretRef`);
+  return value;
 }
 
 function normalizeWorkflowTarget(value: unknown): NonNullable<DeploymentStrategyDto['workflow']>['target'] | undefined {
@@ -419,8 +391,4 @@ function legacyRelationError(message: string, detail: Record<string, unknown> = 
 
 function pluginBindingConflict(message: string, detail: Record<string, unknown> = {}): never {
   throw new AppError('VALIDATION_FAILED', message, { code: 'PLUGIN_BINDING_CONFLICT', ...detail });
-}
-
-function certificateArtifactBindingConflict(message: string, detail: Record<string, unknown> = {}): never {
-  throw new AppError('VALIDATION_FAILED', message, { code: 'CERTIFICATE_ARTIFACT_BINDING_CONFLICT', ...detail });
 }

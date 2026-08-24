@@ -54,6 +54,8 @@ export const errorCodes = {
   AGENT_OFFLINE: { httpStatus: 503, message: 'Agent 离线' },
   PLUGIN_SIGNATURE_INVALID: { httpStatus: 422, message: '插件签名无效' },
   PLUGIN_PERMISSION_DENIED: { httpStatus: 403, message: '插件权限不足' },
+  PLUGIN_CAPABILITY_EXECUTION_FAILED: { httpStatus: 502, message: '插件能力执行失败' },
+  PLUGIN_DISCOVERY_SCHEMA_INVALID: { httpStatus: 422, message: '插件发现结果不符合标准 Schema' },
   AGENT_PLUGIN_MANIFEST_INVALID: { httpStatus: 422, message: 'Agent 插件定义无效' },
   AGENT_PLUGIN_MOUNT_INCOMPATIBLE: { httpStatus: 409, message: 'Agent 插件与目标 Agent 不兼容' },
   AGENT_PLUGIN_BINDING_INVALID: { httpStatus: 422, message: 'Agent 插件资产绑定无效' },

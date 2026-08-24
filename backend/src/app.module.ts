@@ -15,6 +15,7 @@ import { WorkflowRecoveryLedgerService } from './modules/executions/application/
 import { PluginResourceLockService } from './modules/executions/application/plugin-resource-lock.service.js';
 import { ExecutionsController, getExecutionRouteContracts } from './modules/executions/controller/executions.controller.js';
 import { createSecurityServices, getSecurityRouteContracts, SecurityController, type SecurityServices } from './modules/security/security.controller.js';
+import { CredentialsApplicationService, CredentialsController, CredentialsRepository } from './modules/credentials/index.js';
 import { createPersistedSecurityServices } from './modules/security/security-services.persistence.js';
 import { AssetsApplicationService } from './modules/assets/application/assets.application-service.js';
 import { AssetsController, getAssetsRouteContracts } from './modules/assets/controller/assets.controller.js';
@@ -59,12 +60,14 @@ import { BuiltinUnifiedPluginLoader } from './modules/plugins/builtin-plugins/bu
 import { PluginWorkflowPublisherService } from './modules/plugins/application/plugin-workflow-publisher.service.js';
 import { PluginWorkflowBindingsRepository } from './modules/plugins/repository/plugin-workflow-bindings.repository.js';
 import { PluginsApplicationService } from './modules/plugins/application/plugins.application-service.js';
-import { AgentDeploymentPluginsApplicationService } from './modules/plugins/application/agent-deployment-plugins.application-service.js';
+import { UnifiedAgentPlanCompilerService } from './modules/plugins/application/unified-agent-plan-compiler.service.js';
 import { PgPluginsRepository } from './modules/plugins/repository/plugins.repository.js';
 import { PgUnifiedPluginsRepository } from './modules/plugins/repository/unified-plugins.repository.js';
 import { UnifiedPluginsApplicationService } from './modules/plugins/application/unified-plugins.application-service.js';
 import { PluginBindingsApplicationService } from './modules/plugins/application/plugin-bindings.application-service.js';
 import { PluginBindingsRepository } from './modules/plugins/repository/plugin-bindings.repository.js';
+import { StandardDeviceDiscoveryProjector } from './modules/plugins/discovery/standard-device-discovery.projector.js';
+import { PluginCertificateResultService } from './modules/plugins/results/plugin-certificate-result.service.js';
 import { createWorkflowStepDispatcher } from './modules/workflow-templates/application/workflow-step-dispatcher.js';
 import { WorkflowTemplatesController, WorkflowTemplatesApplicationService, WorkflowTemplatesDomainService, getWorkflowTemplateRouteContracts } from './modules/workflow-templates/index.js';
 import {
@@ -123,6 +126,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     undefined,
     assetsService,
   );
+  const pluginCertificateResultService = new PluginCertificateResultService(appDb);
   const executionPersistence = createDeploymentPersistenceRepositories({
     ...(dependencies.deploymentPersistence ?? {}),
     db: appDb,
@@ -134,6 +138,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     bindingsService,
     executionPersistence.deploymentPlans,
     executionDetailStream,
+    pluginCertificateResultService,
   );
   const agentsService = new AgentsApplicationService(
     new PgAgentsRepository(appDb),
@@ -160,6 +165,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const unifiedPluginsService = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(appDb));
   const pluginBindingsService = new PluginBindingsApplicationService(new PluginBindingsRepository(appDb));
   const pluginWorkflowPublisher = new PluginWorkflowPublisherService(workflowTemplatesService, new PluginWorkflowBindingsRepository(appDb));
+  const standardDeviceDiscoveryProjector = new StandardDeviceDiscoveryProjector(appDb);
   const devicesService = new DevicesApplicationService(
     new PgDevicesRepository(appDb),
     undefined,
@@ -170,8 +176,10 @@ export function createApp(dependencies: AppDependencies = {}): App {
     pluginBindingsService,
     pluginWorkflowPublisher,
     workflowTemplatesService,
+    undefined,
+    standardDeviceDiscoveryProjector,
   );
-  const agentPluginsService = new AgentDeploymentPluginsApplicationService(pluginsRepository, agentsService, workflowTemplatesService);
+  const agentPlanCompiler = new UnifiedAgentPlanCompilerService(unifiedPluginsService, pluginBindingsService);
   app.setResource('agentsService', agentsService);
   app.setResource('unifiedPluginsService', unifiedPluginsService);
   app.setResource('workflowTemplatesService', workflowTemplatesService);
@@ -225,7 +233,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     gatewayTaskAuditWriter,
     secrets: security.secrets,
     workflows: workflowTemplatesService,
-    agentPlugins: agentPluginsService,
+    agentPlanCompiler,
     workflowRecovery: workflowRecoveryService,
     pluginResourceLocks: pluginResourceLockService,
     executionGrants: security.grants,
@@ -257,6 +265,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
     workflows: workflowTemplatesService,
     pluginBindings: pluginBindingsService,
     pluginWorkflows: pluginWorkflowPublisher,
+    secrets: security.secrets,
+    database: appDb,
   }), undefined, security);
   deploymentPlans.register(app.router);
   new SecurityController(security, new AuditPresentationService({
@@ -266,6 +276,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     secrets: security.secrets,
     certificates: certificateServices.certificates.getRepository(),
   })).register(app.router);
+  new CredentialsController(new CredentialsApplicationService(new CredentialsRepository(appDb), undefined, appDb, security.secrets), security).register(app.router);
   const executionsService = deploymentPlans.getExecutionsService();
   executionResultSync.setContinuationRunner(({ runId, actorId, tenantId }) =>
     executionsService.runDispatchedExecution(runId, actorId, tenantId, executorRegistry),
@@ -348,7 +359,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   new GatewaysController(gatewaysService, security).register(app.router);
   new ProvidersController(providersService).register(app.router);
   new CompatibilityCatalogController().register(app.router);
-  new PluginsController(pluginsService, agentPluginsService, unifiedPluginsService, pluginBindingsService, new PluginPromotionService(appDb)).register(app.router);
+  new PluginsController(pluginsService, unifiedPluginsService, pluginBindingsService, new PluginPromotionService(appDb)).register(app.router);
   new WorkflowTemplatesController(workflowTemplatesService, security).register(app.router);
   new AutomationsController(automationsService, security, automationCoordinator).register(app.router);
   new DashboardController(new DashboardApplicationService({

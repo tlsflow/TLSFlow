@@ -1,0 +1,16 @@
+{
+  "plugin.builtin.apache.name": "Implantação de certificado Apache HTTPS",
+  "plugin.builtin.apache.description": "Substitui atomicamente certificados e chaves privadas do Apache via SSH, valida a configuração, recarrega o serviço e verifica HTTPS.",
+  "plugin.builtin.synology.name": "Implantação de certificado Synology DSM",
+  "plugin.builtin.synology.description": "Importa o certificado, a chave privada e a cadeia intermediária pela API DSM e verifica o endpoint HTTPS de administração.",
+  "plugin.builtin.nginx.name": "Implantação de certificado NGINX PEM",
+  "plugin.builtin.nginx.description": "Faz backup e substitui atomicamente certificados e chaves privadas NGINX PEM, valida a configuração, recarrega o serviço e verifica TLS.",
+  "plugin.builtin.iis.name": "Implantação de certificado IIS PFX",
+  "plugin.builtin.iis.description": "Inspeciona e importa o PFX, concede acesso à chave privada ao pool de aplicativos, atualiza o binding HTTPS do IIS e verifica TLS.",
+  "plugin.builtin.rabbitmq.name": "Implantação de certificado RabbitMQ PEM",
+  "plugin.builtin.rabbitmq.description": "Substitui atomicamente certificados e chaves privadas RabbitMQ PEM, reinicia o serviço e verifica TLS.",
+  "plugin.builtin.java.name": "Implantação Java PKCS#12 / KeyStore",
+  "plugin.builtin.java.description": "Substitui atomicamente o arquivo PKCS#12 ou KeyStore usado por um serviço Java e reinicia o serviço.",
+  "plugin.builtin.windowsService.name": "Implantação de arquivo de certificado Windows Service",
+  "plugin.builtin.windowsService.description": "Substitui atomicamente o arquivo de certificado usado por um serviço Windows e reinicia o serviço selecionado."
+}

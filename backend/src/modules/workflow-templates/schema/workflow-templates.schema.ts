@@ -185,7 +185,7 @@ function validateStepByType(step: WorkflowStep, path: string, depth: number): vo
     if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(step.request.method)) throw validationError(`${path}.request.method 不支持`);
     if (!isNonEmptyString(step.request.url)) throw validationError(`${path}.request.url 必填`);
     if (step.request.headers !== undefined && !isStringRecord(step.request.headers)) throw validationError(`${path}.request.headers 必须是字符串对象`);
-    if (step.request.headerRefs !== undefined && !isSecretRefRecord(step.request.headerRefs)) throw validationError(`${path}.request.headerRefs 必须是 SecretRef 字符串对象`);
+    if (step.request.headerRefs !== undefined && !isSecretRefOrVariableRecord(step.request.headerRefs)) throw validationError(`${path}.request.headerRefs 必须是 SecretRef 或 credential 变量引用对象`);
     if (step.request.query !== undefined && !isPrimitiveRecord(step.request.query)) throw validationError(`${path}.request.query 必须是字符串、数字或布尔对象`);
     if (step.request.bodyType !== undefined && !['json', 'form', 'multipart', 'raw', 'none'].includes(step.request.bodyType)) throw validationError(`${path}.request.bodyType 不支持`);
     if (step.request.form !== undefined && !isPrimitiveRecord(step.request.form)) throw validationError(`${path}.request.form 必须是字符串、数字或布尔对象`);
@@ -598,7 +598,13 @@ function isSecretRef(value: unknown): value is string {
 function isCredentialValue(value: unknown): boolean {
   if (typeof value === 'string') return /^\s*\{\{\s*[a-zA-Z][a-zA-Z0-9_.]*\s*\}\}\s*$/.test(value);
   if (!isRecord(value)) return false;
-  return isNonEmptyString(value.id)
-    && ['username_password', 'ssh_key', 'curl_bearer', 'curl_api_key'].includes(String(value.kind))
-    && ['password', 'ssh_key', 'api_token'].includes(String(value.type));
+  return isNonEmptyString(value.credentialId)
+    && ['USERNAME_PASSWORD', 'SSH_KEY', 'BEARER_TOKEN', 'API_KEY', 'CLIENT_CERTIFICATE'].includes(String(value.kind))
+    && isSecretRefRecord(value.secretRefs);
+}
+
+function isSecretRefOrVariableRecord(value: unknown): boolean {
+  return isRecord(value) && Object.values(value).every((item) => isSecretRef(item) || (
+    typeof item === 'string' && /^\s*\{\{\s*[a-zA-Z][a-zA-Z0-9_.]*\s*\}\}\s*$/.test(item)
+  ));
 }

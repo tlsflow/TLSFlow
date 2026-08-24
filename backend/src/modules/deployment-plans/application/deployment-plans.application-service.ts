@@ -35,6 +35,9 @@ import type { DeviceAssetsRepository } from '../../device-assets/repository/devi
 import type { PluginBindingsApplicationService } from '../../plugins/application/plugin-bindings.application-service.js';
 import { enrichWorkflowCertificateMaterial } from '../../certificates/artifacts/workflow-certificate-material.js';
 import type { PluginWorkflowPublisherService } from '../../plugins/application/plugin-workflow-publisher.service.js';
+import { RuntimeCredentialResolver } from '../../credentials/application/runtime-credential-resolver.js';
+import { CredentialsRepository } from '../../credentials/repository/credentials.repository.js';
+import type { SecretService } from '../../secrets/secret.service.js';
 import {
   getDeploymentStrategyPluginBindingId,
   validateDeploymentStrategyPluginBinding,
@@ -89,6 +92,9 @@ export interface DeploymentPlansApplicationDependencies {
   workflows?: WorkflowTemplatesApplicationService;
   pluginBindings?: PluginBindingsApplicationService;
   pluginWorkflows?: PluginWorkflowPublisherService;
+  credentials?: RuntimeCredentialResolver;
+  secrets?: SecretService;
+  database?: import('../../../database/database-port.js').DatabasePort;
 }
 
 export class DeploymentPlansApplicationService {
@@ -109,6 +115,7 @@ export class DeploymentPlansApplicationService {
   private readonly workflows?: WorkflowTemplatesApplicationService;
   private readonly pluginBindings?: PluginBindingsApplicationService;
   private readonly pluginWorkflows?: PluginWorkflowPublisherService;
+  private readonly credentials?: RuntimeCredentialResolver;
 
   constructor(dependencies: DeploymentPlansApplicationDependencies = {}) {
     this.repository = dependencies.repository ?? new DeploymentPlansRepository();
@@ -132,6 +139,9 @@ export class DeploymentPlansApplicationService {
     this.workflows = dependencies.workflows;
     this.pluginBindings = dependencies.pluginBindings;
     this.pluginWorkflows = dependencies.pluginWorkflows;
+    this.credentials = dependencies.credentials ?? (dependencies.secrets && dependencies.database
+      ? new RuntimeCredentialResolver(new CredentialsRepository(dependencies.database), dependencies.secrets)
+      : undefined);
   }
 
   getRepository(): DeploymentPlansRepository {
@@ -440,7 +450,8 @@ export class DeploymentPlansApplicationService {
       throw new AppError('RESOURCE_NOT_FOUND', 'ApplicationAsset 不存在', { applicationAssetId: input.applicationAssetId });
     }
     if (applicationAsset.deploymentStrategy?.type === 'WORKFLOW') {
-      return this.buildWorkflowCreateInputFromApplicationAsset(input, applicationAsset);
+      const resolvedAsset = await this.validateStrategyPluginBinding(input.tenantId, applicationAsset);
+      return this.buildWorkflowCreateInputFromApplicationAsset(input, resolvedAsset);
     }
     return this.buildManagedCreateInputFromApplicationAsset(input);
   }
@@ -509,10 +520,6 @@ export class DeploymentPlansApplicationService {
     const siteAsset = binding.siteAssetId
       ? await this.assets.getSiteAsset(input.tenantId, binding.siteAssetId)
       : await this.assets.getSiteAsset(input.tenantId, bindingTarget.siteAssetId);
-    const providerType = (siteAsset?.providerType ?? managedTarget?.providerType ?? 'IIS') as 'IIS' | 'NGINX';
-    const readyBinding = providerType === 'NGINX'
-      ? await this.ensureLinuxNginxBindingPayloadReady(input.tenantId, binding, managedTarget, siteAsset)
-      : binding;
     const selectionMode = input.selectionMode ?? (input.targetCertificateVersionId ? 'EXPLICIT' : 'LATEST_AUTO');
     const certificateVersionId = input.targetCertificateVersionId ?? undefined;
     const planName = `${applicationAsset.displayName ?? applicationAsset.address} 证书部署`;
@@ -520,30 +527,42 @@ export class DeploymentPlansApplicationService {
       input.tenantId,
       applicationAssetDetail ?? applicationAsset,
     );
-    const strategyCertificateFormatId = strategyAsset.deploymentStrategy?.type === 'AGENT'
-      ? strategyAsset.deploymentStrategy.agent?.certificateFormatId
-      : strategyAsset.deploymentStrategy?.type === 'MANAGED_TARGET'
-        ? strategyAsset.deploymentStrategy.managedTarget?.certificateFormatId
-        : undefined;
+    const deploymentStrategy = strategyAsset.deploymentStrategy;
+    const strategyType = deploymentStrategy?.type;
+    const providerType = (siteAsset?.providerType ?? managedTarget?.providerType ?? 'IIS') as 'IIS' | 'NGINX';
+    const readyBinding = strategyType === 'AGENT' && providerType === 'NGINX'
+      ? await this.ensureLinuxNginxBindingPayloadReady(input.tenantId, binding, managedTarget, siteAsset)
+      : binding;
+    const strategyCertificateFormatId = deploymentStrategy?.type === 'AGENT'
+      ? deploymentStrategy.agent?.certificateFormatId
+      : undefined;
     const certificateFormatId = input.certificateFormatId ?? strategyCertificateFormatId;
-    if (!certificateFormatId) {
+    if (strategyType === 'AGENT' && !certificateFormatId) {
       throw new AppError('VALIDATION_FAILED', '受管应用资产缺少证书产物配置', {
         code: 'DEPLOYMENT_STRATEGY_INVALID',
         applicationAssetId: applicationAsset.id,
       });
     }
-    const managedTargetId = strategyAsset.deploymentStrategy?.type === 'MANAGED_TARGET'
-      ? strategyAsset.deploymentStrategy.managedTarget?.managedTargetId
+    const managedTargetId = deploymentStrategy?.type === 'MANAGED_TARGET'
+      ? deploymentStrategy.managedTarget?.managedTargetId
       : bindingTarget.managedTargetId;
-    const managedTargetContext = strategyAsset.deploymentStrategy?.type === 'MANAGED_TARGET'
+    const managedTargetContext = strategyType === 'MANAGED_TARGET'
       ? await this.resolveManagedTargetContext(input.tenantId, managedTargetId)
       : undefined;
-    const resolvedStrategy = await this.attachPluginExecutionIdentity(strategyAsset, this.deploymentStrategyResolver.resolve({
+    const baseStrategy = this.deploymentStrategyResolver.resolve({
       applicationAsset: strategyAsset,
       bindingTarget,
       certificateBinding: readyBinding,
       managedTargetContext,
-    }));
+    });
+    const managedPluginStrategy = await this.attachManagedPluginWorkflowRequest(
+      input.tenantId,
+      strategyAsset,
+      managedTargetContext,
+      baseStrategy,
+    );
+    const identifiedStrategy = await this.attachPluginExecutionIdentity(strategyAsset, managedPluginStrategy);
+    const resolvedStrategy = await this.attachWorkflowCredentialSnapshots(input.tenantId, identifiedStrategy);
 
     return {
       name: planName,
@@ -593,6 +612,7 @@ export class DeploymentPlansApplicationService {
     }
     if (!this.pluginWorkflows) throw new AppError('SYSTEM_INTERNAL_ERROR', '插件 Workflow 发布服务未接入', { code: 'PLUGIN_WORKFLOW_RESOLVER_MISSING' });
     const workflowBinding = await this.pluginWorkflows.require(binding.pluginVersionId, 'certificate.deploy');
+    const credentials = await this.snapshotCredentials(tenantId, binding.credentialBindings);
     return {
       ...asset,
       deploymentStrategy: {
@@ -603,7 +623,7 @@ export class DeploymentPlansApplicationService {
           workflowVersionSelection: 'PINNED',
           workflowVersionId: workflowBinding.workflowVersionId,
           variableBindings: binding.variableBindings,
-          credentialRefs: binding.secretBindings,
+          credentials,
           connectionBindings: binding.connectionBindings as NonNullable<WorkflowDeploymentStrategyDto['connectionBindings']>,
           certificateArtifactBindings: binding.certificateArtifactBindings,
         },
@@ -630,6 +650,111 @@ export class DeploymentPlansApplicationService {
           pluginBindingId,
           capabilityKey: 'certificate.deploy',
         } : workflowRequest,
+      },
+    };
+  }
+
+  private async attachManagedPluginWorkflowRequest(
+    tenantId: string,
+    asset: ServiceAssetDto,
+    context: Awaited<ReturnType<ManagedTargetContextResolver['resolve']>> | undefined,
+    resolved: ReturnType<DeploymentStrategyResolver['resolve']>,
+  ): Promise<ReturnType<DeploymentStrategyResolver['resolve']>> {
+    if (asset.deploymentStrategy?.type !== 'MANAGED_TARGET' || resolved.executorType !== 'WORKFLOW' || !context?.deviceAsset) {
+      return resolved;
+    }
+    if (!this.pluginBindings || !this.pluginWorkflows) {
+      throw new AppError('SYSTEM_INTERNAL_ERROR', '设备插件部署编译服务未完整接入', {
+        code: 'PLUGIN_DEPLOYMENT_COMPILER_MISSING',
+        applicationAssetId: asset.id,
+        managedTargetId: context.managedTarget.id,
+      });
+    }
+    const explicitBindingId = asset.deploymentStrategy.managedTarget?.pluginBindingId;
+    const assignment = await this.pluginBindings.resolveAssignment(tenantId, 'certificate.deploy', {
+      applicationAssetId: asset.id,
+      managedTargetId: context.managedTarget.id,
+      deviceId: context.deviceAsset.id,
+    });
+    if (explicitBindingId && assignment && explicitBindingId !== assignment.pluginBindingId) {
+      throw new AppError('VALIDATION_FAILED', '应用资产部署策略与生效证书能力指派冲突', {
+        code: 'PLUGIN_BINDING_CONFLICT',
+        applicationAssetId: asset.id,
+        explicitBindingId,
+        assignedBindingId: assignment.pluginBindingId,
+      });
+    }
+    const pluginBindingId = explicitBindingId ?? assignment?.pluginBindingId;
+    if (!pluginBindingId) {
+      throw new AppError('CAPABILITY_MISSING', '受管目标没有可用的 certificate.deploy 插件能力指派', {
+        applicationAssetId: asset.id,
+        managedTargetId: context.managedTarget.id,
+        deviceAssetId: context.deviceAsset.id,
+      });
+    }
+    const binding = await this.pluginBindings.getTenantBinding(tenantId, pluginBindingId);
+    const workflow = await this.pluginWorkflows.require(binding.pluginVersionId, 'certificate.deploy');
+    const credentials = await this.snapshotCredentials(tenantId, binding.credentialBindings);
+    const gatewayId = context.executionLocation === 'GATEWAY' ? context.deviceAsset.gatewayId : undefined;
+    return {
+      ...resolved,
+      requiredCapabilities: gatewayId ? ['workflow.run', 'gateway.dispatch'] : ['workflow.run'],
+      payload: {
+        ...resolved.payload,
+        workflowRequest: {
+          workflowId: workflow.workflowTemplateId,
+          workflowVersionSelection: 'PINNED',
+          workflowVersionId: workflow.workflowVersionId,
+          runner: gatewayId ? 'GATEWAY' : 'CONTROL_PLANE',
+          gatewayId,
+          pluginVersionId: binding.pluginVersionId,
+          pluginBindingId,
+          capabilityKey: 'certificate.deploy',
+          target: {
+            frameworkType: context.managedTarget.frameworkType,
+            siteName: context.siteAsset?.siteName,
+            bindingInformation: context.siteAsset?.bindingInformation ?? context.managedTarget.bindingKey,
+            hostHeader: context.siteAsset?.hostHeader,
+            port: context.siteAsset?.port,
+            protocol: context.siteAsset?.protocol,
+          },
+          connectionBindings: binding.connectionBindings,
+          variableBindings: binding.variableBindings,
+          credentials,
+          parameterBindings: {},
+          certificateArtifactBindings: binding.certificateArtifactBindings,
+          applicationAssetId: asset.id,
+          certificateBindingId: readOptionalString(resolved.payload.certificateBindingId),
+          managedTargetId: context.managedTarget.id,
+          siteAssetId: context.siteAsset?.id,
+        },
+      },
+    };
+  }
+
+  private async snapshotCredentials(tenantId: string, bindings: Record<string, { credentialId: string }>) {
+    if (Object.keys(bindings).length === 0) return {};
+    if (!this.credentials) throw new AppError('SYSTEM_INTERNAL_ERROR', '部署计划凭据快照服务未接入');
+    return this.credentials.resolveBindingsForPlan(tenantId, bindings);
+  }
+
+  private async attachWorkflowCredentialSnapshots(
+    tenantId: string,
+    resolved: ReturnType<DeploymentStrategyResolver['resolve']>,
+  ): Promise<ReturnType<DeploymentStrategyResolver['resolve']>> {
+    const workflowRequest = readRecord(resolved.payload.workflowRequest);
+    if (!workflowRequest) return resolved;
+    const credentialBindings = readCredentialBindings(workflowRequest.credentialBindings);
+    if (Object.keys(credentialBindings).length === 0) return resolved;
+    const { credentialBindings: _credentialBindings, ...requestWithoutBindings } = workflowRequest;
+    return {
+      ...resolved,
+      payload: {
+        ...resolved.payload,
+        workflowRequest: {
+          ...requestWithoutBindings,
+          credentials: await this.snapshotCredentials(tenantId, credentialBindings),
+        },
       },
     };
   }
@@ -671,9 +796,12 @@ export class DeploymentPlansApplicationService {
         applicationAssetId: applicationAsset.id,
       });
     }
-    const resolvedStrategy = this.deploymentStrategyResolver.resolve({
+    const baseStrategy = this.deploymentStrategyResolver.resolve({
       applicationAsset,
     });
+    const identifiedStrategy = await this.attachPluginExecutionIdentity(applicationAsset, baseStrategy);
+    if (!input.tenantId) throw new AppError('VALIDATION_FAILED', 'tenantId 不能为空');
+    const resolvedStrategy = await this.attachWorkflowCredentialSnapshots(input.tenantId, identifiedStrategy);
     const selectionMode = input.selectionMode ?? (input.targetCertificateVersionId ? 'EXPLICIT' : 'LATEST_AUTO');
     const planName = `${applicationAsset.displayName ?? applicationAsset.address} 证书部署`;
     return {
@@ -1666,6 +1794,7 @@ export class DeploymentPlansApplicationService {
     const snapshotPayload = target.strategyPayload ?? {};
     if (target.executorType !== 'WORKFLOW') return snapshotPayload;
     const workflowSnapshot = readRecord(snapshotPayload.workflowRequest);
+    if (readOptionalString(workflowSnapshot?.pluginBindingId)) return snapshotPayload;
     const applicationAssetId = target.applicationAssetId
       ?? readOptionalString(workflowSnapshot?.applicationAssetId)
       ?? readOptionalString(snapshotPayload.applicationAssetId);
@@ -1829,10 +1958,13 @@ export class DeploymentPlansApplicationService {
     }
     const strategyPayload = await this.resolveLiveWorkflowStrategyPayloadForTarget(target);
     const workflowBindings = readWorkflowCertificateArtifactBindings(readRecord(strategyPayload.workflowRequest)?.certificateArtifactBindings);
-    const agentPluginBindings = readWorkflowCertificateArtifactBindings(
-      readRecord(readRecord(readRecord(strategyPayload.deploymentStrategy)?.agent)?.plugin)?.certificateArtifactBindings,
-    );
-    const artifactBindings = Object.keys(agentPluginBindings).length > 0 ? agentPluginBindings : workflowBindings;
+    const agentBindingId = readOptionalString(readRecord(readRecord(strategyPayload.deploymentStrategy)?.agent)?.pluginBindingId);
+    const agentBinding = agentBindingId && this.pluginBindings
+      ? await this.pluginBindings.getTenantBinding(resolvedTenantId, agentBindingId)
+      : undefined;
+    const artifactBindings = Object.keys(agentBinding?.certificateArtifactBindings ?? {}).length > 0
+      ? agentBinding!.certificateArtifactBindings
+      : workflowBindings;
     if (Object.keys(artifactBindings).length > 0) {
       return this.resolveWorkflowDeploymentArtifact(certificateVersionId, artifactBindings);
     }
@@ -1930,22 +2062,7 @@ export class DeploymentPlansApplicationService {
         createdBy: 'system',
       });
       const files = generated.files.map((file) => ({ ...file, name: file.key }));
-      const outputs: Record<string, Record<string, unknown>> = {};
-      for (const [slotName, outputKey] of Object.entries(binding.outputBindings)) {
-        const file = files.find((item) => item.key === outputKey || item.name === outputKey);
-        if (!file) {
-          throw new AppError('VALIDATION_FAILED', '证书产物输出项不存在', {
-            certificateVersionId,
-            certificateFormatId: binding.certificateFormatId,
-            variableName,
-            slotName,
-            outputKey,
-            availableOutputKeys: files.map((item) => item.key ?? item.name).filter(Boolean),
-          });
-        }
-        outputs[slotName] = file;
-      }
-      const material = enrichWorkflowCertificateMaterial({
+      const baseMaterial = enrichWorkflowCertificateMaterial({
         certificateVersionId,
         certificateFormatId: generated.certificateFormatId,
         format: generated.format,
@@ -1960,6 +2077,25 @@ export class DeploymentPlansApplicationService {
         pfxBase64: generated.pfxBase64,
         pfxPassword: generated.pfxPassword,
         files,
+      });
+      const outputs: Record<string, Record<string, unknown>> = {};
+      for (const [slotName, outputKey] of Object.entries(binding.outputBindings)) {
+        const file = files.find((item) => item.key === outputKey || item.name === outputKey);
+        const virtualOutput = resolveStandardCertificateOutput(baseMaterial, outputKey);
+        if (!file && !virtualOutput) {
+          throw new AppError('VALIDATION_FAILED', '证书产物输出项不存在', {
+            certificateVersionId,
+            certificateFormatId: binding.certificateFormatId,
+            variableName,
+            slotName,
+            outputKey,
+            availableOutputKeys: files.map((item) => item.key ?? item.name).filter(Boolean),
+          });
+        }
+        outputs[slotName] = file ?? virtualOutput!;
+      }
+      const material = enrichWorkflowCertificateMaterial({
+        ...baseMaterial,
         outputs,
       });
       workflowCertificateMaterials[variableName] = material;
@@ -2009,7 +2145,7 @@ export class DeploymentPlansApplicationService {
         actionSchemaVersion: '1.0',
         agentDeploymentMode: 'PLUGIN',
         agentId: readOptionalString(agentStrategy?.agentId) ?? readOptionalString(strategyPayload.agentId),
-        pluginBinding: readRecord(agentStrategy?.plugin),
+        pluginBindingId: readOptionalString(agentStrategy?.pluginBindingId),
         deploymentArtifact: artifact,
       };
     }
@@ -2723,6 +2859,31 @@ function readWorkflowCertificateArtifactBindings(value: unknown): Record<string,
   return output;
 }
 
+function resolveStandardCertificateOutput(
+  material: Record<string, unknown>,
+  outputKey: string,
+): Record<string, unknown> | undefined {
+  const definitions: Record<string, { sourceKey: string; role: string; format: string }> = {
+    leafPem: { sourceKey: 'leafPem', role: 'public_certificate', format: 'pem' },
+    certificatePem: { sourceKey: 'certificatePem', role: 'public_certificate', format: 'pem' },
+    privateKeyPem: { sourceKey: 'privateKeyPem', role: 'private_key', format: 'pem' },
+    orderedChainPem: { sourceKey: 'orderedChainPem', role: 'certificate_chain', format: 'pem' },
+    chain: { sourceKey: 'orderedChainPem', role: 'certificate_chain', format: 'pem' },
+    fingerprintSha256: { sourceKey: 'fingerprintSha256', role: 'fingerprint_sha256', format: 'hex' },
+  };
+  const definition = definitions[outputKey];
+  if (!definition) return undefined;
+  const content = readOptionalString(material[definition.sourceKey]);
+  if (!content) return undefined;
+  return {
+    key: outputKey,
+    role: definition.role,
+    format: definition.format,
+    content,
+    ...(definition.format === 'pem' ? { contentBase64: Buffer.from(content, 'utf8').toString('base64') } : {}),
+  };
+}
+
 function parseIisBindingInformation(value: string): { ip?: string; port?: number; hostHeader?: string } {
   const trimmed = value.trim();
   if (!trimmed) return {};
@@ -2777,6 +2938,16 @@ function readOptionalNumber(value: unknown): number | undefined {
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function readCredentialBindings(value: unknown): Record<string, { credentialId: string }> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).map(([slot, binding]) => {
+    const record = readRecord(binding);
+    const credentialId = readOptionalString(record?.credentialId);
+    if (!credentialId) throw new AppError('VALIDATION_FAILED', '工作流凭据绑定缺少 credentialId', { slot });
+    return [slot, { credentialId }];
+  }));
 }
 
 function readObjectArray(value: unknown): Record<string, unknown>[] {

@@ -23,6 +23,7 @@ export const AUDIT_EVENT_TYPES = {
   SECRET_VERSION_CREATED: 'secret.version.created',
   SECRET_USED: 'secret.used',
   SECRET_ROTATED: 'secret.rotated',
+  SECRET_DELETED: 'secret.deleted',
   PERMISSION_DENIED: 'permission.denied',
   APPROVAL_CREATED: 'approval.created',
   APPROVAL_APPROVED: 'approval.approved',

@@ -1,0 +1,16 @@
+{
+  "plugin.builtin.apache.name": "Apache HTTPS Certificate Deployment",
+  "plugin.builtin.apache.description": "Atomically replace Apache certificates and private keys over SSH, validate configuration, reload the service, and verify HTTPS.",
+  "plugin.builtin.synology.name": "Synology DSM Certificate Deployment",
+  "plugin.builtin.synology.description": "Import the certificate, private key, and ordered intermediate chain through the DSM API, then verify the management HTTPS endpoint.",
+  "plugin.builtin.nginx.name": "NGINX PEM Certificate Deployment",
+  "plugin.builtin.nginx.description": "Back up and atomically replace NGINX PEM certificates and private keys, validate configuration, reload the service, and verify TLS.",
+  "plugin.builtin.iis.name": "IIS PFX Certificate Deployment",
+  "plugin.builtin.iis.description": "Inspect and import a PFX, grant the application pool private-key access, update the IIS HTTPS binding, and verify TLS.",
+  "plugin.builtin.rabbitmq.name": "RabbitMQ PEM Certificate Deployment",
+  "plugin.builtin.rabbitmq.description": "Atomically replace RabbitMQ PEM certificates and private keys, restart the service, and verify TLS.",
+  "plugin.builtin.java.name": "Java PKCS#12 / KeyStore Deployment",
+  "plugin.builtin.java.description": "Atomically replace the PKCS#12 or KeyStore file used by a Java service and restart the service.",
+  "plugin.builtin.windowsService.name": "Windows Service Certificate File Deployment",
+  "plugin.builtin.windowsService.description": "Atomically replace the certificate file consumed by a Windows service and restart the selected service."
+}

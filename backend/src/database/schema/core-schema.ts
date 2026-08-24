@@ -20,7 +20,6 @@ export const coreTableNames = [
   'backup_artifacts',
   'rollback_plans',
   'plugin_packages',
-  'agent_plugin_mounts',
   'provider_registry',
   'workflow_templates',
   'workflow_runs',
@@ -45,7 +44,6 @@ export const requiredCoreIndexes = [
   'uq_execution_steps_run_step',
   'idx_risk_events_view',
   'idx_audit_events_resource',
-  'idx_agent_plugin_mounts_agent_status',
 ] as const;
 
 export const coreForeignKeyEdges = [

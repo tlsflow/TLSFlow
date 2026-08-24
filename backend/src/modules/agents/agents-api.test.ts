@@ -6,6 +6,81 @@ import { PgliteDatabase } from '../../database/pglite-database.js';
 import type { AgentsApplicationService } from './application/agents.application-service.js';
 
 describe('Agent direct control api', () => {
+  it('同一 Agent 可复用原始一次性令牌完成幂等重注册', async () => {
+    const database = new PgliteDatabase();
+    await runMigrations(database, 'src/database/migrations');
+    const app = createApp({ db: database });
+    const agentsService = app.getResource('agentsService') as AgentsApplicationService;
+    const tenantId = 'tenant_agent_idempotent_register';
+    const token = await agentsService.createEnrollmentToken(tenantId, {
+      allowedRoles: ['full_agent'],
+      allowedZones: ['default'],
+      maxUses: 1,
+      ttlSeconds: 60,
+      createdBy: 'test',
+    }, 'req_create_idempotent_token');
+    const input = {
+      agentKey: 'windows-compat-idempotent-01',
+      machineId: 'windows-compat-machine-01',
+      hostname: 'WIN-COMPAT-01',
+      version: '0.1.2',
+      osType: 'WINDOWS',
+      arch: 'amd64',
+      role: 'full_agent',
+      zone: 'default',
+      enrollmentToken: token.token,
+    };
+
+    const first = await agentsService.register(tenantId, input, 'req_register_first');
+    const second = await agentsService.register(tenantId, input, 'req_register_after_restart');
+
+    assert.equal(second.id, first.id);
+    assert.equal(second.status, 'ONLINE');
+  });
+
+  it('Agent 离线时健康状态必须覆盖历史健康心跳', async () => {
+    const database = new PgliteDatabase();
+    await runMigrations(database, 'src/database/migrations');
+    const app = createApp({ db: database });
+    const agentsService = app.getResource('agentsService') as AgentsApplicationService;
+    const tenantId = 'tenant_agent_offline_health_priority';
+    const agent = await agentsService.register(tenantId, {
+      agentKey: 'offline-health-priority-01',
+      hostname: 'WIN-OFFLINE-01',
+      version: '0.1.2',
+      osType: 'WINDOWS',
+      arch: 'amd64',
+    }, 'req_register_offline_health');
+    await agentsService.heartbeat(tenantId, {
+      agentId: agent.id,
+      version: '0.1.2',
+      status: 'ONLINE',
+      runtimeHealth: {
+        modelVersion: 'gcac.agent.health.v1',
+        status: 'healthy',
+      },
+    }, 'req_heartbeat_offline_health');
+    const firstEvaluation = await agentsService.evaluateOfflineAgents({
+      now: new Date(Date.now() + 181_000),
+      offlineTimeoutSeconds: 180,
+      requiredConsecutiveTimeouts: 2,
+    });
+    assert.equal(firstEvaluation.transitioned, 0);
+    assert.equal((await agentsService.getAgentDetail(tenantId, agent.id)).agent.status, 'ONLINE');
+
+    const secondEvaluation = await agentsService.evaluateOfflineAgents({
+      now: new Date(Date.now() + 191_000),
+      offlineTimeoutSeconds: 180,
+      requiredConsecutiveTimeouts: 2,
+    });
+    assert.equal(secondEvaluation.transitioned, 1);
+
+    const detail = await agentsService.getAgentDetail(tenantId, agent.id);
+
+    assert.equal(detail.health.offline, true);
+    assert.equal(detail.health.status, 'failed');
+  });
+
   it('注册和心跳应持久化 directControl 并在 detail health 中返回', async () => {
     const database = new PgliteDatabase();
     await runMigrations(database, 'src/database/migrations');

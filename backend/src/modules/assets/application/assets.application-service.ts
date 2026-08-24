@@ -840,7 +840,7 @@ export class AssetsApplicationService {
     const providerType = String(
       siteAsset.providerType ?? managedTarget.providerType ?? '',
     ).toUpperCase();
-    if (providerType === 'DEVICE_TEMPLATE' || String(managedTarget.deploymentMode ?? '').toUpperCase() === 'NITRO') {
+    if (managedTarget.deviceAssetId) {
       return;
     }
     if (providerType !== 'IIS' && providerType !== 'NGINX') {
@@ -1144,7 +1144,7 @@ export class AssetsApplicationService {
       const agent = strategy.agent;
       if (!agent) throw new AppError('VALIDATION_FAILED', 'AGENT 策略缺少 agent 配置', { code: 'DEPLOYMENT_STRATEGY_INVALID' });
       if ((agent.mode ?? 'NATIVE_HANDLER') === 'PLUGIN') {
-        if (!agent.plugin && !agent.pluginBindingId) throw new AppError('VALIDATION_FAILED', 'PLUGIN 模式缺少插件绑定', { code: 'AGENT_PLUGIN_BINDING_INVALID' });
+        if (!agent.pluginBindingId) throw new AppError('VALIDATION_FAILED', 'PLUGIN 模式缺少统一插件绑定', { code: 'AGENT_PLUGIN_BINDING_INVALID' });
         return;
       }
       if (!agent.siteAssetId || !agent.managedTargetId) {

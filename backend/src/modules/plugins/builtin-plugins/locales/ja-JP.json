@@ -1,0 +1,16 @@
+{
+  "plugin.builtin.apache.name": "Apache HTTPS 証明書デプロイ",
+  "plugin.builtin.apache.description": "SSH 経由で Apache の証明書と秘密鍵を原子的に置換し、設定確認、再読み込み、HTTPS 検証を行います。",
+  "plugin.builtin.synology.name": "Synology DSM 証明書デプロイ",
+  "plugin.builtin.synology.description": "DSM API で証明書、秘密鍵、中間証明書チェーンをインポートし、管理 HTTPS エンドポイントを検証します。",
+  "plugin.builtin.nginx.name": "NGINX PEM 証明書デプロイ",
+  "plugin.builtin.nginx.description": "NGINX の PEM 証明書と秘密鍵をバックアップして原子的に置換し、設定確認、再読み込み、TLS 検証を行います。",
+  "plugin.builtin.iis.name": "IIS PFX 証明書デプロイ",
+  "plugin.builtin.iis.description": "PFX を検査してインポートし、アプリケーションプールへ秘密鍵権限を付与し、IIS HTTPS バインドを更新して TLS を検証します。",
+  "plugin.builtin.rabbitmq.name": "RabbitMQ PEM 証明書デプロイ",
+  "plugin.builtin.rabbitmq.description": "RabbitMQ の PEM 証明書と秘密鍵を原子的に置換し、サービスを再起動して TLS を検証します。",
+  "plugin.builtin.java.name": "Java PKCS#12 / KeyStore デプロイ",
+  "plugin.builtin.java.description": "Java サービスが使用する PKCS#12 または KeyStore ファイルを原子的に置換し、サービスを再起動します。",
+  "plugin.builtin.windowsService.name": "Windows Service 証明書ファイルデプロイ",
+  "plugin.builtin.windowsService.description": "Windows サービスが使用する証明書ファイルを原子的に置換し、指定サービスを再起動します。"
+}

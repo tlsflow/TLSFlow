@@ -6,8 +6,7 @@ export type WorkflowStage = 'prepare' | 'backup' | 'install' | 'refresh' | 'veri
 export type WorkflowTestRunMode = 'render_only' | 'mock' | 'real_test';
 export type WorkflowRunStatus = 'success' | 'failed' | 'rolled_back';
 export type WorkflowFileTransferContentEncoding = 'utf8' | 'base64';
-export type WorkflowCredentialKind = 'username_password' | 'ssh_key' | 'curl_bearer' | 'curl_api_key';
-export type WorkflowCredentialSecretType = 'password' | 'ssh_key' | 'api_token';
+export type WorkflowCredentialKind = 'USERNAME_PASSWORD' | 'SSH_KEY' | 'BEARER_TOKEN' | 'API_KEY' | 'CLIENT_CERTIFICATE';
 export type WorkflowCertificateArtifactRole = 'public_certificate' | 'private_key' | 'certificate_chain' | 'bundle';
 export type WorkflowConfigurationMode = 'required' | 'advanced' | 'runtime';
 export type WorkflowVariableLifecycle = 'pre_execution' | 'runtime_injected' | 'step_output';
@@ -47,12 +46,11 @@ export interface WorkflowConnectionBinding {
 }
 
 export interface WorkflowCredentialBinding {
-  id: string;
+  credentialId: string;
   kind: WorkflowCredentialKind;
-  type: WorkflowCredentialSecretType;
   username?: string;
-  apiKeyName?: string;
-  apiKeyIn?: 'header' | 'query';
+  delivery?: { location?: 'header' | 'query' | 'cookie'; name?: string };
+  secretRefs: Record<string, string>;
 }
 
 export type WorkflowCredentialValue = WorkflowCredentialBinding | string;

@@ -36,11 +36,22 @@ test('标准发现投影事务化、幂等并把缺失对象标记为 STALE', as
   assert.deepEqual(second, first);
   assert.equal((await db.query<{ count: string }>("select count(*)::text as count from pg_site_assets where status='ACTIVE'")).rows[0]?.count, '1');
   assert.equal((await db.query<{ count: string }>('select count(*)::text as count from plugin_discovery_snapshots')).rows[0]?.count, '2');
+  const formalBinding = (await db.query<{
+    binding_type: string;
+    binding_key: string;
+    managed_target_id: string | null;
+    metadata: Record<string, unknown>;
+  }>('select binding_type, binding_key, managed_target_id, metadata from pg_certificate_bindings limit 1')).rows[0];
+  assert.equal(formalBinding?.binding_type, 'DEVICE_API');
+  assert.ok(formalBinding?.binding_key);
+  assert.ok(formalBinding?.managed_target_id);
+  assert.equal(formalBinding?.metadata.pluginDiscoveryStableKey, formalBinding?.binding_key);
 
   const withoutSites = { ...fixture, sites: [], certificates: [], certificateBindings: [] };
   await projector.project(context, withoutSites);
   assert.equal((await db.query<{ status: string }>('select status from pg_site_assets limit 1')).rows[0]?.status, 'STALE');
   assert.equal((await db.query<{ status: string }>('select status from pg_managed_targets limit 1')).rows[0]?.status, 'STALE');
+  assert.equal((await db.query<{ discovery_status: string }>("select metadata->>'discoveryStatus' as discovery_status from pg_certificate_bindings limit 1")).rows[0]?.discovery_status, 'STALE');
 });
 
 test('非法发现关系不会污染上次成功投影', async () => {

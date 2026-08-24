@@ -1,0 +1,16 @@
+{
+  "plugin.builtin.apache.name": "Apache HTTPS 憑證部署",
+  "plugin.builtin.apache.description": "透過 SSH 原子替換 Apache 憑證與私鑰，檢查設定、重新載入服務並驗證 HTTPS。",
+  "plugin.builtin.synology.name": "Synology DSM 憑證部署",
+  "plugin.builtin.synology.description": "透過 DSM API 匯入憑證、私鑰與中繼憑證鏈，並驗證管理站點 HTTPS。",
+  "plugin.builtin.nginx.name": "NGINX PEM 憑證部署",
+  "plugin.builtin.nginx.description": "備份並原子替換 NGINX PEM 憑證與私鑰，檢查設定、重新載入服務並驗證 TLS。",
+  "plugin.builtin.iis.name": "IIS PFX 憑證部署",
+  "plugin.builtin.iis.description": "檢查並匯入 PFX，授權應用程式集區私鑰，更新 IIS HTTPS Binding 並驗證 TLS。",
+  "plugin.builtin.rabbitmq.name": "RabbitMQ PEM 憑證部署",
+  "plugin.builtin.rabbitmq.description": "原子替換 RabbitMQ PEM 憑證與私鑰，重新啟動服務並驗證 TLS。",
+  "plugin.builtin.java.name": "Java PKCS#12 / KeyStore 部署",
+  "plugin.builtin.java.description": "原子替換 Java 服務使用的 PKCS#12 或 KeyStore 檔案並重新啟動服務。",
+  "plugin.builtin.windowsService.name": "Windows Service 憑證檔案部署",
+  "plugin.builtin.windowsService.description": "原子替換 Windows 服務讀取的憑證檔案並重新啟動指定服務。"
+}

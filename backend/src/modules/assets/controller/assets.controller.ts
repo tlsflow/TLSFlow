@@ -359,7 +359,7 @@ export class AssetsController {
   }
 
   private async projectWorkflowBinding(request: HttpRequest) {
-    const body = validateObject(request.body, { workflowId: { type: 'string', required: true }, workflowVersionId: { type: 'string' }, serviceAssetId: { type: 'string' }, asset: { type: 'object' }, target: { type: 'object' }, connectionBindings: { type: 'object' }, parameterBindings: { type: 'object' }, credentialRefs: { type: 'object' } }) as unknown as WorkflowBindingProjectionRequestDto;
+    const body = validateObject(request.body, { workflowId: { type: 'string', required: true }, workflowVersionId: { type: 'string' }, serviceAssetId: { type: 'string' }, asset: { type: 'object' }, target: { type: 'object' }, connectionBindings: { type: 'object' }, parameterBindings: { type: 'object' }, credentialBindings: { type: 'object' } }) as unknown as WorkflowBindingProjectionRequestDto;
     const subject = this.subjectFromRequest(request);
     await this.assertCan(subject, 'service_asset.manage', 'service_asset', request, body.serviceAssetId);
     return this.service.projectWorkflowBinding(tenantId(request), body);

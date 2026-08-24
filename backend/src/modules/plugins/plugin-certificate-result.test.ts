@@ -3,6 +3,12 @@ import { createHash } from 'node:crypto';
 import test from 'node:test';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
+import { AssetsApplicationService } from '../assets/application/assets.application-service.js';
+import { PgAssetsRepository } from '../assets/repository/assets.repository.js';
+import { BindingsApplicationService } from '../bindings/application/bindings.application-service.js';
+import { PgBindingsRepository } from '../bindings/repository/bindings.repository.js';
+import { ExecutionResultSyncService } from '../executions/application/execution-result-sync.service.js';
+import { ExecutionsRepository } from '../executions/repository/executions.repository.js';
 import { PluginCertificateResultService } from './results/plugin-certificate-result.service.js';
 
 test('证书发现按 SHA-256 关联并区分同步、漂移和不完整', async () => {
@@ -28,6 +34,71 @@ test('只有最终验证成功或回滚成功才更新当前证书', async () =>
   });
   const binding = (await db.query<{ current_certificate_version_id: string; drift_state: string }>("select current_certificate_version_id, drift_state from plugin_discovered_certificate_bindings where stable_key='binding:main'")).rows[0];
   assert.deepEqual(binding, { current_certificate_version_id: 'cert-v2', drift_state: 'SYNCED' });
+});
+
+test('正式执行结果同步后自动回写插件发现证书绑定', async () => {
+  const db = await fixtureDatabase();
+  const pluginResults = new PluginCertificateResultService(db);
+  await pluginResults.reconcileDiscovery('tenant-1', 'device-1');
+  await pluginResults.setDesiredVersion('tenant-1', 'device-1', 'binding:main', 'cert-v2');
+  await db.query(`insert into pg_certificate_bindings (
+      id,tenant_id,service_asset_id,site_asset_id,service_instance_id,host_id,domain_name,port,protocol,
+      binding_key,binding_type,certificate_version_id,target_certificate_version_id,observed_fingerprint_sha256,
+      target_fingerprint_sha256,discovery_source,verify_method,status,metadata
+    ) values (
+      'binding-formal-1','tenant-1','device-1','site-1','service-1','host-1','new.example',443,'HTTPS',
+      'binding:main','DEVICE_API','cert-v1','cert-v2',$1,$2,'PROVIDER','TLS_CONNECT','DRIFTED',$3::jsonb
+    )`, [
+    'AA'.repeat(32),
+    'BB'.repeat(32),
+    JSON.stringify({ pluginDeviceAssetId: 'device-1', pluginDiscoveryStableKey: 'binding:main' }),
+  ]);
+  const assetsRepository = new PgAssetsRepository(db);
+  const assets = new AssetsApplicationService(assetsRepository);
+  const bindingsRepository = new PgBindingsRepository(assetsRepository, db);
+  const bindings = new BindingsApplicationService(assetsRepository, bindingsRepository, undefined, assets);
+  assets.setBindingsRepository(bindingsRepository);
+  const executions = new ExecutionsRepository(db);
+  const sync = new ExecutionResultSyncService(executions, assets, bindings, undefined, undefined, pluginResults);
+  const now = new Date().toISOString();
+  const run = await executions.createRun({
+    id: 'run-plugin-result', tenantId: 'tenant-1', deploymentPlanId: 'plan-plugin-result', runNo: 1,
+    type: 'apply', idempotencyKey: 'plugin-result', requestHash: 'plugin-result', status: 'RUNNING',
+    concurrencyLimit: 1, summary: {}, createdAt: now, updatedAt: now, createdBy: 'test', version: 1,
+  });
+  const step = await executions.createStep({
+    id: 'step-plugin-result', tenantId: 'tenant-1', executionRunId: run.id,
+    deploymentPlanTargetId: 'target-plugin-result', stepNo: 1, stepType: 'VERIFY', name: 'VERIFY plugin certificate',
+    dependsOn: [], idempotent: true, attemptCount: 1, maxAttempts: 1,
+    inputSnapshot: {
+      certificateBindingId: 'binding-formal-1',
+      expectedCertificateFingerprintSha256: 'BB'.repeat(32),
+      dryRun: false,
+    },
+    status: 'RUNNING', createdAt: now, updatedAt: now, createdBy: 'test', version: 1,
+  });
+
+  await sync.applyAgentTaskResult({
+    tenantId: 'tenant-1', executionRunId: run.id, executionStepId: step.id, success: true, actorId: 'test',
+    detail: { verify: { remoteCertificateSha256: 'BB'.repeat(32), remoteThumbprint: '11'.repeat(20) } },
+  });
+
+  const formal = (await db.query<{ certificate_version_id: string; observed_fingerprint_sha256: string; status: string }>(
+    "select certificate_version_id, observed_fingerprint_sha256, status from pg_certificate_bindings where id='binding-formal-1'",
+  )).rows[0];
+  assert.deepEqual(formal, {
+    certificate_version_id: 'cert-v2',
+    observed_fingerprint_sha256: 'bb'.repeat(32),
+    status: 'MANAGED',
+  });
+  const pluginBinding = (await db.query<{ current_certificate_version_id: string; observed_fingerprint_sha256: string; drift_state: string }>(
+    "select current_certificate_version_id, observed_fingerprint_sha256, drift_state from plugin_discovered_certificate_bindings where stable_key='binding:main'",
+  )).rows[0];
+  assert.deepEqual(pluginBinding, {
+    current_certificate_version_id: 'cert-v2',
+    observed_fingerprint_sha256: 'BB'.repeat(32),
+    drift_state: 'SYNCED',
+  });
 });
 
 async function fixtureDatabase() {

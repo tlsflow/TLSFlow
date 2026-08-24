@@ -15,7 +15,15 @@ import { mapAgentHealth, mapNetworkDeviceHealth } from './repository/devices.rep
 import { DevicePlatformRegistry } from './domain/device-platform.registry.js';
 import { DevicesApplicationService } from './application/devices.application-service.js';
 import { UnifiedPluginsApplicationService } from '../plugins/application/unified-plugins.application-service.js';
+import { PluginBindingsApplicationService } from '../plugins/application/plugin-bindings.application-service.js';
+import type { PluginWorkflowPublisherService } from '../plugins/application/plugin-workflow-publisher.service.js';
+import { StandardDeviceDiscoveryProjector } from '../plugins/discovery/standard-device-discovery.projector.js';
+import { PluginBindingsRepository } from '../plugins/repository/plugin-bindings.repository.js';
 import { PgUnifiedPluginsRepository } from '../plugins/repository/unified-plugins.repository.js';
+import type { WorkflowTemplatesApplicationService } from '../workflow-templates/application/workflow-templates.application-service.js';
+import type { WorkflowRunResult } from '../workflow-templates/dto/workflow-templates.dto.js';
+import { AppError } from '../../common/errors/app-error.js';
+import { CredentialsRepository } from '../credentials/repository/credentials.repository.js';
 
 test('Agent Host 投影迁移回填历史注册且重复执行不产生重复设备', async () => {
   const database = new PgliteDatabase();
@@ -552,11 +560,61 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
   const imported = await plugins.importVersion(tenantId, { manifest, resources }, 'BUILTIN');
   await plugins.approvePermissions(imported.id, (manifest as unknown as { permissions: string[] }).permissions);
   await plugins.enableVersion(imported.id);
-  const service = new DevicesApplicationService(new PgDevicesRepository(database), undefined, undefined, database, plugins);
+  await createUsernamePasswordCredential(database, tenantId, 'cred_adc', 'sec_adc');
+  const discovery = JSON.parse(await readFile(resolve('../compatibility/fixtures/device-plugins/mock-adc.discovery.json'), 'utf8')) as Record<string, unknown>;
+  const executedCapabilities: string[] = [];
+  const pluginWorkflows = {
+    require: async (pluginVersionId: string, capabilityKey: string) => ({
+      pluginVersionId,
+      capabilityKey,
+      workflowResourcePath: `workflows/${capabilityKey}.json`,
+      workflowTemplateId: `template_${capabilityKey}`,
+      workflowVersionId: capabilityKey,
+      workflowContentSha256: `sha256:${capabilityKey}`,
+      createdAt: new Date().toISOString(),
+    }),
+  } as PluginWorkflowPublisherService;
+  const workflows = {
+    execute: async ({ templateVersionId }: { templateVersionId: string }): Promise<WorkflowRunResult> => {
+      executedCapabilities.push(templateVersionId);
+      return {
+        id: `run_${templateVersionId}`,
+        mode: 'real_test',
+        plannedOnly: false,
+        status: 'success',
+        renderedSteps: [],
+        stepResults: templateVersionId === 'device.discover' ? [{
+          name: 'normalizeDiscovery',
+          type: 'transform',
+          status: 'success',
+          attempts: 1,
+          plan: {},
+          extracted: { discovery },
+          assertions: [],
+          logs: [],
+        }] : [],
+        rollbackResults: [],
+        logs: [],
+      };
+    },
+  } as unknown as WorkflowTemplatesApplicationService;
+  const service = new DevicesApplicationService(
+    new PgDevicesRepository(database),
+    undefined,
+    undefined,
+    database,
+    plugins,
+    undefined,
+    new PluginBindingsApplicationService(new PluginBindingsRepository(database)),
+    pluginWorkflows,
+    workflows,
+    undefined,
+    new StandardDeviceDiscoveryProjector(database),
+  );
   const result = await service.onboard(tenantId, {
     platformKey: 'plugin', pluginVersionId: imported.id, formValues: {
       displayName: 'ADC', address: '10.33.5.49', port: 443, authMode: 'NITRO_HEADER',
-      username: 'nsroot', passwordSecretRef: 'secret://password/sec_adc#v1', tlsVerify: true,
+      credential: 'cred_adc', tlsVerify: true,
     },
   }, 'user_adc', 'request_adc');
 
@@ -564,8 +622,11 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
   if (result.onboardingKind !== 'PLUGIN_MANAGED') assert.fail('应返回插件接入结果');
   assert.equal(result.device.deviceFamily, 'citrix.netscaler-adc');
   assert.equal(result.binding.managedContext?.deviceAssetId, result.device.id);
-  assert.equal(result.binding.secretBindings.credential, 'secret://password/sec_adc#v1');
+  assert.deepEqual(result.binding.credentialBindings.credential, { credentialId: 'cred_adc' });
+  assert.deepEqual(result.binding.secretBindings, {});
   assert.equal(result.assignments.length, 6);
+  assert.deepEqual(executedCapabilities, ['device.connection.test', 'device.identity.detect', 'device.discover']);
+  assert.ok('projection' in result.discovery && result.discovery.projection.certificateBindings === 1);
   assert.ok(!JSON.stringify(result).includes('"password":"'));
   const detail = await service.get(tenantId, result.device.hostId, 'zh-CN');
   assert.equal(detail.extension.type, 'PLUGIN');
@@ -574,6 +635,90 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
   assert.deepEqual(detail.pluginUi?.capabilities, result.assignments.map((item) => item.capabilityKey).sort());
   const actions = (detail.pluginUi?.presentation?.actions ?? []) as Array<{ capabilityKey: string }>;
   assert.ok(actions.every((action) => detail.pluginUi?.capabilities.includes(action.capabilityKey)));
+  const snapshots = await database.query<{ count: string }>(
+    'select count(*)::text as count from plugin_discovery_snapshots where tenant_id=$1 and device_asset_id=$2',
+    [tenantId, result.device.id],
+  );
+  assert.equal(snapshots.rows[0]?.count, '1');
+  const certificateBindings = await database.query<{ count: string }>(
+    'select count(*)::text as count from pg_certificate_bindings where tenant_id=$1',
+    [tenantId],
+  );
+  assert.equal(certificateBindings.rows[0]?.count, '1');
+  const serviceAsset = await database.query<{ status: string; metadata: Record<string, unknown> }>(
+    'select status, metadata from pg_service_assets where tenant_id=$1 and id=$2',
+    [tenantId, result.device.id],
+  );
+  assert.equal(serviceAsset.rows[0]?.status, 'ACTIVE');
+  assert.equal(serviceAsset.rows[0]?.metadata.onboardingState, 'ACTIVE');
+});
+
+test('Spec033 插件设备接入失败保留设备并写入可恢复状态', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const tenantId = 'tenant_plugin_onboarding_failed';
+  const plugins = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(database));
+  const pluginRoot = resolve('src/modules/plugins/builtin-plugins/citrix-adc');
+  const manifest = JSON.parse(await readFile(resolve(pluginRoot, 'manifest.json'), 'utf8')) as { resources: Record<string, Record<string, string>>; permissions: string[] };
+  const resourcePaths = Object.values(manifest.resources).flatMap((value) => Object.values(value));
+  const resources = Object.fromEntries(await Promise.all(resourcePaths.map(async (path) => [path, await readFile(resolve(pluginRoot, path), 'utf8')])));
+  const imported = await plugins.importVersion(tenantId, { manifest, resources }, 'BUILTIN');
+  await plugins.approvePermissions(imported.id, manifest.permissions);
+  await plugins.enableVersion(imported.id);
+  await createUsernamePasswordCredential(database, tenantId, 'cred_adc_failed', 'sec_adc_failed');
+  const pluginWorkflows = {
+    require: async (pluginVersionId: string, capabilityKey: string) => ({
+      pluginVersionId,
+      capabilityKey,
+      workflowResourcePath: `workflows/${capabilityKey}.json`,
+      workflowTemplateId: `template_${capabilityKey}`,
+      workflowVersionId: capabilityKey,
+      workflowContentSha256: `sha256:${capabilityKey}`,
+      createdAt: new Date().toISOString(),
+    }),
+  } as PluginWorkflowPublisherService;
+  const workflows = {
+    execute: async (): Promise<WorkflowRunResult> => {
+      throw new AppError('PLUGIN_CAPABILITY_EXECUTION_FAILED', '模拟连接失败');
+    },
+  } as unknown as WorkflowTemplatesApplicationService;
+  const service = new DevicesApplicationService(
+    new PgDevicesRepository(database),
+    undefined,
+    undefined,
+    database,
+    plugins,
+    undefined,
+    new PluginBindingsApplicationService(new PluginBindingsRepository(database)),
+    pluginWorkflows,
+    workflows,
+    undefined,
+    new StandardDeviceDiscoveryProjector(database),
+  );
+
+  await assert.rejects(
+    service.onboard(tenantId, {
+      platformKey: 'plugin', pluginVersionId: imported.id, formValues: {
+        displayName: 'ADC Failed', address: '10.33.5.50', port: 443, authMode: 'NITRO_HEADER',
+        credential: 'cred_adc_failed', tlsVerify: true,
+      },
+    }, 'user_adc', 'request_adc_failed'),
+    (error: unknown) => error instanceof AppError && error.errorCode === 'PLUGIN_CAPABILITY_EXECUTION_FAILED',
+  );
+
+  const deviceRows = await database.query<{ service_asset_id: string; last_error_code: string }>(
+    'select service_asset_id, last_error_code from pg_device_assets where tenant_id=$1',
+    [tenantId],
+  );
+  assert.equal(deviceRows.rows.length, 1);
+  assert.equal(deviceRows.rows[0]?.last_error_code, 'PLUGIN_CAPABILITY_EXECUTION_FAILED');
+  const serviceAsset = await database.query<{ status: string; metadata: Record<string, unknown> }>(
+    'select status, metadata from pg_service_assets where tenant_id=$1 and id=$2',
+    [tenantId, deviceRows.rows[0]?.service_asset_id],
+  );
+  assert.equal(serviceAsset.rows[0]?.status, 'UNKNOWN');
+  assert.equal(serviceAsset.rows[0]?.metadata.onboardingState, 'FAILED');
+  assert.equal(serviceAsset.rows[0]?.metadata.onboardingErrorCode, 'PLUGIN_CAPABILITY_EXECUTION_FAILED');
 });
 
 test('Spec033 设备资产软删除后不再出现在统一设备列表', async () => {
@@ -591,6 +736,30 @@ test('Spec033 设备资产软删除后不再出现在统一设备列表', async 
   });
   assert.equal(listed.total, 0);
 });
+
+async function createUsernamePasswordCredential(
+  database: DatabasePort,
+  tenantId: string,
+  credentialId: string,
+  secretId: string,
+): Promise<void> {
+  const now = new Date().toISOString();
+  await new CredentialsRepository(database).save({
+    id: credentialId,
+    tenantId,
+    name: credentialId,
+    kind: 'USERNAME_PASSWORD',
+    scopeType: 'global',
+    username: 'nsroot',
+    secretSlots: { password: `secret://password/${secretId}#current` },
+    metadata: {},
+    status: 'active',
+    version: 1,
+    createdBy: 'user_adc',
+    createdAt: now,
+    updatedAt: now,
+  });
+}
 
 class CountingDatabase implements DatabasePort {
   queryCount = 0;

@@ -1,0 +1,16 @@
+{
+  "plugin.builtin.apache.name": "Развертывание сертификата Apache HTTPS",
+  "plugin.builtin.apache.description": "Атомарно заменяет сертификаты и закрытые ключи Apache по SSH, проверяет конфигурацию, перезагружает сервис и проверяет HTTPS.",
+  "plugin.builtin.synology.name": "Развертывание сертификата Synology DSM",
+  "plugin.builtin.synology.description": "Импортирует сертификат, закрытый ключ и цепочку промежуточных сертификатов через DSM API, затем проверяет управляющий HTTPS-адрес.",
+  "plugin.builtin.nginx.name": "Развертывание сертификата NGINX PEM",
+  "plugin.builtin.nginx.description": "Создает резервную копию и атомарно заменяет PEM-сертификаты и ключи NGINX, проверяет конфигурацию, перезагружает сервис и проверяет TLS.",
+  "plugin.builtin.iis.name": "Развертывание сертификата IIS PFX",
+  "plugin.builtin.iis.description": "Проверяет и импортирует PFX, выдает пулу приложений доступ к ключу, обновляет HTTPS-привязку IIS и проверяет TLS.",
+  "plugin.builtin.rabbitmq.name": "Развертывание сертификата RabbitMQ PEM",
+  "plugin.builtin.rabbitmq.description": "Атомарно заменяет PEM-сертификаты и ключи RabbitMQ, перезапускает сервис и проверяет TLS.",
+  "plugin.builtin.java.name": "Развертывание Java PKCS#12 / KeyStore",
+  "plugin.builtin.java.description": "Атомарно заменяет файл PKCS#12 или KeyStore, используемый Java-сервисом, и перезапускает сервис.",
+  "plugin.builtin.windowsService.name": "Развертывание файла сертификата Windows Service",
+  "plugin.builtin.windowsService.description": "Атомарно заменяет файл сертификата, используемый службой Windows, и перезапускает выбранную службу."
+}

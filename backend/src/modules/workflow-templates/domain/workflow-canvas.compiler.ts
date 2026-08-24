@@ -530,19 +530,18 @@ function readCredentialValue(value: unknown): WorkflowCredentialBinding | string
 
 function isWorkflowCredentialBinding(value: unknown): value is WorkflowCredentialBinding {
   return isRecord(value)
-    && typeof value.id === 'string'
+    && typeof value.credentialId === 'string'
     && typeof value.kind === 'string'
-    && typeof value.type === 'string';
+    && isRecord(value.secretRefs);
 }
 
 function workflowCredentialBinding(value: WorkflowCredentialBinding): WorkflowCredentialBinding {
   return {
-    id: value.id,
+    credentialId: value.credentialId,
     kind: value.kind,
-    type: value.type,
     username: value.username,
-    apiKeyName: value.apiKeyName,
-    apiKeyIn: value.apiKeyIn,
+    delivery: value.delivery,
+    secretRefs: structuredClone(value.secretRefs),
   };
 }
 

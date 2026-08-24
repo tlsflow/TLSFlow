@@ -25,12 +25,14 @@ export function enrichWorkflowCertificateMaterial(material: Record<string, unkno
   const leafPem = readPemFile(files, 'public', 'public_certificate')
     ?? readString(material.leafPem)
     ?? readString(material.certificatePem)
-    ?? readString(material.pem);
+    ?? readString(material.pem)
+    ?? readLeafFromFullchain(files);
   const privateKeyPem = readPemFile(files, 'private', 'private_key')
     ?? readString(material.privateKeyPem)
     ?? readString(material.privateKey);
   const orderedChainPem = readPemFile(files, 'chain', 'certificate_chain')
     ?? readString(material.orderedChainPem)
+    ?? readIntermediateChainFromFullchain(files)
     ?? '';
   const chainCertificates = splitCertificates(orderedChainPem);
   const orderedIntermediates = chainCertificates.map((pem, index) => ({
@@ -68,6 +70,20 @@ export function enrichWorkflowCertificateMaterial(material: Record<string, unkno
       fingerprintSha256,
     },
   };
+}
+
+function readIntermediateChainFromFullchain(files: WorkflowCertificateFile[]): string | undefined {
+  const fullchain = readPemFile(files, 'fullchain', 'public_certificate');
+  if (!fullchain) return undefined;
+  const certificates = splitCertificates(fullchain);
+  if (certificates.length <= 1) return undefined;
+  return certificates.slice(1).join('');
+}
+
+function readLeafFromFullchain(files: WorkflowCertificateFile[]): string | undefined {
+  const fullchain = readPemFile(files, 'fullchain', 'public_certificate');
+  if (!fullchain) return undefined;
+  return splitCertificates(fullchain)[0];
 }
 
 function readPemFile(files: WorkflowCertificateFile[], key: string, role: string): string | undefined {

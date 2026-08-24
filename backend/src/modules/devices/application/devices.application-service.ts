@@ -18,6 +18,9 @@ import type { WorkflowTemplatesApplicationService } from '../../workflow-templat
 import type { CreateManagedDeviceOnboardingDto } from '../dto/devices.dto.js';
 import { PgDevicesRepository, type DevicesRepository } from '../repository/devices.repository.js';
 import { pluginRuntimeGuard, type PluginRuntimeGuardService } from '../../plugins/runtime/plugin-runtime-guard.service.js';
+import { StandardDeviceDiscoveryProjector } from '../../plugins/discovery/standard-device-discovery.projector.js';
+import { RuntimeCredentialResolver } from '../../credentials/application/runtime-credential-resolver.js';
+import { CredentialsRepository } from '../../credentials/repository/credentials.repository.js';
 
 export class DevicesApplicationService {
   constructor(
@@ -31,6 +34,7 @@ export class DevicesApplicationService {
     private readonly pluginWorkflows?: PluginWorkflowPublisherService,
     private readonly workflows?: WorkflowTemplatesApplicationService,
     private readonly runtimeGuard: PluginRuntimeGuardService = pluginRuntimeGuard,
+    private readonly discoveryProjector?: StandardDeviceDiscoveryProjector,
   ) {}
 
   list(tenantId: string, query: ManagedDeviceListQuery): Promise<ManagedDevicePageDto> {
@@ -113,14 +117,40 @@ export class DevicesApplicationService {
       this.pluginBindings.getTenantBinding(tenantId, assignment.pluginBindingId),
       this.pluginWorkflows.require(assignment.pluginVersionId, capabilityKey),
     ]);
-    return this.runtimeGuard.execute({
+    const credentials = await new RuntimeCredentialResolver(new CredentialsRepository(this.db))
+      .resolveBindings(tenantId, binding.credentialBindings);
+    const result = await this.runtimeGuard.execute({
       tenantId, pluginVersionId: assignment.pluginVersionId, capabilityKey,
       gatewayId: typeof binding.connectionBindings.gatewayId === 'string' ? binding.connectionBindings.gatewayId : undefined,
-    }, () => this.workflows!.testRun({
+    }, () => this.workflows!.execute({
       templateVersionId: workflow.workflowVersionId,
       mode: 'real_test',
-      userVariables: { ...binding.variableBindings, ...binding.secretBindings },
+      userVariables: { ...binding.variableBindings, ...credentials },
     }));
+    if (result.status !== 'success') {
+      throw new AppError('PLUGIN_CAPABILITY_EXECUTION_FAILED', '设备插件能力执行失败', {
+        capabilityKey,
+        workflowRunId: result.id,
+        status: result.status,
+      });
+    }
+    if (!['device.discover', 'certificate.discover'].includes(capabilityKey)) return result;
+    if (!this.discoveryProjector) throw new AppError('CAPABILITY_MISSING', '标准设备发现投影器未注册');
+    const discovery = findWorkflowExtractedValue(result.stepResults, 'discovery');
+    if (!discovery) {
+      throw new AppError('PLUGIN_DISCOVERY_SCHEMA_INVALID', '设备发现工作流未输出标准 discovery 结果', {
+        capabilityKey,
+        workflowRunId: result.id,
+      });
+    }
+    const projection = await this.discoveryProjector.project({
+      tenantId,
+      deviceAssetId: device.extension.deviceAssetId,
+      hostId: device.id,
+      pluginVersionId: assignment.pluginVersionId,
+      pluginBindingId: assignment.pluginBindingId,
+    }, discovery);
+    return { ...result, projection };
   }
 
   private async onboardPluginDevice(tenantId: string, input: CreateManagedDeviceOnboardingDto, actorId: string) {
@@ -143,7 +173,7 @@ export class DevicesApplicationService {
     }
     const mapped = mapPluginDeviceForm(form, input.formValues ?? {});
     const domain = new DeviceAssetsDomainService();
-    return this.db.transaction(async (tx) => {
+    const onboarding = await this.db.transaction(async (tx) => {
       const deviceRepository = new PgDeviceAssetsRepository(tx);
       const bindingService = new PluginBindingsApplicationService(new PluginBindingsRepository(tx));
       const device = await deviceRepository.createInTransaction(tx, tenantId, domain.normalizeCreate({
@@ -160,6 +190,7 @@ export class DevicesApplicationService {
         pluginVersionId,
         mode: 'MANAGED',
         variableBindings: mapped.variables,
+        credentialBindings: mapped.credentials,
         secretBindings: mapped.secrets,
         certificateArtifactBindings: {},
         connectionBindings: mapped.connections,
@@ -179,7 +210,44 @@ export class DevicesApplicationService {
       }
       return { onboardingKind: 'PLUGIN_MANAGED' as const, device, binding, assignments };
     });
+    try {
+      await this.executeCapability(tenantId, onboarding.device.hostId, 'device.connection.test');
+      if (capabilityKeys.includes('device.identity.detect')) {
+        await this.executeCapability(tenantId, onboarding.device.hostId, 'device.identity.detect');
+      }
+      const discovery = await this.executeCapability(tenantId, onboarding.device.hostId, 'device.discover');
+      return { ...onboarding, discovery };
+    } catch (error) {
+      const errorCode = error instanceof AppError ? error.errorCode : 'SYSTEM_INTERNAL_ERROR';
+      const failedAt = new Date().toISOString();
+      await this.db.transaction(async (tx) => {
+        await tx.query(
+          `update pg_device_assets set last_error_code=$1, updated_at=$2, version=version+1
+           where tenant_id=$3 and service_asset_id=$4`,
+          [errorCode, failedAt, tenantId, onboarding.device.id],
+        );
+        await tx.query(
+          `update pg_service_assets
+           set status='UNKNOWN', metadata=metadata || $1::jsonb, updated_at=$2, version=version+1
+           where tenant_id=$3 and id=$4`,
+          [JSON.stringify({ onboardingState: 'FAILED', onboardingErrorCode: errorCode, onboardingFailedAt: failedAt }), failedAt, tenantId, onboarding.device.id],
+        );
+      });
+      throw error;
+    }
   }
+}
+
+function findWorkflowExtractedValue(
+  steps: Array<{ extracted: Record<string, unknown>; children?: Array<{ extracted: Record<string, unknown>; children?: unknown[] }> }>,
+  key: string,
+): unknown {
+  for (const step of [...steps].reverse()) {
+    if (step.extracted[key] !== undefined) return step.extracted[key];
+    const childValue = findWorkflowExtractedValue((step.children ?? []) as typeof steps, key);
+    if (childValue !== undefined) return childValue;
+  }
+  return undefined;
 }
 
 interface MappedPluginDeviceForm {
@@ -192,22 +260,30 @@ interface MappedPluginDeviceForm {
   caSecretRef?: string;
   connections: Record<string, unknown>;
   variables: Record<string, unknown>;
+  credentials: Record<string, { credentialId: string }>;
   secrets: Record<string, string>;
 }
 
 function mapPluginDeviceForm(form: PluginFormSchemaV1, values: Record<string, unknown>): MappedPluginDeviceForm {
   const connections: Record<string, unknown> = {};
   const variables: Record<string, unknown> = {};
+  const credentials: Record<string, { credentialId: string }> = {};
   const secrets: Record<string, string> = {};
   const standardValues = new Map<string, unknown>();
   for (const field of form.sections.flatMap((section) => section.fields)) {
     const value = values[field.key] ?? field.defaultValue;
     if (field.required && isEmpty(value)) throw new AppError('VALIDATION_FAILED', '插件表单必填字段不能为空', { field: field.key });
     if (value === undefined || value === null || value === '') continue;
-    variables[field.key] = value;
+    if (field.type !== 'credential_ref' && field.type !== 'secret_ref') variables[field.key] = value;
+    if (field.type === 'credential_ref') {
+      if (typeof value !== 'string') throw new AppError('VALIDATION_FAILED', 'credentialId 必须是字符串', { field: field.key });
+      credentials[field.key] = { credentialId: value };
+    }
     if (!field.standardField) continue;
     standardValues.set(field.standardField, value);
-    if (field.type === 'secret_ref') {
+    if (field.type === 'credential_ref') {
+      continue;
+    } else if (field.type === 'secret_ref') {
       if (typeof value !== 'string') throw new AppError('VALIDATION_FAILED', 'SecretRef 必须是字符串', { field: field.key });
       secrets[field.standardField] = value;
     } else if (field.standardField.startsWith('connection.') || field.standardField.startsWith('tls.') || field.standardField.startsWith('authentication.')) {
@@ -221,10 +297,6 @@ function mapPluginDeviceForm(form: PluginFormSchemaV1, values: Record<string, un
   variables.deviceHost = address;
   variables.managementPort = port;
   variables.tlsVerify = standardValues.get('tls.verifyPeer') !== false;
-  const username = standardValues.get('authentication.username');
-  const passwordSecretRef = standardValues.get('authentication.passwordSecretRef');
-  if (username !== undefined) variables.credentialUsername = username;
-  if (passwordSecretRef !== undefined) secrets.credential = String(passwordSecretRef);
   return {
     displayName,
     address,
@@ -235,6 +307,7 @@ function mapPluginDeviceForm(form: PluginFormSchemaV1, values: Record<string, un
     caSecretRef: optionalString(standardValues.get('tls.caSecretRef')),
     connections,
     variables,
+    credentials,
     secrets,
   };
 }

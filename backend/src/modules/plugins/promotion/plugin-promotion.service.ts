@@ -127,9 +127,9 @@ export class PluginPromotionService {
       status: 'ACTIVE', version: 1, createdAt: now, updatedAt: now,
     };
     await this.db.query(`insert into unified_plugin_bindings
-      (id,tenant_id,plugin_version_id,mode,variable_bindings,secret_bindings,certificate_artifact_bindings,connection_bindings,managed_context,status,version,created_at,updated_at)
-      values ($1,$2,$3,'MANAGED',$4::jsonb,$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,'ACTIVE',1,$9,$9)`, [
-      binding.id, tenantId, binding.pluginVersionId, JSON.stringify(binding.variableBindings), JSON.stringify(binding.secretBindings),
+      (id,tenant_id,plugin_version_id,mode,variable_bindings,credential_bindings,secret_bindings,certificate_artifact_bindings,connection_bindings,managed_context,status,version,created_at,updated_at)
+      values ($1,$2,$3,'MANAGED',$4::jsonb,$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,'ACTIVE',1,$10,$10)`, [
+      binding.id, tenantId, binding.pluginVersionId, JSON.stringify(binding.variableBindings), JSON.stringify(binding.credentialBindings), JSON.stringify(binding.secretBindings),
       JSON.stringify(binding.certificateArtifactBindings), JSON.stringify(binding.connectionBindings), JSON.stringify(binding.managedContext), now,
     ]);
     return binding;
@@ -154,7 +154,7 @@ export class PluginPromotionService {
     if (!row) throw new AppError('RESOURCE_NOT_FOUND', 'PluginBinding 不存在', { id });
     return {
       id: String(row.id), tenantId: String(row.tenant_id), pluginVersionId: String(row.plugin_version_id), mode: row.mode as PluginBindingV1['mode'],
-      variableBindings: (row.variable_bindings ?? {}) as Record<string, unknown>, secretBindings: (row.secret_bindings ?? {}) as Record<string, string>,
+      variableBindings: (row.variable_bindings ?? {}) as Record<string, unknown>, credentialBindings: (row.credential_bindings ?? {}) as PluginBindingV1['credentialBindings'], secretBindings: (row.secret_bindings ?? {}) as Record<string, string>,
       certificateArtifactBindings: (row.certificate_artifact_bindings ?? {}) as PluginBindingV1['certificateArtifactBindings'],
       connectionBindings: (row.connection_bindings ?? {}) as Record<string, unknown>, managedContext: row.managed_context as PluginBindingV1['managedContext'],
       status: row.status as PluginBindingV1['status'], version: Number(row.version), createdAt: String(row.created_at), updatedAt: String(row.updated_at),

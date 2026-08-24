@@ -11,6 +11,7 @@ import type { ExecutionsRepository } from '../repository/executions.repository.j
 import type { ExecutionRunEntity, ExecutionStepEntity } from '../schema/executions.schema.js';
 import { ExecutionDetailStreamService } from './execution-detail-stream.service.js';
 import { buildTlsVerifyTargetFromUrl, certificateMatchesDomain, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
+import type { PluginCertificateResultService } from '../../plugins/results/plugin-certificate-result.service.js';
 
 type ContinuationRunner = (input: { runId: string; tenantId: string; actorId: string }) => Promise<unknown>;
 type RollbackRunner = (input: { runId: string; tenantId: string; actorId: string }) => Promise<unknown>;
@@ -26,6 +27,7 @@ export class ExecutionResultSyncService {
     private readonly bindings: BindingsApplicationService,
     private readonly deploymentPlans?: DeploymentPlansRepository,
     private readonly detailStream?: ExecutionDetailStreamService,
+    private readonly pluginCertificateResults?: PluginCertificateResultService,
   ) {}
 
   setContinuationRunner(runner: ContinuationRunner): void {
@@ -438,7 +440,37 @@ export class ExecutionResultSyncService {
     await this.captureSnapshots(input, binding, assetBinding, siteAsset, managedTarget, detail, resultState);
     await this.writeBindingState(input, step, binding, detail, resultState);
     await this.writeAssetState(input, assetBinding, siteAsset, managedTarget, detail, resultState);
+    await this.writePluginCertificateResult(input, binding, resultState);
     return resultState;
+  }
+
+  private async writePluginCertificateResult(
+    input: { tenantId: string; executionRunId: string; executionStepId: string },
+    binding: CertificateBindingDto,
+    resultState: ResultState,
+  ): Promise<void> {
+    if (!this.pluginCertificateResults) return;
+    const pluginDeviceAssetId = readString(binding.metadata, 'pluginDeviceAssetId');
+    const bindingStableKey = readString(binding.metadata, 'pluginDiscoveryStableKey');
+    if (!pluginDeviceAssetId || !bindingStableKey) return;
+    const updated = await this.bindings.getRepository().getCertificateBinding(input.tenantId, binding.id);
+    if (!updated) return;
+    const observedFingerprintSha256 = updated.observedFingerprintSha256 ?? updated.remoteEndpointFingerprint;
+    const status = resultState.kind === 'DEPLOY_SUCCESS' ? 'VERIFIED' : resultState.kind === 'DEPLOY_FAILED_ROLLED_BACK' ? 'ROLLED_BACK' : 'FAILED';
+    await this.pluginCertificateResults.applyDeploymentResult(input.tenantId, pluginDeviceAssetId, {
+      apiVersion: 'gcac.certificate-deploy-result/v1',
+      bindingStableKey,
+      status,
+      observedFingerprintSha256,
+      certificateVersionId: status === 'VERIFIED' ? updated.certificateVersionId : undefined,
+      rollbackCertificateVersionId: status === 'ROLLED_BACK' ? updated.certificateVersionId : undefined,
+      verifiedAt: new Date().toISOString(),
+      evidence: {
+        executionRunId: input.executionRunId,
+        executionStepId: input.executionStepId,
+        certificateBindingId: binding.id,
+      },
+    });
   }
 
   private async syncWorkflowDeploymentAssets(

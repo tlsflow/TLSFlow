@@ -1,6 +1,5 @@
 export type AgentPluginPlatform = 'WINDOWS' | 'LINUX';
 export type AgentPluginStage = 'prepare' | 'backup' | 'install' | 'refresh' | 'verify' | 'rollback';
-export type AgentPluginMountStatus = 'PENDING_SYNC' | 'MOUNTED' | 'INCOMPATIBLE' | 'PENDING_APPROVAL' | 'DISABLED';
 
 export type ExecutionVariableType = 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'file' | 'certificate' | 'credential';
 
@@ -89,24 +88,7 @@ export interface AgentDeploymentPluginManifestV1 {
   rollback?: AgentPluginOperation[];
 }
 
-export interface AgentPluginPackageRecord {
-  id: string;
-  tenantId: string;
-  manifest: AgentDeploymentPluginManifestV1;
-  packageHash: string;
-  expectedHash?: string;
-  signature?: string;
-  signatureStatus: 'trusted' | 'untrusted' | 'missing' | 'invalid';
-  installStatus: 'pending_approval' | 'installed_disabled' | 'enabled' | 'disabled' | 'quarantined';
-  permissionApprovalStatus: 'not_required' | 'pending' | 'approved' | 'rejected';
-  approvedPermissions: string[];
-  storageKey: string;
-  uploadedAt: string;
-  updatedAt: string;
-  catalogEnabled?: boolean;
-}
-
-export type PluginCatalogActivationType = 'WORKFLOW_TEMPLATE' | 'AGENT_DEPLOYMENT';
+export type PluginCatalogActivationType = 'WORKFLOW_TEMPLATE';
 
 export interface PluginCatalogActivationRecord {
   id: string;
@@ -116,64 +98,6 @@ export interface PluginCatalogActivationRecord {
   status: 'enabled' | 'disabled';
   enabledAt?: string;
   updatedAt: string;
-}
-
-export interface AgentPluginPackageUploadInput {
-  manifest: AgentDeploymentPluginManifestV1;
-  packageContent: string;
-  expectedHash?: string;
-  signature?: string;
-}
-
-export interface AgentPluginMount {
-  id: string;
-  tenantId: string;
-  agentId: string;
-  pluginPackageId: string;
-  pluginVersionId: string;
-  packageHash: string;
-  status: AgentPluginMountStatus;
-  compatibilitySnapshot: Record<string, unknown>;
-  permissionSnapshot: Record<string, unknown>;
-  mountedAt?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface CreateAgentPluginMountInput {
-  agentId: string;
-  pluginPackageId: string;
-}
-
-export interface PluginCatalogItem {
-  id: string;
-  catalogType: 'WORKFLOW_TEMPLATE' | 'AGENT_DEPLOYMENT';
-  source: 'BUILTIN' | 'USER' | 'PACKAGE';
-  name: string;
-  displayName?: string;
-  description?: string;
-  version?: string;
-  status: string;
-  platforms: AgentPluginPlatform[];
-  tags: string[];
-  updatedAt: string;
-  detailRef: {
-    workflowFileTemplateId?: string;
-    pluginPackageId?: string;
-    pluginVersionId?: string;
-  };
-}
-
-export interface AgentPluginBindingInput {
-  mountId?: string;
-  pluginPackageId: string;
-  pluginVersionId: string;
-  variableBindings: Record<string, unknown>;
-  secretBindings: Record<string, string>;
-  certificateArtifactBindings: Record<string, {
-    certificateFormatId: string;
-    outputBindings: Record<string, string>;
-  }>;
 }
 
 export interface ResolvedAgentAtomicOperation extends AgentPluginOperation {

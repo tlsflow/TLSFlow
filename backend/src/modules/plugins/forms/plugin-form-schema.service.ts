@@ -42,6 +42,14 @@ export class PluginFormSchemaService {
     const sensitive = item.sensitive === undefined ? standard?.sensitive ?? false : booleanValue(item.sensitive, `${path}.sensitive`);
     if (standard?.sensitive && sensitive !== true) fail(`${path}.sensitive`, '标准 Secret 字段不能取消敏感标记', { standardField });
     if (type === 'password') fail(`${path}.type`, '插件不能直接接收明文密码，请使用 secret_ref');
+    const acceptedCredentialKinds = optionalEnumArray(item.acceptedCredentialKinds, ['USERNAME_PASSWORD', 'SSH_KEY', 'BEARER_TOKEN', 'API_KEY', 'CLIENT_CERTIFICATE'] as const, `${path}.acceptedCredentialKinds`);
+    const acceptedSecretTypes = optionalEnumArray(item.acceptedSecretTypes, ['password', 'api_token', 'ssh_key', 'private_key', 'certificate_private_key', 'ca_certificate'] as const, `${path}.acceptedSecretTypes`);
+    const acceptedScopes = optionalEnumArray(item.acceptedScopes, ['global', 'team', 'zone', 'host', 'plugin'] as const, `${path}.acceptedScopes`);
+    const purpose = optionalText(item.purpose, `${path}.purpose`);
+    if (type === 'credential_ref' && (!acceptedCredentialKinds || acceptedCredentialKinds.length === 0)) fail(`${path}.acceptedCredentialKinds`, 'credential_ref 必须声明可接受的凭据类型');
+    if (type === 'credential_ref' && !purpose) fail(`${path}.purpose`, 'credential_ref 必须声明用途');
+    if (type !== 'credential_ref' && acceptedCredentialKinds) fail(`${path}.acceptedCredentialKinds`, '只有 credential_ref 可以声明凭据类型');
+    if (type !== 'secret_ref' && acceptedSecretTypes) fail(`${path}.acceptedSecretTypes`, '只有 secret_ref 可以声明 Secret 类型');
     const optionProviderAction = optionalText(item.optionProviderAction, `${path}.optionProviderAction`);
     if (optionProviderAction) {
       const capability = capabilities.find((candidate) => candidate.actionContractId === optionProviderAction);
@@ -69,6 +77,10 @@ export class PluginFormSchemaService {
         };
       }),
       optionProviderAction,
+      acceptedCredentialKinds,
+      acceptedSecretTypes,
+      acceptedScopes,
+      purpose,
       sensitive,
       defaultValue: standard?.defaultValue ?? item.defaultValue,
     };
@@ -114,4 +126,5 @@ function localeKey(input: unknown, path: string): string { const value = text(in
 function optionalLocaleKey(input: unknown, path: string): string | undefined { return input === undefined ? undefined : localeKey(input, path); }
 function booleanValue(input: unknown, path: string): boolean { if (typeof input !== 'boolean') fail(path, '必须是布尔值'); return input; }
 function enumValue<T extends string>(input: unknown, values: readonly T[], path: string): T { if (typeof input !== 'string' || !values.includes(input as T)) fail(path, `必须是 ${values.join('、')} 之一`); return input as T; }
+function optionalEnumArray<T extends string>(input: unknown, values: readonly T[], path: string): T[] | undefined { return input === undefined ? undefined : array(input, path).map((value, index) => enumValue(value, values, `${path}.${index}`)); }
 function fail(path: string, message: string, details: Record<string, unknown> = {}): never { throw new AppError('VALIDATION_FAILED', `插件表单 Schema 无效：${message}`, { code: 'PLUGIN_FORM_SCHEMA_INVALID', path, ...details }); }
