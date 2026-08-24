@@ -31,6 +31,7 @@ import { PgBindingsRepository } from './modules/bindings/repository/bindings.rep
 import { CertificatesController, createCertificateServices, getCertificateRouteContracts, type CertificateServices } from './modules/certificates/index.js';
 import {
   AcmeAccountService,
+  AcmeCertificateService,
   AcmeChallengeService,
   AcmeOrderService,
   AcmeProviderAdapter,
@@ -101,6 +102,9 @@ import { PgDocumentRepository } from './persistence/repositories/pg-document-rep
 import { createDeploymentPersistenceRepositories, type DeploymentPersistenceOptions } from './persistence/repositories/deployment-persistence-factory.js';
 import { AutomationsApplicationService, AutomationConfiguredActionExecutor, AutomationDeploymentActionService, AutomationNotificationActionService, AutomationRunCoordinator, AutomationScheduler, AutomationTargetSelector, AutomationsController, AutomationsRepository, DeploymentPlansAutomationAdapter, FakeNotificationPort, getAutomationRouteContracts } from './modules/automations/index.js';
 import { createDefaultLicensingService, getLicensingRouteContracts, LicensingController } from './modules/licensing/index.js';
+import { PostgresHttp01Responder } from './modules/internal-ca/challenges/postgres-http-01.responder.js';
+import { Http01ChallengeAdapter } from './modules/internal-ca/challenges/http-01.adapter.js';
+import { CertbotDnsIssuer } from './modules/internal-ca/providers/certbot-dns-issuer.js';
 
 export interface AppDependencies {
   db?: DatabasePort;
@@ -125,6 +129,12 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const appDb = dependencies.db ?? new PgliteDatabase();
   app.setResource('database', appDb);
   const security = dependencies.security ?? createPersistedSecurityServices(appDb).services;
+  const credentialsService = new CredentialsApplicationService(
+    new CredentialsRepository(appDb),
+    undefined,
+    appDb,
+    security.secrets,
+  );
   const licensingService = createDefaultLicensingService(appDb, security.audit);
   app.setResource('licensingService', licensingService);
   const gatewayPersistence = createGatewayPersistenceRepositories({
@@ -141,6 +151,14 @@ export function createApp(dependencies: AppDependencies = {}): App {
   });
   const acmeRepository = new AcmeRepository(appDb);
   const acmeProvider = new AcmeProviderAdapter(security.secrets);
+  const http01Responder = new PostgresHttp01Responder(appDb);
+  app.router.get('/.well-known/acme-challenge/:token', '返回 ACME HTTP-01 Challenge', ['ACME'], async (request) => {
+    const token = request.path.split('/').filter(Boolean).at(-1) ?? '';
+    const keyAuthorization = await http01Responder.read(token);
+    return keyAuthorization
+      ? { headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }, body: keyAuthorization }
+      : { statusCode: 404, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }, body: 'Not Found' };
+  });
   const acmeAccountService = new AcmeAccountService(
     acmeRepository,
     internalCaService.getRepository(),
@@ -156,6 +174,13 @@ export function createApp(dependencies: AppDependencies = {}): App {
     repository: acmeRepository,
     caRepository: internalCaService.getRepository(),
     provider: acmeProvider,
+    adapters: {
+      'http-01': new Http01ChallengeAdapter(http01Responder),
+    },
+  });
+  const certbotDnsIssuer = new CertbotDnsIssuer({
+    credentials: credentialsService,
+    secrets: security.secrets,
   });
   const acmeRenewalPolicyService = new AcmeRenewalPolicyService(
     acmeRepository,
@@ -349,7 +374,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     certificates: certificateServices.certificates.getRepository(),
   })).register(app.router);
   new LicensingController(licensingService).register(app.router);
-  new CredentialsController(new CredentialsApplicationService(new CredentialsRepository(appDb), undefined, appDb, security.secrets), security).register(app.router);
+  new CredentialsController(credentialsService, security).register(app.router);
   const executionsService = deploymentPlans.getExecutionsService();
   app.setResource('deploymentPlansController', deploymentPlans);
   app.setResource('deploymentPlansService', deploymentPlans.getApplicationService());
@@ -379,10 +404,18 @@ export function createApp(dependencies: AppDependencies = {}): App {
     deployments: deploymentPlans.getApplicationService(),
     executions: executionsService,
     promotion: acmePromotionService,
+    certbot: certbotDnsIssuer,
     leaseOwner: `acme-renewal-worker-${process.pid}`,
   });
   const acmeServices = {
     accounts: acmeAccountService,
+    certificates: new AcmeCertificateService(
+      certificateServices.certificates,
+      internalCaService.getRepository(),
+      acmeRepository,
+      acmeRenewalPolicyService,
+      credentialsService,
+    ),
     orders: acmeOrderService,
     policies: acmeRenewalPolicyService,
     repository: acmeRepository,

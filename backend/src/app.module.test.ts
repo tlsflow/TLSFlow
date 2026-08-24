@@ -7,6 +7,37 @@ import type { UnifiedPluginVersionRecord } from './modules/plugins/dto/unified-p
 import type { PluginWorkflowPublisherService } from './modules/plugins/application/plugin-workflow-publisher.service.js';
 import { BuiltinUnifiedPluginLoader } from './modules/plugins/builtin-plugins/builtin-unified-plugin-loader.js';
 import type { UnifiedPluginsApplicationService } from './modules/plugins/application/unified-plugins.application-service.js';
+import { createHash } from 'node:crypto';
+import { PgliteDatabase } from './database/pglite-database.js';
+import { runMigrations } from './database/migration-runner.js';
+import { createApp } from './app.module.js';
+
+test('公开 HTTP-01 路由返回共享存储中的 key authorization', async () => {
+  const db = new PgliteDatabase();
+  await runMigrations(db);
+  const token = 'route-test-token';
+  await db.query(
+    `insert into pg_acme_http01_presentations (
+       token_sha256, tenant_id, identifier, key_authorization, presentation_id, expires_at, created_at, updated_at
+     ) values ($1, $2, $3, $4, $5, now() + interval '5 minutes', now(), now())`,
+    [
+      createHash('sha256').update(token).digest('hex'),
+      'tenant-route-test',
+      'example.com',
+      'route-test-token.thumbprint',
+      'presentation-route-test',
+    ],
+  );
+
+  const app = createApp({ db, corePersistence: { mode: 'memory' } });
+  const response = await app.inject({
+    method: 'GET',
+    path: `/.well-known/acme-challenge/${token}`,
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body, 'route-test-token.thumbprint');
+});
 
 test('内置插件 Workflow 发布和兼容升级失败时启动初始化仍继续', async () => {
   const plugins = [

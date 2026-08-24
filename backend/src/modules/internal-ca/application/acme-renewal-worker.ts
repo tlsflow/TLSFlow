@@ -11,6 +11,7 @@ import type { CertificateRequestEntity } from '../schema/internal-ca.schema.js';
 import { AcmeChallengeService } from './acme-challenge.service.js';
 import { AcmeOrderService } from './acme-order.service.js';
 import { CertificatePromotionService } from './certificate-promotion.service.js';
+import type { CertbotDnsIssuer } from '../providers/certbot-dns-issuer.js';
 
 export interface AcmeRenewalWorkerDependencies {
   repository: AcmeRepository;
@@ -21,6 +22,7 @@ export interface AcmeRenewalWorkerDependencies {
   deployments?: DeploymentPlansApplicationService;
   executions?: ExecutionsApplicationService;
   promotion?: CertificatePromotionService;
+  certbot?: CertbotDnsIssuer;
   leaseOwner: string;
   now?: () => Date;
 }
@@ -104,6 +106,58 @@ export class AcmeRenewalWorker {
       current = await this.saveJob({ ...current, certificateRequestId: request.id, status: 'issuing' });
     }
 
+    if (!issuedRequest) {
+      if (policy.challengeType === 'dns-01') {
+        if (!this.dependencies.certbot) {
+          throw new AppError('ACME_DEPLOYMENT_BLOCKED', 'DNS-01 Certbot 执行器未接入');
+        }
+        const dnsProvider = textValue(policy.maintenanceWindow?.dnsProvider);
+        const dnsCredentialId = textValue(policy.maintenanceWindow?.dnsCredentialId);
+        const contactEmail = textValue(policy.maintenanceWindow?.contactEmail);
+        const propagationSeconds = numberValue(policy.maintenanceWindow?.dnsPropagationSeconds);
+        if (!dnsProvider || !dnsCredentialId || !contactEmail) {
+          throw new AppError('ACME_RENEWAL_FAILED', 'DNS-01 策略缺少 Certbot 所需配置');
+        }
+        const provider = await this.dependencies.internalCa.getRepository().getProvider(job.tenantId, policy.providerId);
+        if (!provider || provider.type !== 'acme') {
+          throw new AppError('RESOURCE_NOT_FOUND', 'ACME Provider 不存在', { providerId: policy.providerId });
+        }
+        const issuanceRequest = await this.dependencies.internalCa.getRepository().getRequest(job.tenantId, requestId!);
+        if (!issuanceRequest) {
+          throw new AppError('ACME_RENEWAL_FAILED', 'DNS-01 续签缺少待签发证书申请');
+        }
+        const material = await this.dependencies.certbot.issue({
+          tenantId: job.tenantId,
+          jobId: job.id,
+          request: issuanceRequest,
+          provider,
+          dnsProviderId: dnsProvider,
+          dnsCredentialId,
+          contactEmail,
+          ...(propagationSeconds === undefined ? {} : { propagationSeconds }),
+          actorId,
+        });
+        issuedRequest = await this.dependencies.internalCa.importAcmeCertificate(
+          job.tenantId,
+          requestId!,
+          material,
+          `certbot:${job.id}`,
+          actorId,
+          context,
+        );
+        if (!issuedRequest.certificateVersionId) {
+          throw new AppError('ACME_RENEWAL_FAILED', 'Certbot 签发结果缺少证书版本');
+        }
+        current = await this.saveJob({
+          ...current,
+          certificateRequestId: issuedRequest.id,
+          certificateVersionId: issuedRequest.certificateVersionId,
+          status: 'deploying',
+          promotionStatus: 'pending',
+          nextAttemptAt: undefined,
+        });
+      }
+    }
     if (!issuedRequest) {
       let order = current.acmeOrderId
         ? await this.dependencies.orders.getEntity(job.tenantId, current.acmeOrderId)
@@ -301,4 +355,12 @@ function readVerification(input: Record<string, unknown>): { success: true; cert
   return source.success === true && typeof fingerprint === 'string' && fingerprint.trim()
     ? { success: true, certificateFingerprintSha256: fingerprint.trim() }
     : undefined;
+}
+
+function textValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) ? value : undefined;
 }

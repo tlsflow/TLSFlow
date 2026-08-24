@@ -8,6 +8,7 @@ import type { ApprovalService } from '../../approvals/approval.service.js';
 import type { CertificatesApplicationService } from '../../certificates/application/certificates.application-service.js';
 import type { SecretService } from '../../secrets/secret.service.js';
 import { CaProviderRegistry, createDefaultCaProviderRegistry, type CaIssuanceResult } from '../providers/ca-provider.js';
+import { getAcmeProviderPreset, isAcmeProviderPresetKey, listAcmeProviderPresets, type AcmeProviderPresetKey } from '../providers/acme-provider.catalog.js';
 import { OpenSslCa } from '../providers/openssl-ca.js';
 import { InternalCaRepository } from '../repository/internal-ca.repository.js';
 import { CaNodeTaskChannel, type CaNodeTaskNotificationListener } from './ca-node-task-channel.js';
@@ -45,6 +46,8 @@ import type {
   KeyReferenceEntity,
   TrustDistributionEntity,
 } from '../schema/internal-ca.schema.js';
+import { AcmeDomainService } from '../domain/acme.domain-service.js';
+import type { AcmeChallengeType, AcmeProviderConfiguration } from '../schema/acme.schema.js';
 
 type CaNodePlatform = 'windows' | 'linux';
 
@@ -70,6 +73,17 @@ export interface CreateCaProviderInput {
   endpoint?: string;
   credentialSecretRef?: string;
   configuration?: Record<string, unknown>;
+}
+
+export interface AcmeProviderConfigurationInput {
+  name: string;
+  preset?: AcmeProviderPresetKey;
+  directoryUrl: string;
+  allowedChallenges?: AcmeChallengeType[];
+  requestTimeoutMs?: number;
+  termsOfServiceUrl?: string;
+  termsOfServiceAgreed?: boolean;
+  isDefault?: boolean;
 }
 
 export interface AdcsDiscoveryInput {
@@ -222,6 +236,156 @@ export class InternalCaApplicationService {
       ...provider,
       capabilityRecords: await this.listCapabilityRecords(tenantId, 'provider', provider.id),
     })));
+  }
+
+  async listAcmeProviderSettings(tenantId: string): Promise<{
+    items: Array<Omit<CaProviderEntity, 'credentialSecretRef'>>;
+    presets: ReturnType<typeof listAcmeProviderPresets>;
+  }> {
+    await this.ensureBuiltinAcmeProvider(tenantId);
+    const providers = await this.repository.listProviders(tenantId);
+    const items = await Promise.all(
+      providers
+        .filter((provider) => provider.type === 'acme')
+        .map(async (provider) => sanitizeProvider({
+          ...provider,
+          capabilityRecords: await this.listCapabilityRecords(tenantId, 'provider', provider.id),
+        })),
+    );
+    return { items, presets: listAcmeProviderPresets() };
+  }
+
+  /**
+   * 新租户默认拥有 Let's Encrypt Provider，用户不需要先创建一条看似“配置”的记录。
+   * 这里按租户懒初始化，避免新增迁移，也能覆盖运行期新建的租户。
+   */
+  async ensureBuiltinAcmeProvider(tenantId: string, actorId = 'system'): Promise<CaProviderEntity> {
+    const providers = await this.repository.listProviders(tenantId);
+    const activeAcmeProviders = providers.filter((provider) => provider.type === 'acme' && provider.status === 'active');
+    if (activeAcmeProviders.length > 0) {
+      return activeAcmeProviders.find((provider) => provider.configuration?.isDefault === true) ?? activeAcmeProviders[0];
+    }
+
+    const existingBuiltin = providers.find((provider) => provider.type === 'acme' && (
+      provider.configuration?.isBuiltIn === true
+      || provider.configuration?.preset === 'letsencrypt'
+      || provider.endpoint === 'https://acme-v02.api.letsencrypt.org/directory'
+    ));
+    if (existingBuiltin) {
+      const restored: CaProviderEntity = {
+        ...existingBuiltin,
+        status: 'active',
+        endpoint: 'https://acme-v02.api.letsencrypt.org/directory',
+        configuration: {
+          ...existingBuiltin.configuration,
+          preset: 'letsencrypt',
+          directoryUrl: 'https://acme-v02.api.letsencrypt.org/directory',
+          allowedChallenges: ['http-01', 'dns-01'],
+          requestTimeoutMs: 15_000,
+          verifyTls: true,
+          isDefault: true,
+          isBuiltIn: true,
+        },
+        updatedAt: new Date().toISOString(),
+      };
+      await this.repository.saveProvider(restored);
+      return restored;
+    }
+
+    const provider = await this.createProvider(tenantId, {
+      name: "Let's Encrypt",
+      type: 'acme',
+      deploymentMode: 'external',
+      runtimePlatform: 'external',
+      availabilityMode: 'single',
+      endpoint: 'https://acme-v02.api.letsencrypt.org/directory',
+      configuration: {
+        preset: 'letsencrypt',
+        directoryUrl: 'https://acme-v02.api.letsencrypt.org/directory',
+        allowedChallenges: ['http-01', 'dns-01'],
+        requestTimeoutMs: 15_000,
+        verifyTls: true,
+        isDefault: true,
+        isBuiltIn: true,
+      },
+    }, actorId);
+    await this.setDefaultAcmeProvider(tenantId, provider.id, actorId);
+    return this.requireProvider(tenantId, provider.id);
+  }
+
+  async createAcmeProvider(
+    tenantId: string,
+    input: AcmeProviderConfigurationInput,
+    actorId: string,
+    context?: RequestContext,
+  ): Promise<Omit<CaProviderEntity, 'credentialSecretRef'>> {
+    const configuration = normalizeAcmeProviderConfiguration(input);
+    const existing = await this.repository.listProviders(tenantId);
+    if (!existing.some((item) => item.type === 'acme' && item.status === 'active') && configuration.preset !== 'letsencrypt') {
+      await this.ensureBuiltinAcmeProvider(tenantId, actorId);
+    }
+    const provider = await this.createProvider(tenantId, {
+      name: input.name,
+      type: 'acme',
+      deploymentMode: 'external',
+      runtimePlatform: 'external',
+      availabilityMode: 'single',
+      endpoint: configuration.directoryUrl,
+      configuration: { ...configuration },
+    }, actorId, context);
+    if (configuration.isDefault || !existing.some((item) => item.type === 'acme' && item.status === 'active')) {
+      await this.setDefaultAcmeProvider(tenantId, provider.id, actorId, context);
+      return sanitizeProvider(await this.requireProvider(tenantId, provider.id));
+    }
+    return provider;
+  }
+
+  async updateAcmeProvider(
+    tenantId: string,
+    providerId: string,
+    input: AcmeProviderConfigurationInput,
+    actorId: string,
+    context?: RequestContext,
+  ): Promise<Omit<CaProviderEntity, 'credentialSecretRef'>> {
+    const current = await this.requireProvider(tenantId, providerId);
+    if (current.type !== 'acme') throw new AppError('CA_TOPOLOGY_INVALID', '当前 Provider 不是 ACME Provider', { providerId });
+    const configuration = normalizeAcmeProviderConfiguration(input, current.configuration);
+    const updated: CaProviderEntity = {
+      ...current,
+      name: requiredText(input.name, 'name'),
+      endpoint: configuration.directoryUrl,
+      configuration: { ...configuration },
+      updatedAt: new Date().toISOString(),
+    };
+    new AcmeDomainService().validateProviderConfiguration({ ...configuration });
+    await this.repository.saveProvider(updated);
+    if (configuration.isDefault) await this.setDefaultAcmeProvider(tenantId, providerId, actorId, context);
+    await this.audit('internal_ca.acme_provider.updated', actorId, 'ca_provider.update', 'ca_provider', providerId, 'high', context, {
+      preset: configuration.preset,
+      directoryUrl: configuration.directoryUrl,
+      isDefault: configuration.isDefault === true,
+    });
+    return sanitizeProvider(await this.requireProvider(tenantId, providerId));
+  }
+
+  private async setDefaultAcmeProvider(
+    tenantId: string,
+    providerId: string,
+    actorId: string,
+    context?: RequestContext,
+  ): Promise<void> {
+    const providers = await this.repository.listProviders(tenantId);
+    const now = new Date().toISOString();
+    for (const provider of providers) {
+      if (provider.type !== 'acme') continue;
+      const configuration = { ...provider.configuration, isDefault: provider.id === providerId };
+      if (provider.id === providerId || provider.configuration.isDefault === true) {
+        await this.repository.saveProvider({ ...provider, configuration, updatedAt: now });
+      }
+    }
+    await this.audit('internal_ca.acme_provider.default_changed', actorId, 'ca_provider.update', 'ca_provider', providerId, 'high', context, {
+      isDefault: true,
+    });
   }
 
   async createProvider(tenantId: string, input: CreateCaProviderInput, actorId: string, context?: RequestContext): Promise<Omit<CaProviderEntity, 'credentialSecretRef'>> {
@@ -1751,6 +1915,33 @@ function assertProviderCombination(provider: CaProviderEntity): void {
   if (provider.deploymentMode === 'builtin' && provider.type !== 'gcac_builtin') throw new AppError('CA_TOPOLOGY_INVALID', '内置部署必须使用 gcac_builtin Provider');
   if (provider.deploymentMode === 'managed_node' && provider.type !== 'gcac_managed_node') throw new AppError('CA_TOPOLOGY_INVALID', '独立节点部署必须使用 gcac_managed_node Provider');
   if (provider.deploymentMode === 'external' && ['gcac_builtin', 'gcac_managed_node'].includes(provider.type)) throw new AppError('CA_TOPOLOGY_INVALID', '外部部署不能使用 GCAC 内置 Provider');
+}
+
+function normalizeAcmeProviderConfiguration(
+  input: AcmeProviderConfigurationInput,
+  current: Record<string, unknown> = {},
+): AcmeProviderConfiguration {
+  const preset = input.preset ?? (typeof current.preset === 'string' ? current.preset : 'custom');
+  if (!isAcmeProviderPresetKey(preset)) throw new AppError('ACME_PROVIDER_CONFIG_INVALID', 'ACME Provider 预置类型无效');
+  const presetDefinition = getAcmeProviderPreset(preset);
+  const directoryUrl = requiredText(input.directoryUrl, 'directoryUrl');
+  const allowedChallenges = input.allowedChallenges?.length
+    ? [...new Set(input.allowedChallenges)]
+    : (presetDefinition?.defaultAllowedChallenges ?? ['http-01', 'dns-01']);
+  const configuration = {
+    ...current,
+    preset,
+    directoryUrl,
+    allowedChallenges,
+    requestTimeoutMs: input.requestTimeoutMs ?? Number(current.requestTimeoutMs ?? 15_000),
+    verifyTls: true,
+    termsOfServiceUrl: optionalText(input.termsOfServiceUrl) ?? textValue(current.termsOfServiceUrl),
+    termsOfServiceAgreed: input.termsOfServiceAgreed === true || current.termsOfServiceAgreed === true,
+    isDefault: input.isDefault === true,
+    isBuiltIn: current.isBuiltIn === true,
+  };
+  new AcmeDomainService().validateProviderConfiguration(configuration);
+  return configuration;
 }
 
 function buildKeyReference(input: { id: string; tenantId: string; ownerId: string; secretRef: string; fingerprint: string; backendType: KeyBackendType }): KeyReferenceEntity {

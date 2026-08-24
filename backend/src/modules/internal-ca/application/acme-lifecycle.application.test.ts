@@ -258,6 +258,98 @@ test('ACME Renewal Worker 失败时按策略退避并释放租约，旧证书不
   assert.equal(result[0]?.nextAttemptAt, '2026-08-05T00:05:00.000Z');
 });
 
+test('ACME Renewal Worker 的 DNS-01 使用本次续签生成的 CSR 交给 Certbot', async () => {
+  let currentJob: AcmeRenewalJobEntity = renewalJobEntity();
+  const sourceRequest = {
+    ...requestEntity(),
+    id: 'request-acme-source',
+    status: 'issued' as const,
+    certificateVersionId: 'version-acme-old',
+    csrPem: 'SOURCE CSR',
+  };
+  const renewedRequest = {
+    ...requestEntity(),
+    id: 'request-acme-renewed',
+    status: 'approved' as const,
+    certificateVersionId: undefined,
+    csrPem: 'RENEWED CSR',
+  };
+  let certbotRequest: CertificateRequestEntity | undefined;
+  const policy = {
+    ...policyEntity(),
+    challengeType: 'dns-01' as const,
+    maintenanceWindow: {
+      dnsProvider: 'cloudflare',
+      dnsCredentialId: 'credential-cloudflare',
+      contactEmail: 'ops@example.com',
+    },
+  };
+  const repository = {
+    listDueRenewalJobs: async () => [currentJob],
+    claimRenewalJob: async () => currentJob,
+    getPolicy: async () => policy,
+    getRenewalJob: async () => currentJob,
+    saveRenewalJob: async (entity: AcmeRenewalJobEntity) => {
+      currentJob = structuredClone(entity);
+      return currentJob;
+    },
+  };
+  const internalCa = {
+    getRepository: () => ({
+      getIssuanceByCertificateVersion: async () => ({ certificateRequestId: sourceRequest.id }),
+      getRequest: async (_tenantId: string, requestId: string) => requestId === sourceRequest.id ? sourceRequest : renewedRequest,
+      getKeyReference: async () => ({
+        id: 'key-acme-source',
+        custodyMode: 'managed_secret',
+        secretRef: 'secret://private_key/source#current',
+        backendType: 'secret',
+        exportability: 'exportable',
+        evidence: {},
+      }),
+      getProvider: async () => providerEntity(),
+    }),
+    createCertificateRequest: async () => renewedRequest,
+    importAcmeCertificate: async () => ({
+      ...renewedRequest,
+      status: 'issued' as const,
+      certificateVersionId: 'version-acme-renewed',
+    }),
+  };
+  const worker = new AcmeRenewalWorker({
+    repository: repository as unknown as AcmeRepository,
+    certificates: {} as never,
+    internalCa: internalCa as never,
+    orders: {} as never,
+    challenges: {} as never,
+    certbot: {
+      issue: async (input: { request: CertificateRequestEntity }) => {
+        certbotRequest = input.request;
+        return {
+          certificatePem: 'CERTIFICATE',
+          certificateChainPem: 'FULLCHAIN',
+          certificateUrl: 'certbot://renewal-acme-application',
+        };
+      },
+    } as never,
+    deployments: {
+      createFromApplicationAsset: async () => ({ id: 'plan-acme-renewed' }),
+      get: async () => ({ id: 'plan-acme-renewed', status: 'SUCCESS' }),
+      execute: async () => ({ run: { id: 'run-acme-renewed' } }),
+    } as never,
+    executions: {} as never,
+    promotion: {} as never,
+    leaseOwner: 'worker-acme',
+    now: () => new Date(now),
+  });
+
+  const result = await worker.runOnce(1, 'worker-acme');
+
+  assert.equal(result[0]?.status, 'verifying');
+  assert.equal(certbotRequest?.id, renewedRequest.id);
+  assert.equal(certbotRequest?.csrPem, 'RENEWED CSR');
+  assert.notEqual(certbotRequest?.csrPem, sourceRequest.csrPem);
+});
+
 test('ACME Renewal Scheduler 支持按 Binding 当前版本创建续签任务', async () => {
   const policy = {
     ...policyEntity(),

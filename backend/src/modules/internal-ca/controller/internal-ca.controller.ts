@@ -12,6 +12,7 @@ import type { CaOperationsRecordQueryDto } from '../dto/ca-operations.dto.js';
 import type { CreateCaSyncRunsDto } from '../dto/ca-operations.dto.js';
 import type {
   CreateAuthorityInput,
+  AcmeProviderConfigurationInput,
   CreateCaProviderInput,
   CreateCaTrustDomainInput,
   CreateCertificateRequestInput,
@@ -21,17 +22,20 @@ import type {
   UpdateCaTrustDomainInput,
 } from '../application/internal-ca.application-service.js';
 import type { AcmeAccountService } from '../application/acme-account.service.js';
+import type { AcmeCertificateService } from '../application/acme-certificate.service.js';
 import type { AcmeOrderService } from '../application/acme-order.service.js';
 import type { AcmeRenewalPolicyService } from '../application/acme-renewal-policy.service.js';
 import type { AcmeRenewalScheduler } from '../application/acme-renewal-scheduler.js';
 import type { AcmeRenewalWorker } from '../application/acme-renewal-worker.js';
 import type { AcmeRepository } from '../repository/acme.repository.js';
 import type { CertificatePromotionService } from '../application/certificate-promotion.service.js';
+import { listAcmeDnsProviders } from '../providers/acme-dns-provider.registry.js';
 
 const tags = ['Internal CA'];
 
 export interface InternalCaAcmeServices {
   accounts: AcmeAccountService;
+  certificates: AcmeCertificateService;
   orders: AcmeOrderService;
   policies: AcmeRenewalPolicyService;
   repository: AcmeRepository;
@@ -77,6 +81,12 @@ export class InternalCaController {
     router.get('/api/v1/acme/accounts', '查询 ACME Account', tags, (request) => this.listAcmeAccounts(request));
     router.post('/api/v1/acme/accounts', '创建 ACME Account', tags, (request) => this.createAcmeAccount(request));
     router.get('/api/v1/acme/accounts/:id', '查询 ACME Account 详情', tags, (request) => this.getAcmeAccount(request));
+    router.get('/api/v1/acme/providers', '查询 ACME 颁发者配置', tags, (request) => this.listAcmeProviderSettings(request));
+    router.post('/api/v1/acme/providers', '创建 ACME 颁发者配置', tags, (request) => this.createAcmeProvider(request));
+    router.patch('/api/v1/acme/providers/:id', '更新 ACME 颁发者配置', tags, (request) => this.updateAcmeProvider(request));
+    router.post('/api/v1/acme/providers/:id/test', '测试 ACME 颁发者连接', tags, (request) => this.testAcmeProvider(request));
+    router.get('/api/v1/acme/dns-providers', '查询 ACME DNS 提供商', tags, (request) => this.listAcmeDnsProviders(request));
+    router.post('/api/v1/acme/certificates', '创建简化 ACME 证书配置', tags, (request) => this.createAcmeCertificate(request));
     router.get('/api/v1/acme/orders', '查询 ACME Order', tags, (request) => this.listAcmeOrders(request));
     router.post('/api/v1/acme/orders', '创建 ACME Order', tags, (request) => this.createAcmeOrder(request));
     router.get('/api/v1/acme/orders/:id', '查询 ACME Order 详情', tags, (request) => this.getAcmeOrder(request));
@@ -349,6 +359,71 @@ export class InternalCaController {
   private async getAcmeAccount(request: HttpRequest) {
     await this.assertRead(request, 'ca_provider');
     return this.requireAcme().accounts.get(tenantId(request), pathId(request));
+  }
+
+  private async listAcmeProviderSettings(request: HttpRequest) {
+    await this.assertRead(request, 'ca_provider');
+    return this.service.listAcmeProviderSettings(tenantId(request));
+  }
+
+  private async createAcmeProvider(request: HttpRequest) {
+    await this.assertManage(request, 'ca_provider');
+    return {
+      statusCode: 201,
+      body: await this.service.createAcmeProvider(
+        tenantId(request),
+        objectBody(request) as unknown as AcmeProviderConfigurationInput,
+        actorId(request),
+        request.context,
+      ),
+    };
+  }
+
+  private async updateAcmeProvider(request: HttpRequest) {
+    await this.assertManage(request, 'ca_provider');
+    return this.service.updateAcmeProvider(
+      tenantId(request),
+      pathId(request),
+      objectBody(request) as unknown as AcmeProviderConfigurationInput,
+      actorId(request),
+      request.context,
+    );
+  }
+
+  private async testAcmeProvider(request: HttpRequest) {
+    await this.assertManage(request, 'ca_provider');
+    return this.service.testProvider(tenantId(request), pathId(request));
+  }
+
+  private async listAcmeDnsProviders(request: HttpRequest) {
+    await this.assertRead(request, 'certificate_request');
+    return listAcmeDnsProviders();
+  }
+
+  private async createAcmeCertificate(request: HttpRequest) {
+    await this.assertManage(request, 'certificate_renewal');
+    const body = objectBody(request);
+    await this.service.ensureBuiltinAcmeProvider(tenantId(request), actorId(request));
+    return {
+      statusCode: 201,
+      body: await this.requireAcme().certificates.create({
+        tenantId: tenantId(request),
+        name: optionalString(body.name),
+        domains: Array.isArray(body.domains) ? body.domains.map(String) : [],
+        contactEmail: requiredString(body, 'contactEmail'),
+        providerId: optionalString(body.providerId),
+        challengeType: requiredString(body, 'challengeType') as never,
+        dnsProvider: optionalString(body.dnsProvider),
+        dnsCredentialId: optionalString(body.dnsCredentialId),
+        dnsCredentialSecretRef: optionalString(body.dnsCredentialSecretRef),
+        dnsPropagationSeconds: optionalNumber(body, 'dnsPropagationSeconds'),
+        keyType: (optionalString(body.keyType) as 'rsa' | 'ecdsa' | undefined),
+        autoRenew: body.autoRenew !== false,
+        renewalWindowDays: optionalNumber(body, 'renewalWindowDays') ?? 7,
+        termsOfServiceAgreed: body.termsOfServiceAgreed === true,
+        actorId: actorId(request),
+      }),
+    };
   }
 
   private async listAcmeOrders(request: HttpRequest) {
@@ -852,6 +927,12 @@ export function getInternalCaRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/acme/accounts', operationId: 'listAcmeAccounts', summary: '查询 ACME Account', tags, responseSchema: arraySchema },
     { method: 'POST', path: '/api/v1/acme/accounts', operationId: 'createAcmeAccount', summary: '创建 ACME Account', tags, responseSchema },
     { method: 'GET', path: '/api/v1/acme/accounts/:id', operationId: 'getAcmeAccount', summary: '查询 ACME Account 详情', tags, responseSchema },
+    { method: 'GET', path: '/api/v1/acme/providers', operationId: 'listAcmeProviderSettings', summary: '查询 ACME 颁发者配置', tags, responseSchema },
+    { method: 'POST', path: '/api/v1/acme/providers', operationId: 'createAcmeProvider', summary: '创建 ACME 颁发者配置', tags, responseSchema },
+    { method: 'PATCH', path: '/api/v1/acme/providers/:id', operationId: 'updateAcmeProvider', summary: '更新 ACME 颁发者配置', tags, responseSchema },
+    { method: 'POST', path: '/api/v1/acme/providers/:id/test', operationId: 'testAcmeProvider', summary: '测试 ACME 颁发者连接', tags, responseSchema },
+    { method: 'GET', path: '/api/v1/acme/dns-providers', operationId: 'listAcmeDnsProviders', summary: '查询 ACME DNS 提供商', tags, responseSchema: arraySchema },
+    { method: 'POST', path: '/api/v1/acme/certificates', operationId: 'createAcmeCertificate', summary: '创建简化 ACME 证书配置', tags, responseSchema },
     { method: 'GET', path: '/api/v1/acme/orders', operationId: 'listAcmeOrders', summary: '查询 ACME Order', tags, responseSchema: arraySchema },
     { method: 'POST', path: '/api/v1/acme/orders', operationId: 'createAcmeOrder', summary: '创建 ACME Order', tags, responseSchema },
     { method: 'GET', path: '/api/v1/acme/orders/:id', operationId: 'getAcmeOrder', summary: '查询 ACME Order 详情', tags, responseSchema },

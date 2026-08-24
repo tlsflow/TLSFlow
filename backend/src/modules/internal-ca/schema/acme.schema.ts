@@ -38,6 +38,10 @@ export interface AcmeProviderConfiguration {
   verifyTls?: boolean;
   userAgent?: string;
   termsOfServiceAgreed?: boolean;
+  preset?: string;
+  termsOfServiceUrl?: string;
+  isDefault?: boolean;
+  isBuiltIn?: boolean;
 }
 
 export interface AcmeAccountEntity {

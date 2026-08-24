@@ -78,6 +78,58 @@ test('创建 CA 信任域未提供 code 时由后端自动生成唯一代码', a
   assert.notEqual(first.code, second.code);
 });
 
+test('ACME Provider 设置支持预置目录、默认切换和配置更新', async () => {
+  const { service } = await createFixture();
+  const tenantId = 'tenant-acme-provider-settings';
+  const actorId = 'user-admin';
+
+  const letsEncrypt = await service.createAcmeProvider(tenantId, {
+    name: "Let's Encrypt",
+    preset: 'letsencrypt',
+    directoryUrl: 'https://acme-v02.api.letsencrypt.org/directory',
+    allowedChallenges: ['http-01', 'dns-01'],
+    isDefault: true,
+  }, actorId);
+  const zeroSsl = await service.createAcmeProvider(tenantId, {
+    name: 'ZeroSSL',
+    preset: 'zerossl',
+    directoryUrl: 'https://acme.zerossl.com/v2/DV90',
+    allowedChallenges: ['http-01', 'dns-01'],
+    isDefault: true,
+  }, actorId);
+
+  const listed = await service.listAcmeProviderSettings(tenantId);
+  assert.equal(listed.items.length, 2);
+  assert.equal(listed.presets.some((preset) => preset.key === 'step-ca'), true);
+  assert.equal((listed.items.find((item) => item.id === letsEncrypt.id)?.configuration as Record<string, unknown>).isDefault, false);
+  assert.equal((listed.items.find((item) => item.id === zeroSsl.id)?.configuration as Record<string, unknown>).isDefault, true);
+
+  const updated = await service.updateAcmeProvider(tenantId, letsEncrypt.id, {
+    name: "Let's Encrypt Production",
+    preset: 'letsencrypt',
+    directoryUrl: 'https://acme-v02.api.letsencrypt.org/directory',
+    allowedChallenges: ['http-01'],
+    isDefault: true,
+  }, actorId);
+  assert.equal(updated.name, "Let's Encrypt Production");
+  assert.deepEqual((updated.configuration as Record<string, unknown>).allowedChallenges, ['http-01']);
+  const afterUpdate = await service.listAcmeProviderSettings(tenantId);
+  assert.equal((afterUpdate.items.find((item) => item.id === zeroSsl.id)?.configuration as Record<string, unknown>).isDefault, false);
+});
+
+test("新租户读取 ACME 设置时自动获得内置 Let's Encrypt Provider", async () => {
+  const { service } = await createFixture();
+  const settings = await service.listAcmeProviderSettings('tenant-acme-default-provider');
+
+  assert.equal(settings.items.length, 1);
+  assert.equal(settings.items[0]?.name, "Let's Encrypt");
+  assert.equal(settings.items[0]?.endpoint, 'https://acme-v02.api.letsencrypt.org/directory');
+  const configuration = settings.items[0]?.configuration as Record<string, unknown>;
+  assert.equal(configuration.preset, 'letsencrypt');
+  assert.equal(configuration.isDefault, true);
+  assert.equal(configuration.isBuiltIn, true);
+});
+
 test('内置 CA 完成根与中间拓扑、Profile、签发、续期、吊销和信任分发', async () => {
   const { db, service, certificates, security } = await createFixture();
   const tenantId = 'tenant-internal-ca';

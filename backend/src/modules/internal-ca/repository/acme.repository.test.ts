@@ -25,6 +25,7 @@ test('ACME 迁移创建生命周期表、索引和证书版本 activation_state 
     'pg_acme_accounts',
     'pg_acme_authorizations',
     'pg_acme_challenges',
+    'pg_acme_http01_presentations',
     'pg_acme_orders',
     'pg_acme_renewal_policies',
   ]);
