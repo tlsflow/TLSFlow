@@ -89,3 +89,42 @@ test('证书选项接口按查询参数透传证书资产 ID 并返回资产与�
   assert.deepEqual(calls, [{ id: 'session-1', certificateAssetId: 'cert-1' }]);
   assert.deepEqual(response, { assets: [{ id: 'cert-1' }], versions: [{ id: 'version-1' }] });
 });
+
+test('站点选择接口透传用户确认的访问域名和验证 URL', async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const service = {
+    selectTarget: async (_tenantId: string, _id: string, input: Record<string, unknown>) => {
+      calls.push(input);
+      return { state: 'CERTIFICATE_SELECTION_REQUIRED' };
+    },
+  };
+  const router = new Router();
+  new ApplicationOnboardingController(service as never).register(router);
+  const route = router.match('POST', '/api/v1/application-onboarding/sessions/session-1/target-selection');
+  assert.ok(route);
+
+  const response = await route.handler({
+    method: 'POST',
+    path: '/api/v1/application-onboarding/sessions/session-1/target-selection',
+    query: {},
+    headers: {},
+    body: {
+      expectedStateVersion: 4,
+      managedTargetId: 'target-1',
+      configFingerprint: 'fingerprint-1',
+      accessDomain: 'ikuai.jacksonz.cn',
+      verifyUrl: 'https://ikuai.jacksonz.cn:443',
+      ignored: 'must-not-forward',
+    },
+    context,
+  });
+
+  assert.deepEqual(calls, [{
+    expectedStateVersion: 4,
+    managedTargetId: 'target-1',
+    configFingerprint: 'fingerprint-1',
+    accessDomain: 'ikuai.jacksonz.cn',
+    verifyUrl: 'https://ikuai.jacksonz.cn:443',
+  }]);
+  assert.deepEqual(response, { state: 'CERTIFICATE_SELECTION_REQUIRED' });
+});

@@ -6,7 +6,7 @@ import { GcModal } from '@/design-system/components'
 import type { DeviceOnboardingInitialSelection } from '@/views/devices/device-onboarding.model'
 import ApplicationOnboardingView from './ApplicationOnboardingView.vue'
 
-type FooterPrimaryAction = 'RESOURCE' | 'CERTIFICATE' | 'COMPLETE' | null
+type FooterPrimaryAction = 'RESOURCE' | 'TARGET' | 'CERTIFICATE' | 'COMPLETE' | null
 interface OnboardingFooterActions {
   visible: boolean
   showCancel: boolean

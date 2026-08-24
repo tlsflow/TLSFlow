@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { App } from './common/http/app.js';
 import { NodeOutboundHttpClient } from './common/http/outbound-http-client.js';
 import { AppError } from './common/errors/app-error.js';
@@ -156,6 +157,7 @@ import {
   getCloudAccountRouteContracts,
 } from './modules/providers/index.js';
 import { resolvePluginRunnerConfig } from './modules/plugins/runner/production-runner-config.js';
+import { canonicalize } from './shared/canonical-json.js';
 import { PluginRunnerSupervisor } from './modules/plugins/runner/index.js';
 import { BuiltinPluginRegistry } from './modules/plugins/builtin-plugins/builtin-plugin-registry.js';
 import {
@@ -894,24 +896,11 @@ export function createApp(dependencies: AppDependencies = {}): App {
           });
         }
         const detail = await devicesService.get(tenantId, session.deviceId, 'zh-CN', new Set(['frameworks', 'sites']));
+        // 插件管理的网络设备没有 Agent 文件配置可供读取；其目标身份由本轮发现的稳定事实计算。
+        // Agent Host 走上面的专用分支，仍然只接受真实 configFingerprint，不能使用此回退。
+        const allowDerivedTargetFingerprint = detail.extension.type === 'PLUGIN';
         return detail.sites
-          .map((site) => {
-            const configFingerprint = configFingerprintFromDiscoveredSite(site);
-            const selectable = Boolean(site.managedTargetId && configFingerprint);
-            return {
-              managedTargetId: site.managedTargetId ?? site.id,
-              targetType: site.kind,
-              displayName: site.name,
-              endpoint: site.endpoint ? { host: site.endpoint.hostName ?? site.endpoint.address, port: site.endpoint.port, protocol: site.endpoint.protocol } : undefined,
-              configFingerprint: configFingerprint ?? '',
-              selectable,
-              reasonCode: !site.managedTargetId
-                ? 'MANAGED_TARGET_MISSING'
-                : configFingerprint
-                  ? undefined
-                  : 'CONFIG_FINGERPRINT_MISSING',
-            };
-          })
+          .map((site) => mapDiscoveredSiteToOnboardingTarget(site, allowDerivedTargetFingerprint))
           .filter((site) => site.selectable);
       },
       listCertificateOptions: async (tenantId, _session, recipe, certificateAssetId) => {
@@ -1617,17 +1606,14 @@ function isRecordValue(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-/**
- * 向导身份只能使用 Agent 投影保存的真实配置摘要。不能以目标 ID、更新时间或
- * 任意字符串拼接替代，否则配置漂移后仍可能把旧选择提交到错误的 Nginx 位置。
- */
+/** Agent 目标必须使用投影保存的真实配置摘要，不能从目标 ID 或时间戳猜测。 */
 function configFingerprintFromManagedTargetMetadata(metadata: Record<string, unknown>): string | undefined {
   const certificateLocation = isRecordValue(metadata.certificateLocation) ? metadata.certificateLocation : {};
   const listener = isRecordValue(metadata.listener) ? metadata.listener : {};
   return configFingerprintFromRecords([metadata, certificateLocation, listener]);
 }
 
-function configFingerprintFromDiscoveredSite(site: {
+export function configFingerprintFromDiscoveredSite(site: {
   metadata?: Record<string, unknown>;
   bindings?: Array<{ deploymentTarget?: Record<string, unknown> }>;
 }): string | undefined {
@@ -1638,6 +1624,67 @@ function configFingerprintFromDiscoveredSite(site: {
     site.metadata ?? {},
     ...bindingFacts,
   ]);
+}
+
+/**
+ * 网络设备目标没有 Agent 配置文件指纹，不能因为缺少该字段把已发现站点全部隐藏。
+ * 这里对稳定发现事实做规范化 SHA-256，作为向导提交时的目标身份摘要；它不是
+ * Agent 配置内容指纹，因此只允许插件管理的设备路径使用。
+ */
+export function discoveredTargetFingerprint(site: {
+  id: string;
+  siteAssetId?: string;
+  managedTargetId?: string;
+  kind: string;
+  frameworkType: string;
+  name: string;
+  endpoint?: { address?: string; hostName?: string; port?: number; protocol?: string };
+  metadata?: Record<string, unknown>;
+}): string | undefined {
+  if (!site.managedTargetId) return undefined;
+  const facts = {
+    apiVersion: 'gcac.discovered-target-identity/v1',
+    siteId: site.siteAssetId ?? site.id,
+    managedTargetId: site.managedTargetId,
+    targetType: site.kind,
+    frameworkType: site.frameworkType,
+    displayName: site.name,
+    endpoint: site.endpoint ?? {},
+    metadata: site.metadata ?? {},
+  };
+  return createHash('sha256').update(canonicalize(facts), 'utf8').digest('hex');
+}
+
+export function mapDiscoveredSiteToOnboardingTarget(
+  site: {
+    id: string;
+    siteAssetId: string;
+    managedTargetId?: string;
+    kind: string;
+    frameworkType: string;
+    name: string;
+    endpoint?: { address?: string; hostName?: string; port?: number; protocol?: string };
+    metadata?: Record<string, unknown>;
+    bindings?: Array<{ deploymentTarget?: Record<string, unknown> }>;
+  },
+  allowDerivedTargetFingerprint: boolean,
+) {
+  const configFingerprint = configFingerprintFromDiscoveredSite(site)
+    ?? (allowDerivedTargetFingerprint ? discoveredTargetFingerprint(site) : undefined);
+  const selectable = Boolean(site.managedTargetId && configFingerprint);
+  return {
+    managedTargetId: site.managedTargetId ?? site.id,
+    targetType: site.kind,
+    displayName: site.name,
+    endpoint: site.endpoint ? { host: site.endpoint.hostName ?? site.endpoint.address, port: site.endpoint.port, protocol: site.endpoint.protocol } : undefined,
+    configFingerprint: configFingerprint ?? '',
+    selectable,
+    reasonCode: !site.managedTargetId
+      ? 'MANAGED_TARGET_MISSING'
+      : configFingerprint
+        ? undefined
+        : 'CONFIG_FINGERPRINT_MISSING',
+  };
 }
 
 function configFingerprintFromRecords(records: readonly Record<string, unknown>[]): string | undefined {

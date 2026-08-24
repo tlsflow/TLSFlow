@@ -28,13 +28,15 @@ export class ApiClientError extends Error {
   readonly errorCode: string
   readonly requestId: string
   readonly status: number
+  readonly details?: unknown
 
-  constructor(message: string, options: { errorCode: string; requestId: string; status: number }) {
+  constructor(message: string, options: { errorCode: string; requestId: string; status: number; details?: unknown }) {
     super(message)
     this.name = 'ApiClientError'
     this.errorCode = options.errorCode
     this.requestId = options.requestId
     this.status = options.status
+    this.details = options.details
   }
 }
 
@@ -207,7 +209,8 @@ export class ApiClient {
       throw new ApiClientError(typeof parsed.message === 'string' ? parsed.message : i18n.global.t('api.errors.requestFailed'), {
         errorCode: typeof parsed.errorCode === 'string' ? parsed.errorCode : `HTTP_${response.status}`,
         requestId: String(requestId),
-        status: response.status
+        status: response.status,
+        details: parsed.details
       })
     }
 

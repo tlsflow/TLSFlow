@@ -47,7 +47,10 @@ export class DeploymentAssetContextBuilder {
     const managedTargetMetadata = managedTarget ? requireManagedTargetMetadata(managedTarget) : undefined;
     const workflowTargetSiteName = readWorkflowTargetSiteName(input.applicationAsset.metadata);
     const certificateLocation = managedTargetMetadata
-      ? readCertificateLocation(managedTargetMetadata, managedTarget?.updatedAt || new Date(0).toISOString())
+      ? readCertificateLocation(
+        mergeFrameworkRuntimeFacts(managedTargetMetadata, topology?.serviceInstance?.rawFacts),
+        managedTarget?.updatedAt || new Date(0).toISOString(),
+      )
       : undefined;
     const deploymentTargetName = site?.siteName
       ?? managedTarget?.targetKey
@@ -168,4 +171,34 @@ function readWorkflowTargetSiteName(metadata: Record<string, unknown> | undefine
   if (typeof siteName !== 'string') return undefined;
   const normalized = siteName.trim();
   return normalized || undefined;
+}
+
+/**
+ * 旧版发现结果可能只把证书路径写入 Target，运行参数仍保留在同一
+ * Framework 的 rawFacts 中。这里仅补齐缺失事实，绝不覆盖 Target 已确认值。
+ */
+function mergeFrameworkRuntimeFacts(
+  metadata: Record<string, unknown>,
+  rawFacts: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (!rawFacts) return metadata;
+  const currentLocation = asRecord(metadata.certificateLocation);
+  const frameworkLocation = asRecord(rawFacts.certificateLocation);
+  if (currentLocation) {
+    return {
+      ...metadata,
+      certificateLocation: {
+        ...rawFacts,
+        ...frameworkLocation,
+        ...currentLocation,
+      },
+    };
+  }
+  return { ...rawFacts, ...metadata };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
 }

@@ -309,8 +309,16 @@ test('选择证书版本时按输入快照记录始终使用最新版本模式�
   const selected = await service.selectResource('tenant-1', created.id, { expectedStateVersion: 1, mode: 'EXISTING_DEVICE', deviceId: 'device-1' });
   const tested = await service.test('tenant-1', created.id, { expectedStateVersion: selected.stateVersion });
   const discovered = await service.discover('tenant-1', created.id, { expectedStateVersion: tested.stateVersion });
-  const targetSelected = await service.selectTarget('tenant-1', created.id, { expectedStateVersion: discovered.stateVersion, managedTargetId: 'target-1', configFingerprint: 'fingerprint-1' });
+  const targetSelected = await service.selectTarget('tenant-1', created.id, {
+    expectedStateVersion: discovered.stateVersion,
+    managedTargetId: 'target-1',
+    configFingerprint: 'fingerprint-1',
+    accessDomain: 'ikuai.jacksonz.cn',
+    verifyUrl: 'https://ikuai.jacksonz.cn:443',
+  });
   assert.equal(targetSelected.state, 'CERTIFICATE_SELECTION_REQUIRED');
+  assert.equal(targetSelected.inputSnapshot.accessDomain, 'ikuai.jacksonz.cn');
+  assert.equal(targetSelected.inputSnapshot.verifyUrl, 'https://ikuai.jacksonz.cn:443');
 
   const explicit = await service.selectCertificate('tenant-1', created.id, { expectedStateVersion: targetSelected.stateVersion, certificateId: 'cert-1', certificateVersionId: 'version-1' });
   assert.equal(explicit.state, 'READY_TO_COMMIT');
@@ -321,6 +329,59 @@ test('选择证书版本时按输入快照记录始终使用最新版本模式�
   assert.equal(latestAuto.state, 'READY_TO_COMMIT');
   assert.equal(repository.getStored(created.id)?.inputSnapshot.certificateSelectionMode, 'LATEST_AUTO');
   assert.equal(repository.getStored(created.id)?.certificateVersionId, 'version-2');
+});
+
+test('选择站点时拒绝将管理 VIP 写入访问域名或验证 URL', async () => {
+  const { service } = fixture({
+    execution: {
+      validateExistingDevice: async () => undefined,
+      testConnection: async () => undefined,
+      discover: async () => [{ ...target(), displayName: 'ikuai.jacksonz.cn', endpoint: { host: '10.255.0.215', port: 443, protocol: 'HTTPS' } }],
+    },
+  });
+  const created = await service.createSession('tenant-1', 'actor-1', { platformKey: 'vendor.test-platform', idempotencyKey: 'create-ip-domain-rejected' });
+  const selected = await service.selectResource('tenant-1', created.id, { expectedStateVersion: 1, mode: 'EXISTING_DEVICE', deviceId: 'device-1' });
+  const tested = await service.test('tenant-1', created.id, { expectedStateVersion: selected.stateVersion });
+  const discovered = await service.discover('tenant-1', created.id, { expectedStateVersion: tested.stateVersion });
+
+  await assert.rejects(
+    service.selectTarget('tenant-1', created.id, {
+      expectedStateVersion: discovered.stateVersion,
+      managedTargetId: 'target-1',
+      configFingerprint: 'fingerprint-1',
+      accessDomain: '10.255.0.215',
+      verifyUrl: 'https://10.255.0.215:443',
+    }),
+    (error: unknown) => error instanceof AppError && (error.details as { code?: string })?.code === 'ONBOARDING_ACCESS_DOMAIN_IP_FORBIDDEN',
+  );
+});
+
+test('连接测试失败时不得调用站点发现，会话进入失败终态并保留错误详情', async () => {
+  const calls: string[] = [];
+  const { service, repository } = fixture({
+    execution: {
+      validateExistingDevice: async () => { calls.push('validate'); },
+      testConnection: async () => {
+        calls.push('test');
+        throw new AppError('PLUGIN_CAPABILITY_EXECUTION_FAILED', '设备插件能力执行失败', { capabilityKey: 'device.connection.test', failedStepName: 'readVersion', errorCode: 'HTTP_NON_SUCCESS_STATUS' });
+      },
+      discover: async () => { calls.push('discover'); return [target()]; },
+    },
+  });
+  const created = await service.createSession('tenant-1', 'actor-1', { platformKey: 'vendor.test-platform', idempotencyKey: 'create-connection-failure' });
+  const selected = await service.selectResource('tenant-1', created.id, { expectedStateVersion: 1, mode: 'EXISTING_DEVICE', deviceId: 'device-1' });
+  assert.equal(selected.state, 'CONNECTION_TESTING');
+
+  await assert.rejects(
+    service.test('tenant-1', created.id, { expectedStateVersion: selected.stateVersion }),
+    (error: unknown) => error instanceof AppError && error.errorCode === 'PLUGIN_CAPABILITY_EXECUTION_FAILED',
+  );
+
+  const failed = repository.getStored(created.id);
+  assert.equal(failed?.state, 'FAILED');
+  assert.equal(failed?.lastErrorCode, 'ONBOARDING_CONNECTION_FAILED');
+  assert.deepEqual(failed?.lastErrorDetail, { code: 'PLUGIN_CAPABILITY_EXECUTION_FAILED' });
+  assert.deepEqual(calls, ['validate', 'test'], '连接测试失败后不得调用站点发现');
 });
 
 function fixture(options: { recipe?: LoadedApplicationOnboardingRecipe; execution: OnboardingExecutionPort }): {

@@ -180,6 +180,7 @@ export class DevicesApplicationService {
       templateVersionId: workflow.workflowVersionId,
       mode: 'real_test',
       resolvedInput,
+      tenantId,
     }));
     if (result.status !== 'success') {
       const failedStep = findFailedWorkflowStep(result.stepResults);
@@ -208,6 +209,7 @@ export class DevicesApplicationService {
         status: result.status,
         failedStepName: failedStep?.name,
         errorCode: failedStep?.errorCode,
+        errorMessage: failedStep?.errorMessage,
       });
     }
     if (!['device.discover', 'certificate.discover'].includes(capabilityKey)) return result;

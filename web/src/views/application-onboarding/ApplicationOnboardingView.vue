@@ -31,7 +31,7 @@ interface Target { managedTargetId: string; displayName: string; targetType: str
 interface DeviceOption { deviceId: string; displayName: string; address?: string; health: string; selectable: boolean }
 interface CertificateOption { id: string; label: string }
 type OnboardingStep = 1 | 2 | 3 | 4 | 5
-type FooterPrimaryAction = 'RESOURCE' | 'CERTIFICATE' | 'COMPLETE' | null
+type FooterPrimaryAction = 'RESOURCE' | 'TARGET' | 'CERTIFICATE' | 'COMPLETE' | null
 interface OnboardingFooterActions {
   visible: boolean
   showCancel: boolean
@@ -71,6 +71,9 @@ const submitInFlight = ref(false)
 const error = ref('')
 const deviceMode = ref<'EXISTING_DEVICE' | 'NEW_DEVICE'>('EXISTING_DEVICE')
 const deviceId = ref('')
+const pendingTarget = ref<Target | null>(null)
+const accessDomain = ref('')
+const verifyUrl = ref('')
 const certificateId = ref('')
 const certificateVersionId = ref('')
 const certificateSelectionMode = ref<'EXPLICIT' | 'LATEST_AUTO'>('EXPLICIT')
@@ -109,6 +112,10 @@ const footerActions = computed<OnboardingFooterActions>(() => {
     primaryDisabled = session.value.state === 'READY_TO_COMMIT'
       ? loading.value
       : loading.value || !certificateId.value || !certificateVersionId.value
+  } else if (step.value === 3 && session.value) {
+    primaryAction = 'TARGET'
+    primaryLabel = t('applicationOnboarding.actions.continue')
+    primaryDisabled = loading.value || !pendingTarget.value || !isValidTargetConfiguration(accessDomain.value, verifyUrl.value)
   }
 
   const showPrevious = canGoPrevious.value
@@ -195,6 +202,10 @@ async function runFooterPrimary(): Promise<void> {
     await submitResource()
     return
   }
+  if (footerActions.value.primaryAction === 'TARGET') {
+    await saveTarget()
+    return
+  }
   if (footerActions.value.primaryAction === 'CERTIFICATE') {
     await saveCertificate()
     return
@@ -227,11 +238,29 @@ function selectNewDevice(): void {
   deviceMode.value = 'NEW_DEVICE'
   deviceId.value = ''
 }
-async function chooseTarget(target: Target): Promise<void> {
-  if (!session.value || !target.selectable) return
+function chooseTarget(target: Target): void {
+  if (!session.value || !target.selectable || loading.value) return
+  pendingTarget.value = target
+  accessDomain.value = suggestedAccessDomain(target)
+  verifyUrl.value = suggestedVerifyUrl(accessDomain.value, target.endpoint?.port, target.endpoint?.protocol)
+  error.value = ''
+}
+async function saveTarget(): Promise<void> {
+  if (!session.value || !pendingTarget.value || !isValidTargetConfiguration(accessDomain.value, verifyUrl.value)) {
+    error.value = t('applicationOnboarding.target.invalidConfiguration')
+    return
+  }
   loading.value = true
+  error.value = ''
   try {
-    session.value = readObject<Session>((await selectOnboardingTarget(session.value.id, { expectedStateVersion: session.value.stateVersion, managedTargetId: target.managedTargetId, configFingerprint: target.configFingerprint })).data)
+    session.value = readObject<Session>((await selectOnboardingTarget(session.value.id, {
+      expectedStateVersion: session.value.stateVersion,
+      managedTargetId: pendingTarget.value.managedTargetId,
+      configFingerprint: pendingTarget.value.configFingerprint,
+      accessDomain: accessDomain.value.trim().toLowerCase().replace(/\.+$/, ''),
+      verifyUrl: verifyUrl.value.trim(),
+    })).data)
+    pendingTarget.value = null
     currentStepOverride.value = null
     await loadCertificateAssets()
   } catch (cause) { error.value = messageFor(cause) } finally { loading.value = false }
@@ -273,6 +302,8 @@ async function restoreSession(): Promise<void> {
     selectedPlatform.value = platforms.value.find((item) => item.platformKey === session.value?.platformKey) ?? null
     currentStepOverride.value = null
     deviceId.value = session.value.deviceId ?? deviceId.value
+    accessDomain.value = readString(session.value.inputSnapshot ?? {}, ['accessDomain'])
+    verifyUrl.value = readString(session.value.inputSnapshot ?? {}, ['verifyUrl'])
     certificateId.value = session.value.certificateId ?? certificateId.value
     certificateVersionId.value = session.value.certificateVersionId ?? certificateVersionId.value
     certificateSelectionMode.value = session.value.inputSnapshot?.certificateSelectionMode === 'LATEST_AUTO' ? 'LATEST_AUTO' : 'EXPLICIT'
@@ -403,6 +434,38 @@ function targetReasonLabel(reasonCode?: string): string {
   if (reasonCode === 'TARGET_ENDPOINT_MISSING') return t('applicationOnboarding.target.reasons.targetEndpointMissing')
   return t('applicationOnboarding.target.reasons.unknown')
 }
+function suggestedAccessDomain(target: Target): string {
+  const candidate = target.displayName.trim().toLowerCase().replace(/\.+$/, '')
+  return isDnsName(candidate) && !isIpAddress(candidate) ? candidate : ''
+}
+function suggestedVerifyUrl(domain: string, port?: number, protocol?: string): string {
+  if (!domain) return ''
+  const scheme = String(protocol ?? 'HTTPS').toLowerCase() === 'http' ? 'http' : 'https'
+  const resolvedPort = Number.isInteger(port) && Number(port) > 0 ? Number(port) : 443
+  return `${scheme}://${domain}:${resolvedPort}`
+}
+function isValidTargetConfiguration(domain: string, url: string): boolean {
+  const normalizedDomain = domain.trim().toLowerCase().replace(/\.+$/, '')
+  if (!isDnsName(normalizedDomain) || isIpAddress(normalizedDomain)) return false
+  try {
+    const parsed = new URL(url.trim())
+    return ['http:', 'https:'].includes(parsed.protocol)
+      && !isIpAddress(parsed.hostname)
+      && parsed.hostname.toLowerCase().replace(/\.+$/, '') === normalizedDomain
+  } catch {
+    return false
+  }
+}
+function isIpAddress(value: string): boolean {
+  const candidate = value.trim().replace(/^\[|\]$/g, '')
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(candidate)) return candidate.split('.').every((part) => Number(part) <= 255)
+  return candidate.includes(':')
+}
+function isDnsName(value: string): boolean {
+  if (!value || value.length > 253 || value.startsWith('.') || value.endsWith('.')) return false
+  const labels = value.split('.')
+  return labels.length >= 2 && labels.every((label) => /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label))
+}
 function markPlatformLogoFailed(platformKey: string): void {
   failedPlatformLogos.value = new Set([...failedPlatformLogos.value, platformKey])
 }
@@ -414,6 +477,9 @@ function resetDeviceSelection(): void {
 }
 function resetTargetSelection(): void {
   targets.value = []
+  pendingTarget.value = null
+  accessDomain.value = ''
+  verifyUrl.value = ''
   certificateId.value = ''
   certificateVersionId.value = ''
   certificateSelectionMode.value = 'EXPLICIT'
@@ -657,7 +723,6 @@ defineExpose({ goPrevious, runFooterPrimary, cancel })
             <template #icon>
               <span class="onboarding-device-card__glyph onboarding-device-card__glyph--new" aria-hidden="true">+</span>
             </template>
-            <span v-if="supportsNewDevice">{{ t('applicationOnboarding.device.newHint') }}</span>
           </GcSelectionCard>
           <GcSelectionCard
             v-for="device in devices"
@@ -687,7 +752,7 @@ defineExpose({ goPrevious, runFooterPrimary, cancel })
             v-for="target in selectableTargets"
             :key="target.managedTargetId"
             class="target-row"
-            :class="{ 'target-row--unavailable': !target.selectable }"
+            :class="{ 'target-row--unavailable': !target.selectable, 'target-row--selected': pendingTarget?.managedTargetId === target.managedTargetId }"
             type="button"
             :disabled="!target.selectable"
             @click="chooseTarget(target)"
@@ -720,6 +785,26 @@ defineExpose({ goPrevious, runFooterPrimary, cancel })
               <span>{{ targetReasonLabel(target.reasonCode) }}</span>
             </span>
           </button>
+        </div>
+        <div v-if="pendingTarget" class="target-config" aria-live="polite">
+          <div class="target-config__header">
+            <div>
+              <small>{{ t('applicationOnboarding.target.selectedSite') }}</small>
+              <strong>{{ pendingTarget.displayName }}</strong>
+            </div>
+            <span class="target-config__endpoint">{{ targetMetadataValue(pendingTarget.endpoint?.host) }}:{{ targetMetadataValue(pendingTarget.endpoint?.port) }}</span>
+          </div>
+          <div class="target-config__fields">
+            <label>
+              <span>{{ t('applicationOnboarding.target.accessDomain') }}</span>
+              <input v-model="accessDomain" type="text" :placeholder="t('applicationOnboarding.target.accessDomainPlaceholder')" autocomplete="url">
+            </label>
+            <label>
+              <span>{{ t('applicationOnboarding.target.verifyUrl') }}</span>
+              <input v-model="verifyUrl" type="url" :placeholder="t('applicationOnboarding.target.verifyUrlPlaceholder')" autocomplete="url">
+            </label>
+          </div>
+          <p class="onboarding-hint">{{ t('applicationOnboarding.target.domainHint') }}</p>
         </div>
       </div>
       <div v-else-if="step === 4" class="onboarding-panel">
@@ -785,6 +870,7 @@ h1, h2, p { margin: 0; }
 .target-row { display: grid; gap: var(--gc-space-3); padding: var(--gc-space-4); color: var(--gc-color-text-strong); text-align: left; cursor: pointer; background: var(--gc-color-surface); border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-md); }
 .target-row:hover:not(:disabled) { background: var(--gc-color-surface-selected); border-color: var(--gc-color-primary-border); }
 .target-row:focus-visible { outline: none; box-shadow: var(--gc-shadow-focus); }
+.target-row--selected { background: var(--gc-color-primary-soft); border-color: var(--gc-color-primary-border-strong); box-shadow: var(--gc-shadow-focus); }
 .target-row--unavailable { cursor: not-allowed; background: var(--gc-color-surface-soft); border-color: var(--gc-color-border-subtle); }
 .target-row__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--gc-space-3); }
 .target-row__identity { display: grid; min-inline-size: 0; gap: var(--gc-space-1); }
@@ -798,6 +884,15 @@ h1, h2, p { margin: 0; }
 .target-row__metadata-item strong { color: var(--gc-color-text); font-size: var(--gc-font-size-sm); font-weight: var(--gc-font-weight-medium); overflow-wrap: anywhere; }
 .target-row__reason { display: grid; gap: var(--gc-space-1); padding: var(--gc-space-2) var(--gc-space-3); color: var(--gc-color-danger); background: var(--gc-color-danger-soft); border: var(--gc-space-hairline) solid var(--gc-color-danger-border); border-radius: var(--gc-radius-control); }
 .target-row__reason span { color: var(--gc-color-danger); font-size: var(--gc-font-size-xs); line-height: var(--gc-line-height-normal); }
+.target-config { display: grid; gap: var(--gc-space-3); padding: var(--gc-space-4); border: var(--gc-border-width) solid var(--gc-color-primary-border); border-radius: var(--gc-radius-md); background: var(--gc-color-primary-soft); }
+.target-config__header { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-3); }
+.target-config__header > div { display: grid; gap: var(--gc-space-1); min-inline-size: 0; }
+.target-config__header small { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-caption); }
+.target-config__header strong { color: var(--gc-color-text-strong); overflow-wrap: anywhere; }
+.target-config__endpoint { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-caption); overflow-wrap: anywhere; }
+.target-config__fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-3); }
+.target-config label { display: grid; gap: var(--gc-space-2); color: var(--gc-color-text-muted); }
+.target-config input { min-height: var(--gc-control-height-md); padding: 0 var(--gc-space-3); color: var(--gc-color-text); background: var(--gc-color-surface-field); border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-sm); }
 .onboarding-workspace { display: grid; gap: var(--gc-space-4); max-width: var(--gc-size-content-readable); }
 .onboarding-panel { display: grid; gap: var(--gc-space-4); padding: var(--gc-space-6); border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface); }
 .onboarding-panel__header, .onboarding-device-step__header { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-3); }
@@ -805,8 +900,10 @@ h1, h2, p { margin: 0; }
 .onboarding-panel input, .onboarding-panel select { min-height: var(--gc-control-height-md); border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-sm); padding: 0 var(--gc-space-3); background: var(--gc-color-surface-field); color: var(--gc-color-text); }
 .onboarding-device-step { display: grid; gap: var(--gc-space-5); }
 .onboarding-device-step__header h2 { color: var(--gc-color-text-strong); }
-.onboarding-device-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-3); }
-.onboarding-device-card { min-block-size: var(--gc-size-card-compact); }
+.onboarding-device-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-2); }
+.onboarding-device-card.gc-selection-card { min-block-size: calc(var(--gc-size-card-compact) - var(--gc-space-4)); padding: var(--gc-space-3); gap: var(--gc-space-2); }
+.onboarding-device-card :deep(.gc-selection-card__icon) { inline-size: var(--gc-space-7); block-size: var(--gc-space-7); border-radius: var(--gc-radius-control); }
+.onboarding-device-card :deep(.gc-selection-card__description) { font-size: var(--gc-font-size-xs); line-height: var(--gc-line-height-tight); }
 .onboarding-device-card--new { border-color: var(--gc-color-primary-border); background: var(--gc-color-primary-soft); }
 .onboarding-device-card--new:disabled { border-color: var(--gc-color-border); background: var(--gc-color-surface-soft); }
 .onboarding-device-card__glyph { display: inline-grid; place-items: center; color: var(--gc-color-primary-strong); }
@@ -822,5 +919,5 @@ h1, h2, p { margin: 0; }
 .onboarding-hint { margin: 0; color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); }
 .onboarding-panel--success { border-color: var(--gc-color-success-border); background: var(--gc-color-success-soft); }
 @media (max-width: 64rem) { .onboarding-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); } .platform-grid, .onboarding-device-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 48rem) { .onboarding-page__header { flex-direction: column; } .onboarding-steps { grid-template-columns: 1fr; } .platform-grid, .onboarding-device-grid { grid-template-columns: 1fr; max-block-size: none; padding-inline-end: 0; overflow: visible; } .target-row__metadata { grid-template-columns: 1fr; } }
+@media (max-width: 48rem) { .onboarding-page__header { flex-direction: column; } .onboarding-steps { grid-template-columns: 1fr; } .platform-grid, .onboarding-device-grid { grid-template-columns: 1fr; max-block-size: none; padding-inline-end: 0; overflow: visible; } .target-row__metadata, .target-config__fields { grid-template-columns: 1fr; } .target-config__header { align-items: flex-start; flex-direction: column; } }
 </style>

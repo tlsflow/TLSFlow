@@ -7,6 +7,7 @@ import type { PluginWorkflowBindingRecord } from '../../plugins/dto/plugin-workf
 import type { ApplicationOnboardingSessionDto } from '../dto/application-onboarding.dto.js';
 import type { LoadedApplicationOnboardingRecipe } from '../recipe/index.js';
 import type { OnboardingCommitPort } from './application-onboarding.service.js';
+import { defaultOnboardingVerifyUrl, validateOnboardingTargetInput } from './onboarding-target-input.js';
 
 /**
  * 向导完成提交的唯一适配器。它只组合已有 Application Service，不直接写资产或计划表。
@@ -21,6 +22,13 @@ export class OnboardingCommitService implements OnboardingCommitPort {
 
   async commit(tenantId: string, actorId: string, session: ApplicationOnboardingSessionDto, recipe: LoadedApplicationOnboardingRecipe): Promise<Record<string, unknown>> {
     const endpoint = readEndpoint(session.inputSnapshot.endpoint);
+    const suggestedDomain = readOptionalString(session.inputSnapshot.accessDomain)
+      ?? readOptionalString(session.inputSnapshot.displayName);
+    const targetInput = validateOnboardingTargetInput({
+      accessDomain: suggestedDomain,
+      verifyUrl: readOptionalString(session.inputSnapshot.verifyUrl)
+        ?? defaultOnboardingVerifyUrl(suggestedDomain ?? '', endpoint.port, endpoint.protocol),
+    });
     const targetId = session.targetId;
     if (recipe.recipe.deploymentMode === 'MANAGED_TARGET' && !targetId) throw new AppError('VALIDATION_FAILED', '受管设备向导缺少目标站点');
     if (!session.certificateVersionId) throw new AppError('VALIDATION_FAILED', '向导缺少证书版本');
@@ -36,9 +44,11 @@ export class OnboardingCommitService implements OnboardingCommitPort {
       : undefined;
 
     const input: CreateServiceAssetDto = {
-      address: endpoint.host ?? session.inputSnapshot.address as string ?? 'onboarding.local',
+      address: targetInput.accessDomain,
       port: endpoint.port ?? Number(session.inputSnapshot.port ?? 443),
       protocol: (endpoint.protocol ?? session.inputSnapshot.protocol ?? 'HTTPS') as CreateServiceAssetDto['protocol'],
+      sniName: targetInput.accessDomain,
+      verifyUrl: targetInput.verifyUrl,
       displayName: String(session.inputSnapshot.displayName ?? recipe.recipe.platformKey),
       discoverySource: 'MANUAL',
       ...(workflow ? {
@@ -63,6 +73,9 @@ export class OnboardingCommitService implements OnboardingCommitPort {
         pluginVersionId: recipe.pluginVersionId,
         platformKey: recipe.recipe.platformKey,
         recipeHash: recipe.recipeHash,
+        managementEndpoint: endpoint,
+        accessDomain: targetInput.accessDomain,
+        verifyUrl: targetInput.verifyUrl,
       },
     };
     const asset = await this.assets.createServiceAsset(tenantId, input);
@@ -88,6 +101,7 @@ export class OnboardingCommitService implements OnboardingCommitPort {
       actorId,
       tenantId,
       reuseDraft: false,
+      deferPreflight: true,
     });
     return { applicationAssetId: asset.id, deploymentPlanId: plan.id, pluginVersionId: recipe.pluginVersionId, recipeHash: recipe.recipeHash };
   }
@@ -109,4 +123,8 @@ function readEndpoint(value: unknown): { host?: string; port?: number; protocol?
     port: typeof record.port === 'number' ? record.port : undefined,
     protocol: typeof record.protocol === 'string' ? record.protocol : undefined,
   };
+}
+
+function readOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }

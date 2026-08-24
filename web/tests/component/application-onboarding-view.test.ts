@@ -49,7 +49,7 @@ describe('ApplicationOnboardingView', () => {
     onboardingMocks.listOnboardingDevices.mockResolvedValue(response({ items: [{ deviceId: 'device-1', displayName: 'ADC', health: 'HEALTHY', selectable: true }] }))
     onboardingMocks.selectOnboardingResource.mockResolvedValue(response({ id: 'session-1', platformKey: 'citrix.adc', deploymentMode: 'MANAGED_TARGET', state: 'CONNECTION_TESTING', stateVersion: 2 }))
     onboardingMocks.testOnboardingConnection.mockResolvedValue(response({ id: 'session-1', platformKey: 'citrix.adc', deploymentMode: 'MANAGED_TARGET', state: 'DISCOVERING', stateVersion: 3 }))
-    onboardingMocks.discoverOnboardingTargets.mockResolvedValue(response({ id: 'session-1', platformKey: 'citrix.adc', deploymentMode: 'MANAGED_TARGET', state: 'TARGET_SELECTION_REQUIRED', stateVersion: 4, targets: [{ managedTargetId: 'target-1', displayName: 'example.com:443', targetType: 'tls.binding', configFingerprint: 'target-fingerprint', selectable: true }] }))
+    onboardingMocks.discoverOnboardingTargets.mockResolvedValue(response({ id: 'session-1', platformKey: 'citrix.adc', deploymentMode: 'MANAGED_TARGET', state: 'TARGET_SELECTION_REQUIRED', stateVersion: 4, targets: [{ managedTargetId: 'target-1', displayName: 'example.com', targetType: 'tls.binding', endpoint: { host: '10.255.0.215', port: 443, protocol: 'HTTPS' }, configFingerprint: 'target-fingerprint', selectable: true }] }))
     onboardingMocks.selectOnboardingTarget.mockResolvedValue(response({ id: 'session-1', platformKey: 'citrix.adc', deploymentMode: 'MANAGED_TARGET', state: 'CERTIFICATE_SELECTION_REQUIRED', stateVersion: 5 }))
     onboardingMocks.listOnboardingCertificateOptions.mockImplementation((_sessionId: string, certificateId?: string) => Promise.resolve(response(
       certificateId
@@ -71,6 +71,12 @@ describe('ApplicationOnboardingView', () => {
     await wrapper.vm.runFooterPrimary()
     await flushPromises()
     await wrapper.find('.target-row').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('input[autocomplete="url"]').element).toBeTruthy()
+    expect((wrapper.findAll('input[autocomplete="url"]')[0].element as HTMLInputElement).value).toBe('example.com')
+    expect((wrapper.findAll('input[autocomplete="url"]')[1].element as HTMLInputElement).value).toBe('https://example.com:443')
+    await wrapper.vm.runFooterPrimary()
     await flushPromises()
 
     const selects = wrapper.findAll('select')
@@ -108,6 +114,39 @@ describe('ApplicationOnboardingView', () => {
     expect(onboardingMocks.testOnboardingConnection).toHaveBeenCalledWith('session-direct', 2)
     expect(onboardingMocks.discoverOnboardingTargets).toHaveBeenCalledWith('session-direct', 3)
     expect(wrapper.find('.target-row').exists()).toBe(true)
+  })
+
+  it('连接测试失败时不调用站点发现并展示真实错误', async () => {
+    routeMock.query = { session: 'session-connection-failure' }
+    onboardingMocks.listOnboardingPlatforms.mockResolvedValue(response({
+      items: [{ platformKey: 'citrix.netscaler-adc', source: 'PLUGIN', displayName: 'Citrix ADC', displayNameKey: 'plugin.citrix.adc', deploymentMode: 'MANAGED_TARGET', deviceSelection: 'EXISTING_OR_NEW', supportStatus: 'SUPPORTED' }],
+    }))
+    onboardingMocks.getOnboardingSession.mockResolvedValue(response({
+      id: 'session-connection-failure',
+      platformKey: 'citrix.netscaler-adc',
+      deploymentMode: 'MANAGED_TARGET',
+      state: 'CONNECTION_TESTING',
+      stateVersion: 2,
+      deviceId: 'device-test-poc',
+    }))
+    onboardingMocks.listOnboardingDevices.mockResolvedValue(response({ items: [{ deviceId: 'device-test-poc', displayName: 'TEST-POC', health: 'HEALTHY', selectable: true }] }))
+    onboardingMocks.testOnboardingConnection.mockRejectedValue(new ApiClientError('设备插件能力执行失败', {
+      errorCode: 'PLUGIN_CAPABILITY_EXECUTION_FAILED',
+      requestId: 'req-connection-failure',
+      status: 500,
+      details: { capabilityKey: 'device.connection.test', failedStepName: 'readVersion', errorCode: 'HTTP_NON_SUCCESS_STATUS' },
+    }))
+    onboardingMocks.discoverOnboardingTargets.mockResolvedValue(response({ id: 'session-connection-failure', state: 'TARGET_SELECTION_REQUIRED', stateVersion: 3, targets: [] }))
+
+    const wrapper = mount(ApplicationOnboardingView, { props: { embedded: true }, global: { plugins: [i18n] } })
+    await flushPromises()
+    await wrapper.vm.runFooterPrimary()
+    await flushPromises()
+
+    expect(onboardingMocks.testOnboardingConnection).toHaveBeenCalledWith('session-connection-failure', 2)
+    expect(onboardingMocks.discoverOnboardingTargets).not.toHaveBeenCalled()
+    expect(wrapper.find('.onboarding-error').text()).toContain('设备插件能力执行失败')
+    expect(wrapper.text()).not.toContain('选择业务站点')
   })
 
   it('站点列表只展示当前可选择的监听目标', async () => {
@@ -156,6 +195,7 @@ describe('ApplicationOnboardingView', () => {
     await flushPromises()
     await wrapper.find('.onboarding-device-card--new').trigger('click')
     expect(wrapper.text()).toContain('打开设备接入向导')
+    expect(wrapper.text()).not.toContain('返回后系统会重新加载该平台已发现的可用站点设备。')
     await wrapper.vm.runFooterPrimary()
 
     expect(wrapper.emitted('addDevice')).toEqual([[{ kind: 'AGENT_INSTALL', platformKey: 'linux' }]])

@@ -6,6 +6,7 @@ import { compareSemanticVersions, type UnifiedPluginsApplicationService } from '
 import { PluginLocaleService } from '../../plugins/locales/plugin-locale.service.js';
 import { ApplicationOnboardingRecipeLoader, type LoadedApplicationOnboardingRecipe } from '../recipe/index.js';
 import { ApplicationOnboardingSessionRepository } from '../repository/application-onboarding-session.repository.js';
+import { defaultOnboardingVerifyUrl, validateOnboardingTargetInput } from './onboarding-target-input.js';
 import type {
   ApplicationOnboardingSessionDto,
   CreateOnboardingSessionInput,
@@ -260,14 +261,28 @@ export class ApplicationOnboardingService {
     return updated;
   }
 
-  async selectTarget(tenantId: string, id: string, input: StateVersionInput & { managedTargetId: string; configFingerprint: string }): Promise<ApplicationOnboardingSessionDto> {
+  async selectTarget(
+    tenantId: string,
+    id: string,
+    input: StateVersionInput & {
+      managedTargetId: string;
+      configFingerprint: string;
+      accessDomain?: string;
+      verifyUrl?: string;
+    },
+  ): Promise<ApplicationOnboardingSessionDto> {
     const session = await this.getSession(tenantId, id);
     const target = session.targets.find((item) => item.managedTargetId === input.managedTargetId && item.configFingerprint === input.configFingerprint);
     if (!target || !target.selectable) throw new AppError('VALIDATION_FAILED', '站点选择已失效，请重新扫描');
+    const accessDomain = input.accessDomain ?? target.displayName;
+    const verifyUrl = input.verifyUrl ?? defaultOnboardingVerifyUrl(accessDomain, target.endpoint?.port, target.endpoint?.protocol);
+    const targetInput = validateOnboardingTargetInput({ accessDomain, verifyUrl });
     const inputSnapshot = {
       ...session.inputSnapshot,
       ...(target.endpoint ? { endpoint: target.endpoint } : {}),
       displayName: target.displayName,
+      accessDomain: targetInput.accessDomain,
+      verifyUrl: targetInput.verifyUrl,
     };
     const updated = await this.repository.update(tenantId, id, input.expectedStateVersion, {
       state: 'CERTIFICATE_SELECTION_REQUIRED',

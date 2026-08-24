@@ -208,6 +208,8 @@ export interface CreateDeploymentPlanFromApplicationAssetInput {
    * 自动化创建时禁止复用用户手工草稿，避免不同运行共享可变计划。
    */
   reuseDraft?: boolean;
+  /** 统一向导仅创建 DRAFT 资产与计划；证书域名和产物预检延迟到预检/提交/执行阶段。 */
+  deferPreflight?: boolean;
   /**
    * 自动化内部使用的临时计划，执行完成后会被清理且不进入计划列表。
    */

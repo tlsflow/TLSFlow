@@ -95,8 +95,21 @@ export class ApplicationOnboardingController {
 
   private async selectTarget(request: HttpRequest) {
     await this.assertWrite(request);
-    const body = validateObject(request.body, { expectedStateVersion: { type: 'number', required: true }, managedTargetId: { type: 'string', required: true }, configFingerprint: { type: 'string', required: true } });
-    return this.service.selectTarget(requireTenantId(request), this.sessionId(request), body as never);
+    const body = validateObject(request.body, {
+      expectedStateVersion: { type: 'number', required: true },
+      managedTargetId: { type: 'string', required: true },
+      configFingerprint: { type: 'string', required: true },
+      accessDomain: { type: 'string' },
+      verifyUrl: { type: 'string' },
+    });
+    const input = {
+      expectedStateVersion: body.expectedStateVersion,
+      managedTargetId: body.managedTargetId,
+      configFingerprint: body.configFingerprint,
+      ...(typeof body.accessDomain === 'string' ? { accessDomain: body.accessDomain } : {}),
+      ...(typeof body.verifyUrl === 'string' ? { verifyUrl: body.verifyUrl } : {}),
+    };
+    return this.service.selectTarget(requireTenantId(request), this.sessionId(request), input as never);
   }
 
   private async selectCertificate(request: HttpRequest) {

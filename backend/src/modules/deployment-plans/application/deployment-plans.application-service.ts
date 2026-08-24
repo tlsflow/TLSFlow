@@ -352,9 +352,17 @@ export class DeploymentPlansApplicationService {
   }
 
   async create(input: CreateDeploymentPlanInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
+    return this.createInternal(input, context, false);
+  }
+
+  private async createWithoutPreflight(input: CreateDeploymentPlanInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
+    return this.createInternal(input, context, true);
+  }
+
+  private async createInternal(input: CreateDeploymentPlanInput, context: RequestContext, deferPreflight: boolean): Promise<DeploymentPlanDto> {
     assertDeploymentExecutorTypes(input.targets, 'create');
     this.domain.assertCreateInput(input);
-    const resolved = await this.resolveCreateInput(input);
+    const resolved = deferPreflight ? this.resolveDeferredCreateInput(input) : await this.resolveCreateInput(input);
     const normalizedInput: CreateDeploymentPlanInput = {
       ...input,
       certificateVersionId: resolved.certificateVersionId,
@@ -514,7 +522,7 @@ export class DeploymentPlansApplicationService {
     const idempotentPlan = await this.repository.findPlanByIdempotencyKey(input.tenantId, input.actorId, input.idempotencyKey);
     if (idempotentPlan) {
       const draft = await this.buildCreateInputFromApplicationAsset(input);
-      return this.create(draft, context);
+      return input.deferPreflight ? this.createWithoutPreflight(draft, context) : this.create(draft, context);
     }
     if (input.reuseDraft !== false) {
       const reusableDraft = await this.repository.findLatestManualDraftByApplicationAsset(input.tenantId, input.applicationAssetId);
@@ -523,7 +531,7 @@ export class DeploymentPlansApplicationService {
       }
     }
     const draft = await this.buildCreateInputFromApplicationAsset(input);
-    return this.create(draft, context);
+    return input.deferPreflight ? this.createWithoutPreflight(draft, context) : this.create(draft, context);
   }
 
   async resolveProjectionSource(input: Pick<CreateDeploymentPlanFromApplicationAssetInput, 'applicationAssetId' | 'tenantId'> & {
@@ -1429,6 +1437,9 @@ export class DeploymentPlansApplicationService {
     const plan = await this.synchronizeApprovalState(storedPlan);
     const automationApproval = await this.resolveAutomationApproval(input.executionSource, input.tenantId);
     if (plan.status === 'READY') return this.toDto(plan);
+    const preflightTargets = (await this.repository.listTargetsByPlan(plan.id, input.tenantId))
+      .filter((target) => ['READY', 'COMPLETED', 'FAILED'].includes(target.status));
+    await this.assertSynchronousPreflight(plan, preflightTargets, 'submit');
 
     if (plan.status === 'PENDING_APPROVAL') {
       if (automationApproval) {
@@ -1565,6 +1576,7 @@ export class DeploymentPlansApplicationService {
     }
     const targets = (await this.repository.listTargetsByPlan(plan.id, input.tenantId)).filter((target) => ['READY', 'COMPLETED', 'FAILED'].includes(target.status));
     if (!targets.length) throw new AppError('VALIDATION_FAILED', '部署计划没有可执行目标', { planId: plan.id });
+    await this.assertSynchronousPreflight(plan, targets, 'execute');
     // 中文说明：Dry-run 只提供只读诊断，不得成为正式证书部署的执行门槛。
     const runtimeSnapshots = await this.resolveRunDeploymentInputRuntimeSnapshots(plan, targets);
     const agentPayloadByTargetId = await this.buildAgentPayloadByTargetIds(plan, targets, runtimeSnapshots);
@@ -1837,6 +1849,25 @@ export class DeploymentPlansApplicationService {
       certificateVersionId,
       certificateFormatId: input.certificateFormatId,
       targets: resolvedTargets,
+    };
+  }
+
+  /**
+   * 统一向导创建阶段只保存用户已选的证书版本和目标快照，不读取证书产物，
+   * 也不因为当前证书域名或格式预检失败而阻断资产与 DRAFT 计划创建。
+   */
+  private resolveDeferredCreateInput(input: CreateDeploymentPlanInput): ResolvedCreatePlanInput {
+    const selectionMode = input.selectionMode ?? (input.certificateVersionId ? 'EXPLICIT' : 'LATEST_AUTO');
+    if (!input.certificateVersionId) {
+      throw new AppError('VALIDATION_FAILED', '延迟预检计划必须保留用户选择的证书版本', {
+        code: 'CERTIFICATE_VERSION_REQUIRED',
+      });
+    }
+    return {
+      selectionMode,
+      certificateVersionId: input.certificateVersionId,
+      certificateFormatId: input.certificateFormatId,
+      targets: input.targets.map((target) => ({ ...target })),
     };
   }
 
@@ -2146,7 +2177,16 @@ export class DeploymentPlansApplicationService {
     targets: DeploymentPlanTargetEntity[],
   ): Promise<Map<string, DeploymentInputRuntimeSnapshotV1>> {
     if (plan.selectionMode !== 'LATEST_AUTO') {
-      return this.readDeploymentInputRuntimeSnapshots(plan, targets);
+      const output = new Map<string, DeploymentInputRuntimeSnapshotV1>();
+      for (const target of targets) {
+        const ref = readRecord(target.strategyPayload?.deploymentInputSnapshotRef);
+        if (readOptionalString(ref?.snapshotId)) {
+          output.set(target.id, await this.readTargetDeploymentInputRuntimeSnapshot(target, target.tenantId ?? plan.tenantId!));
+          continue;
+        }
+        output.set(target.id, await this.buildAndPersistDeferredRuntimeSnapshot(plan, target, plan.certificateVersionId));
+      }
+      return output;
     }
 
     const output = new Map<string, DeploymentInputRuntimeSnapshotV1>();
@@ -2154,6 +2194,38 @@ export class DeploymentPlansApplicationService {
       output.set(target.id, await this.buildLatestAutoRuntimeSnapshot(plan, target));
     }
     return output;
+  }
+
+  private async buildAndPersistDeferredRuntimeSnapshot(
+    plan: DeploymentPlanEntity,
+    target: DeploymentPlanTargetEntity,
+    certificateVersionId: string,
+  ): Promise<DeploymentInputRuntimeSnapshotV1> {
+    const workingTarget = { ...target } as unknown as ResolvedCreateTarget;
+    await this.preflightDeploymentArtifact({
+      name: plan.name,
+      certificateVersionId,
+      certificateFormatId: plan.certificateFormatId,
+      selectionMode: plan.selectionMode,
+      targets: [],
+      idempotencyKey: plan.idempotencyKey,
+      actorId: plan.createdBy,
+      tenantId: plan.tenantId,
+    }, workingTarget, 0, certificateVersionId);
+    if (!workingTarget.deploymentInputSnapshotDraft || !workingTarget.deploymentInputRuntimeSnapshotDraft) {
+      throw new AppError('VALIDATION_FAILED', '部署目标未生成完整输入快照', {
+        code: 'DEPLOYMENT_INPUT_SNAPSHOT_INCOMPLETE',
+        deploymentPlanTargetId: target.id,
+      });
+    }
+    await this.persistDeploymentInputSnapshot(
+      plan,
+      target,
+      workingTarget.deploymentInputSnapshotDraft,
+      workingTarget.deploymentInputRuntimeSnapshotDraft,
+      plan.createdBy,
+    );
+    return workingTarget.deploymentInputRuntimeSnapshotDraft;
   }
 
   private async buildLatestAutoRuntimeSnapshot(
@@ -2189,11 +2261,7 @@ export class DeploymentPlansApplicationService {
     }, artifact);
 
     if (!material) {
-      const persisted = await this.readTargetDeploymentInputRuntimeSnapshot(target, tenantId);
-      return {
-        ...persisted,
-        deploymentArtifact: structuredClone(artifact) as unknown as Record<string, unknown>,
-      };
+      return this.buildAndPersistDeferredRuntimeSnapshot(plan, target, certificateVersionId);
     }
 
     return {
@@ -3479,6 +3547,23 @@ export class DeploymentPlansApplicationService {
     return checks;
   }
 
+  private async assertSynchronousPreflight(
+    plan: DeploymentPlanEntity,
+    targets: DeploymentPlanTargetEntity[],
+    operation: 'submit' | 'execute',
+  ): Promise<void> {
+    const checks = await this.collectSynchronousPlanPreflightChecks(plan, targets);
+    const failed = checks.filter((check) => check.status === 'failed');
+    if (failed.length > 0) {
+      throw new AppError('VALIDATION_FAILED', '部署计划预检失败，请先处理失败检查项', {
+        code: 'DEPLOYMENT_PREFLIGHT_FAILED',
+        operation,
+        planId: plan.id,
+        checks: failed,
+      });
+    }
+  }
+
   private buildPlanSnapshotPreflightCheck(
     plan: DeploymentPlanEntity,
     targets: DeploymentPlanTargetEntity[],
@@ -3631,20 +3716,25 @@ export class DeploymentPlansApplicationService {
     try {
       const tenantId = target.tenantId ?? plan.tenantId;
       if (!tenantId) throw new AppError('VALIDATION_FAILED', '部署目标缺少 tenantId，无法校验输入快照。', { deploymentPlanTargetId: target.id });
-      const runtimeSnapshot = await this.readTargetDeploymentInputRuntimeSnapshot(target, tenantId);
-      const artifact = readDeploymentArtifactRuntimeSnapshot(runtimeSnapshot.deploymentArtifact, target.id);
       const ref = readRecord(target.strategyPayload?.deploymentInputSnapshotRef);
+      const runtimeSnapshot = readOptionalString(ref?.snapshotId)
+        ? await this.readTargetDeploymentInputRuntimeSnapshot(target, tenantId)
+        : await this.buildDeferredRuntimeSnapshotForPreflight(plan, target, tenantId);
+      const artifact = readDeploymentArtifactRuntimeSnapshot(runtimeSnapshot.deploymentArtifact, target.id);
       return {
         key: `deployment_input_snapshot:${target.id}`,
         label: '部署输入快照',
         status: 'passed',
-        detail: '不可变输入快照及其摘要可重放。',
+        detail: readOptionalString(ref?.snapshotId)
+          ? '不可变输入快照及其摘要可重放。'
+          : '延迟创建计划已在预检阶段生成可重放的部署输入材料。',
         evidence: {
           deploymentPlanTargetId: target.id,
           snapshotId: readOptionalString(ref?.snapshotId),
           resolvedSha256: readOptionalString(ref?.resolvedSha256),
           certificateVersionId: artifact.certificateVersionId,
           certificateFormatId: artifact.certificateFormatId,
+          snapshotPending: !readOptionalString(ref?.snapshotId),
         },
       };
     } catch (error) {
@@ -3652,6 +3742,49 @@ export class DeploymentPlansApplicationService {
         deploymentPlanTargetId: target.id,
       });
     }
+  }
+
+  private async buildDeferredRuntimeSnapshotForPreflight(
+    plan: DeploymentPlanEntity,
+    target: DeploymentPlanTargetEntity,
+    tenantId: string,
+  ): Promise<DeploymentInputRuntimeSnapshotV1> {
+    const certificateVersionId = plan.selectionMode === 'LATEST_AUTO'
+      ? await this.resolveLatestAutoCertificateVersionForTarget(plan, target, tenantId)
+      : plan.certificateVersionId;
+    const workingTarget = { ...target } as unknown as ResolvedCreateTarget;
+    await this.preflightDeploymentArtifact({
+      name: plan.name,
+      certificateVersionId,
+      certificateFormatId: plan.certificateFormatId,
+      selectionMode: plan.selectionMode,
+      targets: [],
+      idempotencyKey: plan.idempotencyKey,
+      actorId: plan.createdBy,
+      tenantId,
+    }, workingTarget, 0, certificateVersionId);
+    if (!workingTarget.deploymentInputRuntimeSnapshotDraft) {
+      throw new AppError('VALIDATION_FAILED', '部署目标未生成完整输入快照', {
+        code: 'DEPLOYMENT_INPUT_SNAPSHOT_INCOMPLETE',
+        deploymentPlanTargetId: target.id,
+      });
+    }
+    return workingTarget.deploymentInputRuntimeSnapshotDraft;
+  }
+
+  private async resolveLatestAutoCertificateVersionForTarget(
+    plan: DeploymentPlanEntity,
+    target: DeploymentPlanTargetEntity,
+    tenantId: string,
+  ): Promise<string> {
+    const binding = target.certificateBindingId ? await this.tryGetBinding(tenantId, target.certificateBindingId) : undefined;
+    const asset = target.applicationAssetId ? await this.assets.getServiceAsset(tenantId, target.applicationAssetId) : undefined;
+    return this.findLatestDeployableCertificateVersionIdFromSeed(
+      plan.certificateVersionId,
+      binding,
+      asset?.sniName ?? asset?.address,
+      tenantId,
+    );
   }
 
   private async buildExecutionSummaryPreflightCheck(
@@ -4413,10 +4546,16 @@ function pluginResourceAggregateHash(resourceSha256: Record<string, string>): st
 }
 
 function domainMatches(pattern: string, domain: string): boolean {
-  if (pattern === domain) return true;
-  if (!pattern.startsWith('*.')) return false;
-  const suffix = pattern.slice(1);
-  return domain.endsWith(suffix) && domain.length > suffix.length;
+  const normalizedPattern = normalizeDomain(pattern);
+  const normalizedDomain = normalizeDomain(domain);
+  if (!normalizedPattern || !normalizedDomain) return false;
+  if (normalizedPattern === normalizedDomain) return true;
+  if (!normalizedPattern.startsWith('*.')) return false;
+  const suffix = normalizedPattern.slice(2);
+  const domainLabels = normalizedDomain.split('.');
+  const suffixLabels = suffix.split('.');
+  return domainLabels.length === suffixLabels.length + 1
+    && normalizedDomain.endsWith(`.${suffix}`);
 }
 
 function isMissingRelationError(error: unknown): boolean {

@@ -107,6 +107,37 @@ describe('DeploymentAssetContextBuilder', () => {
     assert.equal(context.target?.certificateLocation?.observedAt, '2026-08-01T13:31:13.224Z');
   });
 
+  it('从同一 Framework 的运行事实补齐历史 Apache Target 缺失字段', () => {
+    const topology = managedTargetContext();
+    topology.managedTarget.metadata = {
+      certificateLocation: {
+        apiVersion: 'gcac.certificate-location/v1',
+        storageKind: 'PEM_FILES',
+        certificatePath: 'C:/GCAC-Lab/certs/apache.crt.pem',
+        privateKeyPath: 'C:/GCAC-Lab/certs/apache.key.pem',
+        sourceConfigPath: 'C:/GCAC-Lab/Apache24/conf/httpd-gcac.conf',
+        confidence: 'EXACT',
+      },
+    };
+    topology.serviceInstance!.rawFacts = {
+      source: 'runtime-effective-config',
+      configPath: 'C:/GCAC-Lab/Apache24/conf/httpd-gcac.conf',
+      programPath: 'C:/GCAC-Lab/Apache24/bin/httpd.exe',
+      serviceName: 'GCAC-Lab-Apache',
+      configFingerprint: 'a'.repeat(64),
+    };
+
+    const context = deploymentAssetContextBuilder.build({
+      applicationAsset: applicationAsset(),
+      managedTargetContext: topology,
+    });
+
+    assert.equal(context.target?.certificateLocation?.serviceName, 'GCAC-Lab-Apache');
+    assert.equal(context.target?.certificateLocation?.programPath, 'C:/GCAC-Lab/Apache24/bin/httpd.exe');
+    assert.equal(context.target?.certificateLocation?.configFingerprint, 'a'.repeat(64));
+    assert.equal(context.target?.certificateLocation?.certificatePath, 'C:/GCAC-Lab/certs/apache.crt.pem');
+  });
+
   it('无受管目标时生成可重放的应用资产部署目标', () => {
     const first = deploymentAssetContextBuilder.build({ applicationAsset: applicationAsset() });
     const second = deploymentAssetContextBuilder.build({ applicationAsset: applicationAsset() });

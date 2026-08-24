@@ -18,6 +18,9 @@ test('受管设备接入只通过既有应用服务写入目标策略和部署�
     applicationAssetId: 'asset-1', deploymentPlanId: 'plan-1', pluginVersionId: 'plugin-version-1', recipeHash: 'sha256:recipe',
   });
   assert.equal(fixture.created[0]?.deploymentStrategy, undefined);
+  assert.equal(fixture.created[0]?.address, 'ikuai.jacksonz.cn');
+  assert.equal(fixture.created[0]?.sniName, 'ikuai.jacksonz.cn');
+  assert.equal(fixture.created[0]?.verifyUrl, 'https://ikuai.jacksonz.cn:443');
   assert.deepEqual(fixture.targets, [{ applicationAssetId: 'asset-1', managedTargetId: 'target-1', metadata: { configFingerprint: 'fingerprint-1' } }]);
   assert.deepEqual(fixture.strategies, [{
     assetId: 'asset-1', actorId: 'actor-1', strategy: { type: 'MANAGED_TARGET', managedTarget: { managedTargetId: 'target-1', executionMode: 'PLUGIN' } },
@@ -119,7 +122,11 @@ function session(): ApplicationOnboardingSessionDto {
   return {
     id: 'session-1', tenantId: 'tenant-1', actorId: 'actor-1', platformKey: 'vendor.test', pluginVersionId: 'plugin-version-1', recipeHash: 'sha256:recipe',
     state: 'COMMITTING', stateVersion: 1, deploymentMode: 'MANAGED_TARGET', targetId: 'target-1', targetFingerprint: 'fingerprint-1', certificateId: 'cert-1', certificateVersionId: 'cert-version-1',
-    inputSnapshot: { endpoint: { host: 'app.example.test', port: 443, protocol: 'HTTPS' } }, targets: [], idempotencyKey: 'session-idempotency',
+    inputSnapshot: {
+      endpoint: { host: '10.255.0.215', port: 443, protocol: 'HTTPS' },
+      accessDomain: 'ikuai.jacksonz.cn',
+      verifyUrl: 'https://ikuai.jacksonz.cn:443',
+    }, targets: [], idempotencyKey: 'session-idempotency',
     createdAt: '2026-08-14T00:00:00.000Z', updatedAt: '2026-08-14T00:00:00.000Z', expiresAt: '2026-08-14T01:00:00.000Z',
   };
 }
