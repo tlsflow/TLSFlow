@@ -54,14 +54,12 @@ type Middleware func(Handler) Handler
 
 type Registry struct {
 	handlers   map[string]Handler
-	aliases    map[string]string
 	middleware []Middleware
 }
 
 func New(middleware ...Middleware) *Registry {
 	return &Registry{
 		handlers:   map[string]Handler{},
-		aliases:    map[string]string{},
 		middleware: append([]Middleware(nil), middleware...),
 	}
 }
@@ -80,29 +78,6 @@ func (registry *Registry) Register(handler Handler) error {
 		wrapped = registry.middleware[index](wrapped)
 	}
 	registry.handlers[key] = wrapped
-	return nil
-}
-
-func (registry *Registry) RegisterAlias(aliasActionType, targetActionType, schemaVersion string) error {
-	return registry.RegisterAliasDescriptor(
-		Descriptor{ActionType: aliasActionType, SchemaVersion: schemaVersion},
-		Descriptor{ActionType: targetActionType, SchemaVersion: schemaVersion},
-	)
-}
-
-func (registry *Registry) RegisterAliasDescriptor(alias, target Descriptor) error {
-	aliasKey := descriptorKey(alias.ActionType, alias.SchemaVersion)
-	targetKey := descriptorKey(target.ActionType, target.SchemaVersion)
-	if aliasKey == targetKey {
-		return errors.New("action alias cannot target itself")
-	}
-	if _, exists := registry.handlers[aliasKey]; exists {
-		return fmt.Errorf("action alias conflicts with handler: %s", aliasKey)
-	}
-	if _, exists := registry.aliases[aliasKey]; exists {
-		return fmt.Errorf("duplicate action alias: %s", aliasKey)
-	}
-	registry.aliases[aliasKey] = targetKey
 	return nil
 }
 
@@ -127,21 +102,10 @@ func (registry *Registry) Execute(ctx context.Context, request Request) Result {
 
 func (registry *Registry) Lookup(actionType, schemaVersion string) (Handler, error) {
 	key := descriptorKey(actionType, schemaVersion)
-	visited := map[string]struct{}{}
-	for {
-		if _, exists := visited[key]; exists {
-			return nil, fmt.Errorf("action alias cycle: %s", key)
-		}
-		visited[key] = struct{}{}
-		if handler, exists := registry.handlers[key]; exists {
-			return handler, nil
-		}
-		target, exists := registry.aliases[key]
-		if !exists {
-			return nil, ErrHandlerNotRegistered
-		}
-		key = target
+	if handler, exists := registry.handlers[key]; exists {
+		return handler, nil
 	}
+	return nil, ErrHandlerNotRegistered
 }
 
 func (registry *Registry) Descriptors() []Descriptor {

@@ -32,7 +32,7 @@ func TestRegistryReturnsStableUnknownActionError(t *testing.T) {
 	}
 }
 
-func TestRegistryResolvesAliasAndMiddleware(t *testing.T) {
+func TestRegistryResolvesCanonicalActionAndMiddleware(t *testing.T) {
 	called := []string{}
 	middleware := func(next Handler) Handler {
 		return HandlerFunc{
@@ -45,22 +45,19 @@ func TestRegistryResolvesAliasAndMiddleware(t *testing.T) {
 		}
 	}
 	registry := New(middleware)
-	if err := registry.Register(successfulHandler("legacy.deploy_certificate")); err != nil {
+	if err := registry.Register(successfulHandler("certificate.deploy")); err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.RegisterAlias("legacy.deploy", "legacy.deploy_certificate", "v1"); err != nil {
-		t.Fatal(err)
-	}
-	result := registry.Execute(context.Background(), Request{ActionType: "legacy.deploy"})
+	result := registry.Execute(context.Background(), Request{ActionType: "certificate.deploy"})
 	if !result.Success {
-		t.Fatal("Alias 应解析到目标 Handler")
+		t.Fatal("规范 Action 必须路由到已登记 Handler")
 	}
-	if !reflect.DeepEqual(called, []string{"legacy.deploy"}) {
+	if !reflect.DeepEqual(called, []string{"certificate.deploy"}) {
 		t.Fatalf("中间件未按预期执行: %#v", called)
 	}
 }
 
-func TestRegistrySupportsCrossVersionAlias(t *testing.T) {
+func TestRegistryRejectsUnregisteredActionAcrossSchemaVersions(t *testing.T) {
 	registry := New()
 	if err := registry.Register(HandlerFunc{
 		ActionType:    "certificate.deploy",
@@ -71,15 +68,9 @@ func TestRegistrySupportsCrossVersionAlias(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.RegisterAliasDescriptor(
-		Descriptor{ActionType: "legacy.deploy_certificate", SchemaVersion: "v1"},
-		Descriptor{ActionType: "certificate.deploy", SchemaVersion: "1.0"},
-	); err != nil {
-		t.Fatal(err)
-	}
-	result := registry.Execute(context.Background(), Request{ActionType: "legacy.deploy_certificate"})
-	if !result.Success {
-		t.Fatalf("跨版本别名未路由到规范动作: %#v", result)
+	result := registry.Execute(context.Background(), Request{ActionType: "legacy.deploy_certificate", SchemaVersion: "1.0"})
+	if result.Success || result.ErrorCode != "ACTION_HANDLER_NOT_REGISTERED" {
+		t.Fatalf("未登记旧 Action 必须失败关闭: %#v", result)
 	}
 }
 

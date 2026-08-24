@@ -41,7 +41,7 @@ func TestV2RegistryPublishesOnlyLongLivedActions(t *testing.T) {
 	}
 }
 
-func TestV2RejectsLegacyActionsWithoutCompatibilityAlias(t *testing.T) {
+func TestV2RejectsLegacyActions(t *testing.T) {
 	result := newLinuxActionRegistry(nil).Execute(context.Background(), coreRegistry.Request{ActionType: "agent.atomic_plan.execute", SchemaVersion: "1.0"})
 	if result.Success || result.ErrorCode != "ACTION_HANDLER_NOT_REGISTERED" {
 		t.Fatalf("legacy action must be rejected, got %+v", result)
