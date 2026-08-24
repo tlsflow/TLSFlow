@@ -414,7 +414,7 @@ export default {
   tasks: {
     title: '전역 작업',
     description: '현재 테넌트의 대기, 실행, 모니터링 및 시스템 작업을 확인합니다.',
-    tabs: { all: '전체 작업', execution: '실행 작업', monitoring: '모니터링 작업', system: '시스템 작업' },
+    tabs: { all: '전체 작업', execution: '실행 작업', monitoring: '모니터링 작업', system: '시스템 작업', other: '기타 작업' },
     aria: { openDrawer: '전역 작업 열기', tabs: '작업 분류' },
     filters: {
       includeAll: '전체 작업 표시',
@@ -431,7 +431,7 @@ export default {
     },
     fields: { requestedBy: '요청 사용자', triggerSource: '트리거 소스', createdAt: '생성 시간', startedAt: '시작 시간', finishedAt: '완료 시간', error: '마지막 오류' },
     sections: { timeline: '상태 타임라인', attempts: '시도 기록', logs: '로그', children: '하위 작업', errors: '오류', audit: '감사 이벤트', monitoringProbes: '탐지 기록' },
-    actions: { backToList: '목록으로 돌아가기', search: '검색', reset: '초기화', previousPage: '이전 페이지', nextPage: '다음 페이지' },
+    actions: { backToList: '목록으로 돌아가기', viewAll: '모든 작업 보기', search: '검색', reset: '초기화', previousPage: '이전 페이지', nextPage: '다음 페이지' },
     messages: { loadFailed: '작업을 불러오지 못했습니다.', detailFailed: '작업 상세를 불러오지 못했습니다.' },
     values: { system: '시스템', empty: '기록 없음', none: '없음' },
     status: { QUEUED: '대기 중', RUNNING: '실행 중', RETRY_WAITING: '재시도 대기', CANCELLING: '취소 중', SUCCEEDED: '성공', FAILED: '실패', CANCELLED: '취소됨' }
@@ -484,6 +484,8 @@ export default {
     certificateAssetsDesc: '인증서, 개인 키 참조, 지문, 만료 시간입니다',
     certificateFormats: '인증서 형식 설정',
     certificateFormatsDesc: '저장된 인증서에 대해 PFX, CER, CRT, PEM 포맷 규칙을 정의한다',
+    assetCenter: 'Asset Center',
+    assetCenterDesc: 'Manage application, device, and cloud service assets',
     assets: '응용자산',
     assetsDesc: '도메인/IP 차원의 애플리케이션 포털과 인증서 배포 대상',
     agents: 'Agent',

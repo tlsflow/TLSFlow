@@ -414,7 +414,7 @@ export default {
   tasks: {
     title: 'グローバルタスク',
     description: '現在のテナントのキュー、実行、監視、システムタスクを確認します。',
-    tabs: { all: 'すべて', execution: '実行タスク', monitoring: '監視タスク', system: 'システムタスク' },
+    tabs: { all: 'すべて', execution: '実行タスク', monitoring: '監視タスク', system: 'システムタスク', other: 'その他のタスク' },
     aria: { openDrawer: 'グローバルタスクを開く', tabs: 'タスク分類' },
     filters: {
       includeAll: 'すべてのタスクを表示',
@@ -431,7 +431,7 @@ export default {
     },
     fields: { requestedBy: '実行ユーザー', triggerSource: 'トリガー', createdAt: '作成日時', startedAt: '開始日時', finishedAt: '終了日時', error: '最後のエラー' },
     sections: { timeline: '状態タイムライン', attempts: '試行履歴', logs: 'ログ', children: '子タスク', errors: 'エラー', audit: '監査イベント', monitoringProbes: 'プローブ記録' },
-    actions: { backToList: '一覧に戻る', search: '検索', reset: 'リセット', previousPage: '前のページ', nextPage: '次のページ' },
+    actions: { backToList: '一覧に戻る', viewAll: 'すべてのタスクを表示', search: '検索', reset: 'リセット', previousPage: '前のページ', nextPage: '次のページ' },
     messages: { loadFailed: 'タスク一覧の読み込みに失敗しました。', detailFailed: 'タスク詳細の読み込みに失敗しました。' },
     values: { system: 'システム', empty: '記録なし', none: 'なし' },
     status: { QUEUED: 'キュー待ち', RUNNING: '実行中', RETRY_WAITING: '再試行待ち', CANCELLING: 'キャンセル中', SUCCEEDED: '成功', FAILED: '失敗', CANCELLED: 'キャンセル済み' }
@@ -484,6 +484,8 @@ export default {
     certificateAssetsDesc: '証明書、秘密鍵参照、フィンガープリントと期限切れ日時',
     certificateFormats: '証明書形式設定',
     certificateFormatsDesc: '保存済み証明書に対して PFX、CER、CRT、PEM などの形式ルールを定義',
+    assetCenter: 'Asset Center',
+    assetCenterDesc: 'Manage application, device, and cloud service assets',
     assets: 'アプリケーションアセット',
     assetsDesc: 'ドメイン名/IP 単位のアプリケーションエントリと証明書デプロイ先',
     agents: 'Agent',

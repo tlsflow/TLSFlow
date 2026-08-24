@@ -414,7 +414,7 @@ export default {
   tasks: {
     title: 'Tarefas globais',
     description: 'Consulte tarefas em fila, em execução, de monitoramento e do sistema no tenant atual.',
-    tabs: { all: 'Todas', execution: 'Tarefas de execução', monitoring: 'Tarefas de monitoramento', system: 'Tarefas do sistema' },
+    tabs: { all: 'Todas', execution: 'Tarefas de execução', monitoring: 'Tarefas de monitoramento', system: 'Tarefas do sistema', other: 'Outras tarefas' },
     aria: { openDrawer: 'Abrir tarefas globais', tabs: 'Categorias de tarefas' },
     filters: {
       includeAll: 'Mostrar todas as tarefas',
@@ -431,7 +431,7 @@ export default {
     },
     fields: { requestedBy: 'Usuário solicitante', triggerSource: 'Origem', createdAt: 'Criada em', startedAt: 'Iniciada em', finishedAt: 'Finalizada em', error: 'Último erro' },
     sections: { timeline: 'Linha do tempo do status', attempts: 'Tentativas', logs: 'Logs', children: 'Subtarefas', errors: 'Erros', audit: 'Eventos de auditoria', monitoringProbes: 'Registros de sondagem' },
-    actions: { backToList: 'Voltar à lista', search: 'Pesquisar', reset: 'Redefinir', previousPage: 'Página anterior', nextPage: 'Próxima página' },
+    actions: { backToList: 'Voltar à lista', viewAll: 'Ver todas as tarefas', search: 'Pesquisar', reset: 'Redefinir', previousPage: 'Página anterior', nextPage: 'Próxima página' },
     messages: { loadFailed: 'Falha ao carregar tarefas.', detailFailed: 'Falha ao carregar detalhes da tarefa.' },
     values: { system: 'Sistema', empty: 'Nenhum registro', none: 'Nenhum' },
     status: { QUEUED: 'Na fila', RUNNING: 'Em execução', RETRY_WAITING: 'Aguardando nova tentativa', CANCELLING: 'Cancelando', SUCCEEDED: 'Concluída', FAILED: 'Falhou', CANCELLED: 'Cancelada' }
@@ -484,6 +484,8 @@ export default {
     certificateAssetsDesc: 'Certificados, referências de chave privada, impressões digitais e prazos de expiração',
     certificateFormats: 'Configuração de formatos de certificado',
     certificateFormatsDesc: 'Defina regras de formato como PFX, CER, CRT e PEM para certificados salvos',
+    assetCenter: 'Asset Center',
+    assetCenterDesc: 'Manage application, device, and cloud service assets',
     assets: 'Ativos de aplicação',
     assetsDesc: 'Entradas de aplicação e alvos de implantação de certificado por domínio/IP',
     agents: 'Agents',

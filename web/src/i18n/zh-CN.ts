@@ -413,7 +413,7 @@ export default {
   tasks: {
     title: '全局任务',
     description: '查看当前租户内的排队、执行、监控和系统任务。',
-    tabs: { all: '全部任务', execution: '执行任务', monitoring: '监控任务', system: '系统任务' },
+    tabs: { all: '全部任务', execution: '执行任务', monitoring: '监控任务', system: '系统任务', other: '其他任务' },
     aria: { openDrawer: '打开全局任务', tabs: '任务分类' },
     filters: {
       includeAll: '显示全部任务',
@@ -430,7 +430,7 @@ export default {
     },
     fields: { requestedBy: '发起用户', triggerSource: '触发来源', createdAt: '创建时间', startedAt: '开始时间', finishedAt: '结束时间', error: '最后错误' },
     sections: { timeline: '状态时间线', attempts: '尝试记录', logs: '日志', children: '子任务', errors: '错误', audit: '审计事件', monitoringProbes: '探测记录' },
-    actions: { backToList: '返回任务列表', search: '搜索', reset: '重置', previousPage: '上一页', nextPage: '下一页' },
+    actions: { backToList: '返回任务列表', viewAll: '查看所有任务', search: '搜索', reset: '重置', previousPage: '上一页', nextPage: '下一页' },
     messages: { loadFailed: '任务列表加载失败。', detailFailed: '任务详情加载失败。' },
     values: { system: '系统', empty: '暂无记录', none: '无' },
     status: { QUEUED: '排队中', RUNNING: '执行中', RETRY_WAITING: '等待重试', CANCELLING: '取消中', SUCCEEDED: '成功', FAILED: '失败', CANCELLED: '已取消' }
@@ -483,6 +483,8 @@ export default {
     certificateAssetsDesc: '证书、私钥引用、指纹和到期时间',
     certificateFormats: '证书格式配置',
     certificateFormatsDesc: '为已保存证书定义 PFX、CER、CRT、PEM 等格式规则',
+    assetCenter: '资产中心',
+    assetCenterDesc: '统一管理应用资产、设备资产和云服务资产',
     assets: '应用',
     assetsDesc: '域名/IP 维度的应用入口与证书部署目标',
     agents: 'Agent',

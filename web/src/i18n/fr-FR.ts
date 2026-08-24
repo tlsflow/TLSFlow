@@ -414,7 +414,7 @@ export default {
   tasks: {
     title: 'Tâches globales',
     description: 'Consultez les tâches en file, en cours, de surveillance et système du locataire actuel.',
-    tabs: { all: 'Toutes', execution: "Tâches d'exécution", monitoring: 'Tâches de surveillance', system: 'Tâches système' },
+    tabs: { all: 'Toutes', execution: "Tâches d'exécution", monitoring: 'Tâches de surveillance', system: 'Tâches système', other: 'Autres tâches' },
     aria: { openDrawer: 'Ouvrir les tâches globales', tabs: 'Catégories de tâches' },
     filters: {
       includeAll: 'Afficher toutes les tâches',
@@ -431,7 +431,7 @@ export default {
     },
     fields: { requestedBy: 'Utilisateur demandeur', triggerSource: 'Source', createdAt: 'Créée le', startedAt: 'Démarrée le', finishedAt: 'Terminée le', error: 'Dernière erreur' },
     sections: { timeline: 'Chronologie du statut', attempts: 'Tentatives', logs: 'Journaux', children: 'Sous-tâches', errors: 'Erreurs', audit: "Événements d'audit", monitoringProbes: 'Enregistrements de sondage' },
-    actions: { backToList: 'Retour à la liste', search: 'Rechercher', reset: 'Réinitialiser', previousPage: 'Page précédente', nextPage: 'Page suivante' },
+    actions: { backToList: 'Retour à la liste', viewAll: 'Voir toutes les tâches', search: 'Rechercher', reset: 'Réinitialiser', previousPage: 'Page précédente', nextPage: 'Page suivante' },
     messages: { loadFailed: 'Impossible de charger les tâches.', detailFailed: 'Impossible de charger le détail de la tâche.' },
     values: { system: 'Système', empty: 'Aucun enregistrement', none: 'Aucune' },
     status: { QUEUED: 'En file', RUNNING: 'En cours', RETRY_WAITING: 'En attente de nouvelle tentative', CANCELLING: 'Annulation', SUCCEEDED: 'Réussie', FAILED: 'Échec', CANCELLED: 'Annulée' }
@@ -484,6 +484,8 @@ export default {
     certificateAssetsDesc: 'Certificates, private key references, fingerprints, and expiry times',
     certificateFormats: 'Certificate format config',
     certificateFormatsDesc: 'Define PFX, CER, CRT, PEM, and other format rules for saved certificates',
+    assetCenter: 'Asset Center',
+    assetCenterDesc: 'Manage application, device, and cloud service assets',
     assets: 'Application assets',
     assetsDesc: 'Application entry points and certificate deployment targets by domain/IP',
     agents: 'Agents',

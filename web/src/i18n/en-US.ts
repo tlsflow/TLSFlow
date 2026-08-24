@@ -413,7 +413,7 @@ export default {
   tasks: {
     title: 'Global tasks',
     description: 'Review queued, running, monitoring, and system tasks in the current tenant.',
-    tabs: { all: 'All tasks', execution: 'Execution tasks', monitoring: 'Monitoring tasks', system: 'System tasks' },
+    tabs: { all: 'All tasks', execution: 'Execution tasks', monitoring: 'Monitoring tasks', system: 'System tasks', other: 'Other tasks' },
     aria: { openDrawer: 'Open global tasks', tabs: 'Task categories' },
     filters: {
       includeAll: 'Show all tasks',
@@ -430,7 +430,7 @@ export default {
     },
     fields: { requestedBy: 'Requested by', triggerSource: 'Trigger source', createdAt: 'Created at', startedAt: 'Started at', finishedAt: 'Finished at', error: 'Last error' },
     sections: { timeline: 'Status timeline', attempts: 'Attempts', logs: 'Logs', children: 'Child tasks', errors: 'Errors', audit: 'Audit events', monitoringProbes: 'Probe records' },
-    actions: { backToList: 'Back to task list', search: 'Search', reset: 'Reset', previousPage: 'Previous page', nextPage: 'Next page' },
+    actions: { backToList: 'Back to task list', viewAll: 'View all tasks', search: 'Search', reset: 'Reset', previousPage: 'Previous page', nextPage: 'Next page' },
     messages: { loadFailed: 'Failed to load tasks.', detailFailed: 'Failed to load task details.' },
     values: { system: 'System', empty: 'No records', none: 'None' },
     status: { QUEUED: 'Queued', RUNNING: 'Running', RETRY_WAITING: 'Waiting for retry', CANCELLING: 'Cancelling', SUCCEEDED: 'Succeeded', FAILED: 'Failed', CANCELLED: 'Cancelled' }
@@ -483,6 +483,8 @@ export default {
     certificateAssetsDesc: 'Certificates, private key references, fingerprints, and expiry times',
     certificateFormats: 'Certificate format config',
     certificateFormatsDesc: 'Define PFX, CER, CRT, PEM, and other format rules for saved certificates',
+    assetCenter: 'Asset Center',
+    assetCenterDesc: 'Manage application, device, and cloud service assets',
     assets: 'Application assets',
     assetsDesc: 'Application entry points and certificate deployment targets by domain/IP',
     agents: 'Agents',

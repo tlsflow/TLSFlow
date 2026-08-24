@@ -414,7 +414,7 @@ export default {
   tasks: {
     title: 'Глобальные задачи',
     description: 'Просмотр задач очереди, выполнения, мониторинга и системы в текущем тенанте.',
-    tabs: { all: 'Все задачи', execution: 'Задачи выполнения', monitoring: 'Задачи мониторинга', system: 'Системные задачи' },
+    tabs: { all: 'Все задачи', execution: 'Задачи выполнения', monitoring: 'Задачи мониторинга', system: 'Системные задачи', other: 'Другие задачи' },
     aria: { openDrawer: 'Открыть глобальные задачи', tabs: 'Категории задач' },
     filters: {
       includeAll: 'Показывать все задачи',
@@ -431,7 +431,7 @@ export default {
     },
     fields: { requestedBy: 'Инициатор', triggerSource: 'Источник', createdAt: 'Создано', startedAt: 'Начато', finishedAt: 'Завершено', error: 'Последняя ошибка' },
     sections: { timeline: 'Хронология статуса', attempts: 'Попытки', logs: 'Журналы', children: 'Дочерние задачи', errors: 'Ошибки', audit: 'События аудита', monitoringProbes: 'Записи проверок' },
-    actions: { backToList: 'Вернуться к списку', search: 'Поиск', reset: 'Сбросить', previousPage: 'Предыдущая страница', nextPage: 'Следующая страница' },
+    actions: { backToList: 'Вернуться к списку', viewAll: 'Посмотреть все задачи', search: 'Поиск', reset: 'Сбросить', previousPage: 'Предыдущая страница', nextPage: 'Следующая страница' },
     messages: { loadFailed: 'Не удалось загрузить задачи.', detailFailed: 'Не удалось загрузить сведения о задаче.' },
     values: { system: 'Система', empty: 'Нет записей', none: 'Нет' },
     status: { QUEUED: 'В очереди', RUNNING: 'Выполняется', RETRY_WAITING: 'Ожидание повтора', CANCELLING: 'Отмена', SUCCEEDED: 'Успешно', FAILED: 'Ошибка', CANCELLED: 'Отменено' }
@@ -484,6 +484,8 @@ export default {
     certificateAssetsDesc: 'Сертификаты, ссылки на закрытые ключи, отпечатки и сроки действия',
     certificateFormats: 'Конфигурации форматов сертификатов',
     certificateFormatsDesc: 'Правила форматов PFX, CER, CRT, PEM и других для сохраненных сертификатов',
+    assetCenter: 'Asset Center',
+    assetCenterDesc: 'Manage application, device, and cloud service assets',
     assets: 'Активы приложений',
     assetsDesc: 'Входы приложений и цели развертывания сертификатов по домену/IP',
     agents: 'Agent',

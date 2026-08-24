@@ -413,7 +413,7 @@ export default {
   tasks: {
     title: "全域任務",
     description: "查看目前租戶中的排隊、執行、監控與系統任務。",
-    tabs: { all: "全部任務", execution: "執行任務", monitoring: "監控任務", system: "系統任務" },
+    tabs: { all: "全部任務", execution: "執行任務", monitoring: "監控任務", system: "系統任務", other: "其他任務" },
     aria: { openDrawer: "開啟全域任務", tabs: "任務分類" },
     filters: {
       includeAll: "顯示全部任務",
@@ -430,7 +430,7 @@ export default {
     },
     fields: { requestedBy: "發起使用者", triggerSource: "觸發來源", createdAt: "建立時間", startedAt: "開始時間", finishedAt: "結束時間", error: "最後錯誤" },
     sections: { timeline: "狀態時間線", attempts: "嘗試記錄", logs: "日誌", children: "子任務", errors: "錯誤", audit: "稽核事件", monitoringProbes: "探測記錄" },
-    actions: { backToList: "返回任務列表", search: "搜尋", reset: "重設", previousPage: "上一頁", nextPage: "下一頁" },
+    actions: { backToList: "返回任務列表", viewAll: "查看所有任務", search: "搜尋", reset: "重設", previousPage: "上一頁", nextPage: "下一頁" },
     messages: { loadFailed: "任務列表載入失敗。", detailFailed: "任務詳情載入失敗。" },
     values: { system: "系統", empty: "暫無記錄", none: "無" },
     status: { QUEUED: "排隊中", RUNNING: "執行中", RETRY_WAITING: "等待重試", CANCELLING: "取消中", SUCCEEDED: "成功", FAILED: "失敗", CANCELLED: "已取消" }
@@ -483,6 +483,8 @@ export default {
     certificateAssetsDesc: "憑證、私密金鑰引用、指紋和到期時間",
     certificateFormats: "憑證格式設定",
     certificateFormatsDesc: "為已儲存憑證定義 PFX、CER、CRT、PEM 等格式規則",
+    assetCenter: "資產中心",
+    assetCenterDesc: "統一管理應用資產、設備資產和雲服務資產",
     assets: "應用資產",
     assetsDesc: "域名/IP 維度的應用入口與憑證部署目標",
     agents: "Agent",
