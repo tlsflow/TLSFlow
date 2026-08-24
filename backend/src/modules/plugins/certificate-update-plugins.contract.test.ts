@@ -43,15 +43,13 @@ test('六个证书更新包的 Manifest、Registry 和双资源合同彼此独�
     assert.equal(entry.resourceHash.startsWith('sha256:'), true);
     assert.ok(Object.keys(entry.resourceSha256).length >= 10);
   }
-  const nginxDiscoveryEntry = entries.find((item) => item.pluginId === 'web.nginx');
-  assert.ok(nginxDiscoveryEntry, 'web.nginx 发现/接入包必须进入 Registry');
-  assert.deepEqual(nginxDiscoveryEntry.capabilities.map((item) => item.key), ['application.discover']);
+  assert.equal(entries.some((item) => item.pluginId === 'web.nginx'), false, '独立 web.nginx 包必须移除');
   assert.equal(entries.some((item) => ['web.apache', 'app.tomcat'].includes(item.pluginId)), false);
 });
 
 test('证书更新包拒绝 Runner、发现能力和跨包资源引用', async () => {
   const packages = await new BuiltinUnifiedPluginLoader().loadPackages();
-  const pluginPackage = packages.find((item) => (item.manifest as { pluginId?: string }).pluginId === 'web.nginx.linux');
+  const pluginPackage = packages.find((item) => (item.manifest as { pluginId?: string }).pluginId === 'web.apache.linux');
   assert.ok(pluginPackage);
   const manifest = structuredClone(pluginPackage.manifest) as UnifiedPluginManifestV1;
   manifest.resources.runtimeEntrypoint = 'runtime/index.js';
@@ -67,8 +65,19 @@ test('证书更新包拒绝 Runner、发现能力和跨包资源引用', async (
   });
   assert.throws(() => validateBuiltinPluginPolicy(discoveryManifest), /不得声明发现或 plugin.action 能力/);
 
+  const certificateDiscoveryManifest = structuredClone(pluginPackage.manifest) as UnifiedPluginManifestV1;
+  certificateDiscoveryManifest.capabilities.push({
+    key: 'certificate.discover',
+    contractVersion: 'v1',
+    actionContractId: 'certificate.discover.v1',
+    riskLevel: 'LOW',
+    executionLocations: ['AGENT'],
+  });
+  assert.throws(() => validateBuiltinPluginPolicy(certificateDiscoveryManifest), /不得声明发现或 plugin.action 能力/);
+
+  const currentPluginId = (pluginPackage.manifest as { pluginId?: string }).pluginId;
   for (const [resourcePath, content] of Object.entries(pluginPackage.resources)) {
-    for (const otherPluginId of Object.keys(certificatePluginProfiles).filter((id) => id !== 'web.nginx.linux')) {
+    for (const otherPluginId of Object.keys(certificatePluginProfiles).filter((id) => id !== currentPluginId)) {
       assert.equal(content.includes(otherPluginId), false, `${resourcePath} 引用了 ${otherPluginId}`);
     }
   }
@@ -81,7 +90,7 @@ function assertCertificatePackage(
 ): void {
   const manifest = pluginPackage.manifest as Record<string, unknown>;
   assert.equal(manifest.pluginId, pluginId);
-  assert.equal(manifest.version, pluginId.endsWith('.windows') ? '1.0.3' : '1.0.2');
+  assert.equal(manifest.version, pluginId === 'web.nginx.linux' ? '1.0.4' : pluginId === 'web.nginx.windows' ? '1.0.5' : pluginId.endsWith('.windows') ? '1.0.3' : '1.0.2');
   assert.deepEqual((manifest.compatibility as { productFamilies?: string[] }).productFamilies, [profile.productFamily]);
   assert.equal(manifest.runtime, 'WORKFLOW_DSL');
   assert.equal(manifest.source, 'BUILTIN');
@@ -102,7 +111,6 @@ function assertCertificatePackage(
   for (const resourceKind of requiredResourceKinds) assert.deepEqual(Object.keys(resources[resourceKind] ?? {}).sort(), [...capabilities].sort());
   assert.ok(Object.keys(resources.locales ?? {}).length >= 1);
   assert.ok(Object.keys(resources.presentations ?? {}).length >= 2);
-
   for (const capability of capabilities) {
     const contractPath = resources.inputContracts[capability];
     const contract = parseResource(pluginPackage.resources, contractPath);
