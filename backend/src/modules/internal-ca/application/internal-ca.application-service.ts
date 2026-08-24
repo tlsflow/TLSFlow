@@ -695,6 +695,7 @@ export class InternalCaApplicationService {
     const rootId = newId('ca');
     const rootMaterial = await this.openssl.createRoot(input.commonName, input.rootValidityDays ?? 3650, input.topologyMode === 'root_only' ? 0 : 1);
     const rootSecret = await this.dependencies.secrets.create({
+      tenantId,
       name: `CA 私钥 ${input.name}`,
       type: 'certificate_private_key',
       scopeType: 'global',
@@ -1663,6 +1664,7 @@ export class InternalCaApplicationService {
       });
       const ownerId = input.applicationAssetId;
       const secret = await this.dependencies.secrets.create({
+        tenantId,
         name: `应用证书私钥 ${input.commonName}`,
         type: 'certificate_private_key',
         scopeType: 'global',
@@ -1768,6 +1770,7 @@ export class InternalCaApplicationService {
       parentChainPem: parent.certificateChainPem ?? parent.certificatePem,
     });
     const secret = await this.dependencies.secrets.create({
+      tenantId,
       name: `CA 私钥 ${name}`,
       type: 'certificate_private_key',
       scopeType: 'global',

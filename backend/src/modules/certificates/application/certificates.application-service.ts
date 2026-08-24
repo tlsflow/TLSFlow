@@ -295,6 +295,7 @@ export class CertificatesApplicationService {
       this.domain.assertPrivateKeyMatchesCertificate(privateKeyPem, parsed);
       privateKeyMatched = true;
       privateKeySecretRef = (await this.dependencies.secrets.create({
+        tenantId: input.tenantId,
         name: `证书私钥 ${parsed.commonName ?? parsed.fingerprintSha256.slice(0, 12)}`,
         type: 'certificate_private_key',
         scopeType: 'global',

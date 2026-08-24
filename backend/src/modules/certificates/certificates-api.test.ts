@@ -648,6 +648,7 @@ describe('证书资产 API', () => {
     assert.equal(imported.statusCode, 201);
     const versionId = (imported.body as any).version.id;
     const password = (await security.secrets.create({
+      tenantId: 'tenant_1',
       name: '导出密码',
       type: 'pfx_password',
       scopeType: 'global',
