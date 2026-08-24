@@ -20,6 +20,7 @@ const navItems = computed(() => permissionStore.visibleMenuItems)
 const activeTopItem = computed(() => navItems.value.find((item) => isMenuItemActive(item)) ?? null)
 const activeChildren = computed(() => activeTopItem.value?.children ?? [])
 const lockContentScroll = computed(() => route.path === '/certificates')
+const showDashboardRefresh = computed(() => route.name === 'dashboard.overview')
 
 function isMenuItemActive(item: MenuItem): boolean {
   if (route.path === item.path) return true
@@ -41,6 +42,10 @@ function iconPath(icon?: string): string {
 async function logout() {
   await authStore.logout()
   await router.push({ name: 'login' })
+}
+
+function refreshDashboard() {
+  window.dispatchEvent(new CustomEvent('dashboard:refresh'))
 }
 </script>
 
@@ -88,17 +93,28 @@ async function logout() {
             </span>
           </div>
         </div>
-        <nav v-if="activeChildren.length" class="gc-shell__submenu" aria-label="当前分组导航">
-          <RouterLink
-            v-for="child in activeChildren"
-            :key="child.path"
-            class="gc-shell__submenu-item"
-            active-class="gc-shell__submenu-item--active"
-            :to="child.path"
+        <div class="gc-shell__hero-actions">
+          <nav v-if="activeChildren.length" class="gc-shell__submenu" aria-label="当前分组导航">
+            <RouterLink
+              v-for="child in activeChildren"
+              :key="child.path"
+              class="gc-shell__submenu-item"
+              active-class="gc-shell__submenu-item--active"
+              :to="child.path"
+            >
+              {{ child.title }}
+            </RouterLink>
+          </nav>
+          <button
+            v-if="showDashboardRefresh"
+            class="gc-button gc-button--primary"
+            type="button"
+            @click="refreshDashboard"
           >
-            {{ child.title }}
-          </RouterLink>
-        </nav>
+            <span aria-hidden="true">↻</span>
+            刷新
+          </button>
+        </div>
       </section>
 
       <RouterView />

@@ -184,6 +184,15 @@
   backdrop-filter: blur(12px);
 }
 
+.gc-shell__hero-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--gc-space-3);
+  margin-left: auto;
+  min-width: max-content;
+}
+
 .gc-shell__submenu-item {
   display: inline-flex;
   align-items: center;
@@ -256,5 +265,6 @@
   .gc-shell__brand-text { display: none; }
   .gc-shell__tenant { display: none; }
   .gc-shell__hero { align-items: flex-start; flex-direction: column; }
+  .gc-shell__hero-actions { justify-content: flex-start; margin-left: 0; }
   .gc-shell__submenu { justify-content: flex-start; }
 }
