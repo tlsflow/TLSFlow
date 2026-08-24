@@ -6,6 +6,7 @@ export interface OpenApiSchema {
   items?: OpenApiSchema;
   required?: string[];
   enum?: readonly string[];
+  pattern?: string;
   additionalProperties?: boolean | OpenApiSchema;
   format?: string;
   description?: string;

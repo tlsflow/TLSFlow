@@ -41,7 +41,10 @@ export interface ManagedDevicePageDto {
 }
 
 export type ManagedDeviceInformationValueType = 'TEXT' | 'STATUS' | 'DATETIME' | 'BOOLEAN' | 'NUMBER';
-export type ManagedDeviceSiteKind = 'IIS' | 'NGINX' | 'APACHE' | 'TOMCAT' | 'LB' | 'VPN' | 'CUSTOM';
+
+/** 标准分类必须使用至少包含一个命名空间分隔符的开放标识，不绑定任何厂商或产品。 */
+export type ManagedDeviceSiteKind = `${string}${'.' | '-'}${string}`;
+export const MANAGED_DEVICE_SITE_KIND_PATTERN = '^[a-z0-9]+(?:[.-][a-z0-9]+)+$';
 
 export interface ManagedDeviceOverviewDto {
   deviceId: string;

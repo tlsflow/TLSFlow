@@ -247,7 +247,7 @@ export class PgDevicesRepository implements DevicesRepository {
         .map((item) => ({
           id: item.id,
           siteAssetId: item.id,
-          kind: item.virtual_server_type as 'LB' | 'VPN',
+          kind: 'network.virtual-server' as const,
           name: item.virtual_server_name,
           status: item.runtime_state ?? undefined,
           endpoint: {
@@ -296,7 +296,7 @@ export class PgDevicesRepository implements DevicesRepository {
 
   private async getManagedSites(tenantId: string, deviceId: string): Promise<ManagedDeviceSiteDto[]> {
     const rows = (await this.db.query<ManagedSiteRow>(
-      `select site.id, site.discovery_provider_key as provider_type, site.site_name, site.binding_information, site.host_header,
+      `select site.id, site.site_type, site.site_name, site.binding_information, site.host_header,
               site.listen_ip, site.port, site.protocol, site.config_path, site.runtime_status, site.status, site.metadata,
               target.id as managed_target_id, target.binding_key as target_binding_key, target.status as target_status,
               binding.id as binding_id, binding.binding_key, binding.binding_type, binding.domain_name,
@@ -318,13 +318,11 @@ export class PgDevicesRepository implements DevicesRepository {
     )).rows;
     const sites = new Map<string, ManagedDeviceSiteDto>();
     for (const row of rows) {
-      const kind = siteKind(row.provider_type, row.metadata);
-      if (!kind) continue;
       const existing = sites.get(row.id) ?? {
         id: row.id,
         siteAssetId: row.id,
         managedTargetId: row.managed_target_id ?? undefined,
-        kind,
+        kind: row.site_type,
         name: row.site_name,
         status: row.runtime_status ?? row.status,
         endpoint: {
@@ -586,7 +584,7 @@ interface DiscoveredCertificateRow extends Record<string, unknown> {
 
 interface ManagedSiteRow extends Record<string, unknown> {
   id: string;
-  provider_type: string;
+  site_type: ManagedDeviceSiteDto['kind'];
   site_name: string;
   binding_information: string | null;
   host_header: string | null;
@@ -702,16 +700,6 @@ function optionalTimestamp(value: unknown): string | undefined {
   return value instanceof Date ? value.toISOString() : String(value);
 }
 
-function siteKind(providerType: string, metadata: unknown): ManagedDeviceSiteDto['kind'] | undefined {
-  const provider = providerType.toUpperCase();
-  if (provider === 'IIS') return 'IIS';
-  if (provider === 'NGINX') return 'NGINX';
-  if (provider === 'APACHE') return 'APACHE';
-  if (provider === 'TOMCAT') return 'TOMCAT';
-  const virtualServerType = String(asRecord(metadata).virtualServerType ?? '').toUpperCase();
-  return virtualServerType === 'LB' || virtualServerType === 'VPN' ? virtualServerType : 'CUSTOM';
-}
-
 function distinguishedName(value: unknown): string | undefined {
   if (typeof value === 'string') return value || undefined;
   const record = asRecord(value);
@@ -724,9 +712,12 @@ function distinguishedName(value: unknown): string | undefined {
 function mergeNetworkSites(managedSites: ManagedDeviceSiteDto[], discoveredSites: ManagedDeviceSiteDto[]): ManagedDeviceSiteDto[] {
   if (!managedSites.length) return discoveredSites;
   return managedSites.map((site) => {
-    const virtualServerType = String(site.metadata.virtualServerType ?? site.kind).toUpperCase();
+    const virtualServerType = String(site.metadata.virtualServerType ?? '').toUpperCase();
     const virtualServerName = String(site.metadata.virtualServerName ?? site.name);
-    const discovered = discoveredSites.find((item) => item.kind === virtualServerType && item.name === virtualServerName);
+    const discovered = discoveredSites.find((item) => (
+      String(item.metadata.virtualServerType ?? '').toUpperCase() === virtualServerType
+      && item.name === virtualServerName
+    ));
     return discovered ? {
       ...site,
       status: discovered.status ?? site.status,

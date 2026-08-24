@@ -1,4 +1,5 @@
 import type { OpenApiSchema } from '../../../common/openapi/route-contract.js';
+import { MANAGED_DEVICE_SITE_KIND_PATTERN } from '../dto/devices.dto.js';
 
 const informationFieldSchema: OpenApiSchema = {
   type: 'object',
@@ -60,7 +61,7 @@ const siteSchema: OpenApiSchema = {
     id: { type: 'string' },
     siteAssetId: { type: 'string' },
     managedTargetId: { type: 'string' },
-    kind: { type: 'string', enum: ['IIS', 'NGINX', 'APACHE', 'TOMCAT', 'LB', 'VPN', 'CUSTOM'] },
+    kind: { type: 'string', pattern: MANAGED_DEVICE_SITE_KIND_PATTERN },
     name: { type: 'string' },
     status: { type: 'string' },
     endpoint: {

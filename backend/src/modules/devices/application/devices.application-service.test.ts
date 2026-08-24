@@ -64,7 +64,7 @@ test('Agent 设备详情只保留标准投影站点，不再解析厂商 capabil
   const standardSite = {
     id: 'site-standard',
     siteAssetId: 'site-standard',
-    kind: 'CUSTOM',
+    kind: 'web.site',
     name: '标准投影站点',
     bindings: [],
     metadata: { source: 'standard_discovery_projection' },

@@ -125,9 +125,7 @@ test('Agent 注册自动创建设备主记录并兼容 Windows Server 2008 R2', 
   assert.equal(unifiedDetail.overview.deviceType, 'AGENT');
   assert.ok(unifiedDetail.informationSections.some((section) => section.key === 'agent'));
   assert.ok(unifiedDetail.informationSections.some((section) => section.fields.some((field) => field.key === 'agentVersion' && field.value === '1.0.0')));
-  assert.equal(unifiedDetail.sites[0]?.kind, 'IIS');
-  assert.equal(unifiedDetail.sites[0]?.name, 'Default Web Site');
-  assert.equal(unifiedDetail.sites[0]?.endpoint?.port, 80);
+  assert.deepEqual(unifiedDetail.sites, []);
 
   await agents.heartbeat('tenant_windows_2008_r2', {
     agentId: registered.id,
@@ -171,7 +169,7 @@ test('Agent 注册自动创建设备主记录并兼容 Windows Server 2008 R2', 
   assert.equal(hosts.rows[0]?.primary_ip, '10.33.2.18');
 });
 
-test('Linux Agent 接受带连字符的能力键并从能力快照识别 Nginx 站点', async () => {
+test('Linux Agent 接受带连字符的能力键且设备详情不再从能力快照猜测站点', async () => {
   const database = new PgliteDatabase();
   await runMigrations(database, 'src/database/migrations');
   const agents = new AgentsApplicationService(new PgAgentsRepository(database));
@@ -264,14 +262,7 @@ test('Linux Agent 接受带连字符的能力键并从能力快照识别 Nginx �
     'tenant_linux_capabilities',
     registered.id,
   );
-  assert.equal(detail.sites[0]?.kind, 'NGINX');
-  assert.equal(detail.sites[0]?.name, 'portal.example.com');
-  assert.equal(detail.sites[0]?.endpoint?.protocol, 'https');
-  assert.equal(detail.sites[0]?.bindings[0]?.certificate?.subject, 'CN=portal.example.com');
-  assert.equal(detail.sites.length, 4);
-  assert.equal(detail.sites[1]?.endpoint?.protocol, 'http');
-  assert.equal(detail.sites.find((site) => site.kind === 'APACHE')?.bindings[0]?.certificate?.subject, 'CN=apache.example.com');
-  assert.equal(detail.sites.find((site) => site.kind === 'TOMCAT')?.bindings[0]?.certificate?.subject, 'CN=tomcat.example.com');
+  assert.deepEqual(detail.sites, []);
 });
 
 test('Spec033 统一设备列表聚合 Agent 和 Citrix ADC 且不产生 N+1', async () => {
@@ -539,10 +530,10 @@ test('Spec033 Citrix ADC 详情返回 Virtual Server、证书和绑定资源', a
   assert.equal(detail?.certificates[0]?.issuer, 'CN=issuer');
   assert.equal(detail?.certificates[0]?.certificateAssetId, 'asset_detail');
   assert.equal(detail?.certificates[0]?.certificateVersionId, 'version_detail');
-  assert.equal(detail?.sites.find((site) => site.kind === 'LB')?.bindings[0]?.certificate?.name, 'cert-detail');
-  assert.equal(detail?.sites.find((site) => site.kind === 'LB')?.bindings[0]?.certificate?.certificateAssetId, 'asset_detail');
-  assert.equal(detail?.sites.find((site) => site.kind === 'VPN')?.bindings[0]?.certificate?.issuer, 'CN=issuer');
-  assert.match(detail?.sites.find((site) => site.kind === 'VPN')?.bindings[0]?.certificate?.notAfter ?? '', /^2027-01-01/);
+  assert.equal(detail?.sites.find((site) => site.metadata.virtualServerType === 'LB')?.bindings[0]?.certificate?.name, 'cert-detail');
+  assert.equal(detail?.sites.find((site) => site.metadata.virtualServerType === 'LB')?.bindings[0]?.certificate?.certificateAssetId, 'asset_detail');
+  assert.equal(detail?.sites.find((site) => site.metadata.virtualServerType === 'VPN')?.bindings[0]?.certificate?.issuer, 'CN=issuer');
+  assert.match(detail?.sites.find((site) => site.metadata.virtualServerType === 'VPN')?.bindings[0]?.certificate?.notAfter ?? '', /^2027-01-01/);
   assert.equal(detail?.logs[0]?.eventType, 'device_asset.connection_tested');
 });
 
