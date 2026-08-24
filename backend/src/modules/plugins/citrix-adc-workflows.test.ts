@@ -344,6 +344,7 @@ test('Citrix ADC 连接测试真实执行：设备关闭 TLS 校验时按 Execut
     mode: 'real_test',
     resolvedInput: resolvedWorkflowInput({}, { tlsVerify: false }),
     tenantId: 'tenant-citrix-tls',
+    authorization: { approved: true, approvalId: 'approval-citrix-tls' },
   }, authorizedDispatcher);
   assert.equal(authorized.status, 'success');
   assert.equal(tlsVerify, false);
@@ -357,6 +358,7 @@ test('Citrix ADC 连接测试真实执行：设备关闭 TLS 校验时按 Execut
     mode: 'real_test',
     resolvedInput: resolvedWorkflowInput({}, { tlsVerify: false }),
     tenantId: 'tenant-citrix-tls',
+    authorization: { approved: true, approvalId: 'approval-citrix-tls' },
   }, deniedDispatcher);
   assert.equal(denied.status, 'failed');
   assert.equal(denied.stepResults[0]?.errorCode, 'VALIDATION_FAILED');

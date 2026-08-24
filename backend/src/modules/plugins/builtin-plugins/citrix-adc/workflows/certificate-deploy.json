@@ -5,7 +5,7 @@
     "name": "citrix-adc-certificate-deploy",
     "displayName": "Citrix ADC certificate deployment",
     "category": "certificate",
-    "version": "2.0.16",
+    "version": "2.0.17",
     "platforms": ["appliance"],
     "updateMethods": ["curl"],
     "maintainer": "GCAC"
@@ -72,7 +72,7 @@
       "request": {
         "method": "GET",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/nsversion",
+        "url": "/nitro/v1/config/nsversion",
         "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
         "successStatusCodes": [200]
@@ -89,7 +89,7 @@
       "request": {
         "method": "GET",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding",
+        "url": "/nitro/v1/config/sslvserver_sslcertkey_binding",
         "query": { "bulkbindings": "yes" },
         "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
@@ -140,7 +140,7 @@
       "request": {
         "method": "GET",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslcertkey",
+        "url": "/nitro/v1/config/sslcertkey",
         "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
         "successStatusCodes": [200]
@@ -180,7 +180,7 @@
             "request": {
               "method": "GET",
               "connectionRef": "management",
-              "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslcertkey/{{oldCertificateKey.name}}",
+              "url": "/nitro/v1/config/sslcertkey/{{oldCertificateKey.name}}",
               "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
               "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
               "successStatusCodes": [200]
@@ -234,7 +234,7 @@
       "request": {
         "method": "POST",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/systemfile",
+        "url": "/nitro/v1/config/systemfile",
         "query": { "override": "yes" },
         "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
       "bodyType": "json",
@@ -251,7 +251,7 @@
       "request": {
         "method": "POST",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/systemfile",
+        "url": "/nitro/v1/config/systemfile",
         "query": { "override": "yes" },
         "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
       "bodyType": "json",
@@ -276,7 +276,7 @@
             "request": {
               "method": "POST",
               "connectionRef": "management",
-              "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/systemfile",
+              "url": "/nitro/v1/config/systemfile",
               "query": { "override": "yes" },
               "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
               "bodyType": "json",
@@ -291,7 +291,7 @@
             "request": {
               "method": "POST",
               "connectionRef": "management",
-              "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslcertkey",
+              "url": "/nitro/v1/config/sslcertkey",
               "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
               "bodyType": "json",
               "body": { "sslcertkey": { "certkey": "{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}-ca-{{intermediate.sequence}}", "cert": "/nsconfig/ssl/{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}-ca-{{intermediate.sequence}}.pem" } },
@@ -342,7 +342,7 @@
             "request": {
               "method": "POST",
               "connectionRef": "management",
-              "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslcertkey",
+              "url": "/nitro/v1/config/sslcertkey",
               "query": { "action": "link" },
               "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
               "bodyType": "json",
@@ -363,7 +363,7 @@
             "request": {
               "method": "GET",
               "connectionRef": "management",
-              "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslcertchain_sslcertkey_binding/{{intermediate.certkeyName}}",
+              "url": "/nitro/v1/config/sslcertchain_sslcertkey_binding/{{intermediate.certkeyName}}",
               "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
               "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
               "successStatusCodes": [200]
@@ -383,7 +383,7 @@
       "request": {
         "method": "POST",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslcertkey",
+        "url": "/nitro/v1/config/sslcertkey",
         "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "bodyType": "json",
         "body": { "sslcertkey": { "certkey": "{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}", "cert": "/nsconfig/ssl/{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}.pem", "key": "/nsconfig/ssl/{{steps.deriveCitrixNames.extracted.citrixCertificateKeyName}}.key" } },
@@ -422,7 +422,7 @@
       "request": {
         "method": "GET",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslcertkey/{{steps.resolveLeafCertKeyName.extracted.effectiveLeafCertKeyName}}",
+        "url": "/nitro/v1/config/sslcertkey/{{steps.resolveLeafCertKeyName.extracted.effectiveLeafCertKeyName}}",
         "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
         "successStatusCodes": [200]
@@ -460,7 +460,7 @@
       "request": {
         "method": "POST",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslcertkey",
+        "url": "/nitro/v1/config/sslcertkey",
         "query": { "action": "link" },
         "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "bodyType": "json",
@@ -482,7 +482,7 @@
       "request": {
         "method": "GET",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslcertchain_sslcertkey_binding/{{steps.resolveLeafCertKeyName.extracted.effectiveLeafCertKeyName}}",
+        "url": "/nitro/v1/config/sslcertchain_sslcertkey_binding/{{steps.resolveLeafCertKeyName.extracted.effectiveLeafCertKeyName}}",
         "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
         "successStatusCodes": [200]
@@ -508,7 +508,7 @@
             "request": {
               "method": "POST",
               "connectionRef": "management",
-              "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding",
+              "url": "/nitro/v1/config/sslvserver_sslcertkey_binding",
               "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
               "bodyType": "json",
               "body": { "sslvserver_sslcertkey_binding": { "vservername": "{{target.name}}", "certkeyname": "{{steps.resolveLeafCertKeyName.extracted.effectiveLeafCertKeyName}}", "snicert": "{{target.metadata.sniCertificate}}" } },
@@ -522,7 +522,7 @@
             "request": {
               "method": "GET",
               "connectionRef": "management",
-              "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding/{{target.name}}",
+              "url": "/nitro/v1/config/sslvserver_sslcertkey_binding/{{target.name}}",
               "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
               "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
               "successStatusCodes": [200]
@@ -542,7 +542,7 @@
       "request": {
         "method": "GET",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding",
+        "url": "/nitro/v1/config/sslvserver_sslcertkey_binding",
         "query": { "bulkbindings": "yes" },
         "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
@@ -585,7 +585,7 @@
             "request": {
               "method": "DELETE",
               "connectionRef": "management",
-              "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding/{{oldBinding.encodedVserverName}}?args=certkeyname:{{oldBinding.encodedCertkeyName}}",
+              "url": "/nitro/v1/config/sslvserver_sslcertkey_binding/{{oldBinding.encodedVserverName}}?args=certkeyname:{{oldBinding.encodedCertkeyName}}",
               "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
               "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
               "successStatusCodes": [200, 201]
@@ -601,7 +601,7 @@
       "request": {
         "method": "POST",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/nsconfig",
+        "url": "/nitro/v1/config/nsconfig",
         "query": { "action": "save" },
         "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "bodyType": "json",
@@ -617,7 +617,7 @@
       "request": {
         "method": "GET",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslcertkey/{{steps.resolveLeafCertKeyName.extracted.effectiveLeafCertKeyName}}",
+        "url": "/nitro/v1/config/sslcertkey/{{steps.resolveLeafCertKeyName.extracted.effectiveLeafCertKeyName}}",
         "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
         "successStatusCodes": [200]
@@ -643,7 +643,7 @@
       "request": {
         "method": "GET",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/nsversion",
+        "url": "/nitro/v1/config/nsversion",
         "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
         "successStatusCodes": [200]
@@ -665,7 +665,7 @@
       "request": {
         "method": "GET",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding",
+        "url": "/nitro/v1/config/sslvserver_sslcertkey_binding",
         "query": { "bulkbindings": "yes" },
         "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
@@ -704,7 +704,7 @@
             "request": {
               "method": "POST",
               "connectionRef": "management",
-              "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding",
+              "url": "/nitro/v1/config/sslvserver_sslcertkey_binding",
               "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
               "bodyType": "json",
               "body": { "sslvserver_sslcertkey_binding": "{{oldBinding}}" },
@@ -722,7 +722,7 @@
       "request": {
         "method": "GET",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding",
+        "url": "/nitro/v1/config/sslvserver_sslcertkey_binding",
         "query": { "bulkbindings": "yes" },
         "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
@@ -787,7 +787,7 @@
             "request": {
               "method": "DELETE",
               "connectionRef": "management",
-              "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding/{{newBinding.vservername}}?args=certkeyname:{{newBinding.certkeyname}}",
+              "url": "/nitro/v1/config/sslvserver_sslcertkey_binding/{{newBinding.vservername}}?args=certkeyname:{{newBinding.certkeyname}}",
               "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
               "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
               "successStatusCodes": [200, 201]
@@ -803,7 +803,7 @@
       "request": {
         "method": "GET",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/sslvserver_sslcertkey_binding",
+        "url": "/nitro/v1/config/sslvserver_sslcertkey_binding",
         "query": { "bulkbindings": "yes" },
         "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true },
@@ -859,7 +859,7 @@
       "request": {
         "method": "POST",
         "connectionRef": "management",
-        "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/nsconfig",
+        "url": "/nitro/v1/config/nsconfig",
         "query": { "action": "save" },
         "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" },
         "bodyType": "json",
