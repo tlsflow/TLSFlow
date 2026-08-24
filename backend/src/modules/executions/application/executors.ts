@@ -18,6 +18,7 @@ import type { AgentDeploymentPluginsApplicationService } from '../../plugins/app
 import type { AgentPluginBindingInput } from '../../plugins/dto/agent-deployment-plugins.dto.js';
 import { buildTlsVerifyTargetFromUrl, certificateMatchesDomain, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
 import { WorkflowRecoveryLedgerService, type WorkflowRecoveryLedgerRecord } from './workflow-recovery-ledger.service.js';
+import { PluginResourceLockService, type PluginResourceLockRecord } from './plugin-resource-lock.service.js';
 
 export interface StepExecutionInput {
   step: ExecutionStepEntity;
@@ -69,6 +70,7 @@ export interface DefaultExecutorDependencies {
   workflows?: WorkflowTemplatesApplicationService;
   agentPlugins?: AgentDeploymentPluginsApplicationService;
   workflowRecovery?: WorkflowRecoveryLedgerService;
+  pluginResourceLocks?: PluginResourceLockService;
 }
 
 export class ExecutorRegistry {
@@ -128,7 +130,7 @@ function createDefaultExecutors(dependencies: DefaultExecutorDependencies = {}):
   return [
 	    sshExecutor,
 	    curlExecutor,
-	    new WorkflowExecutorAdapter({ workflows: dependencies.workflows, curlExecutor, sshExecutor, recovery: dependencies.workflowRecovery }),
+	    new WorkflowExecutorAdapter({ workflows: dependencies.workflows, curlExecutor, sshExecutor, recovery: dependencies.workflowRecovery, resourceLocks: dependencies.pluginResourceLocks }),
 	    new WindowsRemoteExecutorAdapter('WINRM'),
     new WindowsRemoteExecutorAdapter('SMB_WMI'),
     new AgentExecutorAdapter(dependencies.agents, new AgentActionDispatchRegistry(), dependencies.agentPlugins),
@@ -286,12 +288,14 @@ export class WorkflowExecutorAdapter implements Executor {
   private readonly sshExecutor: SSHExecutor;
   private readonly stepExecutors: WorkflowStepExecutorRegistry;
   private readonly recovery: WorkflowRecoveryLedgerService;
+  private readonly resourceLocks: PluginResourceLockService;
 
-  constructor(options: { workflows?: WorkflowTemplatesApplicationService; curlExecutor?: CurlExecutor; sshExecutor?: SSHExecutor; recovery?: WorkflowRecoveryLedgerService } = {}) {
+  constructor(options: { workflows?: WorkflowTemplatesApplicationService; curlExecutor?: CurlExecutor; sshExecutor?: SSHExecutor; recovery?: WorkflowRecoveryLedgerService; resourceLocks?: PluginResourceLockService } = {}) {
     this.workflows = options.workflows ?? new WorkflowTemplatesApplicationService();
     this.curlExecutor = options.curlExecutor ?? new CurlExecutor();
     this.sshExecutor = options.sshExecutor ?? new SSHExecutor();
     this.recovery = options.recovery ?? new WorkflowRecoveryLedgerService();
+    this.resourceLocks = options.resourceLocks ?? new PluginResourceLockService();
     this.stepExecutors = new WorkflowStepExecutorRegistry([
       {
         executorId: '017.CURL_HTTP',
@@ -328,7 +332,9 @@ export class WorkflowExecutorAdapter implements Executor {
       connectionBindings: (readRecord(request.connectionBindings) ?? {}) as Record<string, WorkflowConnectionBinding>,
       certificateMaterials: buildWorkflowCertificateMaterials(input.step.inputSnapshot),
     };
+    let resourceLock: PluginResourceLockRecord | undefined;
     try {
+      resourceLock = input.dryRun ? undefined : await this.acquireWorkflowResourceLock(input, request, runtimeInput.assetVariables);
       const recoveryLedger = input.dryRun ? undefined : await this.beginRecoveryLedger(input, request, runtimeInput);
       const reportWorkflowProgress = async (workflowProgress: WorkflowRunProgress) => {
         await input.reportProgress?.({
@@ -379,7 +385,40 @@ export class WorkflowExecutorAdapter implements Executor {
         return { success: false, errorCode: error.errorCode, errorMessage: error.message, detail: error.details as Record<string, unknown> | undefined };
       }
       return { success: false, errorCode: 'WORKFLOW_RUN_FAILED', errorMessage: error instanceof Error ? error.message : String(error) };
+    } finally {
+      if (resourceLock) {
+        await this.resourceLocks.release({
+          tenantId: resourceLock.tenantId,
+          lockId: resourceLock.id,
+          ownerRunId: resourceLock.ownerRunId,
+          ownerStepId: resourceLock.ownerStepId,
+        });
+      }
     }
+  }
+
+  private async acquireWorkflowResourceLock(input: StepExecutionInput, request: Record<string, unknown>, assetVariables: Record<string, unknown>): Promise<PluginResourceLockRecord | undefined> {
+    const pluginVersionId = stringFromSnapshot(request.pluginVersionId);
+    if (!pluginVersionId) return undefined;
+    const tenantId = input.step.tenantId ?? stringFromSnapshot(input.step.inputSnapshot.tenantId) ?? 'default';
+    const requested = readRecord(request.resourceLock) ?? {};
+    const managedContext = readRecord(request.managedContext) ?? readRecord(assetVariables.managedContext) ?? {};
+    const deviceAssetId = stringFromSnapshot(managedContext.deviceAssetId) ?? stringFromSnapshot(assetVariables.deviceAssetId);
+    const managedTargetId = stringFromSnapshot(managedContext.managedTargetId) ?? stringFromSnapshot(assetVariables.managedTargetId);
+    const standaloneKey = stringFromSnapshot(request.standaloneStableKey);
+    const resourceKey = stringFromSnapshot(requested.key)
+      ?? (deviceAssetId ? `tenant:${tenantId}:device:${deviceAssetId}` : undefined)
+      ?? (managedTargetId ? `tenant:${tenantId}:managed-target:${managedTargetId}` : undefined)
+      ?? (standaloneKey ? `tenant:${tenantId}:standalone:${standaloneKey}` : undefined);
+    if (!resourceKey) throw new AppError('VALIDATION_FAILED', '插件工作流缺少稳定资源锁键，Standalone 写操作拒绝并发执行');
+    return await this.resourceLocks.acquire({
+      tenantId,
+      resourceKey,
+      mode: String(requested.mode ?? 'WRITE') === 'READ' ? 'READ' : 'WRITE',
+      ownerRunId: input.step.executionRunId,
+      ownerStepId: input.step.id,
+      ttlSeconds: Number(requested.ttlSeconds ?? 300),
+    });
   }
 
   private async beginRecoveryLedger(

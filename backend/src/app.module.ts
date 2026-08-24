@@ -11,6 +11,7 @@ import { ExecutionDetailStreamService } from './modules/executions/application/e
 import { ExecutionResultSyncService } from './modules/executions/application/execution-result-sync.service.js';
 import { createDefaultExecutorRegistryWithDependencies } from './modules/executions/application/executors.js';
 import { WorkflowRecoveryLedgerService } from './modules/executions/application/workflow-recovery-ledger.service.js';
+import { PluginResourceLockService } from './modules/executions/application/plugin-resource-lock.service.js';
 import { ExecutionsController, getExecutionRouteContracts } from './modules/executions/controller/executions.controller.js';
 import { createSecurityServices, getSecurityRouteContracts, SecurityController, type SecurityServices } from './modules/security/security.controller.js';
 import { createPersistedSecurityServices } from './modules/security/security-services.persistence.js';
@@ -176,6 +177,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   assetsService.setWorkflowTemplatesService(workflowTemplatesService);
   assetsService.setPluginBindingsService(pluginBindingsService);
   const workflowRecoveryService = new WorkflowRecoveryLedgerService(appDb);
+  const pluginResourceLockService = new PluginResourceLockService(appDb);
   const executorRegistry = createDefaultExecutorRegistryWithDependencies({
     agents: agentsService,
     gatewayTasks: gatewayTasksService,
@@ -184,6 +186,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     workflows: workflowTemplatesService,
     agentPlugins: agentPluginsService,
     workflowRecovery: workflowRecoveryService,
+    pluginResourceLocks: pluginResourceLockService,
   });
 
   const deploymentPersistence = dependencies.deploymentPlans
