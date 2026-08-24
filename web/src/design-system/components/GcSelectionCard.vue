@@ -52,14 +52,12 @@ function toggle(): void {
       <span v-if="description" class="gc-selection-card__description">{{ description }}</span>
       <span v-if="$slots.default" class="gc-selection-card__extra"><slot /></span>
     </span>
-    <span class="gc-selection-card__indicator" aria-hidden="true" />
   </button>
 </template>
 
 <style scoped>
 .gc-selection-card {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  display: flex;
   align-items: center;
   gap: var(--gc-space-3);
   width: 100%;
@@ -109,6 +107,7 @@ function toggle(): void {
 
 .gc-selection-card__content {
   display: grid;
+  flex: 1 1 auto;
   min-width: 0;
   gap: var(--gc-space-1);
 }
@@ -118,20 +117,6 @@ function toggle(): void {
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-sm);
   font-weight: 400;
-}
-
-.gc-selection-card__indicator {
-  width: var(--gc-space-4);
-  height: var(--gc-space-4);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-strong);
-  border-radius: var(--gc-radius-full);
-  background: var(--gc-color-surface-solid);
-}
-
-.gc-selection-card--selected .gc-selection-card__indicator {
-  border-color: var(--gc-color-primary);
-  box-shadow: inset 0 0 0 var(--gc-space-1) var(--gc-color-surface-solid);
-  background: var(--gc-color-primary);
 }
 
 @media (prefers-reduced-motion: reduce) {

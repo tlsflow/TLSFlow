@@ -78,6 +78,7 @@ describe('Cloud Security Pro 共享组件', () => {
     expect(wrapper.emitted('update:modelValue')).toEqual([[true]])
     expect(wrapper.emitted('select')).toEqual([[true]])
     expect(wrapper.get('button').attributes('aria-pressed')).toBe('false')
+    expect(wrapper.find('.gc-selection-card__indicator').exists()).toBe(false)
 
     await wrapper.setProps({ modelValue: true })
     expect(wrapper.get('button').classes()).toContain('gc-selection-card--selected')

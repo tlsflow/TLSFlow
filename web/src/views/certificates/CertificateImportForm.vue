@@ -28,12 +28,18 @@ const props = withDefaults(defineProps<{
   error?: string
   resultId?: string
   validationResult?: CertificateImportValidationResult | null
+  showSource?: boolean
+  showFormatDescription?: boolean
+  initialStep?: FlowStep
 }>(), {
   loading: false,
   validating: false,
   error: '',
   resultId: '',
   validationResult: null,
+  showSource: true,
+  showFormatDescription: true,
+  initialStep: 'source',
 })
 
 const emit = defineEmits<{
@@ -43,7 +49,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-const currentStep = ref<FlowStep>('source')
+const currentStep = ref<FlowStep>(props.initialStep)
 const selectedSource = ref<ImportSource | null>(null)
 const fileInputKey = ref(0)
 const certificateFileName = ref('')
@@ -74,7 +80,7 @@ const flowSteps = computed(() => [
   { id: 'format' as const, label: t('certificates.importForm.steps.formatAndMethod') },
   { id: 'materials' as const, label: t('certificates.importForm.steps.materials') },
   { id: 'review' as const, label: t('certificates.importForm.steps.validateAndImport') },
-])
+].filter((step) => props.showSource || step.id !== 'source'))
 const activeFlowStep = computed<FlowStep>(() => (
   currentStep.value
 ))
@@ -266,7 +272,7 @@ function cancelImport() {
 </script>
 
 <template>
-  <section class="certificate-import-wizard">
+  <section class="certificate-import-wizard" :class="{ 'certificate-import-wizard--modal': !props.showSource }">
     <ol class="certificate-import-wizard__steps" :aria-label="t('certificates.importForm.steps.ariaLabel')">
       <li
         v-for="(step, index) in flowSteps"
@@ -278,8 +284,8 @@ function cancelImport() {
       </li>
     </ol>
 
-    <section v-if="currentStep === 'source'" class="certificate-import-wizard__panel certificate-import-wizard__panel--source">
-      <header class="certificate-import-wizard__header">
+    <section v-if="props.showSource && currentStep === 'source'" class="certificate-import-wizard__panel certificate-import-wizard__panel--source">
+      <header v-if="props.showSource" class="certificate-import-wizard__header">
         <div>
           <h2>{{ t('certificates.importForm.source.title') }}</h2>
           <p>{{ t('certificates.importForm.source.description') }}</p>
@@ -321,7 +327,7 @@ function cancelImport() {
       <header class="certificate-import-wizard__header">
         <div>
           <h2>{{ t('certificates.importForm.formatIntro.title') }}</h2>
-          <p>{{ t('certificates.importForm.formatIntro.description') }}</p>
+          <p v-if="props.showFormatDescription">{{ t('certificates.importForm.formatIntro.description') }}</p>
         </div>
       </header>
 
@@ -381,8 +387,17 @@ function cancelImport() {
       </template>
 
       <form class="certificate-import-wizard__form" @submit.prevent="nextStep">
-        <label v-if="draft.format === 'PEM' && needsCertificateFile" class="gc-form-field certificate-import-wizard__field certificate-import-wizard__field--full">
-          <span>{{ t('certificates.importForm.fields.certificateChainFile') }}</span>
+        <label v-if="draft.format === 'PEM' && needsCertificateFile" class="certificate-import-wizard__upload-field certificate-import-wizard__field--full">
+          <span class="certificate-import-wizard__field-label">{{ t('certificates.importForm.fields.certificateChainFile') }}</span>
+          <span class="certificate-import-wizard__upload-control">
+            <span class="certificate-import-wizard__upload-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14.5v3A2.5 2.5 0 0 0 7.5 20h9a2.5 2.5 0 0 0 2.5-2.5v-3" /></svg>
+            </span>
+            <span class="certificate-import-wizard__upload-copy">
+              <strong>{{ t('certificates.importForm.upload.choose') }}</strong>
+              <small>{{ certificateFileName || t('certificates.importForm.upload.noFile') }}</small>
+            </span>
+          </span>
           <input
             :key="`certificate-${fileInputKey}`"
             class="certificate-import-wizard__file"
@@ -391,7 +406,6 @@ function cancelImport() {
             accept=".pem,.crt,.cer,.txt"
             @change="handleCertificateFileChange"
           />
-          <small v-if="certificateFileName">{{ t('certificates.importForm.selectedFile', { name: certificateFileName }) }}</small>
         </label>
 
         <label v-if="needsCertificateText" class="gc-form-field certificate-import-wizard__field certificate-import-wizard__field--full">
@@ -404,8 +418,18 @@ function cancelImport() {
           />
         </label>
 
-        <label v-if="draft.format === 'PEM'" class="gc-form-field certificate-import-wizard__field certificate-import-wizard__field--full">
-          <span>{{ t('certificates.importForm.fields.privateKey', { kind: effectiveMethod === 'file' ? t('certificates.importForm.fields.file') : t('certificates.importForm.fields.pemText') }) }}</span>
+        <label v-if="draft.format === 'PEM'" class="gc-form-field certificate-import-wizard__field certificate-import-wizard__field--full" :class="{ 'certificate-import-wizard__upload-field': effectiveMethod === 'file' }">
+          <span v-if="effectiveMethod === 'file'" class="certificate-import-wizard__field-label">{{ t('certificates.importForm.fields.privateKey', { kind: t('certificates.importForm.fields.file') }) }}</span>
+          <span v-else>{{ t('certificates.importForm.fields.privateKey', { kind: t('certificates.importForm.fields.pemText') }) }}</span>
+          <span v-if="effectiveMethod === 'file'" class="certificate-import-wizard__upload-control">
+            <span class="certificate-import-wizard__upload-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14.5v3A2.5 2.5 0 0 0 7.5 20h9a2.5 2.5 0 0 0 2.5-2.5v-3" /></svg>
+            </span>
+            <span class="certificate-import-wizard__upload-copy">
+              <strong>{{ t('certificates.importForm.upload.choose') }}</strong>
+              <small>{{ privateKeyFileName || t('certificates.importForm.upload.noFile') }}</small>
+            </span>
+          </span>
           <input
             v-if="effectiveMethod === 'file'"
             :key="`private-key-${fileInputKey}`"
@@ -421,11 +445,19 @@ function cancelImport() {
             spellcheck="false"
             placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
           />
-          <small v-if="effectiveMethod === 'file' && privateKeyFileName">{{ t('certificates.importForm.selectedFile', { name: privateKeyFileName }) }}</small>
         </label>
 
-        <label v-if="draft.format === 'PFX' && needsCertificateFile" class="gc-form-field certificate-import-wizard__field certificate-import-wizard__field--full">
-          <span>{{ t('certificates.importForm.fields.pfxFile') }}</span>
+        <label v-if="draft.format === 'PFX' && needsCertificateFile" class="certificate-import-wizard__upload-field certificate-import-wizard__field--full">
+          <span class="certificate-import-wizard__field-label">{{ t('certificates.importForm.fields.pfxFile') }}</span>
+          <span class="certificate-import-wizard__upload-control">
+            <span class="certificate-import-wizard__upload-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14.5v3A2.5 2.5 0 0 0 7.5 20h9a2.5 2.5 0 0 0 2.5-2.5v-3" /></svg>
+            </span>
+            <span class="certificate-import-wizard__upload-copy">
+              <strong>{{ t('certificates.importForm.upload.choose') }}</strong>
+              <small>{{ certificateFileName || t('certificates.importForm.upload.noFile') }}</small>
+            </span>
+          </span>
           <input
             :key="`certificate-${fileInputKey}`"
             class="certificate-import-wizard__file"
@@ -433,14 +465,9 @@ function cancelImport() {
             accept=".pfx,.p12"
             @change="handleCertificateFileChange"
           />
-          <small v-if="certificateFileName">{{ t('certificates.importForm.selectedFile', { name: certificateFileName }) }}</small>
         </label>
 
         <div class="certificate-import-wizard__meta">
-          <label class="gc-form-field certificate-import-wizard__field">
-            <span>{{ t('certificates.importForm.fields.certificateName') }}</span>
-            <input v-model="draft.name" :placeholder="t('certificates.importForm.placeholders.certificateName')" />
-          </label>
           <label v-if="draft.format === 'PFX'" class="gc-form-field certificate-import-wizard__field">
             <span>{{ t('certificates.importForm.fields.pfxPassword') }}</span>
             <input v-model="draft.pfxPassword" type="password" autocomplete="off" :placeholder="t('certificates.importForm.placeholders.required')" />
@@ -456,6 +483,15 @@ function cancelImport() {
           <p>{{ t('certificates.importForm.validation.description') }}</p>
         </div>
       </header>
+
+      <div v-if="validationResult?.importable" class="certificate-import-wizard__review-alert" role="status">
+        <GcStatusTag
+          status="SUCCESS"
+          :label="t('certificates.importForm.validation.passed')"
+          tone="success"
+        />
+        <p>{{ t('certificates.importForm.validation.description') }}</p>
+      </div>
 
       <dl class="certificate-import-wizard__summary">
         <div>
@@ -572,7 +608,7 @@ function cancelImport() {
         </GcButton>
       </div>
       <div v-if="currentStep !== 'source'" class="certificate-import-wizard__footer-right">
-        <GcButton variant="secondary" :disabled="loading || validating" @click="prevStep">
+        <GcButton v-if="props.showSource || currentStep !== 'format'" variant="secondary" :disabled="loading || validating" @click="prevStep">
           {{ t('certificates.importForm.actions.previous') }}
         </GcButton>
         <GcButton
@@ -600,14 +636,44 @@ function cancelImport() {
 </template>
 
 <style scoped>
-:global(.gc-modal:has(.certificate-import-wizard)) {
-  --gc-modal-width: var(--gc-size-modal-default);
-}
-
 .certificate-import-wizard {
   display: grid;
   gap: var(--gc-space-5);
   min-width: 0;
+}
+
+.certificate-import-wizard--modal {
+  gap: var(--gc-space-4);
+}
+
+:global(.gc-modal:has(.certificate-import-wizard--modal)) {
+  --gc-modal-width: var(--gc-size-modal-lg);
+}
+
+:global(.gc-modal:has(.certificate-import-wizard--modal) .gc-modal__body) {
+  padding: 0;
+}
+
+.certificate-import-wizard--modal > * {
+  padding-inline: var(--gc-space-8);
+}
+
+.certificate-import-wizard--modal .certificate-import-wizard__steps {
+  padding-top: var(--gc-space-5);
+}
+
+.certificate-import-wizard--modal .certificate-import-wizard__panel {
+  padding-top: var(--gc-space-5);
+  padding-bottom: var(--gc-space-5);
+}
+
+.certificate-import-wizard--modal .certificate-import-wizard__footer {
+  margin-top: 0;
+  margin-inline: 0;
+  padding-top: var(--gc-space-5);
+  padding-bottom: var(--gc-space-5);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
+  background: var(--gc-color-surface-muted);
 }
 
 .certificate-import-wizard__steps {
@@ -617,6 +683,10 @@ function cancelImport() {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.certificate-import-wizard--modal .certificate-import-wizard__steps {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .certificate-import-wizard__steps li {
@@ -682,6 +752,42 @@ function cancelImport() {
   line-height: var(--gc-line-height-tight);
 }
 
+.certificate-import-wizard--modal .certificate-import-wizard__header {
+  padding-bottom: var(--gc-space-4);
+}
+
+.certificate-import-wizard--modal .certificate-import-wizard__choice-group {
+  gap: var(--gc-space-3);
+}
+
+.certificate-import-wizard--modal .certificate-import-wizard__choice-label {
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.certificate-import-wizard--modal .certificate-import-wizard__panel--validation {
+  padding: var(--gc-space-4);
+  border-radius: var(--gc-radius-lg);
+  background: var(--gc-color-surface-muted);
+}
+
+.certificate-import-wizard__review-alert {
+  display: grid;
+  gap: var(--gc-space-2);
+  margin-bottom: var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-success-border);
+  border-radius: var(--gc-radius-md);
+  padding: var(--gc-space-3) var(--gc-space-4);
+  background: var(--gc-color-success-soft);
+}
+
+.certificate-import-wizard__review-alert p {
+  margin: 0;
+  color: var(--gc-color-success);
+  font-size: var(--gc-font-size-xs);
+  line-height: var(--gc-line-height-relaxed);
+}
+
 .certificate-import-wizard__header p {
   font-size: var(--gc-font-size-sm);
   line-height: var(--gc-line-height-relaxed);
@@ -719,6 +825,97 @@ function cancelImport() {
 
 .certificate-import-wizard__field--full {
   grid-column: 1 / -1;
+}
+
+.certificate-import-wizard__upload-field {
+  position: relative;
+  display: grid;
+  gap: var(--gc-space-2);
+  min-width: 0;
+  color: var(--gc-color-text);
+  cursor: pointer;
+}
+
+.certificate-import-wizard__field-label {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+  font-weight: var(--gc-font-weight-semibold);
+}
+
+.certificate-import-wizard__upload-control {
+  display: flex;
+  align-items: center;
+  gap: var(--gc-space-3);
+  min-width: 0;
+  min-height: var(--gc-control-height-md);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-md);
+  padding: var(--gc-space-3) var(--gc-space-4);
+  color: var(--gc-color-text);
+  background: var(--gc-color-surface-field);
+  transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+}
+
+.certificate-import-wizard__upload-field:hover .certificate-import-wizard__upload-control {
+  border-color: var(--gc-color-primary-border);
+  background: var(--gc-color-surface-hover);
+}
+
+.certificate-import-wizard__upload-field:focus-within .certificate-import-wizard__upload-control {
+  border-color: var(--gc-color-primary);
+  box-shadow: var(--gc-shadow-focus);
+}
+
+.certificate-import-wizard__upload-icon {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: var(--gc-size-icon-md);
+  height: var(--gc-size-icon-md);
+  place-items: center;
+  color: var(--gc-color-primary);
+}
+
+.certificate-import-wizard__upload-icon svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: var(--gc-border-width-thick);
+}
+
+.certificate-import-wizard__upload-copy {
+  display: grid;
+  min-width: 0;
+  gap: var(--gc-space-1);
+}
+
+.certificate-import-wizard__upload-copy strong,
+.certificate-import-wizard__upload-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.certificate-import-wizard__upload-copy strong {
+  color: var(--gc-color-primary);
+  font-size: var(--gc-font-size-sm);
+}
+
+.certificate-import-wizard__upload-copy small {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
+.certificate-import-wizard__file {
+  position: absolute;
+  width: var(--gc-space-hairline);
+  height: var(--gc-space-hairline);
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .certificate-import-wizard__field textarea {
@@ -888,6 +1085,10 @@ function cancelImport() {
   .certificate-import-wizard__footer-right,
   .certificate-import-wizard__chain-head {
     justify-content: space-between;
+  }
+
+  .certificate-import-wizard__upload-copy {
+    min-width: 0;
   }
 }
 </style>
