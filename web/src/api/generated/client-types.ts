@@ -169,6 +169,7 @@ export const apiContractMetadata: ApiContractMetadata = {
     "/api/v1/dashboard/overview",
     "/api/v1/deployment-inputs/projection",
     "/api/v1/deployment-plans",
+    "/api/v1/deployment-plans/by-application-asset",
     "/api/v1/deployment-plans/cancel",
     "/api/v1/deployment-plans/capabilities/reevaluate",
     "/api/v1/deployment-plans/delete",

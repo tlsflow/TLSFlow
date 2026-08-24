@@ -1386,6 +1386,26 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/deployment-plans/by-application-asset:
+    get:
+      operationId: "listDeploymentPlansByApplicationAsset"
+      summary: "按应用资产查询部署记录"
+      tags:
+        - "DeploymentPlans"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/deployment-plans/input-snapshots:
     get:
       operationId: "listDeploymentInputSnapshots"
