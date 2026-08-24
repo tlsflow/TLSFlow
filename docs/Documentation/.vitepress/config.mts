@@ -46,6 +46,7 @@ const zhSidebar = [
       { text: "国际化开发", link: "/developer-guide/internationalization" },
       { text: "主题变量与设计系统", link: "/developer-guide/theme" },
       { text: "测试与验证", link: "/developer-guide/testing" },
+      { text: "文档变更与发布", link: "/developer-guide/20260802-文档变更同步与发布流程" },
       { text: "插件开发", link: "/developer-guide/plugins/" },
       { text: "插件包契约", link: "/developer-guide/plugins/package-contract" },
       { text: "设备与目标模式", link: "/developer-guide/plugins/target-modes" },
@@ -113,6 +114,7 @@ const enSidebar = [
     text: "Developer Guide",
     items: [
       { text: "Developer guide", link: "/en/developer-guide/" },
+      { text: "Documentation change and release", link: "/en/developer-guide/20260802-文档变更同步与发布流程" },
       { text: "Plugin development", link: "/en/developer-guide/plugins/" },
       { text: "Target modes", link: "/en/developer-guide/plugins/target-modes" },
       { text: "Discovery and certificate locations", link: "/en/developer-guide/plugins/discovery-and-assets" },
