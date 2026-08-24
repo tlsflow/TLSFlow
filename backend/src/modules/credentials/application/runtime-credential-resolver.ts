@@ -4,13 +4,13 @@ import type { CredentialDelivery, CredentialKind } from '../../../persistence/en
 import { buildSecretRef, parseSecretRef } from '../../secrets/secret-ref.js';
 import type { SecretService } from '../../secrets/secret.service.js';
 import { CredentialsRepository } from '../repository/credentials.repository.js';
-
 export interface RuntimeCredentialV1 {
   credentialId: string;
   kind: CredentialKind;
   username?: string;
   delivery?: CredentialDelivery;
   secretRefs: Record<string, string>;
+  [key: string]: unknown;
 }
 
 export interface CredentialPlanSnapshotV1 extends RuntimeCredentialV1 {

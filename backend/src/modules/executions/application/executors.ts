@@ -9,13 +9,14 @@ import { CurlExecutor, SSHExecutor, WindowsRemoteExecutor, type CurlExecutionReq
 import { SecretServiceCurlResolver } from '../../executors/curl/curl.secret-resolver.js';
 import { SecretServiceSshResolver } from '../../executors/ssh/ssh.secret-resolver.js';
 import { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
-import type { WorkflowConnectionBinding, WorkflowExecutorDispatchResult, WorkflowRunProgress, WorkflowRunResult } from '../../workflow-templates/dto/workflow-templates.dto.js';
+import type { WorkflowExecutorDispatchResult, WorkflowRunProgress, WorkflowRunResult } from '../../workflow-templates/dto/workflow-templates.dto.js';
 import type { ExecutionStepEntity } from '../schema/executions.schema.js';
 import { AgentActionDispatchRegistry, type AgentActionDispatchResolution } from './agent-action-dispatch-registry.js';
 import type { UnifiedAgentPlanCompilerService } from '../../plugins/application/unified-agent-plan-compiler.service.js';
 import { canonicalAgentPlanJson } from '../../plugins/application/unified-agent-plan-compiler.service.js';
 import { readHistoricalResolvedDeploymentInput, type HistoricalAgentActionResolver } from '../../plugins/application/historical-agent-action-resolver.js';
 import type { ResolvedDeploymentInputV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
+import type { DeploymentAssetContextV1 } from '../../deployment-inputs/dto/deployment-asset-context.dto.js';
 import { evaluateTlsVerification, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
 import { WorkflowRecoveryLedgerService, type WorkflowRecoveryLedgerRecord } from './workflow-recovery-ledger.service.js';
 import { PluginResourceLockService, type PluginResourceLockRecord } from './plugin-resource-lock.service.js';
@@ -451,21 +452,18 @@ export class WorkflowExecutorAdapter implements Executor {
     if (!workflowVersionId) {
       return { success: false, errorCode: 'WORKFLOW_VERSION_REQUIRED', errorMessage: 'WORKFLOW 执行器缺少 workflowVersionId' };
     }
+    const resolvedInput = readResolvedDeploymentInput(input.step.inputSnapshot.resolvedDeploymentInput);
+    if (!resolvedInput) {
+      return { success: false, errorCode: 'VALIDATION_FAILED', errorMessage: 'WORKFLOW 执行缺少统一部署输入快照' };
+    }
     const runtimeInput = {
       templateVersionId: workflowVersionId,
       mode: input.dryRun ? 'render_only' as const : 'real_test' as const,
-      userVariables: {
-        ...(readRecord(request.variableBindings) ?? {}),
-        ...(readRecord(request.parameterBindings) ?? {}),
-        ...(readRecord(request.credentials) ?? {}),
-      },
-      assetVariables: buildWorkflowAssetVariables(input.step.inputSnapshot, request),
-      connectionBindings: (readRecord(request.connectionBindings) ?? {}) as Record<string, WorkflowConnectionBinding>,
-      certificateMaterials: buildWorkflowCertificateMaterials(input.step.inputSnapshot),
+      resolvedInput,
     };
     let resourceLock: PluginResourceLockRecord | undefined;
     try {
-      resourceLock = input.dryRun ? undefined : await this.acquireWorkflowResourceLock(input, request, runtimeInput.assetVariables);
+      resourceLock = input.dryRun ? undefined : await this.acquireWorkflowResourceLock(input, request, resolvedInput.assetContext);
       const recoveryLedger = input.dryRun ? undefined : await this.beginRecoveryLedger(input, request, runtimeInput);
       const reportWorkflowProgress = async (workflowProgress: WorkflowRunProgress) => {
         await input.reportProgress?.({
@@ -530,14 +528,13 @@ export class WorkflowExecutorAdapter implements Executor {
     }
   }
 
-  private async acquireWorkflowResourceLock(input: StepExecutionInput, request: Record<string, unknown>, assetVariables: Record<string, unknown>): Promise<PluginResourceLockRecord | undefined> {
+  private async acquireWorkflowResourceLock(input: StepExecutionInput, request: Record<string, unknown>, assetContext: DeploymentAssetContextV1): Promise<PluginResourceLockRecord | undefined> {
     const pluginVersionId = stringFromSnapshot(request.pluginVersionId);
     if (!pluginVersionId) return undefined;
     const tenantId = input.step.tenantId ?? stringFromSnapshot(input.step.inputSnapshot.tenantId) ?? 'default';
     const requested = readRecord(request.resourceLock) ?? {};
-    const managedContext = readRecord(request.managedContext) ?? readRecord(assetVariables.managedContext) ?? {};
-    const hostId = stringFromSnapshot(managedContext.hostId) ?? stringFromSnapshot(assetVariables.hostId);
-    const managedTargetId = stringFromSnapshot(managedContext.managedTargetId) ?? stringFromSnapshot(assetVariables.managedTargetId);
+    const hostId = assetContext.host?.id;
+    const managedTargetId = assetContext.target?.id;
     const standaloneKey = stringFromSnapshot(request.standaloneStableKey);
     const resourceKey = stringFromSnapshot(requested.key)
       ?? (hostId ? `tenant:${tenantId}:device:${hostId}` : undefined)
@@ -574,7 +571,7 @@ export class WorkflowExecutorAdapter implements Executor {
       pluginVersionId,
       workflowVersionId: String(runtimeInput.templateVersionId),
       capabilityKey,
-      target: readRecord(runtimeInput.assetVariables) ?? {},
+      target: readRecord(readRecord(runtimeInput.resolvedInput)?.assetContext) ?? {},
       plan: request,
       runtimeInput,
     });

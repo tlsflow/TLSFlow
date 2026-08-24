@@ -257,6 +257,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     secrets: security.secrets,
     workflows: workflowTemplatesService,
     agentPlanCompiler,
+    historicalAgentActions,
     workflowRecovery: workflowRecoveryService,
     pluginResourceLocks: pluginResourceLockService,
     executionGrants: security.grants,

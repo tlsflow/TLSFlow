@@ -28,7 +28,7 @@ const manualStepKeys = new Set([...stepBaseKeys, 'instruction']);
 const variableTypes = new Set<WorkflowVariableType>(['string', 'number', 'boolean', 'enum', 'object', 'array', 'file', 'credential', 'certificate']);
 const stepTypes = new Set(['http', 'ssh', 'sftp', 'scp', 'condition', 'transform', 'foreach', 'checkpoint', 'checkpoint_verify', 'wait', 'manual']);
 const workflowStages = new Set(['prepare', 'backup', 'install', 'refresh', 'verify']);
-const reservedRoots = new Set(['asset', 'previous', 'steps']);
+const reservedRoots = new Set(['asset', 'variables', 'connections', 'credentials', 'artifacts', 'steps', 'system']);
 
 export class WorkflowSchemaRegistry {
   validate(content: unknown): WorkflowDslV1 {

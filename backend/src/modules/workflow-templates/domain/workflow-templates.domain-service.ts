@@ -40,7 +40,6 @@ import type {
 } from '../dto/workflow-templates.dto.js';
 import { WorkflowTemplateFileLibrary } from './workflow-template-file-library.js';
 import { normalizeExtractors, validateVariableValue, workflowTemplatesSchemaRegistry } from '../schema/workflow-templates.schema.js';
-import { resolveWorkflowConnection } from './workflow-variable-resolver.js';
 
 interface RuntimeContext {
   values: Record<string, unknown>;
@@ -282,10 +281,6 @@ export class WorkflowTemplatesDomainService {
     const step = content.steps.find((item) => item.name === input.stepName) ?? content.rollback?.find((item) => item.name === input.stepName);
     if (!step) throw new AppError('RESOURCE_NOT_FOUND', 'workflow step not found', { stepName: input.stepName });
     const context = resolveRuntimeContext(content, input);
-    // 中文说明：单节点模拟允许调用方补上游步骤产物，但不能覆盖已经解析过的 Secret/证书变量。
-    for (const [key, value] of Object.entries(input.userVariables ?? {})) {
-      if (key === 'previous' || key === 'steps' || context.values[key] === undefined) context.values[key] = value;
-    }
     const runId = `wfstep_${randomUUID()}`;
     const result = await this.runStep(step, context, { ...input, templateVersionId: 'single-step-preview' }, false, runId, dispatcher);
     return {
@@ -410,7 +405,7 @@ export class WorkflowTemplatesDomainService {
         : step.type === 'transform'
           ? readTransformOutputs(step, structuredOutput, context)
           : runExtractors(step, structuredOutput, context);
-      const localValues = { ...context.values, ...extracted };
+      const localValues = withCurrentStepValues(context.values, step.name, extracted);
       const finalPlan = extracted && Object.keys(extracted).length > 0
         ? adaptStep(step, { ...context, values: localValues }, input.mode, structuredOutput)
         : plan;
@@ -438,6 +433,7 @@ export class WorkflowTemplatesDomainService {
       };
       if (success || attempt === attempts) {
         for (const [key, value] of Object.entries(extracted)) {
+          // 已发布 DSL 允许后续步骤直接引用提取变量；同时保留 steps 命名空间供新 DSL 使用。
           context.values[key] = value;
           context.outputs[`${step.name}.${key}`] = value;
         }
@@ -692,61 +688,65 @@ async function reportWorkflowProgress(
 }
 
 function resolveRuntimeContext(content: WorkflowDslV1, input: WorkflowRuntimeInput | WorkflowStepRuntimeInput): RuntimeContext {
-  const values: Record<string, unknown> = {};
-  const secretPaths = new Set<string>();
-  const source = { ...(input.assetVariables ?? {}), ...(input.userVariables ?? {}) };
-  for (const [name, definition] of Object.entries(content.variables)) {
-    let value = source[name] ?? definition.default;
-    if (definition.type === 'certificate') value = input.certificateMaterials?.[name] ?? value;
-    if (value === undefined) {
-      if (definition.required) throw new AppError('VALIDATION_FAILED', '变量缺失', { name });
-      continue;
-    }
-    validateVariableValue(definition, value, `variables.${name}`);
-    values[name] = value;
-    markSensitive(name, definition, value, secretPaths);
+  void content;
+  if (!input.resolvedInput.executable) {
+    throw new AppError('VALIDATION_FAILED', '统一部署输入未通过执行前校验', { issues: input.resolvedInput.issues });
   }
-  values.asset = input.assetVariables ?? {};
-  values.previous = {};
-  values.steps = {};
+  const artifactValues = Object.fromEntries(
+    Object.entries(input.resolvedInput.artifacts).map(([name, artifact]) => [name, artifact.outputs]),
+  );
+  const values: Record<string, unknown> = {
+    // 已发布 DSL 直接按声明名引用变量。输入来源已经统一解析，这里只做运行时投影，不重新解析绑定。
+    ...input.resolvedInput.variables,
+    ...input.resolvedInput.credentials,
+    ...artifactValues,
+    variables: input.resolvedInput.variables,
+    connections: input.resolvedInput.connections,
+    credentials: input.resolvedInput.credentials,
+    artifacts: artifactValues,
+    asset: input.resolvedInput.assetContext,
+    previous: {},
+    steps: { ...(input.stepOutputs ?? {}) },
+    system: { ...(input.systemValues ?? {}) },
+  };
   return {
     values,
-    secretPaths,
+    secretPaths: new Set(input.resolvedInput.sensitivePaths),
     outputs: {},
-    connections: resolveRuntimeConnections(content, input.connectionBindings ?? {}, input.assetVariables ?? {}, input.mode === 'render_only'),
+    connections: resolveRuntimeConnections(input.resolvedInput),
+  };
+}
+
+function withCurrentStepValues(values: Record<string, unknown>, stepName: string, extracted: Record<string, unknown>): Record<string, unknown> {
+  if (Object.keys(extracted).length === 0) return values;
+  return {
+    ...values,
+    // 当前步骤的提取结果在本步骤重渲染和后续旧模板中都按根变量访问。
+    ...extracted,
+    steps: {
+      ...(values.steps as Record<string, unknown>),
+      [stepName]: { extracted },
+    },
   };
 }
 
 function resolveRuntimeConnections(
-  content: WorkflowDslV1,
-  bindings: Record<string, WorkflowConnectionBinding>,
-  assetContext: Record<string, unknown>,
-  keepMissing: boolean,
+  input: WorkflowRuntimeInput['resolvedInput'],
 ): Record<string, WorkflowSshConnection> {
-  return Object.fromEntries(Object.entries(content.connections ?? {}).flatMap(([name, definition]) => {
-    if (definition.protocol !== 'ssh') return [];
-    const resolved = resolveWorkflowConnection(definition, bindings[name], assetContext);
-    if ((!resolved.host || !resolved.username || !isCredentialBinding(resolved.credential)) && !keepMissing) {
-      throw new AppError('VALIDATION_FAILED', 'SSH 连接配置不完整', {
-        connectionRef: name,
-        missing: [
-          !resolved.host ? 'host' : undefined,
-          !resolved.username ? 'username' : undefined,
-          !isCredentialBinding(resolved.credential) ? 'credential' : undefined,
-        ].filter(Boolean),
-      });
+  return Object.fromEntries(Object.entries(input.connections).flatMap(([name, resolved]) => {
+    if (resolved.transport !== 'ssh') return [];
+    const credential = resolved.credentialSlot ? input.credentials[resolved.credentialSlot] : undefined;
+    if (!resolved.host || !resolved.username || !isCredentialBinding(credential)) {
+      throw new AppError('VALIDATION_FAILED', '统一 SSH Connection 快照不完整', { connectionRef: name });
     }
-    const connection: WorkflowSshConnection = {
-      host: resolved.host ?? `{{connections.${name}.host}}`,
+    return [[name, {
+      host: resolved.host,
       port: resolved.port,
-      username: resolved.username ?? `{{connections.${name}.username}}`,
-      credential: isCredentialBinding(resolved.credential)
-        ? resolved.credential
-        : `{{connections.${name}.credential}}`,
-      hostKeyPolicy: resolved.hostKeyPolicy,
-      expectedHostKeyFingerprint: resolved.expectedHostKeyFingerprint,
-    };
-    return [[name, connection]];
+      username: resolved.username,
+      credential,
+      hostKeyPolicy: resolved.hostKey?.policy,
+      expectedHostKeyFingerprint: resolved.hostKey?.expectedFingerprint,
+    } satisfies WorkflowSshConnection]];
   }));
 }
 

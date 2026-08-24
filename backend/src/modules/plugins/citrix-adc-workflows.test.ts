@@ -6,6 +6,33 @@ import { DeviceDiscoverySchemaService } from './discovery/device-discovery-schem
 import type { WorkflowMockStepOutput } from '../workflow-templates/dto/workflow-templates.dto.js';
 import { enrichWorkflowCertificateMaterial } from '../certificates/artifacts/workflow-certificate-material.js';
 import { createHash } from 'node:crypto';
+import type { ResolvedDeploymentInputV1 } from '../deployment-inputs/dto/resolved-deployment-input.dto.js';
+
+function resolvedWorkflowInput(variables: Record<string, unknown>): ResolvedDeploymentInputV1 {
+  const credential = variables.credential;
+  const certificate = variables.certificate;
+  const resolvedVariables = { ...variables };
+  delete resolvedVariables.credential;
+  delete resolvedVariables.certificate;
+  return {
+    apiVersion: 'gcac.resolved-deployment-input/v1',
+    contractVersion: 'gcac.deployment-input/v1',
+    assetContext: {
+      apiVersion: 'gcac.deployment-asset-context/v1',
+      application: { id: 'asset_citrix_test', address: '10.0.0.1', serverName: 'adc.example.com', port: 443, protocol: 'https' },
+      deployment: { targets: [], certificateResourceName: 'certificate-adc-example-com' },
+    },
+    variables: resolvedVariables,
+    connections: {},
+    credentials: credential ? { credential: credential as ResolvedDeploymentInputV1['credentials'][string] } : {},
+    artifacts: certificate ? { certificate: { outputs: certificate as Record<string, unknown> } } : {},
+    provenance: {},
+    sensitivePaths: [],
+    issues: [],
+    executable: true,
+    resolvedSha256: 'citrix-test-resolved-input',
+  };
+}
 
 function fixtureCredential() {
   return {
@@ -42,10 +69,10 @@ test('Citrix ADC 连接测试识别版本且不泄漏认证值', async () => {
   const result = await workflows.testRun({
     templateVersionId: version.id,
     mode: 'mock',
-    userVariables: {
+    resolvedInput: resolvedWorkflowInput({
       deviceHost: '10.0.0.1', managementPort: 443, tlsVerify: false,
       credential: fixtureCredential(),
-    },
+    }),
     mockResponses: { readVersion: { statusCode: 200, body: { errorcode: 0, nsversion: { version: 'NetScaler NS13.1: Build 55.29.nc' } } } },
   });
   assert.equal(result.status, 'success');
@@ -62,12 +89,12 @@ test('Citrix ADC 13.1 脱敏 Fixture 生成标准发现对象', async () => {
   const result = await workflows.testRun({
     templateVersionId: version.id,
     mode: 'mock',
-    userVariables: {
+    resolvedInput: resolvedWorkflowInput({
       deviceHost: '10.0.0.1',
       managementPort: 443,
       tlsVerify: true,
       credential: fixtureCredential(),
-    },
+    }),
     mockResponses: fixture.mockResponses,
   });
   const discovery = result.stepResults.at(-1)?.extracted.discovery;
@@ -100,10 +127,10 @@ test('Citrix ADC 发现对零个和单个站点始终输出数组', async () => 
     const result = await workflows.testRun({
       templateVersionId: version.id,
       mode: 'mock',
-      userVariables: {
+      resolvedInput: resolvedWorkflowInput({
         deviceHost: '10.0.0.1', managementPort: 443, tlsVerify: true,
         credential: fixtureCredential(),
-      },
+      }),
       mockResponses,
     });
     return new DeviceDiscoverySchemaService().validate(result.stepResults.at(-1)?.extracted.discovery);
@@ -132,7 +159,7 @@ test('Citrix ADC 发现为包含特殊字符的厂商名称生成合法稳定键
   const result = await workflows.testRun({
     templateVersionId: version.id,
     mode: 'mock',
-    userVariables: { deviceHost: '10.0.0.1', managementPort: 443, tlsVerify: true, credential: fixtureCredential() },
+    resolvedInput: resolvedWorkflowInput({ deviceHost: '10.0.0.1', managementPort: 443, tlsVerify: true, credential: fixtureCredential() }),
     mockResponses,
   });
   const validated = new DeviceDiscoverySchemaService().validate(result.stepResults.at(-1)?.extracted.discovery);
@@ -214,7 +241,7 @@ test('Citrix ADC 部署先验证新绑定再解绑旧证书，全部写操作后
   const result = await workflows.testRun({
     templateVersionId: version.id,
     mode: 'mock',
-    userVariables: deploymentVariables(),
+    resolvedInput: resolvedWorkflowInput(deploymentVariables()),
     mockResponses: deploymentResponses(),
   });
   assert.equal(result.status, 'success');
@@ -245,7 +272,7 @@ test('Citrix ADC systemfile 接受 200 且绑定失败时不执行保存', async
   const result = await workflows.testRun({
     templateVersionId: version.id,
     mode: 'mock',
-    userVariables: deploymentVariables(),
+    resolvedInput: resolvedWorkflowInput(deploymentVariables()),
     mockResponses: responses,
   });
   assert.equal(result.status, 'rolled_back');
@@ -264,7 +291,7 @@ test('Citrix ADC 自动补偿失败时不得伪装为已回滚', async () => {
   responses.bindNewCertificate = { statusCode: 500, body: { errorcode: 999 } };
   responses.rollbackReadCurrentVersion = responses.preflight;
   responses.rollbackRestoreOldBinding = { statusCode: 500, body: { errorcode: 998 } };
-  const result = await workflows.testRun({ templateVersionId: version.id, mode: 'mock', userVariables: deploymentVariables(), mockResponses: responses });
+  const result = await workflows.testRun({ templateVersionId: version.id, mode: 'mock', resolvedInput: resolvedWorkflowInput(deploymentVariables()), mockResponses: responses });
   assert.equal(result.status, 'failed');
   assert.equal(result.rollbackResults.some((item) => item.status === 'failed'), true);
 });
@@ -278,7 +305,7 @@ test('Citrix ADC 回滚恢复旧绑定、移除新绑定并验证集合语义等
   const result = await workflows.testRun({
     templateVersionId: version.id,
     mode: 'mock',
-    userVariables: recoveryVariables(snapshot),
+    resolvedInput: resolvedWorkflowInput(recoveryVariables(snapshot)),
     mockResponses: recoveryResponses(),
   });
   assert.equal(result.status, 'success');
@@ -298,7 +325,7 @@ test('Citrix ADC 回滚快照哈希损坏时在首个写操作前停止', async 
   const snapshot = recoverySnapshot();
   const variables = recoveryVariables(snapshot);
   variables.recoverySnapshotHash = '00'.repeat(32);
-  const result = await workflows.testRun({ templateVersionId: version.id, mode: 'mock', userVariables: variables, mockResponses: recoveryResponses() });
+  const result = await workflows.testRun({ templateVersionId: version.id, mode: 'mock', resolvedInput: resolvedWorkflowInput(variables), mockResponses: recoveryResponses() });
   assert.equal(result.status, 'failed');
   assert.deepEqual(result.stepResults.map((item) => item.name), ['verifyRecoverySnapshot']);
   assert.equal(result.stepResults.some((item) => item.name === 'restoreOldBindings'), false);
@@ -312,7 +339,7 @@ test('Citrix ADC 回滚设备版本漂移时在首个写操作前停止', async 
   const responses = recoveryResponses();
   responses.readCurrentVersion = { statusCode: 200, body: { errorcode: 0, nsversion: { version: 'NetScaler NS14.1: Build 1.0.nc' } } };
   const snapshot = recoverySnapshot();
-  const result = await workflows.testRun({ templateVersionId: version.id, mode: 'mock', userVariables: recoveryVariables(snapshot), mockResponses: responses });
+  const result = await workflows.testRun({ templateVersionId: version.id, mode: 'mock', resolvedInput: resolvedWorkflowInput(recoveryVariables(snapshot)), mockResponses: responses });
   assert.equal(result.status, 'failed');
   assert.deepEqual(result.stepResults.map((item) => item.name), ['verifyRecoverySnapshot', 'readCurrentVersion', 'verifyDeviceVersion']);
   assert.equal(result.stepResults.some((item) => item.name === 'restoreOldBindings'), false);

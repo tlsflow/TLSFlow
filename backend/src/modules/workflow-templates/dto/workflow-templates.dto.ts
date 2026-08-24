@@ -1,4 +1,5 @@
 import type { DeploymentInputContractV1 } from '../../deployment-inputs/dto/deployment-input-contract.dto.js';
+import type { ResolvedDeploymentInputV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
 
 export type WorkflowTemplateStatus = 'draft' | 'published' | 'disabled';
 export type WorkflowTemplateVersionStatus = 'draft' | 'published' | 'disabled';
@@ -430,10 +431,9 @@ export interface ApplyWorkflowTemplateFromFileInput {
 
 export interface WorkflowRuntimeInput {
   templateVersionId: string;
-  userVariables?: Record<string, unknown>;
-  assetVariables?: Record<string, unknown>;
-  connectionBindings?: Record<string, WorkflowConnectionBinding>;
-  certificateMaterials?: Record<string, Record<string, unknown>>;
+  resolvedInput: ResolvedDeploymentInputV1;
+  stepOutputs?: Record<string, unknown>;
+  systemValues?: Record<string, unknown>;
   mockResponses?: Record<string, WorkflowMockStepOutput>;
   mode: WorkflowTestRunMode;
 }

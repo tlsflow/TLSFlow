@@ -22,6 +22,10 @@ import { StandardDeviceDiscoveryProjector } from '../../plugins/discovery/standa
 import { RuntimeCredentialResolver } from '../../credentials/application/runtime-credential-resolver.js';
 import { CredentialsRepository } from '../../credentials/repository/credentials.repository.js';
 import { structuredLogger } from '../../../common/logging/structured-logger.js';
+import { DeploymentInputContractLoader } from '../../deployment-inputs/application/deployment-input-contract-loader.js';
+import { DeploymentAssetContextBuilder } from '../../deployment-inputs/application/deployment-asset-context.builder.js';
+import { EffectiveBindingResolver } from '../../deployment-inputs/application/effective-binding.resolver.js';
+import { UnifiedDeploymentInputResolver } from '../../deployment-inputs/domain/unified-deployment-input.resolver.js';
 
 export class DevicesApplicationService {
   constructor(
@@ -138,15 +142,33 @@ export class DevicesApplicationService {
       this.pluginBindings.getTenantBinding(tenantId, assignment.pluginBindingId),
       this.pluginWorkflows.require(assignment.pluginVersionId, capabilityKey),
     ]);
-    const credentials = await new RuntimeCredentialResolver(new CredentialsRepository(this.db))
-      .resolveBindings(tenantId, binding.inputBindings.credentials);
+    const [deviceAsset, workflowVersion, credentials] = await Promise.all([
+      new PgDeviceAssetsRepository(this.db).get(tenantId, device.extension.deviceAssetId),
+      this.workflows.getVersion(workflow.workflowVersionId),
+      new RuntimeCredentialResolver(new CredentialsRepository(this.db)).resolveBindings(tenantId, binding.inputBindings.credentials),
+    ]);
+    if (!deviceAsset) throw new AppError('RESOURCE_NOT_FOUND', '设备资产不存在', { deviceAssetId: device.extension.deviceAssetId });
+    const contract = new DeploymentInputContractLoader().fromWorkflowVersion(workflowVersion);
+    const effectiveBinding = new EffectiveBindingResolver().resolve({
+      contract,
+      deviceDefault: { pluginVersionId: assignment.pluginVersionId, inputBindings: binding.inputBindings },
+    });
+    const resolvedInput = new UnifiedDeploymentInputResolver().resolve({
+      phase: 'execute',
+      contract,
+      assetContext: new DeploymentAssetContextBuilder().buildForDevice(deviceAsset),
+      effectiveBinding,
+      credentialSnapshots: credentials,
+      artifactSnapshots: {},
+    });
+    if (!resolvedInput.executable) throw new AppError('VALIDATION_FAILED', '设备插件能力输入未通过统一校验', { issues: resolvedInput.issues });
     const result = await this.runtimeGuard.execute({
       tenantId, pluginVersionId: assignment.pluginVersionId, capabilityKey,
       gatewayId: undefined,
     }, () => this.workflows!.execute({
       templateVersionId: workflow.workflowVersionId,
       mode: 'real_test',
-      userVariables: { ...binding.inputBindings.variables, ...credentials },
+      resolvedInput,
     }));
     if (result.status !== 'success') {
       const failedStep = findFailedWorkflowStep(result.stepResults);

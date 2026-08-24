@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { ResolvedManagedTargetTopology } from '../../assets/application/managed-target-context.resolver.js';
 import type { ServiceAssetDto } from '../../assets/dto/assets.dto.js';
+import type { DeviceAssetDto } from '../../device-assets/dto/device-assets.dto.js';
 import {
   DEPLOYMENT_ASSET_CONTEXT_API_VERSION,
   type DeploymentAssetContextV1,
@@ -59,6 +60,36 @@ export class DeploymentAssetContextBuilder {
           metadata: managedTarget ? { ...managedTarget.metadata } : {},
         }],
         certificateResourceName: buildCertificateResourceName(application.serverName),
+      },
+    });
+  }
+
+  buildForDevice(device: Pick<DeviceAssetDto, 'id' | 'hostId' | 'displayName' | 'managementAddress' | 'managementPort'>): DeploymentAssetContextV1 {
+    const serverName = device.managementAddress.trim();
+    return validateDeploymentAssetContextV1({
+      apiVersion: DEPLOYMENT_ASSET_CONTEXT_API_VERSION,
+      application: {
+        id: device.id,
+        address: serverName,
+        serverName,
+        port: device.managementPort,
+        protocol: device.managementPort === 443 ? 'https' : 'http',
+      },
+      host: {
+        id: device.hostId,
+        hostname: device.displayName,
+        primaryIp: serverName,
+      },
+      deployment: {
+        targets: [{
+          id: device.id,
+          name: device.displayName,
+          serverName,
+          port: device.managementPort,
+          sni: false,
+          metadata: {},
+        }],
+        certificateResourceName: buildCertificateResourceName(serverName),
       },
     });
   }

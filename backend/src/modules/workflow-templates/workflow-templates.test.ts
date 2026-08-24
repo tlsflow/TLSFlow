@@ -16,6 +16,52 @@ import type { WorkflowDslV1, WorkflowRunProgress, WorkflowTemplate, WorkflowTemp
 import { workflowTemplatesSchemaRegistry } from './schema/workflow-templates.schema.js';
 import type { PluginWorkflowBindingRecord } from '../plugins/dto/plugin-workflow-bindings.dto.js';
 import type { PluginWorkflowBindingsRepositoryPort } from '../plugins/repository/plugin-workflow-bindings.repository.js';
+import type { ResolvedDeploymentInputV1 } from '../deployment-inputs/dto/resolved-deployment-input.dto.js';
+import type { DeploymentAssetContextV1 } from '../deployment-inputs/dto/deployment-asset-context.dto.js';
+
+function resolvedWorkflowInput(input: Partial<Pick<ResolvedDeploymentInputV1, 'variables' | 'connections' | 'credentials' | 'artifacts' | 'assetContext'>> = {}): ResolvedDeploymentInputV1 {
+  const assetContext: DeploymentAssetContextV1 = input.assetContext ?? {
+    apiVersion: 'gcac.deployment-asset-context/v1',
+    application: { id: 'asset_test', address: 'edge-01.example.com', serverName: 'edge-01.example.com', port: 443, protocol: 'https' },
+    deployment: { targets: [], certificateResourceName: 'certificate-edge-01' },
+  };
+  return {
+    apiVersion: 'gcac.resolved-deployment-input/v1',
+    contractVersion: 'gcac.deployment-input/v1',
+    assetContext,
+    variables: input.variables ?? {},
+    connections: input.connections ?? {},
+    credentials: input.credentials ?? {},
+    artifacts: input.artifacts ?? {},
+    provenance: {},
+    sensitivePaths: [
+      ...Object.keys(input.credentials ?? {}).map((name) => `credentials.${name}`),
+      ...Object.keys(input.artifacts ?? {}).map((name) => `artifacts.${name}`),
+      ...Object.keys(input.variables ?? {}).filter((name) => /token|password|secret/i.test(name)).map((name) => `variables.${name}`),
+    ],
+    issues: [],
+    executable: true,
+    resolvedSha256: 'test-resolved-input',
+  };
+}
+
+function withResolvedVariables(base: ResolvedDeploymentInputV1, variables: Record<string, unknown>): ResolvedDeploymentInputV1 {
+  return { ...base, variables: { ...base.variables, ...variables } };
+}
+
+function resolvedInputWithTargets(targets: Array<{ host: string }>): ResolvedDeploymentInputV1 {
+  const base = resolvedWorkflowInput();
+  return {
+    ...base,
+    assetContext: {
+      ...base.assetContext,
+      deployment: {
+        ...base.assetContext.deployment,
+        targets: targets.map((target, index) => ({ id: `target_${index}`, name: target.host, serverName: target.host, metadata: {} })),
+      },
+    },
+  };
+}
 
 function templateFixture(): WorkflowDslV1 {
   return {
@@ -34,9 +80,9 @@ function templateFixture(): WorkflowDslV1 {
         type: 'http',
         request: {
           method: 'POST',
-          url: 'https://{{deviceHost}}/api/login',
-          auth: { type: 'basic', username: '{{credential.username}}', credential: '{{credential}}' },
-          body: { user: '{{credential.username}}' },
+          url: 'https://{{variables.deviceHost}}/api/login',
+          auth: { type: 'basic', username: '{{credentials.credential.username}}', credential: '{{credentials.credential}}' },
+          body: { user: '{{credentials.credential.username}}' },
         },
         extract: [{ name: 'token', type: 'jsonPath', path: '$.token', sensitive: true }],
         assert: [{ type: 'statusCode', equals: 200 }],
@@ -44,37 +90,37 @@ function templateFixture(): WorkflowDslV1 {
       {
         name: 'upload',
         type: 'http',
-        when: { variable: 'shouldUpload', equals: true },
+        when: { variable: 'variables.shouldUpload', equals: true },
         retry: { count: 1, intervalSeconds: 1 },
         request: {
           method: 'PUT',
-          url: 'https://{{deviceHost}}/api/cert',
-          body: { cert: '{{cert.pem}}', key: '{{cert.privateKey}}', token: '{{token}}' },
+          url: 'https://{{variables.deviceHost}}/api/cert',
+          body: { cert: '{{artifacts.cert.outputs.pem}}', key: '{{artifacts.cert.outputs.privateKey}}', token: '{{steps.login.extracted.token}}' },
         },
         extract: { remoteFingerprint: { type: 'jsonPath', path: '$.fingerprint' } },
         assert: [
           { type: 'jsonPath', path: '$.success', equals: true },
-          { type: 'certificateFingerprint', actual: '{{remoteFingerprint}}', expected: '{{cert.fingerprintSha256}}' },
+          { type: 'certificateFingerprint', actual: '{{steps.upload.extracted.remoteFingerprint}}', expected: '{{artifacts.cert.outputs.fingerprintSha256}}' },
         ],
       },
       {
         name: 'reload',
         type: 'ssh',
-        when: { variable: 'shouldUpload', equals: true },
+        when: { variable: 'variables.shouldUpload', equals: true },
         ssh: {
           mode: 'command',
           connection: {
-            host: '{{deviceHost}}',
+            host: '{{variables.deviceHost}}',
             username: 'admin',
-            credential: '{{credential}}',
+            credential: '{{credentials.credential}}',
             expectedHostKeyFingerprint: 'aabbccddeeff0011',
           },
-          command: 'reload cert {{remoteFingerprint}}',
+          command: 'reload cert {{steps.upload.extracted.remoteFingerprint}}',
         },
         assert: [{ type: 'contains', value: 'ok' }],
       },
       { name: 'waitForApply', type: 'wait', seconds: 5 },
-      { name: 'manualVerify', type: 'manual', instruction: '请人工确认 {{deviceHost}} 证书已更新' },
+      { name: 'manualVerify', type: 'manual', instruction: '请人工确认 {{variables.deviceHost}} 证书已更新' },
     ],
     rollback: [
       {
@@ -83,9 +129,9 @@ function templateFixture(): WorkflowDslV1 {
         ssh: {
           mode: 'script',
           connection: {
-            host: '{{deviceHost}}',
+            host: '{{variables.deviceHost}}',
             username: 'admin',
-            credential: '{{credential}}',
+            credential: '{{credentials.credential}}',
             expectedHostKeyFingerprint: 'aabbccddeeff0011',
           },
           script: 'restore previous-cert',
@@ -99,17 +145,11 @@ function runtimeInput(versionId: string) {
   return {
     templateVersionId: versionId,
     mode: 'mock' as const,
-    userVariables: {
-      deviceHost: 'edge-01.example.com',
-      credential: { credentialId: 'cred_device_login', kind: 'USERNAME_PASSWORD', username: 'admin', secretRefs: { password: 'secret://password/sec_device_login#current' } },
-    },
-    certificateMaterials: {
-      cert: {
-        pem: '-----BEGIN CERTIFICATE-----mock-----END CERTIFICATE-----',
-        privateKey: 'super-private-key',
-        fingerprintSha256: 'ff'.repeat(32),
-      },
-    },
+    resolvedInput: resolvedWorkflowInput({
+      variables: { deviceHost: 'edge-01.example.com' },
+      credentials: { credential: { credentialId: 'cred_device_login', kind: 'USERNAME_PASSWORD', username: 'admin', secretRefs: { password: 'secret://password/sec_device_login#current' } } },
+      artifacts: { cert: { outputs: { pem: '-----BEGIN CERTIFICATE-----mock-----END CERTIFICATE-----', privateKey: 'super-private-key', fingerprintSha256: 'ff'.repeat(32) } } },
+    }),
     mockResponses: {
       login: { statusCode: 200, body: { token: 'runtime-token-secret' } },
       upload: { statusCode: 500, body: { success: false, fingerprint: '00'.repeat(32) } },
@@ -545,10 +585,10 @@ describe('WorkflowTemplates', () => {
     const run = await service.runWithDispatcher({
       templateVersionId: version.id,
       mode: 'mock',
-      userVariables: {
-        deviceHost: 'edge-01.example.com',
-        credential: { credentialId: 'cred_device_login', kind: 'USERNAME_PASSWORD', username: 'admin', secretRefs: { password: 'secret://password/sec_device_login#current' } },
-      },
+      resolvedInput: resolvedWorkflowInput({
+        variables: { deviceHost: 'edge-01.example.com' },
+        credentials: { credential: { credentialId: 'cred_device_login', kind: 'USERNAME_PASSWORD', username: 'admin', secretRefs: { password: 'secret://password/sec_device_login#current' } } },
+      }),
     }, async ({ step, renderedPlan }) => {
       if (step.name === 'prepare_auth') {
         return {
@@ -653,10 +693,10 @@ describe('WorkflowTemplates', () => {
     const run = await service.testRun({
       templateVersionId: version.id,
       mode: 'mock',
-      userVariables: {
-        deviceHost: 'edge-01.example.com',
-        credential: { credentialId: 'cred_device_login', kind: 'USERNAME_PASSWORD', username: 'admin', secretRefs: { password: 'secret://password/sec_device_login#current' } },
-      },
+      resolvedInput: resolvedWorkflowInput({
+        variables: { deviceHost: 'edge-01.example.com' },
+        credentials: { credential: { credentialId: 'cred_device_login', kind: 'USERNAME_PASSWORD', username: 'admin', secretRefs: { password: 'secret://password/sec_device_login#current' } } },
+      }),
       mockResponses: {
         prepare_auth: {
           statusCode: 200,
@@ -707,7 +747,7 @@ describe('WorkflowTemplates', () => {
       await service.runWithDispatcher({
         templateVersionId: version.id,
         mode: 'mock',
-        userVariables: { deviceHost: 'edge-01.example.com' },
+        resolvedInput: resolvedWorkflowInput({ variables: { deviceHost: 'edge-01.example.com' } }),
       }, async () => ({
         success: true,
         statusCode: 200,
@@ -745,8 +785,7 @@ describe('WorkflowTemplates', () => {
       content,
       stepName: 'reload',
       mode: 'mock',
-      userVariables: { ...runtimeInput('single').userVariables, remoteFingerprint: 'SHA256:single-node' },
-      certificateMaterials: runtimeInput('single').certificateMaterials,
+      resolvedInput: withResolvedVariables(runtimeInput('single').resolvedInput, { remoteFingerprint: 'SHA256:single-node' }),
       mockResponses: { reload: { exitCode: 0, stdout: 'single node ok' } },
     });
 
@@ -777,8 +816,7 @@ describe('WorkflowTemplates', () => {
       content,
       stepName: 'reload',
       mode: 'real_test',
-      userVariables: { ...runtimeInput('single').userVariables, remoteFingerprint: 'SHA256:single-node' },
-      certificateMaterials: runtimeInput('single').certificateMaterials,
+      resolvedInput: withResolvedVariables(runtimeInput('single').resolvedInput, { remoteFingerprint: 'SHA256:single-node' }),
     });
 
     assert.equal(run.mode, 'real_test');
@@ -810,8 +848,7 @@ describe('WorkflowTemplates', () => {
       content: templateFixture(),
       stepName: 'reload',
       mode: 'real_test' as const,
-      userVariables: { ...runtimeInput('single').userVariables, remoteFingerprint: 'SHA256:single-node' },
-      certificateMaterials: runtimeInput('single').certificateMaterials,
+      resolvedInput: withResolvedVariables(runtimeInput('single').resolvedInput, { remoteFingerprint: 'SHA256:single-node' }),
     };
 
     const first = await service.testStep(input);
@@ -850,8 +887,7 @@ describe('WorkflowTemplates', () => {
       content: templateFixture(),
       stepName: 'login',
       mode: 'real_test' as const,
-      userVariables: runtimeInput('single').userVariables,
-      certificateMaterials: runtimeInput('single').certificateMaterials,
+      resolvedInput: runtimeInput('single').resolvedInput,
     };
 
     const first = await service.testStep(input);
@@ -891,8 +927,7 @@ describe('WorkflowTemplates', () => {
       content,
       stepName: 'reload',
       mode: 'real_test',
-      userVariables: { ...runtimeInput('single').userVariables, remoteFingerprint: 'SHA256:single-node' },
-      certificateMaterials: runtimeInput('single').certificateMaterials,
+      resolvedInput: withResolvedVariables(runtimeInput('single').resolvedInput, { remoteFingerprint: 'SHA256:single-node' }),
     });
 
     assert.equal(run.stepResult.status, 'failed');
@@ -929,8 +964,7 @@ describe('WorkflowTemplates', () => {
       content,
       stepName: 'reload',
       mode: 'real_test',
-      userVariables: { ...runtimeInput('single').userVariables, remoteFingerprint: 'SHA256:single-node' },
-      certificateMaterials: runtimeInput('single').certificateMaterials,
+      resolvedInput: withResolvedVariables(runtimeInput('single').resolvedInput, { remoteFingerprint: 'SHA256:single-node' }),
     });
 
     assert.equal(run.stepResult.status, 'failed');
@@ -960,11 +994,11 @@ describe('WorkflowTemplates', () => {
     content.variables = { deviceOs: { type: 'string', required: true } };
     content.rollback = undefined;
 
-    const passed = await service.testStep({ content, stepName: 'isLinux', mode: 'mock', userVariables: { deviceOs: 'linux' } });
+    const passed = await service.testStep({ content, stepName: 'isLinux', mode: 'mock', resolvedInput: resolvedWorkflowInput({ variables: { deviceOs: 'linux' } }) });
     assert.equal(passed.stepResult.status, 'success');
     assert.equal((passed.stepResult.plan as { executor: string }).executor, 'workflow.condition');
 
-    const failed = await service.testStep({ content, stepName: 'isLinux', mode: 'mock', userVariables: { deviceOs: 'windows' } });
+    const failed = await service.testStep({ content, stepName: 'isLinux', mode: 'mock', resolvedInput: resolvedWorkflowInput({ variables: { deviceOs: 'windows' } }) });
     assert.equal(failed.stepResult.status, 'failed');
   });
 
@@ -1115,15 +1149,10 @@ describe('WorkflowTemplates', () => {
     const input = {
       content,
       mode: 'render_only' as const,
-      connectionBindings: {
-        targetSsh: {
-          host: '10.255.0.127',
-          port: 2222,
-          username: 'root',
-          credentialRef: 'sec_ssh',
-          credential: { credentialId: 'cred_ssh', kind: 'SSH_KEY' as const, secretRefs: { privateKey: 'secret://ssh_key/sec_ssh#current' } },
-        },
-      },
+      resolvedInput: resolvedWorkflowInput({
+        connections: { targetSsh: { transport: 'ssh', host: '10.255.0.127', port: 2222, username: 'root', credentialSlot: 'sshCredential' } },
+        credentials: { sshCredential: { credentialId: 'cred_ssh', kind: 'SSH_KEY', secretRefs: { privateKey: 'secret://ssh_key/sec_ssh#current' } } },
+      }),
     };
     for (const stepName of ['sshStep', 'sftpStep', 'scpStep', 'rollbackStep']) {
       const result = await service.testStep({ ...input, stepName });
@@ -1296,10 +1325,7 @@ describe('WorkflowTemplates', () => {
     const { version } = await service.createTemplate({ content });
     const run = await service.testRun({
       ...runtimeInput(version.id),
-      userVariables: {
-        ...runtimeInput(version.id).userVariables,
-        previousServices: { services: ['DSM', 'WebStation'] },
-      },
+      resolvedInput: withResolvedVariables(runtimeInput(version.id).resolvedInput, { previousServices: { services: ['DSM', 'WebStation'] } }),
       mockResponses: {
         submit_bindings: { statusCode: 200, body: { success: true } },
       },
@@ -1355,7 +1381,7 @@ describe('WorkflowTemplates', () => {
     const oversizedInputTemplate = await service.createTemplate({ content: oversizedInput });
     await assert.rejects(() => service.testRun({
       ...runtimeInput(oversizedInputTemplate.version.id),
-      userVariables: { ...runtimeInput('unused').userVariables, largeValue: '0123456789abcdef' },
+      resolvedInput: withResolvedVariables(runtimeInput('unused').resolvedInput, { largeValue: '0123456789abcdef' }),
     }), /transform input 超过大小限制/);
 
     const oversizedOutput = templateFixture();
@@ -1403,18 +1429,14 @@ describe('WorkflowTemplates', () => {
     const run = await service.testRun({
       templateVersionId: version.id,
       mode: 'mock',
-      userVariables: {
-        synologyCredential: { credentialId: 'cred_synology_login', kind: 'USERNAME_PASSWORD', username: 'admin', secretRefs: { password: 'secret://password/sec_synology_login#current' } },
-      },
-      certificateMaterials: {
-        serverCert: {
-          outputs: {
+      resolvedInput: resolvedWorkflowInput({
+        credentials: { synologyCredential: { credentialId: 'cred_synology_login', kind: 'USERNAME_PASSWORD', username: 'admin', secretRefs: { password: 'secret://password/sec_synology_login#current' } } },
+        artifacts: { serverCert: { outputs: {
             certFile: { content: '-----BEGIN CERTIFICATE-----mock-----END CERTIFICATE-----' },
             keyFile: { content: '-----BEGIN PRIVATE KEY-----mock-----END PRIVATE KEY-----' },
             chainFile: { content: '-----BEGIN CERTIFICATE-----chain-----END CERTIFICATE-----' },
-          },
-        },
-      },
+        } } },
+      }),
       mockResponses: {
         prepare_synology_login: { statusCode: 200, body: { success: true, data: { sid: 'sid-secret', synotoken: 'token-secret' } } },
         list_synology_certificates_before_import: {
@@ -1459,7 +1481,7 @@ describe('WorkflowTemplates', () => {
 
     const skippedRun = await service.testRun({
       ...runtimeInput(version.id),
-      userVariables: { ...runtimeInput(version.id).userVariables, shouldUpload: false },
+      resolvedInput: withResolvedVariables(runtimeInput(version.id).resolvedInput, { shouldUpload: false }),
       mockResponses: { login: { statusCode: 200, body: { token: 'runtime-token-secret' } } },
     });
     assert.equal(skippedRun.stepResults[1]!.status, 'skipped');
@@ -1491,7 +1513,7 @@ describe('WorkflowTemplates', () => {
     const run = await service.testRun({
       templateVersionId: version.id,
       mode: 'mock',
-      userVariables: { expectedResponseContains: 'apache test ok' },
+      resolvedInput: resolvedWorkflowInput({ variables: { expectedResponseContains: 'apache test ok' } }),
       mockResponses: {
         verify_body: { statusCode: 200, body: 'Apache test ok' },
       },
@@ -1515,7 +1537,7 @@ describe('WorkflowTemplates', () => {
           name: 'deploy_targets',
           type: 'foreach',
           foreach: {
-            itemsPath: 'asset.targets',
+            itemsPath: 'asset.deployment.targets',
             itemVariable: 'target',
             indexVariable: 'targetIndex',
             maxItems: 10,
@@ -1524,7 +1546,7 @@ describe('WorkflowTemplates', () => {
               type: 'http',
               request: {
                 method: 'POST',
-                url: 'https://{{target.host}}/deploy/{{targetIndex}}',
+                url: 'https://{{target.serverName}}/deploy/{{targetIndex}}',
                 headers: { Authorization: 'Bearer {{apiToken}}' },
               },
             }],
@@ -1537,8 +1559,7 @@ describe('WorkflowTemplates', () => {
     const run = await service.runWithDispatcher({
       templateVersionId: version.id,
       mode: 'mock',
-      userVariables: { apiToken: 'foreach-secret-token' },
-      assetVariables: { targets: [{ host: 'adc-a.example.com' }, { host: 'adc-b.example.com' }] },
+      resolvedInput: withResolvedVariables(resolvedInputWithTargets([{ host: 'adc-a.example.com' }, { host: 'adc-b.example.com' }]), { apiToken: 'foreach-secret-token' }),
     }, async ({ renderedPlan, step }) => {
       const plan = renderedPlan as { curlRequest: { template: { url: string } } };
       urls.push(plan.curlRequest.template.url);
@@ -1566,13 +1587,13 @@ describe('WorkflowTemplates', () => {
           name: 'probe_targets',
           type: 'foreach',
           foreach: {
-            itemsPath: 'asset.targets',
+            itemsPath: 'asset.deployment.targets',
             itemVariable: 'target',
             maxItems: 2,
             steps: [{
               name: 'probe_target',
               type: 'http',
-              request: { method: 'GET', url: 'https://{{target.host}}/health' },
+              request: { method: 'GET', url: 'https://{{target.serverName}}/health' },
             }],
           },
         }],
@@ -1582,14 +1603,14 @@ describe('WorkflowTemplates', () => {
     await assert.rejects(() => service.testRun({
       templateVersionId: version.id,
       mode: 'mock',
-      assetVariables: { targets: [{ host: 'a' }, { host: 'b' }, { host: 'c' }] },
+      resolvedInput: resolvedInputWithTargets([{ host: 'a' }, { host: 'b' }, { host: 'c' }]),
     }), /超过允许上限/);
 
     let attempts = 0;
     const failed = await service.runWithDispatcher({
       templateVersionId: version.id,
       mode: 'mock',
-      assetVariables: { targets: [{ host: 'a' }, { host: 'b' }] },
+      resolvedInput: resolvedInputWithTargets([{ host: 'a' }, { host: 'b' }]),
     }, async () => {
       attempts += 1;
       return attempts === 1
@@ -1614,13 +1635,13 @@ describe('WorkflowTemplates', () => {
           name: 'probe_targets',
           type: 'foreach',
           foreach: {
-            itemsPath: 'asset.targets',
+            itemsPath: 'asset.deployment.targets',
             itemVariable: 'target',
             continueOnError: true,
             steps: [{
               name: 'probe_target',
               type: 'http',
-              request: { method: 'GET', url: 'https://{{target.host}}/health' },
+              request: { method: 'GET', url: 'https://{{target.serverName}}/health' },
             }],
           },
         }],
@@ -1630,7 +1651,7 @@ describe('WorkflowTemplates', () => {
     const result = await service.runWithDispatcher({
       templateVersionId: version.id,
       mode: 'mock',
-      assetVariables: { targets: [{ host: 'a' }, { host: 'b' }] },
+      resolvedInput: resolvedInputWithTargets([{ host: 'a' }, { host: 'b' }]),
     }, async () => {
       attempts += 1;
       return attempts === 1
@@ -1689,7 +1710,7 @@ describe('WorkflowTemplates', () => {
     const run = await service.testRun({
       templateVersionId: version.id,
       mode: 'mock',
-      userVariables: { remoteState: { etag: 'v1' }, apiToken: 'hidden-token' },
+      resolvedInput: resolvedWorkflowInput({ variables: { remoteState: { etag: 'v1' }, apiToken: 'hidden-token' } }),
     });
     const plan = run.stepResults[0]!.plan as { captureHash: string; capture: Record<string, unknown> };
     assert.match(plan.captureHash, /^[a-f0-9]{64}$/);
@@ -1704,7 +1725,7 @@ describe('WorkflowTemplates', () => {
     await assert.rejects(() => service.testRun({
       templateVersionId: unsafeTemplate.version.id,
       mode: 'mock',
-      userVariables: { remoteState: {}, apiToken: 'hidden-token' },
+      resolvedInput: resolvedWorkflowInput({ variables: { remoteState: {}, apiToken: 'hidden-token' } }),
     }), /不允许捕获敏感变量/);
   });
 });
