@@ -1,18 +1,116 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import test from 'node:test';
 
 import type { DatabasePort, QueryResult } from '../../database/database-port.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { PgAssetsRepository } from '../assets/repository/assets.repository.js';
+import { AgentsApplicationService } from '../agents/application/agents.application-service.js';
+import { PgAgentsRepository } from '../agents/repository/agents.repository.js';
 import { PgDeviceAssetsRepository } from '../device-assets/repository/device-assets.repository.js';
 import { PgDevicesRepository } from './repository/devices.repository.js';
 import { mapAgentHealth, mapNetworkDeviceHealth } from './repository/devices.repository.js';
 import { DevicePlatformRegistry } from './domain/device-platform.registry.js';
 import { DevicesApplicationService } from './application/devices.application-service.js';
-import type { AgentsApplicationService } from '../agents/application/agents.application-service.js';
 import type { DeviceAssetsApplicationService } from '../device-assets/application/device-assets.application-service.js';
 import type { SecretService } from '../secrets/secret.service.js';
+
+test('Agent Host 投影迁移回填历史注册且重复执行不产生重复设备', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const tenantId = 'tenant_legacy_agent_projection';
+  const agentId = 'agt_legacy_windows_2008_r2';
+  await database.query(
+    `insert into pg_documents (namespace, document_id, payload, updated_at)
+     values ($1, $2, $3::jsonb, now())`,
+    ['agents:registrations', agentId, JSON.stringify({
+      id: agentId,
+      tenantId,
+      agentKey: 'legacy-windows-2008-r2',
+      status: 'ONLINE',
+      zone: 'default',
+      registeredAt: '2026-07-20T08:00:00.000Z',
+      updatedAt: '2026-07-23T08:00:00.000Z',
+      descriptor: {
+        agentKey: 'legacy-windows-2008-r2',
+        machineId: 'legacy-windows-2008-r2-machine',
+        hostname: 'legacy-win2008r2-migration',
+        version: '0.9.0',
+        osType: 'WINDOWS',
+        osVersion: 'Windows Server 2008 R2',
+        labels: [],
+      },
+    })],
+  );
+  const migrationSql = await readFile(resolve('src/database/migrations/20260723000200_agent_registration_host_projection.sql'), 'utf8');
+
+  await database.exec(migrationSql);
+  await database.exec(migrationSql);
+
+  const result = await new PgDevicesRepository(database).list(tenantId, {
+    page: 1,
+    pageSize: 20,
+    filter: {},
+    sort: { field: 'displayName', direction: 'asc' },
+  });
+  assert.equal(result.total, 1);
+  assert.equal(result.items[0]?.displayName, 'legacy-win2008r2-migration');
+  assert.equal(result.items[0]?.productFamily, 'Windows Server');
+});
+
+test('Agent 注册自动创建设备主记录并兼容 Windows Server 2008 R2', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const agents = new AgentsApplicationService(new PgAgentsRepository(database));
+
+  const registered = await agents.register('tenant_windows_2008_r2', {
+    agentKey: 'windows-2008-r2-agent',
+    machineId: 'windows-2008-r2-machine',
+    hostname: 'legacy-win2008r2',
+    version: '1.0.0',
+    osType: 'windows',
+    osVersion: 'Windows Server 2008 R2',
+    arch: 'amd64',
+    ipAddress: '10.33.2.8',
+  }, 'request_windows_2008_r2');
+
+  const result = await new PgDevicesRepository(database).list('tenant_windows_2008_r2', {
+    page: 1,
+    pageSize: 20,
+    filter: {},
+    sort: { field: 'displayName', direction: 'asc' },
+  });
+
+  assert.equal(result.total, 1);
+  assert.equal(result.items[0]?.displayName, 'legacy-win2008r2');
+  assert.equal(result.items[0]?.productFamily, 'Windows Server');
+  assert.equal(result.items[0]?.managementMethod, 'AGENT');
+  assert.equal(result.items[0]?.softwareVersion, 'Windows Server 2008 R2');
+  assert.equal(result.items[0]?.extensionType, 'AGENT');
+
+  await agents.register('tenant_windows_2008_r2', {
+    agentKey: 'windows-2008-r2-agent-reinstalled',
+    machineId: 'windows-2008-r2-machine',
+    hostname: 'legacy-win2008r2',
+    version: '1.0.1',
+    osType: 'windows',
+    osVersion: 'Windows Server 2008 R2',
+    arch: 'amd64',
+    ipAddress: '10.33.2.8',
+  }, 'request_windows_2008_r2_reinstalled');
+
+  const hosts = await database.query<{ agent_id: string; asset_fingerprint: string; os_version: string; status: string }>(
+    'select agent_id, asset_fingerprint, os_version, status from pg_hosts where tenant_id = $1 and deleted_at is null',
+    ['tenant_windows_2008_r2'],
+  );
+  assert.equal(hosts.rows.length, 1);
+  assert.equal(hosts.rows[0]?.agent_id, registered.id);
+  assert.equal(hosts.rows[0]?.asset_fingerprint, 'windows-2008-r2-machine');
+  assert.equal(hosts.rows[0]?.os_version, 'Windows Server 2008 R2');
+  assert.equal(hosts.rows[0]?.status, 'ACTIVE');
+});
 
 test('Spec033 统一设备列表聚合 Agent 和 Citrix ADC 且不产生 N+1', async () => {
   const database = new CountingDatabase(new PgliteDatabase());

@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { createApp } from '../../app.module.js';
+import { runMigrations } from '../../database/migration-runner.js';
+import { PgliteDatabase } from '../../database/pglite-database.js';
 import type { AgentsApplicationService } from './application/agents.application-service.js';
 
 describe('Agent direct control api', () => {
   it('注册和心跳应持久化 directControl 并在 detail health 中返回', async () => {
-    const app = createApp();
+    const database = new PgliteDatabase();
+    await runMigrations(database, 'src/database/migrations');
+    const app = createApp({ db: database });
     const headers = {
       'x-tenant-id': 'tenant_agent_direct_control',
       'x-request-id': 'req_agent_direct_control_register',
@@ -134,7 +138,9 @@ describe('Agent direct control api', () => {
   });
 
   it('Agent detail 应暴露 recentTaskLogs 的执行模式与直连回退原因', async () => {
-    const app = createApp();
+    const database = new PgliteDatabase();
+    await runMigrations(database, 'src/database/migrations');
+    const app = createApp({ db: database });
     const headers = {
       'x-tenant-id': 'tenant_agent_recent_logs',
       'x-request-id': 'req_agent_recent_logs_register',
