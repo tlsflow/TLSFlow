@@ -3,7 +3,16 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import type { PluginVersionRecord } from '@/api/generated/schemas'
-import { disableUnifiedPluginVersion, enableUnifiedPluginVersion, getUnifiedPluginUiResources, listPluginCatalog, listUnifiedPluginVersions, refreshBuiltinPluginCatalog } from '@/api/modules/plugins.api'
+import {
+  disableUnifiedPluginVersion,
+  enableUnifiedPluginVersion,
+  getPluginVersionManagementDetail,
+  getUnifiedPluginUiResources,
+  listPluginCatalog,
+  listUnifiedPluginVersions,
+  refreshBuiltinPluginCatalog,
+} from '@/api/modules/plugins.api'
+import type { ApiRecord } from '@/api/modules/common'
 import { GcDevicePresentation, GcEmptyState, GcModal, GcPluginForm, type DevicePresentationSchema, type PluginFormSchema } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { translateDynamic } from '@/i18n/translate'
@@ -91,13 +100,12 @@ const pagedPlugins = computed(() => {
 const builtinCount = computed(() => plugins.value.filter((plugin) => plugin.source === 'builtin').length)
 const userCount = computed(() => plugins.value.filter((plugin) => plugin.source === 'user').length)
 
-onMounted(async () => {
-  await loadPlugins()
+onMounted(() => {
   const pluginVersionId = typeof route.query.pluginVersionId === 'string' ? route.query.pluginVersionId : ''
   if (route.query.detailModal === '1' && pluginVersionId) {
-    const plugin = plugins.value.find((item) => item.pluginVersionId === pluginVersionId || item.id === pluginVersionId)
-    if (plugin) await openDetail(plugin)
+    void openRouteDetail(pluginVersionId)
   }
+  void loadPlugins()
 })
 
 watch(locale, () => {
@@ -130,6 +138,11 @@ async function loadPlugins(refreshBuiltins = false): Promise<void> {
     plugins.value = (catalogResult.data?.items ?? [])
       .map((record) => toCatalogPluginRecord(record, versionsById.get(record.pluginVersionId)))
       .filter((plugin): plugin is PluginRecord => Boolean(plugin))
+    const selectedPluginVersionId = selectedPlugin.value?.pluginVersionId
+    if (selectedPluginVersionId) {
+      const refreshed = plugins.value.find((item) => item.pluginVersionId === selectedPluginVersionId)
+      if (refreshed) selectedPlugin.value = refreshed
+    }
   } catch (cause) {
     plugins.value = []
     loadError.value = cause instanceof Error ? cause.message : t('plugins.errors.loadFailed')
@@ -259,6 +272,34 @@ async function openDetail(plugin: PluginRecord): Promise<void> {
   pluginMessages.value = {}
   pluginFormValues.value = {}
   activePresentationTab.value = ''
+  await loadPluginUiResources(plugin)
+}
+
+async function openRouteDetail(pluginVersionId: string): Promise<void> {
+  if (!pluginVersionId) return
+  selectedPlugin.value = pluginRecordFromManagementDetail({ id: pluginVersionId, pluginVersionId })
+  createError.value = ''
+  agentActionError.value = ''
+  detailOpen.value = true
+  pluginForms.value = {}
+  pluginPresentations.value = {}
+  pluginMessages.value = {}
+  pluginFormValues.value = {}
+  activePresentationTab.value = ''
+  pluginUiError.value = ''
+  pluginUiLoading.value = true
+  const uiRequest = loadPluginUiResources(selectedPlugin.value)
+  try {
+    const result = await getPluginVersionManagementDetail(pluginVersionId)
+    const plugin = pluginRecordFromManagementDetail(result.data ?? { id: pluginVersionId, pluginVersionId })
+    selectedPlugin.value = plugin
+  } catch (cause) {
+    pluginUiError.value = cause instanceof Error ? cause.message : t('plugins.forms.loadFailed')
+  }
+  await uiRequest
+}
+
+async function loadPluginUiResources(plugin: PluginRecord): Promise<void> {
   pluginUiError.value = ''
   pluginUiLoading.value = true
   try {
@@ -273,6 +314,62 @@ async function openDetail(plugin: PluginRecord): Promise<void> {
   } finally {
     pluginUiLoading.value = false
   }
+}
+
+function pluginRecordFromManagementDetail(value: ApiRecord): PluginRecord {
+  const manifest = readRecord(value.manifest)
+  const status = String(value.status ?? 'UNKNOWN')
+  const displayNameKey = String(manifest.displayNameKey ?? '')
+  const descriptionKey = String(manifest.descriptionKey ?? '')
+  return {
+    id: String(value.id ?? value.pluginVersionId ?? ''),
+    pluginId: String(value.pluginId ?? manifest.pluginId ?? ''),
+    pluginVersionId: String(value.pluginVersionId ?? value.id ?? ''),
+    version: String(value.version ?? manifest.version ?? ''),
+    source: String(value.source ?? manifest.source ?? '').toUpperCase() === 'USER' ? 'user' : 'builtin',
+    valid: !['INVALID', 'REJECTED', 'QUARANTINED', 'RETIRED'].includes(status.toUpperCase()),
+    updatedAt: String(value.updatedAt ?? ''),
+    metadata: {
+      name: String(manifest.pluginId ?? value.pluginId ?? value.id ?? ''),
+      displayName: displayNameKey && te(displayNameKey) ? t(displayNameKey) : undefined,
+      description: descriptionKey && te(descriptionKey) ? t(descriptionKey) : undefined,
+      logoUrl: typeof manifest.logoUrl === 'string' ? manifest.logoUrl : undefined,
+      tags: [
+        ...readStringList(readRecord(manifest.compatibility).productFamilies),
+        ...readStringList(readRecord(manifest.compatibility).frameworkTypes),
+        ...readStringList(readRecord(manifest.compatibility).targetTypes),
+      ],
+      platforms: [],
+    },
+    stepCount: 0,
+    rollbackCount: 0,
+    catalogType: 'UNIFIED_PLUGIN',
+    status,
+    runtime: String(value.runtime ?? manifest.runtime ?? ''),
+    capabilities: readRecordList(manifest.capabilities)
+      .map((item) => String(item.key ?? ''))
+      .filter(Boolean),
+    permissions: readStringList(manifest.permissions),
+    packageSha256: String(value.packageSha256 ?? ''),
+    manifestSha256: String(value.manifestSha256 ?? ''),
+    resourceSha256: readStringMap(value.resourceSha256),
+    runnerStatus: 'notObserved',
+  }
+}
+
+function readRecordList(value: unknown): ApiRecord[] {
+  return Array.isArray(value) ? value.filter((item): item is ApiRecord => Boolean(item) && typeof item === 'object' && !Array.isArray(item)) : []
+}
+
+function readStringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : []
+}
+
+function readStringMap(value: unknown): Record<string, string> {
+  const record = readRecord(value)
+  return Object.fromEntries(
+    Object.entries(record).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && Boolean(entry[0].trim())),
+  )
 }
 
 async function enableCatalogPlugin(plugin: PluginRecord): Promise<void> {

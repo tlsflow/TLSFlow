@@ -7,6 +7,10 @@ export function listCloudAccountAssets(): Promise<ApiPageResult> {
   return apiClient.get<ApiPage>(toClientPath(CLOUD_ASSETS_PATH))
 }
 
+export function getCloudAccountAsset(id: string): Promise<ApiRecordResult> {
+  return apiClient.get<ApiRecord>(toClientPath(`${CLOUD_ASSETS_PATH}/${encodeURIComponent(id)}`))
+}
+
 export function createCloudAccountAsset(payload: ApiBody): Promise<ApiRecordResult> {
   return apiClient.post<ApiRecord>(toClientPath(CLOUD_ASSETS_PATH), payload, {
     idempotencyKey: createIdempotencyKey('cloud_account_asset_create')

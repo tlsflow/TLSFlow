@@ -7,6 +7,7 @@ import { listAssets } from '@/api/modules/assets.api'
 import { listAutomations } from '@/api/modules/automations.api'
 import {
   deleteCertificateVersion,
+  getCertificateAssetDetail,
   importCertificate,
   listCertificates,
   listCertificateVersions,
@@ -96,6 +97,7 @@ const assetLifecycleMap = ref<Record<string, LifecycleStatusKey>>({})
 const assetVersionCountMap = ref<Record<string, number>>({})
 const assetVersionSummaryMap = ref<Record<string, ApiRecord>>({})
 const selectedAssetId = ref('')
+const selectedRouteAsset = ref<ApiRecord | null>(null)
 const professionalAssetPresentation = ref<AssetPresentation>('cards')
 const certificateCategory = ref<CertificateCategory>('all')
 const filtersVisible = ref(false)
@@ -104,6 +106,7 @@ const versionFilterStatus = ref('')
 const versionSortField = ref<VersionSortField>('notAfter')
 const versionSortOrder = ref<VersionSortOrder>('asc')
 let versionRequestSequence = 0
+let skipSelectedAssetVersionRequest = false
 
 const importDialogOpen = ref(false)
 const trustRootsDialogOpen = ref(false)
@@ -149,7 +152,10 @@ const visibleAssets = computed(() => {
   if (certificateCategory.value === 'all') return displayedAssets.value
   return displayedAssets.value.filter((record) => readAssetLifecycleStatusKey(record) === certificateCategory.value)
 })
-const selectedAsset = computed(() => displayedAssets.value.find((item) => readId(item) === selectedAssetId.value) ?? null)
+const selectedAsset = computed(() =>
+  displayedAssets.value.find((item) => readId(item) === selectedAssetId.value)
+  ?? (readId(selectedRouteAsset.value ?? {}) === selectedAssetId.value ? selectedRouteAsset.value : null),
+)
 const selectedDomainName = computed(() => (selectedAsset.value ? readAssetName(selectedAsset.value) : t('certificates.list.fallbacks.unselectedDomain')))
 const selectedAssetMemberIds = computed(() => {
   if (!selectedAsset.value) return []
@@ -290,6 +296,10 @@ const canDeleteVersion = computed(() => permissionStore.hasPermission('certifica
 const hasCertificateMaterial = computed(() => isMaterialReady(draft))
 
 watch(selectedAssetId, () => {
+  if (skipSelectedAssetVersionRequest) {
+    skipSelectedAssetVersionRequest = false
+    return
+  }
   void requestVersionsForSelectedAsset()
 })
 
@@ -322,12 +332,13 @@ watch(
   },
 )
 
-onMounted(async () => {
-  await Promise.all([loadAssets(), loadGuideContext()])
+onMounted(() => {
   const assetId = typeof route.query.assetId === 'string' ? route.query.assetId : ''
-  if (route.query.versionsModal === '1' && assetId && assets.value.some((item) => readId(item) === assetId)) {
-    openVersionsDialog(assetId)
+  if (route.query.versionsModal === '1' && assetId) {
+    void openRouteVersionsDialog(assetId)
   }
+  void loadAssets()
+  void loadGuideContext()
 })
 
 function readId(record: ApiRecord) {
@@ -494,7 +505,11 @@ async function loadAssets() {
     })
     assets.value = [...(result.data?.items ?? [])]
     await loadAssetLifecycleStatuses(assets.value)
-    if (selectedAssetId.value && !displayedAssets.value.some((item) => readId(item) === selectedAssetId.value)) {
+    if (
+      selectedAssetId.value
+      && !selectedRouteAsset.value
+      && !displayedAssets.value.some((item) => readId(item) === selectedAssetId.value)
+    ) {
       selectedAssetId.value = ''
     }
   } catch (cause) {
@@ -503,7 +518,7 @@ async function loadAssets() {
     assetLifecycleMap.value = {}
     assetVersionCountMap.value = {}
     assetVersionSummaryMap.value = {}
-    selectedAssetId.value = ''
+    if (!selectedRouteAsset.value) selectedAssetId.value = ''
   } finally {
     assetsLoading.value = false
   }
@@ -608,7 +623,7 @@ function toggleFilters() {
 
 function selectCertificateCategory(category: CertificateCategory) {
   certificateCategory.value = category
-  if (selectedAssetId.value && !visibleAssets.value.some((item) => readId(item) === selectedAssetId.value)) {
+  if (selectedAssetId.value && !selectedRouteAsset.value && !visibleAssets.value.some((item) => readId(item) === selectedAssetId.value)) {
     selectedAssetId.value = ''
   }
 }
@@ -630,8 +645,56 @@ function selectAsset(assetId: string) {
 function openVersionsDialog(assetId: string) {
   if (!assetId) return
   versionActionError.value = null
+  selectedRouteAsset.value = null
   selectedAssetId.value = assetId
   versionsDialogOpen.value = true
+}
+
+async function openRouteVersionsDialog(assetId: string) {
+  if (!assetId) return
+  const requestId = ++versionRequestSequence
+  skipSelectedAssetVersionRequest = true
+  selectedAssetId.value = assetId
+  selectedRouteAsset.value = { id: assetId }
+  versions.value = []
+  versionsError.value = null
+  versionActionError.value = null
+  versionsLoading.value = true
+  versionsDialogOpen.value = true
+
+  try {
+    const result = await getCertificateAssetDetail(assetId)
+    if (requestId !== versionRequestSequence || selectedAssetId.value !== assetId) return
+    const asset = result.data ?? null
+    selectedRouteAsset.value = asset
+    const routeVersions = Array.isArray(asset?.versions) ? asset.versions as ApiRecord[] : []
+    versions.value = routeVersions
+    assetVersionCountMap.value = {
+      ...assetVersionCountMap.value,
+      [assetId]: routeVersions.length,
+    }
+    const currentVersion = readAssetVersion(asset)
+    if (currentVersion) {
+      assetVersionSummaryMap.value = {
+        ...assetVersionSummaryMap.value,
+        [assetId]: currentVersion,
+      }
+      assetLifecycleMap.value = {
+        ...assetLifecycleMap.value,
+        [assetId]: resolveLifecycleStatusKey(
+          readString(currentVersion, ['notAfter'], ''),
+          readString(currentVersion, ['status', 'state'], 'MANAGED'),
+        ),
+      }
+    }
+  } catch (cause) {
+    if (requestId !== versionRequestSequence || selectedAssetId.value !== assetId) return
+    versionsError.value = toErrorState(cause)
+  } finally {
+    if (requestId === versionRequestSequence && selectedAssetId.value === assetId) {
+      versionsLoading.value = false
+    }
+  }
 }
 
 function openImportDialog() {

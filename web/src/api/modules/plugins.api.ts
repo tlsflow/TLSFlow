@@ -9,6 +9,7 @@ const UNIFIED_PLUGIN_ENABLE_PATH = '/api/v1/plugin-versions/enable'
 const UNIFIED_PLUGIN_DISABLE_PATH = '/api/v1/plugin-versions/disable'
 const UNIFIED_PLUGIN_UI_RESOURCES_PATH = '/api/v1/plugin-versions/ui-resources'
 const UNIFIED_PLUGIN_VERSIONS_PATH = '/api/v1/plugin-versions'
+const PLUGIN_VERSION_MANAGEMENT_PATH = '/api/v1/plugin-version-management'
 const PLUGIN_RUNTIME_METRICS_PATH = '/api/v1/plugin-runtime/metrics'
 const PLUGIN_BINDINGS_PATH = '/api/v1/plugin-bindings'
 
@@ -18,6 +19,10 @@ export function listPluginCatalog(query?: BusinessListQuery) {
 
 export function listUnifiedPluginVersions(query?: BusinessListQuery) {
   return apiClient.get<PageResult<PluginVersionRecord>>(buildListPath(UNIFIED_PLUGIN_VERSIONS_PATH, query))
+}
+
+export function getPluginVersionManagementDetail(pluginVersionId: string) {
+  return apiClient.get<ApiRecord>(toClientPath(`${PLUGIN_VERSION_MANAGEMENT_PATH}/${encodeURIComponent(pluginVersionId)}`))
 }
 
 export function listPluginRuntimeMetrics(query?: BusinessListQuery) {

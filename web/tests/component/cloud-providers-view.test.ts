@@ -13,6 +13,7 @@ const pageState = vi.hoisted(() => ({
 
 const providerApiMocks = vi.hoisted(() => ({
   listCloudAccountAssets: vi.fn(),
+  getCloudAccountAsset: vi.fn(),
   createCloudAccountAsset: vi.fn(),
   updateCloudAccountAsset: vi.fn(),
   deleteCloudAccountAsset: vi.fn(),
@@ -118,6 +119,7 @@ describe('CloudProvidersView', () => {
     providerApiMocks.listCloudAccountAssets.mockResolvedValue({
       data: { items: [], page: 1, pageSize: 20, total: 0 },
     })
+    providerApiMocks.getCloudAccountAsset.mockResolvedValue({ data: { id: 'asset-1' } })
     providerApiMocks.createCloudAccountAsset.mockResolvedValue({ data: { id: 'asset-1' } })
     providerApiMocks.updateCloudAccountAsset.mockResolvedValue({ data: { id: 'asset-1' } })
     providerApiMocks.deleteCloudAccountAsset.mockResolvedValue({ data: { id: 'asset-1' } })

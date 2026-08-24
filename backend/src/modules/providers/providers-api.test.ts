@@ -66,6 +66,21 @@ test('云账号资产保留通用租户隔离 CRUD，凭据只接受 CredentialR
   assert.equal(listed.statusCode, 200, JSON.stringify(listed.body));
   assert.equal((listed.body as { items: unknown[] }).items.length, 1);
 
+  const detail = await app.inject({
+    method: 'GET',
+    path: `/api/v1/cloud-account-assets/${assetId}`,
+    headers,
+  });
+  assert.equal(detail.statusCode, 200, JSON.stringify(detail.body));
+  assert.equal((detail.body as { id: string }).id, assetId);
+
+  const otherTenantDetail = await app.inject({
+    method: 'GET',
+    path: `/api/v1/cloud-account-assets/${assetId}`,
+    headers: otherTenantHeaders,
+  });
+  assert.equal(otherTenantDetail.statusCode, 404, JSON.stringify(otherTenantDetail.body));
+
   const otherTenantList = await app.inject({
     method: 'GET',
     path: '/api/v1/cloud-account-assets',
@@ -165,6 +180,7 @@ test('Provider 厂商旁路全部移除，OpenAPI 只暴露 Cloud Account 基础
     .sort();
   assert.deepEqual(contractKeys, [
     'GET /api/v1/cloud-account-assets',
+    'GET /api/v1/cloud-account-assets/:id',
     'PATCH /api/v1/cloud-account-assets',
     'POST /api/v1/cloud-account-assets',
     'POST /api/v1/cloud-account-assets/delete',

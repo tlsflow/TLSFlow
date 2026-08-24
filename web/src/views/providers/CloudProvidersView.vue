@@ -6,6 +6,7 @@ import { ApiClientError } from '@/api/client'
 import {
   createCloudAccountAsset,
   deleteCloudAccountAsset,
+  getCloudAccountAsset,
   listCloudAccountAssets,
   updateCloudAccountAsset,
 } from '@/api/modules/providers.api'
@@ -128,10 +129,9 @@ onMounted(async () => {
   const cloudAssetId = typeof route.query.cloudAssetId === 'string' ? route.query.cloudAssetId : ''
   if (route.query.detailModal !== '1' || !cloudAssetId) return
   try {
-    const result = await listCloudAccountAssets()
-    const asset = result.data?.items?.find((item) => String(item.id ?? '') === cloudAssetId)
-    if (!asset) return
-    selectedCloudAsset.value = asset
+    const result = await getCloudAccountAsset(cloudAssetId)
+    selectedCloudAsset.value = result.data ?? null
+    if (!selectedCloudAsset.value) return
     cloudDetailOpen.value = true
   } catch {
     // 列表页自身负责展示加载错误，搜索跳转不重复弹出提示。

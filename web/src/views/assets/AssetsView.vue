@@ -149,6 +149,7 @@ const assetOverviewFilters = reactive({
 })
 const detailModalOpen = ref(false)
 let openedDetailRouteKey = ''
+let openingRouteAssetKey = ''
 const activeDetailTab = ref<'overview' | 'snapshots'>('overview')
 const detailTabs = computed(() => [
   { value: 'overview', label: t('assets.detail.tabs.overview') },
@@ -635,6 +636,33 @@ const createDisabled = computed(() => {
 
 const isEditMode = computed(() => Boolean(editingServiceAssetId.value))
 
+async function openRouteAssetDetail(applicationAssetId: string) {
+  if (!applicationAssetId) return
+  selectedServiceAsset.value = {
+    id: applicationAssetId,
+    name: applicationAssetId,
+    status: 'UNKNOWN',
+    risk: 'MEDIUM',
+    raw: { id: applicationAssetId },
+  }
+  activeDetailTab.value = 'overview'
+  rollbackError.value = ''
+  rollbackRequestId.value = ''
+  selectedAssetDetail.value = null
+  snapshotItems.value = []
+  detailError.value = ''
+  snapshotError.value = ''
+  deploymentRecords.value = []
+  deploymentRecordsError.value = ''
+  detailModalOpen.value = true
+  void loadDeploymentRecords(applicationAssetId)
+  await refreshAssetDetail(applicationAssetId)
+  const loadedDetail = selectedAssetDetail.value as ApiRecord | null
+  if (loadedDetail && String(readNested(loadedDetail, ['id']) ?? '') === applicationAssetId) {
+    selectedServiceAsset.value = assetOverviewCardRow(toAssetOverviewCard(loadedDetail))
+  }
+}
+
 async function loadAssetContext(row: ViewRow) {
   selectedServiceAsset.value = row
   activeDetailTab.value = 'overview'
@@ -642,10 +670,9 @@ async function loadAssetContext(row: ViewRow) {
   rollbackRequestId.value = ''
   deploymentRecords.value = []
   deploymentRecordsError.value = ''
-  await Promise.all([
-    refreshAssetDetail(String(row.raw?.id ?? row.id ?? '')),
-    loadDeploymentRecords(String(row.raw?.id ?? row.id ?? '')),
-  ])
+  const applicationAssetId = String(row.raw?.id ?? row.id ?? '')
+  void loadDeploymentRecords(applicationAssetId)
+  await refreshAssetDetail(applicationAssetId)
 }
 
 async function openDetailModal(row: ViewRow) {
@@ -1167,29 +1194,42 @@ async function refreshAssetDetail(serviceAssetId: string) {
     return
   }
   detailLoading.value = true
-  snapshotLoading.value = true
   detailError.value = ''
-  snapshotError.value = ''
+  void loadAssetSnapshots(serviceAssetId)
   try {
-    const [result, snapshots] = await Promise.all([
-      getAssetDetail(serviceAssetId),
-      listManagedTargetSnapshots({ page: 1, pageSize: 20, sort: 'capturedAt:desc', filters: { applicationAssetId: serviceAssetId } }),
-    ])
+    const result = await getAssetDetail(serviceAssetId)
     selectedAssetDetail.value = result.data ?? null
-    snapshotItems.value = [...(snapshots.data?.items ?? [])]
   } catch (cause) {
     selectedAssetDetail.value = null
-    snapshotItems.value = []
     if (cause instanceof ApiClientError) {
       detailError.value = cause.message
-      snapshotError.value = cause.message
       return
     }
     const message = cause instanceof Error ? cause.message : t('assets.errors.loadAssetDetailFailed')
     detailError.value = message
-    snapshotError.value = message
   } finally {
     detailLoading.value = false
+  }
+}
+
+async function loadAssetSnapshots(serviceAssetId: string) {
+  snapshotLoading.value = true
+  snapshotError.value = ''
+  snapshotItems.value = []
+  try {
+    const snapshots = await listManagedTargetSnapshots({
+      page: 1,
+      pageSize: 20,
+      sort: 'capturedAt:desc',
+      filters: { applicationAssetId: serviceAssetId },
+    })
+    snapshotItems.value = [...(snapshots.data?.items ?? [])]
+  } catch (cause) {
+    snapshotItems.value = []
+    snapshotError.value = cause instanceof ApiClientError
+      ? cause.message
+      : cause instanceof Error ? cause.message : t('assets.errors.loadAssetDetailFailed')
+  } finally {
     snapshotLoading.value = false
   }
 }
@@ -2227,24 +2267,18 @@ watch(
     route.query.detailModal,
     route.query.assetId,
     isUserViewMode.value,
-    assetOverviewItems.value.length,
-    userAssetItems.value.length,
   ],
   () => {
     if (route.query.detailModal !== '1') return
     const assetId = typeof route.query.assetId === 'string' ? route.query.assetId : ''
     if (!assetId) return
     const routeKey = `${isUserViewMode.value ? 'user' : 'professional'}:${assetId}`
-    if (openedDetailRouteKey === routeKey) return
-    const asset = isUserViewMode.value
-      ? userAssetItems.value.find((item) => String(item.id ?? '') === assetId)
-      : assetOverviewItems.value.find((item) => String(item.id ?? '') === assetId)
-    if (!asset) return
+    if (openedDetailRouteKey === routeKey || openingRouteAssetKey === routeKey) return
+    openingRouteAssetKey = routeKey
     openedDetailRouteKey = routeKey
-    const row = isUserViewMode.value
-      ? userAssetRow(asset)
-      : assetOverviewCardRow(toAssetOverviewCard(asset))
-    void openDetailModal(row)
+    void openRouteAssetDetail(assetId).finally(() => {
+      if (openingRouteAssetKey === routeKey) openingRouteAssetKey = ''
+    })
   },
   { immediate: true },
 )

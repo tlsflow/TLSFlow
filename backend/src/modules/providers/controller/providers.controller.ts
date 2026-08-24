@@ -21,6 +21,7 @@ export class ProvidersController {
 
   register(router: Router): void {
     router.get('/api/v1/cloud-account-assets', '查询云账号资产', tags, (request) => this.listCloudAccounts(request));
+    router.get('/api/v1/cloud-account-assets/:id', '查询云账号资产详情', tags, (request) => this.getCloudAccount(request));
     router.post('/api/v1/cloud-account-assets', '创建云账号资产', tags, (request) => this.createCloudAccount(request));
     router.patch('/api/v1/cloud-account-assets', '更新云账号资产', tags, (request) => this.updateCloudAccount(request));
     router.post('/api/v1/cloud-account-assets/delete', '删除云账号资产', tags, (request) => this.deleteCloudAccount(request));
@@ -34,6 +35,20 @@ export class ProvidersController {
       ...page,
       items: await filterAuthorizedItems(security, page.items, 'cloud_account_asset', 'read'),
     };
+  }
+
+  private async getCloudAccount(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
+    const id = request.path.match(/^\/api\/v1\/cloud-account-assets\/([^/]+)$/)?.[1];
+    if (!id) throw new Error('云账号资产详情路径无效');
+    const asset = await this.cloudAccounts.get(security.tenantId, decodeURIComponent(id));
+    await assertRouteAction(security, 'cloud_account_asset.read', 'cloud_account_asset', { resourceId: asset.id });
+    await assertRouteObjectAccess(security, 'read', {
+      objectType: 'cloud_account_asset',
+      objectId: asset.id,
+      tenantId: asset.tenantId,
+    });
+    return asset;
   }
 
   private async createCloudAccount(request: HttpRequest) {
@@ -85,6 +100,7 @@ export class ProvidersController {
 export function getCloudAccountRouteContracts(): RouteContract[] {
   return [
     { method: 'GET', path: '/api/v1/cloud-account-assets', operationId: 'listCloudAccountAssets', summary: '查询云账号资产', tags, responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/cloud-account-assets/:id', operationId: 'getCloudAccountAsset', summary: '查询云账号资产详情', tags, responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/cloud-account-assets', operationId: 'createCloudAccountAsset', summary: '创建云账号资产', tags, responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'PATCH', path: '/api/v1/cloud-account-assets', operationId: 'updateCloudAccountAsset', summary: '更新云账号资产', tags, responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/cloud-account-assets/delete', operationId: 'deleteCloudAccountAsset', summary: '删除云账号资产', tags, responseSchema: { type: 'object', additionalProperties: true } },
