@@ -1,5 +1,6 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import { allowedAgentOperationTypes, computeAgentPlanDigest, agentSecurityContractVersion, type AgentPlanV1, type AgentPlanOperationV1 } from '../../agents/security/agent-security.contract.js';
+import type { ResolvedDeploymentInputV1 } from '../dto/resolved-deployment-input.dto.js';
 import type { CertificateUpdateResolvedSnapshotV1 } from './certificate-update-input.service.js';
 
 interface PlanTemplateOperation {
@@ -30,6 +31,7 @@ interface PlanTemplateV1 {
 export function compileCertificateUpdatePlanTemplate(input: {
   templateText: string;
   snapshot: CertificateUpdateResolvedSnapshotV1;
+  resolvedInput?: ResolvedDeploymentInputV1;
   pluginVersionId: string;
   agentId: string;
   tenantId: string;
@@ -40,7 +42,10 @@ export function compileCertificateUpdatePlanTemplate(input: {
   if (template.pluginId !== input.snapshot.pluginId) fail('PLUGIN', 'Agent Plan 模板与输入快照插件不一致');
   if (template.capability === 'certificate.verify' && template.writeEffect) fail('PLAN', 'Verify Agent Plan 不得声明写入副作用');
   if (template.capability !== 'certificate.verify' && !template.writeEffect) fail('PLAN', 'Deploy/Rollback Agent Plan 必须声明写入副作用');
-  const operations = expandOperations(template.operations, input.snapshot, input.workflowVersionId, input.resourceHash);
+  let operations = expandOperations(template.operations, input.snapshot, input.workflowVersionId, input.resourceHash);
+  if (input.resolvedInput) {
+    operations = bindCertificateArtifactContent(operations, input.snapshot, input.resolvedInput);
+  }
   if (operations.length === 0) fail('PLAN', 'Agent Plan 模板没有操作');
   const operationTypes = [...new Set(operations.map((operation) => operation.operationType))];
   const plan: AgentPlanV1 = {
@@ -74,6 +79,72 @@ export function compileCertificateUpdatePlanTemplate(input: {
     lifetimeSeconds: template.authorization?.lifetimeSeconds ?? 300,
   };
   return { plan, authorization };
+}
+
+/**
+ * 把已解析输入中的证书产物绑定到每个文件写操作。摘要只证明产物身份，
+ * Agent 真正写入的字节也必须进入签名计划，否则授权链和实际写入对象不是同一件事。
+ */
+export function bindCertificateUpdatePlanArtifacts(
+  plan: AgentPlanV1,
+  snapshot: CertificateUpdateResolvedSnapshotV1,
+  resolvedInput: ResolvedDeploymentInputV1,
+): AgentPlanV1 {
+  const operations = bindCertificateArtifactContent(plan.operations, snapshot, resolvedInput);
+  const boundPlan = { ...plan, operations, planDigest: '' };
+  boundPlan.planDigest = computeAgentPlanDigest(boundPlan);
+  return boundPlan;
+}
+
+function bindCertificateArtifactContent(
+  operations: AgentPlanOperationV1[],
+  snapshot: CertificateUpdateResolvedSnapshotV1,
+  resolvedInput: ResolvedDeploymentInputV1,
+): AgentPlanOperationV1[] {
+  const artifactName = resolvedInput.assetContext.deployment.certificateResourceName;
+  const artifact = resolvedInput.artifacts.certificateArtifact
+    ?? (artifactName ? resolvedInput.artifacts[artifactName] : undefined);
+  if (!artifact || !artifact.outputs || typeof artifact.outputs !== 'object' || Array.isArray(artifact.outputs)) {
+    throw new AppError('VALIDATION_FAILED', '证书更新计划缺少可绑定的 Artifact 输出');
+  }
+
+  const pathIndex = new Map(snapshot.paths.map((path, index) => [normalizePath(path), index]));
+  const outputs = artifact.outputs as Record<string, unknown>;
+  return operations.map((operation) => {
+    if (operation.operationType !== 'certificate.material.validate' && operation.operationType !== 'filesystem.atomic_replace') return operation;
+    const path = typeof operation.input.path === 'string' ? operation.input.path : undefined;
+    if (!path) throw new AppError('VALIDATION_FAILED', '证书更新文件操作缺少目标路径');
+    const index = pathIndex.get(normalizePath(path));
+    if (index === undefined) throw new AppError('VALIDATION_FAILED', '证书更新文件路径未绑定到 Artifact 槽位', { path });
+    const contentBase64 = resolveArtifactContentBase64(snapshot, outputs, index);
+    return { ...operation, input: { ...operation.input, contentBase64 } };
+  });
+}
+
+function resolveArtifactContentBase64(
+  snapshot: CertificateUpdateResolvedSnapshotV1,
+  outputs: Record<string, unknown>,
+  pathIndex: number,
+): string {
+  const outputName = snapshot.artifactKind === 'KEYSTORE'
+    ? snapshot.keystoreType === 'JKS' ? 'jksBase64' : 'pfxBase64'
+    : pathIndex === 0 ? 'leafPem' : pathIndex === 1 ? 'privateKeyPem' : 'orderedChainPem';
+  const value = outputs[outputName];
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new AppError('VALIDATION_FAILED', `证书 Artifact 缺少 ${outputName} 输出`);
+  }
+  const contentBase64 = snapshot.artifactKind === 'KEYSTORE' || !value.includes('-----BEGIN ')
+    ? value
+    : Buffer.from(value, 'utf8').toString('base64');
+  const bytes = Buffer.from(contentBase64, 'base64');
+  if (bytes.length === 0 || bytes.toString('base64') !== contentBase64 || bytes.length > 64 * 1024) {
+    throw new AppError('VALIDATION_FAILED', `证书 Artifact 的 ${outputName} Base64 输出无效或超出大小限制`);
+  }
+  return contentBase64;
+}
+
+function normalizePath(value: string): string {
+  return value.replaceAll('\\', '/').replace(/\/+$/u, '').toLowerCase();
 }
 
 function expandOperations(

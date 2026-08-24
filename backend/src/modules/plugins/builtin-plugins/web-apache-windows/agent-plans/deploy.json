@@ -79,19 +79,10 @@
       }
     },
     {
-      "operationId": "stop-service",
-      "operationType": "service.stop",
+      "operationId": "restart-service",
+      "operationType": "service.restart",
       "stage": "execute",
-      "input": {
-        "serviceName": {
-          "$ref": "serviceName"
-        }
-      }
-    },
-    {
-      "operationId": "start-service",
-      "operationType": "service.start",
-      "stage": "execute",
+      "timeoutSeconds": 300,
       "input": {
         "serviceName": {
           "$ref": "serviceName"

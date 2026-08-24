@@ -80,6 +80,46 @@ test('Agent 任务写操作结果 UNKNOWN 会保留不明状态', async () => {
   assert.equal(updated?.result?.success, false);
 });
 
+test('执行状态同步异常时，Agent 结果仍保持已落账并停止重复补传', async () => {
+  const task = createTask();
+  let updated: AgentTaskEnvelope | undefined;
+  const repository = {
+    getRegistration: async () => fullAgentRegistration(task),
+    getTask: async () => updated ?? task,
+    updateTask: async (_taskId: string, patch: Partial<AgentTaskEnvelope>) => {
+      updated = { ...task, ...patch };
+      return updated;
+    },
+  };
+  const executionResultSync = {
+    applyAgentTaskResult: async () => {
+      throw new Error('模拟执行投影失败');
+    },
+  };
+  const service = new AgentsApplicationService(
+    repository as never,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    executionResultSync as never,
+  );
+
+  const result = await service.submitResult('tenant-result-status', {
+    agentId: task.agentId,
+    taskId: task.id,
+    leaseId: task.leaseId!,
+    success: false,
+    status: 'UNKNOWN',
+    errorCode: 'AGENT_EXECUTION_UNKNOWN',
+    errorMessage: '写操作结果不明',
+    detail: { receipt: createReceipt(task, 'UNKNOWN') },
+  });
+
+  assert.equal(result.status, 'failed');
+  assert.equal(updated?.result?.status, 'UNKNOWN');
+});
+
 test('Agent v2 计划尚未进入执行器时允许无 Receipt 的确定性失败', async () => {
   const task = createTask();
   let updated: AgentTaskEnvelope | undefined;

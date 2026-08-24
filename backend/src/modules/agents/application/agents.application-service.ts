@@ -853,17 +853,29 @@ export class AgentsApplicationService {
           },
         }),
       );
-      await this.executionResultSync.applyAgentTaskResult({
-        tenantId: task.tenantId,
-        executionRunId: task.executionRunId,
-        executionStepId: task.executionStepId,
-        success,
-        status: outcome,
-        errorCode,
-        errorMessage,
-        detail: sanitizedDetail,
-        actorId: task.agentId,
-      });
+      try {
+        await this.executionResultSync.applyAgentTaskResult({
+          tenantId: task.tenantId,
+          executionRunId: task.executionRunId,
+          executionStepId: task.executionStepId,
+          success,
+          status: outcome,
+          errorCode,
+          errorMessage,
+          detail: sanitizedDetail,
+          actorId: task.agentId,
+        });
+      } catch (error) {
+        // Agent 结果已经落账后，执行投影失败不能让 Agent 无限重传同一份写操作结果。
+        // 记录完整的请求上下文供控制面恢复任务处理，HTTP 层仍返回已落账任务。
+        structuredLogger.error('Agent 任务结果已落账，但执行状态同步失败', {
+          tenantId: task.tenantId,
+          taskId: task.id,
+          executionRunId: task.executionRunId,
+          executionStepId: task.executionStepId,
+          error: error instanceof Error ? error.message : String(error),
+        }, { module: 'agents.submitResult' });
+      }
     }
     if (success && task.payload?.actionType === 'agent.fact.collect' && task.payload?.refreshWebInventory === true) {
       await this.projectLatestCapabilitySnapshot(task.tenantId, task.agentId);

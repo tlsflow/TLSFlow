@@ -38,6 +38,7 @@ export const allowedAgentOperationTypes = [
   'certificate.tls.verify',
   'service.start',
   'service.stop',
+  'service.restart',
   'service.reload',
   'command.execute_allowlisted',
 ] as const;
@@ -604,7 +605,7 @@ function validatePlanOperation(input: unknown, path: string): AgentPlanOperation
 
 function validateOperationInput(operationType: AgentOperationType, input: Record<string, unknown>, path: string): void {
   if (['filesystem.stat', 'filesystem.read', 'filesystem.backup', 'filesystem.atomic_replace', 'filesystem.restore'].includes(operationType)) normalizeAbsolutePath(input.path, `${path}.path`);
-  if (['service.status', 'service.start', 'service.stop', 'service.reload'].includes(operationType)) identifier(input.serviceName, `${path}.serviceName`);
+  if (['service.status', 'service.start', 'service.stop', 'service.restart', 'service.reload'].includes(operationType)) identifier(input.serviceName, `${path}.serviceName`);
   if (operationType === 'certificate.tls.verify') {
     exactKeys(input, ['connectHost', 'serverName', 'port', 'expectedFingerprintSha256', 'bindingId', 'bindingKey', 'checkedAt'], path);
     nonEmptyString(input.connectHost, `${path}.connectHost`);

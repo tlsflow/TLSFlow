@@ -149,6 +149,10 @@ test('本机执行策略必须精确绑定后才允许证书根信任安装', as
     });
     assert.equal(wrongVersion.decision.allowed, false);
     assert.equal(wrongVersion.token, undefined);
+    assert.equal(services.executionPolicy.inspect({ tenantId: 'tenant-execution', agentId: 'agt-execution', pluginId: 'web.apache.windows', pluginVersionId: 'plugin-version-other', capability: 'certificate.deploy', policyRef: 'certificate-update-policy', policyVersion: 'v1' }).matchedIdentity, false);
+    const repaired = services.executionPolicy.copyBinding({ tenantId: 'tenant-execution', agentId: 'agt-execution', pluginId: 'web.apache.windows', sourcePluginVersionId: 'plugin-version-apache', targetPluginVersionId: 'plugin-version-other', capability: 'certificate.deploy' });
+    assert.equal(repaired.matchedIdentity, true);
+    assert.equal(services.executionPolicy.inspect({ tenantId: 'tenant-execution', agentId: 'agt-execution', pluginId: 'web.apache.windows', pluginVersionId: 'plugin-version-other', capability: 'certificate.deploy' }).matchedIdentity, true);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

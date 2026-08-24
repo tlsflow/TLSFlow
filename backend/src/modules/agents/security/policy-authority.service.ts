@@ -975,7 +975,7 @@ function isSubset(values: readonly string[], allowed: readonly string[]): boolea
 const allowedPolicyActions = new Set([
   'process.list', 'service.list', 'service.status', 'filesystem.stat', 'filesystem.read', 'filesystem.backup',
   'filesystem.atomic_replace', 'filesystem.restore', 'certificate.material.validate', 'certificate.store.inspect', 'certificate.store.install',
-  'service.start', 'service.stop', 'service.reload', 'command.execute_allowlisted',
+  'service.start', 'service.stop', 'service.restart', 'service.reload', 'command.execute_allowlisted',
 ]);
 function isSafeIdentifier(value: string): boolean {
   return /^[A-Za-z0-9._:-]{1,256}$/.test(value) && !isDevelopmentIdentifier(value);

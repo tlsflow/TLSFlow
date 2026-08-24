@@ -24,6 +24,7 @@ import { certificateUpdatePluginIds } from '../canonical-plugin-id/canonical-plu
 import { canonicalResourceHash } from '../../../shared/plugin-resource-hash.js';
 import { validateCertificateUpdateInputContract } from '../../deployment-inputs/certificate-update/certificate-update.contract.js';
 import { resolveCertificateUpdateSnapshot, assertCertificateUpdatePlanBinding } from '../../deployment-inputs/certificate-update/certificate-update-input.service.js';
+import { bindCertificateUpdatePlanArtifacts } from '../../deployment-inputs/certificate-update/certificate-update-plan.service.js';
 
 export interface AgentV2PlanExecutionEnvelopeV1 {
   actionType: 'agent.plan.validate' | 'agent.plan.execute';
@@ -133,6 +134,9 @@ export class UnifiedAgentPlanCompilerService {
         pluginVersionId: input.pluginVersionId,
         resourceHash: canonicalResourceHash(plugin.resourceSha256),
       });
+      // 历史草案可能只保存了 Artifact 摘要；执行前重新从密封输入绑定实际字节，
+      // 并用绑定后的完整计划重新计算摘要，确保授权范围覆盖真实写入内容。
+      plan = bindCertificateUpdatePlanArtifacts(plan, snapshot, input.resolvedInput);
       assertCertificateUpdatePlanBinding(plan, snapshot);
       if (actionType === 'agent.plan.execute' && !plan.writeEffect) failClosed(input, 'Apply 计划必须声明 writeEffect=true');
       if (actionType === 'agent.plan.validate' && plan.writeEffect) {

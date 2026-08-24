@@ -4,6 +4,7 @@ import { computeAgentPlanDigest, validateAgentPlan } from '../../agents/security
 import { compileCertificateUpdatePlanTemplate } from './certificate-update-plan.service.js';
 import {
   certificateUpdatePluginIds,
+  createResolvedCertificateUpdateInput,
   createCertificateUpdateSnapshot,
   loadCertificateUpdateResource,
 } from './certificate-update.test-fixtures.js';
@@ -108,6 +109,26 @@ test('PEM 路径按文件集合展开，KeyStore 只展开一个整体路径', (
   assert.equal(materialValidation?.input.keystoreType, 'PKCS12');
   assert.equal(materialValidation?.input.keyAlias, 'server');
   assert.equal(materialValidation?.input.secretRef, 'secret://certificate/tomcat-password');
+});
+
+test('证书 Artifact 内容按固定路径槽位进入校验和原子替换操作', () => {
+  for (const pluginId of certificateUpdatePluginIds) {
+    const resolvedInput = createResolvedCertificateUpdateInput(pluginId);
+    const result = compileCertificateUpdatePlanTemplate({
+      templateText: loadCertificateUpdateResource(pluginId, 'agent-plans/deploy.json'),
+      snapshot: createCertificateUpdateSnapshot(pluginId),
+      resolvedInput,
+      pluginVersionId: `${pluginId}-version-1`,
+      agentId: 'agent-1',
+      tenantId: 'tenant-1',
+    });
+    const material = result.plan.operations.filter((operation) => operation.operationType === 'certificate.material.validate');
+    const replacements = result.plan.operations.filter((operation) => operation.operationType === 'filesystem.atomic_replace');
+    // 部署计划会在 prepare 和 verify 各校验一次同一槽位，真正写入只发生一次。
+    assert.equal(material.length, replacements.length * 2);
+    assert.ok(material.every((operation) => typeof operation.input.contentBase64 === 'string'));
+    assert.ok(replacements.every((operation) => typeof operation.input.contentBase64 === 'string'));
+  }
 });
 
 test('错误模板和越权引用失败关闭且不产生计划', () => {

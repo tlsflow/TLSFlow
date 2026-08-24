@@ -1406,7 +1406,7 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(body.run.status, 'DISPATCHED');
   });
 
-  it('配置证书与运行证书不同时保留 DRIFTED，并把运行指纹作为 Agent Plan 第一项校验', async () => {
+  it('配置证书与运行证书不同时保留 DRIFTED，部署计划仍按实际绑定执行', async () => {
     const { app, fixture } = await createMigratedTestApp();
     const plan = await createReadyLowRiskPlan(app, fixture, 'idem_agent_tls_proof_drifted');
 
@@ -1424,25 +1424,14 @@ describe('部署计划与执行编排 API', () => {
     const body = response.body as {
       run: { id: string };
     };
-    const snapshot = executionSteps
-      .map((step: any) => step.inputSnapshot)
-      .find((item: any) => item.plan?.operations?.some((operation: any) => operation.operationType === 'certificate.tls.verify'));
-    assert.ok(snapshot?.plan, JSON.stringify(body));
-    const tlsOperation = snapshot.plan.operations.find((operation: any) => operation.operationType === 'certificate.tls.verify');
-    assert.ok(tlsOperation, JSON.stringify(snapshot.plan));
-    assert.equal(
-      tlsOperation.input.expectedFingerprintSha256,
-      fixture.target_1.observedFingerprintSha256,
-    );
-    assert.notEqual(
-      tlsOperation.input.expectedFingerprintSha256,
-      fixture.certificateFingerprintSha256,
-    );
-    assert.equal(snapshot.executionAuthorization?.actions?.includes('certificate.tls.verify'), true);
-    assert.equal(snapshot.plan.planDigest, computeAgentPlanDigest(snapshot.plan as never));
+    const snapshots = executionSteps.map((step: any) => step.inputSnapshot);
+    const agentSnapshot = snapshots.find((item: any) => item.plan?.operations?.length);
+    assert.ok(agentSnapshot?.plan, JSON.stringify(body));
+    assert.equal(agentSnapshot.plan.operations.some((operation: any) => operation.operationType === 'certificate.tls.verify'), false);
+    assert.equal(agentSnapshot.plan.planDigest, computeAgentPlanDigest(agentSnapshot.plan as never));
   });
 
-  it('Agent Web 绑定没有完整运行态证明时禁止创建部署计划', async () => {
+  it('Agent Web 绑定没有运行态 TLS 观测时仍可创建部署计划', async () => {
     const { app, db, fixture } = await createMigratedTestApp();
     await clearBindingTlsProof(db, fixture.target_1.bindingId);
 
@@ -1460,9 +1449,10 @@ describe('部署计划与执行编排 API', () => {
       },
     });
 
-    assert.equal(response.statusCode, 400, JSON.stringify(response.body));
-    assert.equal((response.body as { errorCode: string }).errorCode, 'VALIDATION_FAILED');
-    assert.match(JSON.stringify(response.body), /TLS|运行态证明/);
+    assert.equal(response.statusCode, 201, JSON.stringify(response.body));
+    const plan = response.body as { status: string; targets: Array<{ strategyPayload?: Record<string, unknown> }> };
+    assert.equal(plan.status, 'DRAFT');
+    assert.equal(plan.targets[0]?.strategyPayload?.preDeployBindingProof, undefined);
   });
 
   it('Agent Plan 有绑定证明但 operations 为空时，预检返回失败检查', async () => {
@@ -1568,7 +1558,7 @@ describe('部署计划与执行编排 API', () => {
     assert.equal((executed.body as { plan: { status: string } }).plan.status, 'RUNNING');
   });
 
-  it('执行前当前绑定证明丢失时拒绝执行，并保持计划为 READY', async () => {
+  it('执行前当前绑定缺少运行态 TLS 观测时仍可入队，并保持写后校验', async () => {
     const { app, db, service, fixture } = await createMigratedDeploymentService();
     const plan = await createReadyLowRiskPlan(app, fixture, 'idem_agent_tls_proof_missing_execute');
     await clearBindingTlsProof(db, fixture.target_1.bindingId);
@@ -1580,10 +1570,10 @@ describe('部署计划与执行编排 API', () => {
       body: { planId: plan.id, idempotencyKey: 'idem_agent_tls_proof_missing_execute_run' },
     });
 
-    assert.equal(response.statusCode, 400, JSON.stringify(response.body));
-    assert.match(JSON.stringify(response.body), /TLS|运行态证明/);
+    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+    assert.equal((response.body as { plan: { status: string } }).plan.status, 'RUNNING');
     const persisted = await service.getRepository().getPlanOrThrow(plan.id, 'tenant_1');
-    assert.equal(persisted.status, 'READY');
+    assert.equal(persisted.status, 'RUNNING');
   });
 
   it('dry-run 返回同步结果且不创建统一任务', async () => {

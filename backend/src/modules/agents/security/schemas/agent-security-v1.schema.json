@@ -83,7 +83,7 @@
       "required": ["operationId", "operationType", "stage", "input", "dependsOn", "idempotencyKey", "timeoutSeconds"],
       "properties": {
         "operationId": { "$ref": "#/$defs/id" },
-        "operationType": { "enum": ["process.list", "service.list", "service.status", "filesystem.stat", "filesystem.read", "filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.material.validate", "certificate.store.inspect", "certificate.store.install", "service.start", "service.stop", "service.reload", "command.execute_allowlisted"] },
+        "operationType": { "enum": ["process.list", "service.list", "service.status", "filesystem.stat", "filesystem.read", "filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.material.validate", "certificate.store.inspect", "certificate.store.install", "service.start", "service.stop", "service.restart", "service.reload", "command.execute_allowlisted"] },
         "stage": { "enum": ["prepare", "execute", "verify", "compensate"] }, "input": { "type": "object", "additionalProperties": true, "maxProperties": 200 },
         "dependsOn": { "$ref": "#/$defs/stringArray" }, "idempotencyKey": { "$ref": "#/$defs/id" }, "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 3600 }, "compensation": { "$ref": "#/$defs/id" }
       }

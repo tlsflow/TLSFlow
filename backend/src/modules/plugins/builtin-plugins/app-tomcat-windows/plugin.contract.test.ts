@@ -23,8 +23,9 @@ test(`${pluginId} 以单一 KeyStore 文件执行 Windows restart`, () => {
   assert.equal(contract.frameworkType, 'app.tomcat');
   assert.equal(contract.platform, 'windows');
   assert.equal(contract.artifactKind, 'KEYSTORE');
-  assert.equal(plan.operations.some((operation) => operation.operationType === 'service.stop'), true);
-  assert.equal(plan.operations.some((operation) => operation.operationType === 'service.start'), true);
+  assert.equal(plan.operations.some((operation) => operation.operationType === 'service.restart'), true);
+  assert.equal(plan.operations.some((operation) => operation.operationType === 'service.stop'), false);
+  assert.equal(plan.operations.some((operation) => operation.operationType === 'service.start'), false);
   assert.equal(plan.operations.some((operation) => operation.operationType === 'service.reload'), false);
   assert.equal(snapshot.paths.length, 1);
   assert.equal(snapshot.paths[0]?.startsWith('C:/Program Files/GCAC/'), true);

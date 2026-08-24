@@ -49,23 +49,22 @@
       }
     },
     {
-      "operationId": "stop-service",
-      "operationType": "service.stop",
+      "operationId": "reload-service",
+      "operationType": "command.execute_allowlisted",
       "stage": "execute",
+      "timeoutSeconds": 120,
       "input": {
-        "serviceName": {
-          "$ref": "serviceName"
-        }
-      }
-    },
-    {
-      "operationId": "start-service",
-      "operationType": "service.start",
-      "stage": "execute",
-      "input": {
-        "serviceName": {
-          "$ref": "serviceName"
-        }
+        "executablePath": { "$ref": "programPath" },
+        "executableSha256": { "$ref": "programSha256" },
+        "args": ["-s", "reload"],
+        "argumentTemplate": ["-s", "reload"],
+        "environmentAllowlist": [],
+        "workingDirectory": { "$ref": "workingDirectory" },
+        "networkScopes": [],
+        "childProcessPolicy": "deny",
+        "timeoutSeconds": 60,
+        "outputLimitBytes": 65536,
+        "artifactDigest": { "$ref": "programSha256" }
       }
     },
     {

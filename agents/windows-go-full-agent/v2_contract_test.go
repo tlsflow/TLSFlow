@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -29,6 +30,34 @@ func TestV2RegistryPublishesOnlyLongLivedActions(t *testing.T) {
 		if !v2ContainsString([]string{agentFactCollect, agentPlanValidate, agentPlanExecute, agentExecutionReceipt}, action) {
 			t.Fatalf("unexpected long-lived action: %s", action)
 		}
+	}
+}
+
+func TestAgentExecutionReceiptDigestOmitsDigestAndSignatureFields(t *testing.T) {
+	receipt := AgentExecutionReceiptV1{
+		ReceiptVersion:   agentSecurityContract,
+		OperationID:      "operation-1",
+		PlanID:           "plan-1",
+		PlanDigest:       strings.Repeat("a", 64),
+		AgentID:          "agent-1",
+		TenantID:         "tenant-1",
+		TokenID:          "token-1",
+		Status:           "FAILED",
+		StartedAt:        "2026-08-22T00:00:00.000Z",
+		CompletedAt:      "2026-08-22T00:00:01.000Z",
+		OperationResults: []map[string]any{{"operationId": "operation-1", "status": "FAILED"}},
+		NonceConsumed:    true,
+	}
+
+	actual, err := computeAgentExecutionReceiptDigest(receipt)
+	if err != nil {
+		t.Fatalf("计算回执摘要失败: %v", err)
+	}
+	expectedBytes := canonicalJSON(agentReceiptWithoutDigest(receipt))
+	expectedSum := sha256.Sum256(expectedBytes)
+	expected := hex.EncodeToString(expectedSum[:])
+	if actual != expected {
+		t.Fatalf("回执摘要必须排除 digest/signature: actual=%s expected=%s", actual, expected)
 	}
 }
 
@@ -231,6 +260,54 @@ func TestV2PlanExecuteReportsUnknownWithoutReceiptSigner(t *testing.T) {
 	}
 }
 
+func TestV2PlanExecuteGeneratesPersistentReceiptSignerFromAgentConfig(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+	t.Setenv("GCAC_AGENT_RECEIPT_KEY_ID", "")
+	t.Setenv("GCAC_AGENT_RECEIPT_SIGNING_KEY_BASE64", "")
+	t.Setenv("GCAC_AGENT_RECEIPT_KEYSET_JSON", "")
+	policyDir := filepath.Join(fixture.Root, "policy")
+	config := &AgentConfig{
+		ReceiptSigningKeyPath: filepath.Join(policyDir, "receipt-signing-key.bin"),
+		ReceiptKeySetPath:     filepath.Join(policyDir, "receipt-keyset.json"),
+	}
+	config.Paths.Windows.DataDir = policyDir
+	fixture.Request["action"] = agentPlanExecute
+	success, code, _, detail := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID, config)
+	if !success || code != "" {
+		t.Fatalf("真实 Agent 配置应生成并使用本地 Receipt 签名器: success=%v code=%s detail=%+v", success, code, detail)
+	}
+	receipt, ok := detail["receipt"].(AgentExecutionReceiptV1)
+	if !ok || receipt.AgentKeyID == "" || isDevelopmentKeyID(receipt.AgentKeyID) {
+		t.Fatalf("本地生成的 Receipt 必须带生产 KeyId: %+v", detail)
+	}
+	if _, err := os.Stat(config.ReceiptSigningKeyPath); err != nil {
+		t.Fatalf("本地 Receipt 私钥未持久化: %v", err)
+	}
+	if _, err := os.Stat(config.ReceiptKeySetPath); err != nil {
+		t.Fatalf("本地 Receipt KeySet 未持久化: %v", err)
+	}
+	if signer, err := loadAgentReceiptSigner(config); err != nil || signer.KeyID != receipt.AgentKeyID {
+		t.Fatalf("持久化后的 Receipt 签名器无法复用: keyId=%q err=%v", signer.KeyID, err)
+	}
+}
+
+func TestResolvePersistedReceiptKeyIDRequiresUniqueProductionMatch(t *testing.T) {
+	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("生成测试公钥失败: %v", err)
+	}
+	encoded := base64.StdEncoding.EncodeToString(publicKey)
+	if keyID, err := resolvePersistedReceiptKeyID(publicKey, []byte(`{"receipt-prod":"`+encoded+`"}`)); err != nil || keyID != "receipt-prod" {
+		t.Fatalf("唯一 KeyId 应被反查: keyID=%q err=%v", keyID, err)
+	}
+	if _, err := resolvePersistedReceiptKeyID(publicKey, []byte(`{"receipt-a":"`+encoded+`","receipt-b":"`+encoded+`"}`)); err == nil {
+		t.Fatal("多个匹配的 KeyId 必须失败关闭")
+	}
+	if _, err := resolvePersistedReceiptKeyID(publicKey, []byte(`{"receipt-other":"`+base64.StdEncoding.EncodeToString(make([]byte, ed25519.PublicKeySize))+`"}`)); err == nil {
+		t.Fatal("没有匹配的 KeyId 必须失败关闭")
+	}
+}
+
 func TestV2PathScopeUsesNormalizedComponentBoundaries(t *testing.T) {
 	allowed := filepath.Join(t.TempDir(), "allowed")
 	separator := string(filepath.Separator)
@@ -262,6 +339,20 @@ func TestV2RejectsUnallowlistedOperation(t *testing.T) {
 	}, AgentCapabilityTokenV1{TokenVersion: agentSecurityContract, TokenID: "token-1", AgentID: "agent-1", TenantID: "tenant-1", PluginID: "web.generic", PluginVersionID: "plugin-version-1", Capability: "filesystem.read", PlanDigest: "digest-1", AllowedPaths: []string{`C:\GCAC\example.conf`}})
 	if err == nil {
 		t.Fatal("free command operation must be rejected")
+	}
+}
+
+func TestV2AcceptsBoundedServiceRestartOperation(t *testing.T) {
+	if err := validateAgentPlanOperation(agentPlanAction{
+		OperationID:    "restart-service",
+		OperationType:  "service.restart",
+		Stage:          "execute",
+		Input:          map[string]any{"serviceName": "GCAC-Apache"},
+		DependsOn:      []string{},
+		IdempotencyKey: "restart-service-once",
+		TimeoutSeconds: 300,
+	}); err != nil {
+		t.Fatalf("合法 service.restart 操作不应被 Agent 合同拒绝: %v", err)
 	}
 }
 
@@ -372,7 +463,7 @@ func TestV2NonceIsConsumedOnlyByPlanExecute(t *testing.T) {
 	}
 }
 
-func TestWindowsWebWritePlanRequiresLocalTLSBindingProofBeforeAnyWrite(t *testing.T) {
+func TestWindowsWebWritePlanDoesNotRequireLocalTLSBindingProofBeforeAnyWrite(t *testing.T) {
 	fixture := newWindowsV2TestFixture(t)
 	plan := fixture.Plan
 	plan.PluginID = "custom.windows.web"
@@ -388,23 +479,30 @@ func TestWindowsWebWritePlanRequiresLocalTLSBindingProofBeforeAnyWrite(t *testin
 	token.PlanDigest = plan.PlanDigest
 
 	success, code, message, _ := executeAuthorizedAgentPlan(context.Background(), plan, token)
-	if success || code != "AGENT_PLAN_INVALID" || !strings.Contains(message, "TLS") {
-		t.Fatalf("Windows Web 写计划缺少部署前 TLS 证明必须失败关闭: success=%v code=%s message=%s", success, code, message)
+	if !success || code != "" {
+		t.Fatalf("Windows Web 写计划不应因缺少可选 TLS 证明而失败: success=%v code=%s message=%s", success, code, message)
 	}
 }
 
-func TestPureRootTrustInstallDoesNotRequireWebTLSBindingProof(t *testing.T) {
-	plan := agentPlanV2{
-		Capability: "certificate.deploy",
-		Operations: []agentPlanAction{{OperationType: "certificate.store.install"}},
-	}
-	if requiresCertificateDeploymentTLSProof(plan) {
-		t.Fatal("纯根信任安装计划不应被要求提供 Web 监听 TLS 绑定证明")
-	}
-
-	plan.Operations = append(plan.Operations, agentPlanAction{OperationType: "filesystem.atomic_replace"})
-	if !requiresCertificateDeploymentTLSProof(plan) {
-		t.Fatal("包含实际证书部署写操作的计划仍必须要求 Web 监听 TLS 绑定证明")
+func TestExplicitPreDeployTLSVerificationRemainsSupported(t *testing.T) {
+	if err := validateAgentPlanOperation(agentPlanAction{
+		OperationID:   "optional-tls-verify",
+		OperationType: "certificate.tls.verify",
+		Stage:         "prepare",
+		Input: map[string]any{
+			"connectHost":               "127.0.0.1",
+			"serverName":                "portal.example.test",
+			"port":                      443,
+			"expectedFingerprintSha256": strings.Repeat("a", 64),
+			"bindingId":                 "binding-test",
+			"bindingKey":                "binding-test",
+			"checkedAt":                 time.Now().UTC().Format(time.RFC3339),
+		},
+		DependsOn:      []string{},
+		IdempotencyKey: "optional-tls-verify-once",
+		TimeoutSeconds: 10,
+	}); err != nil {
+		t.Fatalf("显式 TLS 校验操作仍应可用: %v", err)
 	}
 }
 
@@ -474,7 +572,7 @@ func TestV2CancelledWriteProducesUnknownReceipt(t *testing.T) {
 	}
 }
 
-func TestV2WriteFailureAndTimeoutProduceUnknownReceipt(t *testing.T) {
+func TestV2DeterministicWriteFailureProducesFailedReceipt(t *testing.T) {
 	fixture := newWindowsV2TestFixture(t)
 	plan := fixture.Plan
 	plan.Operations = append([]agentPlanAction(nil), fixture.Plan.Operations...)
@@ -483,13 +581,96 @@ func TestV2WriteFailureAndTimeoutProduceUnknownReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("加载测试回执签名器失败: %v", err)
 	}
-	if success, code, _, detail := executeAgentPlan(context.Background(), plan, fixture.Token, signer); success || code != "AGENT_EXECUTION_UNKNOWN" {
-		t.Fatalf("写操作失败必须进入 UNKNOWN: success=%v code=%s detail=%+v", success, code, detail)
-	} else if receipt, ok := detail["receipt"].(AgentExecutionReceiptV1); !ok || receipt.Status != "UNKNOWN" || receipt.UnknownReason == "" {
-		t.Fatalf("写操作失败必须生成 UNKNOWN Receipt: %+v", detail)
+	if success, code, _, detail := executeAgentPlan(context.Background(), plan, fixture.Token, signer); success || code != "AGENT_EXECUTION_FAILED" {
+		t.Fatalf("写入前校验失败必须进入 FAILED: success=%v code=%s detail=%+v", success, code, detail)
+	} else if receipt, ok := detail["receipt"].(AgentExecutionReceiptV1); !ok || receipt.Status != "FAILED" || receipt.UnknownReason != "" {
+		t.Fatalf("确定性失败必须生成 FAILED Receipt: %+v", detail)
 	}
+}
 
-	fixture = newWindowsV2TestFixture(t)
+func TestAtomicWriteFileReplacesExistingTarget(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "managed.pem")
+	if err := os.WriteFile(target, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := atomicWriteFile(target, []byte("new"), 0o600); err != nil {
+		t.Fatalf("替换已有目标文件不应失败: %v", err)
+	}
+	content, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "new" {
+		t.Fatalf("目标文件内容未替换: %q", content)
+	}
+}
+
+func TestAtomicWriteFilePreservesDeterministicReplaceFailure(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target-dir")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	err := atomicWriteFile(target, []byte("new"), 0o600)
+	if err == nil {
+		t.Fatal("将文件替换为已有目录必须失败")
+	}
+	if operationResultUnknown(err) {
+		t.Fatalf("确定性原子替换失败不得被标记为 UNKNOWN: %v", err)
+	}
+}
+
+func TestV2PlanReportsPerOperationProgress(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+	if err := os.WriteFile(filepath.Join(fixture.Root, "managed.conf"), []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var progress []string
+	ctx := context.WithValue(context.Background(), agentPlanProgressContextKey{}, agentPlanProgressFunc(func(operation agentPlanAction, status string, errorMessage string) {
+		progress = append(progress, operation.OperationID+":"+status+":"+errorMessage)
+	}))
+	signer, err := loadAgentReceiptSigner()
+	if err != nil {
+		t.Fatalf("加载测试回执签名器失败: %v", err)
+	}
+	if success, code, _, _ := executeAgentPlan(ctx, fixture.Plan, fixture.Token, signer); !success || code != "" {
+		t.Fatalf("计划执行应成功: success=%v code=%s", success, code)
+	}
+	if len(progress) != 2 || progress[0] != "operation-1:RUNNING:" || progress[1] != "operation-1:SUCCEEDED:" {
+		t.Fatalf("操作进度日志不完整: %+v", progress)
+	}
+}
+
+func TestV2BackupSourceFailureProducesFailedReceipt(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+	plan := fixture.Plan
+	plan.Operations = []agentPlanAction{{
+		OperationID:    "backup-missing-source",
+		OperationType:  "filesystem.backup",
+		Stage:          "execute",
+		TimeoutSeconds: 5,
+		Input: map[string]any{
+			"path":      filepath.Join(t.TempDir(), "missing.pem"),
+			"ledgerRef": "execution-recovery-ledger",
+		},
+	}}
+	signer, err := loadAgentReceiptSigner()
+	if err != nil {
+		t.Fatalf("加载测试回执签名器失败: %v", err)
+	}
+	success, code, _, detail := executeAgentPlan(context.Background(), plan, fixture.Token, signer)
+	if success || code != "AGENT_EXECUTION_FAILED" {
+		t.Fatalf("备份源文件不存在必须是确定性失败: success=%v code=%s detail=%+v", success, code, detail)
+	}
+	receipt, ok := detail["receipt"].(AgentExecutionReceiptV1)
+	if !ok || receipt.Status != "FAILED" || receipt.UnknownReason != "" {
+		t.Fatalf("备份失败 Receipt 状态错误: %+v", detail)
+	}
+}
+
+func TestV2TimeoutWriteProducesUnknownReceipt(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+
 	fixture.Request["action"] = agentPlanExecute
 	timedOut, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancel()

@@ -81,7 +81,7 @@ function assertCertificatePackage(
 ): void {
   const manifest = pluginPackage.manifest as Record<string, unknown>;
   assert.equal(manifest.pluginId, pluginId);
-  assert.equal(manifest.version, '1.0.1');
+  assert.equal(manifest.version, pluginId.endsWith('.windows') ? '1.0.2' : '1.0.1');
   assert.deepEqual((manifest.compatibility as { productFamilies?: string[] }).productFamilies, [profile.productFamily]);
   assert.equal(manifest.runtime, 'WORKFLOW_DSL');
   assert.equal(manifest.source, 'BUILTIN');
@@ -151,12 +151,26 @@ function assertCertificatePackage(
 
   const deployPlan = parseResource(pluginPackage.resources, resources.agentPlans['certificate.deploy']) as Record<string, unknown>;
   const operationTypes = (deployPlan.operations as Array<Record<string, unknown>>).map((operation) => operation.operationType);
-  const supportsReload = profile.platform === 'linux' && profile.frameworkType !== 'app.tomcat';
-  if (supportsReload) {
+  const supportsLinuxReload = profile.platform === 'linux' && profile.frameworkType !== 'app.tomcat';
+  const supportsWindowsNginxReload = profile.platform === 'windows' && profile.frameworkType === 'web.nginx';
+  const supportsRestart = profile.platform === 'windows';
+  if (supportsLinuxReload) {
     assert.equal(operationTypes.includes('service.reload'), true);
     assert.equal(operationTypes.includes('service.stop'), false);
     assert.equal(operationTypes.includes('service.start'), false);
+  } else if (supportsWindowsNginxReload) {
+    assert.equal(operationTypes.includes('service.reload'), false);
+    assert.equal(operationTypes.includes('service.stop'), false);
+    assert.equal(operationTypes.includes('service.start'), false);
+    assert.equal(operationTypes.includes('service.restart'), false);
+    assert.equal((deployPlan.operations as Array<Record<string, unknown>>).some((operation) => operation.operationId === 'reload-service' && operation.operationType === 'command.execute_allowlisted'), true);
+  } else if (supportsRestart) {
+    assert.equal(operationTypes.includes('service.restart'), true);
+    assert.equal(operationTypes.includes('service.stop'), false);
+    assert.equal(operationTypes.includes('service.start'), false);
+    assert.equal(operationTypes.includes('service.reload'), false);
   } else {
+    assert.equal(operationTypes.includes('service.restart'), false);
     assert.equal(operationTypes.includes('service.stop'), true);
     assert.equal(operationTypes.includes('service.start'), true);
     assert.equal(operationTypes.includes('service.reload'), false);

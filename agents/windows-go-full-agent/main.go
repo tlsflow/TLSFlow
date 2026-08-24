@@ -35,7 +35,7 @@ import (
 var defaultAgentConfigTemplate []byte
 
 const (
-	agentVersion                = "0.1.33"
+	agentVersion                = "0.1.41"
 	defaultConfigPath           = `C:\ProgramData\GCAC\FullAgentGo\config\agent.config.json`
 	defaultMetadata             = `C:\ProgramData\GCAC\FullAgentGo\service.install.json`
 	defaultTaskPoll             = 60
@@ -63,6 +63,9 @@ type AgentConfig struct {
 	AuthorizationTrustKeySet   map[string]string `json:"authorizationTrustKeySet"`
 	UpgradeTrustKeySet         map[string]string `json:"upgradeTrustKeySet"`
 	ReleaseTrustKeySet         map[string]string `json:"releaseTrustKeySet"`
+	ReceiptKeyID               string            `json:"receiptKeyId"`
+	ReceiptSigningKeyPath      string            `json:"receiptSigningKeyPath"`
+	ReceiptKeySetPath          string            `json:"receiptKeySetPath"`
 	Paths                      struct {
 		Windows struct {
 			ConfigPath string `json:"configPath"`
@@ -2108,7 +2111,7 @@ func executeDirectWebDiscovery(
 	if logger != nil {
 		logger.Info("direct web discovery started requestId=%s", stringFromMap(wirePayload, "requestId"))
 	}
-	success, errorCode, errorMessage, detail := executeAgentV2(ctx, wirePayload, registration.AgentID)
+	success, errorCode, errorMessage, detail := executeAgentV2(ctx, wirePayload, registration.AgentID, config)
 	if !success {
 		if ctx.Err() == context.DeadlineExceeded {
 			return directDiscoveryResponse{ErrorCode: "AGENT_DIRECT_DISCOVERY_TIMEOUT", ErrorMessage: "Agent Web 重新扫描超过 90 秒，已取消本次请求"}
@@ -2422,6 +2425,18 @@ func replayTaskResult(ctx context.Context, client *http.Client, config *AgentCon
 		Detail:       mapFromMap(record.Result, "detail"),
 	}
 	if _, err := submitTaskResult(ctx, client, config, request); err != nil {
+		logger.Warn("补传任务结果失败 taskId=%s error=%v", record.TaskID, err)
+		_ = submitRuntimeLog(ctx, client, config, submitRuntimeLogRequest{
+			AgentID:  agentID,
+			Category: "task_result_sync",
+			Level:    "error",
+			Summary:  "Agent 任务结果补传失败",
+			Detail: map[string]any{
+				"taskId": record.TaskID,
+				"error":  err.Error(),
+			},
+			EmittedAt: time.Now().Format(time.RFC3339),
+		})
 		return fmt.Errorf("补传任务结果失败 taskId=%s: %w", record.TaskID, err)
 	}
 	if _, err := deps.taskLedger.markReported(record.TaskID, request.Success); err != nil {

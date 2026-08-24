@@ -151,6 +151,7 @@ export class WorkflowDslRuntimeAdapter implements PluginRuntimeAdapter {
     const compiled = compileCertificateUpdatePlanTemplate({
       templateText,
       snapshot,
+      resolvedInput: input.resolvedInput,
       pluginVersionId: input.capability.pluginVersionId,
       agentId,
       tenantId,

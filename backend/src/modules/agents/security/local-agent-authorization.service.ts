@@ -119,6 +119,18 @@ export interface LocalAgentAuthorizationServicesV1 {
   readonly trustMaterialIssuer: AgentTrustMaterialIssuer;
   readonly authorityId: string;
   readonly signingKeyId: string;
+  readonly executionPolicy: {
+    inspect(input: { tenantId: string; agentId: string; pluginId: string; pluginVersionId: string; capability: string; policyRef?: string; policyVersion?: string }): LocalExecutionPolicyCoverageV1;
+    copyBinding(input: { tenantId: string; agentId: string; pluginId: string; sourcePluginVersionId: string; targetPluginVersionId: string; capability: string }): LocalExecutionPolicyCoverageV1;
+  };
+}
+
+export interface LocalExecutionPolicyCoverageV1 {
+  configured: boolean;
+  matchedIdentity: boolean;
+  binding?: { pluginVersionId: string; actions: string[]; allowedPaths: string[]; allowedServices: string[]; artifactDigests: string[]; policyRef?: string; policyVersion?: string; commandRules?: AgentLocalPolicyV1['commandRules'] };
+  sourcePluginVersionId?: string;
+  reason?: string;
 }
 
 /**
@@ -145,7 +157,7 @@ export function createLocalAgentAuthorizationServicesV1(
   const keySet = createKeySet(material, signingPublicKey);
   const keySetEnvelope = signKeySet(trustRoot, keySet, rootPrivateKey);
   const bootstrap = signBootstrap(trustRoot, rootPrivateKey, material.createdAt);
-  const executionPolicy = loadExecutionPolicy(resolve(directory));
+  let executionPolicy = loadExecutionPolicy(resolve(directory));
   const state = ensureAuthorityState(resolve(directory, 'state.json'));
   const authority = new PolicyAuthorityServiceV1({
     trustRoot,
@@ -185,6 +197,26 @@ export function createLocalAgentAuthorizationServicesV1(
     ),
     getTrustedKeySet: () => Object.fromEntries(keySet.keys.map((key) => [key.keyId, rawEd25519PublicKey(key.publicKeyPem)])),
   };
+  const policyPath = resolve(directory, executionPolicyFileName);
+  const executionPolicyApi = {
+    inspect: (input: Parameters<LocalAgentAuthorizationServicesV1['executionPolicy']['inspect']>[0]) => inspectExecutionPolicy(executionPolicy, input),
+    copyBinding: (input: Parameters<LocalAgentAuthorizationServicesV1['executionPolicy']['copyBinding']>[0]) => {
+      const result = copyExecutionBinding(executionPolicy, input);
+      if (!result.binding) return result;
+      executionPolicy = persistExecutionPolicy(policyPath, executionPolicy, {
+        ...result.binding,
+        policyRef: result.binding.policyRef ?? 'certificate-update-policy',
+        policyVersion: result.binding.policyVersion ?? '1',
+        commandRules: result.binding.commandRules ?? [],
+        tenantId: input.tenantId,
+        agentId: input.agentId,
+        pluginId: input.pluginId,
+        pluginVersionId: input.targetPluginVersionId,
+        capability: input.capability,
+      });
+      return inspectExecutionPolicy(executionPolicy, { ...input, pluginVersionId: input.targetPluginVersionId });
+    },
+  };
   return Object.freeze({
     authorization: {
       policyAuthority,
@@ -200,6 +232,7 @@ export function createLocalAgentAuthorizationServicesV1(
     trustMaterialIssuer,
     authorityId: material.authorityId,
     signingKeyId: material.signingKeyId,
+    executionPolicy: executionPolicyApi,
   });
 }
 
@@ -489,6 +522,72 @@ function loadExecutionPolicy(directory: string): LocalExecutionPolicyFileV1 | un
   const identities = bindings.map((binding) => `${binding.tenantId}:${binding.agentId}:${binding.pluginVersionId}:${binding.capability}`);
   if (new Set(identities).size !== identities.length) unavailable('本机执行策略包含重复绑定');
   return { version: executionPolicyFileVersion, bindings };
+}
+
+function inspectExecutionPolicy(
+  policy: LocalExecutionPolicyFileV1 | undefined,
+  input: { tenantId: string; agentId: string; pluginId: string; pluginVersionId: string; capability: string; policyRef?: string; policyVersion?: string },
+): LocalExecutionPolicyCoverageV1 {
+  if (!policy) return { configured: false, matchedIdentity: false, reason: '本机执行策略文件不存在' };
+  const binding = policy.bindings.find((candidate) => candidate.tenantId === input.tenantId
+    && candidate.agentId === input.agentId && candidate.pluginId === input.pluginId
+    && candidate.pluginVersionId === input.pluginVersionId && candidate.capability === input.capability
+    && (input.policyRef === undefined || candidate.policyRef === input.policyRef)
+    && (input.policyVersion === undefined || candidate.policyVersion === input.policyVersion));
+  if (!binding) return { configured: true, matchedIdentity: false, reason: '未找到当前插件版本的精确执行策略绑定' };
+  return {
+    configured: true,
+    matchedIdentity: true,
+    binding: {
+      pluginVersionId: binding.pluginVersionId,
+      actions: [...binding.actions],
+      allowedPaths: [...binding.allowedPaths],
+      allowedServices: [...binding.allowedServices],
+      artifactDigests: [...binding.artifactDigests],
+      policyRef: binding.policyRef,
+      policyVersion: binding.policyVersion,
+      commandRules: binding.commandRules,
+    },
+  };
+}
+
+function copyExecutionBinding(
+  policy: LocalExecutionPolicyFileV1 | undefined,
+  input: { tenantId: string; agentId: string; pluginId: string; sourcePluginVersionId: string; targetPluginVersionId: string; capability: string },
+): LocalExecutionPolicyCoverageV1 {
+  if (!policy) return { configured: false, matchedIdentity: false, reason: '本机执行策略文件不存在' };
+  const source = policy.bindings.find((candidate) => candidate.tenantId === input.tenantId
+    && candidate.agentId === input.agentId && candidate.pluginId === input.pluginId
+    && candidate.pluginVersionId === input.sourcePluginVersionId && candidate.capability === input.capability);
+  if (!source) return { configured: true, matchedIdentity: false, reason: '没有可复制的同能力精确策略绑定' };
+  return {
+    configured: true,
+    matchedIdentity: false,
+    sourcePluginVersionId: source.pluginVersionId,
+    binding: {
+      pluginVersionId: input.targetPluginVersionId,
+      actions: [...source.actions],
+      allowedPaths: [...source.allowedPaths],
+      allowedServices: [...source.allowedServices],
+      artifactDigests: [...source.artifactDigests],
+      policyRef: source.policyRef,
+      policyVersion: source.policyVersion,
+      commandRules: source.commandRules,
+    },
+  };
+}
+
+function persistExecutionPolicy(
+  filePath: string,
+  current: LocalExecutionPolicyFileV1 | undefined,
+  replacement: LocalExecutionBindingV1,
+): LocalExecutionPolicyFileV1 {
+  const bindings = [...(current?.bindings ?? [])].filter((candidate) => !(candidate.tenantId === replacement.tenantId
+    && candidate.agentId === replacement.agentId && candidate.pluginId === replacement.pluginId
+    && candidate.pluginVersionId === replacement.pluginVersionId && candidate.capability === replacement.capability));
+  const next = { version: executionPolicyFileVersion, bindings: [...bindings, replacement] };
+  writePrivateJson(filePath, next);
+  return next;
 }
 
 function parseExecutionBinding(value: unknown, path: string): LocalExecutionBindingV1 {

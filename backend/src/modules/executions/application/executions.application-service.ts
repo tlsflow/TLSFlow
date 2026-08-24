@@ -185,8 +185,12 @@ export class ExecutionsApplicationService {
         const stepOutputs = buildWorkflowStepOutputsFromSourceSteps(sourceSteps, targetId);
         const rollbackCertificateSha256 = readString(rollbackContext, 'rollbackCertificateSha256');
         const baseVerification = readRecord(basePayload.certificateVerification);
+        const baseWorkflowRequest = readRecord(basePayload.workflowRequest);
         sourcePayloadByTargetId.set(targetId, {
           ...basePayload,
+          ...(baseWorkflowRequest
+            ? { workflowRequest: { ...baseWorkflowRequest, executionBranch: 'rollback' } }
+            : {}),
           ...(stepOutputs ? { stepOutputs } : {}),
           ...(rollbackCertificateSha256
             ? {
@@ -1668,6 +1672,7 @@ function isMonolithicAgentPlanPayload(payload: Record<string, unknown>): boolean
       || operationType === 'certificate.store.install'
       || operationType === 'service.start'
       || operationType === 'service.stop'
+      || operationType === 'service.restart'
       || operationType === 'service.reload'
       || operationType === 'command.execute_allowlisted';
   });
@@ -1953,6 +1958,7 @@ function hasAutomaticUnknownRecoverySource(step: ExecutionStepEntity): boolean {
       'certificate.store.install',
       'service.start',
       'service.stop',
+      'service.restart',
       'service.reload',
       'command.execute_allowlisted',
     ]);

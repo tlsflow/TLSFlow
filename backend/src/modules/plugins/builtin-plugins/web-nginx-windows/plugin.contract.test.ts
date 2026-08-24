@@ -23,8 +23,11 @@ test(`${pluginId} 只接受 Windows Nginx PEM 并使用受控重启`, () => {
   assert.equal(contract.frameworkType, 'web.nginx');
   assert.equal(contract.platform, 'windows');
   assert.equal(contract.artifactKind, 'PEM_FILES');
-  assert.equal(plan.operations.some((operation) => operation.operationType === 'service.stop'), true);
-  assert.equal(plan.operations.some((operation) => operation.operationType === 'service.start'), true);
+  assert.equal(plan.operations.some((operation) => operation.operationType === 'service.stop'), false);
+  assert.equal(plan.operations.some((operation) => operation.operationType === 'service.start'), false);
   assert.equal(plan.operations.some((operation) => operation.operationType === 'service.reload'), false);
+  const reload = plan.operations.find((operation) => operation.operationId === 'reload-service');
+  assert.equal(reload?.operationType, 'command.execute_allowlisted');
+  assert.deepEqual(reload?.input.args, ['-s', 'reload']);
   assert.equal(snapshot.paths.every((path) => /^[A-Za-z]:\//.test(path)), true);
 });

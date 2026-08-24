@@ -14,6 +14,9 @@
   "authorizationTrustKeySet": {},
   "upgradeTrustKeySet": {},
   "releaseTrustKeySet": {},
+  "receiptKeyId": "",
+  "receiptSigningKeyPath": "C:\\ProgramData\\GCAC\\FullAgentGo\\data\\policy\\agent-receipt-signing-key.bin",
+  "receiptKeySetPath": "C:\\ProgramData\\GCAC\\FullAgentGo\\data\\policy\\agent-receipt-keyset.json",
   "paths": {
     "windows": {
       "configPath": "C:\\ProgramData\\GCAC\\FullAgentGo\\config\\agent.config.json",
