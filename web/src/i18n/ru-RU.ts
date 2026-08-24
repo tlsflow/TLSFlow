@@ -1675,7 +1675,7 @@ export default {
       attentionObjects: 'объектов для проверки'
     },
     quickWizard: {
-      title: 'Быстрый запуск'
+      title: 'Быстрый доступ'
     },
     typeStats: {
       title: 'Распределение по типам',

@@ -1700,7 +1700,7 @@ export default {
       attentionObjects: "需關注物件"
     },
     quickWizard: {
-      title: "快速向導"
+      title: "快速入口"
     },
     typeStats: {
       title: "物件類型統計",

@@ -1675,7 +1675,7 @@ export default {
       attentionObjects: 'objetos para revisar'
     },
     quickWizard: {
-      title: 'Guia rápido'
+      title: 'Acesso rápido'
     },
     typeStats: {
       title: 'Distribuição por tipo',

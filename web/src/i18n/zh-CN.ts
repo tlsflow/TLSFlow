@@ -1800,7 +1800,7 @@ export default {
       attentionObjects: '关注对象'
     },
     quickWizard: {
-      title: '快速向导'
+      title: '快速入口'
     },
     typeStats: {
       title: '对象类型统计',

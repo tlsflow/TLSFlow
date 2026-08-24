@@ -1675,7 +1675,7 @@ export default {
       attentionObjects: '검토할 객체'
     },
     quickWizard: {
-      title: '빠른 안내'
+      title: '빠른 접근'
     },
     typeStats: {
       title: '객체 유형 분포',

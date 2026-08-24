@@ -1701,7 +1701,7 @@ export default {
       attentionObjects: '確認が必要なオブジェクト'
     },
     quickWizard: {
-      title: 'クイックガイド'
+      title: 'クイックアクセス'
     },
     typeStats: {
       title: 'オブジェクト種別',

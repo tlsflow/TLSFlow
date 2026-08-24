@@ -1778,7 +1778,7 @@ export default {
       attentionObjects: 'objects to review'
     },
     quickWizard: {
-      title: 'Quick guide'
+      title: 'Quick access'
     },
     typeStats: {
       title: 'Object type distribution',
