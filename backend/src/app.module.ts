@@ -18,7 +18,7 @@ import { createPersistedSecurityServices } from './modules/security/security-ser
 import { AssetsApplicationService } from './modules/assets/application/assets.application-service.js';
 import { AssetsController, getAssetsRouteContracts } from './modules/assets/controller/assets.controller.js';
 import { PgAssetsRepository } from './modules/assets/repository/assets.repository.js';
-import { DeviceAssetsApplicationService, DeviceAssetsController, getDeviceAssetRouteContracts, NetscalerDeviceConnectionTester, PgDeviceAssetsRepository, SecurityServicesDeviceAssetPort } from './modules/device-assets/index.js';
+import { DeviceAssetsApplicationService, DeviceAssetsController, getDeviceAssetRouteContracts, PgDeviceAssetsRepository, SecurityServicesDeviceAssetPort } from './modules/device-assets/index.js';
 import { DevicesApplicationService, DevicesController, getDeviceRouteContracts, PgDevicesRepository } from './modules/devices/index.js';
 import { BindingsApplicationService } from './modules/bindings/application/bindings.application-service.js';
 import { BindingsController, getBindingsRouteContracts } from './modules/bindings/controller/bindings.controller.js';
@@ -115,10 +115,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const gatewayTasksService = new GatewayTaskService({ auditWriter: gatewayTaskAuditWriter });
   const assetsService = dependencies.assets ?? new AssetsApplicationService(new PgAssetsRepository(appDb));
   const deviceAssetsRepository = new PgDeviceAssetsRepository(appDb);
-  const deviceAssetsService = new DeviceAssetsApplicationService(
-    deviceAssetsRepository,
-    new NetscalerDeviceConnectionTester(appDb, security.secrets),
-  );
+  const deviceAssetsService = new DeviceAssetsApplicationService(deviceAssetsRepository);
   const bindingsService = dependencies.bindings ?? new BindingsApplicationService(
     assetsService.getRepository(),
     new PgBindingsRepository(assetsService.getRepository(), appDb),
@@ -146,13 +143,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
     executionResultSync,
     executionDetailStream,
   );
-  const devicesService = new DevicesApplicationService(
-    new PgDevicesRepository(appDb),
-    undefined,
-    agentsService,
-    deviceAssetsService,
-    security.secrets,
-  );
   const capabilitiesService = new CapabilitiesApplicationService(new PgCapabilitiesRepository(appDb));
   const pluginsRepository = new PgPluginsRepository(appDb);
   const workflowTemplatesService = new WorkflowTemplatesApplicationService(
@@ -168,6 +158,13 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const pluginsService = new PluginsApplicationService(pluginsRepository);
   const unifiedPluginsService = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(appDb));
   const pluginBindingsService = new PluginBindingsApplicationService(new PluginBindingsRepository(appDb));
+  const devicesService = new DevicesApplicationService(
+    new PgDevicesRepository(appDb),
+    undefined,
+    agentsService,
+    appDb,
+    unifiedPluginsService,
+  );
   const pluginWorkflowPublisher = new PluginWorkflowPublisherService(workflowTemplatesService, new PluginWorkflowBindingsRepository(appDb));
   const agentPluginsService = new AgentDeploymentPluginsApplicationService(pluginsRepository, agentsService, workflowTemplatesService);
   app.setResource('agentsService', agentsService);

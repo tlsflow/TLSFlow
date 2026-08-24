@@ -12,10 +12,12 @@ export interface DeviceOnboardingPlatform {
   readonly onboardingKind: 'AGENT_INSTALL' | 'API_CONNECTION'
   readonly supportStatus: 'SUPPORTED' | 'PREVIEW' | 'UNSUPPORTED'
   readonly formSchema: readonly DeviceOnboardingField[]
+  readonly pluginVersionId?: string
+  readonly pluginId?: string
 }
 
 export interface DeviceOnboardingResultView {
-  readonly onboardingKind: 'AGENT_INSTALL' | 'API_CONNECTION'
+  readonly onboardingKind: 'AGENT_INSTALL' | 'API_CONNECTION' | 'PLUGIN_MANAGED'
   readonly installCommand: string
   readonly connectionSucceeded: boolean
   readonly connectionErrorCode: string
@@ -33,18 +35,21 @@ export function normalizeDeviceOnboardingResult(
     && connection.productMatched === true
 
   return {
-    onboardingKind: platform.onboardingKind,
+    onboardingKind: response.onboardingKind === 'PLUGIN_MANAGED' ? 'PLUGIN_MANAGED' : platform.onboardingKind,
     installCommand,
-    connectionSucceeded,
+    connectionSucceeded: response.onboardingKind === 'PLUGIN_MANAGED' || connectionSucceeded,
     connectionErrorCode: text(connection.errorCode),
   }
 }
 
 export function buildDeviceOnboardingPayload(
   platform: DeviceOnboardingPlatform,
-  values: Readonly<Record<string, string | number | boolean>>,
+  values: Readonly<Record<string, unknown>>,
   baseUrl: string,
 ): Record<string, unknown> {
+  if (platform.pluginVersionId) {
+    return { platformKey: 'plugin', pluginVersionId: platform.pluginVersionId, formValues: values }
+  }
   const payload: Record<string, unknown> = { platformKey: platform.key }
   for (const field of platform.formSchema) {
     const value = values[field.key]
@@ -60,7 +65,7 @@ export function buildDeviceOnboardingPayload(
 
 export function validateDeviceOnboarding(
   platform: DeviceOnboardingPlatform,
-  values: Readonly<Record<string, string | number | boolean>>,
+  values: Readonly<Record<string, unknown>>,
 ): string[] {
   if (platform.supportStatus !== 'SUPPORTED') return ['UNSUPPORTED_PLATFORM']
   const missing = platform.formSchema

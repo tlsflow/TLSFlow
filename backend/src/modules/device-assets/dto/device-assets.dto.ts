@@ -1,7 +1,7 @@
-import type { NetscalerAuthMode, NetscalerCapabilityProfile, NetscalerSupportTier, NetscalerVirtualServerType } from '../../providers/netscaler/netscaler.types.js';
-
 export type ServiceAssetKind = 'APPLICATION' | 'DEVICE';
-export type DeviceFamily = 'NETSCALER_ADC';
+export type DeviceFamily = string;
+export type DeviceAuthMode = string;
+export type DeviceSupportTier = 'SUPPORTED' | 'COMPATIBLE' | 'READ_ONLY' | 'UNSUPPORTED' | string;
 export type DeviceDiscoveryStatus = 'ACTIVE' | 'INACTIVE' | 'UNKNOWN' | 'STALE' | 'DELETED';
 
 export interface DeviceAssetDto {
@@ -12,8 +12,8 @@ export interface DeviceAssetDto {
   managementAddress: string;
   managementPort: number;
   deviceFamily: DeviceFamily;
-  credentialId: string;
-  authMode: NetscalerAuthMode;
+  credentialId?: string;
+  authMode: DeviceAuthMode;
   tlsVerify: boolean;
   caSecretId?: string;
   gatewayId?: string;
@@ -22,8 +22,8 @@ export interface DeviceAssetDto {
   softwareBuild?: string;
   runtimeMode?: string;
   haMode?: string;
-  supportTier: NetscalerSupportTier;
-  capabilityProfile: Partial<NetscalerCapabilityProfile>;
+  supportTier: DeviceSupportTier;
+  capabilityProfile: Record<string, unknown>;
   lastDiscoveredAt?: string;
   lastErrorCode?: string;
   createdAt: string;
@@ -36,8 +36,8 @@ export interface CreateDeviceAssetDto {
   managementAddress: string;
   managementPort?: number;
   deviceFamily: DeviceFamily;
-  credentialId: string;
-  authMode?: NetscalerAuthMode;
+  credentialId?: string;
+  authMode?: DeviceAuthMode;
   tlsVerify?: boolean;
   caSecretId?: string;
   gatewayId?: string;
@@ -49,7 +49,7 @@ export interface DeviceVirtualServerDto {
   id: string;
   tenantId: string;
   deviceAssetId: string;
-  type: NetscalerVirtualServerType;
+  type: string;
   name: string;
   targetKey: string;
   address?: string;

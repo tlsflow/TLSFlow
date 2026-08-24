@@ -4,8 +4,15 @@ import type { DeviceOnboardingPlatformDescriptor } from '../dto/devices.dto.js';
 import { DevicePlatformRegistry } from '../domain/device-platform.registry.js';
 import type { AgentsApplicationService } from '../../agents/application/agents.application-service.js';
 import type { AgentDetailProjection } from '../../agents/dto/agents.dto.js';
-import type { DeviceAssetsApplicationService } from '../../device-assets/application/device-assets.application-service.js';
-import type { SecretService } from '../../secrets/secret.service.js';
+import { DeviceAssetsDomainService } from '../../device-assets/domain/device-assets.domain-service.js';
+import { PgDeviceAssetsRepository } from '../../device-assets/repository/device-assets.repository.js';
+import type { DatabasePort } from '../../../database/database-port.js';
+import { PgliteDatabase } from '../../../database/pglite-database.js';
+import type { UnifiedPluginsApplicationService } from '../../plugins/application/unified-plugins.application-service.js';
+import { PluginPackageResourcesService } from '../../plugins/application/plugin-package-resources.service.js';
+import { PluginBindingsApplicationService } from '../../plugins/application/plugin-bindings.application-service.js';
+import { PluginBindingsRepository } from '../../plugins/repository/plugin-bindings.repository.js';
+import type { PluginFormSchemaV1 } from '../../plugins/forms/plugin-form.dto.js';
 import type { CreateManagedDeviceOnboardingDto } from '../dto/devices.dto.js';
 import { PgDevicesRepository, type DevicesRepository } from '../repository/devices.repository.js';
 
@@ -14,8 +21,9 @@ export class DevicesApplicationService {
     private readonly repository: DevicesRepository = new PgDevicesRepository(),
     private readonly platformRegistry = new DevicePlatformRegistry(),
     private readonly agents?: AgentsApplicationService,
-    private readonly deviceAssets?: DeviceAssetsApplicationService,
-    private readonly secrets?: SecretService,
+    private readonly db: DatabasePort = new PgliteDatabase(),
+    private readonly unifiedPlugins?: UnifiedPluginsApplicationService,
+    private readonly packageResources = new PluginPackageResourcesService(),
   ) {}
 
   list(tenantId: string, query: ManagedDeviceListQuery): Promise<ManagedDevicePageDto> {
@@ -36,8 +44,8 @@ export class DevicesApplicationService {
   }
 
   async onboard(tenantId: string, input: CreateManagedDeviceOnboardingDto, actorId: string, requestId: string) {
-    const platform = this.platformRegistry.requireSupported(input.platformKey);
-    if (platform.onboardingKind === 'AGENT_INSTALL') {
+    if (input.platformKey !== 'plugin') {
+      const platform = this.platformRegistry.requireSupported(input.platformKey);
       if (!this.agents) throw new AppError('CAPABILITY_MISSING', 'Agent 安装服务未注册');
       const baseUrl = input.baseUrl?.trim();
       if (!baseUrl) throw new AppError('VALIDATION_FAILED', 'Agent 安装需要 baseUrl', { field: 'baseUrl' });
@@ -49,59 +57,137 @@ export class DevicesApplicationService {
           : await this.agents.createLinuxGoInstallSession(tenantId, options, requestId, baseUrl);
       return { ...installSession, onboardingKind: 'AGENT_INSTALL' as const, installSession };
     }
-    if (!this.deviceAssets || !this.secrets) throw new AppError('CAPABILITY_MISSING', '设备添加服务未注册');
-    if (input.tlsVerify === false && input.insecureTlsAcknowledged !== true) {
-      throw new AppError('VALIDATION_FAILED', '关闭 TLS 验证必须显式确认高风险', { field: 'insecureTlsAcknowledged' });
-    }
-    const credentialId = input.credentialId ?? await this.createCredential(tenantId, input, actorId);
-    const device = await this.deviceAssets.create(tenantId, {
-      displayName: required(input.displayName, 'displayName'),
-      managementAddress: required(input.managementAddress, 'managementAddress'),
-      managementPort: input.managementPort,
-      deviceFamily: 'NETSCALER_ADC',
-      credentialId,
-      authMode: input.authMode,
-      tlsVerify: input.tlsVerify,
-    });
-    try {
-      const connection = await this.deviceAssets.testConnection(tenantId, device.id, actorId);
-      return { onboardingKind: 'API_CONNECTION' as const, device, connection };
-    } catch (cause) {
-      return {
-        onboardingKind: 'API_CONNECTION' as const,
-        device,
-        connection: {
-          reachable: false,
-          authenticated: false,
-          productMatched: false,
-          capabilities: {},
-          warnings: [],
-          errorCode: connectionErrorCode(cause),
-        },
-      };
-    }
+    return this.onboardPluginDevice(tenantId, input, actorId);
   }
 
-  private async createCredential(tenantId: string, input: CreateManagedDeviceOnboardingDto, actorId: string): Promise<string> {
-    const username = required(input.username, 'username');
-    const password = required(input.password, 'password');
-    const secret = await this.secrets!.create({
-      name: `Citrix ADC ${input.displayName ?? input.managementAddress ?? ''}`.trim(),
-      type: 'password',
-      scopeType: 'team',
-      scopeId: tenantId,
-      plainText: JSON.stringify({ username, password }),
-      createdBy: actorId,
-      metadata: { purpose: 'netscaler.nitro.credentials' },
+  private async onboardPluginDevice(tenantId: string, input: CreateManagedDeviceOnboardingDto, actorId: string) {
+    if (!this.unifiedPlugins) throw new AppError('CAPABILITY_MISSING', '统一插件服务未注册');
+    const pluginVersionId = required(input.pluginVersionId, 'pluginVersionId');
+    const plugin = await this.unifiedPlugins.getVersion(pluginVersionId);
+    if (plugin.tenantId !== tenantId || plugin.status !== 'ENABLED') {
+      throw new AppError('RESOURCE_NOT_FOUND', '可用插件版本不存在', { pluginVersionId });
+    }
+    if (plugin.runtime !== 'WORKFLOW_DSL' || !['MANAGED', 'BOTH'].includes(plugin.scope)) {
+      throw new AppError('VALIDATION_FAILED', '插件不支持受控设备模式', { pluginVersionId, runtime: plugin.runtime, scope: plugin.scope });
+    }
+    const capabilityKeys = plugin.manifest.capabilities.map((item) => item.key);
+    if (!capabilityKeys.includes('device.connection.test') || !capabilityKeys.includes('device.discover')) {
+      throw new AppError('CAPABILITY_MISSING', '设备插件必须声明连接测试和发现能力', { pluginVersionId });
+    }
+    const form = this.packageResources.validate(plugin.manifest, plugin.resources).forms.device;
+    if (!form || !['MANAGED', 'BOTH'].includes(form.mode)) {
+      throw new AppError('VALIDATION_FAILED', '设备插件缺少 Managed 设备表单', { pluginVersionId });
+    }
+    const mapped = mapPluginDeviceForm(form, input.formValues ?? {});
+    const domain = new DeviceAssetsDomainService();
+    return this.db.transaction(async (tx) => {
+      const deviceRepository = new PgDeviceAssetsRepository(tx);
+      const bindingService = new PluginBindingsApplicationService(new PluginBindingsRepository(tx));
+      const device = await deviceRepository.createInTransaction(tx, tenantId, domain.normalizeCreate({
+        displayName: mapped.displayName,
+        managementAddress: mapped.address,
+        managementPort: mapped.port,
+        deviceFamily: plugin.pluginId,
+        authMode: mapped.authMode,
+        tlsVerify: mapped.tlsVerify,
+        caSecretId: mapped.caSecretRef,
+        gatewayId: mapped.gatewayId,
+      }));
+      const binding = await bindingService.createBinding(tenantId, {
+        pluginVersionId,
+        mode: 'MANAGED',
+        variableBindings: mapped.variables,
+        secretBindings: mapped.secrets,
+        certificateArtifactBindings: {},
+        connectionBindings: mapped.connections,
+        managedContext: { hostId: device.hostId, deviceAssetId: device.id },
+      });
+      await tx.query(
+        `update pg_device_assets set plugin_version_id=$1, plugin_binding_id=$2, product_family=$3, metadata=$4::jsonb, updated_at=$5
+         where tenant_id=$6 and service_asset_id=$7`,
+        [pluginVersionId, binding.id, plugin.pluginId, JSON.stringify({ onboardedBy: actorId }), new Date().toISOString(), tenantId, device.id],
+      );
+      const assignments = [];
+      for (const capability of plugin.manifest.capabilities) {
+        assignments.push(await bindingService.assignCapability(tenantId, {
+          ownerType: 'DEVICE', ownerId: device.id, capabilityKey: capability.key,
+          pluginVersionId, pluginBindingId: binding.id, precedence: 'DEVICE_DEFAULT',
+        }));
+      }
+      return { onboardingKind: 'PLUGIN_MANAGED' as const, device, binding, assignments };
     });
-    return secret.secretRef;
   }
 }
 
-function connectionErrorCode(cause: unknown): string {
-  if (cause instanceof AppError) return cause.errorCode;
-  if (cause && typeof cause === 'object' && 'code' in cause && typeof cause.code === 'string') return cause.code;
-  return 'CONNECTION_TEST_FAILED';
+interface MappedPluginDeviceForm {
+  displayName: string;
+  address: string;
+  port: number;
+  authMode: string;
+  tlsVerify: boolean;
+  gatewayId?: string;
+  caSecretRef?: string;
+  connections: Record<string, unknown>;
+  variables: Record<string, unknown>;
+  secrets: Record<string, string>;
+}
+
+function mapPluginDeviceForm(form: PluginFormSchemaV1, values: Record<string, unknown>): MappedPluginDeviceForm {
+  const connections: Record<string, unknown> = {};
+  const variables: Record<string, unknown> = {};
+  const secrets: Record<string, string> = {};
+  const standardValues = new Map<string, unknown>();
+  for (const field of form.sections.flatMap((section) => section.fields)) {
+    const value = values[field.key] ?? field.defaultValue;
+    if (field.required && isEmpty(value)) throw new AppError('VALIDATION_FAILED', '插件表单必填字段不能为空', { field: field.key });
+    if (value === undefined || value === null || value === '') continue;
+    variables[field.key] = value;
+    if (!field.standardField) continue;
+    standardValues.set(field.standardField, value);
+    if (field.type === 'secret_ref') {
+      if (typeof value !== 'string') throw new AppError('VALIDATION_FAILED', 'SecretRef 必须是字符串', { field: field.key });
+      secrets[field.standardField] = value;
+    } else if (field.standardField.startsWith('connection.') || field.standardField.startsWith('tls.') || field.standardField.startsWith('authentication.')) {
+      connections[field.standardField] = value;
+    }
+  }
+  const address = requiredString(standardValues.get('connection.address'), 'connection.address');
+  const displayName = requiredString(standardValues.get('device.displayName'), 'device.displayName');
+  const port = Number(standardValues.get('connection.port') ?? 443);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new AppError('VALIDATION_FAILED', '设备管理端口无效', { field: 'connection.port' });
+  variables.deviceHost = address;
+  variables.managementPort = port;
+  variables.tlsVerify = standardValues.get('tls.verifyPeer') !== false;
+  const username = standardValues.get('authentication.username');
+  const passwordSecretRef = standardValues.get('authentication.passwordSecretRef');
+  if (username !== undefined) variables.credentialUsername = username;
+  if (passwordSecretRef !== undefined) secrets.credential = String(passwordSecretRef);
+  return {
+    displayName,
+    address,
+    port,
+    authMode: String(standardValues.get('authentication.mode') ?? 'PLUGIN'),
+    tlsVerify: standardValues.get('tls.verifyPeer') !== false,
+    gatewayId: optionalString(standardValues.get('connection.gatewayId')),
+    caSecretRef: optionalString(standardValues.get('tls.caSecretRef')),
+    connections,
+    variables,
+    secrets,
+  };
+}
+
+function isEmpty(value: unknown): boolean {
+  return value === undefined || value === null || (typeof value === 'string' && value.trim() === '');
+}
+
+function requiredString(value: unknown, field: string): string {
+  const normalized = optionalString(value);
+  if (!normalized) throw new AppError('VALIDATION_FAILED', `${field} 不能为空`, { field });
+  return normalized;
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
 function enrichAgentDetail(device: ManagedDeviceDetailDto, projection: AgentDetailProjection): ManagedDeviceDetailDto {

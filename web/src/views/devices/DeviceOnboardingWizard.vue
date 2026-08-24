@@ -1,16 +1,21 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { GcModal, GcStatusTag } from '@/design-system/components'
+import { GcModal, GcPluginForm, GcStatusTag, type PluginFormSchema } from '@/design-system/components'
 import { listDeviceOnboardingPlatforms, onboardManagedDevice } from '@/api/modules/devices.api'
+import { getUnifiedPluginUiResources, listPluginCatalog } from '@/api/modules/plugins.api'
+import type { ApiRecord } from '@/api/modules/common'
 import { buildDeviceOnboardingPayload, normalizeDeviceOnboardingResult, validateDeviceOnboarding, type DeviceOnboardingPlatform, type DeviceOnboardingResultView } from './device-onboarding.model'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ 'update:open': [value: boolean]; completed: [] }>()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const platforms = ref<DeviceOnboardingPlatform[]>([])
 const selectedKey = ref('')
-const values = ref<Record<string, string | number | boolean>>({ tlsVerify: true })
+const values = ref<Record<string, unknown>>({})
+const pluginForm = ref<PluginFormSchema | null>(null)
+const pluginMessages = ref<Record<string, string>>({})
+const pluginDisplayNames = ref<Record<string, string>>({})
 const pending = ref(false)
 const error = ref('')
 const result = ref<DeviceOnboardingResultView | null>(null)
@@ -18,7 +23,11 @@ const commandCopied = ref(false)
 const step = ref<1 | 2 | 3>(1)
 
 const selected = computed(() => platforms.value.find((item) => item.key === selectedKey.value))
-const missingFields = computed(() => selected.value ? validateDeviceOnboarding(selected.value, values.value) : [])
+const missingFields = computed(() => {
+  if (!selected.value) return []
+  if (selected.value.pluginVersionId) return requiredPluginFields(pluginForm.value, values.value)
+  return validateDeviceOnboarding(selected.value, values.value)
+})
 const canSubmit = computed(() => Boolean(selected.value) && missingFields.value.length === 0 && !pending.value)
 const isAgentInstall = computed(() => selected.value?.onboardingKind === 'AGENT_INSTALL')
 
@@ -32,12 +41,28 @@ watch(() => props.open, async (open) => {
   if (platforms.value.length > 0) return
   error.value = ''
   try {
-    const response = await listDeviceOnboardingPlatforms()
-    platforms.value = [...(response.data ?? [])] as unknown as DeviceOnboardingPlatform[]
+    const [agentResponse, catalogResponse] = await Promise.all([
+      listDeviceOnboardingPlatforms(),
+      listPluginCatalog({ page: 1, pageSize: 500 }),
+    ])
+    const agentPlatforms = [...(agentResponse.data ?? [])] as unknown as DeviceOnboardingPlatform[]
+    const pluginPlatforms = (catalogResponse.data?.items ?? []).filter(isManagedDevicePlugin).map(toPluginPlatform)
+    const localized = await Promise.all(pluginPlatforms.map(async (platform) => {
+      const response = await getUnifiedPluginUiResources(platform.pluginVersionId ?? '', locale.value)
+      const messages = asRecord(asRecord(response.data).locale).messages
+      return [platform.key, String(asRecord(messages)[platform.displayNameKey] ?? platform.productFamily)] as const
+    }))
+    pluginDisplayNames.value = Object.fromEntries(localized)
+    platforms.value = [...agentPlatforms, ...pluginPlatforms]
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : t('devices.errors.platformsLoadFailed')
   }
 }, { immediate: true })
+
+function platformLabel(platform: DeviceOnboardingPlatform): string {
+  if (platform.pluginVersionId) return pluginDisplayNames.value[platform.key] ?? platform.productFamily
+  return t(platform.displayNameKey)
+}
 
 function fieldLabel(key: string): string {
   return t(`devices.onboarding.fields.${key}`)
@@ -66,16 +91,72 @@ async function selectPlatform(platformKey: string) {
   const platform = platforms.value.find((item) => item.key === platformKey)
   selectedKey.value = platformKey
   values.value = { tlsVerify: true }
+  pluginForm.value = null
+  pluginMessages.value = {}
   result.value = null
   commandCopied.value = false
   error.value = ''
   if (!platform) return
+  if (platform.pluginVersionId) {
+    pending.value = true
+    try {
+      const response = await getUnifiedPluginUiResources(platform.pluginVersionId, locale.value)
+      const payload = asRecord(response.data)
+      pluginForm.value = asRecord(payload.forms).device as PluginFormSchema | undefined ?? null
+      pluginMessages.value = asRecord(asRecord(payload.locale).messages) as Record<string, string>
+      values.value = defaultFormValues(pluginForm.value)
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : t('devices.errors.platformsLoadFailed')
+      return
+    } finally {
+      pending.value = false
+    }
+  }
   if (platform.onboardingKind === 'AGENT_INSTALL' && platform.supportStatus === 'SUPPORTED') {
     step.value = 3
     await submit(platform)
     return
   }
   step.value = 2
+}
+
+function isManagedDevicePlugin(item: ApiRecord): boolean {
+  if (item.catalogType !== 'UNIFIED_PLUGIN' || item.status !== 'ENABLED' || item.runtime !== 'WORKFLOW_DSL') return false
+  if (item.scope !== 'MANAGED' && item.scope !== 'BOTH') return false
+  const capabilities = Array.isArray(item.capabilities) ? item.capabilities : []
+  const keys = new Set(capabilities.map((capability) => String(asRecord(capability).key ?? '')))
+  return keys.has('device.connection.test') && keys.has('device.discover')
+}
+
+function toPluginPlatform(item: ApiRecord): DeviceOnboardingPlatform {
+  const pluginVersionId = String(item.pluginVersionId ?? item.id ?? '')
+  return {
+    key: `plugin:${pluginVersionId}`,
+    displayNameKey: String(item.displayNameKey ?? item.pluginId ?? ''),
+    productFamily: String(item.pluginId ?? ''),
+    managementMethod: 'PLUGIN',
+    onboardingKind: 'API_CONNECTION',
+    supportStatus: 'SUPPORTED',
+    formSchema: [],
+    pluginVersionId,
+    pluginId: String(item.pluginId ?? ''),
+  }
+}
+
+function defaultFormValues(schema: PluginFormSchema | null): Record<string, unknown> {
+  return Object.fromEntries((schema?.sections ?? []).flatMap((section) => section.fields)
+    .filter((field) => field.defaultValue !== undefined)
+    .map((field) => [field.key, field.defaultValue]))
+}
+
+function requiredPluginFields(schema: PluginFormSchema | null, currentValues: Record<string, unknown>): string[] {
+  return (schema?.sections ?? []).flatMap((section) => section.fields)
+    .filter((field) => field.required && (currentValues[field.key] ?? field.defaultValue) === undefined)
+    .map((field) => field.key)
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
 function previousStep() {
@@ -167,7 +248,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
           :disabled="pending"
           @click="selectPlatform(platform.key)"
         >
-          <strong>{{ t(platform.displayNameKey) }}</strong>
+          <strong>{{ platformLabel(platform) }}</strong>
           <span>{{ platform.productFamily }}</span>
           <GcStatusTag :status="platform.supportStatus" />
         </button>
@@ -179,7 +260,13 @@ async function copyToClipboard(text: string): Promise<boolean> {
         <p v-if="selected.supportStatus !== 'SUPPORTED'" class="device-wizard__notice">
           {{ t('devices.onboarding.unsupported') }}
         </p>
-        <label v-for="field in selected.formSchema" :key="field.key">
+        <GcPluginForm
+          v-if="selected.pluginVersionId && pluginForm"
+          v-model="values"
+          :schema="pluginForm"
+          :plugin-messages="pluginMessages"
+        />
+        <label v-for="field in selected.pluginVersionId ? [] : selected.formSchema" :key="field.key">
           <span>{{ fieldLabel(field.key) }}</span>
           <input
             v-if="field.type !== 'BOOLEAN'"
@@ -188,10 +275,6 @@ async function copyToClipboard(text: string): Promise<boolean> {
             :autocomplete="field.type === 'SECRET_INPUT' ? 'new-password' : 'off'"
           >
           <input v-else v-model="values[field.key]" type="checkbox">
-        </label>
-        <label v-if="selected.onboardingKind === 'API_CONNECTION' && values.tlsVerify === false">
-          <span>{{ t('devices.onboarding.fields.insecureTlsAcknowledged') }}</span>
-          <input v-model="values.insecureTlsAcknowledged" type="checkbox">
         </label>
       </section>
 
@@ -220,7 +303,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
           </button>
         </div>
         <dl v-else>
-          <div><dt>{{ t('devices.onboarding.connectionStatus') }}</dt><dd>{{ result.connectionSucceeded ? t('devices.onboarding.connectionTested') : t('devices.onboarding.connectionTestFailed') }}</dd></div>
+          <div><dt>{{ t('devices.onboarding.connectionStatus') }}</dt><dd>{{ result.onboardingKind === 'PLUGIN_MANAGED' ? t('devices.onboarding.completed') : result.connectionSucceeded ? t('devices.onboarding.connectionTested') : t('devices.onboarding.connectionTestFailed') }}</dd></div>
           <div v-if="result.connectionErrorCode"><dt>{{ t('devices.onboarding.connectionErrorCode') }}</dt><dd>{{ result.connectionErrorCode }}</dd></div>
         </dl>
       </section>

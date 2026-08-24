@@ -1,6 +1,7 @@
 import type { DatabasePort } from '../../../database/database-port.js';
+import { AppError } from '../../../common/errors/app-error.js';
 import type { SecretService } from '../../secrets/secret.service.js';
-import { NetscalerNitroClient, NetscalerNitroError, NetscalerProvider, type NetscalerCredentials } from '../../providers/netscaler/index.js';
+import { NetscalerNitroClient, NetscalerNitroError, NetscalerProvider, type NetscalerAuthMode, type NetscalerCredentials } from '../../providers/netscaler/index.js';
 import type { DeviceAssetDto } from '../dto/device-assets.dto.js';
 import { DeviceAssetsDiscoveryProjector } from './device-assets.discovery-projector.js';
 import type { DeviceConnectionTester, DeviceConnectionTestResult } from './device-assets.application-service.js';
@@ -13,11 +14,12 @@ export class NetscalerDeviceConnectionTester implements DeviceConnectionTester {
   }
 
   async test(device: DeviceAssetDto, actorId: string): Promise<DeviceConnectionTestResult> {
+    if (!device.credentialId) throw new AppError('VALIDATION_FAILED', '旧 NetScaler 连接器需要 credentialId');
     const client = new NetscalerNitroClient({
       managementAddress: device.managementAddress,
       managementPort: device.managementPort,
       credentialId: device.credentialId,
-      authMode: device.authMode,
+      authMode: device.authMode as NetscalerAuthMode,
       tls: { verify: device.tlsVerify },
       context: { tenantId: device.tenantId, actorId },
       credentialResolver: {

@@ -162,14 +162,7 @@ export interface DeviceOnboardingPlatformDescriptor {
 
 export interface CreateManagedDeviceOnboardingDto {
   platformKey: string;
-  displayName?: string;
   baseUrl?: string;
-  managementAddress?: string;
-  managementPort?: number;
-  username?: string;
-  password?: string;
-  credentialId?: string;
-  authMode?: 'AUTO' | 'SESSION' | 'PER_REQUEST';
-  tlsVerify?: boolean;
-  insecureTlsAcknowledged?: boolean;
+  pluginVersionId?: string;
+  formValues?: Record<string, unknown>;
 }

@@ -14,8 +14,8 @@ import { PgDevicesRepository } from './repository/devices.repository.js';
 import { mapAgentHealth, mapNetworkDeviceHealth } from './repository/devices.repository.js';
 import { DevicePlatformRegistry } from './domain/device-platform.registry.js';
 import { DevicesApplicationService } from './application/devices.application-service.js';
-import type { DeviceAssetsApplicationService } from '../device-assets/application/device-assets.application-service.js';
-import type { SecretService } from '../secrets/secret.service.js';
+import { UnifiedPluginsApplicationService } from '../plugins/application/unified-plugins.application-service.js';
+import { PgUnifiedPluginsRepository } from '../plugins/repository/unified-plugins.repository.js';
 
 test('Agent Host 投影迁移回填历史注册且重复执行不产生重复设备', async () => {
   const database = new PgliteDatabase();
@@ -505,20 +505,17 @@ test('Spec033 Citrix ADC 详情返回 Virtual Server、证书和绑定资源', a
   assert.equal(detail?.logs[0]?.eventType, 'device_asset.connection_tested');
 });
 
-test('Spec033 平台 Registry 返回六个平台并拒绝未支持厂商', () => {
+test('Spec033 平台 Registry 只保留 Agent 安装入口', () => {
   const registry = new DevicePlatformRegistry();
   const platforms = registry.list();
-  assert.equal(platforms.length, 6);
+  assert.equal(platforms.length, 3);
   assert.deepEqual(platforms.filter((item) => item.supportStatus === 'SUPPORTED').map((item) => item.key), [
-    'windows', 'windows-compatibility', 'linux', 'citrix-adc',
+    'windows', 'windows-compatibility', 'linux',
   ]);
-  assert.throws(() => registry.requireSupported('f5'));
-  assert.throws(() => registry.requireSupported('sangfor'));
-  assert.ok(platforms.flatMap((item) => item.formSchema).filter((field) => field.key === 'password').every((field) => field.type === 'SECRET_INPUT'));
+  assert.ok(platforms.every((item) => item.onboardingKind === 'AGENT_INSTALL'));
 });
 
-test('Spec033 统一添加复用 Agent 会话并强制确认不安全 TLS', async () => {
-  const calls: string[] = [];
+test('Spec033 统一添加复用 Agent 会话', async () => {
   const agents = {
     createWindowsPowerShellInstallSession: async () => ({ installCommand: 'install-windows' }),
     createWindowsCompatibilityInstallSession: async () => ({ installCommand: 'install-compatibility' }),
@@ -526,74 +523,39 @@ test('Spec033 统一添加复用 Agent 会话并强制确认不安全 TLS', asyn
   } as unknown as AgentsApplicationService;
   const service = new DevicesApplicationService(new PgDevicesRepository(new PgliteDatabase()), undefined, agents);
   const windows = await service.onboard('tenant-onboarding', {
-    platformKey: 'windows', displayName: 'Windows', baseUrl: 'https://gcac.example',
+    platformKey: 'windows', baseUrl: 'https://gcac.example',
   }, 'user-onboarding', 'request-onboarding');
   assert.equal((windows as { installSession: { installCommand: string } }).installSession.installCommand, 'install-windows');
   assert.equal((windows as { installCommand: string }).installCommand, 'install-windows');
-  await assert.rejects(() => service.onboard('tenant-onboarding', {
-    platformKey: 'citrix-adc', displayName: 'ADC', managementAddress: '10.33.5.49', username: 'nsroot', password: 'secret', tlsVerify: false,
-  }, 'user-onboarding', 'request-onboarding'));
-  assert.deepEqual(calls, []);
 });
 
-test('Spec033 Citrix ADC 添加创建 SecretRef 且不回显密码', async () => {
-  const createdInputs: unknown[] = [];
-  const secrets = {
-    create: async (input: unknown) => {
-      createdInputs.push(input);
-      return { secretRef: 'secret://password/sec_adc#v1' };
+test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const tenantId = 'tenant_plugin_onboarding';
+  const plugins = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(database));
+  const pluginRoot = resolve('src/modules/plugins/builtin-plugins/citrix-adc');
+  const manifest = JSON.parse(await readFile(resolve(pluginRoot, 'manifest.json'), 'utf8')) as { resources: Record<string, Record<string, string>> };
+  const resourcePaths = Object.values(manifest.resources).flatMap((value) => Object.values(value));
+  const resources = Object.fromEntries(await Promise.all(resourcePaths.map(async (path) => [path, await readFile(resolve(pluginRoot, path), 'utf8')])));
+  const imported = await plugins.importVersion(tenantId, { manifest, resources }, 'BUILTIN');
+  await plugins.approvePermissions(imported.id, (manifest as unknown as { permissions: string[] }).permissions);
+  await plugins.enableVersion(imported.id);
+  const service = new DevicesApplicationService(new PgDevicesRepository(database), undefined, undefined, database, plugins);
+  const result = await service.onboard(tenantId, {
+    platformKey: 'plugin', pluginVersionId: imported.id, formValues: {
+      displayName: 'ADC', address: '10.33.5.49', port: 443, authMode: 'NITRO_HEADER',
+      username: 'nsroot', passwordSecretRef: 'secret://password/sec_adc#v1', tlsVerify: true,
     },
-  } as unknown as SecretService;
-  const deviceAssets = {
-    create: async (_tenantId: string, input: Record<string, unknown>) => ({ id: 'device_adc', hostId: 'host_adc', tenantId: 'tenant_adc', ...input }),
-    testConnection: async () => ({ reachable: true, authenticated: true, productMatched: true, capabilities: {}, warnings: [] }),
-  } as unknown as DeviceAssetsApplicationService;
-  const service = new DevicesApplicationService(new PgDevicesRepository(new PgliteDatabase()), undefined, undefined, deviceAssets, secrets);
-  const result = await service.onboard('tenant_adc', {
-    platformKey: 'citrix-adc', displayName: 'ADC', managementAddress: '10.33.5.49', username: 'nsroot', password: 'secret', tlsVerify: false, insecureTlsAcknowledged: true,
   }, 'user_adc', 'request_adc');
 
-  assert.equal((result as { device: { credentialId: string } }).device.credentialId, 'secret://password/sec_adc#v1');
-  assert.ok(!JSON.stringify(result).includes('nsroot'));
-  assert.ok(!JSON.stringify(result).includes('"password"'));
-  assert.equal(createdInputs.length, 1);
-});
-
-test('Spec033 Citrix 连接测试失败仍返回已创建设备', async () => {
-  const secrets = {
-    create: async () => ({ secretRef: 'secret://password/sec_adc_failure#v1' }),
-  } as unknown as SecretService;
-  const deviceAssets = {
-    create: async (_tenantId: string, input: Record<string, unknown>) => ({ id: 'device_adc_failure', hostId: 'host_adc_failure', tenantId: 'tenant_adc_failure', ...input }),
-    testConnection: async () => { throw new Error('NITRO_TIMEOUT'); },
-  } as unknown as DeviceAssetsApplicationService;
-  const service = new DevicesApplicationService(new PgDevicesRepository(new PgliteDatabase()), undefined, undefined, deviceAssets, secrets);
-
-  const result = await service.onboard('tenant_adc_failure', {
-    platformKey: 'citrix-adc', displayName: 'ADC', managementAddress: '10.33.5.50', username: 'nsroot', password: 'secret', tlsVerify: true,
-  }, 'user_adc', 'request_adc_failure');
-
-  assert.equal((result as { onboardingKind: string }).onboardingKind, 'API_CONNECTION');
-  assert.equal((result as { device: { id: string } }).device.id, 'device_adc_failure');
-  assert.equal((result as { connection: { errorCode: string } }).connection.errorCode, 'CONNECTION_TEST_FAILED');
-});
-
-test('Spec033 Citrix 添加透传连接器错误码', async () => {
-  const secrets = {
-    create: async () => ({ secretRef: 'secret://password/sec_adc_error#v1' }),
-  } as unknown as SecretService;
-  const connectorError = Object.assign(new Error('响应格式不兼容'), { code: 'NETSCALER_RESPONSE_INVALID' });
-  const deviceAssets = {
-    create: async (_tenantId: string, input: Record<string, unknown>) => ({ id: 'device_adc_error', hostId: 'host_adc_error', tenantId: 'tenant_adc_error', ...input }),
-    testConnection: async () => { throw connectorError; },
-  } as unknown as DeviceAssetsApplicationService;
-  const service = new DevicesApplicationService(new PgDevicesRepository(new PgliteDatabase()), undefined, undefined, deviceAssets, secrets);
-
-  const result = await service.onboard('tenant_adc_error', {
-    platformKey: 'citrix-adc', displayName: 'ADC', managementAddress: '10.33.5.52', username: 'nsroot', password: 'secret', tlsVerify: true,
-  }, 'user_adc', 'request_adc_error');
-
-  assert.equal((result as { connection: { errorCode: string } }).connection.errorCode, 'NETSCALER_RESPONSE_INVALID');
+  assert.equal(result.onboardingKind, 'PLUGIN_MANAGED');
+  if (result.onboardingKind !== 'PLUGIN_MANAGED') assert.fail('应返回插件接入结果');
+  assert.equal(result.device.deviceFamily, 'citrix.netscaler-adc');
+  assert.equal(result.binding.managedContext?.deviceAssetId, result.device.id);
+  assert.equal(result.binding.secretBindings.credential, 'secret://password/sec_adc#v1');
+  assert.equal(result.assignments.length, 6);
+  assert.ok(!JSON.stringify(result).includes('"password":"'));
 });
 
 test('Spec033 设备资产软删除后不再出现在统一设备列表', async () => {

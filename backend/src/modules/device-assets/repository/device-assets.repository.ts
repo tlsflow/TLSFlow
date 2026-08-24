@@ -25,7 +25,15 @@ export class PgDeviceAssetsRepository implements DeviceAssetsRepository {
   }
 
   async create(tenantId: string, input: Required<Pick<CreateDeviceAssetDto, 'managementPort' | 'authMode' | 'tlsVerify'>> & CreateDeviceAssetDto): Promise<DeviceAssetDto> {
-    const existing = await this.db.query<{ id: string }>(
+    return this.db.transaction((tx) => this.createInTransaction(tx, tenantId, input));
+  }
+
+  async createInTransaction(
+    tx: DatabasePort,
+    tenantId: string,
+    input: Required<Pick<CreateDeviceAssetDto, 'managementPort' | 'authMode' | 'tlsVerify'>> & CreateDeviceAssetDto,
+  ): Promise<DeviceAssetDto> {
+    const existing = await tx.query<{ id: string }>(
       `select id from pg_service_assets where tenant_id = $1 and address = $2 and port = $3 and protocol = 'HTTPS' and deleted_at is null limit 1`,
       [tenantId, input.managementAddress, input.managementPort],
     );
@@ -35,10 +43,9 @@ export class PgDeviceAssetsRepository implements DeviceAssetsRepository {
     const addressType = inferAddressType(input.managementAddress);
     let deviceAssetId = requestedId;
     try {
-      await this.db.transaction(async (tx) => {
-        const allocation = await resolveDeviceHost(tx, tenantId, requestedId, input, addressType, now);
-        deviceAssetId = allocation.deviceAssetId;
-        if (allocation.reused) {
+      const allocation = await resolveDeviceHost(tx, tenantId, requestedId, input, addressType, now);
+      deviceAssetId = allocation.deviceAssetId;
+      if (allocation.reused) {
           await tx.query(
             `update pg_service_assets set address=$1, address_type=$2, port=$3, display_name=$4,
               status='UNKNOWN', deleted_at=null, metadata=$5::jsonb, updated_at=$6, version=version+1
@@ -51,30 +58,29 @@ export class PgDeviceAssetsRepository implements DeviceAssetsRepository {
              where service_asset_id=$8 and tenant_id=$9`,
             [input.managementPort, input.credentialId, input.authMode, input.tlsVerify, input.caSecretId ?? null, input.gatewayId ?? null, now, deviceAssetId, tenantId],
           );
-          return;
-        }
-        await tx.query(
+        return this.requireWith(tx, tenantId, deviceAssetId);
+      }
+      await tx.query(
           `insert into pg_service_assets (
             id, tenant_id, address, address_type, port, protocol, display_name, discovery_source,
             host_id, status, tags, metadata, asset_kind, created_at, updated_at, version
           ) values ($1, $2, $3, $4, $5, 'HTTPS', $6, 'MANUAL', $7, 'UNKNOWN', '[]'::jsonb, $8::jsonb, 'DEVICE', $9, $9, 1)`,
           [deviceAssetId, tenantId, input.managementAddress, addressType, input.managementPort, input.displayName, allocation.hostId, JSON.stringify({ deviceFamily: input.deviceFamily }), now],
         );
-        await tx.query(
+      await tx.query(
           `insert into pg_device_assets (
             service_asset_id, tenant_id, host_id, device_family, management_port, credential_id, auth_mode,
             tls_verify, ca_secret_id, gateway_id, support_tier, capability_profile, created_at, updated_at, version
           ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'READ_ONLY', '{}'::jsonb, $11, $11, 1)`,
           [deviceAssetId, tenantId, allocation.hostId, input.deviceFamily, input.managementPort, input.credentialId, input.authMode, input.tlsVerify, input.caSecretId ?? null, input.gatewayId ?? null, now],
-        );
-      });
+      );
     } catch (cause) {
       if (isHostIdentityConflict(cause)) {
         throw new AppError('RESOURCE_ALREADY_EXISTS', '管理地址已被其他设备占用', { managementAddress: input.managementAddress });
       }
       throw cause;
     }
-    return this.require(tenantId, deviceAssetId);
+    return this.requireWith(tx, tenantId, deviceAssetId);
   }
 
   async update(tenantId: string, deviceAssetId: string, input: UpdateDeviceAssetDto): Promise<DeviceAssetDto> {
@@ -103,7 +109,7 @@ export class PgDeviceAssetsRepository implements DeviceAssetsRepository {
           next.displayName,
           addressType === 'DNS' ? null : next.managementAddress,
           JSON.stringify(addressType === 'DNS' ? [] : [next.managementAddress]),
-          JSON.stringify([{ type: 'NITRO', enabled: true, refId: deviceAssetId, metadata: { port: next.managementPort, tlsVerify: next.tlsVerify } }]),
+          JSON.stringify([{ type: 'PLUGIN', enabled: true, refId: deviceAssetId, metadata: { port: next.managementPort, tlsVerify: next.tlsVerify } }]),
           `device:${next.deviceFamily}:${next.managementAddress.toLowerCase()}:${next.managementPort}`,
           now,
           current.hostId,
@@ -147,6 +153,12 @@ export class PgDeviceAssetsRepository implements DeviceAssetsRepository {
     const item = await this.get(tenantId, deviceAssetId);
     if (!item) throw new AppError('RESOURCE_NOT_FOUND', '设备资产不存在', { deviceAssetId });
     return item;
+  }
+
+  private async requireWith(db: DatabasePort, tenantId: string, deviceAssetId: string): Promise<DeviceAssetDto> {
+    const result = await db.query<DeviceAssetRow>(selectDeviceSql('where sa.tenant_id = $1 and sa.id = $2 and sa.deleted_at is null'), [tenantId, deviceAssetId]);
+    if (!result.rows[0]) throw new AppError('RESOURCE_NOT_FOUND', '设备资产不存在', { deviceAssetId });
+    return toDto(result.rows[0]);
   }
 }
 
@@ -216,7 +228,7 @@ async function resolveDeviceHost(
       addressType === 'DNS' ? null : input.managementAddress,
       JSON.stringify(addressType === 'DNS' ? [] : [input.managementAddress]),
       deviceProductName(input.deviceFamily),
-      JSON.stringify([{ type: 'NITRO', enabled: true, refId: deviceAssetId, metadata: { port: input.managementPort, tlsVerify: input.tlsVerify } }]),
+      JSON.stringify([{ type: 'PLUGIN', enabled: true, refId: deviceAssetId, metadata: { port: input.managementPort, tlsVerify: input.tlsVerify } }]),
       fingerprint,
       now,
       tenantId,
@@ -257,7 +269,7 @@ async function insertDeviceHost(
       addressType === 'DNS' ? null : input.managementAddress,
       JSON.stringify(addressType === 'DNS' ? [] : [input.managementAddress]),
       deviceProductName(input.deviceFamily),
-      JSON.stringify([{ type: 'NITRO', enabled: true, refId: deviceAssetId, metadata: { port: input.managementPort, tlsVerify: input.tlsVerify } }]),
+      JSON.stringify([{ type: 'PLUGIN', enabled: true, refId: deviceAssetId, metadata: { port: input.managementPort, tlsVerify: input.tlsVerify } }]),
       fingerprint,
       now,
     ],
@@ -285,8 +297,8 @@ interface DeviceAssetRow extends Record<string, unknown> {
   display_name: string | null;
   address: string;
   management_port: number;
-  device_family: 'NETSCALER_ADC';
-  credential_id: string;
+  device_family: string;
+  credential_id: string | null;
   auth_mode: DeviceAssetDto['authMode'];
   tls_verify: boolean;
   ca_secret_id: string | null;
@@ -321,7 +333,7 @@ function toDto(row: DeviceAssetRow): DeviceAssetDto {
     managementAddress: row.address,
     managementPort: Number(row.management_port),
     deviceFamily: row.device_family,
-    credentialId: row.credential_id,
+    credentialId: row.credential_id ?? undefined,
     authMode: row.auth_mode,
     tlsVerify: Boolean(row.tls_verify),
     caSecretId: row.ca_secret_id ?? undefined,
@@ -352,6 +364,5 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function deviceProductName(deviceFamily: DeviceAssetDto['deviceFamily']): string {
-  if (deviceFamily === 'NETSCALER_ADC') return 'Citrix ADC';
   return deviceFamily;
 }

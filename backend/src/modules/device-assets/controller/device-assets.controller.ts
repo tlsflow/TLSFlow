@@ -121,7 +121,7 @@ function createRules(required = true) {
     displayName: { type: 'string', required },
     managementAddress: { type: 'string', required },
     managementPort: { type: 'number' },
-    deviceFamily: { type: 'string', required, enum: ['NETSCALER_ADC'] },
+    deviceFamily: { type: 'string', required },
     credentialId: { type: 'string', required },
     authMode: { type: 'string', enum: ['AUTO', 'SESSION', 'PER_REQUEST'] },
     tlsVerify: { type: 'boolean' },

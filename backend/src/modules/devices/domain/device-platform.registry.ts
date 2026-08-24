@@ -2,23 +2,10 @@ import { AppError } from '../../../common/errors/app-error.js';
 import type { DeviceOnboardingPlatformDescriptor } from '../dto/devices.dto.js';
 
 const agentFields = [] as const;
-const apiFields = [
-  { key: 'displayName', type: 'TEXT', required: true },
-  { key: 'managementAddress', type: 'TEXT', required: true },
-  { key: 'managementPort', type: 'NUMBER', required: false },
-  { key: 'username', type: 'TEXT', required: true },
-  { key: 'password', type: 'SECRET_INPUT', required: true },
-  { key: 'credentialId', type: 'SECRET_REF', required: false },
-  { key: 'tlsVerify', type: 'BOOLEAN', required: false },
-] as const;
-
 const platforms: DeviceOnboardingPlatformDescriptor[] = [
   descriptor('windows', 'devices.platforms.windows', 'Windows Server', 'AGENT', 'AGENT_INSTALL', 'SUPPORTED', agentFields, 'WINDOWS_GO'),
   descriptor('windows-compatibility', 'devices.platforms.windowsCompatibility', 'Windows Server', 'AGENT_COMPATIBILITY', 'AGENT_INSTALL', 'SUPPORTED', agentFields, 'WINDOWS_COMPATIBILITY'),
   descriptor('linux', 'devices.platforms.linux', 'Linux Server', 'AGENT', 'AGENT_INSTALL', 'SUPPORTED', agentFields, 'LINUX_GO'),
-  descriptor('citrix-adc', 'devices.platforms.citrixAdc', 'Citrix ADC', 'NITRO_API', 'API_CONNECTION', 'SUPPORTED', apiFields, 'NETSCALER_NITRO'),
-  descriptor('sangfor', 'devices.platforms.sangfor', 'Sangfor', 'API', 'API_CONNECTION', 'UNSUPPORTED', apiFields),
-  descriptor('f5', 'devices.platforms.f5', 'F5', 'API', 'API_CONNECTION', 'UNSUPPORTED', apiFields),
 ];
 
 export class DevicePlatformRegistry {

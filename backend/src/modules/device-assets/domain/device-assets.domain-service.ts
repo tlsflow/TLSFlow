@@ -5,10 +5,10 @@ export class DeviceAssetsDomainService {
   normalizeCreate(input: CreateDeviceAssetDto): Required<Pick<CreateDeviceAssetDto, 'managementPort' | 'authMode' | 'tlsVerify'>> & CreateDeviceAssetDto {
     const managementAddress = normalizeAddress(input.managementAddress);
     const displayName = input.displayName.trim();
-    const credentialId = input.credentialId.trim();
     if (!displayName) throw new AppError('VALIDATION_FAILED', '设备名称不能为空', { field: 'displayName' });
-    if (!credentialId) throw new AppError('VALIDATION_FAILED', '设备凭据不能为空', { field: 'credentialId' });
-    if (input.deviceFamily !== 'NETSCALER_ADC') throw new AppError('VALIDATION_FAILED', '不支持的设备类型', { deviceFamily: input.deviceFamily });
+    const credentialId = input.credentialId?.trim() || undefined;
+    const deviceFamily = input.deviceFamily.trim();
+    if (!deviceFamily) throw new AppError('VALIDATION_FAILED', '设备类型不能为空', { field: 'deviceFamily' });
     const managementPort = input.managementPort ?? 443;
     if (!Number.isInteger(managementPort) || managementPort < 1 || managementPort > 65535) {
       throw new AppError('VALIDATION_FAILED', '管理端口必须在 1 到 65535 之间', { field: 'managementPort' });
@@ -18,6 +18,7 @@ export class DeviceAssetsDomainService {
       displayName,
       managementAddress,
       credentialId,
+      deviceFamily,
       managementPort,
       authMode: input.authMode ?? 'AUTO',
       tlsVerify: input.tlsVerify ?? true,
