@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { buildDeviceOnboardingPayload, normalizeDeviceOnboardingResult, validateDeviceOnboarding, type DeviceOnboardingPlatform } from '@/views/devices/device-onboarding.model'
+import {
+  buildDeviceOnboardingPayload,
+  normalizeDeviceOnboardingResult,
+  validateDeviceOnboarding,
+  type DeviceOnboardingPlatform,
+} from '@/views/devices/device-onboarding.model'
 
 const citrix: DeviceOnboardingPlatform = {
   key: 'citrix-adc', displayNameKey: 'devices.platforms.citrixAdc', productFamily: 'Citrix ADC', managementMethod: 'NITRO_API',
@@ -66,29 +71,29 @@ describe('设备添加向导模型', () => {
       key: 'windows', displayNameKey: 'devices.platforms.windows', productFamily: 'Windows Server', managementMethod: 'AGENT',
       onboardingKind: 'AGENT_INSTALL', supportStatus: 'SUPPORTED', formSchema: [],
     }
-    expect(buildDeviceOnboardingPayload(windows, {})).toEqual({
+    expect(buildDeviceOnboardingPayload(windows, { baseUrl: 'forbidden' })).toEqual({
       platformKey: 'windows',
     })
     expect(validateDeviceOnboarding(windows, {})).toEqual([])
   })
 
-  it('只解析固定安装材料，不解析旧命令字段', () => {
-    const windows: DeviceOnboardingPlatform = {
-      key: 'windows', displayNameKey: 'devices.platforms.windows', productFamily: 'Windows Server', managementMethod: 'AGENT',
+  it('Agent 安装结果只解析服务端生成的安装命令', () => {
+    const linux: DeviceOnboardingPlatform = {
+      key: 'linux', displayNameKey: 'devices.platforms.linux', productFamily: 'Linux Server', managementMethod: 'AGENT',
       onboardingKind: 'AGENT_INSTALL', supportStatus: 'SUPPORTED', formSchema: [],
     }
-    const result = normalizeDeviceOnboardingResult(windows, {
+    const result = normalizeDeviceOnboardingResult(linux, {
       onboardingKind: 'AGENT_INSTALL',
-      installMaterials: {
-        installationId: 'aginst_test',
-        expiresAt: '2026-06-09T01:00:00.000Z',
-        enrollmentToken: 'enrollment-once',
-        materials: [{ artifactRef: 'artifact://gcac/agents/windows-go-full-agent/0.1.9/windows-amd64/gcac-agent.exe' }],
-        task: { type: 'agent.plan.execute', artifactRefs: ['artifact://gcac/agents/windows-go-full-agent/0.1.9/windows-amd64/gcac-agent.exe'] },
+      installSession: {
+        installCommand: "curl -fsSL 'https://gcac.example.test/agent-install?token=abc' | sudo bash",
+        expiresAt: '2026-08-13T08:00:00.000Z',
       },
-      installCommand: 'legacy-command',
+      installMaterials: {
+        enrollmentToken: 'must-not-be-read',
+      },
     })
-    expect(result.installMaterials?.installationId).toBe('aginst_test')
-    expect('installCommand' in result).toBe(false)
+    expect(result.installCommand).toContain('/agent-install?token=')
+    expect(result.expiresAt).toBe('2026-08-13T08:00:00.000Z')
+    expect('installMaterials' in result).toBe(false)
   })
 })
