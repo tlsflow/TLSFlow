@@ -28,9 +28,17 @@ P2 发布清单属于历史开发证据，不是当前运行时、数据库切�
 
 插件包内 Workflow 的 `metadata.version` 仍须由 Workflow Schema 校验为合法 SemVer，并且必须与同一包 Manifest 的 `version` 相等。插件内容变化由 Manifest `pluginId@version`、包/资源摘要和数据库 WorkflowVersion 整数记录；旧用户 Workflow DSL 的独立版本规则仍由 Workflow 模板服务负责。
 
+## 测试边界
+
+- 插件自身的 Manifest、资源、Runtime、Action 和产品协议测试应放在对应内置插件包的 `tests/` 与 `fixtures/` 中；已有 `runtime/index.test.mjs` 等相邻测试可以保留。
+- Registry、Loader、Policy、权限、Host API、Runner 协议和租户隔离测试属于宿主测试，放在 `backend/src/modules/plugins` 的对应模块目录；多插件共享的故障矩阵和 Compatibility 测试放在独立批次目录。
+- 用户插件测试由插件作者自己的源码仓库维护。宿主导入时只执行统一包契约、权限、哈希、Runner 和失败关闭测试，禁止扫描或执行用户包中任意测试代码。
+- 按需测试必须记录 `pluginId`、版本和 `packageHash`、`manifestHash`、`resourceHash`；修改共享宿主能力时必须补跑宿主安全门禁和受影响插件批次。
+
 ## 禁止事项
 
 - 不得把 P2 清单恢复为 Registry、启动、执行、数据库切换或版本脚本的依赖。
 - 不得通过修改数据库、历史发布台账或摘要文件绕过 Manifest 版本递进。
 - 不得在 Manifest 中声明任意代码执行、宿主对象调用或文件系统写入等被拒绝权限。
 - 不得把 Canonical Plugin ID Registry 当作版本或包摘要账本；它只负责稳定身份集合。
+- 不得把宿主公共测试复制到每个插件目录，也不得把插件局部测试当作宿主安全边界的替代。
