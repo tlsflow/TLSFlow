@@ -16,8 +16,6 @@ export const ActionErrorCodes = [
   'ACTION_CONTRACT_INVALID',
   'ACTION_HANDLER_NOT_REGISTERED',
   'ACTION_SCHEMA_UNSUPPORTED',
-  'ACTION_ALIAS_CONFLICT',
-  'ACTION_ALIAS_DEPRECATED',
   'CAPABILITY_SNAPSHOT_REQUIRED',
   'CAPABILITY_REQUIREMENT_UNSATISFIED',
   'ACTION_PERMISSION_DENIED',
@@ -134,27 +132,6 @@ export interface ActionResult<TDetail = Record<string, unknown>> {
   recovery?: ActionRecoveryReference;
 }
 
-export type ActionAliasStatus = 'active' | 'deprecated';
-
-export interface ActionAliasDefinition {
-  legacyActionType: string;
-  legacySchemaVersions: string[];
-  canonicalActionType: string;
-  canonicalSchemaVersion: string;
-  status: ActionAliasStatus;
-  deprecatedAt?: string;
-  removeAfter?: string;
-}
-
-export interface ResolvedActionAlias {
-  requestedActionType: string;
-  requestedSchemaVersion: string;
-  actionType: string;
-  actionSchemaVersion: string;
-  aliased: boolean;
-  deprecated: boolean;
-}
-
 export class ActionContractError extends Error {
   constructor(
     public readonly errorCode: ActionErrorCode,
@@ -163,70 +140,6 @@ export class ActionContractError extends Error {
   ) {
     super(message);
     this.name = 'ActionContractError';
-  }
-}
-
-/**
- * 旧任务名只在注册表中迁移，执行器和 Agent 主循环不得各自维护别名分支。
- */
-export class ActionAliasRegistry {
-  private readonly aliases = new Map<string, ActionAliasDefinition>();
-
-  constructor(definitions: ActionAliasDefinition[]) {
-    for (const definition of definitions) this.register(definition);
-  }
-
-  resolve(actionType: string, actionSchemaVersion: string): ResolvedActionAlias {
-    const alias = this.aliases.get(normalizeActionType(actionType));
-    if (!alias) {
-      return {
-        requestedActionType: actionType,
-        requestedSchemaVersion: actionSchemaVersion,
-        actionType,
-        actionSchemaVersion,
-        aliased: false,
-        deprecated: false,
-      };
-    }
-    if (!alias.legacySchemaVersions.includes(actionSchemaVersion)) {
-      throw new ActionContractError('ACTION_SCHEMA_UNSUPPORTED', '旧任务版本不在别名兼容范围内', {
-        actionType,
-        actionSchemaVersion,
-        supportedVersions: alias.legacySchemaVersions,
-      });
-    }
-    return {
-      requestedActionType: actionType,
-      requestedSchemaVersion: actionSchemaVersion,
-      actionType: alias.canonicalActionType,
-      actionSchemaVersion: alias.canonicalSchemaVersion,
-      aliased: true,
-      deprecated: alias.status === 'deprecated',
-    };
-  }
-
-  list(): ActionAliasDefinition[] {
-    return [...this.aliases.values()]
-      .map((item) => ({ ...item, legacySchemaVersions: [...item.legacySchemaVersions] }))
-      .sort((left, right) => left.legacyActionType.localeCompare(right.legacyActionType));
-  }
-
-  private register(definition: ActionAliasDefinition): void {
-    validateActionAliasDefinition(definition);
-    const key = normalizeActionType(definition.legacyActionType);
-    const existing = this.aliases.get(key);
-    if (existing) {
-      throw new ActionContractError('ACTION_ALIAS_CONFLICT', '旧任务别名重复注册', {
-        legacyActionType: definition.legacyActionType,
-        existingCanonicalActionType: existing.canonicalActionType,
-        conflictingCanonicalActionType: definition.canonicalActionType,
-      });
-    }
-    this.aliases.set(key, {
-      ...definition,
-      legacyActionType: key,
-      legacySchemaVersions: [...new Set(definition.legacySchemaVersions)].sort(),
-    });
   }
 }
 
@@ -328,22 +241,6 @@ function validateActionError(input: unknown): void {
   requireEnum(value, 'code', ActionErrorCodes);
   requireString(value, 'message');
   requireBoolean(value, 'retryable');
-}
-
-function validateActionAliasDefinition(definition: ActionAliasDefinition): void {
-  if (!definition.legacyActionType || !definition.canonicalActionType) invalid('别名动作名称不能为空');
-  if (normalizeActionType(definition.legacyActionType) === normalizeActionType(definition.canonicalActionType)) {
-    invalid('旧任务别名不能指向自身');
-  }
-  if (definition.legacySchemaVersions.length === 0) invalid('旧任务别名必须声明兼容版本');
-  if (!/^\d+\.\d+(?:\.\d+)?$/.test(definition.canonicalSchemaVersion)) invalid('别名目标版本格式无效');
-  if (definition.status === 'deprecated' && !definition.deprecatedAt) invalid('deprecated 别名必须声明 deprecatedAt');
-  if (definition.deprecatedAt) requireIsoDate({ deprecatedAt: definition.deprecatedAt }, 'deprecatedAt');
-  if (definition.removeAfter) requireIsoDate({ removeAfter: definition.removeAfter }, 'removeAfter');
-}
-
-function normalizeActionType(value: string): string {
-  return value.trim().toLowerCase();
 }
 
 function requireRecord(input: unknown, field: string): Record<string, unknown> {

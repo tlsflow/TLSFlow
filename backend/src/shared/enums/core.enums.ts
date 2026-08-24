@@ -2,7 +2,7 @@
 export const OsTypes = ['WINDOWS', 'LINUX', 'UNIX', 'NETWORK_DEVICE', 'UNKNOWN'] as const;
 export type OsType = (typeof OsTypes)[number];
 
-export const ManagementModes = ['AGENT', 'LEGACY_AGENT', 'GATEWAY', 'AGENTLESS', 'SCRIPT_PACKAGE', 'MONITOR_ONLY'] as const;
+export const ManagementModes = ['AGENT', 'GATEWAY', 'AGENTLESS', 'MONITOR_ONLY'] as const;
 export type ManagementMode = (typeof ManagementModes)[number];
 
 export const CompatibilityLevels = ['L1', 'L2', 'L3', 'L4', 'L5'] as const;
@@ -32,7 +32,7 @@ export type CapabilityConstraintOperator = (typeof CapabilityConstraintOperators
 export const CapabilityMatchStatuses = ['matched', 'degraded', 'blocked', 'manual_required', 'unknown'] as const;
 export type CapabilityMatchStatus = (typeof CapabilityMatchStatuses)[number];
 
-export const CapabilitySuggestionTypes = ['use_full_agent', 'use_legacy_agent', 'use_gateway', 'use_ssh', 'use_winrm', 'generate_script_package', 'manual_confirm', 'monitor_only'] as const;
+export const CapabilitySuggestionTypes = ['use_full_agent', 'use_gateway', 'use_ssh', 'use_winrm', 'manual_confirm', 'monitor_only'] as const;
 export type CapabilitySuggestionType = (typeof CapabilitySuggestionTypes)[number];
 
 export type ProviderType = string;
@@ -40,7 +40,7 @@ export type ProviderType = string;
 export const BindingTypes = ['FILE_PATH', 'WINDOWS_CERT_STORE', 'KEYSTORE', 'DEVICE_API', 'CUSTOM'] as const;
 export type BindingType = (typeof BindingTypes)[number];
 
-export const ExecutionTargetKinds = ['AGENT', 'GATEWAY_FORWARD', 'SSH', 'WINRM', 'SMB_WMI', 'CURL', 'WORKFLOW', 'TRUSTED_JS', 'SCRIPT_PACKAGE'] as const;
+export const ExecutionTargetKinds = ['AGENT', 'GATEWAY_FORWARD', 'SSH', 'WINRM', 'SMB_WMI', 'CURL', 'WORKFLOW', 'TRUSTED_JS'] as const;
 export type ExecutionTargetKind = (typeof ExecutionTargetKinds)[number];
 
 export const CertificateFormats = ['PEM', 'PFX', 'JKS', 'DER', 'P7B'] as const;

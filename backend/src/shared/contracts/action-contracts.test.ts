@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   ACTION_CONTRACT_SCHEMA_VERSION,
-  ActionAliasRegistry,
   ActionContractError,
   parseActionProgress,
   parseActionRequest,
@@ -71,43 +70,6 @@ describe('Action Contract', () => {
   });
 });
 
-describe('Action Alias Registry', () => {
-  it('把旧任务稳定映射到规范动作和版本', () => {
-    const registry = new ActionAliasRegistry([{
-      legacyActionType: 'windows.iis.deploy_certificate',
-      legacySchemaVersions: ['1.0'],
-      canonicalActionType: 'certificate.deploy',
-      canonicalSchemaVersion: '1.0',
-      status: 'deprecated',
-      deprecatedAt: '2026-07-21T00:00:00.000Z',
-    }]);
-    assert.deepEqual(registry.resolve('WINDOWS.IIS.DEPLOY_CERTIFICATE', '1.0'), {
-      requestedActionType: 'WINDOWS.IIS.DEPLOY_CERTIFICATE',
-      requestedSchemaVersion: '1.0',
-      actionType: 'certificate.deploy',
-      actionSchemaVersion: '1.0',
-      aliased: true,
-      deprecated: true,
-    });
-  });
-
-  it('拒绝重复别名和未声明的旧版本', () => {
-    assert.throws(
-      () => new ActionAliasRegistry([
-        createAlias('certificate.deploy'),
-        createAlias('certificate.rollback'),
-      ]),
-      (error: unknown) => error instanceof ActionContractError && error.errorCode === 'ACTION_ALIAS_CONFLICT',
-    );
-
-    const registry = new ActionAliasRegistry([createAlias('certificate.deploy')]);
-    assert.throws(
-      () => registry.resolve('windows.iis.deploy_certificate', '2.0'),
-      (error: unknown) => error instanceof ActionContractError && error.errorCode === 'ACTION_SCHEMA_UNSUPPORTED',
-    );
-  });
-});
-
 function createEnvelope(): Record<string, unknown> {
   return {
     schemaVersion: ACTION_CONTRACT_SCHEMA_VERSION,
@@ -143,15 +105,5 @@ function createRequest(): Record<string, unknown> {
     input: { certificateVersionId: 'version_1' },
     requiredCapabilities: [],
     dryRun: false,
-  };
-}
-
-function createAlias(canonicalActionType: string) {
-  return {
-    legacyActionType: 'windows.iis.deploy_certificate',
-    legacySchemaVersions: ['1.0'],
-    canonicalActionType,
-    canonicalSchemaVersion: '1.0',
-    status: 'active' as const,
   };
 }
