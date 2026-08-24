@@ -792,6 +792,9 @@ func buildGatewayAgentV2Payload(source map[string]any, task agentTaskEnvelope, t
 	if tokenAgentID := stringFromMap(token, "agentId"); tokenAgentID != targetAgentID {
 		return nil, "", errors.New("Gateway Token agentId 与目标 Agent 不一致")
 	}
+	if _, exists := source["action"]; exists {
+		return nil, "", errors.New("Gateway 转发不得使用 action，必须提供 canonical actionType")
+	}
 	pluginVersion := firstNonEmpty(stringFromMap(source, "pluginVersion"), stringFromMap(token, "pluginVersionId"))
 	planDigest := stringFromMap(token, "planDigest")
 	payload := map[string]any{

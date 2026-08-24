@@ -23,3 +23,9 @@ go test ./...
 ```
 
 Windows 服务安装、卸载和状态检查脚本属于部署运维入口；Agent 进程本身不会启动脚本解释器。配置模板和服务安装路径位于当前目录下的 `config` 与安装脚本中。
+
+服务安装和升级必须显式提供发布签名验证材料，脚本会在注册或替换服务二进制前验证 Ed25519 签名；缺少材料或验证失败时失败关闭：
+
+```powershell
+.\install-service.ps1 -PublicKeyFile .\release-public-key.pem -SignatureFile .\gcac-agent.exe.sig -SignatureVerifier .\gcac-release-sign.exe
+```

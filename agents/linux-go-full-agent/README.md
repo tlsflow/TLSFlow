@@ -33,3 +33,14 @@ go test ./...
 自检、健康检查和服务信息仍通过 `self-check`、`health`、`service-info` 提供。服务安装脚本只负责安装通用 Agent 和服务单元，不探测或配置第三方产品。
 
 正式发布使用 `release/build-release.sh`，发布产物必须经过签名与可复现构建校验。
+
+安装或升级必须显式提供发布公钥、签名文件和 Ed25519 验证器；缺少任一材料时脚本失败关闭，不允许通过 `ALLOW_UNSIGNED_INSTALL` 或 `ALLOW_UNSIGNED_UPGRADE` 绕过：
+
+```bash
+PUBLIC_KEY_FILE=/path/to/release-public-key.pem \
+SIGNATURE_FILE=/path/to/gcac-linux-agent.sig \
+SIGNATURE_VERIFIER=/path/to/gcac-release-sign \
+./linux/install.sh
+```
+
+`linux/install-systemd.sh` 使用同名环境变量，`release/build-release.sh` 和 `release/verify-reproducible.sh` 还要求 `SIGNING_PRIVATE_KEY_FILE`。

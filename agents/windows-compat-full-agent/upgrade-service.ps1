@@ -1,15 +1,22 @@
 param(
     [Parameter(Mandatory = $true)][string]$PackageDirectory,
-    [Parameter(Mandatory = $true)][string]$InstallRoot
+    [Parameter(Mandatory = $true)][string]$InstallRoot,
+    [Parameter(Mandatory = $true)][string]$PublicKeyFile,
+    [Parameter(Mandatory = $true)][string]$SignatureFile,
+    [Parameter(Mandatory = $true)][string]$SignatureVerifier
 )
 
 $ErrorActionPreference = "Stop"
+$scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $serviceName = "GCACWindowsCompatibilityAgent"
 $incoming = Join-Path $PackageDirectory "GCAC.WindowsCompatibilityAgent.exe"
 $target = Join-Path $InstallRoot "GCAC.WindowsCompatibilityAgent.exe"
 $backup = $target + ".rollback"
 $upgradeLog = Join-Path $InstallRoot "service-upgrade.log"
 if (-not (Test-Path -LiteralPath $incoming)) { throw "Upgrade package is missing the Agent executable" }
+$signatureScript = Join-Path $scriptRoot "release\verify-signature.ps1"
+if (-not (Test-Path -LiteralPath $signatureScript)) { throw "Agent release signature verifier not found: $signatureScript" }
+& $signatureScript -PublicKeyFile $PublicKeyFile -ArtifactPath $incoming -SignatureFile $SignatureFile -SignatureVerifier $SignatureVerifier
 
 function Write-UpgradeLog {
     param(

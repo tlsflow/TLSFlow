@@ -7,6 +7,9 @@ param(
   [string]$ConfigDir = "C:\ProgramData\GCAC\FullAgentGo\config",
   [string]$DataDir = "C:\ProgramData\GCAC\FullAgentGo\data",
   [string]$LogDir = "C:\ProgramData\GCAC\FullAgentGo\logs",
+  [Parameter(Mandatory = $true)][string]$PublicKeyFile,
+  [Parameter(Mandatory = $true)][string]$SignatureFile,
+  [Parameter(Mandatory = $true)][string]$SignatureVerifier,
   [switch]$StartAfterInstall,
   [switch]$NoStartAfterInstall
 )
@@ -202,6 +205,12 @@ if (-not (Test-Path -LiteralPath $binarySource)) {
 if (-not (Test-Path -LiteralPath $configTemplate)) {
   throw "Agent config template not found: $configTemplate"
 }
+
+$signatureScript = Join-Path $sourceRoot "release\verify-signature.ps1"
+if (-not (Test-Path -LiteralPath $signatureScript)) {
+  throw "Agent release signature verifier not found: $signatureScript"
+}
+& $signatureScript -PublicKeyFile $PublicKeyFile -ArtifactPath $binarySource -SignatureFile $SignatureFile -SignatureVerifier $SignatureVerifier
 
 Remove-GoServiceByInstallRoot -TargetInstallRoot $InstallRoot
 

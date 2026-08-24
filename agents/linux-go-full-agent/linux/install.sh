@@ -99,10 +99,6 @@ check_binary_arch() {
 }
 
 verify_signature() {
-  if [ -z "${PUBLIC_KEY_FILE}" ] && [ -z "${SIGNATURE_FILE}" ]; then
-    [ "${ALLOW_UNSIGNED_INSTALL:-0}" = "1" ] || fail "安装需要 Ed25519 发布签名；测试或受控离线场景可显式设置 ALLOW_UNSIGNED_INSTALL=1"
-    return
-  fi
   [ -n "${PUBLIC_KEY_FILE}" ] && [ -n "${SIGNATURE_FILE}" ] || fail "PUBLIC_KEY_FILE 与 SIGNATURE_FILE 必须同时提供"
   "${AGENT_DIR}/release/verify-signature.sh" "${PUBLIC_KEY_FILE}" "${SOURCE_BINARY}" "${SIGNATURE_FILE}" || fail "Agent 发布签名验证失败"
 }

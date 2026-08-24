@@ -24,10 +24,6 @@ fail() {
 [ -f "${NEW_BINARY}" ] || fail "新版本不存在：${NEW_BINARY}"
 
 verify_signature() {
-  if [ -z "${PUBLIC_KEY_FILE}" ] && [ -z "${SIGNATURE_FILE}" ]; then
-    [ "${ALLOW_UNSIGNED_UPGRADE:-0}" = "1" ] || fail "升级需要 Ed25519 发布签名"
-    return
-  fi
   [ -n "${PUBLIC_KEY_FILE}" ] && [ -n "${SIGNATURE_FILE}" ] || fail "PUBLIC_KEY_FILE 与 SIGNATURE_FILE 必须同时提供"
   "${SCRIPT_DIR}/../release/verify-signature.sh" "${PUBLIC_KEY_FILE}" "${NEW_BINARY}" "${SIGNATURE_FILE}" || fail "新版本发布签名验证失败"
 }

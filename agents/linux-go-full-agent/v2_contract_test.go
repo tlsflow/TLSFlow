@@ -88,6 +88,17 @@ func TestV2QueueBoundaryRejectsWireAndLegacyActions(t *testing.T) {
 	}
 }
 
+func TestGatewayForwardRejectsWireActionField(t *testing.T) {
+	source := map[string]any{
+		"action":         agentPlanExecute,
+		"token":          map[string]any{"agentId": "agent-target"},
+		"policyDecision": map[string]any{},
+	}
+	if _, _, err := buildGatewayAgentV2Payload(source, agentTaskEnvelope{ID: "gateway-task-1"}, "agent-target"); err == nil {
+		t.Fatal("Gateway 转发不得接受 wire action 字段")
+	}
+}
+
 func TestV2RejectsMissingActionTypeWithoutSelfTestDefault(t *testing.T) {
 	_, code, _, _ := executeLinuxTaskPayload("task-1", map[string]any{})
 	if code != "ACTION_HANDLER_NOT_REGISTERED" {

@@ -1,14 +1,21 @@
 param(
     [Parameter(Mandatory = $true)][string]$InstallRoot,
     [Parameter(Mandatory = $true)][string]$ConfigPath,
+    [Parameter(Mandatory = $true)][string]$PublicKeyFile,
+    [Parameter(Mandatory = $true)][string]$SignatureFile,
+    [Parameter(Mandatory = $true)][string]$SignatureVerifier,
     [switch]$NoStartAfterInstall
 )
 
 $ErrorActionPreference = "Stop"
+$scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $serviceName = "GCACWindowsCompatibilityAgent"
 $binaryPath = Join-Path $InstallRoot "GCAC.WindowsCompatibilityAgent.exe"
 if (-not (Test-Path -LiteralPath $binaryPath)) { throw "Agent executable not found: $binaryPath" }
 if (-not (Test-Path -LiteralPath $ConfigPath)) { throw "Agent config not found: $ConfigPath" }
+$signatureScript = Join-Path $scriptRoot "release\verify-signature.ps1"
+if (-not (Test-Path -LiteralPath $signatureScript)) { throw "Agent release signature verifier not found: $signatureScript" }
+& $signatureScript -PublicKeyFile $PublicKeyFile -ArtifactPath $binaryPath -SignatureFile $SignatureFile -SignatureVerifier $SignatureVerifier
 
 $quotedBinary = '"' + $binaryPath + '" --config "' + $ConfigPath + '"'
 $serviceLog = Join-Path $InstallRoot "service-install.log"

@@ -20,6 +20,18 @@ BINARY_TARGET_PATH="${INSTALL_ROOT}/gcac-linux-agent"
 UNIT_TEMPLATE_PATH="${BUNDLE_DIR}/linux/gcac-linux-agent.service"
 UNIT_RENDER_PATH="${BUNDLE_DIR}/linux/${SERVICE_NAME}.service.rendered"
 SUPPLEMENTARY_GROUPS=""
+PUBLIC_KEY_FILE="${PUBLIC_KEY_FILE:-}"
+SIGNATURE_FILE="${SIGNATURE_FILE:-${BINARY_SOURCE_PATH}.sig}"
+SIGNATURE_VERIFIER="${SIGNATURE_VERIFIER:-}"
+
+verify_signature() {
+  [ -n "${PUBLIC_KEY_FILE}" ] || { echo "错误：systemd 安装必须提供发布公钥" >&2; exit 1; }
+  [ -n "${SIGNATURE_FILE}" ] || { echo "错误：systemd 安装必须提供发布签名" >&2; exit 1; }
+  SIGNATURE_VERIFIER="${SIGNATURE_VERIFIER}" "${BUNDLE_DIR}/release/verify-signature.sh" "${PUBLIC_KEY_FILE}" "${BINARY_SOURCE_PATH}" "${SIGNATURE_FILE}" || {
+    echo "错误：Agent 发布签名验证失败，禁止安装或注册服务" >&2
+    exit 1
+  }
+}
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "错误：安装 systemd 服务需要 root 权限，请使用 sudo 执行。" >&2
@@ -35,6 +47,8 @@ if [ ! -x "${BINARY_SOURCE_PATH}" ]; then
   echo "错误：bundle 中缺少可执行文件 ${BINARY_SOURCE_PATH}" >&2
   exit 1
 fi
+
+verify_signature
 
 if ! getent group "${SERVICE_GROUP}" >/dev/null 2>&1; then
   groupadd --system "${SERVICE_GROUP}"

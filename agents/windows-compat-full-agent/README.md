@@ -42,6 +42,7 @@ Windows Server 2003、2003 R2 和 Windows Server 2008 非 R2 明确不支持。P
 - 安装：`install-service.ps1`
 - 升级：`upgrade-service.ps1`
 - 卸载：`uninstall-service.ps1`
+- 安装和升级必须传入 `-PublicKeyFile`、`-SignatureFile`、`-SignatureVerifier`；脚本在注册或替换服务前验证 Ed25519 签名，缺少材料或验证失败时失败关闭。
 - 结果恢复：`recovery-ledger.json` 保存尚未上报的 Action Result，进程重启后先补传再继续拉取任务。
 - 身份恢复：`agent-id.txt` 保存首次注册返回的 Agent ID，服务或操作系统重启后直接恢复心跳，不重复消耗一次性注册令牌。
 - 主动管理：默认监听 `18933` Direct Control 端口并上报控制面，与 Windows Full Agent 的默认 `18930` 端口可同机共存。

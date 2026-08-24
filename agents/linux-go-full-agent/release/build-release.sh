@@ -8,6 +8,11 @@ VERSION_VALUE="${VERSION:-0.1.10}"
 COMMIT_VALUE="${COMMIT:-$(git -C "${AGENT_DIR}" rev-parse HEAD)}"
 SOURCE_DATE_EPOCH_VALUE="${SOURCE_DATE_EPOCH:-$(git -C "${AGENT_DIR}" log -1 --format=%ct)}"
 BUILD_TIME_VALUE="${BUILD_TIME:-$(date -u -d "@${SOURCE_DATE_EPOCH_VALUE}" '+%Y-%m-%dT%H:%M:%SZ')}"
+SIGNING_PRIVATE_KEY_FILE="${SIGNING_PRIVATE_KEY_FILE:-}"
+
+[ -n "${SIGNING_PRIVATE_KEY_FILE}" ] || { echo "错误：正式发布必须提供 Ed25519 签名私钥" >&2; exit 1; }
+[ -f "${SIGNING_PRIVATE_KEY_FILE}" ] || { echo "错误：签名私钥不存在" >&2; exit 1; }
+[ -r "${SIGNING_PRIVATE_KEY_FILE}" ] || { echo "错误：签名私钥不可读" >&2; exit 1; }
 
 mkdir -p "${OUTPUT_DIR}"
 rm -f "${OUTPUT_DIR}/gcac-linux-agent-linux-amd64" "${OUTPUT_DIR}/gcac-linux-agent-linux-arm64" "${OUTPUT_DIR}/SHA256SUMS"
@@ -30,11 +35,15 @@ build_arch arm64
 build_verifier amd64
 build_verifier arm64
 
-if [ -n "${SIGNING_PRIVATE_KEY_FILE:-}" ]; then
-  [ -f "${SIGNING_PRIVATE_KEY_FILE}" ] || { echo "错误：签名私钥不存在" >&2; exit 1; }
-  go run "${AGENT_DIR}/cmd/release-sign" sign "${SIGNING_PRIVATE_KEY_FILE}" "${OUTPUT_DIR}/gcac-linux-agent-linux-amd64" "${OUTPUT_DIR}/gcac-linux-agent-linux-amd64.sig"
-  go run "${AGENT_DIR}/cmd/release-sign" sign "${SIGNING_PRIVATE_KEY_FILE}" "${OUTPUT_DIR}/gcac-linux-agent-linux-arm64" "${OUTPUT_DIR}/gcac-linux-agent-linux-arm64.sig"
-fi
+sign_artifact() {
+  artifact="$1"
+  signature="${artifact}.sig"
+  go run "${AGENT_DIR}/cmd/release-sign" sign "${SIGNING_PRIVATE_KEY_FILE}" "${artifact}" "${signature}"
+  [ -s "${signature}" ] || { echo "错误：签名产物为空：${signature}" >&2; exit 1; }
+}
+
+sign_artifact "${OUTPUT_DIR}/gcac-linux-agent-linux-amd64"
+sign_artifact "${OUTPUT_DIR}/gcac-linux-agent-linux-arm64"
 
 (
   cd "${OUTPUT_DIR}"
@@ -50,7 +59,7 @@ go_version=$(go version)
 cgo_enabled=0
 targets=linux/amd64,linux/arm64
 signature_algorithm=Ed25519
-signed=$([ -n "${SIGNING_PRIVATE_KEY_FILE:-}" ] && printf true || printf false)
+signed=true
 EOF
 
 cat > "${OUTPUT_DIR}/sbom.spdx.json" <<EOF
