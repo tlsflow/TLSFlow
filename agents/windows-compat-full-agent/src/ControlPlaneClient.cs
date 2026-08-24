@@ -24,9 +24,9 @@ namespace GCAC.WindowsCompatibilityAgent
             }
         }
 
-        public string Register(CapabilitySnapshot snapshot)
+        public string Register(CapabilitySnapshot snapshot, string[] registeredActions)
         {
-            RegistrationResponse response = Send<RegistrationResponse>("/api/v1/agents/register", BuildRegistrationRequest(snapshot));
+            RegistrationResponse response = Send<RegistrationResponse>("/api/v1/agents/register", BuildRegistrationRequest(snapshot, registeredActions));
             return response.id;
         }
 
@@ -38,10 +38,10 @@ namespace GCAC.WindowsCompatibilityAgent
             return string.Equals(architecture, "AMD64", StringComparison.OrdinalIgnoreCase) || string.Equals(architecture, "IA64", StringComparison.OrdinalIgnoreCase) || string.Equals(architecture, "ARM64", StringComparison.OrdinalIgnoreCase);
         }
 
-        public void Heartbeat(string agentId, CapabilitySnapshot snapshot, Dictionary<string, object> runtimeHealth)
+        public void Heartbeat(string agentId, CapabilitySnapshot snapshot, Dictionary<string, object> runtimeHealth, string[] registeredActions)
         {
             Dictionary<string, object> body = BuildHeartbeatRequest(agentId, snapshot, runtimeHealth);
-            body["directControl"] = BuildDirectControl(snapshot);
+            body["directControl"] = BuildDirectControl(snapshot, registeredActions);
             Send<object>("/api/v1/agents/heartbeat", body);
         }
 
@@ -73,7 +73,7 @@ namespace GCAC.WindowsCompatibilityAgent
             return NormalizeTask(tasks[0]);
         }
 
-        internal Dictionary<string, object> BuildRegistrationRequest(CapabilitySnapshot snapshot)
+        internal Dictionary<string, object> BuildRegistrationRequest(CapabilitySnapshot snapshot, string[] registeredActions)
         {
             Dictionary<string, object> body = BaseIdentity(snapshot);
             body["agentKey"] = config.agentKey;
@@ -86,11 +86,11 @@ namespace GCAC.WindowsCompatibilityAgent
             body["ipAddress"] = ReadFact(snapshot, "network.primary_ip");
             body["osVersion"] = ReadFact(snapshot, "windows.product_name");
             body["role"] = "full_agent";
-            body["directControl"] = BuildDirectControl(snapshot);
+            body["directControl"] = BuildDirectControl(snapshot, registeredActions);
             return body;
         }
 
-        private Dictionary<string, object> BuildDirectControl(CapabilitySnapshot snapshot)
+        private Dictionary<string, object> BuildDirectControl(CapabilitySnapshot snapshot, string[] registeredActions)
         {
             string advertiseHost = config.directControlAdvertiseHost;
             if (TextUtility.IsBlank(advertiseHost)) advertiseHost = ReadFact(snapshot, "network.primary_ip");
@@ -99,10 +99,20 @@ namespace GCAC.WindowsCompatibilityAgent
             state["reachable"] = config.directControlEnabled && directControlReachable;
             state["listenAddress"] = TextUtility.IsBlank(advertiseHost) ? null : advertiseHost + ":" + config.directControlListenPort;
             state["protocolVersion"] = "v1";
-            state["supportedActions"] = new string[] { "health", "agent.capability.rescan" };
+            state["supportedActions"] = BuildSupportedActions(registeredActions);
             if (directControlReachable) state["lastReadyAt"] = DateTime.UtcNow.ToString("o");
             if (!TextUtility.IsBlank(directControlError)) state["lastDirectError"] = directControlError;
             return state;
+        }
+
+        internal static string[] BuildSupportedActions(string[] registeredActions)
+        {
+            List<string> actions = new List<string>();
+            AddSupportedAction(actions, "health");
+            foreach (string action in registeredActions ?? new string[0])
+                AddSupportedAction(actions, action);
+            actions.Sort(StringComparer.Ordinal);
+            return actions.ToArray();
         }
 
         internal static Dictionary<string, object> BuildCapabilityRequest(string agentId, CapabilitySnapshot snapshot)
@@ -206,6 +216,15 @@ namespace GCAC.WindowsCompatibilityAgent
             return snapshot != null && snapshot.Facts != null && snapshot.Facts.TryGetValue(key, out value) && value != null
                 ? Convert.ToString(value)
                 : string.Empty;
+        }
+
+        private static void AddSupportedAction(List<string> actions, string action)
+        {
+            if (TextUtility.IsBlank(action)) return;
+            foreach (string existing in actions)
+                if (string.Equals(existing, action, StringComparison.OrdinalIgnoreCase))
+                    return;
+            actions.Add(action);
         }
 
         private T Get<T>(string path)

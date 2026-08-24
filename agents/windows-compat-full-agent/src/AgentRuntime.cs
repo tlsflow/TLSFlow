@@ -59,7 +59,7 @@ namespace GCAC.WindowsCompatibilityAgent
             string agentId = identityStore.Load();
             if (TextUtility.IsBlank(agentId))
             {
-                agentId = client.Register(snapshot);
+                agentId = client.Register(snapshot, RegisteredActions());
                 identityStore.Save(agentId);
                 logger.Write("info", "registration.completed", "agentId=" + agentId);
             }
@@ -80,7 +80,7 @@ namespace GCAC.WindowsCompatibilityAgent
                     {
                         snapshot = capabilityCollector.Collect();
                         UpdateSelfCheck(snapshot);
-                        client.Heartbeat(agentId, snapshot, BuildRuntimeHealth(snapshot));
+                        client.Heartbeat(agentId, snapshot, BuildRuntimeHealth(snapshot), RegisteredActions());
                         heartbeatFailures = 0;
                         ClearLastErrorWhenRecovered();
                     }

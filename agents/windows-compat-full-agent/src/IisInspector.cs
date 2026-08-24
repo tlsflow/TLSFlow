@@ -353,12 +353,26 @@ namespace GCAC.WindowsCompatibilityAgent
             catch { return 0; }
         }
 
-        private static IDisposable CreateServerManager()
+        internal static IDisposable CreateServerManager()
         {
-            string assemblyPath = Path.Combine(Path.Combine(Path.Combine(Environment.GetEnvironmentVariable("WINDIR"), "System32"), "inetsrv"), "Microsoft.Web.Administration.dll");
-            Assembly assembly = File.Exists(assemblyPath) ? Assembly.LoadFrom(assemblyPath) : Assembly.Load("Microsoft.Web.Administration");
+            Assembly assembly = LoadAdministrationAssembly();
             Type type = assembly.GetType("Microsoft.Web.Administration.ServerManager", true);
             return (IDisposable)Activator.CreateInstance(type);
+        }
+
+        internal static Assembly LoadAdministrationAssembly()
+        {
+            string assemblyPath = ResolveAdministrationAssemblyPath();
+            return !TextUtility.IsBlank(assemblyPath) && File.Exists(assemblyPath)
+                ? Assembly.LoadFrom(assemblyPath)
+                : Assembly.Load("Microsoft.Web.Administration");
+        }
+
+        internal static string ResolveAdministrationAssemblyPath()
+        {
+            string windir = Environment.GetEnvironmentVariable("WINDIR");
+            if (TextUtility.IsBlank(windir)) return string.Empty;
+            return Path.Combine(Path.Combine(Path.Combine(windir, "System32"), "inetsrv"), "Microsoft.Web.Administration.dll");
         }
 
         private static object GetIndexerValue(object collection, string key)

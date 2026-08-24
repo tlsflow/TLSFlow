@@ -320,7 +320,7 @@ namespace GCAC.WindowsCompatibilityAgent
         {
             using (IDisposable manager = CreateServerManager()) { object binding = FindBinding(manager, siteName, bindingInformation); SetProperty(binding, "CertificateHash", hash); SetProperty(binding, "CertificateStoreName", TextUtility.IsBlank(storeName) ? "My" : storeName); InvokeMethod(manager, "CommitChanges"); }
         }
-        private static IDisposable CreateServerManager() { Assembly assembly = Assembly.Load("Microsoft.Web.Administration"); Type type = assembly.GetType("Microsoft.Web.Administration.ServerManager", true); return (IDisposable)Activator.CreateInstance(type); }
+        private static IDisposable CreateServerManager() { return IisInspector.CreateServerManager(); }
         private static object FindBinding(object manager, string siteName, string bindingInformation)
         {
             object sites = GetProperty(manager, "Sites"); PropertyInfo indexer = sites.GetType().GetProperty("Item", new Type[] { typeof(string) }); object site = indexer == null ? null : indexer.GetValue(sites, new object[] { siteName });

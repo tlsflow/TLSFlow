@@ -23,7 +23,7 @@ internal static class Tests
         Run("系统事实包含注册和详情所需字段", CapabilityCollectorIncludesSystemFacts);
         Run("注册请求包含系统描述字段", RegistrationRequestIncludesSystemDescriptor);
         Run("注册请求包含独立 Direct Control 端口", RegistrationRequestIncludesDirectControl);
-        Run("注册请求声明能力重扫 Direct Control 动作", RegistrationRequestIncludesCapabilityRescanDirectControl);
+        Run("注册请求声明运行时 Direct Control 动作", RegistrationRequestIncludesRuntimeDirectControlActions);
         Run("旧配置自动启用 Direct Control 和十秒心跳", LegacyConfigEnablesDirectControl);
         Run("显式关闭 Direct Control 时保持关闭", ExplicitDirectControlDisableIsPreserved);
         Run("能力报告使用 L2 和结构化声明", CapabilityRequestUsesStructuredL2Declarations);
@@ -34,10 +34,11 @@ internal static class Tests
         Run("IIS 证书哈希兼容字节数组和字符串", IisCertificateHashSupportsLegacyValues);
         Run("IIS 证书哈希支持属性缺失时的 Attribute 兜底", IisCertificateHashUsesAttributeFallback);
         Run("IIS HTTP.sys SSL 绑定支持按端口回退发现", IisHttpSysSslBindingFallback);
+        Run("IIS 管理程序集路径解析稳定", IisAdministrationAssemblyPathIsStable);
         Run("任务拉取结果展开公共动作载荷", PulledTaskNormalizesPublicActionPayload);
         Run("运行时注册手动重扫动作", RuntimeRegistersCapabilityRescan);
         Run("Direct Control 复用 Atomic Plan Registry", DirectControlUsesAtomicPlanRegistry);
-        Console.WriteLine("tests=" + 28 + " failures=" + failures);
+        Console.WriteLine("tests=" + 29 + " failures=" + failures);
         return failures == 0 ? 0 : 1;
     }
 
@@ -133,7 +134,7 @@ internal static class Tests
     {
         AgentConfig config = TestConfig();
         CapabilitySnapshot snapshot = Snapshot();
-        Dictionary<string, object> request = new ControlPlaneClient(config).BuildRegistrationRequest(snapshot);
+        Dictionary<string, object> request = new ControlPlaneClient(config).BuildRegistrationRequest(snapshot, RuntimeRegisteredActions());
         Assert(Convert.ToString(request["machineId"]) == "machine-1", "注册请求未上传 Machine ID");
         Assert(Convert.ToString(request["ipAddress"]) == "10.20.30.40", "注册请求未上传 IP 地址");
         Assert(Convert.ToString(request["osVersion"]) == "Windows Server 2008 R2 Standard", "注册请求未上传操作系统版本");
@@ -144,7 +145,7 @@ internal static class Tests
         AgentConfig config = TestConfig();
         config.directControlEnabled = true;
         config.directControlListenPort = 18933;
-        Dictionary<string, object> request = new ControlPlaneClient(config).BuildRegistrationRequest(Snapshot());
+        Dictionary<string, object> request = new ControlPlaneClient(config).BuildRegistrationRequest(Snapshot(), RuntimeRegisteredActions());
         Dictionary<string, object> directControl = request["directControl"] as Dictionary<string, object>;
         Assert(directControl != null, "注册请求未上传 Direct Control");
         Assert(Convert.ToString(directControl["listenAddress"]) == "10.20.30.40:18933", "Compatibility Agent 管理端口错误");
@@ -227,12 +228,15 @@ internal static class Tests
         Assert(object.ReferenceEquals(request["runtimeHealth"], runtimeHealth), "心跳请求未上传运行健康模型");
     }
 
-    private static void RegistrationRequestIncludesCapabilityRescanDirectControl()
+    private static void RegistrationRequestIncludesRuntimeDirectControlActions()
     {
-        Dictionary<string, object> request = new ControlPlaneClient(TestConfig()).BuildRegistrationRequest(Snapshot());
+        Dictionary<string, object> request = new ControlPlaneClient(TestConfig()).BuildRegistrationRequest(Snapshot(), RuntimeRegisteredActions());
         Dictionary<string, object> directControl = (Dictionary<string, object>)request["directControl"];
         string[] supportedActions = (string[])directControl["supportedActions"];
         Assert(Array.IndexOf(supportedActions, "agent.capability.rescan") >= 0, "注册请求未声明能力重扫 Direct Control 动作");
+        Assert(Array.IndexOf(supportedActions, "agent.atomic_plan.execute") >= 0, "注册请求未声明 Atomic Plan Direct Control 动作");
+        Assert(Array.IndexOf(supportedActions, "certificate.deploy") < 0, "注册请求仍声明历史证书动作");
+        Assert(Array.IndexOf(supportedActions, "windows.iis.deploy_certificate") < 0, "注册请求仍声明历史 IIS 证书动作");
     }
 
     private static void AgentIdentityPersistsAcrossRestart()
@@ -287,6 +291,13 @@ internal static class Tests
         Assert(result["CertificateStoreName"] == "MY", "HTTP.sys 证书存储解析错误");
     }
 
+    private static void IisAdministrationAssemblyPathIsStable()
+    {
+        string windir = Environment.GetEnvironmentVariable("WINDIR");
+        string expected = string.IsNullOrEmpty(windir) ? string.Empty : Path.Combine(Path.Combine(Path.Combine(windir, "System32"), "inetsrv"), "Microsoft.Web.Administration.dll");
+        Assert(IisInspector.ResolveAdministrationAssemblyPath() == expected, "IIS 管理程序集路径解析不稳定");
+    }
+
     private sealed class FakeIisBinding
     {
         public object CertificateHash { get { return null; } }
@@ -310,6 +321,22 @@ internal static class Tests
             Assert(Array.IndexOf(actions, "agent.atomic_plan.execute") >= 0, "运行时未注册 Atomic Plan 动作");
             Assert(Array.IndexOf(actions, "certificate.deploy") < 0, "运行时仍注册历史证书动作");
             Assert(Array.IndexOf(actions, "windows.iis.deploy_certificate") < 0, "运行时仍注册 IIS 历史别名");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    private static string[] RuntimeRegisteredActions()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-actions-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            AgentConfig config = TestConfig();
+            config.dataDirectory = Path.Combine(root, "data");
+            config.logDirectory = Path.Combine(root, "logs");
+            return new AgentRuntime(config).RegisteredActions();
         }
         finally
         {
