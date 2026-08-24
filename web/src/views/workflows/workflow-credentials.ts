@@ -1,6 +1,8 @@
 import type { ApiRecord } from '@/api/modules/common'
 import { listSecrets } from '@/api/modules/security.api'
 
+type WorkflowCredentialTranslate = (key: string, params?: Record<string, unknown>) => string
+
 export type WorkflowCredentialKind = 'username_password' | 'ssh_key' | 'curl_bearer' | 'curl_api_key'
 export type WorkflowCredentialSecretType = 'ssh_key' | 'password' | 'api_token'
 
@@ -105,11 +107,41 @@ export function workflowCredentialLabel(item: Pick<WorkflowManagedCredential, 'n
   return item.name
 }
 
-export function workflowCredentialSummary(item: Pick<WorkflowManagedCredential, 'kind' | 'username' | 'apiKeyName' | 'apiKeyIn'>): string {
-  if (item.kind === 'username_password') return `用户名 + 密码${item.username ? ` / ${item.username}` : ''}`
-  if (item.kind === 'ssh_key') return `SSH 私钥${item.username ? ` / ${item.username}` : ''}`
-  if (item.kind === 'curl_api_key') return `API Key / ${item.apiKeyName ?? 'X-API-Key'} / ${item.apiKeyIn === 'query' ? 'Query' : 'Header'}`
-  return 'Bearer Token'
+export function workflowCredentialSummary(
+  item: Pick<WorkflowManagedCredential, 'kind' | 'username' | 'apiKeyName' | 'apiKeyIn'>,
+  t?: WorkflowCredentialTranslate,
+): string {
+  const text = t ?? ((key: string, params?: Record<string, unknown>) => {
+    const fallback: Record<string, string> = {
+      'workflows.credentials.summary.usernamePassword': 'Username + password',
+      'workflows.credentials.summary.usernamePasswordWithUsername': 'Username + password / {username}',
+      'workflows.credentials.summary.sshKey': 'SSH private key',
+      'workflows.credentials.summary.sshKeyWithUsername': 'SSH private key / {username}',
+      'workflows.credentials.summary.apiKey': 'API Key / {name} / {location}',
+      'workflows.credentials.summary.bearerToken': 'Bearer Token',
+    }
+    return Object.entries(params ?? {}).reduce(
+      (message, [name, value]) => message.replace(`{${name}}`, String(value)),
+      fallback[key] ?? key,
+    )
+  })
+  if (item.kind === 'username_password') {
+    return item.username
+      ? text('workflows.credentials.summary.usernamePasswordWithUsername', { username: item.username })
+      : text('workflows.credentials.summary.usernamePassword')
+  }
+  if (item.kind === 'ssh_key') {
+    return item.username
+      ? text('workflows.credentials.summary.sshKeyWithUsername', { username: item.username })
+      : text('workflows.credentials.summary.sshKey')
+  }
+  if (item.kind === 'curl_api_key') {
+    return text('workflows.credentials.summary.apiKey', {
+      name: item.apiKeyName ?? 'X-API-Key',
+      location: item.apiKeyIn === 'query' ? 'Query' : 'Header',
+    })
+  }
+  return text('workflows.credentials.summary.bearerToken')
 }
 
 export function findWorkflowCredentialById(id: string, items: readonly WorkflowManagedCredential[]): WorkflowManagedCredential | null {

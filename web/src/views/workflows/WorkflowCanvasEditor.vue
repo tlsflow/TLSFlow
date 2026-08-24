@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { compileWorkflowCanvas, testWorkflowTemplateStep, validateWorkflowCanvasOnBackend } from '@/api/modules/workflow-templates.api'
 import {
   findWorkflowCredentialById,
@@ -82,6 +83,7 @@ const emit = defineEmits<{
   save: [value: { canvas: WorkflowCanvasDefinition }]
 }>()
 
+const { t } = useI18n()
 const history = ref<WorkflowCanvasDefinition[]>([])
 const future = ref<WorkflowCanvasDefinition[]>([])
 const selectedNodeId = ref('')
@@ -111,7 +113,7 @@ async function refreshManagedCredentials() {
     managedCredentials.value = await loadWorkflowCredentials()
   } catch (cause) {
     managedCredentials.value = []
-    credentialsLoadError.value = cause instanceof Error ? cause.message : '加载后端凭据失败'
+    credentialsLoadError.value = cause instanceof Error ? cause.message : t('workflows.canvasEditor.errors.credentialsLoadFailed')
   } finally {
     credentialsLoading.value = false
   }
@@ -235,11 +237,11 @@ const stepTestStderr = computed(() =>
   ),
 )
 const realRunButtonLabel = computed(() => {
-  if (stepTesting.value) return '试跑中...'
-  if (selectedNode.value?.type === 'ssh') return '真实 SSH 执行当前节点'
-  if (selectedNode.value?.type === 'sftp' || selectedNode.value?.type === 'scp') return '真实文件传输试跑'
-  if (selectedNode.value?.type === 'http' || selectedNode.value?.type === 'verify') return '真实 HTTP 试跑当前节点'
-  return '真实试跑当前节点'
+  if (stepTesting.value) return t('workflows.canvasEditor.actions.realRunRunning')
+  if (selectedNode.value?.type === 'ssh') return t('workflows.canvasEditor.actions.realRunSsh')
+  if (selectedNode.value?.type === 'sftp' || selectedNode.value?.type === 'scp') return t('workflows.canvasEditor.actions.realRunTransfer')
+  if (selectedNode.value?.type === 'http' || selectedNode.value?.type === 'verify') return t('workflows.canvasEditor.actions.realRunHttp')
+  return t('workflows.canvasEditor.actions.realRun')
 })
 const stepTestErrorDetail = computed<StepTestErrorDetail | null>(() => {
   const result = stepTestStepResult.value
@@ -301,7 +303,7 @@ async function syncBackendCanvasState(value: WorkflowCanvasDefinition) {
     if (seq !== backendCanvasSyncSeq) return
     validationIssues.value = []
     dslPreview.value = null
-    backendValidationMessage.value = error instanceof Error ? error.message : '后端画布校验失败'
+    backendValidationMessage.value = error instanceof Error ? error.message : t('workflows.canvasEditor.errors.backendValidationFailed')
   }
 }
 
@@ -335,7 +337,7 @@ function pasteNode() {
   const copy: WorkflowCanvasNode = {
     ...clipboardNode.value,
     id: `${clipboardNode.value.type}_${Date.now()}_copy`,
-    label: `${clipboardNode.value.label} 副本`,
+    label: t('workflows.canvasEditor.copyLabel', { label: clipboardNode.value.label }),
     position: {
       x: clipboardNode.value.position.x + 36,
       y: clipboardNode.value.position.y + 36,
@@ -446,11 +448,11 @@ function updateSelectedCredential(event: Event) {
 function credentialSelectorHint(node: WorkflowCanvasNode): string {
   if (node.type === 'http') {
     const authType = readNodeHttpAuthType(node.config.authType)
-    if (authType === 'basic') return '已保存的用户名 + 密码'
-    if (authType === 'bearer') return '已保存的 Bearer Token'
-    if (authType === 'api_key') return '已保存的 API Key'
+    if (authType === 'basic') return t('workflows.canvasEditor.credentialHints.savedUsernamePassword')
+    if (authType === 'bearer') return t('workflows.canvasEditor.credentialHints.savedBearerToken')
+    if (authType === 'api_key') return t('workflows.canvasEditor.credentialHints.savedApiKey')
   }
-  return '已保存的 SSH / SFTP 凭据'
+  return t('workflows.canvasEditor.credentialHints.savedSshSftp')
 }
 
 function resolveVariableCredential(definition: WorkflowVariableDefinition): WorkflowManagedCredential | null {
@@ -508,7 +510,7 @@ function updateRuntimeCredentialBinding(key: string, event: Event) {
 function addVariable() {
   let index = Object.keys(canvas.value.variables).length + 1
   while (canvas.value.variables[`variable${index}`]) index += 1
-  commit(upsertWorkflowVariable(canvas.value, `variable${index}`, { type: 'string', required: false, description: '自定义运行变量' }))
+  commit(upsertWorkflowVariable(canvas.value, `variable${index}`, { type: 'string', required: false, description: t('workflows.canvasEditor.variables.customRuntimeDescription') }))
 }
 
 function updateVariableName(oldName: string, event: Event) {
@@ -540,7 +542,7 @@ function save() {
 function resetDslEditorToCanvas() {
   dslEditorText.value = dslPreview.value ? JSON.stringify(dslPreview.value, null, 2) : ''
   dslEditorDirty.value = false
-  dslEditorMessage.value = '已回填后端编译后的 DSL。'
+  dslEditorMessage.value = t('workflows.canvasEditor.dsl.messages.resetToCompiled')
 }
 
 function updateDslEditor(event: Event) {
@@ -556,7 +558,7 @@ async function importDslFile(event: Event) {
   if (!file) return
   dslEditorText.value = await file.text()
   dslEditorDirty.value = true
-  dslEditorMessage.value = `已加载文件：${file.name}`
+  dslEditorMessage.value = t('workflows.canvasEditor.dsl.messages.fileLoaded', { fileName: file.name })
   target.value = ''
 }
 
@@ -565,16 +567,16 @@ function importDslIntoCanvas() {
   try {
     const parsed = JSON.parse(dslEditorText.value) as unknown
     if (!isWorkflowDslV1(parsed)) {
-      throw new Error('DSL 顶层结构无效，必须包含 apiVersion=gcac.workflow/v1、kind=CurlSshWorkflow、metadata、variables、steps。')
+      throw new Error(t('workflows.canvasEditor.dsl.errors.invalidTopLevel'))
     }
     const imported = workflowDslToCanvas(parsed)
     commit(imported)
     selectedNodeId.value = imported.nodes[0]?.id ?? ''
     dslEditorText.value = JSON.stringify(parsed, null, 2)
     dslEditorDirty.value = false
-    dslEditorMessage.value = `DSL 已导入并覆盖当前画布，共 ${imported.nodes.length} 个节点。`
+    dslEditorMessage.value = t('workflows.canvasEditor.dsl.messages.imported', { count: imported.nodes.length })
   } catch (error) {
-    dslEditorMessage.value = error instanceof Error ? error.message : 'DSL 导入失败'
+    dslEditorMessage.value = error instanceof Error ? error.message : t('workflows.canvasEditor.dsl.errors.importFailed')
   }
 }
 
@@ -605,9 +607,9 @@ async function runSelectedNode(mode: 'mock' | 'real_test') {
     const content = compiledData?.content as WorkflowDslV1 | undefined
     const stepNamesSource = compiledData ? readRecord(compiledData.stepNames) : null
     const stepNames = stepNamesSource ? stepNamesSource as Record<string, string> : {}
-    if (!content) throw new Error('后端未返回工作流 DSL')
+    if (!content) throw new Error(t('workflows.canvasEditor.errors.missingWorkflowDsl'))
     const stepName = stepNames[selectedNode.value.id]
-    if (!stepName) throw new Error('后端未返回当前节点对应的 stepName')
+    if (!stepName) throw new Error(t('workflows.canvasEditor.errors.missingStepName'))
     stepTestStepName.value = stepName
     const result = await testWorkflowTemplateStep({
       content,
@@ -621,24 +623,34 @@ async function runSelectedNode(mode: 'mock' | 'real_test') {
     const errorMessage = stepTestErrorDetail.value?.message
     if (status === 'failed' && errorMessage) {
       stepTestMessage.value = mode === 'real_test'
-        ? `节点 ${stepName} 真实试跑失败：${errorMessage}`
-        : `节点 ${stepName} 模拟失败：${errorMessage}`
+        ? t('workflows.canvasEditor.test.messages.realFailed', { stepName, errorMessage })
+        : t('workflows.canvasEditor.test.messages.mockFailed', { stepName, errorMessage })
     } else {
       stepTestMessage.value = mode === 'real_test'
-        ? `节点 ${stepName} 真实试跑完成：${status}`
-        : `节点 ${stepName} 模拟完成：${status}`
+        ? t('workflows.canvasEditor.test.messages.realCompleted', { stepName, status })
+        : t('workflows.canvasEditor.test.messages.mockCompleted', { stepName, status })
     }
   } catch (error) {
-    stepTestMessage.value = error instanceof Error ? error.message : (mode === 'real_test' ? '单节点真实试跑失败。' : '单节点模拟运行失败。')
+    stepTestMessage.value = error instanceof Error ? error.message : (mode === 'real_test' ? t('workflows.canvasEditor.test.errors.realRunFailed') : t('workflows.canvasEditor.test.errors.mockRunFailed'))
   } finally {
     stepTesting.value = false
   }
 }
 
 function issueLevelLabel(level: string) {
-  if (level === 'error') return '错误'
-  if (level === 'risk') return '风险'
-  return '警告'
+  if (level === 'error') return t('workflows.canvasEditor.validation.levels.error')
+  if (level === 'risk') return t('workflows.canvasEditor.validation.levels.risk')
+  return t('workflows.canvasEditor.validation.levels.warning')
+}
+
+function issueLocationLabel(issue: WorkflowValidationIssue): string {
+  const target = issue.nodeId
+    ? t('workflows.canvasEditor.validation.location.node', { nodeId: issue.nodeId })
+    : issue.edgeId
+      ? t('workflows.canvasEditor.validation.location.edge', { edgeId: issue.edgeId })
+      : t('workflows.canvasEditor.validation.location.canvas')
+  const field = issue.field ? t('workflows.canvasEditor.validation.location.fieldSuffix', { field: issue.field }) : ''
+  return `${target}${field}`
 }
 
 function mergeRuntimeState(current: StepRuntimeState, definition: WorkflowCanvasDefinition): StepRuntimeState {
@@ -798,21 +810,21 @@ function firstNumber(...values: unknown[]): number | undefined {
 
 <template>
   <section class="workflow-canvas-editor" :data-readonly="props.readonly ? 'true' : 'false'">
-    <header class="workflow-canvas-editor__toolbar" aria-label="工作流画布工具栏">
+    <header class="workflow-canvas-editor__toolbar" :aria-label="t('workflows.canvasEditor.aria.toolbar')">
       <div>
         <strong>{{ canvas.metadata.displayName || canvas.metadata.name }}</strong>
-        <span>{{ canvas.nodes.length }} 个节点 / {{ canvas.edges.length }} 条连线 / 缩放 {{ zoomPercent }}%</span>
+        <span>{{ t('workflows.canvasEditor.summary', { nodeCount: canvas.nodes.length, edgeCount: canvas.edges.length, zoomPercent }) }}</span>
       </div>
       <div class="workflow-canvas-editor__toolbar-actions">
-        <button class="gc-button" type="button" :disabled="!canEdit || history.length === 0" title="撤销" @click="undo">↶</button>
-        <button class="gc-button" type="button" :disabled="!canEdit || future.length === 0" title="重做" @click="redo">↷</button>
-        <button class="gc-button" type="button" :disabled="!canEdit || !selectedNode" title="复制节点" @click="copySelectedNode">复制</button>
-        <button class="gc-button" type="button" :disabled="!canEdit || !clipboardNode" title="粘贴节点" @click="pasteNode">粘贴</button>
-        <button class="gc-button" type="button" :disabled="!canEdit || !selectedNode" title="删除节点" @click="removeSelectedNode">删除</button>
-        <button class="gc-button" type="button" :disabled="!canEdit" title="缩小" @click="zoom(-0.1)">−</button>
-        <button class="gc-button" type="button" :disabled="!canEdit" title="放大" @click="zoom(0.1)">＋</button>
-        <button class="gc-button" type="button" :disabled="!canEdit" @click="layout">整理布局</button>
-        <button class="gc-button gc-button--primary" type="button" :disabled="saving || !canEdit" @click="save">{{ saving ? '保存中...' : '保存草稿' }}</button>
+        <button class="gc-button" type="button" :disabled="!canEdit || history.length === 0" :title="t('workflows.canvasEditor.actions.undo')" @click="undo">↶</button>
+        <button class="gc-button" type="button" :disabled="!canEdit || future.length === 0" :title="t('workflows.canvasEditor.actions.redo')" @click="redo">↷</button>
+        <button class="gc-button" type="button" :disabled="!canEdit || !selectedNode" :title="t('workflows.canvasEditor.actions.copyNode')" @click="copySelectedNode">{{ t('workflows.canvasEditor.actions.copy') }}</button>
+        <button class="gc-button" type="button" :disabled="!canEdit || !clipboardNode" :title="t('workflows.canvasEditor.actions.pasteNode')" @click="pasteNode">{{ t('workflows.canvasEditor.actions.paste') }}</button>
+        <button class="gc-button" type="button" :disabled="!canEdit || !selectedNode" :title="t('workflows.canvasEditor.actions.deleteNode')" @click="removeSelectedNode">{{ t('workflows.canvasEditor.actions.delete') }}</button>
+        <button class="gc-button" type="button" :disabled="!canEdit" :title="t('workflows.canvasEditor.actions.zoomOut')" @click="zoom(-0.1)">−</button>
+        <button class="gc-button" type="button" :disabled="!canEdit" :title="t('workflows.canvasEditor.actions.zoomIn')" @click="zoom(0.1)">＋</button>
+        <button class="gc-button" type="button" :disabled="!canEdit" @click="layout">{{ t('workflows.canvasEditor.actions.layout') }}</button>
+        <button class="gc-button gc-button--primary" type="button" :disabled="saving || !canEdit" @click="save">{{ saving ? t('workflows.canvasEditor.actions.saving') : t('workflows.canvasEditor.actions.saveDraft') }}</button>
         <slot name="toolbar-actions" />
       </div>
     </header>
@@ -820,10 +832,10 @@ function firstNumber(...values: unknown[]): number | undefined {
     <p v-if="saveMessage" class="workflow-canvas-editor__message">{{ saveMessage }}</p>
 
     <section class="workflow-canvas-editor__main">
-      <aside class="workflow-canvas-editor__palette" aria-label="节点库">
-        <h3>节点库</h3>
+      <aside class="workflow-canvas-editor__palette" :aria-label="t('workflows.canvasEditor.aria.nodePalette')">
+        <h3>{{ t('workflows.canvasEditor.sections.nodePalette') }}</h3>
         <label class="workflow-canvas-editor__stage-picker">
-          <span>新增节点阶段</span>
+          <span>{{ t('workflows.canvasEditor.fields.newNodeStage') }}</span>
           <select v-model="newNodeStage" :disabled="!canEdit">
             <option v-for="stage in WORKFLOW_STAGE_DEFINITIONS" :key="stage.key" :value="stage.key">{{ stage.title }}</option>
           </select>
@@ -849,7 +861,7 @@ function firstNumber(...values: unknown[]): number | undefined {
             width: `${WORKFLOW_FLOW_LAYOUT.surfaceWidth}px`,
             minHeight: `${surfaceHeight}px`,
           }"
-          aria-label="画布区域"
+          :aria-label="t('workflows.canvasEditor.aria.canvasArea')"
         >
           <div class="workflow-canvas-editor__stage-lanes" aria-hidden="true">
             <section
@@ -860,7 +872,7 @@ function firstNumber(...values: unknown[]): number | undefined {
             >
               <strong>{{ stage.title }}</strong>
               <span>{{ stage.description }}</span>
-              <small>{{ stage.count }} 个节点</small>
+              <small>{{ t('workflows.canvasEditor.stageNodeCount', { count: stage.count }) }}</small>
             </section>
           </div>
           <svg class="workflow-canvas-editor__edges" :width="WORKFLOW_FLOW_LAYOUT.surfaceWidth" :height="surfaceHeight" aria-hidden="true">
@@ -892,17 +904,17 @@ function firstNumber(...values: unknown[]): number | undefined {
         </div>
       </section>
 
-      <aside class="workflow-canvas-editor__properties" aria-label="属性面板">
-        <h3>属性面板</h3>
+      <aside class="workflow-canvas-editor__properties" :aria-label="t('workflows.canvasEditor.aria.propertiesPanel')">
+        <h3>{{ t('workflows.canvasEditor.sections.properties') }}</h3>
         <template v-if="selectedNode && selectedNodeDefinition">
           <label>
-            <span>所属阶段</span>
+            <span>{{ t('workflows.canvasEditor.fields.stage') }}</span>
             <select :value="getNodeStage(selectedNode)" :disabled="!canEdit" @change="updateStage">
               <option v-for="stage in WORKFLOW_STAGE_DEFINITIONS" :key="stage.key" :value="stage.key">{{ stage.title }}</option>
             </select>
           </label>
           <label>
-            <span>节点名称</span>
+            <span>{{ t('workflows.canvasEditor.fields.nodeName') }}</span>
             <input :value="selectedNode.label" :disabled="!canEdit" @input="updateLabel" />
           </label>
           <template v-if="selectedNode.type === 'http'">
@@ -921,9 +933,9 @@ function firstNumber(...values: unknown[]): number | undefined {
               <input :value="String(selectedNode.config.url ?? '')" :disabled="!canEdit" @input="updateField({ key: 'url', label: 'URL', kind: 'text' }, $event)" />
             </label>
             <div class="workflow-canvas-editor__property-group">
-              <strong>HTTP 认证</strong>
+              <strong>{{ t('workflows.canvasEditor.sections.httpAuth') }}</strong>
               <label>
-                <span>认证类型</span>
+                <span>{{ t('workflows.canvasEditor.fields.authType') }}</span>
                 <select :value="selectedNodeHttpAuthType" :disabled="!canEdit" @change="updateHttpAuthType">
                   <option value="none">none</option>
                   <option value="basic">basic</option>
@@ -932,49 +944,49 @@ function firstNumber(...values: unknown[]): number | undefined {
                 </select>
               </label>
               <label v-if="selectedNodeCredentialOptions.length && ['basic', 'bearer', 'api_key'].includes(selectedNodeHttpAuthType)">
-                <span>凭据选择器</span>
+                <span>{{ t('workflows.canvasEditor.fields.credentialSelector') }}</span>
                 <select :value="selectedNodeCredentialId" :disabled="!canEdit" @change="updateSelectedCredential">
-                  <option value="">手动填写</option>
+                  <option value="">{{ t('workflows.canvasEditor.options.manualInput') }}</option>
                   <option v-for="item in selectedNodeCredentialOptions" :key="item.id" :value="item.id">{{ workflowCredentialLabel(item) }}</option>
                 </select>
                 <small class="workflow-canvas-editor__property-hint">{{ credentialSelectorHint(selectedNode) }}</small>
               </label>
               <p v-if="credentialsLoadError" class="workflow-canvas-editor__property-empty">{{ credentialsLoadError }}</p>
-              <p v-else-if="credentialsLoading" class="workflow-canvas-editor__property-empty">正在从后端加载凭据...</p>
+              <p v-else-if="credentialsLoading" class="workflow-canvas-editor__property-empty">{{ t('workflows.canvasEditor.credentials.loading') }}</p>
               <label v-if="selectedNodeHttpAuthType === 'basic'">
-                <span>用户名</span>
-                <input :value="String(selectedNode.config.authUsername ?? '')" :disabled="!canEdit" @input="updateField({ key: 'authUsername', label: '用户名', kind: 'text' }, $event)" />
+                <span>{{ t('workflows.canvasEditor.fields.username') }}</span>
+                <input :value="String(selectedNode.config.authUsername ?? '')" :disabled="!canEdit" @input="updateField({ key: 'authUsername', label: t('workflows.canvasEditor.fields.username'), kind: 'text' }, $event)" />
               </label>
               <label v-if="['cookie', 'custom_header'].includes(selectedNodeHttpAuthType)">
-                <span>密文值</span>
-                <input type="password" :value="String(selectedNode.config.authSecretValue ?? '')" :disabled="!canEdit" @input="updateField({ key: 'authSecretValue', label: '密文值', kind: 'secret' }, $event)" />
+                <span>{{ t('workflows.canvasEditor.fields.secretValue') }}</span>
+                <input type="password" :value="String(selectedNode.config.authSecretValue ?? '')" :disabled="!canEdit" @input="updateField({ key: 'authSecretValue', label: t('workflows.canvasEditor.fields.secretValue'), kind: 'secret' }, $event)" />
               </label>
               <label v-if="selectedNodeHttpAuthType === 'api_key'">
-                <span>Key 名称</span>
-                <input :value="String(selectedNode.config.authApiKeyName ?? 'X-API-Key')" :disabled="!canEdit" @input="updateField({ key: 'authApiKeyName', label: 'Key 名称', kind: 'text' }, $event)" />
+                <span>{{ t('workflows.canvasEditor.fields.keyName') }}</span>
+                <input :value="String(selectedNode.config.authApiKeyName ?? 'X-API-Key')" :disabled="!canEdit" @input="updateField({ key: 'authApiKeyName', label: t('workflows.canvasEditor.fields.keyName'), kind: 'text' }, $event)" />
               </label>
               <label v-if="selectedNodeHttpAuthType === 'api_key'">
-                <span>传递位置</span>
-                <select :value="String(selectedNode.config.authApiKeyIn ?? 'header')" :disabled="!canEdit" @change="updateField({ key: 'authApiKeyIn', label: '传递位置', kind: 'select' }, $event)">
+                <span>{{ t('workflows.canvasEditor.fields.deliveryLocation') }}</span>
+                <select :value="String(selectedNode.config.authApiKeyIn ?? 'header')" :disabled="!canEdit" @change="updateField({ key: 'authApiKeyIn', label: t('workflows.canvasEditor.fields.deliveryLocation'), kind: 'select' }, $event)">
                   <option value="header">header</option>
                   <option value="query">query</option>
                 </select>
               </label>
               <label v-if="selectedNodeHttpAuthType === 'cookie'">
-                <span>Cookie 名称</span>
-                <input :value="String(selectedNode.config.authCookieName ?? '')" :disabled="!canEdit" @input="updateField({ key: 'authCookieName', label: 'Cookie 名称', kind: 'text' }, $event)" />
+                <span>{{ t('workflows.canvasEditor.fields.cookieName') }}</span>
+                <input :value="String(selectedNode.config.authCookieName ?? '')" :disabled="!canEdit" @input="updateField({ key: 'authCookieName', label: t('workflows.canvasEditor.fields.cookieName'), kind: 'text' }, $event)" />
               </label>
               <label v-if="selectedNodeHttpAuthType === 'custom_header'">
-                <span>Header 名称</span>
-                <input :value="String(selectedNode.config.authHeaderName ?? '')" :disabled="!canEdit" @input="updateField({ key: 'authHeaderName', label: 'Header 名称', kind: 'text' }, $event)" />
+                <span>{{ t('workflows.canvasEditor.fields.headerName') }}</span>
+                <input :value="String(selectedNode.config.authHeaderName ?? '')" :disabled="!canEdit" @input="updateField({ key: 'authHeaderName', label: t('workflows.canvasEditor.fields.headerName'), kind: 'text' }, $event)" />
               </label>
               <label v-if="selectedNodeHttpAuthType === 'mtls'">
-                <span>客户端证书</span>
-                <input type="password" :value="String(selectedNode.config.authCertSecretRef ?? '')" :disabled="!canEdit" @input="updateField({ key: 'authCertSecretRef', label: '客户端证书', kind: 'secret' }, $event)" />
+                <span>{{ t('workflows.canvasEditor.fields.clientCertificate') }}</span>
+                <input type="password" :value="String(selectedNode.config.authCertSecretRef ?? '')" :disabled="!canEdit" @input="updateField({ key: 'authCertSecretRef', label: t('workflows.canvasEditor.fields.clientCertificate'), kind: 'secret' }, $event)" />
               </label>
               <label v-if="selectedNodeHttpAuthType === 'mtls'">
-                <span>客户端私钥</span>
-                <input type="password" :value="String(selectedNode.config.authKeySecretRef ?? '')" :disabled="!canEdit" @input="updateField({ key: 'authKeySecretRef', label: '客户端私钥', kind: 'secret' }, $event)" />
+                <span>{{ t('workflows.canvasEditor.fields.clientPrivateKey') }}</span>
+                <input type="password" :value="String(selectedNode.config.authKeySecretRef ?? '')" :disabled="!canEdit" @input="updateField({ key: 'authKeySecretRef', label: t('workflows.canvasEditor.fields.clientPrivateKey'), kind: 'secret' }, $event)" />
               </label>
             </div>
             <label>
@@ -982,72 +994,72 @@ function firstNumber(...values: unknown[]): number | undefined {
               <textarea :value="String(selectedNode.config.body ?? '')" :disabled="!canEdit" rows="4" @input="updateField({ key: 'body', label: 'Body', kind: 'textarea' }, $event)" />
             </label>
             <label>
-              <span>超时秒数</span>
-              <input type="number" :value="String(selectedNode.config.timeoutSeconds ?? 30)" :disabled="!canEdit" @input="updateField({ key: 'timeoutSeconds', label: '超时秒数', kind: 'number' }, $event)" />
+              <span>{{ t('workflows.canvasEditor.fields.timeoutSeconds') }}</span>
+              <input type="number" :value="String(selectedNode.config.timeoutSeconds ?? 30)" :disabled="!canEdit" @input="updateField({ key: 'timeoutSeconds', label: t('workflows.canvasEditor.fields.timeoutSeconds'), kind: 'number' }, $event)" />
             </label>
           </template>
           <template v-else-if="['ssh', 'sftp', 'scp'].includes(selectedNode.type)">
             <label v-if="selectedNode.type === 'ssh'">
-              <span>主机变量 / 主机名</span>
-              <input :value="String(selectedNode.config.hostRef ?? '')" :disabled="!canEdit" @input="updateField({ key: 'hostRef', label: '主机变量', kind: 'text' }, $event)" />
+              <span>{{ t('workflows.canvasEditor.fields.hostRefOrHostname') }}</span>
+              <input :value="String(selectedNode.config.hostRef ?? '')" :disabled="!canEdit" @input="updateField({ key: 'hostRef', label: t('workflows.canvasEditor.fields.hostVariable'), kind: 'text' }, $event)" />
             </label>
             <label v-else>
-              <span>主机变量 / 主机名</span>
-              <input :value="String(selectedNode.config.connectionRef ?? '')" :disabled="!canEdit" @input="updateField({ key: 'connectionRef', label: '连接变量', kind: 'text' }, $event)" />
+              <span>{{ t('workflows.canvasEditor.fields.hostRefOrHostname') }}</span>
+              <input :value="String(selectedNode.config.connectionRef ?? '')" :disabled="!canEdit" @input="updateField({ key: 'connectionRef', label: t('workflows.canvasEditor.fields.connectionVariable'), kind: 'text' }, $event)" />
             </label>
             <label>
-              <span>用户名</span>
-              <input :value="String(selectedNode.config.username ?? '')" :disabled="!canEdit" @input="updateField({ key: 'username', label: '用户名', kind: 'text' }, $event)" />
+              <span>{{ t('workflows.canvasEditor.fields.username') }}</span>
+              <input :value="String(selectedNode.config.username ?? '')" :disabled="!canEdit" @input="updateField({ key: 'username', label: t('workflows.canvasEditor.fields.username'), kind: 'text' }, $event)" />
             </label>
             <label v-if="selectedNodeCredentialOptions.length">
-              <span>凭据选择器</span>
+              <span>{{ t('workflows.canvasEditor.fields.credentialSelector') }}</span>
               <select :value="selectedNodeCredentialId" :disabled="!canEdit" @change="updateSelectedCredential">
-                <option value="">手动填写</option>
+                <option value="">{{ t('workflows.canvasEditor.options.manualInput') }}</option>
                 <option v-for="item in selectedNodeCredentialOptions" :key="item.id" :value="item.id">{{ workflowCredentialLabel(item) }}</option>
               </select>
               <small class="workflow-canvas-editor__property-hint">{{ credentialSelectorHint(selectedNode) }}</small>
             </label>
             <p v-if="credentialsLoadError" class="workflow-canvas-editor__property-empty">{{ credentialsLoadError }}</p>
-            <p v-else-if="credentialsLoading" class="workflow-canvas-editor__property-empty">正在从后端加载凭据...</p>
-            <p v-else-if="!selectedNodeCredentialOptions.length" class="workflow-canvas-editor__property-empty">暂无可用凭据，请先在列表页打开“凭据管理”创建。</p>
+            <p v-else-if="credentialsLoading" class="workflow-canvas-editor__property-empty">{{ t('workflows.canvasEditor.credentials.loading') }}</p>
+            <p v-else-if="!selectedNodeCredentialOptions.length" class="workflow-canvas-editor__property-empty">{{ t('workflows.canvasEditor.credentials.emptyCreateHint') }}</p>
             <template v-if="selectedNode.type === 'ssh'">
               <label>
-                <span>命令</span>
-                <textarea :value="String(selectedNode.config.command ?? '')" :disabled="!canEdit" rows="5" @input="updateField({ key: 'command', label: '命令', kind: 'textarea' }, $event)" />
+                <span>{{ t('workflows.canvasEditor.fields.command') }}</span>
+                <textarea :value="String(selectedNode.config.command ?? '')" :disabled="!canEdit" rows="5" @input="updateField({ key: 'command', label: t('workflows.canvasEditor.fields.command'), kind: 'textarea' }, $event)" />
               </label>
             </template>
             <template v-else>
               <label>
-                <span>方向</span>
-                <select :value="String(selectedNode.config.direction ?? 'upload')" :disabled="!canEdit" @change="updateField({ key: 'direction', label: '方向', kind: 'select' }, $event)">
-                  <option value="upload">上传</option>
-                  <option value="download">下载</option>
+                <span>{{ t('workflows.canvasEditor.fields.direction') }}</span>
+                <select :value="String(selectedNode.config.direction ?? 'upload')" :disabled="!canEdit" @change="updateField({ key: 'direction', label: t('workflows.canvasEditor.fields.direction'), kind: 'select' }, $event)">
+                  <option value="upload">{{ t('workflows.canvasEditor.options.upload') }}</option>
+                  <option value="download">{{ t('workflows.canvasEditor.options.download') }}</option>
                 </select>
               </label>
               <label>
-                <span>远端路径</span>
-                <input :value="String(selectedNode.config.remotePath ?? '')" :disabled="!canEdit" @input="updateField({ key: 'remotePath', label: '远端路径', kind: 'text' }, $event)" />
+                <span>{{ t('workflows.canvasEditor.fields.remotePath') }}</span>
+                <input :value="String(selectedNode.config.remotePath ?? '')" :disabled="!canEdit" @input="updateField({ key: 'remotePath', label: t('workflows.canvasEditor.fields.remotePath'), kind: 'text' }, $event)" />
               </label>
               <label>
-                <span>临时路径</span>
-                <input :value="String(selectedNode.config.temporaryPath ?? '')" :disabled="!canEdit" @input="updateField({ key: 'temporaryPath', label: '临时路径', kind: 'text' }, $event)" />
+                <span>{{ t('workflows.canvasEditor.fields.temporaryPath') }}</span>
+                <input :value="String(selectedNode.config.temporaryPath ?? '')" :disabled="!canEdit" @input="updateField({ key: 'temporaryPath', label: t('workflows.canvasEditor.fields.temporaryPath'), kind: 'text' }, $event)" />
               </label>
               <label>
-                <span>内容引用</span>
-                <input :value="String(selectedNode.config.contentRef ?? '')" :disabled="!canEdit" @input="updateField({ key: 'contentRef', label: '内容引用', kind: 'text' }, $event)" />
+                <span>{{ t('workflows.canvasEditor.fields.contentRef') }}</span>
+                <input :value="String(selectedNode.config.contentRef ?? '')" :disabled="!canEdit" @input="updateField({ key: 'contentRef', label: t('workflows.canvasEditor.fields.contentRef'), kind: 'text' }, $event)" />
               </label>
               <label>
-                <span>本地路径</span>
-                <input :value="String(selectedNode.config.localPath ?? '')" :disabled="!canEdit" @input="updateField({ key: 'localPath', label: '本地路径', kind: 'text' }, $event)" />
+                <span>{{ t('workflows.canvasEditor.fields.localPath') }}</span>
+                <input :value="String(selectedNode.config.localPath ?? '')" :disabled="!canEdit" @input="updateField({ key: 'localPath', label: t('workflows.canvasEditor.fields.localPath'), kind: 'text' }, $event)" />
               </label>
               <label>
-                <span>文件权限</span>
-                <input :value="String(selectedNode.config.mode ?? '')" :disabled="!canEdit" @input="updateField({ key: 'mode', label: '文件权限', kind: 'text' }, $event)" />
+                <span>{{ t('workflows.canvasEditor.fields.fileMode') }}</span>
+                <input :value="String(selectedNode.config.mode ?? '')" :disabled="!canEdit" @input="updateField({ key: 'mode', label: t('workflows.canvasEditor.fields.fileMode'), kind: 'text' }, $event)" />
               </label>
             </template>
             <label>
-              <span>超时秒数</span>
-              <input type="number" :value="String(selectedNode.config.timeoutSeconds ?? 60)" :disabled="!canEdit" @input="updateField({ key: 'timeoutSeconds', label: '超时秒数', kind: 'number' }, $event)" />
+              <span>{{ t('workflows.canvasEditor.fields.timeoutSeconds') }}</span>
+              <input type="number" :value="String(selectedNode.config.timeoutSeconds ?? 60)" :disabled="!canEdit" @input="updateField({ key: 'timeoutSeconds', label: t('workflows.canvasEditor.fields.timeoutSeconds'), kind: 'number' }, $event)" />
             </label>
           </template>
           <template v-else>
@@ -1065,12 +1077,12 @@ function firstNumber(...values: unknown[]): number | undefined {
               {{ realRunButtonLabel }}
             </button>
             <button class="gc-button workflow-canvas-editor__test-button" type="button" :disabled="stepTesting" @click="testSelectedNode">
-              {{ stepTesting ? '模拟中...' : '仅模拟当前节点' }}
+              {{ stepTesting ? t('workflows.canvasEditor.actions.mockRunning') : t('workflows.canvasEditor.actions.mockCurrentNode') }}
             </button>
           </div>
-          <small class="workflow-canvas-editor__test-hint">真实试跑会直接访问目标 HTTP/SSH/SFTP/SCP 节点并返回输出；仅模拟不会连接目标主机。</small>
+          <small class="workflow-canvas-editor__test-hint">{{ t('workflows.canvasEditor.test.hint') }}</small>
         </template>
-        <p v-else>选择节点后编辑配置。</p>
+        <p v-else>{{ t('workflows.canvasEditor.empty.selectNodeToEdit') }}</p>
       </aside>
     </section>
 
@@ -1080,51 +1092,51 @@ function firstNumber(...values: unknown[]): number | undefined {
       :aria-expanded="!bottomPanelCollapsed"
     >
       <div class="workflow-canvas-editor__bottom-header">
-        <nav class="workflow-canvas-editor__tabs" aria-label="底部面板">
-          <button type="button" :data-active="activeBottomPanel === 'validation'" @click="selectBottomPanel('validation')">校验</button>
-          <button type="button" :data-active="activeBottomPanel === 'variables'" @click="selectBottomPanel('variables')">变量</button>
-          <button type="button" :data-active="activeBottomPanel === 'runtime'" @click="selectBottomPanel('runtime')">运行态</button>
+        <nav class="workflow-canvas-editor__tabs" :aria-label="t('workflows.canvasEditor.aria.bottomPanel')">
+          <button type="button" :data-active="activeBottomPanel === 'validation'" @click="selectBottomPanel('validation')">{{ t('workflows.canvasEditor.tabs.validation') }}</button>
+          <button type="button" :data-active="activeBottomPanel === 'variables'" @click="selectBottomPanel('variables')">{{ t('workflows.canvasEditor.tabs.variables') }}</button>
+          <button type="button" :data-active="activeBottomPanel === 'runtime'" @click="selectBottomPanel('runtime')">{{ t('workflows.canvasEditor.tabs.runtime') }}</button>
           <button type="button" :data-active="activeBottomPanel === 'dsl'" @click="selectBottomPanel('dsl')">DSL</button>
         </nav>
         <button
           class="workflow-canvas-editor__bottom-toggle"
           type="button"
           :aria-expanded="!bottomPanelCollapsed"
-          :aria-label="bottomPanelCollapsed ? '展开底部控制面板' : '向下折叠底部控制面板'"
+          :aria-label="bottomPanelCollapsed ? t('workflows.canvasEditor.actions.expandBottomPanelAria') : t('workflows.canvasEditor.actions.collapseBottomPanelAria')"
           @click="toggleBottomPanelCollapsed"
         >
           <span class="workflow-canvas-editor__bottom-toggle-icon" aria-hidden="true"></span>
-          <span>{{ bottomPanelCollapsed ? '展开面板' : '向下折叠' }}</span>
+          <span>{{ bottomPanelCollapsed ? t('workflows.canvasEditor.actions.expandPanel') : t('workflows.canvasEditor.actions.collapseDown') }}</span>
         </button>
       </div>
 
-      <div v-if="!bottomPanelCollapsed && activeBottomPanel === 'validation'" class="workflow-canvas-editor__panel" aria-label="校验面板">
+      <div v-if="!bottomPanelCollapsed && activeBottomPanel === 'validation'" class="workflow-canvas-editor__panel" :aria-label="t('workflows.canvasEditor.aria.validationPanel')">
         <p v-if="backendValidationMessage" class="workflow-canvas-editor__runtime-empty">{{ backendValidationMessage }}</p>
-        <p v-else-if="validationIssues.length === 0">没有阻断错误。</p>
+        <p v-else-if="validationIssues.length === 0">{{ t('workflows.canvasEditor.validation.noBlockingErrors') }}</p>
         <ul v-else>
           <li v-for="issue in validationIssues" :key="issue.id" :data-severity="issue.severity">
             <strong>{{ issueLevelLabel(issue.severity) }}</strong>
             <span>{{ issue.message }}</span>
-            <small>{{ issue.nodeId ? `节点 ${issue.nodeId}` : issue.edgeId ? `连线 ${issue.edgeId}` : '画布' }}{{ issue.field ? ` / 字段 ${issue.field}` : '' }} · {{ issue.suggestion }}</small>
+            <small>{{ issueLocationLabel(issue) }} · {{ issue.suggestion }}</small>
           </li>
         </ul>
       </div>
 
-      <div v-else-if="!bottomPanelCollapsed && activeBottomPanel === 'variables'" class="workflow-canvas-editor__panel" aria-label="变量面板">
+      <div v-else-if="!bottomPanelCollapsed && activeBottomPanel === 'variables'" class="workflow-canvas-editor__panel" :aria-label="t('workflows.canvasEditor.aria.variablesPanel')">
         <div class="workflow-canvas-editor__variables-header">
-          <strong>变量配置</strong>
-          <button class="gc-button" type="button" :disabled="!canEdit" @click="addVariable">添加变量</button>
+          <strong>{{ t('workflows.canvasEditor.sections.variableConfig') }}</strong>
+          <button class="gc-button" type="button" :disabled="!canEdit" @click="addVariable">{{ t('workflows.canvasEditor.actions.addVariable') }}</button>
         </div>
         <p v-if="credentialsLoadError" class="workflow-canvas-editor__runtime-empty">{{ credentialsLoadError }}</p>
-        <p v-else-if="credentialsLoading" class="workflow-canvas-editor__runtime-empty">正在从后端加载凭据...</p>
+        <p v-else-if="credentialsLoading" class="workflow-canvas-editor__runtime-empty">{{ t('workflows.canvasEditor.credentials.loading') }}</p>
         <ul class="workflow-canvas-editor__variable-editor-list">
           <li v-for="(definition, name) in canvas.variables" :key="name" class="workflow-canvas-editor__variable-editor">
             <label>
-              <span>变量名</span>
+              <span>{{ t('workflows.canvasEditor.fields.variableName') }}</span>
               <input :value="name" :disabled="!canEdit" @change="updateVariableName(String(name), $event)" />
             </label>
             <label>
-              <span>类型</span>
+              <span>{{ t('workflows.canvasEditor.fields.type') }}</span>
               <select :value="definition.type" :disabled="!canEdit" @change="updateVariableField(String(name), 'type', $event)">
                 <option value="string">string</option>
                 <option value="number">number</option>
@@ -1137,63 +1149,63 @@ function firstNumber(...values: unknown[]): number | undefined {
               </select>
             </label>
             <label v-if="definition.type === 'credential'">
-              <span>凭据</span>
+              <span>{{ t('workflows.canvasEditor.fields.credential') }}</span>
               <select :value="resolveVariableCredentialId(definition)" :disabled="!canEdit" @change="updateVariableCredential(String(name), $event)">
-                <option value="">未选择</option>
+                <option value="">{{ t('workflows.canvasEditor.options.notSelected') }}</option>
                 <option v-for="item in managedCredentials" :key="item.id" :value="item.id">{{ workflowCredentialLabel(item) }}</option>
               </select>
             </label>
             <label v-else>
-              <span>默认值</span>
+              <span>{{ t('workflows.canvasEditor.fields.defaultValue') }}</span>
               <input :value="String(definition.default ?? '')" :disabled="!canEdit" @change="updateVariableField(String(name), 'default', $event)" />
             </label>
             <label class="workflow-canvas-editor__variable-check">
               <input type="checkbox" :checked="Boolean(definition.required)" :disabled="!canEdit" @change="updateVariableField(String(name), 'required', $event)" />
-              <span>必填</span>
+              <span>{{ t('workflows.canvasEditor.fields.required') }}</span>
             </label>
             <label class="workflow-canvas-editor__variable-check">
               <input type="checkbox" :checked="Boolean(definition.sensitive)" :disabled="!canEdit || definition.type === 'credential' || definition.type === 'certificate'" @change="updateVariableField(String(name), 'sensitive', $event)" />
-              <span>敏感</span>
+              <span>{{ t('workflows.canvasEditor.fields.sensitive') }}</span>
             </label>
             <label>
-              <span>说明</span>
+              <span>{{ t('workflows.canvasEditor.fields.description') }}</span>
               <input :value="definition.description ?? ''" :disabled="!canEdit" @change="updateVariableField(String(name), 'description', $event)" />
             </label>
-            <button class="gc-button" type="button" :disabled="!canEdit" @click="deleteVariable(String(name))">删除</button>
+            <button class="gc-button" type="button" :disabled="!canEdit" @click="deleteVariable(String(name))">{{ t('workflows.canvasEditor.actions.delete') }}</button>
           </li>
         </ul>
         <div class="workflow-canvas-editor__variables-header">
-          <strong>引用流</strong>
+          <strong>{{ t('workflows.canvasEditor.sections.referenceFlow') }}</strong>
         </div>
         <ul>
           <li v-for="variable in variableFlow" :key="`${variable.source}:${variable.name}`">
             <strong>{{ variable.name }}</strong>
-            <span>{{ variable.source }} / {{ variable.type }}{{ variable.sensitive ? ' / 敏感' : '' }}</span>
-            <small>使用位置：{{ variable.usedBy.length ? variable.usedBy.join('、') : '未使用' }}</small>
+            <span>{{ variable.source }} / {{ variable.type }}{{ variable.sensitive ? ` / ${t('workflows.canvasEditor.fields.sensitive')}` : '' }}</span>
+            <small>{{ t('workflows.canvasEditor.variables.usedBy', { locations: variable.usedBy.length ? variable.usedBy.join(' / ') : t('workflows.canvasEditor.variables.notUsed') }) }}</small>
           </li>
         </ul>
       </div>
 
-      <div v-else-if="!bottomPanelCollapsed && activeBottomPanel === 'runtime'" class="workflow-canvas-editor__panel" aria-label="运行态面板">
+      <div v-else-if="!bottomPanelCollapsed && activeBottomPanel === 'runtime'" class="workflow-canvas-editor__panel" :aria-label="t('workflows.canvasEditor.aria.runtimePanel')">
         <div class="workflow-canvas-editor__runtime-header">
-          <strong>单节点测试运行</strong>
+          <strong>{{ t('workflows.canvasEditor.sections.singleNodeTest') }}</strong>
           <span v-if="stepTestMessage">{{ stepTestMessage }}</span>
         </div>
         <div class="workflow-canvas-editor__runtime-inputs">
-          <strong>运行时凭据变量</strong>
+          <strong>{{ t('workflows.canvasEditor.sections.runtimeCredentialVariables') }}</strong>
           <p v-if="credentialsLoadError" class="workflow-canvas-editor__runtime-empty">{{ credentialsLoadError }}</p>
-          <p v-else-if="credentialsLoading" class="workflow-canvas-editor__runtime-empty">正在从后端加载凭据...</p>
+          <p v-else-if="credentialsLoading" class="workflow-canvas-editor__runtime-empty">{{ t('workflows.canvasEditor.credentials.loading') }}</p>
           <div v-if="Object.entries(canvas.variables).some(([, definition]) => definition.type === 'credential')" class="workflow-canvas-editor__runtime-form">
             <label v-for="(definition, name) in canvas.variables" v-show="definition.type === 'credential'" :key="`runtime-credential:${name}`">
               <span>{{ name }}</span>
               <select :value="resolveRuntimeCredentialId(String(name)) || resolveVariableCredentialId(definition)" @change="updateRuntimeCredentialBinding(String(name), $event)">
-                <option value="">未选择</option>
+                <option value="">{{ t('workflows.canvasEditor.options.notSelected') }}</option>
                 <option v-for="item in runtimeCredentialOptions(String(name))" :key="item.id" :value="item.id">{{ workflowCredentialLabel(item) }}</option>
               </select>
             </label>
           </div>
-          <p v-else class="workflow-canvas-editor__runtime-empty">当前工作流没有凭据变量。</p>
-          <strong>运行时变量</strong>
+          <p v-else class="workflow-canvas-editor__runtime-empty">{{ t('workflows.canvasEditor.runtime.noCredentialVariables') }}</p>
+          <strong>{{ t('workflows.canvasEditor.sections.runtimeVariables') }}</strong>
           <div v-if="Object.entries(canvas.variables).filter(([, definition]) => definition.type !== 'certificate' && definition.type !== 'credential').length" class="workflow-canvas-editor__runtime-form">
             <label v-for="(definition, name) in canvas.variables" v-show="definition.type !== 'certificate' && definition.type !== 'credential'" :key="`runtime:${name}`">
               <span>{{ name }}</span>
@@ -1224,10 +1236,10 @@ function firstNumber(...values: unknown[]): number | undefined {
               />
             </label>
           </div>
-          <p v-else class="workflow-canvas-editor__runtime-empty">当前节点没有额外运行时变量。</p>
+          <p v-else class="workflow-canvas-editor__runtime-empty">{{ t('workflows.canvasEditor.runtime.noExtraVariables') }}</p>
         </div>
-        <p v-if="!stepTestResult && !stepTesting">选择节点后，在属性面板点击“模拟运行当前节点”或“真实试跑当前节点”。</p>
-        <p v-else-if="stepTesting">正在执行测试运行...</p>
+        <p v-if="!stepTestResult && !stepTesting">{{ t('workflows.canvasEditor.test.emptyHint') }}</p>
+        <p v-else-if="stepTesting">{{ t('workflows.canvasEditor.test.running') }}</p>
         <div v-else class="workflow-canvas-editor__runtime-result">
           <ul>
             <li>
@@ -1237,30 +1249,30 @@ function firstNumber(...values: unknown[]): number | undefined {
             </li>
           </ul>
           <div v-if="stepTestErrorDetail" class="workflow-canvas-editor__runtime-error">
-            <strong>失败详情</strong>
+            <strong>{{ t('workflows.canvasEditor.test.failureDetails') }}</strong>
             <dl>
               <div v-if="stepTestErrorDetail.message">
-                <dt>错误</dt>
+                <dt>{{ t('workflows.canvasEditor.test.error') }}</dt>
                 <dd>{{ stepTestErrorDetail.message }}</dd>
               </div>
               <div v-if="stepTestErrorDetail.code">
-                <dt>代码</dt>
+                <dt>{{ t('workflows.canvasEditor.test.code') }}</dt>
                 <dd>{{ stepTestErrorDetail.code }}</dd>
               </div>
               <div v-if="stepTestErrorDetail.target">
-                <dt>目标</dt>
+                <dt>{{ t('workflows.canvasEditor.test.target') }}</dt>
                 <dd>{{ stepTestErrorDetail.target }}</dd>
               </div>
               <div v-if="stepTestErrorDetail.stage || stepTestErrorDetail.category">
-                <dt>阶段</dt>
+                <dt>{{ t('workflows.canvasEditor.test.stage') }}</dt>
                 <dd>{{ [stepTestErrorDetail.stage, stepTestErrorDetail.category].filter(Boolean).join(' / ') }}</dd>
               </div>
               <div v-if="stepTestErrorDetail.cause">
-                <dt>原因</dt>
+                <dt>{{ t('workflows.canvasEditor.test.cause') }}</dt>
                 <dd>{{ stepTestErrorDetail.cause }}</dd>
               </div>
               <div v-if="stepTestErrorDetail.suggestion">
-                <dt>建议</dt>
+                <dt>{{ t('workflows.canvasEditor.test.suggestion') }}</dt>
                 <dd>{{ stepTestErrorDetail.suggestion }}</dd>
               </div>
             </dl>
@@ -1270,25 +1282,25 @@ function firstNumber(...values: unknown[]): number | undefined {
             class="workflow-canvas-editor__runtime-summary"
           >
             <div v-if="stepTestExitCode !== undefined">
-              <dt>退出码</dt>
+              <dt>{{ t('workflows.canvasEditor.test.exitCode') }}</dt>
               <dd>{{ stepTestExitCode }}</dd>
             </div>
             <div v-if="stepTestStdout">
-              <dt>标准输出</dt>
+              <dt>{{ t('workflows.canvasEditor.test.stdout') }}</dt>
               <dd><pre>{{ stepTestStdout }}</pre></dd>
             </div>
             <div v-if="stepTestStderr">
-              <dt>标准错误</dt>
+              <dt>{{ t('workflows.canvasEditor.test.stderr') }}</dt>
               <dd><pre>{{ stepTestStderr }}</pre></dd>
             </div>
           </dl>
-          <strong>执行计划</strong>
+          <strong>{{ t('workflows.canvasEditor.test.executionPlan') }}</strong>
           <pre>{{ stepTestPlanText }}</pre>
           <template v-if="stepTestOutput !== null">
-            <strong>节点输出</strong>
+            <strong>{{ t('workflows.canvasEditor.test.nodeOutput') }}</strong>
             <pre>{{ stepTestOutputText }}</pre>
           </template>
-          <strong>日志</strong>
+          <strong>{{ t('workflows.canvasEditor.test.logs') }}</strong>
           <ul>
             <li v-for="(line, index) in stepTestLogs" :key="`${index}:${line}`">
               <span>{{ line }}</span>
@@ -1297,19 +1309,19 @@ function firstNumber(...values: unknown[]): number | undefined {
         </div>
       </div>
 
-      <div v-else-if="!bottomPanelCollapsed" class="workflow-canvas-editor__panel workflow-canvas-editor__dsl-panel" aria-label="DSL 面板">
+      <div v-else-if="!bottomPanelCollapsed" class="workflow-canvas-editor__panel workflow-canvas-editor__dsl-panel" :aria-label="t('workflows.canvasEditor.aria.dslPanel')">
         <div class="workflow-canvas-editor__dsl-actions">
-          <strong>DSL 导入与覆盖</strong>
+          <strong>{{ t('workflows.canvasEditor.dsl.title') }}</strong>
           <div class="workflow-canvas-editor__dsl-actions-row">
             <label class="workflow-canvas-editor__dsl-file">
-              <span>选择 DSL 文件</span>
+              <span>{{ t('workflows.canvasEditor.dsl.selectFile') }}</span>
               <input type="file" accept=".json,.dsl,.txt,application/json" :disabled="!canEdit" @change="importDslFile" />
             </label>
-            <button class="gc-button" type="button" @click="resetDslEditorToCanvas">回填当前画布 DSL</button>
-            <button class="gc-button gc-button--primary" type="button" :disabled="!canEdit" @click="importDslIntoCanvas">导入 DSL 覆盖画布</button>
+            <button class="gc-button" type="button" @click="resetDslEditorToCanvas">{{ t('workflows.canvasEditor.dsl.actions.resetToCanvas') }}</button>
+            <button class="gc-button gc-button--primary" type="button" :disabled="!canEdit" @click="importDslIntoCanvas">{{ t('workflows.canvasEditor.dsl.actions.importOverwrite') }}</button>
           </div>
         </div>
-        <p class="workflow-canvas-editor__dsl-hint">可直接粘贴外部 DSL JSON，或选择本地 DSL 文件。导入只覆盖浏览器中的当前画布，点击“保存草稿”后才会生成新的工作流版本。</p>
+        <p class="workflow-canvas-editor__dsl-hint">{{ t('workflows.canvasEditor.dsl.hint') }}</p>
         <p v-if="dslEditorMessage" class="workflow-canvas-editor__dsl-message">{{ dslEditorMessage }}</p>
         <textarea
           class="workflow-canvas-editor__dsl-editor"

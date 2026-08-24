@@ -1,3 +1,4 @@
+import { i18n } from '@/i18n'
 import {
   workflowCredentialBinding,
   type WorkflowCredentialBinding,
@@ -11,6 +12,11 @@ export type WorkflowValidationSeverity = 'error' | 'warning' | 'risk'
 export type WorkflowCanvasStage = 'prepare' | 'backup' | 'install' | 'refresh' | 'verify'
 export type WorkflowCanvasHttpAuthType = 'none' | 'basic' | 'bearer' | 'api_key' | 'cookie' | 'custom_header' | 'mtls'
 export type WorkflowDslCredentialValue = WorkflowCredentialBinding | string
+
+function canvasModelText(key: string, params?: Record<string, string | number>): string {
+  const fullKey = `workflows.canvasModel.${key}`
+  return params ? i18n.global.t(fullKey, params) : i18n.global.t(fullKey)
+}
 
 export interface WorkflowCanvasPosition {
   readonly x: number
@@ -249,14 +255,14 @@ export const NODE_TYPE_DEFINITIONS: readonly WorkflowNodeTypeDefinition[] = [
     type: 'http',
     displayName: 'HTTP/CURL',
     category: 'http',
-    description: '调用结构化 HTTP 接口，替代散落的 curl 字符串。',
+    description: canvasModelText('nodeTypes.http.description'),
     inputPorts: ['input'],
     outputPorts: ['success', 'failure'],
     fields: [
       { key: 'method', label: 'Method', kind: 'select', required: true, options: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((value) => ({ label: value, value })) },
       { key: 'url', label: 'URL', kind: 'text', required: true },
       { key: 'body', label: 'Body', kind: 'textarea' },
-      { key: 'timeoutSeconds', label: '超时秒数', kind: 'number', required: true },
+      { key: 'timeoutSeconds', label: canvasModelText('fields.timeoutSeconds'), kind: 'number', required: true },
     ],
     produces: [
       { name: 'statusCode', type: 'number' },
@@ -266,23 +272,23 @@ export const NODE_TYPE_DEFINITIONS: readonly WorkflowNodeTypeDefinition[] = [
   },
   {
     type: 'ssh',
-    displayName: 'SSH 命令',
+    displayName: canvasModelText('nodeTypes.ssh.displayName'),
     category: 'ssh',
-    description: '声明要执行的 SSH 命令，只保存连接和凭据引用。',
+    description: canvasModelText('nodeTypes.ssh.description'),
     inputPorts: ['input'],
     outputPorts: ['success', 'failure'],
     fields: [
-      { key: 'hostRef', label: '主机变量', kind: 'text', required: true },
-      { key: 'username', label: '用户名变量', kind: 'text', required: true },
-      { key: 'credential', label: '凭据', kind: 'text', required: true },
-      { key: 'hostKeyPolicy', label: 'Host Key 策略', kind: 'select', required: true, options: [
-        { label: '首次信任', value: 'trust_on_first_use' },
-        { label: '严格校验', value: 'strict' },
-        { label: '人工审批', value: 'manual_approval_required' },
+      { key: 'hostRef', label: canvasModelText('fields.hostRef'), kind: 'text', required: true },
+      { key: 'username', label: canvasModelText('fields.usernameVariable'), kind: 'text', required: true },
+      { key: 'credential', label: canvasModelText('fields.credential'), kind: 'text', required: true },
+      { key: 'hostKeyPolicy', label: canvasModelText('fields.hostKeyPolicy'), kind: 'select', required: true, options: [
+        { label: canvasModelText('options.hostKeyPolicy.trustOnFirstUse'), value: 'trust_on_first_use' },
+        { label: canvasModelText('options.hostKeyPolicy.strict'), value: 'strict' },
+        { label: canvasModelText('options.hostKeyPolicy.manualApproval'), value: 'manual_approval_required' },
       ] },
-      { key: 'expectedHostKeyFingerprint', label: 'Host Key 指纹', kind: 'text' },
-      { key: 'command', label: '命令', kind: 'textarea', required: true },
-      { key: 'timeoutSeconds', label: '超时秒数', kind: 'number', required: true },
+      { key: 'expectedHostKeyFingerprint', label: canvasModelText('fields.expectedHostKeyFingerprint'), kind: 'text' },
+      { key: 'command', label: canvasModelText('fields.command'), kind: 'textarea', required: true },
+      { key: 'timeoutSeconds', label: canvasModelText('fields.timeoutSeconds'), kind: 'number', required: true },
     ],
     produces: [
       { name: 'exitCode', type: 'number' },
@@ -292,28 +298,28 @@ export const NODE_TYPE_DEFINITIONS: readonly WorkflowNodeTypeDefinition[] = [
   },
   {
     type: 'sftp',
-    displayName: 'SFTP 上传/下载',
+    displayName: canvasModelText('nodeTypes.sftp.displayName'),
     category: 'file',
-    description: '通过正式 SFTP step 上传或下载文件，适合证书与配置安装。',
+    description: canvasModelText('nodeTypes.sftp.description'),
     inputPorts: ['input'],
     outputPorts: ['success', 'failure'],
     fields: [
-      { key: 'direction', label: '方向', kind: 'select', required: true, options: [{ label: '上传', value: 'upload' }, { label: '下载', value: 'download' }] },
-      { key: 'connectionRef', label: '连接变量', kind: 'text', required: true },
-      { key: 'credential', label: '凭据', kind: 'text', required: true },
-      { key: 'remotePath', label: '远端路径', kind: 'text', required: true },
-      { key: 'temporaryPath', label: '临时路径', kind: 'text' },
-      { key: 'username', label: '用户名变量', kind: 'text', required: true },
-      { key: 'hostKeyPolicy', label: 'Host Key 策略', kind: 'select', required: true, options: [
-        { label: '首次信任', value: 'trust_on_first_use' },
-        { label: '严格校验', value: 'strict' },
-        { label: '人工审批', value: 'manual_approval_required' },
+      { key: 'direction', label: canvasModelText('fields.direction'), kind: 'select', required: true, options: [{ label: canvasModelText('options.direction.upload'), value: 'upload' }, { label: canvasModelText('options.direction.download'), value: 'download' }] },
+      { key: 'connectionRef', label: canvasModelText('fields.connectionRef'), kind: 'text', required: true },
+      { key: 'credential', label: canvasModelText('fields.credential'), kind: 'text', required: true },
+      { key: 'remotePath', label: canvasModelText('fields.remotePath'), kind: 'text', required: true },
+      { key: 'temporaryPath', label: canvasModelText('fields.temporaryPath'), kind: 'text' },
+      { key: 'username', label: canvasModelText('fields.usernameVariable'), kind: 'text', required: true },
+      { key: 'hostKeyPolicy', label: canvasModelText('fields.hostKeyPolicy'), kind: 'select', required: true, options: [
+        { label: canvasModelText('options.hostKeyPolicy.trustOnFirstUse'), value: 'trust_on_first_use' },
+        { label: canvasModelText('options.hostKeyPolicy.strict'), value: 'strict' },
+        { label: canvasModelText('options.hostKeyPolicy.manualApproval'), value: 'manual_approval_required' },
       ] },
-      { key: 'expectedHostKeyFingerprint', label: 'Host Key 指纹', kind: 'text' },
-      { key: 'contentRef', label: '内容变量', kind: 'text' },
-      { key: 'localPath', label: '本地路径', kind: 'text' },
-      { key: 'mode', label: '文件权限', kind: 'text' },
-      { key: 'timeoutSeconds', label: '超时秒数', kind: 'number', required: true },
+      { key: 'expectedHostKeyFingerprint', label: canvasModelText('fields.expectedHostKeyFingerprint'), kind: 'text' },
+      { key: 'contentRef', label: canvasModelText('fields.contentRef'), kind: 'text' },
+      { key: 'localPath', label: canvasModelText('fields.localPath'), kind: 'text' },
+      { key: 'mode', label: canvasModelText('fields.mode'), kind: 'text' },
+      { key: 'timeoutSeconds', label: canvasModelText('fields.timeoutSeconds'), kind: 'number', required: true },
     ],
     produces: [
       { name: 'remotePath', type: 'string' },
@@ -323,28 +329,28 @@ export const NODE_TYPE_DEFINITIONS: readonly WorkflowNodeTypeDefinition[] = [
   },
   {
     type: 'scp',
-    displayName: 'SCP 上传/下载',
+    displayName: canvasModelText('nodeTypes.scp.displayName'),
     category: 'file',
-    description: '通过正式 SCP step 上传或下载文件，作为 SFTP 不可用时的显式传输方案。',
+    description: canvasModelText('nodeTypes.scp.description'),
     inputPorts: ['input'],
     outputPorts: ['success', 'failure'],
     fields: [
-      { key: 'direction', label: '方向', kind: 'select', required: true, options: [{ label: '上传', value: 'upload' }, { label: '下载', value: 'download' }] },
-      { key: 'connectionRef', label: '连接变量', kind: 'text', required: true },
-      { key: 'username', label: '用户名变量', kind: 'text', required: true },
-      { key: 'credential', label: '凭据', kind: 'text', required: true },
-      { key: 'remotePath', label: '远端路径', kind: 'text', required: true },
-      { key: 'temporaryPath', label: '临时路径', kind: 'text' },
-      { key: 'hostKeyPolicy', label: 'Host Key 策略', kind: 'select', required: true, options: [
-        { label: '首次信任', value: 'trust_on_first_use' },
-        { label: '严格校验', value: 'strict' },
-        { label: '人工审批', value: 'manual_approval_required' },
+      { key: 'direction', label: canvasModelText('fields.direction'), kind: 'select', required: true, options: [{ label: canvasModelText('options.direction.upload'), value: 'upload' }, { label: canvasModelText('options.direction.download'), value: 'download' }] },
+      { key: 'connectionRef', label: canvasModelText('fields.connectionRef'), kind: 'text', required: true },
+      { key: 'username', label: canvasModelText('fields.usernameVariable'), kind: 'text', required: true },
+      { key: 'credential', label: canvasModelText('fields.credential'), kind: 'text', required: true },
+      { key: 'remotePath', label: canvasModelText('fields.remotePath'), kind: 'text', required: true },
+      { key: 'temporaryPath', label: canvasModelText('fields.temporaryPath'), kind: 'text' },
+      { key: 'hostKeyPolicy', label: canvasModelText('fields.hostKeyPolicy'), kind: 'select', required: true, options: [
+        { label: canvasModelText('options.hostKeyPolicy.trustOnFirstUse'), value: 'trust_on_first_use' },
+        { label: canvasModelText('options.hostKeyPolicy.strict'), value: 'strict' },
+        { label: canvasModelText('options.hostKeyPolicy.manualApproval'), value: 'manual_approval_required' },
       ] },
-      { key: 'expectedHostKeyFingerprint', label: 'Host Key 指纹', kind: 'text' },
-      { key: 'contentRef', label: '内容变量', kind: 'text' },
-      { key: 'localPath', label: '本地路径', kind: 'text' },
-      { key: 'mode', label: '文件权限', kind: 'text' },
-      { key: 'timeoutSeconds', label: '超时秒数', kind: 'number', required: true },
+      { key: 'expectedHostKeyFingerprint', label: canvasModelText('fields.expectedHostKeyFingerprint'), kind: 'text' },
+      { key: 'contentRef', label: canvasModelText('fields.contentRef'), kind: 'text' },
+      { key: 'localPath', label: canvasModelText('fields.localPath'), kind: 'text' },
+      { key: 'mode', label: canvasModelText('fields.mode'), kind: 'text' },
+      { key: 'timeoutSeconds', label: canvasModelText('fields.timeoutSeconds'), kind: 'number', required: true },
     ],
     produces: [
       { name: 'remotePath', type: 'string' },
@@ -354,22 +360,22 @@ export const NODE_TYPE_DEFINITIONS: readonly WorkflowNodeTypeDefinition[] = [
   },
   {
     type: 'verify',
-    displayName: '验证',
+    displayName: canvasModelText('nodeTypes.verify.displayName'),
     category: 'verify',
-    description: '验证 HTTP 状态、文本、JSONPath、正则或证书指纹。',
+    description: canvasModelText('nodeTypes.verify.description'),
     inputPorts: ['input'],
     outputPorts: ['success', 'failure'],
     fields: [
-      { key: 'verifyType', label: '验证类型', kind: 'select', required: true, options: [
-        { label: 'HTTP 状态', value: 'httpStatus' },
-        { label: '文本包含', value: 'text' },
+      { key: 'verifyType', label: canvasModelText('fields.verifyType'), kind: 'select', required: true, options: [
+        { label: canvasModelText('options.verifyType.httpStatus'), value: 'httpStatus' },
+        { label: canvasModelText('options.verifyType.textContains'), value: 'text' },
         { label: 'JSONPath', value: 'jsonPath' },
-        { label: '正则', value: 'regex' },
-        { label: '证书指纹', value: 'certificateFingerprint' },
+        { label: canvasModelText('options.verifyType.regex'), value: 'regex' },
+        { label: canvasModelText('options.verifyType.certificateFingerprint'), value: 'certificateFingerprint' },
       ] },
-      { key: 'inputRef', label: '输入引用', kind: 'text', required: true },
-      { key: 'expected', label: '期望值', kind: 'text', required: true },
-      { key: 'timeoutSeconds', label: '超时秒数', kind: 'number', required: true },
+      { key: 'inputRef', label: canvasModelText('fields.inputRef'), kind: 'text', required: true },
+      { key: 'expected', label: canvasModelText('fields.expected'), kind: 'text', required: true },
+      { key: 'timeoutSeconds', label: canvasModelText('fields.timeoutSeconds'), kind: 'number', required: true },
     ],
     produces: [
       { name: 'passed', type: 'boolean' },
@@ -378,52 +384,52 @@ export const NODE_TYPE_DEFINITIONS: readonly WorkflowNodeTypeDefinition[] = [
   },
   {
     type: 'condition',
-    displayName: '分支判断',
+    displayName: canvasModelText('nodeTypes.condition.displayName'),
     category: 'control',
-    description: '按变量、状态码或上游输出判断是否继续执行。',
+    description: canvasModelText('nodeTypes.condition.description'),
     inputPorts: ['input'],
     outputPorts: ['success', 'failure'],
     fields: [
-      { key: 'variable', label: '判断变量', kind: 'text', required: true },
-      { key: 'operator', label: '判断方式', kind: 'select', required: true, options: [
-        { label: '等于', value: 'equals' },
-        { label: '不等于', value: 'notEquals' },
-        { label: '存在', value: 'exists' },
-        { label: '不存在', value: 'notExists' },
+      { key: 'variable', label: canvasModelText('fields.variable'), kind: 'text', required: true },
+      { key: 'operator', label: canvasModelText('fields.operator'), kind: 'select', required: true, options: [
+        { label: canvasModelText('options.operator.equals'), value: 'equals' },
+        { label: canvasModelText('options.operator.notEquals'), value: 'notEquals' },
+        { label: canvasModelText('options.operator.exists'), value: 'exists' },
+        { label: canvasModelText('options.operator.notExists'), value: 'notExists' },
       ] },
-      { key: 'expected', label: '期望值', kind: 'text' },
-      { key: 'description', label: '说明', kind: 'textarea' },
+      { key: 'expected', label: canvasModelText('fields.expected'), kind: 'text' },
+      { key: 'description', label: canvasModelText('fields.description'), kind: 'textarea' },
     ],
     produces: [{ name: 'passed', type: 'boolean' }],
   },
   {
     type: 'wait',
-    displayName: '等待',
+    displayName: canvasModelText('nodeTypes.wait.displayName'),
     category: 'control',
-    description: '等待固定时间，不访问外部系统。',
+    description: canvasModelText('nodeTypes.wait.description'),
     inputPorts: ['input'],
     outputPorts: ['success'],
-    fields: [{ key: 'seconds', label: '等待秒数', kind: 'number', required: true }],
+    fields: [{ key: 'seconds', label: canvasModelText('fields.seconds'), kind: 'number', required: true }],
     produces: [],
   },
   {
     type: 'manual',
-    displayName: '人工确认',
+    displayName: canvasModelText('nodeTypes.manual.displayName'),
     category: 'manual',
-    description: '插入人工确认点或回滚提示。',
+    description: canvasModelText('nodeTypes.manual.description'),
     inputPorts: ['input'],
     outputPorts: ['success', 'failure'],
-    fields: [{ key: 'instruction', label: '确认说明', kind: 'textarea', required: true }],
+    fields: [{ key: 'instruction', label: canvasModelText('fields.instruction'), kind: 'textarea', required: true }],
     produces: [],
   },
 ]
 
 export const WORKFLOW_STAGE_DEFINITIONS: readonly WorkflowStageDefinition[] = [
-  { key: 'prepare', title: '准备', description: '完成认证登录、凭据获取和前置上下文准备' },
-  { key: 'backup', title: '备份', description: '保存变更前状态和回滚材料' },
-  { key: 'install', title: '安装', description: '上传、写入或替换证书材料' },
-  { key: 'refresh', title: '刷新', description: '重载服务、刷新缓存或触发生效' },
-  { key: 'verify', title: '验证', description: '检查状态、连通性和证书结果' },
+  { key: 'prepare', title: canvasModelText('stages.prepare.title'), description: canvasModelText('stages.prepare.description') },
+  { key: 'backup', title: canvasModelText('stages.backup.title'), description: canvasModelText('stages.backup.description') },
+  { key: 'install', title: canvasModelText('stages.install.title'), description: canvasModelText('stages.install.description') },
+  { key: 'refresh', title: canvasModelText('stages.refresh.title'), description: canvasModelText('stages.refresh.description') },
+  { key: 'verify', title: canvasModelText('stages.verify.title'), description: canvasModelText('stages.verify.description') },
 ]
 
 export const WORKFLOW_FLOW_LAYOUT = {
@@ -442,7 +448,7 @@ export function createDefaultWorkflowCanvas(name = 'workflow-canvas-draft'): Wor
     createCanvasNode('http', 0, undefined, 'prepare'),
     {
       ...createCanvasNode('ssh', 1, undefined, 'backup'),
-      label: '备份现有证书',
+      label: canvasModelText('defaults.nodes.backupExistingCertificate'),
       config: {
         ...createDefaultConfig('ssh'),
         command: [
@@ -456,7 +462,7 @@ export function createDefaultWorkflowCanvas(name = 'workflow-canvas-draft'): Wor
     createCanvasNode('scp', 3, undefined, 'install'),
     {
       ...createCanvasNode('ssh', 4, undefined, 'refresh'),
-      label: '重载服务',
+      label: canvasModelText('defaults.nodes.reloadService'),
       config: {
         ...createDefaultConfig('ssh'),
         command: 'nginx -t\nsystemctl reload nginx',
@@ -469,23 +475,23 @@ export function createDefaultWorkflowCanvas(name = 'workflow-canvas-draft'): Wor
     dslVersion: 'gcac.workflow/v1',
     metadata: {
       name: normalizeIdentifier(name),
-      displayName: `${name} 工作流`,
+      displayName: canvasModelText('defaults.displayName', { name }),
       category: 'deployment',
       tags: ['ssl', 'workflow'],
     },
     variables: {
-      deviceHost: { type: 'string', required: true, description: '目标主机' },
-      sshUsername: { type: 'string', required: true, description: 'SSH 用户名' },
-      credential: { type: 'credential', required: true, sensitive: true, description: '连接凭据' },
+      deviceHost: { type: 'string', required: true, description: canvasModelText('defaults.variables.deviceHost.description') },
+      sshUsername: { type: 'string', required: true, description: canvasModelText('defaults.variables.sshUsername.description') },
+      credential: { type: 'credential', required: true, sensitive: true, description: canvasModelText('defaults.variables.credential.description') },
       serverCert: {
         type: 'certificate',
         required: true,
         sensitive: true,
-        description: '服务器证书产物',
+        description: canvasModelText('defaults.variables.serverCert.description'),
         artifactContract: {
           outputs: {
-            certFile: { role: 'public_certificate', required: true, format: 'pem', encoding: 'utf8', description: '写入证书文件的内容' },
-            keyFile: { role: 'private_key', required: true, format: 'pem', encoding: 'utf8', description: '写入私钥文件的内容' },
+            certFile: { role: 'public_certificate', required: true, format: 'pem', encoding: 'utf8', description: canvasModelText('defaults.variables.serverCert.outputs.certFile.description') },
+            keyFile: { role: 'private_key', required: true, format: 'pem', encoding: 'utf8', description: canvasModelText('defaults.variables.serverCert.outputs.keyFile.description') },
           },
         },
       },
@@ -501,9 +507,9 @@ export function createDefaultWorkflowCanvas(name = 'workflow-canvas-draft'): Wor
           backupCertPath: '/var/backups/gcac-certs/site.pem.bak',
           backupKeyPath: '/var/backups/gcac-certs/site.key.bak',
         },
-        description: '证书部署、临时写入和备份路径',
+        description: canvasModelText('defaults.variables.certificatePaths.description'),
       },
-      verifyUrl: { type: 'string', required: true, description: '验证 URL' },
+      verifyUrl: { type: 'string', required: true, description: canvasModelText('defaults.variables.verifyUrl.description') },
     },
     nodes,
     edges: [],
@@ -544,7 +550,7 @@ export function createCanvasEdge(sourceNodeId: string, targetNodeId: string, edg
 
 export function getNodeTypeDefinition(type: WorkflowCanvasNodeType): WorkflowNodeTypeDefinition {
   const definition = NODE_TYPE_DEFINITIONS.find((item) => item.type === type)
-  if (!definition) throw new Error(`未知节点类型：${type}`)
+  if (!definition) throw new Error(canvasModelText('errors.unknownNodeType', { type }))
   return definition
 }
 
@@ -554,9 +560,9 @@ export function createDefaultConfig(type: WorkflowCanvasNodeType): Record<string
   if (type === 'sftp') return createDefaultFileTransferConfig('{{serverCert.outputs.certFile.content}}', '{{certificatePaths.certPath}}', '{{certificatePaths.tempCertPath}}', '0644')
   if (type === 'scp') return createDefaultFileTransferConfig('{{serverCert.outputs.keyFile.content}}', '{{certificatePaths.keyPath}}', '{{certificatePaths.tempKeyPath}}', '0600')
   if (type === 'verify') return { verifyType: 'httpStatus', inputRef: '{{verifyUrl}}', expected: '200', timeoutSeconds: 30 }
-  if (type === 'condition') return { variable: 'deviceHost', operator: 'exists', expected: '', description: '目标变量存在时继续执行' }
+  if (type === 'condition') return { variable: 'deviceHost', operator: 'exists', expected: '', description: canvasModelText('defaults.config.conditionDescription') }
   if (type === 'wait') return { seconds: 10 }
-  return { instruction: '请确认目标设备证书已切换到新版本。' }
+  return { instruction: canvasModelText('defaults.config.manualInstruction') }
 }
 
 export function workflowDslToCanvas(dsl: WorkflowDslV1): WorkflowCanvasDefinition {
@@ -666,11 +672,11 @@ export function connectNodes(canvas: WorkflowCanvasDefinition, sourceNodeId: str
 
 export function getVariableFlow(canvas: WorkflowCanvasDefinition) {
   const system = [
-    { source: '系统', name: 'runId', type: 'string', sensitive: false, usedBy: [] as string[] },
-    { source: '系统', name: 'targetId', type: 'string', sensitive: false, usedBy: [] as string[] },
+    { source: canvasModelText('variableFlow.system'), name: 'runId', type: 'string', sensitive: false, usedBy: [] as string[] },
+    { source: canvasModelText('variableFlow.system'), name: 'targetId', type: 'string', sensitive: false, usedBy: [] as string[] },
   ]
   const declared = Object.entries(canvas.variables).map(([name, definition]) => ({
-    source: '变量',
+    source: canvasModelText('variableFlow.variable'),
     name,
     type: definition.type,
     sensitive: Boolean(definition.sensitive || definition.type === 'credential'),
@@ -694,7 +700,7 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
       id: `${isVerify ? 'verify' : 'http'}_${index + 1}`,
       type: isVerify ? 'verify' : 'http',
       position: { x: 80 + index * 260, y: 120 },
-      label: dslStepLabel(step, isVerify ? '验证' : 'HTTP/CURL'),
+      label: dslStepLabel(step, isVerify ? canvasModelText('nodeTypes.verify.displayName') : 'HTTP/CURL'),
       ui: { stage, rawStep: cloneRecord(step) },
       config: isVerify
         ? { verifyType: 'httpStatus', inputRef: step.request.url, expected: String((step.assert?.[0] as { equals?: unknown } | undefined)?.equals ?? 200), timeoutSeconds: step.request.timeoutSeconds ?? 30 }
@@ -715,7 +721,7 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
         id: `sftp_${index + 1}`,
         type: 'sftp',
         position: { x: 80 + index * 260, y: 120 },
-        label: dslStepLabel(step, 'SFTP 上传/下载'),
+        label: dslStepLabel(step, canvasModelText('nodeTypes.sftp.displayName')),
         ui: { stage, rawStep: cloneRecord(step) },
         config: {
           direction: direction.toLowerCase() === 'download' ? 'download' : 'upload',
@@ -731,7 +737,7 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
       id: `ssh_${index + 1}`,
       type: 'ssh',
       position: { x: 80 + index * 260, y: 120 },
-      label: dslStepLabel(step, 'SSH 命令'),
+      label: dslStepLabel(step, canvasModelText('nodeTypes.ssh.displayName')),
       ui: { stage, rawStep: cloneRecord(step) },
       config: {
         hostRef: step.ssh.connection.host,
@@ -750,7 +756,7 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
       id: `${step.type}_${index + 1}`,
       type: step.type,
       position: { x: 80 + index * 260, y: 120 },
-      label: dslStepLabel(step, step.type === 'sftp' ? 'SFTP 上传/下载' : 'SCP 上传/下载'),
+      label: dslStepLabel(step, step.type === 'sftp' ? canvasModelText('nodeTypes.sftp.displayName') : canvasModelText('nodeTypes.scp.displayName')),
       ui: { stage, rawStep: cloneRecord(step) },
       config: {
         direction: config.direction,
@@ -773,7 +779,7 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
       id: `condition_${index + 1}`,
       type: 'condition',
       position: { x: 80 + index * 260, y: 120 },
-      label: dslStepLabel(step, '分支判断'),
+      label: dslStepLabel(step, canvasModelText('nodeTypes.condition.displayName')),
       ui: { stage, rawStep: cloneRecord(step) },
       config: {
         variable: step.condition.variable,
@@ -783,8 +789,8 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
       },
     }
   }
-  if (step.type === 'wait') return { id: `wait_${index + 1}`, type: 'wait', position: { x: 80 + index * 260, y: 120 }, label: dslStepLabel(step, '等待'), config: { seconds: step.seconds }, ui: { stage, rawStep: cloneRecord(step) } }
-  return { id: `manual_${index + 1}`, type: 'manual', position: { x: 80 + index * 260, y: 120 }, label: dslStepLabel(step, '人工确认'), config: { instruction: step.instruction }, ui: { stage, rawStep: cloneRecord(step) } }
+  if (step.type === 'wait') return { id: `wait_${index + 1}`, type: 'wait', position: { x: 80 + index * 260, y: 120 }, label: dslStepLabel(step, canvasModelText('nodeTypes.wait.displayName')), config: { seconds: step.seconds }, ui: { stage, rawStep: cloneRecord(step) } }
+  return { id: `manual_${index + 1}`, type: 'manual', position: { x: 80 + index * 260, y: 120 }, label: dslStepLabel(step, canvasModelText('nodeTypes.manual.displayName')), config: { instruction: step.instruction }, ui: { stage, rawStep: cloneRecord(step) } }
 }
 
 function sortNodesByEdges(canvas: WorkflowCanvasDefinition): WorkflowCanvasNode[] {
