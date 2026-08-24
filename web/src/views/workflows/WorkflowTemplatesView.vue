@@ -13,6 +13,7 @@ import {
   listWorkflowTemplates,
   publishWorkflowTemplateVersion,
   updateCurrentWorkflowTemplateDraftVersion,
+  updateWorkflowTemplateVersionNote,
 } from '@/api/modules/workflow-templates.api'
 import { createSecret } from '@/api/modules/security.api'
 import { GcModal, GcStatusTag } from '@/design-system/components'
@@ -47,6 +48,8 @@ const versionItems = ref<ApiRecord[]>([])
 const versionLoading = ref(false)
 const versionError = ref('')
 const versionCreating = ref(false)
+const versionNoteDrafts = ref<Record<string, string>>({})
+const versionNoteSavingId = ref('')
 const publishLoading = ref(false)
 const publishMessage = ref('')
 const canvasSaving = ref(false)
@@ -315,12 +318,10 @@ interface VersionStatusBadge {
 
 function versionStatusBadges(item: ApiRecord): VersionStatusBadge[] {
   const status = readString(item, ['status'], 'draft')
-  const badges: VersionStatusBadge[] = [{
+  return [{
     label: status === 'published' ? '已发布' : status === 'disabled' ? '已禁用' : '草稿',
     tone: status === 'published' ? 'published' : status === 'disabled' ? 'disabled' : 'draft',
   }]
-  if (isCurrentWorkflowVersion(item)) badges.push({ label: '当前版本', tone: 'current' })
-  return badges
 }
 
 function canRunVersionAction(item: ApiRecord): boolean {
@@ -353,6 +354,7 @@ async function openVersionManager(row: ViewRow) {
   versionManagerModalOpen.value = true
   publishMessage.value = ''
   versionError.value = ''
+  versionNoteSavingId.value = ''
   await loadVersions(row)
 }
 
@@ -380,13 +382,22 @@ async function loadVersions(row: ViewRow) {
   try {
     const result = await listWorkflowTemplateVersions(readString(row.raw, ['id']))
     versionItems.value = [...(result.data?.items ?? [])]
+    syncVersionNoteDrafts()
     hydrateCanvasFromLatestVersion()
   } catch (cause) {
     versionItems.value = []
+    versionNoteDrafts.value = {}
     versionError.value = cause instanceof Error ? cause.message : '加载工作流版本失败'
   } finally {
     versionLoading.value = false
   }
+}
+
+function syncVersionNoteDrafts() {
+  versionNoteDrafts.value = Object.fromEntries(versionItems.value.map((item) => [
+    readString(item, ['id']),
+    readString(item, ['changeSummary'], ''),
+  ]).filter(([id]) => Boolean(id)))
 }
 
 async function loadFileTemplates() {
@@ -505,6 +516,42 @@ async function createManagedVersion() {
     versionError.value = cause instanceof Error ? cause.message : '创建工作流版本失败'
   } finally {
     versionCreating.value = false
+  }
+}
+
+function versionNoteChanged(item: ApiRecord): boolean {
+  const versionId = readString(item, ['id'])
+  return (versionNoteDrafts.value[versionId] ?? '') !== readString(item, ['changeSummary'], '')
+}
+
+function updateVersionNoteDraft(item: ApiRecord, event: Event) {
+  const versionId = readString(item, ['id'])
+  if (!versionId) return
+  versionNoteDrafts.value[versionId] = event.target instanceof HTMLInputElement ? event.target.value : ''
+}
+
+async function saveVersionNote(item: ApiRecord) {
+  const versionId = readString(item, ['id'])
+  if (!versionId || versionNoteSavingId.value || !versionNoteChanged(item)) return
+  versionNoteSavingId.value = versionId
+  publishMessage.value = ''
+  versionError.value = ''
+  try {
+    const result = await updateWorkflowTemplateVersionNote(versionId, versionNoteDrafts.value[versionId] ?? '')
+    const changedVersion = {
+      ...item,
+      ...(result.data ?? {}),
+      id: readString(result.data ?? {}, ['id'], versionId),
+    }
+    versionItems.value = versionItems.value.map((version) =>
+      readString(version, ['id']) === versionId ? changedVersion : version,
+    )
+    syncVersionNoteDrafts()
+    publishMessage.value = '版本备注已更新。'
+  } catch (cause) {
+    versionError.value = cause instanceof Error ? cause.message : '更新版本备注失败'
+  } finally {
+    versionNoteSavingId.value = ''
   }
 }
 
@@ -704,9 +751,10 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
     >
       <section v-if="versionManagerRow" class="workflow-version-manager">
         <header class="workflow-version-manager__head">
-          <div>
-            <strong>当前工作流版本</strong>
-            <span>{{ readString(versionManagerRow.raw, ['currentVersionLabel', 'currentVersion'], '—') }}</span>
+          <div class="workflow-version-manager__current">
+            <span>当前版本</span>
+            <strong>{{ readString(versionManagerRow.raw, ['currentVersionLabel', 'currentVersion'], '—') }}</strong>
+            <small>{{ readString(versionManagerRow.raw, ['status'], 'draft') }}</small>
           </div>
           <button class="gc-button gc-button--primary" type="button" :disabled="versionCreating" @click="createManagedVersion">
             {{ versionCreating ? '创建中...' : '新增版本' }}
@@ -716,10 +764,35 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
         <p v-if="publishMessage" class="workflow-template-detail__message">{{ publishMessage }}</p>
         <p v-if="versionLoading" class="workflow-template-detail__loading">正在加载版本...</p>
         <p v-else-if="versionError" class="workflow-template-detail__error">{{ versionError }}</p>
-        <ul v-else-if="versionItems.length" class="workflow-template-detail__list">
-          <li v-for="item in versionItems" :key="readString(item, ['id'])" class="workflow-template-detail__list-item">
-            <div class="workflow-template-detail__list-head">
+        <ul v-else-if="versionItems.length" class="workflow-version-manager__list">
+          <li v-for="item in versionItems" :key="readString(item, ['id'])" class="workflow-version-manager__item">
+            <div class="workflow-version-manager__version">
               <strong>V{{ readString(item, ['version']) }}</strong>
+              <small>{{ formatBrowserLocalTime(readString(item, ['createdAt'])) || readString(item, ['createdAt']) }}</small>
+            </div>
+            <div class="workflow-version-manager__summary">
+              <label>
+                <span>备注</span>
+                <input
+                  :value="versionNoteDrafts[readString(item, ['id'])] ?? ''"
+                  class="gc-input"
+                  type="text"
+                  maxlength="120"
+                  placeholder="没有变更说明"
+                  :disabled="versionNoteSavingId === readString(item, ['id'])"
+                  @input="updateVersionNoteDraft(item, $event)"
+                />
+              </label>
+              <button
+                class="gc-button workflow-version-manager__note-save"
+                type="button"
+                :disabled="versionNoteSavingId === readString(item, ['id']) || !versionNoteChanged(item)"
+                @click="saveVersionNote(item)"
+              >
+                {{ versionNoteSavingId === readString(item, ['id']) ? '保存中...' : '保存备注' }}
+              </button>
+            </div>
+            <div class="workflow-version-manager__badges">
               <span
                 v-for="badge in versionStatusBadges(item)"
                 :key="`${readString(item, ['id'])}:${badge.tone}`"
@@ -729,17 +802,24 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
                 {{ badge.label }}
               </span>
             </div>
-            <p>{{ readString(item, ['changeSummary'], '没有变更说明。') }}</p>
-            <small>{{ formatBrowserLocalTime(readString(item, ['createdAt'])) || readString(item, ['createdAt']) }}</small>
-            <button
-              v-if="canRunVersionAction(item)"
-              class="gc-button"
-              type="button"
-              :disabled="publishLoading"
-              @click="publishVersion(readString(item, ['id']))"
-            >
-              {{ publishLoading ? '处理中...' : versionActionLabel(item) }}
-            </button>
+            <div class="workflow-version-manager__action-cell">
+              <button
+                v-if="canRunVersionAction(item)"
+                class="gc-button workflow-version-manager__action"
+                type="button"
+                :disabled="publishLoading"
+                @click="publishVersion(readString(item, ['id']))"
+              >
+                {{ publishLoading ? '处理中...' : versionActionLabel(item) }}
+              </button>
+              <span
+                v-else-if="isCurrentWorkflowVersion(item)"
+                class="workflow-version-manager__status workflow-version-manager__current-badge"
+                data-status="current"
+              >
+                当前版本
+              </span>
+            </div>
           </li>
         </ul>
         <p v-else class="workflow-template-detail__loading">暂无版本。</p>
@@ -1136,33 +1216,156 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 
 .workflow-version-manager {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .workflow-version-manager__head {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 12px;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 12px;
   border: 1px solid #dbe6f4;
   border-radius: 8px;
   background: #f8fbff;
 }
 
-.workflow-version-manager__head strong {
-  display: block;
-  color: #0f172a;
-  font-size: 14px;
+.workflow-version-manager__current {
+  display: grid;
+  grid-template-columns: auto auto auto;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
 }
 
-.workflow-version-manager__head span {
-  display: block;
-  margin-top: 3px;
+.workflow-version-manager__current span {
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.workflow-version-manager__current strong {
+  color: #0f172a;
+  font-size: 18px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.workflow-version-manager__current small {
   color: #64748b;
   font-size: 12px;
   font-weight: 800;
+  white-space: nowrap;
+}
+
+.workflow-version-manager__list {
+  display: grid;
+  gap: 8px;
+  max-height: min(58vh, 620px);
+  padding: 0;
+  margin: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.workflow-version-manager__item {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr) minmax(170px, auto) 116px;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 9px 10px;
+  border: 1px solid #e4edf8;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.workflow-version-manager__version,
+.workflow-version-manager__summary {
+  display: grid;
+  min-width: 0;
+}
+
+.workflow-version-manager__version {
+  gap: 3px;
+}
+
+.workflow-version-manager__version strong {
+  color: #0f172a;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.workflow-version-manager__version small {
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.workflow-version-manager__summary {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.workflow-version-manager__summary label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.workflow-version-manager__summary label span {
+  color: #475569;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.workflow-version-manager__summary .gc-input {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 9px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 13px;
+  outline: none;
+}
+
+.workflow-version-manager__summary .gc-input:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 3px rgb(96 165 250 / 18%);
+}
+
+.workflow-version-manager__badges {
+  display: grid;
+  justify-content: end;
+  justify-items: start;
+  align-content: center;
+  gap: 6px;
+}
+
+.workflow-version-manager__action-cell {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 116px;
+}
+
+.workflow-version-manager__action {
+  width: 116px;
+}
+
+.workflow-version-manager__current-badge {
+  justify-content: center;
+  width: 116px;
+}
+
+.workflow-version-manager__note-save {
+  min-width: 88px;
+  min-height: 34px;
 }
 
 .workflow-version-manager__status {
@@ -1652,6 +1855,28 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   .workflow-file-template-modal__head {
     display: grid;
     justify-content: stretch;
+  }
+
+  .workflow-version-manager__head,
+  .workflow-version-manager__item {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .workflow-version-manager__current,
+  .workflow-version-manager__summary {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-version-manager__badges {
+    justify-content: flex-start;
+  }
+
+  .workflow-version-manager__action-cell,
+  .workflow-version-manager__action,
+  .workflow-version-manager__note-save {
+    width: 100%;
+    min-width: 0;
   }
 
   .credential-manager,
