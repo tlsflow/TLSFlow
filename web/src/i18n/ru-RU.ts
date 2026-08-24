@@ -2884,6 +2884,10 @@ export default {
           displayName: 'Ветвление',
           description: 'Выбирает дальнейший путь по наличию переменной или ее значению.'
         },
+        transform: {
+          displayName: 'Преобразование',
+          description: 'Использует JSONata, чтобы преобразовать выходные данные в новые переменные контекста workflow.'
+        },
         wait: {
           displayName: 'Ожидание',
           description: 'Ожидает фиксированное число секунд и продолжает выполнение.'
@@ -2912,7 +2916,10 @@ export default {
         remotePath: 'Удаленный путь',
         seconds: 'Секунды ожидания',
         temporaryPath: 'Временный путь',
+        timeoutMs: 'Таймаут, мс',
         timeoutSeconds: 'Таймаут, секунд',
+        transformInput: 'Вход преобразования',
+        outputFormat: 'Формат вывода',
         usernameVariable: 'Переменная имени пользователя',
         variable: 'Переменная',
         verifyType: 'Тип проверки'
@@ -2932,6 +2939,10 @@ export default {
           exists: 'Существует',
           notEquals: 'Не равно',
           notExists: 'Не существует'
+        },
+        transformFormat: {
+          raw: 'Исходное значение',
+          jsonString: 'JSON-строка'
         },
         verifyType: {
           certificateFingerprint: 'Отпечаток сертификата',

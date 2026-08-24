@@ -5,7 +5,7 @@ import {
   type WorkflowManagedCredential,
 } from './workflow-credentials'
 
-export type WorkflowCanvasNodeType = 'http' | 'ssh' | 'sftp' | 'scp' | 'verify' | 'condition' | 'wait' | 'manual'
+export type WorkflowCanvasNodeType = 'http' | 'ssh' | 'sftp' | 'scp' | 'verify' | 'condition' | 'transform' | 'wait' | 'manual'
 export type WorkflowCanvasEdgeType = 'success' | 'failure' | 'always' | 'rollback'
 export type WorkflowCanvasFieldKind = 'text' | 'textarea' | 'number' | 'select' | 'secret'
 export type WorkflowValidationSeverity = 'error' | 'warning' | 'risk'
@@ -133,7 +133,10 @@ export type WorkflowDslStep =
       readonly request: {
         readonly method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
         readonly url: string
+        readonly query?: Record<string, string | number | boolean>
         readonly headers?: Record<string, string>
+        readonly headerRefs?: Record<string, string>
+        readonly bodyType?: 'json' | 'form' | 'multipart' | 'raw' | 'none'
         readonly auth?:
           | { readonly type: 'none' }
           | { readonly type: 'basic'; readonly username: string; readonly credential: WorkflowDslCredentialValue }
@@ -143,7 +146,14 @@ export type WorkflowDslStep =
           | { readonly type: 'custom_header'; readonly secretRef: string; readonly headerName: string }
           | { readonly type: 'mtls'; readonly certSecretRef: string; readonly keySecretRef: string }
         readonly body?: unknown
+        readonly form?: Record<string, string | number | boolean>
+        readonly formCredentialRefs?: Record<string, WorkflowDslCredentialValue>
+        readonly multipart?: Record<string, { readonly value?: string | number | boolean; readonly filename?: string; readonly contentType?: string; readonly secretRef?: string }>
+        readonly tls?: { readonly verify?: boolean; readonly caSecretRef?: string; readonly clientCertSecretRef?: string; readonly clientKeySecretRef?: string; readonly sni?: string; readonly allowInsecure?: boolean }
         readonly timeoutSeconds?: number
+        readonly maxResponseBytes?: number
+        readonly successStatusCodes?: readonly number[]
+        readonly failOnNon2xx?: boolean
       }
       readonly retry?: { readonly count?: number; readonly intervalSeconds?: number }
       readonly extract?: readonly WorkflowDslExtractor[]
@@ -195,6 +205,19 @@ export type WorkflowDslStep =
       readonly stage?: WorkflowCanvasStage
       readonly condition: WorkflowDslCondition
       readonly description?: string
+    }
+  | {
+      readonly name: string
+      readonly type: 'transform'
+      readonly stage?: WorkflowCanvasStage
+      readonly transform: {
+        readonly engine: 'jsonata'
+        readonly input?: unknown
+        readonly outputs: Record<string, { readonly expression: string; readonly format?: 'raw' | 'jsonString'; readonly sensitive?: boolean; readonly optional?: boolean }>
+        readonly timeoutMs?: number
+        readonly maxInputBytes?: number
+        readonly maxOutputBytes?: number
+      }
     }
   | { readonly name: string; readonly type: 'wait'; readonly stage?: WorkflowCanvasStage; readonly seconds: number }
   | { readonly name: string; readonly type: 'manual'; readonly stage?: WorkflowCanvasStage; readonly instruction: string }
@@ -403,6 +426,24 @@ export const NODE_TYPE_DEFINITIONS: readonly WorkflowNodeTypeDefinition[] = [
     produces: [{ name: 'passed', type: 'boolean' }],
   },
   {
+    type: 'transform',
+    displayName: canvasModelText('nodeTypes.transform.displayName'),
+    category: 'control',
+    description: canvasModelText('nodeTypes.transform.description'),
+    inputPorts: ['input'],
+    outputPorts: ['success', 'failure'],
+    fields: [
+      { key: 'input', label: canvasModelText('fields.transformInput'), kind: 'textarea' },
+      { key: 'expression', label: 'JSONata', kind: 'textarea', required: true },
+      { key: 'format', label: canvasModelText('fields.outputFormat'), kind: 'select', options: [
+        { label: canvasModelText('options.transformFormat.raw'), value: 'raw' },
+        { label: canvasModelText('options.transformFormat.jsonString'), value: 'jsonString' },
+      ] },
+      { key: 'timeoutMs', label: canvasModelText('fields.timeoutMs'), kind: 'number' },
+    ],
+    produces: [{ name: 'outputs', type: 'object' }],
+  },
+  {
     type: 'wait',
     displayName: canvasModelText('nodeTypes.wait.displayName'),
     category: 'control',
@@ -561,6 +602,7 @@ export function createDefaultConfig(type: WorkflowCanvasNodeType): Record<string
   if (type === 'scp') return createDefaultFileTransferConfig('{{serverCert.outputs.keyFile.content}}', '{{certificatePaths.keyPath}}', '{{certificatePaths.tempKeyPath}}', '0600')
   if (type === 'verify') return { verifyType: 'httpStatus', inputRef: '{{verifyUrl}}', expected: '200', timeoutSeconds: 30 }
   if (type === 'condition') return { variable: 'deviceHost', operator: 'exists', expected: '', description: canvasModelText('defaults.config.conditionDescription') }
+  if (type === 'transform') return { input: '{}', expression: '$', format: 'raw', timeoutMs: 200 }
   if (type === 'wait') return { seconds: 10 }
   return { instruction: canvasModelText('defaults.config.manualInstruction') }
 }
@@ -789,6 +831,22 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
       },
     }
   }
+  if (step.type === 'transform') {
+    const firstOutput = Object.values(step.transform.outputs)[0]
+    return {
+      id: `transform_${index + 1}`,
+      type: 'transform',
+      position: { x: 80 + index * 260, y: 120 },
+      label: dslStepLabel(step, canvasModelText('nodeTypes.transform.displayName')),
+      ui: { stage, rawStep: cloneRecord(step) },
+      config: {
+        input: stringifyBody(step.transform.input ?? {}),
+        expression: firstOutput?.expression ?? '$',
+        format: firstOutput?.format ?? 'raw',
+        timeoutMs: step.transform.timeoutMs ?? 200,
+      },
+    }
+  }
   if (step.type === 'wait') return { id: `wait_${index + 1}`, type: 'wait', position: { x: 80 + index * 260, y: 120 }, label: dslStepLabel(step, canvasModelText('nodeTypes.wait.displayName')), config: { seconds: step.seconds }, ui: { stage, rawStep: cloneRecord(step) } }
   return { id: `manual_${index + 1}`, type: 'manual', position: { x: 80 + index * 260, y: 120 }, label: dslStepLabel(step, canvasModelText('nodeTypes.manual.displayName')), config: { instruction: step.instruction }, ui: { stage, rawStep: cloneRecord(step) } }
 }
@@ -858,6 +916,7 @@ function buildStageEdges(nodes: readonly WorkflowCanvasNode[]): WorkflowCanvasEd
 
 function defaultStageForType(type: WorkflowCanvasNodeType): WorkflowCanvasStage {
   if (type === 'http' || type === 'condition') return 'prepare'
+  if (type === 'transform') return 'refresh'
   if (type === 'sftp' || type === 'scp') return 'install'
   if (type === 'ssh' || type === 'wait') return 'refresh'
   if (type === 'verify') return 'verify'
@@ -869,6 +928,7 @@ function stageForDslStep(step: WorkflowDslStep, index: number): WorkflowCanvasSt
   if (step.type === 'http' && step.name.includes('verify')) return 'verify'
   if (step.type === 'http') return 'prepare'
   if (step.type === 'sftp' || step.type === 'scp') return 'install'
+  if (step.type === 'transform') return 'refresh'
   if (step.type === 'ssh' && (step.ssh.command ?? '').startsWith('SFTP_')) return 'install'
   if (step.type === 'ssh' || step.type === 'wait') return 'refresh'
   if (step.type === 'manual' && index > 0) return 'verify'

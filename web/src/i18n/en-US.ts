@@ -2884,6 +2884,10 @@ export default {
           displayName: 'Condition',
           description: 'Choose the next path based on variable existence or value.'
         },
+        transform: {
+          displayName: 'Transform',
+          description: 'Use JSONata to convert upstream output into new workflow context variables.'
+        },
         wait: {
           displayName: 'Wait',
           description: 'Wait for a fixed number of seconds before continuing.'
@@ -2912,7 +2916,10 @@ export default {
         remotePath: 'Remote path',
         seconds: 'Wait seconds',
         temporaryPath: 'Temporary path',
+        timeoutMs: 'Timeout ms',
         timeoutSeconds: 'Timeout seconds',
+        transformInput: 'Transform input',
+        outputFormat: 'Output format',
         usernameVariable: 'Username variable',
         variable: 'Variable',
         verifyType: 'Verify type'
@@ -2932,6 +2939,10 @@ export default {
           exists: 'Exists',
           notEquals: 'Not equals',
           notExists: 'Does not exist'
+        },
+        transformFormat: {
+          raw: 'Raw value',
+          jsonString: 'JSON string'
         },
         verifyType: {
           certificateFingerprint: 'Certificate fingerprint',

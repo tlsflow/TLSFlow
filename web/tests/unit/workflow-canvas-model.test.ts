@@ -210,4 +210,55 @@ describe('workflow canvas model', () => {
       }),
     }))
   })
+
+  it('导入 transform step 后会保留原始 DSL 配置', () => {
+    const importedDsl = {
+      apiVersion: 'gcac.workflow/v1',
+      kind: 'CurlSshWorkflow',
+      metadata: { name: 'transform_workflow', displayName: '转换工作流' },
+      variables: {
+        certificateList: { type: 'object', required: true },
+      },
+      steps: [
+        {
+          name: 'build_service_bindings',
+          type: 'transform',
+          stage: 'refresh',
+          transform: {
+            engine: 'jsonata',
+            input: {
+              certificates: '{{certificateList}}',
+              description: 'GCAC active certificate',
+            },
+            outputs: {
+              newCertificateId: {
+                expression: '$filter(certificates, function($c){$c.desc = description})[0].id',
+              },
+              serviceBindingsJson: {
+                expression: '[{"service":"DSM","id":newCertificateId}]',
+                format: 'jsonString',
+              },
+            },
+            timeoutMs: 200,
+            maxInputBytes: 1048576,
+            maxOutputBytes: 1048576,
+          },
+        },
+      ],
+    } as const
+
+    expect(isWorkflowDslV1(importedDsl)).toBe(true)
+
+    const canvas = workflowDslToCanvas(importedDsl)
+    const node = canvas.nodes[0]
+    const rawStep = node?.ui?.rawStep as typeof importedDsl.steps[number] | undefined
+
+    expect(node?.type).toBe('transform')
+    expect(node?.label).toBe('build_service_bindings')
+    expect(node?.config.expression).toBe('$filter(certificates, function($c){$c.desc = description})[0].id')
+    expect(node?.ui?.stage).toBe('refresh')
+    expect(rawStep?.type).toBe('transform')
+    expect(rawStep?.type === 'transform' ? rawStep.transform.outputs.serviceBindingsJson?.format : undefined).toBe('jsonString')
+    expect(rawStep?.type === 'transform' ? rawStep.transform.maxInputBytes : undefined).toBe(1048576)
+  })
 })

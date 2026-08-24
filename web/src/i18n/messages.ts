@@ -2415,6 +2415,7 @@ const zhCN = {
         scp: { displayName: 'SCP 上传/下载', description: '通过 SCP 复制文件，适合简单主机文件分发。' },
         verify: { displayName: '验证', description: '对 HTTP 状态、文本、正则或证书指纹做断言。' },
         condition: { displayName: '分支判断', description: '根据变量存在性或值决定后续路径。' },
+        transform: { displayName: '数据转换', description: '使用 JSONata 把上游输出转换为新的工作流上下文变量。' },
         wait: { displayName: '等待', description: '等待固定秒数后继续执行。' },
         manual: { displayName: '人工确认', description: '暂停工作流，等待人工确认后继续。' }
       },
@@ -2437,7 +2438,10 @@ const zhCN = {
         remotePath: '远端路径',
         seconds: '等待秒数',
         temporaryPath: '临时路径',
+        timeoutMs: '超时毫秒',
         timeoutSeconds: '超时秒数',
+        transformInput: '转换输入',
+        outputFormat: '输出格式',
         usernameVariable: '用户名变量',
         variable: '变量',
         verifyType: '验证类型'
@@ -2446,6 +2450,7 @@ const zhCN = {
         direction: { download: '下载', upload: '上传' },
         hostKeyPolicy: { manualApproval: '人工审批', strict: '严格校验', trustOnFirstUse: '首次信任' },
         operator: { equals: '等于', exists: '存在', notEquals: '不等于', notExists: '不存在' },
+        transformFormat: { raw: '原始值', jsonString: 'JSON 字符串' },
         verifyType: { certificateFingerprint: '证书指纹', httpStatus: 'HTTP 状态', regex: '正则匹配', textContains: '文本包含' }
       },
       stages: {
@@ -5283,6 +5288,7 @@ const enUS = {
         scp: { displayName: 'SCP upload/download', description: 'Copy files through SCP, suitable for simple host file distribution.' },
         verify: { displayName: 'Verify', description: 'Assert HTTP status, text, regex, or certificate fingerprint.' },
         condition: { displayName: 'Condition', description: 'Choose the next path based on variable existence or value.' },
+        transform: { displayName: 'Transform', description: 'Use JSONata to convert upstream output into new workflow context variables.' },
         wait: { displayName: 'Wait', description: 'Wait for a fixed number of seconds before continuing.' },
         manual: { displayName: 'Manual approval', description: 'Pause the workflow until manual confirmation.' }
       },
@@ -5305,7 +5311,10 @@ const enUS = {
         remotePath: 'Remote path',
         seconds: 'Wait seconds',
         temporaryPath: 'Temporary path',
+        timeoutMs: 'Timeout ms',
         timeoutSeconds: 'Timeout seconds',
+        transformInput: 'Transform input',
+        outputFormat: 'Output format',
         usernameVariable: 'Username variable',
         variable: 'Variable',
         verifyType: 'Verify type'
@@ -5314,6 +5323,7 @@ const enUS = {
         direction: { download: 'Download', upload: 'Upload' },
         hostKeyPolicy: { manualApproval: 'Manual approval', strict: 'Strict verification', trustOnFirstUse: 'Trust on first use' },
         operator: { equals: 'Equals', exists: 'Exists', notEquals: 'Not equals', notExists: 'Does not exist' },
+        transformFormat: { raw: 'Raw value', jsonString: 'JSON string' },
         verifyType: { certificateFingerprint: 'Certificate fingerprint', httpStatus: 'HTTP status', regex: 'Regex match', textContains: 'Text contains' }
       },
       stages: {

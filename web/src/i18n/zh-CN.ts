@@ -2884,6 +2884,10 @@ export default {
           displayName: '分支判断',
           description: '根据变量存在性或值决定后续路径。'
         },
+        transform: {
+          displayName: '数据转换',
+          description: '使用 JSONata 把上游输出转换为新的工作流上下文变量。'
+        },
         wait: {
           displayName: '等待',
           description: '等待固定秒数后继续执行。'
@@ -2912,7 +2916,10 @@ export default {
         remotePath: '远端路径',
         seconds: '等待秒数',
         temporaryPath: '临时路径',
+        timeoutMs: '超时毫秒',
         timeoutSeconds: '超时秒数',
+        transformInput: '转换输入',
+        outputFormat: '输出格式',
         usernameVariable: '用户名变量',
         variable: '变量',
         verifyType: '验证类型'
@@ -2932,6 +2939,10 @@ export default {
           exists: '存在',
           notEquals: '不等于',
           notExists: '不存在'
+        },
+        transformFormat: {
+          raw: '原始值',
+          jsonString: 'JSON 字符串'
         },
         verifyType: {
           certificateFingerprint: '证书指纹',

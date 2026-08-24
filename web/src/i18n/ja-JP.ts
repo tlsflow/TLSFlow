@@ -2884,6 +2884,10 @@ export default {
           displayName: '分支判断',
           description: '根拠変数存で性または值决定後継パス。'
         },
+        transform: {
+          displayName: '変換',
+          description: 'JSONata で上流出力を新しいワークフローコンテキスト変数に変換します。'
+        },
         wait: {
           displayName: '待機',
           description: '指定した秒数待機してから実行を続行します。'
@@ -2912,7 +2916,10 @@ export default {
         remotePath: 'リモートパス',
         seconds: '待機秒数',
         temporaryPath: '一時パス',
+        timeoutMs: 'タイムアウト ms',
         timeoutSeconds: '超時秒数',
+        transformInput: '変換入力',
+        outputFormat: '出力形式',
         usernameVariable: 'ユーザー名変数',
         variable: '変数',
         verifyType: '検証タイプ'
@@ -2932,6 +2939,10 @@ export default {
           exists: '存で',
           notEquals: '不等于',
           notExists: '不存で'
+        },
+        transformFormat: {
+          raw: '生値',
+          jsonString: 'JSON 文字列'
         },
         verifyType: {
           certificateFingerprint: '証明書フィンガープリント',

@@ -2884,6 +2884,10 @@ export default {
           displayName: '가지 판단',
           description: '변수의 존재나 값을 기준으로 후속 경로를 결정한다.'
         },
+        transform: {
+          displayName: '변환',
+          description: 'JSONata로 상위 출력을 새 워크플로 컨텍스트 변수로 변환합니다.'
+        },
         wait: {
           displayName: '대기',
           description: '몇 초 동안 기다린 후 계속 실행하세요.'
@@ -2912,7 +2916,10 @@ export default {
         remotePath: '원거리 경로',
         seconds: '초 대기',
         temporaryPath: '임시 경로',
+        timeoutMs: '제한 시간(ms)',
         timeoutSeconds: '타임아웃 카운트',
+        transformInput: '변환 입력',
+        outputFormat: '출력 형식',
         usernameVariable: '사용자 이름 변수',
         variable: '변수',
         verifyType: '형식 인증'
@@ -2932,6 +2939,10 @@ export default {
           exists: '존재',
           notEquals: '같지 않음',
           notExists: '존재하지 않음'
+        },
+        transformFormat: {
+          raw: '원본 값',
+          jsonString: 'JSON 문자열'
         },
         verifyType: {
           certificateFingerprint: '인증서 지문',
