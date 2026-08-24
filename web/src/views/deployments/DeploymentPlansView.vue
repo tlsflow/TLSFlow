@@ -14,7 +14,7 @@ import {
   listDeploymentPlans,
   submitDeploymentPlan,
 } from '@/api/modules/deployments.api'
-import { GcDeploymentWizard, GcModal, GcStatusTag } from '@/design-system/components'
+import { GcDeploymentWizard, GcDryRunResultModal, GcModal, GcStatusTag } from '@/design-system/components'
 import type { DeploymentWizardPlan } from '@/design-system/components/GcDeploymentWizard.vue'
 import type { ViewRow } from '@/composables/useBusinessPage'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
@@ -67,6 +67,8 @@ const certificateFormatItems = ref<ApiRecord[]>([])
 const targetItems = ref<ApiRecord[]>([])
 const dryRunChecks = ref<ApiRecord[]>([])
 const dryRunExecutionDetail = useExecutionDetail(dryRunRunRow)
+const dryRunResultModalOpen = ref(false)
+const dryRunActionError = ref('')
 
 const pageConfig: BusinessPageConfig = {
   ...deploymentPlansPageConfig,
@@ -79,8 +81,12 @@ const pageConfig: BusinessPageConfig = {
   actions: (deploymentPlansPageConfig.actions ?? []).map((action) => ({
     ...action,
     run: async (row) => {
-      const result = await runPlanAction(action.label, row ?? null, () => action.run?.(row))
-      await handleActionFeedback(action.label, row ?? null, result)
+      try {
+        const result = await runPlanAction(action.label, row ?? null, () => action.run?.(row))
+        await handleActionFeedback(action.label, row ?? null, result)
+      } catch (cause) {
+        handleActionError(action.label, cause)
+      }
     },
   })),
   rowActions: [
@@ -113,8 +119,12 @@ const pageConfig: BusinessPageConfig = {
     ...((deploymentPlansPageConfig.rowActions ?? []).map((action) => ({
       ...action,
       run: async (row: ViewRow) => {
-        const result = await runPlanAction(action.label, row, () => action.run?.(row))
-        await handleActionFeedback(action.label, row, result)
+        try {
+          const result = await runPlanAction(action.label, row, () => action.run?.(row))
+          await handleActionFeedback(action.label, row, result)
+        } catch (cause) {
+          handleActionError(action.label, cause)
+        }
       },
     }))),
   ],
@@ -197,6 +207,11 @@ function resetMessages() {
   dryRunRequestId.value = ''
   submitRequestId.value = ''
   dryRunChecks.value = []
+  dryRunActionError.value = ''
+}
+
+function closeDryRunResultModal() {
+  dryRunResultModalOpen.value = false
 }
 
 async function loadWizardOptions() {
@@ -332,6 +347,7 @@ async function handleDryRun(plan: DeploymentWizardPlan) {
     const dryRun = await dryRunDeploymentPlan({ planId })
     dryRunRequestId.value = dryRun.requestId
     openExecutionModalFromResult(dryRun, 'dry-run')
+    dryRunResultModalOpen.value = true
     dryRunChecks.value = extractDryRunChecks(dryRun.data)
     const runId = dryRunRunRow.value?.id ?? ''
     infoMessage.value = runId
@@ -455,11 +471,25 @@ async function handleActionFeedback(actionLabel: string, row: ViewRow | null, re
   await pageRef.value?.reload()
 }
 
+function handleActionError(actionLabel: string, cause: unknown) {
+  if (actionLabel.includes('Dry-run')) {
+    dryRunResultModalOpen.value = true
+    errorMessage.value = ''
+    infoMessage.value = ''
+    dryRunChecks.value = []
+    dryRunRunRow.value = null
+    dryRunActionError.value = toErrorMessage(cause, '?? dry-run ??')
+    return
+  }
+  errorMessage.value = toErrorMessage(cause, `${actionLabel}??`)
+}
+
 function openExecutionModalFromResult(result: unknown, mode: 'dry-run' | 'apply', fallbackRow?: ViewRow | null) {
   const data = readResponseData(result)
   const run = readRecord(data, ['run'])
   const runId = readString(run, ['id', 'runId']) || readString(data, ['runId'])
   if (!runId) return
+  if (mode === 'dry-run') dryRunResultModalOpen.value = true
   dryRunRequestId.value = readString(result as ApiRecord, ['requestId'], dryRunRequestId.value)
   dryRunRunRow.value = {
     id: runId,
@@ -678,6 +708,20 @@ async function fetchAllPages(
         <button class="gc-button" type="button" :disabled="loading" @click="closeCreateDialog">关闭</button>
       </template>
     </GcModal>
+
+    <GcDryRunResultModal
+      v-model:open="dryRunResultModalOpen"
+      :run-id="dryRunRunRow?.id"
+      :request-id="dryRunRequestId || dryRunExecutionDetail.requestId.value"
+      :summary="dryRunExecutionDetail.dryRunSummary.value"
+      :checks="dryRunChecks.length ? dryRunChecks : dryRunExecutionDetail.dryRunChecks.value"
+      :steps="dryRunExecutionDetail.steps.value"
+      :lines="dryRunExecutionDetail.lines.value"
+      :loading="dryRunExecutionDetail.loading.value"
+      :polling="dryRunExecutionDetail.isPolling.value"
+      :error="dryRunExecutionDetail.error.value || dryRunActionError"
+      @update:open="(value) => value ? (dryRunResultModalOpen = true) : closeDryRunResultModal()"
+    />
 
     <GcModal
       v-model:open="detailModalOpen"

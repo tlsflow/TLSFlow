@@ -48,7 +48,6 @@ export const deploymentPlanUiActions: readonly DeploymentPlanUiAction[] = [
     key: 'dry-run',
     label: 'Dry-run 影响预览',
     permission: 'deployment.plan.write',
-    confirmText: 'PREVIEW',
     riskText: '只生成真实影响预览，不执行部署；必须带真实 planId。',
     visibleWhen: ['DRAFT', 'DRY_RUN_FAILED', 'PENDING_APPROVAL', 'READY', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLED_BACK', 'ROLLBACK_FAILED'],
     run: (row) => dryRunDeploymentPlan({ planId: requirePlanId(row) }),
