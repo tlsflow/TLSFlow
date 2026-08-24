@@ -206,6 +206,7 @@ defineExpose({
             <span>总数 {{ state.total.value }}</span>
           </div>
           <div class="business-page__toolbar-actions">
+            <slot name="toolbar-actions-before-refresh" />
             <GcPermissionButton
               v-if="!showHeader && showPrimaryAction"
               class="business-page__primary-button"
