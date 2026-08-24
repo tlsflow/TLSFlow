@@ -33,8 +33,8 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
-async function loadDevices() {
-  return listManagedDevices({ page: 1, pageSize: 20, sort: 'displayName:asc', filters: filters.value })
+async function loadDevices(query: { page: number; pageSize: number }) {
+  return listManagedDevices({ ...query, sort: 'displayName:asc', filters: filters.value })
 }
 
 async function openDetail(row: ViewRow) {
@@ -140,9 +140,12 @@ const config = computed<BusinessPageConfig>(() => ({
       key: 'category',
       title: t('devices.columns.category'),
       candidates: ['category'],
-      format: (record) => String(record.category ?? '').toUpperCase() === 'NETWORK_APPLIANCE'
-        ? t('devices.categories.appliance')
-        : readString(record, ['category']),
+      format: (record) => {
+        const category = String(record.category ?? '').toUpperCase()
+        if (category === 'NETWORK_APPLIANCE') return t('devices.categories.appliance')
+        if (category === 'CLOUD') return t('devices.categories.cloud')
+        return readString(record, ['category'])
+      },
       width: '8%',
     },
     { key: 'productFamily', title: t('devices.columns.productFamily'), candidates: ['productFamily'], width: '11%' },
@@ -163,6 +166,7 @@ const config = computed<BusinessPageConfig>(() => ({
       { label: t('devices.categories.server'), value: 'SERVER' },
       { label: t('devices.categories.networkAppliance'), value: 'NETWORK_APPLIANCE' },
       { label: t('devices.categories.securityAppliance'), value: 'SECURITY_APPLIANCE' },
+      { label: t('devices.categories.cloud'), value: 'CLOUD' },
     ] },
     { key: 'managementMethod', label: t('devices.filters.managementMethod'), type: 'select', options: [
       { label: t('devices.managementMethods.agent'), value: 'AGENT' },
@@ -180,9 +184,9 @@ const config = computed<BusinessPageConfig>(() => ({
   onFiltersChange: (next) => { filters.value = next },
   emptyTitle: t('devices.empty.title'),
   emptyDescription: t('devices.empty.description'),
-  load: () => {
+  load: (query) => {
     void reloadKey.value
-    return loadDevices()
+    return loadDevices(query)
   },
   actions: [],
   rowActions: [{
@@ -201,6 +205,18 @@ const config = computed<BusinessPageConfig>(() => ({
 <template>
   <section class="gc-page devices-page">
     <BusinessResourcePage :key="reloadKey" :config="config">
+      <template #cell-status="{ row }">
+        <span v-if="String(row.raw.category ?? '').toUpperCase() === 'CLOUD'">
+          {{ t('devices.unifiedDetail.values.empty') }}
+        </span>
+        <GcStatusTag v-else :status="String(row.status)" />
+      </template>
+      <template #cell-deviceVersion="{ row }">
+        <span v-if="String(row.raw.category ?? '').toUpperCase() === 'CLOUD'">
+          {{ t('devices.unifiedDetail.values.empty') }}
+        </span>
+        <span v-else>{{ row.deviceVersion }}</span>
+      </template>
       <template #cell-controlVersion="{ row }">
         <span class="devices-page__control-version">
           <span>{{ row.controlVersion }}</span>

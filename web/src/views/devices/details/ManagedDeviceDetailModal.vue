@@ -54,9 +54,13 @@ const canRediscover = computed(() => {
   return allowedActions.includes('device.discover') || pluginCapabilities.includes('device.discover')
 })
 const title = computed(() => String(detail.value?.displayName ?? t('devices.detail.title')))
-const status = computed(() => String(detail.value?.livenessStatus ?? detail.value?.health ?? 'UNKNOWN'))
+const status = computed(() => String(detail.value?.category === 'CLOUD'
+  ? t('devices.unifiedDetail.values.empty')
+  : detail.value?.livenessStatus ?? detail.value?.health ?? 'UNKNOWN'))
 const deviceType = computed(() => String(detail.value?.productFamily ?? detail.value?.category ?? t('devices.unifiedDetail.values.empty')))
-const heroSubtitle = computed(() => String(detail.value?.category ?? detail.value?.managementMode ?? ''))
+const heroSubtitle = computed(() => detail.value?.category === 'CLOUD'
+  ? t('devices.categories.cloud')
+  : String(detail.value?.category ?? detail.value?.managementMode ?? ''))
 const selectedCertificateTitle = computed(() => {
   const certificate = selectedCertificate.value?.certificate
   return certificate?.name || certificate?.subject || t('devices.unifiedDetail.values.unknownCertificate')
@@ -283,7 +287,8 @@ defineExpose({ open })
           <span>{{ heroSubtitle }}</span>
         </div>
         <div class="agent-detail-modal__hero-side">
-          <GcStatusTag :status="status" />
+          <span v-if="detail.category === 'CLOUD'">{{ t('devices.unifiedDetail.values.empty') }}</span>
+          <GcStatusTag v-else :status="status" />
           <div class="agent-detail-modal__spotlight">
             <small>{{ t('devices.unifiedDetail.deviceType') }}</small>
             <strong>{{ deviceType }}</strong>
