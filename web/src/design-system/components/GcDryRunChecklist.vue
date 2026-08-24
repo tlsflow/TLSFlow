@@ -1,30 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import type { ApiRecord } from '@/api/modules/common'
-
-type DryRunStatus = 'passed' | 'failed' | 'warning' | 'unknown'
 
 const props = withDefaults(defineProps<{
   items: readonly ApiRecord[]
   title?: string
-  description?: string
 }>(), {
   title: 'Dry-run 预检结论',
-  description: '这里只展示真实只读预检结果，不复用模糊 capability 文案。',
 })
-
-const summary = computed(() => props.items.reduce<Record<DryRunStatus, number>>((acc, item) => {
-  const status = normalizeStatus(String(item.status ?? 'unknown'))
-  acc[status] += 1
-  return acc
-}, { passed: 0, failed: 0, warning: 0, unknown: 0 }))
-
-function normalizeStatus(value: string): DryRunStatus {
-  if (value === 'passed') return 'passed'
-  if (value === 'failed') return 'failed'
-  if (value === 'warning') return 'warning'
-  return 'unknown'
-}
 
 function readDetail(item: ApiRecord): string {
   const detail = item.detail
@@ -37,16 +19,7 @@ function readDetail(item: ApiRecord): string {
 <template>
   <section class="gc-card gc-dry-run-checklist" aria-label="dry-run 预检结论">
     <header class="gc-dry-run-checklist__header">
-      <div>
-        <strong>{{ title }}</strong>
-        <p>{{ description }}</p>
-      </div>
-      <ul class="gc-dry-run-checklist__summary">
-        <li>通过 {{ summary.passed }}</li>
-        <li>失败 {{ summary.failed }}</li>
-        <li>警告 {{ summary.warning }}</li>
-        <li>未知 {{ summary.unknown }}</li>
-      </ul>
+      <strong>{{ title }}</strong>
     </header>
 
     <p v-if="items.length === 0" class="gc-dry-run-checklist__empty">尚未生成 dry-run 预检结果。</p>
@@ -67,9 +40,7 @@ function readDetail(item: ApiRecord): string {
 
 <style scoped>
 .gc-dry-run-checklist { display: grid; gap: var(--gc-space-3); }
-.gc-dry-run-checklist__header { display: flex; justify-content: space-between; gap: var(--gc-space-4); align-items: flex-start; }
-.gc-dry-run-checklist__header p { margin: var(--gc-space-1) 0 0; color: var(--gc-color-text-muted); }
-.gc-dry-run-checklist__summary { display: flex; flex-wrap: wrap; gap: var(--gc-space-2); margin: 0; padding: 0; list-style: none; color: var(--gc-color-text-muted); }
+.gc-dry-run-checklist__header { display: flex; gap: var(--gc-space-4); align-items: center; }
 .gc-dry-run-checklist__list { display: grid; gap: var(--gc-space-2); margin: 0; padding: 0; list-style: none; }
 .gc-dry-run-checklist__item { border: 1px solid var(--gc-color-border); border-radius: 8px; padding: 12px; background: var(--gc-color-surface-soft); display: grid; gap: var(--gc-space-2); }
 .gc-dry-run-checklist__main { display: flex; justify-content: space-between; gap: var(--gc-space-2); align-items: center; }

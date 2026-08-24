@@ -24,10 +24,12 @@ const props = withDefaults(defineProps<{
   lines: readonly ExecutionLogLine[]
   steps?: readonly ExecutionStepLine[]
   polling?: boolean
-  mode?: 'polling' | 'static'
+  streaming?: boolean
+  mode?: 'live' | 'static'
 }>(), {
   steps: () => [],
   polling: false,
+  streaming: false,
   mode: 'static',
 })
 
@@ -46,7 +48,7 @@ const filteredLines = computed(() => props.lines.filter((line) => {
     <header>
       <div class="gc-log-viewer__title">
         <strong>执行日志</strong>
-        <span v-if="mode === 'polling'" class="gc-log-viewer__mode">轮询视图</span>
+        <span v-if="mode === 'live'" class="gc-log-viewer__mode">{{ streaming ? '实时更新' : '自动刷新' }}</span>
       </div>
       <input v-model="keyword" placeholder="搜索日志内容" />
       <select v-model="level" aria-label="日志级别">
@@ -57,9 +59,9 @@ const filteredLines = computed(() => props.lines.filter((line) => {
         <option value="error">error</option>
       </select>
     </header>
-    <p v-if="mode === 'polling'" class="gc-log-viewer__hint">
-      当前没有实时推送通道，页面通过轮询刷新执行步骤和日志。
-      <span v-if="polling">轮询进行中。</span>
+    <p v-if="mode === 'live'" class="gc-log-viewer__hint">
+      {{ streaming ? '任务状态与日志会持续实时更新。' : '任务状态与日志会自动刷新。' }}
+      <span v-if="polling && !streaming">当前处于刷新兜底模式。</span>
     </p>
     <section v-if="steps.length" class="gc-log-viewer__steps" aria-label="执行步骤">
       <article v-for="step in steps" :key="step.id" class="gc-log-viewer__step">
