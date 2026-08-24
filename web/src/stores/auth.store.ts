@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { getAuthProvider, type AuthSession } from '@/providers/auth.provider'
 
 export interface CurrentUser {
   readonly id: string
@@ -22,15 +23,14 @@ export const useAuthStore = defineStore('auth', {
     isAuthenticated: (state) => Boolean(state.token && state.user)
   },
   actions: {
-    async bootstrapMockSession(): Promise<void> {
-      // 中文说明：004 只搭工程骨架，真实登录和 Token 刷新由 005/后端认证 Spec 接入。
-      this.token = 'mock-token-for-frontend-skeleton'
-      this.user = {
-        id: 'mock-user',
-        displayName: '前端骨架用户',
-        tenantId: 'default',
-        tenantName: '默认租户',
-        roles: ['admin']
+    setSession(session: AuthSession): void {
+      this.token = session.token
+      this.user = session.user
+    },
+    async bootstrapSession(): Promise<void> {
+      const session = await getAuthProvider().bootstrapSession()
+      if (session) {
+        this.setSession(session)
       }
     },
     clearSession(): void {

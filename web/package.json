@@ -4,14 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host 0.0.0.0 --port 5172",
     "build": "vue-tsc --noEmit && vite build",
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
     "test:unit": "vitest run tests/unit tests/contract",
     "test:component": "vitest run tests/component",
     "test:e2e": "vitest run tests/e2e",
-    "openapi:generate": "node scripts/generate-openapi-placeholder.mjs"
+    "openapi:generate": "node scripts/generate-openapi-types.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-vue": "latest",

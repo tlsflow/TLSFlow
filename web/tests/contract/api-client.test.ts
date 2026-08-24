@@ -1,8 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiClient, createIdempotencyKey } from '@/api/client'
+import { apiContractMetadata } from '@/api/generated/client-types'
+import { apiOperations, type ApiPath } from '@/api/generated/paths'
 
-describe('API Client 契约占位', () => {
+describe('API Client 契约', () => {
   afterEach(() => vi.restoreAllMocks())
+
+  it('使用后端 OpenAPI 生成的路径元数据', () => {
+    const healthPath: ApiPath = '/api/v1/health'
+    expect(healthPath).toBe('/api/v1/health')
+    expect(apiContractMetadata.paths).toContain('/api/v1/health')
+    expect(apiOperations.map((operation) => operation.operationId)).toContain('getHealth')
+  })
 
   it('解析统一成功响应并保留 requestId', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: { ok: true }, requestId: 'req_1', timestamp: '2026-06-08T00:00:00.000Z' }), { status: 200 })))

@@ -15,12 +15,11 @@ export function registerRouterGuards(router: Router): void {
     }
 
     if (to.meta.requiresAuth && !authStore.isAuthenticated) {
-      // 中文说明：当前 Spec 不实现登录页业务，默认初始化 mock 会话；真实认证由后续 Spec 接入。
-      await authStore.bootstrapMockSession()
+      await authStore.bootstrapSession()
     }
 
     if (to.meta.requiresAuth && !permissionStore.isLoaded) {
-      await permissionStore.loadMockPermissions()
+      await permissionStore.loadPermissions()
     }
 
     const permission = to.meta.permission
