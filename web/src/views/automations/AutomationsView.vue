@@ -55,6 +55,13 @@ async function confirmRun() {
   await router.push(`/automation-runs/${run.id}`)
 }
 
+function triggerLabelKey(triggerType: AutomationRecord['configuration']['trigger']['type']): string {
+  if (triggerType === 'api') return 'automations.scheduleBuilder.api'
+  if (triggerType === 'once') return 'automations.scheduleBuilder.once'
+  if (triggerType === 'schedule') return 'automations.scheduleBuilder.recurring'
+  return 'automations.triggers.onDemand'
+}
+
 onMounted(load)
 </script>
 
@@ -69,7 +76,7 @@ onMounted(load)
       <article v-for="item in items" :key="item.id" class="automation-card">
         <header><div><h2>{{ item.name }}</h2><p>{{ item.description || t('automations.emptyDescription') }}</p></div><GcStatusTag :status="item.status" /></header>
         <dl>
-          <div><dt>{{ t('automations.columns.trigger') }}</dt><dd>{{ t(`automations.triggers.${item.configuration.trigger.type === 'schedule' ? 'schedule' : 'onDemand'}`) }}</dd></div>
+          <div><dt>{{ t('automations.columns.trigger') }}</dt><dd>{{ t(triggerLabelKey(item.configuration.trigger.type)) }}</dd></div>
           <div><dt>{{ t('automations.columns.targets') }}</dt><dd>{{ t('automations.summaries.targets', { count: item.configuration.guardrails.maxTargetsPerRun }) }}</dd></div>
           <div><dt>{{ t('automations.columns.actions') }}</dt><dd>{{ item.configuration.actions.map((action) => t(`automations.actionTypes.${action.type}`)).join(', ') }}</dd></div>
           <div><dt>{{ t('automations.columns.nextRun') }}</dt><dd>{{ formatMaybeLocalTime(item.nextRunAt, t('automations.common.notAvailable')) }}</dd></div>

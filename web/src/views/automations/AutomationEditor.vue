@@ -12,7 +12,12 @@ const { t } = useI18n()
 const form = reactive({
   name: '',
   description: '',
-  triggerType: 'on_demand',
+  triggerType: 'api',
+  onceRunAt: defaultOnceRunAt(),
+  recurrence: 'daily',
+  recurrenceTime: '02:00',
+  weeklyDay: 1,
+  monthlyDay: 1,
   cron: '0 2 * * *',
   timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   certificateDomains: [] as string[],
@@ -46,7 +51,8 @@ watch(() => props.automation, (automation) => {
   Object.assign(form, {
     name: automation.name,
     description: automation.description ?? '',
-    triggerType: trigger.type,
+    triggerType: trigger.type === 'on_demand' ? 'api' : trigger.type,
+    onceRunAt: trigger.type === 'once' ? toLocalDateTimeInput(trigger.runAt) : defaultOnceRunAt(),
     cron: trigger.type === 'schedule' ? trigger.cron : '0 2 * * *',
     timeZone: trigger.type === 'schedule' ? trigger.timeZone : form.timeZone,
     certificateDomains: (selector.certificateDomains ?? []).map(normalizeDomain),
@@ -58,6 +64,7 @@ watch(() => props.automation, (automation) => {
     requireApproval: automation.configuration.guardrails.requireApproval,
     failureCount: automation.configuration.guardrails.failureCountThreshold ?? 3,
   })
+  if (trigger.type === 'schedule') applyCronToForm(trigger.cron)
   currentStep.value = 1
 }, { immediate: true })
 
@@ -65,7 +72,11 @@ const domains = computed(() => form.certificateDomains.map((item) => item.trim()
 const selectedDomainSummary = computed(() => domains.value.length ? domains.value.join(', ') : t('certificates.list.assets.unselectedTitle'))
 const valid = computed(() => Boolean(form.name.trim() && domains.value.length && form.maxTargets > 0 && form.concurrency > 0 && form.concurrency <= form.maxTargets && (form.versionSelection === 'latest' || form.certificateVersionIds.length)))
 const stepOneReady = computed(() => Boolean(domains.value.length && (form.versionSelection === 'latest' || form.certificateVersionIds.length)))
-const stepTwoReady = computed(() => Boolean(form.triggerType === 'on_demand' || (form.cron.trim() && form.timeZone.trim())))
+const stepTwoReady = computed(() => {
+  if (form.triggerType === 'api') return true
+  if (form.triggerType === 'once') return Boolean(form.onceRunAt && new Date(form.onceRunAt) > new Date())
+  return Boolean(form.recurrenceTime && form.timeZone.trim() && (form.recurrence !== 'custom' || form.cron.trim()))
+})
 
 watch([() => form.versionSelection, () => form.certificateDomains], () => {
   if (form.versionSelection === 'specific') void loadVersionOptions()
@@ -150,6 +161,44 @@ function normalizeDomain(domain: string): string {
   return domain.trim().toLowerCase().replace(/\.$/, '')
 }
 
+function defaultOnceRunAt(): string {
+  return toLocalDateTimeInput(new Date(Date.now() + 60 * 60 * 1000).toISOString())
+}
+
+function toLocalDateTimeInput(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const offset = date.getTimezoneOffset() * 60_000
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16)
+}
+
+function applyCronToForm(cron: string) {
+  const [minute, hour, dayOfMonth, month, dayOfWeek] = cron.trim().split(/\s+/)
+  form.recurrenceTime = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+  if (dayOfMonth === '*' && month === '*' && dayOfWeek === '*') form.recurrence = 'daily'
+  else if (dayOfMonth === '*' && month === '*' && /^\d$/.test(dayOfWeek ?? '')) {
+    form.recurrence = 'weekly'
+    form.weeklyDay = Number(dayOfWeek)
+  } else if (/^\d{1,2}$/.test(dayOfMonth ?? '') && month === '*' && dayOfWeek === '*') {
+    form.recurrence = 'monthly'
+    form.monthlyDay = Number(dayOfMonth)
+  } else form.recurrence = 'custom'
+}
+
+function buildCron(): string {
+  if (form.recurrence === 'custom') return form.cron
+  const [hour, minute] = form.recurrenceTime.split(':').map(Number)
+  if (form.recurrence === 'weekly') return `${minute} ${hour} * * ${form.weeklyDay}`
+  if (form.recurrence === 'monthly') return `${minute} ${hour} ${form.monthlyDay} * *`
+  return `${minute} ${hour} * * *`
+}
+
+function buildTrigger(): AutomationConfiguration['trigger'] {
+  if (form.triggerType === 'once') return { type: 'once', runAt: new Date(form.onceRunAt).toISOString() }
+  if (form.triggerType === 'schedule') return { type: 'schedule', cron: buildCron(), timeZone: form.timeZone }
+  return { type: 'api' }
+}
+
 function toggleDomain(domain: string) {
   form.certificateDomains = domains.value.includes(domain)
     ? domains.value.filter((item) => item !== domain)
@@ -174,7 +223,7 @@ function submit() {
   emit('save', {
     name: form.name.trim(),
     description: form.description.trim() || undefined,
-    trigger: form.triggerType === 'schedule' ? { type: 'schedule', cron: form.cron, timeZone: form.timeZone } : { type: 'on_demand' },
+    trigger: buildTrigger(),
     targetSelector: {
       certificateDomains: domains.value,
       certificateVersionSelection: form.versionSelection as 'latest' | 'specific',
@@ -222,8 +271,9 @@ function submit() {
     <section v-else-if="currentStep === 2" class="automation-editor__panel">
       <header><h4>{{ t('automations.form.schedule') }}</h4><p>{{ t('automations.form.scheduleHelp') }}</p></header>
       <div class="automation-editor__grid">
-        <label><span>{{ t('automations.fields.trigger') }}</span><select v-model="form.triggerType" data-testid="automation-trigger"><option value="on_demand">{{ t('automations.triggers.onDemand') }}</option><option value="schedule">{{ t('automations.triggers.schedule') }}</option></select></label>
-        <template v-if="form.triggerType === 'schedule'"><label><span>{{ t('automations.fields.cron') }}</span><input v-model="form.cron" /></label><label><span>{{ t('automations.fields.timeZone') }}</span><input v-model="form.timeZone" /></label></template>
+        <label class="automation-editor__field--full"><span>{{ t('automations.fields.trigger') }}</span><select v-model="form.triggerType" data-testid="automation-trigger"><option value="api">{{ t('automations.scheduleBuilder.api') }}</option><option value="once">{{ t('automations.scheduleBuilder.once') }}</option><option value="schedule">{{ t('automations.scheduleBuilder.recurring') }}</option></select><small>{{ t(`automations.scheduleBuilder.${form.triggerType}Help`) }}</small></label>
+        <template v-if="form.triggerType === 'once'"><label><span>{{ t('automations.scheduleBuilder.runAt') }}</span><input v-model="form.onceRunAt" data-testid="automation-once-run-at" type="datetime-local" /></label><label><span>{{ t('automations.fields.timeZone') }}</span><input :value="form.timeZone" disabled /></label></template>
+        <template v-else-if="form.triggerType === 'schedule'"><div class="automation-editor__warning automation-editor__field--full"><strong>{{ t('automations.scheduleBuilder.recurringWarningTitle') }}</strong><p>{{ t('automations.scheduleBuilder.recurringWarning') }}</p></div><label><span>{{ t('automations.scheduleBuilder.frequency') }}</span><select v-model="form.recurrence" data-testid="automation-recurrence"><option value="daily">{{ t('automations.scheduleBuilder.daily') }}</option><option value="weekly">{{ t('automations.scheduleBuilder.weekly') }}</option><option value="monthly">{{ t('automations.scheduleBuilder.monthly') }}</option><option v-if="form.recurrence === 'custom'" value="custom">{{ t('automations.scheduleBuilder.legacyCustom') }}</option></select></label><label v-if="form.recurrence !== 'custom'"><span>{{ t('automations.scheduleBuilder.time') }}</span><input v-model="form.recurrenceTime" data-testid="automation-recurrence-time" type="time" /></label><label v-if="form.recurrence === 'weekly'"><span>{{ t('automations.scheduleBuilder.weekday') }}</span><select v-model.number="form.weeklyDay"><option v-for="day in 7" :key="day - 1" :value="day - 1">{{ t(`automations.scheduleBuilder.weekdays.${day - 1}`) }}</option></select></label><label v-if="form.recurrence === 'monthly'"><span>{{ t('automations.scheduleBuilder.monthDay') }}</span><select v-model.number="form.monthlyDay"><option v-for="day in 28" :key="day" :value="day">{{ day }}</option></select></label><label v-if="form.recurrence === 'custom'"><span>{{ t('automations.scheduleBuilder.legacyCron') }}</span><input :value="form.cron" readonly /></label><label><span>{{ t('automations.fields.timeZone') }}</span><input v-model="form.timeZone" readonly /></label></template>
       </div>
       <div class="automation-editor__summary"><strong>{{ t('automations.form.execution') }}</strong><p>{{ t('automations.form.executionHelp') }}</p><ol class="automation-editor__chain"><li><strong>1</strong><span>{{ t('automations.form.snapshot') }}</span></li><li><strong>2</strong><span>{{ t('automations.editor.chain.createPlan') }}</span></li><li><strong>3</strong><span>{{ t('automations.editor.chain.executePlan') }}</span></li></ol></div>
     </section>
@@ -271,6 +321,7 @@ function submit() {
 .automation-editor__domain-option input { width: auto; }
 .automation-editor textarea, .automation-editor select[multiple] { min-height: calc(var(--gc-space-10) + var(--gc-space-8)); resize: vertical; }
 .automation-editor__summary, .automation-editor__review { display: grid; gap: var(--gc-space-2); padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-info-border); border-radius: var(--gc-radius-md); background: var(--gc-color-info-soft); }
+.automation-editor__warning { display: grid; gap: var(--gc-space-2); padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-warning-border); border-radius: var(--gc-radius-md); background: var(--gc-color-warning-soft); color: var(--gc-color-text); }
 .automation-editor__chain { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-2); margin: 0; padding: 0; list-style: none; }
 .automation-editor__chain li { display: flex; align-items: center; gap: var(--gc-space-2); padding: var(--gc-space-3); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-solid); color: var(--gc-color-text); }
 .automation-editor__chain li > strong { display: grid; place-items: center; min-width: var(--gc-space-6); min-height: var(--gc-space-6); border-radius: var(--gc-radius-full); background: var(--gc-color-primary); color: var(--gc-color-text-inverse); }
