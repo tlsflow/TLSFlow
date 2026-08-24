@@ -34,6 +34,7 @@ const versionOptions = ref<Array<{ id: string; label: string }>>([])
 const versionsLoading = ref(false)
 const versionsLoadFailed = ref(false)
 let certificateAssetsRequest: Promise<void> | null = null
+const CERTIFICATE_ASSET_PAGE_SIZE = 200
 
 watch(() => props.automation, (automation) => {
   if (!automation) {
@@ -77,7 +78,7 @@ function loadCertificateAssets(): Promise<void> {
     certificateAssetsLoading.value = true
     certificateAssetsLoadFailed.value = false
     try {
-      certificateAssets.value = [...((await listCertificates({ page: 1, pageSize: 500 })).data?.items ?? [])]
+      certificateAssets.value = await loadAllCertificateAssets()
       const domainMap = new Map<string, string>()
       certificateAssets.value.forEach((asset) => {
         const domain = readString(asset, 'primaryDomain') || readString(asset, 'name') || readString(asset, 'commonName')
@@ -98,6 +99,21 @@ function loadCertificateAssets(): Promise<void> {
   })()
 
   return certificateAssetsRequest
+}
+
+async function loadAllCertificateAssets(): Promise<ApiRecord[]> {
+  const records: ApiRecord[] = []
+  let page = 1
+
+  while (true) {
+    const result = await listCertificates({ page, pageSize: CERTIFICATE_ASSET_PAGE_SIZE, sort: 'updatedAt:desc' })
+    const response = result.data
+    const items = [...(response?.items ?? [])]
+    records.push(...items)
+
+    if (!response || records.length >= response.total || items.length < CERTIFICATE_ASSET_PAGE_SIZE) return records
+    page += 1
+  }
 }
 
 async function loadVersionOptions() {

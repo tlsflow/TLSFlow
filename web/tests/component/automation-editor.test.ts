@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { i18n } from '@/i18n'
 import AutomationEditor from '@/views/automations/AutomationEditor.vue'
+import { listCertificates } from '@/api/modules/certificates.api'
 
 vi.mock('@/api/modules/certificates.api', () => ({
   listCertificates: vi.fn(async () => ({ data: { items: [{ id: 'certificate-a', name: 'example.com', primaryDomain: 'example.com', sans: ['api.example.com'] }] } })),
@@ -14,6 +15,7 @@ describe('AutomationEditor', () => {
     const domainPicker = wrapper.get('[data-testid="automation-certificate-domains"]')
     expect(domainPicker.element.tagName).toBe('SUMMARY')
     await vi.waitFor(() => expect(wrapper.findAll('[data-testid="automation-certificate-domain-option"]')).toHaveLength(1))
+    expect(vi.mocked(listCertificates)).toHaveBeenCalledWith({ page: 1, pageSize: 200, sort: 'updatedAt:desc' })
     await wrapper.get('[data-testid="automation-certificate-domain-option"]').setValue(true)
     await wrapper.get('[data-testid="automation-next"]').trigger('click')
     await wrapper.get('[data-testid="automation-trigger"]').setValue('schedule')
