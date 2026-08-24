@@ -745,7 +745,7 @@ function trimProbeStateToTargets() {
           type="button"
           @click="selectedTargetId = row.target.id"
         >
-          <div>
+          <div class="monitor-page__target-body">
             <strong>{{ row.title }}</strong>
             <span>{{ row.endpoint }}</span>
             <div class="monitor-page__probe-blocks" :aria-label="t('monitoring.probe.recentAria')">
@@ -1063,10 +1063,11 @@ function trimProbeStateToTargets() {
 
 .monitor-page__target {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
   width: 100%;
+  min-height: calc(var(--gc-space-8) * 3);
   border: 1px solid var(--gc-color-muted-bg);
   border-radius: 8px;
   padding: 12px;
@@ -1080,9 +1081,10 @@ function trimProbeStateToTargets() {
   background: var(--gc-color-surface-selected);
 }
 
-.monitor-page__target div {
+.monitor-page__target-body {
   display: grid;
   gap: 4px;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -1104,16 +1106,16 @@ function trimProbeStateToTargets() {
 
 .monitor-page__probe-blocks {
   display: grid;
-  grid-template-columns: repeat(10, 1fr);
+  grid-template-columns: repeat(10, var(--gc-space-3));
   gap: 4px;
-  width: 100%;
-  max-width: 170px;
+  width: max-content;
   margin-top: 4px;
 }
 
 .monitor-page__probe-blocks i {
   display: block;
-  aspect-ratio: 1;
+  width: var(--gc-space-3);
+  height: var(--gc-space-3);
   border-radius: 4px;
   background: var(--gc-color-muted-bg);
 }
@@ -1133,6 +1135,8 @@ function trimProbeStateToTargets() {
 .monitor-page__target-status {
   flex: 0 0 auto;
   min-width: 54px;
+  min-height: 32px;
+  align-self: flex-start;
   border-radius: 999px;
   padding: 4px 10px;
   text-align: center;
