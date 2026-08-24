@@ -22,6 +22,7 @@ COPY backend ./
 RUN npm run build
 
 FROM ${NODE_IMAGE} AS runtime
+ARG TARGETARCH
 WORKDIR /app
 ENV NODE_ENV=production \
     GCAC_RELEASE_VERSION=0.1.0 \
@@ -31,10 +32,14 @@ ENV NODE_ENV=production \
     GCAC_MIGRATIONS_DIR=/app/src/database/migrations \
     GCAC_WEB_ROOT=/app/web \
     GCAC_WORKFLOW_DATA_DIR=/app/data/workflows \
-    GCAC_AGENT_RELEASE_BUNDLE_ROOT=/opt/gcac/agent-release-bundle
+    GCAC_AGENT_RELEASE_BUNDLE_ROOT=/opt/gcac/agent-release-bundle \
+    GCAC_LEGO_PATH=/usr/local/bin/lego
 
+COPY docker/versions.json docker/install-lego.mjs /tmp/
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends dumb-init ca-certificates \
+  && apt-get install -y --no-install-recommends dumb-init ca-certificates curl tar \
+  && TARGETARCH="$TARGETARCH" node /tmp/install-lego.mjs /tmp/versions.json \
+  && rm -f /tmp/lego.tar.gz /tmp/install-lego.mjs /tmp/versions.json \
   && rm -rf /var/lib/apt/lists/* \
   && useradd --create-home --uid 10001 --shell /usr/sbin/nologin gcac \
   && mkdir -p /var/lib/gcac/pglite /app/data/workflows /app/src/database/migrations \

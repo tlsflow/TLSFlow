@@ -5,6 +5,19 @@
   "nginx": "1.27",
   "pglite": "0.5.1",
   "pg": "8.21.0",
+  "lego": {
+    "version": "5.3.1",
+    "assets": {
+      "linux/amd64": {
+        "file": "lego_v5.3.1_linux_amd64.tar.gz",
+        "sha256": "b3c71b122ee1947eacfe0b809b955647f6377239fe4bfc49f73b1a091ae1252a"
+      },
+      "linux/arm64": {
+        "file": "lego_v5.3.1_linux_arm64.tar.gz",
+        "sha256": "58db563a2b97c2259516fa9910b4a9e1634a0737723d0381a65af1bf93a4b433"
+      }
+    }
+  },
   "deploymentArchitectures": [
     "linux/amd64",
     "linux/arm64"
