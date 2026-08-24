@@ -3,6 +3,8 @@ import type { ApplicationAssetTargetSummaryDto, CreateManagedTargetSnapshotDto, 
 import type { BindingsApplicationService } from '../../bindings/application/bindings.application-service.js';
 import type { CertificateBindingDto } from '../../bindings/dto/bindings.dto.js';
 import type { DeploymentPlansRepository } from '../../deployment-plans/repository/deployment-plans.repository.js';
+import type { MonitorsApplicationService } from '../../monitors/application/monitors.application-service.js';
+import type { ProbeServiceAssetResult } from '../../monitors/dto/monitors.dto.js';
 import type { StateTransitionEventEntity } from '../../deployment-plans/schema/deployment-plans.schema.js';
 import { newId } from '../../../shared/id.js';
 import type { ExecutionsRepository } from '../repository/executions.repository.js';
@@ -16,6 +18,7 @@ type RollbackRunner = (input: { runId: string; tenantId: string; actorId: string
 export class ExecutionResultSyncService {
   private continuationRunner?: ContinuationRunner;
   private rollbackRunner?: RollbackRunner;
+  private monitors?: MonitorsApplicationService;
 
   constructor(
     private readonly executions: ExecutionsRepository,
@@ -31,6 +34,20 @@ export class ExecutionResultSyncService {
 
   setRollbackRunner(runner: RollbackRunner): void {
     this.rollbackRunner = runner;
+  }
+
+  setMonitorsService(monitors: MonitorsApplicationService): void {
+    this.monitors = monitors;
+  }
+
+  async probeSuccessfulDeploymentPlanTargets(input: { tenantId?: string; deploymentPlanId: string }): Promise<void> {
+    if (!this.monitors || !this.deploymentPlans) return;
+    const targets = await this.resolveDeploymentPlanProbeTargets(input.tenantId, input.deploymentPlanId);
+    for (const { serviceAssetId, workflowTarget } of targets) {
+      if (workflowTarget) await this.mergeServiceAssetWorkflowTarget(input.tenantId ?? '', serviceAssetId, workflowTarget);
+      const probeResult = await this.probeWorkflowServiceAsset(input.tenantId ?? '', serviceAssetId);
+      if (probeResult) await this.writeServiceAssetProbeMetadata(input.tenantId ?? '', serviceAssetId, probeResult);
+    }
   }
 
   async applyAgentTaskResult(input: {
@@ -441,19 +458,41 @@ export class ExecutionResultSyncService {
     const managedTarget = assetBinding?.managedTargetId ? await this.assets.getRepository().getManagedTarget(input.tenantId, assetBinding.managedTargetId) : undefined;
 
     await this.writeAssetState(input, assetBinding, siteAsset, managedTarget, detail, resultState);
+    const probeResult = resultState.kind === 'DEPLOY_SUCCESS'
+      ? await this.probeWorkflowServiceAsset(input.tenantId, serviceAsset.id)
+      : undefined;
+    const probeMetadata = probeResult ? buildServiceAssetProbeMetadata(probeResult) : {};
     await this.assets.updateServiceAsset(input.tenantId, serviceAsset.id, {
       metadata: {
         ...serviceAsset.metadata,
         lastDeploymentResultState: resultState.kind,
         manualInterventionRequired: resultState.manualRequired,
-        currentFingerprintSha256: readString(detail, 'verify.remoteCertificateSha256') ?? readString(detail, 'installedCertificateSha256'),
-        currentThumbprint: readString(detail, 'verify.remoteThumbprint') ?? readString(detail, 'newThumbprint') ?? readString(detail, 'oldThumbprint'),
+        currentFingerprintSha256: normalizeProbeFingerprint(probeResult?.certificate?.fingerprintSha256)
+          ?? readString(detail, 'verify.remoteCertificateSha256')
+          ?? readString(detail, 'installedCertificateSha256')
+          ?? readString(serviceAsset.metadata, 'currentFingerprintSha256'),
+        currentThumbprint: readString(detail, 'verify.remoteThumbprint') ?? readString(detail, 'newThumbprint') ?? readString(detail, 'oldThumbprint') ?? readString(serviceAsset.metadata, 'currentThumbprint'),
+        ...probeMetadata,
         lastWorkflowExecutionRunId: input.executionRunId,
         lastWorkflowExecutionStepId: input.executionStepId,
         lastDeployedAt: new Date().toISOString(),
       },
     });
     return resultState;
+  }
+
+  private async probeWorkflowServiceAsset(tenantId: string, serviceAssetId: string): Promise<ProbeServiceAssetResult | undefined> {
+    if (!this.monitors) return undefined;
+    try {
+      return await this.monitors.probeServiceAsset({ tenantId, serviceAssetId });
+    } catch (error) {
+      console.warn('[execution-result-sync.workflow-probe]', JSON.stringify({
+        tenantId,
+        serviceAssetId,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+      return undefined;
+    }
   }
 
   private async resolveWorkflowApplicationAssetId(tenantId: string, step: ExecutionStepEntity): Promise<string | undefined> {
@@ -463,8 +502,11 @@ export class ExecutionResultSyncService {
     if (!this.deploymentPlans || !step.deploymentPlanTargetId) return undefined;
 
     const target = await this.deploymentPlans.getTarget(step.deploymentPlanTargetId, tenantId);
+    const targetRecord = readRecord(target);
     const strategyPayload = readRecord(target?.strategyPayload);
-    return readString(strategyPayload ?? {}, 'workflowRequest.applicationAssetId')
+    return readString(targetRecord ?? {}, 'applicationAssetId')
+      ?? readString(targetRecord ?? {}, 'serviceAssetId')
+      ?? readString(strategyPayload ?? {}, 'workflowRequest.applicationAssetId')
       ?? readString(strategyPayload ?? {}, 'applicationAssetId');
   }
 
@@ -497,6 +539,7 @@ export class ExecutionResultSyncService {
       if (plan.status === 'RUNNING') {
         await this.transitionDeploymentPlan(plan.id, plan.status, 'SUCCESS', actorId, 'execution.success', plan.tenantId);
       }
+      await this.probeSuccessfulDeploymentPlanTargets({ tenantId, deploymentPlanId: run.deploymentPlanId });
       return;
     }
 
@@ -522,6 +565,55 @@ export class ExecutionResultSyncService {
         updatedBy: actorId,
       });
     }
+  }
+
+  private async resolveDeploymentPlanProbeTargets(tenantId: string | undefined, deploymentPlanId: string): Promise<Array<{ serviceAssetId: string; workflowTarget?: Record<string, unknown> }>> {
+    if (!this.deploymentPlans) return [];
+    const output = new Map<string, Record<string, unknown> | undefined>();
+    const targets = await this.deploymentPlans.listTargetsByPlan(deploymentPlanId, tenantId);
+    for (const target of targets) {
+      const targetRecord = readRecord(target) ?? {};
+      const strategyPayload = readRecord(target.strategyPayload);
+      const workflowRequest = readRecord(strategyPayload?.workflowRequest);
+      const workflowTarget = readRecord(workflowRequest?.target)
+        ?? readRecord(readRecord(readRecord(strategyPayload?.deploymentStrategy)?.workflow)?.target);
+      const applicationAssetId = readString(targetRecord, 'applicationAssetId')
+        ?? readString(targetRecord, 'serviceAssetId')
+        ?? readString(workflowRequest ?? {}, 'applicationAssetId')
+        ?? readString(strategyPayload ?? {}, 'applicationAssetId')
+        ?? (!target.certificateBindingId ? target.executionTargetId : undefined);
+      if (applicationAssetId) output.set(applicationAssetId, workflowTarget ?? output.get(applicationAssetId));
+
+      if (!target.certificateBindingId) continue;
+      const binding = await this.bindings.getRepository().getCertificateBinding(tenantId ?? '', target.certificateBindingId);
+      if (binding?.serviceAssetId) output.set(binding.serviceAssetId, workflowTarget ?? output.get(binding.serviceAssetId));
+    }
+    return [...output].map(([serviceAssetId, workflowTarget]) => ({ serviceAssetId, workflowTarget }));
+  }
+
+  private async mergeServiceAssetWorkflowTarget(tenantId: string, serviceAssetId: string, workflowTarget: Record<string, unknown>): Promise<void> {
+    const serviceAsset = await this.assets.getRepository().getServiceAsset(tenantId, serviceAssetId);
+    if (!serviceAsset) return;
+    await this.assets.updateServiceAsset(tenantId, serviceAssetId, {
+      metadata: {
+        ...serviceAsset.metadata,
+        workflowTarget: {
+          ...(readRecord(serviceAsset.metadata.workflowTarget) ?? {}),
+          ...workflowTarget,
+        },
+      },
+    });
+  }
+
+  private async writeServiceAssetProbeMetadata(tenantId: string, serviceAssetId: string, probeResult: ProbeServiceAssetResult): Promise<void> {
+    const serviceAsset = await this.assets.getRepository().getServiceAsset(tenantId, serviceAssetId);
+    if (!serviceAsset) return;
+    await this.assets.updateServiceAsset(tenantId, serviceAssetId, {
+      metadata: {
+        ...serviceAsset.metadata,
+        ...buildServiceAssetProbeMetadata(probeResult),
+      },
+    });
   }
 
   private async transitionDeploymentPlan(
@@ -1013,6 +1105,39 @@ function readBoolean(value: Record<string, unknown>, path: string): boolean {
 function normalizeSha256(value: string | undefined): string | undefined {
   const normalized = value?.replaceAll(':', '').trim().toLowerCase();
   return normalized && /^[a-f0-9]{64}$/.test(normalized) ? normalized : undefined;
+}
+
+function normalizeProbeFingerprint(value: string | undefined): string | undefined {
+  const normalized = value?.replace(/[^a-f0-9]/giu, '').toLowerCase();
+  return normalized || undefined;
+}
+
+function buildServiceAssetProbeMetadata(probeResult: ProbeServiceAssetResult): Record<string, unknown> {
+  const certificate = probeResult.certificate;
+  const base: Record<string, unknown> = {
+    currentCertificateObservedAt: probeResult.checkedAt,
+    currentCertificateProbeStatus: probeResult.status,
+    currentCertificateProbeMessage: probeResult.message,
+    currentCertificateProbeUrl: probeResult.url,
+  };
+  if (!certificate) return base;
+  const fingerprintSha256 = normalizeProbeFingerprint(certificate.fingerprintSha256);
+  return {
+    ...base,
+    currentFingerprintSha256: fingerprintSha256,
+    currentCertificateNotAfter: certificate.notAfter,
+    currentCertificateVerified: certificate.verified,
+    currentCertificateVerificationError: certificate.verificationError,
+    currentCertificate: {
+      fingerprintSha256,
+      notAfter: certificate.notAfter,
+      observedAt: probeResult.checkedAt,
+      verified: certificate.verified,
+      verificationError: certificate.verificationError,
+      source: probeResult.source,
+      url: probeResult.url,
+    },
+  };
 }
 
 function normalizeThumbprint(value: string | undefined): string | undefined {

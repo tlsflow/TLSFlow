@@ -9,6 +9,7 @@ import type { CertificatesRepository } from '../../certificates/repository/certi
 import type { ExecutionsRepository } from '../../executions/repository/executions.repository.js';
 import type {
   AlertRuleDto,
+  CertificateObservationDto,
   CollectMonitorRisksInput,
   CreateAlertRuleInput,
   CreateMonitorTargetInput,
@@ -220,7 +221,7 @@ export class MonitorsApplicationService {
     if (!certificate || !fingerprint) return;
 
     const latest = await this.repository.getLatestCertificateObservation(tenantId, result.serviceAssetId);
-    if (latest?.fingerprintSha256 === fingerprint) return;
+    if (isUnchangedObservation(latest, fingerprint)) return;
 
     await this.repository.saveCertificateObservation({
       tenantId,
@@ -260,15 +261,21 @@ type ProbeAsset = {
   protocol: string;
   verifyUrl?: string;
   sniName?: string;
+  metadata?: Record<string, unknown>;
+  deploymentStrategy?: unknown;
 };
 
 function buildProbeUrl(asset: ProbeAsset): string {
-  if (asset.verifyUrl?.trim()) return asset.verifyUrl.trim();
-  const protocol = asset.protocol.toLowerCase() === 'http' ? 'http' : 'https';
+  const target = readWorkflowTarget(asset);
+  const verifyUrl = readString(asset.verifyUrl) ?? readString(target?.verifyUrl);
+  if (verifyUrl) return verifyUrl;
+  const protocolText = readString(target?.protocol) ?? asset.protocol;
+  const protocol = protocolText.toLowerCase() === 'http' ? 'http' : 'https';
   const defaultPort = protocol === 'https' ? 443 : 80;
-  const port = Number.isFinite(asset.port) && asset.port > 0 ? asset.port : defaultPort;
+  const targetPort = readNumber(target?.port);
+  const port = targetPort ?? (Number.isFinite(asset.port) && asset.port > 0 ? asset.port : defaultPort);
   const portText = port === defaultPort ? '' : `:${port}`;
-  return `${protocol}://${asset.address}${portText}/`;
+  return `${protocol}://${readProbeHost(asset, target)}${portText}/`;
 }
 
 function normalizeTimeoutMs(timeoutMs: number | undefined): number {
@@ -432,9 +439,25 @@ function failedProbeResult(
 }
 
 function readTlsServerName(asset: ProbeAsset, parsed: URL): string | undefined {
-  const explicit = asset.sniName?.trim();
+  const target = readWorkflowTarget(asset);
+  const explicit = readString(asset.sniName) ?? readString(target?.sniName) ?? readString(target?.hostHeader);
   if (explicit) return explicit;
   return isIpAddress(parsed.hostname) ? undefined : parsed.hostname;
+}
+
+function readProbeHost(asset: ProbeAsset, target: Record<string, unknown> | undefined): string {
+  const address = readString(asset.address) ?? '';
+  if (address && !address.includes('@')) return address;
+  return readString(target?.hostHeader) ?? readString(target?.sniName) ?? address;
+}
+
+function readWorkflowTarget(asset: ProbeAsset): Record<string, unknown> | undefined {
+  const metadata = readRecord(asset.metadata);
+  const storedStrategy = readRecord(metadata?.deploymentStrategy);
+  const directStrategy = readRecord(asset.deploymentStrategy);
+  return readRecord(metadata?.workflowTarget)
+    ?? readRecord(readRecord(storedStrategy?.workflow)?.target)
+    ?? readRecord(readRecord(directStrategy?.workflow)?.target);
 }
 
 function suggestHostnameWithoutUserInfo(parsed: URL): string {
@@ -505,7 +528,23 @@ function readString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
+function readNumber(value: unknown): number | undefined {
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN;
+  return Number.isInteger(parsed) && parsed > 0 && parsed <= 65535 ? parsed : undefined;
+}
+
+function readRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
 function normalizeFingerprint(value: string | undefined): string | undefined {
   const normalized = value?.replace(/[^a-f0-9]/giu, '').toUpperCase();
   return normalized ? normalized : undefined;
+}
+
+function isUnchangedObservation(
+  latest: CertificateObservationDto | undefined,
+  fingerprint: string,
+): boolean {
+  return normalizeFingerprint(latest?.fingerprintSha256) === fingerprint;
 }

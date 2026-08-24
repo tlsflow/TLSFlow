@@ -4,6 +4,7 @@ import test from 'node:test';
 import { createServer } from 'node:tls';
 import type { AssetsApplicationService } from '../assets/application/assets.application-service.js';
 import type { BindingsApplicationService } from '../bindings/application/bindings.application-service.js';
+import { DeploymentPlansRepository } from '../deployment-plans/repository/deployment-plans.repository.js';
 import { ExecutionResultSyncService } from './application/execution-result-sync.service.js';
 import { ExecutionsRepository } from './repository/executions.repository.js';
 import type { ExecutionRunEntity, ExecutionStepEntity } from './schema/executions.schema.js';
@@ -539,6 +540,74 @@ test('WORKFLOW CUSTOM 成功会从 workflowRun 提取远端指纹并回写绑定
   assert.equal(assetsWrites.snapshots.at(-1)?.status, 'SUCCESS');
 });
 
+test('部署计划成功后按 target 应用资产触发控制面证书探测并回写资产状态', async () => {
+  const repository = new ExecutionsRepository();
+  const deploymentPlans = new DeploymentPlansRepository();
+  const assetsWrites = createAssetWriteRecorder();
+  const service = new ExecutionResultSyncService(
+    repository,
+    assetsWrites.assets as unknown as AssetsApplicationService,
+    assetsWrites.bindings as unknown as BindingsApplicationService,
+    deploymentPlans,
+  );
+  const probeCalls: Array<Record<string, unknown>> = [];
+  service.setMonitorsService({
+    probeServiceAsset: async (input: Record<string, unknown>) => {
+      probeCalls.push(input);
+      return {
+        serviceAssetId: input.serviceAssetId as string,
+        source: 'control_plane',
+        url: 'https://test.example.com/',
+        status: 'READY',
+        success: true,
+        latencyMs: 5,
+        checkedAt: '2026-07-07T10:00:00.000Z',
+        message: '平台探测成功',
+        certificate: {
+          fingerprintSha256: expectedFingerprint.toUpperCase(),
+          notAfter: '2026-09-30T21:03:02.000Z',
+          verified: true,
+        },
+      };
+    },
+  } as any);
+  const serviceAssetId = String(assetsWrites.serviceAsset.id);
+
+  await deploymentPlans.createTarget({
+    id: 'dpt_success_probe',
+    tenantId,
+    deploymentPlanId: 'dplan_success_probe',
+    executionTargetId: serviceAssetId,
+    executorType: 'WORKFLOW',
+    requiredCapabilities: [],
+    strategyPayload: {
+      workflowRequest: {
+        applicationAssetId: serviceAssetId,
+        target: {
+          verifyUrl: 'https://test.example.com/health',
+          sniName: 'test.example.com',
+        },
+      },
+    },
+    status: 'COMPLETED',
+    createdAt: '2026-07-07T09:59:00.000Z',
+    updatedAt: '2026-07-07T09:59:00.000Z',
+    version: 1,
+  });
+
+  await service.probeSuccessfulDeploymentPlanTargets({ tenantId, deploymentPlanId: 'dplan_success_probe' });
+
+  assert.deepEqual(probeCalls, [{ tenantId, serviceAssetId }]);
+  assert.equal(assetsWrites.serviceAssetUpdates.length, 2);
+  const metadata = assetsWrites.serviceAssetUpdates.at(-1)?.metadata as Record<string, unknown>;
+  const workflowTarget = metadata.workflowTarget as Record<string, unknown>;
+  assert.equal(workflowTarget.verifyUrl, 'https://test.example.com/health');
+  assert.equal(metadata.currentCertificateNotAfter, '2026-09-30T21:03:02.000Z');
+  assert.equal(metadata.currentCertificateObservedAt, '2026-07-07T10:00:00.000Z');
+  assert.equal(metadata.currentCertificateVerified, true);
+  assert.equal(metadata.currentFingerprintSha256, expectedFingerprint);
+});
+
 test('rollback VERIFY 成功后应写回回滚状态而不是目标证书状态', async () => {
   const repository = new ExecutionsRepository();
   const assetsWrites = createAssetWriteRecorder({
@@ -711,9 +780,18 @@ async function createVerifyScenario(
 }
 
 function createAssetWriteRecorder(bindingPatch: Record<string, unknown> = {}) {
+  const serviceAsset = {
+    id: 'app_asset_sync',
+    tenantId,
+    address: 'test.example.com',
+    port: 443,
+    protocol: 'HTTPS',
+    metadata: {},
+  } as Record<string, unknown>;
   const binding = {
     id: 'binding_asset_sync',
     tenantId,
+    serviceAssetId: serviceAsset.id,
     protocol: 'HTTPS',
     port: 443,
     certificateVersionId: 'cert_current',
@@ -725,6 +803,7 @@ function createAssetWriteRecorder(bindingPatch: Record<string, unknown> = {}) {
     ...bindingPatch,
   } as Record<string, unknown>;
   const bindingUpdates: Array<Record<string, unknown>> = [];
+  const serviceAssetUpdates: Array<Record<string, unknown>> = [];
   const snapshots: Array<Record<string, unknown>> = [];
 
   const assets = {
@@ -733,6 +812,8 @@ function createAssetWriteRecorder(bindingPatch: Record<string, unknown> = {}) {
         listApplicationAssetTargets: async () => ({ items: [] }),
         getSiteAsset: async () => undefined,
         getManagedTarget: async () => undefined,
+        getServiceAsset: async (_tenantId: string, serviceAssetId: string) => serviceAssetId === serviceAsset.id ? serviceAsset : undefined,
+        getApplicationAssetTargetByApplicationAssetId: async () => undefined,
         findServiceAssetByIdentity: async () => undefined,
         updateApplicationAssetTarget: async () => undefined,
       };
@@ -743,6 +824,11 @@ function createAssetWriteRecorder(bindingPatch: Record<string, unknown> = {}) {
     },
     updateSiteAsset: async () => undefined,
     updateManagedTarget: async () => undefined,
+    updateServiceAsset: async (_tenantId: string, _serviceAssetId: string, patch: Record<string, unknown>) => {
+      serviceAssetUpdates.push(patch);
+      Object.assign(serviceAsset, patch);
+      return serviceAsset;
+    },
   };
 
   const bindings = {
@@ -758,7 +844,7 @@ function createAssetWriteRecorder(bindingPatch: Record<string, unknown> = {}) {
     },
   };
 
-  return { assets, bindings, binding, bindingUpdates, snapshots };
+  return { assets, bindings, binding, bindingUpdates, serviceAsset, serviceAssetUpdates, snapshots };
 }
 
 const CERT_PEM = `-----BEGIN CERTIFICATE-----

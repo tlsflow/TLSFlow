@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash, X509Certificate } from 'node:crypto';
 import { createServer as createHttpsServer } from 'node:https';
 import { describe, it } from 'node:test';
 import { App } from '../../common/http/app.js';
@@ -481,6 +482,117 @@ describe('监控风险 API', () => {
       assert.equal(observationPage.items[0]!.serviceAssetId, asset.id);
       assert.equal(observationPage.items[0]!.verified, false);
       assert.ok(observationPage.items[0]!.verificationError);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
+  it('HTTPS 实测证书指纹未变化且超过旧防抖窗口时不重复新增证书观测版本', async () => {
+    const server = createHttpsServer({
+      key: PRIVATE_KEY_PEM,
+      cert: CERT_PEM,
+    }, (_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('ok');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const port = (server.address() as { port: number }).port;
+
+    try {
+      const { app, assetsService, monitors } = await createMonitorHarness();
+      const tenantId = 'tenant_probe_tls_unchanged';
+      const headers = { 'x-tenant-id': tenantId, 'x-actor-id': 'monitor_bot' };
+      const asset = await assetsService.createServiceAsset(tenantId, {
+        address: '127.0.0.1',
+        port,
+        protocol: 'HTTPS',
+        sniName: 'example.com',
+        platform: 'LINUX',
+        discoverySource: 'MANUAL',
+        status: 'ACTIVE',
+      });
+      const certificate = new X509Certificate(CERT_PEM);
+      const fingerprint = createHash('sha256').update(certificate.raw).digest('hex').toUpperCase();
+      const url = `https://127.0.0.1:${port}/`;
+      await monitors.getRepository().saveCertificateObservation({
+        tenantId,
+        serviceAssetId: asset.id,
+        source: 'control_plane',
+        url,
+        observedAt: '2026-07-07T10:00:00.000Z',
+        fingerprintSha256: fingerprint,
+        subject: 'CN=example.com, O=GCAC',
+        issuer: 'CN=example.com, O=GCAC',
+        serialNumber: certificate.serialNumber,
+        notBefore: certificate.validFrom,
+        notAfter: certificate.validTo,
+        dnsNames: ['example.com', 'www.example.com'],
+        verified: false,
+        verificationError: 'SELF_SIGNED_CERT_IN_CHAIN',
+      });
+
+      const direct = await monitors.probeServiceAsset({
+        tenantId,
+        serviceAssetId: asset.id,
+        timeoutMs: 1000,
+      });
+      assert.equal(direct.status, 'WARNING');
+      assert.equal(direct.certificate?.fingerprintSha256, fingerprint);
+
+      const observations = await app.inject({
+        method: 'GET',
+        path: `/api/v1/monitors/certificate-observations?serviceAssetId=${asset.id}`,
+        headers,
+      });
+      assert.equal(observations.statusCode, 200);
+      const observationPage = observations.body as { total: number; items: Array<{ fingerprintSha256: string; observedAt: string }> };
+      assert.equal(observationPage.total, 1);
+      assert.equal(observationPage.items[0]!.fingerprintSha256, fingerprint);
+      assert.equal(new Date(observationPage.items[0]!.observedAt).toISOString(), '2026-07-07T10:00:00.000Z');
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
+  it('工作流资产探测会使用 metadata.workflowTarget 的验证地址和 SNI', async () => {
+    const server = createHttpsServer({
+      key: PRIVATE_KEY_PEM,
+      cert: CERT_PEM,
+    }, (_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('ok');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const port = (server.address() as { port: number }).port;
+
+    try {
+      const { assetsService, monitors } = await createMonitorHarness();
+      const asset = await assetsService.createServiceAsset('tenant_probe_workflow_target', {
+        address: 'bad@address.example',
+        port: 443,
+        protocol: 'HTTPS',
+        platform: 'LINUX',
+        discoverySource: 'MANUAL',
+        status: 'ACTIVE',
+        metadata: {
+          workflowTarget: {
+            verifyUrl: `https://127.0.0.1:${port}/health`,
+            sniName: 'example.com',
+            port,
+            protocol: 'HTTPS',
+          },
+        },
+      });
+
+      const result = await monitors.probeServiceAsset({
+        tenantId: 'tenant_probe_workflow_target',
+        serviceAssetId: asset.id,
+        timeoutMs: 1000,
+      });
+
+      assert.equal(result.url, `https://127.0.0.1:${port}/health`);
+      assert.equal(result.status, 'WARNING');
+      assert.ok(result.certificate?.fingerprintSha256);
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     }

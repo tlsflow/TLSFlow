@@ -559,6 +559,7 @@ export class ExecutionsApplicationService {
     if (run.status === 'SUCCESS') {
       await this.markTargets(targetIds, 'COMPLETED', actorId, tenantId);
       if (plan.status === 'RUNNING') await this.transitionDeploymentPlan(plan, 'SUCCESS', actorId, 'execution.success');
+      await this.resultSync?.probeSuccessfulDeploymentPlanTargets({ tenantId, deploymentPlanId: run.deploymentPlanId });
       return;
     }
 

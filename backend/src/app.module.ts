@@ -187,6 +187,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     executions: deploymentPlans.getExecutionsService().getRepository(),
     assets: assetsService.getRepository(),
   });
+  executionResultSync.setMonitorsService(monitorsService);
   app.setResource('monitorsService', monitorsService);
 
   new CertificatesController(security, certificateServices).register(app.router);

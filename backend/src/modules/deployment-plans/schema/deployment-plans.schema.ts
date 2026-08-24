@@ -28,6 +28,8 @@ export interface DeploymentPlanTargetEntity extends IdentifiedEntity {
   tenantId?: string;
   deploymentPlanId: string;
   certificateBindingId?: string;
+  applicationAssetId?: string;
+  serviceAssetId?: string;
   executionTargetId?: string;
   executorType: ExecutionTargetKind;
   requiredCapabilities: string[];

@@ -45,6 +45,8 @@ export interface DeploymentPlanTargetDto {
   tenantId?: string;
   deploymentPlanId: string;
   certificateBindingId?: string;
+  applicationAssetId?: string;
+  serviceAssetId?: string;
   executionTargetId?: string;
   executorType: ExecutionTargetKind;
   requiredCapabilities: string[];
@@ -99,6 +101,8 @@ export interface CreateDeploymentPlanInput {
   selectionMode?: DeploymentPlanSelectionMode;
   targets: Array<{
     certificateBindingId?: string;
+    applicationAssetId?: string;
+    serviceAssetId?: string;
     managedTargetId?: string;
     siteAssetId?: string;
     domain?: string;

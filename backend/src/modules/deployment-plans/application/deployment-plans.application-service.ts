@@ -135,6 +135,8 @@ export class DeploymentPlansApplicationService {
       selectionMode: resolved.selectionMode,
       targets: resolved.targets.map((target) => ({
         certificateBindingId: target.certificateBindingId,
+        applicationAssetId: target.applicationAssetId,
+        serviceAssetId: target.serviceAssetId ?? target.applicationAssetId,
         managedTargetId: target.managedTargetId ?? target.managedTarget?.id,
         siteAssetId: target.siteAssetId ?? target.siteAsset?.id,
         domain: target.domain ?? target.binding?.domainName ?? target.binding?.domain,
@@ -167,6 +169,8 @@ export class DeploymentPlansApplicationService {
       const gatewayRoute = await this.normalizeGatewayRoute(target, input.tenantId, policy);
       return {
         certificateBindingId: target.certificateBindingId,
+        applicationAssetId: target.applicationAssetId,
+        serviceAssetId: target.serviceAssetId ?? target.applicationAssetId,
         executionTargetId: target.managedTarget?.id ?? target.managedTargetId ?? target.executionTargetId,
         executorType: this.domain.defaultExecutorType(target.executorType),
         requiredCapabilities: [...new Set<string>(target.requiredCapabilities ?? this.defaultCapabilities())],
@@ -224,6 +228,8 @@ export class DeploymentPlansApplicationService {
         tenantId: input.tenantId,
         deploymentPlanId: plan.id,
         certificateBindingId: target.certificateBindingId,
+        applicationAssetId: target.applicationAssetId,
+        serviceAssetId: target.serviceAssetId,
         executionTargetId: target.executionTargetId,
         executorType: target.executorType,
         requiredCapabilities: target.requiredCapabilities,
@@ -281,6 +287,8 @@ export class DeploymentPlansApplicationService {
       selectionMode: resolved.selectionMode,
       targets: resolved.targets.map((target) => ({
         certificateBindingId: target.certificateBindingId,
+        applicationAssetId: target.applicationAssetId,
+        serviceAssetId: target.serviceAssetId ?? target.applicationAssetId,
         managedTargetId: target.managedTargetId ?? target.managedTarget?.id,
         siteAssetId: target.siteAssetId ?? target.siteAsset?.id,
         domain: target.domain ?? target.binding?.domainName ?? target.binding?.domain,
@@ -306,6 +314,8 @@ export class DeploymentPlansApplicationService {
       const gatewayRoute = await this.normalizeGatewayRoute(target, draft.tenantId, policy);
       return {
         certificateBindingId: target.certificateBindingId,
+        applicationAssetId: target.applicationAssetId,
+        serviceAssetId: target.serviceAssetId ?? target.applicationAssetId,
         executionTargetId: target.managedTarget?.id ?? target.managedTargetId ?? target.executionTargetId,
         executorType: this.domain.defaultExecutorType(target.executorType),
         requiredCapabilities: [...new Set<string>(target.requiredCapabilities ?? this.defaultCapabilities())],
@@ -359,6 +369,8 @@ export class DeploymentPlansApplicationService {
         tenantId: draft.tenantId,
         deploymentPlanId: plan.id,
         certificateBindingId: target.certificateBindingId,
+        applicationAssetId: target.applicationAssetId,
+        serviceAssetId: target.serviceAssetId,
         executionTargetId: target.executionTargetId,
         executorType: target.executorType,
         requiredCapabilities: target.requiredCapabilities,
@@ -503,6 +515,8 @@ export class DeploymentPlansApplicationService {
       selectionMode,
       targets: [{
         certificateBindingId: readyBinding.id,
+        applicationAssetId: applicationAsset.id,
+        serviceAssetId: applicationAsset.id,
         managedTargetId: resolvedStrategy.executionTargetId ?? bindingTarget.managedTargetId,
         siteAssetId: bindingTarget.siteAssetId,
         domain: readyBinding.domainName ?? readyBinding.domain ?? applicationAsset.address,
@@ -553,6 +567,8 @@ export class DeploymentPlansApplicationService {
       certificateVersionId: input.targetCertificateVersionId,
       selectionMode,
       targets: [{
+        applicationAssetId: applicationAsset.id,
+        serviceAssetId: applicationAsset.id,
         domain: applicationAsset.address,
         executionTargetId: resolvedStrategy.executionTargetId ?? applicationAsset.id,
         executorType: resolvedStrategy.executorType as CreateDeploymentPlanInput['targets'][number]['executorType'],
