@@ -30,6 +30,10 @@ export class DeploymentPlansRepository {
     return this.plans.update(id, { ...patch, version: (current.version ?? 1) + 1 });
   }
 
+  async deletePlan(id: string): Promise<void> {
+    await this.plans.delete(id);
+  }
+
   async getPlan(id: string, tenantId?: string): Promise<DeploymentPlanEntity | undefined> {
     const plan = await this.plans.get(id);
     return plan && sameTenant(plan.tenantId, tenantId) ? plan : undefined;
@@ -64,6 +68,11 @@ export class DeploymentPlansRepository {
     return this.targets.update(id, { ...patch, version: (current.version ?? 1) + 1 });
   }
 
+  async deleteTargetsByPlan(planId: string, tenantId?: string): Promise<void> {
+    const targets = await this.listTargetsByPlan(planId, tenantId);
+    await Promise.all(targets.map((target) => this.targets.delete(target.id)));
+  }
+
   async getTarget(id: string, tenantId?: string): Promise<DeploymentPlanTargetEntity | undefined> {
     const target = await this.targets.get(id);
     return target && sameTenant(target.tenantId, tenantId) ? target : undefined;
@@ -79,6 +88,14 @@ export class DeploymentPlansRepository {
 
   async listTransitions(entityId?: string): Promise<StateTransitionEventEntity[]> {
     return this.transitions.list((event) => !entityId || event.entityId === entityId);
+  }
+
+  async deleteTransitionsByEntityIds(entityIds: string[], tenantId?: string): Promise<number> {
+    const ids = new Set(entityIds);
+    if (ids.size === 0) return 0;
+    const matched = await this.transitions.list((event) => ids.has(event.entityId) && sameTenant(event.tenantId, tenantId));
+    await Promise.all(matched.map((event) => this.transitions.delete(event.id)));
+    return matched.length;
   }
 
   async clear(): Promise<void> {

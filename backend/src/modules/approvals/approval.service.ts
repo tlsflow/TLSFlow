@@ -125,6 +125,15 @@ export class ApprovalService {
     return this.approvals.get(id);
   }
 
+  async deleteByDeploymentPlan(planId: string, approvalId?: string): Promise<string[]> {
+    const matched = await this.approvals.list((approval) => {
+      if (approvalId && approval.id === approvalId) return true;
+      return approval.resourceRefs.some((ref) => ref.type === 'deploymentPlan' && ref.id === planId);
+    });
+    await Promise.all(matched.map((approval) => this.approvals.delete(approval.id)));
+    return matched.map((approval) => approval.id);
+  }
+
   hashParameters(parameters: unknown): string {
     return createHash('sha256').update(canonicalize(parameters)).digest('hex');
   }

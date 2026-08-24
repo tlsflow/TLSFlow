@@ -9,6 +9,7 @@ import type {
   BindingDriftPersistenceResultDto,
   CreateDiscoverySnapshotDto,
   CreateHostDto,
+  CreateManagedTargetDto,
   CreateServiceAssetDto,
   DiscoveryIngestResultDto,
   DiscoveryMergePreviewDto,
@@ -16,11 +17,16 @@ import type {
   NormalizedDiscoveredBindingDto,
   NormalizedDiscoveredHostDto,
   NormalizedDiscoveredServiceAssetDto,
+  NormalizedDiscoveredSiteAssetDto,
   NormalizedDiscoveredServiceDto,
   PreviewDiscoveryMergeDto,
   ResolveAssetConflictDto,
   ResolvedAssetConflictDto,
+  CreateManagedTargetSnapshotDto,
+  UpdateManagedTargetDto,
+  UpdateSiteAssetDto,
   UpdateServiceAssetDto,
+  CreateSiteAssetDto,
   CreateServiceEndpointDto,
   CreateServiceInstanceDto,
   UpdateHostDto,
@@ -78,18 +84,28 @@ export class AssetsApplicationService {
     return this.repository.listServiceInstances(tenantId, query);
   }
 
-  async createServiceAsset(tenantId: string, input: CreateServiceAssetDto) {
+  async createServiceAsset(tenantId: string, input: CreateServiceAssetDto): Promise<import('../dto/assets.dto.js').ServiceAssetDto> {
     const normalized = this.domain.normalizeServiceAsset(input);
     await this.assertServiceAssetAgentPlatform(tenantId, normalized.platform, normalized.agentId);
-    return this.repository.createServiceAsset(tenantId, normalized);
+    const created = await this.repository.createServiceAsset(tenantId, normalized);
+    if (!created) throw new AppError('SYSTEM_INTERNAL_ERROR', '创建 ServiceAsset 后未返回结果');
+    await this.ensureApplicationAssetTargetBinding(tenantId, created.id);
+    const hydrated = await this.repository.getServiceAssetIncludingDeleted(tenantId, created.id);
+    if (hydrated) return hydrated;
+    return created;
   }
 
-  async updateServiceAsset(tenantId: string, serviceAssetId: string, input: UpdateServiceAssetDto) {
+  async updateServiceAsset(tenantId: string, serviceAssetId: string, input: UpdateServiceAssetDto): Promise<import('../dto/assets.dto.js').ServiceAssetDto> {
     const normalized = this.domain.normalizeServiceAssetPatch(input);
     const current = await this.repository.getServiceAsset(tenantId, serviceAssetId);
     if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId });
     await this.assertServiceAssetAgentPlatform(tenantId, normalized.platform ?? current.platform, normalized.agentId ?? current.agentId);
-    return this.repository.updateServiceAsset(tenantId, serviceAssetId, normalized);
+    const updated = await this.repository.updateServiceAsset(tenantId, serviceAssetId, normalized);
+    if (!updated) throw new AppError('SYSTEM_INTERNAL_ERROR', '更新 ServiceAsset 后未返回结果');
+    await this.ensureApplicationAssetTargetBinding(tenantId, updated.id);
+    const hydrated = await this.repository.getServiceAssetIncludingDeleted(tenantId, updated.id);
+    if (hydrated) return hydrated;
+    return updated;
   }
 
   async deleteServiceAsset(tenantId: string, serviceAssetId: string) {
@@ -98,6 +114,26 @@ export class AssetsApplicationService {
 
   async listServiceAssets(tenantId: string, query: PageQuery) {
     return this.repository.listServiceAssets(tenantId, query);
+  }
+
+  async getServiceAssetDetail(tenantId: string, serviceAssetId: string) {
+    return this.repository.getServiceAssetDetail(tenantId, serviceAssetId);
+  }
+
+  async createSiteAsset(tenantId: string, input: CreateSiteAssetDto) {
+    return this.repository.createSiteAsset(tenantId, this.domain.normalizeSiteAsset(input));
+  }
+
+  async updateSiteAsset(tenantId: string, siteAssetId: string, input: UpdateSiteAssetDto) {
+    return this.repository.updateSiteAsset(tenantId, siteAssetId, this.domain.normalizeSiteAssetPatch(input));
+  }
+
+  async deleteSiteAsset(tenantId: string, siteAssetId: string) {
+    return this.repository.deleteSiteAsset(tenantId, siteAssetId);
+  }
+
+  async listSiteAssets(tenantId: string, query: PageQuery) {
+    return this.repository.listSiteAssets(tenantId, query);
   }
 
   async createServiceEndpoint(tenantId: string, input: CreateServiceEndpointDto) {
@@ -114,6 +150,30 @@ export class AssetsApplicationService {
 
   async listServiceEndpoints(tenantId: string, query: PageQuery) {
     return this.repository.listServiceEndpoints(tenantId, query);
+  }
+
+  async createManagedTarget(tenantId: string, input: CreateManagedTargetDto) {
+    return this.repository.createManagedTarget(tenantId, this.domain.normalizeManagedTarget(input));
+  }
+
+  async updateManagedTarget(tenantId: string, managedTargetId: string, input: UpdateManagedTargetDto) {
+    return this.repository.updateManagedTarget(tenantId, managedTargetId, this.domain.normalizeManagedTargetPatch(input));
+  }
+
+  async deleteManagedTarget(tenantId: string, managedTargetId: string) {
+    return this.repository.deleteManagedTarget(tenantId, managedTargetId);
+  }
+
+  async listManagedTargets(tenantId: string, query: PageQuery) {
+    return this.repository.listManagedTargets(tenantId, query);
+  }
+
+  async createManagedTargetSnapshot(tenantId: string, input: CreateManagedTargetSnapshotDto) {
+    return this.repository.createManagedTargetSnapshot(tenantId, input);
+  }
+
+  async listManagedTargetSnapshots(tenantId: string, query: PageQuery) {
+    return this.repository.listManagedTargetSnapshots(tenantId, query);
   }
 
   async upsertDiscoverySnapshot(tenantId: string, input: CreateDiscoverySnapshotDto) {
@@ -190,6 +250,8 @@ export class AssetsApplicationService {
     const hostIds = new Map<string, string>();
     const serviceIds = new Map<string, string>();
     const serviceAssetIds = new Map<string, string>();
+    const siteAssetIds = new Map<string, string>();
+    const managedTargetIds = new Map<string, string>();
 
     for (const host of payload.hosts) {
       const identityKey = hostIdentityKey(host);
@@ -298,6 +360,131 @@ export class AssetsApplicationService {
       result.actions.push({ kind: 'service_asset', action: conflicts.length > 0 ? 'conflict' : (Object.keys(patch).length > 0 ? 'update' : 'skip'), identityKey, existingId: current.id, resourceId: current.id, reason: conflicts.length > 0 ? 'manual fields conflict with discovered values' : 'service asset merged from discovery' });
     }
 
+    for (const siteAsset of payload.siteAssets) {
+      const resolvedServiceId = await resolveServiceId(siteAsset, serviceIds, tenantId, this.repository);
+      if (!resolvedServiceId) {
+        result.actions.push({ kind: 'site_asset', action: 'conflict', identityKey: siteAssetIdentityKey(siteAsset, 'missing-service'), reason: 'site asset is missing a resolvable service instance' });
+        continue;
+      }
+      const serviceInstance = await this.repository.getServiceInstance(tenantId, resolvedServiceId);
+      if (!serviceInstance) {
+        result.actions.push({ kind: 'site_asset', action: 'conflict', identityKey: siteAssetIdentityKey(siteAsset), reason: 'service instance not found for site asset creation' });
+        continue;
+      }
+      const resolvedServiceAssetId = await resolveDiscoveredSiteServiceAssetId(siteAsset, serviceAssetIds, tenantId, this.repository);
+      const identityKey = siteAssetIdentityKey(siteAsset);
+      const current = await this.repository.findSiteAssetByIdentity(tenantId, {
+        agentId: siteAsset.agentId,
+        providerType: siteAsset.providerType ?? serviceInstance.providerType,
+        siteKey: siteAsset.siteKey ?? identityKey,
+      });
+      if (!current) {
+        if (!apply) {
+          result.actions.push({ kind: 'site_asset', action: 'create', identityKey, reason: 'site asset can be created' });
+          continue;
+        }
+        const created = await this.createSiteAsset(tenantId, siteAssetToCreateDto(siteAsset, resolvedServiceId, resolvedServiceAssetId, serviceInstance.hostId, serviceInstance.providerType, snapshot.source));
+        siteAssetIds.set(identityKey, created.id);
+        if (siteAsset.siteAssetRef) siteAssetIds.set(siteAsset.siteAssetRef, created.id);
+        result.businessTableMutated = true;
+        result.actions.push({ kind: 'site_asset', action: 'create', identityKey, resourceId: created.id, reason: 'site asset created from discovery' });
+        continue;
+      }
+      siteAssetIds.set(identityKey, current.id);
+      if (siteAsset.siteAssetRef) siteAssetIds.set(siteAsset.siteAssetRef, current.id);
+      const conflicts = collectManualConflicts('binding', current.id, snapshot.id, toRecord(current), toRecord(siteAsset), []);
+      result.conflicts.push(...await this.persistConflicts(tenantId, apply, conflicts));
+      const patch = pickChangedAutoFields(
+        toRecord(current),
+        {
+          ...toRecord(siteAsset),
+          serviceInstanceId: resolvedServiceId,
+          serviceAssetId: resolvedServiceAssetId,
+          hostId: serviceInstance.hostId,
+          providerType: siteAsset.providerType ?? serviceInstance.providerType,
+          siteKey: siteAsset.siteKey ?? identityKey,
+          discoverySource: siteAsset.discoverySource ?? snapshot.source,
+          lastDiscoveredAt: siteAsset.lastDiscoveredAt ?? snapshot.createdAt,
+        },
+        ['serviceAssetId', 'bindingInformation', 'hostHeader', 'listenIp', 'port', 'protocol', 'configPath', 'runtimeStatus', 'discoverySource', 'lastDiscoveredAt', 'status', 'metadata'],
+      );
+      if (Object.keys(patch).length > 0 && apply) {
+        await this.updateSiteAsset(tenantId, current.id, patch as UpdateSiteAssetDto);
+        result.businessTableMutated = true;
+      }
+      result.actions.push({ kind: 'site_asset', action: Object.keys(patch).length > 0 ? 'update' : 'skip', identityKey, existingId: current.id, resourceId: current.id, reason: 'site asset merged from discovery' });
+    }
+
+    for (const siteAsset of payload.siteAssets) {
+      const resolvedSiteAssetId = resolveDiscoveredSiteAssetId(siteAsset, siteAssetIds);
+      if (!resolvedSiteAssetId) {
+        result.actions.push({ kind: 'managed_target', action: 'conflict', identityKey: managedTargetIdentityKey(siteAsset, undefined, 'missing-site-asset'), reason: 'managed target is missing a resolvable site asset' });
+        continue;
+      }
+      const siteAssetRecord = await this.repository.getSiteAsset(tenantId, resolvedSiteAssetId);
+      if (!siteAssetRecord) {
+        result.actions.push({ kind: 'managed_target', action: 'conflict', identityKey: managedTargetIdentityKey(siteAsset, undefined, 'missing-site-record'), reason: 'site asset record not found for managed target creation' });
+        continue;
+      }
+      const hostRecord = siteAssetRecord.hostId ? await this.repository.getHost(tenantId, siteAssetRecord.hostId) : undefined;
+      const agentId = normalizeOptionalString(siteAsset.agentId)?.toLowerCase() ?? normalizeOptionalString(hostRecord?.agentId)?.toLowerCase();
+      if (!agentId) {
+        result.actions.push({ kind: 'managed_target', action: 'conflict', identityKey: managedTargetIdentityKey(siteAsset, undefined, 'missing-agent'), reason: 'managed target requires agentId on site asset or host' });
+        continue;
+      }
+      const providerType = siteAsset.providerType ?? siteAssetRecord.providerType;
+      const identityKey = managedTargetIdentityKey(siteAsset, agentId);
+      const targetKey = managedTargetTargetKey(siteAsset, agentId);
+      const current = await this.repository.findManagedTargetByIdentity(tenantId, {
+        agentId,
+        providerType,
+        targetType: 'SITE_BINDING',
+        targetKey,
+      });
+      if (!current) {
+        if (!apply) {
+          result.actions.push({ kind: 'managed_target', action: 'create', identityKey, reason: 'managed target can be created' });
+          continue;
+        }
+        const created = await this.createManagedTarget(tenantId, managedTargetToCreateDto(siteAsset, siteAssetRecord, agentId, snapshot.source));
+        managedTargetIds.set(identityKey, created.id);
+        managedTargetIds.set(`site-asset-id:${resolvedSiteAssetId}`, created.id);
+        if (siteAsset.siteAssetRef) managedTargetIds.set(`site-asset-ref:${siteAsset.siteAssetRef}`, created.id);
+        result.businessTableMutated = true;
+        result.actions.push({ kind: 'managed_target', action: 'create', identityKey, resourceId: created.id, reason: 'managed target created from site asset' });
+        continue;
+      }
+      managedTargetIds.set(identityKey, current.id);
+      managedTargetIds.set(`site-asset-id:${resolvedSiteAssetId}`, current.id);
+      if (siteAsset.siteAssetRef) managedTargetIds.set(`site-asset-ref:${siteAsset.siteAssetRef}`, current.id);
+      const patch = pickChangedAutoFields(
+        toRecord(current),
+        {
+          ...toRecord(siteAsset),
+          hostId: siteAssetRecord.hostId,
+          serviceInstanceId: siteAssetRecord.serviceInstanceId,
+          serviceAssetId: siteAssetRecord.serviceAssetId,
+          siteAssetId: siteAssetRecord.id,
+          providerType,
+          frameworkType: providerType,
+          targetKey,
+          targetType: 'SITE_BINDING',
+          bindingKey: siteAsset.bindingInformation ?? siteAsset.siteKey ?? siteAsset.siteName,
+          capabilityProfile: managedTargetCapabilityProfile(siteAsset, siteAssetRecord),
+          deploymentMode: 'AGENT',
+          lastSeenAt: siteAsset.lastDiscoveredAt ?? snapshot.createdAt,
+          status: 'ACTIVE',
+          metadata: current.metadata,
+        },
+        ['hostId', 'serviceInstanceId', 'serviceAssetId', 'siteAssetId', 'bindingKey', 'capabilityProfile', 'deploymentMode', 'lastSeenAt', 'status'],
+      );
+      if (Object.keys(patch).length > 0 && apply) {
+        await this.updateManagedTarget(tenantId, current.id, patch as UpdateManagedTargetDto);
+        result.businessTableMutated = true;
+      }
+      result.actions.push({ kind: 'managed_target', action: Object.keys(patch).length > 0 ? 'update' : 'skip', identityKey, existingId: current.id, resourceId: current.id, reason: 'managed target merged from site asset' });
+    }
+
     for (const binding of payload.bindings) {
       const resolvedServiceId = await resolveServiceId(binding, serviceIds, tenantId, this.repository);
       if (!resolvedServiceId) {
@@ -305,7 +492,9 @@ export class AssetsApplicationService {
         continue;
       }
       const resolvedServiceAssetId = await resolveServiceAssetId(binding, serviceAssetIds, tenantId, this.repository);
-      const createInput = bindingToCreateDto(binding, resolvedServiceId, resolvedServiceAssetId);
+      const resolvedSiteAssetId = await resolveBindingSiteAssetId(binding, siteAssetIds, tenantId, this.repository);
+      const resolvedManagedTargetId = resolveBindingManagedTargetId(binding, resolvedSiteAssetId, managedTargetIds);
+      const createInput = bindingToCreateDto(binding, resolvedServiceId, resolvedServiceAssetId, resolvedSiteAssetId, resolvedManagedTargetId);
       const identityKey = bindingIdentityKey(binding, resolvedServiceId);
       const current = await this.requireBindingsRepository().findCertificateBindingByIdentity(tenantId, createInput);
       if (!current) {
@@ -325,7 +514,7 @@ export class AssetsApplicationService {
         conflicts.push({ resourceType: 'binding', resourceId: current.id, field: 'metadata.reloadHint', currentValue: currentReloadHint, discoveredValue: discoveredReloadHint, sourceSnapshotId: snapshot.id });
       }
       result.conflicts.push(...await this.persistConflicts(tenantId, apply, conflicts));
-      const patch = pickChangedAutoFields(toRecord(current), toRecord(createInput), ['certificateVersionId', 'observedFingerprintSha256', 'desiredFingerprintSha256', 'certPath', 'keyPath', 'chainPath', 'keystorePath', 'keystoreType', 'storeLocation', 'storeName', 'storeThumbprint', 'verifyMethod', 'lastVerifiedAt', 'lastDeployedAt', 'status', 'metadata']);
+      const patch = pickChangedAutoFields(toRecord(current), toRecord(createInput), ['siteAssetId', 'managedTargetId', 'certificateVersionId', 'observedFingerprintSha256', 'desiredFingerprintSha256', 'certPath', 'keyPath', 'chainPath', 'keystorePath', 'keystoreType', 'storeLocation', 'storeName', 'storeThumbprint', 'verifyMethod', 'lastVerifiedAt', 'lastDeployedAt', 'status', 'metadata']);
       if (Object.keys(patch).length > 0 && apply) {
         await this.requireBindingsRepository().updateCertificateBinding(tenantId, current.id, patch as UpdateCertificateBindingDto);
         result.businessTableMutated = true;
@@ -456,15 +645,109 @@ export class AssetsApplicationService {
       });
     }
   }
+
+  private async ensureApplicationAssetTargetBinding(tenantId: string, applicationAssetId: string): Promise<void> {
+    const bindingTarget = await this.repository.getApplicationAssetTargetByApplicationAssetId(tenantId, applicationAssetId);
+    if (!bindingTarget) return;
+
+    const applicationAsset = await this.repository.getServiceAsset(tenantId, applicationAssetId);
+    if (!applicationAsset) return;
+
+    let managedTarget = await this.repository.getManagedTarget(tenantId, bindingTarget.managedTargetId);
+    let siteAsset = await this.repository.getSiteAsset(tenantId, bindingTarget.siteAssetId);
+    if (!managedTarget || !siteAsset) return;
+
+    if (!managedTarget.hostId || !siteAsset.hostId) {
+      const hostId = await this.ensureAgentHostAnchor(tenantId, applicationAsset.agentId ?? bindingTarget.agentId, managedTarget.serviceInstanceId ?? siteAsset.serviceInstanceId);
+      if (hostId) {
+        if (!siteAsset.hostId) {
+          siteAsset = await this.updateSiteAsset(tenantId, siteAsset.id, { hostId });
+        }
+        if (!managedTarget.hostId) {
+          managedTarget = await this.updateManagedTarget(tenantId, managedTarget.id, { hostId });
+        }
+      }
+    }
+
+    const detail = await this.repository.getApplicationAssetTargetDetailByApplicationAssetId(tenantId, applicationAssetId);
+    const normalizedAddress = applicationAsset.address.trim().toLowerCase();
+    const existing = detail?.certificateBindings.find((item) => {
+      if (bindingTarget.bindingKey && item.bindingKey === bindingTarget.bindingKey) return true;
+      const itemDomain = String(item.domainName ?? item.domain ?? '').trim().toLowerCase();
+      return itemDomain !== '' && itemDomain === normalizedAddress;
+    });
+    if (existing) return;
+
+    await this.requireBindingsRepository().createCertificateBinding(tenantId, {
+      serviceAssetId: applicationAsset.id,
+      siteAssetId: siteAsset.id,
+      managedTargetId: managedTarget.id,
+      serviceInstanceId: managedTarget.serviceInstanceId ?? siteAsset.serviceInstanceId,
+      domainName: applicationAsset.address,
+      domain: applicationAsset.address,
+      port: applicationAsset.port ?? siteAsset.port,
+      protocol: (applicationAsset.protocol ?? siteAsset.protocol ?? 'HTTPS') as CreateCertificateBindingDto['protocol'],
+      bindingKey: bindingTarget.bindingKey ?? managedTarget.bindingKey ?? siteAsset.bindingInformation ?? applicationAsset.address,
+      bindingType: 'WINDOWS_CERT_STORE',
+      storeLocation: 'LocalMachine',
+      storeName: 'My',
+      verifyMethod: 'STORE_QUERY',
+      status: 'MANAGED',
+      metadata: {
+        source: 'application_asset_target',
+        targetKey: bindingTarget.targetKey,
+        siteName: siteAsset.siteName,
+        hostHeader: siteAsset.hostHeader ?? '',
+        bindingInformation: siteAsset.bindingInformation ?? bindingTarget.bindingKey,
+        appPool: typeof siteAsset.metadata?.appPool === 'string' ? siteAsset.metadata.appPool : undefined,
+      },
+    });
+  }
+
+  private async ensureAgentHostAnchor(tenantId: string, agentId: string | undefined, serviceInstanceId?: string): Promise<string | undefined> {
+    if (!agentId || !this.agentsService) return undefined;
+
+    const detail = await this.agentsService.getAgentDetail(tenantId, agentId);
+    const hostname = detail.agent.descriptor.hostname?.trim().toLowerCase();
+    const primaryIp = detail.agent.descriptor.ipAddress?.trim();
+    if (!hostname && !primaryIp) return undefined;
+
+    let host = hostname ? await this.repository.findHostByHostname(tenantId, hostname) : undefined;
+    if (!host) {
+      host = await this.createHost(tenantId, {
+        hostname,
+        primaryIp,
+        ipAddresses: primaryIp ? [primaryIp] : [],
+        osType: String(detail.agent.descriptor.osType ?? 'UNKNOWN').toUpperCase() as CreateHostDto['osType'],
+        osVersion: detail.agent.descriptor.osVersion,
+        arch: detail.agent.descriptor.arch,
+        agentId,
+        discoverySource: 'AGENT',
+        compatibilityLevel: 'L1',
+        managementMode: 'AGENT',
+        status: 'ACTIVE',
+      });
+    }
+
+    if (serviceInstanceId) {
+      const service = await this.repository.getServiceInstance(tenantId, serviceInstanceId);
+      if (service && !service.hostId) {
+        await this.updateServiceInstance(tenantId, service.id, { hostId: host.id });
+      }
+    }
+    return host.id;
+  }
 }
 
-function normalizeDiscoveryPayload(payload: Record<string, unknown>): { hosts: NormalizedDiscoveredHostDto[]; services: NormalizedDiscoveredServiceDto[]; serviceAssets: NormalizedDiscoveredServiceAssetDto[]; bindings: NormalizedDiscoveredBindingDto[] } {
+function normalizeDiscoveryPayload(payload: Record<string, unknown>): { hosts: NormalizedDiscoveredHostDto[]; services: NormalizedDiscoveredServiceDto[]; serviceAssets: NormalizedDiscoveredServiceAssetDto[]; siteAssets: NormalizedDiscoveredSiteAssetDto[]; bindings: NormalizedDiscoveredBindingDto[] } {
   const bindings = arrayOfObjects(payload.bindings ?? payload.certificateBindings) as unknown as NormalizedDiscoveredBindingDto[];
   const explicitServiceAssets = arrayOfObjects(payload.serviceAssets) as unknown as NormalizedDiscoveredServiceAssetDto[];
+  const explicitSiteAssets = arrayOfObjects(payload.siteAssets) as unknown as NormalizedDiscoveredSiteAssetDto[];
   return {
     hosts: arrayOfObjects(payload.hosts) as unknown as NormalizedDiscoveredHostDto[],
     services: arrayOfObjects(payload.services ?? payload.serviceInstances) as unknown as NormalizedDiscoveredServiceDto[],
     serviceAssets: explicitServiceAssets.length > 0 ? explicitServiceAssets : projectDiscoveredServiceAssetsFromBindings(bindings),
+    siteAssets: explicitSiteAssets,
     bindings,
   };
 }
@@ -493,6 +776,30 @@ function serviceAssetIdentityKey(
     return `service-asset:${fallback}`;
   }
   return `service-asset:${address}:${port}:${protocol}`.toLowerCase();
+}
+
+function siteAssetIdentityKey(siteAsset: Pick<NormalizedDiscoveredSiteAssetDto, 'siteName' | 'siteKey' | 'bindingInformation' | 'hostHeader' | 'port'>, fallback = 'invalid'): string {
+  const siteKey = normalizeOptionalString(siteAsset.siteKey)?.toLowerCase();
+  if (siteKey) return `site-asset:${siteKey}`;
+  const siteName = normalizeOptionalString(siteAsset.siteName)?.toLowerCase();
+  if (!siteName) return `site-asset:${fallback}`;
+  const bindingInformation = normalizeOptionalString(siteAsset.bindingInformation)?.toLowerCase();
+  const hostHeader = normalizeOptionalString(siteAsset.hostHeader)?.toLowerCase();
+  return `site-asset:${siteName}:${bindingInformation ?? hostHeader ?? siteAsset.port ?? '_'}`.toLowerCase();
+}
+
+function managedTargetIdentityKey(siteAsset: Pick<NormalizedDiscoveredSiteAssetDto, 'siteName' | 'siteKey' | 'bindingInformation' | 'hostHeader' | 'port'>, agentId: string | undefined, fallback = 'invalid'): string {
+  return `managed-target:${agentId ?? '_'}:${managedTargetTargetKey(siteAsset, agentId, fallback)}`.toLowerCase();
+}
+
+function managedTargetTargetKey(siteAsset: Pick<NormalizedDiscoveredSiteAssetDto, 'siteName' | 'siteKey' | 'bindingInformation' | 'hostHeader' | 'port'>, agentId: string | undefined, fallback = 'invalid'): string {
+  const siteKey = normalizeOptionalString(siteAsset.siteKey)?.toLowerCase();
+  if (siteKey) return [agentId ?? '_', 'site-binding', siteKey].join(':').toLowerCase();
+  const siteName = normalizeOptionalString(siteAsset.siteName)?.toLowerCase();
+  if (!siteName) return [agentId ?? '_', 'site-binding', fallback].join(':').toLowerCase();
+  const bindingInformation = normalizeOptionalString(siteAsset.bindingInformation)?.toLowerCase();
+  const hostHeader = normalizeOptionalString(siteAsset.hostHeader)?.toLowerCase();
+  return [agentId ?? '_', 'site-binding', siteName, bindingInformation ?? hostHeader ?? String(siteAsset.port ?? '_')].join(':').toLowerCase();
 }
 
 function bindingIdentityKey(binding: NormalizedDiscoveredBindingDto, serviceId: string): string {
@@ -537,7 +844,7 @@ function serviceToCreateDto(service: NormalizedDiscoveredServiceDto, hostId: str
   };
 }
 
-function serviceAssetToCreateDto(serviceAsset: NormalizedDiscoveredServiceAssetDto, serviceInstanceId: string, hostId: string, source: CreateDiscoverySnapshotDto['source']): CreateServiceAssetDto {
+function serviceAssetToCreateDto(serviceAsset: NormalizedDiscoveredServiceAssetDto, serviceInstanceId: string, hostId: string | undefined, source: CreateDiscoverySnapshotDto['source']): CreateServiceAssetDto {
   return {
     address: serviceAsset.address,
     addressType: serviceAsset.addressType,
@@ -553,6 +860,77 @@ function serviceAssetToCreateDto(serviceAsset: NormalizedDiscoveredServiceAssetD
     status: serviceAsset.status ?? 'ACTIVE',
     tags: serviceAsset.tags ?? [],
     metadata: serviceAsset.metadata ?? {},
+  };
+}
+
+function siteAssetToCreateDto(
+  siteAsset: NormalizedDiscoveredSiteAssetDto,
+  serviceInstanceId: string,
+  serviceAssetId: string | undefined,
+  hostId: string | undefined,
+  providerType: CreateSiteAssetDto['providerType'],
+  source: CreateDiscoverySnapshotDto['source'],
+): CreateSiteAssetDto {
+  const identityKey = siteAssetIdentityKey(siteAsset);
+  return {
+    serviceInstanceId,
+    serviceAssetId,
+    hostId,
+    agentId: siteAsset.agentId,
+    providerType,
+    siteType: siteAsset.siteType ?? 'CUSTOM',
+    siteName: siteAsset.siteName,
+    siteKey: siteAsset.siteKey ?? identityKey,
+    bindingInformation: siteAsset.bindingInformation,
+    hostHeader: siteAsset.hostHeader,
+    listenIp: siteAsset.listenIp,
+    port: siteAsset.port,
+    protocol: siteAsset.protocol,
+    configPath: siteAsset.configPath,
+    runtimeStatus: siteAsset.runtimeStatus,
+    discoverySource: siteAsset.discoverySource ?? source,
+    lastDiscoveredAt: siteAsset.lastDiscoveredAt,
+    status: siteAsset.status ?? 'ACTIVE',
+    metadata: siteAsset.metadata ?? {},
+  };
+}
+
+function managedTargetToCreateDto(
+  discovered: NormalizedDiscoveredSiteAssetDto,
+  siteAsset: { id: string; hostId?: string; serviceInstanceId: string; serviceAssetId?: string; providerType: CreateManagedTargetDto['providerType'] },
+  agentId: string,
+  source: CreateDiscoverySnapshotDto['source'],
+): CreateManagedTargetDto {
+  return {
+    agentId,
+    hostId: siteAsset.hostId,
+    serviceInstanceId: siteAsset.serviceInstanceId,
+    serviceAssetId: siteAsset.serviceAssetId,
+    siteAssetId: siteAsset.id,
+    providerType: siteAsset.providerType,
+    frameworkType: siteAsset.providerType,
+    targetType: 'SITE_BINDING',
+    targetKey: managedTargetTargetKey(discovered, agentId),
+    bindingKey: discovered.bindingInformation ?? discovered.siteKey ?? discovered.siteName,
+    capabilityProfile: managedTargetCapabilityProfile(discovered, siteAsset),
+    deploymentMode: source === 'AGENT' ? 'AGENT' : 'DISCOVERY',
+    lastSeenAt: discovered.lastDiscoveredAt,
+    status: 'ACTIVE',
+    metadata: {},
+  };
+}
+
+function managedTargetCapabilityProfile(
+  discovered: Pick<NormalizedDiscoveredSiteAssetDto, 'protocol' | 'bindingInformation' | 'hostHeader' | 'siteType'>,
+  siteAsset: { providerType: string; serviceAssetId?: string },
+): Record<string, unknown> {
+  return {
+    providerType: siteAsset.providerType,
+    siteType: discovered.siteType ?? 'CUSTOM',
+    protocol: discovered.protocol,
+    bindingInformation: discovered.bindingInformation,
+    hostHeader: discovered.hostHeader,
+    serviceAssetLinked: Boolean(siteAsset.serviceAssetId),
   };
 }
 
@@ -591,9 +969,11 @@ function projectDiscoveredServiceAssetsFromBindings(bindings: NormalizedDiscover
   return projected;
 }
 
-function bindingToCreateDto(binding: NormalizedDiscoveredBindingDto, serviceInstanceId: string, serviceAssetId?: string): CreateCertificateBindingDto {
+function bindingToCreateDto(binding: NormalizedDiscoveredBindingDto, serviceInstanceId: string, serviceAssetId?: string, siteAssetId?: string, managedTargetId?: string): CreateCertificateBindingDto {
   return {
     serviceAssetId,
+    siteAssetId,
+    managedTargetId,
     serviceInstanceId,
     domainName: binding.domainName ?? binding.domain,
     domain: binding.domain ?? binding.domainName,
@@ -635,7 +1015,7 @@ async function resolveHostId(hostRef: string | undefined, hostIds: Map<string, s
 }
 
 async function resolveServiceId(
-  input: Pick<NormalizedDiscoveredBindingDto, 'serviceRef' | 'hostname' | 'providerType' | 'serviceName'> | Pick<NormalizedDiscoveredServiceAssetDto, 'serviceRef' | 'hostname' | 'providerType' | 'serviceName'>,
+  input: Pick<NormalizedDiscoveredBindingDto, 'serviceRef' | 'hostname' | 'providerType' | 'serviceName'> | Pick<NormalizedDiscoveredServiceAssetDto, 'serviceRef' | 'hostname' | 'providerType' | 'serviceName'> | Pick<NormalizedDiscoveredSiteAssetDto, 'serviceRef' | 'hostname' | 'providerType' | 'serviceName'>,
   serviceIds: Map<string, string>,
   tenantId: string,
   repository: AssetsRepository,
@@ -660,6 +1040,57 @@ async function resolveServiceAssetId(
   if (!address || !binding.port || !binding.protocol) return undefined;
   const identityKey = serviceAssetIdentityKey({ address, port: binding.port, protocol: binding.protocol as NormalizedDiscoveredServiceAssetDto['protocol'] });
   return serviceAssetIds.get(identityKey) ?? (await repository.findServiceAssetByIdentity(tenantId, { address, port: binding.port, protocol: binding.protocol }))?.id;
+}
+
+async function resolveDiscoveredSiteServiceAssetId(
+  siteAsset: NormalizedDiscoveredSiteAssetDto,
+  serviceAssetIds: Map<string, string>,
+  tenantId: string,
+  repository: AssetsRepository,
+): Promise<string | undefined> {
+  const direct = normalizeOptionalString(siteAsset.serviceAssetRef);
+  if (direct && await repository.getServiceAsset(tenantId, direct)) return direct;
+  return direct ? serviceAssetIds.get(direct) : undefined;
+}
+
+function resolveDiscoveredSiteAssetId(
+  siteAsset: NormalizedDiscoveredSiteAssetDto,
+  siteAssetIds: Map<string, string>,
+): string | undefined {
+  const direct = normalizeOptionalString(siteAsset.siteAssetRef);
+  if (direct && siteAssetIds.has(direct)) return siteAssetIds.get(direct);
+  return siteAssetIds.get(siteAssetIdentityKey(siteAsset));
+}
+
+async function resolveBindingSiteAssetId(
+  binding: NormalizedDiscoveredBindingDto,
+  siteAssetIds: Map<string, string>,
+  tenantId: string,
+  repository: AssetsRepository,
+): Promise<string | undefined> {
+  const direct = normalizeOptionalString(binding.siteAssetRef);
+  if (direct && await repository.getSiteAsset(tenantId, direct)) return direct;
+  if (direct && siteAssetIds.has(direct)) return siteAssetIds.get(direct);
+  const domain = normalizeOptionalString(binding.domainName ?? binding.domain)?.toLowerCase();
+  if (!domain) return undefined;
+  const identityKey = siteAssetIdentityKey({
+    siteName: domain,
+    hostHeader: domain,
+    port: binding.port,
+    bindingInformation: binding.port && binding.protocol ? `*:${binding.port}:${domain}` : undefined,
+  });
+  return siteAssetIds.get(identityKey);
+}
+
+function resolveBindingManagedTargetId(
+  binding: NormalizedDiscoveredBindingDto,
+  siteAssetId: string | undefined,
+  managedTargetIds: Map<string, string>,
+): string | undefined {
+  const siteAssetRef = normalizeOptionalString(binding.siteAssetRef);
+  if (siteAssetRef && managedTargetIds.has(`site-asset-ref:${siteAssetRef}`)) return managedTargetIds.get(`site-asset-ref:${siteAssetRef}`);
+  if (siteAssetId && managedTargetIds.has(`site-asset-id:${siteAssetId}`)) return managedTargetIds.get(`site-asset-id:${siteAssetId}`);
+  return undefined;
 }
 
 function collectManualConflicts(resourceType: 'host' | 'service' | 'service_asset' | 'binding', resourceId: string, sourceSnapshotId: string, current: Record<string, unknown>, discovered: Record<string, unknown>, fields: string[]) {

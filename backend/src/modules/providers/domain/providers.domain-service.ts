@@ -13,6 +13,7 @@ import type {
   DiscoveryResult,
   DiscoveryResultRecordDto,
   DiscoveryRiskEventResult,
+  DiscoverySiteAssetResult,
   DiscoveryServiceAssetResult,
   DiscoveryServiceInstanceResult,
   DiscoveryServiceResult,
@@ -70,6 +71,7 @@ export class ProvidersDomainService {
     const endpoints = dedupeByKey(input.endpoints.map((endpoint) => this.normalizeEndpoint(endpoint, services)), 'endpoint');
     const bindings = dedupeByKey((input.certificateBindings ?? input.bindings).map((binding) => this.normalizeBinding(binding, endpoints)), 'binding');
     const serviceAssets = dedupeByKey(this.normalizeServiceAssets(input.serviceAssets, endpoints, bindings), 'serviceAsset');
+    const siteAssets = dedupeByKey((input.siteAssets ?? []).map((siteAsset) => this.normalizeSiteAsset(siteAsset, services, serviceAssets)), 'siteAsset');
     const riskEvents = dedupeByKey((input.riskEvents ?? []).map((event) => this.normalizeRiskEvent(event, services, endpoints, serviceAssets, bindings)), 'riskEvent');
     const capabilityGaps = dedupeByKey((input.capabilityGaps ?? []).map((gap) => this.normalizeCapabilityGap(gap, services, endpoints, serviceAssets, bindings)), 'capabilityGap');
 
@@ -86,6 +88,7 @@ export class ProvidersDomainService {
       bindings,
       certificateBindings: bindings,
       serviceAssets,
+      siteAssets,
       riskEvents,
       capabilityGaps,
       rawPayload: cloneRecord(input.rawPayload ?? {}),
@@ -198,6 +201,7 @@ export class ProvidersDomainService {
         serviceInstances: result.serviceInstances ?? result.services,
         endpoints: result.endpoints,
         serviceAssets: result.serviceAssets ?? [],
+        siteAssets: result.siteAssets ?? [],
         bindings: result.bindings,
         certificateBindings: result.certificateBindings ?? result.bindings,
         riskEvents: result.riskEvents ?? [],
@@ -218,6 +222,7 @@ export class ProvidersDomainService {
       serviceInstances: result.serviceInstances ?? result.services,
       endpoints: result.endpoints,
       serviceAssets: result.serviceAssets ?? [],
+      siteAssets: result.siteAssets ?? [],
       bindings: result.bindings,
       certificateBindings: result.certificateBindings ?? result.bindings,
       riskEvents: result.riskEvents ?? [],
@@ -356,6 +361,41 @@ export class ProvidersDomainService {
       protocol: normalizeEnum(asset.protocol, endpointProtocols, 'serviceAsset.protocol'),
       sniName: normalizeOptionalString(asset.sniName)?.toLowerCase(),
       displayName: normalizeOptionalString(asset.displayName),
+      status: normalizeStatus(asset.status, ['ACTIVE', 'INACTIVE', 'UNKNOWN', 'STALE', 'DISABLED', 'RETIRED'] as const, 'ACTIVE'),
+      rawFacts: cloneRecord(asset.rawFacts ?? {}),
+    };
+  }
+
+  private normalizeSiteAsset(
+    asset: DiscoverySiteAssetResult,
+    services: DiscoveryServiceResult[],
+    serviceAssets: DiscoveryServiceAssetResult[],
+  ): DiscoverySiteAssetResult {
+    if (!services.some((service) => service.key === asset.serviceKey)) {
+      throw new AppError('VALIDATION_FAILED', 'siteAsset.serviceKey 未找到对应 service', { siteAssetKey: asset.key, serviceKey: asset.serviceKey });
+    }
+    if (asset.serviceAssetKey && !serviceAssets.some((serviceAsset) => serviceAsset.key === asset.serviceAssetKey)) {
+      throw new AppError('VALIDATION_FAILED', 'siteAsset.serviceAssetKey 未找到对应 serviceAsset', { siteAssetKey: asset.key, serviceAssetKey: asset.serviceAssetKey });
+    }
+    const port = asset.port;
+    if (port !== undefined && (!Number.isInteger(port) || port < 1 || port > 65535)) {
+      throw new AppError('VALIDATION_FAILED', 'siteAsset.port 必须在 1 到 65535 之间', { siteAssetKey: asset.key, port });
+    }
+    return {
+      key: normalizeRequiredString(asset.key, 'siteAsset.key'),
+      serviceKey: normalizeRequiredString(asset.serviceKey, 'siteAsset.serviceKey'),
+      serviceAssetKey: normalizeOptionalString(asset.serviceAssetKey),
+      agentKey: normalizeOptionalString(asset.agentKey),
+      siteType: normalizeEnum(asset.siteType, ['WEB_SITE', 'VHOST', 'CONNECTOR', 'CUSTOM'] as const, 'siteAsset.siteType'),
+      siteName: normalizeRequiredString(asset.siteName, 'siteAsset.siteName'),
+      siteKey: normalizeOptionalString(asset.siteKey),
+      bindingInformation: normalizeOptionalString(asset.bindingInformation),
+      hostHeader: normalizeOptionalString(asset.hostHeader)?.toLowerCase(),
+      listenIp: normalizeOptionalString(asset.listenIp),
+      port,
+      protocol: asset.protocol === undefined ? undefined : normalizeEnum(asset.protocol, endpointProtocols, 'siteAsset.protocol'),
+      configPath: normalizeOptionalString(asset.configPath),
+      runtimeStatus: normalizeOptionalString(asset.runtimeStatus),
       status: normalizeStatus(asset.status, ['ACTIVE', 'INACTIVE', 'UNKNOWN', 'STALE', 'DISABLED', 'RETIRED'] as const, 'ACTIVE'),
       rawFacts: cloneRecord(asset.rawFacts ?? {}),
     };

@@ -9,12 +9,14 @@ export interface CertificateBindingDto {
   tenantId: string;
   /** 业务资产主关联：address + port + protocol。 */
   serviceAssetId?: string;
+  siteAssetId?: string;
+  managedTargetId?: string;
   /** 执行和定位辅助关联，兼容旧调用。 */
   serviceInstanceId: string;
   /** 旧端点关联，保留兼容，不再作为业务资产主键。 */
   serviceEndpointId?: string;
   /** 执行宿主机事实，来自 ServiceInstance/ServiceAsset。 */
-  hostId: string;
+  hostId?: string;
   domainName?: string;
   /** Spec 007 规范字段，兼容旧 domainName。 */
   domain?: string;
@@ -61,6 +63,8 @@ export interface CertificateBindingDto {
 
 export interface CreateCertificateBindingDto {
   serviceAssetId?: string;
+  siteAssetId?: string;
+  managedTargetId?: string;
   serviceInstanceId: string;
   serviceEndpointId?: string;
   domainName?: string;

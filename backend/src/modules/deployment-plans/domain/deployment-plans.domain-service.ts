@@ -18,13 +18,21 @@ export class DeploymentPlansDomainService {
   }
 
   assertCreateInput(input: CreateDeploymentPlanInput): void {
-    if (!input.targets.length) throw new AppError('VALIDATION_FAILED', '部署计划至少需要一个目标');
+    if (!input.targets.length) {
+      throw new AppError('VALIDATION_FAILED', '部署计划至少需要一个目标');
+    }
+    if ((input.selectionMode ?? 'EXPLICIT') === 'EXPLICIT' && !input.certificateVersionId) {
+      throw new AppError('VALIDATION_FAILED', 'EXPLICIT 模式必须指定 certificateVersionId', { field: 'certificateVersionId' });
+    }
+    if (input.certificateFormatId !== undefined && !String(input.certificateFormatId).trim()) {
+      throw new AppError('VALIDATION_FAILED', 'certificateFormatId 不能为空', { field: 'certificateFormatId' });
+    }
     for (const [index, target] of input.targets.entries()) {
-      if (!target.certificateBindingId) {
-        throw new AppError('VALIDATION_FAILED', '部署目标必须引用 certificateBindingId，禁止绕过 CertificateBinding 直接部署到 Host', { index });
+      if (!target.certificateBindingId && !target.managedTargetId && !target.siteAssetId) {
+        throw new AppError('VALIDATION_FAILED', '部署目标必须提供 certificateBindingId、managedTargetId 或 siteAssetId 之一', { index });
       }
       if (target.matchResult?.status === 'blocked') {
-        throw new AppError('VALIDATION_FAILED', '能力匹配被阻断的目标不能进入部署计划', { index, matchResult: target.matchResult });
+        throw new AppError('VALIDATION_FAILED', '能力匹配为 blocked 的目标不能进入部署计划', { index, matchResult: target.matchResult });
       }
     }
   }
@@ -33,11 +41,16 @@ export class DeploymentPlansDomainService {
     return this.hash({
       name: input.name,
       certificateVersionId: input.certificateVersionId,
+      certificateFormatId: input.certificateFormatId,
+      selectionMode: input.selectionMode ?? 'EXPLICIT',
       planType: input.planType ?? 'UPDATE',
       createdReason: input.createdReason ?? 'MANUAL',
       policy: this.normalizePolicy(input.policy),
       targets: input.targets.map((target) => ({
         certificateBindingId: target.certificateBindingId,
+        managedTargetId: target.managedTargetId,
+        siteAssetId: target.siteAssetId,
+        domain: target.domain,
         executionTargetId: target.executionTargetId,
         executorType: target.executorType ?? 'AGENT',
         requiredCapabilities: [...new Set(target.requiredCapabilities ?? [])].sort(),
@@ -48,7 +61,7 @@ export class DeploymentPlansDomainService {
           delegatedTargetId: target.delegatedTargetId,
           fallbackSuggestions: target.fallbackSuggestions,
         },
-      })).sort((a, b) => a.certificateBindingId.localeCompare(b.certificateBindingId)),
+      })).sort((a, b) => this.targetSortKey(a).localeCompare(this.targetSortKey(b))),
     });
   }
 
@@ -58,6 +71,7 @@ export class DeploymentPlansDomainService {
       name: plan.name,
       planType: plan.planType,
       certificateVersionId: plan.certificateVersionId,
+      certificateFormatId: plan.certificateFormatId,
       policy: plan.policy,
       targets: targets.map((target) => ({
         certificateBindingId: target.certificateBindingId,
@@ -86,6 +100,10 @@ export class DeploymentPlansDomainService {
 
   defaultExecutorType(value?: ExecutionTargetKind): ExecutionTargetKind {
     return value ?? 'AGENT';
+  }
+
+  private targetSortKey(target: Pick<CreateDeploymentPlanInput['targets'][number], 'certificateBindingId' | 'managedTargetId' | 'siteAssetId' | 'domain'>): string {
+    return [target.certificateBindingId ?? '', target.managedTargetId ?? '', target.siteAssetId ?? '', target.domain ?? ''].join(':');
   }
 
   private hash(value: unknown): string {

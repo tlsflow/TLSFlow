@@ -27,7 +27,6 @@ import {
   type CertificateVersionDetailDto,
   type CertificateVersionDto,
   type CertificateVersionFormatDto,
-  type CertificateFormatExportPlanDto,
   type CertificateSourceSyncInput,
   type CertificateSourceSyncResult,
   type CreateCertificateAssetInput,
@@ -35,7 +34,6 @@ import {
   type ImportCertificateVersionInput,
   type ImportCertificateVersionResult,
   type ValidateCertificateImportResult,
-  type RequestCertificateFormatExportInput,
   type UpdateCertificateVersionFormatInput,
   type DeleteCertificateVersionFormatInput,
   type ChangeCertificateAssetStatusInput,
@@ -108,14 +106,6 @@ export class CertificatesApplicationService {
   async listFormats(query: PageQuery): Promise<PageResponse<CertificateVersionFormatDto>> {
     const page = await this.repository.listFormats(query);
     return { ...page, items: page.items.map(toCertificateVersionFormatDto) };
-  }
-
-  async getFormatArtifact(artifactRef: string) {
-    const artifact = await this.artifacts.get(artifactRef);
-    if (!artifact) {
-      throw new AppError('RESOURCE_NOT_FOUND', '证书产物不存在，无法下载', { artifactRef });
-    }
-    return artifact;
   }
 
   getFormatCapabilities(): CertificateFormatCapabilitiesDto {
@@ -337,9 +327,6 @@ export class CertificatesApplicationService {
     if (!certificateFormats.includes(input.format)) {
       throw new AppError('CERT_EXPORT_FORMAT_INVALID', '证书格式不合法', { format: input.format });
     }
-    if (!input.artifactRef || !/^[a-z][a-z0-9+.-]*:\/\/.+/i.test(input.artifactRef)) {
-      throw new AppError('VALIDATION_FAILED', 'artifactRef 必须是外部产物引用', { field: 'artifactRef' });
-    }
     if (input.certificateVersionId && !await this.repository.getVersion(input.certificateVersionId)) {
       throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId: input.certificateVersionId });
     }
@@ -361,7 +348,7 @@ export class CertificatesApplicationService {
       id: newId('certfmt'),
       certificateVersionId: input.certificateVersionId,
       format: input.format,
-      artifactRef: input.artifactRef,
+      artifactRef: this.normalizeFormatConfigArtifactRef(undefined, input.format, input.parameters),
       parameterHash,
       parameters,
       containsPrivateKey: Boolean(input.containsPrivateKey),
@@ -380,16 +367,12 @@ export class CertificatesApplicationService {
     }
     const certificateVersionId = input.certificateVersionId ?? current.certificateVersionId;
     const formatName = input.format ?? current.format;
-    const artifactRef = input.artifactRef ?? current.artifactRef;
     const containsPrivateKey = input.containsPrivateKey ?? current.containsPrivateKey;
     const passwordSecretRef = input.passwordSecretRef ?? current.passwordSecretRef;
     const parameters = input.parameters ?? current.parameters ?? {};
     const expiresAt = input.expiresAt ?? current.expiresAt;
     if (!certificateFormats.includes(formatName)) {
       throw new AppError('CERT_EXPORT_FORMAT_INVALID', '证书格式不合法', { format: formatName });
-    }
-    if (!artifactRef || !/^[a-z][a-z0-9+.-]*:\/\/.+/i.test(artifactRef)) {
-      throw new AppError('VALIDATION_FAILED', 'artifactRef 必须是外部产物引用', { field: 'artifactRef' });
     }
     if (certificateVersionId && !await this.repository.getVersion(certificateVersionId)) {
       throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId });
@@ -414,7 +397,7 @@ export class CertificatesApplicationService {
     const updated = await this.repository.updateFormat(current.id, {
       certificateVersionId,
       format: formatName,
-      artifactRef,
+      artifactRef: this.normalizeFormatConfigArtifactRef(undefined, formatName, parameters),
       parameterHash,
       parameters,
       containsPrivateKey: Boolean(containsPrivateKey),
@@ -456,66 +439,6 @@ export class CertificatesApplicationService {
       detail: { certificateVersionId: deleted.certificateVersionId, format: deleted.format },
     });
     return toCertificateVersionFormatDto(deleted);
-  }
-
-  async requestFormatExport(input: RequestCertificateFormatExportInput, context?: RequestContext): Promise<CertificateFormatExportPlanDto> {
-    const version = await this.repository.getVersion(input.certificateVersionId);
-    if (!version) {
-      throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId: input.certificateVersionId });
-    }
-    const warnings: string[] = [];
-    if (!certificateFormats.includes(input.format)) {
-      throw new AppError('CERT_EXPORT_FORMAT_INVALID', '证书格式不合法', { format: input.format });
-    }
-    if ((input.format === 'der' || input.format === 'p7b') && input.containsPrivateKey) {
-      throw new AppError('CERT_EXPORT_FORMAT_INVALID', 'DER/P7B 格式不能包含私钥', { format: input.format });
-    }
-    if (input.containsPrivateKey && !version.privateKeySecretRef) {
-      throw new AppError('VALIDATION_FAILED', '证书版本没有私钥 SecretRef，不能规划包含私钥的格式导出', { certificateVersionId: input.certificateVersionId });
-    }
-    if ((input.format === 'pfx' || input.format === 'jks') && !input.passwordSecretRef) {
-      throw new AppError('VALIDATION_FAILED', 'PFX/JKS 导出必须提供 passwordSecretRef', { format: input.format });
-    }
-    if (version.chainStatus !== 'valid') {
-      warnings.push(`证书链状态为 ${version.chainStatus}，导出产物只可用于修复或人工确认场景`);
-    }
-    const parameters = input.parameters ?? {};
-    const parameterHash = buildCertificateFormatParameterHash({
-      format: input.format,
-      containsPrivateKey: Boolean(input.containsPrivateKey),
-      passwordSecretRef: input.passwordSecretRef,
-      privateKeySecretRef: input.containsPrivateKey ? version.privateKeySecretRef : undefined,
-      parameters,
-    });
-    const artifactRef = `artifact://certificate-format/${input.certificateVersionId}/${input.format}/${parameterHash.slice(0, 16)}`;
-    const format = await this.createFormat({
-      certificateVersionId: input.certificateVersionId,
-      format: input.format,
-      artifactRef,
-      containsPrivateKey: input.containsPrivateKey,
-      passwordSecretRef: input.passwordSecretRef,
-      parameters,
-      createdBy: input.createdBy,
-      expiresAt: input.expiresAt,
-    });
-    void this.dependencies.audit?.write({
-      eventType: AUDIT_EVENT_TYPES.CERTIFICATE_IMPORTED,
-      actorType: 'user',
-      actorId: input.createdBy,
-      action: 'certificate.format.export.plan',
-      resourceType: 'certificate_version_format',
-      resourceId: format.id,
-      result: 'success',
-      riskLevel: input.containsPrivateKey ? 'high' : 'medium',
-      context,
-      detail: {
-        certificateVersionId: input.certificateVersionId,
-        format: input.format,
-        containsPrivateKey: Boolean(input.containsPrivateKey),
-        artifactRef,
-      },
-    });
-    return { ...format, exportMode: 'planned', warnings };
   }
 
   private async buildChainCertificates(version: CertificateVersionEntity): Promise<CertificateVersionDetailDto['chainCertificates']> {
@@ -570,75 +493,87 @@ export class CertificatesApplicationService {
     };
   }
 
-  async generateFormatExport(input: RequestCertificateFormatExportInput, context?: RequestContext): Promise<CertificateFormatExportPlanDto> {
+  async generateDeploymentArtifactFromFormat(input: {
+    certificateVersionId: string;
+    certificateFormatId: string;
+    createdBy: string;
+    expiresAt?: string;
+  }, context?: RequestContext): Promise<{
+    certificateVersionId: string;
+    certificateFormatId: string;
+    format: string;
+    containsPrivateKey: boolean;
+    pfxBase64: string;
+    pfxPassword: string;
+    warnings: string[];
+  }> {
+    const format = await this.repository.getFormat(input.certificateFormatId);
+    if (!format) {
+      throw new AppError('RESOURCE_NOT_FOUND', '证书格式配置不存在', { certificateFormatId: input.certificateFormatId });
+    }
     const version = await this.repository.getVersion(input.certificateVersionId);
     if (!version) {
       throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId: input.certificateVersionId });
     }
-    const warnings = this.validateFormatExportRequest(input, version);
-    const parameters = input.parameters ?? {};
-    const privateKey = input.containsPrivateKey
-      ? await this.resolveSecret(version.privateKeySecretRef, 'certificate_private_key', 'certificate.format.export.private_key', input.createdBy, context)
+    const request = {
+      certificateVersionId: input.certificateVersionId,
+      format: format.format,
+      containsPrivateKey: format.containsPrivateKey,
+      passwordSecretRef: format.passwordSecretRef,
+      parameters: { ...format.parameters },
+      createdBy: input.createdBy,
+      expiresAt: input.expiresAt,
+    };
+    const warnings = this.validateFormatExportRequest(request, version);
+    const privateKey = format.containsPrivateKey
+      ? await this.resolveSecret(version.privateKeySecretRef, 'certificate_private_key', 'certificate.deployment.private_key', input.createdBy, context)
       : undefined;
-    const password = input.passwordSecretRef
-      ? await this.resolveSecret(input.passwordSecretRef, 'pfx_password', 'certificate.format.export.password', input.createdBy, context)
+    const password = format.passwordSecretRef
+      ? await this.resolveSecret(format.passwordSecretRef, 'pfx_password', 'certificate.deployment.password', input.createdBy, context)
       : undefined;
-    const parameterHash = buildCertificateFormatParameterHash({
-      format: input.format,
-      containsPrivateKey: Boolean(input.containsPrivateKey),
-      passwordSecretRef: password?.secretRef ?? input.passwordSecretRef,
-      passwordFingerprint: password?.fingerprint,
-      privateKeySecretRef: privateKey?.secretRef ?? (input.containsPrivateKey ? version.privateKeySecretRef : undefined),
-      privateKeyFingerprint: privateKey?.fingerprint,
-      parameters,
-    });
-    const artifactRef = `artifact://certificate-format/${input.certificateVersionId}/${input.format}/${parameterHash.slice(0, 16)}`;
-    const generated = this.exporter.generate(input.format, {
+    const generated = this.exporter.generate(format.format, {
       version,
       leafDer: await this.readArtifact(version.leafStorageRef),
       chainDer: await Promise.all(version.chainCertificateRefs.map((artifactRef) => this.readArtifact(artifactRef))),
       privateKeyPem: privateKey?.plainText,
       password: password?.plainText,
-      parameters,
+      parameters: { ...format.parameters },
     });
-    await this.artifacts.put({
-      artifactRef,
-      content: generated.content,
-      contentType: generated.contentType,
-      createdBy: input.createdBy,
-      expiresAt: input.expiresAt,
-    });
-    const format = {
-      id: newId('certfmt'),
+    console.info('[certificates.generateDeploymentArtifactFromFormat]', JSON.stringify({
       certificateVersionId: input.certificateVersionId,
-      format: input.format,
-      artifactRef,
-      parameterHash,
-      parameters: { ...parameters, passwordSecretRef: password?.secretRef, privateKeySecretRef: privateKey?.secretRef },
-      containsPrivateKey: Boolean(input.containsPrivateKey),
-      passwordSecretRef: input.passwordSecretRef,
-      createdBy: input.createdBy,
-      createdAt: new Date().toISOString(),
-      expiresAt: input.expiresAt,
-    };
-    void this.dependencies.audit?.write({
-      eventType: AUDIT_EVENT_TYPES.CERTIFICATE_IMPORTED,
-      actorType: 'user',
-      actorId: input.createdBy,
-      action: 'certificate.format.export.generate',
-      resourceType: 'certificate_version_format',
-      resourceId: format.id,
-      result: 'success',
-      riskLevel: input.containsPrivateKey ? 'high' : 'medium',
-      context,
-      detail: {
+      certificateFormatId: format.id,
+      format: format.format,
+      containsPrivateKey: format.containsPrivateKey,
+      passwordSecretRef: format.passwordSecretRef,
+      passwordLength: password?.plainText?.length,
+      passwordUtf8Sha256: generated.debug?.passwordUtf8Sha256,
+      passwordUtf8Length: generated.debug?.passwordUtf8Length,
+      artifactSha256: createHash('sha256').update(generated.content).digest('hex'),
+      artifactSize: generated.content.length,
+      warnings: generated.warnings,
+      parameterKeys: Object.keys(format.parameters ?? {}),
+    }));
+    if (generated.format !== 'pfx') {
+      throw new AppError('VALIDATION_FAILED', 'Windows IIS 当前只支持 PFX 格式配置', {
+        certificateFormatId: format.id,
+        format: generated.format,
+      });
+    }
+    if (!password?.plainText) {
+      throw new AppError('VALIDATION_FAILED', 'PFX 部署材料缺少导出密码', {
+        certificateFormatId: format.id,
         certificateVersionId: input.certificateVersionId,
-        format: input.format,
-        containsPrivateKey: Boolean(input.containsPrivateKey),
-        artifactRef,
-      },
-    });
-    return { ...format, exportMode: 'generated', persisted: false, warnings: [...warnings, ...generated.warnings] };
+      });
+    }
+    return {
+      certificateVersionId: input.certificateVersionId,
+      certificateFormatId: format.id,
+      format: generated.format,
+      containsPrivateKey: format.containsPrivateKey,
+      pfxBase64: generated.content.toString('base64'),
+      pfxPassword: password.plainText,
+      warnings: [...warnings, ...generated.warnings],
+    };
   }
 
   async syncFromSource(input: CertificateSourceSyncInput, context?: RequestContext): Promise<CertificateSourceSyncResult> {
@@ -673,7 +608,15 @@ export class CertificatesApplicationService {
     return version;
   }
 
-  private validateFormatExportRequest(input: RequestCertificateFormatExportInput, version: CertificateVersionEntity): string[] {
+  private validateFormatExportRequest(input: {
+    certificateVersionId: string;
+    format: typeof certificateFormats[number];
+    containsPrivateKey?: boolean;
+    passwordSecretRef?: string;
+    parameters?: Record<string, unknown>;
+    createdBy: string;
+    expiresAt?: string;
+  }, version: CertificateVersionEntity): string[] {
     const warnings: string[] = [];
     if (!certificateFormats.includes(input.format)) {
       throw new AppError('CERT_EXPORT_FORMAT_INVALID', '证书格式不合法', { format: input.format });
@@ -697,7 +640,7 @@ export class CertificatesApplicationService {
     return warnings;
   }
 
-  private assertPasswordSecretRef(format: string, passwordSecretRef: string | undefined): void {
+  private assertPasswordSecretRef(format: typeof certificateFormats[number], passwordSecretRef: string | undefined): void {
     if (format !== 'pfx' && format !== 'jks') {
       return;
     }
@@ -804,6 +747,21 @@ export class CertificatesApplicationService {
       createdBy: input.createdBy,
     });
     return this.getExistingAsset(created.id);
+  }
+
+  private normalizeFormatConfigArtifactRef(
+    artifactRef: string | undefined,
+    format: string,
+    parameters: Record<string, unknown> | undefined,
+  ): string {
+    const trimmed = artifactRef?.trim();
+    if (trimmed) return trimmed;
+    const parameterHash = buildCertificateFormatParameterHash({
+      format,
+      containsPrivateKey: false,
+      parameters: parameters ?? {},
+    }).slice(0, 16);
+    return `artifact://certificate-format-config/${format}/${parameterHash}`;
   }
 }
 

@@ -7,9 +7,8 @@ import type { ExecutionTargetKind } from '../../../shared/enums/core.enums.js';
 import type { RiskLevel } from '../../../shared/security-types.js';
 import type { ExecutionsApplicationService } from '../../executions/application/executions.application-service.js';
 import type { FallbackSuggestion } from '../../gateway-agents/gateway-agent.types.js';
-import type { DeploymentGatewayRouteDto } from '../dto/deployment-plans.dto.js';
+import type { DeploymentGatewayRouteDto, DeploymentPlanPolicyDto, DeploymentPlanSelectionMode } from '../dto/deployment-plans.dto.js';
 import { DeploymentPlansApplicationService, type DeploymentPlansApplicationDependencies } from '../application/deployment-plans.application-service.js';
-import type { DeploymentPlanPolicyDto } from '../dto/deployment-plans.dto.js';
 
 export class DeploymentPlansController {
   private readonly service: DeploymentPlansApplicationService;
@@ -25,10 +24,12 @@ export class DeploymentPlansController {
   register(router: Router): void {
     router.get('/api/v1/deployment-plans', '查询部署计划', ['DeploymentPlans'], (request) => this.list(request));
     router.post('/api/v1/deployment-plans', '创建部署计划', ['DeploymentPlans'], (request) => this.create(request));
+    router.post('/api/v1/deployment-plans/from-application-asset', '按应用资产创建部署计划', ['DeploymentPlans'], (request) => this.createFromApplicationAsset(request));
     router.post('/api/v1/deployment-plans/submit', '提交部署计划', ['DeploymentPlans'], (request) => this.submit(request));
     router.post('/api/v1/deployment-plans/dry-run', 'Dry-run 部署计划', ['DeploymentPlans'], (request) => this.dryRun(request));
     router.post('/api/v1/deployment-plans/execute', '执行部署计划', ['DeploymentPlans'], (request) => this.execute(request));
     router.post('/api/v1/deployment-plans/cancel', '取消部署计划', ['DeploymentPlans'], (request) => this.cancel(request));
+    router.post('/api/v1/deployment-plans/delete', '删除部署计划', ['DeploymentPlans'], (request) => this.deleteDraft(request));
     router.post('/api/v1/deployment-plans/capabilities/reevaluate', '重算部署计划能力匹配', ['DeploymentPlans'], (request) => this.reevaluateCapabilities(request));
   }
 
@@ -40,7 +41,9 @@ export class DeploymentPlansController {
   private create(request: HttpRequest) {
     const body = validateObject(request.body, {
       name: { type: 'string', required: true },
-      certificateVersionId: { type: 'string', required: true },
+      certificateVersionId: { type: 'string' },
+      certificateFormatId: { type: 'string' },
+      selectionMode: { type: 'string' },
       targets: { type: 'array', required: true },
       idempotencyKey: { type: 'string' },
       planType: { type: 'string' },
@@ -51,8 +54,37 @@ export class DeploymentPlansController {
       statusCode: 201,
       body: this.service.create({
         name: String(body.name),
-        certificateVersionId: String(body.certificateVersionId),
+        certificateVersionId: body.certificateVersionId === undefined ? undefined : String(body.certificateVersionId),
+        certificateFormatId: body.certificateFormatId === undefined ? undefined : String(body.certificateFormatId),
+        selectionMode: body.selectionMode === undefined ? undefined : body.selectionMode as DeploymentPlanSelectionMode,
         targets: this.parseTargets(body.targets),
+        idempotencyKey: this.idempotencyKey(request, body.idempotencyKey),
+        planType: body.planType === undefined ? undefined : body.planType as 'INSTALL' | 'UPDATE' | 'ROLLBACK' | 'VERIFY_ONLY',
+        policy: this.parsePolicy(body.policy),
+        actorId,
+        tenantId: request.context.tenantId,
+      }, this.securityContext(request)),
+    };
+  }
+
+  private createFromApplicationAsset(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      applicationAssetId: { type: 'string', required: true },
+      targetCertificateVersionId: { type: 'string' },
+      certificateFormatId: { type: 'string' },
+      selectionMode: { type: 'string' },
+      idempotencyKey: { type: 'string' },
+      planType: { type: 'string' },
+      policy: { type: 'object' },
+    });
+    const actorId = this.actorId(request);
+    return {
+      statusCode: 201,
+      body: this.service.createFromApplicationAsset({
+        applicationAssetId: String(body.applicationAssetId),
+        targetCertificateVersionId: body.targetCertificateVersionId === undefined ? undefined : String(body.targetCertificateVersionId),
+        certificateFormatId: body.certificateFormatId === undefined ? undefined : String(body.certificateFormatId),
+        selectionMode: body.selectionMode === undefined ? undefined : body.selectionMode as DeploymentPlanSelectionMode,
         idempotencyKey: this.idempotencyKey(request, body.idempotencyKey),
         planType: body.planType === undefined ? undefined : body.planType as 'INSTALL' | 'UPDATE' | 'ROLLBACK' | 'VERIFY_ONLY',
         policy: this.parsePolicy(body.policy),
@@ -116,6 +148,19 @@ export class DeploymentPlansController {
     }, this.securityContext(request));
   }
 
+  private deleteDraft(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      planId: { type: 'string', required: true },
+      reason: { type: 'string' },
+    });
+    return this.service.deleteDraft({
+      planId: String(body.planId),
+      reason: body.reason === undefined ? undefined : String(body.reason),
+      actorId: this.actorId(request),
+      tenantId: request.context.tenantId,
+    }, this.securityContext(request));
+  }
+
   private reevaluateCapabilities(request: HttpRequest) {
     const body = validateObject(request.body, {
       planId: { type: 'string', required: true },
@@ -137,7 +182,10 @@ export class DeploymentPlansController {
   }
 
   private parseTargets(value: unknown): Array<{
-    certificateBindingId: string;
+    certificateBindingId?: string;
+    managedTargetId?: string;
+    siteAssetId?: string;
+    domain?: string;
     executionTargetId?: string;
     executorType?: ExecutionTargetKind;
     requiredCapabilities?: string[];
@@ -156,11 +204,11 @@ export class DeploymentPlansController {
     return value.map((raw, index) => {
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new AppError('VALIDATION_FAILED', 'target 必须是对象', { index });
       const target = raw as Record<string, unknown>;
-      if (!target.certificateBindingId || typeof target.certificateBindingId !== 'string') {
-        throw new AppError('VALIDATION_FAILED', '部署目标必须引用 certificateBindingId', { index });
-      }
-      return {
-        certificateBindingId: target.certificateBindingId,
+      const parsed = {
+        certificateBindingId: typeof target.certificateBindingId === 'string' ? target.certificateBindingId : undefined,
+        managedTargetId: typeof target.managedTargetId === 'string' ? target.managedTargetId : undefined,
+        siteAssetId: typeof target.siteAssetId === 'string' ? target.siteAssetId : undefined,
+        domain: typeof target.domain === 'string' ? target.domain : undefined,
         executionTargetId: typeof target.executionTargetId === 'string' ? target.executionTargetId : undefined,
         executorType: typeof target.executorType === 'string' ? target.executorType as ExecutionTargetKind : undefined,
         requiredCapabilities: Array.isArray(target.requiredCapabilities) ? target.requiredCapabilities.map(String) : undefined,
@@ -179,6 +227,10 @@ export class DeploymentPlansController {
         delegatedTargetId: typeof target.delegatedTargetId === 'string' ? target.delegatedTargetId : undefined,
         fallbackSuggestions: parseFallbackSuggestions(target.fallbackSuggestions),
       };
+      if (!parsed.certificateBindingId && !parsed.managedTargetId && !parsed.siteAssetId) {
+        throw new AppError('VALIDATION_FAILED', '部署目标必须提供 certificateBindingId、managedTargetId 或 siteAssetId 之一', { index });
+      }
+      return parsed;
     });
   }
 
@@ -205,7 +257,6 @@ export class DeploymentPlansController {
       batchSize: typeof policy.batchSize === 'number' ? policy.batchSize : undefined,
     };
   }
-
 
   private idempotencyKey(request: HttpRequest, bodyValue?: unknown): string {
     const headerValue = this.readHeader(request, 'x-idempotency-key');
@@ -244,10 +295,12 @@ export function getDeploymentPlanRouteContracts(): RouteContract[] {
   return [
     { method: 'GET', path: '/api/v1/deployment-plans', operationId: 'listDeploymentPlans', summary: '查询部署计划', tags: ['DeploymentPlans'], responseSchema: schema },
     { method: 'POST', path: '/api/v1/deployment-plans', operationId: 'createDeploymentPlan', summary: '创建部署计划', tags: ['DeploymentPlans'], responseSchema: schema },
+    { method: 'POST', path: '/api/v1/deployment-plans/from-application-asset', operationId: 'createDeploymentPlanFromApplicationAsset', summary: '按应用资产创建部署计划', tags: ['DeploymentPlans'], responseSchema: schema },
     { method: 'POST', path: '/api/v1/deployment-plans/submit', operationId: 'submitDeploymentPlan', summary: '提交部署计划', tags: ['DeploymentPlans'], responseSchema: schema },
     { method: 'POST', path: '/api/v1/deployment-plans/dry-run', operationId: 'dryRunDeploymentPlan', summary: 'Dry-run 部署计划', tags: ['DeploymentPlans'], responseSchema: schema },
     { method: 'POST', path: '/api/v1/deployment-plans/execute', operationId: 'executeDeploymentPlan', summary: '执行部署计划', tags: ['DeploymentPlans'], responseSchema: schema },
     { method: 'POST', path: '/api/v1/deployment-plans/cancel', operationId: 'cancelDeploymentPlan', summary: '取消部署计划', tags: ['DeploymentPlans'], responseSchema: schema },
+    { method: 'POST', path: '/api/v1/deployment-plans/delete', operationId: 'deleteDraftDeploymentPlan', summary: '删除部署计划', tags: ['DeploymentPlans'], responseSchema: schema },
     { method: 'POST', path: '/api/v1/deployment-plans/capabilities/reevaluate', operationId: 'reevaluateDeploymentPlanCapabilities', summary: '重算部署计划能力匹配', tags: ['DeploymentPlans'], responseSchema: schema },
   ];
 }

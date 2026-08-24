@@ -85,6 +85,18 @@ export class AuditService {
     });
   }
 
+  async deleteByResources(resources: Array<{ resourceType: string; resourceId?: string }>): Promise<number> {
+    if (resources.length === 0) return 0;
+    const keys = new Set(resources
+      .filter((resource) => resource.resourceId)
+      .map((resource) => `${resource.resourceType}:${resource.resourceId}`));
+    if (keys.size === 0) return 0;
+
+    const matched = await this.logs.list((log) => Boolean(log.resourceId) && keys.has(`${log.resourceType}:${log.resourceId}`));
+    await Promise.all(matched.map((log) => this.logs.delete(log.id)));
+    return matched.length;
+  }
+
   async queryWithPermission(input: AuthorizedAuditQueryInput): Promise<AuditLogEntity[]> {
     const query = input.query ?? {};
     await input.assertCan(input.subject, 'audit.read', {

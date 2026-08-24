@@ -471,6 +471,35 @@
             "$ref": "#/components/responses/ErrorResponse"
           }
         }
+      },
+      "patch": {
+        "operationId": "updateSecurityUser",
+        "summary": "更新用户",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
       }
     },
     "/api/v1/security/users/status": {
@@ -508,6 +537,37 @@
       "post": {
         "operationId": "assignSecurityUserRole",
         "summary": "鍒嗛厤鐢ㄦ埛瑙掕壊",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/security/users/delete": {
+      "delete": {
+        "operationId": "deleteSecurityUser",
+        "summary": "删除用户",
         "tags": [
           "Security"
         ],
@@ -688,6 +748,66 @@
       "post": {
         "operationId": "createIdentitySource",
         "summary": "鍒涘缓韬唤婧?",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateIdentitySource",
+        "summary": "更新身份源",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/security/identity-sources/delete": {
+      "delete": {
+        "operationId": "deleteIdentitySource",
+        "summary": "删除身份源",
         "tags": [
           "Security"
         ],
@@ -897,6 +1017,37 @@
         }
       }
     },
+    "/api/v1/deployment-plans/from-application-asset": {
+      "post": {
+        "operationId": "createDeploymentPlanFromApplicationAsset",
+        "summary": "按应用资产创建部署计划",
+        "tags": [
+          "DeploymentPlans"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/deployment-plans/submit": {
       "post": {
         "operationId": "submitDeploymentPlan",
@@ -994,6 +1145,37 @@
       "post": {
         "operationId": "cancelDeploymentPlan",
         "summary": "取消部署计划",
+        "tags": [
+          "DeploymentPlans"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/deployment-plans/delete": {
+      "post": {
+        "operationId": "deleteDraftDeploymentPlan",
+        "summary": "删除部署计划",
         "tags": [
           "DeploymentPlans"
         ],
@@ -1574,10 +1756,184 @@
         }
       }
     },
+    "/api/v1/service-assets/detail": {
+      "get": {
+        "operationId": "getServiceAssetDetail",
+        "summary": "查询 ServiceAsset 详情",
+        "tags": [
+          "Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/service-assets/delete": {
       "post": {
         "operationId": "deleteServiceAsset",
         "summary": "软删除 ServiceAsset",
+        "tags": [
+          "Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/site-assets": {
+      "get": {
+        "operationId": "listSiteAssets",
+        "summary": "查询 SiteAsset 列表",
+        "tags": [
+          "Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items",
+                    "page",
+                    "pageSize",
+                    "total"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    },
+                    "page": {
+                      "type": "number"
+                    },
+                    "pageSize": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createSiteAsset",
+        "summary": "创建 SiteAsset",
+        "tags": [
+          "Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateSiteAsset",
+        "summary": "更新 SiteAsset",
+        "tags": [
+          "Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/site-assets/delete": {
+      "post": {
+        "operationId": "deleteSiteAsset",
+        "summary": "软删除 SiteAsset",
         "tags": [
           "Assets"
         ],
@@ -1721,6 +2077,203 @@
       "post": {
         "operationId": "deleteServiceEndpoint",
         "summary": "软删除 ServiceEndpoint",
+        "tags": [
+          "Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/managed-targets": {
+      "get": {
+        "operationId": "listManagedTargets",
+        "summary": "查询 ManagedTarget 列表",
+        "tags": [
+          "Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items",
+                    "page",
+                    "pageSize",
+                    "total"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    },
+                    "page": {
+                      "type": "number"
+                    },
+                    "pageSize": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createManagedTarget",
+        "summary": "创建 ManagedTarget",
+        "tags": [
+          "Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateManagedTarget",
+        "summary": "更新 ManagedTarget",
+        "tags": [
+          "Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/managed-target-snapshots": {
+      "get": {
+        "operationId": "listManagedTargetSnapshots",
+        "summary": "查询 ManagedTarget 快照列表",
+        "tags": [
+          "Assets"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items",
+                    "page",
+                    "pageSize",
+                    "total"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                      }
+                    },
+                    "page": {
+                      "type": "number"
+                    },
+                    "pageSize": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/managed-targets/delete": {
+      "post": {
+        "operationId": "deleteManagedTarget",
+        "summary": "软删除 ManagedTarget",
         "tags": [
           "Assets"
         ],
@@ -3053,12 +3606,10 @@
             "$ref": "#/components/responses/ErrorResponse"
           }
         }
-      }
-    },
-    "/api/v1/certificate-version-formats/export-plan": {
-      "post": {
-        "operationId": "requestCertificateFormatExport",
-        "summary": "规划证书格式导出",
+      },
+      "patch": {
+        "operationId": "updateCertificateVersionFormat",
+        "summary": "更新证书格式产物记录",
         "tags": [
           "Certificates"
         ],
@@ -3086,10 +3637,10 @@
         }
       }
     },
-    "/api/v1/certificate-version-formats/export": {
+    "/api/v1/certificate-version-formats/delete": {
       "post": {
-        "operationId": "generateCertificateFormatExport",
-        "summary": "生成证书格式产物",
+        "operationId": "deleteCertificateVersionFormat",
+        "summary": "删除证书格式产物记录",
         "tags": [
           "Certificates"
         ],
@@ -3120,7 +3671,7 @@
     "/api/v1/certificate-sources/mock-sync": {
       "post": {
         "operationId": "mockSyncCertificateSource",
-        "summary": "Mock 源同步证书",
+        "summary": "Mock 来源同步证书",
         "tags": [
           "Certificates"
         ],
@@ -3716,10 +4267,193 @@
         }
       }
     },
+    "/api/v1/agents/:agentId/rescan": {
+      "post": {
+        "operationId": "enqueueAgentCapabilityRescanTask",
+        "summary": "创建 Agent 手动能力重扫任务",
+        "tags": [
+          "Agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/agents/enrollment-tokens": {
       "post": {
         "operationId": "createAgentEnrollmentToken",
         "summary": "创建 Agent 注册令牌",
+        "tags": [
+          "Agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/agents/install-sessions/windows-powershell": {
+      "post": {
+        "operationId": "createWindowsPowerShellAgentInstallSession",
+        "summary": "创建 Windows Go Agent 安装会话（兼容旧 PowerShell 入口）",
+        "tags": [
+          "Agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/agent-install.ps1": {
+      "get": {
+        "operationId": "getWindowsPowerShellAgentShortInstall",
+        "summary": "获取 Windows Go Agent 短安装入口（兼容旧 PowerShell URL）",
+        "tags": [
+          "Agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/agent-install": {
+      "get": {
+        "operationId": "getLinuxGoAgentShortInstall",
+        "summary": "获取 Linux Go Agent 短安装入口",
+        "tags": [
+          "Agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/agents/install/windows/bootstrap.ps1": {
+      "get": {
+        "operationId": "getWindowsPowerShellAgentBootstrap",
+        "summary": "获取 Windows Go Agent bootstrap 脚本（兼容旧 PowerShell URL）",
+        "tags": [
+          "Agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/agents/install/windows/manifest": {
+      "get": {
+        "operationId": "getWindowsPowerShellAgentInstallManifest",
+        "summary": "获取 Windows Go Agent 安装清单（兼容旧 PowerShell URL）",
         "tags": [
           "Agents"
         ],
@@ -5701,5 +6435,5 @@
       "description": "证书绑定生产事实中心"
     }
   ],
-  "x-generatedAt": "2026-06-21T13:50:06.531Z"
+  "x-generatedAt": "2026-06-30T07:54:28.899Z"
 }

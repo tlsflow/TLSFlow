@@ -51,7 +51,6 @@ export interface CertificateVersionFormatDto {
   id: string;
   certificateVersionId?: string;
   format: CertificateFormat;
-  artifactRef: string;
   parameterHash: string;
   parameters: Record<string, unknown>;
   containsPrivateKey: boolean;
@@ -139,17 +138,6 @@ export interface ImportCertificateVersionInput {
 export interface CreateCertificateVersionFormatInput {
   certificateVersionId?: string;
   format: CertificateFormat;
-  artifactRef: string;
-  containsPrivateKey?: boolean;
-  passwordSecretRef?: string;
-  parameters?: Record<string, unknown>;
-  createdBy: string;
-  expiresAt?: string;
-}
-
-export interface RequestCertificateFormatExportInput {
-  certificateVersionId: string;
-  format: CertificateFormat;
   containsPrivateKey?: boolean;
   passwordSecretRef?: string;
   parameters?: Record<string, unknown>;
@@ -161,7 +149,6 @@ export interface UpdateCertificateVersionFormatInput {
   id: string;
   certificateVersionId?: string;
   format?: CertificateFormat;
-  artifactRef?: string;
   containsPrivateKey?: boolean;
   passwordSecretRef?: string;
   parameters?: Record<string, unknown>;
@@ -172,12 +159,6 @@ export interface UpdateCertificateVersionFormatInput {
 export interface DeleteCertificateVersionFormatInput {
   id: string;
   deletedBy: string;
-}
-
-export interface CertificateFormatExportPlanDto extends CertificateVersionFormatDto {
-  exportMode: 'planned' | 'generated';
-  warnings: string[];
-  persisted?: boolean;
 }
 
 export interface CertificateSourceSyncInput {
@@ -264,6 +245,7 @@ export function toCertificateVersionDto(entity: CertificateVersionEntity): Certi
 }
 
 export function toCertificateVersionFormatDto(entity: CertificateVersionFormatEntity): CertificateVersionFormatDto {
-  // 格式产物只暴露 artifactRef 和密码 SecretRef，不暴露 PFX/JKS 密码。
-  return { ...entity };
+  const { artifactRef, ...rest } = entity;
+  void artifactRef;
+  return { ...rest };
 }

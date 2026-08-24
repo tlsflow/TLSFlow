@@ -16,6 +16,10 @@ export function createDeploymentPlan(payload: ApiBody) {
   return postAction(DEPLOYMENT_PLANS_PATH, payload, 'deployment_create')
 }
 
+export function createDeploymentPlanFromApplicationAsset(payload: ApiBody) {
+  return postAction(`${DEPLOYMENT_PLANS_PATH}/from-application-asset`, payload, 'deployment_from_application_asset')
+}
+
 export function dryRunDeploymentPlan(payload: ApiBody) {
   const planId = requireId(String(payload.planId ?? ''), 'dry-run')
   return postAction(`${DEPLOYMENT_PLANS_PATH}/dry-run`, { ...payload, planId }, 'deployment_dry_run')
@@ -31,4 +35,8 @@ export function executeDeploymentPlan(planId: string, payload: ApiBody = {}) {
 
 export function cancelDeploymentPlan(planId: string, payload: ApiBody = {}) {
   return postAction(`${DEPLOYMENT_PLANS_PATH}/cancel`, { ...payload, planId: requireId(planId, '取消部署计划') }, 'deployment_cancel')
+}
+
+export function deleteDraftDeploymentPlan(planId: string, payload: ApiBody = {}) {
+  return postAction(`${DEPLOYMENT_PLANS_PATH}/delete`, { ...payload, planId: requireId(planId, '删除部署计划') }, 'deployment_delete')
 }

@@ -6,7 +6,6 @@ import {
   listCertificateFormats,
   listCertificateVersions,
   listCertificates,
-  requestCertificateFormatExport,
   updateCertificateFormat,
 } from '@/api/modules/certificates.api'
 import { createHost, createServiceInstance, deleteHost, deleteServiceInstance, evaluateCapabilityCompatibility, listAssets, matchCapabilityRequirement, previewDiscoveryMerge, updateHost, updateServiceInstance } from '@/api/modules/assets.api'
@@ -66,40 +65,23 @@ describe('业务 API modules', () => {
     await rollbackExecution('run-1', { dryRun: true })
     await disablePlugin('pluginpkg-1', { dryRun: true })
     await importCertificate({ certificatePem: '-----BEGIN CERTIFICATE-----\\nMIIB\\n-----END CERTIFICATE-----' })
-    await requestCertificateFormatExport({
-      certificateVersionId: 'certver-1',
-      format: 'pfx',
-      containsPrivateKey: true,
-      passwordSecretRef: 'secret://pfx_password/sec_dummy#current'
-    })
-
     const executeCall = vi.mocked(fetch).mock.calls[0]
     const rollbackCall = vi.mocked(fetch).mock.calls[1]
     const disablePluginCall = vi.mocked(fetch).mock.calls[2]
     const importCertificateCall = vi.mocked(fetch).mock.calls[3]
-    const exportFormatCall = vi.mocked(fetch).mock.calls[4]
     expect(executeCall?.[0]).toBe('/api/v1/deployment-plans/execute')
     expect(rollbackCall?.[0]).toBe('/api/v1/execution-runs/rollback')
     expect(disablePluginCall?.[0]).toBe('/api/v1/plugins/disable')
     expect(importCertificateCall?.[0]).toBe('/api/v1/certificate-versions/import')
-    expect(exportFormatCall?.[0]).toBe('/api/v1/certificate-version-formats/export-plan')
     expect(JSON.parse(String(executeCall?.[1]?.body))).toMatchObject({ planId: 'plan-1', approvalId: 'approval-1' })
     expect(JSON.parse(String(executeCall?.[1]?.body))).not.toHaveProperty('dryRun')
     expect(JSON.parse(String(rollbackCall?.[1]?.body))).toMatchObject({ runId: 'run-1', dryRun: true })
     expect(JSON.parse(String(disablePluginCall?.[1]?.body))).toMatchObject({ pluginPackageId: 'pluginpkg-1', dryRun: true })
     expect(JSON.parse(String(importCertificateCall?.[1]?.body))).toMatchObject({ certificatePem: expect.stringContaining('BEGIN CERTIFICATE') })
-    expect(JSON.parse(String(exportFormatCall?.[1]?.body))).toMatchObject({
-      certificateVersionId: 'certver-1',
-      format: 'pfx',
-      containsPrivateKey: true,
-      passwordSecretRef: 'secret://pfx_password/sec_dummy#current'
-    })
     const headers = executeCall?.[1]?.headers as Headers
     expect(headers.get('X-Idempotency-Key')).toMatch(/^deployment_execute_/)
     const importHeaders = importCertificateCall?.[1]?.headers as Headers
     expect(importHeaders.get('X-Idempotency-Key')).toMatch(/^certificate_import_/)
-    const exportHeaders = exportFormatCall?.[1]?.headers as Headers
-    expect(exportHeaders.get('X-Idempotency-Key')).toMatch(/^certificate_format_export_/)
   })
 
   it('证书产物配置文件的新增、更新、删除使用真实 CRUD 路径', async () => {
@@ -111,7 +93,6 @@ describe('业务 API modules', () => {
 
     await createCertificateFormat({
       format: 'pfx',
-      artifactRef: 'artifact://certificate-format-config/nginx-pfx-standard/pfx/1',
       parameters: { configName: 'Nginx-PFX-标准模板' },
     })
     await updateCertificateFormat({
@@ -130,7 +111,6 @@ describe('业务 API modules', () => {
     expect(calls[2]?.[1]?.method).toBe('POST')
     expect(JSON.parse(String(calls[0]?.[1]?.body))).toMatchObject({
       format: 'pfx',
-      artifactRef: 'artifact://certificate-format-config/nginx-pfx-standard/pfx/1',
       parameters: { configName: 'Nginx-PFX-标准模板' },
     })
     expect(JSON.parse(String(calls[1]?.[1]?.body))).toMatchObject({

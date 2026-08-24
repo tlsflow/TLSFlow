@@ -11,14 +11,16 @@ withDefaults(defineProps<{
   loading?: boolean
   rowKey?: string
   emptyText?: string
+  dense?: boolean
 }>(), {
   rowKey: 'id',
   emptyText: '暂无数据',
+  dense: false,
 })
 </script>
 
 <template>
-  <section class="gc-card gc-data-table">
+  <section class="gc-card gc-data-table" :class="{ 'gc-data-table--dense': dense }">
     <div v-if="$slots.toolbar" class="gc-data-table__toolbar">
       <slot name="toolbar" />
     </div>
@@ -61,4 +63,9 @@ tbody tr:hover { background: #f8fbff; }
 tbody tr:last-child td { border-bottom: 0; }
 .gc-data-table__state { padding: 48px var(--gc-space-8); text-align: center; color: var(--gc-color-text); font-weight: 750; }
 .gc-data-table__footer { padding: var(--gc-space-3) var(--gc-space-5); color: var(--gc-color-text-muted); background: #fbfdff; border-top: 1px solid var(--gc-color-border); font-size: var(--gc-font-size-sm); font-weight: 650; }
+.gc-data-table--dense .gc-data-table__toolbar { padding: 14px 18px; }
+.gc-data-table--dense th,
+.gc-data-table--dense td { padding: 10px 12px; font-size: 12px; }
+.gc-data-table--dense th { font-size: 11px; }
+.gc-data-table--dense .gc-data-table__footer { padding: 10px 18px; font-size: 11px; }
 </style>

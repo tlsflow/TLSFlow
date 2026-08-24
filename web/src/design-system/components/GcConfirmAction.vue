@@ -6,12 +6,15 @@ const props = defineProps<{
   impactCount?: number
   riskText?: string
   confirmText?: string
+  disabled?: boolean
+  disabledReason?: string
 }>()
 const emit = defineEmits<{ confirm: [] }>()
 const opened = ref(false)
 const typed = ref('')
 
 function confirm() {
+  if (props.disabled) return
   if (props.confirmText && typed.value !== props.confirmText) return
   opened.value = false
   emit('confirm')
@@ -19,7 +22,7 @@ function confirm() {
 </script>
 
 <template>
-  <button class="gc-button gc-button--danger" type="button" @click="opened = true">
+  <button class="gc-button gc-button--danger" type="button" :disabled="disabled" :title="disabledReason" @click="opened = true">
     {{ actionName }}
   </button>
   <Teleport to="body">

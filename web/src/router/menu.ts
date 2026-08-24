@@ -18,7 +18,7 @@ export const mainMenuItems: MenuItem[] = [
     description: '证书库、绑定关系和到期风险',
     children: [
       { title: '证书资产', path: '/certificates', module: 'certificate', permission: 'certificate.asset.read', description: '证书、私钥引用、指纹和到期时间' },
-      { title: '证书产物', path: '/bindings', module: 'binding', permission: 'binding.read', description: '为已保存证书定义 PFX、CER、CRT、PEM 等导出规则配置' }
+      { title: '证书格式配置', path: '/bindings', module: 'binding', permission: 'binding.read', description: '为已保存证书定义 PFX、CER、CRT、PEM 等格式规则配置' }
     ]
   },
   {

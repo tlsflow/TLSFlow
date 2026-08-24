@@ -963,3 +963,279 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
     assert.equal(deletedAsset.statusCode, 200);
     assert.ok((deletedAsset.body as { deletedAt?: string }).deletedAt);
   });
+
+  it('DiscoveryIngest apply 支持 siteAssets / managedTargets 入库并回填到 CertificateBinding', async () => {
+    const app = await createMigratedApp();
+    const headers = { 'x-tenant-id': 'tenant_spec012_site_asset_ingest', 'x-actor-id': 'user_admin' };
+    const payload = {
+      hosts: [{ hostname: 'iis-site.example.com', primaryIp: '10.8.1.10', osType: 'WINDOWS', agentId: 'agent-iis-01' }],
+      services: [{ hostname: 'iis-site.example.com', providerType: 'IIS', serviceName: 'iis', displayName: 'iis', configPath: 'IIS:\\\\Sites' }],
+      serviceAssets: [{
+        serviceAssetRef: 'service-asset:iis-site.example.com:443:https',
+        hostname: 'iis-site.example.com',
+        providerType: 'IIS',
+        serviceName: 'iis',
+        address: 'iis-site.example.com',
+        port: 443,
+        protocol: 'HTTPS',
+        sniName: 'iis-site.example.com',
+        displayName: 'iis-site.example.com',
+      }],
+      siteAssets: [{
+        siteAssetRef: 'site-asset:iis-default-web-site',
+        serviceAssetRef: 'service-asset:iis-site.example.com:443:https',
+        hostname: 'iis-site.example.com',
+        providerType: 'IIS',
+        serviceName: 'iis',
+        agentId: 'agent-iis-01',
+        siteType: 'WEB_SITE',
+        siteName: 'Default Web Site',
+        siteKey: 'agent-iis-01:iis:default web site:*:443:iis-site.example.com',
+        bindingInformation: '*:443:iis-site.example.com',
+        hostHeader: 'iis-site.example.com',
+        listenIp: '*',
+        port: 443,
+        protocol: 'HTTPS',
+        configPath: 'IIS:\\\\Sites',
+      }],
+      bindings: [{
+        siteAssetRef: 'site-asset:iis-default-web-site',
+        serviceAssetRef: 'service-asset:iis-site.example.com:443:https',
+        hostname: 'iis-site.example.com',
+        providerType: 'IIS',
+        serviceName: 'iis',
+        domainName: 'iis-site.example.com',
+        port: 443,
+        protocol: 'HTTPS',
+        bindingType: 'WINDOWS_CERT_STORE',
+        storeLocation: 'LocalMachine',
+        storeName: 'My',
+        storeThumbprint: 'ABCDEF1234567890ABCDEF1234567890ABCDEF12',
+        verifyMethod: 'TLS_CONNECT',
+      }],
+    };
+
+    const ingest = await app.inject({
+      method: 'POST',
+      path: '/api/v1/discovery-snapshots/ingest',
+      headers,
+      body: { normalizedHash: 'spec012-site-asset-ingest-001', source: 'AGENT', apply: true, normalizedPayload: payload },
+    });
+    assert.equal(ingest.statusCode, 201);
+
+    const siteAssets = await app.inject({ method: 'GET', path: '/api/v1/site-assets?filter[siteName]=default%20web%20site', headers });
+    assert.equal(siteAssets.statusCode, 200);
+    const siteAssetPage = siteAssets.body as { total: number; items: Array<{ id: string; siteName: string; hostHeader?: string }> };
+    assert.equal(siteAssetPage.total, 1);
+    assert.equal(siteAssetPage.items[0]!.siteName, 'default web site');
+    assert.equal(siteAssetPage.items[0]!.hostHeader, 'iis-site.example.com');
+
+    const managedTargets = await app.inject({ method: 'GET', path: '/api/v1/managed-targets?filter[agentId]=agent-iis-01', headers });
+    assert.equal(managedTargets.statusCode, 200);
+    const managedTargetPage = managedTargets.body as { total: number; items: Array<{ id: string; siteAssetId?: string; targetType: string }> };
+    assert.equal(managedTargetPage.total, 1);
+    assert.equal(managedTargetPage.items[0]!.siteAssetId, siteAssetPage.items[0]!.id);
+    assert.equal(managedTargetPage.items[0]!.targetType, 'SITE_BINDING');
+
+    const bindings = await app.inject({ method: 'GET', path: '/api/v1/certificate-bindings?filter[domainName]=iis-site.example.com', headers });
+    assert.equal(bindings.statusCode, 200);
+    const bindingPage = bindings.body as { total: number; items: Array<{ siteAssetId?: string; managedTargetId?: string; serviceAssetId?: string }> };
+    assert.equal(bindingPage.total, 1);
+    assert.equal(bindingPage.items[0]!.siteAssetId, siteAssetPage.items[0]!.id);
+    assert.equal(bindingPage.items[0]!.managedTargetId, managedTargetPage.items[0]!.id);
+    assert.ok(bindingPage.items[0]!.serviceAssetId);
+  });
+
+  it('ServiceAsset 支持 ApplicationAssetTarget 绑定读写与详情联表返回', async () => {
+    const app = await createMigratedApp();
+    const headers = { 'x-tenant-id': 'tenant_spec012_application_asset_target', 'x-actor-id': 'user_admin' };
+
+    const host = (await app.inject({
+      method: 'POST',
+      path: '/api/v1/hosts',
+      headers,
+      body: { hostname: 'app-target.example.com', primaryIp: '10.8.2.20', osType: 'WINDOWS', agentId: 'agent-iis-02' },
+    })).body as { id: string };
+
+    const service = (await app.inject({
+      method: 'POST',
+      path: '/api/v1/service-instances',
+      headers,
+      body: { hostId: host.id, providerType: 'IIS', serviceName: 'iis', displayName: 'iis', configPath: 'IIS:\\\\Sites' },
+    })).body as { id: string };
+
+    const serviceAsset = (await app.inject({
+      method: 'POST',
+      path: '/api/v1/service-assets',
+      headers,
+      body: {
+        address: 'app-target.example.com',
+        addressType: 'DNS',
+        port: 443,
+        protocol: 'HTTPS',
+        platform: 'WINDOWS',
+        hostId: host.id,
+        agentId: 'agent-iis-02',
+        serviceInstanceId: service.id,
+        displayName: 'App Target',
+      },
+    })).body as { id: string };
+
+    const siteAsset = (await app.inject({
+      method: 'POST',
+      path: '/api/v1/site-assets',
+      headers,
+      body: {
+        serviceInstanceId: service.id,
+        serviceAssetId: serviceAsset.id,
+        hostId: host.id,
+        agentId: 'agent-iis-02',
+        providerType: 'IIS',
+        siteType: 'WEB_SITE',
+        siteName: 'Default Web Site',
+        siteKey: 'agent-iis-02:iis:default web site:*:443:app-target.example.com',
+        bindingInformation: '*:443:app-target.example.com',
+        hostHeader: 'app-target.example.com',
+        listenIp: '*',
+        port: 443,
+        protocol: 'HTTPS',
+        configPath: 'IIS:\\\\Sites',
+      },
+    })).body as { id: string };
+
+    const managedTarget = (await app.inject({
+      method: 'POST',
+      path: '/api/v1/managed-targets',
+      headers,
+      body: {
+        agentId: 'agent-iis-02',
+        hostId: host.id,
+        serviceInstanceId: service.id,
+        serviceAssetId: serviceAsset.id,
+        siteAssetId: siteAsset.id,
+        providerType: 'IIS',
+        frameworkType: 'IIS',
+        targetType: 'SITE_BINDING',
+        targetKey: 'agent-iis-02:iis:default web site:*:443:app-target.example.com',
+        bindingKey: 'iis:*:443:app-target.example.com',
+        capabilityProfile: { canDeployPfx: true },
+        deploymentMode: 'AGENT_PUSH',
+      },
+    })).body as { id: string; bindingKey?: string };
+
+    const bindingResponse = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-bindings',
+      headers,
+      body: {
+        serviceInstanceId: service.id,
+        serviceAssetId: serviceAsset.id,
+        siteAssetId: siteAsset.id,
+        managedTargetId: managedTarget.id,
+        domainName: 'app-target.example.com',
+        port: 443,
+        protocol: 'HTTPS',
+        bindingKey: managedTarget.bindingKey,
+        bindingType: 'WINDOWS_CERT_STORE',
+        storeLocation: 'LocalMachine',
+        storeName: 'My',
+        storeThumbprint: '1234567890ABCDEF1234567890ABCDEF12345678',
+        verifyMethod: 'TLS_CONNECT',
+      },
+    });
+    assert.equal(bindingResponse.statusCode, 201);
+
+    const created = await app.inject({
+      method: 'POST',
+      path: '/api/v1/service-assets',
+      headers,
+      body: {
+        address: 'manual-app-target.example.com',
+        addressType: 'DNS',
+        port: 443,
+        protocol: 'HTTPS',
+        platform: 'WINDOWS',
+        hostId: host.id,
+        agentId: 'agent-iis-02',
+        serviceInstanceId: service.id,
+        displayName: 'Manual App Target',
+        targetBinding: {
+          agentId: 'agent-iis-02',
+          siteAssetId: siteAsset.id,
+          managedTargetId: managedTarget.id,
+          providerType: 'IIS',
+          frameworkType: 'IIS',
+          targetType: 'SITE_BINDING',
+          targetKey: managedTarget.id,
+          bindingKey: managedTarget.bindingKey,
+          status: 'ACTIVE',
+          metadata: { source: 'manual' },
+        },
+      },
+    });
+    assert.equal(created.statusCode, 201);
+    const createdAsset = created.body as { id: string; targetBinding?: { siteAssetId: string; managedTargetId: string; bindingKey?: string } };
+    assert.equal(createdAsset.targetBinding?.siteAssetId, siteAsset.id);
+    assert.equal(createdAsset.targetBinding?.managedTargetId, managedTarget.id);
+
+    const listed = await app.inject({
+      method: 'GET',
+      path: `/api/v1/service-assets?filter[id]=${createdAsset.id}`,
+      headers,
+    });
+    assert.equal(listed.statusCode, 200);
+    const listedBody = listed.body as { total: number; items: Array<{ id: string; targetBinding?: { siteAssetId: string; managedTargetId: string } }> };
+    assert.equal(listedBody.total, 1);
+    assert.equal(listedBody.items[0]!.targetBinding?.siteAssetId, siteAsset.id);
+
+    const updated = await app.inject({
+      method: 'PATCH',
+      path: '/api/v1/service-assets',
+      headers,
+      body: {
+        id: createdAsset.id,
+        targetBinding: {
+          agentId: 'agent-iis-02',
+          siteAssetId: siteAsset.id,
+          managedTargetId: managedTarget.id,
+          providerType: 'IIS',
+          frameworkType: 'IIS',
+          targetType: 'SITE_BINDING',
+          targetKey: 'updated-target-key',
+          bindingKey: 'updated-binding-key',
+          status: 'ACTIVE',
+          metadata: { source: 'updated' },
+        },
+      },
+    });
+    assert.equal(updated.statusCode, 200);
+    const updatedBody = updated.body as { targetBinding?: { targetKey: string; bindingKey?: string; metadata?: { source?: string } } };
+    assert.equal(updatedBody.targetBinding?.targetKey, 'updated-target-key');
+    assert.equal(updatedBody.targetBinding?.bindingKey, 'updated-binding-key');
+    assert.equal(updatedBody.targetBinding?.metadata?.source, 'updated');
+
+    const detail = await app.inject({
+      method: 'GET',
+      path: `/api/v1/service-assets/detail?serviceAssetId=${createdAsset.id}`,
+      headers,
+    });
+    assert.equal(detail.statusCode, 200);
+    const detailBody = detail.body as {
+      id: string;
+      targetBinding?: { managedTargetId: string };
+      targetBindingDetail?: {
+        siteAsset?: { id: string; siteName: string };
+        managedTarget?: { id: string; targetType: string };
+        certificateBindings: Array<{ managedTargetId?: string; siteAssetId?: string; bindingKey?: string }>;
+      };
+    };
+    assert.equal(detailBody.id, createdAsset.id);
+    assert.equal(detailBody.targetBinding?.managedTargetId, managedTarget.id);
+    assert.equal(detailBody.targetBindingDetail?.siteAsset?.id, siteAsset.id);
+    assert.equal(detailBody.targetBindingDetail?.siteAsset?.siteName, 'default web site');
+    assert.equal(detailBody.targetBindingDetail?.managedTarget?.id, managedTarget.id);
+    assert.equal(detailBody.targetBindingDetail?.managedTarget?.targetType, 'SITE_BINDING');
+    assert.ok(detailBody.targetBindingDetail?.certificateBindings.length);
+    assert.equal(detailBody.targetBindingDetail?.certificateBindings[0]?.managedTargetId, managedTarget.id);
+    assert.equal(detailBody.targetBindingDetail?.certificateBindings[0]?.siteAssetId, siteAsset.id);
+  });

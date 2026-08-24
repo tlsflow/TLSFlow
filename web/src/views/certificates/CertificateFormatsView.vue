@@ -4,9 +4,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import {
   createCertificateFormat,
-  generateCertificateFormatExport,
   listCertificateFormats,
-  requestCertificateFormatExport,
 } from '@/api/modules/certificates.api'
 import type { ApiRecord } from '@/api/modules/common'
 import { GcDataTable, GcEmptyState, GcPageHeader, GcStatusTag } from '@/design-system/components'
@@ -61,41 +59,6 @@ function payload() {
   }
 }
 
-async function planExport() {
-  actionError.value = ''
-  try {
-    await requestCertificateFormatExport(payload())
-  } catch (cause) {
-    if (cause instanceof ApiClientError) {
-      actionError.value = `${cause.message}（${cause.errorCode}）`
-    } else {
-      actionError.value = cause instanceof Error ? cause.message : '导出规划失败'
-    }
-  }
-}
-
-async function generateExport() {
-  actionError.value = ''
-  if (!draft.certificateVersionId.trim()) {
-    actionError.value = '真实导出必须填写证书版本 ID。'
-    return
-  }
-  if ((draft.format === 'PFX' || draft.format === 'JKS') && !draft.passwordSecretRef.trim()) {
-    actionError.value = 'PFX/JKS 真实导出必须填写 passwordSecretRef。'
-    return
-  }
-  try {
-    await generateCertificateFormatExport(payload())
-    await loadFormats()
-  } catch (cause) {
-    if (cause instanceof ApiClientError) {
-      actionError.value = `${cause.message}（${cause.errorCode}）`
-    } else {
-      actionError.value = cause instanceof Error ? cause.message : '生成格式产物失败'
-    }
-  }
-}
-
 async function createFormat() {
   actionError.value = ''
   if (!selectedFormat.value.supported) {
@@ -119,7 +82,7 @@ onMounted(() => void loadFormats())
 
 <template>
   <section class="gc-page certificate-formats">
-    <GcPageHeader title="证书格式产物" :description="`证书 ${certificateId} 的 PEM/DER/PFX/JKS/P7B 格式产物入口。`">
+    <GcPageHeader title="证书格式配置" :description="`证书 ${certificateId} 的 PEM/DER/PFX/JKS/P7B 格式配置入口。`">
       <template #actions><RouterLink class="gc-button" :to="`/certificates/${certificateId}`">返回详情</RouterLink></template>
     </GcPageHeader>
 
@@ -129,18 +92,16 @@ onMounted(() => void loadFormats())
       <label><span>passwordSecretRef（PFX/JKS）</span><input v-model="draft.passwordSecretRef" placeholder="secret://pfx_password/sec_...#current" /></label>
       <label><span>Alias（可选）</span><input v-model="draft.alias" placeholder="例如 gcac-cert" /></label>
       <label><span>包含私钥（PEM）</span><select v-model="draft.containsPrivateKey"><option :value="false">否</option><option :value="true">是</option></select></label>
-      <button class="gc-button" type="button" @click="planExport">规划导出</button>
-      <button class="gc-button gc-button--danger" type="button" :disabled="!selectedFormat.supported" @click="generateExport">生成真实产物</button>
-      <button class="gc-button" type="button" :disabled="!selectedFormat.supported" @click="createFormat">创建外部格式记录</button>
-      <p>PFX/JKS 必须使用后端已有的 passwordSecretRef；页面不接收明文导出密码。</p>
+      <button class="gc-button" type="button" :disabled="!selectedFormat.supported" @click="createFormat">创建格式配置</button>
+      <p>PFX/JKS 必须使用后端已有的 passwordSecretRef；实际部署时会基于证书版本和格式配置即时生成材料。</p>
       <p v-if="actionError" class="certificate-formats__error">{{ actionError }}</p>
     </section>
 
-    <GcEmptyState v-if="error" title="格式产物加载失败" :description="error.message">
+    <GcEmptyState v-if="error" title="格式配置加载失败" :description="error.message">
       <p>错误码：{{ error.errorCode }}</p>
     </GcEmptyState>
-    <GcDataTable v-else :columns="columns" :rows="rows" :loading="loading" empty-text="暂无格式产物">
-      <template #toolbar><strong>格式产物列表</strong></template>
+    <GcDataTable v-else :columns="columns" :rows="rows" :loading="loading" empty-text="暂无格式配置">
+      <template #toolbar><strong>格式配置列表</strong></template>
       <template #cell-status="{ row }"><GcStatusTag :status="String(row.status ?? 'UNKNOWN')" /></template>
     </GcDataTable>
   </section>

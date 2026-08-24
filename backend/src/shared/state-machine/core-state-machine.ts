@@ -16,11 +16,11 @@ export const deploymentPlanTransitions: TransitionMap<DeploymentPlanStatus> = {
   PENDING_APPROVAL: ['READY', 'CANCELLED'],
   READY: ['RUNNING', 'CANCELLED'],
   RUNNING: ['SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'CANCELLED'],
-  SUCCESS: [],
-  PARTIAL_SUCCESS: ['ROLLED_BACK', 'FAILED'],
-  FAILED: ['ROLLED_BACK'],
+  SUCCESS: ['RUNNING'],
+  PARTIAL_SUCCESS: ['RUNNING', 'ROLLED_BACK', 'FAILED'],
+  FAILED: ['RUNNING', 'ROLLED_BACK'],
   CANCELLED: [],
-  ROLLED_BACK: []
+  ROLLED_BACK: ['RUNNING']
 };
 
 export const executionRunTransitions: TransitionMap<ExecutionRunStatus> = {

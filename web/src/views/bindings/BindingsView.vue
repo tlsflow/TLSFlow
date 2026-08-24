@@ -5,10 +5,6 @@ import { createSecret } from '@/api/modules/security.api'
 import {
   createCertificateFormat,
   deleteCertificateFormat,
-  downloadCertificateFormatArtifact,
-  generateCertificateFormatExport,
-  listCertificates,
-  listCertificateVersions,
   listCertificateFormats,
   updateCertificateFormat,
 } from '@/api/modules/certificates.api'
@@ -48,7 +44,6 @@ interface ArtifactDraft {
   hasSavedPassword: boolean
   passwordSecretRef: string
   expiresAt: string
-  artifactRef: string
 }
 
 interface FormatRow extends Record<string, unknown> {
@@ -61,16 +56,6 @@ interface FormatRow extends Record<string, unknown> {
   encodingSummary: string
   exportSummary: string
   raw: ApiRecord
-}
-
-interface CertificateExportOption {
-  id: string
-  assetId: string
-  versionId: string
-  displayName: string
-  subjectName: string
-  expiry: string
-  hasPrivateKey: boolean
 }
 
 interface TemplatePreset {
@@ -273,21 +258,12 @@ const loading = ref(false)
 const submitLoading = ref(false)
 const deleteLoadingId = ref('')
 const dialogOpen = ref(false)
-const exportDialogOpen = ref(false)
 const error = ref('')
 const actionError = ref('')
-const exportError = ref('')
 const requestId = ref('')
-const exportRequestId = ref('')
 const templateMessage = ref('')
-const exportWarnings = ref<string[]>([])
 const editMode = ref<'create' | 'edit'>('create')
 const formatItems = ref<ApiRecord[]>([])
-const exportLoading = ref(false)
-const exportOptionsLoading = ref(false)
-const certificateOptions = ref<CertificateExportOption[]>([])
-const selectedCertificateVersionId = ref('')
-const selectedFormatId = ref('')
 const filters = reactive({
   keyword: '',
   format: '',
@@ -355,9 +331,6 @@ const rows = computed<FormatRow[]>(() => {
     })
 })
 
-const selectedExportFormat = computed(() => rows.value.find((item) => item.id === selectedFormatId.value) ?? null)
-const selectedCertificateOption = computed(() => certificateOptions.value.find((item) => item.versionId === selectedCertificateVersionId.value) ?? null)
-
 const columns: DataTableColumn<FormatRow>[] = [
   { key: 'configName', title: '配置文件名称', width: '22%' },
   { key: 'targetSummary', title: '目标环境', width: '16%' },
@@ -377,37 +350,9 @@ async function loadFormats() {
     const result = await listCertificateFormats({ page: 1, pageSize: 200, sort: 'createdAt:desc' })
     formatItems.value = [...(result.data?.items ?? [])]
   } catch (cause) {
-    error.value = toErrorMessage(cause, '加载证书产物配置文件失败')
+    error.value = toErrorMessage(cause, '加载证书格式配置失败')
   } finally {
     loading.value = false
-  }
-}
-
-async function loadCertificateExportOptions() {
-  exportOptionsLoading.value = true
-  exportError.value = ''
-  try {
-    const assetsResult = await listCertificates({ page: 1, pageSize: 100, sort: 'updatedAt:desc' })
-    const assets = [...(assetsResult.data?.items ?? [])]
-    const versionPages = await Promise.all(assets.map(async (asset) => {
-      const assetId = readString(asset, ['id', 'certificateId'], '')
-      if (!assetId) return []
-      const result = await listCertificateVersions({
-        page: 1,
-        pageSize: 20,
-        sort: 'createdAt:desc',
-        filters: { certificateAssetId: assetId },
-      })
-      return (result.data?.items ?? []).map((version) => mapCertificateExportOption(asset, version as ApiRecord))
-    }))
-    certificateOptions.value = versionPages.flat().filter((item) => item.id && item.versionId)
-    selectedCertificateVersionId.value = certificateOptions.value[0]?.versionId ?? ''
-  } catch (cause) {
-    exportError.value = toErrorMessage(cause, '加载可导出证书列表失败')
-    certificateOptions.value = []
-    selectedCertificateVersionId.value = ''
-  } finally {
-    exportOptionsLoading.value = false
   }
 }
 
@@ -432,7 +377,6 @@ function createEmptyDraft(): ArtifactDraft {
     hasSavedPassword: false,
     passwordSecretRef: '',
     expiresAt: '',
-    artifactRef: '',
   }
 }
 
@@ -443,16 +387,6 @@ function openCreateDialog() {
   requestId.value = ''
   templateMessage.value = ''
   dialogOpen.value = true
-}
-
-async function openExportDialog() {
-  exportDialogOpen.value = true
-  exportError.value = ''
-  exportRequestId.value = ''
-  exportWarnings.value = []
-  selectedCertificateVersionId.value = ''
-  selectedFormatId.value = rows.value[0]?.id ?? ''
-  await loadCertificateExportOptions()
 }
 
 function openEditDialog(row: FormatRow) {
@@ -478,7 +412,6 @@ function openEditDialog(row: FormatRow) {
     hasSavedPassword: Boolean(readString(row.raw, ['passwordSecretRef'], '').trim()),
     passwordSecretRef: readString(row.raw, ['passwordSecretRef'], ''),
     expiresAt: readString(row.raw, ['expiresAt'], ''),
-    artifactRef: readString(row.raw, ['artifactRef'], ''),
   } satisfies ArtifactDraft)
   editMode.value = 'edit'
   actionError.value = ''
@@ -490,12 +423,6 @@ function openEditDialog(row: FormatRow) {
 function closeDialog() {
   if (!submitLoading.value) {
     dialogOpen.value = false
-  }
-}
-
-function closeExportDialog() {
-  if (!exportLoading.value) {
-    exportDialogOpen.value = false
   }
 }
 
@@ -560,7 +487,7 @@ async function submitDraft() {
       actionError.value = `${cause.message}（${cause.errorCode}）`
       requestId.value = cause.requestId
     } else {
-      actionError.value = toErrorMessage(cause, '保存证书产物配置文件失败')
+      actionError.value = toErrorMessage(cause, '保存证书格式配置失败')
     }
   } finally {
     submitLoading.value = false
@@ -574,48 +501,9 @@ async function removeRow(row: FormatRow) {
     await deleteCertificateFormat(row.id)
     await loadFormats()
   } catch (cause) {
-    error.value = toErrorMessage(cause, '删除证书产物配置文件失败')
+    error.value = toErrorMessage(cause, '删除证书格式配置失败')
   } finally {
     deleteLoadingId.value = ''
-  }
-}
-
-async function exportCertificateArtifact() {
-  if (!selectedCertificateVersionId.value) {
-    exportError.value = '请选择要导出的 SSL 证书'
-    return
-  }
-  if (!selectedExportFormat.value) {
-    exportError.value = '请选择证书产物配置文件'
-    return
-  }
-
-  exportLoading.value = true
-  exportError.value = ''
-  exportRequestId.value = ''
-  try {
-    const payload = buildExportPayload(selectedExportFormat.value, selectedCertificateVersionId.value)
-    const result = await generateCertificateFormatExport(payload)
-    exportRequestId.value = result.requestId
-    exportWarnings.value = readWarnings(result.data)
-    const artifactRef = readString(result.data ?? {}, ['artifactRef'], '')
-    if (!artifactRef) {
-      throw new Error('导出成功但未返回 artifactRef')
-    }
-    await triggerArtifactDownload(
-      artifactRef,
-      buildDownloadFileName(selectedExportFormat.value, selectedCertificateOption.value),
-    )
-    exportDialogOpen.value = false
-  } catch (cause) {
-    if (cause instanceof ApiClientError) {
-      exportError.value = `${cause.message}（${cause.errorCode}）`
-      exportRequestId.value = cause.requestId
-    } else {
-      exportError.value = toErrorMessage(cause, '导出证书文件失败')
-    }
-  } finally {
-    exportLoading.value = false
   }
 }
 
@@ -625,7 +513,7 @@ async function resolvePasswordSecretRef(): Promise<string> {
   }
   if (draft.passwordValue.trim()) {
     const secret = await createSecret({
-      name: `${draft.configName.trim() || '证书产物配置'} 导出密码`,
+      name: `${draft.configName.trim() || '证书格式配置'} 导出密码`,
       type: 'pfx_password',
       scopeType: 'global',
       plainText: draft.passwordValue.trim(),
@@ -649,7 +537,6 @@ function buildPayload() {
   const passwordSecretRef = showsPasswordSecret.value ? draft.passwordSecretRef.trim() : ''
   return {
     format: resolvedBackendFormat.value,
-    artifactRef: draft.artifactRef || buildArtifactRef(),
     containsPrivateKey: resolveContainsPrivateKey(),
     ...(passwordSecretRef ? { passwordSecretRef } : {}),
     ...(draft.expiresAt.trim() ? { expiresAt: draft.expiresAt.trim() } : {}),
@@ -672,82 +559,8 @@ function buildPayload() {
   }
 }
 
-function buildExportPayload(row: FormatRow, certificateVersionId: string) {
-  const item = row.raw
-  const parameters = readRecord(item.parameters)
-  const passwordSecretRef = readString(item, ['passwordSecretRef'], '').trim()
-  if (passwordSecretRef && !isSecretRef(passwordSecretRef)) {
-    throw new Error('当前配置文件中的 passwordSecretRef 不是合法 Secret 引用，请先编辑配置文件并填写真实 secret://... 引用')
-  }
-  return {
-    certificateVersionId,
-    format: normalizeBackendFormat(String(item.format ?? parameters.engineFormat ?? 'pem')),
-    containsPrivateKey: Boolean(item.containsPrivateKey ?? parameters.includePrivateKey),
-    ...(passwordSecretRef ? { passwordSecretRef } : {}),
-    ...(readString(item, ['expiresAt'], '').trim() ? { expiresAt: readString(item, ['expiresAt'], '').trim() } : {}),
-    parameters,
-  }
-}
-
-function buildDownloadFileName(row: FormatRow, certificate: CertificateExportOption | null) {
-  const baseName = toSlug(certificate?.subjectName || certificate?.displayName || row.configName || 'certificate-artifact')
-  const extension = row.extension || 'bin'
-  return `${baseName}.${extension.replace(/^\.+/, '')}`
-}
-
-async function triggerArtifactDownload(artifactRef: string, filename: string) {
-  if (typeof window === 'undefined' || typeof document === 'undefined') return
-  const { blob } = await downloadCertificateFormatArtifact(artifactRef, filename)
-  if (blob.size === 0) {
-    throw new Error('导出的证书文件为空')
-  }
-  const url = window.URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  anchor.rel = 'noopener'
-  document.body.appendChild(anchor)
-  anchor.click()
-  document.body.removeChild(anchor)
-  window.setTimeout(() => window.URL.revokeObjectURL(url), 1000)
-}
-
 function isSecretRef(value: string) {
   return /^secret:\/\/[a-z0-9_/-]+(?:#[a-z0-9_-]+)?$/i.test(value.trim())
-}
-
-function readWarnings(value: unknown): string[] {
-  if (!value || typeof value !== 'object') return []
-  const warnings = (value as Record<string, unknown>).warnings
-  if (!Array.isArray(warnings)) return []
-  return warnings.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-}
-
-function mapCertificateExportOption(asset: ApiRecord, version: ApiRecord): CertificateExportOption {
-  const versionId = readString(version, ['id', 'certificateVersionId'], '')
-  const subjectName = readString(version, ['commonName', 'subject.commonName', 'name'], '')
-  const assetName = readString(asset, ['primaryDomain', 'name', 'commonName'], '')
-  const expiry = readString(version, ['notAfter'], '')
-  return {
-    id: `${readString(asset, ['id', 'certificateId'], '')}:${versionId}`,
-    assetId: readString(asset, ['id', 'certificateId'], ''),
-    versionId,
-    displayName: [subjectName || assetName || versionId, expiry ? `到期 ${formatDateOnly(expiry)}` : ''].filter(Boolean).join(' / '),
-    subjectName: subjectName || assetName || versionId,
-    expiry: formatDateOnly(expiry),
-    hasPrivateKey: Boolean(version.hasPrivateKey),
-  }
-}
-
-function formatDateOnly(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value || '未知'
-  return date.toISOString().slice(0, 10)
-}
-
-function buildArtifactRef() {
-  const slug = toSlug(draft.configName.trim() || 'certificate-format-config')
-  return `artifact://certificate-format-config/${slug}/${resolvedBackendFormat.value}/${Date.now()}`
 }
 
 function resolveContainsPrivateKey() {
@@ -959,16 +772,13 @@ function toErrorMessage(cause: unknown, fallback: string) {
       </section>
 
       <div class="artifact-page__toolbar-actions">
-        <button class="gc-button artifact-page__export-button" type="button" @click="openExportDialog">
-          导出证书文件
-        </button>
         <GcPermissionButton class="artifact-page__create-button" permission="certificate.format.create" @click="openCreateDialog">
           新建配置文件
         </GcPermissionButton>
       </div>
     </section>
 
-    <GcEmptyState v-if="error" title="证书产物配置文件加载失败" :description="error">
+    <GcEmptyState v-if="error" title="证书格式配置加载失败" :description="error">
       <button class="gc-button" type="button" @click="loadFormats">重试</button>
     </GcEmptyState>
 
@@ -978,13 +788,13 @@ function toErrorMessage(cause: unknown, fallback: string) {
       :columns="columns"
       :rows="rows"
       :loading="loading"
-      empty-text="暂无证书产物配置文件"
+      empty-text="暂无证书格式配置"
     >
       <template #toolbar>
         <div class="artifact-page__table-toolbar">
           <div class="artifact-page__table-heading">
-            <strong>证书产物配置文件列表</strong>
-            <span>这里保存的是可复用导出规则模板。当前 {{ rows.length }} 条</span>
+            <strong>证书格式配置列表</strong>
+            <span>这里保存的是可复用的证书格式模板。当前 {{ rows.length }} 条</span>
           </div>
         </div>
       </template>
@@ -1015,7 +825,7 @@ function toErrorMessage(cause: unknown, fallback: string) {
 
     <GcModal
       v-model:open="dialogOpen"
-      :title="editMode === 'create' ? '新建证书产物配置文件' : '编辑证书产物配置文件'"
+      :title="editMode === 'create' ? '新建证书格式配置' : '编辑证书格式配置'"
       description="这里先选择系统平台与目标平台，再套用内置模板，最后仍可逐项调整，并明确单文件中包含哪些内容。"
       size="xl"
     >
@@ -1180,70 +990,6 @@ function toErrorMessage(cause: unknown, fallback: string) {
         </button>
       </template>
     </GcModal>
-
-    <GcModal
-      v-model:open="exportDialogOpen"
-      title="导出证书文件"
-      description="先选择 SSL 证书，再选择证书产物配置文件，系统将按配置生成产物并直接触发下载。"
-      size="lg"
-    >
-      <section class="artifact-export">
-        <section class="artifact-form__section">
-          <header class="artifact-form__section-header">
-            <div>
-              <h3>选择 SSL 证书</h3>
-              <p>这里列出当前已保存的证书版本，导出时会使用对应版本的公钥、证书链和私钥材料。</p>
-            </div>
-          </header>
-          <label class="artifact-form__field">
-            <span>证书版本</span>
-            <select v-model="selectedCertificateVersionId" :disabled="exportOptionsLoading || certificateOptions.length === 0">
-              <option value="">{{ exportOptionsLoading ? '加载中...' : '请选择证书版本' }}</option>
-              <option v-for="item in certificateOptions" :key="item.id" :value="item.versionId">
-                {{ item.displayName }}{{ item.hasPrivateKey ? '' : ' / 无私钥' }}
-              </option>
-            </select>
-          </label>
-        </section>
-
-        <section class="artifact-form__section">
-          <header class="artifact-form__section-header">
-            <div>
-              <h3>选择证书产物配置文件</h3>
-              <p>仅选择配置文件，不修改模板本身。导出动作会按该配置即时生成产物。</p>
-            </div>
-          </header>
-          <label class="artifact-form__field">
-            <span>配置文件</span>
-            <select v-model="selectedFormatId" :disabled="rows.length === 0">
-              <option value="">{{ rows.length === 0 ? '暂无配置文件' : '请选择配置文件' }}</option>
-              <option v-for="item in rows" :key="item.id" :value="item.id">
-                {{ item.configName }} / {{ item.displayFormat }} / .{{ item.extension }}
-              </option>
-            </select>
-          </label>
-          <div v-if="selectedExportFormat" class="artifact-export__summary">
-            <strong>{{ selectedExportFormat.configName }}</strong>
-            <span>{{ selectedExportFormat.targetSummary }}</span>
-            <span>{{ selectedExportFormat.exportSummary }}</span>
-          </div>
-        </section>
-
-        <div v-if="exportWarnings.length > 0" class="artifact-export__warnings">
-          <strong>导出提示</strong>
-          <p v-for="warning in exportWarnings" :key="warning">{{ warning }}</p>
-        </div>
-        <p v-if="exportError" class="artifact-form__error">{{ exportError }}</p>
-        <p v-else-if="exportRequestId" class="artifact-form__request">请求 ID：{{ exportRequestId }}</p>
-      </section>
-
-      <template #actions>
-        <button class="gc-button" type="button" :disabled="exportLoading" @click="closeExportDialog">取消</button>
-        <button class="gc-button gc-button--danger" type="button" :disabled="exportLoading" @click="exportCertificateArtifact">
-          {{ exportLoading ? '导出中...' : '生成并下载' }}
-        </button>
-      </template>
-    </GcModal>
   </section>
 </template>
 
@@ -1305,13 +1051,6 @@ function toErrorMessage(cause: unknown, fallback: string) {
 
 .artifact-page__toolbar-actions {
   gap: 10px;
-}
-
-.artifact-page__export-button {
-  min-height: 100%;
-  padding: 0 18px;
-  border-radius: 16px;
-  white-space: nowrap;
 }
 
 .artifact-page__create-button {
@@ -1481,35 +1220,6 @@ function toErrorMessage(cause: unknown, fallback: string) {
 .artifact-export {
   display: grid;
   gap: 14px;
-}
-
-.artifact-export__summary {
-  display: grid;
-  gap: 4px;
-  padding: 12px 14px;
-  border: 1px solid rgb(15 23 42 / 8%);
-  border-radius: 14px;
-  background: rgb(247 250 255 / 80%);
-  color: var(--gc-color-text-muted);
-}
-
-.artifact-export__summary strong {
-  color: var(--gc-color-text);
-}
-
-.artifact-export__warnings {
-  display: grid;
-  gap: 6px;
-  padding: 12px 14px;
-  border: 1px solid rgb(245 158 11 / 22%);
-  border-radius: 14px;
-  background: rgb(255 247 237 / 95%);
-  color: #9a3412;
-}
-
-.artifact-export__warnings strong,
-.artifact-export__warnings p {
-  margin: 0;
 }
 
 @media (max-width: 900px) {

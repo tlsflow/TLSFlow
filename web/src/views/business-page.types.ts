@@ -22,6 +22,8 @@ export interface BusinessAction {
   readonly confirmText?: string
   readonly riskText?: string
   readonly requiresSelection?: boolean
+  readonly hidden?: (row: import('@/composables/useBusinessPage').ViewRow | null) => boolean
+  readonly disabledReason?: (row: import('@/composables/useBusinessPage').ViewRow | null) => string
   readonly run?: (row?: import('@/composables/useBusinessPage').ViewRow) => Promise<unknown>
 }
 
@@ -33,6 +35,7 @@ export interface BusinessRowAction {
   readonly riskText?: string
   readonly reloadAfterRun?: boolean
   readonly hidden?: (row: import('@/composables/useBusinessPage').ViewRow) => boolean
+  readonly disabledReason?: (row: import('@/composables/useBusinessPage').ViewRow) => string
   readonly run?: (row: import('@/composables/useBusinessPage').ViewRow) => Promise<unknown>
 }
 

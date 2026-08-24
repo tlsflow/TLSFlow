@@ -17,11 +17,15 @@ import { assetsEnumValues } from '../domain/assets.domain-service.js';
 import type {
   CreateDiscoverySnapshotDto,
   CreateHostDto,
+  CreateManagedTargetDto,
   CreateServiceAssetDto,
+  CreateSiteAssetDto,
   IngestDiscoveryDto,
   PreviewDiscoveryMergeDto,
   ResolveAssetConflictDto,
+  UpdateManagedTargetDto,
   UpdateServiceAssetDto,
+  UpdateSiteAssetDto,
   CreateServiceEndpointDto,
   CreateServiceInstanceDto,
   UpdateHostDto,
@@ -45,13 +49,23 @@ export class AssetsController {
     router.patch('/api/v1/service-instances', '更新 ServiceInstance', tags, (request) => this.updateServiceInstance(request));
     router.post('/api/v1/service-instances/delete', '软删除 ServiceInstance', tags, (request) => this.deleteServiceInstance(request));
     router.get('/api/v1/service-assets', '查询 ServiceAsset 列表', tags, (request) => this.listServiceAssets(request));
+    router.get('/api/v1/service-assets/detail', '查询 ServiceAsset 详情', tags, (request) => this.getServiceAssetDetail(request));
     router.post('/api/v1/service-assets', '创建 ServiceAsset', tags, (request) => this.createServiceAsset(request));
     router.patch('/api/v1/service-assets', '更新 ServiceAsset', tags, (request) => this.updateServiceAsset(request));
     router.post('/api/v1/service-assets/delete', '软删除 ServiceAsset', tags, (request) => this.deleteServiceAsset(request));
+    router.get('/api/v1/site-assets', '查询 SiteAsset 列表', tags, (request) => this.listSiteAssets(request));
+    router.post('/api/v1/site-assets', '创建 SiteAsset', tags, (request) => this.createSiteAsset(request));
+    router.patch('/api/v1/site-assets', '更新 SiteAsset', tags, (request) => this.updateSiteAsset(request));
+    router.post('/api/v1/site-assets/delete', '软删除 SiteAsset', tags, (request) => this.deleteSiteAsset(request));
     router.get('/api/v1/service-endpoints', '查询 ServiceEndpoint 列表', tags, (request) => this.listServiceEndpoints(request));
     router.post('/api/v1/service-endpoints', '创建 ServiceEndpoint', tags, (request) => this.createServiceEndpoint(request));
     router.patch('/api/v1/service-endpoints', '更新 ServiceEndpoint', tags, (request) => this.updateServiceEndpoint(request));
     router.post('/api/v1/service-endpoints/delete', '软删除 ServiceEndpoint', tags, (request) => this.deleteServiceEndpoint(request));
+    router.get('/api/v1/managed-targets', '查询 ManagedTarget 列表', tags, (request) => this.listManagedTargets(request));
+    router.get('/api/v1/managed-target-snapshots', '查询 ManagedTarget 快照列表', tags, (request) => this.listManagedTargetSnapshots(request));
+    router.post('/api/v1/managed-targets', '创建 ManagedTarget', tags, (request) => this.createManagedTarget(request));
+    router.patch('/api/v1/managed-targets', '更新 ManagedTarget', tags, (request) => this.updateManagedTarget(request));
+    router.post('/api/v1/managed-targets/delete', '软删除 ManagedTarget', tags, (request) => this.deleteManagedTarget(request));
     router.get('/api/v1/discovery-snapshots', '查询发现快照', tags, (request) => this.listDiscoverySnapshots(request));
     router.post('/api/v1/discovery-snapshots', '写入发现快照', tags, (request) => this.upsertDiscoverySnapshot(request));
     router.post('/api/v1/discovery-snapshots/ingest', '入库发现结果', tags, (request) => this.ingestDiscovery(request));
@@ -154,7 +168,7 @@ export class AssetsController {
 
   private createServiceInstance(request: HttpRequest) {
     const body = validateObject(request.body, {
-      hostId: { type: 'string', required: true },
+      hostId: { type: 'string' },
       providerType: { type: 'string', required: true, enum: ProviderTypes },
       serviceName: { type: 'string' },
       displayName: { type: 'string', required: true },
@@ -239,6 +253,7 @@ export class AssetsController {
       platform: { type: 'string', enum: assetsEnumValues.serviceAssetPlatforms },
       agentId: { type: 'string' },
       sniName: { type: 'string' },
+      verifyUrl: { type: 'string' },
       displayName: { type: 'string' },
       serviceInstanceId: { type: 'string' },
       serviceEndpointId: { type: 'string' },
@@ -249,6 +264,7 @@ export class AssetsController {
       status: { type: 'string', enum: assetsEnumValues.serviceAssetStatuses },
       tags: { type: 'array' },
       metadata: { type: 'object' },
+      targetBinding: { type: 'object' },
     });
     const subject = this.subjectFromRequest(request);
     this.assertCan(subject, 'service_asset.manage', 'service_asset', request);
@@ -268,6 +284,17 @@ export class AssetsController {
     return this.service.listServiceAssets(tenantId(request), query);
   }
 
+  private getServiceAssetDetail(request: HttpRequest) {
+    const serviceAssetId = String(request.query.serviceAssetId ?? request.query.id ?? '').trim();
+    if (!serviceAssetId) throw new AppError('VALIDATION_FAILED', 'serviceAssetId 不能为空', { field: 'serviceAssetId' });
+    const subject = this.subjectFromRequest(request);
+    this.assertCan(subject, 'service_asset.read', 'service_asset', request, serviceAssetId);
+    return this.service.getServiceAssetDetail(tenantId(request), serviceAssetId).then((detail) => {
+      if (!detail) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId });
+      return detail;
+    });
+  }
+
   private updateServiceAsset(request: HttpRequest) {
     const body = validateObject(request.body, {
       id: { type: 'string', required: true },
@@ -278,6 +305,7 @@ export class AssetsController {
       platform: { type: 'string', enum: assetsEnumValues.serviceAssetPlatforms },
       agentId: { type: 'string' },
       sniName: { type: 'string' },
+      verifyUrl: { type: 'string' },
       displayName: { type: 'string' },
       serviceInstanceId: { type: 'string' },
       serviceEndpointId: { type: 'string' },
@@ -288,6 +316,7 @@ export class AssetsController {
       status: { type: 'string', enum: assetsEnumValues.serviceAssetStatuses },
       tags: { type: 'array' },
       metadata: { type: 'object' },
+      targetBinding: { type: 'object' },
     });
     const { id, ...patch } = body as unknown as UpdateServiceAssetDto & { id: string };
     const subject = this.subjectFromRequest(request);
@@ -307,6 +336,92 @@ export class AssetsController {
     return this.service.getRepository().getServiceAsset(tenantId(request), String(body.id)).then((before) =>
       this.service.deleteServiceAsset(tenantId(request), String(body.id)).then((deleted) => {
         this.audit(request, subject, 'service_asset.deleted', 'service_asset.manage', 'service_asset', String(body.id), before, deleted);
+        return deleted;
+      }),
+    );
+  }
+
+  private createSiteAsset(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      serviceInstanceId: { type: 'string', required: true },
+      serviceAssetId: { type: 'string' },
+      hostId: { type: 'string' },
+      agentId: { type: 'string' },
+      providerType: { type: 'string', required: true, enum: ProviderTypes },
+      siteType: { type: 'string', required: true, enum: assetsEnumValues.siteAssetTypes },
+      siteName: { type: 'string', required: true },
+      siteKey: { type: 'string', required: true },
+      bindingInformation: { type: 'string' },
+      hostHeader: { type: 'string' },
+      listenIp: { type: 'string' },
+      port: { type: 'number' },
+      protocol: { type: 'string', enum: assetsEnumValues.endpointProtocols },
+      configPath: { type: 'string' },
+      runtimeStatus: { type: 'string' },
+      discoverySource: { type: 'string', enum: assetsEnumValues.discoverySources },
+      lastDiscoveredAt: { type: 'string' },
+      status: { type: 'string', enum: assetsEnumValues.siteAssetStatuses },
+      metadata: { type: 'object' },
+    });
+    const subject = this.subjectFromRequest(request);
+    this.assertCan(subject, 'site_asset.manage', 'site_asset', request);
+    return this.service.createSiteAsset(tenantId(request), body as unknown as CreateSiteAssetDto).then((created) => {
+      this.audit(request, subject, 'site_asset.created', 'site_asset.manage', 'site_asset', created.id, undefined, created);
+      return { statusCode: 201, body: created };
+    });
+  }
+
+  private listSiteAssets(request: HttpRequest) {
+    const query = parsePageQuery(request.query, {
+      allowedSortFields: ['siteName', 'siteKey', 'providerType', 'port', 'createdAt', 'updatedAt', 'status', 'serviceInstanceId', 'serviceAssetId', 'hostId', 'agentId'],
+      allowedFilterFields: ['id', 'serviceInstanceId', 'serviceAssetId', 'hostId', 'agentId', 'providerType', 'siteType', 'siteName', 'siteKey', 'hostHeader', 'port', 'protocol', 'status', 'discoverySource'],
+    });
+    const subject = this.subjectFromRequest(request);
+    this.assertCan(subject, 'site_asset.read', 'site_asset', request);
+    return this.service.listSiteAssets(tenantId(request), query);
+  }
+
+  private updateSiteAsset(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      id: { type: 'string', required: true },
+      serviceInstanceId: { type: 'string' },
+      serviceAssetId: { type: 'string' },
+      hostId: { type: 'string' },
+      agentId: { type: 'string' },
+      providerType: { type: 'string', enum: ProviderTypes },
+      siteType: { type: 'string', enum: assetsEnumValues.siteAssetTypes },
+      siteName: { type: 'string' },
+      siteKey: { type: 'string' },
+      bindingInformation: { type: 'string' },
+      hostHeader: { type: 'string' },
+      listenIp: { type: 'string' },
+      port: { type: 'number' },
+      protocol: { type: 'string', enum: assetsEnumValues.endpointProtocols },
+      configPath: { type: 'string' },
+      runtimeStatus: { type: 'string' },
+      discoverySource: { type: 'string', enum: assetsEnumValues.discoverySources },
+      lastDiscoveredAt: { type: 'string' },
+      status: { type: 'string', enum: assetsEnumValues.siteAssetStatuses },
+      metadata: { type: 'object' },
+    });
+    const { id, ...patch } = body as unknown as UpdateSiteAssetDto & { id: string };
+    const subject = this.subjectFromRequest(request);
+    this.assertCan(subject, 'site_asset.manage', 'site_asset', request, id);
+    return this.service.getRepository().getSiteAsset(tenantId(request), id).then((before) =>
+      this.service.updateSiteAsset(tenantId(request), id, patch).then((updated) => {
+        this.audit(request, subject, 'site_asset.updated', 'site_asset.manage', 'site_asset', id, before, updated);
+        return updated;
+      }),
+    );
+  }
+
+  private deleteSiteAsset(request: HttpRequest) {
+    const body = validateObject(request.body, { id: { type: 'string', required: true } });
+    const subject = this.subjectFromRequest(request);
+    this.assertCan(subject, 'site_asset.manage', 'site_asset', request, String(body.id));
+    return this.service.getRepository().getSiteAsset(tenantId(request), String(body.id)).then((before) =>
+      this.service.deleteSiteAsset(tenantId(request), String(body.id)).then((deleted) => {
+        this.audit(request, subject, 'site_asset.deleted', 'site_asset.manage', 'site_asset', String(body.id), before, deleted);
         return deleted;
       }),
     );
@@ -369,6 +484,94 @@ export class AssetsController {
     return this.service.getRepository().getServiceEndpoint(tenantId(request), String(body.id)).then((before) =>
       this.service.deleteServiceEndpoint(tenantId(request), String(body.id)).then((deleted) => {
         this.audit(request, subject, 'service_endpoint.deleted', 'service_instance.manage', 'service_endpoint', String(body.id), before, deleted);
+        return deleted;
+      }),
+    );
+  }
+
+  private createManagedTarget(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      agentId: { type: 'string', required: true },
+      hostId: { type: 'string' },
+      serviceInstanceId: { type: 'string' },
+      serviceAssetId: { type: 'string' },
+      siteAssetId: { type: 'string' },
+      providerType: { type: 'string', required: true, enum: ProviderTypes },
+      frameworkType: { type: 'string', required: true, enum: ProviderTypes },
+      targetType: { type: 'string', required: true, enum: assetsEnumValues.managedTargetTypes },
+      targetKey: { type: 'string', required: true },
+      bindingKey: { type: 'string' },
+      capabilityProfile: { type: 'object' },
+      deploymentMode: { type: 'string' },
+      lastSeenAt: { type: 'string' },
+      status: { type: 'string', enum: assetsEnumValues.managedTargetStatuses },
+      metadata: { type: 'object' },
+    });
+    const subject = this.subjectFromRequest(request);
+    this.assertCan(subject, 'managed_target.manage', 'managed_target', request);
+    return this.service.createManagedTarget(tenantId(request), body as unknown as CreateManagedTargetDto).then((created) => {
+      this.audit(request, subject, 'managed_target.created', 'managed_target.manage', 'managed_target', created.id, undefined, created);
+      return { statusCode: 201, body: created };
+    });
+  }
+
+  private listManagedTargets(request: HttpRequest) {
+    const query = parsePageQuery(request.query, {
+      allowedSortFields: ['agentId', 'providerType', 'frameworkType', 'targetType', 'targetKey', 'createdAt', 'updatedAt', 'status', 'hostId', 'serviceInstanceId', 'serviceAssetId', 'siteAssetId'],
+      allowedFilterFields: ['id', 'agentId', 'hostId', 'serviceInstanceId', 'serviceAssetId', 'siteAssetId', 'providerType', 'frameworkType', 'targetType', 'targetKey', 'bindingKey', 'deploymentMode', 'status'],
+    });
+    const subject = this.subjectFromRequest(request);
+    this.assertCan(subject, 'managed_target.read', 'managed_target', request);
+    return this.service.listManagedTargets(tenantId(request), query);
+  }
+
+  private listManagedTargetSnapshots(request: HttpRequest) {
+    const query = parsePageQuery(request.query, {
+      allowedSortFields: ['capturedAt', 'createdAt', 'updatedAt', 'snapshotType', 'status', 'applicationAssetId', 'managedTargetId', 'executionRunId'],
+      allowedFilterFields: ['id', 'applicationAssetId', 'siteAssetId', 'managedTargetId', 'certificateBindingId', 'executionRunId', 'executionStepId', 'snapshotType', 'status', 'storeThumbprint'],
+    });
+    const subject = this.subjectFromRequest(request);
+    this.assertCan(subject, 'managed_target.read', 'managed_target_snapshot', request);
+    return this.service.listManagedTargetSnapshots(tenantId(request), query);
+  }
+
+  private updateManagedTarget(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      id: { type: 'string', required: true },
+      agentId: { type: 'string' },
+      hostId: { type: 'string' },
+      serviceInstanceId: { type: 'string' },
+      serviceAssetId: { type: 'string' },
+      siteAssetId: { type: 'string' },
+      providerType: { type: 'string', enum: ProviderTypes },
+      frameworkType: { type: 'string', enum: ProviderTypes },
+      targetType: { type: 'string', enum: assetsEnumValues.managedTargetTypes },
+      targetKey: { type: 'string' },
+      bindingKey: { type: 'string' },
+      capabilityProfile: { type: 'object' },
+      deploymentMode: { type: 'string' },
+      lastSeenAt: { type: 'string' },
+      status: { type: 'string', enum: assetsEnumValues.managedTargetStatuses },
+      metadata: { type: 'object' },
+    });
+    const { id, ...patch } = body as unknown as UpdateManagedTargetDto & { id: string };
+    const subject = this.subjectFromRequest(request);
+    this.assertCan(subject, 'managed_target.manage', 'managed_target', request, id);
+    return this.service.getRepository().getManagedTarget(tenantId(request), id).then((before) =>
+      this.service.updateManagedTarget(tenantId(request), id, patch).then((updated) => {
+        this.audit(request, subject, 'managed_target.updated', 'managed_target.manage', 'managed_target', id, before, updated);
+        return updated;
+      }),
+    );
+  }
+
+  private deleteManagedTarget(request: HttpRequest) {
+    const body = validateObject(request.body, { id: { type: 'string', required: true } });
+    const subject = this.subjectFromRequest(request);
+    this.assertCan(subject, 'managed_target.manage', 'managed_target', request, String(body.id));
+    return this.service.getRepository().getManagedTarget(tenantId(request), String(body.id)).then((before) =>
+      this.service.deleteManagedTarget(tenantId(request), String(body.id)).then((deleted) => {
+        this.audit(request, subject, 'managed_target.deleted', 'managed_target.manage', 'managed_target', String(body.id), before, deleted);
         return deleted;
       }),
     );
@@ -505,13 +708,23 @@ export function getAssetsRouteContracts(): RouteContract[] {
     { method: 'PATCH', path: '/api/v1/service-instances', operationId: 'updateServiceInstance', summary: '更新 ServiceInstance', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/service-instances/delete', operationId: 'deleteServiceInstance', summary: '软删除 ServiceInstance', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/service-assets', operationId: 'listServiceAssets', summary: '查询 ServiceAsset 列表', tags, responseSchema: pageSchema() },
+    { method: 'GET', path: '/api/v1/service-assets/detail', operationId: 'getServiceAssetDetail', summary: '查询 ServiceAsset 详情', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/service-assets', operationId: 'createServiceAsset', summary: '创建 ServiceAsset', tags, responseSchema: objectSchema() },
     { method: 'PATCH', path: '/api/v1/service-assets', operationId: 'updateServiceAsset', summary: '更新 ServiceAsset', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/service-assets/delete', operationId: 'deleteServiceAsset', summary: '软删除 ServiceAsset', tags, responseSchema: objectSchema() },
+    { method: 'GET', path: '/api/v1/site-assets', operationId: 'listSiteAssets', summary: '查询 SiteAsset 列表', tags, responseSchema: pageSchema() },
+    { method: 'POST', path: '/api/v1/site-assets', operationId: 'createSiteAsset', summary: '创建 SiteAsset', tags, responseSchema: objectSchema() },
+    { method: 'PATCH', path: '/api/v1/site-assets', operationId: 'updateSiteAsset', summary: '更新 SiteAsset', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/site-assets/delete', operationId: 'deleteSiteAsset', summary: '软删除 SiteAsset', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/service-endpoints', operationId: 'listServiceEndpoints', summary: '查询 ServiceEndpoint 列表', tags, responseSchema: pageSchema() },
     { method: 'POST', path: '/api/v1/service-endpoints', operationId: 'createServiceEndpoint', summary: '创建 ServiceEndpoint', tags, responseSchema: objectSchema() },
     { method: 'PATCH', path: '/api/v1/service-endpoints', operationId: 'updateServiceEndpoint', summary: '更新 ServiceEndpoint', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/service-endpoints/delete', operationId: 'deleteServiceEndpoint', summary: '软删除 ServiceEndpoint', tags, responseSchema: objectSchema() },
+    { method: 'GET', path: '/api/v1/managed-targets', operationId: 'listManagedTargets', summary: '查询 ManagedTarget 列表', tags, responseSchema: pageSchema() },
+    { method: 'GET', path: '/api/v1/managed-target-snapshots', operationId: 'listManagedTargetSnapshots', summary: '查询 ManagedTarget 快照列表', tags, responseSchema: pageSchema() },
+    { method: 'POST', path: '/api/v1/managed-targets', operationId: 'createManagedTarget', summary: '创建 ManagedTarget', tags, responseSchema: objectSchema() },
+    { method: 'PATCH', path: '/api/v1/managed-targets', operationId: 'updateManagedTarget', summary: '更新 ManagedTarget', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/managed-targets/delete', operationId: 'deleteManagedTarget', summary: '软删除 ManagedTarget', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/discovery-snapshots', operationId: 'listDiscoverySnapshots', summary: '查询发现快照', tags, responseSchema: pageSchema() },
     { method: 'POST', path: '/api/v1/discovery-snapshots', operationId: 'upsertDiscoverySnapshot', summary: '写入发现快照', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/discovery-snapshots/ingest', operationId: 'ingestDiscovery', summary: '入库发现结果', tags, responseSchema: objectSchema() },

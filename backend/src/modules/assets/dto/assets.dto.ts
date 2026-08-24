@@ -15,6 +15,12 @@ export type DiscoverySource = 'AGENT' | 'SSH' | 'MANUAL' | 'GATEWAY' | 'WINRM' |
 export type ServiceEndpointProtocol = 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP';
 export type ServiceAssetAddressType = 'DNS' | 'IPV4' | 'IPV6' | 'UNKNOWN';
 export type ServiceAssetPlatform = 'WINDOWS' | 'LINUX' | 'APPLIANCE';
+export type SiteAssetType = 'WEB_SITE' | 'VHOST' | 'CONNECTOR' | 'CUSTOM';
+export type SiteAssetStatus = 'ACTIVE' | 'INACTIVE' | 'UNKNOWN' | 'STALE' | 'DISABLED' | 'RETIRED' | 'DELETED';
+export type ManagedTargetType = 'SITE_BINDING' | 'FILE_DEPLOY' | 'KEYSTORE_ENTRY' | 'CUSTOM';
+export type ManagedTargetStatus = 'ACTIVE' | 'INACTIVE' | 'UNKNOWN' | 'STALE' | 'UNREACHABLE' | 'DISABLED' | 'DELETED';
+export type ApplicationAssetTargetStatus = 'ACTIVE' | 'INACTIVE' | 'PENDING' | 'ERROR' | 'DELETED';
+export type ManagedTargetSnapshotType = 'PRE_DEPLOY' | 'POST_DEPLOY' | 'ROLLBACK_POINT' | 'POST_ROLLBACK' | 'ERROR_STATE';
 
 export interface ManagementChannelDto {
   type: 'AGENT' | 'GATEWAY' | 'SSH' | 'WINRM' | 'MANUAL' | 'AGENTLESS' | 'SCRIPT_PACKAGE' | string;
@@ -83,7 +89,7 @@ export type UpdateHostDto = Partial<CreateHostDto>;
 export interface ServiceInstanceDto {
   id: string;
   tenantId: string;
-  hostId: string;
+  hostId?: string;
   providerType: ProviderType;
   serviceName?: string;
   displayName: string;
@@ -105,7 +111,7 @@ export interface ServiceInstanceDto {
 }
 
 export interface CreateServiceInstanceDto {
-  hostId: string;
+  hostId?: string;
   providerType: ProviderType;
   serviceName?: string;
   displayName: string;
@@ -136,6 +142,7 @@ export interface ServiceAssetDto {
   platform?: ServiceAssetPlatform;
   agentId?: string;
   sniName?: string;
+  verifyUrl?: string;
   displayName?: string;
   serviceInstanceId?: string;
   serviceEndpointId?: string;
@@ -150,6 +157,12 @@ export interface ServiceAssetDto {
   updatedAt: string;
   deletedAt?: string;
   version: number;
+  targetBinding?: ApplicationAssetTargetSummaryDto;
+}
+
+export interface ServiceAssetDetailDto extends ServiceAssetDto {
+  targetBindingDetail?: ApplicationAssetTargetDetailDto;
+  targetSnapshots?: ManagedTargetSnapshotDto[];
 }
 
 export interface CreateServiceAssetDto {
@@ -160,6 +173,7 @@ export interface CreateServiceAssetDto {
   platform?: ServiceAssetPlatform;
   agentId?: string;
   sniName?: string;
+  verifyUrl?: string;
   displayName?: string;
   serviceInstanceId?: string;
   serviceEndpointId?: string;
@@ -170,6 +184,7 @@ export interface CreateServiceAssetDto {
   status?: ServiceAssetStatus;
   tags?: string[];
   metadata?: Record<string, unknown>;
+  targetBinding?: CreateApplicationAssetTargetDto;
 }
 
 export type UpdateServiceAssetDto = Partial<CreateServiceAssetDto>;
@@ -178,7 +193,7 @@ export interface ServiceEndpointDto {
   id: string;
   tenantId: string;
   serviceInstanceId: string;
-  hostId: string;
+  hostId?: string;
   protocol: ServiceEndpointProtocol;
   hostName?: string;
   listenIp?: string;
@@ -203,6 +218,209 @@ export interface CreateServiceEndpointDto {
 
 export type UpdateServiceEndpointDto = Partial<CreateServiceEndpointDto>;
 
+export interface SiteAssetDto {
+  id: string;
+  tenantId: string;
+  serviceInstanceId: string;
+  serviceAssetId?: string;
+  hostId?: string;
+  agentId?: string;
+  providerType: ProviderType;
+  siteType: SiteAssetType;
+  siteName: string;
+  siteKey: string;
+  bindingInformation?: string;
+  hostHeader?: string;
+  listenIp?: string;
+  port?: number;
+  protocol?: ServiceEndpointProtocol;
+  configPath?: string;
+  runtimeStatus?: string;
+  discoverySource: DiscoverySource;
+  lastDiscoveredAt?: string;
+  status: SiteAssetStatus;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string;
+  version: number;
+}
+
+export interface CreateSiteAssetDto {
+  serviceInstanceId: string;
+  serviceAssetId?: string;
+  hostId?: string;
+  agentId?: string;
+  providerType: ProviderType;
+  siteType: SiteAssetType;
+  siteName: string;
+  siteKey: string;
+  bindingInformation?: string;
+  hostHeader?: string;
+  listenIp?: string;
+  port?: number;
+  protocol?: ServiceEndpointProtocol;
+  configPath?: string;
+  runtimeStatus?: string;
+  discoverySource?: DiscoverySource;
+  lastDiscoveredAt?: string;
+  status?: SiteAssetStatus;
+  metadata?: Record<string, unknown>;
+}
+
+export type UpdateSiteAssetDto = Partial<CreateSiteAssetDto>;
+
+export interface ManagedTargetDto {
+  id: string;
+  tenantId: string;
+  agentId: string;
+  hostId?: string;
+  serviceInstanceId?: string;
+  serviceAssetId?: string;
+  siteAssetId?: string;
+  providerType: ProviderType;
+  frameworkType: ProviderType;
+  targetType: ManagedTargetType;
+  targetKey: string;
+  bindingKey?: string;
+  capabilityProfile: Record<string, unknown>;
+  deploymentMode?: string;
+  lastSeenAt?: string;
+  status: ManagedTargetStatus;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string;
+  version: number;
+}
+
+export interface ApplicationAssetTargetSummaryDto {
+  id: string;
+  applicationAssetId: string;
+  agentId: string;
+  siteAssetId: string;
+  managedTargetId: string;
+  providerType: ProviderType;
+  frameworkType: ProviderType;
+  targetType: ManagedTargetType;
+  targetKey: string;
+  bindingKey?: string;
+  status: ApplicationAssetTargetStatus;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string;
+  version: number;
+}
+
+export interface ApplicationAssetTargetDetailDto extends ApplicationAssetTargetSummaryDto {
+  siteAsset?: SiteAssetDto;
+  managedTarget?: ManagedTargetDto;
+  certificateBindings: Array<Pick<
+    CertificateBindingDto,
+    | 'id'
+    | 'serviceAssetId'
+    | 'siteAssetId'
+    | 'managedTargetId'
+    | 'domain'
+    | 'domainName'
+    | 'bindingKey'
+    | 'bindingType'
+    | 'status'
+    | 'certificateVersionId'
+    | 'targetCertificateVersionId'
+    | 'observedFingerprintSha256'
+    | 'desiredFingerprintSha256'
+    | 'targetFingerprintSha256'
+    | 'storeThumbprint'
+    | 'lastVerifiedAt'
+    | 'lastDeployedAt'
+  >>;
+}
+
+export interface CreateApplicationAssetTargetDto {
+  applicationAssetId: string;
+  agentId: string;
+  siteAssetId: string;
+  managedTargetId: string;
+  providerType: ProviderType;
+  frameworkType: ProviderType;
+  targetType: ManagedTargetType;
+  targetKey: string;
+  bindingKey?: string;
+  status?: ApplicationAssetTargetStatus;
+  metadata?: Record<string, unknown>;
+}
+
+export type UpdateApplicationAssetTargetDto = Partial<CreateApplicationAssetTargetDto>;
+
+export interface ManagedTargetSnapshotDto {
+  id: string;
+  tenantId: string;
+  applicationAssetId?: string;
+  siteAssetId?: string;
+  managedTargetId?: string;
+  certificateBindingId?: string;
+  executionRunId?: string;
+  executionStepId?: string;
+  bindingInformation?: string;
+  hostHeader?: string;
+  port?: number;
+  storeLocation?: string;
+  storeName?: string;
+  storeThumbprint?: string;
+  certificateVersionId?: string;
+  fingerprintSha256?: string;
+  snapshotType: ManagedTargetSnapshotType;
+  status: 'SUCCESS' | 'FAILED' | 'ROLLED_BACK' | 'MANUAL_REQUIRED' | 'UNKNOWN';
+  metadata: Record<string, unknown>;
+  capturedAt: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
+export interface CreateManagedTargetSnapshotDto {
+  applicationAssetId?: string;
+  siteAssetId?: string;
+  managedTargetId?: string;
+  certificateBindingId?: string;
+  executionRunId?: string;
+  executionStepId?: string;
+  bindingInformation?: string;
+  hostHeader?: string;
+  port?: number;
+  storeLocation?: string;
+  storeName?: string;
+  storeThumbprint?: string;
+  certificateVersionId?: string;
+  fingerprintSha256?: string;
+  snapshotType: ManagedTargetSnapshotType;
+  status?: ManagedTargetSnapshotDto['status'];
+  metadata?: Record<string, unknown>;
+  capturedAt?: string;
+}
+
+export interface CreateManagedTargetDto {
+  agentId: string;
+  hostId?: string;
+  serviceInstanceId?: string;
+  serviceAssetId?: string;
+  siteAssetId?: string;
+  providerType: ProviderType;
+  frameworkType: ProviderType;
+  targetType: ManagedTargetType;
+  targetKey: string;
+  bindingKey?: string;
+  capabilityProfile?: Record<string, unknown>;
+  deploymentMode?: string;
+  lastSeenAt?: string;
+  status?: ManagedTargetStatus;
+  metadata?: Record<string, unknown>;
+}
+
+export type UpdateManagedTargetDto = Partial<CreateManagedTargetDto>;
+
 export interface DiscoverySnapshotDto {
   id: string;
   tenantId: string;
@@ -225,14 +443,14 @@ export interface CreateDiscoverySnapshotDto {
 export interface DiscoveryMergePreviewDto {
   snapshot: DiscoverySnapshotDto;
   actions: Array<{
-    kind: 'host' | 'service' | 'endpoint' | 'service_asset' | 'binding';
+    kind: 'host' | 'service' | 'endpoint' | 'service_asset' | 'site_asset' | 'managed_target' | 'binding';
     action: 'create' | 'update' | 'skip' | 'conflict';
     identityKey: string;
     existingId?: string;
     reason: string;
   }>;
   conflicts: Array<{
-    kind: 'host' | 'service' | 'endpoint' | 'service_asset' | 'binding';
+    kind: 'host' | 'service' | 'endpoint' | 'service_asset' | 'site_asset' | 'managed_target' | 'binding';
     identityKey: string;
     field: string;
     currentValue: unknown;
@@ -342,8 +560,33 @@ export interface NormalizedDiscoveredServiceAssetDto {
   metadata?: Record<string, unknown>;
 }
 
+export interface NormalizedDiscoveredSiteAssetDto {
+  siteAssetRef?: string;
+  serviceAssetRef?: string;
+  serviceRef?: string;
+  hostname?: string;
+  providerType?: ProviderType;
+  serviceName?: string;
+  agentId?: string;
+  siteType?: SiteAssetType;
+  siteName: string;
+  siteKey?: string;
+  bindingInformation?: string;
+  hostHeader?: string;
+  listenIp?: string;
+  port?: number;
+  protocol?: ServiceEndpointProtocol;
+  configPath?: string;
+  runtimeStatus?: string;
+  discoverySource?: DiscoverySource;
+  lastDiscoveredAt?: string;
+  status?: SiteAssetStatus;
+  metadata?: Record<string, unknown>;
+}
+
 export interface NormalizedDiscoveredBindingDto {
   serviceAssetRef?: string;
+  siteAssetRef?: string;
   serviceRef?: string;
   hostname?: string;
   providerType?: ProviderType;
@@ -383,6 +626,7 @@ export interface NormalizedDiscoveryPayloadDto {
   hosts: NormalizedDiscoveredHostDto[];
   services: NormalizedDiscoveredServiceDto[];
   serviceAssets: NormalizedDiscoveredServiceAssetDto[];
+  siteAssets: NormalizedDiscoveredSiteAssetDto[];
   bindings: NormalizedDiscoveredBindingDto[];
 }
 
@@ -393,7 +637,7 @@ export interface IngestDiscoveryDto extends CreateDiscoverySnapshotDto {
 export interface DiscoveryIngestResultDto {
   snapshot: DiscoverySnapshotDto;
   actions: Array<{
-    kind: 'host' | 'service' | 'service_asset' | 'binding';
+    kind: 'host' | 'service' | 'service_asset' | 'site_asset' | 'managed_target' | 'binding';
     action: 'create' | 'update' | 'skip' | 'conflict';
     identityKey: string;
     existingId?: string;
@@ -406,7 +650,7 @@ export interface DiscoveryIngestResultDto {
 
 export interface ResolvedAssetConflictDto {
   conflict: AssetConflictDto;
-  resource?: HostDto | ServiceInstanceDto | ServiceAssetDto | CertificateBindingDto;
+  resource?: HostDto | ServiceInstanceDto | ServiceAssetDto | SiteAssetDto | ManagedTargetDto | CertificateBindingDto;
 }
 
 export interface BindingDriftPersistenceDto {

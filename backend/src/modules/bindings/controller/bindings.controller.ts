@@ -41,6 +41,8 @@ export class BindingsController {
   private createCertificateBinding(request: HttpRequest) {
     const body = validateObject(request.body, {
       serviceAssetId: { type: 'string' },
+      siteAssetId: { type: 'string' },
+      managedTargetId: { type: 'string' },
       serviceInstanceId: { type: 'string', required: true },
       serviceEndpointId: { type: 'string' },
       domainName: { type: 'string' },
@@ -87,6 +89,8 @@ export class BindingsController {
       allowedFilterFields: [
         'id',
         'serviceAssetId',
+        'siteAssetId',
+        'managedTargetId',
         'serviceInstanceId',
         'serviceEndpointId',
         'hostId',
@@ -126,6 +130,8 @@ export class BindingsController {
     const body = validateObject(request.body, {
       id: { type: 'string', required: true },
       serviceAssetId: { type: 'string' },
+      siteAssetId: { type: 'string' },
+      managedTargetId: { type: 'string' },
       serviceInstanceId: { type: 'string' },
       serviceEndpointId: { type: 'string' },
       domainName: { type: 'string' },

@@ -119,6 +119,25 @@ export interface DiscoveryServiceAssetResult {
   rawFacts?: Record<string, unknown>;
 }
 
+export interface DiscoverySiteAssetResult {
+  key: string;
+  serviceKey: string;
+  serviceAssetKey?: string;
+  agentKey?: string;
+  siteType: 'WEB_SITE' | 'VHOST' | 'CONNECTOR' | 'CUSTOM';
+  siteName: string;
+  siteKey?: string;
+  bindingInformation?: string;
+  hostHeader?: string;
+  listenIp?: string;
+  port?: number;
+  protocol?: 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP';
+  configPath?: string;
+  runtimeStatus?: string;
+  status?: 'ACTIVE' | 'INACTIVE' | 'UNKNOWN' | 'STALE' | 'DISABLED' | 'RETIRED';
+  rawFacts?: Record<string, unknown>;
+}
+
 export interface DiscoveryRiskEventResult {
   key: string;
   severity: 'low' | 'medium' | 'high' | 'critical';
@@ -155,6 +174,7 @@ export interface DiscoveryResult {
   endpoints: DiscoveryEndpointResult[];
   bindings: DiscoveryBindingResult[];
   serviceAssets?: DiscoveryServiceAssetResult[];
+  siteAssets?: DiscoverySiteAssetResult[];
   certificateBindings?: DiscoveryCertificateBindingResult[];
   riskEvents?: DiscoveryRiskEventResult[];
   capabilityGaps?: DiscoveryCapabilityGapResult[];

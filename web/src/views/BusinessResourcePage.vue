@@ -13,7 +13,7 @@ import {
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import { usePermissionStore } from '@/stores/permission.store'
 import { readNumber, readPath, readString, useBusinessPage, type ViewRow } from '@/composables/useBusinessPage'
-import type { BusinessPageConfig } from './business-page.types'
+import type { BusinessAction, BusinessPageConfig } from './business-page.types'
 
 const props = defineProps<{ config: BusinessPageConfig }>()
 
@@ -28,7 +28,10 @@ const tableColumns = computed<DataTableColumn<ViewRow>[]>(() =>
 )
 const hasDangerAction = computed(() => props.config.actions.some((action) => action.danger))
 const visibleActions = computed(() =>
-  props.config.actions.filter((action) => permissionStore.hasPermission(action.permission)),
+  props.config.actions.filter((action) =>
+    permissionStore.hasPermission(action.permission)
+    && !(action.hidden?.(selectedRow.value) ?? false),
+  ),
 )
 const selectedRow = computed(() =>
   state.rows.value.find((row) => row.id === selectedId.value) ?? state.rows.value[0] ?? null,
@@ -75,10 +78,12 @@ function metricCount(metricTitle: string): number {
   return matched.length
 }
 
-async function runAction(actionIndex: number) {
-  const action = props.config.actions[actionIndex]
-  if (!action?.run) return
+async function runAction(action: BusinessAction) {
+  if (!action.run) return
   if (action.requiresSelection && !selectedRow.value) return
+  if (action.hidden?.(selectedRow.value) ?? false) return
+  const disabledReason = action.disabledReason?.(selectedRow.value)
+  if (disabledReason) throw new Error(disabledReason)
   await action.run(selectedRow.value ?? undefined)
   await state.reload()
 }
@@ -190,6 +195,7 @@ defineExpose({
       :rows="state.rows.value"
       :loading="state.loading.value"
       :empty-text="config.emptyTitle"
+      dense
     >
       <template #toolbar>
         <div class="business-page__toolbar">
@@ -265,6 +271,8 @@ defineExpose({
               :impact-count="1"
               :risk-text="action.riskText"
               :confirm-text="action.confirmText"
+              :disabled="Boolean(action.disabledReason?.(row))"
+              :disabled-reason="action.disabledReason?.(row)"
               @confirm="runRowAction(row, index)"
             />
             <GcPermissionButton
@@ -324,16 +332,24 @@ defineExpose({
         <span>高危动作必须二次确认，授权仍以后端校验为准。</span>
       </div>
       <div class="business-page__actions-list">
-        <template v-for="(action, index) in config.actions" :key="action.label">
+        <template v-for="action in visibleActions" :key="action.label">
           <GcConfirmAction
             v-if="action.danger && permissionStore.hasPermission(action.permission)"
             :action-name="action.label"
             :impact-count="action.requiresSelection ? 1 : state.total.value"
             :risk-text="action.riskText"
             :confirm-text="action.confirmText"
-            @confirm="runAction(index)"
+            :disabled="Boolean(action.disabledReason?.(selectedRow))"
+            :disabled-reason="action.disabledReason?.(selectedRow)"
+            @confirm="runAction(action)"
           />
-          <GcPermissionButton v-else-if="!action.danger" :permission="action.permission" :danger="action.danger" @click="runAction(index)">
+          <GcPermissionButton
+            v-else-if="!action.danger"
+            :permission="action.permission"
+            :danger="action.danger"
+            :disabled="Boolean(action.disabledReason?.(selectedRow))"
+            @click="runAction(action)"
+          >
             {{ action.label }}
           </GcPermissionButton>
         </template>

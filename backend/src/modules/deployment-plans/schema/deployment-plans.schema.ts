@@ -7,6 +7,7 @@ export interface DeploymentPlanEntity extends IdentifiedEntity {
   name: string;
   planType: DeploymentPlanType;
   certificateVersionId: string;
+  certificateFormatId?: string;
   status: DeploymentPlanStatus;
   approvalStatus: DeploymentPlanApprovalStatus;
   approvalId?: string;

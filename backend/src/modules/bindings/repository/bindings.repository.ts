@@ -36,31 +36,53 @@ export class PgBindingsRepository implements BindingsRepository {
     if (!serviceInstance) {
       throw new AppError('RESOURCE_NOT_FOUND', 'ServiceInstance 不存在', { serviceInstanceId: input.serviceInstanceId });
     }
-    let endpoint = input.serviceEndpointId ? await this.assets.getServiceEndpoint(tenantId, input.serviceEndpointId) : undefined;
+    const endpoint = input.serviceEndpointId ? await this.assets.getServiceEndpoint(tenantId, input.serviceEndpointId) : undefined;
     if (input.serviceEndpointId) {
       if (!endpoint) {
         throw new AppError('RESOURCE_NOT_FOUND', 'ServiceEndpoint 不存在', { serviceEndpointId: input.serviceEndpointId });
       }
       if (endpoint.serviceInstanceId !== input.serviceInstanceId) {
-        throw new AppError('VALIDATION_FAILED', 'ServiceEndpoint 必须属于同一个 ServiceInstance', {
+        throw new AppError('VALIDATION_FAILED', 'ServiceEndpoint 必须属于同一 ServiceInstance', {
           serviceEndpointId: input.serviceEndpointId,
           serviceInstanceId: input.serviceInstanceId,
         });
       }
     }
+
     const serviceAsset = input.serviceAssetId
       ? await this.assets.getServiceAsset(tenantId, input.serviceAssetId)
       : await this.resolveOrCreateServiceAsset(tenantId, input, serviceInstance.hostId, endpoint);
-    if (input.serviceAssetId && !serviceAsset) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId: input.serviceAssetId });
-    if (serviceAsset?.serviceInstanceId && serviceAsset.serviceInstanceId !== input.serviceInstanceId) {
-      throw new AppError('VALIDATION_FAILED', 'ServiceAsset 必须属于同一个 ServiceInstance', { serviceAssetId: serviceAsset.id, serviceInstanceId: input.serviceInstanceId });
+    if (input.serviceAssetId && !serviceAsset) {
+      throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId: input.serviceAssetId });
     }
+    if (serviceAsset?.serviceInstanceId && serviceAsset.serviceInstanceId !== input.serviceInstanceId) {
+      throw new AppError('VALIDATION_FAILED', 'ServiceAsset 必须属于同一 ServiceInstance', { serviceAssetId: serviceAsset.id, serviceInstanceId: input.serviceInstanceId });
+    }
+
+    const siteAsset = input.siteAssetId ? await this.assets.getSiteAsset(tenantId, input.siteAssetId) : undefined;
+    if (input.siteAssetId && !siteAsset) {
+      throw new AppError('RESOURCE_NOT_FOUND', 'SiteAsset 不存在', { siteAssetId: input.siteAssetId });
+    }
+    const managedTarget = input.managedTargetId ? await this.assets.getManagedTarget(tenantId, input.managedTargetId) : undefined;
+    if (input.managedTargetId && !managedTarget) {
+      throw new AppError('RESOURCE_NOT_FOUND', 'ManagedTarget 不存在', { managedTargetId: input.managedTargetId });
+    }
+    this.assertBindingRelations(input, serviceInstance.hostId, serviceAsset?.id, siteAsset, managedTarget);
+    await this.assertNoDuplicate(tenantId, {
+      ...input,
+      serviceAssetId: serviceAsset?.id,
+      siteAssetId: siteAsset?.id,
+      managedTargetId: managedTarget?.id,
+    });
+
     const now = new Date().toISOString();
     const metadata = input.metadata ?? {};
     const binding: CertificateBindingDto = {
       id: newId('bnd'),
       tenantId,
       serviceAssetId: serviceAsset?.id,
+      siteAssetId: siteAsset?.id,
+      managedTargetId: managedTarget?.id,
       serviceInstanceId: input.serviceInstanceId,
       serviceEndpointId: input.serviceEndpointId,
       hostId: serviceInstance.hostId,
@@ -105,17 +127,18 @@ export class PgBindingsRepository implements BindingsRepository {
       updatedAt: now,
       version: 1,
     };
+
     await this.db.query(`insert into pg_certificate_bindings (
-      id, tenant_id, service_asset_id, service_instance_id, service_endpoint_id, host_id, domain_name, domain, port, protocol, binding_key, binding_type,
+      id, tenant_id, service_asset_id, site_asset_id, managed_target_id, service_instance_id, service_endpoint_id, host_id, domain_name, domain, port, protocol, binding_key, binding_type,
       certificate_version_id, target_certificate_version_id, local_certificate_version_id, observed_fingerprint_sha256, desired_fingerprint_sha256,
       target_fingerprint_sha256, unmanaged_certificate_fingerprint, cert_path, key_path, chain_path, keystore_path, keystore_type,
       store_location, store_name, store_thumbprint, reload_command, reload_hint, discovery_source, verify_method, local_config_fingerprint,
       local_config_path, remote_endpoint_fingerprint, remote_status, tls_version, chain_summary, checked_at, drift_status, last_verified_at,
       last_deployed_at, status, metadata, created_at, updated_at, version
     ) values (
-      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29::jsonb,$30,$31,$32,$33,$34,$35,$36,$37::jsonb,$38::timestamptz,$39,$40::timestamptz,$41::timestamptz,$42,$43::jsonb,$44::timestamptz,$45::timestamptz,$46
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31::jsonb,$32,$33,$34,$35,$36,$37,$38,$39::jsonb,$40::timestamptz,$41,$42::timestamptz,$43::timestamptz,$44,$45::jsonb,$46::timestamptz,$47::timestamptz,$48
     )`, [
-      binding.id, tenantId, binding.serviceAssetId ?? null, binding.serviceInstanceId, binding.serviceEndpointId ?? null, binding.hostId, binding.domainName ?? null, binding.domain ?? null, binding.port ?? null, binding.protocol ?? null, binding.bindingKey, binding.bindingType,
+      binding.id, tenantId, binding.serviceAssetId ?? null, binding.siteAssetId ?? null, binding.managedTargetId ?? null, binding.serviceInstanceId, binding.serviceEndpointId ?? null, binding.hostId, binding.domainName ?? null, binding.domain ?? null, binding.port ?? null, binding.protocol ?? null, binding.bindingKey, binding.bindingType,
       binding.certificateVersionId ?? null, binding.targetCertificateVersionId ?? null, binding.localCertificateVersionId ?? null, binding.observedFingerprintSha256 ?? null, binding.desiredFingerprintSha256 ?? null,
       binding.targetFingerprintSha256 ?? null, binding.unmanagedCertificateFingerprint ?? null, binding.certPath ?? null, binding.keyPath ?? null, binding.chainPath ?? null, binding.keystorePath ?? null, binding.keystoreType ?? null,
       binding.storeLocation ?? null, binding.storeName ?? null, binding.storeThumbprint ?? null, binding.reloadCommand ?? null, JSON.stringify(binding.reloadHint ?? null), binding.discoverySource ?? null, binding.verifyMethod, binding.localConfigFingerprint ?? null,
@@ -141,7 +164,7 @@ export class PgBindingsRepository implements BindingsRepository {
     for (const binding of bindings) {
       const serviceAsset = binding.serviceAssetId ? await this.assets.getServiceAssetIncludingDeleted(tenantId, binding.serviceAssetId) : undefined;
       const service = await this.assets.getServiceInstanceIncludingDeleted(tenantId, binding.serviceInstanceId);
-      const host = await this.assets.getHostIncludingDeleted(tenantId, binding.hostId);
+      const host = binding.hostId ? await this.assets.getHostIncludingDeleted(tenantId, binding.hostId) : undefined;
       result.push({
         binding,
         serviceAsset: serviceAsset === undefined
@@ -171,14 +194,37 @@ export class PgBindingsRepository implements BindingsRepository {
   async updateCertificateBinding(tenantId: string, bindingId: string, input: UpdateCertificateBindingDto): Promise<CertificateBindingDto> {
     const current = await this.getCertificateBinding(tenantId, bindingId);
     if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'CertificateBinding 不存在', { bindingId });
+
     let nextHostId = current.hostId;
     if (input.serviceInstanceId && input.serviceInstanceId !== current.serviceInstanceId) {
       const serviceInstance = await this.assets.getServiceInstance(tenantId, input.serviceInstanceId);
       if (!serviceInstance) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceInstance 不存在', { serviceInstanceId: input.serviceInstanceId });
       nextHostId = serviceInstance.hostId;
     }
-    if (input.serviceAssetId && !await this.assets.getServiceAsset(tenantId, input.serviceAssetId)) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId: input.serviceAssetId });
-    this.assertNoDuplicate(tenantId, { ...current, ...input, serviceInstanceId: input.serviceInstanceId ?? current.serviceInstanceId, bindingType: input.bindingType ?? current.bindingType, verifyMethod: input.verifyMethod ?? current.verifyMethod } as CreateCertificateBindingDto, current.id);
+
+    const nextServiceAsset = input.serviceAssetId ? await this.assets.getServiceAsset(tenantId, input.serviceAssetId) : (current.serviceAssetId ? await this.assets.getServiceAsset(tenantId, current.serviceAssetId) : undefined);
+    const nextSiteAsset = input.siteAssetId ? await this.assets.getSiteAsset(tenantId, input.siteAssetId) : (current.siteAssetId ? await this.assets.getSiteAsset(tenantId, current.siteAssetId) : undefined);
+    const nextManagedTarget = input.managedTargetId ? await this.assets.getManagedTarget(tenantId, input.managedTargetId) : (current.managedTargetId ? await this.assets.getManagedTarget(tenantId, current.managedTargetId) : undefined);
+    if (input.serviceAssetId && !nextServiceAsset) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId: input.serviceAssetId });
+    if (input.siteAssetId && !nextSiteAsset) throw new AppError('RESOURCE_NOT_FOUND', 'SiteAsset 不存在', { siteAssetId: input.siteAssetId });
+    if (input.managedTargetId && !nextManagedTarget) throw new AppError('RESOURCE_NOT_FOUND', 'ManagedTarget 不存在', { managedTargetId: input.managedTargetId });
+
+    this.assertBindingRelations(
+      {
+        ...current,
+        ...input,
+        serviceAssetId: input.serviceAssetId ?? current.serviceAssetId,
+        siteAssetId: input.siteAssetId ?? current.siteAssetId,
+        managedTargetId: input.managedTargetId ?? current.managedTargetId,
+        serviceInstanceId: input.serviceInstanceId ?? current.serviceInstanceId,
+      },
+      nextHostId,
+      nextServiceAsset?.id,
+      nextSiteAsset,
+      nextManagedTarget,
+    );
+
+    await this.assertNoDuplicate(tenantId, { ...current, ...input, serviceInstanceId: input.serviceInstanceId ?? current.serviceInstanceId, bindingType: input.bindingType ?? current.bindingType, verifyMethod: input.verifyMethod ?? current.verifyMethod } as CreateCertificateBindingDto, current.id);
     const metadataPatch = {
       ...current.metadata,
       ...(input.metadata ?? {}),
@@ -197,6 +243,8 @@ export class PgBindingsRepository implements BindingsRepository {
       ...current,
       ...dropUndefined(input),
       serviceAssetId: input.serviceAssetId ?? current.serviceAssetId,
+      siteAssetId: input.siteAssetId ?? current.siteAssetId,
+      managedTargetId: input.managedTargetId ?? current.managedTargetId,
       domainName: input.domainName ?? input.domain ?? current.domainName,
       domain: input.domain ?? input.domainName ?? current.domain,
       certificateVersionId: input.certificateVersionId ?? input.targetCertificateVersionId ?? current.certificateVersionId,
@@ -208,8 +256,8 @@ export class PgBindingsRepository implements BindingsRepository {
       updatedAt: new Date().toISOString(),
       version: current.version + 1,
     };
-    await this.db.query(`update pg_certificate_bindings set service_asset_id=$2, service_instance_id=$3, service_endpoint_id=$4, host_id=$5, domain_name=$6, domain=$7, port=$8, protocol=$9, binding_key=$10, binding_type=$11, certificate_version_id=$12, target_certificate_version_id=$13, local_certificate_version_id=$14, observed_fingerprint_sha256=$15, desired_fingerprint_sha256=$16, target_fingerprint_sha256=$17, unmanaged_certificate_fingerprint=$18, cert_path=$19, key_path=$20, chain_path=$21, keystore_path=$22, keystore_type=$23, store_location=$24, store_name=$25, store_thumbprint=$26, reload_command=$27, reload_hint=$28::jsonb, discovery_source=$29, verify_method=$30, local_config_fingerprint=$31, local_config_path=$32, remote_endpoint_fingerprint=$33, remote_status=$34, tls_version=$35, chain_summary=$36::jsonb, checked_at=$37::timestamptz, drift_status=$38, last_verified_at=$39::timestamptz, last_deployed_at=$40::timestamptz, status=$41, metadata=$42::jsonb, updated_at=$43::timestamptz, version=$44 where id=$1`, [
-      updated.id, updated.serviceAssetId ?? null, updated.serviceInstanceId, updated.serviceEndpointId ?? null, updated.hostId, updated.domainName ?? null, updated.domain ?? null, updated.port ?? null, updated.protocol ?? null, updated.bindingKey, updated.bindingType, updated.certificateVersionId ?? null, updated.targetCertificateVersionId ?? null, updated.localCertificateVersionId ?? null, updated.observedFingerprintSha256 ?? null, updated.desiredFingerprintSha256 ?? null, updated.targetFingerprintSha256 ?? null, updated.unmanagedCertificateFingerprint ?? null, updated.certPath ?? null, updated.keyPath ?? null, updated.chainPath ?? null, updated.keystorePath ?? null, updated.keystoreType ?? null, updated.storeLocation ?? null, updated.storeName ?? null, updated.storeThumbprint ?? null, updated.reloadCommand ?? null, JSON.stringify(updated.reloadHint ?? null), updated.discoverySource ?? null, updated.verifyMethod, updated.localConfigFingerprint ?? null, updated.localConfigPath ?? null, updated.remoteEndpointFingerprint ?? null, updated.remoteStatus ?? null, updated.tlsVersion ?? null, JSON.stringify(updated.chainSummary ?? null), updated.checkedAt ?? null, updated.driftStatus ?? null, updated.lastVerifiedAt ?? null, updated.lastDeployedAt ?? null, updated.status, JSON.stringify(updated.metadata), updated.updatedAt, updated.version,
+    await this.db.query(`update pg_certificate_bindings set service_asset_id=$2, site_asset_id=$3, managed_target_id=$4, service_instance_id=$5, service_endpoint_id=$6, host_id=$7, domain_name=$8, domain=$9, port=$10, protocol=$11, binding_key=$12, binding_type=$13, certificate_version_id=$14, target_certificate_version_id=$15, local_certificate_version_id=$16, observed_fingerprint_sha256=$17, desired_fingerprint_sha256=$18, target_fingerprint_sha256=$19, unmanaged_certificate_fingerprint=$20, cert_path=$21, key_path=$22, chain_path=$23, keystore_path=$24, keystore_type=$25, store_location=$26, store_name=$27, store_thumbprint=$28, reload_command=$29, reload_hint=$30::jsonb, discovery_source=$31, verify_method=$32, local_config_fingerprint=$33, local_config_path=$34, remote_endpoint_fingerprint=$35, remote_status=$36, tls_version=$37, chain_summary=$38::jsonb, checked_at=$39::timestamptz, drift_status=$40, last_verified_at=$41::timestamptz, last_deployed_at=$42::timestamptz, status=$43, metadata=$44::jsonb, updated_at=$45::timestamptz, version=$46 where id=$1`, [
+      updated.id, updated.serviceAssetId ?? null, updated.siteAssetId ?? null, updated.managedTargetId ?? null, updated.serviceInstanceId, updated.serviceEndpointId ?? null, updated.hostId, updated.domainName ?? null, updated.domain ?? null, updated.port ?? null, updated.protocol ?? null, updated.bindingKey, updated.bindingType, updated.certificateVersionId ?? null, updated.targetCertificateVersionId ?? null, updated.localCertificateVersionId ?? null, updated.observedFingerprintSha256 ?? null, updated.desiredFingerprintSha256 ?? null, updated.targetFingerprintSha256 ?? null, updated.unmanagedCertificateFingerprint ?? null, updated.certPath ?? null, updated.keyPath ?? null, updated.chainPath ?? null, updated.keystorePath ?? null, updated.keystoreType ?? null, updated.storeLocation ?? null, updated.storeName ?? null, updated.storeThumbprint ?? null, updated.reloadCommand ?? null, JSON.stringify(updated.reloadHint ?? null), updated.discoverySource ?? null, updated.verifyMethod, updated.localConfigFingerprint ?? null, updated.localConfigPath ?? null, updated.remoteEndpointFingerprint ?? null, updated.remoteStatus ?? null, updated.tlsVersion ?? null, JSON.stringify(updated.chainSummary ?? null), updated.checkedAt ?? null, updated.driftStatus ?? null, updated.lastVerifiedAt ?? null, updated.lastDeployedAt ?? null, updated.status, JSON.stringify(updated.metadata), updated.updatedAt, updated.version,
     ]);
     return updated;
   }
@@ -231,19 +279,13 @@ export class PgBindingsRepository implements BindingsRepository {
     return updated;
   }
 
-  private assertNoDuplicate(tenantId: string, input: CreateCertificateBindingDto, excludedId?: string): void {
-    void tenantId;
-    void input;
-    void excludedId;
-  }
-
   private async resolveOrCreateServiceAsset(
     tenantId: string,
     input: CreateCertificateBindingDto,
-    hostId: string,
+    hostId: string | undefined,
     endpoint?: { id: string; hostName?: string; port: number; protocol: string },
   ) {
-    const existing = await resolveExistingServiceAsset(this.assets, tenantId, input, hostId, endpoint);
+      const existing = await resolveExistingServiceAsset(this.assets, tenantId, input, hostId, endpoint);
     if (existing) return existing;
     const address = (input.domainName ?? input.domain ?? endpoint?.hostName)?.toLowerCase();
     const port = input.port ?? endpoint?.port;
@@ -265,6 +307,14 @@ export class PgBindingsRepository implements BindingsRepository {
   private isDuplicate(tenantId: string, binding: CertificateBindingDto, input: CreateCertificateBindingDto): boolean {
     if (binding.tenantId !== tenantId || binding.deletedAt !== undefined) return false;
     if (binding.serviceInstanceId !== input.serviceInstanceId) return false;
+    const bindingDomain = normalizeBindingDomain(binding.domainName ?? binding.domain);
+    const inputDomain = normalizeBindingDomain(input.domainName ?? input.domain);
+    const hasScopedIdentity = Boolean(binding.managedTargetId || input.managedTargetId || binding.siteAssetId || input.siteAssetId);
+    if (hasScopedIdentity) {
+      return (binding.managedTargetId ?? '') === (input.managedTargetId ?? '')
+        && normalizeBindingKey(binding.bindingKey) === normalizeBindingKey(input.bindingKey)
+        && bindingDomain === inputDomain;
+    }
     if (input.bindingKey && binding.bindingKey === input.bindingKey) return true;
     if ((binding.domainName ?? binding.domain ?? '') !== (input.domainName ?? input.domain ?? '')) return false;
     if ((binding.port ?? undefined) !== (input.port ?? undefined)) return false;
@@ -277,15 +327,70 @@ export class PgBindingsRepository implements BindingsRepository {
     }
     return (binding.serviceEndpointId ?? '') === (input.serviceEndpointId ?? '');
   }
+
+  private assertBindingRelations(
+    input: Pick<CreateCertificateBindingDto, 'serviceInstanceId' | 'serviceAssetId' | 'siteAssetId' | 'managedTargetId'>,
+    hostId: string | undefined,
+    serviceAssetId: string | undefined,
+    siteAsset: Awaited<ReturnType<AssetsRepository['getSiteAsset']>>,
+    managedTarget: Awaited<ReturnType<AssetsRepository['getManagedTarget']>>,
+  ): void {
+    if (siteAsset) {
+      if (siteAsset.serviceInstanceId !== input.serviceInstanceId) {
+        throw new AppError('VALIDATION_FAILED', 'SiteAsset 必须属于同一 ServiceInstance', { siteAssetId: siteAsset.id, serviceInstanceId: input.serviceInstanceId });
+      }
+      if (hostId && siteAsset.hostId && siteAsset.hostId !== hostId) {
+        throw new AppError('VALIDATION_FAILED', 'SiteAsset 必须属于同一 Host', { siteAssetId: siteAsset.id, hostId });
+      }
+      if (serviceAssetId && siteAsset.serviceAssetId && siteAsset.serviceAssetId !== serviceAssetId) {
+        throw new AppError('VALIDATION_FAILED', 'SiteAsset 与 ServiceAsset 关联不一致', { siteAssetId: siteAsset.id, serviceAssetId });
+      }
+    }
+    if (managedTarget) {
+      if (hostId && managedTarget.hostId && managedTarget.hostId !== hostId) {
+        throw new AppError('VALIDATION_FAILED', 'ManagedTarget 必须属于同一 Host', { managedTargetId: managedTarget.id, hostId });
+      }
+      if (managedTarget.serviceInstanceId && managedTarget.serviceInstanceId !== input.serviceInstanceId) {
+        throw new AppError('VALIDATION_FAILED', 'ManagedTarget 必须属于同一 ServiceInstance', { managedTargetId: managedTarget.id, serviceInstanceId: input.serviceInstanceId });
+      }
+      if (serviceAssetId && managedTarget.serviceAssetId && managedTarget.serviceAssetId !== serviceAssetId) {
+        throw new AppError('VALIDATION_FAILED', 'ManagedTarget 与 ServiceAsset 关联不一致', { managedTargetId: managedTarget.id, serviceAssetId });
+      }
+      if (siteAsset?.id && managedTarget.siteAssetId && managedTarget.siteAssetId !== siteAsset.id) {
+        throw new AppError('VALIDATION_FAILED', 'ManagedTarget 与 SiteAsset 关联不一致', { managedTargetId: managedTarget.id, siteAssetId: siteAsset.id });
+      }
+    }
+  }
+
+  private async assertNoDuplicate(tenantId: string, input: CreateCertificateBindingDto, excludedId?: string): Promise<void> {
+    const duplicated = await this.findCertificateBindingByIdentity(tenantId, input);
+    if (!duplicated || duplicated.id === excludedId) return;
+    throw new AppError('RESOURCE_ALREADY_EXISTS', 'CertificateBinding 已存在相同目标绑定关系', {
+      bindingId: duplicated.id,
+      managedTargetId: input.managedTargetId,
+      bindingKey: input.bindingKey,
+      domain: input.domainName ?? input.domain,
+    });
+  }
+}
+
+function normalizeBindingDomain(value: string | undefined): string {
+  return value?.trim().toLowerCase() ?? '';
+}
+
+function normalizeBindingKey(value: string | undefined): string {
+  return value?.trim().toLowerCase() ?? '';
 }
 
 type CertificateBindingRow = {
   id: string;
   tenant_id: string;
   service_asset_id?: string | null;
+  site_asset_id?: string | null;
+  managed_target_id?: string | null;
   service_instance_id: string;
   service_endpoint_id?: string | null;
-  host_id: string;
+  host_id?: string | null;
   domain_name?: string | null;
   domain?: string | null;
   port?: number | null;
@@ -334,9 +439,11 @@ function toBinding(row: CertificateBindingRow): CertificateBindingDto {
     id: row.id,
     tenantId: row.tenant_id,
     serviceAssetId: row.service_asset_id ?? undefined,
+    siteAssetId: row.site_asset_id ?? undefined,
+    managedTargetId: row.managed_target_id ?? undefined,
     serviceInstanceId: row.service_instance_id,
     serviceEndpointId: row.service_endpoint_id ?? undefined,
-    hostId: row.host_id,
+    hostId: row.host_id ?? undefined,
     domainName: row.domain_name ?? undefined,
     domain: row.domain ?? undefined,
     port: row.port ?? undefined,
@@ -385,7 +492,7 @@ async function resolveExistingServiceAsset(
   assets: AssetsRepository,
   tenantId: string,
   input: CreateCertificateBindingDto,
-  hostId: string,
+  hostId: string | undefined,
   endpoint?: { id: string; hostName?: string; port: number; protocol: string },
 ) {
   const address = (input.domainName ?? input.domain ?? endpoint?.hostName)?.toLowerCase();

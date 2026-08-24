@@ -1,10 +1,12 @@
 import type { DeploymentPlanStatus, ExecutionTargetKind } from '../../../shared/enums/core.enums.js';
 import type { RiskLevel } from '../../../shared/security-types.js';
+import type { ExecutionRunDto } from '../../executions/dto/executions.dto.js';
 import type { FallbackSuggestion, GatewayAdapterType } from '../../gateway-agents/gateway-agent.types.js';
 
 export type DeploymentPlanType = 'INSTALL' | 'UPDATE' | 'ROLLBACK' | 'VERIFY_ONLY';
 export type DeploymentPlanApprovalStatus = 'NOT_REQUIRED' | 'PENDING' | 'APPROVED' | 'REJECTED';
 export type DeploymentPlanTargetStatus = 'PENDING' | 'READY' | 'SKIPPED' | 'FAILED' | 'COMPLETED';
+export type DeploymentPlanSelectionMode = 'EXPLICIT' | 'LATEST_AUTO';
 
 export interface DeploymentPlanPolicyDto {
   approvalRequired?: boolean;
@@ -62,6 +64,7 @@ export interface DeploymentPlanDto {
   name: string;
   planType: DeploymentPlanType;
   certificateVersionId: string;
+  certificateFormatId?: string;
   status: DeploymentPlanStatus;
   approvalStatus: DeploymentPlanApprovalStatus;
   approvalId?: string;
@@ -75,13 +78,28 @@ export interface DeploymentPlanDto {
   updatedBy?: string;
   version: number;
   targets: DeploymentPlanTargetDto[];
+  latestRunId?: string;
+  latestRun?: ExecutionRunDto;
+}
+
+export interface DeploymentPlanDryRunCheckDto {
+  key: string;
+  label: string;
+  status: 'passed' | 'failed' | 'warning' | 'unknown';
+  detail?: string;
+  evidence?: Record<string, unknown>;
 }
 
 export interface CreateDeploymentPlanInput {
   name: string;
-  certificateVersionId: string;
+  certificateVersionId?: string;
+  certificateFormatId?: string;
+  selectionMode?: DeploymentPlanSelectionMode;
   targets: Array<{
-    certificateBindingId: string;
+    certificateBindingId?: string;
+    managedTargetId?: string;
+    siteAssetId?: string;
+    domain?: string;
     executionTargetId?: string;
     executorType?: ExecutionTargetKind;
     requiredCapabilities?: string[];
@@ -99,6 +117,18 @@ export interface CreateDeploymentPlanInput {
   planType?: DeploymentPlanType;
   policy?: DeploymentPlanPolicyDto;
   createdReason?: DeploymentPlanDto['createdReason'];
+  idempotencyKey: string;
+  actorId: string;
+  tenantId?: string;
+}
+
+export interface CreateDeploymentPlanFromApplicationAssetInput {
+  applicationAssetId: string;
+  targetCertificateVersionId?: string;
+  certificateFormatId?: string;
+  selectionMode?: DeploymentPlanSelectionMode;
+  planType?: DeploymentPlanType;
+  policy?: DeploymentPlanPolicyDto;
   idempotencyKey: string;
   actorId: string;
   tenantId?: string;

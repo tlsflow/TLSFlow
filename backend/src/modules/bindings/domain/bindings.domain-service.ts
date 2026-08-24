@@ -35,6 +35,9 @@ export class BindingsDomainService {
     });
     const normalized: Required<Pick<CreateCertificateBindingDto, 'serviceInstanceId' | 'bindingType' | 'bindingKey' | 'verifyMethod' | 'status' | 'metadata'>> & CreateCertificateBindingDto = {
       ...input,
+      serviceAssetId: normalizeOptionalString(input.serviceAssetId),
+      siteAssetId: normalizeOptionalString(input.siteAssetId),
+      managedTargetId: normalizeOptionalString(input.managedTargetId),
       serviceInstanceId,
       serviceEndpointId: normalizeOptionalString(input.serviceEndpointId),
       domainName: domain,

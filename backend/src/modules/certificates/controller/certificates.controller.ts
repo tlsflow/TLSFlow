@@ -46,12 +46,9 @@ export class CertificatesController {
     router.post('/api/v1/certificate-versions/import', 'Import certificate material', ['Certificates'], (request) => this.importVersion(request));
     router.post('/api/v1/certificate-versions/validate-import', '校验证书导入材料', ['Certificates'], (request) => this.validateImportVersion(request));
     router.get('/api/v1/certificate-version-formats', '查询证书格式产物列表', ['Certificates'], (request) => this.listFormats(request));
-    router.get('/api/v1/certificate-version-formats/artifact', '下载证书格式产物', ['Certificates'], (request) => this.downloadFormatArtifact(request));
     router.post('/api/v1/certificate-version-formats', '创建证书格式产物记录', ['Certificates'], (request) => this.createFormat(request));
     router.patch('/api/v1/certificate-version-formats', '更新证书格式产物记录', ['Certificates'], (request) => this.updateFormat(request));
     router.post('/api/v1/certificate-version-formats/delete', '删除证书格式产物记录', ['Certificates'], (request) => this.deleteFormat(request));
-    router.post('/api/v1/certificate-version-formats/export-plan', '规划证书格式导出', ['Certificates'], (request) => this.requestFormatExport(request));
-    router.post('/api/v1/certificate-version-formats/export', '生成证书格式产物', ['Certificates'], (request) => this.generateFormatExport(request));
     router.post('/api/v1/certificate-sources/mock-sync', 'Mock 来源同步证书', ['Certificates'], (request) => this.syncFromSource(request));
   }
 
@@ -243,29 +240,10 @@ export class CertificatesController {
     }));
   }
 
-  private async downloadFormatArtifact(request: HttpRequest) {
-    const subject = this.subjectFromRequest(request);
-    await this.assertCan(subject, 'certificate.read', 'certificate_version_format', request);
-    const artifactRef = request.query.artifactRef;
-    if (Array.isArray(artifactRef) || typeof artifactRef !== 'string' || artifactRef.trim() === '') {
-      throw new AppError('VALIDATION_FAILED', 'artifactRef 不能为空', { field: 'artifactRef' });
-    }
-    const artifact = await this.services.certificates.getFormatArtifact(artifactRef);
-    return {
-      statusCode: 200,
-      headers: {
-        'content-type': artifact.contentType,
-        'content-disposition': `attachment; filename="${sanitizeDownloadFileName(request.query.filename, artifact.artifactRef)}"`,
-      },
-      body: artifact.content,
-    };
-  }
-
   private async createFormat(request: HttpRequest) {
     const body = validateObject(request.body, {
       certificateVersionId: { type: 'string' },
       format: { type: 'string', required: true, enum: certificateFormats },
-      artifactRef: { type: 'string', required: true },
       containsPrivateKey: { type: 'boolean' },
       passwordSecretRef: { type: 'string' },
       parameters: { type: 'object' },
@@ -278,7 +256,6 @@ export class CertificatesController {
       body: await this.services.certificates.createFormat({
         certificateVersionId: body.certificateVersionId === undefined ? undefined : String(body.certificateVersionId),
         format: body.format as any,
-        artifactRef: String(body.artifactRef),
         containsPrivateKey: body.containsPrivateKey === undefined ? undefined : Boolean(body.containsPrivateKey),
         passwordSecretRef: body.passwordSecretRef === undefined ? undefined : String(body.passwordSecretRef),
         parameters: body.parameters as Record<string, unknown> | undefined,
@@ -293,7 +270,6 @@ export class CertificatesController {
       id: { type: 'string', required: true },
       certificateVersionId: { type: 'string' },
       format: { type: 'string', enum: certificateFormats },
-      artifactRef: { type: 'string' },
       containsPrivateKey: { type: 'boolean' },
       passwordSecretRef: { type: 'string' },
       parameters: { type: 'object' },
@@ -307,7 +283,6 @@ export class CertificatesController {
         id: String(body.id),
         certificateVersionId: body.certificateVersionId === undefined ? undefined : String(body.certificateVersionId),
         format: body.format as any,
-        artifactRef: body.artifactRef === undefined ? undefined : String(body.artifactRef),
         containsPrivateKey: body.containsPrivateKey === undefined ? undefined : Boolean(body.containsPrivateKey),
         passwordSecretRef: body.passwordSecretRef === undefined ? undefined : String(body.passwordSecretRef),
         parameters: body.parameters as Record<string, unknown> | undefined,
@@ -328,56 +303,6 @@ export class CertificatesController {
       body: await this.services.certificates.deleteFormat({
         id: String(body.id),
         deletedBy: subject.id,
-      }, this.securityContext(request, subject)),
-    };
-  }
-
-  private async requestFormatExport(request: HttpRequest) {
-    const body = validateObject(request.body, {
-      certificateVersionId: { type: 'string', required: true },
-      format: { type: 'string', required: true, enum: certificateFormats },
-      containsPrivateKey: { type: 'boolean' },
-      passwordSecretRef: { type: 'string' },
-      parameters: { type: 'object' },
-      expiresAt: { type: 'string' },
-    });
-    const subject = this.subjectFromRequest(request);
-    await this.assertCan(subject, 'certificate.format.create', 'certificate_version_format', request);
-    return {
-      statusCode: 201,
-      body: await this.services.certificates.requestFormatExport({
-        certificateVersionId: String(body.certificateVersionId),
-        format: body.format as any,
-        containsPrivateKey: body.containsPrivateKey === undefined ? undefined : Boolean(body.containsPrivateKey),
-        passwordSecretRef: body.passwordSecretRef === undefined ? undefined : String(body.passwordSecretRef),
-        parameters: body.parameters as Record<string, unknown> | undefined,
-        createdBy: subject.id,
-        expiresAt: body.expiresAt === undefined ? undefined : String(body.expiresAt),
-      }, this.securityContext(request, subject)),
-    };
-  }
-
-  private async generateFormatExport(request: HttpRequest) {
-    const body = validateObject(request.body, {
-      certificateVersionId: { type: 'string', required: true },
-      format: { type: 'string', required: true, enum: certificateFormats },
-      containsPrivateKey: { type: 'boolean' },
-      passwordSecretRef: { type: 'string' },
-      parameters: { type: 'object' },
-      expiresAt: { type: 'string' },
-    });
-    const subject = this.subjectFromRequest(request);
-    await this.assertCan(subject, 'certificate.format.create', 'certificate_version_format', request);
-    return {
-      statusCode: 201,
-      body: await this.services.certificates.generateFormatExport({
-        certificateVersionId: String(body.certificateVersionId),
-        format: body.format as any,
-        containsPrivateKey: body.containsPrivateKey === undefined ? undefined : Boolean(body.containsPrivateKey),
-        passwordSecretRef: body.passwordSecretRef === undefined ? undefined : String(body.passwordSecretRef),
-        parameters: body.parameters as Record<string, unknown> | undefined,
-        createdBy: subject.id,
-        expiresAt: body.expiresAt === undefined ? undefined : String(body.expiresAt),
       }, this.securityContext(request, subject)),
     };
   }
@@ -516,7 +441,6 @@ export function getCertificateRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/certificate-versions/detail', operationId: 'getCertificateVersionDetail', summary: '查询证书版本详情', tags: ['Certificates'], responseSchema: certificateVersionSchema },
     { method: 'GET', path: '/api/v1/certificate-versions/usage', operationId: 'getCertificateVersionUsage', summary: '查询证书版本使用位置', tags: ['Certificates'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/certificate-versions/:id/formats', operationId: 'listCertificateVersionFormatsByVersionId', summary: 'List certificate version formats by version id', tags: ['Certificates'], responseSchema: pageSchema },
-    { method: 'GET', path: '/api/v1/certificate-version-formats/artifact', operationId: 'downloadCertificateVersionFormatArtifact', summary: '下载证书格式产物', tags: ['Certificates'], responseSchema: { type: 'string', format: 'binary' } },
     { method: 'POST', path: '/api/v1/certificate-versions/import', operationId: 'importCertificateVersion', summary: 'Import certificate material', tags: ['Certificates'], requestSchema: importCertificateVersionRequestSchema, responseSchema: certificateVersionSchema },
     { method: 'POST', path: '/api/v1/certificate-versions/archive', operationId: 'archiveCertificateVersion', summary: '归档证书版本', tags: ['Certificates'], responseSchema: certificateVersionSchema },
     { method: 'POST', path: '/api/v1/certificate-versions/revoke', operationId: 'revokeCertificateVersion', summary: '吊销证书版本', tags: ['Certificates'], responseSchema: certificateVersionSchema },
@@ -526,8 +450,6 @@ export function getCertificateRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/certificate-version-formats', operationId: 'createCertificateVersionFormat', summary: '创建证书格式产物记录', tags: ['Certificates'], responseSchema: certificateVersionFormatSchema },
     { method: 'PATCH', path: '/api/v1/certificate-version-formats', operationId: 'updateCertificateVersionFormat', summary: '更新证书格式产物记录', tags: ['Certificates'], responseSchema: certificateVersionFormatSchema },
     { method: 'POST', path: '/api/v1/certificate-version-formats/delete', operationId: 'deleteCertificateVersionFormat', summary: '删除证书格式产物记录', tags: ['Certificates'], responseSchema: certificateVersionFormatSchema },
-    { method: 'POST', path: '/api/v1/certificate-version-formats/export-plan', operationId: 'requestCertificateFormatExport', summary: '规划证书格式导出', tags: ['Certificates'], responseSchema: certificateVersionFormatSchema },
-    { method: 'POST', path: '/api/v1/certificate-version-formats/export', operationId: 'generateCertificateFormatExport', summary: '生成证书格式产物', tags: ['Certificates'], responseSchema: certificateVersionFormatSchema },
     { method: 'POST', path: '/api/v1/certificate-sources/mock-sync', operationId: 'mockSyncCertificateSource', summary: 'Mock 来源同步证书', tags: ['Certificates'], responseSchema: { type: 'object', additionalProperties: true } },
   ];
 }
@@ -540,12 +462,4 @@ function readRequiredId(request: HttpRequest): string {
     throw new AppError('VALIDATION_FAILED', 'id 不能为空', { field: 'id' });
   }
   return id;
-}
-
-function sanitizeDownloadFileName(input: string | string[] | undefined, artifactRef: string): string {
-  const raw = Array.isArray(input) ? input[0] : input;
-  if (typeof raw === 'string' && raw.trim()) {
-    return raw.replace(/[\\/:*?"<>|]+/g, '_');
-  }
-  return artifactRef.split('/').pop()?.replace(/[\\/:*?"<>|]+/g, '_') ?? 'certificate-artifact.bin';
 }
