@@ -70,6 +70,14 @@ export default {
       empty: 'Nenhum dado',
       loading: 'Carregando...'
     },
+    pagination: {
+      total: 'Total: {count}',
+      pageSize: '{size} por página',
+      previous: 'Anterior',
+      next: 'Próxima',
+      goToPage: 'Ir para a página {page}',
+      pager: 'Paginação'
+    },
     dryRunChecklist: {
       title: 'Conclusão da pré-verificação Dry-run',
       ariaLabel: 'conclusão da pré-verificação dry-run',

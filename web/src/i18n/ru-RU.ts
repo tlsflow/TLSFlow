@@ -70,6 +70,14 @@ export default {
       empty: 'Нет данных',
       loading: 'Загрузка...'
     },
+    pagination: {
+      total: 'Всего: {count}',
+      pageSize: '{size} на странице',
+      previous: 'Назад',
+      next: 'Вперед',
+      goToPage: 'Перейти на страницу {page}',
+      pager: 'Пагинация'
+    },
     dryRunChecklist: {
       title: 'Итоги предварительной проверки Dry-run',
       ariaLabel: 'итоги предварительной проверки dry-run',

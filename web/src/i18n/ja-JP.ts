@@ -70,6 +70,14 @@ export default {
       empty: 'データはまだありません',
       loading: '読み込み中...'
     },
+    pagination: {
+      total: '合計 {count}',
+      pageSize: '1ページ {size} 件',
+      previous: '前へ',
+      next: '次へ',
+      goToPage: '{page} ページへ移動',
+      pager: 'ページ送り'
+    },
     dryRunChecklist: {
       title: 'Dry-run 事前チェック結果',
       ariaLabel: 'dry-run 事前チェック結果',

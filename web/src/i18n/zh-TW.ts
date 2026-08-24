@@ -69,6 +69,14 @@ export default {
       empty: "暫無資料",
       loading: "載入中..."
     },
+    pagination: {
+      total: "總數 {count}",
+      pageSize: "每頁 {size} 筆",
+      previous: "上一頁",
+      next: "下一頁",
+      goToPage: "跳轉到第 {page} 頁",
+      pager: "分頁"
+    },
     dryRunChecklist: {
       title: "Dry-run 預檢結論",
       ariaLabel: "dry-run 預檢結論",

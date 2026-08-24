@@ -1,6 +1,7 @@
 export { default as GcPageHeader } from './GcPageHeader.vue'
 export { default as GcPageToolbar } from './GcPageToolbar.vue'
 export { default as GcDataTable } from './GcDataTable.vue'
+export { default as GcPagination } from './GcPagination.vue'
 export { default as GcStatusTag } from './GcStatusTag.vue'
 export { default as GcRiskBadge } from './GcRiskBadge.vue'
 export { default as GcEmptyState } from './GcEmptyState.vue'

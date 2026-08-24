@@ -70,6 +70,14 @@ export default {
       empty: '데이터 없음',
       loading: '로드 중...'
     },
+    pagination: {
+      total: '총 {count}',
+      pageSize: '페이지당 {size}',
+      previous: '이전',
+      next: '다음',
+      goToPage: '{page} 페이지로 이동',
+      pager: '페이지 매김'
+    },
     dryRunChecklist: {
       title: 'Dry-run 사전 점검 결과',
       ariaLabel: 'dry-run 사전 점검 결과',

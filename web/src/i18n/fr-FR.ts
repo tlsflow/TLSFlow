@@ -66,6 +66,14 @@ export default {
       empty: 'Aucune donnée',
       loading: 'Chargement...'
     },
+    pagination: {
+      total: 'Total : {count}',
+      pageSize: '{size} par page',
+      previous: 'Précédent',
+      next: 'Suivant',
+      goToPage: 'Aller à la page {page}',
+      pager: 'Pagination'
+    },
     dryRunChecklist: {
       title: 'Résultats de précontrôle dry-run',
       ariaLabel: 'résultats de précontrôle dry-run',

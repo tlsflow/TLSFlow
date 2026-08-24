@@ -65,6 +65,14 @@ export default {
       empty: 'No data',
       loading: 'Loading...'
     },
+    pagination: {
+      total: 'Total {count}',
+      pageSize: '{size} per page',
+      previous: 'Previous',
+      next: 'Next',
+      goToPage: 'Go to page {page}',
+      pager: 'Pagination'
+    },
     dryRunChecklist: {
       title: 'Dry-run precheck results',
       ariaLabel: 'dry-run precheck results',
