@@ -20,43 +20,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$ProgressPreference = "SilentlyContinue"
 
-$scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$moduleRoot = Join-Path $scriptRoot "modules"
+# 旧启动参数没有与 Go Runtime 一一对应的语义。继续静默转发会让调用方误以为
+# PowerShell Runtime 仍受支持，因此这里保留路径但明确拒绝执行。
+$goAgentRoot = Join-Path (Split-Path -Parent $PSScriptRoot) "windows-go-full-agent"
+$goServiceControl = Join-Path $goAgentRoot "service-control.ps1"
 
-Import-Module (Join-Path $moduleRoot "Gcac.Agent.Service.psm1") -Force -DisableNameChecking
-
-$resolvedConfigPath = if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
-  Join-Path $scriptRoot "config\agent.config.template.json"
-} else {
-  $ConfigPath
-}
-
-$resolvedLogDir = if ([string]::IsNullOrWhiteSpace($LogDir)) {
-  Join-Path $env:ProgramData "GCAC\FullAgent\logs"
-} else {
-  $LogDir
-}
-
-if ($SelfCheck) {
-  $result = Test-GcacAgentSelfCheck -ConfigPath $resolvedConfigPath -LogDir $resolvedLogDir
-} elseif ($HealthCheck) {
-  $result = Test-GcacAgentHealth -ConfigPath $resolvedConfigPath -LogDir $resolvedLogDir
-} else {
-  $result = Start-GcacAgentService -ConfigPath $resolvedConfigPath -LogDir $resolvedLogDir -RunOnce:$RunOnce
-}
-
-if ($RunOnce -or $SelfCheck -or $HealthCheck) {
-  $json = $result | ConvertTo-Json -Depth 8
-  if ([string]::IsNullOrWhiteSpace($OutputPath)) {
-    Write-Output $json
-  } else {
-    $utf8Bom = New-Object System.Text.UTF8Encoding($true)
-    [System.IO.File]::WriteAllText($OutputPath, $json, $utf8Bom)
-  }
-
-  if (-not $result.Success) {
-    exit 1
-  }
-}
+throw "LEGACY_RUNTIME_RETIRED: PowerShell Full Agent 已退役。请使用 '$goServiceControl' 管理 Go Agent，或直接运行 '$goAgentRoot\gcac-agent.exe'。"

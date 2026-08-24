@@ -19,7 +19,3 @@ Write-Host "This entry now delegates to the Go agent uninstaller."
 Write-Host "Target uninstaller: $goUninstaller"
 
 & $goUninstaller -ServiceName $ServiceName
-
-if ($LASTEXITCODE -ne 0) {
-  throw "Go agent uninstaller exited with code $LASTEXITCODE"
-}

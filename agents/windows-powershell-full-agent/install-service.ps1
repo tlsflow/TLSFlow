@@ -34,7 +34,3 @@ Write-Host "Target installer: $goInstaller"
   -DataDir $DataDir `
   -LogDir $LogDir `
   -StartAfterInstall:$StartAfterInstall
-
-if ($LASTEXITCODE -ne 0) {
-  throw "Go agent installer exited with code $LASTEXITCODE"
-}

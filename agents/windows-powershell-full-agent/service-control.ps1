@@ -36,7 +36,3 @@ if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
   -BinaryPath $BinaryPath `
   -ConfigPath $ConfigPath `
   -MetadataPath $MetadataPath
-
-if ($LASTEXITCODE -ne 0) {
-  throw "Go agent service-control script exited with code $LASTEXITCODE"
-}
