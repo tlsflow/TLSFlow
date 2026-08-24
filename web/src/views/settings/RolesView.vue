@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import type { ApiRecord } from '@/api/modules/common'
 import { listAgents, listAssets } from '@/api/modules/assets.api'
@@ -45,7 +46,7 @@ interface MemberOption {
 
 interface AssignableObjectCategory {
   key: string
-  label: string
+  labelKey: string
   objectType: string
   load?: () => Promise<readonly ApiRecord[]>
 }
@@ -60,6 +61,8 @@ interface ObjectTreeNode {
   level: number
   description?: string
 }
+
+const { t } = useI18n()
 
 const roleRows = ref<ApiRecord[]>([])
 const objectSetRows = ref<ApiRecord[]>([])
@@ -90,52 +93,54 @@ const roleDraft = reactive<RoleDraft>({ name: '', description: '' })
 const grantDraft = reactive<AccessGrantDraft>({ roleId: '', accessLevel: 'read', effect: 'allow' })
 
 const assignableCategories: readonly AssignableObjectCategory[] = [
-  { key: 'certificate', label: '证书', objectType: 'certificate', load: () => loadPageItems(listCertificates) },
-  { key: 'gateway', label: '网关', objectType: 'gateway', load: () => loadPageItems(listGateways) },
-  { key: 'agent', label: 'Agent', objectType: 'agent', load: () => loadPageItems(listAgents) },
-  { key: 'service_asset', label: '应用资产', objectType: 'service_asset', load: () => loadPageItems(listAssets) },
-  { key: 'deployment_plan', label: '更新计划', objectType: 'deployment_plan', load: () => loadPageItems(listDeploymentPlans) },
-  { key: 'workflow', label: '工作流', objectType: 'workflow', load: () => loadPageItems(listWorkflowTemplates) },
-  { key: 'audit_log', label: '日志', objectType: 'audit_log', load: () => Promise.resolve(auditLogCategories) },
-  { key: 'system_setting', label: '系统设置', objectType: 'system_setting' }
+  { key: 'certificate', labelKey: 'settings.roles.categories.certificate', objectType: 'certificate', load: () => loadPageItems(listCertificates) },
+  { key: 'gateway', labelKey: 'settings.roles.categories.gateway', objectType: 'gateway', load: () => loadPageItems(listGateways) },
+  { key: 'agent', labelKey: 'settings.roles.categories.agent', objectType: 'agent', load: () => loadPageItems(listAgents) },
+  { key: 'service_asset', labelKey: 'settings.roles.categories.serviceAsset', objectType: 'service_asset', load: () => loadPageItems(listAssets) },
+  { key: 'deployment_plan', labelKey: 'settings.roles.categories.deploymentPlan', objectType: 'deployment_plan', load: () => loadPageItems(listDeploymentPlans) },
+  { key: 'workflow', labelKey: 'settings.roles.categories.workflow', objectType: 'workflow', load: () => loadPageItems(listWorkflowTemplates) },
+  { key: 'audit_log', labelKey: 'settings.roles.categories.auditLog', objectType: 'audit_log', load: () => Promise.resolve(auditLogCategories()) },
+  { key: 'system_setting', labelKey: 'settings.roles.categories.systemSetting', objectType: 'system_setting' }
 ]
 
-const auditLogCategories: readonly ApiRecord[] = [
-  { id: 'auth', name: '认证登录日志', description: '登录、登出、外部身份源登录' },
-  { id: 'security', name: '安全管理日志', description: '用户、角色、权限、身份源变更' },
-  { id: 'certificate', name: '证书日志', description: '证书导入、版本、格式和绑定操作' },
-  { id: 'asset', name: '资产日志', description: '应用资产、主机、服务实例和站点资产操作' },
-  { id: 'gateway', name: '网关日志', description: '网关路由、探测和状态变更' },
-  { id: 'agent', name: 'Agent 日志', description: 'Agent 注册、心跳、任务和升级操作' },
-  { id: 'deployment', name: '更新计划日志', description: '部署计划、执行、回滚和审批' },
-  { id: 'workflow', name: '工作流日志', description: '工作流模板和执行操作' },
-  { id: 'secret', name: '密钥日志', description: 'Secret 创建、使用和轮换' },
-  { id: 'system', name: '系统日志', description: '系统设置和平台级事件' }
-]
+function auditLogCategories(): readonly ApiRecord[] {
+  return [
+    { id: 'auth', name: t('settings.roles.auditLogs.auth.name'), description: t('settings.roles.auditLogs.auth.description') },
+    { id: 'security', name: t('settings.roles.auditLogs.security.name'), description: t('settings.roles.auditLogs.security.description') },
+    { id: 'certificate', name: t('settings.roles.auditLogs.certificate.name'), description: t('settings.roles.auditLogs.certificate.description') },
+    { id: 'asset', name: t('settings.roles.auditLogs.asset.name'), description: t('settings.roles.auditLogs.asset.description') },
+    { id: 'gateway', name: t('settings.roles.auditLogs.gateway.name'), description: t('settings.roles.auditLogs.gateway.description') },
+    { id: 'agent', name: t('settings.roles.auditLogs.agent.name'), description: t('settings.roles.auditLogs.agent.description') },
+    { id: 'deployment', name: t('settings.roles.auditLogs.deployment.name'), description: t('settings.roles.auditLogs.deployment.description') },
+    { id: 'workflow', name: t('settings.roles.auditLogs.workflow.name'), description: t('settings.roles.auditLogs.workflow.description') },
+    { id: 'secret', name: t('settings.roles.auditLogs.secret.name'), description: t('settings.roles.auditLogs.secret.description') },
+    { id: 'system', name: t('settings.roles.auditLogs.system.name'), description: t('settings.roles.auditLogs.system.description') }
+  ]
+}
 
-const roleColumns: DataTableColumn<ApiRecord>[] = [
-  { key: 'id', title: '角色 ID', width: '22%' },
-  { key: 'code', title: '编码', width: '14%' },
-  { key: 'name', title: '名称', width: '16%' },
-  { key: 'builtin', title: '内置', width: '10%' },
-  { key: 'policyCount', title: '策略数', width: '10%' },
-  { key: 'permissions', title: '权限点' },
-  { key: 'actions', title: '操作', width: '310px' }
-]
+const roleColumns = computed<DataTableColumn<ApiRecord>[]>(() => [
+  { key: 'id', title: t('settings.roles.columns.roleId'), width: '22%' },
+  { key: 'code', title: t('settings.roles.columns.code'), width: '14%' },
+  { key: 'name', title: t('settings.roles.columns.name'), width: '16%' },
+  { key: 'builtin', title: t('settings.roles.columns.builtin'), width: '10%' },
+  { key: 'policyCount', title: t('settings.roles.columns.policyCount'), width: '10%' },
+  { key: 'permissions', title: t('settings.roles.columns.permissions') },
+  { key: 'actions', title: t('settings.roles.columns.actions'), width: '310px' }
+])
 
-const accessGrantColumns: DataTableColumn<ApiRecord>[] = [
-  { key: 'roleId', title: '角色 ID', width: '24%' },
-  { key: 'objectSetName', title: '对象范围', width: '28%' },
-  { key: 'accessLevel', title: '权限级别', width: '16%' },
-  { key: 'effect', title: '效果', width: '12%' }
-]
+const accessGrantColumns = computed<DataTableColumn<ApiRecord>[]>(() => [
+  { key: 'roleId', title: t('settings.roles.columns.roleId'), width: '24%' },
+  { key: 'objectSetName', title: t('settings.roles.columns.objectScope'), width: '28%' },
+  { key: 'accessLevel', title: t('settings.roles.columns.accessLevel'), width: '16%' },
+  { key: 'effect', title: t('settings.roles.columns.effect'), width: '12%' }
+])
 
-const roleMemberColumns: DataTableColumn<ApiRecord>[] = [
-  { key: 'principalTypeText', title: '成员类型', width: '18%' },
-  { key: 'principalName', title: '成员', width: '32%' },
-  { key: 'objectSetName', title: '对象范围' },
-  { key: 'effect', title: '效果', width: '12%' }
-]
+const roleMemberColumns = computed<DataTableColumn<ApiRecord>[]>(() => [
+  { key: 'principalTypeText', title: t('settings.roles.columns.memberType'), width: '18%' },
+  { key: 'principalName', title: t('settings.roles.columns.member'), width: '32%' },
+  { key: 'objectSetName', title: t('settings.roles.columns.objectScope') },
+  { key: 'effect', title: t('settings.roles.columns.effect'), width: '12%' }
+])
 
 const currentRoleGrants = computed<ApiRecord[]>(() => {
   const roleId = readValue(selectedRole.value, 'id')
@@ -197,29 +202,32 @@ const memberOptions = computed<MemberOption[]>(() => {
 
 const memberEditorDisabled = computed(() => saving.value || !selectedRole.value || selectedMemberKeys.value.length === 0)
 const selectedMemberSummary = computed(() =>
-  selectedMemberKeys.value.length > 0 ? `已选 ${selectedMemberKeys.value.length} 个成员` : '请选择用户或组'
+  selectedMemberKeys.value.length > 0
+    ? t('settings.roles.summary.selectedMembers', { count: selectedMemberKeys.value.length })
+    : t('settings.roles.summary.chooseMembers')
 )
 
 const objectTreeNodes = computed<ObjectTreeNode[]>(() => {
   const root: ObjectTreeNode = {
     key: 'root',
-    label: '全部对象',
+    label: t('settings.roles.tree.rootLabel'),
     kind: 'root',
     objectTypes: assignableCategories.map((item) => item.objectType),
     level: 0,
-    description: '所有可授权业务对象'
+    description: t('settings.roles.tree.rootDescription')
   }
   const nodes: ObjectTreeNode[] = [root]
   if (!expandedTreeKeys.value.includes('root')) return nodes
   for (const category of assignableCategories) {
+    const categoryLabel = objectCategoryLabel(category)
     const typeNode: ObjectTreeNode = {
       key: category.key,
-      label: category.label,
+      label: categoryLabel,
       kind: 'type',
       objectType: category.objectType,
       objectTypes: [category.objectType],
       level: 1,
-      description: `${category.label}全部记录`
+      description: t('settings.roles.tree.typeDescription', { category: categoryLabel })
     }
     nodes.push(typeNode)
     if (!expandedTreeKeys.value.includes(category.key)) continue
@@ -228,7 +236,7 @@ const objectTreeNodes = computed<ObjectTreeNode[]>(() => {
       if (!objectId) continue
       nodes.push({
         key: `${category.key}:${objectId}`,
-        label: recordLabel(record, category.label),
+        label: recordLabel(record, categoryLabel),
         kind: 'record',
         objectType: category.objectType,
         objectId,
@@ -244,8 +252,14 @@ const objectTreeNodes = computed<ObjectTreeNode[]>(() => {
 const roleEditorDisabled = computed(() => saving.value || !roleDraft.name.trim())
 const grantEditorDisabled = computed(() => saving.value || !grantDraft.roleId.trim() || selectedObjectNodes.value.length === 0)
 const selectedObjectSummary = computed(() =>
-  selectedObjectNodes.value.length > 0 ? `已选 ${selectedObjectNodes.value.length} 个范围` : '请选择对象树节点'
+  selectedObjectNodes.value.length > 0
+    ? t('settings.roles.summary.selectedScopes', { count: selectedObjectNodes.value.length })
+    : t('settings.roles.summary.chooseObjectNode')
 )
+
+function objectCategoryLabel(category: AssignableObjectCategory): string {
+  return t(category.labelKey)
+}
 
 async function loadPageItems(loader: (query: { page: number; pageSize: number }) => Promise<{ data?: { items?: readonly ApiRecord[] } }>): Promise<readonly ApiRecord[]> {
   const result = await loader({ page: 1, pageSize: 100 })
@@ -266,9 +280,13 @@ function displayValue(row: ApiRecord, key: string): string {
   return readValue(row, key) || '—'
 }
 
+function labelWithId(label: string, id: string): string {
+  return id ? t('settings.roles.format.labelWithId', { label, id }) : label
+}
+
 function objectSetLabel(objectSetId: string): string {
   const objectSet = objectSetRows.value.find((item) => readValue(item, 'id') === objectSetId)
-  return objectSet ? `${readValue(objectSet, 'name') || objectSetId}（${objectSetId}）` : objectSetId || '—'
+  return objectSet ? labelWithId(readValue(objectSet, 'name') || objectSetId, objectSetId) : objectSetId || '—'
 }
 
 function roleAccessGrants(roleId: string): ApiRecord[] {
@@ -280,20 +298,20 @@ function roleObjectSetIds(roleId: string): string[] {
 }
 
 function principalTypeText(type: string): string {
-  if (type === 'user') return '用户'
-  if (type === 'group') return '组'
-  if (type === 'external_group') return '身份源组'
+  if (type === 'user') return t('settings.roles.principal.user')
+  if (type === 'group') return t('settings.roles.principal.group')
+  if (type === 'external_group') return t('settings.roles.principal.externalGroup')
   return type || '—'
 }
 
 function principalLabel(type: string, id: string): string {
   if (type === 'user') {
     const user = userRows.value.find((item) => readValue(item, 'id') === id)
-    if (user) return `${readValue(user, 'displayName') || readValue(user, 'username') || id}（${id}）`
+    if (user) return labelWithId(readValue(user, 'displayName') || readValue(user, 'username') || id, id)
   }
   if (type === 'group' || type === 'external_group') {
     const group = groupRows.value.find((item) => readValue(item, 'id') === id)
-    if (group) return `${readValue(group, 'name') || readValue(group, 'code') || id}（${id}）`
+    if (group) return labelWithId(readValue(group, 'name') || readValue(group, 'code') || id, id)
   }
   return id || '—'
 }
@@ -326,7 +344,9 @@ function recordLabel(record: ApiRecord, fallbackPrefix: string): string {
     'action'
   ])
   const id = recordId(record)
-  return name ? `${name}${id ? `（${id}）` : ''}` : `${fallbackPrefix} ${id || '未命名记录'}`
+  return name
+    ? labelWithId(name, id)
+    : t('settings.roles.format.recordFallback', { category: fallbackPrefix, value: id || t('settings.roles.format.unnamedRecord') })
 }
 
 function isBuiltinRole(row: ApiRecord | null | undefined): boolean {
@@ -365,14 +385,14 @@ function clearSelectedObjectNodes(): void {
 }
 
 function objectNodeKindText(node: ObjectTreeNode): string {
-  if (node.kind === 'root') return '全部'
-  if (node.kind === 'type') return '分类'
-  return '记录'
+  if (node.kind === 'root') return t('settings.roles.tree.kind.all')
+  if (node.kind === 'type') return t('settings.roles.tree.kind.category')
+  return t('settings.roles.tree.kind.record')
 }
 
 function objectSetNameForNode(node: ObjectTreeNode): string {
-  if (node.kind === 'root') return '全部业务对象'
-  if (node.kind === 'type') return `${node.label}全部记录`
+  if (node.kind === 'root') return t('settings.roles.tree.allBusinessObjects')
+  if (node.kind === 'type') return t('settings.roles.tree.typeDescription', { category: node.label })
   return node.label
 }
 
@@ -402,7 +422,7 @@ async function loadObjectTree(): Promise<void> {
     }))
     objectTreeRecords.value = Object.fromEntries(entries)
   } catch (cause) {
-    objectTreeError.value = toErrorMessage(cause, '加载对象树失败')
+    objectTreeError.value = toErrorMessage(cause, t('settings.roles.errors.loadObjectTreeFailed'))
   } finally {
     objectTreeLoading.value = false
   }
@@ -431,7 +451,7 @@ async function reloadAll(): Promise<void> {
       selectedRole.value = roleRows.value.find((item) => readValue(item, 'id') === selectedId) ?? selectedRole.value
     }
   } catch (cause) {
-    pageError.value = toErrorMessage(cause, '加载权限管理数据失败')
+    pageError.value = toErrorMessage(cause, t('settings.roles.errors.loadDataFailed'))
   } finally {
     loading.value = false
   }
@@ -512,13 +532,13 @@ async function submitRole(): Promise<void> {
     })
     const roleId = readValue(roleResult.data ?? {}, 'id')
     if (nodes.length > 0) {
-      if (!roleId) throw new Error('后端没有返回角色 ID')
+      if (!roleId) throw new Error(t('settings.roles.errors.missingRoleId'))
       await createGrantsForRole(roleId, nodes, grantDraft.accessLevel, grantDraft.effect)
     }
     roleEditorOpen.value = false
     await reloadAll()
   } catch (cause) {
-    modalError.value = toErrorMessage(cause, '创建角色失败')
+    modalError.value = toErrorMessage(cause, t('settings.roles.errors.createRoleFailed'))
   } finally {
     saving.value = false
   }
@@ -535,7 +555,7 @@ async function submitGrant(): Promise<void> {
     grantEditorOpen.value = false
     await reloadAll()
   } catch (cause) {
-    modalError.value = toErrorMessage(cause, '授予角色权限失败')
+    modalError.value = toErrorMessage(cause, t('settings.roles.errors.grantRoleFailed'))
   } finally {
     saving.value = false
   }
@@ -546,7 +566,7 @@ async function submitMemberAssignment(): Promise<void> {
   const roleId = readValue(selectedRole.value, 'id')
   const objectSetIds = roleObjectSetIds(roleId)
   if (objectSetIds.length === 0) {
-    modalError.value = '该角色还没有授权对象范围，请先为角色授予权限。'
+    modalError.value = t('settings.roles.errors.roleNoObjectScopes')
     return
   }
   const selectedMembers = memberOptions.value.filter((option) => selectedMemberKeys.value.includes(option.key))
@@ -578,7 +598,7 @@ async function submitMemberAssignment(): Promise<void> {
     memberEditorOpen.value = false
     await reloadAll()
   } catch (cause) {
-    modalError.value = toErrorMessage(cause, '分配成员失败')
+    modalError.value = toErrorMessage(cause, t('settings.roles.errors.assignMembersFailed'))
   } finally {
     saving.value = false
   }
@@ -588,7 +608,7 @@ async function removeRole(row: ApiRecord): Promise<void> {
   const roleId = readValue(row, 'id')
   if (!roleId || isBuiltinRole(row) || saving.value) return
   const roleName = readValue(row, 'name') || roleId
-  if (!window.confirm(`确认删除角色“${roleName}”？删除后会同步移除该角色的用户分配和对象授权。`)) return
+  if (!window.confirm(t('settings.roles.confirm.deleteRole', { name: roleName }))) return
   saving.value = true
   deletingRoleId.value = roleId
   pageError.value = ''
@@ -600,7 +620,7 @@ async function removeRole(row: ApiRecord): Promise<void> {
     }
     await reloadAll()
   } catch (cause) {
-    pageError.value = toErrorMessage(cause, '删除角色失败')
+    pageError.value = toErrorMessage(cause, t('settings.roles.errors.deleteRoleFailed'))
   } finally {
     deletingRoleId.value = ''
     saving.value = false
@@ -622,7 +642,7 @@ async function createGrantsForRole(
       status: 'active'
     })
     const objectSetId = readValue(objectSetResult.data ?? {}, 'id')
-    if (!objectSetId) throw new Error('后端没有返回对象范围 ID')
+    if (!objectSetId) throw new Error(t('settings.roles.errors.missingObjectSetId'))
     if (node.kind === 'record' && node.objectType && node.objectId) {
       await addObjectSetMember({
         objectSetId,
@@ -644,20 +664,20 @@ onMounted(() => void reloadAll())
 
 <template>
   <section class="gc-page roles-view">
-    <GcPageHeader title="权限管理" description="以角色为中心维护授权对象范围，并把用户或组分配到角色。">
+    <GcPageHeader :title="t('settings.roles.page.title')" :description="t('settings.roles.page.description')">
       <template #actions>
-        <button class="gc-button" type="button" @click="openCreateRole">创建角色</button>
-        <button class="gc-button" type="button" :disabled="loading" @click="reloadAll">刷新</button>
+        <button class="gc-button" type="button" @click="openCreateRole">{{ t('settings.roles.actions.createRole') }}</button>
+        <button class="gc-button" type="button" :disabled="loading" @click="reloadAll">{{ t('common.refresh') }}</button>
       </template>
     </GcPageHeader>
 
     <p v-if="pageError" class="roles-view__error">{{ pageError }}</p>
 
-    <GcDataTable :columns="roleColumns" :rows="roleRows" :loading="loading" row-key="id" empty-text="暂无角色" dense>
+    <GcDataTable :columns="roleColumns" :rows="roleRows" :loading="loading" row-key="id" :empty-text="t('settings.roles.table.emptyRoles')" dense>
       <template #toolbar>
         <div class="roles-view__table-toolbar">
-          <strong>角色记录</strong>
-          <span>共 {{ roleRows.length }} 条</span>
+          <strong>{{ t('settings.roles.table.roleRecords') }}</strong>
+          <span>{{ t('businessPage.total', { count: roleRows.length }) }}</span>
         </div>
       </template>
       <template #cell-builtin="{ row }">{{ displayValue(row, 'builtin') }}</template>
@@ -666,9 +686,9 @@ onMounted(() => void reloadAll())
       </template>
       <template #cell-actions="{ row }">
         <div class="roles-view__row-actions">
-          <button class="gc-button" type="button" @click="openRoleDetail(row)">详情</button>
-          <button class="gc-button" type="button" @click="openGrantRoleFromRole(row)">授权</button>
-          <button class="gc-button" type="button" @click="openAssignMembersFromRole(row)">分配成员</button>
+          <button class="gc-button" type="button" @click="openRoleDetail(row)">{{ t('settings.roles.actions.detail') }}</button>
+          <button class="gc-button" type="button" @click="openGrantRoleFromRole(row)">{{ t('settings.roles.actions.authorize') }}</button>
+          <button class="gc-button" type="button" @click="openAssignMembersFromRole(row)">{{ t('settings.roles.actions.assignMembers') }}</button>
           <button
             v-if="!isBuiltinRole(row)"
             class="gc-button gc-button--danger"
@@ -676,7 +696,7 @@ onMounted(() => void reloadAll())
             :disabled="saving"
             @click="removeRole(row)"
           >
-            {{ deletingRoleId === readValue(row, 'id') ? '删除中...' : '删除' }}
+            {{ deletingRoleId === readValue(row, 'id') ? t('settings.roles.actions.deleting') : t('settings.roles.actions.delete') }}
           </button>
         </div>
       </template>
@@ -684,34 +704,34 @@ onMounted(() => void reloadAll())
 
     <GcModal
       v-model:open="roleDetailOpen"
-      :title="selectedRole ? `角色 ${readValue(selectedRole, 'name') || readValue(selectedRole, 'code')}` : '角色详情'"
-      description="对象范围、具体对象、权限级别和成员分配在这里维护。"
+      :title="selectedRole ? t('settings.roles.detail.titleWithName', { name: readValue(selectedRole, 'name') || readValue(selectedRole, 'code') }) : t('settings.roles.detail.title')"
+      :description="t('settings.roles.detail.description')"
       size="xxl"
     >
       <section v-if="selectedRole" class="roles-view__detail">
         <dl class="roles-view__facts">
-          <div><dt>角色 ID</dt><dd>{{ displayValue(selectedRole, 'id') }}</dd></div>
-          <div><dt>编码</dt><dd>{{ displayValue(selectedRole, 'code') }}</dd></div>
-          <div><dt>名称</dt><dd>{{ displayValue(selectedRole, 'name') }}</dd></div>
-          <div><dt>内置</dt><dd>{{ displayValue(selectedRole, 'builtin') }}</dd></div>
-          <div><dt>策略数</dt><dd>{{ displayValue(selectedRole, 'policyCount') }}</dd></div>
-          <div><dt>权限点</dt><dd>{{ displayValue(selectedRole, 'permissions') }}</dd></div>
+          <div><dt>{{ t('settings.roles.columns.roleId') }}</dt><dd>{{ displayValue(selectedRole, 'id') }}</dd></div>
+          <div><dt>{{ t('settings.roles.columns.code') }}</dt><dd>{{ displayValue(selectedRole, 'code') }}</dd></div>
+          <div><dt>{{ t('settings.roles.columns.name') }}</dt><dd>{{ displayValue(selectedRole, 'name') }}</dd></div>
+          <div><dt>{{ t('settings.roles.columns.builtin') }}</dt><dd>{{ displayValue(selectedRole, 'builtin') }}</dd></div>
+          <div><dt>{{ t('settings.roles.columns.policyCount') }}</dt><dd>{{ displayValue(selectedRole, 'policyCount') }}</dd></div>
+          <div><dt>{{ t('settings.roles.columns.permissions') }}</dt><dd>{{ displayValue(selectedRole, 'permissions') }}</dd></div>
         </dl>
 
-        <GcDataTable :columns="accessGrantColumns" :rows="currentRoleGrants" row-key="rowKey" empty-text="当前角色暂无对象权限" dense>
+        <GcDataTable :columns="accessGrantColumns" :rows="currentRoleGrants" row-key="rowKey" :empty-text="t('settings.roles.table.emptyGrants')" dense>
           <template #toolbar>
             <div class="roles-view__table-toolbar">
-              <strong>当前角色权限</strong>
-              <button class="gc-button" type="button" @click="openGrantRole()">授予权限</button>
+              <strong>{{ t('settings.roles.table.currentPermissions') }}</strong>
+              <button class="gc-button" type="button" @click="openGrantRole()">{{ t('settings.roles.actions.grantPermission') }}</button>
             </div>
           </template>
         </GcDataTable>
 
-        <GcDataTable :columns="roleMemberColumns" :rows="currentRoleMembers" row-key="rowKey" empty-text="当前角色暂无成员分配" dense>
+        <GcDataTable :columns="roleMemberColumns" :rows="currentRoleMembers" row-key="rowKey" :empty-text="t('settings.roles.table.emptyMembers')" dense>
           <template #toolbar>
             <div class="roles-view__table-toolbar">
-              <strong>已分配成员</strong>
-              <button class="gc-button" type="button" @click="openAssignMembersFromRole(selectedRole)">分配成员</button>
+              <strong>{{ t('settings.roles.table.assignedMembers') }}</strong>
+              <button class="gc-button" type="button" @click="openAssignMembersFromRole(selectedRole)">{{ t('settings.roles.actions.assignMembers') }}</button>
             </div>
           </template>
         </GcDataTable>
@@ -719,44 +739,44 @@ onMounted(() => void reloadAll())
 
       <template #actions>
         <button v-if="selectedRole && !isBuiltinRole(selectedRole)" class="gc-button gc-button--danger" type="button" :disabled="saving" @click="removeRole(selectedRole)">
-          {{ deletingRoleId === readValue(selectedRole, 'id') ? '删除中...' : '删除角色' }}
+          {{ deletingRoleId === readValue(selectedRole, 'id') ? t('settings.roles.actions.deleting') : t('settings.roles.actions.deleteRole') }}
         </button>
-        <button class="gc-button" type="button" @click="roleDetailOpen = false">关闭</button>
+        <button class="gc-button" type="button" @click="roleDetailOpen = false">{{ t('designSystem.dryRunResult.close') }}</button>
       </template>
     </GcModal>
 
-    <GcModal v-model:open="roleEditorOpen" title="创建角色" description="填写角色职责，并可直接为该角色授权对象范围。" size="xl">
+    <GcModal v-model:open="roleEditorOpen" :title="t('settings.roles.create.title')" :description="t('settings.roles.create.description')" size="xl">
       <section class="roles-view__form">
-        <label><span>角色名称 <strong>*</strong></span><input v-model="roleDraft.name" placeholder="证书操作员" /></label>
-        <label class="roles-view__field--wide"><span>说明</span><textarea v-model="roleDraft.description" placeholder="负责证书日常操作" /></label>
+        <label><span>{{ t('settings.roles.create.nameLabel') }} <strong>*</strong></span><input v-model="roleDraft.name" :placeholder="t('settings.roles.create.namePlaceholder')" /></label>
+        <label class="roles-view__field--wide"><span>{{ t('settings.roles.create.descriptionLabel') }}</span><textarea v-model="roleDraft.description" :placeholder="t('settings.roles.create.descriptionPlaceholder')" /></label>
       </section>
 
       <section class="roles-view__grant-editor roles-view__create-grant">
         <section class="roles-view__grant-summary">
           <div>
-            <span>授权角色</span>
-            <strong>{{ roleDraft.name.trim() || '新角色' }}</strong>
+            <span>{{ t('settings.roles.create.authorizedRole') }}</span>
+            <strong>{{ roleDraft.name.trim() || t('settings.roles.create.newRole') }}</strong>
           </div>
           <div>
-            <span>已选范围</span>
+            <span>{{ t('settings.roles.summary.selectedScopeLabel') }}</span>
             <strong>{{ selectedObjectSummary }}</strong>
           </div>
         </section>
 
-        <section v-if="selectedObjectNodes.length > 0" class="roles-view__selected-scopes" aria-label="已选授权范围">
+        <section v-if="selectedObjectNodes.length > 0" class="roles-view__selected-scopes" :aria-label="t('settings.roles.tree.selectedScopeAria')">
           <span v-for="node in selectedObjectNodes" :key="node.key">{{ objectSetNameForNode(node) }}</span>
-          <button class="gc-button" type="button" @click="clearSelectedObjectNodes">清空选择</button>
+          <button class="gc-button" type="button" @click="clearSelectedObjectNodes">{{ t('settings.roles.actions.clearSelection') }}</button>
         </section>
 
-        <section class="roles-view__object-tree" aria-label="可授权对象树">
+        <section class="roles-view__object-tree" :aria-label="t('settings.roles.tree.objectTreeAria')">
           <header>
-            <strong>可授权对象</strong>
+            <strong>{{ t('settings.roles.tree.authorizableObjects') }}</strong>
             <button class="gc-button" type="button" :disabled="objectTreeLoading" @click="loadObjectTree">
-              {{ objectTreeLoading ? '加载中...' : '刷新对象' }}
+              {{ objectTreeLoading ? t('settings.roles.actions.loading') : t('settings.roles.actions.refreshObjects') }}
             </button>
           </header>
           <p v-if="objectTreeError" class="roles-view__error">{{ objectTreeError }}</p>
-          <div v-if="objectTreeLoading" class="roles-view__tree-state">正在加载对象树...</div>
+          <div v-if="objectTreeLoading" class="roles-view__tree-state">{{ t('settings.roles.tree.loading') }}</div>
           <ul v-else class="roles-view__tree-list">
             <li v-for="node in objectTreeNodes" :key="node.key">
               <button
@@ -781,56 +801,56 @@ onMounted(() => void reloadAll())
 
         <section class="roles-view__form roles-view__form--two">
           <label>
-            <span>权限级别</span>
+            <span>{{ t('settings.roles.columns.accessLevel') }}</span>
             <select v-model="grantDraft.accessLevel">
-              <option value="read">只读</option>
-              <option value="edit">编辑</option>
-              <option value="control">完全控制</option>
+              <option value="read">{{ t('settings.roles.accessLevel.read') }}</option>
+              <option value="edit">{{ t('settings.roles.accessLevel.edit') }}</option>
+              <option value="control">{{ t('settings.roles.accessLevel.control') }}</option>
             </select>
           </label>
           <label>
-            <span>效果</span>
+            <span>{{ t('settings.roles.columns.effect') }}</span>
             <select v-model="grantDraft.effect">
-              <option value="allow">允许</option>
-              <option value="deny">拒绝</option>
+              <option value="allow">{{ t('settings.roles.effect.allow') }}</option>
+              <option value="deny">{{ t('settings.roles.effect.deny') }}</option>
             </select>
           </label>
         </section>
       </section>
       <p v-if="modalError" class="roles-view__error">{{ modalError }}</p>
       <template #actions>
-        <button class="gc-button" type="button" :disabled="saving" @click="roleEditorOpen = false">取消</button>
-        <button class="gc-button gc-button--primary" type="button" :disabled="roleEditorDisabled" @click="submitRole">{{ saving ? '创建中...' : '创建角色' }}</button>
+        <button class="gc-button" type="button" :disabled="saving" @click="roleEditorOpen = false">{{ t('designSystem.confirm.cancel') }}</button>
+        <button class="gc-button gc-button--primary" type="button" :disabled="roleEditorDisabled" @click="submitRole">{{ saving ? t('settings.roles.actions.creating') : t('settings.roles.actions.createRole') }}</button>
       </template>
     </GcModal>
 
-    <GcModal v-model:open="grantEditorOpen" title="授予角色权限" description="从对象树选择范围，并直接设置该范围上的权限级别。" size="xl">
+    <GcModal v-model:open="grantEditorOpen" :title="t('settings.roles.grant.title')" :description="t('settings.roles.grant.description')" size="xl">
       <section class="roles-view__grant-editor">
         <section class="roles-view__grant-summary">
           <div>
-            <span>角色</span>
+            <span>{{ t('settings.roles.grant.roleLabel') }}</span>
             <strong>{{ grantDraft.roleId || '—' }}</strong>
           </div>
           <div>
-            <span>已选范围</span>
+            <span>{{ t('settings.roles.summary.selectedScopeLabel') }}</span>
             <strong>{{ selectedObjectSummary }}</strong>
           </div>
         </section>
 
-        <section v-if="selectedObjectNodes.length > 0" class="roles-view__selected-scopes" aria-label="已选授权范围">
+        <section v-if="selectedObjectNodes.length > 0" class="roles-view__selected-scopes" :aria-label="t('settings.roles.tree.selectedScopeAria')">
           <span v-for="node in selectedObjectNodes" :key="node.key">{{ objectSetNameForNode(node) }}</span>
-          <button class="gc-button" type="button" @click="clearSelectedObjectNodes">清空选择</button>
+          <button class="gc-button" type="button" @click="clearSelectedObjectNodes">{{ t('settings.roles.actions.clearSelection') }}</button>
         </section>
 
-        <section class="roles-view__object-tree" aria-label="可授权对象树">
+        <section class="roles-view__object-tree" :aria-label="t('settings.roles.tree.objectTreeAria')">
           <header>
-            <strong>可授权对象</strong>
+            <strong>{{ t('settings.roles.tree.authorizableObjects') }}</strong>
             <button class="gc-button" type="button" :disabled="objectTreeLoading" @click="loadObjectTree">
-              {{ objectTreeLoading ? '加载中...' : '刷新对象' }}
+              {{ objectTreeLoading ? t('settings.roles.actions.loading') : t('settings.roles.actions.refreshObjects') }}
             </button>
           </header>
           <p v-if="objectTreeError" class="roles-view__error">{{ objectTreeError }}</p>
-          <div v-if="objectTreeLoading" class="roles-view__tree-state">正在加载对象树...</div>
+          <div v-if="objectTreeLoading" class="roles-view__tree-state">{{ t('settings.roles.tree.loading') }}</div>
           <ul v-else class="roles-view__tree-list">
             <li v-for="node in objectTreeNodes" :key="node.key">
               <button
@@ -855,18 +875,18 @@ onMounted(() => void reloadAll())
 
         <section class="roles-view__form roles-view__form--two">
           <label>
-            <span>权限级别</span>
+            <span>{{ t('settings.roles.columns.accessLevel') }}</span>
             <select v-model="grantDraft.accessLevel">
-              <option value="read">只读</option>
-              <option value="edit">编辑</option>
-              <option value="control">完全控制</option>
+              <option value="read">{{ t('settings.roles.accessLevel.read') }}</option>
+              <option value="edit">{{ t('settings.roles.accessLevel.edit') }}</option>
+              <option value="control">{{ t('settings.roles.accessLevel.control') }}</option>
             </select>
           </label>
           <label>
-            <span>效果</span>
+            <span>{{ t('settings.roles.columns.effect') }}</span>
             <select v-model="grantDraft.effect">
-              <option value="allow">允许</option>
-              <option value="deny">拒绝</option>
+              <option value="allow">{{ t('settings.roles.effect.allow') }}</option>
+              <option value="deny">{{ t('settings.roles.effect.deny') }}</option>
             </select>
           </label>
         </section>
@@ -874,51 +894,51 @@ onMounted(() => void reloadAll())
         <p v-if="modalError" class="roles-view__error">{{ modalError }}</p>
       </section>
       <template #actions>
-        <button class="gc-button" type="button" :disabled="saving" @click="grantEditorOpen = false">取消</button>
-        <button class="gc-button gc-button--primary" type="button" :disabled="grantEditorDisabled" @click="submitGrant">{{ saving ? '保存中...' : '授予权限' }}</button>
+        <button class="gc-button" type="button" :disabled="saving" @click="grantEditorOpen = false">{{ t('designSystem.confirm.cancel') }}</button>
+        <button class="gc-button gc-button--primary" type="button" :disabled="grantEditorDisabled" @click="submitGrant">{{ saving ? t('settings.roles.actions.saving') : t('settings.roles.actions.grantPermission') }}</button>
       </template>
     </GcModal>
 
     <GcModal
       v-model:open="memberEditorOpen"
-      :title="selectedRole ? `分配成员：${readValue(selectedRole, 'name') || readValue(selectedRole, 'code')}` : '分配成员'"
-      description="选择用户或组，系统会把成员分配到该角色已有的授权对象范围。"
+      :title="selectedRole ? t('settings.roles.member.titleWithName', { name: readValue(selectedRole, 'name') || readValue(selectedRole, 'code') }) : t('settings.roles.member.title')"
+      :description="t('settings.roles.member.description')"
       size="lg"
     >
       <section class="roles-view__member-editor">
         <section class="roles-view__grant-summary">
           <div>
-            <span>目标角色</span>
+            <span>{{ t('settings.roles.member.targetRole') }}</span>
             <strong>{{ selectedRole ? readValue(selectedRole, 'name') || readValue(selectedRole, 'code') : '—' }}</strong>
           </div>
           <div>
-            <span>授权范围</span>
-            <strong>{{ selectedRole ? `${roleObjectSetIds(readValue(selectedRole, 'id')).length} 个对象范围` : '—' }}</strong>
+            <span>{{ t('settings.roles.member.authorizedScope') }}</span>
+            <strong>{{ selectedRole ? t('settings.roles.member.objectScopeCount', { count: roleObjectSetIds(readValue(selectedRole, 'id')).length }) : '—' }}</strong>
           </div>
         </section>
 
         <section class="roles-view__form roles-view__form--two">
           <label>
-            <span>成员类型</span>
+            <span>{{ t('settings.roles.columns.memberType') }}</span>
             <select v-model="memberPrincipalType" @change="onMemberPrincipalTypeChange">
-              <option value="user">用户</option>
-              <option value="group">组</option>
+              <option value="user">{{ t('settings.roles.principal.user') }}</option>
+              <option value="group">{{ t('settings.roles.principal.group') }}</option>
             </select>
           </label>
           <label>
-            <span>已选成员</span>
+            <span>{{ t('settings.roles.summary.selectedMemberLabel') }}</span>
             <input :value="selectedMemberSummary" readonly />
           </label>
         </section>
 
-        <section v-if="selectedMemberKeys.length > 0" class="roles-view__selected-scopes" aria-label="已选成员">
+        <section v-if="selectedMemberKeys.length > 0" class="roles-view__selected-scopes" :aria-label="t('settings.roles.member.selectedMembersAria')">
           <span v-for="key in selectedMemberKeys" :key="key">
             {{ memberOptions.find((option) => option.key === key)?.label || key }}
           </span>
-          <button class="gc-button" type="button" @click="clearSelectedMembers">清空选择</button>
+          <button class="gc-button" type="button" @click="clearSelectedMembers">{{ t('settings.roles.actions.clearSelection') }}</button>
         </section>
 
-        <section class="roles-view__member-list" aria-label="可分配成员">
+        <section class="roles-view__member-list" :aria-label="t('settings.roles.member.assignableMembersAria')">
           <button
             v-for="option in memberOptions"
             :key="option.key"
@@ -934,16 +954,16 @@ onMounted(() => void reloadAll())
             </span>
           </button>
           <div v-if="memberOptions.length === 0" class="roles-view__tree-state">
-            暂无可分配{{ memberPrincipalType === 'user' ? '用户' : '组' }}
+            {{ t('settings.roles.member.emptyAssignable', { type: memberPrincipalType === 'user' ? t('settings.roles.principal.user') : t('settings.roles.principal.group') }) }}
           </div>
         </section>
 
         <p v-if="modalError" class="roles-view__error">{{ modalError }}</p>
       </section>
       <template #actions>
-        <button class="gc-button" type="button" :disabled="saving" @click="memberEditorOpen = false">取消</button>
+        <button class="gc-button" type="button" :disabled="saving" @click="memberEditorOpen = false">{{ t('designSystem.confirm.cancel') }}</button>
         <button class="gc-button gc-button--primary" type="button" :disabled="memberEditorDisabled" @click="submitMemberAssignment">
-          {{ saving ? '保存中...' : '分配成员' }}
+          {{ saving ? t('settings.roles.actions.saving') : t('settings.roles.actions.assignMembers') }}
         </button>
       </template>
     </GcModal>

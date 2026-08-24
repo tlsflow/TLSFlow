@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
 import { GcModal } from '@/design-system/components'
@@ -35,6 +36,7 @@ const rows = ref<ApiRecord[]>([])
 const form = ref<Record<string, string>>({})
 const createModalOpen = ref(false)
 const formId = `security-admin-create-form-${++securityAdminFormSeed}`
+const { t } = useI18n()
 
 function valueOf(row: ApiRecord, key: string): string {
   const value = key.split('.').reduce<unknown>((current, part) => {
@@ -43,7 +45,7 @@ function valueOf(row: ApiRecord, key: string): string {
   }, row)
   if (Array.isArray(value)) return value.map((item) => typeof item === 'object' ? JSON.stringify(item) : String(item)).join(', ')
   if (value && typeof value === 'object') return JSON.stringify(value)
-  return value === undefined || value === null || value === '' ? '—' : String(value)
+  return value === undefined || value === null || value === '' ? t('securityAdmin.emptyValue') : String(value)
 }
 
 async function load() {
@@ -54,7 +56,7 @@ async function load() {
     rows.value = [...(result.data?.items ?? [])]
   } catch (cause) {
     if (cause instanceof ApiClientError) error.value = `${cause.message}（${cause.errorCode}）`
-    else error.value = cause instanceof Error ? cause.message : '加载失败'
+    else error.value = cause instanceof Error ? cause.message : t('securityAdmin.errors.loadFailed')
   } finally {
     loading.value = false
   }
@@ -71,7 +73,7 @@ async function submit() {
     await load()
   } catch (cause) {
     if (cause instanceof ApiClientError) error.value = `${cause.message}（${cause.errorCode}）`
-    else error.value = cause instanceof Error ? cause.message : '提交失败'
+    else error.value = cause instanceof Error ? cause.message : t('securityAdmin.errors.submitFailed')
   } finally {
     saving.value = false
   }
@@ -98,9 +100,9 @@ onMounted(load)
           type="button"
           @click="createModalOpen = true"
         >
-          {{ config.submitLabel ?? `新增${config.resourceName}` }}
+          {{ config.submitLabel ?? t('securityAdmin.actions.createResource', { resource: config.resourceName }) }}
         </button>
-        <button class="gc-button" type="button" @click="load">刷新</button>
+        <button class="gc-button" type="button" @click="load">{{ t('common.refresh') }}</button>
       </div>
     </header>
 
@@ -109,15 +111,15 @@ onMounted(load)
     <GcModal
       v-if="config.create && config.fields?.length"
       v-model:open="createModalOpen"
-      :title="config.submitLabel ?? `新增${config.resourceName}`"
-      :description="`填写以下字段后创建${config.resourceName}`"
+      :title="config.submitLabel ?? t('securityAdmin.actions.createResource', { resource: config.resourceName })"
+      :description="t('securityAdmin.modal.createDescription', { resource: config.resourceName })"
       size="lg"
     >
       <form :id="formId" class="security-admin__form" @submit.prevent="submit">
         <label v-for="field in config.fields" :key="field.key">
           <span>{{ field.label }}</span>
           <select v-if="field.type === 'select'" v-model="form[field.key]" required>
-            <option value="" disabled>{{ field.placeholder ?? `请选择${field.label}` }}</option>
+            <option value="" disabled>{{ field.placeholder ?? t('securityAdmin.placeholders.selectField', { field: field.label }) }}</option>
             <option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
           <textarea v-else-if="field.type === 'textarea'" v-model="form[field.key]" :placeholder="field.placeholder" />
@@ -126,24 +128,24 @@ onMounted(load)
       </form>
 
       <template #actions>
-        <button class="gc-button" type="button" :disabled="saving" @click="createModalOpen = false">取消</button>
+        <button class="gc-button" type="button" :disabled="saving" @click="createModalOpen = false">{{ t('designSystem.confirm.cancel') }}</button>
         <button class="gc-button gc-button--primary" type="submit" :form="formId" :disabled="saving">
-          {{ saving ? '提交中…' : config.submitLabel ?? `新增${config.resourceName}` }}
+          {{ saving ? t('securityAdmin.actions.submitting') : config.submitLabel ?? t('securityAdmin.actions.createResource', { resource: config.resourceName }) }}
         </button>
       </template>
     </GcModal>
 
-    <section class="gc-card security-admin__table" aria-label="管理列表">
+    <section class="gc-card security-admin__table" :aria-label="t('securityAdmin.table.ariaLabel')">
       <div class="security-admin__table-head">
-        <strong>{{ config.resourceName }}列表</strong>
-        <span>共 {{ rows.length }} 条</span>
+        <strong>{{ t('securityAdmin.table.resourceList', { resource: config.resourceName }) }}</strong>
+        <span>{{ t('securityAdmin.table.total', { count: rows.length }) }}</span>
       </div>
       <div class="security-admin__table-scroll">
         <table>
           <thead><tr><th v-for="column in config.columns" :key="column.key">{{ column.title }}</th></tr></thead>
           <tbody>
-            <tr v-if="loading"><td :colspan="config.columns.length">加载中…</td></tr>
-            <tr v-else-if="rows.length === 0"><td :colspan="config.columns.length">暂无数据</td></tr>
+            <tr v-if="loading"><td :colspan="config.columns.length">{{ t('designSystem.dataTable.loading') }}</td></tr>
+            <tr v-else-if="rows.length === 0"><td :colspan="config.columns.length">{{ t('designSystem.dataTable.empty') }}</td></tr>
             <tr v-for="row in rows" v-else :key="String(row.id ?? JSON.stringify(row))">
               <td v-for="column in config.columns" :key="column.key">{{ valueOf(row, column.key) }}</td>
             </tr>

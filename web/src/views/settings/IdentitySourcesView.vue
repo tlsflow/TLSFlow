@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import type { ApiRecord } from '@/api/modules/common'
 import {
@@ -46,6 +47,7 @@ const editorLoading = ref(false)
 const editorError = ref('')
 const editorMessage = ref('')
 const advancedOpen = ref(false)
+const { t } = useI18n()
 
 const deletingId = ref('')
 
@@ -109,7 +111,7 @@ async function reloadSources() {
     sourceItems.value = [...(result.data?.items ?? [])]
   } catch (cause) {
     if (cause instanceof ApiClientError) pageError.value = `${cause.message}（${cause.errorCode}）`
-    else pageError.value = cause instanceof Error ? cause.message : '加载身份源失败'
+    else pageError.value = cause instanceof Error ? cause.message : t('settings.identitySources.errors.loadFailed')
   } finally {
     pageLoading.value = false
   }
@@ -186,13 +188,13 @@ function defaultGroupFilter(): string {
 async function resolveBindPasswordSecretRef(): Promise<string | undefined> {
   if (!draft.bindPassword.trim()) return undefined
   const secret = await createSecret({
-    name: `${draft.name.trim()} LDAP 服务账号密码`,
+    name: t('settings.identitySources.secret.bindPasswordName', { name: draft.name.trim() }),
     type: 'password',
     scopeType: 'global',
     plainText: draft.bindPassword,
   })
   const secretRef = String(secret.data?.secretRef ?? '')
-  if (!secretRef) throw new Error('创建服务账号密码 Secret 失败')
+  if (!secretRef) throw new Error(t('settings.identitySources.errors.createBindPasswordSecretFailed'))
   return secretRef
 }
 
@@ -235,17 +237,17 @@ async function submitEditor() {
     const payload = buildIdentitySourcePayload(bindPasswordSecretRef)
     if (editorMode.value === 'create') {
       await createIdentitySource(payload)
-      editorMessage.value = '身份源创建成功'
+      editorMessage.value = t('settings.identitySources.messages.createSuccess')
     } else {
       if (!bindPasswordSecretRef) delete payload.bindPasswordSecretRef
       await updateIdentitySource(payload)
-      editorMessage.value = '身份源更新成功'
+      editorMessage.value = t('settings.identitySources.messages.updateSuccess')
     }
     editorOpen.value = false
     await reloadSources()
   } catch (cause) {
     if (cause instanceof ApiClientError) editorError.value = `${cause.message}（${cause.errorCode}）`
-    else editorError.value = cause instanceof Error ? cause.message : (editorMode.value === 'create' ? '创建身份源失败' : '更新身份源失败')
+    else editorError.value = cause instanceof Error ? cause.message : (editorMode.value === 'create' ? t('settings.identitySources.errors.createFailed') : t('settings.identitySources.errors.updateFailed'))
   } finally {
     editorLoading.value = false
   }
@@ -259,7 +261,7 @@ async function removeSource(sourceId: string) {
     await reloadSources()
   } catch (cause) {
     if (cause instanceof ApiClientError) pageError.value = `${cause.message}（${cause.errorCode}）`
-    else pageError.value = cause instanceof Error ? cause.message : '删除身份源失败'
+    else pageError.value = cause instanceof Error ? cause.message : t('settings.identitySources.errors.deleteFailed')
   } finally {
     deletingId.value = ''
   }
@@ -270,11 +272,11 @@ function displayValue(value: unknown): string {
 }
 
 function displaySourceType(value: unknown): string {
-  return String(value) === 'ldap' ? '标准 LDAP' : 'Active Directory'
+  return String(value) === 'ldap' ? t('settings.identitySources.types.ldap') : 'Active Directory'
 }
 
 function displayEnabled(value: unknown): string {
-  return value === false ? '已停用' : '已启用'
+  return value === false ? t('settings.identitySources.status.disabled') : t('settings.identitySources.status.enabled')
 }
 
 function displayServer(value: unknown): string {
@@ -290,8 +292,8 @@ onMounted(async () => {
   <section class="identity-sources">
     <header class="identity-sources__header">
       <div class="identity-sources__header-actions">
-        <button class="gc-button gc-button--primary" type="button" @click="openCreateDialog">创建身份源</button>
-        <button class="gc-button" type="button" :disabled="pageLoading" @click="reloadSources">刷新</button>
+        <button class="gc-button gc-button--primary" type="button" @click="openCreateDialog">{{ t('settings.identitySources.actions.create') }}</button>
+        <button class="gc-button" type="button" :disabled="pageLoading" @click="reloadSources">{{ t('common.refresh') }}</button>
       </div>
     </header>
 
@@ -299,26 +301,26 @@ onMounted(async () => {
 
     <section class="gc-card identity-sources__table-card">
       <div class="identity-sources__table-head">
-        <strong>身份源列表</strong>
-        <span>共 {{ sourceItems.length }} 条</span>
+        <strong>{{ t('settings.identitySources.table.title') }}</strong>
+        <span>{{ t('settings.identitySources.table.total', { count: sourceItems.length }) }}</span>
       </div>
       <div class="identity-sources__table-scroll">
         <table class="identity-sources__table">
           <thead>
             <tr>
-              <th>名称</th>
-              <th>目录类型</th>
-              <th>服务器</th>
-              <th>状态</th>
-              <th>操作</th>
+              <th>{{ t('settings.identitySources.columns.name') }}</th>
+              <th>{{ t('settings.identitySources.columns.type') }}</th>
+              <th>{{ t('settings.identitySources.columns.server') }}</th>
+              <th>{{ t('settings.identitySources.columns.status') }}</th>
+              <th>{{ t('settings.identitySources.columns.actions') }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="pageLoading">
-              <td colspan="5">加载中...</td>
+              <td colspan="5">{{ t('designSystem.dataTable.loading') }}</td>
             </tr>
             <tr v-else-if="sourceItems.length === 0">
-              <td colspan="5">暂无身份源</td>
+              <td colspan="5">{{ t('settings.identitySources.empty') }}</td>
             </tr>
             <tr v-for="item in sourceItems" v-else :key="String(item.id)">
               <td>
@@ -340,11 +342,11 @@ onMounted(async () => {
               </td>
               <td>
                 <div class="identity-sources__row-actions">
-                  <button class="gc-button" type="button" @click="openEditDialog(item)">编辑</button>
+                  <button class="gc-button" type="button" @click="openEditDialog(item)">{{ t('settings.identitySources.actions.edit') }}</button>
                   <GcConfirmAction
-                    action-name="删除"
+                    :action-name="t('settings.identitySources.actions.delete')"
                     :impact-count="1"
-                    risk-text="删除身份源后，该目录的登录、同步和组映射都会失效。"
+                    :risk-text="t('settings.identitySources.risks.delete')"
                     confirm-text="DELETE"
                     @confirm="removeSource(String(item.id ?? ''))"
                   />
@@ -358,22 +360,22 @@ onMounted(async () => {
 
     <GcModal
       v-model:open="editorOpen"
-      :title="editorMode === 'create' ? '创建身份源' : '编辑身份源'"
-      :description="editorMode === 'create' ? '先填写基础连接信息；过滤器和目录类型放在高级设置里。' : '修改身份源配置；若要更新服务账号密码，请重新填写密码。'"
+      :title="editorMode === 'create' ? t('settings.identitySources.dialog.createTitle') : t('settings.identitySources.dialog.editTitle')"
+      :description="editorMode === 'create' ? t('settings.identitySources.dialog.createDescription') : t('settings.identitySources.dialog.editDescription')"
       size="lg"
     >
       <section class="identity-source-form">
         <div class="identity-source-form__grid">
           <label class="identity-source-form__field">
-            <span>名称 <strong>*</strong></span>
-            <input v-model="draft.name" placeholder="例如：企业 AD" autocomplete="off" />
+            <span>{{ t('settings.identitySources.fields.name') }} <strong>*</strong></span>
+            <input v-model="draft.name" :placeholder="t('settings.identitySources.placeholders.name')" autocomplete="off" />
           </label>
           <label class="identity-source-form__field">
-            <span>域名</span>
+            <span>{{ t('settings.identitySources.fields.domain') }}</span>
             <input v-model="draft.domain" placeholder="example.com" autocomplete="off" />
           </label>
           <label class="identity-source-form__field">
-            <span>协议 <strong>*</strong></span>
+            <span>{{ t('settings.identitySources.fields.protocol') }} <strong>*</strong></span>
             <div class="identity-source-form__protocols">
               <label class="identity-source-form__protocol-option">
                 <input v-model="draft.protocol" type="radio" value="ldap" />
@@ -386,24 +388,24 @@ onMounted(async () => {
             </div>
           </label>
           <label class="identity-source-form__field">
-            <span>服务器地址 <strong>*</strong></span>
+            <span>{{ t('settings.identitySources.fields.serverAddress') }} <strong>*</strong></span>
             <input v-model="draft.host" placeholder="ad.example.com:636" autocomplete="off" />
-            <small>最终地址：{{ derivedUrl }}</small>
+            <small>{{ t('settings.identitySources.labels.finalUrl', { url: derivedUrl }) }}</small>
           </label>
           <label class="identity-source-form__field">
             <span>Base DN <strong>*</strong></span>
             <input v-model="draft.baseDn" placeholder="DC=example,DC=com" autocomplete="off" />
           </label>
           <label class="identity-source-form__field">
-            <span>服务账号 DN <strong>*</strong></span>
+            <span>{{ t('settings.identitySources.fields.bindDn') }} <strong>*</strong></span>
             <input v-model="draft.bindDn" placeholder="CN=svc-gcac,OU=Users,DC=example,DC=com" autocomplete="off" />
           </label>
           <label class="identity-source-form__field identity-source-form__field--full">
-            <span>服务账号密码 <strong>{{ editorMode === 'create' ? '*' : '' }}</strong></span>
+            <span>{{ t('settings.identitySources.fields.bindPassword') }} <strong>{{ editorMode === 'create' ? '*' : '' }}</strong></span>
             <input
               v-model="draft.bindPassword"
               type="password"
-              :placeholder="editorMode === 'create' ? '输入服务账号密码' : '留空表示沿用现有密码'"
+              :placeholder="editorMode === 'create' ? t('settings.identitySources.placeholders.bindPasswordCreate') : t('settings.identitySources.placeholders.bindPasswordEdit')"
               autocomplete="new-password"
             />
           </label>
@@ -411,50 +413,50 @@ onMounted(async () => {
 
         <section class="identity-source-form__advanced">
           <button class="identity-source-form__advanced-toggle" type="button" @click="advancedOpen = !advancedOpen">
-            {{ advancedOpen ? '收起高级设置' : '展开高级设置' }}
+            {{ advancedOpen ? t('settings.identitySources.actions.collapseAdvanced') : t('settings.identitySources.actions.expandAdvanced') }}
           </button>
 
           <div v-if="advancedOpen" class="identity-source-form__grid">
             <label class="identity-source-form__field">
-              <span>目录类型</span>
+              <span>{{ t('settings.identitySources.fields.directoryType') }}</span>
               <select v-model="draft.type">
                 <option value="active_directory">Microsoft Active Directory</option>
-                <option value="ldap">标准 LDAP</option>
+                <option value="ldap">{{ t('settings.identitySources.types.ldap') }}</option>
               </select>
             </label>
             <label class="identity-source-form__field">
-              <span>默认角色</span>
+              <span>{{ t('settings.identitySources.fields.defaultRole') }}</span>
               <select v-model="draft.defaultRoleId">
-                <option value="">不设置</option>
+                <option value="">{{ t('settings.identitySources.options.unset') }}</option>
                 <option v-for="option in roleOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
               </select>
             </label>
             <label class="identity-source-form__field">
-              <span>启用状态</span>
+              <span>{{ t('settings.identitySources.fields.enabled') }}</span>
               <select v-model="draft.enabled">
-                <option :value="true">启用</option>
-                <option :value="false">禁用</option>
+                <option :value="true">{{ t('settings.identitySources.status.enabled') }}</option>
+                <option :value="false">{{ t('settings.identitySources.status.disabledShort') }}</option>
               </select>
             </label>
             <label class="identity-source-form__field identity-source-form__field--full">
-              <span>用户 DN/UPN 模板</span>
-              <input v-model="draft.userDnTemplate" placeholder="留空则按目录类型自动推导" autocomplete="off" />
+              <span>{{ t('settings.identitySources.fields.userDnTemplate') }}</span>
+              <input v-model="draft.userDnTemplate" :placeholder="t('settings.identitySources.placeholders.autoByDirectoryType')" autocomplete="off" />
             </label>
             <label class="identity-source-form__field">
-              <span>用户过滤器</span>
-              <input v-model="draft.userFilter" placeholder="例如：(uid={{username}})" autocomplete="off" />
+              <span>{{ t('settings.identitySources.fields.userFilter') }}</span>
+              <input v-model="draft.userFilter" :placeholder="t('settings.identitySources.placeholders.userFilter')" autocomplete="off" />
             </label>
             <label class="identity-source-form__field">
-              <span>组过滤器</span>
-              <input v-model="draft.groupFilter" placeholder="例如：(member={{userDn}})" autocomplete="off" />
+              <span>{{ t('settings.identitySources.fields.groupFilter') }}</span>
+              <input v-model="draft.groupFilter" :placeholder="t('settings.identitySources.placeholders.groupFilter')" autocomplete="off" />
             </label>
             <label class="identity-source-form__field identity-source-form__field--full">
-              <span>同步用户过滤器</span>
-              <input v-model="draft.syncUserFilter" placeholder="留空则按目录类型自动推导" autocomplete="off" />
+              <span>{{ t('settings.identitySources.fields.syncUserFilter') }}</span>
+              <input v-model="draft.syncUserFilter" :placeholder="t('settings.identitySources.placeholders.autoByDirectoryType')" autocomplete="off" />
             </label>
             <label class="identity-source-form__checkbox">
               <input v-model="draft.requireGroupMapping" type="checkbox" />
-              <span>要求登录用户必须命中组映射</span>
+              <span>{{ t('settings.identitySources.fields.requireGroupMapping') }}</span>
             </label>
           </div>
         </section>
@@ -464,9 +466,9 @@ onMounted(async () => {
       </section>
 
       <template #actions>
-        <button class="gc-button" type="button" :disabled="editorLoading" @click="closeEditor">取消</button>
+        <button class="gc-button" type="button" :disabled="editorLoading" @click="closeEditor">{{ t('designSystem.confirm.cancel') }}</button>
         <button class="gc-button gc-button--primary" type="button" :disabled="editorDisabled" @click="submitEditor">
-          {{ editorLoading ? (editorMode === 'create' ? '创建中...' : '保存中...') : (editorMode === 'create' ? '创建身份源' : '保存修改') }}
+          {{ editorLoading ? (editorMode === 'create' ? t('settings.identitySources.actions.creating') : t('settings.identitySources.actions.saving')) : (editorMode === 'create' ? t('settings.identitySources.actions.create') : t('settings.identitySources.actions.saveChanges')) }}
         </button>
       </template>
     </GcModal>

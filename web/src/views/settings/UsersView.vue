@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import type { ApiRecord } from '@/api/modules/common'
 import {
@@ -20,6 +21,8 @@ import {
 } from '@/api/modules/security.api'
 import { GcConfirmAction, GcModal } from '@/design-system/components'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
+
+const { t } = useI18n()
 
 interface UserDraft {
   createMode: 'local' | 'external'
@@ -125,8 +128,8 @@ const identitySourceOptions = computed(() =>
 
 const selectedCount = computed(() => selectedUserIds.value.length)
 const activeListSummary = computed(() => {
-  if (activeDirectoryTab.value === 'groups') return `共 ${groupItems.value.length} 条`
-  return `共 ${userItems.value.length} 条，已选 ${selectedCount.value} 条`
+  if (activeDirectoryTab.value === 'groups') return t('settings.users.summary.groups', { count: groupItems.value.length })
+  return t('settings.users.summary.users', { total: userItems.value.length, selected: selectedCount.value })
 })
 const allSelectableIds = computed(() =>
   userItems.value
@@ -163,7 +166,7 @@ async function reloadUsers() {
     selectedUserIds.value = selectedUserIds.value.filter((id) => userItems.value.some((item) => String(item.id ?? '') === id))
   } catch (cause) {
     if (cause instanceof ApiClientError) pageError.value = `${cause.message}（${cause.errorCode}）`
-    else pageError.value = cause instanceof Error ? cause.message : '加载用户失败'
+    else pageError.value = cause instanceof Error ? cause.message : t('settings.users.errors.loadUsersFailed')
   } finally {
     pageLoading.value = false
   }
@@ -175,7 +178,7 @@ async function reloadGroups() {
     groupItems.value = [...(result.data?.items ?? [])]
   } catch (cause) {
     if (cause instanceof ApiClientError) pageError.value = `${cause.message}（${cause.errorCode}）`
-    else pageError.value = cause instanceof Error ? cause.message : '加载用户组失败'
+    else pageError.value = cause instanceof Error ? cause.message : t('settings.users.errors.loadGroupsFailed')
   }
 }
 
@@ -279,7 +282,7 @@ async function submitEditor() {
     await reloadUsers()
   } catch (cause) {
     if (cause instanceof ApiClientError) editorError.value = `${cause.message}（${cause.errorCode}）`
-    else editorError.value = cause instanceof Error ? cause.message : (editorMode.value === 'create' ? '创建用户失败' : '更新用户失败')
+    else editorError.value = cause instanceof Error ? cause.message : (editorMode.value === 'create' ? t('settings.users.errors.createUserFailed') : t('settings.users.errors.updateUserFailed'))
   } finally {
     editorLoading.value = false
   }
@@ -295,14 +298,14 @@ async function lookupExternalProfile() {
       sourceId: draft.sourceId,
       username: draft.externalUsername.trim(),
     })
-    if (!result.data) throw new Error('身份源没有返回用户资料')
+    if (!result.data) throw new Error(t('settings.users.errors.externalUserEmpty'))
     lookupProfile.value = result.data
     draft.username = result.data.username
     draft.displayName = result.data.displayName
     draft.email = result.data.email ?? ''
   } catch (cause) {
     if (cause instanceof ApiClientError) editorError.value = `${cause.message}（${cause.errorCode}）`
-    else editorError.value = cause instanceof Error ? cause.message : '检索身份源用户失败'
+    else editorError.value = cause instanceof Error ? cause.message : t('settings.users.errors.lookupExternalUserFailed')
   } finally {
     lookupLoading.value = false
   }
@@ -318,13 +321,13 @@ async function lookupExternalGroupProfile() {
       sourceId: groupDraft.sourceId,
       groupName: groupDraft.externalGroupName.trim(),
     })
-    if (!result.data) throw new Error('身份源没有返回用户组资料')
+    if (!result.data) throw new Error(t('settings.users.errors.externalGroupEmpty'))
     groupLookupProfile.value = result.data
     groupDraft.name = result.data.name
     groupDraft.code = result.data.code
   } catch (cause) {
     if (cause instanceof ApiClientError) groupEditorError.value = `${cause.message}（${cause.errorCode}）`
-    else groupEditorError.value = cause instanceof Error ? cause.message : '检索身份源用户组失败'
+    else groupEditorError.value = cause instanceof Error ? cause.message : t('settings.users.errors.lookupExternalGroupFailed')
   } finally {
     groupLookupLoading.value = false
   }
@@ -351,7 +354,7 @@ async function submitGroupEditor() {
     await reloadGroups()
   } catch (cause) {
     if (cause instanceof ApiClientError) groupEditorError.value = `${cause.message}（${cause.errorCode}）`
-    else groupEditorError.value = cause instanceof Error ? cause.message : '创建用户组失败'
+    else groupEditorError.value = cause instanceof Error ? cause.message : t('settings.users.errors.createGroupFailed')
   } finally {
     groupEditorLoading.value = false
   }
@@ -366,7 +369,7 @@ async function removeUsers(userIds: string[]) {
     await reloadUsers()
   } catch (cause) {
     if (cause instanceof ApiClientError) pageError.value = `${cause.message}（${cause.errorCode}）`
-    else pageError.value = cause instanceof Error ? cause.message : '删除用户失败'
+    else pageError.value = cause instanceof Error ? cause.message : t('settings.users.errors.deleteUsersFailed')
   }
 }
 
@@ -387,17 +390,17 @@ onMounted(async () => {
   <section class="users-view">
     <header class="users-view__header">
       <div class="users-view__header-actions">
-        <button class="gc-button gc-button--primary" type="button" @click="openCreateDialog">创建用户</button>
-        <button class="gc-button" type="button" @click="openCreateGroupDialog">添加组</button>
+        <button class="gc-button gc-button--primary" type="button" @click="openCreateDialog">{{ t('settings.users.actions.createUser') }}</button>
+        <button class="gc-button" type="button" @click="openCreateGroupDialog">{{ t('settings.users.actions.addGroup') }}</button>
         <GcConfirmAction
           v-if="selectedCount > 0"
-          action-name="批量删除"
+          :action-name="t('settings.users.actions.bulkDelete')"
           :impact-count="selectedCount"
-          risk-text="批量删除会移除所选用户的本地凭据和角色关联。"
+          :risk-text="t('settings.users.risks.bulkDelete')"
           confirm-text="DELETE"
           @confirm="removeUsers(selectedUserIds)"
         />
-        <button class="gc-button" type="button" :disabled="pageLoading" @click="refreshDirectory">刷新</button>
+        <button class="gc-button" type="button" :disabled="pageLoading" @click="refreshDirectory">{{ t('common.refresh') }}</button>
       </div>
     </header>
 
@@ -406,21 +409,21 @@ onMounted(async () => {
     <section class="gc-card users-view__table-card">
       <div class="users-view__table-head">
         <div class="users-view__table-title">
-          <strong>账号主体列表</strong>
-          <div class="users-view__tabs" aria-label="主体类型">
+          <strong>{{ t('settings.users.title') }}</strong>
+          <div class="users-view__tabs" :aria-label="t('settings.users.aria.principalType')">
             <button
               type="button"
               :class="{ 'users-view__tab--active': activeDirectoryTab === 'users' }"
               @click="activeDirectoryTab = 'users'"
             >
-              用户
+              {{ t('settings.users.tabs.users') }}
             </button>
             <button
               type="button"
               :class="{ 'users-view__tab--active': activeDirectoryTab === 'groups' }"
               @click="activeDirectoryTab = 'groups'"
             >
-              组
+              {{ t('settings.users.tabs.groups') }}
             </button>
           </div>
         </div>
@@ -438,25 +441,25 @@ onMounted(async () => {
                   @change="toggleSelectAll(($event.target as HTMLInputElement).checked)"
                 />
               </th>
-              <th>用户名</th>
-              <th>显示名</th>
-              <th>邮箱</th>
-              <th>来源</th>
-              <th>身份源名称</th>
-              <th>状态</th>
-              <th>租户</th>
-              <th>角色</th>
-              <th>最近同步</th>
-              <th>更新时间</th>
-              <th>操作</th>
+              <th>{{ t('settings.users.columns.username') }}</th>
+              <th>{{ t('settings.users.columns.displayName') }}</th>
+              <th>{{ t('settings.users.columns.email') }}</th>
+              <th>{{ t('settings.users.columns.source') }}</th>
+              <th>{{ t('settings.users.columns.identitySourceName') }}</th>
+              <th>{{ t('settings.users.columns.status') }}</th>
+              <th>{{ t('settings.users.columns.tenant') }}</th>
+              <th>{{ t('settings.users.columns.roles') }}</th>
+              <th>{{ t('settings.users.columns.lastSyncedAt') }}</th>
+              <th>{{ t('settings.users.columns.updatedAt') }}</th>
+              <th>{{ t('settings.users.columns.actions') }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="pageLoading">
-              <td colspan="12">加载中...</td>
+              <td colspan="12">{{ t('designSystem.dataTable.loading') }}</td>
             </tr>
             <tr v-else-if="userItems.length === 0">
-              <td colspan="12">暂无用户</td>
+              <td colspan="12">{{ t('settings.users.empty.users') }}</td>
             </tr>
             <tr v-for="item in userItems" v-else :key="String(item.id)">
               <td class="users-view__checkbox-col">
@@ -479,12 +482,12 @@ onMounted(async () => {
               <td>{{ displayValue(item.updatedAt) }}</td>
               <td>
                 <div class="users-view__row-actions">
-                  <button class="gc-button" type="button" @click="openEditDialog(item)">编辑</button>
+                  <button class="gc-button" type="button" @click="openEditDialog(item)">{{ t('settings.users.actions.edit') }}</button>
                   <GcConfirmAction
                     v-if="!isBuiltinAdmin(item)"
-                    action-name="删除"
+                    :action-name="t('settings.users.actions.delete')"
                     :impact-count="1"
-                    risk-text="删除用户会移除该账号的本地凭据和角色关联。"
+                    :risk-text="t('settings.users.risks.deleteUser')"
                     confirm-text="DELETE"
                     @confirm="removeUsers([String(item.id ?? '')])"
                   />
@@ -496,21 +499,21 @@ onMounted(async () => {
         <table v-else class="users-view__table users-view__table--groups">
           <thead>
             <tr>
-              <th>组名称</th>
-              <th>编码</th>
-              <th>来源</th>
-              <th>身份源名称</th>
-              <th>外部标识</th>
-              <th>状态</th>
-              <th>更新时间</th>
+              <th>{{ t('settings.users.columns.groupName') }}</th>
+              <th>{{ t('settings.users.columns.code') }}</th>
+              <th>{{ t('settings.users.columns.source') }}</th>
+              <th>{{ t('settings.users.columns.identitySourceName') }}</th>
+              <th>{{ t('settings.users.columns.externalRef') }}</th>
+              <th>{{ t('settings.users.columns.status') }}</th>
+              <th>{{ t('settings.users.columns.updatedAt') }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="pageLoading">
-              <td colspan="7">加载中...</td>
+              <td colspan="7">{{ t('designSystem.dataTable.loading') }}</td>
             </tr>
             <tr v-else-if="groupItems.length === 0">
-              <td colspan="7">暂无用户组</td>
+              <td colspan="7">{{ t('settings.users.empty.groups') }}</td>
             </tr>
             <tr v-for="item in groupItems" v-else :key="String(item.id)">
               <td>{{ displayValue(item.name) }}</td>
@@ -528,87 +531,87 @@ onMounted(async () => {
 
     <GcModal
       v-model:open="editorOpen"
-      :title="editorMode === 'create' ? '创建用户' : '编辑用户'"
-      :description="editorMode === 'create' ? '创建本地用户，或从身份源按用户名检索后创建绑定用户。' : '编辑用户的显示名、邮箱、状态和角色。'"
+      :title="editorMode === 'create' ? t('settings.users.dialog.userCreateTitle') : t('settings.users.dialog.userEditTitle')"
+      :description="editorMode === 'create' ? t('settings.users.dialog.userCreateDescription') : t('settings.users.dialog.userEditDescription')"
       size="md"
     >
       <section class="users-view__form">
-        <div v-if="editorMode === 'create'" class="users-view__mode-switch" aria-label="创建方式">
+        <div v-if="editorMode === 'create'" class="users-view__mode-switch" :aria-label="t('settings.users.aria.createMode')">
           <label :class="{ 'users-view__mode-option--active': draft.createMode === 'local' }">
             <input v-model="draft.createMode" type="radio" value="local" @change="clearExternalLookup" />
-            <span>本地用户</span>
+            <span>{{ t('settings.users.modes.localUser') }}</span>
           </label>
           <label :class="{ 'users-view__mode-option--active': draft.createMode === 'external' }">
             <input v-model="draft.createMode" type="radio" value="external" @change="clearExternalLookup" />
-            <span>身份源用户</span>
+            <span>{{ t('settings.users.modes.externalUser') }}</span>
           </label>
         </div>
 
         <div class="users-view__form-grid">
           <label v-if="editorMode === 'create' && draft.createMode === 'external'" class="users-view__field">
-            <span>身份源 <strong>*</strong></span>
+            <span>{{ t('settings.users.fields.identitySource') }} <strong>*</strong></span>
             <select v-model="draft.sourceId" @change="clearExternalLookup">
-              <option value="" disabled>请选择身份源</option>
+              <option value="" disabled>{{ t('settings.users.placeholders.selectIdentitySource') }}</option>
               <option v-for="option in identitySourceOptions" :key="option.value" :value="option.value">
-                {{ option.label }}（{{ option.type === 'active_directory' ? 'AD' : 'LDAP' }}）
+                {{ t('settings.users.labels.identitySourceOption', { name: option.label, type: option.type === 'active_directory' ? 'AD' : 'LDAP' }) }}
               </option>
             </select>
           </label>
           <label v-if="editorMode === 'create' && draft.createMode === 'external'" class="users-view__field">
-            <span>目录用户名 <strong>*</strong></span>
-            <input v-model="draft.externalUsername" placeholder="例如 jackson" autocomplete="off" @input="clearExternalLookup" />
+            <span>{{ t('settings.users.fields.directoryUsername') }} <strong>*</strong></span>
+            <input v-model="draft.externalUsername" :placeholder="t('settings.users.placeholders.directoryUsername')" autocomplete="off" @input="clearExternalLookup" />
           </label>
           <label v-if="editorMode !== 'create' || draft.createMode === 'local'" class="users-view__field">
-            <span>用户名 <strong v-if="editorMode === 'create'">*</strong></span>
+            <span>{{ t('settings.users.fields.username') }} <strong v-if="editorMode === 'create'">*</strong></span>
             <input v-model="draft.username" :disabled="editorMode === 'edit'" placeholder="operator" autocomplete="off" />
           </label>
           <label v-if="editorMode !== 'create' || draft.createMode === 'local'" class="users-view__field">
-            <span>显示名 <strong>*</strong></span>
-            <input v-model="draft.displayName" placeholder="证书操作员" autocomplete="off" />
+            <span>{{ t('settings.users.fields.displayName') }} <strong>*</strong></span>
+            <input v-model="draft.displayName" :placeholder="t('settings.users.placeholders.displayName')" autocomplete="off" />
           </label>
           <label v-if="editorMode !== 'create' || draft.createMode === 'local'" class="users-view__field">
-            <span>邮箱</span>
+            <span>{{ t('settings.users.fields.email') }}</span>
             <input v-model="draft.email" placeholder="ops@example.com" autocomplete="off" />
           </label>
           <label class="users-view__field">
-            <span>角色</span>
+            <span>{{ t('settings.users.fields.role') }}</span>
             <select v-model="draft.roleId">
-              <option value="">不设置</option>
+              <option value="">{{ t('settings.users.options.unset') }}</option>
               <option v-for="option in roleOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
             </select>
           </label>
           <label v-if="editorMode === 'create' && draft.createMode === 'local'" class="users-view__field">
-            <span>初始密码 <strong>*</strong></span>
-            <input v-model="draft.password" type="password" placeholder="输入初始密码" autocomplete="new-password" />
+            <span>{{ t('settings.users.fields.initialPassword') }} <strong>*</strong></span>
+            <input v-model="draft.password" type="password" :placeholder="t('settings.users.placeholders.initialPassword')" autocomplete="new-password" />
           </label>
           <label v-if="editorMode === 'edit'" class="users-view__field">
-            <span>状态</span>
+            <span>{{ t('settings.users.fields.status') }}</span>
             <select v-model="draft.status">
-              <option value="active">启用</option>
-              <option value="disabled">禁用</option>
+              <option value="active">{{ t('settings.users.status.active') }}</option>
+              <option value="disabled">{{ t('settings.users.status.disabled') }}</option>
             </select>
           </label>
         </div>
 
         <div v-if="editorMode === 'create' && draft.createMode === 'external'" class="users-view__lookup">
           <button class="gc-button" type="button" :disabled="lookupLoading || !draft.sourceId || !draft.externalUsername.trim()" @click="lookupExternalProfile">
-            {{ lookupLoading ? '检索中...' : '检索用户' }}
+            {{ lookupLoading ? t('settings.users.actions.lookupLoading') : t('settings.users.actions.lookupUser') }}
           </button>
-          <section v-if="lookupProfile" class="users-view__profile-preview" aria-label="身份源用户资料">
+          <section v-if="lookupProfile" class="users-view__profile-preview" :aria-label="t('settings.users.aria.externalUserProfile')">
             <div>
-              <span>用户名</span>
+              <span>{{ t('settings.users.fields.username') }}</span>
               <strong>{{ lookupProfile.username }}</strong>
             </div>
             <div>
-              <span>显示名</span>
+              <span>{{ t('settings.users.fields.displayName') }}</span>
               <strong>{{ lookupProfile.displayName }}</strong>
             </div>
             <div>
-              <span>邮箱</span>
+              <span>{{ t('settings.users.fields.email') }}</span>
               <strong>{{ lookupProfile.email || '—' }}</strong>
             </div>
             <div>
-              <span>身份源</span>
+              <span>{{ t('settings.users.fields.identitySource') }}</span>
               <strong>{{ lookupProfile.sourceName }}</strong>
             </div>
           </section>
@@ -618,74 +621,74 @@ onMounted(async () => {
       </section>
 
       <template #actions>
-        <button class="gc-button" type="button" :disabled="editorLoading" @click="closeEditor">取消</button>
+        <button class="gc-button" type="button" :disabled="editorLoading" @click="closeEditor">{{ t('designSystem.confirm.cancel') }}</button>
         <button class="gc-button gc-button--primary" type="button" :disabled="editorDisabled" @click="submitEditor">
-          {{ editorLoading ? (editorMode === 'create' ? '创建中...' : '保存中...') : (editorMode === 'create' ? '创建用户' : '保存修改') }}
+          {{ editorLoading ? (editorMode === 'create' ? t('settings.users.actions.creating') : t('settings.users.actions.saving')) : (editorMode === 'create' ? t('settings.users.actions.createUser') : t('settings.users.actions.saveChanges')) }}
         </button>
       </template>
     </GcModal>
 
     <GcModal
       v-model:open="groupEditorOpen"
-      title="添加组"
-      description="创建本地组，或从身份源按组名称检索后添加外部组。"
+      :title="t('settings.users.dialog.groupCreateTitle')"
+      :description="t('settings.users.dialog.groupCreateDescription')"
       size="md"
     >
       <section class="users-view__form">
-        <div class="users-view__mode-switch" aria-label="创建组方式">
+        <div class="users-view__mode-switch" :aria-label="t('settings.users.aria.groupCreateMode')">
           <label :class="{ 'users-view__mode-option--active': groupDraft.createMode === 'local' }">
             <input v-model="groupDraft.createMode" type="radio" value="local" @change="clearExternalGroupLookup" />
-            <span>本地组</span>
+            <span>{{ t('settings.users.modes.localGroup') }}</span>
           </label>
           <label :class="{ 'users-view__mode-option--active': groupDraft.createMode === 'external' }">
             <input v-model="groupDraft.createMode" type="radio" value="external" @change="clearExternalGroupLookup" />
-            <span>身份源组</span>
+            <span>{{ t('settings.users.modes.externalGroup') }}</span>
           </label>
         </div>
 
         <div class="users-view__form-grid">
           <label v-if="groupDraft.createMode === 'external'" class="users-view__field">
-            <span>身份源 <strong>*</strong></span>
+            <span>{{ t('settings.users.fields.identitySource') }} <strong>*</strong></span>
             <select v-model="groupDraft.sourceId" @change="clearExternalGroupLookup">
-              <option value="" disabled>请选择身份源</option>
+              <option value="" disabled>{{ t('settings.users.placeholders.selectIdentitySource') }}</option>
               <option v-for="option in identitySourceOptions" :key="option.value" :value="option.value">
-                {{ option.label }}（{{ option.type === 'active_directory' ? 'AD' : 'LDAP' }}）
+                {{ t('settings.users.labels.identitySourceOption', { name: option.label, type: option.type === 'active_directory' ? 'AD' : 'LDAP' }) }}
               </option>
             </select>
           </label>
           <label v-if="groupDraft.createMode === 'external'" class="users-view__field">
-            <span>目录组名称 <strong>*</strong></span>
-            <input v-model="groupDraft.externalGroupName" placeholder="例如 GCAC-Ops" autocomplete="off" @input="clearExternalGroupLookup" />
+            <span>{{ t('settings.users.fields.directoryGroupName') }} <strong>*</strong></span>
+            <input v-model="groupDraft.externalGroupName" :placeholder="t('settings.users.placeholders.directoryGroupName')" autocomplete="off" @input="clearExternalGroupLookup" />
           </label>
           <label v-if="groupDraft.createMode === 'local'" class="users-view__field">
-            <span>组名称 <strong>*</strong></span>
-            <input v-model="groupDraft.name" placeholder="证书运维组" autocomplete="off" />
+            <span>{{ t('settings.users.fields.groupName') }} <strong>*</strong></span>
+            <input v-model="groupDraft.name" :placeholder="t('settings.users.placeholders.groupName')" autocomplete="off" />
           </label>
           <label v-if="groupDraft.createMode === 'local'" class="users-view__field">
-            <span>组编码</span>
+            <span>{{ t('settings.users.fields.groupCode') }}</span>
             <input v-model="groupDraft.code" placeholder="cert_ops" autocomplete="off" />
           </label>
         </div>
 
         <div v-if="groupDraft.createMode === 'external'" class="users-view__lookup">
           <button class="gc-button" type="button" :disabled="groupLookupLoading || !groupDraft.sourceId || !groupDraft.externalGroupName.trim()" @click="lookupExternalGroupProfile">
-            {{ groupLookupLoading ? '检索中...' : '检索组' }}
+            {{ groupLookupLoading ? t('settings.users.actions.lookupLoading') : t('settings.users.actions.lookupGroup') }}
           </button>
-          <section v-if="groupLookupProfile" class="users-view__profile-preview" aria-label="身份源用户组资料">
+          <section v-if="groupLookupProfile" class="users-view__profile-preview" :aria-label="t('settings.users.aria.externalGroupProfile')">
             <div>
-              <span>组名称</span>
+              <span>{{ t('settings.users.fields.groupName') }}</span>
               <strong>{{ groupLookupProfile.name }}</strong>
             </div>
             <div>
-              <span>组编码</span>
+              <span>{{ t('settings.users.fields.groupCode') }}</span>
               <strong>{{ groupLookupProfile.code }}</strong>
             </div>
             <div>
-              <span>身份源</span>
+              <span>{{ t('settings.users.fields.identitySource') }}</span>
               <strong>{{ groupLookupProfile.sourceName }}</strong>
             </div>
             <div>
-              <span>目录 DN</span>
+              <span>{{ t('settings.users.fields.directoryDn') }}</span>
               <strong>{{ groupLookupProfile.groupDn || '—' }}</strong>
             </div>
           </section>
@@ -695,9 +698,9 @@ onMounted(async () => {
       </section>
 
       <template #actions>
-        <button class="gc-button" type="button" :disabled="groupEditorLoading" @click="closeGroupEditor">取消</button>
+        <button class="gc-button" type="button" :disabled="groupEditorLoading" @click="closeGroupEditor">{{ t('designSystem.confirm.cancel') }}</button>
         <button class="gc-button gc-button--primary" type="button" :disabled="groupEditorDisabled" @click="submitGroupEditor">
-          {{ groupEditorLoading ? '添加中...' : '添加组' }}
+          {{ groupEditorLoading ? t('settings.users.actions.adding') : t('settings.users.actions.addGroup') }}
         </button>
       </template>
     </GcModal>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import SecurityAdminPage, { type SecurityAdminConfig } from './SecurityAdminPage.vue'
 import { createPermissionPolicy, listPermissionPolicies } from '@/api/modules/security.api'
 
@@ -6,16 +8,18 @@ function parseCsv(value: unknown): string[] {
   return String(value ?? '').split(',').map((item) => item.trim()).filter(Boolean)
 }
 
-const config: SecurityAdminConfig = {
-  resourceName: '权限策略',
+const { t } = useI18n()
+
+const config = computed<SecurityAdminConfig>(() => ({
+  resourceName: t('settings.permissionPolicies.resourceName'),
   columns: [
-    { key: 'id', title: '策略 ID' },
-    { key: 'subjectType', title: '主体类型' },
-    { key: 'subjectId', title: '主体 ID' },
-    { key: 'effect', title: '效果' },
-    { key: 'actions', title: '动作' },
-    { key: 'resourceTypes', title: '资源类型' },
-    { key: 'scope', title: '作用域' }
+    { key: 'id', title: t('settings.permissionPolicies.columns.id') },
+    { key: 'subjectType', title: t('settings.permissionPolicies.columns.subjectType') },
+    { key: 'subjectId', title: t('settings.permissionPolicies.columns.subjectId') },
+    { key: 'effect', title: t('settings.permissionPolicies.columns.effect') },
+    { key: 'actions', title: t('settings.permissionPolicies.columns.actions') },
+    { key: 'resourceTypes', title: t('settings.permissionPolicies.columns.resourceTypes') },
+    { key: 'scope', title: t('settings.permissionPolicies.columns.scope') }
   ],
   load: () => listPermissionPolicies({ page: 1, pageSize: 100 }),
   create: (body) => createPermissionPolicy({
@@ -26,21 +30,21 @@ const config: SecurityAdminConfig = {
     resourceTypes: parseCsv(body.resourceTypes),
     scope: { tenantId: body.tenantId || '*' }
   }),
-  submitLabel: '创建策略',
+  submitLabel: t('settings.permissionPolicies.actions.create'),
   fields: [
-    { key: 'subjectType', label: '主体类型', type: 'select', options: [
-      { label: '角色', value: 'role' },
-      { label: '用户', value: 'user' },
-      { label: '插件', value: 'plugin' },
-      { label: '执行器', value: 'executor' }
+    { key: 'subjectType', label: t('settings.permissionPolicies.fields.subjectType'), type: 'select', options: [
+      { label: t('settings.permissionPolicies.subjectTypes.role'), value: 'role' },
+      { label: t('settings.permissionPolicies.subjectTypes.user'), value: 'user' },
+      { label: t('settings.permissionPolicies.subjectTypes.plugin'), value: 'plugin' },
+      { label: t('settings.permissionPolicies.subjectTypes.executor'), value: 'executor' }
     ] },
-    { key: 'subjectId', label: '主体 ID', placeholder: 'role_operator' },
-    { key: 'effect', label: '效果', type: 'select', options: [{ label: '允许', value: 'allow' }, { label: '拒绝', value: 'deny' }] },
-    { key: 'actions', label: '动作', placeholder: 'dashboard.read,certificate.asset.read' },
-    { key: 'resourceTypes', label: '资源类型', placeholder: 'dashboard,certificate' },
-    { key: 'tenantId', label: '租户作用域', placeholder: '*' }
+    { key: 'subjectId', label: t('settings.permissionPolicies.fields.subjectId'), placeholder: 'role_operator' },
+    { key: 'effect', label: t('settings.permissionPolicies.fields.effect'), type: 'select', options: [{ label: t('settings.permissionPolicies.effects.allow'), value: 'allow' }, { label: t('settings.permissionPolicies.effects.deny'), value: 'deny' }] },
+    { key: 'actions', label: t('settings.permissionPolicies.fields.actions'), placeholder: 'dashboard.read,certificate.asset.read' },
+    { key: 'resourceTypes', label: t('settings.permissionPolicies.fields.resourceTypes'), placeholder: 'dashboard,certificate' },
+    { key: 'tenantId', label: t('settings.permissionPolicies.fields.tenantId'), placeholder: '*' }
   ]
-}
+}))
 </script>
 
 <template><SecurityAdminPage :config="config" /></template>

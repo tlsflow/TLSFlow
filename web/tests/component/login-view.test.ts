@@ -33,7 +33,7 @@ describe('LoginView', () => {
     await router.push('/login')
     const wrapper = mount(LoginView, { global: { plugins: [router, i18n] } })
 
-    expect(wrapper.text()).toContain('欢迎回来')
+    expect(wrapper.text()).toContain('登录控制台')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
