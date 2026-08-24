@@ -1046,7 +1046,6 @@ async function removeVersion(row: CertificateVersionRow) {
                   @click="openVersionsDialog(readId(asset))"
                 >
                   <span class="certificate-page__asset-card-heading">
-                    <span class="certificate-page__asset-card-kicker">{{ t('certificates.list.assets.title') }}</span>
                     <strong>{{ readAssetName(asset) }}</strong>
                     <span>{{ readAssetIssuer(asset) }}</span>
                   </span>
@@ -1056,7 +1055,6 @@ async function removeVersion(row: CertificateVersionRow) {
                       :label="readAssetLifecycleStatus(asset)"
                       :tone="lifecycleStatusTone(readAssetLifecycleStatusKey(asset))"
                     />
-                    <span class="certificate-page__asset-card-chevron" aria-hidden="true">+</span>
                   </span>
                 </button>
               </template>
@@ -2111,7 +2109,6 @@ async function removeVersion(row: CertificateVersionRow) {
   cursor: pointer;
 }
 
-.certificate-page__asset-card-kicker,
 .certificate-page__panel-kicker {
   color: var(--gc-color-text-soft);
   font-size: var(--gc-font-size-overline);
@@ -2125,16 +2122,6 @@ async function removeVersion(row: CertificateVersionRow) {
   align-items: center;
   gap: var(--gc-space-2);
   flex: 0 0 auto;
-}
-
-.certificate-page__asset-card-chevron {
-  display: inline-grid;
-  place-items: center;
-  width: var(--gc-size-icon-sm);
-  height: var(--gc-size-icon-sm);
-  color: var(--gc-color-primary);
-  font-size: var(--gc-font-size-md);
-  font-weight: var(--gc-font-weight-semibold);
 }
 
 .certificate-page__asset-card-heading strong,

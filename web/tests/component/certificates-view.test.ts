@@ -240,6 +240,8 @@ describe('CertificatesView', () => {
     expect(assetCard.text()).toContain('即将过期')
     expect(assetCard.text()).toContain(formatBrowserLocalTime('2026-06-15T23:59:59.000Z', { includeTime: false }))
     expect(assetCard.text()).toContain('外部 API')
+    expect(assetCard.find('.certificate-page__asset-card-kicker').exists()).toBe(false)
+    expect(assetCard.find('.certificate-page__asset-card-chevron').exists()).toBe(false)
     const validityProgress = assetCard.get('[role="progressbar"]')
     expect(validityProgress.classes()).toContain('gc-progress--outlined')
 
