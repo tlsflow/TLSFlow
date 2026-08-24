@@ -30,6 +30,25 @@ P2 发布清单属于历史开发证据，不是当前运行时、数据库切�
 
 插件包内 Workflow 的 `metadata.version` 仍须由 Workflow Schema 校验为合法 SemVer，并且必须与同一包 Manifest 的 `version` 相等。插件内容变化由 Manifest `pluginId@version`、包/资源摘要和数据库 WorkflowVersion 整数记录；旧用户 Workflow DSL 的独立版本规则仍由 Workflow 模板服务负责。
 
+### 宿主版本兼容性
+
+- `minGcacVersion` 是统一 Manifest 的可选最低宿主版本字段，使用完整 SemVer。
+- 外部市场包和用户插件目录包进入统一导入接口时，宿主按 `GCAC_VERSION >= minGcacVersion` 执行比较；不兼容包拒绝导入。
+- 用户插件手动启用前必须再次执行同一比较，避免数据库恢复、宿主降级或绕过导入接口造成不兼容版本进入运行链路。
+- 缺少该字段的历史插件按 `0.0.0` 兼容；新发布插件应显式声明最低宿主版本。
+
+### 能力级三类兼容性约束
+
+插件整体的 `minGcacVersion` 只表示整个插件的最低宿主版本。能力可以继续声明独立的 `compatibility`，三类版本不得混用：
+
+- `compatibility.host.minVersion` / `requiredFeatures`：当前 TLSFlow 宿主 API、Schema 或执行器能力的最低版本和特性集合；`contractVersion` 仅表示输入输出合同版本，不能替代宿主版本。
+- `compatibility.targets[]`：按 Canonical `productFamily` 精确匹配目标产品，并用 `versionRange`（例如 `>=2.11.0 <3.0.0`）表达 Nginx、NPM、IIS、Citrix 等产品版本范围。
+- `compatibility.execution[]`：按 `location` 声明 `AGENT`、`GATEWAY` 或 `CONTROL_PLANE`（包括 Plugin Runner 控制面运行时）的最低运行时版本。
+
+`testedVersions` 只记录验证证据，不构成硬兼容范围。版本或宿主特性未知时结果为 `UNKNOWN`：只读/低风险能力可显示“版本未知，允许试探”，证书部署、回滚等写能力必须阻止执行。兼容性在插件目录、能力解析、实际执行前各评估一次，评估状态、输入版本、原因和时间随执行来源快照冻结，执行时不得重新推断“当前最新版本”。
+
+插件版本不可变。新增能力并设置最低版本通常是非破坏性变更；提高已有能力最低宿主、目标产品或执行环境版本属于破坏性变更，必须发布递增插件版本，并对已有 Binding/Assignment 重新检查后才允许切换。
+
 ## 测试边界
 
 - 插件自身的 Manifest、资源、Runtime、Action 和产品协议测试应放在对应内置插件包的 `tests/` 与 `fixtures/` 中；已有 `runtime/index.test.mjs` 等相邻测试可以保留。
