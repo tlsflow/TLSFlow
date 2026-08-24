@@ -1,0 +1,14 @@
+{
+  "apiVersion": "gcac.adapter/v1",
+  "adapterId": "service-controller.windows-scm",
+  "version": "1.0",
+  "kind": "service_controller",
+  "consumes": ["operation.service.refresh"],
+  "produces": ["evidence.service.state"],
+  "requirements": {
+    "id": "service-controller.windows-scm.requirement", "ownerType": "provider_action", "ownerId": "service-controller.windows-scm",
+    "requiredAll": [{ "capabilityKey": "service.restart", "operator": "equals", "expected": true, "reason": "需要刷新服务", "riskIfMissing": "证书变更无法生效" }],
+    "optional": [], "anyOfGroups": [], "forbidden": [], "minConfidence": 80, "allowManual": false, "riskLevel": "critical"
+  },
+  "conflicts": [], "priority": 100, "riskLevel": "critical", "supportedOperationSchemas": ["1.0"]
+}

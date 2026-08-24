@@ -1,0 +1,14 @@
+{
+  "apiVersion": "gcac.adapter/v1",
+  "adapterId": "artifact-codec.pkcs12",
+  "version": "1.0",
+  "kind": "artifact_codec",
+  "consumes": ["certificate.version"],
+  "produces": ["certificate.material.pkcs12"],
+  "requirements": {
+    "id": "artifact-codec.pkcs12.requirement", "ownerType": "provider_action", "ownerId": "artifact-codec.pkcs12",
+    "requiredAll": [{ "capabilityKey": "tls.local_verify", "operator": "equals", "expected": true, "reason": "需要验证证书材料", "riskIfMissing": "无法确认 PFX 材料有效" }],
+    "optional": [], "anyOfGroups": [], "forbidden": [], "minConfidence": 80, "allowManual": false, "riskLevel": "high"
+  },
+  "conflicts": [], "priority": 100, "riskLevel": "high", "supportedOperationSchemas": ["1.0"]
+}

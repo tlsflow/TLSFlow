@@ -1,0 +1,17 @@
+{
+  "apiVersion": "gcac.adapter/v1",
+  "adapterId": "transport.agent-local",
+  "version": "1.0",
+  "kind": "transport",
+  "consumes": ["typed.operation.plan"],
+  "produces": ["action.result"],
+  "requirements": {
+    "id": "transport.agent-local.requirement", "ownerType": "executor_action", "ownerId": "transport.agent-local",
+    "requiredAll": [
+      { "capabilityKey": "agent.full.online", "operator": "equals", "expected": true, "reason": "需要本地 Full Agent 在线", "riskIfMissing": "无法下发本地任务" },
+      { "capabilityKey": "agent.task.receive", "operator": "equals", "expected": true, "reason": "需要 Agent 接收任务", "riskIfMissing": "任务无法执行" }
+    ],
+    "optional": [], "anyOfGroups": [], "forbidden": [], "minConfidence": 80, "allowManual": false, "riskLevel": "high"
+  },
+  "conflicts": [], "priority": 100, "riskLevel": "high", "supportedOperationSchemas": ["1.0"]
+}

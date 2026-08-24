@@ -1,0 +1,16 @@
+{
+  "apiVersion": "gcac.adapter/v1",
+  "adapterId": "product.iis-apphost",
+  "version": "1.0",
+  "kind": "product",
+  "consumes": ["certificate.material.pkcs12"],
+  "produces": ["operation.iis.binding.update"],
+  "requirements": {
+    "id": "product.iis-apphost.requirement",
+    "ownerType": "provider_action",
+    "ownerId": "product.iis-apphost",
+    "requiredAll": [{ "capabilityKey": "iis.binding.update", "operator": "equals", "expected": true, "reason": "需要更新 IIS HTTPS Binding", "riskIfMissing": "无法修改 IIS 证书绑定" }],
+    "optional": [], "anyOfGroups": [], "forbidden": [], "minConfidence": 80, "allowManual": false, "riskLevel": "critical"
+  },
+  "conflicts": [], "priority": 100, "riskLevel": "critical", "supportedOperationSchemas": ["1.0"]
+}

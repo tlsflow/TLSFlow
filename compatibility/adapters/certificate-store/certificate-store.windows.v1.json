@@ -1,0 +1,14 @@
+{
+  "apiVersion": "gcac.adapter/v1",
+  "adapterId": "certificate-store.windows",
+  "version": "1.0",
+  "kind": "certificate_store",
+  "consumes": ["certificate.material.pkcs12"],
+  "produces": ["certificate.store.thumbprint"],
+  "requirements": {
+    "id": "certificate-store.windows.requirement", "ownerType": "provider_action", "ownerId": "certificate-store.windows",
+    "requiredAll": [{ "capabilityKey": "windows.certstore.import_pfx", "operator": "equals", "expected": true, "reason": "需要导入 PFX", "riskIfMissing": "无法写入 Windows 证书库" }],
+    "optional": [], "anyOfGroups": [], "forbidden": [], "minConfidence": 80, "allowManual": false, "riskLevel": "critical"
+  },
+  "conflicts": [], "priority": 100, "riskLevel": "critical", "supportedOperationSchemas": ["1.0"]
+}
