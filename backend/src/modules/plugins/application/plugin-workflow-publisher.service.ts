@@ -23,7 +23,6 @@ export class PluginWorkflowPublisherService {
       const existing = await this.repository.find(record.id, capabilityKey);
       if (existing) {
         this.assertSameResource(record, capabilityKey, resourcePath, existing);
-        await this.repairLegacyBuiltinTemplate(record, existing.workflowTemplateId);
         output.push(existing);
         continue;
       }
@@ -31,7 +30,6 @@ export class PluginWorkflowPublisherService {
         ? undefined
         : await this.repository.findByResource(record.id, resourcePath);
       if (shared) {
-        await this.repairLegacyBuiltinTemplate(record, shared.workflowTemplateId);
         output.push(await this.repository.save({ ...shared, capabilityKey, ownerType: ownerTypeOf(record), ownerId: ownerIdOf(record) }));
         continue;
       }
@@ -45,7 +43,6 @@ export class PluginWorkflowPublisherService {
         resourcePath,
         capabilityKey === 'credential.acquire' ? capabilityKey : undefined,
       );
-      if (previous) await this.repairLegacyBuiltinTemplate(record, previous.workflowTemplateId);
       const published = previous?.workflowContentSha256 === contentSha256
         ? { templateId: previous.workflowTemplateId, versionId: previous.workflowVersionId, contentHash: previous.workflowContentSha256 }
         : await this.publishWorkflowVersion(record, content, previous);
@@ -71,11 +68,6 @@ export class PluginWorkflowPublisherService {
       });
     }
     return output;
-  }
-
-  private async repairLegacyBuiltinTemplate(record: UnifiedPluginVersionRecord, templateId: string): Promise<void> {
-    if (record.source !== 'BUILTIN' || ownerTypeOf(record) !== 'SYSTEM') return;
-    await this.workflows.promoteLegacyPluginTemplate(templateId);
   }
 
   async require(pluginVersionId: string, capabilityKey: string): Promise<PluginWorkflowBindingRecord> {
