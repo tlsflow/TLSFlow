@@ -339,9 +339,9 @@ async function executeAgentUpgradeTask(
     agentId,
     planId,
     currentVersion,
-      targetVersion,
-      releaseId: optionalPayloadString(task, 'releaseId'),
-      transactionId: optionalPayloadString(task, 'transactionId'),
+    targetVersion,
+    releaseId: optionalPayloadString(task, 'releaseId'),
+    transactionId: optionalPayloadString(task, 'transactionId'),
   };
   try {
     const plan = await dependencies.agents.getUpgradeStatus(task.tenantId, agentId, planId);
