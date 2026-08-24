@@ -2318,6 +2318,7 @@ export default {
       detail: 'Детали',
       addVariable: 'Добавить переменную',
       delete: 'Удалить',
+      deleteRisk: 'Удаление уберет этот актив приложения и его ручную связь с целью из списка. Обнаруженные фреймворки, сайты, Virtual Server и ManagedTarget сохраняются.',
       rollbackFromLatestSnapshot: 'Запустить откат из последнего снимка',
       rollingBack: 'Откат...',
       saving: 'Сохранение...',

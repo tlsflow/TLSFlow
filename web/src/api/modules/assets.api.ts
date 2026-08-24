@@ -25,6 +25,10 @@ export function updateServiceAsset(serviceAssetId: string, payload: ApiBody) {
   return patchAction(SERVICE_ASSETS_PATH, { ...payload, id: serviceAssetId }, 'service_asset_update')
 }
 
+export function deleteServiceAsset(serviceAssetId: string) {
+  return postAction(`${SERVICE_ASSETS_PATH}/delete`, { id: serviceAssetId }, 'service_asset_delete')
+}
+
 export function getAssetDetail(serviceAssetId: string): Promise<ApiRecordResult> {
   return apiClient.get<ApiRecord>(`${toClientPath(SERVICE_ASSETS_PATH)}/detail?serviceAssetId=${encodeURIComponent(serviceAssetId)}`)
 }

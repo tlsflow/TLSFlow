@@ -2344,6 +2344,7 @@ export default {
       detail: '詳細',
       addVariable: '追加変数',
       delete: '削除',
+      deleteRisk: '削除すると、このアプリケーションアセットと手動ターゲット関連付けが一覧から削除されます。検出されたフレームワーク、サイト、Virtual Server、ManagedTarget は保持されます。',
       rollbackFromLatestSnapshot: '最新スナップショットからロールバックを開始',
       rollingBack: 'ロールバック中...',
       saving: '保存中...',

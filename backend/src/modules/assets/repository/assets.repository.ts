@@ -87,6 +87,7 @@ export interface AssetsRepository {
   listManagedTargets(tenantId: string, query: PageQuery): Promise<PageResult<ManagedTargetDto>>;
   getManagedTarget(tenantId: string, managedTargetId: string): Promise<ManagedTargetDto | undefined>;
   getManagedTargetIncludingDeleted(tenantId: string, managedTargetId: string): Promise<ManagedTargetDto | undefined>;
+  listActiveManagedTargetsBySiteAssetId(tenantId: string, siteAssetId: string): Promise<ManagedTargetDto[]>;
   findManagedTargetByIdentity(tenantId: string, input: { agentId?: string; deviceAssetId?: string; providerType: string; targetType: string; targetKey: string }): Promise<ManagedTargetDto | undefined>;
   createApplicationAssetTarget(tenantId: string, input: CreateApplicationAssetTargetDto): Promise<ApplicationAssetTargetSummaryDto>;
   updateApplicationAssetTarget(tenantId: string, targetId: string, input: UpdateApplicationAssetTargetDto): Promise<ApplicationAssetTargetSummaryDto>;
@@ -378,6 +379,9 @@ export class PgAssetsRepository implements AssetsRepository {
     if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId });
     const targetBinding = await this.getApplicationAssetTargetByApplicationAssetId(tenantId, serviceAssetId);
     if (targetBinding) await this.deleteApplicationAssetTarget(tenantId, targetBinding.id);
+    await this.db.query(`update pg_site_assets set service_asset_id = null, updated_at = now(), version = version + 1 where tenant_id = $1 and service_asset_id = $2`, [tenantId, serviceAssetId]);
+    await this.db.query(`update pg_managed_targets set service_asset_id = null, updated_at = now(), version = version + 1 where tenant_id = $1 and service_asset_id = $2`, [tenantId, serviceAssetId]);
+    await this.db.query(`update pg_certificate_bindings set service_asset_id = null, updated_at = now(), version = version + 1 where tenant_id = $1 and service_asset_id = $2`, [tenantId, serviceAssetId]);
     const deleted = softDelete({ ...current, status: 'DELETED' as const });
     await this.db.query(`update pg_service_assets set status=$2, deleted_at=$3::timestamptz, updated_at=$4::timestamptz, version=$5 where id=$1`, [deleted.id, deleted.status, deleted.deletedAt ?? null, deleted.updatedAt, deleted.version]);
     return deleted;
@@ -662,6 +666,15 @@ export class PgAssetsRepository implements AssetsRepository {
   async getManagedTargetIncludingDeleted(tenantId: string, managedTargetId: string): Promise<ManagedTargetDto | undefined> {
     const row = (await this.db.query<ManagedTargetRow>(`select * from pg_managed_targets where id = $1 and tenant_id = $2`, [managedTargetId, tenantId])).rows[0];
     return row ? toManagedTarget(row) : undefined;
+  }
+
+  async listActiveManagedTargetsBySiteAssetId(tenantId: string, siteAssetId: string): Promise<ManagedTargetDto[]> {
+    return (await this.db.query<ManagedTargetRow>(
+      `select * from pg_managed_targets
+       where tenant_id = $1 and site_asset_id = $2 and status = 'ACTIVE' and deleted_at is null
+       order by created_at, id`,
+      [tenantId, siteAssetId],
+    )).rows.map(toManagedTarget);
   }
 
   async findManagedTargetByIdentity(tenantId: string, input: { agentId?: string; deviceAssetId?: string; providerType: string; targetType: string; targetKey: string }): Promise<ManagedTargetDto | undefined> {

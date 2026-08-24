@@ -2393,6 +2393,7 @@ export default {
       detail: 'Details',
       addVariable: 'Add variable',
       delete: 'Delete',
+      deleteRisk: 'Deleting removes this application asset and its manual target association from the asset list. Discovered frameworks, sites, virtual servers, and managed targets are preserved.',
       rollbackFromLatestSnapshot: 'Rollback from latest snapshot',
       rollingBack: 'Rolling back...',
       saving: 'Saving...',

@@ -275,7 +275,10 @@ export class AssetsController {
       status: { type: 'string', enum: assetsEnumValues.serviceAssetStatuses },
       tags: { type: 'array' },
       metadata: { type: 'object' },
+      deploymentStrategy: { type: 'object' },
       targetBinding: { type: 'object' },
+      siteAssetId: { type: 'string' },
+      certificateFormatId: { type: 'string' },
     });
     const subject = this.subjectFromRequest(request);
     await this.assertCan(subject, 'service_asset.manage', 'service_asset', request);
@@ -601,7 +604,8 @@ export class AssetsController {
 
   private async createManagedTarget(request: HttpRequest) {
     const body = validateObject(request.body, {
-      agentId: { type: 'string', required: true },
+      agentId: { type: 'string' },
+      deviceAssetId: { type: 'string' },
       hostId: { type: 'string' },
       serviceInstanceId: { type: 'string' },
       serviceAssetId: { type: 'string' },

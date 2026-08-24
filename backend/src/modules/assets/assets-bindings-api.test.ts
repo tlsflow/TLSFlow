@@ -1422,7 +1422,7 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
     assert.ok(bindingPage.items[0]!.serviceAssetId);
   });
 
-  it('ServiceAsset 支持 ApplicationAssetTarget 绑定读写与详情联表返回', async () => {
+  it('ServiceAsset 支持按 SiteAsset 自动解析 ApplicationAssetTarget 并保持绑定读写兼容', async () => {
     const app = await createMigratedApp();
     const headers = { 'x-tenant-id': 'tenant_spec012_application_asset_target', 'x-actor-id': 'user_admin' };
 
@@ -1531,25 +1531,11 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
         port: 443,
         protocol: 'HTTPS',
         platform: 'WINDOWS',
-        hostId: host.id,
-        agentId: 'agent-iis-02',
-        serviceInstanceId: service.id,
         displayName: 'Manual App Target',
-        targetBinding: {
-          agentId: 'agent-iis-02',
-          siteAssetId: siteAsset.id,
-          managedTargetId: managedTarget.id,
-          providerType: 'IIS',
-          frameworkType: 'IIS',
-          targetType: 'SITE_BINDING',
-          targetKey: managedTarget.id,
-          bindingKey: managedTarget.bindingKey,
-          status: 'ACTIVE',
-          metadata: { source: 'manual' },
-        },
+        siteAssetId: siteAsset.id,
       },
     });
-    assert.equal(created.statusCode, 201);
+    assert.equal(created.statusCode, 201, JSON.stringify(created.body));
     const createdAsset = created.body as { id: string; targetBinding?: { siteAssetId: string; managedTargetId: string; bindingKey?: string } };
     assert.equal(createdAsset.targetBinding?.siteAssetId, siteAsset.id);
     assert.equal(createdAsset.targetBinding?.managedTargetId, managedTarget.id);
@@ -1608,7 +1594,7 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
     assert.equal(detailBody.id, createdAsset.id);
     assert.equal(detailBody.targetBinding?.managedTargetId, managedTarget.id);
     assert.equal(detailBody.targetBindingDetail?.siteAsset?.id, siteAsset.id);
-    assert.equal(detailBody.targetBindingDetail?.siteAsset?.siteName, 'default web site');
+    assert.equal(detailBody.targetBindingDetail?.siteAsset?.siteName, 'Default Web Site');
     assert.equal(detailBody.targetBindingDetail?.managedTarget?.id, managedTarget.id);
     assert.equal(detailBody.targetBindingDetail?.managedTarget?.targetType, 'SITE_BINDING');
     assert.ok(detailBody.targetBindingDetail?.certificateBindings.length);

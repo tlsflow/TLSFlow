@@ -2318,6 +2318,7 @@ export default {
       detail: 'Detalhes',
       addVariable: 'Adicionar variável',
       delete: 'Excluir',
+      deleteRisk: 'A exclusão remove este ativo de aplicação e sua associação manual de destino da lista. Frameworks, sites, Virtual Servers e ManagedTargets descobertos são preservados.',
       rollbackFromLatestSnapshot: 'Iniciar reversão a partir do snapshot mais recente',
       rollingBack: 'Revertendo...',
       saving: 'Salvando...',

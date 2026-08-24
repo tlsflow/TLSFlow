@@ -3,12 +3,13 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import { ApiClientError } from '@/api/client'
-import { createManagedTarget, createServiceAsset, createServiceInstance, createSiteAsset, getAgentDetail, getAssetDetail, listAgents, listAssets, listManagedTargetSnapshots, listManagedTargets, listServiceInstances, listSiteAssets, projectWorkflowBinding, updateServiceAsset } from '@/api/modules/assets.api'
+import { createServiceAsset, deleteServiceAsset, getAssetDetail, listAgents, listAssets, listManagedTargets, listManagedTargetSnapshots, listServiceInstances, listSiteAssets, projectWorkflowBinding, updateServiceAsset } from '@/api/modules/assets.api'
 import { rollbackExecution } from '@/api/modules/executions.api'
 import { listGateways } from '@/api/modules/gateways.api'
 import { listWorkflowTemplates, listWorkflowTemplateVersions } from '@/api/modules/workflow-templates.api'
 import { listCertificateFormats } from '@/api/modules/certificates.api'
 import { listAgentPluginPackages, previewAgentPluginBinding } from '@/api/modules/plugins.api'
+import { listManagedDevices } from '@/api/modules/devices.api'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
 import type { ViewRow } from '@/composables/useBusinessPage'
 import { GcModal, GcStatusTag, GcTabs } from '@/design-system/components'
@@ -36,6 +37,9 @@ type WorkflowVariableType = 'string' | 'number' | 'boolean' | 'enum' | 'object' 
 
 interface AssetDraft {
   managementMode: AssetManagementMode
+  deviceId: string
+  hostId: string
+  serviceInstanceId: string
   address: string
   port: string
   protocol: AssetProtocol
@@ -121,41 +125,6 @@ interface WorkflowTargetInfo {
   sniName?: string
 }
 
-interface AgentBindingCandidate {
-  protocol: string
-  port?: number
-  hostHeader: string
-  bindingInformation: string
-  listenIp?: string
-}
-
-interface AgentSiteCandidate {
-  id: string
-  siteName: string
-  appPool?: string
-  physicalPath?: string
-  providerType: FrameworkType
-  hostHeader: string
-  listenIp?: string
-  port?: number
-  bindingInformation: string
-  bindings: AgentBindingCandidate[]
-  source: 'persisted' | 'agent_capability'
-}
-
-interface AgentManagedTargetCandidate {
-  id: string
-  agentId: string
-  frameworkType: FrameworkType
-  siteAssetId: string
-  targetType: string
-  targetKey: string
-  bindingKey: string
-  hostHeader: string
-  port?: number
-  source: 'agent_capability'
-}
-
 const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
 const { t } = useI18n()
 const selectedServiceAsset = ref<ViewRow | null>(null)
@@ -171,16 +140,16 @@ const createError = ref('')
 const createRequestId = ref('')
 const editingServiceAssetId = ref('')
 const editAssetDetail = ref<ApiRecord | null>(null)
-const agentListLoading = ref(false)
-const agentItems = ref<ApiRecord[]>([])
+const deviceListLoading = ref(false)
+const deviceItems = ref<ApiRecord[]>([])
+const serviceInstanceListLoading = ref(false)
+const serviceInstanceItems = ref<ApiRecord[]>([])
 const siteListLoading = ref(false)
 const siteItems = ref<ApiRecord[]>([])
 const siteListError = ref('')
 const managedTargetListLoading = ref(false)
 const managedTargetItems = ref<ApiRecord[]>([])
-const managedTargetListError = ref('')
-const fallbackSiteItems = ref<AgentSiteCandidate[]>([])
-const fallbackManagedTargetItems = ref<AgentManagedTargetCandidate[]>([])
+const targetSelectionInitializing = ref(false)
 const selectedAssetDetail = ref<ApiRecord | null>(null)
 const snapshotItems = ref<ApiRecord[]>([])
 const detailLoading = ref(false)
@@ -251,6 +220,9 @@ const workflowVariablePresets: readonly WorkflowVariablePreset[] = [
 
 const assetDraft = reactive<AssetDraft>({
   managementMode: 'MANAGED_TARGET',
+  deviceId: '',
+  hostId: '',
+  serviceInstanceId: '',
   address: '',
   port: '443',
   protocol: 'HTTPS',
@@ -347,6 +319,16 @@ const config = computed<BusinessPageConfig>(() => ({
       reloadAfterRun: false,
       run: openDetailModal,
     },
+    {
+      label: t('assets.actions.delete'),
+      permission: 'service_asset.manage',
+      danger: true,
+      confirmText: 'DELETE',
+      riskText: t('assets.actions.deleteRisk'),
+      run: async (row) => {
+        await deleteServiceAsset(String(row.raw?.id ?? row.id ?? ''))
+      },
+    },
   ],
   onSelectionChange: handleServiceAssetSelection,
 }))
@@ -366,13 +348,13 @@ const canRollbackFromSnapshot = computed(() =>
   Boolean(latestSnapshotExecutionRunId.value) && !rollbackSubmitting.value,
 )
 
-const filteredAgentItems = computed(() => {
-  const expectedOsType = assetDraft.platform === 'APPLIANCE' ? 'NETWORK_DEVICE' : assetDraft.platform
-  return agentItems.value.filter((item) => {
-    const agentOsType = String(readNested(item, ['descriptor', 'osType']) ?? item.osType ?? '').toUpperCase()
-    return agentOsType === expectedOsType
-  })
-})
+const selectedDevice = computed(() =>
+  deviceItems.value.find((item) => String(item.id ?? '') === assetDraft.deviceId) ?? null,
+)
+
+const selectedServiceInstance = computed(() =>
+  serviceInstanceItems.value.find((item) => String(item.id ?? '') === assetDraft.serviceInstanceId) ?? null,
+)
 
 const availableFrameworkOptions = computed<FrameworkType[]>(() => {
   if (assetDraft.managementMode === 'WORKFLOW') return ['NGINX', 'APACHE', 'TOMCAT', 'IIS', 'CUSTOM']
@@ -382,28 +364,9 @@ const availableFrameworkOptions = computed<FrameworkType[]>(() => {
 })
 
 const filteredSiteItems = computed(() => {
-  const persisted = siteItems.value.filter((item) => {
-    const agentId = String(item.agentId ?? '')
-    const providerType = String(item.providerType ?? '').toUpperCase()
-    return (!assetDraft.agentId || agentId === assetDraft.agentId)
-      && (!assetDraft.frameworkType || providerType === assetDraft.frameworkType)
-  })
-  if (persisted.length > 0) return persisted
-  return fallbackSiteItems.value as unknown as ApiRecord[]
-})
-
-const filteredManagedTargetItems = computed(() => {
-  const persisted = managedTargetItems.value.filter((item) => {
-    const agentId = String(item.agentId ?? '')
-    const frameworkType = String(item.frameworkType ?? '').toUpperCase()
-    const siteAssetId = String(item.siteAssetId ?? '')
-    return (!assetDraft.agentId || agentId === assetDraft.agentId)
-      && (!assetDraft.frameworkType || frameworkType === assetDraft.frameworkType)
-      && (!assetDraft.siteAssetId || siteAssetId === assetDraft.siteAssetId)
-  })
-  if (persisted.length > 0) return persisted
-  return fallbackManagedTargetItems.value
-    .filter((item) => !assetDraft.siteAssetId || item.siteAssetId === assetDraft.siteAssetId) as unknown as ApiRecord[]
+  return siteItems.value.filter((item) =>
+    !assetDraft.serviceInstanceId || String(item.serviceInstanceId ?? '') === assetDraft.serviceInstanceId,
+  )
 })
 
 const selectedSiteAsset = computed(() =>
@@ -411,7 +374,7 @@ const selectedSiteAsset = computed(() =>
 )
 
 const selectedManagedTarget = computed(() =>
-  filteredManagedTargetItems.value.find((item) => String(item.id ?? '') === assetDraft.managedTargetId) ?? null,
+  managedTargetItems.value.find((item) => String(item.id ?? '') === assetDraft.managedTargetId) ?? null,
 )
 
 const editAgentLabel = computed(() => {
@@ -582,7 +545,11 @@ const commonStepReady = computed(() => {
 
 const agentStepReady = computed(() => {
   if (assetDraft.managementMode !== 'MANAGED_TARGET') return true
-  return Boolean(assetDraft.managedTargetId.trim() && assetDraft.agentCertificateFormatId.trim())
+  return Boolean(
+    assetDraft.siteAssetId.trim()
+    && assetDraft.agentCertificateFormatId.trim()
+    && (!isEditMode.value || assetDraft.managedTargetId.trim()),
+  )
 })
 
 const compatibleAgentPluginPackages = computed(() => agentPluginPackageItems.value.filter((item) => {
@@ -668,7 +635,7 @@ async function openCreateDialog() {
   createDialogOpen.value = true
   createError.value = ''
   createRequestId.value = ''
-  await Promise.all([loadAgents(), loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
+  await Promise.all([loadDevices(), loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
 }
 
 async function openEditDialog(row: ViewRow) {
@@ -678,6 +645,9 @@ async function openEditDialog(row: ViewRow) {
   const detail = await getAssetDetail(editingServiceAssetId.value)
   editAssetDetail.value = detail.data ?? null
   const source = detail.data ?? row.raw
+  targetSelectionInitializing.value = true
+  assetDraft.hostId = String(readNested(source, ['hostId']) ?? '')
+  assetDraft.serviceInstanceId = String(readNested(source, ['serviceInstanceId']) ?? '')
   assetDraft.address = String(readNested(source, ['address']) ?? '')
   assetDraft.port = String(readNested(source, ['port']) ?? '443')
   assetDraft.protocol = String(readNested(source, ['protocol']) ?? 'HTTPS') as AssetProtocol
@@ -692,6 +662,18 @@ async function openEditDialog(row: ViewRow) {
   assetDraft.siteAssetId = String(readNested(source, ['targetBinding', 'siteAssetId']) ?? '')
   assetDraft.managedTargetId = String(readNested(source, ['targetBinding', 'managedTargetId']) ?? '')
   const deploymentStrategy = readDeploymentStrategy(source)
+  const managedTargetStrategy = readRecord(readNested(deploymentStrategy, ['managedTarget']))
+  const legacyAgentStrategy = readRecord(readNested(deploymentStrategy, ['agent']))
+  assetDraft.siteAssetId = String(
+    readNested(managedTargetStrategy, ['siteAssetId'])
+      ?? readNested(legacyAgentStrategy, ['siteAssetId'])
+      ?? assetDraft.siteAssetId,
+  )
+  assetDraft.managedTargetId = String(
+    readNested(managedTargetStrategy, ['managedTargetId'])
+      ?? readNested(legacyAgentStrategy, ['managedTargetId'])
+      ?? assetDraft.managedTargetId,
+  )
   assetDraft.managementMode = resolveDeploymentStrategyMode(deploymentStrategy)
   if (assetDraft.managementMode === 'WORKFLOW') {
     const variableBindings = readRecord(readNested(deploymentStrategy, ['workflow', 'parameterBindings']))
@@ -720,20 +702,35 @@ async function openEditDialog(row: ViewRow) {
     workflowCertificateArtifactBindings.value = readWorkflowCertificateArtifactBindingsFromAsset(source, deploymentStrategy)
   } else {
     assetDraft.managementMode = 'MANAGED_TARGET'
-    assetDraft.agentId = String(readNested(deploymentStrategy, ['agent', 'agentId']) ?? assetDraft.agentId)
-    assetDraft.agentDeploymentMode = String(readNested(deploymentStrategy, ['agent', 'mode']) ?? 'NATIVE_HANDLER') as AgentDeploymentMode
-    assetDraft.agentPluginPackageId = String(readNested(deploymentStrategy, ['agent', 'plugin', 'pluginPackageId']) ?? '')
-    assetDraft.siteAssetId = String(readNested(deploymentStrategy, ['agent', 'siteAssetId']) ?? assetDraft.siteAssetId)
-    assetDraft.managedTargetId = String(readNested(deploymentStrategy, ['agent', 'managedTargetId']) ?? assetDraft.managedTargetId)
-    assetDraft.agentCertificateFormatId = String(readNested(deploymentStrategy, ['agent', 'certificateFormatId']) ?? '')
-    agentPluginVariableBindings.value = stringifyBindingValues(readRecord(readNested(deploymentStrategy, ['agent', 'plugin', 'variableBindings'])) ?? {})
-    agentPluginSecretBindings.value = stringifyBindingValues(readRecord(readNested(deploymentStrategy, ['agent', 'plugin', 'secretBindings'])) ?? {})
-    agentPluginArtifactBindings.value = stringifyArtifactBindings(readRecord(readNested(deploymentStrategy, ['agent', 'plugin', 'certificateArtifactBindings'])) ?? {})
+    assetDraft.agentId = String(readNested(legacyAgentStrategy, ['agentId']) ?? assetDraft.agentId)
+    assetDraft.agentDeploymentMode = String(readNested(legacyAgentStrategy, ['mode']) ?? readNested(managedTargetStrategy, ['deploymentMode']) ?? 'NATIVE_HANDLER') as AgentDeploymentMode
+    assetDraft.agentPluginPackageId = String(readNested(legacyAgentStrategy, ['plugin', 'pluginPackageId']) ?? '')
+    assetDraft.agentCertificateFormatId = String(
+      readNested(managedTargetStrategy, ['certificateFormatId'])
+        ?? readNested(legacyAgentStrategy, ['certificateFormatId'])
+        ?? '',
+    )
+    agentPluginVariableBindings.value = stringifyBindingValues(readRecord(readNested(legacyAgentStrategy, ['plugin', 'variableBindings'])) ?? {})
+    agentPluginSecretBindings.value = stringifyBindingValues(readRecord(readNested(legacyAgentStrategy, ['plugin', 'secretBindings'])) ?? {})
+    agentPluginArtifactBindings.value = stringifyArtifactBindings(readRecord(readNested(legacyAgentStrategy, ['plugin', 'certificateArtifactBindings'])) ?? {})
   }
+  if (!assetDraft.hostId) {
+    assetDraft.hostId = String(
+      readNested(source, ['targetBindingDetail', 'managedTarget', 'hostId'])
+        ?? readNested(source, ['targetBindingDetail', 'siteAsset', 'hostId'])
+        ?? '',
+    )
+  }
+  assetDraft.deviceId = assetDraft.hostId
+  await loadDevices()
+  await loadServiceInstances(assetDraft.hostId)
+  await refreshAssetTargets()
+  await loadManagedTargets(assetDraft.siteAssetId)
+  targetSelectionInitializing.value = false
   createDialogOpen.value = true
   createError.value = ''
   createRequestId.value = ''
-  await Promise.all([loadAgents(), loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow(), loadAgentPlugins()])
+  await Promise.all([loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow(), loadAgentPlugins()])
   if (assetDraft.workflowId) await loadWorkflowVersions(assetDraft.workflowId)
   if (selectedWorkflowVersion.value) syncWorkflowVariableRowsFromVersion()
 }
@@ -743,16 +740,6 @@ function closeCreateDialog() {
     createDialogOpen.value = false
     editingServiceAssetId.value = ''
     editAssetDetail.value = null
-  }
-}
-
-async function loadAgents() {
-  agentListLoading.value = true
-  try {
-    const result = await listAgents({ page: 1, pageSize: 200, sort: 'updatedAt:desc' })
-    agentItems.value = [...(result.data?.items ?? [])]
-  } finally {
-    agentListLoading.value = false
   }
 }
 
@@ -803,6 +790,41 @@ async function loadWorkflowVersions(workflowId: string) {
       : cause instanceof Error ? cause.message : t('assets.errors.loadWorkflowVersionsFailed')
   } finally {
     workflowVersionListLoading.value = false
+  }
+}
+
+async function loadDevices() {
+  deviceListLoading.value = true
+  try {
+    const result = await listManagedDevices({ page: 1, pageSize: 200, sort: 'displayName:asc' })
+    deviceItems.value = [...(result.data?.items ?? [])]
+  } catch (cause) {
+    deviceItems.value = []
+    createError.value = cause instanceof ApiClientError
+      ? cause.message
+      : cause instanceof Error ? cause.message : t('assets.errors.loadTargetsFailed')
+  } finally {
+    deviceListLoading.value = false
+  }
+}
+
+async function loadServiceInstances(hostId: string) {
+  serviceInstanceListLoading.value = true
+  serviceInstanceItems.value = []
+  if (!hostId) {
+    serviceInstanceListLoading.value = false
+    return
+  }
+  try {
+    const result = await listServiceInstances({
+      page: 1,
+      pageSize: 200,
+      sort: 'updatedAt:desc',
+      filters: { hostId },
+    })
+    serviceInstanceItems.value = [...(result.data?.items ?? [])]
+  } finally {
+    serviceInstanceListLoading.value = false
   }
 }
 
@@ -962,19 +984,15 @@ async function rollbackFromLatestSnapshot() {
 
 async function refreshAssetTargets() {
   siteListLoading.value = true
-  managedTargetListLoading.value = true
   siteListError.value = ''
-  managedTargetListError.value = ''
   siteItems.value = []
-  managedTargetItems.value = []
-  fallbackSiteItems.value = []
-  fallbackManagedTargetItems.value = []
-  const agentId = assetDraft.agentId.trim()
-  const frameworkType = assetDraft.frameworkType.trim()
-  const siteAssetId = assetDraft.siteAssetId.trim()
-  if (!agentId || !frameworkType) {
+  const hostId = assetDraft.hostId.trim()
+  const serviceInstanceId = assetDraft.serviceInstanceId.trim()
+  if (!hostId) {
+    serviceInstanceItems.value = []
+  }
+  if (!serviceInstanceId) {
     siteListLoading.value = false
-    managedTargetListLoading.value = false
     return
   }
   try {
@@ -982,41 +1000,53 @@ async function refreshAssetTargets() {
       page: 1,
       pageSize: 200,
       sort: 'updatedAt:desc',
-      filters: {
-        agentId,
-        providerType: frameworkType,
-      },
+      filters: { serviceInstanceId },
     })
     siteItems.value = [...(siteResult.data?.items ?? [])]
-    if (siteItems.value.length === 0) {
-      fallbackSiteItems.value = await loadAgentSiteCandidates(agentId, frameworkType as FrameworkType)
-      fallbackManagedTargetItems.value = buildFallbackManagedTargetCandidates(agentId, fallbackSiteItems.value)
-    }
-    if (!siteAssetId) return
-    const targetResult = await listManagedTargets({
+  } catch (cause) {
+    siteListError.value = cause instanceof ApiClientError
+      ? cause.message
+      : cause instanceof Error ? cause.message : t('assets.errors.loadTargetsFailed')
+  } finally {
+    siteListLoading.value = false
+  }
+}
+
+async function loadManagedTargets(siteAssetId: string) {
+  managedTargetListLoading.value = true
+  managedTargetItems.value = []
+  if (!siteAssetId) {
+    managedTargetListLoading.value = false
+    return
+  }
+  try {
+    const result = await listManagedTargets({
       page: 1,
       pageSize: 200,
       sort: 'updatedAt:desc',
-      filters: {
-        agentId,
-        frameworkType,
-        siteAssetId,
-      },
+      filters: { siteAssetId },
     })
-    managedTargetItems.value = [...(targetResult.data?.items ?? [])]
-  } catch (cause) {
-    if (cause instanceof ApiClientError) {
-      siteListError.value = cause.message
-      managedTargetListError.value = cause.message
-    } else {
-      const message = cause instanceof Error ? cause.message : t('assets.errors.loadTargetsFailed')
-      siteListError.value = message
-      managedTargetListError.value = message
+    managedTargetItems.value = [...(result.data?.items ?? [])]
+    if (assetDraft.managedTargetId && !managedTargetItems.value.some((item) => String(item.id ?? '') === assetDraft.managedTargetId)) {
+      assetDraft.managedTargetId = ''
+    }
+    if (!assetDraft.managedTargetId && managedTargetItems.value.length === 1) {
+      assetDraft.managedTargetId = String(managedTargetItems.value[0]?.id ?? '')
     }
   } finally {
-    siteListLoading.value = false
     managedTargetListLoading.value = false
   }
+}
+
+async function refreshServiceInstancesForDevice() {
+  assetDraft.serviceInstanceId = ''
+  assetDraft.siteAssetId = ''
+  assetDraft.managedTargetId = ''
+  siteItems.value = []
+  const device = selectedDevice.value
+  assetDraft.hostId = String(device?.id ?? '')
+  assetDraft.agentId = String(device?.agentId ?? '')
+  await loadServiceInstances(assetDraft.hostId)
 }
 
 async function submitCreate() {
@@ -1036,11 +1066,22 @@ async function submitCreate() {
       sniName: workflowTarget?.sniName ?? undefined,
       environment: assetDraft.environment.trim() || undefined,
       tags: splitCsv(assetDraft.tagsText),
-      deploymentStrategy: buildDeploymentStrategyPayload(workflowTarget ?? undefined),
+      deploymentStrategy: assetDraft.managementMode === 'WORKFLOW' || isEditMode.value
+        ? buildDeploymentStrategyPayload(workflowTarget ?? undefined)
+        : undefined,
     }
     if (isEditMode.value) {
+      const targetBinding = assetDraft.managementMode === 'MANAGED_TARGET'
+        ? buildManagedTargetBindingPayload()
+        : undefined
       const result = await updateServiceAsset(editingServiceAssetId.value, {
         ...basePayload,
+        ...(assetDraft.managementMode === 'MANAGED_TARGET' ? {
+          hostId: assetDraft.hostId.trim() || undefined,
+          serviceInstanceId: assetDraft.serviceInstanceId.trim() || undefined,
+          agentId: selectedManagedTarget.value?.agentId ?? (assetDraft.agentId.trim() || undefined),
+        } : {}),
+        ...(targetBinding ? { targetBinding } : {}),
         ...(workflowTarget ? { metadata: { ...(readRecord(readNested(editAssetDetail.value, ['metadata'])) ?? {}), workflowTarget } } : {}),
       })
       createRequestId.value = result.requestId
@@ -1061,30 +1102,13 @@ async function submitCreate() {
       await pageRef.value?.reload()
       return
     }
-    const resolvedBinding = await ensureTargetBindingResources()
     const result = await createServiceAsset({
       ...basePayload,
-      agentId: assetDraft.agentId.trim(),
       discoverySource: 'MANUAL',
       status: 'ACTIVE',
       metadata: {},
-      targetBinding: {
-        agentId: assetDraft.agentId.trim(),
-        siteAssetId: resolvedBinding.siteAssetId,
-        managedTargetId: resolvedBinding.managedTargetId,
-        providerType: assetDraft.frameworkType,
-        frameworkType: assetDraft.frameworkType,
-        targetType: String(resolvedBinding.targetType),
-        targetKey: String(resolvedBinding.targetKey),
-        bindingKey: String(resolvedBinding.bindingKey ?? ''),
-        status: 'ACTIVE',
-        metadata: {
-          siteName: resolvedBinding.siteName,
-          bindingInformation: resolvedBinding.bindingInformation,
-          hostHeader: resolvedBinding.hostHeader,
-          port: resolvedBinding.port,
-        },
-      },
+      siteAssetId: assetDraft.siteAssetId.trim(),
+      certificateFormatId: assetDraft.agentCertificateFormatId.trim() || undefined,
     })
     createRequestId.value = result.requestId
     createDialogOpen.value = false
@@ -1105,6 +1129,9 @@ function resetDraft() {
   editAssetDetail.value = null
   assetWizardStep.value = 1
   assetDraft.managementMode = 'MANAGED_TARGET'
+  assetDraft.deviceId = ''
+  assetDraft.hostId = ''
+  assetDraft.serviceInstanceId = ''
   assetDraft.address = ''
   assetDraft.port = '443'
   assetDraft.protocol = 'HTTPS'
@@ -1135,12 +1162,11 @@ function resetDraft() {
   workflowAdvancedExpanded.value = false
   workflowTargetAdvancedExpanded.value = false
   workflowVariablePresetName.value = ''
+  serviceInstanceItems.value = []
   siteItems.value = []
   managedTargetItems.value = []
-  fallbackSiteItems.value = []
-  fallbackManagedTargetItems.value = []
+  targetSelectionInitializing.value = false
   siteListError.value = ''
-  managedTargetListError.value = ''
   workflowVersionItems.value = []
   workflowListError.value = ''
   workflowVersionListError.value = ''
@@ -1213,6 +1239,25 @@ function buildDeploymentStrategyPayload(workflowTarget?: WorkflowTargetInfo): Re
 
   return {
     ...buildManagedTargetDeploymentStrategy(assetDraft.managedTargetId, assetDraft.agentCertificateFormatId),
+  }
+}
+
+function buildManagedTargetBindingPayload(): Record<string, unknown> | undefined {
+  const target = selectedManagedTarget.value
+    ?? readRecord(readNested(editAssetDetail.value, ['targetBindingDetail', 'managedTarget']))
+  if (!target || !assetDraft.siteAssetId.trim() || !assetDraft.managedTargetId.trim()) return undefined
+  return {
+    agentId: target.agentId ?? (assetDraft.agentId.trim() || undefined),
+    deviceAssetId: target.deviceAssetId ?? (assetDraft.deviceId.trim() || undefined),
+    siteAssetId: assetDraft.siteAssetId.trim(),
+    managedTargetId: assetDraft.managedTargetId.trim(),
+    providerType: target.providerType ?? assetDraft.frameworkType,
+    frameworkType: target.frameworkType ?? assetDraft.frameworkType,
+    targetType: target.targetType,
+    targetKey: target.targetKey,
+    bindingKey: target.bindingKey,
+    status: 'ACTIVE',
+    metadata: readRecord(target.metadata) ?? {},
   }
 }
 
@@ -1889,296 +1934,11 @@ function detailFieldValue(candidates: readonly string[]): unknown {
   return undefined
 }
 
-function agentLabel(agent: ApiRecord): string {
-  const hostname = String(readNested(agent, ['descriptor', 'hostname']) ?? agent.hostname ?? agent.id ?? '')
-  const osType = String(readNested(agent, ['descriptor', 'osType']) ?? agent.osType ?? '')
-  return `${hostname} (${osType})`
-}
-
 function siteLabel(site: ApiRecord): string {
   const siteName = String(site.siteName ?? site.id ?? '')
   const hostHeader = String(site.hostHeader ?? '')
   const bindingInformation = String(site.bindingInformation ?? '')
   return hostHeader ? `${siteName} (${hostHeader})` : `${siteName} (${bindingInformation || t('assets.empty.noBindingInformation')})`
-}
-
-async function loadAgentSiteCandidates(agentId: string, frameworkType: FrameworkType): Promise<AgentSiteCandidate[]> {
-  const detail = await getAgentDetail(agentId)
-  const sites = frameworkType === 'IIS'
-    ? readAgentIisSites(detail.data)
-    : readAgentLinuxSites(detail.data, frameworkType)
-  return sites
-    .filter((site) => site.bindings.length > 0)
-    .map((site, index) => {
-      const preferred = site.bindings.find((binding) => binding.protocol.toUpperCase() === 'HTTPS') ?? site.bindings[0]
-      return {
-        id: `agent-site:${agentId}:${index}:${site.siteName}:${preferred.bindingInformation}`,
-        siteName: site.siteName,
-        appPool: site.appPool,
-        physicalPath: site.physicalPath,
-        providerType: frameworkType,
-        hostHeader: preferred.hostHeader,
-        port: preferred.port,
-        bindingInformation: preferred.bindingInformation,
-        bindings: site.bindings,
-        source: 'agent_capability',
-      }
-    })
-}
-
-function readAgentIisSites(agentDetail: ApiRecord | undefined): Array<{
-  siteName: string
-  physicalPath?: string
-  appPool?: string
-  bindings: AgentBindingCandidate[]
-}> {
-  const snapshot = readNested(agentDetail, ['capabilitySnapshot', 'capabilities'])
-  if (!Array.isArray(snapshot)) return []
-  const iisSitesCapability = snapshot.find((item) =>
-    item && typeof item === 'object' && String((item as Record<string, unknown>).capabilityKey ?? '') === 'windows.iis.sites')
-  const rawSites = readNested(iisSitesCapability, ['value'])
-  if (!Array.isArray(rawSites)) return []
-  return rawSites
-    .filter((site): site is Record<string, unknown> => Boolean(site) && typeof site === 'object')
-    .map((site, index) => {
-      const siteName = String(readNested(site, ['Name']) ?? readNested(site, ['name']) ?? `site-${index + 1}`)
-      const physicalPath = String(readNested(site, ['PhysicalPath']) ?? readNested(site, ['physicalPath']) ?? '')
-      const appPool = String(readNested(site, ['AppPool']) ?? readNested(site, ['appPool']) ?? '')
-      const bindingsRaw = readNested(site, ['Bindings']) ?? readNested(site, ['bindings'])
-      const bindings = Array.isArray(bindingsRaw)
-        ? bindingsRaw
-            .filter((binding): binding is Record<string, unknown> => Boolean(binding) && typeof binding === 'object')
-            .map((binding) => {
-              const protocol = String(readNested(binding, ['Protocol']) ?? readNested(binding, ['protocol']) ?? '')
-              const port = Number(readNested(binding, ['Port']) ?? readNested(binding, ['port']) ?? 0) || undefined
-              const hostHeader = String(readNested(binding, ['HostHeader']) ?? readNested(binding, ['hostHeader']) ?? '')
-              const ip = String(readNested(binding, ['Ip']) ?? readNested(binding, ['ip']) ?? '*')
-              return {
-                protocol,
-                port,
-                hostHeader,
-                bindingInformation: `${ip}:${port ?? ''}:${hostHeader}`,
-              }
-            })
-        : []
-      return { siteName, physicalPath, appPool, bindings }
-    })
-}
-
-function readAgentLinuxSites(agentDetail: ApiRecord | undefined, frameworkType: Exclude<FrameworkType, 'IIS'>): Array<{
-  siteName: string
-  physicalPath?: string
-  appPool?: string
-  bindings: AgentBindingCandidate[]
-}> {
-  const capabilityKey = frameworkType === 'NGINX'
-    ? 'linux.nginx.detail'
-    : frameworkType === 'APACHE'
-      ? 'linux.apache.detail'
-      : 'linux.tomcat.detail'
-  const detail = readAgentCapabilityRecord(agentDetail, capabilityKey)
-  if (frameworkType === 'TOMCAT') {
-    const connectorsRaw = readNested(detail, ['Connectors']) ?? readNested(detail, ['connectors'])
-    const bindings = Array.isArray(connectorsRaw)
-      ? connectorsRaw
-          .filter((connector): connector is Record<string, unknown> => Boolean(connector) && typeof connector === 'object')
-          .map((connector, index) => {
-            const protocol = String(readNested(connector, ['Protocol']) ?? readNested(connector, ['protocol']) ?? '')
-            const port = Number(readNested(connector, ['Port']) ?? readNested(connector, ['port']) ?? 0) || undefined
-            const address = String(readNested(connector, ['Address']) ?? readNested(connector, ['address']) ?? '*')
-            const hostHeader = address && address !== '*' ? address : `connector-${index + 1}`
-            return {
-              protocol,
-              port,
-              hostHeader,
-              listenIp: address,
-              bindingInformation: `${address}:${port ?? ''}:${hostHeader}`,
-            }
-          })
-      : []
-    return bindings.length > 0
-      ? [{
-          siteName: 'Tomcat Connector',
-          physicalPath: String(readNested(detail, ['ConfigPath']) ?? readNested(detail, ['configPath']) ?? ''),
-          bindings,
-        }]
-      : []
-  }
-
-  const rawSites = readNested(detail, ['Sites']) ?? readNested(detail, ['sites'])
-  if (!Array.isArray(rawSites)) return []
-  return rawSites
-    .filter((site): site is Record<string, unknown> => Boolean(site) && typeof site === 'object')
-    .map((site, index) => {
-      const siteName = String(readNested(site, ['Name']) ?? readNested(site, ['name']) ?? `site-${index + 1}`)
-      const physicalPath = String(readNested(site, ['SitePath']) ?? readNested(site, ['sitePath']) ?? '')
-      const serverNamesRaw = readNested(site, ['ServerNames']) ?? readNested(site, ['serverNames'])
-      const serverNames = Array.isArray(serverNamesRaw)
-        ? serverNamesRaw.map((item) => String(item ?? '').trim()).filter(Boolean)
-        : []
-      const bindingsRaw = readNested(site, ['Listen']) ?? readNested(site, ['listen'])
-      const bindings = Array.isArray(bindingsRaw)
-        ? bindingsRaw
-            .filter((binding): binding is Record<string, unknown> => Boolean(binding) && typeof binding === 'object')
-            .map((binding) => {
-              const protocol = String(readNested(binding, ['Protocol']) ?? readNested(binding, ['protocol']) ?? '')
-              const port = Number(readNested(binding, ['Port']) ?? readNested(binding, ['port']) ?? 0) || undefined
-              const address = String(readNested(binding, ['Address']) ?? readNested(binding, ['address']) ?? '*')
-              const hostHeader = serverNames[0] || siteName
-              return {
-                protocol,
-                port,
-                hostHeader,
-                listenIp: address,
-                bindingInformation: `${address}:${port ?? ''}:${hostHeader}`,
-              }
-            })
-        : []
-      return { siteName, physicalPath, bindings }
-    })
-}
-
-function readAgentCapabilityRecord(agentDetail: ApiRecord | undefined, capabilityKey: string): Record<string, unknown> {
-  const snapshot = readNested(agentDetail, ['capabilitySnapshot', 'capabilities'])
-  if (!Array.isArray(snapshot)) return {}
-  const capability = snapshot.find((item) =>
-    item && typeof item === 'object' && String((item as Record<string, unknown>).capabilityKey ?? '') === capabilityKey)
-  const value = readNested(capability, ['value'])
-  return value && typeof value === 'object' ? value as Record<string, unknown> : {}
-}
-
-function buildFallbackManagedTargetCandidates(
-  agentId: string,
-  sites: AgentSiteCandidate[],
-): AgentManagedTargetCandidate[] {
-  return sites.map((site) => ({
-    id: `agent-target:${agentId}:${site.siteName}:${site.bindingInformation}`.toLowerCase(),
-    agentId,
-    frameworkType: site.providerType,
-    siteAssetId: site.id,
-    targetType: 'SITE_BINDING',
-    targetKey: `${agentId}:site-binding:${site.siteName}:${site.bindingInformation}`.toLowerCase(),
-    bindingKey: site.bindingInformation,
-    hostHeader: site.hostHeader,
-    port: site.port,
-    source: 'agent_capability',
-  }))
-}
-
-async function ensureTargetBindingResources(): Promise<{
-  siteAssetId: string
-  managedTargetId: string
-  targetType: string
-  targetKey: string
-  bindingKey?: string
-  siteName: string
-  bindingInformation: string
-  hostHeader: string
-  port?: number
-}> {
-  if (selectedManagedTarget.value && selectedSiteAsset.value && !String(selectedSiteAsset.value.id ?? '').startsWith('agent-site:')) {
-    return {
-      siteAssetId: String(selectedSiteAsset.value.id ?? assetDraft.siteAssetId.trim()),
-      managedTargetId: String(selectedManagedTarget.value.id ?? assetDraft.managedTargetId.trim()),
-      targetType: String(selectedManagedTarget.value.targetType ?? 'SITE_BINDING'),
-      targetKey: String(selectedManagedTarget.value.targetKey ?? assetDraft.managedTargetId.trim()),
-      bindingKey: String(selectedManagedTarget.value.bindingKey ?? ''),
-      siteName: String(selectedSiteAsset.value.siteName ?? ''),
-      bindingInformation: String(selectedSiteAsset.value.bindingInformation ?? ''),
-      hostHeader: String(selectedSiteAsset.value.hostHeader ?? ''),
-      port: Number(selectedSiteAsset.value.port ?? 0) || undefined,
-    }
-  }
-
-  const fallbackSite = fallbackSiteItems.value.find((item) => item.id === assetDraft.siteAssetId.trim())
-  if (!fallbackSite) {
-    throw new Error(t('assets.errors.noAvailableSiteInstance'))
-  }
-
-  const agentId = assetDraft.agentId.trim()
-  const frameworkType = assetDraft.frameworkType.trim() as FrameworkType
-  let serviceInstance = (await listServiceInstances({
-    page: 1,
-    pageSize: 50,
-    filters: { providerType: frameworkType },
-  })).data?.items?.[0]
-  if (serviceInstance) {
-    const candidate = serviceInstance as ApiRecord
-    const candidateAgentId = String(candidate.agentId ?? readNested(candidate, ['rawFacts', 'agentId']) ?? '')
-    serviceInstance = candidateAgentId === agentId ? candidate : undefined
-  }
-  if (!serviceInstance?.id) {
-    const createdService = await createServiceInstance({
-      providerType: frameworkType,
-      serviceName: frameworkType.toLowerCase(),
-      displayName: frameworkType,
-      providerKey: `${frameworkType.toLowerCase()}:${agentId}`,
-      configPath: fallbackSite.physicalPath || undefined,
-      rawFacts: {
-        agentId,
-      },
-    })
-    serviceInstance = createdService.data
-  }
-
-  const createdSite = await createSiteAsset({
-    serviceInstanceId: String(serviceInstance?.id),
-    agentId,
-    providerType: frameworkType,
-    siteType: 'WEB_SITE',
-    siteName: fallbackSite.siteName,
-    siteKey: `${agentId}:${frameworkType.toLowerCase()}:${fallbackSite.siteName}:${fallbackSite.bindingInformation}`.toLowerCase(),
-    bindingInformation: fallbackSite.bindingInformation,
-    hostHeader: fallbackSite.hostHeader || undefined,
-    listenIp: fallbackSite.listenIp || fallbackSite.bindingInformation.split(':')[0] || '*',
-    port: fallbackSite.port,
-    protocol: fallbackSite.bindings.find((binding) => binding.bindingInformation === fallbackSite.bindingInformation)?.protocol?.toUpperCase() as AssetProtocol || 'HTTPS',
-    configPath: fallbackSite.physicalPath || undefined,
-    metadata: {
-      appPool: fallbackSite.appPool,
-      providerType: frameworkType,
-      source: 'agent_capability_fallback',
-    },
-  })
-
-  const createdTarget = await createManagedTarget({
-    agentId,
-    serviceInstanceId: String(serviceInstance?.id),
-    siteAssetId: String(createdSite.data?.id),
-    providerType: frameworkType,
-    frameworkType,
-    targetType: 'SITE_BINDING',
-    targetKey: `${agentId}:site-binding:${fallbackSite.siteName}:${fallbackSite.bindingInformation}`.toLowerCase(),
-    bindingKey: fallbackSite.bindingInformation,
-    capabilityProfile: {
-      providerType: frameworkType,
-      bindingInformation: fallbackSite.bindingInformation,
-      hostHeader: fallbackSite.hostHeader,
-      port: fallbackSite.port,
-      source: 'agent_capability_fallback',
-    },
-    status: 'ACTIVE',
-    metadata: {},
-  })
-
-  return {
-    siteAssetId: String(createdSite.data?.id),
-    managedTargetId: String(createdTarget.data?.id),
-    targetType: String(createdTarget.data?.targetType ?? 'SITE_BINDING'),
-    targetKey: String(createdTarget.data?.targetKey ?? ''),
-    bindingKey: String(createdTarget.data?.bindingKey ?? fallbackSite.bindingInformation),
-    siteName: fallbackSite.siteName,
-    bindingInformation: fallbackSite.bindingInformation,
-    hostHeader: fallbackSite.hostHeader,
-    port: fallbackSite.port,
-  }
-}
-
-function managedTargetLabel(target: ApiRecord): string {
-  const targetType = String(target.targetType ?? 'UNKNOWN')
-  const bindingKey = String(target.bindingKey ?? '')
-  const targetKey = String(target.targetKey ?? target.id ?? '')
-  return bindingKey ? `${targetType} (${bindingKey})` : `${targetType} (${targetKey})`
 }
 
 function certificateVersionLabel(versionId: string): string {
@@ -2208,7 +1968,7 @@ watch(
   () => assetDraft.managementMode,
   async (mode) => {
     if (mode === 'MANAGED_TARGET') {
-      await loadAgents()
+      await loadDevices()
       return
     }
     await Promise.all([loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
@@ -2297,23 +2057,28 @@ watch(
     assetDraft.siteAssetId = ''
     assetDraft.managedTargetId = ''
     siteItems.value = []
-    managedTargetItems.value = []
-    fallbackManagedTargetItems.value = []
     clearIncompatibleAgentPluginSelection()
     await refreshAssetTargets()
   },
 )
 
 watch(
-  () => assetDraft.agentId,
+  () => assetDraft.deviceId,
   async () => {
-    if (isEditMode.value) return
+    if (targetSelectionInitializing.value) return
+    await refreshServiceInstancesForDevice()
+  },
+)
+
+watch(
+  () => assetDraft.serviceInstanceId,
+  async () => {
+    if (targetSelectionInitializing.value) return
+    const service = selectedServiceInstance.value
+    assetDraft.frameworkType = String(service?.providerType ?? 'CUSTOM').toUpperCase() as FrameworkType
     assetDraft.siteAssetId = ''
     assetDraft.managedTargetId = ''
-    managedTargetItems.value = []
-    fallbackManagedTargetItems.value = []
-    if (assetDraft.agentDeploymentMode === 'PLUGIN') await loadAgentPlugins()
-    else await refreshAssetTargets()
+    await refreshAssetTargets()
   },
 )
 
@@ -2334,10 +2099,9 @@ watch(
       syncWorkflowTargetVariableRowsFromDraft()
       return
     }
+    if (assetDraft.managementMode === 'MANAGED_TARGET') return
     assetDraft.siteAssetId = ''
     assetDraft.managedTargetId = ''
-    managedTargetItems.value = []
-    fallbackManagedTargetItems.value = []
     clearIncompatibleAgentPluginSelection()
     await refreshAssetTargets()
   },
@@ -2346,17 +2110,9 @@ watch(
 watch(
   () => assetDraft.siteAssetId,
   async () => {
-    if (isEditMode.value) return
+    if (targetSelectionInitializing.value) return
     assetDraft.managedTargetId = ''
-    await refreshAssetTargets()
-    if (!assetDraft.siteAssetId || assetDraft.managedTargetId) return
-    if (managedTargetItems.value.length === 1) {
-      assetDraft.managedTargetId = String(managedTargetItems.value[0]?.id ?? '')
-      return
-    }
-    if (fallbackManagedTargetItems.value.length === 1) {
-      assetDraft.managedTargetId = String(fallbackManagedTargetItems.value[0]?.id ?? '')
-    }
+    await loadManagedTargets(assetDraft.siteAssetId)
   },
 )
 
@@ -2364,6 +2120,26 @@ async function loadAgentPlugins(): Promise<void> {
   const packageResult = await listAgentPluginPackages({ page: 1, pageSize: 500 })
   agentPluginPackageItems.value = [...(packageResult.data?.items ?? [])]
   clearIncompatibleAgentPluginSelection()
+}
+
+function deviceLabel(device: ApiRecord): string {
+  const name = String(device.displayName ?? device.hostname ?? device.primaryIp ?? device.id ?? '')
+  const type = String(device.productFamily ?? device.deviceType ?? device.extensionType ?? '')
+  return type ? `${name} (${type})` : name
+}
+
+function serviceInstanceLabel(service: ApiRecord): string {
+  const name = String(service.displayName ?? service.serviceName ?? service.id ?? '')
+  const provider = String(service.providerType ?? '')
+  return provider ? `${name} (${provider})` : name
+}
+
+function managedTargetLabel(target: ApiRecord): string {
+  const targetType = String(target.targetType ?? '')
+  const bindingKey = String(target.bindingKey ?? '')
+  const targetKey = String(target.targetKey ?? '')
+  if (targetType && bindingKey) return `${targetType} (${bindingKey})`
+  return targetType || bindingKey || targetKey || String(target.id ?? '')
 }
 
 function clearIncompatibleAgentPluginSelection(): void {
@@ -2440,8 +2216,8 @@ function suggestedAgentPluginVariableValue(name: string, definition: ApiRecord):
   if (name === 'siteName') return String(selectedSiteAsset.value?.siteName ?? readNested(editAssetDetail.value, ['targetBindingDetail', 'siteAsset', 'siteName']) ?? '')
   if (name === 'bindingInformation') return String(currentBindingSummary.value.bindingInformation ?? '')
   if (name === 'appPoolName') return String(selectedSiteAsset.value?.appPool ?? readNested(editAssetDetail.value, ['targetBindingDetail', 'siteAsset', 'metadata', 'appPool']) ?? '')
-  if (name === 'certificatePath') return String(selectedManagedTarget.value?.certPath ?? readNested(editAssetDetail.value, ['targetBindingDetail', 'certificateBinding', 'certPath']) ?? definition.default ?? '')
-  if (name === 'privateKeyPath') return String(selectedManagedTarget.value?.keyPath ?? readNested(editAssetDetail.value, ['targetBindingDetail', 'certificateBinding', 'keyPath']) ?? definition.default ?? '')
+  if (name === 'certificatePath') return String(readNested(editAssetDetail.value, ['targetBindingDetail', 'certificateBinding', 'certPath']) ?? definition.default ?? '')
+  if (name === 'privateKeyPath') return String(readNested(editAssetDetail.value, ['targetBindingDetail', 'certificateBinding', 'keyPath']) ?? definition.default ?? '')
   return formatPluginVariableValue(definition.default)
 }
 
@@ -2796,47 +2572,37 @@ async function previewSelectedAgentPlugin(): Promise<void> {
           <template v-if="assetDraft.managementMode === 'MANAGED_TARGET'">
             <div class="asset-form__grid">
               <label class="asset-form__field">
-                <span>{{ t('plugins.agentDeployment.executionMode') }} <strong>*</strong></span>
-                <select v-model="assetDraft.agentDeploymentMode">
-                  <option value="NATIVE_HANDLER">{{ t('plugins.agentDeployment.nativeHandler') }}</option>
-                  <option value="PLUGIN">{{ t('plugins.agentDeployment.pluginMode') }}</option>
-                </select>
-              </label>
-              <label v-if="assetDraft.agentDeploymentMode === 'NATIVE_HANDLER'" class="asset-form__field">
-                <span>{{ t('assets.fields.frameworkType') }} <strong>*</strong></span>
-                <div v-if="isEditMode" class="asset-form__readonly">{{ assetDraft.frameworkType || '—' }}</div>
-                <select v-else v-model="assetDraft.frameworkType">
-                  <option v-for="framework in availableFrameworkOptions" :key="framework" :value="framework">
-                    {{ framework }}
+                <span>{{ t('devices.columns.name') }} <strong>*</strong></span>
+                <select v-model="assetDraft.deviceId" :disabled="deviceListLoading">
+                  <option value="">{{ deviceListLoading ? t('common.loading') : t('assets.select.generic') }}</option>
+                  <option v-for="device in deviceItems" :key="String(device.id)" :value="String(device.id)">
+                    {{ deviceLabel(device) }}
                   </option>
                 </select>
               </label>
-              <label v-if="assetDraft.agentDeploymentMode === 'NATIVE_HANDLER'" class="asset-form__field">
-                <span>Agent <strong>*</strong></span>
-                <div v-if="isEditMode" class="asset-form__readonly">{{ editAgentLabel }}</div>
-                <select v-else v-model="assetDraft.agentId" :disabled="agentListLoading">
-                  <option value="">{{ agentListLoading ? t('assets.loading.agents') : t('assets.select.agent') }}</option>
-                  <option v-for="agent in filteredAgentItems" :key="String(agent.id)" :value="String(agent.id)">
-                    {{ agentLabel(agent) }}
+              <label class="asset-form__field">
+                <span>{{ t('assets.fields.frameworkType') }} <strong>*</strong></span>
+                <select v-model="assetDraft.serviceInstanceId" :disabled="serviceInstanceListLoading || !assetDraft.hostId">
+                  <option value="">{{ serviceInstanceListLoading ? t('common.loading') : t('assets.select.generic') }}</option>
+                  <option v-for="service in serviceInstanceItems" :key="String(service.id)" :value="String(service.id)">
+                    {{ serviceInstanceLabel(service) }}
                   </option>
                 </select>
               </label>
               <label class="asset-form__field">
                 <span>{{ t('assets.fields.siteInstance') }} <strong>*</strong></span>
-                <div v-if="isEditMode" class="asset-form__readonly">{{ editSiteLabel }}</div>
-                <select v-else v-model="assetDraft.siteAssetId" :disabled="siteListLoading || !assetDraft.agentId">
+                <select v-model="assetDraft.siteAssetId" :disabled="siteListLoading || !assetDraft.serviceInstanceId">
                   <option value="">{{ siteListLoading ? t('assets.loading.sites') : t('assets.select.siteInstance') }}</option>
                   <option v-for="site in filteredSiteItems" :key="String(site.id)" :value="String(site.id)">
                     {{ siteLabel(site) }}
                   </option>
                 </select>
               </label>
-              <label class="asset-form__field">
+              <label v-if="isEditMode" class="asset-form__field">
                 <span>{{ t('assets.fields.managedTarget') }} <strong>*</strong></span>
-                <div v-if="isEditMode" class="asset-form__readonly">{{ editManagedTargetLabel }}</div>
-                <select v-else v-model="assetDraft.managedTargetId" :disabled="managedTargetListLoading || !assetDraft.siteAssetId">
-                  <option value="">{{ managedTargetListLoading ? t('assets.loading.managedTargets') : t('assets.select.managedTarget') }}</option>
-                  <option v-for="target in filteredManagedTargetItems" :key="String(target.id)" :value="String(target.id)">
+                <select v-model="assetDraft.managedTargetId" :disabled="managedTargetListLoading || !assetDraft.siteAssetId">
+                  <option value="">{{ managedTargetListLoading ? t('common.loading') : t('assets.select.generic') }}</option>
+                  <option v-for="target in managedTargetItems" :key="String(target.id)" :value="String(target.id)">
                     {{ managedTargetLabel(target) }}
                   </option>
                 </select>
@@ -3244,8 +3010,8 @@ async function previewSelectedAgentPlugin(): Promise<void> {
               <dd>{{ assetDraft.verifyUrl || t('assets.review.autoGeneratedByEntry') }}</dd>
             </div>
             <div v-if="assetDraft.managementMode === 'MANAGED_TARGET'">
-              <dt>{{ t('assets.review.agentSiteTarget') }}</dt>
-              <dd>{{ editAgentLabel || assetDraft.agentId || t('assets.empty.notSelected') }} / {{ editSiteLabel || assetDraft.siteAssetId || t('assets.empty.notSelected') }} / {{ editManagedTargetLabel || assetDraft.managedTargetId || t('assets.empty.notSelected') }}</dd>
+              <dt>{{ t('devices.page.title') }}</dt>
+              <dd>{{ deviceLabel(selectedDevice ?? {}) || editAgentLabel || t('assets.empty.notSelected') }} / {{ serviceInstanceLabel(selectedServiceInstance ?? {}) || assetDraft.frameworkType || t('assets.empty.notSelected') }} / {{ editSiteLabel || siteLabel(selectedSiteAsset ?? {}) || t('assets.empty.notSelected') }}</dd>
             </div>
             <div v-if="assetDraft.managementMode === 'MANAGED_TARGET'">
               <dt>{{ t('assets.fields.certificateFormat') }}</dt>
@@ -3275,7 +3041,6 @@ async function previewSelectedAgentPlugin(): Promise<void> {
         </section>
 
         <p v-if="siteListError" class="asset-form__error">{{ siteListError }}</p>
-        <p v-else-if="managedTargetListError" class="asset-form__error">{{ managedTargetListError }}</p>
         <p v-else-if="workflowListError" class="asset-form__error">{{ workflowListError }}</p>
         <p v-else-if="workflowVersionListError" class="asset-form__error">{{ workflowVersionListError }}</p>
         <p v-else-if="gatewayListError" class="asset-form__error">{{ gatewayListError }}</p>

@@ -21,6 +21,7 @@ const assetMocks = vi.hoisted(() => ({
   startDiscovery: vi.fn(),
   createServiceAsset: vi.fn(),
   updateServiceAsset: vi.fn(),
+  deleteServiceAsset: vi.fn(),
   getAssetDetail: vi.fn(),
   listAgents: vi.fn(),
   getAgentDetail: vi.fn(),
@@ -52,11 +53,22 @@ const securityMocks = vi.hoisted(() => ({
   listSecrets: vi.fn(),
 }))
 
+const deviceMocks = vi.hoisted(() => ({
+  listManagedDevices: vi.fn(),
+}))
+
+const pluginMocks = vi.hoisted(() => ({
+  listAgentPluginPackages: vi.fn(),
+  previewAgentPluginBinding: vi.fn(),
+}))
+
 vi.mock('@/api/modules/assets.api', () => assetMocks)
 vi.mock('@/api/modules/certificates.api', () => certificateMocks)
 vi.mock('@/api/modules/workflow-templates.api', () => workflowMocks)
 vi.mock('@/api/modules/gateways.api', () => gatewayMocks)
 vi.mock('@/api/modules/security.api', () => securityMocks)
+vi.mock('@/api/modules/devices.api', () => deviceMocks)
+vi.mock('@/api/modules/plugins.api', () => pluginMocks)
 
 import AssetsView from '@/views/assets/AssetsView.vue'
 import BindingsView from '@/views/bindings/BindingsView.vue'
@@ -101,6 +113,7 @@ async function setInputElementValue(input: HTMLInputElement, value: string) {
 
 describe('资产与证书产物视图', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     document.body.innerHTML = ''
     setActivePinia(createPinia())
     usePermissionStore().setPermissions([
@@ -136,6 +149,7 @@ describe('资产与证书产物视图', () => {
     assetMocks.evaluateCapabilityCompatibility.mockResolvedValue(okRecord({ compatibilityLevel: 'L2', manualDeclarations: [] }))
     assetMocks.createServiceAsset.mockResolvedValue(okRecord({ id: 'asset-2' }, 'req_asset_create'))
     assetMocks.updateServiceAsset.mockResolvedValue(okRecord({ id: 'asset-1' }, 'req_asset_update'))
+    assetMocks.deleteServiceAsset.mockResolvedValue(okRecord({ id: 'asset-1' }, 'req_asset_delete'))
     assetMocks.createSiteAsset.mockResolvedValue(okRecord({ id: 'site-1' }, 'req_site_create'))
     assetMocks.createManagedTarget.mockResolvedValue(okRecord({ id: 'target-1' }, 'req_target_create'))
     assetMocks.projectWorkflowBinding.mockResolvedValue(okRecord({
@@ -186,6 +200,22 @@ describe('资产与证书产物视图', () => {
       { id: 'gateway-1', name: 'gw-east', status: 'online' },
     ]))
     securityMocks.listSecrets.mockResolvedValue(okPage([]))
+    deviceMocks.listManagedDevices.mockResolvedValue(okPage([
+      {
+        id: 'host-1',
+        displayName: 'Windows Agent',
+        productFamily: 'WINDOWS_AGENT',
+        extensionType: 'AGENT',
+      },
+      {
+        id: 'host-adc-1',
+        displayName: 'ADC 01',
+        productFamily: 'CITRIX_ADC',
+        extensionType: 'NETWORK_APPLIANCE',
+      },
+    ]))
+    pluginMocks.listAgentPluginPackages.mockResolvedValue(okPage([]))
+    pluginMocks.previewAgentPluginBinding.mockResolvedValue(okRecord({}))
 
     certificateMocks.listCertificateFormats.mockResolvedValue(okPage([
       {
@@ -229,6 +259,25 @@ describe('资产与证书产物视图', () => {
     expect(wrapper.text()).toContain('www.example.com')
   })
 
+  it('应用资产支持确认后手动删除并刷新列表', async () => {
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+
+    const deleteButton = wrapper.findAll('button').find((button) => button.text() === '删除')
+    expect(deleteButton).toBeTruthy()
+    await deleteButton!.trigger('click')
+    await flushPromises()
+
+    const confirmInput = wrapper.find('.gc-confirm input')
+    expect(confirmInput.exists()).toBe(true)
+    await confirmInput.setValue('DELETE')
+    await wrapper.find('.gc-confirm footer .gc-button--danger').trigger('click')
+    await flushPromises()
+
+    expect(assetMocks.deleteServiceAsset).toHaveBeenCalledWith('asset-1')
+    expect(assetMocks.listAssets).toHaveBeenCalledTimes(2)
+  })
+
   it('asset list renders site and agent display names instead of ids', async () => {
     assetMocks.listAssets.mockResolvedValue(okPage([
       {
@@ -262,6 +311,183 @@ describe('资产与证书产物视图', () => {
     expect(wrapper.text()).not.toContain('agt_001')
   })
 
+  it('应用资产按设备、框架和站点统一选择后创建', async () => {
+    assetMocks.listSiteAssets.mockResolvedValue(okPage([
+      {
+        id: 'site-1',
+        serviceInstanceId: 'svc-1',
+        siteName: 'default-site',
+        providerType: 'NGINX',
+      },
+    ]))
+
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+
+    await wrapper.findAll('button').find((button) => button.text() === '添加资产')!.trigger('click')
+    await flushPromises()
+
+    expect(deviceMocks.listManagedDevices).toHaveBeenCalledWith({
+      page: 1,
+      pageSize: 200,
+      sort: 'displayName:asc',
+    })
+
+    const addressInput = wrapper.findAll('input').find((input) => input.attributes('placeholder') === 'app.example.com')!
+    await setInputElementValue(addressInput.element as HTMLInputElement, 'app.example.com')
+
+    const nextButton = wrapper.findAll('button').find((button) => button.text() === '下一步')!
+    await nextButton.trigger('click')
+    await flushPromises()
+
+    const deviceSelect = wrapper.findAll('select').find((select) => select.find('option[value="host-1"]').exists())!
+    await deviceSelect.setValue('host-1')
+    await flushPromises()
+
+    expect(assetMocks.listServiceInstances).toHaveBeenLastCalledWith({
+      page: 1,
+      pageSize: 200,
+      sort: 'updatedAt:desc',
+      filters: { hostId: 'host-1' },
+    })
+
+    const serviceSelect = wrapper.findAll('select').find((select) => select.find('option[value="svc-1"]').exists())!
+    await serviceSelect.setValue('svc-1')
+    await flushPromises()
+
+    expect(assetMocks.listSiteAssets).toHaveBeenLastCalledWith({
+      page: 1,
+      pageSize: 200,
+      sort: 'updatedAt:desc',
+      filters: { serviceInstanceId: 'svc-1' },
+    })
+
+    const siteSelect = wrapper.findAll('select').find((select) => select.find('option[value="site-1"]').exists())!
+    const certificateFormatSelect = wrapper.findAll('select').find((select) => select.find('option[value="certfmt-1"]').exists())!
+    await siteSelect.setValue('site-1')
+    await certificateFormatSelect.setValue('certfmt-1')
+    await flushPromises()
+
+    await nextButton.trigger('click')
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === '确认创建')!.trigger('click')
+    await flushPromises()
+
+    expect(assetMocks.createServiceAsset).toHaveBeenCalledWith(expect.objectContaining({
+      siteAssetId: 'site-1',
+      certificateFormatId: 'certfmt-1',
+    }))
+    const payload = assetMocks.createServiceAsset.mock.calls.at(-1)?.[0]
+    expect(payload).not.toHaveProperty('agentId')
+    expect(payload).not.toHaveProperty('targetBinding')
+    expect(payload).not.toHaveProperty('managedTargetId')
+  })
+
+  it('统一设备列表加载失败时显示错误而不是静默空列表', async () => {
+    deviceMocks.listManagedDevices.mockRejectedValueOnce(new Error('device list unavailable'))
+
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === '添加资产')!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('device list unavailable')
+  })
+
+  it('编辑 ADC 应用资产时加载并允许修改受管目标链路', async () => {
+    assetMocks.getAssetDetail.mockResolvedValue(okRecord({
+      id: 'asset-1',
+      address: '10.255.0.41',
+      displayName: 'test',
+      port: 443,
+      protocol: 'HTTPS',
+      platform: 'APPLIANCE',
+      hostId: 'host-adc-1',
+      serviceInstanceId: 'svc-adc-1',
+      targetBinding: {
+        deviceAssetId: 'host-adc-1',
+        siteAssetId: 'site-adc-1',
+        managedTargetId: 'target-adc-1',
+        frameworkType: 'DEVICE_TEMPLATE',
+      },
+      targetBindingDetail: {
+        siteAsset: { id: 'site-adc-1', hostId: 'host-adc-1', siteName: 'test', bindingInformation: '10.255.0.41:443' },
+        managedTarget: {
+          id: 'target-adc-1',
+          deviceAssetId: 'host-adc-1',
+          hostId: 'host-adc-1',
+          providerType: 'DEVICE_TEMPLATE',
+          frameworkType: 'DEVICE_TEMPLATE',
+          targetType: 'SITE_BINDING',
+          targetKey: 'LB:test',
+          bindingKey: 'LB:test',
+        },
+      },
+      metadata: {
+        deploymentStrategy: {
+          type: 'MANAGED_TARGET',
+          managedTarget: {
+            managedTargetId: 'target-adc-1',
+            certificateFormatId: 'certfmt-1',
+          },
+        },
+      },
+    }))
+    assetMocks.listServiceInstances.mockResolvedValue(okPage([
+      { id: 'svc-adc-1', displayName: 'netscaler-adc', providerType: 'DEVICE_TEMPLATE', hostId: 'host-adc-1' },
+    ]))
+    assetMocks.listSiteAssets.mockResolvedValue(okPage([
+      { id: 'site-adc-1', serviceInstanceId: 'svc-adc-1', siteName: 'test', bindingInformation: '10.255.0.41:443' },
+    ]))
+    assetMocks.listManagedTargets.mockResolvedValue(okPage([
+      {
+        id: 'target-adc-1',
+        deviceAssetId: 'host-adc-1',
+        siteAssetId: 'site-adc-1',
+        providerType: 'DEVICE_TEMPLATE',
+        frameworkType: 'DEVICE_TEMPLATE',
+        targetType: 'SITE_BINDING',
+        targetKey: 'LB:test',
+        bindingKey: 'LB:test',
+      },
+    ]))
+
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === '编辑')!.trigger('click')
+    await flushPromises()
+
+    expect(deviceMocks.listManagedDevices).toHaveBeenCalledWith(expect.objectContaining({ sort: 'displayName:asc' }))
+    expect(assetMocks.listServiceInstances).toHaveBeenCalledWith(expect.objectContaining({ filters: { hostId: 'host-adc-1' } }))
+    expect(assetMocks.listSiteAssets).toHaveBeenCalledWith(expect.objectContaining({ filters: { serviceInstanceId: 'svc-adc-1' } }))
+    expect(assetMocks.listManagedTargets).toHaveBeenCalledWith(expect.objectContaining({ filters: { siteAssetId: 'site-adc-1' } }))
+
+    await wrapper.findAll('button').find((button) => button.text() === '下一步')!.trigger('click')
+    await flushPromises()
+    const deviceSelect = wrapper.findAll('select').find((select) => select.find('option[value="host-adc-1"]').exists())
+    const targetSelect = wrapper.findAll('select').find((select) => select.find('option[value="target-adc-1"]').exists())
+    const certificateFormatSelect = wrapper.findAll('select').find((select) => select.find('option[value="certfmt-1"]').exists())
+    expect(deviceSelect?.element.value).toBe('host-adc-1')
+    expect(targetSelect?.element.value).toBe('target-adc-1')
+    expect(certificateFormatSelect?.element.value).toBe('certfmt-1')
+
+    await wrapper.findAll('button').find((button) => button.text() === '下一步')!.trigger('click')
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === '保存修改')!.trigger('click')
+    await flushPromises()
+
+    expect(assetMocks.updateServiceAsset).toHaveBeenCalledWith('asset-1', expect.objectContaining({
+      hostId: 'host-adc-1',
+      serviceInstanceId: 'svc-adc-1',
+      targetBinding: expect.objectContaining({
+        deviceAssetId: 'host-adc-1',
+        siteAssetId: 'site-adc-1',
+        managedTargetId: 'target-adc-1',
+        targetType: 'SITE_BINDING',
+      }),
+    }))
+  })
+
   it('应用资产可以按工作流模式创建并保存部署策略', async () => {
     const wrapper = mountBusinessView(AssetsView)
     await flushPromises()
@@ -271,7 +497,7 @@ describe('资产与证书产物视图', () => {
     await createButton!.trigger('click')
     await flushPromises()
 
-    const workflowModeButton = wrapper.findAll('button').find((button) => button.text().includes('工作流模式'))
+    const workflowModeButton = wrapper.findAll('button').find((button) => button.text().includes('独立工作流'))
     expect(workflowModeButton).toBeTruthy()
     await workflowModeButton!.trigger('click')
     await flushPromises()
@@ -364,7 +590,7 @@ describe('资产与证书产物视图', () => {
     await flushPromises()
     await wrapper.findAll('button').find((button) => button.text() === '添加资产')!.trigger('click')
     await flushPromises()
-    await wrapper.findAll('button').find((button) => button.text().includes('工作流模式'))!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text().includes('独立工作流'))!.trigger('click')
     await flushPromises()
     const addressInput = wrapper.findAll('input').find((input) => input.attributes('placeholder') === 'app.example.com')!
     await setInputElementValue(addressInput.element as HTMLInputElement, 'cloud.jacksonz.cn')

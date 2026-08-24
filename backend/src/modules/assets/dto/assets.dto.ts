@@ -289,6 +289,8 @@ export interface CreateServiceAssetDto {
   metadata?: Record<string, unknown>;
   deploymentStrategy?: DeploymentStrategyDto;
   targetBinding?: CreateApplicationAssetTargetDto;
+  siteAssetId?: string;
+  certificateFormatId?: string;
 }
 
 export type UpdateServiceAssetDto = Partial<CreateServiceAssetDto>;

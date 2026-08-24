@@ -2318,6 +2318,7 @@ export default {
       detail: '상세 정보',
       addVariable: '변수 추가',
       delete: '삭제',
+      deleteRisk: '삭제하면 이 응용 자산과 수동 대상 연결이 목록에서 제거됩니다. 검색된 프레임워크, 사이트, Virtual Server 및 ManagedTarget은 유지됩니다.',
       rollbackFromLatestSnapshot: '최신 스냅샷을 취소합니다',
       rollingBack: '뒤로...',
       saving: '저장 중...',

@@ -100,7 +100,8 @@ export class AssetsApplicationService {
   }
 
   async createServiceAsset(tenantId: string, input: CreateServiceAssetDto): Promise<import('../dto/assets.dto.js').ServiceAssetDto> {
-    const normalized = this.domain.normalizeServiceAsset(input);
+    const resolvedInput = await this.resolveSiteAssetCreationInput(tenantId, input);
+    const normalized = this.domain.normalizeServiceAsset(resolvedInput);
     if (normalized.deploymentStrategy) {
       const strategy = normalizeDeploymentStrategy(normalized.deploymentStrategy, {
         asset: { id: '', agentId: normalized.agentId, metadata: normalized.metadata },
@@ -116,6 +117,63 @@ export class AssetsApplicationService {
     const hydrated = await this.repository.getServiceAssetIncludingDeleted(tenantId, created.id);
     if (hydrated) return this.hydrateServiceAssetStrategy(tenantId, hydrated);
     return this.hydrateServiceAssetStrategy(tenantId, created);
+  }
+
+  private async resolveSiteAssetCreationInput(tenantId: string, input: CreateServiceAssetDto): Promise<CreateServiceAssetDto> {
+    if (!input.siteAssetId || input.targetBinding) return input;
+
+    const siteAsset = await this.repository.getSiteAsset(tenantId, input.siteAssetId);
+    if (!siteAsset || siteAsset.status !== 'ACTIVE') {
+      throw new AppError('RESOURCE_NOT_FOUND', 'SiteAsset 不存在或不可用', { siteAssetId: input.siteAssetId });
+    }
+
+    const managedTargets = await this.repository.listActiveManagedTargetsBySiteAssetId(tenantId, siteAsset.id);
+    if (managedTargets.length === 0) {
+      throw new AppError('VALIDATION_FAILED', '站点没有可用的 ManagedTarget', {
+        code: 'SITE_MANAGED_TARGET_UNAVAILABLE',
+        siteAssetId: siteAsset.id,
+      });
+    }
+    if (managedTargets.length > 1) {
+      throw new AppError('RESOURCE_VERSION_CONFLICT', '站点存在多个可用的 ManagedTarget，无法自动选择', {
+        code: 'SITE_MANAGED_TARGET_AMBIGUOUS',
+        siteAssetId: siteAsset.id,
+        managedTargetIds: managedTargets.map((item) => item.id),
+      });
+    }
+
+    const managedTarget = managedTargets[0]!;
+    return {
+      ...input,
+      serviceInstanceId: managedTarget.serviceInstanceId ?? siteAsset.serviceInstanceId,
+      hostId: managedTarget.hostId ?? siteAsset.hostId,
+      deploymentStrategy: input.deploymentStrategy ?? {
+        type: 'MANAGED_TARGET',
+        managedTarget: {
+          managedTargetId: managedTarget.id,
+          certificateFormatId: input.certificateFormatId,
+          deploymentMode: managedTarget.deploymentMode,
+        },
+      },
+      targetBinding: {
+        applicationAssetId: '',
+        agentId: managedTarget.agentId,
+        deviceAssetId: managedTarget.deviceAssetId,
+        siteAssetId: siteAsset.id,
+        managedTargetId: managedTarget.id,
+        providerType: managedTarget.providerType,
+        frameworkType: managedTarget.frameworkType,
+        targetType: managedTarget.targetType,
+        targetKey: managedTarget.targetKey,
+        bindingKey: managedTarget.bindingKey,
+        status: 'ACTIVE',
+        metadata: {
+          source: 'manual_site_selection',
+          siteName: siteAsset.siteName,
+          bindingInformation: siteAsset.bindingInformation,
+        },
+      },
+    };
   }
 
   async updateServiceAsset(tenantId: string, serviceAssetId: string, input: UpdateServiceAssetDto): Promise<import('../dto/assets.dto.js').ServiceAssetDto> {
@@ -765,6 +823,16 @@ export class AssetsApplicationService {
     let siteAsset = await this.repository.getSiteAsset(tenantId, bindingTarget.siteAssetId);
     if (!managedTarget || !siteAsset) return;
 
+    const providerType = String(
+      siteAsset.providerType ?? managedTarget.providerType ?? '',
+    ).toUpperCase();
+    if (providerType === 'DEVICE_TEMPLATE' || String(managedTarget.deploymentMode ?? '').toUpperCase() === 'NITRO') {
+      return;
+    }
+    if (providerType !== 'IIS' && providerType !== 'NGINX') {
+      return;
+    }
+
     if (!managedTarget.hostId || !siteAsset.hostId) {
       const hostId = await this.ensureAgentHostAnchor(tenantId, applicationAsset.agentId ?? bindingTarget.agentId, managedTarget.serviceInstanceId ?? siteAsset.serviceInstanceId);
       if (hostId) {
@@ -784,16 +852,16 @@ export class AssetsApplicationService {
       const itemDomain = String(item.domainName ?? item.domain ?? '').trim().toLowerCase();
       return itemDomain !== '' && itemDomain === normalizedAddress;
     });
-    const providerType = (siteAsset.providerType ?? managedTarget.providerType ?? 'IIS') as 'IIS' | 'NGINX';
+    const normalizedProviderType = providerType as 'IIS' | 'NGINX';
     const siblingBinding = this.findApplicationAssetSiblingBinding(detail?.certificateBindings ?? [], bindingTarget, applicationAsset.address);
     if (existing) {
-      if (providerType === 'NGINX') {
+      if (normalizedProviderType === 'NGINX') {
         await this.patchApplicationAssetLinuxBindingIfNeeded(tenantId, existing, managedTarget, siteAsset, siblingBinding);
       }
       return;
     }
 
-    const createInput = providerType === 'NGINX'
+    const createInput = normalizedProviderType === 'NGINX'
       ? this.buildApplicationAssetLinuxBindingInput(applicationAsset, bindingTarget, managedTarget, siteAsset, siblingBinding)
       : this.buildApplicationAssetWindowsBindingInput(applicationAsset, bindingTarget, managedTarget, siteAsset);
     await this.requireBindingsRepository().createCertificateBinding(tenantId, createInput);
