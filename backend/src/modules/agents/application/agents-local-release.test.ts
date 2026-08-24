@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { AgentsApplicationService } from './agents.application-service.js';
 import type { AgentRegistration, AgentUpgradePlan, AgentVersionRelease } from '../schema/agents.schema.js';
@@ -67,7 +68,10 @@ test('Windows Go 本地构建产物会自动登记并提供固定下载内容', 
     const suggestion = await service.getUpgradeSuggestion(agent.tenantId, agent.id);
     assert.equal(suggestion.suggestion.status, 'available');
     if (suggestion.suggestion.status !== 'available') return;
-    assert.equal(suggestion.suggestion.targetVersion, '0.1.32');
+    const agentSource = await readFile(new URL('../../../../../agents/windows-go-full-agent/main.go', import.meta.url), 'utf8');
+    const expectedTargetVersion = agentSource.match(/\bagentVersion\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)"/u)?.[1];
+    assert.ok(expectedTargetVersion);
+    assert.equal(suggestion.suggestion.targetVersion, expectedTargetVersion);
     assert.ok(suggestion.suggestion.downloadUrl);
     assert.match(suggestion.suggestion.downloadUrl, /^http:\/\/127\.0\.0\.1:3003\/agent-releases\/agrel-local-windows-go-/);
     assert.equal(releases.filter((release) => release.productLine === 'windows-go-full').length, 2);

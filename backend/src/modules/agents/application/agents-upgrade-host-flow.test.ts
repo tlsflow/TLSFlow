@@ -36,6 +36,15 @@ test('Windows Go 宿主升级链路把接受与传输失败分开记录', async 
     assert.equal(enqueuedTaskInput?.triggerSource, 'agent-upgrade-confirmed');
     assert.equal((accepted.result as { taskId?: string }).taskId, 'task-agent-upgrade-1');
     assert.equal((acceptedEnvelope?.release as { productLine?: string }).productLine, 'windows-go-full');
+    const manualRequired = await acceptedService.markUpgradeManualRequired(
+      'tenant-host-flow',
+      'agent-host-flow',
+      accepted.id,
+      'operator-1',
+      '全局任务已强制结束',
+    );
+    assert.equal(manualRequired.status, 'manual_required');
+    assert.equal((manualRequired.result as { taskCancelled?: boolean }).taskCancelled, true);
 
     const failedState = createUpgradeStore();
     const failedClient = {

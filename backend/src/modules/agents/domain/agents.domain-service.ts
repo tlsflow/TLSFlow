@@ -8,6 +8,8 @@ import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthori
 
 const MOCK_SAFE_CA_COMMON_NAME = 'GCAC Agent Mock Safe CA';
 const INSTALL_SESSION_TTL_MS = 10 * 60 * 1000;
+const WINDOWS_GO_RELEASE_PRODUCT_LINE = 'windows-go-full';
+const RELEASE_REQUIREMENTS = new Map([[WINDOWS_GO_RELEASE_PRODUCT_LINE, { platform: 'WINDOWS', requireArchitecture: true }]]);
 const WINDOWS_FULL_AGENT_PLATFORMS = new Set(['windows_go_service', 'windows_compatibility_service']);
 const WINDOWS_COMPATIBILITY_PLATFORM = 'windows_compatibility_service';
 const INSTALL_AGENT_KEY_PREFIX: Record<'windows_go_service' | 'windows_compatibility_service' | 'linux_go_systemd', string> = {
@@ -445,9 +447,19 @@ export class AgentsDomainService {
 
   normalizeRelease(tenantId: string, input: PublishAgentVersionInput): AgentVersionRelease {
     if (!/^[0-9]+(\.[0-9]+){1,3}([-.][a-z0-9.]+)?$/i.test(input.version)) throw new AppError('VALIDATION_FAILED', 'version 格式不合法');
-    if (!/^https:\/\//.test(input.downloadUrl)) throw new AppError('VALIDATION_FAILED', '升级包 downloadUrl 必须是 HTTPS');
+    if (!/^https?:\/\//.test(input.downloadUrl)) throw new AppError('VALIDATION_FAILED', '升级包 downloadUrl 必须是 HTTP(S) 地址');
+    if (process.env.NODE_ENV === 'production' && !/^https:\/\//.test(input.downloadUrl)) {
+      throw new AppError('VALIDATION_FAILED', '生产环境升级包 downloadUrl 必须是 HTTPS');
+    }
     if (!/^[a-f0-9]{64}$/i.test(input.checksumSha256)) throw new AppError('VALIDATION_FAILED', 'checksumSha256 必须是 SHA-256 十六进制');
     if (!input.signature.trim()) throw new AppError('VALIDATION_FAILED', 'signature 必填');
+    const releaseRequirements = RELEASE_REQUIREMENTS.get(input.productLine ?? '');
+    if (releaseRequirements && (input.platform.toUpperCase() !== releaseRequirements.platform
+      || (releaseRequirements.requireArchitecture && !input.arch?.trim())
+      || !input.signatureKeyId?.trim()
+      || !(input.artifactSize && Number.isInteger(input.artifactSize) && input.artifactSize > 0))) {
+      throw new AppError('VALIDATION_FAILED', 'Windows Go Release 必须提供平台、架构、制品大小和签名 keyId');
+    }
     const rolloutPercent = input.rolloutPercent ?? 100;
     if (rolloutPercent < 0 || rolloutPercent > 100) throw new AppError('VALIDATION_FAILED', 'rolloutPercent 必须在 0-100 之间');
     const now = new Date().toISOString();
@@ -457,6 +469,10 @@ export class AgentsDomainService {
       version: input.version,
       platform: input.platform.toUpperCase(),
       arch: input.arch,
+      productLine: input.productLine,
+      signatureKeyId: input.signatureKeyId?.trim() || undefined,
+      artifactSignature: input.artifactSignature?.trim() || input.signature,
+      artifactSize: input.artifactSize,
       minCompatibilityLevel: input.minCompatibilityLevel,
       downloadUrl: input.downloadUrl,
       checksumSha256: input.checksumSha256.toLowerCase(),
