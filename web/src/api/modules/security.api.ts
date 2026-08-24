@@ -272,7 +272,7 @@ export function listSecrets(query?: BusinessListQuery): Promise<ApiPageResult> {
 
 export function createSecret(body: {
   name: string
-  type: 'ssh_key' | 'password' | 'api_token' | 'pfx_password' | 'private_key' | 'certificate_private_key'
+  type: 'ssh_key' | 'password' | 'api_token' | 'pfx_password' | 'private_key' | 'certificate_private_key' | 'certificate_trust_bundle' | 'acme_eab'
   scopeType: 'global' | 'team' | 'zone' | 'host' | 'plugin'
   plainText: string
   scopeId?: string

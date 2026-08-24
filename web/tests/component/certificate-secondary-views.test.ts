@@ -9,9 +9,7 @@ import CertificateTrustRootsModalContent from '@/views/certificates/CertificateT
 import CertificateUsagesView from '@/views/certificates/CertificateUsagesView.vue'
 
 const certificateMocks = vi.hoisted(() => ({
-  createAcmeCertificate: vi.fn(),
   createCertificateFormat: vi.fn(),
-  getAcmeStatus: vi.fn(),
   getCertificateTrustRootDetail: vi.fn(),
   getCertificateVersionDetail: vi.fn(),
   listCertificateFormats: vi.fn(),
@@ -19,13 +17,21 @@ const certificateMocks = vi.hoisted(() => ({
   listCertificateUsages: vi.fn(),
 }))
 const credentialMocks = vi.hoisted(() => ({
+  createCredential: vi.fn(),
   listCredentials: vi.fn(),
+}))
+const acmeMocks = vi.hoisted(() => ({
+  createAcmeCertificate: vi.fn(),
+  getAcmeStatus: vi.fn(),
+  listAcmeDnsProviders: vi.fn(),
+  listAcmeProviders: vi.fn(),
 }))
 
 const routeState = vi.hoisted(() => ({ params: { id: 'certificate-1' }, query: {} }))
 
 vi.mock('@/api/modules/certificates.api', () => certificateMocks)
 vi.mock('@/api/modules/credentials.api', () => credentialMocks)
+vi.mock('@/api/modules/internal-ca.api', () => ({ internalCaApi: acmeMocks }))
 vi.mock('vue-router', () => ({
   RouterLink: { template: '<a><slot /></a>' },
   useRoute: () => routeState,
@@ -42,14 +48,29 @@ async function settle() {
 
 describe('证书辅助页面', () => {
   beforeEach(() => {
-    certificateMocks.createAcmeCertificate.mockResolvedValue({ data: {} })
     certificateMocks.createCertificateFormat.mockResolvedValue({ data: {} })
-    certificateMocks.getAcmeStatus.mockResolvedValue({ data: { status: 'READY', provider: { name: 'Let’s Encrypt' } } })
     certificateMocks.getCertificateTrustRootDetail.mockResolvedValue({ data: null })
     certificateMocks.getCertificateVersionDetail.mockResolvedValue({ data: null })
     certificateMocks.listCertificateFormats.mockResolvedValue(page([]))
     certificateMocks.listCertificateTrustRoots.mockResolvedValue(page([]))
     certificateMocks.listCertificateUsages.mockResolvedValue(page([]))
+    acmeMocks.createAcmeCertificate.mockResolvedValue({ data: {} })
+    acmeMocks.getAcmeStatus.mockResolvedValue({ data: { status: 'READY', provider: { id: 'provider-letsencrypt', name: 'Let’s Encrypt' } } })
+    acmeMocks.listAcmeDnsProviders.mockResolvedValue({
+      data: [{ id: 'cloudflare', name: 'Cloudflare', credentialTemplate: 'CLOUDFLARE_DNS_API_TOKEN=...' }],
+    })
+    acmeMocks.listAcmeProviders.mockResolvedValue({
+      data: {
+        items: [{
+          id: 'provider-letsencrypt',
+          name: 'Let’s Encrypt',
+          type: 'acme',
+          status: 'active',
+          configuration: { isDefault: true },
+        }],
+      },
+    })
+    credentialMocks.createCredential.mockResolvedValue({ data: { id: 'dns-credential-1' } })
     credentialMocks.listCredentials.mockResolvedValue({
       data: {
         items: [{
@@ -171,41 +192,29 @@ describe('证书辅助页面', () => {
     expect(wrapper.find('.gc-tag--success').exists()).toBe(true)
   })
 
-  it('ACME 来源根据宿主能力开放六项申请表单，不暴露插件或私钥输入', async () => {
+  it('ACME 来源打开统一申请弹层，并提供 HTTP-01、DNS-01 与提前续签字段', async () => {
     const draft = reactive(createCertificateImportDraft())
     const wrapper = mount(CertificateImportForm, {
       props: { draft },
+      attachTo: document.body,
     })
     await settle()
 
     await wrapper.findAll('.certificate-import-wizard__source-card')[1]?.trigger('click')
     await settle()
 
-    expect(wrapper.find('.certificate-import-wizard__panel--acme').exists()).toBe(true)
-    expect(wrapper.find('.certificate-import-wizard__panel--acme form').exists()).toBe(true)
-    const inputs = wrapper.findAll('.certificate-import-wizard__panel--acme input')
-    await inputs[1]?.setValue('admin@example.test')
-    await inputs[2]?.setValue('example.test')
-    const credentialSelect = wrapper.find('.gc-credential-select select')
-    await credentialSelect.setValue('dns-credential-1')
-    await wrapper.find('.certificate-import-wizard__panel--acme form').trigger('submit')
-    await settle()
-
-    expect(certificateMocks.createAcmeCertificate).toHaveBeenCalledWith(expect.objectContaining({
-      contactEmail: 'admin@example.test',
-      challengeType: 'dns-01',
-      domains: ['example.test'],
-      dnsCredentialId: 'dns-credential-1',
-      keyType: 'rsa',
-      autoRenew: true,
-    }))
+    expect(wrapper.find('.certificate-import-wizard__panel--acme').exists()).toBe(false)
+    expect(document.querySelector('.acme-page__form')).not.toBeNull()
+    expect(document.body.textContent).toContain('HTTP-01')
+    expect(document.body.textContent).toContain('DNS-01')
+    expect(document.body.textContent).toContain('提前续签天数')
     expect(wrapper.find('textarea').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('Directory URL')
     expect(wrapper.text()).not.toContain('SecretRef')
   })
 
-  it('ACME 来源在宿主能力状态异常时不开放申请表单', async () => {
-    certificateMocks.getAcmeStatus.mockResolvedValue({ data: { status: 'BLOCKED' } })
+  it('ACME 来源不再渲染旧申请面板', async () => {
+    acmeMocks.getAcmeStatus.mockResolvedValue({ data: { status: 'BLOCKED' } })
     const draft = reactive(createCertificateImportDraft())
     const wrapper = mount(CertificateImportForm, { props: { draft } })
     await settle()
@@ -214,7 +223,7 @@ describe('证书辅助页面', () => {
     await settle()
 
     expect(wrapper.find('.certificate-import-wizard__panel--acme form').exists()).toBe(false)
-    expect(certificateMocks.createAcmeCertificate).not.toHaveBeenCalled()
+    expect(acmeMocks.createAcmeCertificate).not.toHaveBeenCalled()
   })
 
   it('根证书弹层保留空态，并在有数据时展示统一详情状态和本地时间', async () => {

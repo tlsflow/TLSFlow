@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import DashboardView from '@/views/dashboard/DashboardView.vue'
@@ -7,16 +7,36 @@ import { usePermissionStore } from '@/stores/permission.store'
 const apiMocks = vi.hoisted(() => ({
   getDashboardOverview: vi.fn(),
 }))
+const routerMocks = vi.hoisted(() => ({
+  push: vi.fn(),
+}))
 
 vi.mock('@/api/modules/dashboard.api', () => ({
   getDashboardOverview: apiMocks.getDashboardOverview,
 }))
 
+vi.mock('@/views/acme/AcmeCertificateRequestModal.vue', () => ({
+  default: {
+    props: ['open'],
+    emits: ['update:open'],
+    template: '<div v-if="open" data-testid="acme-request-modal" />',
+  },
+}))
+vi.mock('vue-router', () => ({
+  RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' },
+  useRouter: () => routerMocks,
+}))
+
 describe('DashboardView', () => {
   beforeEach(() => {
     apiMocks.getDashboardOverview.mockReset()
+    routerMocks.push.mockReset()
     setActivePinia(createPinia())
     usePermissionStore().setPermissions(['audit.read'])
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ''
   })
 
   it('首页审计日志展示中文摘要并隐藏原始事件、风险和明细', async () => {
@@ -212,6 +232,7 @@ describe('DashboardView', () => {
     })
 
     const wrapper = mount(DashboardView, {
+      attachTo: document.body,
       global: {
         stubs: {
           RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' },
@@ -222,7 +243,18 @@ describe('DashboardView', () => {
     await vi.waitFor(() => expect(wrapper.findAll('.dashboard-quick-start__button')).toHaveLength(2))
     const quickStartButtons = wrapper.findAll('.dashboard-quick-start__button')
     expect(quickStartButtons[0].text()).toContain('导入或申请新证书')
-    expect(quickStartButtons[0].attributes('href')).toBe('/certificates/import')
+    expect(quickStartButtons[0].element.tagName).toBe('BUTTON')
+    await quickStartButtons[0].trigger('click')
+    expect(document.querySelector('.dashboard-certificate-source')).not.toBeNull()
+    expect(document.body.textContent).toContain('导入已有证书')
+    expect(document.body.textContent).toContain('通过 ACME 申请证书')
+    expect(wrapper.find('[data-testid="acme-request-modal"]').exists()).toBe(false)
+    document.querySelectorAll<HTMLButtonElement>('.dashboard-certificate-source .gc-selection-card')[0]?.click()
+    expect(routerMocks.push).toHaveBeenCalledWith('/certificates/import')
+    await quickStartButtons[0].trigger('click')
+    document.querySelectorAll<HTMLButtonElement>('.dashboard-certificate-source .gc-selection-card')[1]?.click()
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="acme-request-modal"]').exists()).toBe(true))
+    expect(wrapper.find('[data-testid="acme-request-modal"]').exists()).toBe(true)
     expect(quickStartButtons[1].text()).toContain('部署到网站或应用')
     expect(quickStartButtons[1].attributes('href')).toBe('/assets')
   })

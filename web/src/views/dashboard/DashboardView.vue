@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import {
   getDashboardOverview,
   type DashboardMetric,
@@ -15,7 +15,8 @@ import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { usePolling } from '@/composables/usePolling'
 import { auditReadableTitle, auditResultLabel, auditSummary } from '@/utils/audit-format'
 import type { StatusTone } from '@/design-system/status/status-map'
-import { GcButton, GcStatusTag, GcTrendChart } from '@/design-system/components'
+import { GcButton, GcModal, GcSelectionCard, GcStatusTag, GcTrendChart } from '@/design-system/components'
+import AcmeCertificateRequestModal from '@/views/acme/AcmeCertificateRequestModal.vue'
 
 interface ResourceMetric {
   readonly key: 'cpu' | 'memory'
@@ -25,17 +26,21 @@ interface ResourceMetric {
 
 interface QuickStartAction {
   readonly key: 'certificateImport' | 'deployment'
-  readonly path: string
+  readonly path?: string
+  readonly opensCertificateSource?: boolean
   readonly label: string
   readonly emphasis: 'primary' | 'secondary'
 }
 
 const permissionStore = usePermissionStore()
 const { t, te } = useI18n()
+const router = useRouter()
 const overview = ref<DashboardOverview | null>(null)
 const loading = ref(false)
 const error = ref('')
 const activeTooltip = ref<DashboardStatusBlock | null>(null)
+const certificateSourceOpen = ref(false)
+const acmeRequestOpen = ref(false)
 let activeLoad: Promise<void> | null = null
 
 const visibleQuickActions = computed(() =>
@@ -52,7 +57,7 @@ const quickStartActions = computed<readonly QuickStartAction[]>(() => {
   if (permissionStore.hasPermission('certificate.import')) {
     actions.push({
       key: 'certificateImport',
-      path: '/certificates/import',
+      opensCertificateSource: true,
       label: t('dashboard.quickStart.addCertificate'),
       emphasis: 'secondary',
     })
@@ -69,6 +74,20 @@ const quickStartActions = computed<readonly QuickStartAction[]>(() => {
 
   return actions
 })
+
+function openQuickStartAction(action: QuickStartAction): void {
+  if (action.opensCertificateSource) certificateSourceOpen.value = true
+}
+
+function openAcmeRequestFromSource(): void {
+  certificateSourceOpen.value = false
+  acmeRequestOpen.value = true
+}
+
+function openManualImportFromSource(): void {
+  certificateSourceOpen.value = false
+  void router.push('/certificates/import')
+}
 
 const topMetricKeys = ['validCertificates', 'expiringCertificates', 'applications', 'activeAgents', 'activeGateways']
 
@@ -424,16 +443,19 @@ function buildTimestampTrend(values: readonly (string | undefined)[]) {
           <p>{{ t('dashboard.quickStart.description') }}</p>
         </div>
         <div class="dashboard-quick-start__footer">
-          <RouterLink
+          <component
+            :is="action.opensCertificateSource ? 'button' : RouterLink"
             v-for="action in quickStartActions"
             :key="action.key"
+            type="button"
             class="dashboard-quick-start__button"
             :class="`dashboard-quick-start__button--${action.emphasis}`"
             :to="action.path"
+            @click="openQuickStartAction(action)"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" /><path d="M12 8v8M8 12h8" /></svg>
             {{ action.label }}
-          </RouterLink>
+          </component>
           <span v-if="quickStartActions.length === 0" class="dashboard-quick-start__button dashboard-quick-start__button--disabled">{{ t('dashboard.quickStart.unavailable') }}</span>
         </div>
       </section>
@@ -539,6 +561,33 @@ function buildTimestampTrend(values: readonly (string | undefined)[]) {
         <div v-if="overview && overview.recentAudits.length === 0" class="dashboard-empty">{{ t('dashboard.empty.noAuditLogs') }}</div>
       </section>
     </section>
+
+    <GcModal v-model:open="certificateSourceOpen" size="lg" :title="t('certificates.importForm.source.title')" :description="t('certificates.importForm.source.description')">
+      <div class="dashboard-certificate-source">
+        <GcSelectionCard
+          :title="t('certificates.importForm.source.manual.title')"
+          :description="t('certificates.importForm.source.manual.description')"
+          selected
+          @select="openManualImportFromSource"
+        >
+          <GcStatusTag
+            status="RECOMMENDED"
+            :label="t('certificates.importForm.source.manual.recommended')"
+            tone="info"
+          />
+        </GcSelectionCard>
+        <GcSelectionCard
+          :title="t('certificates.importForm.source.acme.title')"
+          :description="t('certificates.importForm.source.acme.description')"
+          @select="openAcmeRequestFromSource"
+        />
+      </div>
+      <template #actions>
+        <GcButton variant="secondary" @click="certificateSourceOpen = false">{{ t('common.cancel') }}</GcButton>
+      </template>
+    </GcModal>
+
+    <AcmeCertificateRequestModal v-model:open="acmeRequestOpen" />
   </section>
 </template>
 
@@ -809,6 +858,11 @@ function buildTimestampTrend(values: readonly (string | undefined)[]) {
 }
 .dashboard-quick-start__button--secondary:hover { background: var(--gc-color-primary-bg); }
 .dashboard-quick-start__button--disabled { color: var(--gc-color-text-muted); background: var(--gc-color-surface-muted); box-shadow: none; }
+
+.dashboard-certificate-source {
+  display: grid;
+  gap: var(--gc-space-4);
+}
 
 .dashboard-trend-grid {
   display: grid;

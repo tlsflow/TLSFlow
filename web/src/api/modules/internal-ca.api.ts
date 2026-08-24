@@ -52,6 +52,8 @@ export const internalCaApi = {
   /** 查询宿主 ACME 能力；该状态不经过插件 Runner。 */
   getAcmeStatus: () => apiClient.get<InternalCaRecord>(toClientPath('/api/v1/acme/status')),
   listAcmeAccounts: (providerId?: string) => getList(`/api/v1/acme/accounts${providerId ? `?providerId=${encodeURIComponent(providerId)}` : ''}`),
+  createAcmeAccount: (body: ApiBody) => post('/api/v1/acme/accounts', body),
+  listAcmeProviderProfiles: () => apiClient.get<InternalCaRecord>(toClientPath('/api/v1/acme/provider-profiles')),
   listAcmeProviders: () => apiClient.get<InternalCaRecord>(toClientPath('/api/v1/acme/providers')),
   createAcmeProvider: (body: ApiBody) => post('/api/v1/acme/providers', body),
   updateAcmeProvider: (providerId: string, body: ApiBody) => patch(`/api/v1/acme/providers/${encodeURIComponent(providerId)}`, body),
@@ -63,6 +65,7 @@ export const internalCaApi = {
   manualRenewAcmeCertificate: (certificateAssetId: string) => post(`/api/v1/acme/certificates/${encodeURIComponent(certificateAssetId)}/renew`),
   listAcmeOrders: (status?: string) => getList(`/api/v1/acme/orders${status ? `?status=${encodeURIComponent(status)}` : ''}`),
   listAcmeRenewalPolicies: () => getList('/api/v1/acme/renewal-policies'),
+  updateAcmeRenewalPolicy: (policyId: string, body: ApiBody) => patch(`/api/v1/acme/renewal-policies/${encodeURIComponent(policyId)}`, body),
   listAcmeRenewalJobs: () => getList('/api/v1/acme/renewal-jobs'),
   scanAcmeRenewalJobs: (limit = 50) => post('/api/v1/acme/renewal-jobs/scan', { limit }),
   retryAcmeRenewalJob: (jobId: string) => post(`/api/v1/acme/renewal-jobs/${encodeURIComponent(jobId)}/retry`),
