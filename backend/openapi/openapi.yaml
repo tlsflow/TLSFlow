@@ -7322,6 +7322,87 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/agents/:agentId/policy-provisioning:
+    post:
+      operationId: "provisionAgentPlanPolicy"
+      summary: "为已编译 Agent Plan 生成 Policy Authority 和本地能力材料"
+      tags:
+        - "Agents"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              additionalProperties: false
+              required:
+                - "pluginId"
+                - "pluginVersionId"
+                - "capability"
+                - "planDigest"
+                - "policyRef"
+                - "policyVersion"
+                - "actions"
+                - "allowedPaths"
+                - "allowedServices"
+                - "commandRules"
+                - "artifactDigests"
+                - "lifetimeSeconds"
+                - "compiledPlan"
+              properties:
+                pluginId:
+                  type: "string"
+                pluginVersionId:
+                  type: "string"
+                capability:
+                  type: "string"
+                planDigest:
+                  type: "string"
+                policyRef:
+                  type: "string"
+                policyVersion:
+                  type: "string"
+                actions:
+                  type: "array"
+                  items:
+                    type: "string"
+                allowedPaths:
+                  type: "array"
+                  items:
+                    type: "string"
+                allowedServices:
+                  type: "array"
+                  items:
+                    type: "string"
+                commandRules:
+                  type: "array"
+                  items:
+                    type: "object"
+                artifactDigests:
+                  type: "array"
+                  items:
+                    type: "string"
+                approvalRef:
+                  type: "string"
+                lifetimeSeconds:
+                  type: "integer"
+                compiledPlan:
+                  type: "object"
+                  additionalProperties: true
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/agents/:agentId/management-probe:
     post:
       operationId: "probeAgentManagementEndpoint"
@@ -8654,6 +8735,10 @@ paths:
                                     - "AGENT"
                                     - "CONTROL_PLANE"
                                     - "GATEWAY"
+                              compatibility:
+                                type: "object"
+                                additionalProperties:
+{}
                             required:
                               - "key"
                               - "contractVersion"
@@ -8971,6 +9056,7 @@ paths:
                                 - "SELF_MANAGED"
                             minGcacVersion:
                               type: "string"
+                              pattern: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?(?:\\+([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$"
                             capabilities:
                               type: "array"
                               items:
@@ -8996,6 +9082,10 @@ paths:
                                         - "AGENT"
                                         - "CONTROL_PLANE"
                                         - "GATEWAY"
+                                  compatibility:
+                                    type: "object"
+                                    additionalProperties:
+{}
                                 required:
                                   - "key"
                                   - "contractVersion"
@@ -9419,6 +9509,7 @@ paths:
                           - "SELF_MANAGED"
                       minGcacVersion:
                         type: "string"
+                        pattern: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?(?:\\+([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$"
                       capabilities:
                         type: "array"
                         items:
@@ -9444,6 +9535,10 @@ paths:
                                   - "AGENT"
                                   - "CONTROL_PLANE"
                                   - "GATEWAY"
+                            compatibility:
+                              type: "object"
+                              additionalProperties:
+{}
                           required:
                             - "key"
                             - "contractVersion"
@@ -9649,6 +9744,7 @@ paths:
                         - "SELF_MANAGED"
                     minGcacVersion:
                       type: "string"
+                      pattern: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?(?:\\+([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$"
                     capabilities:
                       type: "array"
                       items:
@@ -9674,6 +9770,10 @@ paths:
                                 - "AGENT"
                                 - "CONTROL_PLANE"
                                 - "GATEWAY"
+                          compatibility:
+                            type: "object"
+                            additionalProperties:
+{}
                         required:
                           - "key"
                           - "contractVersion"
@@ -9911,6 +10011,7 @@ paths:
                           - "SELF_MANAGED"
                       minGcacVersion:
                         type: "string"
+                        pattern: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?(?:\\+([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$"
                       capabilities:
                         type: "array"
                         items:
@@ -9936,6 +10037,10 @@ paths:
                                   - "AGENT"
                                   - "CONTROL_PLANE"
                                   - "GATEWAY"
+                            compatibility:
+                              type: "object"
+                              additionalProperties:
+{}
                           required:
                             - "key"
                             - "contractVersion"
@@ -10264,6 +10369,7 @@ paths:
                           - "SELF_MANAGED"
                       minGcacVersion:
                         type: "string"
+                        pattern: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?(?:\\+([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$"
                       capabilities:
                         type: "array"
                         items:
@@ -10289,6 +10395,10 @@ paths:
                                   - "AGENT"
                                   - "CONTROL_PLANE"
                                   - "GATEWAY"
+                            compatibility:
+                              type: "object"
+                              additionalProperties:
+{}
                           required:
                             - "key"
                             - "contractVersion"
@@ -10616,6 +10726,7 @@ paths:
                           - "SELF_MANAGED"
                       minGcacVersion:
                         type: "string"
+                        pattern: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?(?:\\+([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$"
                       capabilities:
                         type: "array"
                         items:
@@ -10641,6 +10752,10 @@ paths:
                                   - "AGENT"
                                   - "CONTROL_PLANE"
                                   - "GATEWAY"
+                            compatibility:
+                              type: "object"
+                              additionalProperties:
+{}
                           required:
                             - "key"
                             - "contractVersion"
@@ -10968,6 +11083,7 @@ paths:
                           - "SELF_MANAGED"
                       minGcacVersion:
                         type: "string"
+                        pattern: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?(?:\\+([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$"
                       capabilities:
                         type: "array"
                         items:
@@ -10993,6 +11109,10 @@ paths:
                                   - "AGENT"
                                   - "CONTROL_PLANE"
                                   - "GATEWAY"
+                            compatibility:
+                              type: "object"
+                              additionalProperties:
+{}
                           required:
                             - "key"
                             - "contractVersion"
@@ -11320,6 +11440,7 @@ paths:
                           - "SELF_MANAGED"
                       minGcacVersion:
                         type: "string"
+                        pattern: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?(?:\\+([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$"
                       capabilities:
                         type: "array"
                         items:
@@ -11345,6 +11466,10 @@ paths:
                                   - "AGENT"
                                   - "CONTROL_PLANE"
                                   - "GATEWAY"
+                            compatibility:
+                              type: "object"
+                              additionalProperties:
+{}
                           required:
                             - "key"
                             - "contractVersion"
@@ -11580,6 +11705,14 @@ paths:
                     type: "boolean"
                   compatibilityChanged:
                     type: "boolean"
+                  capabilityCompatibilityChanges:
+                    type: "array"
+                    items:
+                      type: "object"
+                      additionalProperties:
+{}
+                  bindingRecheckRequired:
+                    type: "boolean"
                   requiresApproval:
                     type: "boolean"
                 required:
@@ -11593,6 +11726,8 @@ paths:
                   - "runtimeChanged"
                   - "scopeChanged"
                   - "compatibilityChanged"
+                  - "capabilityCompatibilityChanges"
+                  - "bindingRecheckRequired"
                   - "requiresApproval"
                 additionalProperties: false
         400:
@@ -12984,6 +13119,12 @@ paths:
                     type: "string"
                   compatible:
                     type: "boolean"
+                  compatibilityStatus:
+                    type: "string"
+                  compatibilityInputs:
+                    type: "object"
+                    additionalProperties:
+{}
                   reasons:
                     type: "array"
                     items:
@@ -13050,6 +13191,16 @@ paths:
                           type: "string"
                         compatible:
                           type: "boolean"
+                        compatibilityStatus:
+                          type: "string"
+                          enum:
+                            - "COMPATIBLE"
+                            - "INCOMPATIBLE"
+                            - "UNKNOWN"
+                        compatibility:
+                          type: "object"
+                          additionalProperties:
+{}
                         executionLocations:
                           type: "array"
                           items:
@@ -13416,6 +13567,12 @@ paths:
                         type: "string"
                       compatible:
                         type: "boolean"
+                      compatibilityStatus:
+                        type: "string"
+                      compatibilityInputs:
+                        type: "object"
+                        additionalProperties:
+{}
                       reasons:
                         type: "array"
                         items:
@@ -15513,4 +15670,4 @@ tags:
   -
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-08-22T18:55:22.678Z"
+x-generatedAt: "2026-08-23T08:03:02.023Z"

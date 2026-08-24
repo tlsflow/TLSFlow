@@ -47,6 +47,72 @@ test('Agent v2 编译通过窄注入端口真实签发并一次性绑定 Token �
   assert.deepEqual(second, first);
 });
 
+test('统一编译链自动调用 provisioning 并传递完整已编译 Plan', async () => {
+  const plan = createPlan();
+  const authority = createAuthority();
+  let provisioningRequest: Record<string, unknown> | undefined;
+  const dependencies = createDependencies({
+    policyAuthority: {
+      assertReady: () => undefined,
+      issueAuthorization: (request) => authority.issueAuthorization(request),
+      provisionAgentPlan: async (request) => {
+        provisioningRequest = structuredClone(request) as unknown as Record<string, unknown>;
+        return {
+          localPolicyMaterial: {
+            materialVersion: 'gcac.policy-authority-provisioning/v1',
+            tenantId: plan.tenantId,
+            agentId: plan.agentId,
+            localPolicy: {
+              policyVersion: 'gcac.agent-security/v1',
+              agentId: plan.agentId,
+              authorityKeyIds: ['authority-key-1'],
+              allowedActions: ['filesystem.read'],
+              pathRules: [{ prefix: '/var/lib/gcac', operations: ['filesystem.read'] }],
+              serviceRules: [],
+              commandRules: [],
+              disabled: false,
+              updatedAt: '2026-08-08T00:00:00.000Z',
+            },
+            authorityKeyId: 'authority-key-1',
+            signature: 'signed-local-policy-material',
+          },
+        } as never;
+      },
+    },
+  });
+
+  const compiled = await new UnifiedAgentPlanCompilerService(pluginService(), dependencies).compile(compileInput(plan));
+
+  assert.equal(provisioningRequest?.planDigest, plan.planDigest);
+  assert.deepEqual(provisioningRequest?.compiledPlan, plan);
+  assert.deepEqual(provisioningRequest?.actions, ['filesystem.read']);
+  assert.deepEqual(provisioningRequest?.artifactDigests, ['a'.repeat(64)]);
+  assert.deepEqual(provisioningRequest?.commandRules, []);
+  assert.equal(compiled.localPolicyMaterial?.authorityKeyId, 'authority-key-1');
+});
+
+test('首次没有宿主 localPolicy 时自动生成能力上限候选并 provisioning', async () => {
+  const plan = createPlan();
+  const authority = createAuthority();
+  let request: Record<string, unknown> | undefined;
+  const dependencies = createDependencies({
+    localPolicy: { resolve: async () => undefined },
+    policyAuthority: {
+      assertReady: () => undefined,
+      issueAuthorization: (value) => authority.issueAuthorization(value),
+      provisionAgentPlan: async (value) => {
+        request = structuredClone(value) as unknown as Record<string, unknown>;
+        return {} as never;
+      },
+    },
+  });
+  const result = await new UnifiedAgentPlanCompilerService(pluginService(), dependencies).compile(compileInput(plan));
+  assert.equal(result.diagnostics?.length, 1);
+  assert.equal(request?.bootstrapLocalPolicy, true);
+  assert.deepEqual((request?.currentLocalPolicy as { authorityKeyIds: string[] }).authorityKeyIds, ['bootstrap-pending']);
+  assert.deepEqual((request?.currentLocalPolicy as { allowedActions: string[] }).allowedActions, ['filesystem.read']);
+});
+
 test('Agent v2 编译允许 Windows 路径分隔符在授权验证前后规范化', async () => {
   const plan = createPlan('C:/GCAC-Lab/config.json');
   const dependencies = createDependencies({}, { pathPrefix: 'C:/GCAC-Lab' });
@@ -91,7 +157,7 @@ test('Policy Authority 拒绝且不签发 Token 时保留策略拒绝原因', as
   );
 });
 
-test('缺少生产授权端口、Grant 或本地策略时失败关闭且不签发', async () => {
+test('缺少生产授权端口或 Grant 仍失败，本地策略缺失仅记录诊断并继续签发', async () => {
   const plan = createPlan();
   const base = compileInput(plan);
   await assert.rejects(
@@ -105,8 +171,10 @@ test('缺少生产授权端口、Grant 或本地策略时失败关闭且不签�
   const missingGrant = { ...dependencies, grants: { validate: async () => { throw new Error('grant missing'); } } };
   await assert.rejects(new UnifiedAgentPlanCompilerService(pluginService(), missingGrant).compile(base), /生产授权签发或绑定失败|grant missing/);
   const missingPolicy = { ...dependencies, localPolicy: { resolve: async () => undefined } };
-  await assert.rejects(new UnifiedAgentPlanCompilerService(pluginService(), missingPolicy).compile(base), /生产授权签发或绑定失败|AgentLocalPolicyV1/);
-  assert.equal(issueCount, 0);
+  const compiled = await new UnifiedAgentPlanCompilerService(pluginService(), missingPolicy).compile(base);
+  assert.equal(compiled.diagnostics?.length, 1);
+  assert.match(compiled.diagnostics?.[0] ?? '', /本地策略诊断失败/);
+  assert.equal(issueCount, 1);
 });
 
 test('调用方携带伪造或外部签发材料时直接失败关闭', async () => {
