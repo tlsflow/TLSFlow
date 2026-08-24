@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 import test from 'node:test';
+import { GCAC_VERSION } from '../../common/version.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { LicensingApplicationService } from '../licensing/application/licensing.application-service.js';
@@ -52,7 +53,7 @@ test('无许可证时第二个应用资产会被额度门禁拒绝', async () =>
   );
 });
 
-test('社区许可证额度会真正限制应用资产创建数量', async () => {
+test('社区许可证额度会真正限制应用资产创建数量为 5', async () => {
   const db = new PgliteDatabase();
   await runMigrations(db, 'src/database/migrations');
 
@@ -68,7 +69,7 @@ test('社区许可证额度会真正限制应用资产创建数量', async () =>
   const status = await licensing.getStatus();
   const grant = signGrant({
     schemaVersion: 2,
-    grantId: 'grant_community_assets_2',
+    grantId: 'grant_community_assets_5',
     keyId: 'key-2026-08',
     productCode: 'gcac',
     installationId: status.installationId,
@@ -77,15 +78,15 @@ test('社区许可证额度会真正限制应用资产创建数量', async () =>
     planCode: 'community',
     features: [...status.features],
     quotas: {
-      applicationAssets: 2,
-      managedTargets: 2,
+      applicationAssets: 5,
+      managedTargets: 5,
       concurrentExecutions: null,
       plugins: null,
     },
     issuedAt: '2026-08-08T00:00:00.000Z',
     startsAt: '2026-08-08T00:00:00.000Z',
     gracePeriodDays: 0,
-    versionRange: { min: '0.1.0', max: '0.1.0' },
+    versionRange: { min: GCAC_VERSION, max: GCAC_VERSION },
     upgradeGraceDays: 30,
     signature: '',
   }, keys.privateKey);
@@ -104,10 +105,32 @@ test('社区许可证额度会真正限制应用资产创建数量', async () =>
     protocol: 'HTTPS',
     discoverySource: 'MANUAL',
   });
+  await assets.createServiceAsset(tenantId, {
+    address: 'community-3.example.com',
+    port: 443,
+    protocol: 'HTTPS',
+    discoverySource: 'MANUAL',
+  });
+  await assets.createServiceAsset(tenantId, {
+    address: 'community-4.example.com',
+    port: 443,
+    protocol: 'HTTPS',
+    discoverySource: 'MANUAL',
+  });
+  await assets.createServiceAsset(tenantId, {
+    address: 'community-5.example.com',
+    port: 443,
+    protocol: 'HTTPS',
+    discoverySource: 'MANUAL',
+  });
+
+  const statusWithUsage = await licensing.getStatus(tenantId);
+  assert.equal(statusWithUsage.quotas.applicationAssets, 5);
+  assert.equal(statusWithUsage.usage?.applicationAssets, 5);
 
   await assert.rejects(
     () => assets.createServiceAsset(tenantId, {
-      address: 'community-3.example.com',
+      address: 'community-6.example.com',
       port: 443,
       protocol: 'HTTPS',
       discoverySource: 'MANUAL',
