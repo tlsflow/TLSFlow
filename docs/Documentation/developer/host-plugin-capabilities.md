@@ -69,7 +69,7 @@ Manifest 能力声明
 
 ## 3. Runner Host API
 
-代码型 Runner 只接收一个已经冻结的 `plugin.action`。它可以通过 IPC v2 请求以下 7 个 Host API；每次请求都必须携带至少一个 Grant 引用、幂等键、截止时间和当前步骤身份。
+代码型 Runner 只接收一个已经冻结的 `plugin.action`。它可以通过 IPC v2 请求以下 8 个 Host API；每次请求都必须携带至少一个 Grant 引用、幂等键、截止时间和当前步骤身份。
 
 | Host API | 能做什么 | 重要限制 |
 | --- | --- | --- |
@@ -77,11 +77,12 @@ Manifest 能力声明
 | `artifact.grant.read` | 读取证书、私钥、证书链或其他制品 | 必须有 Artifact Grant；高风险、始终脱敏，单次输出最多 4 MB |
 | `secret.grant.resolve` | 解析 `secret://` 引用 | 必须声明用途；只能在当前步骤和授权范围内使用 |
 | `crypto.sign` | 使用授权私钥执行 `RS256` 或 `ES256` 签名 | 只返回签名结果，永远不返回私钥 |
+| `crypto.hmac` | 使用授权 HMAC Secret 完成 HMAC 签名 | 密钥只在宿主解密边界内使用；可返回云厂商请求所需的公开标识，不返回 HMAC 密钥 |
 | `http.request` | 访问已登记的 HTTPS 服务端点 | 支持 GET、POST、PUT、PATCH、DELETE、HEAD；普通 HTTP 被拒绝 |
 | `execution.isCancelled` | 查询当前执行或步骤是否已取消 | 只读；发现取消后应停止后续外部写入 |
 | `audit.append` | 追加脱敏审计事件 | 只能追加，不能修改或删除历史记录 |
 
-Host API 的权限分别为 `cloud.service.get`、`artifact.read`、`secret.resolve`、`crypto.sign`、`network.http`、`execution.cancel.read`、`audit.append`。失败回执必须包含 `code`、`message`、`retryable`、`mayBeUnknown` 和 `secretRedacted: true`。
+Host API 的权限分别为 `cloud.service.get`、`artifact.read`、`secret.resolve`、`crypto.sign`、`crypto.hmac`、`network.http`、`execution.cancel.read`、`audit.append`。失败回执必须包含 `code`、`message`、`retryable`、`mayBeUnknown` 和 `secretRedacted: true`。
 
 ### Runner 生命周期
 
