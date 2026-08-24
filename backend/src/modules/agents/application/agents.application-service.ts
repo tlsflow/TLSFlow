@@ -1879,10 +1879,15 @@ function installRouteForPlatform(platform: AgentInstallSession['platform']): str
 function installCommandForPlatform(platform: AgentInstallSession['platform'], bootstrapUrl: string): string {
   const commands: Record<AgentInstallSession['platform'], string> = {
     windows_go_service: `irm '${bootstrapUrl}' | iex`,
-    windows_compatibility_service: `irm '${bootstrapUrl}' | iex`,
+    windows_compatibility_service: windowsPowerShell2InstallCommand(bootstrapUrl),
     linux_go_systemd: `curl -fsSL '${bootstrapUrl}' | sudo bash`,
   };
   return commands[platform];
+}
+
+function windowsPowerShell2InstallCommand(bootstrapUrl: string): string {
+  const scriptPath = "Join-Path \`$env:TEMP ('gcac-agent-install-' + [Guid]::NewGuid().ToString('N') + '.ps1')";
+  return `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "\`$scriptPath = ${scriptPath}; (New-Object System.Net.WebClient).DownloadFile('${bootstrapUrl}', \`$scriptPath); & \`$scriptPath"`;
 }
 
 function optionalBundleUrl(session: Pick<AgentInstallSession, 'platform' | 'controlPlaneUrl'>): { bundleUrl?: string } {

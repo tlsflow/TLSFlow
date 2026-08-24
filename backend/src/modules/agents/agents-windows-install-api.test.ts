@@ -59,7 +59,9 @@ describe('Agent 一键安装会话', () => {
     assert.equal(body.platform, 'windows_compatibility_service');
     assert.equal(body.serviceName, 'GCACWindowsCompatibilityAgent');
     assert.match(body.bootstrapUrl, /^http:\/\/10\.255\.0\.85:5172\/agent-install\.ps1\?token=/);
-    assert.match(body.installCommand, /^irm 'http:\/\/10\.255\.0\.85:5172\/agent-install\.ps1\?token=\d{8}' \| iex$/);
+    assert.match(body.installCommand, /^powershell\.exe -NoProfile -ExecutionPolicy Bypass -Command ".*DownloadFile\('http:\/\/10\.255\.0\.85:5172\/agent-install\.ps1\?token=\d{8}', `\$scriptPath\); & `\$scriptPath"$/);
+    assert.match(body.installCommand, /`\$env:TEMP/);
+    assert.doesNotMatch(body.installCommand, /\b(?:irm|iex)\b/i);
 
     const token = new URL(body.bootstrapUrl).searchParams.get('token');
     assert.ok(token);
@@ -78,6 +80,14 @@ describe('Agent 一键安装会话', () => {
     assert.match(script, /GCAC\.WindowsCompatibilityAgent\.exe\.config/);
     assert.match(script, /GCACWindowsCompatibilityAgent/);
     assert.match(script, /gcac\.windows-compat-agent-config\/v1/);
+    assert.match(script, /function Remove-CompatibilityService/);
+    assert.match(script, /\$existing\.WaitForStatus\("Stopped", \[TimeSpan\]::FromSeconds\(30\)\)/);
+    assert.match(script, /Compatibility Agent service deletion timed out/);
+    assert.match(script, /GCAC Windows Compatibility Agent Management TCP 18932/);
+    assert.match(script, /JavaScriptSerializer/);
+    assert.doesNotMatch(script, /ConvertFrom-Json|ConvertTo-Json/);
+    assert.doesNotMatch(script, /\[Console\]::OutputEncoding|Write-Host/);
+    assert.ok(script.indexOf('Remove-CompatibilityService') < script.indexOf('Copy-Item -LiteralPath $agentSource -Destination $agentTarget -Force'));
     assert.doesNotMatch(script, /register-once/);
     assert.doesNotMatch(script, /full-agent\.go\.windows\.config\.v1/);
   });
