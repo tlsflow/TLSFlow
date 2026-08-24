@@ -112,6 +112,7 @@ async function clearOnboardingRoute(): Promise<void> {
     v-model:open="modelOpen"
     size="xxl"
     max-height="calc(100vh - var(--gc-space-10))"
+    dialog-class="application-onboarding-modal"
     :title="t('applicationOnboarding.title')"
     :description="t('applicationOnboarding.description')"
   >
@@ -151,12 +152,17 @@ async function clearOnboardingRoute(): Promise<void> {
 </template>
 
 <style scoped>
-.application-onboarding-modal__search { position: relative; display: flex; align-items: center; inline-size: min(100%, var(--gc-size-menu-max)); }
+.application-onboarding-modal__search { position: relative; display: flex; flex: 0 0 min(45vw, var(--gc-size-application-onboarding-search)); align-items: center; inline-size: min(45vw, var(--gc-size-application-onboarding-search)); min-inline-size: 0; }
 .application-onboarding-modal__search svg { position: absolute; inset-inline-start: var(--gc-space-3); inline-size: var(--gc-size-icon-md); block-size: var(--gc-size-icon-md); color: var(--gc-color-text-soft); fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: var(--gc-border-width-thick); pointer-events: none; }
-.application-onboarding-modal__search input { inline-size: 100%; min-block-size: var(--gc-control-height-md); padding: 0 var(--gc-space-3) 0 calc(var(--gc-space-3) + var(--gc-size-icon-md) + var(--gc-space-2)); color: var(--gc-color-text); background: var(--gc-color-surface-field); border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-control); }
+.application-onboarding-modal__search input { inline-size: 100%; min-block-size: var(--gc-control-height-md); padding: 0 var(--gc-space-3) 0 calc(var(--gc-space-3) + var(--gc-size-icon-md) + var(--gc-space-2)); color: var(--gc-color-text); font-size: var(--gc-font-size-sm); background: var(--gc-color-surface-field); border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-control); }
+.application-onboarding-modal__search input::placeholder { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); opacity: 1; }
 .application-onboarding-modal__search input:focus { outline: none; border-color: var(--gc-color-primary-border-strong); box-shadow: var(--gc-shadow-focus); }
 .application-onboarding-modal__sr-only { position: absolute; inline-size: var(--gc-space-hairline); block-size: var(--gc-space-hairline); padding: 0; margin: calc(var(--gc-space-hairline) * -1); overflow: hidden; white-space: nowrap; clip-path: inset(50%); border: 0; }
+:global(.application-onboarding-modal .gc-modal__header > div:first-child) { flex: 1 1 auto; min-inline-size: 0; }
+:global(.application-onboarding-modal .gc-modal__header-actions) { flex: 0 0 auto; min-inline-size: 0; }
 @media (max-width: 48rem) {
-  .application-onboarding-modal__search { inline-size: min(48vw, var(--gc-size-menu-max)); }
+  :global(.application-onboarding-modal .gc-modal__header) { flex-wrap: wrap; }
+  :global(.application-onboarding-modal .gc-modal__header-actions) { flex: 1 1 100%; }
+  .application-onboarding-modal__search { flex: 1 1 auto; inline-size: min(70vw, var(--gc-size-application-onboarding-search)); }
 }
 </style>
