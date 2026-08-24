@@ -150,7 +150,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     agents: agentsService.getRepository(),
     certificates: certificateServices.certificates.getRepository(),
     certificatesApp: certificateServices.certificates,
-  }));
+  }), undefined, security);
   deploymentPlans.register(app.router);
   new SecurityController(security, new AuditPresentationService({
     deploymentPlans: deploymentPlans.getRepository(),
@@ -191,11 +191,11 @@ export function createApp(dependencies: AppDependencies = {}): App {
 
   new CertificatesController(security, certificateServices).register(app.router);
   new CapabilitiesController(capabilitiesService).register(app.router);
-  new AgentsController(agentsService).register(app.router);
-  new GatewaysController(gatewaysService).register(app.router);
+  new AgentsController(agentsService, security).register(app.router);
+  new GatewaysController(gatewaysService, security).register(app.router);
   new ProvidersController(providersService).register(app.router);
   new PluginsController(pluginsService).register(app.router);
-  new WorkflowTemplatesController(workflowTemplatesService).register(app.router);
+  new WorkflowTemplatesController(workflowTemplatesService, security).register(app.router);
   new DashboardController(new DashboardApplicationService({
     assets: assetsService.getRepository(),
     certificates: certificateServices.certificates.getRepository(),
