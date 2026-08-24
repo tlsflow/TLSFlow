@@ -16,6 +16,8 @@ export interface RetryPolicy {
 export interface JobPayload<TPayload extends Record<string, unknown> = Record<string, unknown>> {
   jobId: string;
   jobType: JobType;
+  attempt: number;
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'retrying';
   tenantId?: string;
   actorId?: string;
   requestId: string;
@@ -31,6 +33,8 @@ export interface JobPayload<TPayload extends Record<string, unknown> = Record<st
 export interface JobResult {
   jobId: string;
   success: boolean;
+  attempt?: number;
+  willRetry?: boolean;
   errorCode?: string;
   details?: unknown;
 }

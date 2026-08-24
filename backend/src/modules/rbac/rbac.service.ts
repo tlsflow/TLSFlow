@@ -1,4 +1,5 @@
 import { MemoryRepository } from '../../persistence/repositories/memory-repository.js';
+import type { RepositoryPort } from '../../persistence/repositories/repository-port.js';
 import type { PermissionPolicyEntity, RoleEntity, UserEntity, UserRoleEntity } from '../../persistence/entities/rbac.entity.js';
 import type { RequestContext, ResourceDescriptor, ResourceScope, SecuritySubject } from '../../shared/security-types.js';
 import { newId } from '../../shared/id.js';
@@ -14,10 +15,10 @@ export interface RbacDecision {
 
 export class RBACService {
   constructor(
-    private readonly users = new MemoryRepository<UserEntity>(),
-    private readonly roles = new MemoryRepository<RoleEntity>(),
-    private readonly userRoles = new MemoryRepository<UserRoleEntity & { id: string }>(),
-    private readonly policies = new MemoryRepository<PermissionPolicyEntity>(),
+    private readonly users: RepositoryPort<UserEntity> = new MemoryRepository<UserEntity>(),
+    private readonly roles: RepositoryPort<RoleEntity> = new MemoryRepository<RoleEntity>(),
+    private readonly userRoles: RepositoryPort<UserRoleEntity & { id: string }> = new MemoryRepository<UserRoleEntity & { id: string }>(),
+    private readonly policies: RepositoryPort<PermissionPolicyEntity> = new MemoryRepository<PermissionPolicyEntity>(),
     private readonly audit?: AuditService,
   ) {}
 

@@ -10,6 +10,7 @@ export type JobWorker = (job: JobPayload) => Promise<JobResult>;
 export class InMemoryJobRunner implements QueuePort {
   private readonly jobs: JobPayload[] = [];
   private readonly idempotencyKeys = new Set<string>();
+  private readonly results = new Map<string, JobResult>();
 
   constructor(private readonly worker: JobWorker = async (job) => ({ jobId: job.jobId, success: true })) {}
 
@@ -21,6 +22,8 @@ export class InMemoryJobRunner implements QueuePort {
     const job: JobPayload<TPayload> = {
       jobId: randomUUID(),
       jobType: input.jobType,
+      attempt: 0,
+      status: 'queued',
       tenantId: context?.tenantId,
       actorId: context?.actorId,
       requestId: context?.requestId ?? `req_job_${randomUUID()}`,
@@ -40,10 +43,57 @@ export class InMemoryJobRunner implements QueuePort {
   async runNext(): Promise<JobResult | null> {
     const job = this.jobs.shift();
     if (!job) return null;
-    return this.worker(job);
+    const runningJob: JobPayload = {
+      ...job,
+      attempt: job.attempt + 1,
+      status: 'running',
+    };
+
+    try {
+      const result = await this.worker(runningJob);
+      if (result.success) {
+        const succeeded = { ...result, jobId: runningJob.jobId, attempt: runningJob.attempt, willRetry: false };
+        this.results.set(runningJob.jobId, succeeded);
+        return succeeded;
+      }
+      return this.handleFailure(runningJob, result);
+    } catch (error) {
+      return this.handleFailure(runningJob, {
+        jobId: runningJob.jobId,
+        success: false,
+        errorCode: 'JOB_WORKER_THROWN',
+        details: { message: error instanceof Error ? error.message : String(error) },
+      });
+    }
   }
 
   size(): number {
     return this.jobs.length;
+  }
+
+  getResult(jobId: string): JobResult | undefined {
+    const result = this.results.get(jobId);
+    return result ? structuredClone(result) : undefined;
+  }
+
+  private handleFailure(job: JobPayload, result: JobResult): JobResult {
+    const willRetry = job.attempt < job.retryPolicy.maxAttempts;
+    const failedResult: JobResult = {
+      ...result,
+      jobId: job.jobId,
+      success: false,
+      attempt: job.attempt,
+      willRetry,
+    };
+    this.results.set(job.jobId, failedResult);
+
+    if (willRetry) {
+      this.jobs.push({
+        ...job,
+        status: 'retrying',
+      });
+    }
+
+    return failedResult;
   }
 }

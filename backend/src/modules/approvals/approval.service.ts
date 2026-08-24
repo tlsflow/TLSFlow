@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { MemoryRepository } from '../../persistence/repositories/memory-repository.js';
+import type { RepositoryPort } from '../../persistence/repositories/repository-port.js';
 import type { ApprovalDecision, ApprovalRequestEntity, ApprovalResourceRef } from '../../persistence/entities/approval.entity.js';
 import type { RequestContext, RiskLevel } from '../../shared/security-types.js';
 import { canonicalize } from '../../shared/canonical-json.js';
@@ -27,7 +28,7 @@ export interface DecideApprovalInput {
 
 export class ApprovalService {
   constructor(
-    private readonly approvals = new MemoryRepository<ApprovalRequestEntity>(),
+    private readonly approvals: RepositoryPort<ApprovalRequestEntity> = new MemoryRepository<ApprovalRequestEntity>(),
     private readonly audit?: AuditService,
   ) {}
 

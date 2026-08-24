@@ -1,8 +1,7 @@
-export interface IdentifiedEntity {
-  id: string;
-}
+import type { IdentifiedEntity, RepositoryPort } from './repository-port.js';
 
-export class MemoryRepository<T extends IdentifiedEntity> {
+// 测试和开发期内存实现。生产实现必须实现 RepositoryPort，而不是让服务知道 MemoryRepository。
+export class MemoryRepository<T extends IdentifiedEntity> implements RepositoryPort<T> {
   private readonly rows = new Map<string, T>();
 
   create(entity: T): T {

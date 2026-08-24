@@ -1,4 +1,5 @@
 import { MemoryRepository } from '../../persistence/repositories/memory-repository.js';
+import type { RepositoryPort } from '../../persistence/repositories/repository-port.js';
 import type { ExecutionGrantEntity } from '../../persistence/entities/execution-grant.entity.js';
 import { newId } from '../../shared/id.js';
 import { securityErrors } from '../../shared/security-error.js';
@@ -23,7 +24,7 @@ export interface ValidateGrantInput {
 }
 
 export class ExecutionGrantService {
-  constructor(private readonly grants = new MemoryRepository<ExecutionGrantEntity>()) {}
+  constructor(private readonly grants: RepositoryPort<ExecutionGrantEntity> = new MemoryRepository<ExecutionGrantEntity>()) {}
 
   create(input: CreateExecutionGrantInput): ExecutionGrantEntity {
     const now = new Date().toISOString();

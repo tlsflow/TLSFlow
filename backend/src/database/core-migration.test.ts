@@ -1,22 +1,14 @@
-import { PGlite } from '@electric-sql/pglite';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { coreTableNames, requiredCoreIndexes } from './schema/core-schema.js';
+import { PgliteDatabase } from './pglite-database.js';
+import { runMigrations } from './migration-runner.js';
+import { scalar, type DatabasePort } from './database-port.js';
 
-async function migratedDb(): Promise<PGlite> {
-  const db = new PGlite();
-  const sql = await readFile(resolve('src/database/migrations/20260608000100_core_data_model.sql'), 'utf8');
-  await db.exec(sql);
+async function migratedDb(): Promise<DatabasePort> {
+  const db = new PgliteDatabase();
+  await runMigrations(db);
   return db;
-}
-
-async function scalar<T>(db: PGlite, sql: string): Promise<T> {
-  const result = await db.query<Record<string, T>>(sql);
-  const row = result.rows[0];
-  assert.ok(row, '查询必须返回一行');
-  return Object.values(row)[0];
 }
 
 describe('核心数据模型迁移', () => {
