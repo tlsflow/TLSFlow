@@ -48,6 +48,7 @@ import {
 
 const localAuthorityFileVersion = 'gcac.local-agent-authority/v1' as const;
 const agentTrustMaterialVersion = 'gcac.agent-trust-material/v1' as const;
+const WINDOWS_OS_TYPES = new Set(['windows']);
 const discoveryPolicyRef = 'gcac.agent.discovery';
 const discoveryPolicyVersion = '1';
 const discoveryCapability = 'application.discover';
@@ -338,7 +339,7 @@ function createAgentTrustMaterial(
   const policy = createLocalPolicy(agentId, signingKeyId, allowedPaths);
   const keyMap = Object.fromEntries(keySet.keys.map((key) => [key.keyId, rawEd25519PublicKey(key.publicKeyPem)]));
   const issuedAt = new Date().toISOString();
-  const compatibility = osType?.toLowerCase().includes('windows') === true;
+  const compatibility = WINDOWS_OS_TYPES.has(osType?.toLowerCase().split(/[-_]/u)[0] ?? '');
   const policyAuthorityKeySet = signKeySet(trustRoot, keySet, rootPrivateKey);
   const localPolicyTrustRoot = trustRoot;
   const localPolicyUnsigned = {

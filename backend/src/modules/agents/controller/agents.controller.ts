@@ -36,6 +36,7 @@ import type {
 import type { AgentTaskEnvelope } from '../schema/agents.schema.js';
 
 const tags = ['Agents'];
+const WINDOWS_COMPATIBILITY_PLATFORMS = new Set(['windows_compatibility_service']);
 
 export class AgentsController {
   constructor(private readonly service = new AgentsApplicationService(), private readonly security?: SecurityServices) {}
@@ -851,7 +852,7 @@ function renderWindowsBootstrapScript(manifest: unknown): string {
   const platform = manifest && typeof manifest === 'object'
     ? (manifest as { platform?: unknown }).platform
     : undefined;
-  return platform === 'windows_compatibility_service'
+  return WINDOWS_COMPATIBILITY_PLATFORMS.has(String(platform))
     ? renderWindowsCompatibilityBootstrapScript(manifest)
     : renderWindowsGoBootstrapScript(manifest);
 }

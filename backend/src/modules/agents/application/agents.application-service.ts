@@ -1052,7 +1052,7 @@ export class AgentsApplicationService {
     return {
       ...this.baseInstallManifest(session, baseUrl),
       artifacts: await WINDOWS_ARTIFACT_LOADERS[session.platform](),
-      ...(session.platform === 'windows_go_service' && this.trustMaterialIssuer
+      ...(isWindowsGoInstallPlatform(session.platform) && this.trustMaterialIssuer
         ? { authorizationTrustKeySet: this.trustMaterialIssuer.getTrustedKeySet() }
         : {}),
     };
@@ -1141,7 +1141,7 @@ export class AgentsApplicationService {
 
   private async withTrustMaterial(agent: AgentRegistration): Promise<AgentRegistration & { trustMaterial?: unknown }> {
     const osType = agent.descriptor.osType.toLowerCase();
-    if (!this.trustMaterialIssuer || (!osType.includes('linux') && !osType.includes('windows'))) return agent;
+    if (!this.trustMaterialIssuer || !isTrustedAgentOsType(osType)) return agent;
     return {
       ...agent,
       trustMaterial: await this.trustMaterialIssuer.issue({ tenantId: agent.tenantId, agentId: agent.id, osType: agent.descriptor.osType }),
@@ -1829,13 +1829,24 @@ const currentFilePath = fileURLToPath(import.meta.url);
 const currentDirPath = path.dirname(currentFilePath);
 const windowsGoAgentRoot = resolveRepositoryAgentRoot('windows-go-full-agent');
 const windowsGoAgentAmd64Artifact = path.join(windowsGoAgentRoot, 'dist', 'gcac-agent.windows-amd64.exe');
+const windowsGoRuntimeDiscoveryAmd64Artifact = path.join(windowsGoAgentRoot, 'dist', 'plugins', 'windows-runtime-discovery.windows-amd64.exe');
 const windowsCompatibilityAgentRoot = resolveRepositoryAgentRoot('windows-compat-full-agent');
 const windowsCompatibilityReleaseRoot = path.join(windowsCompatibilityAgentRoot, 'bin', 'Release');
 const WINDOWS_INSTALL_PLATFORMS = ['windows_go_service', 'windows_compatibility_service'] as const;
+const WINDOWS_GO_INSTALL_PLATFORM = 'windows_go_service' as const;
+const TRUSTED_AGENT_OS_TYPES = new Set(['linux', 'windows']);
 const WINDOWS_ARTIFACT_LOADERS: Record<typeof WINDOWS_INSTALL_PLATFORMS[number], () => Promise<Array<{ path: string; content: string; encoding?: 'utf8' | 'base64' }>>> = {
   windows_go_service: loadWindowsGoAgentArtifacts,
   windows_compatibility_service: loadWindowsCompatibilityAgentArtifacts,
 };
+
+function isWindowsGoInstallPlatform(platform: AgentInstallSession['platform']): boolean {
+  return platform === WINDOWS_GO_INSTALL_PLATFORM;
+}
+
+function isTrustedAgentOsType(osType: string): boolean {
+  return TRUSTED_AGENT_OS_TYPES.has(osType.split(/[-_]/u)[0] ?? '');
+}
 
 function installRouteForPlatform(platform: AgentInstallSession['platform']): string {
   const routes: Record<AgentInstallSession['platform'], string> = {
@@ -1871,6 +1882,9 @@ async function ensureWindowsGoBundleAvailable(): Promise<void> {
   if (!existsSync(windowsGoAgentAmd64Artifact)) {
     throw new AppError('RESOURCE_NOT_FOUND', 'Windows Go Agent 可执行文件未构建，不能生成一键安装命令');
   }
+  if (!existsSync(windowsGoRuntimeDiscoveryAmd64Artifact)) {
+    throw new AppError('RESOURCE_NOT_FOUND', 'Windows Go Agent-side 发现插件未构建，不能生成一键安装命令');
+  }
 }
 
 async function loadWindowsGoAgentArtifacts() {
@@ -1886,6 +1900,11 @@ async function loadWindowsGoAgentArtifacts() {
   artifacts.push({
     path: 'gcac-agent.exe',
     content: (await readFile(windowsGoAgentAmd64Artifact)).toString('base64'),
+    encoding: 'base64',
+  });
+  artifacts.push({
+    path: 'plugins/windows-runtime-discovery.exe',
+    content: (await readFile(windowsGoRuntimeDiscoveryAmd64Artifact)).toString('base64'),
     encoding: 'base64',
   });
   return artifacts.sort((left, right) => left.path.localeCompare(right.path));

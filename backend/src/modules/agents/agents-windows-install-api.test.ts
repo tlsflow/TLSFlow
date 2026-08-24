@@ -317,6 +317,23 @@ function assertWindowsGoBootstrapUsesLatestAmd64Artifact(manifest: Record<string
   const expectedHash = createHash('sha256').update(readFileSync(expectedPath)).digest('hex');
   const actualHash = createHash('sha256').update(Buffer.from(agentArtifact.content as string, 'base64')).digest('hex');
   assert.equal(actualHash, expectedHash, 'Windows bootstrap 必须分发当前 amd64 发布物');
+
+  const runtimeDiscoveryArtifact = artifacts.find((artifact): artifact is Record<string, unknown> => {
+    return Boolean(artifact)
+      && typeof artifact === 'object'
+      && (artifact as Record<string, unknown>).path === 'plugins/windows-runtime-discovery.exe';
+  });
+  assert.ok(runtimeDiscoveryArtifact, 'Windows bootstrap 缺少 runtime discovery Agent-side Plugin');
+  assert.equal(runtimeDiscoveryArtifact.encoding, 'base64');
+  assert.equal(typeof runtimeDiscoveryArtifact.content, 'string');
+
+  const pluginExpectedPath = resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    '../../../../agents/windows-go-full-agent/dist/plugins/windows-runtime-discovery.windows-amd64.exe',
+  );
+  const pluginExpectedHash = createHash('sha256').update(readFileSync(pluginExpectedPath)).digest('hex');
+  const pluginActualHash = createHash('sha256').update(Buffer.from(runtimeDiscoveryArtifact.content as string, 'base64')).digest('hex');
+  assert.equal(pluginActualHash, pluginExpectedHash, 'Windows bootstrap 必须分发当前 amd64 runtime discovery Plugin');
 }
 
 async function createTestApp() {

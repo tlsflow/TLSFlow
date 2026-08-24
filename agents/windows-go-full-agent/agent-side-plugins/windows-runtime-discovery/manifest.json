@@ -1,0 +1,24 @@
+{
+  "apiVersion": "gcac.agent-side-plugin-manifest/v1",
+  "kind": "GcacAgentSidePlugin",
+  "packageId": "windows-runtime-discovery-agent-side",
+  "packageVersion": "1.0.0",
+  "protocolVersion": "gcac.agent-side-plugin/v1",
+  "transport": "stdin-stdout-jsonl",
+  "runtime": {
+    "kind": "GO_EXECUTABLE",
+    "runtimeEntrypoint": "plugins/windows-runtime-discovery.exe",
+    "runtimeSource": "runtime_main.go",
+    "buildScript": "../../build.ps1"
+  },
+  "operations": [
+    { "name": "discover", "capability": "application.discover", "writeEffect": false }
+  ],
+  "boundary": {
+    "processIsolation": "REQUIRED",
+    "agentCoreImportAllowed": false,
+    "hostApiSurface": "narrow-agent-side-jsonl",
+    "arbitraryCommandExecution": false,
+    "directRunnerIpc": false
+  }
+}

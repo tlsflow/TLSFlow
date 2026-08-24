@@ -7,6 +7,19 @@ import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthori
 
 const MOCK_SAFE_CA_COMMON_NAME = 'GCAC Agent Mock Safe CA';
 const INSTALL_SESSION_TTL_MS = 10 * 60 * 1000;
+const WINDOWS_FULL_AGENT_PLATFORMS = new Set(['windows_go_service', 'windows_compatibility_service']);
+const WINDOWS_COMPATIBILITY_PLATFORM = 'windows_compatibility_service';
+const INSTALL_AGENT_KEY_PREFIX: Record<'windows_go_service' | 'windows_compatibility_service' | 'linux_go_systemd', string> = {
+  windows_go_service: 'windowsgo',
+  windows_compatibility_service: 'windowscompat',
+  linux_go_systemd: 'linuxgo',
+};
+
+function isWindowsFullAgentPlatform(
+  platform: AgentInstallSession['platform'],
+): platform is Extract<AgentInstallSession['platform'], 'windows_go_service' | 'windows_compatibility_service'> {
+  return WINDOWS_FULL_AGENT_PLATFORMS.has(platform);
+}
 
 export class AgentsDomainService {
   createEnrollmentToken(tenantId: string, input: CreateEnrollmentTokenInput, requestId: string): EnrollmentToken & { token: string } {
@@ -138,7 +151,7 @@ export class AgentsDomainService {
   ): AgentInstallSession & { bootstrapToken: string; enrollmentTokenRecord: EnrollmentToken & { token: string } } {
     const platform = normalizeInstallSessionPlatform(input.platform);
     const role = normalizeInstallSessionRole(input.role);
-    if ((platform === 'windows_go_service' || platform === 'windows_compatibility_service') && role !== 'full_agent') {
+    if (WINDOWS_FULL_AGENT_PLATFORMS.has(platform) && role !== 'full_agent') {
       throw new AppError('VALIDATION_FAILED', 'Windows Agent 安装会话只允许 full_agent 角色');
     }
 
@@ -153,14 +166,10 @@ export class AgentsDomainService {
     const now = new Date();
     const id = newId('aginst');
     const bootstrapToken = createInstallBootstrapToken();
-    const profile = platform === 'windows_go_service' || platform === 'windows_compatibility_service'
+    const profile = isWindowsFullAgentPlatform(platform)
       ? normalizeWindowsInstallProfile(input, id, platform)
       : normalizeLinuxInstallProfile(input);
-    const defaultAgentKey = platform === 'windows_go_service'
-      ? `windowsgo.${id.toLowerCase()}`
-      : platform === 'windows_compatibility_service'
-        ? `windowscompat.${id.toLowerCase()}`
-        : `linuxgo.${id.toLowerCase()}`;
+    const defaultAgentKey = `${INSTALL_AGENT_KEY_PREFIX[platform]}.${id.toLowerCase()}`;
     return {
       id,
       tenantId,
@@ -597,7 +606,7 @@ function normalizeWindowsInstallProfile(
   id: string,
   platform: Extract<AgentInstallSession['platform'], 'windows_go_service' | 'windows_compatibility_service'>,
 ): Pick<AgentInstallSession, 'serviceName' | 'displayName' | 'installRoot' | 'configDir' | 'dataDir' | 'logDir'> {
-  const compatibility = platform === 'windows_compatibility_service';
+  const compatibility = platform === WINDOWS_COMPATIBILITY_PLATFORM;
   return {
     serviceName: normalizeServiceName(input.serviceName ?? (compatibility ? 'GCACWindowsCompatibilityAgent' : `gcac-agent-${id.slice(-6).toLowerCase()}`)),
     displayName: normalizeOptionalDisplayName(input.displayName) ?? (compatibility ? 'GCAC Windows Compatibility Agent' : 'GCAC Go Full Agent'),
