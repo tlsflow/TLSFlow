@@ -34,7 +34,7 @@ export class PfxCodec implements FormatCodec {
         sourceFormat: 'pfx',
         certificatePem: certificatePem.join('\n'),
         privateKeyPem,
-        diagnostics: ['PFX/PKCS#12 已由宿主进程解析；未调用 Plugin Runner 或外部工具'],
+        diagnostics: ['PFX/PKCS#12 已由宿主进程解析。'],
       };
     } catch (error) {
       if (error instanceof AppError) throw error;

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createPrivateKey, createPublicKey, X509Certificate } from 'node:crypto';
 import { describe, it } from 'node:test';
 import { createApp } from '../../app.module.js';
 import type { App } from '../../common/http/app.js';
@@ -9,7 +10,9 @@ import { CertificatesApplicationService } from './application/certificates.appli
 import { CertificateFormatExporter } from './application/certificate-format-exporter.js';
 import { PgCertificateArtifactStore } from './artifacts/certificate-artifact-store.js';
 import { createCertificateTestFixture } from './certificate-test-fixtures.js';
-import { generateJksKeystore } from './codecs/jks-keystore.js';
+import { generateJksKeystore, parseJksKeystore } from './codecs/jks-keystore.js';
+import { P7bCodec } from './codecs/p7b-codec.js';
+import { PfxCodec } from './codecs/pfx-codec.js';
 import forge from 'node-forge';
 
 const DEFAULT_CERTIFICATE_FIXTURE = createCertificateTestFixture();
@@ -311,7 +314,7 @@ describe('证书资产 API', () => {
     assert.equal(allowedDelete.statusCode, 200);
   });
 
-  it('未接入的 PFX 导出和来源同步都必须由 Plugin Runner 失败关闭', async () => {
+  it('宿主直接生成 PFX，来源同步仍由受控能力处理', async () => {
     const { app } = await createAuthorizedMigratedApp('user_export_plan');
     const chain = createPemChainFixture();
     const imported = await app.inject({
@@ -330,9 +333,9 @@ describe('证书资产 API', () => {
       body: { certificateVersionId: versionId, format: 'pfx', containsPrivateKey: true },
     });
     assert.ok([400, 422].includes(missingPassword.statusCode));
-    assert.equal((missingPassword.body as any).errorCode, 'CERT_FORMAT_UNSUPPORTED');
+    assert.equal((missingPassword.body as any).errorCode, 'VALIDATION_FAILED');
 
-    const unsupported = await app.inject({
+    const planned = await app.inject({
       method: 'POST',
       path: '/api/v1/certificate-version-formats/export-plan',
       headers: headers('user_export_plan'),
@@ -344,8 +347,8 @@ describe('证书资产 API', () => {
         parameters: { alias: 'example' },
       },
     });
-    assert.equal(unsupported.statusCode, 422, JSON.stringify(unsupported.body));
-    assert.equal((unsupported.body as any).errorCode, 'CERT_FORMAT_UNSUPPORTED');
+    assert.equal(planned.statusCode, 201, JSON.stringify(planned.body));
+    assert.equal((planned.body as any).exportMode, 'planned');
 
     const source = await app.inject({
       method: 'POST',
@@ -359,27 +362,28 @@ describe('证书资产 API', () => {
 
 
 
-  it('格式能力声明准确区分宿主 PFX 导入和未实现的容器能力', async () => {
+  it('格式能力声明准确反映五种宿主格式', async () => {
     const { app } = await createAuthorizedApp('user_formats');
     const capabilities = await app.inject({ method: 'GET', path: '/api/v1/certificate-formats/capabilities', headers: headers('user_formats') });
     assert.equal(capabilities.statusCode, 200);
     const formats = new Map((capabilities.body as any).formats.map((item: any) => [item.format, item]));
     assert.equal((formats.get('pem') as any).importSupported, true);
     assert.equal((formats.get('pfx') as any).importSupported, true);
-    assert.equal((formats.get('pfx') as any).exportSupported, false);
-    assert.equal((formats.get('pfx') as any).implementation, 'node_crypto');
+    assert.equal((formats.get('pfx') as any).exportSupported, true);
+    assert.equal((formats.get('pfx') as any).implementation, 'openssl');
     assert.equal((formats.get('jks') as any).importSupported, true);
     assert.equal((formats.get('jks') as any).exportSupported, true);
+    assert.equal((formats.get('jks') as any).containsPrivateKey, 'required');
     assert.equal((formats.get('jks') as any).implementation, 'node_crypto');
-    assert.equal((formats.get('p7b') as any).importSupported, false);
-    assert.equal((formats.get('p7b') as any).exportSupported, false);
-    assert.equal((formats.get('p7b') as any).implementation, 'controlled_error');
+    assert.equal((formats.get('p7b') as any).importSupported, true);
+    assert.equal((formats.get('p7b') as any).exportSupported, true);
+    assert.equal((formats.get('p7b') as any).implementation, 'openssl');
     assert.equal((formats.get('p7b') as any).containsPrivateKey, 'never');
 
     for (const body of [{ p7bBase64: Buffer.from('not-a-p7b').toString('base64') }]) {
       const response = await app.inject({ method: 'POST', path: '/api/v1/certificate-versions/import', headers: headers('user_formats'), body });
       assert.ok([400, 422].includes(response.statusCode));
-      assert.equal((response.body as any).errorCode, 'CERT_FORMAT_UNSUPPORTED');
+      assert.equal((response.body as any).errorCode, 'CERT_PARSE_FAILED');
     }
     const invalidJks = await app.inject({
       method: 'POST',
@@ -772,7 +776,7 @@ describe('证书资产 API', () => {
     assert.equal(format.statusCode, 201);
   });
 
-  it('已接入格式导出会生成 PEM/DER/JKS 产物 bytes，并且不泄露密码和私钥', async () => {
+  it('宿主格式导出会生成完整链的 PFX/P12/JKS/P7B/P7C/SPC 产物，并且不泄露敏感材料', async () => {
     const { app, security, artifacts } = await createAuthorizedMigratedApp('user_export_real');
     const chain = createPemChainFixture();
     const imported = await app.inject({
@@ -792,19 +796,33 @@ describe('证书资产 API', () => {
       createdBy: 'user_export_real',
     })).secretRef;
 
+    const expectedCertificates = certificatePemBlocks(chain.pem);
+    const expectedFingerprints = expectedCertificates.map(certificateFingerprint).sort();
+    let p7bContent: Buffer | undefined;
     const exportCases = [
-      { format: 'pem', containsPrivateKey: true, passwordSecretRef: undefined },
-      { format: 'der', containsPrivateKey: false, passwordSecretRef: undefined },
-      { format: 'jks', containsPrivateKey: true, passwordSecretRef: password },
+      { name: 'PEM', format: 'pem', containsPrivateKey: true, passwordSecretRef: undefined, extension: 'pem' },
+      { name: 'DER', format: 'der', containsPrivateKey: false, passwordSecretRef: undefined, extension: 'der' },
+      { name: 'PFX', format: 'pfx', containsPrivateKey: true, passwordSecretRef: password, extension: 'pfx' },
+      { name: 'P12', format: 'pfx', containsPrivateKey: true, passwordSecretRef: password, extension: 'p12' },
+      { name: 'JKS', format: 'jks', containsPrivateKey: true, passwordSecretRef: password, extension: 'jks' },
+      { name: 'P7B', format: 'p7b', containsPrivateKey: false, passwordSecretRef: undefined, extension: 'p7b' },
+      { name: 'P7C', format: 'p7b', containsPrivateKey: false, passwordSecretRef: undefined, extension: 'p7c' },
+      { name: 'SPC', format: 'p7b', containsPrivateKey: false, passwordSecretRef: undefined, extension: 'spc' },
     ];
     for (const item of exportCases) {
       const response = await app.inject({
         method: 'POST',
         path: '/api/v1/certificate-version-formats/export',
         headers: headers('user_export_real'),
-        body: { certificateVersionId: versionId, ...item, parameters: { alias: 'gcac-test' } },
+        body: {
+          certificateVersionId: versionId,
+          format: item.format,
+          containsPrivateKey: item.containsPrivateKey,
+          passwordSecretRef: item.passwordSecretRef,
+          parameters: { alias: 'gcac-test', extension: item.extension },
+        },
       });
-      assert.equal(response.statusCode, 201, `${item.format} 应导出成功：${JSON.stringify(response.body)}`);
+      assert.equal(response.statusCode, 201, `${item.name} 应导出成功：${JSON.stringify(response.body)}`);
       const body = response.body as any;
       assert.equal(body.exportMode, 'generated');
       const artifact = await artifacts.get(body.artifactRef);
@@ -812,7 +830,94 @@ describe('证书资产 API', () => {
       assert.ok(artifact!.content.length > 0, `${item.format} artifact 不能是空文件`);
       assert.equal(JSON.stringify(body).includes('export-password-123'), false);
       assert.equal(JSON.stringify(body).includes('BEGIN PRIVATE KEY'), false);
+      if (item.format === 'pfx') {
+        const pfx = forge.pkcs12.pkcs12FromAsn1(
+          forge.asn1.fromDer(artifact!.content.toString('binary'), true),
+          true,
+          'export-password-123',
+        );
+        const certificateBags = pfx.getBags({ bagType: forge.pki.oids.certBag })[forge.pki.oids.certBag] ?? [];
+        const privateKeyBags = pfx.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag })[forge.pki.oids.pkcs8ShroudedKeyBag] ?? [];
+        assert.equal(certificateBags.length, expectedCertificates.length, `${item.name} 必须包含完整证书链`);
+        assert.deepEqual(
+          certificateBags.map((bag) => certificateFingerprint(forge.pki.certificateToPem(bag.cert!))).sort(),
+          expectedFingerprints,
+          `${item.name} 必须包含叶子证书及全部链证书`,
+        );
+        assert.ok(privateKeyBags.length >= 1, `${item.name} 必须包含加密私钥`);
+        const decoded = new PfxCodec().decode({
+          pfxBase64: artifact!.content.toString('base64'),
+          pfxPassword: 'export-password-123',
+        });
+        assertContainerContent(decoded.certificatePem ?? '', decoded.privateKeyPem, expectedCertificates, expectedFingerprints, item.name);
+        assert.throws(
+          () => new PfxCodec().decode({
+            pfxBase64: artifact!.content.toString('base64'),
+            pfxPassword: 'wrong-export-password',
+          }),
+          `${item.name} 必须拒绝错误解包密码`,
+        );
+      }
+      if (item.format === 'jks') {
+        const decoded = parseJksKeystore(artifact!.content, 'export-password-123', 'gcac-test');
+        assert.deepEqual(
+          decoded.certificateDers.map(certificateFingerprint),
+          expectedCertificates.map((certificate) => certificateFingerprint(certificate)),
+          'JKS 必须按链顺序包含叶子证书及全部链证书',
+        );
+        assertPrivateKeyMatchesLeaf(decoded.privateKeyPem, expectedCertificates[0]!);
+        assert.throws(
+          () => parseJksKeystore(artifact!.content, 'wrong-export-password', 'gcac-test'),
+          'JKS 必须拒绝错误解包密码',
+        );
+      }
+      if (item.format === 'p7b') {
+        const decoded = new P7bCodec().decode({ p7bBase64: artifact!.content.toString('base64') });
+        assertP7bContent(decoded.certificatePem ?? '', expectedCertificates, expectedFingerprints, item.name);
+        assert.equal(decoded.privateKeyPem, undefined, `${item.name} 不得包含私钥`);
+        p7bContent ??= artifact!.content;
+      }
     }
+    assert.ok(p7bContent, 'P7B 导出必须产生可供导入验证的制品');
+    const { app: p7bImportApp } = await createAuthorizedApp('user_p7b_import');
+    const p7bImported = await p7bImportApp.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers: headers('user_p7b_import'),
+      body: {
+        declaredFormat: 'p7b',
+        p7bBase64: p7bContent.toString('base64'),
+        privateKeyPem: chain.privateKeyPem,
+      },
+    });
+    assert.equal(p7bImported.statusCode, 201, `P7B 加上匹配私钥应由宿主导入：${JSON.stringify(p7bImported.body)}`);
+    assert.equal((p7bImported.body as any).diagnostics.sourceFormat, 'p7b');
+
+    const { app: missingKeyApp } = await createAuthorizedApp('user_p7b_missing_key');
+    const missingKey = await missingKeyApp.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers: headers('user_p7b_missing_key'),
+      body: { declaredFormat: 'p7b', p7bBase64: p7bContent.toString('base64') },
+    });
+    assert.equal(missingKey.statusCode, 201, JSON.stringify(missingKey.body));
+    assert.equal((missingKey.body as any).version.hasPrivateKey, false);
+    assert.equal((missingKey.body as any).version.deployable, false, 'P7B 仅证书导入只能形成不可部署版本');
+
+    const { app: mismatchedKeyApp } = await createAuthorizedApp('user_p7b_mismatched_key');
+    const mismatchedKey = await mismatchedKeyApp.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers: headers('user_p7b_mismatched_key'),
+      body: {
+        declaredFormat: 'p7b',
+        p7bBase64: p7bContent.toString('base64'),
+        privateKeyPem: createCertificateTestFixture('alternate').privateKeyPem,
+      },
+    });
+    assert.ok([400, 422].includes(mismatchedKey.statusCode), JSON.stringify(mismatchedKey.body));
+    const mismatchedKeyAssets = await mismatchedKeyApp.inject({ method: 'GET', path: '/api/v1/certificate-assets', headers: headers('user_p7b_mismatched_key') });
+    assert.equal((mismatchedKeyAssets.body as any).total, 0, 'P7B 私钥不匹配时不得写入半成品');
   });
 
   it('PEM 格式部署产物提供不含私钥的 fullchain 输出项', () => {
@@ -986,4 +1091,44 @@ function createPfxFixture(): { pfxBase64: string; password: string } {
     .map((match) => forge.pki.certificateFromPem(match[0]));
   const pfx = forge.pkcs12.toPkcs12Asn1(privateKey, certificates, password, { algorithm: 'aes256' });
   return { pfxBase64: Buffer.from(forge.asn1.toDer(pfx).getBytes(), 'binary').toString('base64'), password };
+}
+
+function certificatePemBlocks(pem: string): string[] {
+  return pem.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g) ?? [];
+}
+
+function certificateFingerprint(certificatePem: string | Buffer): string {
+  return new X509Certificate(certificatePem).fingerprint256.replaceAll(':', '').toLowerCase();
+}
+
+function assertContainerContent(
+  certificatePem: string,
+  privateKeyPem: string | undefined,
+  expectedCertificates: string[],
+  expectedFingerprints: string[],
+  containerName: string,
+): void {
+  const actualCertificates = certificatePemBlocks(certificatePem);
+  assert.equal(actualCertificates.length, expectedCertificates.length, `${containerName} 解包后必须保留完整证书链`);
+  assert.deepEqual(actualCertificates.map(certificateFingerprint).sort(), expectedFingerprints, `${containerName} 解包后的证书链不完整`);
+  assertPrivateKeyMatchesLeaf(privateKeyPem, expectedCertificates[0]!);
+}
+
+function assertP7bContent(
+  certificatePem: string,
+  expectedCertificates: string[],
+  expectedFingerprints: string[],
+  containerName: string,
+): void {
+  const actualCertificates = certificatePemBlocks(certificatePem);
+  assert.equal(actualCertificates.length, expectedCertificates.length, `${containerName} 解包后必须保留完整证书链`);
+  assert.deepEqual(actualCertificates.map(certificateFingerprint).sort(), expectedFingerprints, `${containerName} 解包后的证书链不完整`);
+}
+
+function assertPrivateKeyMatchesLeaf(privateKeyPem: string | undefined, leafCertificatePem: string): void {
+  assert.ok(privateKeyPem, '容器解包后必须包含私钥');
+  const publicFromPrivate = createPublicKey(createPrivateKey(privateKeyPem)).export({ type: 'spki', format: 'der' });
+  const publicFromLeaf = new X509Certificate(leafCertificatePem).publicKey.export({ type: 'spki', format: 'der' });
+  assert.ok(Buffer.isBuffer(publicFromPrivate) && Buffer.isBuffer(publicFromLeaf));
+  assert.equal(publicFromPrivate.equals(publicFromLeaf), true, '容器私钥必须与叶子证书匹配');
 }

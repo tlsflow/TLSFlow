@@ -97,8 +97,6 @@ export interface CertificatesApplicationDependencies {
   domain?: CertificatesDomainService;
   artifacts?: CertificateArtifactStore;
   exporter?: CertificateFormatExporter;
-  /** PFX 只能由显式注册的 Plugin Runner 产物生成器提供。 */
-  pfxExporter?: CertificateFormatExporter;
   versionEvents?: CertificateVersionEventPublisher;
   trustRoots?: TrustRootsApplicationService;
 }
@@ -109,7 +107,6 @@ export class CertificatesApplicationService {
   private readonly artifacts: CertificateArtifactStore;
   private readonly domain: CertificatesDomainService;
   private readonly exporter: CertificateFormatExporter;
-  private readonly pfxExporter?: CertificateFormatExporter;
   private readonly trustRoots: TrustRootsApplicationService;
   constructor(
     private readonly dependencies: CertificatesApplicationDependencies,
@@ -119,7 +116,6 @@ export class CertificatesApplicationService {
     this.domain = dependencies.domain ?? new CertificatesDomainService();
     this.artifacts = dependencies.artifacts ?? new PgCertificateArtifactStore(this.db);
     this.exporter = dependencies.exporter ?? new CertificateFormatExporter();
-    this.pfxExporter = dependencies.pfxExporter;
     this.trustRoots = dependencies.trustRoots ?? new TrustRootsApplicationService({
       db: this.db,
       certificates: this.repository,
@@ -899,11 +895,7 @@ export class CertificatesApplicationService {
     const password = format.passwordSecretRef
       ? await this.resolveSecret(format.passwordSecretRef, version.tenantId, 'pfx_password', 'certificate.deployment.password', actorId, context)
       : undefined;
-    const exporter = format.format === 'pfx' ? this.pfxExporter : this.exporter;
-    if (!exporter) {
-      throw new AppError('CERT_FORMAT_UNSUPPORTED', 'PFX 当前必须通过 Plugin Runner 处理，宿主未注册生产插件', { format: 'pfx' });
-    }
-    const generated = exporter.generate(format.format, {
+    const generated = this.exporter.generate(format.format, {
       version,
       leafDer: await this.readArtifact(version.leafStorageRef, tenantId ?? version.tenantId),
       chainDer: await Promise.all(version.chainCertificateRefs.map((artifactRef) => this.readArtifact(artifactRef, tenantId ?? version.tenantId))),
@@ -927,20 +919,17 @@ export class CertificatesApplicationService {
     if (!certificateFormats.includes(input.format)) {
       throw new AppError('CERT_EXPORT_FORMAT_INVALID', '证书格式不合法', { format: input.format });
     }
-    if (input.format === 'p7b' || (input.format === 'pfx' && !this.pfxExporter)) {
-      throw new AppError('CERT_FORMAT_UNSUPPORTED', `${input.format.toUpperCase()} 当前必须通过 Plugin Runner 处理，宿主未注册生产插件`, { format: input.format });
+    if ((input.format === 'der' || input.format === 'p7b') && input.containsPrivateKey) {
+      throw new AppError('CERT_EXPORT_FORMAT_INVALID', `${input.format.toUpperCase()} 格式不能包含私钥`, { format: input.format });
     }
-    if (input.format === 'der' && input.containsPrivateKey) {
-      throw new AppError('CERT_EXPORT_FORMAT_INVALID', 'DER 格式不能包含私钥', { format: input.format });
-    }
-    if (input.format === 'jks' && !input.containsPrivateKey) {
-      throw new AppError('VALIDATION_FAILED', 'JKS 导出必须包含私钥', { format: input.format });
+    if ((input.format === 'pfx' || input.format === 'jks') && !input.containsPrivateKey) {
+      throw new AppError('VALIDATION_FAILED', 'PFX/JKS 导出必须包含私钥', { format: input.format });
     }
     if (input.containsPrivateKey && !version.privateKeySecretRef) {
       throw new AppError('VALIDATION_FAILED', '证书版本没有私钥 SecretRef，不能导出包含私钥的格式', { certificateVersionId: input.certificateVersionId });
     }
-    if (input.format === 'jks' && !input.passwordSecretRef) {
-      throw new AppError('VALIDATION_FAILED', 'JKS 导出必须提供 passwordSecretRef', { format: input.format });
+    if ((input.format === 'pfx' || input.format === 'jks') && !input.passwordSecretRef) {
+      throw new AppError('VALIDATION_FAILED', 'PFX/JKS 导出必须提供 passwordSecretRef', { format: input.format });
     }
     this.assertPasswordSecretRef(input.format, input.passwordSecretRef);
     if (version.chainStatus !== 'valid') {
@@ -950,14 +939,14 @@ export class CertificatesApplicationService {
   }
 
   private assertPasswordSecretRef(format: typeof certificateFormats[number], passwordSecretRef: string | undefined): void {
-    if (format !== 'jks') {
+    if (format !== 'pfx' && format !== 'jks') {
       return;
     }
     if (!passwordSecretRef) {
       return;
     }
     if (!/^secret:\/\/[a-z0-9_/-]+(?:#[a-z0-9_-]+)?$/i.test(passwordSecretRef.trim())) {
-      throw new AppError('SECRET_REF_INVALID', 'JKS 配置中的 passwordSecretRef 不是合法 Secret 引用', {
+      throw new AppError('SECRET_REF_INVALID', 'PFX/JKS 配置中的 passwordSecretRef 不是合法 Secret 引用', {
         format,
         passwordSecretRef,
       });

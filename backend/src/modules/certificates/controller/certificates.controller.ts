@@ -12,7 +12,6 @@ import type { CertificateVersionEventPublisher } from '../../automations/applica
 import { certificateFormats, certificateSourceTypes } from '../schema/certificates.schema.js';
 import { rootCertificateSourceTypes } from '../trust-roots/schema/trust-roots.schema.js';
 import { CertificatesApplicationService } from '../application/certificates.application-service.js';
-import type { CertificateFormatExporter } from '../application/certificate-format-exporter.js';
 import type { BindingsApplicationService } from '../../bindings/application/bindings.application-service.js';
 
 export interface CertificateServices {
@@ -23,11 +22,10 @@ export interface CertificateServices {
 export interface CreateCertificateServicesOptions {
   db?: DatabasePort;
   versionEvents?: CertificateVersionEventPublisher;
-  pfxExporter?: CertificateFormatExporter;
 }
 
 export function createCertificateServices(security: SecurityServices, options: CreateCertificateServicesOptions = {}): CertificateServices {
-  return { certificates: new CertificatesApplicationService({ db: options.db, secrets: security.secrets, audit: security.audit, versionEvents: options.versionEvents, pfxExporter: options.pfxExporter }) };
+  return { certificates: new CertificatesApplicationService({ db: options.db, secrets: security.secrets, audit: security.audit, versionEvents: options.versionEvents }) };
 }
 
 export class CertificatesController {

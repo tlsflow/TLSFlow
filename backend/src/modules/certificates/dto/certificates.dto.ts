@@ -122,7 +122,7 @@ export interface CertificateFormatCapabilityDto {
   importSupported: boolean;
   exportSupported: boolean;
   containsPrivateKey: 'never' | 'optional' | 'required';
-  implementation: 'node_crypto' | 'controlled_error';
+  implementation: 'node_crypto' | 'openssl' | 'controlled_error';
   limitations: string[];
 }
 
