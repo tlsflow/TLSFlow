@@ -52,4 +52,26 @@ describe('GcExecutionProgressPanel', () => {
 
     expect(wrapper.find('.gc-dry-run-modern__hero-progress strong').text()).toBe('40%')
   })
+
+  it('失败后的跳过步骤属于终态，不会让 dry-run 看起来仍在等待', () => {
+    const wrapper = mount(GcExecutionProgressPanel, {
+      global: { plugins: [i18n] },
+      props: {
+        mode: 'dry-run',
+        steps: [
+          { id: '1', name: 'DISCOVER target-1', stepType: 'DISCOVER', status: 'SUCCESS' },
+          { id: '2', name: 'BACKUP target-1', stepType: 'BACKUP', status: 'SUCCESS' },
+          { id: '3', name: 'INSTALL target-1', stepType: 'INSTALL', status: 'FAILED' },
+          { id: '4', name: 'RELOAD target-1', stepType: 'RELOAD', status: 'SKIPPED', detail: '步骤已跳过：SKIPPED_AFTER_RUN_FAILURE' },
+          { id: '5', name: 'VERIFY target-1', stepType: 'VERIFY', status: 'SKIPPED', detail: '步骤已跳过：SKIPPED_AFTER_RUN_FAILURE' },
+        ],
+        lines: [],
+      },
+    })
+
+    expect(wrapper.find('.gc-dry-run-modern__hero-progress strong').text()).toBe('100%')
+    expect(wrapper.find('.gc-dry-run-modern__section-pill').text()).toContain('5/5')
+    expect(wrapper.findAll('.gc-dry-run-modern__tasks [data-status="skipped"]')).toHaveLength(2)
+    expect(wrapper.text()).toContain('已跳过')
+  })
 })

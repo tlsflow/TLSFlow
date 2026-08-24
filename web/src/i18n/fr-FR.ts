@@ -191,6 +191,7 @@ export default {
       feed: {
         completed: 'Execution completed',
         failed: 'Execution failed',
+        skipped: 'Skipped',
         warning: 'Completed with warnings'
       },
       loading: {
@@ -243,6 +244,7 @@ export default {
         failed: 'Failed',
         queued: 'Waiting',
         running: 'Running',
+        skipped: 'Skipped',
         warning: 'Warning'
       },
       step: {
@@ -265,6 +267,7 @@ export default {
         queued: 'The task has been created and is waiting to run.',
         running: 'The task has started. Waiting for more results.',
         runningChecks: '{total} checks returned',
+        skipped: 'This step was skipped and will not continue waiting.',
         warningChecks: '{total} checks, {warning} warnings'
       },
       time: {
@@ -570,6 +573,7 @@ export default {
         emptyMessage: 'The backend did not receive a concrete error message',
         issue: 'Catégorie {category}, emplacement {slot}, chemin {path}, source {source}, correction {remediation}'
       },
+      skipped: 'Step skipped: {reason}',
       running: {
         dispatched: 'Agent task taskId={taskId} has been dispatched. Waiting for the agent result.',
         waitingAgentResult: 'The step is running, but no Agent taskId or result has been received yet.'
@@ -611,6 +615,10 @@ export default {
       failed: {
         label: 'Dry-run failed',
         detail: 'Precheck failed {failed} items, warning {warning} items, passed {passed} items.'
+      },
+      tlsGrantRequired: {
+        label: 'Dry-run terminé, autorisation de l’hôte requise',
+        detail: 'Les contrôles structurels et de sécurité sont terminés. Le dry-run ne délivre pas d’ExecutionGrant formel ; le contournement de la vérification TLS a donc été refusé. Après approbation, l’hôte délivrera un ExecutionGrant temporaire pour l’exécution réelle.'
       },
       warning: {
         label: 'Dry-run has risk warnings',
@@ -857,6 +865,11 @@ export default {
       dryRunRisk: 'Only generates an impact preview. It does not execute the real deployment.',
       submit: 'Submit for approval',
       submitRisk: 'After submission, the plan enters approval or pending execution status.',
+      review: 'Review approval',
+      approve: 'Approve request',
+      approveRisk: 'Approval makes the plan eligible for execution, but Dry-run and the host-issued ExecutionGrant are still required.',
+      reject: 'Reject request',
+      rejectRisk: 'A rejected plan cannot execute and must be submitted for approval again.',
       execute: 'Execute deployment',
       executeRisk: 'Execution modifies target certificate configuration. Completed or failed plans also use this entry for re-execution; run a dry-run impact preview first.',
       cancel: 'Cancel plan',
@@ -912,6 +925,8 @@ export default {
     },
     disabled: {
       missingApproval: 'Approval information is missing, so execution is not allowed.',
+      approvalPending: 'The approval request was submitted. An approver must approve it before execution.',
+      approvalRejected: 'The approval was rejected. Execution is unavailable.',
       needDryRun: 'A successful dry-run impact preview is required before real execution.',
       missingRunId: 'runId is missing, so rollback is not allowed.',
       missingSelection: 'Deployment plan selection is missing'
@@ -921,6 +936,16 @@ export default {
       close: 'Close',
       notConfigured: 'Not configured',
       notProvided: 'Not provided'
+    },
+    approval: {
+      title: 'Approval details',
+      description: 'Review the deployment plan scope, then approve or reject the request directly.',
+      requestedBy: 'Requested by',
+      riskLevel: 'Risk level',
+      decisionHint: 'Approval makes the plan eligible for real execution. A rejected plan must be submitted again.',
+      processing: 'Processing...',
+      missingApprovalId: 'Approval ID is missing, so this request cannot be reviewed.',
+      decisionFailed: 'Approval action failed.'
     },
     detail: {
       certificateVersionLabel: 'Certificate version',
@@ -993,7 +1018,11 @@ export default {
       loadedDraftWithPlanId: 'Draft plan loaded. planId: {planId}',
       savedWithPlanId: 'Deployment plan saved. planId: {planId}',
       submitted: 'Deployment plan submitted.',
-      submittedWithPlanId: 'Deployment plan submitted. planId: {planId}'
+      submittedWithPlanId: 'Deployment plan submitted. planId: {planId}',
+      approvalApproved: 'Approval approved. The plan can now be executed.',
+      approvalApprovedWithPlanId: 'Approval approved. Plan {planId} can now be executed.',
+      approvalRejected: 'Approval rejected. The plan cannot be executed.',
+      approvalRejectedWithPlanId: 'Approval rejected. Plan {planId} cannot be executed.'
     },
     target: {
       controlPlane: 'Control plane',
@@ -2444,7 +2473,25 @@ export default {
     artifacts: { format: "Format d'artefact" },
     runtimeValue: "Fourni par {source} lors de l'exécution",
     source: 'Source : {source}',
-    issues: { title: "Problèmes d'entrée", missing: 'Une entrée de déploiement obligatoire est manquante' }
+    sourceKinds: { asset: 'Actif', binding: 'Liaison', default: 'Valeur par défaut', derived: 'Valeur dérivée', system: 'Valeur système', step_output: 'Sortie de l’étape', unknown: 'Source inconnue' },
+    issues: {
+      title: "Problèmes d'entrée",
+      unknown: 'Échec de validation de l’entrée de déploiement ({code})',
+      DEPLOYMENT_INPUT_REQUIRED: 'Une entrée de déploiement obligatoire est manquante',
+      DEPLOYMENT_CONNECTION_REQUIRED: 'Un paramètre de connexion obligatoire est manquant',
+      DEPLOYMENT_CREDENTIAL_REQUIRED: 'Un identifiant obligatoire est manquant',
+      DEPLOYMENT_ARTIFACT_REQUIRED: 'Un artefact de déploiement obligatoire est manquant',
+      DEPLOYMENT_INPUT_OVERRIDE_FORBIDDEN: 'Cette entrée de déploiement ne peut pas être remplacée',
+      DEPLOYMENT_INPUT_SLOT_UNDECLARED: 'Le slot d’entrée de déploiement n’est pas déclaré',
+      DEPLOYMENT_INPUT_FIELD_UNDECLARED: 'Le champ d’entrée de déploiement n’est pas déclaré',
+      DEPLOYMENT_INPUT_TYPE_INVALID: 'Le type de l’entrée de déploiement est incorrect',
+      DEPLOYMENT_INPUT_FIXED_OVERRIDE_FORBIDDEN: 'Une entrée de déploiement fixe ne peut pas être remplacée',
+      DEPLOYMENT_CREDENTIAL_SNAPSHOT_REQUIRED: 'L’instantané de l’identifiant est manquant',
+      DEPLOYMENT_CREDENTIAL_SNAPSHOT_MISMATCH: 'L’instantané de l’identifiant ne correspond pas à la sélection actuelle',
+      DEPLOYMENT_CREDENTIAL_KIND_INVALID: 'Le type d’identifiant n’est pas pris en charge',
+      DEPLOYMENT_ARTIFACT_SNAPSHOT_REQUIRED: 'L’instantané de l’artefact est manquant',
+      DEPLOYMENT_ARTIFACT_OUTPUT_REQUIRED: 'Une sortie d’artefact obligatoire est manquante'
+    }
   },
   assets: {
     title: 'Application assets',

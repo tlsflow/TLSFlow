@@ -191,6 +191,7 @@ export default {
       feed: {
         completed: 'Execução concluída',
         failed: 'Execução com falha',
+        skipped: 'Ignorada',
         warning: 'Concluída com avisos'
       },
       loading: {
@@ -243,6 +244,7 @@ export default {
         failed: 'Falha',
         queued: 'Aguardando',
         running: 'Em execução',
+        skipped: 'Ignorada',
         warning: 'Com aviso'
       },
       step: {
@@ -265,6 +267,7 @@ export default {
         queued: 'A tarefa foi criada e aguarda execução.',
         running: 'A tarefa foi iniciada; aguardando resultados.',
         runningChecks: '{total} verificações retornadas',
+        skipped: 'Esta etapa foi ignorada e não continuará aguardando.',
         warningChecks: '{total} verificações, {warning} avisos'
       },
       time: {
@@ -562,6 +565,7 @@ export default {
         emptyMessage: 'Nenhuma mensagem de erro específica foi recebida',
         issue: 'Categoria {category}, slot {slot}, caminho {path}, origem {source}, correção {remediation}'
       },
+      skipped: 'Etapa ignorada: {reason}',
       running: {
         dispatched: 'Tarefa do Agent enviada ({taskId}); aguardando o resultado da execução.',
         waitingAgentResult: 'Etapa em execução; aguardando o Agent retornar o resultado…'
@@ -603,6 +607,10 @@ export default {
       failed: {
         label: 'Dry-run falhou',
         detail: 'Pré-verificação com {failed} itens falhos, {warning} avisos e {passed} itens aprovados.'
+      },
+      tlsGrantRequired: {
+        label: 'Dry-run concluído, autorização do host necessária',
+        detail: 'As verificações estruturais e de segurança foram concluídas. O dry-run não emite um ExecutionGrant formal, portanto o bypass da verificação TLS foi rejeitado. Após a aprovação, o host emitirá um ExecutionGrant de curta duração para a execução formal.'
       },
       warning: {
         label: 'Dry-run com alertas de risco',
@@ -823,6 +831,11 @@ export default {
       dryRunRisk: 'Gera apenas a prévia de impacto, sem executar a implantação real.',
       submit: 'Enviar para aprovação',
       submitRisk: 'Após o envio, o plano entra em aprovação ou fica pendente de execução.',
+      review: 'Revisar aprovação',
+      approve: 'Aprovar solicitação',
+      approveRisk: 'A aprovação torna o plano elegível para execução, mas o Dry-run e o ExecutionGrant emitido pelo host continuam obrigatórios.',
+      reject: 'Rejeitar solicitação',
+      rejectRisk: 'Um plano rejeitado não pode ser executado e precisa ser enviado para aprovação novamente.',
       execute: 'Executar implantação',
       executeRisk: 'A execução altera a configuração de certificados do alvo. Planos concluídos ou com falha também usam esta entrada para nova execução; antes de executar, rode a prévia de impacto Dry-run.',
       cancel: 'Cancelar plano',
@@ -878,6 +891,8 @@ export default {
     },
     disabled: {
       missingApproval: 'Faltam informações de aprovação, portanto a execução não é permitida.',
+      approvalPending: 'A solicitação de aprovação foi enviada. Um aprovador precisa aprová-la antes da execução.',
+      approvalRejected: 'A aprovação foi rejeitada. A execução está indisponível.',
       needDryRun: 'Antes da execução real, é obrigatório concluir uma prévia de impacto Dry-run com sucesso.',
       missingRunId: 'Falta runId, portanto o rollback não é permitido.',
       missingSelection: 'Falta selecionar um plano de implantação'
@@ -887,6 +902,16 @@ export default {
       close: 'Fechar',
       notConfigured: 'Não configurado',
       notProvided: 'Não informado'
+    },
+    approval: {
+      title: 'Detalhes da aprovação',
+      description: 'Revise o escopo do plano de implantação e aprove ou rejeite a solicitação diretamente.',
+      requestedBy: 'Solicitado por',
+      riskLevel: 'Nível de risco',
+      decisionHint: 'A aprovação permite a execução real. Um plano rejeitado precisa ser enviado novamente.',
+      processing: 'Processando...',
+      missingApprovalId: 'O ID da aprovação está ausente; não é possível revisar esta solicitação.',
+      decisionFailed: 'Falha na operação de aprovação.'
     },
     detail: {
       certificateVersionLabel: 'Versão do certificado',
@@ -959,7 +984,11 @@ export default {
       loadedDraftWithPlanId: 'Rascunho carregado (plano {planId}).',
       savedWithPlanId: 'Plano salvo ({planId}).',
       submitted: 'Plano de implantação enviado.',
-      submittedWithPlanId: 'Plano de implantação enviado (plano {planId}).'
+      submittedWithPlanId: 'Plano de implantação enviado (plano {planId}).',
+      approvalApproved: 'Aprovação concluída. O plano pode ser executado.',
+      approvalApprovedWithPlanId: 'Aprovação concluída. O plano {planId} pode ser executado.',
+      approvalRejected: 'Aprovação rejeitada. O plano não pode ser executado.',
+      approvalRejectedWithPlanId: 'Aprovação rejeitada. O plano {planId} não pode ser executado.'
     },
     target: {
       controlPlane: 'Plataforma',
@@ -2369,7 +2398,25 @@ export default {
     artifacts: { format: 'Formato do artefato' },
     runtimeValue: 'Fornecido por {source} durante a execução',
     source: 'Origem: {source}',
-    issues: { title: 'Problemas de entrada', missing: 'Falta uma entrada de implantação obrigatória' }
+    sourceKinds: { asset: 'Ativo', binding: 'Vínculo', default: 'Valor padrão', derived: 'Valor derivado', system: 'Valor do sistema', step_output: 'Saída da etapa', unknown: 'Origem desconhecida' },
+    issues: {
+      title: 'Problemas de entrada',
+      unknown: 'Falha na validação da entrada de implantação ({code})',
+      DEPLOYMENT_INPUT_REQUIRED: 'Falta uma entrada de implantação obrigatória',
+      DEPLOYMENT_CONNECTION_REQUIRED: 'Falta uma configuração de conexão obrigatória',
+      DEPLOYMENT_CREDENTIAL_REQUIRED: 'Falta uma credencial obrigatória',
+      DEPLOYMENT_ARTIFACT_REQUIRED: 'Falta um artefato de implantação obrigatório',
+      DEPLOYMENT_INPUT_OVERRIDE_FORBIDDEN: 'Esta entrada de implantação não pode ser substituída',
+      DEPLOYMENT_INPUT_SLOT_UNDECLARED: 'O slot da entrada de implantação não foi declarado',
+      DEPLOYMENT_INPUT_FIELD_UNDECLARED: 'O campo da entrada de implantação não foi declarado',
+      DEPLOYMENT_INPUT_TYPE_INVALID: 'O tipo da entrada de implantação é inválido',
+      DEPLOYMENT_INPUT_FIXED_OVERRIDE_FORBIDDEN: 'Uma entrada de implantação fixa não pode ser substituída',
+      DEPLOYMENT_CREDENTIAL_SNAPSHOT_REQUIRED: 'O snapshot da credencial está ausente',
+      DEPLOYMENT_CREDENTIAL_SNAPSHOT_MISMATCH: 'O snapshot da credencial não corresponde à seleção atual',
+      DEPLOYMENT_CREDENTIAL_KIND_INVALID: 'O tipo de credencial não é compatível',
+      DEPLOYMENT_ARTIFACT_SNAPSHOT_REQUIRED: 'O snapshot do artefato está ausente',
+      DEPLOYMENT_ARTIFACT_OUTPUT_REQUIRED: 'Falta uma saída obrigatória do artefato'
+    }
   },
   assets: {
     title: 'Ativos de aplicação',

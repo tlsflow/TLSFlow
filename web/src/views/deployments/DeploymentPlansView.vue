@@ -3,6 +3,7 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import { getAssetDetail, listAssets, listManagedTargets } from '@/api/modules/assets.api'
+import { decideApproval } from '@/api/modules/audits.api'
 import type { ApiRecord } from '@/api/modules/common'
 import { listCertificates, listCertificateFormats, listCertificateVersions } from '@/api/modules/certificates.api'
 import { useExecutionDetail } from '@/composables/useExecutionDetail'
@@ -54,7 +55,7 @@ interface DeploymentInputSourceRow {
 }
 
 const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
-const { t } = useI18n()
+const { t, te } = useI18n()
 const createDialogOpen = ref(false)
 const loading = ref(false)
 const editingPlanId = ref('')
@@ -62,6 +63,11 @@ const wizardInitialPlan = ref<DeploymentWizardInitialPlan | null>(null)
 const errorMessage = ref('')
 const infoMessage = ref('')
 const approvalHint = ref('')
+const approvalFeedback = ref('')
+const approvalModalOpen = ref(false)
+const approvalPlanRow = ref<ViewRow | null>(null)
+const approvalPending = ref(false)
+const approvalError = ref('')
 const dryRunRequestId = ref('')
 const submitRequestId = ref('')
 const dryRunRunRow = ref<ViewRow | null>(null)
@@ -123,6 +129,15 @@ const pageConfig = computed<BusinessPageConfig>(() => {
     })),
     rowActions: [
       {
+        label: t('deploymentPlans.actions.review'),
+        permission: 'approval.decide',
+        reloadAfterRun: false,
+        hidden: (row: ViewRow) => String(row.status) !== 'PENDING_APPROVAL' || !readString(row.raw, ['approvalId', 'approval.id', 'approval.approvalId']),
+        run: async (row: ViewRow) => {
+          openApprovalModal(row)
+        },
+      },
+      {
         label: t('deploymentPlans.actions.detail'),
         permission: 'deployment.plan.read',
         reloadAfterRun: false,
@@ -140,6 +155,7 @@ const pageConfig = computed<BusinessPageConfig>(() => {
       },
       ...((baseConfig.rowActions ?? []).map((action) => ({
         ...action,
+        reloadAfterRun: false,
         run: async (row: ViewRow) => {
           try {
             const result = await runPlanAction(action.label, row, () => action.run?.(row))
@@ -351,11 +367,54 @@ function resetMessages() {
   errorMessage.value = ''
   infoMessage.value = ''
   approvalHint.value = ''
+  approvalFeedback.value = ''
+  approvalError.value = ''
   dryRunRequestId.value = ''
   submitRequestId.value = ''
   dryRunChecks.value = []
   dryRunActionError.value = ''
   latestExecutionRequestId.value = ''
+}
+
+function openApprovalModal(row: ViewRow) {
+  approvalPlanRow.value = row
+  approvalFeedback.value = ''
+  approvalError.value = ''
+  approvalModalOpen.value = true
+}
+
+function closeApprovalModal(force = false) {
+  if (approvalPending.value && !force) return
+  approvalModalOpen.value = false
+  approvalPlanRow.value = null
+  approvalError.value = ''
+}
+
+async function decideApprovalFromModal(decision: 'approved' | 'rejected') {
+  if (approvalPending.value || !approvalPlanRow.value) return
+  const row = approvalPlanRow.value
+  const approvalId = readString(row.raw, ['approvalId', 'approval.id', 'approval.approvalId'])
+  if (!approvalId) {
+    approvalError.value = t('deploymentPlans.approval.missingApprovalId')
+    return
+  }
+
+  approvalPending.value = true
+  approvalError.value = ''
+  try {
+    await decideApproval({ approvalId, decision })
+    const planId = readString(row.raw, ['id', 'planId'], row.id)
+    const feedback = decision === 'approved'
+      ? messageWithOptionalPlanId('deploymentPlans.feedback.approvalApprovedWithPlanId', 'deploymentPlans.feedback.approvalApproved', planId)
+      : messageWithOptionalPlanId('deploymentPlans.feedback.approvalRejectedWithPlanId', 'deploymentPlans.feedback.approvalRejected', planId)
+    closeApprovalModal(true)
+    await pageRef.value?.reload()
+    approvalFeedback.value = feedback
+  } catch (cause) {
+    approvalError.value = toErrorMessage(cause, t('deploymentPlans.approval.decisionFailed'))
+  } finally {
+    approvalPending.value = false
+  }
 }
 
 async function closeDryRunResultModal() {
@@ -650,6 +709,7 @@ async function handleActionFeedback(actionLabel: string, row: ViewRow | null, re
   } else if (isDeploymentPlanActionLabel(actionLabel, 'edit')) {
     infoMessage.value = messageWithOptionalPlanId('deploymentPlans.feedback.loadedDraftWithPlanId', 'deploymentPlans.feedback.loadedDraft', planId)
   }
+  if (isDeploymentPlanActionLabel(actionLabel, 'execute')) return
   await pageRef.value?.reload()
 }
 
@@ -910,31 +970,35 @@ function workflowExecutionIdentities(record: ApiRecord | null | undefined): ApiR
 
 function workflowIdentityModeLabel(identity: ApiRecord): string {
   return readString(identity, ['mode']) === 'PLUGIN_INTERNAL_WORKFLOW'
-    ? t('deploymentPlans.detail.workflowModePluginInternal')
-    : t('deploymentPlans.detail.workflowMode')
+    ? detailMessage('deploymentPlans.detail.workflowModePluginInternal', {}, 'deploymentPlans.detail.workflowIdentityUnavailable')
+    : detailMessage('deploymentPlans.detail.workflowMode', {}, 'deploymentPlans.detail.workflowIdentityUnavailable')
 }
 
 function workflowIdentityVersionLabel(identity: ApiRecord): string {
   const version = readString(identity, ['workflowDslVersion', 'workflowVersion', 'version'])
   return version
-    ? t('deploymentPlans.detail.workflowDslVersion', { version })
-    : t('deploymentPlans.detail.workflowIdentityUnavailable')
+    ? detailMessage('deploymentPlans.detail.workflowDslVersion', { version }, 'deploymentPlans.detail.workflowIdentityUnavailable')
+    : detailMessage('deploymentPlans.detail.workflowIdentityUnavailable', {}, 'deploymentPlans.fields.workflowDslVersion')
 }
 
 function workflowIdentityPluginVersionLabel(identity: ApiRecord): string {
   const version = readString(identity, ['pluginVersion'])
-  return version ? t('deploymentPlans.detail.workflowPluginVersion', { version }) : ''
+  return version ? detailMessage('deploymentPlans.detail.workflowPluginVersion', { version }, 'deploymentPlans.detail.workflowIdentityUnavailable') : ''
 }
 
 function workflowIdentityPluginVersionIdLabel(identity: ApiRecord): string {
   const versionId = readString(identity, ['pluginVersionId'])
-  return versionId ? t('deploymentPlans.detail.workflowPluginVersionId', { versionId }) : ''
+  return versionId ? detailMessage('deploymentPlans.detail.workflowPluginVersionId', { versionId }, 'deploymentPlans.detail.workflowIdentityUnavailable') : ''
 }
 
 function workflowIdentitySelectionLabel(identity: ApiRecord): string {
   return readString(identity, ['workflowVersionSelection']) === 'LATEST_PUBLISHED'
-    ? t('deploymentPlans.detail.workflowVersionSelectionLatest')
-    : t('deploymentPlans.detail.workflowVersionSelectionPinned')
+    ? detailMessage('deploymentPlans.detail.workflowVersionSelectionLatest', {}, 'deploymentPlans.detail.workflowIdentityUnavailable')
+    : detailMessage('deploymentPlans.detail.workflowVersionSelectionPinned', {}, 'deploymentPlans.detail.workflowIdentityUnavailable')
+}
+
+function detailMessage(key: string, params: Record<string, string | number> = {}, fallbackKey: string): string {
+  return te(key) ? t(key, params) : t(fallbackKey, params)
 }
 
 function buildManagedTargetLabel(targetType: string, targetKey: string, managedTargetId: string): string {
@@ -1110,6 +1174,7 @@ async function fetchAllPages(
 
 <template>
   <section class="deployment-plans-page">
+    <p v-if="approvalFeedback" class="deployment-plans-page__info deployment-plans-page__approval-feedback">{{ approvalFeedback }}</p>
     <BusinessResourcePage ref="pageRef" :config="pageConfig" />
 
     <GcModal
@@ -1153,6 +1218,65 @@ async function fetchAllPages(
       :mode="latestExecutionViewMode"
       @update:open="(value) => value ? (dryRunResultModalOpen = true) : void closeDryRunResultModal()"
     />
+
+    <GcModal
+      :open="approvalModalOpen"
+      :title="t('deploymentPlans.approval.title')"
+      :description="t('deploymentPlans.approval.description')"
+      size="lg"
+      @update:open="(value) => value ? (approvalModalOpen = true) : closeApprovalModal()"
+    >
+      <section v-if="approvalPlanRow" class="deployment-plan-approval">
+        <p v-if="approvalError" class="deployment-plans-page__error">{{ approvalError }}</p>
+        <dl class="deployment-plan-approval__facts">
+          <div>
+            <dt>{{ t('deploymentPlans.fields.name') }}</dt>
+            <dd>{{ readString(approvalPlanRow.raw, ['name', 'title', 'planName'], approvalPlanRow.id) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('deploymentPlans.fields.planId') }}</dt>
+            <dd>{{ readString(approvalPlanRow.raw, ['id', 'planId'], approvalPlanRow.id) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('deploymentPlans.fields.approvalId') }}</dt>
+            <dd>{{ readString(approvalPlanRow.raw, ['approvalId', 'approval.id', 'approval.approvalId']) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('deploymentPlans.fields.approvalStatus') }}</dt>
+            <dd>{{ readString(approvalPlanRow.raw, ['approval.status', 'approvalStatus'], t('deploymentPlans.common.notProvided')) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('deploymentPlans.approval.requestedBy') }}</dt>
+            <dd>{{ readString(approvalPlanRow.raw, ['approval.requestedBy', 'requestedBy', 'createdBy'], t('deploymentPlans.common.notProvided')) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('deploymentPlans.approval.riskLevel') }}</dt>
+            <dd>{{ readString(approvalPlanRow.raw, ['approval.riskLevel', 'riskLevel', 'risk'], t('deploymentPlans.common.notProvided')) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('deploymentPlans.fields.snapshotHash') }}</dt>
+            <dd>{{ readString(approvalPlanRow.raw, ['snapshotHash', 'snapshot.hash'], t('deploymentPlans.common.notProvided')) }}</dd>
+          </div>
+          <div class="deployment-plan-approval__fact--wide">
+            <dt>{{ t('deploymentPlans.fields.targetSummary') }}</dt>
+            <dd>{{ readString(approvalPlanRow.raw, ['targetSummary', 'targets.0.certificateBindingId', 'targets.0.executionTargetId'], t('deploymentPlans.common.notProvided')) }}</dd>
+          </div>
+        </dl>
+        <p class="deployment-plan-approval__hint">{{ t('deploymentPlans.approval.decisionHint') }}</p>
+      </section>
+
+      <template #actions>
+        <button class="gc-button" type="button" :disabled="approvalPending" @click="closeApprovalModal()">
+          {{ t('deploymentPlans.common.close') }}
+        </button>
+        <button class="gc-button gc-button--danger" type="button" :disabled="approvalPending" @click="decideApprovalFromModal('rejected')">
+          {{ approvalPending ? t('deploymentPlans.approval.processing') : t('deploymentPlans.actions.reject') }}
+        </button>
+        <button class="gc-button gc-button--primary" type="button" :disabled="approvalPending" @click="decideApprovalFromModal('approved')">
+          {{ approvalPending ? t('deploymentPlans.approval.processing') : t('deploymentPlans.actions.approve') }}
+        </button>
+      </template>
+    </GcModal>
 
     <GcModal
       v-model:open="dryRunRequiredModalOpen"
@@ -1218,7 +1342,7 @@ async function fetchAllPages(
             <div><dt>{{ t('deploymentPlans.fields.failureReason') }}</dt><dd>{{ readString(detailPlanRow.raw, ['failureReason', 'error.message', 'latestRun.failureReason']) }}</dd></div>
           </dl>
           <section v-if="workflowExecutionIdentities(detailPlanRow.raw).length" class="deployment-plan-detail__workflow">
-            <h3>{{ t('deploymentPlans.detail.workflowIdentityTitle') }}</h3>
+            <h3>{{ detailMessage('deploymentPlans.detail.workflowIdentityTitle', {}, 'deploymentPlans.detail.title') }}</h3>
             <ul class="deployment-plan-detail__list">
               <li v-for="identity in workflowExecutionIdentities(detailPlanRow.raw)" :key="`${readString(identity, ['workflowVersionId'])}:${readString(identity, ['mode'])}`" class="deployment-plan-detail__list-item">
                 <div class="deployment-plan-detail__list-head">
@@ -1230,7 +1354,7 @@ async function fetchAllPages(
                 <small>
                   {{ workflowIdentitySelectionLabel(identity) }}
                   ·
-                  {{ t('deploymentPlans.detail.workflowVersionId', { versionId: readString(identity, ['workflowVersionId']) }) }}
+                  {{ detailMessage('deploymentPlans.detail.workflowVersionId', { versionId: readString(identity, ['workflowVersionId']) }, 'deploymentPlans.detail.workflowIdentityUnavailable') }}
                   <template v-if="workflowIdentityPluginVersionIdLabel(identity)">
                     · {{ workflowIdentityPluginVersionIdLabel(identity) }}
                   </template>
@@ -1239,17 +1363,17 @@ async function fetchAllPages(
             </ul>
           </section>
           <section class="deployment-plan-detail__input-sources">
-            <h3>{{ t('deploymentPlans.detail.inputSourcesTitle') }}</h3>
+            <h3>{{ detailMessage('deploymentPlans.detail.inputSourcesTitle', {}, 'deploymentPlans.fields.targetSummary') }}</h3>
             <p v-if="deploymentInputSnapshotsLoading" class="deployment-plan-detail__loading">{{ t('common.loading') }}</p>
             <p v-else-if="deploymentInputSnapshotsError" class="deployment-plan-detail__error">{{ deploymentInputSnapshotsError }}</p>
             <ul v-else-if="deploymentInputSourceRows.length" class="deployment-plan-detail__list">
               <li v-for="item in deploymentInputSourceRows" :key="item.id" class="deployment-plan-detail__list-item">
                 <div class="deployment-plan-detail__list-head">
                   <strong>{{ item.path }}</strong>
-                  <span>{{ t('deploymentPlans.detail.inputSource', { source: item.source }) }}</span>
+                  <span>{{ detailMessage('deploymentPlans.detail.inputSource', { source: item.source }, 'deploymentPlans.detail.inputSourcesTitle') }}</span>
                 </div>
                 <p>{{ item.value }}</p>
-                <small>{{ t('deploymentPlans.detail.inputSourceTarget', { targetId: item.targetId }) }}</small>
+                <small>{{ detailMessage('deploymentPlans.detail.inputSourceTarget', { targetId: item.targetId }, 'deploymentPlans.detail.targetLabel') }}</small>
               </li>
             </ul>
             <p v-else class="deployment-plan-detail__loading">{{ t('deploymentPlans.detail.noInputSources') }}</p>
@@ -1359,6 +1483,52 @@ async function fetchAllPages(
 
 .deployment-plans-page__wizard-message {
   margin-bottom: 10px;
+}
+
+.deployment-plan-approval {
+  display: grid;
+  gap: var(--gc-space-4);
+}
+
+.deployment-plan-approval__facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gc-space-3);
+  margin: 0;
+}
+
+.deployment-plan-approval__facts div {
+  display: grid;
+  gap: var(--gc-space-1);
+  min-width: 0;
+  padding: var(--gc-space-3);
+  border: 1px solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-md);
+  background: var(--gc-color-surface-hover);
+}
+
+.deployment-plan-approval__facts dt {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 800;
+}
+
+.deployment-plan-approval__facts dd {
+  margin: 0;
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-sm);
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+
+.deployment-plan-approval__fact--wide {
+  grid-column: 1 / -1;
+}
+
+.deployment-plan-approval__hint {
+  margin: 0;
+  color: var(--gc-color-text-muted);
+  line-height: 1.6;
 }
 
 .deployment-plan-detail {
@@ -1638,6 +1808,14 @@ async function fetchAllPages(
 }
 
 @media (max-width: 900px) {
+  .deployment-plan-approval__facts {
+    grid-template-columns: 1fr;
+  }
+
+  .deployment-plan-approval__fact--wide {
+    grid-column: auto;
+  }
+
   .deployment-plan-detail__hero {
     display: grid;
     grid-template-columns: 1fr;

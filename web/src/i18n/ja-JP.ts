@@ -191,6 +191,7 @@ export default {
       feed: {
         completed: '実行完了',
         failed: '実行失敗',
+        skipped: 'スキップ済み',
         warning: '警告付きで完了'
       },
       loading: {
@@ -243,6 +244,7 @@ export default {
         failed: '失敗',
         queued: '待機中',
         running: '実行中',
+        skipped: 'スキップ済み',
         warning: '警告あり'
       },
       step: {
@@ -265,6 +267,7 @@ export default {
         queued: 'タスクは作成済みです。実行を待っています。',
         running: 'タスクは開始済みです。実行結果を待っています。',
         runningChecks: '戻る {total} 件チェック済み',
+        skipped: 'このステップはスキップ済みで、これ以上待機しません。',
         warningChecks: '{total} 件チェック、{warning} 件警告'
       },
       time: {
@@ -562,6 +565,7 @@ export default {
           emptyMessage: '具体的なエラー情報を受信していません',
           issue: '分類 {category}、スロット {slot}、パス {path}、ソース {source}、修正箇所 {remediation}'
       },
+      skipped: 'ステップをスキップしました：{reason}',
       running: {
         dispatched: 'Agent タスクを配信しました（{taskId}）。実行結果を待っています。',
         waitingAgentResult: 'ステップを実行中です。Agent から結果が返るのを待っています…'
@@ -603,6 +607,10 @@ export default {
       failed: {
         label: 'Dry-run に失敗しました',
         detail: '事前チェック失敗 {failed} 件、警告 {warning} 件、合格 {passed} 件。'
+      },
+      tlsGrantRequired: {
+        label: 'Dry-run は完了しましたが、ホスト認証が必要です',
+        detail: '構造検証とセキュリティ検証は完了しました。Dry-run では正式な ExecutionGrant を発行しないため、TLS 検証スキップが拒否されました。承認後、正式実行時にホストが短期 ExecutionGrant を発行します。'
       },
       warning: {
         label: 'Dry-run 有リスク警告',
@@ -849,6 +857,11 @@ export default {
       dryRunRisk: 'のみ生成影響プレビュー、しません実行正式デプロイ。',
       submit: '送信承認',
       submitRisk: '送信後プランは開く承認または待実行ステータス。',
+      review: '承認を確認',
+      approve: '承認を許可',
+      approveRisk: '承認後に実行資格を得ますが、Dry-run とホスト発行 ExecutionGrant は引き続き必要です。',
+      reject: '承認を却下',
+      rejectRisk: '却下されたプランは実行できず、再度承認申請が必要です。',
       execute: '実行デプロイ',
       executeRisk: '実行すると対象の証明書設定が変更されます。完了済みまたは失敗したプランの再実行にもこの導線を使用します。実行前に Dry-run の影響プレビューを実行してください。',
       cancel: 'キャンセルプラン',
@@ -904,6 +917,8 @@ export default {
     },
     disabled: {
       missingApproval: '承認合格情報、できません実行。が不足しています',
+      approvalPending: '承認申請は送信済みです。承認者の承認後に実行できます。',
+      approvalRejected: '承認が却下されたため実行できません。',
       needDryRun: '正式実行前必ず先完了一回成功の Dry-run 影響プレビュー。',
       missingRunId: ' runId、できませんロールバック。が不足しています',
       missingSelection: 'デプロイプラン選択が不足しています'
@@ -913,6 +928,16 @@ export default {
       close: '閉じる',
       notConfigured: '未設定',
       notProvided: '未提供'
+    },
+    approval: {
+      title: '承認詳細',
+      description: 'デプロイプランの範囲を確認し、申請を直接承認または却下します。',
+      requestedBy: '申請者',
+      riskLevel: 'リスクレベル',
+      decisionHint: '承認後に正式実行できます。却下されたプランは再申請が必要です。',
+      processing: '処理中...',
+      missingApprovalId: '承認 ID がないため、確認できません。',
+      decisionFailed: '承認操作に失敗しました。'
     },
     detail: {
       certificateVersionLabel: '証明書バージョン',
@@ -985,7 +1010,11 @@ export default {
       loadedDraftWithPlanId: '読み込みドラフト（プラン {planId}）済み。',
       savedWithPlanId: 'プラン保存済み（{planId}）。',
       submitted: 'デプロイプラン送信済み。',
-      submittedWithPlanId: 'デプロイプラン送信（プラン {planId}）済み。'
+      submittedWithPlanId: 'デプロイプラン送信（プラン {planId}）済み。',
+      approvalApproved: '承認済みです。プランを実行できます。',
+      approvalApprovedWithPlanId: '承認済みです。プラン {planId} を実行できます。',
+      approvalRejected: '承認が却下されました。プランは実行できません。',
+      approvalRejectedWithPlanId: '承認が却下されました。プラン {planId} は実行できません。'
     },
     target: {
       controlPlane: 'プラットフォーム',
@@ -2395,7 +2424,25 @@ export default {
     artifacts: { format: '成果物形式' },
     runtimeValue: '実行時に {source} から提供',
     source: 'ソース：{source}',
-    issues: { title: '入力の問題', missing: '必須のデプロイ入力がありません' }
+    sourceKinds: { asset: 'アセット', binding: 'バインディング', default: 'デフォルト値', derived: '派生値', system: 'システム値', step_output: 'ステップ出力', unknown: '不明なソース' },
+    issues: {
+      title: '入力の問題',
+      unknown: 'デプロイ入力の検証に失敗しました（{code}）',
+      DEPLOYMENT_INPUT_REQUIRED: '必須のデプロイ入力がありません',
+      DEPLOYMENT_CONNECTION_REQUIRED: '必須の接続設定がありません',
+      DEPLOYMENT_CREDENTIAL_REQUIRED: '必須の認証情報がありません',
+      DEPLOYMENT_ARTIFACT_REQUIRED: '必須のデプロイ成果物がありません',
+      DEPLOYMENT_INPUT_OVERRIDE_FORBIDDEN: 'このデプロイ入力は上書きできません',
+      DEPLOYMENT_INPUT_SLOT_UNDECLARED: 'デプロイ入力スロットが宣言されていません',
+      DEPLOYMENT_INPUT_FIELD_UNDECLARED: 'デプロイ入力フィールドが宣言されていません',
+      DEPLOYMENT_INPUT_TYPE_INVALID: 'デプロイ入力の型が正しくありません',
+      DEPLOYMENT_INPUT_FIXED_OVERRIDE_FORBIDDEN: '固定デプロイ入力は上書きできません',
+      DEPLOYMENT_CREDENTIAL_SNAPSHOT_REQUIRED: '認証情報スナップショットがありません',
+      DEPLOYMENT_CREDENTIAL_SNAPSHOT_MISMATCH: '認証情報スナップショットが現在の選択と一致しません',
+      DEPLOYMENT_CREDENTIAL_KIND_INVALID: 'サポートされていない認証情報種別です',
+      DEPLOYMENT_ARTIFACT_SNAPSHOT_REQUIRED: '成果物スナップショットがありません',
+      DEPLOYMENT_ARTIFACT_OUTPUT_REQUIRED: '必須の成果物出力がありません'
+    }
   },
   assets: {
     title: 'アプリケーションアセット',

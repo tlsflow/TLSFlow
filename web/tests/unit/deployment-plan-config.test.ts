@@ -31,4 +31,59 @@ describe('deployment-plan.config', () => {
       'ROLLBACK_FAILED',
     ])
   })
+
+  it('待审批计划显示执行部署动作，但必须保持禁用直到审批通过', () => {
+    const executeAction = deploymentPlanUiActions.find((action) => action.key === 'execute')
+    const row = {
+      id: 'plan-pending-approval',
+      name: '待审批计划',
+      status: 'PENDING_APPROVAL',
+      risk: 'HIGH' as const,
+      raw: {
+        id: 'plan-pending-approval',
+        status: 'PENDING_APPROVAL',
+        latestRun: { type: 'dry_run', status: 'SUCCESS' },
+      },
+    }
+
+    expect(executeAction?.visibleWhen).toContain('PENDING_APPROVAL')
+    expect(executeAction?.disabledReason?.(row)).toBe('缺少审批通过信息，不能执行。')
+  })
+
+  it('待审批计划即使已有审批单也不能直接执行', () => {
+    const executeAction = deploymentPlanUiActions.find((action) => action.key === 'execute')
+    const row = {
+      id: 'plan-pending-approval-with-request',
+      name: '等待审批计划',
+      status: 'PENDING_APPROVAL',
+      risk: 'HIGH' as const,
+      raw: {
+        id: 'plan-pending-approval-with-request',
+        status: 'PENDING_APPROVAL',
+        approvalStatus: 'PENDING',
+        approvalId: 'approval-pending-1',
+      },
+    }
+
+    expect(executeAction?.disabledReason?.(row)).toBe('审批申请已提交，等待审批人批准后才能执行。')
+  })
+
+  it('审批通过但最新运行不是 dry-run 时允许点击并交给后端返回 dry-run 引导', () => {
+    const executeAction = deploymentPlanUiActions.find((action) => action.key === 'execute')
+    const row = {
+      id: 'plan-approved-with-apply',
+      name: '已审批计划',
+      status: 'APPROVED',
+      risk: 'HIGH' as const,
+      raw: {
+        id: 'plan-approved-with-apply',
+        status: 'APPROVED',
+        approvalStatus: 'APPROVED',
+        approvalId: 'approval-1',
+        latestRun: { type: 'apply', status: 'SUCCESS' },
+      },
+    }
+
+    expect(executeAction?.disabledReason?.(row)).toBe('')
+  })
 })

@@ -190,6 +190,7 @@ export default {
       feed: {
         completed: "執行完成",
         failed: "執行失敗",
+        skipped: "已跳過",
         warning: "完成，帶警告"
       },
       loading: {
@@ -242,6 +243,7 @@ export default {
         failed: "失敗",
         queued: "等待中",
         running: "執行中",
+        skipped: "已跳過",
         warning: "有警告"
       },
       step: {
@@ -264,6 +266,7 @@ export default {
         queued: "任務已建立，等待執行。",
         running: "任務已開始，等待執行結果。",
         runningChecks: "已返回 {total} 項檢查",
+        skipped: "此步驟已跳過，不會繼續等待。",
         warningChecks: "{total} 項檢查，{warning} 項警告"
       },
       time: {
@@ -561,6 +564,7 @@ export default {
         emptyMessage: "未收到具體錯誤資訊",
         issue: "類型 {category}，槽位 {slot}，路徑 {path}，來源 {source}，修復位置 {remediation}"
       },
+      skipped: "步驟已跳過：{reason}",
       running: {
         dispatched: "Agent 任務已下發（{taskId}），等待執行結果。",
         waitingAgentResult: "步驟執行中，等待 Agent 返回結果…"
@@ -602,6 +606,10 @@ export default {
       failed: {
         label: "Dry-run 失敗",
         detail: "預檢失敗 {failed} 項，警告 {warning} 項，通過 {passed} 項。"
+      },
+      tlsGrantRequired: {
+        label: "Dry-run 已完成，但需要宿主授權",
+        detail: "結構與安全校驗已完成；dry-run 不簽發正式 ExecutionGrant，因此 TLS 跳過校驗步驟被拒絕。審批通過後，正式執行會由宿主簽發短期 ExecutionGrant。"
       },
       warning: {
         label: "Dry-run 有風險提示",
@@ -848,6 +856,11 @@ export default {
       dryRunRisk: "只產生影響預覽，不會執行正式部署。",
       submit: "提交審核",
       submitRisk: "提交後計畫會進入審核或待執行狀態。",
+      review: "進行審核",
+      approve: "核准審核",
+      approveRisk: "核准後計畫才具備正式執行資格，但仍需要 Dry-run 和主機簽發的 ExecutionGrant。",
+      reject: "駁回審核",
+      rejectRisk: "駁回後計畫不能正式執行，需要重新提交審核。",
       execute: "執行部署",
       executeRisk: "執行會修改目標憑證設定。已完成或失敗的計畫再次執行也使用這個入口；執行前應先執行 Dry-run 影響預覽。",
       cancel: "取消計畫",
@@ -903,6 +916,8 @@ export default {
     },
     disabled: {
       missingApproval: "缺少審核通過資訊，不能執行。",
+      approvalPending: "審核申請已提交，等待審核人核准後才能執行。",
+      approvalRejected: "審核未通過，不能執行。",
       needDryRun: "正式執行前必須先完成一次成功的 Dry-run 影響預覽。",
       missingRunId: "缺少 runId，不能復原。",
       missingSelection: "缺少部署計畫選擇"
@@ -912,6 +927,16 @@ export default {
       close: "關閉",
       notConfigured: "未設定",
       notProvided: "未提供"
+    },
+    approval: {
+      title: "審核詳情",
+      description: "確認部署計畫的審核範圍後，直接核准或駁回申請。",
+      requestedBy: "申請人",
+      riskLevel: "風險等級",
+      decisionHint: "核准後計畫才能進入正式執行；駁回後需要重新提交審核。",
+      processing: "處理中...",
+      missingApprovalId: "缺少審核 ID，無法進行審核。",
+      decisionFailed: "審核操作失敗。"
     },
     detail: {
       certificateVersionLabel: "憑證版本",
@@ -984,7 +1009,11 @@ export default {
       loadedDraftWithPlanId: "已載入草稿（計畫 {planId}）。",
       savedWithPlanId: "計畫已儲存（{planId}）。",
       submitted: "部署計畫已提交。",
-      submittedWithPlanId: "部署計畫已提交（計畫 {planId}）。"
+      submittedWithPlanId: "部署計畫已提交（計畫 {planId}）。",
+      approvalApproved: "審核已通過，計畫現在可以執行。",
+      approvalApprovedWithPlanId: "審核已通過，計畫 {planId} 現在可以執行。",
+      approvalRejected: "審核已駁回，計畫不能執行。",
+      approvalRejectedWithPlanId: "審核已駁回，計畫 {planId} 不能執行。"
     },
     target: {
       controlPlane: "平台",
@@ -2394,7 +2423,25 @@ export default {
     artifacts: { format: '產物格式' },
     runtimeValue: '執行階段由 {source} 提供',
     source: '來源：{source}',
-    issues: { title: '輸入問題', missing: '缺少必填部署輸入' }
+    sourceKinds: { asset: '資產', binding: '繫結', default: '預設值', derived: '衍生值', system: '系統值', step_output: '步驟輸出', unknown: '未知來源' },
+    issues: {
+      title: '輸入問題',
+      unknown: '部署輸入驗證失敗（{code}）',
+      DEPLOYMENT_INPUT_REQUIRED: '缺少必填部署輸入',
+      DEPLOYMENT_CONNECTION_REQUIRED: '缺少必填連線設定',
+      DEPLOYMENT_CREDENTIAL_REQUIRED: '缺少必填憑證',
+      DEPLOYMENT_ARTIFACT_REQUIRED: '缺少必填部署產物',
+      DEPLOYMENT_INPUT_OVERRIDE_FORBIDDEN: '此部署輸入不允許覆寫',
+      DEPLOYMENT_INPUT_SLOT_UNDECLARED: '部署輸入槽位未宣告',
+      DEPLOYMENT_INPUT_FIELD_UNDECLARED: '部署輸入欄位未宣告',
+      DEPLOYMENT_INPUT_TYPE_INVALID: '部署輸入型別不正確',
+      DEPLOYMENT_INPUT_FIXED_OVERRIDE_FORBIDDEN: '固定部署輸入不允許覆寫',
+      DEPLOYMENT_CREDENTIAL_SNAPSHOT_REQUIRED: '缺少憑證快照',
+      DEPLOYMENT_CREDENTIAL_SNAPSHOT_MISMATCH: '憑證快照與目前選擇不一致',
+      DEPLOYMENT_CREDENTIAL_KIND_INVALID: '不支援此憑證類型',
+      DEPLOYMENT_ARTIFACT_SNAPSHOT_REQUIRED: '缺少產物快照',
+      DEPLOYMENT_ARTIFACT_OUTPUT_REQUIRED: '缺少必填產物輸出'
+    }
   },
   assets: {
     title: "應用資產",

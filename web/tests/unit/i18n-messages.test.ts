@@ -46,6 +46,12 @@ describe('i18n 消息字典', () => {
       'preferences.theme',
       'userMenu.changePassword',
       'password.submit',
+      'deploymentInputs.source',
+      'deploymentInputs.sourceKinds.binding',
+      'deploymentInputs.issues.DEPLOYMENT_INPUT_REQUIRED',
+      'deploymentPlans.detail.workflowIdentityTitle',
+      'deploymentPlans.detail.inputSourcesTitle',
+      'deploymentPlans.detail.workflowDslVersion'
     ]
     for (const locale of supportedLocales) {
       expect(localeLabels[locale]).toBeTruthy()

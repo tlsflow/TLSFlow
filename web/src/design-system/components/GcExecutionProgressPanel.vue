@@ -9,7 +9,7 @@ import GcExecutionLogViewer from './GcExecutionLogViewer.vue'
 const LOG_FOLLOW_THRESHOLD_PX = 24
 
 type SummaryState = 'queued' | 'running' | 'pending' | 'passed' | 'warning' | 'failed'
-type TaskStatus = 'queued' | 'running' | 'passed' | 'warning' | 'failed'
+type TaskStatus = 'queued' | 'running' | 'passed' | 'warning' | 'failed' | 'skipped'
 type CheckStatus = 'passed' | 'warning' | 'failed' | 'unknown'
 type TaskCheck = {
   id: string
@@ -74,7 +74,7 @@ const counts = computed(() => {
   const tasks = rawTasks.value
   return {
     total: tasks.length,
-    completed: tasks.filter((task) => ['passed', 'warning', 'failed'].includes(task.status)).length,
+    completed: tasks.filter((task) => ['passed', 'warning', 'failed', 'skipped'].includes(task.status)).length,
     running: tasks.filter((task) => task.status === 'running').length,
     queued: tasks.filter((task) => task.status === 'queued').length,
   }
@@ -157,7 +157,7 @@ const activeTaskIndex = computed(() => {
 
 const visibleTasks = computed(() => rawTasks.value)
 const executionFeed = computed<ExecutionFeedItem[]>(() => visibleTasks.value
-  .filter((task) => ['running', 'passed', 'warning', 'failed'].includes(task.status))
+  .filter((task) => ['running', 'passed', 'warning', 'failed', 'skipped'].includes(task.status))
   .map((task) => {
     return {
       id: task.id,
@@ -283,6 +283,7 @@ function normalizeTaskStatus(value: string): TaskStatus {
   if (value === 'SUCCESS') return 'passed'
   if (value === 'RUNNING') return 'running'
   if (value === 'FAILED' || value === 'TIMEOUT' || value === 'CANCELLED') return 'failed'
+  if (value === 'SKIPPED') return 'skipped'
   return 'queued'
 }
 
@@ -319,6 +320,7 @@ function defaultSubtitle(status: TaskStatus): string {
   if (status === 'running') return t('designSystem.executionProgress.subtitle.running')
   if (status === 'queued') return t('designSystem.executionProgress.subtitle.queued')
   if (status === 'failed') return t('designSystem.executionProgress.subtitle.failed')
+  if (status === 'skipped') return t('designSystem.executionProgress.subtitle.skipped')
   return t('designSystem.executionProgress.subtitle.completed')
 }
 
@@ -329,6 +331,7 @@ function buildTaskSubtitle(
   detail?: string,
 ): string {
   if (status === 'failed') return t('designSystem.executionProgress.subtitle.failedFriendly')
+  if (status === 'skipped') return detail?.trim() || t('designSystem.executionProgress.subtitle.skipped')
   const operation = lifecycleOperationDescription(stepType)
   if (operation) return operation
   if (checks.length > 0) return defaultSubtitle(status)
@@ -356,6 +359,7 @@ function statusBadgeText(status: TaskStatus): string {
   if (status === 'running') return t('designSystem.executionProgress.status.running')
   if (status === 'warning') return t('designSystem.executionProgress.status.warning')
   if (status === 'failed') return t('designSystem.executionProgress.status.failed')
+  if (status === 'skipped') return t('designSystem.executionProgress.status.skipped')
   return t('designSystem.executionProgress.status.completed')
 }
 
@@ -363,6 +367,7 @@ function taskDotText(status: TaskStatus): string {
   if (status === 'queued') return '○'
   if (status === 'running') return '◐'
   if (status === 'failed' || status === 'warning') return '!'
+  if (status === 'skipped') return '–'
   return '✓'
 }
 
@@ -370,6 +375,7 @@ function feedStatusText(status: TaskStatus): string {
   if (status === 'running') return t('designSystem.executionProgress.progress.running')
   if (status === 'failed') return t('designSystem.executionProgress.feed.failed')
   if (status === 'warning') return t('designSystem.executionProgress.feed.warning')
+  if (status === 'skipped') return t('designSystem.executionProgress.feed.skipped')
   return t('designSystem.executionProgress.feed.completed')
 }
 </script>
@@ -787,6 +793,11 @@ function feedStatusText(status: TaskStatus): string {
   background: var(--gc-color-danger);
 }
 
+.gc-dry-run-modern__task[data-status='skipped'] .gc-dry-run-modern__task-dot {
+  color: var(--gc-color-text-muted);
+  background: var(--gc-color-muted-bg);
+}
+
 .gc-dry-run-modern__task[data-status='passed'] .gc-dry-run-modern__task-line {
   background: var(--gc-color-success-border);
 }
@@ -804,6 +815,11 @@ function feedStatusText(status: TaskStatus): string {
 .gc-dry-run-modern__task[data-status='failed'] .gc-dry-run-modern__task-badge {
   color: var(--gc-color-danger);
   background: var(--gc-color-danger-soft);
+}
+
+.gc-dry-run-modern__task[data-status='skipped'] .gc-dry-run-modern__task-badge {
+  color: var(--gc-color-text-muted);
+  background: var(--gc-color-muted-bg);
 }
 
 .gc-dry-run-modern__task-head {
@@ -901,6 +917,11 @@ function feedStatusText(status: TaskStatus): string {
 
 .gc-dry-run-modern__feed-item[data-status='failed'] .gc-dry-run-modern__feed-icon {
   background: var(--gc-color-danger);
+}
+
+.gc-dry-run-modern__feed-item[data-status='skipped'] .gc-dry-run-modern__feed-icon {
+  color: var(--gc-color-text-muted);
+  background: var(--gc-color-muted-bg);
 }
 
 .gc-dry-run-modern__feed-copy {

@@ -31,6 +31,10 @@ const deploymentMocks = vi.hoisted(() => ({
   rollbackExecution: vi.fn(),
 }))
 
+const approvalMocks = vi.hoisted(() => ({
+  decideApproval: vi.fn(),
+}))
+
 const dashboardMocks = vi.hoisted(() => ({
   listDashboardRisks: vi.fn(),
 }))
@@ -97,6 +101,10 @@ vi.mock('@/api/modules/executions.api', () => ({
   streamExecutionDetail: deploymentMocks.streamExecutionDetail,
   retryExecution: deploymentMocks.retryExecution,
   rollbackExecution: deploymentMocks.rollbackExecution,
+}))
+
+vi.mock('@/api/modules/audits.api', () => ({
+  decideApproval: approvalMocks.decideApproval,
 }))
 
 vi.mock('@/api/modules/dashboard.api', () => ({
@@ -191,6 +199,7 @@ describe('spec028 前端闭环', () => {
       'deployment.plan.write',
       'deployment.plan.read',
       'deployment.plan.execute',
+      'approval.decide',
       'execution.rollback',
       'monitor.read',
       'monitor.write',
@@ -277,6 +286,11 @@ describe('spec028 前端闭环', () => {
       data: { run: { id: 'run-apply-1', status: 'RUNNING', type: 'apply' } },
       requestId: 'req_execute',
       timestamp: '2026-06-08T00:00:00.000Z',
+    })
+    approvalMocks.decideApproval.mockResolvedValue({
+      data: { approvalId: 'approval-pending-1', status: 'APPROVED' },
+      requestId: 'req_approval_decide',
+      timestamp: '2026-08-03T00:00:00.000Z',
     })
     deploymentMocks.retryExecution.mockResolvedValue({
       data: { run: { id: 'run-retry-1', status: 'RUNNING', type: 'apply' } },
@@ -719,6 +733,169 @@ describe('spec028 前端闭环', () => {
     expect(wrapper.text()).not.toContain('重新执行')
     expect(wrapper.text()).not.toContain('重试执行')
     expect(wrapper.text()).toContain('回滚执行')
+  })
+
+  it('正式执行成功后保留执行进度弹窗，不立即重载部署计划列表', async () => {
+    deploymentMocks.listDeploymentPlans.mockResolvedValue(okPage([
+      {
+        id: 'plan-approved-execute',
+        name: '已审批计划',
+        status: 'APPROVED',
+        risk: 'HIGH',
+        approvalId: 'approval-1',
+        latestRunId: 'run-dry-success',
+        latestRun: { id: 'run-dry-success', status: 'SUCCESS', type: 'dry_run' },
+      },
+    ]))
+    deploymentMocks.executeDeploymentPlan.mockResolvedValue({
+      data: { run: { id: 'run-apply-success', status: 'DISPATCHED', type: 'apply' } },
+      requestId: 'req_execute_success',
+      timestamp: '2026-08-03T03:00:00.000Z',
+    })
+
+    const router = createTestRouter()
+    router.push('/deployment-plans')
+    await router.isReady()
+
+    mount(DeploymentPlansView, {
+      attachTo: document.body,
+      global: {
+        plugins: [router, i18n],
+        stubs: { teleport: true, Teleport: true },
+      },
+    })
+    await flushPromises()
+    const listCallsAfterInitialLoad = deploymentMocks.listDeploymentPlans.mock.calls.length
+
+    clickBodyButton('执行部署')
+    await flushPromises()
+    fillConfirmText('EXECUTE')
+    await flushPromises()
+    clickBodyButton('确认')
+    await flushPromises()
+
+    expect(deploymentMocks.executeDeploymentPlan).toHaveBeenCalledWith('plan-approved-execute', {})
+    expect(bodyText()).toContain('证书更新执行')
+    expect(deploymentMocks.listDeploymentPlans.mock.calls.length).toBe(listCallsAfterInitialLoad)
+  })
+
+  it('待审批计划 dry-run 成功后显示置灰的执行部署按钮', async () => {
+    deploymentMocks.listDeploymentPlans.mockResolvedValue(okPage([
+      {
+        id: 'plan-pending-approval',
+        name: 'cloud.jacksonz.cn 证书部署',
+        status: 'PENDING_APPROVAL',
+        risk: 'HIGH',
+        approvalStatus: 'PENDING',
+        latestRun: { id: 'run-dry-success', status: 'SUCCESS', type: 'dry_run' },
+      },
+    ]))
+
+    const router = createTestRouter()
+    router.push('/deployment-plans')
+    await router.isReady()
+
+    mount(DeploymentPlansView, {
+      attachTo: document.body,
+      global: {
+        plugins: [router, i18n],
+        stubs: { teleport: true, Teleport: true },
+      },
+    })
+    await flushPromises()
+
+    const executeButton = [...document.body.querySelectorAll('button')]
+      .find((button) => button.textContent?.trim() === '执行部署') as HTMLButtonElement | undefined
+    expect(executeButton).toBeTruthy()
+    expect(executeButton?.disabled).toBe(true)
+    expect(executeButton?.title).toBe('审批申请已提交，等待审批人批准后才能执行。')
+  })
+
+  it('待审批计划已有审批单时执行按钮仍不可点击', async () => {
+    deploymentMocks.listDeploymentPlans.mockResolvedValue(okPage([
+      {
+        id: 'plan-pending-with-approval-request',
+        name: '等待审批计划',
+        status: 'PENDING_APPROVAL',
+        risk: 'HIGH',
+        approvalStatus: 'PENDING',
+        approvalId: 'approval-pending-1',
+        latestRun: { id: 'run-dry-success', status: 'SUCCESS', type: 'dry_run' },
+      },
+    ]))
+
+    const router = createTestRouter()
+    router.push('/deployment-plans')
+    await router.isReady()
+
+    mount(DeploymentPlansView, {
+      attachTo: document.body,
+      global: {
+        plugins: [router, i18n],
+        stubs: { teleport: true, Teleport: true },
+      },
+    })
+    await flushPromises()
+
+    const executeButton = [...document.body.querySelectorAll('button')]
+      .find((button) => button.textContent?.trim() === '执行部署') as HTMLButtonElement | undefined
+    expect(executeButton?.disabled).toBe(true)
+    expect(executeButton?.title).toBe('审批申请已提交，等待审批人批准后才能执行。')
+  })
+
+  it('待审批计划仅显示进行审批入口，并在模态框内直接批准', async () => {
+    deploymentMocks.listDeploymentPlans.mockResolvedValue(okPage([
+      {
+        id: 'plan-pending-with-approval-request',
+        name: '等待审批计划',
+        status: 'PENDING_APPROVAL',
+        risk: 'HIGH',
+        approvalStatus: 'PENDING',
+        approvalId: 'approval-pending-1',
+        approval: { requestedBy: 'alice', riskLevel: 'HIGH' },
+        snapshotHash: 'sha256:approval-test',
+        targetSummary: 'cloud.jacksonz.cn:443',
+      },
+    ]))
+
+    const router = createTestRouter()
+    router.push('/deployment-plans')
+    await router.isReady()
+
+    mount(DeploymentPlansView, {
+      attachTo: document.body,
+      global: {
+        plugins: [router, i18n],
+        stubs: { teleport: true, Teleport: true },
+      },
+    })
+    await flushPromises()
+
+    expect(bodyText()).toContain('进行审批')
+    expect(bodyText()).not.toContain('APPROVE')
+    expect(bodyText()).not.toContain('REJECT')
+
+    clickBodyButton('进行审批')
+    await flushPromises()
+
+    expect(bodyText()).toContain('审批详情')
+    expect(bodyText()).toContain('批准审批')
+    expect(bodyText()).toContain('驳回审批')
+    expect(document.body.querySelector('.gc-confirm input')).toBeNull()
+    expect(bodyText()).toContain('cloud.jacksonz.cn:443')
+    expect(bodyText()).toContain('alice')
+    expect(bodyText()).toContain('PENDING')
+
+    clickBodyButton('批准审批')
+    await flushPromises()
+
+    expect(approvalMocks.decideApproval).toHaveBeenCalledWith({
+      approvalId: 'approval-pending-1',
+      decision: 'approved',
+    })
+    expect(bodyText()).toContain('审批已通过')
+    expect(document.body.querySelector('.gc-modal')).toBeNull()
+    expect(deploymentMocks.listDeploymentPlans.mock.calls.length).toBeGreaterThan(1)
   })
 
   it('执行部署模态框不会继承上一次 dry-run 的错误文案', async () => {

@@ -23,7 +23,7 @@ function projection(): DeploymentInputProjectionV1 {
     artifacts: [{ slot: 'certificate', kind: 'certificate', required: true, configurationMode: 'required', outputs: { certificate: { role: 'certificate', required: true } } }],
     fixedValues: [{ slot: 'applicationHost', value: 'app.example.com', source: { kind: 'asset', path: 'application.address' } }],
     runtimeValues: [{ slot: 'stepResult', source: { kind: 'step_output', step: 'install', output: 'result' }, lifecycle: 'step_output' }],
-    issues: [{ category: 'VARIABLE', code: 'MISSING', severity: 'ERROR', slot: 'vendorDefinedSlot', path: 'variables.vendorDefinedSlot', messageKey: 'deploymentInputs.issues.missing' }],
+    issues: [{ category: 'VARIABLE', code: 'DEPLOYMENT_INPUT_REQUIRED', severity: 'ERROR', slot: 'vendorDefinedSlot', path: 'variables.vendorDefinedSlot', messageKey: 'deploymentInputs.issues.DEPLOYMENT_INPUT_REQUIRED' }],
     saveable: false,
   }
 }
@@ -36,6 +36,11 @@ describe('DeploymentInputForm', () => {
     expect(wrapper.text()).toContain('stepResult')
     expect(wrapper.find('input[value="app.example.com"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('variables.vendorDefinedSlot')
+    expect(wrapper.text()).toContain('缺少必填部署输入')
+    expect(wrapper.text()).not.toContain('deploymentInputs.issues.DEPLOYMENT_INPUT_REQUIRED')
+    expect(wrapper.text()).toContain('来源：绑定')
+    expect(wrapper.text()).toContain('运行时由 步骤输出 提供')
+    expect(wrapper.text()).not.toContain('deploymentInputs.source')
   })
 
   it('只写入用户修改的变量和嵌套连接字段', async () => {

@@ -190,6 +190,7 @@ export default {
       feed: {
         completed: '执行完成',
         failed: '执行失败',
+        skipped: '已跳过',
         warning: '完成，带警告'
       },
       loading: {
@@ -242,6 +243,7 @@ export default {
         failed: '失败',
         queued: '等待中',
         running: '执行中',
+        skipped: '已跳过',
         warning: '有警告'
       },
       step: {
@@ -264,6 +266,7 @@ export default {
         queued: '任务已创建，等待执行。',
         running: '任务已开始，等待执行结果。',
         runningChecks: '已返回 {total} 项检查',
+        skipped: '该步骤已跳过，不会继续等待。',
         warningChecks: '{total} 项检查，{warning} 项警告'
       },
       time: {
@@ -569,6 +572,7 @@ export default {
         emptyMessage: '未收到具体错误信息',
         issue: '类型 {category}，槽位 {slot}，路径 {path}，来源 {source}，修复位置 {remediation}'
       },
+      skipped: '步骤已跳过：{reason}',
       running: {
         dispatched: 'Agent 任务已下发（{taskId}），等待执行结果。',
         waitingAgentResult: '步骤执行中，等待 Agent 返回结果…'
@@ -610,6 +614,10 @@ export default {
       failed: {
         label: 'Dry-run 失败',
         detail: '预检失败 {failed} 项，警告 {warning} 项，通过 {passed} 项。'
+      },
+      tlsGrantRequired: {
+        label: 'Dry-run 已完成，但需要宿主授权',
+        detail: '结构和安全校验已完成；dry-run 不签发正式 ExecutionGrant，因此 TLS 跳过校验步骤被拒绝。审批通过后，正式执行会由宿主签发短期 ExecutionGrant。'
       },
       warning: {
         label: 'Dry-run 有风险提示',
@@ -909,6 +917,11 @@ export default {
       dryRunRisk: '只生成影响预览，不会执行正式部署。',
       submit: '提交审批',
       submitRisk: '提交后计划会进入审批或待执行状态。',
+      review: '进行审批',
+      approve: '批准审批',
+      approveRisk: '批准后计划才具备正式执行资格，但仍必须通过 Dry-run 和宿主 ExecutionGrant 校验。',
+      reject: '驳回审批',
+      rejectRisk: '驳回后计划不能正式执行，需要重新提交审批。',
       execute: '执行部署',
       executeRisk: '执行会修改目标证书配置。已完成或失败的计划再次执行也使用这个入口；执行前应先运行 Dry-run 影响预览。',
       cancel: '取消计划',
@@ -964,6 +977,8 @@ export default {
     },
     disabled: {
       missingApproval: '缺少审批通过信息，不能执行。',
+      approvalPending: '审批申请已提交，等待审批人批准后才能执行。',
+      approvalRejected: '审批未通过，不能执行。',
       needDryRun: '正式执行前必须先完成一次成功的 Dry-run 影响预览。',
       missingRunId: '缺少 runId，不能回滚。',
       missingSelection: '缺少部署计划选择'
@@ -973,6 +988,16 @@ export default {
       close: '关闭',
       notConfigured: '未配置',
       notProvided: '未提供'
+    },
+    approval: {
+      title: '审批详情',
+      description: '核对部署计划的审批范围后，直接批准或驳回本次申请。',
+      requestedBy: '申请人',
+      riskLevel: '风险等级',
+      decisionHint: '批准后计划才可以进入正式执行；驳回后需要重新提交审批。',
+      processing: '处理中...',
+      missingApprovalId: '缺少审批 ID，无法进行审批。',
+      decisionFailed: '审批操作失败。'
     },
     detail: {
       certificateVersionLabel: '证书版本',
@@ -1045,7 +1070,11 @@ export default {
       loadedDraftWithPlanId: '已加载草稿（计划 {planId}）。',
       savedWithPlanId: '计划已保存（{planId}）。',
       submitted: '部署计划已提交。',
-      submittedWithPlanId: '部署计划已提交（计划 {planId}）。'
+      submittedWithPlanId: '部署计划已提交（计划 {planId}）。',
+      approvalApproved: '审批已通过，计划现在可以执行。',
+      approvalApprovedWithPlanId: '审批已通过，计划 {planId} 现在可以执行。',
+      approvalRejected: '审批已驳回，计划不能执行。',
+      approvalRejectedWithPlanId: '审批已驳回，计划 {planId} 不能执行。'
     },
     target: {
       controlPlane: '平台',
@@ -2496,7 +2525,33 @@ export default {
     artifacts: { format: '产物格式' },
     runtimeValue: '运行时由 {source} 提供',
     source: '来源：{source}',
-    issues: { title: '输入问题', missing: '缺少必填部署输入' }
+    sourceKinds: {
+      asset: '资产',
+      binding: '绑定',
+      default: '默认值',
+      derived: '派生值',
+      system: '系统值',
+      step_output: '步骤输出',
+      unknown: '未知来源'
+    },
+    issues: {
+      title: '输入问题',
+      unknown: '部署输入校验失败（{code}）',
+      DEPLOYMENT_INPUT_REQUIRED: '缺少必填部署输入',
+      DEPLOYMENT_CONNECTION_REQUIRED: '缺少必填连接配置',
+      DEPLOYMENT_CREDENTIAL_REQUIRED: '缺少必填凭据',
+      DEPLOYMENT_ARTIFACT_REQUIRED: '缺少必填部署产物',
+      DEPLOYMENT_INPUT_OVERRIDE_FORBIDDEN: '该部署输入不允许覆盖',
+      DEPLOYMENT_INPUT_SLOT_UNDECLARED: '部署输入槽位未声明',
+      DEPLOYMENT_INPUT_FIELD_UNDECLARED: '部署输入字段未声明',
+      DEPLOYMENT_INPUT_TYPE_INVALID: '部署输入类型不正确',
+      DEPLOYMENT_INPUT_FIXED_OVERRIDE_FORBIDDEN: '固定部署输入不允许覆盖',
+      DEPLOYMENT_CREDENTIAL_SNAPSHOT_REQUIRED: '缺少凭据快照',
+      DEPLOYMENT_CREDENTIAL_SNAPSHOT_MISMATCH: '凭据快照与当前选择不一致',
+      DEPLOYMENT_CREDENTIAL_KIND_INVALID: '凭据类型不受支持',
+      DEPLOYMENT_ARTIFACT_SNAPSHOT_REQUIRED: '缺少产物快照',
+      DEPLOYMENT_ARTIFACT_OUTPUT_REQUIRED: '缺少必填产物输出'
+    }
   },
   assets: {
     title: '应用资产',

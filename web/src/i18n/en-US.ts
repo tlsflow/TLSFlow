@@ -190,6 +190,7 @@ export default {
       feed: {
         completed: 'Execution completed',
         failed: 'Execution failed',
+        skipped: 'Skipped',
         warning: 'Completed with warnings'
       },
       loading: {
@@ -242,6 +243,7 @@ export default {
         failed: 'Failed',
         queued: 'Waiting',
         running: 'Running',
+        skipped: 'Skipped',
         warning: 'Warning'
       },
       step: {
@@ -264,6 +266,7 @@ export default {
         queued: 'The task has been created and is waiting to run.',
         running: 'The task has started. Waiting for more results.',
         runningChecks: '{total} checks returned',
+        skipped: 'This step was skipped and will not continue waiting.',
         warningChecks: '{total} checks, {warning} warnings'
       },
       time: {
@@ -569,6 +572,7 @@ export default {
         emptyMessage: 'The backend did not receive a concrete error message',
         issue: 'Category {category}, slot {slot}, path {path}, source {source}, remediation {remediation}'
       },
+      skipped: 'Step skipped: {reason}',
       running: {
         dispatched: 'Agent task taskId={taskId} has been dispatched. Waiting for the agent result.',
         waitingAgentResult: 'The step is running, but no Agent taskId or result has been received yet.'
@@ -610,6 +614,10 @@ export default {
       failed: {
         label: 'Dry-run failed',
         detail: 'Precheck failed {failed} items, warning {warning} items, passed {passed} items.'
+      },
+      tlsGrantRequired: {
+        label: 'Dry-run completed, host authorization required',
+        detail: 'Structural and security checks completed. Dry-run does not issue a formal ExecutionGrant, so the TLS verification bypass was rejected. After approval, the host will issue a short-lived ExecutionGrant for the formal execution.'
       },
       warning: {
         label: 'Dry-run has risk warnings',
@@ -890,6 +898,11 @@ export default {
       dryRunRisk: 'Only generates an impact preview. It does not execute the real deployment.',
       submit: 'Submit for approval',
       submitRisk: 'After submission, the plan enters approval or pending execution status.',
+      review: 'Review approval',
+      approve: 'Approve request',
+      approveRisk: 'Approval makes the plan eligible for execution, but Dry-run and the host-issued ExecutionGrant are still required.',
+      reject: 'Reject request',
+      rejectRisk: 'A rejected plan cannot execute and must be submitted for approval again.',
       execute: 'Execute deployment',
       executeRisk: 'Execution modifies target certificate configuration. Completed or failed plans also use this entry for re-execution; run a dry-run impact preview first.',
       cancel: 'Cancel plan',
@@ -945,6 +958,8 @@ export default {
     },
     disabled: {
       missingApproval: 'Approval information is missing, so execution is not allowed.',
+      approvalPending: 'The approval request was submitted. An approver must approve it before execution.',
+      approvalRejected: 'The approval was rejected. Execution is unavailable.',
       needDryRun: 'A successful dry-run impact preview is required before real execution.',
       missingRunId: 'runId is missing, so rollback is not allowed.',
       missingSelection: 'Deployment plan selection is missing'
@@ -954,6 +969,16 @@ export default {
       close: 'Close',
       notConfigured: 'Not configured',
       notProvided: 'Not provided'
+    },
+    approval: {
+      title: 'Approval details',
+      description: 'Review the deployment plan scope, then approve or reject the request directly.',
+      requestedBy: 'Requested by',
+      riskLevel: 'Risk level',
+      decisionHint: 'Approval makes the plan eligible for real execution. A rejected plan must be submitted again.',
+      processing: 'Processing...',
+      missingApprovalId: 'Approval ID is missing, so this request cannot be reviewed.',
+      decisionFailed: 'Approval action failed.'
     },
     detail: {
       certificateVersionLabel: 'Certificate version',
@@ -1026,7 +1051,11 @@ export default {
       loadedDraftWithPlanId: 'Draft plan loaded. planId: {planId}',
       savedWithPlanId: 'Deployment plan saved. planId: {planId}',
       submitted: 'Deployment plan submitted.',
-      submittedWithPlanId: 'Deployment plan submitted. planId: {planId}'
+      submittedWithPlanId: 'Deployment plan submitted. planId: {planId}',
+      approvalApproved: 'Approval approved. The plan can now be executed.',
+      approvalApprovedWithPlanId: 'Approval approved. Plan {planId} can now be executed.',
+      approvalRejected: 'Approval rejected. The plan cannot be executed.',
+      approvalRejectedWithPlanId: 'Approval rejected. Plan {planId} cannot be executed.'
     },
     target: {
       controlPlane: 'Control plane',
@@ -2477,7 +2506,33 @@ export default {
     artifacts: { format: 'Artifact format' },
     runtimeValue: 'Provided by {source} at runtime',
     source: 'Source: {source}',
-    issues: { title: 'Input issues', missing: 'A required deployment input is missing' }
+    sourceKinds: {
+      asset: 'Asset',
+      binding: 'Binding',
+      default: 'Default value',
+      derived: 'Derived value',
+      system: 'System value',
+      step_output: 'Step output',
+      unknown: 'Unknown source'
+    },
+    issues: {
+      title: 'Input issues',
+      unknown: 'Deployment input validation failed ({code})',
+      DEPLOYMENT_INPUT_REQUIRED: 'A required deployment input is missing',
+      DEPLOYMENT_CONNECTION_REQUIRED: 'A required connection setting is missing',
+      DEPLOYMENT_CREDENTIAL_REQUIRED: 'A required credential is missing',
+      DEPLOYMENT_ARTIFACT_REQUIRED: 'A required deployment artifact is missing',
+      DEPLOYMENT_INPUT_OVERRIDE_FORBIDDEN: 'This deployment input cannot be overridden',
+      DEPLOYMENT_INPUT_SLOT_UNDECLARED: 'The deployment input slot is not declared',
+      DEPLOYMENT_INPUT_FIELD_UNDECLARED: 'The deployment input field is not declared',
+      DEPLOYMENT_INPUT_TYPE_INVALID: 'The deployment input has an invalid type',
+      DEPLOYMENT_INPUT_FIXED_OVERRIDE_FORBIDDEN: 'A fixed deployment input cannot be overridden',
+      DEPLOYMENT_CREDENTIAL_SNAPSHOT_REQUIRED: 'The credential snapshot is missing',
+      DEPLOYMENT_CREDENTIAL_SNAPSHOT_MISMATCH: 'The credential snapshot does not match the current selection',
+      DEPLOYMENT_CREDENTIAL_KIND_INVALID: 'The credential type is not supported',
+      DEPLOYMENT_ARTIFACT_SNAPSHOT_REQUIRED: 'The artifact snapshot is missing',
+      DEPLOYMENT_ARTIFACT_OUTPUT_REQUIRED: 'A required artifact output is missing'
+    }
   },
   assets: {
     title: 'Application assets',

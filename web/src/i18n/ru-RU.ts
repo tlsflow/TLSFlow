@@ -191,6 +191,7 @@ export default {
       feed: {
         completed: 'Выполнение завершено',
         failed: 'Выполнение завершилось ошибкой',
+        skipped: 'Пропущено',
         warning: 'Завершено с предупреждениями'
       },
       loading: {
@@ -243,6 +244,7 @@ export default {
         failed: 'Ошибка',
         queued: 'Ожидание',
         running: 'Выполняется',
+        skipped: 'Пропущено',
         warning: 'Есть предупреждения'
       },
       step: {
@@ -265,6 +267,7 @@ export default {
         queued: 'Задача создана и ожидает выполнения.',
         running: 'Задача запущена, ожидание результата.',
         runningChecks: 'Получено проверок: {total}',
+        skipped: 'Этот шаг пропущен и больше не ожидает выполнения.',
         warningChecks: 'Проверок: {total}, предупреждений: {warning}'
       },
       time: {
@@ -562,6 +565,7 @@ export default {
         emptyMessage: 'Конкретное сообщение об ошибке не получено',
         issue: 'Категория {category}, слот {slot}, путь {path}, источник {source}, исправление {remediation}'
       },
+      skipped: 'Шаг пропущен: {reason}',
       running: {
         dispatched: 'Задача Agent отправлена ({taskId}), ожидание результата выполнения.',
         waitingAgentResult: 'Шаг выполняется, ожидание результата от Agent...'
@@ -603,6 +607,10 @@ export default {
       failed: {
         label: 'Dry-run не пройден',
         detail: 'Предпроверка: ошибок {failed}, предупреждений {warning}, пройдено {passed}.'
+      },
+      tlsGrantRequired: {
+        label: 'Dry-run завершен, требуется авторизация хоста',
+        detail: 'Структурные проверки и проверки безопасности завершены. Dry-run не выдает формальный ExecutionGrant, поэтому обход проверки TLS отклонен. После согласования хост выдаст краткосрочный ExecutionGrant для формального выполнения.'
       },
       warning: {
         label: 'Dry-run содержит предупреждения о рисках',
@@ -823,6 +831,11 @@ export default {
       dryRunRisk: 'Формирует только предпросмотр влияния и не выполняет реальное развертывание.',
       submit: 'Отправить на согласование',
       submitRisk: 'После отправки план перейдет в состояние согласования или ожидания выполнения.',
+      review: 'Рассмотреть согласование',
+      approve: 'Одобрить запрос',
+      approveRisk: 'После одобрения план допускается к выполнению, но Dry-run и выданный хостом ExecutionGrant по-прежнему обязательны.',
+      reject: 'Отклонить запрос',
+      rejectRisk: 'Отклоненный план нельзя выполнить; его нужно снова отправить на согласование.',
       execute: 'Выполнить развертывание',
       executeRisk: 'Выполнение изменит целевую конфигурацию сертификатов. Уже завершенные или ошибочные планы также используют этот вход для повторного выполнения; перед выполнением нужен Dry-run предпросмотр влияния.',
       cancel: 'Отменить план',
@@ -878,6 +891,8 @@ export default {
     },
     disabled: {
       missingApproval: 'Нет сведений о пройденном согласовании, выполнение невозможно.',
+      approvalPending: 'Запрос на согласование отправлен. До одобрения согласующим выполнение недоступно.',
+      approvalRejected: 'Согласование отклонено. Выполнение недоступно.',
       needDryRun: 'Перед реальным выполнением нужно завершить успешный Dry-run предпросмотр влияния.',
       missingRunId: 'Нет runId, откат невозможен.',
       missingSelection: 'Не выбран план развертывания'
@@ -887,6 +902,16 @@ export default {
       close: 'Закрыть',
       notConfigured: 'Не настроено',
       notProvided: 'Не предоставлено'
+    },
+    approval: {
+      title: 'Детали согласования',
+      description: 'Проверьте область действия плана и напрямую одобрите или отклоните запрос.',
+      requestedBy: 'Запросил',
+      riskLevel: 'Уровень риска',
+      decisionHint: 'После одобрения план можно выполнить. Отклоненный план нужно отправить повторно.',
+      processing: 'Обработка...',
+      missingApprovalId: 'ID согласования отсутствует, поэтому запрос нельзя рассмотреть.',
+      decisionFailed: 'Операция согласования не выполнена.'
     },
     detail: {
       certificateVersionLabel: 'Версия сертификата',
@@ -959,7 +984,11 @@ export default {
       loadedDraftWithPlanId: 'Черновик загружен (план {planId}).',
       savedWithPlanId: 'План сохранен ({planId}).',
       submitted: 'План развертывания отправлен.',
-      submittedWithPlanId: 'План развертывания отправлен (план {planId}).'
+      submittedWithPlanId: 'План развертывания отправлен (план {planId}).',
+      approvalApproved: 'Согласование одобрено. План можно выполнить.',
+      approvalApprovedWithPlanId: 'Согласование одобрено. План {planId} можно выполнить.',
+      approvalRejected: 'Согласование отклонено. План нельзя выполнить.',
+      approvalRejectedWithPlanId: 'Согласование отклонено. План {planId} нельзя выполнить.'
     },
     target: {
       controlPlane: 'Платформа',
@@ -2369,7 +2398,25 @@ export default {
     artifacts: { format: 'Формат артефакта' },
     runtimeValue: 'Предоставляется источником {source} во время выполнения',
     source: 'Источник: {source}',
-    issues: { title: 'Проблемы входных данных', missing: 'Отсутствуют обязательные входные данные развертывания' }
+    sourceKinds: { asset: 'Ресурс', binding: 'Привязка', default: 'Значение по умолчанию', derived: 'Производное значение', system: 'Системное значение', step_output: 'Выход шага', unknown: 'Неизвестный источник' },
+    issues: {
+      title: 'Проблемы входных данных',
+      unknown: 'Ошибка проверки входных данных развертывания ({code})',
+      DEPLOYMENT_INPUT_REQUIRED: 'Отсутствуют обязательные входные данные развертывания',
+      DEPLOYMENT_CONNECTION_REQUIRED: 'Отсутствует обязательный параметр подключения',
+      DEPLOYMENT_CREDENTIAL_REQUIRED: 'Отсутствуют обязательные учетные данные',
+      DEPLOYMENT_ARTIFACT_REQUIRED: 'Отсутствует обязательный артефакт развертывания',
+      DEPLOYMENT_INPUT_OVERRIDE_FORBIDDEN: 'Эти входные данные развертывания нельзя переопределить',
+      DEPLOYMENT_INPUT_SLOT_UNDECLARED: 'Слот входных данных развертывания не объявлен',
+      DEPLOYMENT_INPUT_FIELD_UNDECLARED: 'Поле входных данных развертывания не объявлено',
+      DEPLOYMENT_INPUT_TYPE_INVALID: 'Недопустимый тип входных данных развертывания',
+      DEPLOYMENT_INPUT_FIXED_OVERRIDE_FORBIDDEN: 'Фиксированные входные данные развертывания нельзя переопределить',
+      DEPLOYMENT_CREDENTIAL_SNAPSHOT_REQUIRED: 'Отсутствует снимок учетных данных',
+      DEPLOYMENT_CREDENTIAL_SNAPSHOT_MISMATCH: 'Снимок учетных данных не соответствует текущему выбору',
+      DEPLOYMENT_CREDENTIAL_KIND_INVALID: 'Тип учетных данных не поддерживается',
+      DEPLOYMENT_ARTIFACT_SNAPSHOT_REQUIRED: 'Отсутствует снимок артефакта',
+      DEPLOYMENT_ARTIFACT_OUTPUT_REQUIRED: 'Отсутствует обязательный выход артефакта'
+    }
   },
   assets: {
     title: 'Активы приложений',

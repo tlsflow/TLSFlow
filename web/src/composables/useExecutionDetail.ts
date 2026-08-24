@@ -60,6 +60,9 @@ const EXECUTION_DETAIL_I18N_KEYS = [
   'executionDetail.step.workflowIdentity',
   'executionDetail.step.failure.emptyMessage',
   'executionDetail.step.failure.issue',
+  'executionDetail.step.skipped',
+  'executionDetail.dryRun.tlsGrantRequired.label',
+  'executionDetail.dryRun.tlsGrantRequired.detail',
   'executionDetail.agent.taskSuffix',
   'executionDetail.step.running.dispatched',
   'executionDetail.step.running.waitingAgentResult',
@@ -354,13 +357,17 @@ function summarizeDryRun(items: readonly Record<string, unknown>[], text: Execut
   let runningCount = 0
   let failedStepCount = 0
   let finishedWithoutChecks = 0
+  const failedItems: ApiRecord[] = []
   const collectedChecks: ApiRecord[] = []
 
   for (const item of dryRunItems) {
     const stepStatus = String(readPath(item, 'status') ?? '').toUpperCase()
     if (stepStatus === 'PENDING' || stepStatus === 'DISPATCHED') queuedCount += 1
     if (stepStatus === 'RUNNING') runningCount += 1
-    if (stepStatus === 'FAILED' || stepStatus === 'TIMEOUT' || stepStatus === 'CANCELLED') failedStepCount += 1
+    if (stepStatus === 'FAILED' || stepStatus === 'TIMEOUT' || stepStatus === 'CANCELLED') {
+      failedStepCount += 1
+      failedItems.push(item)
+    }
 
     const resultDetail = readObject(item, 'inputSnapshot.resultDetail')
     const checks = readArray(resultDetail, 'dryRunChecks')
@@ -375,6 +382,15 @@ function summarizeDryRun(items: readonly Record<string, unknown>[], text: Execut
   }
 
   const counts = countDryRunStatuses(mergeDryRunChecks(collectedChecks))
+
+  if (failedItems.length > 0 && failedItems.every(isExpectedTlsGrantFailure)) {
+    return {
+      state: 'failed',
+      label: text('executionDetail.dryRun.tlsGrantRequired.label'),
+      detail: text('executionDetail.dryRun.tlsGrantRequired.detail'),
+      ...counts,
+    }
+  }
 
   if (failedStepCount > 0 && !hasChecks) {
     return {
@@ -474,6 +490,13 @@ function buildStepDetail(record: Record<string, unknown>, index: number, text: E
     const issues = readArray(lastErrorDetails, 'issues').map((issue) => formatExecutionInputIssue(issue, text))
     const issueDetail = issues.length > 0 ? `；${issues.join('；')}` : ''
     return `${code}: ${message}${issueDetail}${taskId ? text('executionDetail.agent.taskSuffix', { taskId }) : ''}${workflowIdentityDetail}`
+  }
+
+  if (stepStatus === 'SKIPPED') {
+    const reason = lastErrorMessage
+      ? `${lastErrorCode ? `${lastErrorCode}: ` : ''}${lastErrorMessage}`
+      : text('executionDetail.workflowStep.skipped')
+    return text('executionDetail.step.skipped', { reason })
   }
 
   if (readPath(record, 'inputSnapshot.dryRun') === true) {
@@ -781,6 +804,18 @@ function normalizeDryRunStatus(value: unknown): DryRunStatus {
   if (current === 'failed' || current === 'error') return 'failed'
   if (current === 'warning' || current === 'warn') return 'warning'
   return 'unknown'
+}
+
+function isExpectedTlsGrantFailure(record: Record<string, unknown>): boolean {
+  return readString(record, ['lastErrorCode'], '').toUpperCase() === 'AUTH_FORBIDDEN'
+    && containsExpectedTlsGrantFailure(readObject(record, 'lastErrorDetails'))
+}
+
+function containsExpectedTlsGrantFailure(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const record = value as Record<string, unknown>
+  if (record.policy === 'workflow.tls.insecure' && record.reason === 'execution_grant_required') return true
+  return Object.values(record).some((child) => containsExpectedTlsGrantFailure(child))
 }
 
 function statusRank(value: unknown): number {

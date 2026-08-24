@@ -25,7 +25,7 @@ const props = withDefaults(defineProps<{
   loading: false,
 })
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const advancedExpanded = ref(false)
 const requiredConnections = computed(() => filterConnections((field) => isRequiredEditable(field)))
 const advancedConnections = computed(() => filterConnections((field) => !isRequiredEditable(field)))
@@ -36,8 +36,7 @@ const requiredArtifacts = computed(() => props.projection.artifacts.filter((item
 const hasAdvanced = computed(() => props.projection.advancedVariables.length > 0
   || advancedConnections.value.length > 0
   || advancedCredentials.value.length > 0
-  || advancedArtifacts.value.length > 0
-  || props.projection.runtimeValues.length > 0)
+  || advancedArtifacts.value.length > 0)
 
 function filterConnections(predicate: (field: DeploymentInputFieldProjectionV1) => boolean): DeploymentConnectionProjectionV1[] {
   return props.projection.connections
@@ -64,7 +63,26 @@ function help(item: { ui?: { helpKey?: string }; descriptionKey?: string }): str
 }
 
 function sourceLabel(item: DeploymentInputFieldProjectionV1): string {
-  return t('deploymentInputs.source', { source: item.source.kind })
+  return sourceText(item.source)
+}
+
+function sourceText(source: { kind: string }): string {
+  return message('deploymentInputs.source', { source: sourceKindLabel(source.kind) }, 'deploymentInputs.sourceKinds.unknown')
+}
+
+function sourceKindLabel(kind: string): string {
+  const key = `deploymentInputs.sourceKinds.${kind}`
+  return te(key) ? t(key) : t('deploymentInputs.sourceKinds.unknown')
+}
+
+function message(key: string, params: Record<string, string | number> = {}, fallbackKey: string): string {
+  return te(key) ? t(key, params) : t(fallbackKey, params)
+}
+
+function issueLabel(issue: DeploymentInputProjectionV1['issues'][number]): string {
+  return te(issue.messageKey)
+    ? t(issue.messageKey, issue.params ?? {})
+    : t('deploymentInputs.issues.unknown', { code: issue.code })
 }
 
 function variableValue(item: DeploymentInputFieldProjectionV1): unknown {
@@ -182,7 +200,7 @@ function hasValues(value: Record<string, unknown>): boolean {
     <template v-else>
       <section v-if="projection.issues.length" class="deployment-input-form__issues" :aria-label="t('deploymentInputs.issues.title')">
         <article v-for="issue in projection.issues" :key="`${issue.code}:${issue.slot ?? ''}:${issue.path ?? ''}`" :class="['deployment-input-form__issue', `deployment-input-form__issue--${issue.severity.toLowerCase()}`]">
-          <strong>{{ t(issue.messageKey, issue.params ?? {}) }}</strong>
+          <strong>{{ issueLabel(issue) }}</strong>
           <small>{{ [issue.slot, issue.path, issue.bindingLayer].filter(Boolean).join(' · ') }}</small>
         </article>
       </section>
@@ -248,6 +266,14 @@ function hasValues(value: Record<string, unknown>): boolean {
         </div>
       </section>
 
+      <section v-if="projection.fixedValues.length || projection.runtimeValues.length" class="deployment-input-form__section">
+        <header><h4>{{ t('deploymentInputs.groups.readonly') }}</h4></header>
+        <div class="deployment-input-form__grid">
+          <p v-for="item in projection.fixedValues" :key="'fixed:' + item.slot" class="deployment-input-form__runtime">{{ item.slot }} · {{ String(item.value) }} · {{ sourceText(item.source) }}</p>
+          <p v-for="item in projection.runtimeValues" :key="'runtime:' + item.slot" class="deployment-input-form__runtime">{{ item.slot }} · {{ t('deploymentInputs.runtimeValue', { source: sourceKindLabel(item.source.kind) }) }}</p>
+        </div>
+      </section>
+
       <section v-if="hasAdvanced" class="deployment-input-form__section">
         <header><h4>{{ t('deploymentInputs.groups.advanced') }}</h4><button class="gc-button gc-button--ghost" type="button" @click="advancedExpanded = !advancedExpanded">{{ advancedExpanded ? t('deploymentInputs.actions.collapse') : t('deploymentInputs.actions.expand') }}</button></header>
         <div v-if="advancedExpanded" class="deployment-input-form__grid">
@@ -258,7 +284,6 @@ function hasValues(value: Record<string, unknown>): boolean {
             <label class="deployment-input-form__field"><span>{{ label(item.slot, item) }} · {{ t('deploymentInputs.artifacts.format') }}</span><select :value="artifactBinding(item)?.certificateFormatId ?? ''" :disabled="disabled" @change="updateArtifactFormat(item, ($event.target as HTMLSelectElement).value)"><option value="">{{ t('deploymentInputs.placeholders.artifact') }}</option><option v-for="option in artifactOptions[item.slot] ?? []" :key="option.id" :value="option.id">{{ option.label }}</option></select></label>
             <label v-for="(output, outputSlot) in item.outputs" :key="`${item.slot}:${outputSlot}`" class="deployment-input-form__field"><span>{{ output.descriptionKey ? t(output.descriptionKey) : outputSlot }}</span><select :value="artifactBinding(item)?.outputBindings[outputSlot] ?? ''" :disabled="disabled || !artifactBinding(item)?.certificateFormatId" @change="updateArtifactOutput(item.slot, String(outputSlot), ($event.target as HTMLSelectElement).value)"><option value="">{{ t('deploymentInputs.placeholders.output') }}</option><option v-for="option in availableArtifactOutputs(item)" :key="option.key" :value="option.key">{{ option.label }}</option></select></label>
           </template>
-          <p v-for="item in projection.runtimeValues" :key="'runtime:' + item.slot" class="deployment-input-form__runtime">{{ item.slot }} · {{ t('deploymentInputs.runtimeValue', { source: item.source.kind }) }}</p>
         </div>
       </section>
 

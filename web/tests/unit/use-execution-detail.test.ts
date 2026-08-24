@@ -182,4 +182,57 @@ describe('useExecutionDetail', () => {
 
     wrapper.unmount()
   })
+
+  it('TLS Grant 缺失时标记预检已完成但仍保留安全失败', async () => {
+    apiMocks.listExecutionStepsByRunId.mockResolvedValue({
+      requestId: 'req-tls-grant-required',
+      data: {
+        items: [
+          {
+            id: 'step-install',
+            name: 'INSTALL target-1',
+            stepType: 'INSTALL',
+            status: 'FAILED',
+            lastErrorCode: 'AUTH_FORBIDDEN',
+            lastErrorMessage: 'TLS 跳过校验必须携带宿主签发的 ExecutionGrant',
+            lastErrorDetails: {
+              policy: 'workflow.tls.insecure',
+              reason: 'execution_grant_required',
+            },
+            inputSnapshot: { dryRun: true },
+          },
+          {
+            id: 'step-reload',
+            name: 'RELOAD target-1',
+            stepType: 'RELOAD',
+            status: 'SKIPPED',
+            lastErrorCode: 'SKIPPED_AFTER_RUN_FAILURE',
+            lastErrorMessage: '执行运行已失败，跳过未执行步骤',
+            inputSnapshot: { dryRun: true },
+          },
+        ],
+      },
+    })
+    apiMocks.listAgentTaskLogsByTaskId.mockResolvedValue({ data: [] })
+
+    const selectedRow = ref({
+      id: 'run-tls-grant-required',
+      raw: { id: 'run-tls-grant-required', status: 'FAILED' },
+    })
+    let detail: ReturnType<typeof useExecutionDetail> | undefined
+    const wrapper = mount(defineComponent({
+      setup() {
+        detail = useExecutionDetail(selectedRow as never)
+        return () => h('div')
+      },
+    }))
+
+    await vi.waitFor(() => expect(detail?.steps.value).toHaveLength(2))
+    expect(detail?.dryRunSummary.value?.state).toBe('failed')
+    expect(detail?.dryRunSummary.value?.label).toBe('Dry-run 已完成，但需要宿主授权')
+    expect(detail?.steps.value[1]?.status).toBe('SKIPPED')
+    expect(detail?.steps.value[1]?.detail).toContain('SKIPPED_AFTER_RUN_FAILURE')
+
+    wrapper.unmount()
+  })
 })

@@ -191,6 +191,7 @@ export default {
       feed: {
         completed: '실행 완료',
         failed: '실행 실패',
+        skipped: '건너뜀',
         warning: '완료, 경고와 함께'
       },
       loading: {
@@ -243,6 +244,7 @@ export default {
         failed: '실패',
         queued: '기다리는 중',
         running: '실행 중',
+        skipped: '건너뜀',
         warning: '경고가 나다'
       },
       step: {
@@ -265,6 +267,7 @@ export default {
         queued: '작업이 생성되었습니다. 대기 중입니다.',
         running: '작업이 시작되었고 결과를 기다립니다.',
         runningChecks: '{total} 항목이 반환되었습니다',
+        skipped: '이 단계는 건너뛰었으며 더 이상 대기하지 않습니다.',
         warningChecks: '{total} 항목 검사, {warning} 항목 경고'
       },
       time: {
@@ -562,6 +565,7 @@ export default {
         emptyMessage: '구체적인 오류 메시지가 없습니다',
         issue: '유형 {category}, 슬롯 {slot}, 경로 {path}, 소스 {source}, 수정 위치 {remediation}'
       },
+      skipped: '단계를 건너뛰었습니다: {reason}',
       running: {
         dispatched: 'Agent 미션이 이미 발송되었으며 ({taskId}) 실행 결과를 기다리고 있습니다.',
         waitingAgentResult: '절차 실행 중, Agent 반환결과를 기다립니다...'
@@ -603,6 +607,10 @@ export default {
       failed: {
         label: 'Dry-run 가 실패했습니다',
         detail: '{failed} 항목 사전 점검가 실패하면 {warning} 항목 경고, {passed} 항목 통과.'
+      },
+      tlsGrantRequired: {
+        label: 'Dry-run 완료, 호스트 승인이 필요합니다',
+        detail: '구조 및 보안 검사가 완료되었습니다. Dry-run은 정식 ExecutionGrant를 발급하지 않으므로 TLS 검증 우회가 거부되었습니다. 승인 후 정식 실행 시 호스트가 단기 ExecutionGrant를 발급합니다.'
       },
       warning: {
         label: 'Dry-run에 위험정보가 있습니다',
@@ -823,6 +831,11 @@ export default {
       dryRunRisk: '영향 미리보기만 생성하고 정식 배포는 하지 않습니다.',
       submit: '심사 비준에 회부하다.',
       submitRisk: '제출되면 계획은 허가 또는 이행 상태에 들어갈 것이다.',
+      review: '승인 검토',
+      approve: '승인 요청 승인',
+      approveRisk: '승인 후 실행할 수 있지만 Dry-run 및 호스트가 발급한 ExecutionGrant가 계속 필요합니다.',
+      reject: '승인 요청 거부',
+      rejectRisk: '거부된 계획은 실행할 수 없으며 다시 승인을 제출해야 합니다.',
       execute: '포치를 실행하다.',
       executeRisk: '실행은 대상 인증서 설정을 수정한다.완료되었거나 실패한 계획을 다시 실행할 때도이 항목을 사용합니다.실행 전에 먼저 Dry-run 영향 미리보기를 실행해야 합니다.',
       cancel: '계획을 취소하다',
@@ -878,6 +891,8 @@ export default {
     },
     disabled: {
       missingApproval: '승인 정보가 없으면 실행할 수 없습니다.',
+      approvalPending: '승인 요청이 제출되었습니다. 승인자가 승인한 후 실행할 수 있습니다.',
+      approvalRejected: '승인이 거부되어 실행할 수 없습니다.',
       needDryRun: '실행 전에 반드시 Dry-run 영향 미리보기를 성공적으로 완료해야 합니다.',
       missingRunId: 'runId 가 없으면 롤백할 수 없습니다.',
       missingSelection: '배포 계획 선택이 없습니다'
@@ -887,6 +902,16 @@ export default {
       close: '닫기',
       notConfigured: '구성되지 않음',
       notProvided: '제공되지 않음'
+    },
+    approval: {
+      title: '승인 상세',
+      description: '배포 계획 범위를 검토한 후 요청을 직접 승인하거나 거부합니다.',
+      requestedBy: '요청자',
+      riskLevel: '위험 수준',
+      decisionHint: '승인 후 실제 실행이 가능합니다. 거부된 계획은 다시 제출해야 합니다.',
+      processing: '처리 중...',
+      missingApprovalId: '승인 ID가 없어 검토할 수 없습니다.',
+      decisionFailed: '승인 작업에 실패했습니다.'
     },
     detail: {
       certificateVersionLabel: '인증서 버전',
@@ -959,7 +984,11 @@ export default {
       loadedDraftWithPlanId: '초안 로딩 ({planId}).',
       savedWithPlanId: '계획저장({planId}).',
       submitted: '배포 계획이 제출되었습니다.',
-      submittedWithPlanId: '배포 계획이 제출되었습니다(계획 {planId}).'
+      submittedWithPlanId: '배포 계획이 제출되었습니다(계획 {planId}).',
+      approvalApproved: '승인이 완료되었습니다. 이제 계획을 실행할 수 있습니다.',
+      approvalApprovedWithPlanId: '승인이 완료되었습니다. 계획 {planId}을(를) 실행할 수 있습니다.',
+      approvalRejected: '승인이 거부되었습니다. 계획을 실행할 수 없습니다.',
+      approvalRejectedWithPlanId: '승인이 거부되었습니다. 계획 {planId}을(를) 실행할 수 없습니다.'
     },
     target: {
       controlPlane: '플랫폼',
@@ -2369,7 +2398,25 @@ export default {
     artifacts: { format: '아티팩트 형식' },
     runtimeValue: '런타임에 {source}에서 제공',
     source: '출처: {source}',
-    issues: { title: '입력 문제', missing: '필수 배포 입력이 없습니다' }
+    sourceKinds: { asset: '자산', binding: '바인딩', default: '기본값', derived: '파생값', system: '시스템 값', step_output: '단계 출력', unknown: '알 수 없는 출처' },
+    issues: {
+      title: '입력 문제',
+      unknown: '배포 입력 검증에 실패했습니다 ({code})',
+      DEPLOYMENT_INPUT_REQUIRED: '필수 배포 입력이 없습니다',
+      DEPLOYMENT_CONNECTION_REQUIRED: '필수 연결 설정이 없습니다',
+      DEPLOYMENT_CREDENTIAL_REQUIRED: '필수 자격 증명이 없습니다',
+      DEPLOYMENT_ARTIFACT_REQUIRED: '필수 배포 아티팩트가 없습니다',
+      DEPLOYMENT_INPUT_OVERRIDE_FORBIDDEN: '이 배포 입력은 재정의할 수 없습니다',
+      DEPLOYMENT_INPUT_SLOT_UNDECLARED: '배포 입력 슬롯이 선언되지 않았습니다',
+      DEPLOYMENT_INPUT_FIELD_UNDECLARED: '배포 입력 필드가 선언되지 않았습니다',
+      DEPLOYMENT_INPUT_TYPE_INVALID: '배포 입력 형식이 올바르지 않습니다',
+      DEPLOYMENT_INPUT_FIXED_OVERRIDE_FORBIDDEN: '고정 배포 입력은 재정의할 수 없습니다',
+      DEPLOYMENT_CREDENTIAL_SNAPSHOT_REQUIRED: '자격 증명 스냅샷이 없습니다',
+      DEPLOYMENT_CREDENTIAL_SNAPSHOT_MISMATCH: '자격 증명 스냅샷이 현재 선택과 일치하지 않습니다',
+      DEPLOYMENT_CREDENTIAL_KIND_INVALID: '지원되지 않는 자격 증명 유형입니다',
+      DEPLOYMENT_ARTIFACT_SNAPSHOT_REQUIRED: '아티팩트 스냅샷이 없습니다',
+      DEPLOYMENT_ARTIFACT_OUTPUT_REQUIRED: '필수 아티팩트 출력이 없습니다'
+    }
   },
   assets: {
     title: '응용자산',

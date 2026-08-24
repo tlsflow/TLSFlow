@@ -75,11 +75,15 @@ export function createDeploymentPlanUiActions(t: I18nTranslate = defaultT): read
     danger: true,
     confirmText: 'EXECUTE',
     riskText: t('deploymentPlans.actions.executeRisk'),
-    visibleWhen: ['APPROVED', 'READY', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLED_BACK', 'ROLLBACK_FAILED'],
+    visibleWhen: ['PENDING_APPROVAL', 'APPROVED', 'READY', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLED_BACK', 'ROLLBACK_FAILED'],
     run: (row) => executeDeploymentPlan(requirePlanId(row), isFinishedPlan(row) ? { reason: 'deployment-plan-reexecute' } : {}),
     disabledReason: (row) => {
-      if (!isFinishedPlan(row) && !canExecute(row)) return t('deploymentPlans.disabled.missingApproval')
-      if (!hasPassedLatestDryRun(row)) return t('deploymentPlans.disabled.needDryRun')
+      if (!isFinishedPlan(row) && !canExecute(row)) {
+        const approvalStatus = stringFromCandidates(row.raw, ['approvalStatus', 'approval.status'])
+        if (approvalStatus === 'PENDING') return t('deploymentPlans.disabled.approvalPending')
+        if (approvalStatus === 'REJECTED') return t('deploymentPlans.disabled.approvalRejected')
+        return t('deploymentPlans.disabled.missingApproval')
+      }
       return ''
     },
   },
@@ -193,6 +197,7 @@ export function createDeploymentPlansPageConfig(t: I18nTranslate = defaultT): Bu
     danger: action.danger,
     confirmText: action.confirmText,
     riskText: action.riskText,
+    disabledReason: (row: ViewRow) => action.disabledReason?.(row) ?? '',
     hidden: (row: ViewRow) => !action.visibleWhen.includes(String(row.status)),
     run: async (row: ViewRow) => action.run(row),
   })),
@@ -229,18 +234,11 @@ function requireLatestRunId(row: ViewRow): string {
 function canExecute(row: ViewRow): boolean {
   if (String(row.status) === 'APPROVED') return true
   const approvalStatus = stringFromCandidates(row.raw, ['approvalStatus', 'approval.status'])
-  if (approvalStatus === 'NOT_REQUIRED' || approvalStatus === 'APPROVED') return true
-  return Boolean(stringFromCandidates(row.raw, ['approvalId', 'approval.id', 'approval.approvalId', 'approvedBy']))
+  return approvalStatus === 'NOT_REQUIRED' || approvalStatus === 'APPROVED'
 }
 
 function isFinishedPlan(row: ViewRow): boolean {
   return ['SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLED_BACK', 'ROLLBACK_FAILED'].includes(String(row.status))
-}
-
-function hasPassedLatestDryRun(row: ViewRow): boolean {
-  const latestRunType = stringFromCandidates(row.raw, ['latestRun.type', 'runs.0.type', 'executionRuns.0.type']).toLowerCase()
-  const latestRunStatus = stringFromCandidates(row.raw, ['latestRun.status', 'runs.0.status', 'executionRuns.0.status']).toUpperCase()
-  return latestRunType === 'dry_run' && latestRunStatus === 'SUCCESS'
 }
 
 function stringFromCandidates(record: ApiRecord, candidates: readonly string[]): string {
