@@ -15,6 +15,12 @@ describe('状态和风险映射', () => {
     expect(resolveStatusMeta('disabled', translate)).toEqual({ label: '已停用', tone: 'muted' })
   })
 
+  it('把监控风险状态映射为国际化彩色标签', () => {
+    expect(resolveStatusMeta('OPEN', translate)).toEqual({ label: '未解决', tone: 'danger' })
+    expect(resolveStatusMeta('ACKED', translate)).toEqual({ label: '已确认', tone: 'warning' })
+    expect(resolveStatusMeta('RESOLVED', translate)).toEqual({ label: '已解决', tone: 'success' })
+  })
+
   it('未知状态不崩溃，按 muted 展示原值', () => {
     expect(resolveStatusMeta('NEW_BACKEND_STATUS')).toEqual({ label: 'NEW_BACKEND_STATUS', tone: 'muted' })
   })
