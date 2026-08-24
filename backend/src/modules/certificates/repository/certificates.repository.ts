@@ -15,6 +15,11 @@ export interface CertificatesRepository {
   createAsset(entity: CertificateAssetEntity): CertificateAssetEntity;
   updateAsset(id: string, patch: Partial<CertificateAssetEntity>): CertificateAssetEntity;
   getAsset(id: string): CertificateAssetEntity | undefined;
+  deleteOrUpdateAsset(id: string, patch: Partial<CertificateAssetEntity>): CertificateAssetEntity;
+  listVersionsByAsset(certificateAssetId: string): CertificateVersionEntity[];
+  updateVersion(id: string, patch: Partial<CertificateVersionEntity>): CertificateVersionEntity;
+  deleteOrUpdateVersion(id: string, patch: Partial<CertificateVersionEntity>): CertificateVersionEntity;
+  listFormatsByVersion(certificateVersionId: string): CertificateVersionFormatEntity[];
   listAssets(query: PageQuery): PageResponse<CertificateAssetEntity>;
   createVersion(entity: CertificateVersionEntity): CertificateVersionEntity;
   getVersion(id: string): CertificateVersionEntity | undefined;
@@ -45,6 +50,26 @@ export class InMemoryCertificatesRepository implements CertificatesRepository {
 
   getAsset(id: string): CertificateAssetEntity | undefined {
     return this.assets.get(id);
+  }
+
+  deleteOrUpdateAsset(id: string, patch: Partial<CertificateAssetEntity>): CertificateAssetEntity {
+    return this.assets.update(id, patch);
+  }
+
+  listVersionsByAsset(certificateAssetId: string): CertificateVersionEntity[] {
+    return this.versions.list((version) => version.certificateAssetId === certificateAssetId);
+  }
+
+  updateVersion(id: string, patch: Partial<CertificateVersionEntity>): CertificateVersionEntity {
+    return this.versions.update(id, patch);
+  }
+
+  deleteOrUpdateVersion(id: string, patch: Partial<CertificateVersionEntity>): CertificateVersionEntity {
+    return this.versions.update(id, patch);
+  }
+
+  listFormatsByVersion(certificateVersionId: string): CertificateVersionFormatEntity[] {
+    return this.formats.list((format) => format.certificateVersionId === certificateVersionId);
   }
 
   listAssets(query: PageQuery): PageResponse<CertificateAssetEntity> {

@@ -2,7 +2,7 @@ import { AppError } from '../../../common/errors/app-error.js';
 import type { CapabilityDeclaration } from '../../../shared/contracts/capability-contracts.js';
 import { newId } from '../../../shared/id.js';
 import type { AgentCapabilitySnapshotInput, CreateEnrollmentTokenInput, PublishAgentVersionInput, RegisterAgentInput, SubmitAgentTaskLogInput } from '../dto/agents.dto.js';
-import type { AgentCapabilitySnapshot, AgentDescriptor, AgentRegistration, AgentTaskLogEntry, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
+import type { AgentCapabilitySnapshot, AgentDescriptor, AgentGatewayExtension, AgentRegistration, AgentTaskLogEntry, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
 
 export class AgentsDomainService {
   createEnrollmentToken(tenantId: string, input: CreateEnrollmentTokenInput, requestId: string): EnrollmentToken & { token: string } {
@@ -45,15 +45,67 @@ export class AgentsDomainService {
     };
   }
 
+  normalizeGatewayOnRegister(input: RegisterAgentInput, existing?: AgentGatewayExtension): AgentGatewayExtension | undefined {
+    const role = normalizeOptionalKey(input.role ?? '');
+    if (role !== 'gateway' && !existing) return undefined;
+    const zoneIds = normalizeZoneIds(input.zoneIds ?? (input.zone ? [input.zone] : existing?.zoneIds ?? []));
+    if (role === 'gateway' && zoneIds.length === 0) {
+      throw new AppError('VALIDATION_FAILED', 'Gateway Agent 注册必须提供 zone 或 zoneIds');
+    }
+    return this.normalizeGatewayExtension({
+      existing,
+      zoneIds,
+      adapters: input.adapters,
+      capabilities: input.capabilities,
+      resourceLimits: input.resourceLimits,
+      currentLoad: input.currentLoad,
+      maxConcurrentTasks: input.maxConcurrentTasks,
+      successRate: input.successRate,
+      status: existing?.status,
+    });
+  }
+
+  normalizeGatewayOnHeartbeat(agent: AgentRegistration, input: { adapters?: string[]; capabilities?: string[]; resourceLimits?: Record<string, unknown>; currentLoad?: number; maxConcurrentTasks?: number; successRate?: number }, receivedAt: string): AgentGatewayExtension | undefined {
+    if (agent.role !== 'gateway' && !agent.gateway) return undefined;
+    return this.normalizeGatewayExtension({
+      existing: agent.gateway,
+      zoneIds: agent.gateway?.zoneIds ?? (agent.zone ? [agent.zone] : []),
+      adapters: input.adapters,
+      capabilities: input.capabilities,
+      resourceLimits: input.resourceLimits,
+      currentLoad: input.currentLoad,
+      maxConcurrentTasks: input.maxConcurrentTasks,
+      successRate: input.successRate,
+      status: agent.status === 'DISABLED' ? 'disabled' : 'online',
+      lastHeartbeatAt: receivedAt,
+    });
+  }
+
+  normalizeGatewayOnCapabilities(agent: AgentRegistration, input: AgentCapabilitySnapshotInput): AgentGatewayExtension | undefined {
+    if (agent.role !== 'gateway' && !agent.gateway) return undefined;
+    return this.normalizeGatewayExtension({
+      existing: agent.gateway,
+      zoneIds: agent.gateway?.zoneIds ?? (agent.zone ? [agent.zone] : []),
+      adapters: input.adapters,
+      capabilities: input.capabilities.map((item) => item.capabilityKey),
+      resourceLimits: input.resourceLimits,
+      currentLoad: input.currentLoad,
+      maxConcurrentTasks: input.maxConcurrentTasks,
+      successRate: input.successRate,
+      status: agent.status === 'DISABLED' ? 'disabled' : agent.gateway?.status,
+    });
+  }
+
   assertEnrollmentAllowed(token: EnrollmentToken, input: RegisterAgentInput): void {
     const now = Date.now();
     if (token.status !== 'active') throw new AppError('AUTH_FORBIDDEN', '注册令牌不可用', { status: token.status });
     if (new Date(token.expiresAt).getTime() < now) throw new AppError('AUTH_FORBIDDEN', '注册令牌已过期', { tokenId: token.id });
     if (token.usedCount >= token.maxUses) throw new AppError('AUTH_FORBIDDEN', '注册令牌使用次数已耗尽', { tokenId: token.id });
     const role = normalizeOptionalKey(input.role ?? 'full_agent');
-    const zone = normalizeOptionalKey(input.zone ?? 'default');
+    const zoneIds = normalizeZoneIds(input.zoneIds ?? (input.zone ? [input.zone] : ['default']));
+    const zone = zoneIds[0] ?? 'default';
     if (!token.allowedRoles.includes(role)) throw new AppError('AUTH_FORBIDDEN', '注册令牌 role 不匹配', { role });
-    if (!token.allowedZones.includes(zone)) throw new AppError('AUTH_FORBIDDEN', '注册令牌 zone 不匹配', { zone });
+    if (zoneIds.some((item) => !token.allowedZones.includes(item))) throw new AppError('AUTH_FORBIDDEN', '注册令牌 zone 不匹配', { zoneIds });
   }
 
   hashEnrollmentToken(token: string): string {
@@ -166,6 +218,43 @@ export class AgentsDomainService {
       createdBy: input.createdBy,
     };
   }
+
+  sanitizePayload(payload: Record<string, unknown>): Record<string, unknown> {
+    return sanitizeUnknown(payload) as Record<string, unknown>;
+  }
+
+  sanitizeResultDetail(detail: Record<string, unknown>): Record<string, unknown> {
+    return sanitizeUnknown(detail) as Record<string, unknown>;
+  }
+
+  private normalizeGatewayExtension(input: {
+    existing?: AgentGatewayExtension;
+    zoneIds: string[];
+    adapters?: string[];
+    capabilities?: string[];
+    resourceLimits?: Record<string, unknown>;
+    currentLoad?: number;
+    maxConcurrentTasks?: number;
+    successRate?: number;
+    status?: AgentGatewayExtension['status'];
+    lastHeartbeatAt?: string;
+  }): AgentGatewayExtension {
+    const maxConcurrentTasks = normalizeNonNegativeInteger(input.maxConcurrentTasks ?? input.existing?.maxConcurrentTasks ?? 1, 'maxConcurrentTasks');
+    const currentLoad = normalizeNonNegativeInteger(input.currentLoad ?? input.existing?.currentLoad ?? 0, 'currentLoad');
+    const successRate = normalizeRate(input.successRate ?? input.existing?.successRate ?? 1, 'successRate');
+    return {
+      zoneIds: input.zoneIds.length ? input.zoneIds : input.existing?.zoneIds ?? [],
+      adapters: normalizeList(input.adapters ?? input.existing?.adapters ?? []),
+      capabilities: normalizeList(input.capabilities ?? input.existing?.capabilities ?? []),
+      resourceLimits: sanitizeUnknown(input.resourceLimits ?? input.existing?.resourceLimits ?? {}) as Record<string, unknown>,
+      currentLoad,
+      maxConcurrentTasks,
+      successRate,
+      status: input.status ?? input.existing?.status ?? 'online',
+      lastHeartbeatAt: input.lastHeartbeatAt ?? input.existing?.lastHeartbeatAt,
+      capabilitySetId: input.existing?.capabilitySetId,
+    };
+  }
 }
 
 function hashToken(token: string): string {
@@ -176,6 +265,10 @@ function hashToken(token: string): string {
 
 function normalizeList(values: string[]): string[] {
   return [...new Set(values.map((item) => normalizeOptionalKey(item)).filter(Boolean))];
+}
+
+function normalizeZoneIds(values: string[]): string[] {
+  return normalizeList(values);
 }
 
 function normalizeOptionalKey(value: string): string {
@@ -192,6 +285,26 @@ function redactSensitive(message: string): string {
   return message
     .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '[REDACTED_PRIVATE_KEY]')
     .replace(/(authorization|token|password|api[_-]?key)\s*[:=]\s*\S+/gi, '$1=[REDACTED]');
+}
+
+function sanitizeUnknown(value: unknown): unknown {
+  if (typeof value === 'string') return redactSensitive(value);
+  if (Array.isArray(value)) return value.map((item) => sanitizeUnknown(item));
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => {
+    if (/authorization|token|password|api[_-]?key|secret/i.test(key)) return [key, '[REDACTED]'];
+    return [key, sanitizeUnknown(item)];
+  }));
+}
+
+function normalizeNonNegativeInteger(value: number, field: string): number {
+  if (!Number.isInteger(value) || value < 0) throw new AppError('VALIDATION_FAILED', `${field} 必须是非负整数`, { field });
+  return value;
+}
+
+function normalizeRate(value: number, field: string): number {
+  if (typeof value !== 'number' || value < 0 || value > 1) throw new AppError('VALIDATION_FAILED', `${field} 必须在 0-1 之间`, { field });
+  return value;
 }
 
 function normalizeRequired(value: string | undefined, field: string): string {

@@ -1,4 +1,5 @@
 import { X509Certificate, createPrivateKey, createPublicKey } from 'node:crypto';
+import { DerCodec, FormatCodecRegistry, JksCodec, P7bCodec, PemCodec, PfxCodec, type CertificateImportMaterial, type DecodedCertificateMaterial } from '../codecs/index.js';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { CertificateChainStatus, CertificateDistinguishedName } from '../schema/certificates.schema.js';
 
@@ -28,8 +29,34 @@ export interface ParsedCertificateBundle {
 
 const CERT_BLOCK_PATTERN = /-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g;
 
+export interface ParsedMaterialBundle extends ParsedCertificateBundle {
+  sourceFormat: import('../schema/certificates.schema.js').CertificateFormat;
+  decodedPrivateKeyPem?: string;
+  formatDiagnostics: string[];
+}
+
 export class CertificatesDomainService {
-  parseCertificateMaterial(input: { certificatePem?: string; certificateDerBase64?: string }): ParsedCertificateBundle {
+  constructor(private readonly codecs = new FormatCodecRegistry([new PemCodec(), new DerCodec(), new PfxCodec(), new JksCodec(), new P7bCodec()])) {}
+
+  getFormatCapabilities() {
+    return {
+      formats: [
+        { format: 'pem', importSupported: true, exportSupported: true, containsPrivateKey: 'optional', implementation: 'node_crypto', limitations: [] },
+        { format: 'der', importSupported: true, exportSupported: true, containsPrivateKey: 'never', implementation: 'node_crypto', limitations: ['DER 只表示单张证书，不包含私钥或链'] },
+        { format: 'pfx', importSupported: true, exportSupported: true, containsPrivateKey: 'required', implementation: 'openssl', limitations: ['PFX 解析/导出依赖运行时 openssl；导出包含私钥必须提供 passwordSecretRef'] },
+        { format: 'jks', importSupported: false, exportSupported: false, containsPrivateKey: 'required', implementation: 'controlled_error', limitations: ['Node 原生不能安全解析 JKS；当前只提供受控错误，不创建半成品版本'] },
+        { format: 'p7b', importSupported: false, exportSupported: true, containsPrivateKey: 'never', implementation: 'controlled_error', limitations: ['当前运行时未接入 PKCS7 解析器；P7B 不包含私钥'] },
+      ],
+    } as const;
+  }
+
+  parseCertificateMaterial(input: CertificateImportMaterial): ParsedMaterialBundle {
+    const decoded = this.codecs.decode(input);
+    const parsedBundle = this.parseDecodedCertificateMaterial(decoded);
+    return { ...parsedBundle, sourceFormat: decoded.sourceFormat, decodedPrivateKeyPem: decoded.privateKeyPem, formatDiagnostics: decoded.diagnostics };
+  }
+
+  private parseDecodedCertificateMaterial(input: DecodedCertificateMaterial): ParsedCertificateBundle {
     const pemBlocks = input.certificatePem?.match(CERT_BLOCK_PATTERN) ?? [];
     if (pemBlocks.length > 0) return this.parsePemCertificates(pemBlocks);
 
@@ -51,7 +78,7 @@ export class CertificatesDomainService {
       }
     }
 
-    throw new AppError('CERT_FORMAT_UNSUPPORTED', '必须提供 certificatePem 或 certificateDerBase64');
+    throw new AppError('CERT_FORMAT_UNSUPPORTED', '必须提供 PEM、DER、PFX、JKS 或 P7B 证书材料');
   }
 
   extractPrivateKeyPem(input?: string): string | undefined {

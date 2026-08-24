@@ -30,6 +30,19 @@ export interface AgentDescriptor {
   labels: string[];
 }
 
+export interface AgentGatewayExtension {
+  zoneIds: string[];
+  adapters: string[];
+  capabilities: string[];
+  resourceLimits: Record<string, unknown>;
+  currentLoad: number;
+  maxConcurrentTasks: number;
+  successRate: number;
+  status: 'online' | 'offline' | 'disabled' | 'revoked' | 'upgrading';
+  lastHeartbeatAt?: string;
+  capabilitySetId?: string;
+}
+
 export interface AgentRegistration {
   id: string;
   tenantId: string;
@@ -37,6 +50,7 @@ export interface AgentRegistration {
   descriptor: AgentDescriptor;
   role?: string;
   zone?: string;
+  gateway?: AgentGatewayExtension;
   enrollmentTokenId?: string;
   certificateFingerprint?: string;
   certificateExpiresAt?: string;
@@ -44,6 +58,13 @@ export interface AgentRegistration {
   registeredAt: string;
   updatedAt: string;
   lastRequestId?: string;
+  disabledAt?: string;
+  disabledBy?: string;
+  disabledReason?: string;
+  revokedAt?: string;
+  revokedBy?: string;
+  revokedReason?: string;
+  certificateRevoked?: boolean;
   version: number;
 }
 
@@ -64,6 +85,7 @@ export interface AgentHeartbeat {
   agentId: string;
   status: AgentStatus;
   version: string;
+  gateway?: AgentGatewayExtension;
   taskSummary: {
     running: number;
     queued: number;

@@ -3,6 +3,8 @@ import type { PageQuery } from '../../../common/pagination/pagination.js';
 import { newId } from '../../../shared/id.js';
 import type {
   CreateHostDto,
+  AssetConflictDto,
+  CreateAssetConflictDto,
   CreateDiscoverySnapshotDto,
   CreateServiceEndpointDto,
   CreateServiceInstanceDto,
@@ -10,6 +12,7 @@ import type {
   HostDto,
   ServiceEndpointDto,
   ServiceInstanceDto,
+  ResolveAssetConflictDto,
   UpdateHostDto,
   UpdateServiceEndpointDto,
   UpdateServiceInstanceDto,
@@ -30,12 +33,14 @@ export interface AssetsRepository {
   listHosts(tenantId: string, query: PageQuery): PageResult<HostDto>;
   getHost(tenantId: string, hostId: string): HostDto | undefined;
   getHostIncludingDeleted(tenantId: string, hostId: string): HostDto | undefined;
+  findHostByHostname(tenantId: string, hostname: string): HostDto | undefined;
   createServiceInstance(tenantId: string, input: CreateServiceInstanceDto): ServiceInstanceDto;
   updateServiceInstance(tenantId: string, serviceInstanceId: string, input: UpdateServiceInstanceDto): ServiceInstanceDto;
   deleteServiceInstance(tenantId: string, serviceInstanceId: string): ServiceInstanceDto;
   listServiceInstances(tenantId: string, query: PageQuery): PageResult<ServiceInstanceDto>;
   getServiceInstance(tenantId: string, serviceInstanceId: string): ServiceInstanceDto | undefined;
   getServiceInstanceIncludingDeleted(tenantId: string, serviceInstanceId: string): ServiceInstanceDto | undefined;
+  findServiceInstanceByIdentity(tenantId: string, input: { hostId: string; providerType: string; serviceName?: string; configPath?: string }): ServiceInstanceDto | undefined;
   createServiceEndpoint(tenantId: string, input: CreateServiceEndpointDto): ServiceEndpointDto;
   updateServiceEndpoint(tenantId: string, serviceEndpointId: string, input: UpdateServiceEndpointDto): ServiceEndpointDto;
   deleteServiceEndpoint(tenantId: string, serviceEndpointId: string): ServiceEndpointDto;
@@ -44,6 +49,10 @@ export interface AssetsRepository {
   getServiceEndpointIncludingDeleted(tenantId: string, serviceEndpointId: string): ServiceEndpointDto | undefined;
   upsertDiscoverySnapshot(tenantId: string, input: CreateDiscoverySnapshotDto): DiscoverySnapshotDto;
   listDiscoverySnapshots(tenantId: string, query: PageQuery): PageResult<DiscoverySnapshotDto>;
+  createAssetConflict(tenantId: string, input: CreateAssetConflictDto): AssetConflictDto;
+  listAssetConflicts(tenantId: string, query: PageQuery): PageResult<AssetConflictDto>;
+  getAssetConflict(tenantId: string, conflictId: string): AssetConflictDto | undefined;
+  resolveAssetConflict(tenantId: string, input: ResolveAssetConflictDto): AssetConflictDto;
 }
 
 export class InMemoryAssetsRepository implements AssetsRepository {
@@ -52,12 +61,10 @@ export class InMemoryAssetsRepository implements AssetsRepository {
   private readonly serviceInstances = new Map<string, ServiceInstanceDto>();
   private readonly serviceEndpoints = new Map<string, ServiceEndpointDto>();
   private readonly discoverySnapshots = new Map<string, DiscoverySnapshotDto>();
+  private readonly assetConflicts = new Map<string, AssetConflictDto>();
 
   createHost(tenantId: string, input: CreateHostDto): HostDto {
-    const duplicate = [...this.hosts.values()].find((host) => host.tenantId === tenantId && host.deletedAt === undefined && host.hostname === input.hostname);
-    if (duplicate) {
-      throw new AppError('RESOURCE_ALREADY_EXISTS', 'Host hostname 已存在', { hostname: input.hostname, existingId: duplicate.id });
-    }
+    this.assertNoDuplicateHostCandidate(tenantId, input);
     const now = nowIso();
     const host: HostDto = {
       id: newId('hst'),
@@ -72,6 +79,12 @@ export class InMemoryAssetsRepository implements AssetsRepository {
       arch: input.arch,
       environment: input.environment,
       zoneId: input.zoneId,
+      ownerId: input.ownerId,
+      managementChannels: input.managementChannels ?? [],
+      discoverySource: input.discoverySource ?? 'MANUAL',
+      lastDiscoveredAt: input.lastDiscoveredAt,
+      agentId: input.agentId,
+      assetFingerprint: input.assetFingerprint,
       compatibilityLevel: input.compatibilityLevel ?? 'L1',
       managementMode: input.managementMode ?? 'MONITOR_ONLY',
       status: input.status ?? 'ACTIVE',
@@ -89,13 +102,12 @@ export class InMemoryAssetsRepository implements AssetsRepository {
     if (!current) {
       throw new AppError('RESOURCE_NOT_FOUND', 'Host 不存在', { hostId });
     }
-    if (input.hostname && input.hostname !== current.hostname) {
-      const duplicate = [...this.hosts.values()].find((host) => host.tenantId === tenantId && host.deletedAt === undefined && host.hostname === input.hostname && host.id !== hostId);
-      if (duplicate) {
-        throw new AppError('RESOURCE_ALREADY_EXISTS', 'Host hostname 已存在', { hostname: input.hostname, existingId: duplicate.id });
-      }
+    this.assertNoDuplicateHostCandidate(tenantId, input, hostId);
+    const merged = { ...current, ...input };
+    if (!merged.hostname && !merged.primaryIp && merged.ipAddresses.length === 0) {
+      throw new AppError('VALIDATION_FAILED', 'hostname、primaryIp 或 ipAddresses 至少保留一个', { fields: ['hostname', 'primaryIp', 'ipAddresses'] });
     }
-    const updated = touch({ ...current, ...input });
+    const updated = touch(merged);
     this.hosts.set(updated.id, updated);
     return updated;
   }
@@ -105,7 +117,7 @@ export class InMemoryAssetsRepository implements AssetsRepository {
     if (!current) {
       throw new AppError('RESOURCE_NOT_FOUND', 'Host 不存在', { hostId });
     }
-    const deleted = softDelete(current);
+    const deleted = softDelete({ ...current, status: 'DELETED' as const });
     this.hosts.set(deleted.id, deleted);
     return deleted;
   }
@@ -124,6 +136,11 @@ export class InMemoryAssetsRepository implements AssetsRepository {
     return host?.tenantId === tenantId ? host : undefined;
   }
 
+  findHostByHostname(tenantId: string, hostname: string): HostDto | undefined {
+    const normalized = hostname.trim().toLowerCase();
+    return [...this.hosts.values()].find((host) => host.tenantId === tenantId && host.deletedAt === undefined && host.hostname === normalized);
+  }
+
   createServiceInstance(tenantId: string, input: CreateServiceInstanceDto): ServiceInstanceDto {
     if (!this.getHost(tenantId, input.hostId)) {
       throw new AppError('RESOURCE_NOT_FOUND', 'Host 不存在', { hostId: input.hostId });
@@ -140,6 +157,9 @@ export class InMemoryAssetsRepository implements AssetsRepository {
       installPath: input.installPath,
       configPath: input.configPath,
       runtimeUser: input.runtimeUser,
+      ports: input.ports ?? [],
+      providerKey: input.providerKey,
+      manualOverrides: input.manualOverrides ?? {},
       discoverySource: input.discoverySource ?? 'MANUAL',
       lastDiscoveredAt: input.lastDiscoveredAt,
       status: input.status ?? 'ACTIVE',
@@ -170,7 +190,7 @@ export class InMemoryAssetsRepository implements AssetsRepository {
     if (!current) {
       throw new AppError('RESOURCE_NOT_FOUND', 'ServiceInstance 不存在', { serviceInstanceId });
     }
-    const deleted = softDelete(current);
+    const deleted = softDelete({ ...current, status: 'DELETED' as const });
     this.serviceInstances.set(deleted.id, deleted);
     return deleted;
   }
@@ -187,6 +207,18 @@ export class InMemoryAssetsRepository implements AssetsRepository {
   getServiceInstanceIncludingDeleted(tenantId: string, serviceInstanceId: string): ServiceInstanceDto | undefined {
     const serviceInstance = this.serviceInstances.get(serviceInstanceId);
     return serviceInstance?.tenantId === tenantId ? serviceInstance : undefined;
+  }
+
+  findServiceInstanceByIdentity(tenantId: string, input: { hostId: string; providerType: string; serviceName?: string; configPath?: string }): ServiceInstanceDto | undefined {
+    const serviceName = input.serviceName?.trim().toLowerCase();
+    const configPath = input.configPath?.trim();
+    return [...this.serviceInstances.values()].find((service) => {
+      if (service.tenantId !== tenantId || service.deletedAt !== undefined) return false;
+      if (service.hostId !== input.hostId || service.providerType !== input.providerType) return false;
+      if (serviceName) return (service.serviceName ?? '').toLowerCase() === serviceName;
+      if (configPath) return service.configPath === configPath;
+      return service.serviceName === undefined && service.configPath === undefined;
+    });
   }
 
   createServiceEndpoint(tenantId: string, input: CreateServiceEndpointDto): ServiceEndpointDto {
@@ -256,6 +288,25 @@ export class InMemoryAssetsRepository implements AssetsRepository {
     return endpoint?.tenantId === tenantId ? endpoint : undefined;
   }
 
+  private assertNoDuplicateHostCandidate(tenantId: string, input: Partial<CreateHostDto>, excludedId?: string): void {
+    const inputIps = new Set([input.primaryIp, ...(input.ipAddresses ?? [])].filter((ip): ip is string => typeof ip === 'string' && ip.length > 0));
+    const duplicate = [...this.hosts.values()].find((host) => {
+      if (host.tenantId !== tenantId || host.deletedAt !== undefined || host.id === excludedId) return false;
+      if (input.hostname && host.hostname === input.hostname) return true;
+      if (input.primaryIp && (host.primaryIp === input.primaryIp || host.ipAddresses.includes(input.primaryIp))) return true;
+      if ([...inputIps].some((ip) => host.primaryIp === ip || host.ipAddresses.includes(ip))) return true;
+      if (input.agentId && host.agentId === input.agentId) return true;
+      if (input.assetFingerprint && host.assetFingerprint === input.assetFingerprint) return true;
+      return false;
+    });
+    if (duplicate) {
+      throw new AppError('RESOURCE_ALREADY_EXISTS', 'Host 重复候选已存在', {
+        existingId: duplicate.id,
+        matchedBy: { hostname: input.hostname, primaryIp: input.primaryIp, ipAddresses: input.ipAddresses, agentId: input.agentId, assetFingerprint: input.assetFingerprint },
+      });
+    }
+  }
+
   upsertDiscoverySnapshot(tenantId: string, input: CreateDiscoverySnapshotDto): DiscoverySnapshotDto {
     const duplicate = [...this.discoverySnapshots.values()].find((snapshot) => snapshot.tenantId === tenantId && snapshot.normalizedHash === input.normalizedHash);
     if (duplicate) {
@@ -279,6 +330,66 @@ export class InMemoryAssetsRepository implements AssetsRepository {
 
   listDiscoverySnapshots(tenantId: string, query: PageQuery): PageResult<DiscoverySnapshotDto> {
     return page([...this.discoverySnapshots.values()].filter((snapshot) => snapshot.tenantId === tenantId), query, discoverySnapshotFilter);
+  }
+
+  createAssetConflict(tenantId: string, input: CreateAssetConflictDto): AssetConflictDto {
+    const duplicate = [...this.assetConflicts.values()].find((conflict) => (
+      conflict.tenantId === tenantId
+      && conflict.status === 'open'
+      && conflict.resourceType === input.resourceType
+      && conflict.resourceId === input.resourceId
+      && conflict.field === input.field
+      && conflict.sourceSnapshotId === input.sourceSnapshotId
+    ));
+    if (duplicate) return duplicate;
+    const now = nowIso();
+    const conflict: AssetConflictDto = {
+      id: newId('acf'),
+      tenantId,
+      resourceType: input.resourceType,
+      resourceId: input.resourceId,
+      field: input.field,
+      currentValue: input.currentValue,
+      discoveredValue: input.discoveredValue,
+      sourceSnapshotId: input.sourceSnapshotId,
+      status: 'open',
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+    };
+    this.assetConflicts.set(conflict.id, conflict);
+    return conflict;
+  }
+
+  listAssetConflicts(tenantId: string, query: PageQuery): PageResult<AssetConflictDto> {
+    return page([...this.assetConflicts.values()].filter((conflict) => conflict.tenantId === tenantId), query, assetConflictFilter);
+  }
+
+  getAssetConflict(tenantId: string, conflictId: string): AssetConflictDto | undefined {
+    const conflict = this.assetConflicts.get(conflictId);
+    return conflict?.tenantId === tenantId ? conflict : undefined;
+  }
+
+  resolveAssetConflict(tenantId: string, input: ResolveAssetConflictDto): AssetConflictDto {
+    const current = this.getAssetConflict(tenantId, input.id);
+    if (!current) {
+      throw new AppError('RESOURCE_NOT_FOUND', 'AssetConflict 不存在', { conflictId: input.id });
+    }
+    if (current.status !== 'open') {
+      throw new AppError('VALIDATION_FAILED', 'AssetConflict 已处理，不能重复解决', { conflictId: input.id, status: current.status });
+    }
+    const now = nowIso();
+    const resolved: AssetConflictDto = {
+      ...current,
+      status: 'resolved',
+      resolvedBy: input.resolvedBy,
+      resolvedAt: now,
+      comment: input.comment,
+      updatedAt: now,
+      version: current.version + 1,
+    };
+    this.assetConflicts.set(resolved.id, resolved);
+    return resolved;
   }
 }
 
@@ -339,6 +450,10 @@ function serviceEndpointFilter(endpoint: ServiceEndpointDto, field: string, expe
 
 function discoverySnapshotFilter(snapshot: DiscoverySnapshotDto, field: string, expected: string): boolean {
   return stringField(snapshot, field).includes(expected.toLowerCase());
+}
+
+function assetConflictFilter(conflict: AssetConflictDto, field: string, expected: string): boolean {
+  return stringField(conflict, field).includes(expected.toLowerCase());
 }
 
 function stringField(item: object, field: string): string {

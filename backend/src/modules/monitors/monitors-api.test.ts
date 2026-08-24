@@ -26,6 +26,9 @@ describe('监控风险 API', () => {
     const service = assetsService.createServiceInstance('tenant_monitor', { hostId: host.id, providerType: 'NGINX', displayName: 'monitor nginx' });
     bindingsService.createCertificateBinding('tenant_monitor', {
       serviceInstanceId: service.id,
+      domainName: 'drift.example.com',
+      port: 443,
+      protocol: 'HTTPS',
       bindingType: 'FILE_PATH',
       certPath: '/etc/nginx/drift.pem',
       verifyMethod: 'LOCAL_FILE',
@@ -36,6 +39,9 @@ describe('监控风险 API', () => {
     });
     bindingsService.createCertificateBinding('tenant_monitor', {
       serviceInstanceId: service.id,
+      domainName: 'unknown.example.com',
+      port: 8443,
+      protocol: 'HTTPS',
       bindingType: 'FILE_PATH',
       certPath: '/etc/nginx/unknown.pem',
       verifyMethod: 'LOCAL_FILE',

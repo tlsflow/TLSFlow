@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { createApp } from '../../app.module.js';
+import { createSecurityServices } from '../security/security.controller.js';
 
 describe('资产与证书绑定 API', () => {
   it('可以创建 Host、ServiceInstance、ServiceEndpoint 和 CertificateBinding，并按 Host 查询绑定', async () => {
     const app = createApp();
-    const headers = { 'x-tenant-id': 'tenant_spec007', 'x-request-id': 'req_spec007_create' };
+    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007', 'x-request-id': 'req_spec007_create' };
 
     const hostResponse = await app.inject({
       method: 'POST',
@@ -94,12 +95,70 @@ describe('资产与证书绑定 API', () => {
     assert.equal(page.items[0]!.hostId, host.id);
   });
 
+  it('CertificateBinding 列表允许按 lastVerifiedAt 排序', async () => {
+    const app = createApp();
+    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007_sort' };
+    const host = (await app.inject({
+      method: 'POST',
+      path: '/api/v1/hosts',
+      headers,
+      body: { hostname: 'web-sort-01', osType: 'LINUX', compatibilityLevel: 'L1', managementMode: 'AGENT' },
+    })).body as { id: string };
+    const service = (await app.inject({
+      method: 'POST',
+      path: '/api/v1/service-instances',
+      headers,
+      body: { hostId: host.id, providerType: 'NGINX', displayName: 'nginx' },
+    })).body as { id: string };
+
+    const older = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-bindings',
+      headers,
+      body: {
+        serviceInstanceId: service.id,
+        domainName: 'older.example.com',
+        bindingType: 'FILE_PATH',
+        certPath: '/etc/nginx/certs/older.pem',
+        verifyMethod: 'TLS_CONNECT',
+        lastVerifiedAt: '2026-06-08T00:00:00.000Z',
+      },
+    });
+    assert.equal(older.statusCode, 201);
+
+    const newer = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-bindings',
+      headers,
+      body: {
+        serviceInstanceId: service.id,
+        domainName: 'newer.example.com',
+        bindingType: 'FILE_PATH',
+        certPath: '/etc/nginx/certs/newer.pem',
+        verifyMethod: 'TLS_CONNECT',
+        lastVerifiedAt: '2026-06-09T00:00:00.000Z',
+      },
+    });
+    assert.equal(newer.statusCode, 201);
+
+    const page = await app.inject({
+      method: 'GET',
+      path: '/api/v1/certificate-bindings?page=1&pageSize=10&sort=lastVerifiedAt:desc',
+      headers,
+    });
+    assert.equal(page.statusCode, 200);
+    const body = page.body as { items: Array<{ domainName: string; lastVerifiedAt: string }>; total: number };
+    assert.equal(body.total, 2);
+    assert.equal(body.items[0]!.domainName, 'newer.example.com');
+    assert.equal(body.items[1]!.domainName, 'older.example.com');
+  });
+
   it('Binding 不允许缺失 serviceInstanceId', async () => {
     const app = createApp();
     const response = await app.inject({
       method: 'POST',
       path: '/api/v1/certificate-bindings',
-      headers: { 'x-tenant-id': 'tenant_spec007' },
+      headers: { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007' },
       body: {
         bindingType: 'FILE_PATH',
         certPath: '/etc/nginx/certs/www.pem',
@@ -112,7 +171,7 @@ describe('资产与证书绑定 API', () => {
 
   it('非法 Binding 状态跳转失败，合法跳转成功', async () => {
     const app = createApp();
-    const headers = { 'x-tenant-id': 'tenant_spec007_status' };
+    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007_status' };
     const host = (await app.inject({
       method: 'POST',
       path: '/api/v1/hosts',
@@ -153,7 +212,7 @@ describe('资产与证书绑定 API', () => {
 
   it('资产支持基础更新和软删除，历史绑定反查不丢失 host/service 摘要', async () => {
     const app = createApp();
-    const headers = { 'x-tenant-id': 'tenant_spec007_soft_delete' };
+    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007_soft_delete' };
     const fingerprint = 'a'.repeat(64);
     const host = (await app.inject({
       method: 'POST',
@@ -239,7 +298,7 @@ describe('资产与证书绑定 API', () => {
 
   it('发现快照按 normalizedHash 幂等写入，不污染业务资产表', async () => {
     const app = createApp();
-    const headers = { 'x-tenant-id': 'tenant_spec007_discovery' };
+    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007_discovery' };
     const first = await app.inject({
       method: 'POST',
       path: '/api/v1/discovery-snapshots',
@@ -264,7 +323,7 @@ describe('资产与证书绑定 API', () => {
 
   it('发现合并预览能输出 create/update/conflict，且不会直接写业务资产表', async () => {
     const app = createApp();
-    const headers = { 'x-tenant-id': 'tenant_spec007_merge' };
+    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007_merge' };
     const existing = await app.inject({
       method: 'POST',
       path: '/api/v1/hosts',
@@ -312,7 +371,7 @@ describe('资产与证书绑定 API', () => {
 
   it('DriftDetector 输出 synced、mismatch、unreachable、unknown、incomplete', async () => {
     const app = createApp();
-    const headers = { 'x-tenant-id': 'tenant_spec007_drift' };
+    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007_drift' };
     const desired = 'b'.repeat(64);
     const other = 'c'.repeat(64);
 
@@ -330,7 +389,7 @@ describe('资产与证书绑定 API', () => {
 
   it('证书使用位置可按 fingerprint 反向查询绑定、service、host 摘要', async () => {
     const app = createApp();
-    const headers = { 'x-tenant-id': 'tenant_spec007_usage' };
+    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007_usage' };
     const fingerprint = 'd'.repeat(64);
     const host = (await app.inject({
       method: 'POST',
@@ -366,4 +425,355 @@ describe('资产与证书绑定 API', () => {
     assert.equal(items[0]!.host.id, host.id);
     assert.equal(items[0]!.host.primaryIp, '10.0.1.20');
   });
+
+  it('Spec 007 字段、重复候选、RBAC 和审计能闭环', async () => {
+    const security = createSecurityServices();
+    const app = createApp({ security });
+    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007_full', 'x-request-id': 'req_spec007_full' };
+
+    const hostResponse = await app.inject({
+      method: 'POST',
+      path: '/api/v1/hosts',
+      headers,
+      body: {
+        primaryIp: '10.7.0.10',
+        ipAddresses: ['10.7.0.10', '10.7.0.11'],
+        ownerId: 'team_ops',
+        managementChannels: [{ type: 'agent', refId: 'agent-007' }, { type: 'ssh' }],
+        discoverySource: 'AGENT',
+        lastDiscoveredAt: '2026-06-09T01:00:00.000Z',
+        agentId: 'agent-007',
+        assetFingerprint: 'asset-fp-007',
+      },
+    });
+    assert.equal(hostResponse.statusCode, 201);
+    const host = hostResponse.body as { id: string; hostname?: string; ownerId: string; managementChannels: Array<{ type: string }>; discoverySource: string; agentId: string; assetFingerprint: string };
+    assert.equal(host.hostname, undefined);
+    assert.equal(host.ownerId, 'team_ops');
+    assert.deepEqual(host.managementChannels.map((item) => item.type), ['AGENT', 'SSH']);
+    assert.equal(host.discoverySource, 'AGENT');
+
+    const duplicate = await app.inject({ method: 'POST', path: '/api/v1/hosts', headers, body: { hostname: 'dup.example.com', agentId: 'agent-007' } });
+    assert.equal(duplicate.statusCode, 409);
+    assert.equal((duplicate.body as { errorCode: string }).errorCode, 'RESOURCE_ALREADY_EXISTS');
+
+    const service = (await app.inject({
+      method: 'POST',
+      path: '/api/v1/service-instances',
+      headers,
+      body: {
+        hostId: host.id,
+        providerType: 'NGINX',
+        displayName: 'nginx spec007',
+        versionText: '1.26.0',
+        providerKey: 'nginx:/etc/nginx/nginx.conf',
+        ports: [443, { port: 8443, protocol: 'HTTPS' }],
+        manualOverrides: { configPath: '/manual/nginx.conf' },
+        rawFacts: { workerProcesses: 4 },
+      },
+    })).body as { id: string; providerKey: string; ports: unknown[]; manualOverrides: Record<string, unknown> };
+    assert.equal(service.providerKey, 'nginx:/etc/nginx/nginx.conf');
+    assert.equal(service.ports.length, 2);
+    assert.equal(service.manualOverrides.configPath, '/manual/nginx.conf');
+
+    const denied = await app.inject({ method: 'GET', path: '/api/v1/hosts', headers: { 'x-actor-id': 'no_policy', 'x-tenant-id': 'tenant_spec007_full' } });
+    assert.equal(denied.statusCode, 403);
+
+    const audits = await app.inject({ method: 'GET', path: '/api/v1/audit-events?resourceType=host&eventType=host.created', headers });
+    assert.equal(audits.statusCode, 200);
+    assert.equal((audits.body as { items: unknown[] }).items.length, 1);
+  });
+
+  it('Binding 支持 Spec 字段、更新、唯一性、软删除和历史反查', async () => {
+    const app = createApp();
+    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007_binding_crud' };
+    const host = (await app.inject({ method: 'POST', path: '/api/v1/hosts', headers, body: { hostname: 'binding-crud.example.com' } })).body as { id: string };
+    const service = (await app.inject({ method: 'POST', path: '/api/v1/service-instances', headers, body: { hostId: host.id, providerType: 'NGINX', displayName: 'nginx' } })).body as { id: string };
+    const fingerprint = 'e'.repeat(64);
+
+    const createdResponse = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-bindings',
+      headers,
+      body: {
+        serviceInstanceId: service.id,
+        domain: 'API.EXAMPLE.COM',
+        port: 443,
+        protocol: 'HTTPS',
+        bindingKey: 'nginx:api:443:https',
+        bindingType: 'FILE_PATH',
+        targetCertificateVersionId: 'cv_target',
+        targetFingerprintSha256: fingerprint,
+        unmanagedCertificateFingerprint: 'f'.repeat(64),
+        certPath: '/etc/nginx/api.pem',
+        reloadHint: { command: 'nginx -s reload' },
+        discoverySource: 'MANUAL',
+        verifyMethod: 'TLS_CONNECT',
+      },
+    });
+    assert.equal(createdResponse.statusCode, 201);
+    const created = createdResponse.body as { id: string; bindingKey: string; domain: string; domainName: string; port: number; protocol: string; targetCertificateVersionId: string; desiredFingerprintSha256: string; reloadHint: Record<string, unknown> };
+    assert.equal(created.domain, 'api.example.com');
+    assert.equal(created.domainName, 'api.example.com');
+    assert.equal(created.bindingKey, 'nginx:api:443:https');
+    assert.equal(created.targetCertificateVersionId, 'cv_target');
+    assert.equal(created.desiredFingerprintSha256, fingerprint);
+
+    const duplicate = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-bindings',
+      headers,
+      body: { serviceInstanceId: service.id, domain: 'api.example.com', port: 443, protocol: 'HTTPS', bindingKey: 'nginx:api:443:https', bindingType: 'FILE_PATH', certPath: '/etc/nginx/other.pem', verifyMethod: 'TLS_CONNECT' },
+    });
+    assert.equal(duplicate.statusCode, 409);
+
+    const updated = await app.inject({ method: 'PATCH', path: '/api/v1/certificate-bindings', headers, body: { id: created.id, remoteEndpointFingerprint: fingerprint, driftStatus: 'synced', reloadHint: { signal: 'HUP' } } });
+    assert.equal(updated.statusCode, 200);
+    assert.equal((updated.body as { remoteEndpointFingerprint: string; driftStatus: string; reloadHint: { signal: string } }).driftStatus, 'synced');
+
+    const deleted = await app.inject({ method: 'POST', path: '/api/v1/certificate-bindings/delete', headers, body: { bindingId: created.id } });
+    assert.equal(deleted.statusCode, 200);
+    assert.ok((deleted.body as { deletedAt?: string }).deletedAt);
+
+    const activeList = await app.inject({ method: 'GET', path: '/api/v1/certificate-bindings?filter[bindingKey]=nginx:api:443:https', headers });
+    assert.equal((activeList.body as { total: number }).total, 0);
+
+    const usage = await app.inject({ method: 'GET', path: `/api/v1/certificate-bindings/usage?fingerprint=${fingerprint}`, headers });
+    assert.equal(usage.statusCode, 200);
+    const items = usage.body as Array<{ binding: { id: string; deletedAt?: string }; service: { id: string }; host: { id: string } }>;
+    assert.equal(items.length, 1);
+    assert.equal(items[0]!.binding.id, created.id);
+    assert.ok(items[0]!.binding.deletedAt);
+  });
+
+});
+
+describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
+  it('DiscoveryIngest apply 创建 Host/Service/Binding，重复 normalizedHash 幂等不重复创建', async () => {
+    const app = createApp();
+    const headers = { 'x-tenant-id': 'tenant_spec007_ingest_create', 'x-actor-id': 'user_admin' };
+    const fingerprint = 'e'.repeat(64);
+    const payload = {
+      hosts: [{ hostname: 'DISCOVER-A.EXAMPLE.COM', primaryIp: '10.7.0.1', osType: 'LINUX' }],
+      services: [{ hostname: 'discover-a.example.com', providerType: 'NGINX', serviceName: 'nginx', displayName: '发现 nginx', configPath: '/etc/nginx/nginx.conf' }],
+      bindings: [{ hostname: 'discover-a.example.com', providerType: 'NGINX', serviceName: 'nginx', domainName: 'DISCOVER-A.EXAMPLE.COM', port: 443, protocol: 'HTTPS', bindingType: 'FILE_PATH', certPath: '/etc/nginx/a.pem', observedFingerprintSha256: fingerprint, verifyMethod: 'TLS_CONNECT' }],
+    };
+
+    const first = await app.inject({ method: 'POST', path: '/api/v1/discovery-snapshots/ingest', headers, body: { normalizedHash: 'ingest-create-001', source: 'AGENT', apply: true, normalizedPayload: payload } });
+    const second = await app.inject({ method: 'POST', path: '/api/v1/discovery-snapshots/ingest', headers, body: { normalizedHash: 'INGEST-CREATE-001', source: 'AGENT', apply: true, normalizedPayload: payload } });
+    assert.equal(first.statusCode, 201);
+    assert.equal(second.statusCode, 201);
+    assert.equal((first.body as any).snapshot.id, (second.body as any).snapshot.id);
+
+    const hosts = await app.inject({ method: 'GET', path: '/api/v1/hosts?filter[hostname]=discover-a.example.com', headers });
+    assert.equal((hosts.body as { total: number }).total, 1);
+    const services = await app.inject({ method: 'GET', path: '/api/v1/service-instances?filter[serviceName]=nginx', headers });
+    assert.equal((services.body as { total: number }).total, 1);
+    const bindings = await app.inject({ method: 'GET', path: `/api/v1/certificate-bindings?filter[observedFingerprintSha256]=${fingerprint}`, headers });
+    assert.equal((bindings.body as { total: number }).total, 1);
+  });
+
+  it('DiscoveryIngest apply 更新自动字段，但人工字段冲突持久化并可 use_discovered 解决', async () => {
+    const app = createApp();
+    const headers = { 'x-tenant-id': 'tenant_spec007_conflict', 'x-actor-id': 'user_admin' };
+    const host = (await app.inject({ method: 'POST', path: '/api/v1/hosts', headers, body: { hostname: 'conflict.example.com', displayName: '人工主机名', primaryIp: '10.0.0.1', osType: 'LINUX' } })).body as { id: string };
+
+    const ingest = await app.inject({
+      method: 'POST',
+      path: '/api/v1/discovery-snapshots/ingest',
+      headers,
+      body: {
+        normalizedHash: 'conflict-001',
+        source: 'SSH',
+        apply: true,
+        normalizedPayload: { hosts: [{ hostname: 'conflict.example.com', displayName: '发现主机名', primaryIp: '10.0.0.2', osVersion: 'Ubuntu 24.04' }] },
+      },
+    });
+    assert.equal(ingest.statusCode, 201);
+    assert.equal((ingest.body as any).conflicts.length, 1);
+
+    const hostPage = await app.inject({ method: 'GET', path: '/api/v1/hosts?filter[hostname]=conflict.example.com', headers });
+    const updatedHost = (hostPage.body as { items: Array<{ id: string; displayName: string; primaryIp: string; osVersion: string }> }).items[0]!;
+    assert.equal(updatedHost.id, host.id);
+    assert.equal(updatedHost.displayName, '人工主机名');
+    assert.equal(updatedHost.primaryIp, '10.0.0.2');
+    assert.equal(updatedHost.osVersion, 'Ubuntu 24.04');
+
+    const conflicts = await app.inject({ method: 'GET', path: '/api/v1/asset-conflicts?filter[status]=open', headers });
+    assert.equal(conflicts.statusCode, 200);
+    const conflict = (conflicts.body as { items: Array<{ id: string; field: string; currentValue: string; discoveredValue: string; status: string }> }).items[0]!;
+    assert.equal(conflict.field, 'displayName');
+    assert.equal(conflict.currentValue, '人工主机名');
+    assert.equal(conflict.discoveredValue, '发现主机名');
+
+    const resolved = await app.inject({ method: 'POST', path: '/api/v1/asset-conflicts/resolve', headers, body: { id: conflict.id, resolution: 'use_discovered', comment: '确认采用发现值' } });
+    assert.equal(resolved.statusCode, 200);
+    assert.equal((resolved.body as any).conflict.status, 'resolved');
+    assert.equal((resolved.body as any).conflict.resolvedBy, 'user_admin');
+    assert.equal((resolved.body as any).resource.displayName, '发现主机名');
+  });
+
+  it('DiscoveryIngest apply 能对已有 Binding 更新自动字段，reloadCommand 人工字段进入冲突不覆盖', async () => {
+    const app = createApp();
+    const headers = { 'x-tenant-id': 'tenant_spec007_binding_update', 'x-actor-id': 'user_admin' };
+    const oldFp = '1'.repeat(64);
+    const newFp = '2'.repeat(64);
+    const host = (await app.inject({ method: 'POST', path: '/api/v1/hosts', headers, body: { hostname: 'binding-update.example.com', osType: 'LINUX' } })).body as { id: string };
+    const service = (await app.inject({ method: 'POST', path: '/api/v1/service-instances', headers, body: { hostId: host.id, providerType: 'NGINX', serviceName: 'nginx', displayName: 'nginx' } })).body as { id: string };
+    const binding = (await app.inject({ method: 'POST', path: '/api/v1/certificate-bindings', headers, body: { serviceInstanceId: service.id, domainName: 'binding-update.example.com', port: 443, protocol: 'HTTPS', bindingType: 'FILE_PATH', certPath: '/etc/nginx/site.pem', observedFingerprintSha256: oldFp, reloadCommand: 'systemctl reload nginx', verifyMethod: 'TLS_CONNECT' } })).body as { id: string };
+
+    const ingest = await app.inject({ method: 'POST', path: '/api/v1/discovery-snapshots/ingest', headers, body: { normalizedHash: 'binding-update-001', source: 'AGENT', apply: true, normalizedPayload: { bindings: [{ serviceRef: service.id, domainName: 'binding-update.example.com', port: 443, protocol: 'HTTPS', bindingType: 'FILE_PATH', certPath: '/etc/nginx/site.pem', observedFingerprintSha256: newFp, reloadCommand: 'nginx -s reload', verifyMethod: 'TLS_CONNECT' }] } } });
+    assert.equal(ingest.statusCode, 201);
+    assert.equal((ingest.body as any).conflicts.length, 1);
+
+    const page = await app.inject({ method: 'GET', path: `/api/v1/certificate-bindings?filter[id]=${binding.id}`, headers });
+    const updated = (page.body as { items: Array<{ observedFingerprintSha256: string; reloadCommand: string }> }).items[0]!;
+    assert.equal(updated.observedFingerprintSha256, newFp);
+    assert.equal(updated.reloadCommand, 'systemctl reload nginx');
+  });
+
+  it('drift-results 持久化 local/remote 结果并更新 driftStatus，unreachable 不覆盖 local 字段', async () => {
+    const app = createApp();
+    const headers = { 'x-tenant-id': 'tenant_spec007_drift_persist', 'x-actor-id': 'user_admin' };
+    const local = '3'.repeat(64);
+    const remote = '4'.repeat(64);
+    const desired = local;
+    const host = (await app.inject({ method: 'POST', path: '/api/v1/hosts', headers, body: { hostname: 'drift-persist.example.com', osType: 'LINUX' } })).body as { id: string };
+    const service = (await app.inject({ method: 'POST', path: '/api/v1/service-instances', headers, body: { hostId: host.id, providerType: 'NGINX', displayName: 'nginx' } })).body as { id: string };
+    const binding = (await app.inject({ method: 'POST', path: '/api/v1/certificate-bindings', headers, body: { serviceInstanceId: service.id, bindingType: 'FILE_PATH', certPath: '/etc/nginx/drift.pem', desiredFingerprintSha256: desired, verifyMethod: 'TLS_CONNECT' } })).body as { id: string };
+
+    const mismatch = await app.inject({ method: 'POST', path: '/api/v1/certificate-bindings/drift-results', headers, body: { bindingId: binding.id, localConfigFingerprint: local, localConfigPath: '/etc/nginx/drift.pem', remoteEndpointFingerprint: remote, remoteStatus: 'reachable', tlsVersion: 'TLSv1.3', chainSummary: { subjects: ['CN=drift'] }, checkedAt: '2026-06-09T00:00:00.000Z' } });
+    assert.equal(mismatch.statusCode, 200);
+    assert.equal((mismatch.body as any).driftStatus, 'mismatch');
+    assert.equal((mismatch.body as any).binding.localConfigFingerprint, local);
+    assert.equal((mismatch.body as any).binding.remoteEndpointFingerprint, remote);
+    assert.equal((mismatch.body as any).binding.status, 'DRIFTED');
+
+    const unreachable = await app.inject({ method: 'POST', path: '/api/v1/certificate-bindings/drift-results', headers, body: { bindingId: binding.id, localConfigFingerprint: '5'.repeat(64), localConfigPath: '/tmp/should-not-win.pem', remoteStatus: 'unreachable', checkedAt: '2026-06-09T00:05:00.000Z' } });
+    assert.equal(unreachable.statusCode, 200);
+    assert.equal((unreachable.body as any).driftStatus, 'unreachable');
+    assert.equal((unreachable.body as any).binding.localConfigFingerprint, local);
+    assert.equal((unreachable.body as any).binding.localConfigPath, '/etc/nginx/drift.pem');
+  });
+
+  it('Spec 007 字段、重复候选、RBAC 和审计能闭环', async () => {
+    const security = createSecurityServices();
+    const app = createApp({ security });
+    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007_full', 'x-request-id': 'req_spec007_full' };
+
+    const hostResponse = await app.inject({
+      method: 'POST',
+      path: '/api/v1/hosts',
+      headers,
+      body: {
+        primaryIp: '10.7.0.10',
+        ipAddresses: ['10.7.0.10', '10.7.0.11'],
+        ownerId: 'team_ops',
+        managementChannels: [{ type: 'agent', refId: 'agent-007' }, { type: 'ssh' }],
+        discoverySource: 'AGENT',
+        lastDiscoveredAt: '2026-06-09T01:00:00.000Z',
+        agentId: 'agent-007',
+        assetFingerprint: 'asset-fp-007',
+      },
+    });
+    assert.equal(hostResponse.statusCode, 201);
+    const host = hostResponse.body as { id: string; hostname?: string; ownerId: string; managementChannels: Array<{ type: string }>; discoverySource: string; agentId: string; assetFingerprint: string };
+    assert.equal(host.hostname, undefined);
+    assert.equal(host.ownerId, 'team_ops');
+    assert.deepEqual(host.managementChannels.map((item) => item.type), ['AGENT', 'SSH']);
+    assert.equal(host.discoverySource, 'AGENT');
+
+    const duplicate = await app.inject({ method: 'POST', path: '/api/v1/hosts', headers, body: { hostname: 'dup.example.com', agentId: 'agent-007' } });
+    assert.equal(duplicate.statusCode, 409);
+    assert.equal((duplicate.body as { errorCode: string }).errorCode, 'RESOURCE_ALREADY_EXISTS');
+
+    const service = (await app.inject({
+      method: 'POST',
+      path: '/api/v1/service-instances',
+      headers,
+      body: {
+        hostId: host.id,
+        providerType: 'NGINX',
+        displayName: 'nginx spec007',
+        versionText: '1.26.0',
+        providerKey: 'nginx:/etc/nginx/nginx.conf',
+        ports: [443, { port: 8443, protocol: 'HTTPS' }],
+        manualOverrides: { configPath: '/manual/nginx.conf' },
+        rawFacts: { workerProcesses: 4 },
+      },
+    })).body as { id: string; providerKey: string; ports: unknown[]; manualOverrides: Record<string, unknown> };
+    assert.equal(service.providerKey, 'nginx:/etc/nginx/nginx.conf');
+    assert.equal(service.ports.length, 2);
+    assert.equal(service.manualOverrides.configPath, '/manual/nginx.conf');
+
+    const denied = await app.inject({ method: 'GET', path: '/api/v1/hosts', headers: { 'x-actor-id': 'no_policy', 'x-tenant-id': 'tenant_spec007_full' } });
+    assert.equal(denied.statusCode, 403);
+
+    const audits = await app.inject({ method: 'GET', path: '/api/v1/audit-events?resourceType=host&eventType=host.created', headers });
+    assert.equal(audits.statusCode, 200);
+    assert.equal((audits.body as { items: unknown[] }).items.length, 1);
+  });
+
+  it('Binding 支持 Spec 字段、更新、唯一性、软删除和历史反查', async () => {
+    const app = createApp();
+    const headers = { 'x-actor-id': 'user_admin', 'x-tenant-id': 'tenant_spec007_binding_crud' };
+    const host = (await app.inject({ method: 'POST', path: '/api/v1/hosts', headers, body: { hostname: 'binding-crud.example.com' } })).body as { id: string };
+    const service = (await app.inject({ method: 'POST', path: '/api/v1/service-instances', headers, body: { hostId: host.id, providerType: 'NGINX', displayName: 'nginx' } })).body as { id: string };
+    const fingerprint = 'e'.repeat(64);
+
+    const createdResponse = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-bindings',
+      headers,
+      body: {
+        serviceInstanceId: service.id,
+        domain: 'API.EXAMPLE.COM',
+        port: 443,
+        protocol: 'HTTPS',
+        bindingKey: 'nginx:api:443:https',
+        bindingType: 'FILE_PATH',
+        targetCertificateVersionId: 'cv_target',
+        targetFingerprintSha256: fingerprint,
+        unmanagedCertificateFingerprint: 'f'.repeat(64),
+        certPath: '/etc/nginx/api.pem',
+        reloadHint: { command: 'nginx -s reload' },
+        discoverySource: 'MANUAL',
+        verifyMethod: 'TLS_CONNECT',
+      },
+    });
+    assert.equal(createdResponse.statusCode, 201);
+    const created = createdResponse.body as { id: string; bindingKey: string; domain: string; domainName: string; port: number; protocol: string; targetCertificateVersionId: string; desiredFingerprintSha256: string; reloadHint: Record<string, unknown> };
+    assert.equal(created.domain, 'api.example.com');
+    assert.equal(created.domainName, 'api.example.com');
+    assert.equal(created.bindingKey, 'nginx:api:443:https');
+    assert.equal(created.targetCertificateVersionId, 'cv_target');
+    assert.equal(created.desiredFingerprintSha256, fingerprint);
+
+    const duplicate = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-bindings',
+      headers,
+      body: { serviceInstanceId: service.id, domain: 'api.example.com', port: 443, protocol: 'HTTPS', bindingKey: 'nginx:api:443:https', bindingType: 'FILE_PATH', certPath: '/etc/nginx/other.pem', verifyMethod: 'TLS_CONNECT' },
+    });
+    assert.equal(duplicate.statusCode, 409);
+
+    const updated = await app.inject({ method: 'PATCH', path: '/api/v1/certificate-bindings', headers, body: { id: created.id, remoteEndpointFingerprint: fingerprint, driftStatus: 'synced', reloadHint: { signal: 'HUP' } } });
+    assert.equal(updated.statusCode, 200);
+    assert.equal((updated.body as { remoteEndpointFingerprint: string; driftStatus: string; reloadHint: { signal: string } }).driftStatus, 'synced');
+
+    const deleted = await app.inject({ method: 'POST', path: '/api/v1/certificate-bindings/delete', headers, body: { bindingId: created.id } });
+    assert.equal(deleted.statusCode, 200);
+    assert.ok((deleted.body as { deletedAt?: string }).deletedAt);
+
+    const activeList = await app.inject({ method: 'GET', path: '/api/v1/certificate-bindings?filter[bindingKey]=nginx:api:443:https', headers });
+    assert.equal((activeList.body as { total: number }).total, 0);
+
+    const usage = await app.inject({ method: 'GET', path: `/api/v1/certificate-bindings/usage?fingerprint=${fingerprint}`, headers });
+    assert.equal(usage.statusCode, 200);
+    const items = usage.body as Array<{ binding: { id: string; deletedAt?: string }; service: { id: string }; host: { id: string } }>;
+    assert.equal(items.length, 1);
+    assert.equal(items[0]!.binding.id, created.id);
+    assert.ok(items[0]!.binding.deletedAt);
+  });
+
 });

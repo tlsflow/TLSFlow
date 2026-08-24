@@ -24,17 +24,21 @@ import type {
   UpdateServiceInstanceDto,
 } from '../dto/assets.dto.js';
 
-const hostStatuses = ['ACTIVE', 'INACTIVE', 'UNKNOWN', 'RETIRED'] as const;
-const serviceInstanceStatuses = ['ACTIVE', 'STALE', 'UNREACHABLE', 'RETIRED'] as const;
-const discoverySources = ['AGENT', 'SSH', 'MANUAL', 'GATEWAY'] as const;
+const hostStatuses = ['ACTIVE', 'INACTIVE', 'UNKNOWN', 'STALE', 'DISABLED', 'RETIRED', 'DELETED'] as const;
+const serviceInstanceStatuses = ['ACTIVE', 'STALE', 'UNREACHABLE', 'DISABLED', 'RETIRED', 'DELETED'] as const;
+const discoverySources = ['AGENT', 'SSH', 'MANUAL', 'GATEWAY', 'WINRM', 'IMPORT', 'PROVIDER'] as const;
 const endpointProtocols = ['HTTPS', 'TLS', 'STARTTLS', 'HTTP'] as const;
 const endpointStatuses = ['ACTIVE', 'INACTIVE', 'UNKNOWN'] as const;
+const conflictResolutions = ['keep_current', 'use_discovered', 'custom'] as const;
 
 export class AssetsDomainService {
-  normalizeHost(input: CreateHostDto): Required<Pick<CreateHostDto, 'hostname' | 'osType' | 'compatibilityLevel' | 'managementMode' | 'status' | 'ipAddresses' | 'tags'>> & CreateHostDto {
-    const hostname = input.hostname.trim().toLowerCase();
-    if (!hostname) throw new AppError('VALIDATION_FAILED', 'hostname 不能为空', { field: 'hostname' });
+  normalizeHost(input: CreateHostDto): Required<Pick<CreateHostDto, 'osType' | 'compatibilityLevel' | 'managementMode' | 'status' | 'ipAddresses' | 'tags'>> & CreateHostDto {
+    const hostname = normalizeOptionalString(input.hostname)?.toLowerCase();
+    const primaryIp = normalizeOptionalString(input.primaryIp);
     const ipAddresses = normalizeStringArray(input.ipAddresses ?? []);
+    if (!hostname && !primaryIp && ipAddresses.length === 0) {
+      throw new AppError('VALIDATION_FAILED', 'hostname、primaryIp 或 ipAddresses 至少提供一个', { fields: ['hostname', 'primaryIp', 'ipAddresses'] });
+    }
     const tags = normalizeStringArray(input.tags ?? []);
     const osType = readEnum(input.osType ?? 'UNKNOWN', OsTypes, 'osType');
     const compatibilityLevel = readEnum(input.compatibilityLevel ?? 'L1', CompatibilityLevels, 'compatibilityLevel');
@@ -45,13 +49,19 @@ export class AssetsDomainService {
       ...input,
       hostname,
       displayName: normalizeOptionalString(input.displayName),
-      primaryIp: normalizeOptionalString(input.primaryIp),
+      primaryIp,
       osType,
       osName: normalizeOptionalString(input.osName),
       osVersion: normalizeOptionalString(input.osVersion),
       arch: normalizeOptionalString(input.arch),
       environment: normalizeOptionalString(input.environment),
       zoneId: normalizeOptionalString(input.zoneId),
+      ownerId: normalizeOptionalString(input.ownerId),
+      managementChannels: normalizeManagementChannels(input.managementChannels ?? []),
+      discoverySource: readEnum(input.discoverySource ?? 'MANUAL', discoverySources, 'discoverySource'),
+      lastDiscoveredAt: normalizeOptionalString(input.lastDiscoveredAt),
+      agentId: normalizeOptionalString(input.agentId),
+      assetFingerprint: normalizeOptionalString(input.assetFingerprint)?.toLowerCase(),
       compatibilityLevel,
       managementMode,
       status,
@@ -62,7 +72,7 @@ export class AssetsDomainService {
 
   normalizeHostPatch(input: UpdateHostDto): UpdateHostDto {
     const normalized: UpdateHostDto = { ...input };
-    if (input.hostname !== undefined) normalized.hostname = normalizeRequiredString(input.hostname, 'hostname').toLowerCase();
+    if (input.hostname !== undefined) normalized.hostname = normalizeOptionalString(input.hostname)?.toLowerCase();
     if (input.displayName !== undefined) normalized.displayName = normalizeOptionalString(input.displayName);
     if (input.primaryIp !== undefined) normalized.primaryIp = normalizeOptionalString(input.primaryIp);
     if (input.ipAddresses !== undefined) normalized.ipAddresses = normalizeStringArray(input.ipAddresses);
@@ -72,6 +82,12 @@ export class AssetsDomainService {
     if (input.arch !== undefined) normalized.arch = normalizeOptionalString(input.arch);
     if (input.environment !== undefined) normalized.environment = normalizeOptionalString(input.environment);
     if (input.zoneId !== undefined) normalized.zoneId = normalizeOptionalString(input.zoneId);
+    if (input.ownerId !== undefined) normalized.ownerId = normalizeOptionalString(input.ownerId);
+    if (input.managementChannels !== undefined) normalized.managementChannels = normalizeManagementChannels(input.managementChannels);
+    if (input.discoverySource !== undefined) normalized.discoverySource = readEnum(input.discoverySource, discoverySources, 'discoverySource');
+    if (input.lastDiscoveredAt !== undefined) normalized.lastDiscoveredAt = normalizeOptionalString(input.lastDiscoveredAt);
+    if (input.agentId !== undefined) normalized.agentId = normalizeOptionalString(input.agentId);
+    if (input.assetFingerprint !== undefined) normalized.assetFingerprint = normalizeOptionalString(input.assetFingerprint)?.toLowerCase();
     if (input.compatibilityLevel !== undefined) normalized.compatibilityLevel = readEnum(input.compatibilityLevel, CompatibilityLevels, 'compatibilityLevel');
     if (input.managementMode !== undefined) normalized.managementMode = readEnum(input.managementMode, ManagementModes, 'managementMode');
     if (input.status !== undefined) normalized.status = readEnum(input.status, hostStatuses, 'status');
@@ -96,6 +112,9 @@ export class AssetsDomainService {
       installPath: normalizeOptionalString(input.installPath),
       configPath: normalizeOptionalString(input.configPath),
       runtimeUser: normalizeOptionalString(input.runtimeUser),
+      ports: normalizePorts(input.ports ?? []),
+      providerKey: normalizeOptionalString(input.providerKey),
+      manualOverrides: input.manualOverrides ?? {},
       discoverySource,
       status,
       rawFacts: input.rawFacts ?? {},
@@ -112,6 +131,9 @@ export class AssetsDomainService {
     if (input.installPath !== undefined) normalized.installPath = normalizeOptionalString(input.installPath);
     if (input.configPath !== undefined) normalized.configPath = normalizeOptionalString(input.configPath);
     if (input.runtimeUser !== undefined) normalized.runtimeUser = normalizeOptionalString(input.runtimeUser);
+    if (input.ports !== undefined) normalized.ports = normalizePorts(input.ports);
+    if (input.providerKey !== undefined) normalized.providerKey = normalizeOptionalString(input.providerKey);
+    if (input.manualOverrides !== undefined) normalized.manualOverrides = input.manualOverrides;
     if (input.discoverySource !== undefined) normalized.discoverySource = readEnum(input.discoverySource, discoverySources, 'discoverySource');
     if (input.status !== undefined) normalized.status = readEnum(input.status, serviceInstanceStatuses, 'status');
     if (input.rawFacts !== undefined) normalized.rawFacts = input.rawFacts;
@@ -186,6 +208,25 @@ function normalizeStringArray(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
+function normalizeManagementChannels(values: Array<{ type?: string; enabled?: boolean; refId?: string; metadata?: Record<string, unknown> }>): Array<{ type: string; enabled?: boolean; refId?: string; metadata?: Record<string, unknown> }> {
+  return values
+    .map((value) => ({
+      ...value,
+      type: normalizeRequiredString(value.type, 'managementChannels.type').toUpperCase(),
+      refId: normalizeOptionalString(value.refId),
+    }))
+    .filter((value, index, array) => array.findIndex((item) => item.type === value.type && item.refId === value.refId) === index);
+}
+
+function normalizePorts(values: Array<number | Record<string, unknown>>): Array<number | Record<string, unknown>> {
+  return values.map((value) => {
+    if (typeof value === 'number') return normalizePort(value);
+    const port = value.port;
+    if (typeof port === 'number') normalizePort(port);
+    return value;
+  });
+}
+
 function readEnum<T extends string>(value: string, allowed: readonly T[], field: string): T {
   if (!allowed.includes(value as T)) {
     throw new AppError('VALIDATION_FAILED', '枚举值不合法', { field, allowedValues: allowed });
@@ -199,6 +240,7 @@ export const assetsEnumValues = {
   discoverySources,
   endpointProtocols,
   endpointStatuses,
+  conflictResolutions,
   osTypes: OsTypes,
   compatibilityLevels: CompatibilityLevels,
   managementModes: ManagementModes,

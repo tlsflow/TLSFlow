@@ -1,8 +1,10 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { PageQuery } from '../../../common/pagination/pagination.js';
+import type { AssetsApplicationService } from '../../assets/application/assets.application-service.js';
 import type { AssetsRepository } from '../../assets/repository/assets.repository.js';
+import type { BindingDriftPersistenceDto } from '../../assets/dto/assets.dto.js';
 import { BindingsDomainService } from '../domain/bindings.domain-service.js';
-import type { CreateCertificateBindingDto, DetectBindingDriftDto, PatchCertificateBindingStatusDto } from '../dto/bindings.dto.js';
+import type { CreateCertificateBindingDto, DeleteCertificateBindingDto, DetectBindingDriftDto, PatchCertificateBindingStatusDto, UpdateCertificateBindingDto } from '../dto/bindings.dto.js';
 import { InMemoryBindingsRepository, type BindingsRepository } from '../repository/bindings.repository.js';
 
 export class BindingsApplicationService {
@@ -10,6 +12,7 @@ export class BindingsApplicationService {
     assetsRepository: AssetsRepository,
     private readonly repository: BindingsRepository = new InMemoryBindingsRepository(assetsRepository),
     private readonly domain = new BindingsDomainService(),
+    private readonly assetsService?: AssetsApplicationService,
   ) {}
 
   createCertificateBinding(tenantId: string, input: CreateCertificateBindingDto) {
@@ -18,6 +21,14 @@ export class BindingsApplicationService {
 
   listCertificateBindings(tenantId: string, query: PageQuery) {
     return this.repository.listCertificateBindings(tenantId, query);
+  }
+
+  updateCertificateBinding(tenantId: string, bindingId: string, input: UpdateCertificateBindingDto) {
+    return this.repository.updateCertificateBinding(tenantId, bindingId, this.domain.normalizePatch(input));
+  }
+
+  deleteCertificateBinding(tenantId: string, input: DeleteCertificateBindingDto) {
+    return this.repository.deleteCertificateBinding(tenantId, input.bindingId);
   }
 
   getRepository(): BindingsRepository {
@@ -33,6 +44,13 @@ export class BindingsApplicationService {
 
   detectDrift(input: DetectBindingDriftDto) {
     return this.domain.detectDrift(input);
+  }
+
+  persistDrift(tenantId: string, input: BindingDriftPersistenceDto) {
+    if (!this.assetsService) {
+      throw new AppError('SYSTEM_INTERNAL_ERROR', 'AssetsApplicationService 未注入，无法持久化 drift');
+    }
+    return this.assetsService.persistBindingDrift(tenantId, input);
   }
 
   patchCertificateBindingStatus(tenantId: string, input: PatchCertificateBindingStatusDto) {

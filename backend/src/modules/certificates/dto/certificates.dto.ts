@@ -69,10 +69,60 @@ export interface CreateCertificateAssetInput {
   createdBy: string;
 }
 
+
+export interface CertificateAssetDetailDto extends CertificateAssetDto {
+  versions: CertificateVersionDto[];
+  currentVersion?: CertificateVersionDto;
+}
+
+export interface CertificateVersionDetailDto extends CertificateVersionDto {
+  asset: CertificateAssetDto;
+  formats: CertificateVersionFormatDto[];
+}
+
+export interface CertificateUsageDto {
+  certificateAssetId?: string;
+  certificateVersionId?: string;
+  fingerprintSha256?: string;
+  usages: unknown[];
+  blockedDeletion: boolean;
+  source: 'repository' | 'placeholder';
+}
+
+export interface CertificateFormatCapabilityDto {
+  format: CertificateFormat;
+  importSupported: boolean;
+  exportSupported: boolean;
+  containsPrivateKey: 'never' | 'optional' | 'required';
+  implementation: 'node_crypto' | 'openssl' | 'controlled_error';
+  limitations: string[];
+}
+
+export interface CertificateFormatCapabilitiesDto {
+  formats: CertificateFormatCapabilityDto[];
+}
+
+export interface ChangeCertificateAssetStatusInput {
+  id: string;
+  status: 'active' | 'archived' | 'deleted';
+  actorId: string;
+}
+
+export interface ChangeCertificateVersionStatusInput {
+  id: string;
+  status: 'active' | 'archived' | 'revoked' | 'deleted';
+  actorId: string;
+}
+
 export interface ImportCertificateVersionInput {
   certificateAssetId?: string;
   certificatePem?: string;
   certificateDerBase64?: string;
+  pfxBase64?: string;
+  pfxPassword?: string;
+  jksBase64?: string;
+  p7bBase64?: string;
+  declaredFormat?: CertificateFormat;
   privateKeyPem?: string;
   sourceType?: CertificateSourceType;
   name?: string;
@@ -111,6 +161,11 @@ export interface CertificateSourceSyncInput {
   externalId: string;
   certificatePem?: string;
   certificateDerBase64?: string;
+  pfxBase64?: string;
+  pfxPassword?: string;
+  jksBase64?: string;
+  p7bBase64?: string;
+  declaredFormat?: CertificateFormat;
   privateKeyPem?: string;
   name?: string;
   tags?: string[];
@@ -129,7 +184,7 @@ export interface ImportCertificateVersionResult {
   asset: CertificateAssetDto;
   version: CertificateVersionDto;
   diagnostics: {
-    sourceFormat: 'pem' | 'der';
+    sourceFormat: CertificateFormat;
     privateKeySaved: boolean;
     privateKeyMatched: boolean;
     chainStatus: string;

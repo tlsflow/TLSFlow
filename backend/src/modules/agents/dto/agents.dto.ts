@@ -1,5 +1,5 @@
 import type { AgentStatus, CompatibilityLevel } from '../../../shared/enums/core.enums.js';
-import type { AgentCapabilitySnapshot, AgentDescriptor, AgentHeartbeat, AgentRegistration, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
+import type { AgentCapabilitySnapshot, AgentDescriptor, AgentGatewayExtension, AgentHeartbeat, AgentRegistration, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
 import type { CapabilityDeclaration } from '../../../shared/contracts/capability-contracts.js';
 
 export interface CreateEnrollmentTokenInput {
@@ -20,6 +20,13 @@ export interface RegisterAgentInput {
   enrollmentToken?: string;
   role?: string;
   zone?: string;
+  zoneIds?: string[];
+  adapters?: string[];
+  capabilities?: string[];
+  resourceLimits?: Record<string, unknown>;
+  currentLoad?: number;
+  maxConcurrentTasks?: number;
+  successRate?: number;
   certificateFingerprint?: string;
   certificateExpiresAt?: string;
 }
@@ -29,12 +36,23 @@ export interface AgentHeartbeatInput {
   status?: AgentStatus;
   version: string;
   taskSummary?: AgentHeartbeat['taskSummary'];
+  adapters?: string[];
+  capabilities?: string[];
+  resourceLimits?: Record<string, unknown>;
+  currentLoad?: number;
+  maxConcurrentTasks?: number;
+  successRate?: number;
 }
 
 export interface AgentCapabilitySnapshotInput {
   agentId: string;
   compatibilityLevel?: CompatibilityLevel;
   capabilities: AgentCapabilitySnapshot['capabilities'];
+  adapters?: string[];
+  resourceLimits?: Record<string, unknown>;
+  currentLoad?: number;
+  maxConcurrentTasks?: number;
+  successRate?: number;
 }
 
 export interface EnqueueAgentTaskInput {
@@ -101,16 +119,74 @@ export interface SubmitAgentUpgradeResultInput {
   errorMessage?: string;
 }
 
+export interface DisableAgentInput {
+  agentId: string;
+  reason?: string;
+  revokeCertificate?: boolean;
+  actorId: string;
+}
+
 export interface EnrollmentTokenDto extends EnrollmentToken {
   token?: string;
 }
 export interface AgentRegistrationDto extends AgentRegistration {}
 export interface AgentDescriptorDto extends AgentDescriptor {}
+export interface AgentGatewayExtensionDto extends AgentGatewayExtension {}
 export interface AgentCapabilitySnapshotDto extends AgentCapabilitySnapshot {}
 export interface AgentTaskEnvelopeDto extends AgentTaskEnvelope {}
 export interface AgentTaskLogEntryDto extends AgentTaskLogEntry {}
 export interface AgentVersionReleaseDto extends AgentVersionRelease {}
 export interface AgentUpgradePlanDto extends AgentUpgradePlan {}
+
+export interface AgentLifecycleProjection {
+  status: AgentStatus;
+  disabled: boolean;
+  disabledAt?: string;
+  disabledBy?: string;
+  disabledReason?: string;
+  revoked: boolean;
+  revokedAt?: string;
+  revokedBy?: string;
+  revokedReason?: string;
+  certificateRevoked: boolean;
+  canHeartbeat: boolean;
+  canPullTasks: boolean;
+}
+
+export interface AgentTaskQueueProjection {
+  agentId: string;
+  counts: Record<AgentTaskEnvelope['status'], number>;
+  tasks: AgentTaskEnvelope[];
+}
+
+export interface AgentUpgradePreview {
+  status: 'available' | 'manual_required' | 'not_required';
+  reason: string;
+  targetVersion?: string;
+  releaseId?: string;
+  downloadUrl?: string;
+  checksumSha256?: string;
+  signature?: string;
+  rollbackVersion?: string;
+  existingPlan?: AgentUpgradePlan;
+}
+
+export interface AgentUpgradeSuggestionProjection {
+  agentId: string;
+  currentVersion: string;
+  suggestion: AgentUpgradePreview;
+}
+
+export interface AgentDetailProjection {
+  agent: AgentRegistration;
+  lifecycle: AgentLifecycleProjection;
+  latestHeartbeat?: AgentHeartbeat;
+  capabilitySnapshot?: AgentCapabilitySnapshot;
+  capabilities: AgentCapabilityProjection;
+  taskQueue: AgentTaskQueueProjection;
+  upgradeSuggestion: AgentUpgradeSuggestionProjection;
+  recentErrors: AgentTaskLogEntry[];
+}
 
 export interface AgentCapabilityProjection {
   agentId: string;

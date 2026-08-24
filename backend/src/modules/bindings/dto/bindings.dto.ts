@@ -2,6 +2,7 @@ import type { BindingType, CertificateBindingStatus } from '../../../shared/enum
 
 export type BindingVerifyMethod = 'TLS_CONNECT' | 'LOCAL_FILE' | 'STORE_QUERY' | 'CUSTOM';
 export type KeystoreType = 'JKS' | 'PKCS12';
+export type BindingProtocol = 'HTTPS' | 'TLS' | 'SMTPS' | 'LDAPS' | 'CUSTOM' | string;
 
 export interface CertificateBindingDto {
   id: string;
@@ -10,10 +11,19 @@ export interface CertificateBindingDto {
   serviceEndpointId?: string;
   hostId: string;
   domainName?: string;
+  /** Spec 007 规范字段，兼容旧 domainName。 */
+  domain?: string;
+  port?: number;
+  protocol?: BindingProtocol;
+  bindingKey: string;
   bindingType: BindingType;
   certificateVersionId?: string;
+  targetCertificateVersionId?: string;
+  localCertificateVersionId?: string;
   observedFingerprintSha256?: string;
   desiredFingerprintSha256?: string;
+  targetFingerprintSha256?: string;
+  unmanagedCertificateFingerprint?: string;
   certPath?: string;
   keyPath?: string;
   chainPath?: string;
@@ -23,7 +33,17 @@ export interface CertificateBindingDto {
   storeName?: string;
   storeThumbprint?: string;
   reloadCommand?: string;
+  reloadHint?: Record<string, unknown>;
+  discoverySource?: string;
   verifyMethod: BindingVerifyMethod;
+  localConfigFingerprint?: string;
+  localConfigPath?: string;
+  remoteEndpointFingerprint?: string;
+  remoteStatus?: 'reachable' | 'unreachable' | 'unknown';
+  tlsVersion?: string;
+  chainSummary?: Record<string, unknown>;
+  checkedAt?: string;
+  driftStatus?: DriftState;
   lastVerifiedAt?: string;
   lastDeployedAt?: string;
   status: CertificateBindingStatus;
@@ -38,10 +58,19 @@ export interface CreateCertificateBindingDto {
   serviceInstanceId: string;
   serviceEndpointId?: string;
   domainName?: string;
+  /** Spec 007 规范字段，兼容旧 domainName。 */
+  domain?: string;
+  port?: number;
+  protocol?: BindingProtocol;
+  bindingKey?: string;
   bindingType: BindingType;
   certificateVersionId?: string;
+  targetCertificateVersionId?: string;
+  localCertificateVersionId?: string;
   observedFingerprintSha256?: string;
   desiredFingerprintSha256?: string;
+  targetFingerprintSha256?: string;
+  unmanagedCertificateFingerprint?: string;
   certPath?: string;
   keyPath?: string;
   chainPath?: string;
@@ -51,11 +80,28 @@ export interface CreateCertificateBindingDto {
   storeName?: string;
   storeThumbprint?: string;
   reloadCommand?: string;
+  reloadHint?: Record<string, unknown>;
+  discoverySource?: string;
   verifyMethod: BindingVerifyMethod;
   lastVerifiedAt?: string;
   lastDeployedAt?: string;
   status?: CertificateBindingStatus;
   metadata?: Record<string, unknown>;
+}
+
+export type UpdateCertificateBindingDto = Partial<CreateCertificateBindingDto> & {
+  localConfigFingerprint?: string;
+  localConfigPath?: string;
+  remoteEndpointFingerprint?: string;
+  remoteStatus?: 'reachable' | 'unreachable' | 'unknown';
+  tlsVersion?: string;
+  chainSummary?: Record<string, unknown>;
+  checkedAt?: string;
+  driftStatus?: DriftState;
+};
+
+export interface DeleteCertificateBindingDto {
+  bindingId: string;
 }
 
 export interface PatchCertificateBindingStatusDto {
@@ -90,7 +136,7 @@ export interface CertificateBindingUsageDto {
   };
   host?: {
     id: string;
-    hostname: string;
+    hostname?: string;
     primaryIp?: string;
     status: string;
     deletedAt?: string;

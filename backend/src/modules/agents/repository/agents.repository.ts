@@ -17,6 +17,7 @@ export interface AgentsRepository {
   createSession(session: AgentSession): AgentSession;
   getSession(tenantId: string, sessionId: string): AgentSession | undefined;
   saveHeartbeat(heartbeat: AgentHeartbeat): AgentHeartbeat;
+  getLatestHeartbeat(tenantId: string, agentId: string): AgentHeartbeat | undefined;
   saveCapabilitySnapshot(snapshot: AgentCapabilitySnapshot): AgentCapabilitySnapshot;
   getLatestCapabilitySnapshot(tenantId: string, agentId: string): AgentCapabilitySnapshot | undefined;
   createTask(task: AgentTaskEnvelope): AgentTaskEnvelope;
@@ -26,12 +27,14 @@ export interface AgentsRepository {
   listTasks(tenantId: string, agentId: string, statuses?: string[]): AgentTaskEnvelope[];
   saveTaskLog(entry: AgentTaskLogEntry): AgentTaskLogEntry;
   listTaskLogs(tenantId: string, taskId: string): AgentTaskLogEntry[];
+  listAgentTaskLogs(tenantId: string, agentId: string, levels?: AgentTaskLogEntry['level'][]): AgentTaskLogEntry[];
   publishVersion(release: AgentVersionRelease): AgentVersionRelease;
   listActiveVersions(tenantId: string): AgentVersionRelease[];
   createUpgradePlan(plan: AgentUpgradePlan): AgentUpgradePlan;
   updateUpgradePlan(planId: string, patch: Partial<AgentUpgradePlan>): AgentUpgradePlan;
   getUpgradePlan(tenantId: string, planId: string): AgentUpgradePlan | undefined;
   findUpgradePlanForAgent(tenantId: string, agentId: string, releaseId: string): AgentUpgradePlan | undefined;
+  listUpgradePlansForAgent(tenantId: string, agentId: string): AgentUpgradePlan[];
 }
 
 export class InMemoryAgentsRepository implements AgentsRepository {
@@ -109,6 +112,12 @@ export class InMemoryAgentsRepository implements AgentsRepository {
     return heartbeat;
   }
 
+  getLatestHeartbeat(tenantId: string, agentId: string): AgentHeartbeat | undefined {
+    return this.heartbeats
+      .filter((item) => item.tenantId === tenantId && item.agentId === agentId)
+      .sort((left, right) => right.receivedAt.localeCompare(left.receivedAt))[0];
+  }
+
   saveCapabilitySnapshot(snapshot: AgentCapabilitySnapshot): AgentCapabilitySnapshot {
     this.snapshots.set(snapshot.id, snapshot);
     return snapshot;
@@ -161,6 +170,12 @@ export class InMemoryAgentsRepository implements AgentsRepository {
       .sort((left, right) => left.sequence - right.sequence);
   }
 
+  listAgentTaskLogs(tenantId: string, agentId: string, levels?: AgentTaskLogEntry['level'][]): AgentTaskLogEntry[] {
+    return this.taskLogs
+      .filter((item) => item.tenantId === tenantId && item.agentId === agentId && (!levels?.length || levels.includes(item.level)))
+      .sort((left, right) => right.emittedAt.localeCompare(left.emittedAt) || right.sequence - left.sequence);
+  }
+
   publishVersion(release: AgentVersionRelease): AgentVersionRelease {
     this.releases.set(release.id, release);
     return release;
@@ -192,6 +207,12 @@ export class InMemoryAgentsRepository implements AgentsRepository {
 
   findUpgradePlanForAgent(tenantId: string, agentId: string, releaseId: string): AgentUpgradePlan | undefined {
     return [...this.upgradePlans.values()].find((item) => item.tenantId === tenantId && item.agentId === agentId && item.releaseId === releaseId);
+  }
+
+  listUpgradePlansForAgent(tenantId: string, agentId: string): AgentUpgradePlan[] {
+    return [...this.upgradePlans.values()]
+      .filter((item) => item.tenantId === tenantId && item.agentId === agentId)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 }
 

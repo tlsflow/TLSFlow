@@ -16,6 +16,10 @@ import {
 } from '../repository/certificates.repository.js';
 import {
   type CertificateAssetDto,
+  type CertificateAssetDetailDto,
+  type CertificateFormatCapabilitiesDto,
+  type CertificateUsageDto,
+  type CertificateVersionDetailDto,
   type CertificateVersionDto,
   type CertificateVersionFormatDto,
   type CertificateFormatExportPlanDto,
@@ -26,6 +30,8 @@ import {
   type ImportCertificateVersionInput,
   type ImportCertificateVersionResult,
   type RequestCertificateFormatExportInput,
+  type ChangeCertificateAssetStatusInput,
+  type ChangeCertificateVersionStatusInput,
   toCertificateAssetDto,
   toCertificateVersionDto,
   toCertificateVersionFormatDto,
@@ -83,6 +89,60 @@ export class CertificatesApplicationService {
     return { ...page, items: page.items.map(toCertificateVersionFormatDto) };
   }
 
+  getFormatCapabilities(): CertificateFormatCapabilitiesDto {
+    return { formats: [...this.domain.getFormatCapabilities().formats].map((item) => ({ ...item, limitations: [...item.limitations] })) };
+  }
+
+  getAssetDetail(id: string): CertificateAssetDetailDto {
+    const asset = this.getExistingAsset(id);
+    const versions = this.repository.listVersionsByAsset(id).map(toCertificateVersionDto);
+    return {
+      ...toCertificateAssetDto(asset),
+      versions,
+      currentVersion: asset.currentVersionId ? versions.find((version) => version.id === asset.currentVersionId) : undefined,
+    };
+  }
+
+  getVersionDetail(id: string): CertificateVersionDetailDto {
+    const version = this.getExistingVersion(id);
+    const asset = this.getExistingAsset(version.certificateAssetId);
+    return {
+      ...toCertificateVersionDto(version),
+      asset: toCertificateAssetDto(asset),
+      formats: this.repository.listFormatsByVersion(id).map(toCertificateVersionFormatDto),
+    };
+  }
+
+  getUsage(query: { certificateAssetId?: string; certificateVersionId?: string; fingerprintSha256?: string }, usages: unknown[] = []): CertificateUsageDto {
+    if (!query.certificateAssetId && !query.certificateVersionId && !query.fingerprintSha256) {
+      throw new AppError('VALIDATION_FAILED', 'certificateAssetId、certificateVersionId 或 fingerprintSha256 至少提供一个');
+    }
+    return { ...query, usages, blockedDeletion: usages.length > 0, source: usages.length > 0 ? 'repository' : 'placeholder' };
+  }
+
+  archiveAsset(input: ChangeCertificateAssetStatusInput, context?: RequestContext): CertificateAssetDto {
+    if (input.status !== 'archived') throw new AppError('VALIDATION_FAILED', 'archiveAsset 只能设置 archived 状态', { status: input.status });
+    return toCertificateAssetDto(this.changeAssetStatus(input, context));
+  }
+
+  deleteAsset(input: ChangeCertificateAssetStatusInput, usages: unknown[] = [], context?: RequestContext): CertificateAssetDto {
+    if (usages.length > 0) throw new AppError('RESOURCE_VERSION_CONFLICT', '证书资产存在绑定/部署引用，禁止删除', { usageCount: usages.length });
+    return toCertificateAssetDto(this.changeAssetStatus({ ...input, status: 'deleted' }, context));
+  }
+
+  archiveVersion(input: ChangeCertificateVersionStatusInput, context?: RequestContext): CertificateVersionDto {
+    return toCertificateVersionDto(this.changeVersionStatus({ ...input, status: 'archived' }, context));
+  }
+
+  revokeVersion(input: ChangeCertificateVersionStatusInput, context?: RequestContext): CertificateVersionDto {
+    return toCertificateVersionDto(this.changeVersionStatus({ ...input, status: 'revoked' }, context));
+  }
+
+  deleteVersion(input: ChangeCertificateVersionStatusInput, usages: unknown[] = [], context?: RequestContext): CertificateVersionDto {
+    if (usages.length > 0) throw new AppError('RESOURCE_VERSION_CONFLICT', '证书版本存在绑定/部署引用，禁止删除', { usageCount: usages.length });
+    return toCertificateVersionDto(this.changeVersionStatus({ ...input, status: 'deleted' }, context));
+  }
+
   getRepository(): CertificatesRepository {
     return this.repository;
   }
@@ -98,7 +158,7 @@ export class CertificatesApplicationService {
 
     let privateKeySecretRef: string | undefined;
     let privateKeyMatched = false;
-    const privateKeyPem = this.domain.extractPrivateKeyPem(input.privateKeyPem);
+    const privateKeyPem = this.domain.extractPrivateKeyPem(input.privateKeyPem ?? bundle.decodedPrivateKeyPem);
     if (privateKeyPem) {
       this.domain.assertPrivateKeyMatchesCertificate(privateKeyPem, parsed);
       privateKeyMatched = true;
@@ -174,12 +234,12 @@ export class CertificatesApplicationService {
       asset: toCertificateAssetDto(updatedAsset),
       version: toCertificateVersionDto(version),
       diagnostics: {
-        sourceFormat: input.certificateDerBase64 ? 'der' : 'pem',
+        sourceFormat: bundle.sourceFormat,
         privateKeySaved: Boolean(privateKeySecretRef),
         privateKeyMatched,
         chainStatus: bundle.chainStatus,
         chainOrder: bundle.chainOrder,
-        chainDiagnostics: bundle.chainDiagnostics,
+        chainDiagnostics: [...bundle.formatDiagnostics, ...bundle.chainDiagnostics],
       },
     };
   }
@@ -221,11 +281,20 @@ export class CertificatesApplicationService {
       throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId: input.certificateVersionId });
     }
     const warnings: string[] = [];
+    if (!certificateFormats.includes(input.format)) {
+      throw new AppError('CERT_EXPORT_FORMAT_INVALID', '证书格式不合法', { format: input.format });
+    }
+    if (input.format === 'jks') {
+      throw new AppError('CERT_FORMAT_UNSUPPORTED', 'JKS 导出当前未接入受控 Java/keytool worker，不能规划成功产物', { format: input.format });
+    }
+    if ((input.format === 'der' || input.format === 'p7b') && input.containsPrivateKey) {
+      throw new AppError('CERT_EXPORT_FORMAT_INVALID', 'DER/P7B 格式不能包含私钥', { format: input.format });
+    }
     if (input.containsPrivateKey && !version.privateKeySecretRef) {
       throw new AppError('VALIDATION_FAILED', '证书版本没有私钥 SecretRef，不能规划包含私钥的格式导出', { certificateVersionId: input.certificateVersionId });
     }
-    if (input.containsPrivateKey && ['pfx', 'jks'].includes(input.format) && !input.passwordSecretRef) {
-      throw new AppError('VALIDATION_FAILED', 'PFX/JKS 私钥导出必须提供 passwordSecretRef', { format: input.format });
+    if (input.format === 'pfx' && !input.passwordSecretRef) {
+      throw new AppError('VALIDATION_FAILED', 'PFX 导出必须提供 passwordSecretRef', { format: input.format });
     }
     if (version.chainStatus !== 'valid') {
       warnings.push(`证书链状态为 ${version.chainStatus}，导出产物只能用于修复或人工确认场景`);
@@ -283,6 +352,51 @@ export class CertificatesApplicationService {
       asset: imported.asset,
       version: imported.version,
     };
+  }
+
+
+  private getExistingVersion(id: string): CertificateVersionEntity {
+    const version = this.repository.getVersion(id);
+    if (!version || version.status === 'deleted') {
+      throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId: id });
+    }
+    return version;
+  }
+
+  private changeAssetStatus(input: ChangeCertificateAssetStatusInput, context?: RequestContext): CertificateAssetEntity {
+    const asset = this.getExistingAsset(input.id);
+    const updated = this.repository.deleteOrUpdateAsset(asset.id, { status: input.status, updatedAt: new Date().toISOString() });
+    this.writeLifecycleAudit('certificate.asset.status', 'certificate_asset', updated.id, input.actorId, input.status, context);
+    return updated;
+  }
+
+  private changeVersionStatus(input: ChangeCertificateVersionStatusInput, context?: RequestContext): CertificateVersionEntity {
+    const version = this.getExistingVersion(input.id);
+    const updated = this.repository.deleteOrUpdateVersion(version.id, { status: input.status, deployable: input.status === 'active' ? version.deployable : false });
+    if (input.status === 'deleted') {
+      const asset = this.repository.getAsset(updated.certificateAssetId);
+      if (asset?.currentVersionId === updated.id) {
+        const replacement = this.repository.listVersionsByAsset(asset.id).find((candidate) => candidate.id !== updated.id && candidate.status === 'active');
+        this.repository.updateAsset(asset.id, { currentVersionId: replacement?.id, updatedAt: new Date().toISOString() });
+      }
+    }
+    this.writeLifecycleAudit('certificate.version.status', 'certificate_version', updated.id, input.actorId, input.status, context);
+    return updated;
+  }
+
+  private writeLifecycleAudit(action: string, resourceType: string, resourceId: string, actorId: string, status: string, context?: RequestContext): void {
+    this.dependencies.audit?.write({
+      eventType: AUDIT_EVENT_TYPES.CERTIFICATE_IMPORTED,
+      actorType: 'user',
+      actorId,
+      action,
+      resourceType,
+      resourceId,
+      result: 'success',
+      riskLevel: status === 'deleted' ? 'high' : 'medium',
+      context,
+      detail: { status },
+    });
   }
 
   private getExistingAsset(id: string): CertificateAssetEntity {

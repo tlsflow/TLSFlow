@@ -241,22 +241,184 @@ describe('证书资产 API', () => {
     assert.equal((source.body as any).version.sourceType, 'external_api');
   });
 
+
+
+  it('格式能力明确区分真实支持和受控错误，JKS/P7B 不假装导入成功', async () => {
+    const { app } = createAuthorizedApp('user_formats');
+    const capabilities = await app.inject({ method: 'GET', path: '/api/v1/certificate-formats/capabilities', headers: headers('user_formats') });
+    assert.equal(capabilities.statusCode, 200);
+    const formats = new Map((capabilities.body as any).formats.map((item: any) => [item.format, item]));
+    assert.equal((formats.get('pem') as any).importSupported, true);
+    assert.equal((formats.get('pfx') as any).implementation, 'openssl');
+    assert.equal((formats.get('jks') as any).importSupported, false);
+    assert.equal((formats.get('p7b') as any).containsPrivateKey, 'never');
+
+    for (const body of [{ jksBase64: Buffer.from('not-a-jks').toString('base64') }, { p7bBase64: Buffer.from('not-a-p7b').toString('base64') }]) {
+      const response = await app.inject({ method: 'POST', path: '/api/v1/certificate-versions/import', headers: headers('user_formats'), body });
+      assert.equal(response.statusCode, 422);
+      assert.equal((response.body as any).errorCode, 'CERT_FORMAT_UNSUPPORTED');
+    }
+  });
+
+  it('PFX 能通过 openssl 导入证书和私钥，响应仍不泄露私钥', async () => {
+    const pfx = createPfxFixture();
+    const { app } = createAuthorizedApp('user_pfx');
+    const imported = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers: headers('user_pfx'),
+      body: { pfxBase64: pfx.pfxBase64, pfxPassword: pfx.password },
+    });
+    assert.equal(imported.statusCode, 201);
+    const body = imported.body as any;
+    assert.equal(body.diagnostics.sourceFormat, 'pfx');
+    assert.equal(body.version.hasPrivateKey, true);
+    assert.equal(body.version.privateKeySecretRef, undefined);
+    assert.equal(JSON.stringify(body).includes('BEGIN PRIVATE KEY'), false);
+  });
+
+  it('详情、usage 和生命周期 API 可用，删除会受使用位置保护', async () => {
+    const { app } = createAuthorizedApp('user_lifecycle');
+    const imported = await app.inject({ method: 'POST', path: '/api/v1/certificate-versions/import', headers: headers('user_lifecycle'), body: { certificatePem: CERT_PEM } });
+    const assetId = (imported.body as any).asset.id;
+    const versionId = (imported.body as any).version.id;
+
+    const detail = await app.inject({ method: 'GET', path: `/api/v1/certificate-assets/detail?id=${assetId}`, headers: headers('user_lifecycle') });
+    assert.equal(detail.statusCode, 200);
+    assert.equal((detail.body as any).versions.length, 1);
+
+    const versionDetail = await app.inject({ method: 'GET', path: `/api/v1/certificate-versions/detail?id=${versionId}`, headers: headers('user_lifecycle') });
+    assert.equal(versionDetail.statusCode, 200);
+    assert.equal((versionDetail.body as any).asset.id, assetId);
+
+    const usage = await app.inject({ method: 'GET', path: `/api/v1/certificate-versions/usage?id=${versionId}`, headers: headers('user_lifecycle') });
+    assert.equal(usage.statusCode, 200);
+    assert.equal((usage.body as any).blockedDeletion, false);
+
+    const revoked = await app.inject({ method: 'POST', path: '/api/v1/certificate-versions/revoke', headers: headers('user_lifecycle'), body: { id: versionId } });
+    assert.equal(revoked.statusCode, 200);
+    assert.equal((revoked.body as any).status, 'revoked');
+    assert.equal((revoked.body as any).deployable, false);
+
+    const deletedAsset = await app.inject({ method: 'DELETE', path: '/api/v1/certificate-assets/delete', headers: headers('user_lifecycle'), body: { id: assetId } });
+    assert.equal(deletedAsset.statusCode, 200);
+    assert.equal((deletedAsset.body as any).status, 'deleted');
+  });
+
   it('OpenAPI 包含新增证书 API', async () => {
     const { app } = createAuthorizedApp('user_openapi');
     const response = await app.inject({ method: 'GET', path: '/api/v1/openapi.json', headers: headers('user_openapi') });
     assert.equal(response.statusCode, 200);
     const paths = (response.body as any).paths;
     assert.ok(paths['/api/v1/certificate-assets']);
+    assert.ok(paths['/api/v1/certificate-formats/capabilities']);
+    assert.ok(paths['/api/v1/certificate-assets/detail']);
+    assert.ok(paths['/api/v1/certificate-versions/detail']);
+    assert.ok(paths['/api/v1/certificate-versions/usage']);
     assert.ok(paths['/api/v1/certificate-versions/import']);
     assert.ok(paths['/api/v1/certificate-version-formats']);
     assert.ok(paths['/api/v1/certificate-version-formats/export-plan']);
     assert.ok(paths['/api/v1/certificate-sources/mock-sync']);
   });
+
+  it('契约必须提供证书详情、usage 和 formats 子资源路由', async () => {
+    const { app } = createAuthorizedApp('user_cert_detail');
+    const imported = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers: headers('user_cert_detail'),
+      body: { certificatePem: CERT_PEM, privateKeyPem: PRIVATE_KEY_PEM },
+    });
+    assert.equal(imported.statusCode, 201);
+    const assetId = (imported.body as any).asset.id;
+    const versionId = (imported.body as any).version.id;
+
+    const detail = await app.inject({
+      method: 'GET',
+      path: `/api/v1/certificate-assets/${assetId}`,
+      headers: headers('user_cert_detail'),
+    });
+    assert.equal(detail.statusCode, 200);
+    assert.equal((detail.body as any).id, assetId);
+    assert.equal(JSON.stringify(detail.body).includes('BEGIN PRIVATE KEY'), false);
+    assert.equal(JSON.stringify(detail.body).includes('privateKeySecretRef'), false);
+
+    const usage = await app.inject({
+      method: 'GET',
+      path: `/api/v1/certificate-assets/${assetId}/usage`,
+      headers: headers('user_cert_detail'),
+    });
+    assert.equal(usage.statusCode, 200);
+    assert.ok(Array.isArray((usage.body as any).items));
+
+    const formats = await app.inject({
+      method: 'GET',
+      path: `/api/v1/certificate-versions/${versionId}/formats`,
+      headers: headers('user_cert_detail'),
+    });
+    assert.equal(formats.statusCode, 200);
+    assert.ok(Array.isArray((formats.body as any).items));
+  });
+
+  it('导入、格式声明和读取权限必须与前端 permission key 一致', async () => {
+    const security = createSecurityServices();
+    security.rbac.createPolicy({
+      subjectType: 'user',
+      subjectId: 'user_permission_contract',
+      effect: 'allow',
+      actions: ['certificate.asset.read', 'certificate.import', 'certificate.format.create'],
+      resourceTypes: ['certificate_asset', 'certificate_version', 'certificate_version_format'],
+      scope: { tenantId: 'tenant_1' },
+    });
+    const app = createApp({ security });
+
+    const imported = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers: headers('user_permission_contract'),
+      body: { certificatePem: CERT_PEM, privateKeyPem: PRIVATE_KEY_PEM },
+    });
+    assert.equal(imported.statusCode, 201);
+    const versionId = (imported.body as any).version.id;
+
+    const listed = await app.inject({
+      method: 'GET',
+      path: '/api/v1/certificate-assets',
+      headers: headers('user_permission_contract'),
+    });
+    assert.equal(listed.statusCode, 200);
+
+    const format = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-version-formats/export-plan',
+      headers: headers('user_permission_contract'),
+      body: {
+        certificateVersionId: versionId,
+        format: 'pem',
+        containsPrivateKey: false,
+      },
+    });
+    assert.equal(format.statusCode, 201);
+  });
+
+  it('OpenAPI 导入请求体不得把 privateKeyPem 声明成响应或可日志化字段', async () => {
+    const { app } = createAuthorizedApp('user_openapi_redaction');
+    const response = await app.inject({ method: 'GET', path: '/api/v1/openapi.json', headers: headers('user_openapi_redaction') });
+    assert.equal(response.statusCode, 200);
+    const importOperation = (response.body as any).paths['/api/v1/certificate-versions/import'].post;
+    assert.ok(importOperation.requestBody, '导入接口必须声明 requestBody，不能用 additionalProperties 糊弄');
+    const operationJson = JSON.stringify(importOperation);
+    assert.equal(operationJson.includes('"privateKeyPem"'), true);
+    assert.equal(operationJson.includes('"writeOnly":true'), true);
+    assert.equal(operationJson.includes('"x-sensitive":true'), true);
+    assert.equal(JSON.stringify(importOperation.responses ?? {}).includes('privateKeyPem'), false);
+    assert.equal(JSON.stringify(importOperation.responses ?? {}).includes('privateKeySecretRef'), false);
+  });
 });
 
 function createAuthorizedApp(actorId: string) {
   const security = createSecurityServices();
-  for (const action of ['certificate.read', 'certificate.create', 'certificate.import', 'certificate.format.create']) {
+  for (const action of ['certificate.read', 'certificate.create', 'certificate.import', 'certificate.format.create', 'certificate.lifecycle']) {
     security.rbac.createPolicy({
       subjectType: 'user',
       subjectId: actorId,
@@ -300,4 +462,18 @@ function createPemChainFixture(): { pem: string; privateKeyPem: string } {
 
 function runOpenSsl(cwd: string, ...args: string[]): void {
   execFileSync('openssl', args, { cwd, stdio: 'ignore' });
+}
+
+function createPfxFixture(): { pfxBase64: string; password: string } {
+  const dir = mkdtempSync(join(tmpdir(), 'gcac-cert-pfx-'));
+  try {
+    const chain = createPemChainFixture();
+    writeFileSync(join(dir, 'cert.pem'), chain.pem);
+    writeFileSync(join(dir, 'key.pem'), chain.privateKeyPem);
+    const password = 'pfx-test-password';
+    runOpenSsl(dir, 'pkcs12', '-export', '-inkey', 'key.pem', '-in', 'cert.pem', '-out', 'bundle.p12', '-passout', `pass:${password}`);
+    return { pfxBase64: readFileSync(join(dir, 'bundle.p12')).toString('base64'), password };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }

@@ -6,7 +6,8 @@ import { parsePageQuery } from '../../../common/pagination/pagination.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
 import { AgentStatuses } from '../../../shared/enums/core.enums.js';
 import { AgentsApplicationService } from '../application/agents.application-service.js';
-import type { AckAgentTaskInput, AgentCapabilitySnapshotInput, AgentHeartbeatInput, CheckAgentUpgradeInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, SubmitAgentTaskLogInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
+import type { AckAgentTaskInput, AgentCapabilitySnapshotInput, AgentHeartbeatInput, CheckAgentUpgradeInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, DisableAgentInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, SubmitAgentTaskLogInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
+import type { AgentTaskEnvelope } from '../schema/agents.schema.js';
 
 const tags = ['Agents'];
 const tenantFallback = '00000000-0000-0000-0000-000000000000';
@@ -16,7 +17,12 @@ export class AgentsController {
 
   register(router: Router): void {
     router.get('/api/v1/agents', '查询 Agent 列表', tags, (request) => this.listAgents(request));
+    router.get('/api/v1/agents/detail', '查询 Agent 详情聚合', tags, (request) => this.getAgentDetail(request));
+    router.get('/api/v1/agents/capabilities', '查询 Agent 能力快照', tags, (request) => this.getCapabilities(request));
+    router.get('/api/v1/agents/tasks', '查询 Agent 任务队列', tags, (request) => this.listTaskQueue(request));
+    router.get('/api/v1/agents/upgrades/suggestion', '查询 Agent 升级建议', tags, (request) => this.getUpgradeSuggestion(request));
     router.post('/api/v1/agents/enrollment-tokens', '创建 Agent 注册令牌', tags, (request) => this.createEnrollmentToken(request));
+    router.post('/api/v1/agents/disable', '禁用 Agent', tags, (request) => this.disableAgent(request));
     router.post('/api/v1/agents/register', '注册 Agent', tags, (request) => this.registerAgent(request));
     router.post('/api/v1/agents/sessions', '创建 Agent mTLS 会话', tags, (request) => this.createSession(request));
     router.post('/api/v1/agents/heartbeat', 'Agent 心跳', tags, (request) => this.heartbeat(request));
@@ -54,6 +60,39 @@ export class AgentsController {
     return { statusCode: 201, body: this.service.createEnrollmentToken(tenantId(request), { createdBy: actorId(request), ...body } as unknown as CreateEnrollmentTokenInput, requestId(request)) };
   }
 
+  private getAgentDetail(request: HttpRequest) {
+    return this.service.getAgentDetail(tenantId(request), readQuery(request, 'agentId'));
+  }
+
+  private getCapabilities(request: HttpRequest) {
+    return this.service.getCapabilityProjection(tenantId(request), readQuery(request, 'agentId'));
+  }
+
+  private listTaskQueue(request: HttpRequest) {
+    const statuses = readOptionalCsv(request, 'status');
+    return this.service.listTaskQueue(tenantId(request), readQuery(request, 'agentId'), statuses as AgentTaskEnvelope['status'][] | undefined);
+  }
+
+  private getUpgradeSuggestion(request: HttpRequest) {
+    return this.service.getUpgradeSuggestion(tenantId(request), readQuery(request, 'agentId'));
+  }
+
+  private disableAgent(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      agentId: { type: 'string', required: true },
+      dryRun: { type: 'boolean' },
+      reason: { type: 'string' },
+      revokeCertificate: { type: 'boolean' },
+    });
+    if (body.dryRun) return { dryRun: true, status: 'DISABLED', agentId: body.agentId, reason: body.reason, revokeCertificate: Boolean(body.revokeCertificate) };
+    return this.service.disableAgent(tenantId(request), {
+      agentId: String(body.agentId),
+      reason: typeof body.reason === 'string' ? body.reason : undefined,
+      revokeCertificate: Boolean(body.revokeCertificate),
+      actorId: actorId(request),
+    }, requestId(request));
+  }
+
   private registerAgent(request: HttpRequest) {
     const body = validateObject(request.body, {
       agentKey: { type: 'string', required: true },
@@ -65,6 +104,13 @@ export class AgentsController {
       enrollmentToken: { type: 'string' },
       role: { type: 'string' },
       zone: { type: 'string' },
+      zoneIds: { type: 'array' },
+      adapters: { type: 'array' },
+      capabilities: { type: 'array' },
+      resourceLimits: { type: 'object' },
+      currentLoad: { type: 'number' },
+      maxConcurrentTasks: { type: 'number' },
+      successRate: { type: 'number' },
       certificateFingerprint: { type: 'string' },
       certificateExpiresAt: { type: 'string' },
     });
@@ -85,6 +131,12 @@ export class AgentsController {
       status: { type: 'string', enum: AgentStatuses },
       version: { type: 'string', required: true },
       taskSummary: { type: 'object' },
+      adapters: { type: 'array' },
+      capabilities: { type: 'array' },
+      resourceLimits: { type: 'object' },
+      currentLoad: { type: 'number' },
+      maxConcurrentTasks: { type: 'number' },
+      successRate: { type: 'number' },
     });
     return this.service.heartbeat(tenantId(request), body as unknown as AgentHeartbeatInput, requestId(request));
   }
@@ -94,6 +146,11 @@ export class AgentsController {
       agentId: { type: 'string', required: true },
       compatibilityLevel: { type: 'string' },
       capabilities: { type: 'array', required: true },
+      adapters: { type: 'array' },
+      resourceLimits: { type: 'object' },
+      currentLoad: { type: 'number' },
+      maxConcurrentTasks: { type: 'number' },
+      successRate: { type: 'number' },
     });
     return { statusCode: 201, body: this.service.reportCapabilities(tenantId(request), body as unknown as AgentCapabilitySnapshotInput, requestId(request)) };
   }
@@ -191,7 +248,12 @@ export function getAgentsRouteContracts(): RouteContract[] {
   const schema = { type: 'object', additionalProperties: true };
   return [
     { method: 'GET', path: '/api/v1/agents', operationId: 'listAgents', summary: '查询 Agent 列表', tags, responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/agents/detail', operationId: 'getAgentDetail', summary: '查询 Agent 详情聚合', tags, responseSchema: schema },
+    { method: 'GET', path: '/api/v1/agents/capabilities', operationId: 'getAgentCapabilities', summary: '查询 Agent 能力快照', tags, responseSchema: schema },
+    { method: 'GET', path: '/api/v1/agents/tasks', operationId: 'listAgentTaskQueue', summary: '查询 Agent 任务队列', tags, responseSchema: schema },
+    { method: 'GET', path: '/api/v1/agents/upgrades/suggestion', operationId: 'getAgentUpgradeSuggestion', summary: '查询 Agent 升级建议', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/enrollment-tokens', operationId: 'createAgentEnrollmentToken', summary: '创建 Agent 注册令牌', tags, responseSchema: schema },
+    { method: 'POST', path: '/api/v1/agents/disable', operationId: 'disableAgent', summary: '禁用 Agent', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/register', operationId: 'registerAgent', summary: '注册 Agent', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/sessions', operationId: 'createAgentMtlsSession', summary: '创建 Agent mTLS 会话', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/heartbeat', operationId: 'heartbeatAgent', summary: 'Agent 心跳', tags, responseSchema: schema },
@@ -226,4 +288,11 @@ function readQuery(request: HttpRequest, key: string, fallback?: string): string
   if (!normalized && fallback !== undefined) return fallback;
   if (!normalized) throw new AppError('VALIDATION_FAILED', `${key} 不能为空`, { key });
   return normalized;
+}
+
+function readOptionalCsv(request: HttpRequest, key: string): string[] | undefined {
+  const value = request.query[key];
+  const normalized = Array.isArray(value) ? value.join(',') : value;
+  if (!normalized) return undefined;
+  return normalized.split(',').map((item) => item.trim()).filter(Boolean);
 }
