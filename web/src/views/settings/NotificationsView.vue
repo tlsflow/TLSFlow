@@ -57,6 +57,7 @@ interface NotificationSilenceRecord {
 type DialogType = 'channel' | 'route' | 'template' | 'silence' | 'test' | null
 
 const { t } = useI18n()
+const shouldTeleportToolbarActions = computed(() => typeof document !== 'undefined' && Boolean(document.querySelector('#gc-shell-hero-leading')))
 const permissionStore = usePermissionStore()
 const canUpdateSettings = computed(() => permissionStore.hasPermission('settings.write'))
 const activeTab = ref('channels')
@@ -413,18 +414,22 @@ onMounted(refresh)
 <template>
   <section class="notifications-page">
     <p v-if="errorMessage" class="notifications-page__error" role="alert">{{ errorMessage }}</p>
-    <GcPageToolbar>
-      <template #actions>
-        <button class="notifications-page__button notifications-page__button--secondary" type="button" :disabled="loading" @click="refresh">{{ t('common.refresh') }}</button>
-        <button v-if="activeTab === 'channels'" class="notifications-page__button" type="button" @click="openDialog('channel')">{{ t('notifications.actions.createChannel') }}</button>
-        <button v-if="activeTab === 'rules'" class="notifications-page__button" type="button" @click="openDialog('route')">{{ t('notifications.actions.createRoute') }}</button>
-        <button v-if="activeTab === 'rules'" class="notifications-page__button" type="button" @click="openDialog('template')">{{ t('notifications.actions.createTemplate') }}</button>
-        <button v-if="activeTab === 'rules'" class="notifications-page__button" type="button" @click="openDialog('silence')">{{ t('notifications.actions.createSilence') }}</button>
-      </template>
-      <template #tabs>
-        <GcTabs v-model="activeTab" :tabs="tabs" />
-      </template>
-    </GcPageToolbar>
+    <Teleport to="#gc-shell-hero-leading" :disabled="!shouldTeleportToolbarActions">
+      <GcPageToolbar>
+        <template #actions>
+          <button class="gc-button" type="button" :disabled="loading" @click="refresh">{{ t('common.refresh') }}</button>
+        </template>
+        <template #primary>
+          <button v-if="activeTab === 'channels'" class="gc-button gc-button--primary" type="button" @click="openDialog('channel')">{{ t('notifications.actions.createChannel') }}</button>
+          <button v-if="activeTab === 'rules'" class="gc-button gc-button--primary" type="button" @click="openDialog('route')">{{ t('notifications.actions.createRoute') }}</button>
+          <button v-if="activeTab === 'rules'" class="gc-button gc-button--primary" type="button" @click="openDialog('template')">{{ t('notifications.actions.createTemplate') }}</button>
+          <button v-if="activeTab === 'rules'" class="gc-button gc-button--primary" type="button" @click="openDialog('silence')">{{ t('notifications.actions.createSilence') }}</button>
+        </template>
+        <template #tabs>
+          <GcTabs v-model="activeTab" :tabs="tabs" />
+        </template>
+      </GcPageToolbar>
+    </Teleport>
 
     <section v-if="activeTab === 'channels'" class="notifications-page__section">
       <form class="gc-card notifications-page__settings" @submit.prevent="saveNotificationSettings">

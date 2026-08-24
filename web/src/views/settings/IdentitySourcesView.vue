@@ -16,7 +16,7 @@ import {
   type IdentitySourceConnectionCheckStatus,
   type IdentitySourceConnectionTestResult,
 } from '@/api/modules/security.api'
-import { GcConfirmAction, GcModal } from '@/design-system/components'
+import { GcConfirmAction, GcModal, GcPageToolbar } from '@/design-system/components'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
 
 type IdentitySourceKind = 'active_directory' | 'ldap'
@@ -53,6 +53,8 @@ const editorError = ref('')
 const editorMessage = ref('')
 const advancedOpen = ref(false)
 const { t } = useI18n()
+const shouldTeleportToolbarActions = computed(() => typeof document !== 'undefined' && Boolean(document.querySelector('#gc-shell-hero-leading')))
+const SETTINGS_PAGE_SIZE = 20
 
 const deletingId = ref('')
 const testingSourceId = ref('')
@@ -403,19 +405,22 @@ onMounted(async () => {
 
 <template>
   <section class="identity-sources">
-    <header class="identity-sources__header">
-      <div class="identity-sources__header-actions">
-        <button class="gc-button gc-button--primary" type="button" @click="openCreateDialog">{{ t('settings.identitySources.actions.create') }}</button>
-        <button class="gc-button" type="button" :disabled="pageLoading" @click="reloadSources">{{ t('common.refresh') }}</button>
-      </div>
-    </header>
+    <Teleport to="#gc-shell-hero-leading" :disabled="!shouldTeleportToolbarActions">
+      <GcPageToolbar>
+        <template #actions>
+          <button class="gc-button" type="button" :disabled="pageLoading" @click="reloadSources">{{ t('common.refresh') }}</button>
+        </template>
+        <template #primary>
+          <button class="gc-button gc-button--primary" type="button" @click="openCreateDialog">{{ t('settings.identitySources.actions.create') }}</button>
+        </template>
+      </GcPageToolbar>
+    </Teleport>
 
     <p v-if="pageError" class="identity-sources__error">{{ pageError }}</p>
 
     <section class="gc-card identity-sources__table-card">
       <div class="identity-sources__table-head">
         <strong>{{ t('settings.identitySources.table.title') }}</strong>
-        <span>{{ t('settings.identitySources.table.total', { count: sourceItems.length }) }}</span>
       </div>
       <div class="identity-sources__table-scroll">
         <table class="identity-sources__table">
@@ -477,6 +482,9 @@ onMounted(async () => {
           </tbody>
         </table>
       </div>
+      <footer class="gc-data-table__footer identity-sources__table-footer">
+        {{ t('businessPage.pagination', { page: 1, pageSize: SETTINGS_PAGE_SIZE }) }}
+      </footer>
     </section>
 
     <GcModal
@@ -647,14 +655,18 @@ onMounted(async () => {
 
 <style scoped>
 .identity-sources { display: grid; gap: var(--gc-space-5); }
-.identity-sources__header { display: flex; justify-content: flex-end; gap: var(--gc-space-4); align-items: flex-start; }
-.identity-sources__header-actions { display: flex; flex-wrap: wrap; gap: var(--gc-space-2); }
-
 .identity-sources__table-card { overflow: hidden; padding: 0; }
 .identity-sources__table-head { display: flex; justify-content: space-between; gap: var(--gc-space-3); padding: 18px 20px; border-bottom: 1px solid var(--gc-color-border); }
 .identity-sources__table-head strong { font-size: 17px; }
-.identity-sources__table-head span { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); font-weight: 700; }
 .identity-sources__table-scroll { overflow-x: auto; }
+.identity-sources__table-footer {
+  padding: var(--gc-space-3) var(--gc-space-5);
+  border-top: 1px solid var(--gc-color-border);
+  color: var(--gc-color-text-muted);
+  background: var(--gc-color-surface-raised);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 650;
+}
 .identity-sources__table { width: 100%; border-collapse: collapse; min-width: 840px; table-layout: fixed; }
 .identity-sources__table th,
 .identity-sources__table td { padding: 16px 24px; border-bottom: 1px solid var(--gc-color-border); text-align: left; vertical-align: middle; }
@@ -664,7 +676,7 @@ onMounted(async () => {
 .identity-sources__table th:nth-child(2) { width: 18%; }
 .identity-sources__table th:nth-child(3) { width: 28%; }
 .identity-sources__table th:nth-child(4) { width: 14%; }
-.identity-sources__table th:nth-child(5) { width: 170px; }
+.identity-sources__table th:nth-child(5) { width: calc(var(--gc-space-10) * 6); }
 .identity-sources__name-cell,
 .identity-sources__status-cell { display: grid; gap: 7px; }
 .identity-sources__name-cell strong { color: var(--gc-color-text); font-size: 15px; font-weight: 900; }
@@ -681,7 +693,15 @@ onMounted(async () => {
 }
 .identity-sources__enabled-badge { color: var(--gc-color-success); background: var(--gc-color-success-bg); }
 .identity-sources__enabled-badge--disabled { color: var(--gc-color-danger); background: var(--gc-color-danger-bg); }
-.identity-sources__row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gc-space-2); min-width: 142px; }
+.identity-sources__row-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--gc-space-2);
+  min-width: max-content;
+  white-space: nowrap;
+}
+.identity-sources__table td:last-child { white-space: nowrap; }
 .identity-sources__row-actions :deep(.gc-button) { flex: 0 0 auto; white-space: nowrap; }
 
 .identity-source-form__message { margin: 0; color: var(--gc-color-success); font-weight: 800; }
@@ -765,7 +785,6 @@ onMounted(async () => {
 .identity-source-test__content p { margin: 0; color: var(--gc-color-text-muted); line-height: 1.55; }
 
 @media (max-width: 860px) {
-  .identity-sources__header { flex-direction: column; }
   .identity-source-form__grid { grid-template-columns: 1fr; }
   .identity-source-form__field--full { grid-column: auto; }
 }

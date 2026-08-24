@@ -138,7 +138,6 @@ onMounted(load)
     <section class="gc-card security-admin__table" :aria-label="t('securityAdmin.table.ariaLabel')">
       <div class="security-admin__table-head">
         <strong>{{ t('securityAdmin.table.resourceList', { resource: config.resourceName }) }}</strong>
-        <span>{{ t('securityAdmin.table.total', { count: rows.length }) }}</span>
       </div>
       <div class="security-admin__table-scroll">
         <table>
@@ -152,6 +151,9 @@ onMounted(load)
           </tbody>
         </table>
       </div>
+      <footer class="gc-data-table__footer security-admin__table-footer">
+        {{ t('businessPage.pagination', { page: 1, pageSize: 20 }) }}
+      </footer>
     </section>
   </section>
 </template>
@@ -175,8 +177,15 @@ onMounted(load)
 .security-admin__table { overflow: hidden; padding: 0; }
 .security-admin__table-head { display: flex; justify-content: space-between; gap: var(--gc-space-3); padding: 18px 20px; border-bottom: 1px solid var(--gc-color-border); }
 .security-admin__table-head strong { font-size: 17px; }
-.security-admin__table-head span { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); font-weight: 700; }
 .security-admin__table-scroll { overflow-x: auto; }
+.security-admin__table-footer {
+  padding: var(--gc-space-3) var(--gc-space-5);
+  border-top: 1px solid var(--gc-color-border);
+  color: var(--gc-color-text-muted);
+  background: var(--gc-color-surface-raised);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 650;
+}
 table { width: 100%; border-collapse: collapse; min-width: 760px; }
 th, td { padding: 14px 16px; border-bottom: 1px solid var(--gc-color-border); text-align: left; vertical-align: top; }
 th { color: var(--gc-color-text-muted); background: var(--gc-color-surface-muted); font-size: var(--gc-font-size-xs); letter-spacing: .06em; text-transform: uppercase; }

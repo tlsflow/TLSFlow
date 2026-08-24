@@ -20,7 +20,7 @@ import {
   type CredentialUsage,
   type BrowserCredentialSession,
 } from '@/api/modules/credentials.api'
-import { GcModal, GcPageHeader, GcSecretInput, GcStatusTag } from '@/design-system/components'
+import { GcModal, GcPageToolbar, GcSecretInput, GcStatusTag } from '@/design-system/components'
 import { listPluginCatalog } from '@/api/modules/plugins.api'
 import { formatBrowserLocalTime, formatMaybeLocalTime, getExpiryRemaining } from '@/utils/browser-local-time'
 
@@ -52,6 +52,7 @@ interface BrowserOptionItem {
 }
 
 const { t } = useI18n()
+const shouldTeleportToolbarActions = computed(() => typeof document !== 'undefined' && Boolean(document.querySelector('#gc-shell-hero-leading')))
 const loading = ref(false)
 const loadingSelection = ref(false)
 const saving = ref(false)
@@ -660,23 +661,20 @@ onUnmounted(() => {
 
 <template>
   <section class="gc-page credentials-page">
-    <GcPageHeader :title="t('credentials.title')" :description="t('credentials.description')">
-      <template #actions>
-        <button class="gc-button" type="button" :disabled="loading" @click="load">{{ t('credentials.actions.refresh') }}</button>
-        <button class="gc-button gc-button--primary" type="button" @click="openCreate">{{ t('credentials.actions.create') }}</button>
-      </template>
-    </GcPageHeader>
+    <Teleport to="#gc-shell-hero-leading" :disabled="!shouldTeleportToolbarActions">
+      <GcPageToolbar>
+        <template #actions>
+          <button class="gc-button" type="button" :disabled="loading" @click="load">{{ t('credentials.actions.refresh') }}</button>
+        </template>
+        <template #primary>
+          <button class="gc-button gc-button--primary" type="button" @click="openCreate">{{ t('credentials.actions.create') }}</button>
+        </template>
+      </GcPageToolbar>
+    </Teleport>
 
     <p v-if="error" class="credentials-page__error" role="alert">{{ error }}</p>
 
     <section class="gc-card credentials-list">
-      <header class="credentials-list__header">
-        <div>
-          <h2>{{ t('credentials.list.title') }}</h2>
-          <p>{{ t('credentials.list.description', { count: items.length }) }}</p>
-        </div>
-      </header>
-
       <p v-if="loading" class="credentials-list__state">{{ t('common.loading') }}</p>
       <p v-else-if="items.length === 0" class="credentials-list__state">{{ t('credentials.empty') }}</p>
       <div v-else class="credentials-list__table-wrap">
@@ -726,6 +724,9 @@ onUnmounted(() => {
           </tbody>
         </table>
       </div>
+      <footer class="gc-data-table__footer credentials-list__footer">
+        {{ t('businessPage.pagination', { page: 1, pageSize: 20 }) }}
+      </footer>
     </section>
 
     <GcModal v-model:open="editorOpen" :title="editorTitle" :description="isEditing ? undefined : editorDescription" size="xl">
@@ -951,13 +952,18 @@ onUnmounted(() => {
 .credentials-page { display: grid; gap: var(--gc-space-5); }
 .credentials-page__error { margin: 0; padding: var(--gc-space-3) var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-danger-border); border-radius: var(--gc-radius-md); background: var(--gc-color-danger-bg); color: var(--gc-color-danger); }
 .credentials-list { overflow: hidden; padding: 0; }
-.credentials-list__header { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-4); padding: var(--gc-space-3) var(--gc-space-5); border-bottom: var(--gc-border-width-default) solid var(--gc-color-border); background: var(--gc-gradient-surface-soft); }
-.credentials-list__header h2, .credentials-editor h3, .usage-group h4 { margin: 0; color: var(--gc-color-text-strong); }
-.credentials-list__header h2 { font-size: var(--gc-font-size-sm); }
-.credentials-list__header p, .credentials-editor header p, .usage-group p { margin: var(--gc-space-1) 0 0; color: var(--gc-color-text-muted); }
-.credentials-list__header p { font-size: var(--gc-font-size-xs); font-weight: 650; }
+.credentials-editor h3, .usage-group h4 { margin: 0; color: var(--gc-color-text-strong); }
+.credentials-editor header p, .usage-group p { margin: var(--gc-space-1) 0 0; color: var(--gc-color-text-muted); }
 .credentials-list__state { margin: 0; padding: var(--gc-space-10); text-align: center; color: var(--gc-color-text-muted); }
 .credentials-list__table-wrap { overflow-x: auto; }
+.credentials-list__footer {
+  padding: var(--gc-space-3) var(--gc-space-5);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border);
+  color: var(--gc-color-text-muted);
+  background: var(--gc-color-surface-raised);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 650;
+}
 table { width: 100%; min-width: var(--gc-size-modal-wide); border-collapse: separate; border-spacing: 0; }
 th, td { padding: var(--gc-space-2) var(--gc-space-3); border-bottom: var(--gc-border-width-default) solid var(--gc-color-border); text-align: left; vertical-align: middle; line-height: 1.25; }
 th { background: var(--gc-color-surface-muted); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); font-weight: 900; white-space: nowrap; }

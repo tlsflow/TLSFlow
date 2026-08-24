@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { GcPageHeader } from '@/design-system/components'
 import { gcacVersion } from '@/version'
 
 const { t } = useI18n()
@@ -8,8 +7,6 @@ const { t } = useI18n()
 
 <template>
   <section class="gc-page version-page">
-    <GcPageHeader :title="t('settings.version.title')" :description="t('settings.version.description')" />
-
     <section class="gc-card version-page__card" :aria-label="t('settings.version.currentVersion')">
       <span class="version-page__label">{{ t('settings.version.currentVersion') }}</span>
       <strong class="version-page__value">{{ gcacVersion }}</strong>

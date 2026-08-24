@@ -23,6 +23,8 @@ import { GcConfirmAction, GcModal, GcPageToolbar, GcTabs } from '@/design-system
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
 
 const { t } = useI18n()
+const shouldTeleportToolbarActions = computed(() => typeof document !== 'undefined' && Boolean(document.querySelector('#gc-shell-hero-leading')))
+const SETTINGS_PAGE_SIZE = 20
 
 interface UserDraft {
   createMode: 'local' | 'external'
@@ -131,10 +133,6 @@ const directoryTabs = computed(() => [
   { value: 'users', label: t('settings.users.tabs.users') },
   { value: 'groups', label: t('settings.users.tabs.groups') },
 ])
-const activeListSummary = computed(() => {
-  if (activeDirectoryTab.value === 'groups') return t('settings.users.summary.groups', { count: groupItems.value.length })
-  return t('settings.users.summary.users', { total: userItems.value.length, selected: selectedCount.value })
-})
 const allSelectableIds = computed(() =>
   userItems.value
     .map((item) => String(item.id ?? ''))
@@ -392,24 +390,28 @@ onMounted(async () => {
 
 <template>
   <section class="users-view">
-    <GcPageToolbar>
-      <template #actions>
-        <button class="gc-button gc-button--primary" type="button" @click="openCreateDialog">{{ t('settings.users.actions.createUser') }}</button>
-        <button class="gc-button" type="button" @click="openCreateGroupDialog">{{ t('settings.users.actions.addGroup') }}</button>
-        <GcConfirmAction
-          v-if="selectedCount > 0"
-          :action-name="t('settings.users.actions.bulkDelete')"
-          :impact-count="selectedCount"
-          :risk-text="t('settings.users.risks.bulkDelete')"
-          confirm-text="DELETE"
-          @confirm="removeUsers(selectedUserIds)"
-        />
-        <button class="gc-button" type="button" :disabled="pageLoading" @click="refreshDirectory">{{ t('common.refresh') }}</button>
-      </template>
-      <template #tabs>
-        <GcTabs v-model="activeDirectoryTab" :tabs="directoryTabs" :aria-label="t('settings.users.aria.principalType')" />
-      </template>
-    </GcPageToolbar>
+    <Teleport to="#gc-shell-hero-leading" :disabled="!shouldTeleportToolbarActions">
+      <GcPageToolbar>
+        <template #actions>
+          <button class="gc-button" type="button" :disabled="pageLoading" @click="refreshDirectory">{{ t('common.refresh') }}</button>
+          <button class="gc-button" type="button" @click="openCreateGroupDialog">{{ t('settings.users.actions.addGroup') }}</button>
+          <GcConfirmAction
+            v-if="selectedCount > 0"
+            :action-name="t('settings.users.actions.bulkDelete')"
+            :impact-count="selectedCount"
+            :risk-text="t('settings.users.risks.bulkDelete')"
+            confirm-text="DELETE"
+            @confirm="removeUsers(selectedUserIds)"
+          />
+        </template>
+        <template #primary>
+          <button class="gc-button gc-button--primary" type="button" @click="openCreateDialog">{{ t('settings.users.actions.createUser') }}</button>
+        </template>
+        <template #tabs>
+          <GcTabs v-model="activeDirectoryTab" :tabs="directoryTabs" :aria-label="t('settings.users.aria.principalType')" />
+        </template>
+      </GcPageToolbar>
+    </Teleport>
 
     <p v-if="pageError" class="users-view__error">{{ pageError }}</p>
 
@@ -418,7 +420,6 @@ onMounted(async () => {
         <div class="users-view__table-title">
           <strong>{{ t('settings.users.title') }}</strong>
         </div>
-        <span>{{ activeListSummary }}</span>
       </div>
       <div class="users-view__table-scroll">
         <table v-if="activeDirectoryTab === 'users'" class="users-view__table">
@@ -518,6 +519,9 @@ onMounted(async () => {
           </tbody>
         </table>
       </div>
+      <footer class="gc-data-table__footer users-view__table-footer">
+        {{ t('businessPage.pagination', { page: 1, pageSize: SETTINGS_PAGE_SIZE }) }}
+      </footer>
     </section>
 
     <GcModal
@@ -706,8 +710,15 @@ onMounted(async () => {
 .users-view__table-head { display: flex; justify-content: space-between; gap: var(--gc-space-3); padding: 12px 16px; border-bottom: 1px solid var(--gc-color-border); }
 .users-view__table-title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gc-space-3); }
 .users-view__table-head strong { font-size: 14px; }
-.users-view__table-head span { color: var(--gc-color-text-muted); font-size: 12px; font-weight: 700; }
 .users-view__table-scroll { overflow-x: auto; }
+.users-view__table-footer {
+  padding: var(--gc-space-3) var(--gc-space-4);
+  border-top: 1px solid var(--gc-color-border);
+  color: var(--gc-color-text-muted);
+  background: var(--gc-color-surface-raised);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 650;
+}
 .users-view__table { width: 100%; border-collapse: collapse; min-width: 1260px; }
 .users-view__table--groups { min-width: 980px; }
 .users-view__table th,

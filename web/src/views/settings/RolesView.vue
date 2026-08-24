@@ -23,7 +23,7 @@ import {
   listUsers
 } from '@/api/modules/security.api'
 import { listWorkflowTemplates } from '@/api/modules/workflow-templates.api'
-import { GcDataTable, GcModal, GcPageHeader } from '@/design-system/components'
+import { GcDataTable, GcModal, GcPageToolbar } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 
 interface RoleDraft {
@@ -64,6 +64,7 @@ interface ObjectTreeNode {
 }
 
 const { t } = useI18n()
+const shouldTeleportToolbarActions = computed(() => typeof document !== 'undefined' && Boolean(document.querySelector('#gc-shell-hero-leading')))
 
 const roleRows = ref<ApiRecord[]>([])
 const objectSetRows = ref<ApiRecord[]>([])
@@ -872,12 +873,16 @@ onMounted(() => void reloadAll())
 
 <template>
   <section class="gc-page roles-view">
-    <GcPageHeader :title="t('settings.roles.page.title')" :description="t('settings.roles.page.description')">
-      <template #actions>
-        <button class="gc-button" type="button" @click="openCreateRole">{{ t('settings.roles.actions.createRole') }}</button>
-        <button class="gc-button" type="button" :disabled="loading" @click="reloadAll">{{ t('common.refresh') }}</button>
-      </template>
-    </GcPageHeader>
+    <Teleport to="#gc-shell-hero-leading" :disabled="!shouldTeleportToolbarActions">
+      <GcPageToolbar>
+        <template #actions>
+          <button class="gc-button" type="button" :disabled="loading" @click="reloadAll">{{ t('common.refresh') }}</button>
+        </template>
+        <template #primary>
+          <button class="gc-button gc-button--primary" type="button" @click="openCreateRole">{{ t('settings.roles.actions.createRole') }}</button>
+        </template>
+      </GcPageToolbar>
+    </Teleport>
 
     <p v-if="pageError" class="roles-view__error">{{ pageError }}</p>
 
@@ -908,6 +913,9 @@ onMounted(() => void reloadAll())
           </button>
         </div>
       </template>
+      <template #pagination>
+        {{ t('businessPage.pagination', { page: 1, pageSize: 20 }) }}
+      </template>
     </GcDataTable>
 
     <GcModal
@@ -933,6 +941,9 @@ onMounted(() => void reloadAll())
               <button class="gc-button" type="button" @click="openGrantRole()">{{ t('settings.roles.actions.grantPermission') }}</button>
             </div>
           </template>
+          <template #pagination>
+            {{ t('businessPage.pagination', { page: 1, pageSize: 20 }) }}
+          </template>
         </GcDataTable>
 
         <GcDataTable :columns="roleMemberColumns" :rows="currentRoleMembers" row-key="rowKey" :empty-text="t('settings.roles.table.emptyMembers')" dense>
@@ -941,6 +952,9 @@ onMounted(() => void reloadAll())
               <strong>{{ t('settings.roles.table.assignedMembers') }}</strong>
               <button class="gc-button" type="button" @click="openAssignMembersFromRole(selectedRole)">{{ t('settings.roles.actions.assignMembers') }}</button>
             </div>
+          </template>
+          <template #pagination>
+            {{ t('businessPage.pagination', { page: 1, pageSize: 20 }) }}
           </template>
         </GcDataTable>
       </section>
