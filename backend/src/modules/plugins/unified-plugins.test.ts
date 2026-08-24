@@ -68,6 +68,42 @@ test('统一插件拒绝任意可执行资源和缺失资源', async () => {
   );
 });
 
+test('统一插件接受声明式 inputContracts 资源', async () => {
+  const service = new UnifiedPluginsApplicationService(memoryRepository(new Map()));
+  const base = workflowPluginInput();
+  const imported = await service.importVersion('tenant-1', {
+    ...base,
+    manifest: {
+      ...base.manifest,
+      resources: {
+        ...base.manifest.resources,
+        inputContracts: { 'certificate.deploy': 'contracts/deploy.json' },
+      },
+    },
+    resources: {
+      ...base.resources,
+      'contracts/deploy.json': JSON.stringify({ apiVersion: 'gcac.deployment-input/v1', variables: {}, connections: {}, credentials: {}, artifacts: {} }),
+    },
+  });
+
+  assert.equal(imported.pluginId, 'test.device.workflow');
+});
+
+test('未声明 inputContracts 的旧 Manifest 规范化不写入空字段且重复导入保持同一摘要', async () => {
+  const records = new Map<string, UnifiedPluginVersionRecord>();
+  const service = new UnifiedPluginsApplicationService(memoryRepository(records));
+  const input = workflowPluginInput();
+
+  const first = await service.importVersion('tenant-1', input);
+  const resources = first.manifest.resources as Record<string, unknown>;
+  assert.equal(Object.hasOwn(resources, 'inputContracts'), false);
+
+  const second = await service.importVersion('tenant-1', input);
+  assert.equal(second.id, first.id);
+  assert.equal(second.manifestSha256, first.manifestSha256);
+  assert.equal(second.packageSha256, first.packageSha256);
+});
+
 test('统一插件在导入阶段拒绝无效接入配方，并接受完整的声明式配方', async () => {
   const service = new UnifiedPluginsApplicationService(memoryRepository(new Map()));
   const base = workflowPluginInput();

@@ -20,7 +20,7 @@ test('Registry 直接从 Manifest 派生版本和 Runner 入口，不加载插�
   assert.equal(entry?.pluginId, 'web.nginx');
   assert.equal(entry?.version, '1.0.0');
   assert.equal(entry?.runtimeEntrypoint, 'runtime/index.js');
-  assert.equal(entry?.ipcProtocol, 'gcac.plugin-runner/v1');
+  assert.equal(entry?.ipcProtocol, 'gcac.plugin-runner/v2');
   assert.match(entry?.runtimeEntrypointPath ?? '', /runtime[\\/]index\.js$/);
   assert.throws(() => registry.get('web.nginx', '1.0.1'), /固定的 Manifest PluginVersion/);
 });
@@ -36,7 +36,7 @@ test('未登记在历史发布台账中的包仍可按 Manifest 注册', async (
 test('版本门禁名单只跳过指定插件包', async () => {
   const root = await createPackageRoot();
   const loader = new BuiltinUnifiedPluginLoader(root);
-  const registry = new BuiltinPluginRegistry(loader, { blockedPackageDirectories: ['web-nginx'] });
+  const registry = new BuiltinPluginRegistry(loader, { blockedPackageDirectories: ['fixture-plugin'] });
 
   assert.deepEqual(await registry.refresh(), []);
 });
@@ -109,7 +109,7 @@ test('同一插件版本摘要不同只跳过冲突插件', async () => {
 
 test('Registry 在 Manifest 边界跳过非法 SemVer 插件', async () => {
   const root = await createPackageRoot();
-  const manifestPath = join(root, 'web-nginx', 'manifest.json');
+  const manifestPath = join(root, 'fixture-plugin', 'manifest.json');
   const manifest = JSON.parse(await (await import('node:fs/promises')).readFile(manifestPath, 'utf8')) as Record<string, unknown>;
   manifest.version = 'v1.0.0';
   await writeFile(manifestPath, JSON.stringify(manifest), 'utf8');
@@ -119,7 +119,7 @@ test('Registry 在 Manifest 边界跳过非法 SemVer 插件', async () => {
 
 test('Registry 在 Policy 边界跳过未知 Canonical Plugin ID 插件', async () => {
   const root = await createPackageRoot();
-  const manifestPath = join(root, 'web-nginx', 'manifest.json');
+  const manifestPath = join(root, 'fixture-plugin', 'manifest.json');
   const manifest = JSON.parse(await (await import('node:fs/promises')).readFile(manifestPath, 'utf8')) as Record<string, unknown>;
   manifest.pluginId = 'web.unknown';
   await writeFile(manifestPath, JSON.stringify(manifest), 'utf8');
@@ -199,7 +199,7 @@ test('registerAll 孤儿退休失败只跳过该记录，不影响其余安装',
 
 async function createPackageRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'gcac-p2-registry-'));
-  const packageRoot = join(root, 'web-nginx');
+  const packageRoot = join(root, 'fixture-plugin');
   await mkdir(join(packageRoot, 'runtime'), { recursive: true });
   await mkdir(join(packageRoot, 'workflows'), { recursive: true });
   await writeFile(join(packageRoot, 'manifest.json'), JSON.stringify({

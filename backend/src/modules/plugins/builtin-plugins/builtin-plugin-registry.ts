@@ -10,18 +10,22 @@ import { BuiltinUnifiedPluginLoader, type BuiltinPluginPackage } from './builtin
 import type { PluginWorkflowDeclaration } from '../application/plugin-workflow-declaration-resolver.js';
 import type { UnifiedPluginsApplicationService } from '../application/unified-plugins.application-service.js';
 import { canonicalResourceHash } from '../../../shared/plugin-resource-hash.js';
+import { certificateUpdatePluginIds } from '../canonical-plugin-id/canonical-plugin-id.registry.js';
+import { validateCertificateUpdateInputContract } from '../../deployment-inputs/certificate-update/certificate-update.contract.js';
 
 export interface BuiltinPluginRegistryEntry {
   pluginId: CanonicalPluginId;
   version: string;
   packageDirectory: string;
-  runtimeEntrypoint: 'runtime/index.js';
+  runtimeEntrypoint?: 'runtime/index.js';
+  /** 声明式包没有 Runner 路径，使用空值保持旧 Runner 测试和类型合同可判定。 */
   runtimeEntrypointPath: string;
-  executionMode: 'DSL_STEP_ACTION';
-  ipcProtocol: 'gcac.plugin-runner/v2';
+  executionMode: 'DSL_STEP_ACTION' | 'AGENT_PLAN';
+  ipcProtocol?: 'gcac.plugin-runner/v2';
   manifest: UnifiedPluginManifestV1;
   capabilities: UnifiedPluginCapabilityDescriptor[];
   workflows: PluginWorkflowDeclaration[];
+  inputContracts?: Record<string, string>;
   packageSha256: string;
   manifestSha256: string;
   resourceSha256: Record<string, string>;
@@ -198,8 +202,12 @@ function buildRegistryEntry(
   assertPackageDirectory(pluginPackage.packageDirectory);
   const manifest = validateUnifiedPluginManifest(pluginPackage.manifest);
   const policy = validateBuiltinPluginPolicy(manifest);
-  if (pluginPackage.runtimeEntrypoint !== policy.runtimeEntrypoint
-    || pluginPackage.runtimeEntrypointPath === undefined) {
+  if (certificateUpdatePluginIds.includes(manifest.pluginId as never)) {
+    validateCertificateInputResources(manifest, pluginPackage.resources);
+  }
+  if (policy.runtimeEntrypoint !== undefined
+    && (pluginPackage.runtimeEntrypoint !== policy.runtimeEntrypoint
+      || pluginPackage.runtimeEntrypointPath === undefined)) {
     throw new AppError('PLUGIN_RUNNER_START_FAILED', '内置插件缺少固定 Runner 入口 runtime/index.js', { pluginId: manifest.pluginId });
   }
   const packageSha256 = sha256(pluginPackage.packageContent);
@@ -208,10 +216,12 @@ function buildRegistryEntry(
     pluginId: policy.pluginId,
     version: manifest.version,
     packageDirectory: pluginPackage.packageDirectory,
-    runtimeEntrypoint: 'runtime/index.js',
-    runtimeEntrypointPath: pluginPackage.runtimeEntrypointPath,
     executionMode: policy.executionMode,
-    ipcProtocol: policy.ipcProtocol,
+    ...(policy.runtimeEntrypoint ? {
+      runtimeEntrypoint: policy.runtimeEntrypoint,
+      runtimeEntrypointPath: pluginPackage.runtimeEntrypointPath!,
+      ipcProtocol: policy.ipcProtocol,
+    } : { runtimeEntrypointPath: '' }),
     manifest,
     capabilities: structuredClone(manifest.capabilities),
     workflows: Object.entries(manifest.resources.workflows ?? {}).map(([key, path]) => ({
@@ -219,11 +229,30 @@ function buildRegistryEntry(
       capabilityKey: key,
       path,
     })),
+    ...(manifest.resources.inputContracts === undefined
+      ? {}
+      : { inputContracts: { ...manifest.resources.inputContracts } }),
     packageSha256,
     manifestSha256: sha256(stableJson(pluginPackage.manifest)),
     resourceSha256,
     resourceHash: canonicalResourceHash(resourceSha256),
   };
+}
+
+function validateCertificateInputResources(manifest: UnifiedPluginManifestV1, resources: Record<string, string>): void {
+  for (const capability of ['certificate.deploy', 'certificate.verify', 'certificate.rollback']) {
+    const path = manifest.resources.inputContracts?.[capability];
+    const content = path ? resources[path] : undefined;
+    if (!path || !content) throw new AppError('VALIDATION_FAILED', '证书更新输入合同资源缺失', { pluginId: manifest.pluginId, capability });
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch (error) {
+      throw new AppError('VALIDATION_FAILED', '证书更新输入合同资源不是有效 JSON', { pluginId: manifest.pluginId, capability, cause: error instanceof Error ? error.message : String(error) });
+    }
+    const contract = validateCertificateUpdateInputContract(parsed);
+    if (contract.pluginId !== manifest.pluginId) throw new AppError('VALIDATION_FAILED', '证书输入合同 Plugin ID 与 Manifest 不一致', { pluginId: manifest.pluginId, capability });
+  }
 }
 
 function hashResources(resources: Record<string, string>): Record<string, string> {
@@ -289,6 +318,7 @@ function cloneRegistryEntry(entry: BuiltinPluginRegistryEntry): BuiltinPluginReg
     manifest: structuredClone(entry.manifest),
     capabilities: structuredClone(entry.capabilities),
     workflows: structuredClone(entry.workflows),
+    ...(entry.inputContracts ? { inputContracts: { ...entry.inputContracts } } : {}),
     resourceSha256: { ...entry.resourceSha256 },
   };
 }

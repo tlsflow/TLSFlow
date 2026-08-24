@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { WINDOWS_WEB_DISCOVERY_PATHS } from '../agent-discovery-paths.js';
@@ -184,9 +183,9 @@ test('Windows 不下发插件 profile，Linux 保留既有 profile 合同', asyn
   const factory = createAgentDiscoveryTaskFactory({
     plugins: {
       listAccessibleVersions: async () => [
-        builtinPlugin('web.apache', 'web-apache'),
-        builtinPlugin('web.nginx', 'web-nginx'),
-        builtinPlugin('app.tomcat', 'app-tomcat'),
+        plugin('web.apache', { discoveryProfiles: linuxDiscoveryProfiles('web.apache', ['apache2', 'httpd']) }),
+        plugin('web.nginx', { discoveryProfiles: linuxDiscoveryProfiles('web.nginx', ['nginx']) }),
+        plugin('app.tomcat', { discoveryProfiles: linuxDiscoveryProfiles('app.tomcat', ['java']) }),
       ],
     },
     policyAuthority: {
@@ -260,9 +259,21 @@ function plugin(pluginId: string, overrides: Partial<{
   };
 }
 
-function builtinPlugin(pluginId: string, packageDirectory: string) {
-  const resourceUrl = new URL(`../../plugins/builtin-plugins/${packageDirectory}/discovery/profiles.json`, import.meta.url);
-  return plugin(pluginId, { discoveryProfiles: readFileSync(resourceUrl, 'utf8') });
+function linuxDiscoveryProfiles(pluginId: string, processExecutables: string[]) {
+  return JSON.stringify({
+    profiles: [{
+      sources: ['linux'],
+      frameworkType: pluginId,
+      processExecutables,
+      serviceNames: [pluginId],
+      configArgKeys: ['-c'],
+      rootArgKeys: ['-p'],
+      defaultConfigRelativePaths: ['conf/app.conf'],
+      configFileNames: ['app.conf'],
+      certificateFileExtensions: ['.pem'],
+      listeningPorts: [443],
+    }],
+  });
 }
 
 function digest(value: unknown): string {

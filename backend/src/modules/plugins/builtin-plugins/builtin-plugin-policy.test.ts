@@ -6,12 +6,12 @@ import {
   validateBuiltinPluginPolicy,
 } from './builtin-plugin-policy.js';
 
-test('内置 Policy 固定官方信任、Runner 合同和 Canonical ID', () => {
+test('内置 Policy 固定官方信任、DSL 步骤和 Canonical ID', () => {
   const decision = validateBuiltinPluginPolicy(baseManifest());
 
   assert.equal(decision.pluginId, 'web.nginx');
-  assert.equal(decision.executionMode, 'PLUGIN_RUNNER');
-  assert.equal(decision.ipcProtocol, 'gcac.plugin-runner/v1');
+  assert.equal(decision.executionMode, 'DSL_STEP_ACTION');
+  assert.equal(decision.ipcProtocol, 'gcac.plugin-runner/v2');
   assert.equal(decision.runtimeEntrypoint, 'runtime/index.js');
 });
 
