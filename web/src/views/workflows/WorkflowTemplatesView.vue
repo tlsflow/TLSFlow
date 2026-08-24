@@ -844,6 +844,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
             deploy: t('workflows.templates.pluginSources.capabilities.deploy'),
             rollback: t('workflows.templates.pluginSources.capabilities.rollback'),
             version: t('workflows.templates.pluginSources.version'),
+            workflowVersion: t('workflows.templates.pluginSources.workflowVersion'),
           }"
         />
       </section>

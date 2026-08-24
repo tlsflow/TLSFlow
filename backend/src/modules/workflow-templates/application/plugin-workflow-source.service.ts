@@ -17,7 +17,7 @@ export class PluginWorkflowSourceService {
   ) {}
 
   async list(tenantId: string, locale = 'zh-CN'): Promise<WorkflowSourceCandidate[]> {
-    const versions = this.latestAccessibleVersions(tenantId, await this.listAccessibleVersions(tenantId));
+    const versions = this.accessibleWorkflowVersions(tenantId, await this.listAccessibleVersions(tenantId));
     const output: WorkflowSourceCandidate[] = [];
     for (const plugin of versions) {
       if (plugin.status !== 'ENABLED' || plugin.runtime !== 'WORKFLOW_DSL') continue;
@@ -43,6 +43,7 @@ export class PluginWorkflowSourceService {
           workflowTemplateId: binding.workflowTemplateId,
           workflowVersionId: binding.workflowVersionId,
           workflowContentHash: binding.workflowContentSha256,
+          workflowVersion: source.version,
           stepCount: source.content.steps.length,
           rollbackCount: source.content.rollback?.length ?? 0,
         });
@@ -97,7 +98,7 @@ export class PluginWorkflowSourceService {
     ];
   }
 
-  private latestAccessibleVersions(
+  private accessibleWorkflowVersions(
     tenantId: string,
     versions: Awaited<ReturnType<UnifiedPluginsApplicationService['listVersions']>>,
   ) {
@@ -105,16 +106,19 @@ export class PluginWorkflowSourceService {
     for (const plugin of versions) {
       if (plugin.status !== 'ENABLED' || plugin.runtime !== 'WORKFLOW_DSL') continue;
       const priority = plugin.tenantId === tenantId ? 1 : 0;
-      const previous = current.get(plugin.pluginId);
+      const key = `${plugin.pluginId}@${plugin.version}`;
+      const previous = current.get(key);
       if (
         !previous
         || priority > previous.priority
         || (priority === previous.priority && compareSemanticVersions(plugin.version, previous.plugin.version) > 0)
       ) {
-        current.set(plugin.pluginId, { plugin, priority });
+        current.set(key, { plugin, priority });
       }
     }
-    return [...current.values()].map((item) => item.plugin);
+    return [...current.values()]
+      .map((item) => item.plugin)
+      .sort((left, right) => left.pluginId.localeCompare(right.pluginId) || compareSemanticVersions(right.version, left.version));
   }
 
   private isAccessible(plugin: Awaited<ReturnType<UnifiedPluginsApplicationService['getVersion']>>, tenantId: string): boolean {

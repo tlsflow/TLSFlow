@@ -329,6 +329,7 @@ export interface WorkflowSourceCandidate {
   workflowTemplateId: string;
   workflowVersionId: string;
   workflowContentHash: string;
+  workflowVersion: number;
   stepCount: number;
   rollbackCount: number;
 }

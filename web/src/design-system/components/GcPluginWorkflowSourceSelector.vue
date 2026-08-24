@@ -13,6 +13,7 @@ const props = defineProps<{
     deploy: string
     rollback: string
     version: string
+    workflowVersion: string
   }
 }>()
 
@@ -71,6 +72,7 @@ function sourceTone(item: ApiRecord): StatusTone {
       <span>
         <strong>{{ String(group.item.displayName ?? group.item.pluginId ?? group.pluginVersionId) }}</strong>
         <small>{{ labels.version }} {{ String(group.item.pluginVersion ?? group.pluginVersionId) }}</small>
+        <small v-if="group.item.workflowVersion !== undefined">{{ labels.workflowVersion }} {{ String(group.item.workflowVersion) }}</small>
       </span>
       <span class="gc-plugin-workflow-source-selector__capabilities">
         <label

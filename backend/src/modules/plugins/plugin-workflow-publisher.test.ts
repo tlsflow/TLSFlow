@@ -138,6 +138,7 @@ function workflowRepository(records: Map<string, PluginWorkflowBindingRecord>): 
     findLatestByPluginResource: async (_tenantId, pluginId, workflowResourcePath) => [...records.values()].reverse().find((record) => record.pluginVersionId.startsWith(`${pluginId}:`) && record.workflowResourcePath === workflowResourcePath),
     listCurrent: async () => [...records.values()],
     list: async (pluginVersionId) => [...records.values()].filter((record) => record.pluginVersionId === pluginVersionId),
+    listAll: async () => [...records.values()],
   };
 }
 

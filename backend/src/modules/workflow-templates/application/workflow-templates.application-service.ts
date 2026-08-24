@@ -101,7 +101,7 @@ export class WorkflowTemplatesApplicationService {
 
   /** 正式工作流目录同时展示插件内置和用户工作流。 */
   async listWorkflows(_tenantId: string): Promise<WorkflowTemplate[]> {
-    return this.domain.listTemplates();
+    return this.mergePluginInternalWorkflows(await this.domain.listTemplates());
   }
 
   /** 仅供“从插件生成草稿”使用，目标必须是用户工作流。 */
@@ -110,7 +110,11 @@ export class WorkflowTemplatesApplicationService {
   }
 
   async listVersions(templateId: string): Promise<WorkflowTemplateVersion[]> {
-    return this.domain.listVersions(templateId);
+    const templateIds = await this.resolveDisplayTemplateIds(templateId);
+    const versions = await Promise.all(templateIds.map((id) => this.domain.listVersions(id)));
+    return versions
+      .flat()
+      .sort((left, right) => left.version - right.version || left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
   }
 
   async getVersion(versionId: string): Promise<WorkflowTemplateVersion> {
@@ -146,4 +150,53 @@ export class WorkflowTemplatesApplicationService {
   async runWithDispatcher(input: WorkflowRuntimeInput, dispatcher: WorkflowExecutorDispatcher, reporter?: WorkflowProgressReporter) {
     return this.domain.runWithDispatcher(input, dispatcher, reporter);
   }
+
+  private async mergePluginInternalWorkflows(templates: WorkflowTemplate[]): Promise<WorkflowTemplate[]> {
+    const groups = await this.buildPluginInternalGroups(templates);
+    const mergedIds = new Set<string>();
+    const output: WorkflowTemplate[] = [];
+    for (const group of groups.values()) {
+      const canonical = [...group].sort(compareWorkflowDisplayRecords)[0];
+      if (!canonical || mergedIds.has(canonical.id)) continue;
+      mergedIds.add(canonical.id);
+      output.push(canonical);
+    }
+    for (const template of templates) {
+      if (template.origin === 'user') output.push(template);
+    }
+    return output;
+  }
+
+  private async resolveDisplayTemplateIds(templateId: string): Promise<string[]> {
+    const templates = await this.domain.listTemplates();
+    const groups = await this.buildPluginInternalGroups(templates);
+    for (const group of groups.values()) {
+      if (group.some((template) => template.id === templateId)) return group.map((template) => template.id);
+    }
+    return [templateId];
+  }
+
+  private async buildPluginInternalGroups(templates: WorkflowTemplate[]): Promise<Map<string, WorkflowTemplate[]>> {
+    const bindings = await this.workflowBindingsRepository.listAll();
+    const sourceKeyByTemplateId = new Map<string, string>();
+    for (const binding of bindings) {
+      if (!binding.pluginId) continue;
+      const key = `${binding.pluginId}:${binding.workflowResourcePath}`;
+      if (!sourceKeyByTemplateId.has(binding.workflowTemplateId)) sourceKeyByTemplateId.set(binding.workflowTemplateId, key);
+    }
+
+    const groups = new Map<string, WorkflowTemplate[]>();
+    for (const template of templates) {
+      if (template.origin !== 'plugin_internal') continue;
+      const key = sourceKeyByTemplateId.get(template.id) ?? `template:${template.id}`;
+      groups.set(key, [...(groups.get(key) ?? []), template]);
+    }
+    return groups;
+  }
+}
+
+function compareWorkflowDisplayRecords(left: WorkflowTemplate, right: WorkflowTemplate): number {
+  return (right.currentVersion ?? 0) - (left.currentVersion ?? 0)
+    || right.updatedAt.localeCompare(left.updatedAt)
+    || right.id.localeCompare(left.id);
 }

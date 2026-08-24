@@ -3547,6 +3547,7 @@ export default {
         loading: '正在加载插件工作流来源...',
         empty: '没有可用的插件工作流来源。',
         version: '插件版本',
+        workflowVersion: '工作流版本',
         versionSource: '版本来源：{plugin} / {version} / {capability}',
         capabilities: { deploy: '证书部署', rollback: '证书回滚' },
         errors: { loadFailed: '加载插件工作流来源失败', nameRequired: '请输入工作流名称', missingApplyTarget: '缺少要生成草稿的工作流', actionFailed: '插件工作流复制失败' }

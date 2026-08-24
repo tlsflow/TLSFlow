@@ -39,7 +39,7 @@ describe('Spec 033.5 执行来源组件', () => {
           { pluginVersionId: 'plugin-version-1', pluginVersion: '1.0.0', displayName: 'plugin', capabilityKey: 'certificate.deploy' },
           { pluginVersionId: 'plugin-version-1', pluginVersion: '1.0.0', displayName: 'plugin', capabilityKey: 'certificate.rollback' },
         ],
-        labels: { loading: 'loading', empty: 'empty', deploy: 'deploy', rollback: 'rollback', version: 'version' },
+        labels: { loading: 'loading', empty: 'empty', deploy: 'deploy', rollback: 'rollback', version: 'version', workflowVersion: 'workflow version' },
       },
     })
     expect(wrapper.findAll('.gc-plugin-workflow-source-selector__item')).toHaveLength(1)

@@ -401,8 +401,14 @@ describe('WorkflowTemplates', () => {
     const pluginWorkflow = await service.createPluginTemplate({
       content: { ...templateFixture(), metadata: { ...templateFixture().metadata, name: 'current-plugin-workflow' } },
     });
+    const duplicatePluginWorkflow = await service.createPluginTemplate({
+      content: { ...templateFixture(), metadata: { ...templateFixture().metadata, name: 'current-plugin-workflow' } },
+    });
+    await service.publishPluginVersion(pluginWorkflow.version.id);
+    await service.publishPluginVersion(duplicatePluginWorkflow.version.id);
     currentBindings.push({
       pluginVersionId: 'uplgv_current',
+      pluginId: 'builtin.workflow.current-plugin-workflow',
       capabilityKey: 'certificate.deploy',
       workflowResourcePath: 'workflows/deploy.json',
       workflowTemplateId: pluginWorkflow.template.id,
@@ -410,9 +416,21 @@ describe('WorkflowTemplates', () => {
       workflowContentSha256: pluginWorkflow.version.contentHash,
       createdAt: pluginWorkflow.template.createdAt,
     });
+    currentBindings.push({
+      pluginVersionId: 'uplgv_previous',
+      pluginId: 'builtin.workflow.current-plugin-workflow',
+      capabilityKey: 'certificate.deploy',
+      workflowResourcePath: 'workflows/deploy.json',
+      workflowTemplateId: duplicatePluginWorkflow.template.id,
+      workflowVersionId: duplicatePluginWorkflow.version.id,
+      workflowContentSha256: duplicatePluginWorkflow.version.contentHash,
+      createdAt: duplicatePluginWorkflow.template.createdAt,
+    });
     const workflowListWithPlugin = await app.inject({ method: 'GET', path: '/api/v1/workflows' });
     const workflowItemsWithPlugin = (workflowListWithPlugin.body as { items: Array<{ id: string; origin?: string }> }).items;
-    assert.equal(workflowItemsWithPlugin.some((item) => item.id === pluginWorkflow.template.id && item.origin === 'plugin_internal'), true);
+    const mergedPluginRows = workflowItemsWithPlugin.filter((item) => item.origin === 'plugin_internal' && item.id !== legacyId && item.id !== currentId && item.id !== derivedId);
+    assert.equal(mergedPluginRows.length, 1);
+    assert.equal((await service.listVersions(mergedPluginRows[0]!.id)).length, 2);
     assert.equal(workflowItemsWithPlugin.some((item) => item.id === legacyId), true);
   });
 
@@ -1735,5 +1753,6 @@ function workflowBindingsRepository(records: PluginWorkflowBindingRecord[]): Plu
     findLatestByPluginResource: async () => undefined,
     listCurrent: async () => [...records],
     list: async () => [...records],
+    listAll: async () => [...records],
   };
 }
