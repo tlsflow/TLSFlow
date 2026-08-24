@@ -2388,6 +2388,7 @@ export default {
   bindings: {
     actions: {
       create: '새 프로필',
+      toggleFilters: '필터',
       edit: '편집',
       delete: '삭제',
       deleting: '삭제하는 중...',

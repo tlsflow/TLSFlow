@@ -2414,6 +2414,7 @@ export default {
   bindings: {
     actions: {
       create: '新建設定ファイル',
+      toggleFilters: '絞り込み',
       edit: '編集',
       delete: '削除',
       deleting: '削除中...',

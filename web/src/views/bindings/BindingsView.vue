@@ -74,6 +74,7 @@ interface TemplatePreset {
 }
 
 const { t } = useI18n()
+const shouldTeleportToolbarActions = computed(() => typeof document !== 'undefined' && Boolean(document.querySelector('#gc-shell-hero-actions')))
 
 const PLATFORM_PRESETS: Record<Exclude<SystemPlatform, ''>, TemplatePreset> = {
   windows: {
@@ -137,6 +138,7 @@ const filters = reactive({
   keyword: '',
   format: '',
 })
+const filtersVisible = ref(false)
 const draft = reactive(createEmptyDraft())
 
 const resolvedBackendFormat = computed(() => resolveBackendFormat(draft))
@@ -212,6 +214,10 @@ const columns = computed<DataTableColumn<FormatRow>[]>(() => [
 ])
 
 onMounted(loadFormats)
+
+function toggleFilters(): void {
+  filtersVisible.value = !filtersVisible.value
+}
 
 async function loadFormats() {
   loading.value = true
@@ -609,29 +615,28 @@ function toErrorMessage(cause: unknown, fallback: string) {
 
 <template>
   <section class="gc-page artifact-page">
-    <section class="artifact-page__toolbar">
-      <section class="gc-card artifact-page__filters">
-        <label class="artifact-page__filter">
-          <span class="artifact-page__filter-label">{{ t('certificates.list.filters.keyword') }}</span>
-          <input v-model="filters.keyword" :placeholder="t('bindings.filters.keywordPlaceholder')" />
-        </label>
-        <label class="artifact-page__filter">
-          <span class="artifact-page__filter-label">{{ t('bindings.fields.contentFormat') }}</span>
-          <select v-model="filters.format">
-            <option value="">{{ t('businessPage.all') }}</option>
-            <option v-for="item in formatOptions" :key="item.value" :value="item.label.toUpperCase()">{{ item.label }}</option>
-          </select>
-        </label>
-        <div class="artifact-page__filter-actions">
-          <button class="gc-button" type="button" @click="loadFormats">{{ t('common.refresh') }}</button>
-        </div>
-      </section>
-
-      <div class="artifact-page__toolbar-actions">
-        <GcPermissionButton class="artifact-page__create-button" permission="certificate.format.create" @click="openCreateDialog">
+    <Teleport to="#gc-shell-hero-actions" :disabled="!shouldTeleportToolbarActions">
+      <div class="artifact-page__hero-actions">
+        <button class="gc-button" type="button" :aria-expanded="filtersVisible" @click="toggleFilters">{{ t('bindings.actions.toggleFilters') }}</button>
+        <button class="gc-button" type="button" @click="loadFormats">{{ t('common.refresh') }}</button>
+        <GcPermissionButton class="gc-button gc-button--primary" permission="certificate.format.create" @click="openCreateDialog">
           {{ t('bindings.actions.create') }}
         </GcPermissionButton>
       </div>
+    </Teleport>
+
+    <section v-if="filtersVisible" class="gc-card artifact-page__filters">
+      <label class="artifact-page__filter">
+        <span class="artifact-page__filter-label">{{ t('certificates.list.filters.keyword') }}</span>
+        <input v-model="filters.keyword" :placeholder="t('bindings.filters.keywordPlaceholder')" />
+      </label>
+      <label class="artifact-page__filter">
+        <span class="artifact-page__filter-label">{{ t('bindings.fields.contentFormat') }}</span>
+        <select v-model="filters.format">
+          <option value="">{{ t('businessPage.all') }}</option>
+          <option v-for="item in formatOptions" :key="item.value" :value="item.label.toUpperCase()">{{ item.label }}</option>
+        </select>
+      </label>
     </section>
 
     <GcEmptyState v-if="error" :title="t('bindings.errors.loadFailed')" :description="error">
@@ -650,7 +655,6 @@ function toErrorMessage(cause: unknown, fallback: string) {
         <div class="artifact-page__table-toolbar">
           <div class="artifact-page__table-heading">
             <strong>{{ t('bindings.list.title') }}</strong>
-            <span>{{ t('bindings.list.descriptionWithCount', { count: rows.length }) }}</span>
           </div>
         </div>
       </template>
@@ -859,16 +863,15 @@ function toErrorMessage(cause: unknown, fallback: string) {
   min-height: 0;
 }
 
-.artifact-page__toolbar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: stretch;
+.artifact-page__hero-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--gc-space-2);
 }
 
 .artifact-page__filters {
   display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(220px, 280px) auto;
+  grid-template-columns: minmax(0, 1.3fr) minmax(220px, 280px);
   gap: 8px;
   align-items: center;
   padding: 0;
@@ -898,31 +901,6 @@ function toErrorMessage(cause: unknown, fallback: string) {
   min-height: 32px;
   padding: 6px 10px;
   background: var(--gc-color-surface-glass);
-}
-
-.artifact-page__filter-actions,
-.artifact-page__toolbar-actions {
-  display: flex;
-  align-items: center;
-}
-
-.artifact-page__toolbar-actions {
-  gap: 10px;
-}
-
-.artifact-page__create-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100%;
-  padding: 0 18px;
-  border: 0;
-  border-radius: 16px;
-  color: var(--gc-color-surface-solid);
-  background: linear-gradient(180deg, var(--gc-color-primary), var(--gc-color-primary-hover));
-  box-shadow: 0 10px 24px var(--gc-color-primary-weak);
-  font-weight: 700;
-  white-space: nowrap;
 }
 
 .artifact-page__table :deep(table) {
@@ -1080,21 +1058,8 @@ function toErrorMessage(cause: unknown, fallback: string) {
 }
 
 @media (max-width: 900px) {
-  .artifact-page__toolbar {
-    grid-template-columns: 1fr;
-  }
-
   .artifact-page__filters {
     grid-template-columns: 1fr;
-  }
-
-  .artifact-page__toolbar-actions {
-    justify-content: stretch;
-  }
-
-  .artifact-page__create-button {
-    width: 100%;
-    min-height: 44px;
   }
 
   .artifact-form__grid {

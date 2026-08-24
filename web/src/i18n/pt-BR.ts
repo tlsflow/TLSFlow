@@ -2388,6 +2388,7 @@ export default {
   bindings: {
     actions: {
       create: 'Criar configuração',
+      toggleFilters: 'Filtrar',
       edit: 'Editar',
       delete: 'Excluir',
       deleting: 'Excluindo...',

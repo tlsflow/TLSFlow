@@ -2413,6 +2413,7 @@ export default {
   bindings: {
     actions: {
       create: "新增設定檔案",
+      toggleFilters: "篩選",
       edit: "編輯",
       delete: "刪除",
       deleting: "刪除中...",

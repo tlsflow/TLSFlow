@@ -2388,6 +2388,7 @@ export default {
   bindings: {
     actions: {
       create: 'Создать конфигурационный файл',
+      toggleFilters: 'Фильтры',
       edit: 'Редактировать',
       delete: 'Удалить',
       deleting: 'Удаление...',

@@ -2548,6 +2548,7 @@ export default {
   bindings: {
     actions: {
       create: '新建配置文件',
+      toggleFilters: '筛选',
       edit: '编辑',
       delete: '删除',
       deleting: '删除中...',

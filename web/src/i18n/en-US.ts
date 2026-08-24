@@ -2497,6 +2497,7 @@ export default {
   bindings: {
     actions: {
       create: 'New config file',
+      toggleFilters: 'Filter',
       edit: 'Edit',
       delete: 'Delete',
       deleting: 'Deleting...',
