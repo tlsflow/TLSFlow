@@ -16,34 +16,36 @@ export class PgUnifiedPluginsRepository implements UnifiedPluginsRepository {
   constructor(private readonly db: DatabasePort = new PgliteDatabase()) {}
 
   async saveVersion(record: UnifiedPluginVersionRecord): Promise<UnifiedPluginVersionRecord> {
-    await this.db.query(`
-      insert into unified_plugin_versions (
-        id, tenant_id, owner_type, owner_id, plugin_id, plugin_version, source, runtime, scope, trust, support,
-        manifest, package_sha256, manifest_sha256, resource_sha256, status,
-        permission_approval_status, approved_permissions, validation_report, created_at, updated_at
-      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,$15::jsonb,$16,$17,$18::jsonb,$19::jsonb,$20,$21)
-      on conflict (id) do update set
-        owner_type = excluded.owner_type,
-        owner_id = excluded.owner_id,
-        status = excluded.status,
-        permission_approval_status = excluded.permission_approval_status,
-        approved_permissions = excluded.approved_permissions,
-        validation_report = excluded.validation_report,
-        updated_at = excluded.updated_at
-    `, [
-      record.id, record.tenantId, record.ownerType, record.ownerId ?? null, record.pluginId, record.version,
-      record.source, record.runtime, record.scope, record.trust, record.support, JSON.stringify(record.manifest),
-      record.packageSha256, record.manifestSha256, JSON.stringify(record.resourceSha256), record.status,
-      record.permissionApprovalStatus, JSON.stringify(record.approvedPermissions), JSON.stringify(record.validationReport),
-      record.createdAt, record.updatedAt,
-    ]);
-    for (const [path, content] of Object.entries(record.resources)) {
-      await this.db.query(`
-        insert into unified_plugin_resources (plugin_version_id, resource_path, resource_content, resource_sha256, created_at)
-        values ($1,$2,$3,$4,$5)
-        on conflict (plugin_version_id, resource_path) do nothing
-      `, [record.id, path, content, record.resourceSha256[path], record.createdAt]);
-    }
+    await this.db.transaction(async (tx) => {
+      await tx.query(`
+        insert into unified_plugin_versions (
+          id, tenant_id, owner_type, owner_id, plugin_id, plugin_version, source, runtime, scope, trust, support,
+          manifest, package_sha256, manifest_sha256, resource_sha256, status,
+          permission_approval_status, approved_permissions, validation_report, created_at, updated_at
+        ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,$15::jsonb,$16,$17,$18::jsonb,$19::jsonb,$20,$21)
+        on conflict (id) do update set
+          owner_type = excluded.owner_type,
+          owner_id = excluded.owner_id,
+          status = excluded.status,
+          permission_approval_status = excluded.permission_approval_status,
+          approved_permissions = excluded.approved_permissions,
+          validation_report = excluded.validation_report,
+          updated_at = excluded.updated_at
+      `, [
+        record.id, record.tenantId, record.ownerType, record.ownerId ?? null, record.pluginId, record.version,
+        record.source, record.runtime, record.scope, record.trust, record.support, JSON.stringify(record.manifest),
+        record.packageSha256, record.manifestSha256, JSON.stringify(record.resourceSha256), record.status,
+        record.permissionApprovalStatus, JSON.stringify(record.approvedPermissions), JSON.stringify(record.validationReport),
+        record.createdAt, record.updatedAt,
+      ]);
+      for (const [path, content] of Object.entries(record.resources)) {
+        await tx.query(`
+          insert into unified_plugin_resources (plugin_version_id, resource_path, resource_content, resource_sha256, created_at)
+          values ($1,$2,$3,$4,$5)
+          on conflict (plugin_version_id, resource_path) do nothing
+        `, [record.id, path, content, record.resourceSha256[path], record.createdAt]);
+      }
+    });
     return record;
   }
 
