@@ -11,7 +11,7 @@ codeRefs:
   - backend/src/modules/plugins/schema/unified-plugins.schema.ts
   - backend/src/modules/plugins/repository
 testRefs: []
-lastVerified: 2026-08-06
+lastVerified: 2026-08-19
 ---
 
 # 插件包契约
@@ -29,6 +29,16 @@ Manifest 使用 `gcac.plugin-manifest/v1`。必须声明 Runtime、Source、Scop
 历史 P2 发布 Catalog 已退休并从仓库删除。当前只使用包内 Manifest、Registry 派生摘要以及 Policy/Execution Grant 授权边界；Workflow `metadata.version` 属于 Workflow 自身，不是插件版本副本。
 
 插件导入、审批、启用、绑定和执行是独立阶段。单个插件未通过某个阶段时只禁用该插件，其他插件和后端继续运行。
+
+## 测试与包边界
+
+测试文件按责任归属组织，不改变插件包的运行资源边界：
+
+- 内置插件的 Manifest、资源、Runtime、Action 和产品协议测试可以放在 `backend/src/modules/plugins/builtin-plugins/<pluginId>/tests/`，对应 Fixture 放在插件包内；现有 `runtime/index.test.mjs` 等相邻测试可以保留。
+- Registry、Loader、Policy、权限、租户隔离、Host API 和 Plugin Runner 测试属于宿主，放在 `backend/src/modules/plugins` 的对应模块目录。多插件共享的 Compatibility 测试放在独立 Fixture/批次目录。
+- 测试文件不是 Manifest 声明资源，也不是插件运行入口；Loader 只读取 Manifest 引用的资源和固定 Runtime 入口。测试用例不得借助宿主动态加载绕过插件边界。
+- 用户插件由外部插件仓库维护自身产品测试。GCAC 导入链只执行受控的包契约和运行边界测试，禁止扫描或执行用户包中任意测试代码。
+- 测试结果必须绑定 `pluginId`、版本及 `packageHash`、`manifestHash`、`resourceHash`；不可变版本的任何摘要变化都要求重新验证。
 
 ## 应用资产接入的新建设备入口
 
