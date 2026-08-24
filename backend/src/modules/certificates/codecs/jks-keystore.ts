@@ -150,7 +150,7 @@ function readEncryptedPrivateKeyOctets(der: Buffer): Buffer {
   reader.expect(0x06);
   const oid = reader.oid(reader.length());
   if (oid !== JKS_KEY_PROTECTION_OID) throw new AppError('CERT_PARSE_FAILED', 'JKS 私钥保护算法不受支持', { oid }, false);
-  // keytool 生成的 AlgorithmIdentifier 可能带 NULL/参数。这里不要假设只有 OID，
+  // JKS 生成的 AlgorithmIdentifier 可能带 NULL/参数。这里不要假设只有 OID，
   // 直接跳到算法序列末尾，否则会把参数字节错当成 encryptedData 的 OCTET STRING。
   reader.seek(algEnd);
   reader.expect(0x04);

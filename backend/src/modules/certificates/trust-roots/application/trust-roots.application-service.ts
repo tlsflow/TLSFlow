@@ -1,9 +1,4 @@
-import { execFile } from 'node:child_process';
 import { X509Certificate } from 'node:crypto';
-import { promises as fs } from 'node:fs';
-import os from 'node:os';
-import { promisify } from 'node:util';
-import { rootCertificates } from 'node:tls';
 import { AppError } from '../../../../common/errors/app-error.js';
 import type { PageQuery } from '../../../../common/pagination/pagination.js';
 import type { PageResponse } from '../../../../shared/dto/page-response.js';
@@ -38,7 +33,6 @@ import type {
 } from '../schema/trust-roots.schema.js';
 import { PgTrustRootsRepository, type TrustRootsRepository } from '../repository/trust-roots.repository.js';
 
-const execFileAsync = promisify(execFile);
 const CERT_BLOCK_PATTERN = /-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g;
 const MANAGED_CERTIFICATE_ROOT_PROJECTION_ACTOR = 'system_managed_certificate_root_projection';
 
@@ -118,9 +112,7 @@ export class TrustRootsApplicationService {
     createdBy?: string,
   ): Promise<{ root: RootCertificateRecordDto; certificatePem: string } | undefined> {
     const selected = await this.selectVersionInstallableRoot(certificateVersionId, tenantId);
-    if (!selected && createdBy) {
-      await this.discoverRoot({ tenantId, certificateVersionId, createdBy });
-    }
+    void createdBy;
     const resolved = selected ?? await this.selectVersionInstallableRoot(certificateVersionId, tenantId);
     if (!resolved) return undefined;
     const artifact = await this.artifacts.get(resolved.root.certificateArtifactRef, tenantId);
@@ -175,45 +167,13 @@ export class TrustRootsApplicationService {
     if (existing) {
       return { fingerprintSha256: fingerprint, root: toRootCertificateRecordDto(existing), status: 'found' };
     }
-    const allowedSources: RootCertificateSourceType[] = input.allowedSources?.length
-      ? [...input.allowedSources]
-      : ['control_plane_node', 'openssl', 'windows'];
-    for (const sourceType of allowedSources) {
-      try {
-        const certificate = await this.findCertificateFromSource(sourceType, fingerprint);
-        if (!certificate) continue;
-        const root = await this.upsertRoot(certificate, input.createdBy);
-        await this.repository.createObservation({
-          id: newId('rootobs'),
-          rootCertificateId: root.id,
-          sourceType,
-          sourceRef: sourceType,
-          observedFingerprint: fingerprint,
-          observedAt: new Date().toISOString(),
-          status: 'accepted',
-        });
-        if (input.certificateVersionId) {
-          const version = await this.certificates.getVersion(input.certificateVersionId, input.tenantId);
-          if (version) await this.attachVersionRoot(version, root, 'selected_root', 'resolved', `source:${sourceType}`);
-        }
-        return { fingerprintSha256: fingerprint, root: toRootCertificateRecordDto(root), sourceType, status: 'found' };
-      } catch (error) {
-        const existingRoot = await this.repository.getRootByFingerprint(fingerprint);
-        if (existingRoot) {
-          await this.repository.createObservation({
-            id: newId('rootobs'),
-            rootCertificateId: existingRoot.id,
-            sourceType,
-            sourceRef: sourceType,
-            observedFingerprint: fingerprint,
-            observedAt: new Date().toISOString(),
-            status: 'failed',
-            failureCode: error instanceof AppError ? error.errorCode : 'RESOURCE_NOT_FOUND',
-          });
-        }
-      }
-    }
-    return { fingerprintSha256: fingerprint, status: 'not_found', failureCode: 'RESOURCE_NOT_FOUND' };
+    void input.allowedSources;
+    void input.createdBy;
+    return {
+      fingerprintSha256: fingerprint,
+      status: 'failed',
+      failureCode: 'CA_CAPABILITY_UNSUPPORTED',
+    };
   }
 
   async syncImportedVersionRoot(version: CertificateVersionEntity, bundle: ParsedMaterialBundle, actorId: string): Promise<void> {
@@ -292,23 +252,6 @@ export class TrustRootsApplicationService {
       return;
     }
     if (version.chainStatus === 'incomplete') {
-      const inferredRoot = await this.inferManagedVersionRoot(version);
-      if (!inferredRoot) return;
-      const existingRoot = await this.repository.getRootByFingerprint(inferredRoot.candidate.fingerprintSha256);
-      if (existingRoot) {
-        await this.recordRootObservation(
-          existingRoot.id,
-          inferredRoot.sourceType,
-          inferredRoot.sourceType,
-          existingRoot.fingerprintSha256,
-        );
-        await this.attachVersionRoot(version, existingRoot, 'selected_root', 'resolved', 'backfill_inferred_root');
-        return;
-      }
-      await this.persistManagedVersionRoot(version, inferredRoot.candidate, createdBy, 'backfill_inferred_root', {
-        sourceType: inferredRoot.sourceType,
-        sourceRef: inferredRoot.sourceType,
-      });
       return;
     }
     if (version.chainStatus !== 'valid') return;
@@ -324,16 +267,7 @@ export class TrustRootsApplicationService {
       await this.persistManagedVersionRoot(version, candidate, createdBy, 'backfill_managed_certificate');
       return;
     }
-    const discovered = await this.discoverRoot({
-      tenantId: version.tenantId,
-      certificateVersionId: version.id,
-      fingerprintSha256: rootFingerprint,
-      createdBy,
-    });
-    if (discovered.status !== 'found' || !discovered.root) return;
-    const resolvedRoot = await this.repository.getRootByFingerprint(rootFingerprint);
-    if (!resolvedRoot) return;
-    await this.attachVersionRoot(version, resolvedRoot, 'selected_root', 'resolved', 'backfill_discovered_root');
+    void createdBy;
   }
 
   private async resolveManagedVersionRootCandidate(
@@ -377,60 +311,6 @@ export class TrustRootsApplicationService {
       root.fingerprintSha256,
     );
     await this.attachVersionRoot(version, root, 'selected_root', 'resolved', selectionReason);
-  }
-
-  private async inferManagedVersionRoot(
-    version: CertificateVersionEntity,
-  ): Promise<{ candidate: ParsedRootCandidate; sourceType: RootCertificateSourceType } | undefined> {
-    if (version.chainStatus !== 'incomplete') return undefined;
-    if (!version.chainDiagnostics.some((item) => item.startsWith('缺少签发者证书：'))) return undefined;
-    const tailFingerprint = normalizeFingerprint(version.chainOrder.at(-1));
-    if (!tailFingerprint) return undefined;
-    const tailCertificate = await this.readStoredVersionCertificate(version, tailFingerprint);
-    if (!tailCertificate || !tailCertificate.ca || tailCertificate.subject.raw === tailCertificate.issuer.raw) {
-      return undefined;
-    }
-    const candidates = await this.findLocalRootCandidatesByIssuer(tailCertificate);
-    if (candidates.length !== 1) return undefined;
-    return candidates[0];
-  }
-
-  private async findLocalRootCandidatesByIssuer(
-    certificate: ParsedStoredCertificate,
-  ): Promise<Array<{ candidate: ParsedRootCandidate; sourceType: RootCertificateSourceType }>> {
-    const matches = new Map<string, { candidate: ParsedRootCandidate; sourceType: RootCertificateSourceType }>();
-    const register = (candidate: ParsedRootCandidate, sourceType: RootCertificateSourceType) => {
-      if (!candidate.ca || candidate.subject.raw !== candidate.issuer.raw) return;
-      if (candidate.subject.raw !== certificate.issuer.raw) return;
-      if (!certificate.x509.verify(new X509Certificate(candidate.der).publicKey)) return;
-      if (!matches.has(candidate.fingerprintSha256)) {
-        matches.set(candidate.fingerprintSha256, { candidate, sourceType });
-      }
-    };
-    for (const pem of rootCertificates) {
-      register(parseCertificateCandidateFromPem(pem), 'control_plane_node');
-    }
-    for (const candidate of await listCertificatesInOpenSslSources()) {
-      register(candidate, 'openssl');
-    }
-    return [...matches.values()];
-  }
-
-  private async readStoredVersionCertificate(
-    version: CertificateVersionEntity,
-    fingerprintSha256: string,
-  ): Promise<ParsedStoredCertificate | undefined> {
-    for (const artifactRef of [version.leafStorageRef, ...version.chainCertificateRefs]) {
-      const artifact = await this.artifacts.get(artifactRef, version.tenantId);
-      if (!artifact) continue;
-      try {
-        const candidate = parseStoredCertificateFromDer(artifact.content);
-        if (candidate.fingerprintSha256 === fingerprintSha256) return candidate;
-      } catch {
-        continue;
-      }
-    }
-    return undefined;
   }
 
   private async recordRootObservation(
@@ -518,19 +398,6 @@ export class TrustRootsApplicationService {
     throw new AppError('VALIDATION_FAILED', 'certificatePem 或 certificateDerBase64 至少提供一个');
   }
 
-  private async findCertificateFromSource(sourceType: RootCertificateSourceType, fingerprintSha256: string): Promise<ParsedRootCandidate | undefined> {
-    if (sourceType === 'control_plane_node') {
-      for (const pem of rootCertificates) {
-        const candidate = parseCertificateCandidateFromPem(pem);
-        if (candidate.fingerprintSha256 === fingerprintSha256) return candidate;
-      }
-      return undefined;
-    }
-    if (sourceType === 'openssl') return findCertificateInOpenSslSources(fingerprintSha256);
-    if (sourceType === 'windows') return findCertificateInWindowsRootStore(fingerprintSha256);
-    return undefined;
-  }
-
   private async selectVersionInstallableRoot(
     certificateVersionId: string,
     tenantId?: string,
@@ -549,10 +416,6 @@ type ParsedRootCandidate = Pick<RootCertificateRecordEntity, 'fingerprintSha256'
   ca: boolean;
 };
 
-type ParsedStoredCertificate = ParsedRootCandidate & {
-  x509: X509Certificate;
-};
-
 function parseCertificateCandidateFromPem(pemText: string): ParsedRootCandidate {
   const match = pemText.match(CERT_BLOCK_PATTERN)?.[0];
   if (!match) throw new AppError('CERT_PARSE_FAILED', '证书 PEM 格式不合法');
@@ -562,14 +425,6 @@ function parseCertificateCandidateFromPem(pemText: string): ParsedRootCandidate 
 
 function parseCertificateCandidateFromDer(der: Buffer): ParsedRootCandidate {
   return toCandidate(new X509Certificate(der));
-}
-
-function parseStoredCertificateFromDer(der: Buffer): ParsedStoredCertificate {
-  const x509 = new X509Certificate(der);
-  return {
-    ...toCandidate(x509),
-    x509,
-  };
 }
 
 function toCandidate(certificate: X509Certificate): ParsedRootCandidate {
@@ -611,50 +466,6 @@ function parsedCertificateToCandidate(certificate: ParsedCertificate): ParsedRoo
 
 function derToPem(der: Buffer): string {
   return new X509Certificate(der).toString();
-}
-
-async function findCertificateInOpenSslSources(fingerprintSha256: string): Promise<ParsedRootCandidate | undefined> {
-  for (const candidate of await listCertificatesInOpenSslSources()) {
-    if (candidate.fingerprintSha256 === fingerprintSha256) return candidate;
-  }
-  return undefined;
-}
-
-async function listCertificatesInOpenSslSources(): Promise<ParsedRootCandidate[]> {
-  const results = new Map<string, ParsedRootCandidate>();
-  const candidates = [
-    process.env.SSL_CERT_FILE,
-    '/etc/ssl/certs/ca-certificates.crt',
-    '/etc/pki/tls/certs/ca-bundle.crt',
-    '/etc/ssl/cert.pem',
-  ].filter((item): item is string => Boolean(item));
-  for (const filePath of candidates) {
-    try {
-      const content = await fs.readFile(filePath, 'utf8');
-      const blocks = content.match(CERT_BLOCK_PATTERN) ?? [];
-      for (const block of blocks) {
-        const candidate = parseCertificateCandidateFromPem(block);
-        results.set(candidate.fingerprintSha256, candidate);
-      }
-    } catch {
-      continue;
-    }
-  }
-  return [...results.values()];
-}
-
-async function findCertificateInWindowsRootStore(fingerprintSha256: string): Promise<ParsedRootCandidate | undefined> {
-  if (os.platform() !== 'win32') return undefined;
-  const thumbprint = fingerprintSha256.toUpperCase();
-  const script = [
-    `$cert = Get-ChildItem Cert:\\LocalMachine\\Root | Where-Object { $_.Thumbprint -eq '${thumbprint}' } | Select-Object -First 1`,
-    `if ($null -eq $cert) { exit 0 }`,
-    `[Convert]::ToBase64String($cert.RawData)`,
-  ].join('; ');
-  const result = await execFileAsync('powershell.exe', ['-NoProfile', '-Command', script], { windowsHide: true });
-  const base64 = result.stdout.trim();
-  if (!base64) return undefined;
-  return parseCertificateCandidateFromDer(Buffer.from(base64, 'base64'));
 }
 
 function parseDistinguishedName(value: string): CertificateDistinguishedName {

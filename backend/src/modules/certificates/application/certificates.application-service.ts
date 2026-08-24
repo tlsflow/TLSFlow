@@ -62,6 +62,8 @@ export interface CertificatesApplicationDependencies {
   domain?: CertificatesDomainService;
   artifacts?: CertificateArtifactStore;
   exporter?: CertificateFormatExporter;
+  /** PFX 只能由显式注册的 Plugin Runner 产物生成器提供。 */
+  pfxExporter?: CertificateFormatExporter;
   versionEvents?: CertificateVersionEventPublisher;
   trustRoots?: TrustRootsApplicationService;
 }
@@ -72,6 +74,7 @@ export class CertificatesApplicationService {
   private readonly artifacts: CertificateArtifactStore;
   private readonly domain: CertificatesDomainService;
   private readonly exporter: CertificateFormatExporter;
+  private readonly pfxExporter?: CertificateFormatExporter;
   private readonly trustRoots: TrustRootsApplicationService;
   constructor(
     private readonly dependencies: CertificatesApplicationDependencies,
@@ -81,6 +84,7 @@ export class CertificatesApplicationService {
     this.domain = dependencies.domain ?? new CertificatesDomainService();
     this.artifacts = dependencies.artifacts ?? new PgCertificateArtifactStore(this.db);
     this.exporter = dependencies.exporter ?? new CertificateFormatExporter();
+    this.pfxExporter = dependencies.pfxExporter;
     this.trustRoots = dependencies.trustRoots ?? new TrustRootsApplicationService({
       db: this.db,
       certificates: this.repository,
@@ -204,12 +208,10 @@ export class CertificatesApplicationService {
     tenantId?: string;
   }): Promise<CertificateVersionEntity> {
     const version = await this.getExistingVersion(input.certificateVersionId, input.tenantId);
-    const activationState = version.activationState ?? 'promoted';
-    if (activationState === 'promoted') return version;
-    if (!['staged', 'deploying', 'verified'].includes(activationState)) {
+    if (version.status !== 'active') {
       throw new AppError('RESOURCE_VERSION_CONFLICT', '证书版本当前不允许 Promotion', {
         certificateVersionId: version.id,
-        activationState,
+        status: version.status,
       });
     }
     const asset = await this.getExistingAsset(version.certificateAssetId, input.tenantId);
@@ -298,7 +300,9 @@ export class CertificatesApplicationService {
       : bundle.blockers;
     this.assertImportableChain(blockers.length === 0, blockers);
     const parsed = bundle.leaf;
-    if (await this.repository.getVersionByFingerprint(parsed.fingerprintSha256, input.tenantId)) {
+    const existingVersion = await (this.repository.getVersionByFingerprintIncludingDeleted?.(parsed.fingerprintSha256, input.tenantId)
+      ?? this.repository.getVersionByFingerprint(parsed.fingerprintSha256, input.tenantId));
+    if (existingVersion) {
       throw new AppError('CERT_DUPLICATE_VERSION', '重复 fingerprintSha256 的证书版本已存在', {
         fingerprintSha256: parsed.fingerprintSha256,
       });
@@ -368,7 +372,6 @@ export class CertificatesApplicationService {
         (privateKeySecretRef && (privateKeyMatched || Boolean(input.existingPrivateKeySecretRef)))
         || (input.allowCertificateOnly && input.keyReferenceId)
       )),
-      activationState: input.activationState ?? (input.sourceType === 'acme' ? 'staged' : 'promoted'),
       sourceType,
       status: 'active',
       createdBy: input.createdBy,
@@ -377,7 +380,7 @@ export class CertificatesApplicationService {
     await this.trustRoots.syncImportedVersionRoot(version, bundle, input.createdBy);
 
     const updatedAsset = await this.repository.updateAsset(asset.id, {
-      ...(version.activationState === 'promoted' ? { currentVersionId: version.id } : {}),
+      currentVersionId: version.id,
       sans: uniqueStrings([...asset.sans, ...parsed.sans.map(normalizeCertificateDomain)]),
       updatedAt: now,
     }, input.tenantId);
@@ -399,7 +402,7 @@ export class CertificatesApplicationService {
       },
     }).catch(() => undefined);
 
-    const eventSourceType: 'acme' | 'manual_import' = version.sourceType === 'acme' ? 'acme' : 'manual_import';
+    const eventSourceType: 'manual_import' = 'manual_import';
     const eventTenantId = input.tenantId ?? asset.tenantId ?? version.tenantId ?? updatedAsset.tenantId;
     if (!eventTenantId) throw new AppError('VALIDATION_FAILED', '证书版本事件缺少 tenantId');
     void this.dependencies.versionEvents?.publishCertificateVersionCreated({
@@ -701,28 +704,12 @@ export class CertificatesApplicationService {
   }
 
   async syncFromSource(input: CertificateSourceSyncInput, context?: RequestContext): Promise<CertificateSourceSyncResult> {
-    if (input.sourceType === 'manual') {
-      throw new AppError('VALIDATION_FAILED', '来源同步不能使用 manual，手工导入请调用导入接口', { sourceType: input.sourceType });
-    }
-    const imported = await this.importVersion({
-      tenantId: input.tenantId,
-      certificatePem: input.certificatePem,
-      pfxBase64: input.pfxBase64,
-      pfxPassword: input.pfxPassword,
-      declaredFormat: input.declaredFormat,
-      privateKeyPem: input.privateKeyPem,
+    void context;
+    throw new AppError('CA_CAPABILITY_UNSUPPORTED', '证书来源同步必须由 Plugin Runner 执行，宿主不提供厂商 CA 来源同步旁路', {
+      operation: 'certificate_source_sync',
       sourceType: input.sourceType,
-      name: input.name ?? input.externalId,
-      tags: uniqueStrings([...(input.tags ?? []), `source:${input.sourceType}`, `external:${input.externalId}`]),
-      createdBy: input.createdBy,
-    }, context);
-    return {
-      sourceType: input.sourceType,
-      externalId: input.externalId,
-      imported: true,
-      asset: imported.asset,
-      version: imported.version,
-    };
+      implementation: 'controlled_error',
+    });
   }
 
   private async getExistingVersion(id: string, tenantId?: string): Promise<CertificateVersionEntity> {
@@ -764,7 +751,11 @@ export class CertificatesApplicationService {
     const password = format.passwordSecretRef
       ? await this.resolveSecret(format.passwordSecretRef, version.tenantId, 'pfx_password', 'certificate.deployment.password', actorId, context)
       : undefined;
-    const generated = this.exporter.generate(format.format, {
+    const exporter = format.format === 'pfx' ? this.pfxExporter : this.exporter;
+    if (!exporter) {
+      throw new AppError('CERT_FORMAT_UNSUPPORTED', 'PFX 当前必须通过 Plugin Runner 处理，宿主未注册生产插件', { format: 'pfx' });
+    }
+    const generated = exporter.generate(format.format, {
       version,
       leafDer: await this.readArtifact(version.leafStorageRef, tenantId ?? version.tenantId),
       chainDer: await Promise.all(version.chainCertificateRefs.map((artifactRef) => this.readArtifact(artifactRef, tenantId ?? version.tenantId))),
@@ -788,17 +779,20 @@ export class CertificatesApplicationService {
     if (!certificateFormats.includes(input.format)) {
       throw new AppError('CERT_EXPORT_FORMAT_INVALID', '证书格式不合法', { format: input.format });
     }
-    if ((input.format === 'der' || input.format === 'p7b') && input.containsPrivateKey) {
-      throw new AppError('CERT_EXPORT_FORMAT_INVALID', 'DER/P7B 格式不能包含私钥', { format: input.format });
+    if (input.format === 'p7b' || (input.format === 'pfx' && !this.pfxExporter)) {
+      throw new AppError('CERT_FORMAT_UNSUPPORTED', `${input.format.toUpperCase()} 当前必须通过 Plugin Runner 处理，宿主未注册生产插件`, { format: input.format });
     }
-    if ((input.format === 'pfx' || input.format === 'jks') && !input.containsPrivateKey) {
-      throw new AppError('VALIDATION_FAILED', 'PFX/JKS 导出必须包含私钥', { format: input.format });
+    if (input.format === 'der' && input.containsPrivateKey) {
+      throw new AppError('CERT_EXPORT_FORMAT_INVALID', 'DER 格式不能包含私钥', { format: input.format });
+    }
+    if (input.format === 'jks' && !input.containsPrivateKey) {
+      throw new AppError('VALIDATION_FAILED', 'JKS 导出必须包含私钥', { format: input.format });
     }
     if (input.containsPrivateKey && !version.privateKeySecretRef) {
       throw new AppError('VALIDATION_FAILED', '证书版本没有私钥 SecretRef，不能导出包含私钥的格式', { certificateVersionId: input.certificateVersionId });
     }
-    if ((input.format === 'pfx' || input.format === 'jks') && !input.passwordSecretRef) {
-      throw new AppError('VALIDATION_FAILED', 'PFX/JKS 导出必须提供 passwordSecretRef', { format: input.format });
+    if (input.format === 'jks' && !input.passwordSecretRef) {
+      throw new AppError('VALIDATION_FAILED', 'JKS 导出必须提供 passwordSecretRef', { format: input.format });
     }
     this.assertPasswordSecretRef(input.format, input.passwordSecretRef);
     if (version.chainStatus !== 'valid') {
@@ -808,14 +802,14 @@ export class CertificatesApplicationService {
   }
 
   private assertPasswordSecretRef(format: typeof certificateFormats[number], passwordSecretRef: string | undefined): void {
-    if (format !== 'pfx' && format !== 'jks') {
+    if (format !== 'jks') {
       return;
     }
     if (!passwordSecretRef) {
       return;
     }
     if (!/^secret:\/\/[a-z0-9_/-]+(?:#[a-z0-9_-]+)?$/i.test(passwordSecretRef.trim())) {
-      throw new AppError('SECRET_REF_INVALID', 'PFX/JKS 配置中的 passwordSecretRef 不是合法 Secret 引用', {
+      throw new AppError('SECRET_REF_INVALID', 'JKS 配置中的 passwordSecretRef 不是合法 Secret 引用', {
         format,
         passwordSecretRef,
       });

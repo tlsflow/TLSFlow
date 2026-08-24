@@ -1,11 +1,7 @@
-import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { CertificateFormat, CertificateVersionEntity } from '../schema/certificates.schema.js';
 import { generateJksKeystore } from '../codecs/jks-keystore.js';
+import { unsupported } from '../codecs/format-codec.js';
 
 export interface CertificateExportMaterial {
   version: CertificateVersionEntity;
@@ -57,9 +53,9 @@ export class CertificateFormatExporter {
           }],
         };
       case 'p7b':
-        return this.generateP7b(input);
+        throw unsupportedFormat('p7b');
       case 'pfx':
-        return this.generatePfx(input);
+        throw unsupportedFormat('pfx');
       case 'jks':
         return this.generateJks(input);
       default:
@@ -138,98 +134,6 @@ export class CertificateFormatExporter {
     };
   }
 
-  private generateP7b(input: CertificateExportMaterial): GeneratedCertificateFormatArtifact {
-    const dir = mkdtempSync(join(tmpdir(), 'gcac-export-p7b-'));
-    try {
-      const certsPath = join(dir, 'certs.pem');
-      const outPath = join(dir, 'bundle.p7b');
-      writeFileSync(certsPath, [toPem(input.leafDer), ...input.chainDer.map(toPem)].join('\n'));
-      execFileSync('openssl', ['crl2pkcs7', '-nocrl', '-certfile', certsPath, '-out', outPath, '-outform', 'DER'], { stdio: 'pipe' });
-      const content = readFileSync(outPath);
-      return {
-        format: 'p7b',
-        content,
-        contentType: 'application/pkcs7-mime',
-        warnings: ['P7B 不包含私钥，只包含证书链材料'],
-        files: [{
-          key: 'bundle',
-          role: 'bundle',
-          format: 'p7b',
-          contentBase64: content.toString('base64'),
-          contentEncoding: 'base64',
-        }],
-      };
-    } catch (error) {
-      throw wrapOpenSslError('p7b', 'P7B 导出失败', error);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  }
-
-  private generatePfx(input: CertificateExportMaterial): GeneratedCertificateFormatArtifact {
-    if (!input.privateKeyPem) throw new AppError('VALIDATION_FAILED', 'PFX 导出必须包含私钥', { format: 'pfx' });
-    if (input.password === undefined) throw new AppError('VALIDATION_FAILED', 'PFX 导出必须提供密码 SecretRef', { format: 'pfx' });
-    const dir = mkdtempSync(join(tmpdir(), 'gcac-export-pfx-'));
-    try {
-      const leafPath = join(dir, 'leaf.pem');
-      const chainPath = join(dir, 'chain.pem');
-      const keyPath = join(dir, 'key.pem');
-      const outPath = join(dir, 'bundle.p12');
-      const passwordPath = join(dir, 'password.txt');
-      writeFileSync(leafPath, toPem(input.leafDer));
-      writeFileSync(chainPath, input.chainDer.map(toPem).join('\n'));
-      writeFileSync(keyPath, input.privateKeyPem);
-      const passwordUtf8 = Buffer.from(input.password, 'utf8');
-      writeFileSync(passwordPath, passwordUtf8);
-      const args = [
-        'pkcs12',
-        '-export',
-        '-legacy',
-        '-inkey',
-        keyPath,
-        '-in',
-        leafPath,
-        '-out',
-        outPath,
-        '-passout',
-        `file:${passwordPath}`,
-        '-keypbe',
-        'PBE-SHA1-3DES',
-        '-certpbe',
-        'PBE-SHA1-3DES',
-        '-macalg',
-        'sha1',
-      ];
-      if (input.chainDer.length > 0) args.push('-certfile', chainPath);
-      const alias = readAlias(input.parameters);
-      if (alias) args.push('-name', alias);
-      execFileSync('openssl', args, { stdio: 'pipe' });
-      verifyGeneratedPfx(outPath, passwordPath);
-      const content = readFileSync(outPath);
-      return {
-        format: 'pfx',
-        content,
-        contentType: 'application/x-pkcs12',
-        warnings: [],
-        files: [{
-          key: 'bundle',
-          role: 'bundle',
-          format: 'pfx',
-          contentBase64: content.toString('base64'),
-          contentEncoding: 'base64',
-        }],
-        debug: {
-          passwordUtf8Sha256: createHash('sha256').update(passwordUtf8).digest('hex'),
-          passwordUtf8Length: passwordUtf8.length,
-        },
-      };
-    } catch (error) {
-      throw wrapOpenSslError('pfx', 'PFX/PKCS12 导出失败', error);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  }
-
   private generateJks(input: CertificateExportMaterial): GeneratedCertificateFormatArtifact {
     if (!input.privateKeyPem) throw new AppError('VALIDATION_FAILED', 'JKS 导出必须包含私钥', { format: 'jks' });
     if (input.password === undefined) throw new AppError('VALIDATION_FAILED', 'JKS 导出必须提供密码 SecretRef', { format: 'jks' });
@@ -266,41 +170,6 @@ function readAlias(parameters: Record<string, unknown> | undefined): string | un
   return typeof alias === 'string' && alias.trim() ? alias.trim() : undefined;
 }
 
-function verifyGeneratedPfx(pfxPath: string, passwordPath: string): void {
-  try {
-    execFileSync('openssl', ['pkcs12', '-in', pfxPath, '-nokeys', '-passin', `file:${passwordPath}`], { stdio: 'pipe' });
-  } catch (error) {
-    throw wrapOpenSslError('pfx', 'PFX/PKCS12 导出后自校验失败', error);
-  }
-}
-
-function wrapOpenSslError(format: 'p7b' | 'pfx', message: string, error: unknown): AppError {
-  const details: Record<string, unknown> = { format, exporter: 'openssl' };
-  if (error && typeof error === 'object') {
-    const candidate = error as {
-      code?: unknown;
-      errno?: unknown;
-      status?: unknown;
-      signal?: unknown;
-      message?: unknown;
-      stderr?: unknown;
-    };
-    if (candidate.code !== undefined) details.opensslCode = candidate.code;
-    if (candidate.errno !== undefined) details.opensslErrno = candidate.errno;
-    if (candidate.status !== undefined) details.opensslStatus = candidate.status;
-    if (candidate.signal !== undefined) details.opensslSignal = candidate.signal;
-    if (candidate.message !== undefined) details.opensslMessage = String(candidate.message);
-    if (candidate.stderr !== undefined) details.opensslStderr = toReadableText(candidate.stderr);
-  }
-  return new AppError('CERT_EXPORT_FAILED', message, details, false);
-}
-
-function toReadableText(value: unknown): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (Buffer.isBuffer(value)) {
-    const text = value.toString('utf8').trim();
-    return text || value.toString('base64');
-  }
-  const text = String(value).trim();
-  return text || undefined;
+function unsupportedFormat(format: 'p7b' | 'pfx'): never {
+  throw unsupported(format, 'export');
 }

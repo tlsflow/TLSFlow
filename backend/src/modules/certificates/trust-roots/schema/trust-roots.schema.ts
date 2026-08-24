@@ -4,7 +4,7 @@ export const rootCertificateValidationStatuses = ['pending', 'verified', 'reject
 export const rootCertificateObservationStatuses = ['candidate', 'accepted', 'rejected', 'failed'] as const;
 export const certificateVersionTrustRootRelations = ['selected_root', 'candidate'] as const;
 export const certificateVersionTrustRootResolutionStatuses = ['resolved', 'ambiguous', 'missing', 'invalid'] as const;
-export const rootCertificateSourceTypes = ['control_plane_node', 'openssl', 'windows', 'internet', 'manual', 'managed_host_inspect'] as const;
+export const rootCertificateSourceTypes = ['internet', 'manual', 'managed_host_inspect'] as const;
 
 export type RootCertificateValidationStatus = (typeof rootCertificateValidationStatuses)[number];
 export type RootCertificateObservationStatus = (typeof rootCertificateObservationStatuses)[number];

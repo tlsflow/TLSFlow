@@ -71,11 +71,11 @@ export class CertificatesDomainService {
         },
         {
           format: 'pfx',
-          importSupported: true,
-          exportSupported: true,
+          importSupported: false,
+          exportSupported: false,
           containsPrivateKey: 'required',
-          implementation: 'openssl',
-          limitations: ['导入时必须能从容器中解析出服务器证书、中间证书链和私钥；根证书不是强制项。'],
+          implementation: 'controlled_error',
+          limitations: ['宿主不解析 PKCS#12；必须由已批准的 Plugin Runner 插件处理，当前没有可用的生产插件。'],
         },
         {
           format: 'der',
@@ -90,16 +90,16 @@ export class CertificatesDomainService {
           importSupported: true,
           exportSupported: true,
           containsPrivateKey: 'optional',
-          implementation: 'keytool',
+          implementation: 'node_crypto',
           limitations: ['导入私钥条目时必须提供 JKS 密码，可选指定 alias。'],
         },
         {
           format: 'p7b',
-          importSupported: true,
-          exportSupported: true,
+          importSupported: false,
+          exportSupported: false,
           containsPrivateKey: 'never',
-          implementation: 'openssl',
-          limitations: ['P7B 不包含私钥，导入后不可直接部署。'],
+          implementation: 'controlled_error',
+          limitations: ['宿主不解析 PKCS#7；必须由已批准的 Plugin Runner 插件处理，当前没有可用的生产插件。'],
         },
       ],
     } as const;
@@ -161,7 +161,7 @@ export class CertificatesDomainService {
   private parseDecodedCertificateMaterial(input: DecodedCertificateMaterial): ParsedCertificateBundle {
     const pemBlocks = input.certificatePem?.match(CERT_BLOCK_PATTERN) ?? [];
     if (pemBlocks.length > 0) return this.parsePemCertificates(pemBlocks);
-    throw new AppError('CERT_FORMAT_UNSUPPORTED', '必须提供 PEM 或 PFX 证书材料');
+    throw new AppError('CERT_FORMAT_UNSUPPORTED', '必须提供 PEM、DER 或 JKS 证书材料');
   }
 
   extractPrivateKeyPem(input?: string): string | undefined {

@@ -1,19 +1,17 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { createApp } from '../../app.module.js';
+import type { App } from '../../common/http/app.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { createSecurityServices } from '../security/security.controller.js';
 import { CertificatesApplicationService } from './application/certificates.application-service.js';
 import { CertificateFormatExporter } from './application/certificate-format-exporter.js';
 import { PgCertificateArtifactStore } from './artifacts/certificate-artifact-store.js';
+import { createCertificateTestFixture } from './certificate-test-fixtures.js';
 import { generateJksKeystore } from './codecs/jks-keystore.js';
 
-const DEFAULT_CERTIFICATE_FIXTURE = createPemChainFixture();
+const DEFAULT_CERTIFICATE_FIXTURE = createCertificateTestFixture();
 const CERT_PEM = DEFAULT_CERTIFICATE_FIXTURE.pem;
 const PRIVATE_KEY_PEM = DEFAULT_CERTIFICATE_FIXTURE.privateKeyPem;
 
@@ -115,7 +113,7 @@ describe('证书资产 API', () => {
     assert.equal((await artifacts.get('artifact://certificate-tenant-isolation-test', 'tenant_b'))?.content.toString(), 'tenant-b');
   });
 
-  it('ACME 管理的证书资产允许手动导入新版本', async () => {
+  it('外部来源证书资产允许手动导入新版本', async () => {
     const manualFixture = createPemChainFixture();
     const db = new PgliteDatabase();
     await runMigrations(db);
@@ -131,20 +129,20 @@ describe('证书资产 API', () => {
       name: 'leaf.example.test',
       primaryDomain: 'leaf.example.test',
       sans: ['api.example.test'],
-      sourceType: 'acme',
-      tags: ['acme'],
-      createdBy: 'user_acme_manual',
+      sourceType: 'external_api',
+      tags: ['external-source'],
+      createdBy: 'user_external_manual',
     });
     const imported = await certificates.importVersion({
       certificateAssetId: asset.id,
       certificatePem: manualFixture.pem,
       privateKeyPem: manualFixture.privateKeyPem,
       sourceType: 'manual',
-      createdBy: 'user_acme_manual',
+      createdBy: 'user_external_manual',
     });
 
     assert.equal(imported.asset.id, asset.id);
-    assert.equal(imported.asset.sourceType, 'acme');
+    assert.equal(imported.asset.sourceType, 'external_api');
     assert.equal(imported.version.sourceType, 'manual');
     assert.equal(imported.asset.currentVersionId, imported.version.id);
   });
@@ -257,7 +255,7 @@ describe('证书资产 API', () => {
     assert.equal((page.body as any).items[0].certificateVersionId, versionId);
   });
 
-  it('格式导出规划要求 SecretRef，不导出明文，并能由来源同步复用导入管道', async () => {
+  it('未接入的 PFX 导出和来源同步都必须由 Plugin Runner 失败关闭', async () => {
     const { app } = await createAuthorizedMigratedApp('user_export_plan');
     const chain = createPemChainFixture();
     const imported = await app.inject({
@@ -275,10 +273,10 @@ describe('证书资产 API', () => {
       headers: headers('user_export_plan'),
       body: { certificateVersionId: versionId, format: 'pfx', containsPrivateKey: true },
     });
-    assert.equal(missingPassword.statusCode, 400);
-    assert.equal((missingPassword.body as any).errorCode, 'VALIDATION_FAILED');
+    assert.ok([400, 422].includes(missingPassword.statusCode));
+    assert.equal((missingPassword.body as any).errorCode, 'CERT_FORMAT_UNSUPPORTED');
 
-    const planned = await app.inject({
+    const unsupported = await app.inject({
       method: 'POST',
       path: '/api/v1/certificate-version-formats/export-plan',
       headers: headers('user_export_plan'),
@@ -290,65 +288,54 @@ describe('证书资产 API', () => {
         parameters: { alias: 'example' },
       },
     });
-    assert.equal(planned.statusCode, 201, `导出规划应成功：${JSON.stringify(planned.body)}`);
-    assert.equal((planned.body as any).exportMode, 'planned');
-    assert.match((planned.body as any).artifactRef, /^artifact:\/\/certificate-format\//);
-    assert.equal(JSON.stringify(planned.body).includes('BEGIN PRIVATE KEY'), false);
+    assert.equal(unsupported.statusCode, 422, JSON.stringify(unsupported.body));
+    assert.equal((unsupported.body as any).errorCode, 'CERT_FORMAT_UNSUPPORTED');
 
-    const sourceChain = createPemChainFixture();
     const source = await app.inject({
       method: 'POST',
       path: '/api/v1/certificate-sources/mock-sync',
       headers: headers('user_export_plan'),
-      body: { sourceType: 'external_api', externalId: 'ext-cert-001', certificatePem: sourceChain.pem, privateKeyPem: sourceChain.privateKeyPem },
+      body: { sourceType: 'external_api', externalId: 'ext-cert-001' },
     });
-    assert.equal(source.statusCode, 201, `来源同步应成功：${JSON.stringify(source.body)}`);
-    assert.equal((source.body as any).sourceType, 'external_api');
-    assert.equal((source.body as any).imported, true);
-    assert.equal((source.body as any).version.sourceType, 'external_api');
+    assert.equal(source.statusCode, 422, JSON.stringify(source.body));
+    assert.equal((source.body as any).errorCode, 'CA_CAPABILITY_UNSUPPORTED');
   });
 
 
 
-  it('格式能力声明五种格式真实接入，不再用受控错误冒充能力', async () => {
+  it('格式能力声明对未接入的容器格式失败关闭', async () => {
     const { app } = await createAuthorizedApp('user_formats');
     const capabilities = await app.inject({ method: 'GET', path: '/api/v1/certificate-formats/capabilities', headers: headers('user_formats') });
     assert.equal(capabilities.statusCode, 200);
     const formats = new Map((capabilities.body as any).formats.map((item: any) => [item.format, item]));
     assert.equal((formats.get('pem') as any).importSupported, true);
-    assert.equal((formats.get('pfx') as any).implementation, 'openssl');
+    assert.equal((formats.get('pfx') as any).importSupported, false);
+    assert.equal((formats.get('pfx') as any).exportSupported, false);
+    assert.equal((formats.get('pfx') as any).implementation, 'controlled_error');
     assert.equal((formats.get('jks') as any).importSupported, true);
     assert.equal((formats.get('jks') as any).exportSupported, true);
-    assert.equal((formats.get('jks') as any).implementation, 'keytool');
-    assert.equal((formats.get('p7b') as any).importSupported, true);
-    assert.equal((formats.get('p7b') as any).implementation, 'openssl');
+    assert.equal((formats.get('jks') as any).implementation, 'node_crypto');
+    assert.equal((formats.get('p7b') as any).importSupported, false);
+    assert.equal((formats.get('p7b') as any).exportSupported, false);
+    assert.equal((formats.get('p7b') as any).implementation, 'controlled_error');
     assert.equal((formats.get('p7b') as any).containsPrivateKey, 'never');
 
-    for (const body of [{ jksBase64: Buffer.from('not-a-jks').toString('base64') }, { p7bBase64: Buffer.from('not-a-p7b').toString('base64') }]) {
+    for (const body of [{ p7bBase64: Buffer.from('not-a-p7b').toString('base64') }]) {
       const response = await app.inject({ method: 'POST', path: '/api/v1/certificate-versions/import', headers: headers('user_formats'), body });
       assert.ok([400, 422].includes(response.statusCode));
-      assert.notEqual((response.body as any).errorCode, 'CERT_FORMAT_UNSUPPORTED');
+      assert.equal((response.body as any).errorCode, 'CERT_FORMAT_UNSUPPORTED');
     }
-  });
-
-  it('P7B 能通过 openssl 导入证书链且不包含私钥', async () => {
-    const fixture = createP7bFixture();
-    const { app } = await createAuthorizedApp('user_p7b');
-    const imported = await app.inject({
+    const invalidJks = await app.inject({
       method: 'POST',
       path: '/api/v1/certificate-versions/import',
-      headers: headers('user_p7b'),
-      body: { p7bBase64: fixture.p7bBase64 },
+      headers: headers('user_formats'),
+      body: { jksBase64: Buffer.from('not-a-jks').toString('base64') },
     });
-    assert.equal(imported.statusCode, 201);
-    const body = imported.body as any;
-    assert.equal(body.diagnostics.sourceFormat, 'p7b');
-    assert.equal(body.version.hasPrivateKey, false);
-    assert.equal(body.version.deployable, false);
-    assert.equal(JSON.stringify(body).includes('BEGIN PRIVATE KEY'), false);
+    assert.ok([400, 422].includes(invalidJks.statusCode));
+    assert.notEqual((invalidJks.body as any).errorCode, 'CERT_FORMAT_UNSUPPORTED');
   });
 
-  it('JKS 能通过 keytool 导入证书和私钥，密码或 alias 错误不会创建半成品', async () => {
+  it('JKS 能导入证书和私钥，密码或 alias 错误不会创建半成品', async () => {
     const fixture = createJksFixture();
     const { app } = await createAuthorizedApp('user_jks');
     const imported = await app.inject({
@@ -373,23 +360,6 @@ describe('证书资产 API', () => {
     });
     assert.equal(badAlias.statusCode, 422);
     assert.equal((badAlias.body as any).errorCode, 'CERT_PARSE_FAILED');
-  });
-
-  it('PFX 能通过 openssl 导入证书和私钥，响应仍不泄露私钥', async () => {
-    const pfx = createPfxFixture();
-    const { app } = await createAuthorizedApp('user_pfx');
-    const imported = await app.inject({
-      method: 'POST',
-      path: '/api/v1/certificate-versions/import',
-      headers: headers('user_pfx'),
-      body: { pfxBase64: pfx.pfxBase64, pfxPassword: pfx.password },
-    });
-    assert.equal(imported.statusCode, 201);
-    const body = imported.body as any;
-    assert.equal(body.diagnostics.sourceFormat, 'pfx');
-    assert.equal(body.version.hasPrivateKey, true);
-    assert.equal(body.version.privateKeySecretRef, undefined);
-    assert.equal(JSON.stringify(body).includes('BEGIN PRIVATE KEY'), false);
   });
 
   it('详情、usage 和生命周期 API 可用，删除会受使用位置保护', async () => {
@@ -459,7 +429,7 @@ describe('证书资产 API', () => {
 
     const db = new PgliteDatabase();
     await runMigrations(db);
-    const app = createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true });
+    const app = configureTestAuth(createApp({ db, corePersistence: { mode: 'memory' }, security }));
 
     const imported = await app.inject({
       method: 'POST',
@@ -528,15 +498,15 @@ describe('证书资产 API', () => {
 
   it('证书版本 usage 支持按域名匹配真实绑定，即使绑定未直接挂到 certificateVersionId', async () => {
     const app = await createMigratedApp('user_usage_domain_match', 'tenant_usage_domain_match');
-    const tenantHeaders = { 'x-tenant-id': 'tenant_usage_domain_match', 'x-actor-id': 'user_usage_domain_match' };
-    const certificateFixture = createWildcardJacksonzPemFixture();
+    const tenantHeaders = headersForTenant('user_usage_domain_match', 'tenant_usage_domain_match');
+    const certificateFixture = createCertificateTestFixture();
 
     const imported = await app.inject({
       method: 'POST',
       path: '/api/v1/certificate-versions/import',
       headers: tenantHeaders,
       body: {
-        certificatePem: certificateFixture.certificatePem,
+        certificatePem: certificateFixture.pem,
         privateKeyPem: certificateFixture.privateKeyPem,
       },
     });
@@ -584,7 +554,7 @@ describe('证书资产 API', () => {
       body: {
         serviceInstanceId: service.id,
         siteAssetId: siteAsset.id,
-        domainName: 'test.jacksonz.cn',
+        domainName: 'leaf.example.test',
         port: 443,
         protocol: 'HTTPS',
         bindingType: 'WINDOWS_CERT_STORE',
@@ -613,8 +583,8 @@ describe('证书资产 API', () => {
       blockedDeletion: boolean;
     };
     assert.equal(body.blockedDeletion, true);
-    assert.ok(body.usages.some((item) => item.binding?.domainName === 'test.jacksonz.cn'));
-    assert.ok(body.usages.some((item) => item.serviceAsset?.address === 'test.jacksonz.cn'));
+    assert.ok(body.usages.some((item) => item.binding?.domainName === 'leaf.example.test'));
+    assert.ok(body.usages.some((item) => item.serviceAsset?.address === 'leaf.example.test'));
     assert.ok(body.usages.some((item) => item.service?.displayName === 'IIS on jacksonz'));
     assert.ok(body.usages.some((item) => item.host?.agentId === 'agent-jacksonz-01'));
   });
@@ -687,7 +657,7 @@ describe('证书资产 API', () => {
     });
     const db = new PgliteDatabase();
     await runMigrations(db);
-    const app = createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true });
+    const app = configureTestAuth(createApp({ db, corePersistence: { mode: 'memory' }, security }));
 
     const imported = await app.inject({
       method: 'POST',
@@ -718,7 +688,7 @@ describe('证书资产 API', () => {
     assert.equal(format.statusCode, 201);
   });
 
-  it('真实格式导出会生成 PEM/DER/P7B/PFX/JKS 产物 bytes，并且不泄露密码和私钥', async () => {
+  it('已接入格式导出会生成 PEM/DER/JKS 产物 bytes，并且不泄露密码和私钥', async () => {
     const { app, security, artifacts } = await createAuthorizedMigratedApp('user_export_real');
     const chain = createPemChainFixture();
     const imported = await app.inject({
@@ -741,8 +711,6 @@ describe('证书资产 API', () => {
     const exportCases = [
       { format: 'pem', containsPrivateKey: true, passwordSecretRef: undefined },
       { format: 'der', containsPrivateKey: false, passwordSecretRef: undefined },
-      { format: 'p7b', containsPrivateKey: false, passwordSecretRef: undefined },
-      { format: 'pfx', containsPrivateKey: true, passwordSecretRef: password },
       { format: 'jks', containsPrivateKey: true, passwordSecretRef: password },
     ];
     for (const item of exportCases) {
@@ -820,10 +788,10 @@ async function createAuthorizedApp(actorId: string, exposeArtifacts = false) {
   }
   const db = new PgliteDatabase();
   await runMigrations(db);
-  if (!exposeArtifacts) return { app: createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true }), security, artifacts: undefined as unknown as PgCertificateArtifactStore };
+  if (!exposeArtifacts) return { app: configureTestAuth(createApp({ db, corePersistence: { mode: 'memory' }, security })), security, artifacts: undefined as unknown as PgCertificateArtifactStore };
   const artifacts = new PgCertificateArtifactStore(db);
   const certificates = new CertificatesApplicationService({ db, secrets: security.secrets, audit: security.audit, artifacts });
-  return { app: createApp({ db, corePersistence: { mode: 'memory' }, security, certificates: { certificates }, allowLegacyHeaderContext: true }), security, artifacts };
+  return { app: configureTestAuth(createApp({ db, corePersistence: { mode: 'memory' }, security, certificates: { certificates } })), security, artifacts };
 }
 
 async function createAuthorizedMigratedApp(actorId: string) {
@@ -842,13 +810,13 @@ async function createAuthorizedMigratedApp(actorId: string) {
   await runMigrations(db);
   const artifacts = new PgCertificateArtifactStore(db);
   const certificates = new CertificatesApplicationService({ db, secrets: security.secrets, audit: security.audit, artifacts });
-  return { app: createApp({ db, corePersistence: { mode: 'memory' }, security, certificates: { certificates }, allowLegacyHeaderContext: true }), security, artifacts };
+  return { app: configureTestAuth(createApp({ db, corePersistence: { mode: 'memory' }, security, certificates: { certificates } })), security, artifacts };
 }
 
 async function createMigratedApp(actorId?: string, tenantId = 'tenant_1') {
   const db = new PgliteDatabase();
   await runMigrations(db);
-  if (!actorId) return createApp({ db, corePersistence: { mode: 'memory' }, allowLegacyHeaderContext: true });
+  if (!actorId) return createApp({ db, corePersistence: { mode: 'memory' } });
   const security = createSecurityServices();
   security.rbac.createPolicy({
     subjectType: 'user',
@@ -858,15 +826,19 @@ async function createMigratedApp(actorId?: string, tenantId = 'tenant_1') {
     resourceTypes: ['certificate_asset', 'certificate_version', 'host', 'service_instance', 'site_asset', 'managed_target', 'certificate_binding'],
     scope: { tenantId },
   });
-  return createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true });
+  return configureTestAuth(createApp({ db, corePersistence: { mode: 'memory' }, security }));
 }
 
 function headers(actorId: string) {
-  return { 'x-tenant-id': 'tenant_1', 'x-actor-id': actorId };
+  return { authorization: `Bearer ${actorId}|tenant_1`, 'x-tenant-id': 'tenant_1', 'x-actor-id': actorId };
 }
 
 function tenantHeaders(actorId: string, tenantId: string) {
-  return { 'x-tenant-id': tenantId, 'x-actor-id': actorId };
+  return headersForTenant(actorId, tenantId);
+}
+
+function headersForTenant(actorId: string, tenantId: string) {
+  return { authorization: `Bearer ${actorId}|${tenantId}`, 'x-tenant-id': tenantId, 'x-actor-id': actorId };
 }
 
 async function createMultiTenantAuthorizedApp() {
@@ -889,70 +861,27 @@ async function createMultiTenantAuthorizedApp() {
   const artifacts = new PgCertificateArtifactStore(db);
   const certificates = new CertificatesApplicationService({ db, secrets: security.secrets, audit: security.audit, artifacts });
   return {
-    app: createApp({
+    app: configureTestAuth(createApp({
       db,
       corePersistence: { mode: 'memory' },
       security,
       certificates: { certificates },
-      allowLegacyHeaderContext: true,
-    }),
+    })),
     artifacts,
   };
 }
 
+function configureTestAuth(app: App): App {
+  app.setAuthTokenResolver((authorization) => {
+    const token = authorization?.startsWith('Bearer ') ? authorization.slice('Bearer '.length) : undefined;
+    const [actorId, tenantId] = token?.split('|') ?? [];
+    return actorId && tenantId ? { actorId, tenantId } : undefined;
+  });
+  return app;
+}
+
 function createPemChainFixture(): { pem: string; privateKeyPem: string } {
-  const dir = mkdtempSync(join(tmpdir(), 'gcac-cert-chain-'));
-  try {
-    runOpenSsl(dir, 'genrsa', '-out', 'root.key', '2048');
-    runOpenSsl(dir, 'req', '-x509', '-new', '-nodes', '-key', 'root.key', '-sha256', '-days', '3650', '-subj', '/CN=Root CA/O=GCAC', '-out', 'root.pem');
-
-    runOpenSsl(dir, 'genrsa', '-out', 'intermediate.key', '2048');
-    runOpenSsl(dir, 'req', '-new', '-key', 'intermediate.key', '-subj', '/CN=Intermediate CA/O=GCAC', '-out', 'intermediate.csr');
-    writeFileSync(join(dir, 'intermediate.ext'), 'basicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid,issuer\n');
-    runOpenSsl(dir, 'x509', '-req', '-in', 'intermediate.csr', '-CA', 'root.pem', '-CAkey', 'root.key', '-CAcreateserial', '-out', 'intermediate.pem', '-days', '1000', '-sha256', '-extfile', 'intermediate.ext');
-
-    runOpenSsl(dir, 'genrsa', '-out', 'leaf.key', '2048');
-    runOpenSsl(dir, 'req', '-new', '-key', 'leaf.key', '-subj', '/CN=leaf.example.test/O=GCAC', '-out', 'leaf.csr');
-    writeFileSync(join(dir, 'leaf.ext'), 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:leaf.example.test,DNS:api.example.test\n');
-    runOpenSsl(dir, 'x509', '-req', '-in', 'leaf.csr', '-CA', 'intermediate.pem', '-CAkey', 'intermediate.key', '-CAcreateserial', '-out', 'leaf.pem', '-days', '365', '-sha256', '-extfile', 'leaf.ext');
-
-    return {
-      pem: [readFileSync(join(dir, 'leaf.pem'), 'utf8'), readFileSync(join(dir, 'intermediate.pem'), 'utf8'), readFileSync(join(dir, 'root.pem'), 'utf8')].join('\n'),
-      privateKeyPem: readFileSync(join(dir, 'leaf.key'), 'utf8'),
-    };
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-}
-
-function runOpenSsl(cwd: string, ...args: string[]): void {
-  execFileSync('openssl', args, { cwd, stdio: 'ignore' });
-}
-
-function createPfxFixture(): { pfxBase64: string; password: string } {
-  const dir = mkdtempSync(join(tmpdir(), 'gcac-cert-pfx-'));
-  try {
-    const chain = createPemChainFixture();
-    writeFileSync(join(dir, 'cert.pem'), chain.pem);
-    writeFileSync(join(dir, 'key.pem'), chain.privateKeyPem);
-    const password = 'pfx-test-password';
-    runOpenSsl(dir, 'pkcs12', '-export', '-inkey', 'key.pem', '-in', 'cert.pem', '-out', 'bundle.p12', '-passout', `pass:${password}`);
-    return { pfxBase64: readFileSync(join(dir, 'bundle.p12')).toString('base64'), password };
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-}
-
-function createP7bFixture(): { p7bBase64: string } {
-  const dir = mkdtempSync(join(tmpdir(), 'gcac-cert-p7b-'));
-  try {
-    const chain = createPemChainFixture();
-    writeFileSync(join(dir, 'certs.pem'), chain.pem);
-    runOpenSsl(dir, 'crl2pkcs7', '-nocrl', '-certfile', 'certs.pem', '-out', 'bundle.p7b', '-outform', 'DER');
-    return { p7bBase64: readFileSync(join(dir, 'bundle.p7b')).toString('base64') };
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  return createCertificateTestFixture();
 }
 
 function createJksFixture(): { jksBase64: string; password: string; alias: string } {
@@ -963,28 +892,4 @@ function createJksFixture(): { jksBase64: string; password: string; alias: strin
     .map((match) => Buffer.from(match[0].replace(/-----BEGIN CERTIFICATE-----|-----END CERTIFICATE-----|\s/g, ''), 'base64'));
   const jks = generateJksKeystore({ alias, password, privateKeyPem: chain.privateKeyPem, certificateDers });
   return { jksBase64: jks.toString('base64'), password, alias };
-}
-
-function createWildcardJacksonzPemFixture(): { certificatePem: string; privateKeyPem: string } {
-  const dir = mkdtempSync(join(tmpdir(), 'gcac-cert-jacksonz-'));
-  try {
-    runOpenSsl(dir, 'genrsa', '-out', 'root.key', '2048');
-    runOpenSsl(dir, 'req', '-x509', '-new', '-nodes', '-key', 'root.key', '-sha256', '-days', '3650', '-subj', '/CN=Jacksonz Root CA/O=GCAC', '-out', 'root.pem');
-
-    runOpenSsl(dir, 'genrsa', '-out', 'intermediate.key', '2048');
-    runOpenSsl(dir, 'req', '-new', '-key', 'intermediate.key', '-subj', '/CN=Jacksonz Intermediate CA/O=GCAC', '-out', 'intermediate.csr');
-    writeFileSync(join(dir, 'intermediate.ext'), 'basicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid,issuer\n');
-    runOpenSsl(dir, 'x509', '-req', '-in', 'intermediate.csr', '-CA', 'root.pem', '-CAkey', 'root.key', '-CAcreateserial', '-out', 'intermediate.pem', '-days', '1000', '-sha256', '-extfile', 'intermediate.ext');
-
-    runOpenSsl(dir, 'genrsa', '-out', 'leaf.key', '2048');
-    runOpenSsl(dir, 'req', '-new', '-key', 'leaf.key', '-subj', '/CN=*.jacksonz.cn/O=GCAC', '-out', 'leaf.csr');
-    writeFileSync(join(dir, 'leaf.ext'), 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:*.jacksonz.cn,DNS:jacksonz.cn\n');
-    runOpenSsl(dir, 'x509', '-req', '-in', 'leaf.csr', '-CA', 'intermediate.pem', '-CAkey', 'intermediate.key', '-CAcreateserial', '-out', 'leaf.pem', '-days', '365', '-sha256', '-extfile', 'leaf.ext');
-    return {
-      certificatePem: [readFileSync(join(dir, 'leaf.pem'), 'utf8'), readFileSync(join(dir, 'intermediate.pem'), 'utf8'), readFileSync(join(dir, 'root.pem'), 'utf8')].join('\n'),
-      privateKeyPem: readFileSync(join(dir, 'leaf.key'), 'utf8'),
-    };
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
 }

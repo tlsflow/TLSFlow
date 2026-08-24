@@ -47,7 +47,7 @@ export class FormatCodecRegistry {
       return codec.format;
     }
     const matched = this.codecs.find((codec) => codec.detect(input));
-    if (!matched) throw new AppError('CERT_FORMAT_UNSUPPORTED', '无法识别证书格式；当前入口支持 PEM、DER、PFX、JKS、P7B', { supportedFormats: this.supportedFormats() });
+    if (!matched) throw new AppError('CERT_FORMAT_UNSUPPORTED', '无法识别证书格式；当前入口支持 PEM、DER、JKS', { supportedFormats: this.supportedFormats() });
     return matched.format;
   }
 
@@ -66,6 +66,10 @@ export function requireBase64Buffer(value: string | undefined, field: string): B
   return buffer;
 }
 
-export function unsupported(format: CertificateFormat): AppError {
-  return new AppError('CERT_FORMAT_UNSUPPORTED', `${format.toUpperCase()} 当前只有受控入口，Node 原生/当前运行时不能安全解析成功，不会创建半成品证书版本`, { format });
+export function unsupported(format: CertificateFormat, operation: 'import' | 'export' = 'import'): AppError {
+  return new AppError(
+    'CERT_FORMAT_UNSUPPORTED',
+    `${format.toUpperCase()} ${operation === 'import' ? '导入' : '导出'}尚无生产 Plugin Runner 支持，宿主不会启动厂商工具或创建半成品证书材料`,
+    { format, operation, implementation: 'controlled_error' },
+  );
 }
