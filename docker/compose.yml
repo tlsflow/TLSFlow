@@ -59,6 +59,7 @@ services:
     volumes:
       - gcac_small_pglite:/var/lib/gcac/pglite
       - gcac_small_workflows:/app/data/workflows
+      - ../data/plugins:/app/data/plugins:ro
     restart: unless-stopped
 
   db:
@@ -147,6 +148,7 @@ services:
       - "${GCAC_BACKEND_PORT:-3003}:3003"
     volumes:
       - gcac_standard_workflows:/app/data/workflows
+      - ../data/plugins:/app/data/plugins:ro
     restart: unless-stopped
 
   web:

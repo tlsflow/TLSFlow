@@ -30,7 +30,7 @@ RUN apt-get update \
   && rm -f /tmp/lego.tar.gz /tmp/install-lego.mjs /tmp/versions.json \
   && rm -rf /var/lib/apt/lists/* \
   && useradd --create-home --uid 10001 --shell /usr/sbin/nologin gcac \
-  && mkdir -p /app/data/workflows /app/src/database/migrations /app/src/modules/plugins/builtin-plugins \
+  && mkdir -p /app/data/workflows /app/data/plugins /app/src/database/migrations /app/src/modules/plugins/builtin-plugins \
       /app/src/modules/workflow-templates/builtin-workflows /opt/gcac/agent-release-bundle \
   && chown -R gcac:gcac /app /opt/gcac
 
