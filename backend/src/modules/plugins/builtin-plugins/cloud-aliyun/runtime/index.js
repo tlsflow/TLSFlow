@@ -1,7 +1,7 @@
 import { createHash, createHmac } from 'node:crypto';
 
 const PLUGIN_ID = 'cloud.aliyun';
-const PLUGIN_VERSION = '2.0.0';
+const PLUGIN_VERSION = '2.0.1';
 const PROVIDER = 'aliyun';
 const SIGNATURE_ALGORITHM = 'ALIYUN-RPC-HMAC-SHA1';
 const CAPABILITIES = Object.freeze([
@@ -55,10 +55,10 @@ async function execute(context, hostApi, descriptor) {
     const security = record(input.security, 'input.security');
     const grantRefs = [...context.grantRefs];
     const credential = record(input.credential, 'input.credential');
-    const service = await hostData(hostApi, 'cloudService.get', {
+    const service = await hostCloudServiceGet(hostApi, {
       cloudServiceRef: requiredIdentifier(input.cloudServiceRef, 'cloudServiceRef'),
     }, grantRefs);
-    const secret = await hostData(hostApi, 'secret.grant.resolve', {
+    const secret = await hostSecretResolve(hostApi, {
       grantId: requiredIdentifier(credential.grantId, 'credential.grantId'),
       secretRef: requiredSecretRef(credential.secretRef),
       purpose: `cloud.${operation}`,
@@ -66,14 +66,14 @@ async function execute(context, hostApi, descriptor) {
     const requestInput = record(input.request, 'input.request');
     let body = requestInput.body === undefined ? {} : requestInput.body;
     if (operation === 'deploy' || operation === 'rollback') {
-      const artifact = await hostData(hostApi, 'artifact.grant.read', {
+      const artifact = await hostArtifactRead(hostApi, {
         grantId: requiredIdentifier(credential.grantId, 'credential.grantId'),
         artifactRef: requiredArtifactRef(input.certificateArtifactRef),
       }, grantRefs);
       body = { ...record(body, 'input.request.body'), certificateChain: requiredPublicCertificate(artifact) };
     }
     const request = signRequest(service, secret, requestInput, body, security, operation);
-    const response = await hostData(hostApi, 'http.request', request, grantRefs);
+    const response = await hostHttpRequest(hostApi, request, grantRefs);
     if (operation === 'connection-test') return readResult('connection-test', response);
     if (operation === 'discover') return discoverResult(response, descriptor);
     return await writeResult(operation, service, secret, requestInput, security, response, grantRefs, hostApi, descriptor);
@@ -112,7 +112,7 @@ async function writeResult(operation, service, secret, requestInput, security, r
     const operationId = requiredIdentifier(current.operationId, 'operationId');
     const pollInput = { ...requestInput, method: 'GET', uri: `/operations/${operationId}`, action: 'GetOperation', body: {} };
     const pollRequest = signRequest(service, secret, pollInput, {}, security, operation);
-    current = await hostData(hostApi, 'http.request', pollRequest, grantRefs);
+    current = await hostHttpRequest(hostApi, pollRequest, grantRefs);
   }
   const status = statusCode(current);
   const state = responseState(current);
@@ -173,7 +173,7 @@ function discoverResult(response, descriptor) {
 }
 
 function signRequest(service, secret, requestInput, body, security, operation) {
-  const endpoint = requiredEndpoint(service.endpoint);
+  const { endpoint } = cloudServiceScope(service);
   const url = new URL(requiredPath(requestInput.uri), endpoint);
   const method = requestInput.method === undefined ? (operation === 'discover' ? 'POST' : 'POST') : requiredMethod(requestInput.method);
   const action = requiredIdentifier(requestInput.action ?? operation, 'request.action');
@@ -209,11 +209,11 @@ function signRequest(service, secret, requestInput, body, security, operation) {
   };
 }
 
-async function hostData(hostApi, method, input, grantRefs) {
+async function hostData(hostApi, invoke) {
   if (!hostApi || typeof hostApi.call !== 'function') throw hostError('Host API 不可用');
   let result;
   try {
-    result = await hostApi.call(method, input, grantRefs);
+    result = await invoke();
   } catch {
     throw unknownError('CLOUD_HOST_CALL_FAILED', 'Cloud Host API 调用失败');
   }
@@ -221,6 +221,22 @@ async function hostData(hostApi, method, input, grantRefs) {
     throw unknownError('CLOUD_HOST_CALL_FAILED', 'Cloud Host API 返回无效结果');
   }
   return result.data;
+}
+
+function hostCloudServiceGet(hostApi, input, grantRefs) {
+  return hostData(hostApi, () => hostApi.call('cloudService.get', input, grantRefs));
+}
+
+function hostSecretResolve(hostApi, input, grantRefs) {
+  return hostData(hostApi, () => hostApi.call('secret.grant.resolve', input, grantRefs));
+}
+
+function hostArtifactRead(hostApi, input, grantRefs) {
+  return hostData(hostApi, () => hostApi.call('artifact.grant.read', input, grantRefs));
+}
+
+function hostHttpRequest(hostApi, input, grantRefs) {
+  return hostData(hostApi, () => hostApi.call('http.request', input, grantRefs));
 }
 
 function successResult(summary) {
@@ -279,6 +295,13 @@ function requiredDigestEnv(name) {
 function record(value, path) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw contractError('CLOUD_INPUT_INVALID', `${path} 必须是对象`);
   return value;
+}
+
+function cloudServiceScope(service) {
+  const serviceRecord = record(service, 'service');
+  const scope = record(serviceRecord.scope, 'service.scope');
+  const metadata = record(scope.metadata, 'service.scope.metadata');
+  return { endpoint: requiredEndpoint(scope.endpoint), metadata };
 }
 
 function requiredIdentifier(value, path) {

@@ -30,7 +30,7 @@ test('四个 Cloud 包由真实 Runner 子进程执行，并对缺失授权和�
     assert.equal(manifest.apiVersion, 'gcac.plugin-manifest/v1');
     assert.equal(manifest.kind, 'GcacPlugin');
     assert.equal(manifest.pluginId, pluginId);
-    assert.equal(manifest.version, '2.0.0');
+    assert.equal(manifest.version, '2.0.1');
     assert.equal(manifest.runtime, 'WORKFLOW_DSL');
     assert.deepEqual(Object.keys(manifest).sort(), [...publicManifestKeys].sort(), `${pluginId} 含公共 Schema 未允许的 Manifest 字段`);
     assert.deepEqual(Object.keys(manifest.resources).sort(), [...publicResourceKeys].sort(), `${pluginId} 含公共 Schema 未允许的资源字段`);
@@ -48,7 +48,7 @@ test('四个 Cloud 包由真实 Runner 子进程执行，并对缺失授权和�
     const result = await runChild({ packageDirectory, manifest, pluginId, provider, digest });
     assert.equal(result.hello.accepted, true, `${pluginId} Runner 握手失败`);
     assert.equal(result.hello.pluginId, pluginId);
-    assert.equal(result.hello.pluginVersion, '2.0.0');
+    assert.equal(result.hello.pluginVersion, '2.0.1');
     assert.equal(result.hello.packageHash, digest.packageHash);
     assert.equal(result.hello.manifestHash, digest.manifestHash);
     assert.equal(result.hello.resourceHash, digest.resourceHash);
@@ -60,7 +60,7 @@ test('四个 Cloud 包由真实 Runner 子进程执行，并对缺失授权和�
     assert.equal(cloudResource?.kind, 'CloudServiceResource');
     assert.equal(cloudResource?.stableKey, `${pluginId}:${cloudResource?.resourceType}:${cloudResource?.resourceId}`);
     assert.equal(cloudResource?.pluginId, pluginId);
-    assert.equal(cloudResource?.pluginVersionId, `${pluginId}:2.0.0`);
+    assert.equal(cloudResource?.pluginVersionId, `${pluginId}:2.0.1`);
     assert.equal(cloudResource?.provider, provider);
     assert.equal(Object.hasOwn(cloudResource ?? {}, 'objectType'), false);
     assert.equal(result.deploy.status, 'SUCCESS');
@@ -94,11 +94,11 @@ test('四个 Cloud 工厂缺少主适配器摘要时失败关闭', () => {
 });
 
 async function runChild({ packageDirectory, manifest, pluginId, provider, digest }) {
-  const versionId = `${pluginId}:2.0.0`;
-  const child = spawn(process.execPath, [runnerFixture, '--executor-module', join(packageDirectory, 'runtime/index.js'), '--plugin-id', pluginId, '--plugin-version-id', versionId, '--plugin-version', '2.0.0', '--package-hash', digest.packageHash, '--manifest-hash', digest.manifestHash, '--resource-hash', digest.resourceHash], { cwd: repositoryRoot, env: { ...process.env, NODE_ENV: 'test' }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+  const versionId = `${pluginId}:2.0.1`;
+  const child = spawn(process.execPath, [runnerFixture, '--executor-module', join(packageDirectory, 'runtime/index.js'), '--plugin-id', pluginId, '--plugin-version-id', versionId, '--plugin-version', '2.0.1', '--package-hash', digest.packageHash, '--manifest-hash', digest.manifestHash, '--resource-hash', digest.resourceHash], { cwd: repositoryRoot, env: { ...process.env, NODE_ENV: 'test' }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
   const reader = createReader(child);
   const helloRequest = {
-    protocolVersion: 'gcac.plugin-runner/v1', messageType: 'hello', requestId: `hello-${provider}`, sentAt: '2026-08-11T00:00:00.000Z', pluginVersionId: versionId, pluginId, pluginVersion: '2.0.0', tenantId: 'tenant-fixture', runner: { pid: 1, sdkVersion: 'fixture-1.0.0', runnerVersion: 'fixture-1.0.0' }, capabilities: ['cloud.service.connection-test', 'cloud.service.discover', 'certificate.deploy', 'certificate.rollback'], permissions: ['artifact.read', 'audit.append', 'cloud.service.get', 'execution.cancel', 'execution.checkpoint', 'execution.progress', 'network.http', 'resource.lock', 'secret.resolve'], packageHash: digest.packageHash, resourceHash: digest.resourceHash, manifestHash: digest.manifestHash,
+    protocolVersion: 'gcac.plugin-runner/v1', messageType: 'hello', requestId: `hello-${provider}`, sentAt: '2026-08-11T00:00:00.000Z', pluginVersionId: versionId, pluginId, pluginVersion: '2.0.1', tenantId: 'tenant-fixture', runner: { pid: 1, sdkVersion: 'fixture-1.0.0', runnerVersion: 'fixture-1.0.0' }, capabilities: ['cloud.service.connection-test', 'cloud.service.discover', 'certificate.deploy', 'certificate.rollback'], permissions: ['artifact.read', 'audit.append', 'cloud.service.get', 'execution.cancel', 'execution.checkpoint', 'execution.progress', 'network.http', 'resource.lock', 'secret.resolve'], packageHash: digest.packageHash, resourceHash: digest.resourceHash, manifestHash: digest.manifestHash,
   };
   child.stdin.write(`${JSON.stringify(helloRequest)}\n`);
   const hello = await reader.next();

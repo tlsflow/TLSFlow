@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "cloud.tencent",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "displayNameKey": "plugin.cloud.tencent.name",
   "descriptionKey": "plugin.cloud.tencent.description",
   "defaultLocale": "zh-CN",
@@ -19,10 +19,10 @@
     { "key": "certificate.rollback", "contractVersion": "v1", "actionContractId": "certificate.rollback.v1", "riskLevel": "HIGH", "executionLocations": ["CONTROL_PLANE"] }
   ],
   "permissions": [
-    "secret.read",
+    "secret.resolve",
     "artifact.read",
     "network.http",
-    "cloud.service.read",
+    "cloud.service.get",
     "execution.progress.write",
     "execution.checkpoint.write",
     "execution.checkpoint.read",

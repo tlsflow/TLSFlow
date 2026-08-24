@@ -1,7 +1,7 @@
 import { createHash, createHmac } from 'node:crypto';
 
 const PLUGIN_ID = 'cloud.huawei';
-const PLUGIN_VERSION = '2.0.0';
+const PLUGIN_VERSION = '2.0.1';
 const PROVIDER = 'huawei';
 const SIGNATURE_ALGORITHM = 'HUAWEI-SDK-HMAC-SHA256';
 const CAPABILITIES = Object.freeze(['cloud.service.connection-test', 'cloud.service.discover', 'certificate.deploy', 'certificate.rollback']);
@@ -32,16 +32,16 @@ async function execute(context, hostApi, descriptor) {
     const security = record(input.security, 'input.security');
     const refs = [...context.grantRefs];
     const credential = record(input.credential, 'input.credential');
-    const service = await hostData(hostApi, 'cloudService.get', { cloudServiceRef: requiredIdentifier(input.cloudServiceRef, 'cloudServiceRef') }, refs);
-    const secret = await hostData(hostApi, 'secret.grant.resolve', { grantId: requiredIdentifier(credential.grantId, 'credential.grantId'), secretRef: requiredSecretRef(credential.secretRef), purpose: `cloud.${operation}` }, refs);
+    const service = await hostCloudServiceGet(hostApi, { cloudServiceRef: requiredIdentifier(input.cloudServiceRef, 'cloudServiceRef') }, refs);
+    const secret = await hostSecretResolve(hostApi, { grantId: requiredIdentifier(credential.grantId, 'credential.grantId'), secretRef: requiredSecretRef(credential.secretRef), purpose: `cloud.${operation}` }, refs);
     const requestInput = record(input.request, 'input.request');
     let body = requestInput.body === undefined ? {} : requestInput.body;
     if (operation === 'deploy' || operation === 'rollback') {
-      const artifact = await hostData(hostApi, 'artifact.grant.read', { grantId: requiredIdentifier(credential.grantId, 'credential.grantId'), artifactRef: requiredArtifactRef(input.certificateArtifactRef) }, refs);
+      const artifact = await hostArtifactRead(hostApi, { grantId: requiredIdentifier(credential.grantId, 'credential.grantId'), artifactRef: requiredArtifactRef(input.certificateArtifactRef) }, refs);
       body = { ...record(body, 'input.request.body'), certificateChain: requiredPublicCertificate(artifact) };
     }
     const request = signRequest(service, secret, requestInput, body, security, operation);
-    const response = await hostData(hostApi, 'http.request', request, refs);
+    const response = await hostHttpRequest(hostApi, request, refs);
     if (operation === 'connection-test') return readResult('connection-test', response);
     if (operation === 'discover') return discoverResult(response, descriptor);
     return await writeResult(operation, service, secret, requestInput, security, response, refs, hostApi, descriptor);
@@ -67,7 +67,7 @@ async function writeResult(operation, service, secret, requestInput, security, r
   for (let attempt = 0; isPending(current); attempt += 1) {
     if (attempt >= 3) throw unknownError('CLOUD_OPERATION_UNKNOWN', '云厂商异步写操作超过轮询上限');
     const operationId = requiredIdentifier(current.operationId, 'operationId');
-    current = await hostData(hostApi, 'http.request', signRequest(service, secret, { ...requestInput, method: 'GET', uri: `/operations/${operationId}`, action: 'GetOperation', body: {}, query: { operationId } }, {}, security, operation), refs);
+    current = await hostHttpRequest(hostApi, signRequest(service, secret, { ...requestInput, method: 'GET', uri: `/operations/${operationId}`, action: 'GetOperation', body: {}, query: { operationId } }, {}, security, operation), refs);
   }
   const code = statusCode(current);
   const state = responseState(current);
@@ -98,7 +98,7 @@ function discoverResult(response, descriptor) {
 }
 
 function signRequest(service, secret, requestInput, body, security, operation) {
-  const endpoint = requiredEndpoint(service.endpoint);
+  const { endpoint } = cloudServiceScope(service);
   const url = new URL(requiredPath(requestInput.uri), endpoint);
   const method = requiredMethod(requestInput.method ?? 'POST');
   const timestamp = huaweiTimestamp(requestInput.timestamp);
@@ -124,13 +124,18 @@ function signRequest(service, secret, requestInput, body, security, operation) {
   };
 }
 
-async function hostData(hostApi, method, input, grantRefs) {
+async function hostData(hostApi, invoke) {
   if (!hostApi || typeof hostApi.call !== 'function') throw unknownError('CLOUD_HOST_CALL_FAILED', 'Host API 不可用');
   let result;
-  try { result = await hostApi.call(method, input, grantRefs); } catch { throw unknownError('CLOUD_HOST_CALL_FAILED', 'Cloud Host API 调用失败'); }
+  try { result = await invoke(); } catch { throw unknownError('CLOUD_HOST_CALL_FAILED', 'Cloud Host API 调用失败'); }
   if (!result || result.ok !== true || !result.data || typeof result.data !== 'object' || Array.isArray(result.data)) throw unknownError('CLOUD_HOST_CALL_FAILED', 'Cloud Host API 返回无效结果');
   return result.data;
 }
+
+function hostCloudServiceGet(hostApi, input, grantRefs) { return hostData(hostApi, () => hostApi.call('cloudService.get', input, grantRefs)); }
+function hostSecretResolve(hostApi, input, grantRefs) { return hostData(hostApi, () => hostApi.call('secret.grant.resolve', input, grantRefs)); }
+function hostArtifactRead(hostApi, input, grantRefs) { return hostData(hostApi, () => hostApi.call('artifact.grant.read', input, grantRefs)); }
+function hostHttpRequest(hostApi, input, grantRefs) { return hostData(hostApi, () => hostApi.call('http.request', input, grantRefs)); }
 
 function successResult(summary) { return { success: true, status: 'SUCCESS', summary, normalizedObjects: [], warnings: [] }; }
 function failureResult(context, operation, error) { const item = error && typeof error === 'object' ? error : {}; const code = typeof item.code === 'string' ? item.code : 'CLOUD_PLUGIN_FAILED'; const mayBeUnknown = item.mayBeUnknown === true || context?.writeEffect === true && code === 'CLOUD_HOST_CALL_FAILED'; return { success: false, status: context?.writeEffect && mayBeUnknown ? 'UNKNOWN' : 'FAILED', summary: { provider: PROVIDER, operation: operation ?? 'unknown' }, normalizedObjects: [], warnings: [], error: { code, message: typeof item.safeMessage === 'string' ? item.safeMessage : 'Cloud 插件执行失败', retryable: item.retryable === true, mayBeUnknown, secretRedacted: true } }; }
@@ -141,6 +146,7 @@ function statusCode(response) { return typeof response?.statusCode === 'number' 
 function requiredDescriptorEnv(name) { const value = process.env[name]?.trim(); if (!value || !/^[A-Za-z0-9._:-]{1,256}$/.test(value)) throw contractError('CLOUD_DESCRIPTOR_MISSING', `${name} 缺失或格式无效`); return value; }
 function requiredDigestEnv(name) { const value = process.env[name]?.trim(); if (!value || !HASH_PATTERN.test(value)) throw contractError('CLOUD_DESCRIPTOR_MISSING', `${name} 缺失或格式无效`); return value; }
 function record(value, path) { if (!value || typeof value !== 'object' || Array.isArray(value)) throw contractError('CLOUD_INPUT_INVALID', `${path} 必须是对象`); return value; }
+function cloudServiceScope(service) { const serviceRecord = record(service, 'service'); const scope = record(serviceRecord.scope, 'service.scope'); const metadata = record(scope.metadata, 'service.scope.metadata'); return { endpoint: requiredEndpoint(scope.endpoint), metadata }; }
 function requiredIdentifier(value, path) { if (typeof value !== 'string' || !/^[A-Za-z0-9._:/-]{1,512}$/.test(value)) throw contractError('CLOUD_INPUT_INVALID', `${path} 缺少固定标识`); return value; }
 function requiredSecretRef(value) { if (typeof value !== 'string' || !/^secret:\/\/[A-Za-z0-9._:/#-]{1,512}$/.test(value)) throw contractError('CLOUD_INPUT_INVALID', 'SecretRef 格式无效'); return value; }
 function requiredArtifactRef(value) { if (typeof value !== 'string' || !/^artifact:\/\/[A-Za-z0-9._:/#-]{1,512}$/.test(value)) throw contractError('CLOUD_INPUT_INVALID', 'ArtifactRef 格式无效'); return value; }

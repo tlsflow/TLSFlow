@@ -1,8 +1,8 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "PluginWorkflow",
-  "metadata": { "name": "cloud-volcengine-certificate-rollback", "version": "2.0.0", "pluginId": "cloud.volcengine", "capability": "certificate.rollback", "readOnly": false },
+  "metadata": { "name": "cloud-volcengine-certificate-rollback", "version": "2.0.1", "pluginId": "cloud.volcengine", "capability": "certificate.rollback", "readOnly": false },
   "inputContract": { "required": ["cloudServiceRef", "credential.secretRef", "certificateArtifactRef", "security"] },
-  "executionBinding": { "pluginVersion": "2.0.0", "capability": "certificate.rollback", "runner": "gcac.plugin-runner/v1", "writeEffect": true },
+  "executionBinding": { "pluginVersion": "2.0.1", "capability": "certificate.rollback", "runner": "gcac.plugin-runner/v1", "writeEffect": true },
   "steps": [{ "type": "plugin.execute", "capability": "certificate.rollback", "writeEffect": true }]
 }

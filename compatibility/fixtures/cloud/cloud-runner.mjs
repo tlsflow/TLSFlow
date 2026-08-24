@@ -90,7 +90,7 @@ async function hostCall(method, request) {
   if (!verifySignature(request, provider)) return { ok: true, data: { statusCode: 401, body: { status: 'FAILED', code: 'InvalidSignature' }, signatureVerified: false } };
   const operationPath = request.operationPath ?? request.path;
   if (operationPath === '/fixture/unknown') throw new Error('Fixture 网络连接中断');
-  if (operationPath === '/fixture/discover') return { ok: true, data: { statusCode: 200, body: { resources: [{ id: `${provider.name}-resource`, type: provider.resourceType, region: provider.service.region }] }, signatureVerified: true } };
+  if (operationPath === '/fixture/discover') return { ok: true, data: { statusCode: 200, body: { resources: [{ id: `${provider.name}-resource`, type: provider.resourceType, region: provider.service.scope.metadata.region }] }, signatureVerified: true } };
   if (operationPath === '/fixture/deploy-failure') return { ok: true, data: deployFailureFixture };
   if (operationPath === '/fixture/deploy' && request.method === 'POST') return { ok: true, data: { statusCode: 202, body: { status: 'PENDING', operationId: `${provider.name}-operation` }, operationId: `${provider.name}-operation`, signatureVerified: true } };
   if (operationPath.startsWith('/operations/')) {
@@ -102,12 +102,25 @@ async function hostCall(method, request) {
 }
 
 function providerFor(id) {
-  const common = { endpoint: 'https://fixture.invalid', region: 'cn-test-1', serviceName: 'fixture' };
-  if (id === 'cloud.aliyun') return { name: 'aliyun', algorithm: 'ALIYUN-RPC-HMAC-SHA1', resourceType: 'cdn.domain', service: { ...common, serviceName: 'cdn', region: 'cn-hangzhou' }, secret: { accessKeyId: 'fixture-aliyun-ak', accessKeySecret: 'fixture-aliyun-secret' } };
-  if (id === 'cloud.tencent') return { name: 'tencent', algorithm: 'TENCENT-TC3-HMAC-SHA256', resourceType: 'ssl.certificate', service: { ...common, serviceName: 'ssl', region: 'ap-guangzhou' }, secret: { secretId: 'fixture-tencent-id', secretKey: 'fixture-tencent-secret' } };
-  if (id === 'cloud.huawei') return { name: 'huawei', algorithm: 'HUAWEI-SDK-HMAC-SHA256', resourceType: 'scm.certificate', service: { ...common, serviceName: 'scm', region: 'cn-north-4' }, secret: { accessKey: 'fixture-huawei-ak', secretKey: 'fixture-huawei-secret' } };
-  if (id === 'cloud.volcengine') return { name: 'volcengine', algorithm: 'VOLCENGINE-V4-HMAC-SHA256', resourceType: 'vod.space', service: { ...common, serviceName: 'vod', region: 'cn-north-1' }, secret: { accessKey: 'fixture-volc-ak', secretKey: 'fixture-volc-secret' } };
+  if (id === 'cloud.aliyun') return { name: 'aliyun', algorithm: 'ALIYUN-RPC-HMAC-SHA1', resourceType: 'cdn.domain', service: providerService(id, 'aliyun', { serviceName: 'cdn', region: 'cn-hangzhou' }), secret: { accessKeyId: 'fixture-aliyun-ak', accessKeySecret: 'fixture-aliyun-secret' } };
+  if (id === 'cloud.tencent') return { name: 'tencent', algorithm: 'TENCENT-TC3-HMAC-SHA256', resourceType: 'ssl.certificate', service: providerService(id, 'tencent', { serviceName: 'ssl', region: 'ap-guangzhou' }), secret: { secretId: 'fixture-tencent-id', secretKey: 'fixture-tencent-secret' } };
+  if (id === 'cloud.huawei') return { name: 'huawei', algorithm: 'HUAWEI-SDK-HMAC-SHA256', resourceType: 'scm.certificate', service: providerService(id, 'huawei', { serviceName: 'scm', region: 'cn-north-4' }), secret: { accessKey: 'fixture-huawei-ak', secretKey: 'fixture-huawei-secret' } };
+  if (id === 'cloud.volcengine') return { name: 'volcengine', algorithm: 'VOLCENGINE-V4-HMAC-SHA256', resourceType: 'vod.space', service: providerService(id, 'volcengine', { serviceName: 'vod', region: 'cn-north-1' }), secret: { accessKey: 'fixture-volc-ak', secretKey: 'fixture-volc-secret' } };
   fail('未知 Cloud Plugin ID');
+}
+
+function providerService(providerKey, providerName, metadata) {
+  return {
+    apiVersion: 'gcac.cloud-service/v1',
+    kind: 'CloudService',
+    cloudServiceRef: `cloud-service://${providerName}`,
+    providerKey,
+    displayName: `Fixture ${providerName}`,
+    scope: { endpoint: 'https://fixture.invalid', metadata },
+    metadata: { fixture: true },
+    status: 'ACTIVE',
+    version: 1,
+  };
 }
 
 function loadVector(executorPath, id) {
@@ -155,10 +168,11 @@ function verifyTencent(request, secret, service) {
   const signedHeaders = 'content-type;host;x-tc-action';
   const canonicalHeaders = `content-type:application/json\nhost:${request.headers.host}\nx-tc-action:${action}\n`;
   const canonicalRequest = `${request.method}\n${request.path}\n${canonicalQuery(request.query ?? {})}\n${canonicalHeaders}\n${signedHeaders}\n${sha256Hex(request.body)}`;
-  const scope = `${date}/${service.serviceName}/tc3_request`;
+  const serviceName = service.scope.metadata.serviceName;
+  const scope = `${date}/${serviceName}/tc3_request`;
   const stringToSign = `TC3-HMAC-SHA256\n${timestamp}\n${scope}\n${sha256Hex(canonicalRequest)}`;
   const dateKey = hmac('sha256', `TC3${secret.secretKey}`, date);
-  const serviceKey = hmac('sha256', dateKey, service.serviceName);
+  const serviceKey = hmac('sha256', dateKey, serviceName);
   const signingKey = hmac('sha256', serviceKey, 'tc3_request');
   const expected = hmacHex('sha256', signingKey, stringToSign);
   return authorization.endsWith(`Signature=${expected}`);
@@ -180,15 +194,16 @@ function verifyVolcengine(request, secret, service) {
   const timestamp = request.headers?.['x-date'];
   if (typeof authorization !== 'string' || typeof timestamp !== 'string') return false;
   const date = timestamp.slice(0, 8);
-  const region = service.region;
-  const scope = `${date}/${region}/${service.serviceName}/request`;
+  const region = service.scope.metadata.region;
+  const serviceName = service.scope.metadata.serviceName;
+  const scope = `${date}/${region}/${serviceName}/request`;
   const signedHeaders = 'content-type;host;x-date';
   const canonicalHeaders = `content-type:application/json\nhost:${request.headers.host}\nx-date:${timestamp}\n`;
   const canonicalRequest = `${request.method}\n${request.path}\n${canonicalQuery(request.query ?? {})}\n${canonicalHeaders}\n${signedHeaders}\n${sha256Hex(request.body)}`;
   const stringToSign = `HMAC-SHA256\n${timestamp}\n${scope}\n${sha256Hex(canonicalRequest)}`;
   const dateKey = hmac('sha256', `VOLC${secret.secretKey}`, date);
   const regionKey = hmac('sha256', dateKey, region);
-  const serviceKey = hmac('sha256', regionKey, service.serviceName);
+  const serviceKey = hmac('sha256', regionKey, serviceName);
   const expected = hmacHex('sha256', hmac('sha256', serviceKey, 'request'), stringToSign);
   return authorization.endsWith(`Signature=${expected}`);
 }

@@ -198,6 +198,26 @@
       "runtimeEntrypoint": "runtime/index.js"
     },
     {
+      "pluginId": "cloud.aliyun",
+      "version": "2.0.1",
+      "packageSha256": "sha256:55d819dd09c845e79bd01910123a968c7be3d31cca27c1c74009228205230190",
+      "manifestSha256": "sha256:47971f0bf7f19adc2e45be751b091050856ef41dba40326cce48fa70818e6ae5",
+      "resourceSha256": {
+        "discovery/aliyun-cdn.json": "sha256:c9dba6f8b77249c26b5b596cf48331ce85131a1486c442bcaef517b3d77cd045",
+        "forms/cloud.json": "sha256:36e0222e19c17aac97461ba0ad35b4e902cab801e0dfc46b1a8bcff0c3d6e5bf",
+        "locales/en-US.json": "sha256:d9791521e1eaca1b460d870ff04b6fab945098bd5a994e9d901ed6b9c09bd8be",
+        "locales/zh-CN.json": "sha256:a7c91d833852cc670508ec95518956d6e204b186579e70478596003509a56994",
+        "presentations/cloud.json": "sha256:c25961ac6870bbcff3228331824336bcaddf28ca2b67f90fdf7d861e5e42f4ba",
+        "runtime/index.js": "sha256:9aaca308d2d009aa4aeacb364585c07dc5d832ae2512a1da5bb7ebda51f19ad6",
+        "workflows/connection-test.json": "sha256:e29715a8b6f4c479f8d0aebc68ef13a142fe6201ae94bbfee01f63eb64ceead7",
+        "workflows/deploy.json": "sha256:21d17d89442a14f9380671fecdc23006e867e5ec069eb699d1a907ef1181290e",
+        "workflows/discover.json": "sha256:cdef106bef849cbc300cab63f007cc6bdf9525be7977006643fa15814f7f0489",
+        "workflows/rollback.json": "sha256:13748a3d3ae16f0bd97987815ec1104d9016c504ebdaab2f69888a0dbc643e42"
+      },
+      "resourceHash": "sha256:1f0b08e014ea5b0ba50339e6ed907401a40481dc46a965a56b63917c513a72b8",
+      "runtimeEntrypoint": "runtime/index.js"
+    },
+    {
       "pluginId": "cloud.huawei",
       "version": "1.0.2",
       "packageSha256": "sha256:9feab1bf2892a3b6bc7b09aab64689fec230f75730c0aa912538a1f37b8b5577"
@@ -235,6 +255,26 @@
         "workflows/rollback.json": "sha256:7a8c919b03bb2730aad4dd8902b31e4e760f03f85de79391a0b6d0c630d31a4e"
       },
       "resourceHash": "sha256:a3dfc74b7f2377b162242daab4c41bdacb9b9397a5fdb23f4a93f70d0c993f65",
+      "runtimeEntrypoint": "runtime/index.js"
+    },
+    {
+      "pluginId": "cloud.huawei",
+      "version": "2.0.1",
+      "packageSha256": "sha256:2ec4b8e24e900d593004e82455e36ceeabb49a85c332ac4cbb57db4c44fad9bc",
+      "manifestSha256": "sha256:eb5db70d264d5e8114d700ec40555eed7e059088ab87992916ccfc24fdccf52a",
+      "resourceSha256": {
+        "discovery/huawei-cloud.json": "sha256:2edd0da2e14938c4d1373597f06dd31602060e068e9afcde3239c656c05e5a14",
+        "forms/cloud.json": "sha256:5160b47651af9dd1acef3219be1db6dde188accd0d097e4f6e8c6d6dd12b9217",
+        "locales/en-US.json": "sha256:07fd7ceb6520073ed120d8aa208d3fa235a501550022cfb5f5dd194a694b46b6",
+        "locales/zh-CN.json": "sha256:ff228063ebc5aa98427af3a5dd1a1e047a1cdd9ae82c88a897886b536027f568",
+        "presentations/cloud.json": "sha256:2fdc9f748e3d9b4a2167fa3e9358de2be4524951a948173e2eabb0d406ec06a9",
+        "runtime/index.js": "sha256:b502ccea6f3ba420e85440bde3ff24a5c9e4b123981f124fb512088516e90a7a",
+        "workflows/connection-test.json": "sha256:e1c6c568e85eeb685a486f3a3ecb8251b8492a7ba1a308b7acda820096be02ca",
+        "workflows/deploy.json": "sha256:f38cf787d83b63133d33cdcf466d1e1400334de8fa62632d9ce6e7cf7d7c0bb8",
+        "workflows/discover.json": "sha256:91947eef583050e31cb79b0b3b8461dfd8c9432114ccde75eec0857482d8ac97",
+        "workflows/rollback.json": "sha256:aec3ae5d63dd49eeb1b5e08735e24791772a8196f7a8037807c6393331f9da03"
+      },
+      "resourceHash": "sha256:74f68989fdccc8d9608ffcfac361206b1b14bdf8c39469cdd0d859b0e350ab5e",
       "runtimeEntrypoint": "runtime/index.js"
     },
     {
@@ -278,6 +318,26 @@
       "runtimeEntrypoint": "runtime/index.js"
     },
     {
+      "pluginId": "cloud.tencent",
+      "version": "2.0.1",
+      "packageSha256": "sha256:e162f6cdd64c3399220f24fabe9b719757a82cc081d15cb3ecc1440243e0d387",
+      "manifestSha256": "sha256:e9397a8bfdfb225d824f471b37cd20d279455f108ffedd04c265f8ebaa00c8c7",
+      "resourceSha256": {
+        "discovery/tencent-cloud.json": "sha256:117c2094e090b4ae73d470e998adbcabfdb9b107254a43962fa840b5edf858d0",
+        "forms/cloud.json": "sha256:2e64e37953f5b3b3f9148e8b9690082a0da3b4d82929f6ead3c7549b634de823",
+        "locales/en-US.json": "sha256:c54db7ab3293499e20e448673f6ecdfd6e427113cea44fba264df9dd330b8dcb",
+        "locales/zh-CN.json": "sha256:919edb9528bdc4abd4c6bfa7b288858265c2436a316524bde78999ac409b94fa",
+        "presentations/cloud.json": "sha256:7f69241dee6533a2b92e39968ec397ee518ddec2c155e2e1d37f04f2d15b45f9",
+        "runtime/index.js": "sha256:13399c94e57e26995ffe41606138a9df7933859a8a0c1496bdb9cf82e56cfadd",
+        "workflows/connection-test.json": "sha256:3faf1f88657ff7e69861d8b34faa32c207ed53e43e587ee48a66c587c633f625",
+        "workflows/deploy.json": "sha256:326229f116f932620d3acc48504fd5e505b7671842f800c65278d72ed49711b3",
+        "workflows/discover.json": "sha256:dfadd1fb000c5c2ad9ce2d30aa886a1bb500ecff8e20c3d101df15aba4d21896",
+        "workflows/rollback.json": "sha256:b0813b68282e97030db5c6b9d509c2aeec63c6201df55c9ac675d3ee630a8bfb"
+      },
+      "resourceHash": "sha256:e061f4c22e9b975d3e71de83c3c7ca93b592fc64561293b6da8252851859b270",
+      "runtimeEntrypoint": "runtime/index.js"
+    },
+    {
       "pluginId": "cloud.volcengine",
       "version": "1.0.2",
       "packageSha256": "sha256:8f8dd97999298125132492cf043f5a80b2da8730ec182d8359a41b76650cc390"
@@ -315,6 +375,26 @@
         "workflows/rollback.json": "sha256:9f000cf8828ffdd8b1dc3d139c95aa47b08866c75b97630b3250ed08bf67c4e2"
       },
       "resourceHash": "sha256:03b615f2c59067b1ae3a119e7976677ff8b0a2cfd5fe901835a73a1fe3ad841c",
+      "runtimeEntrypoint": "runtime/index.js"
+    },
+    {
+      "pluginId": "cloud.volcengine",
+      "version": "2.0.1",
+      "packageSha256": "sha256:0e22a7b470492cf32a114f98f9fe15959d37b6620402a81a9ac967407c0ef59f",
+      "manifestSha256": "sha256:0b9f6f9692751e9c5af37dc3f763ccec7b05696afd4c3917afe39dff1367dafb",
+      "resourceSha256": {
+        "discovery/volcengine-vod.json": "sha256:3b8923934242641f1400ce2b980a92f30e430d1768d5511d283e924f6eea9777",
+        "forms/cloud.json": "sha256:8debc7f5376568e5c829059e55e075c0e8fd572fa4ebc7b3882e24a4b9f53ee2",
+        "locales/en-US.json": "sha256:db224a2671336486cfe6c3d56f450a8ec84eee8e7386dbd9fa772ca529658349",
+        "locales/zh-CN.json": "sha256:75a2c684b45e2094598d7f91c1882a4d9b256d810555e94c9a65a69d21193bc3",
+        "presentations/cloud.json": "sha256:1b9808439af8d3c9e33dc826a46d9f019dda973869ce5f690e6064952d227829",
+        "runtime/index.js": "sha256:bca3cc0fd70b76588479f85dc9f7ea35be8c906df71ea8578df273a155f3953f",
+        "workflows/connection-test.json": "sha256:63d665bbe5e72d490d00dd1e1ace46a90081436748d742004d95afb920ae0d96",
+        "workflows/deploy.json": "sha256:4c8473e1da83b23af6b54849e79e9f0fb1586ec189aa7b4f85bc1a9f999064a4",
+        "workflows/discover.json": "sha256:00638fb48a1a12e6180d01dff4b326f31b97366cf11fd1664d314299e5afed53",
+        "workflows/rollback.json": "sha256:ce63574193b1c7aacf5d2414ac4293f93e064b82db21eface0dbfe05daaa9687"
+      },
+      "resourceHash": "sha256:f542cea20edd13877b0324db2599b089aa93fb526b367df2a61ebdb8f0825734",
       "runtimeEntrypoint": "runtime/index.js"
     },
     {
