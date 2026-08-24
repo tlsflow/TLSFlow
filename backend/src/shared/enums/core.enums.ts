@@ -40,7 +40,7 @@ export type ProviderType = string;
 export const BindingTypes = ['FILE_PATH', 'WINDOWS_CERT_STORE', 'KEYSTORE', 'DEVICE_API', 'CUSTOM'] as const;
 export type BindingType = (typeof BindingTypes)[number];
 
-export const ExecutionTargetKinds = ['AGENT', 'GATEWAY_FORWARD', 'SSH', 'WINRM', 'SMB_WMI', 'CURL', 'WORKFLOW', 'PLUGIN_RUNNER', 'TRUSTED_JS'] as const;
+export const ExecutionTargetKinds = ['AGENT', 'GATEWAY_FORWARD', 'SSH', 'WINRM', 'SMB_WMI', 'CURL', 'WORKFLOW', 'PLUGIN_RUNNER'] as const;
 export type ExecutionTargetKind = (typeof ExecutionTargetKinds)[number];
 
 export const CertificateFormats = ['PEM', 'PFX', 'JKS', 'DER', 'P7B'] as const;

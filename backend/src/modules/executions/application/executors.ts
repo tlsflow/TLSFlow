@@ -315,26 +315,6 @@ function resolveAgentActionType(input: StepExecutionInput, actionType: string): 
   return undefined;
 }
 
-export class TrustedJsExecutorAdapter implements Executor {
-  readonly type = 'TRUSTED_JS';
-
-  // 仅兼容测试构造形状；运行期不读取、保存或调用旧 Provider 服务。
-  constructor(_retiredRuntime?: unknown) {}
-
-  async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
-    return {
-      success: false,
-      errorCode: 'PLUGIN_CAPABILITY_EXECUTION_FAILED',
-      errorMessage: 'Trusted JS 宿主 Provider 操作旁路已关闭，必须提交固定 PluginVersion 的通用 Runner 请求',
-      detail: {
-        executionMode: 'trusted_js_fail_closed',
-        stepId: input.step.id,
-        runtimeConfigured: false,
-      },
-    };
-  }
-}
-
 function buildRegisteredAgentPayload(snapshot: Record<string, unknown>, input: StepExecutionInput): Record<string, unknown> {
   return {
     ...buildAgentV2ControlPayload(snapshot, input),

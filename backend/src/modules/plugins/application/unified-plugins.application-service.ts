@@ -16,7 +16,7 @@ import type {
 } from '../dto/unified-plugins.dto.js';
 import { PgUnifiedPluginsRepository, type UnifiedPluginsRepository } from '../repository/unified-plugins.repository.js';
 import type { PluginWorkflowBindingsRepositoryPort } from '../repository/plugin-workflow-bindings.repository.js';
-import { assertUnifiedPluginResources, trustedJsUnknownCodePermission, validateUnifiedPluginManifest } from '../schema/unified-plugins.schema.js';
+import { assertUnifiedPluginResources, validateUnifiedPluginManifest } from '../schema/unified-plugins.schema.js';
 import { PluginPackageResourcesService } from './plugin-package-resources.service.js';
 import { PluginLocaleService } from '../locales/plugin-locale.service.js';
 import { PluginCapabilityRegistry } from '../capabilities/plugin-capability.registry.js';
@@ -421,11 +421,10 @@ function summarizeExecutionResources(record: UnifiedPluginVersionRecord): {
   return { stepCount, rollbackCount, configuration };
 }
 
-const supportedPluginRuntimeValues = ['AGENT_PLAN', 'WORKFLOW_DSL', 'TRUSTED_JS'] as const;
+const supportedPluginRuntimeValues = ['AGENT_PLAN', 'WORKFLOW_DSL'] as const;
 const supportedExecutionResourceKeys = new Set([
   'agentPlans',
   'workflows',
-  'runtimeEntrypoint',
   'forms',
   'presentations',
   'locales',
@@ -439,7 +438,7 @@ function isSupportedPluginRuntime(value: UnifiedPluginManifestV1['runtime']): va
 
 function assertSupportedPluginManifest(manifest: UnifiedPluginManifestV1): void {
   if (!isSupportedPluginRuntime(manifest.runtime)) {
-    throw new AppError('VALIDATION_FAILED', '当前宿主只接受 Agent Plan、Workflow DSL 或 Runner 托管的 Trusted JS 插件');
+    throw new AppError('VALIDATION_FAILED', '当前宿主只接受 Agent Plan 或 Workflow DSL 插件');
   }
   const removedResourceKeys = Object.entries(manifest.resources)
     .filter(([key, value]) => !supportedExecutionResourceKeys.has(key) && hasDeclaredResource(value))
@@ -456,9 +455,7 @@ function hasDeclaredResource(value: unknown): boolean {
 }
 
 function requiredApprovalPermissions(manifest: UnifiedPluginManifestV1): string[] {
-  const permissions = new Set(manifest.permissions);
-  if (manifest.runtime === 'TRUSTED_JS') permissions.add(trustedJsUnknownCodePermission);
-  return [...permissions];
+  return [...new Set(manifest.permissions)];
 }
 
 function readStringField(value: unknown, key: string): string | undefined {

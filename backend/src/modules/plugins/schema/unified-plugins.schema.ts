@@ -15,9 +15,7 @@ export const unifiedPluginScopes = ['MANAGED', 'STANDALONE', 'BOTH'] as const sa
 export const unifiedPluginTrustLevels = ['OFFICIAL_SIGNED', 'USER_SIGNED', 'UNSIGNED'] as const satisfies readonly UnifiedPluginTrust[];
 export const unifiedPluginSupportLevels = ['OFFICIAL', 'COMMUNITY', 'SELF_MANAGED'] as const satisfies readonly UnifiedPluginSupport[];
 
-export const trustedJsUnknownCodePermission = 'runtime.execute_unknown_code';
-
-export const unifiedPluginRuntimes = ['AGENT_PLAN', 'WORKFLOW_DSL', 'TRUSTED_JS'] as const satisfies readonly UnifiedPluginRuntime[];
+export const unifiedPluginRuntimes = ['AGENT_PLAN', 'WORKFLOW_DSL'] as const satisfies readonly UnifiedPluginRuntime[];
 const executableCodeExtensions = ['.js', '.mjs', '.cjs'];
 const forbiddenExecutableExtensions = ['.ts', '.tsx', '.vue', '.ps1', '.sh', '.bat', '.cmd', '.exe', '.dll', '.so', '.dylib'];
 const maximumResourceCount = 500;
@@ -48,17 +46,7 @@ export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginMani
   if (runtime === 'WORKFLOW_DSL' && Object.keys(readStringMap(resources.workflows)).length === 0) {
     fail('resources.workflows', 'WORKFLOW_DSL 插件必须声明 Workflow DSL');
   }
-  const runtimeEntrypoint = readRuntimeEntrypoint(resources.runtimeEntrypoint);
   const permissions = requireStringArray(manifest.permissions ?? [], 'permissions');
-  if (runtime === 'TRUSTED_JS') {
-    if (!runtimeEntrypoint) fail('resources.runtimeEntrypoint', 'TRUSTED_JS 插件必须声明 runtimeEntrypoint');
-    if (trust !== 'OFFICIAL_SIGNED') fail('trust', 'TRUSTED_JS 插件当前只允许 OFFICIAL_SIGNED 信任级别');
-    if (!permissions.includes(trustedJsUnknownCodePermission)) {
-      fail('permissions', `TRUSTED_JS 插件必须声明 ${trustedJsUnknownCodePermission} 权限`);
-    }
-  } else if (runtimeEntrypoint) {
-    fail('resources.runtimeEntrypoint', '只有 TRUSTED_JS 插件可以声明 runtimeEntrypoint');
-  }
   const credentialAcquire = validateCredentialAcquire(manifest.credentialAcquire, capabilities);
   return {
     apiVersion: 'gcac.plugin-manifest/v1',
@@ -83,7 +71,6 @@ export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginMani
     resources: {
       agentPlans: readStringMap(resources.agentPlans),
       workflows: readStringMap(resources.workflows),
-      ...(runtimeEntrypoint ? { runtimeEntrypoint } : {}),
       forms: readStringMap(resources.forms),
       presentations: readStringMap(resources.presentations),
       locales: readStringMap(resources.locales),
@@ -183,10 +170,11 @@ function validateCapability(input: unknown, index: number): UnifiedPluginCapabil
 }
 
 function validateResourceMaps(resources: Record<string, unknown>): void {
-  for (const key of ['agentPlans', 'workflows', 'forms', 'presentations', 'locales', 'discoveryMappings', 'agentDiscoveryMappings']) {
+  const resourceKeys = ['agentPlans', 'workflows', 'forms', 'presentations', 'locales', 'discoveryMappings', 'agentDiscoveryMappings'];
+  assertKnownKeys(resources, new Set(resourceKeys), 'resources');
+  for (const key of resourceKeys) {
     readStringMap(resources[key], `resources.${key}`);
   }
-  readRuntimeEntrypoint(resources.runtimeEntrypoint);
 }
 
 function readCompatibility(input: unknown): UnifiedPluginManifestV1['compatibility'] {
@@ -211,35 +199,17 @@ function readStringMap(input: unknown, path = 'resources'): Record<string, strin
   return result;
 }
 
-function readRuntimeEntrypoint(input: unknown): string | undefined {
-  if (input === undefined) return undefined;
-  const value = requireString(input, 'resources.runtimeEntrypoint');
-  const normalized = value.replaceAll('\\', '/');
-  if (normalized.startsWith('/') || normalized.includes('../')) fail('resources.runtimeEntrypoint', '资源路径不安全');
-  return value;
-}
-
 function collectDeclaredResourcePaths(manifest: UnifiedPluginManifestV1): string[] {
   const paths: string[] = [];
   for (const [key, value] of Object.entries(manifest.resources)) {
     if (!value) continue;
-    if (key === 'runtimeEntrypoint' && typeof value === 'string') {
-      paths.push(value);
-      continue;
-    }
     if (typeof value === 'object') paths.push(...Object.values(value));
   }
   return [...new Set(paths)];
 }
 
-function assertResourceExtensionAllowed(runtime: UnifiedPluginRuntime, normalizedPath: string, originalPath: string): void {
+function assertResourceExtensionAllowed(_runtime: UnifiedPluginRuntime, normalizedPath: string, originalPath: string): void {
   const lower = normalizedPath.toLowerCase();
-  if (runtime === 'TRUSTED_JS') {
-    if (forbiddenExecutableExtensions.some((extension) => lower.endsWith(extension))) {
-      fail(`resources.${originalPath}`, 'TRUSTED_JS 插件不得携带宿主不可执行的脚本或二进制资源');
-    }
-    return;
-  }
   if ([...executableCodeExtensions, ...forbiddenExecutableExtensions].some((extension) => lower.endsWith(extension))) {
     fail(`resources.${originalPath}`, '普通插件不得携带可执行代码');
   }

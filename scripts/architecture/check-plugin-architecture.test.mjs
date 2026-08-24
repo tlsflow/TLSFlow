@@ -8,7 +8,7 @@ import test from 'node:test';
 
 import { architectureScanRoots, compareWithDebt, filterFindings, scanPluginArchitecture, scanPluginArchitectureSource } from './check-plugin-architecture.mjs';
 
-test('生产架构扫描范围必须包含宿主、插件、Runner、资源、Compatibility 与四类 Agent', () => {
+test('生产架构扫描范围必须包含宿主、插件、Runner、资源、Compatibility 与全部 Agent 根', () => {
   assert.deepEqual([...architectureScanRoots], [
     'backend/src',
     'web/src',
@@ -23,6 +23,9 @@ test('生产架构扫描范围必须包含宿主、插件、Runner、资源、Co
     'agents/windows-go-full-agent',
     'agents/windows-compat-full-agent',
     'agents/go-ca-node',
+    'agents/windows-go-ca-node',
+    'agents/linux-go-ca-node',
+    'agents/windows-adcs-agent',
   ]);
 });
 
@@ -487,7 +490,7 @@ test('扫描不会跳过非测试 Fixture 和生产 JSON 资源', () => {
   assert.equal(findings.find((finding) => finding.rule === 'HOST_PLUGIN_OBJECT_CALL')?.classification, 'PRODUCTION');
 });
 
-test('完整扫描根会遍历 Compatibility、legacy 目录、四类 Agent、脚本扩展和非测试 Fixture', () => {
+test('完整扫描根会遍历 Compatibility、legacy 目录、全部 Agent 根、脚本扩展和非测试 Fixture', () => {
   const root = mkdtempSync(join(tmpdir(), 'gcac-plugin-architecture-scope-'));
   const createFile = (path, content) => {
     const absolutePath = join(root, path);
@@ -509,6 +512,9 @@ test('完整扫描根会遍历 Compatibility、legacy 目录、四类 Agent、�
   createFile('agents/windows-go-full-agent/scripts/guard.bat', '"command.execute"\r\n');
   createFile('agents/windows-compat-full-agent/src/Guard.cs', 'class IisDeploymentHandler {}\n');
   createFile('agents/go-ca-node/main.go', 'package main\nimport "os/exec"\nvar command = exec.Command("openssl", "version")\n');
+  createFile('agents/windows-go-ca-node/scripts/guard.ps1', 'powershell -Command "$COMMAND"\n');
+  createFile('agents/linux-go-ca-node/main.go', 'package main\nimport "os/exec"\nvar command = exec.Command("openssl", "version")\n');
+  createFile('agents/windows-adcs-agent/src/Guard.cs', 'class IisDeploymentHandler {}\n');
 
   const findings = scanPluginArchitecture(root, architectureScanRoots);
   const paths = new Set(findings.map((finding) => finding.path));
@@ -527,6 +533,9 @@ test('完整扫描根会遍历 Compatibility、legacy 目录、四类 Agent、�
     'agents/windows-go-full-agent/scripts/guard.bat',
     'agents/windows-compat-full-agent/src/Guard.cs',
     'agents/go-ca-node/main.go',
+    'agents/windows-go-ca-node/scripts/guard.ps1',
+    'agents/linux-go-ca-node/main.go',
+    'agents/windows-adcs-agent/src/Guard.cs',
   ]) assert.equal(paths.has(path), true, `未扫描文件：${path}`);
   assert.equal(findings.find((finding) => finding.path === 'backend/src/modules/plugins/runner/fixtures/runtime.ts')?.classification, 'PRODUCTION');
   assert.equal(findings.find((finding) => finding.path === 'backend/src/modules/legacy-agents/legacy.ts')?.classification, 'PRODUCTION');
@@ -622,7 +631,7 @@ test('004.5 负 Fixture 覆盖宿主 Runner 边界、Provider signer 和直接�
   const findings = scanPluginArchitectureSource('backend/src/modules/plugins/runtime/trusted-js-plugin-execution.service.ts', source);
   assert.deepEqual(
     [...new Set(findings.map((finding) => finding.rule))].sort(),
-    ['HOST_PLUGIN_DYNAMIC_LOAD', 'HOST_PLUGIN_OBJECT_CALL', 'HOST_PROVIDER_BASELINE', 'HOST_PROVIDER_SIGNER', 'HOST_VENDOR_DISPATCH'].sort(),
+    ['HOST_PLUGIN_DYNAMIC_LOAD', 'HOST_PLUGIN_OBJECT_CALL', 'HOST_PROVIDER_BASELINE', 'HOST_PROVIDER_SIGNER', 'HOST_TRUSTED_JS_RUNTIME', 'HOST_VENDOR_DISPATCH'].sort(),
   );
 });
 

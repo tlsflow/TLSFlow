@@ -163,9 +163,7 @@ function pluginRuntimeLabel(runtime?: string): string {
 }
 
 function pluginExecutionSummary(plugin: PluginRecord): string {
-  return plugin.runtime === 'TRUSTED_JS'
-    ? t('plugins.card.trustedJsRuntime')
-    : t('plugins.card.stepCount', { count: plugin.stepCount })
+  return t('plugins.card.stepCount', { count: plugin.stepCount })
 }
 
 function pluginRunnerStatusLabel(plugin: PluginRecord): string {
@@ -476,9 +474,8 @@ function pluginStatusClass(plugin: PluginRecord): string {
           <div><dt>{{ t('plugins.agentDeployment.type') }}</dt><dd>{{ t(`plugins.agentDeployment.types.${selectedPlugin.catalogType}`) }}</dd></div>
           <div><dt>{{ t('plugins.fields.version') }}</dt><dd>{{ pluginVersion(selectedPlugin) }}</dd></div>
           <div><dt>{{ t('plugins.fields.source') }}</dt><dd>{{ t(`plugins.sources.${selectedPlugin.source}`) }}</dd></div>
-          <div v-if="selectedPlugin.runtime !== 'TRUSTED_JS'"><dt>{{ t('plugins.fields.steps') }}</dt><dd>{{ selectedPlugin.stepCount }}</dd></div>
-          <div v-if="selectedPlugin.runtime !== 'TRUSTED_JS'"><dt>{{ t('plugins.fields.rollbackSteps') }}</dt><dd>{{ selectedPlugin.rollbackCount }}</dd></div>
-          <div v-else><dt>{{ t('plugins.fields.executionMode') }}</dt><dd>{{ t('plugins.card.trustedJsRuntime') }}</dd></div>
+          <div><dt>{{ t('plugins.fields.steps') }}</dt><dd>{{ selectedPlugin.stepCount }}</dd></div>
+          <div><dt>{{ t('plugins.fields.rollbackSteps') }}</dt><dd>{{ selectedPlugin.rollbackCount }}</dd></div>
           <div><dt>{{ t('plugins.fields.currentStatus') }}</dt><dd>{{ pluginStatusLabel(selectedPlugin) }}</dd></div>
           <div><dt>{{ t('plugins.fields.runtime') }}</dt><dd>{{ pluginRuntimeLabel(selectedPlugin.runtime) }}</dd></div>
           <div class="plugin-detail__fact-wide">

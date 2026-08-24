@@ -80,7 +80,7 @@ export type PluginVersionRecord = {
   readonly "packageSha256": string
   readonly "resourceSha256": Record<string, string>
   readonly "source": "BUILTIN" | "USER"
-  readonly "runtime": "WORKFLOW_DSL" | "TRUSTED_JS"
+  readonly "runtime": string
   readonly "scope": "MANAGED" | "STANDALONE" | "BOTH"
   readonly "trust": string
   readonly "support": string
@@ -94,7 +94,7 @@ export type PluginVersionRecord = {
   readonly "logoUrl"?: string
   readonly "defaultLocale"?: string
   readonly "publisher": string
-  readonly "runtime": "WORKFLOW_DSL" | "TRUSTED_JS"
+  readonly "runtime": string
   readonly "source": "BUILTIN" | "USER"
   readonly "scope": "MANAGED" | "STANDALONE" | "BOTH"
   readonly "trust": "OFFICIAL_SIGNED" | "USER_SIGNED" | "UNSIGNED"
@@ -118,7 +118,6 @@ export type PluginVersionRecord = {
 }
   readonly "resources": {
   readonly "workflows"?: Record<string, string>
-  readonly "runtimeEntrypoint"?: string
   readonly "forms"?: Record<string, string>
   readonly "presentations"?: Record<string, string>
   readonly "locales"?: Record<string, string>

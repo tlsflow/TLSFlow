@@ -5,7 +5,6 @@ import type { ResolvedDeploymentInputV1 } from '../../deployment-inputs/dto/reso
 import type { ResolvedDeploymentCapability } from '../../plugins/application/deployment-capability.resolver.js';
 import {
   PluginRuntimeAdapterRegistry,
-  TrustedJsRuntimeAdapter,
   WorkflowDslRuntimeAdapter,
   createDefaultPluginRuntimeAdapterRegistry,
 } from './plugin-runtime-adapter.registry.js';
@@ -51,7 +50,7 @@ test('PluginRuntimeAdapterRegistry 使用应用资产 verifyUrl 作为最终 TLS
   });
 });
 
-test('PluginRuntimeAdapterRegistry 拒绝重复注册和不支持的执行位置', async () => {
+test('PluginRuntimeAdapterRegistry 拒绝重复注册、不支持位置和退役 Runtime', async () => {
   await assert.rejects(() => new PluginRuntimeAdapterRegistry().register(new WorkflowDslRuntimeAdapter()).compile({
     capability: capability('WORKFLOW_DSL', 'AGENT'),
     context: context('AGENT'),
@@ -59,20 +58,12 @@ test('PluginRuntimeAdapterRegistry 拒绝重复注册和不支持的执行位置
     resolvedInput: resolvedInput(),
     workflow: { workflowId: 'workflow-1', workflowVersionId: 'workflow-version-1' },
   }), /没有可用/);
-  const trustedJsResult = await new PluginRuntimeAdapterRegistry().register(new TrustedJsRuntimeAdapter()).compile({
+  await assert.rejects(() => new PluginRuntimeAdapterRegistry().compile({
     capability: capability('TRUSTED_JS', 'CONTROL_PLANE'),
     context: context('CONTROL_PLANE'),
     applicationAsset: applicationAsset(),
     resolvedInput: resolvedInput(),
-  });
-  assert.equal(trustedJsResult.executorType, 'TRUSTED_JS');
-  const trustedJsRequest = trustedJsResult.payload.trustedJsRequest as Record<string, unknown>;
-  assert.equal(trustedJsRequest.cloudAccountAssetId, 'cloud-account-1');
-  assert.equal((trustedJsRequest.target as { resourceId: string }).resourceId, 'target-1');
-  assert.equal('providerKey' in trustedJsRequest, false);
-  assert.equal('supportedProducts' in trustedJsRequest, false);
-  assert.equal('supportedOperations' in trustedJsRequest, false);
-  assert.equal('frameworkType' in trustedJsRequest, false);
+  }), /没有可用/);
 });
 
 function applicationAsset() {
@@ -112,7 +103,9 @@ function resolvedInput(): ResolvedDeploymentInputV1 {
   return resolvedInputFixture;
 }
 
-function capability(runtime: ResolvedDeploymentCapability['pluginRuntime'], executionLocation: ResolvedDeploymentCapability['executionLocation']): ResolvedDeploymentCapability {
+function capability(runtime: string, executionLocation: ResolvedDeploymentCapability['executionLocation']): ResolvedDeploymentCapability {
+  // 允许负 Fixture 构造已退役 Runtime，验证注册表不会把未知值猜测成可执行适配器。
+  const normalizedRuntime = runtime as ResolvedDeploymentCapability['pluginRuntime'];
   return {
     assignment: {
       id: 'assignment-1', tenantId: 'tenant-1', ownerType: 'APPLICATION_ASSET', ownerId: 'asset-1', capabilityKey: 'certificate.deploy',
@@ -124,7 +117,7 @@ function capability(runtime: ResolvedDeploymentCapability['pluginRuntime'], exec
       status: 'ACTIVE', version: 3, createdAt: '', updatedAt: '',
     },
     plugin: {
-      id: 'plugin-version-1', tenantId: 'tenant-1', pluginId: 'fixture', version: '1.0.0', source: 'USER', runtime, scope: 'MANAGED', trust: 'UNSIGNED', support: 'SELF_MANAGED',
+      id: 'plugin-version-1', tenantId: 'tenant-1', pluginId: 'fixture', version: '1.0.0', source: 'USER', runtime: normalizedRuntime, scope: 'MANAGED', trust: 'UNSIGNED', support: 'SELF_MANAGED',
       manifest: {
         apiVersion: 'gcac.plugin-manifest/v1',
         kind: 'GcacPlugin',
@@ -132,7 +125,7 @@ function capability(runtime: ResolvedDeploymentCapability['pluginRuntime'], exec
         version: '1.0.0',
         displayNameKey: 'fixture',
         publisher: 'test',
-        runtime,
+        runtime: normalizedRuntime,
         source: 'USER',
         scope: 'MANAGED',
         trust: 'UNSIGNED',
@@ -145,7 +138,7 @@ function capability(runtime: ResolvedDeploymentCapability['pluginRuntime'], exec
       validationReport: { valid: true, errors: [], warnings: [], manifestSha256: '', resourceSha256: {} }, createdAt: '', updatedAt: '',
     },
     pluginVersionId: 'plugin-version-1',
-    pluginRuntime: runtime,
+    pluginRuntime: normalizedRuntime,
     executionLocation,
     compatibility: { compatible: true, reasons: [] },
   };

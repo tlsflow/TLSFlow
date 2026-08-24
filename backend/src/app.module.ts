@@ -123,7 +123,6 @@ import {
   ProviderCatalogApplicationService,
   getCloudAccountRouteContracts,
 } from './modules/providers/index.js';
-import { TrustedJsPluginExecutionService } from './modules/plugins/runtime/trusted-js-plugin-execution.service.js';
 import { resolveProductionPluginRunnerConfig } from './modules/plugins/runner/production-runner-config.js';
 import { PluginRunnerSupervisor } from './modules/plugins/runner/index.js';
 import type { PluginRunnerExecutionDependencies } from './modules/executions/application/plugin-runner-executor.adapter.js';
@@ -238,19 +237,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
     ?? (productionPluginRunner && pluginRunnerSupervisor && pluginRunnerHostApiHandler
       ? { runner: productionPluginRunner, supervisor: pluginRunnerSupervisor, hostApiHandler: pluginRunnerHostApiHandler }
       : undefined);
+  const providerCatalogService = new ProviderCatalogApplicationService();
   let cloudAccountAssetsService!: CloudAccountAssetsApplicationService;
-  const trustedJsProviderRuntime = new TrustedJsPluginExecutionService({
-    db: appDb,
-    unifiedPlugins: unifiedPluginsService,
-    cloudAccounts: {
-      get: async (tenantId: string, id: string) => cloudAccountAssetsService.get(tenantId, id),
-    },
-    credentials: new CredentialsRepository(appDb),
-    secrets: security.secrets,
-    audit: security.audit,
-    ...(pluginRunnerSupervisor && productionPluginRunner ? { runner: { ...productionPluginRunner, supervisor: pluginRunnerSupervisor } } : {}),
-  });
-  const providerCatalogService = new ProviderCatalogApplicationService(trustedJsProviderRuntime);
   cloudAccountAssetsService = new CloudAccountAssetsApplicationService(appDb, providerCatalogService);
   new ProvidersController(
     cloudAccountAssetsService,

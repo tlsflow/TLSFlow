@@ -21,7 +21,7 @@ test('旧 Agent Deployment Plugin Schema 已清退，旧 Runtime 不能进入最
       permissions: [],
       resources: {},
     }),
-    /统一插件 Manifest 无效|必须是 AGENT_PLAN、WORKFLOW_DSL、TRUSTED_JS 之一/,
+    /统一插件 Manifest 无效|必须是 AGENT_PLAN、WORKFLOW_DSL 之一/,
   );
 });
 

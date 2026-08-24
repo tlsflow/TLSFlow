@@ -5,6 +5,7 @@ import { ManagedTargetContextResolver, type ResolvedManagedTargetContext } from 
 import { PgAssetsRepository } from '../../assets/repository/assets.repository.js';
 import { PgDeviceAssetsRepository } from '../../device-assets/repository/device-assets.repository.js';
 import { PgDevicesRepository } from '../../devices/repository/devices.repository.js';
+import { canonicalProductFamilyForOsType } from '../../devices/domain/canonical-product-family.js';
 import { PluginCapabilityRegistry } from '../capabilities/plugin-capability.registry.js';
 import { evaluatePluginCompatibility, type PluginCompatibilityContext } from '../capabilities/plugin-compatibility.evaluator.js';
 import type { PluginBindingV1 } from '../dto/plugin-bindings.dto.js';
@@ -418,7 +419,9 @@ export class ManagedTargetPluginQueryService {
     this.assertTargetCapability(context, capabilityKey);
     const device = await devices.get(tenantId, context.host.id);
     return {
-      productFamily: device?.productFamily,
+      productFamily: context.deviceAsset?.deviceFamily
+        ?? canonicalProductFamilyForOsType(context.host.osType)
+        ?? device?.productFamily,
       frameworkType: context.frameworkType,
       targetType: context.managedTarget.targetType,
       managementMethod: normalizeManagementMethod(device?.managementMethod ?? context.host.managementMode),

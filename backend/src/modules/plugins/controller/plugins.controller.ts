@@ -8,7 +8,7 @@ import { validateObject as validateBaseObject } from '../../../common/validation
 import { UnifiedPluginsApplicationService } from '../application/unified-plugins.application-service.js';
 import { PluginBindingsApplicationService } from '../application/plugin-bindings.application-service.js';
 import { ManagedTargetPluginQueryService, type SaveManagedTargetPluginOverrideInput } from '../application/managed-target-plugin-query.service.js';
-import type { ImportUnifiedPluginVersionInput } from '../dto/unified-plugins.dto.js';
+import type { ImportUnifiedPluginVersionInput, UnifiedPluginManifestV1 } from '../dto/unified-plugins.dto.js';
 import { StandardPluginFieldRegistry } from '../forms/standard-plugin-field.registry.js';
 import { PluginCapabilityRegistry } from '../capabilities/plugin-capability.registry.js';
 import { PluginPromotionService } from '../promotion/plugin-promotion.service.js';
@@ -90,7 +90,7 @@ export class PluginsController {
     const locale = typeof request.query['filter[locale]'] === 'string' ? request.query['filter[locale]'] : 'zh-CN';
     const runtime = queryFilterString(request, 'runtime');
     const items = await this.unifiedPlugins.listCatalog(security.tenantId, locale, {
-      ...(runtime ? { runtime: runtime as 'WORKFLOW_DSL' | 'TRUSTED_JS' } : {}),
+      ...(runtime ? { runtime: runtime as UnifiedPluginManifestV1['runtime'] } : {}),
     });
     const authorizedItems = await this.filterVersionItems(security, items, 'pluginVersionId');
     return { items: authorizedItems, page: 1, pageSize: authorizedItems.length, total: authorizedItems.length };
@@ -720,20 +720,20 @@ function pluginManifestSchema(): OpenApiSchema {
   return strictSchema({
     apiVersion: { type: 'string' }, kind: { type: 'string' }, pluginId: idSchema(), version: { type: 'string' },
     displayNameKey: { type: 'string' }, descriptionKey: { type: 'string' }, logoUrl: { type: 'string' }, defaultLocale: { type: 'string' },
-    publisher: { type: 'string' }, runtime: { type: 'string', enum: ['WORKFLOW_DSL', 'TRUSTED_JS'] },
+    publisher: { type: 'string' }, runtime: { type: 'string', enum: ['AGENT_PLAN', 'WORKFLOW_DSL'] },
     source: { type: 'string', enum: ['BUILTIN', 'USER'] }, scope: { type: 'string', enum: ['MANAGED', 'STANDALONE', 'BOTH'] },
     trust: { type: 'string', enum: ['OFFICIAL_SIGNED', 'USER_SIGNED', 'UNSIGNED'] },
     support: { type: 'string', enum: ['OFFICIAL', 'COMMUNITY', 'SELF_MANAGED'] }, minGcacVersion: { type: 'string' },
     capabilities: { type: 'array', items: pluginCapabilitySchema() }, permissions: stringArraySchema(),
     compatibility: strictSchema({ productFamilies: stringArraySchema(), frameworkTypes: stringArraySchema(), targetTypes: stringArraySchema(), managementMethods: stringArraySchema(), executionLocations: stringArraySchema(), artifactContracts: stringArraySchema() }),
-    resources: strictSchema({ workflows: stringMapSchema(), runtimeEntrypoint: { type: 'string' }, forms: stringMapSchema(), presentations: stringMapSchema(), locales: stringMapSchema(), discoveryMappings: stringMapSchema(), agentDiscoveryMappings: stringMapSchema() }),
+    resources: strictSchema({ agentPlans: stringMapSchema(), workflows: stringMapSchema(), forms: stringMapSchema(), presentations: stringMapSchema(), locales: stringMapSchema(), discoveryMappings: stringMapSchema(), agentDiscoveryMappings: stringMapSchema() }),
   }, ['apiVersion', 'kind', 'pluginId', 'version', 'displayNameKey', 'publisher', 'runtime', 'source', 'scope', 'trust', 'support', 'capabilities', 'permissions', 'resources']);
 }
 
 function pluginVersionRecordSchema(): OpenApiSchema {
   return strictSchema({
     id: idSchema(), tenantId: idSchema(), ownerType: { type: 'string', enum: ['SYSTEM', 'TENANT'] }, ownerId: idSchema(),
-    ...identityProperties(), source: { type: 'string', enum: ['BUILTIN', 'USER'] }, runtime: { type: 'string', enum: ['WORKFLOW_DSL', 'TRUSTED_JS'] },
+    ...identityProperties(), source: { type: 'string', enum: ['BUILTIN', 'USER'] }, runtime: { type: 'string', enum: ['AGENT_PLAN', 'WORKFLOW_DSL'] },
     scope: { type: 'string', enum: ['MANAGED', 'STANDALONE', 'BOTH'] }, trust: { type: 'string' }, support: { type: 'string' },
     manifest: pluginManifestSchema(), resources: stringMapSchema(), status: { type: 'string' }, permissionApprovalStatus: { type: 'string' },
     approvedPermissions: stringArraySchema(), validationReport: strictSchema({ valid: { type: 'boolean' }, errors: { type: 'array', items: jsonObjectSchema() }, warnings: { type: 'array', items: jsonObjectSchema() }, manifestSha256: hashSchema(), resourceSha256: stringMapSchema() }, ['valid', 'errors', 'warnings', 'manifestSha256', 'resourceSha256']),

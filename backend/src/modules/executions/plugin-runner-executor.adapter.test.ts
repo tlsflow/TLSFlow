@@ -43,7 +43,6 @@ test('Runner adapter 只接受固定的执行绑定并传递不可变身份', as
     }),
     // 旧快照字段不参与任何身份、摘要或能力解析。
     pluginRuntimeCapability: { pluginVersionId: 'forbidden-legacy-version' },
-    trustedJsRequest: { pluginId: 'forbidden-legacy-plugin' },
   }));
 
   assert.equal(result.success, true);
@@ -104,7 +103,6 @@ test('Runner adapter 拒绝缺失绑定、旧快照和运行步骤不一致', as
 
   const missing = await adapter.executeStep(stepInput({
     pluginRuntimeCapability: { pluginVersionId: 'legacy-version' },
-    trustedJsRequest: { pluginVersionId: 'legacy-version' },
   }));
   assert.equal(missing.success, false);
   assert.equal(missing.errorCode, 'VALIDATION_FAILED');

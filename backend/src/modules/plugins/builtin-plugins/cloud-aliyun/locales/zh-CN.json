@@ -1,4 +1,0 @@
-{
-  "plugin.builtin.cloud.aliyun.name": "阿里云证书管理插件",
-  "plugin.builtin.cloud.aliyun.description": "用于阿里云 CDN、ALB、CLB、OSS、WAF、Live、VOD 的证书发现、部署和回滚。"
-}

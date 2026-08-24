@@ -104,10 +104,6 @@ function collectManifestResourcePaths(manifest: { resources?: Record<string, Rec
   const paths: string[] = [];
   for (const [key, value] of Object.entries(manifest.resources ?? {})) {
     if (!value) continue;
-    if (key === 'runtimeEntrypoint' && typeof value === 'string') {
-      paths.push(value);
-      continue;
-    }
     if (typeof value === 'object') paths.push(...Object.values(value));
   }
   return [...new Set(paths)];

@@ -1,4 +1,4 @@
-export type UnifiedPluginRuntime = 'AGENT_PLAN' | 'WORKFLOW_DSL' | 'TRUSTED_JS';
+export type UnifiedPluginRuntime = 'AGENT_PLAN' | 'WORKFLOW_DSL';
 export type UnifiedPluginSource = 'BUILTIN' | 'USER';
 export type UnifiedPluginScope = 'MANAGED' | 'STANDALONE' | 'BOTH';
 export type UnifiedPluginTrust = 'OFFICIAL_SIGNED' | 'USER_SIGNED' | 'UNSIGNED';
@@ -64,7 +64,6 @@ export interface UnifiedPluginManifestV1 {
   resources: {
     agentPlans?: Record<string, string>;
     workflows?: Record<string, string>;
-    runtimeEntrypoint?: string;
     forms?: Record<string, string>;
     presentations?: Record<string, string>;
     locales?: Record<string, string>;

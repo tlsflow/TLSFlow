@@ -68,37 +68,12 @@ test('统一插件拒绝任意可执行资源和缺失资源', async () => {
   );
 });
 
-test('TRUSTED_JS 插件必须声明受控入口并额外审批未知代码执行权限', async () => {
-  const records = new Map<string, UnifiedPluginVersionRecord>();
-  const service = new UnifiedPluginsApplicationService(memoryRepository(records));
+test('Trusted JS 插件 Manifest 必须失败关闭', async () => {
+  const service = new UnifiedPluginsApplicationService(memoryRepository(new Map()));
   await assert.rejects(
-    () => service.importVersion('tenant-1', {
-      ...trustedJsPluginInput(),
-      manifest: {
-        ...(trustedJsPluginInput().manifest as Record<string, unknown>),
-        permissions: ['certificate.deploy'],
-      },
-    }),
-    /runtime\.execute_unknown_code/,
+    () => service.importVersion('tenant-1', trustedJsPluginInput()),
+    /必须是 AGENT_PLAN、WORKFLOW_DSL 之一/,
   );
-  await assert.rejects(
-    () => service.importVersion('tenant-1', {
-      ...trustedJsPluginInput(),
-      manifest: {
-        ...(trustedJsPluginInput().manifest as Record<string, unknown>),
-        trust: 'UNSIGNED',
-      },
-    }),
-    /OFFICIAL_SIGNED/,
-  );
-  const imported = await service.importVersion('tenant-1', trustedJsPluginInput(), 'BUILTIN');
-  assert.equal(imported.runtime, 'TRUSTED_JS');
-  assert.equal(imported.permissionApprovalStatus, 'PENDING');
-  assert.equal(imported.status, 'PENDING_APPROVAL');
-  await assert.rejects(() => service.enableVersion(imported.id), /权限尚未完成审批/);
-  const approved = await service.approvePermissions(imported.id, ['certificate.deploy', 'runtime.execute_unknown_code']);
-  assert.equal(approved.permissionApprovalStatus, 'APPROVED');
-  assert.equal((await service.enableVersion(imported.id)).status, 'ENABLED');
 });
 
 test('统一插件 Manifest 拒绝宿主 Provider 元数据', async () => {
