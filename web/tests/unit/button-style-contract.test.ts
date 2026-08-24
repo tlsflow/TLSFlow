@@ -75,4 +75,22 @@ describe('按钮和卡片样式收口合同', () => {
 
     expect(dashboardView).toContain('backdrop-filter: blur(var(--gc-space-4));')
   })
+
+  it('收起侧栏时将品牌标记居中到窄侧栏', () => {
+    const collapsedBrandBlocks = cssBlocks('\\.gc-workbench--nav-collapsed \\.gc-workbench__brand')
+
+    expect(collapsedBrandBlocks).toHaveLength(1)
+    expect(collapsedBrandBlocks[0]).toContain('align-self: stretch;')
+    expect(collapsedBrandBlocks[0]).toContain('box-sizing: border-box;')
+    expect(collapsedBrandBlocks[0]).toContain('display: grid;')
+    expect(collapsedBrandBlocks[0]).toContain('gap: 0;')
+    expect(collapsedBrandBlocks[0]).toContain('grid-template-columns: 1fr;')
+    expect(collapsedBrandBlocks[0]).toContain('justify-items: center;')
+    expect(collapsedBrandBlocks[0]).toContain('justify-content: center;')
+    expect(collapsedBrandBlocks[0]).toContain('width: 100%;')
+
+    const collapsedBrandTextBlocks = cssBlocks('\\.gc-workbench--nav-collapsed \\.gc-workbench__brand-text')
+    expect(collapsedBrandTextBlocks).toHaveLength(1)
+    expect(collapsedBrandTextBlocks[0]).toContain('position: absolute;')
+  })
 })

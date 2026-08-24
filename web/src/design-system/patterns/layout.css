@@ -1206,7 +1206,16 @@ select.gc-native-select:disabled,
 }
 
 .gc-workbench--nav-collapsed .gc-workbench__brand {
+  align-self: stretch;
+  box-sizing: border-box;
+  display: grid;
+  gap: 0;
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+  justify-items: center;
+  justify-content: center;
   padding-inline: 0;
+  width: 100%;
 }
 
 .gc-workbench--nav-collapsed .gc-workbench__brand-text,
@@ -1216,6 +1225,16 @@ select.gc-native-select:disabled,
   opacity: 0;
   transform: translateX(calc(-1 * var(--gc-space-2)));
   visibility: hidden;
+}
+
+.gc-workbench--nav-collapsed .gc-workbench__brand-text {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 0;
+  height: 0;
+  margin: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
 }
 
 .gc-workbench--nav-collapsed .gc-workbench__sidebar-toggle {
