@@ -6,7 +6,7 @@ import { runMigrations } from '../../database/migration-runner.js';
 import { createCertificateServices } from '../certificates/index.js';
 import { createSecurityServices } from '../security/security.controller.js';
 import { buildReuseRisks, InternalCaApplicationService } from './application/internal-ca.application-service.js';
-import { agentInstallPublicBaseUrl } from './controller/internal-ca.controller.js';
+import { agentInstallPublicBaseUrl, pathId } from './controller/internal-ca.controller.js';
 import { CaProviderRegistry } from './providers/ca-provider.js';
 
 async function createFixture(providers?: CaProviderRegistry) {
@@ -38,6 +38,12 @@ test('AD CS Agent 安装地址优先使用统一公开地址配置', () => {
     if (previous === undefined) delete process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL;
     else process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL = previous;
   }
+});
+
+test('标准 REST 删除路由可以读取最后一个路径段作为资源 ID', () => {
+  assert.equal(pathId({
+    method: 'DELETE', path: '/api/v1/ca-providers/caprov_delete_me', query: {}, context: { requestId: 'req_path', traceId: 'trace_path' }, headers: {},
+  }), 'caprov_delete_me');
 });
 
 test('内置 CA 完成根与中间拓扑、Profile、签发、续期、吊销和信任分发', async () => {
