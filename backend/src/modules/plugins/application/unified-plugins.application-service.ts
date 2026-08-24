@@ -67,9 +67,14 @@ export class UnifiedPluginsApplicationService {
       if (existing.packageSha256 !== packageSha256 || existing.manifestSha256 !== manifestSha256) {
         throw new AppError('RESOURCE_VERSION_CONFLICT', '同一插件版本不可覆盖', { pluginId: manifest.pluginId, version: manifest.version });
       }
+      // 用户插件发现后只保留手动启用边界；兼容刷新前已经落库的待审批记录。
+      if (sourceChannel === 'USER') {
+        const normalized = normalizeUserPluginLifecycle(existing);
+        if (normalized !== existing) return this.repository.saveVersion(normalized);
+      }
       return existing;
     }
-    const requiredPermissions = requiredApprovalPermissions(manifest);
+    const requiredPermissions = sourceChannel === 'USER' ? [] : requiredApprovalPermissions(manifest);
     const permissionApprovalStatus = requiredPermissions.length === 0 ? 'NOT_REQUIRED' : 'PENDING';
     const validationReport: UnifiedPluginValidationReport = {
       valid: true,
@@ -102,7 +107,7 @@ export class UnifiedPluginsApplicationService {
       resources,
       status: permissionApprovalStatus === 'PENDING' ? 'PENDING_APPROVAL' : 'DISABLED',
       permissionApprovalStatus,
-      approvedPermissions: [],
+      approvedPermissions: sourceChannel === 'USER' ? uniquePermissions(manifest.permissions) : [],
       validationReport,
       createdAt: now,
       updatedAt: now,
@@ -217,6 +222,13 @@ export class UnifiedPluginsApplicationService {
 
   async approvePermissions(id: string, permissions: string[]): Promise<UnifiedPluginVersionRecord> {
     const record = await this.getVersion(id);
+    if (record.source === 'USER') {
+      // 兼容旧客户端调用；用户插件没有权限审批状态，仍由管理员单独点击启用。
+      return this.repository.saveVersion({
+        ...normalizeUserPluginLifecycle(record),
+        updatedAt: new Date().toISOString(),
+      });
+    }
     const declared = new Set(requiredApprovalPermissions(record.manifest));
     const unknown = permissions.filter((permission) => !declared.has(permission));
     if (unknown.length > 0) throw new AppError('PLUGIN_PERMISSION_DENIED', '审批权限超过插件声明范围', { unknown });
@@ -232,12 +244,18 @@ export class UnifiedPluginsApplicationService {
   async enableVersion(id: string): Promise<UnifiedPluginVersionRecord> {
     const record = await this.getVersion(id);
     const approved = new Set(record.approvedPermissions);
-    const missing = requiredApprovalPermissions(record.manifest).filter((permission) => !approved.has(permission));
+    const missing = record.source === 'USER'
+      ? []
+      : requiredApprovalPermissions(record.manifest).filter((permission) => !approved.has(permission));
     if (missing.length > 0) throw new AppError('PLUGIN_PERMISSION_DENIED', '插件权限尚未完成审批', { missing });
     // 启用前按目标状态预检；目录运行时仍只允许读取已启用版本。
     // 不能直接传入 DISABLED 记录，否则带配方的插件永远无法完成 DISABLED -> ENABLED 转换。
     new ApplicationOnboardingRecipeLoader().loadOptional({ ...record, status: 'ENABLED' });
-    return this.repository.saveVersion({ ...record, status: 'ENABLED', updatedAt: new Date().toISOString() });
+    return this.repository.saveVersion({
+      ...(record.source === 'USER' ? normalizeUserPluginLifecycle(record) : record),
+      status: 'ENABLED',
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   async disableVersion(id: string): Promise<UnifiedPluginVersionRecord> {
@@ -496,6 +514,27 @@ function hasDeclaredResource(value: unknown): boolean {
 
 function requiredApprovalPermissions(manifest: UnifiedPluginManifestV1): string[] {
   return [...new Set(manifest.permissions)];
+}
+
+function uniquePermissions(permissions: string[]): string[] {
+  return [...new Set(permissions)];
+}
+
+function normalizeUserPluginLifecycle(record: UnifiedPluginVersionRecord): UnifiedPluginVersionRecord {
+  const status = record.status === 'PENDING_APPROVAL' ? 'DISABLED' : record.status;
+  const approvedPermissions = uniquePermissions(record.manifest.permissions);
+  if (
+    status === record.status
+    && record.permissionApprovalStatus === 'NOT_REQUIRED'
+    && stableJson(record.approvedPermissions) === stableJson(approvedPermissions)
+  ) return record;
+  return {
+    ...record,
+    status,
+    permissionApprovalStatus: 'NOT_REQUIRED',
+    approvedPermissions,
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 function readStringField(value: unknown, key: string): string | undefined {

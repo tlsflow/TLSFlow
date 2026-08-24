@@ -105,7 +105,8 @@ import {
 import { createProductionAgentLocalPolicyAdapterV1 } from './modules/agents/security/production-agent-local-policy.adapter.js';
 import { createLocalAgentAuthorizationServicesV1 } from './modules/agents/security/local-agent-authorization.service.js';
 import { PgUnifiedPluginsRepository } from './modules/plugins/repository/unified-plugins.repository.js';
-import { UnifiedPluginsApplicationService } from './modules/plugins/application/unified-plugins.application-service.js';
+import { compareSemanticVersions, UnifiedPluginsApplicationService } from './modules/plugins/application/unified-plugins.application-service.js';
+import { UserPluginDirectoryImporter } from './modules/plugins/application/user-plugin-directory-importer.js';
 import type { UnifiedPluginVersionRecord } from './modules/plugins/dto/unified-plugins.dto.js';
 import type { PluginRefreshChange, PluginRefreshResult, PluginRefreshVersionSnapshot } from './modules/plugins/dto/plugin-refresh-result.dto.js';
 import { PluginBindingsApplicationService } from './modules/plugins/application/plugin-bindings.application-service.js';
@@ -1205,20 +1206,30 @@ export function createApp(dependencies: AppDependencies = {}): App {
   new AgentsController(agentsService, security).register(app.router);
   new GatewaysController(gatewaysService, security).register(app.router);
   const builtinPluginRefreshPromises = new Map<string, Promise<PluginRefreshResult>>();
+  const userPluginDirectoryImporter = new UserPluginDirectoryImporter(
+    unifiedPluginsService,
+    pluginWorkflowPublisher,
+  );
   const builtinCatalogRefresher = {
     refresh: (tenantId?: string) => {
       const refreshKey = tenantId ?? '*';
       const existing = builtinPluginRefreshPromises.get(refreshKey);
       if (existing) return existing;
       const refreshPromise = (async () => {
-        const beforeVersions = await unifiedPluginsService.listBuiltinVersions();
+        const beforeBuiltinVersions = await unifiedPluginsService.listBuiltinVersions();
+        const beforeUserVersions = tenantId ? await unifiedPluginsService.listVersions(tenantId) : [];
+        const beforeVersions = [...beforeBuiltinVersions, ...beforeUserVersions];
         const versions = await initializeBuiltinPlugins(
           unifiedPluginsService,
           pluginWorkflowPublisher,
           { registry: builtinPluginRegistry },
         );
+        const userPluginRefresh = tenantId
+          ? await userPluginDirectoryImporter.importForTenant(tenantId)
+          : { versions: [], attempted: 0, imported: 0, skipped: 0, failed: 0 };
+        const refreshedVersions = [...versions, ...userPluginRefresh.versions];
         const projection = await agentsService.reprojectLatestCapabilitySnapshots(tenantId);
-        const afterVersions = versions.map(toPluginRefreshVersionSnapshot);
+        const afterVersions = refreshedVersions.map(toPluginRefreshVersionSnapshot);
         return {
           refreshedAt: new Date().toISOString(),
           versions: afterVersions,
@@ -1712,10 +1723,12 @@ export function buildPluginRefreshChanges(
   const beforeByPlugin = new Map<string, PluginRefreshVersionSnapshot>();
   const afterByPlugin = new Map<string, PluginRefreshVersionSnapshot>();
   beforeVersions.forEach((version) => {
-    if (!beforeByPlugin.has(version.pluginId)) beforeByPlugin.set(version.pluginId, version);
+    const current = beforeByPlugin.get(version.pluginId);
+    if (!current || isLaterPluginRefreshVersion(version, current)) beforeByPlugin.set(version.pluginId, version);
   });
   afterVersions.forEach((version) => {
-    if (!afterByPlugin.has(version.pluginId)) afterByPlugin.set(version.pluginId, version);
+    const current = afterByPlugin.get(version.pluginId);
+    if (!current || isLaterPluginRefreshVersion(version, current)) afterByPlugin.set(version.pluginId, version);
   });
 
   const pluginIds = new Set([...beforeByPlugin.keys(), ...afterByPlugin.keys()]);
@@ -1736,6 +1749,13 @@ export function buildPluginRefreshChanges(
       changeType,
     };
   });
+}
+
+function isLaterPluginRefreshVersion(
+  candidate: PluginRefreshVersionSnapshot,
+  current: PluginRefreshVersionSnapshot,
+): boolean {
+  return compareSemanticVersions(candidate.version, current.version) > 0;
 }
 
 export function getRouteContracts(

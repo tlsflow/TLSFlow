@@ -12,6 +12,7 @@ import {
   listUnifiedPluginVersions,
   refreshBuiltinPluginCatalog,
 } from '@/api/modules/plugins.api'
+import { getTask } from '@/api/modules/tasks.api'
 import type { ApiRecord } from '@/api/modules/common'
 import { GcDevicePresentation, GcEmptyState, GcModal, GcPluginForm, type DevicePresentationSchema, type PluginFormSchema } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
@@ -126,7 +127,11 @@ async function loadPlugins(refreshBuiltins = false): Promise<void> {
   loading.value = true
   loadError.value = ''
   try {
-    if (refreshBuiltins) await refreshBuiltinPluginCatalog()
+    if (refreshBuiltins) {
+      const refreshResult = await refreshBuiltinPluginCatalog()
+      const taskId = readString(readRecord(refreshResult.data), 'taskId')
+      if (taskId) await waitForRefreshTask(taskId)
+    }
     const query = {
       page: 1,
       pageSize: 500,
@@ -157,8 +162,27 @@ async function refreshPlugins(): Promise<void> {
   await loadPlugins(true)
 }
 
+async function waitForRefreshTask(taskId: string): Promise<void> {
+  const deadline = Date.now() + 30_000
+  while (Date.now() < deadline) {
+    const result = await getTask(taskId)
+    const task = result.data?.task
+    if (!task) return
+    if (task.status === 'SUCCEEDED') return
+    if (task.status === 'FAILED' || task.status === 'CANCELLED') {
+      throw new Error(task.lastErrorMessage || t('plugins.errors.loadFailed'))
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 500))
+  }
+  throw new Error(t('plugins.errors.loadFailed'))
+}
+
 function readPageItems<T>(result: { data?: { items: readonly T[] } } | undefined): T[] {
   return result?.data?.items ? [...result.data.items] : []
+}
+
+function readString(value: Record<string, unknown>, key: string): string {
+  return typeof value[key] === 'string' ? value[key] as string : ''
 }
 
 function readRecord(value: unknown): Record<string, unknown> {

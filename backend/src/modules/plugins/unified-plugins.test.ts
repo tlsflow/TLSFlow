@@ -5,16 +5,18 @@ import { UnifiedPluginsApplicationService } from './application/unified-plugins.
 import { hostLocales } from './locales/plugin-locale.service.js';
 import type { UnifiedPluginsRepository } from './repository/unified-plugins.repository.js';
 
-test('统一插件版本不可覆盖且生命周期需要权限审批', async () => {
+test('用户插件导入后保持禁用并可直接手动启用', async () => {
   const records = new Map<string, UnifiedPluginVersionRecord>();
   const repository = memoryRepository(records);
   const service = new UnifiedPluginsApplicationService(repository);
   const input = workflowPluginInput();
   const imported = await service.importVersion('tenant-1', input);
-  assert.equal(imported.status, 'PENDING_APPROVAL');
-  await assert.rejects(() => service.enableVersion(imported.id), /权限尚未完成审批/);
-  const approved = await service.approvePermissions(imported.id, ['network.http']);
-  assert.equal(approved.status, 'DISABLED');
+  assert.equal(imported.status, 'DISABLED');
+  assert.equal(imported.permissionApprovalStatus, 'NOT_REQUIRED');
+  assert.deepEqual(imported.approvedPermissions, imported.manifest.permissions);
+  const compatibility = await service.approvePermissions(imported.id, ['network.http']);
+  assert.equal(compatibility.permissionApprovalStatus, 'NOT_REQUIRED');
+  assert.equal(compatibility.status, 'DISABLED');
   assert.equal((await service.enableVersion(imported.id)).status, 'ENABLED');
   assert.equal((await service.disableVersion(imported.id)).status, 'DISABLED');
   const same = await service.importVersion('tenant-1', input);
@@ -23,6 +25,40 @@ test('统一插件版本不可覆盖且生命周期需要权限审批', async ()
     () => service.importVersion('tenant-1', { ...input, packageContent: 'changed' }),
     /不可覆盖/,
   );
+});
+
+test('内置插件仍需权限审批后才能启用', async () => {
+  const service = new UnifiedPluginsApplicationService(memoryRepository(new Map()));
+  const input = workflowPluginInput();
+  const imported = await service.importVersion('SYSTEM', {
+    ...input,
+    manifest: { ...input.manifest, source: 'BUILTIN' },
+  }, 'BUILTIN');
+  assert.equal(imported.status, 'PENDING_APPROVAL');
+  await assert.rejects(() => service.enableVersion(imported.id), /权限尚未完成审批/);
+  const approved = await service.approvePermissions(imported.id, ['network.http']);
+  assert.equal(approved.permissionApprovalStatus, 'APPROVED');
+  assert.equal((await service.enableVersion(approved.id)).status, 'ENABLED');
+});
+
+test('刷新市场会把已存在的用户插件待审批记录迁移为手动启用', async () => {
+  const records = new Map<string, UnifiedPluginVersionRecord>();
+  const service = new UnifiedPluginsApplicationService(memoryRepository(records));
+  const input = workflowPluginInput();
+  const imported = await service.importVersion('tenant-1', input);
+  records.set(imported.id, {
+    ...imported,
+    status: 'PENDING_APPROVAL',
+    permissionApprovalStatus: 'PENDING',
+    approvedPermissions: [],
+  });
+
+  const refreshed = await service.importVersion('tenant-1', input);
+  assert.equal(refreshed.id, imported.id);
+  assert.equal(refreshed.status, 'DISABLED');
+  assert.equal(refreshed.permissionApprovalStatus, 'NOT_REQUIRED');
+  assert.deepEqual(refreshed.approvedPermissions, imported.manifest.permissions);
+  assert.equal((await service.enableVersion(refreshed.id)).status, 'ENABLED');
 });
 
 test('统一插件拒绝任意可执行资源和缺失资源', async () => {
@@ -118,8 +154,7 @@ test('统一插件在导入阶段拒绝无效接入配方，并接受完整的�
 
   const imported = await service.importVersion('tenant-1', onboardingPluginInput());
   assert.equal(imported.pluginId, 'test.device.workflow');
-  const approved = await service.approvePermissions(imported.id, ['network.http']);
-  assert.equal((await service.enableVersion(approved.id)).status, 'ENABLED');
+  assert.equal((await service.enableVersion(imported.id)).status, 'ENABLED');
 });
 
 test('Trusted JS 插件 Manifest 必须失败关闭', async () => {

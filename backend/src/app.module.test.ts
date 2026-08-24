@@ -47,6 +47,25 @@ test('插件刷新结果按版本和启用状态生成前后变化', () => {
   ]);
 });
 
+test('插件刷新变化从多版本历史快照中选择最高语义版本', () => {
+  const before: PluginRefreshVersionSnapshot[] = [
+    { id: 'old-nginx-010', pluginId: 'device.nginx-proxy-manager', version: '0.1.0', status: 'ENABLED' },
+    { id: 'old-nginx-011', pluginId: 'device.nginx-proxy-manager', version: '0.1.1', status: 'DISABLED' },
+  ];
+  const after: PluginRefreshVersionSnapshot[] = [
+    { id: 'new-nginx-012', pluginId: 'device.nginx-proxy-manager', version: '0.1.2', status: 'ENABLED' },
+  ];
+
+  const [change] = buildPluginRefreshChanges(before, after);
+
+  assert.deepEqual(change, {
+    pluginId: 'device.nginx-proxy-manager',
+    before: before[1],
+    after: after[0],
+    changeType: 'UPDATED',
+  });
+});
+
 test('网络设备统一向导保留全部已发现站点，Agent 仍拒绝缺少真实配置指纹的目标', () => {
   const sites = ['LB:lb-one', 'VPN:vpn-one', 'CS:cs-one'].map((stableKey, index) => ({
     id: `psa_${index}`,

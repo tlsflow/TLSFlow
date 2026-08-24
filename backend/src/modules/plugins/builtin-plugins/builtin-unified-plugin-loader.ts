@@ -146,7 +146,7 @@ export class BuiltinUnifiedPluginLoader {
     error: unknown,
     resourceId?: string,
   ): void {
-    this.logger.warn('内置插件启动阶段失败，已跳过该插件', {
+    this.logger.warn('插件包扫描阶段失败，已跳过该插件包', {
       phase,
       pluginId: identity.pluginId,
       version: identity.version,
