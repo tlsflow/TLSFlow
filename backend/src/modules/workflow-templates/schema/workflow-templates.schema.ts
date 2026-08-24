@@ -384,7 +384,7 @@ function isTemplateExpression(value: unknown): value is string {
 function validateStepVariableReferences(steps: WorkflowStep[], declared: Set<string>, produced: Set<string>, content: WorkflowDslV1): void {
   for (const step of steps) {
     const stepExtracts = normalizeExtractors(step.extract).map((extractor) => extractor.name);
-    const known = new Set([...declared, ...produced, ...stepExtracts]);
+    const known = new Set([...declared, ...produced, ...stepExtracts, `steps.${step.name}`]);
     const references = step.type === 'foreach'
       ? [step.foreach.itemsPath, ...collectReferences({ ...step, foreach: { ...step.foreach, steps: [] } })]
       : step.type === 'checkpoint'
@@ -392,7 +392,7 @@ function validateStepVariableReferences(steps: WorkflowStep[], declared: Set<str
         : collectReferences(step);
     for (const reference of references) {
       if (!isDeclaredReference(reference, known, produced, content)) {
-        throw validationError('变量引用不存在', { reference, step: step.name });
+        throw validationError(`变量引用不存在：${reference}`, { reference, step: step.name });
       }
     }
     if (step.type === 'foreach') {
@@ -413,7 +413,7 @@ function isDeclaredReference(reference: string, declared: Set<string>, produced:
   if (root === 'connections') return Boolean(slot && content.inputContract.connections[slot]);
   if (root === 'credentials') return Boolean(slot && content.inputContract.credentials[slot]);
   if (root === 'artifacts') return Boolean(slot && content.inputContract.artifacts[slot]);
-  if (root === 'steps') return Boolean(slot && produced.has(`steps.${slot}`));
+  if (root === 'steps') return Boolean(slot && (declared.has(`steps.${slot}`) || produced.has(`steps.${slot}`)));
   return declared.has(root) || produced.has(root);
 }
 

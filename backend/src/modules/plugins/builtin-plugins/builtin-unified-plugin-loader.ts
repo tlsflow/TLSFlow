@@ -91,7 +91,7 @@ async function loadBuiltinWorkflowPackages(localeResources: BuiltinLocaleResourc
       apiVersion: 'gcac.plugin-manifest/v1',
       kind: 'GcacPlugin',
       pluginId,
-      version: workflowPluginVersion(pluginId, workflow.metadata.version),
+      version: incrementPatchVersion(workflow.metadata.version),
       displayNameKey: `${localeKey}.name`,
       descriptionKey: `${localeKey}.description`,
       logoUrl: workflow.metadata.logoUrl,
@@ -211,12 +211,6 @@ function builtinLocaleKey(pluginId: string): string {
   const key = keys[pluginId];
   if (!key) throw new Error(`内置插件缺少 Locale key 映射: ${pluginId}`);
   return key;
-}
-
-function workflowPluginVersion(pluginId: string, sourceVersion: string): string {
-  if (pluginId === 'builtin.workflow.apache-8444-cert-switch') return '1.1.6';
-  if (pluginId === 'builtin.workflow.synology-dsm-cert-import') return '1.1.6';
-  return incrementPatchVersion(sourceVersion);
 }
 
 function incrementPatchVersion(version: string): string {
