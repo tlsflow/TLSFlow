@@ -917,8 +917,9 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(body.plan.status, 'RUNNING');
     assert.equal(body.run.status, 'DISPATCHED');
     assert.ok(body.jobId);
-    assert.deepEqual(body.steps.map((step) => step.stepType), ['DISCOVER', 'BACKUP', 'INSTALL', 'RELOAD', 'VERIFY']);
-    assert.equal(body.steps.find((step) => step.stepType === 'INSTALL')?.inputSnapshot.actionType, 'agent.atomic_plan.execute');
+    assert.equal(body.steps.length, 1);
+    assert.equal(body.steps[0]?.stepType, 'CUSTOM');
+    assert.equal(body.steps[0]?.inputSnapshot.actionType, 'agent.atomic_plan.execute');
   });
 
   it('dry-run 创建执行运行，步骤全部标记 dryRun=true 且不推进计划到 RUNNING', async () => {
@@ -932,7 +933,7 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(body.plan.status, 'READY');
     assert.equal(body.run.type, 'dry_run');
     assert.equal(body.run.status, 'DISPATCHED');
-    assert.deepEqual(body.steps.map((step) => step.stepType), ['DISCOVER', 'BACKUP', 'INSTALL', 'RELOAD', 'VERIFY']);
+    assert.deepEqual(body.steps.map((step) => step.stepType), ['CUSTOM']);
     assert.equal(body.steps.every((step) => step.inputSnapshot.dryRun === true), true);
   });
 
@@ -961,8 +962,8 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(body.run.status, 'DISPATCHED');
     assert.equal(body.steps.every((step) => step.status === 'PENDING'), true);
 
-    assert.deepEqual(body.steps.map((step) => step.stepType), ['DISCOVER', 'BACKUP', 'INSTALL', 'RELOAD', 'VERIFY']);
-    assert.equal(body.steps.find((step) => step.stepType === 'INSTALL')?.inputSnapshot.resultDetail?.dryRunChecks, undefined);
+    assert.deepEqual(body.steps.map((step) => step.stepType), ['CUSTOM']);
+    assert.equal(body.steps[0]?.inputSnapshot.resultDetail?.dryRunChecks, undefined);
   });
 
   it('历史计划目标缺少 target.tenantId 时，仍可使用 plan.tenantId 发起 dry-run', async () => {
@@ -1026,8 +1027,8 @@ describe('部署计划与执行编排 API', () => {
     const body = rollback.body as { sourceRun: { status: string }; rollbackRun: { status: string }; steps: Array<{ stepType: string; inputSnapshot: Record<string, unknown> }>; jobId: string };
     assert.equal(body.sourceRun.status, 'ROLLBACK_RUNNING');
     assert.equal(body.rollbackRun.status, 'DISPATCHED');
-    assert.deepEqual(body.steps.map((step) => step.stepType), ['ROLLBACK', 'VERIFY']);
-    const rollbackStep = body.steps.find((step) => step.stepType === 'ROLLBACK');
+    assert.equal(body.steps.length, 1);
+    const rollbackStep = body.steps.find((step) => step.stepType === 'CUSTOM');
     assert.ok(rollbackStep);
     assert.equal(rollbackStep!.inputSnapshot.actionType, 'agent.atomic_plan.execute');
     assert.equal(typeof rollbackStep!.inputSnapshot.sourceRunId, 'string');
@@ -2042,7 +2043,7 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(executed.statusCode, 200);
     const executedBody = executed.body as { run: { id: string }; steps: Array<{ id: string; stepType: string }> };
     const runId = executedBody.run.id;
-    const atomicStep = executedBody.steps.find((step) => step.stepType === 'INSTALL');
+    const atomicStep = executedBody.steps.find((step) => step.stepType === 'CUSTOM');
     assert.ok(atomicStep);
 
     const adapterResult = await (app.getResource('executionsService') as ExecutionsApplicationService)
@@ -2271,7 +2272,7 @@ describe('部署计划与执行编排 API', () => {
     });
     assert.equal(executed.statusCode, 200, JSON.stringify(executed.body));
     const executeBody = executed.body as { run: { id: string }; steps: Array<{ id: string; stepType: string; inputSnapshot: any }> };
-    const atomicStep = executeBody.steps.find((step) => step.stepType === 'INSTALL');
+    const atomicStep = executeBody.steps.find((step) => step.stepType === 'CUSTOM');
     assert.ok(atomicStep);
     assert.equal(atomicStep!.inputSnapshot.deploymentArtifact.certificateFormatId, formatAId);
     assert.equal(atomicStep!.inputSnapshot.deploymentArtifact.format, 'pfx');

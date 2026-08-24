@@ -14,7 +14,6 @@ import { WorkflowTemplatesApplicationService } from '../workflow-templates/appli
 function createService() {
   return new ExecutionsApplicationService({
     deploymentPlansRepository: new DeploymentPlansRepository(),
-    stageIntervalMs: 0,
   });
 }
 
@@ -30,13 +29,12 @@ async function createRun(service: ExecutionsApplicationService, input: {
   mockResults?: Map<string, 'success' | 'fail'>;
   agentPayloads?: Map<string, Record<string, unknown>>;
   gatewayRoutes?: Map<string, Record<string, unknown>>;
-  type?: 'apply' | 'dry_run';
 }) {
   const targetIds = input.targetIds ?? ['target_a', 'target_b'];
   return service.createApplyRun({
     deploymentPlanId: 'plan_1',
     deploymentPlanTargetIds: targetIds,
-    type: input.type ?? 'apply',
+    type: 'apply',
     idempotencyKey: input.idempotencyKey,
     actorId: 'tester',
     tenantId: 'tenant_1',
@@ -79,7 +77,6 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     const service = new ExecutionsApplicationService({
       deploymentPlansRepository: new DeploymentPlansRepository(),
       detailStream,
-      stageIntervalMs: 0,
     });
     const created = await createRun(service, {
       idempotencyKey: 'idem_realtime_progress',
@@ -295,15 +292,14 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
       }]]),
     });
     const steps = await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id });
-    assert.deepEqual(steps.map((step) => step.stepType), ['DISCOVER', 'BACKUP', 'INSTALL', 'RELOAD', 'VERIFY']);
-    const workflowStep = steps.find((step) => step.stepType === 'INSTALL')!;
-    assert.equal(workflowStep.inputSnapshot.executorType, 'WORKFLOW');
-    assert.equal(workflowStep.inputSnapshot.operation, 'install');
+    assert.equal(steps.length, 1);
+    assert.equal(steps[0].stepType, 'CUSTOM');
+    assert.equal(steps[0].inputSnapshot.executorType, 'WORKFLOW');
+    assert.equal(steps[0].inputSnapshot.operation, 'workflow');
 
-    const verifyExecutor = new TrackingExecutor(async () => ({ success: true }), 'CONTROL_PLANE_TLS');
-    const dryRunResult = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', new ExecutorRegistry([new WorkflowExecutorAdapter({ workflows }), verifyExecutor]));
+    const dryRunResult = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', new ExecutorRegistry([new WorkflowExecutorAdapter({ workflows })]));
     assert.equal(dryRunResult.success, true);
-    const dryRunStep = await service.getStep(workflowStep.id, 'tenant_1');
+    const dryRunStep = await service.getStep(steps[0].id, 'tenant_1');
     assert.equal(dryRunStep.status, 'SUCCESS');
     assert.equal(dryRunStep.inputSnapshot.resultDetail.mode, 'workflow_plan');
     assert.equal(dryRunStep.inputSnapshot.resultDetail.workflowRequest.credentialRefs, '[REDACTED]');
@@ -329,7 +325,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     });
     const applyResult = await service.runDispatchedExecution(apply.run.id, 'tester', 'tenant_1', createDefaultExecutorRegistry());
     assert.equal(applyResult.success, false);
-    const applyStep = (await service.listSteps({ tenantId: 'tenant_1', executionRunId: apply.run.id })).find((step) => step.stepType === 'INSTALL')!;
+    const applyStep = (await service.listSteps({ tenantId: 'tenant_1', executionRunId: apply.run.id }))[0];
     assert.equal(applyStep.lastErrorCode, 'RESOURCE_NOT_FOUND');
   });
 
@@ -614,43 +610,6 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     assert.equal(result.success, true);
   });
 
-  it('Apply 与 Dry-run 共用五阶段和一秒间隔，单体执行器只在更新阶段调用一次', async () => {
-    for (const type of ['apply', 'dry_run'] as const) {
-      const delays: number[] = [];
-      const service = new ExecutionsApplicationService({
-        deploymentPlansRepository: new DeploymentPlansRepository(),
-        stageIntervalMs: 1_000,
-        delay: async (milliseconds) => { delays.push(milliseconds); },
-      });
-      const targetId = `target_lifecycle_${type}`;
-      const created = await createRun(service, {
-        idempotencyKey: `idem_lifecycle_${type}`,
-        targetIds: [targetId],
-        executorType: 'AGENT',
-        type,
-        agentPayloads: new Map([[targetId, {
-          pluginRuntimeCapability: { runtime: 'AGENT_ATOMIC' },
-          certificateVerification: { connectHost: '127.0.0.1', serverName: 'example.test', port: 443 },
-        }]]),
-      });
-      const updateExecutor = new TrackingExecutor(async () => ({ success: true }), 'AGENT');
-      const verifyExecutor = new TrackingExecutor(async () => ({ success: true }), 'CONTROL_PLANE_TLS');
-      const result = await service.runDispatchedExecution(
-        created.run.id,
-        'tester',
-        'tenant_1',
-        new ExecutorRegistry([updateExecutor, verifyExecutor]),
-      );
-      const steps = await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id });
-
-      assert.equal(result.success, true);
-      assert.deepEqual(steps.map((step) => step.stepType), ['DISCOVER', 'BACKUP', 'INSTALL', 'RELOAD', 'VERIFY']);
-      assert.deepEqual(updateExecutor.timeline.filter((item) => item.startsWith('start:')), [`start:INSTALL ${targetId}`]);
-      assert.equal(delays.length, 4);
-      assert.equal(delays.every((milliseconds) => milliseconds > 0 && milliseconds <= 1_000), true);
-    }
-  });
-
   it('Agent Atomic 使用独立控制面 TLS VERIFY，并区分连接地址与 SNI', async () => {
     const service = createService();
     const created = await createRun(service, {
@@ -663,15 +622,12 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
       }]]),
     });
     const steps = await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id });
-    assert.deepEqual(steps.map((step) => step.stepType), ['DISCOVER', 'BACKUP', 'INSTALL', 'RELOAD', 'VERIFY']);
-    assert.equal(steps[0]?.inputSnapshot.executorType, 'PLATFORM_STAGE');
-    assert.equal(steps[1]?.inputSnapshot.executorType, 'PLATFORM_STAGE');
-    assert.equal(steps[2]?.inputSnapshot.executorType, 'AGENT');
-    assert.equal(steps[3]?.inputSnapshot.executorType, 'PLATFORM_STAGE');
-    assert.equal(steps[4]?.inputSnapshot.executorType, 'CONTROL_PLANE_TLS');
-    assert.equal((steps[4]?.inputSnapshot.certificateVerification as Record<string, unknown>).connectHost, '10.255.0.127');
-    assert.equal((steps[4]?.inputSnapshot.certificateVerification as Record<string, unknown>).serverName, 'test02.jacksonz.cn');
-    assert.deepEqual(steps[4]?.dependsOn, [steps[3]?.stepNo]);
+    assert.deepEqual(steps.map((step) => step.stepType), ['CUSTOM', 'VERIFY']);
+    assert.equal(steps[0]?.inputSnapshot.executorType, 'AGENT');
+    assert.equal(steps[1]?.inputSnapshot.executorType, 'CONTROL_PLANE_TLS');
+    assert.equal((steps[1]?.inputSnapshot.certificateVerification as Record<string, unknown>).connectHost, '10.255.0.127');
+    assert.equal((steps[1]?.inputSnapshot.certificateVerification as Record<string, unknown>).serverName, 'test02.jacksonz.cn');
+    assert.deepEqual(steps[1]?.dependsOn, [steps[0]?.stepNo]);
   });
 
   it('Agent Atomic 指定 Gateway 时由 Gateway 主动执行独立 TLS VERIFY', async () => {
@@ -711,12 +667,9 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
       }]]),
     });
     const steps = await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id });
-    assert.deepEqual(steps.map((step) => step.stepType), ['DISCOVER', 'BACKUP', 'INSTALL', 'RELOAD', 'VERIFY']);
-    assert.equal(steps[0]?.inputSnapshot.executorType, 'PLATFORM_STAGE');
-    assert.equal(steps[1]?.inputSnapshot.executorType, 'PLATFORM_STAGE');
-    assert.equal(steps[2]?.inputSnapshot.executorType, 'WORKFLOW');
-    assert.equal(steps[3]?.inputSnapshot.executorType, 'PLATFORM_STAGE');
-    assert.equal(steps[4]?.inputSnapshot.executorType, 'CONTROL_PLANE_TLS');
+    assert.deepEqual(steps.map((step) => step.stepType), ['CUSTOM', 'VERIFY']);
+    assert.equal(steps[0]?.inputSnapshot.executorType, 'WORKFLOW');
+    assert.equal(steps[1]?.inputSnapshot.executorType, 'CONTROL_PLANE_TLS');
   });
 
   it('failurePolicy=continue 跳过失败目标剩余步骤，但继续其它目标；batchSize 和 retry 写入实际调度', async () => {

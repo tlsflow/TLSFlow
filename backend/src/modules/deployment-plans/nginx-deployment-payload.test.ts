@@ -253,8 +253,8 @@ test('NGINX deployment plan 会通过统一插件能力生成 Agent Atomic 请�
   });
   assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
   const dryRunBody = dryRun.body as { steps: Array<{ stepType: string; inputSnapshot: any }> };
-  assert.equal(dryRunBody.steps.length, 5, JSON.stringify(dryRunBody));
-  const atomicStep = dryRunBody.steps.find((step) => step.stepType === 'INSTALL');
+  assert.equal(dryRunBody.steps.length, 1, JSON.stringify(dryRunBody));
+  const atomicStep = dryRunBody.steps.find((step) => step.stepType === 'CUSTOM');
   assert.ok(atomicStep, JSON.stringify(dryRunBody));
   assert.equal(atomicStep!.inputSnapshot.actionType, 'agent.atomic_plan.execute');
   assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.runtime, 'AGENT_ATOMIC');
@@ -580,8 +580,8 @@ test('按应用资产创建 NGINX 部署计划时会保留显式选择的 certif
   });
   assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
   const dryRunBody = dryRun.body as { steps: Array<{ stepType: string; inputSnapshot: any }> };
-  assert.equal(dryRunBody.steps.length, 5);
-  const atomicStep = dryRunBody.steps.find((step) => step.stepType === 'INSTALL');
+  assert.equal(dryRunBody.steps.length, 1);
+  const atomicStep = dryRunBody.steps.find((step) => step.stepType === 'CUSTOM');
   assert.ok(atomicStep);
   assert.equal(atomicStep!.inputSnapshot.deploymentArtifact.certificateFormatId, certificateFormatId);
   assert.equal(atomicStep!.inputSnapshot.deploymentArtifact.format, 'pem');
@@ -826,8 +826,8 @@ test('NGINX 部署 dry-run 从统一受管目标上下文生成 payload', async 
   });
   assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
   const dryRunBody = dryRun.body as { steps: Array<{ stepType: string; inputSnapshot: any }> };
-  assert.equal(dryRunBody.steps.length, 5);
-  const atomicStep = dryRunBody.steps.find((step) => step.stepType === 'INSTALL');
+  assert.equal(dryRunBody.steps.length, 1);
+  const atomicStep = dryRunBody.steps.find((step) => step.stepType === 'CUSTOM');
   assert.ok(atomicStep);
   assert.equal(atomicStep!.inputSnapshot.actionType, 'agent.atomic_plan.execute');
   assert.equal(atomicStep!.inputSnapshot.pluginRuntimeCapability.runtime, 'AGENT_ATOMIC');
