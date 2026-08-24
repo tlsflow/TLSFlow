@@ -29,7 +29,7 @@ const primaryActionError = ref('')
 const primaryActionPending = ref(false)
 
 const tableColumns = computed<DataTableColumn<ViewRow>[]>(() =>
-  props.config.columns.map((column) => ({ key: column.key, title: column.title })),
+  props.config.columns.map((column) => ({ key: column.key, title: column.title, width: column.width })),
 )
 const visibleActions = computed(() =>
   props.config.actions.filter((action) =>
@@ -253,6 +253,7 @@ defineExpose({
       :empty-text="config.emptyTitle"
       :aria-label="t('businessPage.resourceList', { resource: config.resourceName })"
       dense
+      :fixed="config.tableFixed"
     >
       <template #toolbar>
         <div class="business-page__toolbar">

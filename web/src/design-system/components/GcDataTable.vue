@@ -16,9 +16,11 @@ withDefaults(defineProps<{
   /** 由调用方传入的翻译后表格区域名称。 */
   ariaLabel?: string
   dense?: boolean
+  fixed?: boolean
 }>(), {
   rowKey: 'id',
   dense: false,
+  fixed: false,
 })
 
 const { t } = useI18n()
@@ -27,7 +29,7 @@ const { t } = useI18n()
 <template>
   <section
     class="gc-card gc-data-table"
-    :class="{ 'gc-data-table--dense': dense }"
+    :class="{ 'gc-data-table--dense': dense, 'gc-data-table--fixed': fixed }"
     :aria-busy="loading || undefined"
     :aria-label="ariaLabel"
   >
@@ -71,7 +73,10 @@ const { t } = useI18n()
 .gc-data-table__toolbar { padding: var(--gc-space-panel) var(--gc-space-5); border-bottom: var(--gc-border-width-default) solid var(--gc-color-border); background: var(--gc-color-surface-glass); }
 .gc-data-table__scroll { min-width: 0; overflow-x: auto; }
 table { width: 100%; border-collapse: separate; border-spacing: 0; }
+.gc-data-table--fixed table { table-layout: fixed; }
 th, td { text-align: left; padding: var(--gc-space-control) var(--gc-space-3); border-bottom: var(--gc-border-width-default) solid var(--gc-color-border); vertical-align: middle; color: var(--gc-color-text); font-size: var(--gc-font-size-xs); }
+.gc-data-table--fixed th,
+.gc-data-table--fixed td { overflow-wrap: anywhere; }
 th { color: var(--gc-color-text-muted); background: var(--gc-color-surface-muted); font-size: var(--gc-font-size-caption); font-weight: 900; }
 tbody tr { transition: background .16s ease; }
 tbody tr:hover { background: var(--gc-color-surface-hover); }

@@ -6,6 +6,7 @@ export interface BusinessPageColumn {
   readonly title: string
   readonly candidates: readonly string[]
   readonly kind?: 'text' | 'status' | 'risk' | 'date' | 'count'
+  readonly width?: string
   readonly format?: (record: ApiRecord) => string
 }
 
@@ -91,4 +92,5 @@ export interface BusinessPageConfig {
   readonly onSelectionChange?: (row: import('@/composables/useBusinessPage').ViewRow | null) => void
   readonly showDetailPanel?: boolean
   readonly showActionPanel?: boolean
+  readonly tableFixed?: boolean
 }
