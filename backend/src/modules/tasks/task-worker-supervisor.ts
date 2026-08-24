@@ -1,5 +1,5 @@
 import { structuredLogger } from '../../common/logging/structured-logger.js';
-import type { TaskAttempt, TaskExecutionResult, TaskExecutor, TaskRun } from './task.types.js';
+import type { TaskAttempt, TaskCategory, TaskExecutionResult, TaskExecutor, TaskRun } from './task.types.js';
 import type { TasksApplicationService } from './task.application-service.js';
 
 /**
@@ -89,22 +89,26 @@ export class TaskWorkerSupervisor {
     const executor = this.executors.get(definition.executorKey);
     try {
       const result = await executor(task, attempt);
-      this.logger.info('统一任务执行完成', {
-        taskId: task.id,
-        taskType: task.taskType,
-        executorKey: definition.executorKey,
-        attemptNo: attempt.attemptNo,
-        success: result.success,
-      });
+      if (shouldLogTaskExecution(task.category)) {
+        this.logger.info('统一任务执行完成', {
+          taskId: task.id,
+          taskType: task.taskType,
+          executorKey: definition.executorKey,
+          attemptNo: attempt.attemptNo,
+          success: result.success,
+        });
+      }
       return result;
     } catch (error) {
-      this.logger.warn('统一任务执行器抛出异常', {
-        taskId: task.id,
-        taskType: task.taskType,
-        executorKey: definition.executorKey,
-        attemptNo: attempt.attemptNo,
-        error: error instanceof Error ? error.message : String(error),
-      }, { module: 'task-worker-supervisor', resourceType: 'task', resourceId: task.id });
+      if (shouldLogTaskExecution(task.category)) {
+        this.logger.warn('统一任务执行器抛出异常', {
+          taskId: task.id,
+          taskType: task.taskType,
+          executorKey: definition.executorKey,
+          attemptNo: attempt.attemptNo,
+          error: error instanceof Error ? error.message : String(error),
+        }, { module: 'task-worker-supervisor', resourceType: 'task', resourceId: task.id });
+      }
       return {
         success: false,
         errorCode: 'TASK_EXECUTOR_THROWN',
@@ -116,4 +120,8 @@ export class TaskWorkerSupervisor {
 
 function positiveInteger(value: number | undefined, fallback: number): number {
   return Number.isFinite(value) && value !== undefined && value > 0 ? Math.floor(value) : fallback;
+}
+
+function shouldLogTaskExecution(category: TaskCategory): boolean {
+  return category === 'EXECUTION';
 }
