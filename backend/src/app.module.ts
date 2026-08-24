@@ -7,6 +7,7 @@ import { getHealthRouteContracts, HealthController } from './modules/health/cont
 import { DeploymentPlansApplicationService } from './modules/deployment-plans/application/deployment-plans.application-service.js';
 import { DeploymentPlansController, getDeploymentPlanRouteContracts } from './modules/deployment-plans/controller/deployment-plans.controller.js';
 import { ExecutionsApplicationService } from './modules/executions/application/executions.application-service.js';
+import { ExecutionResultSyncService } from './modules/executions/application/execution-result-sync.service.js';
 import { createDefaultExecutorRegistryWithDependencies } from './modules/executions/application/executors.js';
 import { ExecutionsController, getExecutionRouteContracts } from './modules/executions/controller/executions.controller.js';
 import { createSecurityServices, getSecurityRouteContracts, SecurityController, type SecurityServices } from './modules/security/security.controller.js';
@@ -64,22 +65,54 @@ export function createApp(dependencies: AppDependencies = {}): App {
     ...(dependencies.gatewayPersistence ?? {}),
     db: appDb,
   });
+  const certificateServices = dependencies.certificates ?? createCertificateServices(security, { db: appDb });
   const gatewaysService = new GatewaysApplicationService(gatewayPersistence.gateways, gatewayPersistence.targetHistory);
   const gatewayTaskAuditWriter = new GatewayTaskAuditWriter({ audit: security.audit, history: gatewaysService.getTargetHistoryRepository() });
   const gatewayTasksService = new GatewayTaskService({ auditWriter: gatewayTaskAuditWriter });
-  const agentsService = new AgentsApplicationService(new PgAgentsRepository(appDb), undefined, gatewaysService.getRepository());
+  const assetsService = dependencies.assets ?? new AssetsApplicationService(new PgAssetsRepository(appDb));
+  const bindingsService = dependencies.bindings ?? new BindingsApplicationService(
+    assetsService.getRepository(),
+    new PgBindingsRepository(assetsService.getRepository(), appDb),
+    undefined,
+    assetsService,
+  );
+  const executionPersistence = createDeploymentPersistenceRepositories({
+    ...(dependencies.deploymentPersistence ?? {}),
+    db: appDb,
+  });
+  const executionResultSync = new ExecutionResultSyncService(
+    executionPersistence.executions,
+    assetsService,
+    bindingsService,
+    executionPersistence.deploymentPlans,
+  );
+  const agentsService = new AgentsApplicationService(
+    new PgAgentsRepository(appDb),
+    undefined,
+    gatewaysService.getRepository(),
+    certificateServices.certificates,
+    security.secrets,
+    executionResultSync,
+  );
   const capabilitiesService = new CapabilitiesApplicationService(new PgCapabilitiesRepository(appDb));
+  app.setResource('agentsService', agentsService);
+  app.setResource('certificateServices', certificateServices);
 
   app.setAuthTokenResolver((authorization) => security.auth.parseAuthorizationHeader(authorization));
   new HealthController().register(app.router);
   new SecurityController(security).register(app.router);
 
+  assetsService.setAgentsService(agentsService);
+  assetsService.setBindingsRepository(bindingsService.getRepository());
+  const executorRegistry = createDefaultExecutorRegistryWithDependencies({
+    agents: agentsService,
+    gatewayTasks: gatewayTasksService,
+    gatewayTaskAuditWriter,
+  });
+
   const deploymentPersistence = dependencies.deploymentPlans
     ? undefined
-    : createDeploymentPersistenceRepositories({
-        ...(dependencies.deploymentPersistence ?? {}),
-        db: appDb,
-      });
+    : executionPersistence;
   const deploymentPlans = dependencies.deploymentPlans ?? new DeploymentPlansController(new DeploymentPlansApplicationService({
     repository: deploymentPersistence!.deploymentPlans,
     executions: new ExecutionsApplicationService({
@@ -87,28 +120,23 @@ export function createApp(dependencies: AppDependencies = {}): App {
       deploymentPlansRepository: deploymentPersistence!.deploymentPlans,
       queueDb: appDb,
       audit: security.audit,
-      executorRegistry: createDefaultExecutorRegistryWithDependencies({
-        agents: agentsService,
-        gatewayTasks: gatewayTasksService,
-        gatewayTaskAuditWriter,
-      }),
+      executorRegistry,
     }),
     approval: security.approvals,
     audit: security.audit,
     gateways: gatewaysService,
+    assets: assetsService.getRepository(),
+    bindings: bindingsService.getRepository(),
+    certificates: certificateServices.certificates.getRepository(),
+    certificatesApp: certificateServices.certificates,
   }));
   deploymentPlans.register(app.router);
-  new ExecutionsController(deploymentPlans.getExecutionsService()).register(app.router);
-
-  const assetsService = dependencies.assets ?? new AssetsApplicationService(new PgAssetsRepository(appDb));
-  assetsService.setAgentsService(agentsService);
-  const bindingsService = dependencies.bindings ?? new BindingsApplicationService(
-    assetsService.getRepository(),
-    new PgBindingsRepository(assetsService.getRepository(), appDb),
-    undefined,
-    assetsService,
+  const executionsService = deploymentPlans.getExecutionsService();
+  executionResultSync.setContinuationRunner(({ runId, actorId, tenantId }) =>
+    executionsService.runDispatchedExecution(runId, actorId, tenantId, executorRegistry),
   );
-  assetsService.setBindingsRepository(bindingsService.getRepository());
+  app.setResource('executionsService', executionsService);
+  new ExecutionsController(executionsService).register(app.router);
 
   const providersService = new ProvidersApplicationService({
     assetsService,
@@ -126,7 +154,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const bindingsController = new BindingsController(assetsService, bindingsService, security);
   bindingsController.register(app.router);
 
-  const certificateServices = dependencies.certificates ?? createCertificateServices(security, { db: appDb });
   certificateServices.bindings ??= bindingsService;
   const monitorsService = new MonitorsApplicationService({
     repository: new PgMonitorsRepository(appDb),

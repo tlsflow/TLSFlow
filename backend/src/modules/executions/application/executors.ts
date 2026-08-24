@@ -17,6 +17,7 @@ export interface StepExecutionInput {
 
 export interface StepExecutionResult {
   success: boolean;
+  asyncPending?: boolean;
   errorCode?: string;
   errorMessage?: string;
   detail?: Record<string, unknown>;
@@ -153,9 +154,9 @@ export class AgentExecutorAdapter implements Executor {
       executionRunId: input.step.executionRunId,
       executionStepId: input.step.id,
       idempotencyKey: `${input.step.executionRunId}:${input.step.id}:${input.step.attemptCount}`,
-      payload: { ...input.step.inputSnapshot, runType: input.runType, dryRun: input.dryRun },
+      payload: { ...input.step.inputSnapshot, stepType: input.step.stepType, runType: input.runType, dryRun: input.dryRun },
     }, `execution-step:${input.step.id}`);
-    return { success: true, detail: { mode: 'agent_task_enqueued', taskId: task.id, status: task.status } };
+    return { success: true, asyncPending: true, detail: { mode: 'agent_task_enqueued', taskId: task.id, status: task.status } };
   }
 }
 
@@ -226,6 +227,7 @@ export class GatewayExecutorAdapter implements Executor {
 
     return {
       success: true,
+      asyncPending: true,
       detail: {
         mode: 'gateway_task_enqueued',
         gatewayTaskId: task.id,

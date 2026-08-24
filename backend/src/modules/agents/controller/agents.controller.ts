@@ -29,6 +29,7 @@ import type {
   SubmitAgentTaskLogInput,
   SubmitAgentTaskLogsInput,
   SubmitAgentTaskResultInput,
+  SubmitAgentRuntimeLogInput,
   SubmitAgentUpgradeResultInput,
 } from '../dto/agents.dto.js';
 import type { AgentTaskEnvelope } from '../schema/agents.schema.js';
@@ -73,6 +74,7 @@ export class AgentsController {
     router.get('/api/v1/agents/tasks/pull', 'Agent 拉取任务', tags, (request) => this.pullTasks(request));
     router.post('/api/v1/agents/tasks/ack', 'Agent 确认任务', tags, (request) => this.ackTask(request));
     router.post('/api/v1/agents/tasks/logs', 'Agent 提交任务日志', tags, (request) => this.submitLog(request));
+    router.post('/api/v1/agents/runtime-logs', 'Agent 提交运行时日志', tags, (request) => this.submitRuntimeLog(request));
     router.post('/api/v1/agents/tasks/log-batches', 'Agent 批量提交任务日志并返回 ack cursor', tags, (request) => this.submitLogBatch(request));
     router.get('/api/v1/agents/tasks/logs', '查询 Agent 任务日志', tags, (request) => this.listLogs(request));
     router.post('/api/v1/agents/tasks/result', 'Agent 提交任务结果', tags, (request) => this.submitResult(request));
@@ -359,6 +361,7 @@ export class AgentsController {
       status: { type: 'string', enum: AgentStatuses },
       version: { type: 'string', required: true },
       taskSummary: { type: 'object' },
+      runtimeHealth: { type: 'object' },
       adapters: { type: 'array' },
       capabilities: { type: 'array' },
       resourceLimits: { type: 'object' },
@@ -430,6 +433,18 @@ export class AgentsController {
       emittedAt: { type: 'string' },
     });
     return { statusCode: 201, body: this.service.submitLog(tenantId(request), body as unknown as SubmitAgentTaskLogInput, requestId(request)) };
+  }
+
+  private submitRuntimeLog(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      agentId: { type: 'string', required: true },
+      category: { type: 'string', required: true },
+      level: { type: 'string' },
+      summary: { type: 'string', required: true },
+      detail: { type: 'object' },
+      emittedAt: { type: 'string' },
+    });
+    return { statusCode: 201, body: this.service.submitRuntimeLog(tenantId(request), body as unknown as SubmitAgentRuntimeLogInput, requestId(request)) };
   }
 
   private submitLogBatch(request: HttpRequest) {
@@ -791,6 +806,9 @@ function renderLinuxBootstrapScript(manifest: unknown): string {
     '  zone: manifest.zone,',
     '  controlPlaneUrl: manifest.controlPlaneUrl,',
     '  heartbeatIntervalSeconds: 30,',
+    '  taskPollIntervalSeconds: 60,',
+    '  healthCheckIntervalSeconds: 30,',
+    '  offlineTimeoutSeconds: 180,',
     '  paths: {',
     '    linux: {',
     '      configPath: `${manifest.configDir}/agent.config.json`,',

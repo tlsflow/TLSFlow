@@ -5,6 +5,9 @@
   "zone": "default",
   "controlPlaneUrl": "https://gcac.example.invalid",
   "heartbeatIntervalSeconds": 30,
+  "taskPollIntervalSeconds": 60,
+  "healthCheckIntervalSeconds": 30,
+  "offlineTimeoutSeconds": 180,
   "paths": {
     "windows": {
       "configPath": "C:\\ProgramData\\GCAC\\FullAgentGo\\config\\agent.config.json",

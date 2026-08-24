@@ -2,8 +2,8 @@ import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, ran
 import { AppError } from '../../../common/errors/app-error.js';
 import type { CapabilityDeclaration } from '../../../shared/contracts/capability-contracts.js';
 import { newId } from '../../../shared/id.js';
-import type { AgentCapabilitySnapshotInput, CreateEnrollmentTokenInput, CreateLinuxGoInstallSessionInput, CreateWindowsPowerShellInstallSessionInput, PublishAgentVersionInput, RegisterAgentInput, SubmitAgentTaskLogInput } from '../dto/agents.dto.js';
-import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentGatewayExtension, AgentInstallSession, AgentRegistration, AgentTaskLogEntry, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
+import type { AgentCapabilitySnapshotInput, CreateEnrollmentTokenInput, CreateLinuxGoInstallSessionInput, CreateWindowsPowerShellInstallSessionInput, PublishAgentVersionInput, RegisterAgentInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput } from '../dto/agents.dto.js';
+import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentGatewayExtension, AgentInstallSession, AgentRegistration, AgentRuntimeLogEntry, AgentTaskLogEntry, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
 
 const MOCK_SAFE_CA_COMMON_NAME = 'GCAC Agent Mock Safe CA';
 const INSTALL_SESSION_TTL_MS = 10 * 60 * 1000;
@@ -394,6 +394,24 @@ export class AgentsDomainService {
     };
   }
 
+  normalizeRuntimeLog(tenantId: string, input: SubmitAgentRuntimeLogInput, requestId: string): AgentRuntimeLogEntry {
+    const summary = normalizeRequired(input.summary, 'summary');
+    const redactedSummary = redactSensitive(summary);
+    const sanitizedDetail = input.detail ? sanitizeUnknown(input.detail) as Record<string, unknown> : undefined;
+    return {
+      id: newId('agrtlog'),
+      tenantId,
+      agentId: normalizeRequired(input.agentId, 'agentId'),
+      category: input.category,
+      level: input.level ?? 'info',
+      summary: redactedSummary,
+      detail: sanitizedDetail,
+      redacted: redactedSummary !== summary || JSON.stringify(sanitizedDetail ?? {}) !== JSON.stringify(input.detail ?? {}),
+      emittedAt: input.emittedAt ?? new Date().toISOString(),
+      requestId,
+    };
+  }
+
   nextContiguousAckedSequence(existingSequences: number[], lastAckedSequence: number): number {
     const sequences = new Set(existingSequences.filter((sequence) => sequence > lastAckedSequence));
     let cursor = lastAckedSequence;
@@ -496,11 +514,17 @@ function redactSensitive(message: string): string {
 }
 
 function sanitizeUnknown(value: unknown): unknown {
-  if (typeof value === 'string') return redactSensitive(value);
+  if (typeof value === 'string') {
+    if (/^secret:\/\/[a-z0-9_/-]+(?:#[a-z0-9_-]+)?$/i.test(value.trim())) return value;
+    return redactSensitive(value);
+  }
   if (Array.isArray(value)) return value.map((item) => sanitizeUnknown(item));
   if (!value || typeof value !== 'object') return value;
   return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => {
-    if (/authorization|token|password|api[_-]?key|secret/i.test(key)) return [key, '[REDACTED]'];
+    if (/authorization|token|password|api[_-]?key|secret/i.test(key)) {
+      if (typeof item === 'string' && /^secret:\/\/[a-z0-9_/-]+(?:#[a-z0-9_-]+)?$/i.test(item.trim())) return [key, item];
+      return [key, '[REDACTED]'];
+    }
     return [key, sanitizeUnknown(item)];
   }));
 }

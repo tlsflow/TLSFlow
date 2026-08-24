@@ -13,6 +13,7 @@ import type {
   AgentHeartbeat,
   AgentInstallSession,
   AgentRegistration,
+  AgentRuntimeLogEntry,
   AgentSession,
   AgentTaskEnvelope,
   AgentTaskLogCursor,
@@ -34,6 +35,7 @@ export interface AgentsRepository {
   findByAgentKey(tenantId: string, agentKey: string): Promise<AgentRegistration | undefined>;
   findByMachineId(tenantId: string, machineId: string): Promise<AgentRegistration | undefined>;
   listRegistrations(tenantId: string, query: PageQuery): Promise<PageResponse<AgentRegistration>>;
+  listAllRegistrations(): Promise<AgentRegistration[]>;
   createSession(session: AgentSession): Promise<AgentSession>;
   getSession(tenantId: string, sessionId: string): Promise<AgentSession | undefined>;
   saveCertificateAuthority(ca: AgentCertificateAuthority): Promise<AgentCertificateAuthority>;
@@ -56,10 +58,12 @@ export interface AgentsRepository {
   findTaskByIdempotencyKey(tenantId: string, agentId: string, idempotencyKey: string): Promise<AgentTaskEnvelope | undefined>;
   listTasks(tenantId: string, agentId: string, statuses?: string[]): Promise<AgentTaskEnvelope[]>;
   saveTaskLog(entry: AgentTaskLogEntry): Promise<AgentTaskLogEntry>;
+  saveRuntimeLog(entry: AgentRuntimeLogEntry): Promise<AgentRuntimeLogEntry>;
   saveTaskLogCursor(cursor: AgentTaskLogCursor): Promise<AgentTaskLogCursor>;
   getTaskLogCursor(tenantId: string, agentId: string, taskId: string): Promise<AgentTaskLogCursor | undefined>;
   listTaskLogs(tenantId: string, taskId: string): Promise<AgentTaskLogEntry[]>;
   listAgentTaskLogs(tenantId: string, agentId: string, levels?: AgentTaskLogEntry['level'][]): Promise<AgentTaskLogEntry[]>;
+  listAgentRuntimeLogs(tenantId: string, agentId: string, categories?: AgentRuntimeLogEntry['category'][]): Promise<AgentRuntimeLogEntry[]>;
   publishVersion(release: AgentVersionRelease): Promise<AgentVersionRelease>;
   listActiveVersions(tenantId: string): Promise<AgentVersionRelease[]>;
   createUpgradePlan(plan: AgentUpgradePlan): Promise<AgentUpgradePlan>;
@@ -110,6 +114,7 @@ export class PgAgentsRepository implements AgentsRepository {
   private readonly snapshots: PgDocumentRepository<AgentCapabilitySnapshot>;
   private readonly tasks: PgDocumentRepository<AgentTaskEnvelope>;
   private readonly taskLogs: PgDocumentRepository<AgentTaskLogEntry>;
+  private readonly runtimeLogs: PgDocumentRepository<AgentRuntimeLogEntry>;
   private readonly taskLogCursors: PgDocumentRepository<AgentTaskLogCursorRecord>;
   private readonly releases: PgDocumentRepository<AgentVersionRelease>;
   private readonly upgradePlans: PgDocumentRepository<AgentUpgradePlan>;
@@ -127,6 +132,7 @@ export class PgAgentsRepository implements AgentsRepository {
     this.snapshots = new PgDocumentRepository(db, 'agents:snapshots');
     this.tasks = new PgDocumentRepository(db, 'agents:tasks');
     this.taskLogs = new PgDocumentRepository(db, 'agents:taskLogs');
+    this.runtimeLogs = new PgDocumentRepository(db, 'agents:runtimeLogs');
     this.taskLogCursors = new PgDocumentRepository(db, 'agents:taskLogCursors');
     this.releases = new PgDocumentRepository(db, 'agents:releases');
     this.upgradePlans = new PgDocumentRepository(db, 'agents:upgradePlans');
@@ -174,6 +180,10 @@ export class PgAgentsRepository implements AgentsRepository {
   async listRegistrations(tenantId: string, query: PageQuery): Promise<PageResponse<AgentRegistration>> {
     const rows = await this.registrations.list((item) => item.tenantId === tenantId);
     return createPageResponse(rows, query.page, query.pageSize, rows.length);
+  }
+
+  async listAllRegistrations(): Promise<AgentRegistration[]> {
+    return this.registrations.list(() => true);
   }
 
   async createSession(session: AgentSession): Promise<AgentSession> {
@@ -280,6 +290,12 @@ export class PgAgentsRepository implements AgentsRepository {
     return this.taskLogs.upsert(entry);
   }
 
+  async saveRuntimeLog(entry: AgentRuntimeLogEntry): Promise<AgentRuntimeLogEntry> {
+    const existing = await this.runtimeLogs.get(entry.id);
+    if (existing) return existing;
+    return this.runtimeLogs.upsert(entry);
+  }
+
   async saveTaskLogCursor(cursor: AgentTaskLogCursor): Promise<AgentTaskLogCursor> {
     return this.taskLogCursors.upsert({ ...cursor, id: logCursorKey(cursor.tenantId, cursor.agentId, cursor.taskId) });
   }
@@ -297,6 +313,11 @@ export class PgAgentsRepository implements AgentsRepository {
   async listAgentTaskLogs(tenantId: string, agentId: string, levels?: AgentTaskLogEntry['level'][]): Promise<AgentTaskLogEntry[]> {
     return (await this.taskLogs.list((item) => item.tenantId === tenantId && item.agentId === agentId && (!levels?.length || levels.includes(item.level))))
       .sort((left, right) => right.emittedAt.localeCompare(left.emittedAt) || right.sequence - left.sequence);
+  }
+
+  async listAgentRuntimeLogs(tenantId: string, agentId: string, categories?: AgentRuntimeLogEntry['category'][]): Promise<AgentRuntimeLogEntry[]> {
+    return (await this.runtimeLogs.list((item) => item.tenantId === tenantId && item.agentId === agentId && (!categories?.length || categories.includes(item.category))))
+      .sort((left, right) => right.emittedAt.localeCompare(left.emittedAt));
   }
 
   async publishVersion(release: AgentVersionRelease): Promise<AgentVersionRelease> {

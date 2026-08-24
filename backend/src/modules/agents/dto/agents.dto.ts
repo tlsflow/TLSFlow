@@ -1,5 +1,5 @@
 import type { AgentStatus, CompatibilityLevel } from '../../../shared/enums/core.enums.js';
-import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentGatewayExtension, AgentHeartbeat, AgentInstallSession, AgentRegistration, AgentTaskEnvelope, AgentTaskLogCursor, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
+import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentGatewayExtension, AgentHeartbeat, AgentInstallSession, AgentRegistration, AgentRuntimeHealth, AgentRuntimeLogEntry, AgentTaskEnvelope, AgentTaskLogCursor, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
 import type { CapabilityDeclaration } from '../../../shared/contracts/capability-contracts.js';
 
 export interface CreateEnrollmentTokenInput {
@@ -40,6 +40,7 @@ export interface AgentHeartbeatInput {
   status?: AgentStatus;
   version: string;
   taskSummary?: AgentHeartbeat['taskSummary'];
+  runtimeHealth?: AgentRuntimeHealth;
   adapters?: string[];
   capabilities?: string[];
   resourceLimits?: Record<string, unknown>;
@@ -135,6 +136,15 @@ export interface SubmitAgentTaskLogsInput {
   logs: Array<Omit<SubmitAgentTaskLogInput, 'agentId' | 'taskId'>>;
 }
 
+export interface SubmitAgentRuntimeLogInput {
+  agentId: string;
+  category: AgentRuntimeLogEntry['category'];
+  level?: AgentRuntimeLogEntry['level'];
+  summary: string;
+  detail?: Record<string, unknown>;
+  emittedAt?: string;
+}
+
 export interface PublishAgentVersionInput {
   version: string;
   platform: string;
@@ -213,6 +223,7 @@ export interface AgentCertificateDto extends AgentCertificate {}
 export interface AgentTaskEnvelopeDto extends AgentTaskEnvelope {}
 export interface AgentTaskLogEntryDto extends AgentTaskLogEntry {}
 export interface AgentTaskLogCursorDto extends AgentTaskLogCursor {}
+export interface AgentRuntimeLogEntryDto extends AgentRuntimeLogEntry {}
 export interface AgentVersionReleaseDto extends AgentVersionRelease {}
 export interface AgentUpgradePlanDto extends AgentUpgradePlan {}
 export interface AgentInstallSessionDto extends AgentInstallSession {}
@@ -301,11 +312,36 @@ export interface AgentDetailProjection {
   agent: AgentRegistration;
   lifecycle: AgentLifecycleProjection;
   latestHeartbeat?: AgentHeartbeat;
+  health: AgentHealthProjection;
   capabilitySnapshot?: AgentCapabilitySnapshot;
   capabilities: AgentCapabilityProjection;
   taskQueue: AgentTaskQueueProjection;
   upgradeSuggestion: AgentUpgradeSuggestionProjection;
   recentErrors: AgentTaskLogEntry[];
+  runtimeLogs: AgentRuntimeLogEntry[];
+}
+
+export interface AgentHealthProjection {
+  status: 'healthy' | 'degraded' | 'failed' | 'unknown';
+  offline: boolean;
+  offlineTimeoutSeconds: number;
+  lastHeartbeatAt?: string;
+  heartbeatAgeSeconds?: number;
+  lastRecoveryAt?: string;
+  lastTaskPollAt?: string;
+  lastTaskResultAt?: string;
+  lastSelfCheckAt?: string;
+  pendingResultCount: number;
+  recoverableTaskCount: number;
+  lastError?: string;
+  degradedReasons: string[];
+  offlineEvidence: string[];
+  failureCounts: {
+    heartbeat: number;
+    taskPoll: number;
+    recovery: number;
+  };
+  runtimeHealth?: AgentRuntimeHealth;
 }
 
 export interface AgentCapabilityProjection {

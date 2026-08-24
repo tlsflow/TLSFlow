@@ -141,6 +141,7 @@ export interface AgentHeartbeat {
   agentId: string;
   status: AgentStatus;
   version: string;
+  runtimeHealth?: AgentRuntimeHealth;
   gateway?: AgentGatewayExtension;
   taskSummary: {
     running: number;
@@ -175,6 +176,37 @@ export interface AgentTaskLogEntry {
   sequence: number;
   level: 'debug' | 'info' | 'warn' | 'error';
   message: string;
+  redacted: boolean;
+  emittedAt: string;
+  requestId: string;
+}
+
+export interface AgentRuntimeHealth {
+  modelVersion: string;
+  status: 'healthy' | 'degraded' | 'failed' | 'unknown';
+  pendingResultCount?: number;
+  recoverableTaskCount?: number;
+  lastRecoveryAt?: string;
+  lastTaskPollAt?: string;
+  lastTaskResultAt?: string;
+  lastSelfCheckAt?: string;
+  lastError?: string;
+  degradedReasons?: string[];
+  failureCounts?: {
+    heartbeat?: number;
+    taskPoll?: number;
+    recovery?: number;
+  };
+}
+
+export interface AgentRuntimeLogEntry {
+  id: string;
+  tenantId: string;
+  agentId: string;
+  category: 'manual_rescan' | 'heartbeat' | 'capability_report';
+  level: 'debug' | 'info' | 'warn' | 'error';
+  summary: string;
+  detail?: Record<string, unknown>;
   redacted: boolean;
   emittedAt: string;
   requestId: string;

@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)]
-  [ValidateSet("start", "stop", "restart", "status", "selfcheck", "healthcheck", "service-info")]
+  [ValidateSet("start", "stop", "restart", "status", "selfcheck", "healthcheck", "agent-status", "service-info")]
   [string]$Action,
 
   [string]$ServiceName = "gcac-agent",
@@ -33,6 +33,9 @@ switch ($Action) {
   }
   "healthcheck" {
     & $BinaryPath health --config=$ConfigPath
+  }
+  "agent-status" {
+    & $BinaryPath status --config=$ConfigPath
   }
   "service-info" {
     & $BinaryPath service-info --config=$ConfigPath --metadata=$MetadataPath

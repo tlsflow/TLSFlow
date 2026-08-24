@@ -13,6 +13,7 @@ import {
   enableAgent,
   getAgentDetail,
   listAgents,
+  requestAgentCapabilityRescan,
 } from '@/api/modules/assets.api'
 import { listCertificateVersions } from '@/api/modules/certificates.api'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
@@ -38,7 +39,7 @@ interface DetailSection {
   readonly title: string
   readonly description: string
   readonly fields: ReadonlyArray<DetailField>
-  readonly variant?: 'default' | 'iis-sites'
+  readonly variant?: 'default' | 'iis-sites' | 'runtime-logs'
 }
 
 interface DetailTab {
@@ -65,6 +66,16 @@ interface AgentDetailView {
   readonly spotlightLabel: string
   readonly spotlightValue: string
   readonly tabs: ReadonlyArray<DetailTab>
+  readonly canManualRescan: boolean
+  readonly manualRescanDisabledReason: string
+}
+
+interface RuntimeLogView {
+  readonly category: string
+  readonly level: string
+  readonly summary: string
+  readonly emittedAt: string
+  readonly detail: string
 }
 
 interface CapabilityItem {
@@ -100,6 +111,8 @@ const detailData = ref<AgentDetailView | null>(null)
 const activeDetailTab = ref('overview')
 const detailLoading = ref(false)
 const detailError = ref('')
+const detailActionPending = ref(false)
+const detailActionMessage = ref('')
 const certificateModalOpen = ref(false)
 const selectedCertificate = ref<{ siteName: string; binding: IisBindingView } | null>(null)
 const certificateAssetPending = ref(false)
@@ -338,6 +351,44 @@ function buildRuntimeFields(data: ApiRecord, osType: string): DetailField[] {
   ]
 }
 
+function formatHealthStatus(value: unknown): string {
+  const status = normalizeText(value, '').toLowerCase()
+  if (status === 'healthy') return '健康'
+  if (status === 'degraded') return '降级'
+  if (status === 'failed') return '失败'
+  if (status === 'unknown') return '未知'
+  return status ? status.toUpperCase() : EMPTY_TEXT
+}
+
+function formatBooleanText(value: unknown): string {
+  if (value === true) return '是'
+  if (value === false) return '否'
+  return EMPTY_TEXT
+}
+
+function buildHealthSummary(data: ApiRecord): string {
+  const offline = readPath(data, 'health.offline') === true
+  const degradedReasons = normalizeText(readPath(data, 'health.degradedReasons'), '')
+  const lastError = normalizeText(readPath(data, 'health.lastError'), '')
+  const offlineEvidence = normalizeText(readPath(data, 'health.offlineEvidence'), '')
+
+  if (offline && offlineEvidence) return offlineEvidence
+  if (degradedReasons) return degradedReasons
+  if (lastError) return lastError
+  return EMPTY_TEXT
+}
+
+function buildHealthFields(data: ApiRecord): DetailField[] {
+  return [
+    { label: '健康状态', value: formatHealthStatus(readPath(data, 'health.status')), emphasis: true },
+    { label: '已判定离线', value: formatBooleanText(readPath(data, 'health.offline')), emphasis: true },
+    { label: '最近心跳', value: normalizeDateTime(readPath(data, 'health.lastHeartbeatAt') ?? readPath(data, 'latestHeartbeat.receivedAt')) },
+    { label: '最近恢复时间', value: normalizeDateTime(readPath(data, 'health.lastRecoveryAt')) },
+    { label: '最近上报时间', value: normalizeDateTime(readPath(data, 'health.lastTaskResultAt')), emphasis: true },
+    { label: '异常摘要', value: buildHealthSummary(data) },
+  ]
+}
+
 function buildIisSites(data: ApiRecord): IisSiteView[] {
   const rawSites = readCapabilityValue(data, 'windows.iis.sites')
   if (!Array.isArray(rawSites)) return []
@@ -426,6 +477,46 @@ function buildIisSections(data: ApiRecord): DetailSection[] {
   return [overview, siteSection]
 }
 
+function buildRuntimeLogs(data: ApiRecord): RuntimeLogView[] {
+  const raw = readPath(data, 'runtimeLogs')
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+    .map((item) => ({
+      category: normalizeText(readObjectValue(item, ['category'])),
+      level: normalizeText(readObjectValue(item, ['level'])),
+      summary: normalizeText(readObjectValue(item, ['summary'])),
+      emittedAt: normalizeDateTime(readObjectValue(item, ['emittedAt'])),
+      detail: normalizeText(readObjectValue(item, ['detail'])),
+    }))
+}
+
+function buildRuntimeLogSections(data: ApiRecord): DetailSection[] {
+  const logs = buildRuntimeLogs(data)
+  const lastCapabilityReportedAt = normalizeDateTime(readPath(data, 'capabilitySnapshot.reportedAt'))
+  return [
+    {
+      title: '日志概览',
+      description: '这里展示最近一次能力上报的时间点，便于判断当前详情页中的能力数据是否新鲜。',
+      fields: [
+        { label: '上次能力上报时间', value: lastCapabilityReportedAt },
+      ],
+    },
+    {
+      title: '运行日志',
+      description: '这里展示手动重扫结果、心跳异常以及能力上报中断等持久化运行日志。',
+      variant: 'runtime-logs',
+      fields: logs.length > 0
+        ? logs.map((log, index) => ({
+            label: `${log.level.toUpperCase()} / ${log.category}`,
+            value: log.summary,
+            meta: { ...log, index },
+          }))
+        : [{ label: '运行日志', value: '暂无运行日志' }],
+    },
+  ]
+}
+
 function hasIisCapability(data: ApiRecord): boolean {
   const iisDetail = readCapabilityValue(data, 'windows.iis.detail')
   const iis = iisDetail && typeof iisDetail === 'object' ? iisDetail as Record<string, unknown> : {}
@@ -443,6 +534,14 @@ function buildAgentDetail(data: ApiRecord, fallbackRow?: ViewRow): AgentDetailVi
   const role = readValue(data, ['agent.role', 'role', 'agentRole'])
   const zone = readValue(data, ['agent.zone', 'zone', 'zoneId'])
   const lastHeartbeat = readValue(data, ['latestHeartbeat.receivedAt', 'agent.gateway.lastHeartbeatAt', 'agent.updatedAt', 'updatedAt'])
+  const canPullTasks = readPath(data, 'lifecycle.canPullTasks') === true
+  const osTypeUpper = osType.toUpperCase()
+  const canManualRescan = canPullTasks && ['WINDOWS', 'LINUX'].includes(osTypeUpper)
+  const manualRescanDisabledReason = canManualRescan
+    ? ''
+    : (!['WINDOWS', 'LINUX'].includes(osTypeUpper)
+        ? '当前 Agent 类型不支持手动重扫'
+        : '当前 Agent 不可拉取任务，无法执行重扫')
 
   const tabs: DetailTab[] = [
     {
@@ -466,6 +565,11 @@ function buildAgentDetail(data: ApiRecord, fallbackRow?: ViewRow): AgentDetailVi
           description: '这里展示 Agent 上报的运行系统与版本信息。',
           fields: buildRuntimeFields(data, osType),
         },
+        {
+          title: '健康与恢复',
+          description: '这里展示控制面对 Agent 的离线判断、最近恢复时间以及待补传结果等运行健康摘要。',
+          fields: buildHealthFields(data),
+        },
       ],
     },
   ]
@@ -478,6 +582,12 @@ function buildAgentDetail(data: ApiRecord, fallbackRow?: ViewRow): AgentDetailVi
     })
   }
 
+  tabs.push({
+    key: 'logs',
+    label: '日志',
+    sections: buildRuntimeLogSections(data),
+  })
+
   return {
     id: agentId,
     title: hostname,
@@ -486,6 +596,8 @@ function buildAgentDetail(data: ApiRecord, fallbackRow?: ViewRow): AgentDetailVi
     spotlightLabel: 'IP 地址',
     spotlightValue: resolveIpAddress(data),
     tabs,
+    canManualRescan,
+    manualRescanDisabledReason,
   }
 }
 
@@ -523,7 +635,7 @@ function closeInstallModal() {
 }
 
 function closeDetailModal() {
-  if (detailLoading.value) return
+  if (detailLoading.value || detailActionPending.value) return
   detailModalOpen.value = false
 }
 
@@ -725,6 +837,8 @@ function buildInstallCommand(platform: InstallPlatform, bootstrapUrl: string, fa
 async function openDetailModal(row: ViewRow) {
   detailModalOpen.value = true
   detailLoading.value = true
+  detailActionPending.value = false
+  detailActionMessage.value = ''
   detailError.value = ''
   activeDetailTab.value = 'overview'
   detailData.value = buildAgentDetail(row.raw, row)
@@ -739,6 +853,20 @@ async function openDetailModal(row: ViewRow) {
     detailError.value = cause instanceof Error ? cause.message : '加载详情失败。'
   } finally {
     detailLoading.value = false
+  }
+}
+
+async function triggerManualRescan() {
+  if (!detailData.value || detailActionPending.value || !detailData.value.canManualRescan) return
+  detailActionPending.value = true
+  detailActionMessage.value = ''
+  try {
+    await requestAgentCapabilityRescan(detailData.value.id)
+    detailActionMessage.value = '已创建手动重扫任务，等待 Agent 拉取执行。'
+  } catch (cause) {
+    detailActionMessage.value = cause instanceof Error ? cause.message : '手动重扫发起失败。'
+  } finally {
+    detailActionPending.value = false
   }
 }
 
@@ -839,6 +967,7 @@ const config: BusinessPageConfig = {
         </div>
 
         <p v-if="detailLoading" class="agent-detail-modal__loading">详情加载中...</p>
+        <p v-if="detailActionMessage" class="agent-detail-modal__loading">{{ detailActionMessage }}</p>
 
         <template v-if="detailData">
           <nav class="agent-detail-modal__tabs" aria-label="Agent详情标签页">
@@ -924,6 +1053,42 @@ const config: BusinessPageConfig = {
                     </template>
                   </article>
                 </template>
+                <template v-else-if="section.variant === 'runtime-logs'">
+                  <article
+                    v-for="field in section.fields"
+                    :key="`${section.title}-${field.label}`"
+                    class="agent-detail-modal__site-card"
+                  >
+                    <template v-if="field.meta && typeof field.meta === 'object'">
+                      <header class="agent-detail-modal__site-head">
+                        <div>
+                          <p class="agent-detail-modal__site-name">{{ field.label }}</p>
+                          <p class="agent-detail-modal__site-path">{{ field.value }}</p>
+                        </div>
+                        <div class="agent-detail-modal__site-meta">
+                          <span>{{ (field.meta as RuntimeLogView).emittedAt }}</span>
+                          <strong>{{ (field.meta as RuntimeLogView).category }}</strong>
+                        </div>
+                      </header>
+                      <div class="agent-detail-modal__site-bindings">
+                        <div class="agent-detail-modal__binding-chip" data-clickable="false">
+                          <div class="agent-detail-modal__binding-topline">
+                            <strong>{{ (field.meta as RuntimeLogView).level.toUpperCase() }}</strong>
+                          </div>
+                          <small>{{ (field.meta as RuntimeLogView).detail }}</small>
+                        </div>
+                      </div>
+                    </template>
+                    <template v-else>
+                      <header class="agent-detail-modal__site-head">
+                        <div>
+                          <p class="agent-detail-modal__site-name">{{ field.label }}</p>
+                          <p class="agent-detail-modal__site-path">{{ field.value }}</p>
+                        </div>
+                      </header>
+                    </template>
+                  </article>
+                </template>
                 <template v-else>
                   <div
                     v-for="field in section.fields"
@@ -942,7 +1107,17 @@ const config: BusinessPageConfig = {
       </section>
 
       <template #actions>
-        <button class="gc-button" type="button" :disabled="detailLoading" @click="closeDetailModal">关闭</button>
+        <button
+          class="gc-button"
+          data-variant="secondary"
+          type="button"
+          :disabled="detailLoading || detailActionPending || !detailData?.canManualRescan"
+          :title="detailData?.manualRescanDisabledReason || ''"
+          @click="triggerManualRescan"
+        >
+          {{ detailActionPending ? '重扫提交中...' : '手动重扫' }}
+        </button>
+        <button class="gc-button" type="button" :disabled="detailLoading || detailActionPending" @click="closeDetailModal">关闭</button>
       </template>
     </GcModal>
 

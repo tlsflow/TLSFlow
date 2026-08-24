@@ -22,21 +22,32 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
 
-const agentVersion = "0.1.0"
+const (
+	agentVersion      = "0.1.0"
+	defaultTaskPoll   = 60
+	defaultHealthPoll = 30
+	defaultOfflineTTL = 180
+)
 
 type AgentConfig struct {
-	SchemaVersion   string `json:"schemaVersion"`
-	TenantID        string `json:"tenantId"`
-	AgentKey        string `json:"agentKey"`
-	EnrollmentToken string `json:"enrollmentToken"`
-	Zone            string `json:"zone"`
-	ControlPlane    string `json:"controlPlaneUrl"`
-	Heartbeat       int    `json:"heartbeatIntervalSeconds"`
-	Paths           struct {
+	SchemaVersion              string `json:"schemaVersion"`
+	TenantID                   string `json:"tenantId"`
+	AgentKey                   string `json:"agentKey"`
+	EnrollmentToken            string `json:"enrollmentToken"`
+	Zone                       string `json:"zone"`
+	ControlPlane               string `json:"controlPlaneUrl"`
+	Heartbeat                  int    `json:"heartbeatIntervalSeconds"`
+	TaskPollIntervalSeconds    int    `json:"taskPollIntervalSeconds"`
+	HealthCheckIntervalSeconds int    `json:"healthCheckIntervalSeconds"`
+	OfflineTimeoutSeconds      int    `json:"offlineTimeoutSeconds"`
+	CapabilityRescanInterval   int    `json:"capabilityRescanIntervalSeconds"`
+	CapabilityRescanEnabled    *bool  `json:"capabilityRescanEnabled"`
+	Paths                      struct {
 		Linux struct {
 			ConfigPath string `json:"configPath"`
 			DataDir    string `json:"dataDir"`
@@ -131,12 +142,35 @@ type registerResponse struct {
 }
 
 type heartbeatRequest struct {
-	AgentID     string `json:"agentId"`
-	Version     string `json:"version"`
-	TaskSummary struct {
-		Running int `json:"running"`
-		Queued  int `json:"queued"`
+	AgentID       string                  `json:"agentId"`
+	Version       string                  `json:"version"`
+	RuntimeHealth *heartbeatRuntimeHealth `json:"runtimeHealth,omitempty"`
+	TaskSummary   struct {
+		Running   int `json:"running"`
+		Queued    int `json:"queued"`
+		Succeeded int `json:"succeeded,omitempty"`
+		Failed    int `json:"failed,omitempty"`
 	} `json:"taskSummary"`
+}
+
+type heartbeatRuntimeHealth struct {
+	ModelVersion         string               `json:"modelVersion"`
+	Status               string               `json:"status"`
+	PendingResultCount   int                  `json:"pendingResultCount"`
+	RecoverableTaskCount int                  `json:"recoverableTaskCount,omitempty"`
+	LastRecoveryAt       string               `json:"lastRecoveryAt,omitempty"`
+	LastTaskPollAt       string               `json:"lastTaskPollAt,omitempty"`
+	LastTaskResultAt     string               `json:"lastTaskResultAt,omitempty"`
+	LastSelfCheckAt      string               `json:"lastSelfCheckAt,omitempty"`
+	LastError            string               `json:"lastError,omitempty"`
+	DegradedReasons      []string             `json:"degradedReasons,omitempty"`
+	FailureCounts        runtimeFailureCounts `json:"failureCounts"`
+}
+
+type runtimeFailureCounts struct {
+	Heartbeat int `json:"heartbeat,omitempty"`
+	TaskPoll  int `json:"taskPoll,omitempty"`
+	Recovery  int `json:"recovery,omitempty"`
 }
 
 type apiErrorResponse struct {
@@ -150,10 +184,96 @@ type runtimeState struct {
 	Version  string
 }
 
+type agentTaskEnvelope struct {
+	ID              string         `json:"id"`
+	AgentID         string         `json:"agentId"`
+	ExecutionRunID  string         `json:"executionRunId"`
+	ExecutionStepID string         `json:"executionStepId"`
+	IdempotencyKey  string         `json:"idempotencyKey"`
+	Payload         map[string]any `json:"payload"`
+	Status          string         `json:"status"`
+}
+
+type ackTaskRequest struct {
+	AgentID string `json:"agentId"`
+	TaskID  string `json:"taskId"`
+	LeaseID string `json:"leaseId"`
+}
+
+type submitResultRequest struct {
+	AgentID      string         `json:"agentId"`
+	TaskID       string         `json:"taskId"`
+	LeaseID      string         `json:"leaseId"`
+	Success      bool           `json:"success"`
+	ErrorCode    string         `json:"errorCode,omitempty"`
+	ErrorMessage string         `json:"errorMessage,omitempty"`
+	Detail       map[string]any `json:"detail,omitempty"`
+}
+
+type submitRuntimeLogRequest struct {
+	AgentID   string         `json:"agentId"`
+	Category  string         `json:"category"`
+	Level     string         `json:"level,omitempty"`
+	Summary   string         `json:"summary"`
+	Detail    map[string]any `json:"detail,omitempty"`
+	EmittedAt string         `json:"emittedAt,omitempty"`
+}
+
+type runtimeCounters struct {
+	Running   int `json:"running"`
+	Queued    int `json:"queued"`
+	Succeeded int `json:"succeeded"`
+	Failed    int `json:"failed"`
+}
+
+type rescanState struct {
+	Running bool
+}
+
 type persistedRuntimeState struct {
 	StableAgentKey        string `json:"stableAgentKey,omitempty"`
 	EnrollmentCompleted   bool   `json:"enrollmentCompleted,omitempty"`
 	LastRegisteredAgentID string `json:"lastRegisteredAgentId,omitempty"`
+}
+
+type runtimeStatusSnapshot struct {
+	SchemaVersion                string          `json:"schemaVersion"`
+	UpdatedAt                    string          `json:"updatedAt"`
+	State                        string          `json:"state"`
+	StartedAt                    string          `json:"startedAt,omitempty"`
+	StoppedAt                    string          `json:"stoppedAt,omitempty"`
+	AgentID                      string          `json:"agentId,omitempty"`
+	ServiceName                  string          `json:"serviceName,omitempty"`
+	LastHeartbeatAt              string          `json:"lastHeartbeatAt,omitempty"`
+	LastTaskPollAt               string          `json:"lastTaskPollAt,omitempty"`
+	LastTaskResultAt             string          `json:"lastTaskResultAt,omitempty"`
+	LastRecoveryAt               string          `json:"lastRecoveryAt,omitempty"`
+	LastSelfCheckAt              string          `json:"lastSelfCheckAt,omitempty"`
+	LastError                    string          `json:"lastError,omitempty"`
+	ConsecutiveHeartbeatFailures int             `json:"consecutiveHeartbeatFailures"`
+	ConsecutiveTaskPollFailures  int             `json:"consecutiveTaskPollFailures"`
+	ConsecutiveRecoveryFailures  int             `json:"consecutiveRecoveryFailures"`
+	PendingResultCount           int             `json:"pendingResultCount"`
+	RecoverableTaskCount         int             `json:"recoverableTaskCount"`
+	TaskCounters                 runtimeCounters `json:"taskCounters"`
+}
+
+type pendingTaskResult struct {
+	TaskID       string         `json:"taskId"`
+	LeaseID      string         `json:"leaseId"`
+	Success      bool           `json:"success"`
+	ErrorCode    string         `json:"errorCode,omitempty"`
+	ErrorMessage string         `json:"errorMessage,omitempty"`
+	Detail       map[string]any `json:"detail,omitempty"`
+	Reported     bool           `json:"reported"`
+	StagedAt     string         `json:"stagedAt"`
+	ReportedAt   string         `json:"reportedAt,omitempty"`
+}
+
+type resultLedger struct {
+	path  string
+	mu    sync.Mutex
+	Items map[string]pendingTaskResult `json:"items"`
 }
 
 type capabilityReportRequest struct {
@@ -296,6 +416,8 @@ func runCLI(args []string) error {
 		return handleSelfCheck(args[1:])
 	case "health":
 		return handleHealth(args[1:])
+	case "status":
+		return handleStatus(args[1:])
 	case "run":
 		return handleRun(args[1:])
 	case "service-info":
@@ -385,6 +507,9 @@ func handleSelfCheck(args []string) error {
 		checkItem("linux.logDir", config.Paths.Linux.LogDir != "", map[string]any{"value": config.Paths.Linux.LogDir}),
 		checkItem("controlPlane.url", strings.TrimSpace(config.ControlPlane) != "", map[string]any{"value": config.ControlPlane}),
 		checkItem("agent.key", strings.TrimSpace(config.AgentKey) != "", map[string]any{"value": config.AgentKey}),
+		checkItem("task.poll.interval", effectiveTaskPollSeconds(config) > 0, map[string]any{"seconds": effectiveTaskPollSeconds(config)}),
+		checkItem("health.check.interval", effectiveHealthCheckSeconds(config) > 0, map[string]any{"seconds": effectiveHealthCheckSeconds(config)}),
+		checkItem("offline.timeout", effectiveOfflineTimeoutSeconds(config) > 0, map[string]any{"seconds": effectiveOfflineTimeoutSeconds(config)}),
 	}
 
 	systemdAvailable := fileExists("/run/systemd/system") || lookPath("systemctl")
@@ -408,24 +533,25 @@ func handleSelfCheck(args []string) error {
 }
 
 func handleHealth(args []string) error {
+	return handleRuntimeStatusCommand(args, true)
+}
+
+func handleStatus(args []string) error {
+	return handleRuntimeStatusCommand(args, false)
+}
+
+func handleRuntimeStatusCommand(args []string, includeChecks bool) error {
 	configPath := parseConfigPath(args)
 	config, err := loadConfig(configPath)
 	if err != nil {
 		return err
 	}
 
-	return writeJSON(map[string]any{
-		"success":   true,
-		"checkedAt": time.Now().Format(time.RFC3339),
-		"service": map[string]any{
-			"name":             config.Service.Name,
-			"systemdAvailable": fileExists("/run/systemd/system") || lookPath("systemctl"),
-		},
-		"paths": map[string]any{
-			"dataDirExists": fileExists(config.Paths.Linux.DataDir),
-			"logDirExists":  fileExists(config.Paths.Linux.LogDir),
-		},
-	})
+	status := loadRuntimeStatusSnapshot(resolveAgentRuntimeStatusPath(config))
+	ledger := loadResultLedger(resolveResultLedgerPath(config))
+	checks := buildLinuxHealthChecks(config, configPath)
+	status.PendingResultCount = ledger.pendingCount()
+	return writeJSON(buildRuntimeStatusReport(config, status, checks, includeChecks))
 }
 
 func handleRun(args []string) error {
@@ -444,18 +570,22 @@ func handleRun(args []string) error {
 		config.EnrollmentToken = ""
 	}
 	if strings.TrimSpace(config.ControlPlane) == "" {
-		return errors.New("controlPlaneUrl 不能为空，Linux Agent 无法自动注册")
+		return errors.New("controlPlaneUrl ?????Linux Agent ??????")
 	}
 	if strings.TrimSpace(config.AgentKey) == "" {
-		return errors.New("agentKey 不能为空，Linux Agent 无法自动注册")
+		return errors.New("agentKey ?????Linux Agent ??????")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	tickerSeconds := config.Heartbeat
-	if tickerSeconds <= 0 {
-		tickerSeconds = 30
+	heartbeatSeconds := effectiveHeartbeatSeconds(config)
+	taskPollSeconds := effectiveTaskPollSeconds(config)
+	healthCheckSeconds := effectiveHealthCheckSeconds(config)
+	rescanSeconds := config.CapabilityRescanInterval
+	rescanEnabled := rescanSeconds > 0
+	if config.CapabilityRescanEnabled != nil {
+		rescanEnabled = *config.CapabilityRescanEnabled
 	}
 
 	client := &http.Client{Timeout: 15 * time.Second}
@@ -469,33 +599,151 @@ func handleRun(args []string) error {
 		LastRegisteredAgentID: state.AgentID,
 	})
 
-	fmt.Fprintf(os.Stderr, "GCAC Linux Agent 前台运行中，service=%s config=%s agentId=%s\n", config.Service.Name, configPath, state.AgentID)
-	if err := postHeartbeat(ctx, client, config, state); err != nil {
-		fmt.Fprintf(os.Stderr, "[heartbeat] 首次上报失败: %v\n", err)
+	counters := &runtimeCounters{}
+	rescan := &rescanState{}
+	ledger := loadResultLedger(resolveResultLedgerPath(config))
+	statusPath := resolveAgentRuntimeStatusPath(config)
+	status := loadRuntimeStatusSnapshot(statusPath)
+	status.SchemaVersion = "gcac.agent.runtime.status.v1"
+	status.State = "starting"
+	status.StartedAt = time.Now().Format(time.RFC3339)
+	status.StoppedAt = ""
+	status.ServiceName = config.Service.Name
+	status.AgentID = state.AgentID
+	refreshRuntimeStatus(&status, counters, ledger)
+	saveRuntimeStatusSnapshot(statusPath, status)
+
+	fmt.Fprintf(os.Stderr, "GCAC Linux Agent running service=%s config=%s agentId=%s\n", config.Service.Name, configPath, state.AgentID)
+	if err := postHeartbeat(ctx, client, config, state, counters, &status); err != nil {
+		status.LastError = err.Error()
+		status.ConsecutiveHeartbeatFailures++
+		fmt.Fprintf(os.Stderr, "[heartbeat] first report failed: %v\n", err)
+		_ = submitRuntimeLog(ctx, client, config, submitRuntimeLogRequest{
+			AgentID:   state.AgentID,
+			Category:  "heartbeat",
+			Level:     "error",
+			Summary:   "first heartbeat failed",
+			Detail:    map[string]any{"error": err.Error(), "phase": "startup"},
+			EmittedAt: time.Now().Format(time.RFC3339),
+		})
 	} else {
-		fmt.Fprintf(os.Stderr, "[heartbeat] 首次上报成功 agent=%s agentId=%s\n", config.AgentKey, state.AgentID)
+		status.LastHeartbeatAt = time.Now().Format(time.RFC3339)
+		status.ConsecutiveHeartbeatFailures = 0
+		fmt.Fprintf(os.Stderr, "[heartbeat] first report ok agent=%s agentId=%s\n", config.AgentKey, state.AgentID)
 	}
 
 	if err := reportCapabilities(ctx, client, config, state); err != nil {
 		fmt.Fprintf(os.Stderr, "[capabilities] first report failed: %v\n", err)
+		_ = submitRuntimeLog(ctx, client, config, submitRuntimeLogRequest{
+			AgentID:   state.AgentID,
+			Category:  "capability_report",
+			Level:     "error",
+			Summary:   "initial capability report failed",
+			Detail:    map[string]any{"error": err.Error(), "phase": "startup"},
+			EmittedAt: time.Now().Format(time.RFC3339),
+		})
 	} else {
 		fmt.Fprintf(os.Stderr, "[capabilities] first report ok agent=%s agentId=%s\n", config.AgentKey, state.AgentID)
 	}
 
-	ticker := time.NewTicker(time.Duration(tickerSeconds) * time.Second)
-	defer ticker.Stop()
+	if err := recoverPendingResults(ctx, client, config, state, counters, ledger); err != nil {
+		status.LastError = err.Error()
+		status.ConsecutiveRecoveryFailures++
+		fmt.Fprintf(os.Stderr, "[result-replay] %v\n", err)
+	} else {
+		status.LastRecoveryAt = time.Now().Format(time.RFC3339)
+		status.ConsecutiveRecoveryFailures = 0
+	}
+
+	if err := pullAndProcessTasks(ctx, client, config, state, counters, rescan, ledger); err != nil {
+		status.LastError = err.Error()
+		status.ConsecutiveTaskPollFailures++
+		fmt.Fprintf(os.Stderr, "[task-pull] first pull failed: %v\n", err)
+	} else {
+		status.LastTaskPollAt = time.Now().Format(time.RFC3339)
+		status.LastTaskResultAt = status.LastTaskPollAt
+		status.ConsecutiveTaskPollFailures = 0
+	}
+	refreshRuntimeStatus(&status, counters, ledger)
+	status.State = "running"
+	saveRuntimeStatusSnapshot(statusPath, status)
+
+	heartbeatTicker := time.NewTicker(time.Duration(heartbeatSeconds) * time.Second)
+	defer heartbeatTicker.Stop()
+	taskTicker := time.NewTicker(time.Duration(taskPollSeconds) * time.Second)
+	defer taskTicker.Stop()
+	healthTicker := time.NewTicker(time.Duration(healthCheckSeconds) * time.Second)
+	defer healthTicker.Stop()
+	var rescanTicker *time.Ticker
+	if rescanEnabled {
+		rescanTicker = time.NewTicker(time.Duration(rescanSeconds) * time.Second)
+		defer rescanTicker.Stop()
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Fprintln(os.Stderr, "收到停止信号，Linux Agent 即将退出")
+			status.State = "stopped"
+			status.StoppedAt = time.Now().Format(time.RFC3339)
+			saveRuntimeStatusSnapshot(statusPath, status)
+			_ = submitRuntimeLog(context.Background(), client, config, submitRuntimeLogRequest{
+				AgentID:   state.AgentID,
+				Category:  "heartbeat",
+				Level:     "warn",
+				Summary:   "agent runtime stopped",
+				Detail:    map[string]any{"state": "stopped"},
+				EmittedAt: time.Now().Format(time.RFC3339),
+			})
+			fmt.Fprintln(os.Stderr, "received stop signal, Linux Agent exiting")
 			return nil
-		case now := <-ticker.C:
-			if err := postHeartbeat(ctx, client, config, state); err != nil {
+		case now := <-heartbeatTicker.C:
+			if err := postHeartbeat(ctx, client, config, state, counters, &status); err != nil {
+				status.LastError = err.Error()
+				status.ConsecutiveHeartbeatFailures++
 				fmt.Fprintf(os.Stderr, "[heartbeat] %s failed agent=%s error=%v\n", now.Format(time.RFC3339), config.AgentKey, err)
-				continue
+				_ = submitRuntimeLog(ctx, client, config, submitRuntimeLogRequest{
+					AgentID:   state.AgentID,
+					Category:  "heartbeat",
+					Level:     "error",
+					Summary:   "heartbeat failed",
+					Detail:    map[string]any{"error": err.Error()},
+					EmittedAt: time.Now().Format(time.RFC3339),
+				})
+			} else {
+				status.LastHeartbeatAt = time.Now().Format(time.RFC3339)
+				status.ConsecutiveHeartbeatFailures = 0
+				fmt.Fprintf(os.Stderr, "[heartbeat] %s ok agent=%s agentId=%s\n", now.Format(time.RFC3339), config.AgentKey, state.AgentID)
 			}
-			fmt.Fprintf(os.Stderr, "[heartbeat] %s ok agent=%s agentId=%s\n", now.Format(time.RFC3339), config.AgentKey, state.AgentID)
+			refreshRuntimeStatus(&status, counters, ledger)
+			saveRuntimeStatusSnapshot(statusPath, status)
+		case <-taskTicker.C:
+			if err := recoverPendingResults(ctx, client, config, state, counters, ledger); err != nil {
+				status.LastError = err.Error()
+				status.ConsecutiveRecoveryFailures++
+				fmt.Fprintf(os.Stderr, "[result-replay] agent=%s error=%v\n", config.AgentKey, err)
+			} else {
+				status.LastRecoveryAt = time.Now().Format(time.RFC3339)
+				status.ConsecutiveRecoveryFailures = 0
+			}
+			if err := pullAndProcessTasks(ctx, client, config, state, counters, rescan, ledger); err != nil {
+				status.LastError = err.Error()
+				status.ConsecutiveTaskPollFailures++
+				fmt.Fprintf(os.Stderr, "[task-pull] agent=%s error=%v\n", config.AgentKey, err)
+			} else {
+				status.LastTaskPollAt = time.Now().Format(time.RFC3339)
+				status.LastTaskResultAt = status.LastTaskPollAt
+				status.ConsecutiveTaskPollFailures = 0
+			}
+			refreshRuntimeStatus(&status, counters, ledger)
+			saveRuntimeStatusSnapshot(statusPath, status)
+		case <-healthTicker.C:
+			status.LastSelfCheckAt = time.Now().Format(time.RFC3339)
+			refreshRuntimeStatus(&status, counters, ledger)
+			saveRuntimeStatusSnapshot(statusPath, status)
+		case <-rescanTickerChannel(rescanTicker):
+			if _, err := runCapabilityRescan(ctx, client, config, state, counters, rescan, "scheduled", nil); err != nil {
+				fmt.Fprintf(os.Stderr, "[rescan] scheduled failed agent=%s error=%v\n", config.AgentKey, err)
+			}
 		}
 	}
 }
@@ -691,6 +939,22 @@ func resolveRuntimeStatePath(config *AgentConfig) string {
 	return filepath.Join(dataDir, "runtime-state.json")
 }
 
+func resolveAgentRuntimeStatusPath(config *AgentConfig) string {
+	dataDir := strings.TrimSpace(config.Paths.Linux.DataDir)
+	if dataDir == "" {
+		return "/var/lib/gcac/linux-agent/runtime-status.json"
+	}
+	return filepath.Join(dataDir, "runtime-status.json")
+}
+
+func resolveResultLedgerPath(config *AgentConfig) string {
+	dataDir := strings.TrimSpace(config.Paths.Linux.DataDir)
+	if dataDir == "" {
+		return "/var/lib/gcac/linux-agent/task-results.json"
+	}
+	return filepath.Join(dataDir, "task-results.json")
+}
+
 func loadPersistedRuntimeState(path string) persistedRuntimeState {
 	bytes, err := os.ReadFile(path)
 	if err != nil {
@@ -713,6 +977,305 @@ func savePersistedRuntimeState(path string, state persistedRuntimeState) {
 		return
 	}
 	_ = os.WriteFile(path, append(encoded, '\n'), 0o640)
+}
+
+func loadRuntimeStatusSnapshot(path string) runtimeStatusSnapshot {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return runtimeStatusSnapshot{
+			SchemaVersion: "gcac.agent.runtime.status.v1",
+			State:         "unknown",
+		}
+	}
+	var snapshot runtimeStatusSnapshot
+	if err := json.Unmarshal(content, &snapshot); err != nil {
+		return runtimeStatusSnapshot{
+			SchemaVersion: "gcac.agent.runtime.status.v1",
+			State:         "unknown",
+			LastError:     err.Error(),
+		}
+	}
+	if strings.TrimSpace(snapshot.SchemaVersion) == "" {
+		snapshot.SchemaVersion = "gcac.agent.runtime.status.v1"
+	}
+	if strings.TrimSpace(snapshot.State) == "" {
+		snapshot.State = "unknown"
+	}
+	return snapshot
+}
+
+func saveRuntimeStatusSnapshot(path string, snapshot runtimeStatusSnapshot) {
+	snapshot.UpdatedAt = time.Now().Format(time.RFC3339)
+	parent := filepath.Dir(path)
+	if parent != "" {
+		_ = os.MkdirAll(parent, 0o750)
+	}
+	encoded, err := json.MarshalIndent(snapshot, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(path, append(encoded, '\n'), 0o640)
+}
+
+func refreshRuntimeStatus(snapshot *runtimeStatusSnapshot, counters *runtimeCounters, ledger *resultLedger) {
+	if snapshot == nil {
+		return
+	}
+	if counters != nil {
+		snapshot.TaskCounters = *counters
+	}
+	if ledger != nil {
+		snapshot.PendingResultCount = ledger.pendingCount()
+	}
+	snapshot.RecoverableTaskCount = 0
+}
+
+func loadResultLedger(path string) *resultLedger {
+	ledger := &resultLedger{
+		path:  path,
+		Items: map[string]pendingTaskResult{},
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return ledger
+	}
+	_ = json.Unmarshal(content, ledger)
+	if ledger.Items == nil {
+		ledger.Items = map[string]pendingTaskResult{}
+	}
+	return ledger
+}
+
+func (l *resultLedger) saveLocked() error {
+	if l.Items == nil {
+		l.Items = map[string]pendingTaskResult{}
+	}
+	parent := filepath.Dir(l.path)
+	if parent != "" {
+		if err := os.MkdirAll(parent, 0o750); err != nil {
+			return err
+		}
+	}
+	encoded, err := json.MarshalIndent(l, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(l.path, append(encoded, '\n'), 0o640)
+}
+
+func (l *resultLedger) stage(request submitResultRequest) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.Items == nil {
+		l.Items = map[string]pendingTaskResult{}
+	}
+	l.Items[request.TaskID] = pendingTaskResult{
+		TaskID:       request.TaskID,
+		LeaseID:      request.LeaseID,
+		Success:      request.Success,
+		ErrorCode:    request.ErrorCode,
+		ErrorMessage: request.ErrorMessage,
+		Detail:       request.Detail,
+		Reported:     false,
+		StagedAt:     time.Now().Format(time.RFC3339),
+	}
+	return l.saveLocked()
+}
+
+func (l *resultLedger) markReported(taskID string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	item, ok := l.Items[taskID]
+	if !ok {
+		return nil
+	}
+	item.Reported = true
+	item.ReportedAt = time.Now().Format(time.RFC3339)
+	delete(l.Items, taskID)
+	return l.saveLocked()
+}
+
+func (l *resultLedger) pending() []pendingTaskResult {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	result := make([]pendingTaskResult, 0, len(l.Items))
+	for _, item := range l.Items {
+		if !item.Reported {
+			result = append(result, item)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].StagedAt < result[j].StagedAt
+	})
+	return result
+}
+
+func (l *resultLedger) pendingCount() int {
+	return len(l.pending())
+}
+
+func buildLinuxHealthChecks(config *AgentConfig, configPath string) []map[string]any {
+	checks := []map[string]any{
+		checkItem("config.exists", fileExists(configPath), map[string]any{"configPath": configPath}),
+		checkItem("service.name", config.Service.Name != "", map[string]any{"serviceName": config.Service.Name}),
+		checkItem("controlPlane.url", strings.TrimSpace(config.ControlPlane) != "", map[string]any{"value": config.ControlPlane}),
+		checkItem("agent.key", strings.TrimSpace(config.AgentKey) != "", map[string]any{"value": config.AgentKey}),
+		checkItem("task.poll.interval", effectiveTaskPollSeconds(config) > 0, map[string]any{"seconds": effectiveTaskPollSeconds(config)}),
+		checkItem("health.check.interval", effectiveHealthCheckSeconds(config) > 0, map[string]any{"seconds": effectiveHealthCheckSeconds(config)}),
+		checkItem("offline.timeout", effectiveOfflineTimeoutSeconds(config) > 0, map[string]any{"seconds": effectiveOfflineTimeoutSeconds(config)}),
+	}
+	systemdAvailable := fileExists("/run/systemd/system") || lookPath("systemctl")
+	checks = append(checks, checkItem("linux.systemd.available", systemdAvailable, map[string]any{
+		"runSystemdDir": fileExists("/run/systemd/system"),
+		"systemctl":     lookPath("systemctl"),
+	}))
+	for _, target := range []string{config.Paths.Linux.DataDir, config.Paths.Linux.LogDir} {
+		if target == "" {
+			continue
+		}
+		checks = append(checks, checkItem("path.writable:"+target, dirWritable(target), map[string]any{"path": target}))
+	}
+	return checks
+}
+
+func buildRuntimeStatusReport(config *AgentConfig, status runtimeStatusSnapshot, checks []map[string]any, includeChecks bool) map[string]any {
+	reasons := buildDegradedReasons(config, status, checks)
+	healthState := "healthy"
+	if len(reasons) > 0 {
+		healthState = "degraded"
+	}
+	result := map[string]any{
+		"success":      len(reasons) == 0,
+		"modelVersion": "gcac.agent.health.v1",
+		"checkedAt":    time.Now().Format(time.RFC3339),
+		"service": map[string]any{
+			"name":             config.Service.Name,
+			"displayName":      config.Service.DisplayName,
+			"systemdAvailable": fileExists("/run/systemd/system") || lookPath("systemctl"),
+		},
+		"config": map[string]any{
+			"configPath":                 config.Paths.Linux.ConfigPath,
+			"dataDir":                    config.Paths.Linux.DataDir,
+			"logDir":                     config.Paths.Linux.LogDir,
+			"heartbeatIntervalSeconds":   effectiveHeartbeatSeconds(config),
+			"taskPollIntervalSeconds":    effectiveTaskPollSeconds(config),
+			"healthCheckIntervalSeconds": effectiveHealthCheckSeconds(config),
+			"offlineTimeoutSeconds":      effectiveOfflineTimeoutSeconds(config),
+		},
+		"runtime": status,
+		"health": map[string]any{
+			"status":               healthState,
+			"failureCounts":        map[string]any{"heartbeat": status.ConsecutiveHeartbeatFailures, "taskPoll": status.ConsecutiveTaskPollFailures, "recovery": status.ConsecutiveRecoveryFailures},
+			"degradedReasons":      reasons,
+			"pendingResultCount":   status.PendingResultCount,
+			"recoverableTaskCount": status.RecoverableTaskCount,
+		},
+	}
+	if includeChecks {
+		result["checks"] = checks
+	}
+	return result
+}
+
+func buildHeartbeatRuntimeHealth(config *AgentConfig, status runtimeStatusSnapshot) *heartbeatRuntimeHealth {
+	reasons := buildDegradedReasons(config, status, nil)
+	filteredReasons := make([]string, 0, len(reasons))
+	for _, reason := range reasons {
+		if reason == "heartbeat_stale" {
+			continue
+		}
+		filteredReasons = append(filteredReasons, reason)
+	}
+	healthStatus := "healthy"
+	if len(filteredReasons) > 0 {
+		healthStatus = "degraded"
+	}
+	return &heartbeatRuntimeHealth{
+		ModelVersion:         "gcac.agent.health.v1",
+		Status:               healthStatus,
+		PendingResultCount:   status.PendingResultCount,
+		RecoverableTaskCount: status.RecoverableTaskCount,
+		LastRecoveryAt:       status.LastRecoveryAt,
+		LastTaskPollAt:       status.LastTaskPollAt,
+		LastTaskResultAt:     status.LastTaskResultAt,
+		LastSelfCheckAt:      status.LastSelfCheckAt,
+		LastError:            status.LastError,
+		DegradedReasons:      filteredReasons,
+		FailureCounts: runtimeFailureCounts{
+			Heartbeat: status.ConsecutiveHeartbeatFailures,
+			TaskPoll:  status.ConsecutiveTaskPollFailures,
+			Recovery:  status.ConsecutiveRecoveryFailures,
+		},
+	}
+}
+
+func buildDegradedReasons(config *AgentConfig, status runtimeStatusSnapshot, checks []map[string]any) []string {
+	reasons := make([]string, 0)
+	for _, check := range checks {
+		if success, ok := check["success"].(bool); ok && !success {
+			if name, ok := check["name"].(string); ok {
+				reasons = append(reasons, "check_failed:"+name)
+			}
+		}
+	}
+	if status.ConsecutiveHeartbeatFailures > 0 {
+		reasons = append(reasons, fmt.Sprintf("heartbeat_failures:%d", status.ConsecutiveHeartbeatFailures))
+	}
+	if status.ConsecutiveTaskPollFailures > 0 {
+		reasons = append(reasons, fmt.Sprintf("task_poll_failures:%d", status.ConsecutiveTaskPollFailures))
+	}
+	if status.ConsecutiveRecoveryFailures > 0 {
+		reasons = append(reasons, fmt.Sprintf("recovery_failures:%d", status.ConsecutiveRecoveryFailures))
+	}
+	if status.PendingResultCount > 0 {
+		reasons = append(reasons, fmt.Sprintf("pending_results:%d", status.PendingResultCount))
+	}
+	if status.RecoverableTaskCount > 0 {
+		reasons = append(reasons, fmt.Sprintf("recoverable_tasks:%d", status.RecoverableTaskCount))
+	}
+	if isStatusStale(status.LastHeartbeatAt, effectiveOfflineTimeoutSeconds(config)) {
+		reasons = append(reasons, "heartbeat_stale")
+	}
+	return reasons
+}
+
+func isStatusStale(value string, thresholdSeconds int) bool {
+	if strings.TrimSpace(value) == "" || thresholdSeconds <= 0 {
+		return false
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return false
+	}
+	return time.Since(parsed) > time.Duration(thresholdSeconds)*time.Second
+}
+
+func effectiveHeartbeatSeconds(config *AgentConfig) int {
+	if config.Heartbeat > 0 {
+		return config.Heartbeat
+	}
+	return 30
+}
+
+func effectiveTaskPollSeconds(config *AgentConfig) int {
+	if config.TaskPollIntervalSeconds > 0 {
+		return config.TaskPollIntervalSeconds
+	}
+	return defaultTaskPoll
+}
+
+func effectiveHealthCheckSeconds(config *AgentConfig) int {
+	if config.HealthCheckIntervalSeconds > 0 {
+		return config.HealthCheckIntervalSeconds
+	}
+	return defaultHealthPoll
+}
+
+func effectiveOfflineTimeoutSeconds(config *AgentConfig) int {
+	if config.OfflineTimeoutSeconds > 0 {
+		return config.OfflineTimeoutSeconds
+	}
+	return defaultOfflineTTL
 }
 
 func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig, identity runtimeIdentity) (*runtimeState, error) {
@@ -758,13 +1321,20 @@ registered:
 	}, nil
 }
 
-func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState) error {
+func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState, counters *runtimeCounters, status *runtimeStatusSnapshot) error {
 	request := heartbeatRequest{
 		AgentID: state.AgentID,
 		Version: state.Version,
 	}
-	request.TaskSummary.Running = 0
-	request.TaskSummary.Queued = 0
+	if counters != nil {
+		request.TaskSummary.Running = counters.Running
+		request.TaskSummary.Queued = counters.Queued
+		request.TaskSummary.Succeeded = counters.Succeeded
+		request.TaskSummary.Failed = counters.Failed
+	}
+	if status != nil {
+		request.RuntimeHealth = buildHeartbeatRuntimeHealth(config, *status)
+	}
 
 	return doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/heartbeat", request, nil)
 }
@@ -780,6 +1350,244 @@ func reportCapabilities(ctx context.Context, client *http.Client, config *AgentC
 		Capabilities:       capabilities,
 	}
 	return doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/capabilities", request, nil)
+}
+
+func pullAndProcessTasks(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState, counters *runtimeCounters, rescan *rescanState, ledger *resultLedger) error {
+	tasks, err := pullTasks(ctx, client, config, state.AgentID)
+	if err != nil {
+		return err
+	}
+	if counters != nil {
+		counters.Queued = len(tasks)
+	}
+	for _, task := range tasks {
+		if err := processTask(ctx, client, config, state, counters, rescan, ledger, task); err != nil {
+			fmt.Fprintf(os.Stderr, "[task] taskId=%s error=%v\n", task.ID, err)
+		}
+	}
+	if counters != nil {
+		counters.Queued = 0
+	}
+	return nil
+}
+
+func pullTasks(ctx context.Context, client *http.Client, config *AgentConfig, agentID string) ([]agentTaskEnvelope, error) {
+	var tasks []agentTaskEnvelope
+	if err := doJSONRequest(ctx, client, config, http.MethodGet, "/api/v1/agents/tasks/pull?agentId="+agentID, nil, &tasks); err != nil {
+		return nil, fmt.Errorf("??????: %w", err)
+	}
+	return tasks, nil
+}
+
+func processTask(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState, counters *runtimeCounters, rescan *rescanState, ledger *resultLedger, task agentTaskEnvelope) error {
+	leaseID := newLeaseID(task.ID)
+	if _, err := ackTask(ctx, client, config, state.AgentID, task.ID, leaseID); err != nil {
+		return fmt.Errorf("ack ????: %w", err)
+	}
+	if counters != nil {
+		counters.Running++
+		defer func() { counters.Running-- }()
+	}
+
+	success, errorCode, errorMessage, detail := executeTask(ctx, client, config, state, counters, rescan, task)
+	request := submitResultRequest{
+		AgentID:      state.AgentID,
+		TaskID:       task.ID,
+		LeaseID:      leaseID,
+		Success:      success,
+		ErrorCode:    errorCode,
+		ErrorMessage: errorMessage,
+		Detail:       detail,
+	}
+	if err := ledger.stage(request); err != nil {
+		return fmt.Errorf("????????: %w", err)
+	}
+	if _, err := submitTaskResult(ctx, client, config, request); err != nil {
+		return fmt.Errorf("????????: %w", err)
+	}
+	if err := ledger.markReported(task.ID); err != nil {
+		return fmt.Errorf("?????????: %w", err)
+	}
+	if counters != nil {
+		if success {
+			counters.Succeeded++
+		} else {
+			counters.Failed++
+		}
+	}
+	return nil
+}
+
+func recoverPendingResults(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState, counters *runtimeCounters, ledger *resultLedger) error {
+	for _, item := range ledger.pending() {
+		request := submitResultRequest{
+			AgentID:      state.AgentID,
+			TaskID:       item.TaskID,
+			LeaseID:      item.LeaseID,
+			Success:      item.Success,
+			ErrorCode:    item.ErrorCode,
+			ErrorMessage: item.ErrorMessage,
+			Detail:       item.Detail,
+		}
+		if _, err := submitTaskResult(ctx, client, config, request); err != nil {
+			return fmt.Errorf("???????? taskId=%s: %w", item.TaskID, err)
+		}
+		if err := ledger.markReported(item.TaskID); err != nil {
+			return err
+		}
+		if counters != nil {
+			if item.Success {
+				counters.Succeeded++
+			} else {
+				counters.Failed++
+			}
+		}
+	}
+	return nil
+}
+
+func executeTask(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState, counters *runtimeCounters, rescan *rescanState, task agentTaskEnvelope) (bool, string, string, map[string]any) {
+	payload := task.Payload
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	taskType, _ := payload["type"].(string)
+	switch taskType {
+	case "", "agent.self_test":
+		return true, "", "", map[string]any{
+			"executor": "linux-go-agent-runtime",
+			"mode":     "self-test",
+			"taskId":   task.ID,
+		}
+	case "agent.capability.rescan":
+		detail, err := runCapabilityRescan(ctx, client, config, state, counters, rescan, "manual", payload)
+		if err != nil {
+			return false, "RESCAN_REPORT_FAILED", err.Error(), detail
+		}
+		return true, "", "", detail
+	default:
+		return false, "UNSUPPORTED_TASK", "当前 Linux Go Agent 仅支持能力重扫任务", map[string]any{
+			"taskId":   task.ID,
+			"type":     taskType,
+			"executor": "linux-go-agent-runtime",
+		}
+	}
+}
+
+func runCapabilityRescan(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState, _ *runtimeCounters, rescan *rescanState, trigger string, payload map[string]any) (map[string]any, error) {
+	if rescan != nil && rescan.Running {
+		return map[string]any{
+			"trigger": trigger,
+			"skipped": true,
+		}, errors.New("能力重扫正在执行中")
+	}
+	if rescan != nil {
+		rescan.Running = true
+		defer func() { rescan.Running = false }()
+	}
+
+	startedAt := time.Now().Format(time.RFC3339)
+	capabilities := collectCapabilityReports()
+	request := capabilityReportRequest{
+		AgentID:            state.AgentID,
+		CompatibilityLevel: "L1",
+		Capabilities:       capabilities,
+	}
+	if err := doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/capabilities", request, nil); err != nil {
+		_ = submitRuntimeLog(ctx, client, config, submitRuntimeLogRequest{
+			AgentID:   state.AgentID,
+			Category:  runtimeLogCategoryForTrigger(trigger),
+			Level:     "error",
+			Summary:   runtimeLogSummaryForTrigger(trigger, false),
+			Detail:    map[string]any{"error": err.Error(), "requestedBy": readRequestedBy(payload)},
+			EmittedAt: time.Now().Format(time.RFC3339),
+		})
+		return map[string]any{
+			"trigger":         trigger,
+			"startedAt":       startedAt,
+			"finishedAt":      time.Now().Format(time.RFC3339),
+			"capabilityCount": len(capabilities),
+			"requestedBy":     readRequestedBy(payload),
+		}, err
+	}
+	_ = submitRuntimeLog(ctx, client, config, submitRuntimeLogRequest{
+		AgentID:   state.AgentID,
+		Category:  runtimeLogCategoryForTrigger(trigger),
+		Level:     "info",
+		Summary:   runtimeLogSummaryForTrigger(trigger, true),
+		Detail:    map[string]any{"requestedBy": readRequestedBy(payload), "capabilityCount": len(capabilities)},
+		EmittedAt: time.Now().Format(time.RFC3339),
+	})
+	return map[string]any{
+		"trigger":         trigger,
+		"startedAt":       startedAt,
+		"finishedAt":      time.Now().Format(time.RFC3339),
+		"capabilityCount": len(capabilities),
+		"requestedBy":     readRequestedBy(payload),
+	}, nil
+}
+
+func ackTask(ctx context.Context, client *http.Client, config *AgentConfig, agentID string, taskID string, leaseID string) (*agentTaskEnvelope, error) {
+	var response agentTaskEnvelope
+	if err := doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/tasks/ack", ackTaskRequest{
+		AgentID: agentID,
+		TaskID:  taskID,
+		LeaseID: leaseID,
+	}, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+func submitTaskResult(ctx context.Context, client *http.Client, config *AgentConfig, request submitResultRequest) (*agentTaskEnvelope, error) {
+	var response agentTaskEnvelope
+	if err := doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/tasks/result", request, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+func submitRuntimeLog(ctx context.Context, client *http.Client, config *AgentConfig, request submitRuntimeLogRequest) error {
+	return doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/runtime-logs", request, nil)
+}
+
+func newLeaseID(taskID string) string {
+	return fmt.Sprintf("lease_%s_%d", strings.ReplaceAll(taskID, "-", "_"), time.Now().UnixNano())
+}
+
+func rescanTickerChannel(ticker *time.Ticker) <-chan time.Time {
+	if ticker == nil {
+		return nil
+	}
+	return ticker.C
+}
+
+func readRequestedBy(payload map[string]any) string {
+	if payload == nil {
+		return ""
+	}
+	value, _ := payload["requestedBy"].(string)
+	return value
+}
+
+func runtimeLogCategoryForTrigger(trigger string) string {
+	if trigger == "manual" {
+		return "manual_rescan"
+	}
+	return "capability_report"
+}
+
+func runtimeLogSummaryForTrigger(trigger string, success bool) string {
+	if trigger == "manual" {
+		if success {
+			return "manual capability rescan succeeded"
+		}
+		return "manual capability rescan failed"
+	}
+	if success {
+		return "scheduled capability report succeeded"
+	}
+	return "scheduled capability report failed"
 }
 
 func collectCapabilityReports() []reportedCapability {
@@ -2479,6 +3287,7 @@ func printUsage() {
 		"  gcac-linux-agent exec --shell -- \"uname -a && id\"",
 		"  gcac-linux-agent self-check [--config=/etc/gcac/linux-agent/agent.config.json]",
 		"  gcac-linux-agent health [--config=/etc/gcac/linux-agent/agent.config.json]",
+		"  gcac-linux-agent status [--config=/etc/gcac/linux-agent/agent.config.json]",
 		"  gcac-linux-agent service-info [--config=...] [--metadata=...]",
 		"  gcac-linux-agent run [--config=/etc/gcac/linux-agent/agent.config.json]",
 		"  gcac-linux-agent version",

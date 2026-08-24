@@ -9,6 +9,7 @@ const apiMocks = vi.hoisted(() => ({
   getAgentDetail: vi.fn(),
   createLinuxGoInstallSession: vi.fn(),
   createWindowsPowerShellInstallSession: vi.fn(),
+  requestAgentCapabilityRescan: vi.fn(),
   disableAgent: vi.fn(),
   enableAgent: vi.fn(),
   deleteAgent: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock('@/api/modules/assets.api', () => ({
   getAgentDetail: apiMocks.getAgentDetail,
   createLinuxGoInstallSession: apiMocks.createLinuxGoInstallSession,
   createWindowsPowerShellInstallSession: apiMocks.createWindowsPowerShellInstallSession,
+  requestAgentCapabilityRescan: apiMocks.requestAgentCapabilityRescan,
   disableAgent: apiMocks.disableAgent,
   enableAgent: apiMocks.enableAgent,
   deleteAgent: apiMocks.deleteAgent,
@@ -97,8 +99,63 @@ describe('AgentsView', () => {
         latestHeartbeat: {
           receivedAt: '2026-06-21T00:30:00.000Z',
         },
+        health: {
+          status: 'degraded',
+          offline: false,
+          offlineTimeoutSeconds: 180,
+          lastHeartbeatAt: '2026-06-21T00:30:00.000Z',
+          heartbeatAgeSeconds: 12,
+          lastRecoveryAt: '2026-06-21T00:28:00.000Z',
+          lastTaskPollAt: '2026-06-21T00:29:00.000Z',
+          lastTaskResultAt: '2026-06-21T00:29:30.000Z',
+          lastSelfCheckAt: '2026-06-21T00:27:00.000Z',
+          pendingResultCount: 2,
+          recoverableTaskCount: 1,
+          lastError: 'network timeout',
+          degradedReasons: ['pending_results:2', 'recovery_failures:1'],
+          offlineEvidence: [
+            'lastHeartbeatAt=2026-06-21T00:30:00.000Z',
+            'heartbeatAgeSeconds=12',
+            'offlineTimeoutSeconds=180',
+          ],
+          failureCounts: {
+            heartbeat: 0,
+            taskPoll: 0,
+            recovery: 1,
+          },
+        },
+        lifecycle: {
+          canPullTasks: true,
+        },
+        runtimeLogs: [
+          {
+            id: 'rtlog-1',
+            category: 'manual_rescan',
+            level: 'info',
+            summary: 'manual capability rescan succeeded',
+            emittedAt: '2026-06-21T00:20:00.000Z',
+            detail: { taskId: 'agtask-rescan-1', requestedBy: 'ops' },
+          },
+          {
+            id: 'rtlog-2',
+            category: 'heartbeat',
+            level: 'error',
+            summary: 'heartbeat failed',
+            emittedAt: '2026-06-21T00:10:00.000Z',
+            detail: { error: 'network timeout' },
+          },
+          {
+            id: 'rtlog-3',
+            category: 'capability_report',
+            level: 'error',
+            summary: 'initial capability report failed',
+            emittedAt: '2026-06-21T00:05:00.000Z',
+            detail: { error: 'control plane unavailable' },
+          },
+        ],
         capabilitySnapshot: {
           compatibilityLevel: 'L1',
+          reportedAt: '2026-06-21T00:25:00.000Z',
           capabilities: [
             {
               capabilityKey: 'windows.os.detail',
@@ -185,6 +242,7 @@ describe('AgentsView', () => {
     apiMocks.disableAgent.mockResolvedValue({ data: {}, requestId: 'req_disable', timestamp: '2026-06-21T00:00:00.000Z' })
     apiMocks.enableAgent.mockResolvedValue({ data: {}, requestId: 'req_enable', timestamp: '2026-06-21T00:00:00.000Z' })
     apiMocks.deleteAgent.mockResolvedValue({ data: {}, requestId: 'req_delete', timestamp: '2026-06-21T00:00:00.000Z' })
+    apiMocks.requestAgentCapabilityRescan.mockResolvedValue({ data: { id: 'agtask-rescan-1', status: 'queued' }, requestId: 'req_rescan', timestamp: '2026-06-21T00:00:00.000Z' })
     apiMocks.listCertificateVersions.mockResolvedValue({
       data: {
         items: [
@@ -302,6 +360,14 @@ describe('AgentsView', () => {
     expect(wrapper.text()).toContain('IIS')
     expect(wrapper.text()).toContain('Windows Server 2022 Datacenter')
     expect(wrapper.text()).toContain('20348.2402')
+    expect(wrapper.text()).toContain('健康与恢复')
+    expect(wrapper.text()).toContain('最近心跳')
+    expect(wrapper.text()).toContain('最近上报时间')
+    expect(wrapper.text()).toContain('2026/06/21 08:29')
+    expect(wrapper.text()).toContain('异常摘要')
+    expect(wrapper.text()).toContain('pending_results:2')
+    expect(wrapper.text()).not.toContain('失败计数')
+    expect(wrapper.text()).not.toContain('最近任务拉取')
 
     const iisTab = wrapper.findAll('button').find((button) => button.text() === 'IIS')
     expect(iisTab).toBeTruthy()
@@ -333,6 +399,94 @@ describe('AgentsView', () => {
     })
   })
 
+  it('详情页支持发起手动重扫任务', async () => {
+    const wrapper = mount(AgentsView, mountOptions)
+    await flushPromises()
+
+    const detailButton = wrapper.findAll('button').find((button) => button.text().includes('详情'))
+    expect(detailButton).toBeTruthy()
+    await detailButton!.trigger('click')
+    await flushPromises()
+
+    const rescanButton = wrapper.findAll('button').find((button) => button.text().includes('手动重扫'))
+    expect(rescanButton).toBeTruthy()
+    expect((rescanButton!.element as HTMLButtonElement).disabled).toBe(false)
+
+    await rescanButton!.trigger('click')
+    await flushPromises()
+
+    expect(apiMocks.requestAgentCapabilityRescan).toHaveBeenCalledWith('agt-1')
+    expect(wrapper.text()).toContain('已创建手动重扫任务，等待 Agent 拉取执行。')
+  })
+
+  it('详情页提供日志标签页，并展示运行日志', async () => {
+    const wrapper = mount(AgentsView, mountOptions)
+    await flushPromises()
+
+    const detailButton = wrapper.findAll('button').find((button) => button.text().includes('详情'))
+    expect(detailButton).toBeTruthy()
+    await detailButton!.trigger('click')
+    await flushPromises()
+
+    const logTab = wrapper.findAll('button').find((button) => button.text() === '日志')
+    expect(logTab).toBeTruthy()
+    await logTab!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('日志概览')
+    expect(wrapper.text()).toContain('上次能力上报时间')
+    expect(wrapper.text()).toContain('2026/06/21 08:25')
+    expect(wrapper.text()).toContain('运行日志')
+    expect(wrapper.text()).toContain('manual capability rescan succeeded')
+    expect(wrapper.text()).toContain('heartbeat failed')
+    expect(wrapper.text()).toContain('initial capability report failed')
+    expect(wrapper.text()).toContain('manual_rescan')
+    expect(wrapper.text()).toContain('capability_report')
+  })
+
+  it('不可拉取任务的 Agent 禁用手动重扫按钮', async () => {
+    apiMocks.getAgentDetail.mockResolvedValueOnce({
+      data: {
+        agent: {
+          id: 'agt-1',
+          agentKey: 'agent-prod-1',
+          status: 'OFFLINE',
+          role: 'full_agent',
+          zone: 'default',
+          descriptor: {
+            hostname: 'prod-1',
+            version: '1.2.3',
+            osType: 'LINUX',
+            arch: 'amd64',
+            ipAddress: '10.0.0.10',
+            osVersion: 'Ubuntu 22.04',
+          },
+        },
+        lifecycle: {
+          canPullTasks: false,
+        },
+        latestHeartbeat: {
+          receivedAt: '2026-06-21T00:30:00.000Z',
+        },
+      },
+      requestId: 'req_agent_detail_no_pull',
+      timestamp: '2026-06-21T00:00:00.000Z',
+    })
+
+    const wrapper = mount(AgentsView, mountOptions)
+    await flushPromises()
+
+    const detailButton = wrapper.findAll('button').find((button) => button.text().includes('详情'))
+    expect(detailButton).toBeTruthy()
+    await detailButton!.trigger('click')
+    await flushPromises()
+
+    const rescanButton = wrapper.findAll('button').find((button) => button.text().includes('手动重扫'))
+    expect(rescanButton).toBeTruthy()
+    expect((rescanButton!.element as HTMLButtonElement).disabled).toBe(true)
+    expect(rescanButton!.attributes('title')).toContain('当前 Agent 不可拉取任务')
+  })
+
   it('没有 IIS 安装信息和站点数据时，不显示 IIS 标签', async () => {
     apiMocks.getAgentDetail.mockResolvedValueOnce({
       data: {
@@ -353,6 +507,9 @@ describe('AgentsView', () => {
         },
         latestHeartbeat: {
           receivedAt: '2026-06-21T00:30:00.000Z',
+        },
+        lifecycle: {
+          canPullTasks: true,
         },
         capabilitySnapshot: {
           compatibilityLevel: 'L1',
@@ -407,6 +564,9 @@ describe('AgentsView', () => {
         },
         latestHeartbeat: {
           receivedAt: '2026-06-21T00:30:00.000Z',
+        },
+        lifecycle: {
+          canPullTasks: true,
         },
         capabilitySnapshot: {
           compatibilityLevel: 'L1',

@@ -28,16 +28,22 @@ const (
 	agentVersion      = "0.1.0"
 	defaultConfigPath = `C:\ProgramData\GCAC\FullAgentGo\config\agent.config.json`
 	defaultMetadata   = `C:\ProgramData\GCAC\FullAgentGo\service.install.json`
+	defaultTaskPoll   = 60
+	defaultHealthPoll = 30
+	defaultOfflineTTL = 180
 )
 
 type AgentConfig struct {
-	SchemaVersion string `json:"schemaVersion"`
-	TenantID      string `json:"tenantId"`
-	AgentKey      string `json:"agentKey"`
-	Zone          string `json:"zone"`
-	ControlPlane  string `json:"controlPlaneUrl"`
-	Heartbeat     int    `json:"heartbeatIntervalSeconds"`
-	Paths         struct {
+	SchemaVersion              string `json:"schemaVersion"`
+	TenantID                   string `json:"tenantId"`
+	AgentKey                   string `json:"agentKey"`
+	Zone                       string `json:"zone"`
+	ControlPlane               string `json:"controlPlaneUrl"`
+	Heartbeat                  int    `json:"heartbeatIntervalSeconds"`
+	TaskPollIntervalSeconds    int    `json:"taskPollIntervalSeconds"`
+	HealthCheckIntervalSeconds int    `json:"healthCheckIntervalSeconds"`
+	OfflineTimeoutSeconds      int    `json:"offlineTimeoutSeconds"`
+	Paths                      struct {
 		Windows struct {
 			ConfigPath string `json:"configPath"`
 			DataDir    string `json:"dataDir"`
@@ -111,14 +117,35 @@ type registerResponse struct {
 }
 
 type heartbeatRequest struct {
-	AgentID     string `json:"agentId"`
-	Version     string `json:"version"`
-	TaskSummary struct {
+	AgentID       string                  `json:"agentId"`
+	Version       string                  `json:"version"`
+	RuntimeHealth *heartbeatRuntimeHealth `json:"runtimeHealth,omitempty"`
+	TaskSummary   struct {
 		Running   int `json:"running"`
 		Queued    int `json:"queued"`
 		Succeeded int `json:"succeeded,omitempty"`
 		Failed    int `json:"failed,omitempty"`
 	} `json:"taskSummary"`
+}
+
+type heartbeatRuntimeHealth struct {
+	ModelVersion         string               `json:"modelVersion"`
+	Status               string               `json:"status"`
+	PendingResultCount   int                  `json:"pendingResultCount"`
+	RecoverableTaskCount int                  `json:"recoverableTaskCount,omitempty"`
+	LastRecoveryAt       string               `json:"lastRecoveryAt,omitempty"`
+	LastTaskPollAt       string               `json:"lastTaskPollAt,omitempty"`
+	LastTaskResultAt     string               `json:"lastTaskResultAt,omitempty"`
+	LastSelfCheckAt      string               `json:"lastSelfCheckAt,omitempty"`
+	LastError            string               `json:"lastError,omitempty"`
+	DegradedReasons      []string             `json:"degradedReasons,omitempty"`
+	FailureCounts        runtimeFailureCounts `json:"failureCounts"`
+}
+
+type runtimeFailureCounts struct {
+	Heartbeat int `json:"heartbeat,omitempty"`
+	TaskPoll  int `json:"taskPoll,omitempty"`
+	Recovery  int `json:"recovery,omitempty"`
 }
 
 type capabilityReportRequest struct {
@@ -169,6 +196,15 @@ type submitLogRequest struct {
 	EmittedAt string `json:"emittedAt,omitempty"`
 }
 
+type submitRuntimeLogRequest struct {
+	AgentID   string         `json:"agentId"`
+	Category  string         `json:"category"`
+	Level     string         `json:"level,omitempty"`
+	Summary   string         `json:"summary"`
+	Detail    map[string]any `json:"detail,omitempty"`
+	EmittedAt string         `json:"emittedAt,omitempty"`
+}
+
 type submitResultRequest struct {
 	AgentID      string         `json:"agentId"`
 	TaskID       string         `json:"taskId"`
@@ -180,15 +216,37 @@ type submitResultRequest struct {
 }
 
 type runtimeCounters struct {
-	Running   int
-	Queued    int
-	Succeeded int
-	Failed    int
+	Running   int `json:"running"`
+	Queued    int `json:"queued"`
+	Succeeded int `json:"succeeded"`
+	Failed    int `json:"failed"`
 }
 
 type runtimeDependencies struct {
 	taskLedger     *localTaskLedger
 	recoveryLedger *recoveryLedger
+}
+
+type runtimeStatusSnapshot struct {
+	SchemaVersion                string          `json:"schemaVersion"`
+	UpdatedAt                    string          `json:"updatedAt"`
+	State                        string          `json:"state"`
+	StartedAt                    string          `json:"startedAt,omitempty"`
+	StoppedAt                    string          `json:"stoppedAt,omitempty"`
+	AgentID                      string          `json:"agentId,omitempty"`
+	ServiceName                  string          `json:"serviceName,omitempty"`
+	LastHeartbeatAt              string          `json:"lastHeartbeatAt,omitempty"`
+	LastTaskPollAt               string          `json:"lastTaskPollAt,omitempty"`
+	LastTaskResultAt             string          `json:"lastTaskResultAt,omitempty"`
+	LastRecoveryAt               string          `json:"lastRecoveryAt,omitempty"`
+	LastSelfCheckAt              string          `json:"lastSelfCheckAt,omitempty"`
+	LastError                    string          `json:"lastError,omitempty"`
+	ConsecutiveHeartbeatFailures int             `json:"consecutiveHeartbeatFailures"`
+	ConsecutiveTaskPollFailures  int             `json:"consecutiveTaskPollFailures"`
+	ConsecutiveRecoveryFailures  int             `json:"consecutiveRecoveryFailures"`
+	PendingResultCount           int             `json:"pendingResultCount"`
+	RecoverableTaskCount         int             `json:"recoverableTaskCount"`
+	TaskCounters                 runtimeCounters `json:"taskCounters"`
 }
 
 type NetworkInterfaceInfo struct {
@@ -296,6 +354,8 @@ func runCLI(args []string) error {
 		return handleSelfCheck(args[1:])
 	case "health":
 		return handleHealth(args[1:])
+	case "status":
+		return handleStatus(args[1:])
 	case "register-once":
 		return handleRegisterOnce(args[1:])
 	case "run":
@@ -346,6 +406,9 @@ func handleSelfCheck(args []string) error {
 		checkItem("windows.logDir", strings.TrimSpace(config.Paths.Windows.LogDir) != "", map[string]any{"value": config.Paths.Windows.LogDir}),
 		checkItem("controlPlane.url", strings.TrimSpace(config.ControlPlane) != "", map[string]any{"value": config.ControlPlane}),
 		checkItem("agent.key", strings.TrimSpace(config.AgentKey) != "", map[string]any{"value": config.AgentKey}),
+		checkItem("task.poll.interval", effectiveTaskPollSeconds(config) > 0, map[string]any{"seconds": effectiveTaskPollSeconds(config)}),
+		checkItem("health.check.interval", effectiveHealthCheckSeconds(config) > 0, map[string]any{"seconds": effectiveHealthCheckSeconds(config)}),
+		checkItem("offline.timeout", effectiveOfflineTimeoutSeconds(config) > 0, map[string]any{"seconds": effectiveOfflineTimeoutSeconds(config)}),
 	}
 
 	for _, dir := range []string{config.Paths.Windows.DataDir, config.Paths.Windows.LogDir} {
@@ -363,25 +426,23 @@ func handleSelfCheck(args []string) error {
 }
 
 func handleHealth(args []string) error {
+	return handleRuntimeStatusCommand(args, true)
+}
+
+func handleStatus(args []string) error {
+	return handleRuntimeStatusCommand(args, false)
+}
+
+func handleRuntimeStatusCommand(args []string, includeChecks bool) error {
 	configPath := parseConfigPath(args)
 	config, err := loadConfig(configPath)
 	if err != nil {
 		return err
 	}
 
-	return writeJSON(map[string]any{
-		"success":   true,
-		"checkedAt": time.Now().Format(time.RFC3339),
-		"service": map[string]any{
-			"name":        config.Service.Name,
-			"displayName": config.Service.DisplayName,
-		},
-		"paths": map[string]any{
-			"configPath": config.Paths.Windows.ConfigPath,
-			"dataDir":    config.Paths.Windows.DataDir,
-			"logDir":     config.Paths.Windows.LogDir,
-		},
-	})
+	status := loadRuntimeStatusSnapshot(resolveRuntimeStatusPath(config))
+	checks := buildWindowsHealthChecks(config, configPath)
+	return writeJSON(buildRuntimeStatusReport(config, status, checks, includeChecks))
 }
 
 func handleRegisterOnce(args []string) error {
@@ -496,6 +557,8 @@ func runForeground(ctx context.Context, configPath string) error {
 	if heartbeat <= 0 {
 		heartbeat = 30
 	}
+	taskPollSeconds := effectiveTaskPollSeconds(config)
+	healthCheckSeconds := effectiveHealthCheckSeconds(config)
 
 	logPath := filepath.Join(config.Paths.Windows.LogDir, "agent.log")
 	logger := newRuntimeLogger(logPath)
@@ -521,9 +584,25 @@ func runForeground(ctx context.Context, configPath string) error {
 		return err
 	}
 	logger.Info("local ledgers loaded recoverableTasks=%d recoverableEntries=%d", len(deps.taskLedger.recoverable()), len(deps.recoveryLedger.recoverable()))
+	statusPath := resolveRuntimeStatusPath(config)
+	status := loadRuntimeStatusSnapshot(statusPath)
+	status.SchemaVersion = "gcac.agent.runtime.status.v1"
+	status.State = "starting"
+	status.StartedAt = time.Now().Format(time.RFC3339)
+	status.StoppedAt = ""
+	status.ServiceName = config.Service.Name
+	status.AgentID = registration.AgentID
 
 	if err := reportCapabilities(ctx, client, config, registration, identity); err != nil {
 		logger.Warn("capability report failed: %v", err)
+		_ = submitRuntimeLog(ctx, client, config, submitRuntimeLogRequest{
+			AgentID:   registration.AgentID,
+			Category:  "capability_report",
+			Level:     "error",
+			Summary:   "initial capability report failed",
+			Detail:    map[string]any{"error": err.Error(), "phase": "startup"},
+			EmittedAt: time.Now().Format(time.RFC3339),
+		})
 	} else {
 		logger.Info("capability report ok agentId=%s", registration.AgentID)
 	}
@@ -531,39 +610,113 @@ func runForeground(ctx context.Context, configPath string) error {
 	counters := &runtimeCounters{}
 	heartbeatTicker := time.NewTicker(time.Duration(heartbeat) * time.Second)
 	defer heartbeatTicker.Stop()
-	taskTicker := time.NewTicker(5 * time.Second)
+	taskTicker := time.NewTicker(time.Duration(taskPollSeconds) * time.Second)
 	defer taskTicker.Stop()
+	healthTicker := time.NewTicker(time.Duration(healthCheckSeconds) * time.Second)
+	defer healthTicker.Stop()
 
-	if err := postHeartbeat(ctx, client, config, registration, counters); err != nil {
+	if err := postHeartbeat(ctx, client, config, registration, counters, &status); err != nil {
 		logger.Warn("first heartbeat failed: %v", err)
+		_ = submitRuntimeLog(ctx, client, config, submitRuntimeLogRequest{
+			AgentID:   registration.AgentID,
+			Category:  "heartbeat",
+			Level:     "error",
+			Summary:   "first heartbeat failed",
+			Detail:    map[string]any{"error": err.Error(), "phase": "startup"},
+			EmittedAt: time.Now().Format(time.RFC3339),
+		})
+		status.LastError = err.Error()
+		status.ConsecutiveHeartbeatFailures++
 	} else {
 		logger.Info("first heartbeat ok agentId=%s", registration.AgentID)
+		status.LastHeartbeatAt = time.Now().Format(time.RFC3339)
+		status.ConsecutiveHeartbeatFailures = 0
 	}
+	refreshRuntimeStatusMetrics(&status, deps, counters)
+	saveRuntimeStatusSnapshot(statusPath, status)
 	if err := recoverOutstandingTasks(ctx, client, config, registration, logger, counters, deps); err != nil {
 		logger.Warn("outstanding task recovery failed: %v", err)
+		status.LastError = err.Error()
+		status.ConsecutiveRecoveryFailures++
+	} else {
+		status.LastRecoveryAt = time.Now().Format(time.RFC3339)
+		status.ConsecutiveRecoveryFailures = 0
 	}
+	refreshRuntimeStatusMetrics(&status, deps, counters)
+	saveRuntimeStatusSnapshot(statusPath, status)
 	if err := pullAndProcessTasks(ctx, client, config, registration, logger, counters, deps); err != nil {
 		logger.Warn("initial task polling failed: %v", err)
+		status.LastError = err.Error()
+		status.ConsecutiveTaskPollFailures++
+	} else {
+		status.LastTaskPollAt = time.Now().Format(time.RFC3339)
+		status.LastTaskResultAt = status.LastTaskPollAt
+		status.ConsecutiveTaskPollFailures = 0
 	}
+	refreshRuntimeStatusMetrics(&status, deps, counters)
+	status.State = "running"
+	saveRuntimeStatusSnapshot(statusPath, status)
 
 	for {
 		select {
 		case <-ctx.Done():
 			logger.Info("收到停止信号，gcac-agent 准备退出")
+			_ = submitRuntimeLog(context.Background(), client, config, submitRuntimeLogRequest{
+				AgentID:   registration.AgentID,
+				Category:  "heartbeat",
+				Level:     "warn",
+				Summary:   "agent runtime stopped",
+				Detail:    map[string]any{"state": "stopped"},
+				EmittedAt: time.Now().Format(time.RFC3339),
+			})
+			status.State = "stopped"
+			status.StoppedAt = time.Now().Format(time.RFC3339)
+			saveRuntimeStatusSnapshot(statusPath, status)
 			return nil
 		case <-heartbeatTicker.C:
-			if err := postHeartbeat(ctx, client, config, registration, counters); err != nil {
+			if err := postHeartbeat(ctx, client, config, registration, counters, &status); err != nil {
 				logger.Warn("heartbeat failed: %v", err)
+				_ = submitRuntimeLog(ctx, client, config, submitRuntimeLogRequest{
+					AgentID:   registration.AgentID,
+					Category:  "heartbeat",
+					Level:     "error",
+					Summary:   "heartbeat failed",
+					Detail:    map[string]any{"error": err.Error()},
+					EmittedAt: time.Now().Format(time.RFC3339),
+				})
+				status.LastError = err.Error()
+				status.ConsecutiveHeartbeatFailures++
 			} else {
 				logger.Info("heartbeat ok running=%d queued=%d succeeded=%d failed=%d", counters.Running, counters.Queued, counters.Succeeded, counters.Failed)
+				status.LastHeartbeatAt = time.Now().Format(time.RFC3339)
+				status.ConsecutiveHeartbeatFailures = 0
 			}
+			refreshRuntimeStatusMetrics(&status, deps, counters)
+			saveRuntimeStatusSnapshot(statusPath, status)
 		case <-taskTicker.C:
 			if err := recoverOutstandingTasks(ctx, client, config, registration, logger, counters, deps); err != nil {
 				logger.Warn("outstanding task recovery failed: %v", err)
+				status.LastError = err.Error()
+				status.ConsecutiveRecoveryFailures++
+			} else {
+				status.LastRecoveryAt = time.Now().Format(time.RFC3339)
+				status.ConsecutiveRecoveryFailures = 0
 			}
 			if err := pullAndProcessTasks(ctx, client, config, registration, logger, counters, deps); err != nil {
 				logger.Warn("task polling failed: %v", err)
+				status.LastError = err.Error()
+				status.ConsecutiveTaskPollFailures++
+			} else {
+				status.LastTaskPollAt = time.Now().Format(time.RFC3339)
+				status.LastTaskResultAt = status.LastTaskPollAt
+				status.ConsecutiveTaskPollFailures = 0
 			}
+			refreshRuntimeStatusMetrics(&status, deps, counters)
+			saveRuntimeStatusSnapshot(statusPath, status)
+		case <-healthTicker.C:
+			status.LastSelfCheckAt = time.Now().Format(time.RFC3339)
+			refreshRuntimeStatusMetrics(&status, deps, counters)
+			saveRuntimeStatusSnapshot(statusPath, status)
 		}
 	}
 }
@@ -606,6 +759,224 @@ func ensureDirWritable(path string) error {
 	}
 	_ = os.Remove(testPath)
 	return nil
+}
+
+func resolveRuntimeStatusPath(config *AgentConfig) string {
+	dataDir := strings.TrimSpace(config.Paths.Windows.DataDir)
+	if dataDir == "" {
+		return `C:\ProgramData\GCAC\FullAgentGo\data\runtime-status.json`
+	}
+	return filepath.Join(dataDir, "runtime-status.json")
+}
+
+func loadRuntimeStatusSnapshot(path string) runtimeStatusSnapshot {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return runtimeStatusSnapshot{
+			SchemaVersion: "gcac.agent.runtime.status.v1",
+			State:         "unknown",
+		}
+	}
+	var snapshot runtimeStatusSnapshot
+	if err := json.Unmarshal(content, &snapshot); err != nil {
+		return runtimeStatusSnapshot{
+			SchemaVersion: "gcac.agent.runtime.status.v1",
+			State:         "unknown",
+			LastError:     err.Error(),
+		}
+	}
+	if strings.TrimSpace(snapshot.SchemaVersion) == "" {
+		snapshot.SchemaVersion = "gcac.agent.runtime.status.v1"
+	}
+	if strings.TrimSpace(snapshot.State) == "" {
+		snapshot.State = "unknown"
+	}
+	return snapshot
+}
+
+func saveRuntimeStatusSnapshot(path string, snapshot runtimeStatusSnapshot) {
+	snapshot.UpdatedAt = time.Now().Format(time.RFC3339)
+	parent := filepath.Dir(path)
+	if parent != "" {
+		_ = os.MkdirAll(parent, 0o755)
+	}
+	encoded, err := json.MarshalIndent(snapshot, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(path, append(encoded, '\n'), 0o644)
+}
+
+func refreshRuntimeStatusMetrics(snapshot *runtimeStatusSnapshot, deps *runtimeDependencies, counters *runtimeCounters) {
+	if snapshot == nil {
+		return
+	}
+	if counters != nil {
+		snapshot.TaskCounters = *counters
+	}
+	if deps == nil {
+		return
+	}
+	snapshot.PendingResultCount = len(deps.taskLedger.recoverable())
+	snapshot.RecoverableTaskCount = len(deps.recoveryLedger.recoverable())
+}
+
+func buildWindowsHealthChecks(config *AgentConfig, configPath string) []map[string]any {
+	checks := []map[string]any{
+		checkItem("config.exists", fileExists(configPath), map[string]any{"configPath": configPath}),
+		checkItem("service.name", strings.TrimSpace(config.Service.Name) != "", map[string]any{"serviceName": config.Service.Name}),
+		checkItem("controlPlane.url", strings.TrimSpace(config.ControlPlane) != "", map[string]any{"value": config.ControlPlane}),
+		checkItem("agent.key", strings.TrimSpace(config.AgentKey) != "", map[string]any{"value": config.AgentKey}),
+		checkItem("task.poll.interval", effectiveTaskPollSeconds(config) > 0, map[string]any{"seconds": effectiveTaskPollSeconds(config)}),
+		checkItem("health.check.interval", effectiveHealthCheckSeconds(config) > 0, map[string]any{"seconds": effectiveHealthCheckSeconds(config)}),
+		checkItem("offline.timeout", effectiveOfflineTimeoutSeconds(config) > 0, map[string]any{"seconds": effectiveOfflineTimeoutSeconds(config)}),
+	}
+	for _, dir := range []string{config.Paths.Windows.DataDir, config.Paths.Windows.LogDir} {
+		if strings.TrimSpace(dir) == "" {
+			continue
+		}
+		checks = append(checks, checkItem("path.writable:"+dir, ensureDirWritable(dir) == nil, map[string]any{"path": dir}))
+	}
+	return checks
+}
+
+func buildRuntimeStatusReport(config *AgentConfig, status runtimeStatusSnapshot, checks []map[string]any, includeChecks bool) map[string]any {
+	reasons := buildDegradedReasons(config, status, checks)
+	healthState := "healthy"
+	if len(reasons) > 0 {
+		healthState = "degraded"
+	}
+	result := map[string]any{
+		"success":      len(reasons) == 0,
+		"modelVersion": "gcac.agent.health.v1",
+		"checkedAt":    time.Now().Format(time.RFC3339),
+		"service": map[string]any{
+			"name":        config.Service.Name,
+			"displayName": config.Service.DisplayName,
+		},
+		"config": map[string]any{
+			"configPath":                 config.Paths.Windows.ConfigPath,
+			"dataDir":                    config.Paths.Windows.DataDir,
+			"logDir":                     config.Paths.Windows.LogDir,
+			"heartbeatIntervalSeconds":   effectiveHeartbeatSeconds(config),
+			"taskPollIntervalSeconds":    effectiveTaskPollSeconds(config),
+			"healthCheckIntervalSeconds": effectiveHealthCheckSeconds(config),
+			"offlineTimeoutSeconds":      effectiveOfflineTimeoutSeconds(config),
+		},
+		"runtime": status,
+		"health": map[string]any{
+			"status":               healthState,
+			"failureCounts":        map[string]any{"heartbeat": status.ConsecutiveHeartbeatFailures, "taskPoll": status.ConsecutiveTaskPollFailures, "recovery": status.ConsecutiveRecoveryFailures},
+			"degradedReasons":      reasons,
+			"pendingResultCount":   status.PendingResultCount,
+			"recoverableTaskCount": status.RecoverableTaskCount,
+		},
+	}
+	if includeChecks {
+		result["checks"] = checks
+	}
+	return result
+}
+
+func buildHeartbeatRuntimeHealth(config *AgentConfig, status runtimeStatusSnapshot) *heartbeatRuntimeHealth {
+	reasons := buildDegradedReasons(config, status, nil)
+	filteredReasons := make([]string, 0, len(reasons))
+	for _, reason := range reasons {
+		if reason == "heartbeat_stale" {
+			continue
+		}
+		filteredReasons = append(filteredReasons, reason)
+	}
+	healthStatus := "healthy"
+	if len(filteredReasons) > 0 {
+		healthStatus = "degraded"
+	}
+	return &heartbeatRuntimeHealth{
+		ModelVersion:         "gcac.agent.health.v1",
+		Status:               healthStatus,
+		PendingResultCount:   status.PendingResultCount,
+		RecoverableTaskCount: status.RecoverableTaskCount,
+		LastRecoveryAt:       status.LastRecoveryAt,
+		LastTaskPollAt:       status.LastTaskPollAt,
+		LastTaskResultAt:     status.LastTaskResultAt,
+		LastSelfCheckAt:      status.LastSelfCheckAt,
+		LastError:            status.LastError,
+		DegradedReasons:      filteredReasons,
+		FailureCounts: runtimeFailureCounts{
+			Heartbeat: status.ConsecutiveHeartbeatFailures,
+			TaskPoll:  status.ConsecutiveTaskPollFailures,
+			Recovery:  status.ConsecutiveRecoveryFailures,
+		},
+	}
+}
+
+func buildDegradedReasons(config *AgentConfig, status runtimeStatusSnapshot, checks []map[string]any) []string {
+	reasons := make([]string, 0)
+	for _, check := range checks {
+		if success, ok := check["success"].(bool); ok && !success {
+			if name, ok := check["name"].(string); ok {
+				reasons = append(reasons, "check_failed:"+name)
+			}
+		}
+	}
+	if status.ConsecutiveHeartbeatFailures > 0 {
+		reasons = append(reasons, fmt.Sprintf("heartbeat_failures:%d", status.ConsecutiveHeartbeatFailures))
+	}
+	if status.ConsecutiveTaskPollFailures > 0 {
+		reasons = append(reasons, fmt.Sprintf("task_poll_failures:%d", status.ConsecutiveTaskPollFailures))
+	}
+	if status.ConsecutiveRecoveryFailures > 0 {
+		reasons = append(reasons, fmt.Sprintf("recovery_failures:%d", status.ConsecutiveRecoveryFailures))
+	}
+	if status.PendingResultCount > 0 {
+		reasons = append(reasons, fmt.Sprintf("pending_results:%d", status.PendingResultCount))
+	}
+	if status.RecoverableTaskCount > 0 {
+		reasons = append(reasons, fmt.Sprintf("recoverable_tasks:%d", status.RecoverableTaskCount))
+	}
+	if isStatusStale(status.LastHeartbeatAt, effectiveOfflineTimeoutSeconds(config)) {
+		reasons = append(reasons, "heartbeat_stale")
+	}
+	return reasons
+}
+
+func isStatusStale(value string, thresholdSeconds int) bool {
+	if strings.TrimSpace(value) == "" || thresholdSeconds <= 0 {
+		return false
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return false
+	}
+	return time.Since(parsed) > time.Duration(thresholdSeconds)*time.Second
+}
+
+func effectiveHeartbeatSeconds(config *AgentConfig) int {
+	if config.Heartbeat > 0 {
+		return config.Heartbeat
+	}
+	return 30
+}
+
+func effectiveTaskPollSeconds(config *AgentConfig) int {
+	if config.TaskPollIntervalSeconds > 0 {
+		return config.TaskPollIntervalSeconds
+	}
+	return defaultTaskPoll
+}
+
+func effectiveHealthCheckSeconds(config *AgentConfig) int {
+	if config.HealthCheckIntervalSeconds > 0 {
+		return config.HealthCheckIntervalSeconds
+	}
+	return defaultHealthPoll
+}
+
+func effectiveOfflineTimeoutSeconds(config *AgentConfig) int {
+	if config.OfflineTimeoutSeconds > 0 {
+		return config.OfflineTimeoutSeconds
+	}
+	return defaultOfflineTTL
 }
 
 func runWindowsService(name string, program *serviceProgram) error {
@@ -827,7 +1198,7 @@ func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig
 	}, nil
 }
 
-func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig, registration *runtimeRegistration, counters *runtimeCounters) error {
+func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig, registration *runtimeRegistration, counters *runtimeCounters, status *runtimeStatusSnapshot) error {
 	request := heartbeatRequest{
 		AgentID: registration.AgentID,
 		Version: registration.Version,
@@ -836,6 +1207,9 @@ func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig
 	request.TaskSummary.Queued = counters.Queued
 	request.TaskSummary.Succeeded = counters.Succeeded
 	request.TaskSummary.Failed = counters.Failed
+	if status != nil {
+		request.RuntimeHealth = buildHeartbeatRuntimeHealth(config, *status)
+	}
 	return doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/heartbeat", request, nil)
 }
 
@@ -1201,6 +1575,9 @@ func executeTask(execution *taskExecutionContext) (bool, string, string, map[str
 	if payload == nil {
 		payload = map[string]any{}
 	}
+	if isWindowsIISDeploymentTask(task) {
+		return runWindowsIISDeployment(execution)
+	}
 	if dryRun, ok := payload["dryRun"].(bool); ok && dryRun {
 		execution.submitLog("info", "任务以 dry-run 模式结束")
 		return true, "", "", map[string]any{
@@ -1216,6 +1593,43 @@ func executeTask(execution *taskExecutionContext) (bool, string, string, map[str
 			"executor": "windows-go-agent-runtime",
 			"mode":     "self-test",
 			"taskId":   task.ID,
+		}
+	}
+	if taskType, ok := payload["type"].(string); ok && taskType == "agent.capability.rescan" {
+		execution.submitLog("info", "开始执行手动能力重扫")
+		if err := reportCapabilities(execution.ctx, execution.client, execution.config, execution.registration, collectRuntimeIdentity()); err != nil {
+			_ = submitRuntimeLog(execution.ctx, execution.client, execution.config, submitRuntimeLogRequest{
+				AgentID:   execution.registration.AgentID,
+				Category:  "manual_rescan",
+				Level:     "error",
+				Summary:   "manual capability rescan failed",
+				Detail:    map[string]any{"error": err.Error(), "taskId": task.ID, "requestedBy": stringFromMap(payload, "requestedBy")},
+				EmittedAt: time.Now().Format(time.RFC3339),
+			})
+			execution.submitLog("error", "能力重扫失败: %v", err)
+			return false, "RESCAN_REPORT_FAILED", err.Error(), map[string]any{
+				"executor":        "windows-go-agent-runtime",
+				"mode":            "capability-rescan",
+				"executionStepId": task.ExecutionStepID,
+				"taskId":          task.ID,
+				"requestedBy":     stringFromMap(payload, "requestedBy"),
+			}
+		}
+		_ = submitRuntimeLog(execution.ctx, execution.client, execution.config, submitRuntimeLogRequest{
+			AgentID:   execution.registration.AgentID,
+			Category:  "manual_rescan",
+			Level:     "info",
+			Summary:   "manual capability rescan succeeded",
+			Detail:    map[string]any{"taskId": task.ID, "requestedBy": stringFromMap(payload, "requestedBy")},
+			EmittedAt: time.Now().Format(time.RFC3339),
+		})
+		execution.submitLog("info", "能力重扫完成")
+		return true, "", "", map[string]any{
+			"executor":        "windows-go-agent-runtime",
+			"mode":            "capability-rescan",
+			"executionStepId": task.ExecutionStepID,
+			"taskId":          task.ID,
+			"requestedBy":     stringFromMap(payload, "requestedBy"),
 		}
 	}
 	if isWindowsIISDeploymentTask(task) {
@@ -1244,6 +1658,10 @@ func ackTask(ctx context.Context, client *http.Client, config *AgentConfig, agen
 
 func submitTaskLog(ctx context.Context, client *http.Client, config *AgentConfig, request submitLogRequest) error {
 	return doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/tasks/logs", request, nil)
+}
+
+func submitRuntimeLog(ctx context.Context, client *http.Client, config *AgentConfig, request submitRuntimeLogRequest) error {
+	return doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/runtime-logs", request, nil)
 }
 
 func submitTaskResult(ctx context.Context, client *http.Client, config *AgentConfig, request submitResultRequest) (*agentTaskEnvelope, error) {
@@ -1541,6 +1959,7 @@ func printUsage() {
 		"  gcac-agent inspect",
 		"  gcac-agent self-check [--config=C:\\ProgramData\\GCAC\\FullAgentGo\\config\\agent.config.json]",
 		"  gcac-agent health [--config=C:\\ProgramData\\GCAC\\FullAgentGo\\config\\agent.config.json]",
+		"  gcac-agent status [--config=C:\\ProgramData\\GCAC\\FullAgentGo\\config\\agent.config.json]",
 		"  gcac-agent register-once [--config=C:\\ProgramData\\GCAC\\FullAgentGo\\config\\agent.config.json]",
 		"  gcac-agent service-info [--config=...] [--metadata=...]",
 		"  gcac-agent run [--config=C:\\ProgramData\\GCAC\\FullAgentGo\\config\\agent.config.json]",

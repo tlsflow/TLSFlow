@@ -29,6 +29,7 @@ export class App {
   readonly config: AppConfig;
   private authTokenResolver?: AuthTokenResolver;
   private readonly persistenceFlushers: PersistenceFlusher[] = [];
+  private readonly resources = new Map<string, unknown>();
 
   constructor(config: AppConfig = loadAppConfig()) {
     this.config = config;
@@ -40,6 +41,14 @@ export class App {
 
   registerPersistenceFlusher(flusher: PersistenceFlusher): void {
     this.persistenceFlushers.push(flusher);
+  }
+
+  setResource<T>(key: string, value: T): void {
+    this.resources.set(key, value);
+  }
+
+  getResource<T>(key: string): T | undefined {
+    return this.resources.get(key) as T | undefined;
   }
 
   async handle(request: HttpRequest): Promise<InjectResponse> {

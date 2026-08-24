@@ -285,6 +285,8 @@ if (-not (Test-Path -LiteralPath $configTarget)) {
 
 $serviceCommand = "`"$binaryTarget`" service run --config=`"$configTarget`""
 New-Service -Name $ServiceName -BinaryPathName $serviceCommand -DisplayName $DisplayName -Description $Description -StartupType Automatic | Out-Null
+sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/5000/restart/5000 | Out-Null
+sc.exe failureflag $ServiceName 1 | Out-Null
 
 $registeredService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($null -eq $registeredService) {

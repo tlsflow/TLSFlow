@@ -4,6 +4,11 @@
   "agentKey": "CHANGE_ME_AGENT_KEY",
   "controlPlaneUrl": "https://gcac.example.invalid",
   "heartbeatIntervalSeconds": 30,
+  "taskPollIntervalSeconds": 60,
+  "healthCheckIntervalSeconds": 30,
+  "offlineTimeoutSeconds": 180,
+  "capabilityRescanIntervalSeconds": 300,
+  "capabilityRescanEnabled": true,
   "paths": {
     "linux": {
       "configPath": "/etc/gcac/linux-agent/agent.config.json",

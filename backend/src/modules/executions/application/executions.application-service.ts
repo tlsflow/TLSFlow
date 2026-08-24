@@ -9,7 +9,7 @@ import { newId } from '../../../shared/id.js';
 import { assertTransition } from '../../../shared/state-machine/core-state-machine.js';
 import type { RequestContext } from '../../../shared/security-types.js';
 import type { StateTransitionEventEntity } from '../../deployment-plans/schema/deployment-plans.schema.js';
-import type { CreateExecutionRunInput, ExecutionRunDto, ExecutionStepDto, RetryExecutionRunInput, RollbackExecutionRunInput } from '../dto/executions.dto.js';
+import type { CreateExecutionRunInput, DeploymentArtifactSnapshotDto, ExecutionRunDto, ExecutionStepDto, RetryExecutionRunInput, RollbackExecutionRunInput } from '../dto/executions.dto.js';
 import { ExecutionsDomainService } from '../domain/executions.domain-service.js';
 import { ExecutionsRepository } from '../repository/executions.repository.js';
 import type { ExecutionRunEntity, ExecutionStepEntity } from '../schema/executions.schema.js';
@@ -90,10 +90,21 @@ export class ExecutionsApplicationService {
     if (!['FAILED', 'TIMEOUT', 'CANCELLED'].includes(sourceRun.status)) {
       throw new AppError('DEPLOYMENT_INVALID_STATE', '只有失败、超时或取消的运行允许重试', { runId: sourceRun.id, status: sourceRun.status });
     }
-    const targetIds = (await this.repository.listSteps(input.tenantId, sourceRun.id))
+    const sourceSteps = await this.repository.listSteps(input.tenantId, sourceRun.id);
+    const targetIds = sourceSteps
       .map((step) => step.deploymentPlanTargetId)
       .filter((id): id is string => Boolean(id));
     const uniqueTargetIds = [...new Set(targetIds)];
+    const sourcePayloadByTargetId = new Map<string, Record<string, unknown>>();
+    const sourceArtifactByTargetId = new Map<string, DeploymentArtifactSnapshotDto>();
+    for (const step of sourceSteps) {
+      const targetId = step.deploymentPlanTargetId;
+      if (!targetId) continue;
+      if (!sourcePayloadByTargetId.has(targetId)) sourcePayloadByTargetId.set(targetId, step.inputSnapshot);
+      if (!sourceArtifactByTargetId.has(targetId) && isDeploymentArtifactSnapshot(step.inputSnapshot.deploymentArtifact)) {
+        sourceArtifactByTargetId.set(targetId, step.inputSnapshot.deploymentArtifact);
+      }
+    }
     const executorTypeByTargetId = new Map(await Promise.all(uniqueTargetIds.map(async (targetId) => {
       const target = await this.deploymentPlansRepository.getTarget(targetId, input.tenantId);
       return [targetId, target?.executorType ?? 'AGENT'] as const;
@@ -111,6 +122,8 @@ export class ExecutionsApplicationService {
       tenantId: input.tenantId,
       executorTypeByTargetId,
       gatewayRouteByTargetId,
+      deploymentArtifactByTargetId: sourceArtifactByTargetId,
+      agentPayloadByTargetId: sourcePayloadByTargetId,
     }, context);
   }
 
@@ -195,6 +208,9 @@ export class ExecutionsApplicationService {
       if (failedStep && policy !== 'continue') {
         return await this.finishFailedRun(currentRun, actorId, tenantId, policy, failedStep.lastErrorCode ?? 'STEP_FAILED', failedStep.lastErrorMessage ?? '执行步骤失败', failedStep.status === 'TIMEOUT');
       }
+      if (graphState.runnable.length === 0 && graphState.running.length > 0) {
+        return { success: true, pending: true };
+      }
       if (graphState.runnable.length === 0 && graphState.running.length === 0) {
         if (failedStep) {
           return await this.finishFailedRun(currentRun, actorId, tenantId, policy, failedStep.lastErrorCode ?? 'STEP_FAILED_CONTINUED', failedStep.lastErrorMessage ?? 'failurePolicy=continue 已执行完可运行步骤，运行以失败汇总结束', failedStep.status === 'TIMEOUT');
@@ -213,6 +229,9 @@ export class ExecutionsApplicationService {
       }
 
       const batchResults = await Promise.all(pick.selected.map(async (step) => this.executeSingleStep(step.id, currentRun, actorId, tenantId, registry)));
+      if (batchResults.some((item) => item.asyncPending)) {
+        return { success: true, pending: true };
+      }
       const failures = batchResults.filter((item) => !item.success);
       if (failures.length && policy === 'continue') {
         for (const failure of failures) {
@@ -299,6 +318,10 @@ export class ExecutionsApplicationService {
     return this.queue.runNext();
   }
 
+  async runNextQueuedJob() {
+    return this.queue.runNext();
+  }
+
   private async createRunAndEnqueue(input: CreateExecutionRunInput, context: RequestContext): Promise<{ run: ExecutionRunDto; steps: ExecutionStepDto[]; jobId: string }> {
     const existing = await this.repository.findRunByIdempotencyKey(input.tenantId, input.idempotencyKey);
     const requestHash = this.domain.buildRunRequestHash({ deploymentPlanId: input.deploymentPlanId, type: input.type });
@@ -331,7 +354,18 @@ export class ExecutionsApplicationService {
     this.recordTransition('executionRun', run.id, undefined, 'PENDING', 'run.created', input.actorId, input.tenantId);
 
     const stepMaxAttempts = input.retry?.maxAttempts ?? input.stepMaxAttempts ?? 1;
-    const steps = await this.createDefaultSteps(run, input.deploymentPlanTargetIds, input.actorId, input.executorTypeByTargetId, input.gatewayRouteByTargetId, input.mockResultByTargetId, stepMaxAttempts, input.allowMockExecutor === true);
+    const steps = await this.createDefaultSteps(
+      run,
+      input.deploymentPlanTargetIds,
+      input.actorId,
+      input.executorTypeByTargetId,
+      input.gatewayRouteByTargetId,
+      input.mockResultByTargetId,
+      stepMaxAttempts,
+      input.allowMockExecutor === true,
+      input.deploymentArtifactByTargetId,
+      input.agentPayloadByTargetId,
+    );
     const job = await this.queue.enqueue({
       jobType: 'DEPLOYMENT_EXECUTE',
       resourceType: 'executionRun',
@@ -359,7 +393,18 @@ export class ExecutionsApplicationService {
     return { run: this.toRunDto(dispatched), steps: steps.map((step) => this.toStepDto(step)), jobId: job.jobId };
   }
 
-  private async createDefaultSteps(run: ExecutionRunEntity, targetIds: string[], actorId: string, executorTypeByTargetId: Map<string, string>, gatewayRouteByTargetId?: Map<string, unknown>, mockResultByTargetId?: Map<string, 'success' | 'fail'>, stepMaxAttempts = 1, allowMockExecutor = false): Promise<ExecutionStepEntity[]> {
+  private async createDefaultSteps(
+    run: ExecutionRunEntity,
+    targetIds: string[],
+    actorId: string,
+    executorTypeByTargetId: Map<string, string>,
+    gatewayRouteByTargetId?: Map<string, unknown>,
+    mockResultByTargetId?: Map<string, 'success' | 'fail'>,
+    stepMaxAttempts = 1,
+    allowMockExecutor = false,
+    deploymentArtifactByTargetId?: Map<string, DeploymentArtifactSnapshotDto>,
+    agentPayloadByTargetId?: Map<string, Record<string, unknown>>,
+  ): Promise<ExecutionStepEntity[]> {
     const stepTypes = run.type === 'rollback' ? ['ROLLBACK', 'VERIFY'] as const : run.type === 'dry_run' ? ['DISCOVER', 'VERIFY'] as const : ['BACKUP', 'INSTALL', 'RELOAD', 'VERIFY'] as const;
     const created: ExecutionStepEntity[] = [];
     let stepNo = 1;
@@ -374,12 +419,15 @@ export class ExecutionsApplicationService {
         if (executorType === 'MOCK' && !allowMockExecutor) {
           throw new AppError('VALIDATION_FAILED', 'MockExecutor 只能在测试或显式允许时使用', { targetId });
         }
-        const gatewayRoute = this.readGatewayRoute(gatewayRouteByTargetId?.get(targetId));
-        const step = await this.repository.createStep({
-          id: newId('stp'),
-          tenantId: run.tenantId,
-          executionRunId: run.id,
-          deploymentPlanTargetId: targetId,
+          const gatewayRoute = this.readGatewayRoute(gatewayRouteByTargetId?.get(targetId));
+          const deploymentArtifact = deploymentArtifactByTargetId?.get(targetId);
+          const agentPayload = agentPayloadByTargetId?.get(targetId) ?? {};
+          const planTarget = await this.deploymentPlansRepository.getTarget(targetId, run.tenantId);
+          const step = await this.repository.createStep({
+            id: newId('stp'),
+            tenantId: run.tenantId,
+            executionRunId: run.id,
+            deploymentPlanTargetId: targetId,
           stepNo,
           stepType,
           name: `${stepType} ${targetId}`,
@@ -387,17 +435,20 @@ export class ExecutionsApplicationService {
           idempotent: stepType !== 'RELOAD',
           attemptCount: 0,
           maxAttempts: stepMaxAttempts,
-          inputSnapshot: {
-            deploymentPlanId: run.deploymentPlanId,
-            deploymentPlanTargetId: targetId,
-            executorType,
-            dryRun: run.type === 'dry_run',
-            mockResult: mockResultByTargetId?.get(targetId),
-            gatewayRoute,
+            inputSnapshot: {
+              ...agentPayload,
+              deploymentPlanId: run.deploymentPlanId,
+              deploymentPlanTargetId: targetId,
+              certificateBindingId: planTarget?.certificateBindingId,
+              executorType,
+              dryRun: run.type === 'dry_run',
+              mockResult: mockResultByTargetId?.get(targetId),
+              gatewayRoute,
             gatewayId: gatewayRoute?.gatewayId,
             zoneId: gatewayRoute?.zoneId,
             gatewayAdapter: gatewayRoute?.adapter,
             delegatedTargetId: gatewayRoute?.delegatedTargetId,
+            deploymentArtifact,
             retryBackoffSeconds: readRetryBackoff(run.summary),
           },
           status: 'PENDING',
@@ -549,7 +600,7 @@ export class ExecutionsApplicationService {
     });
   }
 
-  private async executeSingleStep(stepId: string, run: ExecutionRunEntity, actorId: string, tenantId: string | undefined, registry: ExecutorRegistry): Promise<{ success: boolean; errorCode?: string; errorMessage?: string; deploymentPlanTargetId?: string }> {
+  private async executeSingleStep(stepId: string, run: ExecutionRunEntity, actorId: string, tenantId: string | undefined, registry: ExecutorRegistry): Promise<{ success: boolean; asyncPending?: boolean; errorCode?: string; errorMessage?: string; deploymentPlanTargetId?: string }> {
     const current = await this.repository.getStepOrThrow(stepId, tenantId);
     if (current.status !== 'PENDING') {
       return { success: true, deploymentPlanTargetId: current.deploymentPlanTargetId };
@@ -569,6 +620,17 @@ export class ExecutionsApplicationService {
       result = error instanceof AppError
         ? { success: false, errorCode: error.errorCode, errorMessage: error.message, detail: readRecord(error.details) }
         : { success: false, errorCode: 'EXECUTOR_FAILED', errorMessage: error instanceof Error ? error.message : String(error) };
+    }
+    if (result.success && result.asyncPending) {
+      await this.repository.updateStep(runningStep.id, {
+        inputSnapshot: {
+          ...runningStep.inputSnapshot,
+          dispatchDetail: result.detail,
+        },
+        updatedAt: new Date().toISOString(),
+        updatedBy: actorId,
+      });
+      return { success: true, asyncPending: true, deploymentPlanTargetId: runningStep.deploymentPlanTargetId };
     }
     if (result.success) {
       await this.transitionStepEntity(runningStep, 'SUCCESS', actorId, 'step.success');
@@ -661,4 +723,15 @@ function readRetryBackoff(summary: Record<string, unknown>): number | undefined 
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function isDeploymentArtifactSnapshot(value: unknown): value is DeploymentArtifactSnapshotDto {
+  const record = readRecord(value);
+  return Boolean(record
+    && typeof record.certificateVersionId === 'string'
+    && typeof record.certificateFormatId === 'string'
+    && typeof record.format === 'string'
+    && typeof record.pfxBase64 === 'string'
+    && typeof record.pfxPassword === 'string'
+    && typeof record.containsPrivateKey === 'boolean');
 }

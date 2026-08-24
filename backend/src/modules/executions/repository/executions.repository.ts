@@ -4,7 +4,8 @@ import { PgliteDatabase } from '../../../database/pglite-database.js';
 import type { ExecutionRunEntity, ExecutionStepEntity } from '../schema/executions.schema.js';
 
 function sameTenant(left?: string, right?: string): boolean {
-  return (left ?? '') === (right ?? '');
+  if (right === undefined) return true;
+  return (left ?? '') === right;
 }
 
 export class ExecutionsRepository {
@@ -186,6 +187,30 @@ export class ExecutionsRepository {
     return result.rows
       .map(toStep)
       .filter((step) => sameTenant(step.tenantId, tenantId) && (!executionRunId || step.executionRunId === executionRunId));
+  }
+
+  async deleteRunsByDeploymentPlan(tenantId: string | undefined, deploymentPlanId: string): Promise<{ runIds: string[]; stepIds: string[] }> {
+    await this.ensureSchema();
+    const runs = await this.listRuns(tenantId, deploymentPlanId);
+    const runIds = runs.map((run) => run.id);
+    if (runIds.length === 0) return { runIds: [], stepIds: [] };
+
+    const steps = await this.listSteps(tenantId);
+    const runIdSet = new Set(runIds);
+    const stepIds = steps.filter((step) => runIdSet.has(step.executionRunId)).map((step) => step.id);
+    await this.db.query(
+      `delete from pg_execution_steps
+        where execution_run_id = any($1::varchar[])
+          and coalesce(tenant_id, '') = coalesce($2, '')`,
+      [runIds, tenantId ?? null],
+    );
+    await this.db.query(
+      `delete from pg_execution_runs
+        where deployment_plan_id = $1
+          and coalesce(tenant_id, '') = coalesce($2, '')`,
+      [deploymentPlanId, tenantId ?? null],
+    );
+    return { runIds, stepIds };
   }
 
   async clear(): Promise<void> {

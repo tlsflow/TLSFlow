@@ -4,6 +4,9 @@ import { listRecords, postAction, toClientPath, type ApiBody, type BusinessListQ
 const HOSTS_PATH = '/api/v1/hosts'
 const SERVICE_ASSETS_PATH = '/api/v1/service-assets'
 const SERVICE_INSTANCES_PATH = '/api/v1/service-instances'
+const SITE_ASSETS_PATH = '/api/v1/site-assets'
+const MANAGED_TARGETS_PATH = '/api/v1/managed-targets'
+const MANAGED_TARGET_SNAPSHOTS_PATH = '/api/v1/managed-target-snapshots'
 const DISCOVERY_RUNS_PATH = '/api/v1/discovery-runs'
 const CAPABILITIES_PATH = '/api/v1/capabilities/definitions'
 const CAPABILITY_DECLARATIONS_PATH = '/api/v1/capabilities/declarations'
@@ -22,6 +25,10 @@ export function updateServiceAsset(serviceAssetId: string, payload: ApiBody) {
   return patchAction(SERVICE_ASSETS_PATH, { ...payload, id: serviceAssetId }, 'service_asset_update')
 }
 
+export function getAssetDetail(serviceAssetId: string): Promise<ApiRecordResult> {
+  return apiClient.get<ApiRecord>(`${toClientPath(SERVICE_ASSETS_PATH)}/detail?serviceAssetId=${encodeURIComponent(serviceAssetId)}`)
+}
+
 export function createHost(payload: ApiBody) {
   return postAction(HOSTS_PATH, payload, 'host_create')
 }
@@ -38,8 +45,28 @@ export function listServiceInstances(query?: BusinessListQuery) {
   return listRecords(SERVICE_INSTANCES_PATH, query)
 }
 
+export function listSiteAssets(query?: BusinessListQuery) {
+  return listRecords(SITE_ASSETS_PATH, query)
+}
+
+export function listManagedTargets(query?: BusinessListQuery) {
+  return listRecords(MANAGED_TARGETS_PATH, query)
+}
+
+export function createManagedTarget(payload: ApiBody) {
+  return postAction(MANAGED_TARGETS_PATH, payload, 'managed_target_create')
+}
+
+export function listManagedTargetSnapshots(query?: BusinessListQuery) {
+  return listRecords(MANAGED_TARGET_SNAPSHOTS_PATH, query)
+}
+
 export function createServiceInstance(payload: ApiBody) {
   return postAction(SERVICE_INSTANCES_PATH, payload, 'service_instance_create')
+}
+
+export function createSiteAsset(payload: ApiBody) {
+  return postAction(SITE_ASSETS_PATH, payload, 'site_asset_create')
 }
 
 export function updateServiceInstance(serviceInstanceId: string, payload: ApiBody) {
@@ -84,6 +111,12 @@ export function listAgents(query?: BusinessListQuery) {
 
 export function getAgentDetail(agentId: string): Promise<ApiRecordResult> {
   return apiClient.get<ApiRecord>(`${toClientPath(AGENTS_PATH)}/detail?agentId=${encodeURIComponent(agentId)}`)
+}
+
+export function requestAgentCapabilityRescan(agentId: string): Promise<ApiRecordResult> {
+  return apiClient.post<ApiRecord>(toClientPath(`${AGENTS_PATH}/${encodeURIComponent(agentId)}/rescan`), {}, {
+    idempotencyKey: createIdempotencyKey('agent_capability_rescan'),
+  })
 }
 
 export function listAgentTaskQueue(agentId: string, query: BusinessListQuery = {}) {

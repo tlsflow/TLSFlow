@@ -8,17 +8,23 @@ import { AppError } from '../../../common/errors/app-error.js';
 import { createModuleMetadata } from '../../placeholder-module.js';
 import { newId } from '../../../shared/id.js';
 import { AgentsDomainService, normalizeFingerprint } from '../domain/agents.domain-service.js';
-import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHeartbeatInput, AgentInstallSessionBootstrapProjection, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, CreateLinuxGoInstallSessionInput, CreateWindowsPowerShellInstallSessionInput, DeleteAgentInput, DisableAgentInput, EnableAgentInput, EnqueueAgentCapabilityRescanInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
-import type { AgentInstallSession, AgentRegistration, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan } from '../schema/agents.schema.js';
+import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHealthProjection, AgentHeartbeatInput, AgentInstallSessionBootstrapProjection, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, CreateLinuxGoInstallSessionInput, CreateWindowsPowerShellInstallSessionInput, DeleteAgentInput, DisableAgentInput, EnableAgentInput, EnqueueAgentCapabilityRescanInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
+import type { AgentHeartbeat, AgentInstallSession, AgentRegistration, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan } from '../schema/agents.schema.js';
 import { PgAgentsRepository, type AgentsRepository } from '../repository/agents.repository.js';
 import type { GatewaysRepository } from '../../gateways/repository/gateways.repository.js';
 import { buildLinuxAgentBundleTarGz, getLinuxAgentBundleManifest } from './linux-agent-bundle.js';
+import type { CertificatesApplicationService } from '../../certificates/application/certificates.application-service.js';
+import type { SecretService } from '../../secrets/secret.service.js';
+import type { ExecutionResultSyncService } from '../../executions/application/execution-result-sync.service.js';
 
 export class AgentsApplicationService {
   constructor(
     private readonly repository: AgentsRepository = new PgAgentsRepository(),
     private readonly domain = new AgentsDomainService(),
     private readonly gateways?: GatewaysRepository,
+    private readonly certificates?: CertificatesApplicationService,
+    private readonly secrets?: SecretService,
+    private readonly executionResultSync?: ExecutionResultSyncService,
   ) {}
 
   getModuleMetadata() {
@@ -64,7 +70,7 @@ export class AgentsApplicationService {
         updatedAt: now,
         lastRequestId: requestId,
       });
-      void this.syncGatewayRegistry(tenantId, updated);
+      await this.syncGatewayRegistry(tenantId, updated);
       return updated;
     }
     const registered = await this.repository.upsertRegistration({
@@ -84,7 +90,7 @@ export class AgentsApplicationService {
       lastRequestId: requestId,
       version: 1,
     });
-    void this.syncGatewayRegistry(tenantId, registered);
+    await this.syncGatewayRegistry(tenantId, registered);
     return registered;
   }
 
@@ -101,12 +107,13 @@ export class AgentsApplicationService {
       updatedAt: now,
       lastRequestId: requestId,
     });
-    void this.syncGatewayRegistry(tenantId, updated);
+    await this.syncGatewayRegistry(tenantId, updated);
     const heartbeat = await this.repository.saveHeartbeat({
       tenantId,
       agentId: agent.id,
       status: nextStatus,
       version: input.version,
+      runtimeHealth: input.runtimeHealth,
       gateway,
       taskSummary: input.taskSummary ?? { running: 0, queued: 0 },
       receivedAt: now,
@@ -236,7 +243,7 @@ export class AgentsApplicationService {
       updatedAt: new Date().toISOString(),
       lastRequestId: requestId,
     }) : agent;
-    void this.syncGatewayRegistry(tenantId, updated);
+    await this.syncGatewayRegistry(tenantId, updated);
     return { agentId: agent.id, declarations: this.domain.toCapabilityDeclarations(updated, snapshot) };
   }
 
@@ -252,7 +259,7 @@ export class AgentsApplicationService {
       executionRunId: input.executionRunId,
       executionStepId: input.executionStepId,
       idempotencyKey: input.idempotencyKey,
-      payload: this.domain.sanitizePayload(input.payload ?? {}),
+      payload: input.payload ?? {},
       status: 'queued',
       createdAt: now,
       updatedAt: now,
@@ -309,16 +316,79 @@ export class AgentsApplicationService {
     if (!['acked', 'leased'].includes(task.status)) {
       throw new AppError('VALIDATION_FAILED', '只有已 ack 的任务能提交结果', { taskId: task.id, status: task.status });
     }
-    return this.repository.updateTask(task.id, {
+    const sanitizedDetail = this.domain.sanitizeResultDetail(input.detail ?? {});
+    console.info('[agents.submitResult]', JSON.stringify({
+      tenantId,
+      agentId: input.agentId,
+      taskId: input.taskId,
+      leaseId: input.leaseId,
+      success: input.success,
+      errorCode: input.errorCode,
+      errorMessage: input.errorMessage,
+      detailKeys: Object.keys(sanitizedDetail),
+      dryRunDebug: {
+        mode: sanitizedDetail.mode,
+        pfxPassLen: sanitizedDetail.pfxPassLen,
+        pfxEdgeWhitespace: sanitizedDetail.pfxEdgeWhitespace,
+        pfxPassUtf8Sha256: sanitizedDetail.pfxPassUtf8Sha256,
+        pfxPassUtf8Len: sanitizedDetail.pfxPassUtf8Len,
+        decodedPfxSha256: sanitizedDetail.decodedPfxSha256,
+        decodedPfxSize: sanitizedDetail.decodedPfxSize,
+        pfxSource: sanitizedDetail.pfxSource,
+        dryRunSummary: sanitizedDetail.dryRunSummary,
+        dryRunCheckCount: Array.isArray(sanitizedDetail.dryRunChecks) ? sanitizedDetail.dryRunChecks.length : undefined,
+        firstFailedCheck: Array.isArray(sanitizedDetail.dryRunChecks)
+          ? sanitizedDetail.dryRunChecks.find((item) => item && typeof item === 'object' && (item as Record<string, unknown>).status === 'failed')
+          : undefined,
+      },
+    }));
+    const updated = await this.repository.updateTask(task.id, {
       status: input.success ? 'succeeded' : 'failed',
       resultAt: new Date().toISOString(),
       result: {
         success: input.success,
         errorCode: input.errorCode,
         errorMessage: input.errorMessage,
-        detail: this.domain.sanitizeResultDetail(input.detail ?? {}),
+        detail: sanitizedDetail,
       },
     });
+    if (this.executionResultSync) {
+      console.info('[agents.submitResult.sync]', JSON.stringify({
+        tenantId,
+        executionRunId: task.executionRunId,
+        executionStepId: task.executionStepId,
+        success: input.success,
+        errorCode: input.errorCode,
+        errorMessage: input.errorMessage,
+        detailKeys: Object.keys(sanitizedDetail),
+        dryRunDebug: {
+          mode: sanitizedDetail.mode,
+          pfxPassLen: sanitizedDetail.pfxPassLen,
+          pfxEdgeWhitespace: sanitizedDetail.pfxEdgeWhitespace,
+          pfxPassUtf8Sha256: sanitizedDetail.pfxPassUtf8Sha256,
+          pfxPassUtf8Len: sanitizedDetail.pfxPassUtf8Len,
+          decodedPfxSha256: sanitizedDetail.decodedPfxSha256,
+          decodedPfxSize: sanitizedDetail.decodedPfxSize,
+          pfxSource: sanitizedDetail.pfxSource,
+          dryRunSummary: sanitizedDetail.dryRunSummary,
+          dryRunCheckCount: Array.isArray(sanitizedDetail.dryRunChecks) ? sanitizedDetail.dryRunChecks.length : undefined,
+          firstFailedCheck: Array.isArray(sanitizedDetail.dryRunChecks)
+            ? sanitizedDetail.dryRunChecks.find((item) => item && typeof item === 'object' && (item as Record<string, unknown>).status === 'failed')
+            : undefined,
+        },
+      }));
+      await this.executionResultSync.applyAgentTaskResult({
+        tenantId,
+        executionRunId: task.executionRunId,
+        executionStepId: task.executionStepId,
+        success: input.success,
+        errorCode: input.errorCode,
+        errorMessage: input.errorMessage,
+        detail: sanitizedDetail,
+        actorId: input.agentId,
+      });
+    }
+    return updated;
   }
 
   async submitLog(tenantId: string, input: SubmitAgentTaskLogInput, requestId: string): Promise<AgentTaskLogEntry & { ackedSequence: number; lastAckedSequence: number }> {
@@ -326,6 +396,11 @@ export class AgentsApplicationService {
     const entry = (await this.repository.listTaskLogs(tenantId, input.taskId)).find((item) => item.agentId === input.agentId && item.sequence === input.sequence);
     if (!entry) throw new AppError('RESOURCE_VERSION_CONFLICT', '日志 sequence 已落后于 ack cursor，不能补写', { sequence: input.sequence, ackedSequence: result.ackedSequence });
     return { ...entry, ackedSequence: result.ackedSequence, lastAckedSequence: result.lastAckedSequence };
+  }
+
+  async submitRuntimeLog(tenantId: string, input: SubmitAgentRuntimeLogInput, requestId: string) {
+    await this.requireAgent(tenantId, input.agentId);
+    return this.repository.saveRuntimeLog(this.domain.normalizeRuntimeLog(tenantId, input, requestId));
   }
 
   async submitLogs(tenantId: string, input: SubmitAgentTaskLogsInput, requestId: string): Promise<AgentTaskLogAckResult> {
@@ -449,7 +524,7 @@ export class AgentsApplicationService {
       revokedReason: input.revokeCertificate ? (input.reason ?? 'Agent 证书在禁用时吊销') : agent.revokedReason,
       certificateRevoked: input.revokeCertificate ? true : agent.certificateRevoked,
     });
-    void this.syncGatewayRegistry(tenantId, updated);
+    await this.syncGatewayRegistry(tenantId, updated);
     return updated;
   }
 
@@ -465,7 +540,7 @@ export class AgentsApplicationService {
       disabledBy: undefined,
       disabledReason: undefined,
     });
-    void this.syncGatewayRegistry(tenantId, updated);
+    await this.syncGatewayRegistry(tenantId, updated);
     return updated;
   }
 
@@ -649,6 +724,43 @@ export class AgentsApplicationService {
     });
   }
 
+  async evaluateOfflineAgents(options: { offlineTimeoutSeconds?: number; now?: Date } = {}) {
+    const offlineTimeoutSeconds = options.offlineTimeoutSeconds && options.offlineTimeoutSeconds > 0
+      ? options.offlineTimeoutSeconds
+      : 180;
+    const now = options.now ?? new Date();
+    const nowIso = now.toISOString();
+    const registrations = await this.repository.listAllRegistrations();
+    let transitioned = 0;
+
+    for (const agent of registrations) {
+      if (agent.status === 'DISABLED') continue;
+      if (agent.revokedAt || agent.certificateRevoked) continue;
+      const latestHeartbeat = await this.repository.getLatestHeartbeat(agent.tenantId, agent.id);
+      const referenceAt = latestHeartbeat?.receivedAt ?? agent.updatedAt ?? agent.registeredAt;
+      const referenceTime = Date.parse(referenceAt);
+      if (Number.isNaN(referenceTime)) continue;
+      const stale = now.getTime()- referenceTime > offlineTimeoutSeconds * 1000;
+      if (!stale || agent.status === 'OFFLINE') continue;
+
+      const updated = await this.repository.updateRegistration(agent.id, {
+        status: 'OFFLINE',
+        gateway: agent.gateway ? { ...agent.gateway, status: 'offline', lastHeartbeatAt: latestHeartbeat?.receivedAt ?? agent.gateway.lastHeartbeatAt } : agent.gateway,
+        updatedAt: nowIso,
+        lastRequestId: `offline_evaluator:${now.getTime()}`,
+      });
+      transitioned += 1;
+      void this.syncGatewayRegistry(agent.tenantId, updated);
+    }
+
+    return {
+      evaluated: registrations.length,
+      transitioned,
+      offlineTimeoutSeconds,
+      evaluatedAt: nowIso,
+    };
+  }
+
   async getAgentDetail(tenantId: string, agentId: string): Promise<AgentDetailProjection> {
     const agent = await this.requireAgent(tenantId, agentId);
     const capabilitySnapshot = await this.repository.getLatestCapabilitySnapshot(tenantId, agent.id);
@@ -657,15 +769,18 @@ export class AgentsApplicationService {
     const taskQueue = await this.listTaskQueue(tenantId, agent.id);
     const upgradeSuggestion = await this.getUpgradeSuggestion(tenantId, agent.id);
     const recentErrors = await this.repository.listAgentTaskLogs(tenantId, agent.id, ['error']);
+    const runtimeLogs = await this.repository.listAgentRuntimeLogs(tenantId, agent.id);
     return {
       agent,
       lifecycle: this.toLifecycle(agent),
       latestHeartbeat,
+      health: this.toHealthProjection(agent, latestHeartbeat),
       capabilitySnapshot,
       capabilities,
       taskQueue,
       upgradeSuggestion,
       recentErrors: recentErrors.slice(0, 10),
+      runtimeLogs: runtimeLogs.slice(0, 50),
     };
   }
 
@@ -770,19 +885,22 @@ export class AgentsApplicationService {
     const gateway = await this.gateways.findGatewayByAgentId(tenantId, agent.id);
     if (agent.gateway.zoneIds.length === 0) return;
     if (gateway) {
-      await this.gateways.updateGatewayStatus(tenantId, gateway.id, {
+      const patch: Parameters<typeof this.gateways.updateGatewayStatus>[2] = {
         agentId: agent.id,
         version: agent.descriptor.version,
         zoneIds: agent.gateway.zoneIds,
         adapters: agent.gateway.adapters,
         capabilities: agent.gateway.capabilities,
-        capabilitySetId: agent.gateway.capabilitySetId,
         currentLoad: agent.gateway.currentLoad,
         maxConcurrentTasks: agent.gateway.maxConcurrentTasks,
         successRate: agent.gateway.successRate,
         status: agent.gateway.status,
         lastHeartbeatAt: agent.gateway.lastHeartbeatAt,
-      });
+      };
+      if (agent.gateway.capabilitySetId) {
+        patch.capabilitySetId = agent.gateway.capabilitySetId;
+      }
+      await this.gateways.updateGatewayStatus(tenantId, gateway.id, patch);
       return;
     }
     await this.gateways.registerGateway(tenantId, {
@@ -818,6 +936,50 @@ export class AgentsApplicationService {
     };
   }
 
+  private toHealthProjection(agent: AgentRegistration, latestHeartbeat?: AgentHeartbeat): AgentHealthProjection {
+    const offlineTimeoutSeconds = this.getOfflineTimeoutSeconds();
+    const runtimeHealth = latestHeartbeat?.runtimeHealth;
+    const lastHeartbeatAt = latestHeartbeat?.receivedAt ?? agent.gateway?.lastHeartbeatAt ?? agent.updatedAt;
+    const heartbeatAgeSeconds = safeAgeSeconds(lastHeartbeatAt);
+    const offline = agent.status === 'OFFLINE';
+    const degradedReasons = dedupeStrings(runtimeHealth?.degradedReasons ?? []);
+    const failureCounts = {
+      heartbeat: runtimeHealth?.failureCounts?.heartbeat ?? 0,
+      taskPoll: runtimeHealth?.failureCounts?.taskPoll ?? 0,
+      recovery: runtimeHealth?.failureCounts?.recovery ?? 0,
+    };
+    const offlineEvidence = [
+      offline ? 'agent.status=OFFLINE' : '',
+      lastHeartbeatAt ? `lastHeartbeatAt=${lastHeartbeatAt}` : 'lastHeartbeatAt=missing',
+      heartbeatAgeSeconds !== undefined ? `heartbeatAgeSeconds=${heartbeatAgeSeconds}` : '',
+      `offlineTimeoutSeconds=${offlineTimeoutSeconds}`,
+    ].filter(Boolean);
+
+    return {
+      status: runtimeHealth?.status ?? (offline ? 'failed' : degradedReasons.length > 0 ? 'degraded' : 'unknown'),
+      offline,
+      offlineTimeoutSeconds,
+      lastHeartbeatAt,
+      heartbeatAgeSeconds,
+      lastRecoveryAt: runtimeHealth?.lastRecoveryAt,
+      lastTaskPollAt: runtimeHealth?.lastTaskPollAt,
+      lastTaskResultAt: runtimeHealth?.lastTaskResultAt,
+      lastSelfCheckAt: runtimeHealth?.lastSelfCheckAt,
+      pendingResultCount: runtimeHealth?.pendingResultCount ?? 0,
+      recoverableTaskCount: runtimeHealth?.recoverableTaskCount ?? 0,
+      lastError: runtimeHealth?.lastError,
+      degradedReasons,
+      offlineEvidence,
+      failureCounts,
+      runtimeHealth,
+    };
+  }
+
+  private getOfflineTimeoutSeconds(): number {
+    const value = Number(process.env.AGENT_OFFLINE_TIMEOUT_SECONDS ?? '180');
+    return Number.isFinite(value) && value > 0 ? value : 180;
+  }
+
   private async findActiveCapabilityRescanTask(tenantId: string, agentId: string): Promise<AgentTaskEnvelope | undefined> {
     const tasks = await this.repository.listTasks(tenantId, agentId, ['queued', 'leased', 'acked']);
     return tasks.find((task) => task.payload?.type === 'agent.capability.rescan');
@@ -829,6 +991,17 @@ function countTasks(tasks: AgentTaskEnvelope[]): Record<AgentTaskEnvelope['statu
     counts[task.status] += 1;
     return counts;
   }, { queued: 0, leased: 0, acked: 0, succeeded: 0, failed: 0, rejected: 0 });
+}
+
+function safeAgeSeconds(value?: string): number | undefined {
+  if (!value) return undefined;
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return undefined;
+  return Math.max(0, Math.floor((Date.now() - parsed) / 1000));
+}
+
+function dedupeStrings(items: string[]): string[] {
+  return [...new Set(items.map((item) => item.trim()).filter(Boolean))];
 }
 
 function sha256(value: string): string {

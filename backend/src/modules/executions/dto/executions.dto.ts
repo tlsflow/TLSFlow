@@ -65,12 +65,24 @@ export interface CreateExecutionRunInput {
   tenantId?: string;
   executorTypeByTargetId: Map<string, ExecutionTargetKind | 'MOCK' | string>;
   gatewayRouteByTargetId?: Map<string, DeploymentGatewayRouteDto | undefined>;
+  deploymentArtifactByTargetId?: Map<string, DeploymentArtifactSnapshotDto>;
+  agentPayloadByTargetId?: Map<string, Record<string, unknown>>;
   mockResultByTargetId?: Map<string, 'success' | 'fail'>;
   concurrencyLimit?: number;
   stepMaxAttempts?: number;
   failurePolicy?: NonNullable<DeploymentPlanPolicyDto['failurePolicy']>;
   retry?: DeploymentPlanPolicyDto['retry'];
   allowMockExecutor?: boolean;
+}
+
+export interface DeploymentArtifactSnapshotDto {
+  certificateVersionId: string;
+  certificateFormatId: string;
+  format: string;
+  pfxBase64: string;
+  pfxPassword: string;
+  containsPrivateKey: boolean;
+  expectedFingerprintSha256?: string;
 }
 
 export interface RetryExecutionRunInput {
