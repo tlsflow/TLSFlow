@@ -212,7 +212,7 @@ export class DeploymentPlansApplicationService {
     }
     return (await this.deploymentInputSnapshots.listByPlan(tenantId, planId)).map((entity) => ({
       ...entity,
-      snapshot: { ...entity.snapshot, resolvedInput: redactedResolvedInput(entity.snapshot.resolvedInput) },
+      snapshot: { ...entity.snapshot, resolvedDeploymentInput: redactedResolvedInput(entity.snapshot.resolvedDeploymentInput) },
     }));
   }
 
@@ -1799,10 +1799,10 @@ export class DeploymentPlansApplicationService {
       throw new AppError('VALIDATION_FAILED', '部署输入快照不存在或目标不匹配', { code: 'DEPLOYMENT_INPUT_SNAPSHOT_INVALID', snapshotId, deploymentPlanTargetId: target.id });
     }
     const expectedHash = readOptionalString(ref?.resolvedSha256);
-    if (expectedHash !== entity.snapshot.resolvedSha256 || entity.snapshot.resolvedInput.resolvedSha256 !== entity.snapshot.resolvedSha256) {
+    if (expectedHash !== entity.snapshot.resolvedSha256 || entity.snapshot.resolvedDeploymentInput.resolvedSha256 !== entity.snapshot.resolvedSha256) {
       throw new AppError('VALIDATION_FAILED', '部署输入快照摘要不匹配', { code: 'DEPLOYMENT_INPUT_SNAPSHOT_INVALID', snapshotId });
     }
-    return structuredClone(entity.snapshot.resolvedInput);
+    return structuredClone(entity.snapshot.resolvedDeploymentInput);
   }
 
   private async resolveEffectivePlanMaterial(

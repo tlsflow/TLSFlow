@@ -32,14 +32,16 @@ export class DeploymentInputSnapshotService {
     for (const credentialSlot of Object.keys(input.credentials)) input.credentials[credentialSlot] = REDACTED_VALUE;
     for (const path of resolved.sensitivePaths) redactPath(input as unknown as Record<string, unknown>, path);
     const genericRedaction = this.redaction.redact(input);
+    const redactedContract = this.redaction.redact(structuredClone(contract));
+    const redactedBinding = this.redaction.redact(structuredClone(effectiveBinding));
 
     return {
       apiVersion: 'gcac.deployment-input-snapshot/v1',
       snapshotVersion: 1,
       resolvedAt,
       contractVersion: resolved.contractVersion,
-      contract: structuredClone(contract),
-      effectiveBinding: structuredClone(effectiveBinding),
+      contract: redactedContract.value,
+      effectiveBinding: redactedBinding.value,
       identity: compactIdentity(identity),
       input: genericRedaction.value,
       sources: structuredClone(resolved.provenance),
@@ -47,10 +49,12 @@ export class DeploymentInputSnapshotService {
       issues: structuredClone(resolved.issues),
       executable: resolved.executable,
       resolvedSha256: resolved.resolvedSha256,
-      resolvedInput: structuredClone(resolved),
+      resolvedDeploymentInput: structuredClone(resolved),
       redaction: {
         sensitivePathCount: resolved.sensitivePaths.length,
-        genericRuleMatchCount: genericRedaction.matches.length,
+        genericRuleMatchCount: genericRedaction.matches.length
+          + redactedContract.matches.length
+          + redactedBinding.matches.length,
       },
     };
   }

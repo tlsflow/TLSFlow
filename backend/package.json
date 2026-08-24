@@ -11,7 +11,7 @@
     "test:integration": "npm run build && node --test \"dist/**/*.test.js\"",
     "generate:openapi": "npm run build && node dist/common/openapi/write-openapi.js",
     "check:openapi": "npm run generate:openapi && node --test \"dist/common/openapi/openapi.contract.test.js\"",
-    "check:compatibility-architecture": "node ../scripts/check-compatibility-architecture.mjs && node ../scripts/check-plugin-architecture.mjs && node --test ../scripts/check-compatibility-architecture.test.mjs ../scripts/check-plugin-architecture.test.mjs ../scripts/check-compatibility-governance.test.mjs && node ../scripts/check-compatibility-governance.mjs",
+    "check:compatibility-architecture": "node ../scripts/check-compatibility-architecture.mjs && node ../scripts/check-plugin-architecture.mjs && node ../scripts/check-deployment-input-architecture.mjs && node --test ../scripts/check-compatibility-architecture.test.mjs ../scripts/check-plugin-architecture.test.mjs ../scripts/check-deployment-input-architecture.test.mjs ../scripts/check-compatibility-governance.test.mjs && node ../scripts/check-compatibility-governance.mjs",
     "check:compatibility-migration": "node ../scripts/migrate-compatibility-profile-v1.mjs --check",
     "generate:compatibility": "node ../scripts/generate-compatibility-catalog.mjs",
     "check:compatibility-docs": "node ../scripts/generate-compatibility-catalog.mjs --check",

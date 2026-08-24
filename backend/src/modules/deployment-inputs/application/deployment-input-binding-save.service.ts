@@ -2,8 +2,8 @@ import type { DeploymentAssetContextV1 } from '../dto/deployment-asset-context.d
 import type { DeploymentInputContractV1 } from '../dto/deployment-input-contract.dto.js';
 import { emptyInputBindingsV1, type InputBindingsV1 } from '../dto/input-bindings.dto.js';
 import type { DeploymentInputIssueV1, ResolvedDeploymentInputV1 } from '../dto/resolved-deployment-input.dto.js';
-import { UnifiedDeploymentInputResolver } from '../domain/unified-deployment-input.resolver.js';
-import { EffectiveBindingResolver, type VersionedInputBindingLayerV1 } from './effective-binding.resolver.js';
+import type { VersionedInputBindingLayerV1 } from './effective-binding.resolver.js';
+import { ProductionDeploymentInputResolverService } from './production-deployment-input-resolver.service.js';
 
 export interface ValidateDeploymentInputBindingSaveRequest {
   pluginVersionId: string;
@@ -24,8 +24,7 @@ export interface ValidatedDeploymentInputBindingSaveV1 {
 
 export class DeploymentInputBindingSaveService {
   constructor(
-    private readonly effectiveBindings = new EffectiveBindingResolver(),
-    private readonly inputs = new UnifiedDeploymentInputResolver(),
+    private readonly resolver = new ProductionDeploymentInputResolverService(),
   ) {}
 
   validate(request: ValidateDeploymentInputBindingSaveRequest): ValidatedDeploymentInputBindingSaveV1 {
@@ -34,17 +33,15 @@ export class DeploymentInputBindingSaveService {
       ? request.currentAssetOverride.inputBindings
       : emptyInputBindingsV1();
     const assetOverride = mergeBindingPatch(current, filtered.inputBindings);
-    const effectiveBinding = this.effectiveBindings.resolve({
-      contract: request.contract,
-      deviceDefault: request.deviceDefault,
-      targetOverride: request.targetOverride,
-      assetOverride: { pluginVersionId: request.pluginVersionId, inputBindings: assetOverride },
-    });
-    const resolved = this.inputs.resolve({
+    const { resolvedInput: resolved } = this.resolver.resolveProjectionResult({
       phase: 'save',
       contract: request.contract,
       assetContext: request.assetContext,
-      effectiveBinding,
+      bindingLayers: {
+        deviceDefault: request.deviceDefault,
+        targetOverride: request.targetOverride,
+        assetOverride: { pluginVersionId: request.pluginVersionId, inputBindings: assetOverride },
+      },
     });
     const issues = [...filtered.issues, ...resolved.issues];
     return { assetOverride, resolved: { ...resolved, issues, executable: issues.every((issue) => issue.severity !== 'ERROR') }, issues, saveable: issues.every((issue) => issue.severity !== 'ERROR') };

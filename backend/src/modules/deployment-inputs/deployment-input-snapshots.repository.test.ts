@@ -32,7 +32,7 @@ test('部署输入快照迁移后可查询且数据库拒绝更新和删除', as
       issues: [],
       executable: true,
       resolvedSha256: 'a'.repeat(64),
-      resolvedInput: {
+      resolvedDeploymentInput: {
         apiVersion: 'gcac.resolved-deployment-input/v1',
         contractVersion: 'gcac.deployment-input/v1',
         assetContext: {} as any,
@@ -44,6 +44,9 @@ test('部署输入快照迁移后可查询且数据库拒绝更新和删除', as
   };
   await repository.create(entity);
   assert.deepEqual(await repository.get('tenant-1', entity.id), entity);
+  const persisted = await db.query<{ snapshot: unknown }>('select snapshot from deployment_input_snapshots where id=$1', [entity.id]);
+  assert.equal(JSON.stringify(persisted.rows[0]?.snapshot).includes('resolvedInput'), false);
+  assert.equal(JSON.stringify(persisted.rows[0]?.snapshot).includes('resolvedDeploymentInput'), true);
   assert.equal((await repository.listByPlan('tenant-1', 'plan-1')).length, 1);
   await assert.rejects(
     () => repository.create({ ...entity, id: newId('dis') }),

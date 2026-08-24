@@ -34,7 +34,7 @@ export interface DeploymentInputSnapshotV1 {
   issues: DeploymentInputIssueV1[];
   executable: boolean;
   resolvedSha256: string;
-  resolvedInput: ResolvedDeploymentInputV1;
+  resolvedDeploymentInput: ResolvedDeploymentInputV1;
   redaction: {
     sensitivePathCount: number;
     genericRuleMatchCount: number;

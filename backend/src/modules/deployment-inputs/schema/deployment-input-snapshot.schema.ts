@@ -8,7 +8,11 @@ export function readDeploymentInputSnapshotV1(value: unknown): DeploymentInputSn
   if (!isRecord(value.identity) || !isRecord(value.input) || !isRecord(value.sources)) return undefined;
   if (!Array.isArray(value.sensitivePaths) || !Array.isArray(value.issues)) return undefined;
   if (typeof value.executable !== 'boolean' || typeof value.resolvedSha256 !== 'string') return undefined;
-  if (!isRecord(value.resolvedInput) || value.resolvedInput.apiVersion !== 'gcac.resolved-deployment-input/v1') return undefined;
+  if (!isRecord(value.resolvedDeploymentInput)
+    || value.resolvedDeploymentInput.apiVersion !== 'gcac.resolved-deployment-input/v1'
+    || value.resolvedDeploymentInput.resolvedSha256 !== value.resolvedSha256) return undefined;
+  // 旧字段名已硬切，避免审计 API 与内部运行输入混用。
+  if (Object.prototype.hasOwnProperty.call(value, 'resolvedInput')) return undefined;
   if (!isRecord(value.redaction)
     || typeof value.redaction.sensitivePathCount !== 'number'
     || typeof value.redaction.genericRuleMatchCount !== 'number') return undefined;
