@@ -2,9 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { AgentsApplicationService } from '../agents/application/agents.application-service.js';
-import type { HostDto, ManagedTargetDto } from '../assets/dto/assets.dto.js';
+import type { HostDto, ManagedTargetDto, ServiceAssetDto } from '../assets/dto/assets.dto.js';
 import { ManagedTargetContextResolver, type ManagedTargetAssetsPort, type ResolvedManagedTargetContext } from '../assets/application/managed-target-context.resolver.js';
-import { createBuiltinDeploymentDriverRegistry } from '../deployment-plans/application/deployment-driver.registry.js';
+import { createDefaultPluginRuntimeAdapterRegistry } from '../deployment-plans/application/plugin-runtime-adapter.registry.js';
+import { DeploymentStrategyResolver } from '../deployment-plans/application/deployment-strategy-resolver.js';
+import { DeploymentCapabilityResolver } from '../plugins/application/deployment-capability.resolver.js';
+import type { PluginBindingsApplicationService } from '../plugins/application/plugin-bindings.application-service.js';
+import type { UnifiedPluginVersionRecord } from '../plugins/dto/unified-plugins.dto.js';
 import { AgentExecutorAdapter, createDefaultExecutorRegistry } from './application/executors.js';
 import { AppError } from '../../common/errors/app-error.js';
 
@@ -123,9 +127,42 @@ test('T09 ManagedTarget 上下文不得包含所有者派生 driverKind', async 
   assert.deepEqual(context.availableExecutionLocations, ['AGENT']);
 });
 
-test('T10 未知 Framework 不得被宿主固定列表拒绝', { todo: '034.1-T10' }, () => {
-  const registry = createBuiltinDeploymentDriverRegistry();
-  assert.doesNotThrow(() => registry.resolve(driverContext('runtime.fixture')));
+test('T10 未知 Framework 通过 Assignment、Binding、兼容性和 Runtime Adapter 编译', async () => {
+  const context = unknownFrameworkContext();
+  const capability = await unknownFrameworkCapabilityResolver().resolve({
+    tenantId: 'tenant_fixture',
+    capabilityKey: 'certificate.deploy',
+    hostId: context.host.id,
+    managedTargetId: context.managedTarget.id,
+    applicationAssetId: 'asset_fixture',
+    executionLocations: context.availableExecutionLocations,
+    compatibility: {
+      frameworkType: context.frameworkType,
+      targetType: context.managedTarget.targetType,
+      managementMethod: 'AGENT',
+      artifactContract: 'certificate.deploy.v1',
+    },
+  });
+  const runtime = await createDefaultPluginRuntimeAdapterRegistry().compile({
+    capability,
+    context,
+    applicationAsset: unknownFrameworkApplicationAsset(),
+  });
+  const strategy = new DeploymentStrategyResolver().resolve({
+    applicationAsset: unknownFrameworkApplicationAsset(),
+    managedTargetContext: context,
+    managedTargetRuntime: runtime,
+  });
+
+  assert.equal(capability.assignment.id, 'assignment_fixture');
+  assert.equal(capability.binding.id, 'binding_fixture');
+  assert.equal(capability.pluginVersionId, 'plugin_version_fixture');
+  assert.equal(capability.compatibility.compatible, true);
+  assert.equal(runtime.executorType, 'AGENT');
+  assert.equal(strategy.executorType, 'AGENT');
+  assert.equal(strategy.payload.actionType, 'agent.atomic_plan.execute');
+  assert.equal((strategy.payload.pluginRuntimeCapability as { assignmentId?: string }).assignmentId, 'assignment_fixture');
+  assert.equal('driverKind' in strategy.payload, false);
 });
 
 function createAgentQueueProbe(onEnqueue?: (payload: Record<string, unknown>) => void): {
@@ -197,7 +234,7 @@ function managedTargetAssetsPort(): ManagedTargetAssetsPort {
   };
 }
 
-function driverContext(frameworkType: string): ResolvedManagedTargetContext {
+function unknownFrameworkContext(): ResolvedManagedTargetContext {
   return {
     managedTarget: {
       id: 'target_fixture', tenantId: 'tenant_fixture', deviceId: 'host_fixture', discoveryProviderKey: 'fixture.discovery',
@@ -205,11 +242,68 @@ function driverContext(frameworkType: string): ResolvedManagedTargetContext {
       executionLocations: ['AGENT'], status: 'ACTIVE', metadata: {}, createdAt: now, updatedAt: now, version: 1,
     },
     host: {
-      id: 'host_fixture', tenantId: 'tenant_fixture', osType: 'LINUX', ipAddresses: [], managementChannels: [],
+      id: 'host_fixture', tenantId: 'tenant_fixture', primaryIp: '192.0.2.10', osType: 'LINUX', ipAddresses: ['192.0.2.10'], managementChannels: [],
+      agentId: 'agent_fixture',
       discoverySource: 'AGENT', compatibilityLevel: 'L1', managementMode: 'AGENT', status: 'ACTIVE', tags: [],
       createdAt: now, updatedAt: now, version: 1,
     },
-    discoveryProviderKey: 'fixture.discovery', frameworkType, driverKind: 'AGENT_NATIVE', executionLocation: 'AGENT',
+    agent: { id: 'agent_fixture' } as never,
+    discoveryProviderKey: 'fixture.discovery', frameworkType: 'runtime.fixture',
     availableExecutionLocations: ['AGENT'],
+  };
+}
+
+function unknownFrameworkApplicationAsset(): ServiceAssetDto {
+  return {
+    id: 'asset_fixture', tenantId: 'tenant_fixture', displayName: 'Fixture Asset', address: 'fixture.example.com',
+    addressType: 'DNS', sniName: 'fixture.example.com', port: 443, protocol: 'HTTPS', discoverySource: 'MANUAL',
+    status: 'ACTIVE', tags: [], metadata: {},
+    deploymentStrategy: { type: 'MANAGED_TARGET', managedTarget: { managedTargetId: 'target_fixture' } },
+    createdAt: now, updatedAt: now, version: 1,
+  };
+}
+
+function unknownFrameworkCapabilityResolver(): DeploymentCapabilityResolver {
+  const assignment = {
+    id: 'assignment_fixture', tenantId: 'tenant_fixture', ownerType: 'MANAGED_TARGET', ownerId: 'target_fixture',
+    capabilityKey: 'certificate.deploy', pluginVersionId: 'plugin_version_fixture', pluginBindingId: 'binding_fixture',
+    precedence: 'TARGET_OVERRIDE', status: 'ACTIVE', createdAt: now, updatedAt: now,
+  } as const;
+  const binding = {
+    id: 'binding_fixture', tenantId: 'tenant_fixture', pluginVersionId: 'plugin_version_fixture', mode: 'MANAGED',
+    inputBindings: { apiVersion: 'gcac.input-bindings/v1', variables: {}, credentials: {}, artifacts: {}, connections: {} },
+    managedContext: { hostId: 'host_fixture', managedTargetId: 'target_fixture' },
+    status: 'ACTIVE', version: 1, createdAt: now, updatedAt: now,
+  } as const;
+  const bindings = {
+    listAssignmentCandidates: async () => [assignment],
+    getTenantBinding: async () => binding,
+  } as unknown as PluginBindingsApplicationService;
+  return new DeploymentCapabilityResolver(bindings, {
+    getVersion: async () => unknownFrameworkPlugin(),
+  });
+}
+
+function unknownFrameworkPlugin(): UnifiedPluginVersionRecord {
+  return {
+    id: 'plugin_version_fixture', tenantId: 'tenant_fixture', pluginId: 'unknown-framework-fixture', version: '1.0.0',
+    source: 'USER', runtime: 'AGENT_ATOMIC', scope: 'MANAGED', trust: 'OFFICIAL_SIGNED', support: 'OFFICIAL',
+    packageSha256: 'sha256:package', manifestSha256: 'sha256:manifest', resourceSha256: {}, resources: {}, status: 'ENABLED',
+    permissionApprovalStatus: 'NOT_REQUIRED', approvedPermissions: [],
+    validationReport: { valid: true, errors: [], warnings: [], manifestSha256: 'sha256:manifest', resourceSha256: {} },
+    createdAt: now, updatedAt: now,
+    manifest: {
+      apiVersion: 'gcac.plugin-manifest/v1', kind: 'GcacPlugin', pluginId: 'unknown-framework-fixture', version: '1.0.0',
+      displayNameKey: 'fixture.unknownFramework', publisher: 'fixture', runtime: 'AGENT_ATOMIC', source: 'USER', scope: 'MANAGED',
+      trust: 'OFFICIAL_SIGNED', support: 'OFFICIAL', permissions: [], resources: {},
+      capabilities: [{
+        key: 'certificate.deploy', contractVersion: 'v1', actionContractId: 'certificate.deploy.v1',
+        riskLevel: 'HIGH', executionLocations: ['AGENT'],
+      }],
+      compatibility: {
+        frameworkTypes: ['runtime.fixture'], targetTypes: ['tls.binding'], managementMethods: ['AGENT'],
+        executionLocations: ['AGENT'], artifactContracts: ['certificate.deploy.v1'],
+      },
+    },
   };
 }

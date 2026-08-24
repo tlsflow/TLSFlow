@@ -1417,8 +1417,6 @@ describe('部署计划与执行编排 API', () => {
         agent: { id: 'agent-auto-latest-01' },
         discoveryProviderKey: 'manual:test',
         frameworkType: 'web.iis',
-        driverKind: 'AGENT_NATIVE',
-        executionLocation: 'AGENT',
         availableExecutionLocations: ['AGENT'],
       }),
     } as never,
