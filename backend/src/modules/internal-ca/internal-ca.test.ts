@@ -55,8 +55,27 @@ test('内置 CA 完成根与中间拓扑、Profile、签发、续期、吊销和
   });
   assert.equal(authorities.length, 2);
   assert.equal(authorities.some((item) => 'privateKeySecretRef' in item), false);
+  const root = authorities.find((item) => item.role === 'root');
   const intermediate = authorities.find((item) => item.role === 'intermediate');
+  assert.ok(root);
   assert.ok(intermediate?.certificatePem);
+  const additionalIntermediate = (await service.createAuthority(tenantId, {
+    providerId: provider.id,
+    trustDomainId: root.trustDomainId,
+    parentCaId: root.id,
+    name: '生产应用第二签发 CA',
+    commonName: 'GCAC Production Issuing CA 2',
+    securityDomain: 'production',
+    topologyMode: 'root_with_intermediate',
+    deploymentMode: 'builtin',
+    runtimePlatform: 'embedded',
+    availabilityMode: 'single',
+    keyBackend: 'secret',
+    confirmationToken: preview.confirmationToken,
+    actorId,
+  }))[0];
+  assert.equal(additionalIntermediate.parentCaId, root.id);
+  assert.equal(additionalIntermediate.trustDomainId, root.trustDomainId);
 
   const { version } = await service.createProfile(tenantId, {
     name: '生产 TLS',

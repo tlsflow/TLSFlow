@@ -79,6 +79,7 @@ export interface PreviewCaInput {
 export interface CreateAuthorityInput extends PreviewCaInput {
   providerId: string;
   trustDomainId?: string;
+  parentCaId?: string;
   name: string;
   commonName: string;
   securityDomain: string;
@@ -292,6 +293,20 @@ export class InternalCaApplicationService {
     if (provider.deploymentMode !== input.deploymentMode || provider.runtimePlatform !== input.runtimePlatform) {
       throw new AppError('CA_TOPOLOGY_INVALID', 'CA 创建参数与 Provider 部署模式不一致');
     }
+    if (input.parentCaId) {
+      const parent = await this.requireAuthority(tenantId, input.parentCaId);
+      if (provider.type !== 'gcac_builtin' || parent.providerId !== provider.id || parent.role !== 'root' || parent.status !== 'active') {
+        throw new AppError('CA_TOPOLOGY_INVALID', '只能在同一内置 Provider 的活动根 CA 下创建中间 CA');
+      }
+      if (parent.trustDomainId !== trustDomain.id || (parent.pathLengthConstraint ?? 0) < 1) {
+        throw new AppError('CA_TOPOLOGY_INVALID', '父根 CA 不属于所选信任域或不允许签发中间 CA');
+      }
+      const intermediate = await this.createBuiltInIntermediate(tenantId, input, parent, input.name, input.commonName, context);
+      await this.audit('internal_ca.authority.created', input.actorId, 'certificate_authority.create', 'certificate_authority', intermediate.id, 'critical', context, {
+        providerId: provider.id, trustDomainId: trustDomain.id, parentCaId: parent.id, authorityIds: [intermediate.id], keyBackend: input.keyBackend,
+      });
+      return [sanitizeAuthority(intermediate)];
+    }
     if (provider.type !== 'gcac_builtin') {
       const external = await this.createExternalAuthority(tenantId, input, provider, trustDomain.id);
       await this.audit('internal_ca.authority.connected', input.actorId, 'certificate_authority.create', 'certificate_authority', external.id, 'high', context, {
@@ -342,51 +357,9 @@ export class InternalCaApplicationService {
     const authorities = [root];
 
     if (input.topologyMode === 'root_with_intermediate') {
-      const intermediateId = newId('ca');
-      const intermediateMaterial = await this.openssl.createIntermediate({
-        commonName: `${input.commonName} Issuing CA`,
-        validityDays: input.intermediateValidityDays ?? 1825,
-        pathLengthConstraint: 0,
-        parentPrivateKeyPem: rootMaterial.privateKeyPem,
-        parentCertificatePem: rootMaterial.certificatePem,
-        parentChainPem: rootMaterial.certificateChainPem,
-      });
-      const intermediateSecret = await this.dependencies.secrets.create({
-        name: `CA 私钥 ${input.name} Issuing`,
-        type: 'certificate_private_key',
-        scopeType: 'global',
-        plainText: intermediateMaterial.privateKeyPem,
-        createdBy: input.actorId,
-        metadata: { ownerType: 'ca', ownerId: intermediateId, role: 'intermediate' },
-      }, context);
-      const intermediateKey = await this.repository.saveKeyReference(buildKeyReference({
-        id: newId('keyref'), tenantId, ownerId: intermediateId, secretRef: intermediateSecret.secretRef,
-        fingerprint: intermediateMaterial.publicKeyFingerprintSha256, backendType: input.keyBackend,
-      }));
-      const intermediate: CertificateAuthorityEntity = {
-        id: intermediateId,
-        tenantId,
-        name: `${input.name} Issuing`,
-        role: 'intermediate',
-        parentCaId: root.id,
-        topologyMode: input.topologyMode,
-        providerId: provider.id,
-        trustDomainId: trustDomain.id,
-        keyReferenceId: intermediateKey.id,
-        privateKeySecretRef: intermediateSecret.secretRef,
-        certificatePem: intermediateMaterial.certificatePem,
-        certificateChainPem: intermediateMaterial.certificateChainPem,
-        securityDomain: input.securityDomain,
-        status: 'active',
-        pathLengthConstraint: 0,
-        subjectCommonName: `${input.commonName} Issuing CA`,
-        notBefore: intermediateMaterial.notBefore,
-        notAfter: intermediateMaterial.notAfter,
-        fingerprintSha256: intermediateMaterial.fingerprintSha256,
-        createdAt: now,
-        updatedAt: now,
-      };
-      await this.repository.saveAuthority(intermediate);
+      const intermediate = await this.createBuiltInIntermediate(
+        tenantId, input, root, `${input.name} Issuing`, `${input.commonName} Issuing CA`, context, rootMaterial.privateKeyPem,
+      );
       authorities.push(intermediate);
     }
 
@@ -1025,6 +998,73 @@ export class InternalCaApplicationService {
       securityDomain: input.securityDomain,
       status: 'active',
       subjectCommonName: input.commonName,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  private async createBuiltInIntermediate(
+    tenantId: string,
+    input: CreateAuthorityInput,
+    parent: CertificateAuthorityEntity,
+    name: string,
+    commonName: string,
+    context?: RequestContext,
+    parentPrivateKeyPem?: string,
+  ): Promise<CertificateAuthorityEntity> {
+    if (!parent.certificatePem) throw new AppError('CA_TOPOLOGY_INVALID', '父根 CA 缺少证书材料');
+    const resolvedParentKey = parentPrivateKeyPem ?? (parent.privateKeySecretRef
+      ? (await this.dependencies.secrets.resolveForService({
+          secretRef: parent.privateKeySecretRef,
+          expectedType: 'certificate_private_key',
+          purpose: 'internal_ca.intermediate.create',
+          actorId: input.actorId,
+          context,
+        })).plainText
+      : undefined);
+    if (!resolvedParentKey) throw new AppError('CA_TOPOLOGY_INVALID', '父根 CA 私钥不可用，无法创建中间 CA');
+    const intermediateId = newId('ca');
+    const material = await this.openssl.createIntermediate({
+      commonName,
+      validityDays: input.intermediateValidityDays ?? 1825,
+      pathLengthConstraint: 0,
+      parentPrivateKeyPem: resolvedParentKey,
+      parentCertificatePem: parent.certificatePem,
+      parentChainPem: parent.certificateChainPem ?? parent.certificatePem,
+    });
+    const secret = await this.dependencies.secrets.create({
+      name: `CA 私钥 ${name}`,
+      type: 'certificate_private_key',
+      scopeType: 'global',
+      plainText: material.privateKeyPem,
+      createdBy: input.actorId,
+      metadata: { ownerType: 'ca', ownerId: intermediateId, role: 'intermediate', parentCaId: parent.id },
+    }, context);
+    const key = await this.repository.saveKeyReference(buildKeyReference({
+      id: newId('keyref'), tenantId, ownerId: intermediateId, secretRef: secret.secretRef,
+      fingerprint: material.publicKeyFingerprintSha256, backendType: input.keyBackend,
+    }));
+    const now = new Date().toISOString();
+    return this.repository.saveAuthority({
+      id: intermediateId,
+      tenantId,
+      name: requiredText(name, 'name'),
+      role: 'intermediate',
+      parentCaId: parent.id,
+      topologyMode: 'root_with_intermediate',
+      providerId: parent.providerId,
+      trustDomainId: parent.trustDomainId,
+      keyReferenceId: key.id,
+      privateKeySecretRef: secret.secretRef,
+      certificatePem: material.certificatePem,
+      certificateChainPem: material.certificateChainPem,
+      securityDomain: requiredText(input.securityDomain, 'securityDomain'),
+      status: 'active',
+      pathLengthConstraint: 0,
+      subjectCommonName: requiredText(commonName, 'commonName'),
+      notBefore: material.notBefore,
+      notAfter: material.notAfter,
+      fingerprintSha256: material.fingerprintSha256,
       createdAt: now,
       updatedAt: now,
     });
