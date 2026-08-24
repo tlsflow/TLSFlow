@@ -359,6 +359,7 @@ export class AuthService {
   }
 
   private async seedDefaultAdmin(): Promise<void> {
+    const defaultTenantId = await this.resolveTenantId(DEFAULT_TENANT_ID);
     const adminRole: RoleEntity = {
       id: 'role_admin',
       code: 'admin',
@@ -380,7 +381,7 @@ export class AuthService {
       username: 'admin',
       displayName: '\u7cfb\u7edf\u7ba1\u7406\u5458',
       status: 'active',
-      tenantId: DEFAULT_TENANT_ID,
+      tenantId: defaultTenantId,
       tenantName: DEFAULT_TENANT_NAME,
     });
     if (!await this.rbac.userHasRole(admin.id, adminRole.id)) {

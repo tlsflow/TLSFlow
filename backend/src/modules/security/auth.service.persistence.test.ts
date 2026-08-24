@@ -71,6 +71,8 @@ describe('AuthService 持久化', () => {
       { username: 'tenant-uuid', password: 'tenant12345' },
       { requestId: 'req_tenant_uuid', traceId: 'trace_tenant_uuid' },
     );
+    const seededAdmin = await users.get('user_admin');
+    assert.equal(seededAdmin?.tenantId, '00000000-0000-4000-8000-000000000001');
     assert.equal(session.user.tenantId, '00000000-0000-4000-8000-000000000001');
     assert.equal(
       (await auth.parseRequestIdentity(`Bearer ${session.token}`, undefined))?.tenantId,

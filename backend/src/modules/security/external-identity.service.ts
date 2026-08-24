@@ -466,6 +466,8 @@ export class ExternalIdentityService {
   async syncUsers(input: { sourceId: string; usernamePrefix?: string; pageSize?: number }, actor: SecuritySubject, context: RequestContext): Promise<ExternalIdentitySyncResult> {
     const source = await this.sources.get(input.sourceId);
     if (!source || !source.enabled) throw new AppError('RESOURCE_NOT_FOUND', '身份源不存在或未启用');
+    const tenantId = actor.scope?.tenantId?.trim();
+    if (!tenantId) throw new AppError('AUTH_UNAUTHENTICATED', '缺少租户上下文');
     const credentials = await this.resolveServiceCredentials(source, actor.id, context);
     const profiles = await this.connector.syncUsers(source, credentials, { pageSize: input.pageSize, usernamePrefix: input.usernamePrefix });
     const result: ExternalIdentitySyncResult = {
@@ -480,7 +482,7 @@ export class ExternalIdentityService {
     for (const profile of profiles) {
       try {
         const existing = await this.rbac.findUserByExternalIdentity(source.id, profile.externalId);
-        await this.upsertShadowUser(source, profile, 'manual_sync');
+        await this.upsertShadowUser(source, profile, 'manual_sync', tenantId);
         if (existing) result.updated += 1;
         else result.created += 1;
       } catch (error) {
@@ -535,7 +537,12 @@ export class ExternalIdentityService {
     return { bindPassword: resolved.plainText };
   }
 
-  private async upsertShadowUser(source: IdentitySource, profile: ExternalIdentityProfile, syncSource: 'login' | 'manual_sync') {
+  private async upsertShadowUser(
+    source: IdentitySource,
+    profile: ExternalIdentityProfile,
+    syncSource: 'login' | 'manual_sync',
+    tenantId: string,
+  ) {
     const shadowUsername = this.buildShadowUsername(profile);
     const existing = await this.rbac.findUserByExternalIdentity(source.id, profile.externalId);
     if (existing) {
@@ -557,7 +564,7 @@ export class ExternalIdentityService {
       displayName: profile.displayName || profile.username,
       email: profile.email,
       status: profile.disabled ? 'disabled' : 'active',
-      tenantId: 'default',
+      tenantId,
       tenantName: '默认租户',
       identityProvider: source.type,
       externalId: profile.externalId,
