@@ -259,6 +259,35 @@
       }
     },
     "/api/v1/secrets": {
+      "get": {
+        "operationId": "listSecrets",
+        "summary": "查询 Secret 元数据列表",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
       "post": {
         "operationId": "createSecret",
         "summary": "鍒涘缓 Secret",
@@ -6347,6 +6376,37 @@
         }
       }
     },
+    "/api/v1/workflow-templates/delete": {
+      "post": {
+        "operationId": "deleteWorkflowTemplate",
+        "summary": "删除工作流模板",
+        "tags": [
+          "WorkflowTemplates"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/workflow-file-templates": {
       "get": {
         "operationId": "listWorkflowFileTemplates",
@@ -7294,5 +7354,5 @@
       "description": "证书绑定生产事实中心"
     }
   ],
-  "x-generatedAt": "2026-07-04T13:41:20.600Z"
+  "x-generatedAt": "2026-07-06T01:24:24.898Z"
 }
