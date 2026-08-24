@@ -2,7 +2,7 @@ import { AppError } from '../../../common/errors/app-error.js';
 import { newId } from '../../../shared/id.js';
 import type { CertificateAssetDto, CertificateVersionDto } from '../../certificates/dto/certificates.dto.js';
 import type { UnifiedPluginVersionRecord } from '../../plugins/dto/unified-plugins.dto.js';
-import { compareSemanticVersions, type UnifiedPluginsApplicationService } from '../../plugins/application/unified-plugins.application-service.js';
+import { compareSemanticVersions, pluginLogoResourceUrl, type UnifiedPluginsApplicationService } from '../../plugins/application/unified-plugins.application-service.js';
 import { PluginLocaleService } from '../../plugins/locales/plugin-locale.service.js';
 import { ApplicationOnboardingRecipeLoader, type LoadedApplicationOnboardingRecipe } from '../recipe/index.js';
 import { ApplicationOnboardingSessionRepository } from '../repository/application-onboarding-session.repository.js';
@@ -79,8 +79,8 @@ export class ApplicationOnboardingService {
               pluginVersion: bundle.pluginVersion,
               displayNameKey: bundle.recipe.displayNameKey,
               displayName: this.resolveDisplayName(version, bundle, locale),
-              logoUrl: version.manifest.logoUrl,
-              logoSquareUrl: version.manifest.logoSquareUrl,
+              ...(version.manifest.resources.logos?.horizontal ? { logoUrl: pluginLogoResourceUrl(version.id, 'horizontal') } : {}),
+              ...(version.manifest.resources.logos?.square ? { logoSquareUrl: pluginLogoResourceUrl(version.id, 'square') } : {}),
               businessMetadata: this.resolveBusinessMetadata(version, bundle, locale),
               deploymentMode: bundle.recipe.deploymentMode,
               deviceSelection: bundle.recipe.deviceSelection,

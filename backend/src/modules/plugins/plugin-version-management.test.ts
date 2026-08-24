@@ -67,6 +67,40 @@ test('插件版本管理查询路由返回版本分组和详情', async () => {
   assert.equal((detail.body as { id: string }).id, 'builtin-version-1');
 });
 
+test('插件 Logo 路由只读取当前版本包内资源并返回不可变缓存摘要', async () => {
+  const record = version('builtin-logo-1', 'fixture.logo', '1.0.0', 'BUILTIN', 'SYSTEM', 'ENABLED');
+  record.manifest.resources = { logos: { horizontal: 'logos/logo.svg', square: 'logos/logo-square.svg' } };
+  record.resources = {
+    'logos/logo.svg': '<svg viewBox="0 0 72 48"><rect width="72" height="48" fill="#1f6feb"/></svg>',
+    'logos/logo-square.svg': '<svg viewBox="0 0 72 72"><rect width="72" height="72" fill="#1f6feb"/></svg>',
+  };
+  record.resourceSha256 = {
+    'logos/logo.svg': `sha256:${createHash('sha256').update(record.resources['logos/logo.svg']!).digest('hex')}`,
+    'logos/logo-square.svg': `sha256:${createHash('sha256').update(record.resources['logos/logo-square.svg']!).digest('hex')}`,
+  };
+  const service = new UnifiedPluginsApplicationService(memoryRepository([record]));
+  const app = new App();
+  app.setAuthTokenResolver(() => ({ actorId: 'user_admin', tenantId: 'tenant-1' }));
+  new PluginsController(service, undefined, undefined, undefined, undefined, undefined, routeSecurity()).register(app.router);
+
+  const response = await app.inject({
+    method: 'GET',
+    path: '/api/v1/plugin-versions/builtin-logo-1/resources/logos/square',
+    headers: { 'x-tenant-id': 'tenant-1', 'x-actor-id': 'user_admin' },
+  });
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.headers['content-type'], 'image/svg+xml; charset=utf-8');
+  assert.equal(response.headers.etag, record.resourceSha256['logos/logo-square.svg']);
+  assert.match(String(response.body), /0 0 72 72/);
+
+  const missing = await app.inject({
+    method: 'GET',
+    path: '/api/v1/plugin-versions/builtin-logo-1/resources/logos/unknown',
+    headers: { 'x-tenant-id': 'tenant-1', 'x-actor-id': 'user_admin' },
+  });
+  assert.equal(missing.statusCode, 404);
+});
+
 test('统一插件导入路由会为 Workflow DSL 发布派生绑定', async () => {
   const imported = version('user-version-workflow', 'fixture.workflow', '1.0.0', 'USER', 'tenant-1', 'DISABLED');
   imported.runtime = 'WORKFLOW_DSL';

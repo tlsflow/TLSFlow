@@ -4,6 +4,7 @@ import { newId } from '../../../shared/id.js';
 import type {
   ImportUnifiedPluginVersionInput,
   UnifiedPluginCatalogItem,
+  UnifiedPluginLogoResources,
   UnifiedPluginManifestV1,
   UnifiedPluginSource,
   UnifiedPluginUpgradeDiff,
@@ -16,7 +17,7 @@ import type {
 } from '../dto/unified-plugins.dto.js';
 import { PgUnifiedPluginsRepository, type UnifiedPluginsRepository } from '../repository/unified-plugins.repository.js';
 import type { PluginWorkflowBindingsRepositoryPort } from '../repository/plugin-workflow-bindings.repository.js';
-import { assertUnifiedPluginResources, validateUnifiedPluginManifest } from '../schema/unified-plugins.schema.js';
+import { assertUnifiedPluginResources, validateLogoResourceContent, validateUnifiedPluginManifest } from '../schema/unified-plugins.schema.js';
 import { PluginPackageResourcesService } from './plugin-package-resources.service.js';
 import { PluginLocaleService } from '../locales/plugin-locale.service.js';
 import { PluginCapabilityRegistry } from '../capabilities/plugin-capability.registry.js';
@@ -204,6 +205,35 @@ export class UnifiedPluginsApplicationService {
   }> {
     const version = await this.getAccessibleVersion(tenantId, pluginVersionId);
     return { version, ui: this.buildUiResources(version, locale) };
+  }
+
+  /** 从已通过租户鉴权的版本记录读取包内 Logo，并返回固定摘要用于缓存校验。 */
+  getLogoResource(record: UnifiedPluginVersionRecord, variant: keyof UnifiedPluginLogoResources): {
+    content: string;
+    resourcePath: string;
+    etag: string;
+  } {
+    const resourcePath = record.manifest.resources.logos?.[variant];
+    if (!resourcePath) {
+      throw new AppError('RESOURCE_NOT_FOUND', '插件版本未声明该 Logo 资源', { pluginVersionId: record.id, variant });
+    }
+    const content = record.resources[resourcePath];
+    validateLogoResourceContent(resourcePath, content, variant);
+    const actualHash = sha256(content);
+    const declaredHash = record.resourceSha256[resourcePath];
+    if (declaredHash !== undefined && declaredHash !== actualHash) {
+      throw new AppError('RESOURCE_VERSION_CONFLICT', '插件 Logo 资源摘要校验失败', {
+        pluginVersionId: record.id,
+        resourcePath,
+        expected: declaredHash,
+        actual: actualHash,
+      });
+    }
+    return {
+      content,
+      resourcePath,
+      etag: declaredHash ?? actualHash,
+    };
   }
 
   private buildUiResources(record: UnifiedPluginVersionRecord, locale: string): {
@@ -396,8 +426,8 @@ export class UnifiedPluginsApplicationService {
         descriptionKey: record.manifest.descriptionKey,
         displayName,
         description,
-        logoUrl: record.manifest.logoUrl,
-        logoSquareUrl: record.manifest.logoSquareUrl,
+        ...(record.manifest.resources.logos?.horizontal ? { logoUrl: pluginLogoResourceUrl(record.id, 'horizontal') } : {}),
+        ...(record.manifest.resources.logos?.square ? { logoSquareUrl: pluginLogoResourceUrl(record.id, 'square') } : {}),
         tags: [
           ...(record.manifest.compatibility?.productFamilies ?? []),
           ...(record.manifest.compatibility?.frameworkTypes ?? []),
@@ -434,6 +464,10 @@ export class UnifiedPluginsApplicationService {
       return undefined;
     }
   }
+}
+
+export function pluginLogoResourceUrl(pluginVersionId: string, variant: keyof UnifiedPluginLogoResources): string {
+  return `/api/v1/plugin-versions/${encodeURIComponent(pluginVersionId)}/resources/logos/${variant}`;
 }
 
 function toWorkflowVersionSummary(binding: {
@@ -490,6 +524,7 @@ function summarizeExecutionResources(record: UnifiedPluginVersionRecord): {
 
 const supportedPluginRuntimeValues = ['AGENT_PLAN', 'WORKFLOW_DSL'] as const;
 const supportedExecutionResourceKeys = new Set([
+  'logos',
   'runtimeEntrypoint',
   'agentPlans',
   'workflows',

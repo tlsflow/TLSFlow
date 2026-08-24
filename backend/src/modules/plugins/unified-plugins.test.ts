@@ -99,7 +99,10 @@ test('统一插件拒绝任意可执行资源和缺失资源', async () => {
   await assert.rejects(
     () => service.importVersion('tenant-1', {
       ...workflowPluginInput(),
-      resources: { 'workflows/deploy.json': '{}', 'scripts/run.js': 'console.log(1)' },
+      resources: {
+        ...workflowPluginInput().resources,
+        'scripts/run.js': 'console.log(1)',
+      },
     }),
     /普通插件不得携带可执行代码/,
   );
@@ -228,8 +231,8 @@ test('统一插件目录保留正交分类和能力声明', async () => {
   assert.equal(item?.runtime, 'WORKFLOW_DSL');
   assert.equal(item?.scope, 'BOTH');
   assert.equal(item?.source, 'USER');
-  assert.equal(item?.logoUrl, '/plugin-logos/test.svg');
-  assert.equal(item?.logoSquareUrl, '/plugin-logos/test-square.svg');
+  assert.equal(item?.logoUrl, `/api/v1/plugin-versions/${encodeURIComponent(imported.id)}/resources/logos/horizontal`);
+  assert.equal(item?.logoSquareUrl, `/api/v1/plugin-versions/${encodeURIComponent(imported.id)}/resources/logos/square`);
   assert.equal(item?.capabilities[0]?.key, 'certificate.deploy');
   assert.equal(item?.pluginVersionId, imported.id);
   assert.equal(item?.packageSha256, imported.packageSha256);
@@ -417,8 +420,6 @@ function workflowPluginInput() {
       pluginId: 'test.device.workflow',
       version: '1.0.0',
       displayNameKey: 'plugin.test.device.name',
-      logoUrl: '/plugin-logos/test.svg',
-      logoSquareUrl: '/plugin-logos/test-square.svg',
       publisher: 'test',
       runtime: 'WORKFLOW_DSL',
       source: 'USER',
@@ -433,9 +434,16 @@ function workflowPluginInput() {
         executionLocations: ['CONTROL_PLANE', 'GATEWAY'],
       }],
       permissions: ['network.http'],
-      resources: { workflows: { 'certificate.deploy': 'workflows/deploy.json' } },
+      resources: {
+        logos: { horizontal: 'logos/logo.svg', square: 'logos/logo-square.svg' },
+        workflows: { 'certificate.deploy': 'workflows/deploy.json' },
+      },
     },
-    resources: { 'workflows/deploy.json': '{}' },
+    resources: {
+      'logos/logo.svg': '<svg viewBox="0 0 72 48"><rect width="72" height="48" fill="#1f6feb"/></svg>',
+      'logos/logo-square.svg': '<svg viewBox="0 0 72 72"><rect width="72" height="72" fill="#1f6feb"/></svg>',
+      'workflows/deploy.json': '{}',
+    },
     packageContent: 'package',
   };
 }

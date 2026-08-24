@@ -81,8 +81,8 @@ test('平台目录解析插件 Locale，不把插件翻译 key 交给前端显�
   const { service } = fixture({ execution: {} });
   const platform = (await service.listPlatforms('tenant-1', 'zh-CN')).find((item) => item.platformKey === 'vendor.test-platform');
   assert.equal(platform?.displayName, '测试平台');
-  assert.equal(platform?.logoUrl, '/plugin-logos/test-platform.svg');
-  assert.equal(platform?.logoSquareUrl, '/plugin-logos/test-platform-square.svg');
+  assert.equal(platform?.logoUrl, '/api/v1/plugin-versions/plugin-version-1/resources/logos/horizontal');
+  assert.equal(platform?.logoSquareUrl, '/api/v1/plugin-versions/plugin-version-1/resources/logos/square');
   assert.deepEqual(platform?.acceptedCertificateFormats, ['PEM']);
 });
 
@@ -418,14 +418,15 @@ function pluginVersionRecord(
     status: 'ENABLED',
     manifest: {
       defaultLocale: 'zh-CN',
-      logoUrl: '/plugin-logos/test-platform.svg',
-      logoSquareUrl: '/plugin-logos/test-platform-square.svg',
       resources: {
+        logos: { horizontal: 'logos/logo.svg', square: 'logos/logo-square.svg' },
         onboarding: { applicationAsset: selectedRecipe.resourcePath },
         locales: { 'zh-CN': 'locales/zh-CN.json' },
       },
     },
     resources: {
+      'logos/logo.svg': '<svg viewBox="0 0 72 48"><rect width="72" height="48" fill="#1f6feb"/></svg>',
+      'logos/logo-square.svg': '<svg viewBox="0 0 72 72"><rect width="72" height="72" fill="#1f6feb"/></svg>',
       [selectedRecipe.resourcePath]: '{}',
       'locales/zh-CN.json': JSON.stringify({ [selectedRecipe.recipe.displayNameKey]: '测试平台', ...metadataMessages }),
     },

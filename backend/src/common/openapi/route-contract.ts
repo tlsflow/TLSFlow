@@ -17,5 +17,6 @@ export interface OpenApiSchema {
 export interface RouteContract extends Omit<RouteDefinition, 'handler'> {
   operationId: string;
   responseSchema?: OpenApiSchema;
+  responseContentType?: string;
   requestSchema?: OpenApiSchema;
 }

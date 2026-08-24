@@ -22,7 +22,7 @@ export function generateOpenApiDocument(routes: RouteContract[], generatedAt = n
       ...(route.requestSchema ? { requestBody: { required: true, content: { 'application/json': { schema: route.requestSchema } } } } : {}),
       responses: {
         '200': route.responseSchema
-          ? { description: '成功', content: { 'application/json': { schema: route.responseSchema } } }
+          ? { description: '成功', content: { [route.responseContentType ?? 'application/json']: { schema: route.responseSchema } } }
           : { description: '成功' },
         '400': { $ref: '#/components/responses/ErrorResponse' },
         '404': { $ref: '#/components/responses/ErrorResponse' },

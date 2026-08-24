@@ -45,6 +45,13 @@ export interface UnifiedPluginOnboardingResources {
   applicationAssets?: Record<string, string>;
 }
 
+export interface UnifiedPluginLogoResources {
+  /** 横向 Logo，固定为 72 x 48 SVG 资源。 */
+  horizontal: string;
+  /** 方形 Logo，固定为 72 x 72 SVG 资源。 */
+  square: string;
+}
+
 export interface UnifiedPluginManifestV1 {
   apiVersion: 'gcac.plugin-manifest/v1';
   kind: 'GcacPlugin';
@@ -52,8 +59,9 @@ export interface UnifiedPluginManifestV1 {
   version: string;
   displayNameKey: string;
   descriptionKey?: string;
+  /** 旧版本数据库 Manifest 的兼容读取字段，新插件包不得继续声明。 */
   logoUrl?: string;
-  /** 详情和接入向导使用的方形 Logo；缺失时由宿主回退到 logoUrl。 */
+  /** 旧版本数据库 Manifest 的兼容读取字段，新插件包不得继续声明。 */
   logoSquareUrl?: string;
   defaultLocale?: string;
   publisher: string;
@@ -75,6 +83,8 @@ export interface UnifiedPluginManifestV1 {
     artifactContracts?: string[];
   };
   resources: {
+    /** 插件包自有 Logo 资源，不允许指向宿主静态目录或外部 URL。 */
+    logos?: UnifiedPluginLogoResources;
     /** Manifest 固定的 Runner 执行入口；宿主只保存路径和摘要，不在宿主进程加载。 */
     runtimeEntrypoint?: string;
     agentPlans?: Record<string, string>;

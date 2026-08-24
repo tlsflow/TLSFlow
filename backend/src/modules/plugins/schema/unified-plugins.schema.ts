@@ -2,6 +2,7 @@ import { AppError } from '../../../common/errors/app-error.js';
 import type {
   CredentialAcquireContract,
   UnifiedPluginCapabilityDescriptor,
+  UnifiedPluginLogoResources,
   UnifiedPluginManifestV1,
   UnifiedPluginRuntime,
   UnifiedPluginScope,
@@ -73,6 +74,7 @@ export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginMani
     permissions,
     compatibility: readCompatibility(manifest.compatibility),
     resources: {
+      ...(resources.logos === undefined ? {} : { logos: validateLogoResources(resources.logos) }),
       ...(resources.runtimeEntrypoint === undefined
         ? {}
         : { runtimeEntrypoint: readResourcePath(resources.runtimeEntrypoint, 'resources.runtimeEntrypoint') }),
@@ -161,6 +163,10 @@ export function assertUnifiedPluginResources(manifest: UnifiedPluginManifestV1, 
   const runtimeEntrypoint = manifest.resources.runtimeEntrypoint;
   const missing = declared.filter((path) => !(path in resources));
   if (missing.length > 0) fail('resources', '插件资源缺失', { missing });
+  if (manifest.resources.logos) {
+    validateLogoResourceContent(manifest.resources.logos.horizontal, resources[manifest.resources.logos.horizontal], 'horizontal');
+    validateLogoResourceContent(manifest.resources.logos.square, resources[manifest.resources.logos.square], 'square');
+  }
   for (const path of Object.keys(resources)) {
     const normalized = path.replaceAll('\\', '/');
     if (normalized.startsWith('/') || normalized.includes('../')) fail(`resources.${path}`, '资源路径不安全');
@@ -191,18 +197,50 @@ function validateCapability(input: unknown, index: number): UnifiedPluginCapabil
 }
 
 function validateResourceMaps(resources: Record<string, unknown>): void {
-  const resourceKeys = ['runtimeEntrypoint', 'agentPlans', 'workflows', 'inputContracts', 'actionContracts', 'forms', 'presentations', 'locales', 'discoveryMappings', 'agentDiscoveryMappings', 'onboarding'];
+  const resourceKeys = ['logos', 'runtimeEntrypoint', 'agentPlans', 'workflows', 'inputContracts', 'actionContracts', 'forms', 'presentations', 'locales', 'discoveryMappings', 'agentDiscoveryMappings', 'onboarding'];
   assertKnownKeys(resources, new Set(resourceKeys), 'resources');
   if (resources.runtimeEntrypoint !== undefined) {
     const runtimeEntrypoint = readResourcePath(resources.runtimeEntrypoint, 'resources.runtimeEntrypoint');
     if (runtimeEntrypoint !== 'runtime/index.js') fail('resources.runtimeEntrypoint', 'Runner 入口必须固定为 runtime/index.js');
   }
   for (const key of resourceKeys) {
-    if (key === 'runtimeEntrypoint' || key === 'onboarding') continue;
+    if (key === 'runtimeEntrypoint' || key === 'logos' || key === 'onboarding') continue;
     readStringMap(resources[key], `resources.${key}`);
   }
+  if (resources.logos !== undefined) validateLogoResources(resources.logos);
   if (resources.onboarding !== undefined) {
     validateOnboardingResources(resources.onboarding);
+  }
+}
+
+function validateLogoResources(input: unknown): UnifiedPluginLogoResources {
+  const logos = requireRecord(input, 'resources.logos');
+  assertKnownKeys(logos, new Set(['horizontal', 'square']), 'resources.logos');
+  return {
+    horizontal: validateLogoResourcePath(logos.horizontal, 'resources.logos.horizontal'),
+    square: validateLogoResourcePath(logos.square, 'resources.logos.square'),
+  };
+}
+
+function validateLogoResourcePath(input: unknown, path: string): string {
+  const resourcePath = readResourcePath(input, path);
+  if (!resourcePath.startsWith('logos/')) fail(path, 'Logo 资源必须位于插件包 logos/ 目录');
+  if (!resourcePath.toLowerCase().endsWith('.svg')) fail(path, 'Logo 资源必须使用 SVG 文件');
+  return resourcePath;
+}
+
+/** 校验 Logo 资源的尺寸合同和 SVG 安全边界。 */
+export function validateLogoResourceContent(path: string, content: string | undefined, variant: 'horizontal' | 'square'): void {
+  if (content === undefined) fail(`resources.logos.${variant}`, 'Logo 资源不存在', { path });
+  if (!/^\s*<svg\b/i.test(content)) fail(`resources.logos.${variant}`, 'Logo 资源必须是 SVG 文档', { path });
+  const expectedViewBox = variant === 'horizontal' ? '0 0 72 48' : '0 0 72 72';
+  const viewBox = content.match(/\bviewBox\s*=\s*["']([^"']+)["']/i)?.[1]?.trim();
+  if (viewBox !== expectedViewBox) fail(`resources.logos.${variant}`, `Logo viewBox 必须为 ${expectedViewBox}`, { path, viewBox });
+  if (/<(?:script|image|foreignObject|animate|animateTransform|set)\b/i.test(content)
+    || /(?:xlink:href|href)\s*=\s*["'](?:https?:|data:|\/)/i.test(content)
+    || /@import|url\s*\(\s*(?!#)/i.test(content)
+    || /<!DOCTYPE/i.test(content)) {
+    fail(`resources.logos.${variant}`, 'Logo SVG 包含不允许的外部资源或可执行内容', { path });
   }
 }
 

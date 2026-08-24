@@ -65,6 +65,7 @@ export class PluginsController {
     router.get('/api/v1/plugin-form/standard-fields', '查询插件标准字段', tags, (request) => this.listStandardFields(request));
     router.get('/api/v1/plugin-capabilities', '查询宿主支持的插件能力 Contract', tags, (request) => this.listPluginCapabilities(request));
     router.get('/api/v1/plugin-versions/ui-resources', '查询插件表单、展示和语言资源', tags, (request) => this.getUnifiedPluginUiResources(request));
+    router.get('/api/v1/plugin-versions/:pluginVersionId/resources/logos/:variant', '读取插件包 Logo 资源', tags, (request) => this.getUnifiedPluginLogo(request));
     router.post('/api/v1/plugin-bindings', '创建统一插件绑定', tags, (request) => this.createPluginBinding(request));
     router.get('/api/v1/plugin-bindings', '查询统一插件绑定', tags, (request) => this.getPluginBinding(request));
     router.patch('/api/v1/plugin-bindings', '更新统一插件绑定', tags, (request) => this.updatePluginBinding(request));
@@ -221,6 +222,25 @@ export class PluginsController {
     const locale = typeof request.query.locale === 'string' ? request.query.locale : 'zh-CN';
     const version = await this.requirePluginVersion(security, pluginVersionId, 'read');
     return this.unifiedPlugins.getUiResources(version.id, locale);
+  }
+
+  private async getUnifiedPluginLogo(request: HttpRequest) {
+    const security = this.securityContext(request);
+    await assertRouteAction(security, 'plugin.read', 'plugin');
+    const match = request.path.match(/^\/api\/v1\/plugin-versions\/([^/]+)\/resources\/logos\/(horizontal|square)$/);
+    if (!match) throw new AppError('RESOURCE_NOT_FOUND', '插件 Logo 资源不存在');
+    const version = await this.requirePluginVersion(security, decodeURIComponent(match[1] ?? ''), 'read');
+    const variant = match[2] as 'horizontal' | 'square';
+    const resource = this.unifiedPlugins.getLogoResource(version, variant);
+    return {
+      statusCode: 200,
+      headers: {
+        'content-type': 'image/svg+xml; charset=utf-8',
+        'cache-control': 'public, max-age=31536000, immutable',
+        etag: resource.etag,
+      },
+      body: resource.content,
+    };
   }
 
   private async createPluginBinding(request: HttpRequest) {
@@ -702,12 +722,13 @@ export function getPluginsRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/plugin-versions/retire', operationId: 'retireUnifiedPluginVersion', summary: '退休统一插件版本', tags, requestSchema: pluginVersionActionSchema(['pluginVersionId']), responseSchema: pluginVersionRecordSchema() },
     { method: 'GET', path: '/api/v1/plugin-versions/upgrade-diff', operationId: 'getUnifiedPluginUpgradeDiff', summary: '查询统一插件升级差异', tags, responseSchema: upgradeDiffSchema() },
     { method: 'GET', path: '/api/v1/plugin-versions/ui-resources', operationId: 'getUnifiedPluginUiResources', summary: '查询插件表单、展示和语言资源', tags, responseSchema: uiResourcesSchema() },
+    { method: 'GET', path: '/api/v1/plugin-versions/:pluginVersionId/resources/logos/:variant', operationId: 'getUnifiedPluginLogo', summary: '读取插件包 Logo 资源', tags, responseSchema: logoResourceSchema(), responseContentType: 'image/svg+xml' },
     { method: 'GET', path: '/api/v1/plugin-form/standard-fields', operationId: 'listPluginStandardFields', summary: '查询插件标准字段', tags, responseSchema: objectPageSchema(standardFieldSchema()) },
     { method: 'GET', path: '/api/v1/plugin-capabilities', operationId: 'listPluginCapabilities', summary: '查询宿主支持的插件能力 Contract', tags, responseSchema: objectPageSchema(capabilityContractSchema()) },
     { method: 'POST', path: '/api/v1/plugin-bindings', operationId: 'createPluginBinding', summary: '创建统一插件绑定', tags, requestSchema: createBindingSchema(), responseSchema: pluginBindingSchema() },
     { method: 'GET', path: '/api/v1/plugin-bindings', operationId: 'getPluginBinding', summary: '查询统一插件绑定', tags, responseSchema: pluginBindingSchema() },
     { method: 'PATCH', path: '/api/v1/plugin-bindings', operationId: 'updatePluginBinding', summary: '更新统一插件绑定', tags, requestSchema: updateBindingSchema(), responseSchema: pluginBindingSchema() },
-    { method: 'POST', path: '/api/v1/cloud-account-assets/:id/capability-binding', operationId: 'createCloudAccountCapabilityBinding', summary: '固定云账号插件能力绑定', tags, requestSchema: cloudAccountCapabilityBindingSchema(), responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/cloud-account-assets/:id/capability-binding', operationId: 'createCloudAccountCapabilityBinding', summary: '固定云账号插件能力绑定', tags, requestSchema: cloudAccountCapabilityBindingSchema(), responseSchema: jsonObjectSchema() },
     { method: 'POST', path: '/api/v1/capability-assignments', operationId: 'assignPluginCapability', summary: '设置插件能力指派', tags, requestSchema: capabilityAssignmentInputSchema(), responseSchema: capabilityAssignmentSchema() },
     { method: 'POST', path: '/api/v1/capability-assignments/resolve', operationId: 'resolvePluginCapability', summary: '解析插件能力来源', tags, requestSchema: resolveCapabilitySchema(), responseSchema: capabilityAssignmentSchema() },
     { method: 'POST', path: '/api/v1/plugin-promotions/preview', operationId: 'previewPluginPromotion', summary: '预览 Standalone 目标归集', tags, requestSchema: promotionPreviewInputSchema(), responseSchema: promotionPreviewSchema() },
@@ -797,7 +818,7 @@ function pluginManifestSchema(): OpenApiSchema {
     support: { type: 'string', enum: ['OFFICIAL', 'COMMUNITY', 'SELF_MANAGED'] }, minGcacVersion: { type: 'string' },
     capabilities: { type: 'array', items: pluginCapabilitySchema() }, permissions: stringArraySchema(),
     compatibility: strictSchema({ productFamilies: stringArraySchema(), frameworkTypes: stringArraySchema(), targetTypes: stringArraySchema(), managementMethods: stringArraySchema(), executionLocations: stringArraySchema(), artifactContracts: stringArraySchema() }),
-    resources: strictSchema({ agentPlans: stringMapSchema(), workflows: stringMapSchema(), forms: stringMapSchema(), presentations: stringMapSchema(), locales: stringMapSchema(), discoveryMappings: stringMapSchema(), agentDiscoveryMappings: stringMapSchema() }),
+    resources: strictSchema({ logos: strictSchema({ horizontal: { type: 'string' }, square: { type: 'string' } }, ['horizontal', 'square']), runtimeEntrypoint: { type: 'string' }, agentPlans: stringMapSchema(), workflows: stringMapSchema(), inputContracts: stringMapSchema(), actionContracts: stringMapSchema(), forms: stringMapSchema(), presentations: stringMapSchema(), locales: stringMapSchema(), discoveryMappings: stringMapSchema(), agentDiscoveryMappings: stringMapSchema(), onboarding: jsonObjectSchema() }),
   }, ['apiVersion', 'kind', 'pluginId', 'version', 'displayNameKey', 'publisher', 'runtime', 'source', 'scope', 'trust', 'support', 'capabilities', 'permissions', 'resources']);
 }
 
@@ -858,6 +879,7 @@ function promotionPreviewSchema(): OpenApiSchema { return strictSchema({ promoti
 function promotionRecordSchema(): OpenApiSchema { return strictSchema({ id: idSchema(), tenantId: idSchema(), sourcePluginBindingId: idSchema(), targetPluginBindingId: idSchema(), deviceAssetId: idSchema(), applicationAssetId: idSchema(), status: { type: 'string' }, previewSnapshot: jsonObjectSchema(), createdResources: jsonObjectSchema(), errorCode: { type: 'string' }, errorMessage: { type: 'string' }, createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' }, completedAt: { type: 'string', format: 'date-time' }, revokedAt: { type: 'string', format: 'date-time' }, version: { type: 'number' } }, ['id', 'tenantId', 'sourcePluginBindingId', 'status', 'previewSnapshot', 'createdResources', 'createdAt', 'updatedAt', 'version']); }
 function upgradeDiffSchema(): OpenApiSchema { return strictSchema({ pluginId: idSchema(), fromVersionId: idSchema(), toVersionId: idSchema(), addedCapabilities: stringArraySchema(), removedCapabilities: stringArraySchema(), addedPermissions: stringArraySchema(), removedPermissions: stringArraySchema(), runtimeChanged: { type: 'boolean' }, scopeChanged: { type: 'boolean' }, compatibilityChanged: { type: 'boolean' }, requiresApproval: { type: 'boolean' } }, ['pluginId', 'fromVersionId', 'toVersionId', 'addedCapabilities', 'removedCapabilities', 'addedPermissions', 'removedPermissions', 'runtimeChanged', 'scopeChanged', 'compatibilityChanged', 'requiresApproval']); }
 function uiResourcesSchema(): OpenApiSchema { return strictSchema({ pluginVersionId: idSchema(), forms: jsonObjectSchema(), presentations: jsonObjectSchema(), locale: jsonObjectSchema() }, ['pluginVersionId', 'forms', 'presentations']); }
+function logoResourceSchema(): OpenApiSchema { return { type: 'string', format: 'binary', description: '插件包内固定尺寸 SVG Logo' }; }
 function standardFieldSchema(): OpenApiSchema { return strictSchema({ key: { type: 'string' }, type: { type: 'string' }, labelKey: { type: 'string' }, sensitive: { type: 'boolean' }, valueKind: { type: 'string' }, supportedModes: stringArraySchema(), required: { type: 'boolean' }, defaultValue: jsonObjectSchema(), validation: jsonObjectSchema() }, ['key', 'type', 'labelKey', 'sensitive', 'valueKind', 'supportedModes']); }
 function capabilityContractSchema(): OpenApiSchema { return strictSchema({ key: { type: 'string' }, contractVersion: { type: 'string' }, actionContractId: { type: 'string' }, riskLevel: { type: 'string' }, idempotency: { type: 'string' }, permission: { type: 'string' }, inputSchemaId: { type: 'string' }, outputSchemaId: { type: 'string' }, resourceLock: { type: 'string' }, executionLocations: stringArraySchema() }, ['key', 'contractVersion', 'actionContractId', 'riskLevel', 'idempotency', 'permission', 'inputSchemaId', 'outputSchemaId', 'resourceLock', 'executionLocations']); }
 function runtimeMetricSchema(): OpenApiSchema { return strictSchema({ tenantId: idSchema(), pluginVersionId: idSchema(), capabilityKey: { type: 'string' }, started: { type: 'number' }, succeeded: { type: 'number' }, failed: { type: 'number' }, rejected: { type: 'number' }, inFlight: { type: 'number' }, circuitState: { type: 'string', enum: ['CLOSED', 'OPEN'] }, lastDurationMilliseconds: { type: 'number' }, lastError: { type: 'string' } }, ['tenantId', 'pluginVersionId', 'capabilityKey', 'started', 'succeeded', 'failed', 'rejected', 'inFlight', 'circuitState']); }
