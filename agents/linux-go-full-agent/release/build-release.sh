@@ -11,6 +11,7 @@ BUILD_TIME_VALUE="${BUILD_TIME:-$(date -u -d "@${SOURCE_DATE_EPOCH_VALUE}" '+%Y-
 
 mkdir -p "${OUTPUT_DIR}"
 rm -f "${OUTPUT_DIR}/gcac-linux-agent-linux-amd64" "${OUTPUT_DIR}/gcac-linux-agent-linux-arm64" "${OUTPUT_DIR}/SHA256SUMS"
+rm -f "${OUTPUT_DIR}/gcac-linux-agent-linux-amd64.sig" "${OUTPUT_DIR}/gcac-linux-agent-linux-arm64.sig"
 
 build_arch() {
   arch="$1"
@@ -18,12 +19,26 @@ build_arch() {
   OUTPUT_NAME="${output}" GOOS=linux GOARCH="${arch}" VERSION="${VERSION_VALUE}" COMMIT="${COMMIT_VALUE}" SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH_VALUE}" BUILD_TIME="${BUILD_TIME_VALUE}" "${AGENT_DIR}/build.sh"
 }
 
+build_verifier() {
+  arch="$1"
+  output="${OUTPUT_DIR}/gcac-release-sign-linux-${arch}"
+  CGO_ENABLED=0 GOOS=linux GOARCH="${arch}" go build -trimpath -ldflags "-s -w -buildid=" -o "${output}" "${AGENT_DIR}/cmd/release-sign"
+}
+
 build_arch amd64
 build_arch arm64
+build_verifier amd64
+build_verifier arm64
+
+if [ -n "${SIGNING_PRIVATE_KEY_FILE:-}" ]; then
+  [ -f "${SIGNING_PRIVATE_KEY_FILE}" ] || { echo "错误：签名私钥不存在" >&2; exit 1; }
+  go run "${AGENT_DIR}/cmd/release-sign" sign "${SIGNING_PRIVATE_KEY_FILE}" "${OUTPUT_DIR}/gcac-linux-agent-linux-amd64" "${OUTPUT_DIR}/gcac-linux-agent-linux-amd64.sig"
+  go run "${AGENT_DIR}/cmd/release-sign" sign "${SIGNING_PRIVATE_KEY_FILE}" "${OUTPUT_DIR}/gcac-linux-agent-linux-arm64" "${OUTPUT_DIR}/gcac-linux-agent-linux-arm64.sig"
+fi
 
 (
   cd "${OUTPUT_DIR}"
-  sha256sum gcac-linux-agent-linux-amd64 gcac-linux-agent-linux-arm64 > SHA256SUMS
+  sha256sum gcac-linux-agent-linux-amd64 gcac-linux-agent-linux-arm64 gcac-release-sign-linux-amd64 gcac-release-sign-linux-arm64 > SHA256SUMS
 )
 
 cat > "${OUTPUT_DIR}/build-environment.txt" <<EOF
@@ -34,6 +49,8 @@ build_time=${BUILD_TIME_VALUE}
 go_version=$(go version)
 cgo_enabled=0
 targets=linux/amd64,linux/arm64
+signature_algorithm=Ed25519
+signed=$([ -n "${SIGNING_PRIVATE_KEY_FILE:-}" ] && printf true || printf false)
 EOF
 
 cat > "${OUTPUT_DIR}/sbom.spdx.json" <<EOF
