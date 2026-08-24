@@ -1,0 +1,7 @@
+{
+  "provider": "cloud.tencent",
+  "algorithm": "TENCENT-TC3-HMAC-SHA256",
+  "timestamp": "2026-08-11T00:00:00Z",
+  "action": "DescribeCertificates",
+  "expected": "由批次 Runner Fixture 使用开发信任材料校验"
+}

@@ -1,0 +1,4 @@
+{
+  "plugin.cloud.aliyun.name": "Alibaba Cloud",
+  "plugin.cloud.aliyun.description": "Alibaba Cloud control-plane plugin"
+}

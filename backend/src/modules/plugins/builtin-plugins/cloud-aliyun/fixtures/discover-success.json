@@ -1,0 +1,1 @@
+{ "statusCode": 200, "body": { "resources": [{ "id": "cdn-fixture-aliyun", "type": "cdn.domain", "region": "cn-hangzhou" }] } }

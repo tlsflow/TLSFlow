@@ -1,0 +1,7 @@
+{
+  "provider": "cloud.aliyun",
+  "algorithm": "ALIYUN-RPC-HMAC-SHA1",
+  "timestamp": "2026-08-11T00:00:00Z",
+  "action": "DescribeCdnDomainDetail",
+  "expected": "由批次 Runner Fixture 使用开发信任材料校验"
+}

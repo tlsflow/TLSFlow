@@ -1,0 +1,1 @@
+{ "statusCode": 200, "body": { "resources": [{ "id": "scm-fixture-huawei", "type": "scm.certificate", "region": "cn-north-4" }] } }

@@ -1,0 +1,10 @@
+{
+  "apiVersion": "gcac.plugin-form/v1",
+  "pluginId": "cloud.aliyun",
+  "fields": [
+    { "key": "cloudServiceRef", "type": "objectRef", "required": true },
+    { "key": "credential.secretRef", "type": "secretRef", "required": true },
+    { "key": "region", "type": "string", "required": true },
+    { "key": "certificateArtifactRef", "type": "artifactRef", "required": false }
+  ]
+}

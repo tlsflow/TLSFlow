@@ -1,0 +1,4 @@
+{
+  "plugin.cloud.tencent.name": "Tencent Cloud",
+  "plugin.cloud.tencent.description": "Tencent Cloud control-plane plugin"
+}

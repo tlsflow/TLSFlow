@@ -1,0 +1,7 @@
+{
+  "apiVersion": "gcac.plugin-presentation/v1",
+  "pluginId": "cloud.huawei",
+  "standardObject": "CloudResource",
+  "columns": ["resourceId", "resourceType", "region", "status"],
+  "secretFields": ["secretRef", "secretKey", "privateKey"]
+}

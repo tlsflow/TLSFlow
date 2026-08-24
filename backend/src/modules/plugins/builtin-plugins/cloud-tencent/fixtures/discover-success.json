@@ -1,0 +1,1 @@
+{ "statusCode": 200, "body": { "resources": [{ "id": "ssl-fixture-tencent", "type": "ssl.certificate", "region": "ap-guangzhou" }] } }

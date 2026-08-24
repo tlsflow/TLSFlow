@@ -1,0 +1,4 @@
+{
+  "plugin.cloud.volcengine.name": "Volcengine",
+  "plugin.cloud.volcengine.description": "Volcengine control-plane plugin"
+}

@@ -1,0 +1,8 @@
+{
+  "provider": "cloud.huawei",
+  "productFamily": "cloud.huawei.scm",
+  "readOnly": true,
+  "standardObject": "CloudResource",
+  "identityFields": ["resourceId", "resourceType", "region"],
+  "responseFields": { "resources": "resources", "resourceId": "id", "resourceType": "type", "region": "region" }
+}
