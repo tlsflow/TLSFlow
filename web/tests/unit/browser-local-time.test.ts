@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatMaybeLocalTimeByCandidates, isDateTimeCandidate } from '@/utils/browser-local-time'
+import { formatMaybeLocalTimeByCandidates, getExpiryCountdown, isDateTimeCandidate } from '@/utils/browser-local-time'
 
 describe('浏览器本地时间格式化', () => {
   it('识别统一设备最近通信字段并移除 UTC ISO 展示', () => {
@@ -10,5 +10,13 @@ describe('浏览器本地时间格式化', () => {
     expect(formatted).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)
     expect(formatted).not.toContain('T')
     expect(formatted).not.toContain('Z')
+  })
+
+  it('计算证书剩余和过期天数并向上取整', () => {
+    const now = new Date('2026-07-27T12:00:00+08:00')
+
+    expect(getExpiryCountdown('2026-07-28T11:00:00+08:00', now)).toEqual({ expired: false, days: 1 })
+    expect(getExpiryCountdown('2026-07-26T13:00:00+08:00', now)).toEqual({ expired: true, days: 1 })
+    expect(getExpiryCountdown('invalid-time', now)).toBeNull()
   })
 })

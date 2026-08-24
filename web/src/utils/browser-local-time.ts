@@ -1,10 +1,16 @@
 const DATE_TIME_KEY_PATTERN = /(?:^|\.)(?:createdAt|updatedAt|startedAt|finishedAt|scheduledAt|checkedAt|detectedAt|lastCheckedAt|lastSeenAt|lastContactAt|heartbeatAt|lastHeartbeatAt|lastRecoveryAt|lastTaskPollAt|lastTaskResultAt|lastSelfCheckAt|reportedAt|receivedAt|emittedAt|expiresAt|capturedAt|notBefore|notAfter|timestamp|time)$/i
 const ISO_DATE_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})$/i
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000
 
 interface LocalTimeOptions {
   readonly includeTime?: boolean
   readonly includeSeconds?: boolean
+}
+
+export interface ExpiryCountdown {
+  readonly expired: boolean
+  readonly days: number
 }
 
 function pad(value: number): string {
@@ -51,6 +57,18 @@ export function formatBrowserLocalTime(value: unknown, options: LocalTimeOptions
   if (options.includeTime === false) return `${year}-${month}-${day}`
   if (options.includeSeconds === false) return `${year}-${month}-${day} ${hour}:${minute}`
   return `${year}-${month}-${day} ${hour}:${minute}:${second}`
+}
+
+export function getExpiryCountdown(value: unknown, now = new Date()): ExpiryCountdown | null {
+  const expiry = parseDateValue(value)
+  const nowTime = now.getTime()
+  if (!expiry || !Number.isFinite(nowTime)) return null
+
+  const difference = expiry.getTime() - nowTime
+  return {
+    expired: difference < 0,
+    days: Math.ceil(Math.abs(difference) / MILLISECONDS_PER_DAY),
+  }
 }
 
 export function formatMaybeLocalTime(value: unknown, fallback = '—'): string {
