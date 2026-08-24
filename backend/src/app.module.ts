@@ -615,6 +615,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
   });
   executionResultSync.setMonitorsService(monitorsService);
   app.setResource('monitorsService', monitorsService);
+  assetsService.setCertificatesRepository(certificateServices.certificates.getRepository());
+  assetsService.setMonitorsRepository(monitorsService.getRepository());
 
   new CertificatesController(security, certificateServices).register(app.router);
   new InternalCaController(internalCaService, security, tasksService).register(app.router);
