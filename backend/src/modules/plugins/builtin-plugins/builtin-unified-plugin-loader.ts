@@ -107,7 +107,11 @@ async function loadBuiltinWorkflowPackages(localeResources: BuiltinLocaleResourc
         capability('certificate.rollback', 'certificate.rollback.v1', 'HIGH', ['CONTROL_PLANE', 'GATEWAY']),
       ],
       permissions: ['secret.read', 'artifact.read', 'network.connect'],
-      compatibility: { products: [workflow.metadata.name], platforms: workflow.metadata.platforms ?? [] },
+      compatibility: {
+        managementMethods: ['AGENT', 'PLUGIN', 'MANUAL'],
+        executionLocations: ['CONTROL_PLANE', 'GATEWAY'],
+        artifactContracts: ['certificate.deploy.v1'],
+      },
       resources: {
         workflows: { 'certificate.deploy': resourcePath, 'certificate.rollback': resourcePath },
         locales: localeResources.paths,
@@ -145,9 +149,12 @@ function loadBuiltinAgentPackages(localeResources: BuiltinLocaleResources): Arra
       ],
       permissions: agentManifest.permissions.map((permission) => permission.name),
       compatibility: {
-        products: agentManifest.compatibility.frameworks,
-        platforms: agentManifest.compatibility.platforms,
-        versions: agentManifest.compatibility.architectures,
+        productFamilies: agentManifest.compatibility.platforms.map((platform) => `${platform}_SERVER`),
+        frameworkTypes: (agentManifest.compatibility.frameworks ?? []).map(normalizeAgentFrameworkType),
+        targetTypes: ['tls.binding', 'tls.file'],
+        managementMethods: ['AGENT'],
+        executionLocations: ['AGENT'],
+        artifactContracts: ['certificate.deploy.v1'],
       },
       resources: {
         agentRecipes: { 'certificate.deploy': resourcePath, 'certificate.rollback': resourcePath },
@@ -162,6 +169,11 @@ function loadBuiltinAgentPackages(localeResources: BuiltinLocaleResources): Arra
 interface BuiltinLocaleResources {
   paths: Record<string, string>;
   contents: Record<string, string>;
+}
+
+function normalizeAgentFrameworkType(framework: string): string {
+  const types: Record<string, string> = { IIS: 'web.iis', NGINX: 'web.nginx', APACHE: 'web.apache', TOMCAT: 'app.tomcat', CUSTOM: 'custom.runtime' };
+  return types[framework] ?? framework.toLowerCase();
 }
 
 async function loadBuiltinLocaleResources(rootDirectory: string): Promise<BuiltinLocaleResources> {
@@ -190,8 +202,8 @@ function builtinLocaleKey(pluginId: string): string {
 }
 
 function workflowPluginVersion(pluginId: string, sourceVersion: string): string {
-  if (pluginId === 'builtin.workflow.apache-8444-cert-switch') return '1.1.5';
-  if (pluginId === 'builtin.workflow.synology-dsm-cert-import') return '1.1.4';
+  if (pluginId === 'builtin.workflow.apache-8444-cert-switch') return '1.1.6';
+  if (pluginId === 'builtin.workflow.synology-dsm-cert-import') return '1.1.5';
   return incrementPatchVersion(sourceVersion);
 }
 

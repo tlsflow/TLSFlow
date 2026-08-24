@@ -20,6 +20,9 @@ test('内置 DSL、Agent 与设备插件统一投影为不可变版本并可幂�
   const agent = first.find((item) => item.pluginId === 'builtin.linux.nginx.pem');
   assert.equal(citrix?.status, 'ENABLED');
   assert.equal(citrix?.version, '1.1.13');
+  assert.equal(apache?.version, '1.1.6');
+  assert.equal(synology?.version, '1.1.5');
+  assert.equal(agent?.version, '1.0.4');
   assert.equal(citrix?.manifest.scope, 'BOTH');
   assert.equal(citrix?.manifest.logoUrl, '/plugin-logos/citrix-adc.svg');
   assert.equal(citrix?.manifest.resources.locales && Object.keys(citrix.manifest.resources.locales).length, 8);
