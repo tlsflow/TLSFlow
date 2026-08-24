@@ -3995,7 +3995,7 @@ export default {
       pluginSources: {
         createTitle: '从插件新建工作流',
         applyTitle: '从插件生成草稿',
-        description: '只列出已启用插件中的证书部署或回滚工作流。复制后工作流归当前用户所有，可继续编辑。',
+        description: '只列出已启用插件中的证书工作流。先选择工作流，再选择插件版本。复制后工作流归当前用户所有，可继续编辑。',
         createAction: '创建工作流',
         applyAction: '生成草稿',
         currentTarget: '当前工作流：{name}',

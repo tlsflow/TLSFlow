@@ -635,6 +635,13 @@
 .gc-button--primary { background: var(--gc-color-primary); color: var(--gc-color-surface-solid); border-color: var(--gc-color-primary); box-shadow: 0 8px 20px var(--gc-color-primary-weak); }
 .gc-button--primary:hover { background: var(--gc-color-primary-hover); }
 .gc-button--danger { background: var(--gc-color-danger); color: var(--gc-color-surface-solid); border-color: var(--gc-color-danger); }
+.gc-icon-button:disabled,
+.gc-button:disabled {
+  cursor: not-allowed;
+  opacity: var(--gc-opacity-disabled);
+  box-shadow: none;
+  transform: none;
+}
 
 .gc-card {
   background: var(--gc-color-surface);

@@ -6,6 +6,7 @@ import type { CreateWorkflowDraftFromPluginInput, CreateWorkflowFromPluginInput,
 import type { WorkflowTemplatesApplicationService } from './workflow-templates.application-service.js';
 
 const allowedCapabilities = new Set(['certificate.deploy', 'certificate.rollback']);
+const listableCapabilities = new Set(['certificate.deploy']);
 
 export class PluginWorkflowSourceService {
   constructor(
@@ -31,6 +32,7 @@ export class PluginWorkflowSourceService {
       }
       for (const sourceBindings of bindingsByWorkflow.values()) {
         const binding = sourceBindings.find((item) => item.capabilityKey === 'certificate.deploy') ?? sourceBindings[0]!;
+        if (!listableCapabilities.has(binding.capabilityKey)) continue;
         const source = await this.workflows.getVersion(binding.workflowVersionId).catch(() => undefined);
         if (!source || source.status !== 'published' || source.contentHash !== binding.workflowContentSha256) continue;
         output.push({

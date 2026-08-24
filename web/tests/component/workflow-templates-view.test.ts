@@ -110,6 +110,9 @@ describe('WorkflowTemplatesView', () => {
             pluginVersionId: 'plugin-version-apache',
             pluginVersion: '1.0.0',
             displayName: 'Apache 8444 证书切换',
+            workflowName: 'apache-8444-cert-switch',
+            workflowDisplayName: 'Apache 8444 证书切换',
+            workflowResourcePath: 'workflows/deploy.json',
             capabilityKey: 'certificate.deploy',
             workflowTemplateId: 'plugin-workflow-apache',
             workflowVersionId: 'plugin-workflow-version-apache',
@@ -193,10 +196,12 @@ describe('WorkflowTemplatesView', () => {
 
     clickBodyButton('从插件新建工作流')
     await flushPromises()
-    const nameInput = document.body.querySelector('input.gc-input') as HTMLInputElement
-    nameInput.value = 'derived-workflow'
-    nameInput.dispatchEvent(new Event('input', { bubbles: true }))
+    ;(document.body.querySelector('.gc-plugin-workflow-source-selector__workflow-head') as HTMLButtonElement | null)?.click()
     await flushPromises()
+    ;(document.body.querySelector('.gc-plugin-workflow-source-selector__version-copy') as HTMLButtonElement | null)?.click()
+    await flushPromises()
+    const nameInput = document.body.querySelector('.workflow-file-template-modal__field input') as HTMLInputElement
+    expect(nameInput.value).toBe('apache-8444-cert-switch')
     clickBodyButton('创建工作流')
     await flushPromises()
 
@@ -204,7 +209,7 @@ describe('WorkflowTemplatesView', () => {
     expect(createWorkflowFromPlugin).toHaveBeenCalledWith(expect.objectContaining({
       pluginVersionId: 'plugin-version-apache',
       capabilityKey: 'certificate.deploy',
-      name: 'derived-workflow',
+      name: 'apache-8444-cert-switch',
     }))
     expect(vi.mocked(listWorkflowTemplates).mock.calls.length).toBe(initialLoadCalls)
   })
@@ -218,6 +223,10 @@ describe('WorkflowTemplatesView', () => {
     const initialLoadCalls = vi.mocked(listWorkflowTemplates).mock.calls.length
 
     clickBodyButton('生成草稿')
+    await flushPromises()
+    ;(document.body.querySelector('.gc-plugin-workflow-source-selector__workflow-head') as HTMLButtonElement | null)?.click()
+    await flushPromises()
+    ;(document.body.querySelector('.gc-plugin-workflow-source-selector__version-copy') as HTMLButtonElement | null)?.click()
     await flushPromises()
     const submitButtons = [...document.body.querySelectorAll('button')].filter((item) => item.textContent?.trim() === '生成草稿') as HTMLButtonElement[]
     expect(submitButtons.length).toBeGreaterThan(1)

@@ -3852,7 +3852,7 @@ export default {
       resourceName: '워크플로',
       description: '캔버스 초안대로 CURL/SSH/SFTP 워크플로 버전, 배포 상태 및 변경 사항을 관리합니다.',
       pluginSources: {
-        createTitle: '플러그인에서 만들기', applyTitle: '플러그인에서 초안 만들기', description: '활성화된 플러그인의 인증서 배포 또는 롤백 워크플로만 표시합니다.',
+        createTitle: '플러그인에서 만들기', applyTitle: '플러그인에서 초안 만들기', description: '활성화된 플러그인의 인증서 워크플로만 표시합니다. 먼저 워크플로를 선택한 다음 플러그인 버전을 선택하세요.',
         createAction: '워크플로 만들기', applyAction: '초안 만들기', currentTarget: '현재 워크플로: {name}', namePlaceholder: '워크플로 이름 입력', loading: '플러그인 소스 로딩 중...', empty: '사용 가능한 플러그인 소스가 없습니다.', version: '플러그인 버전', workflowVersion: '워크플로 버전', versionSource: '버전 출처: {plugin} / {version} / {capability}',
         capabilities: { deploy: '인증서 배포', rollback: '인증서 롤백' }, errors: { loadFailed: '플러그인 소스를 불러오지 못했습니다', nameRequired: '워크플로 이름을 입력하세요', missingApplyTarget: '대상 워크플로가 없습니다', actionFailed: '플러그인 워크플로 복사에 실패했습니다' }
       },

@@ -3877,7 +3877,7 @@ export default {
       resourceName: "工作流",
       description: "按畫布草稿管理 CURL/SSH/SFTP 工作流版本、釋出狀態與變更記錄。",
       pluginSources: {
-        createTitle: "從外掛新建工作流", applyTitle: "從外掛產生草稿", description: "只列出已啟用外掛中的憑證部署或回滾工作流。複製後工作流歸目前使用者所有並可繼續編輯。",
+        createTitle: "從外掛新建工作流", applyTitle: "從外掛產生草稿", description: "只列出已啟用外掛中的憑證工作流。先選擇工作流，再選擇外掛版本。複製後工作流歸目前使用者所有並可繼續編輯。",
         createAction: "建立工作流", applyAction: "產生草稿", currentTarget: "目前工作流：{name}", namePlaceholder: "輸入新工作流名稱", loading: "正在載入外掛工作流來源...", empty: "沒有可用的外掛工作流來源。", version: "外掛版本", workflowVersion: "工作流程版本", versionSource: "版本來源：{plugin} / {version} / {capability}",
         capabilities: { deploy: "憑證部署", rollback: "憑證回滾" }, errors: { loadFailed: "載入外掛工作流來源失敗", nameRequired: "請輸入工作流名稱", missingApplyTarget: "缺少要產生草稿的工作流", actionFailed: "外掛工作流複製失敗" }
       },

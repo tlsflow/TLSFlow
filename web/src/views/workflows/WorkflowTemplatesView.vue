@@ -64,6 +64,7 @@ const pluginSourceError = ref('')
 const selectedPluginSourceId = ref('')
 const pluginSourceTargetRow = ref<ViewRow | null>(null)
 const pluginSourceWorkflowName = ref('')
+const pluginSourceSuggestedName = ref('')
 const showNonDeploymentWorkflows = ref(false)
 
 const config: BusinessPageConfig = {
@@ -180,6 +181,16 @@ const publishedVersionLabel = computed(() => {
 const pluginSourceModalTitle = computed(() => pluginSourceMode.value === 'create' ? t('workflows.templates.pluginSources.createTitle') : t('workflows.templates.pluginSources.applyTitle'))
 const pluginSourceActionLabel = computed(() => pluginSourceMode.value === 'create' ? t('workflows.templates.pluginSources.createAction') : t('workflows.templates.pluginSources.applyAction'))
 const selectedPluginSource = computed(() => pluginSourceItems.value.find((item) => pluginSourceId(item) === selectedPluginSourceId.value) ?? null)
+
+watch(selectedPluginSource, (source) => {
+  if (!pluginSourceModalOpen.value || pluginSourceMode.value !== 'create' || !source) return
+  const suggestedName = suggestPluginWorkflowName(source)
+  if (!suggestedName) return
+  if (!pluginSourceWorkflowName.value.trim() || pluginSourceWorkflowName.value === pluginSourceSuggestedName.value) {
+    pluginSourceWorkflowName.value = suggestedName
+    pluginSourceSuggestedName.value = suggestedName
+  }
+})
 
 function isPluginInternal(row: ViewRow): boolean {
   return workflowOrigin(row) === 'plugin_internal'
@@ -344,6 +355,7 @@ async function openPluginSourceModal(mode: 'create' | 'apply', row?: ViewRow) {
   pluginSourceMode.value = mode
   pluginSourceTargetRow.value = row ?? null
   pluginSourceWorkflowName.value = mode === 'apply' && row ? readString(row.raw, ['name']) : ''
+  pluginSourceSuggestedName.value = ''
   pluginSourceModalOpen.value = true
   pluginSourceError.value = ''
   selectedPluginSourceId.value = ''
@@ -477,6 +489,16 @@ async function submitPluginSourceAction() {
   } finally {
     pluginSourcePending.value = false
   }
+}
+
+function suggestPluginWorkflowName(source: ApiRecord): string {
+  const workflowName = readString(source, ['workflowName'], '').trim()
+  if (workflowName && workflowName !== '—') return workflowName
+  return readString(source, ['workflowDisplayName', 'displayName', 'pluginId'], '').trim()
+}
+
+function updatePluginSourceWorkflowName(event: Event) {
+  pluginSourceWorkflowName.value = event.target instanceof HTMLInputElement ? event.target.value : ''
 }
 
 async function saveCanvasDraft(payload: { canvas: WorkflowCanvasDefinition }) {
@@ -911,9 +933,9 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
         <p v-if="pluginSourceMode === 'apply' && pluginSourceTargetRow" class="workflow-file-template-modal__target">
           {{ t('workflows.templates.pluginSources.currentTarget', { name: readString(pluginSourceTargetRow.raw, ['name'], pluginSourceTargetRow.id) }) }}
         </p>
-        <label v-if="pluginSourceMode === 'create'" class="workflow-file-template-modal__target">
-          <span>{{ t('workflows.templates.fields.name') }}</span>
-          <input v-model="pluginSourceWorkflowName" class="gc-input" type="text" :placeholder="t('workflows.templates.pluginSources.namePlaceholder')" />
+        <label v-if="pluginSourceMode === 'create'" class="workflow-file-template-modal__field gc-form-field">
+          <span>{{ t('workflows.templates.fields.name') }} <strong aria-hidden="true">*</strong></span>
+          <input :value="pluginSourceWorkflowName" type="text" required aria-required="true" :placeholder="t('workflows.templates.pluginSources.namePlaceholder')" @input="updatePluginSourceWorkflowName" />
         </label>
         <p v-if="pluginSourceError" class="workflow-file-template-modal__error">{{ pluginSourceError }}</p>
         <GcPluginWorkflowSourceSelector
@@ -926,7 +948,6 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
             deploy: t('workflows.templates.pluginSources.capabilities.deploy'),
             rollback: t('workflows.templates.pluginSources.capabilities.rollback'),
             version: t('workflows.templates.pluginSources.version'),
-            workflowVersion: t('workflows.templates.pluginSources.workflowVersion'),
           }"
         />
       </section>
@@ -1415,6 +1436,15 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 .workflow-file-template-modal__target,
 .workflow-file-template-modal__loading {
   color: var(--gc-color-muted);
+}
+
+.workflow-file-template-modal__field {
+  width: min(420px, 100%);
+}
+
+.workflow-file-template-modal__field > span strong {
+  color: var(--gc-color-danger);
+  font-size: 13px;
 }
 
 .workflow-file-template-modal__error {

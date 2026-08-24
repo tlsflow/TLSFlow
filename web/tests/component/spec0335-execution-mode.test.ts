@@ -31,25 +31,35 @@ describe('Spec 033.5 执行来源组件', () => {
     expect(wrapper.emitted('update:versionSelection')).toEqual([['PINNED']])
   })
 
-  it('插件来源选择合并同一版本，并返回插件版本与能力组合键', async () => {
+  it('插件来源选择先按工作流合并，再按版本选择具体来源', async () => {
     const wrapper = mount(GcPluginWorkflowSourceSelector, {
       props: {
         modelValue: '',
         items: [
-          { pluginVersionId: 'plugin-version-1', pluginVersion: '1.0.0', displayName: 'plugin', capabilityKey: 'certificate.deploy' },
-          { pluginVersionId: 'plugin-version-1', pluginVersion: '1.0.0', displayName: 'plugin', capabilityKey: 'certificate.rollback' },
+          { pluginId: 'builtin.workflow.apache', workflowResourcePath: 'workflows/deploy.json', workflowName: 'apache-https', workflowDisplayName: 'Apache HTTPS 证书部署', pluginVersionId: 'plugin-version-2', pluginVersion: '1.2.8', displayName: 'Apache HTTPS 证书部署', capabilityKey: 'certificate.deploy' },
+          { pluginId: 'builtin.workflow.apache', workflowResourcePath: 'workflows/deploy.json', workflowName: 'apache-https', workflowDisplayName: 'Apache HTTPS 证书部署', pluginVersionId: 'plugin-version-2', pluginVersion: '1.2.8', displayName: 'Apache HTTPS 证书部署', capabilityKey: 'certificate.rollback' },
+          { pluginId: 'builtin.workflow.apache', workflowResourcePath: 'workflows/deploy.json', workflowName: 'apache-https', workflowDisplayName: 'Apache HTTPS 证书部署', pluginVersionId: 'plugin-version-1', pluginVersion: '1.2.7', displayName: 'Apache HTTPS 证书部署', capabilityKey: 'certificate.deploy' },
         ],
-        labels: { loading: 'loading', empty: 'empty', deploy: 'deploy', rollback: 'rollback', version: 'version', workflowVersion: 'workflow version' },
+        labels: { loading: 'loading', empty: 'empty', deploy: 'deploy', rollback: 'rollback', version: 'version' },
       },
     })
-    expect(wrapper.findAll('.gc-plugin-workflow-source-selector__item')).toHaveLength(1)
-    expect(wrapper.findAll('input')).toHaveLength(2)
-    await wrapper.find('input[value="plugin-version-1:certificate.deploy"]').setValue(true)
-    expect(wrapper.emitted('update:modelValue')).toEqual([['plugin-version-1:certificate.deploy']])
-    await wrapper.find('input[value="plugin-version-1:certificate.rollback"]').setValue(true)
+    expect(wrapper.findAll('.gc-plugin-workflow-source-selector__workflow')).toHaveLength(1)
+    expect(wrapper.findAll('.gc-plugin-workflow-source-selector__version')).toHaveLength(0)
+    expect(wrapper.text()).not.toContain('workflow version')
+
+    await wrapper.findAll('.gc-plugin-workflow-source-selector__workflow-head')[0]!.trigger('click')
+    expect(wrapper.findAll('.gc-plugin-workflow-source-selector__version')).toHaveLength(2)
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+
+    await wrapper.findAll('.gc-plugin-workflow-source-selector__workflow-head')[0]!.trigger('click')
+    expect(wrapper.findAll('.gc-plugin-workflow-source-selector__version')).toHaveLength(0)
+
+    await wrapper.findAll('.gc-plugin-workflow-source-selector__workflow-head')[0]!.trigger('click')
+    expect(wrapper.findAll('.gc-plugin-workflow-source-selector__version')).toHaveLength(2)
+
+    await wrapper.findAll('.gc-plugin-workflow-source-selector__version-copy')[0]!.trigger('click')
     expect(wrapper.emitted('update:modelValue')).toEqual([
-      ['plugin-version-1:certificate.deploy'],
-      ['plugin-version-1:certificate.rollback'],
+      ['plugin-version-2:certificate.deploy'],
     ])
   })
 })
