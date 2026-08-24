@@ -149,6 +149,9 @@ describe('NotificationsView', () => {
 
     await typeSelect.setValue('wecom')
     expect(form.text()).toContain('企业微信群机器人 Webhook URL')
+    expect(form.text()).toContain('部署模式')
+    expect(form.text()).toContain('公有云')
+    expect(form.text()).toContain('私有化部署')
 
     await typeSelect.setValue('slack')
     expect(form.text()).toContain('Slack Incoming Webhook URL')
@@ -172,6 +175,54 @@ describe('NotificationsView', () => {
     expect(form.text()).toContain('固定 Header（JSON）')
     expect(form.text()).toContain('HMAC-SHA256 签名密钥')
     expect(form.findAll('input[type="password"]').length).toBe(2)
+  })
+
+  it('企业微信私有化模式允许企业 HTTPS 地址且渠道记录不保存白名单配置', async () => {
+    apiMocks.listNotificationChannels.mockResolvedValue({ data: [] })
+    apiMocks.listNotificationDeliveries.mockResolvedValue({ data: { items: [], page: 1, pageSize: 100, total: 0 } })
+    apiMocks.listNotificationRoutes.mockResolvedValue({ data: [] })
+    apiMocks.listNotificationTemplates.mockResolvedValue({ data: [] })
+    apiMocks.listNotificationSilences.mockResolvedValue({ data: [] })
+    securityApiMocks.createSecret.mockResolvedValue({ data: { id: 'sec-wecom-private', secretRef: 'secret://api_token/sec-wecom-private#current' } })
+    apiMocks.createNotificationChannel.mockResolvedValue({ data: { id: 'channel-wecom-private' } })
+
+    const wrapper = mount(NotificationsView, {
+      global: {
+        plugins: [i18n],
+        stubs: {
+          GcTabs: { props: ['modelValue'], template: '<nav />' },
+          GcModal: {
+            props: ['open', 'title'],
+            template: '<section v-if="open" role="dialog"><h2>{{ title }}</h2><slot /><slot name="actions" /></section>'
+          },
+          GcStatusTag: { props: ['status'], template: '<span>{{ status }}</span>' }
+        }
+      }
+    })
+    await flushPromises()
+
+    const createButton = wrapper.findAll('button').find((button) => button.text() === '新建通知渠道')
+    await createButton?.trigger('click')
+    const form = wrapper.get('#notification-channel-form')
+    await form.get('input:not([type="password"])').setValue('私有企业微信')
+    await form.get('select').setValue('wecom')
+    const deploymentField = form.findAll('label').find((label) => label.text().includes('部署模式'))
+    await deploymentField!.get('select').setValue('private')
+    expect(form.text()).toContain('受信任 HTTPS Origin 白名单')
+    await form.get('input[type="password"]').setValue('https://wecom.example.internal/custom/webhook?key=plaintext-token')
+    await form.trigger('submit')
+    await flushPromises()
+
+    expect(apiMocks.createNotificationChannel).toHaveBeenCalledWith(expect.objectContaining({
+      name: '私有企业微信',
+      type: 'wecom',
+      config: {},
+      secretRefs: { webhookUrl: 'secret://api_token/sec-wecom-private#current' }
+    }))
+    const request = JSON.stringify(apiMocks.createNotificationChannel.mock.calls)
+    expect(request).not.toContain('deploymentMode')
+    expect(request).not.toContain('privateOrigins')
+    expect(request).not.toContain('plaintext-token')
   })
 
   it('Telegram Bot Token 只写入 Secret 服务，渠道请求使用固定 Bot API 配置', async () => {

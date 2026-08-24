@@ -1638,8 +1638,9 @@ export default {
     sections: { channels: '通知渠道记录', deliveries: '投递记录' },
     channels: { createTitle: '新建通知渠道' },
     channelTypes: { email: 'Email', wecom: '企业微信', slack: 'Slack', feishu: '飞书', dingtalk: '钉钉', telegram: 'Telegram', webhook: '通用 Webhook' },
+    deploymentModes: { public: '公有云', private: '私有化部署' },
     fields: {
-      name: '渠道名称', type: '渠道类型', smtpHost: 'SMTP 主机', smtpPort: 'SMTP 端口', from: '发件地址',
+      name: '渠道名称', type: '渠道类型', deploymentMode: '部署模式', smtpHost: 'SMTP 主机', smtpPort: 'SMTP 端口', from: '发件地址',
       smtpSecurity: '连接加密', smtpUsername: 'SMTP 用户名', smtpPassword: 'SMTP 密码', secretValuePlaceholder: '请输入密文内容',
       optionalSecretValuePlaceholder: '可选；请输入密文内容', wecomWebhookUrl: '企业微信群机器人 Webhook URL', slackWebhookUrl: 'Slack Incoming Webhook URL',
       feishuWebhookUrl: '飞书自定义机器人 Webhook URL', dingtalkWebhookUrl: '钉钉自定义机器人 Webhook URL', feishuSigningSecret: '飞书签名密钥',
@@ -1665,7 +1666,8 @@ export default {
       secretStoredHint: '该内容将加密保存，创建后不会明文回显。', createSecretFailed: '密文保存失败', invalidHeaders: '固定 Header 必须是合法的 JSON 对象',
       smtpCredentialsPairRequired: 'SMTP 用户名和密码必须同时填写', webhookUrlRequired: 'Webhook URL 不能为空', botTokenRequired: 'Telegram Bot Token 不能为空',
       chatIdRequired: 'Telegram Chat ID 不能为空', feishuWebhookUrlInvalid: '请输入飞书官方自定义机器人 Webhook URL', dingtalkWebhookUrlInvalid: '请输入钉钉官方自定义机器人 Webhook URL',
-      telegramBotTokenInvalid: 'Telegram Bot Token 格式无效', telegramMessageThreadIdInvalid: 'Telegram Topic ID 必须是正整数', telegramUsesBotApi: 'Telegram 使用官方 Bot API sendMessage 发送通知，不使用接收事件的 Webhook。'
+      wecomWebhookUrlInvalid: '请输入有效的企业微信机器人 HTTPS Webhook URL', telegramBotTokenInvalid: 'Telegram Bot Token 格式无效', telegramMessageThreadIdInvalid: 'Telegram Topic ID 必须是正整数',
+      privateDeploymentAllowlistHint: '私有化地址必须由 GCAC 运维加入对应平台的受信任 HTTPS Origin 白名单，否则测试和投递会被后端拒绝。', telegramUsesBotApi: 'Telegram 使用官方 Bot API sendMessage 发送通知，不使用接收事件的 Webhook。'
     }
   },
   settings: {

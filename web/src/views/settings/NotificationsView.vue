@@ -74,6 +74,7 @@ const channelForm = reactive({
   smtpSecurity: 'starttls' as 'starttls' | 'ssl',
   username: '',
   password: '',
+  deploymentMode: 'public' as 'public' | 'private',
   webhookUrl: '',
   method: 'POST',
   headersJson: '',
@@ -203,6 +204,10 @@ function assertPlatformWebhookUrl(type: 'feishu' | 'dingtalk', value: string) {
   } catch {
     throw new Error(t(`notifications.messages.${type}WebhookUrlInvalid`))
   }
+  if (channelForm.deploymentMode === 'private') {
+    if (url.protocol !== 'https:' || url.username || url.password) throw new Error(t(`notifications.messages.${type}WebhookUrlInvalid`))
+    return
+  }
   const valid = type === 'feishu'
     ? url.protocol === 'https:' && ['open.feishu.cn', 'open.larksuite.com'].includes(url.hostname) && url.pathname.startsWith('/open-apis/bot/v2/hook/')
     : url.protocol === 'https:' && url.hostname === 'oapi.dingtalk.com' && url.pathname === '/robot/send'
@@ -232,6 +237,7 @@ async function createChannel() {
         rejectUnauthorized: true
       }
     } else if (channelForm.type === 'wecom' || channelForm.type === 'slack') {
+      if (channelForm.type === 'wecom') assertWeComWebhookUrl(channelForm.webhookUrl.trim())
       const webhookUrlRef = await saveChannelSecret('webhookUrl', channelForm.webhookUrl.trim(), 'api_token')
       if (!webhookUrlRef) throw new Error(t('notifications.messages.webhookUrlRequired'))
       secretRefs.webhookUrl = webhookUrlRef
@@ -278,9 +284,25 @@ async function createChannel() {
     })
     Object.assign(channelForm, {
       name: '', type: 'email', host: '', port: '587', from: '', smtpSecurity: 'starttls', username: '', password: '',
-      webhookUrl: '', method: 'POST', headersJson: '', signingSecret: '', botToken: '', chatId: '', messageThreadId: ''
+      deploymentMode: 'public', webhookUrl: '', method: 'POST', headersJson: '', signingSecret: '', botToken: '', chatId: '', messageThreadId: ''
     })
   })
+}
+
+function assertWeComWebhookUrl(value: string) {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    throw new Error(t('notifications.messages.wecomWebhookUrlInvalid'))
+  }
+  if (channelForm.deploymentMode === 'private') {
+    if (url.protocol !== 'https:' || url.username || url.password) throw new Error(t('notifications.messages.wecomWebhookUrlInvalid'))
+    return
+  }
+  if (url.protocol !== 'https:' || url.hostname !== 'qyapi.weixin.qq.com' || url.pathname !== '/cgi-bin/webhook/send') {
+    throw new Error(t('notifications.messages.wecomWebhookUrlInvalid'))
+  }
 }
 
 async function toggleChannel(channel: NotificationChannel) {
@@ -466,6 +488,8 @@ onMounted(refresh)
       <form v-if="activeDialog === 'channel'" id="notification-channel-form" class="notifications-page__form" @submit.prevent="createChannel">
         <label><span>{{ t('notifications.fields.name') }}</span><input v-model="channelForm.name" required /></label>
         <label><span>{{ t('notifications.fields.type') }}</span><select v-model="channelForm.type"><option value="email">{{ t('notifications.channelTypes.email') }}</option><option value="wecom">{{ t('notifications.channelTypes.wecom') }}</option><option value="slack">{{ t('notifications.channelTypes.slack') }}</option><option value="feishu">{{ t('notifications.channelTypes.feishu') }}</option><option value="dingtalk">{{ t('notifications.channelTypes.dingtalk') }}</option><option value="telegram">{{ t('notifications.channelTypes.telegram') }}</option><option value="webhook">{{ t('notifications.channelTypes.webhook') }}</option></select></label>
+        <label v-if="channelForm.type === 'wecom' || channelForm.type === 'feishu' || channelForm.type === 'dingtalk'"><span>{{ t('notifications.fields.deploymentMode') }}</span><select v-model="channelForm.deploymentMode"><option value="public">{{ t('notifications.deploymentModes.public') }}</option><option value="private">{{ t('notifications.deploymentModes.private') }}</option></select></label>
+        <p v-if="channelForm.deploymentMode === 'private' && (channelForm.type === 'wecom' || channelForm.type === 'feishu' || channelForm.type === 'dingtalk')" class="notifications-page__form-hint">{{ t('notifications.messages.privateDeploymentAllowlistHint') }}</p>
         <template v-if="channelForm.type === 'email'">
           <label><span>{{ t('notifications.fields.smtpHost') }}</span><input v-model="channelForm.host" required /></label>
           <label><span>{{ t('notifications.fields.smtpPort') }}</span><input v-model="channelForm.port" type="number" required /></label>

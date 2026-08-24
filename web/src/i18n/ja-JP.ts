@@ -1638,8 +1638,9 @@ export default {
     sections: { channels: '通知チャネル一覧', deliveries: '配信履歴' },
     channels: { createTitle: '通知チャネルを新規作成' },
     channelTypes: { email: 'Email', wecom: 'WeCom', slack: 'Slack', feishu: 'Feishu', dingtalk: 'DingTalk', telegram: 'Telegram', webhook: '汎用 Webhook' },
+    deploymentModes: { public: 'パブリッククラウド', private: 'プライベート展開' },
     fields: {
-      name: 'チャネル名', type: 'チャネル種別', smtpHost: 'SMTP ホスト', smtpPort: 'SMTP ポート', from: '送信元アドレス',
+      name: 'チャネル名', type: 'チャネル種別', deploymentMode: '展開モード', smtpHost: 'SMTP ホスト', smtpPort: 'SMTP ポート', from: '送信元アドレス',
       smtpSecurity: '接続の暗号化', smtpUsername: 'SMTP ユーザー名', smtpPassword: 'SMTP パスワード', secretValuePlaceholder: '秘密情報を入力',
       optionalSecretValuePlaceholder: '任意；秘密情報を入力', wecomWebhookUrl: 'WeCom グループボット Webhook URL', slackWebhookUrl: 'Slack Incoming Webhook URL',
       feishuWebhookUrl: 'Feishu カスタムボット Webhook URL', dingtalkWebhookUrl: 'DingTalk カスタムボット Webhook URL', feishuSigningSecret: 'Feishu 署名キー',
@@ -1665,7 +1666,8 @@ export default {
       secretStoredHint: 'この内容は暗号化して保存され、作成後は再表示されません。', createSecretFailed: '秘密情報の保存に失敗しました', invalidHeaders: '固定 Header は有効な JSON オブジェクトである必要があります',
       smtpCredentialsPairRequired: 'SMTP ユーザー名とパスワードは両方入力してください', webhookUrlRequired: 'Webhook URL は必須です', botTokenRequired: 'Telegram Bot Token は必須です',
       chatIdRequired: 'Telegram Chat ID は必須です', feishuWebhookUrlInvalid: 'Feishu 公式カスタムボット Webhook URL を入力してください', dingtalkWebhookUrlInvalid: 'DingTalk 公式カスタムボット Webhook URL を入力してください',
-      telegramBotTokenInvalid: 'Telegram Bot Token の形式が無効です', telegramMessageThreadIdInvalid: 'Telegram Topic ID は正の整数である必要があります', telegramUsesBotApi: 'Telegram 通知はイベント受信用 Webhook ではなく、公式 Bot API の sendMessage を使用します。'
+      wecomWebhookUrlInvalid: '有効な WeCom ボット HTTPS Webhook URL を入力してください', telegramBotTokenInvalid: 'Telegram Bot Token の形式が無効です', telegramMessageThreadIdInvalid: 'Telegram Topic ID は正の整数である必要があります',
+      privateDeploymentAllowlistHint: 'プライベートエンドポイントは GCAC 運用担当者が対象プラットフォームの信頼済み HTTPS Origin 許可リストへ追加する必要があります。', telegramUsesBotApi: 'Telegram 通知はイベント受信用 Webhook ではなく、公式 Bot API の sendMessage を使用します。'
     }
   },
   settings: {

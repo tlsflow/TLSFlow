@@ -1638,8 +1638,9 @@ export default {
     sections: { channels: 'Channel records', deliveries: 'Delivery records' },
     channels: { createTitle: 'Create notification channel' },
     channelTypes: { email: 'Email', wecom: 'WeCom', slack: 'Slack', feishu: 'Feishu', dingtalk: 'DingTalk', telegram: 'Telegram', webhook: 'Generic Webhook' },
+    deploymentModes: { public: 'Public cloud', private: 'Private deployment' },
     fields: {
-      name: 'Channel name', type: 'Channel type', smtpHost: 'SMTP host', smtpPort: 'SMTP port', from: 'From address',
+      name: 'Channel name', type: 'Channel type', deploymentMode: 'Deployment mode', smtpHost: 'SMTP host', smtpPort: 'SMTP port', from: 'From address',
       smtpSecurity: 'Connection security', smtpUsername: 'SMTP username', smtpPassword: 'SMTP password', secretValuePlaceholder: 'Enter the secret value',
       optionalSecretValuePlaceholder: 'Optional; enter the secret value', wecomWebhookUrl: 'WeCom group bot Webhook URL', slackWebhookUrl: 'Slack Incoming Webhook URL',
       feishuWebhookUrl: 'Feishu custom bot Webhook URL', dingtalkWebhookUrl: 'DingTalk custom bot Webhook URL', feishuSigningSecret: 'Feishu signing secret',
@@ -1665,7 +1666,8 @@ export default {
       secretStoredHint: 'This value is encrypted and will not be shown again after creation.', createSecretFailed: 'Failed to save the encrypted value', invalidHeaders: 'Fixed headers must be a valid JSON object',
       smtpCredentialsPairRequired: 'SMTP username and password must be provided together', webhookUrlRequired: 'Webhook URL is required', botTokenRequired: 'Telegram Bot Token is required',
       chatIdRequired: 'Telegram Chat ID is required', feishuWebhookUrlInvalid: 'Enter an official Feishu custom bot Webhook URL', dingtalkWebhookUrlInvalid: 'Enter an official DingTalk custom bot Webhook URL',
-      telegramBotTokenInvalid: 'The Telegram Bot Token format is invalid', telegramMessageThreadIdInvalid: 'The Telegram Topic ID must be a positive integer', telegramUsesBotApi: 'Telegram notifications use the official Bot API sendMessage method, not the event-receiving Webhook.'
+      wecomWebhookUrlInvalid: 'Enter a valid WeCom bot HTTPS Webhook URL', telegramBotTokenInvalid: 'The Telegram Bot Token format is invalid', telegramMessageThreadIdInvalid: 'The Telegram Topic ID must be a positive integer',
+      privateDeploymentAllowlistHint: 'A GCAC operator must add the private endpoint to the trusted HTTPS Origin allowlist for this platform, otherwise testing and delivery are rejected.', telegramUsesBotApi: 'Telegram notifications use the official Bot API sendMessage method, not the event-receiving Webhook.'
     }
   },
   settings: {

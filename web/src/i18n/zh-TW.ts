@@ -1638,8 +1638,9 @@ export default {
     sections: { channels: '通知渠道記錄', deliveries: '投遞記錄' },
     channels: { createTitle: '新增通知渠道' },
     channelTypes: { email: 'Email', wecom: '企業微信', slack: 'Slack', feishu: '飛書', dingtalk: '釘釘', telegram: 'Telegram', webhook: '通用 Webhook' },
+    deploymentModes: { public: '公有雲', private: '私有化部署' },
     fields: {
-      name: '渠道名稱', type: '渠道類型', smtpHost: 'SMTP 主機', smtpPort: 'SMTP 連接埠', from: '寄件地址',
+      name: '渠道名稱', type: '渠道類型', deploymentMode: '部署模式', smtpHost: 'SMTP 主機', smtpPort: 'SMTP 連接埠', from: '寄件地址',
       smtpSecurity: '連線加密', smtpUsername: 'SMTP 使用者名稱', smtpPassword: 'SMTP 密碼', secretValuePlaceholder: '請輸入密文內容',
       optionalSecretValuePlaceholder: '選填；請輸入密文內容', wecomWebhookUrl: '企業微信群機器人 Webhook URL', slackWebhookUrl: 'Slack Incoming Webhook URL',
       feishuWebhookUrl: '飛書自訂機器人 Webhook URL', dingtalkWebhookUrl: '釘釘自訂機器人 Webhook URL', feishuSigningSecret: '飛書簽章密鑰',
@@ -1665,7 +1666,8 @@ export default {
       secretStoredHint: '此內容將加密儲存，建立後不會以明文顯示。', createSecretFailed: '密文儲存失敗', invalidHeaders: '固定 Header 必須是有效的 JSON 物件',
       smtpCredentialsPairRequired: 'SMTP 使用者名稱與密碼必須同時填寫', webhookUrlRequired: 'Webhook URL 不可為空', botTokenRequired: 'Telegram Bot Token 不可為空',
       chatIdRequired: 'Telegram Chat ID 不可為空', feishuWebhookUrlInvalid: '請輸入飛書官方自訂機器人 Webhook URL', dingtalkWebhookUrlInvalid: '請輸入釘釘官方自訂機器人 Webhook URL',
-      telegramBotTokenInvalid: 'Telegram Bot Token 格式無效', telegramMessageThreadIdInvalid: 'Telegram Topic ID 必須是正整數', telegramUsesBotApi: 'Telegram 使用官方 Bot API sendMessage 傳送通知，不使用接收事件的 Webhook。'
+      wecomWebhookUrlInvalid: '請輸入有效的企業微信機器人 HTTPS Webhook URL', telegramBotTokenInvalid: 'Telegram Bot Token 格式無效', telegramMessageThreadIdInvalid: 'Telegram Topic ID 必須是正整數',
+      privateDeploymentAllowlistHint: '私有化地址必須由 GCAC 維運加入對應平台的受信任 HTTPS Origin 白名單，否則測試與投遞會被後端拒絕。', telegramUsesBotApi: 'Telegram 使用官方 Bot API sendMessage 傳送通知，不使用接收事件的 Webhook。'
     }
   },
   settings: {

@@ -1612,8 +1612,9 @@ export default {
     sections: { channels: 'Записи каналов', deliveries: 'Записи доставки' },
     channels: { createTitle: 'Создать канал уведомлений' },
     channelTypes: { email: 'Email', wecom: 'WeCom', slack: 'Slack', feishu: 'Feishu', dingtalk: 'DingTalk', telegram: 'Telegram', webhook: 'Универсальный Webhook' },
+    deploymentModes: { public: 'Публичное облако', private: 'Частное развертывание' },
     fields: {
-      name: 'Имя канала', type: 'Тип канала', smtpHost: 'SMTP-хост', smtpPort: 'SMTP-порт', from: 'Адрес отправителя',
+      name: 'Имя канала', type: 'Тип канала', deploymentMode: 'Режим развертывания', smtpHost: 'SMTP-хост', smtpPort: 'SMTP-порт', from: 'Адрес отправителя',
       smtpSecurity: 'Шифрование соединения', smtpUsername: 'Имя пользователя SMTP', smtpPassword: 'Пароль SMTP', secretValuePlaceholder: 'Введите секретное значение',
       optionalSecretValuePlaceholder: 'Необязательно; введите секретное значение', wecomWebhookUrl: 'Webhook URL группового робота WeCom', slackWebhookUrl: 'Slack Incoming Webhook URL',
       feishuWebhookUrl: 'Webhook URL пользовательского робота Feishu', dingtalkWebhookUrl: 'Webhook URL пользовательского робота DingTalk', feishuSigningSecret: 'Секрет подписи Feishu',
@@ -1639,7 +1640,8 @@ export default {
       secretStoredHint: 'Значение будет сохранено в зашифрованном виде и больше не отобразится открытым текстом.', createSecretFailed: 'Не удалось сохранить секретное значение', invalidHeaders: 'Фиксированные Header должны быть корректным объектом JSON',
       smtpCredentialsPairRequired: 'Имя пользователя и пароль SMTP необходимо указывать вместе', webhookUrlRequired: 'Webhook URL обязателен', botTokenRequired: 'Telegram Bot Token обязателен',
       chatIdRequired: 'Telegram Chat ID обязателен', feishuWebhookUrlInvalid: 'Введите официальный Webhook URL пользовательского робота Feishu', dingtalkWebhookUrlInvalid: 'Введите официальный Webhook URL пользовательского робота DingTalk',
-      telegramBotTokenInvalid: 'Неверный формат Telegram Bot Token', telegramMessageThreadIdInvalid: 'Telegram Topic ID должен быть положительным целым числом', telegramUsesBotApi: 'Уведомления Telegram отправляются методом sendMessage официального Bot API, а не через Webhook для получения событий.'
+      wecomWebhookUrlInvalid: 'Введите корректный HTTPS Webhook URL робота WeCom', telegramBotTokenInvalid: 'Неверный формат Telegram Bot Token', telegramMessageThreadIdInvalid: 'Telegram Topic ID должен быть положительным целым числом',
+      privateDeploymentAllowlistHint: 'Оператор GCAC должен добавить частный endpoint в список доверенных HTTPS Origin соответствующей платформы.', telegramUsesBotApi: 'Уведомления Telegram отправляются методом sendMessage официального Bot API, а не через Webhook для получения событий.'
     }
   },
   settings: {

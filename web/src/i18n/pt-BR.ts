@@ -1612,8 +1612,9 @@ export default {
     sections: { channels: 'Registros de canais', deliveries: 'Registros de entrega' },
     channels: { createTitle: 'Criar canal de notificação' },
     channelTypes: { email: 'Email', wecom: 'WeCom', slack: 'Slack', feishu: 'Feishu', dingtalk: 'DingTalk', telegram: 'Telegram', webhook: 'Webhook genérico' },
+    deploymentModes: { public: 'Nuvem pública', private: 'Implantação privada' },
     fields: {
-      name: 'Nome do canal', type: 'Tipo do canal', smtpHost: 'Host SMTP', smtpPort: 'Porta SMTP', from: 'Endereço remetente',
+      name: 'Nome do canal', type: 'Tipo do canal', deploymentMode: 'Modo de implantação', smtpHost: 'Host SMTP', smtpPort: 'Porta SMTP', from: 'Endereço remetente',
       smtpSecurity: 'Segurança da conexão', smtpUsername: 'Usuário SMTP', smtpPassword: 'Senha SMTP', secretValuePlaceholder: 'Informe o valor secreto',
       optionalSecretValuePlaceholder: 'Opcional; informe o valor secreto', wecomWebhookUrl: 'URL Webhook do robô de grupo WeCom', slackWebhookUrl: 'URL Slack Incoming Webhook',
       feishuWebhookUrl: 'URL Webhook do robô personalizado Feishu', dingtalkWebhookUrl: 'URL Webhook do robô personalizado DingTalk', feishuSigningSecret: 'Segredo de assinatura do Feishu',
@@ -1639,7 +1640,8 @@ export default {
       secretStoredHint: 'Este valor será criptografado e não será exibido novamente após a criação.', createSecretFailed: 'Falha ao salvar o valor criptografado', invalidHeaders: 'Os Headers fixos devem ser um objeto JSON válido',
       smtpCredentialsPairRequired: 'Usuário e senha SMTP devem ser informados juntos', webhookUrlRequired: 'A URL Webhook é obrigatória', botTokenRequired: 'O Telegram Bot Token é obrigatório',
       chatIdRequired: 'O Telegram Chat ID é obrigatório', feishuWebhookUrlInvalid: 'Informe uma URL Webhook oficial de robô personalizado Feishu', dingtalkWebhookUrlInvalid: 'Informe uma URL Webhook oficial de robô personalizado DingTalk',
-      telegramBotTokenInvalid: 'O formato do Telegram Bot Token é inválido', telegramMessageThreadIdInvalid: 'O Telegram Topic ID deve ser um inteiro positivo', telegramUsesBotApi: 'As notificações do Telegram usam o método sendMessage da Bot API oficial, e não o Webhook de recebimento de eventos.'
+      wecomWebhookUrlInvalid: 'Informe uma URL Webhook HTTPS válida do robô WeCom', telegramBotTokenInvalid: 'O formato do Telegram Bot Token é inválido', telegramMessageThreadIdInvalid: 'O Telegram Topic ID deve ser um inteiro positivo',
+      privateDeploymentAllowlistHint: 'Um operador do GCAC deve adicionar o endpoint privado à lista de Origins HTTPS confiáveis da plataforma.', telegramUsesBotApi: 'As notificações do Telegram usam o método sendMessage da Bot API oficial, e não o Webhook de recebimento de eventos.'
     }
   },
   settings: {
