@@ -38,7 +38,7 @@ export interface PluginWorkflowVersionStorePort {
 }
 
 /**
- * P2 PluginWorkflow 的持久化路径。
+ * PluginWorkflow 的持久化路径。
  *
  * 该存储与旧 Curl/SSH DSL 共用 WorkflowVersion 文档空间，但只接受
  * PluginWorkflow 内容，不把插件步骤投影成宿主步骤，也不参与旧执行器。
@@ -106,13 +106,8 @@ export class PluginWorkflowVersionStore implements PluginWorkflowVersionStorePor
     if (list.some((version) => version.contentHash === contentHash)) {
       throw new AppError('VALIDATION_FAILED', 'duplicate workflow version content');
     }
-    const previous = [...list].sort((left, right) => right.version - left.version)[0];
-    if (previous && compareSemanticVersions(input.content.metadata.version, previous.content.metadata.version) <= 0) {
-      throw new AppError('VALIDATION_FAILED', 'PluginWorkflow 内容变化时必须递进 metadata.version', {
-        previousVersion: previous.content.metadata.version,
-        nextVersion: input.content.metadata.version,
-      });
-    }
+    // 插件版本事实由 Manifest 的 pluginId@version 和包摘要承担。
+    // Workflow metadata.version 只在 Schema 边界校验格式，不重复建立版本门禁。
     const version = createVersion(
       template.id,
       list.reduce((max, item) => Math.max(max, item.version), 0) + 1,
@@ -250,18 +245,4 @@ function assertPluginWorkflowContent(content: PluginWorkflowResourceV1): void {
 
 function isPluginWorkflowContent(content: unknown): content is PluginWorkflowResourceV1 {
   return isPluginWorkflowResource(content) || isPluginWorkflowRunnerResource(content);
-}
-
-function compareSemanticVersions(left: string, right: string): number {
-  const [leftCore, leftPre = ''] = left.split('+', 1)[0]!.split('-', 2);
-  const [rightCore, rightPre = ''] = right.split('+', 1)[0]!.split('-', 2);
-  const leftParts = leftCore!.split('.').map(Number);
-  const rightParts = rightCore!.split('.').map(Number);
-  for (let index = 0; index < 3; index += 1) {
-    if ((leftParts[index] ?? 0) !== (rightParts[index] ?? 0)) return (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
-  }
-  if (!leftPre && !rightPre) return 0;
-  if (!leftPre) return 1;
-  if (!rightPre) return -1;
-  return leftPre.localeCompare(rightPre);
 }

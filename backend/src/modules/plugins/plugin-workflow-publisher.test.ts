@@ -52,6 +52,39 @@ test('插件升级复用原工作流模板并追加不可变版本', async () =>
   assert.deepEqual((await workflows.listVersions(first!.workflowTemplateId)).map((item) => item.version).sort((left, right) => left - right), [1, 2]);
 });
 
+test('插件 Workflow 内容变化时只要求 Manifest 版本变化，不要求 metadata.version 递进', async () => {
+  const bindings = new Map<string, PluginWorkflowBindingRecord>();
+  const workflows = new WorkflowTemplatesApplicationService(undefined, {}, workflowRepository(bindings));
+  const publisher = new PluginWorkflowPublisherService(workflows, workflowRepository(bindings));
+  const firstPlugin = pluginRecord('workflow-metadata-stable', '1.0.0', '1.0.0');
+  const secondPlugin = pluginRecord('workflow-metadata-stable-next', '1.1.0', '1.0.0');
+  const resourcePath = 'workflows/deploy.json';
+  firstPlugin.manifest.resources.runtimeEntrypoint = 'runtime/index.js';
+  secondPlugin.manifest.resources.runtimeEntrypoint = 'runtime/index.js';
+  const changed = JSON.parse(secondPlugin.resources[resourcePath]!) as { metadata: { name: string } };
+  changed.metadata.name = 'fixture-deploy-v2';
+  secondPlugin.resources[resourcePath] = JSON.stringify(changed);
+
+  const [first] = await publisher.publishPlugin(firstPlugin);
+  const [second] = await publisher.publishPlugin(secondPlugin);
+
+  assert.equal(second?.workflowTemplateId, first?.workflowTemplateId);
+  assert.notEqual(second?.workflowVersionId, first?.workflowVersionId);
+});
+
+test('插件 Workflow metadata.version 仍必须是合法 SemVer', async () => {
+  const bindings = new Map<string, PluginWorkflowBindingRecord>();
+  const workflows = new WorkflowTemplatesApplicationService(undefined, {}, workflowRepository(bindings));
+  const publisher = new PluginWorkflowPublisherService(workflows, workflowRepository(bindings));
+  const plugin = pluginRecord('workflow-invalid-metadata-version', '1.0.0', 'not-semver');
+  plugin.manifest.resources.runtimeEntrypoint = 'runtime/index.js';
+
+  await assert.rejects(
+    () => publisher.publishPlugin(plugin),
+    /SemVer 语义版本/,
+  );
+});
+
 test('插件版本变化但工作流内容未变化时复用已有版本', async () => {
   const bindings = new Map<string, PluginWorkflowBindingRecord>();
   const workflows = new WorkflowTemplatesApplicationService(undefined, {}, workflowRepository(bindings));

@@ -35,7 +35,7 @@ export interface PluginWorkflowV1 {
 }
 
 /**
- * 已带固定 Runner 入口的 P2 包可以携带自己的结构化工作流载荷。
+ * 已带固定 Runner 入口的内置插件包可以携带自己的结构化工作流载荷。
  * 该载荷只做边界校验并原样保存，不会被投影为宿主 Curl/SSH DSL。
  */
 export interface PluginWorkflowRunnerResourceV1 {
