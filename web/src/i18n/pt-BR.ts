@@ -3,7 +3,9 @@
 import { internalCaEnglish } from './internal-ca.locale'
 import { devicesPtBR } from './devices.locale'
 import { caOperationsPtBR } from './ca-operations.locale'
+import { credentialsPtBR } from './credentials.locale'
 export default {
+  credentials: credentialsPtBR,
   devices: devicesPtBR,
   caOperations: caOperationsPtBR,
   app: {
@@ -777,7 +779,7 @@ export default {
       plugin: 'Plugin de implantação', selectPlugin: 'Selecione um plugin de implantação', noCompatiblePlugin: 'Nenhum plugin habilitado corresponde à plataforma e ao framework atuais', compatiblePluginHint: 'Somente plugins habilitados compatíveis com a plataforma e o framework do ativo são exibidos.',
       secretRefPlaceholder: 'Informe um identificador SecretRef', artifactBinding: 'Artefato de certificado {name}', artifactBindingPlaceholder: 'Exemplo: value=fullchain,key=private', preview: 'Validar configuração', previewFailed: 'Falha ao validar a configuração do plugin do Agent',
       approveAndEnable: 'Aprovar e habilitar', activating: 'Habilitando...', activateFailed: 'Falha ao aprovar ou habilitar o plugin do Agent',
-      types: { WORKFLOW_TEMPLATE: 'Modelo de workflow', AGENT_DEPLOYMENT: 'Plugin de implantação do Agent', UNIFIED_PLUGIN: 'Plugin de capacidade unificado' }
+      types: { WORKFLOW_TEMPLATE: 'Modelo de workflow', UNIFIED_PLUGIN: 'Plugin de capacidade unificado' }
     },
     changeSummaries: { createWorkflow: 'Criar fluxo a partir do modelo do mercado de plugins' }
   },

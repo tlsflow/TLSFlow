@@ -1,5 +1,5 @@
 export type PluginFieldType =
-  | 'text' | 'textarea' | 'integer' | 'decimal' | 'password' | 'secret_ref' | 'radio' | 'checkbox'
+  | 'text' | 'textarea' | 'integer' | 'decimal' | 'password' | 'secret_ref' | 'credential_ref' | 'radio' | 'checkbox'
   | 'checkbox_group' | 'select' | 'multi_select' | 'switch' | 'date' | 'time' | 'datetime'
   | 'key_value' | 'object_list' | 'file_ref' | 'certificate_ref' | 'readonly_text' | 'notice' | 'divider'
 
@@ -22,6 +22,10 @@ export interface PluginFormField {
   enabledWhen?: PluginFormCondition
   options?: Array<{ value: string; labelKey: string; disabled?: boolean }>
   optionProviderAction?: string
+  acceptedCredentialKinds?: Array<'USERNAME_PASSWORD' | 'SSH_KEY' | 'BEARER_TOKEN' | 'API_KEY' | 'CLIENT_CERTIFICATE'>
+  acceptedSecretTypes?: string[]
+  acceptedScopes?: string[]
+  purpose?: string
   sensitive?: boolean
   defaultValue?: unknown
 }

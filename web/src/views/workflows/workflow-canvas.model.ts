@@ -1,9 +1,9 @@
 import { i18n } from '@/i18n'
 import {
-  workflowCredentialBinding,
-  type WorkflowCredentialBinding,
-  type WorkflowManagedCredential,
-} from './workflow-credentials'
+  credentialProfileBinding,
+  type RuntimeCredentialBinding,
+  type CredentialProfileOption,
+} from './credential-profiles'
 
 export type WorkflowCanvasNodeType = 'http' | 'ssh' | 'sftp' | 'scp' | 'tls_probe' | 'verify' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'checkpoint_verify' | 'wait' | 'manual'
 export type WorkflowCanvasEdgeType = 'success' | 'failure' | 'always' | 'rollback'
@@ -11,7 +11,7 @@ export type WorkflowCanvasFieldKind = 'text' | 'textarea' | 'number' | 'select' 
 export type WorkflowValidationSeverity = 'error' | 'warning' | 'risk'
 export type WorkflowCanvasStage = 'prepare' | 'backup' | 'install' | 'refresh' | 'verify'
 export type WorkflowCanvasHttpAuthType = 'none' | 'basic' | 'bearer' | 'api_key' | 'cookie' | 'custom_header' | 'mtls'
-export type WorkflowDslCredentialValue = WorkflowCredentialBinding | string
+export type WorkflowDslCredentialValue = RuntimeCredentialBinding | string
 export type WorkflowConfigurationMode = 'required' | 'advanced' | 'runtime'
 export type WorkflowVariableLifecycle = 'pre_execution' | 'runtime_injected' | 'step_output'
 export type WorkflowBindingPolicy = 'fixed' | 'default_overridable' | 'required_binding'
@@ -1106,11 +1106,11 @@ function buildHttpNodeConfig(auth: Extract<WorkflowDslStep, { type: 'http' }>['r
 }
 
 function cloneCredentialValue(value: WorkflowDslCredentialValue): WorkflowDslCredentialValue {
-  return typeof value === 'string' ? value : workflowCredentialBinding(value)
+  return typeof value === 'string' ? value : credentialProfileBinding(value)
 }
 
 function credentialValueId(value: WorkflowDslCredentialValue): string {
-  return typeof value === 'string' ? '' : value.id
+  return typeof value === 'string' ? '' : value.credentialId
 }
 
 function findVariableUsers(canvas: WorkflowCanvasDefinition, variableName: string): string[] {

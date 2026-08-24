@@ -2,7 +2,9 @@
 // Edit messages.ts and re-run: npx tsx src/i18n/extract-locales.ts
 import { devicesEnUS } from './devices.locale'
 import { caOperationsEnUS } from './ca-operations.locale'
+import { credentialsEnUS } from './credentials.locale'
 export default {
+  credentials: credentialsEnUS,
   devices: devicesEnUS,
   caOperations: caOperationsEnUS,
   app: {
@@ -843,7 +845,7 @@ export default {
       plugin: 'Deployment plugin', selectPlugin: 'Select a deployment plugin', noCompatiblePlugin: 'No enabled plugin matches the current platform and framework', compatiblePluginHint: 'Only enabled plugins matching the asset platform and framework are shown.',
       secretRefPlaceholder: 'Enter a SecretRef identifier', artifactBinding: 'Certificate artifact {name}', artifactBindingPlaceholder: 'Example: value=fullchain,key=private', preview: 'Validate plugin settings', previewFailed: 'Failed to validate Agent plugin settings',
       approveAndEnable: 'Approve and enable', activating: 'Enabling...', activateFailed: 'Failed to approve or enable Agent plugin',
-      types: { WORKFLOW_TEMPLATE: 'Workflow template', AGENT_DEPLOYMENT: 'Agent deployment plugin', UNIFIED_PLUGIN: 'Unified capability plugin' }
+      types: { WORKFLOW_TEMPLATE: 'Workflow template', UNIFIED_PLUGIN: 'Unified capability plugin' }
     },
     changeSummaries: { createWorkflow: 'Create workflow from plugin market template' }
   },

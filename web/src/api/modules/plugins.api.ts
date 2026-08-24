@@ -8,15 +8,6 @@ const UNIFIED_PLUGIN_ENABLE_PATH = '/api/v1/plugin-versions/enable'
 const UNIFIED_PLUGIN_DISABLE_PATH = '/api/v1/plugin-versions/disable'
 const UNIFIED_PLUGIN_UI_RESOURCES_PATH = '/api/v1/plugin-versions/ui-resources'
 const PLUGIN_BINDINGS_PATH = '/api/v1/plugin-bindings'
-const WORKFLOW_TEMPLATE_PLUGIN_ENABLE_PATH = '/api/v1/plugin-catalog/workflow-templates/enable'
-const WORKFLOW_TEMPLATE_PLUGIN_DISABLE_PATH = '/api/v1/plugin-catalog/workflow-templates/disable'
-const AGENT_PLUGIN_PACKAGES_PATH = '/api/v1/plugins/agent-packages'
-const AGENT_PLUGIN_MOUNTS_PATH = '/api/v1/plugins/agent-mounts'
-const AGENT_PLUGIN_MOUNT_VALIDATE_PATH = '/api/v1/plugins/agent-mounts/validate'
-const AGENT_PLUGIN_BINDING_PREVIEW_PATH = '/api/v1/plugins/agent-binding/preview'
-const AGENT_PLUGIN_PERMISSION_APPROVAL_PATH = '/api/v1/plugins/agent-packages/permissions/approve'
-const AGENT_PLUGIN_ENABLE_PATH = '/api/v1/plugins/agent-packages/enable'
-const AGENT_PLUGIN_DISABLE_PATH = '/api/v1/plugins/agent-packages/disable'
 
 export function listPlugins(query?: BusinessListQuery) {
   return listRecords(PLUGIN_PACKAGES_PATH, query)
@@ -57,44 +48,4 @@ export function updatePluginBinding(payload: ApiBody) {
 
 export function assignPluginCapability(payload: ApiBody) {
   return postAction('/api/v1/capability-assignments', payload, 'plugin_capability_assign')
-}
-
-export function listAgentPluginPackages(query?: BusinessListQuery) {
-  return listRecords(AGENT_PLUGIN_PACKAGES_PATH, query)
-}
-
-export function listAgentPluginMounts(query?: BusinessListQuery) {
-  return listRecords(AGENT_PLUGIN_MOUNTS_PATH, query)
-}
-
-export function validateAgentPluginMount(agentId: string, pluginPackageId: string) {
-  return postAction(AGENT_PLUGIN_MOUNT_VALIDATE_PATH, { agentId, pluginPackageId }, 'agent_plugin_mount_validate')
-}
-
-export function createAgentPluginMount(agentId: string, pluginPackageId: string) {
-  return postAction(AGENT_PLUGIN_MOUNTS_PATH, { agentId, pluginPackageId }, 'agent_plugin_mount_create')
-}
-
-export function previewAgentPluginBinding(agentId: string, binding: ApiBody) {
-  return postAction(AGENT_PLUGIN_BINDING_PREVIEW_PATH, { agentId, binding }, 'agent_plugin_binding_preview')
-}
-
-export function approveAgentPluginPermissions(pluginPackageId: string, approvedPermissions: string[]) {
-  return postAction(AGENT_PLUGIN_PERMISSION_APPROVAL_PATH, { pluginPackageId, approvedBy: 'web-console', approvedPermissions }, 'agent_plugin_permissions_approve')
-}
-
-export function enableAgentPluginPackage(pluginPackageId: string) {
-  return postAction(AGENT_PLUGIN_ENABLE_PATH, { pluginPackageId }, 'agent_plugin_enable')
-}
-
-export function disableAgentPluginPackage(pluginPackageId: string) {
-  return postAction(AGENT_PLUGIN_DISABLE_PATH, { pluginPackageId }, 'agent_plugin_disable')
-}
-
-export function enableWorkflowTemplatePlugin(fileTemplateId: string) {
-  return postAction(WORKFLOW_TEMPLATE_PLUGIN_ENABLE_PATH, { fileTemplateId }, 'workflow_template_plugin_enable')
-}
-
-export function disableWorkflowTemplatePlugin(fileTemplateId: string) {
-  return postAction(WORKFLOW_TEMPLATE_PLUGIN_DISABLE_PATH, { fileTemplateId }, 'workflow_template_plugin_disable')
 }

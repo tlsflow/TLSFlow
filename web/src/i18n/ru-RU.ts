@@ -3,7 +3,9 @@
 import { internalCaEnglish } from './internal-ca.locale'
 import { devicesRuRU } from './devices.locale'
 import { caOperationsRuRU } from './ca-operations.locale'
+import { credentialsRuRU } from './credentials.locale'
 export default {
+  credentials: credentialsRuRU,
   devices: devicesRuRU,
   caOperations: caOperationsRuRU,
   app: {
@@ -777,7 +779,7 @@ export default {
       plugin: 'Плагин развертывания', selectPlugin: 'Выберите плагин развертывания', noCompatiblePlugin: 'Нет включенного плагина для текущей платформы и фреймворка', compatiblePluginHint: 'Показываются только включенные плагины, совместимые с платформой и фреймворком ресурса.',
       secretRefPlaceholder: 'Введите идентификатор SecretRef', artifactBinding: 'Артефакт сертификата {name}', artifactBindingPlaceholder: 'Пример: value=fullchain,key=private', preview: 'Проверить настройки', previewFailed: 'Не удалось проверить настройки плагина Agent',
       approveAndEnable: 'Одобрить и включить', activating: 'Включение...', activateFailed: 'Не удалось одобрить или включить плагин Agent',
-      types: { WORKFLOW_TEMPLATE: 'Шаблон workflow', AGENT_DEPLOYMENT: 'Плагин развертывания Agent', UNIFIED_PLUGIN: 'Унифицированный плагин возможностей' }
+      types: { WORKFLOW_TEMPLATE: 'Шаблон workflow', UNIFIED_PLUGIN: 'Унифицированный плагин возможностей' }
     },
     changeSummaries: { createWorkflow: 'Создать процесс из шаблона каталога плагинов' }
   },

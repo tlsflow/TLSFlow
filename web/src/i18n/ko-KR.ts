@@ -3,7 +3,9 @@
 import { internalCaEnglish } from './internal-ca.locale'
 import { devicesKoKR } from './devices.locale'
 import { caOperationsKoKR } from './ca-operations.locale'
+import { credentialsKoKR } from './credentials.locale'
 export default {
+  credentials: credentialsKoKR,
   devices: devicesKoKR,
   caOperations: caOperationsKoKR,
   app: {
@@ -777,7 +779,7 @@ export default {
       plugin: '배포 플러그인', selectPlugin: '배포 플러그인 선택', noCompatiblePlugin: '현재 플랫폼 및 프레임워크와 일치하는 활성 플러그인이 없습니다', compatiblePluginHint: '자산 플랫폼 및 프레임워크와 일치하는 활성 플러그인만 표시합니다.',
       secretRefPlaceholder: 'SecretRef 식별자 입력', artifactBinding: '인증서 산출물 {name}', artifactBindingPlaceholder: '예: value=fullchain,key=private', preview: '플러그인 설정 검증', previewFailed: 'Agent 플러그인 설정 검증에 실패했습니다',
       approveAndEnable: '권한 승인 및 활성화', activating: '활성화 중...', activateFailed: 'Agent 플러그인 승인 또는 활성화에 실패했습니다',
-      types: { WORKFLOW_TEMPLATE: '워크플로 템플릿', AGENT_DEPLOYMENT: 'Agent 배포 플러그인', UNIFIED_PLUGIN: '통합 기능 플러그인' }
+      types: { WORKFLOW_TEMPLATE: '워크플로 템플릿', UNIFIED_PLUGIN: '통합 기능 플러그인' }
     },
     changeSummaries: { createWorkflow: '플러그인 마켓 템플릿에서 워크플로 만들기' }
   },

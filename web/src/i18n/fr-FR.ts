@@ -3,7 +3,9 @@
 import { internalCaEnglish } from './internal-ca.locale'
 import { devicesFrFR } from './devices.locale'
 import { caOperationsFrFR } from './ca-operations.locale'
+import { credentialsFrFR } from './credentials.locale'
 export default {
+  credentials: credentialsFrFR,
   devices: devicesFrFR,
   caOperations: caOperationsFrFR,
   app: {
@@ -811,7 +813,7 @@ export default {
       plugin: 'Plugin de déploiement', selectPlugin: 'Sélectionner un plugin de déploiement', noCompatiblePlugin: 'Aucun plugin activé ne correspond à la plateforme et au framework actuels', compatiblePluginHint: 'Seuls les plugins activés correspondant à la plateforme et au framework de l’actif sont affichés.',
       secretRefPlaceholder: 'Saisir un identifiant SecretRef', artifactBinding: 'Artefact de certificat {name}', artifactBindingPlaceholder: 'Exemple : value=fullchain,key=private', preview: 'Valider la configuration', previewFailed: 'Échec de validation de la configuration du plugin Agent',
       approveAndEnable: 'Approuver et activer', activating: 'Activation...', activateFailed: 'Échec de l’approbation ou de l’activation du plugin Agent',
-      types: { WORKFLOW_TEMPLATE: 'Modèle de workflow', AGENT_DEPLOYMENT: 'Plugin de déploiement Agent', UNIFIED_PLUGIN: 'Plugin de capacité unifié' }
+      types: { WORKFLOW_TEMPLATE: 'Modèle de workflow', UNIFIED_PLUGIN: 'Plugin de capacité unifié' }
     },
     changeSummaries: { createWorkflow: 'Créer un workflow depuis un modèle du marché' }
   },

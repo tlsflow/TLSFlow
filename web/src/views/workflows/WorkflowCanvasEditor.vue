@@ -4,12 +4,12 @@ import { useI18n } from 'vue-i18n'
 import { compileWorkflowCanvas, testWorkflowTemplateStep, validateWorkflowCanvasOnBackend } from '@/api/modules/workflow-templates.api'
 import {
   findWorkflowCredentialById,
-  loadWorkflowCredentials,
-  workflowCredentialBinding,
-  workflowCredentialLabel,
-  type WorkflowCredentialKind,
-  type WorkflowManagedCredential,
-} from './workflow-credentials'
+  loadCredentialProfiles,
+  credentialProfileBinding,
+  credentialProfileLabel,
+  type CredentialKind,
+  type CredentialProfileOption,
+} from './credential-profiles'
 import {
   NODE_TYPE_DEFINITIONS,
   WORKFLOW_FLOW_LAYOUT,
@@ -99,7 +99,7 @@ const stepRuntimeState = ref<StepRuntimeState>({ userVariables: {} })
 const dslEditorText = ref('')
 const dslEditorDirty = ref(false)
 const dslEditorMessage = ref('')
-const managedCredentials = ref<WorkflowManagedCredential[]>([])
+const managedCredentials = ref<CredentialProfileOption[]>([])
 const credentialsLoading = ref(false)
 const credentialsLoadError = ref('')
 
@@ -110,7 +110,7 @@ async function refreshManagedCredentials() {
   credentialsLoading.value = true
   credentialsLoadError.value = ''
   try {
-    managedCredentials.value = await loadWorkflowCredentials()
+    managedCredentials.value = await loadCredentialProfiles()
   } catch (cause) {
     managedCredentials.value = []
     credentialsLoadError.value = cause instanceof Error ? cause.message : t('workflows.canvasEditor.errors.credentialsLoadFailed')
@@ -126,15 +126,15 @@ function readNodeHttpAuthType(value: unknown): WorkflowCanvasHttpAuthType {
     : 'none'
 }
 
-function credentialKindsForNode(node: WorkflowCanvasNode): readonly WorkflowCredentialKind[] {
+function credentialKindsForNode(node: WorkflowCanvasNode): readonly CredentialKind[] {
   if (node.type === 'http') {
     const authType = readNodeHttpAuthType(node.config.authType)
-    if (authType === 'basic') return ['username_password']
-    if (authType === 'bearer') return ['curl_bearer']
-    if (authType === 'api_key') return ['curl_api_key']
+    if (authType === 'basic') return ['USERNAME_PASSWORD']
+    if (authType === 'bearer') return ['BEARER_TOKEN']
+    if (authType === 'api_key') return ['API_KEY']
     return []
   }
-  if (SSH_NODE_TYPES.includes(node.type)) return ['username_password', 'ssh_key']
+  if (SSH_NODE_TYPES.includes(node.type)) return ['USERNAME_PASSWORD', 'SSH_KEY']
   return []
 }
 
@@ -142,12 +142,12 @@ function isTemplateExpression(value: string): boolean {
   return /^\s*\{\{.+\}\}\s*$/.test(value)
 }
 
-function compatibleCredentials(node: WorkflowCanvasNode): WorkflowManagedCredential[] {
+function compatibleCredentials(node: WorkflowCanvasNode): CredentialProfileOption[] {
   const kinds = credentialKindsForNode(node)
   return managedCredentials.value.filter((item) => kinds.includes(item.kind))
 }
 
-function resolveNodeCredential(node: WorkflowCanvasNode): WorkflowManagedCredential | null {
+function resolveNodeCredential(node: WorkflowCanvasNode): CredentialProfileOption | null {
   const candidates = compatibleCredentials(node)
   if (candidates.length === 0) return null
   if (node.type === 'http') {
@@ -420,7 +420,7 @@ function updateSelectedCredential(event: Event) {
     const currentApiKeyName = String(node.config.authApiKeyName ?? 'X-API-Key')
     const patch: Record<string, unknown> = {
       authCredentialId: credential?.id ?? '',
-      authCredential: credential ? workflowCredentialBinding(credential) : '',
+      authCredential: credential ? credentialProfileBinding(credential) : '',
     }
     if (authType === 'basic' && credential) {
       patch.authUsername = !currentUsername.trim() || isTemplateExpression(currentUsername) ? credential.username : currentUsername
@@ -438,7 +438,7 @@ function updateSelectedCredential(event: Event) {
   const currentUsername = String(node.config.username ?? '')
   updateSelectedNodeConfig({
     credentialId: credential?.id ?? '',
-    credential: credential ? workflowCredentialBinding(credential) : '',
+    credential: credential ? credentialProfileBinding(credential) : '',
     username: credential && (!currentUsername.trim() || isTemplateExpression(currentUsername))
       ? credential.username
       : currentUsername,
@@ -455,7 +455,7 @@ function credentialSelectorHint(node: WorkflowCanvasNode): string {
   return t('workflows.canvasEditor.credentialHints.savedSshSftp')
 }
 
-function resolveVariableCredential(definition: WorkflowVariableDefinition): WorkflowManagedCredential | null {
+function resolveVariableCredential(definition: WorkflowVariableDefinition): CredentialProfileOption | null {
   const id = readCredentialId(definition.default)
   return id ? findWorkflowCredentialById(id, managedCredentials.value) : null
 }
@@ -471,22 +471,22 @@ function updateVariableCredential(name: string, event: Event) {
   if (!current) return
   commit(upsertWorkflowVariable(canvas.value, name, {
     ...current,
-    default: credential ? workflowCredentialBinding(credential) : undefined,
+    default: credential ? credentialProfileBinding(credential) : undefined,
     sensitive: true,
   }))
 }
 
-function runtimeCredentialOptions(key: string): WorkflowManagedCredential[] {
+function runtimeCredentialOptions(key: string): CredentialProfileOption[] {
   const node = selectedNode.value
   if (node) {
     const candidates = compatibleCredentials(node)
     if (candidates.length > 0) return candidates
   }
   if (/api|token/i.test(key)) {
-    return managedCredentials.value.filter((item) => item.kind === 'curl_bearer' || item.kind === 'curl_api_key')
+    return managedCredentials.value.filter((item) => item.kind === 'BEARER_TOKEN' || item.kind === 'API_KEY')
   }
   if (/ssh|credential/i.test(key)) {
-    return managedCredentials.value.filter((item) => item.kind === 'username_password' || item.kind === 'ssh_key')
+    return managedCredentials.value.filter((item) => item.kind === 'USERNAME_PASSWORD' || item.kind === 'SSH_KEY')
   }
   return managedCredentials.value
 }
@@ -502,7 +502,7 @@ function updateRuntimeCredentialBinding(key: string, event: Event) {
     ...stepRuntimeState.value,
     userVariables: {
       ...stepRuntimeState.value.userVariables,
-      [key]: credential ? workflowCredentialBinding(credential) : undefined,
+      [key]: credential ? credentialProfileBinding(credential) : undefined,
     },
   }
 }
@@ -952,7 +952,7 @@ function firstNumber(...values: unknown[]): number | undefined {
                 <span>{{ t('workflows.canvasEditor.fields.credentialSelector') }}</span>
                 <select :value="selectedNodeCredentialId" :disabled="!canEdit" @change="updateSelectedCredential">
                   <option value="">{{ t('workflows.canvasEditor.options.manualInput') }}</option>
-                  <option v-for="item in selectedNodeCredentialOptions" :key="item.id" :value="item.id">{{ workflowCredentialLabel(item) }}</option>
+                  <option v-for="item in selectedNodeCredentialOptions" :key="item.id" :value="item.id">{{ credentialProfileLabel(item) }}</option>
                 </select>
                 <small class="workflow-canvas-editor__property-hint">{{ credentialSelectorHint(selectedNode) }}</small>
               </label>
@@ -1020,7 +1020,7 @@ function firstNumber(...values: unknown[]): number | undefined {
               <span>{{ t('workflows.canvasEditor.fields.credentialSelector') }}</span>
               <select :value="selectedNodeCredentialId" :disabled="!canEdit" @change="updateSelectedCredential">
                 <option value="">{{ t('workflows.canvasEditor.options.manualInput') }}</option>
-                <option v-for="item in selectedNodeCredentialOptions" :key="item.id" :value="item.id">{{ workflowCredentialLabel(item) }}</option>
+                <option v-for="item in selectedNodeCredentialOptions" :key="item.id" :value="item.id">{{ credentialProfileLabel(item) }}</option>
               </select>
               <small class="workflow-canvas-editor__property-hint">{{ credentialSelectorHint(selectedNode) }}</small>
             </label>
@@ -1166,7 +1166,7 @@ function firstNumber(...values: unknown[]): number | undefined {
               <span>{{ t('workflows.canvasEditor.fields.credential') }}</span>
               <select :value="resolveVariableCredentialId(definition)" :disabled="!canEdit" @change="updateVariableCredential(String(name), $event)">
                 <option value="">{{ t('workflows.canvasEditor.options.notSelected') }}</option>
-                <option v-for="item in managedCredentials" :key="item.id" :value="item.id">{{ workflowCredentialLabel(item) }}</option>
+                <option v-for="item in managedCredentials" :key="item.id" :value="item.id">{{ credentialProfileLabel(item) }}</option>
               </select>
             </label>
             <label v-else>
@@ -1214,7 +1214,7 @@ function firstNumber(...values: unknown[]): number | undefined {
               <span>{{ name }}</span>
               <select :value="resolveRuntimeCredentialId(String(name)) || resolveVariableCredentialId(definition)" @change="updateRuntimeCredentialBinding(String(name), $event)">
                 <option value="">{{ t('workflows.canvasEditor.options.notSelected') }}</option>
-                <option v-for="item in runtimeCredentialOptions(String(name))" :key="item.id" :value="item.id">{{ workflowCredentialLabel(item) }}</option>
+                <option v-for="item in runtimeCredentialOptions(String(name))" :key="item.id" :value="item.id">{{ credentialProfileLabel(item) }}</option>
               </select>
             </label>
           </div>

@@ -53,7 +53,8 @@ const deviceAssetId = computed(() => {
   return String(extension.deviceAssetId ?? extensionSummary.deviceAssetId ?? '')
 })
 const canRefreshDiscovery = computed(() => Boolean(
-  deviceAssetId.value
+  openedDeviceId.value
+  && deviceAssetId.value
   && context.value?.permissions.has('REFRESH_DISCOVERY'),
 ))
 const selectedCertificateTitle = computed(() => {
@@ -96,25 +97,16 @@ async function refreshDiscovery() {
   rediscovering.value = true
   discoveryFeedback.value = null
   try {
-    const response = await refreshManagedDeviceDiscovery(deviceAssetId.value)
+    const response = await refreshManagedDeviceDiscovery(openedDeviceId.value)
     const result = response.data ?? {}
     const refreshed = await getManagedDevice(openedDeviceId.value, locale.value)
     if (refreshed.data) detail.value = refreshed.data
-    const succeeded = result.reachable === true && result.authenticated === true && result.productMatched === true
-    const certificateCount = Number(result.certificateCount ?? 0)
-    const fingerprintedCertificateCount = Number(result.fingerprintedCertificateCount ?? 0)
+    const succeeded = result.status === 'success'
     if (!succeeded) {
       discoveryFeedback.value = {
         tone: 'danger',
         message: t('devices.unifiedDetail.discovery.failed', {
-          errorCode: String(result.errorCode ?? t('devices.health.unknown')),
-        }),
-      }
-    } else if (certificateCount > fingerprintedCertificateCount) {
-      discoveryFeedback.value = {
-        tone: 'warning',
-        message: t('devices.unifiedDetail.discovery.failed', {
-          errorCode: `CERTIFICATE_FINGERPRINTS_${fingerprintedCertificateCount}_OF_${certificateCount}`,
+          errorCode: String(result.status ?? t('devices.health.unknown')),
         }),
       }
     } else {

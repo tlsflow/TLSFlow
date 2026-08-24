@@ -1,17 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
 import type { ApiRecord } from '@/api/modules/common'
-import { approveAgentPluginPermissions, disableAgentPluginPackage, disableUnifiedPluginVersion, disableWorkflowTemplatePlugin, enableAgentPluginPackage, enableUnifiedPluginVersion, enableWorkflowTemplatePlugin, getUnifiedPluginUiResources, listAgentPluginPackages, listPluginCatalog } from '@/api/modules/plugins.api'
-import { createWorkflowTemplateFromFile, listWorkflowFileTemplates, listWorkflowTemplates } from '@/api/modules/workflow-templates.api'
+import { disableUnifiedPluginVersion, enableUnifiedPluginVersion, getUnifiedPluginUiResources, listPluginCatalog } from '@/api/modules/plugins.api'
 import { GcDevicePresentation, GcEmptyState, GcModal, GcPluginForm, type DevicePresentationSchema, type PluginFormSchema } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
 type PluginSource = 'builtin' | 'user'
 type SourceFilter = 'all' | PluginSource
 type ValidityFilter = 'all' | 'valid' | 'invalid'
-type PluginCatalogType = 'WORKFLOW_TEMPLATE' | 'AGENT_DEPLOYMENT' | 'UNIFIED_PLUGIN'
+type PluginCatalogType = 'UNIFIED_PLUGIN'
 
 interface PluginMetadata {
   name: string
@@ -40,8 +38,6 @@ interface PluginRecord {
   used: boolean
   error?: string
   catalogType: PluginCatalogType
-  pluginPackageId?: string
-  workflowFileTemplateId?: string
   status: string
   runtime?: string
   scope?: string
@@ -50,7 +46,6 @@ interface PluginRecord {
 }
 
 const { t, locale } = useI18n()
-const router = useRouter()
 const loading = ref(false)
 const loadError = ref('')
 const plugins = ref<PluginRecord[]>([])
@@ -59,12 +54,10 @@ const sourceFilter = ref<SourceFilter>('all')
 const validityFilter = ref<ValidityFilter>('all')
 const selectedPlugin = ref<PluginRecord | null>(null)
 const detailOpen = ref(false)
-const creatingPluginId = ref('')
 const changingPluginId = ref('')
 const createError = ref('')
 const failedLogos = ref(new Set<string>())
 const agentActionError = ref('')
-const agentPackages = ref<ApiRecord[]>([])
 const pluginUiLoading = ref(false)
 const pluginUiError = ref('')
 const pluginForms = ref<Record<string, PluginFormSchema>>({})
@@ -115,21 +108,22 @@ onMounted(() => {
   void loadPlugins()
 })
 
+watch(locale, () => {
+  void loadPlugins()
+})
+
 async function loadPlugins(): Promise<void> {
   if (loading.value) return
   loading.value = true
   loadError.value = ''
   try {
-    const [fileResult, workflowResult, catalogResult, packageResult] = await Promise.all([
-      listWorkflowFileTemplates(),
-      listWorkflowTemplates({ page: 1, pageSize: 500, sort: 'updatedAt:desc' }),
-      listPluginCatalog({ page: 1, pageSize: 500, sort: 'updatedAt:desc' }),
-      listAgentPluginPackages({ page: 1, pageSize: 500, sort: 'updatedAt:desc' }),
-    ])
-    const usedPluginNames = new Set((workflowResult.data?.items ?? []).map((item) => readString(item.name)).filter(Boolean))
-    const workflowFiles = new Map((fileResult.data?.items ?? []).map((item) => [readString(item.id), item]))
-    plugins.value = (catalogResult.data?.items ?? []).map((item) => toCatalogPluginRecord(item, usedPluginNames, workflowFiles))
-    agentPackages.value = [...(packageResult.data?.items ?? [])]
+    const catalogResult = await listPluginCatalog({
+      page: 1,
+      pageSize: 500,
+      sort: 'updatedAt:desc',
+      filters: { locale: locale.value },
+    })
+    plugins.value = (catalogResult.data?.items ?? []).map(toCatalogPluginRecord)
   } catch (cause) {
     plugins.value = []
     loadError.value = cause instanceof Error ? cause.message : t('plugins.errors.loadFailed')
@@ -138,56 +132,7 @@ async function loadPlugins(): Promise<void> {
   }
 }
 
-function toPluginRecord(record: ApiRecord, usedPluginNames: ReadonlySet<string>): PluginRecord {
-  const metadata = readRecord(record.metadata)
-  return {
-    id: readString(record.id),
-    source: record.source === 'user' ? 'user' : 'builtin',
-    fileName: readString(record.fileName),
-    relativePath: readString(record.relativePath),
-    valid: record.valid === true,
-    updatedAt: readString(record.updatedAt),
-    metadata: {
-      name: readString(metadata.name, readString(record.fileName)),
-      displayName: readOptionalString(metadata.displayName),
-      description: readOptionalString(metadata.description),
-      category: readOptionalString(metadata.category),
-      tags: Array.isArray(metadata.tags) ? metadata.tags.filter((item): item is string => typeof item === 'string') : [],
-      version: readOptionalString(metadata.version),
-      logoUrl: readOptionalString(metadata.logoUrl),
-      platforms: readStringArray(metadata.platforms),
-      updateMethods: readStringArray(metadata.updateMethods),
-      maintainer: readOptionalString(metadata.maintainer),
-      homepage: readOptionalString(metadata.homepage),
-    },
-    stepCount: readNumber(record.stepCount),
-    rollbackCount: readNumber(record.rollbackCount),
-    used: usedPluginNames.has(readString(metadata.name)),
-    error: readOptionalString(record.error),
-    catalogType: 'WORKFLOW_TEMPLATE',
-    workflowFileTemplateId: readString(record.id),
-    status: record.valid === true ? 'valid' : 'invalid',
-    capabilities: [],
-  }
-}
-
-function toCatalogPluginRecord(record: ApiRecord, usedPluginNames: ReadonlySet<string>, workflowFiles: ReadonlyMap<string, ApiRecord>): PluginRecord {
-  const detailRef = readRecord(record.detailRef)
-  const catalogType: PluginCatalogType = record.catalogType === 'AGENT_DEPLOYMENT'
-    ? 'AGENT_DEPLOYMENT'
-    : record.catalogType === 'UNIFIED_PLUGIN'
-      ? 'UNIFIED_PLUGIN'
-      : 'WORKFLOW_TEMPLATE'
-  const workflowFileTemplateId = readOptionalString(detailRef.workflowFileTemplateId)
-  if (catalogType === 'WORKFLOW_TEMPLATE' && workflowFileTemplateId) {
-    const source = workflowFiles.get(workflowFileTemplateId)
-    if (source) return {
-      ...toPluginRecord(source, usedPluginNames),
-      id: readString(record.id, workflowFileTemplateId),
-      workflowFileTemplateId,
-      status: readString(record.status, 'disabled'),
-    }
-  }
+function toCatalogPluginRecord(record: ApiRecord): PluginRecord {
   return {
     id: readString(record.id),
     source: record.source === 'USER' ? 'user' : 'builtin',
@@ -204,12 +149,10 @@ function toCatalogPluginRecord(record: ApiRecord, usedPluginNames: ReadonlySet<s
       platforms: readStringArray(record.platforms),
       updateMethods: [],
     },
-    stepCount: 0,
-    rollbackCount: 0,
-    used: false,
-    catalogType,
-    pluginPackageId: readOptionalString(detailRef.pluginPackageId),
-    workflowFileTemplateId,
+    stepCount: readNumber(record.stepCount),
+    rollbackCount: readNumber(record.rollbackCount),
+    used: record.used === true,
+    catalogType: 'UNIFIED_PLUGIN',
     status: readString(record.status),
     runtime: readOptionalString(record.runtime),
     scope: readOptionalString(record.scope),
@@ -283,7 +226,6 @@ async function openDetail(plugin: PluginRecord): Promise<void> {
   pluginFormValues.value = {}
   activePresentationTab.value = ''
   pluginUiError.value = ''
-  if (plugin.catalogType !== 'UNIFIED_PLUGIN') return
   pluginUiLoading.value = true
   try {
     const result = await getUnifiedPluginUiResources(plugin.id, locale.value)
@@ -299,43 +241,12 @@ async function openDetail(plugin: PluginRecord): Promise<void> {
   }
 }
 
-async function createWorkflowFromPlugin(plugin: PluginRecord): Promise<void> {
-  if (!plugin.valid || plugin.status !== 'enabled' || creatingPluginId.value || !plugin.workflowFileTemplateId) return
-  creatingPluginId.value = plugin.id
-  createError.value = ''
-  try {
-    await createWorkflowTemplateFromFile({
-      fileTemplateId: plugin.workflowFileTemplateId,
-      changeSummary: t('plugins.changeSummaries.createWorkflow'),
-    })
-    detailOpen.value = false
-    await router.push('/workflow-templates')
-  } catch (cause) {
-    createError.value = cause instanceof Error ? cause.message : t('plugins.errors.createFailed')
-  } finally {
-    creatingPluginId.value = ''
-  }
-}
-
-
-async function activateAgentPlugin(plugin: PluginRecord): Promise<void> {
-  if (!plugin.pluginPackageId) throw new Error(t('plugins.agentDeployment.activateFailed'))
-  const record = agentPackages.value.find((item) => String(item.id ?? '') === plugin.pluginPackageId)
-  const permissions = Array.isArray(readNestedRecord(record, ['manifest', 'permissions']))
-    ? (readNestedRecord(record, ['manifest', 'permissions']) as unknown[]).map((item) => readString(readRecord(item).name)).filter(Boolean)
-    : []
-  await approveAgentPluginPermissions(plugin.pluginPackageId, permissions)
-  await enableAgentPluginPackage(plugin.pluginPackageId)
-}
-
 async function enableCatalogPlugin(plugin: PluginRecord): Promise<void> {
   if (!plugin.valid || plugin.status.toLowerCase() === 'enabled' || changingPluginId.value) return
   changingPluginId.value = plugin.id
   agentActionError.value = ''
   try {
-    if (plugin.catalogType === 'AGENT_DEPLOYMENT') await activateAgentPlugin(plugin)
-    else if (plugin.catalogType === 'UNIFIED_PLUGIN') await enableUnifiedPluginVersion(plugin.id)
-    else if (plugin.workflowFileTemplateId) await enableWorkflowTemplatePlugin(plugin.workflowFileTemplateId)
+    await enableUnifiedPluginVersion(plugin.id)
     detailOpen.value = false
     await loadPlugins()
   } catch (cause) {
@@ -350,9 +261,7 @@ async function disableCatalogPlugin(plugin: PluginRecord): Promise<void> {
   changingPluginId.value = plugin.id
   agentActionError.value = ''
   try {
-    if (plugin.catalogType === 'AGENT_DEPLOYMENT' && plugin.pluginPackageId) await disableAgentPluginPackage(plugin.pluginPackageId)
-    else if (plugin.catalogType === 'UNIFIED_PLUGIN') await disableUnifiedPluginVersion(plugin.id)
-    else if (plugin.workflowFileTemplateId) await disableWorkflowTemplatePlugin(plugin.workflowFileTemplateId)
+    await disableUnifiedPluginVersion(plugin.id)
     detailOpen.value = false
     await loadPlugins()
   } catch (cause) {
@@ -373,10 +282,6 @@ function pluginStatusClass(plugin: PluginRecord): string {
   if (!plugin.valid) return 'plugin-state--invalid'
   if (plugin.status.toLowerCase() !== 'enabled') return 'plugin-state--disabled'
   return plugin.used ? 'plugin-state--using' : 'plugin-state--available'
-}
-
-function readNestedRecord(value: unknown, path: string[]): unknown {
-  return path.reduce<unknown>((current, key) => readRecord(current)[key], value)
 }
 
 </script>
@@ -430,7 +335,6 @@ function readNestedRecord(value: unknown, path: string[]): unknown {
             <span v-else aria-hidden="true">{{ pluginInitial(plugin) }}</span>
           </div>
           <div class="plugin-card__badges">
-            <span class="plugin-source">{{ t(`plugins.agentDeployment.types.${plugin.catalogType}`) }}</span>
             <span class="plugin-source" :class="`plugin-source--${plugin.source}`">{{ t(`plugins.sources.${plugin.source}`) }}</span>
             <span class="plugin-state" :class="pluginStatusClass(plugin)">
               {{ pluginStatusLabel(plugin) }}
@@ -464,15 +368,6 @@ function readNestedRecord(value: unknown, path: string[]): unknown {
               @click="enableCatalogPlugin(plugin)"
             >
               {{ changingPluginId === plugin.id ? t('plugins.agentDeployment.activating') : t('plugins.actions.enable') }}
-            </button>
-            <button
-              v-if="plugin.catalogType === 'WORKFLOW_TEMPLATE' && plugin.status.toLowerCase() === 'enabled'"
-              class="gc-button gc-button--primary"
-              type="button"
-              :disabled="Boolean(creatingPluginId) || Boolean(changingPluginId)"
-              @click="createWorkflowFromPlugin(plugin)"
-            >
-              {{ creatingPluginId === plugin.id ? t('plugins.actions.creatingWorkflow') : t('plugins.actions.create') }}
             </button>
             <button
               v-if="plugin.status.toLowerCase() === 'enabled'"
@@ -567,15 +462,6 @@ function readNestedRecord(value: unknown, path: string[]): unknown {
       </section>
 
       <template #actions>
-        <button
-          v-if="selectedPlugin && selectedPlugin.catalogType === 'WORKFLOW_TEMPLATE' && selectedPlugin.status.toLowerCase() === 'enabled'"
-          class="gc-button gc-button--primary"
-          type="button"
-          :disabled="!selectedPlugin.valid || Boolean(creatingPluginId)"
-          @click="createWorkflowFromPlugin(selectedPlugin)"
-        >
-          {{ creatingPluginId === selectedPlugin.id ? t('plugins.actions.creatingWorkflow') : t('plugins.actions.createWorkflow') }}
-        </button>
         <button
           v-if="selectedPlugin && selectedPlugin.status.toLowerCase() !== 'enabled'"
           class="gc-button gc-button--primary"

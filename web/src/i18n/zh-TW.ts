@@ -2,7 +2,9 @@
 // Edit messages.ts and re-run: npx tsx src/i18n/extract-locales.ts
 import { devicesZhTW } from './devices.locale'
 import { caOperationsZhTW } from './ca-operations.locale'
+import { credentialsZhTW } from './credentials.locale'
 export default {
+  credentials: credentialsZhTW,
   devices: devicesZhTW,
   caOperations: caOperationsZhTW,
   app: {
@@ -802,7 +804,7 @@ export default {
       plugin: '部署外掛', selectPlugin: '請選擇部署外掛', noCompatiblePlugin: '沒有符合目前平台與框架的已啟用外掛', compatiblePluginHint: '僅顯示與目前資產平台及框架相符的已啟用外掛。',
       secretRefPlaceholder: '輸入 SecretRef 識別碼', artifactBinding: '憑證產物 {name}', artifactBindingPlaceholder: '例如 value=fullchain,key=private', preview: '驗證外掛設定', previewFailed: 'Agent 外掛設定驗證失敗',
       approveAndEnable: '核准權限並啟用', activating: '啟用中...', activateFailed: 'Agent 外掛核准或啟用失敗',
-      types: { WORKFLOW_TEMPLATE: '工作流程範本', AGENT_DEPLOYMENT: 'Agent 部署外掛', UNIFIED_PLUGIN: '統一能力外掛' }
+      types: { WORKFLOW_TEMPLATE: '工作流程範本', UNIFIED_PLUGIN: '統一能力外掛' }
     },
     changeSummaries: { createWorkflow: "從外掛市場模板建立工作流程" }
   },

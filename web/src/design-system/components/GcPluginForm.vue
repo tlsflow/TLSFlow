@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { PluginFormCondition, PluginFormField, PluginFormSchema } from './GcPluginForm.types'
 import GcSecretInput from './GcSecretInput.vue'
+import GcCredentialSelect from './GcCredentialSelect.vue'
 
 const model = defineModel<Record<string, unknown>>({ default: () => ({}) })
 const props = withDefaults(defineProps<{
@@ -106,6 +107,17 @@ function toggleArray(field: PluginFormField, value: string, checked: boolean): v
             :label="label(field.labelKey)"
             :placeholder="label(field.placeholderKey)"
             :hint="label(field.descriptionKey)"
+            @update:model-value="update(field.key, $event)"
+          />
+          <GcCredentialSelect
+            v-else-if="field.type === 'credential_ref'"
+            :model-value="stringValue(field)"
+            :label="label(field.labelKey)"
+            :hint="label(field.descriptionKey)"
+            :disabled="disabled(field)"
+            :required="field.required"
+            :accepted-kinds="field.acceptedCredentialKinds"
+            :accepted-scopes="field.acceptedScopes"
             @update:model-value="update(field.key, $event)"
           />
           <fieldset v-else-if="field.type === 'radio' || field.type === 'checkbox_group'" class="gc-plugin-form__fieldset" :disabled="disabled(field)">

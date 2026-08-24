@@ -8,7 +8,7 @@ import { rollbackExecution } from '@/api/modules/executions.api'
 import { listGateways } from '@/api/modules/gateways.api'
 import { listWorkflowTemplates, listWorkflowTemplateVersions } from '@/api/modules/workflow-templates.api'
 import { listCertificateFormats } from '@/api/modules/certificates.api'
-import { assignPluginCapability, createPluginBinding, getPluginBinding, getUnifiedPluginUiResources, listAgentPluginPackages, listPluginCatalog, previewAgentPluginBinding, updatePluginBinding } from '@/api/modules/plugins.api'
+import { assignPluginCapability, createPluginBinding, getPluginBinding, getUnifiedPluginUiResources, listPluginCatalog, updatePluginBinding } from '@/api/modules/plugins.api'
 import { listManagedDevices } from '@/api/modules/devices.api'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
 import type { ViewRow } from '@/composables/useBusinessPage'
@@ -18,12 +18,12 @@ import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import { buildManagedTargetDeploymentStrategy, resolveDeploymentStrategyMode } from './asset-deployment-strategy.model'
 import {
-  loadWorkflowCredentials,
-  workflowCredentialBinding,
-  workflowCredentialLabel,
-  workflowCredentialSummary,
-  type WorkflowManagedCredential,
-} from '@/views/workflows/workflow-credentials'
+  loadCredentialProfiles,
+  credentialProfileBinding,
+  credentialProfileLabel,
+  credentialProfileSummary,
+  type CredentialProfileOption,
+} from '@/views/workflows/credential-profiles'
 
 type AssetPlatform = 'WINDOWS' | 'LINUX' | 'APPLIANCE'
 type AssetProtocol = 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP' | 'CUSTOM'
@@ -176,14 +176,14 @@ const workflowAdvancedExpanded = ref(false)
 const workflowTargetAdvancedExpanded = ref(false)
 const workflowConnectionBindings = ref<Record<string, Record<string, unknown>>>({})
 const workflowVariablePresetName = ref('')
-const workflowCredentialItems = ref<WorkflowManagedCredential[]>([])
-const workflowCredentialLoading = ref(false)
+const credentialProfileItems = ref<CredentialProfileOption[]>([])
+const credentialProfileLoading = ref(false)
 const certificateFormatItems = ref<ApiRecord[]>([])
 const certificateFormatLoading = ref(false)
 const workflowListError = ref('')
 const workflowVersionListError = ref('')
 const gatewayListError = ref('')
-const workflowCredentialError = ref('')
+const credentialProfileError = ref('')
 const certificateFormatError = ref('')
 const workflowCertificateArtifactBindings = ref<Record<string, WorkflowCertificateArtifactBinding>>({})
 const agentPluginPackageItems = ref<ApiRecord[]>([])
@@ -717,15 +717,14 @@ async function openEditDialog(row: ViewRow) {
     assetDraft.managementMode = 'MANAGED_TARGET'
     assetDraft.agentId = String(readNested(legacyAgentStrategy, ['agentId']) ?? assetDraft.agentId)
     assetDraft.agentDeploymentMode = String(readNested(legacyAgentStrategy, ['mode']) ?? readNested(managedTargetStrategy, ['deploymentMode']) ?? 'NATIVE_HANDLER') as AgentDeploymentMode
-    assetDraft.agentPluginPackageId = String(readNested(legacyAgentStrategy, ['plugin', 'pluginPackageId']) ?? '')
+    pluginBindingId.value = String(readNested(legacyAgentStrategy, ['pluginBindingId']) ?? '')
+    assetDraft.agentPluginPackageId = ''
     assetDraft.agentCertificateFormatId = String(
       readNested(managedTargetStrategy, ['certificateFormatId'])
         ?? readNested(legacyAgentStrategy, ['certificateFormatId'])
         ?? '',
     )
-    agentPluginVariableBindings.value = stringifyBindingValues(readRecord(readNested(legacyAgentStrategy, ['plugin', 'variableBindings'])) ?? {})
-    agentPluginSecretBindings.value = stringifyBindingValues(readRecord(readNested(legacyAgentStrategy, ['plugin', 'secretBindings'])) ?? {})
-    agentPluginArtifactBindings.value = stringifyArtifactBindings(readRecord(readNested(legacyAgentStrategy, ['plugin', 'certificateArtifactBindings'])) ?? {})
+    if (pluginBindingId.value) await loadExistingAgentPluginBinding(pluginBindingId.value)
   }
   if (!assetDraft.hostId) {
     assetDraft.hostId = String(
@@ -938,13 +937,13 @@ function updateProjectionConnection(name: string, field: string, value: string) 
 }
 
 function updateProjectionConnectionCredential(name: string, credentialId: string) {
-  const credential = workflowCredentialItems.value.find((item) => item.id === credentialId)
+  const credential = credentialProfileItems.value.find((item) => item.id === credentialId)
   workflowConnectionBindings.value = {
     ...workflowConnectionBindings.value,
     [name]: {
       ...(workflowConnectionBindings.value[name] ?? {}),
       credentialRef: credentialId,
-      credential: credential ? workflowCredentialBinding(credential) : undefined,
+      credential: credential ? credentialProfileBinding(credential) : undefined,
     },
   }
 }
@@ -1113,6 +1112,9 @@ async function submitCreate() {
   createRequestId.value = ''
   try {
     syncWorkflowTargetVariableRowsFromDraft()
+    if (assetDraft.managementMode === 'MANAGED_TARGET' && assetDraft.agentDeploymentMode === 'PLUGIN') {
+      await ensureAgentPluginBinding()
+    }
     const workflowTarget = assetDraft.managementMode === 'WORKFLOW' ? buildWorkflowTargetInfo() : null
     const basePayload = {
       address: assetDraft.address.trim(),
@@ -1124,7 +1126,7 @@ async function submitCreate() {
       sniName: workflowTarget?.sniName ?? undefined,
       environment: assetDraft.environment.trim() || undefined,
       tags: splitCsv(assetDraft.tagsText),
-      deploymentStrategy: assetDraft.managementMode === 'WORKFLOW' || isEditMode.value
+      deploymentStrategy: assetDraft.managementMode === 'WORKFLOW' || isEditMode.value || assetDraft.agentDeploymentMode === 'PLUGIN'
         ? buildDeploymentStrategyPayload(workflowTarget ?? undefined)
         : undefined,
     }
@@ -1144,6 +1146,9 @@ async function submitCreate() {
       })
       if (assetDraft.managementMode === 'WORKFLOW' && assetDraft.workflowPluginVersionId) {
         await persistWorkflowPluginBinding(editingServiceAssetId.value, workflowTarget ?? undefined)
+      }
+      if (assetDraft.managementMode === 'MANAGED_TARGET' && assetDraft.agentDeploymentMode === 'PLUGIN') {
+        await assignAgentPluginCapability(editingServiceAssetId.value)
       }
       createRequestId.value = result.requestId
       createDialogOpen.value = false
@@ -1173,6 +1178,8 @@ async function submitCreate() {
       siteAssetId: assetDraft.siteAssetId.trim(),
       certificateFormatId: assetDraft.agentCertificateFormatId.trim() || undefined,
     })
+    const createdAssetId = String(result.data?.id ?? '')
+    if (createdAssetId && assetDraft.agentDeploymentMode === 'PLUGIN') await assignAgentPluginCapability(createdAssetId)
     createRequestId.value = result.requestId
     createDialogOpen.value = false
     await pageRef.value?.reload()
@@ -1213,6 +1220,46 @@ async function persistWorkflowPluginBinding(applicationAssetId: string, workflow
   await assignPluginCapability({
     ownerType: 'APPLICATION_ASSET', ownerId: applicationAssetId, capabilityKey: 'certificate.deploy',
     pluginVersionId: assetDraft.workflowPluginVersionId, pluginBindingId: pluginBindingId.value, precedence: 'ASSET_OVERRIDE',
+  })
+}
+
+async function loadExistingAgentPluginBinding(bindingId: string): Promise<void> {
+  const result = await getPluginBinding(bindingId)
+  const binding = readRecord(result.data) ?? {}
+  assetDraft.agentPluginPackageId = String(binding.pluginVersionId ?? '')
+  pluginBindingVersion.value = Number(binding.version ?? 0)
+  agentPluginVariableBindings.value = stringifyBindingValues(readRecord(binding.variableBindings) ?? {})
+  agentPluginSecretBindings.value = stringifyBindingValues(readRecord(binding.secretBindings) ?? {})
+  agentPluginArtifactBindings.value = stringifyArtifactBindings(readRecord(binding.certificateArtifactBindings) ?? {})
+}
+
+async function ensureAgentPluginBinding(): Promise<void> {
+  const payload = {
+    variableBindings: buildAgentPluginVariableBindings(),
+    secretBindings: buildAgentPluginSecretBindings(),
+    certificateArtifactBindings: buildAgentPluginCertificateBindings(),
+    connectionBindings: {},
+  }
+  if (pluginBindingId.value) {
+    const updated = await updatePluginBinding({ bindingId: pluginBindingId.value, expectedVersion: pluginBindingVersion.value, ...payload })
+    pluginBindingVersion.value = Number(updated.data?.version ?? pluginBindingVersion.value + 1)
+    return
+  }
+  const created = await createPluginBinding({
+    pluginVersionId: assetDraft.agentPluginPackageId,
+    mode: 'MANAGED',
+    managedContext: { hostId: assetDraft.hostId, agentId: assetDraft.agentId },
+    ...payload,
+  })
+  pluginBindingId.value = String(created.data?.id ?? '')
+  pluginBindingVersion.value = Number(created.data?.version ?? 1)
+  if (!pluginBindingId.value) throw new Error(t('assets.errors.pluginBindingCreateFailed'))
+}
+
+async function assignAgentPluginCapability(applicationAssetId: string): Promise<void> {
+  await assignPluginCapability({
+    ownerType: 'APPLICATION_ASSET', ownerId: applicationAssetId, capabilityKey: 'certificate.deploy',
+    pluginVersionId: assetDraft.agentPluginPackageId, pluginBindingId: pluginBindingId.value, precedence: 'ASSET_OVERRIDE',
   })
 }
 
@@ -1271,7 +1318,7 @@ function resetDraft() {
   workflowListError.value = ''
   workflowVersionListError.value = ''
   gatewayListError.value = ''
-  workflowCredentialError.value = ''
+  credentialProfileError.value = ''
   certificateFormatError.value = ''
   workflowCertificateArtifactBindings.value = {}
   agentPluginPackageItems.value = []
@@ -1334,6 +1381,20 @@ function buildDeploymentStrategyPayload(workflowTarget?: WorkflowTargetInfo): Re
         parameterBindings: buildWorkflowVariableBindings(),
         variableBindings: buildWorkflowVariableBindings(),
         certificateArtifactBindings: buildWorkflowCertificateArtifactBindings(),
+      },
+    }
+  }
+
+  if (assetDraft.agentDeploymentMode === 'PLUGIN') {
+    return {
+      type: 'AGENT',
+      agent: {
+        mode: 'PLUGIN',
+        pluginBindingId: pluginBindingId.value,
+        agentId: assetDraft.agentId,
+        siteAssetId: assetDraft.siteAssetId,
+        managedTargetId: assetDraft.managedTargetId,
+        certificateFormatId: assetDraft.agentCertificateFormatId,
       },
     }
   }
@@ -1549,8 +1610,8 @@ function workflowVariableValue(row: WorkflowVariableRow): unknown {
   if (row.type === 'boolean') return raw === 'true'
   if (row.type === 'object') return JSON.parse(raw)
   if (row.type === 'credential') {
-    const credential = workflowCredentialItems.value.find((item) => item.id === raw)
-    return credential ? workflowCredentialBinding(credential) : raw
+    const credential = credentialProfileItems.value.find((item) => item.id === raw)
+    return credential ? credentialProfileBinding(credential) : raw
   }
   return raw
 }
@@ -1574,7 +1635,7 @@ function validateWorkflowVariableRows(): string {
         return t('assets.validation.variableInvalidJson', { name })
       }
     }
-    if (row.type === 'credential' && rowValueHasContent(row) && !workflowCredentialItems.value.some((item) => item.id === row.value.trim())) {
+    if (row.type === 'credential' && rowValueHasContent(row) && !credentialProfileItems.value.some((item) => item.id === row.value.trim())) {
       return t('assets.validation.variableCredentialInvalid', { name })
     }
   }
@@ -1838,7 +1899,7 @@ function valueToWorkflowVariableText(value: unknown): string {
   if (value === undefined || value === null) return ''
   if (typeof value === 'string') return value
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  if (isWorkflowCredentialBindingRecord(value)) return String(value.id ?? '')
+  if (isRuntimeCredentialBindingRecord(value)) return String(value.id ?? '')
   return JSON.stringify(value, null, 2)
 }
 
@@ -1846,7 +1907,7 @@ function readStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map((item) => String(item)) : []
 }
 
-function isWorkflowCredentialBindingRecord(value: unknown): value is { id?: unknown } {
+function isRuntimeCredentialBindingRecord(value: unknown): value is { id?: unknown } {
   return Boolean(value)
     && typeof value === 'object'
     && !Array.isArray(value)
@@ -1870,15 +1931,15 @@ function readWorkflowBindingText(bindings: Record<string, unknown>, name: string
 }
 
 async function loadCredentialsForWorkflowVariables() {
-  workflowCredentialLoading.value = true
-  workflowCredentialError.value = ''
+  credentialProfileLoading.value = true
+  credentialProfileError.value = ''
   try {
-    workflowCredentialItems.value = await loadWorkflowCredentials()
+    credentialProfileItems.value = await loadCredentialProfiles()
   } catch (cause) {
-    workflowCredentialItems.value = []
-    workflowCredentialError.value = cause instanceof Error ? cause.message : t('assets.errors.loadWorkflowCredentialsFailed')
+    credentialProfileItems.value = []
+    credentialProfileError.value = cause instanceof Error ? cause.message : t('assets.errors.loadCredentialProfilesFailed')
   } finally {
-    workflowCredentialLoading.value = false
+    credentialProfileLoading.value = false
   }
 }
 
@@ -2229,8 +2290,36 @@ watch(
 )
 
 async function loadAgentPlugins(): Promise<void> {
-  const packageResult = await listAgentPluginPackages({ page: 1, pageSize: 500 })
-  agentPluginPackageItems.value = [...(packageResult.data?.items ?? [])]
+  const catalogResult = await listPluginCatalog({ page: 1, pageSize: 500, filters: { locale: locale.value } })
+  agentPluginPackageItems.value = (catalogResult.data?.items ?? [])
+    .filter((item) => String(item.catalogType ?? '') === 'UNIFIED_PLUGIN'
+      && String(item.runtime ?? '') === 'AGENT_ATOMIC'
+      && String(item.status ?? '').toUpperCase() === 'ENABLED')
+    .map((item) => {
+      const configuration = readRecord(item.configuration) ?? {}
+      const compatibility = readRecord(configuration.compatibility) ?? {}
+      return {
+        id: item.id,
+        catalogEnabled: true,
+        manifest: {
+          pluginId: item.pluginId,
+          name: item.pluginId,
+          version: item.version,
+          metadata: {
+            displayName: item.displayName,
+            description: item.description,
+            tags: item.tags,
+          },
+          compatibility: {
+            ...compatibility,
+            platforms: compatibility.platforms ?? item.platforms,
+            frameworks: compatibility.frameworks ?? readRecord(item.compatibility)?.products,
+          },
+          variables: configuration.variables,
+          artifactInputs: configuration.artifactInputs,
+        },
+      }
+    })
   clearIncompatibleAgentPluginSelection()
 }
 
@@ -2356,15 +2445,8 @@ function stringifyArtifactBindings(value: Record<string, unknown>): Record<strin
 }
 
 async function previewSelectedAgentPlugin(): Promise<void> {
-  const strategy = buildDeploymentStrategyPayload()
-  const plugin = readRecord(readRecord(strategy.agent)?.plugin)
-  if (!plugin) return
   agentPluginPreviewError.value = ''
-  try {
-    await previewAgentPluginBinding(assetDraft.agentId, plugin)
-  } catch (cause) {
-    agentPluginPreviewError.value = cause instanceof Error ? cause.message : t('plugins.agentDeployment.previewFailed')
-  }
+  if (!assetDraft.agentPluginPackageId) agentPluginPreviewError.value = t('plugins.agentDeployment.previewFailed')
 }
 </script>
 
@@ -2919,10 +3001,10 @@ async function previewSelectedAgentPlugin(): Promise<void> {
                     <li v-for="item in workflowBindingProjection.required" :key="`projection:${item.name}`" class="workflow-variable-form__row">
                       <label class="workflow-variable-form__value">
                         <span>{{ item.name }} *</span>
-                        <select v-if="projectionItemType(item) === 'credential'" :value="projectionItemValue(item)" :disabled="workflowCredentialLoading" @change="updateProjectionVariable(item, ($event.target as HTMLSelectElement).value)">
-                          <option value="">{{ workflowCredentialLoading ? t('assets.loading.credentials') : t('assets.select.credential') }}</option>
-                          <option v-for="credential in workflowCredentialItems" :key="credential.id" :value="credential.id">
-                            {{ workflowCredentialLabel(credential) }} / {{ workflowCredentialSummary(credential, t) }}
+                        <select v-if="projectionItemType(item) === 'credential'" :value="projectionItemValue(item)" :disabled="credentialProfileLoading" @change="updateProjectionVariable(item, ($event.target as HTMLSelectElement).value)">
+                          <option value="">{{ credentialProfileLoading ? t('assets.loading.credentials') : t('assets.select.credential') }}</option>
+                          <option v-for="credential in credentialProfileItems" :key="credential.id" :value="credential.id">
+                            {{ credentialProfileLabel(credential) }} / {{ credentialProfileSummary(credential, t) }}
                           </option>
                         </select>
                         <select v-else-if="projectionItemType(item) === 'boolean'" :value="projectionItemValue(item)" @change="updateProjectionVariable(item, ($event.target as HTMLSelectElement).value)">
@@ -2945,10 +3027,10 @@ async function previewSelectedAgentPlugin(): Promise<void> {
                       </label>
                       <label class="workflow-variable-form__value">
                         <span>{{ t('assets.workflowVariables.presets.credential') }} *</span>
-                        <select :value="workflowConnectionBindings[String(item.name)]?.credentialRef ?? item.credentialRef ?? ''" :disabled="workflowCredentialLoading" @change="updateProjectionConnectionCredential(String(item.name), ($event.target as HTMLSelectElement).value)">
-                          <option value="">{{ workflowCredentialLoading ? t('assets.loading.credentials') : t('assets.select.credential') }}</option>
-                          <option v-for="credential in workflowCredentialItems" :key="credential.id" :value="credential.id">
-                            {{ workflowCredentialLabel(credential) }} / {{ workflowCredentialSummary(credential, t) }}
+                        <select :value="workflowConnectionBindings[String(item.name)]?.credentialRef ?? item.credentialRef ?? ''" :disabled="credentialProfileLoading" @change="updateProjectionConnectionCredential(String(item.name), ($event.target as HTMLSelectElement).value)">
+                          <option value="">{{ credentialProfileLoading ? t('assets.loading.credentials') : t('assets.select.credential') }}</option>
+                          <option v-for="credential in credentialProfileItems" :key="credential.id" :value="credential.id">
+                            {{ credentialProfileLabel(credential) }} / {{ credentialProfileSummary(credential, t) }}
                           </option>
                         </select>
                       </label>
@@ -2970,10 +3052,10 @@ async function previewSelectedAgentPlugin(): Promise<void> {
                     </div>
                     <div v-for="item in workflowBindingProjection.advanced" :key="`advanced:${item.name}`" class="workflow-variable-form__row workflow-variable-form__row--variable">
                       <span>{{ item.name }}</span>
-                      <select v-if="projectionItemType(item) === 'credential'" :value="projectionItemValue(item)" :disabled="workflowCredentialLoading" @change="updateProjectionVariable(item, ($event.target as HTMLSelectElement).value)">
-                        <option value="">{{ workflowCredentialLoading ? t('assets.loading.credentials') : t('assets.select.credential') }}</option>
-                        <option v-for="credential in workflowCredentialItems" :key="credential.id" :value="credential.id">
-                          {{ workflowCredentialLabel(credential) }} / {{ workflowCredentialSummary(credential, t) }}
+                      <select v-if="projectionItemType(item) === 'credential'" :value="projectionItemValue(item)" :disabled="credentialProfileLoading" @change="updateProjectionVariable(item, ($event.target as HTMLSelectElement).value)">
+                        <option value="">{{ credentialProfileLoading ? t('assets.loading.credentials') : t('assets.select.credential') }}</option>
+                        <option v-for="credential in credentialProfileItems" :key="credential.id" :value="credential.id">
+                          {{ credentialProfileLabel(credential) }} / {{ credentialProfileSummary(credential, t) }}
                         </option>
                       </select>
                       <input v-else :value="projectionItemValue(item)" @input="updateProjectionVariable(item, ($event.target as HTMLInputElement).value)" />
@@ -3025,10 +3107,10 @@ async function previewSelectedAgentPlugin(): Promise<void> {
                     <label class="workflow-variable-form__value">
                       <span>{{ t('assets.workflowVariables.value') }}{{ row.required ? ' *' : '' }}</span>
                       <div v-if="row.type === 'certificate'" class="asset-form__readonly">{{ t('assets.workflowVariables.certificateAutoInjected') }}</div>
-                      <select v-else-if="row.type === 'credential'" v-model="row.value" :disabled="workflowCredentialLoading">
-                        <option value="">{{ workflowCredentialLoading ? t('assets.loading.credentials') : t('assets.select.credential') }}</option>
-                        <option v-for="credential in workflowCredentialItems" :key="credential.id" :value="credential.id">
-                          {{ workflowCredentialLabel(credential) }} / {{ workflowCredentialSummary(credential, t) }}
+                      <select v-else-if="row.type === 'credential'" v-model="row.value" :disabled="credentialProfileLoading">
+                        <option value="">{{ credentialProfileLoading ? t('assets.loading.credentials') : t('assets.select.credential') }}</option>
+                        <option v-for="credential in credentialProfileItems" :key="credential.id" :value="credential.id">
+                          {{ credentialProfileLabel(credential) }} / {{ credentialProfileSummary(credential, t) }}
                         </option>
                       </select>
                       <select v-else-if="row.type === 'boolean'" v-model="row.value">
@@ -3116,7 +3198,7 @@ async function previewSelectedAgentPlugin(): Promise<void> {
             </p>
             <p v-if="workflowVariablesError" class="asset-form__error">{{ workflowVariablesError }}</p>
             <p v-if="workflowCertificateArtifactError" class="asset-form__error">{{ workflowCertificateArtifactError }}</p>
-            <p v-if="workflowCredentialError" class="asset-form__error">{{ workflowCredentialError }}</p>
+            <p v-if="credentialProfileError" class="asset-form__error">{{ credentialProfileError }}</p>
             <p v-if="certificateFormatError" class="asset-form__error">{{ certificateFormatError }}</p>
           </template>
         </section>

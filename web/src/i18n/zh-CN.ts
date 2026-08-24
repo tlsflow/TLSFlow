@@ -2,7 +2,9 @@
 // Edit messages.ts and re-run: npx tsx src/i18n/extract-locales.ts
 import { devicesZhCN } from './devices.locale'
 import { caOperationsZhCN } from './ca-operations.locale'
+import { credentialsZhCN } from './credentials.locale'
 export default {
+  credentials: credentialsZhCN,
   devices: devicesZhCN,
   caOperations: caOperationsZhCN,
   app: {
@@ -855,7 +857,7 @@ export default {
       plugin: '部署插件', selectPlugin: '请选择部署插件', noCompatiblePlugin: '没有匹配当前平台和框架的已启用插件', compatiblePluginHint: '仅显示与当前资产平台和框架匹配的已启用插件。',
       secretRefPlaceholder: '输入 SecretRef 标识', artifactBinding: '证书产物 {name}', artifactBindingPlaceholder: '例如 value=fullchain,key=private', preview: '校验插件配置', previewFailed: 'Agent 插件配置校验失败',
       approveAndEnable: '审批权限并启用', activating: '启用中...', activateFailed: 'Agent 插件审批或启用失败',
-      types: { WORKFLOW_TEMPLATE: '工作流模板', AGENT_DEPLOYMENT: 'Agent 部署插件' }
+      types: { WORKFLOW_TEMPLATE: '工作流模板', UNIFIED_PLUGIN: '统一能力插件' }
     },
     changeSummaries: {
       createWorkflow: '从插件市场模板创建工作流'

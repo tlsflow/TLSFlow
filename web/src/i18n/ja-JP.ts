@@ -3,7 +3,9 @@
 import { internalCaEnglish } from './internal-ca.locale'
 import { devicesJaJP } from './devices.locale'
 import { caOperationsJaJP } from './ca-operations.locale'
+import { credentialsJaJP } from './credentials.locale'
 export default {
+  credentials: credentialsJaJP,
   devices: devicesJaJP,
   caOperations: caOperationsJaJP,
   app: {
@@ -803,7 +805,7 @@ export default {
       plugin: 'デプロイプラグイン', selectPlugin: 'デプロイプラグインを選択', noCompatiblePlugin: '現在のプラットフォームとフレームワークに一致する有効なプラグインがありません', compatiblePluginHint: '資産のプラットフォームとフレームワークに一致する有効なプラグインのみ表示します。',
       secretRefPlaceholder: 'SecretRef 識別子を入力', artifactBinding: '証明書成果物 {name}', artifactBindingPlaceholder: '例: value=fullchain,key=private', preview: 'プラグイン設定を検証', previewFailed: 'Agent プラグイン設定の検証に失敗しました',
       approveAndEnable: '権限を承認して有効化', activating: '有効化中...', activateFailed: 'Agent プラグインの承認または有効化に失敗しました',
-      types: { WORKFLOW_TEMPLATE: 'ワークフローテンプレート', AGENT_DEPLOYMENT: 'Agent デプロイプラグイン', UNIFIED_PLUGIN: '統合ケイパビリティプラグイン' }
+      types: { WORKFLOW_TEMPLATE: 'ワークフローテンプレート', UNIFIED_PLUGIN: '統合ケイパビリティプラグイン' }
     },
     changeSummaries: { createWorkflow: 'プラグインマーケットのテンプレートからワークフローを作成' }
   },
