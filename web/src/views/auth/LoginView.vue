@@ -48,6 +48,9 @@ async function submit() {
 <template>
   <main class="login-page" :class="`login-page--${appStore.theme}`">
     <div class="login-page__grid" aria-hidden="true"></div>
+    <div class="login-page__orb login-page__orb--a" aria-hidden="true"></div>
+    <div class="login-page__orb login-page__orb--b" aria-hidden="true"></div>
+    <div class="login-page__orb login-page__orb--c" aria-hidden="true"></div>
 
     <header class="login-page__topbar">
       <div class="login-page__brand">
@@ -133,7 +136,7 @@ async function submit() {
 </template>
 
 <style scoped>
-/* ===== 页面根布局 ===== */
+/* ===== 页面根布局：默认暗色科技风 ===== */
 .login-page {
   position: relative;
   display: grid;
@@ -146,6 +149,7 @@ async function submit() {
     radial-gradient(ellipse 62% 54% at 22% 18%, var(--gc-color-legacy-rgb-14-116-144-a34p), transparent 62%),
     linear-gradient(135deg, var(--gc-color-legacy-081427) 0%, var(--gc-color-legacy-0d2440) 46%, var(--gc-color-legacy-071427) 100%);
   color: var(--gc-color-legacy-e7f5ff);
+
   --login-headline-text: var(--gc-color-legacy-f0f8ff);
   --login-visual-text: var(--gc-color-legacy-f0f8ff);
   --login-visual-text-muted: var(--gc-color-text-inverse-muted);
@@ -153,14 +157,23 @@ async function submit() {
   --login-card-text-muted: var(--gc-color-text-inverse-muted);
   --login-control-bg: var(--gc-color-legacy-rgb-8-20-39-a58p);
   --login-control-border: var(--gc-color-legacy-rgb-125-211-252-a22p);
+  --login-control-border-strong: var(--gc-color-legacy-rgb-125-211-252-a34p);
+  --login-control-primary-soft: var(--gc-color-legacy-rgb-20-184-166-a12p);
+  --login-control-primary-weak: var(--gc-color-legacy-rgb-125-211-252-a16p);
   --login-panel-bg: var(--gc-color-legacy-rgb-12-34-62-a70p);
   --login-panel-border: var(--gc-color-legacy-rgb-125-211-252-a28p);
   --login-input-label: var(--gc-color-legacy-67e8f9);
   --login-input-bg: var(--gc-color-legacy-rgb-8-20-39-a58p);
   --login-input-border: var(--gc-color-legacy-rgb-125-211-252-a22p);
   --login-input-focus-bg: var(--gc-color-legacy-rgb-12-34-62-a70p);
+  --login-input-focus-border: var(--gc-color-legacy-rgb-125-211-252-a34p);
+  --login-input-focus-ring: var(--gc-color-legacy-rgb-14-165-233-a15p);
   --login-card-shadow-inset: var(--gc-color-surface-muted);
   --login-card-outline-opacity: .54;
+  --login-card-shadow: 0 28px 80px var(--gc-color-legacy-rgb-2-6-23-a26p), 0 1px 0 var(--login-card-shadow-inset) inset;
+  --login-card-outline-a: var(--gc-color-legacy-rgb-125-211-252-a30p);
+  --login-card-outline-b: var(--gc-color-surface-soft);
+  --login-card-outline-c: var(--gc-color-legacy-rgb-20-184-166-a20p);
   --login-control-text: var(--login-visual-text);
   --login-control-label: var(--login-visual-text-muted);
   --login-feature-bg: var(--gc-color-legacy-rgb-8-20-39-a58p);
@@ -171,64 +184,106 @@ async function submit() {
   --login-feature-text: var(--gc-color-text-soft);
   --login-feature-icon-bg: var(--gc-color-legacy-rgb-20-184-166-a12p);
   --login-feature-icon-border: var(--gc-color-legacy-rgb-45-212-191-a18p);
+  --login-feature-icon-color: var(--gc-color-legacy-67e8f9);
   --login-feature-shadow: 0 18px 42px var(--gc-color-legacy-rgb-2-6-23-a18p), inset 0 1px 0 var(--gc-color-surface-muted);
-  --login-grid-display: block;
+  --login-highlight-from: var(--gc-color-legacy-67e8f9);
+  --login-highlight-to: var(--gc-color-legacy-5eead4);
+  --login-mark-border: var(--gc-color-legacy-rgb-125-211-252-a28p);
+  --login-mark-color: var(--gc-color-legacy-ecfeff);
+  --login-mark-shadow: 0 14px 34px var(--gc-color-legacy-rgb-14-165-233-a30p);
+  --login-grid-line-a: var(--gc-color-legacy-rgb-125-211-252-a7p);
+  --login-grid-line-b: var(--gc-color-legacy-rgb-45-212-191-a6p);
   --login-grid-opacity: .72;
   --login-grid-blend: screen;
+  --login-glow-a: var(--gc-color-info-bg);
+  --login-glow-b: var(--gc-color-primary-weak);
+  --login-glow-c: var(--gc-color-legacy-rgb-20-184-166-a16p);
+  --login-beam: var(--gc-color-legacy-rgb-125-211-252-a10p);
+  --login-veil-top: var(--gc-color-surface-muted);
+  --login-veil-bottom: var(--gc-color-legacy-rgb-2-6-23-a18p);
+  --login-orb-a: var(--gc-color-legacy-rgb-14-165-233-a30p);
+  --login-orb-b: var(--gc-color-legacy-rgb-20-184-166-a20p);
+  --login-orb-c: var(--gc-color-legacy-rgb-125-211-252-a16p);
+  --login-status-border: var(--gc-color-legacy-rgb-20-184-166-a18p);
 }
 
+/* ===== 日间模式：浅色科技风 ===== */
 .login-page--light {
   background:
-    radial-gradient(ellipse 62% 54% at 22% 18%, var(--gc-color-legacy-rgb-14-116-144-a34p), transparent 62%),
-    linear-gradient(135deg, var(--gc-color-legacy-081427) 0%, var(--gc-color-legacy-0d2440) 46%, var(--gc-color-legacy-071427) 100%);
-  color: var(--gc-color-legacy-e7f5ff);
-  --login-headline-text: var(--gc-color-surface-hover);
-  --login-visual-text: var(--gc-color-legacy-f0f8ff);
-  --login-visual-text-muted: rgb(183 204 224);
+    radial-gradient(ellipse 70% 55% at 12% 8%, var(--gc-color-info-bg), transparent 58%),
+    radial-gradient(ellipse 50% 45% at 88% 12%, var(--gc-color-primary-weak), transparent 55%),
+    radial-gradient(ellipse 55% 50% at 70% 95%, var(--gc-color-success-soft), transparent 60%),
+    linear-gradient(155deg, var(--gc-color-surface-hover) 0%, var(--gc-color-bg) 40%, var(--gc-color-bg-strong) 100%);
+  color: var(--gc-color-text);
+
+  --login-headline-text: var(--gc-color-text-strong);
+  --login-visual-text: var(--gc-color-text-strong);
+  --login-visual-text-muted: var(--gc-color-text-muted);
   --login-card-text: var(--gc-color-text);
   --login-card-text-muted: var(--gc-color-text-muted);
-  --login-control-bg: var(--gc-color-legacy-rgb-8-20-39-a58p);
-  --login-control-border: var(--gc-color-legacy-rgb-125-211-252-a22p);
-  --login-panel-bg: var(--gc-color-legacy-rgb-239-249-255-a88p);
-  --login-panel-border: var(--gc-color-legacy-rgb-125-211-252-a22p);
-  --login-input-label: var(--gc-color-legacy-2f4d68);
-  --login-input-bg: var(--gc-color-surface);
-  --login-input-border: var(--gc-color-legacy-rgb-14-116-144-a18p);
-  --login-input-focus-bg: var(--gc-color-surface-overlay);
-  --login-card-shadow-inset: var(--gc-color-surface-field);
-  --login-card-outline-opacity: .8;
-  --login-control-text: var(--login-visual-text);
-  --login-control-label: var(--login-visual-text-muted);
-  --login-feature-bg: var(--gc-color-legacy-rgb-8-20-39-a58p);
-  --login-feature-bg-hover: var(--gc-color-legacy-rgb-12-34-62-a70p);
-  --login-feature-border: var(--gc-color-legacy-rgb-125-211-252-a16p);
-  --login-feature-border-hover: var(--gc-color-legacy-rgb-125-211-252-a34p);
-  --login-feature-title: var(--gc-color-legacy-f0f8ff);
-  --login-feature-text: var(--gc-color-text-inverse-muted);
-  --login-feature-icon-bg: var(--gc-color-legacy-rgb-20-184-166-a12p);
-  --login-feature-icon-border: var(--gc-color-legacy-rgb-45-212-191-a18p);
-  --login-feature-shadow: 0 18px 42px var(--gc-color-legacy-rgb-2-6-23-a18p), inset 0 1px 0 var(--gc-color-surface-muted);
-  --login-grid-display: block;
-  --login-grid-opacity: .72;
-  --login-grid-blend: screen;
+  --login-control-bg: var(--gc-color-surface-overlay);
+  --login-control-border: var(--gc-color-border);
+  --login-control-border-strong: var(--gc-color-border-strong);
+  --login-control-primary-soft: var(--gc-color-primary-soft);
+  --login-control-primary-weak: var(--gc-color-primary-weak);
+  --login-panel-bg: var(--gc-color-surface-overlay);
+  --login-panel-border: var(--gc-color-border);
+  --login-input-label: var(--gc-color-text);
+  --login-input-bg: var(--gc-color-surface-field);
+  --login-input-border: var(--gc-color-border);
+  --login-input-focus-bg: var(--gc-color-surface-field-focus);
+  --login-input-focus-border: var(--gc-color-primary-border-strong);
+  --login-input-focus-ring: var(--gc-color-focus-ring);
+  --login-card-shadow-inset: var(--gc-color-surface-solid);
+  --login-card-outline-opacity: .55;
+  --login-card-shadow: var(--gc-shadow-lg), 0 1px 0 var(--login-card-shadow-inset) inset;
+  --login-card-outline-a: var(--gc-color-primary-border);
+  --login-card-outline-b: var(--gc-color-surface-soft);
+  --login-card-outline-c: var(--gc-color-info-border);
+  --login-control-text: var(--gc-color-text);
+  --login-control-label: var(--gc-color-text-muted);
+  --login-feature-bg: var(--gc-color-surface-glass);
+  --login-feature-bg-hover: var(--gc-color-surface-overlay);
+  --login-feature-border: var(--gc-color-border);
+  --login-feature-border-hover: var(--gc-color-primary-border-strong);
+  --login-feature-title: var(--gc-color-text-strong);
+  --login-feature-text: var(--gc-color-text-muted);
+  --login-feature-icon-bg: var(--gc-color-info-soft);
+  --login-feature-icon-border: var(--gc-color-info-border);
+  --login-feature-icon-color: var(--gc-color-info);
+  --login-feature-shadow: var(--gc-shadow-md), inset 0 1px 0 var(--gc-color-surface-solid);
+  --login-highlight-from: var(--gc-color-primary);
+  --login-highlight-to: var(--gc-color-info);
+  --login-mark-border: var(--gc-color-primary-border);
+  --login-mark-color: var(--gc-color-text-inverse);
+  --login-mark-shadow: var(--gc-shadow-primary);
+  --login-grid-line-a: var(--gc-color-primary-weak);
+  --login-grid-line-b: var(--gc-color-info-border);
+  --login-grid-opacity: .38;
+  --login-grid-blend: multiply;
+  --login-glow-a: var(--gc-color-info-soft);
+  --login-glow-b: var(--gc-color-primary-soft);
+  --login-glow-c: var(--gc-color-success-soft);
+  --login-beam: var(--gc-color-primary-weak);
+  --login-veil-top: var(--gc-color-surface-muted);
+  --login-veil-bottom: var(--gc-color-info-soft);
+  --login-orb-a: var(--gc-color-info-bg);
+  --login-orb-b: var(--gc-color-primary-weak);
+  --login-orb-c: var(--gc-color-success-bg);
+  --login-status-border: var(--gc-color-success-border);
 }
 
-/* ===== 全屏深蓝科技背景 ===== */
+/* ===== 全屏光晕层 ===== */
 .login-page::before {
   content: '';
   position: fixed;
   inset: 0;
   z-index: 0;
   background:
-    radial-gradient(ellipse 48% 44% at 18% 20%, var(--gc-color-info-bg), transparent 62%),
-    radial-gradient(ellipse 38% 34% at 78% 22%, var(--gc-color-primary-weak), transparent 60%),
-    radial-gradient(ellipse 54% 42% at 64% 86%, var(--gc-color-legacy-rgb-20-184-166-a16p), transparent 64%);
+    radial-gradient(ellipse 48% 44% at 18% 20%, var(--login-glow-a), transparent 62%),
+    radial-gradient(ellipse 38% 34% at 78% 22%, var(--login-glow-b), transparent 60%),
+    radial-gradient(ellipse 54% 42% at 64% 86%, var(--login-glow-c), transparent 64%);
   pointer-events: none;
-}
-
-.login-page--light::before {
-  content: none;
-  display: none;
 }
 
 .login-page::after {
@@ -237,30 +292,59 @@ async function submit() {
   inset: 0;
   z-index: 0;
   background:
-    linear-gradient(120deg, transparent 0 34%, var(--gc-color-legacy-rgb-125-211-252-a10p) 48%, transparent 62% 100%),
-    linear-gradient(180deg, var(--gc-color-surface-muted), transparent 45%, var(--gc-color-legacy-rgb-2-6-23-a18p));
+    linear-gradient(120deg, transparent 0 34%, var(--login-beam) 48%, transparent 62% 100%),
+    linear-gradient(180deg, var(--login-veil-top), transparent 45%, var(--login-veil-bottom));
   pointer-events: none;
 }
 
-.login-page--light::after {
-  content: none;
-  display: none;
-}
-
-/* ===== 斜菱形网格装饰 ===== */
+/* ===== 斜菱形网格 ===== */
 .login-page__grid {
   position: fixed;
-  display: var(--login-grid-display);
   inset: 0;
   z-index: 1;
   pointer-events: none;
   background-image:
-    repeating-linear-gradient(45deg, var(--gc-color-legacy-rgb-125-211-252-a7p) 0 1px, transparent 1px 82px),
-    repeating-linear-gradient(-45deg, var(--gc-color-legacy-rgb-45-212-191-a6p) 0 1px, transparent 1px 82px);
+    repeating-linear-gradient(45deg, var(--login-grid-line-a) 0 1px, transparent 1px 82px),
+    repeating-linear-gradient(-45deg, var(--login-grid-line-b) 0 1px, transparent 1px 82px);
   background-size: 164px 164px;
   mask-image: radial-gradient(ellipse 82% 70% at 50% 50%, var(--gc-color-legacy-rgb-0-0-0-a72p) 0%, var(--gc-color-legacy-rgb-0-0-0-a42p) 66%, transparent 100%);
   opacity: var(--login-grid-opacity);
   mix-blend-mode: var(--login-grid-blend);
+}
+
+/* ===== 浮动光球装饰 ===== */
+.login-page__orb {
+  position: fixed;
+  z-index: 1;
+  border-radius: 50%;
+  pointer-events: none;
+  filter: blur(60px);
+  opacity: .55;
+}
+
+.login-page__orb--a {
+  top: -8%;
+  left: -4%;
+  width: 420px;
+  height: 420px;
+  background: var(--login-orb-a);
+}
+
+.login-page__orb--b {
+  top: 12%;
+  right: -6%;
+  width: 360px;
+  height: 360px;
+  background: var(--login-orb-b);
+}
+
+.login-page__orb--c {
+  bottom: -10%;
+  left: 35%;
+  width: 480px;
+  height: 480px;
+  background: var(--login-orb-c);
+  opacity: .4;
 }
 
 /* ===== 内容层级 ===== */
@@ -300,9 +384,9 @@ async function submit() {
   --gc-color-text-muted: var(--login-control-label);
   --gc-color-surface-soft: var(--login-control-bg);
   --gc-color-border: var(--login-control-border);
-  --gc-color-border-strong: var(--gc-color-legacy-rgb-125-211-252-a34p);
-  --gc-color-primary-soft: var(--gc-color-legacy-rgb-20-184-166-a12p);
-  --gc-color-primary-weak: var(--gc-color-legacy-rgb-125-211-252-a16p);
+  --gc-color-border-strong: var(--login-control-border-strong);
+  --gc-color-primary-soft: var(--login-control-primary-soft);
+  --gc-color-primary-weak: var(--login-control-primary-weak);
 }
 
 .login-page__brand {
@@ -340,12 +424,12 @@ async function submit() {
   place-items: center;
   width: 38px;
   height: 38px;
-  border: 1px solid var(--gc-color-legacy-rgb-125-211-252-a28p);
-  border-radius: 10px;
-  color: var(--gc-color-legacy-ecfeff);
+  border: 1px solid var(--login-mark-border);
+  border-radius: var(--gc-radius-sm);
+  color: var(--login-mark-color);
   font-weight: 800;
   background: linear-gradient(135deg, var(--gc-color-info), var(--gc-color-primary-strong));
-  box-shadow: 0 14px 34px var(--gc-color-legacy-rgb-14-165-233-a30p);
+  box-shadow: var(--login-mark-shadow);
 }
 
 /* ===== 标题区域 ===== */
@@ -365,7 +449,7 @@ async function submit() {
 }
 
 .login-page__highlight {
-  background: linear-gradient(135deg, var(--gc-color-legacy-67e8f9), var(--gc-color-legacy-5eead4));
+  background: linear-gradient(135deg, var(--login-highlight-from), var(--login-highlight-to));
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -392,16 +476,17 @@ async function submit() {
   position: relative;
   padding: 22px 20px;
   border: 1px solid var(--login-feature-border);
-  border-radius: 12px;
+  border-radius: var(--gc-radius-sm);
   background: var(--login-feature-bg);
   box-shadow: var(--login-feature-shadow);
   backdrop-filter: blur(16px);
-  transition: border-color .35s ease, background .35s ease, transform .35s ease;
+  transition: border-color .35s ease, background .35s ease, transform .35s ease, box-shadow .35s ease;
 }
 
 .login-page__features article:hover {
   border-color: var(--login-feature-border-hover);
   background: var(--login-feature-bg-hover);
+  box-shadow: var(--gc-shadow-hover);
   transform: translateY(-2px);
 }
 
@@ -409,7 +494,7 @@ async function submit() {
   width: 36px;
   height: 36px;
   margin-bottom: 14px;
-  color: var(--gc-color-legacy-67e8f9);
+  color: var(--login-feature-icon-color);
   padding: 7px;
   border: 1px solid var(--login-feature-icon-border);
   border-radius: 8px;
@@ -452,11 +537,9 @@ async function submit() {
   width: min(100%, 430px);
   padding: 34px 32px;
   border: 1px solid var(--login-panel-border);
-  border-radius: 16px;
+  border-radius: var(--gc-radius-md);
   background: var(--login-panel-bg);
-  box-shadow:
-    0 28px 80px var(--gc-color-legacy-rgb-2-6-23-a26p),
-    0 1px 0 var(--login-card-shadow-inset) inset;
+  box-shadow: var(--login-card-shadow);
   backdrop-filter: blur(24px) saturate(140%);
 }
 
@@ -465,8 +548,8 @@ async function submit() {
   position: absolute;
   inset: -1px;
   z-index: -1;
-  border-radius: 16px;
-  background: linear-gradient(160deg, var(--gc-color-legacy-rgb-125-211-252-a30p), var(--gc-color-surface-soft), var(--gc-color-legacy-rgb-20-184-166-a20p));
+  border-radius: inherit;
+  background: linear-gradient(160deg, var(--login-card-outline-a), var(--login-card-outline-b), var(--login-card-outline-c));
   opacity: var(--login-card-outline-opacity);
 }
 
@@ -478,7 +561,7 @@ async function submit() {
   width: fit-content;
   min-height: 26px;
   padding: 0 10px;
-  border: 1px solid var(--gc-color-legacy-rgb-20-184-166-a18p);
+  border: 1px solid var(--login-status-border);
   border-radius: 999px;
   color: var(--gc-color-success);
   background: var(--gc-color-success-soft);
@@ -529,10 +612,10 @@ async function submit() {
   min-height: 44px;
   padding: 0 14px;
   border: 1px solid var(--login-input-border);
-  border-radius: 10px;
+  border-radius: var(--gc-radius-sm);
   background: var(--login-input-bg);
   color: var(--login-card-text);
-  font-size: 14px;
+  font-size: var(--gc-font-size-sm);
   outline: none;
   transition: border-color .2s ease, box-shadow .2s ease, background .2s ease;
 }
@@ -542,9 +625,9 @@ async function submit() {
 }
 
 .login-card__field input:focus {
-  border-color: var(--gc-color-legacy-rgb-125-211-252-a34p);
+  border-color: var(--login-input-focus-border);
   background: var(--login-input-focus-bg);
-  box-shadow: 0 0 0 3px var(--gc-color-legacy-rgb-14-165-233-a15p);
+  box-shadow: 0 0 0 3px var(--login-input-focus-ring);
 }
 
 /* ===== 错误提示 ===== */
@@ -563,7 +646,7 @@ async function submit() {
 .login-card__submit {
   min-height: 46px;
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--gc-radius-sm);
   background: linear-gradient(135deg, var(--gc-color-info), var(--gc-color-primary-strong));
   color: var(--gc-color-text-inverse);
   font-size: 15px;
@@ -575,7 +658,7 @@ async function submit() {
 
 .login-card__submit:hover {
   transform: translateY(-1px);
-  box-shadow: 0 12px 30px var(--gc-color-primary-weak);
+  box-shadow: var(--gc-shadow-primary);
 }
 
 .login-card__submit:active {
@@ -626,6 +709,21 @@ async function submit() {
 
   .login-page__panel {
     padding: 0 28px 40px;
+  }
+
+  .login-page__orb--a {
+    width: 280px;
+    height: 280px;
+  }
+
+  .login-page__orb--b {
+    width: 240px;
+    height: 240px;
+  }
+
+  .login-page__orb--c {
+    width: 320px;
+    height: 320px;
   }
 }
 
@@ -694,6 +792,14 @@ async function submit() {
 @media (prefers-reduced-motion: reduce) {
   .login-card__status span:first-child {
     animation: none;
+  }
+
+  .login-page__features article {
+    transition: none;
+  }
+
+  .login-card__submit {
+    transition: none;
   }
 }
 </style>
