@@ -5,7 +5,7 @@ import {
   type WorkflowManagedCredential,
 } from './workflow-credentials'
 
-export type WorkflowCanvasNodeType = 'http' | 'ssh' | 'sftp' | 'scp' | 'tls_probe' | 'verify' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'wait' | 'manual'
+export type WorkflowCanvasNodeType = 'http' | 'ssh' | 'sftp' | 'scp' | 'tls_probe' | 'verify' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'checkpoint_verify' | 'wait' | 'manual'
 export type WorkflowCanvasEdgeType = 'success' | 'failure' | 'always' | 'rollback'
 export type WorkflowCanvasFieldKind = 'text' | 'textarea' | 'number' | 'select' | 'secret'
 export type WorkflowValidationSeverity = 'error' | 'warning' | 'risk'
@@ -237,6 +237,12 @@ export type WorkflowDslStep =
         readonly maxInputBytes?: number
         readonly maxOutputBytes?: number
       }
+    }
+  | {
+      readonly name: string
+      readonly type: 'checkpoint_verify'
+      readonly stage?: WorkflowCanvasStage
+      readonly checkpointVerify: { readonly valuePath: string; readonly expectedHash: string }
     }
   | {
       readonly name: string
@@ -947,6 +953,9 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
       config: cloneRecord(step.tlsProbe),
     }
   }
+  if (step.type === 'checkpoint_verify') {
+    return { id: `checkpoint_verify_${index + 1}`, type: 'checkpoint_verify', position: { x: 80 + index * 260, y: 120 }, label: dslStepLabel(step, 'Checkpoint Verify'), config: cloneRecord(step.checkpointVerify), ui: { stage, rawStep: cloneRecord(step) } }
+  }
   if (step.type === 'foreach') {
     return {
       id: `foreach_${index + 1}`,
@@ -1046,7 +1055,7 @@ function buildStageEdges(nodes: readonly WorkflowCanvasNode[]): WorkflowCanvasEd
 
 function defaultStageForType(type: WorkflowCanvasNodeType): WorkflowCanvasStage {
   if (type === 'http' || type === 'condition') return 'prepare'
-  if (type === 'checkpoint') return 'backup'
+  if (type === 'checkpoint' || type === 'checkpoint_verify') return 'backup'
   if (type === 'transform' || type === 'foreach') return 'refresh'
   if (type === 'sftp' || type === 'scp') return 'install'
   if (type === 'ssh' || type === 'wait') return 'refresh'
@@ -1060,7 +1069,7 @@ function stageForDslStep(step: WorkflowDslStep, index: number): WorkflowCanvasSt
   if (step.type === 'tls_probe') return 'verify'
   if (step.type === 'http') return 'prepare'
   if (step.type === 'sftp' || step.type === 'scp') return 'install'
-  if (step.type === 'checkpoint') return 'backup'
+  if (step.type === 'checkpoint' || step.type === 'checkpoint_verify') return 'backup'
   if (step.type === 'transform' || step.type === 'foreach') return 'refresh'
   if (step.type === 'ssh' && (step.ssh.command ?? '').startsWith('SFTP_')) return 'install'
   if (step.type === 'ssh' || step.type === 'wait') return 'refresh'

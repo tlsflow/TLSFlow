@@ -112,6 +112,7 @@
         "input": {
           "version": "{{deviceVersion}}",
           "versionResponse": "{{steps.preflight.output.body}}",
+          "allBindings": "{{steps.readOldBindings.output.body.sslvserver_sslcertkey_binding}}",
           "bindings": "{{targetBindings}}",
           "certkeyIterations": "{{steps.readOldCertKeys.output.iterations}}",
           "targets": "{{targetVirtualServers}}",
@@ -120,7 +121,7 @@
         },
         "outputs": {
           "deploymentSnapshot": {
-            "expression": "{'deviceVersion': version, 'versionResponse': versionResponse, 'bindings': bindings, 'certkeys': $append([], $map(certkeyIterations, function($iteration) { $iteration.outputs[0].output.body.sslcertkey })), 'targets': targets, 'newCertificateKeyName': newCertificateKeyName, 'targetFingerprintSha256': targetFingerprintSha256}"
+            "expression": "{'deviceVersion': version, 'versionResponse': versionResponse, 'bindings': bindings, 'certkeys': $append([], $map(certkeyIterations, function($iteration) { {'resource': $iteration.outputs[0].output.body.sslcertkey, 'sharedBindings': $filter(allBindings, function($binding) { $binding.certkeyname in $iteration.outputs[0].output.body.sslcertkey.certkey })} })), 'targets': targets, 'newCertificateKeyName': newCertificateKeyName, 'targetFingerprintSha256': targetFingerprintSha256}"
           }
         }
       }
@@ -362,6 +363,180 @@
               "port": 443,
               "serverName": "{{target.serverName}}",
               "expectedFingerprintSha256": "{{certificate.fingerprintSha256}}",
+              "timeoutSeconds": 15
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "rollback": [
+    {
+      "name": "rollbackReadCurrentVersion",
+      "type": "http",
+      "stage": "prepare",
+      "request": {
+        "method": "GET",
+        "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/nsversion",
+        "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+        "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
+        "successStatusCodes": [200]
+      },
+      "extract": { "rollbackDeviceVersion": { "type": "firstOf", "paths": ["$.body.nsversion.version", "$.body.nsversion[0].version"] } },
+      "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }]
+    },
+    {
+      "name": "rollbackVerifyDeviceVersion",
+      "type": "condition",
+      "stage": "prepare",
+      "condition": { "variable": "rollbackDeviceVersion", "equals": "{{deploymentSnapshot.deviceVersion}}" },
+      "description": "设备版本或 Build 漂移时停止自动回滚"
+    },
+    {
+      "name": "rollbackRestoreOldBindings",
+      "type": "foreach",
+      "stage": "refresh",
+      "foreach": {
+        "itemsPath": "deploymentSnapshot.bindings",
+        "itemVariable": "rollbackOldBinding",
+        "maxItems": 1000,
+        "steps": [
+          {
+            "name": "rollbackRestoreOldBinding",
+            "type": "http",
+            "request": {
+              "method": "POST",
+              "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslvserver_sslcertkey_binding",
+              "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+              "bodyType": "json",
+              "body": { "sslvserver_sslcertkey_binding": "{{rollbackOldBinding}}" },
+              "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
+              "successStatusCodes": [200, 201]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "rollbackReadBindingsAfterRestore",
+      "type": "http",
+      "stage": "refresh",
+      "request": {
+        "method": "GET",
+        "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslvserver_sslcertkey_binding",
+        "query": { "bulkbindings": "yes" },
+        "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+        "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
+        "successStatusCodes": [200]
+      },
+      "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }]
+    },
+    {
+      "name": "rollbackCompareRestoredBindings",
+      "type": "transform",
+      "stage": "refresh",
+      "transform": {
+        "engine": "jsonata",
+        "input": { "expected": "{{deploymentSnapshot.bindings}}", "actual": "{{steps.rollbackReadBindingsAfterRestore.output.body.sslvserver_sslcertkey_binding}}" },
+        "outputs": {
+          "rollbackOldBindingsRestored": { "expression": "$count($filter(expected, function($item) { $count($filter(actual, function($candidate) { $candidate.vservername = $item.vservername and $candidate.certkeyname = $item.certkeyname and $candidate.snicert = $item.snicert and $candidate.priority = $item.priority })) = 1 })) = $count(expected)" }
+        }
+      }
+    },
+    {
+      "name": "rollbackRequireOldBindingsRestored",
+      "type": "condition",
+      "stage": "refresh",
+      "condition": { "variable": "rollbackOldBindingsRestored", "equals": true }
+    },
+    {
+      "name": "rollbackRemoveNewBindings",
+      "type": "foreach",
+      "stage": "refresh",
+      "foreach": {
+        "itemsPath": "deploymentSnapshot.targets",
+        "itemVariable": "rollbackTarget",
+        "maxItems": 1000,
+        "steps": [
+          {
+            "name": "rollbackRemoveNewBinding",
+            "type": "http",
+            "request": {
+              "method": "DELETE",
+              "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslvserver_sslcertkey_binding/{{rollbackTarget.name}}?args=certkeyname:{{deploymentSnapshot.newCertificateKeyName}}",
+              "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+              "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
+              "successStatusCodes": [200, 201]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "rollbackReadFinalBindings",
+      "type": "http",
+      "stage": "verify",
+      "request": {
+        "method": "GET",
+        "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslvserver_sslcertkey_binding",
+        "query": { "bulkbindings": "yes" },
+        "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+        "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
+        "successStatusCodes": [200]
+      },
+      "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }]
+    },
+    {
+      "name": "rollbackCompareFinalBindings",
+      "type": "transform",
+      "stage": "verify",
+      "transform": {
+        "engine": "jsonata",
+        "input": { "expected": "{{deploymentSnapshot.bindings}}", "actual": "{{steps.rollbackReadFinalBindings.output.body.sslvserver_sslcertkey_binding}}", "targets": "{{deploymentSnapshot.targets}}" },
+        "outputs": {
+          "rollbackFinalBindingsEquivalent": { "expression": "$count($filter(actual, function($item) { $item.vservername in targets.name })) = $count(expected) and $count($filter(expected, function($item) { $count($filter(actual, function($candidate) { $candidate.vservername = $item.vservername and $candidate.certkeyname = $item.certkeyname and $candidate.snicert = $item.snicert and $candidate.priority = $item.priority })) = 1 })) = $count(expected)" }
+        }
+      }
+    },
+    {
+      "name": "rollbackRequireFinalBindingsEquivalent",
+      "type": "condition",
+      "stage": "verify",
+      "condition": { "variable": "rollbackFinalBindingsEquivalent", "equals": true }
+    },
+    {
+      "name": "rollbackSaveConfiguration",
+      "type": "http",
+      "stage": "verify",
+      "request": {
+        "method": "POST",
+        "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/nsconfig",
+        "query": { "action": "save" },
+        "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+        "bodyType": "json",
+        "body": { "nsconfig": {} },
+        "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
+        "successStatusCodes": [200]
+      },
+      "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }]
+    },
+    {
+      "name": "rollbackVerifyPreviousTlsHandshakes",
+      "type": "foreach",
+      "stage": "verify",
+      "foreach": {
+        "itemsPath": "deploymentSnapshot.targets",
+        "itemVariable": "rollbackTarget",
+        "maxItems": 1000,
+        "steps": [
+          {
+            "name": "rollbackVerifyPreviousTlsHandshake",
+            "type": "tls_probe",
+            "tlsProbe": {
+              "host": "{{rollbackTarget.verifyHost}}",
+              "port": 443,
+              "serverName": "{{rollbackTarget.serverName}}",
+              "expectedFingerprintSha256": "{{rollbackTarget.previousFingerprintSha256}}",
               "timeoutSeconds": 15
             }
           }

@@ -344,10 +344,12 @@ export class WorkflowTemplatesDomainService {
         const result = await this.runStep(step, context, input, true, runId, dispatcher);
         rollbackResults.push(result.result);
         logs.push(...result.result.logs);
+        if (result.result.status === 'failed') break;
       }
     }
 
-    const status = failed ? (rollbackResults.length ? 'rolled_back' : 'failed') : 'success';
+    const rollbackSucceeded = rollbackResults.length > 0 && rollbackResults.every((result) => result.status !== 'failed');
+    const status = failed ? (rollbackSucceeded ? 'rolled_back' : 'failed') : 'success';
     await reportWorkflowProgress(reporter, runId, input, progressSteps, logs, status);
     return {
       id: runId,
@@ -889,6 +891,21 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
       plannedOnly: mode === 'render_only',
     };
   }
+  if (step.type === 'checkpoint_verify') {
+    const value = readPath(context.values, step.checkpointVerify.valuePath);
+    if (value === undefined) throw new AppError('VALIDATION_FAILED', 'checkpoint_verify 路径不存在', { step: step.name, valuePath: step.checkpointVerify.valuePath });
+    assertCheckpointValueSafe(value, step.checkpointVerify.valuePath);
+    const actualHash = createHash('sha256').update(stableStringify(value)).digest('hex');
+    const expectedHash = renderString(step.checkpointVerify.expectedHash, context.values, mode === 'render_only').toLowerCase();
+    return {
+      executor: 'workflow.checkpoint_verify',
+      valuePath: step.checkpointVerify.valuePath,
+      expectedHash,
+      actualHash,
+      matched: actualHash === expectedHash,
+      plannedOnly: mode === 'render_only',
+    };
+  }
   if (step.type === 'wait') return { executor: 'workflow.wait', seconds: step.seconds, plannedOnly: true };
   return { executor: 'workflow.manual', instruction: renderString(step.instruction, context.values, mode === 'render_only'), plannedOnly: true };
 }
@@ -1298,6 +1315,10 @@ function stepOutputSuccess(step: WorkflowStep, output: WorkflowMockStepOutput, v
   if (step.type === 'http') return [200, 201, 202, 204].includes(output.statusCode ?? 200);
   if (step.type === 'ssh') return (output.exitCode ?? 0) === 0;
   if (step.type === 'condition') return evaluateCondition(step.condition, values);
+  if (step.type === 'checkpoint_verify') {
+    const plan = adaptStep(step, { values, secretPaths: new Set(), outputs: {}, connections: {} }, 'mock');
+    return isRecord(plan) && plan.matched === true;
+  }
   return true;
 }
 

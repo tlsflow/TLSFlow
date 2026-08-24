@@ -22,10 +22,11 @@ const conditionStepKeys = new Set([...stepBaseKeys, 'condition', 'description'])
 const transformStepKeys = new Set([...stepBaseKeys, 'transform']);
 const foreachStepKeys = new Set([...stepBaseKeys, 'foreach']);
 const checkpointStepKeys = new Set([...stepBaseKeys, 'checkpoint']);
+const checkpointVerifyStepKeys = new Set([...stepBaseKeys, 'checkpointVerify']);
 const waitStepKeys = new Set([...stepBaseKeys, 'seconds']);
 const manualStepKeys = new Set([...stepBaseKeys, 'instruction']);
 const variableTypes = new Set<WorkflowVariableType>(['string', 'number', 'boolean', 'enum', 'object', 'array', 'file', 'credential', 'certificate']);
-const stepTypes = new Set(['http', 'ssh', 'sftp', 'scp', 'tls_probe', 'condition', 'transform', 'foreach', 'checkpoint', 'wait', 'manual']);
+const stepTypes = new Set(['http', 'ssh', 'sftp', 'scp', 'tls_probe', 'condition', 'transform', 'foreach', 'checkpoint', 'checkpoint_verify', 'wait', 'manual']);
 const workflowStages = new Set(['prepare', 'backup', 'install', 'refresh', 'verify']);
 const reservedRoots = new Set(['asset', 'previous', 'steps']);
 
@@ -270,6 +271,14 @@ function validateStepByType(step: WorkflowStep, path: string, depth: number): vo
     }
     if (step.checkpoint.normalizedHash !== undefined && typeof step.checkpoint.normalizedHash !== 'boolean') throw validationError(`${path}.checkpoint.normalizedHash 必须是布尔值`);
     if (typeof step.checkpoint.requiredForRollback !== 'boolean') throw validationError(`${path}.checkpoint.requiredForRollback 必须是布尔值`);
+    return;
+  }
+  if (step.type === 'checkpoint_verify') {
+    rejectUnknown(step as unknown as Record<string, unknown>, checkpointVerifyStepKeys, path);
+    if (!isRecord(step.checkpointVerify)) throw validationError(`${path}.checkpointVerify 必须是对象`);
+    rejectUnknown(step.checkpointVerify, new Set(['valuePath', 'expectedHash']), `${path}.checkpointVerify`);
+    if (!isNonEmptyString(step.checkpointVerify.valuePath) || !/^[a-zA-Z][a-zA-Z0-9_.\[\]]*$/.test(step.checkpointVerify.valuePath)) throw validationError(`${path}.checkpointVerify.valuePath 不合法`);
+    if (!isNonEmptyString(step.checkpointVerify.expectedHash)) throw validationError(`${path}.checkpointVerify.expectedHash 必填`);
     return;
   }
   if (step.type === 'wait') {

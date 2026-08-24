@@ -319,6 +319,12 @@ export class WorkflowExecutorAdapter implements Executor {
         executorId,
         execute: async () => ({ success: true, body: { success: true, plannedOnly: true, executor: executorId }, logs: [`workflow:${executorId}:planned`] }),
       })),
+      {
+        executorId: 'workflow.checkpoint_verify',
+        execute: async (context) => context.plan?.matched === true
+          ? { success: true, body: { expectedHash: context.plan.expectedHash, actualHash: context.plan.actualHash }, logs: ['workflow:checkpoint_verify:matched'] }
+          : { success: false, errorCode: 'WORKFLOW_CHECKPOINT_HASH_MISMATCH', errorMessage: '恢复快照哈希不一致，停止自动回滚', body: { expectedHash: context.plan?.expectedHash, actualHash: context.plan?.actualHash } },
+      },
     ]);
   }
 
