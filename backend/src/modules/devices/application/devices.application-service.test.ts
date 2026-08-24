@@ -166,9 +166,9 @@ test('设备插件能力执行把宿主租户上下文透传给统一工作流�
     get: async () => device,
     list: async () => ({ items: [], total: 0, page: 1, pageSize: 200 }),
   } as unknown as DevicesRepository;
-  const workflowCalls: Array<{ tenantId?: string; templateVersionId: string; mode: string }> = [];
+  const workflowCalls: Array<{ tenantId?: string; templateVersionId: string; mode: string; authorization?: { approved?: boolean; approvalId?: string } }> = [];
   const workflows = {
-    execute: async (input: { tenantId?: string; templateVersionId: string; mode: string }) => {
+    execute: async (input: { tenantId?: string; templateVersionId: string; mode: string; authorization?: { approved?: boolean; approvalId?: string } }) => {
       workflowCalls.push(input);
       return {
         id: 'run-connection-test', mode: 'real_test', executionBranch: 'deploy', plannedOnly: false, status: 'success',
@@ -248,13 +248,21 @@ test('设备插件能力执行把宿主租户上下文透传给统一工作流�
     } as never,
   );
 
-  const result = await service.executeCapability('tenant-exec-1', 'host-plugin-1', 'device.connection.test', 'user-1', 'request-1');
+  const result = await service.executeCapability(
+    'tenant-exec-1',
+    'host-plugin-1',
+    'device.connection.test',
+    'user-1',
+    'request-1',
+    { approved: true, approvalId: 'approval-device-test' },
+  );
 
   assert.equal((result as { status: string }).status, 'success');
   assert.equal(workflowCalls.length, 1);
   assert.equal(workflowCalls[0]?.tenantId, 'tenant-exec-1');
   assert.equal(workflowCalls[0]?.templateVersionId, 'wf-version-1');
   assert.equal(workflowCalls[0]?.mode, 'real_test');
+  assert.deepEqual(workflowCalls[0]?.authorization, { approved: true, approvalId: 'approval-device-test' });
 });
 
 test('设备插件能力执行缺少统一工作流服务时失败关闭而不是伪造成功', async () => {

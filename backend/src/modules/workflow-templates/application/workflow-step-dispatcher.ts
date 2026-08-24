@@ -4,7 +4,7 @@ import { CurlExecutor, type CurlExecutionRequest } from '../../executors/curl/cu
 import type { CurlSecretResolverContext } from '../../executors/curl/curl.secret-resolver.js';
 import { SSHExecutor, type SSHExecutionRequest } from '../../executors/ssh/ssh.executor.js';
 import type { ExecutionGrantService } from '../../executions/execution-grant.service.js';
-import type { WorkflowExecutorDispatcher, WorkflowExecutorDispatchResult } from '../dto/workflow-templates.dto.js';
+import type { WorkflowExecutionAuthorization, WorkflowExecutorDispatcher, WorkflowExecutorDispatchResult, WorkflowTestRunMode } from '../dto/workflow-templates.dto.js';
 
 export interface WorkflowStepDispatcherDependencies {
   /**
@@ -42,22 +42,27 @@ export function createWorkflowStepDispatcher(dependencies: WorkflowStepDispatche
       if (!curlExecutor) return executionCapabilityMissing(executor);
       const request = toCurlExecutionRequest(plan, input.runId, input.step.name, input.attempt, dryRun);
       if (!request) return { success: false, errorCode: 'CURL_REQUEST_REQUIRED', errorMessage: '工作流节点缺少 curlRequest' };
-      const tlsBypassGrantId = await authorizeCurlTlsBypass(request, {
-        runId: input.runId,
-        stepName: input.step.name,
-        tenantId: input.tenantId,
-        workflowVersionId: input.workflowVersionId,
-      }, executionGrantService);
-      const curlContext: CurlSecretResolverContext = {
-        runId: input.runId,
-        stepId: input.step.name,
-        tenantId: input.tenantId,
-        workflowVersionId: input.workflowVersionId,
-        actorId: 'workflow-step-test',
-        executionGrantService,
-        ...(tlsBypassGrantId ? { allowInsecureTls: true, executionGrantId: tlsBypassGrantId } : {}),
-      };
+      let tlsBypassGrantId: string | undefined;
       try {
+        tlsBypassGrantId = await authorizeCurlTlsBypass(request, {
+          runId: input.runId,
+          stepName: input.step.name,
+          tenantId: input.tenantId,
+          workflowVersionId: input.workflowVersionId,
+          mode: input.mode,
+          dryRun,
+          authorization: input.authorization,
+        }, executionGrantService);
+        const curlContext: CurlSecretResolverContext = {
+          runId: input.runId,
+          stepId: input.step.name,
+          tenantId: input.tenantId,
+          workflowVersionId: input.workflowVersionId,
+          actorId: 'workflow-step-test',
+          executionGrantService,
+          ...(input.authorization?.approvalId ? { approvalId: input.authorization.approvalId } : {}),
+          ...(tlsBypassGrantId ? { allowInsecureTls: true, executionGrantId: tlsBypassGrantId } : {}),
+        };
         const result = await curlExecutor.execute(request, request.dryRun === true, curlContext);
         return {
           success: result.success,
@@ -128,24 +133,40 @@ export function createWorkflowStepDispatcher(dependencies: WorkflowStepDispatche
 }
 
 /**
- * 只有 DSL 显式声明 tls.allowInsecure 意图、渲染结果 verify=false（设备绑定关闭校验）
- * 且宿主提供租户上下文与 ExecutionGrant 服务时，才签发绑定当前 run/step 的短期 Grant。
+ * 只有 DSL 显式声明 tls.allowInsecure 意图、渲染结果 verify=false（设备绑定关闭校验），
+ * 并满足 real_test 的审批上下文、租户上下文与 ExecutionGrant 服务时，才签发绑定当前 run/step 的短期 Grant。
  * 其余情况不签发 Grant，CurlExecutor 自身的 TLS 授权链会失败关闭，绝不静默降级。
  */
 async function authorizeCurlTlsBypass(
   request: CurlExecutionRequest,
-  input: { runId: string; stepName: string; tenantId?: string; workflowVersionId?: string },
+  input: {
+    runId: string;
+    stepName: string;
+    tenantId?: string;
+    workflowVersionId?: string;
+    mode?: WorkflowTestRunMode;
+    dryRun: boolean;
+    authorization?: WorkflowExecutionAuthorization;
+  },
   executionGrantService: ExecutionGrantService | undefined,
 ): Promise<string | undefined> {
   const tls = request.template.tls;
   if (tls?.verify !== false) return undefined;
   if (tls.allowInsecure !== true) return undefined;
+  if (!input.dryRun
+    && (input.authorization?.approved !== true || !input.authorization.approvalId)) {
+    throw new AppError('AUTH_FORBIDDEN', 'real_test 的 TLS 跳过校验必须携带已批准的 approvalId', {
+      policy: 'workflow.tls.insecure',
+      reason: 'approval_required',
+    });
+  }
   if (!input.tenantId || !executionGrantService) return undefined;
   const grant = await executionGrantService.create({
     tenantId: input.tenantId,
     runId: input.runId,
     stepId: input.stepName,
     workflowVersionId: input.workflowVersionId,
+    approvalId: input.authorization?.approvalId,
     executorType: '017.CURL_HTTP',
     allowedSecretRefs: collectReferencesByScheme(request, 'secret://'),
     allowedActions: ['workflow.step.execute', '017.CURL_HTTP', 'workflow.tls.insecure'],

@@ -500,6 +500,10 @@ function resolveRequestUrl(
 ): URL {
   const rendered = renderTemplate(template.url, variables, false, allowUnresolvedVariables);
   const connection = template.connection;
+  // 连接快照是地址的唯一权威来源，绝对 URL 会绕过主机、端口和协议事实，必须拒绝。
+  if (connection && isAbsoluteUrl(rendered)) {
+    throw new AppError('VALIDATION_FAILED', '带连接上下文的 HTTP 请求 URL 必须是相对路径', { url: template.url });
+  }
   try {
     const absolute = new URL(rendered);
     if (connection && absolute.hostname === connection.host && normalizePort(absolute) === connection.port) {
@@ -512,6 +516,11 @@ function resolveRequestUrl(
     const protocol = connection.tlsEnabled ? 'https' : 'http';
     return new URL(`${protocol}://${connection.host}:${connection.port}${path}`);
   }
+}
+
+function isAbsoluteUrl(value: string): boolean {
+  const trimmed = value.trim();
+  return /^[A-Za-z][A-Za-z0-9+.-]*:/.test(trimmed) || trimmed.startsWith('//');
 }
 
 function normalizePort(url: URL): number {

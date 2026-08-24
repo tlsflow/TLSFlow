@@ -131,6 +131,7 @@ function validateStepByType(step: WorkflowStep, path: string, depth: number): vo
     rejectUnknown(step.request as unknown as Record<string, unknown>, new Set(['method', 'url', 'connectionRef', 'query', 'headers', 'headerRefs', 'bodyType', 'body', 'form', 'formCredentialRefs', 'multipart', 'auth', 'tls', 'timeoutSeconds', 'maxResponseBytes', 'successStatusCodes', 'failOnNon2xx']), `${path}.request`);
     if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(step.request.method)) throw validationError(`${path}.request.method 不支持`);
     if (!isNonEmptyString(step.request.url)) throw validationError(`${path}.request.url 必填`);
+    if (isAbsoluteHttpUrl(step.request.url)) throw validationError(`${path}.request.url 必须是相对路径，不能携带协议或 authority`);
     if (!isNonEmptyString(step.request.connectionRef)) throw validationError(`${path}.request.connectionRef 必须是非空字符串`);
     if (step.request.headers !== undefined && !isStringRecord(step.request.headers)) throw validationError(`${path}.request.headers 必须是字符串对象`);
     if (step.request.headerRefs !== undefined && !isSecretRefOrVariableRecord(step.request.headerRefs)) throw validationError(`${path}.request.headerRefs 必须是 SecretRef 或 credential 变量引用对象`);
@@ -266,6 +267,11 @@ function validateStepByType(step: WorkflowStep, path: string, depth: number): vo
   }
   rejectUnknown(step as unknown as Record<string, unknown>, manualStepKeys, path);
   if (!isNonEmptyString(step.instruction)) throw validationError(`${path}.instruction 必填`);
+}
+
+function isAbsoluteHttpUrl(value: string): boolean {
+  const trimmed = value.trim();
+  return /^[A-Za-z][A-Za-z0-9+.-]*:/.test(trimmed) || trimmed.startsWith('//');
 }
 
 function validateCommonStep(step: Record<string, unknown>, path: string): void {

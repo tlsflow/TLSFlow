@@ -427,8 +427,10 @@ export class WorkflowTemplatesDomainService {
           renderedPlan: plan,
           attempt,
           rollback,
+          mode: input.mode,
           ...(input.tenantId ? { tenantId: input.tenantId } : {}),
           ...(input.templateVersionId ? { workflowVersionId: input.templateVersionId } : {}),
+          ...(input.authorization ? { authorization: input.authorization } : {}),
         })
         : undefined;
       const structuredOutput = normalizeStepOutput(step, dispatchOutput ?? mockOutput);

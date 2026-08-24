@@ -243,11 +243,34 @@ describe('WorkflowStepDispatcher 旧执行器无回退边界', () => {
         },
         responsePolicy: { successStatusCodes: [200] },
       },
-    }, { runId: 'run-tls-grant', tenantId: 'tenant-tls', workflowVersionId: 'wf-tls' }));
+    }, {
+      runId: 'run-tls-grant',
+      tenantId: 'tenant-tls',
+      workflowVersionId: 'wf-tls',
+      mode: 'real_test',
+      authorization: { approved: true, approvalId: 'approval-tls-grant' },
+    }));
 
     assert.equal(authorized.success, true);
     assert.equal(grantStore.createdCount(), 1);
+    assert.equal((await grantStore.get('grant-test-1'))?.approvalId, 'approval-tls-grant');
     assert.equal(grantStore.activeCount(), 0, '执行结束后 Grant 必须立即撤销');
+
+    const missingApproval = await dispatcher(dispatchInput({
+      executor: '017.CURL_HTTP',
+      curlRequest: {
+        template: {
+          method: 'GET',
+          url: 'https://10.0.0.1:443/nitro/v1/config/nsversion',
+          tls: { verify: false, allowInsecure: true },
+        },
+      },
+    }, { runId: 'run-tls-missing-approval', tenantId: 'tenant-tls', workflowVersionId: 'wf-tls', mode: 'real_test' }));
+
+    assert.equal(missingApproval.success, false);
+    assert.equal(missingApproval.errorCode, 'AUTH_FORBIDDEN');
+    assert.match(missingApproval.errorMessage ?? '', /approvalId/);
+    assert.equal(grantStore.createdCount(), 1, '未审批的 real_test 不得签发 Grant');
 
     // 未授权：没有租户上下文时不签发 Grant，CurlExecutor 自身 TLS 授权链失败关闭。
     const denied = await dispatcher(dispatchInput({
@@ -262,8 +285,8 @@ describe('WorkflowStepDispatcher 旧执行器无回退边界', () => {
     }, { runId: 'run-tls-denied' }));
 
     assert.equal(denied.success, false);
-    assert.equal(denied.errorCode, 'VALIDATION_FAILED');
-    assert.match(denied.errorMessage ?? '', /allowInsecureTls/);
+    assert.equal(denied.errorCode, 'AUTH_FORBIDDEN');
+    assert.match(denied.errorMessage ?? '', /ExecutionGrant|approvalId/);
     assert.equal(grantStore.createdCount(), 1, '未授权请求不得签发 Grant');
 
     // 未授权：DSL 未声明 allowInsecure 时即使有租户也不签发 Grant。
@@ -286,7 +309,15 @@ describe('WorkflowStepDispatcher 旧执行器无回退边界', () => {
 
 function dispatchInput(
   renderedPlan: Record<string, unknown>,
-  options: { dryRun?: boolean; stepType?: 'http' | 'ssh'; runId?: string; tenantId?: string; workflowVersionId?: string } = {},
+  options: {
+    dryRun?: boolean;
+    stepType?: 'http' | 'ssh';
+    runId?: string;
+    tenantId?: string;
+    workflowVersionId?: string;
+    mode?: 'render_only' | 'mock' | 'real_test';
+    authorization?: { approved?: boolean; approvalId?: string };
+  } = {},
 ): WorkflowExecutorDispatchInput {
   return {
     runId: options.runId ?? 'run-dispatcher-test',
@@ -295,8 +326,10 @@ function dispatchInput(
     attempt: 1,
     rollback: false,
     ...(options.dryRun === undefined ? {} : { dryRun: options.dryRun }),
+    ...(options.mode ? { mode: options.mode } : {}),
     ...(options.tenantId ? { tenantId: options.tenantId } : {}),
     ...(options.workflowVersionId ? { workflowVersionId: options.workflowVersionId } : {}),
+    ...(options.authorization ? { authorization: options.authorization } : {}),
   };
 }
 
@@ -312,6 +345,7 @@ class InMemoryExecutionGrantService {
     executorType: string;
     allowedSecretRefs: string[];
     allowedActions: string[];
+    approvalId?: string;
     expiresAt: string;
   }): Promise<ExecutionGrantEntity> {
     this.created += 1;
@@ -324,6 +358,7 @@ class InMemoryExecutionGrantService {
       executorType: input.executorType,
       allowedSecretRefs: input.allowedSecretRefs,
       allowedActions: input.allowedActions,
+      approvalId: input.approvalId,
       expiresAt: input.expiresAt,
       status: 'active',
       createdAt: new Date().toISOString(),

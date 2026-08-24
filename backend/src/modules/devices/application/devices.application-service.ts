@@ -18,6 +18,7 @@ import type { DevicePresentationSchemaV1 } from '../../plugins/presentations/plu
 import type { PluginPackageFormResource, PluginPackagePresentationResource } from '../../plugins/application/plugin-package-resource-schema.service.js';
 import type { PluginWorkflowPublisherService } from '../../plugins/application/plugin-workflow-publisher.service.js';
 import type { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
+import type { WorkflowExecutionAuthorization } from '../../workflow-templates/dto/workflow-templates.dto.js';
 import type { CreateManagedDeviceOnboardingDto } from '../dto/devices.dto.js';
 import type { UnifiedPluginVersionRecord } from '../../plugins/dto/unified-plugins.dto.js';
 import { PgDevicesRepository, type DeviceDetailInclude, type DevicesRepository } from '../repository/devices.repository.js';
@@ -118,7 +119,14 @@ export class DevicesApplicationService {
     return this.onboardPluginDevice(tenantId, input, actorId);
   }
 
-  async executeCapability(tenantId: string, deviceId: string, capabilityKey: string, actorId = 'system_devices', requestId = 'device-action') {
+  async executeCapability(
+    tenantId: string,
+    deviceId: string,
+    capabilityKey: string,
+    actorId = 'system_devices',
+    requestId = 'device-action',
+    authorization?: WorkflowExecutionAuthorization,
+  ) {
     if (!['device.connection.test', 'device.identity.detect', 'device.discover', 'certificate.discover'].includes(capabilityKey)) {
       throw new AppError('VALIDATION_FAILED', '该设备动作必须通过部署计划执行', { capabilityKey });
     }
@@ -181,6 +189,7 @@ export class DevicesApplicationService {
       mode: 'real_test',
       resolvedInput,
       tenantId,
+      ...(authorization ? { authorization } : {}),
     }));
     if (result.status !== 'success') {
       const failedStep = findFailedWorkflowStep(result.stepResults);

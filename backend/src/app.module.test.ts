@@ -295,7 +295,7 @@ test('主装配的 WorkflowTemplatesApplicationService 具备受控 Curl 执行�
         request: {
           method: 'GET',
           connectionRef: 'management',
-          url: 'http://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/nsversion',
+          url: '/nitro/v1/config/nsversion',
           headers: { Accept: 'application/json' },
           timeoutSeconds: 5,
           successStatusCodes: [200],

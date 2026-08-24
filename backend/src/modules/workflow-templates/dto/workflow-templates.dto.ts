@@ -13,6 +13,12 @@ export type WorkflowCredentialKind = 'USERNAME_PASSWORD' | 'SSH_KEY' | 'BEARER_T
 export type WorkflowConfigurationMode = 'required' | 'advanced' | 'runtime';
 export type WorkflowVariableLifecycle = 'pre_execution' | 'runtime_injected' | 'step_output';
 export type WorkflowBindingPolicy = 'fixed' | 'default_overridable' | 'required_binding';
+
+/** 工作流真实试跑使用的宿主授权上下文，不能由 DSL 或插件自行伪造。 */
+export interface WorkflowExecutionAuthorization {
+  approved?: boolean;
+  approvalId?: string;
+}
 export type WorkflowSshProgram = 'systemctl' | 'service' | 'sc.exe';
 export type WorkflowSshArgumentTemplate = 'systemctl.reload' | 'systemctl.restart' | 'service.reload' | 'service.restart' | 'sc.query';
 export type WorkflowVariableSource =
@@ -461,6 +467,8 @@ export interface WorkflowRuntimeInput {
    * 签发依赖它解析租户级凭据；缺失时租户级 Secret 解析与 TLS 例外授权会失败关闭。
    */
   tenantId?: string;
+  /** 由宿主调用方透传的审批上下文；real_test 的 TLS 例外必须绑定它。 */
+  authorization?: WorkflowExecutionAuthorization;
 }
 
 export type WorkflowExecutionBranch = 'deploy' | 'rollback';
@@ -572,6 +580,10 @@ export interface WorkflowExecutorDispatchInput {
   tenantId?: string;
   /** 当前执行的 WorkflowVersion id（来自 WorkflowRuntimeInput.templateVersionId），用于 TLS 例外授权 Grant 绑定。 */
   workflowVersionId?: string;
+  /** 当前工作流运行模式，供 dispatcher 区分 real_test 与 dry-run 授权边界。 */
+  mode?: WorkflowTestRunMode;
+  /** 由宿主调用方透传的审批上下文。 */
+  authorization?: WorkflowExecutionAuthorization;
 }
 
 export interface WorkflowExecutorDispatchResult extends WorkflowMockStepOutput {

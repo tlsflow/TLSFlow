@@ -133,7 +133,7 @@ function templateFixture(): WorkflowDslV1 {
         request: {
           method: 'POST',
           connectionRef: 'management',
-          url: 'https://{{variables.deviceHost}}/api/login',
+          url: '/api/login',
           auth: { type: 'basic', username: '{{credentials.credential.username}}', credential: '{{credentials.credential}}' },
           body: { user: '{{credentials.credential.username}}' },
         },
@@ -148,7 +148,7 @@ function templateFixture(): WorkflowDslV1 {
         request: {
           method: 'PUT',
           connectionRef: 'management',
-          url: 'https://{{variables.deviceHost}}/api/cert',
+          url: '/api/cert',
           body: { cert: '{{artifacts.cert.outputs.pem}}', key: '{{artifacts.cert.outputs.privateKey}}', token: '{{steps.login.extracted.token}}' },
         },
         extract: { remoteFingerprint: { type: 'jsonPath', path: '$.fingerprint' } },
@@ -212,6 +212,20 @@ describe('WorkflowTemplates', () => {
     workflowTemplatesSchemaRegistry.validate(templateFixture());
     assert.throws(() => workflowTemplatesSchemaRegistry.validate({ ...templateFixture(), extra: true }), /未知字段/);
 
+    const absoluteUrl = templateFixture();
+    absoluteUrl.steps[0] = {
+      ...absoluteUrl.steps[0]!,
+      type: 'http',
+      request: { connectionRef: 'management', method: 'GET', url: 'https://other.test/api' },
+    };
+    assert.throws(() => workflowTemplatesSchemaRegistry.validate(absoluteUrl), /相对路径/);
+    absoluteUrl.steps[0] = {
+      ...absoluteUrl.steps[0]!,
+      type: 'http',
+      request: { connectionRef: 'management', method: 'GET', url: '//other.test/api' },
+    };
+    assert.throws(() => workflowTemplatesSchemaRegistry.validate(absoluteUrl), /相对路径/);
+
     const invalidPluginVersion = templateFixture();
     invalidPluginVersion.metadata.version = 'v1';
     assert.throws(() => workflowTemplatesSchemaRegistry.validate(invalidPluginVersion), /SemVer/);
@@ -231,7 +245,7 @@ describe('WorkflowTemplates', () => {
     missingReference.steps[0] = {
       ...missingReference.steps[0]!,
       type: 'http',
-      request: { connectionRef: 'management', method: 'GET', url: 'https://{{missingHost}}/api' },
+      request: { connectionRef: 'management', method: 'GET', url: '/api/{{missingHost}}' },
     };
     assert.throws(() => workflowTemplatesSchemaRegistry.validate(missingReference), /变量引用不存在|missingHost/);
 
@@ -250,7 +264,7 @@ describe('WorkflowTemplates', () => {
     plainSecret.steps[0] = {
       ...plainSecret.steps[0]!,
       type: 'http',
-      request: { connectionRef: 'management', method: 'POST', url: 'https://edge/api', body: { password: 'password=clear-text' } },
+      request: { connectionRef: 'management', method: 'POST', url: '/api', body: { password: 'password=clear-text' } },
     };
     assert.throws(() => workflowTemplatesSchemaRegistry.validate(plainSecret), /Secret|明文/);
 
@@ -258,7 +272,7 @@ describe('WorkflowTemplates', () => {
     privateKey.steps[1] = {
       ...privateKey.steps[1]!,
       type: 'http',
-      request: { connectionRef: 'management', method: 'PUT', url: 'https://edge/api', body: '-----BEGIN PRIVATE KEY-----bad-----END PRIVATE KEY-----' },
+      request: { connectionRef: 'management', method: 'PUT', url: '/api', body: '-----BEGIN PRIVATE KEY-----bad-----END PRIVATE KEY-----' },
     };
     assert.throws(() => workflowTemplatesSchemaRegistry.validate(privateKey), /私钥/);
 
@@ -670,7 +684,7 @@ describe('WorkflowTemplates', () => {
         request: {
           method: 'GET',
           connectionRef: 'management',
-          url: 'https://{{variables.deviceHost}}/api/version',
+          url: '/api/version',
         },
         extract: [{ name: 'deviceVersion', type: 'jsonPath', path: '$.body.version' }],
       },
@@ -765,7 +779,7 @@ describe('WorkflowTemplates', () => {
           name: 'prepare_auth',
           type: 'http',
           stage: 'prepare',
-          request: { connectionRef: 'management', method: 'POST', url: 'https://{{variables.deviceHost}}/api/login' },
+          request: { connectionRef: 'management', method: 'POST', url: '/api/login' },
           extract: [{ name: 'accessToken', type: 'outputPath', path: '$.body.token', sensitive: true }],
           assert: [{ type: 'statusCode', equals: 200 }],
         },
@@ -851,7 +865,7 @@ describe('WorkflowTemplates', () => {
           name: 'prepare_auth',
           type: 'http',
           stage: 'prepare',
-          request: { connectionRef: 'management', method: 'POST', url: 'https://{{variables.deviceHost}}/api/login' },
+          request: { connectionRef: 'management', method: 'POST', url: '/api/login' },
           extract: [
             {
               name: 'accessToken',
@@ -879,7 +893,7 @@ describe('WorkflowTemplates', () => {
           request: {
             method: 'PUT',
             connectionRef: 'management',
-            url: 'https://{{variables.deviceHost}}/api/certificate',
+            url: '/api/certificate',
             headers: {
               Authorization: 'Bearer {{steps.prepare_auth.extracted.accessToken}}',
               'X-Session-Id': '{{steps.prepare_auth.extracted.sessionId}}',
@@ -935,7 +949,7 @@ describe('WorkflowTemplates', () => {
           name: 'prepare_auth',
           type: 'http',
           stage: 'prepare',
-          request: { connectionRef: 'management', method: 'POST', url: 'https://{{variables.deviceHost}}/api/login' },
+          request: { connectionRef: 'management', method: 'POST', url: '/api/login' },
           extract: [{ name: 'sessionId', type: 'jsonPath', path: '$.data.sid' }],
         },
       ],
@@ -1207,7 +1221,7 @@ describe('WorkflowTemplates', () => {
     const content = templateFixture();
     content.steps = [
       { name: 'verifyFirstInArray', type: 'manual', stage: 'verify', instruction: 'verify' },
-      { name: 'prepareSecondInArray', type: 'http', stage: 'prepare', request: { connectionRef: 'management', method: 'GET', url: 'https://{{variables.deviceHost}}/login' } },
+      { name: 'prepareSecondInArray', type: 'http', stage: 'prepare', request: { connectionRef: 'management', method: 'GET', url: '/login' } },
       { name: 'refreshThirdInArray', type: 'ssh', stage: 'refresh', ssh: { connectionRef: 'targetSsh', program: 'systemctl', args: ['service-main'], argumentTemplate: 'systemctl.reload' } },
     ];
     content.rollback = undefined;
@@ -1351,7 +1365,7 @@ describe('WorkflowTemplates', () => {
       kind: 'CurlSshWorkflow',
       metadata: { name: 'http-connection-ref-runtime' },
       inputContract: workflowInputContract(),
-      steps: [{ name: 'probe', type: 'http', request: { method: 'GET', url: 'https://api.example.com/health', connectionRef: 'management' } }],
+      steps: [{ name: 'probe', type: 'http', request: { method: 'GET', url: '/health', connectionRef: 'management' } }],
     };
     const result = await service.testStep({
       content,
@@ -1418,7 +1432,7 @@ describe('WorkflowTemplates', () => {
         request: {
           method: 'POST',
           connectionRef: 'management',
-          url: 'https://{{variables.deviceHost}}/api/submit',
+          url: '/api/submit',
           query: { dryRun: true },
           headers: { Accept: 'application/json' },
           headerRefs: { 'X-Trace-Secret': 'secret://trace/id' },
@@ -1482,7 +1496,7 @@ describe('WorkflowTemplates', () => {
         request: {
           method: 'POST',
           connectionRef: 'management',
-          url: 'https://{{variables.deviceHost}}/nitro/v1/config/sslcertkey',
+          url: '/nitro/v1/config/sslcertkey',
           successStatusCodes: [500],
         },
       },
@@ -1510,7 +1524,7 @@ describe('WorkflowTemplates', () => {
         request: {
           method: 'POST',
           connectionRef: 'management',
-          url: 'https://{{variables.deviceHost}}/webapi/entry.cgi',
+          url: '/webapi/entry.cgi',
           bodyType: 'form',
           form: { account: '{{credentials.apiCredential.username}}', method: 'login' },
           formCredentialRefs: { passwd: '{{credentials.apiCredential}}' },
@@ -1580,7 +1594,7 @@ describe('WorkflowTemplates', () => {
         request: {
           method: 'POST',
           connectionRef: 'management',
-          url: 'https://{{variables.deviceHost}}/api/cert-service',
+          url: '/api/cert-service',
           bodyType: 'form',
           form: { settings: '{{steps.build_bindings.extracted.serviceBindingsJson}}' },
         },
@@ -1745,7 +1759,7 @@ describe('WorkflowTemplates', () => {
         steps: [{
           name: 'verify_body',
           type: 'http',
-          request: { connectionRef: 'management', method: 'GET', url: 'https://example.com/' },
+          request: { connectionRef: 'management', method: 'GET', url: '/' },
           assert: [{ type: 'contains', value: '{{variables.expectedResponseContains}}' }],
         }],
       },
@@ -1788,7 +1802,7 @@ describe('WorkflowTemplates', () => {
               request: {
                 method: 'POST',
                 connectionRef: 'management',
-                url: 'https://{{target.serverName}}/deploy/{{targetIndex}}',
+                url: '/deploy/{{targetIndex}}',
                 headers: { Authorization: 'Bearer {{variables.apiToken}}' },
               },
             }],
@@ -1810,7 +1824,7 @@ describe('WorkflowTemplates', () => {
     });
 
     assert.equal(run.status, 'success');
-    assert.deepEqual(urls, ['https://adc-a.example.com/deploy/0', 'https://adc-b.example.com/deploy/1']);
+    assert.deepEqual(urls, ['/deploy/0', '/deploy/1']);
     assert.deepEqual(executionNames, ['deploy_targets[0].deploy_target', 'deploy_targets[1].deploy_target']);
     assert.equal(run.stepResults[0]!.type, 'foreach');
     assert.match(run.stepResults[0]!.logs[0]!, /count:2:completed:2:status:success/);
@@ -1835,7 +1849,7 @@ describe('WorkflowTemplates', () => {
             steps: [{
               name: 'probe_target',
               type: 'http',
-              request: { connectionRef: 'management', method: 'GET', url: 'https://{{target.serverName}}/health' },
+              request: { connectionRef: 'management', method: 'GET', url: '/health' },
             }],
           },
         }],
@@ -1883,7 +1897,7 @@ describe('WorkflowTemplates', () => {
             steps: [{
               name: 'probe_target',
               type: 'http',
-              request: { connectionRef: 'management', method: 'GET', url: 'https://{{target.serverName}}/health' },
+              request: { connectionRef: 'management', method: 'GET', url: '/health' },
             }],
           },
         }],

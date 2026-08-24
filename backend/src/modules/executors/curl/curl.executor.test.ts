@@ -142,6 +142,21 @@ describe('spec017 CURL/HTTP 执行器基础', () => {
     }), /白名单/);
   });
 
+  it('连接上下文拒绝绝对 URL，防止绕过连接主机、端口和协议事实', async () => {
+    const executor = new CurlExecutor({
+      httpClient: { async send() { return { statusCode: 200 }; } },
+    });
+    const connection = { host: 'device.test', port: 80, tlsEnabled: false, allowedProtocols: ['http', 'https'] as ('http' | 'https')[] };
+    await assert.rejects(() => executor.execute({
+      idempotencyKey: 'connection_absolute_other_authority',
+      template: { method: 'GET', url: 'https://other.test/api', connection },
+    }), /相对路径/);
+    await assert.rejects(() => executor.execute({
+      idempotencyKey: 'connection_absolute_protocol_relative',
+      template: { method: 'GET', url: '//other.test/api', connection },
+    }), /相对路径/);
+  });
+
   it('Basic 认证使用用户名和通用 password SecretRef 生成 Authorization', async () => {
     let captured: CurlHttpClientRequest | undefined;
     const executor = new CurlExecutor({
