@@ -1,5 +1,11 @@
 <template>
-  <main class="gc-auth-layout">
+  <div class="gc-auth-layout">
     <RouterView />
-  </main>
+  </div>
 </template>
+
+<style scoped>
+.gc-auth-layout {
+  min-height: 100vh;
+}
+</style>

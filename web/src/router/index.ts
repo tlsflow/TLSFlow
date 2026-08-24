@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import ShellLayout from '@/layouts/ShellLayout.vue'
 import BlankLayout from '@/layouts/BlankLayout.vue'
+import AuthLayout from '@/layouts/AuthLayout.vue'
 import { businessRoutes } from './modules/business'
 import { coreRoutes } from './modules/core'
 import { registerRouterGuards } from './guards'
@@ -11,7 +12,7 @@ export const router = createRouter({
     { path: '/', redirect: '/dashboard' },
     {
       path: '/',
-      component: BlankLayout,
+      component: AuthLayout,
       children: [
         {
           path: '/login',
