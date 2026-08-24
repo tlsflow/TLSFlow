@@ -33,6 +33,7 @@ type atomicPlan struct {
 	Plugin          map[string]any      `json:"plugin"`
 	Permissions     []atomicPermission  `json:"permissions"`
 	VariablesDigest string              `json:"variablesDigest"`
+	ExecutionMode   string              `json:"executionMode"`
 	Operations      []atomicOperation   `json:"operations"`
 	Rollback        []atomicOperation   `json:"rollback"`
 	Authorization   atomicAuthorization `json:"authorization"`
@@ -107,14 +108,14 @@ func windowsAtomicPlanActionHandler() actionHandler {
 }
 
 func executeWindowsAtomicPlan(execution *taskExecutionContext) actionExecutionResult {
-	plan, err := parseAtomicPlan(execution.task.Payload)
+	plan, rawPlan, err := parseAtomicPlan(execution.task.Payload)
 	if err != nil {
 		return actionExecutionResult{ErrorCode: "AGENT_ATOMIC_OPERATION_FAILED", ErrorMessage: err.Error()}
 	}
 	if plan.AgentID != "" && execution.registration != nil && plan.AgentID != execution.registration.AgentID {
 		return actionExecutionResult{ErrorCode: "AGENT_PLAN_SIGNATURE_INVALID", ErrorMessage: "执行计划目标 Agent 不匹配"}
 	}
-	if err := verifyAtomicPlan(plan); err != nil {
+	if err := verifyAtomicPlan(rawPlan); err != nil {
 		return actionExecutionResult{ErrorCode: "AGENT_PLAN_SIGNATURE_INVALID", ErrorMessage: err.Error()}
 	}
 	expiresAt, err := time.Parse(time.RFC3339Nano, plan.ExpiresAt)
@@ -122,7 +123,7 @@ func executeWindowsAtomicPlan(execution *taskExecutionContext) actionExecutionRe
 		return actionExecutionResult{ErrorCode: "AGENT_PLAN_EXPIRED", ErrorMessage: "执行计划已过期"}
 	}
 	dataDir := execution.config.Paths.Windows.DataDir
-	ledgerPath := filepath.Join(dataDir, "atomic-plans", plan.IdempotencyKey+".json")
+	ledgerPath := atomicLedgerPath(dataDir, plan.IdempotencyKey)
 	ledger, _ := loadAtomicLedger(ledgerPath)
 	if ledger != nil && (ledger.State == "SUCCEEDED" || ledger.State == "ROLLED_BACK") {
 		return actionExecutionResult{Success: ledger.State == "SUCCEEDED", Detail: atomicLedgerDetail(*ledger, true)}
@@ -132,6 +133,9 @@ func executeWindowsAtomicPlan(execution *taskExecutionContext) actionExecutionRe
 		current = *ledger
 	}
 	permissionMap := atomicPermissionMap(plan.Permissions)
+	if strings.EqualFold(strings.TrimSpace(plan.ExecutionMode), "PREFLIGHT") {
+		return executeWindowsAtomicPreflight(execution.ctx, plan, permissionMap)
+	}
 	for _, operation := range plan.Operations {
 		if containsAtomicString(current.CompletedOperations, operation.ID) {
 			continue
@@ -169,6 +173,219 @@ func executeWindowsAtomicPlan(execution *taskExecutionContext) actionExecutionRe
 	current.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	_ = saveAtomicLedger(ledgerPath, current)
 	return actionExecutionResult{Success: true, Detail: atomicLedgerDetail(current, false)}
+}
+
+func executeWindowsAtomicPreflight(ctx context.Context, plan atomicPlan, permissions map[string][]string) actionExecutionResult {
+	results := make([]atomicOperationResult, 0, len(plan.Operations))
+	failed := false
+	for _, operation := range plan.Operations {
+		result := previewWindowsAtomicOperation(ctx, operation, permissions)
+		results = append(results, result)
+		failed = failed || result.Status == "FAILED"
+	}
+	detail := map[string]any{
+		"planId":           plan.PlanID,
+		"state":            "SUCCEEDED",
+		"executionMode":    "PREFLIGHT",
+		"operationResults": results,
+	}
+	if failed {
+		detail["state"] = "FAILED"
+		return actionExecutionResult{ErrorCode: "AGENT_ATOMIC_PREFLIGHT_FAILED", ErrorMessage: "原子计划预演存在失败项", Detail: detail}
+	}
+	return actionExecutionResult{Success: true, Detail: detail}
+}
+
+func previewWindowsAtomicOperation(ctx context.Context, operation atomicOperation, permissions map[string][]string) atomicOperationResult {
+	startedAt := time.Now().UTC()
+	detail, err := previewWindowsAtomicOperationDetail(ctx, operation, permissions)
+	result := atomicOperationResult{
+		OperationID: operation.ID, OperationType: operation.OperationType, Stage: operation.Stage,
+		Status: "SUCCEEDED", StartedAt: startedAt.Format(time.RFC3339Nano), FinishedAt: time.Now().UTC().Format(time.RFC3339Nano), Detail: detail,
+	}
+	if err != nil {
+		result.Status = "FAILED"
+		result.ErrorCode = "AGENT_ATOMIC_PREFLIGHT_FAILED"
+		result.ErrorMessage = err.Error()
+	}
+	return result
+}
+
+func previewWindowsAtomicOperationDetail(ctx context.Context, operation atomicOperation, permissions map[string][]string) (map[string]any, error) {
+	switch operation.OperationType {
+	case "preflight.assert":
+		detail, err := windowsPreflight(operation.Input, permissions)
+		return windowsAtomicPreviewDetail(detail, "assert", err)
+	case "file.backup":
+		return previewWindowsFileBackup(operation, permissions)
+	case "file.atomic_replace":
+		return previewWindowsFileReplace(operation, permissions)
+	case "file.set_permissions":
+		path := firstAtomicString(operation.Input, "path", "targetPath")
+		if err := validateAtomicPath(path, permissions["filesystem"]); err != nil {
+			return nil, err
+		}
+		return windowsAtomicPreviewDetail(map[string]any{"path": path, "acl": atomicString(operation.Input, "acl")}, "set_permissions", nil)
+	case "command.execute":
+		return previewWindowsCommand(operation, permissions)
+	case "service.control":
+		return previewWindowsService(ctx, operation, permissions)
+	case "windows.certificate.inspect_pfx":
+		detail, err := windowsCertificateInspectPFX(operation, permissions)
+		return windowsAtomicPreviewDetail(detail, "inspect_pfx", err)
+	case "windows.certificate_store.import_pfx":
+		return previewWindowsCertificateImport(operation, permissions)
+	case "windows.certificate_private_key.grant":
+		return previewWindowsPrivateKeyGrant(operation, permissions)
+	case "windows.iis.binding.capture":
+		return previewWindowsIISBindingCapture(operation, permissions)
+	case "windows.iis.binding.update_certificate":
+		return previewWindowsIISBindingUpdate(operation, permissions)
+	default:
+		return nil, fmt.Errorf("unsupported atomic preflight operation: %s", operation.OperationType)
+	}
+}
+
+func windowsAtomicPreviewDetail(detail map[string]any, plannedAction string, err error) (map[string]any, error) {
+	if detail == nil {
+		detail = map[string]any{}
+	}
+	detail["preview"] = true
+	detail["mutating"] = false
+	detail["plannedAction"] = plannedAction
+	return detail, err
+}
+
+func previewWindowsFileBackup(operation atomicOperation, permissions map[string][]string) (map[string]any, error) {
+	path := firstAtomicString(operation.Input, "path", "targetPath")
+	if err := validateAtomicPath(path, permissions["filesystem"]); err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(path)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	detail := map[string]any{"path": path, "exists": err == nil}
+	if info != nil {
+		detail["size"] = info.Size()
+	}
+	return windowsAtomicPreviewDetail(detail, "backup", nil)
+}
+
+func previewWindowsFileReplace(operation atomicOperation, permissions map[string][]string) (map[string]any, error) {
+	path := firstAtomicString(operation.Input, "path", "targetPath")
+	if err := validateAtomicPath(path, permissions["filesystem"]); err != nil {
+		return nil, err
+	}
+	content, err := atomicContent(operation.Input)
+	if err != nil {
+		return nil, err
+	}
+	digest := sha256.Sum256(content)
+	return windowsAtomicPreviewDetail(map[string]any{
+		"path": path, "bytes": len(content), "sha256": hex.EncodeToString(digest[:]),
+	}, "replace", nil)
+}
+
+func previewWindowsCommand(operation atomicOperation, permissions map[string][]string) (map[string]any, error) {
+	program := atomicString(operation.Input, "program")
+	if !atomicAllowed(program, permissions["process"]) {
+		return nil, fmt.Errorf("program is not allowed: %s", program)
+	}
+	if shell, ok := operation.Input["shell"].(map[string]any); ok && atomicBool(shell, "enabled") {
+		return nil, errors.New("shell mode is disabled")
+	}
+	return windowsAtomicPreviewDetail(map[string]any{
+		"program": program, "args": atomicStringSlice(operation.Input["args"]),
+	}, "execute", nil)
+}
+
+func previewWindowsService(ctx context.Context, operation atomicOperation, permissions map[string][]string) (map[string]any, error) {
+	serviceName := firstAtomicString(operation.Input, "service", "serviceName")
+	if !atomicAllowed(serviceName, permissions["service"]) {
+		return nil, fmt.Errorf("service is not allowed: %s", serviceName)
+	}
+	action := strings.ToLower(atomicString(operation.Input, "action"))
+	if action != "status" && action != "start" && action != "stop" && action != "restart" && action != "reload" {
+		return nil, fmt.Errorf("unsupported service action: %s", action)
+	}
+	detail, err := runAtomicCommand(ctx, "sc.exe", []string{"query", serviceName}, 30*time.Second)
+	return windowsAtomicPreviewDetail(detail, action, err)
+}
+
+func previewWindowsCertificateImport(operation atomicOperation, permissions map[string][]string) (map[string]any, error) {
+	input, err := windowsPFXInputFromOperation(operation, permissions)
+	if err != nil {
+		return nil, err
+	}
+	host := windowsExecutionHost{timeout: 90 * time.Second}
+	inspection, err := host.inspectPFX(input)
+	if err != nil {
+		return nil, err
+	}
+	exists, err := windowsCertificateStoreContains(host, inspection.Thumbprint)
+	return windowsAtomicPreviewDetail(map[string]any{
+		"thumbprint": inspection.Thumbprint, "alreadyPresent": exists, "store": "LocalMachine/My",
+	}, "import_pfx", err)
+}
+
+func previewWindowsPrivateKeyGrant(operation atomicOperation, permissions map[string][]string) (map[string]any, error) {
+	input, err := windowsPFXInputFromOperation(operation, permissions)
+	if err != nil {
+		return nil, err
+	}
+	appPoolName := atomicString(operation.Input, "appPoolName")
+	if appPoolName == "" {
+		return windowsAtomicPreviewDetail(map[string]any{"skipped": true, "reason": "appPoolName is empty"}, "grant_private_key", nil)
+	}
+	account := "IIS AppPool\\" + appPoolName
+	if !atomicAllowed(account, permissions["iis"]) && !atomicAllowed(appPoolName, permissions["iis"]) {
+		return nil, fmt.Errorf("IIS application pool is not allowed: %s", appPoolName)
+	}
+	inspection, err := (windowsExecutionHost{timeout: 90 * time.Second}).inspectPFX(input)
+	if err != nil {
+		return nil, err
+	}
+	return windowsAtomicPreviewDetail(map[string]any{"thumbprint": inspection.Thumbprint, "account": account}, "grant_private_key", nil)
+}
+
+func previewWindowsIISBindingCapture(operation atomicOperation, permissions map[string][]string) (map[string]any, error) {
+	siteName, selector, err := windowsIISBindingInput(operation, permissions)
+	if err != nil {
+		return nil, err
+	}
+	_, binding, err := findTargetBinding(windowsExecutionHost{timeout: 90 * time.Second}, windowsIISDeploymentInput{
+		SiteName: siteName, BindingSelector: selector,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return windowsAtomicPreviewDetail(map[string]any{
+		"siteName": siteName, "bindingInformation": binding.BindingInformation, "certificateThumbprint": binding.CertificateThumbprint,
+	}, "capture_binding", nil)
+}
+
+func previewWindowsIISBindingUpdate(operation atomicOperation, permissions map[string][]string) (map[string]any, error) {
+	siteName, selector, err := windowsIISBindingInput(operation, permissions)
+	if err != nil {
+		return nil, err
+	}
+	input, err := windowsPFXInputFromOperation(operation, permissions)
+	if err != nil {
+		return nil, err
+	}
+	host := windowsExecutionHost{timeout: 90 * time.Second}
+	inspection, err := host.inspectPFX(input)
+	if err != nil {
+		return nil, err
+	}
+	_, binding, err := findTargetBinding(host, windowsIISDeploymentInput{SiteName: siteName, BindingSelector: selector})
+	if err != nil {
+		return nil, err
+	}
+	return windowsAtomicPreviewDetail(map[string]any{
+		"siteName": siteName, "bindingInformation": binding.BindingInformation, "thumbprint": inspection.Thumbprint,
+	}, "update_binding_certificate", nil)
 }
 
 func runWindowsAtomicOperation(ctx context.Context, plan atomicPlan, operation atomicOperation, permissions map[string][]string, dataDir string, ledger *atomicLedger) atomicOperationResult {
@@ -625,36 +842,44 @@ func runAtomicCommand(ctx context.Context, program string, args []string, timeou
 	return detail, nil
 }
 
-func parseAtomicPlan(payload map[string]any) (atomicPlan, error) {
+func parseAtomicPlan(payload map[string]any) (atomicPlan, map[string]any, error) {
 	value := any(payload)
 	if nested, ok := payload["plan"].(map[string]any); ok {
 		value = nested
 	}
 	encoded, err := json.Marshal(value)
 	if err != nil {
-		return atomicPlan{}, err
+		return atomicPlan{}, nil, err
+	}
+	var rawPlan map[string]any
+	if err := json.Unmarshal(encoded, &rawPlan); err != nil {
+		return atomicPlan{}, nil, err
 	}
 	var plan atomicPlan
 	if err := json.Unmarshal(encoded, &plan); err != nil {
-		return atomicPlan{}, err
+		return atomicPlan{}, nil, err
 	}
 	if plan.APIVersion != "gcac.agent-plan/v1" || plan.PlanID == "" || plan.IdempotencyKey == "" {
-		return atomicPlan{}, errors.New("invalid atomic execution plan")
+		return atomicPlan{}, nil, errors.New("invalid atomic execution plan")
 	}
-	return plan, nil
+	return plan, rawPlan, nil
 }
 
-func verifyAtomicPlan(plan atomicPlan) error {
-	signature := plan.Authorization.Signature
-	raw, err := json.Marshal(plan)
-	if err != nil {
-		return err
+func verifyAtomicPlan(rawPlan map[string]any) error {
+	authorization, ok := rawPlan["authorization"].(map[string]any)
+	if !ok {
+		return errors.New("atomic plan signature is required")
 	}
-	var unsigned map[string]any
-	if err := json.Unmarshal(raw, &unsigned); err != nil {
-		return err
+	signature, _ := authorization["signature"].(string)
+	if strings.TrimSpace(signature) == "" {
+		return errors.New("atomic plan signature is required")
 	}
-	delete(unsigned, "authorization")
+	unsigned := make(map[string]any, len(rawPlan)-1)
+	for key, value := range rawPlan {
+		if key != "authorization" {
+			unsigned[key] = value
+		}
+	}
 	canonical, err := canonicalAtomicJSON(unsigned)
 	if err != nil {
 		return err
@@ -858,6 +1083,37 @@ func saveAtomicLedger(path string, ledger atomicLedger) error {
 		return err
 	}
 	return windowsReplaceFile(temporary, path)
+}
+
+func atomicLedgerPath(dataDir, idempotencyKey string) string {
+	fileName := idempotencyKey
+	if !isWindowsSafeAtomicLedgerName(fileName) {
+		digest := sha256.Sum256([]byte(idempotencyKey))
+		fileName = "key-" + hex.EncodeToString(digest[:])
+	}
+	return filepath.Join(dataDir, "atomic-plans", fileName+".json")
+}
+
+func isWindowsSafeAtomicLedgerName(value string) bool {
+	if value == "" || strings.TrimSpace(value) != value || strings.HasSuffix(value, ".") {
+		return false
+	}
+	if strings.ContainsAny(value, `<>:"/\|?*`) {
+		return false
+	}
+	for _, character := range value {
+		if character < 32 {
+			return false
+		}
+	}
+	baseName := strings.ToUpper(strings.SplitN(value, ".", 2)[0])
+	if baseName == "CON" || baseName == "PRN" || baseName == "AUX" || baseName == "NUL" {
+		return false
+	}
+	if len(baseName) == 4 && (strings.HasPrefix(baseName, "COM") || strings.HasPrefix(baseName, "LPT")) && baseName[3] >= '1' && baseName[3] <= '9' {
+		return false
+	}
+	return true
 }
 func atomicLedgerDetail(ledger atomicLedger, cached bool) map[string]any {
 	return map[string]any{"planId": ledger.PlanID, "state": ledger.State, "cached": cached, "operationResults": ledger.OperationResults, "rollbackResults": ledger.RollbackResults, "completedOperations": ledger.CompletedOperations}

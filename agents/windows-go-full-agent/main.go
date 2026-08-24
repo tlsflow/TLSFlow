@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	agentVersion      = "0.1.6"
+	agentVersion      = "0.1.8"
 	defaultConfigPath = `C:\ProgramData\GCAC\FullAgentGo\config\agent.config.json`
 	defaultMetadata   = `C:\ProgramData\GCAC\FullAgentGo\service.install.json`
 	defaultTaskPoll   = 60

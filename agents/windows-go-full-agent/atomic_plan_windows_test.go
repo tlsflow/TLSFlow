@@ -5,18 +5,100 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestVerifyAtomicPlanRejectsTampering(t *testing.T) {
 	plan := signedWindowsTestPlan(t)
-	if err := verifyAtomicPlan(plan); err != nil {
+	rawPlan := windowsTestPlanMap(t, plan)
+	if err := verifyAtomicPlan(rawPlan); err != nil {
 		t.Fatalf("有效签名被拒绝: %v", err)
 	}
-	plan.Operations[0].Input["content"] = "tampered"
-	if err := verifyAtomicPlan(plan); err == nil {
+	operations := rawPlan["operations"].([]any)
+	operation := operations[0].(map[string]any)
+	operation["input"].(map[string]any)["content"] = "tampered"
+	if err := verifyAtomicPlan(rawPlan); err == nil {
 		t.Fatal("篡改计划必须被拒绝")
+	}
+}
+
+func TestVerifyAtomicPlanPreservesUnsignedProtocolFields(t *testing.T) {
+	rawPlan := windowsTestPlanMap(t, signedWindowsTestPlan(t))
+	rawPlan["executionMode"] = "PREFLIGHT"
+	rawPlan["protocolExtension"] = map[string]any{"revision": "future-compatible"}
+	signWindowsRawPlan(t, rawPlan)
+
+	plan, transportedPlan, err := parseAtomicPlan(map[string]any{"plan": rawPlan})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.ExecutionMode != "PREFLIGHT" {
+		t.Fatalf("执行模式解析错误: %q", plan.ExecutionMode)
+	}
+	if err := verifyAtomicPlan(transportedPlan); err != nil {
+		t.Fatalf("原始传输字段参与签名时不应被结构体裁剪: %v", err)
+	}
+}
+
+func TestWindowsAtomicPreflightDoesNotWriteFile(t *testing.T) {
+	targetPath := filepath.Join(t.TempDir(), "certificate.pem")
+	plan := signedWindowsTestPlan(t)
+	plan.AgentID = "agent-preflight"
+	plan.ExecutionMode = "PREFLIGHT"
+	plan.IdempotencyKey = "windows-preflight-no-write"
+	plan.Permissions = []atomicPermission{{Name: "test-files", Scope: "filesystem", Values: []string{targetPath}}}
+	plan.Operations = []atomicOperation{{
+		ID: "replace", Name: "replace", Stage: "install", OperationType: "file.atomic_replace", SchemaVersion: "1.0",
+		Input: map[string]any{"path": targetPath, "content": "must-not-be-written"},
+	}}
+	plan = signWindowsTestPlan(t, plan)
+	config := &AgentConfig{}
+	config.Paths.Windows.DataDir = t.TempDir()
+
+	result := executeWindowsAtomicPlan(&taskExecutionContext{
+		ctx: t.Context(), config: config, registration: &runtimeRegistration{AgentID: "agent-preflight"},
+		task: agentTaskEnvelope{Payload: map[string]any{"plan": windowsTestPlanMap(t, plan)}},
+	})
+	if !result.Success {
+		t.Fatalf("只读预演应成功: %#v", result)
+	}
+	if _, err := os.Stat(targetPath); !os.IsNotExist(err) {
+		t.Fatalf("只读预演不得写入目标文件: %v", err)
+	}
+}
+
+func TestSaveAtomicLedgerCreatesAndReplacesFile(t *testing.T) {
+	dataDir := t.TempDir()
+	path := atomicLedgerPath(dataDir, "sha256:"+strings.Repeat("a", 64))
+	if strings.Contains(filepath.Base(path), ":") {
+		t.Fatalf("恢复账本文件名不得包含 Windows 非法字符: %s", path)
+	}
+	first := atomicLedger{PlanID: "plan-1", IdempotencyKey: "ledger-test", State: "RUNNING"}
+	if err := saveAtomicLedger(path, first); err != nil {
+		t.Fatalf("首次保存恢复账本失败: %v", err)
+	}
+	second := first
+	second.State = "SUCCEEDED"
+	if err := saveAtomicLedger(path, second); err != nil {
+		t.Fatalf("替换恢复账本失败: %v", err)
+	}
+	loaded, err := loadAtomicLedger(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.State != "SUCCEEDED" {
+		t.Fatalf("恢复账本未更新: %#v", loaded)
+	}
+}
+
+func TestAtomicLedgerPathPreservesExistingSafeNames(t *testing.T) {
+	path := atomicLedgerPath(t.TempDir(), "existing-safe-key")
+	if filepath.Base(path) != "existing-safe-key.json" {
+		t.Fatalf("合法旧幂等键路径必须保持兼容: %s", path)
 	}
 }
 
@@ -146,4 +228,39 @@ func signWindowsTestPlan(t *testing.T, plan atomicPlan) atomicPlan {
 	_, _ = mac.Write(canonical)
 	plan.Authorization.Signature = hex.EncodeToString(mac.Sum(nil))
 	return plan
+}
+
+func windowsTestPlanMap(t *testing.T, plan atomicPlan) map[string]any {
+	t.Helper()
+	raw, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rawPlan map[string]any
+	if err := json.Unmarshal(raw, &rawPlan); err != nil {
+		t.Fatal(err)
+	}
+	return rawPlan
+}
+
+func signWindowsRawPlan(t *testing.T, rawPlan map[string]any) {
+	t.Helper()
+	unsigned := make(map[string]any, len(rawPlan)-1)
+	for key, value := range rawPlan {
+		if key != "authorization" {
+			unsigned[key] = value
+		}
+	}
+	canonical, err := canonicalAtomicJSON(unsigned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mac := hmac.New(sha256.New, []byte(atomicPlanSigningKey()))
+	_, _ = mac.Write(canonical)
+	authorization, _ := rawPlan["authorization"].(map[string]any)
+	if authorization == nil {
+		authorization = map[string]any{"keyId": "agent-plan-v1"}
+		rawPlan["authorization"] = authorization
+	}
+	authorization["signature"] = hex.EncodeToString(mac.Sum(nil))
 }
