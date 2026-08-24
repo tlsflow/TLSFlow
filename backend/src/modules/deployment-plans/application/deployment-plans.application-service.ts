@@ -407,7 +407,7 @@ export class DeploymentPlansApplicationService {
       if (snapshotRef) inputSnapshotRefs.push(snapshotRef);
     }
 
-    this.writeBackgroundAudit({
+    await this.writeBackgroundAudit({
       eventType: AUDIT_EVENT_TYPES.DEPLOYMENT_CREATED,
       actorType: 'user',
       actorId: input.actorId,
@@ -609,7 +609,7 @@ export class DeploymentPlansApplicationService {
     }
 
     await this.recordTransition('deploymentPlan', plan.id, plan.status, 'DRAFT', 'plan.updated', draft.actorId, draft.tenantId);
-    this.writeBackgroundAudit({
+    await this.writeBackgroundAudit({
       eventType: AUDIT_EVENT_TYPES.DEPLOYMENT_CREATED,
       actorType: 'user',
       actorId: draft.actorId,
@@ -1496,7 +1496,7 @@ export class DeploymentPlansApplicationService {
       }
     }
     const cancelled = await this.transitionPlan(plan, 'CANCELLED', input.actorId, 'plan.cancelled');
-    this.writeBackgroundAudit({
+    await this.writeBackgroundAudit({
       eventType: AUDIT_EVENT_TYPES.DEPLOYMENT_EXECUTED,
       actorType: 'user',
       actorId: input.actorId,
@@ -1587,7 +1587,7 @@ export class DeploymentPlansApplicationService {
       };
     }
     const updated = await this.repository.updatePlan(plan.id, patch);
-    this.writeBackgroundAudit({
+    await this.writeBackgroundAudit({
       eventType: AUDIT_EVENT_TYPES.DEPLOYMENT_CREATED,
       actorType: 'user',
       actorId: input.actorId,
@@ -2745,8 +2745,8 @@ export class DeploymentPlansApplicationService {
     return riskLevel === 'critical' || riskLevel === 'high' ? riskLevel : 'high';
   }
 
-  private writeBackgroundAudit(input: WriteAuditInput): void {
-    void this.audit.write(input).catch(() => undefined);
+  private async writeBackgroundAudit(input: WriteAuditInput): Promise<void> {
+    await this.audit.write(input).catch(() => undefined);
   }
 
   private async approvalParameters(plan: DeploymentPlanEntity): Promise<Record<string, unknown>> {
