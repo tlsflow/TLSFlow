@@ -42,7 +42,6 @@ const LATEST_VERSION_MARKER = '__LATEST__'
 const currentStep = ref<WizardStep>(1)
 const selectedCertificateId = ref('')
 const selectedCertificateVersionId = ref('')
-const selectedCertificateFormatId = ref('')
 const selectedTargetId = ref('')
 const targetKeyword = ref('')
 
@@ -80,7 +79,6 @@ watch(() => props.initialPlan, (plan) => {
   if (!plan) {
     selectedCertificateId.value = props.initialCertificateId ?? readString(certificateAssetOptions.value[0], ['id', 'certificateId'])
     selectedCertificateVersionId.value = ''
-    selectedCertificateFormatId.value = ''
     selectedTargetId.value = readString(props.targets[0], ['id'])
     targetKeyword.value = ''
     currentStep.value = 1
@@ -90,7 +88,6 @@ watch(() => props.initialPlan, (plan) => {
   selectedCertificateVersionId.value = plan.selectionMode === 'LATEST_AUTO'
     ? LATEST_VERSION_MARKER
     : (plan.certificateVersionId ?? '')
-  selectedCertificateFormatId.value = plan.certificateFormatId ?? ''
   selectedTargetId.value = plan.applicationAssetId ?? ''
   currentStep.value = 1
 }, { immediate: true, deep: true })
@@ -139,20 +136,6 @@ const resolvedCertificateVersionId = computed(() =>
     : selectedCertificateVersionId.value,
 )
 
-const filteredFormats = computed(() => {
-  if (!resolvedCertificateVersionId.value) return []
-  return props.certificateFormats.filter((item) => {
-    const formatVersionId = readString(item, ['certificateVersionId'])
-    return !formatVersionId || formatVersionId === resolvedCertificateVersionId.value
-  })
-})
-
-watch(filteredFormats, (items) => {
-  const preferred = items.find((item) => readString(item, ['certificateVersionId']) === resolvedCertificateVersionId.value)
-  if (items.some((item) => readString(item, ['id']) === selectedCertificateFormatId.value)) return
-  selectedCertificateFormatId.value = readString(preferred ?? items[0] ?? null, ['id'])
-}, { immediate: true })
-
 const filteredTargets = computed(() => {
   const keyword = targetKeyword.value.trim().toLowerCase()
   if (!keyword) return props.targets
@@ -162,6 +145,7 @@ const filteredTargets = computed(() => {
       readString(item, ['siteName']),
       readString(item, ['bindingName', 'bindingSummary']),
       readString(item, ['managedTargetLabel', 'managedTargetId']),
+      readString(item, ['workflowLabel', 'workflowVersionLabel', 'runnerLabel', 'verifyUrl']),
     ].join(' ').toLowerCase()
     return haystack.includes(keyword)
   })
@@ -182,15 +166,11 @@ const selectedCertificate = computed(() =>
 const selectedVersion = computed(() =>
   props.certificateVersions.find((item) => readString(item, ['id', 'certificateVersionId']) === resolvedCertificateVersionId.value) ?? null,
 )
-const selectedFormat = computed(() =>
-  props.certificateFormats.find((item) => readString(item, ['id']) === selectedCertificateFormatId.value) ?? null,
-)
 const selectedTarget = computed(() => selectedTargets.value[0] ?? null)
 
 const stepOneReady = computed(() => Boolean(
   selectedCertificateId.value
-  && resolvedCertificateVersionId.value
-  && selectedCertificateFormatId.value,
+  && resolvedCertificateVersionId.value,
 ))
 const stepTwoReady = computed(() => Boolean(stepOneReady.value && selectedTargetId.value))
 const currentAvailableStep = computed<WizardStep>(() => {
@@ -215,19 +195,12 @@ const capabilityItems = computed<CapabilityMatrixItem[]>(() => [{
 const previewSummary = computed(() => {
   if (!stepOneReady.value) return '先完成证书材料选择。'
   if (!stepTwoReady.value) return '完成证书材料选择后，再指定要下发的应用资产目标。'
-  return `将把 ${formatConfigName(selectedFormat.value)} 对应的证书材料部署到 ${selectedTargets.value.length} 个应用资产目标。`
-})
-
-const formatHint = computed(() => {
-  if (!selectedCertificateId.value) return ''
-  if (filteredFormats.value.length > 0) return ''
-  return '当前没有可选的证书产物配置，请先创建对应配置。'
+  return `将把已选证书版本部署到 ${selectedTargets.value.length} 个应用资产目标。`
 })
 
 const canOperate = computed(() => Boolean(
   selectedCertificateId.value
   && resolvedCertificateVersionId.value
-  && selectedCertificateFormatId.value
   && selectedTargetId.value,
 ))
 
@@ -271,13 +244,13 @@ const progressPercent = computed(() => `${(currentStep.value / 3) * 100}%`)
 
 function buildPlan(): DeploymentWizardPlan {
   const primaryTarget = selectedTargets.value[0]
+  const targetMode = readString(primaryTarget, ['targetMode'])
   return {
     certificateId: selectedCertificateId.value,
     certificateVersionId: resolvedCertificateVersionId.value,
-    certificateFormatId: selectedCertificateFormatId.value,
     targetIds: selectedTargetId.value ? [selectedTargetId.value] : [],
     applicationAssetId: readString(primaryTarget, ['applicationAssetId']) || undefined,
-    selectionMode: selectedCertificateVersionId.value === LATEST_VERSION_MARKER ? 'LATEST_AUTO' : 'EXPLICIT',
+    selectionMode: targetMode === 'WORKFLOW' ? 'EXPLICIT' : selectedCertificateVersionId.value === LATEST_VERSION_MARKER ? 'LATEST_AUTO' : 'EXPLICIT',
     capabilityItems: capabilityItems.value,
     dryRunChecks: props.dryRunChecks,
     previewSummary: previewSummary.value,
@@ -321,16 +294,6 @@ function selectedVersionSummary(): string {
   return selectedVersion.value ? versionLabel(selectedVersion.value) : '未选择'
 }
 
-function formatLabel(item: ApiRecord): string {
-  const format = readString(item, ['format'], 'unknown').toUpperCase()
-  const privateKey = readBoolean(item, ['containsPrivateKey']) ? '含私钥' : '无私钥'
-  const extraPrivateKeyFile = readBoolean(item, ['parameters.generatePrivateKeyFile']) ? '额外私钥文件' : ''
-  const configName = formatConfigName(item)
-  const runtime = runtimeSummary(item)
-  const extension = readString(item, ['parameters.extension'])
-  return [configName, format, privateKey, extraPrivateKeyFile, runtime, extension ? `.${extension}` : ''].filter(Boolean).join(' / ')
-}
-
 function certificateAssetLabel(item: ApiRecord): string {
   return readString(item, ['primaryDomain', 'name', 'commonName'], readString(item, ['id']))
 }
@@ -343,17 +306,15 @@ function resolveCertificateOptionId(assetId: string): string {
 
 function targetLabel(item: ApiRecord): string {
   const name = readString(item, ['name', 'displayName', 'domainName'], readString(item, ['id']))
+  const targetMode = readString(item, ['targetMode'])
+  if (targetMode === 'WORKFLOW') {
+    const workflow = readString(item, ['workflowLabel'], '未选择工作流')
+    const runner = readString(item, ['runnerLabel'], '未配置运行位置')
+    return `${name} / 工作流 / ${workflow} / ${runner}`
+  }
   const siteName = readString(item, ['siteName'], '未命名站点')
   const binding = readString(item, ['bindingName', 'bindingSummary'], '未提供绑定信息')
   return `${name} / ${siteName} / ${binding}`
-}
-
-function formatConfigName(item: ApiRecord | null | undefined): string {
-  return readString(item, ['parameters.configName', 'parameters.alias', 'parameters.friendlyName', 'name'], '未命名配置')
-}
-
-function runtimeSummary(item: ApiRecord | null | undefined): string {
-  return [readString(item, ['parameters.systemPlatform']), readString(item, ['parameters.runtimePlatform'])].filter(Boolean).join(' / ')
 }
 
 function formatDate(value: string): string {
@@ -400,15 +361,6 @@ function readString(record: ApiRecord | null | undefined, candidates: readonly s
   return fallback
 }
 
-function readBoolean(record: ApiRecord | null | undefined, candidates: readonly string[]): boolean {
-  for (const key of candidates) {
-    const value = readPath(record, key)
-    if (typeof value === 'boolean') return value
-    if (typeof value === 'string') return value === 'true'
-  }
-  return false
-}
-
 function normalizeDomainKey(value: string): string {
   return value.trim().toLowerCase()
 }
@@ -439,7 +391,7 @@ function normalizeDomainKey(value: string): string {
             <span class="gc-deployment-wizard__step-index">1</span>
             <div class="gc-deployment-wizard__step-copy">
               <strong>选择证书材料</strong>
-              <p>证书资产、版本、产物配置</p>
+              <p>证书资产与版本</p>
               <span class="gc-deployment-wizard__step-state">{{ stepStateLabel(1) }}</span>
             </div>
           </button>
@@ -500,17 +452,7 @@ function normalizeDomainKey(value: string): string {
             </select>
           </label>
 
-          <label class="gc-form-field gc-deployment-wizard__field-span-2">
-            <span>证书产物配置</span>
-            <select v-model="selectedCertificateFormatId" :disabled="loading || filteredFormats.length === 0">
-              <option v-for="item in filteredFormats" :key="readString(item, ['id'])" :value="readString(item, ['id'])">
-                {{ formatLabel(item) }}
-              </option>
-            </select>
-          </label>
         </div>
-
-        <p v-if="formatHint" class="gc-deployment-wizard__hint">{{ formatHint }}</p>
 
         <div class="gc-deployment-wizard__summary-grid">
           <div class="gc-deployment-wizard__summary-item">
@@ -520,11 +462,6 @@ function normalizeDomainKey(value: string): string {
           <div class="gc-deployment-wizard__summary-item">
             <span>证书版本</span>
             <strong>{{ selectedVersionSummary() }}</strong>
-          </div>
-          <div class="gc-deployment-wizard__summary-item">
-            <span>产物配置</span>
-            <strong>{{ formatConfigName(selectedFormat) }}</strong>
-            <small>{{ selectedFormat ? formatLabel(selectedFormat) : '未选择' }}</small>
           </div>
         </div>
       </template>
@@ -559,9 +496,31 @@ function normalizeDomainKey(value: string): string {
         <div v-if="selectedTarget" class="gc-deployment-wizard__target-card">
           <div class="gc-deployment-wizard__target-head">
             <strong>{{ readString(selectedTarget, ['name', 'displayName', 'domainName'], readString(selectedTarget, ['id'])) }}</strong>
-            <span>{{ readString(selectedTarget, ['managedTargetLabel', 'managedTargetId'], '未识别受管目标') }}</span>
+            <span>{{ readString(selectedTarget, ['targetMode']) === 'WORKFLOW' ? '工作流模式' : readString(selectedTarget, ['managedTargetLabel', 'managedTargetId'], '未识别受管目标') }}</span>
           </div>
-          <dl class="gc-deployment-wizard__target-meta">
+          <dl v-if="readString(selectedTarget, ['targetMode']) === 'WORKFLOW'" class="gc-deployment-wizard__target-meta">
+            <div>
+              <dt>工作流</dt>
+              <dd>{{ readString(selectedTarget, ['workflowLabel'], '未选择工作流') }}</dd>
+            </div>
+            <div>
+              <dt>版本</dt>
+              <dd>{{ readString(selectedTarget, ['workflowVersionLabel'], '未选择版本') }}</dd>
+            </div>
+            <div>
+              <dt>运行位置</dt>
+              <dd>{{ readString(selectedTarget, ['runnerLabel'], '未配置') }}</dd>
+            </div>
+            <div>
+              <dt>验证 URL</dt>
+              <dd>{{ readString(selectedTarget, ['verifyUrl'], '按应用入口生成') }}</dd>
+            </div>
+            <div>
+              <dt>证书变量</dt>
+              <dd>{{ readString(selectedTarget, ['certificateBindingSummary'], '未绑定证书变量') }}</dd>
+            </div>
+          </dl>
+          <dl v-else class="gc-deployment-wizard__target-meta">
             <div>
               <dt>站点</dt>
               <dd>{{ readString(selectedTarget, ['siteName'], '未命名站点') }}</dd>
@@ -569,6 +528,14 @@ function normalizeDomainKey(value: string): string {
             <div>
               <dt>绑定</dt>
               <dd>{{ readString(selectedTarget, ['bindingName', 'bindingSummary'], '未提供绑定信息') }}</dd>
+            </div>
+            <div>
+              <dt>受管目标</dt>
+              <dd>{{ readString(selectedTarget, ['managedTargetLabel', 'managedTargetId'], '未识别受管目标') }}</dd>
+            </div>
+            <div>
+              <dt>产物配置</dt>
+              <dd>{{ readString(selectedTarget, ['certificateFormatLabel'], '未配置') }}</dd>
             </div>
           </dl>
         </div>
@@ -593,10 +560,6 @@ function normalizeDomainKey(value: string): string {
           <div>
             <dt>证书版本</dt>
             <dd>{{ selectedVersionSummary() }}</dd>
-          </div>
-          <div>
-            <dt>产物配置</dt>
-            <dd>{{ selectedFormat ? formatLabel(selectedFormat) : '未选择' }}</dd>
           </div>
           <div>
             <dt>部署目标</dt>

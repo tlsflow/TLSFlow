@@ -150,6 +150,18 @@ describe('资产与证书产物视图', () => {
           content: {
             variables: {
               deviceHost: { type: 'string', required: true, description: '目标主机' },
+              serverCert: {
+                type: 'certificate',
+                required: true,
+                sensitive: true,
+                description: '服务端证书产物',
+                artifactContract: {
+                  outputs: {
+                    certFile: { role: 'public_certificate', required: true, description: '服务端证书文件' },
+                    keyFile: { role: 'private_key', required: true, description: '服务端私钥文件' },
+                  },
+                },
+              },
               verifyUrl: { type: 'string', required: true, description: '验证 URL' },
             },
           },
@@ -275,6 +287,13 @@ describe('资产与证书产物视图', () => {
     expect(wrapper.text()).not.toContain('运行变量 JSON')
     expect(wrapper.findAll('input').some((input) => input.element.value === 'deviceHost')).toBe(true)
     expect(wrapper.findAll('input').some((input) => input.element.value === 'app.example.com')).toBe(true)
+    expect(wrapper.text()).toContain('部署计划自动注入')
+    expect(wrapper.text()).toContain('证书产物绑定')
+
+    const certificateFormatSelect = wrapper.findAll('select').find((select) => select.find('option[value="certfmt-1"]').exists())
+    expect(certificateFormatSelect).toBeTruthy()
+    await certificateFormatSelect!.setValue('certfmt-1')
+    await flushPromises()
 
     await nextButton!.trigger('click')
     await flushPromises()
@@ -299,11 +318,100 @@ describe('资产与证书产物视图', () => {
             deviceHost: 'app.example.com',
             verifyUrl: 'https://app.example.com:443',
           },
+          certificateArtifactBindings: {
+            serverCert: {
+              certificateFormatId: 'certfmt-1',
+              outputBindings: {
+                certFile: 'fullchain',
+                keyFile: 'private',
+              },
+            },
+          },
         },
       },
     }))
+    expect(assetMocks.createServiceAsset.mock.calls[0][0].deploymentStrategy.workflow.variableBindings).not.toHaveProperty('serverCert')
     expect(assetMocks.createServiceAsset.mock.calls[0][0]).not.toHaveProperty('targetBinding')
     expect(assetMocks.createServiceAsset.mock.calls[0][0]).not.toHaveProperty('agentId')
+  })
+
+  it('编辑工作流应用资产时会回填并保留证书产物绑定', async () => {
+    assetMocks.getAssetDetail.mockResolvedValue(okRecord({
+      id: 'asset-1',
+      address: 'app.example.com',
+      port: 443,
+      protocol: 'HTTPS',
+      platform: 'LINUX',
+      metadata: {
+        deploymentStrategy: {
+          type: 'WORKFLOW',
+          workflow: {
+            workflowId: 'workflow-1',
+            workflowVersionId: 'workflow-version-1',
+            runner: 'CONTROL_PLANE',
+            variableBindings: {
+              deviceHost: 'app.example.com',
+              verifyUrl: 'https://app.example.com:443',
+            },
+            certificateArtifactBindings: {
+              serverCert: {
+                certificateFormatId: 'certfmt-1',
+                outputBindings: {
+                  certFile: 'fullchain',
+                  keyFile: 'private',
+                },
+              },
+            },
+          },
+        },
+      },
+    }))
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+
+    const editButton = wrapper.findAll('button').find((button) => button.text() === '编辑')
+    expect(editButton).toBeTruthy()
+    await editButton!.trigger('click')
+    await flushPromises()
+
+    const firstNextButton = wrapper.findAll('button').find((button) => button.text() === '下一步')
+    expect(firstNextButton).toBeTruthy()
+    await firstNextButton!.trigger('click')
+    await flushPromises()
+
+    const selects = wrapper.findAll('select')
+    expect(selects.some((select) => select.element.value === 'certfmt-1')).toBe(true)
+    expect(selects.some((select) => select.element.value === 'fullchain')).toBe(true)
+    expect(selects.some((select) => select.element.value === 'private')).toBe(true)
+
+    const secondNextButton = wrapper.findAll('button').find((button) => button.text() === '下一步')
+    expect(secondNextButton).toBeTruthy()
+    await secondNextButton!.trigger('click')
+    await flushPromises()
+
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '保存修改')
+    expect(saveButton).toBeTruthy()
+    await saveButton!.trigger('click')
+    await flushPromises()
+
+    expect(assetMocks.updateServiceAsset).toHaveBeenCalledWith('asset-1', expect.objectContaining({
+      deploymentStrategy: {
+        type: 'WORKFLOW',
+        workflow: expect.objectContaining({
+          workflowId: 'workflow-1',
+          workflowVersionId: 'workflow-version-1',
+          certificateArtifactBindings: {
+            serverCert: {
+              certificateFormatId: 'certfmt-1',
+              outputBindings: {
+                certFile: 'fullchain',
+                keyFile: 'private',
+              },
+            },
+          },
+        }),
+      },
+    }))
   })
 
   it('证书产物页展示真实内容格式与包含内容', async () => {

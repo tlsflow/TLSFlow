@@ -13,6 +13,7 @@ import {
   listDeploymentPlans,
   updateDeploymentPlanFromApplicationAsset,
 } from '@/api/modules/deployments.api'
+import { listWorkflowTemplates, listWorkflowTemplateVersions } from '@/api/modules/workflow-templates.api'
 import { GcDeploymentWizard, GcDryRunResultModal, GcExecutionProgressPanel, GcModal, GcStatusTag } from '@/design-system/components'
 import type { DeploymentWizardInitialPlan, DeploymentWizardPlan } from '@/design-system/components/GcDeploymentWizard.types'
 import type { ViewRow } from '@/composables/useBusinessPage'
@@ -71,6 +72,8 @@ const certificateItems = ref<ApiRecord[]>([])
 const certificateVersionItems = ref<ApiRecord[]>([])
 const certificateFormatItems = ref<ApiRecord[]>([])
 const targetItems = ref<ApiRecord[]>([])
+const workflowTemplateItems = ref<ApiRecord[]>([])
+const workflowVersionItemsByTemplateId = ref<Record<string, ApiRecord[]>>({})
 const dryRunChecks = ref<ApiRecord[]>([])
 const dryRunExecutionDetail = useExecutionDetail(dryRunRunRow)
 const dryRunResultModalOpen = ref(false)
@@ -469,16 +472,19 @@ async function loadWizardOptions() {
   loading.value = true
   errorMessage.value = ''
   try {
-    const [assetsResult, certificatesResult, versionsResult, formatsResult] = await Promise.all([
+    const [assetsResult, certificatesResult, versionsResult, formatsResult, workflowsResult] = await Promise.all([
       listAssets({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
       listCertificates({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
       fetchAllPages((page, pageSize) => listCertificateVersions({ page, pageSize, sort: 'createdAt:desc' })),
       fetchAllPages((page, pageSize) => listCertificateFormats({ page, pageSize, sort: 'createdAt:desc' })),
+      listWorkflowTemplates({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
     ])
 
     certificateItems.value = [...(certificatesResult.data?.items ?? [])]
     certificateVersionItems.value = versionsResult
     certificateFormatItems.value = formatsResult
+    workflowTemplateItems.value = [...(workflowsResult.data?.items ?? [])]
+    workflowVersionItemsByTemplateId.value = await loadWorkflowVersionsForAssets(assetsResult.data?.items ?? [])
     targetItems.value = (assetsResult.data?.items ?? [])
       .map(normalizeApplicationAssetTarget)
       .filter((item): item is ApiRecord => item !== null)
@@ -637,7 +643,6 @@ async function createPlanDraft(plan: DeploymentWizardPlan): Promise<string> {
     applicationAssetId: plan.applicationAssetId,
     selectionMode: plan.selectionMode,
     targetCertificateVersionId: plan.selectionMode === 'EXPLICIT' ? plan.certificateVersionId : undefined,
-    certificateFormatId: plan.certificateFormatId,
   })
   const planId = String(created.data?.id ?? '')
   if (!planId) throw new Error('创建部署计划成功但未返回 planId')
@@ -650,7 +655,6 @@ async function updateDeploymentPlanDraft(planId: string, plan: DeploymentWizardP
     applicationAssetId: plan.applicationAssetId,
     selectionMode: plan.selectionMode,
     targetCertificateVersionId: plan.selectionMode === 'EXPLICIT' ? plan.certificateVersionId : undefined,
-    certificateFormatId: plan.certificateFormatId,
   })
 }
 
@@ -787,10 +791,32 @@ function readResponseData(result: unknown): ApiRecord | undefined {
   return result as ApiRecord
 }
 
+async function loadWorkflowVersionsForAssets(items: readonly ApiRecord[]): Promise<Record<string, ApiRecord[]>> {
+  const workflowIds = [...new Set(items
+    .map((item) => readString(item, ['deploymentStrategy.workflow.workflowId', 'metadata.deploymentStrategy.workflow.workflowId']))
+    .filter(Boolean))]
+  const entries = await Promise.all(workflowIds.map(async (workflowId) => {
+    try {
+      const result = await listWorkflowTemplateVersions(workflowId)
+      return [workflowId, [...(result.data?.items ?? [])] as ApiRecord[]] as const
+    } catch {
+      return [workflowId, []] as const
+    }
+  }))
+  return Object.fromEntries(entries)
+}
+
 function normalizeApplicationAssetTarget(item: ApiRecord): ApiRecord | null {
+  const strategyType = readString(item, ['deploymentStrategy.type', 'metadata.deploymentStrategy.type'])
+  if (strategyType === 'WORKFLOW') return normalizeWorkflowApplicationAssetTarget(item)
+  return normalizeAgentApplicationAssetTarget(item)
+}
+
+function normalizeAgentApplicationAssetTarget(item: ApiRecord): ApiRecord | null {
   const applicationAssetId = readString(item, ['id'])
   const managedTargetId = readString(item, ['targetBinding.managedTargetId'])
   const siteAssetId = readString(item, ['targetBinding.siteAssetId'])
+  const certificateFormatId = readString(item, ['deploymentStrategy.agent.certificateFormatId', 'metadata.deploymentStrategy.agent.certificateFormatId'])
   const certificateBindings = Array.isArray(readPath(item, 'targetBindingDetail.certificateBindings'))
     ? readPath(item, 'targetBindingDetail.certificateBindings') as ApiRecord[]
     : []
@@ -814,6 +840,7 @@ function normalizeApplicationAssetTarget(item: ApiRecord): ApiRecord | null {
   return {
     id: applicationAssetId,
     applicationAssetId,
+    targetMode: 'AGENT',
     name: displayName,
     displayName,
     siteName,
@@ -823,18 +850,77 @@ function normalizeApplicationAssetTarget(item: ApiRecord): ApiRecord | null {
     managedTargetLabel: `${hostHeader}:${port}`,
     siteAssetId,
     certificateBindingId,
+    certificateFormatId,
+    certificateFormatLabel: certificateFormatLabelById(certificateFormatId),
   }
+}
+
+function normalizeWorkflowApplicationAssetTarget(item: ApiRecord): ApiRecord | null {
+  const applicationAssetId = readString(item, ['id'])
+  if (!applicationAssetId) return null
+  const workflowId = readString(item, ['deploymentStrategy.workflow.workflowId', 'metadata.deploymentStrategy.workflow.workflowId'])
+  const workflowVersionId = readString(item, ['deploymentStrategy.workflow.workflowVersionId', 'metadata.deploymentStrategy.workflow.workflowVersionId'])
+  if (!workflowId || !workflowVersionId) return null
+  const displayName = readString(item, ['displayName', 'address', 'domainName'], applicationAssetId)
+  const runner = readString(item, ['deploymentStrategy.workflow.runner', 'metadata.deploymentStrategy.workflow.runner'], 'CONTROL_PLANE')
+  const gatewayId = readString(item, ['deploymentStrategy.workflow.gatewayId', 'metadata.deploymentStrategy.workflow.gatewayId'])
+  const bindings = asRecord(readPath(item, 'deploymentStrategy.workflow.certificateArtifactBindings'))
+    ?? asRecord(readPath(item, 'metadata.deploymentStrategy.workflow.certificateArtifactBindings'))
+    ?? {}
+  const bindingNames = Object.entries(bindings).map(([variableName, binding]) => {
+    const record = asRecord(binding) ?? {}
+    const formatId = String(record.certificateFormatId ?? '')
+    const outputs = asRecord(record.outputBindings)
+    const outputSummary = outputs ? Object.entries(outputs).map(([slot, output]) => `${slot}:${String(output)}`).join(', ') : '未选择输出项'
+    return `${variableName} -> ${certificateFormatLabelById(formatId)} (${outputSummary})`
+  })
+  return {
+    id: applicationAssetId,
+    applicationAssetId,
+    targetMode: 'WORKFLOW',
+    name: displayName,
+    displayName,
+    workflowId,
+    workflowVersionId,
+    workflowLabel: workflowTemplateLabelById(workflowId),
+    workflowVersionLabel: workflowVersionLabelById(workflowId, workflowVersionId),
+    runner,
+    runnerLabel: runner === 'GATEWAY' ? `Gateway${gatewayId ? `：${gatewayId}` : ''}` : '控制平面',
+    verifyUrl: readString(item, ['verifyUrl', 'metadata.verifyUrl']),
+    certificateBindingSummary: bindingNames.length > 0 ? bindingNames.join('；') : '未绑定证书变量',
+  }
+}
+
+function certificateFormatLabelById(certificateFormatId: string): string {
+  if (!certificateFormatId) return '未配置'
+  const item = certificateFormatItems.value.find((format) => readString(format, ['id']) === certificateFormatId)
+  if (!item) return certificateFormatId
+  const configName = readString(item, ['parameters.configName', 'parameters.alias', 'parameters.friendlyName', 'name'], certificateFormatId)
+  const format = readString(item, ['format'], 'unknown').toUpperCase()
+  const platform = [readString(item, ['parameters.systemPlatform']), readString(item, ['parameters.runtimePlatform'])].filter(Boolean).join('/')
+  return [configName, format, platform].filter(Boolean).join(' / ')
+}
+
+function workflowTemplateLabelById(workflowId: string): string {
+  const item = workflowTemplateItems.value.find((workflow) => readString(workflow, ['id']) === workflowId)
+  return readString(item, ['name', 'displayName', 'templateName'], workflowId)
+}
+
+function workflowVersionLabelById(workflowId: string, workflowVersionId: string): string {
+  const item = (workflowVersionItemsByTemplateId.value[workflowId] ?? [])
+    .find((version) => readString(version, ['id']) === workflowVersionId)
+  const version = readString(item, ['version', 'versionNo', 'name'], workflowVersionId)
+  const status = readString(item, ['status'])
+  return status ? `V${version} / ${status}` : version
 }
 
 function buildInitialPlanFromRow(row: ApiRecord): DeploymentWizardInitialPlan {
   const certificateVersionId = readString(row, ['certificateVersionId'])
-  const certificateFormatId = readString(row, ['certificateFormatId'])
   const certificateVersion = certificateVersionItems.value.find((item) => readString(item, ['id', 'certificateVersionId']) === certificateVersionId)
   const selectionMode = readString(row, ['selectionMode'], 'EXPLICIT')
   return {
     certificateId: readString(certificateVersion, ['certificateAssetId', 'certificateId']),
     certificateVersionId,
-    certificateFormatId,
     applicationAssetId: resolveApplicationAssetIdFromPlan(row),
     selectionMode: selectionMode === 'LATEST_AUTO' ? 'LATEST_AUTO' : 'EXPLICIT',
   }
@@ -849,6 +935,7 @@ function resolveApplicationAssetIdFromPlan(row: ApiRecord): string {
     readString(item, ['applicationAssetId', 'id']) === readString(target, ['applicationAssetId', 'serviceAssetId'])
     || (certificateBindingId && readString(item, ['certificateBindingId']) === certificateBindingId)
     || (executionTargetId && readString(item, ['managedTargetId']) === executionTargetId)
+    || (executionTargetId && readString(item, ['targetMode']) === 'WORKFLOW' && readString(item, ['applicationAssetId', 'id']) === executionTargetId)
   ))
   return readString(matched, ['applicationAssetId', 'id'], readString(target, ['applicationAssetId', 'serviceAssetId']))
 }
@@ -872,6 +959,10 @@ function readRecord(record: ApiRecord | null | undefined, candidates: readonly s
     if (value && typeof value === 'object' && !Array.isArray(value)) return value as ApiRecord
   }
   return undefined
+}
+
+function asRecord(value: unknown): ApiRecord | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as ApiRecord : undefined
 }
 
 function toErrorMessage(cause: unknown, fallback: string): string {

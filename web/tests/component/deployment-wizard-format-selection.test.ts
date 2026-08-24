@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import GcDeploymentWizard from '@/design-system/components/GcDeploymentWizard.vue'
 
-describe('GcDeploymentWizard 证书产物配置选择', () => {
-  it('会直接展示已配置的 Linux NGINX PEM 产物，并允许随计划一起提交', async () => {
+describe('GcDeploymentWizard 部署计划选择', () => {
+  it('部署计划只选择证书版本和应用资产，不再选择证书产物配置', async () => {
     const wrapper = mount(GcDeploymentWizard, {
       props: {
         certificates: [
@@ -55,16 +55,13 @@ describe('GcDeploymentWizard 证书产物配置选择', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('Linux-NGINX-PEM')
-    expect(wrapper.text()).toContain('额外私钥文件')
-    expect(wrapper.text()).toContain('Windows-IIS-PFX')
+    expect(wrapper.text()).not.toContain('证书产物配置')
+    expect(wrapper.text()).not.toContain('Linux-NGINX-PEM')
+    expect(wrapper.text()).not.toContain('Windows-IIS-PFX')
     expect(wrapper.text()).toContain('部署向导')
     expect(wrapper.text()).toContain('步骤 1 / 3')
     expect(wrapper.text()).toContain('1. 证书材料')
     expect(wrapper.text()).not.toContain('3. 预检与提交')
-
-    const formatSelect = wrapper.findAll('select')[2]
-    expect((formatSelect.element as HTMLSelectElement).value).toBe('fmt-nginx')
 
     await wrapper.findAll('button').find((button) => button.text() === '下一步')!.trigger('click')
     expect(wrapper.text()).toContain('2. 部署目标')
@@ -76,10 +73,10 @@ describe('GcDeploymentWizard 证书产物配置选择', () => {
     const emitted = wrapper.emitted('save')
     expect(emitted).toBeTruthy()
     expect(emitted?.[0]?.[0]).toMatchObject({
-      certificateFormatId: 'fmt-nginx',
       applicationAssetId: 'asset-1',
       targetIds: ['target-1'],
     })
+    expect(emitted?.[0]?.[0]).not.toHaveProperty('certificateFormatId')
   })
 
   it('证书资产按域名去重，版本下拉展示同域名下的多个证书版本', async () => {
@@ -173,7 +170,6 @@ describe('GcDeploymentWizard 证书产物配置选择', () => {
         initialPlan: {
           certificateId: 'cert-1',
           certificateVersionId: 'certver-old',
-          certificateFormatId: 'fmt-new',
           applicationAssetId: 'asset-1',
           selectionMode: 'LATEST_AUTO',
         },

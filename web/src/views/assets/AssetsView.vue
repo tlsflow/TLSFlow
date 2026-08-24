@@ -6,6 +6,7 @@ import { createManagedTarget, createServiceAsset, createServiceInstance, createS
 import { rollbackExecution } from '@/api/modules/executions.api'
 import { listGateways } from '@/api/modules/gateways.api'
 import { listWorkflowTemplates, listWorkflowTemplateVersions } from '@/api/modules/workflow-templates.api'
+import { listCertificateFormats } from '@/api/modules/certificates.api'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
 import type { ViewRow } from '@/composables/useBusinessPage'
 import { GcModal, GcStatusTag, GcTabs } from '@/design-system/components'
@@ -39,6 +40,7 @@ interface AssetDraft {
   frameworkType: FrameworkType
   siteAssetId: string
   managedTargetId: string
+  agentCertificateFormatId: string
   displayName: string
   environment: string
   tagsText: string
@@ -57,6 +59,11 @@ interface WorkflowVariableRow {
   description: string
   enumValues: string[]
   fromDefinition: boolean
+}
+
+interface WorkflowCertificateArtifactBinding {
+  certificateFormatId: string
+  outputBindings: Record<string, string>
 }
 
 interface AgentBindingCandidate {
@@ -138,10 +145,14 @@ const workflowVariableRows = ref<WorkflowVariableRow[]>([])
 const workflowVariablePresetName = ref('')
 const workflowCredentialItems = ref<WorkflowManagedCredential[]>([])
 const workflowCredentialLoading = ref(false)
+const certificateFormatItems = ref<ApiRecord[]>([])
+const certificateFormatLoading = ref(false)
 const workflowListError = ref('')
 const workflowVersionListError = ref('')
 const gatewayListError = ref('')
 const workflowCredentialError = ref('')
+const certificateFormatError = ref('')
+const workflowCertificateArtifactBindings = ref<Record<string, WorkflowCertificateArtifactBinding>>({})
 let workflowVariableRowSeed = 1
 
 const workflowVariablePresets: readonly { name: string; type: WorkflowVariableType; description: string }[] = [
@@ -155,8 +166,10 @@ const workflowVariablePresets: readonly { name: string; type: WorkflowVariableTy
   { name: 'verifyPath', type: 'string', description: '验证路径' },
   { name: 'apacheServiceName', type: 'string', description: 'Apache systemd 服务名' },
   { name: 'apacheSiteConfigPath', type: 'string', description: 'Apache 站点配置路径' },
+  { name: 'certificateFilePath', type: 'string', description: '证书目的路径' },
+  { name: 'certificateKeyFilePath', type: 'string', description: '私钥目的路径' },
   { name: 'backupRoot', type: 'string', description: '证书备份根目录' },
-  { name: 'expectedResponseText', type: 'string', description: '验证响应文本' },
+  { name: 'expectedResponseContains', type: 'string', description: '验证响应包含文本' },
   { name: 'virtualHostServerName', type: 'string', description: '虚拟主机 ServerName' },
 ]
 
@@ -171,6 +184,7 @@ const assetDraft = reactive<AssetDraft>({
   frameworkType: 'NGINX',
   siteAssetId: '',
   managedTargetId: '',
+  agentCertificateFormatId: '',
   displayName: '',
   environment: '',
   tagsText: '',
@@ -372,9 +386,33 @@ const selectedGateway = computed(() =>
   gatewayItems.value.find((item) => String(item.id ?? '') === assetDraft.workflowGatewayId) ?? null,
 )
 
+const agentCertificateFormatOptions = computed(() => {
+  const platform = assetDraft.platform.toLowerCase()
+  const framework = assetDraft.frameworkType.toLowerCase()
+  const matched = certificateFormatItems.value.filter((item) => {
+    const parameters = readRecord(item.parameters) ?? {}
+    const systemPlatform = String(parameters.systemPlatform ?? '').toLowerCase()
+    const runtimePlatform = String(parameters.runtimePlatform ?? '').toLowerCase()
+    return (!systemPlatform || systemPlatform === platform)
+      && (!runtimePlatform || runtimePlatform === framework || runtimePlatform === 'other')
+  })
+  const base = matched.length > 0 ? matched : certificateFormatItems.value
+  const selectedId = assetDraft.agentCertificateFormatId.trim()
+  if (!selectedId || base.some((item) => String(item.id ?? '') === selectedId)) return base
+  return [{ id: selectedId, format: 'unknown', parameters: { configName: `${selectedId}（已保存配置，当前列表未返回）` } }, ...base]
+})
+
 const selectedWorkflowVariableDefinitions = computed(() =>
   readWorkflowVariableDefinitions(selectedWorkflowVersion.value),
 )
+
+const selectedWorkflowCertificateVariables = computed(() =>
+  Object.entries(selectedWorkflowVariableDefinitions.value)
+    .filter(([, definition]) => workflowVariableType(definition) === 'certificate')
+    .map(([name, definition]) => ({ name, definition, outputs: workflowCertificateOutputSlots(definition) })),
+)
+
+const workflowCertificateArtifactError = computed(() => validateWorkflowCertificateArtifactBindings())
 
 const workflowVariableNames = computed(() =>
   new Set(workflowVariableRows.value.map((row) => row.name.trim()).filter(Boolean)),
@@ -423,7 +461,8 @@ const agentStepReady = computed(() => {
   return Boolean(
     assetDraft.agentId.trim()
     && assetDraft.siteAssetId.trim()
-    && assetDraft.managedTargetId.trim(),
+    && assetDraft.managedTargetId.trim()
+    && assetDraft.agentCertificateFormatId.trim(),
   )
 })
 
@@ -437,6 +476,7 @@ const workflowStepReady = computed(() => {
     && selectedVersionIsPublished
     && gatewayReady
     && !workflowVariablesError.value
+    && !workflowCertificateArtifactError.value
   )
 })
 
@@ -489,7 +529,7 @@ async function openCreateDialog() {
   createDialogOpen.value = true
   createError.value = ''
   createRequestId.value = ''
-  await Promise.all([loadAgents(), loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables()])
+  await Promise.all([loadAgents(), loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
 }
 
 async function openEditDialog(row: ViewRow) {
@@ -520,16 +560,18 @@ async function openEditDialog(row: ViewRow) {
     assetDraft.workflowRunner = String(readNested(deploymentStrategy, ['workflow', 'runner']) ?? 'CONTROL_PLANE') as WorkflowRunnerType
     assetDraft.workflowGatewayId = String(readNested(deploymentStrategy, ['workflow', 'gatewayId']) ?? '')
     workflowVariableRows.value = variableRowsFromBindings(readRecord(readNested(deploymentStrategy, ['workflow', 'variableBindings'])) ?? {})
+    workflowCertificateArtifactBindings.value = readWorkflowCertificateArtifactBindingsFromAsset(source, deploymentStrategy)
   } else {
     assetDraft.managementMode = 'AGENT'
     assetDraft.agentId = String(readNested(deploymentStrategy, ['agent', 'agentId']) ?? assetDraft.agentId)
     assetDraft.siteAssetId = String(readNested(deploymentStrategy, ['agent', 'siteAssetId']) ?? assetDraft.siteAssetId)
     assetDraft.managedTargetId = String(readNested(deploymentStrategy, ['agent', 'managedTargetId']) ?? assetDraft.managedTargetId)
+    assetDraft.agentCertificateFormatId = String(readNested(deploymentStrategy, ['agent', 'certificateFormatId']) ?? '')
   }
   createDialogOpen.value = true
   createError.value = ''
   createRequestId.value = ''
-  await Promise.all([loadAgents(), loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables()])
+  await Promise.all([loadAgents(), loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
   if (assetDraft.workflowId) await loadWorkflowVersions(assetDraft.workflowId)
   if (assetDraft.workflowVersionId) syncWorkflowVariableRowsFromVersion()
 }
@@ -585,6 +627,7 @@ async function loadWorkflowVersions(workflowId: string) {
     if (!assetDraft.workflowVersionId && publishedWorkflowVersionItems.value.length === 1) {
       assetDraft.workflowVersionId = String(publishedWorkflowVersionItems.value[0]?.id ?? '')
     }
+    ensureWorkflowCertificateArtifactBindings()
   } catch (cause) {
     workflowVersionListError.value = cause instanceof ApiClientError
       ? cause.message
@@ -607,6 +650,23 @@ async function loadGateways() {
       : cause instanceof Error ? cause.message : '加载网关列表失败'
   } finally {
     gatewayListLoading.value = false
+  }
+}
+
+async function loadCertificateFormatsForWorkflow() {
+  certificateFormatLoading.value = true
+  certificateFormatError.value = ''
+  try {
+    const result = await listCertificateFormats({ page: 1, pageSize: 200, sort: 'createdAt:desc' })
+    certificateFormatItems.value = [...(result.data?.items ?? [])]
+    ensureWorkflowCertificateArtifactBindings()
+  } catch (cause) {
+    certificateFormatItems.value = []
+    certificateFormatError.value = cause instanceof ApiClientError
+      ? cause.message
+      : cause instanceof Error ? cause.message : '加载证书格式配置失败'
+  } finally {
+    certificateFormatLoading.value = false
   }
 }
 
@@ -816,6 +876,7 @@ function resetDraft() {
   assetDraft.frameworkType = 'NGINX'
   assetDraft.siteAssetId = ''
   assetDraft.managedTargetId = ''
+  assetDraft.agentCertificateFormatId = ''
   assetDraft.displayName = ''
   assetDraft.environment = ''
   assetDraft.tagsText = ''
@@ -836,6 +897,8 @@ function resetDraft() {
   workflowVersionListError.value = ''
   gatewayListError.value = ''
   workflowCredentialError.value = ''
+  certificateFormatError.value = ''
+  workflowCertificateArtifactBindings.value = {}
 }
 
 function splitCsv(value: string): string[] {
@@ -883,6 +946,7 @@ function buildDeploymentStrategyPayload(): Record<string, unknown> {
         runner: assetDraft.workflowRunner,
         gatewayId,
         variableBindings: buildWorkflowVariableBindings(),
+        certificateArtifactBindings: buildWorkflowCertificateArtifactBindings(),
       },
     }
   }
@@ -893,6 +957,7 @@ function buildDeploymentStrategyPayload(): Record<string, unknown> {
       agentId: assetDraft.agentId.trim(),
       siteAssetId: assetDraft.siteAssetId.trim(),
       managedTargetId: assetDraft.managedTargetId.trim(),
+      certificateFormatId: assetDraft.agentCertificateFormatId.trim(),
     },
   }
 }
@@ -968,6 +1033,7 @@ function buildWorkflowVariableBindings(): Record<string, unknown> | undefined {
   const bindings: Record<string, unknown> = {}
   for (const row of workflowVariableRows.value) {
     const name = row.name.trim()
+    if (row.type === 'certificate') continue
     if (!name || !rowValueHasContent(row)) continue
     bindings[name] = workflowVariableValue(row)
   }
@@ -975,6 +1041,24 @@ function buildWorkflowVariableBindings(): Record<string, unknown> | undefined {
     bindings.verifyUrl = effectiveVerifyUrl.value
   }
   return Object.keys(bindings).length > 0 ? bindings : undefined
+}
+
+function buildWorkflowCertificateArtifactBindings(): Record<string, WorkflowCertificateArtifactBinding> | undefined {
+  const output: Record<string, WorkflowCertificateArtifactBinding> = {}
+  for (const item of selectedWorkflowCertificateVariables.value) {
+    const current = workflowCertificateArtifactBindings.value[item.name]
+    const certificateFormatId = current?.certificateFormatId?.trim()
+    if (!certificateFormatId) continue
+    const outputBindings: Record<string, string> = {}
+    for (const slot of item.outputs) {
+      const outputKey = current.outputBindings?.[slot.name]?.trim()
+      if (outputKey) outputBindings[slot.name] = outputKey
+    }
+    if (Object.keys(outputBindings).length > 0) {
+      output[item.name] = { certificateFormatId, outputBindings }
+    }
+  }
+  return Object.keys(output).length > 0 ? output : undefined
 }
 
 function workflowVariableValue(row: WorkflowVariableRow): unknown {
@@ -997,6 +1081,7 @@ function validateWorkflowVariableRows(): string {
     if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name)) return `变量 ${name} 名称不合法`
     if (names.has(name)) return `变量 ${name} 重复`
     names.add(name)
+    if (row.type === 'certificate') continue
     if (row.required && !rowValueHasContent(row)) return `变量 ${name} 必填`
     if (row.type === 'number' && rowValueHasContent(row) && !Number.isFinite(Number(row.value))) return `变量 ${name} 必须是数字`
     if (row.type === 'object' && rowValueHasContent(row)) {
@@ -1014,7 +1099,24 @@ function validateWorkflowVariableRows(): string {
   return ''
 }
 
+function validateWorkflowCertificateArtifactBindings(): string {
+  if (selectedWorkflowCertificateVariables.value.length === 0) return ''
+  for (const item of selectedWorkflowCertificateVariables.value) {
+    if (item.outputs.length === 0) continue
+    const current = workflowCertificateArtifactBindings.value[item.name]
+    if (!current?.certificateFormatId) return `证书变量 ${item.name} 必须选择证书格式配置`
+    const available = workflowCertificateOutputOptions(current.certificateFormatId)
+    for (const slot of item.outputs) {
+      const outputKey = current.outputBindings?.[slot.name]
+      if (slot.required !== false && !outputKey) return `证书变量 ${item.name}.${slot.name} 必须选择输出项`
+      if (outputKey && available.length > 0 && !available.some((option) => option.key === outputKey)) return `证书变量 ${item.name}.${slot.name} 选择的输出项不存在`
+    }
+  }
+  return ''
+}
+
 function rowValueHasContent(row: WorkflowVariableRow): boolean {
+  if (row.type === 'certificate') return true
   if (row.type === 'boolean') return row.value === 'true' || row.value === 'false'
   return row.value.trim().length > 0
 }
@@ -1023,6 +1125,194 @@ function workflowVariableType(definition: ApiRecord | undefined): WorkflowVariab
   const type = String(definition?.type ?? '')
   if (['string', 'number', 'boolean', 'enum', 'object', 'file', 'credential', 'certificate'].includes(type)) return type as WorkflowVariableType
   return 'string'
+}
+
+function workflowCertificateOutputSlots(definition: ApiRecord): Array<{ name: string; role: string; required: boolean; description: string }> {
+  const outputs = readRecord(readNested(definition, ['artifactContract', 'outputs']))
+  if (!outputs) return []
+  return Object.entries(outputs).map(([name, output]) => {
+    const record = readRecord(output) ?? {}
+    return {
+      name,
+      role: String(record.role ?? ''),
+      required: record.required !== false,
+      description: String(record.description ?? ''),
+    }
+  })
+}
+
+function workflowCertificateOutputOptions(certificateFormatId: string): Array<{ key: string; label: string; role: string }> {
+  const format = certificateFormatItems.value.find((item) => String(item.id ?? '') === certificateFormatId)
+  if (!format) return []
+  const parameters = readRecord(format.parameters) ?? {}
+  const formatName = String(format.format ?? '').toLowerCase()
+  const containsPrivateKey = Boolean(format.containsPrivateKey || parameters.includePrivateKey)
+  const options: Array<{ key: string; label: string; role: string }> = []
+  if (formatName === 'pem') {
+    if (parameters.includeLeafCertificate !== false && (parameters.includeCertificateChain || parameters.generateChainFile)) {
+      options.push({ key: 'fullchain', label: 'fullchain / 公钥证书+证书链', role: 'public_certificate' })
+    }
+    if (parameters.includeLeafCertificate !== false) options.push({ key: 'public', label: 'public / 公钥证书', role: 'public_certificate' })
+    if (parameters.includeCertificateChain || parameters.generateChainFile) options.push({ key: 'chain', label: 'chain / 证书链', role: 'certificate_chain' })
+    if (containsPrivateKey || parameters.generatePrivateKeyFile) options.push({ key: 'private', label: 'private / 私钥', role: 'private_key' })
+    options.push({ key: 'bundle', label: 'bundle / PEM 合并产物', role: 'bundle' })
+    return dedupeOutputOptions(options)
+  }
+  if (formatName === 'der') return [{ key: 'public', label: 'public / DER 公钥证书', role: 'public_certificate' }]
+  return [{ key: 'bundle', label: `bundle / ${formatName.toUpperCase()} 容器`, role: 'bundle' }]
+}
+
+function workflowCertificateFormatOptions(variableName: string): ApiRecord[] {
+  const selectedId = workflowCertificateArtifactBindings.value[variableName]?.certificateFormatId?.trim()
+  if (!selectedId || certificateFormatItems.value.some((item) => String(item.id ?? '') === selectedId)) {
+    return certificateFormatItems.value
+  }
+  return [
+    {
+      id: selectedId,
+      format: 'unknown',
+      parameters: { configName: `${selectedId}（已保存配置，当前列表未返回）` },
+    },
+    ...certificateFormatItems.value,
+  ]
+}
+
+function dedupeOutputOptions(options: Array<{ key: string; label: string; role: string }>): Array<{ key: string; label: string; role: string }> {
+  const seen = new Set<string>()
+  return options.filter((item) => {
+    if (seen.has(item.key)) return false
+    seen.add(item.key)
+    return true
+  })
+}
+
+function workflowCertificateFormatLabel(item: ApiRecord): string {
+  const format = String(item.format ?? 'unknown').toUpperCase()
+  const parameters = readRecord(item.parameters) ?? {}
+  const preset = String(parameters.outputPreset ?? '')
+  const privateKey = item.containsPrivateKey || parameters.includePrivateKey || parameters.generatePrivateKeyFile ? '含私钥' : '无私钥'
+  const parts = [
+    String(item.name ?? item.displayName ?? item.id ?? ''),
+    format,
+    preset,
+    privateKey,
+  ].filter(Boolean)
+  return parts.join(' / ')
+}
+
+function workflowCertificateOutputSlotLabel(slot: { name: string; role: string; required: boolean; description: string }): string {
+  const roleLabel = certificateArtifactRoleLabel(slot.role)
+  return [slot.name, roleLabel, slot.required ? '必填' : '可选'].filter(Boolean).join(' / ')
+}
+
+function certificateArtifactRoleLabel(role: string): string {
+  if (role === 'public_certificate') return '公钥证书'
+  if (role === 'private_key') return '私钥'
+  if (role === 'certificate_chain') return '证书链'
+  if (role === 'bundle') return '容器'
+  return role
+}
+
+function readWorkflowCertificateArtifactBindings(value: unknown): Record<string, WorkflowCertificateArtifactBinding> {
+  const record = readRecord(value)
+  if (!record) return {}
+  const output: Record<string, WorkflowCertificateArtifactBinding> = {}
+  for (const [variableName, binding] of Object.entries(record)) {
+    const bindingRecord = readRecord(binding)
+    const certificateFormatId = String(bindingRecord?.certificateFormatId ?? '').trim()
+    const outputBindingsRecord = readRecord(bindingRecord?.outputBindings)
+    if (!certificateFormatId || !outputBindingsRecord) continue
+    output[variableName] = {
+      certificateFormatId,
+      outputBindings: Object.fromEntries(
+        Object.entries(outputBindingsRecord)
+          .map(([slotName, outputKey]) => [slotName, String(outputKey ?? '').trim()] as const)
+          .filter(([, outputKey]) => Boolean(outputKey)),
+      ),
+    }
+  }
+  return output
+}
+
+function readWorkflowCertificateArtifactBindingsFromAsset(source: unknown, deploymentStrategy: ApiRecord | null): Record<string, WorkflowCertificateArtifactBinding> {
+  const candidates = [
+    readNested(deploymentStrategy, ['workflow', 'certificateArtifactBindings']),
+    readNested(source, ['deploymentStrategy', 'workflow', 'certificateArtifactBindings']),
+    readNested(source, ['metadata', 'deploymentStrategy', 'workflow', 'certificateArtifactBindings']),
+    readNested(source, ['deploymentStrategy', 'workflowRequest', 'certificateArtifactBindings']),
+    readNested(source, ['metadata', 'deploymentStrategy', 'workflowRequest', 'certificateArtifactBindings']),
+    readNested(source, ['workflowRequest', 'certificateArtifactBindings']),
+    readNested(source, ['strategyPayload', 'workflowRequest', 'certificateArtifactBindings']),
+  ]
+  for (const candidate of candidates) {
+    const bindings = readWorkflowCertificateArtifactBindings(candidate)
+    if (Object.keys(bindings).length > 0) return bindings
+  }
+  return {}
+}
+
+function ensureWorkflowCertificateArtifactBindings() {
+  const certificateVariables = selectedWorkflowCertificateVariables.value
+  if (certificateVariables.length === 0) {
+    if (assetDraft.workflowVersionId && selectedWorkflowVersion.value) {
+      workflowCertificateArtifactBindings.value = {}
+    }
+    return
+  }
+  const next: Record<string, WorkflowCertificateArtifactBinding> = { ...workflowCertificateArtifactBindings.value }
+  for (const item of certificateVariables) {
+    const current = next[item.name] ?? { certificateFormatId: '', outputBindings: {} }
+    const available = workflowCertificateOutputOptions(current.certificateFormatId)
+    const outputBindings: Record<string, string> = {}
+    for (const slot of item.outputs) {
+      const existing = current.outputBindings?.[slot.name]
+      if (current.certificateFormatId && available.length === 0) {
+        if (existing) outputBindings[slot.name] = existing
+        continue
+      }
+      const matched = existing && available.some((option) => option.key === existing) ? existing : ''
+      outputBindings[slot.name] = matched || suggestedCertificateOutputKey(slot.role, available)
+    }
+    next[item.name] = { certificateFormatId: current.certificateFormatId, outputBindings }
+  }
+  workflowCertificateArtifactBindings.value = Object.fromEntries(
+    Object.entries(next).filter(([name]) => certificateVariables.some((item) => item.name === name)),
+  )
+}
+
+function updateWorkflowCertificateFormat(variableName: string, certificateFormatId: string) {
+  workflowCertificateArtifactBindings.value = {
+    ...workflowCertificateArtifactBindings.value,
+    [variableName]: {
+      certificateFormatId,
+      outputBindings: {},
+    },
+  }
+  ensureWorkflowCertificateArtifactBindings()
+}
+
+function updateWorkflowCertificateOutput(variableName: string, slotName: string, outputKey: string) {
+  const current = workflowCertificateArtifactBindings.value[variableName] ?? { certificateFormatId: '', outputBindings: {} }
+  workflowCertificateArtifactBindings.value = {
+    ...workflowCertificateArtifactBindings.value,
+    [variableName]: {
+      certificateFormatId: current.certificateFormatId,
+      outputBindings: {
+        ...current.outputBindings,
+        [slotName]: outputKey,
+      },
+    },
+  }
+}
+
+function suggestedCertificateOutputKey(role: string, options: Array<{ key: string; role: string }>): string {
+  if (role === 'public_certificate') {
+    const fullchain = options.find((item) => item.key === 'fullchain')
+    if (fullchain) return fullchain.key
+  }
+  const roleMatched = options.find((item) => item.role === role)
+  if (roleMatched) return roleMatched.key
+  return options[0]?.key ?? ''
 }
 
 function workflowVariableTypeFromValue(value: unknown): WorkflowVariableType {
@@ -1040,6 +1330,7 @@ function suggestedWorkflowVariableValue(name: string, definition: ApiRecord): st
   if (name === 'verifyUrl') return effectiveVerifyUrl.value
   if (name === 'verifyPath') return '/'
   if (name === 'targetPlatform') return assetDraft.platform.toLowerCase()
+  if (workflowVariableType(definition) === 'certificate') return ''
   if (workflowVariableType(definition) === 'boolean') return 'false'
   return ''
 }
@@ -1523,7 +1814,7 @@ watch(
       await loadAgents()
       return
     }
-    await Promise.all([loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables()])
+    await Promise.all([loadWorkflowTemplates(), loadGateways(), loadCredentialsForWorkflowVariables(), loadCertificateFormatsForWorkflow()])
   },
 )
 
@@ -1543,6 +1834,7 @@ watch(
   () => {
     if (assetDraft.managementMode !== 'WORKFLOW') return
     syncWorkflowVariableRowsFromVersion()
+    ensureWorkflowCertificateArtifactBindings()
   },
 )
 
@@ -1983,6 +2275,16 @@ watch(
                   </option>
                 </select>
               </label>
+              <label class="asset-form__field">
+                <span>证书产物配置 <strong>*</strong></span>
+                <select v-model="assetDraft.agentCertificateFormatId" :disabled="certificateFormatLoading">
+                  <option value="">{{ certificateFormatLoading ? '加载格式配置中...' : '请选择证书产物配置' }}</option>
+                  <option v-for="format in agentCertificateFormatOptions" :key="String(format.id)" :value="String(format.id)">
+                    {{ workflowCertificateFormatLabel(format) }}
+                  </option>
+                </select>
+                <small>Agent 模式的部署计划会直接使用这里保存的产物配置。</small>
+              </label>
             </div>
             <div class="asset-form__binding-summary">
               <div>
@@ -2084,7 +2386,8 @@ watch(
                     </label>
                     <label class="workflow-variable-form__value">
                       <span>值{{ row.required ? ' *' : '' }}</span>
-                      <select v-if="row.type === 'credential'" v-model="row.value" :disabled="workflowCredentialLoading">
+                      <div v-if="row.type === 'certificate'" class="asset-form__readonly">部署计划自动注入</div>
+                      <select v-else-if="row.type === 'credential'" v-model="row.value" :disabled="workflowCredentialLoading">
                         <option value="">{{ workflowCredentialLoading ? '加载凭据中...' : '请选择凭据' }}</option>
                         <option v-for="credential in workflowCredentialItems" :key="credential.id" :value="credential.id">
                           {{ workflowCredentialLabel(credential) }} / {{ workflowCredentialSummary(credential) }}
@@ -2103,7 +2406,7 @@ watch(
                         v-else
                         v-model="row.value"
                         :inputmode="row.type === 'number' ? 'decimal' : undefined"
-                        :placeholder="row.type === 'certificate' ? '证书产物变量或版本 ID' : row.name"
+                        :placeholder="row.name"
                         autocomplete="off"
                       />
                     </label>
@@ -2111,17 +2414,72 @@ watch(
                       <span>{{ row.fromDefinition ? 'DSL' : '手动' }}</span>
                       <button class="gc-button gc-button--ghost" type="button" @click="removeWorkflowVariableRow(row.id)">删除</button>
                     </div>
-                    <p v-if="row.description" class="workflow-variable-form__description">{{ row.description }}</p>
+                    <p v-if="row.type === 'certificate'" class="workflow-variable-form__description">证书版本由部署计划选择，应用资产在下方绑定格式配置和输出项，运行时注入 {{ row.name }}.outputs.*.content。</p>
+                    <p v-else-if="row.description" class="workflow-variable-form__description">{{ row.description }}</p>
                   </li>
                 </ul>
                 <p v-else class="workflow-variable-form__empty">当前工作流没有必须手动配置的运行变量。</p>
+              </section>
+
+              <section v-if="selectedWorkflowCertificateVariables.length" class="asset-form__field asset-form__field--wide workflow-certificate-form" aria-label="证书产物绑定">
+                <div class="workflow-certificate-form__head">
+                  <div>
+                    <span>证书产物绑定</span>
+                    <strong>{{ selectedWorkflowCertificateVariables.length }} 个证书变量</strong>
+                  </div>
+                  <small>证书版本由部署计划选择，这里只定义该工作流变量需要使用哪个产物格式和输出项。</small>
+                </div>
+                <ul class="workflow-certificate-form__rows">
+                  <li v-for="item in selectedWorkflowCertificateVariables" :key="item.name" class="workflow-certificate-form__row">
+                    <div class="workflow-certificate-form__variable">
+                      <strong>{{ item.name }}</strong>
+                      <span>{{ item.definition.description || '证书产物变量' }}</span>
+                    </div>
+                    <template v-if="item.outputs.length">
+                      <label>
+                        <span>产物格式配置 <strong>*</strong></span>
+                        <select
+                          :value="workflowCertificateArtifactBindings[item.name]?.certificateFormatId ?? ''"
+                          :disabled="certificateFormatLoading"
+                          @change="updateWorkflowCertificateFormat(item.name, ($event.target as HTMLSelectElement).value)"
+                        >
+                          <option value="">{{ certificateFormatLoading ? '加载格式配置中...' : '请选择格式配置' }}</option>
+                          <option v-for="format in workflowCertificateFormatOptions(item.name)" :key="String(format.id)" :value="String(format.id)">
+                            {{ workflowCertificateFormatLabel(format) }}
+                          </option>
+                        </select>
+                      </label>
+                      <label v-for="slot in item.outputs" :key="`${item.name}:${slot.name}`">
+                        <span>{{ workflowCertificateOutputSlotLabel(slot) }}</span>
+                        <select
+                          :value="workflowCertificateArtifactBindings[item.name]?.outputBindings?.[slot.name] ?? ''"
+                          :disabled="!workflowCertificateArtifactBindings[item.name]?.certificateFormatId"
+                          @change="updateWorkflowCertificateOutput(item.name, slot.name, ($event.target as HTMLSelectElement).value)"
+                        >
+                          <option value="">{{ slot.required ? '请选择输出项' : '可不选择' }}</option>
+                          <option
+                            v-for="option in workflowCertificateOutputOptions(workflowCertificateArtifactBindings[item.name]?.certificateFormatId ?? '')"
+                            :key="option.key"
+                            :value="option.key"
+                          >
+                            {{ option.label }}
+                          </option>
+                        </select>
+                        <small v-if="slot.description">{{ slot.description }}</small>
+                      </label>
+                    </template>
+                    <p v-else class="workflow-certificate-form__empty">该证书变量尚未在 DSL 中定义 artifactContract.outputs，无法配置具体产物文件。</p>
+                  </li>
+                </ul>
               </section>
             </div>
             <p v-if="publishedWorkflowVersionItems.length === 0 && assetDraft.workflowId && !workflowVersionListLoading" class="asset-form__hint">
               当前工作流没有已发布版本，不能用于应用资产部署策略。
             </p>
             <p v-if="workflowVariablesError" class="asset-form__error">{{ workflowVariablesError }}</p>
+            <p v-if="workflowCertificateArtifactError" class="asset-form__error">{{ workflowCertificateArtifactError }}</p>
             <p v-if="workflowCredentialError" class="asset-form__error">{{ workflowCredentialError }}</p>
+            <p v-if="certificateFormatError" class="asset-form__error">{{ certificateFormatError }}</p>
           </template>
         </section>
 
@@ -2153,6 +2511,10 @@ watch(
             <div v-if="assetDraft.managementMode === 'AGENT'">
               <dt>Agent / 站点 / 目标</dt>
               <dd>{{ editAgentLabel || assetDraft.agentId || '未选择' }} / {{ editSiteLabel || assetDraft.siteAssetId || '未选择' }} / {{ editManagedTargetLabel || assetDraft.managedTargetId || '未选择' }}</dd>
+            </div>
+            <div v-if="assetDraft.managementMode === 'AGENT'">
+              <dt>证书产物配置</dt>
+              <dd>{{ workflowCertificateFormatLabel(certificateFormatItems.find((item) => String(item.id ?? '') === assetDraft.agentCertificateFormatId) ?? {}) || '未选择' }}</dd>
             </div>
             <div v-else>
               <dt>工作流 / 版本</dt>
@@ -2605,6 +2967,80 @@ watch(
   font-weight: 750;
 }
 
+.workflow-certificate-form {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: #f8fbff;
+}
+
+.workflow-certificate-form__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.workflow-certificate-form__head > div,
+.workflow-certificate-form__variable,
+.workflow-certificate-form__row label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.workflow-certificate-form__head span,
+.workflow-certificate-form__row label span {
+  color: var(--gc-color-text-muted);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.workflow-certificate-form__head strong,
+.workflow-certificate-form__variable strong {
+  color: #0f172a;
+  overflow-wrap: anywhere;
+}
+
+.workflow-certificate-form__head small,
+.workflow-certificate-form__variable span,
+.workflow-certificate-form__row label small,
+.workflow-certificate-form__empty {
+  color: var(--gc-color-text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.workflow-certificate-form__rows {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workflow-certificate-form__row {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(220px, 1.2fr) minmax(180px, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 11px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.workflow-certificate-form__empty {
+  grid-column: 2 / -1;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
 .asset-wizard__progress {
   display: grid;
   gap: 12px;
@@ -2830,6 +3266,9 @@ watch(
   .workflow-variable-form__add { flex-basis: auto; }
   .workflow-variable-form__row { grid-template-columns: 1fr; }
   .workflow-variable-form__row-actions { flex-direction: row; }
+  .workflow-certificate-form__head { flex-direction: column; }
+  .workflow-certificate-form__row { grid-template-columns: 1fr; }
+  .workflow-certificate-form__empty { grid-column: 1; }
   .asset-detail-modal__grid,
   .asset-binding__detail,
   .asset-form__binding-summary,
