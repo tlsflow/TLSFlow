@@ -3,7 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import { ApiClientError } from '@/api/client'
-import { createManagedTarget, createServiceAsset, createServiceInstance, createSiteAsset, getAgentDetail, getAssetDetail, listAgents, listAssets, listManagedTargetSnapshots, listManagedTargets, listServiceInstances, listSiteAssets, updateServiceAsset } from '@/api/modules/assets.api'
+import { createManagedTarget, createServiceAsset, createServiceInstance, createSiteAsset, getAgentDetail, getAssetDetail, listAgents, listAssets, listManagedTargetSnapshots, listManagedTargets, listServiceInstances, listSiteAssets, projectWorkflowBinding, updateServiceAsset } from '@/api/modules/assets.api'
 import { rollbackExecution } from '@/api/modules/executions.api'
 import { listGateways } from '@/api/modules/gateways.api'
 import { listWorkflowTemplates, listWorkflowTemplateVersions } from '@/api/modules/workflow-templates.api'
@@ -66,6 +66,32 @@ interface WorkflowVariableRow {
   description: string
   enumValues: string[]
   fromDefinition: boolean
+}
+
+interface WorkflowBindingProjection {
+  required: ApiRecord[]
+  advanced: ApiRecord[]
+  runtime: ApiRecord[]
+  basicConnections: WorkflowConnectionProjection[]
+  advancedConnections: WorkflowConnectionProjection[]
+  diagnostics: ApiRecord[]
+}
+
+interface WorkflowConnectionProjection extends ApiRecord {
+  name: string
+  protocol: string
+  host?: string
+  port?: number
+  username?: string
+  credentialRef?: string
+  expectedHostKeyFingerprint?: string
+  fieldModes?: {
+    host?: 'required' | 'advanced'
+    port?: 'required' | 'advanced'
+    username?: 'required' | 'advanced'
+    credential?: 'required' | 'advanced'
+    hostKey?: 'required' | 'advanced'
+  }
 }
 
 interface WorkflowVariablePreset {
@@ -167,6 +193,13 @@ const workflowItems = ref<ApiRecord[]>([])
 const workflowVersionItems = ref<ApiRecord[]>([])
 const gatewayItems = ref<ApiRecord[]>([])
 const workflowVariableRows = ref<WorkflowVariableRow[]>([])
+const workflowBindingProjection = ref<WorkflowBindingProjection | null>(null)
+const workflowProjectionLoading = ref(false)
+const workflowProjectionError = ref('')
+let workflowProjectionRequestSequence = 0
+const workflowAdvancedExpanded = ref(false)
+const workflowTargetAdvancedExpanded = ref(false)
+const workflowConnectionBindings = ref<Record<string, Record<string, unknown>>>({})
 const workflowVariablePresetName = ref('')
 const workflowCredentialItems = ref<WorkflowManagedCredential[]>([])
 const workflowCredentialLoading = ref(false)
@@ -490,6 +523,24 @@ const availableWorkflowVariablePresets = computed(() => {
 
 const workflowVariablesError = computed(() => validateWorkflowVariableRows())
 
+const workflowProjectionReady = computed(() => {
+  const projection = workflowBindingProjection.value
+  if (!projection) return !workflowVariablesError.value
+  const unresolvedVariable = projection.required.some((item) => {
+    if (String(item.status ?? '') === 'resolved') return false
+    const row = workflowVariableRows.value.find((candidate) => candidate.name === String(item.name ?? ''))
+    return !row || !rowValueHasContent(row)
+  })
+  const unresolvedConnection = projection.basicConnections.some((item) => {
+    if (String(item.status ?? '') === 'resolved') return false
+    const binding = workflowConnectionBindings.value[String(item.name ?? '')]
+    return !String(binding?.host ?? item.host ?? '').trim()
+      || !String(binding?.username ?? item.username ?? '').trim()
+      || !String(binding?.credentialRef ?? item.credentialRef ?? '').trim()
+  })
+  return !unresolvedVariable && !unresolvedConnection && !workflowProjectionError.value
+})
+
 const workflowVariableConfiguredCount = computed(() =>
   workflowVariableRows.value.filter((row) => row.name.trim() && rowValueHasContent(row)).length,
 )
@@ -539,7 +590,7 @@ const workflowStepReady = computed(() => {
     assetDraft.workflowId.trim()
     && versionSelectionReady
     && gatewayReady
-    && !workflowVariablesError.value
+    && workflowProjectionReady.value
     && !workflowCertificateArtifactError.value
   )
 })
@@ -619,7 +670,9 @@ async function openEditDialog(row: ViewRow) {
   const deploymentStrategy = readDeploymentStrategy(source)
   if (String(readNested(deploymentStrategy, ['type']) ?? '') === 'WORKFLOW') {
     assetDraft.managementMode = 'WORKFLOW'
-    const variableBindings = readRecord(readNested(deploymentStrategy, ['workflow', 'variableBindings'])) ?? {}
+    const variableBindings = readRecord(readNested(deploymentStrategy, ['workflow', 'parameterBindings']))
+      ?? readRecord(readNested(deploymentStrategy, ['workflow', 'variableBindings']))
+      ?? {}
     const workflowTarget = readWorkflowTargetFromAsset(source, deploymentStrategy)
     if (workflowTarget) {
       assetDraft.frameworkType = workflowTarget.frameworkType
@@ -636,6 +689,7 @@ async function openEditDialog(row: ViewRow) {
     assetDraft.workflowVersionId = String(readNested(deploymentStrategy, ['workflow', 'workflowVersionId']) ?? '')
     assetDraft.workflowRunner = String(readNested(deploymentStrategy, ['workflow', 'runner']) ?? 'CONTROL_PLANE') as WorkflowRunnerType
     assetDraft.workflowGatewayId = String(readNested(deploymentStrategy, ['workflow', 'gatewayId']) ?? '')
+    workflowConnectionBindings.value = (readRecord(readNested(deploymentStrategy, ['workflow', 'connectionBindings'])) ?? {}) as Record<string, Record<string, unknown>>
     const bindingVerifyUrl = readWorkflowBindingText(variableBindings, 'verifyUrl')
     if (!assetDraft.verifyUrl.trim() && bindingVerifyUrl) assetDraft.verifyUrl = bindingVerifyUrl
     workflowVariableRows.value = variableRowsFromBindings(variableBindings)
@@ -710,12 +764,79 @@ async function loadWorkflowVersions(workflowId: string) {
       syncWorkflowVariableRowsFromVersion()
     }
     ensureWorkflowCertificateArtifactBindings()
+    if (selectedWorkflowVersion.value) {
+      syncWorkflowVariableRowsFromVersion()
+      await refreshWorkflowBindingProjection()
+    }
   } catch (cause) {
     workflowVersionListError.value = cause instanceof ApiClientError
       ? cause.message
       : cause instanceof Error ? cause.message : t('assets.errors.loadWorkflowVersionsFailed')
   } finally {
     workflowVersionListLoading.value = false
+  }
+}
+
+async function refreshWorkflowBindingProjection() {
+  const requestSequence = ++workflowProjectionRequestSequence
+  workflowBindingProjection.value = null
+  workflowProjectionError.value = ''
+  const version = selectedWorkflowVersion.value
+  if (assetDraft.managementMode !== 'WORKFLOW' || !assetDraft.workflowId || !version) {
+    workflowProjectionLoading.value = false
+    return
+  }
+  workflowProjectionLoading.value = true
+  try {
+    const result = await projectWorkflowBinding({
+      workflowId: assetDraft.workflowId,
+      workflowVersionId: String(version.id ?? ''),
+      serviceAssetId: editingServiceAssetId.value || undefined,
+      asset: { address: assetDraft.address, port: Number(assetDraft.port), protocol: assetDraft.protocol, verifyUrl: assetDraft.verifyUrl },
+      target: buildWorkflowTargetInfo(),
+      connectionBindings: workflowConnectionBindings.value,
+      parameterBindings: buildWorkflowVariableBindings(),
+    })
+    if (requestSequence !== workflowProjectionRequestSequence) return
+    workflowBindingProjection.value = (result.data?.projection ?? null) as WorkflowBindingProjection | null
+  } catch (cause) {
+    if (requestSequence !== workflowProjectionRequestSequence) return
+    workflowProjectionError.value = cause instanceof ApiClientError ? cause.message : cause instanceof Error ? cause.message : String(cause)
+  } finally {
+    if (requestSequence === workflowProjectionRequestSequence) workflowProjectionLoading.value = false
+  }
+}
+
+function projectionItemValue(item: ApiRecord): string {
+  const name = String(item.name ?? '')
+  const row = workflowVariableRows.value.find((candidate) => candidate.name === name)
+  return row?.value ?? String(item.value ?? '')
+}
+
+function projectionItemType(item: ApiRecord): WorkflowVariableType {
+  return workflowVariableType(item)
+}
+
+function updateProjectionVariable(item: ApiRecord, value: string) {
+  const name = String(item.name ?? '')
+  const row = workflowVariableRows.value.find((candidate) => candidate.name === name)
+  if (row) row.value = value
+  else workflowVariableRows.value.push({ id: nextWorkflowVariableRowId(), name, type: workflowVariableType(item), value, required: true, description: String(item.description ?? ''), enumValues: readStringArray(item.enum), fromDefinition: true })
+}
+
+function updateProjectionConnection(name: string, field: string, value: string) {
+  workflowConnectionBindings.value = { ...workflowConnectionBindings.value, [name]: { ...(workflowConnectionBindings.value[name] ?? {}), [field]: field === 'port' ? Number(value) : value } }
+}
+
+function updateProjectionConnectionCredential(name: string, credentialId: string) {
+  const credential = workflowCredentialItems.value.find((item) => item.id === credentialId)
+  workflowConnectionBindings.value = {
+    ...workflowConnectionBindings.value,
+    [name]: {
+      ...(workflowConnectionBindings.value[name] ?? {}),
+      credentialRef: credentialId,
+      credential: credential ? workflowCredentialBinding(credential) : undefined,
+    },
   }
 }
 
@@ -978,6 +1099,10 @@ function resetDraft() {
   assetDraft.workflowTargetHostHeader = ''
   assetDraft.workflowTargetSniName = ''
   workflowVariableRows.value = []
+  workflowBindingProjection.value = null
+  workflowConnectionBindings.value = {}
+  workflowAdvancedExpanded.value = false
+  workflowTargetAdvancedExpanded.value = false
   workflowVariablePresetName.value = ''
   siteItems.value = []
   managedTargetItems.value = []
@@ -1042,6 +1167,8 @@ function buildDeploymentStrategyPayload(workflowTarget?: WorkflowTargetInfo): Re
         runner: assetDraft.workflowRunner,
         gatewayId,
         target: workflowTarget,
+        connectionBindings: Object.keys(workflowConnectionBindings.value).length ? workflowConnectionBindings.value : undefined,
+        parameterBindings: buildWorkflowVariableBindings(),
         variableBindings: buildWorkflowVariableBindings(),
         certificateArtifactBindings: buildWorkflowCertificateArtifactBindings(),
       },
@@ -1116,8 +1243,6 @@ function syncWorkflowTargetVariableRowsFromDraft(): void {
 function readWorkflowVariableText(name: string): string {
   const row = workflowVariableRows.value.find((item) => item.name.trim() === name)
   if (row && rowValueHasContent(row)) return row.value.trim()
-  const definition = selectedWorkflowVariableDefinitions.value[name]
-  if (definition) return suggestedWorkflowVariableValue(name, definition).trim()
   if (name === 'verifyUrl') return effectiveVerifyUrl.value
   return ''
 }
@@ -1145,7 +1270,10 @@ function readWorkflowVariableDefinitions(version: ApiRecord | null): Record<stri
 
 function syncWorkflowVariableRowsFromVersion() {
   const definitions = Object.fromEntries(
-    Object.entries(selectedWorkflowVariableDefinitions.value).filter(([name]) => name !== 'verifyUrl'),
+    Object.entries(selectedWorkflowVariableDefinitions.value).filter(([name, definition]) => {
+      const mode = String(definition.configurationMode ?? (definition.type === 'certificate' ? 'runtime' : definition.required || definition.type === 'credential' ? 'required' : 'advanced'))
+      return name !== 'verifyUrl' && mode !== 'runtime'
+    }),
   )
   if (Object.keys(definitions).length === 0) return
   const existing = new Map(workflowVariableRows.value.map((row) => [row.name, row]))
@@ -1156,7 +1284,7 @@ function syncWorkflowVariableRowsFromVersion() {
       id: current?.id ?? nextWorkflowVariableRowId(),
       name,
       type,
-      value: current?.value ?? suggestedWorkflowVariableValue(name, definition),
+      value: current?.value ?? '',
       required: Boolean(definition.required),
       description: String(definition.description ?? ''),
       enumValues: readStringArray(definition.enum),
@@ -2067,16 +2195,17 @@ watch(
 
 watch(
   () => assetDraft.workflowVersionId,
-  () => {
+  async () => {
     if (assetDraft.managementMode !== 'WORKFLOW') return
     syncWorkflowVariableRowsFromVersion()
     ensureWorkflowCertificateArtifactBindings()
+    await refreshWorkflowBindingProjection()
   },
 )
 
 watch(
   () => assetDraft.workflowVersionSelection,
-  () => {
+  async () => {
     if (assetDraft.managementMode !== 'WORKFLOW') return
     if (assetDraft.workflowVersionSelection === 'LATEST_PUBLISHED') {
       assetDraft.workflowVersionId = ''
@@ -2085,19 +2214,20 @@ watch(
     }
     syncWorkflowVariableRowsFromVersion()
     ensureWorkflowCertificateArtifactBindings()
+    await refreshWorkflowBindingProjection()
+  },
+)
+
+watch(
+  () => [assetDraft.address, assetDraft.port, assetDraft.protocol, assetDraft.verifyUrl, assetDraft.frameworkType] as const,
+  async () => {
+    if (assetDraft.managementMode === 'WORKFLOW') await refreshWorkflowBindingProjection()
   },
 )
 
 watch(
   () => [assetDraft.address, assetDraft.port, assetDraft.protocol, assetDraft.verifyUrl, assetDraft.platform] as const,
-  () => {
-    for (const row of workflowVariableRows.value) {
-      if (row.value.trim()) continue
-      if (['deviceHost', 'verifyHost', 'verifyPort', 'targetPlatform', 'frameworkType', 'siteName', 'bindingInformation', 'hostHeader', 'port', 'protocol', 'verifyUrl', 'sniName'].includes(row.name)) {
-        row.value = suggestedWorkflowVariableValue(row.name, { type: row.type })
-      }
-    }
-  },
+  () => undefined,
 )
 
 watch(
@@ -2498,7 +2628,7 @@ watch(
           <header class="asset-wizard__panel-header">
             <div>
               <h3>{{ assetDraft.managementMode === 'WORKFLOW' ? t('assets.wizard.panels.workflowTitle') : t('assets.wizard.panels.agentTitle') }}</h3>
-              <p>{{ assetDraft.managementMode === 'WORKFLOW' ? t('assets.wizard.panels.workflowDescription') : t('assets.wizard.panels.agentDescription') }}</p>
+              <p v-if="assetDraft.managementMode === 'AGENT'">{{ t('assets.wizard.panels.agentDescription') }}</p>
             </div>
             <span class="asset-wizard__panel-state" :class="modeStepReady ? 'is-done' : 'is-active'">
               {{ modeStepReady ? t('assets.wizard.stepState.readyNext') : t('assets.wizard.stepState.incomplete') }}
@@ -2576,7 +2706,7 @@ watch(
           <template v-else>
             <div class="asset-form__grid">
               <label class="asset-form__field">
-                <span>{{ t('assets.fields.workflow') }} <strong>*</strong></span>
+                <span>{{ t('assets.fields.selectWorkflow') }} <strong>*</strong></span>
                 <select v-model="assetDraft.workflowId" :disabled="workflowListLoading">
                   <option value="">{{ workflowListLoading ? t('assets.loading.workflows') : t('assets.select.workflow') }}</option>
                   <option v-for="workflow in workflowItems" :key="String(workflow.id)" :value="String(workflow.id)">
@@ -2645,59 +2775,115 @@ watch(
                       autocomplete="off"
                     />
                   </label>
+                </div>
+                <div class="workflow-target-form__advanced-head">
+                  <div>
+                    <span>{{ t('assets.workflowTarget.advancedTitle') }}</span>
+                    <strong>{{ t('assets.workflowTarget.advancedDescription') }}</strong>
+                  </div>
+                  <button class="gc-button gc-button--ghost" type="button" @click="workflowTargetAdvancedExpanded = !workflowTargetAdvancedExpanded">
+                    {{ workflowTargetAdvancedExpanded ? t('assets.workflowTarget.collapseAdvanced') : t('assets.workflowTarget.expandAdvanced') }}
+                  </button>
+                </div>
+                <div v-if="workflowTargetAdvancedExpanded" class="workflow-target-form__grid">
                   <label class="asset-form__field">
-                    <span>{{ t('assets.fields.bindingInformation') }}</span>
-                    <input
-                      v-model="assetDraft.workflowTargetBindingInformation"
-                      :placeholder="t('assets.form.placeholders.bindingInformation')"
-                      autocomplete="off"
-                    />
+                    <span>{{ t('assets.workflowTarget.bindingInformationLabel') }}</span>
+                    <input v-model="assetDraft.workflowTargetBindingInformation" :placeholder="t('assets.form.placeholders.bindingInformation')" autocomplete="off" />
+                    <small>{{ t('assets.workflowTarget.bindingInformationHelp') }}</small>
                   </label>
                   <label class="asset-form__field">
-                    <span>{{ t('assets.fields.hostHeader') }}</span>
-                    <input
-                      v-model="assetDraft.workflowTargetHostHeader"
-                      :placeholder="assetDraft.address || t('assets.form.placeholders.hostHeader')"
-                      autocomplete="off"
-                    />
+                    <span>{{ t('assets.workflowTarget.hostHeaderLabel') }}</span>
+                    <input v-model="assetDraft.workflowTargetHostHeader" :placeholder="assetDraft.address || t('assets.form.placeholders.hostHeader')" autocomplete="off" />
+                    <small>{{ t('assets.workflowTarget.hostHeaderHelp') }}</small>
                   </label>
                   <label class="asset-form__field">
-                    <span>{{ t('assets.fields.port') }} <strong>*</strong></span>
-                    <input v-model="assetDraft.port" inputmode="numeric" placeholder="443" autocomplete="off" />
-                  </label>
-                  <label class="asset-form__field">
-                    <span>{{ t('assets.fields.protocol') }} <strong>*</strong></span>
-                    <select v-model="assetDraft.protocol">
-                      <option value="HTTPS">HTTPS</option>
-                      <option value="HTTP">HTTP</option>
-                      <option value="TLS">TLS</option>
-                      <option value="STARTTLS">STARTTLS</option>
-                      <option value="CUSTOM">CUSTOM</option>
-                    </select>
-                  </label>
-                  <label class="asset-form__field">
-                    <span>{{ t('assets.fields.verifyUrl') }}</span>
-                    <input
-                      v-model="assetDraft.verifyUrl"
-                      :placeholder="t('assets.form.placeholders.verifyUrl')"
-                      autocomplete="off"
-                    />
-                  </label>
-                  <label class="asset-form__field">
-                    <span>{{ t('assets.fields.sniName') }}</span>
-                    <input
-                      v-model="assetDraft.workflowTargetSniName"
-                      :placeholder="assetDraft.workflowTargetHostHeader || assetDraft.address || t('assets.form.placeholders.sniName')"
-                      autocomplete="off"
-                    />
+                    <span>{{ t('assets.workflowTarget.sniNameLabel') }}</span>
+                    <input v-model="assetDraft.workflowTargetSniName" :placeholder="assetDraft.workflowTargetHostHeader || assetDraft.address || t('assets.form.placeholders.sniName')" autocomplete="off" />
+                    <small>{{ t('assets.workflowTarget.sniNameHelp') }}</small>
                   </label>
                 </div>
                 <div class="workflow-target-form__summary">
                   <span>{{ t('assets.workflowTarget.dslSyncHint') }}</span>
-                  <strong>{{ workflowTargetPreview?.frameworkType }} / {{ workflowTargetPreview?.siteName }} / {{ workflowTargetPreview?.verifyUrl }}</strong>
+                  <strong>{{ workflowTargetPreview?.frameworkType }} / {{ workflowTargetPreview?.siteName }}</strong>
                 </div>
               </section>
               <section class="asset-form__field asset-form__field--wide workflow-variable-form" :aria-label="t('assets.workflowVariables.title')">
+                <div class="workflow-variable-form__head">
+                  <div>
+                    <span>{{ t('assets.workflowVariables.title') }}</span>
+                    <strong>{{ workflowProjectionLoading && !workflowBindingProjection ? t('common.loading') : workflowBindingProjection?.required.length ?? 0 }}</strong>
+                  </div>
+                  <button class="gc-button gc-button--ghost" type="button" :disabled="workflowProjectionLoading" @click="refreshWorkflowBindingProjection">{{ workflowProjectionLoading ? t('common.loading') : t('common.refresh') }}</button>
+                </div>
+                <p v-if="workflowProjectionError" class="asset-form__error">{{ workflowProjectionError }}</p>
+                <template v-if="workflowBindingProjection">
+                  <ul class="workflow-variable-form__rows">
+                    <li v-for="item in workflowBindingProjection.required" :key="`projection:${item.name}`" class="workflow-variable-form__row">
+                      <label class="workflow-variable-form__value">
+                        <span>{{ item.name }} *</span>
+                        <select v-if="projectionItemType(item) === 'credential'" :value="projectionItemValue(item)" :disabled="workflowCredentialLoading" @change="updateProjectionVariable(item, ($event.target as HTMLSelectElement).value)">
+                          <option value="">{{ workflowCredentialLoading ? t('assets.loading.credentials') : t('assets.select.credential') }}</option>
+                          <option v-for="credential in workflowCredentialItems" :key="credential.id" :value="credential.id">
+                            {{ workflowCredentialLabel(credential) }} / {{ workflowCredentialSummary(credential, t) }}
+                          </option>
+                        </select>
+                        <select v-else-if="projectionItemType(item) === 'boolean'" :value="projectionItemValue(item)" @change="updateProjectionVariable(item, ($event.target as HTMLSelectElement).value)">
+                          <option value="false">false</option>
+                          <option value="true">true</option>
+                        </select>
+                        <input v-else :value="projectionItemValue(item)" :inputmode="projectionItemType(item) === 'number' ? 'decimal' : undefined" autocomplete="off" @input="updateProjectionVariable(item, ($event.target as HTMLInputElement).value)" />
+                      </label>
+                    </li>
+                  </ul>
+                  <div v-if="workflowBindingProjection.basicConnections.length" class="workflow-variable-form__rows">
+                    <div v-for="item in workflowBindingProjection.basicConnections" :key="`connection:${item.name}`" class="workflow-variable-form__row">
+                      <label class="workflow-variable-form__value">
+                        <span>{{ t('assets.workflowVariables.presets.deviceHost') }} *</span>
+                        <input :value="workflowConnectionBindings[String(item.name)]?.host ?? item.host ?? ''" autocomplete="off" @input="updateProjectionConnection(String(item.name), 'host', ($event.target as HTMLInputElement).value)" />
+                      </label>
+                      <label class="workflow-variable-form__value">
+                        <span>{{ t('assets.workflowVariables.presets.sshUsername') }} *</span>
+                        <input :value="workflowConnectionBindings[String(item.name)]?.username ?? item.username ?? ''" autocomplete="off" @input="updateProjectionConnection(String(item.name), 'username', ($event.target as HTMLInputElement).value)" />
+                      </label>
+                      <label class="workflow-variable-form__value">
+                        <span>{{ t('assets.workflowVariables.presets.credential') }} *</span>
+                        <select :value="workflowConnectionBindings[String(item.name)]?.credentialRef ?? item.credentialRef ?? ''" :disabled="workflowCredentialLoading" @change="updateProjectionConnectionCredential(String(item.name), ($event.target as HTMLSelectElement).value)">
+                          <option value="">{{ workflowCredentialLoading ? t('assets.loading.credentials') : t('assets.select.credential') }}</option>
+                          <option v-for="credential in workflowCredentialItems" :key="credential.id" :value="credential.id">
+                            {{ workflowCredentialLabel(credential) }} / {{ workflowCredentialSummary(credential, t) }}
+                          </option>
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+                  <button v-if="workflowBindingProjection.advanced.length || workflowBindingProjection.advancedConnections.length || workflowBindingProjection.basicConnections.some((item) => item.fieldModes?.port === 'advanced' || item.fieldModes?.hostKey === 'advanced')" class="gc-button gc-button--ghost" type="button" @click="workflowAdvancedExpanded = !workflowAdvancedExpanded">
+                    {{ workflowAdvancedExpanded ? t('agents.logs.collapse') : t('agents.logs.expand') }}
+                  </button>
+                  <div v-if="workflowAdvancedExpanded" class="workflow-variable-form__rows">
+                    <div v-for="item in workflowBindingProjection.basicConnections" :key="`connection-advanced:${item.name}`" class="workflow-variable-form__row workflow-variable-form__row--connection-advanced">
+                      <label v-if="item.fieldModes?.port === 'advanced'" class="workflow-variable-form__value">
+                        <span>{{ t('assets.fields.port') }}</span>
+                        <input :value="workflowConnectionBindings[String(item.name)]?.port ?? item.port ?? 22" inputmode="numeric" @input="updateProjectionConnection(String(item.name), 'port', ($event.target as HTMLInputElement).value)" />
+                      </label>
+                      <label v-if="item.fieldModes?.hostKey === 'advanced'" class="workflow-variable-form__value">
+                        <span>{{ t('workflows.canvasModel.fields.expectedHostKeyFingerprint') }}</span>
+                        <input :value="workflowConnectionBindings[String(item.name)]?.expectedHostKeyFingerprint ?? item.expectedHostKeyFingerprint ?? ''" autocomplete="off" @input="updateProjectionConnection(String(item.name), 'expectedHostKeyFingerprint', ($event.target as HTMLInputElement).value)" />
+                      </label>
+                    </div>
+                    <div v-for="item in workflowBindingProjection.advanced" :key="`advanced:${item.name}`" class="workflow-variable-form__row workflow-variable-form__row--variable">
+                      <span>{{ item.name }}</span>
+                      <select v-if="projectionItemType(item) === 'credential'" :value="projectionItemValue(item)" :disabled="workflowCredentialLoading" @change="updateProjectionVariable(item, ($event.target as HTMLSelectElement).value)">
+                        <option value="">{{ workflowCredentialLoading ? t('assets.loading.credentials') : t('assets.select.credential') }}</option>
+                        <option v-for="credential in workflowCredentialItems" :key="credential.id" :value="credential.id">
+                          {{ workflowCredentialLabel(credential) }} / {{ workflowCredentialSummary(credential, t) }}
+                        </option>
+                      </select>
+                      <input v-else :value="projectionItemValue(item)" @input="updateProjectionVariable(item, ($event.target as HTMLInputElement).value)" />
+                    </div>
+                  </div>
+                </template>
+              </section>
+              <section v-if="false" class="asset-form__field asset-form__field--wide workflow-variable-form" :aria-label="t('assets.workflowVariables.title')">
                 <div class="workflow-variable-form__head">
                   <div>
                     <span>{{ t('assets.workflowVariables.title') }}</span>
@@ -3249,6 +3435,30 @@ watch(
   gap: var(--gc-space-3);
 }
 
+.workflow-target-form__advanced-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+  padding-top: var(--gc-space-2);
+  border-top: 1px solid var(--gc-color-border);
+}
+
+.workflow-target-form__advanced-head > div {
+  display: grid;
+  gap: var(--gc-space-1);
+}
+
+.workflow-target-form__advanced-head span {
+  color: var(--gc-color-text);
+  font-weight: 900;
+}
+
+.workflow-target-form__advanced-head strong {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+}
+
 .workflow-target-form__summary {
   display: flex;
   align-items: center;
@@ -3340,6 +3550,21 @@ watch(
   border: 1px solid var(--gc-color-muted-bg);
   border-radius: 12px;
   background: var(--gc-color-surface-subtle);
+}
+
+.workflow-variable-form__row--variable {
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 2.2fr);
+}
+
+.workflow-variable-form__row--connection-advanced {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.workflow-variable-form__row--variable > input,
+.workflow-variable-form__row--variable > select,
+.workflow-variable-form__row--connection-advanced input {
+  width: 100%;
+  min-width: 0;
 }
 
 .workflow-variable-form__row label {
@@ -3685,6 +3910,7 @@ watch(
   .asset-wizard__review { grid-template-columns: 1fr; }
   .asset-wizard__panel-header { display: grid; }
   .workflow-target-form__head,
+  .workflow-target-form__advanced-head,
   .workflow-target-form__summary { align-items: stretch; flex-direction: column; }
   .workflow-variable-form__head,
   .workflow-variable-form__add,

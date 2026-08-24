@@ -2491,7 +2491,17 @@ export default {
     workflowTarget: {
       title: '워크플로 대상 정보',
       description: '워크플로 자산 표시, 배포 후 프로브, DSL 대상 변수 동기화에 사용됩니다.',
-      dslSyncHint: 'DSL 대상 변수에 동기화됨'
+      dslSyncHint: 'DSL 대상 변수에 동기화됨',
+      advancedTitle: '고급 설정',
+      advancedDescription: '기본 수신 규칙, 요청 도메인 또는 TLS 인증서 이름을 재정의할 때만 변경합니다.',
+      expandAdvanced: '고급 설정 펼치기',
+      collapseAdvanced: '고급 설정 접기',
+      bindingInformationLabel: '서비스 수신 규칙',
+      bindingInformationHelp: '서비스가 수신하는 주소, 포트 및 도메인 조합입니다.',
+      hostHeaderLabel: '접속 요청 도메인',
+      hostHeaderHelp: '대상 서비스가 특정 HTTP Host 헤더를 요구할 때만 변경합니다.',
+      sniNameLabel: 'TLS 인증서 도메인',
+      sniNameHelp: 'TLS 핸드셰이크 이름이 접속 도메인과 다를 때만 변경합니다.'
     },
     workflowVariables: {
       title: '워크플로 변수',

@@ -2594,7 +2594,17 @@ export default {
     workflowTarget: {
       title: 'Workflow target information',
       description: 'Used for workflow asset display, post-deploy probing, and DSL target variable synchronization.',
-      dslSyncHint: 'Synced to DSL target variables'
+      dslSyncHint: 'Synced to DSL target variables',
+      advancedTitle: 'Advanced settings',
+      advancedDescription: 'Change only when overriding the default listener, request host, or TLS certificate name.',
+      expandAdvanced: 'Expand advanced settings',
+      collapseAdvanced: 'Collapse advanced settings',
+      bindingInformationLabel: 'Service listener rule',
+      bindingInformationHelp: 'Describes the address, port, and host combination used by the service listener.',
+      hostHeaderLabel: 'Request host name',
+      hostHeaderHelp: 'Change only when the target service requires a specific HTTP Host header.',
+      sniNameLabel: 'TLS certificate name',
+      sniNameHelp: 'Change only when the TLS handshake name differs from the access host.'
     },
     workflowVariables: {
       title: 'Workflow variables',

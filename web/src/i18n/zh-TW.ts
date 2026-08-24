@@ -2517,7 +2517,17 @@ export default {
     workflowTarget: {
       title: "工作流目標資訊",
       description: "用於工作流資產展示、部署後探測和 DSL 目標變數同步。",
-      dslSyncHint: "已同步到 DSL 目標變數"
+      dslSyncHint: "已同步到 DSL 目標變數",
+      advancedTitle: "進階設定",
+      advancedDescription: "僅在需要覆寫預設監聽、請求網域或 TLS 憑證網域時修改。",
+      expandAdvanced: "展開進階設定",
+      collapseAdvanced: "收起進階設定",
+      bindingInformationLabel: "服務監聽規則",
+      bindingInformationHelp: "用於描述服務監聽的位址、連接埠與網域組合。",
+      hostHeaderLabel: "存取請求網域",
+      hostHeaderHelp: "僅在目標服務要求指定 HTTP Host 標頭時修改。",
+      sniNameLabel: "TLS 憑證網域",
+      sniNameHelp: "僅在 TLS 握手網域與存取網域不同時修改。"
     },
     workflowVariables: {
       title: "工作流變數",

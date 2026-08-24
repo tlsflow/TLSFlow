@@ -2561,7 +2561,17 @@ export default {
     workflowTarget: {
       title: 'Workflow target information',
       description: 'Used for workflow asset display, post-deploy probing, and DSL target variable synchronization.',
-      dslSyncHint: 'Synced to DSL target variables'
+      dslSyncHint: 'Synchronisé avec les variables de cible DSL',
+      advancedTitle: 'Paramètres avancés',
+      advancedDescription: 'À modifier uniquement pour remplacer l’écoute, le domaine de requête ou le nom du certificat TLS par défaut.',
+      expandAdvanced: 'Afficher les paramètres avancés',
+      collapseAdvanced: 'Masquer les paramètres avancés',
+      bindingInformationLabel: 'Règle d’écoute du service',
+      bindingInformationHelp: 'Décrit la combinaison adresse, port et domaine utilisée par le service.',
+      hostHeaderLabel: 'Domaine de la requête',
+      hostHeaderHelp: 'À modifier uniquement si le service exige un en-tête HTTP Host spécifique.',
+      sniNameLabel: 'Domaine du certificat TLS',
+      sniNameHelp: 'À modifier uniquement si le nom TLS diffère du domaine d’accès.'
     },
     workflowVariables: {
       title: 'Workflow variables',

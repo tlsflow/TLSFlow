@@ -2517,7 +2517,17 @@ export default {
     workflowTarget: {
       title: 'ワークフローターゲット情報',
       description: 'ワークフロー資産表示、デプロイ後プローブ、DSL ターゲット変数同期に使用します。',
-      dslSyncHint: 'DSL ターゲット変数に同期済み'
+      dslSyncHint: 'DSL ターゲット変数に同期済み',
+      advancedTitle: '詳細設定',
+      advancedDescription: '既定のリスナー、リクエストドメイン、TLS 証明書名を上書きする場合のみ変更します。',
+      expandAdvanced: '詳細設定を展開',
+      collapseAdvanced: '詳細設定を折りたたむ',
+      bindingInformationLabel: 'サービス待受ルール',
+      bindingInformationHelp: 'サービスが待ち受けるアドレス、ポート、ドメインの組み合わせです。',
+      hostHeaderLabel: 'アクセス要求ドメイン',
+      hostHeaderHelp: 'HTTP Host ヘッダーの指定が必要な場合のみ変更します。',
+      sniNameLabel: 'TLS 証明書ドメイン',
+      sniNameHelp: 'TLS ハンドシェイク名がアクセスドメインと異なる場合のみ変更します。'
     },
     workflowVariables: {
       title: 'ワークフロー変数',

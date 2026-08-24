@@ -29,6 +29,7 @@ const assetMocks = vi.hoisted(() => ({
   listManagedTargets: vi.fn(),
   createManagedTarget: vi.fn(),
   listManagedTargetSnapshots: vi.fn(),
+  projectWorkflowBinding: vi.fn(),
 }))
 
 const certificateMocks = vi.hoisted(() => ({
@@ -137,6 +138,16 @@ describe('资产与证书产物视图', () => {
     assetMocks.updateServiceAsset.mockResolvedValue(okRecord({ id: 'asset-1' }, 'req_asset_update'))
     assetMocks.createSiteAsset.mockResolvedValue(okRecord({ id: 'site-1' }, 'req_site_create'))
     assetMocks.createManagedTarget.mockResolvedValue(okRecord({ id: 'target-1' }, 'req_target_create'))
+    assetMocks.projectWorkflowBinding.mockResolvedValue(okRecord({
+      projection: {
+        required: [{ name: 'deviceHost', type: 'string', status: 'resolved', value: 'app.example.com', source: { kind: 'asset_ssl' } }],
+        advanced: [],
+        runtime: [{ name: 'serverCert', type: 'certificate', source: 'certificate' }],
+        basicConnections: [],
+        advancedConnections: [],
+        diagnostics: [],
+      },
+    }))
 
     workflowMocks.listWorkflowTemplates.mockResolvedValue(okPage([
       { id: 'workflow-1', name: 'Apache 证书替换' },
@@ -286,9 +297,8 @@ describe('资产与证书产物视图', () => {
 
     expect(wrapper.text()).toContain('工作流变量')
     expect(wrapper.text()).not.toContain('运行变量 JSON')
-    expect(wrapper.findAll('input').some((input) => input.element.value === 'deviceHost')).toBe(true)
+    expect(wrapper.text()).toContain('deviceHost')
     expect(wrapper.findAll('input').some((input) => input.element.value === 'app.example.com')).toBe(true)
-    expect(wrapper.text()).toContain('运行时自动注入')
     expect(wrapper.text()).toContain('证书变量绑定')
 
     const certificateFormatSelect = wrapper.findAll('select').find((select) => select.find('option[value="certfmt-1"]').exists())
@@ -319,7 +329,6 @@ describe('资产与证书产物视图', () => {
             verifyUrl: 'https://app.example.com:443',
           }),
           variableBindings: expect.objectContaining({
-            deviceHost: 'app.example.com',
             verifyUrl: 'https://app.example.com:443',
           }),
           certificateArtifactBindings: expect.objectContaining({
@@ -334,9 +343,58 @@ describe('资产与证书产物视图', () => {
         }),
       }),
     }))
+    expect(assetMocks.createServiceAsset.mock.calls[0][0].deploymentStrategy.workflow.variableBindings).not.toHaveProperty('deviceHost')
     expect(assetMocks.createServiceAsset.mock.calls[0][0].deploymentStrategy.workflow.variableBindings).not.toHaveProperty('serverCert')
     expect(assetMocks.createServiceAsset.mock.calls[0][0]).not.toHaveProperty('targetBinding')
     expect(assetMocks.createServiceAsset.mock.calls[0][0]).not.toHaveProperty('agentId')
+  })
+
+  it('工作流投影中的 credential 必须渲染为凭据选择器', async () => {
+    workflowMocks.listWorkflowTemplateVersions.mockResolvedValue({
+      data: { items: [{ id: 'workflow-version-1', version: 'v1', status: 'published', templateId: 'workflow-1', content: { variables: { synologyCredential: { type: 'credential', required: true }, serverCert: { type: 'certificate', required: true } } } }] },
+      requestId: 'req_workflow_versions', timestamp: '2026-07-22T00:00:00.000Z',
+    })
+    assetMocks.projectWorkflowBinding.mockResolvedValue(okRecord({ projection: {
+      required: [{ name: 'synologyCredential', type: 'credential', status: 'resolved', source: { kind: 'credential' } }],
+      advanced: [], runtime: [{ name: 'serverCert', type: 'certificate', source: 'certificate' }], basicConnections: [], advancedConnections: [], diagnostics: [],
+    } }))
+    securityMocks.listSecrets.mockResolvedValue(okPage([{ id: 'sec_synology', name: 'DSM 管理凭据', type: 'password', metadata: { workflowCredential: true, workflowCredentialKind: 'username_password', username: 'admin' } }]))
+
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === '添加资产')!.trigger('click')
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text().includes('工作流模式'))!.trigger('click')
+    await flushPromises()
+    const addressInput = wrapper.findAll('input').find((input) => input.attributes('placeholder') === 'app.example.com')!
+    await setInputElementValue(addressInput.element as HTMLInputElement, 'cloud.jacksonz.cn')
+    await wrapper.findAll('button').find((button) => button.text() === '下一步')!.trigger('click')
+    await flushPromises()
+    await wrapper.findAll('select').find((select) => select.find('option[value="workflow-1"]').exists())!.setValue('workflow-1')
+    await flushPromises()
+    await wrapper.findAll('select').find((select) => select.find('option[value="workflow-version-1"]').exists())!.setValue('workflow-version-1')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('选择工作流版本、运行位置和变量，证书变量会在运行时注入。')
+    expect(wrapper.text()).toContain('选择工作流')
+    expect(wrapper.text()).toContain('版本更新方式')
+    const targetSection = wrapper.find('section[aria-label="应用资产属性"]')
+    expect(targetSection.exists()).toBe(true)
+    const basicTargetLabels = targetSection.findAll('label > span').map((label) => label.text())
+    expect(basicTargetLabels).not.toContain('端口 *')
+    expect(basicTargetLabels).not.toContain('协议 *')
+    expect(basicTargetLabels).not.toContain('验证 URL')
+    expect(targetSection.text()).not.toContain('服务监听规则')
+    await targetSection.findAll('button').find((button) => button.text() === '展开高级设置')!.trigger('click')
+    await flushPromises()
+    const expandedTargetSection = wrapper.find('section[aria-label="应用资产属性"]')
+    expect(expandedTargetSection.text()).toContain('服务监听规则')
+    expect(expandedTargetSection.text()).toContain('访问请求域名')
+    expect(expandedTargetSection.text()).toContain('TLS 证书域名')
+
+    const credentialSelect = wrapper.findAll('select').find((select) => select.find('option[value="sec_synology"]').exists())
+    expect(credentialSelect).toBeTruthy()
+    expect(wrapper.find('input[value="sec_synology"]').exists()).toBe(false)
   })
 
   it('编辑工作流应用资产时会回填并保留证书产物绑定', async () => {
@@ -378,12 +436,21 @@ describe('资产与证书产物视图', () => {
     await editButton!.trigger('click')
     await flushPromises()
 
+    expect(assetMocks.projectWorkflowBinding).toHaveBeenCalledWith(expect.objectContaining({
+      workflowId: 'workflow-1',
+      workflowVersionId: 'workflow-version-1',
+      serviceAssetId: 'asset-1',
+    }))
+
     const firstNextButton = wrapper.findAll('button').find((button) => button.text() === '下一步')
     expect(firstNextButton).toBeTruthy()
     await firstNextButton!.trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('https://app.example.com/custom-health')
+    expect(assetMocks.projectWorkflowBinding).toHaveBeenCalledWith(expect.objectContaining({
+      target: expect.objectContaining({ verifyUrl: 'https://app.example.com/custom-health' }),
+    }))
+    expect(wrapper.text()).not.toContain('https://app.example.com/custom-health')
     expect(wrapper.text()).not.toContain('https://nas.example.com:5001/')
 
     const selects = wrapper.findAll('select')

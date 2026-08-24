@@ -2491,7 +2491,17 @@ export default {
     workflowTarget: {
       title: 'Informações do destino do workflow',
       description: 'Usado para exibição do ativo de workflow, sondagem pós-implantação e sincronização de variáveis de destino DSL.',
-      dslSyncHint: 'Sincronizado para variáveis de destino DSL'
+      dslSyncHint: 'Sincronizado para variáveis de destino DSL',
+      advancedTitle: 'Configurações avançadas',
+      advancedDescription: 'Altere apenas para substituir o listener, o domínio da requisição ou o nome do certificado TLS padrão.',
+      expandAdvanced: 'Expandir configurações avançadas',
+      collapseAdvanced: 'Recolher configurações avançadas',
+      bindingInformationLabel: 'Regra de escuta do serviço',
+      bindingInformationHelp: 'Descreve a combinação de endereço, porta e domínio usada pelo serviço.',
+      hostHeaderLabel: 'Domínio da requisição',
+      hostHeaderHelp: 'Altere apenas quando o serviço exigir um cabeçalho HTTP Host específico.',
+      sniNameLabel: 'Domínio do certificado TLS',
+      sniNameHelp: 'Altere apenas quando o nome do handshake TLS for diferente do domínio de acesso.'
     },
     workflowVariables: {
       title: 'Variáveis do workflow',
