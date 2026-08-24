@@ -3092,8 +3092,14 @@ export default {
         notBefore: '開始日付',
         notAfter: '終了日付',
         associatedAsset: '関連アセット',
+        sourceType: '追加方法',
         status: 'ステータス',
         certificateVersionId: '証明書バージョン ID'
+      },
+      sourceTypes: {
+        manual: '手動インポート',
+        acme: 'ACME',
+        unknown: '不明'
       },
       lifecycle: {
         unknown: '不明',

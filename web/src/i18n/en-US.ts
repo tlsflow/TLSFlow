@@ -3177,8 +3177,14 @@ export default {
         notBefore: 'Start date',
         notAfter: 'End date',
         associatedAsset: 'Related asset',
+        sourceType: 'Added by',
         status: 'Status',
         certificateVersionId: 'Certificate version ID'
+      },
+      sourceTypes: {
+        manual: 'Manual import',
+        acme: 'ACME',
+        unknown: 'Unknown'
       },
       lifecycle: {
         unknown: 'Unknown',

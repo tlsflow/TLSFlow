@@ -3066,8 +3066,14 @@ export default {
         notBefore: 'Data inicial',
         notAfter: 'Data final',
         associatedAsset: 'Ativo relacionado',
+        sourceType: 'Adicionado por',
         status: 'Status',
         certificateVersionId: 'ID da versão do certificado'
+      },
+      sourceTypes: {
+        manual: 'Importação manual',
+        acme: 'ACME',
+        unknown: 'Desconhecido'
       },
       lifecycle: {
         unknown: 'Desconhecido',

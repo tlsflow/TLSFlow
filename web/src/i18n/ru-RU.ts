@@ -3066,8 +3066,14 @@ export default {
         notBefore: 'Дата начала',
         notAfter: 'Дата окончания',
         associatedAsset: 'Связанный актив',
+        sourceType: 'Способ добавления',
         status: 'Статус',
         certificateVersionId: 'ID версии сертификата'
+      },
+      sourceTypes: {
+        manual: 'Ручной импорт',
+        acme: 'ACME',
+        unknown: 'Неизвестно'
       },
       lifecycle: {
         unknown: 'Неизвестно',

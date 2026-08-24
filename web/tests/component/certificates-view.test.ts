@@ -74,6 +74,7 @@ describe('CertificatesView', () => {
                   issuer: { commonName: 'DigiCert Global Root G2' },
                   subject: { commonName: 'alpha.weichai.com' },
                   status: 'EXPIRED',
+                  sourceType: 'manual',
                 },
                 {
                   id: 'certver-soon',
@@ -84,6 +85,7 @@ describe('CertificatesView', () => {
                   issuer: { commonName: 'GeoTrust TLS RSA CA G1' },
                   subject: { commonName: 'beta.weichai.com' },
                   status: 'MANAGED',
+                  sourceType: 'acme',
                 },
                 {
                   id: 'certver-new',
@@ -94,6 +96,7 @@ describe('CertificatesView', () => {
                   issuer: { commonName: 'GeoTrust TLS RSA CA G1' },
                   subject: { commonName: 'zeta.weichai.com' },
                   status: 'MANAGED',
+                  sourceType: 'acme',
                 },
               ],
               page: 1,
@@ -142,6 +145,7 @@ describe('CertificatesView', () => {
     const tableText = wrapper.text()
     expect(tableText).toContain('开始日期')
     expect(tableText).toContain('结束日期')
+    expect(tableText).toContain('添加方式')
     expect(tableText).not.toContain('至')
 
     const rows = wrapper.findAll('.certificate-page__version-table tbody tr')
@@ -149,12 +153,33 @@ describe('CertificatesView', () => {
     expect(rows[0]?.text()).toContain('2025-01-01')
     expect(rows[0]?.text()).toContain('2025-01-02')
     expect(rows[0]?.text()).toContain('过期')
+    expect(rows[0]?.text()).toContain('手动导入')
+    expect(rows[0]?.findAll('.gc-tag').map((tag) => tag.classes())).toEqual(
+      expect.arrayContaining([
+        expect.arrayContaining(['gc-tag--muted']),
+        expect.arrayContaining(['gc-tag--danger']),
+      ]),
+    )
     expect(rows[1]?.text()).toContain('2026-06-01')
     expect(rows[1]?.text()).toContain(formatBrowserLocalTime('2026-06-15T23:59:59.000Z', { includeTime: false }))
     expect(rows[1]?.text()).toContain('即将过期')
+    expect(rows[1]?.text()).toContain('ACME')
+    expect(rows[1]?.findAll('.gc-tag').map((tag) => tag.classes())).toEqual(
+      expect.arrayContaining([
+        expect.arrayContaining(['gc-tag--info']),
+        expect.arrayContaining(['gc-tag--warning']),
+      ]),
+    )
     expect(rows[2]?.text()).toContain('2026-06-10')
     expect(rows[2]?.text()).toContain(formatBrowserLocalTime('2026-12-17T23:59:59.000Z', { includeTime: false }))
     expect(rows[2]?.text()).toContain('有效')
+    expect(rows[2]?.text()).toContain('ACME')
+    expect(rows[2]?.findAll('.gc-tag').map((tag) => tag.classes())).toEqual(
+      expect.arrayContaining([
+        expect.arrayContaining(['gc-tag--info']),
+        expect.arrayContaining(['gc-tag--success']),
+      ]),
+    )
 
     const assetListText = wrapper.find('.certificate-page__asset-list').text()
     expect(assetListText).toContain('即将过期')

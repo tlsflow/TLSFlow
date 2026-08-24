@@ -20,4 +20,13 @@ describe('GcStatusTag', () => {
     expect(wrapper.text()).toBe('已启用')
     expect(wrapper.classes()).toContain('gc-tag--success')
   })
+
+  it('支持业务页面覆盖标签文案和色调', () => {
+    const wrapper = mount(GcStatusTag, {
+      props: { status: 'unknown', label: 'ACME', tone: 'info' },
+      global: { plugins: [i18n] },
+    })
+    expect(wrapper.text()).toBe('ACME')
+    expect(wrapper.classes()).toContain('gc-tag--info')
+  })
 })

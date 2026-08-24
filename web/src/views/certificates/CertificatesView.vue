@@ -17,8 +17,10 @@ import {
   GcEmptyState,
   GcModal,
   GcPermissionButton,
+  GcStatusTag,
 } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
+import type { StatusTone } from '@/design-system/status/status-map'
 import { usePermissionStore } from '@/stores/permission.store'
 import CertificateDetailPanel from './CertificateDetailPanel.vue'
 import CertificateImportForm from './CertificateImportForm.vue'
@@ -37,6 +39,9 @@ interface CertificateVersionRow extends Record<string, string> {
   readonly assetId: string
   readonly certificateName: string
   readonly associatedAsset: string
+  readonly sourceType: CertificateSourceTypeKey
+  readonly sourceTypeLabel: string
+  readonly sourceTypeTone: StatusTone
   readonly notBefore: string
   readonly notAfter: string
   readonly issuer: string
@@ -49,6 +54,7 @@ interface CertificateVersionRow extends Record<string, string> {
 type VersionSortField = 'certificateName' | 'notBefore' | 'notAfter' | 'issuer' | 'subject' | 'status'
 type VersionSortOrder = 'asc' | 'desc'
 type LifecycleStatusKey = 'unknown' | 'expired' | 'expiringSoon' | 'valid'
+type CertificateSourceTypeKey = 'manual' | 'acme' | 'unknown'
 const EXPIRING_SOON_DAYS = 10
 
 const route = useRoute()
@@ -126,11 +132,15 @@ const rawVersionRows = computed<CertificateVersionRow[]>(() =>
     const notAfter = formatDateOnly(readString(record, ['notAfter'], t('certificates.detailPanel.fallbacks.unknown')))
     const status = readString(record, ['status', 'state'], 'MANAGED')
     const lifecycleKey = resolveLifecycleStatusKey(notAfter, status)
+    const sourceType = resolveCertificateSourceTypeKey(readString(record, ['sourceType'], ''))
     return {
       id,
       assetId: readString(record, ['certificateAssetId'], selectedAssetId.value || 'unknown-asset'),
       certificateName: readString(record, ['commonName', 'subject.commonName', 'name'], id),
       associatedAsset: selectedDomainName.value,
+      sourceType,
+      sourceTypeLabel: t(`certificates.list.sourceTypes.${sourceType}`),
+      sourceTypeTone: certificateSourceTypeTone(sourceType),
       notBefore,
       notAfter,
       issuer: readString(record, ['issuer.commonName', 'issuer.organization', 'issuer.raw'], t('certificates.detailPanel.fallbacks.unknownIssuer')),
@@ -148,6 +158,7 @@ const versionColumns = computed<DataTableColumn<CertificateVersionRow>[]>(() => 
   { key: 'issuer', title: t('certificates.detailPanel.summary.issuer'), width: '16%' },
   { key: 'subject', title: t('certificates.detailPanel.summary.subject'), width: '12%' },
   { key: 'associatedAsset', title: t('certificates.list.columns.associatedAsset'), width: '12%' },
+  { key: 'sourceType', title: t('certificates.list.columns.sourceType'), width: '9%' },
   { key: 'status', title: t('certificates.list.columns.status'), width: '8%' },
   { key: 'id', title: t('certificates.list.columns.certificateVersionId'), width: '12%' },
   { key: 'actions', title: t('agents.columns.actions'), width: '168px' },
@@ -165,6 +176,7 @@ const versionRows = computed<CertificateVersionRow[]>(() => {
       row.issuer,
       row.subject,
       row.associatedAsset,
+      row.sourceTypeLabel,
       row.id,
     ].join('\n').toLowerCase()
     return haystack.includes(keyword)
@@ -425,6 +437,30 @@ function resolveLifecycleStatusKey(notAfter: string, status = ''): LifecycleStat
 
 function formatLifecycleStatus(status: LifecycleStatusKey) {
   return t(`certificates.list.lifecycle.${status}`)
+}
+
+function resolveCertificateSourceTypeKey(value: string): CertificateSourceTypeKey {
+  const normalized = value.trim().toLowerCase()
+  if (normalized === 'manual' || normalized === 'acme') return normalized
+  return 'unknown'
+}
+
+function certificateSourceTypeTone(sourceType: CertificateSourceTypeKey): StatusTone {
+  if (sourceType === 'acme') return 'info'
+  return 'muted'
+}
+
+function lifecycleStatusTone(status: LifecycleStatusKey): StatusTone {
+  switch (status) {
+    case 'valid':
+      return 'success'
+    case 'expiringSoon':
+      return 'warning'
+    case 'expired':
+      return 'danger'
+    default:
+      return 'muted'
+  }
 }
 
 function selectRepresentativeAsset(records: ApiRecord[]) {
@@ -689,7 +725,10 @@ async function removeVersion(row: CertificateVersionRow) {
               </div>
             </template>
             <template #cell-status="{ row }">
-              <span class="certificate-page__lifecycle">{{ row.lifecycle }}</span>
+              <GcStatusTag :status="row.lifecycleKey" :label="row.lifecycle" :tone="lifecycleStatusTone(row.lifecycleKey)" />
+            </template>
+            <template #cell-sourceType="{ row }">
+              <GcStatusTag :status="row.sourceType" :label="row.sourceTypeLabel" :tone="row.sourceTypeTone" />
             </template>
             <template #cell-id="{ row }">
               <code class="certificate-page__version-id">{{ row.id }}</code>

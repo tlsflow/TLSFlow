@@ -3221,8 +3221,14 @@ export default {
         notBefore: '开始日期',
         notAfter: '结束日期',
         associatedAsset: '关联资产',
+        sourceType: '添加方式',
         status: '状态',
         certificateVersionId: '证书版本 ID'
+      },
+      sourceTypes: {
+        manual: '手动导入',
+        acme: 'ACME',
+        unknown: '未知'
       },
       lifecycle: {
         unknown: '未知',

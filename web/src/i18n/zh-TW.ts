@@ -3091,8 +3091,14 @@ export default {
         notBefore: "開始日期",
         notAfter: "結束日期",
         associatedAsset: "關聯資產",
+        sourceType: "新增方式",
         status: "狀態",
         certificateVersionId: "憑證版本 ID"
+      },
+      sourceTypes: {
+        manual: "手動匯入",
+        acme: "ACME",
+        unknown: "未知"
       },
       lifecycle: {
         unknown: "未知",

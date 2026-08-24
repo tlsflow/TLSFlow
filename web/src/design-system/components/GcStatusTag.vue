@@ -1,15 +1,21 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { resolveStatusMeta } from '@/design-system/status/status-map'
+import { resolveStatusMeta, type StatusTone } from '@/design-system/status/status-map'
 
-const props = defineProps<{ status: string }>()
+const props = defineProps<{
+  status: string
+  label?: string
+  tone?: StatusTone
+}>()
 const { t } = useI18n()
 const meta = computed(() => resolveStatusMeta(props.status, t))
+const label = computed(() => props.label ?? meta.value.label)
+const tone = computed(() => props.tone ?? meta.value.tone)
 </script>
 
 <template>
-  <span class="gc-tag" :class="`gc-tag--${meta.tone}`">{{ meta.label }}</span>
+  <span class="gc-tag" :class="`gc-tag--${tone}`">{{ label }}</span>
 </template>
 
 <style scoped>

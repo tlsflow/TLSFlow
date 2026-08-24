@@ -3066,8 +3066,14 @@ export default {
         notBefore: '시작 날짜',
         notAfter: '종료 날짜',
         associatedAsset: '관련 자산',
+        sourceType: '추가 방식',
         status: '상태',
         certificateVersionId: '인증서 버전 ID'
+      },
+      sourceTypes: {
+        manual: '수동 가져오기',
+        acme: 'ACME',
+        unknown: '알 수 없음'
       },
       lifecycle: {
         unknown: '알 수 없음',
