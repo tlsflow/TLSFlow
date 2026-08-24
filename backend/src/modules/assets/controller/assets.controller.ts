@@ -41,6 +41,13 @@ export class AssetsController {
   constructor(private readonly security?: SecurityServices, private readonly service = new AssetsApplicationService(), private readonly executionService?: ApplicationAssetExecutionService) {}
 
   register(router: Router): void {
+    // 新语义入口。旧 service-assets、application-assets 路径继续保留，避免破坏历史客户端。
+    router.get('/api/v1/assets', '查询统一资产入口', tags, (request) => this.listServiceAssets(request));
+    router.get('/api/v1/applications', '查询 Application 列表', tags, (request) => this.listServiceAssets(request));
+    router.get('/api/v1/applications/detail', '查询 Application 详情', tags, (request) => this.getApplicationDetail(request));
+    router.post('/api/v1/applications', '创建 Application', tags, (request) => this.createServiceAsset(request));
+    router.patch('/api/v1/applications', '更新 Application', tags, (request) => this.updateServiceAsset(request));
+    router.post('/api/v1/applications/delete', '删除 Application', tags, (request) => this.deleteServiceAsset(request));
     router.get('/api/v1/hosts', '查询 Host 列表', tags, (request) => this.listHosts(request));
     router.post('/api/v1/hosts', '创建 Host', tags, (request) => this.createHost(request));
     router.patch('/api/v1/hosts', '更新 Host', tags, (request) => this.updateHost(request));
@@ -58,9 +65,13 @@ export class AssetsController {
     router.put('/api/v1/application-assets/:applicationAssetId/standalone-workflow', '保存非受管工作流执行配置', tags, (request) => this.saveStandaloneWorkflowExecution(request));
     router.post('/api/v1/service-assets/delete', '软删除 ServiceAsset', tags, (request) => this.deleteServiceAsset(request));
     router.get('/api/v1/application-asset-targets', '查询 ApplicationAssetTarget 列表', tags, (request) => this.listApplicationAssetTargets(request));
+    router.get('/api/v1/application-targets', '查询 ApplicationTarget 列表', tags, (request) => this.listApplicationAssetTargets(request));
     router.post('/api/v1/application-asset-targets', '创建 ApplicationAssetTarget', tags, (request) => this.createApplicationAssetTarget(request));
+    router.post('/api/v1/application-targets', '创建 ApplicationTarget', tags, (request) => this.createApplicationAssetTarget(request));
     router.patch('/api/v1/application-asset-targets', '更新 ApplicationAssetTarget', tags, (request) => this.updateApplicationAssetTarget(request));
+    router.patch('/api/v1/application-targets', '更新 ApplicationTarget', tags, (request) => this.updateApplicationAssetTarget(request));
     router.post('/api/v1/application-asset-targets/delete', '软删除 ApplicationAssetTarget', tags, (request) => this.deleteApplicationAssetTarget(request));
+    router.post('/api/v1/application-targets/delete', '删除 ApplicationTarget', tags, (request) => this.deleteApplicationAssetTarget(request));
     router.get('/api/v1/site-assets', '查询 SiteAsset 列表', tags, (request) => this.listSiteAssets(request));
     router.post('/api/v1/site-assets', '创建 SiteAsset', tags, (request) => this.createSiteAsset(request));
     router.patch('/api/v1/site-assets', '更新 SiteAsset', tags, (request) => this.updateSiteAsset(request));
@@ -349,6 +360,17 @@ export class AssetsController {
     );
   }
 
+  private async getApplicationDetail(request: HttpRequest) {
+    const applicationId = String(request.query.applicationId ?? request.query.id ?? '').trim();
+    if (!applicationId) throw new AppError('VALIDATION_FAILED', 'applicationId 不能为空', { field: 'applicationId' });
+    const subject = this.subjectFromRequest(request);
+    await this.assertCan(subject, 'service_asset.read', 'service_asset', request, applicationId);
+    return this.service.getServiceAssetDetail(tenantId(request), applicationId).then((detail) => {
+      if (!detail) throw new AppError('RESOURCE_NOT_FOUND', 'Application 不存在', { applicationId });
+      return detail;
+    });
+  }
+
   private saveStandaloneWorkflowExecution(request: HttpRequest) {
     if (!this.executionService) throw new AppError('SYSTEM_INTERNAL_ERROR', 'ApplicationAssetExecutionService 未接入');
     const applicationAssetId = request.path.match(/^\/api\/v1\/application-assets\/([^/]+)\/standalone-workflow$/)?.[1];
@@ -409,13 +431,19 @@ export class AssetsController {
   }
 
   private readApplicationAssetTargetBody(request: HttpRequest, creating: boolean): Record<string, unknown> {
-    return validateObject(request.body, {
+    const body = validateObject(request.body, {
       id: { type: 'string', required: !creating },
-      applicationAssetId: { type: 'string', required: creating },
+      applicationAssetId: { type: 'string' },
+      applicationId: { type: 'string' },
       managedTargetId: { type: 'string', required: creating },
       status: { type: 'string', enum: assetsEnumValues.applicationAssetTargetStatuses },
       metadata: { type: 'object' },
     });
+    const applicationAssetId = body.applicationAssetId ?? body.applicationId;
+    if (creating && (typeof applicationAssetId !== 'string' || applicationAssetId.trim() === '')) {
+      throw new AppError('VALIDATION_FAILED', 'applicationId 不能为空', { field: 'applicationId' });
+    }
+    return { ...body, applicationAssetId };
   }
 
   private async enrichApplicationAssetTargetInput(tenantIdValue: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -795,6 +823,12 @@ function readServiceAssetId(request: HttpRequest, bodyId?: unknown): string {
 
 export function getAssetsRouteContracts(): RouteContract[] {
   return [
+    { method: 'GET', path: '/api/v1/assets', operationId: 'listAssets', summary: '查询统一资产入口', tags, responseSchema: pageSchema() },
+    { method: 'GET', path: '/api/v1/applications', operationId: 'listApplications', summary: '查询 Application 列表', tags, responseSchema: pageSchema() },
+    { method: 'GET', path: '/api/v1/applications/detail', operationId: 'getApplicationDetail', summary: '查询 Application 详情', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/applications', operationId: 'createApplication', summary: '创建 Application', tags, responseSchema: objectSchema() },
+    { method: 'PATCH', path: '/api/v1/applications', operationId: 'updateApplication', summary: '更新 Application', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/applications/delete', operationId: 'deleteApplication', summary: '删除 Application', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/hosts', operationId: 'listHosts', summary: '查询 Host 列表', tags, responseSchema: pageSchema() },
     { method: 'POST', path: '/api/v1/hosts', operationId: 'createHost', summary: '创建 Host', tags, responseSchema: objectSchema() },
     { method: 'PATCH', path: '/api/v1/hosts', operationId: 'updateHost', summary: '更新 Host', tags, responseSchema: objectSchema() },
@@ -812,9 +846,13 @@ export function getAssetsRouteContracts(): RouteContract[] {
     { method: 'PUT', path: '/api/v1/application-assets/:applicationAssetId/standalone-workflow', operationId: 'saveStandaloneWorkflowExecution', summary: '保存非受管工作流执行配置', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/service-assets/delete', operationId: 'deleteServiceAsset', summary: '软删除 ServiceAsset', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/application-asset-targets', operationId: 'listApplicationAssetTargets', summary: '查询 ApplicationAssetTarget 列表', tags, responseSchema: pageSchema() },
+    { method: 'GET', path: '/api/v1/application-targets', operationId: 'listApplicationTargets', summary: '查询 ApplicationTarget 列表', tags, responseSchema: pageSchema() },
     { method: 'POST', path: '/api/v1/application-asset-targets', operationId: 'createApplicationAssetTarget', summary: '创建 ApplicationAssetTarget', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/application-targets', operationId: 'createApplicationTarget', summary: '创建 ApplicationTarget', tags, responseSchema: objectSchema() },
     { method: 'PATCH', path: '/api/v1/application-asset-targets', operationId: 'updateApplicationAssetTarget', summary: '更新 ApplicationAssetTarget', tags, responseSchema: objectSchema() },
+    { method: 'PATCH', path: '/api/v1/application-targets', operationId: 'updateApplicationTarget', summary: '更新 ApplicationTarget', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/application-asset-targets/delete', operationId: 'deleteApplicationAssetTarget', summary: '软删除 ApplicationAssetTarget', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/application-targets/delete', operationId: 'deleteApplicationTarget', summary: '删除 ApplicationTarget', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/site-assets', operationId: 'listSiteAssets', summary: '查询 SiteAsset 列表', tags, responseSchema: pageSchema() },
     { method: 'POST', path: '/api/v1/site-assets', operationId: 'createSiteAsset', summary: '创建 SiteAsset', tags, responseSchema: objectSchema() },
     { method: 'PATCH', path: '/api/v1/site-assets', operationId: 'updateSiteAsset', summary: '更新 SiteAsset', tags, responseSchema: objectSchema() },

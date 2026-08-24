@@ -37,6 +37,7 @@ export class DeploymentPlansController {
     router.get('/api/v1/deployment-plans/input-snapshots', '查询部署输入快照', ['DeploymentPlans'], (request) => this.listInputSnapshots(request));
     router.post('/api/v1/deployment-plans', '创建部署计划', ['DeploymentPlans'], (request) => this.create(request));
     router.post('/api/v1/deployment-plans/from-application-asset', '按应用资产创建部署计划', ['DeploymentPlans'], (request) => this.createFromApplicationAsset(request));
+    router.post('/api/v1/deployment-plans/from-application', '按 Application 创建部署计划', ['DeploymentPlans'], (request) => this.createFromApplicationAsset(request));
     router.post('/api/v1/deployment-plans/update-from-application-asset', '编辑应用资产部署计划草稿', ['DeploymentPlans'], (request) => this.updateFromApplicationAsset(request));
     router.post('/api/v1/deployment-plans/submit', '提交部署计划', ['DeploymentPlans'], (request) => this.submit(request));
     router.post('/api/v1/deployment-plans/dry-run', 'Dry-run 部署计划', ['DeploymentPlans'], (request) => this.dryRun(request));
@@ -105,7 +106,8 @@ export class DeploymentPlansController {
 
   private createFromApplicationAsset(request: HttpRequest) {
     const body = validateObject(request.body, {
-      applicationAssetId: { type: 'string', required: true },
+      applicationAssetId: { type: 'string' },
+      applicationId: { type: 'string' },
       targetCertificateVersionId: { type: 'string' },
       certificateFormatId: { type: 'string' },
       selectionMode: { type: 'string' },
@@ -113,11 +115,15 @@ export class DeploymentPlansController {
       planType: { type: 'string' },
       policy: { type: 'object' },
     });
+    const applicationAssetId = body.applicationAssetId ?? body.applicationId;
+    if (typeof applicationAssetId !== 'string' || applicationAssetId.trim() === '') {
+      throw new AppError('VALIDATION_FAILED', 'applicationId 不能为空', { field: 'applicationId' });
+    }
     const actorId = this.actorId(request);
     return {
       statusCode: 201,
       body: this.service.createFromApplicationAsset({
-        applicationAssetId: String(body.applicationAssetId),
+        applicationAssetId: String(applicationAssetId),
         targetCertificateVersionId: body.targetCertificateVersionId === undefined ? undefined : String(body.targetCertificateVersionId),
         certificateFormatId: body.certificateFormatId === undefined ? undefined : String(body.certificateFormatId),
         selectionMode: body.selectionMode === undefined ? undefined : body.selectionMode as DeploymentPlanSelectionMode,
@@ -362,6 +368,7 @@ export function getDeploymentPlanRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/deployment-plans/input-snapshots', operationId: 'listDeploymentInputSnapshots', summary: '查询部署输入快照', tags: ['DeploymentPlans'], responseSchema: schema },
     { method: 'POST', path: '/api/v1/deployment-plans', operationId: 'createDeploymentPlan', summary: '创建部署计划', tags: ['DeploymentPlans'], responseSchema: schema },
     { method: 'POST', path: '/api/v1/deployment-plans/from-application-asset', operationId: 'createDeploymentPlanFromApplicationAsset', summary: '按应用资产创建部署计划', tags: ['DeploymentPlans'], responseSchema: schema },
+    { method: 'POST', path: '/api/v1/deployment-plans/from-application', operationId: 'createDeploymentPlanFromApplication', summary: '按 Application 创建部署计划', tags: ['DeploymentPlans'], responseSchema: schema },
     { method: 'POST', path: '/api/v1/deployment-plans/update-from-application-asset', operationId: 'updateDeploymentPlanFromApplicationAsset', summary: '编辑应用资产部署计划草稿', tags: ['DeploymentPlans'], responseSchema: schema },
     { method: 'POST', path: '/api/v1/deployment-plans/submit', operationId: 'submitDeploymentPlan', summary: '提交部署计划', tags: ['DeploymentPlans'], responseSchema: schema },
     { method: 'POST', path: '/api/v1/deployment-plans/dry-run', operationId: 'dryRunDeploymentPlan', summary: 'Dry-run 部署计划', tags: ['DeploymentPlans'], responseSchema: schema },

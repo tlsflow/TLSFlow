@@ -22,6 +22,7 @@ export const coreTableNames = [
   'rollback_plans',
   'plugin_packages',
   'provider_registry',
+  'cloud_account_assets',
   'workflow_templates',
   'workflow_runs',
   'monitor_targets',

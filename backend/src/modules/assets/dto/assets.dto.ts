@@ -143,6 +143,8 @@ export type UpdateHostDto = Partial<CreateHostDto>;
 export interface FrameworkInstanceDto {
   id: string;
   tenantId: string;
+  assetId?: string;
+  assetOwner?: AssetOwnerDto;
   deviceId: string;
   frameworkType: string;
   frameworkKey: string;
@@ -268,6 +270,8 @@ export type UpdateServiceEndpointDto = Partial<CreateServiceEndpointDto>;
 export interface SiteAssetDto {
   id: string;
   tenantId: string;
+  assetId?: string;
+  assetOwner?: AssetOwnerDto;
   frameworkInstanceId: string;
   deviceId: string;
   discoveryProviderKey: string;
@@ -316,6 +320,8 @@ export type UpdateSiteAssetDto = Partial<CreateSiteAssetDto>;
 export interface ManagedTargetDto {
   id: string;
   tenantId: string;
+  assetId?: string;
+  assetOwner?: AssetOwnerDto;
   deviceId: string;
   frameworkInstanceId?: string;
   siteId?: string;
@@ -691,6 +697,11 @@ export interface RefreshAssetsFromAgentResultDto {
     stale: number;
     conflicts: number;
   };
+}
+
+export interface AssetOwnerDto {
+  kind: 'HOST' | 'CLOUD_ACCOUNT';
+  id: string;
 }
 
 export interface DiscoveryIngestResultDto {

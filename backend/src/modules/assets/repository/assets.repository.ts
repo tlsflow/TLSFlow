@@ -980,7 +980,8 @@ type HostRow = {
 type ServiceInstanceRow = {
   id: string;
   tenant_id: string;
-  device_id: string;
+  asset_id?: string | null;
+  device_id?: string | null;
   framework_type: string;
   framework_key: string;
   discovery_provider_key: string;
@@ -1042,8 +1043,9 @@ type ServiceEndpointRow = {
 type SiteAssetRow = {
   id: string;
   tenant_id: string;
+  asset_id?: string | null;
   framework_instance_id: string;
-  device_id: string;
+  device_id?: string | null;
   discovery_provider_key: string;
   site_type: SiteAssetDto['siteType'];
   site_name: string;
@@ -1068,7 +1070,8 @@ type SiteAssetRow = {
 type ManagedTargetRow = {
   id: string;
   tenant_id: string;
-  device_id: string;
+  asset_id?: string | null;
+  device_id?: string | null;
   framework_instance_id?: string | null;
   site_id?: string | null;
   discovery_provider_key: string;
@@ -1190,7 +1193,9 @@ function toServiceInstance(row: ServiceInstanceRow): FrameworkInstanceDto {
   return {
     id: row.id,
     tenantId: row.tenant_id,
-    deviceId: row.device_id,
+    ...(row.asset_id ? { assetId: row.asset_id } : {}),
+    ...(row.asset_id ? { assetOwner: { kind: 'CLOUD_ACCOUNT', id: row.asset_id } } : row.device_id ? { assetOwner: { kind: 'HOST', id: row.device_id } } : {}),
+    deviceId: row.device_id ?? row.asset_id ?? '',
     frameworkType: row.framework_type,
     frameworkKey: row.framework_key,
     discoveryProviderKey: row.discovery_provider_key,
@@ -1261,8 +1266,10 @@ function toSiteAsset(row: SiteAssetRow): SiteAssetDto {
   return {
     id: row.id,
     tenantId: row.tenant_id,
+    ...(row.asset_id ? { assetId: row.asset_id } : {}),
+    ...(row.asset_id ? { assetOwner: { kind: 'CLOUD_ACCOUNT', id: row.asset_id } } : row.device_id ? { assetOwner: { kind: 'HOST', id: row.device_id } } : {}),
     frameworkInstanceId: row.framework_instance_id,
-    deviceId: row.device_id,
+    deviceId: row.device_id ?? row.asset_id ?? '',
     discoveryProviderKey: row.discovery_provider_key,
     siteType: row.site_type,
     siteName: row.site_name,
@@ -1289,7 +1296,9 @@ function toManagedTarget(row: ManagedTargetRow): ManagedTargetDto {
   return {
     id: row.id,
     tenantId: row.tenant_id,
-    deviceId: row.device_id,
+    ...(row.asset_id ? { assetId: row.asset_id } : {}),
+    ...(row.asset_id ? { assetOwner: { kind: 'CLOUD_ACCOUNT', id: row.asset_id } } : row.device_id ? { assetOwner: { kind: 'HOST', id: row.device_id } } : {}),
+    deviceId: row.device_id ?? row.asset_id ?? '',
     frameworkInstanceId: row.framework_instance_id ?? undefined,
     siteId: row.site_id ?? undefined,
     discoveryProviderKey: row.discovery_provider_key,
