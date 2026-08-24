@@ -3,7 +3,6 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import { createCredential, listCredentials, type CredentialProfileSummary } from '@/api/modules/credentials.api'
-import GcSecretInput from './GcSecretInput.vue'
 
 const model = defineModel<string>({ default: '' })
 const props = withDefaults(defineProps<{
@@ -22,7 +21,6 @@ const creating = ref(false)
 const options = ref<CredentialProfileSummary[]>([])
 const values = reactive<Record<string, string>>({})
 
-const fields = computed(() => parseCredentialFields(props.credentialTemplate))
 const filtered = computed(() => options.value.filter((item) =>
   item.status === 'active'
   && item.kind === 'DNS_PROVIDER'
@@ -70,16 +68,14 @@ function closeCreate(): void {
 }
 
 async function saveCredential(): Promise<void> {
-  if (!props.providerId || fields.value.some((field) => !values[field.key]?.trim())) {
+  if (!props.providerId || !values.config?.trim()) {
     error.value = t('acme.create.messages.credentialFieldsRequired')
     return
   }
   saving.value = true
   error.value = ''
   try {
-    const config = fields.value.length === 1 && fields.value[0]?.key === 'config'
-      ? values.config!.trim()
-      : fields.value.map((field) => `${field.key} = ${values[field.key]!.trim()}`).join('\n')
+    const config = values.config.trim()
     const result = await createCredential({
       name: `${props.providerName} DNS`,
       kind: 'DNS_PROVIDER',
@@ -88,7 +84,7 @@ async function saveCredential(): Promise<void> {
         credentialType: 'acme-dns',
         providerId: props.providerId,
         providerName: props.providerName,
-        fieldKeys: fields.value.map((field) => field.key),
+        format: 'lego-env',
       },
       secretValues: { config: { plainText: config, type: 'password' } },
     })
@@ -102,12 +98,6 @@ async function saveCredential(): Promise<void> {
   } finally {
     saving.value = false
   }
-}
-
-function parseCredentialFields(template: string): Array<{ key: string }> {
-  const keys = [...template.matchAll(/^\s*([A-Za-z0-9_.-]+)\s*=/gm)].map((match) => match[1]!)
-  const uniqueKeys = [...new Set(keys)]
-  return uniqueKeys.length > 0 ? uniqueKeys.map((key) => ({ key })) : [{ key: 'config' }]
 }
 
 function readMetadata(metadata: Record<string, unknown> | undefined, key: string): string {
@@ -132,17 +122,9 @@ function readMetadata(metadata: Record<string, unknown> | undefined, key: string
     <small v-if="selected" class="gc-acme-credential__selected">{{ t('acme.create.messages.selectedCredential', { name: selected.name }) }}</small>
     <pre class="gc-acme-credential__example">{{ credentialTemplate }}</pre>
     <div v-if="creating" class="gc-acme-credential__editor">
-      <GcSecretInput
-        v-for="field in fields.filter((item) => item.key !== 'config')"
-        :key="field.key"
-        v-model="values[field.key]"
-        :label="field.key"
-        :placeholder="t('acme.create.placeholders.credentialValue')"
-        :hint="t('credentials.hints.encrypted')"
-      />
-      <label v-if="fields.some((field) => field.key === 'config')" class="gc-acme-credential__config">
+      <label class="gc-acme-credential__config">
         <span>{{ t('acme.create.fields.credentialConfig') }}</span>
-        <textarea v-model="values.config" rows="8" :placeholder="t('acme.create.placeholders.credentialValue')" autocomplete="off" />
+        <textarea v-model="values.config" rows="8" :placeholder="t('acme.create.placeholders.credentialValue')" autocomplete="off" spellcheck="false" />
         <small>{{ t('credentials.hints.encrypted') }}</small>
       </label>
       <button class="gc-button gc-button--primary gc-button--compact" type="button" :disabled="saving" @click="saveCredential">{{ t('acme.create.actions.saveCredential') }}</button>
