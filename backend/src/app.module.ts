@@ -17,6 +17,7 @@ import { AssetsApplicationService } from './modules/assets/application/assets.ap
 import { AssetsController, getAssetsRouteContracts } from './modules/assets/controller/assets.controller.js';
 import { PgAssetsRepository } from './modules/assets/repository/assets.repository.js';
 import { DeviceAssetsApplicationService, DeviceAssetsController, getDeviceAssetRouteContracts, PgDeviceAssetsRepository, SecurityServicesDeviceAssetPort } from './modules/device-assets/index.js';
+import { DevicesApplicationService, DevicesController, getDeviceRouteContracts, PgDevicesRepository } from './modules/devices/index.js';
 import { BindingsApplicationService } from './modules/bindings/application/bindings.application-service.js';
 import { BindingsController, getBindingsRouteContracts } from './modules/bindings/controller/bindings.controller.js';
 import { PgBindingsRepository } from './modules/bindings/repository/bindings.repository.js';
@@ -96,6 +97,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const gatewayTasksService = new GatewayTaskService({ auditWriter: gatewayTaskAuditWriter });
   const assetsService = dependencies.assets ?? new AssetsApplicationService(new PgAssetsRepository(appDb));
   const deviceAssetsService = new DeviceAssetsApplicationService(new PgDeviceAssetsRepository(appDb));
+  const devicesService = new DevicesApplicationService(new PgDevicesRepository(appDb));
   const bindingsService = dependencies.bindings ?? new BindingsApplicationService(
     assetsService.getRepository(),
     new PgBindingsRepository(assetsService.getRepository(), appDb),
@@ -261,6 +263,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
 
   new CertificatesController(security, certificateServices).register(app.router);
   new DeviceAssetsController(deviceAssetsService, new SecurityServicesDeviceAssetPort(security)).register(app.router);
+  new DevicesController(devicesService, security).register(app.router);
   new CapabilitiesController(capabilitiesService).register(app.router);
   new AgentsController(agentsService, security).register(app.router);
   new GatewaysController(gatewaysService, security).register(app.router);
@@ -323,6 +326,7 @@ export function getRouteContracts(): RouteContract[] {
     ...getExecutionRouteContracts(),
     ...getAssetsRouteContracts(),
     ...getDeviceAssetRouteContracts(),
+    ...getDeviceRouteContracts(),
     ...getBindingsRouteContracts(),
     ...getCertificateRouteContracts(),
     ...getCapabilitiesRouteContracts(),
