@@ -87,7 +87,7 @@ export interface AssetsRepository {
   listManagedTargets(tenantId: string, query: PageQuery): Promise<PageResult<ManagedTargetDto>>;
   getManagedTarget(tenantId: string, managedTargetId: string): Promise<ManagedTargetDto | undefined>;
   getManagedTargetIncludingDeleted(tenantId: string, managedTargetId: string): Promise<ManagedTargetDto | undefined>;
-  findManagedTargetByIdentity(tenantId: string, input: { agentId: string; providerType: string; targetType: string; targetKey: string }): Promise<ManagedTargetDto | undefined>;
+  findManagedTargetByIdentity(tenantId: string, input: { agentId?: string; deviceAssetId?: string; providerType: string; targetType: string; targetKey: string }): Promise<ManagedTargetDto | undefined>;
   createApplicationAssetTarget(tenantId: string, input: CreateApplicationAssetTargetDto): Promise<ApplicationAssetTargetSummaryDto>;
   updateApplicationAssetTarget(tenantId: string, targetId: string, input: UpdateApplicationAssetTargetDto): Promise<ApplicationAssetTargetSummaryDto>;
   deleteApplicationAssetTarget(tenantId: string, targetId: string): Promise<ApplicationAssetTargetSummaryDto>;
@@ -535,7 +535,7 @@ export class PgAssetsRepository implements AssetsRepository {
     if (input.serviceInstanceId && !await this.getServiceInstance(tenantId, input.serviceInstanceId)) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceInstance 不存在', { serviceInstanceId: input.serviceInstanceId });
     if (input.serviceAssetId && !await this.getServiceAsset(tenantId, input.serviceAssetId)) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId: input.serviceAssetId });
     if (input.hostId && !await this.getHost(tenantId, input.hostId)) throw new AppError('RESOURCE_NOT_FOUND', 'Host 不存在', { hostId: input.hostId });
-    const nextAgentId = input.agentId ?? current.agentId;
+    const nextAgentId = input.agentId !== undefined ? input.agentId : current.agentId;
     const nextProviderType = input.providerType ?? current.providerType;
     const nextSiteKey = input.siteKey ?? current.siteKey;
     const duplicate = await this.findSiteAssetByIdentity(tenantId, { agentId: nextAgentId, providerType: nextProviderType, siteKey: nextSiteKey });
@@ -576,16 +576,18 @@ export class PgAssetsRepository implements AssetsRepository {
   }
 
   async createManagedTarget(tenantId: string, input: CreateManagedTargetDto): Promise<ManagedTargetDto> {
+    await this.assertManagedTargetOwner(tenantId, input.agentId, input.deviceAssetId, input.hostId);
     if (input.serviceInstanceId && !await this.getServiceInstance(tenantId, input.serviceInstanceId)) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceInstance 不存在', { serviceInstanceId: input.serviceInstanceId });
     if (input.serviceAssetId && !await this.getServiceAsset(tenantId, input.serviceAssetId)) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId: input.serviceAssetId });
     if (input.siteAssetId && !await this.getSiteAsset(tenantId, input.siteAssetId)) throw new AppError('RESOURCE_NOT_FOUND', 'SiteAsset 不存在', { siteAssetId: input.siteAssetId });
-    const duplicate = await this.findManagedTargetByIdentity(tenantId, { agentId: input.agentId, providerType: input.providerType, targetType: input.targetType, targetKey: input.targetKey });
+    const duplicate = await this.findManagedTargetByIdentity(tenantId, { agentId: input.agentId, deviceAssetId: input.deviceAssetId, providerType: input.providerType, targetType: input.targetType, targetKey: input.targetKey });
     if (duplicate) throw new AppError('RESOURCE_ALREADY_EXISTS', 'ManagedTarget 已存在', { managedTargetId: duplicate.id, targetKey: input.targetKey });
     const now = nowIso();
     const target: ManagedTargetDto = {
       id: newId('mtg'),
       tenantId,
       agentId: input.agentId,
+      deviceAssetId: input.deviceAssetId,
       hostId: input.hostId,
       serviceInstanceId: input.serviceInstanceId,
       serviceAssetId: input.serviceAssetId,
@@ -605,13 +607,13 @@ export class PgAssetsRepository implements AssetsRepository {
       version: 1,
     };
     await this.db.query(`insert into pg_managed_targets (
-      id, tenant_id, agent_id, host_id, service_instance_id, service_asset_id, site_asset_id, provider_type, framework_type,
+      id, tenant_id, agent_id, device_asset_id, host_id, service_instance_id, service_asset_id, site_asset_id, provider_type, framework_type,
       target_type, target_key, binding_key, capability_profile, deployment_mode, last_seen_at, status, metadata, created_at, updated_at, version
     ) values (
-      $1,$2,$3,$4,$5,$6,$7,$8,$9,
-      $10,$11,$12,$13::jsonb,$14,$15::timestamptz,$16,$17::jsonb,$18::timestamptz,$19::timestamptz,$20
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+      $11,$12,$13,$14::jsonb,$15,$16::timestamptz,$17,$18::jsonb,$19::timestamptz,$20::timestamptz,$21
     )`, [
-      target.id, tenantId, target.agentId, target.hostId ?? null, target.serviceInstanceId ?? null, target.serviceAssetId ?? null, target.siteAssetId ?? null, target.providerType, target.frameworkType,
+      target.id, tenantId, target.agentId ?? null, target.deviceAssetId ?? null, target.hostId ?? null, target.serviceInstanceId ?? null, target.serviceAssetId ?? null, target.siteAssetId ?? null, target.providerType, target.frameworkType,
       target.targetType, target.targetKey, target.bindingKey ?? null, JSON.stringify(target.capabilityProfile), target.deploymentMode ?? null, target.lastSeenAt ?? null, target.status, JSON.stringify(target.metadata), target.createdAt, target.updatedAt, target.version,
     ]);
     return target;
@@ -624,15 +626,17 @@ export class PgAssetsRepository implements AssetsRepository {
     if (input.serviceInstanceId && !await this.getServiceInstance(tenantId, input.serviceInstanceId)) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceInstance 不存在', { serviceInstanceId: input.serviceInstanceId });
     if (input.serviceAssetId && !await this.getServiceAsset(tenantId, input.serviceAssetId)) throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId: input.serviceAssetId });
     if (input.siteAssetId && !await this.getSiteAsset(tenantId, input.siteAssetId)) throw new AppError('RESOURCE_NOT_FOUND', 'SiteAsset 不存在', { siteAssetId: input.siteAssetId });
-    const nextAgentId = input.agentId ?? current.agentId;
+    const nextAgentId = input.agentId !== undefined ? input.agentId : current.agentId;
+    const nextDeviceAssetId = input.deviceAssetId !== undefined ? input.deviceAssetId : current.deviceAssetId;
+    await this.assertManagedTargetOwner(tenantId, nextAgentId, nextDeviceAssetId, input.hostId ?? current.hostId);
     const nextProviderType = input.providerType ?? current.providerType;
     const nextTargetType = input.targetType ?? current.targetType;
     const nextTargetKey = input.targetKey ?? current.targetKey;
-    const duplicate = await this.findManagedTargetByIdentity(tenantId, { agentId: nextAgentId, providerType: nextProviderType, targetType: nextTargetType, targetKey: nextTargetKey });
+    const duplicate = await this.findManagedTargetByIdentity(tenantId, { agentId: nextAgentId, deviceAssetId: nextDeviceAssetId, providerType: nextProviderType, targetType: nextTargetType, targetKey: nextTargetKey });
     if (duplicate && duplicate.id !== current.id) throw new AppError('RESOURCE_ALREADY_EXISTS', 'ManagedTarget 已存在', { managedTargetId: duplicate.id, targetKey: nextTargetKey });
     const updated = touch({ ...current, ...input, capabilityProfile: input.capabilityProfile ?? current.capabilityProfile, metadata: input.metadata ?? current.metadata });
-    await this.db.query(`update pg_managed_targets set agent_id=$2, host_id=$3, service_instance_id=$4, service_asset_id=$5, site_asset_id=$6, provider_type=$7, framework_type=$8, target_type=$9, target_key=$10, binding_key=$11, capability_profile=$12::jsonb, deployment_mode=$13, last_seen_at=$14::timestamptz, status=$15, metadata=$16::jsonb, updated_at=$17::timestamptz, version=$18 where id=$1`, [
-      updated.id, updated.agentId, updated.hostId, updated.serviceInstanceId ?? null, updated.serviceAssetId ?? null, updated.siteAssetId ?? null, updated.providerType, updated.frameworkType, updated.targetType, updated.targetKey, updated.bindingKey ?? null, JSON.stringify(updated.capabilityProfile), updated.deploymentMode ?? null, updated.lastSeenAt ?? null, updated.status, JSON.stringify(updated.metadata), updated.updatedAt, updated.version,
+    await this.db.query(`update pg_managed_targets set agent_id=$2, device_asset_id=$3, host_id=$4, service_instance_id=$5, service_asset_id=$6, site_asset_id=$7, provider_type=$8, framework_type=$9, target_type=$10, target_key=$11, binding_key=$12, capability_profile=$13::jsonb, deployment_mode=$14, last_seen_at=$15::timestamptz, status=$16, metadata=$17::jsonb, updated_at=$18::timestamptz, version=$19 where id=$1`, [
+      updated.id, updated.agentId ?? null, updated.deviceAssetId ?? null, updated.hostId, updated.serviceInstanceId ?? null, updated.serviceAssetId ?? null, updated.siteAssetId ?? null, updated.providerType, updated.frameworkType, updated.targetType, updated.targetKey, updated.bindingKey ?? null, JSON.stringify(updated.capabilityProfile), updated.deploymentMode ?? null, updated.lastSeenAt ?? null, updated.status, JSON.stringify(updated.metadata), updated.updatedAt, updated.version,
     ]);
     return updated;
   }
@@ -660,15 +664,17 @@ export class PgAssetsRepository implements AssetsRepository {
     return row ? toManagedTarget(row) : undefined;
   }
 
-  async findManagedTargetByIdentity(tenantId: string, input: { agentId: string; providerType: string; targetType: string; targetKey: string }): Promise<ManagedTargetDto | undefined> {
-    const row = (await this.db.query<ManagedTargetRow>(`select * from pg_managed_targets where tenant_id = $1 and deleted_at is null and agent_id = $2 and provider_type = $3 and target_type = $4 and target_key = $5 limit 1`, [tenantId, input.agentId, input.providerType, input.targetType, input.targetKey])).rows[0];
+  async findManagedTargetByIdentity(tenantId: string, input: { agentId?: string; deviceAssetId?: string; providerType: string; targetType: string; targetKey: string }): Promise<ManagedTargetDto | undefined> {
+    const row = (await this.db.query<ManagedTargetRow>(`select * from pg_managed_targets where tenant_id = $1 and deleted_at is null and coalesce(agent_id, '') = coalesce($2, '') and coalesce(device_asset_id, '') = coalesce($3, '') and provider_type = $4 and target_type = $5 and target_key = $6 limit 1`, [tenantId, input.agentId ?? null, input.deviceAssetId ?? null, input.providerType, input.targetType, input.targetKey])).rows[0];
     return row ? toManagedTarget(row) : undefined;
   }
 
   async createApplicationAssetTarget(tenantId: string, input: CreateApplicationAssetTargetDto): Promise<ApplicationAssetTargetSummaryDto> {
     if (!await this.getServiceAsset(tenantId, input.applicationAssetId)) throw new AppError('RESOURCE_NOT_FOUND', 'ApplicationAsset 不存在', { applicationAssetId: input.applicationAssetId });
     if (!await this.getSiteAsset(tenantId, input.siteAssetId)) throw new AppError('RESOURCE_NOT_FOUND', 'SiteAsset 不存在', { siteAssetId: input.siteAssetId });
-    if (!await this.getManagedTarget(tenantId, input.managedTargetId)) throw new AppError('RESOURCE_NOT_FOUND', 'ManagedTarget 不存在', { managedTargetId: input.managedTargetId });
+    const managedTarget = await this.getManagedTarget(tenantId, input.managedTargetId);
+    if (!managedTarget) throw new AppError('RESOURCE_NOT_FOUND', 'ManagedTarget 不存在', { managedTargetId: input.managedTargetId });
+    assertSameOwner(input.agentId, input.deviceAssetId, managedTarget);
     const duplicate = await this.getApplicationAssetTargetByApplicationAssetId(tenantId, input.applicationAssetId);
     if (duplicate) throw new AppError('RESOURCE_ALREADY_EXISTS', 'ApplicationAssetTarget 已存在', { applicationAssetTargetId: duplicate.id, applicationAssetId: input.applicationAssetId });
     const now = nowIso();
@@ -676,6 +682,7 @@ export class PgAssetsRepository implements AssetsRepository {
       id: newId('aat'),
       applicationAssetId: input.applicationAssetId,
       agentId: input.agentId,
+      deviceAssetId: input.deviceAssetId,
       siteAssetId: input.siteAssetId,
       managedTargetId: input.managedTargetId,
       providerType: input.providerType,
@@ -690,13 +697,13 @@ export class PgAssetsRepository implements AssetsRepository {
       version: 1,
     };
     await this.db.query(`insert into pg_application_asset_targets (
-      id, tenant_id, application_asset_id, agent_id, site_asset_id, managed_target_id, provider_type, framework_type,
+      id, tenant_id, application_asset_id, agent_id, device_asset_id, site_asset_id, managed_target_id, provider_type, framework_type,
       target_type, target_key, binding_key, status, metadata, created_at, updated_at, version
     ) values (
-      $1,$2,$3,$4,$5,$6,$7,$8,
-      $9,$10,$11,$12,$13::jsonb,$14::timestamptz,$15::timestamptz,$16
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,
+      $10,$11,$12,$13,$14::jsonb,$15::timestamptz,$16::timestamptz,$17
     )`, [
-      target.id, tenantId, target.applicationAssetId, target.agentId, target.siteAssetId, target.managedTargetId, target.providerType, target.frameworkType,
+      target.id, tenantId, target.applicationAssetId, target.agentId ?? null, target.deviceAssetId ?? null, target.siteAssetId, target.managedTargetId, target.providerType, target.frameworkType,
       target.targetType, target.targetKey, target.bindingKey ?? null, target.status, JSON.stringify(target.metadata), target.createdAt, target.updatedAt, target.version,
     ]);
     return target;
@@ -715,12 +722,14 @@ export class PgAssetsRepository implements AssetsRepository {
     };
     if (!await this.getServiceAsset(tenantId, next.applicationAssetId)) throw new AppError('RESOURCE_NOT_FOUND', 'ApplicationAsset 不存在', { applicationAssetId: next.applicationAssetId });
     if (!await this.getSiteAsset(tenantId, next.siteAssetId)) throw new AppError('RESOURCE_NOT_FOUND', 'SiteAsset 不存在', { siteAssetId: next.siteAssetId });
-    if (!await this.getManagedTarget(tenantId, next.managedTargetId)) throw new AppError('RESOURCE_NOT_FOUND', 'ManagedTarget 不存在', { managedTargetId: next.managedTargetId });
+    const managedTarget = await this.getManagedTarget(tenantId, next.managedTargetId);
+    if (!managedTarget) throw new AppError('RESOURCE_NOT_FOUND', 'ManagedTarget 不存在', { managedTargetId: next.managedTargetId });
+    assertSameOwner(next.agentId, next.deviceAssetId, managedTarget);
     const duplicate = await this.getApplicationAssetTargetByApplicationAssetId(tenantId, next.applicationAssetId);
     if (duplicate && duplicate.id !== current.id) throw new AppError('RESOURCE_ALREADY_EXISTS', 'ApplicationAssetTarget 已存在', { applicationAssetTargetId: duplicate.id, applicationAssetId: next.applicationAssetId });
     const updated = touch(next);
-    await this.db.query(`update pg_application_asset_targets set application_asset_id=$2, agent_id=$3, site_asset_id=$4, managed_target_id=$5, provider_type=$6, framework_type=$7, target_type=$8, target_key=$9, binding_key=$10, status=$11, metadata=$12::jsonb, updated_at=$13::timestamptz, version=$14 where id=$1 and tenant_id = $15`, [
-      updated.id, updated.applicationAssetId, updated.agentId, updated.siteAssetId, updated.managedTargetId, updated.providerType, updated.frameworkType, updated.targetType, updated.targetKey, updated.bindingKey ?? null, updated.status, JSON.stringify(updated.metadata), updated.updatedAt, updated.version, tenantId,
+    await this.db.query(`update pg_application_asset_targets set application_asset_id=$2, agent_id=$3, device_asset_id=$4, site_asset_id=$5, managed_target_id=$6, provider_type=$7, framework_type=$8, target_type=$9, target_key=$10, binding_key=$11, status=$12, metadata=$13::jsonb, updated_at=$14::timestamptz, version=$15 where id=$1 and tenant_id = $16`, [
+      updated.id, updated.applicationAssetId, updated.agentId ?? null, updated.deviceAssetId ?? null, updated.siteAssetId, updated.managedTargetId, updated.providerType, updated.frameworkType, updated.targetType, updated.targetKey, updated.bindingKey ?? null, updated.status, JSON.stringify(updated.metadata), updated.updatedAt, updated.version, tenantId,
     ]);
     return updated;
   }
@@ -942,6 +951,23 @@ export class PgAssetsRepository implements AssetsRepository {
     const targetBinding = await this.getApplicationAssetTargetByApplicationAssetId(tenantId, asset.id);
     return targetBinding ? { ...asset, targetBinding } : asset;
   }
+
+  private async assertManagedTargetOwner(tenantId: string, agentId?: string, deviceAssetId?: string, hostId?: string): Promise<void> {
+    if (Boolean(agentId) === Boolean(deviceAssetId)) {
+      throw new AppError('VALIDATION_FAILED', 'ManagedTarget 必须且只能指定一个 Agent 或设备所有者', { agentId, deviceAssetId });
+    }
+    if (!hostId) {
+      throw new AppError('VALIDATION_FAILED', 'ManagedTarget 必须关联 Host', { agentId, deviceAssetId });
+    }
+    if (deviceAssetId) {
+      const device = (await this.db.query<{ host_id: string | null }>(`select host_id from pg_device_assets where tenant_id = $1 and service_asset_id = $2`, [tenantId, deviceAssetId])).rows[0];
+      if (!device) throw new AppError('RESOURCE_NOT_FOUND', '设备所有者不存在', { deviceAssetId });
+      if (device.host_id !== hostId) throw new AppError('VALIDATION_FAILED', 'ManagedTarget 的 Host 与设备所有者不一致', { hostId, deviceHostId: device.host_id, deviceAssetId });
+      return;
+    }
+    const host = (await this.db.query<{ id: string }>(`select id from pg_hosts where tenant_id = $1 and id = $2 and agent_id = $3 and deleted_at is null`, [tenantId, hostId, agentId])).rows[0];
+    if (!host) throw new AppError('VALIDATION_FAILED', 'ManagedTarget 的 Host 与 Agent 所有者不一致', { hostId, agentId });
+  }
 }
 
 type HostRow = {
@@ -1071,7 +1097,8 @@ type SiteAssetRow = {
 type ManagedTargetRow = {
   id: string;
   tenant_id: string;
-  agent_id: string;
+  agent_id?: string | null;
+  device_asset_id?: string | null;
   host_id: string;
   service_instance_id?: string | null;
   service_asset_id?: string | null;
@@ -1096,7 +1123,8 @@ type ApplicationAssetTargetRow = {
   id: string;
   tenant_id: string;
   application_asset_id: string;
-  agent_id: string;
+  agent_id?: string | null;
+  device_asset_id?: string | null;
   site_asset_id: string;
   managed_target_id: string;
   provider_type: ApplicationAssetTargetSummaryDto['providerType'];
@@ -1309,7 +1337,8 @@ function toManagedTarget(row: ManagedTargetRow): ManagedTargetDto {
   return {
     id: row.id,
     tenantId: row.tenant_id,
-    agentId: row.agent_id,
+    agentId: row.agent_id ?? undefined,
+    deviceAssetId: row.device_asset_id ?? undefined,
     hostId: row.host_id ?? undefined,
     serviceInstanceId: row.service_instance_id ?? undefined,
     serviceAssetId: row.service_asset_id ?? undefined,
@@ -1335,7 +1364,8 @@ function toApplicationAssetTarget(row: ApplicationAssetTargetRow): ApplicationAs
   return {
     id: row.id,
     applicationAssetId: row.application_asset_id,
-    agentId: row.agent_id,
+    agentId: row.agent_id ?? undefined,
+    deviceAssetId: row.device_asset_id ?? undefined,
     siteAssetId: row.site_asset_id,
     managedTargetId: row.managed_target_id,
     providerType: row.provider_type,
@@ -1420,6 +1450,18 @@ function asArray(value: unknown): any[] {
 
 function asObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function assertSameOwner(agentId: string | undefined, deviceAssetId: string | undefined, managedTarget: ManagedTargetDto): void {
+  if (agentId !== managedTarget.agentId || deviceAssetId !== managedTarget.deviceAssetId) {
+    throw new AppError('VALIDATION_FAILED', 'ApplicationAssetTarget 所有者与 ManagedTarget 不一致', {
+      agentId,
+      deviceAssetId,
+      managedTargetId: managedTarget.id,
+      managedTargetAgentId: managedTarget.agentId,
+      managedTargetDeviceAssetId: managedTarget.deviceAssetId,
+    });
+  }
 }
 
 function nowIso(): string {

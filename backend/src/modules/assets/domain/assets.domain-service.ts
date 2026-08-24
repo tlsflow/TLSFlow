@@ -292,10 +292,11 @@ export class AssetsDomainService {
     return normalized;
   }
 
-  normalizeManagedTarget(input: CreateManagedTargetDto): Required<Pick<CreateManagedTargetDto, 'agentId' | 'providerType' | 'frameworkType' | 'targetType' | 'targetKey' | 'capabilityProfile' | 'status' | 'metadata'>> & CreateManagedTargetDto {
+  normalizeManagedTarget(input: CreateManagedTargetDto): Required<Pick<CreateManagedTargetDto, 'providerType' | 'frameworkType' | 'targetType' | 'targetKey' | 'capabilityProfile' | 'status' | 'metadata'>> & CreateManagedTargetDto {
+    const owner = normalizeManagementOwner(input.agentId, input.deviceAssetId);
     return {
       ...input,
-      agentId: normalizeRequiredString(input.agentId, 'agentId'),
+      ...owner,
       hostId: normalizeOptionalString(input.hostId),
       serviceInstanceId: normalizeOptionalString(input.serviceInstanceId),
       serviceAssetId: normalizeOptionalString(input.serviceAssetId),
@@ -315,7 +316,8 @@ export class AssetsDomainService {
 
   normalizeManagedTargetPatch(input: UpdateManagedTargetDto): UpdateManagedTargetDto {
     const normalized: UpdateManagedTargetDto = { ...input };
-    if (input.agentId !== undefined) normalized.agentId = normalizeRequiredString(input.agentId, 'agentId');
+    if (input.agentId !== undefined) normalized.agentId = normalizeOptionalString(input.agentId);
+    if (input.deviceAssetId !== undefined) normalized.deviceAssetId = normalizeOptionalString(input.deviceAssetId);
     if (input.hostId !== undefined) normalized.hostId = normalizeRequiredString(input.hostId, 'hostId');
     if (input.serviceInstanceId !== undefined) normalized.serviceInstanceId = normalizeOptionalString(input.serviceInstanceId);
     if (input.serviceAssetId !== undefined) normalized.serviceAssetId = normalizeOptionalString(input.serviceAssetId);
@@ -333,11 +335,12 @@ export class AssetsDomainService {
     return normalized;
   }
 
-  normalizeApplicationAssetTarget(input: CreateApplicationAssetTargetDto): Required<Pick<CreateApplicationAssetTargetDto, 'applicationAssetId' | 'agentId' | 'siteAssetId' | 'managedTargetId' | 'providerType' | 'frameworkType' | 'targetType' | 'targetKey' | 'status' | 'metadata'>> & CreateApplicationAssetTargetDto {
+  normalizeApplicationAssetTarget(input: CreateApplicationAssetTargetDto): Required<Pick<CreateApplicationAssetTargetDto, 'applicationAssetId' | 'siteAssetId' | 'managedTargetId' | 'providerType' | 'frameworkType' | 'targetType' | 'targetKey' | 'status' | 'metadata'>> & CreateApplicationAssetTargetDto {
+    const owner = normalizeManagementOwner(input.agentId, input.deviceAssetId);
     return {
       ...input,
+      ...owner,
       applicationAssetId: normalizeRequiredString(input.applicationAssetId, 'applicationAssetId'),
-      agentId: normalizeRequiredString(input.agentId, 'agentId'),
       siteAssetId: normalizeRequiredString(input.siteAssetId, 'siteAssetId'),
       managedTargetId: normalizeRequiredString(input.managedTargetId, 'managedTargetId'),
       providerType: readEnum(input.providerType, ProviderTypes, 'providerType'),
@@ -353,7 +356,8 @@ export class AssetsDomainService {
   normalizeApplicationAssetTargetPatch(input: UpdateApplicationAssetTargetDto): UpdateApplicationAssetTargetDto {
     const normalized: UpdateApplicationAssetTargetDto = { ...input };
     if (input.applicationAssetId !== undefined) normalized.applicationAssetId = normalizeRequiredString(input.applicationAssetId, 'applicationAssetId');
-    if (input.agentId !== undefined) normalized.agentId = normalizeRequiredString(input.agentId, 'agentId');
+    if (input.agentId !== undefined) normalized.agentId = normalizeOptionalString(input.agentId);
+    if (input.deviceAssetId !== undefined) normalized.deviceAssetId = normalizeOptionalString(input.deviceAssetId);
     if (input.siteAssetId !== undefined) normalized.siteAssetId = normalizeRequiredString(input.siteAssetId, 'siteAssetId');
     if (input.managedTargetId !== undefined) normalized.managedTargetId = normalizeRequiredString(input.managedTargetId, 'managedTargetId');
     if (input.providerType !== undefined) normalized.providerType = readEnum(input.providerType, ProviderTypes, 'providerType');
@@ -383,6 +387,17 @@ function normalizeOptionalString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function normalizeManagementOwner(agentIdValue: unknown, deviceAssetIdValue: unknown): Pick<CreateManagedTargetDto, 'agentId' | 'deviceAssetId'> {
+  const agentId = normalizeOptionalString(agentIdValue);
+  const deviceAssetId = normalizeOptionalString(deviceAssetIdValue);
+  if (Boolean(agentId) === Boolean(deviceAssetId)) {
+    throw new AppError('VALIDATION_FAILED', '受管目标必须且只能指定一个 Agent 或设备所有者', {
+      fields: ['agentId', 'deviceAssetId'],
+    });
+  }
+  return { agentId, deviceAssetId };
 }
 
 function normalizeRequiredString(value: unknown, field: string): string {

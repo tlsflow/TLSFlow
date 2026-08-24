@@ -359,7 +359,8 @@ export type UpdateSiteAssetDto = Partial<CreateSiteAssetDto>;
 export interface ManagedTargetDto {
   id: string;
   tenantId: string;
-  agentId: string;
+  agentId?: string;
+  deviceAssetId?: string;
   hostId?: string;
   serviceInstanceId?: string;
   serviceAssetId?: string;
@@ -383,7 +384,8 @@ export interface ManagedTargetDto {
 export interface ApplicationAssetTargetSummaryDto {
   id: string;
   applicationAssetId: string;
-  agentId: string;
+  agentId?: string;
+  deviceAssetId?: string;
   siteAssetId: string;
   managedTargetId: string;
   providerType: ProviderType;
@@ -426,7 +428,8 @@ export interface ApplicationAssetTargetDetailDto extends ApplicationAssetTargetS
 
 export interface CreateApplicationAssetTargetDto {
   applicationAssetId: string;
-  agentId: string;
+  agentId?: string;
+  deviceAssetId?: string;
   siteAssetId: string;
   managedTargetId: string;
   providerType: ProviderType;
@@ -488,7 +491,8 @@ export interface CreateManagedTargetSnapshotDto {
 }
 
 export interface CreateManagedTargetDto {
-  agentId: string;
+  agentId?: string;
+  deviceAssetId?: string;
   hostId?: string;
   serviceInstanceId?: string;
   serviceAssetId?: string;
