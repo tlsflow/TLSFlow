@@ -18,11 +18,6 @@ namespace GCAC.WindowsCompatibilityAgent
                     Console.WriteLine(ProductIdentity.ProductLine + " " + ProductIdentity.Version + " runtime=" + ProductIdentity.Runtime);
                     return 0;
                 }
-                if (Has(args, "--inspect-iis"))
-                {
-                    Console.WriteLine(new JavaScriptSerializer().Serialize(new IisInspector().Inspect()));
-                    return 0;
-                }
                 string configPath = Value(args, "--config") ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "agent.config.json");
                 AgentConfig config = AgentConfig.Load(configPath);
                 if (Has(args, "--self-test") || Has(args, "--preflight"))

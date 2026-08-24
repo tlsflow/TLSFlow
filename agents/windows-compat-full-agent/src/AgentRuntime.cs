@@ -12,8 +12,8 @@ namespace GCAC.WindowsCompatibilityAgent
         private readonly AgentIdentityStore identityStore;
         private readonly ControlPlaneClient client;
         private readonly CapabilityCollector capabilityCollector;
-        private readonly WindowsRuntimeDiscovery runtimeDiscovery;
         private readonly ActionRegistry registry;
+        private readonly DirectControlServer directControl;
         private string activeAgentId;
         private DateTime? lastRecoveryAtUtc;
         private DateTime? lastTaskPollAtUtc;
@@ -33,89 +33,87 @@ namespace GCAC.WindowsCompatibilityAgent
             identityStore = new AgentIdentityStore(config.dataDirectory);
             client = new ControlPlaneClient(config);
             capabilityCollector = new CapabilityCollector(config);
-            runtimeDiscovery = new WindowsRuntimeDiscovery(config);
-            registry = BuildRegistry(config.dataDirectory);
+            registry = BuildRegistry();
+            directControl = new DirectControlServer(config, registry, delegate { return BuildRuntimeHealth(null); });
         }
 
         public void Run(WaitHandle stopSignal)
         {
-            DirectControlServer directControl = null;
             try
             {
-                if (config.directControlEnabled)
+                try
                 {
-                    directControl = new DirectControlServer(config, logger, registry);
                     directControl.Start();
-                    client.SetDirectControlState(true, null);
                 }
-            }
-            catch (Exception error)
-            {
-                client.SetDirectControlState(false, error.Message);
-                logger.Write("error", "direct_control.start_failed", error.Message);
-            }
-            try
-            {
-            CapabilitySnapshot snapshot = capabilityCollector.Collect();
-            UpdateSelfCheck(snapshot);
-            string agentId = identityStore.Load();
-            if (TextUtility.IsBlank(agentId))
-            {
-                agentId = client.Register(snapshot, RegisteredActions());
-                identityStore.Save(agentId);
-                logger.Write("info", "registration.completed", "agentId=" + agentId);
-            }
-            else
-            {
-                logger.Write("info", "registration.reused", "agentId=" + agentId);
-            }
-            activeAgentId = agentId;
-            TryReportInitialCapabilities(agentId, snapshot);
-            ReplayPending(agentId);
-            DateTime nextHeartbeat = DateTime.MinValue;
-            logger.Write("info", "runtime.started", "agentId=" + agentId);
-            while (!stopSignal.WaitOne(0))
-            {
-                if (DateTime.UtcNow >= nextHeartbeat)
+                catch (Exception error)
                 {
+                    logger.Write("error", "direct_control.start_failed", error.Message);
+                }
+                CapabilitySnapshot snapshot = capabilityCollector.Collect();
+                UpdateSelfCheck(snapshot);
+                string agentId = identityStore.Load();
+                if (TextUtility.IsBlank(agentId))
+                {
+                    agentId = client.Register(snapshot, directControl.Snapshot());
+                    identityStore.Save(agentId);
+                    logger.Write("info", "registration.completed", "agentId=" + agentId);
+                }
+                else
+                {
+                    logger.Write("info", "registration.reused", "agentId=" + agentId);
+                }
+                activeAgentId = agentId;
+                TryReportInitialCapabilities(agentId, snapshot);
+                ReplayPending(agentId);
+                DateTime nextHeartbeat = DateTime.MinValue;
+                logger.Write("info", "runtime.started", "agentId=" + agentId);
+                while (!stopSignal.WaitOne(0))
+                {
+                    if (DateTime.UtcNow >= nextHeartbeat)
+                    {
+                        try
+                        {
+                            snapshot = capabilityCollector.Collect();
+                            UpdateSelfCheck(snapshot);
+                            client.Heartbeat(agentId, snapshot, BuildRuntimeHealth(snapshot), directControl.Snapshot());
+                            heartbeatFailures = 0;
+                            ClearLastErrorWhenRecovered();
+                        }
+                        catch (Exception error)
+                        {
+                            heartbeatFailures++;
+                            lastError = error.Message;
+                            logger.Write("error", "heartbeat.failed", error.Message);
+                        }
+                        nextHeartbeat = DateTime.UtcNow.AddSeconds(config.heartbeatIntervalSeconds);
+                    }
                     try
                     {
-                        snapshot = capabilityCollector.Collect();
-                        UpdateSelfCheck(snapshot);
-                        client.Heartbeat(agentId, snapshot, BuildRuntimeHealth(snapshot), RegisteredActions());
-                        heartbeatFailures = 0;
+                        ReplayPending(agentId);
+                        AgentTask task = client.Poll(agentId);
+                        lastTaskPollAtUtc = DateTime.UtcNow;
+                        taskPollFailures = 0;
+                        if (task != null) Execute(agentId, task);
                         ClearLastErrorWhenRecovered();
                     }
                     catch (Exception error)
                     {
-                        heartbeatFailures++;
+                        taskPollFailures++;
                         lastError = error.Message;
-                        logger.Write("error", "heartbeat.failed", error.Message);
+                        logger.Write("error", "task.poll_failed", error.Message);
                     }
-                    nextHeartbeat = DateTime.UtcNow.AddSeconds(config.heartbeatIntervalSeconds);
+                    stopSignal.WaitOne(TimeSpan.FromSeconds(config.taskPollIntervalSeconds));
                 }
-                try
-                {
-                    ReplayPending(agentId);
-                    AgentTask task = client.Poll(agentId);
-                    lastTaskPollAtUtc = DateTime.UtcNow;
-                    taskPollFailures = 0;
-                    if (task != null) Execute(agentId, task);
-                    ClearLastErrorWhenRecovered();
-                }
-                catch (Exception error)
-                {
-                    taskPollFailures++;
-                    lastError = error.Message;
-                    logger.Write("error", "task.poll_failed", error.Message);
-                }
-                stopSignal.WaitOne(TimeSpan.FromSeconds(config.taskPollIntervalSeconds));
+                logger.Write("info", "runtime.stopped", "Agent 已停止");
             }
-            logger.Write("info", "runtime.stopped", "Agent 已停止");
+            catch (Exception error)
+            {
+                RecordFatal(error);
+                throw;
             }
             finally
             {
-                if (directControl != null) directControl.Dispose();
+                directControl.Stop();
             }
         }
 
@@ -140,7 +138,13 @@ namespace GCAC.WindowsCompatibilityAgent
             logger.Write("info", "task.started", "taskId=" + task.id + " action=" + (task.action ?? task.type));
             ActionResult result;
             try { result = registry.Execute(task); }
-            catch (Exception error) { result = ActionResult.Failed("ACTION_EXECUTION_FAILED", error.Message, null); }
+            catch (Exception error)
+            {
+                string action = task == null ? string.Empty : (task.action ?? task.type);
+                result = AgentV2Actions.IsWrite(action)
+                    ? ActionResult.Unknown("AGENT_EXECUTION_UNKNOWN", error.Message, new Dictionary<string, object> { { "fallback", false }, { "replayed", false } })
+                    : ActionResult.Failed("ACTION_EXECUTION_FAILED", error.Message, null);
+            }
             ledger.SavePending(task, result);
             try
             {
@@ -200,9 +204,6 @@ namespace GCAC.WindowsCompatibilityAgent
             if (lastSelfCheck != null && !lastSelfCheck.Supported)
                 foreach (PreflightCheck check in lastSelfCheck.Checks)
                     if (!check.Passed) degradedReasons.Add(TextUtility.IsBlank(check.ErrorCode) ? check.Message : check.ErrorCode);
-            object iisError;
-            if (snapshot != null && snapshot.Facts != null && snapshot.Facts.TryGetValue("windows.iis.inspection_error", out iisError) && !TextUtility.IsBlank(Convert.ToString(iisError)))
-                degradedReasons.Add("IIS_INSPECTION_FAILED: " + Convert.ToString(iisError));
             if (heartbeatFailures > 0) degradedReasons.Add("HEARTBEAT_FAILED");
             if (taskPollFailures > 0) degradedReasons.Add("TASK_POLL_FAILED");
             if (recoveryFailures > 0) degradedReasons.Add("RECOVERY_FAILED");
@@ -243,75 +244,19 @@ namespace GCAC.WindowsCompatibilityAgent
             if (value.HasValue) target[key] = value.Value.ToString("o");
         }
 
-        private ActionRegistry BuildRegistry(string dataDirectory)
+        private ActionRegistry BuildRegistry()
         {
             ActionRegistry actionRegistry = new ActionRegistry();
-            actionRegistry.Register(new ActionRegistration
+            foreach (string action in AgentV2Actions.All())
             {
-                CanonicalAction = "agent.capability.rescan",
-                SchemaVersion = ProductIdentity.ActionSchemaVersion,
-                Aliases = new string[0],
-                Handler = delegate(AgentTask task)
+                actionRegistry.Register(new ActionRegistration
                 {
-                    if (TextUtility.IsBlank(activeAgentId)) return ActionResult.Failed("AGENT_NOT_REGISTERED", "Agent 尚未完成注册", null);
-                    CapabilitySnapshot snapshot = capabilityCollector.Collect();
-                    UpdateSelfCheck(snapshot);
-                    client.ReportCapabilities(activeAgentId, snapshot);
-                    return ActionResult.Succeeded(new Dictionary<string, object>
-                    {
-                        { "snapshotId", snapshot.SnapshotId },
-                        { "reportedAt", snapshot.CollectedAtUtc.ToString("o") },
-                        { "factCount", snapshot.Facts.Count },
-                        { "capabilityCount", snapshot.Capabilities.Count }
-                    });
-                }
-            });
-            actionRegistry.Register(new ActionRegistration
-            {
-                CanonicalAction = "discovery.run",
-                SchemaVersion = ProductIdentity.ActionSchemaVersion,
-                Aliases = new string[] { "agent.discovery.run" },
-                Handler = delegate(AgentTask task)
-                {
-                    if (TextUtility.IsBlank(activeAgentId)) return ActionResult.Failed("AGENT_NOT_REGISTERED", "Agent 尚未完成注册", null);
-                    string requestId = task == null || task.payload == null ? string.Empty : AtomicValue.String(task.payload, "requestId");
-                    Dictionary<string, object> discovery = runtimeDiscovery.Collect(requestId);
-                    CapabilitySnapshot snapshot = capabilityCollector.Collect();
-                    UpdateSelfCheck(snapshot);
-                    client.ReportCapabilities(activeAgentId, snapshot);
-                    discovery["reportedCapability"] = true;
-                    return ActionResult.Succeeded(discovery);
-                }
-            });
-            actionRegistry.Register(new ActionRegistration
-            {
-                CanonicalAction = "agent.self_check",
-                SchemaVersion = ProductIdentity.ActionSchemaVersion,
-                Aliases = new string[] { "SELF_TEST" },
-                Handler = delegate(AgentTask task)
-                {
-                    CapabilitySnapshot snapshot = new CapabilityCollector().Collect();
-                    PreflightResult result = new PreflightEvaluator(PreflightEvaluator.MinimumRequirements()).Evaluate(snapshot);
-                    return result.Supported
-                        ? ActionResult.Succeeded(new Dictionary<string, object> { { "supported", true }, { "checks", result.Checks } })
-                        : ActionResult.Failed("PREFLIGHT_BLOCKED", "前置检查未通过", new Dictionary<string, object> { { "supported", false }, { "checks", result.Checks } });
-                }
-            });
-            actionRegistry.Register(new ActionRegistration
-            {
-                CanonicalAction = "certificate.trust.inspect",
-                SchemaVersion = ProductIdentity.ActionSchemaVersion,
-                Aliases = new string[0],
-                Handler = CertificateTrustInspector.Inspect
-            });
-            AtomicPlanHandler atomicPlanHandler = new AtomicPlanHandler(delegate { return activeAgentId; }, dataDirectory);
-            actionRegistry.Register(new ActionRegistration
-            {
-                CanonicalAction = "agent.atomic_plan.execute",
-                SchemaVersion = ProductIdentity.ActionSchemaVersion,
-                Aliases = new string[0],
-                Handler = atomicPlanHandler.Execute
-            });
+                    CanonicalAction = action,
+                    SchemaVersion = ProductIdentity.ActionSchemaVersion,
+                    Aliases = new string[0],
+                    Handler = AgentV2ContractHandler.Execute
+                });
+            }
             return actionRegistry;
         }
     }

@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.Security.Cryptography;
 using System.Text;
 using System.Web.Script.Serialization;
 
@@ -11,9 +12,7 @@ namespace GCAC.WindowsCompatibilityAgent
     {
         public string TaskId { get; set; }
         public string LeaseId { get; set; }
-        public string PlanId { get; set; }
         public string IdempotencyKey { get; set; }
-        public string PlanDigest { get; set; }
         public string ResultDigest { get; set; }
         public string State { get; set; }
         public int RetryCount { get; set; }
@@ -43,15 +42,12 @@ namespace GCAC.WindowsCompatibilityAgent
                 List<RecoveryRecord> records = LoadUnsafe();
                 string taskId = task == null ? string.Empty : task.id;
                 RecoveryRecord existing = records.Find(delegate(RecoveryRecord record) { return record.TaskId == taskId; });
-                Dictionary<string, object> plan = ExtractPlan(task);
                 RecoveryRecord pendingRecord = existing ?? new RecoveryRecord();
                 pendingRecord.TaskId = taskId;
                 pendingRecord.LeaseId = task == null ? string.Empty : task.leaseId;
-                pendingRecord.PlanId = AtomicValue.String(plan, "planId");
-                pendingRecord.IdempotencyKey = AtomicValue.String(plan, "idempotencyKey");
-                pendingRecord.PlanDigest = TextUtility.IsBlank(plan == null ? null : AtomicValue.CanonicalJson(plan)) ? string.Empty : AtomicValue.Sha256Hex(AtomicValue.CanonicalJson(plan));
+                pendingRecord.IdempotencyKey = task == null ? string.Empty : task.idempotencyKey;
                 pendingRecord.Result = RecoverySanitizer.Sanitize(result);
-                pendingRecord.ResultDigest = AtomicValue.Sha256Hex(serializer.Serialize(pendingRecord.Result));
+                pendingRecord.ResultDigest = Digest(serializer.Serialize(pendingRecord.Result));
                 pendingRecord.State = "PENDING_UPLOAD";
                 pendingRecord.ResultReported = false;
                 pendingRecord.LastError = null;
@@ -186,11 +182,17 @@ namespace GCAC.WindowsCompatibilityAgent
             }
         }
 
-        private Dictionary<string, object> ExtractPlan(AgentTask task)
+        private static string Digest(string value)
         {
-            Dictionary<string, object> plan;
-            return task != null && AtomicValue.TryDictionary(task.payload, "plan", out plan) ? plan : null;
+            using (SHA256 sha = SHA256.Create())
+            {
+                byte[] bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(value ?? string.Empty));
+                StringBuilder result = new StringBuilder(bytes.Length * 2);
+                foreach (byte current in bytes) result.Append(current.ToString("x2"));
+                return result.ToString();
+            }
         }
+
     }
 
     internal static class RecoverySanitizer
@@ -203,6 +205,7 @@ namespace GCAC.WindowsCompatibilityAgent
                 Success = result.Success,
                 ErrorCode = result.ErrorCode,
                 ErrorMessage = result.ErrorMessage,
+                Outcome = result.Outcome,
                 Detail = SanitizeDictionary(result.Detail)
             };
         }

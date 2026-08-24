@@ -10,10 +10,10 @@ Windows Compatibility Agent（Windows 兼容版 Agent）是面向 Windows Server
 - 服务名：`GCACWindowsCompatibilityAgent`
 - 显示名：`GCAC Windows Compatibility Agent`
 - Action Contract：`gcac.action/v1`
-- 唯一部署动作：`agent.atomic_plan.execute`
+- Agent Core 长期动作：`agent.fact.collect`、`agent.plan.validate`、`agent.plan.execute`、`agent.execution.receipt`
 - 运行时基线：.NET Framework 3.5.1
 
-Windows Server 2003、2003 R2 和 Windows Server 2008 非 R2 明确不支持。PowerShell 仅用于安装、升级和卸载编排，不是正式 Agent Runtime。
+Windows Server 2003、2003 R2 和 Windows Server 2008 非 R2 明确不支持。PowerShell 仅用于安装、升级和卸载脚本，不是正式 Agent Runtime；Agent Core 不执行 PowerShell、CMD、Shell 或下载后执行任务。
 
 ## 构建
 
@@ -37,14 +37,6 @@ Windows Server 2003、2003 R2 和 Windows Server 2008 非 R2 明确不支持。P
 
 前置检查把系统信息采集为 Fact（环境事实），再用通用约束运算符判断最低内核版本、.NET Framework 3.5.1、控制面连通性和服务权限；使用 HTTPS 控制面时额外检查 TLS 1.2。HTTP 控制面可以连接，但必须部署在受控内网或通过受信 Gateway 隔离，不建议用于生产公网。
 
-## IIS 绑定诊断
-
-```powershell
-.\bin\Release\GCAC.WindowsCompatibilityAgent.exe --inspect-iis
-```
-
-该命令只读检查 IIS 站点和 HTTPS Binding，并输出 `CertificateThumbprint`、`Certificate` 以及证书来源。Server 2008 R2 上如果 IIS 管理对象没有返回证书哈希，Agent 会继续检查 `netsh http show sslcert` 的 HTTP.sys SSL 绑定表。
-
 ## 安装、升级与恢复
 
 - 安装：`install-service.ps1`
@@ -60,4 +52,6 @@ Windows Server 2003、2003 R2 和 Windows Server 2008 非 R2 明确不支持。P
 
 ## 当前认证状态
 
-本工程具备统一注册、心跳、能力上报、任务拉取、确认、结果上报、动作 Registry、前置检查、恢复账本和审计日志。部署只接受控制面签名的 `agent.atomic_plan.execute`，校验目标 Agent、有效期、权限 scope 和 Operation Schema；历史 `certificate.deploy` 与 `windows.iis.deploy_certificate` 不再注册。Windows Server 2008 R2 SP1 + IIS 7.5 真实认证完成前，兼容性状态只能是 `experimental` 或 `blocked`，不得声明 `certified`。
+本工程具备统一注册、心跳、能力上报、任务拉取、确认、结果上报、动作 Registry、前置检查、恢复账本和审计日志。Agent Core 只注册并接受四个 Agent v2 长期动作；缺少独立 Policy Authority 信任根时，四个动作全部失败关闭，不回退到历史执行器。
+
+IIS Inspector、IIS 专用 Handler 和 IIS 站点/Binding 事实不属于本产品的宿主 Core。若未来存在无法由通用原语完成的 IIS API，只能通过独立的 Agent-side Plugin 合同承载；该 Plugin 必须保持独立边界，不能新增 Core 动作或把 IIS 专用执行逻辑回流到宿主。

@@ -1,12 +1,18 @@
 using GCAC.WindowsCompatibilityAgent;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
-using System.ServiceProcess;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+using System.Threading;
+using System.Web.Script.Serialization;
 
 internal static class Tests
 {
     private static int failures;
+    private static int executedTests;
 
     private static int Main()
     {
@@ -14,50 +20,50 @@ internal static class Tests
         Run("Registry 拒绝重复 Alias", RegistryRejectsDuplicateAlias);
         Run("未知 Schema Version 失败关闭", RegistryRejectsUnknownSchema);
         Run("前置检查按事实和通用操作符解析", PreflightUsesFacts);
-        Run("签名 Atomic Plan 可进入通用执行入口", AtomicPlanAcceptsSignedPlan);
-        Run("未签名 Atomic Plan 失败关闭", AtomicPlanRejectsUnsignedPlan);
-        Run("未知 Atomic Operation 失败关闭", AtomicPlanRejectsUnknownOperation);
-        Run("未知 Atomic Action Schema 失败关闭", AtomicPlanRejectsUnknownActionSchema);
+        Run("退役旧计划动作不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("agent.atomic_plan.execute"); });
+        Run("缺少 Agent v2 Policy Authority 必须失败关闭且写操作不确定", AgentV2PolicyUnavailable);
+        Run("旧计划动作无论载荷如何都不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("agent.atomic_plan.execute", "file.atomic_replace"); });
+        Run("旧命令动作不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("command.execute"); });
         Run("缺失前置事实返回稳定阻塞错误", PreflightReportsStableBlocker);
         Run("HTTP 控制面不启用 TLS 配置", HttpControlPlaneDoesNotRequireTls);
         Run("HTTPS 控制面仍识别为 TLS 传输", HttpsControlPlaneRequiresTls);
         Run("系统事实包含注册和详情所需字段", CapabilityCollectorIncludesSystemFacts);
         Run("注册请求包含系统描述字段", RegistrationRequestIncludesSystemDescriptor);
-        Run("注册请求包含独立 Direct Control 端口", RegistrationRequestIncludesDirectControl);
-        Run("注册请求声明运行时 Direct Control 动作", RegistrationRequestIncludesRuntimeDirectControlActions);
-        Run("旧配置自动启用 Direct Control 和十秒心跳", LegacyConfigEnablesDirectControl);
-        Run("显式关闭 Direct Control 时保持关闭", ExplicitDirectControlDisableIsPreserved);
+        Run("注册请求包含 Direct Control 状态", RegistrationRequestIncludesDirectControl);
+        Run("心跳请求包含 Direct Control 状态", HeartbeatRequestIncludesDirectControl);
+        Run("注册动作集合严格限定为 Agent v2 合同", RuntimeActionsMatchAgentV2Contract);
+        Run("Agent v2 合同不回退旧执行器", AgentV2ContractDoesNotFallback);
         Run("能力报告使用 L2 和结构化声明", CapabilityRequestUsesStructuredL2Declarations);
-        Run("能力报告包含 IIS 详情和站点", CapabilityRequestIncludesIisInspection);
+        Run("能力报告不再包含 IIS 详情和站点", CapabilityRequestExcludesIisInspection);
         Run("心跳请求包含公共健康模型", HeartbeatRequestIncludesRuntimeHealth);
         Run("Agent ID 可跨进程重启持久化", AgentIdentityPersistsAcrossRestart);
-        Run("IIS Binding 信息解析兼容主机头", IisBindingInformationParsesHostHeader);
-        Run("IIS 证书哈希兼容字节数组和字符串", IisCertificateHashSupportsLegacyValues);
-        Run("IIS 证书哈希支持属性缺失时的 Attribute 兜底", IisCertificateHashUsesAttributeFallback);
-        Run("IIS HTTP.sys SSL 绑定支持按端口回退发现", IisHttpSysSslBindingFallback);
-        Run("IIS 管理程序集路径解析稳定", IisAdministrationAssemblyPathIsStable);
+        Run("IIS 绑定动作不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("windows.iis.binding.capture"); });
+        Run("IIS 证书更新动作不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("windows.iis.binding.update_certificate"); });
+        Run("IIS 属性回退动作不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("windows.iis.binding.restore_certificate"); });
+        Run("IIS HTTP.sys 动作不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("windows.iis.http.sys"); });
+        Run("IIS 管理程序集路径不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("windows.iis.management"); });
         Run("任务拉取结果展开公共动作载荷", PulledTaskNormalizesPublicActionPayload);
-        Run("运行时注册手动重扫动作", RuntimeRegistersCapabilityRescan);
-        Run("运行时注册通用发现动作", RuntimeRegistersDiscovery);
-        Run("非 IIS 发现输出结构化公开事实", RuntimeDiscoveryReturnsStructuredFacts);
-        Run("非 IIS 发现部分失败保留 warning", RuntimeDiscoveryPreservesWarnings);
-        Run("Direct Control 复用 Atomic Plan Registry", DirectControlUsesAtomicPlanRegistry);
-        Run("文件备份替换失败后自动恢复", AtomicFileReplaceRollsBack);
-        Run("不存在文件的备份和恢复保持幂等", AtomicMissingFileBackupRollsBack);
-        Run("PREFLIGHT 不修改文件", AtomicPreflightDoesNotMutate);
-        Run("文件路径越权被拒绝", AtomicFilePermissionIsEnforced);
-        Run("程序路径越权被拒绝", AtomicProgramPermissionIsEnforced);
-        Run("Shell 程序在显式权限下可执行", AtomicShellProgramIsAllowedWithPermission);
-        Run("参数数组程序执行成功", AtomicCommandArgumentsExecute);
-        Run("服务权限越权被拒绝", AtomicServicePermissionIsEnforced);
-        Run("服务状态预演只读成功", AtomicServiceStatusPreflight);
-        Run("Atomic Plan 账本跨实例幂等", AtomicLedgerPersistsIdempotency);
-        Run("相同幂等键的不同计划被拒绝", AtomicLedgerRejectsPlanConflict);
-        Run("回滚失败进入人工处理", AtomicRollbackFailureRequiresManualIntervention);
+        Run("运行时只注册四个 Agent v2 动作", RuntimeRegistersOnlyAgentV2Actions);
+        Run("运行时不注册历史 Agent 动作", RuntimeDoesNotRegisterLegacyActions);
+        Run("第三方产品发现不再进入 Agent Core", delegate { LegacyExecutionPathIsRejected("agent.plan.execute", "product.discovery"); });
+        Run("HTTP 直连健康启动状态和 v2 执行路径一致", DirectControlHttpContract);
+        Run("动作注册表不暴露旧健康直连动作", RegistryDoesNotExposeDirectControlAction);
+        Run("旧文件替换原语不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("file.atomic_replace"); });
+        Run("旧文件恢复原语不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("file.restore"); });
+        Run("旧 PREFLIGHT 原语不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("preflight.assert"); });
+        Run("旧文件路径原语不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("file.replace"); });
+        Run("旧程序路径原语不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("command.execute"); });
+        Run("旧 Shell 原语不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("shell.execute"); });
+        Run("旧自由参数原语不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("process.execute"); });
+        Run("旧服务原语不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("service.control"); });
+        Run("旧服务预演原语不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("service.preview"); });
+        Run("旧计划账本路径不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("atomic_plan.ledger"); });
+        Run("旧计划冲突路径不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("atomic_plan.conflict"); });
+        Run("旧计划回滚路径不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("atomic_plan.rollback"); });
         Run("Recovery Ledger 保存摘要并支持重试确认", RecoveryLedgerPersistsRetryState);
         Run("Recovery Ledger 损坏进入人工处理", RecoveryLedgerCorruptionRequiresManualIntervention);
         Run("结果提交失败注入默认关闭且可控", ResultSubmissionFailureInjectionIsControlled);
-        Console.WriteLine("tests=" + 47 + " failures=" + failures);
+        Console.WriteLine("tests=" + executedTests + " failures=" + failures);
         return failures == 0 ? 0 : 1;
     }
 
@@ -90,36 +96,21 @@ internal static class Tests
         Assert(evaluator.Evaluate(snapshot).Supported, "通用事实约束未通过");
     }
 
-    private static void AtomicPlanAcceptsSignedPlan()
+    private static void AgentV2PolicyUnavailable()
     {
-        Dictionary<string, object> plan = AtomicPlan("preflight.assert", new Dictionary<string, object> { { "value", true } });
-        Assert(AtomicPlanSecurity.ComputeSignature(plan) == "31cb3999874d81bcecafc1b550ef1a51f4204ca32df1ab46e0d79d2ee45ebc6c", "Atomic Plan 规范化签名与控制面不一致");
-        SignPlan(plan);
-        ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
-        Assert(result.Success && Convert.ToString(result.Detail["state"]) == "SUCCEEDED", "签名 Atomic Plan 未执行成功");
-    }
-
-    private static void AtomicPlanRejectsUnsignedPlan()
-    {
-        Dictionary<string, object> plan = AtomicPlan("preflight.assert", new Dictionary<string, object> { { "value", true } });
-        ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
-        Assert(!result.Success && result.ErrorCode == "AGENT_PLAN_SIGNATURE_INVALID", "未签名 Atomic Plan 未失败关闭");
-    }
-
-    private static void AtomicPlanRejectsUnknownOperation()
-    {
-        Dictionary<string, object> plan = AtomicPlan("windows.iis.unknown", new Dictionary<string, object>());
-        SignPlan(plan);
-        ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
-        Assert(!result.Success && result.ErrorCode == "AGENT_ATOMIC_PREFLIGHT_FAILED", "未知 Atomic Operation 未失败关闭");
-    }
-
-    private static void AtomicPlanRejectsUnknownActionSchema()
-    {
-        Dictionary<string, object> plan = AtomicPlan("preflight.assert", new Dictionary<string, object> { { "value", true } });
-        SignPlan(plan);
-        ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }).Execute(new AgentTask { payload = new Dictionary<string, object> { { "actionSchemaVersion", "2.0" }, { "plan", plan } } });
-        Assert(!result.Success && result.ErrorCode == "AGENT_ACTION_SCHEMA_UNSUPPORTED", "未知 Atomic Action Schema 未失败关闭");
+        foreach (string action in AgentV2Actions.All())
+        {
+            ActionResult result = AgentV2ContractHandler.Execute(new AgentTask
+            {
+                action = action,
+                payload = action == AgentV2Actions.PlanExecute
+                    ? new Dictionary<string, object> { { "plan", new Dictionary<string, object> { { "mutating", true } } } }
+                    : null
+            });
+            Assert(!result.Success && result.ErrorCode == "AGENT_V2_POLICY_UNAVAILABLE", "缺少 Agent v2 Policy Authority 时未失败关闭");
+            Assert(result.Outcome == (AgentV2Actions.IsWrite(action) ? "UNKNOWN" : "FAILED"), "Agent v2 终态未按读写风险分类");
+            Assert(result.Detail != null && Convert.ToBoolean(result.Detail["fallback"]) == false, "Agent v2 缺少授权时存在 fallback");
+        }
     }
 
     private static void PreflightReportsStableBlocker()
@@ -153,7 +144,7 @@ internal static class Tests
     {
         AgentConfig config = TestConfig();
         CapabilitySnapshot snapshot = Snapshot();
-        Dictionary<string, object> request = new ControlPlaneClient(config).BuildRegistrationRequest(snapshot, RuntimeRegisteredActions());
+        Dictionary<string, object> request = new ControlPlaneClient(config).BuildRegistrationRequest(snapshot);
         Assert(Convert.ToString(request["machineId"]) == "machine-1", "注册请求未上传 Machine ID");
         Assert(Convert.ToString(request["ipAddress"]) == "10.20.30.40", "注册请求未上传 IP 地址");
         Assert(Convert.ToString(request["osVersion"]) == "Windows Server 2008 R2 Standard", "注册请求未上传操作系统版本");
@@ -162,43 +153,87 @@ internal static class Tests
     private static void RegistrationRequestIncludesDirectControl()
     {
         AgentConfig config = TestConfig();
+        DirectControlState state = DirectControlStateForTest();
+        Dictionary<string, object> request = new ControlPlaneClient(config).BuildRegistrationRequest(Snapshot(), state);
+        Assert(request.ContainsKey("directControl"), "注册请求未上传 Direct Control 状态");
+        DirectControlState directControl = (DirectControlState)request["directControl"];
+        Assert(directControl.enabled && directControl.reachable, "注册请求的 Direct Control 状态不正确");
+    }
+
+    private static void HeartbeatRequestIncludesDirectControl()
+    {
+        Dictionary<string, object> request = ControlPlaneClient.BuildHeartbeatRequest("agent-1", Snapshot(), new Dictionary<string, object> { { "status", "healthy" } }, DirectControlStateForTest());
+        Assert(request.ContainsKey("directControl"), "心跳请求未上传 Direct Control 状态");
+    }
+
+    private static void DirectControlHttpContract()
+    {
+        AgentConfig config = TestConfig();
         config.directControlEnabled = true;
-        config.directControlListenPort = 18933;
-        Dictionary<string, object> request = new ControlPlaneClient(config).BuildRegistrationRequest(Snapshot(), RuntimeRegisteredActions());
-        Dictionary<string, object> directControl = request["directControl"] as Dictionary<string, object>;
-        Assert(directControl != null, "注册请求未上传 Direct Control");
-        Assert(Convert.ToString(directControl["listenAddress"]) == "10.20.30.40:18933", "Compatibility Agent 管理端口错误");
-    }
-
-    private static void LegacyConfigEnablesDirectControl()
-    {
-        string path = WriteConfig("{\"tenantId\":\"tenant-1\",\"agentKey\":\"agent-1\",\"controlPlaneUrl\":\"http://127.0.0.1:5172\",\"heartbeatIntervalSeconds\":30}");
+        config.directControlListenHost = "127.0.0.1";
+        config.directControlAdvertiseHost = "127.0.0.1";
+        config.directControlListenPort = FindFreePort();
+        DirectControlServer server = new DirectControlServer(config, AgentV2Registry(), delegate
+        {
+            return new Dictionary<string, object> { { "modelVersion", "gcac.agent.health.v1" }, { "status", "healthy" } };
+        });
         try
         {
-            AgentConfig config = AgentConfig.Load(path);
-            Assert(config.directControlEnabled, "旧配置未自动启用 Direct Control");
-            Assert(config.directControlListenPort == 18933, "旧配置未补齐 Direct Control 端口");
-            Assert(config.heartbeatIntervalSeconds == 10, "旧配置未迁移到十秒心跳");
+            server.Start();
+            string baseUrl = "http://127.0.0.1:" + config.directControlListenPort;
+            Dictionary<string, object> health = SendJson(baseUrl + "/api/v1/control/health", "GET", null);
+            Dictionary<string, object> directControl = (Dictionary<string, object>)health["directControl"];
+            Assert(Convert.ToBoolean(directControl["enabled"]) && Convert.ToBoolean(directControl["reachable"]), "健康接口未报告可达直连状态");
+            IList actions = (IList)directControl["supportedActions"];
+            Assert(actions.Count == 4 && actions.Contains(AgentV2Actions.PlanExecute), "健康接口暴露的动作集合不正确");
+
+            Dictionary<string, object> start = SendJson(baseUrl + "/api/v1/control/actions/start", "POST", new Dictionary<string, object>
+            {
+                { "action", AgentV2Actions.PlanExecute },
+                { "requestId", "http-contract-1" },
+                { "token", new Dictionary<string, object>() },
+                { "policyDecision", new Dictionary<string, object>() },
+                { "plan", new Dictionary<string, object> { { "mutating", true } } }
+            });
+            string actionId = Convert.ToString(start["actionId"]);
+            Assert(Convert.ToString(start["status"]) == "queued", "启动接口未返回 queued");
+            Dictionary<string, object> status = null;
+            for (int attempt = 0; attempt < 50; attempt++)
+            {
+                status = SendJson(baseUrl + "/api/v1/control/actions/status?actionId=" + Uri.EscapeDataString(actionId), "GET", null);
+                if (Convert.ToString(status["status"]) == "completed") break;
+                Thread.Sleep(10);
+            }
+            Assert(status != null && Convert.ToString(status["status"]) == "completed", "状态接口未完成动作查询");
+            Assert(Convert.ToString(status["errorCode"]) == "AGENT_V2_POLICY_UNAVAILABLE", "直连请求未进入 AgentV2ContractHandler");
+            Assert(Convert.ToString(status["outcome"]) == "UNKNOWN", "写操作策略不可用时未返回 UNKNOWN");
+
+            HttpWebRequest legacy = (HttpWebRequest)WebRequest.Create(baseUrl + "/api/v1/control/actions/start");
+            legacy.Method = "POST";
+            legacy.ContentType = "application/json; charset=utf-8";
+            byte[] legacyPayload = Encoding.UTF8.GetBytes("{\"action\":\"command.execute\"}");
+            legacy.ContentLength = legacyPayload.Length;
+            using (Stream stream = legacy.GetRequestStream()) stream.Write(legacyPayload, 0, legacyPayload.Length);
+            try { legacy.GetResponse(); throw new InvalidOperationException("旧动作未被拒绝"); }
+            catch (WebException error)
+            {
+                HttpWebResponse response = (HttpWebResponse)error.Response;
+                Assert((int)response.StatusCode == 400, "旧动作拒绝状态码错误");
+                response.Close();
+            }
         }
         finally
         {
-            File.Delete(path);
+            server.Stop();
         }
     }
 
-    private static void ExplicitDirectControlDisableIsPreserved()
+    private static void RuntimeActionsMatchAgentV2Contract()
     {
-        string path = WriteConfig("{\"tenantId\":\"tenant-1\",\"agentKey\":\"agent-1\",\"controlPlaneUrl\":\"http://127.0.0.1:5172\",\"heartbeatIntervalSeconds\":15,\"directControlEnabled\":false}");
-        try
-        {
-            AgentConfig config = AgentConfig.Load(path);
-            Assert(!config.directControlEnabled, "显式关闭 Direct Control 被错误覆盖");
-            Assert(config.heartbeatIntervalSeconds == 15, "显式心跳周期被错误覆盖");
-        }
-        finally
-        {
-            File.Delete(path);
-        }
+        string[] actions = RuntimeRegisteredActions();
+        string[] expected = AgentV2Actions.All();
+        Assert(actions.Length == expected.Length, "运行时动作集合包含非 Agent v2 动作");
+        foreach (string action in expected) Assert(Array.IndexOf(actions, action) >= 0, "运行时缺少 Agent v2 动作：" + action);
     }
 
     private static void CapabilityRequestUsesStructuredL2Declarations()
@@ -228,12 +263,12 @@ internal static class Tests
         Assert(task.leaseId != null && task.leaseId.StartsWith("compat:"), "未生成 Compatibility Agent Lease ID");
     }
 
-    private static void CapabilityRequestIncludesIisInspection()
+    private static void CapabilityRequestExcludesIisInspection()
     {
         Dictionary<string, object> request = ControlPlaneClient.BuildCapabilityRequest("agent-1", Snapshot());
         List<Dictionary<string, object>> capabilities = (List<Dictionary<string, object>>)request["capabilities"];
-        Assert(capabilities.Exists(delegate(Dictionary<string, object> item) { return Convert.ToString(item["capabilityKey"]) == "windows.iis.detail"; }), "能力报告缺少 IIS 详情");
-        Assert(capabilities.Exists(delegate(Dictionary<string, object> item) { return Convert.ToString(item["capabilityKey"]) == "windows.iis.sites"; }), "能力报告缺少 IIS 站点");
+        Assert(!capabilities.Exists(delegate(Dictionary<string, object> item) { return Convert.ToString(item["capabilityKey"]) == "windows.iis.detail"; }), "能力报告仍包含 IIS 详情");
+        Assert(!capabilities.Exists(delegate(Dictionary<string, object> item) { return Convert.ToString(item["capabilityKey"]) == "windows.iis.sites"; }), "能力报告仍包含 IIS 站点");
     }
 
     private static void HeartbeatRequestIncludesRuntimeHealth()
@@ -247,16 +282,21 @@ internal static class Tests
         Assert(object.ReferenceEquals(request["runtimeHealth"], runtimeHealth), "心跳请求未上传运行健康模型");
     }
 
-    private static void RegistrationRequestIncludesRuntimeDirectControlActions()
+    private static void AgentV2ContractDoesNotFallback()
     {
-        Dictionary<string, object> request = new ControlPlaneClient(TestConfig()).BuildRegistrationRequest(Snapshot(), RuntimeRegisteredActions());
-        Dictionary<string, object> directControl = (Dictionary<string, object>)request["directControl"];
-        string[] supportedActions = (string[])directControl["supportedActions"];
-        Assert(Array.IndexOf(supportedActions, "agent.capability.rescan") >= 0, "注册请求未声明能力重扫 Direct Control 动作");
-        Assert(Array.IndexOf(supportedActions, "agent.atomic_plan.execute") >= 0, "注册请求未声明 Atomic Plan Direct Control 动作");
-        Assert(Array.IndexOf(supportedActions, "certificate.trust.inspect") >= 0, "注册请求未声明根证书只读检查动作");
-        Assert(Array.IndexOf(supportedActions, "certificate.deploy") < 0, "注册请求仍声明历史证书动作");
-        Assert(Array.IndexOf(supportedActions, "windows.iis.deploy_certificate") < 0, "注册请求仍声明历史 IIS 证书动作");
+        ActionResult result = AgentV2Registry().Execute(new AgentTask
+        {
+            action = "agent.plan.execute",
+            type = "agent.plan.execute",
+            schemaVersion = ProductIdentity.ActionSchemaVersion,
+            payload = new Dictionary<string, object>
+            {
+                { "plan", new Dictionary<string, object> { { "mutating", true } } }
+            }
+        });
+        Assert(!result.Success && result.ErrorCode == "AGENT_V2_POLICY_UNAVAILABLE", "Agent v2 请求没有失败关闭");
+        Assert(result.Outcome == "UNKNOWN", "写操作策略不可用时未进入 UNKNOWN");
+        Assert(result.Detail != null && result.Detail.ContainsKey("fallback") && !Convert.ToBoolean(result.Detail["fallback"]), "Agent v2 请求存在静默 fallback");
     }
 
     private static void AgentIdentityPersistsAcrossRestart()
@@ -277,58 +317,7 @@ internal static class Tests
         }
     }
 
-    private static void IisBindingInformationParsesHostHeader()
-    {
-        Dictionary<string, object> parsed = IisInspector.ParseBindingInformation("*:443:portal.example.com");
-        Assert(Convert.ToString(parsed["IPAddress"]) == "*", "IIS Binding IP 解析错误");
-        Assert(Convert.ToInt32(parsed["Port"]) == 443, "IIS Binding 端口解析错误");
-        Assert(Convert.ToString(parsed["HostHeader"]) == "portal.example.com", "IIS Binding 主机头解析错误");
-    }
-
-    private static void IisCertificateHashSupportsLegacyValues()
-    {
-        Assert(IisInspector.NormalizeCertificateThumbprint(new byte[] { 0xAA, 0xBb, 0x01 }) == "AABB01", "byte[] 证书哈希解析错误");
-        Assert(IisInspector.NormalizeCertificateThumbprint(new int[] { 170, 187, 1 }) == "AABB01", "数组形式证书哈希解析错误");
-        Assert(IisInspector.NormalizeCertificateThumbprint(" aa:bb-01 ") == "AABB01", "字符串证书哈希解析错误");
-    }
-
-    private static void IisCertificateHashUsesAttributeFallback()
-    {
-        Assert(IisInspector.ReadCertificateThumbprint(new FakeIisBinding()) == "AABB01", "CertificateHash 属性缺失时未读取 certificateHash Attribute");
-    }
-
-    private static void IisHttpSysSslBindingFallback()
-    {
-        string output = "IP:port                      : 0.0.0.0:443\r\n"
-            + "Certificate Hash             : AA:BB:01\r\n"
-            + "Application ID              : {fixture}\r\n"
-            + "Certificate Store Name      : MY\r\n\r\n"
-            + "IP:port                      : 0.0.0.0:8443\r\n"
-            + "Certificate Hash             : CC:DD:02\r\n";
-        Dictionary<string, string> result = IisInspector.ParseHttpSysSslCertOutput(output, "*", 443);
-        Assert(result != null, "未从 HTTP.sys 输出匹配 443 端口");
-        Assert(result["CertificateThumbprint"] == "AABB01", "HTTP.sys 证书指纹解析错误");
-        Assert(result["CertificateStoreName"] == "MY", "HTTP.sys 证书存储解析错误");
-    }
-
-    private static void IisAdministrationAssemblyPathIsStable()
-    {
-        string windir = Environment.GetEnvironmentVariable("WINDIR");
-        string expected = string.IsNullOrEmpty(windir) ? string.Empty : Path.Combine(Path.Combine(Path.Combine(windir, "System32"), "inetsrv"), "Microsoft.Web.Administration.dll");
-        Assert(IisInspector.ResolveAdministrationAssemblyPath() == expected, "IIS 管理程序集路径解析不稳定");
-    }
-
-    private sealed class FakeIisBinding
-    {
-        public object CertificateHash { get { return null; } }
-
-        public object GetAttributeValue(string name)
-        {
-            return name == "certificateHash" ? "aa:bb:01" : null;
-        }
-    }
-
-    private static void RuntimeRegistersCapabilityRescan()
+    private static void RuntimeRegistersOnlyAgentV2Actions()
     {
         string root = Path.Combine(Path.GetTempPath(), "gcac-compat-tests-" + Guid.NewGuid().ToString("N"));
         try
@@ -337,9 +326,11 @@ internal static class Tests
             config.dataDirectory = Path.Combine(root, "data");
             config.logDirectory = Path.Combine(root, "logs");
             string[] actions = new AgentRuntime(config).RegisteredActions();
-            Assert(Array.IndexOf(actions, "agent.capability.rescan") >= 0, "运行时未注册手动重扫动作");
-            Assert(Array.IndexOf(actions, "agent.atomic_plan.execute") >= 0, "运行时未注册 Atomic Plan 动作");
-            Assert(Array.IndexOf(actions, "certificate.trust.inspect") >= 0, "运行时未注册根证书只读检查动作");
+            string[] expected = AgentV2Actions.All();
+            Assert(actions.Length == expected.Length, "运行时注册了非 Agent v2 动作");
+            foreach (string expectedAction in expected) Assert(Array.IndexOf(actions, expectedAction) >= 0, "运行时缺少 Agent v2 动作：" + expectedAction);
+            Assert(Array.IndexOf(actions, "agent.capability.rescan") < 0, "运行时仍注册旧能力重扫动作");
+            Assert(Array.IndexOf(actions, "agent.atomic_plan.execute") < 0, "运行时仍注册旧 Atomic Plan 动作");
             Assert(Array.IndexOf(actions, "certificate.deploy") < 0, "运行时仍注册历史证书动作");
             Assert(Array.IndexOf(actions, "windows.iis.deploy_certificate") < 0, "运行时仍注册 IIS 历史别名");
         }
@@ -349,7 +340,7 @@ internal static class Tests
         }
     }
 
-    private static void RuntimeRegistersDiscovery()
+    private static void RuntimeDoesNotRegisterLegacyActions()
     {
         string root = Path.Combine(Path.GetTempPath(), "gcac-compat-discovery-action-" + Guid.NewGuid().ToString("N"));
         try
@@ -358,66 +349,7 @@ internal static class Tests
             config.dataDirectory = Path.Combine(root, "data");
             config.logDirectory = Path.Combine(root, "logs");
             string[] actions = new AgentRuntime(config).RegisteredActions();
-            Assert(Array.IndexOf(actions, "discovery.run") >= 0, "运行时未注册 discovery.run");
-        }
-        finally
-        {
-            if (Directory.Exists(root)) Directory.Delete(root, true);
-        }
-    }
-
-    private static void RuntimeDiscoveryReturnsStructuredFacts()
-    {
-        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-discovery-fixture-" + Guid.NewGuid().ToString("N"));
-        try
-        {
-            string nginx = Path.Combine(root, "nginx");
-            string apache = Path.Combine(root, "Apache24");
-            string tomcat = Path.Combine(root, "Tomcat");
-            Directory.CreateDirectory(Path.Combine(nginx, "conf"));
-            Directory.CreateDirectory(Path.Combine(apache, "bin"));
-            Directory.CreateDirectory(Path.Combine(apache, "conf"));
-            Directory.CreateDirectory(Path.Combine(tomcat, "conf"));
-            File.WriteAllText(Path.Combine(nginx, "nginx.exe"), string.Empty);
-            File.WriteAllText(Path.Combine(nginx, "conf\\nginx-gcac.conf"),
-                "http { server { listen 8543 ssl; server_name nginx.test.local; ssl_certificate certs/nginx.crt.pem; ssl_certificate_key certs/nginx.key.pem; } }");
-            File.WriteAllText(Path.Combine(apache, "bin\\httpd.exe"), string.Empty);
-            File.WriteAllText(Path.Combine(apache, "conf\\httpd-gcac.conf"),
-                "Listen 8544\n<VirtualHost *:8544>\nServerName apache.test.local\nSSLEngine on\nSSLCertificateFile certs/apache.crt.pem\nSSLCertificateKeyFile certs/apache.key.pem\n</VirtualHost>");
-            File.WriteAllText(Path.Combine(tomcat, "conf\\server.xml"),
-                "<Server><Service><Connector port=\"8545\" SSLEnabled=\"true\" scheme=\"https\" certificateKeystoreFile=\"certs/tomcat.p12\" certificateKeystoreType=\"PKCS12\" certificateKeystorePassword=\"changeit\" /></Service></Server>");
-            Dictionary<string, object> result = new WindowsRuntimeDiscovery(new string[] { root }).Collect("fixture-request");
-            Assert(Convert.ToString(result["requestId"]) == "fixture-request", "发现结果未保留 requestId");
-            List<Dictionary<string, object>> services = (List<Dictionary<string, object>>)result["services"];
-            List<Dictionary<string, object>> sites = (List<Dictionary<string, object>>)result["siteAssets"];
-            List<Dictionary<string, object>> bindings = (List<Dictionary<string, object>>)result["bindings"];
-            Assert(services.Exists(delegate(Dictionary<string, object> item) { return Convert.ToString(item["framework"]) == "NGINX"; }), "未发现 NGINX 服务事实");
-            Assert(services.Exists(delegate(Dictionary<string, object> item) { return Convert.ToString(item["framework"]) == "APACHE"; }), "未发现 Apache 服务事实");
-            Assert(services.Exists(delegate(Dictionary<string, object> item) { return Convert.ToString(item["framework"]) == "TOMCAT"; }), "未发现 Tomcat 服务事实");
-            Assert(sites.Count >= 3 && bindings.Count >= 3, "非 IIS 站点或证书绑定事实不完整");
-            string json = new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(result);
-            Assert(json.IndexOf("changeit", StringComparison.OrdinalIgnoreCase) < 0, "发现结果泄漏 KeyStore 密码");
-        }
-        finally
-        {
-            if (Directory.Exists(root)) Directory.Delete(root, true);
-        }
-    }
-
-    private static void RuntimeDiscoveryPreservesWarnings()
-    {
-        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-discovery-warning-" + Guid.NewGuid().ToString("N"));
-        try
-        {
-            string nginx = Path.Combine(root, "nginx");
-            Directory.CreateDirectory(Path.Combine(nginx, "conf"));
-            File.WriteAllText(Path.Combine(nginx, "nginx.exe"), string.Empty);
-            File.WriteAllText(Path.Combine(nginx, "conf\\nginx.conf"),
-                "http { server { listen 8543 ssl; server_name warning.test.local; ssl_certificate missing.crt.pem; ssl_certificate_key missing.key.pem; } }");
-            Dictionary<string, object> result = new WindowsRuntimeDiscovery(new string[] { root }).Collect(null);
-            List<Dictionary<string, object>> warnings = (List<Dictionary<string, object>>)result["warnings"];
-            Assert(warnings.Exists(delegate(Dictionary<string, object> item) { return Convert.ToString(item["code"]) == "CERTIFICATE_NOT_FOUND"; }), "证书缺失未形成结构化 warning");
-            Assert(((List<Dictionary<string, object>>)result["services"]).Count == 1, "单个产品 warning 污染了其他服务结果");
+            Assert(Array.IndexOf(actions, "discovery.run") < 0, "运行时仍注册旧 discovery.run");
         }
         finally
         {
@@ -441,331 +373,32 @@ internal static class Tests
         }
     }
 
-    private static void DirectControlUsesAtomicPlanRegistry()
+    private static void LegacyExecutionPathIsRejected(string action)
     {
-        Dictionary<string, object> plan = AtomicPlan("preflight.assert", new Dictionary<string, object> { { "value", true } });
-        SignPlan(plan);
-        ActionRegistry registry = new ActionRegistry();
-        registry.Register(new ActionRegistration { CanonicalAction = "agent.atomic_plan.execute", SchemaVersion = ProductIdentity.ActionSchemaVersion, Aliases = new string[0], Handler = new AtomicPlanHandler(delegate { return "agent-1"; }).Execute });
-        Dictionary<string, object> response = DirectControlServer.ExecuteAction(registry, "agent.atomic_plan.execute", new Dictionary<string, object> { { "plan", plan } }, "request-1");
-        Assert(Convert.ToBoolean(response["success"]), "Direct Control 未复用 Atomic Plan Registry");
-        Assert(Convert.ToString(response["requestId"]) == "request-1", "Direct Control 未回传 requestId");
+        LegacyExecutionPathIsRejected(action, null);
     }
 
-    private static void AtomicFileReplaceRollsBack()
+    private static void LegacyExecutionPathIsRejected(string action, string operationType)
     {
-        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-atomic-" + Guid.NewGuid().ToString("N"));
-        string target = Path.Combine(root, "server.pem");
-        Directory.CreateDirectory(root);
-        File.WriteAllText(target, "old-certificate");
-        try
+        Dictionary<string, object> payload = new Dictionary<string, object>();
+        if (operationType != null) payload["operationType"] = operationType;
+        ActionResult result = AgentV2Registry().Execute(new AgentTask
         {
-            Dictionary<string, object> plan = AtomicPlanWithOperations(
-                "file-rollback-plan",
-                "file-rollback-key",
-                "EXECUTE",
-                new object[]
-                {
-                    Operation("backup-file", "file.backup", new Dictionary<string, object> { { "path", target } }),
-                    Operation("replace-file", "file.atomic_replace", new Dictionary<string, object> { { "path", target }, { "content", "new-certificate" } }),
-                    Operation("force-failure", "preflight.assert", new Dictionary<string, object> { { "value", false }, { "message", "forced failure" } })
-                },
-                new object[]
-                {
-                    Operation("restore-file", "file.restore", new Dictionary<string, object> { { "backupOperationId", "backup-file" } })
-                },
-                new object[] { Permission("filesystem", target) });
-            SignPlan(plan);
-            ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }, Path.Combine(root, "data")).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
-            Assert(!result.Success && result.ErrorCode == "AGENT_ATOMIC_OPERATION_FAILED", "失败计划未返回原子操作错误");
-            Assert(Convert.ToString(result.Detail["state"]) == "ROLLED_BACK", "失败计划未进入 ROLLED_BACK");
-            Assert(File.ReadAllText(target) == "old-certificate", "失败回滚未恢复旧文件内容");
-        }
-        finally
-        {
-            if (Directory.Exists(root)) Directory.Delete(root, true);
-        }
+            action = action,
+            type = action,
+            schemaVersion = ProductIdentity.ActionSchemaVersion,
+            payload = payload
+        });
+        string expectedCode = AgentV2Actions.Contains(action) ? "AGENT_V2_POLICY_UNAVAILABLE" : "ACTION_NOT_REGISTERED";
+        Assert(!result.Success && result.ErrorCode == expectedCode, "Agent Core 未按 v2 合同失败关闭");
+        if (result.Detail != null && result.Detail.ContainsKey("fallback"))
+            Assert(Convert.ToBoolean(result.Detail["fallback"]) == false, "退役 Agent 执行路径存在 fallback");
     }
 
-    private static void AtomicMissingFileBackupRollsBack()
+    private static void RegistryDoesNotExposeDirectControlAction()
     {
-        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-atomic-missing-" + Guid.NewGuid().ToString("N"));
-        string target = Path.Combine(root, "missing.pem");
-        Directory.CreateDirectory(root);
-        try
-        {
-            Dictionary<string, object> plan = AtomicPlanWithOperations(
-                "missing-file-plan",
-                "missing-file-key",
-                "EXECUTE",
-                new object[]
-                {
-                    Operation("backup-file", "file.backup", new Dictionary<string, object> { { "path", target } }),
-                    Operation("replace-file", "file.atomic_replace", new Dictionary<string, object> { { "path", target }, { "content", "new-certificate" } }),
-                    Operation("force-failure", "preflight.assert", new Dictionary<string, object> { { "value", false } })
-                },
-                new object[]
-                {
-                    Operation("restore-file", "file.restore", new Dictionary<string, object> { { "backupOperationId", "backup-file" } })
-                },
-                new object[] { Permission("filesystem", target) });
-            SignPlan(plan);
-            ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }, Path.Combine(root, "data")).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
-            Assert(!result.Success && Convert.ToString(result.Detail["state"]) == "ROLLED_BACK", "不存在文件的失败计划未回滚");
-            Assert(!File.Exists(target), "不存在文件的回滚错误创建或保留了文件");
-        }
-        finally
-        {
-            if (Directory.Exists(root)) Directory.Delete(root, true);
-        }
-    }
-
-    private static void AtomicPreflightDoesNotMutate()
-    {
-        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-atomic-preflight-" + Guid.NewGuid().ToString("N"));
-        string target = Path.Combine(root, "server.pem");
-        Directory.CreateDirectory(root);
-        File.WriteAllText(target, "old-certificate");
-        try
-        {
-            Dictionary<string, object> plan = AtomicPlanWithOperations(
-                "preflight-file-plan",
-                "preflight-file-key",
-                "PREFLIGHT",
-                new object[]
-                {
-                    Operation("backup-file", "file.backup", new Dictionary<string, object> { { "path", target } }),
-                    Operation("replace-file", "file.atomic_replace", new Dictionary<string, object> { { "path", target }, { "content", "new-certificate" } })
-                },
-                new object[0],
-                new object[] { Permission("filesystem", target) });
-            SignPlan(plan);
-            ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }, Path.Combine(root, "data")).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
-            Assert(result.Success, "PREFLIGHT 未通过");
-            Assert(Convert.ToBoolean(result.Detail["preview"]) && !Convert.ToBoolean(result.Detail["mutating"]), "PREFLIGHT 未声明非变更语义");
-            Assert(File.ReadAllText(target) == "old-certificate", "PREFLIGHT 修改了目标文件");
-        }
-        finally
-        {
-            if (Directory.Exists(root)) Directory.Delete(root, true);
-        }
-    }
-
-    private static void AtomicFilePermissionIsEnforced()
-    {
-        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-atomic-permission-" + Guid.NewGuid().ToString("N"));
-        string target = Path.Combine(root, "server.pem");
-        string other = Path.Combine(root, "other.pem");
-        Directory.CreateDirectory(root);
-        File.WriteAllText(target, "old");
-        try
-        {
-            Dictionary<string, object> plan = AtomicPlanWithOperations(
-                "file-permission-plan",
-                "file-permission-key",
-                "PREFLIGHT",
-                new object[] { Operation("backup-file", "file.backup", new Dictionary<string, object> { { "path", target } }) },
-                new object[0],
-                new object[] { Permission("filesystem", other) });
-            SignPlan(plan);
-            ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
-            Assert(!result.Success && result.ErrorCode == "AGENT_ATOMIC_PREFLIGHT_FAILED", "文件路径越权未失败关闭");
-        }
-        finally
-        {
-            if (Directory.Exists(root)) Directory.Delete(root, true);
-        }
-    }
-
-    private static void AtomicProgramPermissionIsEnforced()
-    {
-        string program = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "whoami.exe");
-        Dictionary<string, object> plan = AtomicPlanWithOperations(
-            "program-permission-plan",
-            "program-permission-key",
-            "PREFLIGHT",
-            new object[] { Operation("execute", "command.execute", new Dictionary<string, object> { { "program", program }, { "args", new string[] { "/user" } } }) },
-            new object[0],
-            new object[] { Permission("process", program + ".not-allowed") });
-        SignPlan(plan);
-        ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
-        Assert(!result.Success && result.ErrorCode == "AGENT_ATOMIC_PREFLIGHT_FAILED", "程序路径越权未失败关闭");
-    }
-
-    private static void AtomicShellProgramIsAllowedWithPermission()
-    {
-        string program = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
-        Dictionary<string, object> plan = AtomicPlanWithOperations(
-            "shell-program-plan",
-            "shell-program-key",
-            "EXECUTE",
-            new object[] { Operation("execute", "command.execute", new Dictionary<string, object> { { "program", program }, { "args", new string[] { "/c", "echo shell-allowed" } }, { "timeoutSeconds", 30 } }) },
-            new object[0],
-            new object[] { Permission("process", program) });
-        SignPlan(plan);
-        ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
-        Assert(result.Success, "Shell 程序在显式权限下仍不可执行");
-    }
-
-    private static void AtomicCommandArgumentsExecute()
-    {
-        string program = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "whoami.exe");
-        Assert(File.Exists(program), "测试环境缺少 whoami.exe");
-        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-atomic-command-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(root);
-        try
-        {
-            Dictionary<string, object> plan = AtomicPlanWithOperations(
-                "command-plan",
-                "command-key",
-                "EXECUTE",
-                new object[]
-                {
-                    Operation("execute", "command.execute", new Dictionary<string, object> { { "program", program }, { "args", new string[] { "/user" } }, { "timeoutSeconds", 30 } })
-                },
-                new object[0],
-                new object[] { Permission("process", program) });
-            SignPlan(plan);
-            ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }, Path.Combine(root, "data")).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
-            Assert(result.Success, "参数数组程序未执行成功");
-        }
-        finally
-        {
-            if (Directory.Exists(root)) Directory.Delete(root, true);
-        }
-    }
-
-    private static void AtomicServicePermissionIsEnforced()
-    {
-        Dictionary<string, object> plan = AtomicPlanWithOperations(
-            "service-permission-plan",
-            "service-permission-key",
-            "PREFLIGHT",
-            new object[] { Operation("status", "service.control", new Dictionary<string, object> { { "service", "Spooler" }, { "action", "status" } }) },
-            new object[0],
-            new object[] { Permission("service", "OtherService") });
-        SignPlan(plan);
-        ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
-        Assert(!result.Success && result.ErrorCode == "AGENT_ATOMIC_PREFLIGHT_FAILED", "服务越权未失败关闭");
-    }
-
-    private static void AtomicServiceStatusPreflight()
-    {
-        ServiceController[] services = ServiceController.GetServices();
-        Assert(services.Length > 0, "测试环境没有可读取的 Windows 服务");
-        string serviceName = services[0].ServiceName;
-        foreach (ServiceController service in services) service.Dispose();
-        Dictionary<string, object> plan = AtomicPlanWithOperations(
-            "service-status-plan",
-            "service-status-key",
-            "PREFLIGHT",
-            new object[] { Operation("status", "service.control", new Dictionary<string, object> { { "service", serviceName }, { "action", "status" } }) },
-            new object[0],
-            new object[] { Permission("service", serviceName) });
-        SignPlan(plan);
-        ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
-        Assert(result.Success, "服务状态预演失败");
-        Assert(Convert.ToBoolean(result.Detail["preview"]) && !Convert.ToBoolean(result.Detail["mutating"]), "服务状态预演不是只读");
-    }
-
-    private static void AtomicLedgerPersistsIdempotency()
-    {
-        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-atomic-ledger-" + Guid.NewGuid().ToString("N"));
-        string target = Path.Combine(root, "server.pem");
-        Directory.CreateDirectory(root);
-        File.WriteAllText(target, "old");
-        try
-        {
-            Dictionary<string, object> plan = AtomicPlanWithOperations(
-                "ledger-plan",
-                "ledger-key",
-                "EXECUTE",
-                new object[]
-                {
-                    Operation("backup-file", "file.backup", new Dictionary<string, object> { { "path", target } }),
-                    Operation("replace-file", "file.atomic_replace", new Dictionary<string, object> { { "path", target }, { "content", "new" } })
-                },
-                new object[0],
-                new object[] { Permission("filesystem", target) });
-            SignPlan(plan);
-            string data = Path.Combine(root, "data");
-            ActionResult first = new AtomicPlanHandler(delegate { return "agent-1"; }, data).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
-            ActionResult second = new AtomicPlanHandler(delegate { return "agent-1"; }, data).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
-            Assert(first.Success && second.Success, "账本幂等重放未成功");
-            Assert(File.ReadAllText(target) == "new", "幂等重放破坏了文件内容");
-            Assert(Directory.GetFiles(Path.Combine(data, "atomic-plans")).Length == 1, "账本未持久化为单一计划记录");
-        }
-        finally
-        {
-            if (Directory.Exists(root)) Directory.Delete(root, true);
-        }
-    }
-
-    private static void AtomicLedgerRejectsPlanConflict()
-    {
-        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-atomic-conflict-" + Guid.NewGuid().ToString("N"));
-        string target = Path.Combine(root, "server.pem");
-        Directory.CreateDirectory(root);
-        File.WriteAllText(target, "old");
-        try
-        {
-            string data = Path.Combine(root, "data");
-            Dictionary<string, object> firstPlan = AtomicPlanWithOperations(
-                "conflict-plan",
-                "conflict-key",
-                "EXECUTE",
-                new object[] { Operation("replace", "file.atomic_replace", new Dictionary<string, object> { { "path", target }, { "content", "one" } }) },
-                new object[0],
-                new object[] { Permission("filesystem", target) });
-            SignPlan(firstPlan);
-            ActionResult first = new AtomicPlanHandler(delegate { return "agent-1"; }, data).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", firstPlan } } });
-            Dictionary<string, object> secondPlan = AtomicPlanWithOperations(
-                "conflict-plan",
-                "conflict-key",
-                "EXECUTE",
-                new object[] { Operation("replace", "file.atomic_replace", new Dictionary<string, object> { { "path", target }, { "content", "two" } }) },
-                new object[0],
-                new object[] { Permission("filesystem", target) });
-            SignPlan(secondPlan);
-            ActionResult second = new AtomicPlanHandler(delegate { return "agent-1"; }, data).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", secondPlan } } });
-            Assert(first.Success, "冲突计划基线执行失败");
-            Assert(!second.Success && second.ErrorCode == "AGENT_ATOMIC_OPERATION_FAILED", "相同幂等键的不同计划未拒绝");
-            Assert(File.ReadAllText(target) == "one", "冲突计划修改了原文件");
-        }
-        finally
-        {
-            if (Directory.Exists(root)) Directory.Delete(root, true);
-        }
-    }
-
-    private static void AtomicRollbackFailureRequiresManualIntervention()
-    {
-        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-atomic-manual-" + Guid.NewGuid().ToString("N"));
-        string target = Path.Combine(root, "server.pem");
-        Directory.CreateDirectory(root);
-        File.WriteAllText(target, "old");
-        try
-        {
-            Dictionary<string, object> plan = AtomicPlanWithOperations(
-                "manual-plan",
-                "manual-key",
-                "EXECUTE",
-                new object[]
-                {
-                    Operation("backup-file", "file.backup", new Dictionary<string, object> { { "path", target } }),
-                    Operation("force-failure", "preflight.assert", new Dictionary<string, object> { { "value", false } })
-                },
-                new object[] { Operation("restore-file", "file.restore", new Dictionary<string, object> { { "backupOperationId", "missing-backup" } }) },
-                new object[] { Permission("filesystem", target) });
-            SignPlan(plan);
-            ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }, Path.Combine(root, "data")).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
-            Assert(!result.Success && result.ErrorCode == "AGENT_ROLLBACK_FAILED", "回滚失败未返回稳定错误");
-            Assert(Convert.ToString(result.Detail["state"]) == "MANUAL_INTERVENTION", "回滚失败未进入人工处理");
-        }
-        finally
-        {
-            if (Directory.Exists(root)) Directory.Delete(root, true);
-        }
+        ActionResult result = AgentV2Registry().Execute(new AgentTask { action = "health", type = "health", schemaVersion = ProductIdentity.ActionSchemaVersion });
+        Assert(!result.Success && result.ErrorCode == "ACTION_NOT_REGISTERED", "动作注册表仍暴露旧 Direct Control health 动作");
     }
 
     private static void RecoveryLedgerPersistsRetryState()
@@ -773,14 +406,12 @@ internal static class Tests
         string root = Path.Combine(Path.GetTempPath(), "gcac-compat-recovery-" + Guid.NewGuid().ToString("N"));
         try
         {
-            Dictionary<string, object> plan = AtomicPlan("recovery-plan", new Dictionary<string, object> { { "value", true } });
-            plan["planId"] = "recovery-plan-id";
-            plan["idempotencyKey"] = "recovery-idempotency";
             AgentTask task = new AgentTask
             {
                 id = "recovery-task",
                 leaseId = "recovery-lease",
-                payload = new Dictionary<string, object> { { "plan", plan } }
+                idempotencyKey = "recovery-idempotency",
+                payload = new Dictionary<string, object>()
             };
             ActionResult result = ActionResult.Failed("TEST_FAILURE", "提交失败", new Dictionary<string, object>
             {
@@ -792,7 +423,7 @@ internal static class Tests
             first.SavePending(task, result);
             RecoveryLedger restarted = new RecoveryLedger(root);
             RecoveryRecord record = restarted.Records().Find(delegate(RecoveryRecord item) { return item.TaskId == "recovery-task"; });
-            Assert(record != null && record.PlanId == "recovery-plan-id" && record.IdempotencyKey == "recovery-idempotency", "Recovery Ledger 未保存计划元数据");
+            Assert(record != null && record.IdempotencyKey == "recovery-idempotency", "Recovery Ledger 未保存任务幂等键");
             Assert(record.State == "PENDING_UPLOAD" && !TextUtility.IsBlank(record.ResultDigest), "Recovery Ledger 状态或结果摘要缺失");
             string persisted = File.ReadAllText(Path.Combine(root, "recovery-ledger.json"));
             Assert(persisted.IndexOf("changeit", StringComparison.OrdinalIgnoreCase) < 0 && persisted.IndexOf("BEGIN PRIVATE KEY", StringComparison.OrdinalIgnoreCase) < 0, "Recovery Ledger 保存了敏感值");
@@ -849,9 +480,49 @@ internal static class Tests
             agentKey = "agent-key-1",
             enrollmentToken = "enrollment-token-1",
             controlPlaneUrl = "http://127.0.0.1:5172",
-            directControlListenPort = 18933,
+            directControlEnabled = false,
             requiredHotfixes = new string[0]
         };
+    }
+
+    private static DirectControlState DirectControlStateForTest()
+    {
+        return new DirectControlState
+        {
+            enabled = true,
+            reachable = true,
+            listenAddress = "127.0.0.1:18933",
+            protocolVersion = "v1",
+            supportedActions = AgentV2Actions.All(),
+            lastReadyAt = "2026-08-09T00:00:00.0000000Z"
+        };
+    }
+
+    private static int FindFreePort()
+    {
+        TcpListener probe = new TcpListener(IPAddress.Loopback, 0);
+        probe.Start();
+        int port = ((IPEndPoint)probe.LocalEndpoint).Port;
+        probe.Stop();
+        return port;
+    }
+
+    private static Dictionary<string, object> SendJson(string url, string method, Dictionary<string, object> body)
+    {
+        HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
+        request.Method = method;
+        request.ContentType = "application/json; charset=utf-8";
+        if (body != null)
+        {
+            byte[] payload = Encoding.UTF8.GetBytes(new JavaScriptSerializer().Serialize(body));
+            request.ContentLength = payload.Length;
+            using (Stream stream = request.GetRequestStream()) stream.Write(payload, 0, payload.Length);
+        }
+        using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+        using (StreamReader reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
+        {
+            return new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(reader.ReadToEnd());
+        }
     }
 
     private static string WriteConfig(string json)
@@ -891,80 +562,25 @@ internal static class Tests
         return registry;
     }
 
-    private static Dictionary<string, object> AtomicPlanWithOperations(string planId, string idempotencyKey, string executionMode, object[] operations, object[] rollback, object[] permissions)
+    private static ActionRegistry AgentV2Registry()
     {
-        return new Dictionary<string, object>
+        ActionRegistry registry = new ActionRegistry();
+        foreach (string action in AgentV2Actions.All())
         {
-            { "apiVersion", "gcac.agent-plan/v1" },
-            { "planId", planId },
-            { "tenantId", "tenant-1" },
-            { "agentId", "agent-1" },
-            { "executionRunId", "run-" + planId },
-            { "executionStepId", "step-" + planId },
-            { "issuedAt", "2026-07-31T00:00:00.000Z" },
-            { "expiresAt", "2099-07-31T00:00:00.000Z" },
-            { "idempotencyKey", idempotencyKey },
-            { "plugin", new Dictionary<string, object> { { "pluginId", "fixture.atomic" }, { "version", "1.0.0" } } },
-            { "permissions", permissions },
-            { "variablesDigest", "fixture" },
-            { "executionMode", executionMode },
-            { "operations", operations },
-            { "rollback", rollback }
-        };
-    }
-
-    private static Dictionary<string, object> Operation(string id, string operationType, Dictionary<string, object> input)
-    {
-        return new Dictionary<string, object>
-        {
-            { "id", id },
-            { "name", id },
-            { "stage", "install" },
-            { "operationType", operationType },
-            { "schemaVersion", "1.0" },
-            { "input", input }
-        };
-    }
-
-    private static Dictionary<string, object> Permission(string scope, params string[] values)
-    {
-        return new Dictionary<string, object>
-        {
-            { "name", scope },
-            { "scope", scope },
-            { "values", values }
-        };
-    }
-
-    private static Dictionary<string, object> AtomicPlan(string operationType, Dictionary<string, object> input)
-    {
-        return new Dictionary<string, object>
-        {
-            { "apiVersion", "gcac.agent-plan/v1" },
-            { "planId", "plan-test-1" },
-            { "tenantId", "tenant-1" },
-            { "agentId", "agent-1" },
-            { "executionRunId", "run-1" },
-            { "executionStepId", "step-1" },
-            { "issuedAt", "2026-07-31T00:00:00.000Z" },
-            { "expiresAt", "2099-07-31T00:00:00.000Z" },
-            { "idempotencyKey", "atomic-test-" + operationType },
-            { "plugin", new Dictionary<string, object> { { "pluginId", "fixture.atomic" }, { "version", "1.0.0" } } },
-            { "permissions", new object[0] },
-            { "variablesDigest", "fixture" },
-            { "executionMode", "PREFLIGHT" },
-            { "operations", new object[] { new Dictionary<string, object> { { "id", "operation-1" }, { "name", "test" }, { "stage", "prepare" }, { "operationType", operationType }, { "schemaVersion", "1.0" }, { "input", input } } } },
-            { "rollback", new object[0] }
-        };
-    }
-
-    private static void SignPlan(Dictionary<string, object> plan)
-    {
-        plan["authorization"] = new Dictionary<string, object> { { "keyId", "agent-plan-v1" }, { "signature", AtomicPlanSecurity.ComputeSignature(plan) } };
+            registry.Register(new ActionRegistration
+            {
+                CanonicalAction = action,
+                SchemaVersion = ProductIdentity.ActionSchemaVersion,
+                Aliases = new string[0],
+                Handler = AgentV2ContractHandler.Execute
+            });
+        }
+        return registry;
     }
 
     private static void Run(string name, Action test)
     {
+        executedTests++;
         try { test(); Console.WriteLine("PASS " + name); }
         catch (Exception error) { failures++; Console.WriteLine("FAIL " + name + " " + error.Message); }
     }

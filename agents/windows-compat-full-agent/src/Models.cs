@@ -41,16 +41,61 @@ namespace GCAC.WindowsCompatibilityAgent
         public bool Success { get; set; }
         public string ErrorCode { get; set; }
         public string ErrorMessage { get; set; }
+        public string Outcome { get; set; }
         public Dictionary<string, object> Detail { get; set; }
 
         public static ActionResult Succeeded(Dictionary<string, object> detail)
         {
-            return new ActionResult { Success = true, Detail = detail ?? new Dictionary<string, object>() };
+            return new ActionResult { Success = true, Outcome = "SUCCESS", Detail = detail ?? new Dictionary<string, object>() };
         }
 
         public static ActionResult Failed(string code, string message, Dictionary<string, object> detail)
         {
-            return new ActionResult { Success = false, ErrorCode = code, ErrorMessage = message, Detail = detail ?? new Dictionary<string, object>() };
+            return new ActionResult
+            {
+                Success = false,
+                ErrorCode = code,
+                ErrorMessage = message,
+                Outcome = string.Equals(code, "AGENT_EXECUTION_UNKNOWN", StringComparison.Ordinal) ? "UNKNOWN" : "FAILED",
+                Detail = detail ?? new Dictionary<string, object>()
+            };
+        }
+
+        public static ActionResult Unknown(string code, string message, Dictionary<string, object> detail)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                ErrorCode = code,
+                ErrorMessage = message,
+                Outcome = "UNKNOWN",
+                Detail = detail ?? new Dictionary<string, object>()
+            };
+        }
+    }
+
+    internal sealed class DirectControlState
+    {
+        public bool enabled { get; set; }
+        public bool reachable { get; set; }
+        public string listenAddress { get; set; }
+        public string protocolVersion { get; set; }
+        public string[] supportedActions { get; set; }
+        public string lastReadyAt { get; set; }
+        public string lastDirectError { get; set; }
+
+        public DirectControlState Clone()
+        {
+            return new DirectControlState
+            {
+                enabled = enabled,
+                reachable = reachable,
+                listenAddress = listenAddress,
+                protocolVersion = protocolVersion,
+                supportedActions = supportedActions == null ? new string[0] : (string[])supportedActions.Clone(),
+                lastReadyAt = lastReadyAt,
+                lastDirectError = lastDirectError
+            };
         }
     }
 

@@ -12,8 +12,6 @@ namespace GCAC.WindowsCompatibilityAgent
     {
         private readonly AgentConfig config;
         private readonly JavaScriptSerializer serializer = new JavaScriptSerializer();
-        private bool directControlReachable;
-        private string directControlError;
 
         public ControlPlaneClient(AgentConfig config)
         {
@@ -25,10 +23,15 @@ namespace GCAC.WindowsCompatibilityAgent
             }
         }
 
-        public string Register(CapabilitySnapshot snapshot, string[] registeredActions)
+        public string Register(CapabilitySnapshot snapshot, DirectControlState directControl)
         {
-            RegistrationResponse response = Send<RegistrationResponse>("/api/v1/agents/register", BuildRegistrationRequest(snapshot, registeredActions));
+            RegistrationResponse response = Send<RegistrationResponse>("/api/v1/agents/register", BuildRegistrationRequest(snapshot, directControl));
             return response.id;
+        }
+
+        public string Register(CapabilitySnapshot snapshot)
+        {
+            return Register(snapshot, null);
         }
 
         private static bool Is64BitOperatingSystem()
@@ -39,25 +42,29 @@ namespace GCAC.WindowsCompatibilityAgent
             return string.Equals(architecture, "AMD64", StringComparison.OrdinalIgnoreCase) || string.Equals(architecture, "IA64", StringComparison.OrdinalIgnoreCase) || string.Equals(architecture, "ARM64", StringComparison.OrdinalIgnoreCase);
         }
 
-        public void Heartbeat(string agentId, CapabilitySnapshot snapshot, Dictionary<string, object> runtimeHealth, string[] registeredActions)
+        public void Heartbeat(string agentId, CapabilitySnapshot snapshot, Dictionary<string, object> runtimeHealth, DirectControlState directControl)
         {
-            Dictionary<string, object> body = BuildHeartbeatRequest(agentId, snapshot, runtimeHealth);
-            body["directControl"] = BuildDirectControl(snapshot, registeredActions);
+            Dictionary<string, object> body = BuildHeartbeatRequest(agentId, snapshot, runtimeHealth, directControl);
             Send<object>("/api/v1/agents/heartbeat", body);
         }
 
-        public void SetDirectControlState(bool reachable, string error)
+        public void Heartbeat(string agentId, CapabilitySnapshot snapshot, Dictionary<string, object> runtimeHealth)
         {
-            directControlReachable = reachable;
-            directControlError = error;
+            Heartbeat(agentId, snapshot, runtimeHealth, null);
         }
 
         internal static Dictionary<string, object> BuildHeartbeatRequest(string agentId, CapabilitySnapshot snapshot, Dictionary<string, object> runtimeHealth)
+        {
+            return BuildHeartbeatRequest(agentId, snapshot, runtimeHealth, null);
+        }
+
+        internal static Dictionary<string, object> BuildHeartbeatRequest(string agentId, CapabilitySnapshot snapshot, Dictionary<string, object> runtimeHealth, DirectControlState directControl)
         {
             Dictionary<string, object> body = BaseIdentity(snapshot);
             body["agentId"] = agentId;
             body["version"] = ProductIdentity.Version;
             body["runtimeHealth"] = runtimeHealth;
+            if (directControl != null) body["directControl"] = directControl;
             body["taskSummary"] = new Dictionary<string, object> { { "running", 0 }, { "queued", 0 } };
             return body;
         }
@@ -74,7 +81,12 @@ namespace GCAC.WindowsCompatibilityAgent
             return NormalizeTask(tasks[0]);
         }
 
-        internal Dictionary<string, object> BuildRegistrationRequest(CapabilitySnapshot snapshot, string[] registeredActions)
+        internal Dictionary<string, object> BuildRegistrationRequest(CapabilitySnapshot snapshot)
+        {
+            return BuildRegistrationRequest(snapshot, null);
+        }
+
+        internal Dictionary<string, object> BuildRegistrationRequest(CapabilitySnapshot snapshot, DirectControlState directControl)
         {
             Dictionary<string, object> body = BaseIdentity(snapshot);
             body["agentKey"] = config.agentKey;
@@ -87,33 +99,8 @@ namespace GCAC.WindowsCompatibilityAgent
             body["ipAddress"] = ReadFact(snapshot, "network.primary_ip");
             body["osVersion"] = ReadFact(snapshot, "windows.product_name");
             body["role"] = "full_agent";
-            body["directControl"] = BuildDirectControl(snapshot, registeredActions);
+            if (directControl != null) body["directControl"] = directControl;
             return body;
-        }
-
-        private Dictionary<string, object> BuildDirectControl(CapabilitySnapshot snapshot, string[] registeredActions)
-        {
-            string advertiseHost = config.directControlAdvertiseHost;
-            if (TextUtility.IsBlank(advertiseHost)) advertiseHost = ReadFact(snapshot, "network.primary_ip");
-            Dictionary<string, object> state = new Dictionary<string, object>();
-            state["enabled"] = config.directControlEnabled;
-            state["reachable"] = config.directControlEnabled && directControlReachable;
-            state["listenAddress"] = TextUtility.IsBlank(advertiseHost) ? null : advertiseHost + ":" + config.directControlListenPort;
-            state["protocolVersion"] = "v1";
-            state["supportedActions"] = BuildSupportedActions(registeredActions);
-            if (directControlReachable) state["lastReadyAt"] = DateTime.UtcNow.ToString("o");
-            if (!TextUtility.IsBlank(directControlError)) state["lastDirectError"] = directControlError;
-            return state;
-        }
-
-        internal static string[] BuildSupportedActions(string[] registeredActions)
-        {
-            List<string> actions = new List<string>();
-            AddSupportedAction(actions, "health");
-            foreach (string action in registeredActions ?? new string[0])
-                AddSupportedAction(actions, action);
-            actions.Sort(StringComparer.Ordinal);
-            return actions.ToArray();
         }
 
         internal static Dictionary<string, object> BuildCapabilityRequest(string agentId, CapabilitySnapshot snapshot)
@@ -150,6 +137,7 @@ namespace GCAC.WindowsCompatibilityAgent
             body["taskId"] = taskId;
             body["leaseId"] = leaseId;
             body["success"] = result.Success;
+            body["outcome"] = result.Outcome;
             body["errorCode"] = result.ErrorCode;
             body["errorMessage"] = result.ErrorMessage;
             body["detail"] = result.Detail;
@@ -193,15 +181,6 @@ namespace GCAC.WindowsCompatibilityAgent
             if (!TextUtility.IsBlank(primaryIp))
                 adapters.Add(new Dictionary<string, object> { { "Name", "primary" }, { "IPv4", new string[] { primaryIp } } });
             reports.Add(Capability("windows.network.adapters", adapters, 0.9, "runtime-inspection"));
-            object iisDetail;
-            if (snapshot.Facts.TryGetValue("windows.iis.detail", out iisDetail) && iisDetail != null)
-                reports.Add(Capability("windows.iis.detail", iisDetail, 0.95, "microsoft-web-administration"));
-            object iisSites;
-            if (snapshot.Facts.TryGetValue("windows.iis.sites", out iisSites) && iisSites != null)
-                reports.Add(Capability("windows.iis.sites", iisSites, 0.95, "microsoft-web-administration"));
-            object windowsDiscovery;
-            if (snapshot.Facts.TryGetValue("windows.discovery", out windowsDiscovery) && windowsDiscovery != null)
-                reports.Add(Capability("windows.discovery", windowsDiscovery, 0.9, "windows-runtime-discovery"));
             return reports;
         }
 
@@ -224,14 +203,6 @@ namespace GCAC.WindowsCompatibilityAgent
                 : string.Empty;
         }
 
-        private static void AddSupportedAction(List<string> actions, string action)
-        {
-            if (TextUtility.IsBlank(action)) return;
-            foreach (string existing in actions)
-                if (string.Equals(existing, action, StringComparison.OrdinalIgnoreCase))
-                    return;
-            actions.Add(action);
-        }
 
         private T Get<T>(string path)
         {
