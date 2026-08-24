@@ -101,6 +101,8 @@ const userMenuOpen = ref(false)
 const languageMenuOpen = ref(false)
 const userMenuRoot = ref<HTMLElement | null>(null)
 const taskEntryRoot = ref<HTMLElement | null>(null)
+const submenuNav = ref<HTMLElement | null>(null)
+const submenuIndicator = ref<HTMLElement | null>(null)
 const toastNotices = ref<ToastNotice[]>([])
 const passwordDialogOpen = ref(false)
 const passwordSubmitting = ref(false)
@@ -325,6 +327,38 @@ function refreshTenantBoundRoute(): void {
   tenantViewVersion.value += 1
 }
 
+let submenuIndicatorLeft = 0
+let submenuIndicatorReady = false
+let submenuResizeObserver: ResizeObserver | undefined
+
+function syncSubmenuIndicator(): void {
+  const nav = submenuNav.value
+  const indicator = submenuIndicator.value
+  if (!nav || !indicator) return
+  const activeItem = nav.querySelector<HTMLElement>('.gc-workbench__submenu-item--active')
+  if (!activeItem) {
+    indicator.style.opacity = '0'
+    return
+  }
+  const left = activeItem.offsetLeft
+  const width = activeItem.offsetWidth
+  indicator.dataset.direction = submenuIndicatorReady && left !== submenuIndicatorLeft
+    ? (left > submenuIndicatorLeft ? 'forward' : 'backward')
+    : ''
+  if (!submenuIndicatorReady) {
+    indicator.classList.add('gc-workbench__submenu-indicator--no-anim')
+    void indicator.offsetWidth
+  }
+  indicator.style.opacity = '1'
+  indicator.style.transform = `translateX(${left}px)`
+  indicator.style.width = `${width}px`
+  if (!submenuIndicatorReady) {
+    requestAnimationFrame(() => indicator.classList.remove('gc-workbench__submenu-indicator--no-anim'))
+  }
+  submenuIndicatorLeft = left
+  submenuIndicatorReady = true
+}
+
 function handleDocumentPointerDown(event: PointerEvent) {
   if (!event.target) return
   const target = event.target as Node
@@ -407,6 +441,20 @@ watch(showTaskEntry, (visible) => {
   if (!visible) activeTaskCount.value = 0
 }, { immediate: true })
 
+watch(
+  () => route.fullPath,
+  () => {
+    void nextTick(syncSubmenuIndicator)
+  },
+)
+
+watch(activeChildren, (children) => {
+  if (!children.length) {
+    submenuIndicatorReady = false
+    submenuIndicatorLeft = 0
+  }
+})
+
 onMounted(() => {
   if (typeof window.matchMedia === 'function') {
     mobileViewportQuery = window.matchMedia('(max-width: 60rem)')
@@ -426,6 +474,11 @@ onMounted(() => {
     activeTaskCount.value = state.activeCount
   })
   disposeTaskRealtime = subscribeTaskRealtime(handleTaskRealtime)
+  syncSubmenuIndicator()
+  if (typeof ResizeObserver === 'function' && submenuNav.value) {
+    submenuResizeObserver = new ResizeObserver(() => syncSubmenuIndicator())
+    submenuResizeObserver.observe(submenuNav.value)
+  }
 })
 
 onBeforeUnmount(() => {
@@ -434,6 +487,8 @@ onBeforeUnmount(() => {
   mobileViewportQuery = undefined
   overlayStateObserver?.disconnect()
   overlayStateObserver = undefined
+  submenuResizeObserver?.disconnect()
+  submenuResizeObserver = undefined
   document.removeEventListener('pointerdown', handleDocumentPointerDown)
   window.removeEventListener('gcac:toast', handleToastEvent as EventListener)
   window.removeEventListener(TENANT_CONTEXT_CHANGED_EVENT, refreshTenantBoundRoute)
@@ -601,7 +656,13 @@ function removeToastNotice(id: number): void {
           </div>
         </div>
 
-        <nav v-if="activeChildren.length" class="gc-workbench__submenu" :aria-label="t('shell.currentGroupNavigation')">
+        <nav
+          v-if="activeChildren.length"
+          ref="submenuNav"
+          class="gc-workbench__submenu"
+          :aria-label="t('shell.currentGroupNavigation')"
+        >
+          <span ref="submenuIndicator" class="gc-workbench__submenu-indicator" aria-hidden="true" />
           <RouterLink
             v-for="child in activeChildren"
             :key="child.path"
