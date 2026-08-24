@@ -2340,6 +2340,18 @@ export default {
       }
     }
   },
+  deploymentInputs: {
+    title: 'Entradas de implantação',
+    description: 'Configure os valores de implantação pelo contrato de entrada unificado declarado pelo plugin ou fluxo de trabalho.',
+    saveAssetFirst: 'Salve o ativo de aplicativo e a origem de execução antes de editar as entradas projetadas pelo backend.',
+    contractVersion: 'Contrato {version}',
+    groups: { required: 'Configuração obrigatória', advanced: 'Configuração avançada', readonly: 'Valores somente leitura e de execução' },
+    actions: { expand: 'Expandir configuração avançada', collapse: 'Recolher configuração avançada' },
+    placeholders: { select: 'Selecione', credential: 'Selecione uma credencial', artifact: 'Selecione um formato de artefato', output: 'Selecione uma saída' },
+    artifacts: { format: 'Formato do artefato' },
+    runtimeValue: 'Fornecido por {source} durante a execução',
+    issues: { title: 'Problemas de entrada', missing: 'Falta uma entrada de implantação obrigatória' }
+  },
   assets: {
     title: 'Ativos de aplicação',
     description: 'Gerencie entradas de aplicação por domínio ou IP, com foco em endereço, porta, protocolo, site e localização de execução.',

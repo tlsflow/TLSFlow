@@ -2415,6 +2415,18 @@ export default {
       }
     }
   },
+  deploymentInputs: {
+    title: 'Entrées de déploiement',
+    description: "Configurez les valeurs de déploiement selon le contrat d'entrée unifié déclaré par le plugin ou le workflow.",
+    saveAssetFirst: "Enregistrez l'actif applicatif et la source d'exécution avant de modifier les entrées projetées par le backend.",
+    contractVersion: 'Contrat {version}',
+    groups: { required: 'Configuration obligatoire', advanced: 'Configuration avancée', readonly: "Valeurs en lecture seule et d'exécution" },
+    actions: { expand: 'Développer la configuration avancée', collapse: 'Réduire la configuration avancée' },
+    placeholders: { select: 'Sélectionner', credential: 'Sélectionner un identifiant', artifact: "Sélectionner un format d'artefact", output: 'Sélectionner une sortie' },
+    artifacts: { format: "Format d'artefact" },
+    runtimeValue: "Fourni par {source} lors de l'exécution",
+    issues: { title: "Problèmes d'entrée", missing: 'Une entrée de déploiement obligatoire est manquante' }
+  },
   assets: {
     title: 'Application assets',
     description: 'Manage application entry points by domain or IP, focusing on address, port, protocol, site, and execution targeting.',

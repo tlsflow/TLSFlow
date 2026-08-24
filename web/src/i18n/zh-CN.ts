@@ -2467,6 +2467,18 @@ export default {
       }
     }
   },
+  deploymentInputs: {
+    title: '部署输入',
+    description: '根据插件或工作流声明的统一输入契约配置部署参数。',
+    saveAssetFirst: '请先保存应用资产及执行来源，再编辑由后端统一投影的部署输入。',
+    contractVersion: '契约 {version}',
+    groups: { required: '必填配置', advanced: '高级配置', readonly: '只读与运行时值' },
+    actions: { expand: '展开高级配置', collapse: '收起高级配置' },
+    placeholders: { select: '请选择', credential: '请选择凭据', artifact: '请选择产物格式', output: '请选择输出' },
+    artifacts: { format: '产物格式' },
+    runtimeValue: '运行时由 {source} 提供',
+    issues: { title: '输入问题', missing: '缺少必填部署输入' }
+  },
   assets: {
     title: '应用资产',
     description: '以域名或 IP 为主对象管理应用入口，聚焦地址、端口、协议、站点与执行定位。',

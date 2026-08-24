@@ -2365,6 +2365,18 @@ export default {
       }
     }
   },
+  deploymentInputs: {
+    title: '部署輸入',
+    description: '根據外掛或工作流程宣告的統一輸入契約設定部署參數。',
+    saveAssetFirst: '請先儲存應用資產與執行來源，再編輯由後端統一投影的部署輸入。',
+    contractVersion: '契約 {version}',
+    groups: { required: '必填設定', advanced: '進階設定', readonly: '唯讀與執行階段值' },
+    actions: { expand: '展開進階設定', collapse: '收合進階設定' },
+    placeholders: { select: '請選擇', credential: '請選擇憑證', artifact: '請選擇產物格式', output: '請選擇輸出' },
+    artifacts: { format: '產物格式' },
+    runtimeValue: '執行階段由 {source} 提供',
+    issues: { title: '輸入問題', missing: '缺少必填部署輸入' }
+  },
   assets: {
     title: "應用資產",
     description: "以域名或 IP 為主物件管理應用入口，聚焦位址、埠、協議、站點與執行定位。",

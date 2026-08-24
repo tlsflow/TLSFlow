@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   createInputBindingsV1,
-  projectInputBindingsV1,
   readInputBindingsV1,
 } from '@/views/assets/asset-input-bindings.model'
 
@@ -33,41 +32,18 @@ describe('应用资产统一输入绑定', () => {
     })).toBeNull()
   })
 
-  it('直接从标准 Contract 投影变量、凭据和连接，不产生旧 Binding 字段', () => {
+  it('完整保留统一 Binding 的变量、连接、凭据和 Artifact 命名空间', () => {
     const bindings = createInputBindingsV1({
       variables: { backupRoot: '/var/backups' },
       connections: { management: { host: '192.0.2.10', port: 22, username: 'deployer', hostKey: { expectedFingerprint: 'SHA256:test' } } },
       credentials: { sshCredential: { credentialId: 'credential-1' } },
+      artifacts: { certificate: { certificateFormatId: 'format-1', outputBindings: { certificate: 'fullchain' } } },
     })
-    const projection = projectInputBindingsV1({
-      variables: {
-        assetHost: { type: 'string', configurationMode: 'required', bindingPolicy: 'fixed', source: { kind: 'asset', path: 'asset.address' } },
-        backupRoot: { type: 'string', configurationMode: 'advanced', bindingPolicy: 'default_overridable', source: { kind: 'binding' } },
-      },
-      credentials: {
-        sshCredential: { configurationMode: 'required' },
-      },
-      connections: {
-        management: {
-          transport: 'ssh',
-          credentialSlot: 'sshCredential',
-          host: { configurationMode: 'required', bindingPolicy: 'required_binding' },
-          port: { configurationMode: 'advanced', bindingPolicy: 'default_overridable' },
-          username: { configurationMode: 'required', bindingPolicy: 'required_binding' },
-          hostKey: { expectedFingerprint: { configurationMode: 'advanced', bindingPolicy: 'default_overridable' } },
-        },
-      },
-    }, bindings)
 
-    expect(projection.required.map((item) => item.name)).toEqual(['sshCredential'])
-    expect(projection.advanced.map((item) => item.name)).toEqual(['backupRoot'])
-    expect(projection.basicConnections[0]).toMatchObject({
-      name: 'management',
-      credentialSlot: 'sshCredential',
-      status: 'resolved',
-      hostKey: { expectedFingerprint: 'SHA256:test' },
-    })
-    expect(projection.basicConnections[0]).not.toHaveProperty('credentialRef')
-    expect(projection.basicConnections[0]).not.toHaveProperty('expectedHostKeyFingerprint')
+    expect(readInputBindingsV1(bindings)).toEqual(bindings)
+    expect(bindings.credentials.sshCredential).toEqual({ credentialId: 'credential-1' })
+    expect(bindings.artifacts.certificate).toEqual({ certificateFormatId: 'format-1', outputBindings: { certificate: 'fullchain' } })
+    expect(bindings).not.toHaveProperty('variableBindings')
+    expect(bindings).not.toHaveProperty('certificateArtifactBindings')
   })
 })

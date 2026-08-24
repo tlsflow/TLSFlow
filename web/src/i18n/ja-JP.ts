@@ -2366,6 +2366,18 @@ export default {
       }
     }
   },
+  deploymentInputs: {
+    title: 'デプロイ入力',
+    description: 'プラグインまたはワークフローが宣言した統一入力契約に基づいてデプロイ値を設定します。',
+    saveAssetFirst: 'バックエンドが投影するデプロイ入力を編集する前に、アプリケーション資産と実行元を保存してください。',
+    contractVersion: '契約 {version}',
+    groups: { required: '必須設定', advanced: '詳細設定', readonly: '読み取り専用と実行時の値' },
+    actions: { expand: '詳細設定を展開', collapse: '詳細設定を折りたたむ' },
+    placeholders: { select: '選択してください', credential: '認証情報を選択', artifact: '成果物形式を選択', output: '出力を選択' },
+    artifacts: { format: '成果物形式' },
+    runtimeValue: '実行時に {source} から提供',
+    issues: { title: '入力の問題', missing: '必須のデプロイ入力がありません' }
+  },
   assets: {
     title: 'アプリケーションアセット',
     description: 'ドメイン名または IP を主な対象としてアプリケーションエントリを管理し、アドレス、ポート、プロトコル、サイト、実行先の特定に集中します。',

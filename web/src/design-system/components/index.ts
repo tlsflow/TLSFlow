@@ -27,5 +27,7 @@ export { default as GcCompatiblePluginSelector } from './GcCompatiblePluginSelec
 export { default as GcExecutionModeSelector } from './GcExecutionModeSelector.vue'
 export { default as GcWorkflowExecutionForm } from './GcWorkflowExecutionForm.vue'
 export { default as GcPluginWorkflowSourceSelector } from './GcPluginWorkflowSourceSelector.vue'
+export { default as DeploymentInputForm } from './DeploymentInputForm.vue'
 export type { ExecutionModeOption } from './GcExecutionModeSelector.vue'
 export type { PluginFormSchema, PluginFormField, DevicePresentationSchema } from './GcPluginForm.types'
+export type { DeploymentInputBindingsV1, DeploymentInputProjectionV1, DeploymentCredentialOption, DeploymentArtifactOption } from './DeploymentInputForm.types'

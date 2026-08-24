@@ -2340,6 +2340,18 @@ export default {
       }
     }
   },
+  deploymentInputs: {
+    title: '배포 입력',
+    description: '플러그인 또는 워크플로가 선언한 통합 입력 계약에 따라 배포 값을 구성합니다.',
+    saveAssetFirst: '백엔드에서 투영한 배포 입력을 편집하기 전에 애플리케이션 자산과 실행 소스를 저장하세요.',
+    contractVersion: '계약 {version}',
+    groups: { required: '필수 구성', advanced: '고급 구성', readonly: '읽기 전용 및 런타임 값' },
+    actions: { expand: '고급 구성 펼치기', collapse: '고급 구성 접기' },
+    placeholders: { select: '선택하세요', credential: '자격 증명 선택', artifact: '아티팩트 형식 선택', output: '출력 선택' },
+    artifacts: { format: '아티팩트 형식' },
+    runtimeValue: '런타임에 {source}에서 제공',
+    issues: { title: '입력 문제', missing: '필수 배포 입력이 없습니다' }
+  },
   assets: {
     title: '응용자산',
     description: '도메인 네임 또는 IP를 주요 객체로 응용 프로그램의 포털을 관리하여 주소, 포트, 프로토콜, 웹 사이트에 초점을 맞추고 위치추적 작업을 수행합니다.',

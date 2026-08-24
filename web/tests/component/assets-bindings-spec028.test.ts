@@ -66,6 +66,10 @@ const deviceMocks = vi.hoisted(() => ({
   listManagedDevices: vi.fn(),
 }))
 
+const deploymentInputMocks = vi.hoisted(() => ({
+  projectDeploymentInputs: vi.fn(),
+}))
+
 const pluginMocks = vi.hoisted(() => ({
   listAgentPluginPackages: vi.fn(),
   listPluginCatalog: vi.fn(),
@@ -79,6 +83,7 @@ vi.mock('@/api/modules/gateways.api', () => gatewayMocks)
 vi.mock('@/api/modules/security.api', () => securityMocks)
 vi.mock('@/api/modules/credentials.api', () => credentialMocks)
 vi.mock('@/api/modules/devices.api', () => deviceMocks)
+vi.mock('@/api/modules/deployment-inputs.api', () => deploymentInputMocks)
 vi.mock('@/api/modules/plugins.api', () => pluginMocks)
 
 import AssetsView from '@/views/assets/AssetsView.vue'
@@ -164,6 +169,10 @@ describe('资产与证书产物视图', () => {
     assetMocks.listManagedTargetSnapshots.mockResolvedValue(okPage([]))
     assetMocks.getAgentDetail.mockResolvedValue(okRecord({ id: 'agent-1', capabilitySnapshot: { capabilities: [] } }))
     assetMocks.getAssetDetail.mockResolvedValue(okRecord({ id: 'asset-1' }))
+    deploymentInputMocks.projectDeploymentInputs.mockResolvedValue(okRecord({
+      contractVersion: 'gcac.deployment-input-contract/v1',
+      requiredVariables: [], advancedVariables: [], connections: [], credentials: [], artifacts: [], fixedValues: [], runtimeValues: [], issues: [], saveable: true,
+    }))
     assetMocks.listCapabilities.mockResolvedValue(okPage([]))
     assetMocks.matchCapabilityRequirement.mockResolvedValue(okRecord({ satisfiedCapabilities: [], missingCapabilities: [] }))
     assetMocks.evaluateCapabilityCompatibility.mockResolvedValue(okRecord({ compatibilityLevel: 'L2', manualDeclarations: [] }))
@@ -707,15 +716,10 @@ describe('资产与证书产物视图', () => {
     await versionSelect!.setValue('workflow-version-1')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('工作流变量')
+    expect(wrapper.text()).toContain('请先保存应用资产及执行来源')
     expect(wrapper.text()).not.toContain('运行变量 JSON')
     expect(wrapper.text()).not.toContain('deviceHost')
-    expect(wrapper.text()).toContain('证书变量绑定')
-
-    const certificateFormatSelect = wrapper.findAll('select').find((select) => select.find('option[value="certfmt-1"]').exists())
-    expect(certificateFormatSelect).toBeTruthy()
-    await certificateFormatSelect!.setValue('certfmt-1')
-    await flushPromises()
+    expect(wrapper.text()).not.toContain('证书变量绑定')
 
     await nextButton!.trigger('click')
     await flushPromises()
@@ -744,15 +748,7 @@ describe('资产与证书产物视图', () => {
             variables: {},
             connections: {},
             credentials: {},
-            artifacts: expect.objectContaining({
-              serverCert: {
-                certificateFormatId: 'certfmt-1',
-                outputBindings: {
-                  certFile: 'fullchain',
-                  keyFile: 'private',
-                },
-              },
-            }),
+            artifacts: {},
           },
         }),
       }),
@@ -764,6 +760,15 @@ describe('资产与证书产物视图', () => {
   })
 
   it('工作流投影中的 credential 必须渲染为凭据选择器', async () => {
+    assetMocks.getAssetDetail.mockResolvedValue(okRecord({
+      id: 'asset-1', address: 'cloud.jacksonz.cn', port: 443, protocol: 'HTTPS', platform: 'LINUX',
+      deploymentStrategy: { type: 'WORKFLOW', workflow: { workflowId: 'workflow-1', workflowVersionSelection: 'PINNED', workflowVersionId: 'workflow-version-1', runner: 'CONTROL_PLANE', inputBindings: { apiVersion: 'gcac.input-bindings/v1', variables: {}, connections: {}, credentials: {}, artifacts: {} } } },
+    }))
+    deploymentInputMocks.projectDeploymentInputs.mockResolvedValue(okRecord({
+      contractVersion: 'gcac.deployment-input-contract/v1', requiredVariables: [], advancedVariables: [], connections: [],
+      credentials: [{ slot: 'synologyCredential', allowedKinds: ['USERNAME_PASSWORD'], required: true, configurationMode: 'required' }],
+      artifacts: [], fixedValues: [], runtimeValues: [], issues: [], saveable: false,
+    }))
     workflowMocks.listWorkflowTemplateVersions.mockResolvedValue({
       data: {
         items: [{
@@ -797,17 +802,9 @@ describe('资产与证书产物视图', () => {
 
     const wrapper = mountBusinessView(AssetsView)
     await flushPromises()
-    await wrapper.findAll('button').find((button) => button.text() === '添加资产')!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === '编辑')!.trigger('click')
     await flushPromises()
-    await wrapper.findAll('button').find((button) => button.text().includes('独立工作流'))!.trigger('click')
-    await flushPromises()
-    const addressInput = wrapper.findAll('input').find((input) => input.attributes('placeholder') === 'app.example.com')!
-    await setInputElementValue(addressInput.element as HTMLInputElement, 'cloud.jacksonz.cn')
     await wrapper.findAll('button').find((button) => button.text() === '下一步')!.trigger('click')
-    await flushPromises()
-    await wrapper.findAll('select').find((select) => select.find('option[value="workflow-1"]').exists())!.setValue('workflow-1')
-    await flushPromises()
-    await wrapper.findAll('select').find((select) => select.find('option[value="workflow-version-1"]').exists())!.setValue('workflow-version-1')
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('选择工作流版本、运行位置和变量，证书变量会在运行时注入。')
@@ -833,6 +830,11 @@ describe('资产与证书产物视图', () => {
   })
 
   it('编辑工作流应用资产时会回填并保留证书产物绑定', async () => {
+    deploymentInputMocks.projectDeploymentInputs.mockResolvedValue(okRecord({
+      contractVersion: 'gcac.deployment-input-contract/v1', requiredVariables: [], advancedVariables: [], connections: [], credentials: [],
+      artifacts: [{ slot: 'serverCert', kind: 'certificate', required: true, configurationMode: 'required', outputs: { certFile: { role: 'public_certificate', required: true }, keyFile: { role: 'private_key', required: true } }, binding: { certificateFormatId: 'certfmt-1', outputBindings: { certFile: 'fullchain', keyFile: 'private' } } }],
+      fixedValues: [], runtimeValues: [], issues: [], saveable: true,
+    }))
     assetMocks.getAssetDetail.mockResolvedValue(okRecord({
       id: 'asset-1',
       address: 'app.example.com',
@@ -904,7 +906,7 @@ describe('资产与证书产物视图', () => {
 
     expect(assetMocks.updateServiceAsset).toHaveBeenCalledWith('asset-1', expect.objectContaining({
       metadata: expect.objectContaining({
-        workflowTarget: expect.objectContaining({ verifyUrl: 'https://app.example.com/custom-health' }),
+        workflowTarget: expect.objectContaining({ verifyUrl: 'https://app.example.com:443' }),
       }),
     }))
     expect(assetMocks.saveApplicationAssetStandaloneWorkflow).toHaveBeenCalledWith('asset-1', {

@@ -2448,6 +2448,18 @@ export default {
       }
     }
   },
+  deploymentInputs: {
+    title: 'Deployment inputs',
+    description: 'Configure deployment values from the unified input contract declared by the plugin or workflow.',
+    saveAssetFirst: 'Save the application asset and execution source before editing deployment inputs projected by the backend.',
+    contractVersion: 'Contract {version}',
+    groups: { required: 'Required configuration', advanced: 'Advanced configuration', readonly: 'Read-only and runtime values' },
+    actions: { expand: 'Expand advanced configuration', collapse: 'Collapse advanced configuration' },
+    placeholders: { select: 'Select an option', credential: 'Select a credential', artifact: 'Select an artifact format', output: 'Select an output' },
+    artifacts: { format: 'Artifact format' },
+    runtimeValue: 'Provided by {source} at runtime',
+    issues: { title: 'Input issues', missing: 'A required deployment input is missing' }
+  },
   assets: {
     title: 'Application assets',
     description: 'Manage application entry points by domain or IP, focusing on address, port, protocol, site, and execution targeting.',
