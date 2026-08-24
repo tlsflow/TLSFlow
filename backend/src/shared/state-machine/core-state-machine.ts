@@ -24,7 +24,8 @@ export const deploymentPlanTransitions: TransitionMap<DeploymentPlanStatus> = {
 };
 
 export const executionRunTransitions: TransitionMap<ExecutionRunStatus> = {
-  PENDING: ['DISPATCHED', 'CANCELLED'],
+  // 任务在步骤/授权材料创建阶段就可能失败，此时尚未进入队列也必须能收敛为 FAILED。
+  PENDING: ['DISPATCHED', 'FAILED', 'CANCELLED'],
   DISPATCHED: ['RUNNING', 'TIMEOUT', 'CANCELLED'],
   RUNNING: ['SUCCESS', 'FAILED', 'TIMEOUT', 'CANCELLED'],
   SUCCESS: ['ROLLBACK_RUNNING'],
