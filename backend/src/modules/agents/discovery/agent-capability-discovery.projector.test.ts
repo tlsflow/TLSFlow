@@ -113,6 +113,161 @@ test('Go Agent 小写 IIS bindings 会生成带端口的站点和 HTTPS 受管�
   }]);
 });
 
+test('IIS Binding 仅上报 CertificateThumbprint 时仍生成证书绑定', async () => {
+  let projected: StandardDeviceDiscoveryV2 | undefined;
+  const database = {
+    query: async () => ({ rows: [{ id: 'host-1', hostname: 'iis-host', display_name: 'IIS Host', primary_ip: '10.0.0.10' }], rowCount: 1 }),
+  } as unknown as DatabasePort;
+  const projector = {
+    project: async (_context: unknown, discovery: StandardDeviceDiscoveryV2) => {
+      projected = discovery;
+      return {};
+    },
+  } as unknown as StandardDeviceDiscoveryProjector;
+  const mappingPath = 'discovery-mappings/iis.json';
+  const mapping = JSON.stringify({
+    apiVersion: 'gcac.agent-discovery-mapping/v1',
+    kind: 'AgentCapabilityDiscoveryMapping',
+    pluginId: 'fixture.web-server',
+    capabilityKey: 'windows.iis.detail',
+    projection: {
+      shape: 'web_sites',
+      frameworkType: 'web.iis',
+      displayName: 'Microsoft IIS',
+      targetType: 'tls.binding',
+      deployCapability: 'certificate.deploy',
+      fallbackHostHeaderToSiteName: false,
+    },
+  });
+  const plugins = {
+    listVersions: async () => [{
+      id: 'plugin-version-1',
+      pluginId: 'fixture.web-server',
+      status: 'ENABLED',
+      manifest: { resources: { agentDiscoveryMappings: { agentCapability: mappingPath } } },
+      resources: { [mappingPath]: mapping },
+    }],
+  } as unknown as UnifiedPluginsApplicationService;
+  const service = new AgentCapabilityDiscoveryProjector(database, projector, plugins);
+
+  await service.project({
+    id: 'agent-1',
+    descriptor: { hostname: 'iis-host', osVersion: 'Windows Server 2008 R2', ipAddress: '10.0.0.10' },
+  } as AgentRegistration, {
+    id: 'snapshot-1',
+    tenantId: 'tenant-1',
+    reportedAt: '2026-07-29T00:00:00.000Z',
+    capabilities: [{
+      capabilityKey: 'windows.iis.detail',
+      confidence: 1,
+      value: {
+        Installed: true,
+        Sites: [{
+          Id: 1,
+          Name: 'test08',
+          Bindings: [{
+            Protocol: 'https',
+            BindingInformation: '*:443:test08',
+            IPAddress: '*',
+            Port: 443,
+            HostHeader: 'test08',
+            CertificateStoreName: 'MY',
+            CertificateThumbprint: 'AABBCCDDEEFF00112233445566778899AABBCCDD',
+          }],
+        }],
+      },
+    }],
+  } as AgentCapabilitySnapshot);
+
+  assert.ok(projected);
+  assert.equal(projected?.managedTargets.length, 1);
+  assert.equal(projected?.certificates.length, 1);
+  assert.equal(projected?.certificates[0]?.metadata?.thumbprint, 'AABBCCDDEEFF00112233445566778899AABBCCDD');
+  assert.equal(projected?.certificateBindings.length, 1);
+  assert.equal(projected?.certificateBindings[0]?.metadata?.storeThumbprint, 'AABBCCDDEEFF00112233445566778899AABBCCDD');
+});
+
+test('Agent 发现使用当前租户可访问的内置插件映射', async () => {
+  let projected: StandardDeviceDiscoveryV2 | undefined;
+  const database = {
+    query: async () => ({ rows: [{ id: 'host-1', hostname: 'iis-host', display_name: 'IIS Host', primary_ip: '10.0.0.10' }], rowCount: 1 }),
+  } as unknown as DatabasePort;
+  const projector = {
+    project: async (_context: unknown, discovery: StandardDeviceDiscoveryV2) => {
+      projected = discovery;
+      return {};
+    },
+  } as unknown as StandardDeviceDiscoveryProjector;
+  const mappingPath = 'discovery-mappings/iis.json';
+  const mapping = JSON.stringify({
+    apiVersion: 'gcac.agent-discovery-mapping/v1',
+    kind: 'AgentCapabilityDiscoveryMapping',
+    pluginId: 'builtin.windows.iis.pfx',
+    capabilityKey: 'windows.iis.detail',
+    projection: {
+      shape: 'web_sites',
+      frameworkType: 'web.iis',
+      displayName: 'Microsoft IIS',
+      targetType: 'tls.binding',
+      deployCapability: 'windows.iis.binding.update_certificate',
+      fallbackHostHeaderToSiteName: false,
+    },
+  });
+  const plugin = {
+    id: 'system-iis-plugin',
+    pluginId: 'builtin.windows.iis.pfx',
+    status: 'ENABLED',
+    manifest: { resources: { agentDiscoveryMappings: { agentCapability: mappingPath } } },
+    resources: { [mappingPath]: mapping },
+  };
+  const plugins = {
+    listVersions: async () => [],
+    listAccessibleVersions: async () => [plugin],
+  } as unknown as UnifiedPluginsApplicationService;
+  const service = new AgentCapabilityDiscoveryProjector(database, projector, plugins);
+
+  await service.project({
+    id: 'agent-1',
+    descriptor: { hostname: 'iis-host', osVersion: 'Windows Server 2008 R2', ipAddress: '10.0.0.10' },
+  } as AgentRegistration, {
+    id: 'snapshot-1',
+    tenantId: 'tenant-1',
+    reportedAt: '2026-07-29T00:00:00.000Z',
+    capabilities: [{
+      capabilityKey: 'windows.iis.detail',
+      confidence: 1,
+      value: {
+        Installed: true,
+        Sites: [{
+          Id: 2,
+          Name: 'test08',
+          Bindings: [{
+            Protocol: 'https',
+            BindingInformation: '*:443:',
+            IPAddress: '*',
+            Port: 443,
+            HostHeader: '',
+            CertificateStoreName: 'MY',
+            CertificateThumbprint: '370638FC7670459ACA023CCEB297DC58880FC4F6',
+            Certificate: {
+              FingerprintSHA256: 'd68b757dd503f25d3621249653832df563ff33323c5284c43ddb124bbd4858cd',
+              Subject: 'CN=Ser08-TEST',
+            },
+          }],
+        }],
+      },
+    }],
+  } as AgentCapabilitySnapshot);
+
+  assert.ok(projected);
+  assert.equal(projected?.frameworks[0]?.frameworkType, 'web.iis');
+  assert.equal(projected?.sites[0]?.displayName, 'test08');
+  assert.equal(projected?.managedTargets.length, 1);
+  assert.equal(projected?.certificates.length, 1);
+  assert.equal(projected?.certificates[0]?.sha256Fingerprint, 'd68b757dd503f25d3621249653832df563ff33323c5284c43ddb124bbd4858cd');
+  assert.equal(projected?.certificateBindings.length, 1);
+});
+
 test('多个启用插件声明同一 Agent Capability Key 时失败关闭', async () => {
   const database = {
     query: async () => ({ rows: [{ id: 'host-1', hostname: 'host', display_name: 'Host', primary_ip: '10.0.0.10' }], rowCount: 1 }),

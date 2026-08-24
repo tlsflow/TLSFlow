@@ -7,7 +7,7 @@ import type { ManagedDeviceDetailDto } from '../dto/devices.dto.js';
 import type { DevicesRepository } from '../repository/devices.repository.js';
 import { DevicesApplicationService } from './devices.application-service.js';
 
-test('统一设备发现动作会转发到 Agent 能力重扫', async () => {
+test('统一设备发现动作会进入 Agent 标准发现流程', async () => {
   const device = {
     id: 'host-1',
     displayName: 'Windows Host',
@@ -33,8 +33,8 @@ test('统一设备发现动作会转发到 Agent 能力重扫', async () => {
   const repository = {
     get: async () => device,
   } as unknown as DevicesRepository;
-  let rescanInput: unknown;
-  let rescanRequestId = '';
+  let refreshInput: unknown;
+  let refreshRequestId = '';
   const agents = {
     getAgentDetail: async () => ({
       agent: { id: 'agent-1', agentKey: 'agent-key', status: 'ONLINE', registeredAt: '2026-07-29T00:00:00.000Z', updatedAt: '2026-07-29T00:00:00.000Z', descriptor: { hostname: 'windows-host', osType: 'WINDOWS' } },
@@ -45,19 +45,19 @@ test('统一设备发现动作会转发到 Agent 能力重扫', async () => {
       recentErrors: [],
       capabilities: { declarations: [] },
     }) as unknown as AgentDetailProjection,
-    enqueueCapabilityRescanTask: async (_tenantId: string, input: unknown, requestId: string) => {
-      rescanInput = input;
-      rescanRequestId = requestId;
-      return { id: 'task-1' };
+    refreshStandardDiscovery: async (_tenantId: string, agentId: string, requestedBy: string, requestId: string) => {
+      refreshInput = { agentId, requestedBy };
+      refreshRequestId = requestId;
+      return { mode: 'standard-capability', task: { id: 'task-1' }, projection: { certificateBindings: 1 } };
     },
   } as unknown as AgentsApplicationService;
   const service = new DevicesApplicationService(repository, undefined, agents);
 
   const result = await service.executeCapability('tenant-1', 'host-1', 'device.discover', 'user-1', 'request-1');
 
-  assert.deepEqual(rescanInput, { agentId: 'agent-1', requestedBy: 'user-1' });
-  assert.equal(rescanRequestId, 'request-1');
-  assert.equal((result as { id: string }).id, 'task-1');
+  assert.deepEqual(refreshInput, { agentId: 'agent-1', requestedBy: 'user-1' });
+  assert.equal(refreshRequestId, 'request-1');
+  assert.equal((result as { projection: { certificateBindings: number } }).projection.certificateBindings, 1);
 });
 
 test('Agent 设备详情只保留标准投影站点，不再解析厂商 capability snapshot', async () => {

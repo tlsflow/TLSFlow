@@ -120,10 +120,7 @@ export class DevicesApplicationService {
         throw new AppError('CAPABILITY_MISSING', 'Agent 设备不支持该设备动作', { deviceId, capabilityKey });
       }
       if (!this.agents) throw new AppError('CAPABILITY_MISSING', 'Agent 服务未注册');
-      return this.agents.enqueueCapabilityRescanTask(tenantId, {
-        agentId: device.extension.agentId,
-        requestedBy: actorId,
-      }, requestId);
+      return this.agents.refreshStandardDiscovery(tenantId, device.extension.agentId, actorId, requestId);
     }
     if (!this.pluginBindings || !this.pluginWorkflows || !this.workflows) throw new AppError('CAPABILITY_MISSING', '插件工作流执行服务未注册');
     if (capabilityKey !== 'device.connection.test'

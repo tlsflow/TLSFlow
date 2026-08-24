@@ -669,7 +669,8 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
   });
   assert.equal(result.assignments.length, 6);
   assert.deepEqual(executedCapabilities, ['device.connection.test', 'device.identity.detect', 'device.discover']);
-  assert.ok('projection' in result.discovery && result.discovery.projection.certificateBindings === 1);
+  assert.ok('projection' in result.discovery);
+  assert.equal(result.discovery.projection?.certificateBindings, 1);
   assert.ok(!JSON.stringify(result).includes('"password":"'));
   await database.query(
     `update unified_plugin_versions

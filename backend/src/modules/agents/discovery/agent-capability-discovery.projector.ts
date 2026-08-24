@@ -5,6 +5,8 @@ import type { StandardDeviceDiscoveryV2 } from '../../plugins/discovery/device-d
 import { CERTIFICATE_LOCATION_API_VERSION, type CertificateLocationV1 } from '../../deployment-inputs/dto/certificate-location.dto.js';
 import { StandardDeviceDiscoveryProjector, type StandardDiscoveryProjectionSummary } from '../../plugins/discovery/standard-device-discovery.projector.js';
 import type { UnifiedPluginsApplicationService } from '../../plugins/application/unified-plugins.application-service.js';
+import { compareSemanticVersions } from '../../plugins/application/unified-plugins.application-service.js';
+import type { UnifiedPluginVersionRecord } from '../../plugins/dto/unified-plugins.dto.js';
 import { validateAgentCapabilityDiscoveryMapping, type AgentCapabilityDiscoveryMappingV1 } from '../../plugins/discovery/agent-capability-discovery-mapping.js';
 import type { AgentCapabilitySnapshot, AgentRegistration } from '../schema/agents.schema.js';
 
@@ -34,7 +36,9 @@ export class AgentCapabilityDiscoveryProjector {
   constructor(
     private readonly db: DatabasePort,
     private readonly projector: StandardDeviceDiscoveryProjector,
-    private readonly plugins: Pick<UnifiedPluginsApplicationService, 'listVersions'>,
+    private readonly plugins: Pick<UnifiedPluginsApplicationService, 'listVersions'> & {
+      listAccessibleVersions?: UnifiedPluginsApplicationService['listAccessibleVersions'];
+    },
   ) {}
 
   async project(agent: AgentRegistration, snapshot: AgentCapabilitySnapshot): Promise<StandardDiscoveryProjectionSummary> {
@@ -106,7 +110,10 @@ export class AgentCapabilityDiscoveryProjector {
 
   private async loadProductProjectors(tenantId: string): Promise<AgentProductDiscoveryProjector[]> {
     const byCapability = new Map<string, AgentProductDiscoveryProjector>();
-    const enabled = (await this.plugins.listVersions(tenantId)).filter((record) => record.status === 'ENABLED');
+    const versions = this.plugins.listAccessibleVersions
+      ? await this.plugins.listAccessibleVersions(tenantId)
+      : await this.plugins.listVersions(tenantId);
+    const enabled = selectLatestEnabledVersions(versions, tenantId);
     for (const record of enabled) {
       for (const path of Object.values(record.manifest.resources.agentDiscoveryMappings ?? {})) {
         const content = record.resources[path];
@@ -123,6 +130,34 @@ export class AgentCapabilityDiscoveryProjector {
     }
     return [...byCapability.values()];
   }
+}
+
+function selectLatestEnabledVersions(
+  versions: UnifiedPluginVersionRecord[],
+  tenantId: string,
+): UnifiedPluginVersionRecord[] {
+  const latestByPlugin = new Map<string, UnifiedPluginVersionRecord>();
+  for (const record of versions) {
+    if (record.status !== 'ENABLED') continue;
+    const current = latestByPlugin.get(record.pluginId);
+    if (!current || isPreferredPluginVersion(record, current, tenantId)) {
+      latestByPlugin.set(record.pluginId, record);
+    }
+  }
+  return [...latestByPlugin.values()];
+}
+
+function isPreferredPluginVersion(
+  candidate: UnifiedPluginVersionRecord,
+  current: UnifiedPluginVersionRecord,
+  tenantId: string,
+): boolean {
+  const versionOrder = compareSemanticVersions(candidate.version, current.version);
+  if (versionOrder !== 0) return versionOrder > 0;
+  if (candidate.tenantId === tenantId && current.tenantId !== tenantId) return true;
+  if (candidate.tenantId !== tenantId && current.tenantId === tenantId) return false;
+  return candidate.updatedAt > current.updatedAt
+    || (candidate.updatedAt === current.updatedAt && candidate.id > current.id);
 }
 
 function createProductProjector(descriptor: ProductDescriptor): AgentProductDiscoveryProjector {
@@ -308,7 +343,14 @@ function projectObservedCertificate(
   bindingName: string,
 ): void {
   const certificate = asRecord(listener.certificate) ?? asRecord(listener.Certificate);
-  const fingerprint = normalizeFingerprint(readString(certificate, 'fingerprintSha256', 'FingerprintSha256', 'sha256Fingerprint'));
+  const fingerprint = normalizeFingerprint(readString(
+    certificate,
+    'fingerprintSha256',
+    'FingerprintSha256',
+    'FingerprintSHA256',
+    'sha256Fingerprint',
+    'SHA256Fingerprint',
+  ));
   const thumbprint = readString(certificate, 'thumbprint', 'Thumbprint')
     ?? readString(listener, 'certificateThumbprint', 'CertificateThumbprint');
   const certificatePath = readString(listener, 'certificatePath', 'CertificatePath');

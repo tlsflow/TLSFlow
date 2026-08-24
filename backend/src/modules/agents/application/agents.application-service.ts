@@ -520,7 +520,30 @@ export class AgentsApplicationService {
         actorId: input.agentId,
       });
     }
+    if (input.success && task.payload?.type === 'agent.capability.rescan') {
+      await this.projectLatestCapabilitySnapshot(tenantId, task.agentId);
+    }
     return updated;
+  }
+
+  private async projectLatestCapabilitySnapshot(tenantId: string, agentId: string): Promise<void> {
+    if (!this.capabilityDiscoveryProjector) return;
+    const snapshot = await this.repository.getLatestCapabilitySnapshot(tenantId, agentId);
+    if (!snapshot) return;
+    try {
+      const agent = await this.requireAgent(tenantId, agentId);
+      await this.capabilityDiscoveryProjector.project(agent, snapshot);
+    } catch (error) {
+      structuredLogger.error('Agent 能力重扫完成后的标准发现投影失败', {
+        agentId,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      }, {
+        tenantId,
+        module: 'agents',
+        resourceType: 'agent',
+        resourceId: agentId,
+      });
+    }
   }
 
   async executeTaskDirect(
@@ -1541,6 +1564,7 @@ async function loadWindowsCompatibilityAgentArtifacts(): Promise<Array<{ path: s
   const agentRoot = resolveWindowsCompatibilityAgentRoot();
   const artifactPaths = [
     { source: resolveWindowsCompatibilityBinaryPath(agentRoot), target: 'bin/Release/GCAC.WindowsCompatibilityAgent.exe', encoding: 'base64' as const },
+    { source: `${resolveWindowsCompatibilityBinaryPath(agentRoot)}.config`, target: 'bin/Release/GCAC.WindowsCompatibilityAgent.exe.config', encoding: 'utf8' as const },
     { source: path.join(agentRoot, 'install-service.ps1'), target: 'install-service.ps1', encoding: 'utf8' as const },
     { source: path.join(agentRoot, 'uninstall-service.ps1'), target: 'uninstall-service.ps1', encoding: 'utf8' as const },
     { source: path.join(agentRoot, 'upgrade-service.ps1'), target: 'upgrade-service.ps1', encoding: 'utf8' as const },
