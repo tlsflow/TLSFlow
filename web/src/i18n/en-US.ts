@@ -481,7 +481,7 @@ export default {
       FAILED: '{task} failed',
       CANCELLED: '{task} cancelled'
     },
-    status: { QUEUED: 'Queued', RUNNING: 'Running', RETRY_WAITING: 'Waiting for retry', CANCELLING: 'Cancelling', SUCCEEDED: 'Succeeded', FAILED: 'Failed', CANCELLED: 'Cancelled' }
+    status: { QUEUED: 'Queued', RUNNING: 'Running', RETRY_WAITING: 'Waiting for retry', WAITING_APPROVAL: 'Waiting for approval', CANCELLING: 'Cancelling', SUCCEEDED: 'Succeeded', FAILED: 'Failed', CANCELLED: 'Cancelled' }
   },
   shell: {
     currentLocation: 'Current location',

@@ -49,11 +49,14 @@ function buildSummary(run: AutomationRunDto): string {
 }
 
 export function buildAutomationTaskResourceSummary(run: AutomationRunDto): Record<string, unknown> {
+  const approvalPending = run.status === 'waiting_approval' && Boolean(run.approvalId);
   return {
     displayName: run.automationNameSnapshot,
     automationId: run.automationId,
     automationRunId: run.id,
     approvalId: run.approvalId,
+    approvalPending,
+    ...(approvalPending ? { approvalStatus: 'pending' } : {}),
     summary: buildSummary(run),
     percent: computePercent(run),
     totalTargets: finiteCount(run.targetSummary.total),

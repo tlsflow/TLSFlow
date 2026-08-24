@@ -482,7 +482,7 @@ export default {
       FAILED: '{task} завершилась ошибкой',
       CANCELLED: '{task} отменена'
     },
-    status: { QUEUED: 'В очереди', RUNNING: 'Выполняется', RETRY_WAITING: 'Ожидание повтора', CANCELLING: 'Отмена', SUCCEEDED: 'Успешно', FAILED: 'Ошибка', CANCELLED: 'Отменено' }
+    status: { QUEUED: 'В очереди', RUNNING: 'Выполняется', RETRY_WAITING: 'Ожидание повтора', WAITING_APPROVAL: 'Ожидание согласования', CANCELLING: 'Отмена', SUCCEEDED: 'Успешно', FAILED: 'Ошибка', CANCELLED: 'Отменено' }
   },
   shell: {
     currentLocation: 'Текущее местоположение',

@@ -174,6 +174,49 @@ test('外部异步任务使用 defer 时不会伪造成功或提前进入终态'
   assert.equal(first?.finishedAt, undefined);
 });
 
+test('审批决定后会唤醒自动化任务并清除等待审批摘要', async () => {
+  const { service } = await createFixture();
+  const task = await service.enqueue({
+    tenantId: 'tenant-task-approval',
+    taskType: 'AUTOMATION_RUN',
+    triggerSource: 'automation.manual',
+    resourceSummary: {
+      automationRunId: 'run-approval',
+      approvalId: 'approval-1',
+      approvalPending: true,
+      approvalStatus: 'pending',
+      status: 'waiting_approval',
+    },
+    resourceRefs: [{ resourceType: 'automationRun', resourceId: 'run-approval' }],
+    payload: { runId: 'run-approval' },
+  });
+  await service.runNext(
+    'worker-approval',
+    async () => ({
+      success: false,
+      defer: true,
+      retryAfterSeconds: 300,
+      errorCode: 'AUTOMATION_RUN_PENDING',
+      errorMessage: '等待审批',
+    }),
+    task.tenantId,
+  );
+
+  const woken = await service.resolveAutomationRunTask(task.tenantId, 'run-approval', {
+    automationRunId: 'run-approval',
+    approvalId: 'approval-1',
+    approvalPending: false,
+    approvalStatus: 'approved',
+    status: 'queued',
+  }, 'approved');
+
+  assert.equal(woken?.status, 'QUEUED');
+  assert.equal(woken?.nextAttemptAt, undefined);
+  assert.equal(woken?.resourceSummary?.approvalPending, false);
+  assert.equal(woken?.resourceSummary?.status, 'queued');
+  assert.equal(woken?.progress?.approvalPending, false);
+});
+
 test('相对退避由数据库计算，避免应用与数据库时钟偏差导致立即重试', async () => {
   const { db, repository, service } = await createFixture();
   const task = await service.enqueue({

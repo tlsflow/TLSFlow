@@ -518,8 +518,9 @@ function recordValue(record: Record<string, unknown>, key: string): string {
   return value === undefined || value === null ? t('common.notAvailable') : typeof value === 'string' ? value : JSON.stringify(value)
 }
 
-function taskStatusLabel(status: TaskStatus): string {
-  return t(`tasks.status.${status}`)
+function taskStatusLabel(task: TaskRun): string {
+  if (isAutomationApprovalTask(task)) return t('tasks.status.WAITING_APPROVAL')
+  return t(`tasks.status.${task.status}`)
 }
 
 function taskTypeLabel(task: TaskRun): string {
@@ -547,14 +548,14 @@ function taskResultSummary(task: TaskRun): string {
       task.lastErrorMessage,
       stringFromRecord(task.progress, 'errorMessage'),
       stringFromRecord(task.progress, 'status'),
-    ) ?? t(`tasks.status.${task.status}`)
+    ) ?? taskStatusLabel(task)
   }
   return firstNonEmptyString(
     stringFromRecord(task.progress, 'summary'),
     stringFromRecord(task.progress, 'message'),
     stringFromRecord(task.progress, 'status'),
     stringFromRecord(task.resourceSummary, 'summary'),
-  ) ?? t(`tasks.status.${task.status}`)
+  ) ?? taskStatusLabel(task)
 }
 
 function taskOverview(task: TaskRun): string {
@@ -569,7 +570,7 @@ function taskOverview(task: TaskRun): string {
 }
 
 function taskStatusSummary(task: TaskRun): string {
-  const status = taskStatusLabel(task.status)
+  const status = taskStatusLabel(task)
   const overview = taskOverview(task)
   return overview === status ? overview : `${status} · ${overview}`
 }
@@ -883,7 +884,11 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
               <h3>{{ detailTask ? taskRelatedName(detailTask) : '' }}</h3>
               <p v-if="detailTask" class="task-drawer__eyebrow">{{ taskTypeLabel(detailTask) }}</p>
             </div>
-            <GcStatusTag :status="detailTask?.status ?? 'UNKNOWN'" :tone="statusTone(detailTask?.status ?? 'QUEUED')" />
+            <GcStatusTag
+              :status="detailTask?.status ?? 'UNKNOWN'"
+              :label="detailTask ? taskStatusLabel(detailTask) : undefined"
+              :tone="statusTone(detailTask?.status ?? 'QUEUED')"
+            />
           </div>
           <p v-if="detailError" class="gc-form-error">{{ detailError }}</p>
           <div v-if="detailLoading" class="task-drawer__loading">{{ t('common.loading') }}</div>
@@ -960,7 +965,7 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
               <h4>{{ t('tasks.sections.children') }}</h4>
               <div v-if="detail.childTasks.length === 0" class="task-drawer__empty">{{ t('tasks.values.empty') }}</div>
               <div v-for="child in detail.childTasks" :key="child.id" class="task-drawer__record">
-                <strong>{{ child.taskType }}</strong><span>{{ child.id }}</span><GcStatusTag :status="child.status" :tone="statusTone(child.status)" />
+                <strong>{{ child.taskType }}</strong><span>{{ child.id }}</span><GcStatusTag :status="child.status" :label="taskStatusLabel(child)" :tone="statusTone(child.status)" />
               </div>
             </section>
             <section class="task-drawer__section">
@@ -1016,7 +1021,7 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
                         </span>
                       </span>
                     </span>
-                    <GcStatusTag :status="task.status" :tone="statusTone(task.status)" />
+                    <GcStatusTag :status="task.status" :label="taskStatusLabel(task)" :tone="statusTone(task.status)" />
                   </button>
                 </div>
               </section>
@@ -1046,7 +1051,7 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
                         </span>
                       </span>
                     </span>
-                    <GcStatusTag :status="task.status" :tone="statusTone(task.status)" />
+                    <GcStatusTag :status="task.status" :label="taskStatusLabel(task)" :tone="statusTone(task.status)" />
                   </button>
                 </div>
               </section>
@@ -1101,7 +1106,7 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
                 </span>
               </span>
             </span>
-            <GcStatusTag :status="task.status" :tone="statusTone(task.status)" />
+            <GcStatusTag :status="task.status" :label="taskStatusLabel(task)" :tone="statusTone(task.status)" />
           </button>
         </div>
         <div v-if="allTasksLoading && allTasks.length > 0" class="task-drawer__loading">{{ t('common.loading') }}</div>
@@ -1125,7 +1130,7 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
             <h3>{{ automationRun?.automationNameSnapshot || taskRelatedName(approvalTask) }}</h3>
             <p>{{ t('automations.runs.title') }} · {{ taskAutomationRunId(approvalTask) || t('common.notAvailable') }}</p>
           </div>
-          <GcStatusTag :status="approvalTask.status" :tone="statusTone(approvalTask.status)" />
+          <GcStatusTag :status="approvalTask.status" :label="taskStatusLabel(approvalTask)" :tone="statusTone(approvalTask.status)" />
         </header>
         <div class="task-drawer__approval-summary">
           <div class="task-drawer__record">

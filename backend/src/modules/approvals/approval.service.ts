@@ -7,6 +7,7 @@ import type { RequestContext, RiskLevel } from '../../shared/security-types.js';
 import { canonicalize } from '../../shared/canonical-json.js';
 import { newId } from '../../shared/id.js';
 import { securityErrors } from '../../shared/security-error.js';
+import { structuredLogger } from '../../common/logging/structured-logger.js';
 import type { AuditService } from '../audits/audit.service.js';
 import { AUDIT_EVENT_TYPES } from '../audits/audit-event-types.js';
 
@@ -31,11 +32,13 @@ export interface DecideApprovalInput {
 
 export interface ApprovalServiceOptions {
   allowSelfApproval?: boolean;
+  onDecided?: (approval: ApprovalRequestEntity) => Promise<void>;
 }
 
 export class ApprovalService {
   private static readonly defaultDb = new PgliteDatabase();
   private readonly allowSelfApproval: boolean;
+  private decisionListener?: (approval: ApprovalRequestEntity) => Promise<void>;
 
   private static createDefaultRepository(): AsyncRepositoryPort<ApprovalRequestEntity> {
     return new PgDocumentRepository<ApprovalRequestEntity>(ApprovalService.defaultDb, 'security.approval_requests');
@@ -47,6 +50,14 @@ export class ApprovalService {
     options: ApprovalServiceOptions = {},
   ) {
     this.allowSelfApproval = options.allowSelfApproval ?? false;
+    this.decisionListener = options.onDecided;
+  }
+
+  /**
+   * 中文说明：安全服务初始化早于业务模块，因此审批决策回调允许在应用装配完成后再绑定。
+   */
+  setDecisionListener(listener?: (approval: ApprovalRequestEntity) => Promise<void>): void {
+    this.decisionListener = listener;
   }
 
   async create(input: CreateApprovalInput, context: RequestContext = {}): Promise<ApprovalRequestEntity> {
@@ -119,6 +130,17 @@ export class ApprovalService {
       failClosed: true,
       detail: { operationType: updated.operationType, comment: input.comment },
     });
+
+    try {
+      await this.decisionListener?.(updated);
+    } catch (error) {
+      // 中文说明：审批已经成功落库，唤醒业务运行失败时不能把成功审批伪装成失败。
+      structuredLogger.warn('审批已落库，但后续运行唤醒失败', {
+        approvalId: updated.id,
+        status: updated.status,
+        error: error instanceof Error ? error.message : String(error),
+      }, { module: 'approval-service', resourceType: 'approval', resourceId: updated.id });
+    }
 
     return updated;
   }

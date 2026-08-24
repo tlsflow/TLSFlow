@@ -482,7 +482,7 @@ export default {
       FAILED: '{task}が失敗',
       CANCELLED: '{task}をキャンセル済み'
     },
-    status: { QUEUED: 'キュー待ち', RUNNING: '実行中', RETRY_WAITING: '再試行待ち', CANCELLING: 'キャンセル中', SUCCEEDED: '成功', FAILED: '失敗', CANCELLED: 'キャンセル済み' }
+    status: { QUEUED: 'キュー待ち', RUNNING: '実行中', RETRY_WAITING: '再試行待ち', WAITING_APPROVAL: '承認待ち', CANCELLING: 'キャンセル中', SUCCEEDED: '成功', FAILED: '失敗', CANCELLED: 'キャンセル済み' }
   },
   shell: {
     currentLocation: '現在位置',

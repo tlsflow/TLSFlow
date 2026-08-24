@@ -482,7 +482,7 @@ export default {
       FAILED: '{task} 실패',
       CANCELLED: '{task} 취소됨'
     },
-    status: { QUEUED: '대기 중', RUNNING: '실행 중', RETRY_WAITING: '재시도 대기', CANCELLING: '취소 중', SUCCEEDED: '성공', FAILED: '실패', CANCELLED: '취소됨' }
+    status: { QUEUED: '대기 중', RUNNING: '실행 중', RETRY_WAITING: '재시도 대기', WAITING_APPROVAL: '승인 대기', CANCELLING: '취소 중', SUCCEEDED: '성공', FAILED: '실패', CANCELLED: '취소됨' }
   },
   shell: {
     currentLocation: '현재 위치',

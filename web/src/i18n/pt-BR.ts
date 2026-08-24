@@ -482,7 +482,7 @@ export default {
       FAILED: '{task} falhou',
       CANCELLED: '{task} cancelada'
     },
-    status: { QUEUED: 'Na fila', RUNNING: 'Em execução', RETRY_WAITING: 'Aguardando nova tentativa', CANCELLING: 'Cancelando', SUCCEEDED: 'Concluída', FAILED: 'Falhou', CANCELLED: 'Cancelada' }
+    status: { QUEUED: 'Na fila', RUNNING: 'Em execução', RETRY_WAITING: 'Aguardando nova tentativa', WAITING_APPROVAL: 'Aguardando aprovação', CANCELLING: 'Cancelando', SUCCEEDED: 'Concluída', FAILED: 'Falhou', CANCELLED: 'Cancelada' }
   },
   shell: {
     currentLocation: 'Localização atual',

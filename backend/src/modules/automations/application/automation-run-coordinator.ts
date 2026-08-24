@@ -4,7 +4,14 @@ import { AutomationsRepository } from '../repository/automations.repository.js';
 import type { AutomationApprovalOrchestrator } from './automation-approval-orchestrator.js';
 
 export interface AutomationActionExecutionPort {
-  execute(input: { run: AutomationRunDto; target: AutomationRunTargetDto; action: AutomationActionDto; requireApproval: boolean }): Promise<{ status: 'succeeded' | 'running' | 'waiting_approval'; referenceType?: 'deployment_plan' | 'execution_run' | 'notification_request'; referenceId?: string }>;
+  execute(input: {
+    run: AutomationRunDto;
+    target: AutomationRunTargetDto;
+    action: AutomationActionDto;
+    requireApproval: boolean;
+    approvalId?: string;
+  }): Promise<{ status: 'succeeded' | 'running' | 'waiting_approval'; referenceType?: 'deployment_plan' | 'execution_run' | 'notification_request'; referenceId?: string }>;
+  cleanupTemporaryPlan?(input: { planId: string; tenantId: string }): Promise<boolean>;
 }
 
 async function cancelPendingTargets(repository: AutomationsRepository, runId: string, tenantId: string, finishedAt: string): Promise<void> {
@@ -57,16 +64,20 @@ export class AutomationRunCoordinator {
 
   async execute(runId: string, tenantId: string): Promise<AutomationRunDto> {
     let run = await this.requireRun(runId, tenantId);
+    let approvalGranted = run.status !== 'waiting_approval' && Boolean(run.approvalId);
     if (run.status === 'waiting_approval' && this.approvals) {
       const approval = await this.approvals.synchronizeRun(run.id, tenantId);
       if (approval.status === 'pending') return this.requireRun(run.id, tenantId);
       if (approval.status === 'rejected') return this.requireRun(run.id, tenantId);
+      approvalGranted = approval.status === 'approved';
       run = await this.requireRun(run.id, tenantId);
     }
     const version = await this.repository.getVersion(run.automationId, run.automationVersion, tenantId);
     if (!version) throw new Error(`automation version missing: ${run.automationId}@${run.automationVersion}`);
     if (!isWithinMaintenanceWindow(version.guardrails.maintenanceWindow, this.clock())) {
-      return this.repository.updateRun(run.id, tenantId, { status: 'needs_attention', failureStage: 'execution', failureCode: 'MAINTENANCE_WINDOW_CLOSED', failureMessage: '当前时间不在维护窗口内', finishedAt: this.clock().toISOString() });
+      const updated = await this.repository.updateRun(run.id, tenantId, { status: 'needs_attention', failureStage: 'execution', failureCode: 'MAINTENANCE_WINDOW_CLOSED', failureMessage: '当前时间不在维护窗口内', finishedAt: this.clock().toISOString() });
+      await this.cleanupTemporaryPlans(run.id, tenantId);
+      return updated;
     }
     run = await this.repository.updateRun(run.id, tenantId, { status: 'running', startedAt: run.startedAt ?? this.clock().toISOString() });
     const orderedActions = version.actions.slice().sort((left, right) => left.position - right.position);
@@ -87,7 +98,13 @@ export class AutomationRunCoordinator {
           const resultId = existingResult?.id ?? newId('aar');
           if (!existingResult) await this.repository.createActionResult({ id: resultId, tenantId, runId, runTargetId: target.id, actionType: action.type, actionPosition: action.position, status: 'running', startedAt: this.clock().toISOString(), createdAt: this.clock().toISOString() });
           try {
-            const result = await this.actions.execute({ run, target: (await this.repository.getRunTarget(target.id, tenantId))!, action, requireApproval: version.guardrails.requireApproval });
+            const result = await this.actions.execute({
+              run,
+              target: (await this.repository.getRunTarget(target.id, tenantId))!,
+              action,
+              requireApproval: version.guardrails.requireApproval && !approvalGranted,
+              approvalId: approvalGranted ? run.approvalId : undefined,
+            });
             terminal = result.status;
             await this.repository.updateActionResult(resultId, tenantId, { status: result.status === 'succeeded' ? 'succeeded' : 'running', externalReferenceType: result.referenceType, externalReferenceId: result.referenceId, finishedAt: result.status === 'succeeded' ? this.clock().toISOString() : undefined });
             const linkPatch = result.referenceType === 'deployment_plan' ? { deploymentPlanId: result.referenceId }
@@ -117,6 +134,7 @@ export class AutomationRunCoordinator {
             targetSummary: summarizeTargets(await this.repository.listRunTargets(run.id, tenantId)),
             finishedAt,
           });
+          await this.cleanupTemporaryPlans(run.id, tenantId);
           return run;
         }
       }
@@ -129,6 +147,7 @@ export class AutomationRunCoordinator {
         const finishedAt = this.clock().toISOString();
         await cancelPendingTargets(this.repository, run.id, tenantId, finishedAt);
         run = await this.repository.updateRun(run.id, tenantId, { status: 'needs_attention', failureStage: latestTargets.find((item) => item.status === 'failed')?.failureStage, targetSummary: summarizeTargets(await this.repository.listRunTargets(run.id, tenantId)), finishedAt });
+        await this.cleanupTemporaryPlans(run.id, tenantId);
         return run;
       }
     }
@@ -140,7 +159,9 @@ export class AutomationRunCoordinator {
     for (const target of (await this.repository.listRunTargets(runId, tenantId)).filter((item) => item.status === 'pending')) {
       await this.repository.updateRunTarget(target.id, tenantId, { status: 'cancelled', finishedAt: this.clock().toISOString(), updatedAt: this.clock().toISOString() });
     }
-    return this.repository.updateRun(run.id, tenantId, { status: 'stopped', targetSummary: summarizeTargets(await this.repository.listRunTargets(runId, tenantId)), finishedAt: this.clock().toISOString() });
+    const stopped = await this.repository.updateRun(run.id, tenantId, { status: 'stopped', targetSummary: summarizeTargets(await this.repository.listRunTargets(runId, tenantId)), finishedAt: this.clock().toISOString() });
+    await this.cleanupTemporaryPlans(run.id, tenantId);
+    return stopped;
   }
 
   async retryFailed(runId: string, tenantId: string, actorId: string, idempotencyKey: string): Promise<AutomationRunDto> {
@@ -149,7 +170,7 @@ export class AutomationRunCoordinator {
     if (existing) return existing;
     const failedTargets = (await this.repository.listRunTargets(runId, tenantId)).filter((target) => target.status === 'failed');
     const now = this.clock().toISOString();
-    const retry = { ...source, id: newId('arun'), triggerType: 'retry' as const, parentRunId: source.id, idempotencyKey, status: 'queued' as const, targetSummary: { total: failedTargets.length, pending: failedTargets.length, running: 0, waitingApproval: 0, succeeded: 0, failed: 0, skipped: 0, cancelled: 0 }, failureStage: undefined, failureCode: undefined, failureMessage: undefined, startedAt: undefined, finishedAt: undefined, createdBy: actorId, createdAt: now };
+    const retry = { ...source, id: newId('arun'), triggerType: 'retry' as const, parentRunId: source.id, approvalId: undefined, idempotencyKey, status: 'queued' as const, targetSummary: { total: failedTargets.length, pending: failedTargets.length, running: 0, waitingApproval: 0, succeeded: 0, failed: 0, skipped: 0, cancelled: 0 }, failureStage: undefined, failureCode: undefined, failureMessage: undefined, startedAt: undefined, finishedAt: undefined, createdBy: actorId, createdAt: now };
     await this.repository.transaction(async (repository) => {
       await repository.createRun(retry);
       for (const [index, target] of failedTargets.entries()) await repository.createRunTarget({ ...target, id: newId('art'), runId: retry.id, sequenceNo: index + 1, status: 'pending', currentAction: undefined, failureStage: undefined, deploymentPlanId: undefined, executionRunId: undefined, notificationRequestIds: [], errorCode: undefined, errorMessage: undefined, startedAt: undefined, finishedAt: undefined, createdAt: now, updatedAt: now });
@@ -161,7 +182,17 @@ export class AutomationRunCoordinator {
     const targets = await this.repository.listRunTargets(runId, tenantId);
     const summary = summarizeTargets(targets);
     const status = summary.waitingApproval > 0 ? 'waiting_approval' : summary.running > 0 ? 'running' : summary.failed === 0 ? 'succeeded' : summary.succeeded > 0 ? 'partially_succeeded' : 'failed';
-    return this.repository.updateRun(runId, tenantId, { status, targetSummary: summary, failureStage: targets.find((item) => item.status === 'failed')?.failureStage, finishedAt: ['succeeded', 'partially_succeeded', 'failed'].includes(status) ? this.clock().toISOString() : undefined });
+    const updated = await this.repository.updateRun(runId, tenantId, { status, targetSummary: summary, failureStage: targets.find((item) => item.status === 'failed')?.failureStage, finishedAt: ['succeeded', 'partially_succeeded', 'failed'].includes(status) ? this.clock().toISOString() : undefined });
+    if (['succeeded', 'partially_succeeded', 'failed'].includes(status)) await this.cleanupTemporaryPlans(runId, tenantId);
+    return updated;
+  }
+
+  private async cleanupTemporaryPlans(runId: string, tenantId: string): Promise<void> {
+    if (!this.actions.cleanupTemporaryPlan) return;
+    const planIds = [...new Set((await this.repository.listRunTargets(runId, tenantId))
+      .map((target) => target.deploymentPlanId)
+      .filter((id): id is string => Boolean(id)))];
+    for (const planId of planIds) await this.actions.cleanupTemporaryPlan({ planId, tenantId });
   }
 
   private async requireRun(runId: string, tenantId: string): Promise<AutomationRunDto> {

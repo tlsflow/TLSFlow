@@ -101,6 +101,7 @@ import {
 import { PgDocumentRepository } from './persistence/repositories/pg-document-repository.js';
 import { createDeploymentPersistenceRepositories, type DeploymentPersistenceOptions } from './persistence/repositories/deployment-persistence-factory.js';
 import { AutomationsApplicationService, AutomationApprovalOrchestrator, AutomationConfiguredActionExecutor, AutomationDeploymentActionService, AutomationEventDeliveryService, AutomationFilterEvaluator, AutomationNotificationActionService, AutomationRunCoordinator, AutomationScheduler, AutomationTargetResolverRegistry, AutomationTargetSelector, AutomationTriggerRegistry, AutomationsController, AutomationsRepository, CertificateVersionTargetResolver, DeferredCertificateVersionEventPublisher, DeploymentPlansAutomationAdapter, FakeNotificationPort, getAutomationRouteContracts, AllowAllAutomationTargetAccess } from './modules/automations/index.js';
+import { buildAutomationTaskResourceSummary } from './modules/automations/application/automation-task-progress.js';
 import { getEditionLicensingRouteContracts, registerEditionLicensing } from './edition/licensing.js';
 import { PostgresHttp01Responder } from './modules/internal-ca/challenges/postgres-http-01.responder.js';
 import { Http01ChallengeAdapter } from './modules/internal-ca/challenges/http-01.adapter.js';
@@ -591,6 +592,34 @@ export function createApp(dependencies: AppDependencies = {}): App {
     automationApprovalOrchestrator,
   );
   const automationScheduler = new AutomationScheduler(automationsRepository, automationsService, automationCoordinator, undefined, undefined);
+  security.approvals.setDecisionListener(async (approval) => {
+    if (approval.operationType !== 'automation.run.approve') return;
+    const runRef = approval.resourceRefs.find((ref) => ref.type === 'automationRun');
+    if (!runRef || !approval.tenantId) return;
+    const synchronized = await automationApprovalOrchestrator.synchronizeRun(runRef.id, approval.tenantId);
+    if (synchronized.status === 'pending') return;
+    const run = await automationsRepository.getRun(runRef.id, approval.tenantId);
+    if (!run) return;
+    const resourceSummary = buildAutomationTaskResourceSummary(run);
+    const task = await tasksService.resolveAutomationRunTask(approval.tenantId, run.id, resourceSummary, synchronized.status);
+    if (task) return;
+    if (synchronized.status === 'approved') {
+      await tasksService.enqueue({
+        tenantId: run.tenantId,
+        taskType: 'AUTOMATION_RUN',
+        requestedBy: run.createdBy,
+        triggerSource: 'approval.decision',
+        idempotencyKey: `automation-run:${run.id}`,
+        resourceSummary,
+        payload: {
+          runId: run.id,
+          automationId: run.automationId,
+          automationName: run.automationNameSnapshot,
+        },
+        resourceRefs: [{ resourceType: 'automationRun', resourceId: run.id }],
+      });
+    }
+  });
   app.setResource('automationScheduler', automationScheduler);
   app.setResource('automationEventDelivery', automationEventDelivery);
   new AssetsController(security, assetsService, new ApplicationAssetExecutionService(appDb)).register(app.router);

@@ -481,7 +481,7 @@ export default {
       FAILED: "{task}執行失敗",
       CANCELLED: "{task}已取消"
     },
-    status: { QUEUED: "排隊中", RUNNING: "執行中", RETRY_WAITING: "等待重試", CANCELLING: "取消中", SUCCEEDED: "成功", FAILED: "失敗", CANCELLED: "已取消" }
+    status: { QUEUED: "排隊中", RUNNING: "執行中", RETRY_WAITING: "等待重試", WAITING_APPROVAL: "等待審核", CANCELLING: "取消中", SUCCEEDED: "成功", FAILED: "失敗", CANCELLED: "已取消" }
   },
   shell: {
     currentLocation: "目前位置",

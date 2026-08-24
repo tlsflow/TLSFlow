@@ -482,7 +482,7 @@ export default {
       FAILED: 'Échec de {task}',
       CANCELLED: '{task} annulé'
     },
-    status: { QUEUED: 'En file', RUNNING: 'En cours', RETRY_WAITING: 'En attente de nouvelle tentative', CANCELLING: 'Annulation', SUCCEEDED: 'Réussie', FAILED: 'Échec', CANCELLED: 'Annulée' }
+    status: { QUEUED: 'En file', RUNNING: 'En cours', RETRY_WAITING: 'En attente de nouvelle tentative', WAITING_APPROVAL: 'En attente d’approbation', CANCELLING: 'Annulation', SUCCEEDED: 'Réussie', FAILED: 'Échec', CANCELLED: 'Annulée' }
   },
   shell: {
     currentLocation: 'Current location',

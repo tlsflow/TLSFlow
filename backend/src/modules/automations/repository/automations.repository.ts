@@ -165,6 +165,14 @@ export class AutomationsRepository {
     return result.rows.length > 0;
   }
 
+  async releaseSchedulerLease(leaseKey: string, ownerId: string): Promise<void> {
+    await this.db.query(
+      `delete from automation_scheduler_leases
+        where lease_key = $1 and owner_id = $2`,
+      [leaseKey, ownerId],
+    );
+  }
+
   transaction<T>(work: (repository: AutomationsRepository) => Promise<T>): Promise<T> {
     return this.db.transaction((transaction) => work(new AutomationsRepository(transaction)));
   }

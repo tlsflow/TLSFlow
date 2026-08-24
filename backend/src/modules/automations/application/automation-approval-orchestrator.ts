@@ -68,15 +68,17 @@ export class AutomationApprovalOrchestrator {
     const approval = await this.approvals.get(run.approvalId, tenantId);
     if (!approval) throw new AppError('VALIDATION_FAILED', '自动化审批记录不存在', { approvalId: run.approvalId });
     if (approval.status === 'pending') return { status: 'pending', approvalId: approval.id };
-    if (approval.status === 'approved') {
+    if (approval.status === 'approved' || approval.status === 'consumed') {
       const targets = await this.repository.listRunTargets(run.id, tenantId);
-      await this.approvals.consume(approval.id, this.parameters({
-        runId: run.id,
-        automationId: run.automationId,
-        automationVersion: run.automationVersion,
-        deliveryId: run.deliveryId,
-        targets,
-      }), tenantId);
+      if (approval.status === 'approved') {
+        await this.approvals.consume(approval.id, this.parameters({
+          runId: run.id,
+          automationId: run.automationId,
+          automationVersion: run.automationVersion,
+          deliveryId: run.deliveryId,
+          targets,
+        }), tenantId);
+      }
       await this.repository.updateRun(run.id, tenantId, { status: 'queued' });
       return { status: 'approved', approvalId: approval.id };
     }

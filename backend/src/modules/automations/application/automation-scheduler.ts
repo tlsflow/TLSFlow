@@ -50,8 +50,13 @@ export class AutomationScheduler {
 
   async runRun(runId: string, tenantId: string): Promise<boolean> {
     const leasedUntil = new Date(this.clock.now().getTime() + 300_000);
-    if (!await this.repository.acquireSchedulerLease(`automation-run:${tenantId}:${runId}`, this.ownerId, leasedUntil)) return false;
-    await this.executor.execute(runId, tenantId);
+    const leaseKey = `automation-run:${tenantId}:${runId}`;
+    if (!await this.repository.acquireSchedulerLease(leaseKey, this.ownerId, leasedUntil)) return false;
+    const result = await this.executor.execute(runId, tenantId);
+    if (isWaitingForApproval(result)) {
+      // 中文说明：等待审批不是长时间执行，必须释放运行租约，让批准后的任务立即重新进入同步流程。
+      await this.repository.releaseSchedulerLease(leaseKey, this.ownerId);
+    }
     return true;
   }
 
@@ -73,4 +78,8 @@ export class AutomationScheduler {
     }
     return created;
   }
+}
+
+function isWaitingForApproval(value: unknown): boolean {
+  return Boolean(value && typeof value === 'object' && (value as { status?: unknown }).status === 'waiting_approval');
 }

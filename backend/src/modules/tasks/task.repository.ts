@@ -372,6 +372,45 @@ export class TaskRepository {
     return result;
   }
 
+  async resolveAutomationRun(
+    tenantId: string,
+    id: string,
+    resourceSummary: Record<string, unknown>,
+    decision: 'approved' | 'rejected',
+  ): Promise<TaskRun | undefined> {
+    const result = await this.db.transaction(async (tx) => {
+      const current = await this.getByIdWithDb(tx, tenantId, id);
+      if (!current) return undefined;
+      if (['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(current.status)) return current;
+      const resolvedStatus = decision === 'approved' ? 'QUEUED' : 'FAILED';
+      const progressPatch = {
+        approvalPending: false,
+        approvalStatus: decision,
+      };
+      await tx.query(
+        `update task_runs set
+            status = case when status in ('QUEUED', 'RETRY_WAITING') then $4 else status end,
+            available_at = case when $4 = 'QUEUED' and status in ('QUEUED', 'RETRY_WAITING') then now() else available_at end,
+            next_attempt_at = case when $4 = 'QUEUED' and status in ('QUEUED', 'RETRY_WAITING') then null else next_attempt_at end,
+            finished_at = case when $4 = 'FAILED' then now() else finished_at end,
+            last_error_code = case when $4 = 'FAILED' then 'AUTOMATION_APPROVAL_REJECTED' else null end,
+            last_error_message = case when $4 = 'FAILED' then '自动化审批已拒绝' else null end,
+            progress = coalesce(progress, '{}'::jsonb) || $3::jsonb,
+            resource_summary = $3::jsonb
+          where id = $1 and tenant_id = $2`,
+        [id, tenantId, JSON.stringify({ ...resourceSummary, ...progressPatch }), resolvedStatus],
+      );
+      await appendEvent(tx, id, 'PROGRESS', {
+        source: 'approval.decision',
+        status: resourceSummary.status,
+        approvalPending: false,
+        decision,
+      });
+      return this.getByIdWithDb(tx, tenantId, id);
+    });
+    return result;
+  }
+
   async detail(tenantId: string, id: string): Promise<TaskDetail | undefined> {
     const task = await this.getById(tenantId, id);
     if (!task) return undefined;

@@ -119,6 +119,28 @@ export class TasksApplicationService {
     }
   }
 
+  async resolveAutomationRunTask(
+    tenantId: string,
+    runId: string,
+    resourceSummary: Record<string, unknown>,
+    decision: 'approved' | 'rejected',
+  ): Promise<TaskRun | undefined> {
+    const page = await this.repository.list({
+      tenantId,
+      taskType: 'AUTOMATION_RUN',
+      resourceType: 'automationRun',
+      resourceId: runId,
+      includeAll: true,
+      page: 1,
+      pageSize: 20,
+    });
+    const task = page.items.find((item) => item.taskType === 'AUTOMATION_RUN');
+    if (!task) return undefined;
+    const updated = await this.repository.resolveAutomationRun(tenantId, task.id, resourceSummary, decision);
+    if (updated) this.realtime?.publishTask(updated);
+    return updated;
+  }
+
   async runNext(workerId: string, executor: TaskExecutor, tenantId?: string): Promise<TaskRun | undefined> {
     const claimed = await this.repository.claimNext(tenantId, workerId, 60);
     if (!claimed) return undefined;
