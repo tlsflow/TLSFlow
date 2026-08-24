@@ -442,11 +442,19 @@ export default {
       createdTo: '结束时间'
     },
     fields: { requestedBy: '发起用户', triggerSource: '触发来源', createdAt: '创建时间', startedAt: '开始时间', finishedAt: '结束时间', error: '最后错误' },
-    sections: { timeline: '状态时间线', attempts: '尝试记录', logs: '日志', children: '子任务', errors: '错误', audit: '审计事件', monitoringProbes: '探测记录' },
-    actions: { backToList: '返回任务列表', viewAll: '查看所有任务', search: '搜索', reset: '重置', previousPage: '上一页', nextPage: '下一页' },
+    sections: { timeline: '状态时间线', attempts: '尝试记录', acmeHistory: '续签过程', logs: '原始日志', children: '子任务', errors: '错误', audit: '审计事件', monitoringProbes: '探测记录' },
+    actions: { backToList: '返回任务列表', viewAll: '查看所有任务', viewRawLogs: '查看原始日志', search: '搜索', reset: '重置', previousPage: '上一页', nextPage: '下一页' },
     messages: { loadFailed: '任务列表加载失败。', detailFailed: '任务详情加载失败。' },
     values: { system: '系统', empty: '暂无记录', none: '无' },
-    relatedNames: { builtinCatalog: '内置插件目录', deploymentPlan: '部署计划' },
+    relatedNames: { builtinCatalog: '内置插件目录', deploymentPlan: '部署计划', acmeRenewal: '{certificate}（{provider}）证书续签' },
+    acmeHistory: {
+      queued: { title: '等待续签', description: '系统正在等待处理此证书续签。' },
+      running: { title: '正在续签', description: '系统正在向证书机构请求续签。' },
+      retryWaiting: { title: '等待自动重试', description: '本次签发未完成，系统将在稍后自动重试。' },
+      succeeded: { title: '续签成功', description: '新证书已签发并保存。' },
+      failed: { title: '续签失败', description: '系统无法完成续签，请查看原始日志了解详情。' },
+      cancelled: { title: '续签已取消', description: '此证书续签已被取消。' }
+    },
     typeLabels: {
       CERTIFICATE_DRY_RUN: '证书Dry-run',
       CERTIFICATE_DEPLOY: '证书部署',
@@ -461,6 +469,7 @@ export default {
       MONITORING_BATCH: '监控批次',
       MONITORING_PROBE: '监控探测',
       CA_NODE_TASK: 'CA节点任务',
+      ACME_CERTIFICATE_RENEWAL: 'ACME',
       CA_RECORD_SYNC: 'CA记录同步',
       CERTIFICATE_REVOCATION: '证书吊销',
       CRL_PUBLISH: 'CRL发布',
@@ -1330,6 +1339,9 @@ export default {
     },
     // 兼容旧版本证书卡片的翻译 key，避免已缓存 bundle 在升级后产生缺失告警。
     statusBlock: {
+      tooltip: {
+        name: '名称', issuer: '颁发者', startTime: '开始时间', endTime: '结束时间', daysRemaining: '剩余天数', connectionStatus: '连接状态', version: '版本', managementAddress: '管理地址', lastCommunicationTime: '最近通信时间', platform: '应用平台', protocolPort: '协议与端口', certificateDaysRemaining: '剩余证书天数', region: '区域', latency: '延时'
+      },
       detail: {
         certificateRemaining: '{name}，{days}'
       }
@@ -1736,6 +1748,9 @@ export default {
       }
     },
     statusBlock: {
+      tooltip: {
+        name: '名称', issuer: '颁发者', startTime: '开始时间', endTime: '结束时间', daysRemaining: '剩余天数', connectionStatus: '连接状态', version: '版本', managementAddress: '管理地址', lastCommunicationTime: '最近通信时间', platform: '应用平台', protocolPort: '协议与端口', certificateDaysRemaining: '剩余证书天数', region: '区域', latency: '延时'
+      },
       detail: {
         certificateRemaining: '{name}，{days}'
       },
@@ -1748,9 +1763,6 @@ export default {
         expiring: '即将到期',
         inactive: '不活跃',
         offline: '离线',
-      tooltip: {
-        name: '名称', issuer: '颁发者', startTime: '开始时间', endTime: '结束时间', daysRemaining: '剩余天数', connectionStatus: '连接状态', version: '版本', managementAddress: '管理地址', lastCommunicationTime: '最近通信时间', platform: '应用平台', protocolPort: '协议与端口', certificateDaysRemaining: '剩余证书天数', region: '区域', latency: '延时'
-      },
         online: '在线',
         retired: '已退役',
         revoked: '已吊销',
@@ -4825,13 +4837,13 @@ export default {
     messages: { loadFailed: '内部 CA 数据加载失败。', actionFailed: '操作失败，请检查输入、权限和审批状态。', noIntermediate: '该根 CA 尚未配置中间证书颁发机构。', noRootAuthority: '尚未配置根 CA', noRootAuthorityDescription: '添加根 CA 以建立第一套独立信任架构。', trustDomainCreated: 'CA 信任域已创建。', authorityCreated: '证书机构已创建。', profileCreated: '证书 Profile 已创建。', requestCreated: '证书申请已提交。', requestApproved: '证书申请已审批。', requestRetried: '证书签发已重试。', requestQueried: '远程签发结果已刷新。', renewalScanned: '续期扫描已完成。', revocationCreated: '吊销任务已创建并等待审批。', revocationApproved: '证书吊销已审批。', trustCreated: '信任分发任务已创建并等待审批。', trustApproved: '信任分发已审批。' },
     metrics: { nodes: 'CA Node', renewals: '续期任务', revocations: '吊销任务', trust: '信任分发', totalRisks: '风险总数', critical: '严重风险', affectedAssets: '受影响应用资产' },
     labels: { rootAuthority: '根证书颁发机构', intermediateAuthority: '中间证书颁发机构', intermediateCount: '{count} 个中间 CA', expiresAt: '到期时间：{time}', defaultTrustDomain: '默认信任域', independentTrustDomain: '独立根信任边界', trustDomainCount: '{count} 个 CA 信任域', versionCount: '{count} 个版本', assetCount: '{count} 个应用资产', requestCount: '将创建 {count} 个独立证书申请', backendUsageCount: '{count} 个证书机构正在使用', unverifiedCapabilityCount: '{count} 项能力尚未验证' },
+    backendTypes: { builtin: '内置签发后端', managedNode: '独立 CA Node', acme: '公共 ACME 证书机构', external: '外部签发后端' },
+    backendSummary: { createAndIssue: '可创建和签发证书', requestPublicCertificates: '可申请公共证书', managedNode: '需先注册 CA Node', external: '需接入外部执行器', localVerified: '本地验证通过', remoteVerified: '连接验证通过', unverified: '尚未验证' },
     availability: { single: '单节点', activeStandby: '主备', activeActive: '多活' },
     authModes: { managedSecret: '托管凭据', clientCertificate: '客户端证书', none: '无认证' },
     isolationLevels: { standard: '标准隔离', strict: '严格隔离', regulated: '受监管隔离' },
     custodyModes: { managedSecret: '托管 Secret', localAgent: '本地 Agent', deviceLocal: '设备本地', externalKey: '外部密钥' },
     wizard: { title: '添加证书颁发机构', description: '先选择签发方式，再逐步配置签发后端、CA 参数和安全边界。', stepsAria: 'CA 创建步骤', entryStep: '选择方式', backendStep: '配置后端', parentStep: '选择父 CA', authorityStep: '配置 CA', reviewStep: '确认创建', completed: '已完成', inProgress: '进行中', pending: '待填写', entryEyebrow: '第一步', entryTitle: '这套 CA 由谁负责签发？', entryDescription: '选择最符合部署边界的入口。内置 CA 使用受管执行边界。', recommended: '推荐起步', builtinTitle: '直接创建 CA', builtinDescription: '由当前 GCAC 服务内置的通用证书签发执行面完成。', builtinFeature1: '无需部署额外节点', builtinFeature2: '适合开发和中小规模内部环境', managedTitle: '部署 GCAC CA Node', managedDescription: '将 CA 私钥和签发执行面隔离到独立 Windows 或 Linux 机器。', managedFeature1: '一次性令牌注册节点', managedFeature2: '为 HSM 与冗余部署预留边界', backendEyebrow: '签发后端', builtinBackendTitle: '使用 GCAC 内置签发后端', builtinBackendDescription: '系统自动创建或复用租户内置执行后端，用户只需要配置 CA。', managed_nodeBackendTitle: '配置独立 GCAC CA Node', managed_nodeBackendDescription: '创建节点签发后端并生成短期一次性注册令牌。', builtinAutomaticTitle: '无需单独创建执行后端', builtinAutomaticDescription: '创建 CA 时系统会自动确保内置签发执行后端存在，并绑定到当前 CA。', authorityEyebrow: '证书机构', rootConfigurationTitle: '配置根 CA', rootConfigurationDescription: '定义新的根信任边界、名称、主题和是否启用中间 CA。', intermediateConfigurationTitle: '配置中间 CA', intermediateConfigurationDescription: '先选择父根 CA，再配置承担日常签发的中间证书颁发机构。', advancedSubjectTitle: '高级证书主题设置', commonNameHelp: '写入 CA 证书主题，用于证书链识别，不是域名。', builtinSecurityNote: '软件私钥由 GCAC SecretService 托管，不等同于不可导出 HSM 密钥。', managed_nodeSecurityNote: '私钥位于独立节点；只有节点注册并通过能力验证后才应投入生产。', reviewEyebrow: '最终确认', reviewTitle: '检查信任边界与签发方式', reviewDescription: '确认 CA 名称、信任域、签发后端和风险提示后再创建。', enrollmentTitle: 'CA Node 一次性注册令牌', enrollmentDescription: '令牌仅用于独立节点首次注册，请通过安全通道复制到目标机器。', enrollmentExpiresAt: '令牌到期时间：{time}', builtinProviderName: 'GCAC 内置签发后端', managedProviderName: 'GCAC 独立 CA Node', rootTitle: '根 CA', rootDescription: '创建新的独立根信任锚点，并可同时创建首个中间 CA。', intermediateTitle: '中间 CA', intermediateDescription: '挂载到已有根 CA 下承担日常签发，不创建新的根信任边界。', noWarnings: '未发现额外的拓扑风险警告。' },
-    backendTypes: { builtin: '内置签发后端', managedNode: '独立 CA Node', acme: '公共 ACME 证书机构', external: '外部签发后端' },
-    backendSummary: { createAndIssue: '可创建和签发证书', requestPublicCertificates: '可申请公共证书', managedNode: '需先注册 CA Node', external: '需接入外部执行器', localVerified: '本地验证通过', remoteVerified: '连接验证通过', unverified: '尚未验证' },
     riskTypes: { certificate_fingerprint_reuse: '同一证书跨资产复用', public_key_reuse: '同一公钥跨资产复用' },
     common: { unknown: '未知' }, aria: { tabs: '内部 CA 功能导航' }
   },

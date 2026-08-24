@@ -5,6 +5,7 @@ export interface DataTableColumn<T> {
   readonly key: keyof T | string
   readonly title: string
   readonly width?: string
+  readonly truncate?: boolean
 }
 
 withDefaults(defineProps<{
@@ -53,7 +54,12 @@ const { t } = useI18n()
         </thead>
         <tbody>
           <tr v-for="row in rows" :key="String(row[rowKey])">
-            <td v-for="column in columns" :key="String(column.key)">
+            <td
+              v-for="column in columns"
+              :key="String(column.key)"
+              :class="{ 'gc-data-table__cell--truncate': column.truncate }"
+              :title="column.truncate ? String(row[column.key as keyof T] ?? '') : undefined"
+            >
               <slot :name="`cell-${String(column.key)}`" :row="row">
                 {{ row[column.key as keyof T] }}
               </slot>
@@ -77,6 +83,7 @@ table { width: 100%; border-collapse: separate; border-spacing: 0; }
 th, td { text-align: left; padding: var(--gc-space-control) var(--gc-space-3); border-bottom: var(--gc-border-width-default) solid var(--gc-color-border); vertical-align: middle; color: var(--gc-color-text); font-size: var(--gc-font-size-xs); }
 .gc-data-table--fixed th,
 .gc-data-table--fixed td { overflow-wrap: anywhere; }
+.gc-data-table__cell--truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 th { color: var(--gc-color-text-muted); background: var(--gc-color-surface-muted); font-size: var(--gc-font-size-caption); font-weight: 900; }
 tbody tr { transition: background .16s ease; }
 tbody tr:hover { background: var(--gc-color-surface-hover); }

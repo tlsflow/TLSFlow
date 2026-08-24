@@ -4,12 +4,15 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { getAutomationRun, listAutomationRunTargets, type AutomationRunRecord, type AutomationRunTargetRecord } from '@/api/modules/automations.api'
 import { decideApproval } from '@/api/modules/audits.api'
+import { getCertificateAssetDetail } from '@/api/modules/certificates.api'
 import { GcButton, GcEmptyState, GcModal, GcProgressBar, GcStatusTag, GcTabs } from '@/design-system/components'
 import { listDeploymentPlans } from '@/api/modules/deployments.api'
+import { internalCaApi, type InternalCaRecord } from '@/api/modules/internal-ca.api'
 import { getTask, listMonitoringProbes, listTasks, type TaskCategory, type TaskDetail, type TaskRun, type TaskStatus } from '@/api/modules/tasks.api'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { translateDynamic } from '@/i18n/translate'
-import { isAutomationApprovalTask, isExecutionTask, isQuickTask, subscribeTaskRealtime, type DeploymentExecutionMode, type DeploymentExecutionOpenDetail, type TaskRealtimeMessage } from './task-events'
+import { currentTaskActivity, isAutomationApprovalTask, isExecutionTask, isQuickTask, subscribeTaskActivity, subscribeTaskRealtime, type DeploymentExecutionMode, type DeploymentExecutionOpenDetail, type TaskActivityState, type TaskRealtimeMessage } from './task-events'
+import { buildAcmeTaskAttemptHistory, type AcmeTaskAttemptState } from './acme-task-history'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
@@ -18,10 +21,6 @@ const router = useRouter()
 
 const PAGE_SIZE = 100
 const RECENT_COMPLETED_COUNT = 5
-const QUICK_ACTIVE_STATUSES: readonly TaskStatus[] = ['QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING']
-const QUICK_COMPLETED_STATUSES: readonly TaskStatus[] = ['SUCCEEDED', 'FAILED', 'CANCELLED']
-const ACTIVE_STATUSES: ReadonlySet<TaskStatus> = new Set(QUICK_ACTIVE_STATUSES)
-const COMPLETED_STATUSES: ReadonlySet<TaskStatus> = new Set(QUICK_COMPLETED_STATUSES)
 const MONITORING_TASK_TYPES: ReadonlySet<string> = new Set([
   'MONITORING_BATCH',
   'MONITORING_PROBE',
@@ -44,14 +43,15 @@ const DEPLOYMENT_EXECUTION_TASK_TYPES: ReadonlySet<string> = new Set([
   'CERTIFICATE_ROLLBACK',
 ])
 type TaskTabCategory = TaskCategory | 'OTHER'
+interface AcmeRenewalTaskPresentation {
+  readonly providerName: string
+  readonly certificateName: string
+}
 
-const loading = ref(false)
 const detailLoading = ref(false)
-const error = ref('')
 const detailError = ref('')
 const quickActiveTasks = ref<TaskRun[]>([])
 const quickRecentCompleted = ref<TaskRun[]>([])
-const quickRefreshQueued = ref(false)
 const detail = ref<TaskDetail | null>(null)
 const monitoringProbes = ref<readonly Record<string, unknown>[]>([])
 const automationRun = ref<(AutomationRunRecord & { actionResults: unknown[] }) | null>(null)
@@ -78,16 +78,21 @@ const allTasksReloadQueued = ref(false)
 const deploymentPlanNames = ref<Record<string, string>>({})
 const deploymentPlanNameRequests = new Set<string>()
 const deploymentPlanNameMisses = new Set<string>()
-let quickRealtimeVersion = 0
+const acmeRenewalTaskPresentations = ref<Record<string, AcmeRenewalTaskPresentation>>({})
+const acmeRenewalTaskPresentationRequests = new Set<string>()
+const acmeRenewalTaskPresentationMisses = new Set<string>()
+let disposeTaskActivity: (() => void) | undefined
 let disposeTaskRealtime: (() => void) | undefined
 const detailTask = computed(() => detail.value?.task ?? null)
+const acmeAttemptHistory = computed(() => detailTask.value?.taskType === 'ACME_CERTIFICATE_RENEWAL'
+  ? buildAcmeTaskAttemptHistory(detail.value?.attempts ?? [])
+  : [])
 const allTaskTabs = computed(() => [
   { value: 'EXECUTION', label: t('tasks.tabs.execution') },
   { value: 'MONITORING', label: t('tasks.tabs.monitoring') },
   { value: 'SYSTEM', label: t('tasks.tabs.system') },
   { value: 'OTHER', label: t('tasks.tabs.other') },
 ])
-const hasQuickTasks = computed(() => quickActiveTasks.value.length > 0 || quickRecentCompleted.value.length > 0)
 const visibleDetailEvents = computed(() => {
   const events = detail.value?.events ?? []
   return detailTask.value?.category === 'MONITORING'
@@ -98,7 +103,6 @@ const visibleDetailEvents = computed(() => {
 watch(() => props.open, (open) => {
   if (open) {
     window.addEventListener('keydown', handleKeydown)
-    void refreshQuickTasks()
   } else {
     window.removeEventListener('keydown', handleKeydown)
     if (!switchingToAllTasks.value) allTasksModalOpen.value = false
@@ -129,11 +133,14 @@ function handleKeydown(event: KeyboardEvent): void {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
+  disposeTaskActivity?.()
   disposeTaskRealtime?.()
+  disposeTaskActivity = undefined
   disposeTaskRealtime = undefined
 })
 
 onMounted(() => {
+  disposeTaskActivity = subscribeTaskActivity(applyQuickTaskActivity)
   disposeTaskRealtime = subscribeTaskRealtime((message) => {
     handleRealtimeMessage(message)
   })
@@ -163,58 +170,15 @@ function allTasksQueryCategory(): TaskCategory | undefined {
 function applyQuickTasksState(next: { active: TaskRun[]; recent: TaskRun[] }): void {
   if (!sameTaskList(quickActiveTasks.value, next.active)) quickActiveTasks.value = next.active
   if (!sameTaskList(quickRecentCompleted.value, next.recent)) quickRecentCompleted.value = next.recent
-  void resolveDeploymentPlanNames([...next.active, ...next.recent])
 }
 
-async function requestQuickTasks(status: TaskStatus, pageSize: number, scope: 'execution' | 'automation' = 'execution'): Promise<TaskRun[]> {
-  const result = await listTasks({
-    page: 1,
-    pageSize,
-    keyword: keyword.value.trim() || undefined,
-    filters: scope === 'automation'
-      ? { status, taskType: 'AUTOMATION_RUN' }
-      : { status, category: 'EXECUTION' },
-    includeAll: true,
-  })
-  return [...(result.data?.items ?? [])]
-}
-
-async function refreshQuickTasks(): Promise<void> {
-  if (loading.value) {
-    quickRefreshQueued.value = true
-    return
-  }
-  const requestRealtimeVersion = quickRealtimeVersion
+function applyQuickTaskActivity(state: TaskActivityState): void {
   appliedQuickKeyword.value = keyword.value.trim()
-  loading.value = true
-  error.value = ''
-  try {
-    const [activeExecutionBatches, activeAutomationBatches, completedBatches] = await Promise.all([
-      Promise.all(QUICK_ACTIVE_STATUSES.map((status) => requestQuickTasks(status, PAGE_SIZE, 'execution'))),
-      Promise.all(QUICK_ACTIVE_STATUSES.map((status) => requestQuickTasks(status, PAGE_SIZE, 'automation'))),
-      Promise.all(QUICK_COMPLETED_STATUSES.map((status) => requestQuickTasks(status, RECENT_COMPLETED_COUNT))),
-    ])
-    const active = sortTasks([...activeExecutionBatches.flat(), ...activeAutomationBatches.flat()].filter((task) => ACTIVE_STATUSES.has(task.status) && isQuickTask(task)))
-    const recent = sortTasks(completedBatches.flat().filter((task) => COMPLETED_STATUSES.has(task.status) && isQuickTask(task)))
-    applyQuickTasksState({
-      active: requestRealtimeVersion === quickRealtimeVersion ? mergeTasks([], active) : quickActiveTasks.value,
-      recent: (requestRealtimeVersion === quickRealtimeVersion
-        ? mergeTasks([], recent)
-        : mergeTasks(recent, quickRecentCompleted.value))
-        .filter((task) => COMPLETED_STATUSES.has(task.status) && isQuickTask(task))
-        .slice(0, RECENT_COMPLETED_COUNT),
-    })
-  } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : t('tasks.messages.loadFailed')
-  } finally {
-    loading.value = false
-    if (quickRefreshQueued.value && props.open && !allTasksModalOpen.value) {
-      quickRefreshQueued.value = false
-      void refreshQuickTasks()
-    } else {
-      quickRefreshQueued.value = false
-    }
-  }
+  const keywordValue = appliedQuickKeyword.value
+  applyQuickTasksState({
+    active: sortTasks(state.activeTasks.filter((task) => matchesTaskKeyword(task, keywordValue))),
+    recent: sortTasks(state.recentTasks.filter((task) => matchesTaskKeyword(task, keywordValue))).slice(0, RECENT_COMPLETED_COUNT),
+  })
 }
 
 async function openAllTasks(): Promise<void> {
@@ -238,6 +202,7 @@ function applyAllTasksState(next: {
   allTasksPage.value = next.page
   allTasksHasMore.value = next.hasMore
   void resolveDeploymentPlanNames(next.items)
+  void resolveAcmeRenewalTaskPresentations(next.items)
 }
 
 async function requestAllTasksPage(page: number): Promise<{
@@ -323,7 +288,10 @@ async function openTask(task: TaskRun): Promise<void> {
   detailError.value = ''
   try {
     const loadedDetail = await refreshTaskDetail(task.id)
-    if (loadedDetail?.task) void resolveDeploymentPlanNames([loadedDetail.task])
+    if (loadedDetail?.task) {
+      void resolveDeploymentPlanNames([loadedDetail.task])
+      void resolveAcmeRenewalTaskPresentations([loadedDetail.task])
+    }
   } catch (cause) {
     detailError.value = cause instanceof Error ? cause.message : t('tasks.messages.detailFailed')
   } finally {
@@ -381,7 +349,7 @@ function closeApprovalModal(): void {
 }
 
 function submitQuickSearch(): void {
-  void refreshQuickTasks()
+  applyQuickTaskActivity(currentTaskActivity())
 }
 
 function submitAllTasksSearch(): void {
@@ -390,10 +358,8 @@ function submitAllTasksSearch(): void {
 
 function applyRealtimeTaskSnapshot(message: TaskRealtimeMessage): void {
   if (message.type === 'snapshot') {
-    quickRealtimeVersion += 1
-    const next = sortTasks(message.activeTasks.filter((task) => ACTIVE_STATUSES.has(task.status) && isQuickTask(task) && matchesTaskKeyword(task, appliedQuickKeyword.value)))
-    applyQuickTasksState({ active: next, recent: quickRecentCompleted.value })
     message.activeTasks.forEach((task) => applyRealtimeTaskToAllTasks(task))
+    message.recentTasks?.forEach((task) => applyRealtimeTaskToAllTasks(task))
     return
   }
   applyRealtimeTaskChange(message.task)
@@ -406,33 +372,11 @@ function handleRealtimeMessage(message: TaskRealtimeMessage): void {
 }
 
 function applyRealtimeTaskChange(task: TaskRun): void {
-  quickRealtimeVersion += 1
   applyRealtimeTaskToAllTasks(task)
   if (detailTask.value?.id === task.id && detail.value) {
     detail.value = { ...detail.value, task }
   }
   if (approvalTask.value?.id === task.id) approvalTask.value = task
-  if (!isQuickTask(task) || !matchesTaskKeyword(task, appliedQuickKeyword.value)) {
-    applyQuickTasksState({
-      active: quickActiveTasks.value.filter((item) => item.id !== task.id),
-      recent: quickRecentCompleted.value.filter((item) => item.id !== task.id),
-    })
-    return
-  }
-
-  if (ACTIVE_STATUSES.has(task.status)) {
-    applyQuickTasksState({
-      active: sortTasks([...quickActiveTasks.value.filter((item) => item.id !== task.id), task]),
-      recent: quickRecentCompleted.value.filter((item) => item.id !== task.id),
-    })
-    return
-  }
-  if (COMPLETED_STATUSES.has(task.status)) {
-    applyQuickTasksState({
-      active: quickActiveTasks.value.filter((item) => item.id !== task.id),
-      recent: sortTasks([task, ...quickRecentCompleted.value.filter((item) => item.id !== task.id)]).slice(0, RECENT_COMPLETED_COUNT),
-    })
-  }
 }
 
 function applyRealtimeTaskToAllTasks(task: TaskRun): void {
@@ -482,6 +426,15 @@ function taskTypeLabel(task: TaskRun): string {
 }
 
 function taskRelatedName(task: TaskRun): string {
+  if (task.taskType === 'ACME_CERTIFICATE_RENEWAL') {
+    const presentation = acmeRenewalTaskPresentations.value[task.id]
+    return presentation
+      ? t('tasks.relatedNames.acmeRenewal', {
+        provider: presentation.providerName,
+        certificate: presentation.certificateName,
+      })
+      : taskTypeLabel(task)
+  }
   if (DEPLOYMENT_EXECUTION_TASK_TYPES.has(task.taskType)) {
     const planId = taskDeploymentPlanId(task)
     if (planId && deploymentPlanNames.value[planId]) return deploymentPlanNames.value[planId]
@@ -527,6 +480,22 @@ function taskStatusSummary(task: TaskRun): string {
   const status = taskStatusLabel(task)
   const overview = taskOverview(task)
   return overview === status ? overview : `${status} · ${overview}`
+}
+
+function acmeAttemptLabel(state: AcmeTaskAttemptState): string {
+  return t(`tasks.acmeHistory.${state}.title`)
+}
+
+function acmeAttemptDescription(state: AcmeTaskAttemptState): string {
+  return t(`tasks.acmeHistory.${state}.description`)
+}
+
+function acmeAttemptTone(state: AcmeTaskAttemptState): 'success' | 'warning' | 'danger' | 'info' | 'muted' {
+  if (state === 'succeeded') return 'success'
+  if (state === 'retryWaiting') return 'warning'
+  if (state === 'failed' || state === 'cancelled') return 'danger'
+  if (state === 'running') return 'info'
+  return 'muted'
 }
 
 function isDeploymentExecutionTask(task: TaskRun): boolean {
@@ -808,6 +777,93 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
     .forEach((planId) => deploymentPlanNameMisses.add(planId))
   if (Object.keys(resolved).length > 0) deploymentPlanNames.value = { ...deploymentPlanNames.value, ...resolved }
 }
+
+async function resolveAcmeRenewalTaskPresentations(tasks: readonly TaskRun[]): Promise<void> {
+  const pending = tasks
+    .filter((task) => task.taskType === 'ACME_CERTIFICATE_RENEWAL')
+    .map((task) => ({ task, renewalJobId: taskRenewalJobId(task) }))
+    .filter((item): item is { task: TaskRun; renewalJobId: string } => Boolean(item.renewalJobId))
+    .filter(({ task }) => !acmeRenewalTaskPresentations.value[task.id]
+      && !acmeRenewalTaskPresentationRequests.has(task.id)
+      && !acmeRenewalTaskPresentationMisses.has(task.id))
+  if (pending.length === 0) return
+
+  pending.forEach(({ task }) => acmeRenewalTaskPresentationRequests.add(task.id))
+  try {
+    const [jobsResult, policiesResult, providersResult] = await Promise.all([
+      internalCaApi.listAcmeRenewalJobs(),
+      internalCaApi.listAcmeRenewalPolicies(),
+      internalCaApi.listAcmeProviders(),
+    ])
+    const jobs = recordsFromApi(jobsResult.data)
+    const policies = recordsFromApi(policiesResult.data)
+    const providers = recordsFromApi(providersResult.data)
+    const jobById = new Map(jobs.map((job) => [recordString(job, 'id'), job]))
+    const policyById = new Map(policies.map((policy) => [recordString(policy, 'id'), policy]))
+    const providerById = new Map(providers.map((provider) => [recordString(provider, 'id'), provider]))
+    const assetIds = Array.from(new Set(pending
+      .map(({ renewalJobId }) => jobById.get(renewalJobId))
+      .map((job) => job ? policyById.get(recordString(job, 'policyId')) : undefined)
+      .map((policy) => policy ? recordString(policy, 'certificateAssetId') : '')
+      .filter(Boolean)))
+    const assets = await Promise.all(assetIds.map(async (assetId) => {
+      const result = await getCertificateAssetDetail(assetId)
+      return [assetId, certificateAssetName(result.data)] as const
+    }))
+    const assetNameById = new Map(assets.filter(([, name]) => Boolean(name)))
+    const resolved: Record<string, AcmeRenewalTaskPresentation> = {}
+    for (const { task, renewalJobId } of pending) {
+      const job = jobById.get(renewalJobId)
+      const policy = job ? policyById.get(recordString(job, 'policyId')) : undefined
+      const provider = policy ? providerById.get(recordString(policy, 'providerId')) : undefined
+      const certificateName = policy ? assetNameById.get(recordString(policy, 'certificateAssetId')) : undefined
+      const providerName = provider ? firstNonEmptyString(recordString(provider, 'name'), recordString(provider, 'displayName')) : undefined
+      if (certificateName && providerName) resolved[task.id] = { certificateName, providerName }
+    }
+    pending
+      .filter(({ task }) => !resolved[task.id])
+      .forEach(({ task }) => acmeRenewalTaskPresentationMisses.add(task.id))
+    if (Object.keys(resolved).length > 0) {
+      acmeRenewalTaskPresentations.value = { ...acmeRenewalTaskPresentations.value, ...resolved }
+    }
+  } catch {
+    // 中文说明：展示名称补全失败时保留 ACME 类型标签，避免泄露内部续签作业 ID。
+  } finally {
+    pending.forEach(({ task }) => acmeRenewalTaskPresentationRequests.delete(task.id))
+  }
+}
+
+function taskRenewalJobId(task: TaskRun): string | undefined {
+  return firstNonEmptyString(
+    stringFromRecord(task.payload, 'renewalJobId'),
+    stringFromRecord(task.resourceSummary, 'renewalJobId'),
+  )
+}
+
+function recordsFromApi(value: unknown): InternalCaRecord[] {
+  if (Array.isArray(value)) return value.map(asRecord).filter((item) => Object.keys(item).length > 0)
+  const record = asRecord(value)
+  return Array.isArray(record.items) ? recordsFromApi(record.items) : Object.keys(record).length > 0 ? [record] : []
+}
+
+function certificateAssetName(value: unknown): string | undefined {
+  const record = asRecord(value)
+  const asset = asRecord(record.asset)
+  return firstNonEmptyString(
+    recordString(asset, 'name'),
+    recordString(asset, 'primaryDomain'),
+    recordString(record, 'name'),
+    recordString(record, 'primaryDomain'),
+  )
+}
+
+function asRecord(value: unknown): InternalCaRecord {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as InternalCaRecord : {}
+}
+
+function recordString(record: InternalCaRecord, key: string): string {
+  return typeof record[key] === 'string' ? record[key].trim() : ''
+}
 </script>
 
 <template>
@@ -854,7 +910,28 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
               <div><dt>{{ t('tasks.fields.finishedAt') }}</dt><dd>{{ localTime(detailTask?.finishedAt) }}</dd></div>
               <div><dt>{{ t('tasks.fields.error') }}</dt><dd>{{ detailTask?.lastErrorMessage || t('common.notAvailable') }}</dd></div>
             </dl>
-            <section class="task-drawer__section">
+            <section v-if="detailTask?.taskType === 'ACME_CERTIFICATE_RENEWAL'" class="task-drawer__section">
+              <h4>{{ t('tasks.sections.acmeHistory') }}</h4>
+              <GcEmptyState v-if="acmeAttemptHistory.length === 0" class="task-drawer__empty task-drawer__empty--section" :title="t('tasks.values.empty')" />
+              <ol v-else class="task-drawer__acme-history">
+                <li
+                  v-for="attempt in acmeAttemptHistory"
+                  :key="attempt.id"
+                  class="task-drawer__acme-attempt"
+                  :class="`task-drawer__acme-attempt--${attempt.state}`"
+                >
+                  <div class="task-drawer__acme-attempt-header">
+                    <div>
+                      <strong>{{ acmeAttemptLabel(attempt.state) }}</strong>
+                      <time>{{ localTime(attempt.finishedAt || attempt.startedAt) }}</time>
+                    </div>
+                    <GcStatusTag :status="attempt.state" :label="acmeAttemptLabel(attempt.state)" :tone="acmeAttemptTone(attempt.state)" />
+                  </div>
+                  <p>{{ acmeAttemptDescription(attempt.state) }}</p>
+                </li>
+              </ol>
+            </section>
+            <section v-else class="task-drawer__section">
               <h4>{{ t('tasks.sections.timeline') }}</h4>
               <ol class="task-drawer__timeline">
                 <li v-for="event in visibleDetailEvents" :key="String(event.id)">
@@ -903,7 +980,7 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
                 </div>
               </div>
             </section>
-            <section class="task-drawer__section">
+            <section v-if="detailTask?.taskType !== 'ACME_CERTIFICATE_RENEWAL'" class="task-drawer__section">
               <h4>{{ t('tasks.sections.attempts') }}</h4>
               <div v-for="attempt in detail.attempts" :key="String(attempt.id)" class="task-drawer__record">
                 <strong>#{{ recordValue(attempt, 'attemptNo') }} · {{ recordValue(attempt, 'status') }}</strong>
@@ -914,7 +991,10 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
             </section>
             <section v-if="detailTask?.category !== 'MONITORING'" class="task-drawer__section">
               <h4>{{ t('tasks.sections.logs') }}</h4>
-              <pre class="task-drawer__json">{{ JSON.stringify(detail.events.filter((event) => event.eventType === 'LOG'), null, 2) || t('tasks.values.empty') }}</pre>
+              <details class="task-drawer__raw-logs">
+                <summary>{{ t('tasks.actions.viewRawLogs') }}</summary>
+                <pre class="task-drawer__json">{{ JSON.stringify(detail.events, null, 2) || t('tasks.values.empty') }}</pre>
+              </details>
             </section>
             <section class="task-drawer__section">
               <h4>{{ t('tasks.sections.children') }}</h4>
@@ -946,10 +1026,8 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
               <input v-model="keyword" :placeholder="t('tasks.filters.keyword')" :aria-label="t('tasks.filters.keyword')" type="search">
             </label>
           </form>
-          <p v-if="error" class="gc-form-error">{{ error }}</p>
           <div class="task-drawer__scroll">
-            <div v-if="loading && !hasQuickTasks" class="task-drawer__loading">{{ t('common.loading') }}</div>
-            <div v-else class="task-drawer__quick-groups">
+            <div class="task-drawer__quick-groups">
               <section class="task-drawer__group">
                 <header class="task-drawer__group-header">
                   <h3>{{ t('tasks.quick.active') }}</h3>
@@ -1656,6 +1734,70 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.task-drawer__acme-history {
+  display: grid;
+  gap: var(--gc-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-drawer__acme-attempt {
+  display: grid;
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-3);
+  border-left: calc(var(--gc-space-1) - var(--gc-space-hairline)) solid var(--gc-color-border);
+  background: var(--gc-color-surface-subtle);
+}
+
+.task-drawer__acme-attempt--running {
+  border-left-color: var(--gc-color-info-border);
+}
+
+.task-drawer__acme-attempt--retryWaiting {
+  border-left-color: var(--gc-color-warning-border);
+}
+
+.task-drawer__acme-attempt--succeeded {
+  border-left-color: var(--gc-color-success-border);
+}
+
+.task-drawer__acme-attempt--failed,
+.task-drawer__acme-attempt--cancelled {
+  border-left-color: var(--gc-color-danger-border);
+}
+
+.task-drawer__acme-attempt-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+}
+
+.task-drawer__acme-attempt-header > div {
+  display: grid;
+  gap: var(--gc-space-1);
+}
+
+.task-drawer__acme-attempt time,
+.task-drawer__acme-attempt p {
+  margin: 0;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
+.task-drawer__raw-logs {
+  display: grid;
+  gap: var(--gc-space-2);
+}
+
+.task-drawer__raw-logs summary {
+  width: fit-content;
+  color: var(--gc-color-primary);
+  cursor: pointer;
+  font-size: var(--gc-font-size-sm);
 }
 
 .task-drawer__timeline li,

@@ -9,7 +9,6 @@ import type { ApiRecord } from '@/api/modules/common'
 import {
   GcAcmeDnsCredentialSelect,
   GcButton,
-  GcCard,
   GcConfirmAction,
   GcDataTable,
   GcModal,
@@ -17,6 +16,7 @@ import {
   GcSecretRefSelect,
   GcStatusTag,
 } from '@/design-system/components'
+import type { StatusTone } from '@/design-system/status/status-map'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import AcmeCertificateRequestModal from './AcmeCertificateRequestModal.vue'
@@ -38,6 +38,15 @@ type AcmeProviderProfile = InternalCaRecord & {
   account?: InternalCaRecord
   form?: InternalCaRecord
   preconfiguration?: InternalCaRecord
+}
+
+interface AcmeSummaryMetric {
+  readonly key: 'managed' | 'activeJobs' | 'failures' | 'provider'
+  readonly value: string
+  readonly title: string
+  readonly description: string
+  readonly tone: StatusTone
+  readonly iconPath: string
 }
 
 const VERSION_PAGE_SIZE = 200
@@ -80,6 +89,10 @@ const selectedAsset = ref<ApiRecord | null>(null)
 const editingAsset = ref<ApiRecord | null>(null)
 const manualRenewalAssetId = ref('')
 const retryingJobId = ref('')
+const cancelingJobId = ref('')
+
+const runningJobStatuses = new Set(['scheduled', 'key_pending', 'csr_pending', 'issuing', 'deploying', 'verifying', 'retry_waiting'])
+const cancelableJobStatuses = runningJobStatuses
 
 const editDraft = reactive({
   name: '',
@@ -110,6 +123,7 @@ const eabDraft = reactive({
 })
 
 const selectedProviderProfile = computed(() => providerProfile(providerDraft.profileKey))
+const editingMissingConfiguration = computed(() => Boolean(editingAsset.value && !assetPolicy(editingAsset.value)))
 const providerDraftRequiresDirectory = computed(() => profileHasProviderField(selectedProviderProfile.value, 'directoryUrl'))
 const providerDraftUsesTrustBundle = computed(() => profileHasAccountField(selectedProviderProfile.value, 'trustBundleSecretRef'))
 const providerDraftEabPolicy = computed(() => text(recordValue(selectedProviderProfile.value?.account).eab))
@@ -133,9 +147,43 @@ const policyByAssetId = computed(() => new Map(
 const managedAssets = computed(() => assets.value.filter((asset) => (
   text(asset.sourceType).toLowerCase() === 'acme' || policyByAssetId.value.has(text(asset.id))
 )))
-const activeJobs = computed(() => jobs.value.filter((job) => ['scheduled', 'retry_waiting', 'issuing'].includes(text(job.status))))
+const activeJobs = computed(() => jobs.value.filter((job) => runningJobStatuses.has(text(job.status))))
 const failedJobs = computed(() => jobs.value.filter((job) => ['failed', 'rollback_required'].includes(text(job.status))))
 const statusTone = computed(() => status.value === 'READY' ? 'success' : status.value === 'BLOCKED' ? 'warning' : 'muted')
+const summaryMetrics = computed<readonly AcmeSummaryMetric[]>(() => [
+  {
+    key: 'managed',
+    value: String(managedAssets.value.length),
+    title: t('acme.summary.managed'),
+    description: t('acme.summary.managedDescription'),
+    tone: 'info',
+    iconPath: 'M12 3.5 19 7v5c0 4-2.4 7.5-7 9-4.6-1.5-7-5-7-9V7l7-3.5Zm-2.5 8 1.7 1.7 3.8-3.8',
+  },
+  {
+    key: 'activeJobs',
+    value: String(activeJobs.value.length),
+    title: t('acme.summary.activeJobs'),
+    description: t('acme.summary.activeJobsDescription'),
+    tone: 'info',
+    iconPath: 'M12 4v8l5 3M12 2.5a9.5 9.5 0 1 1 0 19 9.5 9.5 0 0 1 0-19Z',
+  },
+  {
+    key: 'failures',
+    value: String(failedJobs.value.length),
+    title: t('acme.summary.failures'),
+    description: t('acme.summary.failuresDescription'),
+    tone: failedJobs.value.length ? 'danger' : 'success',
+    iconPath: 'M12 8v4m0 4h.01M10.3 3.8 3.8 15.1A2 2 0 0 0 5.5 18h13a2 2 0 0 0 1.7-2.9L13.7 3.8a2 2 0 0 0-3.4 0Z',
+  },
+  {
+    key: 'provider',
+    value: providerName.value || t('acme.list.notAvailable'),
+    title: t('acme.summary.provider'),
+    description: t('acme.summary.providerDescription'),
+    tone: 'success',
+    iconPath: 'M7 5.5h10A2.5 2.5 0 0 1 19.5 8v8A2.5 2.5 0 0 1 17 18.5H7A2.5 2.5 0 0 1 4.5 16V8A2.5 2.5 0 0 1 7 5.5Zm2.5 4v.01M14 9.5h2.5M9.5 13h7',
+  },
+])
 const assetColumns = computed<DataTableColumn<ApiRecord>[]>(() => [
   { key: 'name', title: t('acme.list.columns.name') },
   { key: 'domains', title: t('acme.list.columns.domains') },
@@ -146,6 +194,8 @@ const assetColumns = computed<DataTableColumn<ApiRecord>[]>(() => [
   { key: 'actions', title: t('acme.list.columns.actions') },
 ])
 const jobColumns = computed<DataTableColumn<InternalCaRecord>[]>(() => [
+  { key: 'certificateName', title: t('acme.jobs.certificateName') },
+  { key: 'startedAt', title: t('acme.jobs.startedAt') },
   { key: 'status', title: t('acme.jobs.status') },
   { key: 'nextAttemptAt', title: t('acme.jobs.nextAttemptAt') },
   { key: 'failureMessage', title: t('acme.jobs.failure') },
@@ -235,21 +285,21 @@ function openCreate(): void {
 
 function openEdit(asset: ApiRecord): void {
   const policy = assetPolicy(asset)
-  if (!policy || hasRunningJob(asset)) return
-  const maintenanceWindow = recordValue(policy.maintenanceWindow)
+  if (hasRunningJob(asset)) return
+  const maintenanceWindow = recordValue(policy?.maintenanceWindow)
   editingAsset.value = asset
   Object.assign(editDraft, {
     name: text(asset.name),
-    providerId: text(policy.providerId),
+    providerId: text(policy?.providerId, text(defaultProvider.value?.id)),
     domains: domainsOf(asset),
     contactEmail: text(maintenanceWindow.contactEmail),
-    challengeType: text(policy.challengeType, 'http-01'),
+    challengeType: text(policy?.challengeType),
     dnsProvider: text(maintenanceWindow.dnsProvider),
     dnsCredentialId: text(maintenanceWindow.dnsCredentialId),
     dnsPropagationSeconds: numberValue(maintenanceWindow.dnsPropagationSeconds) ?? 60,
     keyType: text(maintenanceWindow.keyType, 'rsa'),
-    autoRenew: policyEnabled(asset),
-    renewalWindowDays: numberValue(policy.renewalWindowDays) ?? 7,
+    autoRenew: policy ? policyEnabled(asset) : true,
+    renewalWindowDays: numberValue(policy?.renewalWindowDays) ?? 7,
   })
   formError.value = ''
   editOpen.value = true
@@ -265,6 +315,10 @@ async function saveEdit(): Promise<void> {
   const domains = normalizeDomains(editDraft.domains)
   if (!assetId || !domains.length || !editDraft.contactEmail.trim() || !editDraft.providerId) {
     formError.value = t('acme.messages.requiredFields')
+    return
+  }
+  if (!['http-01', 'dns-01', 'tls-alpn-01'].includes(editDraft.challengeType)) {
+    formError.value = t('acme.messages.challengeRequired')
     return
   }
   if (editDraft.challengeType === 'dns-01' && (!editDraft.dnsProvider || !editDraft.dnsCredentialId)) {
@@ -332,6 +386,17 @@ async function retry(job: InternalCaRecord): Promise<void> {
   retryingJobId.value = id
   await runAction(() => internalCaApi.retryAcmeRenewalJob(id), t('acme.messages.retried'))
   retryingJobId.value = ''
+}
+
+async function cancel(job: InternalCaRecord): Promise<void> {
+  const id = text(job.id)
+  if (!id || !cancelableJobStatuses.has(text(job.status))) return
+  cancelingJobId.value = id
+  try {
+    await runAction(() => internalCaApi.cancelAcmeRenewalJob(id), t('acme.messages.cancelled'))
+  } finally {
+    cancelingJobId.value = ''
+  }
 }
 
 function openProviderSettings(): void {
@@ -488,6 +553,14 @@ function jobsForAsset(asset: ApiRecord | null): InternalCaRecord[] {
   return jobs.value.filter((job) => text(job.policyId) === text(policy?.id) || text(job.certificateAssetId) === assetId)
 }
 
+function jobCertificateName(job: InternalCaRecord): string {
+  const directAssetId = text(job.certificateAssetId)
+  const policyAssetId = text(policies.value.find((item) => text(item.id) === text(job.policyId))?.certificateAssetId)
+  const assetId = directAssetId || policyAssetId
+  const asset = assets.value.find((item) => text(item.id) === assetId)
+  return text(asset?.name, text(asset?.primaryDomain, t('acme.list.notAvailable')))
+}
+
 function ordersForAsset(asset: ApiRecord | null): InternalCaRecord[] {
   const assetId = text(asset?.id)
   const jobOrderIds = new Set(jobsForAsset(asset).map((job) => text(job.acmeOrderId)).filter(Boolean))
@@ -539,15 +612,20 @@ function providerProfileLabel(provider: AcmeProvider): string {
   return profileLabel(profile)
 }
 
-function providerPreconfigurationLabel(provider: AcmeProvider): string {
+function providerNeedsPreconfiguration(provider: AcmeProvider): boolean {
   const configuration = providerConfig(provider)
   const profile = providerProfile(configuration.profileKey ?? configuration.preset)
   return recordValue(profile?.preconfiguration).required === true
-    ? t('acme.provider.preconfiguration.required')
-    : t('acme.provider.preconfiguration.none')
 }
 
-function providerPreconfigurationSource(provider: AcmeProvider): string {
+function providerHasNoPreconfiguration(provider: AcmeProvider): boolean {
+  const configuration = providerConfig(provider)
+  const profileKey = normalizeProfileKey(configuration.profileKey ?? configuration.preset)
+  const profile = providerProfile(profileKey)
+  return profileKey === 'letsencrypt' || recordValue(profile?.preconfiguration).required === false
+}
+
+function providerPreconfigurationHint(provider: AcmeProvider): string {
   const configuration = providerConfig(provider)
   const profile = providerProfile(configuration.profileKey ?? configuration.preset)
   const source = text(recordValue(profile?.preconfiguration).source, 'none')
@@ -560,6 +638,9 @@ function providerVerificationLevel(provider: AcmeProvider): string {
 
 function providerVerificationLabel(provider: AcmeProvider): string {
   const level = providerVerificationLevel(provider)
+  if (level === 'unconfigured' && providerHasNoPreconfiguration(provider)) {
+    return t('acme.provider.verification.noConfigurationRequired')
+  }
   return t(`acme.provider.verification.${level}`, level)
 }
 
@@ -567,6 +648,19 @@ function providerAccountStatus(provider: AcmeProvider): string {
   const account = accounts.value.find((item) => text(item.providerId) === text(provider.id))
   if (!account) return t('acme.provider.account.notConfigured')
   return t(`acme.states.${text(account.status, 'unknown')}`, statusLabel(account.status))
+}
+
+function providerAccountTone(provider: AcmeProvider): 'success' | 'warning' {
+  const account = accounts.value.find((item) => text(item.providerId) === text(provider.id))
+  return text(account?.status).toLowerCase() === 'active' ? 'success' : 'warning'
+}
+
+function providerVerificationTone(provider: AcmeProvider): 'success' | 'warning' | 'info' | 'muted' {
+  const level = providerVerificationLevel(provider)
+  if (level === 'unconfigured' && providerHasNoPreconfiguration(provider)) return 'success'
+  if (['issuance_verified', 'account_active', 'directory_reachable'].includes(level)) return 'success'
+  if (level === 'blocked' || level === 'reverification_required') return 'warning'
+  return level === 'unconfigured' ? 'muted' : 'info'
 }
 
 function profileHasProviderField(profile: AcmeProviderProfile | undefined, field: string): boolean {
@@ -641,13 +735,22 @@ function policyEnabled(asset: ApiRecord): boolean {
 }
 
 function hasRunningJob(asset: ApiRecord): boolean {
-  return jobsForAsset(asset).some((job) => ['scheduled', 'retry_waiting', 'issuing'].includes(text(job.status)))
+  return jobsForAsset(asset).some((job) => runningJobStatuses.has(text(job.status)))
 }
 
+const jobStatusesThatOverrideAsset = new Set([
+  ...runningJobStatuses,
+  'failed',
+  'rollback_required',
+])
+
 function assetStatus(asset: ApiRecord): string {
+  if (!assetPolicy(asset)) return 'configuration_missing'
   const latest = [...jobsForAsset(asset)]
     .sort((left, right) => dateValue(right.updatedAt ?? right.createdAt) - dateValue(left.updatedAt ?? left.createdAt))[0]
-  return text(latest?.status, text(asset.status, 'unknown'))
+  const latestStatus = text(latest?.status)
+  if (jobStatusesThatOverrideAsset.has(latestStatus)) return latestStatus
+  return text(asset.status, 'unknown')
 }
 
 function domainsOf(asset: ApiRecord): string {
@@ -675,7 +778,7 @@ function renewalCountdown(asset: ApiRecord): string {
 }
 
 function renewalLabel(asset: ApiRecord): string {
-  if (!assetPolicy(asset)) return t('acme.list.notAvailable')
+  if (!assetPolicy(asset)) return t('acme.list.configurationMissing')
   return policyEnabled(asset) ? t('acme.list.enabled') : t('acme.list.disabled')
 }
 
@@ -684,9 +787,13 @@ function statusLabel(value: unknown): string {
   return t(`acme.states.${key}`, t('acme.states.unknown'))
 }
 
+function jobStatusTone(value: unknown): 'success' | undefined {
+  return text(value).toLowerCase() === 'completed' ? 'success' : undefined
+}
+
 function challengeLabel(value: unknown): string {
-  const key = text(value, 'http-01')
-  return t(`acme.challengeTypes.${key}`, key)
+  const key = text(value)
+  return key ? t(`acme.challengeTypes.${key}`, key) : t('acme.list.notAvailable')
 }
 
 function orderIdentifiers(order: InternalCaRecord): string {
@@ -699,6 +806,10 @@ function orderIdentifiers(order: InternalCaRecord): string {
 
 function localTime(value: unknown): string {
   return formatBrowserLocalTime(value, { includeSeconds: false }) || t('acme.list.notAvailable')
+}
+
+function jobStartedAt(job: InternalCaRecord): string {
+  return localTime(job.startedAt ?? job.scheduledAt ?? job.createdAt)
 }
 
 function normalizeDomains(value: string): string[] {
@@ -761,10 +872,14 @@ function dateValue(value: unknown): number {
     </header>
 
     <div class="acme-page__summary">
-      <GcCard as="article"><strong>{{ managedAssets.length }}</strong><span>{{ t('acme.summary.managed') }}</span></GcCard>
-      <GcCard as="article"><strong>{{ activeJobs.length }}</strong><span>{{ t('acme.summary.activeJobs') }}</span></GcCard>
-      <GcCard as="article"><strong>{{ failedJobs.length }}</strong><span>{{ t('acme.summary.failures') }}</span></GcCard>
-      <GcCard as="article"><strong>{{ providerName || t('acme.list.notAvailable') }}</strong><span>{{ t('acme.summary.provider') }}</span></GcCard>
+      <article v-for="metric in summaryMetrics" :key="metric.key" class="acme-page__metric-card" :class="`acme-page__metric-card--${metric.tone}`">
+        <div class="acme-page__metric-topline">
+          <span class="acme-page__metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path :d="metric.iconPath" /></svg></span>
+          <strong class="acme-page__metric-value">{{ metric.value }}</strong>
+        </div>
+        <span class="acme-page__metric-title">{{ metric.title }}</span>
+        <span class="acme-page__metric-description">{{ metric.description }}</span>
+      </article>
     </div>
 
     <GcDataTable :columns="assetColumns" :rows="managedAssets" :loading="loading" :empty-text="t('acme.list.empty')" :aria-label="t('acme.title')" dense>
@@ -775,31 +890,34 @@ function dateValue(value: unknown): number {
         </div>
       </template>
       <template #cell-domains="{ row }"><span class="acme-page__domains">{{ domainsOf(row) }}</span></template>
-      <template #cell-status="{ row }"><GcStatusTag :status="assetStatus(row)" :label="statusLabel(assetStatus(row))" /></template>
+      <template #cell-status="{ row }"><GcStatusTag :status="assetStatus(row)" :label="statusLabel(assetStatus(row))" :tone="assetPolicy(row) ? undefined : 'warning'" /></template>
       <template #cell-expiresAt="{ row }">{{ expiresAt(row) }}</template>
       <template #cell-nextRenewalIn="{ row }">{{ renewalCountdown(row) }}</template>
       <template #cell-renewal="{ row }">{{ renewalLabel(row) }}</template>
       <template #cell-actions="{ row }">
         <div class="acme-page__row-actions">
-          <GcButton variant="secondary" :disabled="actionPending || hasRunningJob(row)" @click="toggleRenewal(row)">
+          <GcButton v-if="!assetPolicy(row)" variant="secondary" :disabled="actionPending || hasRunningJob(row)" @click="openEdit(row)">{{ t('acme.actions.edit') }}</GcButton>
+          <GcButton v-else variant="secondary" :disabled="actionPending || hasRunningJob(row)" @click="toggleRenewal(row)">
             {{ policyEnabled(row) ? t('acme.actions.disable') : t('acme.actions.enable') }}
           </GcButton>
           <GcButton variant="secondary" :disabled="actionPending || !policyEnabled(row) || hasRunningJob(row)" :loading="manualRenewalAssetId === text(row.id)" @click="renew(row)">
             {{ t('acme.actions.renew') }}
           </GcButton>
           <GcButton variant="secondary" :disabled="actionPending" @click="openDetails(row)">{{ t('acme.actions.details') }}</GcButton>
-          <GcButton variant="secondary" :disabled="actionPending || hasRunningJob(row)" @click="openEdit(row)">{{ t('acme.actions.edit') }}</GcButton>
           <GcConfirmAction :action-name="t('acme.actions.delete')" :disabled="actionPending || hasRunningJob(row)" @confirm="remove(row)" />
         </div>
       </template>
     </GcDataTable>
 
     <GcDataTable :columns="jobColumns" :rows="jobs" :loading="loading" :empty-text="t('acme.jobs.empty')" :aria-label="t('acme.jobs.title')" dense>
-      <template #cell-status="{ row }"><GcStatusTag :status="text(row.status, 'unknown')" :label="statusLabel(row.status)" /></template>
+      <template #cell-certificateName="{ row }">{{ jobCertificateName(row) }}</template>
+      <template #cell-startedAt="{ row }">{{ jobStartedAt(row) }}</template>
+      <template #cell-status="{ row }"><GcStatusTag :status="text(row.status, 'unknown')" :label="statusLabel(row.status)" :tone="jobStatusTone(row.status)" /></template>
       <template #cell-nextAttemptAt="{ row }">{{ localTime(row.nextAttemptAt) }}</template>
       <template #cell-failureMessage="{ row }">{{ text(row.failureMessage, t('acme.list.notAvailable')) }}</template>
       <template #cell-actions="{ row }">
         <GcButton v-if="failedJobs.includes(row)" variant="secondary" :loading="retryingJobId === text(row.id)" :disabled="actionPending" @click="retry(row)">{{ t('acme.actions.retry') }}</GcButton>
+        <GcConfirmAction v-if="cancelableJobStatuses.has(text(row.status))" :action-name="t('acme.actions.cancel')" :disabled="actionPending || cancelingJobId === text(row.id)" :danger="false" @confirm="cancel(row)" />
       </template>
     </GcDataTable>
 
@@ -811,7 +929,7 @@ function dateValue(value: unknown): number {
 
     <AcmeCertificateRequestModal v-model:open="formOpen" @created="loadAll" />
 
-    <GcModal v-model:open="editOpen" size="lg" :title="t('acme.edit.title')" :description="t('acme.edit.description')" :busy="actionPending" :error="formError">
+    <GcModal v-model:open="editOpen" size="lg" :title="editingMissingConfiguration ? t('acme.edit.recoveryTitle') : t('acme.edit.title')" :description="editingMissingConfiguration ? t('acme.edit.recoveryDescription') : t('acme.edit.description')" :busy="actionPending" :error="formError">
       <form class="acme-page__form" @submit.prevent="saveEdit">
         <label class="gc-form-field acme-page__field--wide"><span>{{ t('acme.fields.domains') }}</span><textarea v-model="editDraft.domains" :placeholder="t('acme.placeholders.domains')" required /></label>
         <label class="gc-form-field"><span>{{ t('acme.fields.issuer') }}</span><select v-model="editDraft.providerId" required><option v-for="provider in activeProviders" :key="text(provider.id)" :value="text(provider.id)">{{ text(provider.name, text(provider.id)) }}</option></select></label>
@@ -855,9 +973,14 @@ function dateValue(value: unknown): number {
           <div><dt>{{ t('acme.detail.nextRenewalIn') }}</dt><dd>{{ selectedAsset ? renewalCountdown(selectedAsset) : t('acme.list.notAvailable') }}</dd></div>
         </dl>
         <GcDataTable :columns="jobColumns" :rows="jobsForAsset(selectedAsset)" :loading="loading" :empty-text="t('acme.detail.emptyJobs')" dense>
-          <template #cell-status="{ row }"><GcStatusTag :status="text(row.status, 'unknown')" :label="statusLabel(row.status)" /></template>
+          <template #cell-certificateName="{ row }">{{ jobCertificateName(row) }}</template>
+          <template #cell-startedAt="{ row }">{{ jobStartedAt(row) }}</template>
+          <template #cell-status="{ row }"><GcStatusTag :status="text(row.status, 'unknown')" :label="statusLabel(row.status)" :tone="jobStatusTone(row.status)" /></template>
           <template #cell-nextAttemptAt="{ row }">{{ localTime(row.nextAttemptAt) }}</template>
           <template #cell-failureMessage="{ row }">{{ text(row.failureMessage, t('acme.list.notAvailable')) }}</template>
+          <template #cell-actions="{ row }">
+            <GcConfirmAction v-if="cancelableJobStatuses.has(text(row.status))" :action-name="t('acme.actions.cancel')" :disabled="actionPending || cancelingJobId === text(row.id)" :danger="false" @confirm="cancel(row)" />
+          </template>
         </GcDataTable>
         <GcDataTable :columns="orderColumns" :rows="ordersForAsset(selectedAsset)" :loading="loading" :empty-text="t('acme.detail.emptyOrders')" dense>
           <template #cell-identifiers="{ row }">{{ orderIdentifiers(row) }}</template>
@@ -868,22 +991,26 @@ function dateValue(value: unknown): number {
       <template #actions><GcButton variant="secondary" @click="detailOpen = false">{{ t('acme.actions.close') }}</GcButton></template>
     </GcModal>
 
-    <GcModal v-model:open="providerDialogOpen" size="lg" :title="t('acme.provider.title')" :description="t('acme.provider.description')" :busy="actionPending" :error="providerError">
+    <GcModal v-model:open="providerDialogOpen" size="xxl" :title="t('acme.provider.title')" :description="t('acme.provider.description')" :busy="actionPending" :error="providerError">
       <div class="acme-page__provider-list">
         <article v-for="provider in activeProviders" :key="text(provider.id)" class="acme-page__provider">
-          <div>
+          <div class="acme-page__provider-main">
             <strong>{{ text(provider.name, text(provider.id)) }}</strong>
-            <small>{{ providerProfileLabel(provider) }} · {{ providerVerificationLabel(provider) }} · {{ providerAccountStatus(provider) }}</small>
-            <small>{{ providerPreconfigurationLabel(provider) }} · {{ providerPreconfigurationSource(provider) }}</small>
-            <small>{{ text(providerConfig(provider).directoryUrl, text(provider.endpoint)) }}</small>
+            <span class="acme-page__provider-endpoint">{{ text(providerConfig(provider).directoryUrl, text(provider.endpoint, t('acme.list.notAvailable'))) }}</span>
           </div>
-          <div class="acme-page__row-actions">
+          <div class="acme-page__provider-statuses">
+            <GcStatusTag :status="text(providerConfig(provider).profileKey, text(providerConfig(provider).preset, 'custom'))" :label="providerProfileLabel(provider)" tone="info" />
+            <GcStatusTag :status="providerVerificationLevel(provider)" :label="providerVerificationLabel(provider)" :tone="providerVerificationTone(provider)" />
+            <GcStatusTag :status="text(accounts.find((item) => text(item.providerId) === text(provider.id))?.status, 'unconfigured')" :label="providerAccountStatus(provider)" :tone="providerAccountTone(provider)" />
+            <GcStatusTag v-if="providerNeedsPreconfiguration(provider)" status="PRECONFIGURATION_REQUIRED" :label="t('acme.provider.preconfiguration.required')" tone="warning" />
+          </div>
+          <div class="acme-page__provider-actions">
             <GcStatusTag v-if="providerConfig(provider).isDefault === true" status="ACTIVE" :label="t('acme.provider.default')" tone="success" />
             <GcStatusTag v-if="providerConfig(provider).isBuiltIn === true" status="BUILT_IN" :label="t('acme.provider.builtIn')" tone="info" />
-            <GcStatusTag :status="providerVerificationLevel(provider)" :label="providerVerificationLabel(provider)" tone="muted" />
             <GcButton variant="secondary" :disabled="actionPending" :loading="providerTestId === text(provider.id)" @click="testProvider(provider)">{{ providerTestId === text(provider.id) ? t('acme.provider.testing') : t('acme.provider.test') }}</GcButton>
             <GcButton variant="secondary" :disabled="actionPending" @click="openProviderEditor(provider)">{{ t('acme.provider.edit') }}</GcButton>
           </div>
+          <p v-if="providerNeedsPreconfiguration(provider)" class="acme-page__provider-preconfiguration-hint">{{ providerPreconfigurationHint(provider) }}</p>
         </article>
         <p v-if="!activeProviders.length" class="acme-page__provider-empty">{{ t('acme.provider.empty') }}</p>
         <p v-if="providerTestResult" class="acme-page__provider-result">{{ providerTestResult }}</p>
@@ -960,9 +1087,19 @@ function dateValue(value: unknown): number {
 .acme-page__intro p { margin: var(--gc-space-1) 0 0; color: var(--gc-color-text-muted); }
 .acme-page__error { margin: 0; padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-danger-border); border-radius: var(--gc-radius-md); color: var(--gc-color-danger); background: var(--gc-color-danger-bg); }
 .acme-page__summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gc-space-3); }
-.acme-page__summary .gc-card { display: grid; gap: var(--gc-space-2); }
-.acme-page__summary strong { color: var(--gc-color-text); font-size: var(--gc-font-size-xl); }
-.acme-page__summary span, .acme-page__certificate-name small, .acme-page__provider small { color: var(--gc-color-text-muted); }
+.acme-page__metric-card { display: grid; align-content: space-between; min-width: 0; min-height: calc(var(--gc-space-12) + var(--gc-space-12) + var(--gc-space-8)); gap: var(--gc-space-1); padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-border-subtle); border-radius: var(--gc-radius-xl); background: var(--gc-color-surface-workspace-glass); box-shadow: var(--gc-shadow-card); backdrop-filter: blur(var(--gc-space-4)); -webkit-backdrop-filter: blur(var(--gc-space-4)); }
+.acme-page__metric-topline { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--gc-space-3); min-width: 0; }
+.acme-page__metric-icon { display: grid; flex: 0 0 auto; place-items: center; width: var(--gc-space-8); height: var(--gc-space-8); border-radius: var(--gc-radius-md); color: var(--gc-color-primary); background: var(--gc-color-primary-soft); }
+.acme-page__metric-icon svg { width: var(--gc-size-icon-md); height: var(--gc-size-icon-md); fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: var(--gc-border-width-thick); }
+.acme-page__metric-value { min-width: 0; overflow: hidden; color: var(--gc-color-text-strong); font-size: var(--gc-font-size-heading-sm); font-weight: 800; line-height: var(--gc-line-height-tight); text-align: end; text-overflow: ellipsis; white-space: nowrap; }
+.acme-page__metric-title { color: var(--gc-color-text-secondary); font-size: var(--gc-font-size-xs); font-weight: 700; }
+.acme-page__metric-description { color: var(--gc-color-text-soft); font-size: var(--gc-font-size-caption); line-height: var(--gc-line-height-relaxed); }
+.acme-page__metric-card--success .acme-page__metric-icon { color: var(--gc-color-success); background: var(--gc-color-success-soft); }
+.acme-page__metric-card--warning .acme-page__metric-icon { color: var(--gc-color-warning); background: var(--gc-color-warning-soft); }
+.acme-page__metric-card--danger .acme-page__metric-icon { color: var(--gc-color-danger); background: var(--gc-color-danger-soft); }
+.acme-page__certificate-name small { color: var(--gc-color-text-muted); }
+.acme-page__summary .acme-page__metric-title { color: var(--gc-color-text-secondary); }
+.acme-page__summary .acme-page__metric-description { color: var(--gc-color-text-soft); }
 .acme-page__certificate-name { display: grid; gap: var(--gc-space-1); }
 .acme-page__domains { overflow-wrap: anywhere; }
 .acme-page__row-actions { flex-wrap: wrap; }
@@ -981,9 +1118,14 @@ function dateValue(value: unknown): number {
 .acme-page__provider-preconfiguration p, .acme-page__directory-probe p, .acme-page__provider-hint { margin: 0; color: var(--gc-color-text-muted); }
 .acme-page__directory-probe { display: flex; flex-wrap: wrap; align-items: center; }
 .acme-page__provider-probe-error { color: var(--gc-color-danger) !important; flex-basis: 100%; }
-.acme-page__provider { display: flex; justify-content: space-between; align-items: center; gap: var(--gc-space-3); padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); }
-.acme-page__provider > div:first-child { display: grid; gap: var(--gc-space-1); min-width: 0; }
-.acme-page__provider small { overflow-wrap: anywhere; }
+.acme-page__provider { display: grid; grid-template-columns: minmax(0, 1fr) minmax(30rem, 1.2fr) auto; gap: var(--gc-space-4); align-items: center; padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-muted); }
+.acme-page__provider-main { display: grid; gap: var(--gc-space-1); min-width: 0; }
+.acme-page__provider-main strong { color: var(--gc-color-text); }
+.acme-page__provider-endpoint { overflow: hidden; color: var(--gc-color-text-muted); font-family: var(--gc-font-family-mono); font-size: var(--gc-font-size-xs); text-overflow: ellipsis; white-space: nowrap; }
+.acme-page__provider-statuses, .acme-page__provider-actions { display: flex; gap: var(--gc-space-2); align-items: center; }
+.acme-page__provider-statuses { flex-wrap: nowrap; }
+.acme-page__provider-actions { justify-content: flex-end; flex-wrap: nowrap; }
+.acme-page__provider-preconfiguration-hint { grid-column: 1 / -1; margin: 0; padding-top: var(--gc-space-3); border-top: var(--gc-border-width-default) solid var(--gc-color-warning-border); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); }
 .acme-page__provider-empty, .acme-page__provider-result, .acme-page__terms p { margin: 0; color: var(--gc-color-text-muted); }
 .acme-page__provider-result { color: var(--gc-color-success); }
 .acme-page__detail-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-3); margin: 0; }
@@ -992,6 +1134,8 @@ function dateValue(value: unknown): number {
 .acme-page__detail-facts dd { margin: 0; color: var(--gc-color-text); overflow-wrap: anywhere; }
 @media (max-width: 48rem) {
   .acme-page__summary, .acme-page__form, .acme-page__dns-fields, .acme-page__detail-facts { grid-template-columns: 1fr; }
-  .acme-page__intro, .acme-page__provider { align-items: flex-start; flex-direction: column; }
+  .acme-page__intro { align-items: flex-start; flex-direction: column; }
+  .acme-page__provider { grid-template-columns: 1fr; }
+  .acme-page__provider-actions { justify-content: flex-start; flex-wrap: wrap; }
 }
 </style>

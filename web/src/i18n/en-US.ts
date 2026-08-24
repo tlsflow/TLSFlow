@@ -442,11 +442,19 @@ export default {
       createdTo: 'End time'
     },
     fields: { requestedBy: 'Requested by', triggerSource: 'Trigger source', createdAt: 'Created at', startedAt: 'Started at', finishedAt: 'Finished at', error: 'Last error' },
-    sections: { timeline: 'Status timeline', attempts: 'Attempts', logs: 'Logs', children: 'Child tasks', errors: 'Errors', audit: 'Audit events', monitoringProbes: 'Probe records' },
-    actions: { backToList: 'Back to task list', viewAll: 'View all tasks', search: 'Search', reset: 'Reset', previousPage: 'Previous page', nextPage: 'Next page' },
+    sections: { timeline: 'Status timeline', attempts: 'Attempts', acmeHistory: 'Renewal progress', logs: 'Raw logs', children: 'Child tasks', errors: 'Errors', audit: 'Audit events', monitoringProbes: 'Probe records' },
+    actions: { backToList: 'Back to task list', viewAll: 'View all tasks', viewRawLogs: 'View raw logs', search: 'Search', reset: 'Reset', previousPage: 'Previous page', nextPage: 'Next page' },
     messages: { loadFailed: 'Failed to load tasks.', detailFailed: 'Failed to load task details.' },
     values: { system: 'System', empty: 'No records', none: 'None' },
-    relatedNames: { builtinCatalog: 'Built-in plugin catalog', deploymentPlan: 'Deployment plan' },
+    relatedNames: { builtinCatalog: 'Built-in plugin catalog', deploymentPlan: 'Deployment plan', acmeRenewal: 'ACME Provider ({provider}) - {certificate} certificate renewal' },
+    acmeHistory: {
+      queued: { title: 'Waiting for renewal', description: 'The system is waiting to process this certificate renewal.' },
+      running: { title: 'Renewing certificate', description: 'The system is requesting renewal from the certificate authority.' },
+      retryWaiting: { title: 'Waiting for automatic retry', description: 'This issuance did not finish. The system will retry later.' },
+      succeeded: { title: 'Renewal succeeded', description: 'The new certificate has been issued and stored.' },
+      failed: { title: 'Renewal failed', description: 'The system could not renew the certificate. See raw logs for details.' },
+      cancelled: { title: 'Renewal cancelled', description: 'This certificate renewal was cancelled.' }
+    },
     typeLabels: {
       CERTIFICATE_DRY_RUN: 'Certificate dry-run',
       CERTIFICATE_DEPLOY: 'Certificate deploy',
@@ -461,6 +469,7 @@ export default {
       MONITORING_BATCH: 'Monitoring batch',
       MONITORING_PROBE: 'Monitoring probe',
       CA_NODE_TASK: 'CA node task',
+      ACME_CERTIFICATE_RENEWAL: 'ACME',
       CA_RECORD_SYNC: 'CA record sync',
       CERTIFICATE_REVOCATION: 'Certificate revocation',
       CRL_PUBLISH: 'CRL publish',
@@ -1308,6 +1317,9 @@ export default {
     },
     // 兼容旧版本证书卡片的翻译 key，避免已缓存 bundle 在升级后产生缺失告警。
     statusBlock: {
+      tooltip: {
+        name: 'Name', issuer: 'Issuer', startTime: 'Start time', endTime: 'End time', daysRemaining: 'Days remaining', connectionStatus: 'Connection status', version: 'Version', managementAddress: 'Management address', lastCommunicationTime: 'Last communication', platform: 'Platform', protocolPort: 'Protocol and port', certificateDaysRemaining: 'Certificate days remaining', region: 'Region', latency: 'Latency'
+      },
       detail: {
         certificateRemaining: '{name}, {days}'
       }
@@ -1714,6 +1726,9 @@ export default {
       }
     },
     statusBlock: {
+      tooltip: {
+        name: 'Name', issuer: 'Issuer', startTime: 'Start time', endTime: 'End time', daysRemaining: 'Days remaining', connectionStatus: 'Connection status', version: 'Version', managementAddress: 'Management address', lastCommunicationTime: 'Last communication', platform: 'Platform', protocolPort: 'Protocol and port', certificateDaysRemaining: 'Certificate days remaining', region: 'Region', latency: 'Latency'
+      },
       detail: {
         certificateRemaining: '{name}, {days}'
       },
@@ -1726,9 +1741,6 @@ export default {
         expiring: 'Expiring soon',
         inactive: 'Inactive',
         offline: 'Offline',
-      tooltip: {
-        name: 'Name', issuer: 'Issuer', startTime: 'Start time', endTime: 'End time', daysRemaining: 'Days remaining', connectionStatus: 'Connection status', version: 'Version', managementAddress: 'Management address', lastCommunicationTime: 'Last communication', platform: 'Platform', protocolPort: 'Protocol and port', certificateDaysRemaining: 'Certificate days remaining', region: 'Region', latency: 'Latency'
-      },
         online: 'Online',
         retired: 'Retired',
         revoked: 'Revoked',
@@ -4773,13 +4785,13 @@ export default {
     messages: { loadFailed: 'Failed to load internal CA data.', actionFailed: 'The operation failed. Check input, permissions, and approval status.', noIntermediate: 'This root CA has no intermediate authority yet.', noRootAuthority: 'No root CA configured', noRootAuthorityDescription: 'Add a root CA to establish the first independent trust hierarchy.', trustDomainCreated: 'CA trust domain created.', authorityCreated: 'Certificate authority created.', profileCreated: 'Certificate profile created.', requestCreated: 'Certificate request submitted.', requestApproved: 'Certificate request approved.', requestRetried: 'Certificate issuance retried.', requestQueried: 'Remote issuance result refreshed.', renewalScanned: 'Renewal scan completed.', revocationCreated: 'Revocation task created and awaiting approval.', revocationApproved: 'Certificate revocation approved.', trustCreated: 'Trust distribution created and awaiting approval.', trustApproved: 'Trust distribution approved.' },
     metrics: { nodes: 'CA nodes', renewals: 'Renewals', revocations: 'Revocations', trust: 'Trust distributions', totalRisks: 'Total risks', critical: 'Critical risks', affectedAssets: 'Affected application assets' },
     labels: { rootAuthority: 'Root certificate authority', intermediateAuthority: 'Intermediate certificate authority', intermediateCount: '{count} intermediate authorities', expiresAt: 'Expires {time}', defaultTrustDomain: 'Default trust domain', independentTrustDomain: 'Independent root trust boundary', trustDomainCount: '{count} CA trust domains', versionCount: '{count} versions', assetCount: '{count} application assets', requestCount: '{count} independent certificate requests will be created', backendUsageCount: 'Used by {count} certificate authorities', unverifiedCapabilityCount: '{count} capabilities are not verified' },
+    backendTypes: { builtin: 'Built-in backend', managedNode: 'Dedicated CA Node', acme: 'Public ACME CA', external: 'External backend' },
+    backendSummary: { createAndIssue: 'Can create and issue certificates', requestPublicCertificates: 'Can request public certificates', managedNode: 'Requires an enrolled CA Node', external: 'Requires an external integration', localVerified: 'Local verification passed', remoteVerified: 'Connection verification passed', unverified: 'Not verified' },
     availability: { single: 'Single node', activeStandby: 'Active/standby', activeActive: 'Active/active' },
     authModes: { managedSecret: 'Managed credential', clientCertificate: 'Client certificate', none: 'No authentication' },
     isolationLevels: { standard: 'Standard isolation', strict: 'Strict isolation', regulated: 'Regulated isolation' },
     custodyModes: { managedSecret: 'Managed secret', localAgent: 'Local agent', deviceLocal: 'Device local', externalKey: 'External key' },
     wizard: { title: 'Add certificate authority', description: 'Choose an issuance model, then configure the backend, CA parameters, and security boundary.', stepsAria: 'CA creation steps', entryStep: 'Choose mode', backendStep: 'Configure backend', parentStep: 'Choose parent CA', authorityStep: 'Configure CA', reviewStep: 'Review', completed: 'Completed', inProgress: 'In progress', pending: 'Pending', entryEyebrow: 'Step one', entryTitle: 'Who should perform issuance for this CA?', entryDescription: 'Choose the deployment boundary that fits the environment. Built-in CAs use the managed execution boundary.', recommended: 'Recommended start', builtinTitle: 'Create CA directly', builtinDescription: 'Use the built-in certificate issuance execution plane in the current GCAC service.', builtinFeature1: 'No additional node deployment', builtinFeature2: 'Fits development and smaller internal environments', managedTitle: 'Deploy GCAC CA Node', managedDescription: 'Isolate CA keys and issuance on a dedicated Windows or Linux machine.', managedFeature1: 'Register with a one-time token', managedFeature2: 'Boundary for future HSM and redundancy', backendEyebrow: 'Issuing backend', builtinBackendTitle: 'Use the GCAC built-in backend', builtinBackendDescription: 'The system automatically creates or reuses the tenant built-in execution backend.', managed_nodeBackendTitle: 'Configure a dedicated GCAC CA Node', managed_nodeBackendDescription: 'Create the node backend and issue a short-lived one-time enrollment token.', builtinAutomaticTitle: 'No separate execution backend required', builtinAutomaticDescription: 'GCAC ensures the built-in issuing execution backend exists and binds it when the CA is created.', authorityEyebrow: 'Certificate authority', rootConfigurationTitle: 'Configure root CA', rootConfigurationDescription: 'Define the new root trust boundary, identity, and intermediate CA topology.', intermediateConfigurationTitle: 'Configure intermediate CA', intermediateConfigurationDescription: 'Choose the parent root and configure the authority used for daily issuance.', advancedSubjectTitle: 'Advanced certificate subject settings', commonNameHelp: 'Written to the CA certificate subject for certificate-chain identification. This is not a domain name.', builtinSecurityNote: 'The software key is held by GCAC SecretService and is not equivalent to a non-exportable HSM key.', managed_nodeSecurityNote: 'The key resides on a dedicated node; production use requires successful registration and capability verification.', reviewEyebrow: 'Final review', reviewTitle: 'Review the trust boundary and issuance model', reviewDescription: 'Verify the CA identity, trust domain, issuing backend, and security warnings before creation.', enrollmentTitle: 'One-time CA Node enrollment token', enrollmentDescription: 'Use this token only for initial node enrollment and transfer it through a secure channel.', enrollmentExpiresAt: 'Token expires at {time}', builtinProviderName: 'GCAC built-in issuing backend', managedProviderName: 'GCAC dedicated CA Node', rootTitle: 'Root CA', rootDescription: 'Create a new independent root trust anchor, optionally with an initial intermediate CA.', intermediateTitle: 'Intermediate CA', intermediateDescription: 'Add an issuing authority below an existing root CA without creating another trust anchor.', noWarnings: 'No additional topology warnings were detected.' },
-    backendTypes: { builtin: 'Built-in backend', managedNode: 'Dedicated CA Node', acme: 'Public ACME CA', external: 'External backend' },
-    backendSummary: { createAndIssue: 'Can create and issue certificates', requestPublicCertificates: 'Can request public certificates', managedNode: 'Requires an enrolled CA Node', external: 'Requires an external integration', localVerified: 'Local verification passed', remoteVerified: 'Connection verification passed', unverified: 'Not verified' },
     riskTypes: { certificate_fingerprint_reuse: 'Same certificate reused across assets', public_key_reuse: 'Same public key reused across assets' },
     common: { unknown: 'Unknown' }, aria: { tabs: 'Internal CA navigation' }
   },

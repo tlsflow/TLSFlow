@@ -447,11 +447,19 @@ export default {
       createdTo: '종료 시간'
     },
     fields: { requestedBy: '요청 사용자', triggerSource: '트리거 소스', createdAt: '생성 시간', startedAt: '시작 시간', finishedAt: '완료 시간', error: '마지막 오류' },
-    sections: { timeline: '상태 타임라인', attempts: '시도 기록', logs: '로그', children: '하위 작업', errors: '오류', audit: '감사 이벤트', monitoringProbes: '탐지 기록' },
-    actions: { backToList: '목록으로 돌아가기', viewAll: '모든 작업 보기', search: '검색', reset: '초기화', previousPage: '이전 페이지', nextPage: '다음 페이지' },
+    sections: { timeline: '상태 타임라인', attempts: '시도 기록', acmeHistory: '갱신 진행 상황', logs: '원시 로그', children: '하위 작업', errors: '오류', audit: '감사 이벤트', monitoringProbes: '탐지 기록' },
+    actions: { backToList: '목록으로 돌아가기', viewAll: '모든 작업 보기', viewRawLogs: '원시 로그 보기', search: '검색', reset: '초기화', previousPage: '이전 페이지', nextPage: '다음 페이지' },
     messages: { loadFailed: '작업을 불러오지 못했습니다.', detailFailed: '작업 상세를 불러오지 못했습니다.' },
     values: { system: '시스템', empty: '기록 없음', none: '없음' },
-    relatedNames: { builtinCatalog: '내장 플러그인 카탈로그', deploymentPlan: '배포 계획' },
+    relatedNames: { builtinCatalog: '내장 플러그인 카탈로그', deploymentPlan: '배포 계획', acmeRenewal: 'ACME Provider({provider}) - {certificate} 인증서 갱신' },
+    acmeHistory: {
+      queued: { title: '갱신 대기 중', description: '시스템이 이 인증서 갱신을 처리할 때까지 대기 중입니다.' },
+      running: { title: '인증서 갱신 중', description: '시스템이 인증 기관에 갱신을 요청하고 있습니다.' },
+      retryWaiting: { title: '자동 재시도 대기 중', description: '이번 발급이 완료되지 않았습니다. 시스템이 나중에 다시 시도합니다.' },
+      succeeded: { title: '갱신 성공', description: '새 인증서가 발급되고 저장되었습니다.' },
+      failed: { title: '갱신 실패', description: '시스템이 인증서를 갱신할 수 없습니다. 원시 로그를 확인하세요.' },
+      cancelled: { title: '갱신 취소됨', description: '이 인증서 갱신이 취소되었습니다.' }
+    },
     typeLabels: {
       CERTIFICATE_DRY_RUN: '인증서 Dry-run',
       CERTIFICATE_DEPLOY: '인증서 배포',
@@ -466,6 +474,7 @@ export default {
       MONITORING_BATCH: '모니터링 배치',
       MONITORING_PROBE: '모니터링 프로브',
       CA_NODE_TASK: 'CA 노드 작업',
+      ACME_CERTIFICATE_RENEWAL: 'ACME',
       CA_RECORD_SYNC: 'CA 기록 동기화',
       CERTIFICATE_REVOCATION: '인증서 폐기',
       CRL_PUBLISH: 'CRL 게시',
@@ -1253,6 +1262,7 @@ export default {
     },
     // 兼容旧版本证书卡片的翻译 key，避免已缓存 bundle 在升级后产生缺失告警。
     statusBlock: {
+      tooltip: { name: '이름', issuer: '발급자', startTime: '시작 시간', endTime: '종료 시간', daysRemaining: '남은 일수', connectionStatus: '연결 상태', version: '버전', managementAddress: '관리 주소', lastCommunicationTime: '최근 통신 시간', platform: '애플리케이션 플랫폼', protocolPort: '프로토콜 및 포트', certificateDaysRemaining: '인증서 남은 일수', region: '지역', latency: '지연 시간' },
       detail: {
         certificateRemaining: '{name}, {days}'
       }
@@ -1636,6 +1646,7 @@ export default {
       }
     },
     statusBlock: {
+      tooltip: { name: '이름', issuer: '발급자', startTime: '시작 시간', endTime: '종료 시간', daysRemaining: '남은 일수', connectionStatus: '연결 상태', version: '버전', managementAddress: '관리 주소', lastCommunicationTime: '최근 통신 시간', platform: '애플리케이션 플랫폼', protocolPort: '프로토콜 및 포트', certificateDaysRemaining: '인증서 남은 일수', region: '지역', latency: '지연 시간' },
       detail: {
         certificateRemaining: '{name}, {days}'
       },
@@ -1646,7 +1657,6 @@ export default {
         disabled: '비활성화',
         expired: '만료됨',
         expiring: '만기가 다가오다',
-      tooltip: { name: '이름', issuer: '발급자', startTime: '시작 시간', endTime: '종료 시간', daysRemaining: '남은 일수', connectionStatus: '연결 상태', version: '버전', managementAddress: '관리 주소', lastCommunicationTime: '최근 통신 시간', platform: '애플리케이션 플랫폼', protocolPort: '프로토콜 및 포트', certificateDaysRemaining: '인증서 남은 일수', region: '지역', latency: '지연 시간' },
         inactive: '비활성',
         offline: '오프라인',
         online: '온라인',

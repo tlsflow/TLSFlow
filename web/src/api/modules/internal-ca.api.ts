@@ -70,4 +70,5 @@ export const internalCaApi = {
   listAcmeRenewalJobs: () => getList('/api/v1/acme/renewal-jobs'),
   scanAcmeRenewalJobs: (limit = 50) => post('/api/v1/acme/renewal-jobs/scan', { limit }),
   retryAcmeRenewalJob: (jobId: string) => post(`/api/v1/acme/renewal-jobs/${encodeURIComponent(jobId)}/retry`),
+  cancelAcmeRenewalJob: (jobId: string, reason?: string) => post(`/api/v1/acme/renewal-jobs/${encodeURIComponent(jobId)}/cancel`, reason ? { reason } : {}),
 }

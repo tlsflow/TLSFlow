@@ -7,6 +7,7 @@ export interface BusinessPageColumn {
   readonly candidates: readonly string[]
   readonly kind?: 'text' | 'status' | 'risk' | 'date' | 'count'
   readonly width?: string
+  readonly truncate?: boolean
   readonly format?: (record: ApiRecord) => string
 }
 

@@ -23,6 +23,7 @@ const acmeMocks = vi.hoisted(() => ({
   deleteAcmeCertificate: vi.fn(),
   scanAcmeRenewalJobs: vi.fn(),
   retryAcmeRenewalJob: vi.fn(),
+  cancelAcmeRenewalJob: vi.fn(),
 }))
 const certificateMocks = vi.hoisted(() => ({
   listCertificates: vi.fn(),
@@ -130,7 +131,6 @@ describe('AcmeOperationsView', () => {
           directory: { userInputRequired: true },
           account: { eab: 'discover' },
           form: { providerFields: ['profileKey', 'displayName', 'directoryUrl', 'isDefault'], accountFields: ['contactEmail', 'eabSecretRef'] },
-          preconfiguration: { required: true, source: 'digicert_console' },
         }],
       },
     })
@@ -149,6 +149,7 @@ describe('AcmeOperationsView', () => {
     acmeMocks.deleteAcmeCertificate.mockResolvedValue({ data: {} })
     acmeMocks.scanAcmeRenewalJobs.mockResolvedValue({ data: [] })
     acmeMocks.retryAcmeRenewalJob.mockResolvedValue({ data: {} })
+    acmeMocks.cancelAcmeRenewalJob.mockResolvedValue({ data: {} })
     certificateMocks.listCertificates.mockResolvedValue({ data: { items: [], total: 0 } })
     certificateMocks.listCertificateVersions.mockResolvedValue({ data: { items: [], total: 0 } })
     credentialMocks.createCredential.mockResolvedValue({ data: { id: 'dns-1' } })
@@ -304,6 +305,7 @@ describe('AcmeOperationsView', () => {
         certificateAssetId: 'asset-1',
         acmeOrderId: 'order-1',
         status: 'failed',
+        scheduledAt: '2026-08-13T12:00:00.000Z',
         nextAttemptAt: futureDate,
         failureMessage: 'DNS validation failed',
       }],
@@ -331,8 +333,248 @@ describe('AcmeOperationsView', () => {
     expect(document.body.textContent).toContain('验证方式')
     expect(document.body.textContent).toContain('HTTP-01')
     expect(document.body.textContent).toContain('提前续签天数')
+    expect(document.body.textContent).toContain('任务开始时间')
+    expect(document.body.textContent).toContain('示例证书')
+    expect(document.body.textContent).toMatch(/2026-08-13/)
     expect(document.body.textContent).toContain('example.com')
     expect(document.body.textContent).toContain('DNS validation failed')
+  })
+
+  it('内置 Let’s Encrypt 未探测时显示无需配置，而不是未配置', async () => {
+    mount(AcmeOperationsView, { attachTo: document.body })
+    await settle()
+
+    findButton('ACME Provider 管理').click()
+    await settle()
+
+    expect(document.body.textContent).toContain('无需配置')
+    const noConfigurationTag = [...document.querySelectorAll<HTMLElement>('.gc-tag')]
+      .find((tag) => tag.textContent?.trim() === '无需配置')
+    expect(noConfigurationTag?.classList.contains('gc-tag--success')).toBe(true)
+    expect([...document.querySelectorAll<HTMLElement>('.gc-tag')]
+      .some((tag) => tag.textContent?.trim() === '未配置')).toBe(false)
+  })
+
+  it('成功完成的续签任务不覆盖活动证书资产状态', async () => {
+    certificateMocks.listCertificates.mockResolvedValue({
+      data: {
+        items: [{
+          id: 'renewed-asset-1',
+          name: '*.ginease.cn',
+          primaryDomain: '*.ginease.cn',
+          sans: ['ginease.cn'],
+          sourceType: 'acme',
+          status: 'active',
+        }],
+        total: 1,
+      },
+    })
+    certificateMocks.listCertificateVersions.mockResolvedValue({
+      data: {
+        items: [{
+          id: 'renewed-version-1',
+          certificateAssetId: 'renewed-asset-1',
+          status: 'active',
+          notAfter: '2026-11-11T12:22:33.000Z',
+        }],
+        total: 1,
+      },
+    })
+    acmeMocks.listAcmeRenewalPolicies.mockResolvedValue({
+      data: [{
+        id: 'renewed-policy-1',
+        certificateAssetId: 'renewed-asset-1',
+        providerId: 'provider-letsencrypt',
+        enabled: true,
+        renewalWindowDays: 7,
+        challengeType: 'dns-01',
+      }],
+    })
+    acmeMocks.listAcmeRenewalJobs.mockResolvedValue({
+      data: [{
+        id: 'renewed-job-1',
+        policyId: 'renewed-policy-1',
+        certificateAssetId: 'renewed-asset-1',
+        status: 'completed',
+        updatedAt: '2026-08-13T13:21:06.000Z',
+      }],
+    })
+
+    mount(AcmeOperationsView, { attachTo: document.body })
+    await settle()
+
+    expect(document.body.textContent).toContain('*.ginease.cn')
+    expect(document.body.textContent).toContain('活动')
+    expect(document.body.textContent).not.toContain('未知')
+    expect(document.body.textContent).toContain('已完成')
+    const completedTag = [...document.querySelectorAll<HTMLElement>('.gc-tag')]
+      .find((tag) => tag.textContent?.trim() === '已完成')
+    expect(completedTag?.classList.contains('gc-tag--success')).toBe(true)
+
+    findButton('详情').click()
+    await settle()
+    const detailCompletedTag = [...document.querySelectorAll<HTMLElement>('.gc-tag')]
+      .find((tag) => tag.textContent?.trim() === '已完成')
+    expect(detailCompletedTag?.classList.contains('gc-tag--success')).toBe(true)
+  })
+
+  it('详情中的执行中任务可以取消，并调用取消接口', async () => {
+    certificateMocks.listCertificates.mockResolvedValue({
+      data: { items: [{ id: 'cancel-asset', name: '待取消证书', primaryDomain: 'cancel.example.com', sourceType: 'acme', status: 'active' }], total: 1 },
+    })
+    certificateMocks.listCertificateVersions.mockResolvedValue({ data: { items: [], total: 0 } })
+    acmeMocks.listAcmeRenewalPolicies.mockResolvedValue({
+      data: [{ id: 'cancel-policy', certificateAssetId: 'cancel-asset', providerId: acmeProvider.id, enabled: true, renewalWindowDays: 7, challengeType: 'dns-01' }],
+    })
+    acmeMocks.listAcmeRenewalJobs.mockResolvedValue({
+      data: [{ id: 'cancel-job', policyId: 'cancel-policy', certificateAssetId: 'cancel-asset', status: 'issuing', failureMessage: '' }],
+    })
+
+    mount(AcmeOperationsView, { attachTo: document.body })
+    await settle()
+    findButton('详情').click()
+    await settle()
+
+    findButton('取消任务').click()
+    await settle()
+    const confirm = document.querySelector<HTMLDivElement>('.gc-confirm')
+    if (!confirm) throw new Error('未打开取消确认框')
+    const confirmButton = [...confirm.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent?.trim() === '确认')
+    if (!confirmButton) throw new Error('未找到取消确认按钮')
+    confirmButton.click()
+    await settle()
+
+    expect(acmeMocks.cancelAcmeRenewalJob).toHaveBeenCalledWith('cancel-job')
+  })
+
+  it('允许为缺少策略的历史证书补全配置，并在保存时覆盖该资产自动化设置', async () => {
+    certificateMocks.listCertificates.mockResolvedValue({
+      data: {
+        items: [{
+          id: 'legacy-asset-1',
+          name: '*.legacy.example.com',
+          primaryDomain: '*.legacy.example.com',
+          sans: ['legacy.example.com'],
+          sourceType: 'acme',
+          status: 'active',
+        }],
+        total: 1,
+      },
+    })
+    certificateMocks.listCertificateVersions.mockResolvedValue({
+      data: { items: [{ id: 'legacy-version-1', certificateAssetId: 'legacy-asset-1', notAfter: '2026-11-04T00:00:00.000Z' }], total: 1 },
+    })
+
+    mount(AcmeOperationsView, { attachTo: document.body })
+    await settle()
+
+    expect(document.body.textContent).toContain('配置缺失')
+    findButton('编辑').click()
+    await settle()
+
+    expect(document.body.textContent).toContain('补全 ACME 自动化配置')
+    const form = document.querySelector<HTMLFormElement>('.acme-page__form')
+    if (!form) throw new Error('未找到历史 ACME 配置表单')
+    const challengeRadios = [...form.querySelectorAll<HTMLInputElement>('input[type="radio"]')]
+    expect(challengeRadios.every((item) => !item.checked)).toBe(true)
+
+    const emailInput = form.querySelector<HTMLInputElement>('input[type="email"]')
+    if (!emailInput) throw new Error('未找到联系人邮箱输入框')
+    emailInput.value = 'admin@example.com'
+    emailInput.dispatchEvent(new Event('input', { bubbles: true }))
+    const dnsRadio = form.querySelector<HTMLInputElement>('input[type="radio"][value="dns-01"]')
+    if (!dnsRadio) throw new Error('未找到 DNS-01 选项')
+    dnsRadio.click()
+    await settle()
+
+    const dnsProviderSelect = [...form.querySelectorAll<HTMLSelectElement>('select')]
+      .find((item) => [...item.options].some((option) => option.value === 'cloudflare'))
+    if (!dnsProviderSelect) throw new Error('未找到 DNS Provider 选择框')
+    dnsProviderSelect.value = 'cloudflare'
+    dnsProviderSelect.dispatchEvent(new Event('change', { bubbles: true }))
+    await settle()
+    const credentialSelect = form.querySelector<HTMLSelectElement>('.gc-acme-dns-credential select')
+    if (!credentialSelect) throw new Error('未找到 DNS 凭据选择框')
+    credentialSelect.value = 'dns-1'
+    credentialSelect.dispatchEvent(new Event('change', { bubbles: true }))
+
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await settle()
+
+    expect(acmeMocks.updateAcmeCertificate).toHaveBeenCalledWith('legacy-asset-1', expect.objectContaining({
+      domains: ['*.legacy.example.com', 'legacy.example.com'],
+      contactEmail: 'admin@example.com',
+      providerId: 'provider-letsencrypt',
+      challengeType: 'dns-01',
+      dnsProvider: 'cloudflare',
+      dnsCredentialId: 'dns-1',
+      autoRenew: true,
+      renewalWindowDays: 7,
+    }))
+  })
+
+  it('discover EAB 在 Directory 探测前隐藏，探测声明需要 EAB 后才显示', async () => {
+    mount(AcmeOperationsView, { attachTo: document.body })
+    await settle()
+    findButton('ACME Provider 管理').click()
+    await settle()
+    findButton('新增 Provider').click()
+    await settle()
+
+    const form = document.querySelector<HTMLFormElement>('.acme-page__form')
+    if (!form) throw new Error('未找到 Provider 表单')
+    const profileSelect = form.querySelector<HTMLSelectElement>('select')
+    if (!profileSelect) throw new Error('未找到 Profile 选择框')
+    profileSelect.value = 'digicert'
+    profileSelect.dispatchEvent(new Event('change', { bubbles: true }))
+    await settle()
+
+    expect([...form.querySelectorAll('select')].some((item) => [...item.options].some((option) => option.value === 'secret://acme_eab/sec_eab#current'))).toBe(false)
+    const directoryInput = form.querySelector<HTMLInputElement>('input[type="url"]')
+    if (!directoryInput) throw new Error('未找到 Directory URL 输入框')
+    directoryInput.value = 'https://acme.example.digicert.com/directory'
+    directoryInput.dispatchEvent(new Event('input', { bubbles: true }))
+    findButton('探测 Directory').click()
+    await settle()
+
+    expect(acmeMocks.probeAcmeDirectory).toHaveBeenCalledWith(expect.objectContaining({
+      profileKey: 'digicert',
+      directoryUrl: 'https://acme.example.digicert.com/directory',
+    }))
+    expect([...form.querySelectorAll('select')].some((item) => [...item.options].some((option) => option.value === 'secret://acme_eab/sec_eab#current'))).toBe(true)
+
+    directoryInput.value = 'https://acme-2.example.digicert.com/directory'
+    directoryInput.dispatchEvent(new Event('input', { bubbles: true }))
+    await settle()
+    expect([...form.querySelectorAll('select')].some((item) => [...item.options].some((option) => option.value === 'secret://acme_eab/sec_eab#current'))).toBe(false)
+  })
+
+  it('切换 Profile 时只更新自动名称，不覆盖用户自定义名称', async () => {
+    mount(AcmeOperationsView, { attachTo: document.body })
+    await settle()
+    findButton('ACME Provider 管理').click()
+    await settle()
+    findButton('新增 Provider').click()
+    await settle()
+
+    const form = document.querySelector<HTMLFormElement>('.acme-page__form')
+    if (!form) throw new Error('未找到 Provider 表单')
+    const profileSelect = form.querySelector<HTMLSelectElement>('select')
+    const nameInput = [...form.querySelectorAll<HTMLInputElement>('input')].find((item) => item.required && item.type !== 'url')
+    if (!profileSelect || !nameInput) throw new Error('未找到名称或 Profile 字段')
+    expect(nameInput.value).toContain('Let')
+    profileSelect.value = 'digicert'
+    profileSelect.dispatchEvent(new Event('change', { bubbles: true }))
+    await settle()
+    expect(nameInput.value).toContain('DigiCert')
+
+    nameInput.value = '企业 ACME'
+    nameInput.dispatchEvent(new Event('input', { bubbles: true }))
+    profileSelect.value = 'letsencrypt'
+    profileSelect.dispatchEvent(new Event('change', { bubbles: true }))
+    await settle()
+    expect(nameInput.value).toBe('企业 ACME')
   })
 
   it('Provider 表单按后端 Profile 合同只提交最小配置字段', async () => {
@@ -393,70 +635,5 @@ describe('AcmeOperationsView', () => {
       termsOfServiceAgreed: true,
       eabSecretRef: 'secret://acme_eab/sec_eab#current',
     })
-  })
-
-  it('discover EAB 在 Directory 探测前隐藏，探测声明需要 EAB 后才显示', async () => {
-    mount(AcmeOperationsView, { attachTo: document.body })
-    await settle()
-    findButton('ACME Provider 管理').click()
-    await settle()
-    findButton('新增 Provider').click()
-    await settle()
-
-    const form = document.querySelector<HTMLFormElement>('.acme-page__form')
-    if (!form) throw new Error('未找到 Provider 表单')
-    const profileSelect = form.querySelector<HTMLSelectElement>('select')
-    if (!profileSelect) throw new Error('未找到 Profile 选择框')
-    profileSelect.value = 'digicert'
-    profileSelect.dispatchEvent(new Event('change', { bubbles: true }))
-    await settle()
-
-    expect(document.body.textContent).toContain('需要厂商后台预配置')
-    expect(document.body.textContent).toContain('DigiCert 控制台')
-    expect([...form.querySelectorAll('select')].some((item) => [...item.options].some((option) => option.value === 'secret://acme_eab/sec_eab#current'))).toBe(false)
-    const directoryInput = form.querySelector<HTMLInputElement>('input[type="url"]')
-    if (!directoryInput) throw new Error('未找到 Directory URL 输入框')
-    directoryInput.value = 'https://acme.example.digicert.com/directory'
-    directoryInput.dispatchEvent(new Event('input', { bubbles: true }))
-    findButton('探测 Directory').click()
-    await settle()
-
-    expect(acmeMocks.probeAcmeDirectory).toHaveBeenCalledWith(expect.objectContaining({
-      profileKey: 'digicert',
-      directoryUrl: 'https://acme.example.digicert.com/directory',
-    }))
-    expect([...form.querySelectorAll('select')].some((item) => [...item.options].some((option) => option.value === 'secret://acme_eab/sec_eab#current'))).toBe(true)
-
-    directoryInput.value = 'https://acme-2.example.digicert.com/directory'
-    directoryInput.dispatchEvent(new Event('input', { bubbles: true }))
-    await settle()
-    expect([...form.querySelectorAll('select')].some((item) => [...item.options].some((option) => option.value === 'secret://acme_eab/sec_eab#current'))).toBe(false)
-  })
-
-  it('切换 Profile 时只更新自动名称，不覆盖用户自定义名称', async () => {
-    mount(AcmeOperationsView, { attachTo: document.body })
-    await settle()
-    findButton('ACME Provider 管理').click()
-    await settle()
-    findButton('新增 Provider').click()
-    await settle()
-
-    const form = document.querySelector<HTMLFormElement>('.acme-page__form')
-    if (!form) throw new Error('未找到 Provider 表单')
-    const profileSelect = form.querySelector<HTMLSelectElement>('select')
-    const nameInput = [...form.querySelectorAll<HTMLInputElement>('input')].find((item) => item.required && item.type !== 'url')
-    if (!profileSelect || !nameInput) throw new Error('未找到名称或 Profile 字段')
-    expect(nameInput.value).toContain('Let')
-    profileSelect.value = 'digicert'
-    profileSelect.dispatchEvent(new Event('change', { bubbles: true }))
-    await settle()
-    expect(nameInput.value).toContain('DigiCert')
-
-    nameInput.value = '企业 ACME'
-    nameInput.dispatchEvent(new Event('input', { bubbles: true }))
-    profileSelect.value = 'letsencrypt'
-    profileSelect.dispatchEvent(new Event('change', { bubbles: true }))
-    await settle()
-    expect(nameInput.value).toBe('企业 ACME')
   })
 })

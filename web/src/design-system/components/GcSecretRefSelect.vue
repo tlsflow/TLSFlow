@@ -5,8 +5,15 @@ import { listSecrets } from '@/api/modules/security.api'
 import type { ApiRecord } from '@/api/modules/common'
 
 const model = defineModel<string>({ default: '' })
-const props = withDefaults(defineProps<{ label?: string; disabled?: boolean; required?: boolean; acceptedTypes?: string[] }>(), {
+const props = withDefaults(defineProps<{
+  label?: string
+  disabled?: boolean
+  required?: boolean
+  acceptedTypes?: string[]
+  extraOptions?: Array<{ value: string; label: string }>
+}>(), {
   acceptedTypes: () => [],
+  extraOptions: () => [],
 })
 const { t } = useI18n()
 const loading = ref(false)
@@ -32,6 +39,7 @@ onMounted(async () => {
     <select v-model="model" :disabled="disabled || loading" :required="required">
       <option value="">{{ loading ? t('common.loading') : t('credentials.placeholders.selectSecret') }}</option>
       <option v-for="item in options" :key="String(item.id)" :value="String(item.secretRef ?? '')">{{ item.name ?? item.id }}</option>
+      <option v-for="item in props.extraOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
     </select>
   </label>
 </template>

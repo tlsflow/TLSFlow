@@ -447,11 +447,19 @@ export default {
       createdTo: 'Конец'
     },
     fields: { requestedBy: 'Инициатор', triggerSource: 'Источник', createdAt: 'Создано', startedAt: 'Начато', finishedAt: 'Завершено', error: 'Последняя ошибка' },
-    sections: { timeline: 'Хронология статуса', attempts: 'Попытки', logs: 'Журналы', children: 'Дочерние задачи', errors: 'Ошибки', audit: 'События аудита', monitoringProbes: 'Записи проверок' },
-    actions: { backToList: 'Вернуться к списку', viewAll: 'Посмотреть все задачи', search: 'Поиск', reset: 'Сбросить', previousPage: 'Предыдущая страница', nextPage: 'Следующая страница' },
+    sections: { timeline: 'Хронология статуса', attempts: 'Попытки', acmeHistory: 'Ход продления', logs: 'Исходные журналы', children: 'Дочерние задачи', errors: 'Ошибки', audit: 'События аудита', monitoringProbes: 'Записи проверок' },
+    actions: { backToList: 'Вернуться к списку', viewAll: 'Посмотреть все задачи', viewRawLogs: 'Показать исходные журналы', search: 'Поиск', reset: 'Сбросить', previousPage: 'Предыдущая страница', nextPage: 'Следующая страница' },
     messages: { loadFailed: 'Не удалось загрузить задачи.', detailFailed: 'Не удалось загрузить сведения о задаче.' },
     values: { system: 'Система', empty: 'Нет записей', none: 'Нет' },
-    relatedNames: { builtinCatalog: 'Встроенный каталог плагинов', deploymentPlan: 'План развёртывания' },
+    relatedNames: { builtinCatalog: 'Встроенный каталог плагинов', deploymentPlan: 'План развёртывания', acmeRenewal: 'ACME Provider ({provider}) - продление сертификата {certificate}' },
+    acmeHistory: {
+      queued: { title: 'Ожидание продления', description: 'Система ожидает обработки этого продления сертификата.' },
+      running: { title: 'Продление выполняется', description: 'Система запрашивает продление у центра сертификации.' },
+      retryWaiting: { title: 'Ожидание автоматической попытки', description: 'Выпуск не завершён. Система повторит попытку позже.' },
+      succeeded: { title: 'Продление успешно', description: 'Новый сертификат выпущен и сохранён.' },
+      failed: { title: 'Ошибка продления', description: 'Системе не удалось продлить сертификат. Смотрите исходные журналы.' },
+      cancelled: { title: 'Продление отменено', description: 'Это продление сертификата отменено.' }
+    },
     typeLabels: {
       CERTIFICATE_DRY_RUN: 'Dry-run сертификата',
       CERTIFICATE_DEPLOY: 'Развёртывание сертификата',
@@ -466,6 +474,7 @@ export default {
       MONITORING_BATCH: 'Пакет мониторинга',
       MONITORING_PROBE: 'Проверка мониторинга',
       CA_NODE_TASK: 'Задача узла CA',
+      ACME_CERTIFICATE_RENEWAL: 'ACME',
       CA_RECORD_SYNC: 'Синхронизация записей CA',
       CERTIFICATE_REVOCATION: 'Отзыв сертификата',
       CRL_PUBLISH: 'Публикация CRL',
@@ -1253,6 +1262,7 @@ export default {
     },
     // 兼容旧版本证书卡片的翻译 key，避免已缓存 bundle 在升级后产生缺失告警。
     statusBlock: {
+      tooltip: { name: 'Имя', issuer: 'Издатель', startTime: 'Начало', endTime: 'Окончание', daysRemaining: 'Осталось дней', connectionStatus: 'Состояние подключения', version: 'Версия', managementAddress: 'Адрес управления', lastCommunicationTime: 'Последняя связь', platform: 'Платформа', protocolPort: 'Протокол и порт', certificateDaysRemaining: 'Дней сертификата осталось', region: 'Регион', latency: 'Задержка' },
       detail: {
         certificateRemaining: '{name}, {days}'
       }
@@ -1636,6 +1646,7 @@ export default {
       }
     },
     statusBlock: {
+      tooltip: { name: 'Имя', issuer: 'Издатель', startTime: 'Начало', endTime: 'Окончание', daysRemaining: 'Осталось дней', connectionStatus: 'Состояние подключения', version: 'Версия', managementAddress: 'Адрес управления', lastCommunicationTime: 'Последняя связь', platform: 'Платформа', protocolPort: 'Протокол и порт', certificateDaysRemaining: 'Дней сертификата осталось', region: 'Регион', latency: 'Задержка' },
       detail: {
         certificateRemaining: '{name}, {days}'
       },
@@ -1646,7 +1657,6 @@ export default {
         disabled: 'Отключено',
         expired: 'Истекло',
         expiring: 'Скоро истекает',
-      tooltip: { name: 'Имя', issuer: 'Издатель', startTime: 'Начало', endTime: 'Окончание', daysRemaining: 'Осталось дней', connectionStatus: 'Состояние подключения', version: 'Версия', managementAddress: 'Адрес управления', lastCommunicationTime: 'Последняя связь', platform: 'Платформа', protocolPort: 'Протокол и порт', certificateDaysRemaining: 'Дней сертификата осталось', region: 'Регион', latency: 'Задержка' },
         inactive: 'Неактивно',
         offline: 'Не в сети',
         online: 'В сети',

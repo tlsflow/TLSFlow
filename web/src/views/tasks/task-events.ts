@@ -4,6 +4,7 @@ import type { TaskRun } from '@/api/modules/tasks.api'
 export interface TaskRealtimeSnapshotMessage {
   readonly type: 'snapshot'
   readonly activeTasks: readonly TaskRun[]
+  readonly recentTasks?: readonly TaskRun[]
   readonly emittedAt: string
 }
 
@@ -17,6 +18,7 @@ export type TaskRealtimeMessage = TaskRealtimeSnapshotMessage | TaskRealtimeChan
 
 export interface TaskActivityState {
   readonly activeTasks: readonly TaskRun[]
+  readonly recentTasks: readonly TaskRun[]
   readonly activeCount: number
   readonly hasActive: boolean
   readonly connected: boolean
@@ -48,9 +50,13 @@ const EXECUTION_TASK_TYPES = new Set([
   'PLUGIN_REFERENCE_REFRESH',
   'DEPLOYMENT_PLAN_REFRESH',
 ])
+const VISIBLE_SYSTEM_TASK_TYPES = new Set([
+  'ACME_CERTIFICATE_RENEWAL',
+])
 const realtimeListeners = new Set<(message: TaskRealtimeMessage) => void>()
 const activityListeners = new Set<(state: TaskActivityState) => void>()
 const activeExecutionTasks = new Map<string, TaskRun>()
+const recentTasks = new Map<string, TaskRun>()
 
 let socket: WebSocket | undefined
 let reconnectTimer: number | undefined
@@ -82,11 +88,14 @@ export function isAutomationApprovalTask(task: TaskRun): boolean {
 }
 
 /**
- * 中文说明：快速区只展示会改变业务状态的执行任务和自动化运行任务，
- * 触发投递、监控采集、报表导出等后台任务留在完整任务列表中。
+ * 中文说明：快速区只展示需要用户关注的业务动作。ACME 续签虽然归类为系统任务，
+ * 但会改变证书状态，因此必须与执行任务一起展示；其余后台任务仍留在完整任务列表中。
  */
 export function isQuickTask(task: TaskRun): boolean {
-  return isExecutionTask(task) || isAutomationTask(task) || isPendingApprovalTask(task)
+  return isExecutionTask(task)
+    || isAutomationTask(task)
+    || isPendingApprovalTask(task)
+    || VISIBLE_SYSTEM_TASK_TYPES.has(task.taskType)
 }
 
 export function dispatchOpenDeploymentExecution(detail: DeploymentExecutionOpenDetail): void {
@@ -118,6 +127,7 @@ export function subscribeTaskRealtime(
   listener: (message: TaskRealtimeMessage) => void,
 ): () => void {
   realtimeListeners.add(listener)
+  listener(currentRealtimeSnapshot())
   ensureTaskRealtimeConnection()
   return () => {
     realtimeListeners.delete(listener)
@@ -133,6 +143,10 @@ export function subscribeTaskActivity(
   return () => {
     activityListeners.delete(listener)
   }
+}
+
+export function currentTaskActivity(): TaskActivityState {
+  return currentActivityState()
 }
 
 export function isTaskRealtimeConnected(): boolean {
@@ -205,7 +219,9 @@ function parseRealtimeMessage(raw: unknown): TaskRealtimeMessage | undefined {
   try {
     const payload = typeof raw === 'string' ? JSON.parse(raw) as TaskRealtimeMessage : undefined
     if (!payload || typeof payload !== 'object' || typeof payload.type !== 'string') return undefined
-    if (payload.type === 'snapshot' && Array.isArray(payload.activeTasks)) return payload
+    if (payload.type === 'snapshot' && Array.isArray(payload.activeTasks)) {
+      return { ...payload, recentTasks: Array.isArray(payload.recentTasks) ? payload.recentTasks : [] }
+    }
     if (payload.type === 'task.changed' && payload.task && typeof payload.task === 'object') return payload
     return undefined
   } catch {
@@ -219,10 +235,18 @@ function applyRealtimeMessage(message: TaskRealtimeMessage): void {
     message.activeTasks.forEach((task) => {
       if (isTrackedActiveTask(task)) activeExecutionTasks.set(task.id, task)
     })
+    recentTasks.clear()
+    message.recentTasks?.forEach((task) => {
+      if (isTrackedRecentTask(task)) recentTasks.set(task.id, task)
+    })
   } else if (isTrackedActiveTask(message.task)) {
     activeExecutionTasks.set(message.task.id, message.task)
+    recentTasks.delete(message.task.id)
   } else if (activeExecutionTasks.has(message.task.id)) {
     activeExecutionTasks.delete(message.task.id)
+    if (isTrackedRecentTask(message.task)) recentTasks.set(message.task.id, message.task)
+  } else if (isTrackedRecentTask(message.task)) {
+    recentTasks.set(message.task.id, message.task)
   }
   realtimeListeners.forEach((listener) => listener(message))
   emitActivity()
@@ -235,16 +259,32 @@ function emitActivity(): void {
 
 function currentActivityState(): TaskActivityState {
   const activeTasks = sortTasks([...activeExecutionTasks.values()])
+  const completedTasks = sortTasks([...recentTasks.values()]).slice(0, 5)
   return {
     activeTasks,
+    recentTasks: completedTasks,
     activeCount: activeTasks.length,
     hasActive: activeTasks.length > 0,
     connected: realtimeConnected,
   }
 }
 
+function currentRealtimeSnapshot(): TaskRealtimeSnapshotMessage {
+  const state = currentActivityState()
+  return {
+    type: 'snapshot',
+    activeTasks: state.activeTasks,
+    recentTasks: state.recentTasks,
+    emittedAt: new Date().toISOString(),
+  }
+}
+
 function isTrackedActiveTask(task: TaskRun): boolean {
   return ACTIVE_TASK_STATUSES.has(task.status) && isQuickTask(task)
+}
+
+function isTrackedRecentTask(task: TaskRun): boolean {
+  return !ACTIVE_TASK_STATUSES.has(task.status) && isQuickTask(task)
 }
 
 function sortTasks(tasks: readonly TaskRun[]): TaskRun[] {

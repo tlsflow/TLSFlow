@@ -447,11 +447,19 @@ export default {
       createdTo: 'Fim'
     },
     fields: { requestedBy: 'Usuário solicitante', triggerSource: 'Origem', createdAt: 'Criada em', startedAt: 'Iniciada em', finishedAt: 'Finalizada em', error: 'Último erro' },
-    sections: { timeline: 'Linha do tempo do status', attempts: 'Tentativas', logs: 'Logs', children: 'Subtarefas', errors: 'Erros', audit: 'Eventos de auditoria', monitoringProbes: 'Registros de sondagem' },
-    actions: { backToList: 'Voltar à lista', viewAll: 'Ver todas as tarefas', search: 'Pesquisar', reset: 'Redefinir', previousPage: 'Página anterior', nextPage: 'Próxima página' },
+    sections: { timeline: 'Linha do tempo do status', attempts: 'Tentativas', acmeHistory: 'Progresso da renovação', logs: 'Logs brutos', children: 'Subtarefas', errors: 'Erros', audit: 'Eventos de auditoria', monitoringProbes: 'Registros de sondagem' },
+    actions: { backToList: 'Voltar à lista', viewAll: 'Ver todas as tarefas', viewRawLogs: 'Ver logs brutos', search: 'Pesquisar', reset: 'Redefinir', previousPage: 'Página anterior', nextPage: 'Próxima página' },
     messages: { loadFailed: 'Falha ao carregar tarefas.', detailFailed: 'Falha ao carregar detalhes da tarefa.' },
     values: { system: 'Sistema', empty: 'Nenhum registro', none: 'Nenhum' },
-    relatedNames: { builtinCatalog: 'Catálogo interno de plugins', deploymentPlan: 'Plano de implantação' },
+    relatedNames: { builtinCatalog: 'Catálogo interno de plugins', deploymentPlan: 'Plano de implantação', acmeRenewal: 'Provedor ACME ({provider}) - renovação do certificado {certificate}' },
+    acmeHistory: {
+      queued: { title: 'Aguardando renovação', description: 'O sistema está aguardando para processar esta renovação de certificado.' },
+      running: { title: 'Renovando certificado', description: 'O sistema está solicitando a renovação à autoridade certificadora.' },
+      retryWaiting: { title: 'Aguardando nova tentativa automática', description: 'Esta emissão não foi concluída. O sistema tentará novamente mais tarde.' },
+      succeeded: { title: 'Renovação concluída', description: 'O novo certificado foi emitido e armazenado.' },
+      failed: { title: 'Falha na renovação', description: 'O sistema não conseguiu renovar o certificado. Consulte os logs brutos.' },
+      cancelled: { title: 'Renovação cancelada', description: 'Esta renovação de certificado foi cancelada.' }
+    },
     typeLabels: {
       CERTIFICATE_DRY_RUN: 'Dry-run do certificado',
       CERTIFICATE_DEPLOY: 'Implantação do certificado',
@@ -466,6 +474,7 @@ export default {
       MONITORING_BATCH: 'Lote de monitoramento',
       MONITORING_PROBE: 'Sonda de monitoramento',
       CA_NODE_TASK: 'Tarefa do nó CA',
+      ACME_CERTIFICATE_RENEWAL: 'ACME',
       CA_RECORD_SYNC: 'Sincronização de registros CA',
       CERTIFICATE_REVOCATION: 'Revogação do certificado',
       CRL_PUBLISH: 'Publicação de CRL',
@@ -1253,6 +1262,7 @@ export default {
     },
     // 兼容旧版本证书卡片的翻译 key，避免已缓存 bundle 在升级后产生缺失告警。
     statusBlock: {
+      tooltip: { name: 'Nome', issuer: 'Emissor', startTime: 'Início', endTime: 'Fim', daysRemaining: 'Dias restantes', connectionStatus: 'Status da conexão', version: 'Versão', managementAddress: 'Endereço de gerenciamento', lastCommunicationTime: 'Última comunicação', platform: 'Plataforma', protocolPort: 'Protocolo e porta', certificateDaysRemaining: 'Dias restantes do certificado', region: 'Região', latency: 'Latência' },
       detail: {
         certificateRemaining: '{name}, {days}'
       }
@@ -1636,6 +1646,7 @@ export default {
       }
     },
     statusBlock: {
+      tooltip: { name: 'Nome', issuer: 'Emissor', startTime: 'Início', endTime: 'Fim', daysRemaining: 'Dias restantes', connectionStatus: 'Status da conexão', version: 'Versão', managementAddress: 'Endereço de gerenciamento', lastCommunicationTime: 'Última comunicação', platform: 'Plataforma', protocolPort: 'Protocolo e porta', certificateDaysRemaining: 'Dias restantes do certificado', region: 'Região', latency: 'Latência' },
       detail: {
         certificateRemaining: '{name}, {days}'
       },
@@ -1646,7 +1657,6 @@ export default {
         disabled: 'Desativado',
         expired: 'Expirado',
         expiring: 'Expirando em breve',
-      tooltip: { name: 'Nome', issuer: 'Emissor', startTime: 'Início', endTime: 'Fim', daysRemaining: 'Dias restantes', connectionStatus: 'Status da conexão', version: 'Versão', managementAddress: 'Endereço de gerenciamento', lastCommunicationTime: 'Última comunicação', platform: 'Plataforma', protocolPort: 'Protocolo e porta', certificateDaysRemaining: 'Dias restantes do certificado', region: 'Região', latency: 'Latência' },
         inactive: 'Inativo',
         offline: 'Offline',
         online: 'Online',

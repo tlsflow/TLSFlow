@@ -447,11 +447,19 @@ export default {
       createdTo: '終了時刻'
     },
     fields: { requestedBy: '実行ユーザー', triggerSource: 'トリガー', createdAt: '作成日時', startedAt: '開始日時', finishedAt: '終了日時', error: '最後のエラー' },
-    sections: { timeline: '状態タイムライン', attempts: '試行履歴', logs: 'ログ', children: '子タスク', errors: 'エラー', audit: '監査イベント', monitoringProbes: 'プローブ記録' },
-    actions: { backToList: '一覧に戻る', viewAll: 'すべてのタスクを表示', search: '検索', reset: 'リセット', previousPage: '前のページ', nextPage: '次のページ' },
+    sections: { timeline: '状態タイムライン', attempts: '試行履歴', acmeHistory: '更新の進行状況', logs: '生ログ', children: '子タスク', errors: 'エラー', audit: '監査イベント', monitoringProbes: 'プローブ記録' },
+    actions: { backToList: '一覧に戻る', viewAll: 'すべてのタスクを表示', viewRawLogs: '生ログを表示', search: '検索', reset: 'リセット', previousPage: '前のページ', nextPage: '次のページ' },
     messages: { loadFailed: 'タスク一覧の読み込みに失敗しました。', detailFailed: 'タスク詳細の読み込みに失敗しました。' },
     values: { system: 'システム', empty: '記録なし', none: 'なし' },
-    relatedNames: { builtinCatalog: '組み込みプラグインカタログ', deploymentPlan: '配備計画' },
+    relatedNames: { builtinCatalog: '組み込みプラグインカタログ', deploymentPlan: '配備計画', acmeRenewal: 'ACME Provider（{provider}）- {certificate} 証明書更新' },
+    acmeHistory: {
+      queued: { title: '更新待ち', description: 'システムはこの証明書更新の処理を待機しています。' },
+      running: { title: '更新中', description: 'システムは認証局に更新を要求しています。' },
+      retryWaiting: { title: '自動再試行待ち', description: '今回の発行は完了していません。システムが後で再試行します。' },
+      succeeded: { title: '更新成功', description: '新しい証明書が発行され、保存されました。' },
+      failed: { title: '更新失敗', description: 'システムは証明書を更新できませんでした。詳細は生ログを確認してください。' },
+      cancelled: { title: '更新をキャンセル', description: 'この証明書更新はキャンセルされました。' }
+    },
     typeLabels: {
       CERTIFICATE_DRY_RUN: '証明書Dry-run',
       CERTIFICATE_DEPLOY: '証明書配備',
@@ -466,6 +474,7 @@ export default {
       MONITORING_BATCH: '監視バッチ',
       MONITORING_PROBE: '監視プローブ',
       CA_NODE_TASK: 'CAノードタスク',
+      ACME_CERTIFICATE_RENEWAL: 'ACME',
       CA_RECORD_SYNC: 'CA記録同期',
       CERTIFICATE_REVOCATION: '証明書失効',
       CRL_PUBLISH: 'CRL公開',
@@ -1279,6 +1288,7 @@ export default {
     },
     // 兼容旧版本证书卡片的翻译 key，避免已缓存 bundle 在升级后产生缺失告警。
     statusBlock: {
+      tooltip: { name: '名前', issuer: '発行者', startTime: '開始時間', endTime: '終了時間', daysRemaining: '残り日数', connectionStatus: '接続状態', version: 'バージョン', managementAddress: '管理アドレス', lastCommunicationTime: '最終通信', platform: 'アプリプラットフォーム', protocolPort: 'プロトコルとポート', certificateDaysRemaining: '証明書残り日数', region: 'リージョン', latency: '遅延' },
       detail: {
         certificateRemaining: '{name}、{days}'
       }
@@ -1662,6 +1672,7 @@ export default {
       }
     },
     statusBlock: {
+      tooltip: { name: '名前', issuer: '発行者', startTime: '開始時間', endTime: '終了時間', daysRemaining: '残り日数', connectionStatus: '接続状態', version: 'バージョン', managementAddress: '管理アドレス', lastCommunicationTime: '最終通信', platform: 'アプリプラットフォーム', protocolPort: 'プロトコルとポート', certificateDaysRemaining: '証明書残り日数', region: 'リージョン', latency: '遅延' },
       detail: {
         certificateRemaining: '{name}、{days}'
       },
@@ -1672,7 +1683,6 @@ export default {
         disabled: '無効化',
         expired: '期限切れ',
         expiring: '期限切れ間近',
-      tooltip: { name: '名前', issuer: '発行者', startTime: '開始時間', endTime: '終了時間', daysRemaining: '残り日数', connectionStatus: '接続状態', version: 'バージョン', managementAddress: '管理アドレス', lastCommunicationTime: '最終通信', platform: 'アプリプラットフォーム', protocolPort: 'プロトコルとポート', certificateDaysRemaining: '証明書残り日数', region: 'リージョン', latency: '遅延' },
         inactive: '不アクティブ',
         offline: 'オフライン',
         online: 'オンライン',

@@ -29,7 +29,12 @@ const primaryActionError = ref('')
 const primaryActionPending = ref(false)
 
 const tableColumns = computed<DataTableColumn<ViewRow>[]>(() =>
-  props.config.columns.map((column) => ({ key: column.key, title: column.title, width: column.width })),
+  props.config.columns.map((column) => ({
+    key: column.key,
+    title: column.title,
+    width: column.width,
+    truncate: column.truncate,
+  })),
 )
 const visibleActions = computed(() =>
   props.config.actions.filter((action) =>

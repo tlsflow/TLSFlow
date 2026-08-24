@@ -37,7 +37,11 @@ describe('任务快速区范围', () => {
     expect(isAutomationApprovalTask(approvalTask)).toBe(true)
   })
 
-  it('隐藏监控和后台任务，但不隐藏自动化触发投递任务', () => {
+  it('显示 ACME 续签并隐藏无关的监控和后台任务', () => {
+    expect(isQuickTask(task({
+      taskType: 'ACME_CERTIFICATE_RENEWAL',
+      category: 'SYSTEM',
+    }))).toBe(true)
     expect(isQuickTask(task({
       taskType: 'MONITORING_BATCH',
       category: 'MONITORING',
