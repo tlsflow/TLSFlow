@@ -1,235 +1,452 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
-import { GcCapabilityMatrix, GcConfirmAction, GcModal, GcPageHeader } from '@/design-system/components'
-import type { CapabilityMatrixItem } from '@/design-system/components/GcCapabilityMatrix.vue'
+import { computed, ref } from 'vue'
+import type { ApiRecord } from '@/api/modules/common'
+import {
+  createWorkflowTemplate,
+  createWorkflowTemplateVersion,
+  listWorkflowTemplateVersions,
+  listWorkflowTemplates,
+  publishWorkflowTemplateVersion,
+} from '@/api/modules/workflow-templates.api'
+import { GcModal, GcStatusTag } from '@/design-system/components'
+import { readString, type ViewRow } from '@/composables/useBusinessPage'
+import type { BusinessPageConfig } from '@/views/business-page.types'
+import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 
-interface TemplateDraft {
-  readonly name: string
-  readonly kind: 'CURL' | 'SSH'
-  readonly command: string
-  readonly variablesText: string
-  readonly requiredCapabilitiesText: string
-  readonly changeNote: string
+const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
+const detailModalOpen = ref(false)
+const detailRow = ref<ViewRow | null>(null)
+const versionItems = ref<ApiRecord[]>([])
+const versionLoading = ref(false)
+const versionError = ref('')
+const publishLoading = ref(false)
+const publishMessage = ref('')
+const activeTab = ref<'summary' | 'versions'>('summary')
+
+const config: BusinessPageConfig = {
+  title: '工作流模板',
+  description: '按模板清单管理 CURL/SSH 工作流版本、发布状态与变更记录。',
+  readPermission: 'workflow.template.read',
+  primaryPermission: 'workflow.template.write',
+  primaryActionLabel: '新建模板',
+  primaryAction: async () => {
+    await createWorkflowTemplate({
+      content: createDefaultTemplate(),
+      changeSummary: '前端快速创建模板草稿',
+    })
+    await pageRef.value?.reload()
+  },
+  moduleName: 'workflow-templates',
+  resourceName: '工作流模板',
+  defaultStatus: 'draft',
+  defaultRisk: 'MEDIUM',
+  showDetailPanel: false,
+  showActionPanel: false,
+  columns: [
+    { key: 'name', title: '模板名称', candidates: ['name'] },
+    { key: 'status', title: '状态', candidates: ['status'] },
+    { key: 'currentVersionId', title: '当前版本', candidates: ['currentVersionId'] },
+    { key: 'updatedAt', title: '更新时间', candidates: ['updatedAt', 'createdAt'], kind: 'date' },
+    { key: 'actions', title: '操作', candidates: [] },
+  ],
+  metrics: [
+    { title: '模板总数', description: '已登记的工作流模板。', status: 'READY', risk: 'MEDIUM' },
+    { title: '待发布草稿', description: '仍处于 draft 的模板。', status: 'PENDING_APPROVAL', risk: 'MEDIUM' },
+  ],
+  detailFields: [
+    { label: '模板 ID', candidates: ['id'] },
+    { label: '模板名称', candidates: ['name'] },
+    { label: '当前状态', candidates: ['status'] },
+    { label: '当前版本 ID', candidates: ['currentVersionId'] },
+    { label: '创建时间', candidates: ['createdAt'] },
+    { label: '更新时间', candidates: ['updatedAt'] },
+  ],
+  emptyTitle: '暂无工作流模板',
+  emptyDescription: '先创建模板草稿，再基于版本发布到正式链路。',
+  load: () => listWorkflowTemplates({ page: 1, pageSize: 50, sort: 'updatedAt:desc' }),
+  actions: [],
+  rowActions: [
+    {
+      label: '详情',
+      permission: 'workflow.template.read',
+      reloadAfterRun: false,
+      run: async (row) => {
+        await openDetail(row)
+      },
+    },
+    {
+      label: '新增版本',
+      permission: 'workflow.template.write',
+      reloadAfterRun: true,
+      run: async (row) => {
+        await createWorkflowTemplateVersion({
+          templateId: readString(row.raw, ['id']),
+          content: createDefaultTemplate(readString(row.raw, ['name'], 'workflow-template')),
+          changeSummary: '前端快速创建新版本草稿',
+        })
+      },
+    },
+  ],
 }
 
-interface TemplateValidation {
-  readonly ok: boolean
-  readonly errors: readonly string[]
-  readonly warnings: readonly string[]
-  readonly variables: readonly string[]
-  readonly capabilities: readonly string[]
-}
-
-interface DryRunPreview {
-  readonly generatedAt: string
-  readonly summary: string
-  readonly steps: readonly string[]
-}
-
-const draft = reactive<TemplateDraft>({
-  name: 'Linux NGINX 证书替换模板',
-  kind: 'SSH',
-  command: [
-    'backup ${certPath}',
-    'upload ${certificateSecretRef} ${certPath}',
-    'reload nginx',
-    'verify https://${domainName}'
-  ].join('\n'),
-  variablesText: 'certPath\ndomainName\ncertificateSecretRef',
-  requiredCapabilitiesText: 'ssh.connect\nfile.backup\nfile.write\nprocess.exec\ntls.remote_probe',
-  changeNote: ''
+const publishedVersionLabel = computed(() => {
+  const published = versionItems.value.find((item) => readString(item, ['status']) === 'published')
+  return published ? `v${readString(published, ['version'])}` : '—'
 })
 
-const dryRunPreview = ref<DryRunPreview | null>(null)
-const publishedVersion = ref('')
-const isTemplateModalOpen = ref(false)
-
-const validation = computed<TemplateValidation>(() => validateDraft(draft))
-const capabilityItems = computed<CapabilityMatrixItem[]>(() => validation.value.capabilities.map((capability) => ({
-  key: capability,
-  label: capability,
-  state: capability.startsWith('manual.') ? 'manualRisk' : 'unknown',
-  level: capability.startsWith('tls.') ? 'L3' : 'L2',
-  source: draft.kind,
-  detail: '模板只声明能力需求，实际 satisfied/missing/manualRisk 由后端 capability API 在部署目标上计算。'
-})))
-
-function validateDraft(input: TemplateDraft): TemplateValidation {
-  const errors: string[] = []
-  const warnings: string[] = []
-  const variables = normalizeLines(input.variablesText)
-  const capabilities = normalizeLines(input.requiredCapabilitiesText)
-
-  if (!input.name.trim()) errors.push('模板名称不能为空。')
-  if (!input.command.trim()) errors.push('执行命令不能为空。')
-  if (!input.changeNote.trim()) warnings.push('发布前建议填写变更说明，方便审计追踪。')
-  if (capabilities.length === 0) errors.push('至少声明一个 required capability。')
-
-  const secretLeak = /-----BEGIN [A-Z ]*PRIVATE KEY-----|password\s*=|token\s*=|sk-[A-Za-z0-9]{20,}/i
-  if (secretLeak.test(input.command) || secretLeak.test(input.variablesText)) {
-    errors.push('模板不能包含私钥、password、token 或 API Key 明文，只能引用 SecretRef。')
-  }
-
-  const missingVariables = extractVariables(input.command).filter((variable) => !variables.includes(variable))
-  if (missingVariables.length > 0) {
-    errors.push(`命令引用了未声明变量：${missingVariables.join(', ')}`)
-  }
-
-  if (!capabilities.some((capability) => ['ssh.connect', 'curl.request', 'workflow.manual_approval'].includes(capability))) {
-    warnings.push('模板没有声明连接类能力，ProviderPlanRunner 可能无法映射执行路径。')
-  }
-
-  return { ok: errors.length === 0, errors, warnings, variables, capabilities }
+async function openDetail(row: ViewRow) {
+  detailRow.value = row
+  detailModalOpen.value = true
+  activeTab.value = 'summary'
+  publishMessage.value = ''
+  await loadVersions(row)
 }
 
-function normalizeLines(value: string): string[] {
-  return value
-    .split(/\r?\n|,/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-}
-
-function extractVariables(command: string): string[] {
-  return [...command.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)}/g)].map((match) => match[1]!)
-}
-
-function runDryRun() {
-  const current = validation.value
-  if (!current.ok) return
-  dryRunPreview.value = {
-    generatedAt: new Date().toISOString(),
-    summary: `${draft.kind} 模板将生成 ${draft.command.split('\n').filter(Boolean).length} 个步骤，依赖 ${current.capabilities.length} 项能力。`,
-    steps: draft.command.split('\n').map((line, index) => `步骤 ${index + 1}: ${line}`)
+async function loadVersions(row: ViewRow) {
+  versionLoading.value = true
+  versionError.value = ''
+  try {
+    const result = await listWorkflowTemplateVersions(readString(row.raw, ['id']))
+    versionItems.value = [...(result.data?.items ?? [])]
+  } catch (cause) {
+    versionItems.value = []
+    versionError.value = cause instanceof Error ? cause.message : '加载模板版本失败'
+  } finally {
+    versionLoading.value = false
   }
 }
 
-function publishTemplate() {
-  const current = validation.value
-  if (!current.ok) return
-  publishedVersion.value = `v${new Date().toISOString()}`
-  isTemplateModalOpen.value = false
+async function publishVersion(versionId: string) {
+  publishLoading.value = true
+  publishMessage.value = ''
+  try {
+    await publishWorkflowTemplateVersion(versionId)
+    publishMessage.value = `版本 ${versionId} 已发布。`
+    if (detailRow.value) {
+      await loadVersions(detailRow.value)
+    }
+    await pageRef.value?.reload()
+  } catch (cause) {
+    publishMessage.value = cause instanceof Error ? cause.message : '发布模板版本失败'
+  } finally {
+    publishLoading.value = false
+  }
+}
+
+function createDefaultTemplate(name = 'workflow-template') {
+  return {
+    apiVersion: 'gcac.workflow/v1',
+    kind: 'CurlSshWorkflow',
+    metadata: {
+      name,
+      displayName: `${name} 模板`,
+      category: 'deployment',
+      tags: ['ssl', 'workflow'],
+    },
+    variables: {
+      domainName: { type: 'string', required: true, description: '目标域名' },
+      verifyUrl: { type: 'string', required: false, description: '验证 URL' },
+      certificateSecretRef: { type: 'secret', required: true, description: '证书 SecretRef' },
+    },
+    steps: [
+      {
+        name: 'verify_target',
+        type: 'http',
+        request: {
+          method: 'GET',
+          url: '{{verifyUrl}}',
+          timeoutSeconds: 30,
+        },
+        assert: [{ type: 'statusCode', equals: 200 }],
+      },
+    ],
+    rollback: [
+      {
+        name: 'manual_rollback',
+        type: 'manual',
+        instruction: '回滚到上一个稳定证书版本',
+      },
+    ],
+  }
 }
 </script>
 
 <template>
-  <section class="gc-page gc-workflow-template-page">
-    <GcPageHeader
-      title="工作流模板"
-      description="CURL/SSH 模板编辑、变量校验、SecretRef 安全检查、dry-run 预览和发布入口。后端模板 API 尚未稳定，当前页只输出清晰的本地草案契约，不自造动态路由。"
-    >
-      <template #actions>
-        <button class="gc-button" type="button" @click="isTemplateModalOpen = true">新建模板</button>
-      </template>
-    </GcPageHeader>
+  <section class="workflow-templates-page">
+    <BusinessResourcePage ref="pageRef" :config="config" />
 
     <GcModal
-      v-model:open="isTemplateModalOpen"
-      title="模板编辑器"
-      description="最小闭环是：编辑草案 -> 校验变量和敏感字段 -> dry-run 预览 -> 二次确认发布。"
+      v-model:open="detailModalOpen"
+      :title="detailRow ? `工作流模板 ${readString(detailRow.raw, ['name'], detailRow.id)}` : '工作流模板详情'"
+      description="模板详情与版本清单全部收口到模态框里，主页面只保留紧凑列表。"
       size="xl"
+      width="min(1100px, calc(100vw - 32px))"
     >
-      <section class="gc-template-editor" aria-label="模板编辑器">
-        <header>
-          <h2>模板编辑器</h2>
-          <span class="gc-template-editor__status" :class="{ 'is-ok': validation.ok }">{{ validation.ok ? '校验通过' : '校验失败' }}</span>
-        </header>
+      <section v-if="detailRow" class="workflow-template-detail">
+        <section class="workflow-template-detail__hero">
+          <div class="workflow-template-detail__hero-copy">
+            <p class="workflow-template-detail__eyebrow">Workflow Template</p>
+            <h2>{{ readString(detailRow.raw, ['name'], detailRow.id) }}</h2>
+            <span>当前发布版本 {{ publishedVersionLabel }}</span>
+          </div>
+          <div class="workflow-template-detail__hero-side">
+            <GcStatusTag :status="readString(detailRow.raw, ['status'])" />
+            <div class="workflow-template-detail__spotlight">
+              <small>当前版本 ID</small>
+              <strong>{{ readString(detailRow.raw, ['currentVersionId']) }}</strong>
+            </div>
+          </div>
+        </section>
 
-        <div class="gc-template-editor__grid">
-          <label class="gc-form-field">
-            <span>模板名称</span>
-            <input v-model="draft.name" />
-          </label>
-          <label class="gc-form-field">
-            <span>模板类型</span>
-            <select v-model="draft.kind">
-              <option value="SSH">SSH</option>
-              <option value="CURL">CURL</option>
-            </select>
-          </label>
+        <div class="workflow-template-detail__tabs">
+          <button class="workflow-template-detail__tab" type="button" :data-active="activeTab === 'summary'" @click="activeTab = 'summary'">概览</button>
+          <button class="workflow-template-detail__tab" type="button" :data-active="activeTab === 'versions'" @click="activeTab = 'versions'">版本</button>
         </div>
 
-        <label class="gc-form-field">
-          <span>执行草案</span>
-          <textarea v-model="draft.command" rows="7" spellcheck="false" />
-        </label>
+        <section v-if="activeTab === 'summary'" class="workflow-template-detail__section">
+          <dl class="workflow-template-detail__facts">
+            <div><dt>模板 ID</dt><dd>{{ readString(detailRow.raw, ['id']) }}</dd></div>
+            <div><dt>模板名称</dt><dd>{{ readString(detailRow.raw, ['name']) }}</dd></div>
+            <div><dt>当前状态</dt><dd>{{ readString(detailRow.raw, ['status']) }}</dd></div>
+            <div><dt>当前版本 ID</dt><dd>{{ readString(detailRow.raw, ['currentVersionId']) }}</dd></div>
+            <div><dt>创建时间</dt><dd>{{ readString(detailRow.raw, ['createdAt']) }}</dd></div>
+            <div><dt>更新时间</dt><dd>{{ readString(detailRow.raw, ['updatedAt']) }}</dd></div>
+          </dl>
+        </section>
 
-        <div class="gc-template-editor__grid">
-          <label class="gc-form-field">
-            <span>变量白名单</span>
-            <textarea v-model="draft.variablesText" rows="5" spellcheck="false" />
-          </label>
-          <label class="gc-form-field">
-            <span>Required capabilities</span>
-            <textarea v-model="draft.requiredCapabilitiesText" rows="5" spellcheck="false" />
-          </label>
-        </div>
-
-        <label class="gc-form-field">
-          <span>变更说明</span>
-          <input v-model="draft.changeNote" placeholder="例如：新增 NGINX reload 前的备份步骤" />
-        </label>
-
-        <section class="gc-template-editor__messages" aria-label="模板校验结果">
-          <p v-if="validation.errors.length === 0" class="gc-template-editor__ok">没有阻断错误。</p>
-          <p v-for="error in validation.errors" :key="error" class="gc-template-editor__error">{{ error }}</p>
-          <p v-for="warning in validation.warnings" :key="warning" class="gc-template-editor__warning">{{ warning }}</p>
+        <section v-else class="workflow-template-detail__section">
+          <p v-if="publishMessage" class="workflow-template-detail__message">{{ publishMessage }}</p>
+          <p v-if="versionLoading" class="workflow-template-detail__loading">正在加载版本...</p>
+          <p v-else-if="versionError" class="workflow-template-detail__error">{{ versionError }}</p>
+          <ul v-else-if="versionItems.length" class="workflow-template-detail__list">
+            <li v-for="item in versionItems" :key="readString(item, ['id'])" class="workflow-template-detail__list-item">
+              <div class="workflow-template-detail__list-head">
+                <strong>v{{ readString(item, ['version']) }}</strong>
+                <GcStatusTag :status="readString(item, ['status'])" />
+              </div>
+              <p>{{ readString(item, ['changeSummary'], '没有变更说明。') }}</p>
+              <small>{{ readString(item, ['createdAt']) }}</small>
+              <button
+                v-if="readString(item, ['status']) !== 'published'"
+                class="gc-button"
+                type="button"
+                :disabled="publishLoading"
+                @click="publishVersion(readString(item, ['id']))"
+              >
+                {{ publishLoading ? '发布中...' : '发布版本' }}
+              </button>
+            </li>
+          </ul>
+          <p v-else class="workflow-template-detail__loading">暂无版本。</p>
         </section>
       </section>
 
       <template #actions>
-        <button class="gc-button" type="button" :disabled="!validation.ok" @click="runDryRun">Dry-run 预览</button>
-        <GcConfirmAction
-          action-name="发布模板"
-          confirm-text="PUBLISH"
-          risk-text="发布模板会进入后续部署计划映射链路，必须确认变量、SecretRef 和能力声明都正确。"
-          :impact-count="validation.capabilities.length"
-          @confirm="publishTemplate"
-        />
+        <button class="gc-button" type="button" @click="detailModalOpen = false">关闭</button>
       </template>
     </GcModal>
-
-    <GcCapabilityMatrix
-      :items="capabilityItems"
-      title="Capability 需求声明"
-      description="这里展示模板声明的能力需求；目标侧 satisfied/missing/unknown/manualRisk 与 L1-L5 由 capability API 计算。"
-    />
-
-    <section class="gc-card gc-template-preview" aria-label="dry-run 预览">
-      <strong>Dry-run 结果</strong>
-      <p v-if="!dryRunPreview">还没有执行 dry-run。不会提交任何部署任务。</p>
-      <template v-else>
-        <p>{{ dryRunPreview.summary }}</p>
-        <ol>
-          <li v-for="step in dryRunPreview.steps" :key="step">{{ step }}</li>
-        </ol>
-      </template>
-      <p v-if="publishedVersion">已发布草案版本：{{ publishedVersion }}</p>
-    </section>
   </section>
 </template>
 
 <style scoped>
-.gc-workflow-template-page { display: grid; gap: var(--gc-space-5); }
-.gc-template-editor { display: grid; gap: var(--gc-space-5); }
-.gc-template-editor header { display: flex; justify-content: flex-end; gap: var(--gc-space-3); align-items: center; flex-wrap: wrap; }
-.gc-template-editor h2 { margin: 0; font-size: 22px; letter-spacing: -0.04em; }
-.gc-template-editor__grid { display: grid; gap: var(--gc-space-4); grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
-.gc-template-editor__status { border-radius: 999px; padding: 5px 12px; background: var(--gc-color-danger-bg); color: var(--gc-color-danger); font-size: var(--gc-font-size-sm); font-weight: 900; }
-.gc-template-editor__status.is-ok { background: var(--gc-color-success-bg); color: var(--gc-color-success); }
-.gc-template-editor textarea,
-.gc-template-editor input,
-.gc-template-editor select {
-  border: 1px solid var(--gc-color-border);
-  border-radius: var(--gc-radius-sm);
-  background: #fff;
-  padding: 10px 12px;
-  font: inherit;
-  box-shadow: inset 0 1px 1px rgb(15 23 42 / 4%);
+.workflow-templates-page {
+  display: grid;
+  gap: var(--gc-space-4);
 }
-.gc-template-editor textarea { min-height: 132px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
-.gc-template-editor__messages { border: 1px solid var(--gc-color-border); border-radius: var(--gc-radius-md); padding: var(--gc-space-4); background: #fbfdff; }
-.gc-template-editor__ok { color: var(--gc-color-success); }
-.gc-template-editor__error { color: var(--gc-color-danger); }
-.gc-template-editor__warning { color: var(--gc-color-warning); }
-.gc-template-preview { display: grid; gap: var(--gc-space-2); }
+
+.workflow-templates-page :deep(.business-page__row-actions) {
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.workflow-template-detail {
+  display: grid;
+  gap: 12px;
+}
+
+.workflow-template-detail__hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  gap: 14px;
+  padding: 16px 18px;
+  border: 1px solid #d9e5f7;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top right, rgb(59 130 246 / 12%), transparent 26%),
+    linear-gradient(140deg, #f7fbff 0%, #ffffff 54%, #f3f7fc 100%);
+}
+
+.workflow-template-detail__hero-copy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.workflow-template-detail__eyebrow {
+  margin: 0;
+  color: #5b6f88;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.workflow-template-detail__hero-copy h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 24px;
+  line-height: 1.06;
+  overflow-wrap: anywhere;
+}
+
+.workflow-template-detail__hero-copy span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.workflow-template-detail__hero-side {
+  display: grid;
+  align-content: space-between;
+  justify-items: end;
+  gap: 8px;
+  min-width: 150px;
+}
+
+.workflow-template-detail__spotlight {
+  display: grid;
+  gap: 4px;
+  min-width: 150px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #0f172a;
+  color: #fff;
+}
+
+.workflow-template-detail__spotlight small {
+  color: rgb(255 255 255 / 68%);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.workflow-template-detail__spotlight strong {
+  font-size: 16px;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.workflow-template-detail__tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 4px;
+  border: 1px solid #dbe6f4;
+  border-radius: 999px;
+  background: #f8fbff;
+}
+
+.workflow-template-detail__tab {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #5b6f88;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.workflow-template-detail__tab[data-active='true'] {
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 4px 14px rgb(15 23 42 / 10%);
+}
+
+.workflow-template-detail__section {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid #e3ebf5;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff, #fbfdff);
+}
+
+.workflow-template-detail__facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.workflow-template-detail__facts div,
+.workflow-template-detail__list-item {
+  display: grid;
+  gap: 5px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f8fbff;
+  border: 1px solid #e4edf8;
+}
+
+.workflow-template-detail__facts dt {
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.workflow-template-detail__facts dd {
+  margin: 0;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.workflow-template-detail__list {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.workflow-template-detail__list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.workflow-template-detail__list-item p,
+.workflow-template-detail__list-item small,
+.workflow-template-detail__loading,
+.workflow-template-detail__message,
+.workflow-template-detail__error {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.workflow-template-detail__error {
+  color: var(--gc-color-danger);
+}
+
+@media (max-width: 900px) {
+  .workflow-template-detail__hero {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-template-detail__facts {
+    grid-template-columns: 1fr;
+  }
+}
 </style>
