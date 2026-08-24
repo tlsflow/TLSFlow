@@ -191,6 +191,7 @@ export default {
       feed: {
         completed: '実行完了',
         failed: '実行失敗',
+        failedFriendly: 'この手順を完了できませんでした。詳細を開いて原因を確認してください。',
         warning: '警告付きで完了'
       },
       loading: {
@@ -212,7 +213,16 @@ export default {
         warning: '警告'
       },
       process: {
+        dryRun: '更新チェック',
         execution: '実行'
+      },
+      operation: {
+        prepare: '証明書ファイルと対象の状態を確認し、更新の準備をします。',
+        backup: '必要な場合に復元できるよう、現在の状態を保存します。',
+        update: '新しい証明書を対象サービスに安全に適用します。',
+        reload: '新しい証明書を読み込み、サービスが安定するまで待ちます。',
+        verify: 'サービスが新しい証明書を正しく使用しているか確認します。',
+        rollback: '更新前の証明書とサービス状態を復元します。'
       },
       progress: {
         completed: 'すべて完了',
@@ -239,8 +249,11 @@ export default {
       step: {
         backup: '事前バックアップ',
         discover: '環境識別',
+        prepare: '証明書の準備',
         installDryRun: 'マテリアル準備',
         installExecution: '証明書インストール',
+        updateDryRun: '更新チェック',
+        updateExecution: '証明書の更新',
         reload: 'サービス更新',
         verify: '結果検証'
       },

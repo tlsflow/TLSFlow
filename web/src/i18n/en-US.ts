@@ -190,6 +190,7 @@ export default {
       feed: {
         completed: 'Execution completed',
         failed: 'Execution failed',
+        failedFriendly: 'This step could not be completed. Open the details to see why.',
         warning: 'Completed with warnings'
       },
       loading: {
@@ -211,7 +212,16 @@ export default {
         warning: 'Warnings'
       },
       process: {
+        dryRun: 'Update check',
         execution: 'Execution'
+      },
+      operation: {
+        prepare: 'Check the certificate files and target status before the update.',
+        backup: 'Save the current state so it can be restored if needed.',
+        update: 'Apply the new certificate to the target service.',
+        reload: 'Load the new certificate and wait for the service to stabilize.',
+        verify: 'Confirm that the service is using the new certificate correctly.',
+        rollback: 'Restore the certificate and service state from before the update.'
       },
       progress: {
         completed: 'All complete',
@@ -238,8 +248,11 @@ export default {
       step: {
         backup: 'Pre-backup',
         discover: 'Environment discovery',
+        prepare: 'Certificate preparation',
         installDryRun: 'Material loading',
         installExecution: 'Certificate installation',
+        updateDryRun: 'Update check',
+        updateExecution: 'Certificate update',
         reload: 'Service reload',
         verify: 'Result verification'
       },

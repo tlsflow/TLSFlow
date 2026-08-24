@@ -34,7 +34,6 @@ interface VisibleTask {
   subtitle: string
   status: TaskStatus
   timeLabel: string
-  rawStatus: string
 }
 
 interface ExecutionFeedItem {
@@ -83,7 +82,9 @@ const counts = computed(() => {
 const allTasksRevealed = computed(() => true)
 
 const isDryRunMode = computed(() => props.mode === 'dry-run')
-const processLabel = computed(() => isDryRunMode.value ? 'Dry-run' : t('designSystem.executionProgress.process.execution'))
+const processLabel = computed(() => isDryRunMode.value
+  ? t('designSystem.executionProgress.process.dryRun')
+  : t('designSystem.executionProgress.process.execution'))
 
 const heroState = computed<SummaryState>(() => {
   if (props.error) return 'failed'
@@ -158,12 +159,10 @@ const visibleTasks = computed(() => rawTasks.value)
 const executionFeed = computed<ExecutionFeedItem[]>(() => visibleTasks.value
   .filter((task) => ['running', 'passed', 'warning', 'failed'].includes(task.status))
   .map((task) => {
-    const checks = taskChecksByStep.value.get(taskTitleKey(task)) ?? []
-    const latestCheck = checks[checks.length - 1]
     return {
       id: task.id,
       title: task.title,
-      detail: latestCheck?.detail || latestCheck?.label || task.subtitle,
+      detail: task.subtitle,
       status: task.status,
       timeLabel: task.timeLabel,
     }
@@ -227,13 +226,13 @@ function buildVisibleTasksFromChecks(
     const rawStatus = String(step.status ?? '').toUpperCase()
     const status = normalizeTaskStatus(rawStatus)
     const checks = lineGroups.get(step.name) ?? []
+    const stepType = step.stepType || step.name
     return {
       id: step.id,
-      title: humanizeStepTitle(step.name, props.mode),
-      subtitle: buildTaskSubtitle(status, checks, step.detail),
+      title: humanizeStepTitle(stepType, props.mode),
+      subtitle: buildTaskSubtitle(status, stepType, checks, step.detail),
       status,
       timeLabel: formatTimeLabel(step.startedAt, step.finishedAt),
-      rawStatus,
     }
   })
 }
@@ -304,13 +303,13 @@ function inferStateFromTasks(tasks: readonly VisibleTask[]): SummaryState {
 
 function humanizeStepTitle(name: string, mode: 'dry-run' | 'execution'): string {
   const upper = name.toUpperCase()
-  if (upper.startsWith('DISCOVER')) return t('designSystem.executionProgress.step.discover')
+  if (upper.startsWith('DISCOVER') || upper.startsWith('PREPARE')) return t('designSystem.executionProgress.step.prepare')
   if (upper.startsWith('VERIFY')) return t('designSystem.executionProgress.step.verify')
   if (upper.startsWith('BACKUP')) return t('designSystem.executionProgress.step.backup')
-  if (upper.startsWith('INSTALL')) {
+  if (upper.startsWith('INSTALL') || upper.startsWith('UPDATE') || upper.startsWith('CUSTOM')) {
     return mode === 'execution'
-      ? t('designSystem.executionProgress.step.installExecution')
-      : t('designSystem.executionProgress.step.installDryRun')
+      ? t('designSystem.executionProgress.step.updateExecution')
+      : t('designSystem.executionProgress.step.updateDryRun')
   }
   if (upper.startsWith('RELOAD')) return t('designSystem.executionProgress.step.reload')
   return name
@@ -325,40 +324,31 @@ function defaultSubtitle(status: TaskStatus): string {
 
 function buildTaskSubtitle(
   status: TaskStatus,
+  stepType: string,
   checks: Array<{ id: string; label: string; detail: string; status: CheckStatus }>,
   detail?: string,
 ): string {
-  if (checks.length > 0) {
-    const summary = countCheckStatuses(checks)
-    const total = summary.passed + summary.warning + summary.failed + summary.unknown
-    if (summary.failed > 0) return t('designSystem.executionProgress.subtitle.failedChecks', { total, failed: summary.failed })
-    if (summary.warning > 0) return t('designSystem.executionProgress.subtitle.warningChecks', { total, warning: summary.warning })
-    if (status === 'running') return t('designSystem.executionProgress.subtitle.runningChecks', { total })
-    return t('designSystem.executionProgress.subtitle.passedChecks', { total })
-  }
+  if (status === 'failed') return t('designSystem.executionProgress.subtitle.failedFriendly')
+  const operation = lifecycleOperationDescription(stepType)
+  if (operation) return operation
+  if (checks.length > 0) return defaultSubtitle(status)
   return detail?.trim() || defaultSubtitle(status)
 }
 
-function countCheckStatuses(checks: Array<{ status: CheckStatus }>): Record<CheckStatus, number> {
-  return checks.reduce<Record<CheckStatus, number>>((summary, check) => {
-    summary[check.status] += 1
-    return summary
-  }, {
-    passed: 0,
-    warning: 0,
-    failed: 0,
-    unknown: 0,
-  })
+function lifecycleOperationDescription(stepType: string): string {
+  const upper = stepType.toUpperCase()
+  if (upper.startsWith('DISCOVER') || upper.startsWith('PREPARE')) return t('designSystem.executionProgress.operation.prepare')
+  if (upper.startsWith('BACKUP')) return t('designSystem.executionProgress.operation.backup')
+  if (upper.startsWith('INSTALL') || upper.startsWith('UPDATE') || upper.startsWith('CUSTOM')) return t('designSystem.executionProgress.operation.update')
+  if (upper.startsWith('RELOAD')) return t('designSystem.executionProgress.operation.reload')
+  if (upper.startsWith('VERIFY')) return t('designSystem.executionProgress.operation.verify')
+  if (upper.startsWith('ROLLBACK')) return t('designSystem.executionProgress.operation.rollback')
+  return ''
 }
 
 function formatTimeLabel(startedAt?: string, finishedAt?: string): string {
   if (startedAt && finishedAt) return `${startedAt} -> ${finishedAt}`
   return startedAt || finishedAt || t('designSystem.executionProgress.time.waitingStart')
-}
-
-function taskTitleKey(task: VisibleTask): string {
-  const step = (props.steps ?? []).find((item) => item.id === task.id)
-  return step?.name ?? task.title
 }
 
 function statusBadgeText(status: TaskStatus): string {
@@ -452,7 +442,6 @@ function feedStatusText(status: TaskStatus): string {
 
               <div class="gc-dry-run-modern__task-meta">
                 <span>{{ task.timeLabel }}</span>
-                <span>{{ task.rawStatus }}</span>
               </div>
             </article>
           </li>
@@ -766,6 +755,55 @@ function feedStatusText(status: TaskStatus): string {
   border: 1px solid var(--gc-color-border);
   border-radius: 8px;
   background: var(--gc-color-surface-solid);
+  box-shadow: var(--gc-shadow-sm);
+  transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.gc-dry-run-modern__task[data-active='true'] .gc-dry-run-modern__task-card {
+  border-color: var(--gc-color-primary-border-strong);
+  background: var(--gc-color-primary-soft);
+  box-shadow: var(--gc-shadow-hover);
+  transform: translateY(calc(var(--gc-space-hairline) * -1));
+}
+
+.gc-dry-run-modern__task[data-status='passed'] .gc-dry-run-modern__task-dot {
+  color: var(--gc-color-surface-solid);
+  background: var(--gc-color-success);
+}
+
+.gc-dry-run-modern__task[data-status='running'] .gc-dry-run-modern__task-dot {
+  color: var(--gc-color-surface-solid);
+  background: var(--gc-color-info);
+  box-shadow: var(--gc-shadow-focus);
+}
+
+.gc-dry-run-modern__task[data-status='warning'] .gc-dry-run-modern__task-dot {
+  color: var(--gc-color-surface-solid);
+  background: var(--gc-color-warning);
+}
+
+.gc-dry-run-modern__task[data-status='failed'] .gc-dry-run-modern__task-dot {
+  color: var(--gc-color-surface-solid);
+  background: var(--gc-color-danger);
+}
+
+.gc-dry-run-modern__task[data-status='passed'] .gc-dry-run-modern__task-line {
+  background: var(--gc-color-success-border);
+}
+
+.gc-dry-run-modern__task[data-status='running'] .gc-dry-run-modern__task-badge {
+  color: var(--gc-color-info);
+  background: var(--gc-color-info-soft);
+}
+
+.gc-dry-run-modern__task[data-status='passed'] .gc-dry-run-modern__task-badge {
+  color: var(--gc-color-success);
+  background: var(--gc-color-success-soft);
+}
+
+.gc-dry-run-modern__task[data-status='failed'] .gc-dry-run-modern__task-badge {
+  color: var(--gc-color-danger);
+  background: var(--gc-color-danger-soft);
 }
 
 .gc-dry-run-modern__task-head {

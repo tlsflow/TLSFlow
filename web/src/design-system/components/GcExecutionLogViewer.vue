@@ -14,6 +14,7 @@ export interface ExecutionLogLine {
 export interface ExecutionStepLine {
   readonly id: string
   readonly name: string
+  readonly stepType?: string
   readonly status: string
   readonly detail?: string
   readonly startedAt?: string

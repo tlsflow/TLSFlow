@@ -59,15 +59,15 @@ describe('GcDryRunResultModal', () => {
     const bodyText = () => document.body.textContent ?? ''
 
     expect(bodyText()).toContain('任务进度')
-    expect(bodyText()).toContain('环境识别')
-    expect(bodyText()).toContain('结果校验')
+    expect(bodyText()).toContain('证书准备')
+    expect(bodyText()).toContain('验证')
     expect(bodyText()).toContain('检查结论')
-    expect(bodyText()).toContain('执行日志')
+    expect(bodyText()).toContain('执行动态')
     expect(bodyText()).toContain('已命中 IIS 站点 TEST')
-    expect(bodyText()).toContain('Certificate domains match the expected target domains')
+    expect(bodyText()).not.toContain('Certificate domains match the expected target domains')
     expect(bodyText()).toContain('50%')
     expect(bodyText()).toContain('1/2')
-    expect(bodyText()).toContain('查看完整日志')
+    expect(bodyText()).toContain('查看详细记录')
 
     wrapper.unmount()
   })
@@ -107,11 +107,11 @@ describe('GcDryRunResultModal', () => {
 
     const bodyText = () => document.body.textContent ?? ''
 
-    expect(bodyText()).toContain('执行日志')
+    expect(bodyText()).toContain('执行动态')
     expect(bodyText()).not.toContain('检查结论')
     expect(bodyText()).not.toContain('最新事件')
-    expect(bodyText()).toContain('已完成当前证书绑定备份')
-    expect(bodyText()).toContain('已完成 IIS 绑定刷新')
+    expect(bodyText()).toContain('保存当前状态，确保需要时可以安全恢复')
+    expect(bodyText()).toContain('让服务加载新证书，并等待运行状态稳定')
     expect(bodyText()).toContain('100%')
     expect(bodyText()).toContain('2/2')
 
@@ -171,7 +171,7 @@ describe('GcDryRunResultModal', () => {
     })
     await nextTick()
     expect(feedElement.scrollTop).toBe(600)
-    expect(document.body.textContent).toContain('正在验证证书。')
+    expect(document.body.textContent).toContain('检查服务是否已正确使用新证书。')
 
     feedElement.scrollTop = 100
     feedElement.dispatchEvent(new Event('scroll'))

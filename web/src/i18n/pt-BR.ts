@@ -191,6 +191,7 @@ export default {
       feed: {
         completed: 'Execução concluída',
         failed: 'Execução com falha',
+        failedFriendly: 'Não foi possível concluir esta etapa. Abra os detalhes para ver o motivo.',
         warning: 'Concluída com avisos'
       },
       loading: {
@@ -212,7 +213,16 @@ export default {
         warning: 'Avisos'
       },
       process: {
+        dryRun: 'Verificação da atualização',
         execution: 'Execução'
+      },
+      operation: {
+        prepare: 'Verificar o certificado e o estado do destino antes da atualização.',
+        backup: 'Salvar o estado atual para permitir uma restauração segura.',
+        update: 'Aplicar o novo certificado ao serviço de destino.',
+        reload: 'Carregar o novo certificado e aguardar a estabilização do serviço.',
+        verify: 'Confirmar que o serviço está usando o novo certificado corretamente.',
+        rollback: 'Restaurar o certificado e o estado do serviço anteriores.'
       },
       progress: {
         completed: 'Tudo concluído',
@@ -239,8 +249,11 @@ export default {
       step: {
         backup: 'Backup prévio',
         discover: 'Identificação do ambiente',
+        prepare: 'Preparação do certificado',
         installDryRun: 'Preparação dos materiais',
         installExecution: 'Instalação do certificado',
+        updateDryRun: 'Verificação da atualização',
+        updateExecution: 'Atualização do certificado',
         reload: 'Atualização do serviço',
         verify: 'Validação do resultado'
       },

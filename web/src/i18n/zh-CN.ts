@@ -161,7 +161,7 @@ export default {
         progressOverview: '执行进度总览',
         taskList: '任务列表',
         latestEvents: '最新事件',
-        executionLog: '执行日志'
+        executionLog: '详细记录'
       },
       checklist: {
         title: '检查结论'
@@ -176,7 +176,7 @@ export default {
         waitingSteps: '等待执行步骤…'
       },
       empty: {
-        activity: '执行日志将在任务完成后逐步显示。',
+        activity: '执行动态将在步骤开始后显示。',
         events: '暂无事件记录。',
         tasks: '任务尚未创建，等待执行步骤…'
       },
@@ -198,7 +198,7 @@ export default {
       },
       log: {
         collapse: '收起完整日志',
-        expand: '查看完整日志'
+        expand: '查看详细记录'
       },
       metrics: {
         completed: '已完成',
@@ -211,7 +211,16 @@ export default {
         warning: '警告'
       },
       process: {
+        dryRun: '更新检查',
         execution: '执行'
+      },
+      operation: {
+        prepare: '检查证书材料和目标状态，为更新做好准备。',
+        backup: '保存当前状态，确保需要时可以安全恢复。',
+        update: '将新证书安全应用到目标服务。',
+        reload: '让服务加载新证书，并等待运行状态稳定。',
+        verify: '检查服务是否已正确使用新证书。',
+        rollback: '恢复更新前的证书和服务状态。'
       },
       progress: {
         completed: '全部完成',
@@ -224,7 +233,7 @@ export default {
       },
       section: {
         completedCount: '{completed}/{total} 已完成',
-        executionLog: '执行日志',
+        executionLog: '执行动态',
         latestEvents: '最新事件',
         taskProgress: '任务进度'
       },
@@ -236,16 +245,20 @@ export default {
         warning: '有警告'
       },
       step: {
-        backup: '前置备份',
-        discover: '环境识别',
-        installDryRun: '材料准备',
-        installExecution: '证书安装',
-        reload: '服务刷新',
-        verify: '结果校验'
+        backup: '备份',
+        discover: '证书准备',
+        prepare: '证书准备',
+        installDryRun: '更新',
+        installExecution: '更新',
+        updateDryRun: '更新',
+        updateExecution: '更新',
+        reload: '重载',
+        verify: '验证'
       },
       subtitle: {
         completed: '任务已完成。',
         failed: '任务已结束，但返回了失败结果。',
+        failedFriendly: '此步骤未能完成，请展开详细记录查看原因。',
         failedChecks: '{total} 项检查，{failed} 项失败',
         passedChecks: '{total} 项检查通过',
         queued: '任务已创建，等待执行。',

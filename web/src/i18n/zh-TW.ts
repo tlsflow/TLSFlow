@@ -190,6 +190,7 @@ export default {
       feed: {
         completed: "執行完成",
         failed: "執行失敗",
+        failedFriendly: "此步驟未能完成，請展開詳細記錄查看原因。",
         warning: "完成，帶警告"
       },
       loading: {
@@ -211,7 +212,16 @@ export default {
         warning: "警告"
       },
       process: {
+        dryRun: "更新檢查",
         execution: "執行"
+      },
+      operation: {
+        prepare: "檢查憑證材料與目標狀態，為更新做好準備。",
+        backup: "保存目前狀態，確保需要時可以安全還原。",
+        update: "將新憑證安全套用到目標服務。",
+        reload: "讓服務載入新憑證，並等待運行狀態穩定。",
+        verify: "檢查服務是否已正確使用新憑證。",
+        rollback: "還原更新前的憑證與服務狀態。"
       },
       progress: {
         completed: "全部完成",
@@ -238,8 +248,11 @@ export default {
       step: {
         backup: "前置備份",
         discover: "環境識別",
+        prepare: "憑證準備",
         installDryRun: "材料準備",
         installExecution: "憑證安裝",
+        updateDryRun: "更新檢查",
+        updateExecution: "憑證更新",
         reload: "服務重新整理",
         verify: "結果驗證"
       },

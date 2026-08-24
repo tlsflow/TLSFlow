@@ -150,17 +150,19 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
   }
 
   function recomputeView() {
-    const items = expandWorkflowStepRecords(stepRecords.value)
-    steps.value = items.map((record, index) => ({
+    const displayItems = stepRecords.value
+    const logItems = expandWorkflowStepRecords(stepRecords.value)
+    steps.value = displayItems.map((record, index) => ({
       id: readString(record, ['id', 'stepId'], `${runId.value}-step-${index + 1}`),
       name: readString(record, ['name', 'stepName'], text('executionDetail.step.nameFallback', { index: index + 1 })),
+      stepType: readString(record, ['stepType', 'type'], ''),
       status: readString(record, ['status', 'state', 'result'], 'UNKNOWN'),
       detail: buildStepDetail(record, index, text),
       startedAt: formatStepRange(record, 'start'),
       finishedAt: formatStepRange(record, 'end'),
       requestId: readString(record, ['requestId'], ''),
     }))
-    lines.value = items.flatMap((record, index) => buildLogLines(record, index, agentLogsByTaskId.value.get(readDispatchTaskId(record)) ?? [], text))
+    lines.value = logItems.flatMap((record, index) => buildLogLines(record, index, agentLogsByTaskId.value.get(readDispatchTaskId(record)) ?? [], text))
     dryRunSummary.value = summarizeDryRun(stepRecords.value, text)
     dryRunChecks.value = collectDryRunChecks(stepRecords.value)
   }

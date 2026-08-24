@@ -191,6 +191,7 @@ export default {
       feed: {
         completed: '실행 완료',
         failed: '실행 실패',
+        failedFriendly: '이 단계를 완료하지 못했습니다. 자세한 기록에서 원인을 확인하세요.',
         warning: '완료, 경고와 함께'
       },
       loading: {
@@ -212,7 +213,16 @@ export default {
         warning: '경고'
       },
       process: {
+        dryRun: '업데이트 확인',
         execution: '실행'
+      },
+      operation: {
+        prepare: '업데이트 전에 인증서 자료와 대상 상태를 확인합니다.',
+        backup: '필요할 때 안전하게 복원할 수 있도록 현재 상태를 저장합니다.',
+        update: '새 인증서를 대상 서비스에 안전하게 적용합니다.',
+        reload: '새 인증서를 불러오고 서비스가 안정될 때까지 기다립니다.',
+        verify: '서비스가 새 인증서를 올바르게 사용하는지 확인합니다.',
+        rollback: '업데이트 전 인증서와 서비스 상태를 복원합니다.'
       },
       progress: {
         completed: '전부 완성하다',
@@ -239,8 +249,11 @@ export default {
       step: {
         backup: '미리 백업',
         discover: '환경 식별',
+        prepare: '인증서 준비',
         installDryRun: '재료 준비',
         installExecution: '인증서 설치',
+        updateDryRun: '업데이트 확인',
+        updateExecution: '인증서 업데이트',
         reload: '서비스 새로 고침',
         verify: '결과 검사'
       },
