@@ -40,28 +40,24 @@ export const mainMenuItems: MenuItem[] = [
     titleKey: 'nav.deployments',
     path: '/deployment-plans',
     module: 'certificate-deployment',
-    permissions: ['deployment.plan.read', 'execution.read'],
-    activePaths: ['/deployment-plans', '/executions'],
+    permissions: ['deployment.plan.read', 'workflow.template.read', 'automation.read', 'execution.read'],
+    activePaths: ['/deployment-plans', '/workflows', '/workflow-templates', '/automations', '/automation-runs', '/executions'],
     icon: 'bolt',
     descriptionKey: 'nav.deploymentsDesc',
     children: [
       { titleKey: 'nav.deploymentPlans', path: '/deployment-plans', module: 'deployment', permission: 'deployment.plan.read', descriptionKey: 'nav.deploymentPlansDesc' },
+      { titleKey: 'nav.workflowTemplates', path: '/workflows', module: 'workflow-template', permission: 'workflow.template.read', descriptionKey: 'nav.workflowTemplatesDesc' },
+      { titleKey: 'nav.automations', path: '/automations', module: 'automation', permission: 'automation.read', descriptionKey: 'nav.automationsDesc' },
       { titleKey: 'nav.executions', path: '/executions', module: 'execution', permission: 'execution.read', descriptionKey: 'nav.executionsDesc' }
     ]
   },
   {
-    titleKey: 'nav.workflows',
-    path: '/workflows',
-    module: 'workflow',
-    permissions: ['workflow.template.read', 'automation.read', 'plugin.read'],
-    activePaths: ['/workflows', '/automations', '/automation-runs', '/plugins'],
-    icon: 'workflow',
-    descriptionKey: 'nav.workflowsDesc',
-    children: [
-      { titleKey: 'nav.workflowTemplates', path: '/workflows', module: 'workflow-template', permission: 'workflow.template.read', descriptionKey: 'nav.workflowTemplatesDesc' },
-      { titleKey: 'nav.automations', path: '/automations', module: 'automation', permission: 'automation.read', descriptionKey: 'nav.automationsDesc' },
-      { titleKey: 'nav.plugins', path: '/plugins', module: 'plugin', permission: 'plugin.read', descriptionKey: 'nav.pluginsDesc' }
-    ]
+    titleKey: 'nav.plugins',
+    path: '/plugins',
+    module: 'plugin',
+    permission: 'plugin.read',
+    icon: 'plugin',
+    descriptionKey: 'nav.pluginsDesc'
   },
   {
     titleKey: 'nav.monitoring',

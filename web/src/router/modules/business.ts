@@ -261,7 +261,7 @@ export const businessRoutes: GcRouteRecord[] = [
       permission: 'plugin.read',
       resourceType: 'plugin',
       riskLevel: 'high',
-      breadcrumbKeys: ['nav.workflows', 'nav.plugins'],
+      breadcrumbKeys: ['nav.plugins'],
       keepAlive: true
     }
   },
@@ -277,7 +277,7 @@ export const businessRoutes: GcRouteRecord[] = [
       permission: 'workflow.template.read',
       resourceType: 'workflowTemplate',
       riskLevel: 'high',
-      breadcrumbKeys: ['nav.workflows', 'nav.workflowTemplates'],
+      breadcrumbKeys: ['nav.deployments', 'nav.workflowTemplates'],
       keepAlive: true,
       featureFlag: 'template.dsl.editor'
     }
@@ -294,7 +294,7 @@ export const businessRoutes: GcRouteRecord[] = [
       permission: 'workflow.template.read',
       resourceType: 'workflowTemplate',
       riskLevel: 'high',
-      breadcrumbKeys: ['nav.workflows', 'nav.workflowTemplates'],
+      breadcrumbKeys: ['nav.deployments', 'nav.workflowTemplates'],
       hiddenInMenu: true
     }
   },
@@ -310,7 +310,7 @@ export const businessRoutes: GcRouteRecord[] = [
       permission: 'automation.read',
       resourceType: 'automation',
       riskLevel: 'high',
-      breadcrumbKeys: ['nav.workflows', 'nav.automations'],
+      breadcrumbKeys: ['nav.deployments', 'nav.automations'],
       keepAlive: true
     }
   },
@@ -326,7 +326,7 @@ export const businessRoutes: GcRouteRecord[] = [
       permission: 'automation.read',
       resourceType: 'automationRun',
       riskLevel: 'medium',
-      breadcrumbKeys: ['nav.workflows', 'nav.automations', 'automations.runs.title'],
+      breadcrumbKeys: ['nav.deployments', 'nav.automations', 'automations.runs.title'],
       keepAlive: true
     }
   },
@@ -342,7 +342,7 @@ export const businessRoutes: GcRouteRecord[] = [
       permission: 'automation.read',
       resourceType: 'automationRun',
       riskLevel: 'medium',
-      breadcrumbKeys: ['nav.workflows', 'nav.automations', 'automations.runDetail.title']
+      breadcrumbKeys: ['nav.deployments', 'nav.automations', 'automations.runDetail.title']
     }
   },
   {
