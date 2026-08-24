@@ -621,10 +621,36 @@ function runExtractors(response: HttpResponse, extractors: HttpExtractor[]): Rec
     if (extractor.source === 'header') value = getHeader(response.headers, extractor.header ?? extractor.path ?? '');
     if (extractor.source === 'json' || (extractor.source === 'body' && extractor.path)) value = readJsonPath(response.bodyJson ?? response.body, extractor.path ?? '');
     if (extractor.pattern) value = String(response.bodyText ?? response.body ?? '').match(new RegExp(extractor.pattern))?.[1];
-    if ((value === undefined || value === null) && extractor.required) throw new AppError('WORKFLOW_ASSERTION_FAILED', '必需提取变量失败', { name: extractor.name });
+    if ((value === undefined || value === null) && extractor.required) throw buildRequiredExtractorError(extractor, response);
     if (value !== undefined && value !== null) output[extractor.name] = extractor.secret ? '[SECRET_CAPTURED]' : value;
   }
   return output;
+}
+
+function buildRequiredExtractorError(extractor: HttpExtractor, response: HttpResponse): AppError {
+  const detail = {
+    extractor: extractor.name,
+    source: extractor.source,
+    ...(extractor.path ? { path: extractor.path } : {}),
+    ...(extractor.header ? { header: extractor.header } : {}),
+    ...(extractor.pattern ? { pattern: extractor.pattern } : {}),
+    responseStatusCode: response.statusCode,
+    responseHeaderNames: Object.keys(response.headers ?? {}),
+    responseBodyShape: summarizeValueShape(response.bodyJson ?? response.body),
+    responseTextLength: String(response.bodyText ?? response.body ?? '').length,
+  };
+  return new AppError(
+    'WORKFLOW_ASSERTION_FAILED',
+    `必需提取变量失败：extractor=${extractor.name}，source=${extractor.source}${describeHttpExtractorRule(extractor)}`,
+    detail,
+  );
+}
+
+function describeHttpExtractorRule(extractor: HttpExtractor): string {
+  if (extractor.path) return `，path=${extractor.path}`;
+  if (extractor.header) return `，header=${extractor.header}`;
+  if (extractor.pattern) return `，pattern=${extractor.pattern}`;
+  return '';
 }
 
 async function getSecret(
@@ -771,6 +797,31 @@ function isLocalhost(hostname: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function summarizeValueShape(value: unknown, depth = 0): unknown {
+  if (value === null) return { type: 'null' };
+  if (value === undefined) return { type: 'undefined' };
+  if (typeof value === 'string') return { type: 'string', length: value.length };
+  if (typeof value === 'number' || typeof value === 'boolean') return { type: typeof value };
+  if (Array.isArray(value)) {
+    return {
+      type: 'array',
+      length: value.length,
+      ...(depth >= 1 || value.length === 0 ? {} : { firstItem: summarizeValueShape(value[0], depth + 1) }),
+    };
+  }
+  if (isRecord(value)) {
+    const keys = Object.keys(value);
+    return {
+      type: 'object',
+      keys: keys.slice(0, 12),
+      ...(depth >= 1 ? {} : {
+        children: Object.fromEntries(keys.slice(0, 6).map((key) => [key, summarizeValueShape(value[key], depth + 1)])),
+      }),
+    };
+  }
+  return { type: typeof value };
 }
 
 function hash(value: string): number {

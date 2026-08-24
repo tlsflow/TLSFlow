@@ -113,9 +113,9 @@ function executorFailure(kind: 'curl' | 'ssh', error: unknown, fallbackCode: str
 
 function detailLogLines(kind: 'curl' | 'ssh', detail: Record<string, unknown> | undefined): string[] {
   if (!detail) return [];
-  return ['target', 'stage', 'category', 'cause', 'suggestion']
+  return ['target', 'stage', 'category', 'cause', 'suggestion', 'step', 'extractor', 'source', 'path', 'header', 'pattern', 'responseStatusCode', 'outputStatusCode']
     .flatMap((key) => {
-      const value = asString(detail[key]);
+      const value = asString(detail[key]) ?? asNumberString(detail[key]);
       return value ? [`${kind}:${key}:${value}`] : [];
     });
 }
@@ -156,4 +156,8 @@ function asString(value: unknown): string | undefined {
 
 function asStringArray(value: unknown): string[] | undefined {
   return Array.isArray(value) ? value.map((item) => String(item)) : undefined;
+}
+
+function asNumberString(value: unknown): string | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? String(value) : undefined;
 }

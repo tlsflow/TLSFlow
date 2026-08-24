@@ -589,6 +589,62 @@ describe('WorkflowTemplates', () => {
     assert.doesNotMatch(visible, /session-secret-value/);
   });
 
+  it('extract 必需变量失败时返回 step、extractor 和提取规则', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const content: WorkflowDslV1 = {
+      apiVersion: 'gcac.workflow/v1',
+      kind: 'CurlSshWorkflow',
+      metadata: { name: 'extract_failure_detail', displayName: '提取失败详情' },
+      variables: {
+        deviceHost: { type: 'string', required: true },
+      },
+      steps: [
+        {
+          name: 'prepare_auth',
+          type: 'http',
+          stage: 'prepare',
+          request: { method: 'POST', url: 'https://{{deviceHost}}/api/login' },
+          extract: [{ name: 'sessionId', type: 'jsonPath', path: '$.data.sid' }],
+        },
+      ],
+    };
+    const { version } = await service.createTemplate({ content });
+
+    await assert.rejects(async () => {
+      await service.runWithDispatcher({
+        templateVersionId: version.id,
+        mode: 'mock',
+        userVariables: { deviceHost: 'edge-01.example.com' },
+      }, async () => ({
+        success: true,
+        statusCode: 200,
+        body: { data: { token: 'runtime-token-secret' } },
+        logs: ['curl:ok'],
+      }));
+    }, (error) => {
+      assert.equal(error instanceof AppError, true);
+      const appError = error as AppError;
+      assert.equal(appError.errorCode, 'WORKFLOW_ASSERTION_FAILED');
+      assert.match(appError.message, /step=prepare_auth/);
+      assert.match(appError.message, /extractor=sessionId/);
+      assert.match(appError.message, /\$\.data\.sid/);
+      const details = appError.details as Record<string, unknown>;
+      assert.equal(details.step, 'prepare_auth');
+      assert.equal(details.stepType, 'http');
+      assert.equal(details.extractor, 'sessionId');
+      assert.equal(details.extractorType, 'jsonPath');
+      assert.equal(details.path, '$.data.sid');
+      assert.equal(details.outputStatusCode, 200);
+      assert.deepEqual(details.outputBodyShape, {
+        type: 'object',
+        keys: ['data'],
+        children: { data: { type: 'object', keys: ['token'] } },
+      });
+      assert.doesNotMatch(JSON.stringify(appError.details), /runtime-token-secret/);
+      return true;
+    });
+  });
+
   it('支持单节点模拟运行，并返回脱敏后的执行计划和结果', async () => {
     const service = new WorkflowTemplatesApplicationService();
     const content = templateFixture();

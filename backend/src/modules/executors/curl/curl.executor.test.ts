@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { AppError } from '../../../common/errors/app-error.js';
 import type { CurlHttpClientRequest } from './curl.http-client.js';
 import { CurlExecutor } from './curl.executor.js';
 
@@ -98,6 +99,40 @@ describe('spec017 CURL/HTTP 执行器基础', () => {
     assert.match(body, /account=admin/);
     assert.match(body, /passwd=login-password-secret/);
     assert.doesNotMatch(JSON.stringify(result), /login-password-secret/);
+  });
+
+  it('必需 extractor 失败时返回可定位的错误详情', async () => {
+    const executor = new CurlExecutor();
+
+    await assert.rejects(async () => {
+      await executor.execute({
+        idempotencyKey: 'idem_curl_missing_extractor_detail',
+        template: { method: 'GET', url: 'https://example.com/api' },
+        mockResponse: { statusCode: 200, headers: { 'content-type': 'application/json' }, body: { data: { token: 'runtime-token-secret' } } },
+        extractors: [{ name: 'sessionId', source: 'json', path: '$.data.sid', required: true }],
+      });
+    }, (error) => {
+      assert.equal(error instanceof AppError, true);
+      const appError = error as AppError;
+      assert.equal(appError.errorCode, 'WORKFLOW_ASSERTION_FAILED');
+      assert.match(appError.message, /extractor=sessionId/);
+      assert.match(appError.message, /\$\.data\.sid/);
+      const details = appError.details as Record<string, unknown>;
+      assert.equal(details.extractor, 'sessionId');
+      assert.equal(details.source, 'json');
+      assert.equal(details.path, '$.data.sid');
+      assert.equal(details.responseStatusCode, 200);
+      assert.deepEqual(details.responseHeaderNames, ['content-type']);
+      assert.deepEqual(details.responseBodyShape, {
+        type: 'object',
+        keys: ['data'],
+        children: { data: { type: 'object', keys: ['token'] } },
+      });
+      assert.equal(typeof details.responseTextLength, 'number');
+      assert.equal((details.responseTextLength as number) > 0, true);
+      assert.doesNotMatch(JSON.stringify(appError.details), /runtime-token-secret/);
+      return true;
+    });
   });
 
   it('支持 curl 导入和脱敏导出，拒绝导入明文敏感值', () => {

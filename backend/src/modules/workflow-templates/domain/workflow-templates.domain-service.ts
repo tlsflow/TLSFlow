@@ -13,6 +13,7 @@ import type {
   WorkflowAssertion,
   WorkflowCredentialBinding,
   WorkflowDslV1,
+  WorkflowExtractor,
   WorkflowMockStepOutput,
   WorkflowRenderedStep,
   WorkflowExecutorDispatcher,
@@ -607,13 +608,51 @@ function runExtractors(step: WorkflowStep, output: WorkflowMockStepOutput, conte
     if (extractor.type === 'firstOf') value = readFirstAvailablePath(output, extractor.paths ?? []);
     if (extractor.type === 'regex') value = String(output.stdout ?? output.body ?? '').match(new RegExp(extractor.pattern ?? ''))?.[1];
     if (extractor.type === 'textContains') value = String(output.stdout ?? output.body ?? '').includes(extractor.value ?? '');
-    if ((value === undefined || value === null) && !extractor.optional) throw new AppError('WORKFLOW_ASSERTION_FAILED', '提取变量失败', { step: step.name, extractor: extractor.name });
+    if ((value === undefined || value === null) && !extractor.optional) throw buildWorkflowExtractorError(step, extractor, output);
     if (value !== undefined && value !== null) {
       extracted[extractor.name] = value;
       if (extractor.sensitive) collectValuePaths(extractor.name, value, context.secretPaths);
     }
   }
   return extracted;
+}
+
+function buildWorkflowExtractorError(step: WorkflowStep, extractor: WorkflowExtractor, output: WorkflowMockStepOutput): AppError {
+  const detail = {
+    step: step.name,
+    stepType: step.type,
+    extractor: extractor.name,
+    extractorType: extractor.type,
+    ...extractorRuleDetail(extractor),
+    outputStatusCode: output.statusCode,
+    outputExitCode: output.exitCode,
+    outputHeaderNames: Object.keys(output.headers ?? {}),
+    outputBodyShape: summarizeValueShape(output.body),
+    stdoutLength: String(output.stdout ?? '').length,
+  };
+  return new AppError(
+    'WORKFLOW_ASSERTION_FAILED',
+    `提取变量失败：step=${step.name}，extractor=${extractor.name}，type=${extractor.type}${describeWorkflowExtractorRule(extractor)}`,
+    detail,
+  );
+}
+
+function extractorRuleDetail(extractor: WorkflowExtractor): Record<string, unknown> {
+  if (extractor.type === 'jsonPath' || extractor.type === 'outputPath') return { path: extractor.path };
+  if (extractor.type === 'firstOf') return { paths: extractor.paths };
+  if (extractor.type === 'header') return { header: extractor.header };
+  if (extractor.type === 'regex') return { pattern: extractor.pattern };
+  if (extractor.type === 'textContains') return { value: extractor.value };
+  return {};
+}
+
+function describeWorkflowExtractorRule(extractor: WorkflowExtractor): string {
+  if (extractor.type === 'jsonPath' || extractor.type === 'outputPath') return extractor.path ? `，path=${extractor.path}` : '';
+  if (extractor.type === 'firstOf') return extractor.paths?.length ? `，paths=${extractor.paths.join('|')}` : '';
+  if (extractor.type === 'header') return extractor.header ? `，header=${extractor.header}` : '';
+  if (extractor.type === 'regex') return extractor.pattern ? `，pattern=${extractor.pattern}` : '';
+  if (extractor.type === 'textContains') return extractor.value ? `，value=${extractor.value}` : '';
+  return '';
 }
 
 async function executeTransformStep(step: WorkflowTransformStep, values: Record<string, unknown>): Promise<WorkflowMockStepOutput> {
@@ -1017,4 +1056,29 @@ function clone<T>(value: T): T {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function summarizeValueShape(value: unknown, depth = 0): unknown {
+  if (value === null) return { type: 'null' };
+  if (value === undefined) return { type: 'undefined' };
+  if (typeof value === 'string') return { type: 'string', length: value.length };
+  if (typeof value === 'number' || typeof value === 'boolean') return { type: typeof value };
+  if (Array.isArray(value)) {
+    return {
+      type: 'array',
+      length: value.length,
+      ...(depth >= 1 || value.length === 0 ? {} : { firstItem: summarizeValueShape(value[0], depth + 1) }),
+    };
+  }
+  if (isRecord(value)) {
+    const keys = Object.keys(value);
+    return {
+      type: 'object',
+      keys: keys.slice(0, 12),
+      ...(depth >= 1 ? {} : {
+        children: Object.fromEntries(keys.slice(0, 6).map((key) => [key, summarizeValueShape(value[key], depth + 1)])),
+      }),
+    };
+  }
+  return { type: typeof value };
 }
