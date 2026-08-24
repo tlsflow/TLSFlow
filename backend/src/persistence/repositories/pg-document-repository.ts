@@ -80,6 +80,15 @@ export class PgDocumentRepository<T extends IdentifiedEntity> implements AsyncRe
     return next;
   }
 
+  async delete(id: string): Promise<void> {
+    await this.ensureTable();
+    await this.db.query(
+      `delete from pg_documents
+        where namespace = $1 and document_id = $2`,
+      [this.namespace, id],
+    );
+  }
+
   async clear(): Promise<void> {
     await this.ensureTable();
     await this.db.query('delete from pg_documents where namespace = $1', [this.namespace]);

@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { PgliteDatabase } from '../../database/pglite-database.js';
+import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
+import type { SecretEntity, SecretVersionEntity } from '../../persistence/entities/secret.entity.js';
 import { KeyManager } from './key-manager.service.js';
 import { CryptoService } from './crypto.service.js';
 import { parseSecretRef } from './secret-ref.js';
@@ -32,7 +35,7 @@ test('CryptoService 加解密正常，篡改 authTag 会失败', () => {
   );
 });
 
-test('SecretService 创建密钥后可通过授权引用解析', async () => {
+test('SecretService 创建密钥后可通过执行授权解析', async () => {
   const audit = new AuditService();
   const grants = new ExecutionGrantService();
   const service = new SecretService(new CryptoService(new KeyManager(Buffer.alloc(32, 1))), grants, audit);
@@ -74,4 +77,32 @@ test('SecretService 创建密钥后可通过授权引用解析', async () => {
   assert.equal(resolved.plainText, 'PRIVATE_KEY_VALUE');
   assert.match(resolved.secretRef, /#v1$/);
   assert.equal((await audit.query({ eventType: 'secret.used' })).length, 1);
+});
+
+test('SecretService 在重建后仍可解析持久化 Secret', async () => {
+  const db = new PgliteDatabase();
+  const secrets = new PgDocumentRepository<SecretEntity>(db, 'security.secrets');
+  const versions = new PgDocumentRepository<SecretVersionEntity & { dekIv: string; dekAuthTag: string }>(db, 'security.secret_versions');
+  const audit = new AuditService();
+  const grants = new ExecutionGrantService();
+
+  const first = new SecretService(new CryptoService(new KeyManager()), grants, audit, secrets, versions);
+  const created = await first.create({
+    name: 'LDAP 服务账号密码',
+    type: 'password',
+    scopeType: 'global',
+    plainText: 'ldap-bind-password',
+    createdBy: 'user_admin',
+  });
+
+  const rebuilt = new SecretService(new CryptoService(new KeyManager()), grants, audit, secrets, versions);
+  const resolved = await rebuilt.resolveForService({
+    secretRef: created.secretRef,
+    expectedType: 'password',
+    purpose: 'ldap.bind',
+    actorId: 'user_admin',
+  });
+
+  assert.equal(resolved.plainText, 'ldap-bind-password');
+  assert.match(resolved.secretRef, /#v1$/);
 });
