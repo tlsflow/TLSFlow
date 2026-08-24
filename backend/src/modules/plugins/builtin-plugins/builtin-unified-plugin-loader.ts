@@ -3,6 +3,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { UnifiedPluginVersionRecord } from '../dto/unified-plugins.dto.js';
 import type { UnifiedPluginsApplicationService } from '../application/unified-plugins.application-service.js';
+import { builtinAgentPluginManifests } from '../builtin-agent-plugins/builtin-agent-plugins.js';
 
 const moduleDirectory = dirname(fileURLToPath(import.meta.url));
 
@@ -13,7 +14,9 @@ export class BuiltinUnifiedPluginLoader {
     const rootDirectory = this.configuredRootDirectory ?? await resolveBuiltinRootDirectory();
     const entries = await readdir(rootDirectory, { withFileTypes: true });
     const directories = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-    return Promise.all(directories.map((directory) => this.loadPackage(join(rootDirectory, directory))));
+    const nativePackages = await Promise.all(directories.map((directory) => this.loadPackage(join(rootDirectory, directory))));
+    if (this.configuredRootDirectory) return nativePackages;
+    return [...nativePackages, ...await loadWorkflowCompatibilityPackages(), ...loadAgentCompatibilityPackages()];
   }
 
   async installAll(tenantId: string, service: UnifiedPluginsApplicationService): Promise<UnifiedPluginVersionRecord[]> {
@@ -61,4 +64,93 @@ async function resolveBuiltinRootDirectory(): Promise<string> {
     }
   }
   return moduleDirectory;
+}
+
+async function loadWorkflowCompatibilityPackages(): Promise<Array<{ manifest: unknown; resources: Record<string, string>; packageContent: string }>> {
+  const workflowDirectory = await resolveBuiltinWorkflowDirectory();
+  return Promise.all([
+    'apache-8444-cert-switch.json',
+    'synology-dsm-cert-import.json',
+  ].map(async (fileName) => {
+    const content = await readFile(join(workflowDirectory, fileName), 'utf8');
+    const workflow = JSON.parse(content) as { metadata: { name: string; version: string; platforms?: string[] } };
+    const resourcePath = `workflows/${fileName}`;
+    const manifest = {
+      apiVersion: 'gcac.plugin-manifest/v1',
+      kind: 'GcacPlugin',
+      pluginId: `builtin.workflow.${workflow.metadata.name}`,
+      version: workflow.metadata.version,
+      displayNameKey: `plugins.compatibility.${workflow.metadata.name}.name`,
+      descriptionKey: `plugins.compatibility.${workflow.metadata.name}.description`,
+      publisher: 'GCAC',
+      runtime: 'WORKFLOW_DSL',
+      source: 'BUILTIN',
+      scope: 'BOTH',
+      trust: 'OFFICIAL_SIGNED',
+      support: 'OFFICIAL',
+      capabilities: [
+        capability('certificate.deploy', 'certificate.deploy.v1', 'HIGH', ['CONTROL_PLANE', 'GATEWAY']),
+        capability('certificate.rollback', 'certificate.rollback.v1', 'HIGH', ['CONTROL_PLANE', 'GATEWAY']),
+      ],
+      permissions: ['secret.read', 'artifact.read', 'network.connect'],
+      compatibility: { products: [workflow.metadata.name], platforms: workflow.metadata.platforms ?? [] },
+      resources: { workflows: { 'certificate.deploy': resourcePath, 'certificate.rollback': resourcePath } },
+    };
+    return { manifest, resources: { [resourcePath]: content }, packageContent: JSON.stringify({ manifest, workflowSha256Source: content }) };
+  }));
+}
+
+function loadAgentCompatibilityPackages(): Array<{ manifest: unknown; resources: Record<string, string>; packageContent: string }> {
+  return builtinAgentPluginManifests.map((agentManifest) => {
+    const resourcePath = `agent-recipes/${agentManifest.pluginId}.json`;
+    const recipe = JSON.stringify(agentManifest);
+    const manifest = {
+      apiVersion: 'gcac.plugin-manifest/v1',
+      kind: 'GcacPlugin',
+      pluginId: agentManifest.pluginId,
+      version: agentManifest.version,
+      displayNameKey: `plugins.compatibility.${agentManifest.pluginId}.name`,
+      descriptionKey: `plugins.compatibility.${agentManifest.pluginId}.description`,
+      publisher: agentManifest.publisher,
+      runtime: 'AGENT_ATOMIC',
+      source: 'BUILTIN',
+      scope: 'MANAGED',
+      trust: 'OFFICIAL_SIGNED',
+      support: 'OFFICIAL',
+      minGcacVersion: agentManifest.minGcacVersion,
+      capabilities: [
+        capability('certificate.deploy', 'certificate.deploy.v1', 'HIGH', ['AGENT']),
+        capability('certificate.rollback', 'certificate.rollback.v1', 'HIGH', ['AGENT']),
+      ],
+      permissions: agentManifest.permissions.map((permission) => permission.name),
+      compatibility: {
+        products: agentManifest.compatibility.frameworks,
+        platforms: agentManifest.compatibility.platforms,
+        versions: agentManifest.compatibility.architectures,
+      },
+      resources: { agentRecipes: { 'certificate.deploy': resourcePath, 'certificate.rollback': resourcePath } },
+    };
+    return { manifest, resources: { [resourcePath]: recipe }, packageContent: JSON.stringify({ manifest, recipe }) };
+  });
+}
+
+function capability(key: string, actionContractId: string, riskLevel: 'HIGH', executionLocations: Array<'AGENT' | 'CONTROL_PLANE' | 'GATEWAY'>) {
+  return { key, contractVersion: 'v1', actionContractId, riskLevel, executionLocations };
+}
+
+async function resolveBuiltinWorkflowDirectory(): Promise<string> {
+  const candidates = [
+    resolve(moduleDirectory, '../../../workflow-templates/builtin-workflows'),
+    resolve(process.cwd(), 'src/modules/workflow-templates/builtin-workflows'),
+    resolve(process.cwd(), 'backend/src/modules/workflow-templates/builtin-workflows'),
+  ];
+  for (const candidate of candidates) {
+    try {
+      await access(join(candidate, 'apache-8444-cert-switch.json'));
+      return candidate;
+    } catch {
+      // 继续检查源码目录或部署目录。
+    }
+  }
+  throw new Error('找不到内置 Workflow 模板目录');
 }

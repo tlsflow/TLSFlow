@@ -6,23 +6,31 @@ import type { UnifiedPluginVersionRecord } from './dto/unified-plugins.dto.js';
 import type { UnifiedPluginsRepository } from './repository/unified-plugins.repository.js';
 import { workflowTemplatesSchemaRegistry } from '../workflow-templates/schema/workflow-templates.schema.js';
 
-test('Citrix ADC 内置插件包通过表单、展示和八语言校验并可幂等启用', async () => {
+test('内置 DSL、Agent 与设备插件统一投影为不可变版本并可幂等启用', async () => {
   const records = new Map<string, UnifiedPluginVersionRecord>();
   const service = new UnifiedPluginsApplicationService(memoryRepository(records));
   const loader = new BuiltinUnifiedPluginLoader();
   const first = await loader.installAll('tenant-1', service);
   const second = await loader.installAll('tenant-1', service);
 
-  assert.equal(first.length, 1);
-  assert.equal(first[0]?.pluginId, 'citrix.netscaler-adc');
-  assert.equal(first[0]?.status, 'ENABLED');
-  assert.equal(first[0]?.manifest.scope, 'BOTH');
-  assert.equal(first[0]?.manifest.resources.locales && Object.keys(first[0].manifest.resources.locales).length, 8);
-  assert.equal(second[0]?.id, first[0]?.id);
-  assert.equal(records.size, 1);
+  assert.equal(first.length, 8);
+  const citrix = first.find((item) => item.pluginId === 'citrix.netscaler-adc');
+  const apache = first.find((item) => item.pluginId === 'builtin.workflow.apache-8444-cert-switch');
+  const synology = first.find((item) => item.pluginId === 'builtin.workflow.synology-dsm-cert-import');
+  const agent = first.find((item) => item.pluginId === 'builtin.linux.nginx.pem');
+  assert.equal(citrix?.status, 'ENABLED');
+  assert.equal(citrix?.manifest.scope, 'BOTH');
+  assert.equal(citrix?.manifest.resources.locales && Object.keys(citrix.manifest.resources.locales).length, 8);
+  assert.equal(apache?.runtime, 'WORKFLOW_DSL');
+  assert.equal(apache?.scope, 'BOTH');
+  assert.equal(synology?.runtime, 'WORKFLOW_DSL');
+  assert.equal(agent?.runtime, 'AGENT_ATOMIC');
+  assert.equal(agent?.scope, 'MANAGED');
+  assert.deepEqual(second.map((item) => item.id), first.map((item) => item.id));
+  assert.equal(records.size, 8);
 
-  const pluginPackage = (await loader.loadPackages())[0]!;
-  for (const workflowPath of Object.values(first[0]!.manifest.resources.workflows ?? {})) {
+  const pluginPackage = (await loader.loadPackages()).find((item) => (item.manifest as { pluginId?: string }).pluginId === 'citrix.netscaler-adc')!;
+  for (const workflowPath of Object.values(citrix!.manifest.resources.workflows ?? {})) {
     workflowTemplatesSchemaRegistry.validate(JSON.parse(pluginPackage.resources[workflowPath]!));
   }
 });
