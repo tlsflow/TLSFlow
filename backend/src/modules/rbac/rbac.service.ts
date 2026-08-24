@@ -1,7 +1,7 @@
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import type { AsyncRepositoryPort } from '../../persistence/repositories/async-repository-port.js';
 import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
-import type { PermissionPolicyEntity, RoleEntity, UserEntity, UserRoleEntity } from '../../persistence/entities/rbac.entity.js';
+import type { PermissionPolicyEntity, RoleEntity, UserEntity, UserPreferences, UserRoleEntity } from '../../persistence/entities/rbac.entity.js';
 import type { RequestContext, ResourceDescriptor, ResourceScope, SecuritySubject } from '../../shared/security-types.js';
 import { newId } from '../../shared/id.js';
 import { securityErrors } from '../../shared/security-error.js';
@@ -89,6 +89,10 @@ export class RBACService {
 
   async updateUserStatus(userId: string, status: UserEntity['status']): Promise<UserEntity> {
     return this.users.update(userId, { status, updatedAt: new Date().toISOString() });
+  }
+
+  async updateUserPreferences(userId: string, preferences: UserPreferences): Promise<UserEntity> {
+    return this.users.update(userId, { preferences, updatedAt: new Date().toISOString() });
   }
 
   async createRole(input: RoleEntity): Promise<RoleEntity> {

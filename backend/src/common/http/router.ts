@@ -20,6 +20,10 @@ export class Router {
     this.register({ method: 'POST', path, summary, tags, handler, responses });
   }
 
+  put(path: string, summary: string, tags: string[], handler: HttpHandler, responses?: Record<string, unknown>): void {
+    this.register({ method: 'PUT', path, summary, tags, handler, responses });
+  }
+
   patch(path: string, summary: string, tags: string[], handler: HttpHandler, responses?: Record<string, unknown>): void {
     this.register({ method: 'PATCH', path, summary, tags, handler, responses });
   }

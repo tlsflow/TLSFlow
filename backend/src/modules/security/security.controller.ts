@@ -7,7 +7,7 @@ import { validateObject } from '../../common/validation/schema-validation.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
 import type { AuditLogEntity } from '../../persistence/entities/audit-log.entity.js';
-import type { PermissionPolicyEntity, RoleEntity, UserEntity, UserRoleEntity } from '../../persistence/entities/rbac.entity.js';
+import type { PermissionPolicyEntity, RoleEntity, SupportedLocale, ThemeMode, UserEntity, UserPreferences, UserRoleEntity } from '../../persistence/entities/rbac.entity.js';
 import { SECRET_SCOPE_TYPES, SECRET_TYPES, type RiskLevel, type SecretScopeType, type SecretType, type SecuritySubject } from '../../shared/security-types.js';
 import { ApprovalService } from '../approvals/approval.service.js';
 import { AuditService } from '../audits/audit.service.js';
@@ -22,6 +22,10 @@ import { AuthService } from './auth.service.js';
 import { ExternalIdentityService, type IdentitySourceTlsMode, type IdentitySourceType } from './external-identity.service.js';
 import { ObjectPermissionService, type ObjectRef } from './object-permission.service.js';
 import type { AccessEffect, AccessGrantEntity, AccessLevel, GroupEntity, GroupMemberEntity, ObjectSetEntity, ObjectSetKind, ObjectSetMemberEntity, ObjectTypeEntity, PrincipalType, RoleBindingEntity } from '../../persistence/entities/object-permission.entity.js';
+
+const THEME_MODES = ['light', 'dark'] as const;
+const SUPPORTED_LOCALES = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'fr-FR', 'ru-RU', 'pt-BR', 'ko-KR'] as const;
+const DEFAULT_USER_PREFERENCES: UserPreferences = { theme: 'light', locale: 'zh-CN', version: 1 };
 
 export interface SecurityServices {
   rbac: RBACService;
@@ -75,6 +79,9 @@ export class SecurityController {
     router.get('/api/v1/auth/me', '鑾峰彇褰撳墠鐢ㄦ埛', ['Auth'], (request) => this.getMe(request));
     router.get('/api/v1/auth/permissions', '鑾峰彇褰撳墠鏉冮檺', ['Auth'], (request) => this.getMyPermissions(request));
     router.get('/api/v1/auth/permission-context', '获取当前对象级权限上下文', ['Auth'], (request) => this.getPermissionContext(request));
+    router.put('/api/v1/auth/password', '修改当前用户密码', ['Auth'], (request) => this.changeMyPassword(request));
+    router.get('/api/v1/auth/preferences', '获取当前用户偏好', ['Auth'], (request) => this.getMyPreferences(request));
+    router.put('/api/v1/auth/preferences', '保存当前用户偏好', ['Auth'], (request) => this.updateMyPreferences(request));
     router.get('/api/v1/secrets', '查询 Secret 元数据列表', ['Security'], (request) => this.listSecrets(request));
     router.post('/api/v1/secrets', '鍒涘缓 Secret', ['Security'], (request) => this.createSecret(request));
     router.get('/api/v1/secrets/metadata', '鏌ヨ Secret 鍏冩暟鎹?', ['Security'], (request) => this.getSecretMetadata(request));
@@ -188,6 +195,41 @@ export class SecurityController {
       objectPermissionVersion: objectPermission.version,
       expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
     };
+  }
+
+  private async changeMyPassword(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    const body = validateObject(request.body, {
+      currentPassword: { type: 'string', required: true },
+      newPassword: { type: 'string', required: true },
+    });
+    return this.services.auth.changePassword({
+      userId: subject.id,
+      currentPassword: String(body.currentPassword),
+      newPassword: String(body.newPassword),
+    }, request.context);
+  }
+
+  private async getMyPreferences(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    const user = await this.services.rbac.getUser(subject.id);
+    if (!user) throw new AppError('RESOURCE_NOT_FOUND', '当前用户不存在');
+    return normalizeUserPreferences(user.preferences);
+  }
+
+  private async updateMyPreferences(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    const body = validateObject(request.body, {
+      theme: { type: 'string', required: true, enum: THEME_MODES },
+      locale: { type: 'string', required: true, enum: SUPPORTED_LOCALES },
+    });
+    const preferences: UserPreferences = {
+      theme: body.theme as ThemeMode,
+      locale: body.locale as SupportedLocale,
+      version: 1,
+    };
+    const user = await this.services.rbac.updateUserPreferences(subject.id, preferences);
+    return normalizeUserPreferences(user.preferences);
   }
 
   private async withBrowserSessionCookie(session: { user: { id: string } }, request: HttpRequest) {
@@ -1099,6 +1141,16 @@ function readOptionalQueryString(request: HttpRequest, key: string): string | un
   return Array.isArray(value) ? value[0] : value;
 }
 
+function normalizeUserPreferences(value: unknown): UserPreferences {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { ...DEFAULT_USER_PREFERENCES };
+  }
+  const record = value as Record<string, unknown>;
+  const theme = THEME_MODES.includes(record.theme as ThemeMode) ? record.theme as ThemeMode : DEFAULT_USER_PREFERENCES.theme;
+  const locale = SUPPORTED_LOCALES.includes(record.locale as SupportedLocale) ? record.locale as SupportedLocale : DEFAULT_USER_PREFERENCES.locale;
+  return { theme, locale, version: 1 };
+}
+
 function readHeader(request: HttpRequest, key: string): string | undefined {
   const value = request.headers[key] ?? request.headers[key.toLowerCase()];
   return Array.isArray(value) ? value[0] : value;
@@ -1113,6 +1165,9 @@ export function getSecurityRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/auth/me', operationId: 'getCurrentUser', summary: '鑾峰彇褰撳墠鐢ㄦ埛', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/auth/permissions', operationId: 'getCurrentPermissions', summary: '鑾峰彇褰撳墠鏉冮檺', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/auth/permission-context', operationId: 'getPermissionContext', summary: '获取当前对象级权限上下文', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'PUT', path: '/api/v1/auth/password', operationId: 'changeCurrentUserPassword', summary: '修改当前用户密码', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/auth/preferences', operationId: 'getCurrentUserPreferences', summary: '获取当前用户偏好', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'PUT', path: '/api/v1/auth/preferences', operationId: 'updateCurrentUserPreferences', summary: '保存当前用户偏好', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/secrets', operationId: 'listSecrets', summary: '查询 Secret 元数据列表', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/secrets', operationId: 'createSecret', summary: '鍒涘缓 Secret', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/secrets/metadata', operationId: 'getSecretMetadata', summary: '鏌ヨ Secret 鍏冩暟鎹?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },

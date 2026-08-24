@@ -1,5 +1,14 @@
 import type { ResourceScope } from '../../shared/security-types.js';
 
+export type ThemeMode = 'light' | 'dark';
+export type SupportedLocale = 'zh-CN' | 'zh-TW' | 'en-US' | 'ja-JP' | 'fr-FR' | 'ru-RU' | 'pt-BR' | 'ko-KR';
+
+export interface UserPreferences {
+  theme: ThemeMode;
+  locale: SupportedLocale;
+  version: 1;
+}
+
 export interface UserEntity {
   id: string;
   username: string;
@@ -12,6 +21,7 @@ export interface UserEntity {
   externalSourceId?: string;
   lastSyncedAt?: string;
   syncSource?: 'login' | 'manual_sync';
+  preferences?: UserPreferences;
   status: 'active' | 'disabled';
   createdAt: string;
   updatedAt: string;

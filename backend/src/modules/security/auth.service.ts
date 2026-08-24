@@ -178,6 +178,34 @@ export class AuthService {
     await this.credentials.delete(userId);
   }
 
+  async changePassword(input: { userId: string; currentPassword: string; newPassword: string }, context: RequestContext): Promise<{ success: true }> {
+    await this.seedReady;
+    if (input.newPassword.length < 8) {
+      throw new AppError('VALIDATION_FAILED', '新密码长度不能少于 8 位', { field: 'newPassword' });
+    }
+    const user = await this.rbac.getUser(input.userId);
+    const credential = user ? await this.credentials.get(user.id) : undefined;
+    if (!user || user.status !== 'active' || !credential) {
+      throw new AppError('AUTH_UNAUTHENTICATED', '当前登录状态无效');
+    }
+    if (!this.verifyPassword(input.currentPassword, credential)) {
+      throw new AppError('AUTH_UNAUTHENTICATED', '当前密码不正确');
+    }
+    await this.credentials.upsert(this.hashPassword(user.id, input.newPassword));
+    await this.audit?.write({
+      eventType: 'auth.password.changed',
+      actorType: 'user',
+      actorId: user.id,
+      action: 'auth.password.change',
+      resourceType: 'authUser',
+      resourceId: user.id,
+      result: 'success',
+      riskLevel: 'medium',
+      context: { requestId: context.requestId, sourceIp: context.ip, actor: await this.subjectForUser(user) },
+    });
+    return { success: true };
+  }
+
   async currentSession(userId: string): Promise<AuthSessionResponse> {
     await this.seedReady;
     const user = await this.rbac.getUser(userId);

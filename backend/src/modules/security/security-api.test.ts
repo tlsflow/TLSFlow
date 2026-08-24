@@ -556,6 +556,113 @@ describe('安全 API 最小闭环', () => {
     assert.equal(policy.statusCode, 201);
   });
 
+  it('当前用户偏好会保存到后端并拒绝非法语言', async () => {
+    const security = createSecurityServices();
+    const app = createApp({ security });
+
+    const login = await app.inject({
+      method: 'POST',
+      path: '/api/v1/auth/login',
+      body: { username: 'admin', password: 'admin12345' },
+    });
+    assert.equal(login.statusCode, 200);
+    const token = (login.body as { token: string }).token;
+
+    const defaults = await app.inject({
+      method: 'GET',
+      path: '/api/v1/auth/preferences',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(defaults.statusCode, 200);
+    assert.deepEqual(defaults.body, { theme: 'light', locale: 'zh-CN', version: 1 });
+
+    const updated = await app.inject({
+      method: 'PUT',
+      path: '/api/v1/auth/preferences',
+      headers: { authorization: `Bearer ${token}` },
+      body: { theme: 'dark', locale: 'pt-BR' },
+    });
+    assert.equal(updated.statusCode, 200);
+    assert.deepEqual(updated.body, { theme: 'dark', locale: 'pt-BR', version: 1 });
+
+    const persisted = await app.inject({
+      method: 'GET',
+      path: '/api/v1/auth/preferences',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(persisted.statusCode, 200);
+    assert.deepEqual(persisted.body, { theme: 'dark', locale: 'pt-BR', version: 1 });
+
+    const invalid = await app.inject({
+      method: 'PUT',
+      path: '/api/v1/auth/preferences',
+      headers: { authorization: `Bearer ${token}` },
+      body: { theme: 'dark', locale: 'pt-PT' },
+    });
+    assert.equal(invalid.statusCode, 400);
+  });
+
+  it('当前用户可以修改密码，旧密码立即失效', async () => {
+    const security = createSecurityServices();
+    const app = createApp({ security });
+
+    const login = await app.inject({
+      method: 'POST',
+      path: '/api/v1/auth/login',
+      body: { username: 'admin', password: 'admin12345' },
+    });
+    assert.equal(login.statusCode, 200);
+    const token = (login.body as { token: string }).token;
+
+    const wrongCurrentPassword = await app.inject({
+      method: 'PUT',
+      path: '/api/v1/auth/password',
+      headers: { authorization: `Bearer ${token}` },
+      body: { currentPassword: 'wrong-password', newPassword: 'new-admin-password' },
+    });
+    assert.equal(wrongCurrentPassword.statusCode, 401);
+
+    const tooShort = await app.inject({
+      method: 'PUT',
+      path: '/api/v1/auth/password',
+      headers: { authorization: `Bearer ${token}` },
+      body: { currentPassword: 'admin12345', newPassword: 'short' },
+    });
+    assert.equal(tooShort.statusCode, 400);
+
+    const changed = await app.inject({
+      method: 'PUT',
+      path: '/api/v1/auth/password',
+      headers: { authorization: `Bearer ${token}` },
+      body: { currentPassword: 'admin12345', newPassword: 'new-admin-password' },
+    });
+    assert.equal(changed.statusCode, 200);
+    assert.deepEqual(changed.body, { success: true });
+
+    const oldPassword = await app.inject({
+      method: 'POST',
+      path: '/api/v1/auth/login',
+      body: { username: 'admin', password: 'admin12345' },
+    });
+    assert.equal(oldPassword.statusCode, 401);
+
+    const newPassword = await app.inject({
+      method: 'POST',
+      path: '/api/v1/auth/login',
+      body: { username: 'admin', password: 'new-admin-password' },
+    });
+    assert.equal(newPassword.statusCode, 200);
+    const newToken = (newPassword.body as { token: string }).token;
+
+    const restored = await app.inject({
+      method: 'PUT',
+      path: '/api/v1/auth/password',
+      headers: { authorization: `Bearer ${newToken}` },
+      body: { currentPassword: 'new-admin-password', newPassword: 'admin12345' },
+    });
+    assert.equal(restored.statusCode, 200);
+  });
+
   it('错误密码不能登录，禁用用户不能继续登录', async () => {
     const security = createSecurityServices();
     const app = createApp({ security });

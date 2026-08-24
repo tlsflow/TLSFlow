@@ -258,6 +258,128 @@
         }
       }
     },
+    "/api/v1/auth/permission-context": {
+      "get": {
+        "operationId": "getPermissionContext",
+        "summary": "获取当前对象级权限上下文",
+        "tags": [
+          "Auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/password": {
+      "put": {
+        "operationId": "changeCurrentUserPassword",
+        "summary": "修改当前用户密码",
+        "tags": [
+          "Auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/preferences": {
+      "get": {
+        "operationId": "getCurrentUserPreferences",
+        "summary": "获取当前用户偏好",
+        "tags": [
+          "Auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "put": {
+        "operationId": "updateCurrentUserPreferences",
+        "summary": "保存当前用户偏好",
+        "tags": [
+          "Auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/secrets": {
       "get": {
         "operationId": "listSecrets",
@@ -531,6 +653,128 @@
         }
       }
     },
+    "/api/v1/security/groups": {
+      "get": {
+        "operationId": "listSecurityGroups",
+        "summary": "查询用户组列表",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createSecurityGroup",
+        "summary": "创建本地用户组",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/security/groups/lookup-external": {
+      "post": {
+        "operationId": "lookupExternalSecurityGroup",
+        "summary": "检索身份源用户组",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/security/groups/external": {
+      "post": {
+        "operationId": "createExternalSecurityGroup",
+        "summary": "创建身份源用户组",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/security/users/lookup-external": {
       "post": {
         "operationId": "lookupExternalSecurityUser",
@@ -746,6 +990,37 @@
         }
       }
     },
+    "/api/v1/security/roles/delete": {
+      "delete": {
+        "operationId": "deleteSecurityRole",
+        "summary": "删除角色",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/security/permission-policies": {
       "get": {
         "operationId": "listSecurityPermissionPolicies",
@@ -779,6 +1054,279 @@
       "post": {
         "operationId": "createSecurityPermissionPolicy",
         "summary": "鍒涘缓鏉冮檺绛栫暐",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/security/object-types": {
+      "get": {
+        "operationId": "listSecurityObjectTypes",
+        "summary": "查询权限对象类型",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/security/object-sets": {
+      "get": {
+        "operationId": "listSecurityObjectSets",
+        "summary": "查询权限对象集合",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createSecurityObjectSet",
+        "summary": "创建权限对象集合",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/security/object-set-members": {
+      "post": {
+        "operationId": "addSecurityObjectSetMember",
+        "summary": "添加权限对象集合成员",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/security/role-bindings": {
+      "get": {
+        "operationId": "listSecurityRoleBindings",
+        "summary": "查询对象级角色绑定",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createSecurityRoleBinding",
+        "summary": "创建对象级角色绑定",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/security/access-grants": {
+      "get": {
+        "operationId": "listSecurityAccessGrants",
+        "summary": "查询对象级访问授权",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createSecurityAccessGrant",
+        "summary": "创建对象级访问授权",
+        "tags": [
+          "Security"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/security/object-capabilities": {
+      "post": {
+        "operationId": "getSecurityObjectCapabilities",
+        "summary": "批量查询对象级能力",
         "tags": [
           "Security"
         ],
@@ -4811,6 +5359,68 @@
         }
       }
     },
+    "/api/v1/agents/install-sessions/linux-go": {
+      "post": {
+        "operationId": "createLinuxGoAgentInstallSession",
+        "summary": "创建 Linux Go Agent 安装会话",
+        "tags": [
+          "Agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/agents/gateway-enable-sessions": {
+      "post": {
+        "operationId": "createAgentGatewayEnableSession",
+        "summary": "创建现有 Agent 启用 Gateway 命令",
+        "tags": [
+          "Agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/agent-install.ps1": {
       "get": {
         "operationId": "getWindowsPowerShellAgentShortInstall",
@@ -4845,6 +5455,66 @@
       "get": {
         "operationId": "getLinuxGoAgentShortInstall",
         "summary": "获取 Linux Go Agent 短安装入口",
+        "tags": [
+          "Agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/agent-enable-gateway.ps1": {
+      "get": {
+        "operationId": "getWindowsAgentGatewayEnableScript",
+        "summary": "获取 Windows Agent 启用 Gateway 脚本",
+        "tags": [
+          "Agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/agent-enable-gateway": {
+      "get": {
+        "operationId": "getLinuxAgentGatewayEnableScript",
+        "summary": "获取 Linux Agent 启用 Gateway 脚本",
         "tags": [
           "Agents"
         ],
@@ -6376,6 +7046,68 @@
         }
       }
     },
+    "/api/v1/workflow-templates/canvas/compile": {
+      "post": {
+        "operationId": "compileWorkflowCanvas",
+        "summary": "后端编译工作流画布",
+        "tags": [
+          "WorkflowTemplates"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/workflow-templates/canvas/validate": {
+      "post": {
+        "operationId": "validateWorkflowCanvas",
+        "summary": "后端校验工作流画布",
+        "tags": [
+          "WorkflowTemplates"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/workflow-templates/delete": {
       "post": {
         "operationId": "deleteWorkflowTemplate",
@@ -6533,6 +7265,68 @@
       "post": {
         "operationId": "createWorkflowTemplateVersion",
         "summary": "创建不可变模板版本",
+        "tags": [
+          "WorkflowTemplates"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/workflow-template-versions/draft": {
+      "post": {
+        "operationId": "updateCurrentWorkflowTemplateDraftVersion",
+        "summary": "更新当前草稿版本",
+        "tags": [
+          "WorkflowTemplates"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/workflow-template-versions/note": {
+      "post": {
+        "operationId": "updateWorkflowTemplateVersionNote",
+        "summary": "更新模板版本备注",
         "tags": [
           "WorkflowTemplates"
         ],
@@ -7354,5 +8148,5 @@
       "description": "证书绑定生产事实中心"
     }
   ],
-  "x-generatedAt": "2026-07-06T01:24:24.898Z"
+  "x-generatedAt": "2026-07-07T04:53:10.296Z"
 }
