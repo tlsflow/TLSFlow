@@ -31,8 +31,8 @@ async function submit() {
   error.value = ''
   loading.value = true
   try {
-    const session = await authStore.login({ username: username.value.trim(), password: password.value })
-    permissionStore.setPermissions(session.permissions ?? [])
+    await authStore.login({ username: username.value.trim(), password: password.value })
+    await permissionStore.loadPermissions()
     await router.push(redirectPath.value)
   } catch (cause) {
     if (cause instanceof ApiClientError) {

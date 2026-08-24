@@ -5,13 +5,36 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { i18n } from '@/i18n'
 import LoginView from '@/views/auth/LoginView.vue'
 import { setAuthProvider } from '@/providers/auth.provider'
+import { setPermissionProvider } from '@/providers/permission.provider'
 
 describe('LoginView', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    setPermissionProvider({
+      async loadPermissions() {
+        return []
+      }
+    })
   })
 
   it('使用极简登录表单提交后进入仪表盘', async () => {
+    const loadPermissions = vi.fn(async () => ({
+      user: {
+        id: 'user_admin',
+        username: 'admin',
+        displayName: '系统管理员',
+        tenantId: 'default',
+        tenantName: '默认租户',
+        status: 'active',
+        roles: []
+      },
+      roles: [],
+      permissions: ['*'],
+      objectSets: [{ id: 'oset_asset', objectTypes: ['application_asset'] }],
+      roleBindings: [],
+      objectPermissionVersion: 'test',
+      expiresAt: new Date('2026-08-07T12:00:00.000Z').toISOString()
+    }))
     setAuthProvider({
       async bootstrapSession() { return null },
       async login() {
@@ -22,6 +45,12 @@ describe('LoginView', () => {
         }
       },
       async logout() {}
+    })
+    setPermissionProvider({
+      async loadPermissions() {
+        return ['*']
+      },
+      loadPermissionContext: loadPermissions
     })
     const router = createRouter({
       history: createMemoryHistory(),
@@ -38,6 +67,7 @@ describe('LoginView', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
+    expect(loadPermissions).toHaveBeenCalledTimes(1)
     expect(router.currentRoute.value.path).toBe('/dashboard')
   })
 
