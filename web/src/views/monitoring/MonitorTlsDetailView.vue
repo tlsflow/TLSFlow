@@ -318,6 +318,11 @@ const simulationRows = computed(() => (snapshot.value?.simulations ?? []).map((i
   serverCertificateLabel: item.serverCertificate || t('monitoring.tls.values.unknown'),
   keyExchangeLabel: item.keyExchange || t('monitoring.tls.values.none'),
   explanationLabel: item.explanation || t('monitoring.tls.values.none'),
+  fsLabel: item.forwardSecrecy === null || item.forwardSecrecy === undefined
+    ? t('monitoring.tls.values.none')
+    : item.forwardSecrecy ? t('monitoring.tls.values.fs') : t('monitoring.tls.values.noFs'),
+  noteLabel: simulationNoteLabel(item),
+  resultFlagsLabel: item.resultFlags?.length ? item.resultFlags.join(' ') : t('monitoring.tls.values.none'),
   clientMarkers: [
     ...(item.capabilityNotes ?? []),
     ...(item.reference ? ['R'] : []),
@@ -1069,25 +1074,29 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
               <thead>
                 <tr>
                   <th>{{ t('monitoring.tls.labels.client') }}</th>
+                  <th>{{ t('monitoring.tls.labels.certificate') }}</th>
                   <th>{{ t('monitoring.tls.labels.protocol') }}</th>
                   <th>{{ t('monitoring.tls.labels.cipherSuite') }}</th>
-                  <th>{{ t('monitoring.tls.labels.forwardSecrecy') }}</th>
-                  <th>{{ t('monitoring.tls.labels.notes') }}</th>
+                  <th>{{ t('monitoring.tls.labels.keyExchange') }}</th>
+                  <th>{{ t('monitoring.tls.labels.flags') }}</th>
                   <th>{{ t('monitoring.tls.labels.result') }}</th>
                   <th>{{ t('monitoring.tls.labels.reason') }}</th>
-                  <th>{{ t('monitoring.tls.labels.boundary') }}</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="item in simulationRows" :key="item.profileId">
                   <td>
                     <strong>{{ item.profileName }}</strong>
-                    <div class="tls-table__subtle">{{ item.profileVersion }}</div>
+                    <div class="tls-table__subtle">{{ item.profileVersion }}<span v-if="item.reference"> · R</span></div>
                   </td>
-                  <td>{{ item.protocol || t('monitoring.tls.values.none') }}</td>
+                  <td>{{ item.serverCertificateLabel }}</td>
+                  <td>{{ item.protocolDisplay }}</td>
                   <td>{{ item.cipherSuite || t('monitoring.tls.values.none') }}</td>
-                  <td>{{ item.fsLabel }}</td>
-                  <td>{{ item.noteLabel }}</td>
+                  <td>{{ item.keyExchangeLabel }}</td>
+                  <td>
+                    <span>{{ item.resultFlagsLabel }}</span>
+                    <div v-if="item.noteLabel !== t('monitoring.tls.values.none')" class="tls-table__subtle">{{ item.noteLabel }}</div>
+                  </td>
                   <td>
                     <GcStatusTag
                       :status="item.status.toUpperCase()"
@@ -1095,8 +1104,10 @@ function resolveInspectorError(cause: unknown, fallbackMessage: string) {
                       :tone="item.statusTone"
                     />
                   </td>
-                  <td>{{ item.reasonLabel }}</td>
-                  <td>{{ item.boundaryNote }}</td>
+                  <td>
+                    <strong>{{ item.reasonLabel }}</strong>
+                    <div class="tls-table__subtle">{{ item.explanationLabel }}</div>
+                  </td>
                 </tr>
               </tbody>
             </table>
