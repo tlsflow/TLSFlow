@@ -3,6 +3,7 @@ import { listRecords, postAction, toClientPath, type ApiBody, type BusinessListQ
 
 const HOSTS_PATH = '/api/v1/hosts'
 const SERVICE_ASSETS_PATH = '/api/v1/service-assets'
+const APPLICATIONS_PATH = '/api/v1/applications'
 const FRAMEWORK_INSTANCES_PATH = '/api/v1/framework-instances'
 const SITE_ASSETS_PATH = '/api/v1/site-assets'
 const MANAGED_TARGETS_PATH = '/api/v1/managed-targets'
@@ -14,23 +15,31 @@ const CAPABILITY_REQUIREMENTS_PATH = '/api/v1/capabilities/requirements'
 const AGENTS_PATH = '/api/v1/agents'
 
 export function listAssets(query?: BusinessListQuery) {
-  return listRecords(SERVICE_ASSETS_PATH, query)
+  return listRecords(APPLICATIONS_PATH, query)
+}
+
+export function listApplications(query?: BusinessListQuery) {
+  return listRecords(APPLICATIONS_PATH, query)
+}
+
+export function getApplicationDetail(applicationId: string): Promise<ApiRecordResult> {
+  return apiClient.get<ApiRecord>(`${toClientPath(`${APPLICATIONS_PATH}/detail`)}?applicationId=${encodeURIComponent(applicationId)}`)
 }
 
 export function createServiceAsset(payload: ApiBody) {
-  return postAction(SERVICE_ASSETS_PATH, payload, 'service_asset_create')
+  return postAction(APPLICATIONS_PATH, payload, 'application_create')
 }
 
 export function updateServiceAsset(serviceAssetId: string, payload: ApiBody) {
-  return patchAction(SERVICE_ASSETS_PATH, { ...payload, id: serviceAssetId }, 'service_asset_update')
+  return patchAction(APPLICATIONS_PATH, { ...payload, id: serviceAssetId }, 'application_update')
 }
 
 export function deleteServiceAsset(serviceAssetId: string) {
-  return postAction(`${SERVICE_ASSETS_PATH}/delete`, { id: serviceAssetId }, 'service_asset_delete')
+  return postAction(`${APPLICATIONS_PATH}/delete`, { id: serviceAssetId }, 'application_delete')
 }
 
 export function getAssetDetail(serviceAssetId: string): Promise<ApiRecordResult> {
-  return apiClient.get<ApiRecord>(`${toClientPath(SERVICE_ASSETS_PATH)}/detail?serviceAssetId=${encodeURIComponent(serviceAssetId)}`)
+  return apiClient.get<ApiRecord>(`${toClientPath(`${APPLICATIONS_PATH}/detail`)}?applicationId=${encodeURIComponent(serviceAssetId)}`)
 }
 
 export function createHost(payload: ApiBody) {
@@ -74,6 +83,14 @@ export function saveApplicationAssetManagedTarget(applicationAssetId: string, pa
     method: 'PUT',
     body: payload,
     idempotencyKey: createIdempotencyKey('application_asset_managed_target_save'),
+  })
+}
+
+export function saveApplicationManagedTarget(applicationId: string, payload: ApiBody): Promise<ApiRecordResult> {
+  return apiClient.request<ApiRecord>(toClientPath(`/api/v1/application-targets`), {
+    method: 'POST',
+    body: { ...payload, applicationId },
+    idempotencyKey: createIdempotencyKey('application_target_save'),
   })
 }
 

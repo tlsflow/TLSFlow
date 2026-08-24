@@ -154,6 +154,22 @@ export const businessRoutes: GcRouteRecord[] = [
     }
   },
   {
+    path: '/providers',
+    name: 'provider.cloud.list',
+    component: () => import('@/views/providers/CloudProvidersView.vue'),
+    meta: {
+      title: 'Cloud Providers',
+      titleKey: 'providers.page.title',
+      module: 'provider',
+      requiresAuth: true,
+      permission: 'service_asset.read',
+      resourceType: 'service_asset',
+      riskLevel: 'high',
+      breadcrumbKeys: ['nav.assets', 'providers.page.title'],
+      keepAlive: true
+    }
+  },
+  {
     path: '/assets',
     name: 'asset.list',
     component: () => import('@/views/assets/AssetsView.vue'),
@@ -218,6 +234,22 @@ export const businessRoutes: GcRouteRecord[] = [
     }
   },
   {
+    path: '/assets/devices',
+    name: 'asset.device.list',
+    component: () => import('@/views/devices/DevicesView.vue'),
+    meta: {
+      title: 'Assets',
+      titleKey: 'devices.page.title',
+      module: 'asset',
+      requiresAuth: true,
+      permission: 'host.read',
+      resourceType: 'host',
+      riskLevel: 'medium',
+      breadcrumbKeys: ['nav.assets', 'devices.page.title'],
+      keepAlive: true
+    }
+  },
+  {
     path: '/devices',
     name: 'device.list',
     component: () => import('@/views/devices/DevicesView.vue'),
@@ -236,7 +268,7 @@ export const businessRoutes: GcRouteRecord[] = [
   {
     path: '/agents',
     name: 'agent.list',
-    redirect: (to) => ({ path: '/devices', query: to.query, hash: to.hash }),
+    redirect: (to) => ({ path: '/assets/devices', query: to.query, hash: to.hash }),
     meta: {
       title: 'Agent',
       titleKey: 'nav.agents',

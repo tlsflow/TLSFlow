@@ -5,11 +5,13 @@ import { devicesKoKR } from './devices.locale'
 import { caOperationsKoKR } from './ca-operations.locale'
 import { credentialsKoKR } from './credentials.locale'
 import { acmeKoKR } from './acme.locale'
+import { providersKoKR } from './providers.locale'
 export default {
   credentials: credentialsKoKR,
   devices: devicesKoKR,
   caOperations: caOperationsKoKR,
   acme: acmeKoKR,
+  providers: providersKoKR,
   app: {
     brand: 'GCAC 콘솔',
     platform: '기업 SSL 인증서 수명 주기 관리 플랫폼',

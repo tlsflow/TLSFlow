@@ -5,11 +5,13 @@ import { devicesPtBR } from './devices.locale'
 import { caOperationsPtBR } from './ca-operations.locale'
 import { credentialsPtBR } from './credentials.locale'
 import { acmePtBR } from './acme.locale'
+import { providersPtBR } from './providers.locale'
 export default {
   credentials: credentialsPtBR,
   devices: devicesPtBR,
   caOperations: caOperationsPtBR,
   acme: acmePtBR,
+  providers: providersPtBR,
   app: {
     brand: 'Console GCAC',
     platform: 'Plataforma de ciclo de vida de certificados SSL corporativos',

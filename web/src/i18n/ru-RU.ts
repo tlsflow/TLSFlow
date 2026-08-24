@@ -5,11 +5,13 @@ import { devicesRuRU } from './devices.locale'
 import { caOperationsRuRU } from './ca-operations.locale'
 import { credentialsRuRU } from './credentials.locale'
 import { acmeRuRU } from './acme.locale'
+import { providersRuRU } from './providers.locale'
 export default {
   credentials: credentialsRuRU,
   devices: devicesRuRU,
   caOperations: caOperationsRuRU,
   acme: acmeRuRU,
+  providers: providersRuRU,
   app: {
     brand: 'Консоль GCAC',
     platform: 'Корпоративная платформа управления жизненным циклом SSL-сертификатов',

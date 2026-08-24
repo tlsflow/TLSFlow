@@ -43,7 +43,7 @@ const config = computed<BusinessPageConfig>(() => ({
   primaryActionLabel: t('devices.actions.add'),
   primaryAction: () => { onboardingOpen.value = true },
   moduleName: 'devices',
-  resourceName: 'Device',
+  resourceName: t('devices.page.title'),
   defaultStatus: 'UNKNOWN',
   defaultRisk: 'MEDIUM',
   showHeader: false,
