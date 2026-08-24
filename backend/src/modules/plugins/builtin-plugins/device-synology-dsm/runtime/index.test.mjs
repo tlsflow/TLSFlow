@@ -84,10 +84,29 @@ test('Synology 真实 Runner 子进程执行 DSM discovery Fixture 并输出标�
     assert.equal(result.status, 'SUCCESS', JSON.stringify(result));
     assert.equal(result.output.normalizedObjects[0].apiVersion, 'gcac.device-discovery/v2');
     assert.equal(result.output.normalizedObjects[0].device.productFamily, 'device.synology-dsm');
-    assert.deepEqual(result.output.normalizedObjects[0].sites.map((site) => site.displayName), ['DSM Management', 'Synology HTTP', '全部 HTTP 服务']);
-    assert.deepEqual(result.output.normalizedObjects[0].managedTargets.map((target) => target.targetKey), ['DSM:encoded-RFNNIE1hbmFnZW1lbnQ', 'DSM:ALL_HTTP_SERVICES']);
+    assert.deepEqual(result.output.normalizedObjects[0].sites.map((site) => site.displayName), ['Default']);
+    assert.deepEqual(result.output.normalizedObjects[0].managedTargets.map((target) => target.targetKey), ['Default']);
     assert.equal(result.output.normalizedObjects[0].certificateBindings.length, 1);
-    assert.equal(result.output.normalizedObjects[0].warnings[0].code, 'SYNOLOGY_SERVICE_PROTOCOL_UNSUPPORTED');
+    assert.equal(result.output.normalizedObjects[0].certificateBindings[0].metadata.allServices, true);
+    assert.deepEqual(result.output.normalizedObjects[0].certificates[0], {
+      stableKey: 'CERT:cert-old',
+      sha256Fingerprint: 'a'.repeat(64),
+      subject: 'CN=dsm.example.invalid',
+      issuer: 'CN=Fixture Issuer',
+      notBefore: '2026-01-01T00:00:00Z',
+      notAfter: '2027-01-01T00:00:00Z',
+      metadata: {
+        certificateId: 'cert-old',
+        certkey: 'DSM Fixture Certificate',
+        isDefault: true,
+        services: [{ display_name: 'DSM Desktop Service', service: 'default' }],
+        subject: 'CN=dsm.example.invalid',
+        issuer: 'CN=Fixture Issuer',
+        notBefore: '2026-01-01T00:00:00Z',
+        notAfter: '2027-01-01T00:00:00Z',
+      },
+    });
+    assert.deepEqual(result.output.normalizedObjects[0].warnings, []);
     assert.doesNotMatch(JSON.stringify(result), /fixture-password|secret-value/);
   } finally {
     if (client.state === 'READY' || client.state === 'DRAINING') await client.drain();
@@ -148,7 +167,7 @@ test('Synology deploy Fixture 按默认 DSM 服务键验证 Artifact Grant、写
   await withEnvironment(env, async () => {
     const executor = createPluginRunnerExecutor();
     const result = await executor.execute(context(executor, 'certificate.deploy', ['secret-grant', 'artifact-grant'], true, {
-      deviceAddress: '192.0.2.50', target: 'Synology DSM', certificateId: 'cert-new',
+      deviceAddress: '192.0.2.50', target: 'Default', certificateId: 'cert-new',
       credential: { username: 'fixture-user', secretRef: 'secret://device/password', grantId: 'secret-grant' },
       artifact: { artifactRef: 'artifact://certificate/new', grantId: 'artifact-grant' }, protocolFixture: writeFixture(),
     }), hostApi);
@@ -158,7 +177,7 @@ test('Synology deploy Fixture 按默认 DSM 服务键验证 Artifact Grant、写
   });
 });
 
-test('Synology 全部 HTTP 服务目标复用现有全量绑定语义', async () => {
+test('Synology Default 目标复用现有全量绑定语义', async () => {
   await withEnvironment(env, async () => {
     const executor = createPluginRunnerExecutor();
     const fixture = writeFixture();
@@ -170,7 +189,7 @@ test('Synology 全部 HTTP 服务目标复用现有全量绑定语义', async ()
       ok({ success: true, data: { certificates: [{ id: 'cert-old', services, sha256Fingerprint: 'a'.repeat(64) }] } }),
       ok({ success: true, data: { certificates: [{ id: 'cert-new', services, sha256Fingerprint: 'b'.repeat(64) }] } }),
     ];
-    fixture.responses[IMPORT_PATH].expectedRequest.body.target = '全部 HTTP 服务';
+    fixture.responses[IMPORT_PATH].expectedRequest.body.target = 'Default';
     fixture.responses[SERVICE_BINDING_PATH].expectedRequest = {
       method: 'POST',
       path: '/webapi/entry.cgi?api=SYNO.Core.Certificate.Service&version=1&method=set',
@@ -183,7 +202,7 @@ test('Synology 全部 HTTP 服务目标复用现有全量绑定语义', async ()
       },
     };
     const result = await executor.execute(context(executor, 'certificate.deploy', ['secret-grant', 'artifact-grant'], true, {
-      deviceAddress: '192.0.2.50', target: '全部 HTTP 服务', certificateId: 'cert-new',
+      deviceAddress: '192.0.2.50', target: 'Default', certificateId: 'cert-new',
       credential: { username: 'fixture-user', secretRef: 'secret://device/password', grantId: 'secret-grant' },
       artifact: { artifactRef: 'artifact://certificate/new', grantId: 'artifact-grant' }, protocolFixture: fixture,
     }), hostApi);
@@ -197,7 +216,7 @@ test('Synology rollback Fixture 按默认 DSM 服务键使用 Certificate.Servic
   await withEnvironment(env, async () => {
     const executor = createPluginRunnerExecutor();
     const result = await executor.execute(context(executor, 'certificate.rollback', ['secret-grant'], true, {
-      deviceAddress: '192.0.2.50', target: 'Synology DSM',
+      deviceAddress: '192.0.2.50', target: 'Default',
       previousCertificate: { id: 'cert-old', services: [{ display_name: 'DSM Desktop Service', service: 'default' }] },
       credential: { username: 'fixture-user', secretRef: 'secret://device/password', grantId: 'secret-grant' },
       protocolFixture: rollbackFixture(),
@@ -215,7 +234,7 @@ test('Synology 写入传输失败后只能返回 UNKNOWN', async () => {
     assert.ok(failureCase);
     fixture.responses[IMPORT_PATH] = failureCase.response;
     const result = await executor.execute(context(executor, 'certificate.deploy', ['secret-grant', 'artifact-grant'], true, {
-      deviceAddress: '192.0.2.50', target: 'Synology DSM', certificateId: 'cert-new',
+      deviceAddress: '192.0.2.50', target: 'Default', certificateId: 'cert-new',
       credential: { username: 'fixture-user', secretRef: 'secret://device/password', grantId: 'secret-grant' },
       artifact: { artifactRef: 'artifact://certificate/new', grantId: 'artifact-grant' }, protocolFixture: fixture,
     }), hostApi);
@@ -287,13 +306,7 @@ function discoveryFixture() {
     apiVersion: 'gcac.device-fixture/v1', protocol: 'DSM', device: { managementAddress: '192.0.2.50' },
     responses: {
       'POST /webapi/auth.cgi?api=SYNO.API.Auth&version=7&method=login&session=GCAC&format=sid': ok({ success: true, data: { sid: 'fixture-session', synotoken: 'fixture-token' } }),
-      'GET /webapi/entry.cgi?api=SYNO.DSM.Info&version=2&method=get': ok({ success: true, data: { version: 'DSM 7.2.1 Fixture' } }),
-      'GET /webapi/entry.cgi?api=SYNO.Core.Network.Interface&version=1&method=list': ok({ success: true, data: { services: [
-        { id: 'dsm-web', name: 'DSM Management', port: 5001, protocol: 'HTTPS', certificateId: 'cert-old' },
-        { id: 'http-web', name: 'Synology HTTP', port: 5000, protocol: 'HTTP' },
-        { id: 'ftps', name: 'FTPS', port: 990, protocol: 'FTPS' },
-      ] } }),
-      'GET /webapi/entry.cgi?api=SYNO.Core.Certificate.CRT&version=1&method=list': ok({ success: true, data: { certificates: [{ id: 'cert-old', services: [{ display_name: 'DSM Management' }], sha256Fingerprint: 'a'.repeat(64), subject: 'CN=dsm.example.invalid', issuer: 'CN=Fixture Issuer', notAfter: '2027-01-01T00:00:00Z' }] } }),
+      'GET /webapi/entry.cgi?api=SYNO.Core.Certificate.CRT&version=1&method=list': ok({ success: true, data: { certificates: [{ id: 'cert-old', desc: 'DSM Fixture Certificate', is_default: true, services: [{ display_name: 'DSM Desktop Service', service: 'default' }], sha256Fingerprint: 'a'.repeat(64), subject: { common_name: 'dsm.example.invalid' }, issuer: { common_name: 'Fixture Issuer' }, valid_from: '2026-01-01T00:00:00Z', valid_till: '2027-01-01T00:00:00Z' }] } }),
     },
   };
 }
@@ -312,7 +325,7 @@ function writeFixture() {
         expectedRequest: {
           method: 'POST',
           path: '/webapi/entry.cgi?api=SYNO.Core.Certificate&version=1&method=import',
-          body: { sid: 'fixture-session', target: 'Synology DSM', certificateId: 'cert-new', artifactRef: 'artifact://certificate/new', artifactSha256: `sha256:${'e'.repeat(64)}`, intermediateCount: 0 },
+          body: { sid: 'fixture-session', target: 'Default', certificateId: 'cert-new', artifactRef: 'artifact://certificate/new', artifactSha256: `sha256:${'e'.repeat(64)}`, intermediateCount: 0 },
         },
       },
       [SERVICE_BINDING_PATH]: {

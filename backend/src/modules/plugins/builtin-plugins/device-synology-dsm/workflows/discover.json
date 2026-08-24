@@ -5,7 +5,7 @@
     "name": "synology-dsm-discover",
     "displayName": "Synology DSM discovery",
     "category": "device",
-    "version": "1.1.1",
+    "version": "2.0.6",
     "platforms": ["appliance"],
     "updateMethods": ["curl"],
     "maintainer": "GCAC"
@@ -71,40 +71,6 @@
       "assert": [{ "type": "statusCode", "equals": 200 }, { "type": "jsonPath", "path": "$.success", "equals": true }]
     },
     {
-      "name": "readDsmInfo",
-      "type": "http",
-      "stage": "prepare",
-      "request": {
-        "method": "GET",
-        "connectionRef": "management",
-        "url": "/webapi/entry.cgi?api=SYNO.DSM.Info&version=2&method=get&_sid={{steps.authenticate.extracted.sid}}",
-        "headers": { "Accept": "application/json", "X-SYNO-TOKEN": "{{steps.authenticate.extracted.synotoken}}" },
-        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true },
-        "timeoutSeconds": 30,
-        "maxResponseBytes": 1048576,
-        "successStatusCodes": [200]
-      },
-      "extract": [{ "name": "info", "type": "outputPath", "path": "$.body" }],
-      "assert": [{ "type": "statusCode", "equals": 200 }, { "type": "jsonPath", "path": "$.success", "equals": true }]
-    },
-    {
-      "name": "readServices",
-      "type": "http",
-      "stage": "prepare",
-      "request": {
-        "method": "GET",
-        "connectionRef": "management",
-        "url": "/webapi/entry.cgi?api=SYNO.Core.Network.Interface&version=1&method=list&_sid={{steps.authenticate.extracted.sid}}",
-        "headers": { "Accept": "application/json", "X-SYNO-TOKEN": "{{steps.authenticate.extracted.synotoken}}" },
-        "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true },
-        "timeoutSeconds": 30,
-        "maxResponseBytes": 1048576,
-        "successStatusCodes": [200]
-      },
-      "extract": [{ "name": "services", "type": "outputPath", "path": "$.body" }],
-      "assert": [{ "type": "statusCode", "equals": 200 }, { "type": "jsonPath", "path": "$.success", "equals": true }]
-    },
-    {
       "name": "readCertificates",
       "type": "http",
       "stage": "prepare",
@@ -129,17 +95,11 @@
         "engine": "jsonata",
         "input": {
           "address": "{{connections.management.host}}",
-          "info": "{{steps.readDsmInfo.extracted.info}}",
-          "services": "{{steps.readServices.extracted.services}}",
           "certificates": "{{steps.readCertificates.extracted.certificates}}"
         },
         "outputs": {
           "discovery": {
-
-
-
-
-            "expression": "($safeKey := function($value){($text := $string($value); $match($text,/^[A-Za-z0-9._:-]+$/) ? $text : 'encoded-' & $replace($replace($replace($base64encode($text), '+', '-'), '/', '_'), '=', ''))}; $all := services.data.services; $web := $filter($all, function($service){($protocol := $uppercase($string($service.protocol)); $protocol = 'HTTP' or $protocol = 'HTTPS')}); $https := $filter($web, function($service){$uppercase($string($service.protocol)) = 'HTTPS'}); $sites := $append([], $map($web, function($service){($protocol := $uppercase($string($service.protocol)); $key := $safeKey($service.name); {'stableKey':'DSM:' & $key,'frameworkStableKey':'framework:synology-dsm','siteType':'device.service','displayName':$service.name,'addresses':[address],'port':$service.port,'protocol':$protocol,'metadata':{'serviceId':$service.id,'certificateId':$service.certificateId}})})); $aggregate := $count($https) > 0 ? [{'stableKey':'DSM:ALL_HTTP_SERVICES','frameworkStableKey':'framework:synology-dsm','siteType':'device.service.aggregate','displayName':'全部 HTTP 服务','addresses':[address],'port':5001,'protocol':'HTTPS','metadata':{'allServices':true}}] : []; $singleTargets := $append([], $map($https, function($service){($key := $safeKey($service.name); {'stableKey':'TARGET:DSM:' & $key,'frameworkStableKey':'framework:synology-dsm','siteStableKey':'DSM:' & $key,'targetType':'tls.binding','targetKey':'DSM:' & $key,'supportedCapabilities':['certificate.deploy','certificate.rollback'],'executionLocations':['CONTROL_PLANE','GATEWAY']})})); $aggregateTargets := $count($https) > 0 ? [{'stableKey':'TARGET:DSM:ALL_HTTP_SERVICES','frameworkStableKey':'framework:synology-dsm','siteStableKey':'DSM:ALL_HTTP_SERVICES','targetType':'tls.binding','targetKey':'DSM:ALL_HTTP_SERVICES','supportedCapabilities':['certificate.deploy','certificate.rollback'],'executionLocations':['CONTROL_PLANE','GATEWAY'],'metadata':{'allServices':true}}] : []; $webNames := $map($https, function($service){$service.name}); $normalizedCertificates := $append([], $map(certificates.data.certificates, function($certificate){($certificateKey := $safeKey($string($certificate.id)); $merge([$certificate, {'stableKey':'CERT:' & $certificateKey,'sha256Fingerprint':$certificate.sha256Fingerprint}]))})); $bindings := $reduce(certificates.data.certificates, function($acc,$certificate){($certificateKey := $safeKey($string($certificate.id)); $append($acc,$map($filter($append([], $append($certificate.services, $map($certificate.serviceNames, function($name){ {'display_name':$name} }))), function($service){$service.display_name in $webNames}), function($service){($serviceKey := $safeKey($service.display_name); {'stableKey':'BINDING:' & $serviceKey & ':' & $certificateKey,'managedTargetStableKey':'TARGET:DSM:' & $serviceKey,'certificateStableKey':'CERT:' & $certificateKey,'bindingName':$service.display_name,'metadata':{'certificateId':$string($certificate.id)}})})))} , []); $warnings := $append([], $map($filter($all, function($service){($protocol := $uppercase($string($service.protocol)); $protocol != 'HTTP' and $protocol != 'HTTPS')}), function($service){ {'code':'SYNOLOGY_SERVICE_PROTOCOL_UNSUPPORTED','messageKey':'plugin.synologyDsm.warning.unsupportedServiceProtocol','metadata':{'serviceName':$service.name,'protocol':$service.protocol}} })); {'apiVersion':'gcac.device-discovery/v2','device':{'stableKey':'synology-dsm:' & address,'displayName':address,'productFamily':'device.synology-dsm','softwareVersion':info.data.version,'managementAddress':address},'capabilities':[{'key':'device.connection.test','available':true},{'key':'device.discover','available':true},{'key':'certificate.deploy','available':true},{'key':'certificate.rollback','available':true}],'frameworks':[{'stableKey':'framework:synology-dsm','frameworkType':'synology.dsm-web','displayName':'DSM Web'}],'sites':$append($sites,$aggregate),'managedTargets':$append($singleTargets,$aggregateTargets),'certificates':$normalizedCertificates,'certificateBindings':$bindings,'warnings':$warnings})"
+            "expression": "($safeKey := function($value){($text := $string($value); $match($text,/^[A-Za-z0-9._:-]+$/) ? $text : 'encoded-' & $replace($replace($replace($base64encode($text), '+', '-'), '/', '_'), '=', ''))}; $serviceEntries := function($certificate){$append([], $append($certificate.services, $map($certificate.serviceNames, function($name){ {'display_name':$name} })))}; $dn := function($value){$type($value) = 'object' ? ('CN=' & $string($value.common_name)) : $string($value)}; $certificates := $append([], certificates.data.certificates); $defaultCertificates := $filter($certificates, function($certificate){$count($filter($serviceEntries($certificate), function($service){$string($service.service) = 'default'})) > 0}); $defaultCertificate := $defaultCertificates[0]; $defaultCertificateId := $count($defaultCertificates) > 0 ? $string($defaultCertificate.id) : ''; $defaultCertificateKey := $count($defaultCertificates) > 0 ? $safeKey($defaultCertificateId) : ''; $defaultServiceName := $count($defaultCertificates) > 0 ? $string($filter($serviceEntries($defaultCertificate), function($service){$string($service.service) = 'default'})[0].display_name) : 'Default'; $normalizedCertificates := $append([], $map($certificates, function($certificate){($certificateKey := $safeKey($string($certificate.id)); $subject := $dn($certificate.subject); $issuer := $dn($certificate.issuer); $notBefore := $string($certificate.valid_from); $notAfter := $string($certificate.valid_till); {'stableKey':'CERT:' & $certificateKey,'subject':$subject,'issuer':$issuer,'notBefore':$notBefore,'notAfter':$notAfter,'metadata':{'certificateId':$string($certificate.id),'certkey':$string($certificate.desc ? $certificate.desc : ($subject ? $subject : $certificateKey)),'isDefault':$boolean($certificate.is_default),'services':$serviceEntries($certificate),'subject':$subject,'issuer':$issuer,'notBefore':$notBefore,'notAfter':$notAfter}})})); $defaultBinding := $count($defaultCertificates) > 0 ? [{'stableKey':'BINDING:DSM:Default:' & $defaultCertificateKey,'managedTargetStableKey':'TARGET:DSM:Default','certificateStableKey':'CERT:' & $defaultCertificateKey,'bindingName':$defaultServiceName,'metadata':{'certificateId':$defaultCertificateId,'serviceKey':'default','allServices':true}}] : []; $warnings := $count($defaultCertificates) = 0 ? [{'code':'SYNOLOGY_DEFAULT_CERTIFICATE_BINDING_MISSING','messageKey':'plugin.synologyDsm.warning.defaultBindingMissing','metadata':{'serviceKey':'default'}}] : []; {'apiVersion':'gcac.device-discovery/v2','device':{'stableKey':'synology-dsm:' & $safeKey(address),'displayName':address,'productFamily':'device.synology-dsm','managementAddress':address,'metadata':{'managementProtocol':'DSM Web API','defaultServiceKey':'default'}},'capabilities':[{'key':'device.connection.test','available':true},{'key':'device.discover','available':true},{'key':'certificate.deploy','available':true},{'key':'certificate.rollback','available':true}],'frameworks':[{'stableKey':'framework:synology-dsm','frameworkType':'synology.dsm-web','displayName':'Synology'}],'sites':[{'stableKey':'DSM:Default','frameworkStableKey':'framework:synology-dsm','siteType':'device.service','displayName':'Default','addresses':[address],'metadata':{'abstract':true,'serviceKey':'default','certificateId':$count($defaultCertificates) > 0 ? $defaultCertificateId : undefined}}],'managedTargets':[{'stableKey':'TARGET:DSM:Default','frameworkStableKey':'framework:synology-dsm','siteStableKey':'DSM:Default','targetType':'tls.binding','targetKey':'Default','supportedCapabilities':['certificate.deploy','certificate.rollback'],'executionLocations':['CONTROL_PLANE','GATEWAY'],'metadata':{'allServices':true,'serviceKey':'default'}}],'certificates':$normalizedCertificates,'certificateBindings':$defaultBinding,'warnings':$warnings})"
           }
         },
         "timeoutMs": 1000,

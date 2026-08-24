@@ -16,7 +16,7 @@
   "plugin.synologyDsm.field.version": "版本",
   "plugin.synologyDsm.field.managementProtocol": "管理接口",
   "plugin.synologyDsm.field.health": "健康状态",
-  "plugin.synologyDsm.framework.dsmWeb": "DSM Web 服务",
+  "plugin.synologyDsm.framework.dsmWeb": "Synology",
   "plugin.synologyDsm.presentation.identity": "设备身份",
   "plugin.synologyDsm.tab.services": "服务",
   "plugin.synologyDsm.tab.certificates": "证书",
@@ -29,5 +29,6 @@
   "plugin.synologyDsm.onboarding.compatibility": "Synology DSM（通过 DSM Web API）",
   "plugin.synologyDsm.onboarding.requiredAddress": "DSM 管理地址",
   "plugin.synologyDsm.onboarding.requiredCredential": "具备证书管理权限的 DSM 管理员凭据",
-  "plugin.synologyDsm.warning.unsupportedServiceProtocol": "服务协议不是 HTTP 或 HTTPS，已跳过证书目标"
+  "plugin.synologyDsm.warning.unsupportedServiceProtocol": "服务协议不是 HTTP 或 HTTPS，已跳过证书目标",
+  "plugin.synologyDsm.warning.defaultBindingMissing": "未找到 DSM 默认服务的当前证书绑定"
 }

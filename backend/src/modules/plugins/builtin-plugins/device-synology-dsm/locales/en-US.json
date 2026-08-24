@@ -16,7 +16,7 @@
   "plugin.synologyDsm.field.version": "Version",
   "plugin.synologyDsm.field.managementProtocol": "Management API",
   "plugin.synologyDsm.field.health": "Health",
-  "plugin.synologyDsm.framework.dsmWeb": "DSM Web service",
+  "plugin.synologyDsm.framework.dsmWeb": "Synology",
   "plugin.synologyDsm.presentation.identity": "Device identity",
   "plugin.synologyDsm.tab.services": "Services",
   "plugin.synologyDsm.tab.certificates": "Certificates",
@@ -29,5 +29,6 @@
   "plugin.synologyDsm.onboarding.compatibility": "Synology DSM through the DSM Web API",
   "plugin.synologyDsm.onboarding.requiredAddress": "DSM management address",
   "plugin.synologyDsm.onboarding.requiredCredential": "DSM administrator credential with certificate management permission",
-  "plugin.synologyDsm.warning.unsupportedServiceProtocol": "The service protocol is not HTTP or HTTPS; the certificate target was skipped"
+  "plugin.synologyDsm.warning.unsupportedServiceProtocol": "The service protocol is not HTTP or HTTPS; the certificate target was skipped",
+  "plugin.synologyDsm.warning.defaultBindingMissing": "The current certificate binding for the DSM default service was not found"
 }

@@ -5,8 +5,7 @@
       { "frameworkType": "synology.dsm-web", "labelKey": "plugin.synologyDsm.framework.dsmWeb" }
     ],
     "sites": [
-      { "frameworkType": "synology.dsm-web", "siteType": "device.service", "groupKey": "synology.dsm-web", "groupLabelKey": "plugin.synologyDsm.framework.dsmWeb", "typeLabelKey": "plugin.synologyDsm.framework.dsmWeb" },
-      { "frameworkType": "synology.dsm-web", "siteType": "device.service.aggregate", "groupKey": "synology.dsm-web", "groupLabelKey": "plugin.synologyDsm.framework.dsmWeb", "typeLabelKey": "plugin.synologyDsm.framework.dsmWeb" }
+      { "frameworkType": "synology.dsm-web", "siteType": "device.service", "groupKey": "synology.dsm-web", "groupLabelKey": "plugin.synologyDsm.framework.dsmWeb", "typeLabelKey": "plugin.synologyDsm.framework.dsmWeb" }
     ]
   },
   "overview": [

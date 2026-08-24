@@ -17,12 +17,10 @@ const IDENTIFIER_PATTERN = /^[A-Za-z0-9._:-]{1,256}$/;
 const SECRET_REF_PATTERN = /^secret:\/\/[A-Za-z0-9._:/#-]{1,512}$/;
 const ARTIFACT_REF_PATTERN = /^artifact:\/\/[A-Za-z0-9._:/#-]{1,512}$/;
 const AUTH_PATH = '/webapi/auth.cgi?api=SYNO.API.Auth&version=7&method=login&session=GCAC&format=sid';
-const INFO_PATH = '/webapi/entry.cgi?api=SYNO.DSM.Info&version=2&method=get';
-const SERVICE_PATH = '/webapi/entry.cgi?api=SYNO.Core.Network.Interface&version=1&method=list';
+const INFO_PATH = '/webapi/entry.cgi?api=SYNO.DSM.Info&version=2&method=getinfo';
 const CERTIFICATE_PATH = '/webapi/entry.cgi?api=SYNO.Core.Certificate.CRT&version=1&method=list';
 const IMPORT_PATH = '/webapi/entry.cgi?api=SYNO.Core.Certificate&version=1&method=import';
 const SERVICE_BINDING_PATH = '/webapi/entry.cgi?api=SYNO.Core.Certificate.Service&version=1&method=set';
-const ALL_HTTP_SERVICES_NAME = '全部 HTTP 服务';
 
 /** 标准 Runner 只加载这个工厂；本文件不实现 IPC 入口，也不监听 stdin/stdout。 */
 export function createPluginRunnerExecutor() {
@@ -139,15 +137,9 @@ async function connectionTest(input, fixture, credential, state, signal) {
 
 async function discover(input, fixture, credential, state, signal) {
   const session = await login(fixture, credential, state, signal);
-  const [info, services, certificates] = await Promise.all([
-    requestFixture(fixture, state, signal, 'GET', INFO_PATH, { sid: session.sid }),
-    requestFixture(fixture, state, signal, 'GET', SERVICE_PATH, { sid: session.sid }),
-    requestFixture(fixture, state, signal, 'GET', CERTIFICATE_PATH, { sid: session.sid }),
-  ]);
-  assertDsmSuccess(info, state);
-  assertDsmSuccess(services, state);
+  const certificates = await requestFixture(fixture, state, signal, 'GET', CERTIFICATE_PATH, { sid: session.sid });
   assertDsmSuccess(certificates, state);
-  const discovery = toDiscovery(input, fixture, info.body, services.body, certificates.body);
+  const discovery = toDiscovery(input, certificates.body);
   return successResult({ protocol: PROTOCOL, requestCount: state.requestCount, sessionEstablished: true }, [discovery]);
 }
 
@@ -326,105 +318,81 @@ function assertDsmSuccess(response, state) {
   }
 }
 
-function toDiscovery(input, fixture, infoBody, servicesBody, certificatesBody) {
-  const version = dsmVersion(infoBody);
-  const address = requiredAddress(input.deviceAddress ?? fixture.device?.managementAddress);
-  const services = array(servicesBody.data?.services ?? [], 'DSM services');
+function toDiscovery(input, certificatesBody) {
+  const address = requiredAddress(input.deviceAddress);
   const certificates = array(certificatesBody.data?.certificates ?? [], 'DSM certificates');
   const frameworkStableKey = 'framework:synology-dsm';
-  const frameworks = [{ stableKey: frameworkStableKey, frameworkType: 'synology.dsm-web', displayName: 'DSM Web' }];
-  const webServices = services.filter((service) => ['HTTP', 'HTTPS'].includes(normalizeProtocol(service.protocol)));
-  const unknownServices = services.filter((service) => !['HTTP', 'HTTPS'].includes(normalizeProtocol(service.protocol)));
-  const sites = webServices.map((service) => {
-    const name = requiredName(String(service.name ?? service.id ?? ''), 'DSM service name');
-    return {
-      stableKey: `DSM:${safeKey(name)}`,
-      frameworkStableKey,
-      siteType: 'device.service',
-      displayName: name,
-      addresses: [address],
-      port: optionalNonNegativeInteger(service.port),
-      protocol: normalizeProtocol(service.protocol),
-      metadata: { serviceId: optionalText(service.id), certificateId: optionalText(service.certificateId) },
-    };
-  });
-  const httpsSites = sites.filter((site) => site.protocol === 'HTTPS');
-  const aggregateSite = httpsSites.length > 0 ? {
-    stableKey: 'DSM:ALL_HTTP_SERVICES',
+  const frameworks = [{ stableKey: frameworkStableKey, frameworkType: 'synology.dsm-web', displayName: 'Synology' }];
+  const defaultCertificates = certificates.filter((certificate) => certificateServiceEntries(certificate).some((service) => serviceKey(service) === 'default'));
+  const defaultCertificate = defaultCertificates[0];
+  const defaultCertificateId = defaultCertificate ? String(defaultCertificate.id ?? defaultCertificate.certificateId ?? '') : '';
+  const defaultCertificateKey = defaultCertificate ? safeKey(defaultCertificateId) : '';
+  const defaultService = defaultCertificate ? certificateServiceEntries(defaultCertificate).find((service) => serviceKey(service) === 'default') : undefined;
+  const defaultServiceName = defaultService ? serviceName(defaultService) ?? 'Default' : 'Default';
+  const site = {
+    stableKey: 'DSM:Default',
     frameworkStableKey,
-    siteType: 'device.service.aggregate',
-    displayName: ALL_HTTP_SERVICES_NAME,
+    siteType: 'device.service',
+    displayName: 'Default',
     addresses: [address],
-    port: optionalNonNegativeInteger(input.managementPort) ?? optionalNonNegativeInteger(fixture.device?.managementPort) ?? 5001,
-    protocol: 'HTTPS',
-    metadata: { allServices: true },
-  } : undefined;
-  const managedTargets = httpsSites.map((site) => ({
-    stableKey: `TARGET:${site.stableKey}`,
+    metadata: { abstract: true, serviceKey: 'default', ...(defaultCertificateId ? { certificateId: defaultCertificateId } : {}) },
+  };
+  const managedTarget = {
+    stableKey: 'TARGET:DSM:Default',
     frameworkStableKey,
     siteStableKey: site.stableKey,
     targetType: 'tls.binding',
-    targetKey: site.stableKey,
+    targetKey: 'Default',
     supportedCapabilities: ['certificate.deploy', 'certificate.rollback'],
     executionLocations: ['CONTROL_PLANE', 'GATEWAY'],
-  })).concat(aggregateSite ? [{
-    stableKey: 'TARGET:DSM:ALL_HTTP_SERVICES',
-    frameworkStableKey,
-    siteStableKey: aggregateSite.stableKey,
-    targetType: 'tls.binding',
-    targetKey: aggregateSite.stableKey,
-    supportedCapabilities: ['certificate.deploy', 'certificate.rollback'],
-    executionLocations: ['CONTROL_PLANE', 'GATEWAY'],
-    metadata: { allServices: true },
-  }] : []);
-  const projectedSites = aggregateSite ? [...sites, aggregateSite] : sites;
+    metadata: { allServices: true, serviceKey: 'default' },
+  };
   const normalizedCertificates = certificates.map((certificate) => ({
     stableKey: `CERT:${safeKey(requiredIdentifier(String(certificate.id ?? certificate.certificateId ?? ''), 'DSM certificate id'))}`,
-    sha256Fingerprint: requiredFingerprint(certificate.sha256Fingerprint ?? certificate.fingerprint),
-    subject: optionalText(certificate.subject),
-    issuer: optionalText(certificate.issuer),
-    notBefore: optionalText(certificate.notBefore),
-    notAfter: optionalText(certificate.notAfter),
-    metadata: { certificateId: requiredIdentifier(String(certificate.id ?? certificate.certificateId), 'DSM certificate id') },
+    subject: dsmDistinguishedName(certificate.subject),
+    issuer: dsmDistinguishedName(certificate.issuer),
+    notBefore: optionalText(certificate.valid_from),
+    notAfter: optionalText(certificate.valid_till),
+    ...(optionalText(certificate.sha256Fingerprint) ? { sha256Fingerprint: optionalText(certificate.sha256Fingerprint) } : {}),
+    metadata: {
+      certificateId: requiredIdentifier(String(certificate.id ?? certificate.certificateId), 'DSM certificate id'),
+      certkey: optionalText(certificate.desc) ?? dsmDistinguishedName(certificate.subject),
+      isDefault: certificate.is_default === true,
+      services: certificateServiceEntries(certificate).map(sanitizeService),
+      ...(dsmDistinguishedName(certificate.subject) ? { subject: dsmDistinguishedName(certificate.subject) } : {}),
+      ...(dsmDistinguishedName(certificate.issuer) ? { issuer: dsmDistinguishedName(certificate.issuer) } : {}),
+      ...(optionalText(certificate.valid_from) ? { notBefore: optionalText(certificate.valid_from) } : {}),
+      ...(optionalText(certificate.valid_till) ? { notAfter: optionalText(certificate.valid_till) } : {}),
+    },
   }));
   const certificateById = new Map(normalizedCertificates.map((item) => [String(item.metadata.certificateId), item]));
-  const certificateBindings = certificates.flatMap((certificate) => {
-    const certificateId = String(certificate.id ?? certificate.certificateId ?? '');
-    const normalizedCertificate = certificateById.get(certificateId);
-    if (!normalizedCertificate) return [];
-    return certificateServiceNames(certificate).flatMap((serviceName) => {
-      const site = httpsSites.find((item) => item.displayName === serviceName);
-      if (!site) return [];
-      return [{
-        stableKey: `BINDING:${safeKey(`${serviceName}:${certificateId}`)}`,
-        managedTargetStableKey: `TARGET:${site.stableKey}`,
-        certificateStableKey: normalizedCertificate.stableKey,
-        bindingName: serviceName,
-        metadata: { certificateId },
-      }];
-    });
-  });
+  const certificateBindings = defaultCertificate ? [{
+    stableKey: `BINDING:DSM:Default:${defaultCertificateKey}`,
+    managedTargetStableKey: managedTarget.stableKey,
+    certificateStableKey: certificateById.get(defaultCertificateId).stableKey,
+    bindingName: defaultServiceName,
+    metadata: { certificateId: defaultCertificateId, serviceKey: 'default', allServices: true },
+  }] : [];
   return {
     apiVersion: 'gcac.device-discovery/v2',
     device: {
       stableKey: `synology-dsm:${safeKey(address)}`,
       displayName: optionalText(input.displayName) ?? address,
       productFamily: PLUGIN_ID,
-      softwareVersion: version,
       managementAddress: address,
-      metadata: { managementProtocol: 'DSM Web API' },
+      metadata: { managementProtocol: 'DSM Web API', defaultServiceKey: 'default' },
     },
     capabilities: CAPABILITIES.map((key) => ({ key, available: true })),
     frameworks,
-    sites: projectedSites,
-    managedTargets,
+    sites: [site],
+    managedTargets: [managedTarget],
     certificates: normalizedCertificates,
     certificateBindings,
-    warnings: unknownServices.map((service) => ({
-      code: 'SYNOLOGY_SERVICE_PROTOCOL_UNSUPPORTED',
-      messageKey: 'plugin.synologyDsm.warning.unsupportedServiceProtocol',
-      metadata: { serviceName: optionalText(service.name ?? service.id), protocol: optionalText(service.protocol) },
-    })),
+    warnings: defaultCertificate ? [] : [{
+      code: 'SYNOLOGY_DEFAULT_CERTIFICATE_BINDING_MISSING',
+      messageKey: 'plugin.synologyDsm.warning.defaultBindingMissing',
+      metadata: { serviceKey: 'default' },
+    }],
   };
 }
 
@@ -474,6 +442,14 @@ function serviceName(service) {
   if (typeof service === 'string') return service;
   if (!service || typeof service !== 'object' || Array.isArray(service)) return undefined;
   return optionalText(service.display_name ?? service.displayName ?? service.serviceName ?? service.name ?? service.service);
+}
+
+// DSM CRT.list 返回的 subject/issuer 是对象；标准发现合同要求可展示的字符串。
+function dsmDistinguishedName(value) {
+  if (typeof value === 'string') return optionalText(value);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const commonName = optionalText(value.common_name ?? value.commonName);
+  return commonName ? `CN=${commonName}` : undefined;
 }
 
 function serviceKey(service) {

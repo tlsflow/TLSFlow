@@ -16,9 +16,19 @@
   "capabilities": { "connectionTest": "device.connection.test", "discovery": "device.discover" },
   "targetProjection": {
     "targetType": "tls.binding",
-    "displayFields": ["displayName", "endpoint.port", "frameworkType"],
+    "displayFields": ["displayName", "frameworkType"],
     "identityFields": ["managedTargetId", "configFingerprint"],
     "selectableWhen": "selectable"
+  },
+  "deploymentDefaults": {
+    "capabilityKey": "certificate.deploy",
+    "variables": {
+      "allowInsecureTls": true
+    },
+    "certificateFormat": {
+      "format": "PEM",
+      "configName": "宿主默认 PEM Bundle"
+    }
   },
   "certificate": {
     "acceptedFormats": ["PEM", "PFX"],

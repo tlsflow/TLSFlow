@@ -16,7 +16,7 @@
   "plugin.synologyDsm.field.version": "Версия",
   "plugin.synologyDsm.field.managementProtocol": "API управления",
   "plugin.synologyDsm.field.health": "Состояние",
-  "plugin.synologyDsm.framework.dsmWeb": "Web-служба DSM",
+  "plugin.synologyDsm.framework.dsmWeb": "Synology",
   "plugin.synologyDsm.presentation.identity": "Идентичность устройства",
   "plugin.synologyDsm.tab.services": "Службы",
   "plugin.synologyDsm.tab.certificates": "Сертификаты",
@@ -29,5 +29,6 @@
   "plugin.synologyDsm.onboarding.compatibility": "Synology DSM через DSM Web API",
   "plugin.synologyDsm.onboarding.requiredAddress": "Адрес управления DSM",
   "plugin.synologyDsm.onboarding.requiredCredential": "Учетные данные администратора DSM с правом управления сертификатами",
-  "plugin.synologyDsm.warning.unsupportedServiceProtocol": "Протокол службы не HTTP и не HTTPS; цель сертификата пропущена"
+  "plugin.synologyDsm.warning.unsupportedServiceProtocol": "Протокол службы не HTTP и не HTTPS; цель сертификата пропущена",
+  "plugin.synologyDsm.warning.defaultBindingMissing": "Текущая привязка сертификата службы DSM по умолчанию не найдена"
 }

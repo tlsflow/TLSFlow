@@ -18,7 +18,7 @@ test('Synology 证书部署和回滚工作流先登录 DSM 再调用证书 API',
 
   for (const [name, certificateSteps] of cases) {
     const workflow = readWorkflow(name);
-    assert.equal(workflow.metadata?.version, '1.1.1');
+    assert.equal(workflow.metadata?.version, '2.0.6');
     const steps = workflow.steps as Array<Record<string, any>>;
     assert.equal(steps[0]?.name, 'authenticate');
     assert.equal(steps[0]?.request?.form?.api, 'SYNO.API.Auth');
@@ -36,6 +36,34 @@ test('Synology 证书部署和回滚工作流先登录 DSM 再调用证书 API',
       }
     }
   }
+});
+
+test('Synology 证书 Artifact 使用宿主标准输出键', () => {
+  const deploy = readWorkflow('deploy');
+  const outputs = deploy.inputContract?.artifacts?.certificate?.artifactContract?.outputs;
+  assert.deepEqual(Object.keys(outputs ?? {}), ['leafPem', 'privateKeyPem', 'orderedChainPem']);
+  assert.equal(outputs?.leafPem?.required, true);
+  assert.equal(outputs?.privateKeyPem?.required, true);
+  assert.equal(outputs?.orderedChainPem?.required, false);
+
+  const serialized = JSON.stringify(deploy);
+  assert.equal(/artifacts\.certificate\.outputs\.certificate(?:[.\"}])/.test(serialized), false);
+  assert.equal(/artifacts\.certificate\.outputs\.privateKey(?:[.\"}])/.test(serialized), false);
+  assert.equal(/artifacts\.certificate\.outputs\.chain(?:[.\"}])/.test(serialized), false);
+  assert.equal(serialized.includes('artifacts.certificate.outputs.leafPem.content'), false);
+  assert.equal(serialized.includes('artifacts.certificate.outputs.privateKeyPem.content'), false);
+  assert.equal(serialized.includes('artifacts.certificate.outputs.orderedChainPem.content'), false);
+});
+
+test('Synology 应用接入配方声明统一向导所需的部署默认值', async () => {
+  const manifest = JSON.parse(readFileSync(new URL('./builtin-plugins/device-synology-dsm/manifest.json', import.meta.url), 'utf8')) as Record<string, any>;
+  const recipe = JSON.parse(readFileSync(new URL('./builtin-plugins/device-synology-dsm/onboarding/application-asset.json', import.meta.url), 'utf8')) as Record<string, any>;
+  assert.equal(manifest.version, '2.0.6');
+  assert.deepEqual(recipe.deploymentDefaults, {
+    capabilityKey: 'certificate.deploy',
+    variables: { allowInsecureTls: true },
+    certificateFormat: { format: 'PEM', configName: '宿主默认 PEM Bundle' },
+  });
 });
 
 test('Synology TLS 校验开关同时满足连接校验和宿主 TLS 例外授权声明', () => {
@@ -64,6 +92,44 @@ test('Synology TLS 校验开关同时满足连接校验和宿主 TLS 例外授�
       assert.equal(request.tls.allowInsecure, true, `${name}.${request.url ?? 'request'} 必须声明 TLS 例外意图`);
     }
   }
+});
+
+test('Synology 发现只投影 Synology 框架、Default 站点和默认服务证书绑定', async () => {
+  const discover = readWorkflow('discover');
+  const steps = discover.steps as Array<Record<string, any>>;
+  assert.deepEqual(steps.map((item) => item.name), ['authenticate', 'readCertificates', 'projectDiscovery']);
+  assert.equal(steps.some((item) => String(item.request?.url ?? '').includes('SYNO.Core.Network.Interface')), false);
+  assert.equal(steps.some((item) => String(item.request?.url ?? '').includes('SYNO.DSM.Info')), false);
+  const expression = steps.find((item) => item.name === 'projectDiscovery')?.transform?.outputs?.discovery?.expression;
+  const result = await jsonata(expression).evaluate({
+    address: '10.255.0.77',
+    certificates: {
+      data: {
+        certificates: [
+          { id: 'cert-old', desc: 'DSM Fixture Certificate', is_default: true, services: [{ display_name: 'DSM Desktop Service', service: 'default' }], subject: { common_name: 'dsm.example.invalid' }, issuer: { common_name: 'Fixture Issuer' }, valid_from: '2026-01-01', valid_till: '2027-01-01' },
+          { id: 'cert-other', services: [{ display_name: 'FTPS', service: 'ftps' }] },
+        ],
+      },
+    },
+  });
+  assert.equal(result.frameworks[0].displayName, 'Synology');
+  assert.deepEqual(result.sites.map((site: any) => site.displayName), ['Default']);
+  assert.deepEqual(result.managedTargets.map((target: any) => target.targetKey), ['Default']);
+  assert.equal(result.certificateBindings.length, 1);
+  assert.equal(result.certificateBindings[0].metadata.allServices, true);
+  assert.equal(result.certificateBindings[0].certificateStableKey, 'CERT:cert-old');
+  assert.equal(result.certificates[0].subject, 'CN=dsm.example.invalid');
+  assert.equal(result.certificates[0].issuer, 'CN=Fixture Issuer');
+  assert.equal(result.certificates[0].notBefore, '2026-01-01');
+  assert.equal(result.certificates[0].notAfter, '2027-01-01');
+  assert.equal(result.certificates[0].metadata.certkey, 'DSM Fixture Certificate');
+  assert.deepEqual(result.warnings, []);
+});
+
+test('Synology DSM 信息读取使用设备声明的 getinfo 方法', () => {
+  const workflow = readWorkflow('connection-test');
+  const info = (workflow.steps as Array<Record<string, any>>).find((item) => item.name === 'readDsmInfo');
+  assert.match(info?.request?.url ?? '', /api=SYNO\.DSM\.Info&version=2&method=getinfo/);
 });
 
 test('Synology 接入表单将 HTTPS 协议和证书错误例外拆成两个独立选项', () => {
@@ -101,7 +167,7 @@ test('Synology 接入表单将 HTTPS 协议和证书错误例外拆成两个独�
   }
 });
 
-test('Synology DSM 工作流优先使用 DSM 默认服务键，并保留目标展示名兼容回退', async () => {
+test('Synology DSM 工作流使用 Default 目标并按默认服务键选择全量绑定', async () => {
   const deploy = readWorkflow('deploy');
   const deploySteps = deploy.steps as Array<Record<string, any>>;
   const select = deploySteps.find((item) => item.name === 'selectCurrentCertificate');
@@ -119,7 +185,7 @@ test('Synology DSM 工作流优先使用 DSM 默认服务键，并保留目标�
       ],
     },
   };
-  const transformInput = { target: 'Synology DSM', certificates };
+  const transformInput = { target: 'Default', certificates };
   assert.equal(
     await jsonata(select?.transform?.outputs?.previousCertificateId?.expression).evaluate(transformInput),
     'dsm-default',
@@ -135,7 +201,7 @@ test('Synology DSM 工作流优先使用 DSM 默认服务键，并保留目标�
   assert.match(settings?.transform?.outputs?.settings?.expression ?? '', /service = 'default'/);
   assert.match(settings?.transform?.outputs?.settings?.expression ?? '', /display_name = \$target/);
   const rollbackSettings = await jsonata(settings?.transform?.outputs?.settings?.expression).evaluate({
-      target: 'Synology DSM',
+      target: 'Default',
       previous: { data: { certificates: [{ id: 'old', services: certificates.data.certificates[1].services }] } },
       current: { data: { certificates: [{ id: 'new', services: certificates.data.certificates[1].services }] } },
     });

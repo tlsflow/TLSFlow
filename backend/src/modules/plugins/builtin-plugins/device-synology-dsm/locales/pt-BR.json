@@ -16,7 +16,7 @@
   "plugin.synologyDsm.field.version": "Versão",
   "plugin.synologyDsm.field.managementProtocol": "API de gerenciamento",
   "plugin.synologyDsm.field.health": "Saúde",
-  "plugin.synologyDsm.framework.dsmWeb": "Serviço Web DSM",
+  "plugin.synologyDsm.framework.dsmWeb": "Synology",
   "plugin.synologyDsm.presentation.identity": "Identidade do dispositivo",
   "plugin.synologyDsm.tab.services": "Serviços",
   "plugin.synologyDsm.tab.certificates": "Certificados",
@@ -29,5 +29,6 @@
   "plugin.synologyDsm.onboarding.compatibility": "Synology DSM pelo DSM Web API",
   "plugin.synologyDsm.onboarding.requiredAddress": "Endereco de gerenciamento do DSM",
   "plugin.synologyDsm.onboarding.requiredCredential": "Credencial de administrador DSM com permissao de gerenciar certificados",
-  "plugin.synologyDsm.warning.unsupportedServiceProtocol": "O protocolo do servico nao e HTTP nem HTTPS; o destino do certificado foi ignorado"
+  "plugin.synologyDsm.warning.unsupportedServiceProtocol": "O protocolo do servico nao e HTTP nem HTTPS; o destino do certificado foi ignorado",
+  "plugin.synologyDsm.warning.defaultBindingMissing": "A vinculacao de certificado atual do servico DSM padrao nao foi encontrada"
 }

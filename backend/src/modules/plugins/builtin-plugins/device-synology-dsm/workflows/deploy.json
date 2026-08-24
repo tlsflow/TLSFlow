@@ -1,7 +1,7 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "synology-dsm-certificate-deploy", "displayName": "Synology DSM certificate deployment", "category": "certificate", "version": "1.1.1", "platforms": ["appliance"], "updateMethods": ["curl"], "maintainer": "GCAC" },
+  "metadata": { "name": "synology-dsm-certificate-deploy", "displayName": "Synology DSM certificate deployment", "category": "certificate", "version": "2.0.6", "platforms": ["appliance"], "updateMethods": ["curl"], "maintainer": "GCAC" },
   "inputContract": {
     "apiVersion": "gcac.deployment-input/v1",
     "variables": {
@@ -46,9 +46,9 @@
         "lifecycle": "runtime_injected",
         "artifactContract": {
           "outputs": {
-            "certificate": { "role": "public_certificate", "required": true, "format": "pem", "encoding": "utf8" },
-            "privateKey": { "role": "private_key", "required": true, "format": "pem", "encoding": "utf8", "sensitive": true },
-            "chain": { "role": "certificate_chain", "required": false, "format": "pem", "encoding": "utf8" }
+            "leafPem": { "role": "public_certificate", "required": true, "format": "pem", "encoding": "utf8" },
+            "privateKeyPem": { "role": "private_key", "required": true, "format": "pem", "encoding": "utf8", "sensitive": true },
+            "orderedChainPem": { "role": "certificate_chain", "required": false, "format": "pem", "encoding": "utf8" }
           }
         }
       }
@@ -113,16 +113,16 @@
       "name": "importCertificateWithChain",
       "type": "http",
       "stage": "install",
-      "when": { "variable": "artifacts.certificate.outputs.chain.content", "exists": true },
+      "when": { "variable": "artifacts.certificate.outputs.orderedChainPem", "exists": true },
       "request": {
         "method": "POST",
         "connectionRef": "management",
         "url": "/webapi/entry.cgi?api=SYNO.Core.Certificate&version=1&method=import&_sid={{steps.authenticate.extracted.sid}}",
         "bodyType": "multipart",
         "multipart": {
-          "key": { "value": "{{artifacts.certificate.outputs.privateKey.content}}", "filename": "privkey.pem", "contentType": "application/x-x509-ca-cert" },
-          "cert": { "value": "{{artifacts.certificate.outputs.certificate.content}}", "filename": "cert.pem", "contentType": "application/x-x509-ca-cert" },
-          "inter_cert": { "value": "{{artifacts.certificate.outputs.chain.content}}", "filename": "chain.pem", "contentType": "application/x-x509-ca-cert" },
+          "key": { "value": "{{artifacts.certificate.outputs.privateKeyPem}}", "filename": "privkey.pem", "contentType": "application/x-x509-ca-cert" },
+          "cert": { "value": "{{artifacts.certificate.outputs.leafPem}}", "filename": "cert.pem", "contentType": "application/x-x509-ca-cert" },
+          "inter_cert": { "value": "{{artifacts.certificate.outputs.orderedChainPem}}", "filename": "chain.pem", "contentType": "application/x-x509-ca-cert" },
           "id": { "value": "" },
           "desc": { "value": "{{variables.target}}" },
           "as_default": { "value": "" }
@@ -139,15 +139,15 @@
       "name": "importCertificateWithoutChain",
       "type": "http",
       "stage": "install",
-      "when": { "variable": "artifacts.certificate.outputs.chain.content", "exists": false },
+      "when": { "variable": "artifacts.certificate.outputs.orderedChainPem", "exists": false },
       "request": {
         "method": "POST",
         "connectionRef": "management",
         "url": "/webapi/entry.cgi?api=SYNO.Core.Certificate&version=1&method=import&_sid={{steps.authenticate.extracted.sid}}",
         "bodyType": "multipart",
         "multipart": {
-          "key": { "value": "{{artifacts.certificate.outputs.privateKey.content}}", "filename": "privkey.pem", "contentType": "application/x-x509-ca-cert" },
-          "cert": { "value": "{{artifacts.certificate.outputs.certificate.content}}", "filename": "cert.pem", "contentType": "application/x-x509-ca-cert" },
+          "key": { "value": "{{artifacts.certificate.outputs.privateKeyPem}}", "filename": "privkey.pem", "contentType": "application/x-x509-ca-cert" },
+          "cert": { "value": "{{artifacts.certificate.outputs.leafPem}}", "filename": "cert.pem", "contentType": "application/x-x509-ca-cert" },
           "id": { "value": "" },
           "desc": { "value": "{{variables.target}}" },
           "as_default": { "value": "" }
@@ -179,7 +179,7 @@
       "name": "buildServiceSettingsWithChain",
       "type": "transform",
       "stage": "refresh",
-      "when": { "variable": "artifacts.certificate.outputs.chain.content", "exists": true },
+      "when": { "variable": "artifacts.certificate.outputs.orderedChainPem", "exists": true },
       "transform": {
         "engine": "jsonata",
         "input": {
@@ -199,7 +199,7 @@
       "name": "bindCertificateToServiceWithChain",
       "type": "http",
       "stage": "refresh",
-      "when": { "variable": "artifacts.certificate.outputs.chain.content", "exists": true },
+      "when": { "variable": "artifacts.certificate.outputs.orderedChainPem", "exists": true },
       "request": {
         "method": "POST",
         "connectionRef": "management",
@@ -217,7 +217,7 @@
       "name": "buildServiceSettingsWithoutChain",
       "type": "transform",
       "stage": "refresh",
-      "when": { "variable": "artifacts.certificate.outputs.chain.content", "exists": false },
+      "when": { "variable": "artifacts.certificate.outputs.orderedChainPem", "exists": false },
       "transform": {
         "engine": "jsonata",
         "input": {
@@ -237,7 +237,7 @@
       "name": "bindCertificateToServiceWithoutChain",
       "type": "http",
       "stage": "refresh",
-      "when": { "variable": "artifacts.certificate.outputs.chain.content", "exists": false },
+      "when": { "variable": "artifacts.certificate.outputs.orderedChainPem", "exists": false },
       "request": {
         "method": "POST",
         "connectionRef": "management",

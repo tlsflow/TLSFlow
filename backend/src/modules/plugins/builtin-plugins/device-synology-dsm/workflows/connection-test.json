@@ -1,7 +1,7 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "synology-dsm-connection-test", "displayName": "Synology DSM connection test", "category": "device", "version": "1.1.1", "platforms": ["appliance"], "updateMethods": ["curl"], "maintainer": "GCAC" },
+  "metadata": { "name": "synology-dsm-connection-test", "displayName": "Synology DSM connection test", "category": "device", "version": "2.0.6", "platforms": ["appliance"], "updateMethods": ["curl"], "maintainer": "GCAC" },
   "inputContract": {
     "apiVersion": "gcac.deployment-input/v1",
     "variables": {
@@ -27,6 +27,6 @@
   },
   "steps": [
     { "name": "authenticate", "type": "http", "stage": "prepare", "request": { "method": "POST", "connectionRef": "management", "url": "/webapi/auth.cgi", "bodyType": "form", "form": { "api": "SYNO.API.Auth", "version": 7, "method": "login", "session": "GCAC", "format": "sid", "enable_syno_token": "yes", "client": "browser", "account": "{{credentials.credential.username}}" }, "formCredentialRefs": { "passwd": "{{credentials.credential}}" }, "headers": { "Accept": "application/json" }, "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true }, "timeoutSeconds": 30, "maxResponseBytes": 1048576, "successStatusCodes": [200] }, "extract": [{ "name": "sid", "type": "jsonPath", "path": "$.data.sid" }, { "name": "synotoken", "type": "jsonPath", "path": "$.data.synotoken", "sensitive": true }], "assert": [{ "type": "statusCode", "equals": 200 }, { "type": "jsonPath", "path": "$.success", "equals": true }] },
-    { "name": "readDsmInfo", "type": "http", "stage": "verify", "request": { "method": "GET", "connectionRef": "management", "url": "/webapi/entry.cgi?api=SYNO.DSM.Info&version=2&method=get&_sid={{steps.authenticate.extracted.sid}}", "headers": { "Accept": "application/json", "X-SYNO-TOKEN": "{{steps.authenticate.extracted.synotoken}}" }, "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true }, "timeoutSeconds": 30, "maxResponseBytes": 1048576, "successStatusCodes": [200] }, "extract": [{ "name": "productVersion", "type": "jsonPath", "path": "$.data.version" }], "assert": [{ "type": "statusCode", "equals": 200 }, { "type": "jsonPath", "path": "$.success", "equals": true }] }
+    { "name": "readDsmInfo", "type": "http", "stage": "verify", "request": { "method": "GET", "connectionRef": "management", "url": "/webapi/entry.cgi?api=SYNO.DSM.Info&version=2&method=getinfo&_sid={{steps.authenticate.extracted.sid}}", "headers": { "Accept": "application/json", "X-SYNO-TOKEN": "{{steps.authenticate.extracted.synotoken}}" }, "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "sni": "{{connections.management.tls.serverName}}", "allowInsecure": true }, "timeoutSeconds": 30, "maxResponseBytes": 1048576, "successStatusCodes": [200] }, "extract": [{ "name": "productVersion", "type": "jsonPath", "path": "$.data.version" }], "assert": [{ "type": "statusCode", "equals": 200 }, { "type": "jsonPath", "path": "$.success", "equals": true }] }
   ]
 }

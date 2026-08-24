@@ -16,7 +16,7 @@
   "plugin.synologyDsm.field.version": "バージョン",
   "plugin.synologyDsm.field.managementProtocol": "管理 API",
   "plugin.synologyDsm.field.health": "ヘルス",
-  "plugin.synologyDsm.framework.dsmWeb": "DSM Web サービス",
+  "plugin.synologyDsm.framework.dsmWeb": "Synology",
   "plugin.synologyDsm.presentation.identity": "デバイス識別情報",
   "plugin.synologyDsm.tab.services": "サービス",
   "plugin.synologyDsm.tab.certificates": "証明書",
@@ -29,5 +29,6 @@
   "plugin.synologyDsm.onboarding.compatibility": "DSM Web API 経由の Synology DSM",
   "plugin.synologyDsm.onboarding.requiredAddress": "DSM 管理アドレス",
   "plugin.synologyDsm.onboarding.requiredCredential": "証明書管理権限を持つ DSM 管理者の認証情報",
-  "plugin.synologyDsm.warning.unsupportedServiceProtocol": "サービスプロトコルが HTTP または HTTPS ではないため、証明書ターゲットを除外しました"
+  "plugin.synologyDsm.warning.unsupportedServiceProtocol": "サービスプロトコルが HTTP または HTTPS ではないため、証明書ターゲットを除外しました",
+  "plugin.synologyDsm.warning.defaultBindingMissing": "DSM デフォルトサービスの現在の証明書バインディングが見つかりません"
 }

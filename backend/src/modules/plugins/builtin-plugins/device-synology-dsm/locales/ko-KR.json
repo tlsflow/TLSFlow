@@ -16,7 +16,7 @@
   "plugin.synologyDsm.field.version": "버전",
   "plugin.synologyDsm.field.managementProtocol": "관리 API",
   "plugin.synologyDsm.field.health": "상태",
-  "plugin.synologyDsm.framework.dsmWeb": "DSM Web 서비스",
+  "plugin.synologyDsm.framework.dsmWeb": "Synology",
   "plugin.synologyDsm.presentation.identity": "장치 식별 정보",
   "plugin.synologyDsm.tab.services": "서비스",
   "plugin.synologyDsm.tab.certificates": "인증서",
@@ -29,5 +29,6 @@
   "plugin.synologyDsm.onboarding.compatibility": "DSM Web API를 통한 Synology DSM",
   "plugin.synologyDsm.onboarding.requiredAddress": "DSM 관리 주소",
   "plugin.synologyDsm.onboarding.requiredCredential": "인증서 관리 권한이 있는 DSM 관리자 자격 증명",
-  "plugin.synologyDsm.warning.unsupportedServiceProtocol": "서비스 프로토콜이 HTTP 또는 HTTPS가 아니므로 인증서 대상을 건너뛰었습니다"
+  "plugin.synologyDsm.warning.unsupportedServiceProtocol": "서비스 프로토콜이 HTTP 또는 HTTPS가 아니므로 인증서 대상을 건너뛰었습니다",
+  "plugin.synologyDsm.warning.defaultBindingMissing": "DSM 기본 서비스의 현재 인증서 바인딩을 찾지 못했습니다"
 }
