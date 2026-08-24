@@ -1,6 +1,7 @@
 const DATE_TIME_KEY_PATTERN = /(?:^|\.)(?:createdAt|updatedAt|startedAt|finishedAt|scheduledAt|checkedAt|detectedAt|lastCheckedAt|lastSeenAt|lastContactAt|heartbeatAt|lastHeartbeatAt|lastRecoveryAt|lastTaskPollAt|lastTaskResultAt|lastSelfCheckAt|reportedAt|receivedAt|emittedAt|expiresAt|capturedAt|notBefore|notAfter|timestamp|time)$/i
 const ISO_DATE_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})$/i
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+const LOCAL_DATE_TIME_PATTERN = /^\d{4}[/-]\d{2}[/-]\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?$/
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000
 
 interface LocalTimeOptions {
@@ -28,6 +29,19 @@ function parseDateValue(value: unknown): Date | null {
   const text = value.trim()
   if (!text) return null
   if (!looksLikeDateText(text)) return null
+  if (LOCAL_DATE_TIME_PATTERN.test(text)) {
+    const match = /^(\d{4})[/-](\d{2})[/-](\d{2})[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?$/.exec(text)
+    if (!match) return null
+    const [, year, month, day, hour, minute, second = '0', fraction = ''] = match
+    const milliseconds = Number((fraction + '000').slice(0, 3))
+    const date = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second), milliseconds)
+    return Number.isFinite(date.getTime())
+      && date.getFullYear() === Number(year)
+      && date.getMonth() === Number(month) - 1
+      && date.getDate() === Number(day)
+      ? date
+      : null
+  }
   const normalizedText = normalizeDateText(text)
   const time = Date.parse(normalizedText)
   if (!Number.isFinite(time)) return null
@@ -35,7 +49,10 @@ function parseDateValue(value: unknown): Date | null {
 }
 
 function looksLikeDateText(value: string): boolean {
-  return ISO_DATE_TIME_PATTERN.test(value) || ISO_DATE_PATTERN.test(value) || /\b(?:GMT|UTC)\b/i.test(value)
+  return ISO_DATE_TIME_PATTERN.test(value)
+    || ISO_DATE_PATTERN.test(value)
+    || LOCAL_DATE_TIME_PATTERN.test(value)
+    || /\b(?:GMT|UTC)\b/i.test(value)
 }
 
 function normalizeDateText(value: string): string {

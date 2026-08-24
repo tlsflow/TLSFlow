@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
 const DEFAULT_VISIBLE_LOG_LIMIT = 500
 
@@ -54,6 +55,14 @@ const visibleLines = computed(() => {
   if (showAllLogs.value || hiddenLineCount.value === 0) return filteredLines.value
   return filteredLines.value.slice(-props.maxVisibleLines)
 })
+
+function formatStepTime(value: unknown): string {
+  return formatBrowserLocalTime(value) || ''
+}
+
+function formatLogTime(value: unknown): string {
+  return formatBrowserLocalTime(value) || String(value ?? '')
+}
 </script>
 
 <template>
@@ -104,10 +113,10 @@ const visibleLines = computed(() => {
           <span>{{ step.status }}</span>
         </div>
         <p>{{ step.detail ?? t('designSystem.executionLogViewer.steps.emptyDetail') }}</p>
-        <small>{{ step.startedAt ?? t('designSystem.executionProgress.time.waitingStart') }}{{ step.finishedAt ? ` -> ${step.finishedAt}` : '' }}</small>
+        <small>{{ formatStepTime(step.startedAt) || t('designSystem.executionProgress.time.waitingStart') }}{{ step.finishedAt ? ` -> ${formatLogTime(step.finishedAt)}` : '' }}</small>
       </article>
     </section>
-    <pre v-if="visibleLines.length"><code v-for="line in visibleLines" :key="line.id">[{{ line.time }}] [{{ line.level }}] {{ line.step ? `[${line.step}] ` : '' }}{{ line.message }}
+    <pre v-if="visibleLines.length"><code v-for="line in visibleLines" :key="line.id">[{{ formatLogTime(line.time) }}] [{{ line.level }}] {{ line.step ? `[${line.step}] ` : '' }}{{ line.message }}
 </code></pre>
     <p v-else class="gc-log-viewer__empty">{{ t('designSystem.executionLogViewer.empty.logs') }}</p>
   </section>

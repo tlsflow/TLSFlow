@@ -11,6 +11,7 @@ import GcStatusTag from './GcStatusTag.vue'
 export interface ExecutionDetailModalRow extends ViewRow {
   readonly planName?: string
   readonly assetNames?: readonly string[]
+  readonly targetLabel?: string
   readonly runTypeLabel?: string
   readonly sourceLabel?: string
 }
@@ -21,6 +22,9 @@ const props = withDefaults(defineProps<{
   summary?: ExecutionDryRunSummary | null
   steps?: readonly ExecutionDetailStep[]
   lines?: readonly ExecutionLogLine[]
+  targetLabel?: string
+  startedAt?: string
+  finishedAt?: string
   loading?: boolean
   error?: string
   canRecoverUnknownResult?: boolean
@@ -30,6 +34,9 @@ const props = withDefaults(defineProps<{
   summary: null,
   steps: () => [],
   lines: () => [],
+  targetLabel: '',
+  startedAt: '',
+  finishedAt: '',
   loading: false,
   error: '',
   canRecoverUnknownResult: false,
@@ -63,6 +70,8 @@ const sourceLabel = computed(() => {
 const targetLabel = computed(() => {
   const row = props.row
   if (!row) return t('common.notAvailable')
+  if (props.targetLabel) return props.targetLabel
+  if (row.targetLabel) return row.targetLabel
   if (row.assetNames?.length) return row.assetNames.join(', ')
   return readString(row.raw, ['assetNames', 'targetSummary', 'executionTargetName', 'targetName', 'target'], t('common.notAvailable'))
 })
@@ -90,6 +99,15 @@ const modalSummaryCards = computed(() => {
   ]
 })
 
+const resolvedStartedAt = computed(() => props.startedAt
+  || rawValue(['startedAt', 'latestRun.startedAt', 'run.startedAt'], '')
+  || selectStepTime('startedAt')
+  || rawValue(['createdAt'], ''))
+const resolvedFinishedAt = computed(() => props.finishedAt
+  || rawValue(['finishedAt', 'latestRun.finishedAt', 'run.finishedAt'], '')
+  || selectStepTime('finishedAt')
+  || rawValue(['updatedAt'], ''))
+
 watch([() => props.open, () => props.row?.id], ([opened]) => {
   if (opened) activeTab.value = 'summary'
 })
@@ -104,6 +122,25 @@ function formatDetailTime(value: unknown): string {
 
 function formatStepStartTime(value: unknown): string {
   return formatBrowserLocalTime(value) || t('executions.detail.notStarted')
+}
+
+function formatLogTime(value: unknown): string {
+  return formatBrowserLocalTime(value) || String(value ?? '')
+}
+
+function selectStepTime(side: 'startedAt' | 'finishedAt'): string {
+  const values = props.steps
+    .map((step) => step[side])
+    .filter((value): value is string => Boolean(value))
+  const parsed = values
+    .map((value) => ({ value, time: Date.parse(value) }))
+    .filter((item) => Number.isFinite(item.time))
+  if (parsed.length === 0) return ''
+  return parsed.reduce((selected, current) => (
+    side === 'startedAt'
+      ? current.time < selected.time ? current : selected
+      : current.time > selected.time ? current : selected
+  )).value
 }
 
 function rawValue(candidates: readonly string[], fallback = t('common.notAvailable')): string {
@@ -181,11 +218,11 @@ function rawValue(candidates: readonly string[], fallback = t('common.notAvailab
           </div>
           <div>
             <dt>{{ t('executions.fields.startedAt') }}</dt>
-            <dd>{{ formatDetailTime(rawValue(['startedAt', 'createdAt'], '')) }}</dd>
+            <dd>{{ formatDetailTime(resolvedStartedAt) }}</dd>
           </div>
           <div>
             <dt>{{ t('executions.fields.finishedAt') }}</dt>
-            <dd>{{ formatDetailTime(rawValue(['finishedAt', 'updatedAt'], '')) }}</dd>
+            <dd>{{ formatDetailTime(resolvedFinishedAt) }}</dd>
           </div>
           <div>
             <dt>{{ t('executions.fields.errorCode') }}</dt>
@@ -267,7 +304,7 @@ function rawValue(candidates: readonly string[], fallback = t('common.notAvailab
         <ul v-else-if="lines.length" class="execution-detail-modal__logs">
           <li v-for="line in lines" :key="line.id" class="execution-detail-modal__log-item" :data-level="line.level">
             <div class="execution-detail-modal__log-meta">
-              <span>{{ line.time }}</span>
+              <span>{{ formatLogTime(line.time) }}</span>
               <strong>{{ line.step || t('executions.tabs.logs') }}</strong>
             </div>
             <p>{{ line.message }}</p>

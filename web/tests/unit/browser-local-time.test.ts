@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatMaybeLocalTimeByCandidates, getExpiryCountdown, getExpiryRemaining, isDateTimeCandidate } from '@/utils/browser-local-time'
+import { formatBrowserLocalTime, formatMaybeLocalTimeByCandidates, getExpiryCountdown, getExpiryRemaining, isDateTimeCandidate } from '@/utils/browser-local-time'
 
 describe('浏览器本地时间格式化', () => {
   it('识别统一设备最近通信字段并移除 UTC ISO 展示', () => {
@@ -23,6 +23,10 @@ describe('浏览器本地时间格式化', () => {
     for (const value of invalidValues) {
       expect(formatMaybeLocalTimeByCandidates(value, candidates)).toBe('')
     }
+  })
+
+  it('兼容不带时区的本地日期时间输入', () => {
+    expect(formatBrowserLocalTime('2026/07/29 10:00:00')).toBe('2026-07-29 10:00:00')
   })
 
   it('计算证书剩余和过期天数并向上取整', () => {

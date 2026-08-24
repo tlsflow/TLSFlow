@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import GcExecutionDetailModal from '@/design-system/components/GcExecutionDetailModal.vue'
 import { i18n } from '@/i18n'
+import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
 describe('GcExecutionDetailModal', () => {
   afterEach(() => {
@@ -74,6 +75,56 @@ describe('GcExecutionDetailModal', () => {
     tabButtons[2]?.click()
     await nextTick()
     expect(document.body.textContent).toContain('执行完成')
+
+    wrapper.unmount()
+  })
+
+  it('运行记录没有时间字段时，从步骤时间聚合概览并按本地时间显示', async () => {
+    const startedAt = '2026-08-18T01:16:29.000Z'
+    const finishedAt = '2026-08-18T01:16:43.000Z'
+    const wrapper = mount(GcExecutionDetailModal, {
+      attachTo: document.body,
+      global: { plugins: [i18n] },
+      props: {
+        open: true,
+        row: {
+          id: 'run_without_times',
+          name: '证书部署',
+          status: 'SUCCESS',
+          risk: 'HIGH',
+          raw: { id: 'run_without_times', status: 'SUCCESS' },
+        },
+        steps: [
+          { id: 'step-1', name: '准备', status: 'SUCCESS', startedAt: startedAt, finishedAt: '2026-08-18T01:16:31.000Z', unknownResult: false },
+          { id: 'step-2', name: '验证', status: 'SUCCESS', startedAt: '2026-08-18T01:16:38.000Z', finishedAt, unknownResult: false },
+        ],
+      },
+    })
+
+    expect(document.body.textContent).toContain(formatBrowserLocalTime(startedAt))
+    expect(document.body.textContent).toContain(formatBrowserLocalTime(finishedAt))
+
+    wrapper.unmount()
+  })
+
+  it('优先展示执行详情解析出的目标名称', () => {
+    const wrapper = mount(GcExecutionDetailModal, {
+      attachTo: document.body,
+      global: { plugins: [i18n] },
+      props: {
+        open: true,
+        targetLabel: 'cloud.jacksonz.cn',
+        row: {
+          id: 'run_target_label',
+          name: '证书部署',
+          status: 'SUCCESS',
+          risk: 'HIGH',
+          raw: { id: 'run_target_label', status: 'SUCCESS' },
+        },
+      },
+    })
+
+    expect(document.body.textContent).toContain('cloud.jacksonz.cn')
 
     wrapper.unmount()
   })

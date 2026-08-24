@@ -555,6 +555,8 @@ function openGlobalExecutionModal(detail: DeploymentExecutionOpenDetail): void {
       type: detail.mode === 'dry-run' ? 'dry_run' : detail.mode,
       planName: detail.planName,
       taskId: detail.taskId,
+      startedAt: detail.startedAt,
+      finishedAt: detail.finishedAt,
       summary: detail.summary,
     },
   }
@@ -922,6 +924,9 @@ function removeToastNotice(id: number): void {
       :summary="globalExecutionDetail.dryRunSummary.value"
       :steps="globalExecutionDetail.steps.value"
       :lines="globalExecutionDetail.lines.value"
+      :target-label="globalExecutionDetail.runTargetLabel?.value"
+      :started-at="globalExecutionDetail.runStartedAt?.value"
+      :finished-at="globalExecutionDetail.runFinishedAt?.value"
       :loading="globalExecutionDetail.loading.value"
       :error="globalExecutionDetail.error.value"
       @update:open="(value) => value ? (globalExecutionModalOpen = true) : closeGlobalExecutionModal()"

@@ -2,6 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ApiRecord } from '@/api/modules/common'
+import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import type { ExecutionLogLine, ExecutionStepLine } from './GcExecutionLogViewer.vue'
 import GcDryRunChecklist from './GcDryRunChecklist.vue'
 import GcExecutionLogViewer from './GcExecutionLogViewer.vue'
@@ -358,8 +359,10 @@ function lifecycleOperationDescription(stepType: string): string {
 }
 
 function formatTimeLabel(startedAt?: string, finishedAt?: string): string {
-  if (startedAt && finishedAt) return `${startedAt} -> ${finishedAt}`
-  return startedAt || finishedAt || t('designSystem.executionProgress.time.waitingStart')
+  const start = formatBrowserLocalTime(startedAt)
+  const end = formatBrowserLocalTime(finishedAt)
+  if (start && end) return `${start} -> ${end}`
+  return start || end || t('designSystem.executionProgress.time.waitingStart')
 }
 
 function statusBadgeText(status: TaskStatus): string {

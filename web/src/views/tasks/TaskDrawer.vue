@@ -935,6 +935,8 @@ function deploymentExecutionOpenDetail(task: TaskRun): DeploymentExecutionOpenDe
     mode,
     planName: taskRelatedName(task),
     status: task.status,
+    startedAt: task.startedAt,
+    finishedAt: task.finishedAt,
     summary: taskResultSummary(task),
   }
 }

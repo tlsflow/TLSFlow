@@ -8,6 +8,7 @@ import {
 } from '@/api/modules/executions.api'
 import type { ApiRecord } from '@/api/modules/common'
 import type { ExecutionLogLine, ExecutionStepLine } from '@/design-system/components/GcExecutionLogViewer.vue'
+import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { usePolling } from './usePolling'
 import { readPath, readString, translateWithFallback, type I18nParams, type I18nTranslate, type ViewRow } from './useBusinessPage'
 
@@ -143,6 +144,7 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
   const isStreaming = ref(false)
 
   const liveRunStatus = ref('')
+  const liveRun = ref<ApiRecord | null>(null)
   const stepRecords = ref<ApiRecord[]>([])
   const stepRecordsById = ref(new Map<string, ApiRecord>())
   const agentLogsByTaskId = ref(new Map<string, readonly ApiRecord[]>())
@@ -162,6 +164,16 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
     return readString(row.raw, ['status', 'state', 'result'], '').toUpperCase()
   })
   const effectiveRunStatus = computed(() => liveRunStatus.value || runStatus.value)
+  const runTargetLabel = computed(() => resolveExecutionTargetLabel(liveRun.value, selectedRow.value, stepRecords.value))
+  const runStartedAt = computed(() => resolveRunTimestamp('start', liveRun.value, selectedRow.value?.raw, stepRecords.value))
+  const runFinishedAt = computed(() => {
+    const direct = resolveRunTimestamp('end', liveRun.value, selectedRow.value?.raw, [])
+    if (direct) return direct
+    const allStepsTerminal = stepRecords.value.length > 0
+      && stepRecords.value.every((step) => ['SUCCESS', 'FAILED', 'TIMEOUT', 'CANCELLED', 'SKIPPED'].includes(readString(step, ['status', 'state', 'result'], '').toUpperCase()))
+    if (!terminalRunStatuses.has(effectiveRunStatus.value) && !allStepsTerminal) return ''
+    return resolveRunTimestamp('end', undefined, undefined, stepRecords.value)
+  })
 
   async function load() {
     if (!runId.value) {
@@ -201,6 +213,7 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
     agentLogsByTaskId.value = new Map()
     logLinesById.value = new Map()
     liveRunStatus.value = ''
+    liveRun.value = null
     steps.value = []
     lines.value = []
     dryRunSummary.value = null
@@ -300,6 +313,7 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
   function updateRunStatus(run: ApiRecord | undefined) {
     const status = readString(run ?? {}, ['status', 'state', 'result'], '').toUpperCase()
     if (status) liveRunStatus.value = status
+    if (run && typeof run === 'object') liveRun.value = run
   }
 
   function upsertStep(step: ApiRecord) {
@@ -393,6 +407,7 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
     }
     if (value !== lastLoadedRunId) {
       liveRunStatus.value = ''
+      liveRun.value = null
       await load()
     }
     if (terminalRunStatuses.has(status)) {
@@ -423,6 +438,9 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
     dryRunChecks,
     hasUnknownResult: computed(() => steps.value.some((step) => step.unknownResult)),
     runStatus: effectiveRunStatus,
+    runTargetLabel,
+    runStartedAt,
+    runFinishedAt,
     isPolling: polling.isPolling,
     isStreaming,
     reload: load,
@@ -818,7 +836,7 @@ function formatExecutionInputIssue(issue: Record<string, unknown>, text: Executi
 }
 
 function buildLogLines(record: Record<string, unknown>, index: number, agentLogs: readonly ApiRecord[], text: ExecutionDetailText): ExecutionLogLine[] {
-  const baseTime = formatLocalTime(readString(record, ['updatedAt', 'finishedAt', 'startedAt', 'createdAt'], ''))
+  const baseTime = formatBrowserLocalTime(readString(record, ['updatedAt', 'finishedAt', 'startedAt', 'createdAt'], ''))
   const baseStep = friendlyStepName(record, index, text)
   const baseId = readString(record, ['id', 'stepId'], String(index + 1))
   const resultDetail = readObject(record, 'inputSnapshot.resultDetail')
@@ -881,12 +899,12 @@ function buildAgentLogLine(
   logIndex: number,
   text: ExecutionDetailText,
 ): ExecutionLogLine {
-  const baseTime = formatLocalTime(readString(record, ['updatedAt', 'finishedAt', 'startedAt', 'createdAt'], ''))
+  const baseTime = formatBrowserLocalTime(readString(record, ['updatedAt', 'finishedAt', 'startedAt', 'createdAt'], ''))
   const baseStep = friendlyStepName(record, index, text)
   const baseId = readString(record, ['id', 'stepId'], String(index + 1))
   return {
     id: `line-${baseId}-agent-${readString(log, ['id'], String(logIndex + 1))}`,
-    time: formatLocalTime(readString(log, ['emittedAt', 'createdAt'], '')) || baseTime,
+    time: formatBrowserLocalTime(readString(log, ['emittedAt', 'createdAt'], '')) || baseTime,
     level: normalizeLevel(readPath(log, 'level')),
     step: baseStep,
     message: `[Agent] ${readString(log, ['message'], '')}`,
@@ -919,7 +937,7 @@ function expandWorkflowStepRecords(items: readonly ApiRecord[]): ApiRecord[] {
         name: readString(step, ['name'], `workflow-${stepIndex + 1}`),
         status: readString(step, ['status'], 'UNKNOWN'),
         stepType: readString(step, ['stepType'], 'CUSTOM'),
-        startedAt: readString(step, ['startedAt'], readString(item, ['startedAt', 'createdAt'], '')),
+        startedAt: readString(step, ['startedAt'], ''),
         finishedAt: readString(step, ['finishedAt'], ''),
         dependsOn: readArray(step, 'dependsOn'),
         inputSnapshot: {
@@ -954,7 +972,7 @@ function expandWorkflowStepRecords(items: readonly ApiRecord[]): ApiRecord[] {
         name: rollback ? `rollback.${name}` : name,
         status,
         stepType: readString(step, ['type'], readString(item, ['stepType', 'type'], 'WORKFLOW')).toUpperCase(),
-        startedAt: readString(step, ['startedAt'], readString(item, ['startedAt', 'createdAt'], '')),
+        startedAt: readString(step, ['startedAt'], ''),
         finishedAt: readString(step, ['finishedAt'], ''),
         inputSnapshot: {
           ...(readObject(item, 'inputSnapshot') ?? {}),
@@ -1087,26 +1105,164 @@ function statusRank(value: unknown): number {
   return 1
 }
 
-function formatStepRange(record: Record<string, unknown>, side: 'start' | 'end'): string {
-  const value = side === 'start'
-    ? readString(record, ['startedAt', 'createdAt'], '')
-    : readString(record, ['finishedAt', 'updatedAt'], '')
-  return formatLocalTime(value)
+function resolveRunTimestamp(
+  side: 'start' | 'end',
+  liveRun: Record<string, unknown> | null | undefined,
+  row: Record<string, unknown> | null | undefined,
+  steps: readonly ApiRecord[],
+): string {
+  const key = side === 'start' ? 'startedAt' : 'finishedAt'
+  const direct = readTimestamp(liveRun, [key])
+    || readTimestamp(row, [key, `latestRun.${key}`, `run.${key}`])
+  if (direct) return direct
+  return selectTimestamp(steps.map((step) => resolveStepTimestamp(step, side)), side)
 }
 
-function formatLocalTime(value: string): string {
-  if (!value) return ''
-  const time = Date.parse(value)
-  if (!Number.isFinite(time)) return value
-  return new Intl.DateTimeFormat(undefined, {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).format(new Date(time))
+function resolveExecutionTargetLabel(
+  liveRun: ApiRecord | null | undefined,
+  row: Record<string, unknown> | null | undefined,
+  steps: readonly ApiRecord[],
+): string {
+  const snapshotTargets = uniqueTargetValues(steps.flatMap(readExecutionStepTargetValues))
+  if (snapshotTargets.length > 0) return snapshotTargets.join(', ')
+
+  const directTargets = uniqueTargetValues([
+    ...readDirectTargetValues(liveRun),
+    ...readDirectTargetValues(row),
+    ...readDirectTargetValues(readObject(row, 'raw')),
+  ])
+  return directTargets.join(', ')
+}
+
+function readDirectTargetValues(record: Record<string, unknown> | null | undefined): string[] {
+  if (!record) return []
+  return targetValuesFromUnknown([
+    readPath(record, 'targetLabel'),
+    readPath(record, 'assetNames'),
+    readPath(record, 'targetSummary'),
+    readPath(record, 'executionTargetName'),
+    readPath(record, 'targetName'),
+    readPath(record, 'target'),
+  ])
+}
+
+function readExecutionStepTargetValues(step: ApiRecord): string[] {
+  const contexts = [
+    readObject(step, 'inputSnapshot.resolvedDeploymentInput.assetContext'),
+    readObject(step, 'inputSnapshot.executionRuntimeSnapshot.resolvedDeploymentInput.assetContext'),
+    readObject(step, 'inputSnapshot.resolvedInput.assetContext'),
+    readObject(step, 'inputSnapshot.assetContext'),
+  ].filter((context): context is Record<string, unknown> => Boolean(context))
+
+  return contexts.flatMap(readAssetContextTargetValues)
+}
+
+function readAssetContextTargetValues(assetContext: Record<string, unknown>): string[] {
+  const deploymentTargets = readArray(assetContext, 'deployment.targets')
+  if (deploymentTargets.length > 0) {
+    return deploymentTargets.flatMap((target) => firstTargetValue([
+      readPath(target, 'serverName'),
+      readPath(target, 'hostHeader'),
+      readPath(target, 'name'),
+    ]))
+  }
+
+  return firstTargetValue([
+    readPath(assetContext, 'application.serverName'),
+    readPath(assetContext, 'application.address'),
+    readPath(assetContext, 'site.hostHeader'),
+    readPath(assetContext, 'site.name'),
+    readPath(assetContext, 'target.key'),
+    readPath(assetContext, 'host.hostname'),
+    readPath(assetContext, 'host.primaryIp'),
+  ])
+}
+
+function firstTargetValue(values: readonly unknown[]): string[] {
+  for (const value of values) {
+    const targets = targetValuesFromUnknown([value])
+    if (targets.length > 0) return [targets[0]]
+  }
+  return []
+}
+
+function targetValuesFromUnknown(values: readonly unknown[]): string[] {
+  return values.flatMap((value) => {
+    if (typeof value === 'string') return value.trim() ? [value.trim()] : []
+    if (typeof value === 'number' && Number.isFinite(value)) return [String(value)]
+    if (Array.isArray(value)) return targetValuesFromUnknown(value)
+    if (!value || typeof value !== 'object') return []
+    const record = value as Record<string, unknown>
+    return targetValuesFromUnknown([
+      record.name,
+      record.serverName,
+      record.hostHeader,
+      record.hostname,
+      record.address,
+    ])
+  })
+}
+
+function uniqueTargetValues(values: readonly string[]): string[] {
+  const result: string[] = []
+  const seen = new Set<string>()
+  for (const value of values) {
+    const normalized = value.trim()
+    const key = normalized.toLowerCase()
+    if (!normalized || seen.has(key)) continue
+    seen.add(key)
+    result.push(normalized)
+  }
+  return result
+}
+
+function resolveStepTimestamp(record: Record<string, unknown>, side: 'start' | 'end'): string {
+  const key = side === 'start' ? 'startedAt' : 'finishedAt'
+  const direct = readTimestamp(record, [key])
+  if (direct) return direct
+  return selectTimestamp(readWorkflowStepRecords(record).map((step) => readTimestamp(step, [key])), side)
+}
+
+function readWorkflowStepRecords(record: Record<string, unknown>): Record<string, unknown>[] {
+  const resultDetail = readObject(record, 'inputSnapshot.resultDetail')
+  if (!resultDetail) return []
+  const workflowRun = readObject(resultDetail, 'workflowRun')
+  const workflowProgress = readObject(resultDetail, 'workflowProgress')
+  const projected = readArray(resultDetail, 'workflowExecutionSteps')
+  const completed = readArray(workflowRun, 'stepResults')
+  const progress = readArray(workflowProgress, 'steps')
+  const single = readObject(resultDetail, 'workflowStepResult')
+  return [
+    ...projected,
+    ...(completed.length > 0 ? completed : progress),
+    ...(single ? [single] : []),
+  ]
+}
+
+function readTimestamp(record: Record<string, unknown> | null | undefined, paths: readonly string[]): string {
+  if (!record) return ''
+  for (const path of paths) {
+    const value = readPath(record, path)
+    if (typeof value === 'string' && value.trim() && Number.isFinite(Date.parse(value.trim()))) return value.trim()
+    if (typeof value === 'number' && Number.isFinite(value)) return new Date(value).toISOString()
+  }
+  return ''
+}
+
+function selectTimestamp(values: readonly string[], side: 'start' | 'end'): string {
+  const valid = values
+    .map((value) => ({ value, time: Date.parse(value) }))
+    .filter((item) => item.value && Number.isFinite(item.time))
+  if (valid.length === 0) return ''
+  return valid.reduce((selected, current) => (
+    side === 'start'
+      ? current.time < selected.time ? current : selected
+      : current.time > selected.time ? current : selected
+  )).value
+}
+
+function formatStepRange(record: Record<string, unknown>, side: 'start' | 'end'): string {
+  return formatBrowserLocalTime(resolveStepTimestamp(record, side))
 }
 
 function normalizeLevel(value: unknown): ExecutionLogLine['level'] {

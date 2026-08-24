@@ -45,6 +45,8 @@ interface RelatedExecutionRecord {
   readonly createdReason: string
   readonly createdAt: string
   readonly updatedAt: string
+  readonly startedAt: string
+  readonly finishedAt: string
   readonly targetSummary: string
   readonly certificateVersionId: string
   readonly certificateFormatId: string
@@ -692,7 +694,13 @@ async function openExecutionDetailFromPlan(row: ViewRow) {
     name: t('deploymentPlans.execution.fallbackName', { runId }),
     status: runStatus,
     risk: normalizeRisk(readString(row.raw, ['risk', 'riskLevel'], 'HIGH')),
-    raw: { id: runId, runId, status: runStatus, type: runType },
+    raw: {
+      ...(latestRun ?? {}),
+      id: runId,
+      runId,
+      status: runStatus,
+      type: runType,
+    },
   }
 }
 
@@ -714,6 +722,8 @@ function openRelatedExecutionDetail(record: RelatedExecutionRecord) {
       type: record.type,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
+      startedAt: record.startedAt,
+      finishedAt: record.finishedAt,
       planName: record.planName,
     },
   }
@@ -1373,6 +1383,8 @@ function buildRelatedExecutionRecord(
     createdReason: readString(plan, ['createdReason'], 'MANUAL'),
     createdAt: readString(run, ['createdAt'], readString(plan, ['createdAt'])),
     updatedAt: readString(run, ['updatedAt', 'finishedAt'], readString(plan, ['updatedAt'])),
+    startedAt: readString(run, ['startedAt'], ''),
+    finishedAt: readString(run, ['finishedAt'], ''),
     targetSummary: readString(plan, ['targetSummary', 'targets.0.certificateBindingId', 'targets.0.executionTargetId']),
     certificateVersionId: readString(plan, ['certificateVersionId']),
     certificateFormatId: readString(plan, ['certificateFormatId']),
@@ -1533,6 +1545,9 @@ async function fetchAllPages(
       :summary="activeExecutionDetail.dryRunSummary.value"
       :steps="activeExecutionDetail.steps.value"
       :lines="activeExecutionDetail.lines.value"
+      :target-label="activeExecutionDetail.runTargetLabel?.value"
+      :started-at="activeExecutionDetail.runStartedAt?.value"
+      :finished-at="activeExecutionDetail.runFinishedAt?.value"
       :loading="activeExecutionLoading"
       :error="activeExecutionError"
       @update:open="(value) => value ? (executionDetailModalOpen = true) : void closeExecutionDetailModal()"

@@ -2,6 +2,7 @@ import { defineComponent, h, ref } from 'vue'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import { useExecutionDetail } from '@/composables/useExecutionDetail'
+import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
 const apiMocks = vi.hoisted(() => ({
   listExecutionStepsByRunId: vi.fn(),
@@ -389,6 +390,105 @@ describe('useExecutionDetail', () => {
     expect(detail?.dryRunSummary.value?.label).toBe('Dry-run 已完成，但需要宿主授权')
     expect(detail?.steps.value[1]?.status).toBe('SKIPPED')
     expect(detail?.steps.value[1]?.detail).toContain('SKIPPED_AFTER_RUN_FAILURE')
+
+    wrapper.unmount()
+  })
+
+  it('工作流投影缺少父步骤时间时，按子步骤时间关联步骤和运行边界', async () => {
+    const firstStartedAt = '2026-08-18T01:16:29.000Z'
+    const firstFinishedAt = '2026-08-18T01:16:31.000Z'
+    const lastFinishedAt = '2026-08-18T01:16:43.000Z'
+    apiMocks.listExecutionStepsByRunId.mockResolvedValue({
+      requestId: 'req-workflow-time-fallback',
+      data: {
+        items: [{
+          id: 'step-workflow-time-fallback',
+          name: 'WORKFLOW target-1',
+          stepType: 'INSTALL',
+          status: 'SUCCESS',
+          inputSnapshot: {
+            resultDetail: {
+              workflowExecutionSteps: [
+                { name: 'prepare', status: 'SUCCESS', startedAt: firstStartedAt, finishedAt: firstFinishedAt },
+                { name: 'verify', status: 'SUCCESS', startedAt: '2026-08-18T01:16:38.000Z', finishedAt: lastFinishedAt },
+              ],
+            },
+          },
+        }],
+      },
+    })
+    apiMocks.listAgentTaskLogsByTaskId.mockResolvedValue({ data: [] })
+
+    const selectedRow = ref({ id: 'run-workflow-time-fallback', raw: { id: 'run-workflow-time-fallback', status: 'SUCCESS' } })
+    let detail: ReturnType<typeof useExecutionDetail> | undefined
+    const wrapper = mount(defineComponent({
+      setup() {
+        detail = useExecutionDetail(selectedRow as never)
+        return () => h('div')
+      },
+    }))
+
+    await vi.waitFor(() => expect(detail?.steps.value).toHaveLength(1))
+    expect(detail?.steps.value[0]?.startedAt).toBe(formatBrowserLocalTime(firstStartedAt))
+    expect(detail?.steps.value[0]?.finishedAt).toBe(formatBrowserLocalTime(lastFinishedAt))
+    expect(detail?.runStartedAt.value).toBe(firstStartedAt)
+    expect(detail?.runFinishedAt.value).toBe(lastFinishedAt)
+
+    wrapper.unmount()
+  })
+
+  it('运行记录没有目标字段时，从部署输入快照解析目标并去重', async () => {
+    apiMocks.listExecutionStepsByRunId.mockResolvedValue({
+      requestId: 'req-target-snapshot',
+      data: {
+        items: [
+          {
+            id: 'step-target-snapshot',
+            status: 'SUCCESS',
+            inputSnapshot: {
+              resolvedDeploymentInput: {
+                assetContext: {
+                  application: {
+                    serverName: 'cloud.jacksonz.cn',
+                    address: '10.0.0.8',
+                  },
+                  deployment: { targets: [] },
+                },
+              },
+            },
+          },
+          {
+            id: 'step-target-runtime-snapshot',
+            status: 'SUCCESS',
+            inputSnapshot: {
+              executionRuntimeSnapshot: {
+                resolvedDeploymentInput: {
+                  assetContext: {
+                    application: { serverName: 'cloud.jacksonz.cn' },
+                    deployment: { targets: [{ name: 'Default Web Site', serverName: 'cloud.jacksonz.cn' }] },
+                  },
+                },
+              },
+            },
+          },
+        ],
+      },
+    })
+    apiMocks.listAgentTaskLogsByTaskId.mockResolvedValue({ data: [] })
+
+    const selectedRow = ref({
+      id: 'run-target-snapshot',
+      raw: { id: 'run-target-snapshot', status: 'SUCCESS' },
+    })
+    let detail: ReturnType<typeof useExecutionDetail> | undefined
+    const wrapper = mount(defineComponent({
+      setup() {
+        detail = useExecutionDetail(selectedRow as never)
+        return () => h('div')
+      },
+    }))
+
+    await vi.waitFor(() => expect(detail?.runTargetLabel.value).toBe('cloud.jacksonz.cn'))
 
     wrapper.unmount()
   })

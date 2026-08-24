@@ -36,6 +36,8 @@ export interface DeploymentExecutionOpenDetail {
   readonly mode: DeploymentExecutionMode
   readonly planName?: string
   readonly status?: string
+  readonly startedAt?: string
+  readonly finishedAt?: string
   readonly summary?: string
 }
 
