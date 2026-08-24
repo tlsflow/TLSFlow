@@ -601,7 +601,7 @@ function cancelImport() {
 
 .certificate-import-wizard__status.is-success {
   color: var(--gc-color-success);
-  background: var(--gc-color-legacy-ecfdf5);
+  background: var(--gc-color-success-soft);
 }
 
 .certificate-import-wizard__status.is-fail {

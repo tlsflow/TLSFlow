@@ -2402,12 +2402,12 @@ const config: BusinessPageConfig = {
 }
 
 .agent-detail-modal__binding-chip[data-cert-status='expiring'] {
-  background: linear-gradient(180deg, var(--gc-color-legacy-422006), var(--gc-color-legacy-7c2d12));
-  border-color: var(--gc-color-legacy-rgb-251-191-36-a42p);
+  background: linear-gradient(180deg, var(--gc-color-warning-bg), var(--gc-color-warning));
+  border-color: var(--gc-color-warning-border);
 }
 
 .agent-detail-modal__binding-chip[data-cert-status='expired'] {
-  background: linear-gradient(180deg, var(--gc-color-legacy-3f0d16), var(--gc-color-legacy-7f1d1d));
+  background: linear-gradient(180deg, var(--gc-color-danger-bg), var(--gc-color-danger));
   border-color: var(--gc-color-danger-border);
 }
 
@@ -2432,13 +2432,13 @@ const config: BusinessPageConfig = {
 }
 
 .agent-detail-modal__cert-badge[data-status='valid'] {
-  color: var(--gc-color-legacy-052e16);
-  background: var(--gc-color-legacy-86efac);
+  color: var(--gc-color-success);
+  background: var(--gc-color-success-bg);
 }
 
 .agent-detail-modal__cert-badge[data-status='expiring'] {
   color: var(--gc-color-warning);
-  background: var(--gc-color-legacy-fcd34d);
+  background: var(--gc-color-warning-bg);
 }
 
 .agent-detail-modal__cert-badge[data-status='expired'] {

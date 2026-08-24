@@ -172,7 +172,7 @@
 
 :root[data-theme="dark"] .gc-shell__user-button,
 :root[data-theme="dark"] .gc-shell__user-menu {
-  --gc-color-user-menu-surface: var(--gc-color-legacy-1f2937);
+  --gc-color-user-menu-surface: var(--gc-color-surface-solid);
 }
 
 .gc-shell__user-menu-header {
@@ -571,7 +571,7 @@
 .gc-form-success {
   border: 1px solid var(--gc-color-success-border);
   color: var(--gc-color-success);
-  background: var(--gc-color-legacy-ecfdf5);
+  background: var(--gc-color-success-soft);
 }
 
 .gc-form-actions {

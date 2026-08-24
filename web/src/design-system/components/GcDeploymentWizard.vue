@@ -618,7 +618,7 @@ function normalizeDomainKey(value: string): string {
   border-radius: 20px;
   background:
     radial-gradient(circle at top right, var(--gc-color-info-border), transparent 30%),
-    linear-gradient(180deg, var(--gc-color-surface-subtle), var(--gc-color-legacy-rgb-241-245-249-a94p));
+    linear-gradient(180deg, var(--gc-color-surface-subtle), var(--gc-color-surface-raised));
 }
 
 .gc-deployment-wizard__header {

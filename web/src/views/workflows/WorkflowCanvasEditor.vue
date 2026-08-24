@@ -1443,7 +1443,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 .workflow-canvas-editor__stage-picker select {
   width: 100%;
   min-height: 34px;
-  border: 1px solid var(--gc-color-legacy-cbd7e6);
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 8px;
   padding: 7px 9px;
   background: var(--gc-color-surface-solid);
@@ -1467,7 +1467,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 .workflow-canvas-editor__properties textarea {
   width: 100%;
   min-height: 34px;
-  border: 1px solid var(--gc-color-legacy-cbd7e6);
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 8px;
   padding: 7px 9px;
   background: var(--gc-color-surface-solid);
@@ -1495,7 +1495,7 @@ function firstNumber(...values: unknown[]): number | undefined {
   align-content: start;
   gap: 4px;
   padding: 12px 14px 0;
-  border-top: 2px dashed var(--gc-color-legacy-cbd7e6);
+  border-top: 2px dashed var(--gc-color-border-muted);
   background: var(--gc-color-surface-hover);
 }
 
@@ -1540,7 +1540,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__edges line {
-  stroke: var(--gc-color-legacy-94a3b8);
+  stroke: var(--gc-color-text-soft);
   stroke-width: 2;
 }
 
@@ -1550,7 +1550,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__edges line[data-edge-type='rollback'] {
-  stroke: var(--gc-color-legacy-7c3aed);
+  stroke: var(--gc-color-accent-purple);
   stroke-dasharray: 3 4;
 }
 
@@ -1562,7 +1562,7 @@ function firstNumber(...values: unknown[]): number | undefined {
   width: 220px;
   min-height: 82px;
   padding: 10px 12px;
-  border: 2px solid var(--gc-color-legacy-cbd7e6);
+  border: 2px solid var(--gc-color-border-muted);
   border-radius: 8px;
   background: var(--gc-color-surface-solid);
   text-align: left;
@@ -1587,7 +1587,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__node small {
-  color: var(--gc-color-legacy-94a3b8);
+  color: var(--gc-color-text-soft);
   font-size: 10px;
   overflow-wrap: anywhere;
 }
@@ -1697,7 +1697,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 .workflow-canvas-editor__bottom-toggle {
   min-height: 32px;
   padding: 0 12px;
-  border: 1px solid var(--gc-color-legacy-cbd7e6);
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 8px;
   background: var(--gc-color-surface-solid);
   color: var(--gc-color-muted);
@@ -1715,7 +1715,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__bottom-toggle:hover {
-  border-color: var(--gc-color-legacy-94a3b8);
+  border-color: var(--gc-color-text-soft);
   color: var(--gc-color-text);
 }
 
@@ -1858,7 +1858,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 .workflow-canvas-editor__variable-editor select {
   width: 100%;
   min-height: 32px;
-  border: 1px solid var(--gc-color-legacy-cbd7e6);
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 8px;
   padding: 6px 8px;
   background: var(--gc-color-surface-solid);
@@ -1917,7 +1917,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 .workflow-canvas-editor__runtime-form textarea {
   width: 100%;
   min-height: 32px;
-  border: 1px solid var(--gc-color-legacy-cbd7e6);
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 8px;
   padding: 6px 8px;
   background: var(--gc-color-surface-solid);
@@ -1948,7 +1948,7 @@ function firstNumber(...values: unknown[]): number | undefined {
   border: 1px solid var(--gc-color-danger-border);
   border-left: 4px solid var(--gc-color-danger);
   border-radius: 8px;
-  background: var(--gc-color-legacy-fff7f7);
+  background: var(--gc-color-danger-soft);
 }
 
 .workflow-canvas-editor__runtime-error > strong {
@@ -1969,7 +1969,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 }
 
 .workflow-canvas-editor__runtime-error dt {
-  color: var(--gc-color-legacy-7f1d1d);
+  color: var(--gc-color-danger);
   font-size: 11px;
   font-weight: 900;
 }
@@ -2078,7 +2078,7 @@ function firstNumber(...values: unknown[]): number | undefined {
 .workflow-canvas-editor__dsl-editor {
   width: 100%;
   min-height: 280px;
-  border: 1px solid var(--gc-color-legacy-cbd7e6);
+  border: 1px solid var(--gc-color-border-muted);
   border-radius: 8px;
   padding: 10px 12px;
   resize: vertical;

@@ -523,7 +523,7 @@ function hideTooltip() {
 
 .dashboard-heatmap__block--unknown,
 .dashboard-heatmap__dot--unknown {
-  background: var(--gc-color-legacy-94a3b8);
+  background: var(--gc-color-text-soft);
 }
 
 .dashboard-heatmap__block--disabled,

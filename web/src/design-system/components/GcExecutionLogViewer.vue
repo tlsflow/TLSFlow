@@ -162,7 +162,7 @@ pre {
   margin: 0;
   max-height: 320px;
   overflow: auto;
-  background: var(--gc-color-legacy-020617);
+  background: var(--gc-color-code-bg);
   color: var(--gc-color-muted-bg);
   padding: var(--gc-space-4);
   border-radius: var(--gc-radius-md);

@@ -697,7 +697,7 @@ function feedStatusText(status: TaskStatus): string {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--gc-color-text), var(--gc-color-primary-strong) 55%, var(--gc-color-legacy-10b981));
+  background: linear-gradient(90deg, var(--gc-color-text), var(--gc-color-primary-strong) 55%, var(--gc-color-success));
   transition: width 360ms ease;
 }
 

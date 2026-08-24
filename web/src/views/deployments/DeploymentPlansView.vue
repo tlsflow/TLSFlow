@@ -1289,8 +1289,8 @@ async function fetchAllPages(
 
 .deployment-plan-detail__record-tag[data-kind='certificate-update'] {
   color: var(--gc-color-success);
-  background: var(--gc-color-legacy-ccfbf1);
-  border-color: var(--gc-color-legacy-99f6e4);
+  background: var(--gc-color-success-soft);
+  border-color: var(--gc-color-success-border);
 }
 
 .deployment-plan-detail__related-status {
@@ -1326,7 +1326,7 @@ async function fetchAllPages(
 
 .deployment-plan-detail__related-separator {
   margin: 0 6px;
-  color: var(--gc-color-legacy-94a3b8);
+  color: var(--gc-color-text-soft);
 }
 
 .deployment-plan-detail__related-action {

@@ -1465,7 +1465,7 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 }
 
 .workflow-file-template-modal__item[data-valid='false'] {
-  background: var(--gc-color-legacy-fff7f7);
+  background: var(--gc-color-danger-soft);
   border-color: var(--gc-color-danger-border);
 }
 
