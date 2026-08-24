@@ -18,7 +18,6 @@ const p1TestFiles = [
   'modules/agents/security/agent-security.contract.test.js',
   'modules/agents/security/policy-authority.service.test.js',
   'modules/agents/security/production-agent-local-policy.adapter.test.js',
-  'modules/plugins/runtime/trusted-js-plugin-execution.service.test.js',
   'modules/plugins/unified-agent-plan-compiler.test.js',
   'modules/plugins/plugin-runtime-guard.test.js',
   'modules/agents/agent-task-result-status.test.js',
