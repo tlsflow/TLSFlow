@@ -353,8 +353,8 @@ async function start(): Promise<void> {
   const tasksService = app.getResource<TasksApplicationService>('tasksService');
   const securityServices = securityBundle?.services ?? app.getResource<SecurityServices>('securityServices');
   if (taskRealtimeStream && tasksService && securityServices) {
-    new TaskRealtimeGateway(taskRealtimeStream, tasksService, securityServices)
-      .attach(server);
+    const taskRealtimeGateway = new TaskRealtimeGateway(taskRealtimeStream, tasksService, securityServices);
+    app.registerUpgradeHandler((request, socket, head) => taskRealtimeGateway.handleUpgrade(request, socket, head));
   }
   server.listen(app.config.port, app.config.host, () => {
     structuredLogger.info('后端服务已启动', {

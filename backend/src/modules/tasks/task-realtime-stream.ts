@@ -1,4 +1,4 @@
-import type { Server as HttpServer, IncomingMessage } from 'node:http';
+import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { URL } from 'node:url';
 import { AppError } from '../../common/errors/app-error.js';
@@ -74,29 +74,23 @@ export class TaskRealtimeGateway {
     });
   }
 
-  attach(server: HttpServer): void {
-    server.on('upgrade', (request, socket, head) => {
-      // 中文说明：客户端刷新或关闭页面时可能在鉴权完成前断开，必须消费 Socket 错误，避免进程崩溃。
-      socket.on('error', () => undefined);
-      void this.handleUpgrade(server, request, socket, head);
-    });
-  }
-
-  private async handleUpgrade(
-    _server: HttpServer,
+  async handleUpgrade(
     request: IncomingMessage,
     socket: Duplex,
     head: Buffer,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const url = new URL(request.url ?? '/', 'http://localhost');
-    if (url.pathname !== '/api/v1/tasks/stream') return;
+    if (url.pathname !== '/api/v1/tasks/stream') return false;
+    // 中文说明：客户端刷新或关闭页面时可能在鉴权完成前断开，必须消费 Socket 错误，避免进程崩溃。
+    socket.on('error', () => undefined);
     try {
       const client = await this.authorize(request, url);
       this.wss.handleUpgrade(request, socket, head, (ws) => {
         this.wss.emit('connection', ws, request, client);
       });
+      return true;
     } catch (error) {
-      if (socket.destroyed) return;
+      if (socket.destroyed) return true;
       const appError = error instanceof AppError
         ? error
         : new AppError('SYSTEM_INTERNAL_ERROR', error instanceof Error ? error.message : String(error));
@@ -112,7 +106,8 @@ export class TaskRealtimeGateway {
           timestamp: new Date().toISOString(),
         }),
       );
-      socket.destroy();
+      socket.end();
+      return true;
     }
   }
 
