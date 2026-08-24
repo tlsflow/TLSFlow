@@ -585,6 +585,19 @@ export default {
       saveFailed: '환경설정 저장 실패'
     }
   },
+  systemInitialization: {
+    intro: { ariaLabel: '시스템 초기화 애니메이션', eyebrow: '첫 실행', title: '콘솔을 준비하고 있습니다', description: '잠시 후 시스템 초기화 마법사가 열립니다.', loading: '초기화 마법사를 불러오는 중…', progressAriaLabel: '초기화 로딩 진행률', start: '사용 시작', skip: '애니메이션 건너뛰기', slogan: '중단 없는 보안 서비스를 위해' },
+    preview: { title: '시스템 초기화 미리보기', notice: '개발 미리보기: 사용자나 라이선스가 저장되지 않습니다.' },
+    title: '시스템 초기화 마법사', description: '첫 Admin 계정과 콘솔 환경설정을 만듭니다.', help: '초기 설정을 단계별로 완료합니다.', stepsLabel: '초기화 단계',
+    steps: { account: 'Admin 계정 및 환경설정', accountHelp: '첫 로컬 관리자를 만들고 언어와 테마를 선택합니다.', license: '라이선스 설정', licenseHelp: '오프라인 요청을 내보내고 인증 파일을 가져오거나 나중에 처리합니다.', confirm: '쓰기 확인', confirmHelp: '민감하지 않은 요약과 보안 경고를 확인합니다.', complete: '완료', completeHelp: '초기화가 끝났으며 로그인을 사용할 수 있습니다.' },
+    stage: { account: { title: 'Admin 계정 및 화면 환경설정', help: '이 값은 첫 Admin 사용자에게 저장됩니다.' }, license: { title: '라이선스 설정(선택 사항)', help: '라이선스 실패가 Admin 초기화를 되돌리지는 않습니다.' }, confirm: { title: '쓰기 확인', help: '민감하지 않은 요약만 표시합니다.' }, complete: { title: '초기화 완료', help: '시스템을 사용할 수 있습니다.' } },
+    account: { heading: '첫 Admin 사용자 만들기', description: '콘솔 로그인에 사용할 로컬 관리자 계정을 설정합니다.', username: 'Admin 사용자 이름', usernamePlaceholder: '예: admin', displayName: 'Admin 표시 이름', displayNamePlaceholder: '예: 시스템 관리자', password: 'Admin 비밀번호', passwordPlaceholder: '8자 이상', passwordConfirmation: '비밀번호 확인', passwordConfirmationPlaceholder: '비밀번호를 다시 입력', locale: '기본 언어', theme: '테마' },
+    license: { description: '먼저 오프라인 활성화 요청 파일을 내보낸 다음 인증 파일을 가져오거나 JSON을 붙여넣습니다.', createRequest: '오프라인 요청 파일 내보내기', copyRequest: '활성화 요청 복사', requestCopied: '활성화 요청이 복사되었습니다', importFile: '인증 파일 가져오기', activationResponse: '인증 파일 또는 활성화 응답 JSON', activationResponsePlaceholder: '인증 파일을 가져오거나 JSON을 붙여넣으세요', importResponse: '인증 가져오기', configured: '라이선스가 설정되었습니다.', skip: '건너뛰고 나중에 설정' },
+    confirm: { username: 'Admin 사용자 이름', locale: '언어', theme: '테마', kekTitle: 'GCAC_SECRET_KEK를 안전하게 보관하세요', kekWarning: 'GCAC_SECRET_KEK는 런타임 보안 자료를 복호화하는 루트 키입니다. 코드, 로그, 공개 문서 또는 브라우저에 기록하지 마세요. 유출 시 심각한 보안 위험이 발생할 수 있습니다.' },
+    complete: { heading: '시스템 초기화가 완료되었습니다', licenseConfigured: '라이선스가 설정되었습니다.', licenseSkipped: '라이선스 설정을 건너뛰었습니다. 나중에 Licensing 페이지에서 완료할 수 있습니다.' },
+    actions: { previous: '이전', continue: '계속', createAdmin: 'Admin 생성 후 계속', finish: '초기화 완료', login: '로그인으로 이동' },
+    errors: { passwordMismatch: '비밀번호가 일치하지 않습니다.', missingSession: '초기화는 성공했지만 세션을 받지 못했습니다.', createFailed: 'Admin 생성에 실패했습니다.', licenseFailed: '라이선스 작업에 실패했습니다.', activationRequestMissing: '오프라인 활성화 요청을 받지 못했습니다.', jsonObjectRequired: '유효한 JSON 객체를 입력하세요.' }
+  },
   userMenu: {
     currentUser: '현재 사용자',
     changePassword: '비밀번호 변경',

@@ -584,6 +584,19 @@ export default {
       saveFailed: "偏好儲存失敗"
     }
   },
+  systemInitialization: {
+    intro: { ariaLabel: '系統初始化動畫', eyebrow: '首次啟動', title: '正在準備控制台', description: '即將進入系統初始化精靈。', loading: '正在載入初始化精靈…', progressAriaLabel: '初始化載入進度', start: '開始使用', skip: '跳過動畫', slogan: '為了永不中斷的安全服務' },
+    preview: { title: '系統初始化預覽', notice: '開發預覽模式：不會建立使用者或寫入授權。' },
+    title: '系統初始化精靈', description: '建立第一個 Admin 帳號並設定控制台偏好。', help: '依步驟完成首次初始化。', stepsLabel: '初始化步驟',
+    steps: { account: 'Admin 帳號與偏好', accountHelp: '建立第一個本機管理員並設定語言與主題。', license: '授權配置', licenseHelp: '匯出離線請求並匯入授權檔案，或稍後處理。', confirm: '確認寫入', confirmHelp: '確認帳號摘要與安全提示。', complete: '完成', completeHelp: '初始化完成，可進入登入。' },
+    stage: { account: { title: 'Admin 帳號與介面偏好', help: '這些資訊會儲存到第一個 Admin 使用者。' }, license: { title: '授權配置（可選）', help: '授權失敗不會回滾 Admin 初始化。' }, confirm: { title: '確認寫入', help: '這裡只顯示非敏感摘要。' }, complete: { title: '初始化完成', help: '系統已可登入使用。' } },
+    account: { heading: '建立第一個 Admin 使用者', description: '設定用於登入控制台的本機管理員帳號。', username: 'Admin 使用者名稱', usernamePlaceholder: '例如 admin', displayName: 'Admin 顯示名稱', displayNamePlaceholder: '例如 系統管理員', password: 'Admin 密碼', passwordPlaceholder: '至少 8 位', passwordConfirmation: '確認密碼', passwordConfirmationPlaceholder: '再次輸入密碼', locale: '偏好語言', theme: '主題' },
+    license: { description: '先匯出離線啟用請求檔案，再匯入授權檔案或貼上授權 JSON。', createRequest: '匯出離線請求檔案', copyRequest: '複製啟用請求', requestCopied: '已複製啟用請求', importFile: '匯入授權檔案', activationResponse: '授權檔案或啟用回應 JSON', activationResponsePlaceholder: '匯入授權檔案，或貼上授權 JSON', importResponse: '匯入授權', configured: '授權已配置。', skip: '跳過，稍後配置' },
+    confirm: { username: 'Admin 使用者名稱', locale: '語言', theme: '主題', kekTitle: '請妥善保存 GCAC_SECRET_KEK', kekWarning: 'GCAC_SECRET_KEK 是執行時安全材料的解密根密鑰。禁止寫入程式碼、日誌、公開文件或瀏覽器；洩露可能造成嚴重安全風險。' },
+    complete: { heading: '系統初始化已完成', licenseConfigured: '授權已配置。', licenseSkipped: '已跳過授權配置，可稍後在 Licensing 頁面完成。' },
+    actions: { previous: '上一步', continue: '繼續', createAdmin: '建立 Admin 並繼續', finish: '完成初始化', login: '進入登入' },
+    errors: { passwordMismatch: '兩次輸入的密碼不一致。', missingSession: '初始化成功但未取得工作階段。', createFailed: 'Admin 建立失敗。', licenseFailed: '授權操作失敗。', activationRequestMissing: '未取得離線啟用請求。', jsonObjectRequired: '請輸入有效的 JSON 物件。' }
+  },
   userMenu: {
     currentUser: "目前使用者",
     changePassword: "修改密碼",

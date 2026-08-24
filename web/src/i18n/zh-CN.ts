@@ -603,6 +603,19 @@ export default {
       saveFailed: '偏好保存失败'
     }
   },
+  systemInitialization: {
+    intro: { ariaLabel: '系统初始化动画', eyebrow: '首次启动', title: '正在准备控制台', description: '即将进入系统初始化向导。', loading: '正在载入初始化向导…', progressAriaLabel: '初始化载入进度', start: '开始使用', skip: '跳过动画', slogan: '为了永不中断的安全服务' },
+    preview: { title: '系统初始化预览', notice: '开发预览模式：不会创建用户或写入许可证。' },
+    title: '系统初始化向导', description: '创建首个 Admin 账号并设置控制台偏好。', help: '按步骤完成首次初始化。', stepsLabel: '初始化步骤',
+    steps: { account: 'Admin 账号与偏好', accountHelp: '创建首个本地管理员并设置语言和主题。', license: '许可证配置', licenseHelp: '导出离线请求并导入授权文件，或稍后处理。', confirm: '确认写入', confirmHelp: '确认账号摘要和安全提示。', complete: '完成', completeHelp: '初始化已完成，可进入登录。' },
+    stage: { account: { title: 'Admin 账号与界面偏好', help: '这些信息会保存到首个 Admin 用户。' }, license: { title: '许可证配置（可选）', help: '许可证失败不会回滚 Admin 初始化。' }, confirm: { title: '确认写入', help: '这里只展示非敏感摘要。' }, complete: { title: '初始化完成', help: '系统已经可以登录使用。' } },
+    account: { heading: '创建首个 Admin 用户', description: '请设置用于登录控制台的本地管理员账号。', username: 'Admin 用户名', usernamePlaceholder: '例如 admin', displayName: 'Admin 显示名', displayNamePlaceholder: '例如 系统管理员', password: 'Admin 密码', passwordPlaceholder: '至少 8 位', passwordConfirmation: '确认密码', passwordConfirmationPlaceholder: '再次输入密码', locale: '首选语言', theme: '主题' },
+    license: { description: '先导出离线激活请求文件，再导入授权文件或粘贴授权 JSON。', createRequest: '导出离线请求文件', copyRequest: '复制激活请求', requestCopied: '已复制激活请求', importFile: '导入授权文件', activationResponse: '授权文件或激活响应 JSON', activationResponsePlaceholder: '导入授权文件，或粘贴授权 JSON', importResponse: '导入授权', configured: '许可证已配置。', skip: '跳过，稍后配置' },
+    confirm: { username: 'Admin 用户名', locale: '语言', theme: '主题', kekTitle: '请妥善保存 GCAC_SECRET_KEK', kekWarning: 'GCAC_SECRET_KEK 是运行时安全材料的解密根密钥。禁止写入代码、日志、公开文档或浏览器；一旦泄露，可能造成严重安全风险。' },
+    complete: { heading: '系统初始化已完成', licenseConfigured: '许可证已配置。', licenseSkipped: '许可证配置已跳过，可稍后在 Licensing 页面完成。' },
+    actions: { previous: '上一步', continue: '继续', createAdmin: '创建 Admin 并继续', finish: '完成初始化', login: '进入登录' },
+    errors: { passwordMismatch: '两次输入的密码不一致。', missingSession: '初始化成功但未获取到会话。', createFailed: 'Admin 创建失败。', licenseFailed: '许可证操作失败。', activationRequestMissing: '未获取到离线激活请求。', jsonObjectRequired: '请输入有效的 JSON 对象。' }
+  },
   userMenu: {
     currentUser: '当前用户',
     changePassword: '修改密码',

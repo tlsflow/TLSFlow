@@ -7,6 +7,8 @@ import { coreRoutes } from './modules/core'
 import { registerRouterGuards } from './guards'
 import { normalizeInternalRedirectPath } from './redirect'
 
+const initializationPreviewEnabled = import.meta.env.DEV
+
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
@@ -18,6 +20,35 @@ export const router = createRouter({
       path: '/',
       component: AuthLayout,
       children: [
+        {
+          path: '/system/initialization',
+          name: 'system.initialization',
+          component: () => import('@/views/system-initialization/SystemInitializationView.vue'),
+          meta: {
+            title: 'System initialization',
+            titleKey: 'systemInitialization.title',
+            module: 'system',
+            requiresAuth: false,
+            hiddenInMenu: true,
+            breadcrumbKeys: ['systemInitialization.title']
+          }
+        },
+        ...(initializationPreviewEnabled
+          ? [{
+              path: '/__debug/system-initialization',
+              name: 'system.initialization.preview',
+              component: () => import('@/views/system-initialization/SystemInitializationView.vue'),
+              meta: {
+                title: 'System initialization preview',
+                titleKey: 'systemInitialization.preview.title',
+                module: 'system',
+                requiresAuth: false,
+                hiddenInMenu: true,
+                initializationPreview: true,
+                breadcrumbKeys: ['systemInitialization.preview.title']
+              }
+            }]
+          : []),
         {
           path: '/login',
           name: 'login',

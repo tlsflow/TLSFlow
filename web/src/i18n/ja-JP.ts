@@ -585,6 +585,19 @@ export default {
       saveFailed: '設定の保存に失敗しました'
     }
   },
+  systemInitialization: {
+    intro: { ariaLabel: 'システム初期化アニメーション', eyebrow: '初回起動', title: 'コンソールを準備しています', description: 'まもなくシステム初期化ウィザードを開きます。', loading: '初期化ウィザードを読み込んでいます…', progressAriaLabel: '初期化の読み込み進捗', start: '利用を開始', skip: 'アニメーションをスキップ', slogan: '止まらないセキュリティサービスのために' },
+    preview: { title: 'システム初期化プレビュー', notice: '開発プレビュー：ユーザーやライセンス情報は書き込まれません。' },
+    title: 'システム初期化ウィザード', description: '最初の Admin アカウントとコンソール設定を作成します。', help: '初回セットアップを順に完了します。', stepsLabel: '初期化手順',
+    steps: { account: 'Admin アカウントと設定', accountHelp: '最初のローカル管理者と言語・テーマを設定します。', license: 'ライセンス設定', licenseHelp: 'オフライン要求を出力して認証ファイルを取込むか、後で設定します。', confirm: '書込み確認', confirmHelp: '非機密の概要とセキュリティ警告を確認します。', complete: '完了', completeHelp: '初期化が完了し、ログインできます。' },
+    stage: { account: { title: 'Admin アカウントと表示設定', help: 'これらの値は最初の Admin ユーザーに保存されます。' }, license: { title: 'ライセンス設定（任意）', help: 'ライセンス失敗で Admin 初期化が取り消されることはありません。' }, confirm: { title: '書込み確認', help: 'ここでは非機密の概要だけを表示します。' }, complete: { title: '初期化完了', help: 'システムを利用できます。' } },
+    account: { heading: '最初の Admin ユーザーを作成', description: 'コンソールへのログインに使うローカル管理者アカウントを設定します。', username: 'Admin ユーザー名', usernamePlaceholder: '例：admin', displayName: 'Admin 表示名', displayNamePlaceholder: '例：システム管理者', password: 'Admin パスワード', passwordPlaceholder: '8 文字以上', passwordConfirmation: 'パスワード確認', passwordConfirmationPlaceholder: 'もう一度入力', locale: '優先言語', theme: 'テーマ' },
+    license: { description: 'まずオフライン認証リクエストを出力し、認証ファイルを取込むか JSON を貼り付けます。', createRequest: 'オフライン要求ファイルを出力', copyRequest: '認証リクエストをコピー', requestCopied: '認証リクエストをコピーしました', importFile: '認証ファイルを取込む', activationResponse: '認証ファイルまたは認証レスポンス JSON', activationResponsePlaceholder: '認証ファイルを取込むか JSON を貼り付け', importResponse: '認証を取込む', configured: 'ライセンスを設定しました。', skip: 'スキップして後で設定' },
+    confirm: { username: 'Admin ユーザー名', locale: '言語', theme: 'テーマ', kekTitle: 'GCAC_SECRET_KEK を安全に保管してください', kekWarning: 'GCAC_SECRET_KEK はランタイムのセキュリティ材料を復号するルートキーです。コード、ログ、公開文書、ブラウザーに保存しないでください。漏えいすると重大なセキュリティリスクになります。' },
+    complete: { heading: 'システム初期化が完了しました', licenseConfigured: 'ライセンスを設定しました。', licenseSkipped: 'ライセンス設定をスキップしました。後で Licensing ページから設定できます。' },
+    actions: { previous: '前へ', continue: '続ける', createAdmin: 'Admin を作成して続ける', finish: '初期化を完了', login: 'ログインへ' },
+    errors: { passwordMismatch: 'パスワードが一致しません。', missingSession: '初期化は成功しましたがセッションがありません。', createFailed: 'Admin の作成に失敗しました。', licenseFailed: 'ライセンス操作に失敗しました。', activationRequestMissing: 'オフライン認証リクエストがありません。', jsonObjectRequired: '有効な JSON オブジェクトを入力してください。' }
+  },
   userMenu: {
     currentUser: '現在のユーザー',
     changePassword: 'パスワード変更',

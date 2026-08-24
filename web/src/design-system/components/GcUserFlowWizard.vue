@@ -10,14 +10,18 @@ export interface UserFlowStep {
   completed?: boolean
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   steps: readonly UserFlowStep[]
   activeStep: string
   title: string
   help: string
   helpLabel: string
   ariaLabel: string
-}>()
+  /** 是否显示当前步骤的阶段标题和帮助提示。 */
+  showStageHeader?: boolean
+}>(), {
+  showStageHeader: true,
+})
 
 const emit = defineEmits<{
   select: [stepId: string]
@@ -35,7 +39,7 @@ function stepState(step: UserFlowStep, index: number): 'active' | 'complete' | '
 
 <template>
   <section class="gc-user-flow-wizard">
-    <nav class="gc-user-flow-wizard__steps" :aria-label="ariaLabel">
+    <nav class="gc-user-flow-wizard__steps" :aria-label="ariaLabel" :style="{ '--gc-user-flow-step-count': steps.length }">
       <div
         v-for="(step, index) in steps"
         :key="step.id"
@@ -58,7 +62,7 @@ function stepState(step: UserFlowStep, index: number): 'active' | 'complete' | '
       </div>
     </nav>
 
-    <header class="gc-user-flow-wizard__stage-header">
+    <header v-if="props.showStageHeader" class="gc-user-flow-wizard__stage-header">
       <div class="gc-user-flow-wizard__stage-title">
         <span class="gc-user-flow-wizard__stage-position" aria-hidden="true">{{ activePosition }}</span>
         <h2>{{ title }}</h2>
@@ -84,7 +88,7 @@ function stepState(step: UserFlowStep, index: number): 'active' | 'complete' | '
 
 .gc-user-flow-wizard__steps {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--gc-user-flow-step-count, 3), minmax(0, 1fr));
   overflow: visible;
   border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
   border-radius: var(--gc-radius-lg);

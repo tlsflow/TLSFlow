@@ -603,6 +603,19 @@ export default {
       saveFailed: 'Failed to save preferences'
     }
   },
+  systemInitialization: {
+    intro: { ariaLabel: 'System initialization animation', eyebrow: 'First launch', title: 'Preparing your console', description: 'The system initialization wizard will open next.', loading: 'Loading the initialization wizard…', progressAriaLabel: 'Initialization loading progress', start: 'Start using', skip: 'Skip animation', slogan: 'For security services that never stop' },
+    preview: { title: 'System initialization preview', notice: 'Development preview: no user or license data will be written.' },
+    title: 'System initialization', description: 'Create the first Admin account and set console preferences.', help: 'Complete the first-run setup step by step.', stepsLabel: 'Initialization steps',
+    steps: { account: 'Admin account and preferences', accountHelp: 'Create the first local administrator and choose language and theme.', license: 'License setup', licenseHelp: 'Export an offline request and import an authorization file, or do this later.', confirm: 'Confirm write', confirmHelp: 'Review the non-sensitive account summary and security warning.', complete: 'Complete', completeHelp: 'Initialization is complete and login is available.' },
+    stage: { account: { title: 'Admin account and display preferences', help: 'These values are stored on the first Admin user.' }, license: { title: 'License setup (optional)', help: 'A license failure does not roll back Admin initialization.' }, confirm: { title: 'Confirm write', help: 'Only a non-sensitive summary is shown here.' }, complete: { title: 'Initialization complete', help: 'The system is ready for login.' } },
+    account: { heading: 'Create the first Admin user', description: 'Set the local administrator account used to sign in to the console.', username: 'Admin username', usernamePlaceholder: 'For example, admin', displayName: 'Admin display name', displayNamePlaceholder: 'For example, System administrator', password: 'Admin password', passwordPlaceholder: 'At least 8 characters', passwordConfirmation: 'Confirm password', passwordConfirmationPlaceholder: 'Enter the password again', locale: 'Preferred language', theme: 'Theme' },
+    license: { description: 'First export an offline activation request file, then import an authorization file or paste its JSON.', createRequest: 'Export offline request file', copyRequest: 'Copy activation request', requestCopied: 'Activation request copied', importFile: 'Import authorization file', activationResponse: 'Authorization file or activation response JSON', activationResponsePlaceholder: 'Import an authorization file or paste its JSON', importResponse: 'Import authorization', configured: 'License configured.', skip: 'Skip and configure later' },
+    confirm: { username: 'Admin username', locale: 'Language', theme: 'Theme', kekTitle: 'Keep GCAC_SECRET_KEK safe', kekWarning: 'GCAC_SECRET_KEK is the root key for decrypting runtime security materials. Never put it in code, logs, public documentation, or the browser. Disclosure can create a serious security risk.' },
+    complete: { heading: 'System initialization is complete', licenseConfigured: 'The license is configured.', licenseSkipped: 'License setup was skipped and can be completed later from the Licensing page.' },
+    actions: { previous: 'Previous', continue: 'Continue', createAdmin: 'Create Admin and continue', finish: 'Finish initialization', login: 'Go to login' },
+    errors: { passwordMismatch: 'The passwords do not match.', missingSession: 'Initialization succeeded but no session was returned.', createFailed: 'Admin creation failed.', licenseFailed: 'License operation failed.', activationRequestMissing: 'No offline activation request was returned.', jsonObjectRequired: 'Enter a valid JSON object.' }
+  },
   userMenu: {
     currentUser: 'Current user',
     changePassword: 'Change password',

@@ -4,8 +4,14 @@ import { useAuthStore } from '@/stores/auth.store'
 import { usePermissionStore } from '@/stores/permission.store'
 import { useTenantStore } from '@/stores/tenant.store'
 import { useSystemCapabilitiesStore, type SystemFeature } from '@/stores/system-capabilities.store'
+import { useSystemInitializationStore } from '@/stores/system-initialization.store'
 
-const publicRouteNames = new Set(['login', 'error.forbidden', 'error.notFound'])
+const publicRouteNames = new Set(['login', 'system.initialization', 'error.forbidden', 'error.notFound'])
+
+function isInitializationPreviewRoute(routeName: string): boolean {
+  return import.meta.env.DEV
+    && routeName === 'system.initialization.preview'
+}
 
 export function registerRouterGuards(router: Router): void {
   router.beforeEach(async (to) => {
@@ -13,8 +19,17 @@ export function registerRouterGuards(router: Router): void {
     const permissionStore = usePermissionStore()
     const tenantStore = useTenantStore()
     const systemCapabilities = useSystemCapabilitiesStore()
+    const systemInitialization = useSystemInitializationStore()
 
     const routeName = String(to.name ?? '')
+    if (isInitializationPreviewRoute(routeName)) return true
+    await systemInitialization.loadStatus()
+    if (systemInitialization.isPending && routeName !== 'system.initialization') {
+      return { name: 'system.initialization' }
+    }
+    if (systemInitialization.initialized && routeName === 'system.initialization') {
+      return { name: 'login' }
+    }
     if (publicRouteNames.has(routeName)) {
       return true
     }
