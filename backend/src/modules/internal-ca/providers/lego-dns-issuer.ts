@@ -22,6 +22,7 @@ export interface LegoProcessRunner {
     cwd?: string;
     env?: NodeJS.ProcessEnv;
     timeoutMs?: number;
+    signal?: AbortSignal;
   }): Promise<LegoProcessResult>;
 }
 
@@ -43,6 +44,7 @@ export interface LegoDnsIssueInput {
   contactEmail: string;
   propagationSeconds?: number;
   actorId: string;
+  signal?: AbortSignal;
 }
 
 /**
@@ -118,6 +120,8 @@ export class LegoDnsIssuer {
         definition.credentialTemplate,
       );
       const args = [
+        // lego v5 将 ACME/DNS 标志定义在 run 子命令上，子命令必须排在这些标志之前。
+        'run',
         '--accept-tos',
         '--email', input.contactEmail.trim(),
         '--server', input.provider.endpoint.trim(),
@@ -126,19 +130,29 @@ export class LegoDnsIssuer {
         '--csr', csrPath,
       ];
       if (input.propagationSeconds !== undefined) {
-        args.push('--dns.propagation-wait', `${input.propagationSeconds}s`);
+        args.push('--dns.propagation.wait', `${input.propagationSeconds}s`);
       }
-      args.push('run');
 
-      await this.runner.run(this.legoPath, args, {
-        cwd: directory,
-        env: {
-          ...process.env,
-          ...credentialEnv,
-          LEGO_DISABLE_CNAME_SUPPORT: 'true',
-        },
-        timeoutMs: this.timeoutMs,
-      });
+      try {
+        await this.runner.run(this.legoPath, args, {
+          cwd: directory,
+          env: {
+            ...process.env,
+            ...credentialEnv,
+            LEGO_DISABLE_CNAME_SUPPORT: 'true',
+          },
+          timeoutMs: this.timeoutMs,
+          signal: input.signal,
+        });
+      } catch (error) {
+        if (isLegoExecutableMissing(error)) {
+          throw new AppError('CAPABILITY_MISSING', 'DNS-01 执行节点未安装或无法执行 lego', {
+            executable: this.legoPath,
+            remediation: '请在运行后端服务的节点安装 lego，或配置有效的 GCAC_LEGO_PATH',
+          });
+        }
+        throw error;
+      }
 
       const certificateBundlePath = await findCertificateBundle(certificatesPath);
       const certificatePem = await readFile(certificateBundlePath, 'utf8');
@@ -158,6 +172,7 @@ export class LegoDnsIssuer {
       throw new AppError('ACME_RENEWAL_FAILED', 'lego DNS-01 签发失败', {
         providerId: input.dnsProviderId,
         jobId: input.jobId,
+        executable: this.legoPath,
         reason: summarizeLegoError(error),
       });
     } finally {
@@ -170,7 +185,7 @@ class LocalLegoProcessRunner implements LegoProcessRunner {
   async run(
     command: string,
     args: string[],
-    options: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {},
+    options: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number; signal?: AbortSignal } = {},
   ): Promise<LegoProcessResult> {
     try {
       return await execFileAsync(command, args, {
@@ -179,6 +194,7 @@ class LocalLegoProcessRunner implements LegoProcessRunner {
         windowsHide: true,
         maxBuffer: 8 * 1024 * 1024,
         timeout: options.timeoutMs,
+        signal: options.signal,
       });
     } catch (error) {
       const detail = error as {
@@ -186,12 +202,24 @@ class LocalLegoProcessRunner implements LegoProcessRunner {
         stderr?: string;
         message?: string;
         killed?: boolean;
-        code?: string;
+        code?: string | number;
       };
       if (detail.killed || detail.code === 'ETIMEDOUT') {
         throw new Error(`lego 执行超时（${options.timeoutMs ?? 0}ms）`);
       }
-      throw new Error(summarizeLegoError(detail.stderr ?? detail.stdout ?? detail.message ?? 'unknown error'));
+      if (detail.code === 'ABORT_ERR' || options.signal?.aborted) {
+        throw new Error('lego 执行已取消');
+      }
+      if (detail.code === 'ENOENT') {
+        const missing = new Error(`找不到或无法执行 lego 程序：${command}`);
+        Object.assign(missing, { code: 'ENOENT' });
+        throw missing;
+      }
+      const processError = new Error(summarizeLegoError(detail.stderr ?? detail.stdout ?? detail.message ?? 'unknown error'));
+      if (detail.code !== undefined) {
+        Object.assign(processError, { code: detail.code });
+      }
+      throw processError;
     }
   }
 }
@@ -227,6 +255,18 @@ function summarizeLegoError(value: unknown): string {
     .replace(/-----BEGIN[\s\S]*?-----END[^-]+-----/g, '[REDACTED]')
     .replace(/(?:api[_-]?key|token|secret|password)\s*=\s*[^\s]+/gi, '$1=[REDACTED]')
     .slice(0, 800);
+}
+
+/**
+ * 缺少本机二进制不是可通过指数退避恢复的 DNS 或 CA 故障。
+ * 保留 ENOENT 码也兼容注入的 Runner，避免测试与实际执行器出现两套行为。
+ */
+function isLegoExecutableMissing(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const detail = error as { code?: unknown; message?: unknown };
+  if (detail.code === 'ENOENT') return true;
+  return typeof detail.message === 'string'
+    && /(?:spawn|exec|启动).*lego.*ENOENT|lego.*(?:not found|ENOENT)/i.test(detail.message);
 }
 
 function parseLegoEnvironmentFile(

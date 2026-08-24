@@ -628,7 +628,7 @@ export class InternalCaApplicationService {
     }
     const trustDomain = input.trustDomainId
       ? await this.requireUsableTrustDomain(tenantId, input.trustDomainId)
-      : await this.createTrustDomain(tenantId, { name: `${requiredText(input.name, 'name')} 信任域`, purpose: input.securityDomain }, input.actorId, context);
+      : await this.ensureGeneratedTrustDomain(tenantId, `${requiredText(input.name, 'name')} 信任域`, input.securityDomain, input.actorId, context);
     if (input.parentCaId) {
       const parent = await this.requireAuthority(tenantId, input.parentCaId);
       if (provider.type !== 'gcac_builtin' || parent.providerId !== provider.id || parent.role !== 'root' || parent.status !== 'active') {
@@ -786,40 +786,82 @@ export class InternalCaApplicationService {
       const preview = this.previewAuthority({
         topologyMode: 'external_managed', deploymentMode: 'external', runtimePlatform: 'external', availabilityMode: 'single', keyBackend: 'secret',
       });
-      const created = await this.createAuthority(tenantId, {
-        providerId: provider.id,
-        topologyMode: 'external_managed',
-        deploymentMode: 'external',
-        runtimePlatform: 'external',
-        availabilityMode: 'single',
-        keyBackend: 'secret',
-        name: `ACME ${provider.name} Issuer`,
-        commonName: `${provider.name} ACME Issuer`,
-        securityDomain: 'acme',
-        confirmationToken: preview.confirmationToken,
-        actorId,
-      });
-      authority = await this.repository.getAuthority(tenantId, created[0]!.id);
+      try {
+        const created = await this.createAuthority(tenantId, {
+          providerId: provider.id,
+          topologyMode: 'external_managed',
+          deploymentMode: 'external',
+          runtimePlatform: 'external',
+          availabilityMode: 'single',
+          keyBackend: 'secret',
+          name: `ACME ${provider.name} Issuer`,
+          commonName: `${provider.name} ACME Issuer`,
+          securityDomain: 'acme',
+          confirmationToken: preview.confirmationToken,
+          actorId,
+        });
+        authority = await this.repository.getAuthority(tenantId, created[0]!.id);
+      } catch (error) {
+        if (!isUniqueConstraintError(error)) throw error;
+        authority = (await this.repository.listAuthorities(tenantId)).find((item) => (
+          item.providerId === provider.id && item.topologyMode === 'external_managed' && item.status === 'active'
+        ));
+        if (!authority) throw error;
+      }
     }
     if (!authority) throw new AppError('CA_PROVIDER_UNAVAILABLE', 'ACME 逻辑证书机构创建失败', { providerId });
-    const profileEntry = (await this.listProfiles(tenantId)).find((item) => (
+    const profileName = `ACME ${provider.name} Server Certificate Profile`;
+    let profileEntry = (await this.listProfiles(tenantId)).find((item) => (
       item.profile.securityDomain === 'acme'
       && item.profile.trustDomainId === authority!.trustDomainId
       && item.profile.status === 'active'
     ));
-    const version = profileEntry?.versions.slice().sort((left, right) => right.versionNo - left.versionNo)[0]
-      ?? (await this.createProfile(tenantId, {
-        name: `ACME ${provider.name} Server Certificate Profile`,
-        securityDomain: 'acme',
-        trustDomainId: authority.trustDomainId,
-        rules: {
-          allowedSanTypes: ['dns', 'ip'], keyAlgorithms: ['rsa', 'ec'], minimumRsaBits: 2048,
-          maximumValidityDays: 397, renewalWindowDays: 7, rotateKeyOnRenewal: true,
-          allowWildcard: true, requireApproval: false, extendedKeyUsages: ['serverAuth'],
-        },
-        actorId,
-      })).version;
+    if (!profileEntry) {
+      try {
+        const created = await this.createProfile(tenantId, {
+          name: profileName,
+          securityDomain: 'acme',
+          trustDomainId: authority.trustDomainId,
+          rules: {
+            allowedSanTypes: ['dns', 'ip'], keyAlgorithms: ['rsa', 'ec'], minimumRsaBits: 2048,
+            maximumValidityDays: 397, renewalWindowDays: 7, rotateKeyOnRenewal: true,
+            allowWildcard: true, requireApproval: false, extendedKeyUsages: ['serverAuth'],
+          },
+          actorId,
+        });
+        profileEntry = { profile: created.profile, versions: [created.version] };
+      } catch (error) {
+        if (!isUniqueConstraintError(error)) throw error;
+        profileEntry = (await this.listProfiles(tenantId)).find((item) => (
+          item.profile.securityDomain === 'acme'
+          && item.profile.trustDomainId === authority!.trustDomainId
+          && item.profile.status === 'active'
+        ));
+        if (!profileEntry) throw error;
+      }
+    }
+    const version = profileEntry.versions.slice().sort((left, right) => right.versionNo - left.versionNo)[0];
+    if (!version) throw new AppError('CA_PROVIDER_UNAVAILABLE', 'ACME 证书 Profile 创建失败', { providerId });
     return { caId: authority.id, profileVersionId: version.id, trustDomainId: authority.trustDomainId };
+  }
+
+  private async ensureGeneratedTrustDomain(
+    tenantId: string,
+    name: string,
+    purpose: string,
+    actorId: string,
+    context?: RequestContext,
+  ): Promise<CaTrustDomainEntity> {
+    const existing = await this.repository.getTrustDomainByName(tenantId, name);
+    if (existing) return existing;
+    try {
+      return await this.createTrustDomain(tenantId, { name, purpose }, actorId, context);
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error;
+      const concurrent = await this.repository.getTrustDomainByName(tenantId, name);
+      if (!concurrent) throw error;
+      return concurrent;
+    }
   }
 
   async createCertificateRequest(tenantId: string, input: CreateCertificateRequestInput, context?: RequestContext): Promise<CertificateRequestEntity> {
@@ -890,6 +932,10 @@ export class InternalCaApplicationService {
 
   async listRequests(tenantId: string): Promise<CertificateRequestEntity[]> {
     return this.repository.listRequests(tenantId);
+  }
+
+  getRequestByIdempotencyKey(tenantId: string, idempotencyKey: string): Promise<CertificateRequestEntity | undefined> {
+    return this.repository.getRequestByIdempotencyKey(tenantId, idempotencyKey);
   }
 
   async approveRequest(tenantId: string, requestId: string, actorId: string, approvalId?: string, context?: RequestContext): Promise<CertificateRequestEntity> {
@@ -1778,6 +1824,13 @@ function normalizeTrustDomainCode(value: string): string {
   const code = requiredText(value, 'code').toLowerCase();
   if (!/^[a-z][a-z0-9_-]{1,63}$/.test(code)) throw new AppError('VALIDATION_FAILED', 'CA 信任域 code 格式无效', { field: 'code' });
   return code;
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as { code?: unknown; message?: unknown };
+  return candidate.code === '23505'
+    || (typeof candidate.message === 'string' && candidate.message.includes('unique constraint'));
 }
 
 function isTrustDomainUsable(status: CaTrustDomainStatus): boolean {

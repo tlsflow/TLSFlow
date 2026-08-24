@@ -280,7 +280,7 @@ export class AcmeRepository {
   }
 
   async saveRenewalJob(entity: AcmeRenewalJobEntity): Promise<AcmeRenewalJobEntity> {
-    await this.db.query(
+    const result = await this.db.query<Record<string, unknown>>(
       `insert into pg_certificate_renewal_jobs (
          id, tenant_id, certificate_version_id, renewal_window_key, status, certificate_request_id,
          policy_id, source_certificate_version_id, acme_order_id, deployment_plan_id, execution_run_id,
@@ -297,7 +297,9 @@ export class AcmeRepository {
          lease_owner = excluded.lease_owner, lease_expires_at = excluded.lease_expires_at,
          failure_code = excluded.failure_code, failure_message = excluded.failure_message,
          policy_snapshot = excluded.policy_snapshot, payload = excluded.payload,
-         scheduled_at = excluded.scheduled_at, updated_at = excluded.updated_at`,
+         scheduled_at = excluded.scheduled_at, updated_at = excluded.updated_at
+       where pg_certificate_renewal_jobs.status <> 'cancelled'
+       returning *`,
       [
         entity.id, entity.tenantId, entity.certificateVersionId ?? null, entity.renewalWindowKey, entity.status,
         entity.certificateRequestId ?? null, entity.policyId ?? null, entity.sourceCertificateVersionId ?? null,
@@ -308,7 +310,10 @@ export class AcmeRepository {
         entity.scheduledAt, entity.createdAt, entity.updatedAt,
       ],
     );
-    return structuredClone(entity);
+    if (result.rows[0]) return renewalJobFromRow(result.rows[0]);
+    // 取消与 Worker 写回并发时，保留数据库中的 cancelled 终态，不能返回旧快照。
+    const current = await this.getRenewalJob(entity.tenantId, entity.id);
+    return current ?? structuredClone(entity);
   }
 
   async getRenewalJob(tenantId: string, id: string): Promise<AcmeRenewalJobEntity | undefined> {
@@ -373,16 +378,51 @@ export class AcmeRepository {
     return renewalJobFromRow(result.rows[0]);
   }
 
+  async cancelRenewalJob(tenantId: string, id: string, now: string, reason = '用户请求取消 ACME 续签任务'): Promise<AcmeRenewalJobEntity> {
+    const result = await this.db.query<Record<string, unknown>>(
+      `update pg_certificate_renewal_jobs
+       set status = 'cancelled',
+           next_attempt_at = null,
+           lease_owner = null,
+           lease_expires_at = null,
+           failure_code = 'ACME_RENEWAL_CANCELLED',
+           failure_message = $3,
+           updated_at = $4::timestamptz
+       where tenant_id = $1 and id = $2
+         and status in ('scheduled','key_pending','csr_pending','issuing','deploying','verifying','retry_waiting')
+       returning *`,
+      [tenantId, id, reason, now],
+    );
+    if (!result.rows[0]) {
+      const current = await this.getRenewalJob(tenantId, id);
+      if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'ACME 续签任务不存在', { renewalJobId: id });
+      if (current.status === 'cancelled') return current;
+      throw new AppError('RESOURCE_VERSION_CONFLICT', 'ACME 续签任务当前状态不可取消', {
+        renewalJobId: id,
+        status: current.status,
+      });
+    }
+    return renewalJobFromRow(result.rows[0]);
+  }
+
   async claimRenewalJob(tenantId: string, id: string, leaseOwner: string, leaseExpiresAt: string, now: string): Promise<AcmeRenewalJobEntity | undefined> {
     const result = await this.db.query<Record<string, unknown>>(
       `update pg_certificate_renewal_jobs
-       set lease_owner = $3, lease_expires_at = $4::timestamptz, updated_at = $5::timestamptz
+       set lease_owner = $3,
+           lease_expires_at = $4::timestamptz,
+           payload = jsonb_set(
+             coalesce(payload, '{}'::jsonb),
+             '{startedAt}',
+             coalesce(payload->'startedAt', to_jsonb($6::timestamptz)),
+             true
+           ),
+           updated_at = $5::timestamptz
        where tenant_id = $1 and id = $2
          and status not in ('completed','failed','rollback_required','cancelled','issued_waiting_for_installation')
          and (next_attempt_at is null or next_attempt_at <= $5::timestamptz)
          and (lease_expires_at is null or lease_expires_at <= $5::timestamptz or lease_owner = $3)
        returning *`,
-      [tenantId, id, leaseOwner, leaseExpiresAt, now],
+      [tenantId, id, leaseOwner, leaseExpiresAt, now, now],
     );
     return result.rows[0] ? renewalJobFromRow(result.rows[0]) : undefined;
   }

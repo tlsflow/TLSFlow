@@ -160,6 +160,10 @@ export class InternalCaRepository {
     return this.get('pg_ca_trust_domains', tenantId, id);
   }
 
+  getTrustDomainByName(tenantId: string, name: string): Promise<CaTrustDomainEntity | undefined> {
+    return this.getByColumns('pg_ca_trust_domains', tenantId, { name: name.trim().toLowerCase() }, 'lower(name)');
+  }
+
   listTrustDomains(tenantId: string): Promise<CaTrustDomainEntity[]> {
     return this.list('pg_ca_trust_domains', tenantId);
   }
@@ -530,9 +534,14 @@ export class InternalCaRepository {
     return result.rows[0]?.payload ? structuredClone(result.rows[0].payload) : undefined;
   }
 
-  private async getByColumns<T>(table: string, tenantId: string, filter: Record<string, unknown>): Promise<T | undefined> {
+  private async getByColumns<T>(
+    table: string,
+    tenantId: string,
+    filter: Record<string, unknown>,
+    columnExpression?: string,
+  ): Promise<T | undefined> {
     const entries = Object.entries(filter);
-    const clauses = ['tenant_id = $1', ...entries.map(([column], index) => `${column} = $${index + 2}`)];
+    const clauses = ['tenant_id = $1', ...entries.map(([column], index) => `${columnExpression ?? column} = $${index + 2}`)];
     const result = await this.db.query<{ payload: T }>(
       `select payload from ${table} where ${clauses.join(' and ')} limit 1`,
       [tenantId, ...entries.map(([, value]) => value)],

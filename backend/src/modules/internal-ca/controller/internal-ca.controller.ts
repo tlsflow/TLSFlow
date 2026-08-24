@@ -100,6 +100,7 @@ export class InternalCaController {
     router.get('/api/v1/acme/renewal-jobs', '查询 ACME 续签任务', tags, (request) => this.listAcmeRenewalJobs(request));
     router.post('/api/v1/acme/renewal-jobs/scan', '扫描 ACME 到期证书', tags, (request) => this.scanAcmeRenewalJobs(request));
     router.post('/api/v1/acme/renewal-jobs/:id/retry', '重试 ACME 续签任务', tags, (request) => this.retryAcmeRenewalJob(request));
+    router.post('/api/v1/acme/renewal-jobs/:id/cancel', '取消 ACME 续签任务', tags, (request) => this.cancelAcmeRenewalJob(request));
     router.get('/api/v1/certificate-revocations', '查询证书吊销任务', tags, (request) => this.listRevocations(request));
     router.post('/api/v1/certificate-revocations', '创建证书吊销任务', tags, (request) => this.createRevocation(request));
     router.post('/api/v1/certificate-revocations/:id/approve', '审批证书吊销任务', tags, (request) => this.approveRevocation(request));
@@ -431,21 +432,27 @@ export class InternalCaController {
     const assetId = pathId(request);
     const policy = (await this.requireAcme().policies.list(tenantId(request)))
       .find((item) => item.certificateAssetId === assetId);
-    if (!policy) throw new AppError('RESOURCE_NOT_FOUND', 'ACME 证书续签策略不存在', { certificateAssetId: assetId });
+    const providerId = optionalString(body.providerId) ?? policy?.providerId;
+    const challengeType = optionalString(body.challengeType) ?? policy?.challengeType;
+    if (!providerId || !challengeType) {
+      throw new AppError('VALIDATION_FAILED', '历史 ACME 证书缺少自动化配置，请选择 Provider 和验证方式', {
+        certificateAssetId: assetId,
+      });
+    }
     return this.requireAcme().certificates.update({
       tenantId: tenantId(request),
       certificateAssetId: assetId,
       name: optionalString(body.name),
       domains: Array.isArray(body.domains) ? body.domains.map(String) : [],
       contactEmail: requiredString(body, 'contactEmail'),
-      providerId: optionalString(body.providerId) ?? policy.providerId,
-      challengeType: (optionalString(body.challengeType) ?? policy.challengeType) as never,
+      providerId,
+      challengeType: challengeType as never,
       dnsProvider: optionalString(body.dnsProvider),
       dnsCredentialId: optionalString(body.dnsCredentialId),
       dnsPropagationSeconds: optionalNumber(body, 'dnsPropagationSeconds'),
       keyType: optionalString(body.keyType) as 'rsa' | 'ecdsa' | undefined,
       autoRenew: body.autoRenew !== false,
-      renewalWindowDays: optionalNumber(body, 'renewalWindowDays') ?? policy.renewalWindowDays,
+      renewalWindowDays: optionalNumber(body, 'renewalWindowDays') ?? policy?.renewalWindowDays ?? 7,
       actorId: actorId(request),
     });
   }
@@ -530,6 +537,18 @@ export class InternalCaController {
       resourceRefs: [{ resourceType: 'acmeRenewalJob', resourceId: job.id }],
     });
     return job;
+  }
+
+  private async cancelAcmeRenewalJob(request: HttpRequest) {
+    await this.assertAcmeWrite(request, 'certificate.lifecycle', 'certificate_renewal');
+    const body = objectBody(request);
+    const reason = optionalString(body.reason) ?? '用户请求取消 ACME 续签任务';
+    return this.requireAcme().repository.cancelRenewalJob(
+      tenantId(request),
+      pathId(request),
+      new Date().toISOString(),
+      reason,
+    );
   }
 
   private async listRevocations(request: HttpRequest) {
@@ -795,6 +814,7 @@ export function getInternalCaRouteContracts(): RouteContract[] {
     ['GET', '/api/v1/acme/renewal-jobs', 'listAcmeRenewalJobs', '查询 ACME 续签任务', arraySchema],
     ['POST', '/api/v1/acme/renewal-jobs/scan', 'scanAcmeRenewalJobs', '扫描 ACME 到期证书', arraySchema],
     ['POST', '/api/v1/acme/renewal-jobs/:id/retry', 'retryAcmeRenewalJob', '重试 ACME 续签任务', responseSchema],
+    ['POST', '/api/v1/acme/renewal-jobs/:id/cancel', 'cancelAcmeRenewalJob', '取消 ACME 续签任务', responseSchema],
     ['GET', '/api/v1/certificate-revocations', 'listCertificateRevocations', '查询证书吊销任务', arraySchema],
     ['POST', '/api/v1/certificate-revocations', 'createCertificateRevocation', '创建证书吊销任务', responseSchema],
     ['POST', '/api/v1/certificate-revocations/:id/approve', 'approveCertificateRevocation', '审批证书吊销任务', responseSchema],

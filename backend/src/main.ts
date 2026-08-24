@@ -9,6 +9,7 @@ import type { LivenessApplicationService } from './modules/liveness/application/
 import type { MonitorsApplicationService } from './modules/monitors/application/monitors.application-service.js';
 import type { AutomationScheduler } from './modules/automations/application/automation-scheduler.js';
 import type { CaAutoSyncScheduler } from './modules/internal-ca/application/ca-auto-sync-scheduler.js';
+import type { AcmeRenewalScheduler } from './modules/internal-ca/application/acme-renewal-scheduler.js';
 import type { SecurityServices } from './modules/security/security.controller.js';
 import { TaskRealtimeGateway, type TaskRealtimeStreamService } from './modules/tasks/task-realtime-stream.js';
 import type { TasksApplicationService } from './modules/tasks/task.application-service.js';
@@ -188,6 +189,30 @@ async function start(): Promise<void> {
         })
         .finally(() => {
           schedulingCaSync = false;
+        });
+    };
+    tick();
+    setInterval(tick, schedulerIntervalMs);
+  }
+
+  // ACME 策略既负责到期续签，也负责补偿“申请已落库但续签任务未落库”的首次签发。
+  // 调度器只创建任务；实际签发由统一任务 Worker 串行执行。
+  const acmeRenewalScheduler = app.getResource<AcmeRenewalScheduler>('acmeRenewalScheduler');
+  if (acmeRenewalScheduler) {
+    const schedulerIntervalMs = positiveNumber(process.env.ACME_RENEWAL_SCHEDULER_INTERVAL_MS, 60_000);
+    const maxPoliciesPerTick = positiveNumber(process.env.ACME_RENEWAL_SCHEDULER_MAX_POLICIES_PER_TICK, 50);
+    let schedulingAcmeRenewals = false;
+    const tick = () => {
+      if (schedulingAcmeRenewals) return;
+      schedulingAcmeRenewals = true;
+      void acmeRenewalScheduler.runOnce(maxPoliciesPerTick)
+        .catch((error: unknown) => {
+          structuredLogger.warn('ACME 续签调度失败', {
+            error: error instanceof Error ? error.message : String(error),
+          }, { module: 'acme-renewal-scheduler' });
+        })
+        .finally(() => {
+          schedulingAcmeRenewals = false;
         });
     };
     tick();

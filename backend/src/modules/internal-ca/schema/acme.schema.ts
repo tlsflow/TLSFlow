@@ -150,6 +150,8 @@ export interface AcmeRenewalPolicyEntity {
 export interface AcmeRenewalJobEntity extends Omit<CertificateRenewalJobEntity, 'status' | 'certificateVersionId'> {
   status: CertificateRenewalJobEntity['status'] | 'retry_waiting' | 'cancelled' | 'issued_waiting_for_installation';
   certificateVersionId?: string;
+  /** Worker 首次领取任务的时间；历史任务缺少该字段时回退到 scheduledAt。 */
+  startedAt?: string;
   policyId?: string;
   sourceCertificateVersionId?: string;
   acmeOrderId?: string;

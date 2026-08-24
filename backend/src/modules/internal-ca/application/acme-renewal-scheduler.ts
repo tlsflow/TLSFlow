@@ -5,6 +5,7 @@ import type { CertificatesRepository } from '../../certificates/repository/certi
 import type { InternalCaApplicationService } from './internal-ca.application-service.js';
 import type { AcmeRepository } from '../repository/acme.repository.js';
 import type { AcmeRenewalJobEntity, AcmeRenewalPolicyEntity } from '../schema/acme.schema.js';
+import type { CertificateRequestEntity } from '../schema/internal-ca.schema.js';
 import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
 
 export class AcmeRenewalScheduler {
@@ -12,7 +13,7 @@ export class AcmeRenewalScheduler {
     private readonly repository: AcmeRepository,
     private readonly certificates: CertificatesRepository,
     private readonly bindings?: BindingsRepository,
-    private readonly issuance?: Pick<InternalCaApplicationService, 'ensureAcmeIssuanceContext' | 'createCertificateRequest'>,
+    private readonly issuance?: Pick<InternalCaApplicationService, 'ensureAcmeIssuanceContext' | 'createCertificateRequest' | 'getRequestByIdempotencyKey'>,
     private readonly tasks?: TaskEnqueuer,
   ) {}
 
@@ -88,7 +89,7 @@ export class AcmeRenewalScheduler {
       const renewalWindowKey = `initial:${certificateAssetId}`;
       const existing = await this.repository.getRenewalJobByWindow(tenantId, undefined, renewalWindowKey);
       if (existing) {
-        if (existing.status === 'retry_waiting') {
+        if (['retry_waiting', 'failed'].includes(existing.status)) {
           return this.repository.retryRenewalJob(tenantId, existing.id, now.toISOString());
         }
         return existing;
@@ -149,24 +150,53 @@ export class AcmeRenewalScheduler {
     if (!this.issuance || !policy.certificateAssetId) return undefined;
     const renewalWindowKey = `initial:${policy.certificateAssetId}`;
     const existing = await this.repository.getRenewalJobByWindow(policy.tenantId, undefined, renewalWindowKey);
-    if (existing) return undefined;
+    if (existing) {
+      return ['scheduled', 'key_pending', 'csr_pending', 'issuing', 'deploying', 'verifying'].includes(existing.status)
+        ? existing
+        : undefined;
+    }
     const asset = await this.certificates.getAsset(policy.certificateAssetId, policy.tenantId);
-    if (!asset || asset.sourceType !== 'acme' || asset.currentVersionId) return undefined;
+    if (!asset || asset.currentVersionId) return undefined;
 
-    const issuanceContext = await this.issuance.ensureAcmeIssuanceContext(policy.tenantId, policy.providerId, policy.createdBy);
-    const request = await this.issuance.createCertificateRequest(policy.tenantId, {
-      applicationAssetId: asset.id,
-      caId: issuanceContext.caId,
-      trustDomainId: issuanceContext.trustDomainId,
-      profileVersionId: issuanceContext.profileVersionId,
-      commonName: asset.primaryDomain,
-      sans: asset.sans,
-      requestedValidityDays: 90,
-      custodyMode: 'managed_secret',
-      deferIssuance: true,
-      idempotencyKey: `acme-initial-request:${asset.id}`,
-      actorId: policy.createdBy,
-    });
+    const request = await this.findExecutableInitialRequest(policy.tenantId, asset.id);
+    const resolvedRequest = request ?? await this.createInitialRequest(policy, asset);
+    return this.createInitialJob(policy, resolvedRequest.id, now);
+  }
+
+  private async findExecutableInitialRequest(tenantId: string, certificateAssetId: string): Promise<CertificateRequestEntity | undefined> {
+    const request = await this.issuance?.getRequestByIdempotencyKey(tenantId, `acme-initial-request:${certificateAssetId}`);
+    return request && request.applicationAssetId === certificateAssetId
+      && ['approved', 'issuing', 'issue_failed', 'issued', 'deploying', 'active'].includes(request.status)
+      ? request
+      : undefined;
+  }
+
+  private async createInitialRequest(policy: AcmeRenewalPolicyEntity, asset: { id: string; primaryDomain: string; sans: string[] }): Promise<CertificateRequestEntity> {
+    const issuanceContext = await this.issuance!.ensureAcmeIssuanceContext(policy.tenantId, policy.providerId, policy.createdBy);
+    try {
+      return await this.issuance!.createCertificateRequest(policy.tenantId, {
+        applicationAssetId: asset.id,
+        caId: issuanceContext.caId,
+        trustDomainId: issuanceContext.trustDomainId,
+        profileVersionId: issuanceContext.profileVersionId,
+        commonName: asset.primaryDomain,
+        sans: asset.sans,
+        requestedValidityDays: 90,
+        custodyMode: 'managed_secret',
+        deferIssuance: true,
+        idempotencyKey: `acme-initial-request:${asset.id}`,
+        actorId: policy.createdBy,
+      });
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error;
+      const raced = await this.findExecutableInitialRequest(policy.tenantId, asset.id);
+      if (raced) return raced;
+      throw error;
+    }
+  }
+
+  private async createInitialJob(policy: AcmeRenewalPolicyEntity, certificateRequestId: string, now: Date): Promise<AcmeRenewalJobEntity> {
+    const renewalWindowKey = `initial:${policy.certificateAssetId}`;
     const timestamp = now.toISOString();
     const job: AcmeRenewalJobEntity = {
       id: newId('acmerenew'),
@@ -175,7 +205,7 @@ export class AcmeRenewalScheduler {
       sourceCertificateVersionId: undefined,
       renewalWindowKey,
       status: 'scheduled',
-      certificateRequestId: request.id,
+      certificateRequestId,
       policyId: policy.id,
       promotionStatus: 'not_required',
       attemptCount: 0,
@@ -195,7 +225,9 @@ export class AcmeRenewalScheduler {
     try {
       return await this.repository.saveRenewalJob(job);
     } catch {
-      return this.repository.getRenewalJobByWindow(policy.tenantId, undefined, renewalWindowKey);
+      const raced = await this.repository.getRenewalJobByWindow(policy.tenantId, undefined, renewalWindowKey);
+      if (raced) return raced;
+      throw new AppError('ACME_RENEWAL_FAILED', '首次 ACME 续签任务创建失败', { certificateAssetId: policy.certificateAssetId });
     }
   }
 
@@ -224,4 +256,11 @@ export class AcmeRenewalScheduler {
       ],
     });
   }
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as { code?: unknown; message?: unknown };
+  return candidate.code === '23505'
+    || (typeof candidate.message === 'string' && candidate.message.includes('unique constraint'));
 }

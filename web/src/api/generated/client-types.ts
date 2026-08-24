@@ -42,6 +42,7 @@ export const apiContractMetadata: ApiContractMetadata = {
     "/api/v1/acme/providers/:id/test",
     "/api/v1/acme/providers/probe-directory",
     "/api/v1/acme/renewal-jobs",
+    "/api/v1/acme/renewal-jobs/:id/cancel",
     "/api/v1/acme/renewal-jobs/:id/retry",
     "/api/v1/acme/renewal-jobs/scan",
     "/api/v1/acme/renewal-policies",

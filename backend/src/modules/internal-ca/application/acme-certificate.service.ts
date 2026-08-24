@@ -227,9 +227,10 @@ export class AcmeCertificateService {
   }
 
   async update(input: UpdateAcmeCertificateInput): Promise<AcmeCertificateAutomationView> {
-    const policy = await this.requirePolicyForAsset(input.tenantId, input.certificateAssetId);
-    await this.assertNoRunningJob(input.tenantId, policy.id);
     const asset = await this.requireAcmeAsset(input.tenantId, input.certificateAssetId);
+    const currentPolicy = (await this.policies.list(input.tenantId))
+      .find((item) => item.certificateAssetId === input.certificateAssetId);
+    if (currentPolicy) await this.assertNoRunningJob(input.tenantId, currentPolicy.id);
     const domains = normalizeDomains(input.domains);
     if (domains.length === 0) throw new AppError('VALIDATION_FAILED', '至少需要一个域名');
     if (!input.contactEmail.trim()) throw new AppError('VALIDATION_FAILED', '联系邮箱不能为空');
@@ -247,20 +248,31 @@ export class AcmeCertificateService {
     const provider = (await this.caRepository.listProviders(input.tenantId))
       .find((item) => item.id === input.providerId && item.type === 'acme' && item.status === 'active');
     if (!provider) throw new AppError('RESOURCE_NOT_FOUND', '所选 ACME Provider 不存在或未启用');
-    const account = (await this.acmeRepository.listAccounts(input.tenantId, provider.id))
+    let account = (await this.acmeRepository.listAccounts(input.tenantId, provider.id))
       .find((item) => item.status === 'active');
+    if (!account) {
+      account = await this.ensureAcmeAccount(provider, {
+        tenantId: input.tenantId,
+        contactEmail: input.contactEmail,
+        // 仅复用 Provider 已保存的条款接受记录，不能在补全历史资产时替用户默认同意条款。
+        termsOfServiceAgreed: provider.configuration?.termsOfServiceAgreed === true,
+        actorId: input.actorId,
+      });
+    }
     if (!account) throw new AppError('ACME_ACCOUNT_INVALID', '所选 ACME Provider 没有可用的 Account');
 
     const dnsProvider = input.dnsProvider?.trim();
     const dnsCredentialId = input.dnsCredentialId?.trim();
     await this.validateDnsConfiguration(input.tenantId, input.challengeType, dnsProvider, dnsCredentialId);
 
+    const recoveredCurrentVersionId = asset.currentVersionId ?? await this.findLatestPromotedVersionId(input.tenantId, asset.id);
     const updatedAsset = await this.certificates.getRepository().updateAsset(asset.id, {
       name: input.name?.trim() || domains[0],
       primaryDomain: domains[0],
       sans: domains.slice(1),
       sourceType: 'acme',
       tags: [...new Set([...(asset.tags ?? []), 'acme'])],
+      ...(recoveredCurrentVersionId ? { currentVersionId: recoveredCurrentVersionId } : {}),
       updatedAt: new Date().toISOString(),
     }, input.tenantId);
     const maintenanceWindow = {
@@ -273,15 +285,22 @@ export class AcmeCertificateService {
         ? { dnsPropagationSeconds: input.dnsPropagationSeconds }
         : {}),
     };
-    const updatedPolicy = await this.policies.update(input.tenantId, policy.id, {
+    const policyInput = {
       providerId: provider.id,
       accountId: account.id,
       enabled: input.autoRenew,
       renewalWindowDays: input.renewalWindowDays,
       challengeType: input.challengeType,
       maintenanceWindow,
-      actorId: input.actorId,
-    });
+    };
+    const updatedPolicy = currentPolicy
+      ? await this.policies.update(input.tenantId, currentPolicy.id, { ...policyInput, actorId: input.actorId })
+      : await this.policies.create({
+        ...policyInput,
+        tenantId: input.tenantId,
+        certificateAssetId: asset.id,
+        actorId: input.actorId,
+      });
     return { asset: updatedAsset, policy: updatedPolicy };
   }
 
@@ -340,6 +359,14 @@ export class AcmeCertificateService {
     return policy;
   }
 
+  private async findLatestPromotedVersionId(tenantId: string, certificateAssetId: string): Promise<string | undefined> {
+    const versions = await this.certificates.getRepository().listVersionsByAsset(certificateAssetId, tenantId);
+    return versions
+      .filter((version) => version.status === 'active' && (version.activationState ?? 'promoted') === 'promoted')
+      .sort((left, right) => Date.parse(right.notAfter) - Date.parse(left.notAfter))[0]
+      ?.id;
+  }
+
   private async requireAcmeAsset(tenantId: string, certificateAssetId: string) {
     const asset = await this.certificates.getRepository().getAsset(certificateAssetId, tenantId);
     if (!asset || asset.status === 'deleted') {
@@ -367,7 +394,7 @@ export class AcmeCertificateService {
 
   private async ensureAcmeAccount(
     provider: CaProviderEntity,
-    input: CreateAcmeCertificateInput,
+    input: Pick<CreateAcmeCertificateInput, 'tenantId' | 'contactEmail' | 'termsOfServiceAgreed' | 'actorId'>,
   ): Promise<Awaited<ReturnType<AcmeRepository['listAccounts']>>[number] | undefined> {
     const configuration = provider.configuration ?? {};
     const preset = typeof configuration.preset === 'string' ? configuration.preset : undefined;

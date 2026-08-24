@@ -158,6 +158,58 @@ test('通用 CA 对象可以创建并查询，不携带厂商执行语义', asyn
   }
 });
 
+test('ACME 首次申请复用已存在的自动信任域', async () => {
+  const { db, service } = await createFixture();
+  try {
+    const tenantId = 'tenant-acme-orphan-domain';
+    const provider = await service.createProvider(tenantId, {
+      name: "Let's Encrypt",
+      type: 'acme',
+      deploymentMode: 'external',
+      runtimePlatform: 'external',
+      availabilityMode: 'single',
+    }, 'user-admin');
+    const domain = await service.createTrustDomain(tenantId, {
+      name: `ACME ${provider.name} Issuer 信任域`,
+      purpose: 'acme',
+    }, 'user-admin');
+
+    const context = await service.ensureAcmeIssuanceContext(tenantId, provider.id, 'user-admin');
+
+    assert.equal(context.trustDomainId, domain.id);
+    assert.equal((await service.listTrustDomains(tenantId)).length, 1);
+    assert.equal((await service.listAuthorities(tenantId)).length, 1);
+  } finally {
+    await db.close();
+  }
+});
+
+test('ACME 首次申请并发初始化保持幂等', async () => {
+  const { db, service } = await createFixture();
+  try {
+    const tenantId = 'tenant-acme-concurrent-init';
+    const provider = await service.createProvider(tenantId, {
+      name: "Let's Encrypt",
+      type: 'acme',
+      deploymentMode: 'external',
+      runtimePlatform: 'external',
+      availabilityMode: 'single',
+    }, 'user-admin');
+
+    const contexts = await Promise.all([
+      service.ensureAcmeIssuanceContext(tenantId, provider.id, 'user-admin'),
+      service.ensureAcmeIssuanceContext(tenantId, provider.id, 'user-admin'),
+    ]);
+
+    assert.equal(new Set(contexts.map((item) => item.caId)).size, 1);
+    assert.equal(new Set(contexts.map((item) => item.trustDomainId)).size, 1);
+    assert.equal((await service.listTrustDomains(tenantId)).length, 1);
+    assert.equal((await service.listAuthorities(tenantId)).length, 1);
+  } finally {
+    await db.close();
+  }
+});
+
 test('未绑定 PluginVersion 的外部 Provider 必须失败关闭', async () => {
   const { db, service } = await createFixture();
   try {

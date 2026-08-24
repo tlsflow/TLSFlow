@@ -88,7 +88,14 @@ export class AcmeRenewalWorker {
     try {
       return await this.process(claimed, actorId, context);
     } catch (error) {
-      return this.failOrRetry(claimed, error);
+      // 签发过程中会先持久化新建的申请或订单。失败时必须基于最新状态回写，
+      // 否则会用 claim 时的旧快照覆盖这些关联，导致后续无法诊断或恢复任务。
+      const getRenewalJob = this.dependencies.repository.getRenewalJob;
+      const latest = typeof getRenewalJob === 'function'
+        ? await getRenewalJob.call(this.dependencies.repository, claimed.tenantId, claimed.id)
+        : undefined;
+      if (latest?.status === 'cancelled') return latest;
+      return this.failOrRetry(latest ?? claimed, error);
     }
   }
 
@@ -107,6 +114,7 @@ export class AcmeRenewalWorker {
   }
 
   private async process(job: AcmeRenewalJobEntity, actorId: string, context?: RequestContext): Promise<AcmeRenewalJobEntity> {
+    await this.assertNotCancelled(job);
     const policy = await this.requirePolicy(job);
     const configuredDomains = stringValues(policy.maintenanceWindow?.domains);
     const initialIssuance = !job.sourceCertificateVersionId;
@@ -134,6 +142,7 @@ export class AcmeRenewalWorker {
       const assetId = policy.certificateAssetId;
       const asset = assetId ? await this.dependencies.certificates.getAsset(assetId, job.tenantId) : undefined;
       if (!asset) throw new AppError('ACME_RENEWAL_FAILED', '续签任务缺少源证书申请上下文');
+      await this.assertNotCancelled(current);
       const issuanceContext = await this.dependencies.internalCa.ensureAcmeIssuanceContext(
         job.tenantId,
         policy.providerId,
@@ -162,6 +171,7 @@ export class AcmeRenewalWorker {
       if (policy.rotateKeyOnRenewal && !['managed_secret', 'external_key'].includes(sourceKey.custodyMode)) {
         throw new AppError('ACME_KEY_ROTATION_UNSUPPORTED', '当前密钥托管方式不支持自动轮换');
       }
+      await this.assertNotCancelled(current);
       const request = await this.dependencies.internalCa.createCertificateRequest(job.tenantId, {
         applicationAssetId: sourceRequest!.applicationAssetId,
         caId: sourceRequest!.caId,
@@ -187,6 +197,7 @@ export class AcmeRenewalWorker {
     }
 
     if (!issuedRequest) {
+      await this.assertNotCancelled(current);
       if (policy.challengeType === 'dns-01') {
         if (!this.dependencies.lego) {
           throw new AppError('CAPABILITY_MISSING', 'DNS-01 lego 执行器未接入');
@@ -206,17 +217,25 @@ export class AcmeRenewalWorker {
         if (!issuanceRequest) {
           throw new AppError('ACME_RENEWAL_FAILED', 'DNS-01 续签缺少待签发证书申请');
         }
-        const material = await this.dependencies.lego.issue({
-          tenantId: job.tenantId,
-          jobId: job.id,
-          request: issuanceRequest,
-          provider,
-          dnsProviderId: dnsProvider,
-          dnsCredentialId,
-          contactEmail,
-          ...(propagationSeconds === undefined ? {} : { propagationSeconds }),
-          actorId,
-        });
+        const cancellation = this.watchCancellation(current);
+        let material;
+        try {
+          material = await this.dependencies.lego.issue({
+            tenantId: job.tenantId,
+            jobId: job.id,
+            request: issuanceRequest,
+            provider,
+            dnsProviderId: dnsProvider,
+            dnsCredentialId,
+            contactEmail,
+            ...(propagationSeconds === undefined ? {} : { propagationSeconds }),
+            actorId,
+            signal: cancellation?.signal,
+          });
+        } finally {
+          cancellation?.dispose();
+        }
+        await this.assertNotCancelled(current);
         issuedRequest = await this.dependencies.internalCa.importAcmeCertificate(
           job.tenantId,
           requestId!,
@@ -228,18 +247,6 @@ export class AcmeRenewalWorker {
         if (!issuedRequest.certificateVersionId) {
           throw new AppError('ACME_RENEWAL_FAILED', 'lego 签发结果缺少证书版本');
         }
-        current = await this.saveJob({
-          ...current,
-          certificateRequestId: issuedRequest.id,
-          certificateVersionId: issuedRequest.certificateVersionId,
-          status: 'completed',
-          promotionStatus: 'not_required',
-          failureCode: undefined,
-          failureMessage: undefined,
-          nextAttemptAt: undefined,
-          leaseOwner: undefined,
-          leaseExpiresAt: undefined,
-        });
       }
     }
     if (!issuedRequest) {
@@ -247,6 +254,7 @@ export class AcmeRenewalWorker {
         ? await this.dependencies.orders.getEntity(job.tenantId, current.acmeOrderId)
         : undefined;
       if (!order) {
+        await this.assertNotCancelled(current);
         const created = await this.dependencies.orders.create({
           tenantId: job.tenantId,
           providerId: policy.providerId,
@@ -262,6 +270,7 @@ export class AcmeRenewalWorker {
 
       const challenges = await this.dependencies.repository.listChallenges(job.tenantId, order.id);
       for (const challenge of challenges.filter((item) => !['valid', 'cleaned'].includes(item.status))) {
+        await this.assertNotCancelled(current);
         const currentChallenge = ['presented', 'processing'].includes(challenge.status)
           ? await this.dependencies.challenges.refreshFromProvider({
             tenantId: job.tenantId,
@@ -280,11 +289,13 @@ export class AcmeRenewalWorker {
       }
 
       if (order.status === 'pending' || order.status === 'processing') {
+        await this.assertNotCancelled(current);
         const reconciled = await this.dependencies.orders.reconcile(job.tenantId, order.id, actorId);
         await this.saveJob({ ...current, status: 'issuing', nextAttemptAt: reconciled.retryAfterAt ?? new Date(this.now().getTime() + 15_000).toISOString() });
         return this.dependencies.repository.getRenewalJob(job.tenantId, job.id).then((value) => value!);
       }
       if (order.status === 'ready') {
+        await this.assertNotCancelled(current);
         await this.dependencies.orders.finalize(job.tenantId, order.id, actorId);
         await this.saveJob({ ...current, status: 'issuing', nextAttemptAt: new Date(this.now().getTime() + 15_000).toISOString() });
         return this.dependencies.repository.getRenewalJob(job.tenantId, job.id).then((value) => value!);
@@ -294,6 +305,7 @@ export class AcmeRenewalWorker {
       }
 
       const material = await this.dependencies.orders.downloadCertificate(job.tenantId, order.id, actorId);
+      await this.assertNotCancelled(current);
       for (const challenge of challenges.filter((item) => !['cleaned'].includes(item.status))) {
         await this.dependencies.challenges.cleanupFromProvider({
           tenantId: job.tenantId,
@@ -302,6 +314,7 @@ export class AcmeRenewalWorker {
           leaseOwner: this.dependencies.leaseOwner,
         });
       }
+      await this.assertNotCancelled(current);
       issuedRequest = await this.dependencies.internalCa.importAcmeCertificate(
         job.tenantId,
         requestId!,
@@ -313,33 +326,8 @@ export class AcmeRenewalWorker {
       if (!issuedRequest.certificateVersionId) {
         throw new AppError('ACME_RENEWAL_FAILED', 'ACME 签发结果缺少证书版本');
       }
-      current = await this.saveJob({
-        ...current,
-        certificateRequestId: issuedRequest.id,
-        certificateVersionId: issuedRequest.certificateVersionId,
-        status: 'completed',
-        promotionStatus: 'not_required',
-        failureCode: undefined,
-        failureMessage: undefined,
-        nextAttemptAt: undefined,
-        leaseOwner: undefined,
-        leaseExpiresAt: undefined,
-      });
     }
-    return current.status === 'completed'
-      ? current
-      : this.saveJob({
-        ...current,
-        certificateRequestId: issuedRequest.id,
-        certificateVersionId: issuedRequest.certificateVersionId,
-        status: 'completed',
-        promotionStatus: 'not_required',
-        failureCode: undefined,
-        failureMessage: undefined,
-        nextAttemptAt: undefined,
-        leaseOwner: undefined,
-        leaseExpiresAt: undefined,
-      });
+    return this.completeIssuedJob(current, issuedRequest);
   }
 
   private async requirePolicy(job: AcmeRenewalJobEntity): Promise<AcmeRenewalPolicyEntity> {
@@ -351,6 +339,78 @@ export class AcmeRenewalWorker {
 
   private async saveJob(job: AcmeRenewalJobEntity): Promise<AcmeRenewalJobEntity> {
     return this.dependencies.repository.saveRenewalJob({ ...job, updatedAt: this.now().toISOString() });
+  }
+
+  /**
+   * ACME 签发出来的版本先处于 staged；未提升为当前版本前，资产仍会展示旧证书的到期时间。
+   * 因此只有 Promotion 成功后，续签任务才能进入 completed 终态。
+   */
+  private async completeIssuedJob(
+    job: AcmeRenewalJobEntity,
+    issuedRequest: CertificateRequestEntity,
+  ): Promise<AcmeRenewalJobEntity> {
+    const certificateVersionId = issuedRequest.certificateVersionId;
+    if (!certificateVersionId) {
+      throw new AppError('ACME_RENEWAL_FAILED', 'ACME 签发结果缺少证书版本');
+    }
+    const version = await this.dependencies.certificates.getVersion(certificateVersionId, job.tenantId);
+    if (!version || version.status !== 'active') {
+      throw new AppError('ACME_RENEWAL_FAILED', 'ACME 签发证书版本不存在或不可用', { certificateVersionId });
+    }
+    if ((version.activationState ?? 'promoted') === 'staged') {
+      await this.dependencies.certificates.promoteVersionAtomic(certificateVersionId, job.tenantId);
+    } else if ((version.activationState ?? 'promoted') !== 'promoted') {
+      throw new AppError('ACME_RENEWAL_FAILED', 'ACME 签发证书版本状态不可提升', {
+        certificateVersionId,
+        activationState: version.activationState,
+      });
+    }
+    return this.saveJob({
+      ...job,
+      certificateRequestId: issuedRequest.id,
+      certificateVersionId,
+      status: 'completed',
+      promotionStatus: 'promoted',
+      failureCode: undefined,
+      failureMessage: undefined,
+      nextAttemptAt: undefined,
+      leaseOwner: undefined,
+      leaseExpiresAt: undefined,
+    });
+  }
+
+  private async assertNotCancelled(job: AcmeRenewalJobEntity): Promise<void> {
+    // 生产仓储始终提供该方法；兼容仅实现最小接口的旧测试替身。
+    const getRenewalJob = this.dependencies.repository.getRenewalJob;
+    if (typeof getRenewalJob !== 'function') return;
+    const latest = await getRenewalJob.call(this.dependencies.repository, job.tenantId, job.id);
+    if (latest?.status === 'cancelled') {
+      throw new AppError('ACME_RENEWAL_CANCELLED', 'ACME 续签任务已取消', { renewalJobId: job.id });
+    }
+  }
+
+  private watchCancellation(job: AcmeRenewalJobEntity): { signal: AbortSignal; dispose: () => void } | undefined {
+    const getRenewalJob = this.dependencies.repository.getRenewalJob;
+    if (typeof getRenewalJob !== 'function') return undefined;
+    const controller = new AbortController();
+    let disposed = false;
+    const refresh = (): void => {
+      void getRenewalJob.call(this.dependencies.repository, job.tenantId, job.id)
+        .then((latest) => {
+          if (!disposed && latest?.status === 'cancelled') controller.abort();
+        })
+        // 监视失败不能中断正常签发，完成前的状态检查仍是最终保护。
+        .catch(() => undefined);
+    };
+    refresh();
+    const timer = setInterval(refresh, 500);
+    return {
+      signal: controller.signal,
+      dispose: () => {
+        disposed = true;
+        clearInterval(timer);
+      },
+    };
   }
 
   private async failOrRetry(job: AcmeRenewalJobEntity, error: unknown): Promise<AcmeRenewalJobEntity> {
