@@ -172,6 +172,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     certificates: certificateServices.certificates.getRepository(),
     bindings: bindingsController.getApplicationService().getRepository(),
     executions: deploymentPlans.getExecutionsService().getRepository(),
+    assets: assetsService.getRepository(),
   });
 
   new CertificatesController(security, certificateServices).register(app.router);

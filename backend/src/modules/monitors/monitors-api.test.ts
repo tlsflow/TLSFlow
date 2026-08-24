@@ -253,6 +253,38 @@ describe('监控风险 API', () => {
     assert.equal(jobs.every((job) => job.scope.tenantId === 'tenant_jobs' && job.scope.hostId === 'host_1'), true);
   });
 
+  it('应用资产探测由监控 API 发起，不依赖浏览器或资产绑定 Agent 直连业务地址', async () => {
+    const { app, assetsService, monitors } = await createMonitorHarness();
+    const headers = { 'x-tenant-id': 'tenant_probe', 'x-actor-id': 'monitor_bot' };
+    const asset = await assetsService.createServiceAsset('tenant_probe', {
+      address: '127.0.0.1',
+      port: 9,
+      protocol: 'HTTP',
+      platform: 'LINUX',
+      discoverySource: 'MANUAL',
+      status: 'ACTIVE',
+    });
+
+    const direct = await monitors.probeServiceAsset({
+      tenantId: 'tenant_probe',
+      serviceAssetId: asset.id,
+      timeoutMs: 1000,
+    });
+    assert.equal(direct.serviceAssetId, asset.id);
+    assert.equal(direct.source, 'control_plane');
+    assert.equal(direct.url, 'http://127.0.0.1:9/');
+    assert.equal(typeof direct.latencyMs, 'number');
+
+    const response = await app.inject({
+      method: 'POST',
+      path: '/api/v1/monitors/probe',
+      headers,
+      body: { serviceAssetId: asset.id, timeoutMs: 1000 },
+    });
+    assert.equal(response.statusCode, 200);
+    assert.equal((response.body as { serviceAssetId: string }).serviceAssetId, asset.id);
+  });
+
   it('远程 TLS 观测能生成链异常、域名错配和指纹错配风险并进入聚合', async () => {
     const { monitors } = await createMonitorHarness();
     const risks = await monitors.ingestRemoteTlsObservation({
@@ -312,6 +344,7 @@ async function createMonitorHarness() {
     certificates: certificatesRepository,
     bindings: bindingsRepository,
     executions: executionsRepository,
+    assets: assetsRepository,
   });
   new MonitorsController(monitors).register(app.router);
   return {

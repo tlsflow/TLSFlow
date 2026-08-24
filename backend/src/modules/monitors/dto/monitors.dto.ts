@@ -75,3 +75,77 @@ export interface AutomationHealthInput {
   compatibilityLevel?: string;
   checkedAt: string;
 }
+
+export interface ProbeServiceAssetInput {
+  tenantId?: string;
+  serviceAssetId: string;
+  timeoutMs?: number;
+}
+
+export interface ProbeServiceAssetResult {
+  serviceAssetId: string;
+  source: 'control_plane' | 'gateway';
+  url: string;
+  status: 'READY' | 'WARNING' | 'ERROR';
+  success: boolean;
+  latencyMs: number;
+  checkedAt: string;
+  message: string;
+  httpStatus?: number;
+  certificate?: {
+    fingerprintSha256?: string;
+    subject?: string;
+    issuer?: string;
+    serialNumber?: string;
+    notBefore?: string;
+    notAfter?: string;
+    dnsNames?: string[];
+    verified?: boolean;
+    verificationError?: string;
+  };
+  detail?: Record<string, unknown>;
+}
+
+export interface CertificateObservationDto {
+  id: string;
+  tenantId?: string;
+  serviceAssetId: string;
+  source: 'control_plane' | 'gateway';
+  url: string;
+  observedAt: string;
+  fingerprintSha256: string;
+  subject?: string;
+  issuer?: string;
+  serialNumber?: string;
+  notBefore?: string;
+  notAfter?: string;
+  dnsNames?: string[];
+  verified?: boolean;
+  verificationError?: string;
+  rawResult: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface SaveCertificateObservationInput {
+  tenantId?: string;
+  serviceAssetId: string;
+  source: 'control_plane' | 'gateway';
+  url: string;
+  observedAt: string;
+  fingerprintSha256: string;
+  subject?: string;
+  issuer?: string;
+  serialNumber?: string;
+  notBefore?: string;
+  notAfter?: string;
+  dnsNames?: string[];
+  verified?: boolean;
+  verificationError?: string;
+  rawResult?: Record<string, unknown>;
+}
+
+export interface ListCertificateObservationsQuery {
+  tenantId?: string;
+  serviceAssetId?: string;
+  pageSize?: number;
+}

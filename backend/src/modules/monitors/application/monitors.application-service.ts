@@ -1,4 +1,9 @@
+import { createHash } from 'node:crypto';
+import http from 'node:http';
+import https from 'node:https';
+import { AppError } from '../../../common/errors/app-error.js';
 import type { PageQuery } from '../../../common/pagination/pagination.js';
+import type { AssetsRepository } from '../../assets/repository/assets.repository.js';
 import type { BindingsRepository } from '../../bindings/repository/bindings.repository.js';
 import type { CertificatesRepository } from '../../certificates/repository/certificates.repository.js';
 import type { ExecutionsRepository } from '../../executions/repository/executions.repository.js';
@@ -8,6 +13,8 @@ import type {
   CreateAlertRuleInput,
   ListRiskEventsQuery,
   MonitorDashboardDto,
+  ProbeServiceAssetInput,
+  ProbeServiceAssetResult,
   RiskEventDto,
 } from '../dto/monitors.dto.js';
 import { MonitorsDomainService } from '../domain/monitors.domain-service.js';
@@ -22,6 +29,7 @@ export interface MonitorsApplicationDependencies {
   certificates: CertificatesRepository;
   bindings: BindingsRepository;
   executions: ExecutionsRepository;
+  assets?: AssetsRepository;
 }
 
 export class MonitorsApplicationService {
@@ -109,8 +117,51 @@ export class MonitorsApplicationService {
     return this.domain.aggregateDashboard(await this.listRiskEvents({ tenantId }));
   }
 
+  async probeServiceAsset(input: ProbeServiceAssetInput): Promise<ProbeServiceAssetResult> {
+    const tenantId = input.tenantId ?? tenantFallback;
+    const asset = await this.dependencies.assets?.getServiceAsset(tenantId, input.serviceAssetId);
+    if (!asset) throw new AppError('RESOURCE_NOT_FOUND', '应用资产不存在', { serviceAssetId: input.serviceAssetId });
+
+    const url = buildProbeUrl(asset);
+    const timeoutMs = normalizeTimeoutMs(input.timeoutMs);
+    const result = await probeFromControlPlane(asset.id, url, timeoutMs);
+    await this.saveCertificateObservationIfChanged(tenantId, result);
+    return result;
+  }
+
+  async listCertificateObservations(query: import('../dto/monitors.dto.js').ListCertificateObservationsQuery = {}) {
+    return this.repository.listCertificateObservations(query);
+  }
+
   getRepository(): MonitorsRepository {
     return this.repository;
+  }
+
+  private async saveCertificateObservationIfChanged(tenantId: string | undefined, result: ProbeServiceAssetResult): Promise<void> {
+    const certificate = result.certificate;
+    const fingerprint = normalizeFingerprint(certificate?.fingerprintSha256);
+    if (!certificate || !fingerprint) return;
+
+    const latest = await this.repository.getLatestCertificateObservation(tenantId, result.serviceAssetId);
+    if (latest?.fingerprintSha256 === fingerprint) return;
+
+    await this.repository.saveCertificateObservation({
+      tenantId,
+      serviceAssetId: result.serviceAssetId,
+      source: result.source,
+      url: result.url,
+      observedAt: result.checkedAt,
+      fingerprintSha256: fingerprint,
+      subject: certificate.subject,
+      issuer: certificate.issuer,
+      serialNumber: certificate.serialNumber,
+      notBefore: certificate.notBefore,
+      notAfter: certificate.notAfter,
+      dnsNames: certificate.dnsNames,
+      verified: certificate.verified,
+      verificationError: certificate.verificationError,
+      rawResult: { certificate, httpStatus: result.httpStatus, message: result.message },
+    });
   }
 }
 
@@ -119,3 +170,126 @@ function allRowsQuery(): PageQuery {
 }
 
 const tenantFallback = '00000000-0000-0000-0000-000000000000';
+
+type ProbeAsset = {
+  id: string;
+  address: string;
+  port: number;
+  protocol: string;
+  verifyUrl?: string;
+  sniName?: string;
+};
+
+function buildProbeUrl(asset: ProbeAsset): string {
+  if (asset.verifyUrl?.trim()) return asset.verifyUrl.trim();
+  const protocol = asset.protocol.toLowerCase() === 'http' ? 'http' : 'https';
+  const defaultPort = protocol === 'https' ? 443 : 80;
+  const port = Number.isFinite(asset.port) && asset.port > 0 ? asset.port : defaultPort;
+  const portText = port === defaultPort ? '' : `:${port}`;
+  return `${protocol}://${asset.address}${portText}/`;
+}
+
+function normalizeTimeoutMs(timeoutMs: number | undefined): number {
+  if (!Number.isFinite(timeoutMs)) return 10_000;
+  return Math.min(30_000, Math.max(1_000, Math.trunc(timeoutMs!)));
+}
+
+function probeFromControlPlane(serviceAssetId: string, url: string, timeoutMs: number): Promise<ProbeServiceAssetResult> {
+  return new Promise((resolve) => {
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      throw new AppError('VALIDATION_FAILED', '监控探测只支持 HTTP/HTTPS URL', { url });
+    }
+
+    const startedAt = Date.now();
+    const checkedAt = new Date().toISOString();
+    const client = parsed.protocol === 'https:' ? https : http;
+    const request = client.request(parsed, {
+      method: 'GET',
+      timeout: timeoutMs,
+      rejectUnauthorized: false,
+      headers: {
+        'user-agent': 'GCAC-MonitorProbe/1.0',
+        accept: '*/*',
+      },
+    }, (response) => {
+      const latencyMs = Math.max(1, Date.now() - startedAt);
+      const certificate = parsed.protocol === 'https:' ? readPeerCertificate(response.socket) : undefined;
+      response.resume();
+      response.on('end', () => {
+        resolve({
+          serviceAssetId,
+          source: 'control_plane',
+          url,
+          status: 'READY',
+          success: true,
+          latencyMs,
+          checkedAt,
+          message: `平台探测成功，HTTP ${response.statusCode ?? 0}`,
+          httpStatus: response.statusCode,
+          certificate,
+        });
+      });
+    });
+
+    request.on('timeout', () => {
+      request.destroy(new Error(`探测超时：${timeoutMs}ms`));
+    });
+    request.on('error', (error) => {
+      resolve({
+        serviceAssetId,
+        source: 'control_plane',
+        url,
+        status: 'ERROR',
+        success: false,
+        latencyMs: Math.max(1, Date.now() - startedAt),
+        checkedAt,
+        message: error.message,
+      });
+    });
+    request.end();
+  });
+}
+
+function readPeerCertificate(socket: unknown): ProbeServiceAssetResult['certificate'] | undefined {
+  const candidate = socket as { getPeerCertificate?: (detailed?: boolean) => Record<string, unknown>; authorized?: boolean; authorizationError?: unknown };
+  const peer = candidate.getPeerCertificate?.(true);
+  if (!peer || Object.keys(peer).length === 0) return undefined;
+  const raw = peer.raw;
+  return {
+    fingerprintSha256: Buffer.isBuffer(raw) ? createHash('sha256').update(raw).digest('hex').toUpperCase() : undefined,
+    subject: stringifyCertificateName(peer.subject),
+    issuer: stringifyCertificateName(peer.issuer),
+    serialNumber: readString(peer.serialNumber),
+    notBefore: readString(peer.valid_from),
+    notAfter: readString(peer.valid_to),
+    dnsNames: parseSubjectAltName(readString(peer.subjectaltname)),
+    verified: candidate.authorized === true,
+    verificationError: candidate.authorizationError ? String(candidate.authorizationError) : undefined,
+  };
+}
+
+function stringifyCertificateName(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  return Object.entries(value as Record<string, unknown>)
+    .map(([key, item]) => `${key}=${Array.isArray(item) ? item.join('/') : String(item)}`)
+    .join(', ');
+}
+
+function parseSubjectAltName(value: string | undefined): string[] | undefined {
+  if (!value) return undefined;
+  const names = value
+    .split(',')
+    .map((item) => item.trim().replace(/^DNS:/iu, ''))
+    .filter(Boolean);
+  return names.length ? names : undefined;
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function normalizeFingerprint(value: string | undefined): string | undefined {
+  const normalized = value?.replace(/[^a-f0-9]/giu, '').toUpperCase();
+  return normalized ? normalized : undefined;
+}

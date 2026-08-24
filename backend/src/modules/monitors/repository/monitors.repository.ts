@@ -3,7 +3,14 @@ import type { DatabasePort } from '../../../database/database-port.js';
 import { PgliteDatabase } from '../../../database/pglite-database.js';
 import { newId } from '../../../shared/id.js';
 import type { AlertRule, RiskEvent } from '../schema/monitors.schema.js';
-import type { CreateAlertRuleInput, ListRiskEventsQuery, UpsertRiskEventInput } from '../dto/monitors.dto.js';
+import type {
+  CertificateObservationDto,
+  CreateAlertRuleInput,
+  ListCertificateObservationsQuery,
+  ListRiskEventsQuery,
+  SaveCertificateObservationInput,
+  UpsertRiskEventInput,
+} from '../dto/monitors.dto.js';
 
 export interface MonitorsRepository {
   readonly moduleName: 'monitors';
@@ -12,6 +19,9 @@ export interface MonitorsRepository {
   getRiskEventByDedupKey(dedupKey: string): Promise<RiskEvent | undefined>;
   createAlertRule(input: CreateAlertRuleInput): Promise<AlertRule>;
   listAlertRules(tenantId?: string): Promise<AlertRule[]>;
+  saveCertificateObservation(input: SaveCertificateObservationInput): Promise<CertificateObservationDto>;
+  listCertificateObservations(query?: ListCertificateObservationsQuery): Promise<CertificateObservationDto[]>;
+  getLatestCertificateObservation(tenantId: string | undefined, serviceAssetId: string): Promise<CertificateObservationDto | undefined>;
 }
 
 export class PgMonitorsRepository implements MonitorsRepository {
@@ -162,6 +172,77 @@ export class PgMonitorsRepository implements MonitorsRepository {
     const rows = (await this.db.query<AlertRuleRow>(`select * from pg_monitor_alert_rules order by created_at desc`)).rows.map(toAlertRule);
     return tenantId === undefined ? rows : rows.filter((item) => item.scope.tenantId === tenantId);
   }
+
+  async saveCertificateObservation(input: SaveCertificateObservationInput): Promise<CertificateObservationDto> {
+    const now = new Date().toISOString();
+    const item: CertificateObservationDto = {
+      id: newId('certobs'),
+      tenantId: input.tenantId,
+      serviceAssetId: input.serviceAssetId,
+      source: input.source,
+      url: input.url,
+      observedAt: input.observedAt,
+      fingerprintSha256: input.fingerprintSha256,
+      subject: input.subject,
+      issuer: input.issuer,
+      serialNumber: input.serialNumber,
+      notBefore: input.notBefore,
+      notAfter: input.notAfter,
+      dnsNames: input.dnsNames,
+      verified: input.verified,
+      verificationError: input.verificationError,
+      rawResult: input.rawResult ?? {},
+      createdAt: now,
+    };
+    await this.db.query(`insert into pg_monitor_certificate_observations (
+      id, tenant_id, service_asset_id, source, probe_url, observed_at, fingerprint_sha256,
+      subject, issuer, serial_number, not_before, not_after, dns_names, verified,
+      verification_error, raw_result, created_at
+    ) values (
+      $1,$2,$3,$4,$5,$6::timestamptz,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16::jsonb,$17::timestamptz
+    )`, [
+      item.id,
+      item.tenantId ?? null,
+      item.serviceAssetId,
+      item.source,
+      item.url,
+      item.observedAt,
+      item.fingerprintSha256,
+      item.subject ?? null,
+      item.issuer ?? null,
+      item.serialNumber ?? null,
+      item.notBefore ?? null,
+      item.notAfter ?? null,
+      JSON.stringify(item.dnsNames ?? []),
+      item.verified ?? null,
+      item.verificationError ?? null,
+      JSON.stringify(item.rawResult),
+      item.createdAt,
+    ]);
+    return item;
+  }
+
+  async listCertificateObservations(query: ListCertificateObservationsQuery = {}): Promise<CertificateObservationDto[]> {
+    const rows = (await this.db.query<CertificateObservationRow>(
+      `select * from pg_monitor_certificate_observations order by observed_at desc, created_at desc`,
+    )).rows.map(toCertificateObservation);
+    const pageSize = normalizePageSize(query.pageSize);
+    return rows
+      .filter((item) => query.tenantId === undefined || item.tenantId === query.tenantId)
+      .filter((item) => query.serviceAssetId === undefined || item.serviceAssetId === query.serviceAssetId)
+      .slice(0, pageSize);
+  }
+
+  async getLatestCertificateObservation(tenantId: string | undefined, serviceAssetId: string): Promise<CertificateObservationDto | undefined> {
+    const row = (await this.db.query<CertificateObservationRow>(
+      `select * from pg_monitor_certificate_observations
+       where coalesce(tenant_id, '') = coalesce($1, '') and service_asset_id = $2
+       order by observed_at desc, created_at desc
+       limit 1`,
+      [tenantId ?? null, serviceAssetId],
+    )).rows[0];
+    return row ? toCertificateObservation(row) : undefined;
+  }
 }
 
 type RiskEventRow = {
@@ -225,6 +306,26 @@ type AlertRuleRow = {
   updated_at: string;
 };
 
+type CertificateObservationRow = {
+  id: string;
+  tenant_id?: string | null;
+  service_asset_id: string;
+  source: string;
+  probe_url: string;
+  observed_at: string;
+  fingerprint_sha256: string;
+  subject?: string | null;
+  issuer?: string | null;
+  serial_number?: string | null;
+  not_before?: string | null;
+  not_after?: string | null;
+  dns_names: unknown;
+  verified?: boolean | null;
+  verification_error?: string | null;
+  raw_result: unknown;
+  created_at: string;
+};
+
 function toAlertRule(row: AlertRuleRow): AlertRule {
   const scope = asObject(row.scope);
   return {
@@ -249,6 +350,33 @@ function toAlertRule(row: AlertRuleRow): AlertRule {
   };
 }
 
+function toCertificateObservation(row: CertificateObservationRow): CertificateObservationDto {
+  return {
+    id: row.id,
+    tenantId: row.tenant_id ?? undefined,
+    serviceAssetId: row.service_asset_id,
+    source: row.source as CertificateObservationDto['source'],
+    url: row.probe_url,
+    observedAt: row.observed_at,
+    fingerprintSha256: row.fingerprint_sha256,
+    subject: row.subject ?? undefined,
+    issuer: row.issuer ?? undefined,
+    serialNumber: row.serial_number ?? undefined,
+    notBefore: row.not_before ?? undefined,
+    notAfter: row.not_after ?? undefined,
+    dnsNames: Array.isArray(row.dns_names) ? row.dns_names.map(String).filter(Boolean) : undefined,
+    verified: row.verified ?? undefined,
+    verificationError: row.verification_error ?? undefined,
+    rawResult: asObject(row.raw_result),
+    createdAt: row.created_at,
+  };
+}
+
 function asObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function normalizePageSize(value: number | undefined): number {
+  if (!Number.isFinite(value)) return 200;
+  return Math.min(500, Math.max(1, Math.trunc(value!)));
 }
