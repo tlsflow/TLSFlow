@@ -79,10 +79,17 @@ function markFailed(): void {
 
 .plugin-logo img {
   display: block;
-  inline-size: 100%;
-  block-size: 100%;
+  /* 网格项目不能被 SVG 固有比例撑大；补偿外框边框后，图片盒与展示令牌一致。 */
+  inline-size: calc(100% + var(--gc-border-width-default) + var(--gc-border-width-default));
+  block-size: calc(100% + var(--gc-border-width-default) + var(--gc-border-width-default));
+  min-inline-size: 0;
+  min-block-size: 0;
   padding: var(--gc-space-compact);
   object-fit: contain;
+}
+
+.plugin-logo--market img {
+  padding: 0;
 }
 
 .plugin-logo--fallback {
