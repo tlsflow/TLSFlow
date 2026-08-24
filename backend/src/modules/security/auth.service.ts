@@ -11,6 +11,7 @@ import { AUDIT_EVENT_TYPES } from '../audits/audit-event-types.js';
 import type { AuditService } from '../audits/audit.service.js';
 import type { RBACService } from '../rbac/rbac.service.js';
 import type { ObjectPermissionService } from './object-permission.service.js';
+import type { TenantIdentityResolver } from './tenant-identity.service.js';
 
 export interface AuthenticatedUser {
   id: string;
@@ -77,6 +78,7 @@ export class AuthService {
     private readonly audit?: AuditService,
     private readonly browserSessions: AsyncRepositoryPort<AuthBrowserSessionEntity> = AuthService.createDefaultBrowserSessionsRepository(),
     private readonly objectPermissions?: ObjectPermissionService,
+    private readonly tenantIdentity?: TenantIdentityResolver,
   ) {
     this.seedReady = this.seedDefaultAdmin();
   }
@@ -145,10 +147,11 @@ export class AuthService {
     const expiresAt = new Date(now.getTime() + ttlSeconds * 1000).toISOString();
     const id = `sess_${randomBytes(16).toString('hex')}`;
     const secret = randomBytes(32).toString('base64url');
+    const tenantId = await this.resolveTenantId(user.tenantId);
     await this.browserSessions.create({
       id,
       userId: user.id,
-      tenantId: user.tenantId ?? DEFAULT_TENANT_ID,
+      tenantId,
       secretHash: this.digestSessionSecret(secret),
       createdAt: now.toISOString(),
       expiresAt,
@@ -226,14 +229,14 @@ export class AuthService {
     cookieHeader: string | undefined,
   ): Promise<{ actorId: string; tenantId: string } | undefined> {
     const bearer = this.parseAuthorizationHeader(authorization);
-    if (bearer) return bearer;
+    if (bearer) return { actorId: bearer.actorId, tenantId: await this.resolveTenantId(bearer.tenantId) };
     const parsed = parseSessionCookie(cookieHeader);
     if (!parsed) return undefined;
     const session = await this.browserSessions.get(parsed.id);
     if (!session || session.revokedAt) return undefined;
     if (Date.parse(session.expiresAt) <= Date.now()) return undefined;
     if (!safeEqualHex(session.secretHash, this.digestSessionSecret(parsed.secret))) return undefined;
-    return { actorId: session.userId, tenantId: session.tenantId };
+    return { actorId: session.userId, tenantId: await this.resolveTenantId(session.tenantId) };
   }
 
   buildSessionSetCookie(cookieValue: string, expiresAt: string): string {
@@ -263,9 +266,10 @@ export class AuthService {
   }
 
   private async createSession(user: UserEntity): Promise<AuthSessionResponse> {
+    const tenantId = await this.resolveTenantId(user.tenantId);
     const token = this.signToken({
       userId: user.id,
-      tenantId: user.tenantId ?? DEFAULT_TENANT_ID,
+      tenantId,
       issuedAt: Date.now(),
       expiresAt: Date.now() + browserSessionTtlSeconds() * 1000,
       nonce: randomBytes(8).toString('hex'),
@@ -273,18 +277,18 @@ export class AuthService {
     const subject = await this.subjectForUser(user);
     return {
       token,
-      user: await this.toAuthenticatedUser(user),
+      user: await this.toAuthenticatedUser(user, tenantId),
       permissions: await this.rbac.permissionsForSubject(subject),
     };
   }
 
-  private async toAuthenticatedUser(user: UserEntity): Promise<AuthenticatedUser> {
+  private async toAuthenticatedUser(user: UserEntity, resolvedTenantId?: string): Promise<AuthenticatedUser> {
     const roles = await this.rbac.rolesForUser(user.id);
     return {
       id: user.id,
       username: user.username,
       displayName: user.displayName,
-      tenantId: user.tenantId ?? DEFAULT_TENANT_ID,
+      tenantId: resolvedTenantId ?? await this.resolveTenantId(user.tenantId),
       tenantName: user.tenantName ?? DEFAULT_TENANT_NAME,
       status: user.status,
       roles: roles.map((role) => ({ id: role.id, code: role.code, name: role.name })),
@@ -297,8 +301,13 @@ export class AuthService {
       id: user.id,
       type: 'user',
       roleIds: roles.map((role) => role.id),
-      scope: { tenantId: user.tenantId ?? DEFAULT_TENANT_ID },
+      scope: { tenantId: await this.resolveTenantId(user.tenantId) },
     };
+  }
+
+  private async resolveTenantId(identifier?: string): Promise<string> {
+    if (!this.tenantIdentity) return identifier ?? DEFAULT_TENANT_ID;
+    return this.tenantIdentity.resolve(identifier ?? DEFAULT_TENANT_ID);
   }
 
   private async seedDefaultAdmin(): Promise<void> {

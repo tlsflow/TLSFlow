@@ -26,6 +26,7 @@ import { AuthService } from './auth.service.js';
 import { ExternalIdentityService, type ExternalGroupRoleMapping, type IdentitySource } from './external-identity.service.js';
 import type { SecurityServices } from './security.controller.js';
 import { ObjectPermissionService } from './object-permission.service.js';
+import { TenantIdentityService } from './tenant-identity.service.js';
 
 type StoredSecretVersion = SecretVersionEntity & { dekIv: string; dekAuthTag: string };
 type StoredUserRole = UserRoleEntity & { id: string };
@@ -56,6 +57,7 @@ export function createPersistedSecurityServices(db: DatabasePort): PersistedSecu
   const objectSets = new PgDocumentRepository<ObjectSetEntity>(db, 'security.object_sets');
   const objectSetMembers = new PgDocumentRepository<ObjectSetMemberEntity>(db, 'security.object_set_members');
   const accessGrants = new PgDocumentRepository<AccessGrantEntity>(db, 'security.access_grants');
+  const tenantIdentity = new TenantIdentityService(db);
 
   const audit = new AuditService(auditLogs);
   const approvals = new ApprovalService(approvalsRepo, audit, {
@@ -65,7 +67,7 @@ export function createPersistedSecurityServices(db: DatabasePort): PersistedSecu
   const secrets = new SecretService(new CryptoService(new KeyManager()), grants, audit, secretsRepo, secretVersions);
   const rbac = new RBACService(users, roles, userRoles, policies, audit);
   const objectPermissions = new ObjectPermissionService(groups, groupMembers, roleBindings, objectTypes, objectSets, objectSetMembers, accessGrants, userRoles, policies, roles, audit);
-  const auth = new AuthService(rbac, authCredentials, audit, authBrowserSessions, objectPermissions);
+  const auth = new AuthService(rbac, authCredentials, audit, authBrowserSessions, objectPermissions, tenantIdentity);
   const externalIdentity = new ExternalIdentityService(rbac, auth, audit, secrets, undefined, identitySources, externalGroupRoleMappings);
 
   return {

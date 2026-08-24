@@ -62,7 +62,7 @@ describe('核心数据模型迁移', () => {
 
   it('证书版本指纹在租户内唯一，不能被覆盖成重复版本', async () => {
     const db = await migratedDb();
-    const tenantId = await scalar<string>(db, `insert into tenants (name, code) values ('默认租户', 'default') returning id`);
+    const tenantId = await scalar<string>(db, `select id::text from tenants where code = 'default'`);
     const assetId = await scalar<string>(
       db,
       `insert into certificate_assets (tenant_id, name, primary_domain, source_type)
@@ -95,7 +95,7 @@ describe('核心数据模型迁移', () => {
 
   it('部署计划目标必须引用证书绑定，不能绕过绑定直连主机或证书', async () => {
     const db = await migratedDb();
-    const tenantId = await scalar<string>(db, `insert into tenants (name, code) values ('默认租户', 'default') returning id`);
+    const tenantId = await scalar<string>(db, `select id::text from tenants where code = 'default'`);
     const planId = await scalar<string>(
       db,
       `insert into deployment_plans (tenant_id, name, plan_type, status, created_reason)
@@ -112,7 +112,7 @@ describe('核心数据模型迁移', () => {
 
   it('可以从绑定追踪到服务、主机、证书版本和部署运行', async () => {
     const db = await migratedDb();
-    const tenantId = await scalar<string>(db, `insert into tenants (name, code) values ('默认租户', 'default') returning id`);
+    const tenantId = await scalar<string>(db, `select id::text from tenants where code = 'default'`);
     const assetId = await scalar<string>(
       db,
       `insert into certificate_assets (tenant_id, name, primary_domain, source_type)
