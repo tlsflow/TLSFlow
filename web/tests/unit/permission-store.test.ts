@@ -26,7 +26,6 @@ describe('权限 Store', () => {
       '/deployment-plans',
       '/workflow-templates',
       '/monitors',
-      '/reports/incident-window',
       '/settings'
     ])
     const settings = store.visibleMenuItems.find((item) => item.path === '/settings')
@@ -57,17 +56,12 @@ describe('权限 Store', () => {
     expect(store.visibleMenuItems[0]?.children?.map((item) => item.titleKey)).toEqual(['nav.plugins'])
   })
 
-  it('报表菜单只对 report.read 权限开放', () => {
+  it('报表暂时不显示主菜单入口', () => {
     const store = usePermissionStore()
 
     store.setPermissions(['report.read'])
 
-    expect(store.visibleMenuItems.map((item) => item.titleKey)).toEqual(['nav.reports'])
-    expect(store.visibleMenuItems[0]?.children?.map((item) => item.path)).toEqual([
-      '/reports/incident-window',
-      '/reports/risk-response',
-      '/reports/automation-effectiveness'
-    ])
+    expect(store.visibleMenuItems.some((item) => item.path.startsWith('/reports'))).toBe(false)
   })
 
   it('通过 Provider 加载权限', async () => {
