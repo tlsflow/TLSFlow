@@ -3290,6 +3290,8 @@ export default {
         detail: 'Detalhes',
         edit: 'Editar',
         publishVersion: 'Publicar versão',
+        rename: 'Renomear',
+        saveName: 'Salvar nome',
         saveNote: 'Salvar observação',
         switchVersion: 'Alternar versão',
         templateManagement: 'Gerenciamento de modelos',
@@ -3334,6 +3336,13 @@ export default {
         publishedVersion: 'Versão publicada atual {version}',
         title: 'Detalhes do fluxo de trabalho',
         titleWithName: 'Fluxo de trabalho {name}'
+      },
+      rename: {
+        title: 'Nome do fluxo de trabalho',
+        description: 'Altera o nome exibido nas listas e nos detalhes sem reescrever versões históricas.',
+        placeholder: 'Digite o nome do fluxo de trabalho',
+        messages: { success: 'Nome do fluxo de trabalho atualizado.' },
+        errors: { required: 'O nome do fluxo de trabalho é obrigatório.', failed: 'Falha ao alterar o nome do fluxo de trabalho.' }
       },
       versionManager: {
         description: 'Gerencie aqui a criação e publicação de versões do fluxo de trabalho, sem alterar o conteúdo do canvas.',

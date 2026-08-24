@@ -14,6 +14,7 @@ import {
   listWorkflowTemplates,
   listWorkflowTemplateVersions,
   publishWorkflowTemplateVersion,
+  renameWorkflowTemplate,
   updateCurrentWorkflowTemplateDraftVersion,
 } from '@/api/modules/workflow-templates.api'
 import { createSecret, listSecrets } from '@/api/modules/security.api'
@@ -29,6 +30,7 @@ vi.mock('@/api/modules/workflow-templates.api', () => ({
   listWorkflowTemplateVersions: vi.fn(),
   createWorkflowTemplateVersion: vi.fn(),
   publishWorkflowTemplateVersion: vi.fn(),
+  renameWorkflowTemplate: vi.fn(),
   updateCurrentWorkflowTemplateDraftVersion: vi.fn(),
 }))
 
@@ -105,6 +107,20 @@ describe('WorkflowTemplatesView', () => {
     })
     vi.mocked(createWorkflowTemplate).mockResolvedValue({ data: { id: 'tpl-blank-1' }, requestId: 'req_ok', timestamp: '2026-07-03T00:00:00.000Z' })
     vi.mocked(createWorkflowTemplateFromFile).mockResolvedValue({ data: { id: 'tpl-file-1' }, requestId: 'req_ok', timestamp: '2026-07-03T00:00:00.000Z' })
+    vi.mocked(renameWorkflowTemplate).mockResolvedValue({
+      data: {
+        id: 'tpl-1',
+        name: 'renamed-workflow',
+        status: 'draft',
+        currentVersionId: 'wftplv_05ec5c37-18b6-4687-bc90-26e143ebcf62',
+        currentVersion: 1,
+        currentVersionLabel: 'V1',
+        createdAt: '2026-07-03T00:00:00.000Z',
+        updatedAt: '2026-07-22T00:00:00.000Z',
+      },
+      requestId: 'req_ok',
+      timestamp: '2026-07-22T00:00:00.000Z',
+    })
     vi.mocked(compileWorkflowCanvas).mockResolvedValue({
       data: {
         content: {
@@ -223,6 +239,67 @@ describe('WorkflowTemplatesView', () => {
     const buttons = [...document.body.querySelectorAll('button')].map((item) => item.textContent?.trim())
     expect(buttons).not.toContain('编辑')
     expect(buttons).toContain('版本管理')
+  })
+
+  it('支持在详情页面修改工作流名称', async () => {
+    mount(WorkflowTemplatesView, {
+      attachTo: document.body,
+      global: { stubs: { teleport: true, Teleport: true } },
+    })
+    await flushPromises()
+
+    clickBodyButton('详情')
+    await flushPromises()
+    clickBodyButton('修改名称')
+    await flushPromises()
+
+    const input = document.body.querySelector('input[placeholder="请输入工作流名称"]') as HTMLInputElement
+    expect(input).toBeTruthy()
+    input.value = '  renamed-workflow  '
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    clickBodyButton('保存名称')
+    await flushPromises()
+
+    expect(renameWorkflowTemplate).toHaveBeenCalledWith('tpl-1', 'renamed-workflow')
+    expect(document.body.textContent).toContain('工作流名称已更新。')
+    expect(document.body.textContent).toContain('renamed-workflow')
+    expect(listWorkflowTemplates).toHaveBeenCalledTimes(2)
+  })
+
+  it('详情版本列表不会因旧 DSL 无法转换画布而加载失败', async () => {
+    vi.mocked(listWorkflowTemplateVersions).mockResolvedValueOnce({
+      data: {
+        items: [{
+          id: 'ver-legacy',
+          version: '1',
+          status: 'draft',
+          changeSummary: '旧版本草稿',
+          createdAt: '2026-07-03T00:00:00.000Z',
+          content: {
+            apiVersion: 'gcac.workflow/v1',
+            kind: 'CurlSshWorkflow',
+            metadata: { name: 'legacy-workflow' },
+            variables: {},
+            steps: [{ name: 'legacy-ssh', type: 'ssh', ssh: { mode: 'command', command: 'reload' } }],
+          },
+        }],
+      },
+      requestId: 'req_ok',
+      timestamp: '2026-07-22T00:00:00.000Z',
+    })
+    mount(WorkflowTemplatesView, {
+      attachTo: document.body,
+      global: { stubs: { teleport: true, Teleport: true } },
+    })
+    await flushPromises()
+
+    clickBodyButton('详情')
+    await flushPromises()
+    clickBodyButton('版本')
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('旧版本草稿')
+    expect(document.body.textContent).not.toContain("Cannot read properties of undefined (reading 'host')")
   })
 
   it('编辑器保存草稿只更新当前草稿版本，不创建新版本', async () => {

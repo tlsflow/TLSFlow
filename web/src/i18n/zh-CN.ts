@@ -3410,6 +3410,8 @@ export default {
         detail: '详情',
         edit: '编辑',
         publishVersion: '发布版本',
+        rename: '修改名称',
+        saveName: '保存名称',
         saveNote: '保存备注',
         switchVersion: '切换版本',
         templateManagement: '模板管理',
@@ -3454,6 +3456,13 @@ export default {
         publishedVersion: '当前发布版本 {version}',
         title: '工作流详情',
         titleWithName: '工作流 {name}'
+      },
+      rename: {
+        title: '工作流名称',
+        description: '修改列表和详情中展示的工作流名称，不会改写历史版本。',
+        placeholder: '请输入工作流名称',
+        messages: { success: '工作流名称已更新。' },
+        errors: { required: '工作流名称不能为空。', failed: '工作流名称修改失败。' }
       },
       versionManager: {
         description: '管理工作流版本的新建与发布，不涉及画布内容的修改。',

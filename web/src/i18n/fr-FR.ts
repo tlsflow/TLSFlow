@@ -3360,6 +3360,8 @@ export default {
         detail: 'Details',
         edit: 'Edit',
         publishVersion: 'Publish version',
+        rename: 'Renommer',
+        saveName: 'Enregistrer le nom',
         saveNote: 'Save note',
         switchVersion: 'Switch version',
         templateManagement: 'Template management',
@@ -3404,6 +3406,13 @@ export default {
         publishedVersion: 'Published version {version}',
         title: 'Workflow details',
         titleWithName: 'Workflow {name}'
+      },
+      rename: {
+        title: 'Nom du workflow',
+        description: 'Modifie le nom affiché dans les listes et les détails sans réécrire les versions historiques.',
+        placeholder: 'Saisissez le nom du workflow',
+        messages: { success: 'Le nom du workflow a été mis à jour.' },
+        errors: { required: 'Le nom du workflow est obligatoire.', failed: 'Échec de la modification du nom du workflow.' }
       },
       versionManager: {
         description: 'Manage only workflow version creation and publishing here; workflow canvas content is not changed.',

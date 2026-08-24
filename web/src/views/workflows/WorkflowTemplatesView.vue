@@ -13,6 +13,7 @@ import {
   listWorkflowTemplateVersions,
   listWorkflowTemplates,
   publishWorkflowTemplateVersion,
+  renameWorkflowTemplate,
   updateCurrentWorkflowTemplateDraftVersion,
   updateWorkflowTemplateVersionNote,
 } from '@/api/modules/workflow-templates.api'
@@ -44,6 +45,11 @@ const detailModalOpen = ref(false)
 const versionManagerModalOpen = ref(false)
 const editorModalOpen = ref(false)
 const detailRow = ref<ViewRow | null>(null)
+const detailNameEditing = ref(false)
+const detailNameDraft = ref('')
+const detailNameSaving = ref(false)
+const detailNameMessage = ref('')
+const detailNameError = ref('')
 const versionManagerRow = ref<ViewRow | null>(null)
 const editorRow = ref<ViewRow | null>(null)
 const versionItems = ref<ApiRecord[]>([])
@@ -352,7 +358,56 @@ async function openDetail(row: ViewRow) {
   detailModalOpen.value = true
   activeTab.value = 'summary'
   publishMessage.value = ''
+  cancelDetailNameEdit()
   await loadVersions(row)
+}
+
+function beginDetailNameEdit() {
+  if (!detailRow.value) return
+  detailNameDraft.value = readString(detailRow.value.raw, ['name'], detailRow.value.id)
+  detailNameEditing.value = true
+  detailNameMessage.value = ''
+  detailNameError.value = ''
+}
+
+function cancelDetailNameEdit() {
+  detailNameEditing.value = false
+  detailNameDraft.value = ''
+  detailNameSaving.value = false
+  detailNameMessage.value = ''
+  detailNameError.value = ''
+}
+
+async function saveDetailName() {
+  if (!detailRow.value) return
+  const templateId = readString(detailRow.value.raw, ['id'])
+  const currentName = readString(detailRow.value.raw, ['name'], detailRow.value.id)
+  const name = detailNameDraft.value.trim()
+  if (!name) {
+    detailNameError.value = t('workflows.templates.rename.errors.required')
+    return
+  }
+  if (name === currentName) {
+    detailNameEditing.value = false
+    detailNameError.value = ''
+    return
+  }
+  detailNameSaving.value = true
+  detailNameMessage.value = ''
+  detailNameError.value = ''
+  try {
+    const result = await renameWorkflowTemplate(templateId, name)
+    const template = result.data ?? {}
+    syncTemplateRows(template, templateId)
+    detailNameDraft.value = readString(template, ['name'], name)
+    detailNameEditing.value = false
+    detailNameMessage.value = t('workflows.templates.rename.messages.success')
+    await pageRef.value?.reload()
+  } catch (cause) {
+    detailNameError.value = cause instanceof Error ? cause.message : t('workflows.templates.rename.errors.failed')
+  } finally {
+    detailNameSaving.value = false
+  }
 }
 
 async function openVersionManager(row: ViewRow) {
@@ -389,7 +444,6 @@ async function loadVersions(row: ViewRow) {
     const result = await listWorkflowTemplateVersions(readString(row.raw, ['id']))
     versionItems.value = [...(result.data?.items ?? [])]
     syncVersionNoteDrafts()
-    hydrateCanvasFromLatestVersion()
   } catch (cause) {
     versionItems.value = []
     versionNoteDrafts.value = {}
@@ -688,7 +742,26 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
         <section class="workflow-template-detail__hero">
           <div class="workflow-template-detail__hero-copy">
             <p class="workflow-template-detail__eyebrow">Workflow</p>
-            <h2>{{ readString(detailRow.raw, ['name'], detailRow.id) }}</h2>
+            <div class="workflow-template-detail__title-row">
+              <h2>{{ readString(detailRow.raw, ['name'], detailRow.id) }}</h2>
+              <button v-if="!detailNameEditing" class="gc-button" type="button" @click="beginDetailNameEdit">
+                {{ t('workflows.templates.actions.rename') }}
+              </button>
+            </div>
+            <form v-if="detailNameEditing" class="workflow-template-detail__name-form" @submit.prevent="saveDetailName">
+              <label>
+                <span>{{ t('workflows.templates.fields.name') }}</span>
+                <input v-model="detailNameDraft" class="gc-input" type="text" :disabled="detailNameSaving" :placeholder="t('workflows.templates.rename.placeholder')" autofocus />
+              </label>
+              <div class="workflow-template-detail__name-actions">
+                <button class="gc-button" type="button" :disabled="detailNameSaving" @click="cancelDetailNameEdit">{{ t('workflows.templates.actions.cancel') }}</button>
+                <button class="gc-button gc-button--primary" type="submit" :disabled="detailNameSaving || !detailNameDraft.trim()">
+                  {{ detailNameSaving ? t('workflows.templates.states.saving') : t('workflows.templates.actions.saveName') }}
+                </button>
+              </div>
+            </form>
+            <p v-if="detailNameMessage" class="workflow-template-detail__message">{{ detailNameMessage }}</p>
+            <p v-if="detailNameError" class="workflow-template-detail__error">{{ detailNameError }}</p>
             <span>{{ t('workflows.templates.detail.publishedVersion', { version: publishedVersionLabel }) }}</span>
           </div>
           <div class="workflow-template-detail__hero-side">
@@ -1161,6 +1234,52 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   margin: 0;
+}
+
+.workflow-template-detail__title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--gc-space-3);
+}
+
+.workflow-template-detail__name-form label {
+  display: grid;
+  gap: var(--gc-space-1);
+}
+
+.workflow-template-detail__name-form label > span {
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 800;
+}
+
+.workflow-template-detail__name-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--gc-space-3);
+  width: 100%;
+}
+
+.workflow-template-detail__name-form .gc-input {
+  min-height: var(--gc-control-height-md);
+  padding: 0 var(--gc-space-3);
+  border: var(--gc-space-hairline) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-sm);
+  background: var(--gc-color-surface-solid);
+  color: var(--gc-color-text);
+  font: inherit;
+}
+
+.workflow-template-detail__name-form .gc-input:focus {
+  border-color: var(--gc-color-primary);
+  outline: none;
+}
+
+.workflow-template-detail__name-actions {
+  display: flex;
+  gap: var(--gc-space-2);
 }
 
 .workflow-template-detail__facts div,

@@ -3316,6 +3316,8 @@ export default {
         detail: '詳細',
         edit: '編集',
         publishVersion: '公開バージョン',
+        rename: '名前を変更',
+        saveName: '名前を保存',
         saveNote: '保存メモ',
         switchVersion: '切り替えバージョン',
         templateManagement: 'テンプレート管理',
@@ -3360,6 +3362,13 @@ export default {
         publishedVersion: '現在公開バージョン {version}',
         title: 'ワークフロー詳細',
         titleWithName: 'ワークフロー {name}'
+      },
+      rename: {
+        title: 'ワークフロー名',
+        description: '履歴バージョンを書き換えず、一覧と詳細に表示する名前を変更します。',
+        placeholder: 'ワークフロー名を入力',
+        messages: { success: 'ワークフロー名を更新しました。' },
+        errors: { required: 'ワークフロー名は必須です。', failed: 'ワークフロー名の変更に失敗しました。' }
       },
       versionManager: {
         description: '管理ワークフローバージョンの新建と公開、不涉およびキャンバス内容の変更。',

@@ -3290,6 +3290,8 @@ export default {
         detail: '상세 정보',
         edit: '편집',
         publishVersion: '릴리즈 버전',
+        rename: '이름 변경',
+        saveName: '이름 저장',
         saveNote: '설명 저장',
         switchVersion: '버전 바꾸기',
         templateManagement: '템플릿관리',
@@ -3334,6 +3336,13 @@ export default {
         publishedVersion: '현재 배포버전은 {version}이다',
         title: '워크플로 정보',
         titleWithName: '워크플로 {name}'
+      },
+      rename: {
+        title: '워크플로 이름',
+        description: '이전 버전을 변경하지 않고 목록과 상세 화면에 표시되는 이름을 수정합니다.',
+        placeholder: '워크플로 이름 입력',
+        messages: { success: '워크플로 이름이 업데이트되었습니다.' },
+        errors: { required: '워크플로 이름은 필수입니다.', failed: '워크플로 이름을 변경하지 못했습니다.' }
       },
       versionManager: {
         description: '캔버스의 내용을 변경하지 않고 새로 만들고 배포하는 워크플로 버전을 관리합니다.',

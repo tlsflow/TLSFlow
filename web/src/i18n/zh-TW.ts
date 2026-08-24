@@ -3316,6 +3316,8 @@ export default {
         detail: "詳情",
         edit: "編輯",
         publishVersion: "釋出版本",
+        rename: "修改名稱",
+        saveName: "儲存名稱",
         saveNote: "儲存備註",
         switchVersion: "切換版本",
         templateManagement: "模板管理",
@@ -3360,6 +3362,13 @@ export default {
         publishedVersion: "目前釋出版本 {version}",
         title: "工作流詳情",
         titleWithName: "工作流 {name}"
+      },
+      rename: {
+        title: "工作流名稱",
+        description: "修改清單與詳情中顯示的工作流名稱，不會改寫歷史版本。",
+        placeholder: "請輸入工作流名稱",
+        messages: { success: "工作流名稱已更新。" },
+        errors: { required: "工作流名稱不能為空。", failed: "工作流名稱修改失敗。" }
       },
       versionManager: {
         description: "管理工作流版本的新增與釋出，不涉及畫布內容的修改。",

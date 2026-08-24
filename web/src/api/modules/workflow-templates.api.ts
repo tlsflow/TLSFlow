@@ -21,6 +21,10 @@ export function createWorkflowTemplate(payload: ApiBody) {
   return postAction(WORKFLOW_TEMPLATES_PATH, payload, 'workflow_template_create')
 }
 
+export function renameWorkflowTemplate(templateId: string, name: string) {
+  return postAction(`${WORKFLOW_TEMPLATES_PATH}/rename`, { templateId, name }, 'workflow_template_rename')
+}
+
 export function compileWorkflowCanvas(payload: ApiBody) {
   return postAction(WORKFLOW_CANVAS_COMPILE_PATH, payload, 'workflow_canvas_compile')
 }
