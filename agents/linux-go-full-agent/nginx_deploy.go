@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 	"unicode"
@@ -1759,12 +1758,7 @@ func executeShellCommand(command string, timeout time.Duration) (*CommandResult,
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	shellCommand := "/bin/sh"
-	shellArgs := []string{"-lc", command}
-	if runtime.GOOS == "windows" {
-		shellCommand = "cmd.exe"
-		shellArgs = []string{"/c", command}
-	}
+	shellCommand, shellArgs := shellInvocation(command)
 	cmd := exec.CommandContext(ctx, shellCommand, shellArgs...)
 	result := &CommandResult{
 		Command: shellCommand,
