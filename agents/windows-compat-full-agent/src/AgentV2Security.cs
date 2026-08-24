@@ -111,7 +111,7 @@ namespace GCAC.WindowsCompatibilityAgent
             Dictionary<string, object> token = RequiredDictionary(payload, "token");
             Dictionary<string, object> decision = RequiredDictionary(payload, "policyDecision");
             PolicyMaterial material = PolicyMaterialLoader.Load(config, agentId, tenantId);
-            if (TextUtility.IsBlank(config.receiptKeyId) || RequiredIdentifier(material.LocalPolicy, "receiptKeyId") != config.receiptKeyId)
+            if (requirePlan && (TextUtility.IsBlank(config.receiptKeyId) || RequiredIdentifier(material.LocalPolicy, "receiptKeyId") != config.receiptKeyId))
                 Reject("AGENT_V2_POLICY_UNAVAILABLE", "Agent 本地策略未绑定当前 Receipt 签名密钥");
             ValidateTokenAndDecision(token, decision, material, agentId, tenantId, pluginId, pluginVersionId, capability);
             string requestedPlanDigest = RequiredDigest(payload, "planDigest");
@@ -444,7 +444,11 @@ namespace GCAC.WindowsCompatibilityAgent
             if (!SameStringSet(requestServices, tokenServices) || !SameStringSet(requestServices, decisionServices) || !ListScopeAllowedExact(new ArrayList(requestServices.ToArray()), tokenServices) || !ListScopeAllowedExact(new ArrayList(requestServices.ToArray()), decisionServices)) Reject("AGENT_V2_AUTHORIZATION_REJECTED", "请求服务范围与 Token 或 Policy Authority 决策不一致");
             if (!SameStringSet(requestArtifacts, StringList(token, "artifactDigests")) || !SameStringSet(requestArtifacts, StringList(decision, "artifactDigests"))) Reject("AGENT_V2_AUTHORIZATION_REJECTED", "请求制品摘要范围与 Token 或 Policy Authority 决策不一致");
             if (RequiredBoolean(localPolicy, "disabled")) Reject("AGENT_V2_AUTHORIZATION_REJECTED", "Agent 本地策略已紧急禁用");
-            if (!StringList(localPolicy, "authorityKeyIds").Contains(RequiredIdentifier(token, "authorityKeyId")) || !StringList(localPolicy, "allowedActions").Contains(RequiredIdentifier(token, "capability"))) Reject("AGENT_V2_AUTHORIZATION_REJECTED", "Agent 本地策略不允许当前授权");
+            // capability 是产品能力标识，不是本地策略的操作动作。策略只保存
+            // filesystem.read/process.list/service.list 等实际操作，因此必须逐项
+            // 校验请求动作，不能拿 application.discover 去匹配 allowedActions。
+            if (!StringList(localPolicy, "authorityKeyIds").Contains(RequiredIdentifier(token, "authorityKeyId"))
+                || !ContainsAll(StringList(localPolicy, "allowedActions"), requestActions)) Reject("AGENT_V2_AUTHORIZATION_REJECTED", "Agent 本地策略不允许当前授权");
         }
 
         private static void ValidateOperationScopes(IList operations, Dictionary<string, object> token, Dictionary<string, object> decision, Dictionary<string, object> localPolicy)
@@ -453,13 +457,14 @@ namespace GCAC.WindowsCompatibilityAgent
             List<string> allowedServices = StringList(token, "allowedServices");
             List<string> tokenActions = StringList(token, "actions");
             List<string> decisionActions = StringList(decision, "actions");
+            List<string> localActions = StringList(localPolicy, "allowedActions");
             IList pathRules = ListValue(localPolicy, "pathRules");
             List<string> serviceRules = StringList(localPolicy, "serviceRules");
             foreach (object item in operations)
             {
                 Dictionary<string, object> operation = (Dictionary<string, object>)item;
                 string operationType = RequiredString(operation, "operationType");
-                if (!tokenActions.Contains(operationType) || !decisionActions.Contains(operationType)) Reject("AGENT_V2_AUTHORIZATION_REJECTED", "操作不在 Token 或 Policy Authority 动作范围内");
+                if (!tokenActions.Contains(operationType) || !decisionActions.Contains(operationType) || !localActions.Contains(operationType)) Reject("AGENT_V2_AUTHORIZATION_REJECTED", "操作不在 Token、Policy Authority 或本地策略动作范围内");
                 Dictionary<string, object> input = RequiredDictionary(operation, "input");
                 if (operationType.StartsWith("filesystem.", StringComparison.Ordinal))
                 {
@@ -823,6 +828,13 @@ namespace GCAC.WindowsCompatibilityAgent
             if (left.Count != right.Count) return false;
             HashSet<string> values = new HashSet<string>(left, StringComparer.Ordinal);
             return values.Count == right.Count && values.SetEquals(right);
+        }
+
+        private static bool ContainsAll(List<string> allowed, List<string> requested)
+        {
+            for (int index = 0; index < requested.Count; index++)
+                if (!allowed.Contains(requested[index])) return false;
+            return true;
         }
 
         private static bool SameStringSequence(IList left, IList right)

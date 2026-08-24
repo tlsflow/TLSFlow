@@ -1,6 +1,9 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
+using System.Web.Script.Serialization;
 
 namespace GCAC.WindowsCompatibilityAgent
 {
@@ -45,9 +48,17 @@ namespace GCAC.WindowsCompatibilityAgent
                 managementServer = new ManagementTcpServer(config);
                 managementServer.Start();
                 string agentId = identityStore.Load();
-                if (TextUtility.IsBlank(agentId))
+                bool materialReady = !TextUtility.IsBlank(agentId) && PolicyMaterialBootstrap.Exists(config);
+                if (materialReady)
                 {
-                    agentId = client.Register(snapshot);
+                    try { PolicyMaterialLoader.Load(config, agentId, config.tenantId); }
+                    catch { materialReady = false; }
+                }
+                if (!materialReady)
+                {
+                    RegistrationResponse registration = client.Register(snapshot);
+                    agentId = registration.id;
+                    PolicyMaterialBootstrap.Persist(config, agentId, registration.trustMaterial);
                     identityStore.Save(agentId);
                     logger.Write("info", "registration.completed", "agentId=" + agentId);
                 }
@@ -286,6 +297,126 @@ namespace GCAC.WindowsCompatibilityAgent
                 });
             }
             return actionRegistry;
+        }
+    }
+
+    /// <summary>
+    /// 只接受注册响应中携带的完整签名材料，先在暂存目录校验，再提交到正式目录。
+    /// 任何缺项或中断都会回滚旧材料，避免将半套策略暴露给任务执行路径。
+    /// </summary>
+    internal static class PolicyMaterialBootstrap
+    {
+        private static readonly JavaScriptSerializer Serializer = new JavaScriptSerializer();
+
+        internal static bool Exists(AgentConfig config)
+        {
+            return config != null && File.Exists(config.policyTrustRootPath) && File.Exists(config.policyKeySetPath)
+                && File.Exists(config.localPolicyTrustRootPath) && File.Exists(config.localPolicyPath)
+                && File.Exists(config.revokedTokenIdsPath) && File.Exists(config.revokedDecisionIdsPath) && File.Exists(config.revokedKeyIdsPath);
+        }
+
+        internal static void Persist(AgentConfig config, string agentId, Dictionary<string, object> material)
+        {
+            if (config == null || TextUtility.IsBlank(agentId) || material == null) throw new InvalidOperationException("注册响应缺少 Compatibility Agent 信任材料");
+            object localPolicyBundleValue;
+            if (!material.TryGetValue("compatibilityLocalPolicyBundle", out localPolicyBundleValue)) throw new InvalidOperationException("注册响应缺少本地策略包");
+            Dictionary<string, object> localPolicyBundle = localPolicyBundleValue as Dictionary<string, object>;
+            if (localPolicyBundle == null || !BundleContainsAgent(localPolicyBundle, config.tenantId, agentId)) throw new InvalidOperationException("注册响应本地策略未绑定当前租户和 Agent");
+            string policyDirectory = Path.GetDirectoryName(config.policyTrustRootPath);
+            if (TextUtility.IsBlank(policyDirectory)) throw new InvalidOperationException("信任材料目录为空");
+            string stagingDirectory = policyDirectory + ".staging-" + Guid.NewGuid().ToString("N");
+            string backupDirectory = policyDirectory + ".backup-" + Guid.NewGuid().ToString("N");
+            string[] names = new string[] { "trust-root.json", "key-set.json", "local-policy-root.json", "local-policy.json", "revoked-tokens.json", "revoked-decisions.json", "revoked-keys.json" };
+            string[] targetPaths = new string[] { config.policyTrustRootPath, config.policyKeySetPath, config.localPolicyTrustRootPath, config.localPolicyPath, config.revokedTokenIdsPath, config.revokedDecisionIdsPath, config.revokedKeyIdsPath };
+            try
+            {
+                Directory.CreateDirectory(stagingDirectory);
+                WriteJson(Path.Combine(stagingDirectory, names[0]), Required(material, "policyAuthorityTrustRoot"));
+                WriteJson(Path.Combine(stagingDirectory, names[1]), Required(material, "compatibilityPolicyAuthorityKeySet"));
+                WriteJson(Path.Combine(stagingDirectory, names[2]), Required(material, "localPolicyTrustRoot"));
+                WriteJson(Path.Combine(stagingDirectory, names[3]), localPolicyBundle);
+                WriteJson(Path.Combine(stagingDirectory, names[4]), RequiredArray(material, "revokedTokenIds"));
+                WriteJson(Path.Combine(stagingDirectory, names[5]), RequiredArray(material, "revokedDecisionIds"));
+                WriteJson(Path.Combine(stagingDirectory, names[6]), RequiredArray(material, "revokedKeyIds"));
+
+                AgentConfig validationConfig = PolicyConfig(config, stagingDirectory);
+                PolicyMaterialLoader.Load(validationConfig, agentId, config.tenantId);
+
+                Directory.CreateDirectory(backupDirectory);
+                for (int index = 0; index < targetPaths.Length; index++)
+                    if (File.Exists(targetPaths[index])) File.Copy(targetPaths[index], Path.Combine(backupDirectory, names[index]), true);
+                try
+                {
+                    Directory.CreateDirectory(policyDirectory);
+                    for (int index = 0; index < targetPaths.Length; index++) File.Copy(Path.Combine(stagingDirectory, names[index]), targetPaths[index], true);
+                }
+                catch
+                {
+                    for (int index = 0; index < targetPaths.Length; index++)
+                    {
+                        string backup = Path.Combine(backupDirectory, names[index]);
+                        if (File.Exists(backup)) File.Copy(backup, targetPaths[index], true);
+                        else if (File.Exists(targetPaths[index])) File.Delete(targetPaths[index]);
+                    }
+                    throw;
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(stagingDirectory)) Directory.Delete(stagingDirectory, true);
+                if (Directory.Exists(backupDirectory)) Directory.Delete(backupDirectory, true);
+            }
+        }
+
+        private static bool BundleContainsAgent(Dictionary<string, object> bundle, string tenantId, string agentId)
+        {
+            object values;
+            System.Collections.IList policies;
+            if (!bundle.TryGetValue("policies", out values) || (policies = values as System.Collections.IList) == null) return false;
+            foreach (object value in policies)
+            {
+                Dictionary<string, object> entry = value as Dictionary<string, object>;
+                Dictionary<string, object> policy;
+                if (entry == null || Convert.ToString(entry["tenantId"]) != tenantId || !entry.TryGetValue("policy", out values) || (policy = values as Dictionary<string, object>) == null) continue;
+                if (Convert.ToString(policy["agentId"]) == agentId) return true;
+            }
+            return false;
+        }
+
+        private static object Required(Dictionary<string, object> material, string key)
+        {
+            object value;
+            if (!material.TryGetValue(key, out value) || value == null) throw new InvalidOperationException("注册响应缺少信任材料字段：" + key);
+            return value;
+        }
+
+        private static object RequiredArray(Dictionary<string, object> material, string key)
+        {
+            object value = Required(material, key);
+            if (!(value is System.Collections.IList)) throw new InvalidOperationException("注册响应撤销清单格式无效：" + key);
+            return value;
+        }
+
+        private static AgentConfig PolicyConfig(AgentConfig source, string directory)
+        {
+            return new AgentConfig
+            {
+                tenantId = source.tenantId,
+                policyTrustRootPath = Path.Combine(directory, "trust-root.json"),
+                policyKeySetPath = Path.Combine(directory, "key-set.json"),
+                localPolicyTrustRootPath = Path.Combine(directory, "local-policy-root.json"),
+                localPolicyPath = Path.Combine(directory, "local-policy.json"),
+                revokedTokenIdsPath = Path.Combine(directory, "revoked-tokens.json"),
+                revokedDecisionIdsPath = Path.Combine(directory, "revoked-decisions.json"),
+                revokedKeyIdsPath = Path.Combine(directory, "revoked-keys.json")
+            };
+        }
+
+        private static void WriteJson(string path, object value)
+        {
+            string directory = Path.GetDirectoryName(path);
+            if (!Directory.Exists(directory)) Directory.CreateDirectory(directory);
+            File.WriteAllText(path, Serializer.Serialize(value));
         }
     }
 }

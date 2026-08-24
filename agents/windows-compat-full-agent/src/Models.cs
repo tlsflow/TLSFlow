@@ -11,12 +11,13 @@ namespace GCAC.WindowsCompatibilityAgent
         public const string CapabilitySchemaVersion = "gcac.capability/v1";
         public const string ServiceName = "GCACWindowsCompatibilityAgent";
         public const string DisplayName = "GCAC Windows Compatibility Agent";
-        public const string Version = "0.1.11";
+        public const string Version = "0.1.12";
     }
 
     internal sealed class RegistrationResponse
     {
         public string id { get; set; }
+        public Dictionary<string, object> trustMaterial { get; set; }
     }
 
     internal sealed class AgentTaskEnvelope

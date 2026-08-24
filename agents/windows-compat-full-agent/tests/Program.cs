@@ -77,6 +77,8 @@ internal static class Tests
         Run("受控命令服务目标受 Token 和本地策略约束", AllowlistedCommandServiceScopeIsBound);
         Run("受控命令缺少本地命令规则时拒绝", AllowlistedCommandRequiresLocalRule);
         Run("请求 Scope 必须与签名授权精确一致", RequestScopesMustMatchAuthorization);
+        Run("发现能力按实际只读动作校验本地策略", DiscoveryRequestScopesUseOperationPermissions);
+        Run("请求动作超出本地策略必须拒绝", RequestScopesRejectLocalActionExpansion);
         Run("Receipt 支持并校验成功失败未知取消四种状态", ReceiptStatusesAreValidated);
         Console.WriteLine("tests=" + executedTests + " failures=" + failures);
         return failures == 0 ? 0 : 1;
@@ -689,6 +691,34 @@ internal static class Tests
         InvokeSecurity("ValidateRequestScopes", new object[] { payload, token, decision, LocalPolicy(null) });
         payload["paths"] = new string[0];
         AssertSecurityRejects("ValidateRequestScopes", new object[] { payload, token, decision, LocalPolicy(null) }, "请求路径缩小后未拒绝 Scope 脱绑定");
+    }
+
+    private static void DiscoveryRequestScopesUseOperationPermissions()
+    {
+        string[] actions = new string[] { "filesystem.read", "process.list", "service.list" };
+        Dictionary<string, object> token = ScopeToken("filesystem.read", new string[] { @"C:\Windows\System32\inetsrv\config" }, new string[0]);
+        Dictionary<string, object> decision = ScopeToken("filesystem.read", new string[] { @"C:\Windows\System32\inetsrv\config" }, new string[0]);
+        token["actions"] = actions; decision["actions"] = actions;
+        token["capability"] = "application.discover"; decision["capability"] = "application.discover";
+        Dictionary<string, object> payload = new Dictionary<string, object>
+        {
+            { "actions", actions }, { "paths", new string[] { @"C:\Windows\System32\inetsrv\config" } }, { "services", new string[0] }, { "artifactDigests", new string[0] }
+        };
+        Dictionary<string, object> localPolicy = LocalPolicy(null);
+        localPolicy["allowedActions"] = actions;
+        InvokeSecurity("ValidateRequestScopes", new object[] { payload, token, decision, localPolicy });
+    }
+
+    private static void RequestScopesRejectLocalActionExpansion()
+    {
+        Dictionary<string, object> token = ScopeToken("filesystem.read", new string[] { @"C:\GCAC\allowed" }, new string[0]);
+        Dictionary<string, object> decision = ScopeToken("filesystem.read", new string[] { @"C:\GCAC\allowed" }, new string[0]);
+        Dictionary<string, object> payload = new Dictionary<string, object>
+        {
+            { "actions", new string[] { "filesystem.read", "process.list" } }, { "paths", new string[] { @"C:\GCAC\allowed" } }, { "services", new string[0] }, { "artifactDigests", new string[0] }
+        };
+        token["actions"] = (string[])payload["actions"]; decision["actions"] = (string[])payload["actions"];
+        AssertSecurityRejects("ValidateRequestScopes", new object[] { payload, token, decision, LocalPolicy(null) }, "请求动作超出本地策略仍被接受");
     }
 
     private static void ReceiptStatusesAreValidated()

@@ -39,7 +39,7 @@ import type { PluginFactBindingV1, PluginFactPipelineResult, PluginFactPipelineS
 import type { AgentDiscoveryTaskFactory } from './agent-discovery-task-factory.js';
 
 export interface AgentTrustMaterialIssuer {
-  issue(input: { tenantId: string; agentId: string }): Promise<unknown>;
+  issue(input: { tenantId: string; agentId: string; osType?: string }): Promise<unknown>;
   getTrustedKeySet(): Record<string, string>;
 }
 
@@ -771,7 +771,8 @@ export class AgentsApplicationService {
         actorId: task.agentId,
       });
     }
-    if (success && task.payload?.type === 'agent.capability.rescan') {
+    if (success && (task.payload?.type === 'agent.capability.rescan'
+      || (task.payload?.actionType === 'agent.fact.collect' && task.payload?.refreshWebInventory === true))) {
       await this.projectLatestCapabilitySnapshot(task.tenantId, task.agentId);
     }
     return updated;
@@ -1177,10 +1178,11 @@ export class AgentsApplicationService {
   }
 
   private async withTrustMaterial(agent: AgentRegistration): Promise<AgentRegistration & { trustMaterial?: unknown }> {
-    if (!this.trustMaterialIssuer || agent.descriptor.osType.toLowerCase() !== 'linux') return agent;
+    const osType = agent.descriptor.osType.toLowerCase();
+    if (!this.trustMaterialIssuer || (!osType.includes('linux') && !osType.includes('windows'))) return agent;
     return {
       ...agent,
-      trustMaterial: await this.trustMaterialIssuer.issue({ tenantId: agent.tenantId, agentId: agent.id }),
+      trustMaterial: await this.trustMaterialIssuer.issue({ tenantId: agent.tenantId, agentId: agent.id, osType: agent.descriptor.osType }),
     };
   }
 
@@ -1917,15 +1919,10 @@ function installRouteForPlatform(platform: AgentInstallSession['platform']): str
 function installCommandForPlatform(platform: AgentInstallSession['platform'], bootstrapUrl: string): string {
   const commands: Record<AgentInstallSession['platform'], string> = {
     windows_go_service: `irm '${bootstrapUrl}' | iex`,
-    windows_compatibility_service: windowsPowerShell2InstallCommand(bootstrapUrl),
+    windows_compatibility_service: `irm '${bootstrapUrl}' | iex`,
     linux_go_systemd: `curl -fsSL '${bootstrapUrl}' | sudo bash`,
   };
   return commands[platform];
-}
-
-function windowsPowerShell2InstallCommand(bootstrapUrl: string): string {
-  const scriptPath = "Join-Path \`$env:TEMP ('gcac-agent-install-' + [Guid]::NewGuid().ToString('N') + '.ps1')";
-  return `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "\`$scriptPath = ${scriptPath}; (New-Object System.Net.WebClient).DownloadFile('${bootstrapUrl}', \`$scriptPath); & \`$scriptPath"`;
 }
 
 function optionalBundleUrl(session: Pick<AgentInstallSession, 'platform' | 'controlPlaneUrl'>): { bundleUrl?: string } {

@@ -495,7 +495,6 @@ export function authorizeAgentPlan(input: AgentAuthorizationInput): NonceConsump
   ] as Array<[string, string, string]>) if (left !== right) fail(field, '授权绑定不匹配');
   if (plan.approvalRef !== token.approvalRef || plan.approvalRef !== decision.approvalRef) fail('approvalRef', 'Plan、Token 和 Policy Authority 决策的审批引用不一致');
   if (decision.agentId !== plan.agentId || decision.tenantId !== plan.tenantId || decision.pluginId !== plan.pluginId || decision.pluginVersionId !== plan.pluginVersionId || decision.capability !== plan.capability || decision.policyRef !== token.policyRef || decision.policyVersion !== token.policyVersion || decision.approvalRef !== token.approvalRef) fail('decision', 'Policy Authority 决策绑定不匹配');
-  if (!localPolicy.allowedActions.includes(plan.capability)) fail('localPolicy.allowedActions', '本地策略不允许该 Capability');
   validateOperationsAgainstPolicy(plan.operations, token, decision, localPolicy);
   const expected = { recordVersion: agentSecurityContractVersion, nonce: token.nonce, tokenId: token.tokenId, consumedAt: now, resultDigest: sha256Digest(plan) } as NonceConsumptionRecordV1;
   const consumed = input.nonceStore.consume(expected);

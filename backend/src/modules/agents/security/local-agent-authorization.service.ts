@@ -40,6 +40,11 @@ import type {
   UnifiedAgentPlanPolicyAuthorityPortV1,
 } from '../../plugins/application/unified-agent-plan-authorization.port.js';
 import type { AgentTrustMaterialIssuer } from '../application/agents.application-service.js';
+import {
+  LINUX_WEB_DISCOVERY_PATHS,
+  WINDOWS_WEB_DISCOVERY_PATHS,
+  isAllowedWebDiscoveryPathSet,
+} from '../agent-discovery-paths.js';
 
 const localAuthorityFileVersion = 'gcac.local-agent-authority/v1' as const;
 const agentTrustMaterialVersion = 'gcac.agent-trust-material/v1' as const;
@@ -47,7 +52,6 @@ const discoveryPolicyRef = 'gcac.agent.discovery';
 const discoveryPolicyVersion = '1';
 const discoveryCapability = 'application.discover';
 const discoveryActions = Object.freeze(['filesystem.read', 'process.list', 'service.list']);
-const discoveryPaths = Object.freeze(['/etc', '/opt', '/usr/local', '/usr/share/nginx', '/srv', '/var/lib', '/var/www']);
 
 interface LocalAuthorityMaterialFileV1 {
   version: typeof localAuthorityFileVersion;
@@ -68,6 +72,21 @@ export interface AgentTrustMaterialV1 {
   localPolicy: AgentLocalPolicyV1;
   localPolicyAuthorityKeyId: string;
   localPolicySignature: string;
+  /** Compatibility Agent 使用的完整签名材料；Linux Agent 仍只读取上面的统一 wire 字段。 */
+  policyAuthorityTrustRoot?: PolicyAuthorityTrustRootV1;
+  compatibilityPolicyAuthorityKeySet?: SignedPolicyAuthorityKeySetV1;
+  localPolicyTrustRoot?: PolicyAuthorityTrustRootV1;
+  compatibilityLocalPolicyBundle?: SignedAgentLocalPolicyBundleV1;
+  revokedTokenIds?: string[];
+  revokedDecisionIds?: string[];
+  revokedKeyIds?: string[];
+}
+
+interface SignedAgentLocalPolicyBundleV1 {
+  bundleVersion: 'gcac.agent-local-policy/v1';
+  rootKeyId: string;
+  policies: Array<{ tenantId: string; policy: AgentLocalPolicyV1 }>;
+  signature: string;
 }
 
 export interface LocalAgentAuthorizationServicesV1 {
@@ -122,14 +141,20 @@ export function createLocalAgentAuthorizationServicesV1(
     issueAuthorization: (request) => authority.issueAuthorization(request),
   };
   const localPolicy: UnifiedAgentPlanLocalPolicyPortV1 = {
-    resolve: async ({ agentId }) => createLocalPolicy(agentId, material.signingKeyId),
+    resolve: async ({ agentId }) => createLocalPolicy(agentId, material.signingKeyId, LINUX_WEB_DISCOVERY_PATHS),
   };
   const trustMaterialIssuer: AgentTrustMaterialIssuer = {
-    issue: async ({ agentId }) => createAgentTrustMaterial(
+    issue: async ({ tenantId, agentId, osType }) => createAgentTrustMaterial(
       agentId,
+      tenantId,
+      osType,
+      material,
       material.signingKeyId,
       signingPrivateKey,
+      rootPrivateKey,
+      trustRoot,
       keySet,
+      osType?.toLowerCase().includes('windows') ? WINDOWS_WEB_DISCOVERY_PATHS : LINUX_WEB_DISCOVERY_PATHS,
     ),
     getTrustedKeySet: () => Object.fromEntries(keySet.keys.map((key) => [key.keyId, rawEd25519PublicKey(key.publicKeyPem)])),
   };
@@ -285,8 +310,7 @@ function evaluateDiscoveryRequest(input: PolicyAuthorityEvaluationInputV1): Poli
     && sameSet(input.actions, discoveryActions)
     && input.allowedServices.length === 0
     && input.artifactDigests.length === 0
-    && input.allowedPaths.length > 0
-    && input.allowedPaths.every((path) => discoveryPaths.includes(path));
+    && isAllowedWebDiscoveryPathSet(input.allowedPaths);
   return {
     allowed,
     actions: [...input.actions],
@@ -301,13 +325,31 @@ function evaluateDiscoveryRequest(input: PolicyAuthorityEvaluationInputV1): Poli
 
 function createAgentTrustMaterial(
   agentId: string,
+  tenantId: string,
+  osType: string | undefined,
+  authorityMaterial: LocalAuthorityMaterialFileV1,
   signingKeyId: string,
   signingPrivateKey: KeyObject,
+  rootPrivateKey: KeyObject,
+  trustRoot: PolicyAuthorityTrustRootV1,
   keySet: PolicyAuthorityKeySetV1,
+  allowedPaths: readonly string[],
 ): AgentTrustMaterialV1 {
-  const policy = createLocalPolicy(agentId, signingKeyId);
+  const policy = createLocalPolicy(agentId, signingKeyId, allowedPaths);
   const keyMap = Object.fromEntries(keySet.keys.map((key) => [key.keyId, rawEd25519PublicKey(key.publicKeyPem)]));
   const issuedAt = new Date().toISOString();
+  const compatibility = osType?.toLowerCase().includes('windows') === true;
+  const policyAuthorityKeySet = signKeySet(trustRoot, keySet, rootPrivateKey);
+  const localPolicyTrustRoot = trustRoot;
+  const localPolicyUnsigned = {
+    bundleVersion: 'gcac.agent-local-policy/v1' as const,
+    rootKeyId: trustRoot.rootKeyId,
+    policies: [{ tenantId, policy }],
+  };
+  const localPolicyBundle = {
+    ...localPolicyUnsigned,
+    signature: signPolicyPayload(localPolicyUnsigned, rootPrivateKey),
+  };
   return {
     materialVersion: agentTrustMaterialVersion,
     issuedAt,
@@ -317,16 +359,25 @@ function createAgentTrustMaterial(
     localPolicy: policy,
     localPolicyAuthorityKeyId: signingKeyId,
     localPolicySignature: signPolicyPayload(policy, signingPrivateKey),
+    ...(compatibility ? {
+      policyAuthorityTrustRoot: trustRoot,
+      compatibilityPolicyAuthorityKeySet: policyAuthorityKeySet,
+      localPolicyTrustRoot,
+      compatibilityLocalPolicyBundle: localPolicyBundle,
+      revokedTokenIds: [],
+      revokedDecisionIds: [],
+      revokedKeyIds: [],
+    } : {}),
   };
 }
 
-function createLocalPolicy(agentId: string, signingKeyId: string): AgentLocalPolicyV1 {
+function createLocalPolicy(agentId: string, signingKeyId: string, allowedPaths: readonly string[]): AgentLocalPolicyV1 {
   return {
     policyVersion: agentSecurityContractVersion,
     agentId,
     authorityKeyIds: [signingKeyId],
     allowedActions: [...discoveryActions],
-    pathRules: discoveryPaths.map((prefix) => ({ prefix, operations: ['filesystem.read'] })),
+    pathRules: allowedPaths.map((prefix) => ({ prefix, operations: ['filesystem.read'] })),
     serviceRules: [],
     commandRules: [],
     disabled: false,
