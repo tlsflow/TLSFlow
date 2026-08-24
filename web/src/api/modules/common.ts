@@ -43,8 +43,9 @@ export function listRecords(path: string, query?: BusinessListQuery): Promise<Ap
   return apiClient.get<ApiPage>(buildListPath(path, query))
 }
 
-export function postAction(path: string, body: ApiBody = {}, idempotencyPrefix = 'action'): Promise<ApiRecordResult> {
+export function postAction(path: string, body: ApiBody = {}, idempotencyPrefix = 'action', options?: { publicBaseUrl?: string }): Promise<ApiRecordResult> {
   return apiClient.post<ApiRecord>(toClientPath(path), body, {
-    idempotencyKey: createIdempotencyKey(idempotencyPrefix)
+    idempotencyKey: createIdempotencyKey(idempotencyPrefix),
+    publicBaseUrl: options?.publicBaseUrl
   })
 }

@@ -176,4 +176,44 @@ describe('Agent 安装会话安全约束', () => {
     const statusCodes = [left.statusCode, right.statusCode].sort((a, b) => a - b);
     assert.deepEqual(statusCodes, [200, 403]);
   });
+
+  it('创建安装会话时优先使用显式公共基地址', async () => {
+    const app = createApp();
+    const headers = {
+      'x-tenant-id': 'tenant_agent_public_base_url',
+      'x-request-id': 'req_agent_public_base_url',
+      host: '127.0.0.1:3003',
+      'x-forwarded-proto': 'http',
+      'x-public-base-url': 'http://10.255.0.85:5172',
+    };
+
+    const created = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/install-sessions/linux-go',
+      headers,
+      body: { zone: 'default' },
+    });
+    assert.equal(created.statusCode, 201);
+
+    const createdBody = created.body as {
+      bootstrapUrl: string;
+      installCommand: string;
+    };
+    assert.equal(createdBody.bootstrapUrl.includes('10.255.0.85:5172'), true);
+    assert.equal(createdBody.bootstrapUrl.includes('127.0.0.1:3003'), false);
+    assert.equal(createdBody.installCommand.includes('10.255.0.85:5172'), true);
+
+    const bootstrapToken = new URL(createdBody.bootstrapUrl).searchParams.get('token');
+    assert.ok(bootstrapToken);
+
+    const bootstrap = await app.inject({
+      method: 'GET',
+      path: `/api/v1/agents/install/linux/bootstrap.sh?token=${encodeURIComponent(bootstrapToken!)}`,
+      headers,
+    });
+    assert.equal(bootstrap.statusCode, 200);
+    const bootstrapBody = String(bootstrap.body);
+    assert.match(bootstrapBody, /BUNDLE_URL='http:\/\/10\.255\.0\.85:5172\/api\/v1\/agents\/install\/linux\/bundle\.tar\.gz'/);
+    assert.doesNotMatch(bootstrapBody, /127\.0\.0\.1:3003/);
+  });
 });

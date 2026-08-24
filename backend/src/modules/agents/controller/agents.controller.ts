@@ -495,9 +495,16 @@ function readOptionalCsv(request: HttpRequest, key: string): string[] | undefine
 }
 
 function inferBaseUrl(request: HttpRequest): string {
+  const forwardedHost = Array.isArray(request.headers['x-forwarded-host']) ? request.headers['x-forwarded-host'][0] : request.headers['x-forwarded-host'];
+  const publicBaseUrl = Array.isArray(request.headers['x-public-base-url']) ? request.headers['x-public-base-url'][0] : request.headers['x-public-base-url'];
   const forwardedProto = Array.isArray(request.headers['x-forwarded-proto']) ? request.headers['x-forwarded-proto'][0] : request.headers['x-forwarded-proto'];
+  if (typeof publicBaseUrl === 'string' && publicBaseUrl.trim()) {
+    return publicBaseUrl.trim().replace(/\/+$/u, '');
+  }
   const proto = typeof forwardedProto === 'string' && forwardedProto ? forwardedProto : 'http';
-  const host = Array.isArray(request.headers.host) ? request.headers.host[0] : request.headers.host;
+  const host = typeof forwardedHost === 'string' && forwardedHost
+    ? forwardedHost
+    : (Array.isArray(request.headers.host) ? request.headers.host[0] : request.headers.host);
   return `${proto}://${host ?? 'localhost'}`;
 }
 

@@ -11,6 +11,7 @@ export interface ApiRequestOptions extends Omit<RequestInit, 'body'> {
   readonly body?: unknown
   readonly idempotencyKey?: string
   readonly timeoutMs?: number
+  readonly publicBaseUrl?: string
 }
 
 export interface ApiRequestContext {
@@ -76,6 +77,9 @@ export class ApiClient {
     }
     if (options.idempotencyKey) {
       headers.set('X-Idempotency-Key', options.idempotencyKey)
+    }
+    if (options.publicBaseUrl) {
+      headers.set('X-Public-Base-Url', options.publicBaseUrl)
     }
 
     const body = this.encodeBody(options.body, headers)

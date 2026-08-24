@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
+import { GcModal } from '@/design-system/components'
 import { createLinuxGoInstallSession, createWindowsPowerShellInstallSession, disableAgent, listAgents } from '@/api/modules/assets.api'
 
 type InstallPlatform = 'linux_go_systemd' | 'windows_powershell_service'
@@ -19,9 +20,20 @@ interface InstallSessionView {
   readonly agentKey: string
 }
 
+const installModalOpen = ref(false)
 const selectedPlatform = ref<InstallPlatform>('linux_go_systemd')
+const selectedVersion = ref<string>('latest')
 const installSession = ref<InstallSessionView | null>(null)
 const copiedText = ref<'token' | 'command' | null>(null)
+const installPending = ref(false)
+const installError = ref('')
+const now = ref(Date.now())
+
+const VERSION_OPTIONS = [
+  { value: 'latest', label: '最新稳定版' },
+  { value: '1.2.0', label: '1.2.0' },
+  { value: '1.1.0', label: '1.1.0' },
+] as const
 
 const installCommand = computed(() => installSession.value?.installCommand ?? '')
 
@@ -38,32 +50,101 @@ const platformOptions: Array<{ value: InstallPlatform; label: string; descriptio
   },
 ]
 
+// ====== Token 剩余有效期倒计时 ======
+const expiresAtMs = computed(() =>
+  installSession.value?.expiresAt ? Date.parse(installSession.value.expiresAt) : 0,
+)
+
+const remainingSeconds = computed(() => {
+  if (!expiresAtMs.value) return 0
+  return Math.max(0, Math.floor((expiresAtMs.value - now.value) / 1000))
+})
+
+const remainingLabel = computed(() => {
+  const seconds = remainingSeconds.value
+  if (seconds <= 0) return '已过期'
+  const minutes = Math.floor(seconds / 60)
+  const rest = seconds % 60
+  return `${minutes}分${String(rest).padStart(2, '0')}秒`
+})
+
+const isExpired = computed(() => remainingSeconds.value <= 0)
+
+let countdownTimer: ReturnType<typeof setInterval> | null = null
+
+function ensureCountdown() {
+  if (countdownTimer) return
+  now.value = Date.now()
+  countdownTimer = setInterval(() => {
+    now.value = Date.now()
+  }, 1000)
+}
+
+function stopCountdown() {
+  if (countdownTimer) {
+    clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+}
+
+// 仅在「模态框打开 && 已有 session」时跑 interval，关闭或卸载时立即停掉，避免泄漏
+watch(
+  () => installModalOpen.value && installSession.value !== null,
+  (active) => {
+    if (active) ensureCountdown()
+    else stopCountdown()
+  },
+)
+
+onBeforeUnmount(stopCountdown)
+
+// ====== 模态框开关 ======
+function openInstallModal() {
+  installModalOpen.value = true
+}
+
+function closeInstallModal() {
+  if (installPending.value) return
+  installModalOpen.value = false
+}
+
+// ====== 生成安装命令（复用原有 URL 重写 + 命令拼装逻辑） ======
 async function generateInstallCommand() {
-  const result = selectedPlatform.value === 'linux_go_systemd'
-    ? await createLinuxGoInstallSession({ zone: 'default' })
-    : await createWindowsPowerShellInstallSession({ zone: 'default', startAfterInstall: true })
+  installPending.value = true
+  installError.value = ''
+  try {
+    const version = selectedVersion.value
+    const result = selectedPlatform.value === 'linux_go_systemd'
+      ? await createLinuxGoInstallSession({ zone: 'default', version })
+      : await createWindowsPowerShellInstallSession({ zone: 'default', startAfterInstall: true, version })
 
-  const data = result.data
-  if (!data || typeof data.installCommand !== 'string') {
-    throw new Error('后端没有返回安装命令')
+    const data = result.data
+    if (!data || typeof data.installCommand !== 'string') {
+      throw new Error('后端没有返回安装命令')
+    }
+
+    const rawBootstrapUrl = typeof data.bootstrapUrl === 'string' ? data.bootstrapUrl : ''
+    const bootstrapUrl = rewriteInstallUrlWithBrowserOrigin(rawBootstrapUrl)
+
+    installSession.value = {
+      platform: selectedPlatform.value,
+      bootstrapTokenPreview: typeof data.bootstrapTokenPreview === 'string' ? data.bootstrapTokenPreview : '',
+      zone: typeof data.zone === 'string' ? data.zone : 'default',
+      expiresAt: typeof data.expiresAt === 'string' ? data.expiresAt : '',
+      installCommand: buildInstallCommand(selectedPlatform.value, bootstrapUrl, data.installCommand),
+      bootstrapUrl,
+      serviceName: typeof data.serviceName === 'string' ? data.serviceName : '',
+      installRoot: typeof data.installRoot === 'string' ? data.installRoot : '',
+      displayName: typeof data.displayName === 'string' ? data.displayName : '',
+      agentKey: typeof data.agentKey === 'string' ? data.agentKey : '',
+    }
+    copiedText.value = null
+    ensureCountdown()
+  } catch (cause) {
+    installError.value = cause instanceof Error ? cause.message : '生成安装命令失败'
+  } finally {
+    installPending.value = false
   }
-
-  const rawBootstrapUrl = typeof data.bootstrapUrl === 'string' ? data.bootstrapUrl : ''
-  const bootstrapUrl = rewriteInstallUrlWithBrowserOrigin(rawBootstrapUrl)
-
-  installSession.value = {
-    platform: selectedPlatform.value,
-    bootstrapTokenPreview: typeof data.bootstrapTokenPreview === 'string' ? data.bootstrapTokenPreview : '',
-    zone: typeof data.zone === 'string' ? data.zone : 'default',
-    expiresAt: typeof data.expiresAt === 'string' ? data.expiresAt : '',
-    installCommand: buildInstallCommand(selectedPlatform.value, bootstrapUrl, data.installCommand),
-    bootstrapUrl,
-    serviceName: typeof data.serviceName === 'string' ? data.serviceName : '',
-    installRoot: typeof data.installRoot === 'string' ? data.installRoot : '',
-    displayName: typeof data.displayName === 'string' ? data.displayName : '',
-    agentKey: typeof data.agentKey === 'string' ? data.agentKey : '',
-  }
-  copiedText.value = null
 }
 
 async function copyToken() {
@@ -104,8 +185,8 @@ const config: BusinessPageConfig = {
   description: '查看 Agent 列表，并为不同平台生成安装命令。',
   readPermission: 'agent.read',
   primaryPermission: 'agent.write',
-  primaryActionLabel: '生成安装命令',
-  primaryAction: generateInstallCommand,
+  primaryActionLabel: '安装Agent',
+  primaryAction: openInstallModal,
   moduleName: 'agents',
   resourceName: 'Agent',
   defaultStatus: 'ONLINE',
@@ -131,7 +212,7 @@ const config: BusinessPageConfig = {
     { title: '待处理风险', description: '离线、失败或漂移状态的 Agent 需要优先处理。', status: 'OFFLINE', risk: 'HIGH' },
   ],
   emptyTitle: '暂无 Agent',
-  emptyDescription: '从这里选择平台并生成安装命令，不再提供单独的公开安装页面。',
+  emptyDescription: '点击右上角"安装Agent"，选择平台与版本生成一次性安装命令。',
   load: () => listAgents({ page: 1, pageSize: 20, sort: 'updatedAt:desc' }),
   actions: [
     {
@@ -148,24 +229,22 @@ const config: BusinessPageConfig = {
 </script>
 
 <template>
-  <BusinessResourcePage :config="config">
-    <template #after-header>
-      <section class="agent-install-entry gc-card">
-        <div class="agent-install-entry__header">
-          <div>
-            <p class="agent-install-entry__eyebrow">Agent 安装</p>
-            <h2>选择平台并生成安装命令</h2>
-            <p class="agent-install-entry__text">
-              安装入口统一收敛到当前 Agent 页面。安装码为 8 位短码，10 分钟内有效，并且只能使用一次。
-            </p>
-          </div>
-        </div>
+  <BusinessResourcePage :config="config" />
 
-        <div class="agent-install-entry__platforms">
+  <GcModal
+    v-model:open="installModalOpen"
+    title="安装 Agent"
+    description="选择平台与版本，生成一次性安装命令。安装码 10 分钟内有效，且只能使用一次。"
+    size="lg"
+  >
+    <section class="agent-install-modal">
+      <div class="agent-install-modal__field">
+        <p class="agent-install-modal__label">平台</p>
+        <div class="agent-install-modal__platforms">
           <button
             v-for="option in platformOptions"
             :key="option.value"
-            class="agent-install-entry__platform"
+            class="agent-install-modal__platform"
             :data-active="selectedPlatform === option.value"
             type="button"
             @click="selectedPlatform = option.value"
@@ -174,17 +253,30 @@ const config: BusinessPageConfig = {
             <span>{{ option.description }}</span>
           </button>
         </div>
-      </section>
+      </div>
 
-      <section v-if="installSession" class="agent-install-session gc-card" aria-label="安装会话">
-        <header>
-          <div>
-            <p class="agent-install-session__eyebrow">一次性安装会话</p>
-            <h2>{{ installSession.displayName || installSession.serviceName }}</h2>
-          </div>
-        </header>
+      <div class="agent-install-modal__field">
+        <label class="agent-install-modal__label" for="agent-version">版本</label>
+        <select id="agent-version" v-model="selectedVersion">
+          <option v-for="opt in VERSION_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+        </select>
+      </div>
 
-        <dl class="agent-install-session__meta">
+      <div class="agent-install-modal__actions-top">
+        <button
+          class="gc-button agent-install-modal__primary"
+          type="button"
+          :disabled="installPending"
+          @click="generateInstallCommand"
+        >
+          {{ installPending ? '生成中…' : '生成安装命令' }}
+        </button>
+      </div>
+
+      <p v-if="installError" class="agent-install-modal__error">{{ installError }}</p>
+
+      <div v-if="installSession" class="agent-install-modal__result">
+        <dl class="agent-install-modal__meta">
           <div>
             <dt>平台</dt>
             <dd>{{ installSession.platform === 'linux_go_systemd' ? 'Linux systemd' : 'Windows PowerShell' }}</dd>
@@ -198,67 +290,59 @@ const config: BusinessPageConfig = {
             <dd>{{ installSession.zone }}</dd>
           </div>
           <div>
-            <dt>Agent Key</dt>
-            <dd>{{ installSession.agentKey }}</dd>
-          </div>
-          <div>
-            <dt>服务名</dt>
-            <dd>{{ installSession.serviceName }}</dd>
-          </div>
-          <div>
-            <dt>安装目录</dt>
-            <dd>{{ installSession.installRoot }}</dd>
-          </div>
-          <div>
-            <dt>过期时间</dt>
-            <dd>{{ installSession.expiresAt }}</dd>
-          </div>
-          <div>
-            <dt>Bootstrap 地址</dt>
-            <dd>{{ installSession.bootstrapUrl }}</dd>
+            <dt>剩余有效期</dt>
+            <dd>
+              <span :class="{ 'agent-install-modal__expired': isExpired }">{{ remainingLabel }}</span>
+            </dd>
           </div>
         </dl>
 
-        <label class="agent-install-session__field">
-          <span>安装命令</span>
+        <label class="agent-install-modal__field">
+          <span class="agent-install-modal__label">安装命令</span>
           <textarea readonly :value="installCommand" rows="3" />
         </label>
 
-        <p class="agent-install-session__hint">
+        <p class="agent-install-modal__hint">
           同一个安装码一旦被请求 bootstrap 脚本，就会立即失效，不能重复使用。
         </p>
+      </div>
+    </section>
 
-        <footer class="agent-install-session__actions">
-          <button class="gc-button" type="button" @click="copyToken">复制安装码</button>
-          <button class="gc-button" type="button" @click="copyInstallCommand">复制安装命令</button>
-          <span v-if="copiedText === 'token'">安装码已复制</span>
-          <span v-else-if="copiedText === 'command'">安装命令已复制</span>
-        </footer>
-      </section>
+    <template #actions>
+      <button class="gc-button" type="button" :disabled="installPending" @click="closeInstallModal">关闭</button>
+      <button
+        v-if="installSession"
+        class="gc-button"
+        type="button"
+        @click="copyToken"
+      >复制安装码</button>
+      <button
+        v-if="installSession"
+        class="gc-button agent-install-modal__primary"
+        type="button"
+        :disabled="!installCommand"
+        @click="copyInstallCommand"
+      >复制安装命令</button>
+      <span v-if="copiedText === 'token'" class="agent-install-modal__copied">安装码已复制</span>
+      <span v-else-if="copiedText === 'command'" class="agent-install-modal__copied">安装命令已复制</span>
     </template>
-  </BusinessResourcePage>
+  </GcModal>
 </template>
 
 <style scoped>
-.agent-install-entry,
-.agent-install-session {
+.agent-install-modal {
   display: grid;
   gap: var(--gc-space-4);
-  padding: 24px;
 }
 
-.agent-install-entry {
-  border-color: #dbeafe;
-  background: linear-gradient(135deg, #eff6ff, #ffffff);
-}
-
-.agent-install-entry__header {
+.agent-install-modal__field {
   display: grid;
-  gap: 10px;
+  gap: var(--gc-space-2);
+  color: var(--gc-color-text-muted);
+  font-weight: 850;
 }
 
-.agent-install-entry__eyebrow,
-.agent-install-session__eyebrow {
+.agent-install-modal__label {
   margin: 0;
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-xs);
@@ -267,27 +351,13 @@ const config: BusinessPageConfig = {
   text-transform: uppercase;
 }
 
-.agent-install-entry h2,
-.agent-install-session h2,
-.agent-install-entry p,
-.agent-install-session p {
-  margin: 0;
-}
-
-.agent-install-entry__text,
-.agent-install-session__hint {
-  color: var(--gc-color-text-muted);
-  line-height: 1.6;
-  font-weight: 650;
-}
-
-.agent-install-entry__platforms {
+.agent-install-modal__platforms {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 14px;
 }
 
-.agent-install-entry__platform {
+.agent-install-modal__platform {
   display: grid;
   gap: 6px;
   text-align: left;
@@ -298,51 +368,92 @@ const config: BusinessPageConfig = {
   cursor: pointer;
 }
 
-.agent-install-entry__platform[data-active='true'] {
+.agent-install-modal__platform[data-active='true'] {
   border-color: #60a5fa;
   box-shadow: 0 0 0 4px rgb(96 165 250 / 12%);
   background: linear-gradient(135deg, #eff6ff, #ffffff);
 }
 
-.agent-install-entry__platform strong {
+.agent-install-modal__platform strong {
   color: #0f172a;
   font-size: 16px;
 }
 
-.agent-install-entry__platform span {
+.agent-install-modal__platform span {
   color: var(--gc-color-text-muted);
   line-height: 1.5;
   font-weight: 650;
 }
 
-.agent-install-session__meta {
+.agent-install-modal__field select {
+  width: 100%;
+  border: 1px solid var(--gc-color-border);
+  border-radius: 11px;
+  padding: 9px 11px;
+  color: var(--gc-color-text);
+  background: #fff;
+  font: inherit;
+}
+
+.agent-install-modal__actions-top {
+  display: flex;
+}
+
+.agent-install-modal__primary {
+  border-color: var(--gc-color-primary);
+  background: var(--gc-color-primary);
+  color: #fff;
+}
+
+.agent-install-modal__primary:hover:not(:disabled),
+.agent-install-modal__primary:focus-visible:not(:disabled) {
+  border-color: var(--gc-color-primary-hover);
+  background: var(--gc-color-primary-hover);
+  color: #fff;
+}
+
+.agent-install-modal__error {
+  margin: 0;
+  border: 1px solid #fecaca;
+  border-radius: 14px;
+  padding: 10px 12px;
+  color: var(--gc-color-danger);
+  background: var(--gc-color-danger-bg);
+  font-weight: 750;
+}
+
+.agent-install-modal__result {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--gc-space-3);
+  border-top: 1px dashed var(--gc-color-border);
+  padding-top: var(--gc-space-3);
+}
+
+.agent-install-modal__meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: var(--gc-space-3);
   margin: 0;
 }
 
-.agent-install-session__meta dt {
+.agent-install-modal__meta dt {
   margin-bottom: 4px;
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-xs);
   font-weight: 850;
 }
 
-.agent-install-session__meta dd {
+.agent-install-modal__meta dd {
   margin: 0;
   overflow-wrap: anywhere;
   font-weight: 800;
 }
 
-.agent-install-session__field {
-  display: grid;
-  gap: var(--gc-space-2);
-  color: var(--gc-color-text-muted);
-  font-weight: 850;
+.agent-install-modal__expired {
+  color: var(--gc-color-danger);
 }
 
-.agent-install-session__field textarea {
+.agent-install-modal__field textarea {
   width: 100%;
   box-sizing: border-box;
   border: 1px solid var(--gc-color-border);
@@ -354,14 +465,14 @@ const config: BusinessPageConfig = {
   resize: vertical;
 }
 
-.agent-install-session__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--gc-space-2);
-  align-items: center;
+.agent-install-modal__hint {
+  margin: 0;
+  color: var(--gc-color-text-muted);
+  line-height: 1.6;
+  font-weight: 650;
 }
 
-.agent-install-session__actions span {
+.agent-install-modal__copied {
   color: var(--gc-color-success);
   font-weight: 850;
 }

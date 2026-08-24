@@ -105,11 +105,21 @@ export function createAgentEnrollmentToken(payload: ApiBody) {
 }
 
 export function createLinuxGoInstallSession(payload: ApiBody) {
-  return postAction(`${AGENTS_PATH}/install-sessions/linux-go`, payload, 'agent_linux_go_install_session')
+  return postAction(
+    `${AGENTS_PATH}/install-sessions/linux-go`,
+    payload,
+    'agent_linux_go_install_session',
+    { publicBaseUrl: typeof window !== 'undefined' ? window.location.origin : undefined }
+  )
 }
 
 export function createWindowsPowerShellInstallSession(payload: ApiBody) {
-  return postAction(`${AGENTS_PATH}/install-sessions/windows-powershell`, payload, 'agent_windows_ps_install')
+  return postAction(
+    `${AGENTS_PATH}/install-sessions/windows-powershell`,
+    payload,
+    'agent_windows_ps_install',
+    { publicBaseUrl: typeof window !== 'undefined' ? window.location.origin : undefined }
+  )
 }
 
 export function startDiscovery(payload: ApiBody) {
