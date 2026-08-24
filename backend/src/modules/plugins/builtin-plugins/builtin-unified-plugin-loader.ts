@@ -1,6 +1,7 @@
 import { access, readdir, readFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { structuredLogger, type StructuredLogger } from '../../../common/logging/structured-logger.js';
 import type { UnifiedPluginVersionRecord } from '../dto/unified-plugins.dto.js';
 import type { UnifiedPluginsApplicationService } from '../application/unified-plugins.application-service.js';
 import { builtinAgentPluginManifests } from './agent-recipes.js';
@@ -9,7 +10,10 @@ import { validateAgentCapabilityDiscoveryMapping } from '../discovery/agent-capa
 const moduleDirectory = dirname(fileURLToPath(import.meta.url));
 
 export class BuiltinUnifiedPluginLoader {
-  constructor(private readonly configuredRootDirectory?: string) {}
+  constructor(
+    private readonly configuredRootDirectory?: string,
+    private readonly logger: Pick<StructuredLogger, 'warn'> = structuredLogger,
+  ) {}
 
   async loadPackages(): Promise<Array<{ manifest: unknown; resources: Record<string, string>; packageContent: string }>> {
     const rootDirectory = this.configuredRootDirectory ?? await resolveBuiltinRootDirectory();
@@ -47,13 +51,51 @@ export class BuiltinUnifiedPluginLoader {
     const packages = await this.loadPackages();
     const installed: UnifiedPluginVersionRecord[] = [];
     for (const pluginPackage of packages) {
-      const imported = await service.importVersion(storageTenantId, pluginPackage, 'BUILTIN');
-      const approved = imported.permissionApprovalStatus === 'APPROVED'
-        ? imported
-        : await service.approvePermissions(imported.id, imported.manifest.permissions);
-      installed.push(approved.status === 'ENABLED' ? approved : await service.enableVersion(approved.id));
+      const identity = pluginIdentity(pluginPackage.manifest);
+      let imported: UnifiedPluginVersionRecord;
+      try {
+        imported = await service.importVersion(storageTenantId, pluginPackage, 'BUILTIN');
+      } catch (error) {
+        this.warnFailure('import', identity, error);
+        continue;
+      }
+
+      let approved: UnifiedPluginVersionRecord;
+      try {
+        approved = imported.permissionApprovalStatus === 'APPROVED'
+          ? imported
+          : await service.approvePermissions(imported.id, imported.manifest.permissions);
+      } catch (error) {
+        this.warnFailure('approvePermissions', identityOf(imported), error, imported.id);
+        continue;
+      }
+
+      try {
+        installed.push(approved.status === 'ENABLED' ? approved : await service.enableVersion(approved.id));
+      } catch (error) {
+        this.warnFailure('enable', identityOf(approved), error, approved.id);
+      }
     }
     return installed;
+  }
+
+  private warnFailure(
+    phase: 'import' | 'approvePermissions' | 'enable',
+    identity: { pluginId?: string; version?: string },
+    error: unknown,
+    resourceId?: string,
+  ): void {
+    this.logger.warn('内置插件启动阶段失败，已跳过该插件', {
+      phase,
+      pluginId: identity.pluginId,
+      version: identity.version,
+      errorCode: errorCodeOf(error),
+      error: errorMessageOf(error),
+    }, {
+      module: 'builtin-plugin-startup',
+      resourceType: 'pluginVersion',
+      ...(resourceId ? { resourceId } : {}),
+    });
   }
 
   private async loadPackage(directory: string): Promise<{ manifest: unknown; resources: Record<string, string>; packageContent: string }> {
@@ -71,6 +113,30 @@ export class BuiltinUnifiedPluginLoader {
       packageContent: JSON.stringify({ directory: basename(directory), manifest, resources }),
     };
   }
+}
+
+function pluginIdentity(manifest: unknown): { pluginId?: string; version?: string } {
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) return {};
+  const value = manifest as Record<string, unknown>;
+  return {
+    ...(typeof value.pluginId === 'string' ? { pluginId: value.pluginId } : {}),
+    ...(typeof value.version === 'string' ? { version: value.version } : {}),
+  };
+}
+
+function identityOf(record: UnifiedPluginVersionRecord): { pluginId: string; version: string } {
+  return { pluginId: record.pluginId, version: record.version };
+}
+
+function errorCodeOf(error: unknown): string {
+  if (error && typeof error === 'object' && 'errorCode' in error && typeof error.errorCode === 'string') {
+    return error.errorCode;
+  }
+  return 'UNKNOWN_ERROR';
+}
+
+function errorMessageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function resolveBuiltinRootDirectory(): Promise<string> {

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { StructuredLogger, type LogEvent } from '../../common/logging/structured-logger.js';
+import { AppError } from '../../common/errors/app-error.js';
 import { BuiltinUnifiedPluginLoader } from './builtin-plugins/builtin-unified-plugin-loader.js';
 import { UnifiedPluginsApplicationService } from './application/unified-plugins.application-service.js';
 import type { UnifiedPluginVersionRecord } from './dto/unified-plugins.dto.js';
@@ -60,6 +62,64 @@ test('内置 DSL、Agent 与设备插件统一投影为不可变版本并可幂�
   for (const workflowPath of Object.values(citrix!.manifest.resources.workflows ?? {})) {
     workflowTemplatesSchemaRegistry.validate(JSON.parse(pluginPackage.resources[workflowPath]!));
   }
+});
+
+test('内置插件导入、审批和启用失败时只告警并继续处理其他插件', async () => {
+  const records = new Map<string, UnifiedPluginVersionRecord>();
+  const service = new UnifiedPluginsApplicationService(memoryRepository(records));
+  const baseLoader = new BuiltinUnifiedPluginLoader();
+  const packages = await baseLoader.loadPackages();
+  const warnings: LogEvent[] = [];
+  const logger = new StructuredLogger((event) => warnings.push(event));
+
+  const importVersion = service.importVersion.bind(service);
+  service.importVersion = async (tenantId, input, sourceChannel) => {
+    const pluginId = (input.manifest as { pluginId?: string }).pluginId;
+    if (pluginId === 'citrix.netscaler-adc') {
+      throw new AppError('RESOURCE_VERSION_CONFLICT', '模拟导入冲突');
+    }
+    return importVersion(tenantId, input, sourceChannel);
+  };
+  const approvePermissions = service.approvePermissions.bind(service);
+  service.approvePermissions = async (id, permissions) => {
+    const record = await service.getVersion(id);
+    if (record.pluginId === 'builtin.workflow.apache-8444-cert-switch') {
+      throw new AppError('PLUGIN_PERMISSION_DENIED', '模拟权限审批失败');
+    }
+    return approvePermissions(id, permissions);
+  };
+  const enableVersion = service.enableVersion.bind(service);
+  service.enableVersion = async (id) => {
+    const record = await service.getVersion(id);
+    if (record.pluginId === 'builtin.linux.nginx.pem') {
+      throw new AppError('PLUGIN_PERMISSION_DENIED', '模拟启用失败');
+    }
+    return enableVersion(id);
+  };
+
+  class TestLoader extends BuiltinUnifiedPluginLoader {
+    override async loadPackages() {
+      return packages;
+    }
+  }
+
+  const installed = await new TestLoader(undefined, logger).installAll('tenant-1', service);
+  assert.equal(installed.length, packages.length - 3);
+  assert.equal(installed.some((item) => item.pluginId === 'builtin.workflow.synology-dsm-cert-import'), true);
+  assert.equal(installed.some((item) => item.pluginId === 'builtin.rabbitmq.pem'), true);
+  assert.deepEqual(
+    warnings.map((event) => ({
+      phase: (event.details as { phase: string }).phase,
+      pluginId: (event.details as { pluginId?: string }).pluginId,
+      version: (event.details as { version?: string }).version,
+      errorCode: (event.details as { errorCode: string }).errorCode,
+    })),
+    [
+      { phase: 'import', pluginId: 'citrix.netscaler-adc', version: '1.1.24', errorCode: 'RESOURCE_VERSION_CONFLICT' },
+      { phase: 'approvePermissions', pluginId: 'builtin.workflow.apache-8444-cert-switch', version: '1.2.5', errorCode: 'PLUGIN_PERMISSION_DENIED' },
+      { phase: 'enable', pluginId: 'builtin.linux.nginx.pem', version: '1.0.14', errorCode: 'PLUGIN_PERMISSION_DENIED' },
+    ],
+  );
 });
 
 function memoryRepository(records: Map<string, UnifiedPluginVersionRecord>): UnifiedPluginsRepository {

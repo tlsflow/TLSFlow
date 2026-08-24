@@ -428,6 +428,44 @@ export function createApp(dependencies: AppDependencies = {}): App {
   return app;
 }
 
+export async function initializeBuiltinPlugins(
+  unifiedPlugins: UnifiedPluginsApplicationService,
+  pluginWorkflowPublisher: PluginWorkflowPublisherService,
+  database?: DatabasePort,
+  options: {
+    loader?: BuiltinUnifiedPluginLoader;
+    compatibilityUpgrader?: Pick<BuiltinPluginCompatibilityUpgradeService, 'upgradePatchLine'>;
+    logger?: Pick<typeof structuredLogger, 'warn'>;
+  } = {},
+): Promise<void> {
+  const logger = options.logger ?? structuredLogger;
+  let installed: Awaited<ReturnType<BuiltinUnifiedPluginLoader['installAll']>>;
+  try {
+    installed = await (options.loader ?? new BuiltinUnifiedPluginLoader()).installAll(unifiedPlugins);
+  } catch (error) {
+    warnBuiltinPluginFailure(logger, 'load', undefined, undefined, error);
+    return;
+  }
+
+  for (const plugin of installed) {
+    try {
+      await pluginWorkflowPublisher.publishPlugin(plugin);
+    } catch (error) {
+      warnBuiltinPluginFailure(logger, 'publishWorkflow', plugin, plugin.id, error);
+    }
+  }
+
+  if (!database) return;
+  const upgrades = options.compatibilityUpgrader ?? new BuiltinPluginCompatibilityUpgradeService(database);
+  for (const plugin of installed) {
+    try {
+      await upgrades.upgradePatchLine(plugin.tenantId, plugin.id, plugin.pluginId, plugin.version);
+    } catch (error) {
+      warnBuiltinPluginFailure(logger, 'upgradeCompatibility', plugin, plugin.id, error);
+    }
+  }
+}
+
 export async function createAppAsync(
   dependencies: AppDependencies = {},
   options: {
@@ -441,17 +479,40 @@ export async function createAppAsync(
   const unifiedPlugins = app.getResource<UnifiedPluginsApplicationService>('unifiedPluginsService');
   const pluginWorkflowPublisher = app.getResource<PluginWorkflowPublisherService>('pluginWorkflowPublisher');
   if (unifiedPlugins && pluginWorkflowPublisher) {
-    const installed = await new BuiltinUnifiedPluginLoader().installAll(unifiedPlugins);
-    for (const plugin of installed) await pluginWorkflowPublisher.publishPlugin(plugin);
     const database = app.getResource<DatabasePort>('database');
-    if (database) {
-      const upgrades = new BuiltinPluginCompatibilityUpgradeService(database);
-      for (const plugin of installed) {
-        await upgrades.upgradePatchLine(plugin.tenantId, plugin.id, plugin.pluginId, plugin.version);
-      }
-    }
+    await initializeBuiltinPlugins(unifiedPlugins, pluginWorkflowPublisher, database);
   }
   return app;
+}
+
+function warnBuiltinPluginFailure(
+  logger: Pick<typeof structuredLogger, 'warn'>,
+  phase: 'load' | 'publishWorkflow' | 'upgradeCompatibility',
+  plugin: { id: string; pluginId: string; version: string } | undefined,
+  resourceId: string | undefined,
+  error: unknown,
+): void {
+  logger.warn('内置插件启动阶段失败，已继续启动后端', {
+    phase,
+    ...(plugin ? { pluginId: plugin.pluginId, version: plugin.version } : {}),
+    errorCode: errorCodeOf(error),
+    error: errorMessageOf(error),
+  }, {
+    module: 'builtin-plugin-startup',
+    resourceType: 'pluginVersion',
+    ...(resourceId ? { resourceId } : {}),
+  });
+}
+
+function errorCodeOf(error: unknown): string {
+  if (error && typeof error === 'object' && 'errorCode' in error && typeof error.errorCode === 'string') {
+    return error.errorCode;
+  }
+  return 'UNKNOWN_ERROR';
+}
+
+function errorMessageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function getRouteContracts(): RouteContract[] {
