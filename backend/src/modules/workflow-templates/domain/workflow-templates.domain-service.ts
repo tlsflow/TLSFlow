@@ -385,7 +385,7 @@ export class WorkflowTemplatesDomainService {
 
   private async runStep(step: WorkflowStep, context: RuntimeContext, input: WorkflowRuntimeInput, rollback: boolean, runId: string, dispatcher?: WorkflowExecutorDispatcher, executionName = step.name): Promise<{ rendered: WorkflowRenderedStep; result: WorkflowStepRunResult; output: unknown }> {
     const type = step.type;
-    if (!evaluateCondition(step.when, context.values)) {
+    if (!evaluateCondition(step.when, context.values, input.mode)) {
       return {
         rendered: { name: step.name, type, stage: step.stage, skipped: true, reason: 'condition_not_matched', preview: { skipped: true } },
         result: emptyStepResult(step, 'skipped', { skipped: true }, ['step:skipped:condition']),
@@ -922,12 +922,14 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
     };
   }
   if (step.type === 'condition') {
-    const passed = evaluateCondition(step.condition, context.values);
+    const deferred = mode === 'render_only' && hasDeferredConditionReference(step.condition, context.values);
+    const passed = deferred ? undefined : evaluateCondition(step.condition, context.values, mode);
     return {
       executor: 'workflow.condition',
       condition: step.condition,
       description: step.description,
       passed,
+      ...(deferred ? { deferred: true } : {}),
       mode,
     };
   }
@@ -1295,13 +1297,25 @@ function evaluateAssertions(assertions: WorkflowAssertion[], output: WorkflowMoc
   });
 }
 
-function evaluateCondition(condition: WorkflowStep['when'], values: Record<string, unknown>): boolean {
+function evaluateCondition(condition: WorkflowStep['when'], values: Record<string, unknown>, mode: WorkflowRuntimeInput['mode'] = 'mock'): boolean {
   if (!condition) return true;
   const value = readPath(values, condition.variable);
   if (condition.exists !== undefined) return (value !== undefined) === condition.exists;
-  if (condition.equals !== undefined) return Object.is(value, renderUnknown(condition.equals, values));
-  if (condition.notEquals !== undefined) return !Object.is(value, renderUnknown(condition.notEquals, values));
+  if (mode === 'render_only' && hasDeferredConditionReference(condition, values)) return true;
+  if (condition.equals !== undefined) return Object.is(value, renderUnknown(condition.equals, values, mode === 'render_only'));
+  if (condition.notEquals !== undefined) return !Object.is(value, renderUnknown(condition.notEquals, values, mode === 'render_only'));
   return true;
+}
+
+function hasDeferredConditionReference(condition: NonNullable<WorkflowStep['when']>, values: Record<string, unknown>): boolean {
+  const value = readPath(values, condition.variable);
+  if (value === undefined && isDeferredPreviewReference(condition.variable)) return true;
+  for (const expected of [condition.equals, condition.notEquals]) {
+    if (typeof expected !== 'string') continue;
+    const match = expected.match(/^\s*\{\{\s*([a-zA-Z][a-zA-Z0-9_.]*)\s*\}\}\s*$/);
+    if (match && readPath(values, match[1]!) === undefined && isDeferredPreviewReference(match[1]!)) return true;
+  }
+  return false;
 }
 
 function defaultMockOutput(step: WorkflowStep, rollback: boolean, attempt: number): WorkflowMockStepOutput {
@@ -1458,7 +1472,7 @@ function normalizeStepOutput(step: WorkflowStep, output: WorkflowMockStepOutput)
 function stepOutputSuccess(step: WorkflowStep, output: WorkflowMockStepOutput, values: Record<string, unknown>): boolean {
   if (step.type === 'http') return [200, 201, 202, 204].includes(output.statusCode ?? 200);
   if (step.type === 'ssh') return (output.exitCode ?? 0) === 0;
-  if (step.type === 'condition') return evaluateCondition(step.condition, values);
+  if (step.type === 'condition') return evaluateCondition(step.condition, values, 'mock');
   if (step.type === 'checkpoint_verify') {
     const plan = adaptStep(step, { values, secretPaths: new Set(), outputs: {}, connections: {}, resolvedConnections: {} }, 'mock');
     return isRecord(plan) && plan.matched === true;

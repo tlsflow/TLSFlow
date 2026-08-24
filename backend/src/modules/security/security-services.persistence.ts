@@ -58,7 +58,9 @@ export function createPersistedSecurityServices(db: DatabasePort): PersistedSecu
   const accessGrants = new PgDocumentRepository<AccessGrantEntity>(db, 'security.access_grants');
 
   const audit = new AuditService(auditLogs);
-  const approvals = new ApprovalService(approvalsRepo, audit);
+  const approvals = new ApprovalService(approvalsRepo, audit, {
+    allowSelfApproval: process.env.GCAC_APPROVAL_ALLOW_SELF_APPROVAL === 'true',
+  });
   const grants = new ExecutionGrantService(executionGrants);
   const secrets = new SecretService(new CryptoService(new KeyManager()), grants, audit, secretsRepo, secretVersions);
   const rbac = new RBACService(users, roles, userRoles, policies, audit);

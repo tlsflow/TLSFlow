@@ -1034,6 +1034,33 @@ describe('部署计划与执行编排 API', () => {
     assert.equal((pending.body as { status: string }).status, 'PENDING_APPROVAL');
   });
 
+  it('审批单通过后查询部署计划会同步为 READY/APPROVED', async () => {
+    const security = createSecurityServices();
+    grantWildcardPolicy(security, 'user_1', 'tenant_1');
+    grantWildcardPolicy(security, 'approver_1', 'tenant_1');
+    const { app, fixture } = await createMigratedTestApp({ security });
+    const service = app.getResource('deploymentPlansService') as DeploymentPlansApplicationService;
+    const { planId, approvalId } = await createApprovedHighRiskPlan(app, fixture, 'idem_approval_sync');
+
+    const listed = await app.inject({
+      method: 'GET',
+      path: '/api/v1/deployment-plans',
+      headers: userHeaders,
+    });
+    assert.equal(listed.statusCode, 200, JSON.stringify(listed.body));
+    const plan = (listed.body as { items: Array<{ id: string; status: string; approvalStatus: string; approvalId?: string }> }).items
+      .find((item) => item.id === planId);
+    assert.ok(plan);
+    assert.equal(plan.status, 'READY');
+    assert.equal(plan.approvalStatus, 'APPROVED');
+    assert.equal(plan.approvalId, approvalId);
+
+    const persisted = await service.getRepository().getPlanOrThrow(planId, 'tenant_1');
+    assert.equal(persisted.status, 'READY');
+    assert.equal(persisted.approvalStatus, 'APPROVED');
+    assert.equal(persisted.approvalId, approvalId);
+  });
+
   it('无审批执行高风险计划失败', async () => {
     const { app, fixture } = await createMigratedTestApp();
     const created = await app.inject({ method: 'POST', path: '/api/v1/deployment-plans', headers: userHeaders, body: createPlanBody(fixture, 'idem_no_approval', 'high') });
@@ -1043,6 +1070,112 @@ describe('部署计划与执行编排 API', () => {
 
     assert.equal(response.statusCode, 422);
     assert.equal((response.body as { errorCode: string }).errorCode, 'DEPLOYMENT_APPROVAL_REQUIRED');
+  });
+
+  it('READY 计划通过 execute approvalId 执行时，宿主必须把本次审批写入授权上下文', async () => {
+    const security = createSecurityServices();
+    security.rbac.createPolicy({ subjectType: 'user', subjectId: 'approver_1', effect: 'allow', actions: ['approval.decide'], resourceTypes: ['approval'], scope: { tenantId: 'tenant_1' } });
+    const { app, fixture } = await createMigratedTestApp({ security });
+    const created = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/from-application-asset',
+      headers: userHeaders,
+      body: {
+        applicationAssetId: fixture.target_1.applicationAssetId,
+        targetCertificateVersionId: fixture.certificateVersionId,
+        certificateFormatId: fixture.certificateFormatId,
+        selectionMode: 'EXPLICIT',
+        idempotencyKey: 'idem_ready_explicit_approval',
+        policy: { riskLevel: 'high', approvalRequired: true, failurePolicy: 'rollback' },
+      },
+    });
+    assert.equal(created.statusCode, 201, JSON.stringify(created.body));
+    const createdPlan = created.body as { id: string };
+    const submitted = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/submit',
+      headers: userHeaders,
+      body: { planId: createdPlan.id },
+    });
+    assert.equal(submitted.statusCode, 200, JSON.stringify(submitted.body));
+    const approvalId = (submitted.body as { approvalId: string }).approvalId;
+    assert.ok(approvalId);
+    const decided = await app.inject({
+      method: 'POST',
+      path: '/api/v1/approvals/decide',
+      headers: approverHeaders,
+      body: { approvalId, decision: 'approved' },
+    });
+    assert.equal(decided.statusCode, 200, JSON.stringify(decided.body));
+
+    const deploymentService = app.getResource('deploymentPlansService') as DeploymentPlansApplicationService;
+    await deploymentService.getRepository().updatePlan(createdPlan.id, {
+      status: 'READY',
+      approvalStatus: 'NOT_REQUIRED',
+      approvalId: undefined,
+      updatedAt: new Date().toISOString(),
+      updatedBy: 'user_1',
+    });
+    await completeAgentDryRun(app, {
+      planId: createdPlan.id,
+      agentId: fixture.agentId,
+      idempotencyKey: 'idem_ready_explicit_approval_dry_run',
+    });
+
+    const executed = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/execute',
+      headers: userHeaders,
+      body: {
+        planId: createdPlan.id,
+        approvalId,
+        idempotencyKey: 'idem_ready_explicit_approval_execute',
+      },
+    });
+    assert.equal(executed.statusCode, 200, JSON.stringify(executed.body));
+    const body = executed.body as {
+      steps: Array<{ inputSnapshot: { executionAuthorization?: { approvalId?: string; approved?: boolean } } }>;
+    };
+    assert.equal(body.steps.every((step) => step.inputSnapshot.executionAuthorization?.approvalId === approvalId), true);
+    assert.equal(body.steps.every((step) => step.inputSnapshot.executionAuthorization?.approved === true), true);
+  });
+
+  it('历史低风险计划包含 allowInsecureTls 时，正式执行仍必须先申请审批', async () => {
+    const { app, service: deploymentService, fixture } = await createMigratedDeploymentService();
+    const ready = await createReadyLowRiskPlan(app, fixture, 'idem_legacy_insecure_tls_plan');
+    const targets = await deploymentService.getRepository().listTargetsByPlan(ready.id, 'tenant_1');
+    assert.equal(targets.length > 0, true);
+    const target = targets[0]!;
+    const workflowRequest = (target.strategyPayload?.workflowRequest ?? {}) as Record<string, unknown>;
+    await deploymentService.getRepository().updateTarget(target.id, {
+      strategyPayload: {
+        ...(target.strategyPayload ?? {}),
+        workflowRequest: {
+          ...workflowRequest,
+          inputBindings: {
+            apiVersion: 'gcac.input-bindings/v1',
+            variables: { allowInsecureTls: true },
+            connections: {},
+            credentials: {},
+            artifacts: {},
+          },
+        },
+      },
+      updatedAt: new Date().toISOString(),
+      updatedBy: 'user_1',
+    });
+
+    const executed = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/execute',
+      headers: userHeaders,
+      body: {
+        planId: ready.id,
+        idempotencyKey: 'idem_legacy_insecure_tls_execute',
+      },
+    });
+    assert.equal(executed.statusCode, 422, JSON.stringify(executed.body));
+    assert.equal((executed.body as { errorCode: string }).errorCode, 'DEPLOYMENT_APPROVAL_REQUIRED');
   });
 
   it('有审批执行高风险计划成功入队，并生成 ExecutionRun 和 ExecutionStep', async () => {

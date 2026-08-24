@@ -56,7 +56,9 @@ export function createSecurityServices(): SecurityServices {
   const objectSetMembers = new PgDocumentRepository<ObjectSetMemberEntity>(db, 'security.object_set_members');
   const accessGrants = new PgDocumentRepository<AccessGrantEntity>(db, 'security.access_grants');
   const audit = new AuditService();
-  const approvals = new ApprovalService(undefined, audit);
+  const approvals = new ApprovalService(undefined, audit, {
+    allowSelfApproval: process.env.GCAC_APPROVAL_ALLOW_SELF_APPROVAL === 'true',
+  });
   const grants = new ExecutionGrantService();
   const secrets = new SecretService(new CryptoService(new KeyManager()), grants, audit);
   const rbac = new RBACService(users, roles, userRoles, policies, audit);

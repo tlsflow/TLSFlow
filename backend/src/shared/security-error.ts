@@ -19,8 +19,8 @@ export const securityErrors = {
     new SecurityError('SEC_SECRET_RESOLVE_DENIED', 'Secret 明文解析被拒绝', 403, details),
   approvalRequired: (details: Record<string, unknown> = {}) =>
     new SecurityError('SEC_APPROVAL_REQUIRED', '操作需要审批', 422, details),
-  approvalInvalid: (details: Record<string, unknown> = {}) =>
-    new SecurityError('SEC_APPROVAL_INVALID', '审批无效或状态不允许', 409, details),
+  approvalInvalid: (details: Record<string, unknown> = {}, message = '审批无效或状态不允许') =>
+    new SecurityError('SEC_APPROVAL_INVALID', message, 409, details),
   auditWriteFailed: (details: Record<string, unknown> = {}) =>
     new SecurityError('SEC_AUDIT_WRITE_FAILED', '审计日志写入失败', 500, details),
   redactionFailed: (details: Record<string, unknown> = {}) =>

@@ -74,6 +74,17 @@ export interface DeploymentPlanTargetDto {
   version: number;
 }
 
+export interface DeploymentPlanApprovalDto {
+  id: string;
+  status: 'pending' | 'approved' | 'rejected' | 'expired' | 'cancelled' | 'consumed';
+  riskLevel: RiskLevel;
+  requestedBy: string;
+  approvedBy?: string;
+  expiresAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface DeploymentPlanDto {
   id: string;
   tenantId?: string;
@@ -85,6 +96,7 @@ export interface DeploymentPlanDto {
   status: DeploymentPlanStatus;
   approvalStatus: DeploymentPlanApprovalStatus;
   approvalId?: string;
+  approval?: DeploymentPlanApprovalDto;
   snapshotHash: string;
   idempotencyKey: string;
   policy: DeploymentPlanPolicyDto;

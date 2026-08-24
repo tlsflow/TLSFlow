@@ -540,11 +540,32 @@ export class WorkflowExecutorAdapter implements Executor {
     const plan = readRecord(renderedPlan);
     const executor = stringFromSnapshot(plan?.executor);
     if (executor === 'workflow.checkpoint') {
-      if (!recoveryLedger) return { success: false, errorCode: 'WORKFLOW_RECOVERY_LEDGER_REQUIRED', errorMessage: 'checkpoint 执行前必须创建恢复账本' };
       const capture = readRecord(plan?.capture) ?? {};
       const captureHash = stringFromSnapshot(plan?.captureHash);
       const checkpointName = stringFromSnapshot(plan?.checkpointName);
-      if (!captureHash || !checkpointName) return { success: false, errorCode: 'WORKFLOW_CHECKPOINT_INVALID', errorMessage: 'checkpoint 执行计划缺少名称或哈希' };
+      if (!checkpointName) return { success: false, errorCode: 'WORKFLOW_CHECKPOINT_INVALID', errorMessage: 'checkpoint 执行计划缺少名称' };
+      // Dry-run 只验证 checkpoint 计划，不创建会参与正式恢复分类的持久化账本。
+      if (input.dryRun) {
+        if (plan?.deferred === true) {
+          const deferredCapturePaths = readRecord(plan.deferredCapturePaths);
+          if (!deferredCapturePaths || Object.keys(deferredCapturePaths).length === 0) {
+            return { success: false, errorCode: 'WORKFLOW_CHECKPOINT_INVALID', errorMessage: '延迟 checkpoint 执行计划缺少捕获路径' };
+          }
+          return {
+            success: true,
+            body: { checkpointName, deferredCapturePaths, plannedOnly: true, persisted: false },
+            logs: [`workflow:checkpoint:${checkpointName}:validated:deferred`],
+          };
+        }
+        if (!captureHash) return { success: false, errorCode: 'WORKFLOW_CHECKPOINT_INVALID', errorMessage: 'checkpoint 执行计划缺少哈希' };
+        return {
+          success: true,
+          body: { checkpointName, captureHash, plannedOnly: true, persisted: false },
+          logs: [`workflow:checkpoint:${checkpointName}:validated`],
+        };
+      }
+      if (!captureHash) return { success: false, errorCode: 'WORKFLOW_CHECKPOINT_INVALID', errorMessage: 'checkpoint 执行计划缺少哈希' };
+      if (!recoveryLedger) return { success: false, errorCode: 'WORKFLOW_RECOVERY_LEDGER_REQUIRED', errorMessage: 'checkpoint 执行前必须创建恢复账本' };
       await this.recovery.recordCheckpoint({
         tenantId: recoveryLedger.tenantId,
         ledgerId: recoveryLedger.id,
@@ -565,14 +586,17 @@ export class WorkflowExecutorAdapter implements Executor {
     const curlTemplate = readRecord(curlRequest?.template) ?? {};
     const curlTls = readRecord(curlTemplate.tls) ?? {};
     const allowInsecureTls = authorization?.allowInsecureTls === true;
+    const isInsecureTlsRequest = executor === '017.CURL_HTTP' && curlTls.verify === false;
     const allowInsecureAction = executor === '017.CURL_HTTP'
-      && curlTls.verify === false
-      && authorization?.approved === true
+      && isInsecureTlsRequest
       && allowInsecureTls
+      && (input.dryRun || authorization?.approved === true)
       ? 'workflow.tls.insecure'
       : undefined;
     const childStepId = workflowChildStepId(input.step, executor ?? 'unknown', workflowStepName, attempt);
-    const grant = this.executionGrants && executor && !input.dryRun
+    // dry-run 也签发仅绑定当前 dry_run step 的短期 Grant，使预检能完整验证授权链；
+    // 该 Grant 的 runId 不同于正式执行，且始终在当前工作流节点结束后撤销。
+    const grant = this.executionGrants && executor
       ? await this.executionGrants.create({
           tenantId: input.step.tenantId,
           planId: authorization?.planId ?? stringFromSnapshot(input.step.inputSnapshot.deploymentPlanId),

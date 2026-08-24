@@ -5,7 +5,7 @@ import type { CurlHttpClientRequest } from '../executors/curl/curl.http-client.j
 import { ExecutionGrantService } from './execution-grant.service.js';
 import { WorkflowTemplatesApplicationService } from '../workflow-templates/application/workflow-templates.application-service.js';
 import type { WorkflowDslV1 } from '../workflow-templates/dto/workflow-templates.dto.js';
-import { WorkflowExecutorAdapter, type Executor, type StepExecutionInput, type StepExecutionResult } from './application/executors.js';
+import { createDefaultExecutorRegistryWithDependencies, WorkflowExecutorAdapter, type Executor, type StepExecutionInput, type StepExecutionResult } from './application/executors.js';
 import type { ExecutionStepEntity } from './schema/executions.schema.js';
 import type { ResolvedDeploymentInputV1 } from '../deployment-inputs/dto/resolved-deployment-input.dto.js';
 import type { DeploymentInputContractV1 } from '../deployment-inputs/dto/deployment-input-contract.dto.js';
@@ -150,6 +150,26 @@ function fileTransferWorkflowFixture(): WorkflowDslV1 {
   };
 }
 
+function checkpointWorkflowFixture(): WorkflowDslV1 {
+  return {
+    apiVersion: 'gcac.workflow/v1',
+    kind: 'CurlSshWorkflow',
+    metadata: { name: 'workflow-checkpoint-dry-run-test', version: '1.0.0' },
+    inputContract: workflowInputContract(),
+    steps: [{
+      name: 'deploymentCheckpoint',
+      type: 'checkpoint',
+      stage: 'backup',
+      checkpoint: {
+        name: 'before-certificate-deployment',
+        capture: { deviceHost: 'variables.deviceHost' },
+        normalizedHash: true,
+        requiredForRollback: true,
+      },
+    }],
+  };
+}
+
 function synologyInsecureTlsWorkflowFixture(): WorkflowDslV1 {
   const inputContract = workflowInputContract();
   inputContract.variables.allowInsecureTls = {
@@ -270,6 +290,13 @@ async function createPublishedCertificateAliasWorkflow(): Promise<{ workflows: W
 async function createPublishedCertificateOutputsWorkflow(): Promise<{ workflows: WorkflowTemplatesApplicationService; versionId: string }> {
   const workflows = new WorkflowTemplatesApplicationService();
   const created = await workflows.createTemplate({ content: certificateOutputsWorkflowFixture(), changeSummary: 'certificate-outputs-test' });
+  const published = await workflows.publishVersion(created.version.id);
+  return { workflows, versionId: published.id };
+}
+
+async function createPublishedCheckpointWorkflow(): Promise<{ workflows: WorkflowTemplatesApplicationService; versionId: string }> {
+  const workflows = new WorkflowTemplatesApplicationService();
+  const created = await workflows.createTemplate({ content: checkpointWorkflowFixture(), changeSummary: 'checkpoint-dry-run-test' });
   const published = await workflows.publishVersion(created.version.id);
   return { workflows, versionId: published.id };
 }
@@ -406,6 +433,71 @@ describe('WorkflowExecutorAdapter', () => {
     assert.equal(typeof workflowIdentity.workflowTemplateId, 'string');
   });
 
+  it('dry-run 校验 checkpoint 计划但不要求或写入正式恢复账本', async () => {
+    const { workflows, versionId } = await createPublishedCheckpointWorkflow();
+    const adapter = new WorkflowExecutorAdapter({ workflows });
+    const step = workflowStep(versionId);
+    step.inputSnapshot.workflowRequest = {
+      workflowVersionId: versionId,
+      pluginVersionId: 'uplgv_checkpoint_test',
+      capabilityKey: 'certificate.deploy',
+    };
+
+    const result = await adapter.executeStep({ step, runType: 'dry_run', dryRun: true });
+
+    assert.equal(result.success, true);
+    const workflowRun = result.detail?.workflowRun as {
+      status?: string;
+      plannedOnly?: boolean;
+      stepResults?: Array<{ plan?: Record<string, unknown>; logs?: string[] }>;
+    };
+    assert.equal(workflowRun.status, 'success');
+    assert.equal(workflowRun.plannedOnly, true);
+    assert.match(String(workflowRun.stepResults?.[0]?.plan?.captureHash), /^[a-f0-9]{64}$/);
+    assert.ok(workflowRun.stepResults?.[0]?.logs?.includes('workflow:checkpoint:before-certificate-deployment:validated'));
+  });
+
+  it('dry-run 接受依赖运行时输出的延迟 checkpoint 且不伪造哈希', async () => {
+    const adapter = new WorkflowExecutorAdapter();
+    const dispatch = adapter as unknown as {
+      dispatchWorkflowStep(
+        input: StepExecutionInput,
+        renderedPlan: unknown,
+        workflowStepName: string,
+        attempt: number,
+      ): Promise<{ success: boolean; body?: unknown; logs?: string[]; errorCode?: string }>;
+    };
+    const plan = {
+      executor: 'workflow.checkpoint',
+      checkpointName: 'citrix-adc-certificate-deployment',
+      deferredCapturePaths: {
+        snapshot: 'steps.buildDeploymentSnapshot.extracted.deploymentSnapshot',
+      },
+      deferred: true,
+      plannedOnly: true,
+      requiredForRollback: true,
+    };
+    const step = workflowStep();
+
+    const dryRun = await dispatch.dispatchWorkflowStep(
+      { step, runType: 'dry_run', dryRun: true },
+      plan,
+      'deploymentCheckpoint',
+      1,
+    );
+    const apply = await dispatch.dispatchWorkflowStep(
+      { step, runType: 'apply', dryRun: false },
+      plan,
+      'deploymentCheckpoint',
+      1,
+    );
+
+    assert.equal(dryRun.success, true);
+    assert.ok(dryRun.logs?.includes('workflow:checkpoint:citrix-adc-certificate-deployment:validated:deferred'));
+    assert.equal(apply.success, false);
+    assert.equal(apply.errorCode, 'WORKFLOW_CHECKPOINT_INVALID');
+  });
+
   it('Synology 工作流 dry-run 和正式执行都拒绝 DSL-only 的自签名 TLS 请求', async () => {
     const { workflows, versionId } = await createPublishedSynologyInsecureTlsWorkflow();
     const grants = new ExecutionGrantService();
@@ -427,7 +519,8 @@ describe('WorkflowExecutorAdapter', () => {
       allowInsecureTls: true,
     };
 
-    const adapter = new WorkflowExecutorAdapter({ workflows, curlExecutor, executionGrants: grants });
+    // 没有把 ExecutionGrantService 交给宿主适配器，模拟仅靠 DSL/输入声明放行。
+    const adapter = new WorkflowExecutorAdapter({ workflows, curlExecutor });
     const dryRun = await adapter.executeStep({ step, runType: 'dry_run', dryRun: true });
     assert.equal(dryRun.success, false);
     assert.equal(dryRun.errorCode, 'AUTH_FORBIDDEN');
@@ -476,7 +569,7 @@ describe('WorkflowExecutorAdapter', () => {
     assert.equal(networkCalls, 1);
   });
 
-  it('Synology 已绑定 allowInsecureTls 但 dry-run 不会伪造正式 ExecutionGrant', async () => {
+  it('Synology 已绑定 allowInsecureTls 后 dry-run 会签发预检 ExecutionGrant 且不访问真实网络', async () => {
     const { workflows, versionId } = await createPublishedSynologyInsecureTlsWorkflow();
     const grants = new ExecutionGrantService();
     const curlExecutor = new CurlExecutor({
@@ -502,9 +595,42 @@ describe('WorkflowExecutorAdapter', () => {
     const adapter = new WorkflowExecutorAdapter({ workflows, curlExecutor, executionGrants: grants });
     const result = await adapter.executeStep({ step, runType: 'dry_run', dryRun: true });
 
-    assert.equal(result.success, false);
-    assert.equal(result.errorCode, 'AUTH_FORBIDDEN');
-    assert.match(result.errorMessage ?? '', /ExecutionGrant/);
+    assert.equal(result.success, true);
+    const workflowRun = result.detail?.workflowRun as {
+      status?: string;
+      plannedOnly?: boolean;
+      logs?: string[];
+    };
+    assert.equal(workflowRun.status, 'success');
+    assert.equal(workflowRun.plannedOnly, true);
+    assert.ok(workflowRun.logs?.includes('curl:preflight:validated'));
+  });
+
+  it('生产默认执行器注册表会把宿主 ExecutionGrantService 传递给 Synology dry-run', async () => {
+    const { workflows, versionId } = await createPublishedSynologyInsecureTlsWorkflow();
+    const grants = new ExecutionGrantService();
+    const registry = createDefaultExecutorRegistryWithDependencies({
+      workflows,
+      executionGrants: grants,
+    });
+    const step = workflowStep(versionId);
+    step.inputSnapshot.resolvedDeploymentInput = {
+      ...resolvedDeploymentInput(),
+      variables: { deviceHost: 'nas.example.com', allowInsecureTls: true },
+    };
+    step.inputSnapshot.executionAuthorization = {
+      tenantId: 'tenant_1',
+      planId: 'plan_synology_tls',
+      targetId: 'target_1',
+      workflowVersionId: versionId,
+      snapshotHash: 'snapshot_synology_tls',
+      approved: false,
+      allowInsecureTls: true,
+    };
+
+    const result = await registry.get('WORKFLOW').executeStep({ step, runType: 'dry_run', dryRun: true });
+    assert.equal(result.success, true);
+    assert.equal((result.detail?.workflowRun as { status?: string }).status, 'success');
   });
 
   it('apply 在 HTTP 节点之间传递真实敏感变量，但结果中只保留脱敏值', async () => {

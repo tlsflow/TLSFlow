@@ -573,6 +573,47 @@ describe('WorkflowTemplates', () => {
     );
   });
 
+  it('dispatch-only dry-run 对缺失的前序步骤输出延迟条件校验', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const content = templateFixture();
+    content.steps = [
+      {
+        name: 'probe',
+        type: 'http',
+        stage: 'prepare',
+        request: {
+          method: 'GET',
+          connectionRef: 'management',
+          url: 'https://{{variables.deviceHost}}/api/version',
+        },
+        extract: [{ name: 'deviceVersion', type: 'jsonPath', path: '$.body.version' }],
+      },
+      {
+        name: 'verifyVersion',
+        type: 'condition',
+        stage: 'install',
+        condition: {
+          variable: 'steps.probe.extracted.deviceVersion',
+          equals: '{{steps.probe.extracted.deviceVersion}}',
+        },
+      },
+    ];
+    const { version } = await service.createTemplate({ content });
+    const run = await service.runWithDispatcher({
+      templateVersionId: version.id,
+      mode: 'render_only',
+      dispatchInRenderOnly: true,
+      resolvedInput: runtimeInput(version.id).resolvedInput,
+    }, async () => ({
+      success: true,
+      body: { plannedOnly: true },
+    }));
+
+    assert.equal(run.status, 'success');
+    assert.equal(run.plannedOnly, true);
+    assert.equal((run.stepResults[1]!.plan as { deferred?: boolean }).deferred, true);
+  });
+
   it('上游输出可以提取成运行时变量并供下游节点引用，同时对外脱敏', async () => {
     const service = new WorkflowTemplatesApplicationService();
     const content: WorkflowDslV1 = {
@@ -1453,6 +1494,10 @@ describe('WorkflowTemplates', () => {
     assert.equal(content.inputContract.variables.allowInsecureTls?.required, true);
     assert.equal(content.inputContract.variables.allowInsecureTls?.configurationMode, 'required');
     assert.equal(content.inputContract.variables.allowInsecureTls?.bindingPolicy, 'required_binding');
+    const synologyTransforms = content.steps
+      .filter((step) => step.type === 'transform')
+      .map((step) => step.transform.timeoutMs);
+    assert.deepEqual(synologyTransforms, [1000, 1000]);
 
     const service = new WorkflowTemplatesApplicationService();
     const { version } = await service.createTemplate({ content });

@@ -27,8 +27,13 @@ export interface DecideApprovalInput {
   forbidSelfApproval?: boolean;
 }
 
+export interface ApprovalServiceOptions {
+  allowSelfApproval?: boolean;
+}
+
 export class ApprovalService {
   private static readonly defaultDb = new PgliteDatabase();
+  private readonly allowSelfApproval: boolean;
 
   private static createDefaultRepository(): AsyncRepositoryPort<ApprovalRequestEntity> {
     return new PgDocumentRepository<ApprovalRequestEntity>(ApprovalService.defaultDb, 'security.approval_requests');
@@ -37,7 +42,10 @@ export class ApprovalService {
   constructor(
     private readonly approvals: AsyncRepositoryPort<ApprovalRequestEntity> = ApprovalService.createDefaultRepository(),
     private readonly audit?: AuditService,
-  ) {}
+    options: ApprovalServiceOptions = {},
+  ) {
+    this.allowSelfApproval = options.allowSelfApproval ?? false;
+  }
 
   async create(input: CreateApprovalInput, context: RequestContext = {}): Promise<ApprovalRequestEntity> {
     if (this.requiresApproval(input.riskLevel, input.operationType) === false) {
@@ -77,10 +85,14 @@ export class ApprovalService {
   async decide(input: DecideApprovalInput, context: RequestContext = {}): Promise<ApprovalRequestEntity> {
     const current = await this.getFresh(input.approvalId);
     if (current.status !== 'pending') {
-      throw securityErrors.approvalInvalid({ reason: 'approval is not pending', status: current.status });
+      const message = current.status === 'approved' || current.status === 'consumed'
+        ? '审批已处理，不能重复审批'
+        : '审批已结束，状态不允许当前操作';
+      throw securityErrors.approvalInvalid({ reason: 'approval is not pending', status: current.status }, message);
     }
-    if (input.forbidSelfApproval !== false && current.requestedBy === input.approverId && input.decision === 'approved') {
-      throw securityErrors.approvalInvalid({ reason: 'self approval denied' });
+    const selfApprovalAllowed = input.forbidSelfApproval === false || this.allowSelfApproval;
+    if (!selfApprovalAllowed && current.requestedBy === input.approverId && input.decision === 'approved') {
+      throw securityErrors.approvalInvalid({ reason: 'self approval denied' }, '申请人不能批准自己提交的审批');
     }
 
     const nextStatus = input.decision === 'approved' ? 'approved' : 'rejected';

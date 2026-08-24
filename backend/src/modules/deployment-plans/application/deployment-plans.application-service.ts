@@ -204,11 +204,14 @@ export class DeploymentPlansApplicationService {
   }
 
   async list(input: { tenantId?: string } = {}): Promise<DeploymentPlanDto[]> {
-    return Promise.all((await this.repository.listPlans(input.tenantId)).map((plan) => this.toDto(plan)));
+    const plans = await Promise.all(
+      (await this.repository.listPlans(input.tenantId)).map((plan) => this.synchronizeApprovalState(plan)),
+    );
+    return Promise.all(plans.map((plan) => this.toDto(plan)));
   }
 
   async get(id: string, tenantId?: string): Promise<DeploymentPlanDto> {
-    return this.toDto(await this.repository.getPlanOrThrow(id, tenantId));
+    return this.toDto(await this.synchronizeApprovalState(await this.repository.getPlanOrThrow(id, tenantId)));
   }
 
   async listInputSnapshots(planId: string, tenantId?: string): Promise<DeploymentInputSnapshotEntity[]> {
@@ -1197,7 +1200,7 @@ export class DeploymentPlansApplicationService {
   }
 
   async submit(input: SubmitDeploymentPlanInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
-    const plan = await this.repository.getPlanOrThrow(input.planId, input.tenantId);
+    const plan = await this.synchronizeApprovalState(await this.repository.getPlanOrThrow(input.planId, input.tenantId));
     if (plan.status === 'READY') return this.toDto(plan);
 
     if (plan.status === 'PENDING_APPROVAL') {
@@ -1211,7 +1214,7 @@ export class DeploymentPlansApplicationService {
       throw new AppError('DEPLOYMENT_INVALID_STATE', '只有 DRAFT 或 PENDING_APPROVAL 计划允许提交', { planId: plan.id, status: plan.status });
     }
 
-    if (this.requiresApproval(plan)) {
+    if (await this.requiresApproval(plan)) {
       if (input.approvalId) {
         await this.approval.consume(input.approvalId, await this.approvalParameters(plan));
         const ready = await this.transitionPlan(plan, 'READY', input.actorId, 'approval.approved', { approvalStatus: 'APPROVED', approvalId: input.approvalId });
@@ -1257,21 +1260,37 @@ export class DeploymentPlansApplicationService {
   }
 
   async execute(input: ExecuteDeploymentPlanInput, context: RequestContext = {}): Promise<{ plan: DeploymentPlanDto; run: ExecutionRunDto; steps: ExecutionStepDto[]; jobId: string }> {
-    let plan = await this.repository.getPlanOrThrow(input.planId, input.tenantId);
-    if (this.requiresApproval(plan)) {
-      const approvalId = input.approvalId ?? plan.approvalId;
-      if (!approvalId) {
+    let plan = await this.synchronizeApprovalState(await this.repository.getPlanOrThrow(input.planId, input.tenantId));
+    let executionApprovalId = plan.approvalId;
+    let executionApproved = plan.approvalStatus === 'APPROVED';
+    if (await this.requiresApproval(plan)) {
+      executionApprovalId = input.approvalId ?? plan.approvalId;
+      if (!executionApprovalId) {
         await this.auditDenied(plan, input.actorId, 'deployment_plan.execute', context, 'missing approval');
         throw new AppError('DEPLOYMENT_APPROVAL_REQUIRED', '高风险部署执行必须提供已批准审批单', { planId: plan.id });
       }
       try {
-        await this.approval.consume(approvalId, await this.approvalParameters(plan));
+        await this.approval.consume(executionApprovalId, await this.approvalParameters(plan));
       } catch (error) {
         await this.auditDenied(plan, input.actorId, 'deployment_plan.execute', context, 'approval invalid');
         throw error;
       }
+      // 审批消费是本次正式执行的授权事实。不能只在 DRAFT/PENDING_APPROVAL
+      // 状态转换时回写，否则 READY/历史结束计划会继续携带 NOT_REQUIRED，
+      // 进而让工作流子步骤无法获得 workflow.tls.insecure Grant。
+      executionApproved = true;
       if (plan.status === 'DRAFT' || plan.status === 'PENDING_APPROVAL') {
-        plan = await this.transitionPlan(plan, 'READY', input.actorId, 'approval.approved', { approvalStatus: 'APPROVED', approvalId });
+        plan = await this.transitionPlan(plan, 'READY', input.actorId, 'approval.approved', {
+          approvalStatus: 'APPROVED',
+          approvalId: executionApprovalId,
+        });
+      } else if (plan.approvalStatus !== 'APPROVED' || plan.approvalId !== executionApprovalId) {
+        plan = await this.repository.updatePlan(plan.id, {
+          approvalStatus: 'APPROVED',
+          approvalId: executionApprovalId,
+          updatedAt: new Date().toISOString(),
+          updatedBy: input.actorId,
+        });
       }
     }
 
@@ -1296,10 +1315,10 @@ export class DeploymentPlansApplicationService {
           tenantId: plan.tenantId,
           planId: plan.id,
           targetId,
-          approvalId: plan.approvalId,
+          approvalId: executionApprovalId,
           workflowVersionId,
           snapshotHash: plan.snapshotHash,
-          approved: plan.approvalStatus === 'APPROVED',
+          approved: executionApproved,
           allowInsecureTls,
         },
       });
@@ -1324,7 +1343,7 @@ export class DeploymentPlansApplicationService {
   }
 
   async dryRun(input: DryRunDeploymentPlanInput, context: RequestContext = {}): Promise<{ plan: DeploymentPlanDto; run: ExecutionRunDto; steps: ExecutionStepDto[]; jobId: string }> {
-    let plan = await this.repository.getPlanOrThrow(input.planId, input.tenantId);
+    let plan = await this.synchronizeApprovalState(await this.repository.getPlanOrThrow(input.planId, input.tenantId));
     if (!['DRAFT', 'PENDING_APPROVAL', 'READY', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLED_BACK'].includes(plan.status)) {
       throw new AppError('DEPLOYMENT_INVALID_STATE', '只有未运行或已结束的计划允许 dry-run', { planId: plan.id, status: plan.status });
     }
@@ -2345,6 +2364,44 @@ export class DeploymentPlansApplicationService {
     return checks;
   }
 
+  /**
+   * 审批决定由 Security 模块写入审批单，部署计划不能依赖前端或插件自行伪造审批状态。
+   * 每次进入部署计划边界时读取关联审批单，确保审批通过后计划能从等待状态恢复为可执行状态。
+   */
+  private async synchronizeApprovalState(plan: DeploymentPlanEntity): Promise<DeploymentPlanEntity> {
+    if (!plan.approvalId || plan.approvalStatus === 'APPROVED' || plan.approvalStatus === 'NOT_REQUIRED') {
+      return plan;
+    }
+
+    const approval = await this.approval.get(plan.approvalId);
+    if (!approval) return plan;
+
+    const actorId = approval.approvedBy ?? 'system';
+    if (approval.status === 'approved') {
+      if (plan.status === 'PENDING_APPROVAL') {
+        return this.transitionPlan(plan, 'READY', actorId, 'approval.approved', {
+          approvalStatus: 'APPROVED',
+          approvalId: plan.approvalId,
+        });
+      }
+      return this.repository.updatePlan(plan.id, {
+        approvalStatus: 'APPROVED',
+        updatedAt: new Date().toISOString(),
+        updatedBy: actorId,
+      });
+    }
+
+    if (approval.status === 'rejected' && plan.approvalStatus !== 'REJECTED') {
+      return this.repository.updatePlan(plan.id, {
+        approvalStatus: 'REJECTED',
+        updatedAt: new Date().toISOString(),
+        updatedBy: actorId,
+      });
+    }
+
+    return plan;
+  }
+
 
 
   private async resolveManagedTargetContextFromBinding(
@@ -2399,8 +2456,11 @@ export class DeploymentPlansApplicationService {
     return updated;
   }
 
-  private requiresApproval(plan: DeploymentPlanEntity): boolean {
-    return Boolean(plan.policy.approvalRequired) || this.domain.isHighRisk(plan.policy);
+  private async requiresApproval(plan: DeploymentPlanEntity): Promise<boolean> {
+    if (Boolean(plan.policy.approvalRequired) || this.domain.isHighRisk(plan.policy)) return true;
+    const parameters = await this.approvalParameters(plan);
+    const scopes = Array.isArray(parameters.tlsScopes) ? parameters.tlsScopes : [];
+    return scopes.some((scope) => readRecord(scope)?.allowInsecureTls === true);
   }
 
   private approvalRiskLevel(riskLevel: RiskLevel | undefined): RiskLevel {
@@ -2639,9 +2699,22 @@ export class DeploymentPlansApplicationService {
     })[0];
     const targets = (await this.repository.listTargetsByPlan(plan.id, plan.tenantId)).map((target) => this.toTargetDto(target));
     const workflowExecutionIdentities = await this.resolveWorkflowExecutionIdentities(targets);
+    const approval = plan.approvalId ? await this.approval.get(plan.approvalId) : undefined;
     return {
       ...plan,
       targets,
+      ...(approval ? {
+        approval: {
+          id: approval.id,
+          status: approval.status,
+          riskLevel: approval.riskLevel,
+          requestedBy: approval.requestedBy,
+          ...(approval.approvedBy ? { approvedBy: approval.approvedBy } : {}),
+          ...(approval.expiresAt ? { expiresAt: approval.expiresAt } : {}),
+          createdAt: approval.createdAt,
+          updatedAt: approval.updatedAt,
+        },
+      } : {}),
       ...(workflowExecutionIdentities.length > 0 ? { workflowExecutionIdentities } : {}),
       latestRunId: latestRun?.id,
       latestRun,
