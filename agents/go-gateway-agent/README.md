@@ -6,10 +6,11 @@
 ## 职责
 
 - **TCP 中继（Gateway Relay）**：只做私有密钥认证 + 网络层转发，不解析任何应用协议。
-  - 握手协议 `gcac.gateway-relay/v1`：网关下发随机 `challenge`（hex）→ 客户端对 `challenge + ":" + host + ":" + port` 做 ed25519 签名 → 网关用 `relayClientPublicKeys` 验证 → 通过后返回 `{"ok":true}` 并双向透传原始字节。
-  - 认证通过后允许转发到任意网关可达的 host:port（不做目标白名单）。
-- **网关探测（gateway.probe）**：tcp/http/tls 可达性检查，并把结果回写 `/api/v1/gateways/probe`。
-- **网关转发（gateway.forward.agent_task）**：把控制面已授权的 Agent v2 载荷转发到目标 Agent 任务队列，轮询拿到真实结果；写操作结果不明一律按 UNKNOWN 处理，禁止重放。
+  - 握手协议 `gcac.gateway-relay/v1`：网关下发随机 `challenge`（hex）→ 客户端对 `challenge + ":" + host + ":" + port` 做 Ed25519 签名 → 网关用 `relayClientPublicKeys` 验证 → 通过后返回 `{"ok":true}` 并双向透传原始字节。
+  - 目标租户、Zone、端口、出站 ACL 和 SSRF 防护必须由控制面策略与 Gateway 网络策略共同完成；签名通过不代表可以任意访问内网地址。
+- **网关探测**：如启用，仅用于控制面可达性观测，不承载业务执行和业务结果。
+
+`gateway.forward.agent_task`、Agent Task 队列、结果轮询和 Receipt 属于旧业务转发路径，不是当前 Gateway Relay 职责。现有源码中的兼容路径在清退或显式禁用前不得用于生产。
 
 ## 独立配置（schema `gcac.gateway-agent.v1`）
 
