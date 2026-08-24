@@ -1,0 +1,37 @@
+{
+  "protocol": "gcac.application-onboarding/v1",
+  "platformKey": "web.apache.linux",
+  "displayNameKey": "plugin.webApacheLinux.name",
+  "platformMetadata": {
+    "capabilityVersion": "v1",
+    "compatibilityKeys": ["plugin.webApacheLinux.onboarding.compatibility"],
+    "requiredInformationKeys": ["plugin.webApacheLinux.onboarding.requiredHost", "plugin.webApacheLinux.onboarding.requiredTarget"]
+  },
+  "supportStatus": "SUPPORTED",
+  "deploymentMode": "MANAGED_TARGET",
+  "deviceResourceType": "device.linux-server",
+  "deviceSelection": "EXISTING_OR_NEW",
+  "newDeviceOnboarding": { "kind": "AGENT_INSTALL", "platformKeys": ["linux-red-hat", "linux-debian-ubuntu", "linux-kylin", "linux-uos"] },
+  "forms": {},
+  "capabilities": {
+    "connectionTest": "certificate.verify",
+    "discovery": "certificate.verify"
+  },
+  "targetProjection": {
+    "targetType": "tls.binding",
+    "frameworkTypes": ["web.apache"],
+    "displayFields": ["displayName", "endpoint.port", "frameworkType"],
+    "identityFields": ["managedTargetId", "configFingerprint"],
+    "selectableWhen": "selectable"
+  },
+  "deploymentDefaults": {
+    "capabilityKey": "certificate.deploy",
+    "certificateFormat": { "format": "PEM", "configName": "宿主默认 PEM Bundle" }
+  },
+  "certificate": {
+    "acceptedFormats": ["PEM"],
+    "requiredArtifacts": ["leaf", "privateKey"],
+    "defaultVersion": "LATEST_VALID"
+  },
+  "commit": { "executionSource": "PLUGIN", "inputContract": "certificate.deploy.v1" }
+}

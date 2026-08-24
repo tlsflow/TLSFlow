@@ -1,6 +1,6 @@
 {
-  "plugin.webApacheLinux.name": "Linux Apache 证书更新",
-  "plugin.webApacheLinux.description": "固定linux平台与web.apache框架，只消费 Agent 已确认事实执行证书更新。",
+  "plugin.webApacheLinux.name": "Linux Apache站点",
+  "plugin.webApacheLinux.description": "面向 Linux Apache 站点，基于 Agent 已确认事实执行 PEM 证书部署、验证和回滚。",
   "plugin.webApacheLinux.section.identity": "目标事实",
   "plugin.webApacheLinux.section.certificate": "证书更新",
   "plugin.webApacheLinux.field.platform": "平台",
@@ -10,5 +10,8 @@
   "plugin.webApacheLinux.field.configFingerprint": "配置指纹",
   "plugin.webApacheLinux.action.deploy": "部署证书",
   "plugin.webApacheLinux.action.verify": "验证证书",
-  "plugin.webApacheLinux.action.rollback": "回滚证书"
+  "plugin.webApacheLinux.action.rollback": "回滚证书",
+  "plugin.webApacheLinux.onboarding.compatibility": "Linux Apache HTTP Server（版本由 Agent 发现）",
+  "plugin.webApacheLinux.onboarding.requiredHost": "已安装兼容 Agent 的 Linux 主机",
+  "plugin.webApacheLinux.onboarding.requiredTarget": "已发现的 Linux Apache HTTPS 站点"
 }

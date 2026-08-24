@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "web.apache.linux",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "displayNameKey": "plugin.webApacheLinux.name",
   "descriptionKey": "plugin.webApacheLinux.description",
   "defaultLocale": "zh-CN",
@@ -92,6 +92,7 @@
     "presentations": {
       "application": "presentations/application.json",
       "certificate-binding": "presentations/certificate-binding.json"
-    }
+    },
+    "onboarding": { "applicationAsset": "onboarding/application-asset.json" }
   }
 }
