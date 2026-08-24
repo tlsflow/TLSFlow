@@ -8,16 +8,34 @@ import { createApp } from '../../app.module.js';
 import { createSecurityServices } from '../security/security.controller.js';
 
 describe('证书链导入校验', () => {
-  it('缺失根证书时拒绝导入', async () => {
+  it('缺失根证书时允许导入并返回警告', async () => {
     const chain = createPemChainFixture();
     const pemBlocks = chain.pem.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g) ?? [];
     const incompletePem = pemBlocks.slice(0, 2).join('\n');
-    const { app } = createAuthorizedApp('user_chain_incomplete');
+    const { app } = createAuthorizedApp('user_chain_missing_root');
     const response = await app.inject({
       method: 'POST',
       path: '/api/v1/certificate-versions/import',
-      headers: headers('user_chain_incomplete'),
+      headers: headers('user_chain_missing_root'),
       body: { certificatePem: incompletePem, privateKeyPem: chain.privateKeyPem },
+    });
+
+    assert.equal(response.statusCode, 201);
+    assert.equal((response.body as any).diagnostics.chainStatus, 'incomplete');
+    assert.match(JSON.stringify((response.body as any).diagnostics.chainDiagnostics), /缺少签发者证书/);
+    assert.match(JSON.stringify((response.body as any).diagnostics.warnings), /根证书不做强制导入要求/);
+  });
+
+  it('缺失中间证书时仍然拒绝导入', async () => {
+    const chain = createPemChainFixture();
+    const pemBlocks = chain.pem.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g) ?? [];
+    const invalidPem = [pemBlocks[0], pemBlocks[2]].filter(Boolean).join('\n');
+    const { app } = createAuthorizedApp('user_chain_missing_intermediate');
+    const response = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers: headers('user_chain_missing_intermediate'),
+      body: { certificatePem: invalidPem, privateKeyPem: chain.privateKeyPem },
     });
 
     assert.equal(response.statusCode, 400);

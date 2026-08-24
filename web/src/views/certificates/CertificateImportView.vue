@@ -74,7 +74,7 @@ function cancelImport() {
   <section class="gc-page certificate-import-page">
     <GcPageHeader
       title="导入证书"
-      description="当前仅支持 PEM + KEY 和 PFX；PFX 仅支持文件导入，所有导入材料都必须包含完整证书链和私钥。"
+      description="当前仅支持 PEM + KEY 和 PFX；PFX 仅支持文件导入。导入材料必须包含服务器证书、完整中间证书链和私钥，根证书不是强制项。"
     >
       <template #actions>
         <RouterLink class="gc-button" to="/certificates">返回证书列表</RouterLink>

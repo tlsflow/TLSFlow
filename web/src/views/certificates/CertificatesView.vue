@@ -604,7 +604,7 @@ function openDetailDialog(row: CertificateVersionRow) {
     <GcModal
       v-model:open="importDialogOpen"
       title="导入证书"
-      description="当前仅支持 PEM + KEY 和 PFX；每次导入都必须包含服务器证书、完整中间证书链和私钥。私钥只保存到后端 Secret，不会在响应中回显。"
+      description="当前仅支持 PEM + KEY 和 PFX；每次导入都必须包含服务器证书、完整中间证书链和私钥。根证书不是强制项，缺少时会显示警告。私钥只保存到后端 Secret，不会在响应中回显。"
       size="xxl"
     >
       <CertificateImportForm

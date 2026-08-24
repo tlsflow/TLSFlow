@@ -54,9 +54,9 @@ const canSubmit = computed(() => Boolean(props.validationResult?.importable) && 
 
 const chainCheckHint = computed(() => {
   if (props.draft.format === 'PEM') {
-    return 'PEM + KEY 必须同时包含服务器证书、完整中间证书链和私钥。缺一项都直接阻断导入。'
+    return 'PEM + KEY 必须同时包含服务器证书、完整中间证书链和私钥。根证书不是强制项，缺少时只显示警告。'
   }
-  return 'PFX 仅支持文件导入，且必须解出服务器证书、完整中间证书链和私钥。'
+  return 'PFX 仅支持文件导入，且必须解出服务器证书、完整中间证书链和私钥。根证书不是强制项，缺少时只显示警告。'
 })
 
 const methodSpecificTitle = computed(() => `${selectedFormat.value.label} · ${selectedMethod.value.label}`)
@@ -284,7 +284,7 @@ function cancelImport() {
             v-model="draft.certificatePem"
             rows="12"
             spellcheck="false"
-            placeholder="按 leaf -> intermediate -> root 顺序粘贴完整证书链"
+            placeholder="按 leaf -> intermediate -> root 顺序粘贴证书链；root 可选"
           />
         </label>
 
@@ -337,7 +337,7 @@ function cancelImport() {
       <header class="certificate-import-wizard__header">
         <div>
           <h3>有效性与完整性校验</h3>
-          <p>校验规则很硬：必须有服务器证书、完整中间证书链和私钥，且私钥必须与叶子证书匹配。</p>
+          <p>校验规则：必须有服务器证书、完整中间证书链和私钥，且私钥必须与叶子证书匹配。根证书不强制导入，缺少时仅警告。</p>
         </div>
       </header>
 
@@ -355,7 +355,7 @@ function cancelImport() {
 
       <div v-if="validationResult" class="certificate-import-wizard__report">
         <div class="certificate-import-wizard__status" :class="{ 'is-success': validationResult.importable, 'is-fail': !validationResult.importable }">
-          {{ validationResult.importable ? '校验通过，可以导入。' : '校验未通过，禁止导入。' }}
+          {{ validationResult.importable ? '校验通过，可以导入。' : '校验未通过，存在阻断项。' }}
         </div>
 
         <div class="certificate-import-wizard__report-grid">

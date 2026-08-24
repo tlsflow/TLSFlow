@@ -63,7 +63,7 @@ export class CertificatesDomainService {
           exportSupported: true,
           containsPrivateKey: 'required',
           implementation: 'node_crypto',
-          limitations: ['导入时必须提供服务器证书、完整中间证书链和私钥。'],
+          limitations: ['导入时必须提供服务器证书、中间证书链和私钥；根证书不是强制项。'],
         },
         {
           format: 'pfx',
@@ -71,7 +71,7 @@ export class CertificatesDomainService {
           exportSupported: true,
           containsPrivateKey: 'required',
           implementation: 'openssl',
-          limitations: ['导入时必须能从容器中解析出服务器证书、完整中间证书链和私钥。'],
+          limitations: ['导入时必须能从容器中解析出服务器证书、中间证书链和私钥；根证书不是强制项。'],
         },
       ],
     } as const;
@@ -96,9 +96,9 @@ export class CertificatesDomainService {
     let privateKeyMatched = false;
     let privateKeySource: 'input' | 'container' | 'none' = 'none';
 
-    if (bundle.chainStatus !== 'valid') {
-      blockers.push(...bundle.chainDiagnostics);
-    }
+    const chainAssessment = assessChainDiagnostics(bundle);
+    blockers.push(...chainAssessment.blockers);
+    warnings.push(...chainAssessment.warnings);
 
     if (bundle.certificates.length < 2) {
       blockers.push('证书链不完整：至少必须包含服务器证书和中间证书。');
@@ -239,6 +239,26 @@ function validateCertificateChain(
 
     current = issuer;
   }
+}
+
+function assessChainDiagnostics(bundle: ParsedCertificateBundle): { blockers: string[]; warnings: string[] } {
+  if (bundle.chainStatus === 'valid') {
+    return { blockers: [], warnings: [] };
+  }
+
+  const missingIssuer = bundle.chainDiagnostics.find((item) => item.startsWith('缺少签发者证书：'));
+  if (bundle.chainStatus === 'incomplete' && missingIssuer) {
+    const lastCertificate = bundle.certificates.find((item) => item.fingerprintSha256 === bundle.chainOrder.at(-1));
+    const missingRootOnly = Boolean(lastCertificate && lastCertificate.x509.ca && lastCertificate.subject.raw !== lastCertificate.issuer.raw);
+    if (missingRootOnly) {
+      return {
+        blockers: [],
+        warnings: [`${missingIssuer}。根证书不做强制导入要求，允许继续导入，但建议补齐以便完整展示证书链。`],
+      };
+    }
+  }
+
+  return { blockers: [...bundle.chainDiagnostics], warnings: [] };
 }
 
 function parseSubjectAltNames(value: string | undefined): string[] {

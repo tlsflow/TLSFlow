@@ -66,13 +66,13 @@ export const certificateFormatOptions: ImportFormatOption[] = [
     key: 'PEM',
     label: 'PEM + KEY',
     supported: true,
-    hint: '必须同时提供服务器证书、完整中间证书链和私钥。证书链不完整或缺少私钥都会被拒绝。',
+    hint: '必须同时提供服务器证书、完整中间证书链和私钥。根证书不是强制项，缺少时会给出警告。',
   },
   {
     key: 'PFX',
     label: 'PFX / PKCS#12',
     supported: true,
-    hint: '仅支持文件导入，且容器内必须包含服务器证书、完整中间证书链和私钥。',
+    hint: '仅支持文件导入，且容器内必须包含服务器证书、完整中间证书链和私钥。根证书不是强制项，缺少时会给出警告。',
   },
 ]
 
