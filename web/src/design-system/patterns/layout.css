@@ -649,6 +649,7 @@
 .gc-page__toolbar { display: flex; justify-content: space-between; gap: var(--gc-space-4); align-items: center; }
 .gc-error-page,
 .gc-blank-layout { display: grid; place-items: center; min-height: 100vh; padding: var(--gc-space-8); text-align: center; }
+.gc-error-page__actions { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--gc-space-3); }
 .gc-error-page__meta { color: var(--gc-color-danger); }
 .gc-form-panel {
   display: grid;
