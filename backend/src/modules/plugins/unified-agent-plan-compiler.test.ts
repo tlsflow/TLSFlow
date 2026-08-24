@@ -89,7 +89,7 @@ test('统一 Agent PluginVersion 和 Binding 编译不可变原子计划', async
   assert.equal(preflightPlan.operations.some((item) => item.operationType === 'service.control'), true);
 });
 
-test('IIS 与 NGINX 仅通过统一 Contract、Asset Context 和 Binding 编译 Agent 计划', async () => {
+test('全部内置 Agent 仅通过统一 Contract、Asset Context 和 Binding 编译 Agent 计划', async () => {
   const database = new PgliteDatabase();
   await runMigrations(database, undefined, { appliedBy: 'test', checksum: (content) => createHash('sha256').update(content).digest('hex') });
   const plugins = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(database));
@@ -175,6 +175,9 @@ function agentContractFixtures(): Array<{
   const iisArtifacts: Record<string, ResolvedArtifactV1> = {
     certificate: { outputs: { certificate: { artifactRef: 'memory://iis/certificate.pfx' } } },
   };
+  const rabbitBinding = artifactBinding({ certificate: 'certificate', privateKey: 'privateKey' });
+  const javaBinding = artifactBinding({ keystore: 'keystore' }, { keystorePath: '/opt/gcac/service.p12', serviceName: 'gcac-java' });
+  const windowsServiceBinding = artifactBinding({ certificateFile: 'certificateFile' }, { certificatePath: 'C:\\GCAC\\service.pfx', serviceName: 'GCACService' });
   return [
     {
       pluginId: 'builtin.linux.nginx.pem', tenantId: 'tenant-nginx-unified-contract', agentId: 'agent-nginx',
@@ -195,7 +198,42 @@ function agentContractFixtures(): Array<{
         assert.deepEqual(plan.operations.find((item) => item.id === 'iis-pfx-import')?.input.artifact, { artifactRef: 'memory://iis/certificate.pfx' });
       },
     },
+    {
+      pluginId: 'builtin.rabbitmq.pem', tenantId: 'tenant-rabbitmq-unified-contract', agentId: 'agent-rabbitmq',
+      assetContext: assetContext('LINUX'), assetBinding: rabbitBinding,
+      artifactSnapshots: artifactSnapshots({ certificate: 'memory://rabbitmq/certificate.pem', privateKey: 'memory://rabbitmq/private-key.pem' }),
+      assertPlan: (plan: Awaited<ReturnType<UnifiedAgentPlanCompilerService['compile']>>) => {
+        assert.equal(plan.operations.find((item) => item.id === 'rabbitmq-refresh')?.input.serviceName, 'rabbitmq-server');
+      },
+    },
+    {
+      pluginId: 'builtin.java.pkcs12', tenantId: 'tenant-java-unified-contract', agentId: 'agent-java',
+      assetContext: assetContext('LINUX'), assetBinding: javaBinding,
+      artifactSnapshots: artifactSnapshots({ keystore: 'memory://java/service.p12' }),
+      assertPlan: (plan: Awaited<ReturnType<UnifiedAgentPlanCompilerService['compile']>>) => {
+        assert.equal(plan.operations.find((item) => item.id === 'keystore-install')?.input.path, '/opt/gcac/service.p12');
+      },
+    },
+    {
+      pluginId: 'builtin.windows-service.certificate-file', tenantId: 'tenant-windows-service-unified-contract', agentId: 'agent-windows-service',
+      assetContext: assetContext('WINDOWS'), assetBinding: windowsServiceBinding,
+      artifactSnapshots: artifactSnapshots({ certificateFile: 'memory://windows-service/service.pfx' }),
+      assertPlan: (plan: Awaited<ReturnType<UnifiedAgentPlanCompilerService['compile']>>) => {
+        assert.equal(plan.operations.find((item) => item.id === 'windows-service-refresh')?.input.serviceName, 'GCACService');
+      },
+    },
   ];
+}
+
+function artifactBinding(outputs: Record<string, string>, variables: Record<string, unknown> = {}): InputBindingsV1 {
+  const binding = emptyInputBindingsV1();
+  binding.variables = variables;
+  binding.artifacts = Object.fromEntries(Object.entries(outputs).map(([slot, output]) => [slot, { outputBindings: { [output]: output } }]));
+  return binding;
+}
+
+function artifactSnapshots(outputs: Record<string, string>): Record<string, ResolvedArtifactV1> {
+  return Object.fromEntries(Object.entries(outputs).map(([slot, artifactRef]) => [slot, { outputs: { [slot]: { artifactRef } } }]));
 }
 
 function assetContext(osType: string): DeploymentAssetContextV1 {

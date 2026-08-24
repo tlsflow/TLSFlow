@@ -289,9 +289,7 @@ export interface WorkflowDslV1 {
   apiVersion: 'gcac.workflow/v1';
   kind: 'CurlSshWorkflow';
   metadata: WorkflowMetadata;
-  inputContract?: DeploymentInputContractV1;
-  variables: Record<string, WorkflowVariableDefinition>;
-  connections?: Record<string, WorkflowConnectionDefinition>;
+  inputContract: DeploymentInputContractV1;
   steps: WorkflowStep[];
   rollback?: WorkflowStep[];
 }
@@ -385,32 +383,7 @@ export interface WorkflowTemplateRecord {
   versions: WorkflowTemplateVersion[];
 }
 
-export type WorkflowFileTemplateSource = 'builtin' | 'user';
 export type WorkflowTemplateUpdateMethod = 'ssh' | 'curl';
-
-export interface WorkflowFileTemplate {
-  id: string;
-  source: WorkflowFileTemplateSource;
-  fileName: string;
-  relativePath: string;
-  valid: boolean;
-  updatedAt: string;
-  metadata?: WorkflowMetadata;
-  stepCount?: number;
-  rollbackCount?: number;
-  error?: string;
-}
-
-export interface CreateWorkflowTemplateFromFileInput {
-  fileTemplateId: string;
-  changeSummary?: string;
-}
-
-export interface ApplyWorkflowTemplateFromFileInput {
-  templateId: string;
-  fileTemplateId: string;
-  changeSummary?: string;
-}
 
 export interface WorkflowRuntimeInput {
   templateVersionId: string;

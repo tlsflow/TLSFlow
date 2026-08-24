@@ -1,21 +1,11 @@
 import { apiClient } from '@/api/client'
 import { listRecords, postAction, toClientPath, type ApiBody, type ApiRecord, type BusinessListQuery } from './common'
 
-const PLUGIN_PACKAGES_PATH = '/api/v1/plugins/packages'
-const PLUGIN_DISABLE_PATH = '/api/v1/plugins/disable'
 const PLUGIN_CATALOG_PATH = '/api/v1/plugin-catalog'
 const UNIFIED_PLUGIN_ENABLE_PATH = '/api/v1/plugin-versions/enable'
 const UNIFIED_PLUGIN_DISABLE_PATH = '/api/v1/plugin-versions/disable'
 const UNIFIED_PLUGIN_UI_RESOURCES_PATH = '/api/v1/plugin-versions/ui-resources'
 const PLUGIN_BINDINGS_PATH = '/api/v1/plugin-bindings'
-
-export function listPlugins(query?: BusinessListQuery) {
-  return listRecords(PLUGIN_PACKAGES_PATH, query)
-}
-
-export function disablePlugin(pluginId: string, payload: ApiBody = {}) {
-  return postAction(PLUGIN_DISABLE_PATH, { ...payload, pluginPackageId: pluginId }, 'plugin_disable')
-}
 
 export function listPluginCatalog(query?: BusinessListQuery) {
   return listRecords(PLUGIN_CATALOG_PATH, query)

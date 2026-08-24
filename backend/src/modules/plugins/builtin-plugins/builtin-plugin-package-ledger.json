@@ -17,6 +17,11 @@
       "packageSha256": "sha256:be8bd668565457ceca5771698b9f0cc60922bd9ed51560e7039366af72fac5d4"
     },
     {
+      "pluginId": "builtin.java.pkcs12",
+      "version": "1.0.7",
+      "packageSha256": "sha256:187bb554a5916a67f26c54cfb068b9597c6119ebec5be2df09a69e994a27415e"
+    },
+    {
       "pluginId": "builtin.linux.nginx.pem",
       "version": "1.0.4",
       "packageSha256": "sha256:f0db83dc04a19fe6aa24f37a5f9e4961791fbc8932a8dfbceaa17ee46a1f3091"
@@ -52,6 +57,11 @@
       "packageSha256": "sha256:90079648a16497bfa0f5b8c45ee8030d7cc593734eb6b99420741d4debc4a0b1"
     },
     {
+      "pluginId": "builtin.rabbitmq.pem",
+      "version": "1.0.7",
+      "packageSha256": "sha256:821e867a50b894a96b56d8bdb83297c001f7046e7a5add26adae99682d9fe6b9"
+    },
+    {
       "pluginId": "builtin.windows-service.certificate-file",
       "version": "1.0.4",
       "packageSha256": "sha256:985eeafa5db46e952f109e50e754764d2a2e86d63f6b64fcbb3f50d112014997"
@@ -65,6 +75,11 @@
       "pluginId": "builtin.windows-service.certificate-file",
       "version": "1.0.6",
       "packageSha256": "sha256:e2ae8effb911f67cae4cd4b2f81c52c68f5aa6241519b65e4282e343935e6a3a"
+    },
+    {
+      "pluginId": "builtin.windows-service.certificate-file",
+      "version": "1.0.7",
+      "packageSha256": "sha256:51019bca787f90e9f9c36ec07aad490bf79e454fa09ec5465ce2ac8273cd829a"
     },
     {
       "pluginId": "builtin.windows.iis.pfx",
