@@ -5,7 +5,7 @@
     "name": "citrix-adc-identity-detect",
     "displayName": "Citrix ADC identity detection",
     "category": "device",
-    "version": "2.0.13",
+    "version": "2.0.14",
     "platforms": ["appliance"],
     "updateMethods": ["curl"],
     "maintainer": "GCAC"

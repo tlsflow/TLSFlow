@@ -46,8 +46,5 @@
   "plugin.citrixAdc.action.discover": "再検出",
   "plugin.citrixAdc.onboarding.adc.compatibility": "Citrix ADC 13.1",
   "plugin.citrixAdc.onboarding.adc.requiredAddress": "管理アドレス",
-  "plugin.citrixAdc.onboarding.adc.requiredCredential": "管理者のユーザー名とパスワード",
-  "plugin.citrixAdc.onboarding.vpnServer.compatibility": "Citrix ADC VPN Server 13.1",
-  "plugin.citrixAdc.onboarding.vpnServer.requiredDevice": "管理対象の Citrix ADC デバイス",
-  "plugin.citrixAdc.onboarding.vpnServer.requiredTarget": "設定する VPN Server ターゲット"
+  "plugin.citrixAdc.onboarding.adc.requiredCredential": "管理者のユーザー名とパスワード"
 }

@@ -46,8 +46,5 @@
   "plugin.citrixAdc.action.discover": "重新探索",
   "plugin.citrixAdc.onboarding.adc.compatibility": "Citrix ADC 13.1",
   "plugin.citrixAdc.onboarding.adc.requiredAddress": "管理位址",
-  "plugin.citrixAdc.onboarding.adc.requiredCredential": "管理員使用者名稱與密碼",
-  "plugin.citrixAdc.onboarding.vpnServer.compatibility": "Citrix ADC VPN Server 13.1",
-  "plugin.citrixAdc.onboarding.vpnServer.requiredDevice": "已受管的 Citrix ADC 裝置",
-  "plugin.citrixAdc.onboarding.vpnServer.requiredTarget": "待設定的 VPN Server 目標"
+  "plugin.citrixAdc.onboarding.adc.requiredCredential": "管理員使用者名稱與密碼"
 }

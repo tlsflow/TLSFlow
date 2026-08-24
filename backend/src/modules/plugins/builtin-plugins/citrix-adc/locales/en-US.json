@@ -1,7 +1,6 @@
 {
   "plugin.citrixAdc.field.credential": "Device management credential",
   "plugin.citrixAdc.name": "Citrix ADC",
-  "plugin.citrixAdc.vpnServer.name": "Citrix VDI (NetScaler VPN Server)",
   "plugin.citrixAdc.description": "Manage devices, discover sites, and deploy certificates through the NITRO API.",
   "plugin.citrixAdc.form.device": "Device connection",
   "plugin.citrixAdc.form.authentication": "Authentication",
@@ -47,8 +46,5 @@
   "plugin.citrixAdc.action.discover": "Discover",
   "plugin.citrixAdc.onboarding.adc.compatibility": "Citrix ADC 13.1",
   "plugin.citrixAdc.onboarding.adc.requiredAddress": "Management address",
-  "plugin.citrixAdc.onboarding.adc.requiredCredential": "Administrator username and password",
-  "plugin.citrixAdc.onboarding.vpnServer.compatibility": "Citrix ADC VPN Server 13.1",
-  "plugin.citrixAdc.onboarding.vpnServer.requiredDevice": "Managed Citrix ADC device",
-  "plugin.citrixAdc.onboarding.vpnServer.requiredTarget": "VPN Server target to configure"
+  "plugin.citrixAdc.onboarding.adc.requiredCredential": "Administrator username and password"
 }

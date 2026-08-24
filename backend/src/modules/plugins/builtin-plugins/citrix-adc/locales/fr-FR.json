@@ -46,8 +46,5 @@
   "plugin.citrixAdc.action.discover": "Redécouvrir",
   "plugin.citrixAdc.onboarding.adc.compatibility": "Citrix ADC 13.1",
   "plugin.citrixAdc.onboarding.adc.requiredAddress": "Adresse de gestion",
-  "plugin.citrixAdc.onboarding.adc.requiredCredential": "Nom d utilisateur et mot de passe administrateur",
-  "plugin.citrixAdc.onboarding.vpnServer.compatibility": "Citrix ADC VPN Server 13.1",
-  "plugin.citrixAdc.onboarding.vpnServer.requiredDevice": "Équipement Citrix ADC géré",
-  "plugin.citrixAdc.onboarding.vpnServer.requiredTarget": "Cible VPN Server à configurer"
+  "plugin.citrixAdc.onboarding.adc.requiredCredential": "Nom d utilisateur et mot de passe administrateur"
 }
