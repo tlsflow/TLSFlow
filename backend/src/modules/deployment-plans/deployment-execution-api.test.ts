@@ -6,13 +6,16 @@ import { createServer } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe as baseDescribe, it } from 'node:test';
+import { after, afterEach, describe as baseDescribe, it } from 'node:test';
 import { createApp } from '../../app.module.js';
+import { configureTestAuth, testAuthHeaders } from '../../common/http/test-auth.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { PgAssetsRepository } from '../assets/repository/assets.repository.js';
 import { PgBindingsRepository } from '../bindings/repository/bindings.repository.js';
 import { PgCertificatesRepository } from '../certificates/repository/certificates.repository.js';
+import { createCertificateServices } from '../certificates/controller/certificates.controller.js';
+import { CertificateFormatExporter } from '../certificates/application/certificate-format-exporter.js';
 import { PgDeviceAssetsRepository } from '../device-assets/repository/device-assets.repository.js';
 import { createSecurityServices } from '../security/security.controller.js';
 import { DeploymentInputSnapshotsRepository } from '../deployment-inputs/repository/deployment-input-snapshots.repository.js';
@@ -22,15 +25,53 @@ import { DeploymentPlansRepository } from './repository/deployment-plans.reposit
 import type { CreateDeploymentPlanInput } from './dto/deployment-plans.dto.js';
 import { AgentExecutorAdapter } from '../executions/application/executors.js';
 import { ExecutionsApplicationService } from '../executions/application/executions.application-service.js';
+import type { PluginRunnerExecutionDependencies } from '../executions/application/plugin-runner-executor.adapter.js';
+import type { PluginRunnerExecutionInput, PluginRunnerLaunchSpec } from '../plugins/runner/index.js';
+import type { PluginRunnerExecuteResult } from '../plugins/runner/protocol/protocol.types.js';
 import type { WorkflowDslV1 } from '../workflow-templates/dto/workflow-templates.dto.js';
 import { BuiltinUnifiedPluginLoader } from '../plugins/builtin-plugins/builtin-unified-plugin-loader.js';
 import { WorkflowTemplatesApplicationService } from '../workflow-templates/application/workflow-templates.application-service.js';
+import { computeAgentPlanDigest } from '../agents/security/agent-security.contract.js';
 
-const userHeaders = { 'x-actor-id': 'user_1', 'x-tenant-id': 'tenant_1', 'x-request-id': 'req_test' };
-const approverHeaders = { 'x-actor-id': 'approver_1', 'x-tenant-id': 'tenant_1', 'x-request-id': 'req_approve' };
+const userHeaders = testAuthHeaders('user_1', 'tenant_1', { 'x-request-id': 'req_test' });
+const approverHeaders = testAuthHeaders('approver_1', 'tenant_1', { 'x-request-id': 'req_approve' });
 const describe = (name: string, fn: () => void) => baseDescribe(name, { concurrency: false }, fn);
 
 let directControlAddressPromise: Promise<string> | undefined;
+let directControlServer: ReturnType<typeof createServer> | undefined;
+const activeTestDatabases = new Set<PgliteDatabase>();
+
+function createTrackedDatabase(): PgliteDatabase {
+  const db = new PgliteDatabase();
+  activeTestDatabases.add(db);
+  return db;
+}
+
+async function closeTrackedDatabases(): Promise<void> {
+  const databases = [...activeTestDatabases];
+  activeTestDatabases.clear();
+  await Promise.all(databases.map((db) => db.close()));
+}
+
+async function closeDirectControlServer(): Promise<void> {
+  const server = directControlServer;
+  try {
+    if (server) {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  } finally {
+    directControlServer = undefined;
+    directControlAddressPromise = undefined;
+  }
+}
+
+async function closeTestResources(): Promise<void> {
+  try {
+    await closeTrackedDatabases();
+  } finally {
+    await closeDirectControlServer();
+  }
+}
 
 function getTestAgentDirectControl() {
   directControlAddressPromise ??= new Promise<string>((resolve, reject) => {
@@ -69,6 +110,7 @@ function getTestAgentDirectControl() {
       }
       response.writeHead(404).end();
     });
+    directControlServer = server;
     server.once('error', reject);
     server.listen(0, '127.0.0.1', () => {
       const address = server.address();
@@ -85,7 +127,7 @@ function getTestAgentDirectControl() {
     reachable: true,
     listenAddress,
     protocolVersion: 'v1',
-    supportedActions: ['health', 'discovery.run', 'agent.atomic_plan.execute'],
+    supportedActions: ['health', 'discovery.run', 'agent.plan.execute'],
   }));
 }
 
@@ -102,11 +144,12 @@ type DeploymentFixture = {
 };
 
 async function createMigratedTestApp(options: { security?: ReturnType<typeof createSecurityServices> } = {}) {
-  const db = new PgliteDatabase();
+  const db = createTrackedDatabase();
   await runMigrations(db);
   const security = options.security ?? createSecurityServices();
   await grantDeploymentFixturePolicies(security, 'tenant_1');
-  const app = createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true });
+  const app = createDeploymentTestApp(db, security);
+  configureDeploymentLicenseFixture(app);
   const fixture = await seedDeploymentFixture(app, 'tenant_1');
   return {
     db,
@@ -119,11 +162,12 @@ async function createMigratedTestApp(options: { security?: ReturnType<typeof cre
 async function createMigratedDeploymentService(options: {
   security?: ReturnType<typeof createSecurityServices>;
 } = {}) {
-  const db = new PgliteDatabase();
+  const db = createTrackedDatabase();
   await runMigrations(db);
   const security = options.security ?? createSecurityServices();
   await grantDeploymentFixturePolicies(security, 'tenant_1');
-  const app = createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true });
+  const app = createDeploymentTestApp(db, security);
+  configureDeploymentLicenseFixture(app);
   const service = app.getResource('deploymentPlansService') as DeploymentPlansApplicationService;
   const repository = service.getRepository();
   const assets = new PgAssetsRepository(db);
@@ -131,6 +175,81 @@ async function createMigratedDeploymentService(options: {
   const certificates = new PgCertificatesRepository(db);
   const fixture = await seedDeploymentFixture(app, 'tenant_1');
   return { db, security, app, repository, assets, bindings, certificates, service, fixture };
+}
+
+function createDeploymentTestApp(db: PgliteDatabase, security: ReturnType<typeof createSecurityServices>) {
+  const certificates = createCertificateServices(security, { db, pfxExporter: new PfxPluginRunnerFixture() });
+  // 本文件只验证部署插件的 v2 执行合同；旧领域信任计划由独立测试覆盖，不能把已退役的动作带入本 Fixture。
+  Object.defineProperty(certificates.certificates, 'getTrustRoots', { value: undefined });
+  return configureTestAuth(createApp({
+    db,
+    corePersistence: { mode: 'memory' },
+    security,
+    certificates,
+    pluginRunner: createDeploymentPluginRunnerFixture(),
+  }));
+}
+
+function createDeploymentPluginRunnerFixture(): PluginRunnerExecutionDependencies {
+  const runner = {
+    executablePath: process.execPath,
+    workingDirectory: process.cwd(),
+    args: ['deployment-execution-api-test-runner'],
+    executorModulePath: process.execPath,
+    runnerVersion: 'fixture-1.0.0',
+    sdkVersion: 'fixture-1.0.0',
+  };
+  return {
+    runner,
+    supervisor: {
+      start: async (spec: PluginRunnerLaunchSpec) => ({
+        execute: async (input: PluginRunnerExecutionInput): Promise<PluginRunnerExecuteResult> => ({
+          protocolVersion: 'gcac.plugin-runner/v1',
+          messageType: 'execute_result',
+          requestId: `fixture-${input.executionStepId}`,
+          sentAt: new Date().toISOString(),
+          pluginVersionId: spec.pluginVersionId,
+          tenantId: input.tenantId,
+          executionId: input.executionId,
+          executionStepId: input.executionStepId,
+          success: true,
+          status: 'SUCCESS',
+          summary: {
+            state: 'SUCCEEDED',
+            operationResults: [{
+              operationId: `runner-preflight-${input.executionStepId}`,
+              operationType: 'preflight.assert',
+              stage: 'prepare',
+              status: 'SUCCEEDED',
+              detail: { passed: true },
+            }],
+          },
+          normalizedObjects: [],
+          warnings: [],
+        }),
+      }),
+    },
+  };
+}
+
+class PfxPluginRunnerFixture extends CertificateFormatExporter {
+  override generate(format: string, input: Record<string, unknown>) {
+    if (format !== 'pfx') return super.generate(format, input as never);
+    const content = Buffer.from(`pfx-plugin-runner:${String((input.version as { id?: string })?.id ?? 'fixture')}`, 'utf8');
+    return {
+      format: 'pfx',
+      content,
+      contentType: 'application/x-pkcs12',
+      warnings: [],
+      files: [{ key: 'bundle', role: 'bundle', format: 'pfx', contentBase64: content.toString('base64'), contentEncoding: 'base64' }],
+    };
+  }
+}
+
+function configureDeploymentLicenseFixture(app: ReturnType<typeof createApp>): void {
+  const licensing = app.getResource('licensingService');
+  assert.ok(licensing);
+  licensing.requireApplicationAssetQuota = async () => undefined;
 }
 
 function createPlanBody(
@@ -290,6 +409,8 @@ async function configureApplicationAssetManagedTarget(
   certificateFormatId: string,
 ) {
 
+  await ensureIisAgentPlanPlugin(app);
+
   let compatible = await app.inject({
     method: 'GET',
     path: `/api/v1/managed-targets/${managedTargetId}/compatible-plugins?capabilityKey=certificate.deploy&applicationAssetId=${applicationAssetId}`,
@@ -299,7 +420,7 @@ async function configureApplicationAssetManagedTarget(
   if ((compatible.body as { items: unknown[] }).items.length === 0) {
     const unifiedPlugins = app.getResource('unifiedPluginsService');
     assert.ok(unifiedPlugins);
-    await new BuiltinUnifiedPluginLoader().installAll('tenant_1', unifiedPlugins);
+    await new BuiltinUnifiedPluginLoader().installAll(unifiedPlugins);
     compatible = await app.inject({
       method: 'GET',
       path: `/api/v1/managed-targets/${managedTargetId}/compatible-plugins?capabilityKey=certificate.deploy&applicationAssetId=${applicationAssetId}`,
@@ -346,6 +467,99 @@ async function configureApplicationAssetManagedTarget(
   assert.equal(strategy.statusCode, 200, JSON.stringify(strategy.body));
 }
 
+async function ensureIisAgentPlanPlugin(app: ReturnType<typeof createApp>): Promise<void> {
+  const unifiedPlugins = app.getResource('unifiedPluginsService');
+  assert.ok(unifiedPlugins);
+  const existing = (await unifiedPlugins.listVersions('tenant_1')).find((item: { pluginId: string }) => item.pluginId === 'web.microsoft-iis-agent-plan');
+  if (existing) return;
+  const agentPlanResource = JSON.stringify({
+    inputContract: {
+      apiVersion: 'gcac.deployment-input/v1',
+      variables: {},
+      connections: {},
+      credentials: {},
+      artifacts: {
+        serverCert: {
+          kind: 'certificate',
+          required: true,
+          configurationMode: 'required',
+          lifecycle: 'pre_execution',
+          artifactContract: { outputs: { bundle: { role: 'pkcs12_bundle', required: true, sensitive: true } } },
+        },
+      },
+    },
+    plan: {
+      planVersion: 'gcac.agent-security/v1',
+      planId: 'iis-pfx-deploy-plan',
+      agentId: 'fixture-agent',
+      tenantId: 'fixture-tenant',
+      pluginId: 'web.microsoft-iis-agent-plan',
+      pluginVersionId: 'fixture-plugin-version',
+      capability: 'certificate.deploy',
+      operations: [{
+        operationId: 'inspect-target-store',
+        operationType: 'certificate.store.inspect',
+        stage: 'prepare',
+        input: { store: 'LocalMachine\\My' },
+        dependsOn: [],
+        idempotencyKey: 'iis-pfx-inspect',
+        timeoutSeconds: 30,
+      }],
+      planDigest: '',
+      tokenId: 'draft-token',
+      policyDecisionId: 'draft-decision',
+      nonce: 'draft-nonce',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      writeEffect: false,
+    },
+    authorization: {
+      grantId: 'fixture-agent-plan-grant',
+      policyRef: 'fixture-agent-plan-policy',
+      policyVersion: '1',
+      actions: ['certificate.store.inspect'],
+      allowedPaths: [],
+      allowedServices: [],
+      artifactDigests: [],
+      lifetimeSeconds: 300,
+    },
+  });
+  const parsed = JSON.parse(agentPlanResource) as { plan: Record<string, unknown> };
+  parsed.plan.planDigest = computeAgentPlanDigest(parsed.plan as never);
+  const installed = await unifiedPlugins.importVersion('tenant_1', {
+    manifest: {
+      apiVersion: 'gcac.plugin-manifest/v1',
+      kind: 'GcacPlugin',
+      pluginId: 'web.microsoft-iis-agent-plan',
+      version: '1.0.0',
+      displayNameKey: 'plugin.microsoftIisAgentPlan.name',
+      publisher: 'GCAC test fixture',
+      runtime: 'AGENT_PLAN',
+      source: 'USER',
+      scope: 'MANAGED',
+      trust: 'USER_SIGNED',
+      support: 'SELF_MANAGED',
+      capabilities: [
+        { key: 'certificate.deploy', contractVersion: 'v1', actionContractId: 'certificate.deploy.v1', riskLevel: 'HIGH', executionLocations: ['AGENT'] },
+        { key: 'certificate.rollback', contractVersion: 'v1', actionContractId: 'certificate.rollback.v1', riskLevel: 'HIGH', executionLocations: ['AGENT'] },
+      ],
+      permissions: ['certificate.deploy'],
+      compatibility: {
+        productFamilies: ['WINDOWS_SERVER'],
+        frameworkTypes: ['web.iis'],
+        targetTypes: ['tls.binding'],
+        managementMethods: ['AGENT'],
+        executionLocations: ['AGENT'],
+        artifactContracts: ['certificate.deploy.v1'],
+      },
+      resources: { agentPlans: { 'certificate.deploy': 'agent-plans/certificate-deploy.json', 'certificate.rollback': 'agent-plans/certificate-deploy.json' } },
+    },
+    resources: { 'agent-plans/certificate-deploy.json': agentPlanResource },
+    packageContent: agentPlanResource,
+  }, 'USER');
+  const approved = await unifiedPlugins.approvePermissions(installed.id, installed.manifest.permissions);
+  await unifiedPlugins.enableVersion(approved.id);
+}
+
 async function completeAgentDryRun(app: ReturnType<typeof createApp>, input: {
   planId: string;
   agentId: string;
@@ -382,6 +596,8 @@ async function completeAgentDryRun(app: ReturnType<typeof createApp>, input: {
 
 
 describe('部署计划与执行编排 API', () => {
+  afterEach(closeTestResources);
+  after(closeTestResources);
   it('同一应用资产重复创建时复用人工草稿，提交后允许创建新周期', async () => {
     const { app, fixture } = await createMigratedTestApp();
     const create = (idempotencyKey: string) => app.inject({
@@ -454,11 +670,11 @@ describe('部署计划与执行编排 API', () => {
   });
 
   it('按应用资产创建计划时会按 WORKFLOW 策略生成工作流执行目标', async () => {
-    const db = new PgliteDatabase();
+    const db = createTrackedDatabase();
     await runMigrations(db);
     const security = createSecurityServices();
     grantWildcardPolicy(security, 'user_1', 'tenant_1');
-    const app = createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true });
+    const app = createDeploymentTestApp(db, security);
     const fixture = await seedWorkflowStrategyFixture(app, db);
     const workflow = await createPublishedWorkflow(app, workflowTemplateFixture('应用资产工作流部署'));
 
@@ -539,11 +755,11 @@ describe('部署计划与执行编排 API', () => {
   });
 
   it('WORKFLOW 应用资产选择始终最新版本时，已有部署计划 dry-run 仍使用创建时固定版本', async () => {
-    const db = new PgliteDatabase();
+    const db = createTrackedDatabase();
     await runMigrations(db);
     const security = createSecurityServices();
     grantWildcardPolicy(security, 'user_1', 'tenant_1');
-    const app = createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true });
+    const app = createDeploymentTestApp(db, security);
     const fixture = await seedWorkflowStrategyFixture(app, db);
     const workflow = await createPublishedWorkflow(app, workflowTemplateFixture('应用资产工作流实时版本'));
 
@@ -601,13 +817,12 @@ describe('部署计划与执行编排 API', () => {
 
     const v2Content = workflowTemplateFixture('应用资产工作流实时版本');
     v2Content.metadata.version = '1.0.1';
-    v2Content.steps[0]!.ssh!.command = 'echo deploy v2';
+    v2Content.steps[0]!.ssh!.args = ['service-main-v2'];
     const createdV2 = await app.inject({
       method: 'POST',
-      path: '/api/v1/workflow-template-versions',
+      path: `/api/v1/workflows/${workflow.template.id}/versions`,
       headers: userHeaders,
       body: {
-        templateId: workflow.template.id,
         content: v2Content,
         changeSummary: '发布第二版',
       },
@@ -616,9 +831,8 @@ describe('部署计划与执行编排 API', () => {
     const version2 = createdV2.body as { id: string };
     const publishedV2 = await app.inject({
       method: 'POST',
-      path: '/api/v1/workflow-template-versions/publish',
+      path: `/api/v1/workflows/versions/${version2.id}/publish`,
       headers: userHeaders,
-      body: { versionId: version2.id },
     });
     assert.equal(publishedV2.statusCode, 200, JSON.stringify(publishedV2.body));
 
@@ -635,11 +849,11 @@ describe('部署计划与执行编排 API', () => {
   });
 
   it('无 Agent 目标绑定的 WORKFLOW 应用资产也可以创建部署计划', async () => {
-    const db = new PgliteDatabase();
+    const db = createTrackedDatabase();
     await runMigrations(db);
     const security = createSecurityServices();
     grantWildcardPolicy(security, 'user_1', 'tenant_1');
-    const app = createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true });
+    const app = createDeploymentTestApp(db, security);
     const certificate = await importCertificateFormatFixture(app, 'tenant_1', 'workflow-only.example.com', 'workflow_only');
     const workflow = await createPublishedWorkflow(app, workflowHttpCertificateFixture('无 Agent 绑定工作流'));
 
@@ -736,11 +950,11 @@ describe('部署计划与执行编排 API', () => {
   });
 
   it('应用资产 WORKFLOW 策略经真实 HTTP 工作流执行后会回写绑定和资产状态', async () => {
-    const db = new PgliteDatabase();
+    const db = createTrackedDatabase();
     await runMigrations(db);
     const security = createSecurityServices();
     grantWildcardPolicy(security, 'user_1', 'tenant_1');
-    const app = createApp({ db, corePersistence: { mode: 'memory' }, security, allowLegacyHeaderContext: true });
+    const app = createDeploymentTestApp(db, security);
     const fixture = await seedWorkflowStrategyFixture(app, db);
     const verifyServer = createServer((_request, response) => {
       response.setHeader('content-type', 'application/json');
@@ -1203,7 +1417,7 @@ describe('部署计划与执行编排 API', () => {
       ['DISCOVER', 'BACKUP', 'INSTALL', 'RELOAD', 'VERIFY'],
     );
     assert.equal(
-      body.steps.every((step) => step.inputSnapshot.actionType === 'agent.atomic_plan.execute'),
+      body.steps.every((step) => step.inputSnapshot.actionType === 'agent.plan.execute'),
       true,
     );
   });
@@ -1374,7 +1588,7 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(body.rollbackRun.status, 'DISPATCHED');
     assert.deepEqual(body.steps.map((step) => step.stepType), ['ROLLBACK', 'VERIFY']);
     assert.equal(
-      body.steps.every((step) => step.inputSnapshot.actionType === 'agent.atomic_plan.execute'),
+      body.steps.every((step) => step.inputSnapshot.actionType === 'agent.plan.execute'),
       true,
     );
     assert.equal(
@@ -2167,7 +2381,7 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
     const dryRunBody = dryRun.body as { steps: Array<{ inputSnapshot: { actionType?: string; deploymentArtifact?: unknown; resolvedDeploymentInput?: unknown } }> };
     assert.equal(
-      dryRunBody.steps.some((step) => step.inputSnapshot.actionType === 'agent.atomic_plan.execute'),
+      dryRunBody.steps.some((step) => step.inputSnapshot.actionType === 'agent.plan.execute'),
       true,
     );
     assert.equal(dryRunBody.steps.every((step) => step.inputSnapshot.deploymentArtifact === undefined), true);
@@ -2748,7 +2962,7 @@ describe('部署计划与执行编排 API', () => {
     });
     assert.equal(dryRun.statusCode, 200, JSON.stringify(dryRun.body));
     const dryRunBody = dryRun.body as { steps: Array<{ inputSnapshot: Record<string, unknown> }> };
-    const atomicStep = dryRunBody.steps.find((step) => step.inputSnapshot.actionType === 'agent.atomic_plan.execute');
+    const atomicStep = dryRunBody.steps.find((step) => step.inputSnapshot.actionType === 'agent.plan.execute');
     assert.ok(atomicStep);
     assert.equal(atomicStep!.inputSnapshot.deploymentArtifact, undefined);
     assert.equal(atomicStep!.inputSnapshot.resolvedDeploymentInput, undefined);
@@ -2972,9 +3186,10 @@ function workflowTemplateFixture(name: string): WorkflowDslV1 {
         name: 'deploy',
         type: 'ssh',
         ssh: {
-          mode: 'command',
           connectionRef: 'targetSsh',
-          command: 'echo deploy',
+          program: 'systemctl',
+          args: ['service-main'],
+          argumentTemplate: 'systemctl.restart',
         },
       },
     ],
@@ -3189,7 +3404,7 @@ async function seedWorkflowStrategyFixture(app: ReturnType<typeof createApp>, db
 
 async function seedDeploymentFixture(app: ReturnType<typeof createApp>, tenantId: string): Promise<DeploymentFixture> {
   const chain = createPemChainFixture();
-  const headers = { ...userHeaders, 'x-tenant-id': tenantId };
+  const headers = testAuthHeaders('user_1', tenantId, { 'x-request-id': 'req_test' });
 
   const registered = await app.inject({
     method: 'POST',
@@ -3383,7 +3598,7 @@ async function importCertificateFormatFixture(
   commonName: string,
   alias: string,
 ): Promise<{ certificateVersionId: string; certificateFormatId: string; certificateFingerprintSha256: string; certificatePem: string; privateKeyPem: string }> {
-  const headers = { 'x-actor-id': 'user_1', 'x-tenant-id': tenantId, 'x-request-id': `req_${alias}` };
+  const headers = testAuthHeaders('user_1', tenantId, { 'x-request-id': `req_${alias}` });
   const pemFixture = createPemChainFixture(commonName);
   const imported = await app.inject({
     method: 'POST',

@@ -1,11 +1,8 @@
 import { AppError } from '../../../common/errors/app-error.js';
-import type { DatabasePort } from '../../../database/database-port.js';
 import { AUDIT_EVENT_TYPES } from '../../audits/audit-event-types.js';
 import { AuditService } from '../../audits/audit.service.js';
 import type { DeploymentPlansRepository } from '../../deployment-plans/repository/deployment-plans.repository.js';
 import type { DeploymentGatewayRouteDto } from '../../deployment-plans/dto/deployment-plans.dto.js';
-import { PgJobRunner } from '../../../queue/pg-job-runner.js';
-import type { QueuePort } from '../../../queue/queue-port.js';
 import { newId } from '../../../shared/id.js';
 import { assertTransition } from '../../../shared/state-machine/core-state-machine.js';
 import type { RequestContext } from '../../../shared/security-types.js';
@@ -20,20 +17,20 @@ import { FailurePolicyEngine } from './failure-policy-engine.js';
 import { ExecutionDetailStreamService } from './execution-detail-stream.service.js';
 import { RunRecoveryWorker } from './run-recovery-worker.js';
 import { Scheduler } from './scheduler.js';
-import { StepRunner } from './step-runner.js';
 import { StepGraphBuilder } from './step-graph-builder.js';
 import { sanitizeExecutionErrorDetails } from './execution-error-details.js';
 import type { DeploymentInputSnapshotsRepository } from '../../deployment-inputs/repository/deployment-input-snapshots.repository.js';
 import { sanitizeDeploymentInputPersistencePayload } from '../../deployment-inputs/application/deployment-input-persistence-sanitizer.js';
-import { isUnifiedTaskWorkerEnabled, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
+import type { TaskEnqueuer } from '../../tasks/task-enqueue.js';
+import type { AgentSecurityStatus } from '../../agents/security/agent-security.contract.js';
 
 type FailurePolicy = 'stop' | 'continue' | 'rollback';
 
 export interface ExecutionsApplicationDependencies {
   repository?: ExecutionsRepository;
   deploymentPlansRepository: DeploymentPlansRepository;
-  queue?: QueuePort;
-  queueDb?: DatabasePort;
+  /** 旧 bootstrap 仍会传入该字段；执行服务不会读取，也不会据此创建旧队列。 */
+  queueDb?: unknown;
   audit?: AuditService;
   domain?: ExecutionsDomainService;
   executorRegistry?: ExecutorRegistry;
@@ -48,7 +45,6 @@ export interface ExecutionsApplicationDependencies {
 export class ExecutionsApplicationService {
   private readonly repository: ExecutionsRepository;
   private readonly deploymentPlansRepository: DeploymentPlansRepository;
-  private readonly queue: QueuePort;
   private readonly audit: AuditService;
   private readonly domain: ExecutionsDomainService;
   private readonly graphBuilder: StepGraphBuilder;
@@ -79,11 +75,6 @@ export class ExecutionsApplicationService {
     this.delay = dependencies.delay ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
     this.deploymentInputSnapshots = dependencies.deploymentInputSnapshots;
     this.tasks = dependencies.tasks;
-    this.queue = dependencies.queue ?? new PgJobRunner(
-      (job) => new StepRunner(this, this.executorRegistry).run(job),
-      dependencies.queueDb,
-      ['DEPLOYMENT_EXECUTE'],
-    );
   }
 
   async listRuns(input: { tenantId?: string; deploymentPlanId?: string } = {}): Promise<any> {
@@ -117,7 +108,6 @@ export class ExecutionsApplicationService {
   async retry(input: RetryExecutionRunInput, context: RequestContext = {}): Promise<any> {
     const sourceRun = await this.repository.getRunOrThrow(input.runId, input.tenantId);
     const sourceSteps = await this.repository.listSteps(input.tenantId, sourceRun.id);
-    assertLegacyExecutionRetired(sourceSteps.map(toExecutionStepRef), { runId: sourceRun.id });
     if (!['FAILED', 'TIMEOUT', 'CANCELLED'].includes(sourceRun.status)) {
       throw new AppError('DEPLOYMENT_INVALID_STATE', '只有失败、超时或取消的运行允许重试', { runId: sourceRun.id, status: sourceRun.status });
     }
@@ -150,7 +140,6 @@ export class ExecutionsApplicationService {
   async rollback(input: RollbackExecutionRunInput, context: RequestContext = {}): Promise<any> {
     const sourceRun = await this.repository.getRunOrThrow(input.runId, input.tenantId);
     const sourceSteps = await this.repository.listSteps(input.tenantId, sourceRun.id);
-    assertLegacyExecutionRetired(sourceSteps.map(toExecutionStepRef), { runId: sourceRun.id });
     this.domain.assertRollbackAllowed(sourceRun);
     const targetIds = [...new Set(sourceSteps.map((step) => step.deploymentPlanTargetId).filter((id): id is string => Boolean(id)))];
     if (!sourceSteps.length || !targetIds.length) {
@@ -184,13 +173,9 @@ export class ExecutionsApplicationService {
       }
     }
     const executorTypeByTargetId = readSourceExecutorTypes(sourcePayloadByTargetId);
-    assertLegacyExecutionRetired(
-      [...executorTypeByTargetId].map(([targetId, executorType]) => ({ targetId, executorType })),
-      { runId: sourceRun.id },
-    );
     const gatewayRouteByTargetId = readSourceGatewayRoutes(sourcePayloadByTargetId);
     const transitioned = await this.transitionRunEntity(sourceRun, 'ROLLBACK_RUNNING', input.actorId, 'rollback.requested');
-    void this.audit.write({
+    await this.audit.write({
       eventType: AUDIT_EVENT_TYPES.DEPLOYMENT_ROLLBACK_REQUESTED,
       actorType: 'user',
       actorId: input.actorId,
@@ -202,7 +187,7 @@ export class ExecutionsApplicationService {
       context,
       failClosed: true,
       detail: { sourceRunId: sourceRun.id, approvalId: input.approvalId },
-    }).catch(() => undefined);
+    });
     const created = await this.createRunAndEnqueue({
       deploymentPlanId: sourceRun.deploymentPlanId,
       deploymentPlanTargetIds: targetIds,
@@ -234,6 +219,13 @@ export class ExecutionsApplicationService {
     for (const step of await this.repository.listSteps(tenantId, run.id)) {
       if (step.status === 'PENDING') {
         await this.transitionStepEntity(step, 'SKIPPED', actorId, 'step.cancelled');
+      } else if (step.status === 'RUNNING' && isPotentiallyUnknownWriteStep(step)) {
+        await this.persistUnknownExecution(run, step, actorId, tenantId, {
+          success: false,
+          errorCode: 'EXECUTION_CANCELLED_UNKNOWN',
+          errorMessage: '写操作取消与外部执行竞态，结果无法确认，禁止自动重放',
+          detail: { executionStatus: 'UNKNOWN', cancellationRace: true },
+        });
       }
     }
     return this.toRunDto(await this.transitionRunEntity(run, 'CANCELLED', actorId, 'run.cancelled'));
@@ -242,7 +234,6 @@ export class ExecutionsApplicationService {
   async runDispatchedExecution(runId: string, actorId: string, tenantId: string | undefined, registry: ExecutorRegistry = this.executorRegistry): Promise<any> {
     let run = await this.repository.getRunOrThrow(runId, tenantId);
     const persistedSteps = await this.repository.listSteps(tenantId, run.id);
-    assertLegacyExecutionRetired(persistedSteps.map(toExecutionStepRef), { runId: run.id });
     if (run.status === 'CANCELLED') return { success: false, errorCode: 'RUN_CANCELLED', errorMessage: '执行运行已取消' };
     if (!['DISPATCHED', 'RUNNING'].includes(run.status)) {
       throw new AppError('DEPLOYMENT_INVALID_STATE', '只有 DISPATCHED 或 RUNNING 运行允许调度执行', { runId: run.id, status: run.status });
@@ -335,13 +326,19 @@ export class ExecutionsApplicationService {
 
   async recoverRunsForTest(actorId: string, tenantId?: string, registry: ExecutorRegistry = new ExecutorRegistry()): Promise<any> {
     const candidates = await this.recoveryWorker.recoverableRuns(tenantId);
-    // 恢复前先检查整批候选运行，避免普通运行先产生写入后才遇到 Legacy 运行。
+    const results: Array<{ run: ExecutionRunDto; result: { success: boolean; recovered: boolean; skippedStepIds: string[]; unknownStepIds: string[] } }> = [];
     for (const candidate of candidates) {
-      const persistedSteps = await this.repository.listSteps(tenantId, candidate.run.id);
-      assertLegacyExecutionRetired(persistedSteps.map(toExecutionStepRef), { runId: candidate.run.id });
-    }
-    const results: Array<{ run: ExecutionRunDto; result: { success: boolean; recovered: boolean; skippedStepIds: string[] } }> = [];
-    for (const candidate of candidates) {
+      for (const stepId of candidate.unknownStepIds) {
+        const step = await this.repository.getStepOrThrow(stepId, tenantId);
+        if (step.status === 'RUNNING') {
+          await this.persistUnknownExecution(candidate.run, step, actorId, tenantId, {
+            success: false,
+            errorCode: 'EXECUTION_RECOVERY_UNKNOWN',
+            errorMessage: '进程重启后无法确认写操作是否已生效，禁止自动重放',
+            detail: { executionStatus: 'UNKNOWN', recoveryBoundary: true },
+          });
+        }
+      }
       for (const step of candidate.stepsToResume) {
         if (step.status === 'RUNNING' && step.idempotent !== false) {
           await this.repository.updateStep(step.id, {
@@ -349,7 +346,7 @@ export class ExecutionsApplicationService {
             updatedAt: new Date().toISOString(),
             updatedBy: actorId,
           });
-          this.recordTransition('executionStep', step.id, 'RUNNING', 'PENDING', 'recovery.requeued', actorId, step.tenantId);
+          await this.recordTransition('executionStep', step.id, 'RUNNING', 'PENDING', 'recovery.requeued', actorId, step.tenantId);
         }
       }
       for (const stepId of candidate.skippedStepIds) {
@@ -364,7 +361,7 @@ export class ExecutionsApplicationService {
             lastErrorCode: 'NON_IDEMPOTENT_SKIPPED',
             lastErrorMessage: '恢复流程跳过不可幂等的运行中步骤',
           });
-          this.recordTransition('executionStep', step.id, 'RUNNING', 'SKIPPED', 'recovery.non_idempotent_skipped', actorId, step.tenantId);
+          await this.recordTransition('executionStep', step.id, 'RUNNING', 'SKIPPED', 'recovery.non_idempotent_skipped', actorId, step.tenantId);
         }
       }
 
@@ -380,25 +377,27 @@ export class ExecutionsApplicationService {
       const executionResult = await this.runDispatchedExecution(normalizedRun.id, actorId, tenantId, registry);
       results.push({
         run: await this.getRun(normalizedRun.id, tenantId),
-        result: { success: executionResult.success, recovered: true, skippedStepIds: candidate.skippedStepIds },
+        result: { success: executionResult.success, recovered: true, skippedStepIds: candidate.skippedStepIds, unknownStepIds: candidate.unknownStepIds },
       });
     }
     return results;
   }
 
-  async runNextJobForTest() {
-    return this.queue.runNext();
-  }
-
-  async runNextQueuedJob() {
-    return this.queue.runNext();
+  /** 旧 bootstrap 调用的硬停止接口；统一任务控制面之外不再执行任何任务。 */
+  async runNextQueuedJob(): Promise<null> {
+    return null;
   }
 
   private async createRunAndEnqueue(input: CreateExecutionRunInput, context: RequestContext): Promise<{ run: ExecutionRunDto; steps: ExecutionStepDto[]; jobId: string }> {
-    assertLegacyExecutionRetired(
-      [...input.executorTypeByTargetId].map(([targetId, executorType]) => ({ targetId, executorType })),
-      { deploymentPlanId: input.deploymentPlanId },
-    );
+    const tasks = this.tasks;
+    const tenantId = input.tenantId;
+    if (!tasks || !tenantId) {
+      throw new AppError('SYSTEM_INTERNAL_ERROR', '统一任务控制面未配置，拒绝进入旧执行路径', {
+        code: 'UNIFIED_TASK_CONTROL_PLANE_REQUIRED',
+        deploymentPlanId: input.deploymentPlanId,
+        tenantId,
+      });
+    }
     const existing = await this.repository.findRunByIdempotencyKey(input.tenantId, input.idempotencyKey);
     const requestHash = this.domain.buildRunRequestHash({ deploymentPlanId: input.deploymentPlanId, type: input.type });
     if (existing) {
@@ -428,7 +427,7 @@ export class ExecutionsApplicationService {
       createdBy: input.actorId,
       version: 1,
     });
-    this.recordTransition('executionRun', run.id, undefined, 'PENDING', 'run.created', input.actorId, input.tenantId);
+    await this.recordTransition('executionRun', run.id, undefined, 'PENDING', 'run.created', input.actorId, input.tenantId);
 
     const stepMaxAttempts = input.retry?.maxAttempts ?? input.stepMaxAttempts ?? 1;
     const steps = await this.createDefaultSteps(
@@ -442,49 +441,32 @@ export class ExecutionsApplicationService {
       input.allowMockExecutor === true,
       input.agentPayloadByTargetId,
     );
-    const tasks = this.tasks;
-    const tenantId = input.tenantId;
-    const useUnifiedTaskControlPlane = tasks !== undefined
-      && tenantId !== undefined
-      && isUnifiedTaskWorkerEnabled();
-    let jobId: string;
-    if (useUnifiedTaskControlPlane && tasks && tenantId) {
-      const deploymentPlan = await this.deploymentPlansRepository.getPlan(input.deploymentPlanId, tenantId);
-      const task = await tasks.enqueue({
-        tenantId,
-        taskType: taskTypeForExecutionRun(input.type),
-        requestedBy: input.actorId,
-        triggerSource: `execution.${input.type}.enqueue`,
-        idempotencyKey: `execution-run:${run.id}`,
-        resourceSummary: {
-          displayName: deploymentPlan?.name ?? input.deploymentPlanId,
-          deploymentPlanId: input.deploymentPlanId,
-          executionType: input.type,
-        },
-        payload: {
-          runId: run.id,
-          deploymentPlanId: input.deploymentPlanId,
-          executionType: input.type,
-        },
-        resourceRefs: [
-          { resourceType: 'deploymentPlan', resourceId: input.deploymentPlanId, displayKey: deploymentPlan?.name ?? input.deploymentPlanId },
-          { resourceType: 'executionRun', resourceId: run.id },
-        ],
-      });
-      jobId = task.id;
-    } else {
-      jobId = (await this.queue.enqueue({
-        jobType: 'DEPLOYMENT_EXECUTE',
-        resourceType: 'executionRun',
-        resourceId: run.id,
-        idempotencyKey: input.idempotencyKey,
-        payload: { runId: run.id, deploymentPlanId: input.deploymentPlanId, type: input.type, tenantId: input.tenantId, actorId: input.actorId },
-        retryPolicy: { maxAttempts: 1, backoffSeconds: 0 },
-      })).jobId;
-    }
+    const deploymentPlan = await this.deploymentPlansRepository.getPlan(input.deploymentPlanId, tenantId);
+    const task = await tasks.enqueue({
+      tenantId,
+      taskType: taskTypeForExecutionRun(input.type),
+      requestedBy: input.actorId,
+      triggerSource: `execution.${input.type}.enqueue`,
+      idempotencyKey: `execution-run:${run.id}`,
+      resourceSummary: {
+        displayName: deploymentPlan?.name ?? input.deploymentPlanId,
+        deploymentPlanId: input.deploymentPlanId,
+        executionType: input.type,
+      },
+      payload: {
+        runId: run.id,
+        deploymentPlanId: input.deploymentPlanId,
+        executionType: input.type,
+      },
+      resourceRefs: [
+        { resourceType: 'deploymentPlan', resourceId: input.deploymentPlanId, displayKey: deploymentPlan?.name ?? input.deploymentPlanId },
+        { resourceType: 'executionRun', resourceId: run.id },
+      ],
+    });
+    const jobId = task.id;
     const dispatched = await this.transitionRunEntity({ ...run, externalRunId: jobId }, 'DISPATCHED', input.actorId, 'queue.dispatched', { externalRunId: jobId });
 
-    void this.audit.write({
+    await this.audit.write({
       eventType: AUDIT_EVENT_TYPES.DEPLOYMENT_EXECUTED,
       actorType: 'user',
       actorId: input.actorId,
@@ -495,8 +477,8 @@ export class ExecutionsApplicationService {
       riskLevel: input.type === 'dry_run' ? 'low' : 'high',
       context,
       failClosed: input.type !== 'dry_run',
-      detail: { deploymentPlanId: input.deploymentPlanId, jobId, stepCount: steps.length, queue: useUnifiedTaskControlPlane ? 'unified-task-control-plane' : 'legacy-pg-job-runner' },
-    }).catch(() => undefined);
+      detail: { deploymentPlanId: input.deploymentPlanId, jobId, stepCount: steps.length, taskControlPlane: 'unified-task-control-plane' },
+    });
 
     return { run: this.toRunDto(dispatched), steps: steps.map((step) => this.toStepDto(step)), jobId };
   }
@@ -560,7 +542,7 @@ export class ExecutionsApplicationService {
           createdBy: actorId,
           version: 1,
         });
-        this.recordTransition('executionStep', trustStep.id, undefined, 'PENDING', 'step.created', actorId, run.tenantId);
+        await this.recordTransition('executionStep', trustStep.id, undefined, 'PENDING', 'step.created', actorId, run.tenantId);
         this.detailStream?.publishStep(trustStep);
         created.push(trustStep);
         previousStepNo = stepNo;
@@ -624,7 +606,7 @@ export class ExecutionsApplicationService {
           createdBy: actorId,
           version: 1,
         });
-        this.recordTransition('executionStep', step.id, undefined, 'PENDING', 'step.created', actorId, run.tenantId);
+        await this.recordTransition('executionStep', step.id, undefined, 'PENDING', 'step.created', actorId, run.tenantId);
         this.detailStream?.publishStep(step);
         created.push(step);
         previousStepNo = stepNo;
@@ -712,7 +694,7 @@ export class ExecutionsApplicationService {
       updatedAt: new Date().toISOString(),
       updatedBy: actorId,
     });
-    this.recordTransition('deploymentPlan', plan.id, plan.status, nextStatus, event, actorId, plan.tenantId);
+    await this.recordTransition('deploymentPlan', plan.id, plan.status, nextStatus, event, actorId, plan.tenantId);
   }
 
   private async markRollbackSourceRuns(deploymentPlanId: string, status: 'ROLLBACK_SUCCESS' | 'ROLLBACK_FAILED', actorId: string, tenantId?: string): Promise<void> {
@@ -733,7 +715,7 @@ export class ExecutionsApplicationService {
       startedAt: nextStatus === 'RUNNING' ? now : step.startedAt,
       finishedAt: ['SUCCESS', 'FAILED', 'TIMEOUT', 'SKIPPED'].includes(nextStatus) ? now : step.finishedAt,
     });
-    this.recordTransition('executionStep', step.id, step.status, nextStatus, event, actorId, step.tenantId);
+    await this.recordTransition('executionStep', step.id, step.status, nextStatus, event, actorId, step.tenantId);
     this.detailStream?.publishStep(updated);
     return updated;
   }
@@ -750,13 +732,13 @@ export class ExecutionsApplicationService {
       startedAt: nextStatus === 'RUNNING' ? now : run.startedAt,
       finishedAt: ['SUCCESS', 'FAILED', 'TIMEOUT', 'CANCELLED', 'ROLLBACK_SUCCESS', 'ROLLBACK_FAILED'].includes(nextStatus) ? now : run.finishedAt,
     });
-    this.recordTransition('executionRun', run.id, run.status, nextStatus, event, actorId, run.tenantId);
+    await this.recordTransition('executionRun', run.id, run.status, nextStatus, event, actorId, run.tenantId);
     this.detailStream?.publishRun(updated);
     return updated;
   }
 
-  private recordTransition(entityType: StateTransitionEventEntity['entityType'], entityId: string, fromStatus: string | undefined, toStatus: string, event: string, actorId: string, tenantId?: string): void {
-    void this.deploymentPlansRepository.createTransition({
+  private async recordTransition(entityType: StateTransitionEventEntity['entityType'], entityId: string, fromStatus: string | undefined, toStatus: string, event: string, actorId: string, tenantId?: string): Promise<void> {
+    await this.deploymentPlansRepository.createTransition({
       id: newId('ste'),
       tenantId,
       entityType,
@@ -822,10 +804,34 @@ export class ExecutionsApplicationService {
         deploymentPlanTargetId: latestStep.deploymentPlanTargetId,
       };
     }
+    const executionStatus = resolveExecutionStatus(result, runningStep);
+    const currentRun = await this.repository.getRunOrThrow(run.id, tenantId);
+    if (executionStatus === 'UNKNOWN'
+      || (currentRun.status === 'CANCELLED' && isPotentiallyUnknownWriteStep(runningStep))) {
+      await this.persistUnknownExecution(currentRun, latestStep, actorId, tenantId, {
+        success: false,
+        status: 'UNKNOWN',
+        errorCode: result.errorCode ?? (currentRun.status === 'CANCELLED' ? 'EXECUTION_CANCELLED_UNKNOWN' : 'AGENT_EXECUTION_UNKNOWN'),
+        errorMessage: result.errorMessage ?? '执行结果不明，禁止自动重放或回退',
+        detail: {
+          ...(result.detail ?? {}),
+          executionStatus: 'UNKNOWN',
+          ...(currentRun.status === 'CANCELLED' ? { cancellationRace: true } : {}),
+        },
+      });
+      return {
+        success: true,
+        asyncPending: true,
+        errorCode: result.errorCode ?? 'AGENT_EXECUTION_UNKNOWN',
+        errorMessage: result.errorMessage ?? '执行结果不明，禁止自动重放或回退',
+        deploymentPlanTargetId: latestStep.deploymentPlanTargetId,
+      };
+    }
     if (result.success && result.asyncPending) {
+      const latest = await this.repository.getStepOrThrow(runningStep.id, tenantId);
       await this.repository.updateStep(runningStep.id, {
         inputSnapshot: {
-          ...runningStep.inputSnapshot,
+          ...latest.inputSnapshot,
           dispatchDetail: result.detail,
         },
         updatedAt: new Date().toISOString(),
@@ -845,9 +851,10 @@ export class ExecutionsApplicationService {
       await this.resultSync.applyAgentTaskResult({
         tenantId: stepTenantId,
         executionRunId: runningStep.executionRunId,
-        executionStepId: runningStep.id,
-        success: result.success,
-        errorCode: result.errorCode,
+         executionStepId: runningStep.id,
+         success: result.success,
+         status: executionStatus,
+         errorCode: result.errorCode,
         errorMessage: result.errorMessage,
         detail: {
           executionMode: executorType === 'WORKFLOW' ? 'workflow' : 'control_plane',
@@ -885,7 +892,7 @@ export class ExecutionsApplicationService {
         lastErrorMessage: result.errorMessage,
         lastErrorDetails: sanitizeExecutionErrorDetails(result.detail),
       });
-      this.recordTransition('executionStep', runningStep.id, 'RUNNING', 'PENDING', 'step.retrying', actorId, runningStep.tenantId);
+      await this.recordTransition('executionStep', runningStep.id, 'RUNNING', 'PENDING', 'step.retrying', actorId, runningStep.tenantId);
       this.detailStream?.publishStep(await this.repository.getStepOrThrow(runningStep.id, tenantId));
       return { success: true, deploymentPlanTargetId: runningStep.deploymentPlanTargetId };
     }
@@ -919,7 +926,6 @@ export class ExecutionsApplicationService {
       const rollbackKey = `${run.idempotencyKey}:auto_rollback`;
       await this.rollback({ runId: run.id, actorId, tenantId, idempotencyKey: rollbackKey }, { actor: { id: actorId, type: 'system', scope: { tenantId } } });
     } catch (error) {
-      if (error instanceof AppError && error.errorCode === 'LEGACY_EXECUTION_RETIRED') return;
       const source = await this.repository.getRun(run.id, tenantId);
       if (source?.status === 'ROLLBACK_RUNNING') return;
       if (source?.status === 'FAILED' || source?.status === 'TIMEOUT') {
@@ -960,6 +966,38 @@ export class ExecutionsApplicationService {
       ...run,
       source: readExecutionSource(run.summary.executionSource),
     };
+  }
+
+  private async persistUnknownExecution(
+    run: ExecutionRunEntity,
+    step: ExecutionStepEntity,
+    actorId: string,
+    tenantId: string | undefined,
+    input: { success: false; status?: AgentSecurityStatus; errorCode?: string; errorMessage?: string; detail?: Record<string, unknown> },
+  ): Promise<void> {
+    const existingDetail = readRecord(step.inputSnapshot.resultDetail) ?? {};
+    if (String(existingDetail.executionStatus ?? '').toUpperCase() === 'UNKNOWN') return;
+    const detail = {
+      ...existingDetail,
+      ...(input.detail ?? {}),
+      executionStatus: 'UNKNOWN',
+    };
+    const now = new Date().toISOString();
+    await this.repository.updateStep(step.id, {
+      inputSnapshot: { ...step.inputSnapshot, resultDetail: detail },
+      lastErrorCode: input.errorCode ?? 'AGENT_EXECUTION_UNKNOWN',
+      lastErrorMessage: input.errorMessage ?? '执行结果不明，禁止自动重放或回退',
+      lastErrorDetails: sanitizeExecutionErrorDetails(detail),
+      updatedAt: now,
+      updatedBy: actorId,
+    });
+    await this.repository.updateRun(run.id, {
+      summary: { ...run.summary, executionStatus: 'UNKNOWN', unknownReason: input.errorMessage ?? input.errorCode ?? '执行结果不明' },
+      updatedAt: now,
+      updatedBy: actorId,
+    });
+    this.detailStream?.publishStep(await this.repository.getStepOrThrow(step.id, tenantId));
+    this.detailStream?.publishRun(await this.repository.getRunOrThrow(run.id, tenantId));
   }
 
   private toStepDto(step: ExecutionStepEntity): ExecutionStepDto {
@@ -1062,29 +1100,6 @@ function taskTypeForExecutionRun(type: CreateExecutionRunInput['type']): 'CERTIF
   return 'CERTIFICATE_DEPLOY';
 }
 
-interface ExecutionStepRef {
-  targetId?: string;
-  executorType: unknown;
-}
-
-function toExecutionStepRef(step: ExecutionStepEntity): ExecutionStepRef {
-  return {
-    targetId: step.deploymentPlanTargetId,
-    executorType: step.inputSnapshot.executorType,
-  };
-}
-
-function assertLegacyExecutionRetired(executions: Iterable<ExecutionStepRef>, details: Record<string, unknown>): void {
-  for (const execution of executions) {
-    if (typeof execution.executorType !== 'string' || execution.executorType.trim().toUpperCase() !== 'SCRIPT_PACKAGE') continue;
-    throw new AppError(
-      'LEGACY_EXECUTION_RETIRED',
-      'Legacy SCRIPT_PACKAGE 执行已下线，请重新生成受支持的插件执行计划',
-      { ...details, targetId: execution.targetId, executorType: execution.executorType },
-    );
-  }
-}
-
 function readRetryBackoff(summary: Record<string, unknown>): number | undefined {
   const retry = summary.retry;
   if (!retry || typeof retry !== 'object' || Array.isArray(retry)) return undefined;
@@ -1122,7 +1137,7 @@ function resolveStepExecutorType(baseExecutorType: string, stepType: string, pay
   }
   if (stepType === 'DISCOVER') return 'PLATFORM_STAGE';
   const runtime = readString(payload.pluginRuntimeCapability, 'runtime');
-  const monolithicUpdate = baseExecutorType === 'WORKFLOW' || runtime === 'AGENT_ATOMIC' || runtime === 'TRUSTED_JS';
+  const monolithicUpdate = baseExecutorType === 'WORKFLOW' || runtime === 'TRUSTED_JS';
   if (monolithicUpdate && (stepType === 'BACKUP' || stepType === 'RELOAD')) return 'PLATFORM_STAGE';
   return baseExecutorType;
 }
@@ -1235,6 +1250,39 @@ function shouldSyncExecutorResult(executorType: string, runType: ExecutionRunEnt
   if (runType === 'dry_run') return false;
   if (executorType === 'CONTROL_PLANE_TLS') return true;
   return executorType === 'WORKFLOW' || executorType === 'TRUSTED_JS';
+}
+
+function resolveExecutionStatus(
+  result: { success: boolean; errorCode?: string; errorMessage?: string; detail?: Record<string, unknown> },
+  step: ExecutionStepEntity,
+): AgentSecurityStatus {
+  const detail = result.detail ?? {};
+  const error = readRecord(detail.error);
+  const candidates = [
+    (result as { status?: unknown }).status,
+    detail.executionStatus,
+    detail.status,
+    readRecord(detail.receipt)?.status,
+  ];
+  const explicit = candidates.find((value): value is AgentSecurityStatus =>
+    value === 'SUCCESS' || value === 'FAILED' || value === 'UNKNOWN' || value === 'CANCELLED');
+  if (explicit === 'UNKNOWN' || explicit === 'CANCELLED') return 'UNKNOWN';
+  if (explicit) return explicit;
+  const actionType = readString(step.inputSnapshot.actionType)?.toLowerCase();
+  const plan = readRecord(step.inputSnapshot.plan);
+  const writeEffect = step.inputSnapshot.writeEffect === true || plan?.writeEffect === true || actionType === 'agent.plan.execute';
+  const uncertaintyCode = `${result.errorCode ?? ''} ${result.errorMessage ?? ''}`.toLowerCase();
+  if (detail.mayBeUnknown === true || error?.mayBeUnknown === true || result.errorCode === 'PLUGIN_OPERATION_UNKNOWN_STATE'
+    || (writeEffect && /(timeout|timed out|crash|cancel|late|unknown|connection lost|disconnected)/i.test(uncertaintyCode))) {
+    return 'UNKNOWN';
+  }
+  return result.success ? 'SUCCESS' : 'FAILED';
+}
+
+function isPotentiallyUnknownWriteStep(step: ExecutionStepEntity): boolean {
+  const actionType = readString(step.inputSnapshot.actionType)?.toLowerCase();
+  const plan = readRecord(step.inputSnapshot.plan);
+  return step.inputSnapshot.writeEffect === true || plan?.writeEffect === true || actionType === 'agent.plan.execute';
 }
 
 function isTerminalRunStatus(status: ExecutionRunEntity['status']): boolean {
