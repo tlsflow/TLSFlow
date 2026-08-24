@@ -40,6 +40,12 @@ const zhSidebar = [
     items: [
       { text: "开发者手册总览", link: "/developer-guide/" },
       { text: "平台扩展基础", link: "/developer-guide/platform" },
+      { text: "架构与模块边界", link: "/developer-guide/architecture" },
+      { text: "API 与错误合同", link: "/developer-guide/api-and-errors" },
+      { text: "数据库迁移", link: "/developer-guide/migrations" },
+      { text: "国际化开发", link: "/developer-guide/internationalization" },
+      { text: "主题变量与设计系统", link: "/developer-guide/theme" },
+      { text: "测试与验证", link: "/developer-guide/testing" },
       { text: "插件开发", link: "/developer-guide/plugins/" },
       { text: "工作流开发", link: "/developer-guide/workflows/" }
     ]
