@@ -102,6 +102,37 @@ test('取消结果无法确认外部写入时统一落为 UNKNOWN', async () => 
   assert.equal(updatedRun.summary.executionStatus, 'UNKNOWN');
 });
 
+test('厂商异步结果外层为 FAILED 但 Receipt 明确 UNKNOWN 时优先保持 UNKNOWN', async () => {
+  const { repository, service, run, step } = await createVerifyScenario('vendor_async_unknown');
+  const rollbackCalls: Array<{ runId: string; tenantId: string; actorId: string }> = [];
+  service.setRollbackRunner(async (input) => {
+    rollbackCalls.push(input);
+  });
+
+  await service.applyAgentTaskResult({
+    tenantId,
+    executionRunId: run.id,
+    executionStepId: step.id,
+    success: false,
+    status: 'FAILED',
+    errorCode: 'VENDOR_ASYNC_RESULT_UNKNOWN',
+    errorMessage: '厂商异步接口只返回失败外壳，无法确认外部写入状态',
+    actorId,
+    detail: {
+      status: 'FAILED',
+      receipt: { status: 'UNKNOWN', operationId: 'operation-1' },
+    },
+  });
+
+  const updatedStep = await repository.getStepOrThrow(step.id, tenantId);
+  const updatedRun = await repository.getRunOrThrow(run.id, tenantId);
+  assert.equal(updatedStep.status, 'RUNNING');
+  assert.equal((updatedStep.inputSnapshot.resultDetail as Record<string, unknown>).executionStatus, 'UNKNOWN');
+  assert.equal(updatedRun.status, 'RUNNING');
+  assert.equal(updatedRun.summary.executionStatus, 'UNKNOWN');
+  assert.deepEqual(rollbackCalls, []);
+});
+
 test('显式 FAILED 状态不能被不一致的 success=true 伪装成成功', async () => {
   const { repository, service, run, step } = await createVerifyScenario('inconsistent_failed_status');
 
@@ -399,6 +430,125 @@ test('异步 Agent apply 失败且 failurePolicy=rollback 时会触发自动回�
   const updatedRun = await repository.getRunOrThrow(run.id, tenantId);
   assert.equal(updatedRun.status, 'FAILED');
   assert.deepEqual(rollbackCalls, [{ runId: run.id, tenantId, actorId }]);
+});
+
+test('回滚步骤失败时源运行进入 ROLLBACK_FAILED，部署计划不会伪装成已回滚', async () => {
+  const repository = new ExecutionsRepository();
+  const deploymentPlans = new DeploymentPlansRepository();
+  const service = new ExecutionResultSyncService(
+    repository,
+    {} as unknown as AssetsApplicationService,
+    {} as unknown as BindingsApplicationService,
+    deploymentPlans,
+  );
+  const now = new Date().toISOString();
+  const deploymentPlanId = 'dplan_rollback_failed';
+  const targetId = 'dpt_rollback_failed';
+
+  await deploymentPlans.createPlan({
+    id: deploymentPlanId,
+    tenantId,
+    name: '回滚失败测试计划',
+    planType: 'INSTALL',
+    selectionMode: 'EXPLICIT',
+    certificateVersionId: 'cert_target',
+    status: 'FAILED',
+    approvalStatus: 'APPROVED',
+    snapshotHash: 'snapshot-rollback-failed',
+    idempotencyKey: 'deployment-rollback-failed',
+    requestHash: 'deployment-hash-rollback-failed',
+    policy: {},
+    createdReason: 'MANUAL',
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actorId,
+    version: 1,
+  });
+  await deploymentPlans.createTarget({
+    id: targetId,
+    tenantId,
+    deploymentPlanId,
+    executionTargetId: 'target-rollback-failed',
+    executorType: 'AGENT',
+    requiredCapabilities: [],
+    status: 'FAILED',
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actorId,
+    version: 1,
+  });
+  await repository.createRun({
+    id: 'run_source_rollback_failed',
+    tenantId,
+    deploymentPlanId,
+    runNo: 1,
+    type: 'apply',
+    idempotencyKey: 'source-rollback-failed',
+    requestHash: 'source-hash-rollback-failed',
+    status: 'ROLLBACK_RUNNING',
+    concurrencyLimit: 1,
+    summary: { failurePolicy: 'rollback' },
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actorId,
+    version: 1,
+  });
+  const rollbackRun = await repository.createRun({
+    id: 'run_rollback_failed',
+    tenantId,
+    deploymentPlanId,
+    runNo: 2,
+    type: 'rollback',
+    idempotencyKey: 'rollback-failed',
+    requestHash: 'rollback-hash-failed',
+    status: 'RUNNING',
+    concurrencyLimit: 1,
+    summary: {},
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actorId,
+    version: 1,
+  });
+  const rollbackStep = await repository.createStep({
+    id: 'stp_rollback_failed',
+    tenantId,
+    executionRunId: rollbackRun.id,
+    deploymentPlanTargetId: targetId,
+    stepNo: 1,
+    stepType: 'ROLLBACK',
+    name: 'ROLLBACK 目标',
+    dependsOn: [],
+    idempotent: false,
+    attemptCount: 1,
+    maxAttempts: 1,
+    inputSnapshot: {},
+    status: 'RUNNING',
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actorId,
+    version: 1,
+  });
+
+  await service.applyAgentTaskResult({
+    tenantId,
+    executionRunId: rollbackRun.id,
+    executionStepId: rollbackStep.id,
+    success: false,
+    errorCode: 'ROLLBACK_FAILED',
+    errorMessage: '回滚写操作失败，目标状态无法确认',
+    actorId,
+    detail: { executionMode: 'queued', mode: 'rollback_failed' },
+  });
+
+  const sourceRun = await repository.getRunOrThrow('run_source_rollback_failed', tenantId);
+  const updatedRollbackRun = await repository.getRunOrThrow(rollbackRun.id, tenantId);
+  const updatedPlan = await deploymentPlans.getPlan(deploymentPlanId, tenantId);
+  const updatedStep = await repository.getStepOrThrow(rollbackStep.id, tenantId);
+  assert.equal(updatedStep.status, 'FAILED');
+  assert.equal(updatedRollbackRun.status, 'FAILED');
+  assert.equal(sourceRun.status, 'ROLLBACK_FAILED');
+  assert.equal(updatedPlan?.status, 'FAILED');
+  assert.notEqual(updatedPlan?.status, 'ROLLED_BACK');
 });
 
 test('BACKUP 成功不会提前污染绑定与资产状态', async () => {

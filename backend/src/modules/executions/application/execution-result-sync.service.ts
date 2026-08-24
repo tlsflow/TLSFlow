@@ -1015,12 +1015,12 @@ function resolveAgentExecutionStatus(input: {
   const detail = input.detail ?? {};
   const receipt = readRecord(detail.receipt);
   const candidates = [input.status, detail.executionStatus, detail.status, receipt?.status];
-  const explicit = candidates.find((value): value is AgentSecurityStatus =>
-    value === 'SUCCESS' || value === 'FAILED' || value === 'UNKNOWN' || value === 'CANCELLED');
-  if (explicit === 'UNKNOWN' || explicit === 'CANCELLED') return 'UNKNOWN';
-  if (explicit) return explicit;
+  if (candidates.some((value) => value === 'UNKNOWN' || value === 'CANCELLED')) return 'UNKNOWN';
   const error = readRecord(detail.error);
   if (detail.mayBeUnknown === true || error?.mayBeUnknown === true || input.errorCode === 'PLUGIN_OPERATION_UNKNOWN_STATE') return 'UNKNOWN';
+  const explicit = candidates.find((value): value is AgentSecurityStatus =>
+    value === 'SUCCESS' || value === 'FAILED' || value === 'UNKNOWN' || value === 'CANCELLED');
+  if (explicit) return explicit;
   return input.success ? 'SUCCESS' : 'FAILED';
 }
 

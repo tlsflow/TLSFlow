@@ -8,7 +8,7 @@ import { AuditService } from '../audits/audit.service.js';
 import type { WriteAuditInput } from '../audits/audit.service.js';
 import { ForwardingGrantService } from './forwarding-grant.service.js';
 import { GatewayAgentProcess } from './gateway-agent-process.js';
-import { computeAgentExecutionReceiptDigest, computeAgentPlanDigest, type AgentExecutionReceiptV1, type AgentPlanV1, type AgentCapabilityTokenV1, type PolicyAuthorityDecisionV1 } from '../agents/security/agent-security.contract.js';
+import { computeAgentExecutionReceiptDigest, computeAgentPlanDigest, type AgentExecutionReceiptV1, type AgentPlanV1, type AgentCapabilityTokenV1, type AgentV2ContractType, type PolicyAuthorityDecisionV1 } from '../agents/security/agent-security.contract.js';
 import { GatewayTaskReplayGuard, GatewayV2ForwardingService, GatewayV2ReplayGuard } from './gateway-v2-forwarding.service.js';
 import { GatewayTaskAuditWriter, type GatewayTargetHistoryRecord, type GatewayTargetHistoryRepositoryPort } from './gateway-target-history.service.js';
 import { GatewayTaskService } from './gateway-task.service.js';
@@ -71,6 +71,7 @@ function createV2Materials(
   forwardingGrantId: string,
   status: 'SUCCESS' | 'FAILED' | 'UNKNOWN' = 'SUCCESS',
   options: {
+    actionType?: AgentV2ContractType;
     operationType?: AgentPlanV1['operations'][number]['operationType'];
     operationInput?: Record<string, unknown>;
     capability?: string;
@@ -79,6 +80,7 @@ function createV2Materials(
     artifactDigests?: string[];
   } = {},
 ) {
+  const actionType = options.actionType ?? 'agent.plan.execute';
   const operationType = options.operationType ?? 'filesystem.read';
   const capability = options.capability ?? operationType;
   const allowedPaths = options.allowedPaths ?? ['/var/lib/gcac'];
@@ -160,7 +162,7 @@ function createV2Materials(
     grantId: 'grant-gateway-v2-001',
     tenantId,
     agentId,
-    actionType: 'agent.plan.execute',
+    actionType,
     planId: plan.planId,
     planDigest: plan.planDigest,
     pluginId: token.pluginId,
@@ -194,12 +196,16 @@ function createV2Materials(
 
 class FakeGatewayV2Forwarder implements GatewayAgentV2Forwarder {
   readonly requests: GatewayAgentV2ForwardRequest[] = [];
-  constructor(private readonly outcome: 'SUCCESS' | 'FAILED' | 'UNKNOWN' = 'SUCCESS', private readonly throwError = false) {}
+  constructor(
+    private readonly outcome: 'SUCCESS' | 'FAILED' | 'UNKNOWN' = 'SUCCESS',
+    private readonly throwError = false,
+    private readonly options: { omitReceipt?: boolean; receiptCompletedAt?: string; errorMessage?: string } = {},
+  ) {}
 
   async forward(request: GatewayAgentV2ForwardRequest): Promise<GatewayAgentV2ForwardResult> {
     this.requests.push(structuredClone(request));
-    if (this.throwError) throw new Error('模拟 Gateway 到目标 Agent 的连接崩溃');
-    const receipt = request.plan ? (() => {
+    if (this.throwError) throw new Error(this.options.errorMessage ?? '模拟 Gateway 到目标 Agent 的连接崩溃');
+    const receipt = request.plan && !this.options.omitReceipt ? (() => {
       const base = {
         receiptVersion: 'gcac.agent-security/v1' as const,
         operationId: request.plan.operations[0].operationId,
@@ -210,7 +216,7 @@ class FakeGatewayV2Forwarder implements GatewayAgentV2Forwarder {
         tokenId: request.token.tokenId,
         status: this.outcome,
         startedAt: request.token.issuedAt,
-        completedAt: new Date().toISOString(),
+        completedAt: this.options.receiptCompletedAt ?? new Date().toISOString(),
         operationResults: [{ operationId: request.plan.operations[0].operationId, status: this.outcome }],
         nonceConsumed: true,
         ...(this.outcome === 'SUCCESS' ? {} : this.outcome === 'UNKNOWN' ? { unknownReason: 'Agent 返回结果不明' } : { errorCode: 'AGENT_OPERATION_FAILED' }),
@@ -252,6 +258,71 @@ function dispatchV2Task(tenantId: string, materials: ReturnType<typeof createV2M
     forwardingGrant,
   });
   return service;
+}
+
+async function createGatewayProcessFixture<T extends GatewayAgentV2Forwarder>(suffix: string, forwarder: T) {
+  const tenantId = `tenant_gateway_${suffix}`;
+  const db = new PgliteDatabase();
+  await runMigrations(db);
+  const agents = new AgentsApplicationService(new PgAgentsRepository(db));
+  const gatewayAgent = await agents.register(tenantId, {
+    agentKey: `gateway-agent-${suffix}`,
+    hostname: `gw-${suffix}`,
+    version: '0.1.0',
+    osType: 'linux',
+    role: 'gateway',
+    zoneIds: ['zone_prod'],
+    adapters: ['forward.agent_task'],
+    capabilities: ['gateway.forward.agent_task'],
+  }, `req_register_gateway_${suffix}`);
+  const gatewayTasks = new GatewayTaskService({ repositories: await createDurableGatewayTaskRepositories(db) });
+  const forwardingGrant = issueGrant({
+    tenantId,
+    gatewayId: `gw_${suffix}`,
+    delegatedTargetId: `agent_target_${suffix}`,
+    delegatedAgentId: `agent_target_${suffix}`,
+    executionRunId: `run_${suffix}`,
+    stepId: `step_${suffix}`,
+  });
+  const materials = createV2Materials(tenantId, `agent_target_${suffix}`, forwardingGrant.id);
+  const gatewayTask = gatewayTasks.dispatch({
+    id: `gateway_task_${suffix}`,
+    idempotencyKey: `idem_gateway_${suffix}`,
+    tenantId,
+    planId: materials.plan.planId,
+    executionRunId: forwardingGrant.executionRunId,
+    stepId: forwardingGrant.stepId,
+    gatewayId: forwardingGrant.gatewayId,
+    delegatedTargetId: forwardingGrant.delegatedTargetId,
+    target: { id: forwardingGrant.delegatedTargetId, zoneId: 'zone_prod' },
+    adapter: forwardingGrant.routeChannel,
+    action: 'gateway.forward.agent_task',
+    payload: { actionType: materials.grant.actionType, ...materials },
+    grant: materials.grant,
+    forwardingGrant,
+  });
+  const agentTask = await agents.enqueueTask(tenantId, {
+    agentId: gatewayAgent.id,
+    executionRunId: gatewayTask.executionRunId,
+    executionStepId: gatewayTask.stepId,
+    idempotencyKey: gatewayTask.idempotencyKey,
+    payload: {
+      actionType: materials.grant.actionType,
+      token: materials.token,
+      policyDecision: materials.policyDecision,
+      plan: materials.plan,
+      gatewayTask,
+    },
+  }, `req_enqueue_gateway_${suffix}`);
+  const process = new GatewayAgentProcess({
+    tenantId,
+    agentId: gatewayAgent.id,
+    agents,
+    gatewayTasks,
+    forwarder,
+    leaseFactory: () => `lease_${suffix}`,
+  });
+  return { tenantId, agents, gatewayTasks, gatewayTask, agentTask, process, forwarder, materials };
 }
 
 class MemoryAuditService extends AuditService {
@@ -872,5 +943,108 @@ describe('spec014 Gateway 区域路由器', () => {
     assert.equal(forwarder.requests.length, 1);
     const completedAgentTask = (await agents.listTaskQueue(tenantId, gatewayAgent.id)).tasks.find((task) => task.id === agentTask.id)!;
     assert.equal(completedAgentTask.result?.status, 'UNKNOWN');
+  });
+
+  it('目标 Agent 离线导致转发端口不可用时进入 UNKNOWN，且不会再次转发', async () => {
+    const fixture = await createGatewayProcessFixture('offline', new FakeGatewayV2Forwarder('SUCCESS', true, { errorMessage: '目标 Agent 离线' }));
+
+    const firstTick = await fixture.process.tick();
+    const secondTick = await fixture.process.tick();
+    const completed = fixture.gatewayTasks.get(fixture.gatewayTask.id)!;
+
+    assert.deepEqual(firstTick, { pulled: 1, processed: 1, succeeded: 0, failed: 1 });
+    assert.deepEqual(secondTick, { pulled: 0, processed: 0, succeeded: 0, failed: 0 });
+    assert.equal(completed.status, 'unknown');
+    assert.equal(completed.result?.executionStatus, 'UNKNOWN');
+    assert.equal(completed.result?.errorCode, 'GATEWAY_EXECUTION_UNKNOWN');
+    assert.equal(completed.forwardingGrant?.status, 'used');
+    assert.equal(fixture.forwarder.requests.length, 1);
+  });
+
+  it('Agent 接受写操作但缺少 Receipt 时失败关闭为 UNKNOWN，不合成成功 Receipt', async () => {
+    const fixture = await createGatewayProcessFixture('receipt-missing', new FakeGatewayV2Forwarder('SUCCESS', false, { omitReceipt: true }));
+
+    await fixture.process.tick();
+    const completed = fixture.gatewayTasks.get(fixture.gatewayTask.id)!;
+
+    assert.equal(completed.status, 'unknown');
+    assert.equal(completed.result?.executionStatus, 'UNKNOWN');
+    assert.equal(completed.result?.receipt, undefined);
+    assert.equal(completed.forwardingGrant?.status, 'used');
+    assert.equal(completed.v2NonceBinding?.nonce, fixture.materials.token.nonce);
+    assert.equal(fixture.forwarder.requests.length, 1);
+    assert.deepEqual(await fixture.process.tick(), { pulled: 0, processed: 0, succeeded: 0, failed: 0 });
+  });
+
+  it('迟到 Receipt 只留下拒绝证据并进入 UNKNOWN，不覆盖已消费授权', async () => {
+    const fixture = await createGatewayProcessFixture(
+      'late-receipt',
+      new FakeGatewayV2Forwarder('SUCCESS', false, { receiptCompletedAt: new Date(Date.now() + 60_000).toISOString() }),
+    );
+
+    await fixture.process.tick();
+    const completed = fixture.gatewayTasks.get(fixture.gatewayTask.id)!;
+    const evidence = fixture.gatewayTasks.listEvidence(fixture.gatewayTask.id);
+    const lateEvidence = evidence[evidence.length - 1];
+
+    assert.equal(completed.status, 'unknown');
+    assert.equal(completed.result?.executionStatus, 'UNKNOWN');
+    assert.equal(completed.forwardingGrant?.status, 'used');
+    assert.equal(completed.v2NonceBinding?.nonce, fixture.materials.token.nonce);
+    assert.equal(lateEvidence?.metadata?.reason, 'GATEWAY_LATE_RECEIPT');
+    assert.equal(lateEvidence?.metadata?.rejected, true);
+  });
+
+  it('厂商异步以 FAILED 外壳回传 UNKNOWN Receipt 时 GatewayTask 保持 UNKNOWN', async () => {
+    const tenantId = 'tenant_gateway_vendor_async_unknown';
+    const db = new PgliteDatabase();
+    await runMigrations(db);
+    const forwardingGrant = issueGrant({
+      tenantId,
+      gatewayId: 'gw_vendor_async_unknown',
+      delegatedTargetId: 'agent_vendor_async_unknown',
+      delegatedAgentId: 'agent_vendor_async_unknown',
+      executionRunId: 'run_vendor_async_unknown',
+      stepId: 'step_vendor_async_unknown',
+    });
+    const materials = createV2Materials(tenantId, 'agent_vendor_async_unknown', forwardingGrant.id, 'UNKNOWN', {
+      actionType: 'agent.execution.receipt',
+    });
+    const service = new GatewayTaskService({ repositories: await createDurableGatewayTaskRepositories(db) });
+    const task = service.dispatch({
+      id: 'gateway_task_vendor_async_unknown',
+      idempotencyKey: 'idem_gateway_vendor_async_unknown',
+      tenantId,
+      planId: materials.plan.planId,
+      executionRunId: forwardingGrant.executionRunId,
+      stepId: forwardingGrant.stepId,
+      gatewayId: forwardingGrant.gatewayId,
+      delegatedTargetId: forwardingGrant.delegatedTargetId,
+      target: { id: forwardingGrant.delegatedTargetId, zoneId: 'zone_prod' },
+      adapter: forwardingGrant.routeChannel,
+      action: 'gateway.forward.agent_task',
+      payload: { actionType: materials.grant.actionType, ...materials },
+      grant: materials.grant,
+      forwardingGrant,
+    });
+
+    const completed = await service.recordAgentTaskResult({
+      gatewayTaskId: task.id,
+      agentTaskId: 'agent-task-vendor-async-unknown',
+      tenantId,
+      agentId: materials.token.agentId,
+      leaseId: 'lease-vendor-async-unknown',
+      actionType: 'agent.execution.receipt',
+      success: false,
+      executionStatus: 'FAILED',
+      errorCode: 'VENDOR_ASYNC_RESULT_UNKNOWN',
+      errorMessage: '厂商异步接口只返回任务提交失败外壳',
+      detail: { status: 'FAILED', receipt: materials.receipt },
+      receipt: materials.receipt,
+    });
+
+    assert.equal(completed.status, 'unknown');
+    assert.equal(completed.result?.executionStatus, 'UNKNOWN');
+    assert.equal(completed.result?.receipt?.status, 'UNKNOWN');
   });
 });

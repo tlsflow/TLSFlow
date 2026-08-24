@@ -7,6 +7,7 @@ import {
   validatePolicyAuthorityDecision,
   type AgentCapabilityTokenV1,
   type AgentExecutionReceiptV1,
+  type AgentSecurityStatus,
   type PolicyAuthorityDecisionV1,
 } from '../agents/security/agent-security.contract.js';
 import { assertGatewayRouteChannel, assertGatewayTaskType, type GatewayAgentTaskResultInput, type GatewayDelegatedTaskInput, type GatewayEvidence, type GatewayTask, type GatewayTaskResult } from './gateway-agent.types.js';
@@ -282,9 +283,7 @@ export class GatewayTaskService {
       assertConsumedV2TaskBinding(task, token, decision);
     }
 
-    const executionStatus = input.actionType === 'agent.plan.execute' && input.executionStatus !== 'SUCCESS'
-      ? 'UNKNOWN'
-      : input.executionStatus;
+    const executionStatus = resolveGatewayAgentExecutionStatus(input, receipt);
     const status: GatewayTaskResult['status'] = executionStatus === 'SUCCESS'
       ? 'success'
       : executionStatus === 'UNKNOWN'
@@ -459,6 +458,24 @@ export class GatewayTaskService {
   private evidenceRefKey(taskId: string, evidenceRef: string): string {
     return `${taskId}:${evidenceRef}`;
   }
+}
+
+function resolveGatewayAgentExecutionStatus(
+  input: Pick<GatewayAgentTaskResultInput, 'actionType' | 'executionStatus' | 'errorCode' | 'detail'>,
+  receipt?: AgentExecutionReceiptV1,
+): AgentSecurityStatus {
+  const detail = input.detail ?? {};
+  const detailStatuses = [detail.executionStatus, detail.status];
+  const error = asRecord(detail.error);
+  const hasUnknownEvidence = input.executionStatus === 'UNKNOWN'
+    || detailStatuses.some((value) => value === 'UNKNOWN' || value === 'CANCELLED')
+    || receipt?.status === 'UNKNOWN'
+    || input.errorCode === 'PLUGIN_OPERATION_UNKNOWN_STATE'
+    || detail.mayBeUnknown === true
+    || error.mayBeUnknown === true;
+  if (hasUnknownEvidence) return 'UNKNOWN';
+  if (input.actionType === 'agent.plan.execute' && input.executionStatus !== 'SUCCESS') return 'UNKNOWN';
+  return input.executionStatus;
 }
 
 function assertTaskResultConsistency(result: Omit<GatewayTaskResult, 'evidenceIds' | 'finishedAt'> & Partial<Pick<GatewayTaskResult, 'evidenceIds' | 'finishedAt'>>): void {
