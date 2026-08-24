@@ -215,13 +215,14 @@ function projectWebFacts(
   const certificates: WebProjection['certificates'] = [];
   const certificateBindings: WebProjection['certificateBindings'] = [];
   const frameworkSeen = new Set<string>();
+  const frameworkWorkingDirectories = new Map<string, string>();
   const siteByKey = new Map<string, StandardDeviceDiscoveryV2['sites'][number]>();
   const targetByKey = new Map<string, StandardDeviceDiscoveryV2['managedTargets'][number]>();
   const certificateByReference = buildCertificateIndex(inventory);
   // Windows Full Agent 已经在本机按运行中的框架和实际配置完成解析。这里再次调用
   // 插件配置解析器会重新引入默认路径、候选文件和端口猜测，最终把错误证书投影回来。
   if (hasAuthoritativeAgentWebInventory(inventory)) {
-    projectAuthoritativeAgentWebInventory(inventory, primaryAddress, frameworks, sites, managedTargets, frameworkSeen, siteByKey, targetByKey, certificates, certificateBindings, certificateByReference);
+    projectAuthoritativeAgentWebInventory(inventory, primaryAddress, frameworks, sites, managedTargets, frameworkSeen, frameworkWorkingDirectories, siteByKey, targetByKey, certificates, certificateBindings, certificateByReference);
   } else {
     // 兼容尚未升级的其他 Agent；它们没有权威站点事实时才保留旧解析入口。
     projectGenericWebInventory(inventory, primaryAddress, frameworks, sites, managedTargets, frameworkSeen, siteByKey, targetByKey, certificates, certificateBindings, certificateByReference);
@@ -241,6 +242,7 @@ function projectAuthoritativeAgentWebInventory(
   sites: WebProjection['sites'],
   managedTargets: WebProjection['managedTargets'],
   frameworkSeen: Set<string>,
+  frameworkWorkingDirectories: Map<string, string>,
   siteByKey: Map<string, StandardDeviceDiscoveryV2['sites'][number]>,
   targetByKey: Map<string, StandardDeviceDiscoveryV2['managedTargets'][number]>,
   certificates: WebProjection['certificates'],
@@ -265,11 +267,14 @@ function projectAuthoritativeAgentWebInventory(
     const value = asRecord(item);
     const frameworkType = stringValue(value?.frameworkType);
     if (!value || !frameworkType) continue;
+    const frameworkMetadata = asRecord(value.metadata);
+    const workingDirectory = stringValue(frameworkMetadata?.workingDirectory);
+    if (workingDirectory) frameworkWorkingDirectories.set(frameworkType, workingDirectory);
     ensureFramework(
       frameworkType,
       stringValue(value.displayName),
       stringValue(value.version),
-      asRecord(value.metadata),
+      frameworkMetadata,
     );
   }
 
@@ -278,7 +283,13 @@ function projectAuthoritativeAgentWebInventory(
     const frameworkType = stringValue(value?.frameworkType);
     if (!value || !frameworkType) continue;
     const frameworkStableKey = ensureFramework(frameworkType);
-    const site = normalizeAuthoritativeAgentSite(value, frameworkStableKey, primaryAddress, frameworkType);
+    const site = normalizeAuthoritativeAgentSite(
+      value,
+      frameworkStableKey,
+      primaryAddress,
+      frameworkType,
+      frameworkWorkingDirectories.get(frameworkType),
+    );
     if (!site) continue;
     addWebSite(site, sites, managedTargets, siteByKey, targetByKey, certificates, certificateBindings, certificateByReference);
   }
@@ -289,6 +300,7 @@ function normalizeAuthoritativeAgentSite(
   frameworkStableKey: string,
   primaryAddress: string | null | undefined,
   frameworkType: string,
+  frameworkWorkingDirectory?: string,
 ): StandardDeviceDiscoveryV2['sites'][number] | undefined {
   const displayName = stringValue(value.name);
   if (!displayName) return undefined;
@@ -296,16 +308,20 @@ function normalizeAuthoritativeAgentSite(
   const listeners = (arrayValue(metadata.listeners) ?? [])
     .map((item) => asRecord(item))
     .filter((item): item is Record<string, any> => Boolean(item));
-  const primaryListener = listeners.find((item) => stringValue(item.protocol)?.toUpperCase() === 'HTTPS') ?? listeners[0];
+  const normalizedListeners = listeners.map((listener) => {
+    if (stringValue(listener.workingDirectory) || !frameworkWorkingDirectory) return listener;
+    return { ...listener, workingDirectory: frameworkWorkingDirectory };
+  });
+  const primaryListener = normalizedListeners.find((item) => stringValue(item.protocol)?.toUpperCase() === 'HTTPS') ?? normalizedListeners[0];
   const addresses = [
     ...stringValues(value.serverNames),
     ...stringValues(value.addresses),
-    ...listeners.flatMap((listener) => [stringValue(listener.host), stringValue(listener.address)]),
+    ...normalizedListeners.flatMap((listener) => [stringValue(listener.host), stringValue(listener.address)]),
     primaryAddress ?? undefined,
   ].filter((item): item is string => Boolean(item && item !== '*' && item !== '0.0.0.0' && item !== '::'));
   const siteId = stringValue(metadata.siteId);
   const configPath = stringValue(metadata.configPath);
-  const listenerIdentity = listeners
+  const listenerIdentity = normalizedListeners
     .map((listener) => [stringValue(listener.protocol), numberValue(listener.port), stringValue(listener.bindingInformation), stringValue(listener.host), stringValue(listener.address)].join('|'))
     .sort()
     .join('||');
@@ -320,7 +336,7 @@ function normalizeAuthoritativeAgentSite(
     addresses: [...new Set(addresses)],
     ...(port ? { port } : {}),
     ...(protocol ? { protocol: protocol.toUpperCase() } : {}),
-    metadata: { ...metadata, listeners, source: stringValue(metadata.source) ?? 'runtime-effective-config' },
+    metadata: { ...metadata, listeners: normalizedListeners, source: stringValue(metadata.source) ?? 'runtime-effective-config' },
   };
 }
 
@@ -511,11 +527,17 @@ function buildDeploymentTarget(
   const serviceName = stringValue(listener.serviceName);
   const programPath = stringValue(listener.programPath);
   const programSha256 = stringValue(listener.programSha256);
+  const workingDirectory = stringValue(listener.workingDirectory);
+  const configCheckArgs = stringArrayValue(listener.configCheckArgs);
+  const configCheckArgsTemplate = stringArrayValue(listener.configCheckArgsTemplate) ?? configCheckArgs;
   const configFingerprint = stringValue(listener.configFingerprint);
   const runtimeFacts = {
     ...(serviceName ? { serviceName } : {}),
     ...(programPath ? { programPath } : {}),
     ...(programSha256 ? { programSha256 } : {}),
+    ...(workingDirectory ? { workingDirectory } : {}),
+    ...(configCheckArgs ? { configCheckArgs } : {}),
+    ...(configCheckArgsTemplate ? { configCheckArgsTemplate } : {}),
     ...(configFingerprint ? { configFingerprint } : {}),
   };
   if (thumbprint && !rawCertificatePath && !rawKeystorePath) {
@@ -798,6 +820,12 @@ function stringValues(value: unknown): string[] {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function stringArrayValue(value: unknown): string[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  if (value.some((item) => typeof item !== 'string' || item.trim() === '')) return undefined;
+  return value.map((item) => (item as string).trim());
 }
 
 function numberValue(value: unknown): number | undefined {

@@ -97,6 +97,7 @@ func TestMatureApacheInventoryProjectsRuntimeFacts(t *testing.T) {
 		"GCAC-Lab-Apache",
 		`C:\GCAC-Lab\Apache24\conf\httpd-gcac.conf`,
 		fingerprint,
+		`C:\GCAC-Lab\Apache24`,
 		[]windowsRuntimeSite{{
 			Name:              "apache.test.local",
 			ServerNames:       []string{"apache.test.local"},
@@ -124,9 +125,14 @@ func TestMatureApacheInventoryProjectsRuntimeFacts(t *testing.T) {
 		"programPath":       normalizeWindowsRuntimeInventoryPath(programPath),
 		"programSha256":     hex.EncodeToString(expectedProgramSha256[:]),
 		"configFingerprint": fingerprint,
+		"workingDirectory":  `C:/GCAC-Lab/Apache24`,
 	} {
 		if actual := listener[key]; actual != expected {
 			t.Fatalf("Apache 监听器未投影 %s: actual=%#v listener=%#v", key, actual, listener)
+		}
+		args, ok := listener["configCheckArgs"].([]string)
+		if !ok || strings.Join(args, "|") != "-t|-d|C:/GCAC-Lab/Apache24|-f|C:/GCAC-Lab/Apache24/conf/httpd-gcac.conf" {
+			t.Fatalf("Apache 未投影真实配置检查参数: %#v", listener["configCheckArgs"])
 		}
 	}
 }
@@ -149,6 +155,7 @@ func TestMatureApacheInventoryWarnsWhenProgramSha256CannotBeRead(t *testing.T) {
 		"GCAC-Lab-Apache",
 		`C:\GCAC-Lab\Apache24\conf\httpd-gcac.conf`,
 		strings.Repeat("b", 64),
+		`C:\GCAC-Lab\Apache24`,
 		nil,
 		nil,
 	)
@@ -161,5 +168,63 @@ func TestMatureApacheInventoryWarnsWhenProgramSha256CannotBeRead(t *testing.T) {
 	metadata := framework["metadata"].(map[string]any)
 	if _, exists := metadata["programSha256"]; exists {
 		t.Fatalf("程序摘要读取失败时不能写入猜测值: %#v", metadata)
+	}
+}
+
+func TestMatureTomcatInventoryProjectsWorkingDirectory(t *testing.T) {
+	inventory := map[string]any{
+		"frameworks":       []map[string]any{},
+		"sites":            []map[string]any{},
+		"certificateFiles": []map[string]any{},
+		"configFiles":      []map[string]any{},
+		"warnings":         []map[string]any{},
+	}
+	programPath := filepath.Join(t.TempDir(), "java.exe")
+	if err := os.WriteFile(programPath, []byte("GCAC Tomcat test executable"), 0o600); err != nil {
+		t.Fatalf("写入 Tomcat 测试程序失败: %v", err)
+	}
+	appendWindowsMatureRuntimeDetailWithService(
+		inventory,
+		"app.tomcat",
+		"Tomcat",
+		true,
+		"10.1.24",
+		programPath,
+		"GCAC-Lab-Tomcat",
+		`F:\GCAC-Lab\Tomcat\conf\server.xml`,
+		strings.Repeat("c", 64),
+		`F:\GCAC-Lab\Tomcat`,
+		[]windowsRuntimeSite{{
+			Name:              "tomcat.test.local",
+			ServerNames:       []string{"tomcat.test.local"},
+			ConfigFingerprint: strings.Repeat("c", 64),
+			Listen: []windowsRuntimeListener{{
+				Address:           "*",
+				Port:              8443,
+				Protocol:          "HTTPS",
+				KeystorePath:      `F:\GCAC-Lab\Tomcat\conf\server.p12`,
+				KeystoreType:      "PKCS12",
+				KeyAlias:          "server",
+				ConfigFingerprint: strings.Repeat("c", 64),
+			}},
+		}},
+		nil,
+	)
+
+	sites := inventory["sites"].([]map[string]any)
+	if len(sites) != 1 {
+		t.Fatalf("Tomcat 站点投影数量错误: %#v", sites)
+	}
+	listener := sites[0]["metadata"].(map[string]any)["listeners"].([]map[string]any)[0]
+	expectedProgramSha256 := sha256.Sum256([]byte("GCAC Tomcat test executable"))
+	if listener["programSha256"] != hex.EncodeToString(expectedProgramSha256[:]) {
+		t.Fatalf("Tomcat 未投影已确认程序摘要: %#v", listener)
+	}
+	if listener["workingDirectory"] != `F:/GCAC-Lab/Tomcat` {
+		t.Fatalf("Tomcat 未投影真实工作目录: %#v", listener)
+	}
+	args, ok := listener["configCheckArgs"].([]string)
+	if !ok || len(args) != 6 || args[0] != "-Dcatalina.base=F:/GCAC-Lab/Tomcat" || args[5] != "configtest" {
+		t.Fatalf("Tomcat 未投影真实配置检查参数: %#v", listener["configCheckArgs"])
 	}
 }

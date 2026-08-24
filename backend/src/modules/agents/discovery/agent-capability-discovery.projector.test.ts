@@ -157,6 +157,8 @@ test('Windows Nginx 权威库存把服务名、程序路径和配置指纹投影
   const fixture = createFixture();
   const fingerprint = 'a'.repeat(64);
   const programSha256 = 'd'.repeat(64);
+  const workingDirectory = 'D:/runtime/nginx';
+  const configCheckArgs = ['-t', '-p', workingDirectory, '-c', 'D:/runtime/nginx/conf/nginx.conf'];
   await fixture.service.project(agent(), snapshot([{
     capabilityKey: 'web.inventory',
     confidence: 0.99,
@@ -189,6 +191,9 @@ test('Windows Nginx 权威库存把服务名、程序路径和配置指纹投影
             serviceName: 'nginx-production',
             programPath: 'D:/runtime/nginx/nginx.exe',
             programSha256,
+            workingDirectory,
+            configCheckArgs,
+            configCheckArgsTemplate: configCheckArgs,
             configFingerprint: fingerprint,
           }],
         },
@@ -216,9 +221,62 @@ test('Windows Nginx 权威库存把服务名、程序路径和配置指纹投影
     serviceName: 'nginx-production',
     programPath: 'D:/runtime/nginx/nginx.exe',
     programSha256,
+    workingDirectory,
+    configCheckArgs,
+    configCheckArgsTemplate: configCheckArgs,
     configFingerprint: fingerprint,
   });
   assert.deepEqual(projected.certificateBindings[0]?.deploymentTarget, projected.managedTargets[0]?.metadata?.certificateLocation);
+});
+
+test('权威库存从框架运行事实向 Apache、Nginx 和 Tomcat 监听器统一补齐工作目录', async () => {
+  const fixture = createFixture();
+  const frameworkCases = [
+    { frameworkType: 'web.apache', name: 'apache.example.test', workingDirectory: 'E:/Apache' },
+    { frameworkType: 'web.nginx', name: 'nginx.example.test', workingDirectory: 'D:/Nginx' },
+    { frameworkType: 'app.tomcat', name: 'tomcat.example.test', workingDirectory: 'F:/Tomcat' },
+  ];
+  await fixture.service.project(agent(), snapshot([{
+    capabilityKey: 'web.inventory',
+    confidence: 0.99,
+    value: {
+      scope: 'FULL_WEB_DISCOVERY',
+      frameworks: frameworkCases.map(({ frameworkType, workingDirectory }) => ({
+        frameworkType,
+        metadata: { workingDirectory },
+      })),
+      sites: frameworkCases.map(({ frameworkType, name }) => ({
+        frameworkType,
+        name,
+        metadata: {
+          listeners: [{
+            address: '*',
+            port: 443,
+            protocol: 'HTTPS',
+            host: name,
+            sourceConfigPath: `/${frameworkType}/server.conf`,
+            certificatePath: `/${frameworkType}/server.crt`,
+          }],
+        },
+      })),
+      certificateFiles: frameworkCases.map(({ frameworkType, name }, index) => ({
+        path: `/${frameworkType}/server.crt`,
+        sha256Fingerprint: String.fromCharCode(97 + index).repeat(64),
+        subject: `CN=${name}`,
+        issuer: 'CN=GCAC Test CA',
+        notBefore: '2026-08-01T00:00:00Z',
+        notAfter: '2027-08-01T00:00:00Z',
+      })),
+    },
+  }]));
+
+  const projected = fixture.projected() as {
+    managedTargets: Array<{ metadata?: { certificateLocation?: Record<string, unknown> } }>;
+  };
+  assert.deepEqual(
+    projected.managedTargets.map((target) => target.metadata?.certificateLocation?.workingDirectory),
+    ['E:/Apache', 'D:/Nginx', 'F:/Tomcat'],
+  );
 });
 
 test('同一 Nginx 站点聚合 HTTP 和 HTTPS 监听，并关联 Agent 上报的证书元数据', async () => {

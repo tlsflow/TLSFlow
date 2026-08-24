@@ -37,7 +37,7 @@ func collectWindowsMatureWebInventory(ctx context.Context, logger *runtimeLogger
 			logger.Warn("mature Windows IIS runtime discovery failed: %v", iisErr)
 		}
 	} else {
-		appendWindowsMatureRuntimeDetail(inventory, "web.iis", "IIS", iis.Installed, iis.Version, windowsSystem32Directory+`\inetsrv`, iis.ConfigPath, "", iis.Sites, iis.Warnings)
+		appendWindowsMatureRuntimeDetail(inventory, "web.iis", "IIS", iis.Installed, iis.Version, windowsSystem32Directory+`\inetsrv`, iis.ConfigPath, "", windowsSystem32Directory+`\inetsrv`, iis.Sites, iis.Warnings)
 	}
 	nginx, apache, tomcat, err := inspectWindowsRuntimeDiscovery(host)
 	if err != nil {
@@ -46,9 +46,9 @@ func collectWindowsMatureWebInventory(ctx context.Context, logger *runtimeLogger
 			logger.Warn("mature Windows runtime discovery failed: %v", err)
 		}
 	} else {
-		appendWindowsMatureRuntimeDetailWithService(inventory, "web.nginx", "Nginx", nginx.Installed, nginx.Version, nginx.BinaryPath, nginx.ServiceName, nginx.ConfigPath, nginx.ConfigFingerprint, nginx.Sites, nginx.Warnings)
-		appendWindowsMatureRuntimeDetailWithService(inventory, "web.apache", "Apache", apache.Installed, apache.Version, apache.BinaryPath, apache.ServiceName, apache.ConfigPath, apache.ConfigFingerprint, apache.Sites, apache.Warnings)
-		appendWindowsMatureRuntimeDetailWithService(inventory, "app.tomcat", "Tomcat", tomcat.Installed, tomcat.Version, tomcat.JavaPath, tomcat.ServiceName, tomcat.ConfigPath, tomcat.ConfigFingerprint, windowsTomcatSite(tomcat), tomcat.Warnings)
+		appendWindowsMatureRuntimeDetailWithService(inventory, "web.nginx", "Nginx", nginx.Installed, nginx.Version, nginx.BinaryPath, nginx.ServiceName, nginx.ConfigPath, nginx.ConfigFingerprint, nginx.ConfigRoot, nginx.Sites, nginx.Warnings)
+		appendWindowsMatureRuntimeDetailWithService(inventory, "web.apache", "Apache", apache.Installed, apache.Version, apache.BinaryPath, apache.ServiceName, apache.ConfigPath, apache.ConfigFingerprint, apache.ServerRoot, apache.Sites, apache.Warnings)
+		appendWindowsMatureRuntimeDetailWithService(inventory, "app.tomcat", "Tomcat", tomcat.Installed, tomcat.Version, tomcat.JavaPath, tomcat.ServiceName, tomcat.ConfigPath, tomcat.ConfigFingerprint, tomcat.TomcatPath, windowsTomcatSite(tomcat), tomcat.Warnings)
 	}
 
 	if logger != nil {
@@ -72,10 +72,11 @@ func appendWindowsMatureRuntimeDetail(
 	programPath string,
 	configPath string,
 	configFingerprint string,
+	workingDirectory string,
 	sites []windowsRuntimeSite,
 	warnings []windowsDiscoveryWarning,
 ) {
-	appendWindowsMatureRuntimeDetailWithService(inventory, frameworkType, displayName, installed, version, programPath, "", configPath, configFingerprint, sites, warnings)
+	appendWindowsMatureRuntimeDetailWithService(inventory, frameworkType, displayName, installed, version, programPath, "", configPath, configFingerprint, workingDirectory, sites, warnings)
 }
 
 func appendWindowsMatureRuntimeDetailWithService(
@@ -88,6 +89,7 @@ func appendWindowsMatureRuntimeDetailWithService(
 	serviceName string,
 	configPath string,
 	configFingerprint string,
+	workingDirectory string,
 	sites []windowsRuntimeSite,
 	warnings []windowsDiscoveryWarning,
 ) {
@@ -114,6 +116,14 @@ func appendWindowsMatureRuntimeDetailWithService(
 	if strings.TrimSpace(configFingerprint) != "" {
 		frameworkMetadata["configFingerprint"] = strings.TrimSpace(configFingerprint)
 	}
+	if path := normalizeWindowsRuntimeInventoryPath(workingDirectory); path != "" {
+		frameworkMetadata["workingDirectory"] = path
+	}
+	configCheckArgs := windowsRuntimeConfigCheckArgs(frameworkType, configPath, workingDirectory)
+	if len(configCheckArgs) > 0 {
+		frameworkMetadata["configCheckArgs"] = configCheckArgs
+		frameworkMetadata["configCheckArgsTemplate"] = append([]string(nil), configCheckArgs...)
+	}
 	programSha256, programWarning := sha256WindowsRuntimeProgram(programPath)
 	if programWarning != nil {
 		appendWindowsMatureWarning(inventory, *programWarning)
@@ -131,7 +141,7 @@ func appendWindowsMatureRuntimeDetailWithService(
 	appendWindowsMatureConfigFile(inventory, configPath)
 
 	for _, site := range sites {
-		appendWindowsMatureSite(inventory, frameworkType, site, programPath, programSha256, serviceName, configPath, configFingerprint)
+		appendWindowsMatureSite(inventory, frameworkType, site, programPath, programSha256, serviceName, configPath, configFingerprint, workingDirectory, configCheckArgs)
 	}
 }
 
@@ -186,6 +196,8 @@ func appendWindowsMatureSite(
 	serviceName string,
 	fallbackConfigPath string,
 	fallbackConfigFingerprint string,
+	workingDirectory string,
+	configCheckArgs []string,
 ) {
 	listeners := make([]map[string]any, 0, len(site.Listen))
 	for _, listener := range site.Listen {
@@ -213,6 +225,13 @@ func appendWindowsMatureSite(
 		}
 		if strings.TrimSpace(serviceName) != "" {
 			listenerRecord["serviceName"] = strings.TrimSpace(serviceName)
+		}
+		if path := normalizeWindowsRuntimeInventoryPath(workingDirectory); path != "" {
+			listenerRecord["workingDirectory"] = path
+		}
+		if len(configCheckArgs) > 0 {
+			listenerRecord["configCheckArgs"] = append([]string(nil), configCheckArgs...)
+			listenerRecord["configCheckArgsTemplate"] = append([]string(nil), configCheckArgs...)
 		}
 		appendWindowsMatureListenerPaths(listenerRecord, listener)
 		listeners = append(listeners, listenerRecord)
@@ -257,6 +276,9 @@ func appendWindowsMatureSite(
 	if strings.TrimSpace(serviceName) != "" {
 		siteMetadata["serviceName"] = strings.TrimSpace(serviceName)
 	}
+	if path := normalizeWindowsRuntimeInventoryPath(workingDirectory); path != "" {
+		siteMetadata["workingDirectory"] = path
+	}
 	sites = append(sites, map[string]any{
 		"frameworkType": frameworkType,
 		"name":          site.Name,
@@ -267,6 +289,46 @@ func appendWindowsMatureSite(
 		"metadata":      siteMetadata,
 	})
 	inventory["sites"] = sites
+}
+
+func windowsRuntimeConfigCheckArgs(frameworkType string, configPath string, workingDirectory string) []string {
+	configPath = normalizeWindowsRuntimeInventoryPath(configPath)
+	workingDirectory = normalizeWindowsRuntimeInventoryPath(workingDirectory)
+	switch frameworkType {
+	case "web.apache":
+		if configPath == "" {
+			return nil
+		}
+		args := []string{"-t"}
+		if workingDirectory != "" {
+			args = append(args, "-d", workingDirectory)
+		}
+		return append(args, "-f", configPath)
+	case "web.nginx":
+		if configPath == "" {
+			return nil
+		}
+		args := []string{"-t"}
+		if workingDirectory != "" {
+			args = append(args, "-p", workingDirectory)
+		}
+		return append(args, "-c", configPath)
+	case "app.tomcat":
+		if workingDirectory == "" {
+			return nil
+		}
+		root := strings.TrimRight(workingDirectory, `/\\`)
+		return []string{
+			"-Dcatalina.base=" + workingDirectory,
+			"-Dcatalina.home=" + workingDirectory,
+			"-cp",
+			root + `/bin/bootstrap.jar`,
+			"org.apache.catalina.startup.Bootstrap",
+			"configtest",
+		}
+	default:
+		return nil
+	}
 }
 
 func appendWindowsMatureConfigFile(inventory map[string]any, path string) {

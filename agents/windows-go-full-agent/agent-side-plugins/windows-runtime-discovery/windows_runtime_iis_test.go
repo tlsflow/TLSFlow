@@ -66,7 +66,7 @@ func TestMatureIISInventoryProducesOneConfiguredCertificate(t *testing.T) {
 			},
 		},
 	}
-	appendWindowsMatureRuntimeDetail(inventory, "web.iis", "IIS", true, "10.0", `C:\Windows\System32\inetsrv`, `C:\Windows\System32\inetsrv\config\applicationHost.config`, "", []windowsRuntimeSite{site}, nil)
+	appendWindowsMatureRuntimeDetail(inventory, "web.iis", "IIS", true, "10.0", `C:\Windows\System32\inetsrv`, `C:\Windows\System32\inetsrv\config\applicationHost.config`, "", `C:\Windows\System32\inetsrv`, []windowsRuntimeSite{site}, nil)
 
 	sites := inventory["sites"].([]map[string]any)
 	certificates := inventory["certificateFiles"].([]map[string]any)

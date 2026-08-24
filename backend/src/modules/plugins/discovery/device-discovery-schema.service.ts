@@ -6,6 +6,7 @@ const forbiddenKeyPattern = /(password|secret|token|private[_-]?key|authorizatio
 const allowedPathKeys = new Set(['privateKeyPath']);
 const executionLocations = new Set(['AGENT', 'CONTROL_PLANE', 'GATEWAY']);
 const deploymentStorageKinds = new Set(['PEM_FILES', 'KEYSTORE', 'WINDOWS_CERTIFICATE_STORE']);
+const absoluteWindowsPath = /^(?:[A-Za-z]:[\\/]|\\\\)/;
 
 export class DeviceDiscoverySchemaService {
   validate(value: unknown): StandardDeviceDiscoveryV2 {
@@ -71,9 +72,14 @@ function invalidField(path: string): never { throw new AppError('VALIDATION_FAIL
 
 function assertDeploymentTarget(value: unknown, path: string): void {
   if (!isRecord(value) || typeof value.storageKind !== 'string' || !deploymentStorageKinds.has(value.storageKind)) invalidField(`${path}.storageKind`);
-  for (const key of ['certificatePath', 'privateKeyPath', 'chainPath', 'keystorePath', 'sourceConfigPath']) {
+  for (const key of ['certificatePath', 'privateKeyPath', 'chainPath', 'keystorePath', 'sourceConfigPath', 'workingDirectory']) {
     const child = value[key];
     if (child !== undefined && (typeof child !== 'string' || !child.trim() || /[\r\n]/.test(child) || /^windows-tls:\/\//i.test(child.trim()))) invalidField(`${path}.${key}`);
+  }
+  if (value.workingDirectory !== undefined
+    && !(value.workingDirectory as string).startsWith('/')
+    && !absoluteWindowsPath.test((value.workingDirectory as string).trim())) {
+    invalidField(`${path}.workingDirectory`);
   }
   for (const key of ['serviceName', 'programPath'] as const) {
     const child = value[key];
@@ -82,6 +88,16 @@ function assertDeploymentTarget(value: unknown, path: string): void {
   if (value.programSha256 !== undefined
     && (typeof value.programSha256 !== 'string' || !/^[A-Fa-f0-9]{64}$/.test(value.programSha256.trim()))) {
     invalidField(`${path}.programSha256`);
+  }
+  for (const key of ['configCheckArgs', 'configCheckArgsTemplate'] as const) {
+    const child = value[key];
+    if (child !== undefined && (!Array.isArray(child) || child.length === 0 || child.some((item) => typeof item !== 'string' || !item.trim() || /[\u0000\r\n;&|<>`$()]/.test(item)))) {
+      invalidField(`${path}.${key}`);
+    }
+  }
+  if (value.configCheckArgs !== undefined && value.configCheckArgsTemplate !== undefined
+    && (value.configCheckArgs as unknown[]).length !== (value.configCheckArgsTemplate as unknown[]).length) {
+    invalidField(`${path}.configCheckArgsTemplate`);
   }
   if (value.configFingerprint !== undefined
     && (typeof value.configFingerprint !== 'string' || !/^[A-Fa-f0-9]{64}$/.test(value.configFingerprint.trim()))) {

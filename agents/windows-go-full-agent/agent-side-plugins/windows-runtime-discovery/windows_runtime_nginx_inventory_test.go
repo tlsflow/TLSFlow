@@ -1,6 +1,10 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -13,7 +17,11 @@ func TestMatureNginxInventoryProjectsConfirmedRuntimeFacts(t *testing.T) {
 		"configFiles":      []map[string]any{},
 		"warnings":         []map[string]any{},
 	}
-	const programPath = `D:\runtime\nginx\nginx.exe`
+	programPath := filepath.Join(t.TempDir(), "nginx.exe")
+	programContent := []byte("GCAC Nginx test executable")
+	if err := os.WriteFile(programPath, programContent, 0o600); err != nil {
+		t.Fatalf("写入 Nginx 测试程序失败: %v", err)
+	}
 	const serviceName = "nginx-production"
 	fingerprint := strings.Repeat("a", 64)
 	site := windowsRuntimeSite{
@@ -23,13 +31,13 @@ func TestMatureNginxInventoryProjectsConfirmedRuntimeFacts(t *testing.T) {
 		ConfigFiles:       []string{`D:\runtime\nginx\conf\nginx.conf`},
 		ConfigFingerprint: fingerprint,
 		Listen: []windowsRuntimeListener{{
-			Address:              "*",
-			Port:                 443,
-			Protocol:             "HTTPS",
-			HostHeader:           "portal.example.test",
-			CertificatePath:      `D:\runtime\nginx\conf\certs\portal.crt`,
-			CertificateKeyPath:   `D:\runtime\nginx\conf\certs\portal.key`,
-			ConfigFingerprint:    fingerprint,
+			Address:            "*",
+			Port:               443,
+			Protocol:           "HTTPS",
+			HostHeader:         "portal.example.test",
+			CertificatePath:    `D:\runtime\nginx\conf\certs\portal.crt`,
+			CertificateKeyPath: `D:\runtime\nginx\conf\certs\portal.key`,
+			ConfigFingerprint:  fingerprint,
 		}},
 	}
 
@@ -43,6 +51,7 @@ func TestMatureNginxInventoryProjectsConfirmedRuntimeFacts(t *testing.T) {
 		serviceName,
 		`D:\runtime\nginx\conf\nginx.conf`,
 		fingerprint,
+		`D:\runtime\nginx`,
 		[]windowsRuntimeSite{site},
 		nil,
 	)
@@ -57,10 +66,13 @@ func TestMatureNginxInventoryProjectsConfirmedRuntimeFacts(t *testing.T) {
 		t.Fatalf("Nginx HTTPS 监听器投影错误: %#v", metadata)
 	}
 	listener := listeners[0]
+	expectedProgramSha256 := sha256.Sum256(programContent)
 	for key, expected := range map[string]string{
 		"serviceName":       serviceName,
-		"programPath":       `D:/runtime/nginx/nginx.exe`,
+		"programPath":       normalizeWindowsRuntimeInventoryPath(programPath),
+		"programSha256":     hex.EncodeToString(expectedProgramSha256[:]),
 		"configFingerprint": fingerprint,
+		"workingDirectory":  `D:/runtime/nginx`,
 	} {
 		if actual := listener[key]; actual != expected {
 			t.Fatalf("Nginx 监听器未投影已确认事实 %s: actual=%#v listener=%#v", key, actual, listener)
@@ -68,6 +80,10 @@ func TestMatureNginxInventoryProjectsConfirmedRuntimeFacts(t *testing.T) {
 	}
 	if actual := metadata["serviceName"]; actual != serviceName {
 		t.Fatalf("Nginx 站点不应丢失 Agent 上报的服务名: %#v", metadata)
+	}
+	args, ok := listener["configCheckArgs"].([]string)
+	if !ok || strings.Join(args, "|") != "-t|-p|D:/runtime/nginx|-c|D:/runtime/nginx/conf/nginx.conf" {
+		t.Fatalf("Nginx 未投影真实配置检查参数: %#v", listener["configCheckArgs"])
 	}
 }
 
