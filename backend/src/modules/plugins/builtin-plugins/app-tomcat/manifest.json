@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "app.tomcat",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "displayNameKey": "plugin.appTomcat.name",
   "descriptionKey": "plugin.appTomcat.description",
   "defaultLocale": "zh-CN",

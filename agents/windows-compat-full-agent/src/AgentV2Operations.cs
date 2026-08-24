@@ -29,7 +29,11 @@ namespace GCAC.WindowsCompatibilityAgent
             for (int index = 0; index < paths.Length; index++)
             {
                 if (!AgentV2Security.IsPathWithin(paths[index], authorization.Token.allowedPaths) || !AgentV2Security.IsPathWithin(paths[index], authorization.Decision.allowedPaths)) throw new AgentV2SecurityException("AGENT_V2_AUTHORIZATION_DENIED", "事实路径超出授权范围");
-                facts.Add(FileStat(paths[index]));
+                if (Directory.Exists(paths[index]))
+                {
+                    foreach (string candidate in EnumerateWebConfigFiles(paths[index])) facts.Add(ReadFileFact(candidate));
+                }
+                else facts.Add(FileStat(paths[index]));
             }
             Dictionary<string, object> envelope = new Dictionary<string, object>
             {
@@ -175,6 +179,33 @@ namespace GCAC.WindowsCompatibilityAgent
             if (!File.Exists(path)) throw new FileNotFoundException("文件不存在", path);
             byte[] content; using (FileStream stream = File.OpenRead(path)) { int length = (int)Math.Min(AgentV2Security.MaximumFileContentBytes, stream.Length); content = new byte[length]; stream.Read(content, 0, length); }
             using (SHA256 sha = SHA256.Create()) return new Dictionary<string, object> { { "status", "SUCCEEDED" }, { "fact", new Dictionary<string, object> { { "kind", "file_content" }, { "path", AgentV2Security.NormalizePath(path) }, { "contentBase64", Convert.ToBase64String(content) }, { "bytesRead", content.Length }, { "truncated", new FileInfo(path).Length > content.Length }, { "sha256", Hex(sha.ComputeHash(content)) } } } };
+        }
+
+        private static IEnumerable<string> EnumerateWebConfigFiles(string root)
+        {
+            string[] extensions = new string[] { ".conf", ".xml", ".properties", ".config" };
+            string[] files;
+            try { files = Directory.GetFiles(root, "*.*", SearchOption.AllDirectories); } catch { yield break; }
+            int count = 0;
+            foreach (string path in files)
+            {
+                if (count >= 512) yield break;
+                string extension = Path.GetExtension(path);
+                bool accepted = false;
+                for (int index = 0; index < extensions.Length; index++) if (string.Equals(extension, extensions[index], StringComparison.OrdinalIgnoreCase)) { accepted = true; break; }
+                if (!accepted) continue;
+                FileInfo info;
+                try { info = new FileInfo(path); } catch { continue; }
+                if (info.Length > AgentV2Security.MaximumFileContentBytes * 4L) continue;
+                count++;
+                yield return path;
+            }
+        }
+
+        private static Dictionary<string, object> ReadFileFact(string path)
+        {
+            Dictionary<string, object> result = ReadFile(path);
+            return (Dictionary<string, object>)result["fact"];
         }
 
         private static void AtomicReplace(Dictionary<string, object> input)

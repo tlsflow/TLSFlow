@@ -76,6 +76,43 @@ export class LivenessApplicationService {
     return this.domain.project(await this.repository.list(tenantId, resourceType, resourceId), requiredSignals);
   }
 
+  /**
+   * 立即探测单个 Agent 的 TCP 管理端口。
+   * 定时探测只能收敛最终状态，手动重新发现必须在入队前拿到当前结果。
+   */
+  async probeAgentManagementEndpoint(input: { tenantId: string; agentId: string; timeoutMs?: number; now?: Date }): Promise<{
+    success: boolean;
+    reasonCode?: string;
+    reasonDetail?: string;
+    host?: string;
+    port?: number;
+    projection: LivenessProjection;
+  }> {
+    const now = input.now ?? new Date();
+    const target = (await this.listProbeTargets()).find((item) =>
+      item.tenantId === input.tenantId && item.resourceType === 'AGENT' && item.resourceId === input.agentId);
+    if (!target || !target.host || !target.port) {
+      const reasonCode = 'MANAGEMENT_ENDPOINT_MISSING';
+      if (target) await this.recordProbe(target, false, now, reasonCode, 'Agent 未提供可连接的 TCP 管理端点');
+      return {
+        success: false,
+        reasonCode,
+        reasonDetail: 'Agent 未提供可连接的 TCP 管理端点',
+        host: target?.host,
+        port: target?.port,
+        projection: await this.project(input.tenantId, 'AGENT', input.agentId, ['HEARTBEAT', 'MANAGEMENT_TCP']),
+      };
+    }
+    const result = await probeTcp(target.host, target.port, positiveInteger(input.timeoutMs, 3_000));
+    await this.recordProbe(target, result.success, now, result.reasonCode, result.reasonDetail);
+    return {
+      ...result,
+      host: target.host,
+      port: target.port,
+      projection: await this.project(input.tenantId, 'AGENT', input.agentId, ['HEARTBEAT', 'MANAGEMENT_TCP']),
+    };
+  }
+
   async evaluateManagementProbes(options: { timeoutMs?: number; concurrency?: number; now?: Date } = {}) {
     const now = options.now ?? new Date();
     const timeoutMs = positiveInteger(options.timeoutMs, 3_000);
@@ -134,7 +171,26 @@ export class LivenessApplicationService {
          select payload->>'tenantId' tenant_id,
                 'AGENT'::text resource_type,
                 document_id resource_id,
-                 coalesce(nullif(payload->'descriptor'->>'ipAddress', ''), nullif(payload->'descriptor'->>'hostname', '')) endpoint_host,
+                coalesce(
+                  nullif(payload->'descriptor'->>'managementEndpoint', ''),
+                  case
+                    when nullif(payload->'descriptor'->>'ipAddress', '') is not null then
+                      'http://' || (payload->'descriptor'->>'ipAddress') || ':' ||
+                      case upper(coalesce(payload->'descriptor'->>'osType', ''))
+                        when 'WINDOWS' then '18930'
+                        when 'WINDOWS_COMPATIBILITY' then '18932'
+                        else '18931'
+                      end
+                    when nullif(payload->'descriptor'->>'hostname', '') is not null then
+                      'http://' || (payload->'descriptor'->>'hostname') || ':' ||
+                      case upper(coalesce(payload->'descriptor'->>'osType', ''))
+                        when 'WINDOWS' then '18930'
+                        when 'WINDOWS_COMPATIBILITY' then '18932'
+                        else '18931'
+                      end
+                    else null
+                  end
+                ) endpoint_host,
                 null::integer endpoint_port,
                 null::text gateway_id
            from pg_documents

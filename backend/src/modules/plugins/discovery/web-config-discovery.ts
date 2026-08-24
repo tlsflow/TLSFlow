@@ -1,0 +1,158 @@
+/**
+ * Web 配置事实解析器。
+ *
+ * Agent 只负责回传受控目录中的原始配置文本；这里按固定插件语法解析，
+ * 不依赖进程名或监听端口猜测产品，也不会执行配置中的任何内容。
+ */
+export interface WebConfigDiscoveryResult {
+  frameworks: Array<Record<string, unknown>>;
+  sites: Array<Record<string, unknown>>;
+}
+
+export function discoverWebConfigs(files: readonly Record<string, unknown>[], fallbackAddress?: string): WebConfigDiscoveryResult {
+  const frameworks: Array<Record<string, unknown>> = [];
+  const sites: Array<Record<string, unknown>> = [];
+  const seenFrameworks = new Set<string>();
+  for (const file of files) {
+    const path = text(file.path);
+    const content = text(file.content);
+    if (!path || !content) continue;
+    const parser = parserFor(path, content);
+    if (!parser) continue;
+    const result = parser(content, fallbackAddress);
+    for (const framework of result.frameworks) {
+      const key = String(framework.frameworkType);
+      if (seenFrameworks.has(key)) continue;
+      seenFrameworks.add(key);
+      frameworks.push(framework);
+    }
+    for (const site of result.sites) {
+      const key = siteIdentity(site);
+      const existingIndex = sites.findIndex((item) => siteIdentity(item) === key);
+      if (existingIndex < 0) {
+        sites.push(site);
+        continue;
+      }
+      sites[existingIndex] = mergeSiteFacts(sites[existingIndex]!, site);
+    }
+  }
+  return { frameworks, sites };
+}
+
+function siteIdentity(site: Record<string, unknown>): string {
+  const addresses = Array.isArray(site.addresses)
+    ? site.addresses.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
+  const names = addresses.length ? addresses : [String(site.name ?? '')];
+  return `${String(site.frameworkType ?? '')}:${[...new Set(names.map((name) => name.trim().toLowerCase()))].sort().join('|')}`;
+}
+
+function mergeSiteFacts(left: Record<string, unknown>, right: Record<string, unknown>): Record<string, unknown> {
+  const leftAddresses = Array.isArray(left.addresses) ? left.addresses : [];
+  const rightAddresses = Array.isArray(right.addresses) ? right.addresses : [];
+  const leftListeners = isRecord(left.metadata) && Array.isArray(left.metadata.listeners) ? left.metadata.listeners : [];
+  const rightListeners = isRecord(right.metadata) && Array.isArray(right.metadata.listeners) ? right.metadata.listeners : [];
+  const metadata = {
+    ...(isRecord(left.metadata) ? left.metadata : {}),
+    ...(isRecord(right.metadata) ? right.metadata : {}),
+    listeners: [...leftListeners, ...rightListeners],
+  };
+  const preferRight = String(right.protocol ?? '').toUpperCase() === 'HTTPS' || String(left.protocol ?? '').toUpperCase() !== 'HTTPS';
+  const preferred = preferRight ? right : left;
+  return {
+    ...left,
+    ...right,
+    port: preferred.port,
+    protocol: preferred.protocol,
+    addresses: [...new Set([...leftAddresses, ...rightAddresses].filter((item): item is string => typeof item === 'string'))],
+    metadata,
+  };
+}
+
+type Parser = (content: string, fallbackAddress?: string) => WebConfigDiscoveryResult;
+
+function parserFor(path: string, content: string): Parser | undefined {
+  const normalized = path.replaceAll('\\', '/').toLowerCase();
+  if (normalized.endsWith('/nginx.conf') || normalized.includes('/nginx/') || normalized.includes('nginx\\')) return parseNginx;
+  if (normalized.endsWith('/httpd.conf') || normalized.endsWith('/apache2.conf') || normalized.includes('/sites-enabled/') || normalized.includes('/conf-enabled/')) return parseApache;
+  if (normalized.endsWith('/server.xml') && (normalized.includes('tomcat') || normalized.includes('catalina'))) return parseTomcat;
+  if (/\bserver\s*\{|\bserver_name\s+/i.test(content)) return parseNginx;
+  if (/<VirtualHost\b|\bSSLCertificateFile\s+/i.test(content)) return parseApache;
+  if (/<Connector\b|<Context\b|<Host\b/i.test(content)) return parseTomcat;
+  return undefined;
+}
+
+function parseNginx(content: string, fallbackAddress?: string): WebConfigDiscoveryResult {
+  const sites: Array<Record<string, unknown>> = [];
+  const blocks = content.match(/server\s*\{([\s\S]*?)\}/gi) ?? [];
+  for (const block of blocks) {
+    const body = block.replace(/^server\s*\{/, '').replace(/\}\s*$/, '');
+    const names = words(body, /server_name\s+([^;]+);/i).flatMap((value) => value.split(/\s+/)).filter(Boolean);
+    const listens = words(body, /listen\s+([^;]+);/gi);
+    const certificate = match(body, /ssl_certificate\s+([^;]+);/i);
+    const listen = listens[0] ?? '80';
+    const port = parsePort(listen) ?? 80;
+    const protocol = /ssl|443/.test(listen.toLowerCase()) ? 'HTTPS' : 'HTTP';
+    const siteNames = names.length ? names : [fallbackAddress ?? 'default'];
+    sites.push({ frameworkType: 'web.nginx', name: siteNames[0], addresses: siteNames, port, protocol, metadata: { listeners: [{ port, protocol, certificatePath: certificate }] } });
+  }
+  return { frameworks: [{ frameworkType: 'web.nginx', displayName: 'Nginx' }], sites };
+}
+
+function parseApache(content: string, fallbackAddress?: string): WebConfigDiscoveryResult {
+  const sites: Array<Record<string, unknown>> = [];
+  const blocks = content.match(/<VirtualHost\s+([^>]+)>([\s\S]*?)<\/VirtualHost>/gi) ?? [];
+  for (const block of blocks) {
+    const header = match(block, /<VirtualHost\s+([^>]+)>/i) ?? '*:80';
+    const names = words(block, /ServerName\s+([^\s#]+)|ServerAlias\s+([^\s#]+)/gi);
+    const port = parsePort(header) ?? 80;
+    const protocol = /443|ssl/i.test(header) || /SSLEngine\s+on/i.test(block) ? 'HTTPS' : 'HTTP';
+    const certificate = match(block, /SSLCertificateFile\s+([^\s#]+)/i);
+    const siteNames = names.length ? names : [fallbackAddress ?? header];
+    sites.push({ frameworkType: 'web.apache', name: siteNames[0], addresses: siteNames, port, protocol, metadata: { listeners: [{ port, protocol, certificatePath: certificate }] } });
+  }
+  return { frameworks: [{ frameworkType: 'web.apache', displayName: 'Apache' }], sites };
+}
+
+function parseTomcat(content: string, fallbackAddress?: string): WebConfigDiscoveryResult {
+  const sites: Array<Record<string, unknown>> = [];
+  const connectorPattern = /<Connector\b([^>]*?)(?:\/>|>)/gi;
+  let connector: RegExpExecArray | null;
+  while ((connector = connectorPattern.exec(content))) {
+    const attrs = attributes(connector[1] ?? '');
+    const port = Number(attrs.port ?? 8080);
+    const protocol = /ssl|https/i.test(String(attrs.protocol ?? '')) || attrs.scheme === 'https' ? 'HTTPS' : 'HTTP';
+    const hosts = [...content.matchAll(/<Host\b([^>]*?)(?:\/>|>)/gi)].map((item) => attributes(item[1] ?? '').name).filter(Boolean);
+    const names = hosts.length ? hosts : [fallbackAddress ?? 'localhost'];
+    for (const name of names) sites.push({ frameworkType: 'app.tomcat', name, addresses: [name], port, protocol, metadata: { connectorProtocol: attrs.protocol, keystoreFile: attrs.keystoreFile } });
+  }
+  const contexts = [...content.matchAll(/<Context\b([^>]*?)(?:\/>|>)/gi)].map((item) => attributes(item[1] ?? '').path).filter(Boolean);
+  for (const context of contexts) sites.push({ frameworkType: 'app.tomcat', name: context, addresses: [fallbackAddress ?? 'localhost'], metadata: { contextPath: context } });
+  return { frameworks: [{ frameworkType: 'app.tomcat', displayName: 'Tomcat' }], sites };
+}
+
+function attributes(value: string): Record<string, string> {
+  return Object.fromEntries([...value.matchAll(/([A-Za-z][\w-]*)\s*=\s*["']([^"']*)["']/g)].map((item) => [item[1]!, item[2]!].filter(Boolean) as [string, string]));
+}
+
+function words(value: string, pattern: RegExp): string[] {
+  const global = pattern.flags.includes('g') ? pattern : new RegExp(pattern.source, `${pattern.flags}g`);
+  return [...value.matchAll(global)].flatMap((item) => item.slice(1).filter((part): part is string => Boolean(part))).flatMap((item) => item.trim().split(/\s+/));
+}
+
+function match(value: string, pattern: RegExp): string | undefined {
+  return pattern.exec(value)?.[1]?.trim();
+}
+
+function parsePort(value: string): number | undefined {
+  const port = Number(value.match(/:(\d{1,5})/)?.[1] ?? value.match(/\b(\d{1,5})\b/)?.[1]);
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : undefined;
+}
+
+function text(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, any> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}

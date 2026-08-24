@@ -8,7 +8,7 @@ test('Dashboard 聚合只统计和展示有对象权限的资产', async () => {
   const service = createDashboardService({
     service_asset: ['application-visible'],
     certificate_asset: ['certificate-visible'],
-    certificate_version: ['certificate-version-visible'],
+    certificate_version: ['certificate-version-visible', 'certificate-version-visible-recent'],
     certificate_binding: ['binding-visible'],
     agent: ['agent-visible'],
     gateway: ['gateway-visible'],
@@ -24,7 +24,14 @@ test('Dashboard 聚合只统计和展示有对象权限的资产', async () => {
   assert.equal(metricValue(overview.metrics, 'activeGateways'), 1);
   assert.equal(metricValue(overview.metrics, 'managedBindings'), 1);
   assert.deepEqual(overview.certificateStatuses.map((item) => item.certificateAssetId), ['certificate-visible']);
+  assert.equal(overview.certificateStatuses[0]?.certificateVersionId, 'certificate-version-visible');
+  assert.equal(overview.certificateStatuses[0]?.notAfter, '2026-12-01T00:00:00.000Z');
   assert.deepEqual(statusBlockIds(overview, 'applicationAssets'), ['application-visible']);
+  const applicationBlock = overview.statusGroups.find((group) => group.key === 'applicationAssets')?.blocks[0];
+  assert.equal(applicationBlock?.details?.type, 'applicationAsset');
+  if (applicationBlock?.details?.type === 'applicationAsset') {
+    assert.ok((applicationBlock.details.certificateDaysRemaining ?? 0) > 0);
+  }
   assert.deepEqual(statusBlockIds(overview, 'agents'), ['agent-visible']);
   assert.deepEqual(statusBlockIds(overview, 'gateways'), ['gateway-visible']);
 });
@@ -97,11 +104,20 @@ function createDashboardService(
     asset('application-hidden', 'UNREACHABLE'),
   ];
   const certificateAssets = [
-    certificateAsset('certificate-visible', 'certificate-version-visible'),
+    certificateAsset('certificate-visible', 'certificate-version-visible-recent'),
     certificateAsset('certificate-hidden', 'certificate-version-hidden'),
   ];
   const certificateVersions = [
-    certificateVersion('certificate-version-visible', 'certificate-visible'),
+    {
+      ...certificateVersion('certificate-version-visible', 'certificate-visible'),
+      notAfter: '2026-12-01T00:00:00.000Z',
+      createdAt: '2026-08-01T00:00:00.000Z',
+    },
+    {
+      ...certificateVersion('certificate-version-visible-recent', 'certificate-visible'),
+      notAfter: '2026-09-01T00:00:00.000Z',
+      createdAt: '2026-08-12T00:00:00.000Z',
+    },
     certificateVersion('certificate-version-hidden', 'certificate-hidden'),
   ];
   const bindings = [
@@ -167,6 +183,7 @@ function asset(id: string, status: string) {
     status,
     updatedAt: '2026-08-07T00:00:00.000Z',
     lastDiscoveredAt: '2026-08-07T00:00:00.000Z',
+    currentCertificate: status === 'ACTIVE' ? { notAfter: '2026-09-01T00:00:00.000Z' } : undefined,
   };
 }
 

@@ -10,6 +10,11 @@ export interface DashboardMetric {
 
 export type DashboardCertificateState = 'valid' | 'expiring' | 'critical' | 'expired' | 'unknown';
 export type DashboardStatusTone = 'ok' | 'warning' | 'error' | 'unknown' | 'disabled';
+export type DashboardStatusDetails =
+  | { type: 'certificate'; name: string; issuer?: string; notBefore?: string; notAfter?: string; daysRemaining?: number }
+  | { type: 'device'; name: string; connectionStatus: string; version?: string; managementAddress?: string; lastCommunicationAt?: string }
+  | { type: 'applicationAsset'; name: string; platform?: string; protocolPort: string; certificateDaysRemaining?: number }
+  | { type: 'gateway'; name: string; region?: string; latencyMs?: number };
 
 export interface DashboardStatusBlock {
   id: string;
@@ -17,6 +22,7 @@ export interface DashboardStatusBlock {
   status: string;
   tone: DashboardStatusTone;
   detail?: string;
+  details?: DashboardStatusDetails;
   updatedAt?: string;
   targetPath?: string;
 }
@@ -34,6 +40,8 @@ export interface DashboardCertificateStatusItem {
   certificateVersionId?: string;
   name: string;
   primaryDomain: string;
+  issuer?: string;
+  notBefore?: string;
   notAfter?: string;
   daysRemaining?: number;
   state: DashboardCertificateState;

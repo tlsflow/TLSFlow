@@ -4,7 +4,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PLUGIN_ID = 'web.nginx';
-const PLUGIN_VERSION = '1.0.0';
+const PLUGIN_VERSION = '1.0.1';
 const CAPABILITIES = ['application.discover', 'certificate.deploy', 'certificate.verify', 'certificate.rollback'];
 const WRITE_CAPABILITIES = new Set(['certificate.deploy', 'certificate.rollback']);
 const SECURITY_VERSION = 'gcac.agent-security/v1';
@@ -39,6 +39,9 @@ async function executePlugin(bundle, context, hostApi) {
   assertContext(context, bundle.fixed);
   const input = record(context.input, 'input');
   const factEnvelope = validateFactEnvelope(input.factEnvelope);
+  if (context.capability === 'application.discover' && input.discoveryMode === 'full-agent') {
+    return fullAgentDiscovery(factEnvelope, bundle.fixed.pluginVersionId);
+  }
   const profile = selectProfile(bundle.profiles, input.profile, factEnvelope.source);
   const target = resolveTarget(input.target, profile, factEnvelope.facts);
   assertProfileEvidence(profile, target, factEnvelope.facts);
@@ -80,10 +83,102 @@ async function executePlugin(bundle, context, hostApi) {
     normalizedObjects: objects,
     warnings: factEnvelope.warnings.map((message) => ({
       code: 'AGENT_FACT_WARNING',
-      message: String(message).slice(0, 512),
-      secretRedacted: true,
+      messageKey: 'agents.discovery.agentFactWarning',
+      metadata: { message: String(message).slice(0, 512), secretRedacted: true },
     })),
   };
+}
+
+function fullAgentDiscovery(factEnvelope, pluginVersionId) {
+  const sites = [];
+  const files = factEnvelope.facts
+    .filter((fact) => fact.kind === 'file_content')
+    .map((fact) => ({ path: fact.path, content: decodeContent(fact.contentBase64) }));
+  for (const file of files) {
+    const content = file.content;
+    if (!/server\s*\{|server_name\s+/i.test(content) && !/nginx(?:[\\/]|$)/i.test(file.path)) continue;
+    for (const block of content.match(/server\s*\{([\s\S]*?)\}/gi) ?? []) {
+      const body = block.replace(/^server\s*\{/, '').replace(/\}\s*$/, '');
+      const names = words(body, /server_name\s+([^;]+);/i).flatMap((value) => value.split(/\s+/)).filter(Boolean);
+      const listen = words(body, /listen\s+([^;]+);/gi)[0] ?? '80';
+      const port = parsePort(listen) ?? 80;
+      const protocol = /ssl|443/i.test(listen) ? 'HTTPS' : 'HTTP';
+      for (const name of (names.length ? names : ['default'])) sites.push({ name, addresses: [name], port, protocol, metadata: { configPath: file.path } });
+    }
+  }
+  return standardDiscovery(factEnvelope, pluginVersionId, 'web.nginx', 'Nginx', sites);
+}
+
+function standardDiscovery(factEnvelope, pluginVersionId, frameworkType, displayName, rawSites) {
+  const frameworkStableKey = `${frameworkType}:${stableKey(factEnvelope.agentId)}`;
+  const sites = dedupeSites(rawSites).map((site) => ({
+    stableKey: `${frameworkStableKey}:${stableKey(`${site.name}:${site.port ?? ''}:${site.protocol ?? ''}`)}`,
+    frameworkStableKey,
+    siteType: 'web.site',
+    displayName: site.name,
+    addresses: site.addresses,
+    ...(site.port ? { port: site.port } : {}),
+    ...(site.protocol ? { protocol: site.protocol } : {}),
+    metadata: site.metadata ?? {},
+  }));
+  const managedTargets = sites.map((site) => ({
+    stableKey: `${site.stableKey}:tls`,
+    frameworkStableKey,
+    siteStableKey: site.stableKey,
+    targetType: 'tls.binding',
+    targetKey: `${frameworkType}:binding:${stableKey(`${site.displayName}:${site.port ?? ''}:${site.protocol ?? ''}`)}`,
+    bindingKey: `${frameworkType}:binding:${stableKey(`${site.displayName}:${site.port ?? ''}:${site.protocol ?? ''}`)}`,
+    supportedCapabilities: ['certificate.deploy', 'certificate.verify', 'certificate.rollback'],
+    executionLocations: ['AGENT', 'CONTROL_PLANE'],
+    metadata: { protocol: site.protocol ?? 'HTTP' },
+  }));
+  return {
+    success: true,
+    status: 'SUCCESS',
+    summary: { pluginId: PLUGIN_ID, pluginVersion: PLUGIN_VERSION, pluginVersionId, discoveryMode: 'full-agent', frameworkCount: 1, siteCount: sites.length },
+    normalizedObjects: [{
+      apiVersion: 'gcac.device-discovery/v2',
+      device: { stableKey: `${PLUGIN_ID}:${stableKey(factEnvelope.agentId)}`, displayName: factEnvelope.agentId, productFamily: PLUGIN_ID, softwareVersion: 'unknown', managementAddress: factEnvelope.agentId, metadata: { tenantId: factEnvelope.tenantId, pluginId: PLUGIN_ID, pluginVersionId, discoveryMode: 'full-agent' } },
+      capabilities: CAPABILITIES.map((key) => ({ key, available: true })),
+      frameworks: [{ stableKey: frameworkStableKey, frameworkType, displayName }],
+      sites,
+      managedTargets,
+      certificates: [],
+      certificateBindings: [],
+      warnings: [],
+    }],
+    warnings: factEnvelope.warnings.map((message) => ({ code: 'AGENT_FACT_WARNING', messageKey: 'agents.discovery.agentFactWarning', metadata: { message: String(message).slice(0, 512), secretRedacted: true } })),
+  };
+}
+
+function dedupeSites(sites) {
+  const result = [];
+  const seen = new Set();
+  for (const site of sites) {
+    const key = `${site.name}:${site.port ?? ''}:${site.protocol ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(site);
+  }
+  return result;
+}
+
+function decodeContent(value) {
+  try { return Buffer.from(value, 'base64').toString('utf8'); } catch { return ''; }
+}
+
+function words(value, pattern) {
+  const global = pattern.flags.includes('g') ? pattern : new RegExp(pattern.source, `${pattern.flags}g`);
+  return [...value.matchAll(global)].flatMap((item) => item.slice(1).filter(Boolean)).flatMap((item) => item.trim().split(/\s+/));
+}
+
+function parsePort(value) {
+  const port = Number(value.match(/:(\d{1,5})/)?.[1] ?? value.match(/\b(\d{1,5})\b/)?.[1]);
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : undefined;
+}
+
+function stableKey(value) {
+  return sha256Digest(value).slice(0, 32);
 }
 
 function readFixedBinding() {
@@ -600,10 +695,6 @@ function pathWithin(path, prefix) {
   const left = normalizePath(path).toLowerCase();
   const right = normalizePath(prefix).replace(/[\\/]+$/, '').toLowerCase();
   return left === right || left.startsWith(right + '\\\\') || left.startsWith(right + '/');
-}
-
-function stableKey(value) {
-  return sha256Digest(value).slice(0, 32);
 }
 
 function canonicalJson(value) {

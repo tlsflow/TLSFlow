@@ -2,7 +2,7 @@
   "apiVersion": "gcac.device-discovery-mapping/v2",
   "kind": "DeviceDiscoveryMapping",
   "pluginId": "web.iis",
-  "pluginVersion": "1.0.0",
+  "pluginVersion": "1.0.1",
   "protocol": "IIS_AGENT_SIDE",
   "apiContract": {
     "agentSideProcess": "agents/windows-compat-full-agent/agent-side-plugins/web-iis",

@@ -10,6 +10,8 @@
   "taskPollIntervalSeconds": 60,
   "healthCheckIntervalSeconds": 30,
   "offlineTimeoutSeconds": 180,
+  "managementListenAddress": "0.0.0.0",
+  "managementPort": 18930,
   "paths": {
     "windows": {
       "configPath": "C:\\ProgramData\\GCAC\\FullAgentGo\\config\\agent.config.json",

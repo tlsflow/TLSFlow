@@ -8576,6 +8576,37 @@
         }
       }
     },
+    "/api/v1/acme/renewal-jobs/:id/cancel": {
+      "post": {
+        "operationId": "cancelAcmeRenewalJob",
+        "summary": "取消 ACME 续签任务",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/certificate-revocations": {
       "get": {
         "operationId": "listCertificateRevocations",
@@ -9710,6 +9741,37 @@
         }
       }
     },
+    "/api/v1/agents/:agentId/management-probe": {
+      "post": {
+        "operationId": "probeAgentManagementEndpoint",
+        "summary": "立即探测 Agent TCP 管理端口",
+        "tags": [
+          "Agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/agents/enrollment-tokens": {
       "post": {
         "operationId": "createAgentEnrollmentToken",
@@ -9717,6 +9779,386 @@
         "tags": [
           "Agents"
         ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/agents/install-sessions": {
+      "post": {
+        "operationId": "createAgentInstallSession",
+        "summary": "创建 Agent 一键安装会话",
+        "tags": [
+          "Agents"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "platform"
+                ],
+                "properties": {
+                  "platform": {
+                    "type": "string",
+                    "enum": [
+                      "windows_go",
+                      "windows_compatibility",
+                      "linux_go"
+                    ]
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "full_agent",
+                      "gateway"
+                    ]
+                  },
+                  "zone": {
+                    "type": "string"
+                  },
+                  "agentKey": {
+                    "type": "string"
+                  },
+                  "serviceName": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "installRoot": {
+                    "type": "string"
+                  },
+                  "configDir": {
+                    "type": "string"
+                  },
+                  "dataDir": {
+                    "type": "string"
+                  },
+                  "logDir": {
+                    "type": "string"
+                  },
+                  "startAfterInstall": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "sessionId",
+                    "platform",
+                    "expiresAt",
+                    "bootstrapUrl",
+                    "installCommand"
+                  ],
+                  "properties": {
+                    "sessionId": {
+                      "type": "string"
+                    },
+                    "platform": {
+                      "type": "string",
+                      "enum": [
+                        "windows_go_service",
+                        "windows_compatibility_service",
+                        "linux_go_systemd"
+                      ]
+                    },
+                    "expiresAt": {
+                      "type": "string"
+                    },
+                    "bootstrapUrl": {
+                      "type": "string"
+                    },
+                    "installCommand": {
+                      "type": "string"
+                    },
+                    "bootstrapTokenPreview": {
+                      "type": "string"
+                    },
+                    "serviceName": {
+                      "type": "string"
+                    },
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "installRoot": {
+                      "type": "string"
+                    },
+                    "configDir": {
+                      "type": "string"
+                    },
+                    "dataDir": {
+                      "type": "string"
+                    },
+                    "logDir": {
+                      "type": "string"
+                    },
+                    "agentKey": {
+                      "type": "string"
+                    },
+                    "zone": {
+                      "type": "string"
+                    },
+                    "bundleUrl": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/agents/install-sessions/windows-go": {
+      "post": {
+        "operationId": "createWindowsGoInstallSession",
+        "summary": "创建 Windows Go Agent 一键安装会话",
+        "tags": [
+          "Agents"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "full_agent"
+                    ]
+                  },
+                  "zone": {
+                    "type": "string"
+                  },
+                  "agentKey": {
+                    "type": "string"
+                  },
+                  "serviceName": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "installRoot": {
+                    "type": "string"
+                  },
+                  "configDir": {
+                    "type": "string"
+                  },
+                  "dataDir": {
+                    "type": "string"
+                  },
+                  "logDir": {
+                    "type": "string"
+                  },
+                  "startAfterInstall": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/agents/install-sessions/windows-compatibility": {
+      "post": {
+        "operationId": "createWindowsCompatibilityInstallSession",
+        "summary": "创建 Windows Compatibility Agent 一键安装会话",
+        "tags": [
+          "Agents"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "full_agent"
+                    ]
+                  },
+                  "zone": {
+                    "type": "string"
+                  },
+                  "agentKey": {
+                    "type": "string"
+                  },
+                  "serviceName": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "installRoot": {
+                    "type": "string"
+                  },
+                  "configDir": {
+                    "type": "string"
+                  },
+                  "dataDir": {
+                    "type": "string"
+                  },
+                  "logDir": {
+                    "type": "string"
+                  },
+                  "startAfterInstall": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/agents/install-sessions/linux-go": {
+      "post": {
+        "operationId": "createLinuxGoInstallSession",
+        "summary": "创建 Linux Go Agent 一键安装会话",
+        "tags": [
+          "Agents"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "full_agent",
+                      "gateway"
+                    ]
+                  },
+                  "zone": {
+                    "type": "string"
+                  },
+                  "agentKey": {
+                    "type": "string"
+                  },
+                  "serviceName": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "installRoot": {
+                    "type": "string"
+                  },
+                  "configDir": {
+                    "type": "string"
+                  },
+                  "dataDir": {
+                    "type": "string"
+                  },
+                  "logDir": {
+                    "type": "string"
+                  },
+                  "startAfterInstall": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "成功",
@@ -20187,5 +20629,5 @@
       "description": "证书绑定生产事实中心"
     }
   ],
-  "x-generatedAt": "2026-08-13T02:55:24.420Z"
+  "x-generatedAt": "2026-08-13T13:49:47.465Z"
 }

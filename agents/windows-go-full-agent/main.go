@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"os/user"
 	"path/filepath"
@@ -28,12 +29,13 @@ import (
 )
 
 const (
-	agentVersion      = "0.1.9"
-	defaultConfigPath = `C:\ProgramData\GCAC\FullAgentGo\config\agent.config.json`
-	defaultMetadata   = `C:\ProgramData\GCAC\FullAgentGo\service.install.json`
-	defaultTaskPoll   = 60
-	defaultHealthPoll = 30
-	defaultOfflineTTL = 180
+	agentVersion          = "0.1.9"
+	defaultConfigPath     = `C:\ProgramData\GCAC\FullAgentGo\config\agent.config.json`
+	defaultMetadata       = `C:\ProgramData\GCAC\FullAgentGo\service.install.json`
+	defaultTaskPoll       = 60
+	defaultHealthPoll     = 30
+	defaultOfflineTTL     = 180
+	defaultManagementPort = 18930
 )
 
 type AgentConfig struct {
@@ -49,6 +51,8 @@ type AgentConfig struct {
 	TaskPollIntervalSeconds    int    `json:"taskPollIntervalSeconds"`
 	HealthCheckIntervalSeconds int    `json:"healthCheckIntervalSeconds"`
 	OfflineTimeoutSeconds      int    `json:"offlineTimeoutSeconds"`
+	ManagementListenAddress    string `json:"managementListenAddress"`
+	ManagementPort             int    `json:"managementPort"`
 	Paths                      struct {
 		Windows struct {
 			ConfigPath string `json:"configPath"`
@@ -104,21 +108,22 @@ type runtimeRegistration struct {
 }
 
 type registerRequest struct {
-	AgentKey        string   `json:"agentKey"`
-	MachineID       string   `json:"machineId,omitempty"`
-	Hostname        string   `json:"hostname"`
-	Version         string   `json:"version"`
-	OSType          string   `json:"osType"`
-	Arch            string   `json:"arch,omitempty"`
-	IPAddress       string   `json:"ipAddress,omitempty"`
-	OSVersion       string   `json:"osVersion,omitempty"`
-	Labels          []string `json:"labels,omitempty"`
-	EnrollmentToken string   `json:"enrollmentToken,omitempty"`
-	Role            string   `json:"role,omitempty"`
-	Zone            string   `json:"zone,omitempty"`
-	ZoneIDs         []string `json:"zoneIds,omitempty"`
-	Adapters        []string `json:"adapters,omitempty"`
-	Capabilities    []string `json:"capabilities,omitempty"`
+	AgentKey           string   `json:"agentKey"`
+	MachineID          string   `json:"machineId,omitempty"`
+	Hostname           string   `json:"hostname"`
+	Version            string   `json:"version"`
+	OSType             string   `json:"osType"`
+	Arch               string   `json:"arch,omitempty"`
+	IPAddress          string   `json:"ipAddress,omitempty"`
+	ManagementEndpoint string   `json:"managementEndpoint,omitempty"`
+	OSVersion          string   `json:"osVersion,omitempty"`
+	Labels             []string `json:"labels,omitempty"`
+	EnrollmentToken    string   `json:"enrollmentToken,omitempty"`
+	Role               string   `json:"role,omitempty"`
+	Zone               string   `json:"zone,omitempty"`
+	ZoneIDs            []string `json:"zoneIds,omitempty"`
+	Adapters           []string `json:"adapters,omitempty"`
+	Capabilities       []string `json:"capabilities,omitempty"`
 }
 
 type registerResponse struct {
@@ -126,12 +131,13 @@ type registerResponse struct {
 }
 
 type heartbeatRequest struct {
-	AgentID       string                  `json:"agentId"`
-	Version       string                  `json:"version"`
-	Adapters      []string                `json:"adapters,omitempty"`
-	Capabilities  []string                `json:"capabilities,omitempty"`
-	RuntimeHealth *heartbeatRuntimeHealth `json:"runtimeHealth,omitempty"`
-	TaskSummary   struct {
+	AgentID            string                  `json:"agentId"`
+	Version            string                  `json:"version"`
+	ManagementEndpoint string                  `json:"managementEndpoint,omitempty"`
+	Adapters           []string                `json:"adapters,omitempty"`
+	Capabilities       []string                `json:"capabilities,omitempty"`
+	RuntimeHealth      *heartbeatRuntimeHealth `json:"runtimeHealth,omitempty"`
+	TaskSummary        struct {
 		Running   int `json:"running"`
 		Queued    int `json:"queued"`
 		Succeeded int `json:"succeeded,omitempty"`
@@ -584,6 +590,11 @@ func runForeground(ctx context.Context, configPath string) error {
 	}
 
 	identity := collectRuntimeIdentity(config.ControlPlane)
+	managementServer, _, err := startManagementServer(config, identity)
+	if err != nil {
+		return err
+	}
+	defer managementServer.Shutdown(context.Background())
 	client := &http.Client{Timeout: 20 * time.Second}
 	registration, err := registerAgent(ctx, client, config, identity)
 	if err != nil {
@@ -993,6 +1004,53 @@ func effectiveOfflineTimeoutSeconds(config *AgentConfig) int {
 	return defaultOfflineTTL
 }
 
+func effectiveManagementListenAddress(config *AgentConfig) string {
+	if value := strings.TrimSpace(config.ManagementListenAddress); value != "" {
+		return value
+	}
+	return "0.0.0.0"
+}
+
+func effectiveManagementPort(config *AgentConfig) int {
+	if config.ManagementPort > 0 && config.ManagementPort <= 65535 {
+		return config.ManagementPort
+	}
+	return defaultManagementPort
+}
+
+func managementEndpointForIdentity(identity runtimeIdentity, config *AgentConfig) string {
+	host := strings.TrimSpace(identity.PrimaryIPAddress)
+	if host == "" {
+		host, _ = os.Hostname()
+	}
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	return fmt.Sprintf("http://%s", net.JoinHostPort(host, fmt.Sprintf("%d", effectiveManagementPort(config))))
+}
+
+func startManagementServer(config *AgentConfig, identity runtimeIdentity) (*http.Server, string, error) {
+	listenAddress := net.JoinHostPort(effectiveManagementListenAddress(config), fmt.Sprintf("%d", effectiveManagementPort(config)))
+	listener, err := net.Listen("tcp", listenAddress)
+	if err != nil {
+		return nil, "", fmt.Errorf("管理 TCP 监听启动失败 %s: %w", listenAddress, err)
+	}
+	server := &http.Server{Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || (request.URL.Path != "/api/v1/control/health" && request.URL.Path != "/healthz") {
+			http.Error(writer, "management endpoint only supports health checks", http.StatusNotFound)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(writer).Encode(map[string]any{"success": true, "status": "healthy", "agentVersion": agentVersion})
+	})}
+	go func() { _ = server.Serve(listener) }()
+	host := strings.TrimSpace(identity.PrimaryIPAddress)
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	return server, fmt.Sprintf("http://%s", net.JoinHostPort(host, fmt.Sprintf("%d", effectiveManagementPort(config)))), nil
+}
+
 func runWindowsService(name string, program *serviceProgram) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	service := &windowsService{
@@ -1196,7 +1254,72 @@ func collectCapabilityReports(identity runtimeIdentity) []reportedCapability {
 			CapabilityKey: "windows.network.adapters", Value: identity.NetworkInterfaces,
 			Confidence: 0.92, Evidence: map[string]any{"source": "runtime-inspection"},
 		},
+		{
+			CapabilityKey: "web.inventory",
+			Value: map[string]any{
+				"processExecutables": collectWindowsWebProcessExecutables(context.Background()),
+				"listeningPorts":     collectWindowsListeningPorts(context.Background()),
+				"configFiles":        collectWindowsWebConfigFiles(),
+			},
+			Confidence: 0.8, Evidence: map[string]any{"source": "agent-v2-generic-inventory"},
+		},
 	}
+}
+
+// 只读取常见安装目录中的原始配置，产品识别和站点解析由控制面插件完成。
+func collectWindowsWebConfigFiles() []map[string]any {
+	files := make([]map[string]any, 0, 128)
+	for _, root := range []string{`C:\ProgramData`, `C:\Program Files`, `C:\Program Files (x86)`} {
+		_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil || entry == nil || entry.IsDir() {
+				return nil
+			}
+			ext := strings.ToLower(filepath.Ext(path))
+			if ext != ".conf" && ext != ".xml" && ext != ".properties" {
+				return nil
+			}
+			info, err := entry.Info()
+			if err != nil || info.Size() > 256*1024 {
+				return nil
+			}
+			content, err := os.ReadFile(path)
+			if err == nil {
+				files = append(files, map[string]any{"path": filepath.ToSlash(path), "content": string(content)})
+			}
+			return nil
+		})
+		if len(files) >= 256 {
+			break
+		}
+	}
+	return files
+}
+
+// Windows Go Agent 使用系统 tasklist 获取原始进程镜像名；控制面插件负责解释事实。
+func collectWindowsWebProcessExecutables(ctx context.Context) []string {
+	command := exec.CommandContext(ctx, windowsSystem32Directory+`\tasklist.exe`, "/fo", "csv", "/nh")
+	command.Dir = windowsSystem32Directory
+	command.Env = fixedWindowsEnvironment()
+	output, err := command.Output()
+	if err != nil {
+		return []string{}
+	}
+	seen := map[string]struct{}{}
+	result := make([]string, 0, 8)
+	for _, line := range strings.Split(string(output), "\n") {
+		fields := strings.Split(line, "\",\"")
+		if len(fields) == 0 {
+			continue
+		}
+		name := strings.Trim(fields[0], " \t\"\r")
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		result = append(result, name)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func detectPreferredSourceIP(controlPlaneURL string) string {
@@ -1257,18 +1380,19 @@ func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig
 	}
 
 	request := registerRequest{
-		AgentKey:        config.AgentKey,
-		MachineID:       identity.MachineID,
-		Hostname:        hostname,
-		Version:         agentVersion,
-		OSType:          "windows",
-		Arch:            runtime.GOARCH,
-		IPAddress:       identity.PrimaryIPAddress,
-		OSVersion:       identity.WindowsVersion,
-		Labels:          []string{"windows-go", "windows-service"},
-		EnrollmentToken: strings.TrimSpace(config.EnrollmentToken),
-		Role:            effectiveAgentRole(config),
-		Zone:            strings.TrimSpace(config.Zone),
+		AgentKey:           config.AgentKey,
+		MachineID:          identity.MachineID,
+		Hostname:           hostname,
+		Version:            agentVersion,
+		OSType:             "windows",
+		Arch:               runtime.GOARCH,
+		IPAddress:          identity.PrimaryIPAddress,
+		ManagementEndpoint: managementEndpointForIdentity(identity, config),
+		OSVersion:          identity.WindowsVersion,
+		Labels:             []string{"windows-go", "windows-service"},
+		EnrollmentToken:    strings.TrimSpace(config.EnrollmentToken),
+		Role:               effectiveAgentRole(config),
+		Zone:               strings.TrimSpace(config.Zone),
 		Capabilities: []string{
 			"agent.full.online",
 			"agent.task.receive",
@@ -1298,8 +1422,9 @@ func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig
 
 func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig, registration *runtimeRegistration, counters *runtimeCounters, status *runtimeStatusSnapshot) error {
 	request := heartbeatRequest{
-		AgentID: registration.AgentID,
-		Version: registration.Version,
+		AgentID:            registration.AgentID,
+		Version:            registration.Version,
+		ManagementEndpoint: managementEndpointForIdentity(collectRuntimeIdentity(config.ControlPlane), config),
 	}
 	if isGatewayEnabled(config) {
 		request.Adapters = gatewayRouteChannels()
@@ -1603,7 +1728,7 @@ func executeTask(execution *taskExecutionContext) (bool, string, string, map[str
 	if success, code, message, detail, handled := executeGatewayTask(execution.ctx, execution.client, execution.config, execution.task, payload); handled {
 		return success, code, message, detail
 	}
-	wirePayload, _, err := decodeQueuedAgentV2Payload(payload)
+	wirePayload, action, err := decodeQueuedAgentV2Payload(payload)
 	if err != nil {
 		return false, "ACTION_HANDLER_NOT_REGISTERED", err.Error(), map[string]any{
 			"taskId":          execution.task.ID,
@@ -1612,6 +1737,19 @@ func executeTask(execution *taskExecutionContext) (bool, string, string, map[str
 	}
 	execution.task.Payload = wirePayload
 	result := windowsActionHandlers.Execute(execution)
+	if action == agentFactCollect && boolFromMap(wirePayload, "refreshWebInventory") {
+		if !result.Success {
+			return result.Success, result.ErrorCode, result.ErrorMessage, result.Detail
+		}
+		if err := reportCapabilities(execution.ctx, execution.client, execution.config, execution.registration, collectRuntimeIdentity(execution.config.ControlPlane)); err != nil {
+			detail := cloneMap(result.Detail)
+			detail["capabilityRescan"] = map[string]any{"trigger": "manual", "requestedBy": stringFromMap(wirePayload, "requestedBy"), "success": false, "error": err.Error()}
+			return false, "CAPABILITY_RESCAN_FAILED", fmt.Sprintf("Web 库存上报失败: %v", err), detail
+		}
+		detail := cloneMap(result.Detail)
+		detail["capabilityRescan"] = map[string]any{"trigger": "manual", "requestedBy": stringFromMap(wirePayload, "requestedBy"), "success": true}
+		return true, "", "", detail
+	}
 	return result.Success, result.ErrorCode, result.ErrorMessage, result.Detail
 }
 

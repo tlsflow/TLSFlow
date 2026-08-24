@@ -19,6 +19,7 @@ export interface RegisterAgentInput {
   osType: string;
   arch?: string;
   ipAddress?: string;
+  managementEndpoint?: string;
   linuxDistribution?: string;
   osVersion?: string;
   labels?: string[];
@@ -40,6 +41,7 @@ export interface AgentHeartbeatInput {
   agentId: string;
   status?: AgentStatus;
   version: string;
+  managementEndpoint?: string;
   taskSummary?: AgentHeartbeat['taskSummary'];
   runtimeHealth?: AgentRuntimeHealth;
   adapters?: string[];
@@ -306,6 +308,7 @@ export interface AgentDetailProjection {
   livenessReasonCode?: string;
   livenessObservedAt?: string;
   signals?: import('../../liveness/schema/liveness.schema.js').DeviceLivenessSignal[];
+  managementLiveness?: import('../../liveness/schema/liveness.schema.js').LivenessProjection;
   lifecycle: AgentLifecycleProjection;
   latestHeartbeat?: AgentHeartbeat;
   health: AgentHealthProjection;

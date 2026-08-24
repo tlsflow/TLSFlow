@@ -47,10 +47,15 @@ export class AgentsDomainService {
       osType,
       arch: input.arch?.trim(),
       ipAddress: input.ipAddress?.trim(),
+      managementEndpoint: normalizeManagementEndpoint(input.managementEndpoint),
       linuxDistribution: input.linuxDistribution?.trim(),
       osVersion: input.osVersion?.trim(),
       labels: [...new Set((input.labels ?? []).map((label) => label.trim().toLowerCase()).filter(Boolean))],
     };
+  }
+
+  normalizeManagementEndpoint(value: string | undefined): string | undefined {
+    return normalizeManagementEndpoint(value);
   }
 
   normalizeGatewayOnRegister(input: RegisterAgentInput, existing?: AgentGatewayExtension): AgentGatewayExtension | undefined {
@@ -441,6 +446,31 @@ export class AgentsDomainService {
       capabilitySetId: input.existing?.capabilitySetId,
     };
   }
+}
+
+function normalizeManagementEndpoint(value: string | undefined): string | undefined {
+  const raw = value?.trim();
+  if (!raw) return undefined;
+  let endpoint: URL;
+  try {
+    endpoint = new URL(raw);
+  } catch {
+    throw new AppError('VALIDATION_FAILED', 'managementEndpoint 必须是完整 HTTP(S) 地址');
+  }
+  if (!['http:', 'https:'].includes(endpoint.protocol) || !endpoint.hostname || !endpoint.port) {
+    throw new AppError('VALIDATION_FAILED', 'managementEndpoint 必须包含 HTTP(S) 协议、主机和端口');
+  }
+  if (['0.0.0.0', '::', '[::]'].includes(endpoint.hostname)) {
+    throw new AppError('VALIDATION_FAILED', 'managementEndpoint 不能使用通配监听地址');
+  }
+  const port = Number(endpoint.port);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new AppError('VALIDATION_FAILED', 'managementEndpoint 端口无效');
+  }
+  endpoint.pathname = '/';
+  endpoint.search = '';
+  endpoint.hash = '';
+  return endpoint.toString().replace(/\/$/u, '');
 }
 
 function defaultGatewayRouteChannels(): string[] {

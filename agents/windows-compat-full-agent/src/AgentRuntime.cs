@@ -23,6 +23,7 @@ namespace GCAC.WindowsCompatibilityAgent
         private int heartbeatFailures;
         private int taskPollFailures;
         private int recoveryFailures;
+        private ManagementTcpServer managementServer;
 
         public AgentRuntime(AgentConfig config)
         {
@@ -41,6 +42,8 @@ namespace GCAC.WindowsCompatibilityAgent
             {
                 CapabilitySnapshot snapshot = capabilityCollector.Collect();
                 UpdateSelfCheck(snapshot);
+                managementServer = new ManagementTcpServer(config);
+                managementServer.Start();
                 string agentId = identityStore.Load();
                 if (TextUtility.IsBlank(agentId))
                 {
@@ -96,9 +99,11 @@ namespace GCAC.WindowsCompatibilityAgent
                     stopSignal.WaitOne(TimeSpan.FromSeconds(config.taskPollIntervalSeconds));
                 }
                 logger.Write("info", "runtime.stopped", "Agent 已停止");
+                if (managementServer != null) managementServer.Stop();
             }
             catch (Exception error)
             {
+                if (managementServer != null) managementServer.Stop();
                 RecordFatal(error);
                 throw;
             }
@@ -123,12 +128,35 @@ namespace GCAC.WindowsCompatibilityAgent
         {
             client.Acknowledge(agentId, task);
             logger.Write("info", "task.started", "taskId=" + task.id + " action=" + task.action);
-            ActionResult result;
-            try { result = registry.Execute(task); }
+            ActionResult result = null;
+            try
+            {
+                result = registry.Execute(task);
+                if (result.Success && IsWebInventoryRefresh(task))
+                {
+                    CapabilitySnapshot refreshed = capabilityCollector.Collect();
+                    client.ReportCapabilities(agentId, refreshed);
+                    if (result.Detail == null) result.Detail = new Dictionary<string, object>();
+                    result.Detail["capabilityRescan"] = new Dictionary<string, object>
+                    {
+                        { "trigger", "manual" }, { "requestedBy", RequestedBy(task) }, { "success", true }
+                    };
+                }
+            }
             catch (Exception error)
             {
                 string action = task == null ? string.Empty : task.action;
-                result = AgentV2Actions.IsWrite(action)
+                if (IsWebInventoryRefresh(task))
+                {
+                    Dictionary<string, object> detail = result == null || result.Detail == null
+                        ? new Dictionary<string, object>() : new Dictionary<string, object>(result.Detail);
+                    detail["capabilityRescan"] = new Dictionary<string, object>
+                    {
+                        { "trigger", "manual" }, { "requestedBy", RequestedBy(task) }, { "success", false }, { "error", error.Message }
+                    };
+                    result = ActionResult.Failed("CAPABILITY_RESCAN_FAILED", "Web 库存上报失败: " + error.Message, detail);
+                }
+                else result = AgentV2Actions.IsWrite(action)
                     ? ActionResult.Unknown("AGENT_EXECUTION_UNKNOWN", error.Message, new Dictionary<string, object> { { "fallback", false }, { "replayed", false } })
                     : ActionResult.Failed("ACTION_EXECUTION_FAILED", error.Message, null);
             }
@@ -147,6 +175,20 @@ namespace GCAC.WindowsCompatibilityAgent
             }
             lastTaskResultAtUtc = DateTime.UtcNow;
             logger.Write(result.Success ? "info" : "error", "task.completed", "taskId=" + task.id + " success=" + result.Success);
+        }
+
+        internal static bool IsWebInventoryRefresh(AgentTask task)
+        {
+            object value;
+            return task != null && task.action == AgentV2Actions.FactCollect && task.payload != null
+                && task.payload.TryGetValue("refreshWebInventory", out value) && value is bool && (bool)value;
+        }
+
+        private static string RequestedBy(AgentTask task)
+        {
+            object value;
+            return task != null && task.payload != null && task.payload.TryGetValue("requestedBy", out value) && value is string
+                ? (string)value : string.Empty;
         }
 
         private void ReplayPending(string agentId)

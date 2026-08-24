@@ -355,11 +355,31 @@ func collectWindowsServices(ctx context.Context, names []string) []map[string]an
 func collectWindowsFiles(paths []string) []map[string]any {
 	files := make([]map[string]any, 0, len(paths))
 	for _, path := range paths {
+		if info, statErr := os.Stat(path); statErr == nil && info.IsDir() {
+			_ = filepath.WalkDir(path, func(candidate string, entry os.DirEntry, walkErr error) error {
+				if walkErr != nil || entry == nil { return nil }
+				if entry.IsDir() {
+					if candidate != path && strings.Count(strings.TrimPrefix(candidate, path), string(os.PathSeparator)) > 4 { return filepath.SkipDir }
+					return nil
+				}
+				ext := strings.ToLower(filepath.Ext(candidate))
+				if ext != ".conf" && ext != ".xml" && ext != ".properties" && ext != ".config" { return nil }
+				if len(files) >= 512 { return filepath.SkipDir }
+				files = append(files, collectWindowsFile(candidate))
+				return nil
+			})
+			continue
+		}
+		files = append(files, collectWindowsFile(path))
+	}
+	return files
+}
+
+func collectWindowsFile(path string) map[string]any {
 		item := map[string]any{"kind": "file_stat", "path": path, "exists": false, "sizeBytes": int64(0)}
 		info, err := os.Stat(path)
 		if err != nil {
-			files = append(files, item)
-			continue
+			return item
 		}
 		item["exists"] = true
 		item["sizeBytes"] = info.Size()
@@ -369,10 +389,28 @@ func collectWindowsFiles(paths []string) []map[string]any {
 			if digest, digestErr := sha256FileDigest(path); digestErr == nil {
 				item["sha256"] = digest
 			}
+			if content, readErr := os.ReadFile(path); readErr == nil {
+				const maximumFileContentBytes = 64 * 1024
+				truncated := len(content) > maximumFileContentBytes
+				if truncated {
+					content = content[:maximumFileContentBytes]
+				}
+				item = map[string]any{
+					"kind":          "file_content",
+					"path":          path,
+					"contentBase64": base64.StdEncoding.EncodeToString(content),
+					"bytesRead":     len(content),
+					"truncated":     truncated,
+					"sha256":        sha256Bytes(content),
+				}
+			}
 		}
-		files = append(files, item)
-	}
-	return files
+		return item
+}
+
+func sha256Bytes(value []byte) string {
+	digest := sha256.Sum256(value)
+	return hex.EncodeToString(digest[:])
 }
 
 func collectWindowsListeningPorts(ctx context.Context) []map[string]any {

@@ -32,6 +32,11 @@ export interface AgentDescriptor {
   osType: string;
   arch?: string;
   ipAddress?: string;
+  /**
+   * Agent 仅用于管理 TCP 健康探测的 HTTP 端点。
+   * 它不提供任务执行入口，所有动作仍必须通过控制面任务队列。
+   */
+  managementEndpoint?: string;
   linuxDistribution?: string;
   osVersion?: string;
   labels: string[];

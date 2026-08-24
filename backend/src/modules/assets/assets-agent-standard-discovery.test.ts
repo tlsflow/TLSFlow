@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { createServer } from 'node:net';
 import test from 'node:test';
 
 import { createApp } from '../../app.module.js';
@@ -10,6 +11,10 @@ import { StandardDeviceDiscoveryProjector } from '../plugins/discovery/standard-
 import { createSecurityServices } from '../security/security.controller.js';
 
 test('旧 Agent 发现写入退役，刷新只进入 capability snapshot 标准链', async () => {
+  const server = createServer((socket) => socket.end());
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
   const db = new PgliteDatabase();
   await runMigrations(db, undefined, {
     appliedBy: 'test',
@@ -39,10 +44,18 @@ test('旧 Agent 发现写入退役，刷新只进入 capability snapshot 标准�
       hostname: 'standard-refresh.example.com',
       version: '1.0.0',
       osType: 'linux',
+      managementEndpoint: `http://127.0.0.1:${address.port}`,
     },
   });
   assert.equal(registered.statusCode, 201);
   const agent = registered.body as { id: string };
+  const heartbeat = await app.inject({
+    method: 'POST',
+    path: '/api/v1/agents/heartbeat',
+    headers,
+    body: { agentId: agent.id, version: '1.0.0', status: 'ONLINE', managementEndpoint: `http://127.0.0.1:${address.port}`, taskSummary: { running: 0, queued: 0 } },
+  });
+  assert.equal(heartbeat.statusCode, 200, JSON.stringify(heartbeat.body));
 
   const retired = await app.inject({
     method: 'POST',
@@ -94,6 +107,7 @@ test('旧 Agent 发现写入退役，刷新只进入 capability snapshot 标准�
   const paths = (openapi.body as { paths: Record<string, unknown> }).paths;
   assert.equal(paths['/api/v1/discovery-snapshots/ingest'], undefined);
   assert.ok(paths['/api/v1/assets/refresh-from-agent']);
+  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 });
 
 test('旧 V1 Payload 不能冒充 V2，Schema 失败时标准业务事实零写入', async () => {

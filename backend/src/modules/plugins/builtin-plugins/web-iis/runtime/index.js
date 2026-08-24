@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto';
+
 const PLUGIN_ID = 'web.iis';
-const PLUGIN_VERSION = '1.0.0';
+const PLUGIN_VERSION = '1.0.1';
 const AGENT_SIDE_PROTOCOL = 'gcac.agent-side-plugin/v1';
 const CAPABILITIES = Object.freeze([
   'application.discover',
@@ -53,6 +55,9 @@ async function execute(context, hostApi) {
   const operation = CAPABILITY_OPERATIONS[context.capability];
   if (!operation) fail('Capability 未绑定到 IIS P2 PluginVersion');
   const input = record(context.input, 'input');
+  if (context.capability === 'application.discover' && input.discoveryMode === 'full-agent') {
+    return fullAgentDiscovery(input, context);
+  }
   const authorization = validateAgentAuthorization(input.agentAuthorization, context, operation);
   const response = record(input.protocolFixture, 'protocolFixture');
   assertAgentSideResponse(response, context, operation, authorization);
@@ -107,6 +112,85 @@ async function execute(context, hostApi) {
     receiptDigest: authorization.receipt.digest,
   });
 }
+
+function fullAgentDiscovery(input, context) {
+  const factEnvelope = validateFactEnvelope(input.factEnvelope);
+  const files = factEnvelope.facts
+    .filter((fact) => fact.kind === 'file_content')
+    .map((fact) => ({ path: fact.path, content: decodeContent(fact.contentBase64) }));
+  const sites = [];
+  const bindings = [];
+  for (const file of files) {
+    if (!/applicationhost\.config$/i.test(file.path) && !/<system\.applicationHost>|<site\b/i.test(file.content)) continue;
+    for (const siteMatch of file.content.matchAll(/<site\b([^>]*?)(?:>|\/>)([\s\S]*?)<\/site>/gi)) {
+      const siteAttrs = attributes(siteMatch[1] ?? '');
+      const siteName = requiredName(siteAttrs.name ?? `site-${sites.length + 1}`, 'IIS site.name');
+      const siteBody = siteMatch[2] ?? '';
+      const siteBindings = [];
+      for (const bindingMatch of siteBody.matchAll(/<binding\b([^>]*?)(?:\/>|>)/gi)) {
+        const attrs = attributes(bindingMatch[1] ?? '');
+        const protocol = optionalText(attrs.protocol)?.toLowerCase() ?? 'http';
+        const information = optionalText(attrs.bindingInformation) ?? '*:80:';
+        const parsed = parseBindingInformation(information);
+        const binding = { siteName, bindingInformation: information, protocol, hostName: parsed.hostName, address: parsed.address, port: parsed.port, configPath: file.path };
+        siteBindings.push(binding);
+        bindings.push(binding);
+      }
+      const addresses = [...new Set(siteBindings.map((binding) => binding.address).filter(Boolean))];
+      const primary = siteBindings.find((binding) => binding.port !== undefined);
+      sites.push({ name: siteName, addresses: addresses.length ? addresses : [factEnvelope.agentId], port: primary?.port, protocol: primary?.protocol?.toUpperCase(), metadata: { applicationPool: findApplicationPool(siteBody), configPath: file.path } });
+    }
+  }
+  const frameworkStableKey = `web.iis:${stableKey(factEnvelope.agentId)}`;
+  const normalizedSites = dedupeSites(sites).map((site) => ({
+    stableKey: `${frameworkStableKey}:${stableKey(site.name)}`,
+    frameworkStableKey,
+    siteType: 'web.site',
+    displayName: site.name,
+    addresses: site.addresses,
+    ...(site.port ? { port: site.port } : {}),
+    ...(site.protocol ? { protocol: site.protocol } : {}),
+    metadata: site.metadata,
+  }));
+  const siteByName = new Map(normalizedSites.map((site) => [site.displayName, site]));
+  const managedTargets = bindings.map((binding) => {
+    const site = siteByName.get(binding.siteName);
+    return {
+      stableKey: `${frameworkStableKey}:${stableKey(binding.bindingInformation)}`,
+      frameworkStableKey,
+      ...(site ? { siteStableKey: site.stableKey } : {}),
+      targetType: 'tls.binding',
+      targetKey: `${PLUGIN_ID}:binding:${stableKey(`${binding.siteName}:${binding.bindingInformation}:${binding.protocol}`)}`,
+      bindingKey: `${PLUGIN_ID}:binding:${stableKey(`${binding.siteName}:${binding.bindingInformation}:${binding.protocol}`)}`,
+      supportedCapabilities: ['certificate.deploy', 'certificate.verify', 'certificate.rollback'],
+      executionLocations: ['AGENT', 'CONTROL_PLANE'],
+      metadata: { protocol: binding.protocol, hostName: binding.hostName, configPath: binding.configPath },
+    };
+  });
+  return successResult({ pluginId: PLUGIN_ID, pluginVersion: PLUGIN_VERSION, pluginVersionId: context.pluginVersionId, discoveryMode: 'full-agent', siteCount: normalizedSites.length, bindingCount: managedTargets.length }, [{
+    apiVersion: 'gcac.device-discovery/v2',
+    device: { stableKey: `${PLUGIN_ID}:${stableKey(factEnvelope.agentId)}`, displayName: input.displayName ?? factEnvelope.agentId, productFamily: PLUGIN_ID, softwareVersion: 'unknown', managementAddress: input.deviceAddress ?? factEnvelope.agentId, metadata: { tenantId: factEnvelope.tenantId, pluginId: PLUGIN_ID, pluginVersionId: context.pluginVersionId, discoveryMode: 'full-agent' } },
+    capabilities: CAPABILITIES.map((key) => ({ key, available: true })),
+    frameworks: [{ stableKey: frameworkStableKey, frameworkType: PLUGIN_ID, displayName: 'IIS' }],
+    sites: normalizedSites,
+    managedTargets,
+    certificates: [],
+    certificateBindings: [],
+    warnings: factEnvelope.warnings.map((message) => ({ code: 'AGENT_FACT_WARNING', messageKey: 'agents.discovery.agentFactWarning', metadata: { message: String(message).slice(0, 512), secretRedacted: true } })),
+  }]);
+}
+
+function decodeContent(value) { try { return Buffer.from(value, 'base64').toString('utf8'); } catch { return ''; } }
+function attributes(value) { return Object.fromEntries([...value.matchAll(/([A-Za-z][\w-]*)\s*=\s*["']([^"']*)["']/g)].map((item) => [item[1], item[2]])); }
+function parseBindingInformation(value) {
+  const match = /^\[?([^\]]*)\]?:(\d{1,5}):(.*)$/.exec(value);
+  if (!match) return { address: '*', port: undefined, hostName: undefined };
+  const port = Number(match[2]);
+  return { address: match[1] || '*', port: Number.isInteger(port) && port > 0 && port <= 65535 ? port : undefined, hostName: optionalText(match[3]) };
+}
+function findApplicationPool(value) { return /applicationPool\s*=\s*["']([^"']+)["']/i.exec(value)?.[1]; }
+function dedupeSites(sites) { const result = []; const seen = new Set(); for (const site of sites) { const key = `${site.name}:${site.port ?? ''}:${site.protocol ?? ''}`; if (seen.has(key)) continue; seen.add(key); result.push(site); } return result; }
+function stableKey(value) { return createHash('sha256').update(String(value), 'utf8').digest('hex').slice(0, 32); }
 
 async function resolveArtifact(input, authorization, context, hostApi) {
   const artifact = record(input.artifact, 'artifact');
@@ -178,8 +262,8 @@ function normalizeDiscovery(input, rawFacts, authorization) {
     frameworkStableKey,
     siteStableKey: binding.site.stableKey,
     targetType: 'tls.binding',
-    targetKey: binding.bindingInformation,
-    bindingKey: binding.bindingInformation,
+    targetKey: `${PLUGIN_ID}:binding:${stableKey(`${binding.site.displayName}:${binding.bindingInformation}:https`)}`,
+    bindingKey: `${PLUGIN_ID}:binding:${stableKey(`${binding.site.displayName}:${binding.bindingInformation}:https`)}`,
     supportedCapabilities: [...CERTIFICATE_CAPABILITIES],
     executionLocations: ['CONTROL_PLANE', 'AGENT'],
     metadata: { protocol: 'https', hostName: optionalText(binding.binding.hostName) },

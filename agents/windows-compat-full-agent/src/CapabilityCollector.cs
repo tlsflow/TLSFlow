@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Management;
 using System.Net;
 using System.Net.Sockets;
+using System.IO;
 using System.Security.Principal;
 
 namespace GCAC.WindowsCompatibilityAgent
@@ -40,6 +41,12 @@ namespace GCAC.WindowsCompatibilityAgent
             facts["windows.required_hotfixes_present"] = RequiredHotfixesPresent(config == null ? new string[0] : config.requiredHotfixes);
             facts["windows.cert_store_writable"] = CanWriteCertificateStore();
             facts["network.control_plane_reachable"] = CanReachControlPlane(config == null ? null : config.controlPlaneUrl);
+            facts["web.inventory"] = new Dictionary<string, object>
+            {
+                { "processExecutables", CollectWebProcessExecutables() },
+                { "listeningPorts", CollectListeningPorts() },
+                { "configFiles", CollectWebConfigFiles() }
+            };
             List<string> capabilities = new List<string>();
             capabilities.Add("agent.control.register");
             capabilities.Add("agent.control.heartbeat");
@@ -60,6 +67,75 @@ namespace GCAC.WindowsCompatibilityAgent
                 Facts = facts,
                 Capabilities = capabilities
             };
+        }
+
+        // 兼容 Agent 只读取 Windows 只读系统命令，绝不执行进程或配置写入。
+        private static string[] CollectWebProcessExecutables()
+        {
+            List<string> result = new List<string>();
+            try
+            {
+                using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("SELECT Name, ExecutablePath FROM Win32_Process"))
+                {
+                    foreach (ManagementObject item in searcher.Get())
+                    {
+                        string name = Convert.ToString(item["Name"]);
+                        string path = Convert.ToString(item["ExecutablePath"]);
+                        string candidate = TextUtility.IsBlank(path) ? name : path;
+                        if (!TextUtility.IsBlank(candidate) && !result.Contains(candidate)) result.Add(candidate);
+                    }
+                }
+            }
+            catch { }
+            result.Sort(StringComparer.OrdinalIgnoreCase);
+            return result.ToArray();
+        }
+
+        private static object[] CollectListeningPorts()
+        {
+            List<object> result = new List<object>();
+            try
+            {
+                using (ManagementObjectSearcher searcher = new ManagementObjectSearcher("SELECT LocalAddress, LocalPort, Protocol, State FROM Win32_NetTCPConnection WHERE State = 2"))
+                {
+                    foreach (ManagementObject item in searcher.Get())
+                    {
+                        result.Add(new Dictionary<string, object>
+                        {
+                            { "kind", "listening_port" },
+                            { "address", Convert.ToString(item["LocalAddress"]) },
+                            { "port", Convert.ToInt32(item["LocalPort"]) },
+                            { "protocol", "tcp" }
+                        });
+                    }
+                }
+            }
+            catch { }
+            return result.ToArray();
+        }
+
+        // 只读取固定安装目录中的原始配置，禁止在 Compatibility Agent Core 内解析产品语义。
+        private static object[] CollectWebConfigFiles()
+        {
+            List<object> result = new List<object>();
+            string[] roots = new string[] { @"C:\ProgramData", @"C:\Program Files", @"C:\Program Files (x86)" };
+            for (int rootIndex = 0; rootIndex < roots.Length; rootIndex++)
+            {
+                try
+                {
+                    string[] paths = Directory.GetFiles(roots[rootIndex], "*.*", SearchOption.AllDirectories);
+                    for (int index = 0; index < paths.Length && result.Count < 256; index++)
+                    {
+                        string extension = Path.GetExtension(paths[index]).ToLowerInvariant();
+                        if (extension != ".conf" && extension != ".xml" && extension != ".properties") continue;
+                        FileInfo info = new FileInfo(paths[index]);
+                        if (!info.Exists || info.Length > 262144) continue;
+                        result.Add(new Dictionary<string, object> { { "path", paths[index].Replace('\\', '/') }, { "content", File.ReadAllText(paths[index]) } });
+                    }
+                }
+                catch { }
+            }
+            return result.ToArray();
         }
 
         private static int ReadDotNetRelease()

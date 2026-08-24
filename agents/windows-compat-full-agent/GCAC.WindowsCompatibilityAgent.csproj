@@ -33,6 +33,7 @@
     <Compile Include="src\CrashReporter.cs" />
     <Compile Include="src\InfrastructureAdapters.cs" />
     <Compile Include="src\Models.cs" />
+    <Compile Include="src\ManagementTcpServer.cs" />
     <Compile Include="src\Preflight.cs" />
     <Compile Include="src\Program.cs" />
     <Compile Include="src\RecoveryLedger.cs" />

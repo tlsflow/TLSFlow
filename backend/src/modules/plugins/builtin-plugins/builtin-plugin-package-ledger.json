@@ -82,6 +82,26 @@
       "runtimeEntrypoint": "runtime/index.js"
     },
     {
+      "pluginId": "app.tomcat",
+      "version": "1.0.1",
+      "packageSha256": "sha256:5ffc84cd27d327720da8904896ea10b578e074ac16004be9853cf1eceef38fa4",
+      "manifestSha256": "sha256:e306a2c1b62164fbc366dcc9d27695c9cac91bfdddb72b4bbdfde0dfed236224",
+      "resourceSha256": {
+        "discovery/profiles.json": "sha256:42bda35cbee9d7d7bcbac0a4873668015b3d030240cb9177a0e298de3df4a01b",
+        "locales/en-US.json": "sha256:eca5011ba97ca93a160234a4ead5bf40404505dd94031925aadb978d82da7069",
+        "locales/zh-CN.json": "sha256:88dcdcc5ae83e62e080668137c71b1c16ffc3a3c6f0bf55135f3e3c4597f8892",
+        "presentations/application.json": "sha256:01d9f02f25963b3d8dddb34afec3ce1654045106512239f5a422d13a1c8e2fb0",
+        "presentations/certificate-binding.json": "sha256:0664d328819f0d38c1ab254732f925730520c1d273eb9b10b0242e5b34a91984",
+        "runtime/index.js": "sha256:e61fa552cc7f21771c3b0ea57204a3d6a52bdfec6edaa001f5f2c020b5d7f9c4",
+        "workflows/deploy.json": "sha256:d67892e913dd36f694aade96ab418523a16790b02baf7e1b48cf1b1cd8525912",
+        "workflows/discover.json": "sha256:6d39de64fcc66dcddf60dbd5bd0c65ec82bca3b70188e8dce98ca5fefda5b582",
+        "workflows/rollback.json": "sha256:20ab5ab34631ac131bed262994b650ce71b9515bb6826a320d89c7790fa12db6",
+        "workflows/verify.json": "sha256:ada183bf8ec17f04627236353c29976c35e3cf90c4f7b4cf871eae3e87d8ac6d"
+      },
+      "resourceHash": "sha256:6d5ebc00574d9b6c971114ea26a0e761e79cac63491d7a86985556b0a081065f",
+      "runtimeEntrypoint": "runtime/index.js"
+    },
+    {
       "pluginId": "ca.microsoft-adcs",
       "version": "1.0.0",
       "packageSha256": "sha256:8c0a4212cac7fc35bd5cf9a2e40626582aa30c79f70ebc45c123f2993c565f26",
@@ -449,6 +469,26 @@
       "runtimeEntrypoint": "runtime/index.js"
     },
     {
+      "pluginId": "web.apache",
+      "version": "1.0.1",
+      "packageSha256": "sha256:bdb4c7ab6314152d089b44deac8a81ad6a91a25fc42b5a02e5c982e06d1041e3",
+      "manifestSha256": "sha256:d7c396e4cda5de23a51f87bb76ec57240de466e561dca40f04aa84aac1df1ab3",
+      "resourceSha256": {
+        "discovery/profiles.json": "sha256:90a3fbfb96ebd690bbde543722381b4993042d3953bb485bb3e40851fea2eccc",
+        "locales/en-US.json": "sha256:4d984572aa0b3f309912d93de8981298f586ee47f9140974d00f564c32ef7e35",
+        "locales/zh-CN.json": "sha256:dd09eb851fab1b135f807138161ef3d21c613363234a8b7798e1bd5207120a73",
+        "presentations/application.json": "sha256:b0354c464e4ac2b22910352a1ea69b017f1f62f518908b0a36590fca16a91081",
+        "presentations/certificate-binding.json": "sha256:954810064b7bc41cc88c4101d6a0e4f59b6df0182f7bf6654018e90fa977275a",
+        "runtime/index.js": "sha256:b909cda7287aacb3dcf55942eb905e32b1b5fcab62c3aead915897da3024d596",
+        "workflows/deploy.json": "sha256:5733acd7818d37f79b9ec6e009108133749969655c47a509436ea87fcce538ca",
+        "workflows/discover.json": "sha256:df5ccf1aa206a38eab786a2d0aaecffb9d54d3914ee2fe38727825625a338e03",
+        "workflows/rollback.json": "sha256:dd3817100fb5c068aaa8430ef28547484f3ffafc51bcfe1f0184fd9b4102d19a",
+        "workflows/verify.json": "sha256:33ca9f79e0b3e42c7c674add110f5f15daf0464fbc48bcab5f4bafdd1b625fc1"
+      },
+      "resourceHash": "sha256:fbb69e72bc1b2868d58464238ad4776974639f4ba2b8203ad80865e19a84f06f",
+      "runtimeEntrypoint": "runtime/index.js"
+    },
+    {
       "pluginId": "web.iis",
       "version": "1.0.0",
       "packageSha256": "sha256:6e705ef432b0b94d07344d3ed0a19b1b599b358bb94b817729fc862458147ab0",
@@ -475,6 +515,32 @@
       "runtimeEntrypoint": "runtime/index.js"
     },
     {
+      "pluginId": "web.iis",
+      "version": "1.0.1",
+      "packageSha256": "sha256:7eed44ce3a7dc961b622a236a2c7f0a01e1e4056730fe48c0a776b7290e7584a",
+      "manifestSha256": "sha256:f54174d423626342ea37402ce9ebdd5afbe0976e79037c3016ec58143381ed73",
+      "resourceSha256": {
+        "discovery/iis.json": "sha256:608358cb90dae1444b5238a492395903aaa9f206d888e5b6af9807e41a20fa12",
+        "forms/device.json": "sha256:c2ba9b8be08097138f7b80d788b84dd51e59bfedaa26a905b6e6a8d823987c46",
+        "locales/en-US.json": "sha256:c9a892b2f83a948b4a3085f651c56310c7c2a01962e69cdc9147a238303a682a",
+        "locales/fr-FR.json": "sha256:a2b30e2bc48d5f5f6d066c4eec4ef25710974f10587f4c0b313e93498581f434",
+        "locales/ja-JP.json": "sha256:543371b60e04ca114748c8cc6853949f8d10a54f9ee324d3e218e1b326c576c0",
+        "locales/ko-KR.json": "sha256:814ae745a03947c6549dac88f50e9a252394c01341610fd5b83bac5775767daf",
+        "locales/pt-BR.json": "sha256:261d56f4a229acbf1f68e2019788a308df225f4cdbb78122b9192b0d68bbfcf5",
+        "locales/ru-RU.json": "sha256:b8b42fcde6bdf9c2619347ee3e8c516eed657e5f47a6c89a4af078f23abea0e0",
+        "locales/zh-CN.json": "sha256:9a89ff7e1755d48f4da21d466266239d57bd8807ac618e3fed47a188ecf387f4",
+        "locales/zh-TW.json": "sha256:3c552a6707e93abeafb5c61853e74a01df67228f0e9cf88ca8badb8bd70836c0",
+        "presentations/device.json": "sha256:8205179ab91949f448a7515f12c023d4e49763a0d03d6db62e11f8a0c5e02aa3",
+        "runtime/index.js": "sha256:22f3cb3d3566718605417f31a996a79b6f3b12894e341ace943bac168a11806b",
+        "workflows/deploy.json": "sha256:769d030bb6c30bd7304a54889fab93fed7a474b8577ad269798d42d8e3c7f23e",
+        "workflows/discover.json": "sha256:6ce594eada6586490ae85dc7ff497d694ce29d08cee714ab84e19770498225ed",
+        "workflows/rollback.json": "sha256:605482520f7c21f748f0c96f24269ef845c55833b55d01b75457359737ce2a4e",
+        "workflows/verify.json": "sha256:a0621623bf2bca5801af8141c2a863e61caae2d929ef009e45517837f62685b3"
+      },
+      "resourceHash": "sha256:c0658c8e37d0a7729e5ea4292dc3e0a88c975902ad0223ab0b4970bd5aee0465",
+      "runtimeEntrypoint": "runtime/index.js"
+    },
+    {
       "pluginId": "web.nginx",
       "version": "1.0.0",
       "packageSha256": "sha256:7dc5a1d1655bbcd6ed79a1c9941b55f11313570cf6f5a8da52ac36927faf4b64",
@@ -492,6 +558,26 @@
         "workflows/verify.json": "sha256:da771c53b91f7939a655c39afc71a68d54f0f7f13019cef6e4ac0e57cb9f8988"
       },
       "resourceHash": "sha256:7354d8209f57f1a641f4172d6966442fc7801707017fdf7d25fba52959c7cb72",
+      "runtimeEntrypoint": "runtime/index.js"
+    },
+    {
+      "pluginId": "web.nginx",
+      "version": "1.0.1",
+      "packageSha256": "sha256:9a2d4040a2876f8774c8144f57d7c3a5a7e1d209aa0eeacfea1bd82ad54d981c",
+      "manifestSha256": "sha256:f432e05ed4f902838f9fac44cd8b41880b07500511d9dfa1e2ac4c63b18ec170",
+      "resourceSha256": {
+        "discovery/profiles.json": "sha256:461987b4dc995b9222c65e3d6c6598075555d0140943bb76fd20a2abe1976312",
+        "locales/en-US.json": "sha256:8ba3ce281c56849ff159eeb5e329eb2e455d75ac15d7ef9ef18a376372907488",
+        "locales/zh-CN.json": "sha256:dc2d91fa6db42e002772087bdc2e03406ecee0b1644677266b954c90bdbe96fd",
+        "presentations/application.json": "sha256:8d4359c00729f218561bcf09c573dc02d609ab83cf0dd0b754b8f0d95ec7ced0",
+        "presentations/certificate-binding.json": "sha256:f473fd3ef4cf89089a3af7bc30167cccb299c3b534897b836297fff24101c5ff",
+        "runtime/index.js": "sha256:48c98ae59e2722d025bafc2e918a65c9c4946cc99e7d3b0c43cf881ed949c19b",
+        "workflows/deploy.json": "sha256:bfa8b4cb2fded54c84c2905b4be27502cb5cd0491b23b97b7da80b802889fb6d",
+        "workflows/discover.json": "sha256:bf9c55ae6886719fcae2ad8d9dfdbca02005cf2443fdbd2b51c3480fb2b3af5b",
+        "workflows/rollback.json": "sha256:c629b7afa5916e6ab0cc9233280cc5c726a3a376fae1f9fd12e53d727c15d023",
+        "workflows/verify.json": "sha256:bf365748824ed7e3414004590d1dc8b0621563c50f04edb96a661a34eb4a4ac2"
+      },
+      "resourceHash": "sha256:b827a72a4ac7eaa4729dc7070aa125a70fec83f9ffffb3cce97328ea975716b9",
       "runtimeEntrypoint": "runtime/index.js"
     }
   ]

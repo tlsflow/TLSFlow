@@ -10,8 +10,12 @@
   "taskPollIntervalSeconds": 60,
   "healthCheckIntervalSeconds": 30,
   "offlineTimeoutSeconds": 180,
+  "managementListenAddress": "0.0.0.0",
+  "managementPort": 18931,
   "capabilityRescanIntervalSeconds": 300,
   "capabilityRescanEnabled": true,
+  "authorizationMaterialPath": "/var/lib/gcac/linux-agent/policy/agent-trust-material.json",
+  "authorizationTrustKeySet": {},
   "paths": {
     "linux": {
       "configPath": "/etc/gcac/linux-agent/agent.config.json",

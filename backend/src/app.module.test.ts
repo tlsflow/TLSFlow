@@ -74,6 +74,22 @@ test('主装配移除 ACME HTTP-01 和旧 Provider 资源，同时保留通用 C
   assert.equal(app.getResource('trustedJsProviderRuntime'), undefined);
 });
 
+test('显式注入 Agent Plan 授权依赖时装配 Web 发现任务工厂', async () => {
+  const db = new PgliteDatabase();
+  await runMigrations(db);
+  const app = createApp({
+    db,
+    corePersistence: { mode: 'memory' },
+    agentPlanAuthorization: {
+      policyAuthority: {},
+      grants: {},
+      localPolicy: {},
+    } as never,
+  });
+
+  assert.ok(app.getResource('agentDiscoveryTaskFactory'));
+});
+
 test('内置插件 Workflow 发布失败时启动初始化仍继续', async () => {
   const plugins = [
     pluginRecord('plugin.publish-failure', '1.0.0'),

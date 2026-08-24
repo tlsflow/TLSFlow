@@ -4,7 +4,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PLUGIN_ID = 'app.tomcat';
-const PLUGIN_VERSION = '1.0.0';
+const PLUGIN_VERSION = '1.0.1';
 const CAPABILITIES = ['application.discover', 'certificate.deploy', 'certificate.verify', 'certificate.rollback'];
 const WRITE_CAPABILITIES = new Set(['certificate.deploy', 'certificate.rollback']);
 const SECURITY_VERSION = 'gcac.agent-security/v1';
@@ -39,6 +39,9 @@ async function executePlugin(bundle, context, hostApi) {
   assertContext(context, bundle.fixed);
   const input = record(context.input, 'input');
   const factEnvelope = validateFactEnvelope(input.factEnvelope);
+  if (context.capability === 'application.discover' && input.discoveryMode === 'full-agent') {
+    return fullAgentDiscovery(factEnvelope, bundle.fixed.pluginVersionId);
+  }
   const profile = selectProfile(bundle.profiles, input.profile, factEnvelope.source);
   const target = resolveTarget(input.target, profile, factEnvelope.facts);
   assertProfileEvidence(profile, target, factEnvelope.facts);
@@ -80,11 +83,51 @@ async function executePlugin(bundle, context, hostApi) {
     normalizedObjects: objects,
     warnings: factEnvelope.warnings.map((message) => ({
       code: 'AGENT_FACT_WARNING',
-      message: String(message).slice(0, 512),
-      secretRedacted: true,
+      messageKey: 'agents.discovery.agentFactWarning',
+      metadata: { message: String(message).slice(0, 512), secretRedacted: true },
     })),
   };
 }
+
+function fullAgentDiscovery(factEnvelope, pluginVersionId) {
+  const sites = [];
+  for (const fact of factEnvelope.facts.filter((item) => item.kind === 'file_content')) {
+    const content = decodeContent(fact.contentBase64);
+    if (!/<Connector\b|<Host\b|<Context\b/i.test(content) && !/server\.xml|tomcat|catalina/i.test(fact.path)) continue;
+    const hosts = [...content.matchAll(/<Host\b([^>]*?)(?:\/>|>)/gi)].map((item) => attrs(item[1] ?? '').name).filter(Boolean);
+    const connectors = [...content.matchAll(/<Connector\b([^>]*?)(?:\/>|>)/gi)];
+    for (const connector of connectors) {
+      const values = attrs(connector[1] ?? '');
+      const port = Number(values.port ?? 8080);
+      const protocol = /ssl|https/i.test(String(values.protocol ?? '')) || values.scheme === 'https' ? 'HTTPS' : 'HTTP';
+      for (const name of (hosts.length ? hosts : ['localhost'])) sites.push({ name, addresses: [name], port, protocol, metadata: { configPath: fact.path, connectorProtocol: values.protocol } });
+    }
+    for (const contextMatch of content.matchAll(/<Context\b([^>]*?)(?:\/>|>)/gi)) {
+      const values = attrs(contextMatch[1] ?? '');
+      if (values.path) sites.push({ name: values.path, addresses: hosts.length ? hosts : ['localhost'], metadata: { configPath: fact.path, contextPath: values.path } });
+    }
+  }
+  return standardDiscovery(factEnvelope, pluginVersionId, 'app.tomcat', 'Tomcat', sites);
+}
+
+function standardDiscovery(factEnvelope, pluginVersionId, frameworkType, displayName, rawSites) {
+  const frameworkStableKey = `${frameworkType}:${stableKey(factEnvelope.agentId)}`;
+  const sites = dedupeSites(rawSites).map((site) => ({
+    stableKey: `${frameworkStableKey}:${stableKey(`${site.name}:${site.port ?? ''}:${site.protocol ?? ''}`)}`,
+    frameworkStableKey, siteType: 'web.site', displayName: site.name, addresses: site.addresses,
+    ...(site.port ? { port: site.port } : {}), ...(site.protocol ? { protocol: site.protocol } : {}), metadata: site.metadata ?? {},
+  }));
+  const managedTargets = sites.map((site) => ({ stableKey: `${site.stableKey}:tls`, frameworkStableKey, siteStableKey: site.stableKey, targetType: 'tls.binding', targetKey: `${frameworkType}:binding:${stableKey(`${site.displayName}:${site.port ?? ''}:${site.protocol ?? ''}`)}`, bindingKey: `${frameworkType}:binding:${stableKey(`${site.displayName}:${site.port ?? ''}:${site.protocol ?? ''}`)}`, supportedCapabilities: ['certificate.deploy', 'certificate.verify', 'certificate.rollback'], executionLocations: ['AGENT', 'CONTROL_PLANE'], metadata: { protocol: site.protocol ?? 'HTTP' } }));
+  return {
+    success: true, status: 'SUCCESS', summary: { pluginId: PLUGIN_ID, pluginVersion: PLUGIN_VERSION, pluginVersionId, discoveryMode: 'full-agent', frameworkCount: 1, siteCount: sites.length },
+    normalizedObjects: [{ apiVersion: 'gcac.device-discovery/v2', device: { stableKey: `${PLUGIN_ID}:${stableKey(factEnvelope.agentId)}`, displayName: factEnvelope.agentId, productFamily: PLUGIN_ID, softwareVersion: 'unknown', managementAddress: factEnvelope.agentId, metadata: { tenantId: factEnvelope.tenantId, pluginId: PLUGIN_ID, pluginVersionId, discoveryMode: 'full-agent' } }, capabilities: CAPABILITIES.map((key) => ({ key, available: true })), frameworks: [{ stableKey: frameworkStableKey, frameworkType, displayName }], sites, managedTargets, certificates: [], certificateBindings: [], warnings: [] }],
+    warnings: factEnvelope.warnings.map((message) => ({ code: 'AGENT_FACT_WARNING', messageKey: 'agents.discovery.agentFactWarning', metadata: { message: String(message).slice(0, 512), secretRedacted: true } })),
+  };
+}
+function attrs(value) { return Object.fromEntries([...value.matchAll(/([A-Za-z][\w-]*)\s*=\s*["']([^"']*)["']/g)].map((item) => [item[1], item[2]])); }
+function dedupeSites(sites) { const result = []; const seen = new Set(); for (const site of sites) { const key = `${site.name}:${site.port ?? ''}:${site.protocol ?? ''}`; if (seen.has(key)) continue; seen.add(key); result.push(site); } return result; }
+function decodeContent(value) { try { return Buffer.from(value, 'base64').toString('utf8'); } catch { return ''; } }
+function stableKey(value) { return sha256Digest(value).slice(0, 32); }
 
 function readFixedBinding() {
   const names = [
@@ -600,10 +643,6 @@ function pathWithin(path, prefix) {
   const left = normalizePath(path).toLowerCase();
   const right = normalizePath(prefix).replace(/[\\/]+$/, '').toLowerCase();
   return left === right || left.startsWith(right + '\\\\') || left.startsWith(right + '/');
-}
-
-function stableKey(value) {
-  return sha256Digest(value).slice(0, 32);
 }
 
 function canonicalJson(value) {

@@ -4,6 +4,8 @@
   "agentKey": "agent_key",
   "enrollmentToken": "enrollment_token",
   "controlPlaneUrl": "https://gcac.example.com",
+  "managementListenAddress": "0.0.0.0",
+  "managementPort": 18932,
   "heartbeatIntervalSeconds": 10,
   "taskPollIntervalSeconds": 5,
   "requiredHotfixes": [],

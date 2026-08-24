@@ -11,6 +11,8 @@ namespace GCAC.WindowsCompatibilityAgent
         public string agentKey { get; set; }
         public string enrollmentToken { get; set; }
         public string controlPlaneUrl { get; set; }
+        public string managementListenAddress { get; set; }
+        public int managementPort { get; set; }
         public int heartbeatIntervalSeconds { get; set; }
         public int taskPollIntervalSeconds { get; set; }
         public string dataDirectory { get; set; }
@@ -40,6 +42,8 @@ namespace GCAC.WindowsCompatibilityAgent
             if (TextUtility.IsBlank(config.tenantId)) throw new InvalidOperationException("tenantId 不能为空");
             if (TextUtility.IsBlank(config.agentKey)) throw new InvalidOperationException("agentKey 不能为空");
             if (config.heartbeatIntervalSeconds <= 0) config.heartbeatIntervalSeconds = 10;
+            if (TextUtility.IsBlank(config.managementListenAddress)) config.managementListenAddress = "0.0.0.0";
+            if (config.managementPort <= 0) config.managementPort = 18932;
             if (config.taskPollIntervalSeconds <= 0) config.taskPollIntervalSeconds = 5;
             if (config.requiredHotfixes == null) config.requiredHotfixes = new string[0];
             string root = Path.Combine(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "GCAC"), "WindowsCompatibilityAgent");

@@ -40,6 +40,7 @@ namespace GCAC.WindowsCompatibilityAgent
         public void Heartbeat(string agentId, CapabilitySnapshot snapshot, Dictionary<string, object> runtimeHealth)
         {
             Dictionary<string, object> body = BuildHeartbeatRequest(agentId, snapshot, runtimeHealth);
+            body["managementEndpoint"] = ManagementEndpoint(snapshot);
             Send<object>("/api/v1/agents/heartbeat", body);
         }
 
@@ -72,10 +73,12 @@ namespace GCAC.WindowsCompatibilityAgent
             body["enrollmentToken"] = config.enrollmentToken;
             body["hostname"] = Environment.MachineName;
             body["version"] = ProductIdentity.Version;
-            body["osType"] = "WINDOWS";
+            // Compatibility Agent 使用独立操作系统类型，控制面才能在旧记录缺少端点时回退到 18932。
+            body["osType"] = "WINDOWS_COMPATIBILITY";
             body["arch"] = Is64BitOperatingSystem() ? "amd64" : "386";
             body["machineId"] = ReadFact(snapshot, "windows.machine_id");
             body["ipAddress"] = ReadFact(snapshot, "network.primary_ip");
+            body["managementEndpoint"] = ManagementEndpoint(snapshot);
             body["osVersion"] = ReadFact(snapshot, "windows.product_name");
             body["role"] = "full_agent";
             return body;
@@ -217,6 +220,13 @@ namespace GCAC.WindowsCompatibilityAgent
             return snapshot != null && snapshot.Facts != null && snapshot.Facts.TryGetValue(key, out value) && value != null
                 ? Convert.ToString(value)
                 : string.Empty;
+        }
+
+        private string ManagementEndpoint(CapabilitySnapshot snapshot)
+        {
+            string host = ReadFact(snapshot, "network.primary_ip");
+            if (TextUtility.IsBlank(host)) host = Environment.MachineName;
+            return "http://" + host + ":" + config.managementPort.ToString();
         }
 
 

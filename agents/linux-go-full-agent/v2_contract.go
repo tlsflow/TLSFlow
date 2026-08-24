@@ -334,7 +334,17 @@ func collectLinuxProcesses() []map[string]any {
 		if err != nil || !filepath.IsAbs(executablePath) {
 			continue
 		}
-		processes = append(processes, map[string]any{"kind": "process", "pid": pid, "executablePath": executablePath})
+		process := map[string]any{"kind": "process", "pid": pid, "executablePath": executablePath}
+		if commandLine, commandErr := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline")); commandErr == nil && len(commandLine) > 0 {
+			text := strings.TrimSpace(strings.ReplaceAll(string(commandLine), "\x00", " "))
+			if len(text) > 4096 {
+				text = text[:4096]
+			}
+			if text != "" && !containsSensitiveCommandLine(text) {
+				process["commandLine"] = text
+			}
+		}
+		processes = append(processes, process)
 		if len(processes) >= 1000 {
 			break
 		}
@@ -343,6 +353,16 @@ func collectLinuxProcesses() []map[string]any {
 		return processes[left]["pid"].(int) < processes[right]["pid"].(int)
 	})
 	return processes
+}
+
+func containsSensitiveCommandLine(value string) bool {
+	lower := strings.ToLower(value)
+	for _, marker := range []string{"password=", "passwd=", "token=", "secret=", "private_key="} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func collectLinuxServices(ctx context.Context, names []string) []map[string]any {
@@ -386,24 +406,70 @@ func collectLinuxFiles(paths []string) []map[string]any {
 		if !filepath.IsAbs(path) {
 			continue
 		}
-		item := map[string]any{"kind": "file_stat", "path": path, "exists": false, "sizeBytes": 0}
-		info, err := os.Stat(path)
-		if err != nil {
-			files = append(files, item)
+		if info, statErr := os.Stat(path); statErr == nil && info.IsDir() {
+			_ = filepath.WalkDir(path, func(candidate string, entry os.DirEntry, walkErr error) error {
+				if walkErr != nil || entry == nil {
+					return nil
+				}
+				if entry.IsDir() {
+					if candidate != path && strings.Count(strings.TrimPrefix(candidate, path), string(os.PathSeparator)) > 4 {
+						return filepath.SkipDir
+					}
+					return nil
+				}
+				ext := strings.ToLower(filepath.Ext(candidate))
+				if ext != ".conf" && ext != ".xml" && ext != ".properties" && ext != ".config" {
+					return nil
+				}
+				if len(files) >= 512 {
+					return filepath.SkipDir
+				}
+				files = append(files, collectLinuxFile(candidate))
+				return nil
+			})
 			continue
 		}
-		item["exists"] = true
-		item["sizeBytes"] = info.Size()
-		item["mode"] = info.Mode().String()
-		item["modifiedAt"] = info.ModTime().UTC().Format(time.RFC3339Nano)
-		if info.Mode().IsRegular() {
-			if digest, digestErr := sha256FileDigest(path); digestErr == nil {
-				item["sha256"] = digest
-			}
-		}
-		files = append(files, item)
+		files = append(files, collectLinuxFile(path))
 	}
 	return files
+}
+
+func collectLinuxFile(path string) map[string]any {
+	item := map[string]any{"kind": "file_stat", "path": path, "exists": false, "sizeBytes": 0}
+	info, err := os.Stat(path)
+	if err != nil {
+		return item
+	}
+	item["exists"] = true
+	item["sizeBytes"] = info.Size()
+	item["mode"] = info.Mode().String()
+	item["modifiedAt"] = info.ModTime().UTC().Format(time.RFC3339Nano)
+	if info.Mode().IsRegular() {
+		if digest, digestErr := sha256FileDigest(path); digestErr == nil {
+			item["sha256"] = digest
+		}
+		if content, readErr := os.ReadFile(path); readErr == nil {
+			const maximumFileContentBytes = 64 * 1024
+			truncated := len(content) > maximumFileContentBytes
+			if truncated {
+				content = content[:maximumFileContentBytes]
+			}
+			item = map[string]any{
+				"kind":          "file_content",
+				"path":          path,
+				"contentBase64": base64.StdEncoding.EncodeToString(content),
+				"bytesRead":     len(content),
+				"truncated":     truncated,
+				"sha256":        sha256Bytes(content),
+			}
+		}
+	}
+	return item
+}
+
+func sha256Bytes(value []byte) string {
+	digest := sha256.Sum256(value)
+	return hex.EncodeToString(digest[:])
 }
 
 func collectLinuxListeningPorts() []map[string]any {
@@ -1020,7 +1086,7 @@ func verifySignedValue(keyID, signature string, value any, envName string) error
 	if strings.TrimSpace(keyID) == "" || strings.TrimSpace(signature) == "" {
 		return unavailableAgentAuthorizationMaterial("signature and keyId are required")
 	}
-	keySetRaw := strings.TrimSpace(os.Getenv(envName))
+	keySetRaw := strings.TrimSpace(agentAuthorizationKeySet(envName))
 	if keySetRaw == "" {
 		return unavailableAgentAuthorizationMaterial("trusted policy key set is unavailable; fail closed")
 	}
@@ -1028,6 +1094,10 @@ func verifySignedValue(keyID, signature string, value any, envName string) error
 	if err := json.Unmarshal([]byte(keySetRaw), &keySet); err != nil {
 		return unavailableAgentAuthorizationMaterial("trusted policy key set is invalid")
 	}
+	return verifySignatureWithKeySet(keyID, signature, value, keySet)
+}
+
+func verifySignatureWithKeySet(keyID, signature string, value any, keySet map[string]string) error {
 	encodedKey, ok := keySet[keyID]
 	if !ok {
 		return unavailableAgentAuthorizationMaterial("trusted policy key is not configured")
@@ -1036,11 +1106,49 @@ func verifySignedValue(keyID, signature string, value any, envName string) error
 	if err != nil || len(publicKey) != ed25519.PublicKeySize {
 		return unavailableAgentAuthorizationMaterial("trusted policy key is invalid")
 	}
-	signed, err := base64.StdEncoding.DecodeString(signature)
+	signed, err := base64.RawURLEncoding.DecodeString(signature)
+	if err != nil {
+		signed, err = base64.StdEncoding.DecodeString(signature)
+	}
 	if err != nil || !ed25519.Verify(ed25519.PublicKey(publicKey), canonicalJSON(value), signed) {
 		return errors.New("signature verification failed")
 	}
 	return nil
+}
+
+func agentAuthorizationKeySet(envName string) string {
+	if material := currentAgentTrustMaterial(); material != nil {
+		var keySet map[string]string
+		if envName == "GCAC_AGENT_CAPABILITY_KEYSET_JSON" {
+			keySet = material.CapabilityKeySet
+		} else if envName == "GCAC_POLICY_AUTHORITY_KEYSET_JSON" {
+			keySet = material.PolicyAuthorityKeySet
+		}
+		if len(keySet) > 0 {
+			encoded, err := json.Marshal(keySet)
+			if err == nil {
+				return string(encoded)
+			}
+		}
+	}
+	return os.Getenv(envName)
+}
+
+func agentAuthorizationLocalPolicy() string {
+	if material := currentAgentTrustMaterial(); material != nil {
+		paths := make([]string, 0, len(material.LocalPolicy.PathRules))
+		for _, rule := range material.LocalPolicy.PathRules {
+			paths = append(paths, rule.Prefix)
+		}
+		encoded, err := json.Marshal(map[string]any{
+			"allowedPaths":    paths,
+			"allowedServices": material.LocalPolicy.ServiceRules,
+		})
+		if err == nil {
+			return string(encoded)
+		}
+	}
+	return os.Getenv("GCAC_AGENT_LOCAL_POLICY_JSON")
 }
 
 func tokenWithoutSignature(value AgentCapabilityTokenV1) map[string]any {
@@ -1238,7 +1346,7 @@ func revokedNonce(nonce string) bool {
 	return false
 }
 func validateLocalPolicy(paths, services []string) error {
-	raw := strings.TrimSpace(os.Getenv("GCAC_AGENT_LOCAL_POLICY_JSON"))
+	raw := strings.TrimSpace(agentAuthorizationLocalPolicy())
 	if raw == "" {
 		return unavailableAgentAuthorizationMaterial("local agent policy is unavailable; fail closed")
 	}

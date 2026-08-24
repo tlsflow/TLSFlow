@@ -36,6 +36,12 @@ import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enque
 import type { GatewayTaskResultSink } from '../../gateway-agents/gateway-agent.types.js';
 import { parsePluginFactBinding } from '../../plugins/application/plugin-fact-pipeline.service.js';
 import type { PluginFactBindingV1, PluginFactPipelineResult, PluginFactPipelineService } from '../../plugins/application/plugin-fact-pipeline.service.js';
+import type { AgentDiscoveryTaskFactory } from './agent-discovery-task-factory.js';
+
+export interface AgentTrustMaterialIssuer {
+  issue(input: { tenantId: string; agentId: string }): Promise<unknown>;
+  getTrustedKeySet(): Record<string, string>;
+}
 
 export type AgentInstallMaterialPlatform = 'windows_go' | 'windows_compatibility' | 'linux_go';
 
@@ -50,6 +56,7 @@ interface AgentInstallDescriptor {
   id: string;
   role: 'full_agent' | 'gateway';
   zone: string;
+  authorizationTrustKeySet?: Record<string, string>;
   agentKey: string;
   expiresAt: string;
   enrollmentTokenRecord: EnrollmentToken & { token: string };
@@ -163,6 +170,8 @@ export class AgentsApplicationService {
     private readonly capabilityDiscoveryProjector?: AgentCapabilityDiscoveryProjector,
     private readonly tasks?: TaskEnqueuer,
     private readonly pluginFactPipeline?: PluginFactPipelineService,
+    private discoveryTaskFactory?: AgentDiscoveryTaskFactory,
+    private trustMaterialIssuer?: AgentTrustMaterialIssuer,
   ) {}
 
   getModuleMetadata() {
@@ -171,6 +180,14 @@ export class AgentsApplicationService {
 
   setGatewayTaskResultSink(sink?: GatewayTaskResultSink): void {
     this.gatewayTaskResultSink = sink;
+  }
+
+  setDiscoveryTaskFactory(factory?: AgentDiscoveryTaskFactory): void {
+    this.discoveryTaskFactory = factory;
+  }
+
+  setTrustMaterialIssuer(issuer?: AgentTrustMaterialIssuer): void {
+    this.trustMaterialIssuer = issuer;
   }
 
   async createEnrollmentToken(tenantId: string, input: CreateEnrollmentTokenInput, requestId: string) {
@@ -218,7 +235,7 @@ export class AgentsApplicationService {
         lastRequestId: requestId,
       });
       await this.syncGatewayRegistry(tenantId, updated);
-      return updated;
+      return this.withTrustMaterial(updated);
     }
     const registered = await this.repository.upsertRegistration({
       id: newId('agt'),
@@ -238,7 +255,7 @@ export class AgentsApplicationService {
       version: 1,
     });
     await this.syncGatewayRegistry(tenantId, registered);
-    return registered;
+    return this.withTrustMaterial(registered);
   }
 
   async heartbeat(tenantId: string, input: AgentHeartbeatInput, requestId: string) {
@@ -252,6 +269,9 @@ export class AgentsApplicationService {
       descriptor: {
         ...agent.descriptor,
         version: input.version,
+        managementEndpoint: input.managementEndpoint === undefined
+          ? agent.descriptor.managementEndpoint
+          : this.domain.normalizeManagementEndpoint(input.managementEndpoint),
       },
       gateway,
       updatedAt: now,
@@ -484,10 +504,11 @@ export class AgentsApplicationService {
     return summary;
   }
 
-  async enqueueTask(tenantId: string, input: EnqueueAgentTaskInput, requestId: string): Promise<AgentTaskEnvelope> {
+  async enqueueTask(tenantId: string, input: EnqueueAgentTaskInput, requestId: string, livenessMode: 'full' | 'management' = 'full'): Promise<AgentTaskEnvelope> {
     assertSupportedAgentTaskPayload(input.payload ?? {});
     await this.requireAgent(tenantId, input.agentId);
-    await this.assertLivenessAllowsExecution(tenantId, input.agentId);
+    if (livenessMode === 'management') await this.assertManagementEndpointReachable(tenantId, input.agentId);
+    else await this.assertLivenessAllowsExecution(tenantId, input.agentId);
     const existing = await this.repository.findTaskByIdempotencyKey(tenantId, input.agentId, input.idempotencyKey);
     if (existing) return existing;
     const now = new Date().toISOString();
@@ -520,7 +541,7 @@ export class AgentsApplicationService {
         requestedBy: input.requestedBy,
         requestedAt: new Date().toISOString(),
       },
-    }, requestId);
+    }, requestId, 'management');
     enqueueTaskBestEffort(this.tasks, {
       tenantId,
       taskType: 'AGENT_CAPABILITY_RESCAN',
@@ -537,54 +558,53 @@ export class AgentsApplicationService {
     return task;
   }
 
+  async probeManagementEndpoint(tenantId: string, agentId: string, timeoutMs?: number) {
+    await this.requireAgent(tenantId, agentId);
+    if (!this.liveness) throw new AppError('SYSTEM_INTERNAL_ERROR', 'Agent TCP 探测服务未配置');
+    return this.liveness.probeAgentManagementEndpoint({ tenantId, agentId, timeoutMs });
+  }
+
   async refreshStandardDiscovery(tenantId: string, agentId: string, requestedBy: string, requestId: string): Promise<{
     mode: 'standard-capability' | 'queued';
     task: AgentTaskEnvelope;
+    tasks: AgentTaskEnvelope[];
     capabilitySnapshotId?: string;
     projection?: StandardDiscoveryProjectionSummary;
   }> {
     if (!this.capabilityDiscoveryProjector) {
       throw new AppError('SYSTEM_INTERNAL_ERROR', 'Agent 标准发现投影器未配置');
     }
-    const previousSnapshot = await this.repository.getLatestCapabilitySnapshot(tenantId, agentId);
-    const task = await this.enqueueCapabilityRescanTask(tenantId, { agentId, requestedBy }, requestId);
-
-    if (task.status === 'failed' || task.status === 'rejected') {
-      throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'Agent 能力重扫失败', {
-        agentId,
-        taskId: task.id,
-        status: task.status,
-        result: task.result,
-      });
-    }
-    if (task.status !== 'succeeded') {
-      return { mode: 'queued', task };
-    }
-
-    const snapshot = await this.repository.getLatestCapabilitySnapshot(tenantId, agentId);
-    if (!snapshot || snapshot.id === previousSnapshot?.id) {
-      throw new AppError('RESOURCE_VERSION_CONFLICT', 'Agent 能力重扫完成但未产生新快照', {
-        agentId,
-        taskId: task.id,
-        previousSnapshotId: previousSnapshot?.id,
-      });
-    }
     const agent = await this.requireAgent(tenantId, agentId);
-    const projection = await this.capabilityDiscoveryProjector.project(agent, snapshot);
-    return {
-      mode: 'standard-capability',
-      task,
-      capabilitySnapshotId: snapshot.id,
-      projection,
-    };
+    await this.assertManagementEndpointReachable(tenantId, agentId);
+    if (!this.discoveryTaskFactory) {
+      throw new AppError('SYSTEM_INTERNAL_ERROR', 'Web 发现任务工厂未配置，拒绝退回旧能力重扫路径');
+    }
+    const tasks = await this.discoveryTaskFactory.createForAgent({ tenantId, agent, requestedBy, requestId });
+    const task = tasks[0]!;
+    const failed = tasks.find((item) => item.status === 'failed' || item.status === 'rejected');
+    if (failed && tasks.every((item) => item.status === 'failed' || item.status === 'rejected')) {
+      throw new AppError('EXECUTION_TARGET_UNAVAILABLE', '所有 Web 发现任务均失败', {
+        agentId,
+        taskIds: tasks.map((item) => item.id),
+        failedTaskId: failed.id,
+      });
+    }
+    if (tasks.some((item) => !['succeeded', 'failed', 'rejected'].includes(item.status))) {
+      return { mode: 'queued', task, tasks };
+    }
+    const projection = mergeDiscoverySummaries(tasks.flatMap(readTaskProjectionSummaries));
+    return { mode: 'standard-capability', task, tasks, projection };
   }
 
   async pullTasks(tenantId: string, agentId: string, limit = 10): Promise<AgentTaskEnvelope[]> {
     const agent = await this.requireAgent(tenantId, agentId);
     if (agent.status === 'DISABLED') return [];
     if (this.liveness) {
-      const projection = await this.liveness.project(tenantId, 'AGENT', agentId, ['HEARTBEAT', 'MANAGEMENT_TCP']);
-      if (projection.signals.length > 0 && projection.livenessStatus !== 'ONLINE') return [];
+      // Agent 任务是主动向控制面轮询的出站链路，不能因为控制面到 Agent
+      // 的入站管理 TCP 探测失败而形成死锁。重新发现等需要入站能力的操作
+      // 仍在入队前单独执行 management-probe 硬校验。
+      const projection = await this.liveness.project(tenantId, 'AGENT', agentId, ['HEARTBEAT']);
+      if (projection.signals.length > 0 && projection.livenessStatus === 'OFFLINE') return [];
     }
     const tasks = await this.repository.listTasks(tenantId, agentId, ['queued']);
     return tasks.slice(0, limit);
@@ -1081,6 +1101,7 @@ export class AgentsApplicationService {
       ...this.baseInstallManifest(session, baseUrl),
       bundleUrl: `${baseUrl}/api/v1/agents/install/linux/bundle.tar.gz`,
       bundleManifest: getLinuxAgentBundleManifest(LINUX_AGENT_RELEASE_VERSION),
+      ...(this.trustMaterialIssuer ? { authorizationTrustKeySet: this.trustMaterialIssuer.getTrustedKeySet() } : {}),
     };
   }
 
@@ -1155,6 +1176,14 @@ export class AgentsApplicationService {
     };
   }
 
+  private async withTrustMaterial(agent: AgentRegistration): Promise<AgentRegistration & { trustMaterial?: unknown }> {
+    if (!this.trustMaterialIssuer || agent.descriptor.osType.toLowerCase() !== 'linux') return agent;
+    return {
+      ...agent,
+      trustMaterial: await this.trustMaterialIssuer.issue({ tenantId: agent.tenantId, agentId: agent.id }),
+    };
+  }
+
   private createInstallDescriptor(tenantId: string, input: AgentInstallMaterialRequest, requestId: string): AgentInstallDescriptor {
     const role = normalizeInstallMaterialRole(input.role);
     if (input.platform === 'windows_compatibility' && role !== 'full_agent') {
@@ -1198,7 +1227,8 @@ export class AgentsApplicationService {
       const items = this.deduplicateRegistrations(page.items);
       const projected = await Promise.all(items.map(async (agent) => ({
         ...agent,
-        ...(this.liveness ? await this.liveness.project(tenantId, 'AGENT', agent.id, ['HEARTBEAT', 'MANAGEMENT_TCP']) : {}),
+        // 列表状态与详情状态必须一致：Agent 在线性只看心跳，管理 TCP 单独展示。
+        ...(this.liveness ? await this.liveness.project(tenantId, 'AGENT', agent.id, ['HEARTBEAT']) : {}),
       })));
       return { ...page, items: projected, total: projected.length };
     });
@@ -1250,8 +1280,10 @@ export class AgentsApplicationService {
         observedAt: nowIso,
         reasonDetail: `lastHeartbeatAt=${referenceAt};offlineTimeoutSeconds=${offlineTimeoutSeconds}`,
       });
+      // Agent 是否在线只由出站心跳决定。管理 TCP 是入站手动探测能力，不能
+      // 因为防火墙、NAT 或临时端口故障把仍在主动心跳的 Agent 判成离线。
       const liveness = this.liveness
-        ? await this.liveness.project(agent.tenantId, 'AGENT', agent.id, ['HEARTBEAT', 'MANAGEMENT_TCP'])
+        ? await this.liveness.project(agent.tenantId, 'AGENT', agent.id, ['HEARTBEAT'])
         : undefined;
       if (liveness && liveness.livenessStatus !== 'OFFLINE') continue;
       if (!liveness && requiredConsecutiveTimeouts > 1) continue;
@@ -1288,9 +1320,12 @@ export class AgentsApplicationService {
     const runtimeLogs = await this.repository.listAgentRuntimeLogs(tenantId, agent.id);
     const recentTaskLogs = await this.listRecentTaskRuntimeLogs(tenantId, agent.id);
     const liveness = this.liveness
-      ? await this.liveness.project(tenantId, 'AGENT', agent.id, ['HEARTBEAT', 'MANAGEMENT_TCP'])
+      ? await this.liveness.project(tenantId, 'AGENT', agent.id, ['HEARTBEAT'])
       : undefined;
-    const health = this.toHealthProjection(agent, latestHeartbeat);
+    const managementLiveness = this.liveness
+      ? await this.liveness.project(tenantId, 'AGENT', agent.id, ['MANAGEMENT_TCP'])
+      : undefined;
+    const health = this.toHealthProjection(agent, latestHeartbeat, liveness);
     if (liveness?.livenessStatus === 'OFFLINE') {
       health.status = 'failed';
       health.offline = true;
@@ -1299,6 +1334,7 @@ export class AgentsApplicationService {
     return {
       agent,
       ...liveness,
+      managementLiveness,
       lifecycle: this.toLifecycle(agent),
       latestHeartbeat,
       health,
@@ -1459,13 +1495,13 @@ export class AgentsApplicationService {
     };
   }
 
-  private toHealthProjection(agent: AgentRegistration, latestHeartbeat?: AgentHeartbeat): AgentHealthProjection {
+  private toHealthProjection(agent: AgentRegistration, latestHeartbeat?: AgentHeartbeat, liveness?: { livenessStatus: 'ONLINE' | 'OFFLINE' | 'UNKNOWN'; livenessReasonCode?: string }): AgentHealthProjection {
     const offlineTimeoutSeconds = this.getOfflineTimeoutSeconds();
     const runtimeHealth = latestHeartbeat?.runtimeHealth;
     const lastHeartbeatAt = latestHeartbeat?.receivedAt ?? agent.gateway?.lastHeartbeatAt;
     const heartbeatAgeSeconds = safeAgeSeconds(lastHeartbeatAt);
-    const offline = agent.status === 'OFFLINE'
-      || isObservationStale(lastHeartbeatAt, offlineTimeoutSeconds);
+    const offline = liveness?.livenessStatus === 'OFFLINE'
+      || (liveness === undefined && (agent.status === 'OFFLINE' || isObservationStale(lastHeartbeatAt, offlineTimeoutSeconds)));
     const degradedReasons = dedupeStrings(runtimeHealth?.degradedReasons ?? []);
     const failureCounts = {
       heartbeat: runtimeHealth?.failureCounts?.heartbeat ?? 0,
@@ -1473,7 +1509,7 @@ export class AgentsApplicationService {
       recovery: runtimeHealth?.failureCounts?.recovery ?? 0,
     };
     const offlineEvidence = [
-      offline ? 'agent.status=OFFLINE' : '',
+      offline ? (liveness?.livenessStatus === 'OFFLINE' ? `livenessReasonCode=${liveness.livenessReasonCode ?? 'unknown'}` : 'agent.status=OFFLINE') : '',
       lastHeartbeatAt ? `lastHeartbeatAt=${lastHeartbeatAt}` : 'lastHeartbeatAt=missing',
       heartbeatAgeSeconds !== undefined ? `heartbeatAgeSeconds=${heartbeatAgeSeconds}` : '',
       `offlineTimeoutSeconds=${offlineTimeoutSeconds}`,
@@ -1505,13 +1541,27 @@ export class AgentsApplicationService {
 
   private async assertLivenessAllowsExecution(tenantId: string, agentId: string): Promise<void> {
     if (!this.liveness) return;
-    const projection = await this.liveness.project(tenantId, 'AGENT', agentId, ['HEARTBEAT', 'MANAGEMENT_TCP']);
+    const projection = await this.liveness.project(tenantId, 'AGENT', agentId, ['HEARTBEAT']);
     if (projection.signals.length === 0) return;
     if (projection.livenessStatus === 'ONLINE') return;
     throw new AppError('EXECUTION_TARGET_UNAVAILABLE', projection.livenessStatus === 'OFFLINE' ? 'Agent 已离线，不能下发任务' : 'Agent 存活状态尚未确认，不能下发任务', {
       agentId,
       livenessStatus: projection.livenessStatus,
       reasonCode: projection.livenessReasonCode,
+    });
+  }
+
+  private async assertManagementEndpointReachable(tenantId: string, agentId: string): Promise<void> {
+    if (!this.liveness) return;
+    const result = await this.liveness.probeAgentManagementEndpoint({ tenantId, agentId });
+    if (result.success) return;
+    throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'Agent 管理 TCP 端口不可达，不能下发重新发现任务', {
+      agentId,
+      reasonCode: result.reasonCode ?? 'TCP_CONNECT_FAILED',
+      reasonDetail: result.reasonDetail,
+      host: result.host,
+      port: result.port,
+      livenessStatus: result.projection.livenessStatus,
     });
   }
 
@@ -1754,6 +1804,33 @@ function serializePluginFactPipelineResult(result: PluginFactPipelineResult): Re
     warnings: structuredClone(result.warnings),
     ...(result.error ? { error: structuredClone(result.error) } : {}),
   };
+}
+
+function readTaskProjectionSummaries(task: AgentTaskEnvelope): StandardDiscoveryProjectionSummary[] {
+  const detail = readRecord(readRecord(task.result).detail);
+  const pipeline = readRecord(detail.pluginFactPipeline);
+  return Array.isArray(pipeline.projectionSummaries)
+    ? pipeline.projectionSummaries.filter(isProjectionSummary)
+    : [];
+}
+
+function isProjectionSummary(value: unknown): value is StandardDiscoveryProjectionSummary {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const item = value as Record<string, unknown>;
+  return ['serviceInstances', 'sites', 'managedTargets', 'certificates', 'certificateBindings', 'stale', 'conflicts']
+    .every((key) => typeof item[key] === 'number' && Number.isFinite(item[key]));
+}
+
+function mergeDiscoverySummaries(summaries: StandardDiscoveryProjectionSummary[]): StandardDiscoveryProjectionSummary {
+  return summaries.reduce((total, current) => ({
+    serviceInstances: total.serviceInstances + current.serviceInstances,
+    sites: total.sites + current.sites,
+    managedTargets: total.managedTargets + current.managedTargets,
+    certificates: total.certificates + current.certificates,
+    certificateBindings: total.certificateBindings + current.certificateBindings,
+    stale: total.stale + current.stale,
+    conflicts: total.conflicts + current.conflicts,
+  }), { serviceInstances: 0, sites: 0, managedTargets: 0, certificates: 0, certificateBindings: 0, stale: 0, conflicts: 0 });
 }
 
 export function resolveAgentTaskActionType(payload: Record<string, unknown> | undefined): AgentV2ContractType | undefined {

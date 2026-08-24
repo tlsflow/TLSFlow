@@ -1,14 +1,21 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -22,35 +29,70 @@ import (
 )
 
 type registerRequest struct {
-	AgentKey          string   `json:"agentKey"`
-	MachineID         string   `json:"machineId,omitempty"`
-	Hostname          string   `json:"hostname"`
-	Version           string   `json:"version"`
-	OSType            string   `json:"osType"`
-	Arch              string   `json:"arch,omitempty"`
-	IPAddress         string   `json:"ipAddress,omitempty"`
-	LinuxDistribution string   `json:"linuxDistribution,omitempty"`
-	OSVersion         string   `json:"osVersion,omitempty"`
-	Labels            []string `json:"labels,omitempty"`
-	EnrollmentToken   string   `json:"enrollmentToken,omitempty"`
-	Role              string   `json:"role,omitempty"`
-	Zone              string   `json:"zone,omitempty"`
-	ZoneIDs           []string `json:"zoneIds,omitempty"`
-	Adapters          []string `json:"adapters,omitempty"`
-	Capabilities      []string `json:"capabilities,omitempty"`
+	AgentKey           string   `json:"agentKey"`
+	MachineID          string   `json:"machineId,omitempty"`
+	Hostname           string   `json:"hostname"`
+	Version            string   `json:"version"`
+	OSType             string   `json:"osType"`
+	Arch               string   `json:"arch,omitempty"`
+	IPAddress          string   `json:"ipAddress,omitempty"`
+	ManagementEndpoint string   `json:"managementEndpoint,omitempty"`
+	LinuxDistribution  string   `json:"linuxDistribution,omitempty"`
+	OSVersion          string   `json:"osVersion,omitempty"`
+	Labels             []string `json:"labels,omitempty"`
+	EnrollmentToken    string   `json:"enrollmentToken,omitempty"`
+	Role               string   `json:"role,omitempty"`
+	Zone               string   `json:"zone,omitempty"`
+	ZoneIDs            []string `json:"zoneIds,omitempty"`
+	Adapters           []string `json:"adapters,omitempty"`
+	Capabilities       []string `json:"capabilities,omitempty"`
 }
 
 type registerResponse struct {
-	ID string `json:"id"`
+	ID            string                  `json:"id"`
+	TrustMaterial *agentTrustMaterialWire `json:"trustMaterial,omitempty"`
+}
+
+// 控制面只下发公钥和绑定策略，私钥从不离开本机 Authority。
+type agentTrustMaterialWire struct {
+	MaterialVersion           string               `json:"materialVersion"`
+	IssuedAt                  string               `json:"issuedAt"`
+	ValidUntil                string               `json:"validUntil"`
+	CapabilityKeySet          map[string]string    `json:"capabilityKeySet"`
+	PolicyAuthorityKeySet     map[string]string    `json:"policyAuthorityKeySet"`
+	LocalPolicy               agentLocalPolicyWire `json:"localPolicy"`
+	LocalPolicyAuthorityKeyID string               `json:"localPolicyAuthorityKeyId"`
+	LocalPolicySignature      string               `json:"localPolicySignature"`
+}
+
+var agentTrustMaterialState = struct {
+	mu       sync.RWMutex
+	material *agentTrustMaterialWire
+}{}
+
+type agentLocalPolicyWire struct {
+	PolicyVersion   string   `json:"policyVersion"`
+	AgentID         string   `json:"agentId"`
+	AuthorityKeyIDs []string `json:"authorityKeyIds"`
+	AllowedActions  []string `json:"allowedActions"`
+	PathRules       []struct {
+		Prefix     string   `json:"prefix"`
+		Operations []string `json:"operations"`
+	} `json:"pathRules"`
+	ServiceRules []string `json:"serviceRules"`
+	CommandRules []any    `json:"commandRules"`
+	Disabled     bool     `json:"disabled"`
+	UpdatedAt    string   `json:"updatedAt"`
 }
 
 type heartbeatRequest struct {
-	AgentID       string                  `json:"agentId"`
-	Version       string                  `json:"version"`
-	Adapters      []string                `json:"adapters,omitempty"`
-	Capabilities  []string                `json:"capabilities,omitempty"`
-	RuntimeHealth *heartbeatRuntimeHealth `json:"runtimeHealth,omitempty"`
-	TaskSummary   struct {
+	AgentID            string                  `json:"agentId"`
+	Version            string                  `json:"version"`
+	ManagementEndpoint string                  `json:"managementEndpoint,omitempty"`
+	Adapters           []string                `json:"adapters,omitempty"`
+	Capabilities       []string                `json:"capabilities,omitempty"`
+	RuntimeHealth      *heartbeatRuntimeHealth `json:"runtimeHealth,omitempty"`
+	TaskSummary        struct {
 		Running   int `json:"running"`
 		Queued    int `json:"queued"`
 		Succeeded int `json:"succeeded,omitempty"`
@@ -199,6 +241,42 @@ type reportedCapability struct {
 	Evidence      map[string]any `json:"evidence,omitempty"`
 }
 
+// 管理监听只提供健康检查，不提供任务执行或任意命令入口。
+func startManagementServer(config *AgentConfig, identity runtimeIdentity) (*http.Server, string, error) {
+	listenAddress := net.JoinHostPort(effectiveManagementListenAddress(config), fmt.Sprintf("%d", effectiveManagementPort(config)))
+	listener, err := net.Listen("tcp", listenAddress)
+	if err != nil {
+		return nil, "", fmt.Errorf("管理 TCP 监听启动失败 %s: %w", listenAddress, err)
+	}
+	server := &http.Server{Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || (request.URL.Path != "/api/v1/control/health" && request.URL.Path != "/healthz") {
+			writer.Header().Set("Allow", http.MethodGet)
+			http.Error(writer, "management endpoint only supports health checks", http.StatusNotFound)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		hostname, _ := os.Hostname()
+		_ = json.NewEncoder(writer).Encode(map[string]any{"success": true, "status": "healthy", "agentVersion": agentVersion, "hostname": hostname, "managementEndpoint": managementEndpointForIdentity(identity, config)})
+	})}
+	go func() {
+		if serveErr := server.Serve(listener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			fmt.Fprintf(os.Stderr, "[management] listener stopped: %v\n", serveErr)
+		}
+	}()
+	return server, managementEndpointForIdentity(identity, config), nil
+}
+
+func managementEndpointForIdentity(identity runtimeIdentity, config *AgentConfig) string {
+	host := strings.TrimSpace(identity.PrimaryIPAddress)
+	if host == "" {
+		host, _ = os.Hostname()
+	}
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	return fmt.Sprintf("http://%s", net.JoinHostPort(host, fmt.Sprintf("%d", effectiveManagementPort(config))))
+}
+
 func handleRuntimeStatusCommand(args []string, includeChecks bool) error {
 	configPath := parseConfigPath(args)
 	config, err := loadConfig(configPath)
@@ -231,6 +309,9 @@ func handleRun(args []string) error {
 	} else if err := configurePersistentAgentNonceStore(filepath.Join(dataDir, "ledger", "agent-v2-nonces")); err != nil {
 		return err
 	}
+	if err := loadPersistedAgentTrustMaterial(config); err != nil {
+		return err
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -242,6 +323,11 @@ func handleRun(args []string) error {
 	rescanEnabled := effectiveCapabilityRescanEnabled(config)
 
 	client := &http.Client{Timeout: 15 * time.Second}
+	managementServer, _, err := startManagementServer(config, identity)
+	if err != nil {
+		return err
+	}
+	defer managementServer.Shutdown(context.Background())
 	state, err := registerAgent(ctx, client, config, identity)
 	if err != nil {
 		return err
@@ -410,6 +496,159 @@ func resolveResultLedgerPath(config *AgentConfig) string {
 		return "/var/lib/gcac/linux-agent/task-results.json"
 	}
 	return filepath.Join(dataDir, "task-results.json")
+}
+
+func resolveAgentTrustMaterialPath(config *AgentConfig) string {
+	if configured := strings.TrimSpace(config.AuthorizationMaterialPath); configured != "" {
+		return configured
+	}
+	dataDir := strings.TrimSpace(config.Paths.Linux.DataDir)
+	if dataDir == "" {
+		return "/var/lib/gcac/linux-agent/policy/agent-trust-material.json"
+	}
+	return filepath.Join(dataDir, "policy", "agent-trust-material.json")
+}
+
+func persistAgentTrustMaterial(config *AgentConfig, agentID string, material *agentTrustMaterialWire) error {
+	if material == nil {
+		return errors.New("控制面未返回 Agent 授权材料")
+	}
+	if err := validateAgentTrustMaterial(config, agentID, material); err != nil {
+		return err
+	}
+	path := resolveAgentTrustMaterialPath(config)
+	if !filepath.IsAbs(path) {
+		return errors.New("Agent 授权材料路径必须是绝对路径")
+	}
+	encoded, err := json.Marshal(material)
+	if err != nil {
+		return fmt.Errorf("编码 Agent 授权材料失败: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("创建 Agent 授权材料目录失败: %w", err)
+	}
+	temporary := fmt.Sprintf("%s.tmp-%d", path, os.Getpid())
+	if err := os.WriteFile(temporary, append(encoded, '\n'), 0o600); err != nil {
+		return fmt.Errorf("写入 Agent 授权材料临时文件失败: %w", err)
+	}
+	if err := os.Rename(temporary, path); err != nil {
+		_ = os.Remove(temporary)
+		return fmt.Errorf("替换 Agent 授权材料失败: %w", err)
+	}
+	return loadPersistedAgentTrustMaterial(config)
+}
+
+func loadPersistedAgentTrustMaterial(config *AgentConfig) error {
+	path := resolveAgentTrustMaterialPath(config)
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// 首次注册后控制面会下发材料；现有安装可先启动完成注册再持久化。
+			return nil
+		}
+		return fmt.Errorf("读取 Agent 授权材料失败: %w", err)
+	}
+	var material agentTrustMaterialWire
+	if err := json.Unmarshal(content, &material); err != nil {
+		return fmt.Errorf("解析 Agent 授权材料失败: %w", err)
+	}
+	if err := validateAgentTrustMaterial(config, material.LocalPolicy.AgentID, &material); err != nil {
+		return err
+	}
+	setAgentTrustMaterial(&material)
+	return nil
+}
+
+func setAgentTrustMaterial(material *agentTrustMaterialWire) {
+	agentTrustMaterialState.mu.Lock()
+	defer agentTrustMaterialState.mu.Unlock()
+	if material == nil {
+		agentTrustMaterialState.material = nil
+		return
+	}
+	cloned := *material
+	cloned.CapabilityKeySet = cloneStringMap(material.CapabilityKeySet)
+	cloned.PolicyAuthorityKeySet = cloneStringMap(material.PolicyAuthorityKeySet)
+	agentTrustMaterialState.material = &cloned
+}
+
+func currentAgentTrustMaterial() *agentTrustMaterialWire {
+	agentTrustMaterialState.mu.RLock()
+	defer agentTrustMaterialState.mu.RUnlock()
+	if agentTrustMaterialState.material == nil {
+		return nil
+	}
+	cloned := *agentTrustMaterialState.material
+	cloned.CapabilityKeySet = cloneStringMap(agentTrustMaterialState.material.CapabilityKeySet)
+	cloned.PolicyAuthorityKeySet = cloneStringMap(agentTrustMaterialState.material.PolicyAuthorityKeySet)
+	return &cloned
+}
+
+func validateAgentTrustMaterial(config *AgentConfig, agentID string, material *agentTrustMaterialWire) error {
+	if material == nil || material.MaterialVersion != "gcac.agent-trust-material/v1" ||
+		strings.TrimSpace(agentID) == "" ||
+		material.LocalPolicy.AgentID != agentID ||
+		material.LocalPolicy.PolicyVersion != agentSecurityContract ||
+		material.LocalPolicyAuthorityKeyID == "" ||
+		material.LocalPolicySignature == "" ||
+		len(material.CapabilityKeySet) == 0 ||
+		len(material.PolicyAuthorityKeySet) == 0 {
+		return errors.New("Agent 授权材料缺失必要字段")
+	}
+	issuedAt, issuedErr := time.Parse(time.RFC3339Nano, material.IssuedAt)
+	validUntil, validErr := time.Parse(time.RFC3339Nano, material.ValidUntil)
+	if issuedErr != nil || validErr != nil || !validUntil.After(issuedAt) || !time.Now().Before(validUntil) {
+		return errors.New("Agent 授权材料已过期或时间窗无效")
+	}
+	if !containsString(material.LocalPolicy.AuthorityKeyIDs, material.LocalPolicyAuthorityKeyID) {
+		return errors.New("Agent 本地策略未信任签发 Key")
+	}
+	trustedKey, ok := config.AuthorizationTrustKeySet[material.LocalPolicyAuthorityKeyID]
+	if !ok || strings.TrimSpace(trustedKey) == "" {
+		return errors.New("Agent 安装配置未固定本地策略签发 Key")
+	}
+	if err := verifySignatureWithKeySet(material.LocalPolicyAuthorityKeyID, material.LocalPolicySignature, localPolicyWithoutSignature(material.LocalPolicy), config.AuthorizationTrustKeySet); err != nil {
+		return fmt.Errorf("Agent 本地策略签名无效: %w", err)
+	}
+	if !sameStringMap(material.CapabilityKeySet, config.AuthorizationTrustKeySet) ||
+		!sameStringMap(material.PolicyAuthorityKeySet, config.AuthorizationTrustKeySet) {
+		return errors.New("Agent 授权材料 KeySet 与安装信任根不匹配")
+	}
+	return nil
+}
+
+func localPolicyWithoutSignature(policy agentLocalPolicyWire) map[string]any {
+	return map[string]any{
+		"policyVersion":   policy.PolicyVersion,
+		"agentId":         policy.AgentID,
+		"authorityKeyIds": policy.AuthorityKeyIDs,
+		"allowedActions":  policy.AllowedActions,
+		"pathRules":       policy.PathRules,
+		"serviceRules":    policy.ServiceRules,
+		"commandRules":    policy.CommandRules,
+		"disabled":        policy.Disabled,
+		"updatedAt":       policy.UpdatedAt,
+	}
+}
+
+func sameStringMap(left, right map[string]string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for key, value := range left {
+		if right[key] != value {
+			return false
+		}
+	}
+	return true
+}
+
+func cloneStringMap(input map[string]string) map[string]string {
+	cloned := make(map[string]string, len(input))
+	for key, value := range input {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func loadRuntimeStatusSnapshot(path string) runtimeStatusSnapshot {
@@ -701,6 +940,36 @@ func effectiveCapabilityRescanEnabled(config *AgentConfig) bool {
 	return true
 }
 
+func effectiveManagementListenAddress(config *AgentConfig) string {
+	if value := strings.TrimSpace(config.ManagementListenAddress); value != "" {
+		return value
+	}
+	return "0.0.0.0"
+}
+
+func effectiveManagementPort(config *AgentConfig) int {
+	if config.ManagementPort > 0 && config.ManagementPort <= 65535 {
+		return config.ManagementPort
+	}
+	return defaultManagementPort
+}
+
+// 自检必须验证端口确实能够绑定，不能只验证配置中存在端口数字。
+func managementListenAddressAvailable(config *AgentConfig) bool {
+	address := net.JoinHostPort(effectiveManagementListenAddress(config), fmt.Sprintf("%d", effectiveManagementPort(config)))
+	response, probeErr := (&http.Client{Timeout: 500 * time.Millisecond}).Get("http://" + address + "/healthz")
+	if probeErr == nil {
+		_ = response.Body.Close()
+		return response.StatusCode >= 200 && response.StatusCode < 500
+	}
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		return false
+	}
+	_ = listener.Close()
+	return true
+}
+
 func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig, identity runtimeIdentity) (*runtimeState, error) {
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -708,19 +977,20 @@ func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig
 	}
 
 	request := registerRequest{
-		AgentKey:          config.AgentKey,
-		MachineID:         identity.MachineID,
-		Hostname:          hostname,
-		Version:           agentVersion,
-		OSType:            "linux",
-		Arch:              runtime.GOARCH,
-		IPAddress:         identity.PrimaryIPAddress,
-		LinuxDistribution: identity.LinuxDistribution,
-		OSVersion:         identity.OSVersion,
-		Labels:            []string{"linux-go", "systemd"},
-		EnrollmentToken:   strings.TrimSpace(config.EnrollmentToken),
-		Role:              effectiveAgentRole(config),
-		Zone:              strings.TrimSpace(config.Zone),
+		AgentKey:           config.AgentKey,
+		MachineID:          identity.MachineID,
+		Hostname:           hostname,
+		Version:            agentVersion,
+		OSType:             "linux",
+		Arch:               runtime.GOARCH,
+		IPAddress:          identity.PrimaryIPAddress,
+		ManagementEndpoint: managementEndpointForIdentity(identity, config),
+		LinuxDistribution:  identity.LinuxDistribution,
+		OSVersion:          identity.OSVersion,
+		Labels:             []string{"linux-go", "systemd"},
+		EnrollmentToken:    strings.TrimSpace(config.EnrollmentToken),
+		Role:               effectiveAgentRole(config),
+		Zone:               strings.TrimSpace(config.Zone),
 	}
 	if isGatewayEnabled(config) {
 		request.ZoneIDs = []string{firstNonEmpty(strings.TrimSpace(config.Zone), "default")}
@@ -735,11 +1005,16 @@ func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig
 	if strings.TrimSpace(response.ID) == "" {
 		return nil, errors.New("注册 Agent 失败: 服务端未返回 agentId")
 	}
+	if response.TrustMaterial != nil {
+		if err := persistAgentTrustMaterial(config, response.ID, response.TrustMaterial); err != nil {
+			return nil, fmt.Errorf("保存 Agent 授权材料失败: %w", err)
+		}
+	}
 	return &runtimeState{AgentID: response.ID, Hostname: hostname, Version: agentVersion}, nil
 }
 
 func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState, counters *runtimeCounters, status *runtimeStatusSnapshot) error {
-	request := heartbeatRequest{AgentID: state.AgentID, Version: state.Version}
+	request := heartbeatRequest{AgentID: state.AgentID, Version: state.Version, ManagementEndpoint: managementEndpointForIdentity(collectRuntimeIdentity(config.ControlPlane), config)}
 	if isGatewayEnabled(config) {
 		request.Adapters = gatewayRouteChannels()
 		request.Capabilities = gatewayCapabilityKeys()
@@ -884,6 +1159,21 @@ func executeTask(ctx context.Context, client *http.Client, config *AgentConfig, 
 	}
 	registry := newLinuxActionRegistry(&linuxActionRuntime{client: client, config: config, state: state, counters: counters, rescan: rescan})
 	result := registry.Execute(ctx, coreRegistry.Request{TaskID: task.ID, ActionType: action, SchemaVersion: schemaVersion, Payload: wirePayload})
+	if action == agentFactCollect && boolFromMap(wirePayload, "refreshWebInventory") {
+		if !result.Success {
+			return result.Success, result.ErrorCode, result.ErrorMessage, result.Detail
+		}
+		if client == nil || config == nil || state == nil {
+			return false, "CAPABILITY_RESCAN_UNAVAILABLE", "手动 Web 库存刷新缺少运行时控制面上下文", result.Detail
+		}
+		rescanDetail, err := runCapabilityRescan(ctx, client, config, state, counters, rescan, "manual", wirePayload)
+		detail := cloneMap(result.Detail)
+		detail["capabilityRescan"] = rescanDetail
+		if err != nil {
+			return false, "CAPABILITY_RESCAN_FAILED", fmt.Sprintf("Web 库存上报失败: %v", err), detail
+		}
+		return true, "", "", detail
+	}
 	return result.Success, result.ErrorCode, result.ErrorMessage, result.Detail
 }
 
@@ -938,6 +1228,14 @@ func readRequestedBy(payload map[string]any) string {
 	return value
 }
 
+func boolFromMap(payload map[string]any, key string) bool {
+	if payload == nil {
+		return false
+	}
+	value, ok := payload[key].(bool)
+	return ok && value
+}
+
 func runtimeLogCategoryForTrigger(trigger string) string {
 	if trigger == "manual" {
 		return "manual_rescan"
@@ -961,7 +1259,7 @@ func runtimeLogSummaryForTrigger(trigger string, success bool) string {
 func collectCapabilityReports() []reportedCapability {
 	snapshot := collectLinuxPlatformFacts()
 	publicCapabilities := linuxFacts.Capabilities(snapshot)
-	capabilities := make([]reportedCapability, 0, len(publicCapabilities))
+	capabilities := make([]reportedCapability, 0, len(publicCapabilities)+1)
 	for _, capability := range publicCapabilities {
 		capabilities = append(capabilities, reportedCapability{
 			CapabilityKey: capability.Key,
@@ -970,5 +1268,162 @@ func collectCapabilityReports() []reportedCapability {
 			Evidence:      capability.Evidence,
 		})
 	}
+	capabilities = append(capabilities, reportedCapability{
+		CapabilityKey: "web.inventory",
+		Value:         collectLinuxWebInventory(),
+		Confidence:    0.8,
+		Evidence:      map[string]any{"source": "agent-v2-generic-inventory"},
+	})
 	return capabilities
+}
+
+func collectLinuxWebInventory() map[string]any {
+	processes := collectLinuxProcesses()
+	processPaths := make([]string, 0, len(processes))
+	for _, process := range processes {
+		if value, ok := process["executablePath"].(string); ok && strings.TrimSpace(value) != "" {
+			processPaths = append(processPaths, value)
+		}
+	}
+	configFiles := collectLinuxWebConfigFiles()
+	return map[string]any{
+		"processExecutables": processPaths,
+		"listeningPorts":     collectLinuxListeningPorts(),
+		"configFiles":        configFiles,
+		"certificateFiles":   collectLinuxWebCertificateFiles(configFiles),
+	}
+}
+
+// 只收集受控系统目录中的原始文本，不在 Agent Core 内判断产品或站点。
+func collectLinuxWebConfigFiles() []map[string]any {
+	files := make([]map[string]any, 0, 128)
+	for _, root := range webDiscoveryRoots {
+		_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil || entry == nil {
+				return nil
+			}
+			if entry.IsDir() {
+				if path != root && strings.Count(strings.TrimPrefix(path, root), string(os.PathSeparator)) > 4 {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			resolvedPath, err := filepath.EvalSymlinks(path)
+			if err != nil || !isAllowedWebDiscoveryPath(resolvedPath) {
+				return nil
+			}
+			ext := strings.ToLower(filepath.Ext(path))
+			if ext != ".conf" && ext != ".xml" && ext != ".properties" {
+				return nil
+			}
+			info, err := os.Stat(resolvedPath)
+			if err != nil || info.Size() > 256*1024 {
+				return nil
+			}
+			content, err := os.ReadFile(resolvedPath)
+			if err == nil && containsWebConfigSyntax(content) {
+				files = append(files, map[string]any{"path": path, "content": string(content)})
+			}
+			return nil
+		})
+		if len(files) >= 256 {
+			break
+		}
+	}
+	return files
+}
+
+// 仅保留包含固定 Web 配置语法的文件，避免无关配置先耗尽快照配额。
+func containsWebConfigSyntax(content []byte) bool {
+	lower := bytes.ToLower(content)
+	for _, marker := range [][]byte{
+		[]byte("server_name"), []byte("ssl_certificate"), []byte("server {"),
+		[]byte("<virtualhost"), []byte("sslcertificatefile"),
+		[]byte("<connector"), []byte("<host"), []byte("<context"),
+	} {
+		if bytes.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// 只回传配置引用的公钥证书候选；禁止私钥和过大的文件进入能力快照。
+func collectLinuxWebCertificateFiles(configFiles []map[string]any) []map[string]any {
+	files := make([]map[string]any, 0, 256)
+	seen := make(map[string]struct{})
+	for _, config := range configFiles {
+		content, ok := config["content"].(string)
+		if !ok {
+			continue
+		}
+		for _, match := range certificatePathPattern.FindAllStringSubmatch(content, -1) {
+			candidate := strings.TrimSpace(strings.Trim(match[1], "\"'"))
+			if !isAllowedWebDiscoveryPath(candidate) {
+				continue
+			}
+			if _, ok := seen[candidate]; ok {
+				continue
+			}
+			seen[candidate] = struct{}{}
+			if certificate := readLinuxPublicCertificate(candidate); certificate != nil {
+				files = append(files, certificate)
+			}
+			if len(files) >= 256 {
+				return files
+			}
+		}
+	}
+	return files
+}
+
+var certificatePathPattern = regexp.MustCompile(`(?im)(?:ssl_certificate|SSLCertificateFile|certificateFile|certificate-file)\s+([^;\s]+)`)
+
+var webDiscoveryRoots = []string{"/etc", "/opt", "/usr/local", "/srv", "/var/lib", "/var/www"}
+
+func isAllowedWebDiscoveryPath(candidate string) bool {
+	if !filepath.IsAbs(candidate) {
+		return false
+	}
+	clean := filepath.Clean(candidate)
+	for _, root := range webDiscoveryRoots {
+		relative, err := filepath.Rel(root, clean)
+		if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+			return true
+		}
+	}
+	return false
+}
+
+func readLinuxPublicCertificate(path string) map[string]any {
+	resolvedPath, err := filepath.EvalSymlinks(path)
+	if err != nil || !isAllowedWebDiscoveryPath(resolvedPath) {
+		return nil
+	}
+	info, err := os.Stat(resolvedPath)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 256*1024 {
+		return nil
+	}
+	content, err := os.ReadFile(resolvedPath)
+	if err != nil || bytes.Contains(bytes.ToUpper(content), []byte("PRIVATE KEY")) {
+		return nil
+	}
+	block, _ := pem.Decode(content)
+	if block == nil || block.Type != "CERTIFICATE" {
+		return nil
+	}
+	certificate, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil
+	}
+	fingerprint := sha256.Sum256(certificate.Raw)
+	return map[string]any{
+		"path":              path,
+		"name":              certificate.Subject.CommonName,
+		"sha256Fingerprint": hex.EncodeToString(fingerprint[:]),
+		"subject":           certificate.Subject.String(),
+		"issuer":            certificate.Issuer.String(),
+		"notBefore":         certificate.NotBefore.UTC().Format(time.RFC3339),
+		"notAfter":          certificate.NotAfter.UTC().Format(time.RFC3339),
+	}
 }

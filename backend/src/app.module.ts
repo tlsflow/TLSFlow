@@ -103,6 +103,7 @@ import {
   type UnifiedAgentPlanLocalPolicyPortV1,
 } from './modules/plugins/application/unified-agent-plan-authorization.port.js';
 import { createProductionAgentLocalPolicyAdapterV1 } from './modules/agents/security/production-agent-local-policy.adapter.js';
+import { createLocalAgentAuthorizationServicesV1 } from './modules/agents/security/local-agent-authorization.service.js';
 import { PgUnifiedPluginsRepository } from './modules/plugins/repository/unified-plugins.repository.js';
 import { UnifiedPluginsApplicationService } from './modules/plugins/application/unified-plugins.application-service.js';
 import type { UnifiedPluginVersionRecord } from './modules/plugins/dto/unified-plugins.dto.js';
@@ -111,6 +112,7 @@ import { ManagedTargetPluginQueryService } from './modules/plugins/application/m
 import { PluginBindingsRepository } from './modules/plugins/repository/plugin-bindings.repository.js';
 import { StandardDeviceDiscoveryProjector } from './modules/plugins/discovery/standard-device-discovery.projector.js';
 import { AgentCapabilityDiscoveryProjector } from './modules/agents/discovery/agent-capability-discovery.projector.js';
+import { createAgentDiscoveryTaskFactory } from './modules/agents/application/agent-discovery-task-factory.js';
 import { ManagedTargetContextResolver } from './modules/assets/application/managed-target-context.resolver.js';
 import { LivenessApplicationService } from './modules/liveness/index.js';
 import type { LicensingApplicationService } from './modules/licensing/application/licensing.application-service.js';
@@ -198,6 +200,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('deploymentArchitecture', deploymentArchitecture);
   const security = dependencies.security ?? createPersistedSecurityServices(appDb).services;
   app.setResource('securityServices', security);
+  const localAgentAuthorization = createLocalAgentAuthorizationServicesV1();
   const policyAuthorityServices = registerPolicyAuthorityServices(app, dependencies.policyAuthority);
   const localPolicy = resolveAgentLocalPolicy(dependencies.localPolicy);
   const taskRealtimeStream = new TaskRealtimeStreamService();
@@ -418,11 +421,24 @@ export function createApp(dependencies: AppDependencies = {}): App {
     undefined,
     standardDeviceDiscoveryProjector,
   );
+  const agentPlanAuthorization = createAgentPlanAuthorizationDependencies(policyAuthorityServices, security, localPolicy)
+    ?? localAgentAuthorization?.authorization
+    ?? resolveInjectedAgentPlanAuthorization(dependencies.agentPlanAuthorization);
   const agentPlanCompiler = new UnifiedAgentPlanCompilerService(
     unifiedPluginsService,
-    createAgentPlanAuthorizationDependencies(policyAuthorityServices, security, localPolicy)
-      ?? resolveInjectedAgentPlanAuthorization(dependencies.agentPlanAuthorization),
+    agentPlanAuthorization,
   );
+  const discoveryTaskFactory = agentPlanAuthorization
+    ? createAgentDiscoveryTaskFactory({
+      repository: new PgAgentsRepository(appDb),
+      plugins: unifiedPluginsService,
+      policyAuthority: agentPlanAuthorization.policyAuthority,
+    })
+    : undefined;
+  agentsService.setDiscoveryTaskFactory(discoveryTaskFactory);
+  agentsService.setTrustMaterialIssuer(localAgentAuthorization?.trustMaterialIssuer);
+  if (discoveryTaskFactory) app.setResource('agentDiscoveryTaskFactory', discoveryTaskFactory);
+  if (localAgentAuthorization) app.setResource('localAgentAuthorization', localAgentAuthorization);
   app.setResource('agentsService', agentsService);
   app.setResource('livenessService', livenessService);
   app.setResource('unifiedPluginsService', unifiedPluginsService);
@@ -796,7 +812,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   ).register(app.router);
   new AutomationsController(automationsService, security, automationCoordinator).register(app.router);
   new DashboardController(new DashboardApplicationService({
-    assets: assetsService.getRepository(),
+    assets: assetsService,
     certificates: certificateServices.certificates.getRepository(),
     bindings: bindingsService.getRepository(),
     agents: agentsService.getRepository(),

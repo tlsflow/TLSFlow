@@ -1,6 +1,6 @@
 import type { PageQuery } from '../../../common/pagination/pagination.js';
 import type { AuditService } from '../../audits/audit.service.js';
-import type { AssetsRepository } from '../../assets/repository/assets.repository.js';
+import type { AssetsApplicationService } from '../../assets/application/assets.application-service.js';
 import type { BindingsRepository } from '../../bindings/repository/bindings.repository.js';
 import type { CertificatesRepository } from '../../certificates/repository/certificates.repository.js';
 import type { AgentsRepository } from '../../agents/repository/agents.repository.js';
@@ -15,7 +15,7 @@ import type { DashboardCertificateState, DashboardCertificateStatusItem, Dashboa
 import { readDashboardSystemResources } from '../system-resources.js';
 
 export interface DashboardApplicationDependencies {
-  assets: AssetsRepository;
+  assets: Pick<AssetsApplicationService, 'listServiceAssets'>;
   certificates: CertificatesRepository;
   bindings: BindingsRepository;
   agents: AgentsRepository;
@@ -49,6 +49,8 @@ export class DashboardApplicationService {
       bindings,
       agents,
       gateways,
+      gatewayZones,
+      gatewayReachability,
       auditLogs,
     ] = await Promise.all([
       this.dependencies.assets.listServiceAssets(input.tenantId, allRowsQuery('updatedAt:desc', applicationAuthorization)),
@@ -57,6 +59,8 @@ export class DashboardApplicationService {
       this.dependencies.bindings.listCertificateBindings(input.tenantId, allRowsQuery('updatedAt:desc', bindingAuthorization)),
       this.dependencies.agents.listRegistrations(input.tenantId, allRowsQuery('updatedAt:desc', agentAuthorization)),
       this.dependencies.gateways.listGateways(input.tenantId, allRowsQuery('updatedAt:desc', gatewayAuthorization)),
+      this.dependencies.gateways.listZones ? this.dependencies.gateways.listZones(input.tenantId) : Promise.resolve([]),
+      this.dependencies.gateways.listReachability ? this.dependencies.gateways.listReachability(input.tenantId) : Promise.resolve([]),
       canReadAudit
         ? this.dependencies.audit.query({ resourceScope: { tenantId: input.tenantId } })
         : Promise.resolve([]),
@@ -103,6 +107,9 @@ export class DashboardApplicationService {
         certificateStatuses,
         agents: agents.items,
         gateways: gateways.items,
+        gatewayZones,
+        gatewayReachability,
+        nowIso: generatedAt,
       }),
       recentAudits: buildRecentDashboardAudits(authorizedAuditLogs, auditContext),
     };
@@ -292,10 +299,13 @@ function dashboardAuditObjectType(resourceType: string): string | undefined {
 }
 
 function buildStatusGroups(input: {
-  applicationAssets: Array<{ id: string; displayName?: string; address: string; port: number; protocol: string; status: string; updatedAt?: string; lastDiscoveredAt?: string }>;
+  applicationAssets: Array<{ id: string; displayName?: string; address: string; port: number; protocol: string; platform?: string; status: string; updatedAt?: string; lastDiscoveredAt?: string; currentCertificate?: { notAfter?: string } }>;
   certificateStatuses: DashboardCertificateStatusItem[];
-  agents: Array<{ id: string; descriptor: { hostname: string }; status: string; updatedAt: string }>;
-  gateways: Array<{ id: string; agentId: string; status: string; updatedAt: string; lastHeartbeatAt?: string }>;
+  agents: Array<{ id: string; descriptor: { hostname: string; version: string; managementEndpoint?: string }; status: string; updatedAt: string }>;
+  gateways: Array<{ id: string; agentId: string; zoneIds: string[]; status: string; updatedAt: string; lastHeartbeatAt?: string }>;
+  gatewayZones: Array<{ id: string; name: string }>;
+  gatewayReachability: Array<{ gatewayId: string; latencyMs?: number; checkedAt: string }>;
+  nowIso: string;
 }): DashboardStatusGroup[] {
   const certificateBlocks = input.certificateStatuses.map((item): DashboardStatusBlock => ({
     id: item.certificateAssetId,
@@ -303,6 +313,7 @@ function buildStatusGroups(input: {
     status: certificateStateLabel(item.state),
     tone: certificateTone(item.state),
     detail: item.notAfter ? `${item.name}，剩余 ${item.daysRemaining ?? '未知'} 天` : item.name,
+    details: { type: 'certificate', name: item.name, issuer: item.issuer, notBefore: item.notBefore, notAfter: item.notAfter, daysRemaining: item.daysRemaining },
     updatedAt: item.updatedAt,
     targetPath: `/certificates?certificateAssetId=${encodeURIComponent(item.certificateAssetId)}`,
   }));
@@ -313,16 +324,38 @@ function buildStatusGroups(input: {
     status: agent.status,
     tone: agentTone(agent.status),
     detail: `Agent ${agent.id}`,
+    details: {
+      type: 'device',
+      name: agent.descriptor.hostname || agent.id,
+      connectionStatus: agent.status,
+      version: agent.descriptor.version,
+      managementAddress: agent.descriptor.managementEndpoint,
+      lastCommunicationAt: isoOrUndefined(agent.updatedAt),
+    },
     updatedAt: isoOrUndefined(agent.updatedAt),
     targetPath: `/agents?agentId=${encodeURIComponent(agent.id)}`,
   }));
 
+  const zoneNameById = new Map(input.gatewayZones.map((zone) => [zone.id, zone.name]));
+  const latestReachabilityByGatewayId = new Map<string, { latencyMs?: number; checkedAt: string }>();
+  for (const reachability of input.gatewayReachability) {
+    const current = latestReachabilityByGatewayId.get(reachability.gatewayId);
+    if (!current || compareTimeDesc(reachability.checkedAt, current.checkedAt) < 0) {
+      latestReachabilityByGatewayId.set(reachability.gatewayId, reachability);
+    }
+  }
   const gatewayBlocks = input.gateways.map((gateway): DashboardStatusBlock => ({
     id: gateway.id,
     label: gateway.agentId || gateway.id,
     status: gateway.status,
     tone: gatewayTone(gateway.status),
     detail: `Gateway ${gateway.id}`,
+    details: {
+      type: 'gateway',
+      name: gateway.agentId || gateway.id,
+      region: (gateway.zoneIds ?? []).map((zoneId) => zoneNameById.get(zoneId) ?? zoneId).join(', ') || undefined,
+      latencyMs: latestReachabilityByGatewayId.get(gateway.id)?.latencyMs,
+    },
     updatedAt: isoOrUndefined(gateway.lastHeartbeatAt ?? gateway.updatedAt),
     targetPath: `/gateways?gatewayId=${encodeURIComponent(gateway.id)}`,
   }));
@@ -333,6 +366,15 @@ function buildStatusGroups(input: {
     status: asset.status,
     tone: assetTone(asset.status),
     detail: `${asset.protocol} ${asset.address}:${asset.port}`,
+    details: {
+      type: 'applicationAsset',
+      name: asset.displayName || `${asset.address}:${asset.port}`,
+      platform: asset.platform,
+      protocolPort: `${asset.protocol} ${asset.address}:${asset.port}`,
+      certificateDaysRemaining: asset.currentCertificate?.notAfter
+        ? daysUntil(asset.currentCertificate.notAfter, input.nowIso)
+        : undefined,
+    },
     updatedAt: isoOrUndefined(asset.lastDiscoveredAt ?? asset.updatedAt),
     targetPath: `/assets?serviceAssetId=${encodeURIComponent(asset.id)}`,
   }));
@@ -405,11 +447,11 @@ function buildCertificateStatuses(input: {
   bindingCountByVersionId: Map<string, number>;
   nowIso: string;
 }): DashboardCertificateStatusItem[] {
-  const versionsById = new Map(input.versions.map((version) => [version.id, version]));
   const latestVersionByAssetId = new Map<string, CertificateVersionEntity>();
   for (const version of input.versions) {
+    if (version.status !== 'active') continue;
     const current = latestVersionByAssetId.get(version.certificateAssetId);
-    if (!current || compareTimeDesc(version.createdAt, current.createdAt) < 0) {
+    if (!current || isLaterCertificateStatusVersion(version, current)) {
       latestVersionByAssetId.set(version.certificateAssetId, version);
     }
   }
@@ -417,13 +459,15 @@ function buildCertificateStatuses(input: {
   return input.assets
     .filter((asset) => asset.status === 'active')
     .map((asset) => {
-      const version = asset.currentVersionId ? versionsById.get(asset.currentVersionId) : latestVersionByAssetId.get(asset.id);
+      const version = latestVersionByAssetId.get(asset.id);
       const daysRemaining = version?.notAfter ? daysUntil(version.notAfter, input.nowIso) : undefined;
       return {
         certificateAssetId: asset.id,
         certificateVersionId: version?.id,
         name: asset.name,
         primaryDomain: asset.primaryDomain,
+        issuer: version?.issuer ? version.issuer.commonName || version.issuer.organization || version.issuer.raw : undefined,
+        notBefore: isoOrUndefined(version?.notBefore),
         notAfter: isoOrUndefined(version?.notAfter),
         daysRemaining,
         state: resolveCertificateState(version, daysRemaining),
@@ -497,6 +541,13 @@ function compareCertificateStatus(left: DashboardCertificateStatusItem, right: D
   const stateDiff = stateWeight[left.state] - stateWeight[right.state];
   if (stateDiff !== 0) return stateDiff;
   return compareTimeAsc(left.notAfter, right.notAfter);
+}
+
+function isLaterCertificateStatusVersion(candidate: CertificateVersionEntity, current: CertificateVersionEntity): boolean {
+  const notAfterDiff = toTime(candidate.notAfter) - toTime(current.notAfter);
+  if (notAfterDiff !== 0) return notAfterDiff > 0;
+  if (candidate.versionNo !== current.versionNo) return candidate.versionNo > current.versionNo;
+  return compareTimeDesc(candidate.createdAt, current.createdAt) < 0;
 }
 
 function countBindingsByVersionId(bindings: Array<{ certificateVersionId?: string }>): Map<string, number> {

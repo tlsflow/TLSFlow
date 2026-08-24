@@ -41,6 +41,7 @@ internal static class Tests
         Run("Agent v2 Nonce 账本跨重启拒绝重复消费", AgentV2NonceLedgerPersistsReplayRejection);
         Run("能力报告使用 L2 和结构化声明", CapabilityRequestUsesStructuredL2Declarations);
         Run("能力报告不再包含 IIS 详情和站点", CapabilityRequestExcludesIisInspection);
+        Run("手动 Web 库存刷新仅接受规范事实采集标识", WebInventoryRefreshRequiresCanonicalFactCollection);
         Run("心跳请求包含公共健康模型", HeartbeatRequestIncludesRuntimeHealth);
         Run("Agent ID 可跨进程重启持久化", AgentIdentityPersistsAcrossRestart);
         Run("IIS 绑定动作不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("windows.iis.binding.capture"); });
@@ -138,6 +139,21 @@ internal static class Tests
         PreflightEvaluator evaluator = new PreflightEvaluator(new List<FactRequirement> { new FactRequirement { Id = "network", Fact = "network.control_plane_reachable", Operator = "equals", Expected = true, ErrorCode = "CONTROL_PLANE_UNREACHABLE", Message = "blocked" } });
         PreflightResult result = evaluator.Evaluate(snapshot);
         Assert(!result.Supported && result.Checks[0].ErrorCode == "CONTROL_PLANE_UNREACHABLE", "前置检查未返回稳定错误");
+    }
+
+    private static void WebInventoryRefreshRequiresCanonicalFactCollection()
+    {
+        AgentTask refresh = new AgentTask
+        {
+            action = AgentV2Actions.FactCollect,
+            payload = new Dictionary<string, object> { { "refreshWebInventory", true } }
+        };
+        Assert(AgentRuntime.IsWebInventoryRefresh(refresh), "规范事实采集任务未识别手动 Web 库存刷新");
+        refresh.action = AgentV2Actions.PlanValidate;
+        Assert(!AgentRuntime.IsWebInventoryRefresh(refresh), "非事实采集动作不应触发 Web 库存刷新");
+        refresh.action = AgentV2Actions.FactCollect;
+        refresh.payload["refreshWebInventory"] = "true";
+        Assert(!AgentRuntime.IsWebInventoryRefresh(refresh), "字符串刷新标识不应被接受");
     }
 
     private static void HttpControlPlaneDoesNotRequireTls()

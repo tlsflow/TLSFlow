@@ -707,6 +707,7 @@ export interface RefreshAssetsFromAgentDto {
 export interface RefreshAssetsFromAgentResultDto {
   mode: 'standard-capability' | 'queued';
   taskId: string;
+  taskIds?: string[];
   taskStatus: 'queued' | 'leased' | 'acked' | 'succeeded' | 'failed' | 'rejected';
   capabilitySnapshotId?: string;
   projection?: {

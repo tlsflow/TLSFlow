@@ -52,6 +52,7 @@ export class AgentsController {
     router.get('/api/v1/agents/tasks/log-cursor', '查询 Agent 日志 ack cursor', tags, (request) => this.getLogCursor(request));
     router.get('/api/v1/agents/upgrades/suggestion', '查询 Agent 升级建议', tags, (request) => this.getUpgradeSuggestion(request));
     router.post('/api/v1/agents/:agentId/rescan', '创建 Agent 手动能力重扫任务', tags, (request) => this.enqueueCapabilityRescan(request));
+    router.post('/api/v1/agents/:agentId/management-probe', '立即探测 Agent TCP 管理端口', tags, (request) => this.probeManagementEndpoint(request));
     router.post('/api/v1/agents/enrollment-tokens', '创建 Agent 注册令牌', tags, (request) => this.createEnrollmentToken(request));
     router.post('/api/v1/agents/install-materials', '创建固定版本 Agent 安装材料', tags, (request) => this.createAgentInstallMaterials(request));
     router.post('/api/v1/agents/install-sessions', '创建 Agent 一键安装会话', tags, (request) => this.createAgentInstallSession(request));
@@ -263,7 +264,7 @@ export class AgentsController {
     } as DeleteAgentInput);
   }
 
-  private registerAgent(request: HttpRequest) {
+  private async registerAgent(request: HttpRequest) {
     rejectRetiredDirectControl(request.body);
     const body = validateObject(request.body, {
       agentKey: { type: 'string', required: true },
@@ -273,6 +274,7 @@ export class AgentsController {
       osType: { type: 'string', required: true },
       arch: { type: 'string' },
       ipAddress: { type: 'string' },
+      managementEndpoint: { type: 'string' },
       linuxDistribution: { type: 'string' },
       osVersion: { type: 'string' },
       labels: { type: 'array' },
@@ -289,7 +291,10 @@ export class AgentsController {
       certificateFingerprint: { type: 'string' },
       certificateExpiresAt: { type: 'string' },
     });
-    return { statusCode: 201, body: this.service.register(tenantId(request), body as unknown as RegisterAgentInput, requestId(request)) };
+    return {
+      statusCode: 201,
+      body: await this.service.register(tenantId(request), body as unknown as RegisterAgentInput, requestId(request)),
+    };
   }
 
   private createSession(request: HttpRequest) {
@@ -345,6 +350,7 @@ export class AgentsController {
       agentId: { type: 'string', required: true },
       status: { type: 'string', enum: AgentStatuses },
       version: { type: 'string', required: true },
+      managementEndpoint: { type: 'string' },
       taskSummary: { type: 'object' },
       runtimeHealth: { type: 'object' },
       adapters: { type: 'array' },
@@ -390,6 +396,15 @@ export class AgentsController {
         agentId,
         requestedBy: actorId(request),
       } as EnqueueAgentCapabilityRescanInput, requestId(request)),
+    };
+  }
+
+  private probeManagementEndpoint(request: HttpRequest) {
+    const agentId = readPathParam(request, 'agentId', 'management-probe');
+    const body = validateObject(request.body, { timeoutMs: { type: 'number' } });
+    return {
+      statusCode: 200,
+      body: this.service.probeManagementEndpoint(tenantId(request), agentId, typeof body.timeoutMs === 'number' ? body.timeoutMs : undefined),
     };
   }
 
@@ -504,6 +519,7 @@ export function getAgentsRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/agents/tasks/log-cursor', operationId: 'getAgentTaskLogCursor', summary: '查询 Agent 日志 ack cursor', tags, responseSchema: schema },
     { method: 'GET', path: '/api/v1/agents/upgrades/suggestion', operationId: 'getAgentUpgradeSuggestion', summary: '查询 Agent 升级建议', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/:agentId/rescan', operationId: 'enqueueAgentCapabilityRescanTask', summary: '创建 Agent 手动能力重扫任务', tags, responseSchema: schema },
+    { method: 'POST', path: '/api/v1/agents/:agentId/management-probe', operationId: 'probeAgentManagementEndpoint', summary: '立即探测 Agent TCP 管理端口', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/enrollment-tokens', operationId: 'createAgentEnrollmentToken', summary: '创建 Agent 注册令牌', tags, responseSchema: schema },
     {
       method: 'POST',
@@ -745,9 +761,9 @@ function readQuery(request: HttpRequest, key: string, fallback?: string): string
   return normalized;
 }
 
-function readPathParam(request: HttpRequest, key: string): string {
+function readPathParam(request: HttpRequest, key: string, suffix = 'rescan'): string {
   const value = key === 'agentId'
-    ? request.path.match(/^\/api\/v1\/agents\/([^/]+)\/rescan$/)?.[1]
+    ? request.path.match(new RegExp(`^/api/v1/agents/([^/]+)/${suffix}$`))?.[1]
     : undefined;
   if (!value) throw new AppError('VALIDATION_FAILED', `${key} 不能为空`, { key });
   return value;
@@ -1034,6 +1050,8 @@ function renderLinuxBootstrapScript(manifest: unknown): string {
     '  managementPort: 18931,',
     '  capabilityRescanIntervalSeconds: 300,',
     '  capabilityRescanEnabled: true,',
+    '  authorizationMaterialPath: `${manifest.dataDir}/policy/agent-trust-material.json`,',
+    '  authorizationTrustKeySet: manifest.authorizationTrustKeySet || {},',
     '  paths: { linux: { configPath: `${manifest.configDir}/agent.config.json`, dataDir: manifest.dataDir, logDir: manifest.logDir } },',
     '  service: { name: manifest.serviceName, displayName: manifest.displayName },',
     '};',
