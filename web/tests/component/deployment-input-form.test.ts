@@ -1,5 +1,6 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+import { defineComponent, ref } from 'vue'
 import { i18n } from '@/i18n'
 import DeploymentInputForm from '@/design-system/components/DeploymentInputForm.vue'
 import type { DeploymentInputBindingsV1, DeploymentInputProjectionV1 } from '@/design-system/components/DeploymentInputForm.types'
@@ -51,6 +52,27 @@ describe('DeploymentInputForm', () => {
     const updates = wrapper.emitted('update:modelValue') ?? []
     expect(updates[0]?.[0]).toMatchObject({ variables: { vendorDefinedSlot: 'configured-value' } })
     expect(updates[1]?.[0]).toMatchObject({ connections: { management: { host: 'device.example.com' } } })
+  })
+
+  it('通过响应式 v-model 编辑连接 Host 时保留字符串值', async () => {
+    const Harness = defineComponent({
+      components: { DeploymentInputForm },
+      setup() {
+        return {
+          inputBindings: ref<DeploymentInputBindingsV1>({
+            ...bindings(),
+            connections: { management: { host: '1', port: 443 } },
+          }),
+          inputProjection: projection(),
+        }
+      },
+      template: '<DeploymentInputForm v-model="inputBindings" :projection="inputProjection" />',
+    })
+    const wrapper = mount(Harness, { global: { plugins: [i18n] } })
+
+    await wrapper.find('input[value="1"]').setValue('10.255.0.49')
+
+    expect((wrapper.vm as { inputBindings: DeploymentInputBindingsV1 }).inputBindings.connections.management).toEqual({ host: '10.255.0.49', port: 443 })
   })
 
   it('高级配置默认折叠，展开后按投影写入覆盖值', async () => {

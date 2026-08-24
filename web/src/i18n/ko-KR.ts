@@ -493,12 +493,14 @@ export default {
       QUEUED: '{task} 대기열 등록됨',
       RUNNING: '{task} 실행 중',
       RETRY_WAITING: '{task} 재시도 대기 중',
+      WAITING_RESULT: '{task} 실행 결과 대기 중',
+      AWAITING_CONFIRMATION: '{task} 결과 확인 필요',
       CANCELLING: '{task} 취소 중',
       SUCCEEDED: '{task} 완료됨',
       FAILED: '{task} 실패',
       CANCELLED: '{task} 취소됨'
     },
-    status: { QUEUED: '대기 중', RUNNING: '실행 중', RETRY_WAITING: '재시도 대기', WAITING_APPROVAL: '승인 대기', CANCELLING: '취소 중', SUCCEEDED: '성공', FAILED: '실패', CANCELLED: '취소됨' }
+    status: { QUEUED: '대기 중', RUNNING: '실행 중', RETRY_WAITING: '재시도 대기', WAITING_RESULT: '결과 대기', AWAITING_CONFIRMATION: '결과 확인 필요', WAITING_APPROVAL: '승인 대기', CANCELLING: '취소 중', SUCCEEDED: '성공', FAILED: '실패', CANCELLED: '취소됨' }
   },
   shell: {
     currentLocation: '현재 위치',
@@ -740,9 +742,14 @@ export default {
       },
       skipped: '단계를 건너뛰었습니다: {reason}',
       running: {
-        dispatched: 'Agent 미션이 이미 발송되었으며 ({taskId}) 실행 결과를 기다리고 있습니다.',
-        waitingAgentResult: '절차 실행 중, Agent 반환결과를 기다립니다...'
+        dispatched: 'Agent 작업({taskId})이 발송되었으며 제어 플레인이 결과를 능동적으로 조회하고 있습니다.',
+        waitingAgentResult: '단계 실행 중, 제어 플레인이 Agent 결과를 능동적으로 조회하고 있습니다…',
+        waitingExternalResult: '절차 실행 중, 외부 실행 결과를 기다립니다...',
+        resultUnconfirmed: '쓰기 결과를 확인해야 합니다: {code}: {message}. 이 단계는 자동으로 재실행되지 않습니다.'
       },
+      unknownResult: '쓰기 결과를 알 수 없어 자동 재실행을 일시 중지했습니다.',
+      diagnosticsTitle: '상세 검증 로그',
+      structuredDetail: '구조화된 세부 정보 보기',
       pending: {
         waitingDependency: '절차가 선행절차가 완료되기를 기다린다.'
       },
@@ -814,6 +821,13 @@ export default {
     },
     provider: {
       target: '대상'
+    },
+    recovery: {
+      confirm: '인증서 상태 확인 후 계속',
+      running: '인증서 상태 확인 중…',
+      confirmed: '대상 인증서가 적용된 것을 확인했습니다. 실행을 계속합니다.',
+      failed: '인증서 검증에 실패하여 실행을 중지했습니다.',
+      pending: '대상 인증서 상태를 아직 확인할 수 없습니다. 나중에 다시 시도하세요.'
     }
   },
   executions: {
@@ -830,6 +844,11 @@ export default {
       viewDetail: '상세한 상황을 조사하다.',
       rollback: '스크롤백 시작',
       rollbackRisk: '롤백은 대상 서비스 인증서 구성을 다시 변경하므로 백업 참조 및 영향을 확인해야 합니다.'
+    },
+    messages: {
+      recoveryConfirmed: '대상 인증서 상태를 확인했습니다. 실행을 계속합니다. 전역 작업 목록에서 진행 상황을 확인하세요.',
+      recoveryFailed: '인증서 검증에 실패했습니다. 자세한 내용은 실행 로그에 기록되었습니다.',
+      recoveryPending: '대상 인증서 상태가 아직 확인되지 않았습니다. 작업은 확인 대기 상태로 유지됩니다. 나중에 다시 시도하세요.'
     },
     columns: {
       name: '실행 번호',
@@ -892,7 +911,8 @@ export default {
       noStepDetail: '잠시 절차 설명이 없다',
       notStarted: '아직 시작하지 않음',
       noSteps: '잠시 절차가 없다.',
-      noLogs: '아직 로그가 없습니다.'
+      noLogs: '아직 로그가 없습니다.',
+      unknownResultDescription: '원래 설치 작업을 다시 실행하지 않습니다. 읽기 전용 TLS 인증서 지문 확인만 수행합니다.'
     },
     tabs: {
       summary: '개요',
@@ -992,7 +1012,6 @@ export default {
     unknownCatalogValue: '알 수 없는 카탈로그 값: {value}',
     frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: '사용자 지정 런타임', runtime_custom: '사용자 지정 런타임', adc_load_balancer: 'ADC 로드 밸런서', cloud_aliyun_cdn: 'Alibaba Cloud CDN', cloud_aliyun_alb: 'Alibaba Cloud ALB', cloud_aliyun_clb: 'Alibaba Cloud CLB', cloud_aliyun_oss: 'Alibaba Cloud OSS', cloud_aliyun_waf_cname: 'Alibaba Cloud WAF CNAME', cloud_aliyun_waf_cloud: 'Alibaba Cloud WAF Cloud', cloud_aliyun_live: 'Alibaba Cloud Live', cloud_aliyun_vod: 'Alibaba Cloud VOD', cloud_tencent_cdn: 'Tencent Cloud CDN', cloud_tencent_clb: 'Tencent Cloud CLB', cloud_tencent_live: 'Tencent Cloud Live', cloud_huawei_cdn: 'Huawei Cloud CDN', cloud_huawei_elb: 'Huawei Cloud ELB', cloud_volcengine_cdn: 'Volcengine CDN', cloud_volcengine_alb: 'Volcengine ALB', cloud_volcengine_clb: 'Volcengine CLB', cloud_volcengine_live: 'Volcengine Live', cloud_volcengine_vod: 'Volcengine VOD' },
     runtimeTypes: { agent_atomic: 'Agent 원자 실행', workflow_dsl: '워크플로 DSL' },
-    providerKeys: { cloud_aliyun: 'Alibaba Cloud', cloud_tencent: 'Tencent Cloud', cloud_huawei: 'Huawei Cloud', cloud_volcengine: 'Volcengine' },
     scopeTypes: { managed: '관리 대상', standalone: '독립 대상', both: '관리 / 독립' },
     supportTypes: { official: '공식 지원', community: '커뮤니티 지원', self_managed: '자체 관리' },
     aria: { filters: '플러그인 마켓 필터', list: 'DSL 플러그인 목록', logo: '{name} Logo' },
@@ -2354,6 +2373,7 @@ export default {
       errors: {
         loadObjectTreeFailed: '객체 트리를 불러오는 데 실패했습니다',
         loadDataFailed: '권한 관리 데이터를 불러오는 데 실패했습니다',
+        invalidBusinessScope: '해당 비즈니스 권한 범위를 찾을 수 없습니다.',
         missingRoleId: '캐릭터 ID를 얻지 못했습니다',
         createRoleFailed: '역할 생성 실패',
         grantRoleFailed: '역할 권한을 부여하는데 실패했습니다',
@@ -3930,7 +3950,8 @@ export default {
         variable: '변수'
       },
       errors: {
-        unknownNodeType: '알 수 없음노드유형: {type}'
+        unknownNodeType: '알 수 없음노드유형: {type}',
+        missingWorkflowDsl: '백엔드에서 워크플로 DSL을 반환하지 않았습니다'
       }
     },
     canvasEditor: {

@@ -1031,6 +1031,106 @@ describe('资产与证书产物视图', () => {
     expect(wrapper.text()).not.toContain('缺少必填部署输入')
   })
 
+  it('编辑插件 Host 时在后台投影期间保留输入框和焦点', async () => {
+    assetMocks.getAssetDetail.mockResolvedValue(okRecord({
+      id: 'asset-1',
+      address: '10.255.0.41',
+      displayName: 'test',
+      port: 443,
+      protocol: 'HTTPS',
+      platform: 'APPLIANCE',
+      targetBindingDetail: {
+        host: { id: 'host-adc-1', displayName: 'ADC 01' },
+        frameworkInstance: { id: 'svc-adc-1', deviceId: 'host-adc-1', displayName: 'netscaler-adc', frameworkType: 'adc.load-balancer' },
+        siteAsset: { id: 'site-adc-1', deviceId: 'host-adc-1', frameworkInstanceId: 'svc-adc-1', siteName: 'test', bindingInformation: '10.255.0.41:443' },
+        managedTarget: { id: 'target-adc-1', deviceId: 'host-adc-1', frameworkInstanceId: 'svc-adc-1', siteId: 'site-adc-1', targetType: 'tls.binding', targetKey: 'LB:test' },
+      },
+      deploymentStrategy: {
+        type: 'MANAGED_TARGET',
+        managedTarget: { managedTargetId: 'target-adc-1', certificateFormatId: 'certfmt-1', executionMode: 'PLUGIN' },
+      },
+    }))
+    assetMocks.listFrameworkInstances.mockResolvedValue(okPage([
+      { id: 'svc-adc-1', displayName: 'netscaler-adc', frameworkType: 'adc.load-balancer', deviceId: 'host-adc-1' },
+    ]))
+    assetMocks.listSiteAssets.mockResolvedValue(okPage([
+      { id: 'site-adc-1', frameworkInstanceId: 'svc-adc-1', deviceId: 'host-adc-1', siteName: 'test', bindingInformation: '10.255.0.41:443' },
+    ]))
+    assetMocks.listManagedTargets.mockResolvedValue(okPage([
+      { id: 'target-adc-1', deviceId: 'host-adc-1', frameworkInstanceId: 'svc-adc-1', siteId: 'site-adc-1', targetType: 'tls.binding', targetKey: 'LB:test' },
+    ]))
+
+    let resolveHostProjection: (() => void) | undefined
+    deploymentInputMocks.projectApplicationAssetPluginInputs.mockImplementation(async (
+      _managedTargetId: string,
+      payload: { inputBindings?: { connections?: Record<string, { host?: string }> } },
+    ) => {
+      const host = payload.inputBindings?.connections?.management?.host ?? '1'
+      const response = okRecord({
+        contractVersion: 'gcac.deployment-input-contract/v1',
+        requiredVariables: [],
+        advancedVariables: [],
+        connections: [{
+          slot: 'management',
+          transport: 'http',
+          credentialSlot: 'credential',
+          fields: {
+            host: {
+              slot: 'host',
+              type: 'string',
+              required: true,
+              configurationMode: 'required',
+              bindingPolicy: 'required_binding',
+              source: { kind: 'binding' },
+              value: host,
+            },
+          },
+        }],
+        credentials: [],
+        artifacts: [],
+        fixedValues: [],
+        runtimeValues: [],
+        issues: [],
+        saveable: true,
+      })
+      if (host !== '10.255.0.49') return response
+      return new Promise((resolve) => {
+        resolveHostProjection = () => resolve(response)
+      })
+    })
+
+    const wrapper = mountBusinessView(AssetsView)
+    document.body.append(wrapper.element)
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === '编辑')!.trigger('click')
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === '下一步')!.trigger('click')
+    await flushPromises()
+
+    expect(deploymentInputMocks.projectApplicationAssetPluginInputs).toHaveBeenCalled()
+    expect(wrapper.text()).toContain('management')
+    const hostInput = wrapper.find('input[value="1"]')
+    expect(hostInput.exists()).toBe(true)
+    const hostElement = hostInput.element as HTMLInputElement
+    hostElement.focus()
+    expect(document.activeElement).toBe(hostElement)
+
+    await hostInput.setValue('10.255.0.49')
+    await wrapper.vm.$nextTick()
+
+    const activeHostInput = wrapper.find('input[value="10.255.0.49"]')
+    expect(activeHostInput.exists()).toBe(true)
+    expect(activeHostInput.element).toBe(hostElement)
+    expect(document.activeElement).toBe(hostElement)
+    expect(resolveHostProjection).toBeTypeOf('function')
+
+    resolveHostProjection!()
+    await flushPromises()
+
+    expect(wrapper.find('input[value="10.255.0.49"]').element).toBe(hostElement)
+    expect(document.activeElement).toBe(hostElement)
+  })
+
   it('应用资产可以按工作流模式创建并保存部署策略', async () => {
     const wrapper = mountBusinessView(AssetsView)
     await flushPromises()

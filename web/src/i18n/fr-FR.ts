@@ -489,12 +489,14 @@ export default {
       QUEUED: '{task} mis en file d’attente',
       RUNNING: '{task} en cours',
       RETRY_WAITING: 'Nouvelle tentative en attente pour {task}',
+      WAITING_RESULT: 'En attente du résultat de {task}',
+      AWAITING_CONFIRMATION: 'Résultat de {task} à confirmer',
       CANCELLING: 'Annulation de {task}',
       SUCCEEDED: '{task} terminé',
       FAILED: 'Échec de {task}',
       CANCELLED: '{task} annulé'
     },
-    status: { QUEUED: 'En file', RUNNING: 'En cours', RETRY_WAITING: 'En attente de nouvelle tentative', WAITING_APPROVAL: 'En attente d’approbation', CANCELLING: 'Annulation', SUCCEEDED: 'Réussie', FAILED: 'Échec', CANCELLED: 'Annulée' }
+    status: { QUEUED: 'En file', RUNNING: 'En cours', RETRY_WAITING: 'En attente de nouvelle tentative', WAITING_RESULT: 'En attente du résultat', AWAITING_CONFIRMATION: 'Résultat à confirmer', WAITING_APPROVAL: 'En attente d’approbation', CANCELLING: 'Annulation', SUCCEEDED: 'Réussie', FAILED: 'Échec', CANCELLED: 'Annulée' }
   },
   shell: {
     currentLocation: 'Current location',
@@ -736,9 +738,14 @@ export default {
       },
       skipped: 'Step skipped: {reason}',
       running: {
-        dispatched: 'Agent task taskId={taskId} has been dispatched. Waiting for the agent result.',
-        waitingAgentResult: 'The step is running, but no Agent taskId or result has been received yet.'
+        dispatched: 'Agent task taskId={taskId} envoyé. Le plan de contrôle interroge activement le résultat.',
+        waitingAgentResult: 'Étape en cours ; le plan de contrôle interroge activement le résultat de l’Agent…',
+        waitingExternalResult: 'The step is running and waiting for an external execution result.',
+        resultUnconfirmed: 'The write result needs confirmation: {code}: {message}. This step will not be replayed automatically.'
       },
+      unknownResult: 'Le résultat de l’écriture est inconnu ; la relance automatique est suspendue.',
+      diagnosticsTitle: 'Journal de vérification détaillé',
+      structuredDetail: 'Voir les détails structurés',
       pending: {
         waitingDependency: 'The step is waiting for previous steps to finish.'
       },
@@ -810,6 +817,13 @@ export default {
     },
     provider: {
       target: 'Target'
+    },
+    recovery: {
+      confirm: 'Vérifier le certificat et continuer',
+      running: 'Vérification du certificat…',
+      confirmed: 'Le certificat cible est actif ; l’exécution va continuer.',
+      failed: 'La vérification du certificat a échoué ; l’exécution est arrêtée.',
+      pending: 'L’état du certificat cible ne peut pas encore être confirmé. Réessayez plus tard.'
     }
   },
   executions: {
@@ -826,6 +840,11 @@ export default {
       viewDetail: 'View details',
       rollback: 'Start rollback',
       rollbackRisk: 'Rollback will modify the target service certificate configuration again. Confirm backup references and impact scope first.'
+    },
+    messages: {
+      recoveryConfirmed: 'L’état du certificat cible est confirmé ; l’exécution va continuer. Suivez la progression dans la liste globale des tâches.',
+      recoveryFailed: 'La vérification du certificat a échoué. Les détails sont enregistrés dans le journal d’exécution.',
+      recoveryPending: 'L’état du certificat cible reste inconnu. La tâche attend une confirmation ; réessayez plus tard.'
     },
     columns: {
       name: 'Execution ID',
@@ -914,7 +933,8 @@ export default {
       noStepDetail: 'No step details',
       notStarted: 'Not started',
       noSteps: 'No steps.',
-      noLogs: 'No logs.'
+      noLogs: 'No logs.',
+      unknownResultDescription: 'L’opération d’installation d’origine ne sera pas rejouée. Seule une vérification TLS en lecture seule de l’empreinte du certificat sera effectuée.'
     },
     tabs: {
       summary: 'Summary',
@@ -1014,7 +1034,6 @@ export default {
     unknownCatalogValue: 'Valeur de catalogue inconnue : {value}',
     frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: 'Runtime personnalisé', runtime_custom: 'Runtime personnalisé', adc_load_balancer: 'Répartiteur de charge ADC', cloud_aliyun_cdn: 'CDN Alibaba Cloud', cloud_aliyun_alb: 'ALB Alibaba Cloud', cloud_aliyun_clb: 'CLB Alibaba Cloud', cloud_aliyun_oss: 'OSS Alibaba Cloud', cloud_aliyun_waf_cname: 'WAF CNAME Alibaba Cloud', cloud_aliyun_waf_cloud: 'WAF Cloud Alibaba Cloud', cloud_aliyun_live: 'Live Alibaba Cloud', cloud_aliyun_vod: 'VOD Alibaba Cloud', cloud_tencent_cdn: 'CDN Tencent Cloud', cloud_tencent_clb: 'CLB Tencent Cloud', cloud_tencent_live: 'Live Tencent Cloud', cloud_huawei_cdn: 'CDN Huawei Cloud', cloud_huawei_elb: 'ELB Huawei Cloud', cloud_volcengine_cdn: 'CDN Volcengine', cloud_volcengine_alb: 'ALB Volcengine', cloud_volcengine_clb: 'CLB Volcengine', cloud_volcengine_live: 'Live Volcengine', cloud_volcengine_vod: 'VOD Volcengine' },
     runtimeTypes: { agent_atomic: 'Exécution atomique Agent', workflow_dsl: 'Workflow DSL' },
-    providerKeys: { cloud_aliyun: 'Alibaba Cloud', cloud_tencent: 'Tencent Cloud', cloud_huawei: 'Huawei Cloud', cloud_volcengine: 'Volcengine' },
     scopeTypes: { managed: 'Cible gérée', standalone: 'Cible autonome', both: 'Gérée / autonome' },
     supportTypes: { official: 'Support officiel', community: 'Support communautaire', self_managed: 'Auto-maintenu' },
     aria: { filters: 'Plugin market filters', list: 'DSL plugin list', logo: '{name} logo' },
@@ -2417,6 +2436,7 @@ export default {
       errors: {
         loadObjectTreeFailed: 'Failed to load object tree',
         loadDataFailed: 'Failed to load permission management data',
+        invalidBusinessScope: 'The corresponding business permission scope was not found.',
         missingRoleId: 'The backend did not return a role ID',
         createRoleFailed: 'Failed to create role',
         grantRoleFailed: 'Failed to grant role permission',
@@ -4006,7 +4026,8 @@ export default {
         variable: 'Variable'
       },
       errors: {
-        unknownNodeType: 'Unknown node type: {type}'
+        unknownNodeType: 'Unknown node type: {type}',
+        missingWorkflowDsl: 'Le backend n’a pas renvoyé le DSL du workflow'
       }
     },
     canvasEditor: {

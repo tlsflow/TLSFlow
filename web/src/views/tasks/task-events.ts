@@ -38,7 +38,7 @@ export interface DeploymentExecutionOpenDetail {
 }
 
 const DEPLOYMENT_EXECUTION_OPEN_EVENT = 'gcac:deployment-execution:open'
-const ACTIVE_TASK_STATUSES = new Set(['QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING'])
+const ACTIVE_TASK_STATUSES = new Set(['QUEUED', 'RUNNING', 'RETRY_WAITING', 'WAITING_RESULT', 'AWAITING_CONFIRMATION', 'CANCELLING'])
 const EXECUTION_TASK_TYPES = new Set([
   'CERTIFICATE_DRY_RUN',
   'CERTIFICATE_DEPLOY',

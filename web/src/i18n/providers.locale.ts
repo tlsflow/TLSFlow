@@ -65,6 +65,9 @@ const english = {
     credentialHint: 'Only the credential reference is stored. Secret material is not resolved in the Provider host.',
     metadataHint: 'Additional metadata is stored as opaque JSON and is not interpreted by the host.',
     providerLocked: 'The Provider of an existing asset cannot be changed.',
+    providerRequired: 'Select an enabled Provider plugin.',
+    providerUnavailable: 'No enabled Provider plugin with a valid Form resource is available.',
+    versionUnavailable: 'The current asset version is unavailable. Refresh the list and try again.',
     credentialRequired: 'Select a credential reference first.',
     metadataInvalid: 'Metadata JSON must be an object.',
     scopeEmpty: 'No endpoint or metadata',
@@ -100,15 +103,6 @@ const english = {
       credential: 'Credential',
     },
   },
-  providerNames: {
-    aliyun: 'Alibaba Cloud',
-    tencent: 'Tencent Cloud',
-    huawei: 'Huawei Cloud',
-    volcengine: 'Volcengine',
-  },
-  providerMarks: {
-    unknown: 'CLD',
-  },
   aria: {
     accountForm: 'Cloud account asset form',
     operationForm: 'Opaque Provider operation form',
@@ -137,7 +131,7 @@ export const providersZhCN = {
   },
   sections: { providers: 'Provider 目录', accounts: '云账号资产', operation: 'Opaque Provider 操作' },
   messages: {
-    loadFailed: '云 Provider 数据加载失败。', createFailed: '云账号资产创建失败。', saved: '云账号资产已创建。', updated: '云账号资产已更新。', deleted: '云账号资产已删除。', deleteConfirmText: 'DELETE', deleteRisk: '将删除云账号资产。', testCompleted: '连接测试完成。', discoveryCompleted: '资源发现完成。', operationCompleted: 'Provider 操作完成。', operationUnavailable: 'Provider PluginVersion/Runner 未接入，操作已失败关闭，宿主未执行。', operationOpaqueHint: '这些值只作为 opaque 描述保存和转发，宿主不会解释或执行厂商算法。', operationJsonInvalid: '请输入有效的 JSON 对象。', noAccounts: '暂无云账号资产。', noProviders: '暂无 Provider 定义。', noCapabilities: '暂无已声明操作。', credentialSelectHint: '请选择托管凭据，资产只保存 CredentialRef。', credentialHint: '这里只保存凭据引用，Provider 宿主不会解析密文。', metadataHint: '附加元数据以 opaque JSON 保存，宿主不会解释。', providerLocked: '已有资产不允许修改 Provider。', credentialRequired: '请先选择凭据引用。', metadataInvalid: '元数据 JSON 必须是对象。', scopeEmpty: '未填写 Endpoint 或元数据',
+    loadFailed: '云 Provider 数据加载失败。', createFailed: '云账号资产创建失败。', saved: '云账号资产已创建。', updated: '云账号资产已更新。', deleted: '云账号资产已删除。', deleteConfirmText: 'DELETE', deleteRisk: '将删除云账号资产。', testCompleted: '连接测试完成。', discoveryCompleted: '资源发现完成。', operationCompleted: 'Provider 操作完成。', operationUnavailable: 'Provider PluginVersion/Runner 未接入，操作已失败关闭，宿主未执行。', operationOpaqueHint: '这些值只作为 opaque 描述保存和转发，宿主不会解释或执行厂商算法。', operationJsonInvalid: '请输入有效的 JSON 对象。', noAccounts: '暂无云账号资产。', noProviders: '暂无 Provider 定义。', noCapabilities: '暂无已声明操作。', credentialSelectHint: '请选择托管凭据，资产只保存 CredentialRef。', credentialHint: '这里只保存凭据引用，Provider 宿主不会解析密文。', metadataHint: '附加元数据以 opaque JSON 保存，宿主不会解释。', providerLocked: '已有资产不允许修改 Provider。', providerRequired: '请选择已启用的 Provider 插件。', providerUnavailable: '没有可用的已启用 Provider 插件或有效 Form 资源。', versionUnavailable: '当前资产版本不可用，请刷新列表后重试。', credentialRequired: '请先选择凭据引用。', metadataInvalid: '元数据 JSON 必须是对象。', scopeEmpty: '未填写 Endpoint 或元数据',
   },
   wizard: {
     ariaLabel: '云账号资产向导',
@@ -148,8 +142,6 @@ export const providersZhCN = {
     providerCard: { products: '已声明 Framework' },
     summary: { provider: 'Provider', account: '账号', credential: '凭据' },
   },
-  providerNames: { aliyun: '阿里云', tencent: '腾讯云', huawei: '华为云', volcengine: '火山引擎' },
-  providerMarks: { unknown: 'CLD' },
   aria: { accountForm: '云账号资产表单', operationForm: 'Opaque Provider 操作表单' },
   detail: { title: '云服务详情', description: '查看选中云服务的只读详情。' },
 } as const

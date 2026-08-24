@@ -238,6 +238,58 @@ describe('useExecutionDetail', () => {
     wrapper.unmount()
   })
 
+  it('未知写入结果展示错误码、核验状态和结构化恢复日志', async () => {
+    apiMocks.listExecutionStepsByRunId.mockResolvedValue({
+      requestId: 'req-unknown-write',
+      data: {
+        items: [{
+          id: 'step-install-unknown',
+          name: 'INSTALL target-1',
+          stepType: 'INSTALL',
+          status: 'RUNNING',
+          lastErrorCode: 'PLUGIN_OPERATION_UNKNOWN_STATE',
+          lastErrorMessage: 'Plugin Runner 返回结果不明，必须进入恢复流程',
+          lastErrorDetails: {
+            executionStatus: 'UNKNOWN',
+            reason: 'runner_timeout',
+          },
+          inputSnapshot: {
+            executorType: 'AGENT',
+            dispatchDetail: { agentTaskId: 'agent-task-unknown-write' },
+            resultDetail: {
+              executionStatus: 'UNKNOWN',
+              unknownReason: 'Plugin Runner 返回结果不明',
+            },
+          },
+        }],
+      },
+    })
+    apiMocks.listAgentTaskLogsByTaskId.mockResolvedValue({
+      data: [{ taskId: 'agent-task-unknown-write', message: 'Agent 已完成回执写入' }],
+    })
+
+    const selectedRow = ref({ id: 'run-unknown-write', raw: { id: 'run-unknown-write', status: 'RUNNING' } })
+    let detail: ReturnType<typeof useExecutionDetail> | undefined
+    const wrapper = mount(defineComponent({
+      setup() {
+        detail = useExecutionDetail(selectedRow as never)
+        return () => h('div')
+      },
+    }))
+
+    await vi.waitFor(() => expect(detail?.hasUnknownResult.value).toBe(true))
+    expect(detail?.steps.value[0]?.unknownResult).toBe(true)
+    expect(detail?.steps.value[0]?.detail).toContain('PLUGIN_OPERATION_UNKNOWN_STATE')
+    expect(detail?.steps.value[0]?.detail).toContain('系统不会自动重放')
+    expect(detail?.steps.value[0]?.diagnostics?.some((item) => item.label === 'errorCode')).toBe(true)
+    expect(detail?.steps.value[0]?.structuredDetail).toContain('runner_timeout')
+    expect(detail?.lines.value.some((line) => line.message.includes('executionStatus'))).toBe(true)
+    expect(apiMocks.listAgentTaskLogsByTaskId).toHaveBeenCalledWith('agent-task-unknown-write')
+    expect(detail?.lines.value.some((line) => line.message.includes('Agent 已完成回执写入'))).toBe(true)
+
+    wrapper.unmount()
+  })
+
   it('旧 SSE 快照不会把已完成步骤回退为 PENDING', async () => {
     apiMocks.listExecutionStepsByRunId.mockResolvedValue({
       requestId: 'req-stale-snapshot',

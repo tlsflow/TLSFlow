@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { ref } from 'vue'
+import { createPinia } from 'pinia'
 import { i18n } from '@/i18n'
 import ExecutionsView from '@/views/executions/ExecutionsView.vue'
 
 const apiMocks = vi.hoisted(() => ({
   listExecutions: vi.fn(),
+  recoverExecution: vi.fn(),
   listDeploymentPlans: vi.fn(),
   listAssets: vi.fn(),
   reloadDetail: vi.fn(),
@@ -19,6 +21,7 @@ vi.mock('vue-router', () => ({
 
 vi.mock('@/api/modules/executions.api', () => ({
   listExecutions: apiMocks.listExecutions,
+  recoverExecution: apiMocks.recoverExecution,
 }))
 
 vi.mock('@/api/modules/deployments.api', () => ({
@@ -36,6 +39,7 @@ vi.mock('@/composables/useExecutionDetail', () => ({
     steps: ref([]),
     lines: ref([]),
     dryRunSummary: ref(null),
+    hasUnknownResult: ref(false),
     reload: apiMocks.reloadDetail,
   }),
 }))
@@ -43,6 +47,7 @@ vi.mock('@/composables/useExecutionDetail', () => ({
 describe('ExecutionsView', () => {
   beforeEach(() => {
     apiMocks.listExecutions.mockReset()
+    apiMocks.recoverExecution.mockReset()
     apiMocks.listDeploymentPlans.mockReset()
     apiMocks.listAssets.mockReset()
     apiMocks.reloadDetail.mockReset()
@@ -80,6 +85,12 @@ describe('ExecutionsView', () => {
     })
   })
 
+  function mountView() {
+    return mount(ExecutionsView, {
+      global: { plugins: [createPinia(), i18n] },
+    })
+  }
+
   it('列表展示计划、资产、结果和日志概要，并可点击打开详情', async () => {
     apiMocks.listExecutions.mockResolvedValue({
       data: {
@@ -105,7 +116,7 @@ describe('ExecutionsView', () => {
 
     const wrapper = mount(ExecutionsView, {
       attachTo: document.body,
-      global: { plugins: [i18n] },
+      global: { plugins: [createPinia(), i18n] },
     })
 
     await vi.waitFor(() => expect(wrapper.findAll('.execution-list__record')).toHaveLength(1))
@@ -143,9 +154,7 @@ describe('ExecutionsView', () => {
       requestId: 'req-executions',
     })
 
-    const wrapper = mount(ExecutionsView, {
-      global: { plugins: [i18n] },
-    })
+    const wrapper = mountView()
 
     await vi.waitFor(() => expect(wrapper.findAll('.execution-list__record')).toHaveLength(20))
     const nextButton = wrapper.findAll('.execution-list__pagination button')[1]
@@ -165,7 +174,7 @@ describe('ExecutionsView', () => {
       requestId: 'req-executions-legacy',
     })
 
-    const wrapper = mount(ExecutionsView, { global: { plugins: [i18n] } })
+    const wrapper = mountView()
     await vi.waitFor(() => expect(apiMocks.reloadDetail).toHaveBeenCalledOnce())
     expect(document.body.textContent).toContain('执行详情 run-legacy')
     wrapper.unmount()

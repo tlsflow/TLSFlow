@@ -21,14 +21,31 @@ import {
   type BrowserCredentialSession,
 } from '@/api/modules/credentials.api'
 import { GcModal, GcPageToolbar, GcSecretInput, GcStatusTag } from '@/design-system/components'
-import { listPluginCatalog } from '@/api/modules/plugins.api'
+import { getUnifiedPluginUiResources, listPluginCatalog } from '@/api/modules/plugins.api'
+import type { PluginCatalogItem } from '@/api/generated/schemas'
 import { internalCaApi, type InternalCaRecord } from '@/api/modules/internal-ca.api'
 import { formatBrowserLocalTime, formatMaybeLocalTime, getExpiryRemaining } from '@/utils/browser-local-time'
 
 type EditorMode = 'create' | 'edit'
 type UsageItem = CredentialUsage['items'][number]
-type CloudProviderKey = 'cloud.aliyun' | 'cloud.tencent' | 'cloud.huawei' | 'cloud.volcengine'
 type DurationInput = string | number
+
+interface CloudCredentialSlot {
+  name: string
+  secretType: 'password' | 'api_token' | 'private_key'
+  required: boolean
+  labelKey: string
+}
+
+interface CloudProviderDefinition {
+  pluginId: string
+  pluginVersionId: string
+  displayName: string
+  credentialSlots: CloudCredentialSlot[]
+  messages: Record<string, string>
+  available: boolean
+  unavailableReason?: string
+}
 
 interface CredentialFormState {
   name: string
@@ -39,7 +56,8 @@ interface CredentialFormState {
   deliveryLocation: 'header' | 'query'
   deliveryName: string
   dnsProviderId: string
-  cloudProviderKey: CloudProviderKey
+  cloudProviderKey: string
+  cloudSecretValues: Record<string, string>
   primarySecret: string
   secondarySecret: string
   validityDays: DurationInput
@@ -58,7 +76,7 @@ interface DnsProviderOption {
   name: string
 }
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const loading = ref(false)
 const loadingSelection = ref(false)
 const saving = ref(false)
@@ -70,6 +88,9 @@ const editorMode = ref<EditorMode>('create')
 const selected = ref<CredentialProfileDetail | null>(null)
 const usage = ref<CredentialUsage | null>(null)
 const form = ref<CredentialFormState>(emptyForm())
+const cloudProviders = ref<CloudProviderDefinition[]>([])
+const cloudProvidersLoading = ref(false)
+const cloudProvidersError = ref('')
 const dnsProviders = ref<DnsProviderOption[]>([])
 const dnsProvidersLoading = ref(false)
 const initialValidityDays = ref('')
@@ -87,8 +108,10 @@ const requiresUsername = computed(() => requiresUsernameFor(form.value.kind))
 const isDnsProviderCredential = computed(() => form.value.kind === 'DNS_PROVIDER')
 const isCloudProviderCredential = computed(() => form.value.kind === 'CLOUD_PROVIDER')
 const isBrowserSessionCredential = computed(() => form.value.kind === 'BROWSER_SESSION')
-const requiresSecondarySecret = computed(() => form.value.kind === 'CLIENT_CERTIFICATE' || isCloudProviderCredential.value)
-const cloudProviderFields = computed(() => CLOUD_PROVIDER_SECRET_FIELDS[form.value.cloudProviderKey])
+const requiresSecondarySecret = computed(() => form.value.kind === 'CLIENT_CERTIFICATE')
+const selectedCloudProvider = computed(() => cloudProviders.value.find((provider) => provider.pluginId === form.value.cloudProviderKey))
+const cloudProviderSlots = computed(() => selectedCloudProvider.value?.credentialSlots ?? [])
+const cloudProviderReady = computed(() => Boolean(selectedCloudProvider.value?.available && cloudProviderSlots.value.length > 0))
 const dnsProviderOptions = computed(() => {
   const currentId = form.value.dnsProviderId.trim()
   if (!currentId || dnsProviders.value.some((item) => item.id === currentId)) return dnsProviders.value
@@ -110,6 +133,11 @@ const canSubmit = computed(() => {
   )
   if (!hasRequiredFields || !validityDurationValid.value) return false
   if (isDnsProviderCredential.value && !form.value.dnsProviderId.trim()) return false
+  if (isCloudProviderCredential.value) {
+    if (!cloudProviderReady.value) return false
+    if (isEditing.value) return true
+    return cloudProviderSlots.value.every((slot) => !slot.required || Boolean(form.value.cloudSecretValues[slot.name]?.trim()))
+  }
   if (isEditing.value) return true
   if (isBrowserSessionCredential.value) return Boolean(form.value.browserLoginUrl.trim())
   return Boolean(form.value.primarySecret && (!requiresSecondarySecret.value || form.value.secondarySecret))
@@ -165,7 +193,8 @@ function emptyForm(): CredentialFormState {
     deliveryLocation: 'header',
     deliveryName: 'X-API-Key',
     dnsProviderId: '',
-    cloudProviderKey: 'cloud.aliyun',
+    cloudProviderKey: '',
+    cloudSecretValues: {},
     primarySecret: '',
     secondarySecret: '',
     validityDays: '',
@@ -179,6 +208,96 @@ function readBrowserCapabilityKey(value: unknown): string {
   return value && typeof value === 'object' && 'key' in value
     ? String((value as { key?: unknown }).key ?? '')
     : String(value ?? '')
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function readCloudCapabilityKey(value: unknown): string {
+  const record = asRecord(value)
+  return typeof record.key === 'string' ? record.key : String(value ?? '')
+}
+
+function readCloudSlots(value: unknown): CloudCredentialSlot[] {
+  const contract = asRecord(value)
+  const slots = Array.isArray(contract.slots) ? contract.slots : []
+  return slots.flatMap((item) => {
+    const slot = asRecord(item)
+    if (typeof slot.name !== 'string' || typeof slot.labelKey !== 'string') return []
+    const secretType = slot.secretType
+    if (secretType !== 'password' && secretType !== 'api_token' && secretType !== 'private_key') return []
+    return [{
+      name: slot.name,
+      secretType,
+      required: slot.required === true,
+      labelKey: slot.labelKey,
+    }]
+  })
+}
+
+function readCloudMessages(value: unknown): Record<string, string> {
+  return Object.fromEntries(Object.entries(asRecord(value)).flatMap(([key, message]) => typeof message === 'string' ? [[key, message]] : []))
+}
+
+function cloudMessage(provider: CloudProviderDefinition | undefined, key: string): string {
+  return provider?.messages[key] ?? t(key)
+}
+
+function catalogPluginVersionId(item: PluginCatalogItem): string {
+  return String(item.pluginVersionId ?? item.id ?? '')
+}
+
+async function loadCloudProviders(preferredPluginId = form.value.cloudProviderKey): Promise<void> {
+  cloudProvidersLoading.value = true
+  cloudProvidersError.value = ''
+  try {
+    const catalogResult = await listPluginCatalog({ page: 1, pageSize: 200, filters: { locale: locale.value } })
+    const candidates = (catalogResult.data?.items ?? []).filter((item) =>
+      Array.isArray(item.capabilities)
+      && item.capabilities.some((capability) => readCloudCapabilityKey(capability) === 'cloud.service.connection-test'))
+    const loaded = await Promise.all(candidates.map(async (item): Promise<CloudProviderDefinition> => {
+      const pluginVersionId = catalogPluginVersionId(item)
+      try {
+        const resourceResult = await getUnifiedPluginUiResources(pluginVersionId, locale.value)
+        const payload = asRecord(resourceResult.data)
+        const forms = asRecord(payload.forms)
+        const cloudForm = asRecord(forms.cloud)
+        const contract = asRecord(cloudForm.credentialContract)
+        const slots = readCloudSlots(contract)
+        const localeResource = asRecord(payload.locale)
+        const messages = readCloudMessages(localeResource.messages)
+        const displayName = typeof item.displayName === 'string' && item.displayName.trim()
+          ? item.displayName
+          : (typeof item.displayNameKey === 'string' ? (messages[item.displayNameKey] ?? item.displayNameKey) : item.pluginId)
+        if (slots.length === 0) {
+          return { pluginId: item.pluginId, pluginVersionId, displayName, credentialSlots: [], messages, available: false, unavailableReason: 'PLUGIN_CREDENTIAL_CONTRACT_MISSING' }
+        }
+        return { pluginId: item.pluginId, pluginVersionId, displayName, credentialSlots: slots, messages, available: true }
+      } catch (cause) {
+        return {
+          pluginId: item.pluginId,
+          pluginVersionId,
+          displayName: item.displayName ?? item.pluginId,
+          credentialSlots: [],
+          messages: {},
+          available: false,
+          unavailableReason: cause instanceof Error ? cause.message : 'PLUGIN_UI_RESOURCE_UNAVAILABLE',
+        }
+      }
+    }))
+    cloudProviders.value = loaded.sort((left, right) => left.displayName.localeCompare(right.displayName))
+    if (!cloudProviders.value.some((provider) => provider.pluginId === form.value.cloudProviderKey)) {
+      form.value.cloudProviderKey = cloudProviders.value.find((provider) => provider.pluginId === preferredPluginId && provider.available)?.pluginId
+        ?? cloudProviders.value.find((provider) => provider.available)?.pluginId
+        ?? ''
+    }
+  } catch (cause) {
+    cloudProviders.value = []
+    cloudProvidersError.value = cause instanceof Error ? cause.message : t('credentials.cloudProviders.errors.load')
+  } finally {
+    cloudProvidersLoading.value = false
+  }
 }
 
 function readMetadataString(metadata: Record<string, unknown> | undefined, key: string): string {
@@ -377,7 +496,8 @@ function editForm(detail: CredentialProfileDetail): CredentialFormState {
     deliveryLocation: detail.delivery?.location === 'query' ? 'query' : 'header',
     deliveryName: detail.delivery?.name ?? 'X-API-Key',
     dnsProviderId: readMetadataString(detail.metadata, 'providerId'),
-    cloudProviderKey: cloudProviderKey(detail.metadata.providerKey),
+    cloudProviderKey: typeof detail.metadata.providerKey === 'string' ? detail.metadata.providerKey : '',
+    cloudSecretValues: {},
     primarySecret: '',
     secondarySecret: '',
     ...expiryToDuration(detail.expiresAt, detail.kind),
@@ -449,13 +569,19 @@ function buildSecretValues(
   kind: CredentialKind,
   primary: string,
   secondary: string,
-  providerKey: CloudProviderKey,
+  provider: CloudProviderDefinition | undefined,
+  cloudSecretValues: Record<string, string>,
 ): Record<string, CredentialSecretValueInput> {
   const values: Record<string, CredentialSecretValueInput> = {}
+  if (kind === 'CLOUD_PROVIDER') {
+    for (const slot of provider?.credentialSlots ?? []) {
+      const plainText = cloudSecretValues[slot.name]?.trim()
+      if (plainText) values[slot.name] = { plainText, type: slot.secretType }
+    }
+    return values
+  }
   if (primary) {
-    const slot = kind === 'CLOUD_PROVIDER'
-      ? CLOUD_PROVIDER_SECRET_FIELDS[providerKey].primary.slot
-      : kind === 'USERNAME_PASSWORD'
+    const slot = kind === 'USERNAME_PASSWORD'
       ? 'password'
       : kind === 'SSH_KEY'
         ? 'privateKey'
@@ -466,18 +592,10 @@ function buildSecretValues(
             : 'token'
     values[slot] = { plainText: primary }
   }
-  if (secondary && kind === 'CLOUD_PROVIDER') {
-    values[CLOUD_PROVIDER_SECRET_FIELDS[providerKey].secondary.slot] = { plainText: secondary }
-  } else if (kind === 'CLIENT_CERTIFICATE' && secondary) {
+  if (kind === 'CLIENT_CERTIFICATE' && secondary) {
     values.privateKey = { plainText: secondary }
   }
   return values
-}
-
-function cloudProviderKey(value: unknown): CloudProviderKey {
-  return typeof value === 'string' && value in CLOUD_PROVIDER_SECRET_FIELDS
-    ? value as CloudProviderKey
-    : 'cloud.aliyun'
 }
 
 function createMetadata(): Record<string, unknown> | undefined {
@@ -488,7 +606,11 @@ function createMetadata(): Record<string, unknown> | undefined {
     }
   }
   if (isCloudProviderCredential.value) {
-    return { providerKey: form.value.cloudProviderKey }
+    return {
+      ...(isEditing.value ? (selected.value?.metadata ?? {}) : {}),
+      providerKey: form.value.cloudProviderKey,
+      ...(selectedCloudProvider.value?.pluginVersionId ? { pluginVersionId: selectedCloudProvider.value.pluginVersionId } : {}),
+    }
   }
   if (isBrowserSessionCredential.value) {
     const metadata: Record<string, unknown> = isEditing.value
@@ -603,7 +725,8 @@ async function submitEditor(): Promise<void> {
       form.value.kind,
       form.value.primarySecret,
       form.value.secondarySecret,
-      form.value.cloudProviderKey,
+      selectedCloudProvider.value,
+      form.value.cloudSecretValues,
     )
     const commonInput = {
       name: form.value.name.trim(),
@@ -632,28 +755,6 @@ async function submitEditor(): Promise<void> {
   } finally {
     saving.value = false
   }
-}
-
-const CLOUD_PROVIDER_SECRET_FIELDS: Record<CloudProviderKey, {
-  primary: { slot: string; labelKey: string }
-  secondary: { slot: string; labelKey: string }
-}> = {
-  'cloud.aliyun': {
-    primary: { slot: 'accessKeyId', labelKey: 'credentials.cloudProviders.fields.aliyun.accessKeyId' },
-    secondary: { slot: 'accessKeySecret', labelKey: 'credentials.cloudProviders.fields.aliyun.accessKeySecret' },
-  },
-  'cloud.tencent': {
-    primary: { slot: 'secretId', labelKey: 'credentials.cloudProviders.fields.tencent.secretId' },
-    secondary: { slot: 'secretKey', labelKey: 'credentials.cloudProviders.fields.tencent.secretKey' },
-  },
-  'cloud.huawei': {
-    primary: { slot: 'accessKey', labelKey: 'credentials.cloudProviders.fields.huawei.accessKey' },
-    secondary: { slot: 'secretKey', labelKey: 'credentials.cloudProviders.fields.huawei.secretKey' },
-  },
-  'cloud.volcengine': {
-    primary: { slot: 'accessKeyId', labelKey: 'credentials.cloudProviders.fields.volcengine.accessKeyId' },
-    secondary: { slot: 'secretAccessKey', labelKey: 'credentials.cloudProviders.fields.volcengine.secretAccessKey' },
-  },
 }
 
 async function toggleStatus(): Promise<void> {
@@ -695,6 +796,7 @@ async function removeSelected(): Promise<void> {
 
 onMounted(() => {
   void load()
+  void loadCloudProviders()
   remainingTimer = setInterval(() => {
     now.value = Date.now()
   }, 60_000)
@@ -702,6 +804,10 @@ onMounted(() => {
 
 watch(isDnsProviderCredential, (enabled) => {
   if (enabled) void loadDnsProviders()
+})
+
+watch(locale, () => {
+  void loadCloudProviders(form.value.cloudProviderKey)
 })
 
 onUnmounted(() => {
@@ -814,15 +920,17 @@ onUnmounted(() => {
             <label v-if="isCloudProviderCredential" class="credentials-field gc-form-field">
               <span>{{ t('credentials.cloudProviders.provider') }}</span>
               <span class="credentials-select">
-                <select v-model="form.cloudProviderKey" :disabled="isEditing">
-                  <option value="cloud.aliyun">{{ t('credentials.cloudProviders.providers.aliyun') }}</option>
-                  <option value="cloud.tencent">{{ t('credentials.cloudProviders.providers.tencent') }}</option>
-                  <option value="cloud.huawei">{{ t('credentials.cloudProviders.providers.huawei') }}</option>
-                  <option value="cloud.volcengine">{{ t('credentials.cloudProviders.providers.volcengine') }}</option>
+                <select v-model="form.cloudProviderKey" :disabled="isEditing || cloudProvidersLoading" required>
+                  <option value="" disabled>{{ t('credentials.cloudProviders.selectPlaceholder') }}</option>
+                  <option v-for="provider in cloudProviders" :key="provider.pluginVersionId" :value="provider.pluginId" :disabled="!provider.available">
+                    {{ provider.displayName }}<template v-if="!provider.available"> · {{ provider.unavailableReason }}</template>
+                  </option>
                 </select>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5" /></svg>
               </span>
               <small>{{ t('credentials.cloudProviders.hint') }}</small>
+              <small v-if="cloudProvidersError" class="credentials-page__error">{{ cloudProvidersError }}</small>
+              <small v-else-if="isCloudProviderCredential && !cloudProviderReady && !cloudProvidersLoading" class="credentials-page__error">{{ t('credentials.cloudProviders.unavailable') }}</small>
             </label>
             <label v-if="isBrowserSessionCredential" class="credentials-field gc-form-field credentials-editor__field--wide">
               <span>{{ t('credentials.browser.fields.loginUrl') }}</span>
@@ -860,8 +968,19 @@ onUnmounted(() => {
               <textarea v-model="form.primarySecret" rows="8" :placeholder="t(isEditing ? 'credentials.placeholders.keepSecret' : 'credentials.placeholders.primarySecret')" autocomplete="off" />
               <small>{{ t(isEditing ? 'credentials.hints.keepSecret' : 'credentials.hints.encrypted') }}</small>
             </label>
-            <GcSecretInput v-else v-model="form.primarySecret" class="credentials-secret-field gc-form-field" :label="isCloudProviderCredential ? t(cloudProviderFields.primary.labelKey) : t(`credentials.secretLabels.${form.kind}`)" :placeholder="t(isEditing ? 'credentials.placeholders.keepSecret' : 'credentials.placeholders.primarySecret')" :hint="t(isEditing ? 'credentials.hints.keepSecret' : 'credentials.hints.encrypted')" />
-            <GcSecretInput v-if="requiresSecondarySecret" v-model="form.secondarySecret" class="credentials-secret-field gc-form-field" :label="isCloudProviderCredential ? t(cloudProviderFields.secondary.labelKey) : t('credentials.fields.secondarySecret')" :placeholder="t(isEditing ? 'credentials.placeholders.keepSecret' : 'credentials.placeholders.secondarySecret')" :hint="t(isEditing ? 'credentials.hints.keepSecret' : 'credentials.hints.encrypted')" />
+            <template v-else-if="isCloudProviderCredential">
+              <GcSecretInput
+                v-for="slot in cloudProviderSlots"
+                :key="slot.name"
+                v-model="form.cloudSecretValues[slot.name]"
+                class="credentials-secret-field gc-form-field"
+                :label="cloudMessage(selectedCloudProvider, slot.labelKey)"
+                :placeholder="t(isEditing ? 'credentials.placeholders.keepSecret' : 'credentials.placeholders.primarySecret')"
+                :hint="slot.required ? t('credentials.hints.encryptedRequired') : t('credentials.hints.encrypted')"
+              />
+            </template>
+            <GcSecretInput v-else v-model="form.primarySecret" class="credentials-secret-field gc-form-field" :label="t(`credentials.secretLabels.${form.kind}`)" :placeholder="t(isEditing ? 'credentials.placeholders.keepSecret' : 'credentials.placeholders.primarySecret')" :hint="t(isEditing ? 'credentials.hints.keepSecret' : 'credentials.hints.encrypted')" />
+            <GcSecretInput v-if="requiresSecondarySecret" v-model="form.secondarySecret" class="credentials-secret-field gc-form-field" :label="t('credentials.fields.secondarySecret')" :placeholder="t(isEditing ? 'credentials.placeholders.keepSecret' : 'credentials.placeholders.secondarySecret')" :hint="t(isEditing ? 'credentials.hints.keepSecret' : 'credentials.hints.encrypted')" />
           </div>
         </section>
         <section v-else class="credentials-editor__section credentials-editor__section--secret">

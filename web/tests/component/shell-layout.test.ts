@@ -227,6 +227,28 @@ describe('ShellLayout', () => {
     expect(wrapper.find('[data-test="tenant-bound-page"]').exists()).toBe(true)
   })
 
+  it('仅变更查询参数时保留当前页面实例，避免打开模态框触发重复加载', async () => {
+    let mountedCount = 0
+    const dashboard = defineComponent({
+      setup() {
+        onMounted(() => { mountedCount += 1 })
+        return () => h('div', { 'data-test': 'query-stable-page' })
+      },
+    })
+    const router = createTestRouter(dashboard)
+    await router.push('/dashboard')
+    await router.isReady()
+
+    const wrapper = mount(ShellLayout, { global: { plugins: [router, i18n], stubs: { RouterLink: false } } })
+    expect(mountedCount).toBe(1)
+
+    await router.replace({ path: '/dashboard', query: { modal: '1' } })
+    await nextTick()
+
+    expect(mountedCount).toBe(1)
+    expect(wrapper.find('[data-test="query-stable-page"]').exists()).toBe(true)
+  })
+
   it('支持桌面侧栏收起展开，并在模态打开时临时收起后恢复', async () => {
     const router = createTestRouter()
     await router.push('/dashboard')

@@ -488,12 +488,14 @@ export default {
       QUEUED: '{task} queued',
       RUNNING: '{task} running',
       RETRY_WAITING: 'Retry pending for {task}',
+      WAITING_RESULT: 'Waiting for the {task} result',
+      AWAITING_CONFIRMATION: 'The {task} result needs confirmation',
       CANCELLING: 'Cancelling {task}',
       SUCCEEDED: 'Completed {task}',
       FAILED: '{task} failed',
       CANCELLED: '{task} cancelled'
     },
-    status: { QUEUED: 'Queued', RUNNING: 'Running', RETRY_WAITING: 'Waiting for retry', WAITING_APPROVAL: 'Waiting for approval', CANCELLING: 'Cancelling', SUCCEEDED: 'Succeeded', FAILED: 'Failed', CANCELLED: 'Cancelled' }
+    status: { QUEUED: 'Queued', RUNNING: 'Running', RETRY_WAITING: 'Waiting for retry', WAITING_RESULT: 'Waiting for result', AWAITING_CONFIRMATION: 'Result needs confirmation', WAITING_APPROVAL: 'Waiting for approval', CANCELLING: 'Cancelling', SUCCEEDED: 'Succeeded', FAILED: 'Failed', CANCELLED: 'Cancelled' }
   },
   shell: {
     currentLocation: 'Current location',
@@ -735,9 +737,14 @@ export default {
       },
       skipped: 'Step skipped: {reason}',
       running: {
-        dispatched: 'Agent task taskId={taskId} has been dispatched. Waiting for the agent result.',
-        waitingAgentResult: 'The step is running, but no Agent taskId or result has been received yet.'
+        dispatched: 'Agent task taskId={taskId} has been dispatched. The control plane is actively querying the result.',
+        waitingAgentResult: 'The step is running; the control plane is actively querying the Agent result…',
+        waitingExternalResult: 'The step is running and waiting for an external execution result.',
+        resultUnconfirmed: 'The write result needs confirmation: {code}: {message}. This step will not be replayed automatically.'
       },
+      unknownResult: 'The write result is unknown; automatic replay is paused.',
+      diagnosticsTitle: 'Detailed verification log',
+      structuredDetail: 'View structured details',
       pending: {
         waitingDependency: 'The step is waiting for previous steps to finish.'
       },
@@ -809,6 +816,13 @@ export default {
     },
     provider: {
       target: 'Target'
+    },
+    recovery: {
+      confirm: 'Verify certificate state and continue',
+      running: 'Verifying certificate state…',
+      confirmed: 'The target certificate is confirmed active; execution will continue.',
+      failed: 'Certificate verification did not pass; execution has stopped.',
+      pending: 'The target certificate state could not be confirmed yet. Try again later.'
     }
   },
   executions: {
@@ -825,6 +839,11 @@ export default {
       viewDetail: 'View details',
       rollback: 'Start rollback',
       rollbackRisk: 'Rollback will modify the target service certificate configuration again. Confirm backup references and impact scope first.'
+    },
+    messages: {
+      recoveryConfirmed: 'The target certificate state is confirmed; execution will continue. Track progress in the global task list.',
+      recoveryFailed: 'Certificate verification did not pass. Detailed reasons were recorded in the execution log.',
+      recoveryPending: 'The target certificate state is still unconfirmed. The task remains pending confirmation; try again later.'
     },
     columns: {
       name: 'Execution ID',
@@ -913,7 +932,8 @@ export default {
       noStepDetail: 'No step details',
       notStarted: 'Not started',
       noSteps: 'No steps.',
-      noLogs: 'No logs.'
+      noLogs: 'No logs.',
+      unknownResultDescription: 'The original install operation will not be replayed. Only a read-only TLS certificate fingerprint check will be performed.'
     },
     tabs: {
       summary: 'Summary',
@@ -1040,7 +1060,6 @@ export default {
     unknownCatalogValue: 'Unknown catalog value: {value}',
     frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: 'Custom runtime', runtime_custom: 'Custom runtime', adc_load_balancer: 'ADC load balancer', cloud_aliyun_cdn: 'Alibaba Cloud CDN', cloud_aliyun_alb: 'Alibaba Cloud ALB', cloud_aliyun_clb: 'Alibaba Cloud CLB', cloud_aliyun_oss: 'Alibaba Cloud OSS', cloud_aliyun_waf_cname: 'Alibaba Cloud WAF CNAME', cloud_aliyun_waf_cloud: 'Alibaba Cloud WAF Cloud', cloud_aliyun_live: 'Alibaba Cloud Live', cloud_aliyun_vod: 'Alibaba Cloud VOD', cloud_tencent_cdn: 'Tencent Cloud CDN', cloud_tencent_clb: 'Tencent Cloud CLB', cloud_tencent_live: 'Tencent Cloud Live', cloud_huawei_cdn: 'Huawei Cloud CDN', cloud_huawei_elb: 'Huawei Cloud ELB', cloud_volcengine_cdn: 'Volcengine CDN', cloud_volcengine_alb: 'Volcengine ALB', cloud_volcengine_clb: 'Volcengine CLB', cloud_volcengine_live: 'Volcengine Live', cloud_volcengine_vod: 'Volcengine VOD' },
     runtimeTypes: { agent_atomic: 'Agent atomic execution', workflow_dsl: 'Workflow DSL' },
-    providerKeys: { cloud_aliyun: 'Alibaba Cloud', cloud_tencent: 'Tencent Cloud', cloud_huawei: 'Huawei Cloud', cloud_volcengine: 'Volcengine' },
     scopeTypes: { managed: 'Managed target', standalone: 'Standalone target', both: 'Managed / standalone' },
     supportTypes: { official: 'Official support', community: 'Community support', self_managed: 'Self managed' },
     aria: {
@@ -2477,6 +2496,7 @@ export default {
       errors: {
         loadObjectTreeFailed: 'Failed to load object tree',
         loadDataFailed: 'Failed to load permission management data',
+        invalidBusinessScope: 'The corresponding business permission scope was not found.',
         missingRoleId: 'The backend did not return a role ID',
         createRoleFailed: 'Failed to create role',
         grantRoleFailed: 'Failed to grant role permission',
@@ -4074,7 +4094,8 @@ export default {
         variable: 'Variable'
       },
       errors: {
-        unknownNodeType: 'Unknown node type: {type}'
+        unknownNodeType: 'Unknown node type: {type}',
+        missingWorkflowDsl: 'Backend did not return workflow DSL'
       }
     },
     canvasEditor: {

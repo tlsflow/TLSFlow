@@ -848,7 +848,7 @@ function removeToastNotice(id: number): void {
         'gc-workbench__content--dashboard': route.path === '/dashboard',
       }"
     >
-      <RouterView :key="`${route.fullPath}:${tenantViewVersion}`" />
+      <RouterView :key="`${route.path}:${tenantViewVersion}`" />
     </main>
     </div>
 

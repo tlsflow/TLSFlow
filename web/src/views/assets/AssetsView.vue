@@ -207,6 +207,7 @@ const gatewayItems = ref<ApiRecord[]>([])
 const workflowBindingProjection = ref<DeploymentInputProjectionV1 | null>(null)
 const deploymentInputBindings = ref<DeploymentInputBindingsV1>(createInputBindingsV1())
 const workflowProjectionLoading = ref(false)
+const workflowProjectionRefreshing = ref(false)
 const workflowProjectionError = ref('')
 const workflowTargetAdvancedExpanded = ref(false)
 const credentialProfileItems = ref<CredentialProfileOption[]>([])
@@ -606,6 +607,7 @@ const workflowProjectionReady = computed(() => {
     || (workflowExecutionEnabled.value && Boolean(editingServiceAssetId.value))
   if (!requiresProjection) return true
   return !workflowProjectionLoading.value
+    && !workflowProjectionRefreshing.value
     && !workflowProjectionError.value
     && Boolean(workflowBindingProjection.value?.saveable)
 })
@@ -1153,10 +1155,12 @@ async function loadServiceInstances(hostId: string) {
   }
 }
 
-async function refreshWorkflowBindingProjection() {
+async function refreshWorkflowBindingProjection(options: { preserveRenderedForm?: boolean } = {}) {
   const sequence = ++workflowProjectionRequestSequence
-  workflowBindingProjection.value = null
+  const preserveRenderedForm = options.preserveRenderedForm === true && workflowBindingProjection.value !== null
+  if (!preserveRenderedForm) workflowBindingProjection.value = null
   workflowProjectionError.value = ''
+  workflowProjectionRefreshing.value = preserveRenderedForm
   const pluginVersionId = pluginProjectionVersionId.value
   const shouldProjectPlugin = assetDraft.managementMode === 'MANAGED_TARGET'
     && assetDraft.managedExecutionMode === 'PLUGIN'
@@ -1165,6 +1169,7 @@ async function refreshWorkflowBindingProjection() {
   const shouldProjectWorkflow = workflowExecutionEnabled.value && editingServiceAssetId.value
   if (!shouldProjectPlugin && !shouldProjectWorkflow) {
     workflowProjectionLoading.value = false
+    workflowProjectionRefreshing.value = false
     return
   }
   workflowProjectionLoading.value = true
@@ -1197,7 +1202,10 @@ async function refreshWorkflowBindingProjection() {
     if (sequence !== workflowProjectionRequestSequence) return
     workflowProjectionError.value = cause instanceof ApiClientError ? cause.message : cause instanceof Error ? cause.message : String(cause)
   } finally {
-    if (sequence === workflowProjectionRequestSequence) workflowProjectionLoading.value = false
+    if (sequence === workflowProjectionRequestSequence) {
+      workflowProjectionLoading.value = false
+      workflowProjectionRefreshing.value = false
+    }
   }
 }
 
@@ -1640,7 +1648,11 @@ function resetDraft() {
   assetDraft.workflowTargetBindingInformation = ''
   assetDraft.workflowTargetHostHeader = ''
   assetDraft.workflowTargetSniName = ''
+  workflowProjectionRequestSequence += 1
   workflowBindingProjection.value = null
+  workflowProjectionLoading.value = false
+  workflowProjectionRefreshing.value = false
+  workflowProjectionError.value = ''
   pluginBindingId.value = ''
   pluginBindingVersion.value = 0
   effectiveCapability.value = null
@@ -2412,10 +2424,17 @@ watch(
     assetDraft.port,
     assetDraft.protocol,
     assetDraft.workflowTargetSniName,
-    deploymentInputBindingsFingerprint.value,
   ],
   async () => {
     await refreshWorkflowBindingProjection()
+  },
+)
+
+watch(
+  () => deploymentInputBindingsFingerprint.value,
+  async () => {
+    if (!workflowBindingProjection.value) return
+    await refreshWorkflowBindingProjection({ preserveRenderedForm: true })
   },
 )
 
@@ -3204,14 +3223,14 @@ function managedTargetLabel(target: ApiRecord): string {
         </section>
 
         <section v-if="pluginProjectionVersionId" class="asset-user-form__inputs">
-          <p v-if="workflowProjectionError" class="asset-form__error">{{ workflowProjectionError }}</p>
+          <p v-show="workflowProjectionError" class="asset-form__error">{{ workflowProjectionError }}</p>
           <DeploymentInputForm
-            v-else-if="workflowBindingProjection"
+            v-if="workflowBindingProjection"
             v-model="deploymentInputBindings"
             :projection="workflowBindingProjection"
             :credential-options="deploymentCredentialOptions"
             :artifact-options="deploymentArtifactOptions"
-            :loading="workflowProjectionLoading"
+            :loading="workflowProjectionLoading && !workflowProjectionRefreshing"
           />
         </section>
 
@@ -3404,14 +3423,14 @@ function managedTargetLabel(target: ApiRecord): string {
                 :labels="{ loading: t('common.loading'), missing: t('assets.errors.capabilityAssignmentMissing'), pending: t('assets.capability.pendingAssignment'), source: t('assets.capability.source'), plugin: t('assets.capability.plugin'), runtime: t('assets.capability.runtime'), executionLocation: t('assets.capability.executionLocation') }"
               />
               <section v-if="pluginProjectionVersionId" class="asset-form__field--wide">
-                <p v-if="workflowProjectionError" class="asset-form__error">{{ workflowProjectionError }}</p>
+                <p v-show="workflowProjectionError" class="asset-form__error">{{ workflowProjectionError }}</p>
                 <DeploymentInputForm
-                  v-else-if="workflowBindingProjection"
+                  v-if="workflowBindingProjection"
                   v-model="deploymentInputBindings"
                   :projection="workflowBindingProjection"
                   :credential-options="deploymentCredentialOptions"
                   :artifact-options="deploymentArtifactOptions"
-                  :loading="workflowProjectionLoading"
+                  :loading="workflowProjectionLoading && !workflowProjectionRefreshing"
                 />
               </section>
             </template>
@@ -3512,14 +3531,14 @@ function managedTargetLabel(target: ApiRecord): string {
               </section>
               <section class="asset-form__field asset-form__field--wide">
                 <p v-if="!editingServiceAssetId" class="asset-form__hint">{{ t('deploymentInputs.saveAssetFirst') }}</p>
-                <p v-else-if="workflowProjectionError" class="asset-form__error">{{ workflowProjectionError }}</p>
+                <p v-show="editingServiceAssetId && workflowProjectionError" class="asset-form__error">{{ workflowProjectionError }}</p>
                 <DeploymentInputForm
-                  v-else-if="workflowBindingProjection"
+                  v-if="workflowBindingProjection"
                   v-model="deploymentInputBindings"
                   :projection="workflowBindingProjection"
                   :credential-options="deploymentCredentialOptions"
                   :artifact-options="deploymentArtifactOptions"
-                  :loading="workflowProjectionLoading"
+                  :loading="workflowProjectionLoading && !workflowProjectionRefreshing"
                 />
               </section>
             </div>

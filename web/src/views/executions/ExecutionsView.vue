@@ -6,10 +6,11 @@ import { GcEmptyState, GcModal, GcPageHeader, GcPageToolbar, GcStatusTag } from 
 import { listAssets } from '@/api/modules/assets.api'
 import type { ApiRecord } from '@/api/modules/common'
 import { listDeploymentPlans } from '@/api/modules/deployments.api'
-import { listExecutions } from '@/api/modules/executions.api'
+import { listExecutions, recoverExecution } from '@/api/modules/executions.api'
 import { readPath, readString, type ViewRow } from '@/composables/useBusinessPage'
 import { useExecutionDetail } from '@/composables/useExecutionDetail'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
+import { usePermissionStore } from '@/stores/permission.store'
 
 interface AssetInfo {
   readonly id: string
@@ -46,6 +47,8 @@ const detailModalOpen = ref(false)
 const detailRow = ref<ExecutionListRow | null>(null)
 const activeTab = ref<'summary' | 'steps' | 'logs'>('summary')
 const autoOpenedRunId = ref('')
+const recoveringUnknownResult = ref(false)
+const permissionStore = usePermissionStore()
 
 const filteredRows = computed(() => {
   const runId = queryValue('runId')
@@ -83,6 +86,8 @@ const modalSummaryCards = computed(() => {
     { label: t('executions.summary.unknown'), value: summary.unknown },
   ]
 })
+const canRecoverUnknownResult = computed(() => modalExecutionDetail.hasUnknownResult.value
+  && permissionStore.hasPermission('execution.run.recover'))
 
 watch(filteredRows, () => {
   currentPage.value = Math.min(currentPage.value, pageCount.value)
@@ -281,6 +286,41 @@ function openExecutionDetail(row: ExecutionListRow) {
   void modalExecutionDetail.reload()
 }
 
+async function recoverUnknownResult(): Promise<void> {
+  const row = detailRow.value
+  if (!row || recoveringUnknownResult.value || !canRecoverUnknownResult.value) return
+  recoveringUnknownResult.value = true
+  try {
+    const result = await recoverExecution(row.id)
+    const payload = result.data ?? {}
+    const pendingState = readString(payload, ['pendingState'], '')
+    const recoveredRun = readPath(payload, 'run')
+    if (recoveredRun && typeof recoveredRun === 'object' && !Array.isArray(recoveredRun)) {
+      detailRow.value = {
+        ...row,
+        raw: recoveredRun as ApiRecord,
+        status: readString(recoveredRun as ApiRecord, ['status', 'state', 'result'], row.status),
+      }
+    }
+    if (pendingState === 'AWAITING_CONFIRMATION') {
+      notifyExecutionRecovery(t('executions.messages.recoveryPending'), 'warning')
+    } else if (payload.success === false) {
+      notifyExecutionRecovery(t('executions.messages.recoveryFailed'), 'danger')
+    } else {
+      notifyExecutionRecovery(t('executions.messages.recoveryConfirmed'), 'success')
+    }
+    await modalExecutionDetail.reload()
+  } catch (cause) {
+    notifyExecutionRecovery(cause instanceof Error ? cause.message : t('executions.messages.recoveryFailed'), 'danger')
+  } finally {
+    recoveringUnknownResult.value = false
+  }
+}
+
+function notifyExecutionRecovery(message: string, tone: 'success' | 'warning' | 'danger'): void {
+  window.dispatchEvent(new CustomEvent('gcac:toast', { detail: { message, tone } }))
+}
+
 function goToPage(page: number) {
   currentPage.value = Math.min(Math.max(page, 1), pageCount.value)
 }
@@ -436,6 +476,21 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
         </div>
 
         <section v-if="activeTab === 'summary'" class="execution-detail-modal__section">
+          <article v-if="modalExecutionDetail.hasUnknownResult.value" class="execution-detail-modal__unknown" role="status" aria-live="polite">
+            <div>
+              <strong>{{ t('executionDetail.step.unknownResult') }}</strong>
+              <p>{{ t('executions.detail.unknownResultDescription') }}</p>
+            </div>
+            <button
+              v-if="canRecoverUnknownResult"
+              class="gc-button gc-button--primary"
+              type="button"
+              :disabled="recoveringUnknownResult"
+              @click="recoverUnknownResult"
+            >
+              {{ recoveringUnknownResult ? t('executionDetail.recovery.running') : t('executionDetail.recovery.confirm') }}
+            </button>
+          </article>
           <dl class="execution-detail-modal__facts">
             <div>
               <dt>{{ t('executions.fields.executionId') }}</dt>
@@ -496,7 +551,23 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
         <section v-else-if="activeTab === 'steps'" class="execution-detail-modal__section">
           <p v-if="modalExecutionDetail.loading.value" class="execution-detail-modal__loading">{{ t('executions.detail.loadingSteps') }}</p>
           <p v-else-if="modalExecutionDetail.error.value" class="execution-detail-modal__error">{{ modalExecutionDetail.error.value }}</p>
-          <ul v-else-if="modalExecutionDetail.steps.value.length" class="execution-detail-modal__list">
+          <template v-else>
+            <header v-if="modalExecutionDetail.hasUnknownResult.value" class="execution-detail-modal__unknown execution-detail-modal__unknown--steps">
+              <div>
+                <strong>{{ t('executionDetail.step.unknownResult') }}</strong>
+                <p>{{ t('executions.detail.unknownResultDescription') }}</p>
+              </div>
+              <button
+                v-if="canRecoverUnknownResult"
+                class="gc-button gc-button--primary"
+                type="button"
+                :disabled="recoveringUnknownResult"
+                @click="recoverUnknownResult"
+              >
+                {{ recoveringUnknownResult ? t('executionDetail.recovery.running') : t('executionDetail.recovery.confirm') }}
+              </button>
+            </header>
+            <ul v-if="modalExecutionDetail.steps.value.length" class="execution-detail-modal__list">
             <li v-for="step in modalExecutionDetail.steps.value" :key="step.id" class="execution-detail-modal__list-item">
               <div class="execution-detail-modal__list-head">
                 <strong>{{ step.name }}</strong>
@@ -504,9 +575,23 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
               </div>
               <p>{{ step.detail ?? t('executions.detail.noStepDetail') }}</p>
               <small>{{ formatStepStartTime(step.startedAt) }}{{ step.finishedAt ? ` -> ${formatDetailTime(step.finishedAt)}` : '' }}</small>
+              <div v-if="step.diagnostics?.length" class="execution-detail-modal__diagnostics">
+                <strong>{{ t('executionDetail.step.diagnosticsTitle') }}</strong>
+                <dl>
+                  <div v-for="diagnostic in step.diagnostics" :key="`${step.id}-${diagnostic.label}`">
+                    <dt>{{ diagnostic.label }}</dt>
+                    <dd>{{ diagnostic.value }}</dd>
+                  </div>
+                </dl>
+                <details v-if="step.structuredDetail">
+                  <summary>{{ t('executionDetail.step.structuredDetail') }}</summary>
+                  <pre>{{ step.structuredDetail }}</pre>
+                </details>
+              </div>
             </li>
-          </ul>
-          <p v-else class="execution-detail-modal__loading">{{ t('executions.detail.noSteps') }}</p>
+            </ul>
+            <p v-else class="execution-detail-modal__loading">{{ t('executions.detail.noSteps') }}</p>
+          </template>
         </section>
 
         <section v-else class="execution-detail-modal__section">
@@ -854,6 +939,34 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
   background: var(--gc-color-surface-solid);
 }
 
+.execution-detail-modal__unknown {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--gc-space-4);
+  padding: var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-warning-border);
+  border-radius: var(--gc-radius-md);
+  background: var(--gc-color-warning-soft);
+  color: var(--gc-color-text);
+}
+
+.execution-detail-modal__unknown strong,
+.execution-detail-modal__unknown p {
+  margin: 0;
+}
+
+.execution-detail-modal__unknown p {
+  margin-top: var(--gc-space-1);
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  line-height: 1.5;
+}
+
+.execution-detail-modal__unknown--steps {
+  margin-bottom: var(--gc-space-3);
+}
+
 .execution-detail-modal__facts,
 .execution-detail-modal__summary-grid {
   display: grid;
@@ -941,6 +1054,72 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
   margin: 0;
 }
 
+.execution-detail-modal__diagnostics {
+  display: grid;
+  gap: var(--gc-space-2);
+  padding-top: var(--gc-space-2);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+}
+
+.execution-detail-modal__diagnostics > strong {
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-xs);
+}
+
+.execution-detail-modal__diagnostics dl {
+  display: grid;
+  gap: var(--gc-space-1);
+  margin: 0;
+}
+
+.execution-detail-modal__diagnostics dl div {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.35fr) minmax(0, 1fr);
+  gap: var(--gc-space-2);
+}
+
+.execution-detail-modal__diagnostics dt,
+.execution-detail-modal__diagnostics dd {
+  margin: 0;
+  font-size: var(--gc-font-size-xs);
+  overflow-wrap: anywhere;
+}
+
+.execution-detail-modal__diagnostics dt {
+  color: var(--gc-color-text-muted);
+  font-weight: 800;
+}
+
+.execution-detail-modal__diagnostics dd {
+  color: var(--gc-color-text);
+  white-space: pre-wrap;
+}
+
+.execution-detail-modal__diagnostics details {
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  padding-top: var(--gc-space-2);
+}
+
+.execution-detail-modal__diagnostics summary {
+  color: var(--gc-color-primary);
+  cursor: pointer;
+  font-size: var(--gc-font-size-xs);
+  font-weight: 800;
+}
+
+.execution-detail-modal__diagnostics pre {
+  max-height: 18rem;
+  margin: var(--gc-space-2) 0 0;
+  overflow: auto;
+  border-radius: var(--gc-radius-sm);
+  padding: var(--gc-space-3);
+  background: var(--gc-color-code-bg);
+  color: var(--gc-color-text-inverse);
+  font-size: var(--gc-font-size-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .execution-detail-modal__log-item[data-level='error'] {
   border-color: var(--gc-color-danger-border);
   background: var(--gc-color-danger-soft);
@@ -978,8 +1157,17 @@ function uniqueAssets(assets: readonly AssetInfo[]): AssetInfo[] {
     justify-items: start;
   }
 
+  .execution-detail-modal__unknown {
+    display: grid;
+    align-items: flex-start;
+  }
+
   .execution-detail-modal__facts,
   .execution-detail-modal__summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .execution-detail-modal__diagnostics dl div {
     grid-template-columns: 1fr;
   }
 }

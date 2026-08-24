@@ -11,7 +11,8 @@ import {
   updateCloudAccountAsset,
 } from '@/api/modules/providers.api'
 import type { ApiRecord } from '@/api/modules/common'
-import { listCredentials, type CredentialKind } from '@/api/modules/credentials.api'
+import { type CredentialKind } from '@/api/modules/credentials.api'
+import { getUnifiedPluginUiResources, listPluginCatalog } from '@/api/modules/plugins.api'
 import { GcCredentialSelect, GcModal } from '@/design-system/components'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
@@ -19,18 +20,38 @@ import type { ViewRow } from '@/composables/useBusinessPage'
 
 type AccountWizardStep = 1 | 2
 
+interface CloudProviderFormField {
+  key: string
+  type: 'objectRef' | 'secretRef' | 'string' | 'artifactRef'
+  required: boolean
+  labelKey?: string
+}
+
+interface CloudProviderDefinition {
+  pluginId: string
+  pluginVersionId: string
+  displayName: string
+  fields: CloudProviderFormField[]
+  messages: Record<string, string>
+  available: boolean
+  unavailableReason?: string
+}
+
 const credentialKinds: CredentialKind[] = ['CLOUD_PROVIDER']
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const route = useRoute?.() ?? { query: {} as Record<string, string | string[] | undefined> }
 const requestError = ref('')
 const notice = ref('')
 const accountFormOpen = ref(false)
 const editingAccountId = ref('')
+const editingAccountVersion = ref<number | null>(null)
 const actionLoading = ref('')
 const reloadKey = ref(0)
 const accountFormStep = ref<AccountWizardStep>(1)
 const accountError = ref('')
-const providerKeys = ref<string[]>([])
+const cloudProviders = ref<CloudProviderDefinition[]>([])
+const cloudProvidersLoading = ref(false)
+const cloudProvidersError = ref('')
 const cloudDetailOpen = ref(false)
 const selectedCloudAsset = ref<ApiRecord | null>(null)
 
@@ -46,7 +67,9 @@ const scopeDraft = reactive({
   metadataJson: '{}',
 })
 
-const selectedProvider = computed(() => accountDraft.providerKey.trim() || providerKeys.value[0] || null)
+const selectedProvider = computed(() => accountDraft.providerKey.trim() || cloudProviders.value.find((provider) => provider.available)?.pluginId || null)
+const selectedProviderDefinition = computed(() => cloudProviders.value.find((provider) => provider.pluginId === selectedProvider.value))
+const providerFormFields = computed(() => (selectedProviderDefinition.value?.fields ?? []).filter((field) => field.type === 'string'))
 const isEditing = computed(() => Boolean(editingAccountId.value))
 const selectedCredentialRef = computed(() => {
   const credentialId = accountDraft.credentialRef.trim()
@@ -61,7 +84,7 @@ const scopeValidationError = computed(() => {
   }
 })
 const accountReady = computed(() => Boolean(
-  selectedProvider.value
+  selectedProviderDefinition.value?.available
   && accountDraft.displayName.trim()
   && accountDraft.credentialRef.trim()
   && !scopeValidationError.value,
@@ -82,6 +105,8 @@ const accountScopeSummary = computed(() => {
   if (Object.keys(metadata).length > 0) items.push(`${t('providers.fields.metadataJson')}：${Object.keys(metadata).join(' / ')}`)
   return items.length > 0 ? items.join(' · ') : t('providers.messages.scopeEmpty')
 })
+
+const resourceFieldValues = reactive<Record<string, string>>({})
 
 const config = computed<BusinessPageConfig>(() => ({
   title: t('providers.page.title'),
@@ -141,27 +166,93 @@ onMounted(async () => {
 
 function openAccountForm(): void {
   editingAccountId.value = ''
+  editingAccountVersion.value = null
   accountError.value = ''
   accountFormStep.value = 1
   Object.assign(accountDraft, { displayName: '', providerKey: '', accountId: '', credentialRef: '' })
   resetScopeDraft()
   accountFormOpen.value = true
-  void loadProviderKeys()
+  void loadCloudProviders()
 }
 
-async function loadProviderKeys(): Promise<void> {
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function readCloudFormFields(value: unknown): CloudProviderFormField[] {
+  const form = asRecord(asRecord(value).forms).cloud
+  const fields = Array.isArray(asRecord(form).fields) ? asRecord(form).fields as unknown[] : []
+  return fields.flatMap((item) => {
+    const field = asRecord(item)
+    const type = field.type
+    if (typeof field.key !== 'string' || !['objectRef', 'secretRef', 'string', 'artifactRef'].includes(String(type))) return []
+    return [{ key: field.key, type: type as CloudProviderFormField['type'], required: field.required === true, ...(typeof field.labelKey === 'string' ? { labelKey: field.labelKey } : {}) }]
+  })
+}
+
+function readCloudMessages(value: unknown): Record<string, string> {
+  const messages = asRecord(asRecord(value).locale).messages
+  return Object.fromEntries(Object.entries(asRecord(messages)).flatMap(([key, text]) => typeof text === 'string' ? [[key, text]] : []))
+}
+
+function providerLabel(provider: CloudProviderDefinition | undefined, key: string | undefined): string {
+  return (key && provider?.messages[key]) || key || t('common.notAvailable')
+}
+
+async function loadCloudProviders(preferredPluginId = accountDraft.providerKey): Promise<void> {
+  cloudProvidersLoading.value = true
+  cloudProvidersError.value = ''
   try {
-    const result = await listCredentials({ kinds: credentialKinds })
-    providerKeys.value = [...new Set((result.data?.items ?? [])
-      .map((item) => stringValue(item.metadata?.providerKey))
-      .filter(Boolean))]
-  } catch {
-    providerKeys.value = []
+    const result = await listPluginCatalog({ page: 1, pageSize: 200, filters: { locale: locale.value } })
+    const candidates = (result.data?.items ?? []).filter((item) =>
+      item.status === 'ENABLED'
+      && Array.isArray(item.capabilities)
+      && item.capabilities.some((capability) => String((capability as Record<string, unknown>).key ?? capability) === 'cloud.service.connection-test'))
+    const loaded = await Promise.all(candidates.map(async (item): Promise<CloudProviderDefinition> => {
+      const pluginVersionId = String(item.pluginVersionId ?? item.id ?? '')
+      try {
+        const resourceResult = await getUnifiedPluginUiResources(pluginVersionId, locale.value)
+        const fields = readCloudFormFields(resourceResult.data)
+        const messages = readCloudMessages(resourceResult.data)
+        const displayName = String(item.displayName ?? messages[item.displayNameKey] ?? item.pluginId)
+        return {
+          pluginId: item.pluginId,
+          pluginVersionId,
+          displayName,
+          fields,
+          messages,
+          available: fields.length > 0,
+          ...(fields.length > 0 ? {} : { unavailableReason: 'PLUGIN_FORM_MISSING' }),
+        }
+      } catch (cause) {
+        return {
+          pluginId: item.pluginId,
+          pluginVersionId,
+          displayName: String(item.displayName ?? item.pluginId),
+          fields: [],
+          messages: {},
+          available: false,
+          unavailableReason: cause instanceof Error ? cause.message : 'PLUGIN_UI_RESOURCE_UNAVAILABLE',
+        }
+      }
+    }))
+    cloudProviders.value = loaded.sort((left, right) => left.displayName.localeCompare(right.displayName))
+    if (!cloudProviders.value.some((provider) => provider.pluginId === accountDraft.providerKey)) {
+      accountDraft.providerKey = cloudProviders.value.find((provider) => provider.pluginId === preferredPluginId && provider.available)?.pluginId
+        ?? cloudProviders.value.find((provider) => provider.available)?.pluginId
+        ?? ''
+    }
+  } catch (cause) {
+    cloudProviders.value = []
+    cloudProvidersError.value = cause instanceof Error ? cause.message : t('providers.messages.loadFailed')
+  } finally {
+    cloudProvidersLoading.value = false
   }
 }
 
 function openEditForm(row: ViewRow): void {
   editingAccountId.value = row.id
+  editingAccountVersion.value = typeof row.raw.version === 'number' ? row.raw.version : null
   accountError.value = ''
   accountFormStep.value = 1
   Object.assign(accountDraft, {
@@ -171,6 +262,7 @@ function openEditForm(row: ViewRow): void {
     credentialRef: credentialIdFromRef(stringValue(row.raw.credentialRef)),
   })
   fillScopeDraft(row.raw.scope)
+  void loadCloudProviders(accountDraft.providerKey)
   accountFormOpen.value = true
 }
 
@@ -203,10 +295,17 @@ async function saveAccount(): Promise<void> {
       scope: buildScope(),
     }
     if (editingAccountId.value) {
-      await updateCloudAccountAsset({ id: editingAccountId.value, ...payload })
+      if (!editingAccountVersion.value) {
+        throw new Error(t('providers.messages.versionUnavailable'))
+      }
+      await updateCloudAccountAsset({ id: editingAccountId.value, expectedVersion: editingAccountVersion.value, ...payload })
       notice.value = t('providers.messages.updated')
     } else {
-      await createCloudAccountAsset({ ...payload, providerKey: selectedProvider.value })
+      await createCloudAccountAsset({
+        ...payload,
+        providerKey: selectedProvider.value,
+        pluginVersionId: selectedProviderDefinition.value?.pluginVersionId,
+      })
       notice.value = t('providers.messages.saved')
     }
     accountFormOpen.value = false
@@ -235,6 +334,10 @@ function buildScope(): Record<string, unknown> {
   const scope: Record<string, unknown> = {}
   if (scopeDraft.endpoint.trim()) scope.endpoint = scopeDraft.endpoint.trim()
   const metadata = parseObjectJsonSafely(scopeDraft.metadataJson)
+  for (const field of providerFormFields.value) {
+    const value = resourceFieldValues[field.key]?.trim()
+    if (value) metadata[field.key] = value
+  }
   if (Object.keys(metadata).length > 0) scope.metadata = metadata
   return scope
 }
@@ -242,12 +345,16 @@ function buildScope(): Record<string, unknown> {
 function fillScopeDraft(value: unknown): void {
   const scope = isRecord(value) ? value : {}
   scopeDraft.endpoint = stringValue(scope.endpoint)
-  scopeDraft.metadataJson = JSON.stringify(isRecord(scope.metadata) ? scope.metadata : {}, null, 2)
+  const metadata = isRecord(scope.metadata) ? scope.metadata : {}
+  for (const key of Object.keys(resourceFieldValues)) delete resourceFieldValues[key]
+  for (const [key, value] of Object.entries(metadata)) if (typeof value === 'string') resourceFieldValues[key] = value
+  scopeDraft.metadataJson = JSON.stringify(metadata, null, 2)
 }
 
 function resetScopeDraft(): void {
   scopeDraft.endpoint = ''
   scopeDraft.metadataJson = '{}'
+  for (const key of Object.keys(resourceFieldValues)) delete resourceFieldValues[key]
 }
 
 function parseObjectJson(value: string): Record<string, unknown> {
@@ -332,7 +439,18 @@ function errorMessage(cause: unknown, fallback: string): string {
             <div><h3>{{ t('providers.wizard.panels.providerTitle') }}</h3><p>{{ t('providers.wizard.panels.providerDescription') }}</p></div>
             <span class="provider-wizard__state" :class="`is-${accountWizardState}`">{{ t(`providers.wizard.state.${accountWizardState}`) }}</span>
           </header>
-          <label class="provider-field provider-field--wide"><span>{{ t('providers.fields.provider') }}</span><input v-model="accountDraft.providerKey" required :readonly="isEditing" /></label>
+          <label class="provider-field provider-field--wide">
+            <span>{{ t('providers.fields.provider') }}</span>
+            <select v-model="accountDraft.providerKey" required :disabled="isEditing || cloudProvidersLoading">
+              <option value="" disabled>{{ t('providers.messages.providerRequired') }}</option>
+              <option v-for="provider in cloudProviders" :key="provider.pluginVersionId" :value="provider.pluginId" :disabled="!provider.available">
+                {{ provider.displayName }}<template v-if="!provider.available"> · {{ provider.unavailableReason }}</template>
+              </option>
+            </select>
+            <small v-if="selectedProviderDefinition">{{ selectedProviderDefinition.pluginId }}@{{ selectedProviderDefinition.pluginVersionId }}</small>
+            <small v-if="cloudProvidersError" class="provider-wizard__error">{{ cloudProvidersError }}</small>
+            <small v-else-if="!cloudProvidersLoading && cloudProviders.length === 0" class="provider-wizard__error">{{ t('providers.messages.providerUnavailable') }}</small>
+          </label>
           <p v-if="isEditing" class="provider-wizard__hint">{{ t('providers.messages.providerLocked') }}</p>
         </section>
 
@@ -352,6 +470,10 @@ function errorMessage(cause: unknown, fallback: string): string {
             <div class="provider-credential-select provider-field--wide">
               <GcCredentialSelect v-model="accountDraft.credentialRef" :label="t('providers.fields.credentialProfile')" :hint="t('providers.messages.credentialSelectHint')" :required="true" :accepted-kinds="credentialKinds" />
             </div>
+            <label v-for="field in providerFormFields" :key="field.key" class="provider-field">
+              <span>{{ providerLabel(selectedProviderDefinition, field.labelKey) }}</span>
+              <input v-model="resourceFieldValues[field.key]" :required="field.required" />
+            </label>
             <label class="provider-field provider-field--wide"><span>{{ t('providers.fields.endpoint') }}</span><input v-model="scopeDraft.endpoint" :placeholder="t('providers.placeholders.endpoint')" /></label>
             <label class="provider-field provider-field--wide"><span>{{ t('providers.fields.metadataJson') }}</span><textarea v-model="scopeDraft.metadataJson" /><small>{{ t('providers.messages.metadataHint') }}</small></label>
           </div>

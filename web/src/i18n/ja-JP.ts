@@ -493,12 +493,14 @@ export default {
       QUEUED: '{task}をキュー登録済み',
       RUNNING: '{task}を実行中',
       RETRY_WAITING: '{task}の再試行待ち',
+      WAITING_RESULT: '{task}の実行結果を待機中',
+      AWAITING_CONFIRMATION: '{task}の結果を確認待ち',
       CANCELLING: '{task}をキャンセル中',
       SUCCEEDED: '{task}が完了',
       FAILED: '{task}が失敗',
       CANCELLED: '{task}をキャンセル済み'
     },
-    status: { QUEUED: 'キュー待ち', RUNNING: '実行中', RETRY_WAITING: '再試行待ち', WAITING_APPROVAL: '承認待ち', CANCELLING: 'キャンセル中', SUCCEEDED: '成功', FAILED: '失敗', CANCELLED: 'キャンセル済み' }
+    status: { QUEUED: 'キュー待ち', RUNNING: '実行中', RETRY_WAITING: '再試行待ち', WAITING_RESULT: '実行結果待ち', AWAITING_CONFIRMATION: '結果確認待ち', WAITING_APPROVAL: '承認待ち', CANCELLING: 'キャンセル中', SUCCEEDED: '成功', FAILED: '失敗', CANCELLED: 'キャンセル済み' }
   },
   shell: {
     currentLocation: '現在位置',
@@ -740,9 +742,14 @@ export default {
       },
       skipped: 'ステップをスキップしました：{reason}',
       running: {
-        dispatched: 'Agent タスクを配信しました（{taskId}）。実行結果を待っています。',
-        waitingAgentResult: 'ステップを実行中です。Agent から結果が返るのを待っています…'
+        dispatched: 'Agent タスク（{taskId}）を配信しました。制御プレーンが結果を能動的に照会しています。',
+        waitingAgentResult: 'ステップを実行中です。制御プレーンが Agent の結果を能動的に照会しています…',
+        waitingExternalResult: 'ステップを実行中です。外部実行結果を待機しています…',
+        resultUnconfirmed: '書き込み結果の確認が必要です：{code}：{message}。このステップは自動再実行されません。'
       },
+      unknownResult: '書き込み結果が不明なため、自動再実行を停止しました。',
+      diagnosticsTitle: '詳細な検証ログ',
+      structuredDetail: '構造化された詳細を表示',
       pending: {
         waitingDependency: '前のステップが完了するまで待機しています。'
       },
@@ -814,6 +821,13 @@ export default {
     },
     provider: {
       target: 'ターゲット'
+    },
+    recovery: {
+      confirm: '証明書の状態を検証して続行',
+      running: '証明書の状態を検証中…',
+      confirmed: '対象証明書の有効化を確認しました。実行を続行します。',
+      failed: '証明書検証に失敗したため、実行を停止しました。',
+      pending: '対象証明書の状態を確認できません。後でもう一度お試しください。'
     }
   },
   executions: {
@@ -830,6 +844,11 @@ export default {
       viewDetail: '表示詳細',
       rollback: 'ロールバックを開始',
       rollbackRisk: 'ロールバックでは再度変更ターゲットサービス証明書設定、必ず確認バックアップ引用と影響範囲。'
+    },
+    messages: {
+      recoveryConfirmed: '対象証明書の状態を確認しました。実行を続行します。グローバルタスク一覧で進捗を確認してください。',
+      recoveryFailed: '証明書検証に失敗しました。詳細は実行ログに記録されています。',
+      recoveryPending: '対象証明書の状態はまだ確認できません。タスクは確認待ちのままです。後で再試行してください。'
     },
     columns: {
       name: '実行番号',
@@ -918,7 +937,8 @@ export default {
       noStepDetail: 'ステップ説明はまだありません',
       notStarted: '未開始',
       noSteps: 'ステップ。はまだありません',
-      noLogs: 'ログはまだありません。'
+      noLogs: 'ログはまだありません。',
+      unknownResultDescription: '元のインストール操作は再実行しません。読み取り専用の TLS 証明書フィンガープリント検証のみを実行します。'
     },
     tabs: {
       summary: '概要',
@@ -1018,7 +1038,6 @@ export default {
     unknownCatalogValue: '不明なカタログ値: {value}',
     frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: 'カスタムランタイム', runtime_custom: 'カスタムランタイム', adc_load_balancer: 'ADC ロードバランサー', cloud_aliyun_cdn: 'Alibaba Cloud CDN', cloud_aliyun_alb: 'Alibaba Cloud ALB', cloud_aliyun_clb: 'Alibaba Cloud CLB', cloud_aliyun_oss: 'Alibaba Cloud OSS', cloud_aliyun_waf_cname: 'Alibaba Cloud WAF CNAME', cloud_aliyun_waf_cloud: 'Alibaba Cloud WAF Cloud', cloud_aliyun_live: 'Alibaba Cloud Live', cloud_aliyun_vod: 'Alibaba Cloud VOD', cloud_tencent_cdn: 'Tencent Cloud CDN', cloud_tencent_clb: 'Tencent Cloud CLB', cloud_tencent_live: 'Tencent Cloud Live', cloud_huawei_cdn: 'Huawei Cloud CDN', cloud_huawei_elb: 'Huawei Cloud ELB', cloud_volcengine_cdn: 'Volcengine CDN', cloud_volcengine_alb: 'Volcengine ALB', cloud_volcengine_clb: 'Volcengine CLB', cloud_volcengine_live: 'Volcengine Live', cloud_volcengine_vod: 'Volcengine VOD' },
     runtimeTypes: { agent_atomic: 'Agent 原子実行', workflow_dsl: 'ワークフロー DSL' },
-    providerKeys: { cloud_aliyun: 'Alibaba Cloud', cloud_tencent: 'Tencent Cloud', cloud_huawei: 'Huawei Cloud', cloud_volcengine: 'Volcengine' },
     scopeTypes: { managed: '管理対象', standalone: 'スタンドアロン対象', both: '管理対象 / スタンドアロン' },
     supportTypes: { official: '公式サポート', community: 'コミュニティサポート', self_managed: '自己管理' },
     aria: { filters: 'プラグインマーケットのフィルター', list: 'DSL プラグイン一覧', logo: '{name} の Logo' },
@@ -2380,6 +2399,7 @@ export default {
       errors: {
         loadObjectTreeFailed: 'オブジェクトツリーの読み込みに失敗しました',
         loadDataFailed: '権限管理データの読み込みに失敗しました',
+        invalidBusinessScope: '対応する業務権限範囲が見つかりません。',
         missingRoleId: 'ロール ID を取得していません',
         createRoleFailed: 'ロールの作成に失敗しました',
         grantRoleFailed: '付与ロール権限に失敗しました',
@@ -3956,7 +3976,8 @@ export default {
         variable: '変数'
       },
       errors: {
-        unknownNodeType: '不明なノードタイプ：{type}'
+        unknownNodeType: '不明なノードタイプ：{type}',
+        missingWorkflowDsl: 'ワークフロー DSL を取得できませんでした'
       }
     },
     canvasEditor: {

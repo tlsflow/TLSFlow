@@ -57,6 +57,7 @@ export const skeletonPermissions = [
   'security.identity_source.read',
   'security.identity_source.write',
   'deployment.plan.execute',
+  'execution.run.recover',
   'execution.rollback',
   'plugin.manage'
 ] as const

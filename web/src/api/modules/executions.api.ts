@@ -47,6 +47,13 @@ export function cancelExecution(runId: string, payload: ApiBody = {}) {
   return postAction(`${EXECUTION_RUNS_PATH}/cancel`, { ...payload, runId }, 'execution_cancel')
 }
 
+export function recoverExecution(runId: string, stepId?: string) {
+  return postAction(`${EXECUTION_RUNS_PATH}/recover`, {
+    runId,
+    ...(stepId ? { stepId } : {}),
+  }, 'execution_recover')
+}
+
 export interface ExecutionDetailStreamSnapshot {
   readonly run?: ApiRecord
   readonly steps?: readonly ApiRecord[]

@@ -488,12 +488,14 @@ export default {
       QUEUED: '{task}已入队',
       RUNNING: '{task}执行中',
       RETRY_WAITING: '{task}等待重试',
+      WAITING_RESULT: '{task}等待执行结果',
+      AWAITING_CONFIRMATION: '{task}结果待确认',
       CANCELLING: '{task}取消中',
       SUCCEEDED: '已完成{task}',
       FAILED: '{task}执行失败',
       CANCELLED: '{task}已取消'
     },
-    status: { QUEUED: '排队中', RUNNING: '执行中', RETRY_WAITING: '等待重试', WAITING_APPROVAL: '等待审批', CANCELLING: '取消中', SUCCEEDED: '成功', FAILED: '失败', CANCELLED: '已取消' }
+    status: { QUEUED: '排队中', RUNNING: '执行中', RETRY_WAITING: '等待重试', WAITING_RESULT: '等待结果', AWAITING_CONFIRMATION: '结果待确认', WAITING_APPROVAL: '等待审批', CANCELLING: '取消中', SUCCEEDED: '成功', FAILED: '失败', CANCELLED: '已取消' }
   },
   shell: {
     currentLocation: '当前位置',
@@ -735,9 +737,14 @@ export default {
       },
       skipped: '步骤已跳过：{reason}',
       running: {
-        dispatched: 'Agent 任务已下发（{taskId}），等待执行结果。',
-        waitingAgentResult: '步骤执行中，等待 Agent 返回结果…'
+        dispatched: 'Agent 任务已下发（{taskId}），控制面正在主动查询结果。',
+        waitingAgentResult: '步骤执行中，控制面正在主动查询 Agent 结果…',
+        waitingExternalResult: '步骤执行中，等待外部执行结果…',
+        resultUnconfirmed: '写入结果待确认：{code}：{message}。系统不会自动重放此步骤。'
       },
+      unknownResult: '写入结果未知，已暂停自动重放。',
+      diagnosticsTitle: '详细核验日志',
+      structuredDetail: '查看结构化详情',
       pending: {
         waitingDependency: '步骤等待前置步骤完成。'
       },
@@ -809,6 +816,13 @@ export default {
     },
     provider: {
       target: '目标'
+    },
+    recovery: {
+      confirm: '核验证书状态并继续',
+      running: '正在核验证书状态…',
+      confirmed: '已确认目标证书生效，执行将继续。',
+      failed: '证书状态核验未通过，执行已停止。',
+      pending: '暂时无法确认目标证书状态，请稍后重试。'
     }
   },
   executions: {
@@ -825,6 +839,11 @@ export default {
       viewDetail: '查看详情',
       rollback: '发起回滚',
       rollbackRisk: '回滚会再次改动目标服务证书配置，必须确认备份引用和影响范围。'
+    },
+    messages: {
+      recoveryConfirmed: '已确认目标证书状态，执行将继续；请在全局任务列表查看进度。',
+      recoveryFailed: '证书状态核验未通过，详细原因已记录在执行日志中。',
+      recoveryPending: '暂时无法确认目标证书状态，任务保持待确认；请稍后重试。'
     },
     columns: {
       name: '执行编号',
@@ -913,7 +932,8 @@ export default {
       noStepDetail: '暂无步骤说明',
       notStarted: '未开始',
       noSteps: '暂无步骤。',
-      noLogs: '暂无日志。'
+      noLogs: '暂无日志。',
+      unknownResultDescription: '系统不会重放原始安装操作，只会进行只读 TLS 证书指纹核验。'
     },
     tabs: {
       summary: '概览',
@@ -1060,7 +1080,6 @@ export default {
     unknownCatalogValue: '未知目录值：{value}',
     frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: '自定义运行环境', runtime_custom: '自定义运行时', adc_load_balancer: 'ADC 负载均衡', cloud_aliyun_cdn: '阿里云 CDN', cloud_aliyun_alb: '阿里云 ALB', cloud_aliyun_clb: '阿里云 CLB', cloud_aliyun_oss: '阿里云 OSS', cloud_aliyun_waf_cname: '阿里云 WAF CNAME', cloud_aliyun_waf_cloud: '阿里云 WAF 云产品', cloud_aliyun_live: '阿里云 Live', cloud_aliyun_vod: '阿里云 VOD', cloud_tencent_cdn: '腾讯云 CDN', cloud_tencent_clb: '腾讯云 CLB', cloud_tencent_live: '腾讯云直播', cloud_huawei_cdn: '华为云 CDN', cloud_huawei_elb: '华为云 ELB', cloud_volcengine_cdn: '火山引擎 CDN', cloud_volcengine_alb: '火山引擎 ALB', cloud_volcengine_clb: '火山引擎 CLB', cloud_volcengine_live: '火山引擎直播', cloud_volcengine_vod: '火山引擎 VOD' },
     runtimeTypes: { agent_atomic: 'Agent 原子执行', workflow_dsl: '工作流 DSL' },
-    providerKeys: { cloud_aliyun: '阿里云', cloud_tencent: '腾讯云', cloud_huawei: '华为云', cloud_volcengine: '火山引擎' },
     scopeTypes: { managed: '受管目标', standalone: '独立目标', both: '受管 / 独立' },
     supportTypes: { official: '官方支持', community: '社区支持', self_managed: '自行维护' },
     aria: {
@@ -2499,6 +2518,7 @@ export default {
       errors: {
         loadObjectTreeFailed: '加载对象树失败',
         loadDataFailed: '加载权限管理数据失败',
+        invalidBusinessScope: '未找到对应的业务权限范围。',
         missingRoleId: '未获取到角色 ID',
         createRoleFailed: '创建角色失败',
         grantRoleFailed: '授予角色权限失败',
@@ -4115,7 +4135,8 @@ export default {
         variable: '变量'
       },
       errors: {
-        unknownNodeType: '未知节点类型：{type}'
+        unknownNodeType: '未知节点类型：{type}',
+        missingWorkflowDsl: '未能获取到工作流 DSL'
       }
     },
     canvasEditor: {

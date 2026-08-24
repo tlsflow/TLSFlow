@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, toRaw } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type {
   DeploymentArtifactOption,
@@ -105,7 +105,7 @@ function connectionValue(slot: string, path: string, item: DeploymentInputFieldP
 
 function updateConnection(slot: string, path: string, item: DeploymentInputFieldProjectionV1, value: unknown): void {
   if (!isEditable(item)) return
-  const current = structuredClone(model.value.connections[slot] ?? {}) as Record<string, unknown>
+  const current = structuredClone(toRaw(model.value.connections[slot] ?? {})) as Record<string, unknown>
   writePath(current, path, value === '' ? undefined : normalizeFieldValue(item.type, value))
   const connections = { ...model.value.connections }
   if (hasValues(current)) connections[slot] = current

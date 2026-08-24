@@ -36,12 +36,13 @@ describe('权限 Store', () => {
       '/settings/roles',
       '/settings/credentials',
       '/settings/notifications',
+      '/settings/deployment-tasks',
       '/settings/licensing',
       '/settings/identity-sources'
     ])
     expect(settings?.children?.map((item) => item.path)).not.toContain('/settings/version')
     expect(settings?.children?.map((item) => item.path)).not.toContain('/settings/tenant-architecture')
-    expect(settings?.activePaths).toEqual(['/settings/tenant-architecture', '/settings/version'])
+    expect(settings?.activePaths).toEqual(['/settings/tenant-architecture', '/settings/version', '/settings/deployment-tasks'])
     const monitoring = store.visibleMenuItems.find((item) => item.path === '/monitors')
     expect(monitoring?.children).toBeUndefined()
     expect(store.visibleMenuItems.find((item) => item.path === '/audits')).toBeTruthy()

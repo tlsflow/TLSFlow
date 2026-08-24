@@ -492,12 +492,14 @@ export default {
       QUEUED: "{task}已入列",
       RUNNING: "{task}執行中",
       RETRY_WAITING: "{task}等待重試",
+      WAITING_RESULT: "{task}等待執行結果",
+      AWAITING_CONFIRMATION: "{task}結果待確認",
       CANCELLING: "{task}取消中",
       SUCCEEDED: "已完成{task}",
       FAILED: "{task}執行失敗",
       CANCELLED: "{task}已取消"
     },
-    status: { QUEUED: "排隊中", RUNNING: "執行中", RETRY_WAITING: "等待重試", WAITING_APPROVAL: "等待審核", CANCELLING: "取消中", SUCCEEDED: "成功", FAILED: "失敗", CANCELLED: "已取消" }
+    status: { QUEUED: "排隊中", RUNNING: "執行中", RETRY_WAITING: "等待重試", WAITING_RESULT: "等待結果", AWAITING_CONFIRMATION: "結果待確認", WAITING_APPROVAL: "等待審核", CANCELLING: "取消中", SUCCEEDED: "成功", FAILED: "失敗", CANCELLED: "已取消" }
   },
   shell: {
     currentLocation: "目前位置",
@@ -739,8 +741,10 @@ export default {
       },
       skipped: "步驟已跳過：{reason}",
       running: {
-        dispatched: "Agent 任務已下發（{taskId}），等待執行結果。",
-        waitingAgentResult: "步驟執行中，等待 Agent 返回結果…"
+        dispatched: "Agent 任務已下發（{taskId}），控制面正在主動查詢結果。",
+        waitingAgentResult: "步驟執行中，控制面正在主動查詢 Agent 結果…",
+        waitingExternalResult: "步驟執行中，等待外部執行結果…",
+        resultUnconfirmed: "寫入結果待確認：{code}：{message}。系統不會自動重放此步驟。"
       },
       pending: {
         waitingDependency: "步驟等待前置步驟完成。"
@@ -749,6 +753,9 @@ export default {
         detail: "Agent 側遠端 TLS 探測失敗，但系統已對 {remoteTarget} 完成真實 TLS 驗證並確認目標憑證匹配。{originalError}",
         originalSuffix: "原始 Agent 錯誤：{originalError}"
       },
+      unknownResult: "寫入結果未知，已暫停自動重放。",
+      diagnosticsTitle: "詳細核驗記錄",
+      structuredDetail: "檢視結構化詳情",
       resultReturned: {
         withTask: "{executor} {mode} 已返回。Agent taskId={taskId}",
         withoutTask: "{executor} {mode} 已返回。"
@@ -813,6 +820,13 @@ export default {
     },
     provider: {
       target: "目標"
+    },
+    recovery: {
+      confirm: "核驗憑證狀態並繼續",
+      running: "正在核驗憑證狀態…",
+      confirmed: "已確認目標憑證生效，執行將繼續。",
+      failed: "憑證狀態核驗未通過，執行已停止。",
+      pending: "暫時無法確認目標憑證狀態，請稍後重試。"
     }
   },
   executions: {
@@ -829,6 +843,11 @@ export default {
       viewDetail: "檢視詳情",
       rollback: "啟動復原",
       rollbackRisk: "復原會再次改動目標服務憑證設定，必須確認備份引用和影響範圍。"
+    },
+    messages: {
+      recoveryConfirmed: "已確認目標憑證狀態，執行將繼續；請在全域任務列表檢視進度。",
+      recoveryFailed: "憑證狀態核驗未通過，詳細原因已記錄在執行記錄中。",
+      recoveryPending: "暫時無法確認目標憑證狀態，任務保持待確認；請稍後重試。"
     },
     columns: {
       name: "執行編號",
@@ -917,7 +936,8 @@ export default {
       noStepDetail: "暫無步驟說明",
       notStarted: "未開始",
       noSteps: "暫無步驟。",
-      noLogs: "暫無記錄。"
+      noLogs: "暫無記錄。",
+      unknownResultDescription: "系統不會重放原始安裝操作，只會進行唯讀 TLS 憑證指紋核驗。"
     },
     tabs: {
       summary: "概覽",
@@ -1017,7 +1037,6 @@ export default {
     unknownCatalogValue: "未知目錄值：{value}",
     frameworkTypes: { web_iis: "IIS", web_nginx: "NGINX", web_apache: "Apache", app_tomcat: "Tomcat", custom_runtime: "自訂執行環境", runtime_custom: "自訂執行環境", adc_load_balancer: "ADC 負載平衡", cloud_aliyun_cdn: "阿里雲 CDN", cloud_aliyun_alb: "阿里雲 ALB", cloud_aliyun_clb: "阿里雲 CLB", cloud_aliyun_oss: "阿里雲 OSS", cloud_aliyun_waf_cname: "阿里雲 WAF CNAME", cloud_aliyun_waf_cloud: "阿里雲 WAF 雲產品", cloud_aliyun_live: "阿里雲 Live", cloud_aliyun_vod: "阿里雲 VOD", cloud_tencent_cdn: "騰訊雲 CDN", cloud_tencent_clb: "騰訊雲 CLB", cloud_tencent_live: "騰訊雲直播", cloud_huawei_cdn: "華為雲 CDN", cloud_huawei_elb: "華為雲 ELB", cloud_volcengine_cdn: "火山引擎 CDN", cloud_volcengine_alb: "火山引擎 ALB", cloud_volcengine_clb: "火山引擎 CLB", cloud_volcengine_live: "火山引擎直播", cloud_volcengine_vod: "火山引擎 VOD" },
     runtimeTypes: { agent_atomic: "Agent 原子執行", workflow_dsl: "工作流 DSL" },
-    providerKeys: { cloud_aliyun: "阿里雲", cloud_tencent: "騰訊雲", cloud_huawei: "華為雲", cloud_volcengine: "火山引擎" },
     scopeTypes: { managed: "受管目標", standalone: "獨立目標", both: "受管 / 獨立" },
     supportTypes: { official: "官方支援", community: "社群支援", self_managed: "自行維護" },
     aria: { filters: "外掛市場篩選條件", list: "DSL 外掛清單", logo: "{name} 的 Logo" },
@@ -2379,6 +2398,7 @@ export default {
       errors: {
         loadObjectTreeFailed: "載入物件樹失敗",
         loadDataFailed: "載入權限管理資料失敗",
+        invalidBusinessScope: "找不到對應的業務權限範圍。",
         missingRoleId: "未取得角色 ID",
         createRoleFailed: "建立角色失敗",
         grantRoleFailed: "授予角色權限失敗",
@@ -3955,7 +3975,8 @@ export default {
         variable: "變數"
       },
       errors: {
-        unknownNodeType: "未知節點型別：{type}"
+        unknownNodeType: "未知節點型別：{type}",
+        missingWorkflowDsl: "未能取得工作流 DSL"
       }
     },
     canvasEditor: {

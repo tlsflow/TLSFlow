@@ -21,6 +21,17 @@ export interface ExecutionDryRunSummary {
   readonly unknown: number
 }
 
+export interface ExecutionDetailDiagnostic {
+  readonly label: string
+  readonly value: string
+}
+
+export interface ExecutionDetailStep extends ExecutionStepLine {
+  readonly unknownResult: boolean
+  readonly diagnostics?: readonly ExecutionDetailDiagnostic[]
+  readonly structuredDetail?: string
+}
+
 type DryRunStatus = 'passed' | 'failed' | 'warning' | 'unknown'
 type ExecutionDetailText = (key: ExecutionDetailI18nKey, params?: I18nParams) => string
 
@@ -66,6 +77,11 @@ const EXECUTION_DETAIL_I18N_KEYS = [
   'executionDetail.agent.taskSuffix',
   'executionDetail.step.running.dispatched',
   'executionDetail.step.running.waitingAgentResult',
+  'executionDetail.step.running.waitingExternalResult',
+  'executionDetail.step.running.resultUnconfirmed',
+  'executionDetail.step.unknownResult',
+  'executionDetail.step.diagnosticsTitle',
+  'executionDetail.step.structuredDetail',
   'executionDetail.step.pending.waitingDependency',
   'executionDetail.step.verifyRecovered.detail',
   'executionDetail.step.verifyRecovered.originalSuffix',
@@ -80,6 +96,11 @@ const EXECUTION_DETAIL_I18N_KEYS = [
   'executionDetail.binding.hostMissing',
   'executionDetail.site.unnamed',
   'executionDetail.provider.target',
+  'executionDetail.recovery.confirm',
+  'executionDetail.recovery.running',
+  'executionDetail.recovery.confirmed',
+  'executionDetail.recovery.failed',
+  'executionDetail.recovery.pending',
 ] as const
 
 type ExecutionDetailI18nKey = typeof EXECUTION_DETAIL_I18N_KEYS[number]
@@ -92,7 +113,7 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
   const text = createExecutionDetailText(options.t)
   const loading = ref(false)
   const requestId = ref('')
-  const steps = ref<ExecutionStepLine[]>([])
+  const steps = ref<ExecutionDetailStep[]>([])
   const lines = ref<ExecutionLogLine[]>([])
   const error = ref('')
   const dryRunSummary = ref<ExecutionDryRunSummary | null>(null)
@@ -168,16 +189,23 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
   function recomputeView() {
     const displayItems = stepRecords.value
     const logItems = expandWorkflowStepRecords(displayItems)
-    steps.value = displayItems.map((record, index) => ({
-      id: readString(record, ['id', 'stepId'], `${runId.value}-step-${index + 1}`),
-      name: readString(record, ['name', 'stepName'], text('executionDetail.step.nameFallback', { index: index + 1 })),
-      stepType: readString(record, ['stepType', 'type'], ''),
-      status: readString(record, ['status', 'state', 'result'], 'UNKNOWN'),
-      detail: buildStepDetail(record, index, text),
-      startedAt: formatStepRange(record, 'start'),
-      finishedAt: formatStepRange(record, 'end'),
-      requestId: readString(record, ['requestId'], ''),
-    }))
+    steps.value = displayItems.map((record, index) => {
+      const unknownResult = hasUnknownExecutionResult(record)
+      const diagnostics = buildStepDiagnostics(record)
+      return {
+        id: readString(record, ['id', 'stepId'], `${runId.value}-step-${index + 1}`),
+        name: readString(record, ['name', 'stepName'], text('executionDetail.step.nameFallback', { index: index + 1 })),
+        stepType: readString(record, ['stepType', 'type'], ''),
+        status: readString(record, ['status', 'state', 'result'], 'UNKNOWN'),
+        detail: buildStepDetail(record, index, text),
+        startedAt: formatStepRange(record, 'start'),
+        finishedAt: formatStepRange(record, 'end'),
+        requestId: readString(record, ['requestId'], ''),
+        unknownResult,
+        diagnostics,
+        structuredDetail: diagnostics.length > 0 ? JSON.stringify(buildStructuredDetail(record), null, 2) : undefined,
+      }
+    })
     setLogLines(logItems.flatMap((record, index) => buildLogLines(record, index, agentLogsByTaskId.value.get(readDispatchTaskId(record)) ?? [], text)))
     dryRunSummary.value = summarizeDryRun(logItems, text, true)
     dryRunChecks.value = collectDryRunChecks(logItems, true)
@@ -371,10 +399,61 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
     error,
     dryRunSummary,
     dryRunChecks,
+    hasUnknownResult: computed(() => steps.value.some((step) => step.unknownResult)),
     runStatus: effectiveRunStatus,
     isPolling: polling.isPolling,
     isStreaming,
     reload: load,
+  }
+}
+
+function hasUnknownExecutionResult(record: Record<string, unknown>): boolean {
+  const resultDetail = readObject(record, 'inputSnapshot.resultDetail')
+  const status = readString(record, ['status', 'state', 'result'], '').toUpperCase()
+  const executionStatus = readString(resultDetail ?? {}, ['executionStatus'], '').toUpperCase()
+  return status === 'RUNNING' && (executionStatus === 'UNKNOWN'
+    || readPath(resultDetail ?? {}, 'mayBeUnknown') === true
+    || readString(record, ['lastErrorCode'], '') === 'PLUGIN_OPERATION_UNKNOWN_STATE')
+}
+
+function buildStepDiagnostics(record: Record<string, unknown>): ExecutionDetailDiagnostic[] {
+  const detail = buildStructuredDetail(record)
+  return Object.entries(detail)
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .map(([label, value]) => ({
+      label,
+      value: formatDiagnosticValue(value),
+    }))
+}
+
+function buildStructuredDetail(record: Record<string, unknown>): Record<string, unknown> {
+  const resultDetail = readObject(record, 'inputSnapshot.resultDetail') ?? {}
+  const errorDetails = readObject(record, 'lastErrorDetails')
+  const certificateVerification = readObject(resultDetail, 'certificateVerification')
+  const recovery = readObject(resultDetail, 'recovery')
+  const recoveryHistory = readArray(resultDetail, 'recoveryHistory')
+  const failure = readObject(resultDetail, 'failure')
+  const detail: Record<string, unknown> = {
+    errorCode: readString(record, ['lastErrorCode'], '') || readString(resultDetail, ['errorCode'], ''),
+    errorMessage: readString(record, ['lastErrorMessage'], '') || readString(resultDetail, ['errorMessage', 'message'], ''),
+    executionStatus: readString(resultDetail, ['executionStatus'], ''),
+    unknownReason: readString(resultDetail, ['unknownReason'], ''),
+    failure,
+    certificateVerification,
+    recovery,
+    recoveryHistory: recoveryHistory.length > 0 ? recoveryHistory : undefined,
+    errorDetails,
+  }
+  return Object.fromEntries(Object.entries(detail).filter(([, value]) => value !== undefined && value !== null && value !== ''))
+}
+
+function formatDiagnosticValue(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
   }
 }
 
@@ -392,7 +471,13 @@ async function loadAgentLogsByTaskId(items: readonly ApiRecord[]): Promise<Map<s
 }
 
 function readDispatchTaskId(record: Record<string, unknown>): string {
-  return readString(record, ['inputSnapshot.dispatchDetail.taskId', 'inputSnapshot.resultDetail.taskId', 'inputSnapshot.resultDetail.failure.taskId'], '')
+  return readString(record, [
+    'inputSnapshot.dispatchDetail.taskId',
+    'inputSnapshot.dispatchDetail.agentTaskId',
+    'inputSnapshot.resultDetail.taskId',
+    'inputSnapshot.resultDetail.agentTaskId',
+    'inputSnapshot.resultDetail.failure.taskId',
+  ], '')
 }
 
 function stepRecordId(record: Record<string, unknown>): string {
@@ -576,13 +661,16 @@ function buildStepDetail(record: Record<string, unknown>, index: number, text: E
   const resultErrorCode = readString(resultDetail ?? {}, ['errorCode'], '')
   const resultErrorMessage = readString(resultDetail ?? {}, ['errorMessage', 'message', 'detail', 'summary'], '')
   const failureMessage = readString(failureDetail ?? {}, ['errorMessage', 'message'], '')
-  const taskId = readString(dispatchDetail ?? {}, ['taskId'], '') || readString(resultDetail ?? {}, ['taskId'], '')
+  const taskId = readString(dispatchDetail ?? {}, ['taskId', 'agentTaskId'], '')
+    || readString(resultDetail ?? {}, ['taskId', 'agentTaskId'], '')
   const siteName = readPath(record, 'inputSnapshot.siteName')
   const verifyUrl = readString(record, ['inputSnapshot.verifyUrl'], '')
   const bindingSelector = readObject(record, 'inputSnapshot.bindingSelector')
   const hostHeader = readPath(bindingSelector ?? {}, 'hostHeader')
   const port = readPath(bindingSelector ?? {}, 'port')
   const providerLabel = inferProviderLabel(record, text)
+  const persistedExecutionStatus = readString(lastErrorDetails ?? {}, ['executionStatus'], '')
+    || readString(resultDetail ?? {}, ['executionStatus'], '')
 
   if (dryRunChecks.length > 0) {
     const passed = readCount(dryRunSummary, 'passed')
@@ -638,9 +726,16 @@ function buildStepDetail(record: Record<string, unknown>, index: number, text: E
   }
 
   if (stepStatus === 'RUNNING') {
+    if (persistedExecutionStatus.toUpperCase() === 'UNKNOWN') {
+      const code = lastErrorCode || resultErrorCode || 'EXECUTION_RESULT_UNCONFIRMED'
+      const message = lastErrorMessage || resultErrorMessage || failureMessage || text('executionDetail.step.failure.emptyMessage')
+      return text('executionDetail.step.running.resultUnconfirmed', { code, message })
+    }
     return taskId
       ? text('executionDetail.step.running.dispatched', { taskId })
-      : text('executionDetail.step.running.waitingAgentResult')
+      : readString(record, ['inputSnapshot.executorType'], '').toUpperCase() === 'AGENT'
+        ? text('executionDetail.step.running.waitingAgentResult')
+        : text('executionDetail.step.running.waitingExternalResult')
   }
 
   if (stepStatus === 'PENDING') {
@@ -745,7 +840,16 @@ function buildLogLines(record: Record<string, unknown>, index: number, agentLogs
     message: text('executionDetail.log.verifyRecovered'),
     requestId: readString(record, ['requestId'], ''),
   }] : []
-  return [baseLine, ...recoveryLine, ...agentLines]
+  const structuredDetail = buildStructuredDetail(record)
+  const structuredLine = Object.keys(structuredDetail).length > 0 ? [{
+    id: `line-${baseId}-structured-detail`,
+    time: baseTime,
+    level: hasUnknownExecutionResult(record) || Boolean(readString(record, ['lastErrorCode', 'lastErrorMessage'], '')) ? 'error' as const : 'info' as const,
+    step: baseStep,
+    message: `${text('executionDetail.step.structuredDetail')}: ${JSON.stringify(structuredDetail)}`,
+    requestId: readString(record, ['requestId'], ''),
+  }] : []
+  return [baseLine, ...structuredLine, ...recoveryLine, ...agentLines]
 }
 
 function buildAgentLogLine(

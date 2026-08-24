@@ -424,7 +424,8 @@ function matchesTaskKeyword(task: TaskRun, keywordValue: string): boolean {
 function statusTone(status: TaskStatus): 'success' | 'warning' | 'danger' | 'info' | 'muted' {
   if (status === 'SUCCEEDED') return 'success'
   if (['FAILED', 'CANCELLED'].includes(status)) return 'danger'
-  if (['RUNNING', 'CANCELLING'].includes(status)) return 'info'
+  if (['RUNNING', 'WAITING_RESULT', 'CANCELLING'].includes(status)) return 'info'
+  if (status === 'AWAITING_CONFIRMATION') return 'warning'
   if (status === 'RETRY_WAITING') return 'warning'
   return 'muted'
 }
@@ -569,6 +570,8 @@ function taskProgressPercent(task: TaskRun): number {
   if (task.status === 'SUCCEEDED') return 100
   if (task.status === 'FAILED' || task.status === 'CANCELLED') return 100
   if (task.status === 'RUNNING') return 35
+  if (task.status === 'WAITING_RESULT') return 50
+  if (task.status === 'AWAITING_CONFIRMATION') return 50
   return 0
 }
 
@@ -593,7 +596,7 @@ function taskNeedsApproval(task: TaskRun | null | undefined): boolean {
 }
 
 function canForceCancel(task: TaskRun | null | undefined): boolean {
-  return Boolean(task && ['QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING'].includes(task.status))
+  return Boolean(task && ['QUEUED', 'RUNNING', 'RETRY_WAITING', 'WAITING_RESULT', 'AWAITING_CONFIRMATION', 'CANCELLING'].includes(task.status))
 }
 
 function requestForceEndTask(task: TaskRun | null | undefined): void {

@@ -493,12 +493,14 @@ export default {
       QUEUED: '{task} entrou na fila',
       RUNNING: '{task} em execução',
       RETRY_WAITING: 'Nova tentativa pendente para {task}',
+      WAITING_RESULT: 'Aguardando o resultado de {task}',
+      AWAITING_CONFIRMATION: 'O resultado de {task} requer confirmação',
       CANCELLING: 'Cancelando {task}',
       SUCCEEDED: '{task} concluída',
       FAILED: '{task} falhou',
       CANCELLED: '{task} cancelada'
     },
-    status: { QUEUED: 'Na fila', RUNNING: 'Em execução', RETRY_WAITING: 'Aguardando nova tentativa', WAITING_APPROVAL: 'Aguardando aprovação', CANCELLING: 'Cancelando', SUCCEEDED: 'Concluída', FAILED: 'Falhou', CANCELLED: 'Cancelada' }
+    status: { QUEUED: 'Na fila', RUNNING: 'Em execução', RETRY_WAITING: 'Aguardando nova tentativa', WAITING_RESULT: 'Aguardando resultado', AWAITING_CONFIRMATION: 'Resultado requer confirmação', WAITING_APPROVAL: 'Aguardando aprovação', CANCELLING: 'Cancelando', SUCCEEDED: 'Concluída', FAILED: 'Falhou', CANCELLED: 'Cancelada' }
   },
   shell: {
     currentLocation: 'Localização atual',
@@ -740,8 +742,10 @@ export default {
       },
       skipped: 'Etapa ignorada: {reason}',
       running: {
-        dispatched: 'Tarefa do Agent enviada ({taskId}); aguardando o resultado da execução.',
-        waitingAgentResult: 'Etapa em execução; aguardando o Agent retornar o resultado…'
+        dispatched: 'Tarefa do Agent enviada ({taskId}); o plano de controle está consultando ativamente o resultado.',
+        waitingAgentResult: 'Etapa em execução; o plano de controle está consultando ativamente o resultado do Agent…',
+        waitingExternalResult: 'Etapa em execução; aguardando o resultado da execução externa…',
+        resultUnconfirmed: 'O resultado da escrita requer confirmação: {code}: {message}. Esta etapa não será repetida automaticamente.'
       },
       pending: {
         waitingDependency: 'A etapa aguarda a conclusão das etapas anteriores.'
@@ -750,6 +754,9 @@ export default {
         detail: 'A sondagem TLS remota no lado do Agent falhou, mas o sistema concluiu a verificação TLS real de {remoteTarget} e confirmou que o certificado de destino corresponde. {originalError}',
         originalSuffix: 'Erro original do Agent: {originalError}'
       },
+      unknownResult: 'O resultado da gravação é desconhecido; a repetição automática foi pausada.',
+      diagnosticsTitle: 'Log detalhado de verificação',
+      structuredDetail: 'Ver detalhes estruturados',
       resultReturned: {
         withTask: '{executor} {mode} retornou. Agent taskId={taskId}',
         withoutTask: '{executor} {mode} retornou.'
@@ -814,6 +821,13 @@ export default {
     },
     provider: {
       target: 'Alvo'
+    },
+    recovery: {
+      confirm: 'Verificar o estado do certificado e continuar',
+      running: 'Verificando o estado do certificado…',
+      confirmed: 'O certificado de destino foi confirmado; a execução continuará.',
+      failed: 'A verificação do certificado falhou; a execução foi interrompida.',
+      pending: 'O estado do certificado de destino ainda não foi confirmado. Tente novamente mais tarde.'
     }
   },
   executions: {
@@ -830,6 +844,11 @@ export default {
       viewDetail: 'Ver detalhes',
       rollback: 'Iniciar rollback',
       rollbackRisk: 'O rollback alterará novamente a configuração do certificado no serviço de destino; confirme primeiro as referências de backup e o escopo de impacto.'
+    },
+    messages: {
+      recoveryConfirmed: 'O estado do certificado de destino foi confirmado; a execução continuará. Acompanhe o progresso na lista global de tarefas.',
+      recoveryFailed: 'A verificação do certificado falhou. Os detalhes foram registrados no log de execução.',
+      recoveryPending: 'O estado do certificado de destino ainda não foi confirmado. A tarefa aguarda confirmação; tente novamente mais tarde.'
     },
     columns: {
       name: 'Identificador da execução',
@@ -892,7 +911,8 @@ export default {
       noStepDetail: 'Nenhum detalhe da etapa',
       notStarted: 'Não iniciado',
       noSteps: 'Nenhuma etapa.',
-      noLogs: 'Nenhum log.'
+      noLogs: 'Nenhum log.',
+      unknownResultDescription: 'A operação de instalação original não será repetida. Apenas uma verificação somente leitura da impressão digital do certificado TLS será executada.'
     },
     tabs: {
       summary: 'Visão geral',
@@ -992,7 +1012,6 @@ export default {
     unknownCatalogValue: 'Valor de catálogo desconhecido: {value}',
     frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: 'Runtime personalizado', runtime_custom: 'Runtime personalizado', adc_load_balancer: 'Balanceador ADC', cloud_aliyun_cdn: 'Alibaba Cloud CDN', cloud_aliyun_alb: 'Alibaba Cloud ALB', cloud_aliyun_clb: 'Alibaba Cloud CLB', cloud_aliyun_oss: 'Alibaba Cloud OSS', cloud_aliyun_waf_cname: 'Alibaba Cloud WAF CNAME', cloud_aliyun_waf_cloud: 'Alibaba Cloud WAF Cloud', cloud_aliyun_live: 'Alibaba Cloud Live', cloud_aliyun_vod: 'Alibaba Cloud VOD', cloud_tencent_cdn: 'Tencent Cloud CDN', cloud_tencent_clb: 'Tencent Cloud CLB', cloud_tencent_live: 'Tencent Cloud Live', cloud_huawei_cdn: 'Huawei Cloud CDN', cloud_huawei_elb: 'Huawei Cloud ELB', cloud_volcengine_cdn: 'Volcengine CDN', cloud_volcengine_alb: 'Volcengine ALB', cloud_volcengine_clb: 'Volcengine CLB', cloud_volcengine_live: 'Volcengine Live', cloud_volcengine_vod: 'Volcengine VOD' },
     runtimeTypes: { agent_atomic: 'Execução atômica do Agent', workflow_dsl: 'Workflow DSL' },
-    providerKeys: { cloud_aliyun: 'Alibaba Cloud', cloud_tencent: 'Tencent Cloud', cloud_huawei: 'Huawei Cloud', cloud_volcengine: 'Volcengine' },
     scopeTypes: { managed: 'Alvo gerenciado', standalone: 'Alvo independente', both: 'Gerenciado / independente' },
     supportTypes: { official: 'Suporte oficial', community: 'Suporte da comunidade', self_managed: 'Auto gerenciado' },
     aria: { filters: 'Filtros do mercado de plugins', list: 'Lista de plugins DSL', logo: 'Logo de {name}' },
@@ -2354,6 +2373,7 @@ export default {
       errors: {
         loadObjectTreeFailed: 'Falha ao carregar a árvore de objetos',
         loadDataFailed: 'Falha ao carregar dados de gerenciamento de permissões',
+        invalidBusinessScope: 'O escopo de permissão de negócio correspondente não foi encontrado.',
         missingRoleId: 'ID da função não recebido',
         createRoleFailed: 'Falha ao criar função',
         grantRoleFailed: 'Falha ao conceder permissões à função',
@@ -3943,7 +3963,8 @@ export default {
         variable: 'Variável'
       },
       errors: {
-        unknownNodeType: 'Tipo de nó desconhecido: {type}'
+        unknownNodeType: 'Tipo de nó desconhecido: {type}',
+        missingWorkflowDsl: 'O backend não retornou o DSL do workflow'
       }
     },
     canvasEditor: {

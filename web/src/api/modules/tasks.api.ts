@@ -2,7 +2,7 @@ import { apiClient } from '@/api/client'
 import { buildListPath, toClientPath, type BusinessListQuery } from './common'
 
 export type TaskCategory = 'EXECUTION' | 'MONITORING' | 'SYSTEM'
-export type TaskStatus = 'QUEUED' | 'RUNNING' | 'RETRY_WAITING' | 'CANCELLING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'
+export type TaskStatus = 'QUEUED' | 'RUNNING' | 'RETRY_WAITING' | 'WAITING_RESULT' | 'AWAITING_CONFIRMATION' | 'CANCELLING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'
 
 export interface TaskRun {
   readonly id: string

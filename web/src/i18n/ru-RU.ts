@@ -493,12 +493,14 @@ export default {
       QUEUED: '{task} поставлена в очередь',
       RUNNING: '{task} выполняется',
       RETRY_WAITING: 'Ожидается повтор для {task}',
+      WAITING_RESULT: 'Ожидание результата {task}',
+      AWAITING_CONFIRMATION: 'Результат {task} требует подтверждения',
       CANCELLING: 'Отмена {task}',
       SUCCEEDED: '{task} завершена',
       FAILED: '{task} завершилась ошибкой',
       CANCELLED: '{task} отменена'
     },
-    status: { QUEUED: 'В очереди', RUNNING: 'Выполняется', RETRY_WAITING: 'Ожидание повтора', WAITING_APPROVAL: 'Ожидание согласования', CANCELLING: 'Отмена', SUCCEEDED: 'Успешно', FAILED: 'Ошибка', CANCELLED: 'Отменено' }
+    status: { QUEUED: 'В очереди', RUNNING: 'Выполняется', RETRY_WAITING: 'Ожидание повтора', WAITING_RESULT: 'Ожидание результата', AWAITING_CONFIRMATION: 'Результат требует подтверждения', WAITING_APPROVAL: 'Ожидание согласования', CANCELLING: 'Отмена', SUCCEEDED: 'Успешно', FAILED: 'Ошибка', CANCELLED: 'Отменено' }
   },
   shell: {
     currentLocation: 'Текущее местоположение',
@@ -740,8 +742,10 @@ export default {
       },
       skipped: 'Шаг пропущен: {reason}',
       running: {
-        dispatched: 'Задача Agent отправлена ({taskId}), ожидание результата выполнения.',
-        waitingAgentResult: 'Шаг выполняется, ожидание результата от Agent...'
+        dispatched: 'Задача Agent отправлена ({taskId}); плоскость управления активно запрашивает результат.',
+        waitingAgentResult: 'Шаг выполняется; плоскость управления активно запрашивает результат Agent…',
+        waitingExternalResult: 'Шаг выполняется, ожидание внешнего результата выполнения...',
+        resultUnconfirmed: 'Требуется подтвердить результат записи: {code}: {message}. Этот шаг не будет автоматически повторен.'
       },
       pending: {
         waitingDependency: 'Шаг ожидает завершения предыдущего шага.'
@@ -750,6 +754,9 @@ export default {
         detail: 'Удаленная TLS-проверка на стороне Agent завершилась ошибкой, но система выполнила реальную TLS-проверку {remoteTarget} и подтвердила соответствие целевого сертификата. {originalError}',
         originalSuffix: 'Исходная ошибка Agent: {originalError}'
       },
+      unknownResult: 'Результат записи неизвестен; автоматический повтор приостановлен.',
+      diagnosticsTitle: 'Подробный журнал проверки',
+      structuredDetail: 'Показать структурированные сведения',
       resultReturned: {
         withTask: '{executor} {mode} вернул результат. Agent taskId={taskId}',
         withoutTask: '{executor} {mode} вернул результат.'
@@ -814,6 +821,13 @@ export default {
     },
     provider: {
       target: 'Цель'
+    },
+    recovery: {
+      confirm: 'Проверить состояние сертификата и продолжить',
+      running: 'Проверка состояния сертификата…',
+      confirmed: 'Состояние целевого сертификата подтверждено; выполнение продолжится.',
+      failed: 'Проверка состояния сертификата не пройдена; выполнение остановлено.',
+      pending: 'Состояние целевого сертификата пока не подтверждено. Повторите попытку позже.'
     }
   },
   executions: {
@@ -830,6 +844,11 @@ export default {
       viewDetail: 'Детали',
       rollback: 'Запустить откат',
       rollbackRisk: 'Откат снова изменит конфигурацию сертификата целевого сервиса; нужно подтвердить ссылки на резервные копии и область влияния.'
+    },
+    messages: {
+      recoveryConfirmed: 'Состояние целевого сертификата подтверждено; выполнение продолжится. Следите за прогрессом в общем списке задач.',
+      recoveryFailed: 'Проверка состояния сертификата не пройдена. Подробная причина записана в журнале выполнения.',
+      recoveryPending: 'Состояние целевого сертификата пока не подтверждено. Задача ожидает подтверждения; повторите попытку позже.'
     },
     columns: {
       name: 'Номер выполнения',
@@ -892,7 +911,8 @@ export default {
       noStepDetail: 'Описание шага отсутствует',
       notStarted: 'Не начато',
       noSteps: 'Шагов пока нет.',
-      noLogs: 'Журналов пока нет.'
+      noLogs: 'Журналов пока нет.',
+      unknownResultDescription: 'Исходная операция установки не будет повторена. Будет выполнена только проверка отпечатка TLS-сертификата в режиме чтения.'
     },
     tabs: {
       summary: 'Обзор',
@@ -992,7 +1012,6 @@ export default {
     unknownCatalogValue: 'Неизвестное значение каталога: {value}',
     frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: 'Пользовательская среда', runtime_custom: 'Пользовательская среда', adc_load_balancer: 'ADC-балансировщик', cloud_aliyun_cdn: 'Alibaba Cloud CDN', cloud_aliyun_alb: 'Alibaba Cloud ALB', cloud_aliyun_clb: 'Alibaba Cloud CLB', cloud_aliyun_oss: 'Alibaba Cloud OSS', cloud_aliyun_waf_cname: 'Alibaba Cloud WAF CNAME', cloud_aliyun_waf_cloud: 'Alibaba Cloud WAF Cloud', cloud_aliyun_live: 'Alibaba Cloud Live', cloud_aliyun_vod: 'Alibaba Cloud VOD', cloud_tencent_cdn: 'Tencent Cloud CDN', cloud_tencent_clb: 'Tencent Cloud CLB', cloud_tencent_live: 'Tencent Cloud Live', cloud_huawei_cdn: 'Huawei Cloud CDN', cloud_huawei_elb: 'Huawei Cloud ELB', cloud_volcengine_cdn: 'Volcengine CDN', cloud_volcengine_alb: 'Volcengine ALB', cloud_volcengine_clb: 'Volcengine CLB', cloud_volcengine_live: 'Volcengine Live', cloud_volcengine_vod: 'Volcengine VOD' },
     runtimeTypes: { agent_atomic: 'Атомарное выполнение Agent', workflow_dsl: 'Workflow DSL' },
-    providerKeys: { cloud_aliyun: 'Alibaba Cloud', cloud_tencent: 'Tencent Cloud', cloud_huawei: 'Huawei Cloud', cloud_volcengine: 'Volcengine' },
     scopeTypes: { managed: 'Управляемая цель', standalone: 'Автономная цель', both: 'Управляемая / автономная' },
     supportTypes: { official: 'Официальная поддержка', community: 'Поддержка сообщества', self_managed: 'Самостоятельное сопровождение' },
     aria: { filters: 'Фильтры каталога плагинов', list: 'Список DSL-плагинов', logo: 'Логотип {name}' },
@@ -2354,6 +2373,7 @@ export default {
       errors: {
         loadObjectTreeFailed: 'Не удалось загрузить дерево объектов',
         loadDataFailed: 'Не удалось загрузить данные управления правами',
+        invalidBusinessScope: 'Соответствующая область бизнес-разрешений не найдена.',
         missingRoleId: 'Не получен ID роли',
         createRoleFailed: 'Не удалось создать роль',
         grantRoleFailed: 'Не удалось выдать права роли',
@@ -3943,7 +3963,8 @@ export default {
         variable: 'Переменная'
       },
       errors: {
-        unknownNodeType: 'Неизвестный тип узла: {type}'
+        unknownNodeType: 'Неизвестный тип узла: {type}',
+        missingWorkflowDsl: 'Сервер не вернул DSL рабочего процесса'
       }
     },
     canvasEditor: {

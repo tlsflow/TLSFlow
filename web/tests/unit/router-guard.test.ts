@@ -4,6 +4,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { registerRouterGuards } from '@/router/guards'
 import { useAuthStore } from '@/stores/auth.store'
 import { usePermissionStore } from '@/stores/permission.store'
+import { useTenantStore } from '@/stores/tenant.store'
 import { resetAuthProviderToMock, setAuthProvider } from '@/providers/auth.provider'
 import { resetPermissionProviderToMock, setPermissionProvider } from '@/providers/permission.provider'
 import { getSystemHealth } from '@/api/modules/system.api'
@@ -15,6 +16,8 @@ vi.mock('@/api/modules/system.api', () => ({
 describe('路由权限守卫', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    // 预置租户上下文，避免把后端网络请求混入路由权限行为验证。
+    useTenantStore().contextVersion = 'test-context'
     localStorage.clear()
     resetAuthProviderToMock()
     resetPermissionProviderToMock()
