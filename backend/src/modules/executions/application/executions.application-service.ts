@@ -474,8 +474,9 @@ export class ExecutionsApplicationService {
       let previousStepNo: number | undefined;
       const targetExecutorType = executorTypeByTargetId.get(targetId);
       const agentPayload = agentPayloadByTargetId?.get(targetId) ?? {};
-      const isAgentPlugin = readString(agentPayload.agentDeploymentMode) === 'PLUGIN';
-      const stepTypes = targetExecutorType === 'WORKFLOW' || isAgentPlugin ? ['CUSTOM'] as const : defaultStepTypes;
+      const isAgentAtomic = readString(agentPayload.actionType) === 'agent.atomic_plan.execute'
+        || readString(agentPayload.pluginRuntimeCapability, 'runtime') === 'AGENT_ATOMIC';
+      const stepTypes = targetExecutorType === 'WORKFLOW' || isAgentAtomic ? ['CUSTOM'] as const : defaultStepTypes;
       for (const stepType of stepTypes) {
         const now = new Date().toISOString();
 	        const baseExecutorType = targetExecutorType;

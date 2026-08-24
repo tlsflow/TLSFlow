@@ -73,6 +73,24 @@ export class AgentAtomicRuntimeAdapter implements PluginRuntimeAdapter {
         applicationAssetId: input.applicationAssetId,
         certificateBindingId: input.certificateBindingId,
         managedTargetId: input.context.managedTarget.id,
+        siteAssetId: input.context.siteAsset?.id,
+        frameworkType: input.context.frameworkType,
+        siteName: input.context.siteAsset?.siteName,
+        bindingSelector: {
+          bindingInformation: input.context.siteAsset?.bindingInformation ?? input.context.managedTarget.bindingKey,
+          hostHeader: input.context.siteAsset?.hostHeader,
+          port: input.context.siteAsset?.port,
+          protocol: input.context.siteAsset?.protocol,
+        },
+        managedTargetSnapshot: {
+          id: input.context.managedTarget.id,
+          targetType: input.context.managedTarget.targetType,
+          targetKey: input.context.managedTarget.targetKey,
+          bindingKey: input.context.managedTarget.bindingKey,
+          frameworkInstanceId: input.context.serviceInstance?.id,
+          siteAssetId: input.context.siteAsset?.id,
+          hostId: input.context.host.id,
+        },
       },
     };
   }

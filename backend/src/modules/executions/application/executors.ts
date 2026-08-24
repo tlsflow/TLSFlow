@@ -21,6 +21,7 @@ import { PluginResourceLockService, type PluginResourceLockRecord } from './plug
 import { projectWorkflowBusinessSteps } from './workflow-business-step-projector.js';
 import type { ExecutionGrantService } from '../execution-grant.service.js';
 import { enrichWorkflowCertificateMaterial } from '../../certificates/artifacts/workflow-certificate-material.js';
+import { normalizeAgentAtomicDryRunDetail } from './agent-atomic-dry-run.js';
 
 export interface StepExecutionInput {
   step: ExecutionStepEntity;
@@ -184,16 +185,6 @@ export class AgentExecutorAdapter implements Executor {
     const resolved = await this.resolveAgentPayload(input, agentId);
     if (resolved.error) return resolved.error;
     const payload = resolved.payload;
-    if (input.dryRun && payload.actionType === 'agent.atomic_plan.execute') {
-      return {
-        success: true,
-        detail: {
-          mode: 'agent_atomic_plan_preflight',
-          planId: readRecord(payload.plan)?.planId,
-          operationCount: Array.isArray(readRecord(payload.plan)?.operations) ? (readRecord(payload.plan)?.operations as unknown[]).length : 0,
-        },
-      };
-    }
     const task = await this.agents.enqueueTask(input.step.tenantId ?? '', {
       agentId,
       executionRunId: input.step.executionRunId,
@@ -204,11 +195,14 @@ export class AgentExecutorAdapter implements Executor {
     if (this.actionDispatch.resolve(input.step.inputSnapshot)?.mode === 'direct_preferred') {
       try {
         const direct = await this.agents.executeTaskDirect(input.step.tenantId ?? '', task.id, `execution-direct:${input.step.id}`);
+        const detail = input.dryRun && payload.actionType === 'agent.atomic_plan.execute'
+          ? normalizeAgentAtomicDryRunDetail(direct.detail ?? {})
+          : direct.detail;
         return {
           success: direct.success,
           errorCode: direct.errorCode,
           errorMessage: direct.errorMessage,
-          detail: direct.detail,
+          detail,
         };
       } catch (error) {
         const appError = error instanceof AppError ? error : undefined;

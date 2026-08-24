@@ -12,6 +12,7 @@ import type { ExecutionRunEntity, ExecutionStepEntity } from '../schema/executio
 import { ExecutionDetailStreamService } from './execution-detail-stream.service.js';
 import { buildTlsVerifyTargetFromUrl, certificateMatchesDomain, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
 import type { PluginCertificateResultService } from '../../plugins/results/plugin-certificate-result.service.js';
+import { normalizeAgentAtomicDryRunDetail } from './agent-atomic-dry-run.js';
 
 type ContinuationRunner = (input: { runId: string; tenantId: string; actorId: string }) => Promise<unknown>;
 type RollbackRunner = (input: { runId: string; tenantId: string; actorId: string }) => Promise<unknown>;
@@ -67,20 +68,23 @@ export class ExecutionResultSyncService {
     const run = await this.executions.getRun(input.executionRunId, input.tenantId);
     if (!run) return;
 
+    const isDryRun = run.type === 'dry_run' || step.inputSnapshot.dryRun === true;
+    const inputDetail = isDryRun
+      ? normalizeAgentAtomicDryRunDetail(input.detail ?? {})
+      : input.detail ?? {};
     const mergedDetail = {
       ...((step.inputSnapshot.resultDetail as Record<string, unknown> | undefined) ?? {}),
-      ...(input.detail ?? {}),
+      ...inputDetail,
     };
     normalizeWorkflowDeploymentDetail(mergedDetail);
     const installDetail = await this.resolveTargetInstallDetail(input.tenantId, step);
     if (installDetail) {
       mergedDetail.installResult = installDetail;
     }
-    const isDryRun = run.type === 'dry_run' || step.inputSnapshot.dryRun === true;
     if (isDryRun) {
       const mergedDryRunChecks = mergeDryRunChecks(
         readDryRunChecks((step.inputSnapshot.resultDetail as Record<string, unknown> | undefined) ?? {}),
-        readDryRunChecks(input.detail ?? {}),
+        readDryRunChecks(inputDetail),
       );
       if (!input.success && dryRunChecksContainNoFailure(mergedDryRunChecks)) {
         mergedDryRunChecks.push(buildDryRunExecutionFailureCheck(input, step, mergedDetail));
