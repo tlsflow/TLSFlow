@@ -107,6 +107,38 @@ test('SecretService 在重建后仍可解析持久化 Secret', async () => {
   assert.match(resolved.secretRef, /#v1$/);
 });
 
+test('SecretService 不为健康检查成功读取写入逐条审计', async () => {
+  const audit = new AuditService();
+  const service = new SecretService(new CryptoService(new KeyManager(Buffer.alloc(32, 3))), new ExecutionGrantService(), audit);
+  const created = await service.create({
+    name: '健康检查密码',
+    type: 'password',
+    scopeType: 'global',
+    plainText: 'health-check-password',
+    createdBy: 'user_admin',
+  });
+
+  await service.resolveForService({
+    secretRef: created.secretRef,
+    expectedType: 'password',
+    purpose: 'secret.health_check',
+    actorId: 'system',
+  });
+
+  assert.equal((await audit.query({ eventType: 'secret.used', resourceType: 'secret', resourceId: created.id })).length, 0);
+
+  await service.resolveForService({
+    secretRef: created.secretRef,
+    expectedType: 'password',
+    purpose: 'ldap.bind',
+    actorId: 'user_admin',
+  });
+
+  const serviceReadAudits = await audit.query({ eventType: 'secret.used', resourceType: 'secret', resourceId: created.id });
+  assert.equal(serviceReadAudits.length, 1);
+  assert.equal((serviceReadAudits[0]?.detail as { purpose?: string }).purpose, 'ldap.bind');
+});
+
 test('SecretService 支持持久化工作流凭据元数据且列表不泄露明文', async () => {
   const db = new PgliteDatabase();
   const secrets = new PgDocumentRepository<SecretEntity>(db, 'security.secrets.metadata-test');
