@@ -3752,9 +3752,14 @@ export default {
       ready: 'Healthy',
       warning: 'Warning'
     },
+    warnings: {
+      certificateNotApplied: 'The latest domain certificate version is not yet applied according to the system probe',
+      chainVerificationFailed: 'The system probe detected that certificate chain verification failed'
+    },
     fallback: {
       noEndpoint: 'No endpoint configured',
       noFingerprint: 'No fingerprint',
+      notClosed: 'Not closed',
       noSummary: 'No summary',
       notCollected: 'Not collected',
       notSelected: 'Not selected',
@@ -3780,13 +3785,17 @@ export default {
     columns: {
       certificateName: 'Certificate name',
       changedAt: 'Changed at',
+      closedAt: 'Warning closed at',
+      currentStatus: 'Current status',
       expiresAt: 'Expires at',
       issuerName: 'Issuer name',
       latency: 'Latency',
+      occurredAt: 'Occurred at',
       result: 'Result',
       source: 'Source',
       status: 'Status',
-      time: 'Time'
+      time: 'Time',
+      warningContent: 'Warning details'
     },
     dialog: {
       defaultMetricsHint: 'Availability, latency, certificate information, and certificate history are monitored by default.',

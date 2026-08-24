@@ -3674,9 +3674,14 @@ export default {
       ready: "正常",
       warning: "警告"
     },
+    warnings: {
+      certificateNotApplied: "系統探測到站點仍未套用網域憑證的最新版本",
+      chainVerificationFailed: "系統探測到憑證鏈驗證失敗"
+    },
     fallback: {
       noEndpoint: "未設定存取位址",
       noFingerprint: "無指紋",
+      notClosed: "未關閉",
       noSummary: "無摘要",
       notCollected: "未採集",
       notSelected: "未選擇",
@@ -3702,13 +3707,17 @@ export default {
     columns: {
       certificateName: "憑證名稱",
       changedAt: "更換時間",
+      closedAt: "警告關閉時間",
+      currentStatus: "目前狀態",
       expiresAt: "到期時間",
       issuerName: "簽發者名稱",
       latency: "延時",
+      occurredAt: "發生時間",
       result: "結果",
       source: "來源",
       status: "狀態",
-      time: "時間"
+      time: "時間",
+      warningContent: "警告內容"
     },
     dialog: {
       defaultMetricsHint: "預設監控可存取性、存取延時、憑證資訊和憑證歷史。",

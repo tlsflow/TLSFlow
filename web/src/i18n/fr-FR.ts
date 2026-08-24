@@ -3719,9 +3719,14 @@ export default {
       ready: 'Healthy',
       warning: 'Warning'
     },
+    warnings: {
+      certificateNotApplied: 'La dernière version du certificat de domaine n’est pas encore appliquée selon la sonde système',
+      chainVerificationFailed: 'La sonde système a détecté l’échec de la vérification de la chaîne du certificat'
+    },
     fallback: {
       noEndpoint: 'No endpoint configured',
       noFingerprint: 'No fingerprint',
+      notClosed: 'Non clôturé',
       noSummary: 'No summary',
       notCollected: 'Not collected',
       notSelected: 'Not selected',
@@ -3747,13 +3752,17 @@ export default {
     columns: {
       certificateName: 'Certificate name',
       changedAt: 'Changed at',
+      closedAt: 'Clôture de l’alerte',
+      currentStatus: 'État actuel',
       expiresAt: 'Expires at',
       issuerName: 'Issuer name',
       latency: 'Latency',
+      occurredAt: 'Date de survenue',
       result: 'Result',
       source: 'Source',
       status: 'Status',
-      time: 'Time'
+      time: 'Time',
+      warningContent: 'Contenu de l’alerte'
     },
     dialog: {
       defaultMetricsHint: 'Availability, latency, certificate information, and certificate history are monitored by default.',

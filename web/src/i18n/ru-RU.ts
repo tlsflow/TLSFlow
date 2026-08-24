@@ -3649,9 +3649,14 @@ export default {
       ready: 'Норма',
       warning: 'Предупреждение'
     },
+    warnings: {
+      certificateNotApplied: 'По данным системной проверки последняя версия сертификата домена ещё не применена',
+      chainVerificationFailed: 'Системная проверка обнаружила ошибку проверки цепочки сертификата'
+    },
     fallback: {
       noEndpoint: 'Адрес доступа не настроен',
       noFingerprint: 'Нет отпечатка',
+      notClosed: 'Не закрыто',
       noSummary: 'Нет сводки',
       notCollected: 'Не собрано',
       notSelected: 'Не выбрано',
@@ -3677,13 +3682,17 @@ export default {
     columns: {
       certificateName: 'Имя сертификата',
       changedAt: 'Время замены',
+      closedAt: 'Время закрытия предупреждения',
+      currentStatus: 'Текущий статус',
       expiresAt: 'Время истечения',
       issuerName: 'Имя издателя',
       latency: 'Задержка',
+      occurredAt: 'Время возникновения',
       result: 'Результат',
       source: 'Источник',
       status: 'Статус',
-      time: 'Время'
+      time: 'Время',
+      warningContent: 'Содержание предупреждения'
     },
     dialog: {
       defaultMetricsHint: 'По умолчанию мониторятся доступность, задержка доступа, сведения о сертификате и история сертификатов.',

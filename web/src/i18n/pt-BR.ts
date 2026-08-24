@@ -3649,9 +3649,14 @@ export default {
       ready: 'Normal',
       warning: 'Aviso'
     },
+    warnings: {
+      certificateNotApplied: 'A versão mais recente do certificado de domínio ainda não foi aplicada segundo a sondagem do sistema',
+      chainVerificationFailed: 'A sondagem do sistema detectou falha na verificação da cadeia do certificado'
+    },
     fallback: {
       noEndpoint: 'Nenhum endpoint configurado',
       noFingerprint: 'Sem fingerprint',
+      notClosed: 'Não encerrado',
       noSummary: 'Sem resumo',
       notCollected: 'Não coletado',
       notSelected: 'Não selecionado',
@@ -3677,13 +3682,17 @@ export default {
     columns: {
       certificateName: 'Nome do certificado',
       changedAt: 'Alterado em',
+      closedAt: 'Encerramento do alerta',
+      currentStatus: 'Status atual',
       expiresAt: 'Expira em',
       issuerName: 'Nome do emissor',
       latency: 'Latência',
+      occurredAt: 'Ocorrido em',
       result: 'Resultado',
       source: 'Origem',
       status: 'Status',
-      time: 'Hora'
+      time: 'Hora',
+      warningContent: 'Conteúdo do alerta'
     },
     dialog: {
       defaultMetricsHint: 'Disponibilidade, latência, informações do certificado e histórico de certificados são monitorados por padrão.',

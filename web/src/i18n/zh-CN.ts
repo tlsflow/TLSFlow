@@ -3787,9 +3787,14 @@ export default {
       ready: '正常',
       warning: '警告'
     },
+    warnings: {
+      certificateNotApplied: '系统探测到站点仍未应用域名证书的最新版本',
+      chainVerificationFailed: '系统探测到证书链验证失败'
+    },
     fallback: {
       noEndpoint: '未配置访问地址',
       noFingerprint: '无指纹',
+      notClosed: '未关闭',
       noSummary: '无摘要',
       notCollected: '未采集',
       notSelected: '未选择',
@@ -3815,13 +3820,17 @@ export default {
     columns: {
       certificateName: '证书名称',
       changedAt: '更换时间',
+      closedAt: '警告关闭时间',
+      currentStatus: '当前状态',
       expiresAt: '到期时间',
       issuerName: '颁发者名称',
       latency: '延时',
+      occurredAt: '发生时间',
       result: '结果',
       source: '来源',
       status: '状态',
-      time: '时间'
+      time: '时间',
+      warningContent: '警告内容'
     },
     dialog: {
       defaultMetricsHint: '默认监控可访问性、访问延时、证书信息和证书历史。',

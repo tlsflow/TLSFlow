@@ -3675,9 +3675,14 @@ export default {
       ready: '正常',
       warning: '警告'
     },
+    warnings: {
+      certificateNotApplied: 'システム探査でドメイン証明書の最新バージョンが未適用です',
+      chainVerificationFailed: 'システム探査で証明書チェーンの検証に失敗しました'
+    },
     fallback: {
       noEndpoint: 'アクセスアドレスが未設定です',
       noFingerprint: '無フィンガープリント',
+      notClosed: '未終了',
       noSummary: '無サマリー',
       notCollected: '未収集',
       notSelected: '未選択',
@@ -3703,13 +3708,17 @@ export default {
     columns: {
       certificateName: '証明書名',
       changedAt: '更换時刻',
+      closedAt: '警告終了時刻',
+      currentStatus: '現在の状態',
       expiresAt: '期限切れ日時',
       issuerName: '発行者名',
       latency: '遅延',
+      occurredAt: '発生時刻',
       result: '結果',
       source: 'ソース',
       status: 'ステータス',
-      time: '時刻'
+      time: '時刻',
+      warningContent: '警告内容'
     },
     dialog: {
       defaultMetricsHint: 'デフォルト監視へ達性、アクセス遅延、証明書情報と証明書履歴。',

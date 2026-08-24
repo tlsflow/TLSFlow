@@ -3649,9 +3649,14 @@ export default {
       ready: '정상',
       warning: '경고'
     },
+    warnings: {
+      certificateNotApplied: '시스템 탐지 결과 도메인 인증서 최신 버전이 아직 적용되지 않았습니다',
+      chainVerificationFailed: '시스템 탐지에서 인증서 체인 검증 실패가 감지되었습니다'
+    },
     fallback: {
       noEndpoint: '접근 주소가 설정되지 않았습니다',
       noFingerprint: '지문 없음',
+      notClosed: '종료되지 않음',
       noSummary: '요약 없음',
       notCollected: '수집되지 않음',
       notSelected: '선택되지 않음',
@@ -3677,13 +3682,17 @@ export default {
     columns: {
       certificateName: '인증서 이름',
       changedAt: '시간을 바꾸다',
+      closedAt: '경고 종료 시간',
+      currentStatus: '현재 상태',
       expiresAt: '기한',
       issuerName: '발급자 이름',
       latency: '지연',
+      occurredAt: '발생 시간',
       result: '결과',
       source: '출처',
       status: '상태',
-      time: '시간'
+      time: '시간',
+      warningContent: '경고 내용'
     },
     dialog: {
       defaultMetricsHint: '기본 모니터링 접근 가능성, 접근 지연 시간, 인증서 정보 및 인증서 기록.',

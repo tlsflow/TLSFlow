@@ -3205,9 +3205,14 @@ const zhCN = {
       ready: '正常',
       warning: '警告'
     },
+    warnings: {
+      certificateNotApplied: '系统探测到站点仍未应用域名证书的最新版本',
+      chainVerificationFailed: '系统探测到证书链验证失败'
+    },
     fallback: {
       noEndpoint: '未配置访问地址',
       noFingerprint: '无指纹',
+      notClosed: '未关闭',
       noSummary: '无摘要',
       notCollected: '未采集',
       notSelected: '未选择',
@@ -3233,13 +3238,17 @@ const zhCN = {
     columns: {
       certificateName: '证书名称',
       changedAt: '更换时间',
+      closedAt: '警告关闭时间',
+      currentStatus: '当前状态',
       expiresAt: '到期时间',
       issuerName: '颁发者名称',
       latency: '延时',
+      occurredAt: '发生时间',
       result: '结果',
       source: '来源',
       status: '状态',
-      time: '时间'
+      time: '时间',
+      warningContent: '警告内容'
     },
     dialog: {
       defaultMetricsHint: '默认监控可访问性、访问延时、证书信息和证书历史。',
@@ -6354,9 +6363,14 @@ const enUS = {
       ready: 'Healthy',
       warning: 'Warning'
     },
+    warnings: {
+      certificateNotApplied: 'The latest domain certificate version is not yet applied according to the system probe',
+      chainVerificationFailed: 'The system probe detected that certificate chain verification failed'
+    },
     fallback: {
       noEndpoint: 'No endpoint configured',
       noFingerprint: 'No fingerprint',
+      notClosed: 'Not closed',
       noSummary: 'No summary',
       notCollected: 'Not collected',
       notSelected: 'Not selected',
@@ -6382,13 +6396,17 @@ const enUS = {
     columns: {
       certificateName: 'Certificate name',
       changedAt: 'Changed at',
+      closedAt: 'Warning closed at',
+      currentStatus: 'Current status',
       expiresAt: 'Expires at',
       issuerName: 'Issuer name',
       latency: 'Latency',
+      occurredAt: 'Occurred at',
       result: 'Result',
       source: 'Source',
       status: 'Status',
-      time: 'Time'
+      time: 'Time',
+      warningContent: 'Warning details'
     },
     dialog: {
       defaultMetricsHint: 'Availability, latency, certificate information, and certificate history are monitored by default.',
