@@ -58,6 +58,7 @@ export function validateAgentDeploymentPluginManifest(input: unknown): AgentDepl
     metadata: isRecord(manifest.metadata) ? {
       displayName: optionalString(manifest.metadata.displayName),
       description: optionalString(manifest.metadata.description),
+      logoUrl: optionalString(manifest.metadata.logoUrl),
       category: optionalString(manifest.metadata.category),
       tags: stringArray(manifest.metadata.tags, 'metadata.tags', true),
       maintainer: optionalString(manifest.metadata.maintainer),

@@ -19,7 +19,7 @@ const forbiddenResourceExtensions = ['.js', '.mjs', '.cjs', '.ts', '.tsx', '.vue
 const maximumResourceCount = 500;
 const maximumResourceBytes = 20 * 1024 * 1024;
 const manifestKeys = new Set([
-  'apiVersion', 'kind', 'pluginId', 'version', 'displayNameKey', 'descriptionKey', 'defaultLocale', 'publisher', 'runtime',
+  'apiVersion', 'kind', 'pluginId', 'version', 'displayNameKey', 'descriptionKey', 'logoUrl', 'defaultLocale', 'publisher', 'runtime',
   'source', 'scope', 'trust', 'support', 'minGcacVersion', 'capabilities', 'permissions', 'compatibility', 'resources',
 ]);
 
@@ -50,6 +50,7 @@ export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginMani
     version: requireString(manifest.version, 'version'),
     displayNameKey: requireString(manifest.displayNameKey, 'displayNameKey'),
     descriptionKey: optionalString(manifest.descriptionKey, 'descriptionKey'),
+    logoUrl: optionalLogoUrl(manifest.logoUrl),
     defaultLocale: optionalString(manifest.defaultLocale, 'defaultLocale'),
     publisher: requireString(manifest.publisher, 'publisher'),
     runtime,
@@ -70,6 +71,16 @@ export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginMani
       discoveryMappings: readStringMap(resources.discoveryMappings),
     },
   };
+}
+
+function optionalLogoUrl(input: unknown): string | undefined {
+  const value = optionalString(input, 'logoUrl');
+  if (value === undefined) return undefined;
+  if (/^https?:\/\//i.test(value)) return value;
+  if (/^[a-z][a-z\d+.-]*:/i.test(value)) fail('logoUrl', '只支持 HTTP(S) URL 或本地 Web 路径');
+  const normalized = value.replace(/\\/g, '/');
+  if (normalized.split('/').includes('..')) fail('logoUrl', '本地路径不能包含 ..');
+  return value;
 }
 
 export function assertUnifiedPluginResources(manifest: UnifiedPluginManifestV1, resources: Record<string, string>): void {

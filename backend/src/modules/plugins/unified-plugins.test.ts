@@ -51,6 +51,13 @@ test('统一插件拒绝任意可执行资源和缺失资源', async () => {
     }),
     /未知字段/,
   );
+  await assert.rejects(
+    () => service.importVersion('tenant-1', {
+      ...workflowPluginInput(),
+      manifest: { ...(workflowPluginInput().manifest as Record<string, unknown>), logoUrl: '../private/logo.svg' },
+    }),
+    /不能包含 \.\./,
+  );
 });
 
 test('统一插件目录保留正交分类和能力声明', async () => {
@@ -64,6 +71,7 @@ test('统一插件目录保留正交分类和能力声明', async () => {
   assert.equal(item?.runtime, 'WORKFLOW_DSL');
   assert.equal(item?.scope, 'BOTH');
   assert.equal(item?.source, 'USER');
+  assert.equal(item?.logoUrl, '/plugin-logos/test.svg');
   assert.equal(item?.capabilities[0]?.key, 'certificate.deploy');
 });
 
@@ -122,6 +130,7 @@ function workflowPluginInput() {
       pluginId: 'test.device.workflow',
       version: '1.0.0',
       displayNameKey: 'plugin.test.device.name',
+      logoUrl: '/plugin-logos/test.svg',
       publisher: 'test',
       runtime: 'WORKFLOW_DSL',
       source: 'USER',

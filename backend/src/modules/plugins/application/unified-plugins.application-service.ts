@@ -205,6 +205,7 @@ export class UnifiedPluginsApplicationService {
       descriptionKey: record.manifest.descriptionKey,
       displayName,
       description,
+      logoUrl: record.manifest.logoUrl,
       tags: record.manifest.compatibility?.products ?? [],
       platforms: record.manifest.compatibility?.platforms ?? [],
       stepCount: executionSummary.stepCount,

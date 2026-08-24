@@ -75,6 +75,7 @@ export interface AgentDeploymentPluginManifestV1 {
   metadata?: {
     displayName?: string;
     description?: string;
+    logoUrl?: string;
     category?: string;
     tags?: string[];
     maintainer?: string;

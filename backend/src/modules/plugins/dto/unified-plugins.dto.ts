@@ -20,6 +20,7 @@ export interface UnifiedPluginManifestV1 {
   version: string;
   displayNameKey: string;
   descriptionKey?: string;
+  logoUrl?: string;
   defaultLocale?: string;
   publisher: string;
   runtime: UnifiedPluginRuntime;
@@ -107,6 +108,7 @@ export interface UnifiedPluginCatalogItem {
   descriptionKey?: string;
   displayName?: string;
   description?: string;
+  logoUrl?: string;
   tags: string[];
   platforms: string[];
   stepCount: number;

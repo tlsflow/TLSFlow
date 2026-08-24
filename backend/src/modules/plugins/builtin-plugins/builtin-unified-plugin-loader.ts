@@ -83,7 +83,7 @@ async function loadBuiltinWorkflowPackages(localeResources: BuiltinLocaleResourc
     'synology-dsm-cert-import.json',
   ].map(async (fileName) => {
     const content = await readFile(join(workflowDirectory, fileName), 'utf8');
-    const workflow = JSON.parse(content) as { metadata: { name: string; version: string; platforms?: string[] } };
+    const workflow = JSON.parse(content) as { metadata: { name: string; version: string; logoUrl?: string; platforms?: string[] } };
     const resourcePath = `workflows/${fileName}`;
     const pluginId = `builtin.workflow.${workflow.metadata.name}`;
     const localeKey = builtinLocaleKey(pluginId);
@@ -94,6 +94,7 @@ async function loadBuiltinWorkflowPackages(localeResources: BuiltinLocaleResourc
       version: workflowPluginVersion(pluginId, workflow.metadata.version),
       displayNameKey: `${localeKey}.name`,
       descriptionKey: `${localeKey}.description`,
+      logoUrl: workflow.metadata.logoUrl,
       defaultLocale: 'zh-CN',
       publisher: 'GCAC',
       runtime: 'WORKFLOW_DSL',
@@ -129,6 +130,7 @@ function loadBuiltinAgentPackages(localeResources: BuiltinLocaleResources): Arra
       version: incrementPatchVersion(agentManifest.version),
       displayNameKey: `${localeKey}.name`,
       descriptionKey: `${localeKey}.description`,
+      logoUrl: agentManifest.metadata?.logoUrl,
       defaultLocale: 'zh-CN',
       publisher: agentManifest.publisher,
       runtime: 'AGENT_ATOMIC',
@@ -188,8 +190,8 @@ function builtinLocaleKey(pluginId: string): string {
 }
 
 function workflowPluginVersion(pluginId: string, sourceVersion: string): string {
-  if (pluginId === 'builtin.workflow.apache-8444-cert-switch') return '1.1.3';
-  if (pluginId === 'builtin.workflow.synology-dsm-cert-import') return '1.1.2';
+  if (pluginId === 'builtin.workflow.apache-8444-cert-switch') return '1.1.5';
+  if (pluginId === 'builtin.workflow.synology-dsm-cert-import') return '1.1.4';
   return incrementPatchVersion(sourceVersion);
 }
 
