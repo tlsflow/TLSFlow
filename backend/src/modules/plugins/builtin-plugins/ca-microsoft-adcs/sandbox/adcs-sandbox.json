@@ -1,0 +1,8 @@
+{
+  "apiVersion": "gcac.ca-sandbox/v1",
+  "kind": "WindowsCertificateSandbox",
+  "mode": "development-only",
+  "vmProfile": "windows-adcs-test-vm",
+  "localPolicy": "provided-by-agent",
+  "network": "isolated"
+}

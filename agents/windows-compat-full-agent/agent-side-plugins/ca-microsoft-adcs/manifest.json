@@ -1,0 +1,34 @@
+{
+  "apiVersion": "gcac.plugin-manifest/v1",
+  "kind": "GcacPlugin",
+  "pluginId": "ca.microsoft-adcs",
+  "version": "1.0.0",
+  "displayNameKey": "plugin.ca.microsoftAdcs.name",
+  "descriptionKey": "plugin.ca.microsoftAdcs.agentSideDescription",
+  "defaultLocale": "zh-CN",
+  "publisher": "GCAC",
+  "runtime": "AGENT_PLAN",
+  "source": "BUILTIN",
+  "scope": "STANDALONE",
+  "trust": "UNSIGNED",
+  "support": "SELF_MANAGED",
+  "capabilities": [
+    { "key": "ca.certificate.issue", "contractVersion": "v1", "actionContractId": "ca.certificate.issue.v1", "riskLevel": "HIGH", "executionLocations": ["AGENT"] },
+    { "key": "ca.certificate.renew", "contractVersion": "v1", "actionContractId": "ca.certificate.renew.v1", "riskLevel": "HIGH", "executionLocations": ["AGENT"] },
+    { "key": "ca.certificate.revoke", "contractVersion": "v1", "actionContractId": "ca.certificate.revoke.v1", "riskLevel": "HIGH", "executionLocations": ["AGENT"] }
+  ],
+  "permissions": [],
+  "compatibility": {
+    "productFamilies": ["certificate-authority"],
+    "frameworkTypes": ["windows.agent_plan.adcs"],
+    "executionLocations": ["AGENT"]
+  },
+  "resources": {
+    "runtimeEntrypoint": "runtime/index.js",
+    "agentPlans": {
+      "ca.certificate.issue": "agent-plans/issue.json",
+      "ca.certificate.renew": "agent-plans/renew.json",
+      "ca.certificate.revoke": "agent-plans/revoke.json"
+    }
+  }
+}

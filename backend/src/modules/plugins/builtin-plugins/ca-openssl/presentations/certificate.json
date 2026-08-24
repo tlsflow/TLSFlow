@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "gcac.device-presentation/v1",
+  "overview": [{
+    "id": "certificate",
+    "titleKey": "plugin.ca.certificate.title",
+    "fields": [
+      { "key": "serialNumber", "labelKey": "plugin.ca.openssl.field.serialNumber", "valuePath": "serialNumber", "type": "text" },
+      { "key": "subject", "labelKey": "plugin.ca.openssl.field.subject", "valuePath": "subject", "type": "text" },
+      { "key": "status", "labelKey": "plugin.ca.openssl.field.status", "valuePath": "status", "type": "status" },
+      { "key": "notAfter", "labelKey": "plugin.ca.openssl.field.notAfter", "valuePath": "notAfter", "type": "timestamp" }
+    ]
+  }],
+  "tabs": [{ "type": "records", "id": "audit", "titleKey": "plugin.ca.openssl.tab.audit", "columns": [] }],
+  "actions": [
+    { "capabilityKey": "ca.certificate.renew", "labelKey": "plugin.ca.operation.renew", "tone": "info" },
+    { "capabilityKey": "ca.certificate.revoke", "labelKey": "plugin.ca.operation.revoke", "tone": "danger" }
+  ]
+}

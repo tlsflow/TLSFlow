@@ -1,0 +1,40 @@
+{
+  "apiVersion": "gcac.plugin-manifest/v1",
+  "kind": "GcacPlugin",
+  "pluginId": "ca.microsoft-adcs",
+  "version": "1.0.0",
+  "displayNameKey": "plugin.ca.microsoftAdcs.name",
+  "descriptionKey": "plugin.ca.microsoftAdcs.description",
+  "defaultLocale": "zh-CN",
+  "publisher": "GCAC",
+  "runtime": "WORKFLOW_DSL",
+  "source": "BUILTIN",
+  "scope": "BOTH",
+  "trust": "UNSIGNED",
+  "support": "SELF_MANAGED",
+  "capabilities": [
+    { "key": "ca.certificate.issue", "contractVersion": "v1", "actionContractId": "ca.certificate.issue.v1", "riskLevel": "HIGH", "executionLocations": ["CONTROL_PLANE", "AGENT"] },
+    { "key": "ca.certificate.renew", "contractVersion": "v1", "actionContractId": "ca.certificate.renew.v1", "riskLevel": "HIGH", "executionLocations": ["CONTROL_PLANE", "AGENT"] },
+    { "key": "ca.certificate.revoke", "contractVersion": "v1", "actionContractId": "ca.certificate.revoke.v1", "riskLevel": "HIGH", "executionLocations": ["CONTROL_PLANE", "AGENT"] }
+  ],
+  "permissions": [
+    "secret.resolve", "audit.append"
+  ],
+  "compatibility": {
+    "productFamilies": ["certificate-authority"],
+    "frameworkTypes": ["windows.agent_plan.adcs"],
+    "targetTypes": ["certificate-authority", "certificate-request", "certificate"],
+    "executionLocations": ["CONTROL_PLANE", "AGENT"]
+  },
+  "resources": {
+    "runtimeEntrypoint": "runtime/index.js",
+    "workflows": {
+      "ca.certificate.issue": "workflows/issue.json",
+      "ca.certificate.renew": "workflows/renew.json",
+      "ca.certificate.revoke": "workflows/revoke.json"
+    },
+    "locales": { "zh-CN": "locales/zh-CN.json", "zh-TW": "locales/zh-CN.json", "en-US": "locales/en-US.json", "ja-JP": "locales/en-US.json", "ko-KR": "locales/en-US.json", "fr-FR": "locales/en-US.json", "ru-RU": "locales/en-US.json", "pt-BR": "locales/en-US.json" },
+    "presentations": { "certificateAuthority": "presentations/certificate-authority.json", "certificate": "presentations/certificate.json" },
+    "forms": { "certificateRequest": "forms/certificate-request.json" }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "plugin.ca.openssl.name": "OpenSSL Certificate Authority",
+  "plugin.ca.openssl.description": "Execute OpenSSL certificate lifecycle operations in an isolated Runner.",
+  "plugin.ca.certificate.title": "Certificate",
+  "plugin.ca.operation.issue": "Issue certificate",
+  "plugin.ca.operation.renew": "Renew certificate",
+  "plugin.ca.operation.revoke": "Revoke certificate",
+  "plugin.ca.openssl.form.certificate": "Certificate request",
+  "plugin.ca.openssl.field.subject": "Certificate subject",
+  "plugin.ca.openssl.field.sans": "Subject Alternative Names",
+  "plugin.ca.openssl.field.csrPem": "CSR content",
+  "plugin.ca.openssl.field.validityDays": "Validity days",
+  "plugin.ca.openssl.presentation.identity": "CA identity",
+  "plugin.ca.openssl.field.subjectCommonName": "Subject common name",
+  "plugin.ca.openssl.field.profile": "Platform profile",
+  "plugin.ca.openssl.field.status": "Status",
+  "plugin.ca.openssl.field.pluginVersionId": "Plugin version",
+  "plugin.ca.openssl.field.serialNumber": "Serial number",
+  "plugin.ca.openssl.field.notAfter": "Expiration",
+  "plugin.ca.openssl.tab.certificates": "Certificate bindings",
+  "plugin.ca.openssl.tab.audit": "Audit records"
+}

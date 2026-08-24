@@ -1,0 +1,8 @@
+{
+  "apiVersion": "gcac.ca-sandbox/v1",
+  "kind": "AcmeDirectorySandbox",
+  "mode": "development-only",
+  "directoryUrl": "https://acme.test.invalid/directory",
+  "transport": "bounded-fetch",
+  "network": "fixture-or-test-directory"
+}

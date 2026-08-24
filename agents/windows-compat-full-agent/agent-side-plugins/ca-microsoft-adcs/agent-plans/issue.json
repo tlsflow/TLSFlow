@@ -1,0 +1,7 @@
+{
+  "apiVersion": "gcac.agent-plan-template/v1",
+  "kind": "AgentPlanTemplateV1",
+  "capability": "ca.certificate.issue",
+  "operation": "ca.certificate.issue",
+  "actions": [{ "kind": "certificate.authority.operation", "operation": "ca.certificate.issue", "templateId": "binding.templateId" }]
+}

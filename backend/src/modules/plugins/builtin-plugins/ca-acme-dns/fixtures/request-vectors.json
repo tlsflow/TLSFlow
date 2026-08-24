@@ -1,0 +1,8 @@
+{
+  "apiVersion": "gcac.ca-fixture/v1",
+  "pluginId": "ca.acme-dns",
+  "pluginVersion": "1.0.0",
+  "operations": ["record.present", "record.propagation-check", "record.cleanup", "operation.recover"],
+  "forbiddenOperations": ["account.ensure", "order.create", "challenge.orchestrate"],
+  "negativeCases": ["ownership-violation", "missing-token", "provider-secret-leak", "timeout", "unknown-write-result"]
+}

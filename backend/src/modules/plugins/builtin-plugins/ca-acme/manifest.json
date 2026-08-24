@@ -1,0 +1,42 @@
+{
+  "apiVersion": "gcac.plugin-manifest/v1",
+  "kind": "GcacPlugin",
+  "pluginId": "ca.acme",
+  "version": "1.0.0",
+  "displayNameKey": "plugin.ca.acme.name",
+  "descriptionKey": "plugin.ca.acme.description",
+  "defaultLocale": "zh-CN",
+  "publisher": "GCAC",
+  "runtime": "WORKFLOW_DSL",
+  "source": "BUILTIN",
+  "scope": "MANAGED",
+  "trust": "UNSIGNED",
+  "support": "SELF_MANAGED",
+  "capabilities": [
+    { "key": "ca.account.manage", "contractVersion": "v1", "actionContractId": "ca.account.manage.v1", "riskLevel": "HIGH", "executionLocations": ["CONTROL_PLANE"] },
+    { "key": "ca.order.manage", "contractVersion": "v1", "actionContractId": "ca.order.manage.v1", "riskLevel": "HIGH", "executionLocations": ["CONTROL_PLANE"] },
+    { "key": "ca.challenge.orchestrate", "contractVersion": "v1", "actionContractId": "ca.challenge.orchestrate.v1", "riskLevel": "HIGH", "executionLocations": ["CONTROL_PLANE"] }
+  ],
+  "permissions": [
+    "secret.resolve", "audit.append"
+  ],
+  "compatibility": {
+    "productFamilies": ["certificate-authority"],
+    "frameworkTypes": ["acme"],
+    "targetTypes": ["acme-account", "acme-order", "acme-challenge", "certificate"],
+    "executionLocations": ["CONTROL_PLANE"]
+  },
+  "resources": {
+    "runtimeEntrypoint": "runtime/index.js",
+    "workflows": {
+      "ca.account.ensure": "workflows/account.json",
+      "ca.order.issue": "workflows/issue.json",
+      "ca.order.renew": "workflows/renew.json",
+      "ca.order.revoke": "workflows/revoke.json",
+      "ca.challenge.solve": "workflows/challenge.json"
+    },
+    "locales": { "zh-CN": "locales/zh-CN.json", "zh-TW": "locales/zh-CN.json", "en-US": "locales/en-US.json", "ja-JP": "locales/en-US.json", "ko-KR": "locales/en-US.json", "fr-FR": "locales/en-US.json", "ru-RU": "locales/en-US.json", "pt-BR": "locales/en-US.json" },
+    "presentations": { "account": "presentations/account.json", "order": "presentations/order.json", "challenge": "presentations/challenge.json" },
+    "forms": { "acme": "forms/acme.json" }
+  }
+}

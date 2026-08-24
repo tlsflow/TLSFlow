@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "gcac.plugin-form/v1",
+  "mode": "MANAGED",
+  "sections": [
+    {
+      "id": "adcs",
+      "titleKey": "plugin.ca.microsoftAdcs.form.certificate",
+      "fields": [
+        { "key": "templateId", "type": "text", "labelKey": "plugin.ca.microsoftAdcs.field.templateId", "required": true },
+        { "key": "subject", "type": "text", "labelKey": "plugin.ca.microsoftAdcs.field.subject", "required": true },
+        { "key": "sans", "type": "object_list", "labelKey": "plugin.ca.microsoftAdcs.field.sans", "required": true },
+        { "key": "agentId", "type": "text", "labelKey": "plugin.ca.microsoftAdcs.field.agentId", "required": true },
+        { "key": "secretRef", "type": "secret_ref", "labelKey": "plugin.ca.microsoftAdcs.field.secretRef", "required": true, "sensitive": true, "acceptedSecretTypes": ["certificate_private_key"], "purpose": "adcs-credential" }
+      ]
+    }
+  ]
+}

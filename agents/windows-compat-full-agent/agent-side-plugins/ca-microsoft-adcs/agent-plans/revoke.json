@@ -1,0 +1,7 @@
+{
+  "apiVersion": "gcac.agent-plan-template/v1",
+  "kind": "AgentPlanTemplateV1",
+  "capability": "ca.certificate.revoke",
+  "operation": "ca.certificate.revoke",
+  "actions": [{ "kind": "certificate.authority.operation", "operation": "ca.certificate.revoke", "templateId": "binding.templateId" }]
+}

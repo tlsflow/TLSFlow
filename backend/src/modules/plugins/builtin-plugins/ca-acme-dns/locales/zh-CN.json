@@ -1,0 +1,16 @@
+{
+  "plugin.ca.acmeDns.name": "ACME DNS Solver 插件",
+  "plugin.ca.acmeDns.description": "只管理 ACME DNS Solver 的呈现、传播检查和清理。",
+  "plugin.ca.acmeDns.challenge.title": "DNS 挑战记录",
+  "plugin.ca.acmeDns.form.solver": "DNS Solver",
+  "plugin.ca.acmeDns.field.provider": "DNS Provider",
+  "plugin.ca.acmeDns.field.zoneId": "区域标识",
+  "plugin.ca.acmeDns.field.recordName": "记录名称",
+  "plugin.ca.acmeDns.field.recordValue": "记录值",
+  "plugin.ca.acmeDns.field.ttl": "TTL",
+  "plugin.ca.acmeDns.field.secretRef": "Provider Token SecretRef",
+  "plugin.ca.acmeDns.field.stableKey": "稳定键",
+  "plugin.ca.acmeDns.field.status": "状态",
+  "plugin.ca.acmeDns.tab.audit": "审计记录",
+  "plugin.ca.acmeDns.action.manageRecord": "管理 DNS 记录"
+}

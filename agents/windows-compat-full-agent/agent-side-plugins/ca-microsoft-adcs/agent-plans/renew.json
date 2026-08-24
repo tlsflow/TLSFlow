@@ -1,0 +1,7 @@
+{
+  "apiVersion": "gcac.agent-plan-template/v1",
+  "kind": "AgentPlanTemplateV1",
+  "capability": "ca.certificate.renew",
+  "operation": "ca.certificate.renew",
+  "actions": [{ "kind": "certificate.authority.operation", "operation": "ca.certificate.renew", "templateId": "binding.templateId" }]
+}

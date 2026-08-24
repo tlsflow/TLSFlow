@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "gcac.device-presentation/v1",
+  "overview": [{
+    "id": "certificate",
+    "titleKey": "plugin.ca.certificate.title",
+    "fields": [
+      { "key": "stableKey", "labelKey": "plugin.ca.microsoftAdcs.field.stableKey", "valuePath": "stableKey", "type": "text" },
+      { "key": "subject", "labelKey": "plugin.ca.microsoftAdcs.field.subject", "valuePath": "subject", "type": "text" },
+      { "key": "status", "labelKey": "plugin.ca.microsoftAdcs.field.status", "valuePath": "status", "type": "status" },
+      { "key": "receiptRef", "labelKey": "plugin.ca.microsoftAdcs.field.receiptRef", "valuePath": "receiptRef", "type": "text" }
+    ]
+  }],
+  "tabs": [{ "type": "device_logs", "id": "logs", "titleKey": "plugin.ca.microsoftAdcs.tab.logs", "columns": [] }],
+  "actions": [
+    { "capabilityKey": "ca.certificate.renew", "labelKey": "plugin.ca.microsoftAdcs.action.renew", "tone": "info" },
+    { "capabilityKey": "ca.certificate.revoke", "labelKey": "plugin.ca.microsoftAdcs.action.revoke", "tone": "danger" }
+  ]
+}

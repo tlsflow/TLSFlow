@@ -1,0 +1,8 @@
+{
+  "apiVersion": "gcac.ca-sandbox/v1",
+  "kind": "OpenSslSandbox",
+  "mode": "development-only",
+  "authorityMaterial": "provided-by-test-vm",
+  "fixedOperations": ["ca.certificate.issue", "ca.certificate.renew", "ca.certificate.revoke"],
+  "network": "disabled"
+}

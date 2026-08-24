@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "gcac.plugin-form/v1",
+  "mode": "MANAGED",
+  "sections": [
+    {
+      "id": "solver",
+      "titleKey": "plugin.ca.acmeDns.form.solver",
+      "fields": [
+        { "key": "provider", "type": "text", "labelKey": "plugin.ca.acmeDns.field.provider", "required": true },
+        { "key": "zoneId", "type": "text", "labelKey": "plugin.ca.acmeDns.field.zoneId", "required": true },
+        { "key": "recordName", "type": "text", "labelKey": "plugin.ca.acmeDns.field.recordName", "required": true },
+        { "key": "recordValue", "type": "text", "labelKey": "plugin.ca.acmeDns.field.recordValue", "required": true, "sensitive": true },
+        { "key": "ttl", "type": "integer", "labelKey": "plugin.ca.acmeDns.field.ttl", "required": true, "validation": { "minimum": 30, "maximum": 86400 } },
+        { "key": "secretRef", "type": "secret_ref", "labelKey": "plugin.ca.acmeDns.field.secretRef", "required": true, "sensitive": true, "acceptedSecretTypes": ["api_token"], "purpose": "dns-solver-provider-token" }
+      ]
+    }
+  ]
+}

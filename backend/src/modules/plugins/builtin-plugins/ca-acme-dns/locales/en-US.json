@@ -1,0 +1,16 @@
+{
+  "plugin.ca.acmeDns.name": "ACME DNS Solver",
+  "plugin.ca.acmeDns.description": "Manage only ACME DNS solver presentation, propagation checks, and cleanup.",
+  "plugin.ca.acmeDns.challenge.title": "DNS challenge record",
+  "plugin.ca.acmeDns.form.solver": "DNS Solver",
+  "plugin.ca.acmeDns.field.provider": "DNS Provider",
+  "plugin.ca.acmeDns.field.zoneId": "Zone identifier",
+  "plugin.ca.acmeDns.field.recordName": "Record name",
+  "plugin.ca.acmeDns.field.recordValue": "Record value",
+  "plugin.ca.acmeDns.field.ttl": "TTL",
+  "plugin.ca.acmeDns.field.secretRef": "Provider token SecretRef",
+  "plugin.ca.acmeDns.field.stableKey": "Stable key",
+  "plugin.ca.acmeDns.field.status": "Status",
+  "plugin.ca.acmeDns.tab.audit": "Audit records",
+  "plugin.ca.acmeDns.action.manageRecord": "Manage DNS record"
+}

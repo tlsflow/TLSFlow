@@ -1,0 +1,20 @@
+{
+  "plugin.ca.microsoftAdcs.name": "Microsoft ADCS 证书插件",
+  "plugin.ca.microsoftAdcs.description": "在控制面生成类型化计划，由独立 Agent-side Runner 执行本机证书 API。",
+  "plugin.ca.certificate.title": "证书",
+  "plugin.ca.microsoftAdcs.form.certificate": "ADCS 证书请求",
+  "plugin.ca.microsoftAdcs.field.templateId": "证书模板",
+  "plugin.ca.microsoftAdcs.field.subject": "证书主题",
+  "plugin.ca.microsoftAdcs.field.sans": "Subject Alternative Name",
+  "plugin.ca.microsoftAdcs.field.agentId": "Agent 标识",
+  "plugin.ca.microsoftAdcs.field.secretRef": "ADCS 凭据 SecretRef",
+  "plugin.ca.microsoftAdcs.field.profile": "平台 Profile",
+  "plugin.ca.microsoftAdcs.field.status": "状态",
+  "plugin.ca.microsoftAdcs.field.stableKey": "稳定键",
+  "plugin.ca.microsoftAdcs.field.receiptRef": "Receipt 引用",
+  "plugin.ca.microsoftAdcs.tab.certificates": "证书绑定",
+  "plugin.ca.microsoftAdcs.tab.logs": "Agent 日志",
+  "plugin.ca.microsoftAdcs.action.issue": "生成签发计划",
+  "plugin.ca.microsoftAdcs.action.renew": "生成续期计划",
+  "plugin.ca.microsoftAdcs.action.revoke": "生成吊销计划"
+}

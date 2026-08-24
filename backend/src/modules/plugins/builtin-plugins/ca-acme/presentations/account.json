@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "gcac.device-presentation/v1",
+  "overview": [{
+    "id": "account",
+    "titleKey": "plugin.ca.acme.account.title",
+    "fields": [
+      { "key": "stableKey", "labelKey": "plugin.ca.acme.field.stableKey", "valuePath": "stableKey", "type": "text" },
+      { "key": "directoryUrl", "labelKey": "plugin.ca.acme.field.directoryUrl", "valuePath": "directoryUrl", "type": "link" },
+      { "key": "status", "labelKey": "plugin.ca.acme.field.status", "valuePath": "status", "type": "status" },
+      { "key": "pluginVersionId", "labelKey": "plugin.ca.acme.field.pluginVersionId", "valuePath": "pluginVersionId", "type": "text" }
+    ]
+  }],
+  "tabs": [{ "type": "records", "id": "orders", "titleKey": "plugin.ca.acme.tab.orders", "columns": [] }],
+  "actions": [{ "capabilityKey": "ca.account.manage", "labelKey": "plugin.ca.acme.action.manageAccount", "tone": "info" }]
+}

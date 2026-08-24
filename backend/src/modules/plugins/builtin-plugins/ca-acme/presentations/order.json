@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "gcac.device-presentation/v1",
+  "overview": [{
+    "id": "order",
+    "titleKey": "plugin.ca.acme.order.title",
+    "fields": [
+      { "key": "stableKey", "labelKey": "plugin.ca.acme.field.stableKey", "valuePath": "stableKey", "type": "text" },
+      { "key": "status", "labelKey": "plugin.ca.acme.field.status", "valuePath": "status", "type": "status" },
+      { "key": "identifiers", "labelKey": "plugin.ca.acme.field.identifiers", "valuePath": "identifiers", "type": "text" }
+    ]
+  }],
+  "tabs": [{ "type": "certificate_bindings", "id": "certificates", "titleKey": "plugin.ca.acme.tab.certificates", "columns": [] }],
+  "actions": [{ "capabilityKey": "ca.order.manage", "labelKey": "plugin.ca.acme.action.manageOrder", "tone": "info" }]
+}

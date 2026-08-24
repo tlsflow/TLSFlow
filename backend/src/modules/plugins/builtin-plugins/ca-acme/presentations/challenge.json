@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "gcac.device-presentation/v1",
+  "overview": [{
+    "id": "challenge",
+    "titleKey": "plugin.ca.acme.challenge.title",
+    "fields": [
+      { "key": "stableKey", "labelKey": "plugin.ca.acme.field.stableKey", "valuePath": "stableKey", "type": "text" },
+      { "key": "type", "labelKey": "plugin.ca.acme.field.challengeType", "valuePath": "type", "type": "text" },
+      { "key": "status", "labelKey": "plugin.ca.acme.field.status", "valuePath": "status", "type": "status" },
+      { "key": "url", "labelKey": "plugin.ca.acme.field.challengeUrl", "valuePath": "url", "type": "link" }
+    ]
+  }],
+  "tabs": [{ "type": "records", "id": "events", "titleKey": "plugin.ca.acme.tab.events", "columns": [] }],
+  "actions": [{ "capabilityKey": "ca.challenge.orchestrate", "labelKey": "plugin.ca.acme.action.solveChallenge", "tone": "info" }]
+}

@@ -1,0 +1,20 @@
+{
+  "plugin.ca.microsoftAdcs.name": "Microsoft ADCS Certificate Plugin",
+  "plugin.ca.microsoftAdcs.description": "Build typed plans in the control plane and execute local certificate APIs in an isolated Agent-side Runner.",
+  "plugin.ca.certificate.title": "Certificate",
+  "plugin.ca.microsoftAdcs.form.certificate": "ADCS certificate request",
+  "plugin.ca.microsoftAdcs.field.templateId": "Certificate template",
+  "plugin.ca.microsoftAdcs.field.subject": "Certificate subject",
+  "plugin.ca.microsoftAdcs.field.sans": "Subject Alternative Names",
+  "plugin.ca.microsoftAdcs.field.agentId": "Agent identifier",
+  "plugin.ca.microsoftAdcs.field.secretRef": "ADCS credential SecretRef",
+  "plugin.ca.microsoftAdcs.field.profile": "Platform profile",
+  "plugin.ca.microsoftAdcs.field.status": "Status",
+  "plugin.ca.microsoftAdcs.field.stableKey": "Stable key",
+  "plugin.ca.microsoftAdcs.field.receiptRef": "Receipt reference",
+  "plugin.ca.microsoftAdcs.tab.certificates": "Certificate bindings",
+  "plugin.ca.microsoftAdcs.tab.logs": "Agent logs",
+  "plugin.ca.microsoftAdcs.action.issue": "Create issuance plan",
+  "plugin.ca.microsoftAdcs.action.renew": "Create renewal plan",
+  "plugin.ca.microsoftAdcs.action.revoke": "Create revocation plan"
+}

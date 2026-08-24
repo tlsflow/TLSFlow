@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "gcac.device-presentation/v1",
+  "overview": [{
+    "id": "authority",
+    "titleKey": "plugin.ca.microsoftAdcs.name",
+    "fields": [
+      { "key": "profile", "labelKey": "plugin.ca.microsoftAdcs.field.profile", "valuePath": "profile", "type": "text" },
+      { "key": "templateId", "labelKey": "plugin.ca.microsoftAdcs.field.templateId", "valuePath": "templateId", "type": "text" },
+      { "key": "status", "labelKey": "plugin.ca.microsoftAdcs.field.status", "valuePath": "status", "type": "status" }
+    ]
+  }],
+  "tabs": [{ "type": "certificate_bindings", "id": "certificates", "titleKey": "plugin.ca.microsoftAdcs.tab.certificates", "columns": [] }],
+  "actions": [{ "capabilityKey": "ca.certificate.issue", "labelKey": "plugin.ca.microsoftAdcs.action.issue", "tone": "success" }]
+}
