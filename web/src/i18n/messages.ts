@@ -886,7 +886,9 @@ const zhCN = {
     actions: {
       install: '安装插件',
       detail: '详情',
-      disable: '禁用插件',
+      enable: '启用',
+      disabling: '禁用中...',
+      disable: '禁用',
       disableRisk: '禁用插件会影响 Provider、模板和执行器能力。'
     },
     columns: {
@@ -4016,7 +4018,9 @@ const enUS = {
     actions: {
       install: 'Install plugin',
       detail: 'Details',
-      disable: 'Disable plugin',
+      enable: 'Enable',
+      disabling: 'Disabling...',
+      disable: 'Disable',
       disableRisk: 'Disabling a plugin affects provider, template, and executor capabilities.'
     },
     columns: {

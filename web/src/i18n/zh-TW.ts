@@ -725,12 +725,14 @@ export default {
       refreshing: "重新整理中...",
       createWorkflow: "建立工作流程",
       creatingWorkflow: "建立中...",
-      disable: "停用外掛",
+      enable: "啟用",
+      disabling: "停用中...",
+      disable: "停用",
       disableRisk: "停用外掛會影響 Provider、模板和執行器能力。"
     },
     market: { eyebrow: "DSL 外掛市場", title: "探索可重用的自動化能力", description: "內建模板隨系統發布，使用者模板來自 data/workflows。每個模板都可維護 Logo、語意版本與能力標籤。" },
     sources: { builtin: "內建外掛", user: "使用者外掛" },
-    statuses: { valid: "可用", invalid: "無效", available: "可建立", inUse: "正在使用", notInUse: "尚未使用" },
+    statuses: { valid: "可用", invalid: "無效", available: "可建立", enabled: "已啟用", disabled: "未啟用", pendingApproval: "待審批", inUse: "正在使用", notInUse: "尚未使用" },
     filters: { searchLabel: "搜尋外掛", searchPlaceholder: "依名稱、標籤、分類或路徑搜尋", allSources: "全部來源", allStatuses: "全部狀態", statusLabel: "外掛狀態" },
     card: { defaultDescription: "此 DSL 外掛尚未設定說明。", unversioned: "未標示版本", stepCount: "{count} 個執行步驟" },
     columns: {
@@ -777,6 +779,7 @@ export default {
     agentDeployment: {
       mount: '掛載到 Agent', mounting: '掛載中...', selectAgent: '請選擇目標 Agent', type: '外掛類型', targetAgent: '目標 Agent', mountFailed: 'Agent 外掛掛載失敗',
       executionMode: 'Agent 執行模式', nativeHandler: '原生處理器', pluginMode: 'Agent 外掛', mountedPlugin: '已掛載外掛', selectMountedPlugin: '請選擇已掛載外掛',
+      plugin: '部署外掛', selectPlugin: '請選擇部署外掛', noCompatiblePlugin: '沒有符合目前平台與框架的已啟用外掛', compatiblePluginHint: '僅顯示與目前資產平台及框架相符的已啟用外掛。',
       secretRefPlaceholder: '輸入 SecretRef 識別碼', artifactBinding: '憑證產物 {name}', artifactBindingPlaceholder: '例如 value=fullchain,key=private', preview: '驗證外掛設定', previewFailed: 'Agent 外掛設定驗證失敗',
       approveAndEnable: '核准權限並啟用', activating: '啟用中...', activateFailed: 'Agent 外掛核准或啟用失敗',
       types: { WORKFLOW_TEMPLATE: '工作流程範本', AGENT_DEPLOYMENT: 'Agent 部署外掛' }

@@ -699,12 +699,14 @@ export default {
       refreshing: 'Atualizando...',
       createWorkflow: 'Criar fluxo de trabalho',
       creatingWorkflow: 'Criando...',
-      disable: 'Desativar plugin',
+      enable: 'Habilitar',
+      disabling: 'Desabilitando...',
+      disable: 'Desativar',
       disableRisk: 'Desativar um plugin afeta capacidades de Provider, modelos e executores.'
     },
     market: { eyebrow: 'Mercado de plugins DSL', title: 'Descubra automações reutilizáveis', description: 'Os modelos integrados acompanham o sistema e os modelos do usuário vêm de data/workflows. Cada modelo pode manter logo, versão semântica e tags.' },
     sources: { builtin: 'Integrado', user: 'Plugin do usuário' },
-    statuses: { valid: 'Disponível', invalid: 'Inválido', available: 'Pronto para criar', inUse: 'Em uso', notInUse: 'Não utilizado' },
+    statuses: { valid: 'Disponível', invalid: 'Inválido', available: 'Pronto para criar', enabled: 'Habilitado', disabled: 'Não habilitado', pendingApproval: 'Aguardando aprovação', inUse: 'Em uso', notInUse: 'Não utilizado' },
     filters: { searchLabel: 'Pesquisar plugins', searchPlaceholder: 'Pesquisar por nome, tag, categoria ou caminho', allSources: 'Todas as origens', allStatuses: 'Todos os estados', statusLabel: 'Estado do plugin' },
     card: { defaultDescription: 'Este plugin DSL ainda não possui descrição.', unversioned: 'Sem versão', stepCount: '{count} etapas de execução' },
     columns: {
@@ -751,6 +753,7 @@ export default {
     agentDeployment: {
       mount: 'Montar no Agent', mounting: 'Montando...', selectAgent: 'Selecione o Agent de destino', type: 'Tipo de plugin', targetAgent: 'Agent de destino', mountFailed: 'Falha ao montar o plugin do Agent',
       executionMode: 'Modo de execução do Agent', nativeHandler: 'Manipulador nativo', pluginMode: 'Plugin do Agent', mountedPlugin: 'Plugin montado', selectMountedPlugin: 'Selecione um plugin montado',
+      plugin: 'Plugin de implantação', selectPlugin: 'Selecione um plugin de implantação', noCompatiblePlugin: 'Nenhum plugin habilitado corresponde à plataforma e ao framework atuais', compatiblePluginHint: 'Somente plugins habilitados compatíveis com a plataforma e o framework do ativo são exibidos.',
       secretRefPlaceholder: 'Informe um identificador SecretRef', artifactBinding: 'Artefato de certificado {name}', artifactBindingPlaceholder: 'Exemplo: value=fullchain,key=private', preview: 'Validar configuração', previewFailed: 'Falha ao validar a configuração do plugin do Agent',
       approveAndEnable: 'Aprovar e habilitar', activating: 'Habilitando...', activateFailed: 'Falha ao aprovar ou habilitar o plugin do Agent',
       types: { WORKFLOW_TEMPLATE: 'Modelo de workflow', AGENT_DEPLOYMENT: 'Plugin de implantação do Agent' }

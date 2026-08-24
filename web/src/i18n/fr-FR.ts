@@ -733,12 +733,14 @@ export default {
       refreshing: 'Refreshing...',
       createWorkflow: 'Créer un workflow',
       creatingWorkflow: 'Création...',
-      disable: 'Disable plugin',
+      enable: 'Activer',
+      disabling: 'Désactivation...',
+      disable: 'Désactiver',
       disableRisk: 'Disabling a plugin affects provider, template, and executor capabilities.'
     },
     market: { eyebrow: 'Marché des plugins DSL', title: 'Découvrir des automatisations réutilisables', description: 'Les modèles intégrés sont livrés avec le système et les modèles utilisateur proviennent de data/workflows. Chaque modèle gère son logo, sa version sémantique et ses tags.' },
     sources: { builtin: 'Intégré', user: 'Plugin utilisateur' },
-    statuses: { valid: 'Disponible', invalid: 'Invalide', available: 'Prêt à créer', inUse: 'Utilisé', notInUse: 'Non utilisé' },
+    statuses: { valid: 'Disponible', invalid: 'Invalide', available: 'Prêt à créer', enabled: 'Activé', disabled: 'Non activé', pendingApproval: 'En attente d’approbation', inUse: 'Utilisé', notInUse: 'Non utilisé' },
     filters: { searchLabel: 'Rechercher des plugins', searchPlaceholder: 'Rechercher par nom, tag, catégorie ou chemin', allSources: 'Toutes les sources', allStatuses: 'Tous les états', statusLabel: 'État du plugin' },
     card: { defaultDescription: 'Ce plugin DSL ne possède pas encore de description.', unversioned: 'Sans version', stepCount: '{count} étapes d’exécution' },
     columns: {
@@ -785,6 +787,7 @@ export default {
     agentDeployment: {
       mount: 'Monter sur l’Agent', mounting: 'Montage...', selectAgent: 'Sélectionner l’Agent cible', type: 'Type de plugin', targetAgent: 'Agent cible', mountFailed: 'Échec du montage du plugin Agent',
       executionMode: 'Mode d’exécution Agent', nativeHandler: 'Gestionnaire natif', pluginMode: 'Plugin Agent', mountedPlugin: 'Plugin monté', selectMountedPlugin: 'Sélectionner un plugin monté',
+      plugin: 'Plugin de déploiement', selectPlugin: 'Sélectionner un plugin de déploiement', noCompatiblePlugin: 'Aucun plugin activé ne correspond à la plateforme et au framework actuels', compatiblePluginHint: 'Seuls les plugins activés correspondant à la plateforme et au framework de l’actif sont affichés.',
       secretRefPlaceholder: 'Saisir un identifiant SecretRef', artifactBinding: 'Artefact de certificat {name}', artifactBindingPlaceholder: 'Exemple : value=fullchain,key=private', preview: 'Valider la configuration', previewFailed: 'Échec de validation de la configuration du plugin Agent',
       approveAndEnable: 'Approuver et activer', activating: 'Activation...', activateFailed: 'Échec de l’approbation ou de l’activation du plugin Agent',
       types: { WORKFLOW_TEMPLATE: 'Modèle de workflow', AGENT_DEPLOYMENT: 'Plugin de déploiement Agent' }

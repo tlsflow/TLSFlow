@@ -699,12 +699,14 @@ export default {
       refreshing: '새로고침 중...',
       createWorkflow: '워크플로 만들기',
       creatingWorkflow: '만드는 중...',
-      disable: '플러그인 사용하지 않기',
+      enable: '활성화',
+      disabling: '비활성화 중...',
+      disable: '비활성화',
       disableRisk: '플러그인을 사용하지 않으면 Provider, 템플릿, 실행기 기능에 영향을 준다.'
     },
     market: { eyebrow: 'DSL 플러그인 마켓', title: '재사용 가능한 자동화 기능 찾기', description: '기본 제공 템플릿은 시스템과 함께 배포되고 사용자 템플릿은 data/workflows 에서 로드됩니다. 각 템플릿은 Logo, 시맨틱 버전, 태그를 관리할 수 있습니다.' },
     sources: { builtin: '기본 제공', user: '사용자 플러그인' },
-    statuses: { valid: '사용 가능', invalid: '유효하지 않음', available: '생성 가능', inUse: '사용 중', notInUse: '사용하지 않음' },
+    statuses: { valid: '사용 가능', invalid: '유효하지 않음', available: '생성 가능', enabled: '활성화됨', disabled: '활성화되지 않음', pendingApproval: '승인 대기', inUse: '사용 중', notInUse: '사용하지 않음' },
     filters: { searchLabel: '플러그인 검색', searchPlaceholder: '이름, 태그, 분류 또는 경로로 검색', allSources: '모든 출처', allStatuses: '모든 상태', statusLabel: '플러그인 상태' },
     card: { defaultDescription: '이 DSL 플러그인에는 아직 설명이 없습니다.', unversioned: '버전 없음', stepCount: '실행 단계 {count}개' },
     columns: {
@@ -751,6 +753,7 @@ export default {
     agentDeployment: {
       mount: 'Agent에 마운트', mounting: '마운트 중...', selectAgent: '대상 Agent 선택', type: '플러그인 유형', targetAgent: '대상 Agent', mountFailed: 'Agent 플러그인을 마운트하지 못했습니다',
       executionMode: 'Agent 실행 모드', nativeHandler: '기본 핸들러', pluginMode: 'Agent 플러그인', mountedPlugin: '마운트된 플러그인', selectMountedPlugin: '마운트된 플러그인 선택',
+      plugin: '배포 플러그인', selectPlugin: '배포 플러그인 선택', noCompatiblePlugin: '현재 플랫폼 및 프레임워크와 일치하는 활성 플러그인이 없습니다', compatiblePluginHint: '자산 플랫폼 및 프레임워크와 일치하는 활성 플러그인만 표시합니다.',
       secretRefPlaceholder: 'SecretRef 식별자 입력', artifactBinding: '인증서 산출물 {name}', artifactBindingPlaceholder: '예: value=fullchain,key=private', preview: '플러그인 설정 검증', previewFailed: 'Agent 플러그인 설정 검증에 실패했습니다',
       approveAndEnable: '권한 승인 및 활성화', activating: '활성화 중...', activateFailed: 'Agent 플러그인 승인 또는 활성화에 실패했습니다',
       types: { WORKFLOW_TEMPLATE: '워크플로 템플릿', AGENT_DEPLOYMENT: 'Agent 배포 플러그인' }

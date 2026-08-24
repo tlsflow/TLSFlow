@@ -733,7 +733,9 @@ export default {
       refreshing: 'Refreshing...',
       createWorkflow: 'Create workflow',
       creatingWorkflow: 'Creating...',
-      disable: 'Disable plugin',
+      enable: 'Enable',
+      disabling: 'Disabling...',
+      disable: 'Disable',
       disableRisk: 'Disabling a plugin affects provider, template, and executor capabilities.'
     },
     market: {
@@ -742,7 +744,7 @@ export default {
       description: 'Built-in templates ship with the system, while user templates come from data/workflows. Each template can maintain its own logo, semantic version, and capability tags.'
     },
     sources: { builtin: 'Built-in', user: 'User plugin' },
-    statuses: { valid: 'Available', invalid: 'Invalid', available: 'Ready to create', inUse: 'In use', notInUse: 'Not used' },
+    statuses: { valid: 'Available', invalid: 'Invalid', available: 'Ready to create', enabled: 'Enabled', disabled: 'Not enabled', pendingApproval: 'Pending approval', inUse: 'In use', notInUse: 'Not used' },
     filters: {
       searchLabel: 'Search plugins',
       searchPlaceholder: 'Search by name, tag, category, or path',
@@ -818,6 +820,7 @@ export default {
     agentDeployment: {
       mount: 'Mount to Agent', mounting: 'Mounting...', selectAgent: 'Select target Agent', type: 'Plugin type', targetAgent: 'Target Agent', mountFailed: 'Failed to mount Agent plugin',
       executionMode: 'Agent execution mode', nativeHandler: 'Native handler', pluginMode: 'Agent plugin', mountedPlugin: 'Mounted plugin', selectMountedPlugin: 'Select a mounted plugin',
+      plugin: 'Deployment plugin', selectPlugin: 'Select a deployment plugin', noCompatiblePlugin: 'No enabled plugin matches the current platform and framework', compatiblePluginHint: 'Only enabled plugins matching the asset platform and framework are shown.',
       secretRefPlaceholder: 'Enter a SecretRef identifier', artifactBinding: 'Certificate artifact {name}', artifactBindingPlaceholder: 'Example: value=fullchain,key=private', preview: 'Validate plugin settings', previewFailed: 'Failed to validate Agent plugin settings',
       approveAndEnable: 'Approve and enable', activating: 'Enabling...', activateFailed: 'Failed to approve or enable Agent plugin',
       types: { WORKFLOW_TEMPLATE: 'Workflow template', AGENT_DEPLOYMENT: 'Agent deployment plugin' }

@@ -464,7 +464,7 @@ async function loadFileTemplates() {
   fileTemplateLoading.value = true
   fileTemplateError.value = ''
   try {
-    const result = await listWorkflowFileTemplates()
+    const result = await listWorkflowFileTemplates(true)
     fileTemplateItems.value = [...(result.data?.items ?? [])]
     const firstValid = fileTemplateItems.value.find((item) => Boolean(item.valid))
     selectedFileTemplateId.value = firstValid ? readString(firstValid, ['id'], '') : ''

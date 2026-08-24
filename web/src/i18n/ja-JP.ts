@@ -725,12 +725,14 @@ export default {
       refreshing: '更新中...',
       createWorkflow: 'ワークフローを作成',
       creatingWorkflow: '作成中...',
-      disable: '無効化プラグイン',
+      enable: '有効化',
+      disabling: '無効化中...',
+      disable: '無効化',
       disableRisk: '無効化プラグインは影響 Provider、テンプレートとExecutor機能。'
     },
     market: { eyebrow: 'DSL プラグインマーケット', title: '再利用可能な自動化機能を探す', description: '組み込みテンプレートはシステムに同梱され、ユーザーテンプレートは data/workflows から読み込まれます。各テンプレートで Logo、セマンティックバージョン、タグを管理できます。'},
     sources: { builtin: '組み込み', user: 'ユーザープラグイン' },
-    statuses: { valid: '利用可能', invalid: '無効', available: '作成可能', inUse: '使用中', notInUse: '未使用' },
+    statuses: { valid: '利用可能', invalid: '無効', available: '作成可能', enabled: '有効', disabled: '未有効化', pendingApproval: '承認待ち', inUse: '使用中', notInUse: '未使用' },
     filters: { searchLabel: 'プラグイン検索', searchPlaceholder: '名前、タグ、カテゴリ、パスで検索', allSources: 'すべての提供元', allStatuses: 'すべての状態', statusLabel: 'プラグイン状態' },
     card: { defaultDescription: 'この DSL プラグインには説明がありません。', unversioned: 'バージョン未設定', stepCount: '実行ステップ {count} 件' },
     columns: {
@@ -777,6 +779,7 @@ export default {
     agentDeployment: {
       mount: 'Agent にマウント', mounting: 'マウント中...', selectAgent: '対象 Agent を選択', type: 'プラグイン種別', targetAgent: '対象 Agent', mountFailed: 'Agent プラグインのマウントに失敗しました',
       executionMode: 'Agent 実行モード', nativeHandler: 'ネイティブハンドラー', pluginMode: 'Agent プラグイン', mountedPlugin: 'マウント済みプラグイン', selectMountedPlugin: 'マウント済みプラグインを選択',
+      plugin: 'デプロイプラグイン', selectPlugin: 'デプロイプラグインを選択', noCompatiblePlugin: '現在のプラットフォームとフレームワークに一致する有効なプラグインがありません', compatiblePluginHint: '資産のプラットフォームとフレームワークに一致する有効なプラグインのみ表示します。',
       secretRefPlaceholder: 'SecretRef 識別子を入力', artifactBinding: '証明書成果物 {name}', artifactBindingPlaceholder: '例: value=fullchain,key=private', preview: 'プラグイン設定を検証', previewFailed: 'Agent プラグイン設定の検証に失敗しました',
       approveAndEnable: '権限を承認して有効化', activating: '有効化中...', activateFailed: 'Agent プラグインの承認または有効化に失敗しました',
       types: { WORKFLOW_TEMPLATE: 'ワークフローテンプレート', AGENT_DEPLOYMENT: 'Agent デプロイプラグイン' }

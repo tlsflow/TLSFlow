@@ -733,7 +733,9 @@ export default {
       refreshing: '刷新中...',
       createWorkflow: '创建工作流',
       creatingWorkflow: '创建中...',
-      disable: '禁用插件',
+      enable: '启用',
+      disabling: '禁用中...',
+      disable: '禁用',
       disableRisk: '禁用插件会影响 Provider、模板和执行器能力。'
     },
     market: {
@@ -749,6 +751,9 @@ export default {
       valid: '可用',
       invalid: '无效',
       available: '可创建',
+      enabled: '已启用',
+      disabled: '未启用',
+      pendingApproval: '待审批',
       inUse: '正在使用',
       notInUse: '尚未使用'
     },
@@ -827,6 +832,7 @@ export default {
     agentDeployment: {
       mount: '挂载到 Agent', mounting: '挂载中...', selectAgent: '请选择目标 Agent', type: '插件类型', targetAgent: '目标 Agent', mountFailed: 'Agent 插件挂载失败',
       executionMode: 'Agent 执行模式', nativeHandler: '原生处理器', pluginMode: 'Agent 插件', mountedPlugin: '已挂载插件', selectMountedPlugin: '请选择已挂载插件',
+      plugin: '部署插件', selectPlugin: '请选择部署插件', noCompatiblePlugin: '没有匹配当前平台和框架的已启用插件', compatiblePluginHint: '仅显示与当前资产平台和框架匹配的已启用插件。',
       secretRefPlaceholder: '输入 SecretRef 标识', artifactBinding: '证书产物 {name}', artifactBindingPlaceholder: '例如 value=fullchain,key=private', preview: '校验插件配置', previewFailed: 'Agent 插件配置校验失败',
       approveAndEnable: '审批权限并启用', activating: '启用中...', activateFailed: 'Agent 插件审批或启用失败',
       types: { WORKFLOW_TEMPLATE: '工作流模板', AGENT_DEPLOYMENT: 'Agent 部署插件' }

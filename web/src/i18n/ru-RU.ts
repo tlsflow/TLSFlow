@@ -699,12 +699,14 @@ export default {
       refreshing: 'Обновление...',
       createWorkflow: 'Создать процесс',
       creatingWorkflow: 'Создание...',
-      disable: 'Отключить плагин',
+      enable: 'Включить',
+      disabling: 'Отключение...',
+      disable: 'Отключить',
       disableRisk: 'Отключение плагина повлияет на возможности Provider, шаблонов и исполнителей.'
     },
     market: { eyebrow: 'Каталог DSL-плагинов', title: 'Повторно используемые возможности автоматизации', description: 'Встроенные шаблоны поставляются с системой, пользовательские загружаются из data/workflows. Для каждого шаблона можно задать логотип, семантическую версию и теги.' },
     sources: { builtin: 'Встроенный', user: 'Пользовательский' },
-    statuses: { valid: 'Доступен', invalid: 'Недействителен', available: 'Можно создать', inUse: 'Используется', notInUse: 'Не используется' },
+    statuses: { valid: 'Доступен', invalid: 'Недействителен', available: 'Можно создать', enabled: 'Включен', disabled: 'Не включен', pendingApproval: 'Ожидает одобрения', inUse: 'Используется', notInUse: 'Не используется' },
     filters: { searchLabel: 'Поиск плагинов', searchPlaceholder: 'Поиск по имени, тегу, категории или пути', allSources: 'Все источники', allStatuses: 'Все статусы', statusLabel: 'Статус плагина' },
     card: { defaultDescription: 'Для этого DSL-плагина пока нет описания.', unversioned: 'Без версии', stepCount: 'Шагов выполнения: {count}' },
     columns: {
@@ -751,6 +753,7 @@ export default {
     agentDeployment: {
       mount: 'Подключить к Agent', mounting: 'Подключение...', selectAgent: 'Выберите целевой Agent', type: 'Тип плагина', targetAgent: 'Целевой Agent', mountFailed: 'Не удалось подключить плагин Agent',
       executionMode: 'Режим выполнения Agent', nativeHandler: 'Встроенный обработчик', pluginMode: 'Плагин Agent', mountedPlugin: 'Подключенный плагин', selectMountedPlugin: 'Выберите подключенный плагин',
+      plugin: 'Плагин развертывания', selectPlugin: 'Выберите плагин развертывания', noCompatiblePlugin: 'Нет включенного плагина для текущей платформы и фреймворка', compatiblePluginHint: 'Показываются только включенные плагины, совместимые с платформой и фреймворком ресурса.',
       secretRefPlaceholder: 'Введите идентификатор SecretRef', artifactBinding: 'Артефакт сертификата {name}', artifactBindingPlaceholder: 'Пример: value=fullchain,key=private', preview: 'Проверить настройки', previewFailed: 'Не удалось проверить настройки плагина Agent',
       approveAndEnable: 'Одобрить и включить', activating: 'Включение...', activateFailed: 'Не удалось одобрить или включить плагин Agent',
       types: { WORKFLOW_TEMPLATE: 'Шаблон workflow', AGENT_DEPLOYMENT: 'Плагин развертывания Agent' }
