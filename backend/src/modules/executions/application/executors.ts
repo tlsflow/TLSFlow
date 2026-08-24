@@ -13,7 +13,7 @@ import { SecretServiceSshResolver } from '../../executors/ssh/ssh.secret-resolve
 import { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
 import type { WorkflowConnectionBinding, WorkflowExecutorDispatchResult, WorkflowRunProgress, WorkflowRunResult } from '../../workflow-templates/dto/workflow-templates.dto.js';
 import type { ExecutionStepEntity } from '../schema/executions.schema.js';
-import { AgentActionDispatchRegistry } from './agent-action-dispatch-registry.js';
+import { AgentActionDispatchRegistry, type AgentActionDispatchResolution } from './agent-action-dispatch-registry.js';
 import type { UnifiedAgentPlanCompilerService } from '../../plugins/application/unified-agent-plan-compiler.service.js';
 import { evaluateTlsVerification, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
 import { WorkflowRecoveryLedgerService, type WorkflowRecoveryLedgerRecord } from './workflow-recovery-ledger.service.js';
@@ -211,10 +211,19 @@ export class AgentExecutorAdapter implements Executor {
   async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
     const agentId = stringFromSnapshot(input.step.inputSnapshot.agentId) ?? stringFromSnapshot(input.step.inputSnapshot.executionTargetId) ?? stringFromSnapshot(input.step.inputSnapshot.deploymentPlanTargetId);
     if (!agentId) return { success: false, errorCode: 'AGENT_ID_REQUIRED', errorMessage: 'AGENT 执行器缺少 agentId/executionTargetId，拒绝伪装成功' };
-    const resolved = await this.resolveAgentPayload(input, agentId);
+    const requiredAction = this.actionDispatch.requireResolution(input.step.inputSnapshot);
+    if (!requiredAction.ok) {
+      return {
+        success: false,
+        errorCode: requiredAction.errorCode,
+        errorMessage: requiredAction.errorCode === 'AGENT_ACTION_SCHEMA_UNSUPPORTED' ? 'Agent Action Schema 版本不受支持' : 'Agent Action 未注册，拒绝入队',
+        detail: requiredAction.requestedActionType ? { requestedActionType: requiredAction.requestedActionType } : undefined,
+      };
+    }
+    const dispatch = requiredAction.resolution;
+    const resolved = await this.resolveAgentPayload(input, agentId, dispatch);
     if (resolved.error) return resolved.error;
     const payload = resolved.payload;
-    const dispatch = this.actionDispatch.resolve(input.step.inputSnapshot);
     const task = await this.agents.enqueueDirectTask(input.step.tenantId ?? '', {
       agentId,
       executionRunId: input.step.executionRunId,
@@ -252,14 +261,14 @@ export class AgentExecutorAdapter implements Executor {
         errorMessage: error instanceof Error ? error.message : String(error),
         detail: {
           mode: 'agent_direct_execute_failed',
-          dispatchMode: dispatch?.mode ?? 'direct_required',
+          dispatchMode: dispatch.mode,
           taskId: task.id,
         },
       };
     }
   }
 
-  private async resolveAgentPayload(input: StepExecutionInput, agentId: string): Promise<{
+  private async resolveAgentPayload(input: StepExecutionInput, agentId: string, dispatch: AgentActionDispatchResolution): Promise<{
     payload: Record<string, unknown>;
     error?: undefined;
   } | {
@@ -267,8 +276,8 @@ export class AgentExecutorAdapter implements Executor {
     error: StepExecutionResult;
   }> {
     const snapshot = input.step.inputSnapshot;
-    if (snapshot.actionType !== 'agent.atomic_plan.execute') {
-      return { payload: { ...snapshot, stepType: input.step.stepType, runType: input.runType, dryRun: input.dryRun } };
+    if (dispatch.kind !== 'ATOMIC_PLAN') {
+      return { payload: buildRegisteredAgentPayload(snapshot, input) };
     }
     if (!this.agentPlanCompiler) {
       return { error: { success: false, errorCode: 'AGENT_PLUGIN_SERVICE_REQUIRED', errorMessage: '统一 Agent Plan 编译器未配置' } };
@@ -293,6 +302,15 @@ export class AgentExecutorAdapter implements Executor {
         plan,
       } };
   }
+}
+
+function buildRegisteredAgentPayload(snapshot: Record<string, unknown>, input: StepExecutionInput): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(snapshot)) payload[key] = value;
+  payload.stepType = input.step.stepType;
+  payload.runType = input.runType;
+  payload.dryRun = input.dryRun;
+  return payload;
 }
 
 function resolvePluginExecutionContext(snapshot: Record<string, unknown>): Record<string, unknown> | undefined {

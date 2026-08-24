@@ -9,7 +9,7 @@ import { AgentExecutorAdapter, createDefaultExecutorRegistry } from './applicati
 
 const now = '2026-07-30T00:00:00.000Z';
 
-test('T06 未知 Agent Action 必须在入队前失败关闭', { todo: '034.1-T06' }, async () => {
+test('T06 未知 Agent Action 必须在入队前失败关闭', async () => {
   const queue = createAgentQueueProbe();
   const result = await new AgentExecutorAdapter(queue.agents).executeStep(stepInput({
     actionType: 'unknown.fixture.deploy',
@@ -17,6 +17,34 @@ test('T06 未知 Agent Action 必须在入队前失败关闭', { todo: '034.1-T0
 
   assert.equal(result.success, false);
   assert.equal(result.errorCode, 'AGENT_ACTION_UNREGISTERED');
+  assert.equal(queue.enqueueCount(), 0);
+  assert.equal(queue.directCount(), 0);
+});
+
+test('T06 缺失 Agent Action 必须拒绝且不得回显 Snapshot 秘密字段', async () => {
+  const queue = createAgentQueueProbe();
+  const result = await new AgentExecutorAdapter(queue.agents).executeStep(stepInput({
+    privateKeyPem: 'sensitive-private-key',
+    password: 'sensitive-password',
+  }));
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, 'AGENT_ACTION_UNREGISTERED');
+  assert.equal(JSON.stringify(result).includes('sensitive-private-key'), false);
+  assert.equal(JSON.stringify(result).includes('sensitive-password'), false);
+  assert.equal(queue.enqueueCount(), 0);
+  assert.equal(queue.directCount(), 0);
+});
+
+test('T06 不支持的 Agent Action Schema 必须在入队前失败关闭', async () => {
+  const queue = createAgentQueueProbe();
+  const result = await new AgentExecutorAdapter(queue.agents).executeStep(stepInput({
+    actionType: 'agent.atomic_plan.execute',
+    actionSchemaVersion: '2.0',
+  }));
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, 'AGENT_ACTION_SCHEMA_UNSUPPORTED');
   assert.equal(queue.enqueueCount(), 0);
   assert.equal(queue.directCount(), 0);
 });
