@@ -165,31 +165,25 @@ describe('Agent 一键安装会话', () => {
     assert.equal(bootstrap.statusCode, 200, JSON.stringify(bootstrap.body));
     const script = String(bootstrap.body);
     assert.match(script, /GCAC\.WindowsCompatibilityAgent\.exe/);
-    assert.match(script, /GCAC\.WindowsCompatibilityAgent\.exe\.config/);
+    assert.doesNotMatch(script, /GCAC\.WindowsCompatibilityAgent\.exe\.config/);
+    assert.match(script, /plugins\/windows-runtime-discovery\.exe/);
+    assert.match(script, /web-iis\/web-iis-agent-side-plugin\.exe/);
+    assert.match(script, /gcac-agent-updater\.exe/);
     assert.match(script, /GCACWindowsCompatibilityAgent/);
-    assert.match(script, /gcac\.windows-compat-agent-config\/v1/);
-    assert.match(script, /function Remove-CompatibilityService/);
-    assert.match(script, /\$existing\.WaitForStatus\("Stopped", \[TimeSpan\]::FromSeconds\(30\)\)/);
-    assert.match(script, /Compatibility Agent service deletion timed out/);
+    assert.match(script, /compatibility-agent\.go\.windows\.config\.v1/);
+    assert.match(script, /GCAC Windows Compatibility Go Agent bootstrap completed/);
     assert.match(script, /GCAC Windows Compatibility Agent Management TCP 18932/);
     assert.match(script, /advfirewall firewall delete rule name="GCAC Windows Compatibility Agent Management TCP 18932" 2>\$null/);
     assert.doesNotMatch(script, /-notmatch.*没有规则匹配|Compatibility Agent firewall rule cleanup failed/);
-    assert.match(script, /JavaScriptSerializer/);
-    assert.match(script, /\$manifest\['artifacts'\]/);
-    assert.match(script, /\$artifact\['content'\]/);
-    assert.match(script, /\$manifest\['tenantId'\]/);
-    assert.match(script, /\$manifest\['controlPlaneUrl'\]/);
-    assert.match(script, /function Serialize-JsonString/);
-    assert.match(script, /Serialize\(\[string\]\$Value\)/);
-    assert.doesNotMatch(script, /Serialize\(\$config\)/);
-    assert.doesNotMatch(script, /Serialize\(\$metadata\)/);
+    assert.doesNotMatch(script, /JavaScriptSerializer/);
+    assert.doesNotMatch(script, /ConvertFrom-Json|ConvertTo-Json/);
     assert.doesNotMatch(script, /\$manifest\.(?:tenantId|agentKey|enrollmentToken|controlPlaneUrl|artifacts|startAfterInstall)/);
     assert.doesNotMatch(script, /\$manifest\.artifacts|\$artifact\.content/);
-    assert.doesNotMatch(script, /ConvertFrom-Json|ConvertTo-Json/);
-    assert.doesNotMatch(script, /\[Console\]::OutputEncoding|Write-Host/);
-    assert.ok(script.indexOf('Remove-CompatibilityService') < script.indexOf('Copy-Item -LiteralPath $agentSource -Destination $agentTarget -Force'));
+    assert.match(script, /Write-Host/);
+    assert.match(script, /ConvertTo-CompatibilityJsonString/);
     assert.doesNotMatch(script, /register-once/);
     assert.doesNotMatch(script, /full-agent\.go\.windows\.config\.v1/);
+    assertWindowsCompatibilityBootstrapUsesGoArtifacts(script);
   });
 
   it('Linux 安装会话返回一条短期一次性安装命令', async () => {
@@ -367,6 +361,28 @@ function assertWindowsGoBootstrapUsesLatestAmd64Artifact(manifest: Record<string
     .update(Buffer.from(updaterArtifact.content as string, 'base64'))
     .digest('hex');
   assert.equal(updaterActualHash, updaterExpectedHash, 'Windows bootstrap 必须分发当前 amd64 升级器');
+}
+
+function assertWindowsCompatibilityBootstrapUsesGoArtifacts(script: string): void {
+  const artifacts = new Map<string, string>();
+  const pattern = /\$artifactPath = Join-Path \$root '([^']+)'[\s\S]*?FromBase64String\('([^']+)'\)/gu;
+  for (const match of script.matchAll(pattern)) {
+    artifacts.set(match[1], match[2]);
+  }
+  const expected = [
+    ['GCAC.WindowsCompatibilityAgent.exe', '../../../../agents/windows-compat-full-agent/dist/GCAC.WindowsCompatibilityAgent.exe'],
+    ['gcac-agent-updater.exe', '../../../../agents/windows-compat-full-agent/dist/gcac-agent-updater.exe'],
+    ['plugins/windows-runtime-discovery.exe', '../../../../agents/windows-compat-full-agent/dist/plugins/windows-runtime-discovery.exe'],
+    ['web-iis/web-iis-agent-side-plugin.exe', '../../../../agents/windows-compat-full-agent/dist/web-iis/web-iis-agent-side-plugin.exe'],
+  ] as const;
+  assert.deepEqual([...artifacts.keys()].sort(), expected.map(([path]) => path).sort(), 'Compatibility Bootstrap 只能分发四个 Go 产物');
+  for (const [relativePath, sourcePath] of expected) {
+    const encoded = artifacts.get(relativePath);
+    assert.ok(encoded, `Compatibility Bootstrap 缺少 ${relativePath}`);
+    const expectedHash = createHash('sha256').update(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), sourcePath))).digest('hex');
+    const actualHash = createHash('sha256').update(Buffer.from(encoded, 'base64')).digest('hex');
+    assert.equal(actualHash, expectedHash, `Compatibility Bootstrap 产物哈希不匹配: ${relativePath}`);
+  }
 }
 
 async function createTestApp() {

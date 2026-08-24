@@ -1,0 +1,768 @@
+package main
+
+import (
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"math/big"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+func TestV2RegistryPublishesOnlyLongLivedActions(t *testing.T) {
+	actions := windowsActionHandlers.PublishedActionTypes()
+	if len(actions) != 4 {
+		t.Fatalf("expected four Agent v2 actions, got %+v", actions)
+	}
+	for _, action := range actions {
+		if !v2ContainsString([]string{agentFactCollect, agentPlanValidate, agentPlanExecute, agentExecutionReceipt}, action) {
+			t.Fatalf("unexpected long-lived action: %s", action)
+		}
+	}
+}
+
+func TestAgentExecutionReceiptDigestOmitsDigestAndSignatureFields(t *testing.T) {
+	receipt := AgentExecutionReceiptV1{
+		ReceiptVersion:   agentSecurityContract,
+		OperationID:      "operation-1",
+		PlanID:           "plan-1",
+		PlanDigest:       strings.Repeat("a", 64),
+		AgentID:          "agent-1",
+		TenantID:         "tenant-1",
+		TokenID:          "token-1",
+		Status:           "FAILED",
+		StartedAt:        "2026-08-22T00:00:00.000Z",
+		CompletedAt:      "2026-08-22T00:00:01.000Z",
+		OperationResults: []map[string]any{{"operationId": "operation-1", "status": "FAILED"}},
+		NonceConsumed:    true,
+	}
+
+	actual, err := computeAgentExecutionReceiptDigest(receipt)
+	if err != nil {
+		t.Fatalf("计算回执摘要失败: %v", err)
+	}
+	expectedBytes := canonicalJSON(agentReceiptWithoutDigest(receipt))
+	expectedSum := sha256.Sum256(expectedBytes)
+	expected := hex.EncodeToString(expectedSum[:])
+	if actual != expected {
+		t.Fatalf("回执摘要必须排除 digest/signature: actual=%s expected=%s", actual, expected)
+	}
+}
+
+func TestV2RejectsLegacyActionsWithoutCompatibilityAlias(t *testing.T) {
+	_, err := windowsActionHandlers.Resolve(map[string]any{"action": "agent.atomic_plan.execute", "actionType": "agent.atomic_plan.execute"})
+	if err == nil {
+		t.Fatal("legacy action must be rejected")
+	}
+}
+
+func TestV2RejectsTypeFieldWithoutCanonicalActionType(t *testing.T) {
+	_, err := windowsActionHandlers.Resolve(map[string]any{"type": agentPlanExecute})
+	if err == nil {
+		t.Fatal("legacy type field must not select an action handler")
+	}
+}
+
+func TestV2RejectsMissingActionTypeWithoutSelfTestDefault(t *testing.T) {
+	_, err := windowsActionHandlers.Resolve(map[string]any{})
+	if err == nil {
+		t.Fatal("missing actionType must be rejected")
+	}
+}
+
+func TestRuntimeDispatchesCanonicalQueuedActionType(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+	payload := cloneMap(fixture.Request)
+	payload["actionType"] = agentPlanValidate
+	payload["mutating"] = false
+	delete(payload, "action")
+	execution := &taskExecutionContext{
+		ctx:          context.Background(),
+		registration: &runtimeRegistration{AgentID: fixture.Plan.AgentID},
+		task:         agentTaskEnvelope{ID: "queued-v2-task", Payload: payload},
+	}
+	success, code, message, _ := executeTask(execution)
+	if !success || code != "" {
+		t.Fatalf("合法 canonical actionType 队列任务未进入 Agent v2 主链: success=%v code=%s message=%s", success, code, message)
+	}
+	if stringFromMap(execution.task.Payload, "action") != agentPlanValidate {
+		t.Fatalf("队列边界未转换为 canonical wire action: %+v", execution.task.Payload)
+	}
+	if _, exists := execution.task.Payload["actionType"]; exists {
+		t.Fatal("进入 Agent v2 wire 后不得保留 actionType")
+	}
+	if _, exists := execution.task.Payload["mutating"]; exists {
+		t.Fatal("进入 Agent v2 wire 后不得保留控制面 mutating 元数据")
+	}
+}
+
+func TestRuntimeRejectsWireActionBypass(t *testing.T) {
+	execution := &taskExecutionContext{
+		ctx:  context.Background(),
+		task: agentTaskEnvelope{ID: "wire-bypass-task", Payload: map[string]any{"action": agentPlanValidate}},
+	}
+	success, code, _, _ := executeTask(execution)
+	if success || code != "ACTION_HANDLER_NOT_REGISTERED" {
+		t.Fatalf("队列 wire action 旁路未失败关闭: success=%v code=%s", success, code)
+	}
+}
+
+func TestRegisterDoesNotRetryWithoutEnrollmentToken(t *testing.T) {
+	var requests int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		if request.Header.Get("X-Agent-Token") != "explicit-enrollment-token" {
+			t.Errorf("注册请求未携带显式 enrollment token")
+		}
+		writer.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	_, err := registerAgent(context.Background(), server.Client(), &AgentConfig{
+		AgentKey:        "explicit-agent-key",
+		EnrollmentToken: "explicit-enrollment-token",
+		ControlPlane:    server.URL,
+	}, runtimeIdentity{})
+	if err == nil {
+		t.Fatal("注册被拒绝时必须失败")
+	}
+	if got := atomic.LoadInt32(&requests); got != 1 {
+		t.Fatalf("注册失败不得移除 token 静默重试，requests=%d", got)
+	}
+}
+
+func TestV2FailsClosedWithoutIndependentTrustRoots(t *testing.T) {
+	t.Setenv("GCAC_AGENT_CAPABILITY_KEYSET_JSON", "")
+	t.Setenv("GCAC_POLICY_AUTHORITY_KEYSET_JSON", "")
+	t.Setenv("GCAC_AGENT_LOCAL_POLICY_JSON", "")
+	success, code, _, _ := executeAgentV2(context.Background(), map[string]any{
+		"action": agentPlanValidate, "requestId": "req-1", "agentId": "agent-1", "tenantId": "tenant-1",
+	}, "agent-1")
+	if success || code != "AGENT_V2_AUTHORIZATION_DENIED" {
+		t.Fatalf("missing trust roots must fail closed, success=%v code=%s", success, code)
+	}
+}
+
+func TestV2AllowsOnlyBoundedControlPlaneClockSkew(t *testing.T) {
+	now := time.Now().UTC()
+	if issuedAtBeyondAuthorizationClockSkew(now.Add(maxAuthorizationClockSkew), now) {
+		t.Fatal("授权时钟容差的边界判断不正确")
+	}
+	if !issuedAtBeyondAuthorizationClockSkew(now.Add(maxAuthorizationClockSkew+time.Nanosecond), now) {
+		t.Fatal("超过授权时钟容差的 Token 必须继续被拒绝")
+	}
+}
+
+func TestV2RejectsMissingOrMismatchedRuntimeAgentID(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+	for _, runtimeAgentID := range []string{"", "agent-other"} {
+		if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, runtimeAgentID); success || code != "AGENT_V2_AUTHORIZATION_DENIED" {
+			t.Fatalf("运行期 Agent ID 为空或不匹配时必须失败关闭: runtimeAgentID=%q success=%v code=%s", runtimeAgentID, success, code)
+		}
+	}
+}
+
+func TestV2ExecutionBoundaryStripsDiscoveryMetadataAndRejectsUnknownFields(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+	fixture.Request["requestedBy"] = "user-1"
+	fixture.Request["refreshWebInventory"] = true
+	contractPayload := agentV2ContractPayload(fixture.Request)
+	if !boolFromMap(contractPayload, "refreshWebInventory") {
+		t.Fatalf("完整 Web 发现开关必须进入 Agent v2 合同解码: %+v", contractPayload)
+	}
+	if _, exists := contractPayload["requestedBy"]; exists {
+		t.Fatalf("requestedBy 仍属于控制面元数据，不得进入 Agent v2 合同: %+v", contractPayload)
+	}
+	if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); !success || code != "" {
+		t.Fatalf("调度元数据必须在严格合同前剥离: success=%v code=%s", success, code)
+	}
+	fixture.Request["unexpected"] = true
+	if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); success || code != "AGENT_V2_MESSAGE_INVALID" {
+		t.Fatalf("未声明字段仍必须被严格合同拒绝: success=%v code=%s", success, code)
+	}
+}
+
+func TestV2AllowsFullWebDiscoveryWithoutPluginDiscoverySpec(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+	fixture.Request["action"] = agentFactCollect
+	fixture.Request["refreshWebInventory"] = true
+	success, code, message, detail := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID)
+	if !success || code != "" {
+		t.Fatalf("完整 Web 发现不应依赖插件 discoverySpec: success=%v code=%s message=%s detail=%+v", success, code, message, detail)
+	}
+	factEnvelope := mapFromMap(detail, "factEnvelope")
+	inventory := mapFromMap(factEnvelope, "webInventory")
+	if inventory == nil || stringFromMap(inventory, "scope") != fullWebDiscoveryScope {
+		t.Fatalf("refreshWebInventory 未触发完整 Web 库存采集: %+v", detail)
+	}
+}
+
+func TestV2PlanExecuteReportsUnknownWhenAuthorizationMaterialUnavailable(t *testing.T) {
+	cases := []struct {
+		name string
+		env  string
+	}{
+		{name: "capability keyset", env: "GCAC_AGENT_CAPABILITY_KEYSET_JSON"},
+		{name: "policy authority keyset", env: "GCAC_POLICY_AUTHORITY_KEYSET_JSON"},
+		{name: "local policy", env: "GCAC_AGENT_LOCAL_POLICY_JSON"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newWindowsV2TestFixture(t)
+			t.Setenv(testCase.env, "")
+			fixture.Request["action"] = agentPlanExecute
+			success, code, _, detail := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID)
+			if success || code != "AGENT_V2_AUTHORIZATION_DENIED" {
+				t.Fatalf("授权材料不可用必须失败关闭: success=%v code=%s detail=%+v", success, code, detail)
+			}
+			if detail["executionStatus"] != "UNKNOWN" || detail["fallback"] != false || detail["replayed"] != false || detail["authorizationUnavailable"] != true {
+				t.Fatalf("授权材料不可用必须报告 UNKNOWN 且禁止 fallback/replay: %+v", detail)
+			}
+		})
+	}
+}
+
+func TestV2PlanExecuteFailsClosedWithoutReceiptSigner(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+	t.Setenv("GCAC_AGENT_RECEIPT_KEY_ID", "")
+	t.Setenv("GCAC_AGENT_RECEIPT_SIGNING_KEY_BASE64", "")
+	t.Setenv("GCAC_AGENT_RECEIPT_KEYSET_JSON", "")
+	fixture.Request["action"] = agentPlanExecute
+	if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); success || code != "AGENT_RECEIPT_SIGNER_UNAVAILABLE" {
+		t.Fatalf("缺少 Agent 回执签名材料必须失败关闭: success=%v code=%s", success, code)
+	}
+}
+
+func TestV2PlanExecuteReportsUnknownWithoutReceiptSigner(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+	t.Setenv("GCAC_AGENT_RECEIPT_KEY_ID", "")
+	t.Setenv("GCAC_AGENT_RECEIPT_SIGNING_KEY_BASE64", "")
+	t.Setenv("GCAC_AGENT_RECEIPT_KEYSET_JSON", "")
+	fixture.Request["action"] = agentPlanExecute
+	success, code, _, detail := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID)
+	if success || code != "AGENT_RECEIPT_SIGNER_UNAVAILABLE" {
+		t.Fatalf("缺少 Receipt 签名器必须失败关闭: success=%v code=%s detail=%+v", success, code, detail)
+	}
+	if detail["executionStatus"] != "UNKNOWN" || detail["fallback"] != false || detail["replayed"] != false || detail["receiptUnavailable"] != true {
+		t.Fatalf("签名器不可用必须报告 UNKNOWN 且禁止 fallback/replay: %+v", detail)
+	}
+}
+
+func TestV2PlanExecuteGeneratesPersistentReceiptSignerFromAgentConfig(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+	t.Setenv("GCAC_AGENT_RECEIPT_KEY_ID", "")
+	t.Setenv("GCAC_AGENT_RECEIPT_SIGNING_KEY_BASE64", "")
+	t.Setenv("GCAC_AGENT_RECEIPT_KEYSET_JSON", "")
+	policyDir := filepath.Join(fixture.Root, "policy")
+	config := &AgentConfig{
+		ReceiptSigningKeyPath: filepath.Join(policyDir, "receipt-signing-key.bin"),
+		ReceiptKeySetPath:     filepath.Join(policyDir, "receipt-keyset.json"),
+	}
+	config.Paths.Windows.DataDir = policyDir
+	fixture.Request["action"] = agentPlanExecute
+	success, code, _, detail := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID, config)
+	if !success || code != "" {
+		t.Fatalf("真实 Agent 配置应生成并使用本地 Receipt 签名器: success=%v code=%s detail=%+v", success, code, detail)
+	}
+	receipt, ok := detail["receipt"].(AgentExecutionReceiptV1)
+	if !ok || receipt.AgentKeyID == "" || isDevelopmentKeyID(receipt.AgentKeyID) {
+		t.Fatalf("本地生成的 Receipt 必须带生产 KeyId: %+v", detail)
+	}
+	if _, err := os.Stat(config.ReceiptSigningKeyPath); err != nil {
+		t.Fatalf("本地 Receipt 私钥未持久化: %v", err)
+	}
+	if _, err := os.Stat(config.ReceiptKeySetPath); err != nil {
+		t.Fatalf("本地 Receipt KeySet 未持久化: %v", err)
+	}
+	if signer, err := loadAgentReceiptSigner(config); err != nil || signer.KeyID != receipt.AgentKeyID {
+		t.Fatalf("持久化后的 Receipt 签名器无法复用: keyId=%q err=%v", signer.KeyID, err)
+	}
+}
+
+func TestResolvePersistedReceiptKeyIDRequiresUniqueProductionMatch(t *testing.T) {
+	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("生成测试公钥失败: %v", err)
+	}
+	encoded := base64.StdEncoding.EncodeToString(publicKey)
+	if keyID, err := resolvePersistedReceiptKeyID(publicKey, []byte(`{"receipt-prod":"`+encoded+`"}`)); err != nil || keyID != "receipt-prod" {
+		t.Fatalf("唯一 KeyId 应被反查: keyID=%q err=%v", keyID, err)
+	}
+	if _, err := resolvePersistedReceiptKeyID(publicKey, []byte(`{"receipt-a":"`+encoded+`","receipt-b":"`+encoded+`"}`)); err == nil {
+		t.Fatal("多个匹配的 KeyId 必须失败关闭")
+	}
+	if _, err := resolvePersistedReceiptKeyID(publicKey, []byte(`{"receipt-other":"`+base64.StdEncoding.EncodeToString(make([]byte, ed25519.PublicKeySize))+`"}`)); err == nil {
+		t.Fatal("没有匹配的 KeyId 必须失败关闭")
+	}
+}
+
+func TestV2PathScopeUsesNormalizedComponentBoundaries(t *testing.T) {
+	allowed := filepath.Join(t.TempDir(), "allowed")
+	separator := string(filepath.Separator)
+	cases := []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{name: "自身路径", value: allowed, want: true},
+		{name: "真实子路径", value: allowed + separator + "nested" + separator + "file", want: true},
+		{name: "同前缀目录", value: allowed + "-other" + separator + "file", want: false},
+		{name: "父目录跳转", value: allowed + separator + ".." + separator + "outside", want: false},
+		{name: "子目录回退", value: allowed + separator + "nested" + separator + ".." + separator + "outside", want: false},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := pathScopeContains([]string{allowed}, testCase.value); got != testCase.want {
+				t.Fatalf("路径范围判断错误: value=%q got=%v want=%v", testCase.value, got, testCase.want)
+			}
+		})
+	}
+}
+
+func TestV2RejectsUnallowlistedOperation(t *testing.T) {
+	err := validateAgentPlan(agentPlanV2{
+		PlanVersion: agentSecurityContract, PlanID: "plan-1", AgentID: "agent-1", TenantID: "tenant-1", PluginID: "web.generic", PluginVersionID: "plugin-version-1",
+		Capability: "filesystem.read", PlanDigest: "digest-1", TokenID: "token-1", Nonce: "nonce-1",
+		Operations: []agentPlanAction{{OperationID: "op-1", OperationType: "command.execute", Stage: "prepare", Input: map[string]any{}, DependsOn: []string{}, IdempotencyKey: "idem-1", TimeoutSeconds: 30}},
+	}, AgentCapabilityTokenV1{TokenVersion: agentSecurityContract, TokenID: "token-1", AgentID: "agent-1", TenantID: "tenant-1", PluginID: "web.generic", PluginVersionID: "plugin-version-1", Capability: "filesystem.read", PlanDigest: "digest-1", AllowedPaths: []string{`C:\GCAC\example.conf`}})
+	if err == nil {
+		t.Fatal("free command operation must be rejected")
+	}
+}
+
+func TestV2AcceptsBoundedServiceRestartOperation(t *testing.T) {
+	if err := validateAgentPlanOperation(agentPlanAction{
+		OperationID:    "restart-service",
+		OperationType:  "service.restart",
+		Stage:          "execute",
+		Input:          map[string]any{"serviceName": "GCAC-Apache"},
+		DependsOn:      []string{},
+		IdempotencyKey: "restart-service-once",
+		TimeoutSeconds: 300,
+	}); err != nil {
+		t.Fatalf("合法 service.restart 操作不应被 Agent 合同拒绝: %v", err)
+	}
+}
+
+type windowsV2TestFixture struct {
+	Request map[string]any
+	Plan    agentPlanV2
+	Token   AgentCapabilityTokenV1
+	Root    string
+}
+
+func newWindowsV2TestFixture(t *testing.T) windowsV2TestFixture {
+	t.Helper()
+	root := t.TempDir()
+	target := filepath.Join(root, "managed.conf")
+	capabilityPublic, capabilityPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policyPublic, policyPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiptPublic, receiptPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GCAC_AGENT_CAPABILITY_KEYSET_JSON", testWindowsKeySet("authority-key", capabilityPublic))
+	t.Setenv("GCAC_POLICY_AUTHORITY_KEYSET_JSON", testWindowsKeySet("authority-key", policyPublic))
+	t.Setenv("GCAC_AGENT_RECEIPT_KEY_ID", "agent-receipt-key")
+	t.Setenv("GCAC_AGENT_RECEIPT_SIGNING_KEY_BASE64", base64.StdEncoding.EncodeToString(receiptPrivate))
+	t.Setenv("GCAC_AGENT_RECEIPT_KEYSET_JSON", testWindowsKeySet("agent-receipt-key", receiptPublic))
+	localPolicy, _ := json.Marshal(map[string]any{"allowedPaths": []string{root}, "allowedServices": []string{}})
+	t.Setenv("GCAC_AGENT_LOCAL_POLICY_JSON", string(localPolicy))
+	if err := configurePersistentAgentNonceStore(filepath.Join(root, "nonces")); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	plan := agentPlanV2{
+		PlanVersion: agentSecurityContract, PlanID: "plan-windows-v2-1", AgentID: "agent-windows-1", TenantID: "tenant-1",
+		PluginID: "web.generic", PluginVersionID: "plugin-version-1", Capability: "filesystem.atomic_replace",
+		Operations: []agentPlanAction{{OperationID: "operation-1", OperationType: "filesystem.atomic_replace", Stage: "execute", Input: map[string]any{"path": target, "contentBase64": base64.StdEncoding.EncodeToString([]byte("v2"))}, DependsOn: []string{}, IdempotencyKey: "idempotency-1", TimeoutSeconds: 30}},
+		TokenID:    "token-windows-v2-1", PolicyDecisionID: "decision-windows-v2-1", Nonce: "nonce-windows-v2-1", ExpiresAt: now.Add(5 * time.Minute).Format(time.RFC3339Nano), WriteEffect: true,
+	}
+	digest, err := computeAgentPlanDigest(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.PlanDigest = digest
+	token := AgentCapabilityTokenV1{
+		TokenVersion: agentSecurityContract, TokenID: plan.TokenID, AgentID: plan.AgentID, TenantID: plan.TenantID, PluginID: plan.PluginID, PluginVersionID: plan.PluginVersionID, Capability: plan.Capability,
+		Actions: []string{"filesystem.atomic_replace"}, AllowedPaths: []string{root}, AllowedServices: []string{}, ArtifactDigests: []string{}, PolicyRef: "policy-1", PolicyVersion: "1",
+		IssuedAt: now.Add(-time.Minute).Format(time.RFC3339Nano), ExpiresAt: now.Add(5 * time.Minute).Format(time.RFC3339Nano), Nonce: plan.Nonce, PlanDigest: plan.PlanDigest, AuthorityKeyID: "authority-key",
+	}
+	decision := PolicyAuthorityDecisionV1{
+		DecisionVersion: agentSecurityContract, DecisionID: plan.PolicyDecisionID, Allowed: true, AgentID: plan.AgentID, TenantID: plan.TenantID, PluginID: plan.PluginID, PluginVersionID: plan.PluginVersionID, Capability: plan.Capability,
+		Actions: token.Actions, AllowedPaths: token.AllowedPaths, AllowedServices: token.AllowedServices, ArtifactDigests: token.ArtifactDigests, PolicyRef: token.PolicyRef, PolicyVersion: token.PolicyVersion, PlanDigest: plan.PlanDigest, TokenID: token.TokenID, Nonce: token.Nonce,
+		IssuedAt: now.Add(-time.Minute).Format(time.RFC3339Nano), ValidUntil: now.Add(5 * time.Minute).Format(time.RFC3339Nano), AuthorityKeyID: "authority-key", RevocationRef: "revocation-1",
+	}
+	token.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(capabilityPrivate, canonicalJSON(tokenWithoutSignature(token))))
+	decision.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(policyPrivate, canonicalJSON(decisionWithoutSignature(decision))))
+	request := map[string]any{
+		"action": agentPlanValidate, "requestId": "request-windows-v2-1", "agentId": plan.AgentID, "tenantId": plan.TenantID, "pluginId": plan.PluginID, "pluginVersion": plan.PluginVersionID, "capability": plan.Capability,
+		"actions": token.Actions, "paths": token.AllowedPaths, "services": token.AllowedServices, "artifactDigests": token.ArtifactDigests, "planDigest": plan.PlanDigest, "token": token, "policyDecision": decision, "plan": plan,
+	}
+	return windowsV2TestFixture{Request: request, Plan: plan, Token: token, Root: root}
+}
+
+func testWindowsKeySet(keyID string, publicKey ed25519.PublicKey) string {
+	encoded, _ := json.Marshal(map[string]string{keyID: base64.StdEncoding.EncodeToString(publicKey)})
+	return string(encoded)
+}
+
+func TestV2RejectsPlanOperationTamperingAfterDigestWasIssued(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+	tampered := fixture.Plan
+	tampered.Operations = append([]agentPlanAction(nil), fixture.Plan.Operations...)
+	tampered.Operations[0].Input = map[string]any{"path": filepath.Join(fixture.Root, "managed.conf"), "contentBase64": base64.StdEncoding.EncodeToString([]byte("tampered"))}
+	if err := validateAgentPlan(tampered, fixture.Token); err == nil {
+		t.Fatal("修改 operations 后必须因完整 planDigest 不匹配而失败关闭")
+	}
+}
+
+func TestV2NonceIsConsumedOnlyByPlanExecute(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+	if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); !success || code != "" {
+		t.Fatalf("plan.validate 不应因 Nonce 消费失败: success=%v code=%s", success, code)
+	}
+	if _, err := loadPersistentAgentNonce(fixture.Token.Nonce); err == nil {
+		t.Fatal("fact.collect/plan.validate 不得消费执行 Nonce")
+	}
+	fixture.Request["action"] = agentPlanExecute
+	if success, code, message, _ := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); !success || code != "" {
+		t.Fatalf("plan.execute 应消费一次授权并返回成功: success=%v code=%s message=%s", success, code, message)
+	}
+	if _, err := loadPersistentAgentNonce(fixture.Token.Nonce); err != nil {
+		t.Fatalf("plan.execute 后 Nonce 消费记录缺失: %v", err)
+	}
+	record, err := loadPersistentAgentNonce(fixture.Token.Nonce)
+	if err != nil {
+		t.Fatalf("读取 Nonce 消费记录失败: %v", err)
+	}
+	expectedResultDigest, err := computeAgentPlanResultDigest(fixture.Plan)
+	if err != nil || record.ResultDigest != expectedResultDigest || record.ResultDigest == fixture.Plan.PlanDigest {
+		t.Fatalf("Nonce 必须绑定完整计划结果摘要: got=%s expected=%s planDigest=%s", record.ResultDigest, expectedResultDigest, fixture.Plan.PlanDigest)
+	}
+	if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); success || code != "AGENT_V2_AUTHORIZATION_DENIED" {
+		t.Fatalf("相同授权重放必须失败关闭: success=%v code=%s", success, code)
+	}
+}
+
+func TestWindowsWebWritePlanDoesNotRequireLocalTLSBindingProofBeforeAnyWrite(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+	plan := fixture.Plan
+	plan.PluginID = "custom.windows.web"
+	plan.Capability = "certificate.deploy"
+	digest, err := computeAgentPlanDigest(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.PlanDigest = digest
+	token := fixture.Token
+	token.PluginID = plan.PluginID
+	token.Capability = plan.Capability
+	token.PlanDigest = plan.PlanDigest
+
+	success, code, message, _ := executeAuthorizedAgentPlan(context.Background(), plan, token)
+	if !success || code != "" {
+		t.Fatalf("Windows Web 写计划不应因缺少可选 TLS 证明而失败: success=%v code=%s message=%s", success, code, message)
+	}
+}
+
+func TestExplicitPreDeployTLSVerificationRemainsSupported(t *testing.T) {
+	if err := validateAgentPlanOperation(agentPlanAction{
+		OperationID:   "optional-tls-verify",
+		OperationType: "certificate.tls.verify",
+		Stage:         "prepare",
+		Input: map[string]any{
+			"connectHost":               "127.0.0.1",
+			"serverName":                "portal.example.test",
+			"port":                      443,
+			"expectedFingerprintSha256": strings.Repeat("a", 64),
+			"bindingId":                 "binding-test",
+			"bindingKey":                "binding-test",
+			"checkedAt":                 time.Now().UTC().Format(time.RFC3339),
+		},
+		DependsOn:      []string{},
+		IdempotencyKey: "optional-tls-verify-once",
+		TimeoutSeconds: 10,
+	}); err != nil {
+		t.Fatalf("显式 TLS 校验操作仍应可用: %v", err)
+	}
+}
+
+func TestPreDeployTLSVerificationRejectsNonLocalEndpoint(t *testing.T) {
+	err := validatePreDeployTLSVerificationInput(map[string]any{
+		"connectHost":               "10.255.0.83",
+		"serverName":                "portal.example.test",
+		"port":                      443,
+		"expectedFingerprintSha256": strings.Repeat("a", 64),
+		"bindingId":                 "bnd_test",
+		"bindingKey":                "binding-test",
+		"checkedAt":                 time.Now().UTC().Format(time.RFC3339),
+	})
+	if err == nil {
+		t.Fatal("部署前 TLS 验证不得允许连接非本机地址")
+	}
+}
+
+func TestV2ReceiptRejectsTamperedDigestAndSignature(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+	fixture.Request["action"] = agentPlanExecute
+	success, code, _, detail := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID)
+	if !success || code != "" {
+		t.Fatalf("执行应生成签名回执: success=%v code=%s", success, code)
+	}
+	receipt := detail["receipt"].(AgentExecutionReceiptV1)
+	if receipt.OperationID != fixture.Plan.Operations[0].OperationID || receipt.OperationID == fixture.Plan.PlanID {
+		t.Fatalf("Receipt operationId 必须绑定真实操作: got=%s", receipt.OperationID)
+	}
+	request := agentV2Request{AgentID: fixture.Plan.AgentID, TenantID: fixture.Plan.TenantID}
+	if err := validateAgentExecutionReceipt(receipt, fixture.Token, request); err != nil {
+		t.Fatalf("生成的回执必须可验证: %v", err)
+	}
+	tampered := receipt
+	tampered.Digest = strings.Repeat("0", 64)
+	if err := validateAgentExecutionReceipt(tampered, fixture.Token, request); err == nil {
+		t.Fatal("篡改回执 digest 必须失败关闭")
+	}
+	tampered = receipt
+	tampered.Signature = base64.StdEncoding.EncodeToString([]byte("forged"))
+	if err := validateAgentExecutionReceipt(tampered, fixture.Token, request); err == nil {
+		t.Fatal("伪造回执 signature 必须失败关闭")
+	}
+	fixture.Request["action"] = agentExecutionReceipt
+	fixture.Request["receipt"] = &tampered
+	if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); success || code != "AGENT_RECEIPT_INVALID" {
+		t.Fatalf("运行期不得接受客户端篡改回执: success=%v code=%s", success, code)
+	}
+	delete(fixture.Request, "receipt")
+	if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); !success || code != "" {
+		t.Fatalf("回执动作应只读取本地已签名回执: success=%v code=%s", success, code)
+	}
+}
+
+func TestV2CancelledWriteProducesUnknownReceipt(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+	fixture.Request["action"] = agentPlanExecute
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	success, code, _, detail := executeAgentV2(ctx, fixture.Request, fixture.Plan.AgentID)
+	if success || code != "AGENT_EXECUTION_UNKNOWN" {
+		t.Fatalf("取消写操作必须进入 UNKNOWN: success=%v code=%s", success, code)
+	}
+	receipt, ok := detail["receipt"].(AgentExecutionReceiptV1)
+	if !ok || receipt.Status != "UNKNOWN" || receipt.UnknownReason == "" {
+		t.Fatalf("取消写操作必须生成 UNKNOWN Receipt: %+v", detail)
+	}
+}
+
+func TestV2DeterministicWriteFailureProducesFailedReceipt(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+	plan := fixture.Plan
+	plan.Operations = append([]agentPlanAction(nil), fixture.Plan.Operations...)
+	plan.Operations[0].Input = map[string]any{"path": filepath.Join(fixture.Root, "managed.conf"), "contentBase64": "%"}
+	signer, err := loadAgentReceiptSigner()
+	if err != nil {
+		t.Fatalf("加载测试回执签名器失败: %v", err)
+	}
+	if success, code, _, detail := executeAgentPlan(context.Background(), plan, fixture.Token, signer); success || code != "AGENT_EXECUTION_FAILED" {
+		t.Fatalf("写入前校验失败必须进入 FAILED: success=%v code=%s detail=%+v", success, code, detail)
+	} else if receipt, ok := detail["receipt"].(AgentExecutionReceiptV1); !ok || receipt.Status != "FAILED" || receipt.UnknownReason != "" {
+		t.Fatalf("确定性失败必须生成 FAILED Receipt: %+v", detail)
+	}
+}
+
+func TestAtomicWriteFileReplacesExistingTarget(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "managed.pem")
+	if err := os.WriteFile(target, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := atomicWriteFile(target, []byte("new"), 0o600); err != nil {
+		t.Fatalf("替换已有目标文件不应失败: %v", err)
+	}
+	content, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "new" {
+		t.Fatalf("目标文件内容未替换: %q", content)
+	}
+}
+
+func TestAtomicWriteFilePreservesDeterministicReplaceFailure(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target-dir")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	err := atomicWriteFile(target, []byte("new"), 0o600)
+	if err == nil {
+		t.Fatal("将文件替换为已有目录必须失败")
+	}
+	if operationResultUnknown(err) {
+		t.Fatalf("确定性原子替换失败不得被标记为 UNKNOWN: %v", err)
+	}
+}
+
+func TestV2PlanReportsPerOperationProgress(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+	if err := os.WriteFile(filepath.Join(fixture.Root, "managed.conf"), []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var progress []string
+	ctx := context.WithValue(context.Background(), agentPlanProgressContextKey{}, agentPlanProgressFunc(func(operation agentPlanAction, status string, errorMessage string) {
+		progress = append(progress, operation.OperationID+":"+status+":"+errorMessage)
+	}))
+	signer, err := loadAgentReceiptSigner()
+	if err != nil {
+		t.Fatalf("加载测试回执签名器失败: %v", err)
+	}
+	if success, code, _, _ := executeAgentPlan(ctx, fixture.Plan, fixture.Token, signer); !success || code != "" {
+		t.Fatalf("计划执行应成功: success=%v code=%s", success, code)
+	}
+	if len(progress) != 2 || progress[0] != "operation-1:RUNNING:" || progress[1] != "operation-1:SUCCEEDED:" {
+		t.Fatalf("操作进度日志不完整: %+v", progress)
+	}
+}
+
+func TestV2BackupSourceFailureProducesFailedReceipt(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+	plan := fixture.Plan
+	plan.Operations = []agentPlanAction{{
+		OperationID:    "backup-missing-source",
+		OperationType:  "filesystem.backup",
+		Stage:          "execute",
+		TimeoutSeconds: 5,
+		Input: map[string]any{
+			"path":      filepath.Join(t.TempDir(), "missing.pem"),
+			"ledgerRef": "execution-recovery-ledger",
+		},
+	}}
+	signer, err := loadAgentReceiptSigner()
+	if err != nil {
+		t.Fatalf("加载测试回执签名器失败: %v", err)
+	}
+	success, code, _, detail := executeAgentPlan(context.Background(), plan, fixture.Token, signer)
+	if success || code != "AGENT_EXECUTION_FAILED" {
+		t.Fatalf("备份源文件不存在必须是确定性失败: success=%v code=%s detail=%+v", success, code, detail)
+	}
+	receipt, ok := detail["receipt"].(AgentExecutionReceiptV1)
+	if !ok || receipt.Status != "FAILED" || receipt.UnknownReason != "" {
+		t.Fatalf("备份失败 Receipt 状态错误: %+v", detail)
+	}
+}
+
+func TestV2TimeoutWriteProducesUnknownReceipt(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+
+	fixture.Request["action"] = agentPlanExecute
+	timedOut, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	if success, code, _, detail := executeAgentV2(timedOut, fixture.Request, fixture.Plan.AgentID); success || code != "AGENT_EXECUTION_UNKNOWN" {
+		t.Fatalf("超时写操作必须进入 UNKNOWN: success=%v code=%s detail=%+v", success, code, detail)
+	} else if receipt, ok := detail["receipt"].(AgentExecutionReceiptV1); !ok || receipt.Status != "UNKNOWN" || receipt.UnknownReason == "" {
+		t.Fatalf("超时写操作必须生成 UNKNOWN Receipt: %+v", detail)
+	}
+}
+
+func TestV2FactCollectRejectsUnboundScopeAndReturnsGenericFacts(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+	fixture.Request["action"] = agentFactCollect
+	fixture.Request["requestedBy"] = "user-1"
+	if success, code, _, detail := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); !success || code != "" {
+		t.Fatalf("事实采集应成功: success=%v code=%s", success, code)
+	} else {
+		factEnvelope, ok := detail["factEnvelope"].(map[string]any)
+		if !ok {
+			t.Fatalf("事实采集必须返回 factEnvelope: %#v", detail)
+		}
+		facts := factEnvelope["facts"].([]map[string]any)
+		seenCertificateStore := false
+		for _, fact := range facts {
+			switch fact["kind"] {
+			case "certificate_store":
+				seenCertificateStore = true
+			case "file_content", "certificate_file", "ssl_certificate_binding":
+				t.Fatalf("非完整 Web 发现不得采集 Web 配置或证书事实: %#v", fact)
+			}
+		}
+		if !seenCertificateStore {
+			t.Fatal("通用事实采集必须包含 Root 证书库事实")
+		}
+		diagnostics, ok := factEnvelope["diagnostics"].(map[string]any)
+		if !ok || diagnostics["requestPathsScanned"] != false {
+			t.Fatalf("事实采集必须声明不再扫描 request.paths: %#v", factEnvelope["diagnostics"])
+		}
+	}
+	fixture.Request["paths"] = []string{filepath.Join(fixture.Root, "outside", "secret")}
+	if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); success || code != "AGENT_V2_AUTHORIZATION_DENIED" {
+		t.Fatalf("事实范围越权必须失败关闭: success=%v code=%s", success, code)
+	}
+}
+
+func TestParseWindowsCertificateStoreOutputPublishesSha256Fingerprint(t *testing.T) {
+	// 解析器只接受真实 DER；使用测试证书生成逻辑覆盖字段合同。
+	certificate := testCertificateForStore(t)
+	encoded := base64.StdEncoding.EncodeToString(certificate.Raw)
+	stores := parseWindowsCertificateStoreOutput([]byte(encoded + "\ninvalid\n"))
+	if len(stores) != 1 {
+		t.Fatalf("证书库输出解析数量错误: %#v", stores)
+	}
+	expected := sha256.Sum256(certificate.Raw)
+	if stores[0]["sha256Fingerprint"] != strings.ToUpper(hex.EncodeToString(expected[:])) {
+		t.Fatalf("证书库事实缺少 SHA-256 指纹: %#v", stores[0])
+	}
+}
+
+func testCertificateForStore(t *testing.T) *x509.Certificate {
+	t.Helper()
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("生成测试证书密钥失败: %v", err)
+	}
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "GCAC Test Root"},
+		NotBefore:             time.Now().Add(-time.Minute),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, publicKey, privateKey)
+	if err != nil {
+		t.Fatalf("生成测试证书失败: %v", err)
+	}
+	certificate, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("解析测试证书失败: %v", err)
+	}
+	return certificate
+}
+
+func TestParseWindowsListeningPortsKeepsPIDFromNetstatO(t *testing.T) {
+	output := []byte(`
+  Proto  Local Address          Foreign Address        State           PID
+  TCP    0.0.0.0:443            0.0.0.0:0              LISTENING       4321
+  TCP    [::]:8443              [::]:0                 LISTENING       9876
+`)
+	ports := parseWindowsListeningPorts(output)
+	if len(ports) != 2 || intFromMap(ports[0], "pid") != 4321 || intFromMap(ports[1], "pid") != 9876 {
+		t.Fatalf("netstat -o PID 解析错误: %#v", ports)
+	}
+}

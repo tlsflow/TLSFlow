@@ -1,73 +1,46 @@
+[CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$PackageDirectory,
-    [Parameter(Mandatory = $true)][string]$InstallRoot,
-    [Parameter(Mandatory = $true)][string]$PublicKeyFile,
-    [Parameter(Mandatory = $true)][string]$SignatureFile,
-    [Parameter(Mandatory = $true)][string]$SignatureVerifier
+  [string]$ServiceName = 'GCACWindowsCompatibilityAgent',
+  [string]$InstallRoot = 'C:\Program Files\GCAC\WindowsCompatibilityAgent',
+  [Parameter(Mandatory = $true)][string]$PackageRoot,
+  [Parameter(Mandatory = $true)][string]$PublicKeyFile,
+  [Parameter(Mandatory = $true)][string]$SignatureFile,
+  [Parameter(Mandatory = $true)][string]$SignatureVerifier
 )
-
-$ErrorActionPreference = "Stop"
-$scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$serviceName = "GCACWindowsCompatibilityAgent"
-$incoming = Join-Path $PackageDirectory "GCAC.WindowsCompatibilityAgent.exe"
-$target = Join-Path $InstallRoot "GCAC.WindowsCompatibilityAgent.exe"
-$backup = $target + ".rollback"
-$upgradeLog = Join-Path $InstallRoot "service-upgrade.log"
-if (-not (Test-Path -LiteralPath $incoming)) { throw "Upgrade package is missing the Agent executable" }
-$signatureScript = Join-Path $scriptRoot "release\verify-signature.ps1"
-if (-not (Test-Path -LiteralPath $signatureScript)) { throw "Agent release signature verifier not found: $signatureScript" }
-& $signatureScript -PublicKeyFile $PublicKeyFile -ArtifactPath $incoming -SignatureFile $SignatureFile -SignatureVerifier $SignatureVerifier
-
-function Write-UpgradeLog {
-    param(
-        [Parameter(Mandatory = $true)][string]$Message
-    )
-
-    [System.IO.File]::AppendAllText($upgradeLog, ($Message + [Environment]::NewLine), (New-Object System.Text.UTF8Encoding($false)))
+$ErrorActionPreference = 'Stop'
+$binary = Join-Path $PackageRoot 'GCAC.WindowsCompatibilityAgent.exe'
+$scanner = Join-Path $PackageRoot 'plugins\windows-runtime-discovery.exe'
+$iisPlugin = Join-Path $PackageRoot 'web-iis\web-iis-agent-side-plugin.exe'
+$updater = Join-Path $PackageRoot 'gcac-agent-updater.exe'
+$verify = Join-Path $PackageRoot 'release\verify-signature.ps1'
+foreach ($artifact in @($binary, $scanner, $iisPlugin, $updater, $verify)) {
+  if (-not (Test-Path -LiteralPath $artifact -PathType Leaf)) { throw "Compatibility Go artifact is missing: $artifact" }
 }
-
-function Assert-ServiceRegistration {
-    param(
-        [Parameter(Mandatory = $true)][string]$ExpectedBinaryPath
-    )
-
-    $registeredService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-    if ($null -eq $registeredService) {
-        throw "Service registration metadata unavailable: $serviceName"
-    }
-
-    $serviceInfo = Get-WmiObject -Class Win32_Service -Filter ("Name='" + $serviceName.Replace("'", "''") + "'") -ErrorAction Stop
-    if ($null -eq $serviceInfo) {
-        throw "Service registration metadata unavailable: $serviceName"
-    }
-    $expectedBinaryPrefix = ('"' + $ExpectedBinaryPath.Trim() + '"').ToLowerInvariant()
-    $actualBinaryPathName = ([string]$serviceInfo.PathName).Trim().ToLowerInvariant()
-    if (-not $actualBinaryPathName.StartsWith($expectedBinaryPrefix, [StringComparison]::Ordinal)) {
-        throw "Service binary path binding mismatch: $serviceName"
-    }
-    if (-not [string]::Equals([string]$serviceInfo.StartMode, "Auto", [StringComparison]::OrdinalIgnoreCase)) {
-        throw "Service startup mode binding mismatch: $serviceName"
-    }
+& $verify -PublicKeyFile $PublicKeyFile -ArtifactPath $binary -SignatureFile $SignatureFile -SignatureVerifier $SignatureVerifier
+$service = Get-Service -Name $ServiceName -ErrorAction Stop
+$targets = @{
+  (Join-Path $InstallRoot 'GCAC.WindowsCompatibilityAgent.exe') = $binary
+  (Join-Path $InstallRoot 'plugins\windows-runtime-discovery.exe') = $scanner
+  (Join-Path $InstallRoot 'plugins\web-iis-agent-side-plugin.exe') = $iisPlugin
+  (Join-Path $InstallRoot 'gcac-agent-updater.exe') = $updater
 }
-
-$service = Get-Service -Name $serviceName -ErrorAction Stop
-if ($service.Status -ne "Stopped") { Stop-Service -Name $serviceName -Force; $service.WaitForStatus("Stopped", [TimeSpan]::FromSeconds(30)) }
-if (Test-Path -LiteralPath $target) { Copy-Item -LiteralPath $target -Destination $backup -Force }
+$backups = @{}
+if ($service.Status -ne 'Stopped') { Stop-Service -Name $ServiceName -Force }
 try {
-    Copy-Item -LiteralPath $incoming -Destination $target -Force
-    Assert-ServiceRegistration -ExpectedBinaryPath $target
-    Start-Service -Name $serviceName
-    $service = Get-Service -Name $serviceName -ErrorAction Stop
-    if ([string]$service.Status -ne "Running") {
-        $service.WaitForStatus("Running", [TimeSpan]::FromSeconds(30))
-    }
-    $service = Get-Service -Name $serviceName -ErrorAction Stop
-    if ([string]$service.Status -ne "Running") {
-        throw "Service did not reach Running after upgrade: $serviceName"
-    }
+  New-Item -ItemType Directory -Force -Path (Join-Path $InstallRoot 'plugins') | Out-Null
+  foreach ($target in $targets.Keys) {
+    $backup = "$target.rollback"
+    $backups[$target] = $backup
+    if (Test-Path -LiteralPath $target) { Copy-Item -LiteralPath $target -Destination $backup -Force }
+    Copy-Item -LiteralPath $targets[$target] -Destination $target -Force
+  }
+  Start-Service -Name $ServiceName
+} catch {
+  foreach ($target in $targets.Keys) {
+    $backup = $backups[$target]
+    if ($backup -and (Test-Path -LiteralPath $backup)) { Copy-Item -LiteralPath $backup -Destination $target -Force }
+  }
+  Start-Service -Name $ServiceName -ErrorAction SilentlyContinue
+  throw
 }
-catch {
-    if (Test-Path -LiteralPath $backup) { Copy-Item -LiteralPath $backup -Destination $target -Force }
-    Start-Service -Name $serviceName -ErrorAction SilentlyContinue
-    throw
-}
+Write-Output "Compatibility Go Agent upgraded: $InstallRoot"

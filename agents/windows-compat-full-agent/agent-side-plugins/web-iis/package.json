@@ -2,10 +2,10 @@
   "name": "gcac-agent-side-web-iis",
   "version": "1.0.0",
   "private": true,
-  "description": "web.iis 的独立 IIS Agent-side Plugin 进程包",
+  "description": "web.iis 的 Go Agent-side Plugin 进程包",
   "manifest": "manifest.json",
-  "runtimeEntrypoint": "bin/Release/web-iis-agent-side-plugin.exe",
-  "runtimeSource": "runtime/Program.cs",
-  "build": "build.ps1",
-  "test": "build.ps1"
+  "runtimeEntrypoint": "plugins/web-iis-agent-side-plugin.exe",
+  "runtimeSource": "main.go",
+  "build": "../../build.ps1",
+  "test": "../../build.ps1"
 }

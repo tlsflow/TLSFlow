@@ -1567,12 +1567,12 @@ export class AgentsApplicationService {
     return {
       ...this.baseInstallManifest(session, baseUrl),
       artifacts: session.role === 'gateway' ? await loadGatewayWindowsAgentArtifacts() : await WINDOWS_ARTIFACT_LOADERS[session.platform](),
-      ...(isWindowsGoInstallPlatform(session.platform) && this.trustMaterialIssuer
+      ...(isWindowsGoRuntimeInstallPlatform(session.platform) && this.trustMaterialIssuer
         ? {
             authorizationTrustKeySet: this.trustMaterialIssuer.getTrustedKeySet(),
           }
         : {}),
-      ...(isWindowsGoInstallPlatform(session.platform)
+      ...(isWindowsGoRuntimeInstallPlatform(session.platform)
         ? {
             upgradeTrustKeySet: readAgentTrustKeySet(AGENT_UPGRADE_TRUST_KEYS_ENV),
             releaseTrustKeySet: readAgentTrustKeySet(AGENT_RELEASE_TRUST_KEYS_ENV),
@@ -2665,9 +2665,10 @@ const linuxGoAgentArm64Artifact = path.join(linuxGoAgentRoot, 'gcac-linux-agent-
 const windowsGoAgentUpdaterAmd64Artifact = path.join(windowsGoAgentRoot, 'dist', 'gcac-agent-updater.windows-amd64.exe');
 const windowsGoRuntimeDiscoveryAmd64Artifact = path.join(windowsGoAgentRoot, 'dist', 'plugins', 'windows-runtime-discovery.windows-amd64.exe');
 const windowsCompatibilityAgentRoot = resolveRepositoryAgentRoot('windows-compat-full-agent');
-const windowsCompatibilityReleaseRoot = path.join(windowsCompatibilityAgentRoot, 'bin', 'Release');
+const windowsCompatibilityReleaseRoot = path.join(windowsCompatibilityAgentRoot, 'dist');
 const WINDOWS_INSTALL_PLATFORMS = ['windows_go_service', 'windows_compatibility_service'] as const;
 const WINDOWS_GO_INSTALL_PLATFORM = 'windows_go_service' as const;
+const WINDOWS_GO_RUNTIME_INSTALL_PLATFORMS = new Set<AgentInstallSession['platform']>(['windows_go_service', 'windows_compatibility_service']);
 const TRUSTED_AGENT_OS_TYPES = new Set(['linux', 'windows']);
 const WINDOWS_ARTIFACT_LOADERS: Record<(typeof WINDOWS_INSTALL_PLATFORMS)[number], () => Promise<Array<{ path: string; content: string; encoding?: 'utf8' | 'base64' }>>> = {
   windows_go_service: loadWindowsGoAgentArtifacts,
@@ -2676,6 +2677,10 @@ const WINDOWS_ARTIFACT_LOADERS: Record<(typeof WINDOWS_INSTALL_PLATFORMS)[number
 
 function isWindowsGoInstallPlatform(platform: AgentInstallSession['platform']): boolean {
   return platform === WINDOWS_GO_INSTALL_PLATFORM;
+}
+
+function isWindowsGoRuntimeInstallPlatform(platform: AgentInstallSession['platform']): boolean {
+  return WINDOWS_GO_RUNTIME_INSTALL_PLATFORMS.has(platform);
 }
 
 function isTrustedAgentOsType(osType: string): boolean {
@@ -2748,15 +2753,22 @@ async function loadWindowsGoAgentArtifacts() {
 
 async function ensureWindowsCompatibilityBundleAvailable(): Promise<void> {
   const executable = path.join(windowsCompatibilityReleaseRoot, 'GCAC.WindowsCompatibilityAgent.exe');
-  const config = `${executable}.config`;
-  if (!existsSync(executable) || !existsSync(config)) {
+  const scanner = path.join(windowsCompatibilityReleaseRoot, 'plugins', 'windows-runtime-discovery.exe');
+  const iisPlugin = path.join(windowsCompatibilityReleaseRoot, 'web-iis', 'web-iis-agent-side-plugin.exe');
+  const updater = path.join(windowsCompatibilityReleaseRoot, 'gcac-agent-updater.exe');
+  if (![executable, scanner, iisPlugin, updater].every((candidate) => existsSync(candidate))) {
     throw new AppError('RESOURCE_NOT_FOUND', 'Windows Compatibility Agent 可执行文件未构建，不能生成一键安装命令');
   }
 }
 
 async function loadWindowsCompatibilityAgentArtifacts() {
   await ensureWindowsCompatibilityBundleAvailable();
-  const artifacts = await walkWindowsAgentArtifacts(windowsCompatibilityReleaseRoot, ['GCAC.WindowsCompatibilityAgent.exe', 'GCAC.WindowsCompatibilityAgent.exe.config']);
+  const artifacts = await walkWindowsAgentArtifacts(windowsCompatibilityReleaseRoot, [
+    'GCAC.WindowsCompatibilityAgent.exe',
+    'gcac-agent-updater.exe',
+    'plugins/windows-runtime-discovery.exe',
+    'web-iis/web-iis-agent-side-plugin.exe',
+  ]);
   return artifacts.sort((left, right) => left.path.localeCompare(right.path));
 }
 

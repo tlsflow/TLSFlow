@@ -109,20 +109,34 @@ for (const [goArch, bundleArch] of [['amd64', 'amd64'], ['arm64', 'arm64']]) {
   ]);
 }
 
-const compatibilityBinary = join(windowsCompatibilitySource, 'bin', 'Release', 'GCAC.WindowsCompatibilityAgent.exe');
-const compatibilityConfig = `${compatibilityBinary}.config`;
-for (const bundleArch of ['amd64', 'arm64']) {
-  const target = join(outputRoot, 'windows', bundleArch, 'compatibility');
-  await mkdir(join(target, 'bin', 'Release'), { recursive: true });
-  await copyFile(compatibilityBinary, join(target, 'bin', 'Release', 'GCAC.WindowsCompatibilityAgent.exe'));
-  await copyFile(compatibilityConfig, join(target, 'bin', 'Release', 'GCAC.WindowsCompatibilityAgent.exe.config'));
-  await copyFiles(windowsCompatibilitySource, target, [
-    'install-service.ps1',
-    'uninstall-service.ps1',
-    'upgrade-service.ps1',
-    'config/agent.config.template.json',
-  ]);
+const compatibilityDist = join(windowsCompatibilitySource, 'dist');
+const compatibilityArtifacts = [
+  'GCAC.WindowsCompatibilityAgent.exe',
+  'gcac-agent-updater.exe',
+  'plugins/windows-runtime-discovery.exe',
+  'web-iis/web-iis-agent-side-plugin.exe',
+];
+for (const artifact of compatibilityArtifacts) {
+  const source = join(compatibilityDist, artifact);
+  try {
+    await stat(source);
+  } catch {
+    throw new Error(`Compatibility Go 产物缺失：${source}。请先使用 Go 1.20 执行 agents/windows-compat-full-agent/build.ps1。`);
+  }
 }
+const compatibilityTarget = join(outputRoot, 'windows', 'amd64', 'compatibility');
+await mkdir(compatibilityTarget, { recursive: true });
+for (const artifact of compatibilityArtifacts) {
+  await copyFile(join(compatibilityDist, artifact), join(compatibilityTarget, artifact));
+}
+await copyFiles(windowsCompatibilitySource, compatibilityTarget, [
+  'install-service.ps1',
+  'uninstall-service.ps1',
+  'upgrade-service.ps1',
+  'config/agent.config.template.json',
+  'release/verify-signature.ps1',
+  'README.md',
+]);
 
 await recordFiles(outputRoot);
 bundleItems.sort((left, right) => left.path.localeCompare(right.path));
@@ -131,6 +145,13 @@ await writeFile(join(outputRoot, 'manifest.json'), JSON.stringify({
   version: releaseVersion,
   generatedAt: new Date().toISOString(),
   architectures: ['linux/amd64', 'linux/arm64', 'windows/amd64', 'windows/arm64'],
+  compatibility: {
+    runtime: 'go',
+    toolchain: 'go1.20',
+    productLine: 'windows-compat-full-agent',
+    architectures: ['windows/amd64'],
+    path: 'windows/amd64/compatibility',
+  },
   items: bundleItems,
 }, null, 2) + '\n', 'utf8');
 

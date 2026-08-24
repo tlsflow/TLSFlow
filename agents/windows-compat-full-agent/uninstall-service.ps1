@@ -1,21 +1,12 @@
-$ErrorActionPreference = "Stop"
-$serviceName = "GCACWindowsCompatibilityAgent"
-$service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-if ($null -eq $service) { return }
-if ($service.Status -ne "Stopped") {
-    Stop-Service -Name $serviceName -Force -ErrorAction Stop
-    $service.WaitForStatus("Stopped", [TimeSpan]::FromSeconds(30))
+[CmdletBinding()]
+param(
+  [string]$ServiceName = 'GCACWindowsCompatibilityAgent'
+)
+$ErrorActionPreference = 'Stop'
+$service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+if ($null -ne $service) {
+  if ($service.Status -ne 'Stopped') { Stop-Service -Name $ServiceName -Force }
+  & sc.exe delete $ServiceName | Out-Null
 }
-$service.Close()
-& sc.exe delete $serviceName
-if ($LASTEXITCODE -ne 0) { throw "Service deletion failed" }
-
-$deleteDeadline = [DateTime]::UtcNow.AddSeconds(30)
-do {
-    $remainingService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-    if ($null -eq $remainingService) { return }
-    $remainingService.Close()
-    Start-Sleep -Milliseconds 250
-} while ([DateTime]::UtcNow -lt $deleteDeadline)
-
-throw "Service deletion timed out"
+& netsh.exe advfirewall firewall delete rule name='GCAC Windows Compatibility Agent Management TCP 18932' 2>$null | Out-Null
+Write-Output "Compatibility Go Agent service removed: $ServiceName"

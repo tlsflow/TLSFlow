@@ -1581,123 +1581,88 @@ function renderWindowsGoBootstrapScript(manifest: unknown): string {
 }
 
 function renderWindowsCompatibilityBootstrapScript(manifest: unknown): string {
-  const manifestJson = JSON.stringify(manifest, null, 2);
+  return renderWindowsCompatibilityGoBootstrapScript(manifest);
+}
+
+function renderWindowsCompatibilityGoBootstrapScript(manifest: unknown): string {
+  const input = manifest && typeof manifest === 'object' ? (manifest as Record<string, unknown>) : {};
+  const artifacts = Array.isArray(input.artifacts) ? input.artifacts : [];
+  const quote = (value: string): string => `'${value.replace(/'/gu, "''")}'`;
+  const artifactLines = artifacts.map((artifact) => {
+    if (!artifact || typeof artifact !== 'object') return '';
+    const entry = artifact as Record<string, unknown>;
+    const relativePath = String(entry.path ?? '').replace(/\\/gu, '/');
+    const content = String(entry.content ?? '');
+    if (!relativePath || !content) return '';
+    const base64 = entry.encoding === 'base64' ? content : Buffer.from(content, 'utf8').toString('base64');
+    return [
+      `$artifactPath = Join-Path $root ${quote(relativePath)}`,
+      'New-Item -ItemType Directory -Force -Path (Split-Path -Parent $artifactPath) | Out-Null',
+      `[System.IO.File]::WriteAllBytes($artifactPath, [System.Convert]::FromBase64String(${quote(base64)}))`,
+    ].join('\r\n');
+  }).filter(Boolean);
+  const tenantId = quote(String(input.tenantId ?? ''));
+  const agentKey = quote(String(input.agentKey ?? ''));
+  const enrollmentToken = quote(String(input.enrollmentToken ?? ''));
+  const controlPlaneUrl = quote(String(input.controlPlaneUrl ?? ''));
+  const installRoot = quote(String(input.installRoot ?? 'C:\\Program Files\\GCAC\\WindowsCompatibilityAgent'));
+  const configDir = quote(String(input.configDir ?? 'C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\config'));
+  const dataDir = quote(String(input.dataDir ?? 'C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\data'));
+  const logDir = quote(String(input.logDir ?? 'C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\logs'));
+  const startAfterInstall = input.startAfterInstall === true ? '$true' : '$false';
   return [
     "$ErrorActionPreference = 'Stop'",
     "$ProgressPreference = 'SilentlyContinue'",
-    'Add-Type -AssemblyName System.Web.Extensions',
-    '$jsonSerializer = New-Object System.Web.Script.Serialization.JavaScriptSerializer',
-    "$manifest = @'",
-    manifestJson,
-    "'@",
-    '$manifest = $jsonSerializer.DeserializeObject($manifest)',
-    '$utf8NoBom = New-Object System.Text.UTF8Encoding($false)',
-    "$root = Join-Path $env:TEMP ('gcac-windows-compatibility-agent-' + [string]$manifest['sessionId'])",
+    `$root = Join-Path $env:TEMP ${quote(`gcac-windows-compatibility-agent-${String(input.sessionId ?? 'install')}`)}`,
     'New-Item -ItemType Directory -Force -Path $root | Out-Null',
-    "foreach ($artifact in $manifest['artifacts']) {",
-    "  $path = Join-Path $root ([string]$artifact['path'])",
-    '  $dir = Split-Path -Parent $path',
-    '  New-Item -ItemType Directory -Force -Path $dir | Out-Null',
-    "  if ([string]$artifact['encoding'] -eq 'base64') {",
-    "    [System.IO.File]::WriteAllBytes($path, [System.Convert]::FromBase64String([string]$artifact['content']))",
-    '  } else {',
-    "    [System.IO.File]::WriteAllText($path, [string]$artifact['content'], $utf8NoBom)",
-    '  }',
-    '}',
-    "$installRoot = [string]$manifest['installRoot']",
-    "$configDir = [string]$manifest['configDir']",
-    "$dataDir = [string]$manifest['dataDir']",
-    "$logDir = [string]$manifest['logDir']",
+    ...artifactLines,
+    `$installRoot = ${installRoot}`,
+    `$configDir = ${configDir}`,
+    `$dataDir = ${dataDir}`,
+    `$logDir = ${logDir}`,
     '$serviceName = "GCACWindowsCompatibilityAgent"',
     '$displayName = "GCAC Windows Compatibility Agent"',
     '$agentSource = Join-Path $root "GCAC.WindowsCompatibilityAgent.exe"',
-    '$configSource = Join-Path $root "GCAC.WindowsCompatibilityAgent.exe.config"',
-    'if (-not (Test-Path -LiteralPath $agentSource)) { throw "Compatibility Agent executable is missing from the bootstrap bundle." }',
-    'if (-not (Test-Path -LiteralPath $configSource)) { throw "Compatibility Agent runtime config is missing from the bootstrap bundle." }',
-    'function Remove-CompatibilityService {',
-    '  $existing = Get-Service -Name $serviceName -ErrorAction SilentlyContinue',
-    '  if ($null -eq $existing) { return }',
-    '  if ($existing.Status -ne "Stopped") {',
-    '    Stop-Service -Name $serviceName -Force -ErrorAction Stop',
-    '    $existing.WaitForStatus("Stopped", [TimeSpan]::FromSeconds(30))',
-    '  }',
-    '  $existing.Close()',
-    '  & sc.exe delete $serviceName | Out-Null',
-    '  if ($LASTEXITCODE -ne 0) { throw "Compatibility Agent service deletion failed: $serviceName" }',
-    '  $deadline = [DateTime]::UtcNow.AddSeconds(30)',
-    '  do {',
-    '    $remaining = Get-Service -Name $serviceName -ErrorAction SilentlyContinue',
-    '    if ($null -eq $remaining) { return }',
-    '    $remaining.Close()',
-    '    Start-Sleep -Milliseconds 250',
-    '  } while ([DateTime]::UtcNow -lt $deadline)',
-    '  throw "Compatibility Agent service deletion timed out: $serviceName"',
-    '}',
-    'Remove-CompatibilityService',
-    'New-Item -ItemType Directory -Force -Path $installRoot, $configDir, $dataDir, $logDir | Out-Null',
+    '$scannerSource = Join-Path $root "plugins/windows-runtime-discovery.exe"',
+    '$iisSource = Join-Path $root "web-iis/web-iis-agent-side-plugin.exe"',
+    '$updaterSource = Join-Path $root "gcac-agent-updater.exe"',
+    'foreach ($required in @($agentSource, $scannerSource, $iisSource, $updaterSource)) { if (-not (Test-Path -LiteralPath $required)) { throw "Compatibility Go artifact missing: $required" } }',
+    '$existing = Get-Service -Name $serviceName -ErrorAction SilentlyContinue',
+    'if ($null -ne $existing) { if ($existing.Status -ne "Stopped") { Stop-Service -Name $serviceName -Force -ErrorAction Stop }; & sc.exe delete $serviceName | Out-Null; Start-Sleep -Seconds 1 }',
+    'New-Item -ItemType Directory -Force -Path $installRoot, (Join-Path $installRoot "plugins"), $configDir, $dataDir, $logDir | Out-Null',
     '$agentTarget = Join-Path $installRoot "GCAC.WindowsCompatibilityAgent.exe"',
-    '$runtimeConfigTarget = Join-Path $installRoot "GCAC.WindowsCompatibilityAgent.exe.config"',
+    '$scannerTarget = Join-Path $installRoot "plugins/windows-runtime-discovery.exe"',
+    '$iisTarget = Join-Path $installRoot "plugins/web-iis-agent-side-plugin.exe"',
+    '$updaterTarget = Join-Path $installRoot "gcac-agent-updater.exe"',
     'Copy-Item -LiteralPath $agentSource -Destination $agentTarget -Force',
-    'Copy-Item -LiteralPath $configSource -Destination $runtimeConfigTarget -Force',
+    'Copy-Item -LiteralPath $scannerSource -Destination $scannerTarget -Force',
+    'Copy-Item -LiteralPath $iisSource -Destination $iisTarget -Force',
+    'Copy-Item -LiteralPath $updaterSource -Destination $updaterTarget -Force',
+    '$configPath = Join-Path $configDir "agent.config.json"',
+    '$policyDir = Join-Path $dataDir "policy"',
+    'New-Item -ItemType Directory -Force -Path $policyDir | Out-Null',
+    'function ConvertTo-CompatibilityJsonString {',
+    '  param([AllowNull()][string]$Value)',
+    '  if ($null -eq $Value) { return "null" }',
+    '  $escaped = $Value.Replace(\'\\\', \'\\\\\').Replace(\'"\', \'\\"\').Replace("`r", \'\\r\').Replace("`n", \'\\n\').Replace("`t", \'\\t\')',
+    '  return "`\"$escaped`\""',
+    '}',
+    `$configJson = '{' + ('"schemaVersion":' + (ConvertTo-CompatibilityJsonString 'compatibility-agent.go.windows.config.v1') + ',') + ('"tenantId":' + (ConvertTo-CompatibilityJsonString ${tenantId}) + ',') + ('"agentKey":' + (ConvertTo-CompatibilityJsonString ${agentKey}) + ',') + ('"enrollmentToken":' + (ConvertTo-CompatibilityJsonString ${enrollmentToken}) + ',') + ('"controlPlaneUrl":' + (ConvertTo-CompatibilityJsonString ${controlPlaneUrl}) + ',') + '"heartbeatIntervalSeconds":10,"taskPollIntervalSeconds":5,"healthCheckIntervalSeconds":30,"offlineTimeoutSeconds":180,"managementListenAddress":"0.0.0.0","managementPort":18932,' + ('"authorizationMaterialPath":' + (ConvertTo-CompatibilityJsonString (Join-Path $policyDir 'agent-trust-material.json')) + ',') + '"receiptKeyId":"agent-receipt-key-id",' + ('"receiptSigningKeyPath":' + (ConvertTo-CompatibilityJsonString (Join-Path $policyDir 'agent-receipt-signing-key.bin')) + ',') + ('"receiptKeySetPath":' + (ConvertTo-CompatibilityJsonString (Join-Path $policyDir 'agent-receipt-keyset.json')) + ',') + '"paths":{"windows":{' + ('"configPath":' + (ConvertTo-CompatibilityJsonString $configPath) + ',') + ('"dataDir":' + (ConvertTo-CompatibilityJsonString $dataDir) + ',') + ('"logDir":' + (ConvertTo-CompatibilityJsonString $logDir)) + '}},"service":{"name":"GCACWindowsCompatibilityAgent","displayName":"GCAC Windows Compatibility Agent"}}'`,
+    '[System.IO.File]::WriteAllText($configPath, $configJson, (New-Object Text.UTF8Encoding($false)))',
     '& netsh.exe advfirewall firewall delete rule name="GCAC Windows Compatibility Agent Management TCP 18932" 2>$null | Out-Null',
     '& netsh.exe advfirewall firewall add rule name="GCAC Windows Compatibility Agent Management TCP 18932" dir=in action=allow protocol=TCP localport=18932 program="$agentTarget" profile=any | Out-Null',
     'if ($LASTEXITCODE -ne 0) { throw "Compatibility Agent firewall rule creation failed: 18932" }',
-    '$configPath = Join-Path $configDir "agent.config.json"',
-    '$policyDir = Join-Path $dataDir "policy"',
-    'function Serialize-JsonString {',
-    '  param([object]$Value)',
-    '  return $jsonSerializer.Serialize([string]$Value)',
-    '}',
-    '$configJson = @(',
-    "  '{',",
-    "  ('\"schemaVersion\":' + (Serialize-JsonString 'gcac.windows-compat-agent-config/v1') + ','),",
-    "  ('\"tenantId\":' + (Serialize-JsonString ([string]$manifest['tenantId'])) + ','),",
-    "  ('\"agentKey\":' + (Serialize-JsonString ([string]$manifest['agentKey'])) + ','),",
-    "  ('\"enrollmentToken\":' + (Serialize-JsonString ([string]$manifest['enrollmentToken'])) + ','),",
-    "  ('\"controlPlaneUrl\":' + (Serialize-JsonString ([string]$manifest['controlPlaneUrl'])) + ','),",
-    '  \'"heartbeatIntervalSeconds":10,\',',
-    '  \'"taskPollIntervalSeconds":5,\',',
-    '  \'"managementListenAddress":"0.0.0.0",\',',
-    '  \'"managementPort":18932,\',',
-    '  \'"requiredHotfixes":[],\',',
-    "  ('\"dataDirectory\":' + (Serialize-JsonString $dataDir) + ','),",
-    "  ('\"logDirectory\":' + (Serialize-JsonString $logDir) + ','),",
-    "  ('\"policyTrustRootPath\":' + (Serialize-JsonString (Join-Path $policyDir 'trust-root.json')) + ','),",
-    "  ('\"policyKeySetPath\":' + (Serialize-JsonString (Join-Path $policyDir 'key-set.json')) + ','),",
-    "  ('\"localPolicyTrustRootPath\":' + (Serialize-JsonString (Join-Path $policyDir 'local-policy-root.json')) + ','),",
-    "  ('\"localPolicyPath\":' + (Serialize-JsonString (Join-Path $policyDir 'local-policy.json')) + ','),",
-    "  ('\"revokedTokenIdsPath\":' + (Serialize-JsonString (Join-Path $policyDir 'revoked-tokens.json')) + ','),",
-    "  ('\"revokedDecisionIdsPath\":' + (Serialize-JsonString (Join-Path $policyDir 'revoked-decisions.json')) + ','),",
-    "  ('\"revokedKeyIdsPath\":' + (Serialize-JsonString (Join-Path $policyDir 'revoked-keys.json')) + ','),",
-    '  \'"receiptKeyId":"agent-receipt-key-id"\',',
-    "  (',\"receiptSigningKeyPath\":' + (Serialize-JsonString (Join-Path $policyDir 'agent-receipt-signing-key.bin')) + ','),",
-    "  ('\"receiptKeySetPath\":' + (Serialize-JsonString (Join-Path $policyDir 'agent-receipt-keyset.json'))),",
-    "  '}'",
-    ") -join ''",
-    '[System.IO.File]::WriteAllText($configPath, $configJson, $utf8NoBom)',
-    '$serviceCommand = "`"" + $agentTarget + "`" --config `"" + $configPath + "`""',
+    '$serviceCommand = "`\"$agentTarget`\" service run --config=`\"$configPath`\""',
     'New-Service -Name $serviceName -BinaryPathName $serviceCommand -DisplayName $displayName -StartupType Automatic | Out-Null',
-    '$serviceRegistryPath = "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\" + $serviceName',
-    'Set-ItemProperty -LiteralPath $serviceRegistryPath -Name Description -Value "GCAC compatibility product line for Windows Server 2008 R2 SP1 through 2012 R2" -ErrorAction Stop',
-    'sc.exe failure $serviceName reset= 86400 actions= restart/5000/restart/15000 | Out-Null',
-    '$metadataPath = Join-Path (Split-Path -Parent $configDir) "service.install.json"',
-    '$metadataJson = @(',
-    "  '{',",
-    "  ('\"ServiceName\":' + (Serialize-JsonString $serviceName) + ','),",
-    "  ('\"DisplayName\":' + (Serialize-JsonString $displayName) + ','),",
-    "  ('\"InstallRoot\":' + (Serialize-JsonString $installRoot) + ','),",
-    "  ('\"ConfigPath\":' + (Serialize-JsonString $configPath) + ','),",
-    "  ('\"DataDir\":' + (Serialize-JsonString $dataDir) + ','),",
-    "  ('\"LogDir\":' + (Serialize-JsonString $logDir) + ','),",
-    "  ('\"BinaryPath\":' + (Serialize-JsonString $agentTarget) + ','),",
-    '  (\'"InstalledAt":\' + (Serialize-JsonString ((Get-Date).ToString("o"))) + \',\'),',
-    '  \'"Mode":"windows-service-compatibility-bootstrap"\',',
-    "  '}'",
-    ") -join ''",
-    '[System.IO.File]::WriteAllText($metadataPath, $metadataJson, $utf8NoBom)',
-    "if ([bool]$manifest['startAfterInstall']) { Start-Service -Name $serviceName }",
+    '& sc.exe failure $serviceName reset= 86400 actions= restart/5000/restart/15000 | Out-Null',
+    `$metadataPath = Join-Path (Split-Path -Parent $configDir) 'service.install.json'`,
+    `$metadata = '{' + ('"serviceName":' + (ConvertTo-CompatibilityJsonString $serviceName) + ',') + ('"displayName":' + (ConvertTo-CompatibilityJsonString $displayName) + ',') + ('"installRoot":' + (ConvertTo-CompatibilityJsonString $installRoot) + ',') + ('"configPath":' + (ConvertTo-CompatibilityJsonString $configPath) + ',') + ('"dataDir":' + (ConvertTo-CompatibilityJsonString $dataDir) + ',') + ('"logDir":' + (ConvertTo-CompatibilityJsonString $logDir) + ',') + ('"binaryPath":' + (ConvertTo-CompatibilityJsonString $agentTarget) + ',') + '"runtime":"go","toolchain":"go1.20","productLine":"windows-compat-full-agent","compatibilityProfile":"windows-server-2008-r2-to-2012-r2"}'`,
+    '[System.IO.File]::WriteAllText($metadataPath, $metadata, (New-Object Text.UTF8Encoding($false)))',
+    `if (${startAfterInstall}) { Start-Service -Name $serviceName }`,
+    'Write-Host "GCAC Windows Compatibility Go Agent bootstrap completed."',
   ].join('\r\n');
 }
+
 
 function renderLinuxBootstrapScript(manifest: unknown): string {
   const manifestJson = JSON.stringify(manifest, null, 2);
