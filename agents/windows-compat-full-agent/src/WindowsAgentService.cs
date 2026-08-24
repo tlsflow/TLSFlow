@@ -30,6 +30,9 @@ namespace GCAC.WindowsCompatibilityAgent
                 }
                 catch (Exception error)
                 {
+                    CrashReporter.Write("service_worker_exception", error, false);
+                    try { runtime.RecordFatal(error); }
+                    catch (Exception loggingError) { CrashReporter.Write("service_worker_logging_exception", loggingError, false); }
                     try { EventLog.WriteEntry(ProductIdentity.DisplayName, error.ToString(), EventLogEntryType.Error); }
                     catch { }
                 }

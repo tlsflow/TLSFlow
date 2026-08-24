@@ -27,6 +27,7 @@
     <Compile Include="src\AuditLogger.cs" />
     <Compile Include="src\CapabilityCollector.cs" />
     <Compile Include="src\ControlPlaneClient.cs" />
+    <Compile Include="src\CrashReporter.cs" />
     <Compile Include="src\DirectControlServer.cs" />
     <Compile Include="src\InfrastructureAdapters.cs" />
     <Compile Include="src\IisInspector.cs" />

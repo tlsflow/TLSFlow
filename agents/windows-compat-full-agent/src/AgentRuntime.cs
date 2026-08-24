@@ -121,6 +121,11 @@ namespace GCAC.WindowsCompatibilityAgent
             return new PreflightEvaluator(PreflightEvaluator.MinimumRequirements()).Evaluate(capabilityCollector.Collect());
         }
 
+        internal void RecordFatal(Exception error)
+        {
+            logger.Write("error", "runtime.fatal", error == null ? "未知异常" : error.ToString());
+        }
+
         public string[] RegisteredActions()
         {
             return registry.ListCanonicalActions();

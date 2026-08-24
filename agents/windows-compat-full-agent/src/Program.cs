@@ -10,6 +10,7 @@ namespace GCAC.WindowsCompatibilityAgent
     {
         private static int Main(string[] args)
         {
+            CrashReporter.Install();
             try
             {
                 if (Has(args, "--version"))
@@ -17,14 +18,21 @@ namespace GCAC.WindowsCompatibilityAgent
                     Console.WriteLine(ProductIdentity.ProductLine + " " + ProductIdentity.Version + " runtime=" + ProductIdentity.Runtime);
                     return 0;
                 }
+                if (Has(args, "--inspect-iis"))
+                {
+                    Console.WriteLine(new JavaScriptSerializer().Serialize(new IisInspector().Inspect()));
+                    return 0;
+                }
                 string configPath = Value(args, "--config") ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "agent.config.json");
-                AgentRuntime runtime = new AgentRuntime(AgentConfig.Load(configPath));
+                AgentConfig config = AgentConfig.Load(configPath);
                 if (Has(args, "--self-test") || Has(args, "--preflight"))
                 {
-                    PreflightResult result = runtime.SelfCheck();
+                    CapabilitySnapshot snapshot = new CapabilityCollector(config).Collect();
+                    PreflightResult result = new PreflightEvaluator(PreflightEvaluator.MinimumRequirements()).Evaluate(snapshot);
                     Console.WriteLine(new JavaScriptSerializer().Serialize(result));
                     return result.Supported ? 0 : 2;
                 }
+                AgentRuntime runtime = new AgentRuntime(config);
                 if (Environment.UserInteractive || Has(args, "--console"))
                 {
                     ManualResetEvent stopSignal = new ManualResetEvent(false);
@@ -38,6 +46,7 @@ namespace GCAC.WindowsCompatibilityAgent
             }
             catch (Exception error)
             {
+                CrashReporter.Write("main_exception", error, false);
                 Console.Error.WriteLine(error.ToString());
                 return 1;
             }

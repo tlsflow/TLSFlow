@@ -23,6 +23,7 @@ internal static class Tests
         Run("系统事实包含注册和详情所需字段", CapabilityCollectorIncludesSystemFacts);
         Run("注册请求包含系统描述字段", RegistrationRequestIncludesSystemDescriptor);
         Run("注册请求包含独立 Direct Control 端口", RegistrationRequestIncludesDirectControl);
+        Run("注册请求声明能力重扫 Direct Control 动作", RegistrationRequestIncludesCapabilityRescanDirectControl);
         Run("旧配置自动启用 Direct Control 和十秒心跳", LegacyConfigEnablesDirectControl);
         Run("显式关闭 Direct Control 时保持关闭", ExplicitDirectControlDisableIsPreserved);
         Run("能力报告使用 L2 和结构化声明", CapabilityRequestUsesStructuredL2Declarations);
@@ -30,10 +31,13 @@ internal static class Tests
         Run("心跳请求包含公共健康模型", HeartbeatRequestIncludesRuntimeHealth);
         Run("Agent ID 可跨进程重启持久化", AgentIdentityPersistsAcrossRestart);
         Run("IIS Binding 信息解析兼容主机头", IisBindingInformationParsesHostHeader);
+        Run("IIS 证书哈希兼容字节数组和字符串", IisCertificateHashSupportsLegacyValues);
+        Run("IIS 证书哈希支持属性缺失时的 Attribute 兜底", IisCertificateHashUsesAttributeFallback);
+        Run("IIS HTTP.sys SSL 绑定支持按端口回退发现", IisHttpSysSslBindingFallback);
         Run("任务拉取结果展开公共动作载荷", PulledTaskNormalizesPublicActionPayload);
         Run("运行时注册手动重扫动作", RuntimeRegistersCapabilityRescan);
         Run("Direct Control 复用 Atomic Plan Registry", DirectControlUsesAtomicPlanRegistry);
-        Console.WriteLine("tests=" + 24 + " failures=" + failures);
+        Console.WriteLine("tests=" + 28 + " failures=" + failures);
         return failures == 0 ? 0 : 1;
     }
 
@@ -223,6 +227,14 @@ internal static class Tests
         Assert(object.ReferenceEquals(request["runtimeHealth"], runtimeHealth), "心跳请求未上传运行健康模型");
     }
 
+    private static void RegistrationRequestIncludesCapabilityRescanDirectControl()
+    {
+        Dictionary<string, object> request = new ControlPlaneClient(TestConfig()).BuildRegistrationRequest(Snapshot());
+        Dictionary<string, object> directControl = (Dictionary<string, object>)request["directControl"];
+        string[] supportedActions = (string[])directControl["supportedActions"];
+        Assert(Array.IndexOf(supportedActions, "agent.capability.rescan") >= 0, "注册请求未声明能力重扫 Direct Control 动作");
+    }
+
     private static void AgentIdentityPersistsAcrossRestart()
     {
         string root = Path.Combine(Path.GetTempPath(), "gcac-compat-identity-" + Guid.NewGuid().ToString("N"));
@@ -247,6 +259,42 @@ internal static class Tests
         Assert(Convert.ToString(parsed["IPAddress"]) == "*", "IIS Binding IP 解析错误");
         Assert(Convert.ToInt32(parsed["Port"]) == 443, "IIS Binding 端口解析错误");
         Assert(Convert.ToString(parsed["HostHeader"]) == "portal.example.com", "IIS Binding 主机头解析错误");
+    }
+
+    private static void IisCertificateHashSupportsLegacyValues()
+    {
+        Assert(IisInspector.NormalizeCertificateThumbprint(new byte[] { 0xAA, 0xBb, 0x01 }) == "AABB01", "byte[] 证书哈希解析错误");
+        Assert(IisInspector.NormalizeCertificateThumbprint(new int[] { 170, 187, 1 }) == "AABB01", "数组形式证书哈希解析错误");
+        Assert(IisInspector.NormalizeCertificateThumbprint(" aa:bb-01 ") == "AABB01", "字符串证书哈希解析错误");
+    }
+
+    private static void IisCertificateHashUsesAttributeFallback()
+    {
+        Assert(IisInspector.ReadCertificateThumbprint(new FakeIisBinding()) == "AABB01", "CertificateHash 属性缺失时未读取 certificateHash Attribute");
+    }
+
+    private static void IisHttpSysSslBindingFallback()
+    {
+        string output = "IP:port                      : 0.0.0.0:443\r\n"
+            + "Certificate Hash             : AA:BB:01\r\n"
+            + "Application ID              : {fixture}\r\n"
+            + "Certificate Store Name      : MY\r\n\r\n"
+            + "IP:port                      : 0.0.0.0:8443\r\n"
+            + "Certificate Hash             : CC:DD:02\r\n";
+        Dictionary<string, string> result = IisInspector.ParseHttpSysSslCertOutput(output, "*", 443);
+        Assert(result != null, "未从 HTTP.sys 输出匹配 443 端口");
+        Assert(result["CertificateThumbprint"] == "AABB01", "HTTP.sys 证书指纹解析错误");
+        Assert(result["CertificateStoreName"] == "MY", "HTTP.sys 证书存储解析错误");
+    }
+
+    private sealed class FakeIisBinding
+    {
+        public object CertificateHash { get { return null; } }
+
+        public object GetAttributeValue(string name)
+        {
+            return name == "certificateHash" ? "aa:bb:01" : null;
+        }
     }
 
     private static void RuntimeRegistersCapabilityRescan()

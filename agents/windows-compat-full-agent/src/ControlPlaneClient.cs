@@ -99,7 +99,7 @@ namespace GCAC.WindowsCompatibilityAgent
             state["reachable"] = config.directControlEnabled && directControlReachable;
             state["listenAddress"] = TextUtility.IsBlank(advertiseHost) ? null : advertiseHost + ":" + config.directControlListenPort;
             state["protocolVersion"] = "v1";
-            state["supportedActions"] = new string[] { "health" };
+            state["supportedActions"] = new string[] { "health", "agent.capability.rescan" };
             if (directControlReachable) state["lastReadyAt"] = DateTime.UtcNow.ToString("o");
             if (!TextUtility.IsBlank(directControlError)) state["lastDirectError"] = directControlError;
             return state;

@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$InstallRoot,
-    [Parameter(Mandatory = $true)][string]$ConfigPath
+    [Parameter(Mandatory = $true)][string]$ConfigPath,
+    [switch]$NoStartAfterInstall
 )
 
 $ErrorActionPreference = "Stop"
@@ -76,17 +77,21 @@ if ($null -eq $existing) {
 
 $serviceRegistryPath = "HKLM:\SYSTEM\CurrentControlSet\Services\" + $serviceName
 Set-ItemProperty -LiteralPath $serviceRegistryPath -Name Description -Value "GCAC compatibility product line for Windows Server 2008 R2 SP1 through 2012 R2" -ErrorAction Stop
-& sc.exe failure $serviceName reset= 86400 actions= restart/5000/restart/15000/none/0 1>> $serviceLog 2>&1
+& sc.exe failure $serviceName reset= 86400 actions= restart/5000/restart/15000 1>> $serviceLog 2>&1
 if ($LASTEXITCODE -ne 0) { Write-ServiceLog -Message ("Service recovery configuration skipped. exitCode=" + $LASTEXITCODE) }
 Set-DirectControlFirewallRule -ProgramPath $binaryPath
-Start-Service -Name $serviceName -ErrorAction Stop
-$service = Get-Service -Name $serviceName -ErrorAction Stop
-if ([string]$service.Status -ne "Running") {
-    $service.WaitForStatus("Running", [TimeSpan]::FromSeconds(30))
+if ($NoStartAfterInstall) {
+    Write-ServiceLog -Message "Service installed without starting."
+} else {
+    Start-Service -Name $serviceName -ErrorAction Stop
+    $service = Get-Service -Name $serviceName -ErrorAction Stop
+    if ([string]$service.Status -ne "Running") {
+        $service.WaitForStatus("Running", [TimeSpan]::FromSeconds(30))
+    }
+    $service = Get-Service -Name $serviceName -ErrorAction Stop
+    if ([string]$service.Status -ne "Running") {
+        Write-ServiceLog -Message ("Service did not reach Running after start. status=" + $service.Status)
+        throw ("Service start failed; log=" + $serviceLog)
+    }
+    Write-ServiceLog -Message ("Service started. status=" + $service.Status)
 }
-$service = Get-Service -Name $serviceName -ErrorAction Stop
-if ([string]$service.Status -ne "Running") {
-    Write-ServiceLog -Message ("Service did not reach Running after start. status=" + $service.Status)
-    throw ("Service start failed; log=" + $serviceLog)
-}
-Write-ServiceLog -Message ("Service started. status=" + $service.Status)

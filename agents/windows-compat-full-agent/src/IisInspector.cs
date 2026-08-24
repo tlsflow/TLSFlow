@@ -2,10 +2,12 @@ using Microsoft.Win32;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 
 namespace GCAC.WindowsCompatibilityAgent
 {
@@ -98,8 +100,20 @@ namespace GCAC.WindowsCompatibilityAgent
             string bindingInformation = Convert.ToString(GetProperty(binding, "BindingInformation"));
             Dictionary<string, object> parsed = ParseBindingInformation(bindingInformation);
             string storeName = Convert.ToString(GetOptionalProperty(binding, "CertificateStoreName"));
-            byte[] certificateHash = GetOptionalProperty(binding, "CertificateHash") as byte[];
-            string thumbprint = certificateHash == null ? string.Empty : BitConverter.ToString(certificateHash).Replace("-", string.Empty);
+            string thumbprint = ReadCertificateThumbprint(binding);
+            string certificateSource = TextUtility.IsBlank(thumbprint) ? string.Empty : "iis-binding";
+            if (string.Equals(protocol, "https", StringComparison.OrdinalIgnoreCase) && TextUtility.IsBlank(thumbprint))
+            {
+                Dictionary<string, string> httpSysBinding = ReadHttpSysCertificateBinding(
+                    Convert.ToString(parsed["IPAddress"]),
+                    Convert.ToInt32(parsed["Port"]));
+                if (httpSysBinding != null)
+                {
+                    thumbprint = httpSysBinding["CertificateThumbprint"];
+                    certificateSource = "http.sys";
+                    if (TextUtility.IsBlank(storeName)) storeName = httpSysBinding["CertificateStoreName"];
+                }
+            }
             Dictionary<string, object> certificate = string.Equals(protocol, "https", StringComparison.OrdinalIgnoreCase)
                 ? ReadCertificate(storeName, thumbprint)
                 : null;
@@ -112,9 +126,185 @@ namespace GCAC.WindowsCompatibilityAgent
                 { "HostHeader", parsed["HostHeader"] },
                 { "CertificateStoreName", TextUtility.IsBlank(storeName) ? "My" : storeName },
                 { "CertificateThumbprint", thumbprint },
+                { "CertificateSource", certificateSource },
                 { "SslFlags", ReadSslFlags(binding) },
                 { "Certificate", certificate }
             };
+        }
+
+        internal static string ReadCertificateThumbprint(object binding)
+        {
+            if (binding == null) return string.Empty;
+            string thumbprint = NormalizeCertificateThumbprint(GetOptionalProperty(binding, "CertificateHash"));
+            if (!TextUtility.IsBlank(thumbprint)) return thumbprint;
+
+            MethodInfo method = binding.GetType().GetMethod("GetAttributeValue", BindingFlags.Instance | BindingFlags.Public);
+            if (method == null) return string.Empty;
+            try
+            {
+                return NormalizeCertificateThumbprint(method.Invoke(binding, new object[] { "certificateHash" }));
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        internal static Dictionary<string, string> ParseHttpSysSslCertOutput(string output, string ipAddress, int port)
+        {
+            if (TextUtility.IsBlank(output) || port < 1 || port > 65535) return null;
+            bool inMatchingBinding = false;
+            string thumbprint = string.Empty;
+            string storeName = string.Empty;
+            string[] lines = output.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+            foreach (string line in lines)
+            {
+                if (IsHttpSysEndpointLine(line))
+                {
+                    if (inMatchingBinding && !TextUtility.IsBlank(thumbprint))
+                        return HttpSysBinding(thumbprint, storeName);
+                    inMatchingBinding = MatchesHttpSysEndpoint(line, ipAddress, port);
+                    thumbprint = string.Empty;
+                    storeName = string.Empty;
+                    continue;
+                }
+                if (!inMatchingBinding) continue;
+                string normalized = line.Trim();
+                if (normalized.Length == 0)
+                {
+                    if (!TextUtility.IsBlank(thumbprint)) return HttpSysBinding(thumbprint, storeName);
+                    inMatchingBinding = false;
+                    continue;
+                }
+                if (ContainsAny(normalized, "certificate hash", "certificatehash", "证书哈希"))
+                    thumbprint = NormalizeCertificateThumbprint(ValueAfterColon(normalized));
+                else if (ContainsAny(normalized, "certificate store name", "cert store name", "证书存储名称", "证书存储名"))
+                    storeName = ValueAfterColon(normalized).Trim();
+            }
+            return inMatchingBinding && !TextUtility.IsBlank(thumbprint)
+                ? HttpSysBinding(thumbprint, storeName)
+                : null;
+        }
+
+        private static Dictionary<string, string> ReadHttpSysCertificateBinding(string ipAddress, int port)
+        {
+            try
+            {
+                string windir = Environment.GetEnvironmentVariable("WINDIR");
+                string executable = TextUtility.IsBlank(windir)
+                    ? "netsh.exe"
+                    : Path.Combine(Path.Combine(windir, "System32"), "netsh.exe");
+                ProcessStartInfo startInfo = new ProcessStartInfo
+                {
+                    FileName = executable,
+                    Arguments = "http show sslcert",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    CreateNoWindow = true
+                };
+                using (Process process = Process.Start(startInfo))
+                {
+                    if (process == null) return null;
+                    if (!process.WaitForExit(5000))
+                    {
+                        try { process.Kill(); }
+                        catch { }
+                        return null;
+                    }
+                    return ParseHttpSysSslCertOutput(process.StandardOutput.ReadToEnd(), ipAddress, port);
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static bool IsHttpSysEndpointLine(string value)
+        {
+            string normalized = value == null ? string.Empty : value.Trim().ToLowerInvariant();
+            return normalized.StartsWith("ip:port", StringComparison.Ordinal)
+                || normalized.StartsWith("hostname:port", StringComparison.Ordinal)
+                || normalized.StartsWith("ip:端口", StringComparison.Ordinal)
+                || normalized.StartsWith("主机名:端口", StringComparison.Ordinal);
+        }
+
+        private static bool MatchesHttpSysEndpoint(string line, string ipAddress, int port)
+        {
+            string normalized = line == null ? string.Empty : line.ToLowerInvariant();
+            string portSuffix = ":" + port.ToString();
+            if (!normalized.Contains(portSuffix)) return false;
+            string address = (ipAddress ?? string.Empty).Trim().ToLowerInvariant();
+            if (TextUtility.IsBlank(address) || address == "*")
+                return normalized.Contains("0.0.0.0" + portSuffix)
+                    || normalized.Contains("[::]" + portSuffix)
+                    || normalized.Contains("::" + portSuffix)
+                    || normalized.Contains("*" + portSuffix);
+            return normalized.Contains(address + portSuffix);
+        }
+
+        private static Dictionary<string, string> HttpSysBinding(string thumbprint, string storeName)
+        {
+            return new Dictionary<string, string>
+            {
+                { "CertificateThumbprint", thumbprint },
+                { "CertificateStoreName", TextUtility.IsBlank(storeName) ? "My" : storeName }
+            };
+        }
+
+        private static string ValueAfterColon(string value)
+        {
+            int separator = value.IndexOf(':');
+            return separator < 0 ? string.Empty : value.Substring(separator + 1);
+        }
+
+        private static bool ContainsAny(string value, params string[] candidates)
+        {
+            string normalized = value.ToLowerInvariant();
+            foreach (string candidate in candidates)
+                if (normalized.Contains(candidate.ToLowerInvariant())) return true;
+            return false;
+        }
+
+        internal static string NormalizeCertificateThumbprint(object value)
+        {
+            if (value == null) return string.Empty;
+            byte[] bytes = value as byte[];
+            if (bytes != null) return BitConverter.ToString(bytes).Replace("-", string.Empty).ToUpperInvariant();
+
+            Array array = value as Array;
+            if (array != null && array.Rank == 1)
+            {
+                StringBuilder hex = new StringBuilder(array.Length * 2);
+                for (int index = 0; index < array.Length; index++)
+                {
+                    object item = array.GetValue(index);
+                    int number;
+                    try { number = Convert.ToInt32(item); }
+                    catch { return string.Empty; }
+                    if (number < 0 || number > 255) return string.Empty;
+                    hex.Append(number.ToString("X2"));
+                }
+                return hex.ToString();
+            }
+
+            string text = Convert.ToString(value);
+            if (TextUtility.IsBlank(text)) return string.Empty;
+            StringBuilder normalized = new StringBuilder(text.Length);
+            foreach (char current in text)
+            {
+                if (current == ':' || current == '-' || char.IsWhiteSpace(current)) continue;
+                if (!IsHexDigit(current)) return string.Empty;
+                normalized.Append(char.ToUpperInvariant(current));
+            }
+            return normalized.ToString();
+        }
+
+        private static bool IsHexDigit(char value)
+        {
+            return (value >= '0' && value <= '9')
+                || (value >= 'a' && value <= 'f')
+                || (value >= 'A' && value <= 'F');
         }
 
         private static Dictionary<string, object> ReadCertificate(string storeName, string thumbprint)
@@ -138,6 +328,11 @@ namespace GCAC.WindowsCompatibilityAgent
                     { "NotBefore", certificate.NotBefore.ToUniversalTime().ToString("o") },
                     { "NotAfter", certificate.NotAfter.ToUniversalTime().ToString("o") }
                 };
+            }
+            catch
+            {
+                // 证书详情读取失败不能影响 Binding 指纹上报，调用方仍会保留 CertificateThumbprint。
+                return null;
             }
             finally
             {

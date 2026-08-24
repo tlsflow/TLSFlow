@@ -37,7 +37,15 @@ namespace GCAC.WindowsCompatibilityAgent
             while (listener.IsListening)
             {
                 try { Handle(listener.GetContext()); }
-                catch (HttpListenerException) { if (listener.IsListening) throw; }
+                catch (HttpListenerException error)
+                {
+                    if (listener.IsListening)
+                    {
+                        logger.Write("error", "direct_control.listener_failed", error.ToString());
+                        listener.Stop();
+                    }
+                    return;
+                }
                 catch (ObjectDisposedException) { return; }
                 catch (Exception error) { logger.Write("error", "direct_control.request_failed", error.Message); }
             }

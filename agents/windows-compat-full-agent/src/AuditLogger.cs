@@ -17,8 +17,15 @@ namespace GCAC.WindowsCompatibilityAgent
 
         public void Write(string level, string eventName, string message)
         {
-            string line = DateTime.UtcNow.ToString("o") + " level=" + level + " event=" + eventName + " message=" + Sanitize(message) + Environment.NewLine;
-            lock (sync) File.AppendAllText(path, line, new UTF8Encoding(false));
+            try
+            {
+                string line = DateTime.UtcNow.ToString("o") + " level=" + level + " event=" + eventName + " message=" + Sanitize(message) + Environment.NewLine;
+                lock (sync) File.AppendAllText(path, line, new UTF8Encoding(false));
+            }
+            catch
+            {
+                // 日志故障不能影响 Agent 主流程。
+            }
         }
 
         private static string Sanitize(string value)
