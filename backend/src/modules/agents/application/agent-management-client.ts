@@ -8,10 +8,7 @@ export interface AgentUpgradeEnvelope {
   planId: string;
   transactionId: string;
   agentId: string;
-  /**
-   * Linux Full Agent 使用现有 bootstrap 安装入口完成升级。
-   * Windows 继续使用原有升级器，因此该字段只对 Linux 生效。
-   */
+  /** 使用与手工安装相同的 bootstrap 安装入口完成成套升级。 */
   upgradeBootstrapUrl?: string;
   release: {
     releaseId: string;

@@ -37,6 +37,9 @@ test('Windows Go 宿主升级链路把接受与传输失败分开记录', async 
     assert.equal(enqueuedTaskInput?.triggerSource, 'agent-upgrade-confirmed');
     assert.equal((accepted.result as { taskId?: string }).taskId, 'task-agent-upgrade-1');
     assert.equal((acceptedEnvelope?.release as { productLine?: string }).productLine, 'windows-go-full');
+    assert.match(String(acceptedEnvelope?.upgradeBootstrapUrl), /\/agent-install\.ps1\?token=/u);
+    assert.equal(acceptedState.installSessions[0]?.agentKey, acceptedState.agent.agentKey);
+    assert.equal(acceptedState.installSessions[0]?.platform, 'windows_go_service');
     const manualRequired = await acceptedService.markUpgradeManualRequired(
       'tenant-host-flow',
       'agent-host-flow',
@@ -154,6 +157,7 @@ function createUpgradeStore() {
     rolloutPercent: 100, status: 'active', createdAt: now, createdBy: 'test',
   };
   const plan: AgentUpgradePlan = { id: 'plan-host-flow', tenantId: agent.tenantId, agentId: agent.id, releaseId: release.id, targetVersion: release.version, status: 'planned', reason: 'fixture', createdAt: now, updatedAt: now };
+  const installSessions: Array<{ agentKey?: string; platform?: string }> = [];
   const repository = {
     getRegistration: async () => agent,
     listActiveVersions: async () => [release],
@@ -162,8 +166,13 @@ function createUpgradeStore() {
     createUpgradePlan: async (value: AgentUpgradePlan) => Object.assign(plan, value),
     getUpgradePlan: async () => plan,
     updateUpgradePlan: async (_id: string, patch: Partial<AgentUpgradePlan>) => Object.assign(plan, patch),
+    createEnrollmentToken: async (value: unknown) => value,
+    createInstallSession: async (value: { agentKey?: string; platform?: string }) => {
+      installSessions.push(value);
+      return value;
+    },
   };
-  return { repository, plan };
+  return { repository, plan, agent, release, installSessions };
 }
 
 function createLinuxUpgradeStore() {

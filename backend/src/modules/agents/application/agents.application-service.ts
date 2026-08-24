@@ -1178,7 +1178,9 @@ export class AgentsApplicationService {
       try {
         const upgradeBootstrapUrl = resolveGoFullProductLine(agent.descriptor.osType) === linuxGoProductLine
           ? (await this.createLinuxUpgradeBootstrap(agent, dispatching, requestId, release)).bootstrapUrl
-          : undefined;
+          : resolveGoFullProductLine(agent.descriptor.osType) === windowsGoProductLine
+            ? (await this.createWindowsUpgradeBootstrap(agent, dispatching, requestId, release)).bootstrapUrl
+            : undefined;
         envelope = buildGoFullUpgradeEnvelope(agent, dispatching, release, requestId, upgradeBootstrapUrl);
       } catch (error) {
         await this.repository.updateUpgradePlan(plan.id, {
@@ -1264,6 +1266,37 @@ export class AgentsApplicationService {
       releaseUrl.origin,
     );
     return session;
+  }
+
+  /**
+   * Windows 升级复用正式 PowerShell bootstrap 安装入口，确保 Agent、升级器和
+   * Agent-side 发现插件始终来自同一套构建产物；同一 agentKey 会更新原设备。
+   */
+  private async createWindowsUpgradeBootstrap(
+    agent: AgentRegistration,
+    plan: AgentUpgradePlan,
+    requestId: string,
+    release: AgentVersionRelease,
+  ): Promise<AgentInstallSessionBootstrapProjection> {
+    const releaseUrl = new URL(release.downloadUrl);
+    return this.createAgentInstallSession(
+      plan.tenantId,
+      {
+        platform: 'windows_go',
+        role: 'full_agent',
+        zone: agent.zone ?? 'default',
+        agentKey: agent.agentKey,
+        serviceName: `gcac-agent-${agent.id.slice(-6).toLowerCase()}`,
+        displayName: agent.descriptor.hostname || 'GCAC Windows Go Full Agent',
+        installRoot: 'C:\\Program Files\\GCAC\\FullAgentGo',
+        configDir: 'C:\\ProgramData\\GCAC\\FullAgentGo\\config',
+        dataDir: 'C:\\ProgramData\\GCAC\\FullAgentGo\\data',
+        logDir: 'C:\\ProgramData\\GCAC\\FullAgentGo\\logs',
+        startAfterInstall: true,
+      },
+      requestId,
+      releaseUrl.origin,
+    );
   }
 
   /** 中文说明：统一任务只负责观察已经确认的 UpgradePlan，升级授权仍由本次用户确认请求发送。 */
@@ -2403,7 +2436,7 @@ function isUpgradeTransactionIdentityMismatch(error: unknown): boolean {
 }
 
 function isStaleUpgradeHelperStatus(status: Awaited<ReturnType<AgentManagementClient['getUpgradeStatus']>>): boolean {
-  if (status.status !== 'running' || status.phase !== 'helper_started' || !status.updatedAt) return false;
+  if (status.status !== 'running' || !status.updatedAt || !['helper_started', 'script_started', 'downloading_script', 'executing_script'].includes(String(status.phase))) return false;
   const updatedAt = Date.parse(status.updatedAt);
   return !Number.isNaN(updatedAt) && Date.now() - updatedAt >= agentUpgradeHelperTimeoutMs;
 }
