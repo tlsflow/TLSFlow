@@ -21,6 +21,7 @@ export interface CreateCredentialProfileDto {
   delivery?: CredentialDelivery;
   secretSlots: Record<string, string>;
   metadata?: Record<string, unknown>;
+  expiresAt?: string | null;
 }
 
 export type CreateCredentialProfileRequestDto = Omit<CreateCredentialProfileDto, 'secretSlots'> & {
@@ -41,6 +42,7 @@ export interface UpdateCredentialProfileDto {
   secretSlots?: Record<string, string>;
   metadata?: Record<string, unknown>;
   status?: CredentialStatus;
+  expiresAt?: string | null;
   expectedVersion: number;
 }
 

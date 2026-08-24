@@ -102,7 +102,8 @@ export class RuntimeCredentialResolver {
 
 function assertBrowserSessionUsable(profile: Awaited<ReturnType<CredentialsRepository['get']>>): void {
   if (!profile || profile.kind !== 'BROWSER_SESSION') return;
-  const expiresAt = typeof profile.metadata.expiresAt === 'string' ? profile.metadata.expiresAt : undefined;
+  const expiresAt = profile.expiresAt
+    ?? (typeof profile.metadata.expiresAt === 'string' ? profile.metadata.expiresAt : undefined);
   if (!expiresAt) throw new AppError('CREDENTIAL_EXPIRED', 'BROWSER_SESSION 缺少过期时间', { credentialId: profile.id });
   if (Date.parse(expiresAt) <= Date.now()) {
     throw new AppError('CREDENTIAL_EXPIRED', 'BROWSER_SESSION 已过期', { credentialId: profile.id, expiresAt });

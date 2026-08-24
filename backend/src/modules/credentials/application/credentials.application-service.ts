@@ -90,7 +90,15 @@ export class CredentialsApplicationService {
         const secretValues = input.secretValues ?? {};
         const secretChanged = Object.keys(secretValues).length > 0;
         const secretSlots = secretChanged
-          ? await this.updateSecretSlots(tx, this.requireSecrets(), current, actorId, secretValues, context)
+          ? await this.updateSecretSlots(
+            tx,
+            this.requireSecrets(),
+            current,
+            actorId,
+            secretValues,
+            context,
+            input.metadata ?? current.metadata,
+          )
           : current.secretSlots;
         const recoveredStatus = current.status === 'error' && input.status === undefined ? 'disabled' : input.status;
         const updated = await repository.save(this.domain.normalizeUpdate(current, {
@@ -161,8 +169,9 @@ export class CredentialsApplicationService {
     actorId: string,
     secretValues: Record<string, CredentialSecretValueInput>,
     context: RequestContext,
+    metadata: Record<string, unknown> | undefined = current.metadata,
   ): Promise<Record<string, string>> {
-    const rules = getCredentialSlotRules(current.kind, current.metadata);
+    const rules = getCredentialSlotRules(current.kind, metadata);
     const secretSlots = { ...current.secretSlots };
     for (const [slot, secretValue] of Object.entries(secretValues)) {
       const rule = rules[slot];

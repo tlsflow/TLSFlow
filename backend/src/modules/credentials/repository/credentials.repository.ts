@@ -15,12 +15,13 @@ export class CredentialsRepository {
     await this.db.query(
       `insert into credential_profiles (
         id, tenant_id, name, kind, scope_type, scope_id, username, delivery, secret_slots,
-        metadata, status, version, created_by, created_at, updated_at
-      ) values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15)
+        metadata, status, version, created_by, created_at, updated_at, expires_at
+      ) values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15,$16)
       on conflict (id) do update set
         name=excluded.name, scope_type=excluded.scope_type, scope_id=excluded.scope_id,
         username=excluded.username, delivery=excluded.delivery, secret_slots=excluded.secret_slots,
-        metadata=excluded.metadata, status=excluded.status, version=excluded.version, updated_at=excluded.updated_at`,
+        metadata=excluded.metadata, status=excluded.status, version=excluded.version,
+        updated_at=excluded.updated_at, expires_at=excluded.expires_at`,
       [
         record.id,
         record.tenantId,
@@ -37,6 +38,7 @@ export class CredentialsRepository {
         record.createdBy,
         record.createdAt,
         record.updatedAt,
+        record.expiresAt ?? null,
       ],
     );
     return record;
@@ -140,9 +142,11 @@ interface CredentialProfileRow extends Record<string, unknown> {
   created_by: string;
   created_at: string | Date;
   updated_at: string | Date;
+  expires_at: string | Date | null;
 }
 
 function toEntity(row: CredentialProfileRow): CredentialProfileEntity {
+  const metadataExpiry = typeof row.metadata?.expiresAt === 'string' ? row.metadata.expiresAt : undefined;
   return {
     id: row.id,
     tenantId: row.tenant_id,
@@ -159,6 +163,7 @@ function toEntity(row: CredentialProfileRow): CredentialProfileEntity {
     createdBy: row.created_by,
     createdAt: toIsoString(row.created_at),
     updatedAt: toIsoString(row.updated_at),
+    expiresAt: row.expires_at ? toIsoString(row.expires_at) : metadataExpiry,
   };
 }
 

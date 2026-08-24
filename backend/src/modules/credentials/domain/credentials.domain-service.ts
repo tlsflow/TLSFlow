@@ -90,6 +90,7 @@ export class CredentialsDomainService {
       createdBy: requiredText(createdBy, 'createdBy'),
       createdAt: identity.now,
       updatedAt: identity.now,
+      expiresAt: normalizeExpiry(input.expiresAt ?? input.metadata?.expiresAt, identity.now),
     };
   }
 
@@ -114,6 +115,9 @@ export class CredentialsDomainService {
       delivery: input.delivery ?? current.delivery,
       secretSlots: input.secretSlots ?? current.secretSlots,
     }, input.metadata ?? current.metadata);
+    const expiresAt = input.expiresAt === undefined
+      ? current.expiresAt
+      : normalizeExpiry(input.expiresAt, now);
     const status = input.status ?? current.status;
     if (!CREDENTIAL_STATUSES.has(status)) throw validation('凭据状态无效', { status });
     return {
@@ -123,6 +127,7 @@ export class CredentialsDomainService {
       status,
       version: current.version + 1,
       updatedAt: now,
+      expiresAt,
     };
   }
 }
@@ -189,6 +194,15 @@ function normalizeDelivery(kind: CredentialKind, input: CredentialDelivery | und
     throw validation('API_KEY 必须提供合法投递位置');
   }
   return { location, name: requiredText(input?.name, 'delivery.name') };
+}
+
+function normalizeExpiry(value: unknown, now: string): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) throw validation('凭据有效期必须是合法时间');
+  if (timestamp <= Date.parse(now)) throw validation('凭据有效期必须晚于当前时间');
+  return new Date(timestamp).toISOString();
 }
 
 function requiresUsername(kind: CredentialKind): boolean {

@@ -89,3 +89,28 @@ test('CLOUD_PROVIDER 凭据按云厂商约束必填 Secret Slot', () => {
     accessKeySecret: 'secret://api_token/sec-2#current',
   });
 });
+
+test('BROWSER_SESSION 凭据允许先创建空输出合同，等待浏览器获取填充', () => {
+  const domain = new CredentialsDomainService();
+  const entity = domain.normalizeCreate('tenant-browser', 'user-browser', {
+    name: 'GCAC Web 浏览器会话',
+    kind: 'BROWSER_SESSION',
+    scopeType: 'global',
+    metadata: {
+      outputContract: {
+        version: 'credential.output/v1',
+        parameters: {},
+      },
+    },
+    secretSlots: {},
+  }, { id: 'cred-browser-1', now: '2026-08-07T00:00:00.000Z' });
+
+  assert.equal(entity.kind, 'BROWSER_SESSION');
+  assert.deepEqual(entity.secretSlots, {});
+  assert.deepEqual(entity.metadata, {
+    outputContract: {
+      version: 'credential.output/v1',
+      parameters: {},
+    },
+  });
+});

@@ -94,6 +94,40 @@ test('全局凭据 API 支持创建、查询、更新、禁用和删除', async 
   assert.deepEqual(deleted.body, { id: credential.id, deleted: true });
 });
 
+test('全局凭据 API 保存有效期，空值表示长期有效', async () => {
+  const { app, database } = await createTestApp();
+  const expiresAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+  const created = await app.inject({
+    method: 'POST',
+    path: '/api/v1/credentials',
+    headers: { 'x-tenant-id': 'tenant-expiry', 'x-actor-id': 'user-expiry' },
+    body: {
+      name: '有期限令牌',
+      kind: 'BEARER_TOKEN',
+      scopeType: 'global',
+      expiresAt,
+      secretValues: { token: { plainText: 'expiry-token' } },
+    },
+  });
+  assert.equal(created.statusCode, 201);
+  assert.equal((created.body as Record<string, unknown>).expiresAt, expiresAt);
+
+  const cleared = await app.inject({
+    method: 'PATCH',
+    path: '/api/v1/credentials',
+    headers: { 'x-tenant-id': 'tenant-expiry', 'x-actor-id': 'user-expiry' },
+    body: { id: (created.body as Record<string, unknown>).id, expiresAt: null, expectedVersion: 1 },
+  });
+  assert.equal(cleared.statusCode, 200);
+  assert.equal((cleared.body as Record<string, unknown>).expiresAt, undefined);
+
+  const stored = await database.query<{ expires_at: string | null }>(
+    'select expires_at from credential_profiles where id=$1',
+    [(created.body as Record<string, unknown>).id],
+  );
+  assert.equal(stored.rows[0]?.expires_at, null);
+});
+
 test('全局凭据 API 支持创建 DNS Provider 配置', async () => {
   const { app, database } = await createTestApp();
   const created = await app.inject({
@@ -125,6 +159,103 @@ test('全局凭据 API 支持创建 DNS Provider 配置', async () => {
     [credential.id],
   );
   assert.equal(stored.rows[0]?.kind, 'DNS_PROVIDER');
+});
+
+test('全局凭据 API 支持创建待浏览器获取的 BROWSER_SESSION', async () => {
+  const { app } = await createTestApp();
+  const created = await app.inject({
+    method: 'POST',
+    path: '/api/v1/credentials',
+    headers: { 'x-tenant-id': 'tenant-browser', 'x-actor-id': 'user-browser' },
+    body: {
+      name: 'GCAC Web 浏览器会话',
+      kind: 'BROWSER_SESSION',
+      scopeType: 'global',
+      metadata: {
+        outputContract: {
+          version: 'credential.output/v1',
+          parameters: {},
+        },
+      },
+      secretValues: {},
+    },
+  });
+
+  assert.equal(created.statusCode, 201);
+  const credential = created.body as Record<string, unknown>;
+  assert.equal(credential.kind, 'BROWSER_SESSION');
+  assert.deepEqual(credential.secretSlots, {});
+  assert.deepEqual((credential.metadata as Record<string, unknown>).outputContract, {
+    version: 'credential.output/v1',
+    parameters: {},
+  });
+});
+
+test('BROWSER_SESSION 更新时按新的输出合同校验并保存 Secret Slot', async () => {
+  const { app } = await createTestApp();
+  const created = await app.inject({
+    method: 'POST',
+    path: '/api/v1/credentials',
+    headers: { 'x-tenant-id': 'tenant-browser-contract', 'x-actor-id': 'user-browser-contract' },
+    body: {
+      name: 'GCAC Web 浏览器会话合同测试',
+      kind: 'BROWSER_SESSION',
+      scopeType: 'global',
+      metadata: {
+        outputContract: {
+          version: 'credential.output/v1',
+          parameters: {},
+        },
+      },
+      secretValues: {},
+    },
+  });
+  assert.equal(created.statusCode, 201);
+  const credential = created.body as Record<string, unknown>;
+  const outputContract = {
+    version: 'credential.output/v1',
+    parameters: {
+      token: { required: true, secretType: 'api_token' },
+      sessionId: { required: true, secretType: 'session_id' },
+    },
+  };
+
+  const updated = await app.inject({
+    method: 'PATCH',
+    path: '/api/v1/credentials',
+    headers: { 'x-tenant-id': 'tenant-browser-contract', 'x-actor-id': 'user-browser-contract' },
+    body: {
+      id: credential.id,
+      expectedVersion: 1,
+      metadata: { outputContract },
+      secretValues: {
+        token: { plainText: 'browser-token', type: 'api_token' },
+        sessionId: { plainText: 'browser-session-id', type: 'session_id' },
+      },
+    },
+  });
+
+  assert.equal(updated.statusCode, 200);
+  const saved = updated.body as Record<string, unknown>;
+  assert.equal(saved.id, credential.id);
+  assert.deepEqual(Object.keys(saved.secretSlots as Record<string, string>).sort(), ['sessionId', 'token']);
+  assert.deepEqual((saved.metadata as Record<string, unknown>).outputContract, outputContract);
+  assert.equal(JSON.stringify(saved).includes('browser-token'), false);
+  assert.equal(JSON.stringify(saved).includes('browser-session-id'), false);
+
+  const invalid = await app.inject({
+    method: 'PATCH',
+    path: '/api/v1/credentials',
+    headers: { 'x-tenant-id': 'tenant-browser-contract', 'x-actor-id': 'user-browser-contract' },
+    body: {
+      id: credential.id,
+      expectedVersion: 2,
+      metadata: { outputContract },
+      secretValues: { cookie: { plainText: 'unexpected-cookie', type: 'password' } },
+    },
+  });
+  assert.equal(invalid.statusCode, 400);
+  assert.equal((invalid.body as { errorCode: string }).errorCode, 'VALIDATION_FAILED');
 });
 
 test('全局凭据 API 强制租户隔离和乐观锁', async () => {

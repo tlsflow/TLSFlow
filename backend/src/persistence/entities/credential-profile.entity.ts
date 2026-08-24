@@ -36,4 +36,5 @@ export interface CredentialProfileEntity {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  expiresAt?: string;
 }

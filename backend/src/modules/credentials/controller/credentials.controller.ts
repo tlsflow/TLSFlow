@@ -63,6 +63,7 @@ export class CredentialsController {
       delivery: { type: 'object' },
       secretValues: { type: 'object', required: true },
       metadata: { type: 'object' },
+      expiresAt: { type: 'string' },
     });
     const input: CreateCredentialProfileRequestDto = {
       name: String(body.name),
@@ -73,6 +74,7 @@ export class CredentialsController {
       delivery: body.delivery as CreateCredentialProfileRequestDto['delivery'],
       secretValues: body.secretValues as CreateCredentialProfileRequestDto['secretValues'],
       metadata: body.metadata as Record<string, unknown> | undefined,
+      expiresAt: body.expiresAt === undefined || body.expiresAt === null ? body.expiresAt as null | undefined : String(body.expiresAt),
     };
     return { statusCode: 201, body: await this.service.create(tenantId(request), subject.id, input, securityContext(request, subject)) };
   }
@@ -87,6 +89,7 @@ export class CredentialsController {
       delivery: { type: 'object' },
       secretValues: { type: 'object' },
       metadata: { type: 'object' },
+      expiresAt: { type: 'string' },
       expectedVersion: { type: 'number', required: true },
     });
     const credentialId = String(body.id);
@@ -100,6 +103,7 @@ export class CredentialsController {
       delivery: body.delivery as UpdateCredentialProfileRequestDto['delivery'],
       secretValues: body.secretValues as UpdateCredentialProfileRequestDto['secretValues'],
       metadata: body.metadata as Record<string, unknown> | undefined,
+      expiresAt: body.expiresAt === undefined || body.expiresAt === null ? body.expiresAt as null | undefined : String(body.expiresAt),
       expectedVersion: Number(body.expectedVersion),
     }, securityContext(request, subject));
   }
