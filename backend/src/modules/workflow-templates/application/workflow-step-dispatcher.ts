@@ -1,4 +1,5 @@
 import type { SecretService } from '../../secrets/secret.service.js';
+import { AppError } from '../../../common/errors/app-error.js';
 import { CurlExecutor, type CurlExecutionRequest } from '../../executors/curl/curl.executor.js';
 import { SecretServiceCurlResolver } from '../../executors/curl/curl.secret-resolver.js';
 import { SSHExecutor, type SSHExecutionRequest } from '../../executors/ssh/ssh.executor.js';
@@ -25,47 +26,55 @@ export function createWorkflowStepDispatcher(dependencies: WorkflowStepDispatche
     if (executor === '017.CURL_HTTP') {
       const request = asRecord(plan?.curlRequest) as CurlExecutionRequest | undefined;
       if (!request) return { success: false, errorCode: 'CURL_REQUEST_REQUIRED', errorMessage: '工作流节点缺少 curlRequest' };
-      const result = await curlExecutor.execute(request, false, {
-        runId: `workflow-step:${input.step.name}`,
-        stepId: input.step.name,
-        actorId: 'workflow-step-test',
-      });
-      return {
-        success: result.success,
-        statusCode: result.statusCode ?? (result.success ? 200 : 500),
-        headers: result.headers,
-        body: result.bodyJson ?? result.bodyText,
-        stdout: result.bodyText ?? JSON.stringify(result.bodyJson ?? {}),
-        logs: result.logs,
-        raw: result,
-        errorCode: result.errorCode,
-        errorMessage: result.errorMessage,
-      };
+      try {
+        const result = await curlExecutor.execute(request, false, {
+          runId: input.runId,
+          stepId: input.step.name,
+          actorId: 'workflow-step-test',
+        });
+        return {
+          success: result.success,
+          statusCode: result.statusCode ?? (result.success ? 200 : 500),
+          headers: result.headers,
+          body: result.bodyJson ?? result.bodyText,
+          stdout: result.bodyText ?? JSON.stringify(result.bodyJson ?? {}),
+          logs: result.logs,
+          raw: result,
+          errorCode: result.errorCode,
+          errorMessage: result.errorMessage,
+        };
+      } catch (error) {
+        return executorFailure('curl', error, 'CURL_EXECUTION_FAILED');
+      }
     }
     if (executor === '015.SSH') {
-      const request = toSshExecutionRequest(plan, input.step.name, input.attempt);
-      const result = await sshExecutor.execute(request, false, {
-        runId: `workflow-step:${input.step.name}`,
-        stepId: input.step.name,
-        actorId: 'workflow-step-test',
-      });
-      const stdout = result.commandResult?.stdout
-        ?? (result.transferResults ? JSON.stringify(result.transferResults) : '');
-      const stderr = result.commandResult?.stderr;
-      return {
-        success: result.success,
-        exitCode: result.exitCode ?? (result.success ? 0 : 1),
-        stdout,
-        body: result,
-        logs: [
-          `ssh:mode:${result.mode}`,
-          ...(stdout ? [`ssh:stdout:${stdout}`] : []),
-          ...(stderr ? [`ssh:stderr:${stderr}`] : []),
-        ],
-        raw: result,
-        errorCode: result.commandResult?.errorCode,
-        errorMessage: result.commandResult?.errorMessage,
-      };
+      const request = toSshExecutionRequest(plan, input.runId, input.step.name, input.attempt);
+      try {
+        const result = await sshExecutor.execute(request, false, {
+          runId: input.runId,
+          stepId: input.step.name,
+          actorId: 'workflow-step-test',
+        });
+        const stdout = result.commandResult?.stdout
+          ?? (result.transferResults ? JSON.stringify(result.transferResults) : '');
+        const stderr = result.commandResult?.stderr;
+        return {
+          success: result.success,
+          exitCode: result.exitCode ?? (result.success ? 0 : 1),
+          stdout,
+          body: result,
+          logs: [
+            `ssh:mode:${result.mode}`,
+            ...(stdout ? [`ssh:stdout:${stdout}`] : []),
+            ...(stderr ? [`ssh:stderr:${stderr}`] : []),
+          ],
+          raw: result,
+          errorCode: result.commandResult?.errorCode,
+          errorMessage: result.commandResult?.errorMessage,
+        };
+      } catch (error) {
+        return executorFailure('ssh', error, 'SSH_EXECUTION_FAILED');
+      }
     }
     return {
       success: true,
@@ -75,18 +84,55 @@ export function createWorkflowStepDispatcher(dependencies: WorkflowStepDispatche
   };
 }
 
-function toSshExecutionRequest(plan: Record<string, unknown> | undefined, stepName: string, attempt: number): SSHExecutionRequest {
+function executorFailure(kind: 'curl' | 'ssh', error: unknown, fallbackCode: string): WorkflowExecutorDispatchResult {
+  const message = error instanceof Error ? error.message : String(error);
+  const detail = error instanceof AppError ? error.details : undefined;
+  const detailRecord = asRecord(detail);
+  const errorCode = asString(detailRecord?.sshErrorCode)
+    ?? (error instanceof AppError ? error.errorCode : undefined)
+    ?? fallbackCode;
+  return {
+    success: false,
+    ...(kind === 'ssh' ? { exitCode: 1 } : {}),
+    ...(kind === 'curl' ? { statusCode: 0 } : {}),
+    stdout: '',
+    body: {
+      errorCode,
+      errorMessage: message,
+      detail,
+    },
+    logs: [
+      `${kind}:error:${message}`,
+      ...detailLogLines(kind, detailRecord),
+    ],
+    raw: { errorCode, errorMessage: message, detail },
+    errorCode,
+    errorMessage: message,
+  };
+}
+
+function detailLogLines(kind: 'curl' | 'ssh', detail: Record<string, unknown> | undefined): string[] {
+  if (!detail) return [];
+  return ['target', 'stage', 'category', 'cause', 'suggestion']
+    .flatMap((key) => {
+      const value = asString(detail[key]);
+      return value ? [`${kind}:${key}:${value}`] : [];
+    });
+}
+
+function toSshExecutionRequest(plan: Record<string, unknown> | undefined, runId: string, stepName: string, attempt: number): SSHExecutionRequest {
   const connection = asRecord(plan?.connection);
   const directRequest = asRecord(plan?.sshRequest);
+  const direct = directRequest as Partial<SSHExecutionRequest> | undefined;
   return {
-    idempotencyKey: `workflow-step:${stepName}:ssh:${attempt}`,
+    ...direct,
+    idempotencyKey: `workflow-step:${runId}:${stepName}:ssh:${attempt}`,
     connection: ((directRequest?.connection ?? connection) as unknown as SSHExecutionRequest['connection']),
-    command: asString(plan?.command),
-    commands: asStringArray(plan?.commands),
-    script: asString(plan?.script),
-    timeoutMs: typeof plan?.timeoutMs === 'number' ? plan.timeoutMs : undefined,
+    command: asString(plan?.command) ?? direct?.command,
+    commands: asStringArray(plan?.commands) ?? direct?.commands,
+    script: asString(plan?.script) ?? direct?.script,
+    timeoutMs: typeof plan?.timeoutMs === 'number' ? plan.timeoutMs : direct?.timeoutMs,
     dryRun: false,
-    ...(directRequest as Partial<SSHExecutionRequest> | undefined),
   };
 }
 

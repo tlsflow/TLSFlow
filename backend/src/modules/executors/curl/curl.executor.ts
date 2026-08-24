@@ -35,7 +35,7 @@ export interface HttpRequestTemplate {
 
 export type HttpAuthConfig =
   | { type: 'none' }
-  | { type: 'basic'; secretRef: string }
+  | { type: 'basic'; username: string; secretRef: string }
   | { type: 'bearer'; secretRef: string }
   | { type: 'api_key'; secretRef: string; in?: 'header' | 'query'; name: string }
   | { type: 'cookie'; secretRef: string; name?: string }
@@ -283,7 +283,10 @@ function validateRequest(request: CurlExecutionRequest): void {
 
 function validateAuth(auth: HttpAuthConfig | undefined): void {
   if (!auth || auth.type === 'none') return;
-  if (auth.type === 'basic' || auth.type === 'bearer' || auth.type === 'cookie') {
+  if (auth.type === 'basic') {
+    if (!auth.username || !isSecretRef(auth.secretRef)) throw new AppError('SECRET_REF_INVALID', 'Basic 认证必须提供用户名和 SecretRef');
+  }
+  if (auth.type === 'bearer' || auth.type === 'cookie') {
     if (!isSecretRef(auth.secretRef)) throw new AppError('SECRET_REF_INVALID', '认证必须使用 SecretRef');
   }
   if (auth.type === 'api_key') {
@@ -336,7 +339,7 @@ async function prepareRequest(
     headers[key] = secretString(secret, ['value', 'token', 'apiKey']);
     redactionValues.push(headers[key]!);
   }
-  await applyAuth(request.template.auth, url, headers, secrets, redactionValues, resolver, context);
+  await applyAuth(request.template.auth, url, headers, secrets, redactionValues, variables, resolver, context);
 
   const bodyType: 'json' | 'form' | 'multipart' | 'raw' | 'none' = request.template.bodyType ?? inferBodyType(request.template);
   const body = await buildBody(request.template, bodyType, variables, secrets, headers, redactionValues, resolver, context);
@@ -397,13 +400,14 @@ async function applyAuth(
   headers: Record<string, string>,
   secrets: CurlExecutionRequest['secrets'],
   redactionValues: string[],
+  variables: Record<string, Primitive>,
   resolver?: CurlSecretResolver,
   context: CurlSecretResolverContext = {},
 ): Promise<void> {
   if (!auth || auth.type === 'none') return;
   if (auth.type === 'basic') {
     const secret = await getSecret(auth.secretRef, secrets, resolver, context, 'http.auth.basic');
-    const username = secretString(secret, ['username']);
+    const username = renderTemplate(auth.username, variables, false);
     const password = secretString(secret, ['password', 'value']);
     const value = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
     headers.Authorization = value;

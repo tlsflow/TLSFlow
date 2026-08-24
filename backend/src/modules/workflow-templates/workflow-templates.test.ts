@@ -4,9 +4,11 @@ import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { App } from '../../common/http/app.js';
+import { AppError } from '../../common/errors/app-error.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
 import { WorkflowTemplatesApplicationService } from './application/workflow-templates.application-service.js';
+import { createWorkflowStepDispatcher } from './application/workflow-step-dispatcher.js';
 import { WorkflowTemplatesController } from './controller/workflow-templates.controller.js';
 import { WorkflowTemplatesDomainService } from './domain/workflow-templates.domain-service.js';
 import { WorkflowTemplateFileLibrary } from './domain/workflow-template-file-library.js';
@@ -21,7 +23,7 @@ function templateFixture(): WorkflowDslV1 {
     variables: {
       deviceHost: { type: 'string', required: true },
       cert: { type: 'certificate', required: true },
-      credential: { type: 'secret', required: true },
+      credential: { type: 'credential', required: true },
       shouldUpload: { type: 'boolean', default: true },
     },
     steps: [
@@ -31,7 +33,7 @@ function templateFixture(): WorkflowDslV1 {
         request: {
           method: 'POST',
           url: 'https://{{deviceHost}}/api/login',
-          headers: { Authorization: 'Bearer {{credential.token}}' },
+          auth: { type: 'basic', username: '{{credential.username}}', credential: '{{credential}}' },
           body: { user: '{{credential.username}}' },
         },
         extract: [{ name: 'token', type: 'jsonPath', path: '$.token', sensitive: true }],
@@ -62,7 +64,7 @@ function templateFixture(): WorkflowDslV1 {
           connection: {
             host: '{{deviceHost}}',
             username: 'admin',
-            credentialSecretRef: 'secret://ssh/device',
+            credential: '{{credential}}',
             expectedHostKeyFingerprint: 'aabbccddeeff0011',
           },
           command: 'reload cert {{remoteFingerprint}}',
@@ -81,7 +83,7 @@ function templateFixture(): WorkflowDslV1 {
           connection: {
             host: '{{deviceHost}}',
             username: 'admin',
-            credentialSecretRef: 'secret://ssh/device',
+            credential: '{{credential}}',
             expectedHostKeyFingerprint: 'aabbccddeeff0011',
           },
           script: 'restore previous-cert',
@@ -97,7 +99,7 @@ function runtimeInput(versionId: string) {
     mode: 'mock' as const,
     userVariables: {
       deviceHost: 'edge-01.example.com',
-      credential: 'secret://device/login',
+      credential: { id: 'sec_device_login', kind: 'username_password', type: 'password', username: 'admin' },
     },
     certificateMaterials: {
       cert: {
@@ -105,9 +107,6 @@ function runtimeInput(versionId: string) {
         privateKey: 'super-private-key',
         fingerprintSha256: 'ff'.repeat(32),
       },
-    },
-    secretRefs: {
-      'secret://device/login': { username: 'admin', token: 'token-secret-value' },
     },
     mockResponses: {
       login: { statusCode: 200, body: { token: 'runtime-token-secret' } },
@@ -158,6 +157,11 @@ describe('WorkflowTemplates', () => {
       request: { method: 'PUT', url: 'https://edge/api', body: '-----BEGIN PRIVATE KEY-----bad-----END PRIVATE KEY-----' },
     };
     assert.throws(() => workflowTemplatesSchemaRegistry.validate(privateKey), /私钥/);
+
+    const invalidFirstOf = templateFixture();
+    const firstStep = invalidFirstOf.steps[0];
+    if (firstStep?.type === 'http') firstStep.extract = [{ name: 'accessToken', type: 'firstOf', paths: [] }];
+    assert.throws(() => workflowTemplatesSchemaRegistry.validate(invalidFirstOf), /paths/);
   });
 
   it('模板版本不可变：新内容生成新 version/hash，发布不会覆盖旧版本', async () => {
@@ -281,7 +285,7 @@ describe('WorkflowTemplates', () => {
     assert.equal(Array.isArray((versions.body as { items: unknown }).items), true);
   });
 
-  it('变量解析、SecretRef、证书材料占位和预览脱敏生效', async () => {
+  it('变量解析、凭据、证书材料占位和预览脱敏生效', async () => {
     const service = new WorkflowTemplatesApplicationService();
     const { version } = await service.createTemplate({ content: templateFixture() });
     const run = await service.preview(runtimeInput(version.id));
@@ -294,6 +298,167 @@ describe('WorkflowTemplates', () => {
     assert.match(text, /\[REDACTED\]/);
   });
 
+  it('上游输出可以提取成运行时变量并供下游节点引用，同时对外脱敏', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const content: WorkflowDslV1 = {
+      apiVersion: 'gcac.workflow/v1',
+      kind: 'CurlSshWorkflow',
+      metadata: { name: 'runtime_output_flow', displayName: '运行时输出传递' },
+      variables: {
+        deviceHost: { type: 'string', required: true },
+        credential: { type: 'credential', required: true, sensitive: true },
+      },
+      steps: [
+        {
+          name: 'prepare_auth',
+          type: 'http',
+          stage: 'prepare',
+          request: { method: 'POST', url: 'https://{{deviceHost}}/api/login' },
+          extract: [{ name: 'accessToken', type: 'outputPath', path: '$.body.token', sensitive: true }],
+          assert: [{ type: 'statusCode', equals: 200 }],
+        },
+        {
+          name: 'reload_with_token',
+          type: 'ssh',
+          stage: 'refresh',
+          ssh: {
+            mode: 'command',
+            connection: {
+              host: '{{deviceHost}}',
+              username: '{{credential.username}}',
+              credential: '{{credential}}',
+              hostKeyPolicy: 'trust_on_first_use',
+            },
+            command: 'echo {{accessToken}} {{previous.extracted.accessToken}} {{steps.prepare_auth.output.body.token}}',
+          },
+        },
+      ],
+    };
+    const { version } = await service.createTemplate({ content });
+    let renderedSshCommand = '';
+    const run = await service.runWithDispatcher({
+      templateVersionId: version.id,
+      mode: 'mock',
+      userVariables: {
+        deviceHost: 'edge-01.example.com',
+        credential: { id: 'sec_device_login', kind: 'username_password', type: 'password', username: 'admin' },
+      },
+    }, async ({ step, renderedPlan }) => {
+      if (step.name === 'prepare_auth') {
+        return {
+          success: true,
+          statusCode: 200,
+          body: { token: 'runtime-token-secret' },
+          logs: ['curl:token:runtime-token-secret'],
+        };
+      }
+      if (step.name === 'reload_with_token') {
+        renderedSshCommand = (renderedPlan as { command?: string }).command ?? '';
+        return {
+          success: true,
+          exitCode: 0,
+          stdout: 'runtime-token-secret',
+          body: { success: true },
+          logs: ['ssh:stdout:runtime-token-secret'],
+        };
+      }
+      return { success: true, body: { success: true } };
+    });
+    const visible = JSON.stringify(run);
+
+    assert.equal(run.status, 'success');
+    assert.equal(renderedSshCommand, 'echo runtime-token-secret runtime-token-secret runtime-token-secret');
+    assert.equal(run.stepResults[0]!.extracted.accessToken, '[REDACTED]');
+    assert.doesNotMatch(visible, /runtime-token-secret/);
+    assert.match(visible, /\[REDACTED\]/);
+  });
+
+  it('extract 可以把多个响应字段映射为多个运行时变量', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const content: WorkflowDslV1 = {
+      apiVersion: 'gcac.workflow/v1',
+      kind: 'CurlSshWorkflow',
+      metadata: { name: 'flexible_auth_fields_flow', displayName: '灵活认证字段提取' },
+      variables: {
+        deviceHost: { type: 'string', required: true },
+        credential: { type: 'credential', required: true, sensitive: true },
+      },
+      steps: [
+        {
+          name: 'prepare_auth',
+          type: 'http',
+          stage: 'prepare',
+          request: { method: 'POST', url: 'https://{{deviceHost}}/api/login' },
+          extract: [
+            {
+              name: 'accessToken',
+              type: 'firstOf',
+              paths: ['$.body.token', '$.body.access_token', '$.body.data.token'],
+              sensitive: true,
+            },
+            {
+              name: 'sessionId',
+              type: 'firstOf',
+              paths: ['$.headers.x-session-id', '$.body.sessionId', '$.body.data.session.id'],
+              sensitive: true,
+            },
+            {
+              name: 'tenantId',
+              type: 'outputPath',
+              path: '$.body.data.tenant.id',
+            },
+          ],
+        },
+        {
+          name: 'install_certificate',
+          type: 'http',
+          stage: 'install',
+          request: {
+            method: 'PUT',
+            url: 'https://{{deviceHost}}/api/certificate',
+            headers: {
+              Authorization: 'Bearer {{accessToken}}',
+              'X-Session-Id': '{{sessionId}}',
+              'X-Tenant-Id': '{{tenantId}}',
+            },
+            body: { session: '{{sessionId}}', tenant: '{{tenantId}}', changed: true },
+          },
+        },
+      ],
+    };
+    const { version } = await service.createTemplate({ content });
+    const run = await service.testRun({
+      templateVersionId: version.id,
+      mode: 'mock',
+      userVariables: {
+        deviceHost: 'edge-01.example.com',
+        credential: { id: 'sec_device_login', kind: 'username_password', type: 'password', username: 'admin' },
+      },
+      mockResponses: {
+        prepare_auth: {
+          statusCode: 200,
+          headers: { 'x-session-id': 'session-secret-value' },
+          body: { data: { token: 'candidate-token-secret', tenant: { id: 'tenant-a' } } },
+        },
+        install_certificate: { statusCode: 200, body: { success: true } },
+      },
+    });
+    const installPlan = run.stepResults[1]!.plan as { curlRequest: { template: { headers: Record<string, string> } } };
+    const installBody = (run.stepResults[1]!.plan as { curlRequest: { template: { body: Record<string, unknown> } } }).curlRequest.template.body;
+    const visible = JSON.stringify(run);
+
+    assert.equal(run.status, 'success');
+    assert.equal(installPlan.curlRequest.template.headers.Authorization, '[REDACTED]');
+    assert.equal(installPlan.curlRequest.template.headers['X-Session-Id'], '[REDACTED]');
+    assert.equal(installPlan.curlRequest.template.headers['X-Tenant-Id'], 'tenant-a');
+    assert.deepEqual(installBody, { session: '[REDACTED]', tenant: 'tenant-a', changed: true });
+    assert.equal(run.stepResults[0]!.extracted.accessToken, '[REDACTED]');
+    assert.equal(run.stepResults[0]!.extracted.sessionId, '[REDACTED]');
+    assert.equal(run.stepResults[0]!.extracted.tenantId, 'tenant-a');
+    assert.doesNotMatch(visible, /candidate-token-secret/);
+    assert.doesNotMatch(visible, /session-secret-value/);
+  });
+
   it('支持单节点模拟运行，并返回脱敏后的执行计划和结果', async () => {
     const service = new WorkflowTemplatesApplicationService();
     const content = templateFixture();
@@ -303,7 +468,6 @@ describe('WorkflowTemplates', () => {
       mode: 'mock',
       userVariables: { ...runtimeInput('single').userVariables, remoteFingerprint: 'SHA256:single-node' },
       certificateMaterials: runtimeInput('single').certificateMaterials,
-      secretRefs: runtimeInput('single').secretRefs,
       mockResponses: { reload: { exitCode: 0, stdout: 'single node ok' } },
     });
 
@@ -336,7 +500,6 @@ describe('WorkflowTemplates', () => {
       mode: 'real_test',
       userVariables: { ...runtimeInput('single').userVariables, remoteFingerprint: 'SHA256:single-node' },
       certificateMaterials: runtimeInput('single').certificateMaterials,
-      secretRefs: runtimeInput('single').secretRefs,
     });
 
     assert.equal(run.mode, 'real_test');
@@ -345,9 +508,128 @@ describe('WorkflowTemplates', () => {
     assert.equal((run.stepOutput as { stdout?: string }).stdout, 'real ssh ok');
   });
 
+  it('同一 SSH 节点连续真实试跑会使用不同幂等键', async () => {
+    const idempotencyKeys: string[] = [];
+    const dispatcher = createWorkflowStepDispatcher({
+      sshExecutor: {
+        execute: async (request: { idempotencyKey: string }) => {
+          idempotencyKeys.push(request.idempotencyKey);
+          return {
+            success: true,
+            exitCode: 0,
+            mode: 'real_ssh',
+            commandResult: { stdout: 'ok', stderr: '', exitCode: 0 },
+          };
+        },
+      } as never,
+    });
+    const service = new WorkflowTemplatesApplicationService(
+      new WorkflowTemplatesDomainService(),
+      { stepDispatcher: dispatcher },
+    );
+    const input = {
+      content: templateFixture(),
+      stepName: 'reload',
+      mode: 'real_test' as const,
+      userVariables: { ...runtimeInput('single').userVariables, remoteFingerprint: 'SHA256:single-node' },
+      certificateMaterials: runtimeInput('single').certificateMaterials,
+    };
+
+    const first = await service.testStep(input);
+    const second = await service.testStep(input);
+
+    assert.equal(first.stepResult.status, 'success');
+    assert.equal(second.stepResult.status, 'success');
+    assert.equal(idempotencyKeys.length, 2);
+    assert.notEqual(idempotencyKeys[0], idempotencyKeys[1]);
+    assert.match(idempotencyKeys[0]!, /^workflow-step:wfstep_/);
+    assert.match(idempotencyKeys[1]!, /^workflow-step:wfstep_/);
+  });
+
+  it('单节点真实试跑 SSH 连接失败时返回结构化错误详情', async () => {
+    const dispatcher = createWorkflowStepDispatcher({
+      sshExecutor: {
+        execute: async () => {
+          throw new AppError('EXECUTION_TARGET_UNAVAILABLE', 'SSH 连接失败', {
+            sshErrorCode: 'SSH_CONNECT_FAILED',
+            stage: 'connect',
+            target: '10.255.0.127:22',
+            category: 'network',
+            cause: 'connect ECONNREFUSED 10.255.0.127:22',
+            suggestion: '检查网络、端口、防火墙和 SSH 服务端配置',
+          });
+        },
+      } as never,
+    });
+    const service = new WorkflowTemplatesApplicationService(
+      new WorkflowTemplatesDomainService(),
+      { stepDispatcher: dispatcher },
+    );
+    const content = templateFixture();
+    const reload = content.steps.find((step) => step.name === 'reload');
+    if (reload?.type === 'ssh') reload.extract = [{ name: 'remoteStatus', type: 'regex', pattern: 'status=(\\w+)' }];
+    const run = await service.testStep({
+      content,
+      stepName: 'reload',
+      mode: 'real_test',
+      userVariables: { ...runtimeInput('single').userVariables, remoteFingerprint: 'SHA256:single-node' },
+      certificateMaterials: runtimeInput('single').certificateMaterials,
+    });
+
+    assert.equal(run.stepResult.status, 'failed');
+    assert.equal(run.stepResult.errorCode, 'SSH_CONNECT_FAILED');
+    assert.equal(run.stepResult.errorMessage, 'SSH 连接失败');
+    assert.deepEqual(run.stepResult.extracted, {});
+    assert.deepEqual(run.stepResult.assertions, []);
+    assert.match(run.logs.join('\n'), /ssh:target:10\.255\.0\.127:22/);
+    assert.match(JSON.stringify(run.stepOutput), /connect ECONNREFUSED 10\.255\.0\.127:22/);
+    assert.match(JSON.stringify(run.stepOutput), /检查网络、端口、防火墙和 SSH 服务端配置/);
+  });
+
+  it('单节点真实试跑 Host Key 被拒绝时保留主机校验错误码', async () => {
+    const dispatcher = createWorkflowStepDispatcher({
+      sshExecutor: {
+        execute: async () => {
+          throw new AppError('VALIDATION_FAILED', 'SSH Host Key 需要人工审批', {
+            sshErrorCode: 'HOST_KEY_APPROVAL_REQUIRED',
+            stage: 'host_key',
+            target: '10.255.0.127:22',
+            category: 'approval',
+            cause: 'Host denied (verification failed)',
+            suggestion: '审批或预置目标主机 Host Key 后重试',
+          });
+        },
+      } as never,
+    });
+    const service = new WorkflowTemplatesApplicationService(
+      new WorkflowTemplatesDomainService(),
+      { stepDispatcher: dispatcher },
+    );
+    const content = templateFixture();
+    const run = await service.testStep({
+      content,
+      stepName: 'reload',
+      mode: 'real_test',
+      userVariables: { ...runtimeInput('single').userVariables, remoteFingerprint: 'SHA256:single-node' },
+      certificateMaterials: runtimeInput('single').certificateMaterials,
+    });
+
+    assert.equal(run.stepResult.status, 'failed');
+    assert.equal(run.stepResult.errorCode, 'HOST_KEY_APPROVAL_REQUIRED');
+    assert.equal(run.stepResult.errorMessage, 'SSH Host Key 需要人工审批');
+    assert.match(JSON.stringify(run.stepOutput), /host_key/);
+    assert.match(JSON.stringify(run.stepOutput), /审批或预置目标主机 Host Key 后重试/);
+  });
+
   it('condition 判断节点按变量结果决定成功或失败', async () => {
     const service = new WorkflowTemplatesApplicationService();
     const content = templateFixture();
+    content.variables.apiCredential = {
+      type: 'credential',
+      required: true,
+      default: { id: 'sec_device_api', kind: 'curl_bearer', type: 'api_token' },
+      sensitive: true,
+    };
     content.steps = [
       {
         name: 'isLinux',
@@ -373,7 +655,7 @@ describe('WorkflowTemplates', () => {
     content.steps = [
       { name: 'verifyFirstInArray', type: 'manual', stage: 'verify', instruction: 'verify' },
       { name: 'prepareSecondInArray', type: 'http', stage: 'prepare', request: { method: 'GET', url: 'https://{{deviceHost}}/login' } },
-      { name: 'refreshThirdInArray', type: 'ssh', stage: 'refresh', ssh: { mode: 'command', connection: { host: '{{deviceHost}}', username: 'admin', credentialSecretRef: 'secret://ssh/device' }, commands: ['echo one', 'echo two'] } },
+      { name: 'refreshThirdInArray', type: 'ssh', stage: 'refresh', ssh: { mode: 'command', connection: { host: '{{deviceHost}}', username: 'admin', credential: '{{credential}}' }, commands: ['echo one', 'echo two'] } },
     ];
     content.rollback = undefined;
     const { version } = await service.createTemplate({ content });
@@ -420,7 +702,7 @@ describe('WorkflowTemplates', () => {
           connection: {
             host: '{{deviceHost}}',
             username: 'admin',
-            credentialSecretRef: 'secret://ssh/device',
+            credential: '{{credential}}',
             hostKeyPolicy: 'manual_approval_required',
           },
           remotePath: '/etc/gcac-test/certs/test.crt',
@@ -439,7 +721,7 @@ describe('WorkflowTemplates', () => {
           connection: {
             host: '{{deviceHost}}',
             username: 'admin',
-            credentialSecretRef: 'secret://ssh/device',
+            credential: '{{credential}}',
             hostKeyPolicy: 'manual_approval_required',
           },
           remotePath: '/etc/gcac-test/certs/test.key',
@@ -488,6 +770,12 @@ describe('WorkflowTemplates', () => {
   it('HTTP adapter 映射 DSL query/form/multipart/auth/tls/retry 到 CurlExecutor 请求', async () => {
     const service = new WorkflowTemplatesApplicationService();
     const content = templateFixture();
+    content.variables.apiCredential = {
+      type: 'credential',
+      required: true,
+      default: { id: 'sec_device_api', kind: 'curl_bearer', type: 'api_token' },
+      sensitive: true,
+    };
     content.steps = [
       {
         name: 'submit',
@@ -504,7 +792,7 @@ describe('WorkflowTemplates', () => {
             cert: { value: '{{cert.pem}}', filename: 'cert.pem', contentType: 'application/x-pem-file' },
             key: { secretRef: 'secret://cert/key' },
           },
-          auth: { type: 'bearer', secretRef: 'secret://device/login' },
+          auth: { type: 'bearer', credential: '{{apiCredential}}' },
           tls: { verify: true, caSecretRef: 'secret://ca/root' },
           timeoutSeconds: 12,
           maxResponseBytes: 4096,

@@ -2,15 +2,20 @@ export type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
 export type AuditResult = 'success' | 'failure' | 'denied';
 export type ActorType = 'user' | 'system' | 'agent' | 'plugin' | 'executor';
 
-export type SecretType =
-  | 'ssh_key'
-  | 'password'
-  | 'api_token'
-  | 'pfx_password'
-  | 'private_key'
-  | 'certificate_private_key';
+export const SECRET_TYPES = [
+  'ssh_key',
+  'password',
+  'api_token',
+  'pfx_password',
+  'private_key',
+  'certificate_private_key',
+] as const;
 
-export type SecretScopeType = 'global' | 'team' | 'zone' | 'host' | 'plugin';
+export type SecretType = typeof SECRET_TYPES[number];
+
+export const SECRET_SCOPE_TYPES = ['global', 'team', 'zone', 'host', 'plugin'] as const;
+
+export type SecretScopeType = typeof SECRET_SCOPE_TYPES[number];
 export type SecretStatus = 'active' | 'disabled' | 'rotating' | 'deleted';
 export type SecretVersionStatus = 'active' | 'disabled' | 'revoked';
 

@@ -1,11 +1,24 @@
 export type WorkflowTemplateStatus = 'draft' | 'published' | 'disabled';
 export type WorkflowTemplateVersionStatus = 'draft' | 'published' | 'disabled';
 export type WorkflowStepType = 'http' | 'ssh' | 'sftp' | 'scp' | 'condition' | 'wait' | 'manual';
-export type WorkflowVariableType = 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'file' | 'secret' | 'certificate';
+export type WorkflowVariableType = 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'file' | 'credential' | 'certificate';
 export type WorkflowStage = 'prepare' | 'backup' | 'install' | 'refresh' | 'verify';
 export type WorkflowTestRunMode = 'render_only' | 'mock' | 'real_test';
 export type WorkflowRunStatus = 'success' | 'failed' | 'rolled_back';
 export type WorkflowFileTransferContentEncoding = 'utf8' | 'base64';
+export type WorkflowCredentialKind = 'username_password' | 'ssh_key' | 'curl_bearer' | 'curl_api_key';
+export type WorkflowCredentialSecretType = 'password' | 'ssh_key' | 'api_token';
+
+export interface WorkflowCredentialBinding {
+  id: string;
+  kind: WorkflowCredentialKind;
+  type: WorkflowCredentialSecretType;
+  username?: string;
+  apiKeyName?: string;
+  apiKeyIn?: 'header' | 'query';
+}
+
+export type WorkflowCredentialValue = WorkflowCredentialBinding | string;
 
 export interface WorkflowVariableDefinition {
   type: WorkflowVariableType;
@@ -39,8 +52,9 @@ export interface WorkflowCondition {
 
 export interface WorkflowExtractor {
   name: string;
-  type: 'jsonPath' | 'header' | 'regex' | 'statusCode' | 'textContains';
+  type: 'jsonPath' | 'outputPath' | 'firstOf' | 'header' | 'regex' | 'statusCode' | 'textContains';
   path?: string;
+  paths?: string[];
   header?: string;
   pattern?: string;
   value?: string;
@@ -68,9 +82,9 @@ export interface WorkflowHttpRequest {
   multipart?: Record<string, { value?: string | number | boolean; filename?: string; contentType?: string; secretRef?: string }>;
   auth?:
     | { type: 'none' }
-    | { type: 'basic'; secretRef: string }
-    | { type: 'bearer'; secretRef: string }
-    | { type: 'api_key'; secretRef: string; in?: 'header' | 'query'; name: string }
+    | { type: 'basic'; username: string; credential: WorkflowCredentialValue }
+    | { type: 'bearer'; credential: WorkflowCredentialValue }
+    | { type: 'api_key'; credential: WorkflowCredentialValue; in?: 'header' | 'query'; name: string }
     | { type: 'cookie'; secretRef: string; name?: string }
     | { type: 'custom_header'; secretRef: string; headerName: string }
     | { type: 'mtls'; certSecretRef: string; keySecretRef: string };
@@ -85,7 +99,7 @@ export interface WorkflowSshConnection {
   host: string;
   port?: number;
   username: string;
-  credentialSecretRef: string;
+  credential: WorkflowCredentialValue;
   expectedHostKeyFingerprint?: string;
   hostKeyPolicy?: 'strict' | 'trust_on_first_use' | 'manual_approval_required';
 }
@@ -245,7 +259,6 @@ export interface WorkflowRuntimeInput {
   userVariables?: Record<string, unknown>;
   assetVariables?: Record<string, unknown>;
   certificateMaterials?: Record<string, Record<string, unknown>>;
-  secretRefs?: Record<string, Record<string, unknown> | string>;
   mockResponses?: Record<string, WorkflowMockStepOutput>;
   mode: WorkflowTestRunMode;
 }
@@ -278,6 +291,8 @@ export interface WorkflowStepRunResult {
   type: WorkflowStepType;
   stage?: WorkflowStage;
   status: 'success' | 'failed' | 'skipped';
+  errorCode?: string;
+  errorMessage?: string;
   attempts: number;
   plan: unknown;
   extracted: Record<string, unknown>;
@@ -307,6 +322,7 @@ export interface WorkflowSingleStepRunResult {
 }
 
 export interface WorkflowExecutorDispatchInput {
+  runId: string;
   step: WorkflowStep;
   renderedPlan: unknown;
   attempt: number;

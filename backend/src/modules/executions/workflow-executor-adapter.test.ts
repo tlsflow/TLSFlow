@@ -13,6 +13,7 @@ function workflowFixture(): WorkflowDslV1 {
     variables: {
       deviceHost: { type: 'string', required: true },
       cert: { type: 'certificate', required: true },
+      credential: { type: 'credential', required: true },
     },
     steps: [
       {
@@ -34,7 +35,7 @@ function workflowFixture(): WorkflowDslV1 {
           connection: {
             host: '{{deviceHost}}',
             username: 'admin',
-            credentialSecretRef: 'secret://ssh/device',
+            credential: '{{credential}}',
             expectedHostKeyFingerprint: 'aa:bb',
           },
           command: 'reload cert {{remoteFingerprint}}',
@@ -53,6 +54,7 @@ function fileTransferWorkflowFixture(): WorkflowDslV1 {
     variables: {
       deviceHost: { type: 'string', required: true },
       cert: { type: 'certificate', required: true, sensitive: true },
+      credential: { type: 'credential', required: true },
     },
     steps: [
       {
@@ -64,7 +66,7 @@ function fileTransferWorkflowFixture(): WorkflowDslV1 {
           connection: {
             host: '{{deviceHost}}',
             username: 'admin',
-            credentialSecretRef: 'secret://ssh/device',
+            credential: '{{credential}}',
             expectedHostKeyFingerprint: 'aa:bb',
           },
           remotePath: '/etc/gcac-test/certs/test.crt',
@@ -83,7 +85,7 @@ function fileTransferWorkflowFixture(): WorkflowDslV1 {
           connection: {
             host: '{{deviceHost}}',
             username: 'admin',
-            credentialSecretRef: 'secret://ssh/device',
+            credential: '{{credential}}',
             expectedHostKeyFingerprint: 'aa:bb',
           },
           remotePath: '/etc/gcac-test/certs/test.key',
@@ -125,7 +127,10 @@ function workflowStep(versionId?: string): ExecutionStepEntity {
       workflowRequest: versionId
         ? {
             workflowVersionId: versionId,
-            variableBindings: { deviceHost: 'edge-01.example.com' },
+            variableBindings: {
+              deviceHost: 'edge-01.example.com',
+              credential: { id: 'sec_device', kind: 'username_password', type: 'password', username: 'admin' },
+            },
           }
         : {},
       deploymentArtifact: {

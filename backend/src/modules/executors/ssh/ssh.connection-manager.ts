@@ -44,6 +44,7 @@ export class SshConnectionManager {
     });
 
     let hostKeyDecision: SshHostKeyDecision | undefined;
+    let hostKeyVerificationError: unknown;
     const client = new Client();
     const connectTimeoutMs = connection.connectTimeoutMs ?? 15_000;
     const config: SshConnectionConfig = { ...connection, credential };
@@ -63,7 +64,10 @@ export class SshConnectionManager {
             hostKeyDecision = result.decision;
             verify(true);
           })
-          .catch(() => verify(false));
+          .catch((error: unknown) => {
+            hostKeyVerificationError = error;
+            verify(false);
+          });
       },
     };
 
@@ -94,6 +98,10 @@ export class SshConnectionManager {
       client.once('error', (error: Error & { level?: string }) => {
         clearTimeout(timer);
         client.end();
+        if (hostKeyVerificationError instanceof AppError) {
+          finish(() => reject(hostKeyVerificationError));
+          return;
+        }
         const isAuth = /auth/i.test(error.level ?? '') || /authentication|auth/i.test(error.message);
         finish(() => reject(sshAppError(isAuth ? 'SSH_AUTH_FAILED' : 'SSH_CONNECT_FAILED', isAuth ? 'auth' : 'connect', connection, error.message, isAuth ? '检查用户名、密码、私钥和私钥口令' : '检查网络、端口、防火墙和 SSH 服务端配置')));
       });

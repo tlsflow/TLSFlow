@@ -1,5 +1,7 @@
+import { Buffer } from 'node:buffer';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import type { CurlHttpClientRequest } from './curl.http-client.js';
 import { CurlExecutor } from './curl.executor.js';
 
 describe('spec017 CURL/HTTP 执行器基础', () => {
@@ -38,6 +40,33 @@ describe('spec017 CURL/HTTP 执行器基础', () => {
     await executor.execute({ idempotencyKey: 'idem_curl_once', template: { url: 'https://example.com', method: 'POST', body: { ok: true } }, mockResponse: { statusCode: 200 } });
     await assert.rejects(() => executor.execute({ idempotencyKey: 'idem_curl_once', template: { url: 'https://example.com' } }), /幂等键/);
     assert.deepEqual(executor.getRequiredCapabilities(), ['curl.request', 'http.tls.verify', 'http.header.secret_ref', 'http.extractor', 'http.assertion', 'http.cookie.session']);
+  });
+
+  it('Basic 认证使用用户名和通用 password SecretRef 生成 Authorization', async () => {
+    let captured: CurlHttpClientRequest | undefined;
+    const executor = new CurlExecutor({
+      httpClient: {
+        async send(request) {
+          captured = request;
+          return { statusCode: 200, body: { ok: true } };
+        },
+      },
+    });
+
+    const result = await executor.execute({
+      idempotencyKey: 'idem_curl_basic_password',
+      template: {
+        method: 'GET',
+        url: 'https://example.com/api',
+        auth: { type: 'basic', username: '{{curlUsername}}', secretRef: 'secret://password/device-login#current' },
+      },
+      variables: { curlUsername: 'deploy' },
+      secrets: { 'secret://password/device-login#current': 'secret-password' },
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(captured?.headers.Authorization, `Basic ${Buffer.from('deploy:secret-password').toString('base64')}`);
+    assert.doesNotMatch(JSON.stringify(result), /secret-password/);
   });
 
   it('支持 curl 导入和脱敏导出，拒绝导入明文敏感值', () => {

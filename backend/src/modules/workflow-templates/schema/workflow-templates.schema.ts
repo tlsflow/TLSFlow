@@ -18,10 +18,10 @@ const scpStepKeys = new Set([...stepBaseKeys, 'scp']);
 const conditionStepKeys = new Set([...stepBaseKeys, 'condition', 'description']);
 const waitStepKeys = new Set([...stepBaseKeys, 'seconds']);
 const manualStepKeys = new Set([...stepBaseKeys, 'instruction']);
-const variableTypes = new Set<WorkflowVariableType>(['string', 'number', 'boolean', 'enum', 'object', 'file', 'secret', 'certificate']);
+const variableTypes = new Set<WorkflowVariableType>(['string', 'number', 'boolean', 'enum', 'object', 'file', 'credential', 'certificate']);
 const stepTypes = new Set(['http', 'ssh', 'sftp', 'scp', 'condition', 'wait', 'manual']);
 const workflowStages = new Set(['prepare', 'backup', 'install', 'refresh', 'verify']);
-const reservedRoots = new Set(['asset', 'steps']);
+const reservedRoots = new Set(['asset', 'previous', 'steps']);
 
 export class WorkflowSchemaRegistry {
   validate(content: unknown): WorkflowDslV1 {
@@ -62,7 +62,6 @@ function validateVariables(value: unknown): void {
     if (typed.required !== undefined && typeof typed.required !== 'boolean') throw validationError('required 必须是布尔值', { name });
     if (typed.sensitive !== undefined && typeof typed.sensitive !== 'boolean') throw validationError('sensitive 必须是布尔值', { name });
     if (typed.type === 'enum' && (!Array.isArray(typed.enum) || typed.enum.length === 0)) throw validationError('enum 变量必须提供枚举值', { name });
-    if (typed.type === 'secret' && typed.default !== undefined) throw validationError('secret 变量不能提供默认值', { name });
     if (typed.default !== undefined) validateVariableValue(typed, typed.default, `variables.${name}.default`);
   }
 }
@@ -166,8 +165,10 @@ export function normalizeExtractors(value: WorkflowStep['extract']): WorkflowExt
 
 function validateExtractor(extractor: WorkflowExtractor, path: string): void {
   if (!isNonEmptyString(extractor.name)) throw validationError(`${path}.extract.name 必填`);
-  if (!['jsonPath', 'header', 'regex', 'statusCode', 'textContains'].includes(extractor.type)) throw validationError(`${path}.extract.type 不支持`);
+  if (!['jsonPath', 'outputPath', 'firstOf', 'header', 'regex', 'statusCode', 'textContains'].includes(extractor.type)) throw validationError(`${path}.extract.type 不支持`);
   if (extractor.type === 'jsonPath' && !isNonEmptyString(extractor.path)) throw validationError(`${path}.extract.path 必填`);
+  if (extractor.type === 'outputPath' && !isNonEmptyString(extractor.path)) throw validationError(`${path}.extract.path 必填`);
+  if (extractor.type === 'firstOf' && (!Array.isArray(extractor.paths) || extractor.paths.length === 0 || !extractor.paths.every(isNonEmptyString))) throw validationError(`${path}.extract.paths 必须是非空字符串数组`);
   if (extractor.type === 'header' && !isNonEmptyString(extractor.header)) throw validationError(`${path}.extract.header 必填`);
   if (extractor.type === 'regex' && !isNonEmptyString(extractor.pattern)) throw validationError(`${path}.extract.pattern 必填`);
   if (extractor.type === 'textContains' && !isNonEmptyString(extractor.value)) throw validationError(`${path}.extract.value 必填`);
@@ -175,9 +176,9 @@ function validateExtractor(extractor: WorkflowExtractor, path: string): void {
 
 function validateSshConnection(value: unknown, path: string): void {
   if (!isRecord(value)) throw validationError(`${path} 必须是对象`);
-  rejectUnknown(value, new Set(['host', 'port', 'username', 'credentialSecretRef', 'expectedHostKeyFingerprint', 'hostKeyPolicy']), path);
+  rejectUnknown(value, new Set(['host', 'port', 'username', 'credential', 'expectedHostKeyFingerprint', 'hostKeyPolicy']), path);
   if (!isNonEmptyString(value.host) || !isNonEmptyString(value.username)) throw validationError(`${path} host/username 必填`);
-  if (!isSecretRef(value.credentialSecretRef)) throw validationError(`${path}.credentialSecretRef 必须是 SecretRef`);
+  if (!isCredentialValue(value.credential)) throw validationError(`${path}.credential 必须是凭据对象或 credential 变量引用`);
 }
 
 function validateFileTransferStep(value: unknown, path: string): void {
@@ -234,15 +235,26 @@ function validateHttpAuth(value: unknown, path: string): void {
     rejectUnknown(value, new Set(['type']), path);
     return;
   }
-  if (value.type === 'basic' || value.type === 'bearer' || value.type === 'cookie') {
+  if (value.type === 'basic') {
+    rejectUnknown(value, new Set(['type', 'username', 'credential']), path);
+    if (!isNonEmptyString(value.username)) throw validationError(`${path}.username 必填`);
+    if (!isCredentialValue(value.credential)) throw validationError(`${path}.credential 必须是凭据对象或 credential 变量引用`);
+    return;
+  }
+  if (value.type === 'bearer') {
+    rejectUnknown(value, new Set(['type', 'credential']), path);
+    if (!isCredentialValue(value.credential)) throw validationError(`${path}.credential 必须是凭据对象或 credential 变量引用`);
+    return;
+  }
+  if (value.type === 'cookie') {
     rejectUnknown(value, new Set(['type', 'secretRef', 'name']), path);
     if (!isSecretRef(value.secretRef)) throw validationError(`${path}.secretRef 必须是 SecretRef`);
     if (value.name !== undefined && typeof value.name !== 'string') throw validationError(`${path}.name 必须是字符串`);
     return;
   }
   if (value.type === 'api_key') {
-    rejectUnknown(value, new Set(['type', 'secretRef', 'in', 'name']), path);
-    if (!isSecretRef(value.secretRef)) throw validationError(`${path}.secretRef 必须是 SecretRef`);
+    rejectUnknown(value, new Set(['type', 'credential', 'in', 'name']), path);
+    if (!isCredentialValue(value.credential)) throw validationError(`${path}.credential 必须是凭据对象或 credential 变量引用`);
     if (!isNonEmptyString(value.name)) throw validationError(`${path}.name 必填`);
     if (value.in !== undefined && !['header', 'query'].includes(String(value.in))) throw validationError(`${path}.in 不支持`);
     return;
@@ -308,8 +320,8 @@ export function validateVariableValue(definition: WorkflowVariableDefinition, va
     if (!definition.enum?.some((item) => Object.is(item, value))) throw validationError(`${path} 不在枚举范围内`);
   } else if (definition.type === 'object' || definition.type === 'certificate') {
     if (!isRecord(value)) throw validationError(`${path} 必须是对象`);
-  } else if (definition.type === 'secret') {
-    if (!isSecretRef(value) && !isRecord(value)) throw validationError(`${path} 必须是 SecretRef 或授权后的 Secret 对象`);
+  } else if (definition.type === 'credential') {
+    if (!isCredentialValue(value)) throw validationError(`${path} 必须是凭据对象或 credential 变量引用`);
   }
 }
 
@@ -369,4 +381,12 @@ function isNonNegativeInteger(value: unknown): value is number {
 
 function isSecretRef(value: unknown): value is string {
   return typeof value === 'string' && /^secret:\/\/[a-zA-Z0-9/_#.-]+$/.test(value);
+}
+
+function isCredentialValue(value: unknown): boolean {
+  if (typeof value === 'string') return /^\s*\{\{\s*[a-zA-Z][a-zA-Z0-9_.]*\s*\}\}\s*$/.test(value);
+  if (!isRecord(value)) return false;
+  return isNonEmptyString(value.id)
+    && ['username_password', 'ssh_key', 'curl_bearer', 'curl_api_key'].includes(String(value.kind))
+    && ['password', 'ssh_key', 'api_token'].includes(String(value.type));
 }

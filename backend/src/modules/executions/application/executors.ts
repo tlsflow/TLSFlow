@@ -237,7 +237,6 @@ export class WorkflowExecutorAdapter implements Executor {
       userVariables: readRecord(request.variableBindings) ?? {},
       assetVariables: buildWorkflowAssetVariables(input.step.inputSnapshot, request),
       certificateMaterials: buildWorkflowCertificateMaterials(input.step.inputSnapshot),
-      secretRefs: readRecord(request.credentialRefs) as Record<string, string | Record<string, unknown>> | undefined,
     };
     try {
       const workflowRun = input.dryRun

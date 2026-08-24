@@ -9,6 +9,7 @@ import type {
   CreateWorkflowTemplateFromFileInput,
   UpdateWorkflowTemplateInput,
   WorkflowAssertion,
+  WorkflowCredentialBinding,
   WorkflowDslV1,
   WorkflowMockStepOutput,
   WorkflowRenderedStep,
@@ -204,11 +205,12 @@ export class WorkflowTemplatesDomainService {
     const context = resolveRuntimeContext(content, input);
     // 中文说明：单节点模拟允许调用方补上游步骤产物，但不能覆盖已经解析过的 Secret/证书变量。
     for (const [key, value] of Object.entries(input.userVariables ?? {})) {
-      if (context.values[key] === undefined) context.values[key] = value;
+      if (key === 'previous' || key === 'steps' || context.values[key] === undefined) context.values[key] = value;
     }
-    const result = await this.runStep(step, context, { ...input, templateVersionId: 'single-step-preview' }, false, dispatcher);
+    const runId = `wfstep_${randomUUID()}`;
+    const result = await this.runStep(step, context, { ...input, templateVersionId: 'single-step-preview' }, false, runId, dispatcher);
     return {
-      id: `wfstep_${randomUUID()}`,
+      id: runId,
       mode: input.mode,
       plannedOnly: input.mode === 'render_only',
       renderedStep: result.rendered,
@@ -221,6 +223,7 @@ export class WorkflowTemplatesDomainService {
   private async executeRuntime(input: WorkflowRuntimeInput, dispatcher?: WorkflowExecutorDispatcher): Promise<WorkflowRunResult> {
     const version = await this.getVersion(input.templateVersionId);
     const context = resolveRuntimeContext(version.content, input);
+    const runId = `wfrun_${randomUUID()}`;
     const renderedSteps: WorkflowRenderedStep[] = [];
     const stepResults: WorkflowStepRunResult[] = [];
     const rollbackResults: WorkflowStepRunResult[] = [];
@@ -228,7 +231,7 @@ export class WorkflowTemplatesDomainService {
     let failed = false;
 
     for (const step of orderStepsByStage(version.content.steps)) {
-      const result = await this.runStep(step, context, input, false, dispatcher);
+      const result = await this.runStep(step, context, input, false, runId, dispatcher);
       renderedSteps.push(result.rendered);
       stepResults.push(result.result);
       logs.push(...result.result.logs);
@@ -241,14 +244,14 @@ export class WorkflowTemplatesDomainService {
     if (failed && version.content.rollback?.length) {
       logs.push('rollback:started');
       for (const step of version.content.rollback) {
-        const result = await this.runStep(step, context, input, true, dispatcher);
+        const result = await this.runStep(step, context, input, true, runId, dispatcher);
         rollbackResults.push(result.result);
         logs.push(...result.result.logs);
       }
     }
 
     return {
-      id: `wfrun_${randomUUID()}`,
+      id: runId,
       mode: input.mode,
       plannedOnly: input.mode === 'render_only',
       status: failed ? (rollbackResults.length ? 'rolled_back' : 'failed') : 'success',
@@ -259,7 +262,7 @@ export class WorkflowTemplatesDomainService {
     };
   }
 
-  private async runStep(step: WorkflowStep, context: RuntimeContext, input: WorkflowRuntimeInput, rollback: boolean, dispatcher?: WorkflowExecutorDispatcher): Promise<{ rendered: WorkflowRenderedStep; result: WorkflowStepRunResult; output: unknown }> {
+  private async runStep(step: WorkflowStep, context: RuntimeContext, input: WorkflowRuntimeInput, rollback: boolean, runId: string, dispatcher?: WorkflowExecutorDispatcher): Promise<{ rendered: WorkflowRenderedStep; result: WorkflowStepRunResult; output: unknown }> {
     const type = step.type;
     if (!evaluateCondition(step.when, context.values)) {
       return {
@@ -276,33 +279,39 @@ export class WorkflowTemplatesDomainService {
       const preOutput = normalizeStepOutput(step, mockOutput);
       const plan = adaptStep(step, context, input.mode, preOutput);
       const dispatchOutput = dispatcher && input.mode !== 'render_only'
-        ? await dispatcher({ step, renderedPlan: plan, attempt, rollback })
+        ? await dispatcher({ runId, step, renderedPlan: plan, attempt, rollback })
         : undefined;
       const structuredOutput = normalizeStepOutput(step, dispatchOutput ?? mockOutput);
-      const extracted = input.mode === 'render_only' ? {} : runExtractors(step, structuredOutput);
+      const dispatchSucceeded = dispatchOutput ? dispatchOutput.success : true;
+      const extracted = input.mode === 'render_only' || !dispatchSucceeded ? {} : runExtractors(step, structuredOutput, context);
       const localValues = { ...context.values, ...extracted };
       const finalPlan = extracted && Object.keys(extracted).length > 0
         ? adaptStep(step, { ...context, values: localValues }, input.mode, structuredOutput)
         : plan;
-      const assertions = input.mode === 'render_only' ? [] : evaluateAssertions(step.assert ?? [], structuredOutput, localValues);
-      const success = input.mode === 'render_only' || (dispatchOutput ? dispatchOutput.success : true) && assertions.every((item) => item.passed) && stepOutputSuccess(step, structuredOutput, localValues);
+      const assertions = input.mode === 'render_only' || !dispatchSucceeded ? [] : evaluateAssertions(step.assert ?? [], structuredOutput, localValues);
+      const success = input.mode === 'render_only' || dispatchSucceeded && assertions.every((item) => item.passed) && stepOutputSuccess(step, structuredOutput, localValues);
+      const rawLogs = [`step:${step.name}:attempt:${attempt}:status:${success ? 'success' : 'failed'}`, ...(dispatchOutput?.logs ?? [])];
       last = {
         name: step.name,
         type,
         stage: step.stage,
         status: success ? 'success' : 'failed',
+        ...(success || !dispatchOutput?.errorCode ? {} : { errorCode: dispatchOutput.errorCode }),
+        ...(success || !dispatchOutput?.errorMessage ? {} : { errorMessage: dispatchOutput.errorMessage }),
         attempts: attempt,
-        plan: maskUnknown(finalPlan, context.secretPaths, context.values),
-        extracted: maskUnknown(extracted, context.secretPaths, context.values) as Record<string, unknown>,
+        plan: maskUnknown(finalPlan, context.secretPaths, localValues),
+        extracted: maskUnknown(extracted, context.secretPaths, localValues) as Record<string, unknown>,
         assertions,
-        logs: [`step:${step.name}:attempt:${attempt}:status:${success ? 'success' : 'failed'}`, ...(dispatchOutput?.logs ?? [])],
+        logs: rawLogs.map((line) => maskText(line, context.secretPaths, localValues)),
       };
       if (success || attempt === attempts) {
         for (const [key, value] of Object.entries(extracted)) {
           context.values[key] = value;
           context.outputs[`${step.name}.${key}`] = value;
         }
-        context.values.steps = { ...(context.values.steps as Record<string, unknown>), [step.name]: { output: structuredOutput, extracted } };
+        const snapshot = stepSnapshot(step, last, structuredOutput, extracted);
+        context.values.previous = snapshot;
+        context.values.steps = { ...(context.values.steps as Record<string, unknown>), [step.name]: snapshot };
         return {
           rendered: { name: step.name, type, stage: step.stage, request: maskUnknown(finalPlan, context.secretPaths, context.values), preview: maskUnknown(finalPlan, context.secretPaths, context.values) },
           result: last,
@@ -369,7 +378,6 @@ function resolveRuntimeContext(content: WorkflowDslV1, input: WorkflowRuntimeInp
   for (const [name, definition] of Object.entries(content.variables)) {
     let value = source[name] ?? definition.default;
     if (definition.type === 'certificate') value = input.certificateMaterials?.[name] ?? value;
-    if (definition.type === 'secret') value = resolveSecretValue(name, value, input.secretRefs);
     if (value === undefined) {
       if (definition.required) throw new AppError('VALIDATION_FAILED', '变量缺失', { name });
       continue;
@@ -379,18 +387,13 @@ function resolveRuntimeContext(content: WorkflowDslV1, input: WorkflowRuntimeInp
     markSensitive(name, definition, value, secretPaths);
   }
   values.asset = input.assetVariables ?? {};
+  values.previous = {};
   values.steps = {};
   return { values, secretPaths, outputs: {} };
 }
 
-function resolveSecretValue(name: string, value: unknown, secretRefs: WorkflowRuntimeInput['secretRefs']): unknown {
-  if (typeof value === 'string' && /^secret:\/\//.test(value)) return secretRefs?.[value] ?? { secretRef: value };
-  if (value === undefined && secretRefs?.[name] !== undefined) return secretRefs[name];
-  return value;
-}
-
 function markSensitive(name: string, definition: WorkflowVariableDefinition, value: unknown, secretPaths: Set<string>): void {
-  if (definition.sensitive || definition.type === 'secret') collectValuePaths(name, value, secretPaths);
+  if (definition.sensitive || definition.type === 'credential') collectValuePaths(name, value, secretPaths);
   if (definition.type === 'certificate' && isRecord(value)) {
     for (const key of ['privateKey', 'pfx', 'jks']) {
       if (value[key] !== undefined) collectValuePaths(`${name}.${key}`, value[key], secretPaths);
@@ -420,7 +423,7 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
         body: renderUnknown(step.request.body, context.values, mode === 'render_only'),
         form: renderUnknown(step.request.form, context.values, mode === 'render_only'),
         multipart: renderUnknown(step.request.multipart, context.values, mode === 'render_only'),
-        auth: step.request.auth,
+        auth: adaptHttpAuth(step.request.auth, context.values, mode === 'render_only'),
         tls: step.request.tls,
         timeoutMs: (step.request.timeoutSeconds ?? 30) * 1000,
         maxResponseBytes: step.request.maxResponseBytes,
@@ -430,11 +433,12 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
         failOnNon2xx: step.request.failOnNon2xx,
         assertions: (step.assert ?? []).filter((item) => item.type === 'statusCode').map((item) => ({ type: 'status', equals: item.equals })),
       },
-      extractors: normalizeExtractors(step.extract).map((extractor) => {
+      extractors: normalizeExtractors(step.extract).flatMap((extractor) => {
         if (extractor.type === 'statusCode') return { name: extractor.name, source: 'status', required: !extractor.optional, secret: extractor.sensitive };
         if (extractor.type === 'header') return { name: extractor.name, source: 'header', header: extractor.header, required: !extractor.optional, secret: extractor.sensitive };
         if (extractor.type === 'regex') return { name: extractor.name, source: 'body', pattern: extractor.pattern, required: !extractor.optional, secret: extractor.sensitive };
-        return { name: extractor.name, source: 'json', path: extractor.path, required: !extractor.optional, secret: extractor.sensitive };
+        if (extractor.type === 'jsonPath') return { name: extractor.name, source: 'json', path: extractor.path, required: !extractor.optional, secret: extractor.sensitive };
+        return [];
       }),
       retryPolicy: {
         maxAttempts: (step.retry?.count ?? 0) + 1,
@@ -463,7 +467,7 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
       realSsh: mode === 'real_test',
       idempotencyKey: `workflow:${step.name}`,
       stage: step.stage,
-      connection: renderUnknown(step.ssh.connection, context.values, mode === 'render_only'),
+      connection: adaptSshConnection(step.ssh.connection, context.values, mode === 'render_only'),
       command,
       commands: step.ssh.commands?.map((item) => renderString(item, context.values, mode === 'render_only')),
       mode: step.ssh.mode,
@@ -500,19 +504,32 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
   return { executor: 'workflow.manual', instruction: renderString(step.instruction, context.values, mode === 'render_only'), plannedOnly: true };
 }
 
-function runExtractors(step: WorkflowStep, output: WorkflowMockStepOutput): Record<string, unknown> {
+function runExtractors(step: WorkflowStep, output: WorkflowMockStepOutput, context: RuntimeContext): Record<string, unknown> {
   const extracted: Record<string, unknown> = {};
   for (const extractor of normalizeExtractors(step.extract)) {
     let value: unknown;
     if (extractor.type === 'statusCode') value = output.statusCode;
     if (extractor.type === 'header') value = output.headers?.[extractor.header ?? ''];
     if (extractor.type === 'jsonPath') value = readJsonPath(output.body, extractor.path ?? '');
+    if (extractor.type === 'outputPath') value = readJsonPath(output, extractor.path ?? '');
+    if (extractor.type === 'firstOf') value = readFirstAvailablePath(output, extractor.paths ?? []);
     if (extractor.type === 'regex') value = String(output.stdout ?? output.body ?? '').match(new RegExp(extractor.pattern ?? ''))?.[1];
     if (extractor.type === 'textContains') value = String(output.stdout ?? output.body ?? '').includes(extractor.value ?? '');
     if ((value === undefined || value === null) && !extractor.optional) throw new AppError('WORKFLOW_ASSERTION_FAILED', '提取变量失败', { step: step.name, extractor: extractor.name });
-    if (value !== undefined && value !== null) extracted[extractor.name] = extractor.sensitive ? '[SECRET_CAPTURED]' : value;
+    if (value !== undefined && value !== null) {
+      extracted[extractor.name] = value;
+      if (extractor.sensitive) collectValuePaths(extractor.name, value, context.secretPaths);
+    }
   }
   return extracted;
+}
+
+function readFirstAvailablePath(output: WorkflowMockStepOutput, paths: string[]): unknown {
+  for (const path of paths) {
+    const value = readJsonPath(output, path);
+    if (value !== undefined && value !== null && value !== '') return value;
+  }
+  return undefined;
 }
 
 function evaluateAssertions(assertions: WorkflowAssertion[], output: WorkflowMockStepOutput, values: Record<string, unknown>): WorkflowStepRunResult['assertions'] {
@@ -595,6 +612,65 @@ function buildSshCommandText(step: Extract<WorkflowStep, { type: 'ssh' }>): stri
   return step.ssh.command ?? step.ssh.script ?? '';
 }
 
+function adaptSshConnection(connection: Extract<WorkflowStep, { type: 'ssh' }>['ssh']['connection'], values: Record<string, unknown>, keepMissing: boolean) {
+  const credential = resolveCredentialBinding(connection.credential, values, keepMissing);
+  return {
+    host: renderString(connection.host, values, keepMissing),
+    ...(connection.port !== undefined ? { port: connection.port } : {}),
+    username: renderString(connection.username, values, keepMissing),
+    credentialSecretRef: credential ? credentialToSecretRef(credential) : 'secret://credential/unresolved#current',
+    ...(connection.expectedHostKeyFingerprint ? { expectedHostKeyFingerprint: renderString(connection.expectedHostKeyFingerprint, values, keepMissing) } : {}),
+    ...(connection.hostKeyPolicy ? { hostKeyPolicy: connection.hostKeyPolicy } : {}),
+  };
+}
+
+function adaptHttpAuth(auth: Extract<WorkflowStep, { type: 'http' }>['request']['auth'], values: Record<string, unknown>, keepMissing: boolean) {
+  if (!auth || auth.type === 'none') return auth;
+  if (auth.type === 'basic') {
+    const credential = resolveCredentialBinding(auth.credential, values, keepMissing);
+    return {
+      type: 'basic' as const,
+      username: renderString(auth.username, values, keepMissing),
+      secretRef: credential ? credentialToSecretRef(credential) : 'secret://credential/unresolved#current',
+    };
+  }
+  if (auth.type === 'bearer') {
+    const credential = resolveCredentialBinding(auth.credential, values, keepMissing);
+    return { type: 'bearer' as const, secretRef: credential ? credentialToSecretRef(credential) : 'secret://credential/unresolved#current' };
+  }
+  if (auth.type === 'api_key') {
+    const credential = resolveCredentialBinding(auth.credential, values, keepMissing);
+    return {
+      type: 'api_key' as const,
+      name: renderString(auth.name, values, keepMissing),
+      in: auth.in,
+      secretRef: credential ? credentialToSecretRef(credential) : 'secret://credential/unresolved#current',
+    };
+  }
+  return auth;
+}
+
+function resolveCredentialBinding(value: unknown, values: Record<string, unknown>, keepMissing: boolean): WorkflowCredentialBinding | null {
+  if (isCredentialBinding(value)) return value;
+  if (typeof value !== 'string') throw new AppError('VALIDATION_FAILED', '凭据必须是对象或变量引用');
+  const match = value.match(/^\s*\{\{\s*([a-zA-Z][a-zA-Z0-9_.]*)\s*\}\}\s*$/);
+  if (!match) throw new AppError('VALIDATION_FAILED', '凭据变量引用格式无效', { value });
+  const resolved = readPath(values, match[1]!);
+  if (resolved === undefined && keepMissing) return null;
+  if (!isCredentialBinding(resolved)) throw new AppError('VALIDATION_FAILED', '凭据变量未绑定有效凭据', { variable: match[1] });
+  return resolved;
+}
+
+function isCredentialBinding(value: unknown): value is WorkflowCredentialBinding {
+  if (!isRecord(value)) return false;
+  return typeof value.id === 'string' && value.id.trim().length > 0
+    && ['password', 'ssh_key', 'api_token'].includes(String(value.type));
+}
+
+function credentialToSecretRef(credential: WorkflowCredentialBinding): string {
+  return `secret://${credential.type}/${credential.id}#current`;
+}
+
 function normalizeStepOutput(step: WorkflowStep, output: WorkflowMockStepOutput): WorkflowMockStepOutput {
   if (step.type !== 'http') return output;
   const bodyText = typeof output.body === 'string' ? output.body : output.body === undefined ? '' : JSON.stringify(output.body);
@@ -665,6 +741,17 @@ function readJsonPath(body: unknown, path: string): unknown {
   return readPath(body, path.slice(2));
 }
 
+function stepSnapshot(step: WorkflowStep, result: WorkflowStepRunResult, output: WorkflowMockStepOutput, extracted: Record<string, unknown>): Record<string, unknown> {
+  return {
+    name: step.name,
+    type: step.type,
+    stage: step.stage,
+    status: result.status,
+    output,
+    extracted,
+  };
+}
+
 function readPath(source: unknown, path: string): unknown {
   const normalized = path.replace(/\[(\d+)\]/g, '.$1');
   return normalized.split('.').filter(Boolean).reduce<unknown>((current, key) => {
@@ -679,7 +766,7 @@ function buildFileTransferStepPlan(step: Extract<WorkflowStep, { type: 'sftp' | 
     ? renderString(config.localPath, values, keepMissing)
     : `virtual://workflow/${step.name}`;
   const sshRequest: Record<string, unknown> = {
-    connection: renderUnknown(config.connection, values, keepMissing),
+    connection: adaptSshConnection(config.connection, values, keepMissing),
     timeoutMs: (config.timeoutSeconds ?? 60) * 1000,
     dryRun: false,
     [step.type]: [

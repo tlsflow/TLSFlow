@@ -1,4 +1,4 @@
-import type { SecretType } from '../../shared/security-types.js';
+import { SECRET_TYPES, type SecretType } from '../../shared/security-types.js';
 import { securityErrors } from '../../shared/security-error.js';
 
 export interface ParsedSecretRef {
@@ -9,14 +9,7 @@ export interface ParsedSecretRef {
 
 const SECRET_REF_PATTERN = /^secret:\/\/([a-z0-9_-]+)\/([A-Za-z0-9_-]+)#([A-Za-z0-9_-]+)$/;
 
-const allowedSecretTypes = new Set<string>([
-  'ssh_key',
-  'password',
-  'api_token',
-  'pfx_password',
-  'private_key',
-  'certificate_private_key',
-]);
+const allowedSecretTypes = new Set<string>(SECRET_TYPES);
 
 export function buildSecretRef(type: SecretType, secretId: string, version: string | number): string {
   const versionPart = typeof version === 'number' ? `v${version}` : version;
