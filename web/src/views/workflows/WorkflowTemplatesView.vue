@@ -18,7 +18,6 @@ import { createSecret } from '@/api/modules/security.api'
 import { GcModal, GcStatusTag } from '@/design-system/components'
 import { readString, type ViewRow } from '@/composables/useBusinessPage'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
-import AutomationSectionTabs from '@/views/automation/AutomationSectionTabs.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import {
@@ -618,7 +617,6 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 
 <template>
   <section class="workflow-templates-page">
-    <AutomationSectionTabs section="workflow" />
     <BusinessResourcePage ref="pageRef" :config="config">
       <template #toolbar-actions-before-refresh>
         <button class="gc-button" type="button" @click="openFileTemplateModal('create')">模板管理</button>
