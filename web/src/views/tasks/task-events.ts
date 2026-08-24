@@ -248,6 +248,7 @@ function applyRealtimeMessage(message: TaskRealtimeMessage): void {
   } else if (isTrackedRecentTask(message.task)) {
     recentTasks.set(message.task.id, message.task)
   }
+  pruneRecentTasks()
   realtimeListeners.forEach((listener) => listener(message))
   emitActivity()
 }
@@ -277,6 +278,12 @@ function currentRealtimeSnapshot(): TaskRealtimeSnapshotMessage {
     recentTasks: state.recentTasks,
     emittedAt: new Date().toISOString(),
   }
+}
+
+function pruneRecentTasks(): void {
+  const retained = sortTasks([...recentTasks.values()]).slice(0, 50)
+  recentTasks.clear()
+  retained.forEach((task) => recentTasks.set(task.id, task))
 }
 
 function isTrackedActiveTask(task: TaskRun): boolean {
