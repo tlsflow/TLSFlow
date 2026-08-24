@@ -4,6 +4,7 @@ import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { createCertificateServices } from '../certificates/index.js';
 import { createSecurityServices } from '../security/security.controller.js';
+import { createApp } from '../../app.module.js';
 import { InternalCaApplicationService } from './application/internal-ca.application-service.js';
 import { getInternalCaRouteContracts } from './controller/internal-ca.controller.js';
 
@@ -67,16 +68,52 @@ test('缺少 CA 风险确认密钥时拒绝执行拓扑预览', async () => {
   }
 });
 
-test('通用 CA 路由只暴露对象生命周期和运营合同', () => {
+test('通用 CA 路由同时暴露宿主 ACME 生命周期和运营合同', () => {
   const routes = getInternalCaRouteContracts();
   const paths = routes.map((route) => route.path.toLowerCase());
 
   assert.ok(paths.every((path) => path.startsWith('/api/v1/ca-')
     || path.startsWith('/api/v1/certificate-')
+    || path.startsWith('/api/v1/acme/')
     || path.startsWith('/api/v1/reports/')));
   assert.equal(paths.includes('/api/v1/certificate-authorities'), true);
   assert.equal(paths.includes('/api/v1/certificate-requests'), true);
   assert.equal(paths.includes('/api/v1/ca-operations/records'), true);
+  assert.equal(paths.includes('/api/v1/acme/status'), true);
+  assert.equal(paths.includes('/api/v1/acme/certificates'), true);
+  assert.equal(paths.some((path) => path.includes('certificate-acme')), false);
+});
+
+test('ACME 读取接口兼容证书管理的 certificate.read 权限合同', async () => {
+  const db = new PgliteDatabase();
+  await runMigrations(db, 'src/database/migrations');
+  const security = createSecurityServices();
+  security.rbac.createPolicy({
+    subjectType: 'user',
+    subjectId: 'user-acme-read',
+    effect: 'allow',
+    actions: ['certificate.read'],
+    resourceTypes: ['certificate_asset'],
+    scope: { tenantId: 'tenant-acme-read' },
+  });
+  const app = createApp({ db, corePersistence: { mode: 'memory' }, security });
+  app.setAuthTokenResolver(() => ({ actorId: 'user-acme-read', tenantId: 'tenant-acme-read' }));
+  try {
+    const status = await app.inject({
+      method: 'GET',
+      path: '/api/v1/acme/status',
+      headers: { authorization: 'Bearer test', 'x-tenant-id': 'tenant-acme-read', 'x-actor-id': 'user-acme-read' },
+    });
+    const providers = await app.inject({
+      method: 'GET',
+      path: '/api/v1/acme/providers',
+      headers: { authorization: 'Bearer test', 'x-tenant-id': 'tenant-acme-read', 'x-actor-id': 'user-acme-read' },
+    });
+    assert.equal(status.statusCode, 200, JSON.stringify(status.body));
+    assert.equal(providers.statusCode, 200, JSON.stringify(providers.body));
+  } finally {
+    await db.close();
+  }
 });
 
 test('通用 CA 对象可以创建并查询，不携带厂商执行语义', async () => {

@@ -101,12 +101,20 @@ function method(
 
 const grantReadRequest = objectSchema({ grantId: id, artifactRef }, ['grantId', 'artifactRef']);
 const secretResolveRequest = objectSchema({ grantId: id, secretRef, purpose: nonEmpty }, ['grantId', 'secretRef', 'purpose']);
+const cryptoSignRequest = objectSchema({
+  grantId: id,
+  secretRef,
+  data: { type: 'string', minLength: 1, maxLength: 1024 * 1024 },
+  hashAlgorithm: { enum: ['SHA-256', 'SHA-384', 'SHA-512'] },
+  signatureAlgorithm: { enum: ['RS256', 'ES256'] },
+}, ['grantId', 'secretRef', 'data', 'hashAlgorithm', 'signatureAlgorithm']);
 const progressRequest = objectSchema({ executionId: id, executionStepId: id, sequence: { type: 'integer', minimum: 0 }, stage: nonEmpty, summary: nonEmpty }, ['executionId', 'executionStepId', 'sequence', 'stage', 'summary']);
 const checkpointSaveRequest = objectSchema({ executionId: id, executionStepId: id, payload: record, digest: { type: 'string', pattern: '^[a-f0-9]{64}$' } }, ['executionId', 'executionStepId', 'payload', 'digest']);
 const checkpointLoadRequest = objectSchema({ checkpointRef: id }, ['checkpointRef']);
 const cloudServiceGetRequest = objectSchema({ cloudServiceRef: id }, ['cloudServiceRef']);
 const httpRequest = objectSchema({
   url: { type: 'string', format: 'uri', pattern: '^https://[^\\s#]+$', maxLength: 2048 },
+  directoryUrl: { type: 'string', format: 'uri', pattern: '^https://[^\\s#]+$', maxLength: 2048 },
   method: { enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'] },
   headers: stringMap,
   body: { type: 'string', maxLength: 1024 * 1024 },
@@ -116,6 +124,7 @@ export const hostApiRegistry: Readonly<Record<string, HostApiMethodDefinition>> 
   'cloudService.get': method('cloudService.get', cloudServiceGetRequest, { resultSchema: resultWithData(cloudServiceResultData), permission: 'cloud.service.get', requiredGrants: ['cloud.service.get'], riskLevel: 'MEDIUM', readOnly: true, retryable: true, idempotencyKey: null, timeoutMs: 5_000, maxOutputBytes: 256 * 1024, auditFields: ['cloudServiceRef'], secretRedaction: 'ALWAYS' }),
   'artifact.grant.read': method('artifact.grant.read', grantReadRequest, { permission: 'artifact.read', requiredGrants: ['artifact.read'], riskLevel: 'HIGH', readOnly: true, retryable: false, idempotencyKey: null, timeoutMs: 10_000, maxOutputBytes: 4 * 1024 * 1024, auditFields: ['grantId', 'artifactRef'], secretRedaction: 'ALWAYS' }),
   'secret.grant.resolve': method('secret.grant.resolve', secretResolveRequest, { permission: 'secret.resolve', requiredGrants: ['secret.resolve'], riskLevel: 'CRITICAL', readOnly: true, retryable: false, idempotencyKey: 'grantId', timeoutMs: 5_000, maxOutputBytes: 256 * 1024, auditFields: ['grantId', 'secretRef', 'purpose'], secretRedaction: 'ALWAYS' }),
+  'crypto.sign': method('crypto.sign', cryptoSignRequest, { permission: 'crypto.sign', requiredGrants: ['crypto.sign'], riskLevel: 'CRITICAL', readOnly: false, retryable: false, idempotencyKey: 'data', timeoutMs: 5_000, maxOutputBytes: 256 * 1024, auditFields: ['grantId', 'secretRef', 'hashAlgorithm', 'signatureAlgorithm'], secretRedaction: 'ALWAYS' }),
   // 通用 HTTPS 出口承载 Cloud 插件的签名写请求，超时或连接中断必须按外部状态未知处理。
   'http.request': method('http.request', httpRequest, { resultSchema: resultWithData(httpResponseData), permission: 'network.http', requiredGrants: ['network.http'], riskLevel: 'HIGH', readOnly: false, retryable: false, idempotencyKey: 'url', timeoutMs: 30_000, maxOutputBytes: 2 * 1024 * 1024, auditFields: ['method', 'url'], secretRedaction: 'ALWAYS' }),
   'execution.progress': method('execution.progress', progressRequest, { permission: 'execution.progress.write', requiredGrants: ['execution.progress'], riskLevel: 'LOW', readOnly: false, retryable: false, idempotencyKey: 'sequence', timeoutMs: 5_000, maxOutputBytes: 32 * 1024, auditFields: ['executionId', 'executionStepId', 'sequence'], secretRedaction: 'ALWAYS' }),

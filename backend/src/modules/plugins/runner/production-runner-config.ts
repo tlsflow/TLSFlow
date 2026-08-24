@@ -1,8 +1,10 @@
-import { isAbsolute } from 'node:path';
-import { statSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { isAbsolute, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { AppError } from '../../../common/errors/app-error.js';
 
-export interface ProductionPluginRunnerConfig {
+export interface PluginRunnerConfig {
   executablePath: string;
   workingDirectory: string;
   args: readonly string[];
@@ -11,9 +13,13 @@ export interface ProductionPluginRunnerConfig {
   sdkVersion: string;
 }
 
+/** 兼容既有调用方；生产与开发均使用同一份不可变启动规格。 */
+export type ProductionPluginRunnerConfig = PluginRunnerConfig;
+
 const forbiddenArguments = new Set([
   '-r', '--require', '--loader', '--import', '-e', '--eval', '--inspect', '--inspect-brk', '--inspect-port',
 ]);
+const require = createRequire(import.meta.url);
 
 /** 读取生产 Runner 装配。生产环境不允许缺省值或动态模块加载参数。 */
 export function resolveProductionPluginRunnerConfig(
@@ -46,6 +52,44 @@ export function resolveProductionPluginRunnerConfig(
   });
 }
 
+/**
+ * 解析受控开发 Runner。
+ *
+ * 开发模式仍通过独立 Runner 子进程加载固定 PluginVersion 的 runtime/index.js，
+ * 不是在宿主进程直接 import 插件。生产和 Node 测试环境均不允许走此默认值。
+ */
+export function resolveDevelopmentPluginRunnerConfig(
+  environment: NodeJS.ProcessEnv = process.env,
+): PluginRunnerConfig | undefined {
+  if (!isDevelopmentRunnerEnvironment(environment)) return undefined;
+
+  const runnerServer = resolveDevelopmentRunnerServer();
+  const args = runnerServer.kind === 'typescript'
+    ? [
+      '--import', resolveTsxLoader(),
+      runnerServer.path,
+      '--executor-module', runnerServer.path,
+    ]
+    : [runnerServer.path, '--executor-module', runnerServer.path];
+
+  return Object.freeze({
+    executablePath: process.execPath,
+    workingDirectory: process.cwd(),
+    executorModulePath: runnerServer.path,
+    args: Object.freeze(args),
+    runnerVersion: 'gcac-dev-runner-v1',
+    sdkVersion: 'gcac-plugin-sdk-v1',
+  });
+}
+
+/** 生产严格配置优先；仅本地开发允许使用受控默认 Runner。 */
+export function resolvePluginRunnerConfig(
+  environment: NodeJS.ProcessEnv = process.env,
+): PluginRunnerConfig | undefined {
+  return resolveProductionPluginRunnerConfig(environment)
+    ?? resolveDevelopmentPluginRunnerConfig(environment);
+}
+
 function required(value: string | undefined, name: string): string {
   const normalized = value?.trim();
   if (!normalized) throw new AppError('PLUGIN_RUNNER_START_FAILED', `生产 Runner 缺少必需配置 ${name}`, { name });
@@ -76,5 +120,52 @@ function assertProductionPath(path: string, directory: boolean): void {
     if (directory ? !stat.isDirectory() : !stat.isFile()) throw new Error('类型不匹配');
   } catch (error) {
     throw new AppError('PLUGIN_RUNNER_START_FAILED', '生产 Runner 路径不存在或类型无效', { path, error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+function isDevelopmentRunnerEnvironment(environment: NodeJS.ProcessEnv): boolean {
+  if (environment.NODE_ENV === 'production' || environment.NODE_ENV === 'test') return false;
+  // node:test 会给子进程注入这个标记；不能让普通测试意外创建真实 Runner 子进程。
+  if (environment.NODE_TEST_CONTEXT) return false;
+  return environment.NODE_ENV === undefined || environment.NODE_ENV === '' || environment.NODE_ENV === 'development';
+}
+
+function resolveDevelopmentRunnerServer(): { path: string; kind: 'typescript' | 'javascript' } {
+  const sourceCandidates = [
+    fileURLToPath(new URL('./runner-server.ts', import.meta.url)),
+    resolve(process.cwd(), 'src/modules/plugins/runner/runner-server.ts'),
+    resolve(process.cwd(), 'backend/src/modules/plugins/runner/runner-server.ts'),
+  ];
+  const sourcePath = sourceCandidates.find(isRegularFile);
+  if (sourcePath) return { path: sourcePath, kind: 'typescript' };
+
+  const compiledCandidates = [
+    fileURLToPath(new URL('./runner-server.js', import.meta.url)),
+    resolve(process.cwd(), 'dist/modules/plugins/runner/runner-server.js'),
+    resolve(process.cwd(), 'backend/dist/modules/plugins/runner/runner-server.js'),
+  ];
+  const compiledPath = compiledCandidates.find(isRegularFile);
+  if (compiledPath) return { path: compiledPath, kind: 'javascript' };
+
+  throw new AppError('PLUGIN_RUNNER_START_FAILED', '开发 Runner 找不到固定 runner-server 入口');
+}
+
+function resolveTsxLoader(): string {
+  try {
+    const loaderPath = require.resolve('tsx');
+    if (!isRegularFile(loaderPath)) throw new Error('tsx loader 不是普通文件');
+    return loaderPath;
+  } catch (error) {
+    throw new AppError('PLUGIN_RUNNER_START_FAILED', '开发 Runner 找不到本地 tsx loader', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function isRegularFile(path: string): boolean {
+  try {
+    return existsSync(path) && statSync(path).isFile();
+  } catch {
+    return false;
   }
 }

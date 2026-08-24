@@ -31,7 +31,26 @@ import { BindingsApplicationService } from './modules/bindings/application/bindi
 import { BindingsController, getBindingsRouteContracts } from './modules/bindings/controller/bindings.controller.js';
 import { PgBindingsRepository } from './modules/bindings/repository/bindings.repository.js';
 import { CertificatesController, createCertificateServices, getCertificateRouteContracts, type CertificateServices } from './modules/certificates/index.js';
-import { CaAutoSyncScheduler, CaOperationsRepository, CaSyncWorker, getInternalCaRouteContracts, InternalCaApplicationService, InternalCaController } from './modules/internal-ca/index.js';
+import {
+  AcmeAccountService,
+  AcmeCertificateService,
+  AcmeChallengeService,
+  AcmeOrderService,
+  AcmeProviderAdapter,
+  AcmeRenewalPolicyService,
+  AcmeRenewalScheduler,
+  AcmeRenewalWorker,
+  AcmeRepository,
+  CaAutoSyncScheduler,
+  CaOperationsRepository,
+  CaSyncWorker,
+  getInternalCaRouteContracts,
+  Http01ChallengeAdapter,
+  InternalCaApplicationService,
+  InternalCaController,
+  LegoDnsIssuer,
+  PostgresHttp01Responder,
+} from './modules/internal-ca/index.js';
 import { PgCertificateArtifactStore } from './modules/certificates/artifacts/certificate-artifact-store.js';
 import { AuditPresentationService } from './modules/audits/audit-presentation.service.js';
 import { CapabilitiesApplicationService, CapabilitiesController, getCapabilitiesRouteContracts, PgCapabilitiesRepository } from './modules/capabilities/index.js';
@@ -133,13 +152,15 @@ import {
   ProviderCatalogApplicationService,
   getCloudAccountRouteContracts,
 } from './modules/providers/index.js';
-import { resolveProductionPluginRunnerConfig } from './modules/plugins/runner/production-runner-config.js';
+import { resolvePluginRunnerConfig } from './modules/plugins/runner/production-runner-config.js';
 import { PluginRunnerSupervisor } from './modules/plugins/runner/index.js';
 import { BuiltinPluginRegistry } from './modules/plugins/builtin-plugins/builtin-plugin-registry.js';
 import type { PluginRunnerExecutionDependencies } from './modules/executions/application/plugin-runner-executor.adapter.js';
 import { createPluginRunnerHostApiHandler } from './modules/plugins/runner/plugin-runner-host-api.handler.js';
 import { PgPluginRunnerHostApiRequestStore, PluginRunnerHostApiRequestGate } from './modules/plugins/runner/host-api.request-gate.js';
 import type { PluginRuntimeAdapterRegistry } from './modules/deployment-plans/application/plugin-runtime-adapter.registry.js';
+import { GlobalSearchApplicationService } from './modules/global-search/application/global-search.application-service.js';
+import { GlobalSearchController, getGlobalSearchRouteContracts } from './modules/global-search/controller/global-search.controller.js';
 
 export interface AppDependencies {
   db?: DatabasePort;
@@ -206,6 +227,47 @@ export function createApp(dependencies: AppDependencies = {}): App {
     audit: security.audit,
     approvals: security.approvals,
   });
+  const acmeRepository = new AcmeRepository(appDb);
+  const acmeProvider = new AcmeProviderAdapter(security.secrets);
+  const http01Responder = new PostgresHttp01Responder(appDb);
+  app.router.get('/.well-known/acme-challenge/:token', '返回 ACME HTTP-01 Challenge', ['ACME'], async (request) => {
+    const token = request.path.split('/').filter(Boolean).at(-1) ?? '';
+    const keyAuthorization = await http01Responder.read(token);
+    return keyAuthorization
+      ? { headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }, body: keyAuthorization }
+      : { statusCode: 404, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }, body: 'Not Found' };
+  });
+  const acmeAccountService = new AcmeAccountService(
+    acmeRepository,
+    internalCaService.getRepository(),
+    acmeProvider,
+    security.secrets,
+  );
+  const acmeOrderService = new AcmeOrderService(
+    acmeRepository,
+    internalCaService.getRepository(),
+    acmeProvider,
+  );
+  const acmeChallengeService = new AcmeChallengeService({
+    repository: acmeRepository,
+    caRepository: internalCaService.getRepository(),
+    provider: acmeProvider,
+    adapters: { 'http-01': new Http01ChallengeAdapter(http01Responder) },
+  });
+  const legoTimeoutMs = positiveInteger(process.env.GCAC_LEGO_TIMEOUT_MS, 600_000);
+  const acmeRenewalLeaseMs = Math.max(
+    positiveInteger(process.env.ACME_RENEWAL_JOB_LEASE_MS, 900_000),
+    legoTimeoutMs + 60_000,
+  );
+  const legoDnsIssuer = new LegoDnsIssuer({
+    credentials: credentialsService,
+    secrets: security.secrets,
+    timeoutMs: legoTimeoutMs,
+  });
+  const acmeRenewalPolicyService = new AcmeRenewalPolicyService(
+    acmeRepository,
+    internalCaService.getRepository(),
+  );
   const gatewaysService = new GatewaysApplicationService(gatewayPersistence.gateways, gatewayPersistence.targetHistory);
   const gatewayTaskAuditWriter = new GatewayTaskAuditWriter({ audit: security.audit, history: gatewaysService.getTargetHistoryRepository() });
   const gatewayTasksService = new GatewayTaskService({ auditWriter: gatewayTaskAuditWriter });
@@ -225,6 +287,13 @@ export function createApp(dependencies: AppDependencies = {}): App {
     undefined,
     assetsService,
   );
+  const acmeRenewalScheduler = new AcmeRenewalScheduler(
+    acmeRepository,
+    certificateServices.certificates.getRepository(),
+    bindingsService.getRepository(),
+    internalCaService,
+    tasksService,
+  );
   const pluginCertificateResultService = new PluginCertificateResultService(appDb);
   const executionPersistence = createDeploymentPersistenceRepositories({
     ...(dependencies.deploymentPersistence ?? {}),
@@ -237,17 +306,17 @@ export function createApp(dependencies: AppDependencies = {}): App {
     undefined,
     new PluginWorkflowBindingsRepository(appDb),
   );
-  const productionPluginRunner = resolveProductionPluginRunnerConfig(process.env);
+  const pluginRunnerConfig = resolvePluginRunnerConfig(process.env);
   const pluginResourceLockService = new PluginResourceLockService(appDb);
   const pluginArtifactStore = new PgCertificateArtifactStore(appDb);
   const workflowRecoveryService = new WorkflowRecoveryLedgerService(appDb);
   const providerCatalogService = new ProviderCatalogApplicationService();
   const cloudAccountAssetsService = new CloudAccountAssetsApplicationService(appDb, providerCatalogService);
-  const pluginRunnerSupervisor = productionPluginRunner
+  const pluginRunnerSupervisor = pluginRunnerConfig
     ? new PluginRunnerSupervisor({ maxRestarts: 3 })
     : undefined;
   const builtinPluginRegistry = new BuiltinPluginRegistry();
-  const pluginRunnerHostApiHandler = productionPluginRunner
+  const pluginRunnerHostApiHandler = pluginRunnerConfig
     ? createPluginRunnerHostApiHandler({
       security,
       artifacts: pluginArtifactStore,
@@ -261,9 +330,9 @@ export function createApp(dependencies: AppDependencies = {}): App {
     })
     : undefined;
   const pluginRunnerDependencies: PluginRunnerExecutionDependencies | undefined = dependencies.pluginRunner
-    ?? (productionPluginRunner && pluginRunnerSupervisor && pluginRunnerHostApiHandler
+    ?? (pluginRunnerConfig && pluginRunnerSupervisor && pluginRunnerHostApiHandler
       ? {
-        runner: productionPluginRunner,
+        runner: pluginRunnerConfig,
         supervisor: pluginRunnerSupervisor,
         hostApiHandler: pluginRunnerHostApiHandler,
         builtinRegistry: builtinPluginRegistry,
@@ -364,7 +433,17 @@ export function createApp(dependencies: AppDependencies = {}): App {
   }
   app.setResource('pluginWorkflowPublisher', pluginWorkflowPublisher);
   app.setResource('certificateServices', certificateServices);
+  const globalSearchService = new GlobalSearchApplicationService({
+    certificates: certificateServices.certificates,
+    assets: assetsService,
+    devices: devicesService,
+    cloudServices: cloudAccountAssetsService,
+    plugins: unifiedPluginsService,
+  });
+  app.setResource('globalSearchService', globalSearchService);
   app.setResource('internalCaService', internalCaService);
+  app.setResource('acmeRepository', acmeRepository);
+  app.setResource('acmeRenewalScheduler', acmeRenewalScheduler);
   app.setResource('caSyncWorker', new CaSyncWorker(
     new CaOperationsRepository(appDb),
     internalCaService,
@@ -619,7 +698,37 @@ export function createApp(dependencies: AppDependencies = {}): App {
   assetsService.setMonitorsRepository(monitorsService.getRepository());
 
   new CertificatesController(security, certificateServices).register(app.router);
-  new InternalCaController(internalCaService, security, tasksService).register(app.router);
+  const acmeRenewalWorker = new AcmeRenewalWorker({
+    repository: acmeRepository,
+    certificates: certificateServices.certificates.getRepository(),
+    internalCa: internalCaService,
+    orders: acmeOrderService,
+    challenges: acmeChallengeService,
+    lego: legoDnsIssuer,
+    leaseOwner: `acme-renewal-worker-${process.pid}`,
+    leaseDurationMs: acmeRenewalLeaseMs,
+  });
+  const acmeServices = {
+    accounts: acmeAccountService,
+    certificates: new AcmeCertificateService(
+      certificateServices.certificates,
+      internalCaService.getRepository(),
+      acmeRepository,
+      acmeRenewalPolicyService,
+      credentialsService,
+      (tenantId, actorId) => internalCaService.ensureBuiltinAcmeProvider(tenantId, actorId),
+      acmeAccountService,
+      security.secrets,
+      internalCaService,
+    ),
+    orders: acmeOrderService,
+    policies: acmeRenewalPolicyService,
+    repository: acmeRepository,
+    scheduler: acmeRenewalScheduler,
+    worker: acmeRenewalWorker,
+  };
+  app.setResource('acmeRenewalWorker', acmeRenewalWorker);
+  new InternalCaController(internalCaService, security, acmeServices, tasksService).register(app.router);
   new DeviceAssetsController(deviceAssetsService, new SecurityServicesDeviceAssetPort(security)).register(app.router);
   new DevicesController(devicesService, security).register(app.router);
   new CapabilitiesController(capabilitiesService).register(app.router);
@@ -674,6 +783,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     tasksService,
     security,
   ).register(app.router);
+  new GlobalSearchController(globalSearchService, security).register(app.router);
   new WorkflowTemplatesController(
     workflowTemplatesService,
     security,
@@ -722,6 +832,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
   new ReportsController(reportsService, security, reportExportService).register(app.router);
 
   const taskExecutorRegistry = createTaskExecutorRegistry({
+    acme: acmeRenewalWorker,
+    acmeJobs: acmeRepository,
     executions: executionsService,
     executionRegistry: executorRegistry,
     caSync: app.getResource<CaSyncWorker>('caSyncWorker'),
@@ -1053,6 +1165,7 @@ export function getRouteContracts(
     ...getTaskRouteContracts(),
     ...getNotificationRouteContracts(),
     ...getReportRouteContracts(),
+    ...getGlobalSearchRouteContracts(),
     ...getEditionLicensingRouteContracts(),
     ...browserCredentialRouteContracts,
     {

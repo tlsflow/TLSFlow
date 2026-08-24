@@ -6,7 +6,7 @@ import {
   type PluginRunnerHostApiHandler,
   type PluginRunnerLaunchSpec,
 } from '../../plugins/runner/index.js';
-import { resolveProductionPluginRunnerConfig, type ProductionPluginRunnerConfig } from '../../plugins/runner/production-runner-config.js';
+import { resolvePluginRunnerConfig, type ProductionPluginRunnerConfig } from '../../plugins/runner/production-runner-config.js';
 import { BuiltinPluginRegistry, type BuiltinPluginRegistryEntry } from '../../plugins/builtin-plugins/builtin-plugin-registry.js';
 import type { Executor, StepExecutionInput, StepExecutionResult } from './executors.js';
 import { normalizeAgentV2DryRunDetail } from './agent-v2-dry-run-result.js';
@@ -141,11 +141,11 @@ export class PluginRunnerExecutorAdapter implements Executor {
   }
 }
 
-/** 创建默认生产 adapter；非 production 环境没有配置时保持失败关闭。 */
+/** 创建默认受控 Runner adapter；生产严格读取配置，开发使用固定本地 Runner，测试保持失败关闭。 */
 export function createDefaultPluginRunnerExecutionDependencies(
   environment: NodeJS.ProcessEnv = process.env,
 ): PluginRunnerExecutionDependencies {
-  const runner = resolveProductionPluginRunnerConfig(environment);
+  const runner = resolvePluginRunnerConfig(environment);
   return runner
     ? { runner, supervisor: new PluginRunnerSupervisor({ maxRestarts: 3 }), builtinRegistry: new BuiltinPluginRegistry() }
     : {};

@@ -68,6 +68,17 @@ test('request/response 关联和重试规则保持单一合同', () => {
   assert.equal(hostApiRegistry['execution.checkpoint.save']?.idempotencyKey, 'digest');
 });
 
+test('IPC host_call 合同允许已注册的 crypto.sign 调用', () => {
+  const message = {
+    protocolVersion: 'gcac.plugin-runner/v1', messageType: 'host_call', requestId: 'host-crypto-sign-1', sentAt: '2026-08-12T00:00:00.000Z',
+    pluginVersionId: 'test-version-v1', tenantId: 'tenant-1', executionId: 'execution-1', executionStepId: 'step-1', capability: 'ca.account.manage',
+    method: 'crypto.sign', input: { grantId: 'grant-1', secretRef: 'secret://ca/acme/account', data: 'header.payload', hashAlgorithm: 'SHA-256', signatureAlgorithm: 'RS256' },
+    grantRefs: ['grant-1'], idempotencyKey: 'crypto-sign-1', deadlineAt: '2026-08-12T00:00:05.000Z', timeoutMs: 5_000,
+  };
+  assert.equal(validateJsonSchema(message, ipcV1Schema).valid, true);
+  assert.doesNotThrow(() => validateIpcMessage(message));
+});
+
 function readJson(path: string): any {
   return JSON.parse(readFileSync(path, 'utf8')) as unknown;
 }

@@ -4,11 +4,13 @@ import type { Router } from '../../../common/http/router.js';
 import { requireTenantId } from '../../../common/http/tenant-context.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import type { SecuritySubject } from '../../../shared/security-types.js';
+import { SecurityError } from '../../../shared/security-error.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
 import type { CaOperationsPermissionAction } from '../ca-operations.security.js';
 import type { CaOperationsRecordQueryDto, CreateCaSyncRunsDto } from '../dto/ca-operations.dto.js';
 import type {
+  AcmeProviderConfigurationInput,
   CreateAuthorityInput,
   CreateCaProviderInput,
   CreateCaTrustDomainInput,
@@ -18,15 +20,33 @@ import type {
   PreviewCaInput,
   UpdateCaTrustDomainInput,
 } from '../application/internal-ca.application-service.js';
+import type { AcmeAccountService } from '../application/acme-account.service.js';
+import type { AcmeCertificateService } from '../application/acme-certificate.service.js';
+import type { AcmeOrderService } from '../application/acme-order.service.js';
+import type { AcmeRenewalPolicyService } from '../application/acme-renewal-policy.service.js';
+import type { AcmeRenewalScheduler } from '../application/acme-renewal-scheduler.js';
+import type { AcmeRenewalWorker } from '../application/acme-renewal-worker.js';
+import type { AcmeRepository } from '../repository/acme.repository.js';
+import { listAcmeDnsProviders } from '../providers/acme-dns-provider.registry.js';
 
 const tags = ['Internal CA'];
+
+export interface InternalCaAcmeServices {
+  accounts: AcmeAccountService;
+  certificates: AcmeCertificateService;
+  orders: AcmeOrderService;
+  policies: AcmeRenewalPolicyService;
+  repository: AcmeRepository;
+  scheduler: AcmeRenewalScheduler;
+  worker: AcmeRenewalWorker;
+}
 
 export class InternalCaController {
   constructor(
     private readonly service: InternalCaApplicationService,
     private readonly security: SecurityServices,
+    private readonly acme?: InternalCaAcmeServices,
     private readonly tasks?: TaskEnqueuer,
-    ..._unusedAssemblyArguments: unknown[]
   ) {}
 
   register(router: Router): void {
@@ -56,6 +76,27 @@ export class InternalCaController {
     router.post('/api/v1/certificate-requests/:id/activate', '确认应用证书已安装', tags, (request) => this.activateRequest(request));
     router.get('/api/v1/certificate-renewals', '查询证书续期任务', tags, (request) => this.listRenewals(request));
     router.post('/api/v1/certificate-renewals/scan', '创建通用证书续期任务', tags, (request) => this.scanRenewals(request));
+    router.get('/api/v1/acme/status', '查询宿主 ACME 能力状态', tags, (request) => this.getAcmeStatus(request));
+    router.get('/api/v1/acme/accounts', '查询 ACME Account', tags, (request) => this.listAcmeAccounts(request));
+    router.post('/api/v1/acme/accounts', '创建 ACME Account', tags, (request) => this.createAcmeAccount(request));
+    router.get('/api/v1/acme/accounts/:id', '查询 ACME Account 详情', tags, (request) => this.getAcmeAccount(request));
+    router.get('/api/v1/acme/providers', '查询 ACME 颁发者配置', tags, (request) => this.listAcmeProviderSettings(request));
+    router.post('/api/v1/acme/providers', '创建 ACME 颁发者配置', tags, (request) => this.createAcmeProvider(request));
+    router.patch('/api/v1/acme/providers/:id', '更新 ACME 颁发者配置', tags, (request) => this.updateAcmeProvider(request));
+    router.post('/api/v1/acme/providers/:id/test', '测试 ACME 颁发者连接', tags, (request) => this.testAcmeProvider(request));
+    router.get('/api/v1/acme/dns-providers', '查询 LEGO DNS Provider', tags, (request) => this.listAcmeDnsProviders(request));
+    router.post('/api/v1/acme/certificates', '创建简化 ACME 证书配置', tags, (request) => this.createAcmeCertificate(request));
+    router.patch('/api/v1/acme/certificates/:id', '更新 ACME 证书自动化配置', tags, (request) => this.updateAcmeCertificate(request));
+    router.delete('/api/v1/acme/certificates/:id', '删除 ACME 证书自动化配置', tags, (request) => this.deleteAcmeCertificate(request));
+    router.post('/api/v1/acme/certificates/:id/renew', '手动续签指定 ACME 证书', tags, (request) => this.manualRenewAcmeCertificate(request));
+    router.get('/api/v1/acme/orders', '查询 ACME Order', tags, (request) => this.listAcmeOrders(request));
+    router.get('/api/v1/acme/orders/:id', '查询 ACME Order 详情', tags, (request) => this.getAcmeOrder(request));
+    router.post('/api/v1/acme/orders/:id/reconcile', '恢复 ACME Order 状态', tags, (request) => this.reconcileAcmeOrder(request));
+    router.post('/api/v1/acme/orders/:id/finalize', 'Finalize ACME Order', tags, (request) => this.finalizeAcmeOrder(request));
+    router.get('/api/v1/acme/renewal-policies', '查询 ACME 续签策略', tags, (request) => this.listAcmePolicies(request));
+    router.get('/api/v1/acme/renewal-jobs', '查询 ACME 续签任务', tags, (request) => this.listAcmeRenewalJobs(request));
+    router.post('/api/v1/acme/renewal-jobs/scan', '扫描 ACME 到期证书', tags, (request) => this.scanAcmeRenewalJobs(request));
+    router.post('/api/v1/acme/renewal-jobs/:id/retry', '重试 ACME 续签任务', tags, (request) => this.retryAcmeRenewalJob(request));
     router.get('/api/v1/certificate-revocations', '查询证书吊销任务', tags, (request) => this.listRevocations(request));
     router.post('/api/v1/certificate-revocations', '创建证书吊销任务', tags, (request) => this.createRevocation(request));
     router.post('/api/v1/certificate-revocations/:id/approve', '审批证书吊销任务', tags, (request) => this.approveRevocation(request));
@@ -241,6 +282,227 @@ export class InternalCaController {
     return this.service.scheduleDueRenewals(tenantId(request), actorId(request), new Date(), request.context);
   }
 
+  private requireAcme(): InternalCaAcmeServices {
+    if (!this.acme) throw new AppError('CA_CAPABILITY_UNSUPPORTED', '宿主 ACME 生命周期服务未接入');
+    return this.acme;
+  }
+
+  private async getAcmeStatus(request: HttpRequest) {
+    await this.assertAcmeRead(request, 'certificate_request');
+    const provider = await this.service.ensureBuiltinAcmeProvider(tenantId(request), actorId(request));
+    return {
+      status: 'READY',
+      provider: {
+        id: provider.id,
+        name: provider.name,
+        preset: provider.configuration?.preset ?? 'letsencrypt',
+      },
+      capabilities: {
+        hostAcme: true,
+        dnsCredentialProfiles: true,
+        http01: true,
+        runnerRequired: false,
+      },
+    };
+  }
+
+  private async listAcmeAccounts(request: HttpRequest) {
+    await this.assertAcmeRead(request, 'ca_provider');
+    return this.requireAcme().accounts.list(tenantId(request), optionalQuery(request, 'providerId'));
+  }
+
+  private async createAcmeAccount(request: HttpRequest) {
+    await this.assertAction(request, 'ca.provider.manage', 'ca_provider');
+    const body = objectBody(request);
+    return {
+      statusCode: 201,
+      body: await this.requireAcme().accounts.create({
+        tenantId: tenantId(request),
+        providerId: requiredString(body, 'providerId'),
+        accountKeySecretRef: requiredString(body, 'accountKeySecretRef'),
+        contact: Array.isArray(body.contact) ? body.contact.map(String) : undefined,
+        termsOfServiceAgreed: body.termsOfServiceAgreed !== false,
+        eabKeyIdSecretRef: optionalString(body.eabKeyIdSecretRef),
+        eabHmacSecretRef: optionalString(body.eabHmacSecretRef),
+        actorId: actorId(request),
+      }),
+    };
+  }
+
+  private async getAcmeAccount(request: HttpRequest) {
+    await this.assertAction(request, 'ca.operations.read', 'ca_provider');
+    return this.requireAcme().accounts.get(tenantId(request), pathId(request));
+  }
+
+  private async listAcmeProviderSettings(request: HttpRequest) {
+    await this.assertAcmeRead(request, 'ca_provider');
+    return this.service.listAcmeProviderSettings(tenantId(request));
+  }
+
+  private async createAcmeProvider(request: HttpRequest) {
+    await this.assertAction(request, 'ca.provider.manage', 'ca_provider');
+    return {
+      statusCode: 201,
+      body: await this.service.createAcmeProvider(
+        tenantId(request),
+        objectBody(request) as unknown as AcmeProviderConfigurationInput,
+        actorId(request),
+        request.context,
+      ),
+    };
+  }
+
+  private async updateAcmeProvider(request: HttpRequest) {
+    await this.assertAction(request, 'ca.provider.manage', 'ca_provider');
+    return this.service.updateAcmeProvider(
+      tenantId(request),
+      pathId(request),
+      objectBody(request) as unknown as AcmeProviderConfigurationInput,
+      actorId(request),
+      request.context,
+    );
+  }
+
+  private async testAcmeProvider(request: HttpRequest) {
+    await this.assertAction(request, 'ca.provider.manage', 'ca_provider');
+    return this.service.testProvider(tenantId(request), pathId(request));
+  }
+
+  private async listAcmeDnsProviders(request: HttpRequest) {
+    await this.assertAcmeRead(request, 'certificate_request');
+    return listAcmeDnsProviders();
+  }
+
+  private async createAcmeCertificate(request: HttpRequest) {
+    await this.assertAcmeWrite(request, 'certificate.create', 'certificate_renewal');
+    const body = objectBody(request);
+    await this.service.ensureBuiltinAcmeProvider(tenantId(request), actorId(request));
+    const certificate = await this.requireAcme().certificates.create({
+      tenantId: tenantId(request),
+      name: optionalString(body.name),
+      domains: Array.isArray(body.domains) ? body.domains.map(String) : [],
+      contactEmail: requiredString(body, 'contactEmail'),
+      providerId: optionalString(body.providerId),
+      challengeType: (optionalString(body.challengeType) ?? 'dns-01') as never,
+      dnsCredentialId: optionalString(body.dnsCredentialId),
+      keyType: optionalString(body.keyType) as 'rsa' | 'ecdsa' | undefined,
+      autoRenew: body.autoRenew !== false,
+      renewalWindowDays: optionalNumber(body, 'renewalWindowDays') ?? 7,
+      termsOfServiceAgreed: body.termsOfServiceAgreed !== false,
+      actorId: actorId(request),
+    });
+    enqueueTaskBestEffort(this.tasks, {
+      tenantId: tenantId(request),
+      taskType: 'ACME_CERTIFICATE_ISSUE',
+      requestedBy: actorId(request),
+      triggerSource: 'acme.certificate.create',
+      idempotencyKey: `acme-issue:${certificate.asset.id}`,
+      payload: { certificateAssetId: certificate.asset.id, certificateRequestId: certificate.certificateRequestId, renewalJobId: certificate.renewalJobId },
+      resourceRefs: [
+        { resourceType: 'certificateAsset', resourceId: certificate.asset.id },
+        { resourceType: 'acmeRenewalJob', resourceId: certificate.renewalJobId },
+      ],
+    });
+    return { statusCode: 201, body: certificate };
+  }
+
+  private async updateAcmeCertificate(request: HttpRequest) {
+    await this.assertAcmeWrite(request, 'certificate.lifecycle', 'certificate_renewal');
+    const body = objectBody(request);
+    const assetId = pathId(request);
+    const policy = (await this.requireAcme().policies.list(tenantId(request)))
+      .find((item) => item.certificateAssetId === assetId);
+    if (!policy) throw new AppError('RESOURCE_NOT_FOUND', 'ACME 证书续签策略不存在', { certificateAssetId: assetId });
+    return this.requireAcme().certificates.update({
+      tenantId: tenantId(request),
+      certificateAssetId: assetId,
+      name: optionalString(body.name),
+      domains: Array.isArray(body.domains) ? body.domains.map(String) : [],
+      contactEmail: requiredString(body, 'contactEmail'),
+      providerId: policy.providerId,
+      challengeType: (optionalString(body.challengeType) ?? policy.challengeType) as never,
+      dnsCredentialId: optionalString(body.dnsCredentialId),
+      keyType: optionalString(body.keyType) as 'rsa' | 'ecdsa' | undefined,
+      autoRenew: body.autoRenew !== false,
+      renewalWindowDays: optionalNumber(body, 'renewalWindowDays') ?? policy.renewalWindowDays,
+      actorId: actorId(request),
+    });
+  }
+
+  private async deleteAcmeCertificate(request: HttpRequest) {
+    await this.assertAcmeWrite(request, 'certificate.lifecycle', 'certificate_renewal');
+    return this.requireAcme().certificates.delete(tenantId(request), pathId(request), actorId(request), request.context);
+  }
+
+  private async manualRenewAcmeCertificate(request: HttpRequest) {
+    await this.assertAcmeWrite(request, 'certificate.lifecycle', 'certificate_renewal');
+    const tenant = tenantId(request);
+    const actor = actorId(request);
+    const assetId = pathId(request);
+    const job = await this.requireAcme().scheduler.scheduleManualRenewal(tenant, assetId, actor, new Date());
+    enqueueTaskBestEffort(this.tasks, {
+      tenantId: tenant,
+      taskType: 'ACME_CERTIFICATE_RENEWAL',
+      requestedBy: actor,
+      triggerSource: 'acme.certificate.manual-renewal',
+      idempotencyKey: `acme-renewal:${job.id}`,
+      payload: { renewalJobId: job.id },
+      resourceRefs: [{ resourceType: 'acmeRenewalJob', resourceId: job.id }, { resourceType: 'certificateAsset', resourceId: assetId }],
+    });
+    return { statusCode: 202, body: job };
+  }
+
+  private async listAcmeOrders(request: HttpRequest) {
+    await this.assertAcmeRead(request, 'certificate_request');
+    return this.requireAcme().orders.list(tenantId(request), optionalQuery(request, 'status') as never);
+  }
+
+  private async getAcmeOrder(request: HttpRequest) {
+    await this.assertAcmeRead(request, 'certificate_request');
+    return this.requireAcme().orders.get(tenantId(request), pathId(request));
+  }
+
+  private async reconcileAcmeOrder(request: HttpRequest) {
+    await this.assertAction(request, 'ca.request.retry', 'certificate_request');
+    return this.requireAcme().orders.reconcile(tenantId(request), pathId(request), actorId(request));
+  }
+
+  private async finalizeAcmeOrder(request: HttpRequest) {
+    await this.assertAction(request, 'ca.request.retry', 'certificate_request');
+    return this.requireAcme().orders.finalize(tenantId(request), pathId(request), actorId(request));
+  }
+
+  private async listAcmePolicies(request: HttpRequest) {
+    await this.assertAcmeRead(request, 'certificate_renewal');
+    return this.requireAcme().policies.list(tenantId(request));
+  }
+
+  private async listAcmeRenewalJobs(request: HttpRequest) {
+    await this.assertAcmeRead(request, 'certificate_renewal');
+    return this.requireAcme().repository.listRenewalJobs(tenantId(request));
+  }
+
+  private async scanAcmeRenewalJobs(request: HttpRequest) {
+    await this.assertAction(request, 'ca.request.retry', 'certificate_renewal');
+    const jobs = await this.requireAcme().scheduler.runOnce(optionalNumber(objectBody(request), 'limit') ?? 50, new Date());
+    return { items: jobs };
+  }
+
+  private async retryAcmeRenewalJob(request: HttpRequest) {
+    await this.assertAction(request, 'ca.request.retry', 'certificate_renewal');
+    const job = await this.requireAcme().repository.retryRenewalJob(tenantId(request), pathId(request), new Date().toISOString());
+    enqueueTaskBestEffort(this.tasks, {
+      tenantId: job.tenantId,
+      taskType: 'ACME_CERTIFICATE_RENEWAL',
+      requestedBy: actorId(request),
+      triggerSource: 'acme.certificate.retry',
+      idempotencyKey: `acme-renewal:${job.id}`,
+      payload: { renewalJobId: job.id },
+      resourceRefs: [{ resourceType: 'acmeRenewalJob', resourceId: job.id }],
+    });
+    return job;
+  }
+
   private async listRevocations(request: HttpRequest) {
     await this.assertAction(request, 'ca.operations.read', 'certificate_revocation');
     return this.service.listRevocations(tenantId(request));
@@ -354,6 +616,74 @@ export class InternalCaController {
     }, request.context);
   }
 
+  /**
+   * ACME 是证书管理能力，不应因为独立 CA 运营菜单权限缺失而在证书页面不可用。
+   * 兼容旧租户仍持有 ca.operations.read 的情况，读取权限按新旧合同顺序回退。
+   */
+  private async assertAcmeRead(request: HttpRequest, resourceType: string): Promise<void> {
+    const subject = subjectFromRequest(request);
+    const certificateResource = {
+      type: 'certificate_asset',
+      scope: {
+        tenantId: tenantId(request),
+        tenantScope: request.context.tenantScope,
+        ownerId: subject.id,
+        resourceType: 'certificate_asset',
+      },
+    };
+    for (const action of ['certificate.asset.read', 'certificate.read'] as const) {
+      try {
+        await this.security.rbac.assertCan(subject, action, certificateResource, request.context);
+        return;
+      } catch (error) {
+        if (!isPermissionDenied(error)) throw error;
+      }
+    }
+    await this.security.rbac.assertCan(subject, 'ca.operations.read', {
+      type: resourceType,
+      scope: {
+        tenantId: tenantId(request),
+        tenantScope: request.context.tenantScope,
+        ownerId: subject.id,
+        resourceType,
+      },
+    }, request.context);
+  }
+
+  /**
+   * ACME 的申请、续签和删除属于证书生命周期写操作。
+   * 保留 ca.request.retry 回退，避免旧租户权限在迁移期间突然失效。
+   */
+  private async assertAcmeWrite(request: HttpRequest, action: string, resourceType: string): Promise<void> {
+    const subject = subjectFromRequest(request);
+    const certificateResource = {
+      type: 'certificate_asset',
+      scope: {
+        tenantId: tenantId(request),
+        tenantScope: request.context.tenantScope,
+        ownerId: subject.id,
+        resourceType: 'certificate_asset',
+      },
+    };
+    for (const candidate of [action, action === 'certificate.create' ? 'certificate.lifecycle' : 'certificate.create'] as const) {
+      try {
+        await this.security.rbac.assertCan(subject, candidate, certificateResource, request.context);
+        return;
+      } catch (error) {
+        if (!isPermissionDenied(error)) throw error;
+      }
+    }
+    await this.security.rbac.assertCan(subject, 'ca.request.retry', {
+      type: resourceType,
+      scope: {
+        tenantId: tenantId(request),
+        tenantScope: request.context.tenantScope,
+        ownerId: subject.id,
+        resourceType,
+      },
+    }, request.context);
+  }
+
   private async assertAuthorityRead(request: HttpRequest, caId: string): Promise<void> {
     const authority = (await this.service.listAuthorities(tenantId(request))).find((item) => item.id === caId);
     if (!authority) throw new AppError('RESOURCE_NOT_FOUND', '证书机构不存在', { caId });
@@ -412,6 +742,27 @@ export function getInternalCaRouteContracts(): RouteContract[] {
     ['POST', '/api/v1/certificate-requests/:id/activate', 'activateCertificateRequest', '确认应用证书已安装', responseSchema],
     ['GET', '/api/v1/certificate-renewals', 'listCertificateRenewals', '查询证书续期任务', arraySchema],
     ['POST', '/api/v1/certificate-renewals/scan', 'scanCertificateRenewals', '创建通用证书续期任务', arraySchema],
+    ['GET', '/api/v1/acme/status', 'getAcmeStatus', '查询宿主 ACME 能力状态', responseSchema],
+    ['GET', '/api/v1/acme/accounts', 'listAcmeAccounts', '查询 ACME Account', arraySchema],
+    ['POST', '/api/v1/acme/accounts', 'createAcmeAccount', '创建 ACME Account', responseSchema],
+    ['GET', '/api/v1/acme/accounts/:id', 'getAcmeAccount', '查询 ACME Account 详情', responseSchema],
+    ['GET', '/api/v1/acme/providers', 'listAcmeProviders', '查询 ACME 颁发者配置', arraySchema],
+    ['POST', '/api/v1/acme/providers', 'createAcmeProvider', '创建 ACME 颁发者配置', responseSchema],
+    ['PATCH', '/api/v1/acme/providers/:id', 'updateAcmeProvider', '更新 ACME 颁发者配置', responseSchema],
+    ['POST', '/api/v1/acme/providers/:id/test', 'testAcmeProvider', '测试 ACME 颁发者连接', responseSchema],
+    ['GET', '/api/v1/acme/dns-providers', 'listAcmeDnsProviders', '查询 LEGO DNS Provider', arraySchema],
+    ['POST', '/api/v1/acme/certificates', 'createAcmeCertificate', '创建简化 ACME 证书配置', responseSchema],
+    ['PATCH', '/api/v1/acme/certificates/:id', 'updateAcmeCertificate', '更新 ACME 证书自动化配置', responseSchema],
+    ['DELETE', '/api/v1/acme/certificates/:id', 'deleteAcmeCertificate', '删除 ACME 证书自动化配置', responseSchema],
+    ['POST', '/api/v1/acme/certificates/:id/renew', 'manualRenewAcmeCertificate', '手动续签指定 ACME 证书', responseSchema],
+    ['GET', '/api/v1/acme/orders', 'listAcmeOrders', '查询 ACME Order', arraySchema],
+    ['GET', '/api/v1/acme/orders/:id', 'getAcmeOrder', '查询 ACME Order 详情', responseSchema],
+    ['POST', '/api/v1/acme/orders/:id/reconcile', 'reconcileAcmeOrder', '恢复 ACME Order 状态', responseSchema],
+    ['POST', '/api/v1/acme/orders/:id/finalize', 'finalizeAcmeOrder', 'Finalize ACME Order', responseSchema],
+    ['GET', '/api/v1/acme/renewal-policies', 'listAcmeRenewalPolicies', '查询 ACME 续签策略', arraySchema],
+    ['GET', '/api/v1/acme/renewal-jobs', 'listAcmeRenewalJobs', '查询 ACME 续签任务', arraySchema],
+    ['POST', '/api/v1/acme/renewal-jobs/scan', 'scanAcmeRenewalJobs', '扫描 ACME 到期证书', arraySchema],
+    ['POST', '/api/v1/acme/renewal-jobs/:id/retry', 'retryAcmeRenewalJob', '重试 ACME 续签任务', responseSchema],
     ['GET', '/api/v1/certificate-revocations', 'listCertificateRevocations', '查询证书吊销任务', arraySchema],
     ['POST', '/api/v1/certificate-revocations', 'createCertificateRevocation', '创建证书吊销任务', responseSchema],
     ['POST', '/api/v1/certificate-revocations/:id/approve', 'approveCertificateRevocation', '审批证书吊销任务', responseSchema],
@@ -476,13 +827,21 @@ function optionalQuery(request: HttpRequest, key: string): string | undefined {
 }
 
 function pathId(request: HttpRequest): string {
-  return lastPathSegment(request);
+  const segments = request.path.split('/').filter(Boolean);
+  const actionIndex = segments.findIndex((segment) => ['test', 'versions', 'approve', 'retry', 'activate', 'result', 'complete', 'remediation-preview', 'reconcile', 'finalize', 'renew'].includes(segment));
+  const value = actionIndex > 0 ? segments[actionIndex - 1] : segments.at(-1);
+  if (!value) throw new AppError('VALIDATION_FAILED', '路径缺少资源 ID');
+  return value;
 }
 
 function lastPathSegment(request: HttpRequest): string {
   const value = request.path.split('/').filter(Boolean).at(-1);
   if (!value) throw new AppError('VALIDATION_FAILED', '路径缺少资源 ID');
   return value;
+}
+
+function isPermissionDenied(error: unknown): boolean {
+  return error instanceof SecurityError && error.errorCode === 'SEC_PERMISSION_DENIED';
 }
 
 function operationQuery(request: HttpRequest): CaOperationsRecordQueryDto {

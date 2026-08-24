@@ -1,4 +1,5 @@
 import { AppError } from '../../../common/errors/app-error.js';
+import { createHash, createPrivateKey, createPublicKey, sign as signData } from 'node:crypto';
 import type { OutboundHttpClient, OutboundHttpRequest, OutboundHttpResponse } from '../../../common/http/outbound-http-client.js';
 import type { WriteAuditInput } from '../../audits/audit.service.js';
 import type { CertificateArtifactStore } from '../../certificates/artifacts/certificate-artifact-store.js';
@@ -249,10 +250,12 @@ async function dispatchHostApiCall(
       return await readArtifact(dependencies, context, input, grants);
     case 'secret.grant.resolve':
       return await resolveSecret(dependencies, context, input, grants);
+    case 'crypto.sign':
+      return await signCrypto(dependencies, context, input, grants);
     case 'cloudService.get':
       return await readCloudService(dependencies, context, input);
     case 'http.request':
-      return await requestHttp(dependencies, context, definition, input);
+      return await requestHttp(dependencies, context, definition, input, grants);
     case 'execution.progress':
       return publishProgress(dependencies, context, input);
     case 'execution.checkpoint.save':
@@ -306,11 +309,16 @@ async function requestHttp(
   context: PluginRunnerHostCallContext,
   definition: HostApiMethodDefinition,
   input: Record<string, unknown>,
+  grants: Array<{ id: string; allowedActions: string[] }>,
 ): Promise<Record<string, unknown>> {
   if (!dependencies.httpClient) throw new AppError('PLUGIN_HOST_CALL_DENIED', 'HTTP Host API 未装配');
   const url = stringValue(input.url, 'url');
   assertHttpsUrl(url, 'HTTP URL');
-  await assertRegisteredCloudEndpoint(dependencies, context, url);
+  const directoryUrl = input.directoryUrl === undefined ? undefined : stringValue(input.directoryUrl, 'directoryUrl');
+  if (directoryUrl && new URL(url).origin !== new URL(directoryUrl).origin) {
+    throw new AppError('PLUGIN_HOST_CALL_DENIED', 'HTTP URL 不属于 ACME Directory Origin');
+  }
+  await assertRegisteredCloudEndpoint(dependencies, context, url, grants);
   const method = stringValue(input.method, 'method');
   const headers = stringRecordValue(input.headers, 'headers');
   assertHttpHeaders(url, headers);
@@ -349,9 +357,10 @@ async function assertRegisteredCloudEndpoint(
   dependencies: PluginRunnerHostApiDependencies,
   context: PluginRunnerHostCallContext,
   urlValue: string,
+  grants: Array<{ id: string; allowedActions: string[] }>,
 ): Promise<void> {
-  if (!dependencies.cloudServices) throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Cloud Service Host API 未装配');
   const requestOrigin = new URL(urlValue).origin;
+  if (!dependencies.cloudServices) throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Cloud Service Host API 未装配');
   const services = await dependencies.cloudServices.list(context.tenantId);
   const allowed = services.items.some((service) => {
     if (service.tenantId !== context.tenantId || service.status !== 'ACTIVE' || service.providerKey !== context.pluginId) return false;
@@ -366,6 +375,7 @@ async function assertRegisteredCloudEndpoint(
     throw new AppError('PLUGIN_HOST_CALL_DENIED', 'HTTP URL 未绑定到当前插件的 ACTIVE Cloud Service', { url: urlValue });
   }
 }
+
 
 function assertHttpsUrl(value: string, name: string): void {
   let url: URL;
@@ -476,9 +486,99 @@ async function resolveSecret(
     planDigest: context.planDigest,
     actorId: context.pluginId,
     context: { tenantId: context.tenantId },
+    markUsed: false,
   });
-  // IPC 结果只返回可审计的句柄，绝不把 Secret 明文带入 Runner 日志或结果。
-  return { ok: true, data: { secretRef: resolved.secretRef, versionId: resolved.versionId, fingerprint: resolved.fingerprint, value: '[REDACTED]' } };
+  let publicKeyJwk: Record<string, unknown> | undefined;
+  try {
+    publicKeyJwk = createPublicKey(createPrivateKey(resolved.plainText)).export({ format: 'jwk' }) as Record<string, unknown>;
+  } catch {
+    // 非密钥 Secret 仍保持旧的脱敏返回；crypto.sign 会拒绝它。
+  }
+  return {
+    ok: true,
+    data: {
+      secretRef: resolved.secretRef,
+      versionId: resolved.versionId,
+      fingerprint: resolved.fingerprint,
+      value: '[REDACTED]',
+      ...(publicKeyJwk ? {
+        publicKeyJwk,
+        publicKeyFingerprintSha256: createHash('sha256').update(createPublicKey(createPrivateKey(resolved.plainText)).export({ type: 'spki', format: 'der' })).digest('hex'),
+      } : {}),
+    },
+  };
+}
+
+async function signCrypto(
+  dependencies: PluginRunnerHostApiDependencies,
+  context: PluginRunnerHostCallContext,
+  input: Record<string, unknown>,
+  grants: Array<{ id: string; allowedActions: string[] }>,
+): Promise<Record<string, unknown>> {
+  const grantId = stringValue(input.grantId, 'grantId');
+  const secretRef = stringValue(input.secretRef, 'secretRef');
+  const data = stringValue(input.data, 'data');
+  const signatureAlgorithm = stringValue(input.signatureAlgorithm, 'signatureAlgorithm');
+  assertSelectedGrant(context, grants, grantId, 'crypto.sign');
+  const resolved = await dependencies.security.secrets.resolveForExecution({
+    grantId,
+    secretRef,
+    purpose: 'crypto.sign',
+    runId: context.executionId,
+    stepId: context.executionStepId,
+    executorType: 'PLUGIN_RUNNER',
+    workflowVersionId: context.workflowVersionId,
+    pluginVersionId: context.pluginVersionId,
+    pluginId: context.pluginId,
+    capability: context.capability,
+    planDigest: context.planDigest,
+    actorId: context.pluginId,
+    context: { tenantId: context.tenantId },
+    markUsed: false,
+  });
+  const privateKey = createPrivateKey(resolved.plainText);
+  const publicKey = createPublicKey(privateKey);
+  assertSignatureAlgorithmForKey(signatureAlgorithm, publicKey);
+  const publicKeyJwk = publicKey.export({ format: 'jwk' }) as Record<string, unknown>;
+  const der = signData(input.hashAlgorithm === 'SHA-256' ? 'sha256' : input.hashAlgorithm === 'SHA-384' ? 'sha384' : 'sha512', Buffer.from(data), privateKey);
+  const signature = signatureAlgorithm === 'ES256' ? derToJose(der, 32) : der.toString('base64url');
+  return {
+    ok: true,
+    data: {
+      signatureBase64Url: signature,
+      publicKeyJwk,
+      publicKeyFingerprintSha256: createHash('sha256').update(publicKey.export({ type: 'spki', format: 'der' })).digest('hex'),
+    },
+  };
+}
+
+function assertSignatureAlgorithmForKey(signatureAlgorithm: string, publicKey: ReturnType<typeof createPublicKey>): void {
+  const type = publicKey.asymmetricKeyType;
+  const namedCurve = publicKey.asymmetricKeyDetails?.namedCurve;
+  if (signatureAlgorithm === 'ES256' && type === 'ec' && namedCurve === 'prime256v1') return;
+  if (signatureAlgorithm === 'ES384' && type === 'ec' && namedCurve === 'secp384r1') return;
+  if (signatureAlgorithm === 'RS256' && (type === 'rsa' || type === 'rsa-pss')) return;
+  throw new AppError('PLUGIN_HOST_CALL_DENIED', '签名算法与账户私钥类型不匹配', { signatureAlgorithm, asymmetricKeyType: type, namedCurve });
+}
+
+function derToJose(signature: Buffer, size: number): string {
+  if (signature[0] !== 0x30) throw new AppError('PLUGIN_CONTRACT_INVALID', 'ES256 签名不是 DER 序列');
+  let offset = 2;
+  if (signature[1]! & 0x80) offset += signature[1]! & 0x7f;
+  if (signature[offset] !== 0x02) throw new AppError('PLUGIN_CONTRACT_INVALID', 'ES256 签名缺少 r');
+  const rLength = signature[offset + 1]!;
+  const r = signature.subarray(offset + 2, offset + 2 + rLength);
+  offset += 2 + rLength;
+  if (signature[offset] !== 0x02) throw new AppError('PLUGIN_CONTRACT_INVALID', 'ES256 签名缺少 s');
+  const sLength = signature[offset + 1]!;
+  const s = signature.subarray(offset + 2, offset + 2 + sLength);
+  const normalize = (value: Buffer) => {
+    let result = value;
+    while (result.length > size && result[0] === 0) result = result.subarray(1);
+    if (result.length > size) throw new AppError('PLUGIN_CONTRACT_INVALID', 'ES256 签名整数超出长度');
+    return Buffer.concat([Buffer.alloc(size - result.length), result]);
+  };
+  return Buffer.concat([normalize(r), normalize(s)]).toString('base64url');
 }
 
 function publishProgress(

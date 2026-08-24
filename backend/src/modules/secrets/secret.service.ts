@@ -55,6 +55,8 @@ export interface ResolveSecretInput {
   purpose: string;
   actorId: string;
   context?: RequestContext;
+  /** Plugin Runner 同一执行内可能需要多次签名，不能把执行级 Grant 首次解析后立即消费。 */
+  markUsed?: boolean;
 }
 
 export interface ResolveSecretForServiceInput {
@@ -285,7 +287,7 @@ export class SecretService {
       planDigest: input.planDigest,
       secretRef: input.secretRef,
       action: input.purpose,
-      markUsed: true,
+      markUsed: input.markUsed ?? true,
     });
 
     const version = await this.resolveVersion(secret, parsed.version);

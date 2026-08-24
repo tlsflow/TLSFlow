@@ -131,7 +131,7 @@ const messageSchemas: Record<PluginRunnerMessageType, JsonSchema> = {
     executionStepId: identifier,
     capability: identifier,
     method: { enum: [
-      'cloudService.get', 'artifact.grant.read', 'secret.grant.resolve', 'http.request', 'execution.progress', 'execution.checkpoint.save', 'execution.checkpoint.load',
+      'cloudService.get', 'artifact.grant.read', 'secret.grant.resolve', 'crypto.sign', 'http.request', 'execution.progress', 'execution.checkpoint.save', 'execution.checkpoint.load',
       'execution.isCancelled', 'resourceLock.acquire', 'resourceLock.release', 'audit.append',
     ] },
     input: record,
