@@ -3,6 +3,7 @@ import test from 'node:test';
 import { AgentsApplicationService } from './application/agents.application-service.js';
 import type { AgentTaskEnvelope } from './schema/agents.schema.js';
 import { computeAgentExecutionReceiptDigest, computeAgentPlanDigest, type AgentExecutionReceiptV1, type AgentPlanV1 } from './security/agent-security.contract.js';
+import type { GatewayAgentTaskResultInput } from '../gateway-agents/gateway-agent.types.js';
 
 const now = '2026-08-09T00:00:00.000Z';
 
@@ -56,6 +57,46 @@ test('Agent 任务写操作结果 UNKNOWN 会保留不明状态', async () => {
   assert.equal(updated?.status, 'failed');
   assert.equal(updated?.result?.status, 'UNKNOWN');
   assert.equal(updated?.result?.success, false);
+});
+
+test('GatewayTask 回写在缺少 Receipt 的失败关闭场景使用 Token 绑定的 Agent', async () => {
+  const task = createTask();
+  const targetAgentId = 'agent-target-from-token';
+  task.payload.gatewayTask = {
+    id: 'gateway-task-result-status',
+    payload: {
+      actionType: 'agent.plan.execute',
+      token: { agentId: targetAgentId },
+      policyDecision: { agentId: targetAgentId },
+    },
+  };
+  let captured: GatewayAgentTaskResultInput | undefined;
+  const repository = {
+    getTask: async () => task,
+    updateTask: async (_taskId: string, patch: Partial<AgentTaskEnvelope>) => ({ ...task, ...patch }),
+  };
+  const service = new AgentsApplicationService(repository as never);
+  service.setGatewayTaskResultSink({
+    recordAgentTaskResult: async (input) => {
+      captured = input;
+      return {} as never;
+    },
+  });
+
+  await service.submitResult('tenant-result-status', {
+    agentId: task.agentId,
+    taskId: task.id,
+    leaseId: task.leaseId!,
+    success: false,
+    status: 'FAILED',
+    errorCode: 'GATEWAY_FORWARD_REJECTED',
+    detail: { gatewayResult: { forwarded: false } },
+  });
+
+  assert.equal(captured?.gatewayTaskId, 'gateway-task-result-status');
+  assert.equal(captured?.agentId, targetAgentId);
+  assert.equal(captured?.executionStatus, 'FAILED');
+  assert.equal(captured?.receipt, undefined);
 });
 
 test('Agent v2 队列拒绝摘要被篡改的 Receipt，不能把伪造结果写入任务', async () => {

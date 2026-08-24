@@ -688,6 +688,83 @@ describe('spec014 Gateway 区域路由器', () => {
     assert.equal(gatewayTasks.get(gatewayTask.id)?.result?.errorCode, 'AUTH_FORBIDDEN');
   });
 
+  it('真实 AgentTask Receipt 通过 Agent v2 主链回写 GatewayTask 并消费 Nonce', async () => {
+    const tenantId = 'tenant_gateway_receipt_sync';
+    const db = new PgliteDatabase();
+    await runMigrations(db);
+    const agents = new AgentsApplicationService(new PgAgentsRepository(db));
+    const gatewayAgent = await agents.register(tenantId, {
+      agentKey: 'gateway-agent-receipt-sync',
+      hostname: 'gw-receipt-sync',
+      version: '0.1.0',
+      osType: 'linux',
+      role: 'gateway',
+      zoneIds: ['zone_prod'],
+      adapters: ['forward.agent_task'],
+      capabilities: ['gateway.forward.agent_task'],
+    }, 'req_register_gateway_receipt_sync');
+    const gatewayTasks = new GatewayTaskService({ repositories: await createDurableGatewayTaskRepositories(db) });
+    agents.setGatewayTaskResultSink(gatewayTasks);
+    const forwardingGrant = issueGrant({
+      tenantId,
+      gatewayId: 'gw_receipt_sync',
+      delegatedTargetId: 'agent_target_receipt_sync',
+      delegatedAgentId: 'agent_target_receipt_sync',
+      executionRunId: 'run_receipt_sync',
+      stepId: 'step_receipt_sync',
+    });
+    const materials = createV2Materials(tenantId, 'agent_target_receipt_sync', forwardingGrant.id, 'UNKNOWN');
+    const gatewayTask = gatewayTasks.dispatch({
+      id: 'gateway_task_receipt_sync',
+      idempotencyKey: 'idem_gateway_receipt_sync',
+      tenantId,
+      planId: materials.plan.planId,
+      executionRunId: forwardingGrant.executionRunId,
+      stepId: forwardingGrant.stepId,
+      gatewayId: forwardingGrant.gatewayId,
+      delegatedTargetId: forwardingGrant.delegatedTargetId,
+      target: { id: forwardingGrant.delegatedTargetId, zoneId: 'zone_prod' },
+      adapter: forwardingGrant.routeChannel,
+      action: 'gateway.forward.agent_task',
+      payload: { actionType: materials.grant.actionType, ...materials },
+      grant: materials.grant,
+      forwardingGrant,
+    });
+    const agentTask = await agents.enqueueTask(tenantId, {
+      agentId: gatewayAgent.id,
+      executionRunId: gatewayTask.executionRunId,
+      executionStepId: gatewayTask.stepId,
+      idempotencyKey: gatewayTask.idempotencyKey,
+      payload: {
+        actionType: materials.grant.actionType,
+        token: materials.token,
+        policyDecision: materials.policyDecision,
+        plan: materials.plan,
+        gatewayTask,
+      },
+    }, 'req_enqueue_gateway_receipt_sync');
+    const leaseId = 'lease_gateway_receipt_sync';
+    await agents.ackTask(tenantId, { agentId: gatewayAgent.id, taskId: agentTask.id, leaseId });
+
+    await agents.submitResult(tenantId, {
+      agentId: gatewayAgent.id,
+      taskId: agentTask.id,
+      leaseId,
+      success: false,
+      status: 'UNKNOWN',
+      errorCode: 'AGENT_CONNECTION_LOST',
+      detail: { receipt: materials.receipt },
+    });
+
+    const completed = gatewayTasks.get(gatewayTask.id)!;
+    assert.equal(completed.status, 'unknown');
+    assert.equal(completed.result?.executionStatus, 'UNKNOWN');
+    assert.equal(completed.result?.receipt?.digest, materials.receipt.digest);
+    assert.equal(completed.forwardingGrant?.status, 'used');
+    assert.equal(completed.v2NonceBinding?.nonce, materials.token.nonce);
+    assert.equal(gatewayTasks.listEvidence(gatewayTask.id).length, 1);
+  });
+
   it('目标 Agent 崩溃或超时后写入 UNKNOWN，ForwardingGrant 和 nonce 均禁止重放', async () => {
     const tenantId = 'tenant_gateway_unknown';
     const db = new PgliteDatabase();

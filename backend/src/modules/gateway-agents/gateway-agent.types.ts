@@ -3,6 +3,7 @@ import type {
   AgentCapabilityTokenV1,
   AgentExecutionReceiptV1,
   AgentPlanV1,
+  AgentSecurityStatus,
   AgentV2ContractType,
   PolicyAuthorityDecisionV1,
 } from '../agents/security/agent-security.contract.js';
@@ -216,6 +217,26 @@ export interface GatewayTaskResult {
   /** Agent v2 结果状态；UNKNOWN 表示写入是否发生无法确认。 */
   executionStatus?: 'SUCCESS' | 'FAILED' | 'UNKNOWN' | 'CANCELLED';
   receipt?: AgentExecutionReceiptV1;
+}
+
+/** 真实 Gateway Agent 通过 Agent v2 队列回传结果时使用的唯一同步输入。 */
+export interface GatewayAgentTaskResultInput {
+  gatewayTaskId: string;
+  agentTaskId: string;
+  tenantId: string;
+  agentId: string;
+  leaseId: string;
+  actionType: AgentV2ContractType;
+  success: boolean;
+  executionStatus: AgentSecurityStatus;
+  errorCode?: string;
+  errorMessage?: string;
+  detail: Record<string, unknown>;
+  receipt?: AgentExecutionReceiptV1;
+}
+
+export interface GatewayTaskResultSink {
+  recordAgentTaskResult(input: GatewayAgentTaskResultInput): Promise<GatewayTask>;
 }
 
 export interface GatewayEvidence {

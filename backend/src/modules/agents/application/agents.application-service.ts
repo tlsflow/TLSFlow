@@ -29,6 +29,7 @@ import type { LivenessApplicationService } from '../../liveness/application/live
 import type { AgentCapabilityDiscoveryProjector } from '../discovery/agent-capability-discovery.projector.js';
 import type { StandardDiscoveryProjectionSummary } from '../../plugins/discovery/standard-device-discovery.projector.js';
 import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
+import type { GatewayTaskResultSink } from '../../gateway-agents/gateway-agent.types.js';
 
 export type AgentInstallMaterialPlatform = 'windows_go' | 'windows_compatibility' | 'linux_go';
 
@@ -122,6 +123,7 @@ const PINNED_WINDOWS_ARTIFACTS: Readonly<Record<'windows_go' | 'windows_compatib
 
 export class AgentsApplicationService {
   private readonly offlineTimeoutCounts = new Map<string, number>();
+  private gatewayTaskResultSink?: GatewayTaskResultSink;
   constructor(
     private readonly repository: AgentsRepository = new PgAgentsRepository(),
     private readonly domain = new AgentsDomainService(),
@@ -137,6 +139,10 @@ export class AgentsApplicationService {
 
   getModuleMetadata() {
     return createModuleMetadata('agents', '/api/v1/agents', '011');
+  }
+
+  setGatewayTaskResultSink(sink?: GatewayTaskResultSink): void {
+    this.gatewayTaskResultSink = sink;
   }
 
   async createEnrollmentToken(tenantId: string, input: CreateEnrollmentTokenInput, requestId: string) {
@@ -579,19 +585,19 @@ export class AgentsApplicationService {
     if (task.leaseId !== input.leaseId) throw new AppError('IDEMPOTENCY_CONFLICT', '任务结果 leaseId 不匹配', { taskId: task.id });
     const rawDetail = input.detail ?? {};
     // Receipt 摘要覆盖 tokenId 等绑定标识，必须先按原始合同验证，再执行日志脱敏。
-    const receipt = validateQueuedAgentV2Receipt(task, rawDetail, tenantId, input.status, input.success);
+    const validatedReceipt = validateQueuedAgentV2Receipt(task, rawDetail, tenantId, input.status, input.success);
     const sanitizedDetail = this.domain.sanitizeResultDetail(rawDetail);
     if (['succeeded', 'failed'].includes(task.status)) {
       // 终态任务只接受同一份回执的幂等重传；迟到或替换回执必须显式拒绝，不能静默覆盖。
-      if (receipt) {
+      if (validatedReceipt) {
         const existingReceipt = readReceipt(readRecord(task.result)?.detail);
-        if (!existingReceipt || existingReceipt.digest !== receipt.digest) {
+        if (!existingReceipt || existingReceipt.digest !== validatedReceipt.digest) {
           throw new AppError('RESOURCE_VERSION_CONFLICT', 'Agent v2 迟到 Receipt 与已落账结果不一致，拒绝接受', {
             reason: 'AGENT_V2_LATE_RECEIPT_REJECTED',
             taskId: task.id,
             taskStatus: task.status,
             existingReceiptDigest: existingReceipt?.digest,
-            receiptDigest: receipt.digest,
+            receiptDigest: validatedReceipt.digest,
           });
         }
       }
@@ -608,6 +614,29 @@ export class AgentsApplicationService {
     }
     const outcome = resolveAgentTaskOutcome(input, sanitizedDetail);
     assertAgentTaskResultConsistency(input.success, outcome);
+    const actionType = resolveAgentTaskActionType(task.payload)
+      ?? resolveAgentTaskActionType(readOptionalRecord(task.payload.gatewayTask)?.payload as Record<string, unknown> | undefined);
+    const gatewayTask = readOptionalRecord(task.payload.gatewayTask);
+    const gatewayTaskPayload = readOptionalRecord(gatewayTask?.payload);
+    const gatewayTaskAgentId = readStringValue(readOptionalRecord(gatewayTaskPayload?.token)?.agentId)
+      ?? readStringValue(readOptionalRecord(gatewayTaskPayload?.policyDecision)?.agentId)
+      ?? task.agentId;
+    if (this.gatewayTaskResultSink && actionType && gatewayTask?.id) {
+      await this.gatewayTaskResultSink.recordAgentTaskResult({
+        gatewayTaskId: String(gatewayTask.id),
+        agentTaskId: task.id,
+        tenantId,
+        agentId: validatedReceipt?.agentId ?? gatewayTaskAgentId,
+        leaseId: input.leaseId,
+        actionType,
+        success: input.success,
+        executionStatus: outcome,
+        errorCode: input.errorCode,
+        errorMessage: input.errorMessage,
+        detail: sanitizedDetail,
+        receipt: validatedReceipt,
+      });
+    }
     console.info('[agents.submitResult]', JSON.stringify({
       tenantId,
       agentId: input.agentId,

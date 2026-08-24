@@ -5,7 +5,7 @@ import {
   validateAgentCapabilityToken,
   validatePolicyAuthorityDecision,
 } from '../agents/security/agent-security.contract.js';
-import { assertGatewayRouteChannel, assertGatewayTaskType, type GatewayDelegatedTaskInput, type GatewayEvidence, type GatewayTask, type GatewayTaskResult } from './gateway-agent.types.js';
+import { assertGatewayRouteChannel, assertGatewayTaskType, type GatewayAgentTaskResultInput, type GatewayDelegatedTaskInput, type GatewayEvidence, type GatewayTask, type GatewayTaskResult } from './gateway-agent.types.js';
 import type { GatewayTaskAuditWriter } from './gateway-target-history.service.js';
 import type { DurableGatewayTaskRepositories } from './gateway-task.repository.js';
 
@@ -217,6 +217,110 @@ export class GatewayTaskService {
       updatedAt: finishedAt,
     });
     this.auditWriter?.recordResult(completed);
+    return completed;
+  }
+
+  /**
+   * 将真实 Gateway Agent 的 Agent v2 Receipt 回写到原始 GatewayTask。
+   * 该入口负责租约、ForwardingGrant、Nonce 和 UNKNOWN 的同一条状态链，
+   * 不允许通过第二个执行器重新转发任务。
+   */
+  async recordAgentTaskResult(input: GatewayAgentTaskResultInput): Promise<GatewayTask> {
+    let task = this.requireTask(input.gatewayTaskId);
+    if (task.result) return task;
+    if (task.tenantId !== input.tenantId
+      || (task.delegatedTargetId !== input.agentId && task.forwardingGrant?.delegatedAgentId !== input.agentId)) {
+      throw new AppError('AUTH_FORBIDDEN', 'Agent v2 Receipt 与 GatewayTask 身份绑定不一致', {
+        reason: 'GATEWAY_AGENT_TASK_RESULT_BINDING_DENIED',
+        gatewayTaskId: input.gatewayTaskId,
+        agentTaskId: input.agentTaskId,
+      });
+    }
+    const payload = asRecord(task.payload);
+    if (payload.actionType !== input.actionType) {
+      throw new AppError('AUTH_FORBIDDEN', 'Agent v2 Receipt 动作与 GatewayTask 不一致', {
+        reason: 'GATEWAY_AGENT_TASK_ACTION_BINDING_DENIED',
+        gatewayTaskId: input.gatewayTaskId,
+        actionType: input.actionType,
+      });
+    }
+    if (task.leaseId && task.leaseId !== input.leaseId) {
+      throw new AppError('IDEMPOTENCY_CONFLICT', 'Agent v2 Receipt 的 leaseId 与 GatewayTask 不一致', {
+        gatewayTaskId: input.gatewayTaskId,
+        agentTaskId: input.agentTaskId,
+      });
+    }
+    if (!task.leaseId) {
+      task = this.ack(task.id, input.leaseId);
+      task = this.markRunning(task.id, input.leaseId);
+    }
+
+    if (!task.v2NonceBinding) {
+      const token = validateAgentCapabilityToken(payload.token);
+      const decision = validatePolicyAuthorityDecision(payload.policyDecision);
+      const forwardingGrant = task.forwardingGrant;
+      if (!forwardingGrant) {
+        throw new AppError('AUTH_FORBIDDEN', 'GatewayTask 缺少 ForwardingGrant，拒绝接受 Agent v2 Receipt', {
+          reason: 'GATEWAY_FORWARDING_GRANT_REQUIRED',
+          gatewayTaskId: input.gatewayTaskId,
+        });
+      }
+      task = this.consumeV2NonceAndForwardingGrant(task.id, {
+        tenantId: token.tenantId,
+        agentId: token.agentId,
+        tokenId: token.tokenId,
+        nonce: token.nonce,
+        revocationRef: decision.revocationRef,
+      }, {
+        ...forwardingGrant,
+        status: 'used',
+        remainingUses: 0,
+        usedAt: new Date().toISOString(),
+      });
+    }
+
+    const executionStatus = input.actionType === 'agent.plan.execute' && input.executionStatus !== 'SUCCESS'
+      ? 'UNKNOWN'
+      : input.executionStatus;
+    const status: GatewayTaskResult['status'] = executionStatus === 'SUCCESS'
+      ? 'success'
+      : executionStatus === 'UNKNOWN'
+        ? 'unknown'
+        : executionStatus === 'CANCELLED'
+          ? 'cancelled'
+          : 'failed';
+    const evidence = this.appendEvidenceInternal({
+      taskId: task.id,
+      gatewayId: task.gatewayId,
+      delegatedTargetId: task.delegatedTargetId,
+      adapter: task.adapter,
+      forwardingGrantId: task.forwardingGrant?.id,
+      delegatedAgentId: task.forwardingGrant?.delegatedAgentId,
+      executionRunId: task.executionRunId,
+      stepId: task.stepId,
+      action: task.action,
+      result: status,
+      evidenceRef: `audit://gateway-route/${task.id}/agent-task/${input.agentTaskId}`,
+      kind: 'response_summary',
+      summary: status === 'success' ? 'Gateway Agent v2 返回真实成功 Receipt' : `Gateway Agent v2 返回 ${executionStatus}`,
+      metadata: {
+        agentTaskId: input.agentTaskId,
+        agentId: input.agentId,
+        actionType: input.actionType,
+        detail: input.detail,
+      },
+    });
+    const completed = this.result(task.id, input.leaseId, {
+      success: status === 'success',
+      status,
+      summary: status === 'success' ? 'Gateway Agent v2 已返回真实授权结果' : `Gateway Agent v2 返回 ${executionStatus}`,
+      evidenceIds: [evidence.id],
+      errorCode: status === 'success' ? undefined : input.errorCode ?? (status === 'unknown' ? 'GATEWAY_EXECUTION_UNKNOWN' : 'AGENT_V2_EXECUTION_FAILED'),
+      errorMessage: status === 'success' ? undefined : input.errorMessage,
+      executionStatus,
+      receipt: input.receipt,
+    });
+    await this.flushPersistence();
     return completed;
   }
 

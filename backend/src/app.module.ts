@@ -276,6 +276,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     agentCapabilityDiscoveryProjector,
     tasksService,
   );
+  agentsService.setGatewayTaskResultSink(gatewayTasksService);
   const capabilitiesService = new CapabilitiesApplicationService(new PgCapabilitiesRepository(appDb));
   const workflowTemplatesService = new WorkflowTemplatesApplicationService(
     new WorkflowTemplatesDomainService(
