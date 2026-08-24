@@ -2957,7 +2957,18 @@ export default {
       list: '表格视图'
     },
     selection: {
-      selectedCount: '已选中 {count} / {total} 个资产'
+      selectedCount: '已选中 {count} / {total} 个资产',
+      actions: {
+        bulkDelete: '批量删除',
+        bulkUpdateCertificate: '批量更新证书'
+      },
+      bulkDeleteRisk: '将删除所选应用资产及其人工目标关联；系统发现的框架、站点和受管目标不会被删除。',
+      bulkDeleteSuccess: '已删除 {count} 个应用资产。',
+      bulkDeletePartialSuccess: '已删除 {succeeded} 个应用资产，{failed} 个资产删除失败。',
+      bulkUpdateDescription: '将为绑定同一证书域名“{domain}”的 {count} 个应用资产选择并提交新证书版本。',
+      bulkUpdateFailed: '批量更新证书失败，{count} 个资产均未提交。',
+      bulkUpdateSuccess: '已为 {count} 个应用资产提交证书更新。',
+      bulkUpdatePartialSuccess: '已提交 {succeeded} 个应用资产的证书更新，{failed} 个资产失败。'
     },
     aria: {
       selectCard: '选择资产 {name}',

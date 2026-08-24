@@ -2830,7 +2830,18 @@ export default {
       list: '表形式表示',
     },
     selection: {
-      selectedCount: '{count} / {total} 件を選択中'
+      selectedCount: '{count} / {total} 件を選択中',
+      actions: {
+        bulkDelete: '一括削除',
+        bulkUpdateCertificate: '証明書を一括更新'
+      },
+      bulkDeleteRisk: '選択したアプリケーション資産と手動ターゲット関連を削除します。検出済みのフレームワーク、サイト、管理対象は保持されます。',
+      bulkDeleteSuccess: '{count} 件のアプリケーション資産を削除しました。',
+      bulkDeletePartialSuccess: '{succeeded} 件を削除しました。{failed} 件は失敗しました。',
+      bulkUpdateDescription: '同じ証明書ドメイン「{domain}」に紐づく {count} 件のアプリケーション資産に適用する証明書バージョンを選択します。',
+      bulkUpdateFailed: '証明書の一括更新に失敗しました。{count} 件とも送信されていません。',
+      bulkUpdateSuccess: '{count} 件のアプリケーション資産に証明書更新を送信しました。',
+      bulkUpdatePartialSuccess: '{succeeded} 件に送信しました。{failed} 件は失敗しました。'
     },
     aria: {
       selectCard: 'アセット {name} を選択',

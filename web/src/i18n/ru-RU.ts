@@ -2804,7 +2804,18 @@ export default {
       list: 'Таблица',
     },
     selection: {
-      selectedCount: 'Выбрано активов: {count} / {total}'
+      selectedCount: 'Выбрано активов: {count} / {total}',
+      actions: {
+        bulkDelete: 'Удалить выбранные',
+        bulkUpdateCertificate: 'Массово обновить сертификат'
+      },
+      bulkDeleteRisk: 'Выбранные активы приложений и их ручные связи с целями будут удалены. Обнаруженные фреймворки, сайты и управляемые цели сохранятся.',
+      bulkDeleteSuccess: 'Удалено активов приложений: {count}.',
+      bulkDeletePartialSuccess: 'Удалено: {succeeded}; ошибок: {failed}.',
+      bulkUpdateDescription: 'Выберите и отправьте новую версию сертификата для {count} активов, связанных с одним доменом сертификата «{domain}».',
+      bulkUpdateFailed: 'Массовое обновление не выполнено: ни один из {count} активов не отправлен.',
+      bulkUpdateSuccess: 'Обновление сертификата отправлено для активов: {count}.',
+      bulkUpdatePartialSuccess: 'Отправлено: {succeeded}; ошибок: {failed}.'
     },
     aria: {
       selectCard: 'Выбрать актив {name}',

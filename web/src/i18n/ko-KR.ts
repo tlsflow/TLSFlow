@@ -2804,7 +2804,18 @@ export default {
       list: '표 보기',
     },
     selection: {
-      selectedCount: '{count} / {total}개 자산 선택됨'
+      selectedCount: '{count} / {total}개 자산 선택됨',
+      actions: {
+        bulkDelete: '일괄 삭제',
+        bulkUpdateCertificate: '인증서 일괄 업데이트'
+      },
+      bulkDeleteRisk: '선택한 응용 자산과 수동 대상 연결을 삭제합니다. 검색된 프레임워크, 사이트 및 관리 대상은 유지됩니다.',
+      bulkDeleteSuccess: '응용 자산 {count}개를 삭제했습니다.',
+      bulkDeletePartialSuccess: '{succeeded}개를 삭제했으며 {failed}개는 실패했습니다.',
+      bulkUpdateDescription: '동일한 인증서 도메인 “{domain}”에 연결된 응용 자산 {count}개에 적용할 인증서 버전을 선택합니다.',
+      bulkUpdateFailed: '인증서 일괄 업데이트에 실패했습니다. {count}개 모두 제출되지 않았습니다.',
+      bulkUpdateSuccess: '응용 자산 {count}개의 인증서 업데이트를 제출했습니다.',
+      bulkUpdatePartialSuccess: '{succeeded}개에 제출했으며 {failed}개는 실패했습니다.'
     },
     aria: {
       selectCard: '자산 {name} 선택',

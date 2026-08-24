@@ -2935,7 +2935,18 @@ export default {
       list: 'Table view',
     },
     selection: {
-      selectedCount: 'Selected {count} / {total} assets'
+      selectedCount: 'Selected {count} / {total} assets',
+      actions: {
+        bulkDelete: 'Bulk delete',
+        bulkUpdateCertificate: 'Bulk update certificate'
+      },
+      bulkDeleteRisk: 'This removes the selected application assets and their manual target associations. Discovered frameworks, sites, and managed targets are preserved.',
+      bulkDeleteSuccess: 'Deleted {count} application assets.',
+      bulkDeletePartialSuccess: 'Deleted {succeeded} application assets; {failed} failed.',
+      bulkUpdateDescription: 'Choose and submit a new certificate version for {count} application assets bound to the same certificate domain “{domain}”.',
+      bulkUpdateFailed: 'Certificate update failed; none of the {count} assets were submitted.',
+      bulkUpdateSuccess: 'Certificate update submitted for {count} application assets.',
+      bulkUpdatePartialSuccess: 'Certificate update submitted for {succeeded} application assets; {failed} failed.'
     },
     aria: {
       selectCard: 'Select asset {name}',

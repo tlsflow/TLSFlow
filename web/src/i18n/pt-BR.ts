@@ -2804,7 +2804,18 @@ export default {
       list: 'Visualização de tabela',
     },
     selection: {
-      selectedCount: '{count} / {total} ativos selecionados'
+      selectedCount: '{count} / {total} ativos selecionados',
+      actions: {
+        bulkDelete: 'Excluir em lote',
+        bulkUpdateCertificate: 'Atualizar certificados em lote'
+      },
+      bulkDeleteRisk: 'Isso remove os ativos de aplicação selecionados e suas associações de destino manuais. Frameworks, sites e destinos gerenciados descobertos são preservados.',
+      bulkDeleteSuccess: '{count} ativos de aplicação excluídos.',
+      bulkDeletePartialSuccess: '{succeeded} ativos excluídos; {failed} falharam.',
+      bulkUpdateDescription: 'Escolha e envie uma nova versão do certificado para {count} ativos vinculados ao mesmo domínio de certificado “{domain}”.',
+      bulkUpdateFailed: 'A atualização do certificado falhou; nenhum dos {count} ativos foi enviado.',
+      bulkUpdateSuccess: 'Atualização do certificado enviada para {count} ativos.',
+      bulkUpdatePartialSuccess: 'Atualização enviada para {succeeded} ativos; {failed} falharam.'
     },
     aria: {
       selectCard: 'Selecionar ativo {name}',

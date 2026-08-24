@@ -2829,7 +2829,18 @@ export default {
       list: '表格檢視',
     },
     selection: {
-      selectedCount: '已選取 {count} / {total} 個資產'
+      selectedCount: '已選取 {count} / {total} 個資產',
+      actions: {
+        bulkDelete: '批次刪除',
+        bulkUpdateCertificate: '批次更新憑證'
+      },
+      bulkDeleteRisk: '將刪除所選應用資產及其手動目標關聯；系統發現的框架、站點與受管目標不會刪除。',
+      bulkDeleteSuccess: '已刪除 {count} 個應用資產。',
+      bulkDeletePartialSuccess: '已刪除 {succeeded} 個應用資產，{failed} 個資產刪除失敗。',
+      bulkUpdateDescription: '將為繫結相同憑證網域「{domain}」的 {count} 個應用資產選擇並提交新憑證版本。',
+      bulkUpdateFailed: '批次更新憑證失敗，{count} 個資產均未提交。',
+      bulkUpdateSuccess: '已為 {count} 個應用資產提交憑證更新。',
+      bulkUpdatePartialSuccess: '已提交 {succeeded} 個應用資產的憑證更新，{failed} 個資產失敗。'
     },
     aria: {
       selectCard: '選取資產 {name}',

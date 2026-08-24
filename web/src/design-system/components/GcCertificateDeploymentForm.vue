@@ -13,10 +13,12 @@ const props = withDefaults(defineProps<{
   certificateVersions: readonly ApiRecord[]
   preflightChecks?: readonly ApiRecord[]
   loading?: boolean
+  submitLabel?: string
 }>(), {
   siteName: '',
   preflightChecks: () => [],
   loading: false,
+  submitLabel: '',
 })
 
 type CertificateVersionSelectionMode = 'EXPLICIT' | 'LATEST_AUTO'
@@ -178,7 +180,7 @@ function readString(record: ApiRecord | null | undefined, candidates: readonly s
         {{ t('designSystem.deploymentWizard.actions.cancel') }}
       </button>
       <button class="gc-button gc-button--primary" type="submit" :disabled="!canSubmit">
-        {{ loading ? t('assets.actions.creating') : t('assets.deployment.deployThisVersion') }}
+        {{ loading ? t('assets.actions.creating') : (submitLabel || t('assets.deployment.deployThisVersion')) }}
       </button>
     </footer>
   </form>

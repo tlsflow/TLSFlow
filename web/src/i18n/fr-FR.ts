@@ -2867,7 +2867,18 @@ export default {
       list: 'Vue tableau',
     },
     selection: {
-      selectedCount: '{count} / {total} actifs sélectionnés'
+      selectedCount: '{count} / {total} actifs sélectionnés',
+      actions: {
+        bulkDelete: 'Suppression groupée',
+        bulkUpdateCertificate: 'Mettre à jour les certificats'
+      },
+      bulkDeleteRisk: 'Les actifs sélectionnés et leurs associations de cibles manuelles seront supprimés. Les frameworks, sites et cibles gérées découverts sont conservés.',
+      bulkDeleteSuccess: '{count} actifs ont été supprimés.',
+      bulkDeletePartialSuccess: '{succeeded} actifs ont été supprimés ; {failed} échecs.',
+      bulkUpdateDescription: 'Choisissez et envoyez une nouvelle version du certificat pour {count} actifs liés au même domaine de certificat « {domain} ».',
+      bulkUpdateFailed: 'La mise à jour a échoué ; aucun des {count} actifs n’a été envoyé.',
+      bulkUpdateSuccess: 'Mise à jour du certificat envoyée pour {count} actifs.',
+      bulkUpdatePartialSuccess: 'Mise à jour envoyée pour {succeeded} actifs ; {failed} échecs.'
     },
     aria: {
       selectCard: 'Sélectionner l’actif {name}',

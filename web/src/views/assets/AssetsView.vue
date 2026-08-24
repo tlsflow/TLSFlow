@@ -51,6 +51,7 @@ type WorkflowRunnerType = 'CONTROL_PLANE' | 'GATEWAY'
 type WorkflowVersionSelection = 'PINNED' | 'LATEST_PUBLISHED'
 type AssetWizardStep = 1 | 2 | 3
 type AssetCertificateLifecycle = 'unknown' | 'expired' | 'expiringSoon' | 'valid' | 'updateAvailable'
+type CertificateDeploymentSelection = { selectionMode: 'EXPLICIT' | 'LATEST_AUTO'; certificateVersionId: string }
 
 const ASSET_WORKSPACE_PAGE_SIZE = 20
 
@@ -126,7 +127,20 @@ const assetOverviewPageCount = computed(() =>
   Math.max(1, Math.ceil(assetOverviewTotal.value / assetOverviewPageSize.value)),
 )
 const selectedAssetIds = ref<Set<string>>(new Set())
+const selectedAssetRecords = ref<Map<string, ApiRecord>>(new Map())
 const selectedAssetCount = computed(() => selectedAssetIds.value.size)
+const selectedAssetItems = computed<ApiRecord[]>(() => [...selectedAssetIds.value]
+  .map((assetId) => selectedAssetRecords.value.get(assetId))
+  .filter((asset): asset is ApiRecord => Boolean(asset)))
+const selectedCertificateDomain = computed(() => {
+  if (selectedAssetItems.value.length !== selectedAssetCount.value || selectedAssetItems.value.length === 0) return ''
+  const domains = selectedAssetItems.value.map((asset) => assetCertificateDomain(asset))
+  if (domains.some((domain) => !domain)) return ''
+  const firstDomain = domains[0]
+  return domains.every((domain) => domain === firstDomain) ? firstDomain : ''
+})
+const canBatchUpdateCertificates = computed(() => Boolean(selectedCertificateDomain.value))
+const canExecuteDeployments = computed(() => permissionStore.hasPermission('deployment.plan.execute'))
 const canLoadPreviousAssetOverviewPage = computed(() => assetOverviewPage.value > 1)
 const canLoadNextAssetOverviewPage = computed(() => assetOverviewPage.value < assetOverviewPageCount.value)
 const canManageAssets = computed(() => permissionStore.hasPermission('service_asset.manage'))
@@ -194,6 +208,9 @@ const deploymentPlanId = ref('')
 const deploymentDryRunChecks = ref<ApiRecord[]>([])
 const deploymentCertificateItems = ref<ApiRecord[]>([])
 const deploymentCertificateVersionItems = ref<ApiRecord[]>([])
+const bulkCertificateUpdateMode = ref(false)
+const bulkCertificateUpdateAssetIds = ref<string[]>([])
+const bulkCertificateUpdateDomain = ref('')
 const deploymentRecords = ref<ApiRecord[]>([])
 const deploymentRecordsLoading = ref(false)
 const deploymentRecordsError = ref('')
@@ -219,6 +236,7 @@ const workflowVersionListError = ref('')
 const gatewayListError = ref('')
 const credentialProfileError = ref('')
 const certificateFormatError = ref('')
+const bulkDeleteLoading = ref(false)
 const pluginBindingId = ref('')
 const pluginBindingVersion = ref(0)
 const effectiveCapability = ref<ApiRecord | null>(null)
@@ -365,6 +383,21 @@ const deploymentCertificateVersions = computed<ApiRecord[]>(() => {
   const currentVersionId = deploymentCurrentCertificateVersionId.value
   return deploymentCertificateVersionItems.value.filter((item) => firstAssetText(item, ['id', 'certificateVersionId']) === currentVersionId)
 })
+
+const deploymentDialogTitle = computed(() => bulkCertificateUpdateMode.value
+  ? t('assets.selection.actions.bulkUpdateCertificate')
+  : t('assets.deployment.dialogTitle'))
+
+const deploymentDialogDescription = computed(() => bulkCertificateUpdateMode.value
+  ? t('assets.selection.bulkUpdateDescription', {
+      count: bulkCertificateUpdateAssetIds.value.length,
+      domain: bulkCertificateUpdateDomain.value,
+    })
+  : t('assets.deployment.dialogDescription'))
+
+const deploymentSubmitLabel = computed(() => bulkCertificateUpdateMode.value
+  ? t('assets.selection.actions.bulkUpdateCertificate')
+  : t('assets.deployment.deployThisVersion'))
 
 const deploymentSiteName = computed(() => firstAssetText(
   deploymentApplicationAsset.value ?? {},
@@ -758,6 +791,12 @@ function closeDeploymentDialog() {
   deploymentPlanId.value = ''
 }
 
+function resetBulkCertificateUpdateState(): void {
+  bulkCertificateUpdateMode.value = false
+  bulkCertificateUpdateAssetIds.value = []
+  bulkCertificateUpdateDomain.value = ''
+}
+
 async function loadDeploymentDialogOptions() {
   deploymentLoading.value = true
   deploymentError.value = ''
@@ -775,9 +814,12 @@ async function loadDeploymentDialogOptions() {
   }
 }
 
-async function ensureDeploymentPlan(selection: { selectionMode: 'EXPLICIT' | 'LATEST_AUTO'; certificateVersionId: string }): Promise<string> {
-  if (deploymentPlanId.value) return deploymentPlanId.value
-  const applicationAssetId = selectedApplicationAssetId.value
+async function runCertificateDeployment(
+  applicationAssetId: string,
+  selection: CertificateDeploymentSelection,
+  settings: { dryRunEnabled: boolean },
+  showPreflight: boolean,
+): Promise<'PENDING_APPROVAL' | 'STARTED'> {
   if (!applicationAssetId || !selection.certificateVersionId) {
     throw new Error(t('assets.deployment.errors.missingApplicationAssetId'))
   }
@@ -789,36 +831,74 @@ async function ensureDeploymentPlan(selection: { selectionMode: 'EXPLICIT' | 'LA
   })
   const planId = String(created.data?.id ?? '')
   if (!planId) throw new Error(t('assets.deployment.errors.createPlanMissingId'))
-  deploymentPlanId.value = planId
-  return planId
+  if (!bulkCertificateUpdateMode.value) deploymentPlanId.value = planId
+
+  if (settings.dryRunEnabled) {
+    const preflight = await dryRunDeploymentPlan({ planId })
+    if (showPreflight) deploymentDryRunChecks.value = extractDeploymentPreflightChecks(preflight.data)
+  } else if (showPreflight) {
+    deploymentDryRunChecks.value = []
+  }
+
+  const submitted = await submitDeploymentPlan(planId)
+  const submittedPlan = submitted.data ?? {}
+  const status = String(submittedPlan.status ?? '')
+  if (status === 'PENDING_APPROVAL') return 'PENDING_APPROVAL'
+  await executeDeploymentPlan(planId)
+  return 'STARTED'
 }
 
 async function deployCertificateVersion(selection: { selectionMode: 'EXPLICIT' | 'LATEST_AUTO'; certificateVersionId: string }) {
   deploymentLoading.value = true
   deploymentError.value = ''
   try {
-    const planId = await ensureDeploymentPlan(selection)
     const settingsResult = await getDeploymentTaskSettings()
     const settings = settingsResult.data?.deploymentTasks ?? { dryRunEnabled: true, approvalEnabled: true }
-    if (settings.dryRunEnabled) {
-      const preflight = await dryRunDeploymentPlan({ planId })
-      deploymentDryRunChecks.value = extractDeploymentPreflightChecks(preflight.data)
-    } else {
-      deploymentDryRunChecks.value = []
+    const isBulk = bulkCertificateUpdateMode.value
+    const targetAssetIds = isBulk
+      ? [...bulkCertificateUpdateAssetIds.value]
+      : [selectedApplicationAssetId.value]
+    const failures: Array<{ id: string; message: string }> = []
+    let pendingApprovalCount = 0
+    let startedCount = 0
+
+    for (const applicationAssetId of targetAssetIds) {
+      try {
+        const status = await runCertificateDeployment(applicationAssetId, selection, settings, !isBulk)
+        if (status === 'PENDING_APPROVAL') pendingApprovalCount += 1
+        else startedCount += 1
+      } catch (cause) {
+        failures.push({
+          id: applicationAssetId,
+          message: cause instanceof Error ? cause.message : t('assets.deployment.errors.deployFailed'),
+        })
+      }
     }
-    const submitted = await submitDeploymentPlan(planId)
-    const submittedPlan = submitted.data ?? {}
-    const status = String(submittedPlan.status ?? '')
-    if (status === 'PENDING_APPROVAL') {
+
+    if (!isBulk) {
+      if (failures.length > 0) {
+        deploymentError.value = failures[0]?.message ?? t('assets.deployment.errors.deployFailed')
+        return
+      }
       await loadDeploymentRecords(selectedApplicationAssetId.value)
       deploymentDialogOpen.value = false
-      notifyDeploymentStarted('warning')
+      notifyDeploymentStarted(pendingApprovalCount > 0 ? 'warning' : 'success')
       return
     }
-    await executeDeploymentPlan(planId)
-    await loadDeploymentRecords(selectedApplicationAssetId.value)
+
+    const succeededCount = pendingApprovalCount + startedCount
+    if (succeededCount === 0) {
+      deploymentError.value = t('assets.selection.bulkUpdateFailed', { count: failures.length })
+      return
+    }
+
+    replaceSelectedAssetIds(failures.map((failure) => failure.id))
     deploymentDialogOpen.value = false
-    notifyDeploymentStarted('success')
+    await loadAssetOverviewPage(assetOverviewPage.value)
+    const successMessage = failures.length > 0
+      ? t('assets.selection.bulkUpdatePartialSuccess', { succeeded: succeededCount, failed: failures.length })
+      : t('assets.selection.bulkUpdateSuccess', { count: succeededCount })
+    notifySelectionMessage(successMessage, failures.length > 0 ? 'warning' : (pendingApprovalCount > 0 ? 'warning' : 'success'))
   } catch (cause) {
     deploymentError.value = cause instanceof Error ? cause.message : t('assets.deployment.errors.deployFailed')
   } finally {
@@ -1736,11 +1816,69 @@ function isAssetSelected(assetId: string): boolean {
   return selectedAssetIds.value.has(assetId)
 }
 
-function toggleAssetSelection(assetId: string, selected: boolean): void {
+function replaceSelectedAssetIds(assetIds: readonly string[]): void {
+  const nextIds = [...new Set(assetIds.map((assetId) => assetId.trim()).filter(Boolean))]
+  const nextRecords = new Map<string, ApiRecord>()
+  for (const assetId of nextIds) {
+    const record = selectedAssetRecords.value.get(assetId)
+    if (record) nextRecords.set(assetId, record)
+  }
+  selectedAssetIds.value = new Set(nextIds)
+  selectedAssetRecords.value = nextRecords
+}
+
+function clearSelectedAssets(): void {
+  selectedAssetIds.value = new Set()
+  selectedAssetRecords.value = new Map()
+}
+
+function toggleAssetSelection(assetId: string, selected: boolean, asset?: ApiRecord): void {
   const next = new Set(selectedAssetIds.value)
+  const nextRecords = new Map(selectedAssetRecords.value)
   if (selected) next.add(assetId)
   else next.delete(assetId)
+  if (selected && asset) nextRecords.set(assetId, asset)
+  if (!selected) nextRecords.delete(assetId)
   selectedAssetIds.value = next
+  selectedAssetRecords.value = nextRecords
+}
+
+async function openBatchCertificateUpdateDialog(): Promise<void> {
+  if (!canBatchUpdateCertificates.value || !canExecuteDeployments.value || deploymentLoading.value) return
+  const firstAsset = selectedAssetItems.value[0]
+  if (!firstAsset) return
+  bulkCertificateUpdateMode.value = true
+  bulkCertificateUpdateAssetIds.value = [...selectedAssetIds.value]
+  bulkCertificateUpdateDomain.value = selectedCertificateDomain.value
+  await openDeploymentDialog(assetOverviewCardRow(toAssetOverviewCard(firstAsset)))
+}
+
+async function deleteSelectedAssetCards(): Promise<void> {
+  if (selectedAssetCount.value === 0 || bulkDeleteLoading.value) return
+  const targetIds = [...selectedAssetIds.value]
+  bulkDeleteLoading.value = true
+  try {
+    const results = await Promise.allSettled(targetIds.map((assetId) => deleteServiceAsset(assetId)))
+    const failedIds = targetIds.filter((_, index) => results[index]?.status === 'rejected')
+    replaceSelectedAssetIds(failedIds)
+    await loadAssetOverviewPage(assetOverviewPage.value)
+    const succeededCount = targetIds.length - failedIds.length
+    if (failedIds.length > 0) {
+      notifySelectionMessage(t('assets.selection.bulkDeletePartialSuccess', {
+        succeeded: succeededCount,
+        failed: failedIds.length,
+      }), 'warning')
+      return
+    }
+    clearSelectedAssets()
+    notifySelectionMessage(t('assets.selection.bulkDeleteSuccess', { count: succeededCount }), 'success')
+  } finally {
+    bulkDeleteLoading.value = false
+  }
+}
+
+function notifySelectionMessage(message: string, tone: 'success' | 'warning' | 'danger' | 'info'): void {
+  window.dispatchEvent(new CustomEvent('gcac:toast', { detail: { message, tone } }))
 }
 
 function toAssetOverviewCard(asset: ApiRecord): AssetOverviewCard {
@@ -1811,6 +1949,22 @@ function assetOverviewCertificate(asset: ApiRecord): AssetCardCertificate {
     remainingLabel: assetCertificateRemainingLabel(lifecycle, countdown),
     tone: assetCertificateLifecycleTone(lifecycle),
   }
+}
+
+function assetCertificateDomain(asset: ApiRecord): string {
+  const domain = firstAssetText(asset, [
+    'currentCertificate.commonName',
+    'currentCertificate.subject.commonName',
+    'metadata.currentCertificate.commonName',
+    'metadata.currentCertificate.subject.commonName',
+    'certificate.commonName',
+    'certificate.subject.commonName',
+    'certificateBinding.domainName',
+    'certificateBinding.domain',
+    'targetBinding.certificateBinding.domainName',
+    'targetBinding.certificateBinding.domain',
+  ])
+  return domain.trim().toLowerCase().replace(/\.$/, '')
 }
 
 function firstAssetText(asset: ApiRecord, candidates: readonly string[]): string {
@@ -2243,6 +2397,12 @@ async function loadAssetOverviewPage(page: number): Promise<void> {
     assetOverviewPageSize.value = resultPage.pageSize > 0 ? resultPage.pageSize : ASSET_WORKSPACE_PAGE_SIZE
     assetOverviewTotal.value = resultPage.total
     assetOverviewItems.value = [...resultPage.items]
+    const nextSelectedRecords = new Map(selectedAssetRecords.value)
+    for (const asset of resultPage.items) {
+      const assetId = toAssetOverviewCard(asset).id
+      if (selectedAssetIds.value.has(assetId)) nextSelectedRecords.set(assetId, asset)
+    }
+    selectedAssetRecords.value = nextSelectedRecords
   } catch (cause) {
     assetOverviewError.value = cause instanceof Error ? cause.message : t('businessPage.apiFailed')
   } finally {
@@ -2348,6 +2508,10 @@ watch(
   },
   { immediate: true },
 )
+
+watch(deploymentDialogOpen, (opened) => {
+  if (!opened) resetBulkCertificateUpdateState()
+})
 
 watch(
   () => assetDraft.managementMode,
@@ -2694,6 +2858,28 @@ function managedTargetLabel(target: ApiRecord): string {
             <span v-if="selectedAssetCount > 0" class="asset-page__workspace-selected-count">
               {{ t('assets.selection.selectedCount', { count: selectedAssetCount, total: assetOverviewTotal }) }}
             </span>
+            <div v-if="selectedAssetCount > 0" class="asset-page__selection-actions" data-testid="asset-selection-actions">
+              <GcConfirmAction
+                v-if="canManageAssets"
+                class="asset-page__selection-delete-action"
+                :action-name="t('assets.selection.actions.bulkDelete')"
+                :impact-count="selectedAssetCount"
+                :risk-text="t('assets.selection.bulkDeleteRisk')"
+                :confirm-text="t('assets.actions.delete')"
+                :disabled="bulkDeleteLoading"
+                data-testid="asset-bulk-delete-action"
+                @confirm="deleteSelectedAssetCards"
+              />
+              <GcPermissionButton
+                v-if="canBatchUpdateCertificates && canExecuteDeployments"
+                class="asset-page__selection-update-action gc-button--secondary"
+                permission="deployment.plan.execute"
+                data-testid="asset-bulk-update-action"
+                @click="openBatchCertificateUpdateDialog"
+              >
+                {{ t('assets.selection.actions.bulkUpdateCertificate') }}
+              </GcPermissionButton>
+            </div>
           </div>
           <div class="asset-page__workspace-actions">
             <GcPermissionButton class="gc-button gc-button--secondary" permission="service_asset.manage" @click="onboardingDialogOpen = true">
@@ -2784,7 +2970,7 @@ function managedTargetLabel(target: ApiRecord): string {
                   :aria-label="t('assets.aria.selectCard', { name: card.name })"
                   :data-testid="`asset-card-select-${card.id}`"
                   @click.stop
-                  @change="toggleAssetSelection(card.id, ($event.target as HTMLInputElement).checked)"
+                  @change="toggleAssetSelection(card.id, ($event.target as HTMLInputElement).checked, card.asset)"
                 >
               </template>
 
@@ -3121,8 +3307,8 @@ function managedTargetLabel(target: ApiRecord): string {
 
     <GcModal
       v-model:open="deploymentDialogOpen"
-      :title="t('assets.deployment.dialogTitle')"
-      :description="t('assets.deployment.dialogDescription')"
+      :title="deploymentDialogTitle"
+      :description="deploymentDialogDescription"
       size="lg"
       width="min(100%, var(--gc-size-modal-lg))"
       :busy="deploymentLoading"
@@ -3135,6 +3321,7 @@ function managedTargetLabel(target: ApiRecord): string {
         :certificate-versions="deploymentCertificateVersions"
         :preflight-checks="deploymentDryRunChecks"
         :loading="deploymentLoading"
+        :submit-label="deploymentSubmitLabel"
         @submit="deployCertificateVersion"
         @cancel="closeDeploymentDialog"
       />
@@ -3716,6 +3903,46 @@ function managedTargetLabel(target: ApiRecord): string {
 
 .asset-page__workspace-selected-count {
   color: var(--gc-color-primary);
+}
+
+.asset-page__selection-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--gc-space-2);
+}
+
+.asset-page__selection-actions :deep(.gc-button),
+.asset-page__selection-actions :deep(.gc-icon-button),
+.asset-page__selection-delete-action,
+.asset-page__selection-update-action {
+  min-height: var(--gc-control-height-sm);
+  padding: var(--gc-space-2) var(--gc-space-3);
+  border-radius: var(--gc-radius-control);
+  font-size: var(--gc-font-size-xs);
+  font-weight: var(--gc-font-weight-semibold);
+}
+
+.asset-page__selection-delete-action :deep(.gc-button) {
+  border-color: var(--gc-color-danger-border);
+  color: var(--gc-color-danger);
+  background: var(--gc-color-danger-bg);
+}
+
+.asset-page__selection-delete-action {
+  border-color: var(--gc-color-danger-border);
+  color: var(--gc-color-danger);
+  background: var(--gc-color-danger-bg);
+}
+
+.asset-page__selection-delete-action :deep(.gc-button:hover:not(:disabled)) {
+  border-color: var(--gc-color-danger);
+  background: var(--gc-color-danger-soft);
+}
+
+.asset-page__selection-delete-action:hover:not(:disabled) {
+  border-color: var(--gc-color-danger);
+  background: var(--gc-color-danger-soft);
 }
 
 .asset-page__card-state {
