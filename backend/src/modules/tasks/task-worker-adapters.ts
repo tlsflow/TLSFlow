@@ -6,15 +6,10 @@ import type { AutomationsApplicationService } from '../automations/application/a
 import type { ExecutorRegistry } from '../executions/application/executors.js';
 import type { ExecutionsApplicationService } from '../executions/application/executions.application-service.js';
 import type { InternalCaApplicationService } from '../internal-ca/application/internal-ca.application-service.js';
-import type { AcmeRenewalWorker } from '../internal-ca/application/acme-renewal-worker.js';
 import type { CaSyncWorker } from '../internal-ca/application/ca-sync-worker.js';
-import type { AcmeRepository } from '../internal-ca/repository/acme.repository.js';
 import type { MonitorsApplicationService } from '../monitors/application/monitors.application-service.js';
 import type { NotificationWorker } from '../notifications/application/notification-worker.js';
 import type { ReportExportService } from '../reports/application/report-export.service.js';
-import type { CloudAccountAssetsApplicationService } from '../providers/application/cloud-account-assets.application-service.js';
-import type { ProviderOperationLedgerService } from '../providers/application/provider-operation-ledger.service.js';
-import type { ProviderTargetRef } from '../providers/dto/providers.dto.js';
 import { buildAutomationTaskProgress } from '../automations/application/automation-task-progress.js';
 import type { TaskAttempt, TaskExecutionResult, TaskRun } from './task.types.js';
 import { TaskExecutorRegistry } from './task-worker-supervisor.js';
@@ -33,8 +28,6 @@ export interface BuiltinPluginCatalogRefresher {
 }
 
 export interface TaskWorkerAdapterDependencies {
-  acme?: Pick<AcmeRenewalWorker, 'runJob'>;
-  acmeJobs?: Pick<AcmeRepository, 'getRenewalJob'>;
   executions?: Pick<ExecutionsApplicationService, 'runDispatchedExecution'>;
   executionRegistry?: ExecutorRegistry;
   caSync?: Pick<CaSyncWorker, 'runRun'>;
@@ -47,8 +40,6 @@ export interface TaskWorkerAdapterDependencies {
   reports?: Pick<ReportExportService, 'executeTask'>;
   agents?: Pick<AgentsApplicationService, 'getRepository'>;
   pluginCatalog?: BuiltinPluginCatalogRefresher;
-  cloudAccounts?: Pick<CloudAccountAssetsApplicationService, 'get'>;
-  providerOperations?: Pick<ProviderOperationLedgerService, 'execute'>;
 }
 
 /**
@@ -62,39 +53,6 @@ export function createTaskExecutorRegistry(
   executorKeys: readonly string[] = [],
 ): TaskExecutorRegistry {
   const registry = new TaskExecutorRegistry();
-  const acme = dependencyExecutor('ACME Worker', dependencies.acme, async (task) => {
-    const renewalJobId = requiredPayloadString(task, 'renewalJobId');
-    const result = await dependencies.acme!.runJob(task.tenantId, renewalJobId, task.requestedBy ?? 'task-worker');
-    const current = result ?? await dependencies.acmeJobs?.getRenewalJob(task.tenantId, renewalJobId);
-    if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'ACME 续签任务不存在', { renewalJobId });
-    if (['completed', 'issued_waiting_for_installation'].includes(current.status)) {
-      return {
-        success: true,
-        detail: { renewalJobId, status: current.status, claimed: Boolean(result) },
-      };
-    }
-    if (['failed', 'cancelled'].includes(current.status)) {
-      return {
-        success: false,
-        errorCode: current.failureCode ?? 'ACME_RENEWAL_FAILED',
-        errorMessage: current.failureMessage ?? `ACME 续签任务以 ${current.status} 结束`,
-        detail: { renewalJobId, status: current.status },
-      };
-    }
-    return {
-      success: false,
-      defer: true,
-      nextAttemptAt: current.nextAttemptAt,
-      errorCode: 'ACME_RENEWAL_PENDING',
-      errorMessage: `ACME 续签任务仍处于 ${current.status} 状态`,
-      detail: { renewalJobId, status: current.status },
-    };
-  });
-
-  registry.register('acme.issue', acme);
-  registry.register('acme.renewal', acme);
-  registry.register('acme.challenge', unavailableExecutor('ACME Challenge 任务没有独立的控制面执行入口'));
-
   const execution = dependencyExecutor('Execution Worker', dependencies.executions, async (task) => {
     const runId = requiredPayloadString(task, 'runId');
     const result = await dependencies.executions!.runDispatchedExecution(
@@ -125,36 +83,6 @@ export function createTaskExecutorRegistry(
   registry.register('certificate.deploy', execution);
   registry.register('certificate.verify', execution);
   registry.register('certificate.rollback', execution);
-  registry.register('provider.operation', dependencyExecutor('Provider Operation Worker', dependencies.cloudAccounts && dependencies.providerOperations, async (task) => {
-    const assetId = requiredPayloadString(task, 'cloudAccountAssetId');
-    const frameworkType = requiredPayloadString(task, 'frameworkType');
-    const operationKey = requiredPayloadString(task, 'operationKey');
-    const target = task.payload.target;
-    if (!isRecord(target)) throw new AppError('VALIDATION_FAILED', 'Provider 任务缺少 target', { taskId: task.id });
-    const asset = await dependencies.cloudAccounts!.get(task.tenantId, assetId);
-    const result = await dependencies.providerOperations!.execute({
-      tenantId: task.tenantId,
-      asset,
-      frameworkType,
-      operationKey,
-      target: target as unknown as ProviderTargetRef,
-      requestId: task.id,
-      input: isRecord(task.payload.input) ? task.payload.input : {},
-    });
-    return {
-      success: result.status === 'SUCCESS',
-      ...(result.status === 'SUCCESS' ? {} : {
-        errorCode: result.status === 'TIMEOUT' ? 'PROVIDER_ASYNC_TIMEOUT' : 'PROVIDER_OPERATION_FAILED',
-        errorMessage: `Provider 操作以 ${result.status} 结束`,
-      }),
-      detail: {
-        operationId: result.operationId,
-        providerKey: result.providerKey,
-        operationKey: result.operationKey,
-        checkpointId: result.checkpointId,
-      },
-    };
-  }));
 
   registry.register('agent.install', async (task, attempt) => executeAgentEnrollmentTask(task, attempt, dependencies, 'install'));
 
@@ -329,41 +257,6 @@ async function executeAgentEnrollmentTask(
   dependencies: TaskWorkerAdapterDependencies,
   mode: 'install' | 'update',
 ): Promise<TaskExecutionResult> {
-  const sessionId = optionalPayloadString(task, 'sessionId');
-  if (sessionId) {
-    if (!dependencies.agents) return unavailableExecutor('Agent 安装会话未接入统一任务控制面')(task, attempt);
-    const session = await dependencies.agents.getRepository().getInstallSession(task.tenantId, sessionId);
-    if (!session) throw new AppError('RESOURCE_NOT_FOUND', 'Agent 安装会话不存在', { sessionId });
-    if (session.usedAt) {
-      return {
-        success: true,
-        detail: {
-          sessionId,
-          platform: session.platform,
-          orchestration: 'install-session-created',
-          bootstrapCompleted: true,
-          usedAt: session.usedAt,
-        },
-      };
-    }
-    if (Date.parse(session.expiresAt) <= Date.now()) {
-      return {
-        success: false,
-        errorCode: 'AGENT_INSTALL_SESSION_EXPIRED',
-        errorMessage: 'Agent 安装会话已过期且尚未消费',
-        detail: { sessionId, platform: session.platform },
-      };
-    }
-    return {
-      success: false,
-      defer: true,
-      retryAfterSeconds: 15,
-      errorCode: 'AGENT_INSTALL_PENDING',
-      errorMessage: '等待 Agent 消费安装会话并回连',
-      detail: { sessionId, platform: session.platform, bootstrapCompleted: false },
-    };
-  }
-
   const enrollmentTokenId = optionalPayloadString(task, 'enrollmentTokenId');
   if (enrollmentTokenId) {
     if (!dependencies.internalCa) return unavailableExecutor('CA Node 注册令牌未接入统一任务控制面')(task, attempt);
@@ -403,7 +296,7 @@ async function executeAgentEnrollmentTask(
     success: false,
     errorCode: mode === 'install' ? 'AGENT_INSTALL_PAYLOAD_INVALID' : 'AGENT_UPDATE_PAYLOAD_INVALID',
     errorMessage: mode === 'install'
-      ? 'Agent 安装任务缺少 sessionId 或 enrollmentTokenId'
+      ? 'Agent 安装任务缺少 enrollmentTokenId'
       : 'Agent 更新任务缺少 enrollmentTokenId',
   };
 }

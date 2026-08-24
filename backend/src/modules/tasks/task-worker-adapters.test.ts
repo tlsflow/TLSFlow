@@ -65,48 +65,12 @@ test('Agent 能力重扫在外部 Agent 未回报时延后，不伪造成功', a
   assert.equal(result.errorCode, 'AGENT_CAPABILITY_RESCAN_PENDING');
 });
 
-test('Agent 安装会话未被消费时延后，不伪造 Bootstrap 成功', async () => {
-  const registry = createTaskExecutorRegistry({
-    agents: {
-      getRepository: () => ({
-        getInstallSession: async () => ({
-          id: 'install-session-1',
-          tenantId: 'tenant-task-adapter',
-          platform: 'windows',
-          expiresAt: '2026-08-08T23:00:00.000Z',
-          createdAt: '2026-08-06T00:00:00.000Z',
-        }),
-      } as never),
-    },
-  });
-  const result = await registry.get('agent.install')(
-    task('AGENT_INSTALL', { sessionId: 'install-session-1' }),
-    attempt,
-  );
-  assert.equal(result.success, false);
-  assert.equal(result.defer, true);
-  assert.equal(result.errorCode, 'AGENT_INSTALL_PENDING');
-});
-
-test('ACME 领域任务处于 retry_waiting 时统一任务继续等待', async () => {
-  const registry = createTaskExecutorRegistry({
-    acme: {
-      runJob: async () => ({
-        id: 'renewal-1',
-        tenantId: 'tenant-task-adapter',
-        status: 'retry_waiting',
-        nextAttemptAt: '2026-08-06T00:01:00.000Z',
-      }),
-    } as never,
-  });
-  const result = await registry.get('acme.renewal')(
-    task('ACME_CERTIFICATE_RENEWAL', { renewalJobId: 'renewal-1' }),
-    attempt,
-  );
-  assert.equal(result.success, false);
-  assert.equal(result.defer, true);
-  assert.equal(result.nextAttemptAt, '2026-08-06T00:01:00.000Z');
-  assert.equal(result.errorCode, 'ACME_RENEWAL_PENDING');
+test('退役 ACME 和 Provider 执行器不会被重新注册', () => {
+  const registry = createTaskExecutorRegistry({});
+  for (const executorKey of ['acme.issue', 'acme.renewal', 'acme.challenge', 'provider.operation']) {
+    assert.equal(registry.has(executorKey), false, executorKey);
+    assert.throws(() => registry.get(executorKey), /任务执行器未注册/);
+  }
 });
 
 test('执行任务遇到异步步骤时延后，不提前完成统一任务', async () => {

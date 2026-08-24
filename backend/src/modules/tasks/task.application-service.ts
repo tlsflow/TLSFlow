@@ -16,8 +16,20 @@ import type {
   TaskRun,
 } from './task.types.js';
 
+export type TaskControlPlaneStatus = 'MIGRATION_PENDING' | 'INITIALIZING' | 'READY' | 'FAILED';
+
+export interface TaskControlPlaneLifecycle {
+  status: TaskControlPlaneStatus;
+  error?: {
+    name: string;
+    message: string;
+  };
+}
+
 export class TasksApplicationService {
   readonly registry: TaskRegistry;
+  private lifecycle: TaskControlPlaneLifecycle = { status: 'MIGRATION_PENDING' };
+  private initializationPromise?: Promise<void>;
 
   constructor(
     private readonly repository: TaskRepository,
@@ -28,8 +40,37 @@ export class TasksApplicationService {
     this.registry = registry;
   }
 
+  getLifecycle(): TaskControlPlaneLifecycle {
+    return this.lifecycle.error
+      ? { status: this.lifecycle.status, error: { ...this.lifecycle.error } }
+      : { status: this.lifecycle.status };
+  }
+
   async initialize(): Promise<void> {
-    await this.repository.ensureDefinitions(this.registry.list());
+    if (this.lifecycle.status === 'READY') return;
+    if (this.initializationPromise) return this.initializationPromise;
+
+    this.lifecycle = { status: 'INITIALIZING' };
+    const initialization = this.repository.ensureDefinitions(this.registry.list())
+      .then(() => {
+        this.lifecycle = { status: 'READY' };
+      })
+      .catch((error: unknown) => {
+        this.lifecycle = {
+          status: 'FAILED',
+          error: {
+            name: error instanceof Error ? error.name : 'UnknownError',
+            message: error instanceof Error ? error.message : String(error),
+          },
+        };
+        throw error;
+      });
+    this.initializationPromise = initialization;
+    try {
+      await initialization;
+    } finally {
+      if (this.initializationPromise === initialization) this.initializationPromise = undefined;
+    }
   }
 
   async enqueue(input: TaskEnqueueInput, actor?: SecuritySubject): Promise<TaskRun> {

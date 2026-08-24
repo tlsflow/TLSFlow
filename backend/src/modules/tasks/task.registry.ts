@@ -2,14 +2,10 @@ import { AppError } from '../../common/errors/app-error.js';
 import type { TaskDefinition, TaskCategory } from './task.types.js';
 
 const defaultDefinitions: TaskDefinition[] = [
-  ['ACME_CERTIFICATE_ISSUE', 'EXECUTION', 'tasks.types.acmeIssue', 'acme.issue', 'certificate.read'],
-  ['ACME_CERTIFICATE_RENEWAL', 'EXECUTION', 'tasks.types.acmeRenewal', 'acme.renewal', 'certificate.read'],
-  ['ACME_CHALLENGE', 'EXECUTION', 'tasks.types.acmeChallenge', 'acme.challenge', 'certificate.read'],
   ['CERTIFICATE_DRY_RUN', 'EXECUTION', 'tasks.types.certificateDryRun', 'certificate.dry-run', 'certificate.read'],
   ['CERTIFICATE_DEPLOY', 'EXECUTION', 'tasks.types.certificateDeploy', 'certificate.deploy', 'deployment.plan.execute'],
   ['CERTIFICATE_VERIFY', 'EXECUTION', 'tasks.types.certificateVerify', 'certificate.verify', 'execution.run.read'],
   ['CERTIFICATE_ROLLBACK', 'EXECUTION', 'tasks.types.certificateRollback', 'certificate.rollback', 'execution.rollback'],
-  ['PROVIDER_OPERATION', 'EXECUTION', 'tasks.types.providerOperation', 'provider.operation', 'certificate.deploy'],
   ['AGENT_INSTALL', 'EXECUTION', 'tasks.types.agentInstall', 'agent.install', 'agent.write'],
   ['AGENT_UPDATE', 'EXECUTION', 'tasks.types.agentUpdate', 'agent.update', 'agent.write'],
   ['AGENT_CAPABILITY_RESCAN', 'EXECUTION', 'tasks.types.agentCapabilityRescan', 'agent.capability-rescan', 'agent.write'],

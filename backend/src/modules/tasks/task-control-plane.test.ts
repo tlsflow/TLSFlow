@@ -13,6 +13,7 @@ async function createFixture() {
   const repository = new TaskRepository(db);
   const service = new TasksApplicationService(repository);
   await service.initialize();
+  assert.equal(service.getLifecycle().status, 'READY');
   return { db, repository, service };
 }
 
@@ -22,7 +23,24 @@ test('任务注册表拒绝重复、无效和未注册类型', () => {
   assert.throws(() => registry.register(definition), (error: unknown) => error instanceof AppError && error.errorCode === 'RESOURCE_ALREADY_EXISTS');
   assert.throws(() => new TaskRegistry([{ ...definition, taskType: '', version: 2 }]), (error: unknown) => error instanceof AppError && error.errorCode === 'VALIDATION_FAILED');
   assert.throws(() => registry.get('UNKNOWN_TASK'), (error: unknown) => error instanceof AppError && error.errorCode === 'TASK_TYPE_NOT_REGISTERED');
-  assert.throws(() => registry.get('ACME_CERTIFICATE_RENEWAL', 99), (error: unknown) => error instanceof AppError && error.errorCode === 'TASK_TYPE_NOT_REGISTERED');
+  for (const retiredTaskType of ['ACME_CERTIFICATE_ISSUE', 'ACME_CERTIFICATE_RENEWAL', 'ACME_CHALLENGE', 'PROVIDER_OPERATION']) {
+    assert.throws(() => registry.get(retiredTaskType), (error: unknown) => error instanceof AppError && error.errorCode === 'TASK_TYPE_NOT_REGISTERED');
+  }
+});
+
+test('数据库迁移前初始化错误向调用方传播并标记任务控制面失败', async () => {
+  const db = new PgliteDatabase();
+  const service = new TasksApplicationService(new TaskRepository(db));
+  try {
+    await assert.rejects(
+      service.initialize(),
+      /relation "task_definitions" does not exist/,
+    );
+    assert.equal(service.getLifecycle().status, 'FAILED');
+    assert.match(service.getLifecycle().error?.message ?? '', /task_definitions/);
+  } finally {
+    await db.close();
+  }
 });
 
 test('任务入列按租户和类型执行幂等', async () => {
