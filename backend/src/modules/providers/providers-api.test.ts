@@ -3,12 +3,22 @@ import test from 'node:test';
 import { createApp } from '../../app.module.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
+import { createSecurityServices } from '../security/security.controller.js';
 
 test('云账号资产支持四类 Provider、作用域幂等冲突和无 Host 创建', async () => {
   const db = new PgliteDatabase();
   await runMigrations(db);
-  const app = createApp({ db, allowLegacyHeaderContext: true });
-  const headers = { 'x-tenant-id': 'tenant-provider-api', 'x-actor-id': 'user-provider-api' };
+  const security = createSecurityServices();
+  await security.rbac.createPolicy({
+    subjectType: 'user',
+    subjectId: 'user_admin',
+    effect: 'allow',
+    actions: ['*'],
+    resourceTypes: ['*'],
+    scope: { tenantId: '*' },
+  });
+  const app = createApp({ db, allowLegacyHeaderContext: true, security });
+  const headers = { 'x-tenant-id': 'tenant-provider-api', 'x-actor-id': 'user_admin' };
   const payload = {
     displayName: '测试阿里云账号',
     providerKey: 'cloud.aliyun',
@@ -54,7 +64,16 @@ test('云账号资产支持四类 Provider、作用域幂等冲突和无 Host �
 test('Application 新入口与旧 ServiceAsset 入口指向同一事实', async () => {
   const db = new PgliteDatabase();
   await runMigrations(db);
-  const app = createApp({ db, allowLegacyHeaderContext: true });
+  const security = createSecurityServices();
+  await security.rbac.createPolicy({
+    subjectType: 'user',
+    subjectId: 'user_admin',
+    effect: 'allow',
+    actions: ['*'],
+    resourceTypes: ['*'],
+    scope: { tenantId: '*' },
+  });
+  const app = createApp({ db, allowLegacyHeaderContext: true, security });
   const headers = { 'x-tenant-id': 'tenant-application-alias', 'x-actor-id': 'user_admin' };
   const created = await app.inject({
     method: 'POST',

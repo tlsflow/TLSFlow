@@ -134,7 +134,7 @@ export function createTaskExecutorRegistry(
       asset,
       frameworkType,
       operationKey,
-      target: target as ProviderTargetRef,
+      target: target as unknown as ProviderTargetRef,
       requestId: task.id,
       input: isRecord(task.payload.input) ? task.payload.input : {},
     });
