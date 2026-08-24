@@ -157,8 +157,8 @@ function buildPlan(): DeploymentWizardPlan {
     bindingIds: [...selectedBindingIds.value],
     capabilityItems: capabilityItems.value,
     previewSummary: previewSummary.value,
-    dryRunSummary: props.dryRunRequestId ? `dry-run requestId: ${props.dryRunRequestId}` : undefined,
-    submitSummary: props.submitRequestId ? `submit requestId: ${props.submitRequestId}` : undefined
+    dryRunSummary: props.dryRunRequestId ? `最近 dry-run 已完成` : undefined,
+    submitSummary: props.submitRequestId ? `最近一次提交流程已完成` : undefined
   }
 }
 </script>
@@ -210,8 +210,8 @@ function buildPlan(): DeploymentWizardPlan {
       <h3>3. 计划预览</h3>
       <p>{{ previewSummary }}</p>
       <p>已选目标：{{ selectedBindingIds.join(', ') || '无' }}</p>
-      <p v-if="dryRunRequestId">最近 dry-run：{{ dryRunRequestId }}</p>
-      <p v-if="submitRequestId">最近提交：{{ submitRequestId }}</p>
+      <p v-if="dryRunRequestId">最近 dry-run 已完成。</p>
+      <p v-if="submitRequestId">最近一次提交流程已完成。</p>
       <p v-if="approvalHint" class="gc-deployment-wizard__approval">{{ approvalHint }}</p>
     </section>
 

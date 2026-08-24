@@ -1,7 +1,15 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
-import { GcConfirmAction, GcDataTable, GcEmptyState, GcPageHeader, GcPermissionButton, GcRiskBadge, GcStatusTag } from '@/design-system/components'
+import {
+  GcConfirmAction,
+  GcDataTable,
+  GcEmptyState,
+  GcPageHeader,
+  GcPermissionButton,
+  GcRiskBadge,
+  GcStatusTag,
+} from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import { usePermissionStore } from '@/stores/permission.store'
 import { readNumber, readPath, readString, useBusinessPage, type ViewRow } from '@/composables/useBusinessPage'
@@ -14,30 +22,49 @@ const state = useBusinessPage(props.config)
 const selectedId = ref<string | null>(null)
 const primaryActionError = ref('')
 const primaryActionPending = ref(false)
-const tableColumns = computed<DataTableColumn<ViewRow>[]>(() => props.config.columns.map((column) => ({ key: column.key, title: column.title })))
+
+const tableColumns = computed<DataTableColumn<ViewRow>[]>(() =>
+  props.config.columns.map((column) => ({ key: column.key, title: column.title })),
+)
 const hasDangerAction = computed(() => props.config.actions.some((action) => action.danger))
-const visibleActions = computed(() => props.config.actions.filter((action) => permissionStore.hasPermission(action.permission)))
-const selectedRow = computed(() => state.rows.value.find((row) => row.id === selectedId.value) ?? state.rows.value[0] ?? null)
-const detailFields = computed(() => props.config.detailFields ?? props.config.columns.map((column) => ({ label: column.title, candidates: column.candidates })))
+const visibleActions = computed(() =>
+  props.config.actions.filter((action) => permissionStore.hasPermission(action.permission)),
+)
+const selectedRow = computed(() =>
+  state.rows.value.find((row) => row.id === selectedId.value) ?? state.rows.value[0] ?? null,
+)
+const detailFields = computed(
+  () => props.config.detailFields ?? props.config.columns.map((column) => ({ label: column.title, candidates: column.candidates })),
+)
 const filterValues = computed(() => props.config.filterValues ?? {})
 
-watch(() => state.rows.value, (rows) => {
-  if (rows.length === 0) {
-    selectedId.value = null
-    return
-  }
-  if (!selectedId.value || !rows.some((row) => row.id === selectedId.value)) {
-    selectedId.value = rows[0]?.id ?? null
-  }
-}, { immediate: true })
+watch(
+  () => state.rows.value,
+  (rows) => {
+    if (rows.length === 0) {
+      selectedId.value = null
+      return
+    }
+    if (!selectedId.value || !rows.some((row) => row.id === selectedId.value)) {
+      selectedId.value = rows[0]?.id ?? null
+    }
+  },
+  { immediate: true },
+)
 
-watch(selectedRow, (row) => {
-  props.config.onSelectionChange?.(row)
-}, { immediate: true })
+watch(
+  selectedRow,
+  (row) => {
+    props.config.onSelectionChange?.(row)
+  },
+  { immediate: true },
+)
 
 function metricCount(metricTitle: string): number {
-  const matched = state.rows.value.filter((row) => row.risk === 'HIGH' || row.risk === 'CRITICAL' || row.status === 'FAILED' || row.status === 'DRIFTED')
-  if (metricTitle.includes('总') || metricTitle.includes('全部')) return state.total.value
+  const matched = state.rows.value.filter(
+    (row) => row.risk === 'HIGH' || row.risk === 'CRITICAL' || row.status === 'FAILED' || row.status === 'DRIFTED',
+  )
+  if (metricTitle.includes('总数') || metricTitle.includes('全部')) return state.total.value
   return matched.length
 }
 
@@ -69,7 +96,7 @@ function selectRow(row: ViewRow) {
 async function updateFilter(key: string, value: string) {
   props.config.onFiltersChange?.({
     ...filterValues.value,
-    [key]: value
+    [key]: value,
   })
   await state.reload()
 }
@@ -84,7 +111,9 @@ function detailValue(row: ViewRow, candidates: readonly string[]): string {
 }
 
 function linkQueryValue(row: ViewRow, candidates: readonly string[]): string | null {
-  const value = candidates.map((candidate) => readPath(row.raw, candidate)).find((item) => item !== undefined && item !== null && item !== '')
+  const value = candidates
+    .map((candidate) => readPath(row.raw, candidate))
+    .find((item) => item !== undefined && item !== null && item !== '')
   return value === undefined || value === null || value === '' ? null : String(value)
 }
 
@@ -98,7 +127,7 @@ function linkTarget(row: ViewRow, link: NonNullable<BusinessPageConfig['contextL
 }
 
 defineExpose({
-  reload: state.reload
+  reload: state.reload,
 })
 </script>
 
@@ -129,8 +158,7 @@ defineExpose({
 
     <GcEmptyState v-if="state.error.value" title="接口调用失败" :description="state.error.value.message">
       <p>错误码：{{ state.error.value.errorCode }}</p>
-      <p>requestId：{{ state.error.value.requestId }}</p>
-      <button class="gc-button" type="button" @click="state.reload">使用 requestId 排查后重试</button>
+      <button class="gc-button" type="button" @click="state.reload">重试</button>
     </GcEmptyState>
 
     <GcDataTable
@@ -144,7 +172,7 @@ defineExpose({
         <div class="business-page__toolbar">
           <div class="business-page__toolbar-title">
             <strong>{{ config.resourceName }}列表</strong>
-            <span>总数 {{ state.total.value }} · requestId {{ state.lastRequestId.value || '等待请求' }}</span>
+            <span>总数 {{ state.total.value }}</span>
           </div>
           <div class="business-page__toolbar-actions">
             <span class="business-page__pill">{{ selectedRow?.name ? `已选 ${selectedRow.name}` : '未选择资源' }}</span>
@@ -188,18 +216,25 @@ defineExpose({
       <template #cell-status="{ row }">
         <GcStatusTag :status="String(row.status)" />
       </template>
+
       <template #cell-risk="{ row }">
         <GcRiskBadge :risk="row.risk" />
       </template>
+
       <template #cell-count="{ row }">
         {{ readNumber(row.raw, ['count', 'targetCount', 'affectedCount']) ?? row.count }}
       </template>
+
       <template #pagination>
-        第 {{ state.page.value?.page ?? 1 }} 页 / 每页 {{ state.page.value?.pageSize ?? 20 }} 条；requestId：{{ state.lastRequestId.value }}
+        第 {{ state.page.value?.page ?? 1 }} 页 / 每页 {{ state.page.value?.pageSize ?? 20 }} 条
       </template>
     </GcDataTable>
 
-    <GcEmptyState v-if="!state.loading.value && !state.error.value && state.rows.value.length === 0" :title="config.emptyTitle" :description="config.emptyDescription" />
+    <GcEmptyState
+      v-if="!state.loading.value && !state.error.value && state.rows.value.length === 0"
+      :title="config.emptyTitle"
+      :description="config.emptyDescription"
+    />
 
     <aside v-if="selectedRow" class="gc-card business-page__detail" aria-label="资源详情">
       <header>

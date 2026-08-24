@@ -228,7 +228,7 @@ function normalizeActionError(cause: unknown): ActionErrorState {
   return {
     message: cause instanceof Error ? cause.message : '部署计划操作失败',
     errorCode: 'NETWORK_OR_RUNTIME_ERROR',
-    requestId: '未返回 requestId，请检查浏览器网络面板中的 X-Request-Id'
+    requestId: ''
   }
 }
 
@@ -328,14 +328,14 @@ function formatInline(value: unknown): string {
         <div><dt>approvalId</dt><dd>{{ approvalIdLabel }}</dd></div>
         <div><dt>snapshotHash</dt><dd>{{ snapshotHashLabel }}</dd></div>
         <div><dt>失败原因</dt><dd>{{ failureReasonLabel }}</dd></div>
-        <div><dt>最近 requestId</dt><dd>{{ actionRequestId || '等待操作' }}</dd></div>
+        <div><dt>最近操作</dt><dd>{{ actionRequestId ? '已执行' : '等待操作' }}</dd></div>
       </dl>
 
       <p v-if="selectedStatus === 'PENDING_APPROVAL'" class="gc-deployment-page__approval">
         已提交并等待审批。approvalId 可见后，审批通过才显示执行入口；这不是自动执行。
       </p>
       <p v-if="actionError" class="gc-deployment-page__error">
-        操作失败：{{ actionError.message }}；错误码：{{ actionError.errorCode }}；requestId：{{ actionError.requestId }}
+        操作失败：{{ actionError.message }}；错误码：{{ actionError.errorCode }}
       </p>
 
       <div v-if="visiblePlanActions.length" class="gc-deployment-page__actions" aria-label="状态化操作">

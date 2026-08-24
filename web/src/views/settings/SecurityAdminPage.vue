@@ -29,7 +29,6 @@ const props = defineProps<{ config: SecurityAdminConfig }>()
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
-const requestId = ref('尚未请求')
 const rows = ref<ApiRecord[]>([])
 const form = ref<Record<string, string>>({})
 const createModalOpen = ref(false)
@@ -49,10 +48,9 @@ async function load() {
   error.value = ''
   try {
     const result = await props.config.load()
-    requestId.value = result.requestId
     rows.value = [...(result.data?.items ?? [])]
   } catch (cause) {
-    if (cause instanceof ApiClientError) error.value = `${cause.message}（${cause.errorCode}，requestId：${cause.requestId}）`
+    if (cause instanceof ApiClientError) error.value = `${cause.message}（${cause.errorCode}）`
     else error.value = cause instanceof Error ? cause.message : '加载失败'
   } finally {
     loading.value = false
@@ -69,7 +67,7 @@ async function submit() {
     form.value = {}
     await load()
   } catch (cause) {
-    if (cause instanceof ApiClientError) error.value = `${cause.message}（${cause.errorCode}，requestId：${cause.requestId}）`
+    if (cause instanceof ApiClientError) error.value = `${cause.message}（${cause.errorCode}）`
     else error.value = cause instanceof Error ? cause.message : '提交失败'
   } finally {
     saving.value = false
@@ -132,7 +130,7 @@ onMounted(load)
     <section class="gc-card security-admin__table" aria-label="管理列表">
       <div class="security-admin__table-head">
         <strong>{{ config.resourceName }}列表</strong>
-        <span>共 {{ rows.length }} 条 · requestId {{ requestId }}</span>
+        <span>共 {{ rows.length }} 条</span>
       </div>
       <div class="security-admin__table-scroll">
         <table>

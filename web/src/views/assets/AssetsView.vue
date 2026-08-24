@@ -421,7 +421,7 @@ async function refreshServiceInstances(hostId?: string) {
     serviceListRequestId.value = result.requestId
   } catch (cause) {
     if (cause instanceof ApiClientError) {
-      serviceListError.value = `${cause.message}（requestId：${cause.requestId}）`
+      serviceListError.value = cause.message
       return
     }
     serviceListError.value = cause instanceof Error ? cause.message : '加载 ServiceInstance 失败。'
@@ -486,7 +486,7 @@ async function refreshCapabilities(hostId?: string) {
     capabilityItems.value = capabilityItems.value.concat(toCapabilityResultItems(matchResult.data, evaluationResult.data))
   } catch (cause) {
     if (cause instanceof ApiClientError) {
-      capabilityError.value = `${cause.message}（requestId：${cause.requestId}）`
+      capabilityError.value = cause.message
       return
     }
     capabilityError.value = cause instanceof Error ? cause.message : '加载 Capability 失败。'
@@ -611,7 +611,7 @@ function handleDialogError(cause: unknown, messageRef: { value: string }, reques
           <GcPermissionButton permission="host.write" danger :disabled="!selectedHost || hostLoading" @click="softDeleteSelectedHost">软删除 Host</GcPermissionButton>
         </div>
       </header>
-      <p v-if="hostRequestId" class="asset-ops__request">最近 Host 操作 requestId：{{ hostRequestId }}</p>
+      <p v-if="hostRequestId" class="asset-ops__request">最近 Host 操作已完成。</p>
       <p v-if="hostError" class="asset-ops__error">{{ hostError }}</p>
     </article>
 
@@ -625,7 +625,7 @@ function handleDialogError(cause: unknown, messageRef: { value: string }, reques
         <GcPermissionButton permission="host.write" :disabled="!selectedHost" @click="openServiceDialog('create')">新增 ServiceInstance</GcPermissionButton>
       </header>
       <p v-if="serviceListError" class="asset-ops__error">{{ serviceListError }}</p>
-      <p v-else class="asset-ops__request">ServiceInstance requestId：{{ serviceListRequestId || '等待选择 Host' }}</p>
+      <p v-else class="asset-ops__request">{{ serviceListRequestId ? 'ServiceInstance 列表已刷新' : '等待选择 Host' }}</p>
       <ul v-if="serviceRowsForSelectedHost.length" class="asset-ops__list">
         <li v-for="service in serviceRowsForSelectedHost" :key="String(service.id)" class="asset-ops__item">
           <div>
@@ -654,7 +654,7 @@ function handleDialogError(cause: unknown, messageRef: { value: string }, reques
           {{ discoveryLoading ? '预览中…' : '预览发现冲突' }}
         </GcPermissionButton>
       </header>
-      <p v-if="discoveryRequestId" class="asset-ops__request">发现预览 requestId：{{ discoveryRequestId }}</p>
+      <p v-if="discoveryRequestId" class="asset-ops__request">发现预览已生成。</p>
       <p v-if="discoveryError" class="asset-ops__error">{{ discoveryError }}</p>
       <p v-if="!conflictRows.length" class="asset-ops__empty">暂无冲突预览；点击按钮会用当前 Host 生成一次 dry-run merge-preview。</p>
       <ul v-else class="asset-ops__list">
@@ -685,7 +685,7 @@ function handleDialogError(cause: unknown, messageRef: { value: string }, reques
       description="展示能力名称、来源、置信度、最后检测时间、等级、缺失原因/降级建议；不在前端重算后端算法。"
     />
     <p v-if="capabilityLoading" class="asset-ops__request">Capability 加载中…</p>
-    <p v-if="capabilityRequestId" class="asset-ops__request">Capability requestId：{{ capabilityRequestId }}</p>
+    <p v-if="capabilityRequestId" class="asset-ops__request">能力评估已更新。</p>
     <pre v-if="capabilityEvaluation" class="asset-ops__pre">{{ JSON.stringify(capabilityEvaluation, null, 2) }}</pre>
     <p v-if="capabilityError" class="asset-ops__error">{{ capabilityError }}</p>
   </section>
@@ -715,7 +715,7 @@ function handleDialogError(cause: unknown, messageRef: { value: string }, reques
         <label class="asset-form__field asset-form__field--wide"><span>标签（逗号分隔）</span><input v-model="hostDraft.tagsText" placeholder="prod, nginx, dmz" autocomplete="off" /></label>
       </div>
       <p v-if="hostError" class="asset-form__error">{{ hostError }}</p>
-      <p v-if="hostRequestId" class="asset-form__request">requestId：{{ hostRequestId }}</p>
+      <p v-if="hostRequestId" class="asset-form__request">最近保存已完成。</p>
     </section>
     <template #actions>
       <button class="gc-button" type="button" :disabled="hostLoading" @click="closeHostDialog">取消</button>
@@ -745,7 +745,7 @@ function handleDialogError(cause: unknown, messageRef: { value: string }, reques
         <label class="asset-form__field asset-form__field--wide"><span>manualOverrides（JSON 或文本）</span><textarea v-model="serviceDraft.manualOverridesText" rows="4" placeholder='{"reload":"systemctl reload nginx"}' /></label>
       </div>
       <p v-if="serviceError" class="asset-form__error">{{ serviceError }}</p>
-      <p v-if="serviceRequestId" class="asset-form__request">requestId：{{ serviceRequestId }}</p>
+      <p v-if="serviceRequestId" class="asset-form__request">最近保存已完成。</p>
     </section>
     <template #actions>
       <button class="gc-button" type="button" :disabled="serviceLoading" @click="closeServiceDialog">取消</button>

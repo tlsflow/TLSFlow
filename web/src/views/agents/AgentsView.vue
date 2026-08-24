@@ -14,7 +14,6 @@ interface EnrollmentTokenView {
   readonly allowedZones: readonly string[]
   readonly maxUses: number
   readonly expiresAt: string
-  readonly requestId: string
 }
 
 interface DetailNotice {
@@ -72,7 +71,6 @@ async function issueEnrollmentToken() {
     allowedZones: Array.isArray(data.allowedZones) ? data.allowedZones.map(String) : ['default'],
     maxUses: typeof data.maxUses === 'number' ? data.maxUses : 1,
     expiresAt: typeof data.expiresAt === 'string' ? data.expiresAt : '',
-    requestId: result.requestId
   }
   tokenCopied.value = false
 }
@@ -303,10 +301,6 @@ const config: BusinessPageConfig = {
           <div>
             <dt>过期时间</dt>
             <dd>{{ issuedToken.expiresAt }}</dd>
-          </div>
-          <div>
-            <dt>requestId</dt>
-            <dd>{{ issuedToken.requestId }}</dd>
           </div>
         </dl>
 

@@ -57,7 +57,7 @@ export const mainMenuItems: MenuItem[] = [
     description: '告警、审计和风险事件',
     children: [
       { title: '监控告警', path: '/monitors', module: 'monitoring', permission: 'monitor.read', description: '到期、漂移和执行失败风险' },
-      { title: '审计日志', path: '/audits', module: 'audit', permission: 'audit.read', description: '操作证据、requestId 和合规导出' }
+      { title: '审计日志', path: '/audits', module: 'audit', permission: 'audit.read', description: '操作证据与合规导出' }
     ]
   },
   {

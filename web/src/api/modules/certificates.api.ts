@@ -1,31 +1,54 @@
-import { listRecords, postAction, type ApiBody, type BusinessListQuery } from './common'
+import { apiClient } from '@/api/client'
+import { listRecords, postAction, toClientPath, type ApiBody, type BusinessListQuery, type ApiRecord, type ApiRecordResult } from './common'
 
 const CERTIFICATE_ASSETS_PATH = '/api/v1/certificate-assets'
+const CERTIFICATE_ASSET_DETAIL_PATH = '/api/v1/certificate-assets/detail'
 const CERTIFICATE_VERSIONS_PATH = '/api/v1/certificate-versions'
+const CERTIFICATE_VERSION_DETAIL_PATH = '/api/v1/certificate-versions/detail'
+const CERTIFICATE_VERSION_USAGE_PATH = '/api/v1/certificate-versions/usage'
 const CERTIFICATE_FORMATS_PATH = '/api/v1/certificate-version-formats'
 const CERTIFICATE_IMPORT_PATH = '/api/v1/certificate-versions/import'
+const CERTIFICATE_VALIDATE_IMPORT_PATH = '/api/v1/certificate-versions/validate-import'
 const CERTIFICATE_USAGES_PATH = '/api/v1/certificate-bindings'
 
 export function listCertificates(query?: BusinessListQuery) {
-  // 中文说明：返回类型来自 generated 的 PageResponse，不在前端手写证书 DTO。
   return listRecords(CERTIFICATE_ASSETS_PATH, query)
+}
+
+export function getCertificateAssetDetail(assetId: string): Promise<ApiRecordResult> {
+  return apiClient.get<ApiRecord>(`${toClientPath(CERTIFICATE_ASSET_DETAIL_PATH)}?id=${encodeURIComponent(assetId)}`)
 }
 
 export function listCertificateVersions(query?: BusinessListQuery) {
   return listRecords(CERTIFICATE_VERSIONS_PATH, query)
 }
 
+export function getCertificateVersionDetail(versionId: string): Promise<ApiRecordResult> {
+  return apiClient.get<ApiRecord>(`${toClientPath(CERTIFICATE_VERSION_DETAIL_PATH)}?id=${encodeURIComponent(versionId)}`)
+}
+
+export function getCertificateVersionUsage(versionId: string): Promise<ApiRecordResult> {
+  return apiClient.get<ApiRecord>(`${toClientPath(CERTIFICATE_VERSION_USAGE_PATH)}?id=${encodeURIComponent(versionId)}`)
+}
+
 export function listCertificateFormats(query?: BusinessListQuery) {
   return listRecords(CERTIFICATE_FORMATS_PATH, query)
 }
 
+export function listCertificateFormatsByVersionId(versionId: string, query: BusinessListQuery = {}) {
+  return listRecords(`${CERTIFICATE_VERSIONS_PATH}/${encodeURIComponent(versionId)}/formats`, { page: 1, pageSize: 100, ...query })
+}
+
 export function listCertificateUsages(query?: BusinessListQuery) {
-  // 中文说明：后端当前没有独立 usage 详情端点，绑定列表按 certificateId 过滤就是证书使用关系。
   return listRecords(CERTIFICATE_USAGES_PATH, query)
 }
 
 export function importCertificate(payload: ApiBody) {
   return postAction(CERTIFICATE_IMPORT_PATH, payload, 'certificate_import')
+}
+
+export function validateCertificateImport(payload: ApiBody) {
+  return postAction(CERTIFICATE_VALIDATE_IMPORT_PATH, payload, 'certificate_import_validate')
 }
 
 export function createCertificateFormat(payload: ApiBody) {

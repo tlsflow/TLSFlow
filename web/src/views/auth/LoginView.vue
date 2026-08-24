@@ -33,7 +33,7 @@ async function submit() {
     await router.push(redirectPath.value)
   } catch (cause) {
     if (cause instanceof ApiClientError) {
-      error.value = `${cause.message}（${cause.errorCode}，requestId：${cause.requestId}）`
+      error.value = `${cause.message}（${cause.errorCode}）`
     } else {
       error.value = cause instanceof Error ? cause.message : '登录失败，请稍后重试'
     }

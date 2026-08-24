@@ -34,7 +34,7 @@ const keyword = ref('')
 const level = ref('all')
 const filteredLines = computed(() => props.lines.filter((line) => {
   const matchLevel = level.value === 'all' || line.level === level.value
-  const matchKeyword = !keyword.value || line.message.includes(keyword.value) || line.requestId?.includes(keyword.value)
+  const matchKeyword = !keyword.value || line.message.includes(keyword.value)
   return matchLevel && matchKeyword
 }))
 </script>
@@ -46,7 +46,7 @@ const filteredLines = computed(() => props.lines.filter((line) => {
         <strong>执行日志</strong>
         <span v-if="mode === 'polling'" class="gc-log-viewer__mode">降级轮询中</span>
       </div>
-      <input v-model="keyword" placeholder="搜索日志或 requestId" />
+      <input v-model="keyword" placeholder="搜索日志内容" />
       <select v-model="level" aria-label="日志级别">
         <option value="all">全部</option>
         <option value="debug">debug</option>
@@ -66,12 +66,12 @@ const filteredLines = computed(() => props.lines.filter((line) => {
           <span>{{ step.status }}</span>
         </div>
         <p>{{ step.detail ?? '暂无步骤说明' }}</p>
-        <small>{{ step.startedAt ?? '未开始' }} {{ step.finishedAt ? ` -> ${step.finishedAt}` : '' }}{{ step.requestId ? ` requestId=${step.requestId}` : '' }}</small>
+        <small>{{ step.startedAt ?? '未开始' }} {{ step.finishedAt ? ` -> ${step.finishedAt}` : '' }}</small>
       </article>
     </section>
-    <pre v-if="filteredLines.length"><code v-for="line in filteredLines" :key="line.id">[{{ line.time }}] [{{ line.level }}] {{ line.step ? `[${line.step}] ` : '' }}{{ line.message }}{{ line.requestId ? ` requestId=${line.requestId}` : '' }}
+    <pre v-if="filteredLines.length"><code v-for="line in filteredLines" :key="line.id">[{{ line.time }}] [{{ line.level }}] {{ line.step ? `[${line.step}] ` : '' }}{{ line.message }}
 </code></pre>
-    <p v-else class="gc-log-viewer__empty">暂无日志。日志组件已预留过滤、搜索、复制和 requestId 展示能力。</p>
+    <p v-else class="gc-log-viewer__empty">暂无日志。</p>
   </section>
 </template>
 

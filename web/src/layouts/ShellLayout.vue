@@ -19,6 +19,7 @@ const breadcrumbs = computed(() => {
 const navItems = computed(() => permissionStore.visibleMenuItems)
 const activeTopItem = computed(() => navItems.value.find((item) => isMenuItemActive(item)) ?? null)
 const activeChildren = computed(() => activeTopItem.value?.children ?? [])
+const lockContentScroll = computed(() => route.path === '/certificates')
 
 function isMenuItemActive(item: MenuItem): boolean {
   if (route.path === item.path) return true
@@ -76,7 +77,7 @@ async function logout() {
       </div>
     </header>
 
-    <main class="gc-shell__content">
+    <main class="gc-shell__content" :class="{ 'gc-shell__content--locked': lockContentScroll }">
       <section class="gc-shell__hero" aria-label="当前位置">
         <div>
           <p class="gc-shell__eyebrow">企业 SSL 证书生命周期管理平台</p>

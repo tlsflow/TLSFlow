@@ -237,7 +237,7 @@ async function refreshBindingUsage(row: ViewRow | null) {
     usageItems.value = [...(result.data?.items ?? [])]
   } catch (cause) {
     if (cause instanceof ApiClientError) {
-      usageError.value = `${cause.message}（requestId：${cause.requestId}）`
+      usageError.value = cause.message
       return
     }
     usageError.value = cause instanceof Error ? cause.message : '加载绑定使用关系失败。'
@@ -284,7 +284,7 @@ function handleError(cause: unknown, fallback: string) {
         <h2>{{ selectedBinding?.name ?? '未选择绑定' }}</h2>
         <span>按 bindingId、certificateVersionId 或 fingerprint 调用 usage 集合查询，前端不猜使用关系。</span>
       </div>
-      <span class="binding-usage__request">requestId：{{ usageRequestId || '等待选择绑定' }}</span>
+      <span class="binding-usage__request">{{ usageRequestId ? '使用关系已刷新' : '等待选择绑定' }}</span>
     </header>
     <p v-if="usageError" class="binding-form__error">{{ usageError }}</p>
     <ul v-if="usageItems.length" class="binding-usage__list">
@@ -325,7 +325,6 @@ function handleError(cause: unknown, fallback: string) {
         <pre v-if="driftPreview">{{ JSON.stringify(driftPreview, null, 2) }}</pre>
       </div>
       <p v-if="error" class="binding-form__error">{{ error }}</p>
-      <p v-if="requestId" class="binding-form__request">requestId：{{ requestId }}</p>
     </section>
 
     <template #actions>

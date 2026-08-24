@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, watch } from 'vue'
 
-type ModalSize = 'sm' | 'md' | 'lg' | 'xl'
+type ModalSize = 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
 
 const props = withDefaults(defineProps<{
   /** 兼容 v-model:open 的受控开关。 */
@@ -104,51 +104,61 @@ onBeforeUnmount(() => {
   z-index: 40;
   display: grid;
   place-items: center;
-  padding: var(--gc-space-4);
-  background: rgb(15 23 42 / 48%);
+  padding: clamp(10px, 2vw, 20px);
+  background: rgb(15 23 42 / 36%);
+  backdrop-filter: blur(14px) saturate(125%);
 }
 
 .gc-modal {
-  width: min(var(--gc-modal-width), calc(100vw - var(--gc-space-8)));
-  max-height: calc(100vh - var(--gc-space-8));
+  width: min(var(--gc-modal-width), calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: var(--gc-space-4);
+  gap: var(--gc-space-3);
   overflow: hidden;
-  border-radius: var(--gc-radius-lg);
+  border-radius: 22px;
+  padding: 16px;
+  border-color: rgb(255 255 255 / 70%);
+  box-shadow: 0 24px 80px rgb(15 23 42 / 16%);
 }
 
 .gc-modal--sm { --gc-modal-width: 420px; }
 .gc-modal--md { --gc-modal-width: 560px; }
-.gc-modal--lg { --gc-modal-width: 760px; }
-.gc-modal--xl { --gc-modal-width: 960px; }
+.gc-modal--lg { --gc-modal-width: 720px; }
+.gc-modal--xl { --gc-modal-width: 860px; }
+.gc-modal--xxl { --gc-modal-width: 1120px; }
 
 .gc-modal__header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: var(--gc-space-4);
-  padding-bottom: var(--gc-space-3);
+  gap: var(--gc-space-3);
+  padding-bottom: 10px;
   border-bottom: 1px solid var(--gc-color-border);
 }
 
 .gc-modal__header h2 {
   margin: 0;
   color: var(--gc-color-text);
+  font-size: 28px;
+  line-height: 1.1;
   letter-spacing: -0.03em;
 }
 
 .gc-modal__header p {
-  margin: var(--gc-space-1) 0 0;
+  margin: 6px 0 0;
   color: var(--gc-color-text-muted);
+  font-size: 14px;
+  line-height: 1.55;
 }
 
 .gc-modal__close {
-  min-width: 36px;
-  width: 36px;
-  height: 36px;
+  min-width: 32px;
+  width: 32px;
+  height: 32px;
   padding: 0;
-  font-size: 22px;
+  border-radius: 10px;
+  font-size: 18px;
   line-height: 1;
 }
 
@@ -162,7 +172,18 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--gc-space-2);
-  padding-top: var(--gc-space-3);
+  padding-top: 10px;
   border-top: 1px solid var(--gc-color-border);
+}
+
+@media (max-width: 640px) {
+  .gc-modal {
+    padding: 12px;
+    border-radius: 18px;
+  }
+
+  .gc-modal__header h2 {
+    font-size: 22px;
+  }
 }
 </style>

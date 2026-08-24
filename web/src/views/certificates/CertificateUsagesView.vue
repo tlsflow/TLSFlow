@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { listCertificateUsages } from '@/api/modules/certificates.api'
@@ -10,7 +10,6 @@ import { toErrorState, type CertificatePageError } from './certificate-view-util
 const route = useRoute()
 const certificateId = computed(() => String(route.params.id ?? ''))
 const rows = ref<ApiRecord[]>([])
-const requestId = ref('')
 const loading = ref(false)
 const error = ref<CertificatePageError | null>(null)
 const columns: DataTableColumn<ApiRecord>[] = [
@@ -18,7 +17,7 @@ const columns: DataTableColumn<ApiRecord>[] = [
   { key: 'status', title: '状态' },
   { key: 'resourceType', title: '资源类型' },
   { key: 'resourceId', title: '资源 ID' },
-  { key: 'updatedAt', title: '更新时间' }
+  { key: 'updatedAt', title: '更新时间' },
 ]
 
 async function loadUsages() {
@@ -26,7 +25,6 @@ async function loadUsages() {
   error.value = null
   try {
     const result = await listCertificateUsages({ page: 1, pageSize: 100, filters: { certificateId: certificateId.value } })
-    requestId.value = result.requestId
     rows.value = [...(result.data?.items ?? [])]
   } catch (cause) {
     error.value = toErrorState(cause)
@@ -46,13 +44,15 @@ onMounted(() => void loadUsages())
       </template>
     </GcPageHeader>
     <GcEmptyState v-if="error" title="使用关系加载失败" :description="error.message">
-      <p>错误码：{{ error.errorCode }}</p><p>requestId：{{ error.requestId }}</p>
+      <p>错误码：{{ error.errorCode }}</p>
     </GcEmptyState>
     <GcDataTable v-else :columns="columns" :rows="rows" :loading="loading" empty-text="暂无使用关系">
-      <template #toolbar><strong>requestId：{{ requestId || '等待请求' }}</strong></template>
+      <template #toolbar><strong>使用关系</strong></template>
       <template #cell-status="{ row }"><GcStatusTag :status="String(row.status ?? 'UNKNOWN')" /></template>
     </GcDataTable>
   </section>
 </template>
 
-<style scoped>.certificate-subpage { display: grid; gap: var(--gc-space-5); }</style>
+<style scoped>
+.certificate-subpage { display: grid; gap: var(--gc-space-5); }
+</style>

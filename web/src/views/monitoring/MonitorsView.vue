@@ -1,12 +1,12 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
-import type { BusinessPageConfig } from '@/views/business-page.types'
-import { listMonitors, scanMonitorRisks } from '@/api/modules/monitors.api'
 import { listDashboardRisks } from '@/api/modules/dashboard.api'
+import { listMonitors, scanMonitorRisks } from '@/api/modules/monitors.api'
 import { GcEmptyState, GcRiskBadge, GcStatusTag } from '@/design-system/components'
 import { readString } from '@/composables/useBusinessPage'
+import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
+import type { BusinessPageConfig } from '@/views/business-page.types'
 
 const router = useRouter()
 const riskCardsState = ref<readonly Record<string, unknown>[]>([])
@@ -27,30 +27,30 @@ const config: BusinessPageConfig = {
     { key: 'status', title: '状态', candidates: ['status', 'state'] },
     { key: 'risk', title: '风险', candidates: ['risk', 'riskLevel', 'severity'] },
     { key: 'type', title: '类型', candidates: ['type', 'targetType'] },
-    { key: 'checkedAt', title: '最近检查', candidates: ['checkedAt', 'lastCheckedAt', 'updatedAt'], kind: 'date' }
+    { key: 'checkedAt', title: '最近检查', candidates: ['checkedAt', 'lastCheckedAt', 'updatedAt'], kind: 'date' },
   ],
   metrics: [
     { title: '监控总数', description: '证书、绑定和执行风险目标。', status: 'READY', risk: 'MEDIUM' },
-    { title: '高危待处理', description: '即将过期、已漂移或执行失败告警。', status: 'ERROR', risk: 'HIGH' }
+    { title: '高危待处理', description: '即将过期、已漂移或执行失败的告警。', status: 'ERROR', risk: 'HIGH' },
   ],
   detailFields: [
     { label: '风险事件 ID', candidates: ['riskEventId', 'eventId', 'id'] },
     { label: '证书 ID', candidates: ['certificateId'] },
     { label: '绑定 ID', candidates: ['bindingId'] },
     { label: '执行 ID', candidates: ['executionRunId', 'runId'] },
-    { label: '处理建议', candidates: ['suggestion', 'recommendation', 'message'] }
+    { label: '处理建议', candidates: ['suggestion', 'recommendation', 'message'] },
   ],
   contextLinks: [
     { label: '查看证书', to: '/certificates', queryKey: 'certificateId', candidates: ['certificateId'] },
     { label: '查看绑定', to: '/bindings', queryKey: 'bindingId', candidates: ['bindingId'] },
-    { label: '查看执行记录', to: '/executions', queryKey: 'runId', candidates: ['executionRunId', 'runId'] }
+    { label: '查看执行记录', to: '/executions', queryKey: 'runId', candidates: ['executionRunId', 'runId'] },
   ],
   emptyTitle: '暂无监控目标',
-  emptyDescription: '监控数据暂不可用时必须展示 requestId 并允许重试。',
+  emptyDescription: '监控数据暂不可用，请稍后重试或检查后端服务状态。',
   load: () => listMonitors({ page: 1, pageSize: 20, sort: 'detectedAt:desc' }),
   actions: [
-    { label: '重新扫描风险', permission: 'monitor.write', danger: false, requiresSelection: false, run: () => scanMonitorRisks({}) }
-  ]
+    { label: '重新扫描风险', permission: 'monitor.write', danger: false, requiresSelection: false, run: () => scanMonitorRisks({}) },
+  ],
 }
 
 async function loadRiskCards() {
@@ -76,11 +76,13 @@ function jumpByRisk(item: Record<string, unknown>) {
     void router.push({ path: '/certificates', query: { certificateId } })
     return
   }
+
   const bindingId = readString(item, ['bindingId'], '')
   if (bindingId) {
     void router.push({ path: '/bindings', query: { bindingId } })
     return
   }
+
   const runId = readString(item, ['executionRunId', 'runId'], '')
   void router.push({ path: '/executions', query: runId ? { runId } : { status: readString(item, ['status', 'state'], '') } })
 }
@@ -92,12 +94,18 @@ function jumpByRisk(item: Record<string, unknown>) {
       <header>
         <div>
           <strong>风险仪表盘</strong>
-          <p>消费 monitors/risks API，把高风险卡片跳到证书、绑定或执行筛选上下文。</p>
+          <p>将高风险卡片直接跳转到证书、绑定或执行记录的上下文页面。</p>
         </div>
       </header>
       <GcEmptyState v-if="riskCardsError" title="风险卡片加载失败" :description="riskCardsError" />
       <div v-else class="gc-monitor-page__cards">
-        <button v-for="item in riskCards" :key="readString(item, ['id', 'eventId'], Math.random().toString())" class="gc-monitor-page__card" type="button" @click="jumpByRisk(item)">
+        <button
+          v-for="item in riskCards"
+          :key="readString(item, ['id', 'eventId'], Math.random().toString())"
+          class="gc-monitor-page__card"
+          type="button"
+          @click="jumpByRisk(item)"
+        >
           <div class="gc-monitor-page__card-head">
             <strong>{{ readString(item, ['name', 'resourceName', 'title'], '未命名风险') }}</strong>
             <GcRiskBadge :risk="readString(item, ['risk', 'riskLevel', 'severity'], 'HIGH') as 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'" />

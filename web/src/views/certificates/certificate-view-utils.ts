@@ -40,7 +40,7 @@ export function toErrorState(cause: unknown): CertificatePageError {
   return {
     message: cause instanceof Error ? cause.message : '请求失败',
     errorCode: 'NETWORK_OR_RUNTIME_ERROR',
-    requestId: '未返回 requestId，请检查浏览器网络面板中的 X-Request-Id'
+    requestId: ''
   }
 }
 

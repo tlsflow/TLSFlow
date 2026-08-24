@@ -96,7 +96,7 @@ export function useBusinessPage(config: BusinessPageConfig) {
         error.value = {
           message: cause instanceof Error ? cause.message : '未知错误',
           errorCode: 'NETWORK_OR_RUNTIME_ERROR',
-          requestId: '未返回 requestId，请检查浏览器网络面板中的 X-Request-Id'
+          requestId: ''
         }
       }
       page.value = null

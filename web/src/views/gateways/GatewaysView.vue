@@ -12,7 +12,7 @@ const selectedGateway = ref<ViewRow | null>(null)
 const tokenValue = computed(() => String(enrollmentToken.value?.token ?? ''))
 const tokenPreview = computed(() => String(enrollmentToken.value?.tokenPreview ?? ''))
 const tokenExpiresAt = computed(() => String(enrollmentToken.value?.expiresAt ?? ''))
-const tokenAuditRef = computed(() => String(enrollmentToken.value?.auditRef ?? enrollmentToken.value?.requestId ?? ''))
+const tokenAuditRef = computed(() => String(enrollmentToken.value?.auditRef ?? ''))
 const gatewayRaw = computed<ApiRecord | null>(() => selectedGateway.value?.raw ?? null)
 const reachableTargets = computed(() => normalizeList(gatewayRaw.value, ['reachableTargets', 'targets', 'targetCidrs', 'targetZones']))
 const proxyProtocols = computed(() => normalizeList(gatewayRaw.value, ['proxyProtocols', 'protocols', 'supportedProtocols', 'adapters']))
@@ -38,7 +38,7 @@ async function createGatewayEnrollmentToken() {
     maxUses: 1,
     ttlSeconds: 3600
   })
-  enrollmentToken.value = result.data ? { ...result.data, requestId: result.requestId } : { requestId: result.requestId }
+  enrollmentToken.value = result.data ? { ...result.data } : {}
 }
 
 function onGatewaySelectionChange(row: ViewRow | null) {
@@ -198,7 +198,7 @@ const config: BusinessPageConfig = {
             <dd>{{ tokenExpiresAt }}</dd>
           </div>
           <div>
-            <dt>requestId / auditRef</dt>
+            <dt>审计参考</dt>
             <dd>{{ tokenAuditRef }}</dd>
           </div>
         </dl>

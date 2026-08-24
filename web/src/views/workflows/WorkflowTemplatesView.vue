@@ -21,7 +21,6 @@ interface TemplateValidation {
 }
 
 interface DryRunPreview {
-  readonly requestId: string
   readonly generatedAt: string
   readonly summary: string
   readonly steps: readonly string[]
@@ -98,7 +97,6 @@ function runDryRun() {
   const current = validation.value
   if (!current.ok) return
   dryRunPreview.value = {
-    requestId: `local_dry_run_${Date.now()}`,
     generatedAt: new Date().toISOString(),
     summary: `${draft.kind} 模板将生成 ${draft.command.split('\n').filter(Boolean).length} 个步骤，依赖 ${current.capabilities.length} 项能力。`,
     steps: draft.command.split('\n').map((line, index) => `步骤 ${index + 1}: ${line}`)
@@ -201,7 +199,6 @@ function publishTemplate() {
       <p v-if="!dryRunPreview">还没有执行 dry-run。不会提交任何部署任务。</p>
       <template v-else>
         <p>{{ dryRunPreview.summary }}</p>
-        <p>requestId：{{ dryRunPreview.requestId }}</p>
         <ol>
           <li v-for="step in dryRunPreview.steps" :key="step">{{ step }}</li>
         </ol>
