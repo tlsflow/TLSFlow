@@ -1,5 +1,6 @@
 // Auto-generated from messages.ts — do not edit manually.
 // Edit messages.ts and re-run: npx tsx src/i18n/extract-locales.ts
+import { internalCaEnglish } from './internal-ca.locale'
 export default {
   app: {
     brand: 'Console GCAC',
@@ -3620,6 +3621,7 @@ export default {
     status: { certified: 'Certificado', supported: 'Suportado', compatible: 'Compatível', experimental: 'Experimental', legacy: 'Legado', unsupported: 'Não suportado' },
     evidence: { current: 'Atual', expired: 'Expirada', failed: 'Falhou' }
   },
+  internalCa: internalCaEnglish,
   errors: {
     forbiddenTitle: '403 Sem permissão',
     forbiddenMessage: 'Você não tem a permissão necessária para acessar esta página.',

@@ -1,5 +1,6 @@
 // Auto-generated from messages.ts — do not edit manually.
 // Edit messages.ts and re-run: npx tsx src/i18n/extract-locales.ts
+import { internalCaEnglish } from './internal-ca.locale'
 export default {
   app: {
     brand: 'Консоль GCAC',
@@ -3620,6 +3621,7 @@ export default {
     status: { certified: 'Сертифицировано', supported: 'Поддерживается', compatible: 'Совместимо', experimental: 'Экспериментально', legacy: 'Устаревшее', unsupported: 'Не поддерживается' },
     evidence: { current: 'Актуально', expired: 'Просрочено', failed: 'Ошибка' }
   },
+  internalCa: internalCaEnglish,
   errors: {
     forbiddenTitle: '403 Нет прав',
     forbiddenMessage: 'У вас нет прав, необходимых для доступа к этой странице.',

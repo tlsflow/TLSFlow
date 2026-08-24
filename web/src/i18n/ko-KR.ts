@@ -1,5 +1,6 @@
 // Auto-generated from messages.ts — do not edit manually.
 // Edit messages.ts and re-run: npx tsx src/i18n/extract-locales.ts
+import { internalCaEnglish } from './internal-ca.locale'
 export default {
   app: {
     brand: 'GCAC 콘솔',
@@ -3620,6 +3621,7 @@ export default {
     status: { certified: '인증됨', supported: '지원됨', compatible: '호환됨', experimental: '실험적', legacy: '레거시', unsupported: '지원 안 함' },
     evidence: { current: '유효', expired: '만료됨', failed: '실패' }
   },
+  internalCa: internalCaEnglish,
   errors: {
     forbiddenTitle: '403권한 없음',
     forbiddenMessage: '이 페이지에 접근할 수 있는 권한이 없습니다.',

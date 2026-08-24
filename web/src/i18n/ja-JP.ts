@@ -1,5 +1,6 @@
 // Auto-generated from messages.ts — do not edit manually.
 // Edit messages.ts and re-run: npx tsx src/i18n/extract-locales.ts
+import { internalCaEnglish } from './internal-ca.locale'
 export default {
   app: {
     brand: 'GCAC コンソール',
@@ -3646,6 +3647,7 @@ export default {
     status: { certified: '認証済み', supported: 'サポート', compatible: '互換', experimental: '実験的', legacy: 'レガシー', unsupported: '非対応' },
     evidence: { current: '有効', expired: '期限切れ', failed: '失敗' }
   },
+  internalCa: internalCaEnglish,
   errors: {
     forbiddenTitle: '403 権限がありません',
     forbiddenMessage: 'このページにアクセスするために必要な権限がありません。',

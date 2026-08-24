@@ -1,5 +1,6 @@
 // Auto-generated from messages.ts — do not edit manually.
 // Edit messages.ts and re-run: npx tsx src/i18n/extract-locales.ts
+import { internalCaEnglish } from './internal-ca.locale'
 export default {
   app: {
     brand: 'Console GCAC',
@@ -3881,6 +3882,7 @@ export default {
       }
     }
   },
+  internalCa: internalCaEnglish,
   errors: {
     forbiddenTitle: '403 Accès refusé',
     forbiddenMessage: 'You do not have permission to access this page.',
