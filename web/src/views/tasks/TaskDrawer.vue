@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 import { GcModal, GcStatusTag, GcTabs } from '@/design-system/components'
 import { listDeploymentPlans } from '@/api/modules/deployments.api'
 import { getTask, listMonitoringProbes, listTasks, type TaskCategory, type TaskDetail, type TaskRun, type TaskStatus } from '@/api/modules/tasks.api'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
-import { isTaskRealtimeConnected, subscribeGlobalTaskRefresh, subscribeTaskActivity, subscribeTaskRealtime, type TaskRealtimeMessage } from './task-events'
+import { dispatchOpenDeploymentExecution, isTaskRealtimeConnected, subscribeGlobalTaskRefresh, subscribeTaskActivity, subscribeTaskRealtime, type DeploymentExecutionMode, type DeploymentExecutionOpenDetail, type TaskRealtimeMessage } from './task-events'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
 
 const PAGE_SIZE = 100
 const HISTORY_BATCH_SIZE = 20
@@ -462,6 +465,18 @@ function handleAllTasksScroll(event: Event): void {
 }
 
 async function openTask(task: TaskRun): Promise<void> {
+  const executionOpenDetail = deploymentExecutionOpenDetail(task)
+  if (executionOpenDetail) {
+    detail.value = null
+    monitoringProbes.value = []
+    allTasksModalOpen.value = false
+    emit('close')
+    dispatchOpenDeploymentExecution(executionOpenDetail)
+    if (route.name !== 'deployment.plan.list') {
+      await router.push({ name: 'deployment.plan.list' })
+    }
+    return
+  }
   detail.value = null
   monitoringProbes.value = []
   allTasksModalOpen.value = false
@@ -583,6 +598,32 @@ function taskStatusSummary(task: TaskRun): string {
   return overview === status ? overview : `${status} · ${overview}`
 }
 
+function isDeploymentExecutionTask(task: TaskRun): boolean {
+  return DEPLOYMENT_EXECUTION_TASK_TYPES.has(task.taskType)
+}
+
+function taskProgressPercent(task: TaskRun): number {
+  const explicit = firstFiniteNumber(
+    recordNumberByKeys(task.progress, ['percent', 'percentage', 'progressPercent', 'progress', 'completedPercent']),
+    recordNumberByKeys(task.resourceSummary, ['percent', 'percentage', 'progressPercent', 'progress', 'completedPercent']),
+    recordNumberByKeys(task.payload, ['percent', 'percentage', 'progressPercent', 'progress', 'completedPercent']),
+  )
+  if (explicit !== undefined) return clampPercent(explicit <= 1 ? explicit * 100 : explicit)
+  const completed = firstFiniteNumber(
+    recordNumberByKeys(task.progress, ['completed', 'completedSteps', 'finishedSteps', 'done']),
+    recordNumberByKeys(task.resourceSummary, ['completed', 'completedSteps', 'finishedSteps', 'done']),
+  )
+  const total = firstFiniteNumber(
+    recordNumberByKeys(task.progress, ['total', 'totalSteps', 'stepCount']),
+    recordNumberByKeys(task.resourceSummary, ['total', 'totalSteps', 'stepCount']),
+  )
+  if (completed !== undefined && total !== undefined && total > 0) return clampPercent((completed / total) * 100)
+  if (task.status === 'SUCCEEDED') return 100
+  if (task.status === 'FAILED' || task.status === 'CANCELLED') return 100
+  if (task.status === 'RUNNING') return 35
+  return 0
+}
+
 function sortTasks(tasks: readonly TaskRun[]): TaskRun[] {
   return [...tasks].sort((left, right) => {
     const createdCompare = Date.parse(right.createdAt) - Date.parse(left.createdAt)
@@ -629,6 +670,30 @@ function stringFromRecord(record: Record<string, unknown> | undefined, key: stri
   return undefined
 }
 
+function numberFromRecord(record: Record<string, unknown> | undefined, key: string): number | undefined {
+  if (!record) return undefined
+  const value = record[key]
+  const number = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN
+  return Number.isFinite(number) ? number : undefined
+}
+
+function recordNumberByKeys(record: Record<string, unknown> | undefined, keys: readonly string[]): number | undefined {
+  if (!record) return undefined
+  for (const key of keys) {
+    const value = numberFromRecord(record, key)
+    if (value !== undefined) return value
+  }
+  return undefined
+}
+
+function firstFiniteNumber(...values: Array<number | undefined>): number | undefined {
+  return values.find((value): value is number => typeof value === 'number' && Number.isFinite(value))
+}
+
+function clampPercent(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)))
+}
+
 function recordStringByKeys(record: Record<string, unknown> | undefined, keys: readonly string[]): string | undefined {
   if (!record) return undefined
   for (const key of keys) {
@@ -650,6 +715,39 @@ function taskDeploymentPlanId(task: TaskRun): string | undefined {
     stringFromRecord(task.payload, 'deploymentPlanId'),
     stringFromRecord(task.payload, 'planId'),
   )
+}
+
+function taskExecutionRunId(task: TaskRun): string | undefined {
+  return firstNonEmptyString(
+    stringFromRecord(task.payload, 'runId'),
+    stringFromRecord(task.resourceSummary, 'runId'),
+    stringFromRecord(task.progress, 'runId'),
+    stringFromRecord(task.resourceSummary, 'executionRunId'),
+    stringFromRecord(task.payload, 'executionRunId'),
+  )
+}
+
+function deploymentExecutionMode(taskType: string): DeploymentExecutionMode | undefined {
+  if (taskType === 'CERTIFICATE_DRY_RUN') return 'dry-run'
+  if (taskType === 'CERTIFICATE_DEPLOY') return 'apply'
+  if (taskType === 'CERTIFICATE_ROLLBACK') return 'rollback'
+  return undefined
+}
+
+function deploymentExecutionOpenDetail(task: TaskRun): DeploymentExecutionOpenDetail | undefined {
+  const mode = deploymentExecutionMode(task.taskType)
+  if (!mode) return undefined
+  const runId = taskExecutionRunId(task)
+  if (!runId) return undefined
+  return {
+    taskId: task.id,
+    runId,
+    deploymentPlanId: taskDeploymentPlanId(task),
+    mode,
+    planName: taskRelatedName(task),
+    status: task.status,
+    summary: taskResultSummary(task),
+  }
 }
 
 function isRecordId(value: string | undefined, prefix: string): boolean {
@@ -824,8 +922,18 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
                         <small class="task-drawer__item-type">{{ taskTypeLabel(task) }}</small>
                         <strong class="task-drawer__item-title">{{ taskRelatedName(task) }}</strong>
                       </span>
-                      <span class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
-                      <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
+                      <span v-if="!isDeploymentExecutionTask(task)" class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
+                      <span class="task-drawer__item-meta-row">
+                        <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
+                        <span
+                          v-if="isDeploymentExecutionTask(task)"
+                          class="task-drawer__item-progress"
+                          :style="{ '--task-progress': `${taskProgressPercent(task)}%` }"
+                        >
+                          <span class="task-drawer__item-progress-track" aria-hidden="true"><span /></span>
+                          <span class="task-drawer__item-progress-text">{{ taskProgressPercent(task) }}%</span>
+                        </span>
+                      </span>
                     </span>
                     <GcStatusTag :status="task.status" :tone="statusTone(task.status)" />
                   </button>
@@ -844,8 +952,18 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
                         <small class="task-drawer__item-type">{{ taskTypeLabel(task) }}</small>
                         <strong class="task-drawer__item-title">{{ taskRelatedName(task) }}</strong>
                       </span>
-                      <span class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
-                      <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
+                      <span v-if="!isDeploymentExecutionTask(task)" class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
+                      <span class="task-drawer__item-meta-row">
+                        <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
+                        <span
+                          v-if="isDeploymentExecutionTask(task)"
+                          class="task-drawer__item-progress"
+                          :style="{ '--task-progress': `${taskProgressPercent(task)}%` }"
+                        >
+                          <span class="task-drawer__item-progress-track" aria-hidden="true"><span /></span>
+                          <span class="task-drawer__item-progress-text">{{ taskProgressPercent(task) }}%</span>
+                        </span>
+                      </span>
                     </span>
                     <GcStatusTag :status="task.status" :tone="statusTone(task.status)" />
                   </button>
@@ -889,8 +1007,18 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
                 <small class="task-drawer__item-type">{{ taskTypeLabel(task) }}</small>
                 <strong class="task-drawer__item-title">{{ taskRelatedName(task) }}</strong>
               </span>
-              <span class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
-              <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
+              <span v-if="!isDeploymentExecutionTask(task)" class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
+              <span class="task-drawer__item-meta-row">
+                <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
+                <span
+                  v-if="isDeploymentExecutionTask(task)"
+                  class="task-drawer__item-progress"
+                  :style="{ '--task-progress': `${taskProgressPercent(task)}%` }"
+                >
+                  <span class="task-drawer__item-progress-track" aria-hidden="true"><span /></span>
+                  <span class="task-drawer__item-progress-text">{{ taskProgressPercent(task) }}%</span>
+                </span>
+              </span>
             </span>
             <GcStatusTag :status="task.status" :tone="statusTone(task.status)" />
           </button>
@@ -1230,6 +1358,55 @@ async function resolveDeploymentPlanNames(tasks: readonly TaskRun[]): Promise<vo
 
 .task-drawer__item-summary {
   color: var(--gc-color-text);
+}
+
+.task-drawer__item-meta-row {
+  display: flex;
+  align-items: center;
+  gap: var(--gc-space-3);
+  min-width: 0;
+}
+
+.task-drawer__item-meta-row .task-drawer__item-meta {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.task-drawer__item-progress {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--gc-space-2);
+  min-width: 8.5rem;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 750;
+}
+
+.task-drawer__item-progress-track {
+  position: relative;
+  flex: 1 1 auto;
+  height: var(--gc-space-2);
+  min-width: 5rem;
+  overflow: hidden;
+  border-radius: var(--gc-radius-pill);
+  background: var(--gc-color-surface-muted);
+  box-shadow: inset 0 0 0 var(--gc-border-width-default) var(--gc-color-border-subtle);
+}
+
+.task-drawer__item-progress-track span {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: var(--task-progress, 0%);
+  border-radius: inherit;
+  background: var(--gc-color-primary);
+  transition: width 180ms ease;
+}
+
+.task-drawer__item-progress-text {
+  flex: 0 0 2.25rem;
+  text-align: right;
 }
 
 .task-drawer__detail-header {

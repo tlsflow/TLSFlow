@@ -13,7 +13,21 @@ import { usePermissionStore } from '@/stores/permission.store'
 import type { MenuItem } from '@/types/router'
 import { gcacVersion } from '@/version'
 import TaskDrawer from '@/views/tasks/TaskDrawer.vue'
-import { subscribeGlobalTaskRefresh, subscribeTaskActivity } from '@/views/tasks/task-events'
+import { subscribeGlobalTaskRefresh, subscribeTaskActivity, subscribeTaskRealtime, type TaskRealtimeMessage } from '@/views/tasks/task-events'
+
+type ToastTone = 'success' | 'warning' | 'danger' | 'info'
+
+interface ToastNotice {
+  readonly id: number
+  readonly message: string
+  readonly tone: ToastTone
+}
+
+interface ToastEventDetail {
+  readonly message?: string
+  readonly tone?: ToastTone
+  readonly durationMs?: number
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -48,6 +62,7 @@ const userMenuOpen = ref(false)
 const languageMenuOpen = ref(false)
 const userMenuRoot = ref<HTMLElement | null>(null)
 const taskEntryRoot = ref<HTMLElement | null>(null)
+const toastNotices = ref<ToastNotice[]>([])
 const passwordDialogOpen = ref(false)
 const passwordSubmitting = ref(false)
 const passwordError = ref('')
@@ -64,8 +79,18 @@ const currentThemeLabel = computed(() => appStore.theme === 'dark' ? t('preferen
 const currentLocaleLabel = computed(() => localeLabels[appStore.locale])
 let disposeTaskActivity: (() => void) | undefined
 let disposeTaskRefresh: (() => void) | undefined
+let disposeTaskRealtime: (() => void) | undefined
 let taskEntryRefreshTimer: number | undefined
 let taskEntryRefreshPending = false
+let toastSequence = 0
+const toastTimers = new Map<number, number>()
+const executionTaskSuccessToastIds = new Set<string>()
+const acmeIssueTaskTerminalToastIds = new Set<string>()
+const DEPLOYMENT_EXECUTION_TASK_TYPES = new Set([
+  'CERTIFICATE_DRY_RUN',
+  'CERTIFICATE_DEPLOY',
+  'CERTIFICATE_ROLLBACK',
+])
 
 function isMenuItemActive(item: MenuItem): boolean {
   if (route.path === item.path) return true
@@ -199,6 +224,7 @@ watch(showTaskEntry, (visible) => {
 
 onMounted(() => {
   document.addEventListener('pointerdown', handleDocumentPointerDown)
+  window.addEventListener('gcac:toast', handleToastEvent as EventListener)
   disposeTaskActivity = subscribeTaskActivity((state) => {
     taskEntryConnected.value = state.connected
     if (state.activeCount > 0) {
@@ -207,6 +233,7 @@ onMounted(() => {
     }
     void refreshTaskEntryCount()
   })
+  disposeTaskRealtime = subscribeTaskRealtime(handleTaskRealtime)
   disposeTaskRefresh = subscribeGlobalTaskRefresh(() => {
     void refreshTaskEntryCount()
   })
@@ -215,12 +242,73 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', handleDocumentPointerDown)
+  window.removeEventListener('gcac:toast', handleToastEvent as EventListener)
   disposeTaskActivity?.()
+  disposeTaskRealtime?.()
   disposeTaskRefresh?.()
   stopTaskEntryRefresh()
   disposeTaskActivity = undefined
+  disposeTaskRealtime = undefined
   disposeTaskRefresh = undefined
+  executionTaskSuccessToastIds.clear()
+  acmeIssueTaskTerminalToastIds.clear()
+  toastTimers.forEach((timer) => window.clearTimeout(timer))
+  toastTimers.clear()
 })
+
+function handleToastEvent(event: Event): void {
+  const detail = (event as CustomEvent<ToastEventDetail | undefined>).detail
+  const message = typeof detail?.message === 'string' ? detail.message.trim() : ''
+  if (!message) return
+  const id = toastSequence + 1
+  toastSequence = id
+  toastNotices.value = [
+    ...toastNotices.value.filter((item) => item.message !== message),
+    { id, message, tone: normalizeToastTone(detail?.tone) },
+  ].slice(-4)
+  const durationMs = typeof detail?.durationMs === 'number' && Number.isFinite(detail.durationMs)
+    ? Math.max(1_500, detail.durationMs)
+    : 4_000
+  const timer = window.setTimeout(() => removeToastNotice(id), durationMs)
+  toastTimers.set(id, timer)
+}
+
+function handleTaskRealtime(message: TaskRealtimeMessage): void {
+  if (message.type !== 'task.changed') return
+  const task = message.task
+  if (task.taskType === 'ACME_CERTIFICATE_ISSUE') {
+    if (task.status !== 'SUCCEEDED' && task.status !== 'FAILED') return
+    if (acmeIssueTaskTerminalToastIds.has(task.id)) return
+    acmeIssueTaskTerminalToastIds.add(task.id)
+    window.dispatchEvent(new CustomEvent('gcac:toast', {
+      detail: {
+        message: t(task.status === 'SUCCEEDED' ? 'acme.messages.issueTaskSucceeded' : 'acme.messages.issueTaskFailed'),
+        tone: task.status === 'SUCCEEDED' ? 'success' : 'danger',
+      },
+    }))
+    return
+  }
+  if (task.status !== 'SUCCEEDED' || !DEPLOYMENT_EXECUTION_TASK_TYPES.has(task.taskType)) return
+  if (executionTaskSuccessToastIds.has(task.id)) return
+  executionTaskSuccessToastIds.add(task.id)
+  window.dispatchEvent(new CustomEvent('gcac:toast', {
+    detail: {
+      message: t('deploymentPlans.feedback.executionTaskSucceeded'),
+      tone: 'success',
+    },
+  }))
+}
+
+function normalizeToastTone(tone: ToastEventDetail['tone']): ToastTone {
+  return tone === 'success' || tone === 'warning' || tone === 'danger' || tone === 'info' ? tone : 'info'
+}
+
+function removeToastNotice(id: number): void {
+  const timer = toastTimers.get(id)
+  if (timer !== undefined) window.clearTimeout(timer)
+  toastTimers.delete(id)
+  toastNotices.value = toastNotices.value.filter((item) => item.id !== id)
+}
 
 function startTaskEntryRefresh(): void {
   if (typeof window === 'undefined' || taskEntryRefreshTimer !== undefined) return
@@ -459,6 +547,22 @@ async function refreshTaskEntryCount(): Promise<void> {
         </div>
       </form>
     </GcModal>
+
+    <Teleport to="body">
+      <TransitionGroup name="gc-shell-toast" tag="div" class="gc-shell__toasts">
+        <div
+          v-for="notice in toastNotices"
+          :key="notice.id"
+          class="gc-shell__toast"
+          :class="`gc-shell__toast--${notice.tone}`"
+          role="status"
+        >
+          <span class="gc-shell__toast-dot" aria-hidden="true" />
+          <span>{{ notice.message }}</span>
+          <button class="gc-shell__toast-close" type="button" :aria-label="t('designSystem.modal.closeAria')" @click="removeToastNotice(notice.id)">×</button>
+        </div>
+      </TransitionGroup>
+    </Teleport>
 
   </div>
 </template>

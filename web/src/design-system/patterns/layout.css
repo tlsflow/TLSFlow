@@ -98,7 +98,16 @@
   font-weight: 600;
 }
 
+.gc-shell__task-entry {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
 .gc-shell__task-button {
+  position: relative;
   display: inline-grid;
   place-items: center;
   width: var(--gc-control-height-md);
@@ -109,6 +118,8 @@
   color: var(--gc-color-text-muted);
   background: var(--gc-color-surface-field);
   cursor: pointer;
+  overflow: visible;
+  transition: border-color .16s ease, color .16s ease, background-color .16s ease, box-shadow .16s ease;
 }
 
 .gc-shell__task-button:hover,
@@ -126,6 +137,136 @@
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 1.8;
+}
+
+.gc-shell__task-button--active {
+  border-color: var(--gc-color-primary-border);
+  color: var(--gc-color-primary);
+  background: var(--gc-color-primary-soft);
+  animation: gc-shell-task-pulse 1.6s ease-in-out infinite;
+}
+
+.gc-shell__task-badge {
+  position: absolute;
+  top: calc(var(--gc-space-2) * -1 - var(--gc-space-hairline));
+  right: calc(var(--gc-space-2) * -1 - var(--gc-space-hairline));
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: calc(var(--gc-space-5) + var(--gc-space-1));
+  height: calc(var(--gc-space-5) + var(--gc-space-hairline));
+  padding: 0 var(--gc-space-1);
+  border: var(--gc-border-width-default) solid var(--gc-color-surface-panel);
+  border-radius: var(--gc-radius-xl);
+  color: var(--gc-color-text-inverse);
+  background: var(--gc-color-danger);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: var(--gc-shadow-sm);
+  pointer-events: none;
+}
+
+@keyframes gc-shell-task-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--gc-color-primary) 18%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 var(--gc-space-4) color-mix(in srgb, var(--gc-color-primary) 0%, transparent);
+  }
+}
+
+.gc-shell__toasts {
+  position: fixed;
+  top: calc(var(--gc-control-height-md) + var(--gc-space-5));
+  right: var(--gc-space-5);
+  z-index: 60;
+  display: grid;
+  gap: var(--gc-space-2);
+  width: min(24rem, calc(100vw - var(--gc-space-8)));
+  pointer-events: none;
+}
+
+.gc-shell__toast {
+  display: grid;
+  grid-template-columns: var(--gc-space-3) minmax(0, 1fr) var(--gc-space-7);
+  align-items: center;
+  gap: var(--gc-space-2);
+  min-height: var(--gc-control-height-lg);
+  border: var(--gc-border-width-default) solid var(--gc-toast-border);
+  border-radius: var(--gc-radius-lg);
+  padding: var(--gc-space-2) var(--gc-space-2) var(--gc-space-2) var(--gc-space-3);
+  color: var(--gc-color-text);
+  background: var(--gc-color-surface-overlay);
+  box-shadow: var(--gc-shadow-overlay);
+  pointer-events: auto;
+}
+
+.gc-shell__toast--success {
+  --gc-toast-border: var(--gc-color-success-border);
+  --gc-toast-tone: var(--gc-color-success);
+}
+
+.gc-shell__toast--warning {
+  --gc-toast-border: var(--gc-color-warning-border);
+  --gc-toast-tone: var(--gc-color-warning);
+}
+
+.gc-shell__toast--danger {
+  --gc-toast-border: var(--gc-color-danger-border);
+  --gc-toast-tone: var(--gc-color-danger);
+}
+
+.gc-shell__toast--info {
+  --gc-toast-border: var(--gc-color-info-border);
+  --gc-toast-tone: var(--gc-color-info);
+}
+
+.gc-shell__toast-dot {
+  width: var(--gc-space-2);
+  height: var(--gc-space-2);
+  border-radius: var(--gc-radius-xl);
+  background: var(--gc-toast-tone);
+  box-shadow: 0 0 0 var(--gc-space-1) var(--gc-toast-border);
+}
+
+.gc-shell__toast span:nth-child(2) {
+  min-width: 0;
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-sm);
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.gc-shell__toast-close {
+  display: grid;
+  place-items: center;
+  width: var(--gc-space-7);
+  height: var(--gc-space-7);
+  border: 0;
+  border-radius: var(--gc-radius-md);
+  color: var(--gc-color-text-muted);
+  background: transparent;
+  cursor: pointer;
+  font-size: var(--gc-font-size-lg);
+  line-height: 1;
+}
+
+.gc-shell__toast-close:hover {
+  color: var(--gc-color-text);
+  background: var(--gc-color-surface-field);
+}
+
+.gc-shell-toast-enter-active,
+.gc-shell-toast-leave-active {
+  transition: opacity .18s ease, transform .18s ease;
+}
+
+.gc-shell-toast-enter-from,
+.gc-shell-toast-leave-to {
+  opacity: 0;
+  transform: translateY(calc(var(--gc-space-2) * -1)) scale(.98);
 }
 
 .gc-shell__user-button {

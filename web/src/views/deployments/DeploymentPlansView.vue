@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import { getAssetDetail, listAssets, listManagedTargets } from '@/api/modules/assets.api'
@@ -22,6 +22,7 @@ import { GcDeploymentWizard, GcDryRunResultModal, GcExecutionProgressPanel, GcMo
 import type { DeploymentWizardInitialPlan, DeploymentWizardPlan } from '@/design-system/components/GcDeploymentWizard.types'
 import type { ViewRow } from '@/composables/useBusinessPage'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
+import { dispatchGlobalTaskRefresh, subscribeOpenDeploymentExecution, subscribeTaskRealtime, type DeploymentExecutionMode, type DeploymentExecutionOpenDetail, type TaskRealtimeMessage } from '@/views/tasks/task-events'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import { createDeploymentPlansPageConfig } from './deployment-plan.config'
@@ -52,6 +53,12 @@ interface DeploymentInputSourceRow {
   readonly path: string
   readonly value: string
   readonly source: string
+}
+
+interface ExecutionTaskFlight {
+  readonly id: number
+  readonly label: string
+  readonly style: Record<string, string>
 }
 
 const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
@@ -97,18 +104,28 @@ const executionStarting = ref(false)
 const activeExecutionSource = ref<'plan' | 'related'>('plan')
 const latestExecutionMode = ref<'dry-run' | 'apply' | 'rollback'>('dry-run')
 const latestExecutionRequestId = ref('')
+const executionModalTransitionName = ref('gc-modal')
+const executionTaskFlights = ref<ExecutionTaskFlight[]>([])
 const dryRunRequiredModalOpen = ref(false)
 const dryRunRequiredPending = ref(false)
 const dryRunRequiredMessage = ref('')
 const dryRunRequiredActionLabel = ref('')
 const dryRunRequiredRow = ref<ViewRow | null>(null)
-const refreshedTerminalRunIds = new Set<string>()
 const probingAssetIds = new Set<string>()
 let unknownStateProbeTimer: number | null = null
+let executionFlightSequence = 0
+const executionFlightTimers = new Map<number, number>()
+let disposeOpenDeploymentExecution: (() => void) | undefined
+let disposeTaskRealtime: (() => void) | undefined
+let deploymentPlanRealtimeReloadTimer: number | null = null
 const relatedRecordsLoadedPlanId = ref('')
 const detailExecutionLoadedPlanId = ref('')
 
 const unknownStateProbeRetryMs = 15_000
+const executionFlightDurationMs = 760
+const executionModalCollapseTargetSelector = '.gc-shell__task-button'
+const deploymentPlanRealtimeReloadDelayMs = 300
+const deploymentExecutionTaskTypes = new Set(['CERTIFICATE_DRY_RUN', 'CERTIFICATE_DEPLOY', 'CERTIFICATE_ROLLBACK'])
 
 const pageConfig = computed<BusinessPageConfig>(() => {
   const baseConfig = createDeploymentPlansPageConfig(t)
@@ -118,7 +135,6 @@ const pageConfig = computed<BusinessPageConfig>(() => {
     showMetrics: false,
     showDetailPanel: false,
     showActionPanel: false,
-    showToolbarDangerHint: false,
     load: loadDeploymentPlansPage,
     primaryAction: openCreateDialog,
     actions: (baseConfig.actions ?? []).map((action) => ({
@@ -239,21 +255,6 @@ const detailExecutionViewMode = computed<'dry-run' | 'execution'>(() => {
   const type = readString(detailExecutionRow.value?.raw as ApiRecord | undefined, ['type'], 'dry_run')
   return normalizeExecutionMode(type) === 'dry-run' ? 'dry-run' : 'execution'
 })
-const terminalPlanExecutionRunId = computed(() => {
-  if (activeExecutionSource.value !== 'plan') return ''
-  const runId = dryRunRunRow.value?.id ?? ''
-  if (!runId) return ''
-  if (isTerminalExecutionRunStatus(dryRunExecutionDetail.runStatus.value)) return runId
-  const steps = dryRunExecutionDetail.steps.value
-  if (steps.length === 0) return ''
-  return steps.every((step) => isTerminalExecutionStepStatus(step.status)) ? runId : ''
-})
-
-watch(terminalPlanExecutionRunId, async (runId) => {
-  if (!runId || refreshedTerminalRunIds.has(runId)) return
-  refreshedTerminalRunIds.add(runId)
-  await pageRef.value?.reload()
-})
 
 watch(activeDetailTab, async (tab) => {
   if (!detailPlanRow.value) return
@@ -266,8 +267,19 @@ watch(activeDetailTab, async (tab) => {
   }
 })
 
+onMounted(() => {
+  disposeOpenDeploymentExecution = subscribeOpenDeploymentExecution(openExecutionModalFromTask)
+  disposeTaskRealtime = subscribeTaskRealtime(handleDeploymentTaskRealtime)
+})
+
 onUnmounted(() => {
   clearUnknownStateProbeRetry()
+  clearDeploymentPlanRealtimeReload()
+  clearExecutionModalTimers()
+  disposeOpenDeploymentExecution?.()
+  disposeTaskRealtime?.()
+  disposeOpenDeploymentExecution = undefined
+  disposeTaskRealtime = undefined
 })
 
 async function loadDeploymentPlansPage() {
@@ -458,11 +470,14 @@ async function decideApprovalFromModal(decision: 'approved' | 'rejected') {
   }
 }
 
-async function closeDryRunResultModal() {
+async function closeDryRunResultModal(options: { reload?: boolean } = {}) {
+  clearExecutionModalTimers()
+  executionStarting.value = false
+  executionModalTransitionName.value = 'gc-modal'
   dryRunResultModalOpen.value = false
   dryRunActionError.value = ''
   latestExecutionRequestId.value = ''
-  await pageRef.value?.reload()
+  if (options.reload === true) await pageRef.value?.reload()
 }
 
 function closeDryRunRequiredModal(force = false) {
@@ -591,7 +606,10 @@ async function openExecutionDetailFromPlan(row: ViewRow) {
 }
 
 function openRelatedExecutionDetail(record: RelatedExecutionRecord) {
+  clearExecutionModalTimers()
   dryRunActionError.value = ''
+  executionStarting.value = false
+  executionModalTransitionName.value = 'gc-modal'
   activeExecutionSource.value = 'related'
   relatedExecutionRow.value = {
     id: record.runId,
@@ -627,7 +645,7 @@ async function handleDryRun(plan: DeploymentWizardPlan) {
     const dryRun = await dryRunDeploymentPlan({ planId })
     executionStarting.value = false
     dryRunRequestId.value = dryRun.requestId
-    openExecutionModalFromResult(dryRun, 'dry-run')
+    openExecutionModalFromResult(dryRun, 'dry-run', null, { autoMinimize: true })
     dryRunChecks.value = extractDryRunChecks(dryRun.data)
     const runId = dryRunRunRow.value?.id ?? ''
     infoMessage.value = runId
@@ -697,6 +715,34 @@ function clearUnknownStateProbeRetry() {
   unknownStateProbeTimer = null
 }
 
+function handleDeploymentTaskRealtime(message: TaskRealtimeMessage) {
+  if (message.type !== 'task.changed') return
+  const task = message.task
+  if (!deploymentExecutionTaskTypes.has(task.taskType)) return
+  const planId = firstNonEmptyString(
+    stringFromRecord(task.resourceSummary, 'deploymentPlanId'),
+    stringFromRecord(task.payload, 'deploymentPlanId'),
+    stringFromRecord(task.payload, 'planId'),
+  )
+  if (!planId) return
+  scheduleDeploymentPlanRealtimeReload()
+}
+
+function scheduleDeploymentPlanRealtimeReload() {
+  if (typeof window === 'undefined') return
+  if (deploymentPlanRealtimeReloadTimer !== null) window.clearTimeout(deploymentPlanRealtimeReloadTimer)
+  deploymentPlanRealtimeReloadTimer = window.setTimeout(() => {
+    deploymentPlanRealtimeReloadTimer = null
+    void pageRef.value?.reload()
+  }, deploymentPlanRealtimeReloadDelayMs)
+}
+
+function clearDeploymentPlanRealtimeReload() {
+  if (deploymentPlanRealtimeReloadTimer === null) return
+  window.clearTimeout(deploymentPlanRealtimeReloadTimer)
+  deploymentPlanRealtimeReloadTimer = null
+}
+
 async function retryUnknownStateProbe(applicationAssetIds: readonly string[]) {
   await Promise.all(applicationAssetIds.map((applicationAssetId) => probeApplicationAssetCertificate(applicationAssetId)))
   await pageRef.value?.reload()
@@ -726,7 +772,7 @@ async function runPlanAction(actionLabel: string, row: ViewRow | null, run: () =
     const result = await run()
     if (mode) {
       executionStarting.value = false
-      openExecutionModalFromResult(result, mode, row)
+      openExecutionModalFromResult(result, mode, row, { autoMinimize: true })
     }
     return result
   } catch (cause) {
@@ -819,16 +865,36 @@ async function runRequiredDryRun() {
   }
 }
 
-function openExecutionModalFromResult(result: unknown, mode: 'dry-run' | 'apply' | 'rollback', fallbackRow?: ViewRow | null) {
+function openExecutionModalFromResult(
+  result: unknown,
+  mode: DeploymentExecutionMode,
+  fallbackRow?: ViewRow | null,
+  options: { autoMinimize?: boolean } = {},
+) {
+  clearExecutionModalTimers()
   dryRunActionError.value = ''
   activeExecutionSource.value = 'plan'
+  executionModalTransitionName.value = 'gc-modal'
   const data = readResponseData(result)
+  const taskId = readString(data, ['jobId'])
+  if (taskId) {
+    dispatchGlobalTaskRefresh({
+      taskId,
+      source: mode === 'dry-run' ? 'deployment.dry-run' : mode === 'rollback' ? 'deployment.rollback' : 'deployment.execute',
+    })
+  }
   const run = readRecord(data, ['run'])
   const runId = readString(run, ['id', 'runId']) || readString(data, ['runId'])
-  if (!runId) return
+  if (!runId) {
+    if (options.autoMinimize) {
+      launchExecutionTaskFlight(mode)
+      dispatchExecutionStartedToast(mode)
+    }
+    return
+  }
   latestExecutionMode.value = mode
   latestExecutionRequestId.value = readString(result as ApiRecord, ['requestId'], '')
-  dryRunResultModalOpen.value = true
+  dryRunResultModalOpen.value = options.autoMinimize ? false : true
   dryRunRequestId.value = readString(result as ApiRecord, ['requestId'], dryRunRequestId.value)
   dryRunRunRow.value = {
     id: runId,
@@ -842,17 +908,23 @@ function openExecutionModalFromResult(result: unknown, mode: 'dry-run' | 'apply'
   } else {
     dryRunChecks.value = []
   }
+  if (options.autoMinimize) {
+    launchExecutionTaskFlight(mode)
+    dispatchExecutionStartedToast(mode)
+  }
 }
 
-function openExecutionModalStarting(mode: 'dry-run' | 'apply' | 'rollback', fallbackRow?: ViewRow | null) {
+function openExecutionModalStarting(mode: DeploymentExecutionMode, fallbackRow?: ViewRow | null) {
+  clearExecutionModalTimers()
   dryRunActionError.value = ''
   dryRunChecks.value = []
   activeExecutionSource.value = 'plan'
+  executionModalTransitionName.value = 'gc-modal'
   latestExecutionMode.value = mode
   latestExecutionRequestId.value = ''
   executionStarting.value = true
   dryRunRunRow.value = null
-  dryRunResultModalOpen.value = true
+  dryRunResultModalOpen.value = false
   if (mode !== 'dry-run' && fallbackRow) {
     dryRunRunRow.value = {
       id: '',
@@ -864,6 +936,87 @@ function openExecutionModalStarting(mode: 'dry-run' | 'apply' | 'rollback', fall
   }
 }
 
+function openExecutionModalFromTask(detail: DeploymentExecutionOpenDetail) {
+  clearExecutionModalTimers()
+  dryRunActionError.value = ''
+  dryRunChecks.value = []
+  executionStarting.value = false
+  executionModalTransitionName.value = 'gc-modal'
+  activeExecutionSource.value = 'related'
+  latestExecutionMode.value = detail.mode
+  latestExecutionRequestId.value = ''
+  relatedExecutionRow.value = {
+    id: detail.runId,
+    name: detail.planName || t('deploymentPlans.execution.fallbackName', { runId: detail.runId }),
+    status: detail.status || 'DISPATCHED',
+    risk: detail.mode === 'dry-run' ? 'MEDIUM' : 'HIGH',
+    raw: {
+      id: detail.runId,
+      runId: detail.runId,
+      deploymentPlanId: detail.deploymentPlanId,
+      status: detail.status || 'DISPATCHED',
+      type: executionRunTypeForMode(detail.mode),
+      planName: detail.planName,
+      taskId: detail.taskId,
+      summary: detail.summary,
+    },
+  }
+  dryRunResultModalOpen.value = true
+}
+
+function launchExecutionTaskFlight(mode: DeploymentExecutionMode) {
+  if (typeof window === 'undefined') return
+  executionStarting.value = false
+  const id = executionFlightSequence + 1
+  executionFlightSequence = id
+  const targetElement = document.querySelector(executionModalCollapseTargetSelector) as HTMLElement | null
+  const sourceElement = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  const sourceRect = sourceElement?.getBoundingClientRect()
+  const targetRect = targetElement?.getBoundingClientRect()
+  const startX = sourceRect ? sourceRect.left + sourceRect.width / 2 : window.innerWidth / 2
+  const startY = sourceRect ? sourceRect.top + sourceRect.height / 2 : window.innerHeight / 2
+  const endX = targetRect ? targetRect.left + targetRect.width / 2 : window.innerWidth - 64
+  const endY = targetRect ? targetRect.top + targetRect.height / 2 : 36
+  const flight: ExecutionTaskFlight = {
+    id,
+    label: executionFlightLabel(mode),
+    style: {
+      '--execution-flight-start-x': `${startX}px`,
+      '--execution-flight-start-y': `${startY}px`,
+      '--execution-flight-delta-x': `${endX - startX}px`,
+      '--execution-flight-delta-y': `${endY - startY}px`,
+      '--execution-flight-arc-y': `${Math.min(-72, Math.max(-160, (endY - startY) / 2 - 96))}px`,
+    },
+  }
+  executionTaskFlights.value = [...executionTaskFlights.value, flight]
+  const timer = window.setTimeout(() => removeExecutionTaskFlight(id), executionFlightDurationMs)
+  executionFlightTimers.set(id, timer)
+}
+
+function clearExecutionModalTimers() {
+  executionFlightTimers.forEach((timer) => window.clearTimeout(timer))
+  executionFlightTimers.clear()
+  executionTaskFlights.value = []
+}
+
+function removeExecutionTaskFlight(id: number) {
+  const timer = executionFlightTimers.get(id)
+  if (timer !== undefined) window.clearTimeout(timer)
+  executionFlightTimers.delete(id)
+  executionTaskFlights.value = executionTaskFlights.value.filter((item) => item.id !== id)
+}
+
+function executionFlightLabel(mode: DeploymentExecutionMode): string {
+  if (mode === 'dry-run') return t('tasks.typeLabels.CERTIFICATE_DRY_RUN')
+  if (mode === 'rollback') return t('tasks.typeLabels.CERTIFICATE_ROLLBACK')
+  return t('tasks.typeLabels.CERTIFICATE_DEPLOY')
+}
+
+function dispatchExecutionStartedToast(_mode: DeploymentExecutionMode) {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent('gcac:toast', { detail: { message: t('deploymentPlans.feedback.executionTaskStarted'), tone: 'info' } }))
+}
+
 function executionModeForActionLabel(actionLabel: string): 'dry-run' | 'apply' | 'rollback' | '' {
   if (isDeploymentPlanActionLabel(actionLabel, 'dryRun')) return 'dry-run'
   if (isDeploymentPlanActionLabel(actionLabel, 'execute')) return 'apply'
@@ -871,18 +1024,15 @@ function executionModeForActionLabel(actionLabel: string): 'dry-run' | 'apply' |
   return ''
 }
 
+function executionRunTypeForMode(mode: DeploymentExecutionMode): string {
+  if (mode === 'dry-run') return 'dry_run'
+  return mode
+}
+
 function resolveExecutionDialogTitle(mode: 'dry-run' | 'apply' | 'rollback'): string {
   if (mode === 'rollback') return t('deploymentPlans.execution.rollbackTitle')
   if (mode === 'apply') return t('deploymentPlans.execution.applyTitle')
   return t('deploymentPlans.execution.dryRunTitle')
-}
-
-function isTerminalExecutionStepStatus(status: string): boolean {
-  return ['SUCCESS', 'FAILED', 'TIMEOUT', 'CANCELLED', 'CANCELED', 'SKIPPED'].includes(status.toUpperCase())
-}
-
-function isTerminalExecutionRunStatus(status: string): boolean {
-  return ['SUCCESS', 'FAILED', 'TIMEOUT', 'CANCELLED', 'CANCELED', 'ROLLBACK_SUCCESS', 'ROLLBACK_FAILED'].includes(status.toUpperCase())
 }
 
 function normalizeExecutionMode(type: string): 'dry-run' | 'apply' | 'rollback' {
@@ -1173,6 +1323,21 @@ function readString(record: ApiRecord | null | undefined, candidates: readonly s
   return fallback
 }
 
+function stringFromRecord(record: Record<string, unknown> | undefined, key: string): string | undefined {
+  if (!record) return undefined
+  const value = record[key]
+  if (typeof value === 'string' && value.trim()) return value.trim()
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  return undefined
+}
+
+function firstNonEmptyString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return undefined
+}
+
 function displayInputValue(value: unknown): string {
   if (value === undefined || value === null || value === '') return t('deploymentPlans.common.notProvided')
   if (typeof value === 'object') return JSON.stringify(value)
@@ -1305,8 +1470,24 @@ async function fetchAllPages(
       :polling="activeExecutionDetail.isPolling.value"
       :error="activeExecutionError"
       :mode="latestExecutionViewMode"
+      :transition-name="executionModalTransitionName"
+      :collapse-target-selector="executionModalCollapseTargetSelector"
       @update:open="(value) => value ? (dryRunResultModalOpen = true) : void closeDryRunResultModal()"
     />
+
+    <Teleport to="body">
+      <span
+        v-for="flight in executionTaskFlights"
+        :key="flight.id"
+        class="deployment-execution-flight"
+        :style="flight.style"
+        aria-hidden="true"
+      >
+        <span class="deployment-execution-flight__arc">
+          <span class="deployment-execution-flight__pill">{{ flight.label }}</span>
+        </span>
+      </span>
+    </Teleport>
 
     <GcModal
       :open="approvalModalOpen"
@@ -1572,6 +1753,75 @@ async function fetchAllPages(
 
 .deployment-plans-page__wizard-message {
   margin-bottom: 10px;
+}
+
+.deployment-execution-flight {
+  position: fixed;
+  top: var(--execution-flight-start-y);
+  left: var(--execution-flight-start-x);
+  z-index: 70;
+  pointer-events: none;
+  animation: deployment-execution-flight-x 760ms cubic-bezier(.18, .82, .24, 1) forwards;
+}
+
+.deployment-execution-flight__arc {
+  display: block;
+  animation: deployment-execution-flight-y 760ms cubic-bezier(.2, .7, .15, 1) forwards;
+}
+
+.deployment-execution-flight__pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--gc-control-height-sm);
+  padding: var(--gc-space-1) var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-primary-border);
+  border-radius: var(--gc-radius-pill);
+  color: var(--gc-color-primary);
+  background: var(--gc-color-surface-overlay);
+  box-shadow: var(--gc-shadow-overlay);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 850;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+  animation: deployment-execution-flight-pill 760ms ease forwards;
+}
+
+@keyframes deployment-execution-flight-x {
+  from {
+    transform: translateX(0);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  to {
+    transform: translateX(var(--execution-flight-delta-x));
+    opacity: 0;
+  }
+}
+
+@keyframes deployment-execution-flight-y {
+  0% {
+    transform: translateY(0);
+  }
+  48% {
+    transform: translateY(var(--execution-flight-arc-y));
+  }
+  100% {
+    transform: translateY(var(--execution-flight-delta-y));
+  }
+}
+
+@keyframes deployment-execution-flight-pill {
+  0% {
+    transform: translate(-50%, -50%) scale(.92);
+  }
+  55% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(.28);
+  }
 }
 
 .deployment-plan-approval {

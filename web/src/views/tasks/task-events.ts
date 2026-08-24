@@ -27,7 +27,20 @@ export interface TaskActivityState {
   readonly connected: boolean
 }
 
+export type DeploymentExecutionMode = 'dry-run' | 'apply' | 'rollback'
+
+export interface DeploymentExecutionOpenDetail {
+  readonly taskId?: string
+  readonly runId: string
+  readonly deploymentPlanId?: string
+  readonly mode: DeploymentExecutionMode
+  readonly planName?: string
+  readonly status?: string
+  readonly summary?: string
+}
+
 const GLOBAL_TASK_REFRESH_EVENT = 'gcac:tasks:refresh'
+const DEPLOYMENT_EXECUTION_OPEN_EVENT = 'gcac:deployment-execution:open'
 const ACTIVE_TASK_STATUSES = new Set(['QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING'])
 const realtimeListeners = new Set<(message: TaskRealtimeMessage) => void>()
 const activityListeners = new Set<(state: TaskActivityState) => void>()
@@ -37,6 +50,7 @@ let socket: WebSocket | undefined
 let reconnectTimer: number | undefined
 let connectStarted = false
 let realtimeConnected = false
+let pendingDeploymentExecutionOpen: DeploymentExecutionOpenDetail | undefined
 
 export function dispatchGlobalTaskRefresh(detail: GlobalTaskRefreshDetail = {}): void {
   if (typeof window === 'undefined') return
@@ -53,6 +67,31 @@ export function subscribeGlobalTaskRefresh(
   }
   window.addEventListener(GLOBAL_TASK_REFRESH_EVENT, handler as EventListener)
   return () => window.removeEventListener(GLOBAL_TASK_REFRESH_EVENT, handler as EventListener)
+}
+
+export function dispatchOpenDeploymentExecution(detail: DeploymentExecutionOpenDetail): void {
+  pendingDeploymentExecutionOpen = detail
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent<DeploymentExecutionOpenDetail>(DEPLOYMENT_EXECUTION_OPEN_EVENT, { detail }))
+}
+
+export function subscribeOpenDeploymentExecution(
+  listener: (detail: DeploymentExecutionOpenDetail) => void,
+): () => void {
+  if (typeof window === 'undefined') return () => undefined
+  const handler = (event: Event) => {
+    const customEvent = event as CustomEvent<DeploymentExecutionOpenDetail | undefined>
+    if (!customEvent.detail) return
+    pendingDeploymentExecutionOpen = undefined
+    listener(customEvent.detail)
+  }
+  window.addEventListener(DEPLOYMENT_EXECUTION_OPEN_EVENT, handler as EventListener)
+  if (pendingDeploymentExecutionOpen) {
+    const detail = pendingDeploymentExecutionOpen
+    pendingDeploymentExecutionOpen = undefined
+    window.setTimeout(() => listener(detail), 0)
+  }
+  return () => window.removeEventListener(DEPLOYMENT_EXECUTION_OPEN_EVENT, handler as EventListener)
 }
 
 export function subscribeTaskRealtime(

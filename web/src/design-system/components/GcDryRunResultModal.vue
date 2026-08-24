@@ -31,10 +31,14 @@ const props = withDefaults(defineProps<{
   polling?: boolean
   showChecklist?: boolean
   mode?: 'dry-run' | 'execution'
+  transitionName?: string
+  collapseTargetSelector?: string
 }>(), {
   description: '',
   showChecklist: true,
   mode: 'dry-run',
+  transitionName: 'gc-modal',
+  collapseTargetSelector: '',
 })
 
 const { t } = useI18n()
@@ -57,6 +61,8 @@ function closeModal() {
     :description="props.description"
     size="xxl"
     width="min(1320px, calc(100vw - 24px))"
+    :transition-name="props.transitionName"
+    :collapse-target-selector="props.collapseTargetSelector"
     @update:open="emit('update:open', $event)"
   >
     <GcExecutionProgressPanel
