@@ -85,18 +85,20 @@ export class TasksApplicationService {
       if (existing) return existing;
     }
     const task = await this.repository.create(input, definition);
-    await this.audit?.write({
-      eventType: 'task.created',
-      actorType: actor?.type === 'system' ? 'system' : 'user',
-      actorId: actor?.id ?? input.requestedBy ?? 'system',
-      action: 'task.create',
-      resourceType: 'task',
-      resourceId: task.id,
-      result: 'success',
-      riskLevel: 'medium',
-      context: actor ? { actor } : undefined,
-      detail: { taskType: task.taskType, category: task.category, triggerSource: task.triggerSource },
-    });
+    if (shouldWriteTaskAudit(task)) {
+      await this.audit?.write({
+        eventType: 'task.created',
+        actorType: actor?.type === 'system' ? 'system' : 'user',
+        actorId: actor?.id ?? input.requestedBy ?? 'system',
+        action: 'task.create',
+        resourceType: 'task',
+        resourceId: task.id,
+        result: 'success',
+        riskLevel: 'medium',
+        context: actor ? { actor } : undefined,
+        detail: { taskType: task.taskType, category: task.category, triggerSource: task.triggerSource },
+      });
+    }
     this.realtime?.publishTask(task);
     return task;
   }
@@ -122,17 +124,19 @@ export class TasksApplicationService {
   async cancel(tenantId: string, id: string, actorId?: string, reason?: string): Promise<TaskRun> {
     try {
       const task = await this.repository.requestCancel(tenantId, id, actorId, reason);
-      await this.audit?.write({
-        eventType: 'task.cancelled',
-        actorType: 'user',
-        actorId: actorId ?? 'system',
-        action: 'task.cancel',
-        resourceType: 'task',
-        resourceId: id,
-        result: 'success',
-        riskLevel: 'high',
-        detail: { taskId: id, reason },
-      });
+      if (shouldWriteTaskAudit(task)) {
+        await this.audit?.write({
+          eventType: 'task.cancelled',
+          actorType: 'user',
+          actorId: actorId ?? 'system',
+          action: 'task.cancel',
+          resourceType: 'task',
+          resourceId: id,
+          result: 'success',
+          riskLevel: 'high',
+          detail: { taskId: id, reason },
+        });
+      }
       this.realtime?.publishTask(task);
       return task;
     } catch (error) {
@@ -144,17 +148,19 @@ export class TasksApplicationService {
   async retry(tenantId: string, id: string, actorId?: string): Promise<TaskRun> {
     try {
       const task = await this.repository.retry(tenantId, id, actorId);
-      await this.audit?.write({
-        eventType: 'task.retried',
-        actorType: 'user',
-        actorId: actorId ?? 'system',
-        action: 'task.retry',
-        resourceType: 'task',
-        resourceId: id,
-        result: 'success',
-        riskLevel: 'high',
-        detail: { taskId: id },
-      });
+      if (shouldWriteTaskAudit(task)) {
+        await this.audit?.write({
+          eventType: 'task.retried',
+          actorType: 'user',
+          actorId: actorId ?? 'system',
+          action: 'task.retry',
+          resourceType: 'task',
+          resourceId: id,
+          result: 'success',
+          riskLevel: 'high',
+          detail: { taskId: id },
+        });
+      }
       this.realtime?.publishTask(task);
       return task;
     } catch (error) {
@@ -223,4 +229,12 @@ export class TasksApplicationService {
   async listMonitoringProbes(query: MonitoringProbeQuery): Promise<MonitoringProbePage> {
     return this.repository.listMonitoringProbes(query);
   }
+}
+
+/**
+ * 证书监控由独立的探测记录承载，不能把高频监控任务写入长期审计列表。
+ * 其他任务类别仍保留创建、取消和重试审计。
+ */
+function shouldWriteTaskAudit(task: Pick<TaskRun, 'category'>): boolean {
+  return task.category !== 'MONITORING';
 }
