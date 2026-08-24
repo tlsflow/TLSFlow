@@ -8,6 +8,19 @@ import type {
   ManagedDeviceSummaryDto,
 } from '../dto/devices.dto.js';
 
+const SERVER_PRODUCT_FAMILY_BY_OS: Readonly<Record<string, string>> = {
+  WINDOWS: 'Windows Server',
+  LINUX: 'Linux Server',
+};
+
+const DEVICE_PRODUCT_FAMILY_BY_TYPE: Readonly<Record<string, string>> = {
+  NETSCALER_ADC: 'Citrix ADC',
+};
+
+const DEVICE_MANAGEMENT_METHOD_BY_TYPE: Readonly<Record<string, string>> = {
+  NETSCALER_ADC: 'NITRO_API',
+};
+
 export interface DevicesRepository {
   list(tenantId: string, query: ManagedDeviceListQuery): Promise<ManagedDevicePageDto>;
   get(tenantId: string, deviceId: string): Promise<ManagedDeviceDetailDto | undefined>;
@@ -151,8 +164,8 @@ function toNetworkDevice(row: ManagedDeviceRow): ManagedDeviceSummaryDto {
     id: row.id,
     displayName: row.display_name ?? row.device_address ?? row.id,
     category: 'NETWORK_APPLIANCE',
-    productFamily: row.product_name ?? (row.device_family === 'NETSCALER_ADC' ? 'Citrix ADC' : row.device_family!),
-    managementMethod: row.device_family === 'NETSCALER_ADC' ? 'NITRO_API' : 'API',
+    productFamily: row.product_name ?? DEVICE_PRODUCT_FAMILY_BY_TYPE[row.device_family!] ?? row.device_family!,
+    managementMethod: DEVICE_MANAGEMENT_METHOD_BY_TYPE[row.device_family!] ?? 'API',
     managementAddress: row.device_address ?? row.primary_ip ?? row.hostname ?? undefined,
     health: mapNetworkDeviceHealth(row.host_status, row.last_error_code, row.support_tier, row.device_last_discovered_at),
     sourceStatus,
@@ -173,7 +186,7 @@ function toAgentDevice(row: ManagedDeviceRow): ManagedDeviceSummaryDto {
     id: row.id,
     displayName: row.display_name ?? row.hostname ?? row.primary_ip ?? row.id,
     category: 'SERVER',
-    productFamily: osType === 'WINDOWS' ? 'Windows Server' : osType === 'LINUX' ? 'Linux Server' : row.os_name ?? osType,
+    productFamily: SERVER_PRODUCT_FAMILY_BY_OS[osType] ?? row.os_name ?? osType,
     managementMethod: row.management_mode,
     managementAddress: row.primary_ip ?? row.hostname ?? undefined,
     health: mapAgentHealth(sourceStatus),
