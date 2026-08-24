@@ -1,9 +1,30 @@
 import { AppError } from '../../../common/errors/app-error.js';
+import type { AgentDeploymentPluginManifestV1, AgentPluginArtifactInput } from '../dto/agent-deployment-plugins.dto.js';
 import type { WorkflowDslV1, WorkflowVariableDefinition } from '../../workflow-templates/dto/workflow-templates.dto.js';
 import type { CertificateArtifactBindingV1 } from '../dto/plugin-bindings.dto.js';
 import type { UnifiedPluginVersionRecord } from '../dto/unified-plugins.dto.js';
+import { validateAgentDeploymentPluginManifest } from '../schema/agent-deployment-plugins.schema.js';
 
 export function buildPluginCertificateArtifactBindings(
+  plugin: UnifiedPluginVersionRecord,
+  capabilityKey: string,
+  certificateFormatId: string,
+): Record<string, CertificateArtifactBindingV1> {
+  if (plugin.runtime === 'AGENT_ATOMIC') {
+    return buildAgentAtomicCertificateArtifactBindings(plugin, capabilityKey, certificateFormatId);
+  }
+  if (plugin.runtime !== 'WORKFLOW_DSL') {
+    throw new AppError('VALIDATION_FAILED', '插件运行时不支持证书产物契约解析', {
+      code: 'PLUGIN_RUNTIME_ARTIFACT_CONTRACT_UNSUPPORTED',
+      pluginVersionId: plugin.id,
+      capabilityKey,
+      runtime: plugin.runtime,
+    });
+  }
+  return buildWorkflowCertificateArtifactBindings(plugin, capabilityKey, certificateFormatId);
+}
+
+function buildWorkflowCertificateArtifactBindings(
   plugin: UnifiedPluginVersionRecord,
   capabilityKey: string,
   certificateFormatId: string,
@@ -33,12 +54,68 @@ export function buildPluginCertificateArtifactBindings(
   return bindings;
 }
 
+function buildAgentAtomicCertificateArtifactBindings(
+  plugin: UnifiedPluginVersionRecord,
+  capabilityKey: string,
+  certificateFormatId: string,
+): Record<string, CertificateArtifactBindingV1> {
+  const resourcePath = plugin.manifest.resources.agentRecipes?.[capabilityKey];
+  const contentText = resourcePath ? plugin.resources[resourcePath] : undefined;
+  if (!resourcePath || !contentText) {
+    throw new AppError('VALIDATION_FAILED', '插件能力缺少可解析的 Agent Recipe 资源', {
+      code: 'PLUGIN_AGENT_RECIPE_RESOURCE_MISSING',
+      pluginVersionId: plugin.id,
+      capabilityKey,
+      resourcePath,
+    });
+  }
+
+  const recipe = parseAgentRecipe(contentText, plugin.id, capabilityKey);
+  const bindings = Object.fromEntries(Object.entries(recipe.artifactInputs)
+    .filter(([, definition]) => definition.required === true)
+    .flatMap(([artifactName, definition]) => {
+      const outputKey = standardAgentArtifactOutputKey(definition);
+      return outputKey
+        ? [[artifactName, {
+          certificateFormatId,
+          outputBindings: { [artifactName]: outputKey },
+        } satisfies CertificateArtifactBindingV1] as const]
+        : [];
+    }));
+  if (Object.keys(bindings).length === 0) {
+    throw new AppError('VALIDATION_FAILED', 'Agent Atomic 插件能力没有声明可解析的证书产物输入契约', {
+      code: 'PLUGIN_CERTIFICATE_ARTIFACT_CONTRACT_MISSING',
+      pluginVersionId: plugin.id,
+      capabilityKey,
+    });
+  }
+  return bindings;
+}
+
 function parseWorkflow(contentText: string, pluginVersionId: string, capabilityKey: string): WorkflowDslV1 {
   try {
     return JSON.parse(contentText) as WorkflowDslV1;
   } catch (error) {
     throw new AppError('VALIDATION_FAILED', '插件 Workflow JSON 无法解析', {
       code: 'PLUGIN_WORKFLOW_INVALID_JSON',
+      pluginVersionId,
+      capabilityKey,
+      cause: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function parseAgentRecipe(
+  contentText: string,
+  pluginVersionId: string,
+  capabilityKey: string,
+): AgentDeploymentPluginManifestV1 {
+  try {
+    return validateAgentDeploymentPluginManifest(JSON.parse(contentText));
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw new AppError('VALIDATION_FAILED', '插件 Agent Recipe JSON 无法解析', {
+      code: 'PLUGIN_AGENT_RECIPE_INVALID_JSON',
       pluginVersionId,
       capabilityKey,
       cause: error instanceof Error ? error.message : String(error),
@@ -78,4 +155,12 @@ function standardOutputKey(outputName: string, role: string): string {
   if (normalizedRole === 'fingerprint_sha256') return 'fingerprintSha256';
   if (normalizedRole === 'pkcs12_bundle') return 'pfxBase64';
   return outputName.trim();
+}
+
+function standardAgentArtifactOutputKey(definition: AgentPluginArtifactInput): string | undefined {
+  if (definition.type === 'certificate') return 'leafPem';
+  if (definition.type === 'private_key') return 'privateKeyPem';
+  if (definition.type === 'certificate_chain') return 'orderedChainPem';
+  if (definition.type === 'bundle') return 'bundle';
+  return undefined;
 }
