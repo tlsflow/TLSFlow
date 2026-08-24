@@ -17,6 +17,7 @@ import type { SecurityServices } from './modules/security/security.controller.js
 import { TaskRealtimeGateway, type TaskRealtimeStreamService } from './modules/tasks/task-realtime-stream.js';
 import type { TasksApplicationService } from './modules/tasks/task.application-service.js';
 import type { TaskWorkerSupervisor } from './modules/tasks/task-worker-supervisor.js';
+import { assertUnifiedTaskWorkerConfiguration } from './modules/tasks/task-enqueue.js';
 import { createPersistedSecurityServices } from './modules/security/security-services.persistence.js';
 import { auditSecretDecryptability } from './modules/secrets/secret-health-check.js';
 import type { BrowserCredentialSessionController } from './modules/browser-runtime/browser-credential-session.controller.js';
@@ -39,6 +40,7 @@ if (entryFilePath !== '' && currentFilePath === entryFilePath) {
 
 async function start(): Promise<void> {
   const startupConfig = loadAppConfig();
+  assertUnifiedTaskWorkerConfiguration(process.env);
   const releasePortLock = startupConfig.env === 'development'
     ? acquirePortLock(startupConfig.port)
     : () => {};

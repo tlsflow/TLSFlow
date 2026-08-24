@@ -59,6 +59,20 @@ export function createTaskExecutorRegistry(
   const registry = new TaskExecutorRegistry();
   const acme = dependencyExecutor('ACME Worker', dependencies.acme, async (task) => {
     const renewalJobId = requiredPayloadString(task, 'renewalJobId');
+    const expectedGeneration = optionalPayloadNumber(task, 'taskGeneration') ?? 0;
+    const before = await dependencies.acmeJobs?.getRenewalJob(task.tenantId, renewalJobId);
+    // 人工重试会切换 Job 代次；旧 TaskRun 即使晚到，也只能收敛为成功而不能再次执行 ACME。
+    if (before && (before.taskGeneration ?? 0) !== expectedGeneration) {
+      return {
+        success: true,
+        detail: {
+          renewalJobId,
+          staleTaskGeneration: true,
+          expectedGeneration,
+          currentGeneration: before.taskGeneration ?? 0,
+        },
+      };
+    }
     const result = await dependencies.acme!.runJob(task.tenantId, renewalJobId, task.requestedBy ?? 'task-worker');
     const current = result ?? await dependencies.acmeJobs?.getRenewalJob(task.tenantId, renewalJobId);
     if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'ACME 续签任务不存在', { renewalJobId });

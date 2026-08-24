@@ -50,6 +50,30 @@ test('宿主 ACME 签发和续签执行器恢复，独立 Challenge 与 Provider
   assert.equal(registry.has('acme.renewal'), true);
 });
 
+test('ACME 旧代次统一任务不会在人工重试后再次执行 RenewalJob', async () => {
+  let runCalls = 0;
+  const registry = createTaskExecutorRegistry({
+    acme: {
+      runJob: async () => {
+        runCalls += 1;
+        return undefined;
+      },
+    },
+    acmeJobs: {
+      getRenewalJob: async () => ({ taskGeneration: 2 }),
+    } as never,
+  });
+
+  const result = await registry.get('acme.renewal')(
+    task('ACME_CERTIFICATE_RENEWAL', { renewalJobId: 'job-1', taskGeneration: 1 }),
+    attempt,
+  );
+
+  assert.equal(result.success, true);
+  assert.equal((result.detail as { staleTaskGeneration?: boolean }).staleTaskGeneration, true);
+  assert.equal(runCalls, 0);
+});
+
 test('执行任务遇到异步步骤时等待控制面结果，不进入重试队列', async () => {
   const registry = createTaskExecutorRegistry({
     executions: {
