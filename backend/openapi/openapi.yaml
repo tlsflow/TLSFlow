@@ -8498,6 +8498,8 @@ paths:
                           type: "string"
                         logoUrl:
                           type: "string"
+                        logoSquareUrl:
+                          type: "string"
                         tags:
                           type: "array"
                           items:
@@ -8831,6 +8833,8 @@ paths:
                             descriptionKey:
                               type: "string"
                             logoUrl:
+                              type: "string"
+                            logoSquareUrl:
                               type: "string"
                             defaultLocale:
                               type: "string"
@@ -9253,6 +9257,8 @@ paths:
                         type: "string"
                       logoUrl:
                         type: "string"
+                      logoSquareUrl:
+                        type: "string"
                       defaultLocale:
                         type: "string"
                       publisher:
@@ -9455,6 +9461,8 @@ paths:
                     descriptionKey:
                       type: "string"
                     logoUrl:
+                      type: "string"
+                    logoSquareUrl:
                       type: "string"
                     defaultLocale:
                       type: "string"
@@ -9690,6 +9698,8 @@ paths:
                       descriptionKey:
                         type: "string"
                       logoUrl:
+                        type: "string"
+                      logoSquareUrl:
                         type: "string"
                       defaultLocale:
                         type: "string"
@@ -10017,6 +10027,8 @@ paths:
                         type: "string"
                       logoUrl:
                         type: "string"
+                      logoSquareUrl:
+                        type: "string"
                       defaultLocale:
                         type: "string"
                       publisher:
@@ -10341,6 +10353,8 @@ paths:
                       descriptionKey:
                         type: "string"
                       logoUrl:
+                        type: "string"
+                      logoSquareUrl:
                         type: "string"
                       defaultLocale:
                         type: "string"
@@ -10667,6 +10681,8 @@ paths:
                         type: "string"
                       logoUrl:
                         type: "string"
+                      logoSquareUrl:
+                        type: "string"
                       defaultLocale:
                         type: "string"
                       publisher:
@@ -10991,6 +11007,8 @@ paths:
                       descriptionKey:
                         type: "string"
                       logoUrl:
+                        type: "string"
+                      logoSquareUrl:
                         type: "string"
                       defaultLocale:
                         type: "string"

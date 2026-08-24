@@ -790,7 +790,7 @@ function pluginCapabilitySchema(): OpenApiSchema {
 function pluginManifestSchema(): OpenApiSchema {
   return strictSchema({
     apiVersion: { type: 'string' }, kind: { type: 'string' }, pluginId: idSchema(), version: { type: 'string' },
-    displayNameKey: { type: 'string' }, descriptionKey: { type: 'string' }, logoUrl: { type: 'string' }, defaultLocale: { type: 'string' },
+    displayNameKey: { type: 'string' }, descriptionKey: { type: 'string' }, logoUrl: { type: 'string' }, logoSquareUrl: { type: 'string' }, defaultLocale: { type: 'string' },
     publisher: { type: 'string' }, runtime: { type: 'string', enum: ['AGENT_PLAN', 'WORKFLOW_DSL'] },
     source: { type: 'string', enum: ['BUILTIN', 'USER'] }, scope: { type: 'string', enum: ['MANAGED', 'STANDALONE', 'BOTH'] },
     trust: { type: 'string', enum: ['OFFICIAL_SIGNED', 'USER_SIGNED', 'UNSIGNED'] },
@@ -814,7 +814,7 @@ function pluginVersionRecordSchema(): OpenApiSchema {
 
 function pluginCatalogItemSchema(): OpenApiSchema {
   return strictSchema({
-    id: idSchema(), catalogType: { type: 'string' }, ...identityProperties(), name: { type: 'string' }, displayNameKey: { type: 'string' }, descriptionKey: { type: 'string' }, displayName: { type: 'string' }, description: { type: 'string' }, logoUrl: { type: 'string' }, tags: stringArraySchema(), platforms: stringArraySchema(), stepCount: { type: 'number' }, rollbackCount: { type: 'number' }, configuration: jsonObjectSchema(), source: { type: 'string' }, runtime: { type: 'string' }, scope: { type: 'string' }, trust: { type: 'string' }, support: { type: 'string' }, status: { type: 'string' }, capabilities: { type: 'array', items: pluginCapabilitySchema() }, compatibility: jsonObjectSchema(), detailRef: strictSchema({ pluginVersionId: idSchema() }, ['pluginVersionId']),
+    id: idSchema(), catalogType: { type: 'string' }, ...identityProperties(), name: { type: 'string' }, displayNameKey: { type: 'string' }, descriptionKey: { type: 'string' }, displayName: { type: 'string' }, description: { type: 'string' }, logoUrl: { type: 'string' }, logoSquareUrl: { type: 'string' }, tags: stringArraySchema(), platforms: stringArraySchema(), stepCount: { type: 'number' }, rollbackCount: { type: 'number' }, configuration: jsonObjectSchema(), source: { type: 'string' }, runtime: { type: 'string' }, scope: { type: 'string' }, trust: { type: 'string' }, support: { type: 'string' }, status: { type: 'string' }, capabilities: { type: 'array', items: pluginCapabilitySchema() }, compatibility: jsonObjectSchema(), detailRef: strictSchema({ pluginVersionId: idSchema() }, ['pluginVersionId']),
   }, ['id', 'catalogType', 'pluginId', 'pluginVersionId', 'version', 'name', 'displayNameKey', 'tags', 'platforms', 'stepCount', 'rollbackCount', 'source', 'runtime', 'scope', 'trust', 'support', 'packageSha256', 'manifestSha256', 'resourceSha256', 'status', 'capabilities', 'detailRef']);
 }
 

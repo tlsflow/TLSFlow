@@ -53,6 +53,8 @@ export interface UnifiedPluginManifestV1 {
   displayNameKey: string;
   descriptionKey?: string;
   logoUrl?: string;
+  /** 详情和接入向导使用的方形 Logo；缺失时由宿主回退到 logoUrl。 */
+  logoSquareUrl?: string;
   defaultLocale?: string;
   publisher: string;
   runtime: UnifiedPluginRuntime;
@@ -155,6 +157,7 @@ export interface UnifiedPluginCatalogItem {
   displayName?: string;
   description?: string;
   logoUrl?: string;
+  logoSquareUrl?: string;
   tags: string[];
   platforms: string[];
   stepCount: number;

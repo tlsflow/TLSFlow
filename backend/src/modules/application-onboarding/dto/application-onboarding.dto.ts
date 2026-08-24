@@ -40,6 +40,8 @@ export interface OnboardingPlatformDto {
   displayName?: string;
   /** 由固定插件 Manifest 声明的同源展示图标；前端不得按平台键猜测厂商资源。 */
   logoUrl?: string;
+  /** 详情和接入向导优先使用的方形 Logo；缺失时回退到 logoUrl。 */
+  logoSquareUrl?: string;
   /** 由插件配方声明并经插件 Locale 解析的业务接入信息。 */
   businessMetadata?: OnboardingPlatformBusinessMetadataDto;
   deploymentMode?: ApplicationOnboardingRecipeV1['deploymentMode'];

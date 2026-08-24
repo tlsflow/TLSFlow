@@ -131,6 +131,13 @@ test('统一插件拒绝任意可执行资源和缺失资源', async () => {
     }),
     /不能包含 \.\./,
   );
+  await assert.rejects(
+    () => service.importVersion('tenant-1', {
+      ...workflowPluginInput(),
+      manifest: { ...(workflowPluginInput().manifest as Record<string, unknown>), logoSquareUrl: '../private/logo-square.svg' },
+    }),
+    (error: any) => error.errorCode === 'VALIDATION_FAILED' && error.details?.path === 'logoSquareUrl',
+  );
 });
 
 test('统一插件接受声明式 inputContracts 资源', async () => {
@@ -222,6 +229,7 @@ test('统一插件目录保留正交分类和能力声明', async () => {
   assert.equal(item?.scope, 'BOTH');
   assert.equal(item?.source, 'USER');
   assert.equal(item?.logoUrl, '/plugin-logos/test.svg');
+  assert.equal(item?.logoSquareUrl, '/plugin-logos/test-square.svg');
   assert.equal(item?.capabilities[0]?.key, 'certificate.deploy');
   assert.equal(item?.pluginVersionId, imported.id);
   assert.equal(item?.packageSha256, imported.packageSha256);
@@ -410,6 +418,7 @@ function workflowPluginInput() {
       version: '1.0.0',
       displayNameKey: 'plugin.test.device.name',
       logoUrl: '/plugin-logos/test.svg',
+      logoSquareUrl: '/plugin-logos/test-square.svg',
       publisher: 'test',
       runtime: 'WORKFLOW_DSL',
       source: 'USER',

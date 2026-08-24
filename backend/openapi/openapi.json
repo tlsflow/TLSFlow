@@ -12897,6 +12897,9 @@
                           "logoUrl": {
                             "type": "string"
                           },
+                          "logoSquareUrl": {
+                            "type": "string"
+                          },
                           "tags": {
                             "type": "array",
                             "items": {
@@ -13355,6 +13358,9 @@
                                 "type": "string"
                               },
                               "logoUrl": {
+                                "type": "string"
+                              },
+                              "logoSquareUrl": {
                                 "type": "string"
                               },
                               "defaultLocale": {
@@ -13937,6 +13943,9 @@
                         "logoUrl": {
                           "type": "string"
                         },
+                        "logoSquareUrl": {
+                          "type": "string"
+                        },
                         "defaultLocale": {
                           "type": "string"
                         },
@@ -14219,6 +14228,9 @@
                         "type": "string"
                       },
                       "logoUrl": {
+                        "type": "string"
+                      },
+                      "logoSquareUrl": {
                         "type": "string"
                       },
                       "defaultLocale": {
@@ -14550,6 +14562,9 @@
                           "type": "string"
                         },
                         "logoUrl": {
+                          "type": "string"
+                        },
+                        "logoSquareUrl": {
                           "type": "string"
                         },
                         "defaultLocale": {
@@ -15004,6 +15019,9 @@
                         "logoUrl": {
                           "type": "string"
                         },
+                        "logoSquareUrl": {
+                          "type": "string"
+                        },
                         "defaultLocale": {
                           "type": "string"
                         },
@@ -15453,6 +15471,9 @@
                           "type": "string"
                         },
                         "logoUrl": {
+                          "type": "string"
+                        },
+                        "logoSquareUrl": {
                           "type": "string"
                         },
                         "defaultLocale": {
@@ -15906,6 +15927,9 @@
                         "logoUrl": {
                           "type": "string"
                         },
+                        "logoSquareUrl": {
+                          "type": "string"
+                        },
                         "defaultLocale": {
                           "type": "string"
                         },
@@ -16355,6 +16379,9 @@
                           "type": "string"
                         },
                         "logoUrl": {
+                          "type": "string"
+                        },
+                        "logoSquareUrl": {
                           "type": "string"
                         },
                         "defaultLocale": {

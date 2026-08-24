@@ -80,6 +80,7 @@ export class ApplicationOnboardingService {
               displayNameKey: bundle.recipe.displayNameKey,
               displayName: this.resolveDisplayName(version, bundle, locale),
               logoUrl: version.manifest.logoUrl,
+              logoSquareUrl: version.manifest.logoSquareUrl,
               businessMetadata: this.resolveBusinessMetadata(version, bundle, locale),
               deploymentMode: bundle.recipe.deploymentMode,
               deviceSelection: bundle.recipe.deviceSelection,

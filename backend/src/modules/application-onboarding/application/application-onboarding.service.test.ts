@@ -82,6 +82,7 @@ test('平台目录解析插件 Locale，不把插件翻译 key 交给前端显�
   const platform = (await service.listPlatforms('tenant-1', 'zh-CN')).find((item) => item.platformKey === 'vendor.test-platform');
   assert.equal(platform?.displayName, '测试平台');
   assert.equal(platform?.logoUrl, '/plugin-logos/test-platform.svg');
+  assert.equal(platform?.logoSquareUrl, '/plugin-logos/test-platform-square.svg');
   assert.deepEqual(platform?.acceptedCertificateFormats, ['PEM']);
 });
 
@@ -418,6 +419,7 @@ function pluginVersionRecord(
     manifest: {
       defaultLocale: 'zh-CN',
       logoUrl: '/plugin-logos/test-platform.svg',
+      logoSquareUrl: '/plugin-logos/test-platform-square.svg',
       resources: {
         onboarding: { applicationAsset: selectedRecipe.resourcePath },
         locales: { 'zh-CN': 'locales/zh-CN.json' },

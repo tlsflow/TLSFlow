@@ -397,6 +397,7 @@ export class UnifiedPluginsApplicationService {
         displayName,
         description,
         logoUrl: record.manifest.logoUrl,
+        logoSquareUrl: record.manifest.logoSquareUrl,
         tags: [
           ...(record.manifest.compatibility?.productFamilies ?? []),
           ...(record.manifest.compatibility?.frameworkTypes ?? []),

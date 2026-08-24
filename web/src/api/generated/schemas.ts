@@ -44,6 +44,7 @@ export type PluginCatalogItem = {
   readonly "displayName"?: string
   readonly "description"?: string
   readonly "logoUrl"?: string
+  readonly "logoSquareUrl"?: string
   readonly "tags": ReadonlyArray<string>
   readonly "platforms": ReadonlyArray<string>
   readonly "stepCount": number
@@ -92,6 +93,7 @@ export type PluginVersionRecord = {
   readonly "displayNameKey": string
   readonly "descriptionKey"?: string
   readonly "logoUrl"?: string
+  readonly "logoSquareUrl"?: string
   readonly "defaultLocale"?: string
   readonly "publisher": string
   readonly "runtime": "AGENT_PLAN" | "WORKFLOW_DSL"
