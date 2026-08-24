@@ -30,6 +30,15 @@ export class ApplicationAssetExecutionService {
       if (bindingInput.tenantId !== tenantId) throw new AppError('VALIDATION_FAILED', 'WorkflowExecutionBinding tenantId 不匹配');
       const bindings = new WorkflowExecutionBindingsService(new WorkflowExecutionBindingsRepository(tx));
       const currentBinding = bindingId ? await bindings.get(tenantId, bindingId) : undefined;
+      if (currentBinding && expectedVersion !== undefined && currentBinding.version !== expectedVersion) {
+        throw new AppError('RESOURCE_VERSION_CONFLICT', '工作流执行绑定版本冲突', { id: currentBinding.id, expectedVersion, actualVersion: currentBinding.version });
+      }
+      if (currentBinding && isSameWorkflowExecutionBinding(currentBinding, bindingInput)) {
+        const updated = await assets.updateServiceAsset(tenantId, applicationAssetId, {
+          deploymentStrategy: { type: 'WORKFLOW', workflow: { workflowExecutionBindingId: currentBinding.id } },
+        });
+        return { asset: updated, executionMode: 'WORKFLOW' as const, workflowExecutionBinding: currentBinding };
+      }
       const validation = await new WorkflowDeploymentInputSaveService(tx).validate({ applicationAsset: asset, workflowExecution: bindingInput, currentBinding });
       if (!validation.saveable) throw new AppError('VALIDATION_FAILED', '应用资产部署输入校验失败', { issues: validation.issues });
       bindingInput.inputBindings = validation.assetOverride;
@@ -42,4 +51,31 @@ export class ApplicationAssetExecutionService {
       return { asset: updated, executionMode: 'WORKFLOW' as const, workflowExecutionBinding: binding };
     });
   }
+}
+
+function isSameWorkflowExecutionBinding(
+  current: Awaited<ReturnType<WorkflowExecutionBindingsService['get']>>,
+  input: CreateWorkflowExecutionBindingInput,
+): boolean {
+  return stableSerialize({
+    tenantId: current.tenantId,
+    workflowTemplateId: current.workflowTemplateId,
+    workflowVersionSelection: current.workflowVersionSelection,
+    workflowVersionId: current.workflowVersionId,
+    runner: current.runner,
+    gatewayId: current.gatewayId,
+    inputBindings: current.inputBindings,
+  }) === stableSerialize(input);
+}
+
+function stableSerialize(value: unknown): string {
+  if (Array.isArray(value)) return '[' + value.map(stableSerialize).join(',') + ']';
+  if (value && typeof value === 'object') {
+    return '{' + Object.entries(value as Record<string, unknown>)
+      .filter(([, child]) => child !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => JSON.stringify(key) + ':' + stableSerialize(child))
+      .join(',') + '}';
+  }
+  return JSON.stringify(value);
 }
