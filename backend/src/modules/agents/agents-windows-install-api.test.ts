@@ -32,8 +32,8 @@ describe('Agent 安装会话安全约束', () => {
 
     assert.equal(createdBody.zone, 'default');
     assert.match(createdBody.serviceName, /^gcac-full-agent-ps/);
-    assert.match(createdBody.bootstrapUrl, /^https:\/\/gcac\.example\.test\/api\/v1\/agents\/install\/windows\/bootstrap\.ps1\?token=/);
-    assert.match(createdBody.installCommand, /irm 'https:\/\/gcac\.example\.test\/api\/v1\/agents\/install\/windows\/bootstrap\.ps1\?token=/);
+    assert.match(createdBody.bootstrapUrl, /^https:\/\/gcac\.example\.test\/agent-install\.ps1\?token=/);
+    assert.match(createdBody.installCommand, /^irm https:\/\/gcac\.example\.test\/agent-install\.ps1\?token=.* \| iex$/);
     assert.ok(createdBody.enrollmentToken);
     assert.match(createdBody.bootstrapTokenPreview, /^[A-HJ-NP-Za-km-z2-9]{8}$/);
 
@@ -55,8 +55,12 @@ describe('Agent 安装会话安全约束', () => {
     assert.match(bootstrapBody, /\$manifest = @'/);
     assert.match(bootstrapBody, /config\\agent\.config\.template\.json/);
     assert.match(bootstrapBody, /install-service\.ps1/);
+    assert.match(bootstrapBody, /\.env/);
+    assert.match(bootstrapBody, /GCAC_CONTROL_PLANE_URL=/);
     assert.match(bootstrapBody, /bootstrap-selfcheck\.json/);
     assert.match(bootstrapBody, /bootstrap-register\.json/);
+    assert.match(bootstrapBody, /WriteAllBytes/);
+    assert.match(bootstrapBody, /FromBase64String/);
     assert.match(bootstrapBody, /-SelfCheck/);
     assert.match(bootstrapBody, /-RunOnce/);
     assert.match(bootstrapBody, /Start-Service -Name/);
@@ -107,8 +111,8 @@ describe('Agent 安装会话安全约束', () => {
     const expiresAt = new Date(createdBody.expiresAt).getTime();
     const ttlMs = expiresAt - Date.now();
     assert.ok(ttlMs > 9 * 60 * 1000 && ttlMs <= 10 * 60 * 1000 + 10_000);
-    assert.match(createdBody.bootstrapUrl, /^https:\/\/gcac\.example\.test\/api\/v1\/agents\/install\/linux\/bootstrap\.sh\?token=/);
-    assert.match(createdBody.installCommand, /curl -fsSL 'https:\/\/gcac\.example\.test\/api\/v1\/agents\/install\/linux\/bootstrap\.sh\?token=/);
+    assert.match(createdBody.bootstrapUrl, /^https:\/\/gcac\.example\.test\/agent-install\?token=/);
+    assert.match(createdBody.installCommand, /^curl -fsSL https:\/\/gcac\.example\.test\/agent-install\?token=.* \| bash$/);
     assert.equal(createdBody.bundleUrl, 'https://gcac.example.test/api/v1/agents/install/linux/bundle.tar.gz');
 
     const bootstrapToken = new URL(createdBody.bootstrapUrl).searchParams.get('token');
@@ -215,5 +219,71 @@ describe('Agent 安装会话安全约束', () => {
     const bootstrapBody = String(bootstrap.body);
     assert.match(bootstrapBody, /BUNDLE_URL='http:\/\/10\.255\.0\.85:5172\/api\/v1\/agents\/install\/linux\/bundle\.tar\.gz'/);
     assert.doesNotMatch(bootstrapBody, /127\.0\.0\.1:3003/);
+  });
+});
+
+describe('安装入口基地址兜底', () => {
+  it('后端环境变量应优先覆盖所有请求头推断', async () => {
+    const previous = process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL;
+    process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL = 'http://10.255.0.85:5172';
+    try {
+      const app = createApp();
+      const headers = {
+        'x-tenant-id': 'tenant_agent_env_base_url',
+        'x-request-id': 'req_agent_env_base_url',
+        host: '127.0.0.1:3003',
+        origin: 'http://wrong-host:9999',
+        referer: 'http://wrong-host:9999/agents',
+        'x-forwarded-proto': 'http',
+        'x-public-base-url': 'http://wrong-host:9999',
+      };
+
+      const created = await app.inject({
+        method: 'POST',
+        path: '/api/v1/agents/install-sessions/linux-go',
+        headers,
+        body: { zone: 'default' },
+      });
+      assert.equal(created.statusCode, 201);
+      const createdBody = created.body as { bootstrapUrl: string; bundleUrl: string; installCommand: string };
+      assert.equal(createdBody.bootstrapUrl.includes('10.255.0.85:5172'), true);
+      assert.equal(createdBody.bundleUrl, 'http://10.255.0.85:5172/api/v1/agents/install/linux/bundle.tar.gz');
+      assert.equal(createdBody.installCommand.includes('10.255.0.85:5172'), true);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL;
+      } else {
+        process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL = previous;
+      }
+    }
+  });
+
+  it('缺少自定义公共地址头时优先使用浏览器 Origin', async () => {
+    const app = createApp();
+    const headers = {
+      'x-tenant-id': 'tenant_agent_origin_base_url',
+      'x-request-id': 'req_agent_origin_base_url',
+      host: '127.0.0.1:3003',
+      origin: 'http://10.255.0.85:5172',
+      'x-forwarded-proto': 'http',
+    };
+
+    const created = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/install-sessions/linux-go',
+      headers,
+      body: { zone: 'default' },
+    });
+    assert.equal(created.statusCode, 201);
+
+    const createdBody = created.body as {
+      bootstrapUrl: string;
+      bundleUrl: string;
+      installCommand: string;
+    };
+    assert.equal(createdBody.bootstrapUrl.includes('10.255.0.85:5172'), true);
+    assert.equal(createdBody.bootstrapUrl.includes('127.0.0.1:3003'), false);
+    assert.equal(createdBody.bundleUrl, 'http://10.255.0.85:5172/api/v1/agents/install/linux/bundle.tar.gz');
+    assert.equal(createdBody.installCommand.includes('10.255.0.85:5172'), true);
   });
 });

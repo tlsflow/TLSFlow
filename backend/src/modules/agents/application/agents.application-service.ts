@@ -8,7 +8,7 @@ import { AppError } from '../../../common/errors/app-error.js';
 import { createModuleMetadata } from '../../placeholder-module.js';
 import { newId } from '../../../shared/id.js';
 import { AgentsDomainService, normalizeFingerprint } from '../domain/agents.domain-service.js';
-import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHeartbeatInput, AgentInstallSessionBootstrapProjection, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, CreateLinuxGoInstallSessionInput, CreateWindowsPowerShellInstallSessionInput, DisableAgentInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
+import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHeartbeatInput, AgentInstallSessionBootstrapProjection, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, CreateLinuxGoInstallSessionInput, CreateWindowsPowerShellInstallSessionInput, DeleteAgentInput, DisableAgentInput, EnableAgentInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
 import type { AgentInstallSession, AgentRegistration, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan } from '../schema/agents.schema.js';
 import { PgAgentsRepository, type AgentsRepository } from '../repository/agents.repository.js';
 import type { GatewaysRepository } from '../../gateways/repository/gateways.repository.js';
@@ -35,7 +35,7 @@ export class AgentsApplicationService {
   async register(tenantId: string, input: RegisterAgentInput, requestId: string) {
     const descriptor = this.domain.normalizeDescriptor(input);
     const role = input.role ?? 'full_agent';
-    const existing = await this.repository.findByAgentKey(tenantId, descriptor.agentKey);
+    const existing = await this.resolveExistingRegistration(tenantId, descriptor.agentKey, descriptor.machineId);
     const gateway = this.domain.normalizeGatewayOnRegister(input, existing?.gateway);
     let enrollmentTokenId: string | undefined;
     if (input.enrollmentToken) {
@@ -430,6 +430,28 @@ export class AgentsApplicationService {
     return updated;
   }
 
+  async enableAgent(tenantId: string, input: EnableAgentInput, requestId: string) {
+    const agent = await this.requireAgent(tenantId, input.agentId);
+    const now = new Date().toISOString();
+    const updated = await this.repository.updateRegistration(agent.id, {
+      status: 'ONLINE',
+      gateway: agent.gateway ? { ...agent.gateway, status: 'online' } : undefined,
+      updatedAt: now,
+      lastRequestId: requestId,
+      disabledAt: undefined,
+      disabledBy: undefined,
+      disabledReason: undefined,
+    });
+    void this.syncGatewayRegistry(tenantId, updated);
+    return updated;
+  }
+
+  async deleteAgent(tenantId: string, input: DeleteAgentInput) {
+    const agent = await this.requireAgent(tenantId, input.agentId);
+    await this.repository.deleteRegistration(agent.id);
+    return { deleted: true, agentId: agent.id };
+  }
+
   async createWindowsPowerShellInstallSession(tenantId: string, input: CreateWindowsPowerShellInstallSessionInput, requestId: string, baseUrl: string): Promise<AgentInstallSessionBootstrapProjection> {
     const session = this.domain.createWindowsPowerShellInstallSession(tenantId, input, requestId, baseUrl);
     await this.repository.createEnrollmentToken(session.enrollmentTokenRecord);
@@ -456,13 +478,13 @@ export class AgentsApplicationService {
       logDir: session.logDir,
     });
     const token = encodeURIComponent((session as AgentInstallSession & { bootstrapToken: string }).bootstrapToken);
-    const bootstrapUrl = `${baseUrl}/api/v1/agents/install/windows/bootstrap.ps1?token=${token}`;
+    const bootstrapUrl = `${baseUrl}/agent-install.ps1?token=${token}`;
     return {
       sessionId: session.id,
       platform: 'windows_powershell_service',
       expiresAt: session.expiresAt,
       bootstrapUrl,
-      installCommand: `powershell -NoProfile -ExecutionPolicy Bypass -Command "irm '${bootstrapUrl}' | iex"`,
+      installCommand: `irm ${baseUrl}/agent-install.ps1?token=${token} | iex`,
       bootstrapTokenPreview: session.bootstrapTokenPreview,
       enrollmentToken: session.enrollmentToken,
       serviceName: session.serviceName,
@@ -504,7 +526,7 @@ export class AgentsApplicationService {
       logDir: session.logDir,
     });
     const token = encodeURIComponent((session as AgentInstallSession & { bootstrapToken: string }).bootstrapToken);
-    const bootstrapUrl = `${baseUrl}/api/v1/agents/install/linux/bootstrap.sh?token=${token}`;
+    const bootstrapUrl = `${baseUrl}/agent-install?token=${token}`;
     const bundleUrl = `${baseUrl}/api/v1/agents/install/linux/bundle.tar.gz`;
     return {
       sessionId: session.id,
@@ -512,7 +534,7 @@ export class AgentsApplicationService {
       expiresAt: session.expiresAt,
       bootstrapUrl,
       bundleUrl,
-      installCommand: `curl -fsSL '${bootstrapUrl}' | sudo bash`,
+      installCommand: `curl -fsSL ${baseUrl}/agent-install?token=${token} | bash`,
       bootstrapTokenPreview: session.bootstrapTokenPreview,
       serviceName: session.serviceName,
       displayName: session.displayName,
@@ -572,7 +594,7 @@ export class AgentsApplicationService {
     };
   }
 
-  buildLinuxGoInstallManifest(session: AgentInstallSession, baseUrl: string) {
+  buildLinuxGoInstallManifest(session: AgentInstallSession) {
     return {
       sessionId: session.id,
       platform: session.platform,
@@ -588,7 +610,7 @@ export class AgentsApplicationService {
       tenantId: session.tenantId,
       enrollmentToken: session.enrollmentToken,
       zone: session.zone,
-      bundleUrl: `${baseUrl}/api/v1/agents/install/linux/bundle.tar.gz`,
+      bundleUrl: `${session.controlPlaneUrl}/api/v1/agents/install/linux/bundle.tar.gz`,
       bundleManifest: getLinuxAgentBundleManifest(),
     };
   }
@@ -598,7 +620,10 @@ export class AgentsApplicationService {
   }
 
   listAgents(tenantId: string, query: PageQuery) {
-    return this.repository.listRegistrations(tenantId, query);
+    return this.repository.listRegistrations(tenantId, query).then((page) => {
+      const items = this.deduplicateRegistrations(page.items);
+      return { ...page, items, total: items.length };
+    });
   }
 
   async getAgentDetail(tenantId: string, agentId: string): Promise<AgentDetailProjection> {
@@ -682,6 +707,25 @@ export class AgentsApplicationService {
     const task = await this.repository.getTask(tenantId, taskId);
     if (!task || task.agentId !== agentId) throw new AppError('RESOURCE_NOT_FOUND', 'Agent task 不存在', { taskId });
     return task;
+  }
+
+  private async resolveExistingRegistration(tenantId: string, agentKey: string, machineId?: string) {
+    const byAgentKey = await this.repository.findByAgentKey(tenantId, agentKey);
+    if (byAgentKey) return byAgentKey;
+    if (!machineId) return undefined;
+    return this.repository.findByMachineId(tenantId, machineId);
+  }
+
+  private deduplicateRegistrations(items: AgentRegistration[]): AgentRegistration[] {
+    const winners = new Map<string, AgentRegistration>();
+    for (const item of items) {
+      const dedupeKey = item.descriptor.machineId?.trim() || item.agentKey;
+      const current = winners.get(dedupeKey);
+      if (!current || item.updatedAt.localeCompare(current.updatedAt) > 0) {
+        winners.set(dedupeKey, item);
+      }
+    }
+    return [...winners.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
   private async consumeInstallSession(tokenHash: string, usedByIp?: string, tenantId?: string): Promise<AgentInstallSession> {
@@ -769,6 +813,9 @@ const windowsPowerShellAgentRoot = resolveWindowsPowerShellAgentRoot();
 const ignoredWindowsPowerShellAgentPaths = new Set([
   'README.md',
   'runonce-result.json',
+  'service-host',
+  'vendor/nssm/nssm-2.24.zip',
+  'vendor/nssm/_extract',
 ]);
 
 async function loadWindowsPowerShellAgentArtifacts() {
@@ -776,22 +823,26 @@ async function loadWindowsPowerShellAgentArtifacts() {
   return artifacts.sort((left, right) => left.path.localeCompare(right.path));
 }
 
-async function walkWindowsPowerShellAgentArtifacts(currentDir: string, relativeDir = ''): Promise<Array<{ path: string; description: string; content: string }>> {
+async function walkWindowsPowerShellAgentArtifacts(currentDir: string, relativeDir = ''): Promise<Array<{ path: string; description: string; content: string; encoding?: 'utf8' | 'base64' }>> {
   const entries = await readdir(currentDir, { withFileTypes: true });
-  const artifacts: Array<{ path: string; description: string; content: string }> = [];
+  const artifacts: Array<{ path: string; description: string; content: string; encoding?: 'utf8' | 'base64' }> = [];
   for (const entry of entries) {
     const relativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
     if (relativePath === 'tmp' || relativePath.startsWith('tmp/')) continue;
     if (ignoredWindowsPowerShellAgentPaths.has(relativePath)) continue;
+    if ([...ignoredWindowsPowerShellAgentPaths].some((ignoredPath) => relativePath.startsWith(`${ignoredPath}/`))) continue;
     const absolutePath = path.join(currentDir, entry.name);
     if (entry.isDirectory()) {
       artifacts.push(...await walkWindowsPowerShellAgentArtifacts(absolutePath, relativePath));
       continue;
     }
+    const extension = path.extname(entry.name).toLowerCase();
+    const isBinaryArtifact = extension === '.exe' || extension === '.dll' || extension === '.pfx';
     artifacts.push({
       path: relativePath.replace(/\\/gu, '/'),
       description: `Windows PowerShell Agent 文件: ${relativePath}`,
-      content: stripUtf8Bom(await readFile(absolutePath, 'utf8')),
+      content: isBinaryArtifact ? (await readFile(absolutePath)).toString('base64') : stripUtf8Bom(await readFile(absolutePath, 'utf8')),
+      encoding: isBinaryArtifact ? 'base64' : 'utf8',
     });
   }
   return artifacts;

@@ -16,7 +16,9 @@ import type {
   CreateEnrollmentTokenInput,
   CreateLinuxGoInstallSessionInput,
   CreateWindowsPowerShellInstallSessionInput,
+  DeleteAgentInput,
   DisableAgentInput,
+  EnableAgentInput,
   EnqueueAgentTaskInput,
   PublishAgentVersionInput,
   RegisterAgentInput,
@@ -37,6 +39,8 @@ export class AgentsController {
   constructor(private readonly service = new AgentsApplicationService()) {}
 
   register(router: Router): void {
+    router.post('/api/v1/agents/enable', '启用 Agent', tags, (request) => this.enableAgent(request));
+    router.post('/api/v1/agents/delete', '删除 Agent', tags, (request) => this.deleteAgent(request));
     router.get('/api/v1/agents', '查询 Agent 列表', tags, (request) => this.listAgents(request));
     router.get('/api/v1/agents/detail', '查询 Agent 详情聚合', tags, (request) => this.getAgentDetail(request));
     router.get('/api/v1/agents/capabilities', '查询 Agent 能力快照', tags, (request) => this.getCapabilities(request));
@@ -47,6 +51,8 @@ export class AgentsController {
     router.post('/api/v1/agents/enrollment-tokens', '创建 Agent 注册令牌', tags, (request) => this.createEnrollmentToken(request));
     router.post('/api/v1/agents/install-sessions/windows-powershell', '创建 Windows PowerShell Agent 安装会话', tags, (request) => this.createWindowsPowerShellInstallSession(request));
     router.post('/api/v1/agents/install-sessions/linux-go', '创建 Linux Go Agent 安装会话', tags, (request) => this.createLinuxGoInstallSession(request));
+    router.get('/agent-install.ps1', '获取 Windows PowerShell Agent 短安装入口', tags, (request) => this.getWindowsPowerShellBootstrap(request));
+    router.get('/agent-install', '获取 Linux Go Agent 短安装入口', tags, (request) => this.getLinuxGoBootstrap(request));
     router.get('/api/v1/agents/install/windows/bootstrap.ps1', '获取 Windows PowerShell Agent bootstrap 脚本', tags, (request) => this.getWindowsPowerShellBootstrap(request));
     router.get('/api/v1/agents/install/windows/manifest', '获取 Windows PowerShell Agent 安装清单', tags, (request) => this.getWindowsPowerShellManifest(request));
     router.get('/api/v1/agents/install/linux/bootstrap.sh', '获取 Linux Go Agent bootstrap 脚本', tags, (request) => this.getLinuxGoBootstrap(request));
@@ -145,7 +151,11 @@ export class AgentsController {
   private async getWindowsPowerShellBootstrap(request: HttpRequest) {
     const token = readQuery(request, 'token');
     const session = await this.service.consumeInstallSessionByToken(token, request.context.ip);
-    const manifest = await this.service.buildWindowsPowerShellInstallManifest(session);
+    const baseUrl = resolveInstallBaseUrl(request);
+    const manifest = {
+      ...(await this.service.buildWindowsPowerShellInstallManifest(session)),
+      controlPlaneUrl: baseUrl,
+    };
     return {
       statusCode: 200,
       headers: {
@@ -158,13 +168,22 @@ export class AgentsController {
   private async getWindowsPowerShellManifest(request: HttpRequest) {
     const token = readQuery(request, 'token');
     const session = await this.service.getInstallSessionByToken(token);
-    return this.service.buildWindowsPowerShellInstallManifest(session);
+    const baseUrl = resolveInstallBaseUrl(request);
+    return {
+      ...(await this.service.buildWindowsPowerShellInstallManifest(session)),
+      controlPlaneUrl: baseUrl,
+    };
   }
 
   private async getLinuxGoBootstrap(request: HttpRequest) {
     const token = readQuery(request, 'token');
     const session = await this.service.consumeInstallSessionByToken(token, request.context.ip);
-    const manifest = this.service.buildLinuxGoInstallManifest(session, inferBaseUrl(request));
+    const baseUrl = resolveInstallBaseUrl(request);
+    const manifest = {
+      ...this.service.buildLinuxGoInstallManifest(session),
+      controlPlaneUrl: baseUrl,
+      bundleUrl: `${baseUrl}/api/v1/agents/install/linux/bundle.tar.gz`,
+    };
     return {
       statusCode: 200,
       headers: {
@@ -177,7 +196,12 @@ export class AgentsController {
   private async getLinuxGoManifest(request: HttpRequest) {
     const token = readQuery(request, 'token');
     const session = await this.service.consumeInstallSessionByToken(token, request.context.ip);
-    return this.service.buildLinuxGoInstallManifest(session, inferBaseUrl(request));
+    const baseUrl = resolveInstallBaseUrl(request);
+    return {
+      ...this.service.buildLinuxGoInstallManifest(session),
+      controlPlaneUrl: baseUrl,
+      bundleUrl: `${baseUrl}/api/v1/agents/install/linux/bundle.tar.gz`,
+    };
   }
 
   private getLinuxBundle(_request: HttpRequest) {
@@ -232,13 +256,37 @@ export class AgentsController {
     }, requestId(request));
   }
 
+  private enableAgent(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      agentId: { type: 'string', required: true },
+    });
+    return this.service.enableAgent(tenantId(request), {
+      agentId: String(body.agentId),
+      actorId: actorId(request),
+    } as EnableAgentInput, requestId(request));
+  }
+
+  private deleteAgent(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      agentId: { type: 'string', required: true },
+    });
+    return this.service.deleteAgent(tenantId(request), {
+      agentId: String(body.agentId),
+      actorId: actorId(request),
+    } as DeleteAgentInput);
+  }
+
   private registerAgent(request: HttpRequest) {
     const body = validateObject(request.body, {
       agentKey: { type: 'string', required: true },
+      machineId: { type: 'string' },
       hostname: { type: 'string', required: true },
       version: { type: 'string', required: true },
       osType: { type: 'string', required: true },
       arch: { type: 'string' },
+      ipAddress: { type: 'string' },
+      linuxDistribution: { type: 'string' },
+      osVersion: { type: 'string' },
       labels: { type: 'array' },
       enrollmentToken: { type: 'string' },
       role: { type: 'string' },
@@ -443,6 +491,8 @@ export function getAgentsRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/agents/upgrades/suggestion', operationId: 'getAgentUpgradeSuggestion', summary: '查询 Agent 升级建议', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/enrollment-tokens', operationId: 'createAgentEnrollmentToken', summary: '创建 Agent 注册令牌', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/install-sessions/windows-powershell', operationId: 'createWindowsPowerShellAgentInstallSession', summary: '创建 Windows PowerShell Agent 安装会话', tags, responseSchema: schema },
+    { method: 'GET', path: '/agent-install.ps1', operationId: 'getWindowsPowerShellAgentShortInstall', summary: '获取 Windows PowerShell Agent 短安装入口', tags, responseSchema: { type: 'string' } },
+    { method: 'GET', path: '/agent-install', operationId: 'getLinuxGoAgentShortInstall', summary: '获取 Linux Go Agent 短安装入口', tags, responseSchema: { type: 'string' } },
     { method: 'GET', path: '/api/v1/agents/install/windows/bootstrap.ps1', operationId: 'getWindowsPowerShellAgentBootstrap', summary: '获取 Windows PowerShell Agent bootstrap 脚本', tags, responseSchema: { type: 'string' } },
     { method: 'GET', path: '/api/v1/agents/install/windows/manifest', operationId: 'getWindowsPowerShellAgentInstallManifest', summary: '获取 Windows PowerShell Agent 安装清单', tags, responseSchema: schema },
     { method: 'POST', path: '/api/v1/agents/disable', operationId: 'disableAgent', summary: '禁用 Agent', tags, responseSchema: schema },
@@ -495,11 +545,28 @@ function readOptionalCsv(request: HttpRequest, key: string): string[] | undefine
 }
 
 function inferBaseUrl(request: HttpRequest): string {
+  const configuredPublicBaseUrl = process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL?.trim();
   const forwardedHost = Array.isArray(request.headers['x-forwarded-host']) ? request.headers['x-forwarded-host'][0] : request.headers['x-forwarded-host'];
   const publicBaseUrl = Array.isArray(request.headers['x-public-base-url']) ? request.headers['x-public-base-url'][0] : request.headers['x-public-base-url'];
   const forwardedProto = Array.isArray(request.headers['x-forwarded-proto']) ? request.headers['x-forwarded-proto'][0] : request.headers['x-forwarded-proto'];
+  const origin = Array.isArray(request.headers.origin) ? request.headers.origin[0] : request.headers.origin;
+  const referer = Array.isArray(request.headers.referer) ? request.headers.referer[0] : request.headers.referer;
+  if (configuredPublicBaseUrl) {
+    return configuredPublicBaseUrl.replace(/\/+$/u, '');
+  }
   if (typeof publicBaseUrl === 'string' && publicBaseUrl.trim()) {
     return publicBaseUrl.trim().replace(/\/+$/u, '');
+  }
+  if (typeof origin === 'string' && origin.trim()) {
+    return origin.trim().replace(/\/+$/u, '');
+  }
+  if (typeof referer === 'string' && referer.trim()) {
+    try {
+      const parsed = new URL(referer);
+      return parsed.origin;
+    } catch {
+      // ignore invalid referer and continue fallback chain
+    }
   }
   const proto = typeof forwardedProto === 'string' && forwardedProto ? forwardedProto : 'http';
   const host = typeof forwardedHost === 'string' && forwardedHost
@@ -524,33 +591,68 @@ function renderWindowsPowerShellBootstrapScript(manifest: unknown): string {
     '  $path = Join-Path $root $artifact.path',
     '  $dir = Split-Path -Parent $path',
     '  New-Item -ItemType Directory -Force -Path $dir | Out-Null',
-    '  [System.IO.File]::WriteAllText($path, [string]$artifact.content, $utf8Bom)',
+    "  if ([string]$artifact.encoding -eq 'base64') {",
+    '    [System.IO.File]::WriteAllBytes($path, [System.Convert]::FromBase64String([string]$artifact.content))',
+    '  } else {',
+    '    [System.IO.File]::WriteAllText($path, [string]$artifact.content, $utf8Bom)',
+    '  }',
     '}',
     "$configPath = Join-Path $root 'config\\agent.config.template.json'",
     '$config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json',
     '$config.tenantId = [string]$manifest.tenantId',
     '$config.agentKey = [string]$manifest.agentKey',
-    '$config.controlPlaneUrl = [string]$manifest.controlPlaneUrl',
     '$config.service.name = [string]$manifest.serviceName',
     '$config.service.displayName = [string]$manifest.displayName',
-    "$config.paths.windows.configPath = [string](Join-Path $manifest.configDir 'agent.config.json')",
+    "$actualConfigPath = Join-Path $manifest.configDir 'agent.config.json'",
+    "$envPath = Join-Path $manifest.configDir '.env'",
+    '$config.paths.windows.configPath = [string]$actualConfigPath',
     '$config.paths.windows.dataDir = [string]$manifest.dataDir',
     '$config.paths.windows.logDir = [string]$manifest.logDir',
     "if ($null -eq $config.PSObject.Properties['zone']) { $config | Add-Member -NotePropertyName zone -NotePropertyValue ([string]$manifest.zone) } else { $config.zone = [string]$manifest.zone }",
     "if ($null -eq $config.PSObject.Properties['enrollmentToken']) { $config | Add-Member -NotePropertyName enrollmentToken -NotePropertyValue ([string]$manifest.enrollmentToken) } else { $config.enrollmentToken = [string]$manifest.enrollmentToken }",
+    'New-Item -ItemType Directory -Force -Path $manifest.configDir | Out-Null',
+    '$envLines = @(',
+    '  ("GCAC_TENANT_ID=" + [string]$manifest.tenantId),',
+    '  ("GCAC_CONTROL_PLANE_URL=" + [string]$manifest.controlPlaneUrl),',
+    '  ("GCAC_ENROLLMENT_TOKEN=" + [string]$manifest.enrollmentToken),',
+    '  ("GCAC_ZONE=" + [string]$manifest.zone)',
+    ')',
+    '[System.IO.File]::WriteAllText($envPath, ($envLines -join "`r`n") + "`r`n", $utf8Bom)',
     '[System.IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 10), $utf8Bom)',
+    '[System.IO.File]::WriteAllText($actualConfigPath, ($config | ConvertTo-Json -Depth 10), $utf8Bom)',
     'New-Item -ItemType Directory -Force -Path $manifest.dataDir | Out-Null',
     "$installScript = Join-Path $root 'install-service.ps1'",
     "$entryScript = Join-Path $root 'Start-GcacFullAgent.ps1'",
     "$selfCheckPath = Join-Path $manifest.logDir 'bootstrap-selfcheck.json'",
     "$runOncePath = Join-Path $manifest.logDir 'bootstrap-register.json'",
     '$params = @{ ServiceName = [string]$manifest.serviceName; DisplayName = [string]$manifest.displayName; InstallRoot = [string]$manifest.installRoot; ConfigDir = [string]$manifest.configDir; LogDir = [string]$manifest.logDir }',
-    '& powershell -NoProfile -ExecutionPolicy Bypass -File $installScript @params',
+    'if ([bool]$manifest.startAfterInstall) {',
+    '  & powershell -NoProfile -ExecutionPolicy Bypass -File $installScript @params -StartAfterInstall',
+    '} else {',
+    '  & powershell -NoProfile -ExecutionPolicy Bypass -File $installScript @params',
+    '}',
     "if ($LASTEXITCODE -ne 0) { throw 'Service installation failed.' }",
-    "& powershell -NoProfile -ExecutionPolicy Bypass -File $entryScript -SelfCheck -ConfigPath (Join-Path $manifest.configDir 'agent.config.json') -LogDir $manifest.logDir -OutputPath $selfCheckPath",
+    "& powershell -NoProfile -ExecutionPolicy Bypass -File $entryScript -SelfCheck -ConfigPath $actualConfigPath -LogDir $manifest.logDir -OutputPath $selfCheckPath",
     "if ($LASTEXITCODE -ne 0) { throw 'Bootstrap self-check failed after service installation.' }",
-    "& powershell -NoProfile -ExecutionPolicy Bypass -File $entryScript -RunOnce -ConfigPath (Join-Path $manifest.configDir 'agent.config.json') -LogDir $manifest.logDir -OutputPath $runOncePath",
-    "if ($LASTEXITCODE -ne 0) { throw 'Bootstrap first registration run failed.' }",
+    "& powershell -NoProfile -ExecutionPolicy Bypass -File $entryScript -RunOnce -ConfigPath $actualConfigPath -LogDir $manifest.logDir -OutputPath $runOncePath",
+    'if ($LASTEXITCODE -ne 0) {',
+    '  Write-Warning "Bootstrap first registration run failed."',
+    '  if (Test-Path -LiteralPath $runOncePath) {',
+    '    Write-Host "Bootstrap register result:"',
+    '    Get-Content -LiteralPath $runOncePath -Raw | Write-Host',
+    '  }',
+    '  $agentLogPath = Join-Path $manifest.logDir "agent.log"',
+    '  if (Test-Path -LiteralPath $agentLogPath) {',
+    '    Write-Host "Agent log:"',
+    '    Get-Content -LiteralPath $agentLogPath -Raw | Write-Host',
+    '  }',
+    '  $runtimeLogPath = Join-Path $manifest.logDir "runtime.log"',
+    '  if (Test-Path -LiteralPath $runtimeLogPath) {',
+    '    Write-Host "Runtime log:"',
+    '    Get-Content -LiteralPath $runtimeLogPath -Raw | Write-Host',
+    '  }',
+    "  throw 'Bootstrap first registration run failed.'",
+    '}',
     "$installMetadataPath = Join-Path $manifest.configDir 'service.install.json'",
     'if (Test-Path -LiteralPath $installMetadataPath) {',
     '  $installMetadata = Get-Content -LiteralPath $installMetadataPath -Raw | ConvertFrom-Json',
@@ -558,9 +660,58 @@ function renderWindowsPowerShellBootstrapScript(manifest: unknown): string {
     '  $installMetadata.LastBootstrapRunOncePath = $runOncePath',
     '  [System.IO.File]::WriteAllText($installMetadataPath, ($installMetadata | ConvertTo-Json -Depth 10), $utf8Bom)',
     '}',
-    "Write-Warning 'Automatic Start-Service is disabled for the current PowerShell skeleton service registration model. Start the wrapper-based service after service host integration is added.'",
+    'if ([bool]$manifest.startAfterInstall) {',
+    '  try {',
+    '    Start-Service -Name ([string]$manifest.serviceName)',
+    '  } catch {',
+    '    $stdoutLog = Join-Path $manifest.logDir "service-stdout.log"',
+    '    $stderrLog = Join-Path $manifest.logDir "service-stderr.log"',
+    '    Write-Warning ("Start-Service failed for: " + [string]$manifest.serviceName)',
+    '    try { sc.exe qc ([string]$manifest.serviceName) | Write-Host } catch { }',
+    '    if (Test-Path -LiteralPath $installMetadataPath) {',
+    '      try {',
+    '        $installMetadata = Get-Content -LiteralPath $installMetadataPath -Raw | ConvertFrom-Json',
+    '        if ($null -ne $installMetadata -and -not [string]::IsNullOrWhiteSpace([string]$installMetadata.NssmExe)) {',
+    '          & ([string]$installMetadata.NssmExe) get ([string]$manifest.serviceName) Application | Write-Host',
+    '          & ([string]$installMetadata.NssmExe) get ([string]$manifest.serviceName) AppParameters | Write-Host',
+    '          & ([string]$installMetadata.NssmExe) get ([string]$manifest.serviceName) AppDirectory | Write-Host',
+    '        }',
+    '      } catch { }',
+    '    }',
+    '    if (Test-Path -LiteralPath $stdoutLog) {',
+    '      Write-Host "Service stdout log:"',
+    '      Get-Content -LiteralPath $stdoutLog -Raw | Write-Host',
+    '    }',
+    '    if (Test-Path -LiteralPath $stderrLog) {',
+    '      Write-Host "Service stderr log:"',
+    '      Get-Content -LiteralPath $stderrLog -Raw | Write-Host',
+    '    }',
+    '    throw',
+    '  }',
+    '}',
     "Write-Host 'Bootstrap completed. Files staged at:' $root",
   ].join('\r\n')
+}
+
+function readOptionalQuery(request: HttpRequest, key: string): string | undefined {
+  const value = request.query[key];
+  const normalized = Array.isArray(value) ? value[0] : value;
+  if (!normalized) return undefined;
+  const trimmed = normalized.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function resolveInstallBaseUrl(request: HttpRequest): string {
+  const explicitBaseUrl = readOptionalQuery(request, 'baseUrl');
+  if (explicitBaseUrl) {
+    try {
+      const parsed = new URL(explicitBaseUrl);
+      return parsed.origin.replace(/\/+$/u, '');
+    } catch {
+      throw new AppError('VALIDATION_FAILED', 'baseUrl 格式不合法', { baseUrl: explicitBaseUrl });
+    }
+  }
+  return inferBaseUrl(request);
 }
 
 function renderLinuxBootstrapScript(manifest: unknown): string {
