@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { sep } from 'node:path';
+import { resolve, sep } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { AppError } from '../../../common/errors/app-error.js';
@@ -150,7 +150,13 @@ export class WorkflowTemplatesDomainService {
     }
     if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'template is disabled');
     const content = workflowTemplatesSchemaRegistry.validate(input.content);
-    return this.appendDraftVersion(template, content, input.changeSummary, { rejectDuplicateContent: true, enforcePluginVersionIncrement: true });
+    // 每个插件包版本都必须有对应的不可变 WorkflowVersion。即使业务步骤未变，
+    // metadata.version 也会随 PluginVersion 递进，因此不能复用旧版本。
+    return this.appendDraftVersion(template, content, input.changeSummary, {
+      rejectDuplicateContent: false,
+      enforcePluginVersionIncrement: true,
+      requirePluginVersionIncrementAlways: true,
+    });
   }
 
   async updateCurrentDraftVersion(input: UpdateWorkflowTemplateInput): Promise<WorkflowTemplateVersion> {
@@ -461,13 +467,16 @@ export class WorkflowTemplatesDomainService {
           .map((item) => `assertion:${item.type}:failed:${item.message}`),
       ];
       const failedAssertions = assertions.filter((item) => !item.passed);
+      const dispatchErrorMessage = !success && dispatchOutput?.errorMessage
+        ? withWorkflowStepName(step.name, dispatchOutput.errorMessage)
+        : undefined;
       last = {
         name: step.name,
         type,
         stage: step.stage,
         status: success ? 'success' : 'failed',
         ...(success || !dispatchOutput?.errorCode ? {} : { errorCode: dispatchOutput.errorCode }),
-        ...(success || !dispatchOutput?.errorMessage ? {} : { errorMessage: dispatchOutput.errorMessage }),
+        ...(dispatchErrorMessage ? { errorMessage: dispatchErrorMessage } : {}),
         ...(!success && failedAssertions.length > 0 ? {
           errorCode: 'WORKFLOW_ASSERTION_FAILED',
           errorMessage: `工作流断言失败：step=${step.name}，${failedAssertions.map((item) => `${item.type} ${item.message}`).join('；')}`,
@@ -686,13 +695,24 @@ export class WorkflowTemplatesDomainService {
     template: WorkflowTemplate,
     content: WorkflowDslV1,
     changeSummary: string | undefined,
-    options: { rejectDuplicateContent: boolean; enforcePluginVersionIncrement: boolean; pluginSource?: WorkflowPluginSource },
+    options: {
+      rejectDuplicateContent: boolean;
+      enforcePluginVersionIncrement: boolean;
+      requirePluginVersionIncrementAlways?: boolean;
+      pluginSource?: WorkflowPluginSource;
+    },
   ): Promise<WorkflowTemplateVersion> {
     const list = this.versions.get(template.id) ?? [];
     const hash = computeWorkflowContentHash(content);
     if (options.rejectDuplicateContent && list.some((item) => item.contentHash === hash)) throw new AppError('VALIDATION_FAILED', 'duplicate workflow version content');
     const previous = [...list].sort((left, right) => right.version - left.version)[0];
-    if (previous && options.enforcePluginVersionIncrement) assertPluginVersionIncrement(previous.content, content, hash !== previous.contentHash);
+    if (previous && options.enforcePluginVersionIncrement) {
+      assertPluginVersionIncrement(
+        previous.content,
+        content,
+        options.requirePluginVersionIncrementAlways === true || hash !== previous.contentHash,
+      );
+    }
     const versionNumber = list.reduce((max, item) => Math.max(max, item.version), 0) + 1;
     const version = this.createVersion(template.id, versionNumber, content, 'draft', changeSummary, options.pluginSource);
     this.versions.set(template.id, [...list, version]);
@@ -750,6 +770,11 @@ export class WorkflowTemplatesDomainService {
       this.versions.set(templateId, list.map((version) => normalizeVersion(version)));
     }
   }
+}
+
+function withWorkflowStepName(stepName: string, message: string): string {
+  if (message.includes(`step=${stepName}`)) return message;
+  return `step=${stepName}，${message}`;
 }
 
 async function reportWorkflowProgress(
@@ -876,6 +901,8 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
     const renderedUrl = renderString(step.request.url, context.values, mode === 'render_only');
     const renderedHeaders = renderUnknown(step.request.headers ?? {}, context.values, mode === 'render_only') as Record<string, string>;
     const promotedHeaders = promoteSecretHeaders(renderedHeaders, step.request.headerRefs);
+    const renderedHeaderRefs = renderUnknown(promotedHeaders.headerRefs, context.values, mode === 'render_only') as Record<string, string> | undefined;
+    const runtimeHeaderRefs = materializeRuntimeHeaderRefs(renderedHeaderRefs, step.name);
     const curlRequest = {
       idempotencyKey: `workflow:${step.name}`,
       dryRun: mode !== 'real_test',
@@ -890,7 +917,7 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
         },
         query: renderUnknown(step.request.query, context.values, mode === 'render_only'),
         headers: promotedHeaders.headers,
-        headerRefs: renderUnknown(promotedHeaders.headerRefs, context.values, mode === 'render_only'),
+        headerRefs: runtimeHeaderRefs.headerRefs,
         bodyType: step.request.bodyType,
         body: renderUnknown(step.request.body, context.values, mode === 'render_only'),
         form: renderUnknown(step.request.form, context.values, mode === 'render_only'),
@@ -904,6 +931,7 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
         timeoutMs: (step.request.timeoutSeconds ?? 30) * 1000,
         maxResponseBytes: step.request.maxResponseBytes,
       },
+      ...(runtimeHeaderRefs.secrets ? { secrets: runtimeHeaderRefs.secrets } : {}),
       responsePolicy: {
         successStatusCodes: step.request.successStatusCodes,
         failOnNon2xx: step.request.failOnNon2xx,
@@ -1107,6 +1135,46 @@ function promoteSecretHeaders(
     else plainHeaders[name] = value;
   }
   return { headers: plainHeaders, headerRefs: Object.keys(headerRefs).length > 0 ? headerRefs : undefined };
+}
+
+/**
+ * 将前序步骤产生的敏感输出封装为当前请求专用的临时 SecretRef。
+ *
+ * 这类值不是持久化 Secret，不能伪装成用户凭据；它只存在于本次节点
+ * 调度的请求对象中，执行结果经过统一脱敏后不会泄漏原文。
+ */
+function materializeRuntimeHeaderRefs(
+  headerRefs: Record<string, string> | undefined,
+  stepName: string,
+): { headerRefs?: Record<string, string>; secrets?: Record<string, string> } {
+  if (!headerRefs) return {};
+  const resolved: Record<string, string> = {};
+  const secrets: Record<string, string> = {};
+  for (const [headerName, value] of Object.entries(headerRefs)) {
+    if (isSecretRefValue(value)) {
+      resolved[headerName] = value;
+      continue;
+    }
+    if (typeof value !== 'string') {
+      throw new AppError('VALIDATION_FAILED', 'HTTP headerRefs 值必须是字符串', { headerName });
+    }
+    const ref = `secret://workflow/runtime/${secretRefSegment(stepName)}/${secretRefSegment(headerName)}`;
+    resolved[headerName] = ref;
+    secrets[ref] = value;
+  }
+  return {
+    headerRefs: resolved,
+    ...(Object.keys(secrets).length > 0 ? { secrets } : {}),
+  };
+}
+
+function isSecretRefValue(value: string): boolean {
+  return /^secret:\/\/[a-zA-Z0-9/_#.-]+$/.test(value);
+}
+
+function secretRefSegment(value: string): string {
+  const normalized = value.replace(/[^a-zA-Z0-9_.-]/g, '_');
+  return normalized || 'value';
 }
 
 function adaptHttpTls(
@@ -1366,11 +1434,17 @@ function createJsonataWorker(workerData: { expression: string; input: Record<str
   const distModulePath = modulePath
     .replace(`${sep}src${sep}`, `${sep}dist${sep}`)
     .replace(/\.ts$/, '.js');
-  const compiledWorkerUrl = existsSync(fileURLToPath(colocatedWorkerUrl))
-    ? colocatedWorkerUrl
-    : pathToFileURL(distModulePath.replace(/[^/\\]+\.js$/, 'jsonata-transform.worker.js'));
-  if (!existsSync(fileURLToPath(compiledWorkerUrl))) {
-    throw new AppError('SYSTEM_INTERNAL_ERROR', 'JSONata Worker 编译产物缺失，拒绝动态加载源码');
+  const candidates = [
+    colocatedWorkerUrl,
+    pathToFileURL(distModulePath.replace(/[^/\\]+\.js$/, 'jsonata-transform.worker.js')),
+    pathToFileURL(resolve(process.cwd(), 'dist/modules/workflow-templates/domain/jsonata-transform.worker.js')),
+    pathToFileURL(resolve(process.cwd(), 'backend/dist/modules/workflow-templates/domain/jsonata-transform.worker.js')),
+  ].filter((candidate, index, all) => all.findIndex((item) => item.href === candidate.href) === index);
+  const compiledWorkerUrl = candidates.find((candidate) => existsSync(fileURLToPath(candidate)));
+  if (!compiledWorkerUrl) {
+    throw new AppError('SYSTEM_INTERNAL_ERROR', 'JSONata Worker 编译产物缺失，拒绝动态加载源码', {
+      candidates: candidates.map((candidate) => fileURLToPath(candidate)),
+    });
   }
   // 生产执行只允许加载与宿主版本固定的编译 Worker，不接受 TypeScript 运行时注入。
   return new Worker(compiledWorkerUrl, { workerData, execArgv: [] });
@@ -1435,7 +1509,11 @@ function readFirstAvailablePath(output: WorkflowMockStepOutput, paths: string[])
 function evaluateAssertions(assertions: WorkflowAssertion[], output: WorkflowMockStepOutput, values: Record<string, unknown>): WorkflowStepRunResult['assertions'] {
   return assertions.map((assertion) => {
     if (assertion.type === 'statusCode') return assertionResult(assertion.type, output.statusCode === assertion.equals, `status=${output.statusCode}`);
-    if (assertion.type === 'jsonPath') return assertionResult(assertion.type, Object.is(readJsonPath(output.body, assertion.path), assertion.equals), `path=${assertion.path}`);
+    if (assertion.type === 'jsonPath') {
+      // 断言期望值和请求参数一样允许引用前序步骤输出，解析后再比较原始类型。
+      const expected = renderUnknown(assertion.equals, values);
+      return assertionResult(assertion.type, Object.is(readJsonPath(output.body, assertion.path), expected), `path=${assertion.path}`);
+    }
     if (assertion.type === 'header') {
       const value = output.headers?.[assertion.name];
       const passed = assertion.equals !== undefined ? value === assertion.equals : (assertion.exists ?? true) === (value !== undefined);
@@ -1830,13 +1908,13 @@ function restoreContextValue(values: Record<string, unknown>, key: string, previ
   delete values[key];
 }
 
-function assertPluginVersionIncrement(previous: WorkflowDslV1, next: WorkflowDslV1, contentChanged: boolean): void {
-  if (!contentChanged) return;
+function assertPluginVersionIncrement(previous: WorkflowDslV1, next: WorkflowDslV1, requireIncrement: boolean): void {
+  if (!requireIncrement) return;
   const previousVersion = previous.metadata.version;
   const nextVersion = next.metadata.version;
   if (!previousVersion && !nextVersion) return;
   if (!previousVersion || !nextVersion || compareSemanticVersions(nextVersion, previousVersion) <= 0) {
-    throw new AppError('VALIDATION_FAILED', 'DSL 模板内容发生变化时必须递进 metadata.version', {
+    throw new AppError('VALIDATION_FAILED', '插件内部 WorkflowVersion 必须递进 metadata.version', {
       previousVersion,
       nextVersion,
     });

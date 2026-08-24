@@ -467,7 +467,7 @@ export interface WorkflowRuntimeInput {
    * 签发依赖它解析租户级凭据；缺失时租户级 Secret 解析与 TLS 例外授权会失败关闭。
    */
   tenantId?: string;
-  /** 由宿主调用方透传的审批上下文；real_test 的 TLS 例外必须绑定它。 */
+  /** 由宿主调用方透传的兼容授权上下文；TLS 证书校验例外不再依赖其中的审批号。 */
   authorization?: WorkflowExecutionAuthorization;
 }
 

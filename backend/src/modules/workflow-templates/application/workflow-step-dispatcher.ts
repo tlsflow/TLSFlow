@@ -4,21 +4,21 @@ import { CurlExecutor, type CurlExecutionRequest } from '../../executors/curl/cu
 import type { CurlSecretResolverContext } from '../../executors/curl/curl.secret-resolver.js';
 import { SSHExecutor, type SSHExecutionRequest } from '../../executors/ssh/ssh.executor.js';
 import type { ExecutionGrantService } from '../../executions/execution-grant.service.js';
-import type { WorkflowExecutionAuthorization, WorkflowExecutorDispatcher, WorkflowExecutorDispatchResult, WorkflowTestRunMode } from '../dto/workflow-templates.dto.js';
+import type { WorkflowExecutorDispatcher, WorkflowExecutorDispatchResult } from '../dto/workflow-templates.dto.js';
 
 export interface WorkflowStepDispatcherDependencies {
   /**
    * 仅接受调用方显式提供的受控旧执行能力；缺失时必须失败关闭。
    * dispatcher 不再自行创建 Curl/SSH 执行器，避免能力缺失时静默落入旧路径。
    */
-  curlExecutor?: Pick<CurlExecutor, 'execute'>;
+  curlExecutor?: Pick<CurlExecutor, 'execute'> & Partial<Pick<CurlExecutor, 'executeForWorkflow'>>;
   sshExecutor?: Pick<SSHExecutor, 'execute'>;
   /** 仅保留应用装配兼容字段；SecretService 不会自动生成执行能力。 */
   secrets?: SecretService;
   /**
    * 宿主导入的 ExecutionGrant 服务。Curl 步骤需要 TLS 例外（verify=false）时，
    * dispatcher 只签发绑定当前 run/step 的短期 Grant 交给 CurlExecutor 校验，
-   * 不绕过旧执行器自身的 TLS 授权链。
+   * 不绕过旧执行器自身的 TLS 授权链；该 Grant 不再依赖用户审批号。
    */
   executionGrantService?: ExecutionGrantService;
 }
@@ -49,9 +49,6 @@ export function createWorkflowStepDispatcher(dependencies: WorkflowStepDispatche
           stepName: input.step.name,
           tenantId: input.tenantId,
           workflowVersionId: input.workflowVersionId,
-          mode: input.mode,
-          dryRun,
-          authorization: input.authorization,
         }, executionGrantService);
         const curlContext: CurlSecretResolverContext = {
           runId: input.runId,
@@ -60,9 +57,27 @@ export function createWorkflowStepDispatcher(dependencies: WorkflowStepDispatche
           workflowVersionId: input.workflowVersionId,
           actorId: 'workflow-step-test',
           executionGrantService,
-          ...(input.authorization?.approvalId ? { approvalId: input.authorization.approvalId } : {}),
-          ...(tlsBypassGrantId ? { allowInsecureTls: true, executionGrantId: tlsBypassGrantId } : {}),
+          ...(request.template.tls?.allowInsecure === true ? { allowInsecureTls: true } : {}),
+          ...(tlsBypassGrantId ? { executionGrantId: tlsBypassGrantId } : {}),
         };
+        // 工作流的后续步骤可能需要读取当前响应中的敏感提取值（例如登录 JWT）。
+        // execute() 返回的是对外脱敏结果，不能再拿它作为下一步的运行时输入。
+        if (typeof curlExecutor.executeForWorkflow === 'function') {
+          const execution = await curlExecutor.executeForWorkflow(request, request.dryRun === true, curlContext);
+          const runtimeResponse = execution.runtimeResponse;
+          return {
+            success: execution.result.success,
+            statusCode: runtimeResponse?.statusCode ?? execution.result.statusCode ?? (execution.result.success ? 200 : 500),
+            headers: runtimeResponse?.headers ?? execution.result.headers,
+            body: runtimeResponse?.bodyJson ?? runtimeResponse?.body ?? runtimeResponse?.bodyText ?? execution.result.bodyJson ?? execution.result.bodyText,
+            stdout: runtimeResponse?.bodyText ?? (runtimeResponse?.bodyJson === undefined ? execution.result.bodyText : JSON.stringify(runtimeResponse.bodyJson)),
+            logs: execution.result.logs,
+            raw: execution.result,
+            errorCode: execution.result.errorCode,
+            errorMessage: execution.result.errorMessage,
+          };
+        }
+
         const result = await curlExecutor.execute(request, request.dryRun === true, curlContext);
         return {
           success: result.success,
@@ -134,8 +149,8 @@ export function createWorkflowStepDispatcher(dependencies: WorkflowStepDispatche
 
 /**
  * 只有 DSL 显式声明 tls.allowInsecure 意图、渲染结果 verify=false（设备绑定关闭校验），
- * 并满足 real_test 的审批上下文、租户上下文与 ExecutionGrant 服务时，才签发绑定当前 run/step 的短期 Grant。
- * 其余情况不签发 Grant，CurlExecutor 自身的 TLS 授权链会失败关闭，绝不静默降级。
+ * 并具备租户上下文与 ExecutionGrant 服务时，才签发绑定当前 run/step 的短期 Grant。
+ * TLS 例外不再要求调用方提供 approvalId；allowInsecureTls 仍必须由插件输入契约显式绑定。
  */
 async function authorizeCurlTlsBypass(
   request: CurlExecutionRequest,
@@ -144,29 +159,18 @@ async function authorizeCurlTlsBypass(
     stepName: string;
     tenantId?: string;
     workflowVersionId?: string;
-    mode?: WorkflowTestRunMode;
-    dryRun: boolean;
-    authorization?: WorkflowExecutionAuthorization;
   },
   executionGrantService: ExecutionGrantService | undefined,
 ): Promise<string | undefined> {
   const tls = request.template.tls;
   if (tls?.verify !== false) return undefined;
   if (tls.allowInsecure !== true) return undefined;
-  if (!input.dryRun
-    && (input.authorization?.approved !== true || !input.authorization.approvalId)) {
-    throw new AppError('AUTH_FORBIDDEN', 'real_test 的 TLS 跳过校验必须携带已批准的 approvalId', {
-      policy: 'workflow.tls.insecure',
-      reason: 'approval_required',
-    });
-  }
   if (!input.tenantId || !executionGrantService) return undefined;
   const grant = await executionGrantService.create({
     tenantId: input.tenantId,
     runId: input.runId,
     stepId: input.stepName,
     workflowVersionId: input.workflowVersionId,
-    approvalId: input.authorization?.approvalId,
     executorType: '017.CURL_HTTP',
     allowedSecretRefs: collectReferencesByScheme(request, 'secret://'),
     allowedActions: ['workflow.step.execute', '017.CURL_HTTP', 'workflow.tls.insecure'],

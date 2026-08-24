@@ -6,7 +6,7 @@
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "prebuild": "npm run clean && npm run check:utf8-mojibake",
-    "build": "tsc -p tsconfig.json && node scripts/copy-runtime-resources.mjs",
+    "build": "tsc -p tsconfig.json && node scripts/copy-runtime-resources.mjs && node scripts/verify-jsonata-worker.mjs",
     "test:files": "node scripts/run-node-test-files.mjs --root dist --serial --require-test-secret",
     "test:p1": "node scripts/run-p1-test-suite.mjs --root dist --require-test-secret",
     "test:p2": "node scripts/run-p2-test-suite.mjs --build --root dist --require-test-secret",
@@ -21,6 +21,7 @@
     "check:openapi": "npm run generate:openapi && node --test \"dist/common/openapi/openapi.contract.test.js\"",
     "check:compatibility-architecture": "node ../scripts/compatibility/check-compatibility-architecture.mjs && node ../scripts/architecture/check-plugin-architecture.mjs && node ../scripts/architecture/check-deployment-input-architecture.mjs && node --test ../scripts/compatibility/check-compatibility-architecture.test.mjs ../scripts/architecture/check-plugin-architecture.test.mjs ../scripts/architecture/check-deployment-input-architecture.test.mjs",
     "check:plugin-vendor-neutrality": "node ../scripts/architecture/check-plugin-architecture.mjs --preset vendor-neutrality --raw",
+    "check:jsonata-worker": "node scripts/verify-jsonata-worker.mjs",
     "check:utf8-mojibake": "node ../scripts/quality/check-utf8-mojibake.mjs && node --test ../scripts/quality/check-utf8-mojibake.test.mjs",
     "check:builtin-plugin-versions": "node ../scripts/plugins/check-builtin-plugin-versions.mjs && node --test ../scripts/plugins/check-builtin-plugin-versions.test.mjs",
     "update:plugin-version": "node ../scripts/plugins/update-plugin-version.mjs",

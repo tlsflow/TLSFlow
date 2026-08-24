@@ -26,7 +26,7 @@ Manifest 使用 `gcac.plugin-manifest/v1`。必须声明 Runtime、Source、Scop
 
 每个内置包的 `manifest.json.version` 是插件版本的唯一事实源。后端启动和热刷新扫描包后，Registry、数据库 `PluginVersion` 和 Workflow Binding 都是不可变派生状态，不能反向定义或覆盖 Manifest。相同 `pluginId@version` 且摘要相同必须幂等注册；摘要不同的插件只单独跳过并记录警告，不能阻塞其他插件或后端启动；更高 Manifest 版本创建新记录并保留旧记录。
 
-历史 P2 发布 Catalog 已退休并从仓库删除。当前只使用包内 Manifest、Registry 派生摘要以及 Policy/Execution Grant 授权边界；Workflow `metadata.version` 属于 Workflow 自身，不是插件版本副本。
+历史 P2 发布 Catalog 已退休并从仓库删除。当前只使用包内 Manifest、Registry 派生摘要以及 Policy/Execution Grant 授权边界；对于 Workflow DSL 插件，所有 Workflow `metadata.version` 必须与 Manifest 插件版本一致，并在每个新插件版本发布时生成新的内部 WorkflowVersion。
 
 插件导入、审批、启用、绑定和执行是独立阶段。单个插件未通过某个阶段时只禁用该插件，其他插件和后端继续运行。
 

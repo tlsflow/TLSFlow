@@ -28,8 +28,90 @@ describe('spec017 CURL/HTTP 执行器基础', () => {
     });
     assert.equal(failed.success, false);
     assert.equal(failed.statusCode, 200);
+    assert.match(failed.errorMessage ?? '', /HTTP 响应未满足成功策略：status=200, expected=200，response=/);
     assert.deepEqual(failed.extracted, { token: '[SECRET_CAPTURED]' });
     assert.equal(failed.assertions.some((item) => item.passed === false), true);
+  });
+
+  it('允许工作流把前序步骤 JWT 通过临时 SecretRef 注入 Authorization', async () => {
+    let captured: CurlHttpClientRequest | undefined;
+    const executor = new CurlExecutor({
+      httpClient: {
+        async send(request) {
+          captured = request;
+          return { statusCode: 200, body: { ok: true } };
+        },
+      },
+    });
+    const ref = 'secret://workflow/runtime/readProxyHosts/Authorization';
+    const result = await executor.execute({
+      idempotencyKey: 'workflow_runtime_authorization',
+      template: {
+        method: 'GET',
+        url: 'https://npm.example.test/api/nginx/proxy-hosts',
+        headers: { Accept: 'application/json' },
+        headerRefs: { Authorization: ref },
+      },
+      secrets: { [ref]: 'Bearer runtime-jwt' },
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(captured?.headers.Authorization, 'Bearer runtime-jwt');
+    assert.equal(captured?.headers.Accept, 'application/json');
+  });
+
+  it('HTTP 200 且响应 JSON 时按成功策略成功', async () => {
+    const executor = new CurlExecutor();
+    const result = await executor.execute({
+      idempotencyKey: 'http_json_success',
+      template: { method: 'GET', url: 'https://npm.example.test/api/nginx/proxy-hosts' },
+      responsePolicy: { successStatusCodes: [200] },
+      mockResponse: { statusCode: 200, body: [{ id: 1, domain_names: ['npm.example.test'] }] },
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.statusCode, 200);
+    assert.deepEqual(result.bodyJson, [{ id: 1, domain_names: ['npm.example.test'] }]);
+    assert.equal(result.errorCode, undefined);
+  });
+
+  it('HTTP 401/403/404/500 返回状态、成功策略和脱敏响应摘要', async () => {
+    const cases = [401, 403, 404, 500];
+    for (const statusCode of cases) {
+      const jwt = `eyJheader${statusCode}.eyJpayload${statusCode}.signature${statusCode}`;
+      const executor = new CurlExecutor();
+      const result = await executor.execute({
+        idempotencyKey: `http_failure_${statusCode}`,
+        template: {
+          method: 'GET',
+          url: 'https://npm.example.test/api/nginx/proxy-hosts',
+          headerRefs: { Authorization: `secret://workflow/runtime/readProxyHosts/Authorization-${statusCode}` },
+        },
+        secrets: { [`secret://workflow/runtime/readProxyHosts/Authorization-${statusCode}`]: `Bearer ${jwt}` },
+        responsePolicy: { successStatusCodes: [200] },
+        mockResponse: {
+          statusCode,
+          body: {
+            error: {
+              code: statusCode,
+              message: statusCode === 403 ? 'Permission Denied' : `NPM failure ${statusCode}`,
+              authorization: `Bearer ${jwt}`,
+              password: 'fixture-password',
+              cookie: 'session=fixture-cookie',
+            },
+          },
+        },
+      });
+
+      assert.equal(result.success, false);
+      assert.equal(result.statusCode, statusCode);
+      assert.equal(result.errorCode, 'HTTP_NON_SUCCESS_STATUS');
+      assert.match(result.errorMessage ?? '', new RegExp(`status=${statusCode}`));
+      assert.match(result.errorMessage ?? '', /expected=200/);
+      assert.match(result.errorMessage ?? '', /response=.*shape=.*errorCode=/);
+      assert.doesNotMatch(result.errorMessage ?? '', /Authorization|authorization|eyJheader|fixture-password|fixture-cookie|secret:\/\//);
+      assert.doesNotMatch(JSON.stringify({ logs: result.logs, body: result.bodyJson }), new RegExp(jwt));
+    }
   });
 
   it('工作流执行保留内部原始响应，同时公共结果继续脱敏', async () => {

@@ -39,6 +39,13 @@ if [ ! -x node_modules/.bin/tsx ] && [ ! -f node_modules/.bin/tsx.cmd ]; then
   npm install
 fi
 
+# tsx 热重载服务仍使用生产安全边界：JSONata Worker 必须来自已编译的 dist，不能在运行期加载源码。
+# 首次开发启动或 dist 被清理后自动构建一次，避免真实工作流运行到 Transform 节点才失败。
+if ! npm run check:jsonata-worker >/dev/null 2>&1; then
+  echo "[backend] JSONata Worker 编译产物不存在，执行后端构建"
+  npm run build
+fi
+
 export HOST="${HOST:-0.0.0.0}"
 export PORT="${PORT:-3003}"
 export API_PREFIX="${API_PREFIX:-/api/v1}"

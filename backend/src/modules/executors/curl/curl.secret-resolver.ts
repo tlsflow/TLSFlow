@@ -8,7 +8,6 @@ export interface CurlSecretResolverContext {
   planId?: string;
   targetId?: string;
   workflowVersionId?: string;
-  approvalId?: string;
   executionGrantId?: string;
   allowInsecureTls?: boolean;
   executionGrantService?: {
@@ -20,7 +19,6 @@ export interface CurlSecretResolverContext {
       stepId: string;
       targetId?: string;
       workflowVersionId?: string;
-      approvalId?: string;
       executorType: string;
       action?: string;
     }): Promise<unknown>;

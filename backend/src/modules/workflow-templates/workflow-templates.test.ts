@@ -937,6 +937,51 @@ describe('WorkflowTemplates', () => {
     assert.doesNotMatch(visible, /session-secret-value/);
   });
 
+  it('前序敏感输出作为 headerRefs 时只生成当前请求的临时 SecretRef', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const content = templateFixture();
+    content.steps = [
+      {
+        name: 'authenticate',
+        type: 'http',
+        stage: 'prepare',
+        request: { method: 'POST', connectionRef: 'management', url: '/api/tokens' },
+        extract: [{ name: 'token', type: 'jsonPath', path: '$.token', sensitive: true }],
+      },
+      {
+        name: 'readProxyHosts',
+        type: 'http',
+        stage: 'prepare',
+        request: {
+          method: 'GET',
+          connectionRef: 'management',
+          url: '/api/nginx/proxy-hosts',
+          headers: { Accept: 'application/json' },
+          headerRefs: { Authorization: 'Bearer {{steps.authenticate.extracted.token}}' },
+        },
+      },
+    ];
+    content.rollback = undefined;
+    const { version } = await service.createTemplate({ content });
+    const run = await service.testRun({
+      ...runtimeInput(version.id),
+      mockResponses: {
+        authenticate: { statusCode: 200, body: { token: 'npm-runtime-jwt' } },
+        readProxyHosts: { statusCode: 200, body: [] },
+      },
+    });
+
+    const plan = run.stepResults[1]!.plan as {
+      curlRequest: { template: { headers: Record<string, string>; headerRefs: Record<string, string> }; secrets: unknown };
+    };
+    const visible = JSON.stringify(run);
+    assert.equal(run.status, 'success');
+    assert.equal(plan.curlRequest.template.headers.Accept, 'application/json');
+    assert.equal(plan.curlRequest.template.headerRefs.Authorization, '[REDACTED]');
+    assert.equal(plan.curlRequest.secrets, '[REDACTED]');
+    assert.doesNotMatch(visible, /npm-runtime-jwt/);
+  });
+
   it('extract 必需变量失败时返回 step、extractor 和提取规则', async () => {
     const service = new WorkflowTemplatesApplicationService();
     const content: WorkflowDslV1 = {
@@ -1149,7 +1194,7 @@ describe('WorkflowTemplates', () => {
 
     assert.equal(run.stepResult.status, 'failed');
     assert.equal(run.stepResult.errorCode, 'SSH_CONNECT_FAILED');
-    assert.equal(run.stepResult.errorMessage, 'SSH 连接失败');
+    assert.equal(run.stepResult.errorMessage, 'step=reload，SSH 连接失败');
     assert.deepEqual(run.stepResult.extracted, {});
     assert.deepEqual(run.stepResult.assertions, []);
     assert.match(run.logs.join('\n'), /ssh:target:10\.255\.0\.127:22/);
@@ -1187,7 +1232,7 @@ describe('WorkflowTemplates', () => {
 
     assert.equal(run.stepResult.status, 'failed');
     assert.equal(run.stepResult.errorCode, 'HOST_KEY_APPROVAL_REQUIRED');
-    assert.equal(run.stepResult.errorMessage, 'SSH Host Key 需要人工审批');
+    assert.equal(run.stepResult.errorMessage, 'step=reload，SSH Host Key 需要人工审批');
     assert.match(JSON.stringify(run.stepOutput), /host_key/);
     assert.match(JSON.stringify(run.stepOutput), /审批或预置目标主机 Host Key 后重试/);
   });
@@ -1695,6 +1740,28 @@ describe('WorkflowTemplates', () => {
     const { version } = await service.createTemplate({ content });
 
     await assert.rejects(() => service.testRun(runtimeInput(version.id)), /JSONata 转换执行超时/);
+  });
+
+  it('解析 JSONPath 断言中的动态期望值并保留原始类型', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const content = templateFixture();
+    content.steps = [{
+      name: 'verifyProxyHost',
+      type: 'http',
+      stage: 'verify',
+      request: { method: 'GET', connectionRef: 'management', url: '/api/proxy-host/10' },
+      assert: [{ type: 'jsonPath', path: '$.certificate_id', equals: '{{variables.shouldUpload}}' }],
+    }];
+    content.rollback = undefined;
+    const { version } = await service.createTemplate({ content });
+    const base = runtimeInput(version.id);
+    const run = await service.testRun({
+      ...base,
+      mockResponses: { verifyProxyHost: { statusCode: 200, body: { certificate_id: true } } },
+    });
+
+    assert.equal(run.status, 'success');
+    assert.equal(run.stepResults[0]?.assertions[0]?.passed, true);
   });
 
   it('提取器、断言、条件、retry、rollback 和 testRun 模式形成最小闭环', async () => {

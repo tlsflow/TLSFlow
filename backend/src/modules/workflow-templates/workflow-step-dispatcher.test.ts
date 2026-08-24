@@ -183,6 +183,54 @@ describe('WorkflowStepDispatcher 旧执行器无回退边界', () => {
     assert.equal((result.body as { plannedOnly?: boolean }).plannedOnly, undefined);
   });
 
+  it('工作流优先使用 Curl 原始运行时响应，不能把脱敏 JWT 传给后续步骤', async () => {
+    let executeCalls = 0;
+    let executeForWorkflowCalls = 0;
+    const runtimeToken = 'runtime-workflow-jwt';
+    const dispatcher = createWorkflowStepDispatcher({
+      curlExecutor: {
+        async execute() {
+          executeCalls += 1;
+          throw new Error('新版 CurlExecutor 不应回退到脱敏 execute()');
+        },
+        async executeForWorkflow() {
+          executeForWorkflowCalls += 1;
+          return {
+            result: {
+              success: true,
+              rendered: { method: 'POST', url: 'http://npm.example.test/api/tokens', headerNames: [], hasBody: true, bodyType: 'form', timeoutMs: 30_000, tlsVerify: false },
+              statusCode: 200,
+              bodyJson: { token: '[REDACTED]' },
+              bodyText: '{"token":"[REDACTED]"}',
+              attempts: 1,
+              assertions: [],
+              extracted: { token: '[SECRET_CAPTURED]' },
+              logs: [],
+            },
+            runtimeResponse: {
+              statusCode: 200,
+              bodyJson: { token: runtimeToken },
+              bodyText: JSON.stringify({ token: runtimeToken }),
+            },
+          };
+        },
+      } as never,
+    });
+
+    const result = await dispatcher(dispatchInput({
+      executor: '017.CURL_HTTP',
+      curlRequest: {
+        template: { method: 'POST', url: '/api/tokens', bodyType: 'form' },
+        responsePolicy: { successStatusCodes: [200] },
+      },
+    }, { runId: 'run-runtime-response' }));
+
+    assert.equal(result.success, true);
+    assert.equal((result.body as { token?: string }).token, runtimeToken);
+    assert.equal(executeForWorkflowCalls, 1);
+    assert.equal(executeCalls, 0);
+  });
+
   it('把宿主租户与 WorkflowVersion 上下文透传给旧 Curl/SSH 执行器', async () => {
     const curlContexts: Array<Record<string, unknown>> = [];
     const sshContexts: Array<Record<string, unknown>> = [];
@@ -221,7 +269,7 @@ describe('WorkflowStepDispatcher 旧执行器无回退边界', () => {
     assert.equal(sshContexts[0]?.actorId, 'workflow-step-test');
   });
 
-  it('TLS 例外请求仅在授权条件下签发 ExecutionGrant，未授权时失败关闭', async () => {
+  it('TLS 例外请求不再要求 approvalId，但仍绑定显式输入和 ExecutionGrant', async () => {
     const grantStore = new InMemoryExecutionGrantService();
     const grants = grantStore as unknown as ExecutionGrantService;
     const httpClient: CurlHttpClient = {
@@ -232,7 +280,7 @@ describe('WorkflowStepDispatcher 旧执行器无回退边界', () => {
     const curlExecutor = new CurlExecutor({ httpClient, executionGrantService: grants });
     const dispatcher = createWorkflowStepDispatcher({ curlExecutor, executionGrantService: grants });
 
-    // 授权条件：渲染 verify=false + DSL 声明 allowInsecure + 宿主租户与 Grant 服务齐备。
+    // 允许条件：渲染 verify=false + DSL 声明 allowInsecure + 宿主租户与 Grant 服务齐备。
     const authorized = await dispatcher(dispatchInput({
       executor: '017.CURL_HTTP',
       curlRequest: {
@@ -253,10 +301,10 @@ describe('WorkflowStepDispatcher 旧执行器无回退边界', () => {
 
     assert.equal(authorized.success, true);
     assert.equal(grantStore.createdCount(), 1);
-    assert.equal((await grantStore.get('grant-test-1'))?.approvalId, 'approval-tls-grant');
+    assert.equal((await grantStore.get('grant-test-1'))?.approvalId, undefined);
     assert.equal(grantStore.activeCount(), 0, '执行结束后 Grant 必须立即撤销');
 
-    const missingApproval = await dispatcher(dispatchInput({
+    const withoutApproval = await dispatcher(dispatchInput({
       executor: '017.CURL_HTTP',
       curlRequest: {
         template: {
@@ -265,12 +313,12 @@ describe('WorkflowStepDispatcher 旧执行器无回退边界', () => {
           tls: { verify: false, allowInsecure: true },
         },
       },
-    }, { runId: 'run-tls-missing-approval', tenantId: 'tenant-tls', workflowVersionId: 'wf-tls', mode: 'real_test' }));
+    }, { runId: 'run-tls-without-approval', tenantId: 'tenant-tls', workflowVersionId: 'wf-tls', mode: 'real_test' }));
 
-    assert.equal(missingApproval.success, false);
-    assert.equal(missingApproval.errorCode, 'AUTH_FORBIDDEN');
-    assert.match(missingApproval.errorMessage ?? '', /approvalId/);
-    assert.equal(grantStore.createdCount(), 1, '未审批的 real_test 不得签发 Grant');
+    assert.equal(withoutApproval.success, true);
+    assert.equal(grantStore.createdCount(), 2, '不携带 approvalId 也应签发本次工作流 Grant');
+    assert.equal((await grantStore.get('grant-test-2'))?.approvalId, undefined);
+    assert.equal(grantStore.activeCount(), 0, '执行结束后 Grant 必须立即撤销');
 
     // 未授权：没有租户上下文时不签发 Grant，CurlExecutor 自身 TLS 授权链失败关闭。
     const denied = await dispatcher(dispatchInput({
@@ -286,8 +334,8 @@ describe('WorkflowStepDispatcher 旧执行器无回退边界', () => {
 
     assert.equal(denied.success, false);
     assert.equal(denied.errorCode, 'AUTH_FORBIDDEN');
-    assert.match(denied.errorMessage ?? '', /ExecutionGrant|approvalId/);
-    assert.equal(grantStore.createdCount(), 1, '未授权请求不得签发 Grant');
+    assert.match(denied.errorMessage ?? '', /ExecutionGrant/);
+    assert.equal(grantStore.createdCount(), 2, '缺少租户上下文时不得签发 Grant');
 
     // 未授权：DSL 未声明 allowInsecure 时即使有租户也不签发 Grant。
     const undeclared = await dispatcher(dispatchInput({
@@ -303,7 +351,7 @@ describe('WorkflowStepDispatcher 旧执行器无回退边界', () => {
 
     assert.equal(undeclared.success, false);
     assert.equal(undeclared.errorCode, 'VALIDATION_FAILED');
-    assert.equal(grantStore.createdCount(), 1, 'DSL 未声明 allowInsecure 意图时不得签发 Grant');
+    assert.equal(grantStore.createdCount(), 2, 'DSL 未声明 allowInsecure 意图时不得签发 Grant');
   });
 });
 

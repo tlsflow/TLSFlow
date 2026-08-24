@@ -1429,4 +1429,36 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     assert.ok(rollbackRun);
     assert.equal(rollbackRun?.status, 'DISPATCHED');
   });
+
+  it('工作流回滚运行沿用目标请求但显式切换到 rollback 分支', async () => {
+    const service = createService();
+    const targetId = 'target_workflow_rollback_branch';
+    const created = await createRun(service, {
+      idempotencyKey: 'idem_workflow_rollback_branch',
+      targetIds: [targetId],
+      executorType: 'WORKFLOW',
+      agentPayloads: new Map([[targetId, {
+        workflowRequest: { workflowVersionId: 'workflow-version-fixture' },
+      }]]),
+    });
+    await service.getRepository().updateRun(created.run.id, {
+      status: 'FAILED',
+      errorCode: 'WORKFLOW_ASSERTION_FAILED',
+      errorMessage: 'verify failed',
+      finishedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      updatedBy: 'tester',
+    });
+
+    const rollback = await service.rollback({
+      runId: created.run.id,
+      idempotencyKey: 'idem_workflow_rollback_branch_run',
+      actorId: 'tester',
+      tenantId: 'tenant_1',
+    });
+    const rollbackSteps = await service.listSteps({ tenantId: 'tenant_1', executionRunId: rollback.rollbackRun.id });
+    const workflowRequest = rollbackSteps[0]?.inputSnapshot.workflowRequest as Record<string, unknown>;
+
+    assert.equal(workflowRequest.executionBranch, 'rollback');
+  });
 });

@@ -186,12 +186,6 @@ export class CurlExecutor implements Executor {
       planId: typeof input.step.inputSnapshot.deploymentPlanId === 'string' ? input.step.inputSnapshot.deploymentPlanId : undefined,
       targetId: typeof input.step.inputSnapshot.deploymentPlanTargetId === 'string' ? input.step.inputSnapshot.deploymentPlanTargetId : undefined,
       workflowVersionId: typeof input.step.inputSnapshot.workflowVersionId === 'string' ? input.step.inputSnapshot.workflowVersionId : undefined,
-      approvalId: typeof input.step.inputSnapshot.executionAuthorization === 'object'
-        && input.step.inputSnapshot.executionAuthorization !== null
-        && !Array.isArray(input.step.inputSnapshot.executionAuthorization)
-        && typeof (input.step.inputSnapshot.executionAuthorization as Record<string, unknown>).approvalId === 'string'
-        ? (input.step.inputSnapshot.executionAuthorization as Record<string, unknown>).approvalId as string
-        : undefined,
       executionGrantId: typeof input.step.inputSnapshot.executionGrantId === 'string' ? input.step.inputSnapshot.executionGrantId : undefined,
       allowInsecureTls: typeof input.step.inputSnapshot.resolvedDeploymentInput === 'object'
         && input.step.inputSnapshot.resolvedDeploymentInput !== null
@@ -353,7 +347,7 @@ async function validateTlsBypassAuthorization(request: CurlExecutionRequest, con
     });
   }
   if (!context.executionGrantId || !context.executionGrantService) {
-    throw new AppError('AUTH_FORBIDDEN', 'TLS 跳过校验必须携带宿主签发的 ExecutionGrant', {
+    throw new AppError('AUTH_FORBIDDEN', 'TLS 跳过校验必须携带当前工作流的 ExecutionGrant', {
       policy: 'workflow.tls.insecure',
       reason: 'execution_grant_required',
     });
@@ -367,7 +361,6 @@ async function validateTlsBypassAuthorization(request: CurlExecutionRequest, con
       stepId: context.stepId ?? '',
       targetId: context.targetId,
       workflowVersionId: context.workflowVersionId,
-      approvalId: context.approvalId,
       executorType: '017.CURL_HTTP',
       action: 'workflow.tls.insecure',
     });
@@ -694,11 +687,60 @@ function buildResponseResult(request: CurlExecutionRequest, prepared: PreparedRe
     attempts,
     retryable: shouldRetryStatus(normalized.statusCode, normalizeRetryPolicy(request.retryPolicy, prepared.method)),
     errorCode: success ? undefined : 'HTTP_NON_SUCCESS_STATUS',
-    errorMessage: success ? undefined : 'HTTP 响应未满足成功策略',
+    errorMessage: success
+      ? undefined
+      : `HTTP 响应未满足成功策略：status=${normalized.statusCode}, expected=${successCodes.join(',')}，response=${summarizeHttpResponse(normalized, redactionValues)}`,
     assertions,
     extracted,
     logs: responseLogs,
   };
+}
+
+/**
+ * 失败消息只保留可定位的响应形状和厂商错误摘要，不复制完整响应体。
+ * 响应体可能包含 Cookie、令牌或目标系统返回的敏感字段，必须先按字段名和
+ * Secret 值脱敏，再限制摘要长度。
+ */
+function summarizeHttpResponse(response: HttpResponse, redactionValues: string[]): string {
+  const body = response.bodyJson ?? response.body;
+  const bodyText = response.bodyText ?? '';
+  const bodyType = response.bodyJson !== undefined ? 'json' : bodyText.trim() ? 'text' : 'empty';
+  const shape = JSON.stringify(sanitizeSummaryShape(summarizeValueShape(body)));
+  const parts = [`type=${bodyType}`, `bytes=${Buffer.byteLength(bodyText, 'utf8')}`, `shape=${shape}`];
+  const error = isRecord(body) && isRecord(body.error) ? body.error : isRecord(body) ? body : undefined;
+  const code = error && ['code', 'errorcode', 'status'].map((key) => error[key]).find((value) => typeof value === 'number' || typeof value === 'string');
+  if (code !== undefined) parts.push(`errorCode=${String(code).slice(0, 32)}`);
+  const message = error && ['message', 'error_description', 'detail'].map((key) => error[key]).find((value) => typeof value === 'string');
+  if (typeof message === 'string' && message.trim()) {
+    parts.push(`message=${sanitizeDiagnosticText(message, redactionValues)}`);
+  }
+  return parts.join(';');
+}
+
+function sanitizeSummaryShape(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => sanitizeSummaryShape(item));
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(Object.entries(value).map(([key, child]) => {
+    if (key === 'keys' && Array.isArray(child)) {
+      return [key, child.map((item) => typeof item === 'string' && isSensitiveKey(item) ? '[REDACTED_FIELD]' : item)];
+    }
+    if (key === 'children' && isRecord(child)) {
+      return [key, Object.fromEntries(Object.entries(child).map(([childKey, childValue]) => [
+        isSensitiveKey(childKey) ? '[REDACTED_FIELD]' : childKey,
+        sanitizeSummaryShape(childValue),
+      ]))];
+    }
+    return [key, sanitizeSummaryShape(child)];
+  }));
+}
+
+function sanitizeDiagnosticText(value: string, redactionValues: string[]): string {
+  return maskText(value, redactionValues)
+    .replace(/\b(authorization|cookie|password|secret|token|api[_-]?key)\b/gi, '[REDACTED_FIELD]')
+    .replace(/\beyJ[a-zA-Z0-9_-]{8,}\.[a-zA-Z0-9._-]{8,}\b/g, '[REDACTED_JWT]')
+    .replace(/[\r\n]+/g, ' ')
+    .trim()
+    .slice(0, 160);
 }
 
 function baseResult(rendered: CurlExecutionResult['rendered'], logs: string[], attempts: number): CurlExecutionResult {

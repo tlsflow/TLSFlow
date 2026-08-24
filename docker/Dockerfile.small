@@ -20,6 +20,7 @@ RUN npm ci
 COPY scripts /src/scripts
 COPY backend ./
 RUN npm run build
+RUN test -f dist/modules/workflow-templates/domain/jsonata-transform.worker.js
 
 FROM ${NODE_IMAGE} AS runtime
 ARG TARGETARCH
@@ -51,6 +52,7 @@ COPY --from=backend-build /src/backend/package.json ./package.json
 COPY --from=backend-build /src/backend/package-lock.json ./package-lock.json
 RUN npm ci --omit=dev --ignore-scripts
 COPY --from=backend-build /src/backend/dist ./dist
+RUN test -f dist/modules/workflow-templates/domain/jsonata-transform.worker.js
 COPY --from=backend-build /src/scripts ./scripts
 COPY --from=backend-build /src/backend/src/database/migrations ./src/database/migrations
 COPY --from=backend-build /src/backend/src/modules/plugins/builtin-plugins ./src/modules/plugins/builtin-plugins

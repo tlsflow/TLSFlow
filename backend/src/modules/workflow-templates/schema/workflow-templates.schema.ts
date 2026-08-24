@@ -583,6 +583,9 @@ function validateSshArgument(value: string, path: string): void {
 
 function isSecretRefOrVariableRecord(value: unknown): boolean {
   return isRecord(value) && Object.values(value).every((item) => isSecretRef(item) || (
-    typeof item === 'string' && /^\s*\{\{\s*[a-zA-Z][a-zA-Z0-9_.]*\s*\}\}\s*$/.test(item)
+    typeof item === 'string' && (
+      /^\s*\{\{\s*[a-zA-Z][a-zA-Z0-9_.]*\s*\}\}\s*$/.test(item)
+      || /\{\{\s*steps\.[a-zA-Z][a-zA-Z0-9_.]*\s*\}\}/.test(item)
+    )
   ));
 }
