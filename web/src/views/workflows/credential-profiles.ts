@@ -33,8 +33,8 @@ export function credentialProfileBinding(item: CredentialProfileOption | Runtime
     credentialId: item.credentialId,
     kind: item.kind,
     username: item.username,
-    delivery: item.delivery,
-    secretRefs: structuredClone(item.secretRefs),
+    delivery: item.delivery ? { ...item.delivery } : undefined,
+    secretRefs: { ...item.secretRefs },
   }
 }
 
