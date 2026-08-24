@@ -111,6 +111,59 @@ describe('ApplicationOnboardingView', () => {
     expect(wrapper.find('.platform-card').exists()).toBe(true)
   })
 
+  it('搜索平台时按平台名称过滤，并可从底部入口打开插件中心', async () => {
+    onboardingMocks.listOnboardingPlatforms.mockResolvedValue(response({
+      items: [
+        { platformKey: 'citrix.adc', source: 'PLUGIN', displayName: 'Citrix ADC', displayNameKey: 'applicationOnboarding.platforms.citrixAdc', supportStatus: 'SUPPORTED' },
+        { platformKey: 'web.iis', source: 'PLUGIN', displayName: 'IIS', displayNameKey: 'applicationOnboarding.platforms.iis', supportStatus: 'SUPPORTED' },
+      ],
+    }))
+
+    const wrapper = mount(ApplicationOnboardingView, { global: { plugins: [i18n] } })
+    await flushPromises()
+
+    const search = wrapper.get('input[type="search"]')
+    await search.setValue('Citrix')
+    expect(wrapper.findAll('.platform-card')).toHaveLength(1)
+    expect(wrapper.text()).toContain('Citrix ADC')
+    expect(wrapper.text()).not.toContain('IIS')
+
+    await search.setValue('missing')
+    expect(wrapper.findAll('.platform-card')).toHaveLength(0)
+    expect(wrapper.text()).toContain('未找到匹配的平台。')
+    await wrapper.get('.platform-plugin-link').trigger('click')
+    expect(routerMocks.push).toHaveBeenCalledWith('/plugins')
+  })
+
+  it('模态框将平台搜索框放在标题栏右侧并同步过滤平台', async () => {
+    onboardingMocks.listOnboardingPlatforms.mockResolvedValue(response({
+      items: [
+        { platformKey: 'citrix.adc', source: 'PLUGIN', displayName: 'Citrix ADC', displayNameKey: 'applicationOnboarding.platforms.citrixAdc', supportStatus: 'SUPPORTED' },
+        { platformKey: 'web.iis', source: 'PLUGIN', displayName: 'IIS', displayNameKey: 'applicationOnboarding.platforms.iis', supportStatus: 'SUPPORTED' },
+      ],
+    }))
+
+    const wrapper = mount(ApplicationOnboardingModal, {
+      props: { open: true },
+      attachTo: document.body,
+      global: { plugins: [i18n] },
+    })
+    await flushPromises()
+
+    const header = document.body.querySelector('.gc-modal__header')
+    const search = header?.querySelector('input[type="search"]') as HTMLInputElement | null
+    expect(search).not.toBeNull()
+    expect(header?.querySelector('.gc-modal__header-actions input')).toBe(search)
+
+    search!.value = 'Citrix'
+    search!.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    expect(document.body.querySelectorAll('.platform-card')).toHaveLength(1)
+    expect(document.body.querySelector('.platform-card')?.textContent).toContain('Citrix ADC')
+
+    wrapper.unmount()
+  })
+
   it('受管设备路径列出站点并默认选择首个可部署证书版本', async () => {
     onboardingMocks.listOnboardingPlatforms.mockResolvedValue(response({
       items: [{ platformKey: 'citrix.adc', source: 'PLUGIN', pluginVersionId: 'plugin-version-citrix', displayName: 'Citrix ADC', displayNameKey: 'applicationOnboarding.platforms.citrixAdc', logoUrl: '/api/v1/plugin-versions/plugin-version-citrix/resources/logos/horizontal', logoSquareUrl: '/api/v1/plugin-versions/plugin-version-citrix/resources/logos/square', businessMetadata: { capabilityVersion: '1.0.4', compatibleVersions: ['Citrix ADC 13.1'], requiredInformation: ['管理地址', '管理员凭据'] }, deploymentMode: 'MANAGED_TARGET', supportStatus: 'SUPPORTED' }],
