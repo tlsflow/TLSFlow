@@ -101,6 +101,7 @@ export interface NotificationPageQuery {
   status?: string;
   source?: string;
   channelId?: string;
+  requestId?: string;
 }
 
 export interface NotificationPage<T> {

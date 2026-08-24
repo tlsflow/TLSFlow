@@ -178,6 +178,22 @@ export class MonitorsApplicationService {
   async runDueMonitorTargetProbes(input: { maxTargets?: number; now?: string } = {}): Promise<{ checkedCount: number; skippedCount: number; failedCount: number }> {
     const maxTargets = normalizeWorkerLimit(input.maxTargets);
     const now = input.now ? new Date(input.now) : new Date();
+    const scheduled = await this.scheduleMonitorBatches({ maxTargets, now: now.toISOString() });
+    let checkedCount = 0;
+    let skippedCount = 0;
+    let failedCount = 0;
+    for (const tenantId of scheduled.tenantIds) {
+      const result = await this.runMonitorBatch({ tenantId, maxTargets, now: now.toISOString() });
+      checkedCount += result.checkedCount;
+      skippedCount += result.skippedCount;
+      failedCount += result.failedCount;
+    }
+    return { checkedCount, skippedCount, failedCount };
+  }
+
+  async scheduleMonitorBatches(input: { maxTargets?: number; now?: string } = {}): Promise<{ tenantIds: string[]; candidateCount: number }> {
+    const maxTargets = normalizeWorkerLimit(input.maxTargets);
+    const now = input.now ? new Date(input.now) : new Date();
     // 中文说明：风险恢复使用已有最新观测，必须独立于本轮是否执行实际探测。
     await this.reconcileMonitorCertificateRisks({ occurredAt: now.toISOString() });
     const candidates = await this.repository.listActiveMonitorTargetsForScheduler(maxTargets * 3);
@@ -191,6 +207,15 @@ export class MonitorsApplicationService {
         payload: { maxTargets, candidateCount: candidates.filter((target) => target.tenantId === tenantId).length },
       });
     }
+    return { tenantIds: [...batchTenants], candidateCount: candidates.length };
+  }
+
+  async runMonitorBatch(input: { tenantId: string; maxTargets?: number; now?: string } ): Promise<{ checkedCount: number; skippedCount: number; failedCount: number }> {
+    const maxTargets = normalizeWorkerLimit(input.maxTargets);
+    const now = input.now ? new Date(input.now) : new Date();
+    // 中文说明：统一任务执行器只能处理当前 Claim 携带的租户，禁止重新扫描其他租户。
+    await this.reconcileMonitorCertificateRisks({ tenantId: input.tenantId, occurredAt: now.toISOString() });
+    const candidates = await this.repository.listActiveMonitorTargetsForScheduler(maxTargets * 3, input.tenantId);
     let checkedCount = 0;
     let skippedCount = 0;
     let failedCount = 0;

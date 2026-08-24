@@ -33,6 +33,20 @@ export class NotificationWorker {
   async runNext(): Promise<boolean> {
     const delivery = await this.repository.leaseNextDelivery(this.workerId, this.leaseSeconds);
     if (!delivery) return false;
+    return this.processDelivery(delivery);
+  }
+
+  async runDelivery(tenantId: string, deliveryId: string): Promise<boolean> {
+    const delivery = await this.repository.leaseDelivery(tenantId, deliveryId, this.workerId, this.leaseSeconds);
+    if (!delivery) return false;
+    return this.processDelivery(delivery);
+  }
+
+  async getDelivery(tenantId: string, deliveryId: string) {
+    return this.repository.getDelivery(tenantId, deliveryId);
+  }
+
+  private async processDelivery(delivery: Awaited<ReturnType<NotificationsRepository['getDelivery']>> & object): Promise<boolean> {
     const startedAt = Date.now();
     let channel: NotificationChannel | undefined;
     try {

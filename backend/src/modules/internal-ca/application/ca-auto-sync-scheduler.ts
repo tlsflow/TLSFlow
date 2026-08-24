@@ -2,6 +2,7 @@ import { AppError } from '../../../common/errors/app-error.js';
 import type { CaOperationsRepository, CaAutomaticSyncTarget } from '../repository/ca-operations.repository.js';
 import type { CaSyncRunEntity } from '../schema/internal-ca.schema.js';
 import type { CreateCaSyncRunsInput } from './ca-sync-coordinator.js';
+import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
 
 const overlapMs = 5 * 60_000;
 
@@ -19,6 +20,7 @@ export class CaAutoSyncScheduler {
     private readonly repository: Pick<CaOperationsRepository, 'listDueAutomaticSyncTargets'>,
     private readonly creator: CaAutomaticSyncCreator,
     private readonly onFailure?: (failure: CaAutoSyncFailure) => void,
+    private readonly tasks?: TaskEnqueuer,
   ) {}
 
   async runOnce(maxTargets = 8, now = new Date()): Promise<number> {
@@ -26,7 +28,7 @@ export class CaAutoSyncScheduler {
     const targets = await this.repository.listDueAutomaticSyncTargets(now.toISOString(), limit);
     for (const target of targets) {
       try {
-        await this.creator.createCaSyncRuns({
+        const runs = await this.creator.createCaSyncRuns({
           tenantId: target.tenantId,
           providerId: target.providerId,
           caId: target.caId,
@@ -35,6 +37,20 @@ export class CaAutoSyncScheduler {
           changedAfter: resolveChangedAfter(target),
           actor: { id: 'system_ca_auto_sync', type: 'system' },
         });
+        for (const run of runs) {
+          enqueueTaskBestEffort(this.tasks, {
+            tenantId: run.tenantId,
+            taskType: 'CA_RECORD_SYNC',
+            requestedBy: run.requestedBy,
+            triggerSource: 'ca.sync.scheduler',
+            idempotencyKey: `ca-record-sync:${run.id}`,
+            payload: { syncRunId: run.id },
+            resourceRefs: [
+              { resourceType: 'caSyncRun', resourceId: run.id },
+              { resourceType: 'certificateAuthority', resourceId: run.caId },
+            ],
+          });
+        }
       } catch (error) {
         if (!(error instanceof AppError && error.errorCode === 'CA_SYNC_ALREADY_RUNNING')) {
           this.onFailure?.({ target, error });

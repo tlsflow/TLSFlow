@@ -3,6 +3,7 @@ import type { AutomationTriggerDto } from '../dto/automations.dto.js';
 import { cronMatches, nextCronOccurrence } from '../domain/automation-schedule.js';
 import { AutomationsApplicationService } from './automations.application-service.js';
 import { AutomationsRepository } from '../repository/automations.repository.js';
+import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
 
 export interface AutomationClock {
   now(): Date;
@@ -28,21 +29,32 @@ export class AutomationScheduler {
     private readonly executor: AutomationRunExecutionPort,
     private readonly ownerId = newId('scheduler'),
     private readonly clock: AutomationClock = defaultClock,
+    private readonly tasks?: TaskEnqueuer,
   ) {}
 
   async runOnce(maxRuns = 10): Promise<AutomationSchedulerResult> {
-    const createdRunIds: string[] = [];
-    for (const tenantId of await this.repository.listAutomationTenantIds()) {
-      createdRunIds.push(...await this.scan(tenantId));
-    }
+    const createdRunIds = await this.scheduleDueRuns(maxRuns);
     const executedRunIds: string[] = [];
     for (const run of await this.repository.listRunnableRuns(maxRuns)) {
-      const leasedUntil = new Date(this.clock.now().getTime() + 300_000);
-      if (!await this.repository.acquireSchedulerLease(`automation-run:${run.id}`, this.ownerId, leasedUntil)) continue;
-      await this.executor.execute(run.id, run.tenantId);
-      executedRunIds.push(run.id);
+      if (await this.runRun(run.id, run.tenantId)) executedRunIds.push(run.id);
     }
     return { createdRunIds, executedRunIds };
+  }
+
+  async scheduleDueRuns(maxRuns = 10): Promise<string[]> {
+    const createdRunIds: string[] = [];
+    for (const tenantId of await this.repository.listAutomationTenantIds()) {
+      if (createdRunIds.length >= maxRuns) break;
+      createdRunIds.push(...(await this.scan(tenantId)).slice(0, Math.max(0, maxRuns - createdRunIds.length)));
+    }
+    return createdRunIds;
+  }
+
+  async runRun(runId: string, tenantId: string): Promise<boolean> {
+    const leasedUntil = new Date(this.clock.now().getTime() + 300_000);
+    if (!await this.repository.acquireSchedulerLease(`automation-run:${tenantId}:${runId}`, this.ownerId, leasedUntil)) return false;
+    await this.executor.execute(runId, tenantId);
+    return true;
   }
 
   async scan(tenantId: string): Promise<string[]> {
@@ -58,6 +70,15 @@ export class AutomationScheduler {
       const idempotencyKey = `${version.trigger.type === 'once' ? 'once' : 'schedule'}:${automation.id}:${scheduledAt}`;
       const run = await this.service.createOnDemandRun(tenantId, 'system_scheduler', automation.id, idempotencyKey, automation.version, { triggerType: 'schedule', scheduledAt });
       created.push(run.id);
+      enqueueTaskBestEffort(this.tasks, {
+        tenantId,
+        taskType: 'AUTOMATION_RUN',
+        requestedBy: 'system_scheduler',
+        triggerSource: 'automation.scheduler',
+        idempotencyKey: `automation-run:${run.id}`,
+        payload: { runId: run.id },
+        resourceRefs: [{ resourceType: 'automationRun', resourceId: run.id }],
+      });
       const nextRunAt = version.trigger.type === 'once' ? undefined : nextCronOccurrence(version.trigger, now)?.toISOString();
       await this.repository.updateAutomation(automation.id, tenantId, { nextRunAt, lastRunAt: scheduledAt, updatedAt: now.toISOString() });
     }

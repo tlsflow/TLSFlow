@@ -5,6 +5,7 @@ import type { CertificatesRepository } from '../../certificates/repository/certi
 import type { InternalCaApplicationService } from './internal-ca.application-service.js';
 import type { AcmeRepository } from '../repository/acme.repository.js';
 import type { AcmeRenewalJobEntity, AcmeRenewalPolicyEntity } from '../schema/acme.schema.js';
+import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
 
 export class AcmeRenewalScheduler {
   constructor(
@@ -12,6 +13,7 @@ export class AcmeRenewalScheduler {
     private readonly certificates: CertificatesRepository,
     private readonly bindings?: BindingsRepository,
     private readonly issuance?: Pick<InternalCaApplicationService, 'ensureAcmeIssuanceContext' | 'createCertificateRequest'>,
+    private readonly tasks?: TaskEnqueuer,
   ) {}
 
   async runOnce(limit = 50, now = new Date()): Promise<AcmeRenewalJobEntity[]> {
@@ -21,7 +23,10 @@ export class AcmeRenewalScheduler {
       const currentVersionId = await this.resolveCurrentVersionId(policy);
       if (!currentVersionId) {
         const initialJob = await this.scheduleMissingInitialIssuance(policy, now);
-        if (initialJob) created.push(initialJob);
+        if (initialJob) {
+          created.push(initialJob);
+          this.enqueueRenewalTask(initialJob);
+        }
         continue;
       }
       const version = await this.certificates.getVersion(currentVersionId);
@@ -56,10 +61,15 @@ export class AcmeRenewalScheduler {
         updatedAt: timestamp,
       };
       try {
-        created.push(await this.repository.saveRenewalJob(job));
+        const saved = await this.repository.saveRenewalJob(job);
+        created.push(saved);
+        this.enqueueRenewalTask(saved);
       } catch {
         const raced = await this.repository.getRenewalJobByWindow(policy.tenantId, version.id, renewalWindowKey);
-        if (raced) created.push(raced);
+        if (raced) {
+          created.push(raced);
+          this.enqueueRenewalTask(raced);
+        }
       }
     }
     return created;
@@ -199,5 +209,19 @@ export class AcmeRenewalScheduler {
     return binding?.certificateVersionId
       ?? binding?.targetCertificateVersionId
       ?? binding?.localCertificateVersionId;
+  }
+
+  private enqueueRenewalTask(job: AcmeRenewalJobEntity): void {
+    enqueueTaskBestEffort(this.tasks, {
+      tenantId: job.tenantId,
+      taskType: 'ACME_CERTIFICATE_RENEWAL',
+      triggerSource: 'acme.renewal.scheduler',
+      idempotencyKey: `acme-renewal:${job.id}`,
+      payload: { renewalJobId: job.id },
+      resourceRefs: [
+        { resourceType: 'acmeRenewalJob', resourceId: job.id },
+        ...(job.certificateVersionId ? [{ resourceType: 'certificateVersion', resourceId: job.certificateVersionId }] : []),
+      ],
+    });
   }
 }

@@ -25,6 +25,7 @@ import { StepGraphBuilder } from './step-graph-builder.js';
 import { sanitizeExecutionErrorDetails } from './execution-error-details.js';
 import type { DeploymentInputSnapshotsRepository } from '../../deployment-inputs/repository/deployment-input-snapshots.repository.js';
 import { sanitizeDeploymentInputPersistencePayload } from '../../deployment-inputs/application/deployment-input-persistence-sanitizer.js';
+import type { TaskEnqueuer } from '../../tasks/task-enqueue.js';
 
 type FailurePolicy = 'stop' | 'continue' | 'rollback';
 
@@ -41,6 +42,7 @@ export interface ExecutionsApplicationDependencies {
   stageIntervalMs?: number;
   delay?: (milliseconds: number) => Promise<void>;
   deploymentInputSnapshots?: DeploymentInputSnapshotsRepository;
+  tasks?: TaskEnqueuer;
 }
 
 export class ExecutionsApplicationService {
@@ -59,6 +61,7 @@ export class ExecutionsApplicationService {
   private readonly stageIntervalMs: number;
   private readonly delay: (milliseconds: number) => Promise<void>;
   private readonly deploymentInputSnapshots?: DeploymentInputSnapshotsRepository;
+  private readonly tasks?: TaskEnqueuer;
 
   constructor(dependencies: ExecutionsApplicationDependencies) {
     this.repository = dependencies.repository ?? new ExecutionsRepository();
@@ -75,6 +78,7 @@ export class ExecutionsApplicationService {
     this.stageIntervalMs = Math.max(0, dependencies.stageIntervalMs ?? 1_000);
     this.delay = dependencies.delay ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
     this.deploymentInputSnapshots = dependencies.deploymentInputSnapshots;
+    this.tasks = dependencies.tasks;
     this.queue = dependencies.queue ?? new PgJobRunner(
       (job) => new StepRunner(this, this.executorRegistry).run(job),
       dependencies.queueDb,
@@ -435,15 +439,17 @@ export class ExecutionsApplicationService {
       input.allowMockExecutor === true,
       input.agentPayloadByTargetId,
     );
-    const job = await this.queue.enqueue({
-      jobType: 'DEPLOYMENT_EXECUTE',
-      resourceType: 'executionRun',
-      resourceId: run.id,
-      idempotencyKey: input.idempotencyKey,
-      payload: { runId: run.id, deploymentPlanId: input.deploymentPlanId, type: input.type, tenantId: input.tenantId, actorId: input.actorId },
-      retryPolicy: { maxAttempts: 1, backoffSeconds: 0 },
-    });
-    const dispatched = await this.transitionRunEntity({ ...run, externalRunId: job.jobId }, 'DISPATCHED', input.actorId, 'queue.dispatched', { externalRunId: job.jobId });
+    const jobId = this.tasks
+      ? run.id
+      : (await this.queue.enqueue({
+          jobType: 'DEPLOYMENT_EXECUTE',
+          resourceType: 'executionRun',
+          resourceId: run.id,
+          idempotencyKey: input.idempotencyKey,
+          payload: { runId: run.id, deploymentPlanId: input.deploymentPlanId, type: input.type, tenantId: input.tenantId, actorId: input.actorId },
+          retryPolicy: { maxAttempts: 1, backoffSeconds: 0 },
+        })).jobId;
+    const dispatched = await this.transitionRunEntity({ ...run, externalRunId: jobId }, 'DISPATCHED', input.actorId, 'queue.dispatched', { externalRunId: jobId });
 
     void this.audit.write({
       eventType: AUDIT_EVENT_TYPES.DEPLOYMENT_EXECUTED,
@@ -456,10 +462,10 @@ export class ExecutionsApplicationService {
       riskLevel: input.type === 'dry_run' ? 'low' : 'high',
       context,
       failClosed: input.type !== 'dry_run',
-      detail: { deploymentPlanId: input.deploymentPlanId, jobId: job.jobId, stepCount: steps.length },
+      detail: { deploymentPlanId: input.deploymentPlanId, jobId, stepCount: steps.length, queue: this.tasks ? 'unified-task-control-plane' : 'legacy-pg-job-runner' },
     }).catch(() => undefined);
 
-    return { run: this.toRunDto(dispatched), steps: steps.map((step) => this.toStepDto(step)), jobId: job.jobId };
+    return { run: this.toRunDto(dispatched), steps: steps.map((step) => this.toStepDto(step)), jobId };
   }
 
   private async createDefaultSteps(

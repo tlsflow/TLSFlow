@@ -78,6 +78,7 @@ export interface NotificationsRepository {
   listDeliveries(query: NotificationPageQuery): Promise<NotificationPage<NotificationDelivery>>;
   getDelivery(tenantId: string, id: string): Promise<NotificationDelivery | undefined>;
   leaseNextDelivery(workerId: string, leaseSeconds: number): Promise<NotificationDelivery | undefined>;
+  leaseDelivery(tenantId: string, deliveryId: string, workerId: string, leaseSeconds: number): Promise<NotificationDelivery | undefined>;
   completeDeliveryAttempt(input: CompleteDeliveryAttemptInput): Promise<NotificationDelivery>;
   retryDelivery(tenantId: string, id: string): Promise<NotificationDelivery>;
   refreshRequestStatus(requestId: string): Promise<NotificationRequestStatus>;
@@ -344,6 +345,24 @@ export class PgNotificationsRepository implements NotificationsRepository {
     return toDelivery(row);
   }
 
+  async leaseDelivery(tenantId: string, deliveryId: string, workerId: string, leaseSeconds: number): Promise<NotificationDelivery | undefined> {
+    const result = await this.db.query<DeliveryRow>(`update notification_deliveries set
+      status='sending',lease_owner=$1,lease_until=now()+($2::text || ' seconds')::interval,
+      attempt_count=attempt_count+1,updated_at=now()
+      where tenant_id=$3 and id=$4
+        and (((status in ('queued','retrying') and coalesce(next_attempt_at,now()) <= now())
+           or (status='sending' and lease_until < now())))
+      returning *`, [workerId, leaseSeconds, tenantId, deliveryId]);
+    const row = result.rows[0];
+    if (!row) return undefined;
+    await this.db.query(`insert into notification_delivery_attempts (
+      id,tenant_id,delivery_id,attempt_no,started_at,response_summary
+    ) values ($1,$2,$3,$4,now(),'{}'::jsonb) on conflict (delivery_id,attempt_no) do nothing`, [
+      newId('nat'), row.tenant_id, row.id, row.attempt_count,
+    ]);
+    return toDelivery(row);
+  }
+
   async completeDeliveryAttempt(input: CompleteDeliveryAttemptInput): Promise<NotificationDelivery> {
     const result = await this.db.transaction(async (tx) => {
       const deliveryResult = await tx.query<DeliveryRow>('select * from notification_deliveries where id=$1', [input.deliveryId]);
@@ -426,6 +445,7 @@ function buildPageWhere(query: NotificationPageQuery, delivery: boolean): { wher
   if (query.status) { params.push(query.status); clauses.push(`status=$${params.length}`); }
   if (!delivery && query.source) { params.push(query.source); clauses.push(`source=$${params.length}`); }
   if (delivery && query.channelId) { params.push(query.channelId); clauses.push(`channel_id=$${params.length}`); }
+  if (delivery && query.requestId) { params.push(query.requestId); clauses.push(`request_id=$${params.length}`); }
   return { where: `where ${clauses.join(' and ')}`, params };
 }
 

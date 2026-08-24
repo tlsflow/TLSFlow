@@ -25,7 +25,7 @@ export interface MonitorsRepository {
   readonly moduleName: 'monitors';
   createMonitorTarget(input: CreateMonitorTargetInput): Promise<MonitorTargetDto>;
   listMonitorTargets(query: ListMonitorTargetsQuery): Promise<MonitorTargetPageDto>;
-  listActiveMonitorTargetsForScheduler(limit: number): Promise<MonitorTargetDto[]>;
+  listActiveMonitorTargetsForScheduler(limit: number, tenantId?: string): Promise<MonitorTargetDto[]>;
   getMonitorTarget(tenantId: string, id: string): Promise<MonitorTargetDto | undefined>;
   updateMonitorTarget(input: UpdateMonitorTargetInput): Promise<MonitorTargetDto>;
   deleteMonitorTarget(tenantId: string, id: string): Promise<MonitorTargetDto>;
@@ -95,13 +95,14 @@ export class PgMonitorsRepository implements MonitorsRepository {
     return page(rows, query, monitorTargetFilter);
   }
 
-  async listActiveMonitorTargetsForScheduler(limit: number): Promise<MonitorTargetDto[]> {
+  async listActiveMonitorTargetsForScheduler(limit: number, tenantId?: string): Promise<MonitorTargetDto[]> {
     const rows = (await this.db.query<MonitorTargetRow>(
       `select * from pg_monitor_targets
        where deleted_at is null and status = 'active'
+         ${tenantId ? 'and tenant_id = $2' : ''}
        order by updated_at asc
        limit $1`,
-      [Math.max(1, Math.trunc(limit))],
+      tenantId ? [Math.max(1, Math.trunc(limit)), tenantId] : [Math.max(1, Math.trunc(limit))],
     )).rows;
     return rows.map(toMonitorTarget);
   }

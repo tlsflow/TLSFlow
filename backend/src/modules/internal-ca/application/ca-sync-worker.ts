@@ -17,11 +17,22 @@ export interface CaSyncWorkerFailure {
 
 export class CaSyncWorker {
   constructor(
-    private readonly repository: Pick<CaOperationsRepository, 'listRunnableSyncRuns'>,
+    private readonly repository: Pick<CaOperationsRepository, 'listRunnableSyncRuns'>
+      & Partial<Pick<CaOperationsRepository, 'getSyncRun'>>,
     private readonly processor: CaSyncBatchProcessor,
     private readonly workerId: string,
     private readonly onFailure?: (failure: CaSyncWorkerFailure) => void,
   ) {}
+
+  async runRun(tenantId: string, runId: string, now = new Date()): Promise<CaSyncRunEntity> {
+    try {
+      return await this.processor.processNextCaSyncBatch(tenantId, runId, this.workerId, now);
+    } catch (error) {
+      const run = await this.repository.getSyncRun?.(tenantId, runId);
+      if (run) this.onFailure?.({ run, error });
+      throw error;
+    }
+  }
 
   async runOnce(maxRuns = 4, now = new Date()): Promise<number> {
     const limit = Number.isFinite(maxRuns) && maxRuns > 0 ? Math.floor(maxRuns) : 1;
