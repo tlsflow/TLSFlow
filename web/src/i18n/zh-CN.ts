@@ -481,7 +481,7 @@ export default {
         succeeded: '刷新完成：{versions} 个插件版本，已同步 {projected} 个运行节点。',
         failed: '刷新失败：{reason}'
       },
-      versionStatus: { enabled: '已启用', disabled: '未启用', other: '其他状态' }
+      versionStatus: { added: '新增', enabled: '已启用', disabled: '未启用', other: '其他状态' }
     },
     approval: {
       title: '审批任务详情',

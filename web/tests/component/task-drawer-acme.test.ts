@@ -159,6 +159,7 @@ function pluginRefreshDetail() {
           versions: [
             { id: 'uplgv_nginx', pluginId: 'web-nginx', version: '1.5.0', status: 'ENABLED' },
             { id: 'uplgv_tomcat', pluginId: 'app-tomcat', version: '2.1.0', status: 'ENABLED' },
+            { id: 'uplgv_npm', pluginId: 'device.nginx-proxy-manager', version: '0.1.0', status: 'PENDING_APPROVAL' },
           ],
           beforeVersions: [
             { id: 'uplgv_nginx-old', pluginId: 'web-nginx', version: '1.4.0', status: 'DISABLED' },
@@ -176,6 +177,11 @@ function pluginRefreshDetail() {
               before: { id: 'uplgv_tomcat', pluginId: 'app-tomcat', version: '2.1.0', status: 'ENABLED' },
               after: { id: 'uplgv_tomcat', pluginId: 'app-tomcat', version: '2.1.0', status: 'ENABLED' },
               changeType: 'UNCHANGED',
+            },
+            {
+              pluginId: 'device.nginx-proxy-manager',
+              after: { id: 'uplgv_npm', pluginId: 'device.nginx-proxy-manager', version: '0.1.0', status: 'PENDING_APPROVAL' },
+              changeType: 'ADDED',
             },
           ],
           projection: {
@@ -346,7 +352,7 @@ describe('TaskDrawer ACME 任务展示', () => {
 
     expect(taskApiMocks.getTask).toHaveBeenCalledWith(task.id)
     expect(wrapper.find('.task-drawer__plugin-summary').exists()).toBe(true)
-    expect(wrapper.text()).toContain('已完成刷新，共更新 2 个插件版本，并同步 3 个运行节点。')
+    expect(wrapper.text()).toContain('已完成刷新，共更新 3 个插件版本，并同步 3 个运行节点。')
     expect(wrapper.text()).toContain('目录版本')
     expect(wrapper.text()).toContain('web-nginx · 1.5.0')
     expect(wrapper.find('.task-drawer__plugin-changes').exists()).toBe(false)
@@ -355,6 +361,9 @@ describe('TaskDrawer ACME 任务展示', () => {
     const pluginVersionRows = wrapper.findAll('.task-drawer__plugin-version')
     expect(pluginVersionRows[1]?.find('.task-drawer__plugin-version-transition').exists()).toBe(false)
     expect(pluginVersionRows[1]?.find('.task-drawer__plugin-status-transition').exists()).toBe(false)
+    expect(pluginVersionRows[2]?.text()).toContain('device.nginx-proxy-manager · 0.1.0')
+    expect(pluginVersionRows[2]?.text()).toContain('新增')
+    expect(pluginVersionRows[2]?.text()).not.toContain('其他状态')
     expect(wrapper.text()).toContain('agent-west-02')
     expect(wrapper.find('.task-drawer__timeline').exists()).toBe(false)
 

@@ -901,11 +901,18 @@ function pluginRefreshVersionLabel(version: PluginRefreshVersion): string {
   return version.version ? `${pluginId} · ${version.version}` : pluginId
 }
 
-function pluginRefreshVersionStatusLabel(status?: string): string {
+function pluginRefreshStatusLabel(status?: string): string {
   const normalized = status?.toUpperCase()
   if (normalized === 'ENABLED' || normalized === 'ACTIVE') return t('tasks.pluginRefresh.versionStatus.enabled')
   if (normalized === 'DISABLED' || normalized === 'RETIRED') return t('tasks.pluginRefresh.versionStatus.disabled')
   return t('tasks.pluginRefresh.versionStatus.other')
+}
+
+function pluginRefreshVersionStatusLabel(version: PluginRefreshVersion): string {
+  if (pluginRefreshChangeForVersion(version)?.changeType === 'ADDED') {
+    return t('tasks.pluginRefresh.versionStatus.added')
+  }
+  return pluginRefreshStatusLabel(version.status)
 }
 
 function pluginRefreshVersionTone(status?: string): 'success' | 'warning' | 'danger' | 'info' | 'muted' {
@@ -935,8 +942,8 @@ function pluginRefreshVersionTransition(version: PluginRefreshVersion): string |
 function pluginRefreshStatusTransition(version: PluginRefreshVersion): string | undefined {
   const change = pluginRefreshChangeForVersion(version)
   if (!change || change.changeType === 'UNCHANGED' || !change.before || !change.after) return undefined
-  const before = pluginRefreshVersionStatusLabel(change.before.status)
-  const after = pluginRefreshVersionStatusLabel(change.after.status)
+  const before = pluginRefreshStatusLabel(change.before.status)
+  const after = pluginRefreshStatusLabel(change.after.status)
   return before === after ? undefined : `${before} → ${after}`
 }
 
@@ -1680,7 +1687,7 @@ function recordString(record: InternalCaRecord, key: string): string {
                       {{ pluginRefreshStatusTransition(version) }}
                     </span>
                   </div>
-                  <GcStatusTag :status="version.status || 'UNKNOWN'" :label="pluginRefreshVersionStatusLabel(version.status)" :tone="pluginRefreshVersionTone(version.status)" />
+                  <GcStatusTag :status="version.status || 'UNKNOWN'" :label="pluginRefreshVersionStatusLabel(version)" :tone="pluginRefreshVersionTone(version.status)" />
                 </div>
               </div>
               <GcEmptyState v-else class="task-drawer__empty task-drawer__empty--section" :title="t('tasks.pluginRefresh.values.noVersions')" />

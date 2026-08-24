@@ -462,7 +462,7 @@ export default {
       values: { unavailable: "暫無", noVersions: "本次沒有返回外掛版本", triggerSource: "外掛目錄刷新" },
       summary: { succeeded: "刷新完成，共更新 {versions} 個外掛版本，並同步 {projected} 個執行節點。", failed: "外掛目錄刷新失敗。", cancelled: "外掛目錄刷新已取消。", retryWaiting: "外掛目錄刷新將稍後自動重試。", waitingResult: "正在等待外掛目錄刷新結果。", awaitingConfirmation: "外掛目錄刷新結果待確認。", cancelling: "正在取消外掛目錄刷新。", queued: "外掛目錄刷新已排隊。", running: "正在刷新外掛目錄。" },
       events: { created: "已建立刷新任務，等待系統處理。", claimed: "任務已分配給背景處理器。", started: "開始讀取內建外掛目錄。", progress: "正在整理外掛版本並同步執行節點。", retryScheduled: "本次處理未完成，系統已安排自動重試。", waitingResult: "正在等待執行節點返回結果。", awaitingConfirmation: "刷新結果已產生，等待確認。", cancelRequested: "已收到取消請求。", expired: "任務已逾時。", cancelled: "刷新任務已取消。", succeeded: "刷新完成：{versions} 個外掛版本，已同步 {projected} 個執行節點。", failed: "刷新失敗：{reason}" },
-      versionStatus: { enabled: "已啟用", disabled: "未啟用", other: "其他狀態" }
+      versionStatus: { added: "新增", enabled: "已啟用", disabled: "未啟用", other: "其他狀態" }
     },
     approval: {
       title: "審批任務詳情",

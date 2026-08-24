@@ -481,7 +481,7 @@ export default {
         succeeded: 'Refresh completed: {versions} plugin versions and {projected} runtime nodes synchronized.',
         failed: 'Refresh failed: {reason}'
       },
-      versionStatus: { enabled: 'Enabled', disabled: 'Not enabled', other: 'Other status' }
+      versionStatus: { added: 'Added', enabled: 'Enabled', disabled: 'Not enabled', other: 'Other status' }
     },
     approval: {
       title: 'Approval task details',

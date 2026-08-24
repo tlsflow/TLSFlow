@@ -463,7 +463,7 @@ export default {
       values: { unavailable: '未取得', noVersions: 'プラグインバージョンは返されませんでした', triggerSource: 'プラグインカタログ更新' },
       summary: { succeeded: '更新完了：{versions} 件のプラグインバージョンを更新し、{projected} 台の実行ノードへ同期しました。', failed: 'プラグインカタログの更新に失敗しました。', cancelled: 'プラグインカタログの更新をキャンセルしました。', retryWaiting: '後で自動的に再試行します。', waitingResult: '更新結果を待っています。', awaitingConfirmation: '更新結果の確認が必要です。', cancelling: '更新をキャンセルしています。', queued: '更新をキューに追加しました。', running: 'プラグインカタログを更新しています。' },
       events: { created: '更新タスクを作成しました。処理を待っています。', claimed: 'バックグラウンド処理へ割り当てました。', started: '組み込みプラグインカタログの読み取りを開始しました。', progress: 'バージョンを整理し、実行ノードへ同期しています。', retryScheduled: '処理が完了せず、自動再試行を予約しました。', waitingResult: '実行ノードの結果を待っています。', awaitingConfirmation: '更新結果を確認してください。', cancelRequested: 'キャンセル要求を受け付けました。', expired: 'タスクがタイムアウトしました。', cancelled: '更新タスクをキャンセルしました。', succeeded: '更新完了：{versions} 件、{projected} 台のノードを同期しました。', failed: '更新失敗：{reason}' },
-      versionStatus: { enabled: '有効', disabled: '無効', other: 'その他' }
+      versionStatus: { added: '追加', enabled: '有効', disabled: '無効', other: 'その他' }
     },
     approval: {
       title: '承認タスクの詳細',
