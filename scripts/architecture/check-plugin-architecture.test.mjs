@@ -516,13 +516,7 @@ test('安全合同和生产插件身份必须按终态规则扫描', () => {
   assert.equal(trustedJsFindings.every((finding) => finding.classification === 'PRODUCTION'), true);
 });
 
-test('唯一插件 Catalog、真实 Manifest 和未知 Plugin ID 都必须使用 Canonical ID', () => {
-  const catalogFindings = scanPluginArchitectureSource(
-    'scripts/architecture/p2-plugin-release-manifest.json',
-    '{"pluginId":"builtin.windows.iis.pfx","version":"1.0.0","packageSha256":"sha256:test"}',
-  );
-  assert.equal(catalogFindings.some((finding) => finding.rule === 'NON_CANONICAL_PLUGIN_BINDING'), true);
-
+test('真实 Manifest 和未知 Plugin ID 都必须使用 Canonical ID', () => {
   const manifestFindings = scanPluginArchitectureSource(
     'backend/src/modules/plugins/builtin-plugins/windows-iis/manifest.json',
     '{"pluginId":"builtin.windows.iis.pfx"}',

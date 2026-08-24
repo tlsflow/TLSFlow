@@ -93,7 +93,7 @@ const productIdentifierPattern = /(?:iis|nginx|apache|httpd|tomcat|rabbitmq|citr
 const builtinPluginsPathPattern = /(?:^|\/)builtin-plugins(?:\/|$)/;
 const pluginPackagePathPattern = /(?:^|\/)builtin-plugins\/[^/]+\//;
 const pluginModuleSpecifierPattern = /(?:^|\/)builtin-plugins\/(?!builtin-unified-plugin-loader(?:[./]|$))[^/]+(?:\/|$)/i;
-// Registry 和唯一插件 Catalog 只提供插件身份、包摘要和资源索引；它们不是插件 Runtime，宿主可以静态读取其元数据。
+// Registry 只提供插件身份、包摘要和资源索引；它不是插件 Runtime，宿主可以静态读取其元数据。
 const pluginMetadataModuleSpecifierPattern = /(?:^|\/)builtin-plugins\/builtin-plugin-registry(?:\.[^/]+)?$/i;
 const builtinWorkflowPathPattern = /(?:^|\/)builtin-workflows(?:\/|$)/;
 const pluginWorkflowPathPattern = /(?:^|\/)builtin-plugins\/[^/]+\/workflows(?:\/|$)/;

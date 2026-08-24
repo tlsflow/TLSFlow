@@ -1,12 +1,12 @@
-import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { loadP2PluginReleaseManifest } from '../../scripts/architecture/p2-plugin-release-manifest.mjs';
 
 const backendRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = resolve(backendRoot, '..');
+const canonicalRegistryPath = resolve(repositoryRoot, 'backend/src/modules/plugins/canonical-plugin-id/fixtures/canonical-plugin-id-registry.valid.json');
 const defaultRoot = resolve(backendRoot, 'dist');
 const defaultTimeoutMs = 180_000;
 const defaultLogDirectory = resolve(backendRoot, 'test-results', 'p2');
@@ -14,17 +14,17 @@ const sensitiveEnvironmentNamePattern = /(AUTH|CERT|CREDENTIAL|KEY|PASSWORD|PASS
 const safeEnvironmentNames = new Set(['CI', 'NODE_ENV', 'TZ', 'GCAC_P2_TEST_FILE_TIMEOUT_MS']);
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
-// 该清单覆盖发布清单中的插件包、统一执行链、开发数据切换和无回退故障矩阵。
+export const canonicalPluginIds = Object.freeze(loadCanonicalPluginIds());
+
+// 该清单覆盖当前 Canonical Plugin ID 对应的包、统一执行链、开发数据切换和无回退故障矩阵。
 // 跨 Phase 全量测试不在此处运行，只能由最终开发门禁显式执行一次。
 export const p2TestEntries = Object.freeze([
-  { id: 'release-manifest-validator', kind: 'node-command', cwd: 'repository', args: ['scripts/architecture/p2-plugin-release-manifest.mjs'] },
-  { id: 'release-manifest-contract', kind: 'source-test', cwd: 'repository', file: 'scripts/architecture/p2-plugin-release-manifest.test.mjs' },
   { id: 'fault-matrix-validator', kind: 'node-command', cwd: 'repository', args: ['scripts/architecture/p2-plugin-fault-matrix.mjs'] },
   { id: 'fault-matrix-contract', kind: 'source-test', cwd: 'repository', file: 'scripts/architecture/p2-plugin-fault-matrix.test.mjs' },
   { id: 'builtin-plugin-versions', kind: 'npm', cwd: 'backend', args: ['run', 'check:builtin-plugin-versions'] },
   { id: 'cloud-batch', batchId: 'cloud', kind: 'source-test', cwd: 'repository', file: 'compatibility/fixtures/cloud/cloud-package.contract.test.mjs', pluginIds: ['cloud.aliyun', 'cloud.tencent', 'cloud.huawei', 'cloud.volcengine'] },
   { id: 'web-app-batch', batchId: 'web-app', kind: 'source-test', cwd: 'repository', file: 'compatibility/fixtures/web-app/p2-web-app.test.mjs', pluginIds: ['web.nginx', 'web.apache', 'app.tomcat', 'app.java-keystore', 'app.rabbitmq', 'app.service-certificate-file'] },
-  { id: 'ca-batch', batchId: 'ca', kind: 'source-test', cwd: 'repository', file: 'compatibility/fixtures/ca/ca-plugin-runner.real-process.test.mjs', pluginIds: ['ca.microsoft-adcs'] },
+  { id: 'ca-batch', batchId: 'ca', kind: 'built-test', cwd: 'backend', file: 'modules/plugins/runner/production-runner.real-process.test.js', pluginIds: ['ca.microsoft-adcs'] },
   { id: 'device-iis-batch', batchId: 'device', kind: 'built-test', cwd: 'backend', file: 'modules/plugins/builtin-plugins/web-iis/runtime/index.test.mjs', pluginIds: ['web.iis'] },
   { id: 'device-citrix-batch', batchId: 'device', kind: 'built-test', cwd: 'backend', file: 'modules/plugins/builtin-plugins/citrix-adc/runtime/index.test.mjs', pluginIds: ['device.citrix.netscaler-adc'] },
   { id: 'device-synology-batch', batchId: 'device', kind: 'built-test', cwd: 'backend', file: 'modules/plugins/builtin-plugins/device-synology-dsm/runtime/index.test.mjs', pluginIds: ['device.synology-dsm'] },
@@ -89,26 +89,41 @@ export function validateP2TestEntries(entries = p2TestEntries) {
       findings.push(`测试条目缺少命令参数：${entry.id ?? 'unknown'}`);
     }
   }
-  const releaseManifest = loadP2PluginReleaseManifest();
-  const requiredBatchIds = releaseManifest.batches?.map((batch) => batch.id) ?? [];
+  const requiredBatchIds = ['cloud', 'web-app', 'ca', 'device'];
   const batchEntries = entries.filter((entry) => requiredBatchIds.includes(entry.batchId));
   for (const required of [...requiredBatchIds.map((batchId) => `batch:${batchId}`), 'fault-matrix-contract', 'development-database-cutover', 'plugin-architecture-zero']) {
     const present = required.startsWith('batch:')
       ? batchEntries.some((entry) => entry.batchId === required.slice('batch:'.length))
       : ids.has(required);
-    if (!present) findings.push(`P2 清单缺少必要条目：${required.replace(/^batch:/, '')}`);
+    if (!present) findings.push(`P2 测试条目缺少必要项：${required.replace(/^batch:/, '')}`);
   }
-  for (const batch of releaseManifest.batches ?? []) {
-    const batchEntriesForId = batchEntries.filter((entry) => entry.batchId === batch.id);
+  const batchPluginIds = {
+    cloud: canonicalPluginIds.filter((pluginId) => pluginId.startsWith('cloud.')),
+    'web-app': ['web.nginx', 'web.apache', 'app.tomcat', 'app.java-keystore', 'app.rabbitmq', 'app.service-certificate-file'],
+    ca: ['ca.microsoft-adcs'],
+    device: ['web.iis', 'device.citrix.netscaler-adc', 'device.synology-dsm'],
+  };
+  for (const batchId of requiredBatchIds) {
+    const batchEntriesForId = batchEntries.filter((entry) => entry.batchId === batchId);
     const declared = batchEntriesForId.flatMap((entry) => entry.pluginIds ?? []);
-    if (new Set(declared).size !== declared.length) findings.push(`P2 批次 ${batch.id} 的测试条目存在重复 Plugin ID`);
-    for (const pluginId of declared) if (!batch.pluginIds.includes(pluginId)) findings.push(`P2 批次 ${batch.id} 的测试条目引用了其他批次或未知插件：${pluginId}`);
+    if (new Set(declared).size !== declared.length) findings.push(`插件批次 ${batchId} 的测试条目存在重复 Plugin ID`);
+    for (const pluginId of declared) if (!batchPluginIds[batchId].includes(pluginId)) findings.push(`插件批次 ${batchId} 的测试条目引用了其他批次或未知插件：${pluginId}`);
+    for (const pluginId of batchPluginIds[batchId]) if (!declared.includes(pluginId)) findings.push(`插件批次 ${batchId} 缺少覆盖：${pluginId}`);
   }
   const coveredPluginIds = batchEntries.flatMap((entry) => {
     return Array.isArray(entry.pluginIds) ? entry.pluginIds : [];
   });
-  if (new Set(coveredPluginIds).size !== coveredPluginIds.length) findings.push('P2 批次测试清单存在重复 Plugin ID');
+  if (new Set(coveredPluginIds).size !== coveredPluginIds.length) findings.push('插件批次测试清单存在重复 Plugin ID');
+  for (const pluginId of canonicalPluginIds) if (!coveredPluginIds.includes(pluginId)) findings.push(`插件测试清单缺少 Canonical Plugin ID：${pluginId}`);
+  for (const pluginId of coveredPluginIds) if (!canonicalPluginIds.includes(pluginId)) findings.push(`插件测试清单包含未知 Canonical Plugin ID：${pluginId}`);
   return findings;
+}
+
+function loadCanonicalPluginIds() {
+  const registry = JSON.parse(readFileSync(canonicalRegistryPath, 'utf8'));
+  return Array.isArray(registry.entries)
+    ? registry.entries.map((entry) => entry?.canonicalId).filter((id) => typeof id === 'string')
+    : [];
 }
 
 function runSuite(runOptions, commandArguments) {
