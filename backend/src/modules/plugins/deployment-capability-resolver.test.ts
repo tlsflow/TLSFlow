@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { AppError } from '../../common/errors/app-error.js';
 import { DeploymentCapabilityResolver } from './application/deployment-capability.resolver.js';
 import type { PluginBindingsApplicationService } from './application/plugin-bindings.application-service.js';
 import type { UnifiedPluginVersionRecord } from './dto/unified-plugins.dto.js';
@@ -50,6 +51,27 @@ test('DeploymentCapabilityResolver 拒绝所有候选 Binding Host 身份冲突'
   await assert.rejects(
     resolver({ hostId: 'host-2' }).resolve({ tenantId: 'tenant-1', capabilityKey: 'certificate.deploy', hostId: 'host-1', managedTargetId: 'target-1', applicationAssetId: 'asset-1', executionLocations: ['CONTROL_PLANE'], compatibility: {} }),
     /没有上下文匹配的插件能力指派/,
+  );
+});
+
+test('DeploymentCapabilityResolver 无 Assignment 时失败关闭', async () => {
+  const bindings = {
+    listAssignmentCandidates: async () => [],
+    getTenantBinding: async () => { throw new Error('不应读取 Binding'); },
+  } as unknown as PluginBindingsApplicationService;
+  const capabilityResolver = new DeploymentCapabilityResolver(bindings, { getVersion: async () => plugin() });
+
+  await assert.rejects(
+    capabilityResolver.resolve({
+      tenantId: 'tenant-1',
+      capabilityKey: 'certificate.deploy',
+      hostId: 'host-1',
+      managedTargetId: 'target-1',
+      applicationAssetId: 'asset-1',
+      executionLocations: ['CONTROL_PLANE'],
+      compatibility: {},
+    }),
+    (error) => error instanceof AppError && error.errorCode === 'CAPABILITY_MISSING',
   );
 });
 

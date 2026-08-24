@@ -4,13 +4,14 @@ import type { CertificateBindingDto } from '../../bindings/dto/bindings.dto.js';
 import type { DeploymentGatewayRouteDto } from '../dto/deployment-plans.dto.js';
 import type { DeploymentStrategyDto, ServiceAssetDto, ApplicationAssetTargetSummaryDto } from '../../assets/dto/assets.dto.js';
 import type { ResolvedManagedTargetContext } from '../../assets/application/managed-target-context.resolver.js';
-import { createBuiltinDeploymentDriverRegistry, type DeploymentDriverRegistry } from './deployment-driver.registry.js';
+import type { RuntimeExecutionRequest } from './plugin-runtime-adapter.registry.js';
 
 export interface DeploymentStrategyResolutionInput {
   applicationAsset: ServiceAssetDto;
   bindingTarget?: ApplicationAssetTargetSummaryDto;
   certificateBinding?: CertificateBindingDto;
   managedTargetContext?: ResolvedManagedTargetContext;
+  managedTargetRuntime?: RuntimeExecutionRequest;
 }
 
 export interface ResolvedDeploymentStrategySnapshot {
@@ -23,8 +24,6 @@ export interface ResolvedDeploymentStrategySnapshot {
 }
 
 export class DeploymentStrategyResolver {
-  constructor(private readonly drivers: DeploymentDriverRegistry = createBuiltinDeploymentDriverRegistry()) {}
-
   resolve(input: DeploymentStrategyResolutionInput): ResolvedDeploymentStrategySnapshot {
     const strategy = input.applicationAsset.deploymentStrategy;
     if (!strategy) {
@@ -46,36 +45,32 @@ export class DeploymentStrategyResolver {
       });
     }
     const context = input.managedTargetContext;
-    const driver = this.drivers.resolve(context);
-    const executorType = context.executionLocation === 'AGENT'
-      ? 'AGENT'
-      : driver.kind === 'DEVICE_PLUGIN' ? 'WORKFLOW' : 'CURL';
-    const gatewayRoute = context.executionLocation === 'GATEWAY'
-      ? { gatewayId: context.deviceAsset?.gatewayId, adapter: 'curl' as const, delegatedTargetId: managedTargetId }
-      : undefined;
+    const runtime = input.managedTargetRuntime;
+    if (!runtime) {
+      throw new AppError('CAPABILITY_MISSING', 'MANAGED_TARGET 策略缺少 Capability Resolution 执行结果', {
+        code: 'MANAGED_TARGET_CAPABILITY_RESOLUTION_REQUIRED',
+        applicationAssetId: input.applicationAsset.id,
+        managedTargetId,
+      });
+    }
     return {
       strategyType: 'MANAGED_TARGET',
-      executorType,
-      executionTargetId: managedTargetId,
-      requiredCapabilities: [`deployment.driver.${driver.kind.toLowerCase()}`],
-      gatewayRoute,
+      executorType: runtime.executorType,
+      executionTargetId: runtime.executionTargetId,
+      requiredCapabilities: runtime.requiredCapabilities,
+      gatewayRoute: runtime.gatewayRoute,
       payload: {
         deploymentStrategy: strategy,
         managedTargetId,
         applicationAssetId: input.applicationAsset.id,
         certificateBindingId: input.certificateBinding?.id,
-        driverKind: driver.kind,
-        executionLocation: context.executionLocation,
-        precheckSteps: driver.precheck(context),
-        deploymentSteps: driver.buildDeployment(context),
-        rollbackSteps: driver.buildRollback(context),
-        requiredSecrets: driver.requiredSecrets(context),
         targetSnapshot: {
           managedTarget: context.managedTarget,
           host: context.host,
           siteAsset: context.siteAsset,
           frameworkInstance: context.serviceInstance,
         },
+        ...runtime.payload,
       },
     };
   }

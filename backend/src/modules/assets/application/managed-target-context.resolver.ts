@@ -3,7 +3,6 @@ import type { AgentRegistration } from '../../agents/schema/agents.schema.js';
 import type { DeviceAssetDto } from '../../device-assets/dto/device-assets.dto.js';
 import type { FrameworkInstanceDto, HostDto, ManagedTargetDto, SiteAssetDto } from '../dto/assets.dto.js';
 
-export type DeploymentDriverKind = 'AGENT_NATIVE' | 'AGENT_PLUGIN' | 'DEVICE_PLUGIN';
 export type ExecutionLocation = 'AGENT' | 'CONTROL_PLANE' | 'GATEWAY';
 
 export interface ResolvedManagedTargetTopology {
@@ -18,8 +17,6 @@ export interface ResolvedManagedTargetTopology {
 
 export interface ResolvedManagedTargetContext extends ResolvedManagedTargetTopology {
   agent?: AgentRegistration;
-  driverKind: DeploymentDriverKind;
-  executionLocation: ExecutionLocation;
   availableExecutionLocations: ExecutionLocation[];
 }
 
@@ -75,34 +72,25 @@ export class ManagedTargetContextResolver {
 
   async resolve(tenantId: string, managedTargetId: string): Promise<ResolvedManagedTargetContext> {
     const topology = await this.resolveTopology(tenantId, managedTargetId);
-    const selected = await this.selectExecution(tenantId, topology.managedTarget, topology.host, topology.deviceAsset);
+    const connections = await this.resolveExecutionConnections(tenantId, topology.managedTarget, topology.host, topology.deviceAsset);
     return {
       ...topology,
-      agent: selected.agent,
-      driverKind: selected.driverKind,
-      executionLocation: selected.executionLocation,
-      availableExecutionLocations: selected.availableExecutionLocations,
+      agent: connections.agent,
+      availableExecutionLocations: connections.availableExecutionLocations,
     };
   }
 
-  private async selectExecution(tenantId: string, target: ManagedTargetDto, host: HostDto, deviceAsset?: DeviceAssetDto): Promise<SelectedExecution> {
+  private async resolveExecutionConnections(tenantId: string, target: ManagedTargetDto, host: HostDto, deviceAsset?: DeviceAssetDto): Promise<ResolvedExecutionConnections> {
+    let agent: AgentRegistration | undefined;
     if (target.executionLocations.includes('AGENT') && host.agentId) {
-      const agent = await this.agents.getRegistration(tenantId, host.agentId);
-      if (agent && !['disabled', 'revoked'].includes(agent.status)) {
-        const remaining = collectDeviceExecutionLocations(target, deviceAsset);
-        return {
-          executionLocation: 'AGENT',
-          driverKind: 'AGENT_NATIVE',
-          agent,
-          availableExecutionLocations: ['AGENT', ...remaining],
-        };
-      }
+      const registration = await this.agents.getRegistration(tenantId, host.agentId);
+      if (registration && !['disabled', 'revoked'].includes(registration.status.toLowerCase())) agent = registration;
     }
-    const deviceExecutionLocations = collectDeviceExecutionLocations(target, deviceAsset);
-    const executionLocation = deviceExecutionLocations[0];
-    if (executionLocation) {
-      return { executionLocation, driverKind: 'DEVICE_PLUGIN', availableExecutionLocations: deviceExecutionLocations };
-    }
+    const availableExecutionLocations = [
+      ...(agent ? ['AGENT' as const] : []),
+      ...collectDeviceExecutionLocations(target, deviceAsset),
+    ];
+    if (availableExecutionLocations.length > 0) return { agent, availableExecutionLocations };
     throw targetError('受管目标没有可用的管理连接和执行位置交集', 'MANAGED_TARGET_OWNER_UNAVAILABLE', {
       managedTargetId: target.id,
       deviceId: target.deviceId,
@@ -111,9 +99,7 @@ export class ManagedTargetContextResolver {
   }
 }
 
-interface SelectedExecution {
-  executionLocation: ExecutionLocation;
-  driverKind: DeploymentDriverKind;
+interface ResolvedExecutionConnections {
   agent?: AgentRegistration;
   availableExecutionLocations: ExecutionLocation[];
 }

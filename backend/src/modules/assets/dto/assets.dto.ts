@@ -380,8 +380,6 @@ export interface ApplicationAssetTargetDetailDto extends ApplicationAssetTargetS
   frameworkInstance?: FrameworkInstanceDto;
   siteAsset?: SiteAssetDto;
   managedTarget?: ManagedTargetDto;
-  driverKind?: 'AGENT_NATIVE' | 'AGENT_PLUGIN' | 'DEVICE_PLUGIN';
-  executionLocation?: ManagedTargetExecutionLocation;
   availableExecutionLocations?: ManagedTargetExecutionLocation[];
   certificateBindings: Array<Pick<
     CertificateBindingDto,

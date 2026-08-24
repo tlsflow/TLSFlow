@@ -18,7 +18,7 @@ describe('DeploymentStrategyResolver', () => {
       && (error.details as { code?: string } | undefined)?.code === 'DEPLOYMENT_STRATEGY_MISSING');
   });
 
-  it('Agent 受管目标会解析为 AGENT_NATIVE 驱动', () => {
+  it('受管目标快照只使用 Capability Resolution 生成的 Agent Runtime', () => {
     const resolver = new DeploymentStrategyResolver();
     const resolved = resolver.resolve({
       applicationAsset: serviceAsset({
@@ -30,16 +30,18 @@ describe('DeploymentStrategyResolver', () => {
       bindingTarget: bindingTarget(),
       certificateBinding: certificateBinding(),
       managedTargetContext: managedTargetContext(),
+      managedTargetRuntime: runtimeRequest('AGENT'),
     });
 
     assert.equal(resolved.strategyType, 'MANAGED_TARGET');
     assert.equal(resolved.executorType, 'AGENT');
-    assert.equal(resolved.executionTargetId, 'target_1');
-    assert.equal(resolved.payload.driverKind, 'AGENT_NATIVE');
-    assert.equal(resolved.payload.executionLocation, 'AGENT');
+    assert.equal(resolved.executionTargetId, 'agent_1');
+    assert.equal('driverKind' in resolved.payload, false);
+    assert.equal('executionLocation' in resolved.payload, false);
+    assert.equal((resolved.payload.pluginRuntimeCapability as { pluginVersionId?: string }).pluginVersionId, 'plugin_version_1');
   });
 
-  it('统一设备插件受管目标快照使用 Workflow 驱动且不依赖厂商驱动', () => {
+  it('设备受管目标快照只使用 Capability Resolution 生成的 Workflow Runtime', () => {
     const resolver = new DeploymentStrategyResolver();
     const resolved = resolver.resolve({
       applicationAsset: serviceAsset({
@@ -52,8 +54,7 @@ describe('DeploymentStrategyResolver', () => {
       certificateBinding: certificateBinding(),
       managedTargetContext: managedTargetContext({
         discoveryProviderKey: 'plugin-version:uplgv_plugin_test',
-        driverKind: 'DEVICE_PLUGIN',
-        executionLocation: 'CONTROL_PLANE',
+        availableExecutionLocations: ['CONTROL_PLANE'],
         agent: undefined,
         deviceAsset: {
           id: 'device_1',
@@ -75,15 +76,29 @@ describe('DeploymentStrategyResolver', () => {
           version: 1,
         },
       }),
+      managedTargetRuntime: runtimeRequest('WORKFLOW'),
     });
 
     assert.equal(resolved.executorType, 'WORKFLOW');
-    assert.deepEqual(
-      (resolved.payload.deploymentSteps as Array<{ stage: string; operation: string }>).map((step) => [step.stage, step.operation]),
-      [['DEPLOY', 'managed_target.deploy']],
-    );
-    assert.equal((resolved.payload.rollbackSteps as Array<{ operation: string }>)[0]?.operation, 'managed_target.rollback');
-    assert.deepEqual(resolved.payload.requiredSecrets, []);
+    assert.equal(resolved.executionTargetId, 'target_1');
+    assert.equal('deploymentSteps' in resolved.payload, false);
+    assert.equal('rollbackSteps' in resolved.payload, false);
+    assert.equal((resolved.payload.pluginRuntimeCapability as { pluginBindingId?: string }).pluginBindingId, 'plugin_binding_1');
+  });
+
+  it('MANAGED_TARGET 缺少 Capability Resolution 结果时失败关闭', () => {
+    const resolver = new DeploymentStrategyResolver();
+    assert.throws(() => resolver.resolve({
+      applicationAsset: serviceAsset({
+        deploymentStrategy: { type: 'MANAGED_TARGET', managedTarget: { managedTargetId: 'target_1' } },
+      }),
+      managedTargetContext: managedTargetContext(),
+    }), (error) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.errorCode, 'CAPABILITY_MISSING');
+      assert.equal((error.details as { code?: string }).code, 'MANAGED_TARGET_CAPABILITY_RESOLUTION_REQUIRED');
+      return true;
+    });
   });
 
   it('MANAGED_TARGET 缺少可信上下文时失败关闭', () => {
@@ -272,8 +287,22 @@ function managedTargetContext(patch: Partial<ResolvedManagedTargetContext> = {})
     agent: { id: 'agent_1', tenantId: 'tenant_1', name: 'agent-1', status: 'online' } as unknown as ResolvedManagedTargetContext['agent'],
     discoveryProviderKey: 'agent.discovery',
     frameworkType: 'web.iis',
-    driverKind: 'AGENT_NATIVE',
-    executionLocation: 'AGENT',
+    availableExecutionLocations: ['AGENT'],
     ...patch,
   } as ResolvedManagedTargetContext;
+}
+
+function runtimeRequest(runtime: 'AGENT' | 'WORKFLOW') {
+  return {
+    executorType: runtime,
+    executionTargetId: runtime === 'AGENT' ? 'agent_1' : 'target_1',
+    requiredCapabilities: runtime === 'AGENT' ? ['agent.atomic_plan.execute'] : ['workflow.run'],
+    payload: {
+      pluginRuntimeCapability: {
+        pluginVersionId: 'plugin_version_1',
+        pluginBindingId: 'plugin_binding_1',
+        executionLocation: runtime === 'AGENT' ? 'AGENT' : 'CONTROL_PLANE',
+      },
+    },
+  } as const;
 }

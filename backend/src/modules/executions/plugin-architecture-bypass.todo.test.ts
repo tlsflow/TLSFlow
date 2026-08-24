@@ -107,7 +107,7 @@ test('T08 默认生产执行器注册表不得注册 Legacy SCRIPT_PACKAGE', () 
   assert.equal(registry.has('SCRIPT_PACKAGE'), false);
 });
 
-test('T09 ManagedTarget 上下文不得包含所有者派生 driverKind', { todo: '034.1-T09' }, async () => {
+test('T09 ManagedTarget 上下文不得包含所有者派生 driverKind', async () => {
   const resolver = new ManagedTargetContextResolver(
     managedTargetAssetsPort(),
     { getRegistration: async () => ({
