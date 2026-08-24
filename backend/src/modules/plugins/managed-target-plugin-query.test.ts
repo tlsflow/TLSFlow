@@ -307,6 +307,49 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
   });
   assert.equal((await assets.getServiceAsset(tenantId, applicationAsset.id))?.deploymentStrategy?.managedTarget?.certificateFormatId, 'format-updated');
 
+  // 历史清理删除 WorkflowExecutionBinding 后，插件模式仍必须能够覆盖旧策略并完成保存。
+  await db.query(`update pg_service_assets
+    set metadata = jsonb_set(metadata, '{deploymentStrategy}', $1::jsonb), version = version + 1
+    where tenant_id = $2 and id = $3`, [
+    JSON.stringify({
+      type: 'MANAGED_TARGET',
+      managedTarget: {
+        managedTargetId: target.id,
+        certificateFormatId: 'format-existing',
+        executionMode: 'WORKFLOW_OVERRIDE',
+        workflowExecutionBindingId: overridden.workflowExecutionBinding.id,
+      },
+    }),
+    tenantId,
+    applicationAsset.id,
+  ]);
+  await db.query('delete from workflow_execution_bindings where tenant_id = $1 and id = $2', [tenantId, overridden.workflowExecutionBinding.id]);
+  const recovered = await service.saveApplicationAssetTarget({
+    tenantId,
+    applicationAssetId: applicationAsset.id,
+    value: {
+      managedTargetId: target.id,
+      pluginOverride: {
+        pluginVersionId: imported.id,
+        inputBindings: {
+          apiVersion: 'gcac.input-bindings/v1',
+          connections: {},
+          variables: { virtualServer: 'https', allowInsecureTls: false },
+          credentials: {},
+          artifacts: {
+            certificate: {
+              certificateFormatId: 'format-existing',
+              outputBindings: { leafPem: 'leafPem', privateKeyPem: 'privateKeyPem' },
+            },
+          },
+        },
+      },
+    },
+  });
+  assert.equal(recovered.executionMode, 'PLUGIN');
+  assert.equal((await assets.getServiceAsset(tenantId, applicationAsset.id))?.deploymentStrategy?.managedTarget?.executionMode, 'PLUGIN');
+  assert.equal((await assets.getServiceAsset(tenantId, applicationAsset.id))?.deploymentStrategy?.managedTarget?.workflowExecutionBindingId, undefined);
+
   await assert.rejects(() => service.saveApplicationAssetTarget({
     tenantId,
     applicationAssetId: applicationAsset.id,

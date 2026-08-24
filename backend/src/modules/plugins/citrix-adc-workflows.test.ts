@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { BuiltinUnifiedPluginLoader } from './builtin-plugins/builtin-unified-plugin-loader.js';
+import { BuiltinUnifiedPluginLoader as BaseBuiltinUnifiedPluginLoader } from './builtin-plugins/builtin-unified-plugin-loader.js';
 import { WorkflowTemplatesApplicationService } from '../workflow-templates/application/workflow-templates.application-service.js';
 import { DeviceDiscoverySchemaService } from './discovery/device-discovery-schema.service.js';
 import type { WorkflowMockStepOutput } from '../workflow-templates/dto/workflow-templates.dto.js';
@@ -10,9 +10,21 @@ import type { ResolvedDeploymentInputV1 } from '../deployment-inputs/dto/resolve
 import { workflowTemplatesSchemaRegistry } from '../workflow-templates/schema/workflow-templates.schema.js';
 import { ProductionDeploymentInputResolverService } from '../deployment-inputs/application/production-deployment-input-resolver.service.js';
 import { emptyInputBindingsV1 } from '../deployment-inputs/dto/input-bindings.dto.js';
+import { evaluatePluginCompatibility } from './capabilities/plugin-compatibility.evaluator.js';
+import type { UnifiedPluginManifestV1 } from './dto/unified-plugins.dto.js';
 
 const DERIVED_CERTKEY_NAME = 'gcac-aaaaaaaaaaaaaaaa';
 const ACTUAL_EXISTING_CERTKEY_NAME = 'gcac-5579902569';
+
+/** 此文件的全部用例只验证 Citrix 包，不能依赖内置插件目录的排序。 */
+class BuiltinUnifiedPluginLoader extends BaseBuiltinUnifiedPluginLoader {
+  override async loadPackages() {
+    const packages = await super.loadPackages();
+    const citrixPackage = packages.find((item) => (item.manifest as UnifiedPluginManifestV1).pluginId === 'device.citrix.netscaler-adc');
+    assert.ok(citrixPackage, '未找到 Citrix ADC 内置插件包');
+    return [citrixPackage];
+  }
+}
 
 function resolvedWorkflowInput(variables: Record<string, unknown> = {}): ResolvedDeploymentInputV1 {
   const credential = variables.credential ?? fixtureCredential();
@@ -148,6 +160,24 @@ test('Citrix ADC 展示结构使用统一详情路径且标签页包含列定义
     'citrix.lb-server', 'citrix.vpn-server', 'citrix.cs-server', 'citrix.gslb-server',
   ]);
   assert.deepEqual(presentation.actions.map((item) => item.capabilityKey), ['device.discover']);
+});
+
+test('Citrix ADC Manifest 产品族与 LB Server 发现目标兼容', async () => {
+  const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())
+    .find((item) => (item.manifest as UnifiedPluginManifestV1).pluginId === 'device.citrix.netscaler-adc');
+  assert.ok(pluginPackage);
+  const manifest = pluginPackage.manifest as UnifiedPluginManifestV1;
+  assert.deepEqual(manifest.compatibility?.productFamilies, ['citrix.netscaler-adc']);
+
+  const compatibility = evaluatePluginCompatibility(manifest, {
+    productFamily: 'citrix.netscaler-adc',
+    frameworkType: 'citrix.lb-server',
+    targetType: 'tls.binding',
+    managementMethod: 'PLUGIN',
+    executionLocation: 'CONTROL_PLANE',
+    artifactContract: 'certificate.deploy.v1',
+  });
+  assert.equal(compatibility.compatible, true, JSON.stringify(compatibility.reasons));
 });
 
 test('Citrix ADC 连接测试识别版本且不泄漏认证值', async () => {

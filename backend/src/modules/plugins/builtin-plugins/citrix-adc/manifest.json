@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "device.citrix.netscaler-adc",
-  "version": "2.0.7",
+  "version": "2.0.8",
   "displayNameKey": "plugin.citrixAdc.name",
   "descriptionKey": "plugin.citrixAdc.description",
   "logoUrl": "/plugin-logos/citrix-adc.svg",
@@ -33,7 +33,7 @@
     "audit.append"
   ],
   "compatibility": {
-    "productFamilies": ["device.citrix.netscaler-adc"],
+    "productFamilies": ["citrix.netscaler-adc"],
     "frameworkTypes": ["citrix.lb-server", "citrix.vpn-server", "citrix.cs-server", "citrix.gslb-server"],
     "targetTypes": ["tls.binding"],
     "managementMethods": ["PLUGIN"],

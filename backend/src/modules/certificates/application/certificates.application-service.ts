@@ -761,6 +761,8 @@ export class CertificatesApplicationService {
     privateKeyPem?: string;
     pfxBase64?: string;
     pfxPassword?: string;
+    artifactRef?: string;
+    artifactSha256?: string;
     files: CertificateArtifactFileDto[];
     warnings: string[];
   }> {
@@ -773,6 +775,18 @@ export class CertificatesApplicationService {
       throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId: input.certificateVersionId });
     }
     const { generated, warnings, privateKey, password, pemNeedsSeparatePrivateKey } = await this.buildGeneratedFormatArtifact(format, version, input.createdBy, input.expiresAt, context, input.tenantId);
+    // 部署阶段只把不可变引用交给 Plugin Runner；实际证书内容留在租户隔离的制品仓。
+    // 引用按格式和内容摘要确定，重复预检只会幂等覆盖同一份制品。
+    const artifactSha256 = createHash('sha256').update(generated.content).digest('hex');
+    const artifactRef = `artifact://certificate-format/${format.id}/${artifactSha256}`;
+    await this.artifacts.put({
+      tenantId: input.tenantId,
+      artifactRef,
+      content: generated.content,
+      contentType: generated.contentType,
+      createdBy: input.createdBy,
+      expiresAt: input.expiresAt,
+    });
     console.info('[certificates.generateDeploymentArtifactFromFormat]', JSON.stringify({
       certificateVersionId: input.certificateVersionId,
       certificateFormatId: format.id,
@@ -782,7 +796,7 @@ export class CertificatesApplicationService {
       passwordLength: password?.plainText?.length,
       passwordUtf8Sha256: generated.debug?.passwordUtf8Sha256,
       passwordUtf8Length: generated.debug?.passwordUtf8Length,
-      artifactSha256: createHash('sha256').update(generated.content).digest('hex'),
+      artifactSha256,
       artifactSize: generated.content.length,
       warnings: generated.warnings,
       parameterKeys: Object.keys(format.parameters ?? {}),
@@ -797,6 +811,8 @@ export class CertificatesApplicationService {
       pfxBase64: generated.format === 'pfx' ? generated.content.toString('base64') : undefined,
       pfxPassword: generated.format === 'pfx' ? password?.plainText : undefined,
       files: generated.files.map((file) => ({ ...file })),
+      artifactRef,
+      artifactSha256: `sha256:${artifactSha256}`,
       warnings: [...warnings, ...generated.warnings],
     };
   }

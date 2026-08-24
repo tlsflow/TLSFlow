@@ -17,7 +17,7 @@ import { PgUnifiedPluginsRepository } from '../repository/unified-plugins.reposi
 import { DeploymentCapabilityResolver, type ResolvedDeploymentCapability } from './deployment-capability.resolver.js';
 import { PluginBindingsApplicationService } from './plugin-bindings.application-service.js';
 import { compareSemanticVersions, UnifiedPluginsApplicationService } from './unified-plugins.application-service.js';
-import type { CreateWorkflowExecutionBindingInput } from '../../workflow-templates/dto/workflow-execution-bindings.dto.js';
+import type { CreateWorkflowExecutionBindingInput, WorkflowExecutionBinding } from '../../workflow-templates/dto/workflow-execution-bindings.dto.js';
 import { WorkflowExecutionBindingsRepository } from '../../workflow-templates/repository/workflow-execution-bindings.repository.js';
 import { WorkflowExecutionBindingsService } from '../../workflow-templates/application/workflow-execution-bindings.service.js';
 import { buildPluginCertificateArtifactBindings } from '../artifacts/plugin-certificate-artifact-binding.js';
@@ -158,8 +158,14 @@ export class ManagedTargetPluginQueryService {
         ? applicationAsset.deploymentStrategy.managedTarget?.workflowExecutionBindingId
         : undefined;
       if (previousWorkflowBindingId) {
-        const previous = await services.workflowBindings.get(input.tenantId, previousWorkflowBindingId);
-        if (previous.status === 'ACTIVE') await services.workflowBindings.disable(input.tenantId, previous.id, previous.version);
+        let previous: WorkflowExecutionBinding | undefined;
+        try {
+          previous = await services.workflowBindings.get(input.tenantId, previousWorkflowBindingId);
+        } catch (error) {
+          // 历史清理可能已经删除绑定，但资产策略尚未同步；插件模式会完整覆盖该策略，不能被这个脏引用阻断。
+          if (!(error instanceof AppError) || error.errorCode !== 'RESOURCE_NOT_FOUND') throw error;
+        }
+        if (previous?.status === 'ACTIVE') await services.workflowBindings.disable(input.tenantId, previous.id, previous.version);
       }
       const compatibility = await this.createCompatibilityContext(services.devices, input.tenantId, context, capabilityKey);
       if (!input.value.pluginOverride) {
