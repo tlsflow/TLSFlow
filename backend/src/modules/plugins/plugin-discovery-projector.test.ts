@@ -87,6 +87,111 @@ test('标准发现投影事务化、幂等并把缺失对象标记为 STALE', as
   assert.equal((await db.query<{ discovery_status: string }>("select metadata->>'discoveryStatus' as discovery_status from pg_certificate_bindings limit 1")).rows[0]?.discovery_status, 'STALE');
 });
 
+test('标准发现重建稳定键后会释放旧的非托管证书绑定唯一键', async () => {
+  const db = new PgliteDatabase();
+  await runMigrations(db, undefined, { appliedBy: 'test', checksum: (content) => createHash('sha256').update(content).digest('hex') });
+  await db.query(`insert into pg_hosts (id, tenant_id, hostname, os_type, discovery_source, compatibility_level, management_mode, status)
+    values ('host-binding-rebuild','tenant-binding-rebuild','iis.example','WINDOWS','AGENT','L1','AGENT','ACTIVE')`);
+
+  const projector = new StandardDeviceDiscoveryProjector(db);
+  const context = {
+    tenantId: 'tenant-binding-rebuild',
+    hostId: 'host-binding-rebuild',
+    discoveryProviderKey: 'agent:binding-rebuild',
+    discoverySource: 'AGENT' as const,
+  };
+  const first = windowsStoreDiscovery('site:v1', 'target:v1', 'binding:v1');
+  await projector.project(context, first);
+
+  const second = windowsStoreDiscovery('site:v2', 'target:v2', 'binding:v2');
+  await projector.project(context, second);
+
+  const rows = (await db.query<{
+    id: string;
+    deleted_at: string | null;
+    discovery_status: string | null;
+  }>(`select id, deleted_at, metadata->>'discoveryStatus' as discovery_status
+      from pg_certificate_bindings
+      where tenant_id=$1
+      order by created_at`, [context.tenantId])).rows;
+  assert.equal(rows.length, 2);
+  assert.ok(rows[0]?.deleted_at, '旧的非托管发现绑定必须释放唯一索引占位');
+  assert.equal(rows[0]?.discovery_status, 'STALE');
+  assert.equal(rows[1]?.deleted_at, null);
+  assert.equal(rows[1]?.discovery_status, 'ACTIVE');
+  const target = (await db.query<{ certificate_location: Record<string, unknown> }>(
+    `select metadata->'certificateLocation' as certificate_location
+       from pg_managed_targets
+      where tenant_id=$1 and status='ACTIVE'`,
+    [context.tenantId],
+  )).rows[0]?.certificate_location;
+  assert.equal(target?.serviceName, 'Apache-Test');
+  assert.equal(target?.programPath, 'C:/Apache24/bin/httpd.exe');
+  assert.equal(target?.configFingerprint, 'C'.repeat(64));
+});
+
+function windowsStoreDiscovery(siteStableKey: string, targetStableKey: string, bindingStableKey: string) {
+  return {
+    apiVersion: 'gcac.device-discovery/v2' as const,
+    device: { stableKey: `device:${siteStableKey}`, displayName: 'IIS', productFamily: 'AGENT_HOST' },
+    capabilities: [],
+    frameworks: [{ stableKey: 'framework:iis', frameworkType: 'web.iis', displayName: 'IIS' }],
+    sites: [{
+      stableKey: siteStableKey,
+      frameworkStableKey: 'framework:iis',
+      siteType: 'web.site',
+      displayName: 'Default Web Site',
+      addresses: ['rds.example.test'],
+      port: 443,
+      protocol: 'HTTPS',
+      metadata: { listeners: [{ protocol: 'HTTPS', host: 'rds.example.test', port: 443 }] },
+    }],
+    managedTargets: [{
+      stableKey: targetStableKey,
+      frameworkStableKey: 'framework:iis',
+      siteStableKey,
+      targetType: 'tls.binding',
+      targetKey: `rds.example.test:443:${targetStableKey}`,
+      supportedCapabilities: ['certificate.deploy'],
+      executionLocations: ['AGENT' as const],
+      metadata: {
+        certificateLocation: {
+          storageKind: 'WINDOWS_CERTIFICATE_STORE',
+          storeName: 'My',
+          storeLocation: 'LocalMachine',
+          storeThumbprint: 'B'.repeat(40),
+          serviceName: 'Apache-Test',
+          programPath: 'C:/Apache24/bin/httpd.exe',
+          configFingerprint: 'C'.repeat(64),
+        },
+      },
+    }],
+    certificates: [{
+      stableKey: 'certificate:iis',
+      sha256Fingerprint: 'A'.repeat(64),
+      subject: 'CN=rds.example.test',
+      issuer: 'CN=Test CA',
+      notBefore: '2026-01-01T00:00:00Z',
+      notAfter: '2027-01-01T00:00:00Z',
+    }],
+    certificateBindings: [{
+      stableKey: bindingStableKey,
+      managedTargetStableKey: targetStableKey,
+      certificateStableKey: 'certificate:iis',
+      deploymentTarget: {
+        storageKind: 'WINDOWS_CERTIFICATE_STORE' as const,
+        storeName: 'My',
+        storeLocation: 'LocalMachine',
+        storeThumbprint: 'B'.repeat(40),
+        serviceName: 'Apache-Test',
+        programPath: 'C:/Apache24/bin/httpd.exe',
+        configFingerprint: 'C'.repeat(64),
+      },
+    }],
+    warnings: [],
+  };
+}
+
 test('非法发现关系不会污染上次成功投影', async () => {
   const db = new PgliteDatabase();
   await runMigrations(db, undefined, { appliedBy: 'test', checksum: (content) => createHash('sha256').update(content).digest('hex') });
@@ -174,7 +279,7 @@ test('Agent 发现使用相同标准快照和投影幂等链', async () => {
     metadata: Record<string, unknown>;
   }>('select certificate_version_id, observed_fingerprint_sha256, metadata from pg_certificate_bindings')).rows[0];
   assert.equal(formalBinding?.certificate_version_id, 'certificate-version-agent');
-  assert.equal(formalBinding?.observed_fingerprint_sha256, 'B'.repeat(64));
+  assert.equal(formalBinding?.observed_fingerprint_sha256, null);
   assert.equal(formalBinding?.metadata.discoveryProviderKey, 'agent:agent-1');
   const detail = await new PgDevicesRepository(db).get('tenant-agent', 'host-agent');
   assert.equal(detail?.sites[0]?.bindings[0]?.certificate?.certificateVersionId, 'certificate-version-agent');
@@ -186,7 +291,7 @@ test('Agent 发现使用相同标准快照和投影幂等链', async () => {
   await projector.project(context, unmanagedDiscovery);
   const unmanagedDetail = await new PgDevicesRepository(db).get('tenant-agent', 'host-agent');
   assert.equal(unmanagedDetail?.sites[0]?.bindings[0]?.certificate?.certificateVersionId, undefined);
-  assert.equal(unmanagedDetail?.sites[0]?.bindings[0]?.certificate?.fingerprintSha256, 'C'.repeat(64));
+  assert.equal(unmanagedDetail?.sites[0]?.bindings[0]?.certificate?.fingerprintSha256, 'c'.repeat(64));
   assert.equal(unmanagedDetail?.sites[0]?.bindings[0]?.certificate?.subject, 'CN=unmanaged.agent.example');
 
   await projector.project(context, { ...unmanagedDiscovery, certificates: [], certificateBindings: [] });

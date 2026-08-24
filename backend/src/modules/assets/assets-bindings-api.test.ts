@@ -1457,6 +1457,12 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
           sourceFile: '/etc/nginx/sites-enabled/nginx-app-target.conf',
           serverNames: ['nginx-app-target.example.com'],
           testCommand: 'nginx -t',
+          configuredCertificate: {
+            source: 'runtime-effective-config',
+            subject: 'CN=nginx-app-target.example.com',
+            fingerprintSha256: 'E9B4E249F18616E2DC55D429D2C07087096258B87EA4C4A7864E355CA250251A',
+            notAfter: '2028-11-06T02:29:03.000Z',
+          },
         },
       },
     });
@@ -1497,6 +1503,12 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
           managedTargetId?: string;
           bindingType?: string;
           verifyMethod?: string;
+          configuredCertificate?: {
+            source?: string;
+            subject?: string;
+            fingerprintSha256?: string;
+            notAfter?: string;
+          };
         }>;
         managedTarget?: { metadata?: { certPath?: string; keyPath?: string; reloadCommand?: string } };
       };
@@ -1504,6 +1516,9 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
     const assetBinding = (detailBody.targetBindingDetail?.certificateBindings ?? []).find((item) => item.managedTargetId === managedTarget.id);
     assert.ok(assetBinding);
     assert.equal(assetBinding?.bindingType, 'FILE_PATH');
+    assert.equal(assetBinding?.configuredCertificate?.source, 'runtime-effective-config');
+    assert.equal(assetBinding?.configuredCertificate?.subject, 'CN=nginx-app-target.example.com');
+    assert.equal(assetBinding?.configuredCertificate?.fingerprintSha256, 'E9B4E249F18616E2DC55D429D2C07087096258B87EA4C4A7864E355CA250251A');
     assert.equal(detailBody.targetBindingDetail?.managedTarget?.metadata?.certPath, '/etc/nginx/certs/nginx-app-target.pem');
     assert.equal(detailBody.targetBindingDetail?.managedTarget?.metadata?.keyPath, '/etc/nginx/certs/nginx-app-target.key');
   });

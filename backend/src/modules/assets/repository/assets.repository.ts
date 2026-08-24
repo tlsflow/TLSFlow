@@ -749,6 +749,7 @@ export class PgAssetsRepository implements AssetsRepository {
       desiredFingerprintSha256: row.desired_fingerprint_sha256 ?? undefined,
       targetFingerprintSha256: row.target_fingerprint_sha256 ?? undefined,
       storeThumbprint: row.store_thumbprint ?? undefined,
+      configuredCertificate: configuredCertificateEvidence(row.metadata),
       lastVerifiedAt: row.last_verified_at ?? undefined,
       lastDeployedAt: row.last_deployed_at ?? undefined,
     }));
@@ -1518,4 +1519,26 @@ function normalizeOptionalStringValue(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function configuredCertificateEvidence(value: unknown): {
+  path?: string;
+  source?: string;
+  subject?: string;
+  issuer?: string;
+  fingerprintSha256?: string;
+  notBefore?: string;
+  notAfter?: string;
+} | undefined {
+  const certificate = asObject(asObject(value).configuredCertificate);
+  const projected = {
+    path: normalizeOptionalStringValue(certificate.path),
+    source: normalizeOptionalStringValue(certificate.source),
+    subject: normalizeOptionalStringValue(certificate.subject),
+    issuer: normalizeOptionalStringValue(certificate.issuer),
+    fingerprintSha256: normalizeOptionalStringValue(certificate.fingerprintSha256),
+    notBefore: normalizeOptionalStringValue(certificate.notBefore),
+    notAfter: normalizeOptionalStringValue(certificate.notAfter),
+  };
+  return Object.values(projected).some(Boolean) ? projected : undefined;
 }

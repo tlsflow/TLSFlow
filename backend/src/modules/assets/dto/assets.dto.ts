@@ -228,6 +228,16 @@ export interface CurrentCertificateDto {
   source?: string;
 }
 
+export interface ConfiguredCertificateEvidenceDto {
+  path?: string;
+  source?: string;
+  subject?: string;
+  issuer?: string;
+  fingerprintSha256?: string;
+  notBefore?: string;
+  notAfter?: string;
+}
+
 export interface ServiceAssetDetailDto extends ServiceAssetDto {
   targetBindingDetail?: ApplicationAssetTargetDetailDto;
   targetSnapshots?: ManagedTargetSnapshotDto[];
@@ -405,7 +415,9 @@ export interface ApplicationAssetTargetDetailDto extends ApplicationAssetTargetS
     | 'storeThumbprint'
     | 'lastVerifiedAt'
     | 'lastDeployedAt'
-  >>;
+  >> & {
+    configuredCertificate?: ConfiguredCertificateEvidenceDto;
+  };
 }
 
 export interface CreateApplicationAssetTargetDto {

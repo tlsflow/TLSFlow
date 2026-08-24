@@ -358,7 +358,9 @@ async function markStale(db: DatabasePort, context: StandardDiscoveryProjectionC
   await db.query("update pg_managed_targets set status='STALE', updated_at=$1, version=version+1 where tenant_id=$2 and device_id=$3 and discovery_provider_key=$4 and deleted_at is null", [discoveredAt, context.tenantId, context.hostId, discoveryProviderKey]);
   await db.query(
     `update pg_certificate_bindings
-     set metadata=jsonb_set(metadata, '{discoveryStatus}', '"STALE"'::jsonb, true), updated_at=$1, version=version+1
+     set metadata=jsonb_set(metadata, '{discoveryStatus}', '"STALE"'::jsonb, true),
+         deleted_at=case when status='MANAGED' then deleted_at else $1::timestamptz end,
+         updated_at=$1, version=version+1
      where tenant_id=$2 and host_id=$3 and metadata->>'discoveryProviderKey'=$4 and deleted_at is null`,
     [discoveredAt, context.tenantId, context.hostId, discoveryProviderKey],
   );

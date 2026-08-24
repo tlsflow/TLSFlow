@@ -925,6 +925,23 @@ function resolveCurrentCertificateProjection(
     });
     if (observedValue) return markCertificateUpdateAvailability(observedValue, certificateAssetById, latestVersionByAssetId);
 
+    // Agent 发现的本机证书可能尚未导入证书资产版本；此时以绑定 metadata 中的
+    // configuredCertificate 作为事实投影，不能因为没有 certificateVersionId 就丢弃它。
+    const configuredCertificate = readRecordAtPath(binding.metadata, 'configuredCertificate');
+    if (configuredCertificate) {
+      const configuredFingerprint = readCertificateFingerprint(configuredCertificate, ['fingerprintSha256']);
+      const configuredVersion = configuredFingerprint ? versionByFingerprint.get(configuredFingerprint) : undefined;
+      const configuredValue = projectCertificateEvidence({
+        version: configuredVersion,
+        fallback: configuredCertificate,
+        fingerprint: configuredFingerprint,
+        source: readStringAtPath(configuredCertificate, ['source']) ?? 'binding_metadata',
+        observedAt: binding.lastVerifiedAt ?? binding.checkedAt,
+        verified: readBooleanAtPath(configuredCertificate, ['verified']),
+      });
+      if (configuredValue) return markCertificateUpdateAvailability(configuredValue, certificateAssetById, latestVersionByAssetId);
+    }
+
     const versionId = resolveBindingCurrentCertificateVersionId(binding);
     const versionValue = projectCertificateEvidence({
       version: versionId ? versionById.get(versionId) : undefined,
@@ -1048,7 +1065,14 @@ function readBooleanAtPath(value: unknown, paths: readonly string[]): boolean | 
 
 function readCertificateSubject(value: unknown): CertificateDistinguishedName | undefined {
   const candidate = readPath(value, 'subject');
-  if (typeof candidate === 'string' && candidate.trim()) return { raw: candidate.trim() };
+  if (typeof candidate === 'string' && candidate.trim()) {
+    const raw = candidate.trim();
+    const commonName = raw.match(/(?:^|[\n,]\s*)CN=([^,\n]+)/i)?.[1]?.trim();
+    return {
+      raw,
+      ...(commonName ? { commonName } : {}),
+    };
+  }
   if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return undefined;
   const subject = candidate as Record<string, unknown>;
   const raw = typeof subject.raw === 'string' && subject.raw.trim() ? subject.raw.trim() : undefined;

@@ -52,7 +52,7 @@ type WorkflowRunnerType = 'CONTROL_PLANE' | 'GATEWAY'
 type WorkflowVersionSelection = 'PINNED' | 'LATEST_PUBLISHED'
 type AssetWizardStep = 1 | 2 | 3
 type AssetCertificateLifecycle = 'unknown' | 'expired' | 'expiringSoon' | 'valid' | 'updateAvailable'
-type CertificateDeploymentSelection = { selectionMode: 'EXPLICIT' | 'LATEST_AUTO'; certificateVersionId: string }
+type CertificateDeploymentSelection = { certificateAssetId: string; selectionMode: 'EXPLICIT' | 'LATEST_AUTO'; certificateVersionId: string }
 
 const ASSET_WORKSPACE_PAGE_SIZE = 20
 
@@ -382,13 +382,7 @@ const deploymentCertificate = computed<ApiRecord | null>(() => {
 })
 
 const deploymentCertificateVersions = computed<ApiRecord[]>(() => {
-  const assetId = deploymentCertificateAssetId.value
-  const versions = assetId
-    ? deploymentCertificateVersionItems.value.filter((item) => firstAssetText(item, ['certificateAssetId', 'certificateId']) === assetId)
-    : []
-  if (versions.length > 0) return versions
-  const currentVersionId = deploymentCurrentCertificateVersionId.value
-  return deploymentCertificateVersionItems.value.filter((item) => firstAssetText(item, ['id', 'certificateVersionId']) === currentVersionId)
+  return deploymentCertificateVersionItems.value
 })
 
 const deploymentDialogTitle = computed(() => bulkCertificateUpdateMode.value
@@ -832,6 +826,7 @@ async function runCertificateDeployment(
   }
   const created = await createDeploymentPlanFromApplicationAsset({
     applicationAssetId,
+    certificateAssetId: selection.certificateAssetId,
     selectionMode: selection.selectionMode,
     targetCertificateVersionId: selection.certificateVersionId,
     reuseDraft: false,
@@ -855,7 +850,7 @@ async function runCertificateDeployment(
   return 'STARTED'
 }
 
-async function deployCertificateVersion(selection: { selectionMode: 'EXPLICIT' | 'LATEST_AUTO'; certificateVersionId: string }) {
+async function deployCertificateVersion(selection: CertificateDeploymentSelection) {
   deploymentLoading.value = true
   deploymentError.value = ''
   try {
@@ -2238,14 +2233,32 @@ function workflowCertificateOutputOptions(certificateFormatId: string): Array<{ 
     if (parameters.includeLeafCertificate !== false && (parameters.includeCertificateChain || parameters.generateChainFile)) {
       options.push({ key: 'fullchain', label: `fullchain / ${t('assets.certificateOutputs.publicCertificateWithChain')}`, role: 'public_certificate' })
     }
-    if (parameters.includeLeafCertificate !== false) options.push({ key: 'public', label: `public / ${t('assets.certificateOutputs.publicCertificate')}`, role: 'public_certificate' })
-    if (parameters.includeCertificateChain || parameters.generateChainFile) options.push({ key: 'chain', label: `chain / ${t('assets.certificateOutputs.certificateChain')}`, role: 'certificate_chain' })
-    if (containsPrivateKey || parameters.generatePrivateKeyFile) options.push({ key: 'private', label: `private / ${t('assets.certificateOutputs.privateKey')}`, role: 'private_key' })
+    if (parameters.includeLeafCertificate !== false) {
+      options.push({ key: 'leafPem', label: `leafPem / ${t('assets.certificateOutputs.publicCertificate')}`, role: 'public_certificate' })
+      // 兼容历史工作流仍使用的输出键。
+      options.push({ key: 'public', label: `public / ${t('assets.certificateOutputs.publicCertificate')}`, role: 'public_certificate' })
+    }
+    if (parameters.includeCertificateChain || parameters.generateChainFile) {
+      options.push({ key: 'orderedChainPem', label: `orderedChainPem / ${t('assets.certificateOutputs.certificateChain')}`, role: 'certificate_chain' })
+      // 兼容历史工作流仍使用的输出键。
+      options.push({ key: 'chain', label: `chain / ${t('assets.certificateOutputs.certificateChain')}`, role: 'certificate_chain' })
+    }
+    if (containsPrivateKey || parameters.generatePrivateKeyFile) {
+      options.push({ key: 'privateKeyPem', label: `privateKeyPem / ${t('assets.certificateOutputs.privateKey')}`, role: 'private_key' })
+      // 兼容历史工作流仍使用的输出键。
+      options.push({ key: 'private', label: `private / ${t('assets.certificateOutputs.privateKey')}`, role: 'private_key' })
+    }
     options.push({ key: 'bundle', label: `bundle / ${t('assets.certificateOutputs.pemBundle')}`, role: 'bundle' })
     options.push(fingerprintOutput)
     return dedupeOutputOptions(options)
   }
-  if (formatName === 'der') return [{ key: 'public', label: `public / DER ${t('assets.certificateOutputs.publicCertificate')}`, role: 'public_certificate' }, fingerprintOutput]
+  if (formatName === 'der') {
+    return [
+      { key: 'leafPem', label: `leafPem / DER ${t('assets.certificateOutputs.publicCertificate')}`, role: 'public_certificate' },
+      { key: 'public', label: `public / DER ${t('assets.certificateOutputs.publicCertificate')}`, role: 'public_certificate' },
+      fingerprintOutput,
+    ]
+  }
   return [{ key: 'bundle', label: `bundle / ${t('assets.certificateOutputs.container', { format: formatName.toUpperCase() })}`, role: 'bundle' }, fingerprintOutput]
 }
 
@@ -2556,6 +2569,12 @@ function siteLabel(site: ApiRecord): string {
 function certificateVersionLabel(versionId: string): string {
   if (!versionId) return t('assets.empty.notSet')
   return versionId
+}
+
+function certificateBindingCurrentLabel(binding: ApiRecord): string {
+  const configuredCertificate = readRecord(readNested(binding, ['configuredCertificate']))
+  return firstAssetText(configuredCertificate ?? {}, ['subject', 'fingerprintSha256'])
+    || certificateVersionLabel(String(binding.certificateVersionId ?? binding.localCertificateVersionId ?? ''))
 }
 
 function snapshotTypeLabel(value: unknown): string {
@@ -3268,7 +3287,7 @@ function managedTargetLabel(target: ApiRecord): string {
                   </div>
                   <div>
                     <span>{{ t('assets.fields.currentCertificate') }}</span>
-                    <strong>{{ certificateVersionLabel(String(binding.certificateVersionId ?? binding.localCertificateVersionId ?? '')) }}</strong>
+                    <strong>{{ certificateBindingCurrentLabel(binding) }}</strong>
                   </div>
                   <div>
                     <span>{{ t('assets.fields.targetCertificate') }}</span>
@@ -3401,6 +3420,7 @@ function managedTargetLabel(target: ApiRecord): string {
         :application-asset="deploymentApplicationAsset"
         :site-name="deploymentSiteName"
         :certificate="deploymentCertificate"
+        :certificates="deploymentCertificateItems"
         :certificate-versions="deploymentCertificateVersions"
         :preflight-checks="deploymentDryRunChecks"
         :loading="deploymentLoading"

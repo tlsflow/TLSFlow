@@ -328,4 +328,40 @@ test('应用资产列表投影当前证书的资产记录、监控观测和绑�
   const stagedBindingCertificate = stagedPage.items.find((item) => item.address === 'staged-binding.example.com')?.currentCertificate;
   assert.equal(stagedBindingCertificate?.versionId, currentCertificateVersionId);
   assert.equal(stagedBindingCertificate?.updateAvailable, true);
+
+  const discoveredBindingAsset = await assetsRepository.createServiceAsset(tenantId, {
+    address: 'discovered-binding.example.com',
+    port: 8444,
+    protocol: 'HTTPS',
+  });
+  await bindingsRepository.createCertificateBinding(tenantId, {
+    serviceAssetId: discoveredBindingAsset.id,
+    serviceInstanceId: framework.id,
+    domainName: 'discovered-binding.example.com',
+    bindingType: 'FILE_PATH',
+    verifyMethod: 'TLS_CONNECT',
+    metadata: {
+      configuredCertificate: {
+        path: 'C:/GCAC-Lab/certs/apache.crt.pem',
+        source: 'runtime-effective-config',
+        subject: 'CN=discovered-binding.example.com',
+        issuer: 'CN=GCAC Lab Root CA',
+        notBefore: '2026-08-04T02:29:03.000Z',
+        notAfter: '2028-11-06T02:29:03.000Z',
+        fingerprintSha256: 'E9B4E249F18616E2DC55D429D2C07087096258B87EA4C4A7864E355CA250251A',
+      },
+    },
+  });
+  const discoveredPage = await service.listServiceAssets(tenantId, {
+    page: 1,
+    pageSize: 50,
+    filter: {},
+  });
+  const discoveredCertificate = discoveredPage.items.find((item) => item.address === 'discovered-binding.example.com')?.currentCertificate;
+  assert.equal(discoveredCertificate?.versionId, undefined);
+  assert.equal(discoveredCertificate?.commonName, 'discovered-binding.example.com');
+  assert.equal(discoveredCertificate?.subject?.raw, 'CN=discovered-binding.example.com');
+  assert.equal(discoveredCertificate?.fingerprintSha256, 'E9B4E249F18616E2DC55D429D2C07087096258B87EA4C4A7864E355CA250251A');
+  assert.equal(discoveredCertificate?.notAfter, '2028-11-06T02:29:03.000Z');
+  assert.equal(discoveredCertificate?.source, 'runtime-effective-config');
 });
