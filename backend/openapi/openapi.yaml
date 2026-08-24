@@ -5888,6 +5888,26 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/plugin-catalog/refresh-builtins:
+    post:
+      operationId: "refreshBuiltinPluginCatalog"
+      summary: "刷新内置插件注册表"
+      tags:
+        - "Plugins"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/plugin-versions:
     get:
       operationId: "listUnifiedPluginVersions"
@@ -5918,6 +5938,68 @@ paths:
                     type: "number"
                   total:
                     type: "number"
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/plugin-version-groups:
+    get:
+      operationId: "listPluginVersionGroups"
+      summary: "查询插件版本分组"
+      tags:
+        - "Plugins"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "array"
+                items:
+                  type: "object"
+                  additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/plugin-version-management/:pluginVersionId:
+    get:
+      operationId: "getPluginVersionManagementDetail"
+      summary: "查询插件版本管理详情"
+      tags:
+        - "Plugins"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/plugin-version-management/switch:
+    post:
+      operationId: "switchPluginVersion"
+      summary: "切换插件运行版本"
+      tags:
+        - "Plugins"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
         400:
           $ref: "#/components/responses/ErrorResponse"
         404:
@@ -6314,6 +6396,26 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/managed-targets/:managedTargetId/deployment-input-projection:
+    post:
+      operationId: "projectApplicationAssetPluginInputs"
+      summary: "生成应用资产插件部署输入投影"
+      tags:
+        - "Plugins"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/application-assets/:applicationAssetId/managed-target:
     put:
       operationId: "saveApplicationAssetManagedTarget"
@@ -6437,7 +6539,7 @@ paths:
   /api/v1/workflow-templates:
     get:
       operationId: "listWorkflowTemplates"
-      summary: "列出工作流模板"
+      summary: "兼容：列出工作流模板"
       tags:
         - "WorkflowTemplates"
       responses:
@@ -8112,4 +8214,4 @@ tags:
   -
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-07-31T15:29:44.674Z"
+x-generatedAt: "2026-08-04T07:41:36.562Z"

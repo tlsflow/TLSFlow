@@ -305,6 +305,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     secrets: security.secrets,
     certificates: certificateServices.certificates.getRepository(),
   })).register(app.router);
+  new LicensingController(licensingService).register(app.router);
   new CredentialsController(new CredentialsApplicationService(new CredentialsRepository(appDb), undefined, appDb, security.secrets), security).register(app.router);
   const executionsService = deploymentPlans.getExecutionsService();
   app.setResource('deploymentPlansController', deploymentPlans);
@@ -401,6 +402,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
           appDb,
           { compatibilityUpgrader: builtinPluginCompatibilityUpgrader },
         );
+        const projection = await agentsService.reprojectLatestCapabilitySnapshots();
         return {
           refreshedAt: new Date().toISOString(),
           versions: versions.map((version) => ({
@@ -409,6 +411,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
             version: version.version,
             status: version.status,
           })),
+          projection,
         };
       })().finally(() => {
         builtinPluginRefreshPromise = undefined;
