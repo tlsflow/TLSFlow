@@ -2,6 +2,7 @@ import { apiClient, createIdempotencyKey } from '@/api/client'
 import { listRecords, postAction, toClientPath, type ApiBody, type ApiRecord, type BusinessListQuery } from './common'
 
 const WORKFLOW_TEMPLATES_PATH = '/api/v1/workflow-templates'
+const WORKFLOW_FILE_TEMPLATES_PATH = '/api/v1/workflow-file-templates'
 const WORKFLOW_TEMPLATE_VERSIONS_PATH = '/api/v1/workflow-template-versions'
 const WORKFLOW_TEMPLATE_PUBLISH_PATH = '/api/v1/workflow-template-versions/publish'
 const WORKFLOW_TEMPLATE_STEP_TEST_PATH = '/api/v1/workflow-template-runs/test-step'
@@ -14,6 +15,18 @@ export function listWorkflowTemplates(query?: BusinessListQuery) {
 
 export function createWorkflowTemplate(payload: ApiBody) {
   return postAction(WORKFLOW_TEMPLATES_PATH, payload, 'workflow_template_create')
+}
+
+export function listWorkflowFileTemplates() {
+  return apiClient.get<{ items?: readonly ApiRecord[] }>(toClientPath(WORKFLOW_FILE_TEMPLATES_PATH))
+}
+
+export function createWorkflowTemplateFromFile(payload: ApiBody) {
+  return postAction(`${WORKFLOW_FILE_TEMPLATES_PATH}/create`, payload, 'workflow_template_file_create')
+}
+
+export function applyWorkflowTemplateFromFile(payload: ApiBody) {
+  return postAction(`${WORKFLOW_FILE_TEMPLATES_PATH}/apply`, payload, 'workflow_template_file_apply')
 }
 
 export function listWorkflowTemplateVersions(templateId: string) {

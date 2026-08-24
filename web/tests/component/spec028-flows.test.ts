@@ -32,8 +32,19 @@ const dashboardMocks = vi.hoisted(() => ({
   listDashboardRisks: vi.fn(),
 }))
 
+const bindingMocks = vi.hoisted(() => ({
+  listBindings: vi.fn(),
+}))
+
 const monitorMocks = vi.hoisted(() => ({
   listMonitors: vi.fn(),
+  listMonitorTargets: vi.fn(),
+  createMonitorTarget: vi.fn(),
+  updateMonitorTarget: vi.fn(),
+  deleteMonitorTarget: vi.fn(),
+  listRiskEvents: vi.fn(),
+  listMonitorCertificateObservations: vi.fn(),
+  probeMonitorServiceAsset: vi.fn(),
   scanMonitorRisks: vi.fn(),
 }))
 
@@ -80,8 +91,19 @@ vi.mock('@/api/modules/dashboard.api', () => ({
   listDashboardRisks: dashboardMocks.listDashboardRisks,
 }))
 
+vi.mock('@/api/modules/bindings.api', () => ({
+  listBindings: bindingMocks.listBindings,
+}))
+
 vi.mock('@/api/modules/monitors.api', () => ({
   listMonitors: monitorMocks.listMonitors,
+  listMonitorTargets: monitorMocks.listMonitorTargets,
+  createMonitorTarget: monitorMocks.createMonitorTarget,
+  updateMonitorTarget: monitorMocks.updateMonitorTarget,
+  deleteMonitorTarget: monitorMocks.deleteMonitorTarget,
+  listRiskEvents: monitorMocks.listRiskEvents,
+  listMonitorCertificateObservations: monitorMocks.listMonitorCertificateObservations,
+  probeMonitorServiceAsset: monitorMocks.probeMonitorServiceAsset,
   scanMonitorRisks: monitorMocks.scanMonitorRisks,
 }))
 
@@ -240,7 +262,20 @@ describe('spec028 前端闭环', () => {
     dashboardMocks.listDashboardRisks.mockResolvedValue(okPage([
       { id: 'risk-1', title: '证书即将过期', risk: 'HIGH', status: 'READY', certificateId: 'cert-1' },
     ]))
+    bindingMocks.listBindings.mockResolvedValue(okPage([]))
     monitorMocks.listMonitors.mockResolvedValue(okPage([]))
+    monitorMocks.listMonitorTargets.mockResolvedValue(okPage([]))
+    monitorMocks.listRiskEvents.mockResolvedValue(okPage([]))
+    monitorMocks.listMonitorCertificateObservations.mockResolvedValue(okPage([]))
+    monitorMocks.probeMonitorServiceAsset.mockResolvedValue({
+      data: {
+        status: 'READY',
+        latencyMs: 12,
+        checkedAt: '2026-06-08T00:00:00.000Z',
+        message: '探测完成',
+        source: 'control_plane',
+      },
+    })
     monitorMocks.scanMonitorRisks.mockResolvedValue({ data: { ok: true } })
 
     workflowMocks.listWorkflowTemplates.mockResolvedValue(okPage([
@@ -273,6 +308,7 @@ describe('spec028 前端闭环', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    localStorage.clear()
     document.body.innerHTML = ''
   })
 
@@ -602,6 +638,37 @@ describe('spec028 前端闭环', () => {
     await wrapper.find('button.gc-monitor-page__card').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.fullPath).toBe('/certificates?certificateId=cert-1')
+  })
+
+  it('监控页面清理本地监控数据并从后端加载监控目标', async () => {
+    localStorage.setItem('gcac.monitor.targets.v1', JSON.stringify([{ id: 'local-target', assetId: 'asset-1' }]))
+    localStorage.setItem('gcac.monitor.probe-history.v1', JSON.stringify({ 'asset-1': [] }))
+    monitorMocks.listMonitorTargets.mockResolvedValue(okPage([
+      {
+        id: 'target-1',
+        serviceAssetId: 'asset-1',
+        metrics: ['availability', 'latency'],
+        intervalSeconds: 120,
+        createdAt: '2026-06-08T00:00:00.000Z',
+      },
+    ]))
+
+    const router = createTestRouter('/monitors')
+    router.push('/monitors')
+    await router.isReady()
+
+    const wrapper = mount(MonitorsView, {
+      global: {
+        plugins: [router],
+        stubs: { teleport: true, Teleport: true },
+      },
+    })
+    await flushPromises()
+
+    expect(localStorage.getItem('gcac.monitor.targets.v1')).toBeNull()
+    expect(localStorage.getItem('gcac.monitor.probe-history.v1')).toBeNull()
+    expect(monitorMocks.listMonitorTargets).toHaveBeenCalled()
+    expect(wrapper.text()).toContain('a.example.com')
   })
 
   it('工作流详情可加载版本并发布草稿版本', async () => {

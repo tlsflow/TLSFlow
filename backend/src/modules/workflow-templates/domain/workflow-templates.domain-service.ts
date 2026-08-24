@@ -4,7 +4,9 @@ import { PgliteDatabase } from '../../../database/pglite-database.js';
 import type { AsyncRepositoryPort } from '../../../persistence/repositories/async-repository-port.js';
 import { PgDocumentRepository } from '../../../persistence/repositories/pg-document-repository.js';
 import type {
+  ApplyWorkflowTemplateFromFileInput,
   CreateWorkflowTemplateInput,
+  CreateWorkflowTemplateFromFileInput,
   UpdateWorkflowTemplateInput,
   WorkflowAssertion,
   WorkflowDslV1,
@@ -14,6 +16,7 @@ import type {
   WorkflowRunResult,
   WorkflowRuntimeInput,
   WorkflowSingleStepRunResult,
+  WorkflowFileTemplate,
   WorkflowStage,
   WorkflowStep,
   WorkflowStepRuntimeInput,
@@ -22,6 +25,7 @@ import type {
   WorkflowTemplateVersion,
   WorkflowVariableDefinition,
 } from '../dto/workflow-templates.dto.js';
+import { WorkflowTemplateFileLibrary } from './workflow-template-file-library.js';
 import { normalizeExtractors, validateVariableValue, workflowTemplatesSchemaRegistry } from '../schema/workflow-templates.schema.js';
 
 interface RuntimeContext {
@@ -48,8 +52,13 @@ export class WorkflowTemplatesDomainService {
   constructor(
     private readonly templatesRepository: AsyncRepositoryPort<WorkflowTemplate> = WorkflowTemplatesDomainService.createDefaultTemplatesRepository(),
     private readonly versionsRepository: AsyncRepositoryPort<WorkflowTemplateVersion> = WorkflowTemplatesDomainService.createDefaultVersionsRepository(),
+    private readonly fileTemplateLibrary = new WorkflowTemplateFileLibrary(),
   ) {
     this.ready = this.rehydrate();
+  }
+
+  async listFileTemplates(): Promise<WorkflowFileTemplate[]> {
+    return await this.fileTemplateLibrary.list();
   }
 
   async createTemplate(input: CreateWorkflowTemplateInput): Promise<{ template: WorkflowTemplate; version: WorkflowTemplateVersion }> {
@@ -72,6 +81,14 @@ export class WorkflowTemplatesDomainService {
     return { template: { ...template }, version: clone(version) };
   }
 
+  async createTemplateFromFile(input: CreateWorkflowTemplateFromFileInput): Promise<{ template: WorkflowTemplate; version: WorkflowTemplateVersion }> {
+    const content = await this.fileTemplateLibrary.getValidContent(input.fileTemplateId);
+    return await this.createTemplate({
+      content,
+      changeSummary: input.changeSummary ?? `从文件模板 ${input.fileTemplateId} 创建工作流草稿`,
+    });
+  }
+
   async createDraftVersion(input: UpdateWorkflowTemplateInput): Promise<WorkflowTemplateVersion> {
     await this.ready;
     const template = await this.getTemplateOrThrow(input.templateId);
@@ -89,6 +106,24 @@ export class WorkflowTemplatesDomainService {
     await this.templatesRepository.upsert(template);
     await this.versionsRepository.upsert(version);
     return clone(version);
+  }
+
+  async applyFileTemplateToTemplate(input: ApplyWorkflowTemplateFromFileInput): Promise<WorkflowTemplateVersion> {
+    await this.ready;
+    const template = await this.getTemplateOrThrow(input.templateId);
+    const imported = await this.fileTemplateLibrary.getValidContent(input.fileTemplateId);
+    const content: WorkflowDslV1 = {
+      ...clone(imported),
+      metadata: {
+        ...clone(imported.metadata),
+        name: template.name,
+      },
+    };
+    return await this.createDraftVersion({
+      templateId: input.templateId,
+      content,
+      changeSummary: input.changeSummary ?? `从文件模板 ${input.fileTemplateId} 覆盖工作流草稿`,
+    });
   }
 
   async publishVersion(versionId: string): Promise<WorkflowTemplateVersion> {
@@ -158,6 +193,10 @@ export class WorkflowTemplatesDomainService {
   }
 
   async testStep(input: WorkflowStepRuntimeInput): Promise<WorkflowSingleStepRunResult> {
+    return await this.testStepWithDispatcher(input);
+  }
+
+  async testStepWithDispatcher(input: WorkflowStepRuntimeInput, dispatcher?: WorkflowExecutorDispatcher): Promise<WorkflowSingleStepRunResult> {
     await this.ready;
     const content = workflowTemplatesSchemaRegistry.validate(input.content);
     const step = content.steps.find((item) => item.name === input.stepName) ?? content.rollback?.find((item) => item.name === input.stepName);
@@ -167,13 +206,14 @@ export class WorkflowTemplatesDomainService {
     for (const [key, value] of Object.entries(input.userVariables ?? {})) {
       if (context.values[key] === undefined) context.values[key] = value;
     }
-    const result = await this.runStep(step, context, { ...input, templateVersionId: 'single-step-preview' }, false);
+    const result = await this.runStep(step, context, { ...input, templateVersionId: 'single-step-preview' }, false, dispatcher);
     return {
       id: `wfstep_${randomUUID()}`,
       mode: input.mode,
       plannedOnly: input.mode === 'render_only',
       renderedStep: result.rendered,
       stepResult: result.result,
+      stepOutput: result.output,
       logs: result.result.logs.map((line) => maskText(line, context.secretPaths, context.values)),
     };
   }
@@ -219,12 +259,13 @@ export class WorkflowTemplatesDomainService {
     };
   }
 
-  private async runStep(step: WorkflowStep, context: RuntimeContext, input: WorkflowRuntimeInput, rollback: boolean, dispatcher?: WorkflowExecutorDispatcher): Promise<{ rendered: WorkflowRenderedStep; result: WorkflowStepRunResult }> {
+  private async runStep(step: WorkflowStep, context: RuntimeContext, input: WorkflowRuntimeInput, rollback: boolean, dispatcher?: WorkflowExecutorDispatcher): Promise<{ rendered: WorkflowRenderedStep; result: WorkflowStepRunResult; output: unknown }> {
     const type = step.type;
     if (!evaluateCondition(step.when, context.values)) {
       return {
         rendered: { name: step.name, type, stage: step.stage, skipped: true, reason: 'condition_not_matched', preview: { skipped: true } },
         result: emptyStepResult(step, 'skipped', { skipped: true }, ['step:skipped:condition']),
+        output: { skipped: true, reason: 'condition_not_matched' },
       };
     }
 
@@ -265,6 +306,7 @@ export class WorkflowTemplatesDomainService {
         return {
           rendered: { name: step.name, type, stage: step.stage, request: maskUnknown(finalPlan, context.secretPaths, context.values), preview: maskUnknown(finalPlan, context.secretPaths, context.values) },
           result: last,
+          output: maskUnknown(structuredOutput, context.secretPaths, context.values),
         };
       }
     }
@@ -429,6 +471,21 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
       testMode: mode,
     };
   }
+  if (step.type === 'sftp' || step.type === 'scp') {
+    const transferStep = buildFileTransferStepPlan(step, context.values, mode === 'render_only');
+    return {
+      executor: '015.SSH',
+      dryRun: mode !== 'real_test',
+      realSsh: mode === 'real_test',
+      idempotencyKey: `workflow:${step.name}`,
+      stage: step.stage,
+      protocol: step.type,
+      connection: transferStep.connection,
+      timeoutMs: transferStep.timeoutMs,
+      sshRequest: transferStep.sshRequest,
+      testMode: mode,
+    };
+  }
   if (step.type === 'condition') {
     const passed = evaluateCondition(step.condition, context.values);
     return {
@@ -487,6 +544,29 @@ function evaluateCondition(condition: WorkflowStep['when'], values: Record<strin
 function defaultMockOutput(step: WorkflowStep, rollback: boolean, attempt: number): WorkflowMockStepOutput {
   if (step.type === 'http') return { statusCode: rollback ? 204 : 200, headers: { 'x-workflow-mock': 'true' }, body: { success: true, attempt } };
   if (step.type === 'ssh') return { exitCode: 0, stdout: `mock ssh ${step.name} ok`, body: { success: true } };
+  if (step.type === 'sftp' || step.type === 'scp') {
+    const remotePath = step.type === 'sftp' ? step.sftp.remotePath : step.scp.remotePath;
+    const direction = step.type === 'sftp' ? step.sftp.direction : step.scp.direction;
+    return {
+      exitCode: 0,
+      stdout: `${step.type.toUpperCase()}_${direction.toUpperCase()} ${remotePath} ok`,
+      body: {
+        success: true,
+        attempt,
+        transferResults: [
+          {
+            direction,
+            protocol: step.type,
+            remotePath,
+            localPath: `virtual://workflow/${step.name}`,
+            size: 16,
+            hash: 'a'.repeat(64),
+            auditDetails: [],
+          },
+        ],
+      },
+    };
+  }
   if (step.type === 'condition') return { body: { passed: true, attempt } };
   return { body: { success: true } };
 }
@@ -552,6 +632,7 @@ function renderString(template: string, variables: Record<string, unknown>, keep
 }
 
 function maskUnknown(value: unknown, secretPaths: Set<string>, values: Record<string, unknown>): unknown {
+  if (Buffer.isBuffer(value)) return `[BINARY ${value.byteLength} bytes]`;
   if (typeof value === 'string') return maskText(value, secretPaths, values);
   if (Array.isArray(value)) return value.map((item) => maskUnknown(item, secretPaths, values));
   if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, isSensitiveKey(key) ? '[REDACTED]' : maskUnknown(child, secretPaths, values)]));
@@ -568,7 +649,7 @@ function maskText(text: string, secretPaths: Set<string>, values: Record<string,
 }
 
 function isSensitiveKey(key: string): boolean {
-  return /(password|token|privateKey|authorization|credential|secret|pfx|jks)/i.test(key);
+  return /^(content)$/i.test(key) || /(password|token|privateKey|authorization|credential|secret|pfx|jks)/i.test(key);
 }
 
 function assertionResult(type: string, passed: boolean, message: string): WorkflowStepRunResult['assertions'][number] {
@@ -585,7 +666,53 @@ function readJsonPath(body: unknown, path: string): unknown {
 }
 
 function readPath(source: unknown, path: string): unknown {
-  return path.split('.').reduce<unknown>((current, key) => (isRecord(current) ? current[key] : undefined), source);
+  const normalized = path.replace(/\[(\d+)\]/g, '.$1');
+  return normalized.split('.').filter(Boolean).reduce<unknown>((current, key) => {
+    if (Array.isArray(current) && /^\d+$/.test(key)) return current[Number(key)];
+    return isRecord(current) ? current[key] : undefined;
+  }, source);
+}
+
+function buildFileTransferStepPlan(step: Extract<WorkflowStep, { type: 'sftp' | 'scp' }>, values: Record<string, unknown>, keepMissing: boolean) {
+  const config = step.type === 'sftp' ? step.sftp : step.scp;
+  const localPath = config.localPath
+    ? renderString(config.localPath, values, keepMissing)
+    : `virtual://workflow/${step.name}`;
+  const sshRequest: Record<string, unknown> = {
+    connection: renderUnknown(config.connection, values, keepMissing),
+    timeoutMs: (config.timeoutSeconds ?? 60) * 1000,
+    dryRun: false,
+    [step.type]: [
+      {
+        direction: config.direction,
+        localPath,
+        remotePath: renderString(config.remotePath, values, keepMissing),
+        ...(config.contentRef ? { content: renderTransferContent(config.contentRef, config.contentEncoding, values, keepMissing) } : {}),
+        ...(config.temporaryPath ? { temporaryPath: renderString(config.temporaryPath, values, keepMissing) } : {}),
+        ...(config.expectedHash ? { expectedHash: renderString(config.expectedHash, values, keepMissing) } : {}),
+        ...(config.expectedSize !== undefined ? { expectedSize: config.expectedSize } : {}),
+        ...(config.verifyHash !== undefined ? { verifyHash: config.verifyHash } : {}),
+        ...(config.mode ? { mode: renderString(config.mode, values, keepMissing) } : {}),
+        ...(config.owner ? { owner: renderString(config.owner, values, keepMissing) } : {}),
+        ...(config.group ? { group: renderString(config.group, values, keepMissing) } : {}),
+      },
+    ],
+  };
+  return {
+    connection: sshRequest.connection,
+    timeoutMs: sshRequest.timeoutMs,
+    sshRequest,
+  };
+}
+
+function renderTransferContent(template: string, encoding: 'utf8' | 'base64' | undefined, values: Record<string, unknown>, keepMissing: boolean): string | Buffer {
+  const rendered = renderUnknown(template, values, keepMissing);
+  if (keepMissing && typeof rendered === 'string' && /\{\{/.test(rendered)) return rendered;
+  if (typeof rendered !== 'string' && typeof rendered !== 'number' && typeof rendered !== 'boolean') {
+    throw new AppError('VALIDATION_FAILED', '文件传输 contentRef 必须渲染为字符串、数字或布尔值', { template });
+  }
+  const text = String(rendered);
+  return encoding === 'base64' ? Buffer.from(text, 'base64') : text;
 }
 
 function digest(content: WorkflowDslV1): string {

@@ -1,10 +1,11 @@
 export type WorkflowTemplateStatus = 'draft' | 'published' | 'disabled';
 export type WorkflowTemplateVersionStatus = 'draft' | 'published' | 'disabled';
-export type WorkflowStepType = 'http' | 'ssh' | 'condition' | 'wait' | 'manual';
+export type WorkflowStepType = 'http' | 'ssh' | 'sftp' | 'scp' | 'condition' | 'wait' | 'manual';
 export type WorkflowVariableType = 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'file' | 'secret' | 'certificate';
 export type WorkflowStage = 'prepare' | 'backup' | 'install' | 'refresh' | 'verify';
 export type WorkflowTestRunMode = 'render_only' | 'mock' | 'real_test';
 export type WorkflowRunStatus = 'success' | 'failed' | 'rolled_back';
+export type WorkflowFileTransferContentEncoding = 'utf8' | 'base64';
 
 export interface WorkflowVariableDefinition {
   type: WorkflowVariableType;
@@ -105,6 +106,23 @@ export interface WorkflowSshStepConfig {
   timeoutSeconds?: number;
 }
 
+export interface WorkflowFileTransferStepConfig {
+  direction: 'upload' | 'download';
+  connection: WorkflowSshConnection;
+  remotePath: string;
+  contentRef?: string;
+  contentEncoding?: WorkflowFileTransferContentEncoding;
+  localPath?: string;
+  temporaryPath?: string;
+  expectedHash?: string;
+  expectedSize?: number;
+  verifyHash?: boolean;
+  mode?: string;
+  owner?: string;
+  group?: string;
+  timeoutSeconds?: number;
+}
+
 export interface WorkflowStepBase {
   name: string;
   type: WorkflowStepType;
@@ -125,6 +143,16 @@ export interface WorkflowSshStep extends WorkflowStepBase {
   ssh: WorkflowSshStepConfig;
 }
 
+export interface WorkflowSftpStep extends WorkflowStepBase {
+  type: 'sftp';
+  sftp: WorkflowFileTransferStepConfig;
+}
+
+export interface WorkflowScpStep extends WorkflowStepBase {
+  type: 'scp';
+  scp: WorkflowFileTransferStepConfig;
+}
+
 export interface WorkflowConditionStep extends WorkflowStepBase {
   type: 'condition';
   condition: WorkflowCondition;
@@ -141,7 +169,7 @@ export interface WorkflowManualStep extends WorkflowStepBase {
   instruction: string;
 }
 
-export type WorkflowStep = WorkflowHttpStep | WorkflowSshStep | WorkflowConditionStep | WorkflowWaitStep | WorkflowManualStep;
+export type WorkflowStep = WorkflowHttpStep | WorkflowSshStep | WorkflowSftpStep | WorkflowScpStep | WorkflowConditionStep | WorkflowWaitStep | WorkflowManualStep;
 
 export interface WorkflowDslV1 {
   apiVersion: 'gcac.workflow/v1';
@@ -187,6 +215,29 @@ export interface WorkflowTemplateVersion {
 export interface WorkflowTemplateRecord {
   template: WorkflowTemplate;
   versions: WorkflowTemplateVersion[];
+}
+
+export interface WorkflowFileTemplate {
+  id: string;
+  fileName: string;
+  relativePath: string;
+  valid: boolean;
+  updatedAt: string;
+  metadata?: WorkflowMetadata;
+  stepCount?: number;
+  rollbackCount?: number;
+  error?: string;
+}
+
+export interface CreateWorkflowTemplateFromFileInput {
+  fileTemplateId: string;
+  changeSummary?: string;
+}
+
+export interface ApplyWorkflowTemplateFromFileInput {
+  templateId: string;
+  fileTemplateId: string;
+  changeSummary?: string;
 }
 
 export interface WorkflowRuntimeInput {
@@ -251,6 +302,7 @@ export interface WorkflowSingleStepRunResult {
   plannedOnly: boolean;
   renderedStep: WorkflowRenderedStep;
   stepResult: WorkflowStepRunResult;
+  stepOutput?: unknown;
   logs: string[];
 }
 

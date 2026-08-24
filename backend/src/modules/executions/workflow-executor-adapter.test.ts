@@ -45,9 +45,67 @@ function workflowFixture(): WorkflowDslV1 {
   };
 }
 
+function fileTransferWorkflowFixture(): WorkflowDslV1 {
+  return {
+    apiVersion: 'gcac.workflow/v1',
+    kind: 'CurlSshWorkflow',
+    metadata: { name: 'workflow-file-transfer-adapter-test' },
+    variables: {
+      deviceHost: { type: 'string', required: true },
+      cert: { type: 'certificate', required: true, sensitive: true },
+    },
+    steps: [
+      {
+        name: 'uploadCert',
+        type: 'sftp',
+        stage: 'install',
+        sftp: {
+          direction: 'upload',
+          connection: {
+            host: '{{deviceHost}}',
+            username: 'admin',
+            credentialSecretRef: 'secret://ssh/device',
+            expectedHostKeyFingerprint: 'aa:bb',
+          },
+          remotePath: '/etc/gcac-test/certs/test.crt',
+          contentRef: '{{cert.pem}}',
+          mode: '0644',
+          timeoutSeconds: 30,
+        },
+        extract: [{ name: 'certHash', type: 'jsonPath', path: '$.transferResults[0].hash' }],
+      },
+      {
+        name: 'uploadKey',
+        type: 'scp',
+        stage: 'install',
+        scp: {
+          direction: 'upload',
+          connection: {
+            host: '{{deviceHost}}',
+            username: 'admin',
+            credentialSecretRef: 'secret://ssh/device',
+            expectedHostKeyFingerprint: 'aa:bb',
+          },
+          remotePath: '/etc/gcac-test/certs/test.key',
+          contentRef: '{{cert.privateKey}}',
+          mode: '0600',
+          timeoutSeconds: 30,
+        },
+      },
+    ],
+  };
+}
+
 async function createPublishedWorkflow(): Promise<{ workflows: WorkflowTemplatesApplicationService; versionId: string }> {
   const workflows = new WorkflowTemplatesApplicationService();
   const created = await workflows.createTemplate({ content: workflowFixture(), changeSummary: 'test' });
+  const published = await workflows.publishVersion(created.version.id);
+  return { workflows, versionId: published.id };
+}
+
+async function createPublishedFileTransferWorkflow(): Promise<{ workflows: WorkflowTemplatesApplicationService; versionId: string }> {
+  const workflows = new WorkflowTemplatesApplicationService();
+  const created = await workflows.createTemplate({ content: fileTransferWorkflowFixture(), changeSummary: 'file-transfer-test' });
   const published = await workflows.publishVersion(created.version.id);
   return { workflows, versionId: published.id };
 }
@@ -149,6 +207,55 @@ describe('WorkflowExecutorAdapter', () => {
     assert.equal(workflowRun.plannedOnly, false);
     assert.equal(workflowRun.renderedSteps?.[1]?.request?.dryRun, false);
     assert.equal(workflowRun.renderedSteps?.[1]?.request?.realSsh, true);
+  });
+
+  it('apply 通过正式 SFTP 和 SCP step 分发到 SSH 文件传输请求', async () => {
+    const { workflows, versionId } = await createPublishedFileTransferWorkflow();
+    const seenContents: string[] = [];
+    const curlExecutor = new StubExecutor('CURL', () => ({ success: true }));
+    const sshExecutor = new StubExecutor('SSH', (input) => {
+      const sshRequest = readRecord(input.step.inputSnapshot.sshRequest);
+      const sftp = Array.isArray(sshRequest.sftp) ? sshRequest.sftp.map(readRecord) : [];
+      const scp = Array.isArray(sshRequest.scp) ? sshRequest.scp.map(readRecord) : [];
+      for (const item of [...sftp, ...scp]) {
+        if (typeof item.content === 'string') seenContents.push(item.content);
+      }
+      return {
+        success: true,
+        detail: {
+          transferResults: [
+            {
+              protocol: sftp.length ? 'sftp' : 'scp',
+              direction: 'upload',
+              remotePath: (sftp[0] ?? scp[0])?.remotePath,
+              hash: sftp.length ? 'a'.repeat(64) : 'b'.repeat(64),
+            },
+          ],
+        },
+      };
+    });
+    const adapter = new WorkflowExecutorAdapter({ workflows, curlExecutor: curlExecutor as never, sshExecutor: sshExecutor as never });
+
+    const result = await adapter.executeStep({ step: workflowStep(versionId), runType: 'apply', dryRun: false });
+
+    assert.equal(result.success, true);
+    assert.equal(sshExecutor.calls.length, 2);
+    assert.deepEqual(seenContents, [
+      '-----BEGIN CERTIFICATE-----mock-----END CERTIFICATE-----',
+      '-----BEGIN PRIVATE KEY-----mock-----END PRIVATE KEY-----',
+    ]);
+
+    const sftpRequest = readRecord(sshExecutor.calls[0]?.step.inputSnapshot.sshRequest);
+    const scpRequest = readRecord(sshExecutor.calls[1]?.step.inputSnapshot.sshRequest);
+    assert.equal(readRecord((sftpRequest.sftp as unknown[])[0]).remotePath, '/etc/gcac-test/certs/test.crt');
+    assert.equal(readRecord((sftpRequest.sftp as unknown[])[0]).mode, '0644');
+    assert.equal(readRecord((scpRequest.scp as unknown[])[0]).remotePath, '/etc/gcac-test/certs/test.key');
+    assert.equal(readRecord((scpRequest.scp as unknown[])[0]).mode, '0600');
+
+    const detailText = JSON.stringify(result.detail);
+    assert.equal(detailText.includes('-----BEGIN PRIVATE KEY-----mock-----END PRIVATE KEY-----'), false);
+    assert.equal(detailText.includes('-----BEGIN CERTIFICATE-----mock-----END CERTIFICATE-----'), false);
+    assert.match(detailText, /\[REDACTED\]/);
   });
 
   it('缺少 workflowVersionId 时拒绝伪成功', async () => {

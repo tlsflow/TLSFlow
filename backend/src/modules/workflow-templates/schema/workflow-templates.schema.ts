@@ -13,11 +13,13 @@ const variableKeys = new Set(['type', 'required', 'default', 'enum', 'sensitive'
 const stepBaseKeys = new Set(['name', 'type', 'stage', 'when', 'retry', 'extract', 'assert']);
 const httpStepKeys = new Set([...stepBaseKeys, 'request']);
 const sshStepKeys = new Set([...stepBaseKeys, 'ssh']);
+const sftpStepKeys = new Set([...stepBaseKeys, 'sftp']);
+const scpStepKeys = new Set([...stepBaseKeys, 'scp']);
 const conditionStepKeys = new Set([...stepBaseKeys, 'condition', 'description']);
 const waitStepKeys = new Set([...stepBaseKeys, 'seconds']);
 const manualStepKeys = new Set([...stepBaseKeys, 'instruction']);
 const variableTypes = new Set<WorkflowVariableType>(['string', 'number', 'boolean', 'enum', 'object', 'file', 'secret', 'certificate']);
-const stepTypes = new Set(['http', 'ssh', 'condition', 'wait', 'manual']);
+const stepTypes = new Set(['http', 'ssh', 'sftp', 'scp', 'condition', 'wait', 'manual']);
 const workflowStages = new Set(['prepare', 'backup', 'install', 'refresh', 'verify']);
 const reservedRoots = new Set(['asset', 'steps']);
 
@@ -105,15 +107,22 @@ function validateStepByType(step: WorkflowStep, path: string): void {
     if (!isRecord(step.ssh)) throw validationError(`${path}.ssh 必须是对象`);
     rejectUnknown(step.ssh as unknown as Record<string, unknown>, new Set(['mode', 'connection', 'command', 'commands', 'script', 'dialogue', 'timeoutSeconds']), `${path}.ssh`);
     if (!['command', 'script', 'interactive'].includes(step.ssh.mode)) throw validationError(`${path}.ssh.mode 不支持`);
-    if (!isRecord(step.ssh.connection)) throw validationError(`${path}.ssh.connection 必须是对象`);
-    rejectUnknown(step.ssh.connection as unknown as Record<string, unknown>, new Set(['host', 'port', 'username', 'credentialSecretRef', 'expectedHostKeyFingerprint', 'hostKeyPolicy']), `${path}.ssh.connection`);
-    if (!isNonEmptyString(step.ssh.connection.host) || !isNonEmptyString(step.ssh.connection.username)) throw validationError(`${path}.ssh.connection host/username 必填`);
-    if (!isSecretRef(step.ssh.connection.credentialSecretRef)) throw validationError(`${path}.ssh.connection.credentialSecretRef 必须是 SecretRef`);
+    validateSshConnection(step.ssh.connection, `${path}.ssh.connection`);
     if (step.ssh.mode === 'command' && !isNonEmptyString(step.ssh.command) && (!Array.isArray(step.ssh.commands) || step.ssh.commands.length === 0)) throw validationError(`${path}.ssh.command 或 commands 必填`);
     if (step.ssh.commands !== undefined && (!Array.isArray(step.ssh.commands) || step.ssh.commands.length === 0 || !step.ssh.commands.every(isNonEmptyString))) throw validationError(`${path}.ssh.commands 必须是非空命令数组`);
     if (step.ssh.mode === 'script' && !isNonEmptyString(step.ssh.script)) throw validationError(`${path}.ssh.script 必填`);
     if (step.ssh.mode === 'interactive' && (!Array.isArray(step.ssh.dialogue) || step.ssh.dialogue.length === 0)) throw validationError(`${path}.ssh.dialogue 必填`);
     if (step.ssh.timeoutSeconds !== undefined && !isPositiveInteger(step.ssh.timeoutSeconds)) throw validationError(`${path}.ssh.timeoutSeconds 必须是正整数`);
+    return;
+  }
+  if (step.type === 'sftp') {
+    rejectUnknown(step as unknown as Record<string, unknown>, sftpStepKeys, path);
+    validateFileTransferStep(step.sftp, `${path}.sftp`);
+    return;
+  }
+  if (step.type === 'scp') {
+    rejectUnknown(step as unknown as Record<string, unknown>, scpStepKeys, path);
+    validateFileTransferStep(step.scp, `${path}.scp`);
     return;
   }
   if (step.type === 'condition') {
@@ -162,6 +171,38 @@ function validateExtractor(extractor: WorkflowExtractor, path: string): void {
   if (extractor.type === 'header' && !isNonEmptyString(extractor.header)) throw validationError(`${path}.extract.header 必填`);
   if (extractor.type === 'regex' && !isNonEmptyString(extractor.pattern)) throw validationError(`${path}.extract.pattern 必填`);
   if (extractor.type === 'textContains' && !isNonEmptyString(extractor.value)) throw validationError(`${path}.extract.value 必填`);
+}
+
+function validateSshConnection(value: unknown, path: string): void {
+  if (!isRecord(value)) throw validationError(`${path} 必须是对象`);
+  rejectUnknown(value, new Set(['host', 'port', 'username', 'credentialSecretRef', 'expectedHostKeyFingerprint', 'hostKeyPolicy']), path);
+  if (!isNonEmptyString(value.host) || !isNonEmptyString(value.username)) throw validationError(`${path} host/username 必填`);
+  if (!isSecretRef(value.credentialSecretRef)) throw validationError(`${path}.credentialSecretRef 必须是 SecretRef`);
+}
+
+function validateFileTransferStep(value: unknown, path: string): void {
+  if (!isRecord(value)) throw validationError(`${path} 必须是对象`);
+  rejectUnknown(value, new Set(['direction', 'connection', 'remotePath', 'contentRef', 'contentEncoding', 'localPath', 'temporaryPath', 'expectedHash', 'expectedSize', 'verifyHash', 'mode', 'owner', 'group', 'timeoutSeconds']), path);
+  if (!['upload', 'download'].includes(String(value.direction))) throw validationError(`${path}.direction 不支持`);
+  validateSshConnection(value.connection, `${path}.connection`);
+  if (!isNonEmptyString(value.remotePath)) throw validationError(`${path}.remotePath 必填`);
+  if (value.contentRef !== undefined && !isNonEmptyString(value.contentRef)) throw validationError(`${path}.contentRef 必须是非空字符串`);
+  if (value.localPath !== undefined && !isNonEmptyString(value.localPath)) throw validationError(`${path}.localPath 必须是非空字符串`);
+  if (value.temporaryPath !== undefined && !isNonEmptyString(value.temporaryPath)) throw validationError(`${path}.temporaryPath 必须是非空字符串`);
+  if (value.contentEncoding !== undefined && !['utf8', 'base64'].includes(String(value.contentEncoding))) throw validationError(`${path}.contentEncoding 不支持`);
+  if (value.expectedHash !== undefined && (!isNonEmptyString(value.expectedHash) || !/^[a-fA-F0-9]{64}$/.test(value.expectedHash))) throw validationError(`${path}.expectedHash 必须是 sha256 hex 字符串`);
+  if (value.expectedSize !== undefined && !isNonNegativeInteger(value.expectedSize)) throw validationError(`${path}.expectedSize 必须是非负整数`);
+  if (value.verifyHash !== undefined && typeof value.verifyHash !== 'boolean') throw validationError(`${path}.verifyHash 必须是布尔值`);
+  if (value.mode !== undefined && !isNonEmptyString(value.mode)) throw validationError(`${path}.mode 必须是字符串`);
+  if (value.owner !== undefined && !isNonEmptyString(value.owner)) throw validationError(`${path}.owner 必须是字符串`);
+  if (value.group !== undefined && !isNonEmptyString(value.group)) throw validationError(`${path}.group 必须是字符串`);
+  if (value.timeoutSeconds !== undefined && !isPositiveInteger(value.timeoutSeconds)) throw validationError(`${path}.timeoutSeconds 必须是正整数`);
+  if (value.direction === 'upload' && !isNonEmptyString(value.contentRef) && !isNonEmptyString(value.localPath)) {
+    throw validationError(`${path} 上传至少需要 contentRef 或 localPath`);
+  }
+  if (value.direction === 'download' && !isNonEmptyString(value.localPath)) {
+    throw validationError(`${path} 下载必须提供 localPath`);
+  }
 }
 
 function validateCondition(value: unknown, path: string): void {
@@ -320,6 +361,10 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isPositiveInteger(value: unknown): value is number {
   return Number.isInteger(value) && Number(value) > 0;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return Number.isInteger(value) && Number(value) >= 0;
 }
 
 function isSecretRef(value: unknown): value is string {

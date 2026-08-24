@@ -2,7 +2,10 @@
 import { computed, ref } from 'vue'
 import type { ApiRecord } from '@/api/modules/common'
 import {
+  applyWorkflowTemplateFromFile,
   createWorkflowTemplate,
+  createWorkflowTemplateFromFile,
+  listWorkflowFileTemplates,
   createWorkflowTemplateVersion,
   listWorkflowTemplateVersions,
   listWorkflowTemplates,
@@ -36,13 +39,21 @@ const canvasSaving = ref(false)
 const canvasMessage = ref('')
 const canvasDraft = ref<WorkflowCanvasDefinition>(createDefaultWorkflowCanvas())
 const activeTab = ref<'summary' | 'versions'>('summary')
+const fileTemplateModalOpen = ref(false)
+const fileTemplateMode = ref<'create' | 'apply'>('create')
+const fileTemplateItems = ref<ApiRecord[]>([])
+const fileTemplateLoading = ref(false)
+const fileTemplatePending = ref(false)
+const fileTemplateError = ref('')
+const selectedFileTemplateId = ref('')
+const fileTemplateTargetRow = ref<ViewRow | null>(null)
 
 const config: BusinessPageConfig = {
   title: '工作流',
   description: '按画布草稿管理 CURL/SSH/SFTP 工作流版本、发布状态与变更记录。',
   readPermission: 'workflow.template.read',
   primaryPermission: 'workflow.template.write',
-  primaryActionLabel: '新建工作流',
+  primaryActionLabel: '空白新建',
   primaryAction: async () => {
     const canvas = createDefaultWorkflowCanvas('workflow-canvas-draft')
     await createWorkflowTemplate({
@@ -90,6 +101,14 @@ const config: BusinessPageConfig = {
       },
     },
     {
+      label: '套用模板',
+      permission: 'workflow.template.write',
+      reloadAfterRun: false,
+      run: async (row) => {
+        await openFileTemplateModal('apply', row)
+      },
+    },
+    {
       label: '详情',
       permission: 'workflow.template.read',
       reloadAfterRun: false,
@@ -118,6 +137,9 @@ const publishedVersionLabel = computed(() => {
   return published ? `v${readString(published, ['version'])}` : '—'
 })
 
+const fileTemplateModalTitle = computed(() => fileTemplateMode.value === 'create' ? '从文件模板新建工作流' : '用文件模板覆盖工作流')
+const fileTemplateActionLabel = computed(() => fileTemplateMode.value === 'create' ? '按模板创建工作流' : '按模板覆盖当前工作流')
+
 async function openDetail(row: ViewRow) {
   detailRow.value = row
   detailModalOpen.value = true
@@ -135,6 +157,15 @@ async function openEditor(row: ViewRow) {
   hydrateCanvasFromLatestVersion()
 }
 
+async function openFileTemplateModal(mode: 'create' | 'apply', row?: ViewRow) {
+  fileTemplateMode.value = mode
+  fileTemplateTargetRow.value = row ?? null
+  fileTemplateModalOpen.value = true
+  fileTemplateError.value = ''
+  selectedFileTemplateId.value = ''
+  await loadFileTemplates()
+}
+
 async function loadVersions(row: ViewRow) {
   versionLoading.value = true
   versionError.value = ''
@@ -150,6 +181,22 @@ async function loadVersions(row: ViewRow) {
   }
 }
 
+async function loadFileTemplates() {
+  fileTemplateLoading.value = true
+  fileTemplateError.value = ''
+  try {
+    const result = await listWorkflowFileTemplates()
+    fileTemplateItems.value = [...(result.data?.items ?? [])]
+    const firstValid = fileTemplateItems.value.find((item) => Boolean(item.valid))
+    selectedFileTemplateId.value = firstValid ? readString(firstValid, ['id'], '') : ''
+  } catch (cause) {
+    fileTemplateItems.value = []
+    fileTemplateError.value = cause instanceof Error ? cause.message : '加载工作流文件模板失败'
+  } finally {
+    fileTemplateLoading.value = false
+  }
+}
+
 function hydrateCanvasFromLatestVersion() {
   const latest = [...versionItems.value].sort((left, right) => Number(readString(right, ['version'], '0')) - Number(readString(left, ['version'], '0')))[0]
   const content = latest?.content
@@ -158,6 +205,38 @@ function hydrateCanvasFromLatestVersion() {
   } else {
     const row = editorRow.value ?? detailRow.value
     if (row) canvasDraft.value = createDefaultWorkflowCanvas(readString(row.raw, ['name'], 'workflow-canvas-draft'))
+  }
+}
+
+async function submitFileTemplateAction() {
+  if (!selectedFileTemplateId.value || fileTemplatePending.value) return
+  fileTemplatePending.value = true
+  fileTemplateError.value = ''
+  try {
+    if (fileTemplateMode.value === 'create') {
+      await createWorkflowTemplateFromFile({
+        fileTemplateId: selectedFileTemplateId.value,
+        changeSummary: '从 data/workflows 模板创建工作流草稿',
+      })
+    } else {
+      const row = fileTemplateTargetRow.value
+      if (!row) throw new Error('缺少待覆盖的工作流目标')
+      await applyWorkflowTemplateFromFile({
+        templateId: readString(row.raw, ['id']),
+        fileTemplateId: selectedFileTemplateId.value,
+        changeSummary: '从 data/workflows 模板覆盖工作流草稿',
+      })
+      if (editorRow.value && readString(editorRow.value.raw, ['id']) === readString(row.raw, ['id'])) {
+        await loadVersions(editorRow.value)
+        hydrateCanvasFromLatestVersion()
+      }
+    }
+    fileTemplateModalOpen.value = false
+    await pageRef.value?.reload()
+  } catch (cause) {
+    fileTemplateError.value = cause instanceof Error ? cause.message : '执行文件模板动作失败'
+  } finally {
+    fileTemplatePending.value = false
   }
 }
 
@@ -205,7 +284,17 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 
 <template>
   <section class="workflow-templates-page">
-    <BusinessResourcePage ref="pageRef" :config="config" />
+    <BusinessResourcePage ref="pageRef" :config="config">
+      <template #after-header>
+        <div class="workflow-template-library-bar">
+          <div class="workflow-template-library-bar__copy">
+            <strong>文件模板库</strong>
+            <span>扫描 data/workflows 目录，把 DSL 文件当作工作流模板源。</span>
+          </div>
+          <button class="gc-button" type="button" @click="openFileTemplateModal('create')">从模板新建</button>
+        </div>
+      </template>
+    </BusinessResourcePage>
 
     <GcModal
       v-model:open="detailModalOpen"
@@ -300,6 +389,59 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
         </WorkflowCanvasEditor>
       </section>
     </GcModal>
+
+    <GcModal
+      v-model:open="fileTemplateModalOpen"
+      :title="fileTemplateModalTitle"
+      description="模板文件来自 data/workflows。覆盖现有工作流时，会创建新的草稿版本，不会改写历史版本。"
+      size="xl"
+      width="min(1080px, calc(100vw - 32px))"
+    >
+      <section class="workflow-file-template-modal">
+        <p v-if="fileTemplateMode === 'apply' && fileTemplateTargetRow" class="workflow-file-template-modal__target">
+          当前目标：{{ readString(fileTemplateTargetRow.raw, ['name'], fileTemplateTargetRow.id) }}
+        </p>
+        <p v-if="fileTemplateError" class="workflow-file-template-modal__error">{{ fileTemplateError }}</p>
+        <p v-if="fileTemplateLoading" class="workflow-file-template-modal__loading">正在扫描 data/workflows...</p>
+        <ul v-else-if="fileTemplateItems.length" class="workflow-file-template-modal__list">
+          <li
+            v-for="item in fileTemplateItems"
+            :key="readString(item, ['id'])"
+            class="workflow-file-template-modal__item"
+            :data-valid="item.valid ? 'true' : 'false'"
+          >
+            <label class="workflow-file-template-modal__choice">
+              <input
+                type="radio"
+                name="workflow-file-template"
+                :value="readString(item, ['id'])"
+                :checked="selectedFileTemplateId === readString(item, ['id'])"
+                :disabled="!item.valid"
+                @change="selectedFileTemplateId = readString(item, ['id'])"
+              />
+              <div class="workflow-file-template-modal__body">
+                <div class="workflow-file-template-modal__head">
+                  <strong>{{ readString(item, ['metadata.displayName'], readString(item, ['metadata.name'], readString(item, ['fileName']))) }}</strong>
+                  <span class="workflow-file-template-modal__pill" :data-valid="item.valid ? 'true' : 'false'">{{ item.valid ? '可用' : '无效' }}</span>
+                </div>
+                <small>{{ readString(item, ['relativePath']) }}</small>
+                <p v-if="item.valid">
+                  标识 {{ readString(item, ['metadata.name']) }} / steps {{ readString(item, ['stepCount'], '0') }} / rollback {{ readString(item, ['rollbackCount'], '0') }}
+                </p>
+                <p v-else>{{ readString(item, ['error'], '文件无效') }}</p>
+              </div>
+            </label>
+          </li>
+        </ul>
+        <p v-else class="workflow-file-template-modal__loading">data/workflows 目录中暂无可识别的工作流模板文件。</p>
+      </section>
+      <template #actions>
+        <button class="gc-button" type="button" @click="fileTemplateModalOpen = false">取消</button>
+        <button class="gc-button gc-button--primary" type="button" :disabled="fileTemplatePending || !selectedFileTemplateId" @click="submitFileTemplateAction">
+          {{ fileTemplatePending ? '处理中...' : fileTemplateActionLabel }}
+        </button>
+      </template>
+    </GcModal>
   </section>
 </template>
 
@@ -307,6 +449,32 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 .workflow-templates-page {
   display: grid;
   gap: var(--gc-space-4);
+}
+
+.workflow-template-library-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #dbe6f4;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.workflow-template-library-bar__copy {
+  display: grid;
+  gap: 2px;
+}
+
+.workflow-template-library-bar__copy strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.workflow-template-library-bar__copy span {
+  color: #64748b;
+  font-size: 12px;
 }
 
 .workflow-template-detail {
@@ -520,7 +688,111 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
   min-height: 760px;
 }
 
+.workflow-file-template-modal {
+  display: grid;
+  gap: 12px;
+}
+
+.workflow-file-template-modal__target,
+.workflow-file-template-modal__loading,
+.workflow-file-template-modal__error {
+  margin: 0;
+  font-size: 13px;
+}
+
+.workflow-file-template-modal__target,
+.workflow-file-template-modal__loading {
+  color: #475569;
+}
+
+.workflow-file-template-modal__error {
+  color: var(--gc-color-danger);
+}
+
+.workflow-file-template-modal__list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: min(56vh, 640px);
+  overflow: auto;
+}
+
+.workflow-file-template-modal__item {
+  border: 1px solid #dbe6f4;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.workflow-file-template-modal__item[data-valid='false'] {
+  background: #fff7f7;
+  border-color: #fecaca;
+}
+
+.workflow-file-template-modal__choice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+  align-items: start;
+}
+
+.workflow-file-template-modal__choice input {
+  margin-top: 2px;
+}
+
+.workflow-file-template-modal__body {
+  display: grid;
+  gap: 4px;
+}
+
+.workflow-file-template-modal__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.workflow-file-template-modal__head strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.workflow-file-template-modal__body small,
+.workflow-file-template-modal__body p {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.workflow-file-template-modal__pill {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.workflow-file-template-modal__pill[data-valid='true'] {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.workflow-file-template-modal__pill[data-valid='false'] {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
 @media (max-width: 900px) {
+  .workflow-template-library-bar {
+    display: grid;
+    justify-content: stretch;
+  }
+
   .workflow-template-detail__hero {
     display: grid;
     grid-template-columns: 1fr;
@@ -535,6 +807,11 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
     height: calc(100vh - 16px);
     padding: 8px;
     overflow: hidden;
+  }
+
+  .workflow-file-template-modal__head {
+    display: grid;
+    justify-content: stretch;
   }
 }
 </style>

@@ -32,6 +32,7 @@ import { GatewayTaskAuditWriter, GatewayTaskService } from './modules/gateway-ag
 import { PluginsController, getPluginsRouteContracts } from './modules/plugins/index.js';
 import { PluginsApplicationService } from './modules/plugins/application/plugins.application-service.js';
 import { PgPluginsRepository } from './modules/plugins/repository/plugins.repository.js';
+import { createWorkflowStepDispatcher } from './modules/workflow-templates/application/workflow-step-dispatcher.js';
 import { WorkflowTemplatesController, WorkflowTemplatesApplicationService, WorkflowTemplatesDomainService, getWorkflowTemplateRouteContracts } from './modules/workflow-templates/index.js';
 import {
   buildCorePersistenceErrorMessage,
@@ -105,6 +106,9 @@ export function createApp(dependencies: AppDependencies = {}): App {
       new PgDocumentRepository(appDb, 'workflow.templates'),
       new PgDocumentRepository(appDb, 'workflow.template_versions'),
     ),
+    {
+      stepDispatcher: createWorkflowStepDispatcher({ secrets: security.secrets }),
+    },
   );
   app.setResource('agentsService', agentsService);
   app.setResource('certificateServices', certificateServices);

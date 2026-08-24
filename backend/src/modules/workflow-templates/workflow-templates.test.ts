@@ -1,9 +1,16 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { App } from '../../common/http/app.js';
+import { PgliteDatabase } from '../../database/pglite-database.js';
+import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
 import { WorkflowTemplatesApplicationService } from './application/workflow-templates.application-service.js';
 import { WorkflowTemplatesController } from './controller/workflow-templates.controller.js';
-import type { WorkflowDslV1 } from './dto/workflow-templates.dto.js';
+import { WorkflowTemplatesDomainService } from './domain/workflow-templates.domain-service.js';
+import { WorkflowTemplateFileLibrary } from './domain/workflow-template-file-library.js';
+import type { WorkflowDslV1, WorkflowTemplate, WorkflowTemplateVersion } from './dto/workflow-templates.dto.js';
 import { workflowTemplatesSchemaRegistry } from './schema/workflow-templates.schema.js';
 
 function templateFixture(): WorkflowDslV1 {
@@ -110,6 +117,15 @@ function runtimeInput(versionId: string) {
   };
 }
 
+function createIsolatedWorkflowService(rootDir: string) {
+  const db = new PgliteDatabase();
+  const templates = new PgDocumentRepository<WorkflowTemplate>(db, 'workflow.templates');
+  const versions = new PgDocumentRepository<WorkflowTemplateVersion>(db, 'workflow.template_versions');
+  return new WorkflowTemplatesApplicationService(
+    new WorkflowTemplatesDomainService(templates, versions, new WorkflowTemplateFileLibrary(rootDir)),
+  );
+}
+
 describe('WorkflowTemplates', () => {
   it('校验 DSL v1 schema，拒绝未知字段、缺失引用、类型错误、明文 Secret 和私钥', () => {
     workflowTemplatesSchemaRegistry.validate(templateFixture());
@@ -158,6 +174,88 @@ describe('WorkflowTemplates', () => {
     assert.equal(published.status, 'published');
     assert.equal((await service.getVersion(version2.id)).status, 'draft');
     await assert.rejects(() => service.createDraftVersion({ templateId: created.template.id, content: changed }), /duplicate workflow version content/);
+  });
+
+  it('可以扫描 data/workflows 文件模板，并支持基于模板新建或覆盖现有工作流', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'gcac-workflow-files-'));
+    await mkdir(join(rootDir, 'apache'), { recursive: true });
+    const validDsl = {
+      ...templateFixture(),
+      metadata: {
+        ...templateFixture().metadata,
+        name: 'file_template_create',
+        displayName: '文件模板新建',
+      },
+      steps: [
+        {
+          name: 'prepare_login',
+          type: 'http',
+          stage: 'prepare',
+          request: { method: 'GET', url: 'https://{{deviceHost}}/ping' },
+        },
+      ],
+      rollback: [
+        {
+          name: 'rollback_manual',
+          type: 'manual',
+          instruction: '回退文件模板',
+        },
+      ],
+    } satisfies WorkflowDslV1;
+    const overwriteDsl = {
+      ...validDsl,
+      metadata: {
+        ...validDsl.metadata,
+        name: 'file_template_overwrite',
+        displayName: '文件模板覆盖',
+      },
+      steps: [
+        {
+          name: 'verify_manual',
+          type: 'manual',
+          stage: 'verify',
+          instruction: '验证覆盖内容',
+        },
+      ],
+    } satisfies WorkflowDslV1;
+    await writeFile(join(rootDir, 'apache', 'valid-create.json'), `${JSON.stringify(validDsl, null, 2)}\n`, 'utf8');
+    await writeFile(join(rootDir, 'apache', 'valid-overwrite.json'), `${JSON.stringify(overwriteDsl, null, 2)}\n`, 'utf8');
+    await writeFile(join(rootDir, 'broken.json'), '{ bad json', 'utf8');
+
+    const service = createIsolatedWorkflowService(rootDir);
+    const files = await service.listFileTemplates();
+
+    assert.equal(files.length, 3);
+    assert.equal(files.some((item) => item.id === 'apache/valid-create.json' && item.valid), true);
+    assert.equal(files.some((item) => item.id === 'broken.json' && item.valid === false), true);
+
+    const createdFromFile = await service.createTemplateFromFile({
+      fileTemplateId: 'apache/valid-create.json',
+      changeSummary: '从文件模板创建',
+    });
+    assert.equal(createdFromFile.template.name, 'file_template_create');
+    assert.equal(createdFromFile.version.content.metadata.displayName, '文件模板新建');
+
+    const target = await service.createTemplate({
+      content: {
+        apiVersion: 'gcac.workflow/v1',
+        kind: 'CurlSshWorkflow',
+        metadata: { name: 'existing_workflow', displayName: '现有工作流' },
+        variables: { deviceHost: { type: 'string', required: true } },
+        steps: [{ name: 'wait_one', type: 'wait', seconds: 1 }],
+      },
+      changeSummary: '初始空白工作流',
+    });
+    const applied = await service.applyFileTemplateToTemplate({
+      templateId: target.template.id,
+      fileTemplateId: 'apache/valid-overwrite.json',
+      changeSummary: '文件模板覆盖',
+    });
+
+    assert.equal(applied.content.metadata.name, 'existing_workflow');
+    assert.equal(applied.content.metadata.displayName, '文件模板覆盖');
+    assert.deepEqual(applied.content.steps.map((step) => step.name), ['verify_manual']);
+    assert.deepEqual(applied.content.rollback?.map((step) => step.name), ['rollback_manual']);
   });
 
   it('HTTP 列表接口返回真实数组，不能把 Promise 泄漏进 items', async () => {
@@ -213,6 +311,38 @@ describe('WorkflowTemplates', () => {
     assert.equal(run.stepResult.status, 'success');
     assert.equal((run.stepResult.plan as { executor: string }).executor, '015.SSH');
     assert.match(run.logs.join('\n'), /step:reload/);
+  });
+
+  it('支持单节点真实试跑，并返回当前节点输出', async () => {
+    const service = new WorkflowTemplatesApplicationService(
+      new WorkflowTemplatesDomainService(),
+      {
+        stepDispatcher: async ({ step }) => {
+          assert.equal(step.name, 'reload');
+          return {
+            success: true,
+            exitCode: 0,
+            stdout: 'real ssh ok',
+            body: { stdout: 'real ssh ok', stderr: '', exitCode: 0 },
+            logs: ['ssh:stdout:real ssh ok'],
+          };
+        },
+      },
+    );
+    const content = templateFixture();
+    const run = await service.testStep({
+      content,
+      stepName: 'reload',
+      mode: 'real_test',
+      userVariables: { ...runtimeInput('single').userVariables, remoteFingerprint: 'SHA256:single-node' },
+      certificateMaterials: runtimeInput('single').certificateMaterials,
+      secretRefs: runtimeInput('single').secretRefs,
+    });
+
+    assert.equal(run.mode, 'real_test');
+    assert.equal(run.stepResult.name, 'reload');
+    assert.equal(run.stepResult.status, 'success');
+    assert.equal((run.stepOutput as { stdout?: string }).stdout, 'real ssh ok');
   });
 
   it('condition 判断节点按变量结果决定成功或失败', async () => {
@@ -275,6 +405,84 @@ describe('WorkflowTemplates', () => {
     assert.equal((run.stepResults[2]!.plan as { executor: string }).executor, '015.SSH');
     assert.equal((run.stepResults[2]!.plan as { realSsh: boolean }).realSsh, false);
     assert.equal((run.stepResults[0]!.plan as { realNetwork: boolean }).realNetwork, false);
+  });
+
+  it('SFTP 和 SCP step 生成正式文件传输请求，不再伪装成 SSH 命令', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const content = templateFixture();
+    content.steps = [
+      {
+        name: 'uploadCertBySftp',
+        type: 'sftp',
+        stage: 'install',
+        sftp: {
+          direction: 'upload',
+          connection: {
+            host: '{{deviceHost}}',
+            username: 'admin',
+            credentialSecretRef: 'secret://ssh/device',
+            hostKeyPolicy: 'manual_approval_required',
+          },
+          remotePath: '/etc/gcac-test/certs/test.crt',
+          contentRef: '{{cert.pem}}',
+          mode: '0644',
+          timeoutSeconds: 60,
+        },
+        extract: [{ name: 'certHash', type: 'jsonPath', path: '$.transferResults[0].hash' }],
+      },
+      {
+        name: 'uploadKeyByScp',
+        type: 'scp',
+        stage: 'install',
+        scp: {
+          direction: 'upload',
+          connection: {
+            host: '{{deviceHost}}',
+            username: 'admin',
+            credentialSecretRef: 'secret://ssh/device',
+            hostKeyPolicy: 'manual_approval_required',
+          },
+          remotePath: '/etc/gcac-test/certs/test.key',
+          contentRef: '{{cert.privateKey}}',
+          mode: '0600',
+          timeoutSeconds: 60,
+        },
+      },
+    ];
+    content.rollback = undefined;
+    const { version } = await service.createTemplate({ content });
+    const run = await service.testRun({
+      ...runtimeInput(version.id),
+      mockResponses: {
+        uploadCertBySftp: {
+          exitCode: 0,
+          body: { transferResults: [{ hash: 'b'.repeat(64), protocol: 'sftp', remotePath: '/etc/gcac-test/certs/test.crt' }] },
+        },
+        uploadKeyByScp: {
+          exitCode: 0,
+          body: { transferResults: [{ hash: 'c'.repeat(64), protocol: 'scp', remotePath: '/etc/gcac-test/certs/test.key' }] },
+        },
+      },
+    });
+
+    const sftpPlan = run.stepResults[0]!.plan as {
+      sshRequest: { sftp: Array<{ remotePath: string; content: string; mode: string }> };
+      protocol: string;
+    };
+    const scpPlan = run.stepResults[1]!.plan as {
+      sshRequest: { scp: Array<{ remotePath: string; content: string; mode: string }> };
+      protocol: string;
+    };
+    assert.equal(run.status, 'success');
+    assert.equal(sftpPlan.protocol, 'sftp');
+    assert.equal(sftpPlan.sshRequest.sftp[0]!.remotePath, '/etc/gcac-test/certs/test.crt');
+    assert.equal(sftpPlan.sshRequest.sftp[0]!.content, '[REDACTED]');
+    assert.equal(sftpPlan.sshRequest.sftp[0]!.mode, '0644');
+    assert.equal(scpPlan.protocol, 'scp');
+    assert.equal(scpPlan.sshRequest.scp[0]!.remotePath, '/etc/gcac-test/certs/test.key');
+    assert.equal(scpPlan.sshRequest.scp[0]!.content, '[REDACTED]');
+    assert.equal(scpPlan.sshRequest.scp[0]!.mode, '0600');
+    assert.equal(run.stepResults[0]!.extracted.certHash, 'b'.repeat(64));
   });
 
   it('HTTP adapter 映射 DSL query/form/multipart/auth/tls/retry 到 CurlExecutor 请求', async () => {

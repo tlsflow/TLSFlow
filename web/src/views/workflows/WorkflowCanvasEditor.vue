@@ -13,6 +13,7 @@ import {
   getNodeTypeDefinition,
   getNodeStage,
   getVariableFlow,
+  isWorkflowDslV1,
   removeWorkflowVariable,
   renameWorkflowVariable,
   removeNode,
@@ -22,6 +23,7 @@ import {
   upsertWorkflowVariable,
   validateWorkflowCanvas,
   workflowCanvasToDsl,
+  workflowDslToCanvas,
   type WorkflowCanvasDefinition,
   type WorkflowCanvasNode,
   type WorkflowCanvasNodeType,
@@ -36,8 +38,16 @@ interface StepTestResult {
   readonly plannedOnly?: boolean
   readonly renderedStep?: Record<string, unknown>
   readonly stepResult?: Record<string, unknown>
+  readonly stepOutput?: unknown
   readonly logs?: readonly string[]
 }
+
+interface StepRuntimeState {
+  readonly userVariables: Record<string, unknown>
+  readonly secretRefBindings: Record<string, string>
+}
+
+type BottomPanelKey = 'variables' | 'validation' | 'dsl' | 'runtime'
 
 const props = withDefaults(defineProps<{
   readonly modelValue?: WorkflowCanvasDefinition
@@ -60,11 +70,16 @@ const future = ref<WorkflowCanvasDefinition[]>([])
 const selectedNodeId = ref('')
 const clipboardNode = ref<WorkflowCanvasNode | null>(null)
 const newNodeStage = ref<WorkflowCanvasStage>('prepare')
-const activeBottomPanel = ref<'variables' | 'validation' | 'dsl' | 'runtime'>('validation')
+const activeBottomPanel = ref<BottomPanelKey>('validation')
+const bottomPanelCollapsed = ref(false)
 const stepTesting = ref(false)
 const stepTestMessage = ref('')
 const stepTestResult = ref<StepTestResult | null>(null)
 const stepTestStepName = ref('')
+const stepRuntimeState = ref<StepRuntimeState>({ userVariables: {}, secretRefBindings: {} })
+const dslEditorText = ref('')
+const dslEditorDirty = ref(false)
+const dslEditorMessage = ref('')
 
 const canvas = computed(() => props.modelValue ?? createDefaultWorkflowCanvas())
 const selectedNode = computed(() => canvas.value.nodes.find((node) => node.id === selectedNodeId.value) ?? canvas.value.nodes[0] ?? null)
@@ -87,13 +102,32 @@ const stageSections = computed(() => {
 const surfaceHeight = computed(() => Math.max(720, Math.ceil(stageSections.value.at(-1)?.top ?? 0) + Math.ceil(stageSections.value.at(-1)?.height ?? 0) + 24))
 const stepTestStepResult = computed(() => readRecord(stepTestResult.value?.stepResult))
 const stepTestRenderedStep = computed(() => readRecord(stepTestResult.value?.renderedStep))
+const stepTestOutput = computed(() => stepTestResult.value?.stepOutput ?? null)
+const stepTestOutputRecord = computed(() => readRecord(stepTestOutput.value))
 const stepTestPlan = computed(() => stepTestStepResult.value?.plan ?? stepTestRenderedStep.value?.preview ?? null)
 const stepTestPlanText = computed(() => stepTestPlan.value === null ? '' : JSON.stringify(stepTestPlan.value, null, 2))
+const stepTestOutputText = computed(() => stepTestOutput.value === null ? '' : JSON.stringify(stepTestOutput.value, null, 2))
 const stepTestLogs = computed(() => [...readStringArray(stepTestStepResult.value?.logs), ...readStringArray(stepTestResult.value?.logs)])
+const selectedStepSecretRefs = computed(() => {
+  const selected = selectedNode.value
+  if (!selected) return []
+  const stepName = getWorkflowDslStepName(canvas.value, selected.id)
+  const step = [...dslPreview.value.steps, ...(dslPreview.value.rollback ?? [])].find((item) => item.name === stepName)
+  return collectSecretRefs(step)
+})
 
 watch(() => props.modelValue, () => {
   if (!selectedNodeId.value && canvas.value.nodes[0]) selectedNodeId.value = canvas.value.nodes[0].id
 }, { immediate: true })
+
+watch(dslPreview, (value) => {
+  if (dslEditorDirty.value) return
+  dslEditorText.value = JSON.stringify(value, null, 2)
+}, { immediate: true })
+
+watch([canvas, selectedNodeId, selectedStepSecretRefs], () => {
+  stepRuntimeState.value = mergeRuntimeState(stepRuntimeState.value, canvas.value, selectedStepSecretRefs.value)
+}, { immediate: true, deep: true })
 
 function commit(next: WorkflowCanvasDefinition) {
   if (!canEdit.value) return
@@ -214,28 +248,89 @@ function save() {
   emit('save', { canvas: cloneCanvas(canvas.value), dsl: workflowCanvasToDsl(canvas.value) })
 }
 
+function resetDslEditorToCanvas() {
+  dslEditorText.value = JSON.stringify(dslPreview.value, null, 2)
+  dslEditorDirty.value = false
+  dslEditorMessage.value = '已回填当前画布对应的 DSL。'
+}
+
+function updateDslEditor(event: Event) {
+  const target = event.target as HTMLTextAreaElement
+  dslEditorText.value = target.value
+  dslEditorDirty.value = true
+  dslEditorMessage.value = ''
+}
+
+async function importDslFile(event: Event) {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) return
+  dslEditorText.value = await file.text()
+  dslEditorDirty.value = true
+  dslEditorMessage.value = `已加载文件：${file.name}`
+  target.value = ''
+}
+
+function importDslIntoCanvas() {
+  if (!canEdit.value) return
+  try {
+    const parsed = JSON.parse(dslEditorText.value) as unknown
+    if (!isWorkflowDslV1(parsed)) {
+      throw new Error('DSL 顶层结构无效，必须包含 apiVersion=gcac.workflow/v1、kind=CurlSshWorkflow、metadata、variables、steps。')
+    }
+    const imported = workflowDslToCanvas(parsed)
+    commit(imported)
+    selectedNodeId.value = imported.nodes[0]?.id ?? ''
+    dslEditorText.value = JSON.stringify(parsed, null, 2)
+    dslEditorDirty.value = false
+    dslEditorMessage.value = `DSL 已导入并覆盖当前画布，共 ${imported.nodes.length} 个节点。`
+  } catch (error) {
+    dslEditorMessage.value = error instanceof Error ? error.message : 'DSL 导入失败'
+  }
+}
+
+function selectBottomPanel(panel: BottomPanelKey) {
+  activeBottomPanel.value = panel
+  bottomPanelCollapsed.value = false
+}
+
+function toggleBottomPanelCollapsed() {
+  bottomPanelCollapsed.value = !bottomPanelCollapsed.value
+}
+
 async function testSelectedNode() {
+  await runSelectedNode('mock')
+}
+
+async function runSelectedNode(mode: 'mock' | 'real_test') {
   if (!selectedNode.value || stepTesting.value) return
   stepTesting.value = true
   stepTestMessage.value = ''
   stepTestResult.value = null
   activeBottomPanel.value = 'runtime'
+  bottomPanelCollapsed.value = false
   try {
     const stepName = getWorkflowDslStepName(canvas.value, selectedNode.value.id)
     stepTestStepName.value = stepName
+    const secretBindings = normalizeSecretRefBindings(stepRuntimeState.value.secretRefBindings)
+    const content = mode === 'real_test'
+      ? applySecretRefBindings(workflowCanvasToDsl(canvas.value), secretBindings)
+      : workflowCanvasToDsl(canvas.value)
     const result = await testWorkflowTemplateStep({
-      content: workflowCanvasToDsl(canvas.value),
+      content,
       stepName,
-      mode: 'mock',
-      userVariables: buildMockUserVariables(canvas.value),
-      certificateMaterials: buildMockCertificateMaterials(canvas.value),
-      secretRefs: buildMockSecretRefs(),
+      mode,
+      userVariables: mode === 'mock' ? buildMockUserVariables(canvas.value) : buildRuntimeUserVariables(),
+      certificateMaterials: mode === 'mock' ? buildMockCertificateMaterials(canvas.value) : buildRuntimeCertificateMaterials(canvas.value),
+      secretRefs: mode === 'mock' ? buildMockSecretRefs() : secretBindings,
     })
     stepTestResult.value = (result.data ?? {}) as StepTestResult
     const status = String(readRecord(stepTestResult.value.stepResult)?.status ?? 'unknown')
-    stepTestMessage.value = `节点 ${stepName} 模拟完成：${status}`
+    stepTestMessage.value = mode === 'real_test'
+      ? `节点 ${stepName} 真实试跑完成：${status}`
+      : `节点 ${stepName} 模拟完成：${status}`
   } catch (error) {
-    stepTestMessage.value = error instanceof Error ? error.message : '单节点模拟运行失败。'
+    stepTestMessage.value = error instanceof Error ? error.message : (mode === 'real_test' ? '单节点真实试跑失败。' : '单节点模拟运行失败。')
   } finally {
     stepTesting.value = false
   }
@@ -247,15 +342,95 @@ function issueLevelLabel(level: string) {
   return '警告'
 }
 
+function mergeRuntimeState(current: StepRuntimeState, definition: WorkflowCanvasDefinition, secretRefs: readonly string[]): StepRuntimeState {
+  const userVariables: Record<string, unknown> = {}
+  for (const [name, variable] of Object.entries(definition.variables)) {
+    if (variable.type === 'certificate' || variable.type === 'secret') continue
+    if (current.userVariables[name] !== undefined) {
+      userVariables[name] = current.userVariables[name]
+      continue
+    }
+    userVariables[name] = runtimeValueForVariable(name, variable)
+  }
+  const secretRefBindings: Record<string, string> = {}
+  for (const secretRef of secretRefs) {
+    secretRefBindings[secretRef] = current.secretRefBindings[secretRef] ?? (isRealSecretRef(secretRef) ? secretRef : '')
+  }
+  return { userVariables, secretRefBindings }
+}
+
+function runtimeValueForVariable(name: string, variable: WorkflowVariableDefinition): unknown {
+  if (variable.default !== undefined) return variable.default
+  if (variable.type === 'number') return 22
+  if (variable.type === 'boolean') return true
+  if (variable.type === 'enum') return variable.enum?.[0] ?? ''
+  if (name === 'deviceHost') return ''
+  if (name === 'sshUsername') return 'admin'
+  if (name === 'verifyUrl') return 'https://runtime-device.local/health'
+  if (name === 'remoteFingerprint') return 'SHA256:runtime'
+  return variable.required ? `runtime-${name}` : ''
+}
+
+function buildRuntimeUserVariables(): Record<string, unknown> {
+  const values: Record<string, unknown> = {}
+  for (const [name, variable] of Object.entries(canvas.value.variables)) {
+    if (variable.type === 'certificate') continue
+    if (variable.type === 'secret') {
+      values[name] = typeof variable.default === 'string' ? variable.default : `secret://workflow/${name}`
+      continue
+    }
+    const current = stepRuntimeState.value.userVariables[name]
+    if (current === undefined) {
+      values[name] = runtimeValueForVariable(name, variable)
+      continue
+    }
+    values[name] = coerceRuntimeVariableValue(variable, current)
+  }
+  return values
+}
+
+function buildRuntimeCertificateMaterials(definition: WorkflowCanvasDefinition): Record<string, Record<string, unknown>> {
+  const certificates: Record<string, Record<string, unknown>> = {}
+  for (const [name, variable] of Object.entries(definition.variables)) {
+    if (variable.type !== 'certificate') continue
+    certificates[name] = readRecord(variable.default) ?? {
+      pem: '-----BEGIN CERTIFICATE-----\nRUNTIME_PLACEHOLDER\n-----END CERTIFICATE-----',
+      privateKey: '-----BEGIN PRIVATE KEY-----\nRUNTIME_PLACEHOLDER\n-----END PRIVATE KEY-----',
+      fingerprintSha256: 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+    }
+  }
+  return certificates
+}
+
+function coerceRuntimeVariableValue(variable: WorkflowVariableDefinition, value: unknown): unknown {
+  if (variable.type === 'number') return typeof value === 'number' ? value : Number(value)
+  if (variable.type === 'boolean') return typeof value === 'boolean' ? value : String(value) === 'true'
+  if (variable.type === 'object') {
+    if (typeof value !== 'string') return value ?? {}
+    if (!value.trim()) return {}
+    return JSON.parse(value)
+  }
+  return value
+}
+
 function buildMockUserVariables(definition: WorkflowCanvasDefinition): Record<string, unknown> {
-  const values: Record<string, unknown> = {
+  const fallbackValues: Record<string, unknown> = {
     deviceHost: 'mock-device.local',
     sshUsername: 'admin',
     verifyUrl: 'https://mock-device.local/health',
     remoteFingerprint: 'SHA256:mock',
   }
+  const values: Record<string, unknown> = {}
   for (const [name, variable] of Object.entries(definition.variables)) {
-    if (values[name] !== undefined || variable.type === 'certificate') continue
+    if (variable.type === 'certificate') continue
+    if (variable.default !== undefined) {
+      values[name] = variable.default
+      continue
+    }
+    if (fallbackValues[name] !== undefined) {
+      values[name] = fallbackValues[name]
+      continue
+    }
     values[name] = mockValueForVariable(name, variable)
   }
   return values
@@ -281,10 +456,80 @@ function buildMockSecretRefs(): Record<string, Record<string, unknown>> {
   }
 }
 
+function updateRuntimeVariableField(name: string, variable: WorkflowVariableDefinition, event: Event) {
+  const target = event.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+  const value = target instanceof HTMLInputElement && target.type === 'checkbox'
+    ? target.checked
+    : target.value
+  stepRuntimeState.value = {
+    ...stepRuntimeState.value,
+    userVariables: {
+      ...stepRuntimeState.value.userVariables,
+      [name]: variable.type === 'number' && typeof value === 'string' && value !== '' ? Number(value) : value,
+    },
+  }
+}
+
+function updateRuntimeSecretRef(secretRef: string, event: Event) {
+  const target = event.target as HTMLInputElement
+  stepRuntimeState.value = {
+    ...stepRuntimeState.value,
+    secretRefBindings: {
+      ...stepRuntimeState.value.secretRefBindings,
+      [secretRef]: target.value.trim(),
+    },
+  }
+}
+
+function normalizeSecretRefBindings(bindings: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(bindings)
+      .filter(([, value]) => value.trim().length > 0)
+      .map(([key, value]) => [key, value.trim()]),
+  )
+}
+
+function applySecretRefBindings<T>(value: T, bindings: Record<string, string>): T {
+  if (typeof value === 'string') return (bindings[value] ?? value) as T
+  if (Array.isArray(value)) return value.map((item) => applySecretRefBindings(item, bindings)) as T
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, child]) => [key, applySecretRefBindings(child, bindings)]),
+    ) as T
+  }
+  return value
+}
+
+function collectSecretRefs(value: unknown): string[] {
+  const refs = new Set<string>()
+  const visit = (current: unknown) => {
+    if (typeof current === 'string' && current.startsWith('secret://')) {
+      refs.add(current)
+      return
+    }
+    if (Array.isArray(current)) {
+      current.forEach(visit)
+      return
+    }
+    if (current && typeof current === 'object') {
+      Object.values(current as Record<string, unknown>).forEach(visit)
+    }
+  }
+  visit(value)
+  return [...refs]
+}
+
+function isRealSecretRef(value: string): boolean {
+  return /^secret:\/\/[a-z0-9_-]+\/[A-Za-z0-9_-]+#(?:current|v\d+)$/i.test(value)
+}
+
 function mockValueForVariable(name: string, variable: WorkflowVariableDefinition): unknown {
+  if (variable.default !== undefined) return variable.default
   if (variable.type === 'number') return 1
   if (variable.type === 'boolean') return true
+  if (variable.type === 'enum') return variable.enum?.[0] ?? ''
   if (variable.type === 'object') return {}
+  if (variable.type === 'file') return `mock-${name}`
   if (variable.type === 'secret') return name === 'credential' ? 'secret://workflow/ssh' : `secret://workflow/${name}`
   return `mock-${name}`
 }
@@ -415,24 +660,45 @@ function readStringArray(value: unknown): string[] {
             <textarea v-else-if="field.kind === 'textarea'" :value="String(selectedNode.config[field.key] ?? '')" :disabled="!canEdit" rows="4" @input="updateField(field, $event)" />
             <input v-else :type="field.kind === 'number' ? 'number' : 'text'" :value="String(selectedNode.config[field.key] ?? '')" :disabled="!canEdit" @input="updateField(field, $event)" />
           </label>
-          <button class="gc-button workflow-canvas-editor__test-button" type="button" :disabled="stepTesting" @click="testSelectedNode">
-            {{ stepTesting ? '模拟中...' : '模拟运行当前节点' }}
-          </button>
-          <small class="workflow-canvas-editor__test-hint">使用 mock 变量运行当前节点，适用于 HTTP/CURL、SSH、SFTP 和分支判断。</small>
+          <div class="workflow-canvas-editor__test-actions">
+            <button class="gc-button workflow-canvas-editor__test-button" type="button" :disabled="stepTesting" @click="testSelectedNode">
+              {{ stepTesting ? '模拟中...' : '模拟运行当前节点' }}
+            </button>
+            <button class="gc-button gc-button--primary workflow-canvas-editor__test-button" type="button" :disabled="stepTesting" @click="runSelectedNode('real_test')">
+              {{ stepTesting ? '试跑中...' : '真实试跑当前节点' }}
+            </button>
+          </div>
+          <small class="workflow-canvas-editor__test-hint">模拟运行只校验渲染和计划；真实试跑会直接访问目标 HTTP/SSH/SFTP/SCP 节点，并返回当前节点输出。</small>
         </template>
         <p v-else>选择节点后编辑配置。</p>
       </aside>
     </section>
 
-    <section class="workflow-canvas-editor__bottom">
-      <nav class="workflow-canvas-editor__tabs" aria-label="底部面板">
-        <button type="button" :data-active="activeBottomPanel === 'validation'" @click="activeBottomPanel = 'validation'">校验</button>
-        <button type="button" :data-active="activeBottomPanel === 'variables'" @click="activeBottomPanel = 'variables'">变量</button>
-        <button type="button" :data-active="activeBottomPanel === 'runtime'" @click="activeBottomPanel = 'runtime'">运行态</button>
-        <button type="button" :data-active="activeBottomPanel === 'dsl'" @click="activeBottomPanel = 'dsl'">DSL</button>
-      </nav>
+    <section
+      class="workflow-canvas-editor__bottom"
+      :class="{ 'workflow-canvas-editor__bottom--collapsed': bottomPanelCollapsed }"
+      :aria-expanded="!bottomPanelCollapsed"
+    >
+      <div class="workflow-canvas-editor__bottom-header">
+        <nav class="workflow-canvas-editor__tabs" aria-label="底部面板">
+          <button type="button" :data-active="activeBottomPanel === 'validation'" @click="selectBottomPanel('validation')">校验</button>
+          <button type="button" :data-active="activeBottomPanel === 'variables'" @click="selectBottomPanel('variables')">变量</button>
+          <button type="button" :data-active="activeBottomPanel === 'runtime'" @click="selectBottomPanel('runtime')">运行态</button>
+          <button type="button" :data-active="activeBottomPanel === 'dsl'" @click="selectBottomPanel('dsl')">DSL</button>
+        </nav>
+        <button
+          class="workflow-canvas-editor__bottom-toggle"
+          type="button"
+          :aria-expanded="!bottomPanelCollapsed"
+          :aria-label="bottomPanelCollapsed ? '展开底部控制面板' : '向下折叠底部控制面板'"
+          @click="toggleBottomPanelCollapsed"
+        >
+          <span class="workflow-canvas-editor__bottom-toggle-icon" aria-hidden="true"></span>
+          <span>{{ bottomPanelCollapsed ? '展开面板' : '向下折叠' }}</span>
+        </button>
+      </div>
 
-      <div v-if="activeBottomPanel === 'validation'" class="workflow-canvas-editor__panel" aria-label="校验面板">
+      <div v-if="!bottomPanelCollapsed && activeBottomPanel === 'validation'" class="workflow-canvas-editor__panel" aria-label="校验面板">
         <p v-if="validationIssues.length === 0">没有阻断错误。</p>
         <ul v-else>
           <li v-for="issue in validationIssues" :key="issue.id" :data-severity="issue.severity">
@@ -443,7 +709,7 @@ function readStringArray(value: unknown): string[] {
         </ul>
       </div>
 
-      <div v-else-if="activeBottomPanel === 'variables'" class="workflow-canvas-editor__panel" aria-label="变量面板">
+      <div v-else-if="!bottomPanelCollapsed && activeBottomPanel === 'variables'" class="workflow-canvas-editor__panel" aria-label="变量面板">
         <div class="workflow-canvas-editor__variables-header">
           <strong>变量配置</strong>
           <button class="gc-button" type="button" :disabled="!canEdit" @click="addVariable">添加变量</button>
@@ -460,6 +726,7 @@ function readStringArray(value: unknown): string[] {
                 <option value="string">string</option>
                 <option value="number">number</option>
                 <option value="boolean">boolean</option>
+                <option value="enum">enum</option>
                 <option value="object">object</option>
                 <option value="file">file</option>
                 <option value="certificate">certificate</option>
@@ -497,13 +764,59 @@ function readStringArray(value: unknown): string[] {
         </ul>
       </div>
 
-      <div v-else-if="activeBottomPanel === 'runtime'" class="workflow-canvas-editor__panel" aria-label="运行态面板">
+      <div v-else-if="!bottomPanelCollapsed && activeBottomPanel === 'runtime'" class="workflow-canvas-editor__panel" aria-label="运行态面板">
         <div class="workflow-canvas-editor__runtime-header">
-          <strong>单节点模拟</strong>
+          <strong>单节点测试运行</strong>
           <span v-if="stepTestMessage">{{ stepTestMessage }}</span>
         </div>
-        <p v-if="!stepTestResult && !stepTesting">选择节点后，在属性面板点击“模拟运行当前节点”。</p>
-        <p v-else-if="stepTesting">正在执行 mock 模拟运行...</p>
+        <div class="workflow-canvas-editor__runtime-inputs">
+          <strong>运行时变量</strong>
+          <div v-if="Object.entries(canvas.variables).filter(([, definition]) => definition.type !== 'certificate' && definition.type !== 'secret').length" class="workflow-canvas-editor__runtime-form">
+            <label v-for="(definition, name) in canvas.variables" v-show="definition.type !== 'certificate' && definition.type !== 'secret'" :key="`runtime:${name}`">
+              <span>{{ name }}</span>
+              <select
+                v-if="definition.type === 'enum'"
+                :value="String(stepRuntimeState.userVariables[name] ?? '')"
+                @change="updateRuntimeVariableField(String(name), definition, $event)"
+              >
+                <option v-for="option in definition.enum ?? []" :key="String(option)" :value="String(option)">{{ String(option) }}</option>
+              </select>
+              <input
+                v-else-if="definition.type === 'boolean'"
+                type="checkbox"
+                :checked="Boolean(stepRuntimeState.userVariables[name])"
+                @change="updateRuntimeVariableField(String(name), definition, $event)"
+              />
+              <textarea
+                v-else-if="definition.type === 'object'"
+                rows="3"
+                :value="typeof stepRuntimeState.userVariables[name] === 'string' ? String(stepRuntimeState.userVariables[name]) : JSON.stringify(stepRuntimeState.userVariables[name] ?? {}, null, 2)"
+                @change="updateRuntimeVariableField(String(name), definition, $event)"
+              />
+              <input
+                v-else
+                :type="definition.type === 'number' ? 'number' : 'text'"
+                :value="String(stepRuntimeState.userVariables[name] ?? '')"
+                @change="updateRuntimeVariableField(String(name), definition, $event)"
+              />
+            </label>
+          </div>
+          <p v-else class="workflow-canvas-editor__runtime-empty">当前节点没有额外运行时变量。</p>
+          <strong>SecretRef 映射</strong>
+          <div v-if="selectedStepSecretRefs.length" class="workflow-canvas-editor__runtime-form">
+            <label v-for="secretRef in selectedStepSecretRefs" :key="`secret:${secretRef}`">
+              <span>{{ secretRef }}</span>
+              <input
+                :value="stepRuntimeState.secretRefBindings[secretRef] ?? ''"
+                :placeholder="isRealSecretRef(secretRef) ? '已是正式 SecretRef，可直接使用' : '填写真实 SecretRef，例如 secret://password/sec_xxx#current'"
+                @change="updateRuntimeSecretRef(secretRef, $event)"
+              />
+            </label>
+          </div>
+          <p v-else class="workflow-canvas-editor__runtime-empty">当前节点未引用 SecretRef。</p>
+        </div>
+        <p v-if="!stepTestResult && !stepTesting">选择节点后，在属性面板点击“模拟运行当前节点”或“真实试跑当前节点”。</p>
+        <p v-else-if="stepTesting">正在执行测试运行...</p>
         <div v-else class="workflow-canvas-editor__runtime-result">
           <ul>
             <li>
@@ -514,6 +827,16 @@ function readStringArray(value: unknown): string[] {
           </ul>
           <strong>执行计划</strong>
           <pre>{{ stepTestPlanText }}</pre>
+          <template v-if="stepTestOutput !== null">
+            <strong>节点输出</strong>
+            <pre>{{ stepTestOutputText }}</pre>
+            <template v-if="stepTestOutputRecord">
+              <strong v-if="typeof stepTestOutputRecord.stdout === 'string'">标准输出</strong>
+              <pre v-if="typeof stepTestOutputRecord.stdout === 'string'">{{ String(stepTestOutputRecord.stdout) }}</pre>
+              <strong v-if="typeof stepTestOutputRecord.stderr === 'string'">标准错误</strong>
+              <pre v-if="typeof stepTestOutputRecord.stderr === 'string'">{{ String(stepTestOutputRecord.stderr) }}</pre>
+            </template>
+          </template>
           <strong>日志</strong>
           <ul>
             <li v-for="(line, index) in stepTestLogs" :key="`${index}:${line}`">
@@ -523,7 +846,28 @@ function readStringArray(value: unknown): string[] {
         </div>
       </div>
 
-      <pre v-else class="workflow-canvas-editor__dsl">{{ JSON.stringify(dslPreview, null, 2) }}</pre>
+      <div v-else-if="!bottomPanelCollapsed" class="workflow-canvas-editor__panel workflow-canvas-editor__dsl-panel" aria-label="DSL 面板">
+        <div class="workflow-canvas-editor__dsl-actions">
+          <strong>DSL 导入与覆盖</strong>
+          <div class="workflow-canvas-editor__dsl-actions-row">
+            <label class="workflow-canvas-editor__dsl-file">
+              <span>选择 DSL 文件</span>
+              <input type="file" accept=".json,.dsl,.txt,application/json" :disabled="!canEdit" @change="importDslFile" />
+            </label>
+            <button class="gc-button" type="button" @click="resetDslEditorToCanvas">回填当前画布 DSL</button>
+            <button class="gc-button gc-button--primary" type="button" :disabled="!canEdit" @click="importDslIntoCanvas">导入 DSL 覆盖画布</button>
+          </div>
+        </div>
+        <p class="workflow-canvas-editor__dsl-hint">可直接粘贴外部 DSL JSON，或选择本地 DSL 文件。导入只覆盖浏览器中的当前画布，点击“保存草稿”后才会生成新的工作流版本。</p>
+        <p v-if="dslEditorMessage" class="workflow-canvas-editor__dsl-message">{{ dslEditorMessage }}</p>
+        <textarea
+          class="workflow-canvas-editor__dsl-editor"
+          :value="dslEditorText"
+          :readonly="!canEdit"
+          spellcheck="false"
+          @input="updateDslEditor"
+        />
+      </div>
     </section>
   </section>
 </template>
@@ -828,6 +1172,11 @@ function readStringArray(value: unknown): string[] {
   justify-content: center;
 }
 
+.workflow-canvas-editor__test-actions {
+  display: grid;
+  gap: 8px;
+}
+
 .workflow-canvas-editor__test-hint {
   color: #64748b;
   font-size: 11px;
@@ -836,19 +1185,38 @@ function readStringArray(value: unknown): string[] {
 
 .workflow-canvas-editor__bottom {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   min-height: 180px;
   overflow: hidden;
 }
 
-.workflow-canvas-editor__tabs {
+.workflow-canvas-editor__bottom--collapsed {
+  min-height: 0;
+}
+
+.workflow-canvas-editor__bottom-header {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 8px;
   border-bottom: 1px solid #dbe6f4;
   background: #f8fbff;
 }
 
-.workflow-canvas-editor__tabs button {
+.workflow-canvas-editor__bottom--collapsed .workflow-canvas-editor__bottom-header {
+  border-bottom: 0;
+}
+
+.workflow-canvas-editor__tabs {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.workflow-canvas-editor__tabs button,
+.workflow-canvas-editor__bottom-toggle {
   min-height: 32px;
   padding: 0 12px;
   border: 1px solid #cbd7e6;
@@ -858,6 +1226,31 @@ function readStringArray(value: unknown): string[] {
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
+}
+
+.workflow-canvas-editor__bottom-toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  background: #f8fafc;
+}
+
+.workflow-canvas-editor__bottom-toggle:hover {
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+.workflow-canvas-editor__bottom-toggle-icon {
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+}
+
+.workflow-canvas-editor__bottom-toggle[aria-expanded='false'] .workflow-canvas-editor__bottom-toggle-icon {
+  transform: translateY(2px) rotate(225deg);
 }
 
 .workflow-canvas-editor__tabs button[data-active='true'] {
@@ -877,6 +1270,64 @@ function readStringArray(value: unknown): string[] {
   color: #15803d;
   font-size: 13px;
   font-weight: 800;
+}
+
+.workflow-canvas-editor__dsl-panel {
+  display: grid;
+  gap: 10px;
+  max-height: none;
+}
+
+.workflow-canvas-editor__dsl-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.workflow-canvas-editor__dsl-actions strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.workflow-canvas-editor__dsl-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.workflow-canvas-editor__dsl-file {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid #dbe6f4;
+  border-radius: 8px;
+  background: #f8fbff;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.workflow-canvas-editor__dsl-file input {
+  max-width: 220px;
+  font-size: 12px;
+}
+
+.workflow-canvas-editor__dsl-hint,
+.workflow-canvas-editor__dsl-message {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.workflow-canvas-editor__dsl-hint {
+  color: #475569;
+}
+
+.workflow-canvas-editor__dsl-message {
+  color: #1d4ed8;
+  font-weight: 700;
 }
 
 .workflow-canvas-editor__runtime-header {
@@ -955,6 +1406,58 @@ function readStringArray(value: unknown): string[] {
   font-weight: 800;
 }
 
+.workflow-canvas-editor__runtime-inputs {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.workflow-canvas-editor__runtime-inputs > strong {
+  color: #334155;
+  font-size: 12px;
+}
+
+.workflow-canvas-editor__runtime-form {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.workflow-canvas-editor__runtime-form label {
+  display: grid;
+  gap: 4px;
+}
+
+.workflow-canvas-editor__runtime-form label span {
+  color: #475569;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.workflow-canvas-editor__runtime-form input,
+.workflow-canvas-editor__runtime-form select,
+.workflow-canvas-editor__runtime-form textarea {
+  width: 100%;
+  min-height: 32px;
+  border: 1px solid #cbd7e6;
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 12px;
+}
+
+.workflow-canvas-editor__runtime-form input[type='checkbox'] {
+  width: auto;
+  min-height: auto;
+}
+
+.workflow-canvas-editor__runtime-empty {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .workflow-canvas-editor__runtime-result {
   display: grid;
   gap: 8px;
@@ -1014,6 +1517,20 @@ function readStringArray(value: unknown): string[] {
   background: #0f172a;
   color: #dbeafe;
   font-size: 12px;
+}
+
+.workflow-canvas-editor__dsl-editor {
+  width: 100%;
+  min-height: 280px;
+  border: 1px solid #cbd7e6;
+  border-radius: 8px;
+  padding: 10px 12px;
+  resize: vertical;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 @media (max-width: 1180px) {

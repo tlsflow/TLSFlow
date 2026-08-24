@@ -1,4 +1,4 @@
-export type WorkflowCanvasNodeType = 'http' | 'ssh' | 'sftp' | 'verify' | 'condition' | 'wait' | 'manual'
+export type WorkflowCanvasNodeType = 'http' | 'ssh' | 'sftp' | 'scp' | 'verify' | 'condition' | 'wait' | 'manual'
 export type WorkflowCanvasEdgeType = 'success' | 'failure' | 'always' | 'rollback'
 export type WorkflowCanvasFieldKind = 'text' | 'textarea' | 'number' | 'select' | 'secretRef'
 export type WorkflowValidationSeverity = 'error' | 'warning' | 'risk'
@@ -142,6 +142,24 @@ export type WorkflowDslStep =
     }
   | {
       readonly name: string
+      readonly type: 'sftp'
+      readonly stage?: WorkflowCanvasStage
+      readonly sftp: WorkflowDslFileTransferConfig
+      readonly retry?: { readonly count?: number; readonly intervalSeconds?: number }
+      readonly extract?: readonly WorkflowDslExtractor[]
+      readonly assert?: readonly WorkflowDslAssertion[]
+    }
+  | {
+      readonly name: string
+      readonly type: 'scp'
+      readonly stage?: WorkflowCanvasStage
+      readonly scp: WorkflowDslFileTransferConfig
+      readonly retry?: { readonly count?: number; readonly intervalSeconds?: number }
+      readonly extract?: readonly WorkflowDslExtractor[]
+      readonly assert?: readonly WorkflowDslAssertion[]
+    }
+  | {
+      readonly name: string
       readonly type: 'condition'
       readonly stage?: WorkflowCanvasStage
       readonly condition: WorkflowDslCondition
@@ -149,6 +167,28 @@ export type WorkflowDslStep =
     }
   | { readonly name: string; readonly type: 'wait'; readonly stage?: WorkflowCanvasStage; readonly seconds: number }
   | { readonly name: string; readonly type: 'manual'; readonly stage?: WorkflowCanvasStage; readonly instruction: string }
+
+export interface WorkflowDslFileTransferConfig {
+  readonly direction: 'upload' | 'download'
+  readonly connection: {
+    readonly host: string
+    readonly username: string
+    readonly credentialSecretRef: string
+    readonly hostKeyPolicy?: 'strict' | 'trust_on_first_use' | 'manual_approval_required'
+  }
+  readonly remotePath: string
+  readonly contentRef?: string
+  readonly contentEncoding?: 'utf8' | 'base64'
+  readonly localPath?: string
+  readonly temporaryPath?: string
+  readonly expectedHash?: string
+  readonly expectedSize?: number
+  readonly verifyHash?: boolean
+  readonly mode?: string
+  readonly owner?: string
+  readonly group?: string
+  readonly timeoutSeconds?: number
+}
 
 export interface WorkflowDslCondition {
   readonly variable: string
@@ -220,7 +260,7 @@ export const NODE_TYPE_DEFINITIONS: readonly WorkflowNodeTypeDefinition[] = [
     type: 'sftp',
     displayName: 'SFTP 上传/下载',
     category: 'file',
-    description: '表达 SFTP 文件传输计划，当前保存为兼容 DSL 的 SSH 计划步骤。',
+    description: '通过正式 SFTP step 上传或下载文件，适合证书与配置安装。',
     inputPorts: ['input'],
     outputPorts: ['success', 'failure'],
     fields: [
@@ -228,7 +268,34 @@ export const NODE_TYPE_DEFINITIONS: readonly WorkflowNodeTypeDefinition[] = [
       { key: 'connectionRef', label: '连接变量', kind: 'text', required: true },
       { key: 'credentialSecretRef', label: '凭据 SecretRef', kind: 'secretRef', required: true },
       { key: 'remotePath', label: '远端路径', kind: 'text', required: true },
-      { key: 'localArtifactRef', label: '本地产物变量', kind: 'text', required: true },
+      { key: 'username', label: '用户名变量', kind: 'text', required: true },
+      { key: 'contentRef', label: '内容变量', kind: 'text' },
+      { key: 'localPath', label: '本地路径', kind: 'text' },
+      { key: 'mode', label: '文件权限', kind: 'text' },
+      { key: 'timeoutSeconds', label: '超时秒数', kind: 'number', required: true },
+    ],
+    produces: [
+      { name: 'remotePath', type: 'string' },
+      { name: 'hash', type: 'string' },
+      { name: 'backupRef', type: 'string' },
+    ],
+  },
+  {
+    type: 'scp',
+    displayName: 'SCP 上传/下载',
+    category: 'file',
+    description: '通过正式 SCP step 上传或下载文件，作为 SFTP 不可用时的显式传输方案。',
+    inputPorts: ['input'],
+    outputPorts: ['success', 'failure'],
+    fields: [
+      { key: 'direction', label: '方向', kind: 'select', required: true, options: [{ label: '上传', value: 'upload' }, { label: '下载', value: 'download' }] },
+      { key: 'connectionRef', label: '连接变量', kind: 'text', required: true },
+      { key: 'username', label: '用户名变量', kind: 'text', required: true },
+      { key: 'credentialSecretRef', label: '凭据 SecretRef', kind: 'secretRef', required: true },
+      { key: 'remotePath', label: '远端路径', kind: 'text', required: true },
+      { key: 'contentRef', label: '内容变量', kind: 'text' },
+      { key: 'localPath', label: '本地路径', kind: 'text' },
+      { key: 'mode', label: '文件权限', kind: 'text' },
       { key: 'timeoutSeconds', label: '超时秒数', kind: 'number', required: true },
     ],
     produces: [
@@ -391,7 +458,8 @@ export function getNodeTypeDefinition(type: WorkflowCanvasNodeType): WorkflowNod
 export function createDefaultConfig(type: WorkflowCanvasNodeType): Record<string, unknown> {
   if (type === 'http') return { method: 'GET', url: '{{verifyUrl}}', authRef: 'secret://workflow/device-api', body: '', timeoutSeconds: 30 }
   if (type === 'ssh') return { hostRef: '{{deviceHost}}', username: '{{sshUsername}}', credentialSecretRef: 'secret://workflow/ssh', command: 'systemctl reload nginx', timeoutSeconds: 60 }
-  if (type === 'sftp') return { direction: 'upload', connectionRef: '{{deviceHost}}', credentialSecretRef: 'secret://workflow/ssh', remotePath: '/etc/ssl/certs/site.pem', localArtifactRef: '{{certificate.pem}}', timeoutSeconds: 60 }
+  if (type === 'sftp') return createDefaultFileTransferConfig('{{certificate.pem}}', '/etc/ssl/certs/site.pem', '0644')
+  if (type === 'scp') return createDefaultFileTransferConfig('{{certificate.privateKey}}', '/etc/ssl/private/site.key', '0600')
   if (type === 'verify') return { verifyType: 'httpStatus', inputRef: '{{verifyUrl}}', expected: '200', timeoutSeconds: 30 }
   if (type === 'condition') return { variable: 'deviceHost', operator: 'exists', expected: '', description: '目标变量存在时继续执行' }
   if (type === 'wait') return { seconds: 10 }
@@ -422,7 +490,7 @@ export function validateWorkflowCanvas(canvas: WorkflowCanvasDefinition): Workfl
       }
     }
     const timeout = node.config.timeoutSeconds ?? node.config.seconds
-    if (['http', 'ssh', 'sftp', 'verify'].includes(node.type) && (!Number.isInteger(Number(timeout)) || Number(timeout) <= 0)) {
+    if (['http', 'ssh', 'sftp', 'scp', 'verify'].includes(node.type) && (!Number.isInteger(Number(timeout)) || Number(timeout) <= 0)) {
       issues.push(fieldIssue(node, 'timeoutSeconds', `${node.label} 必须声明正整数超时。`, '为外部动作设置明确 timeoutSeconds。'))
     }
   }
@@ -464,7 +532,7 @@ export function workflowCanvasToDsl(canvas: WorkflowCanvasDefinition): WorkflowD
     },
     variables: cloneRecord(canvas.variables),
     steps: orderedNodes.map((node, index) => nodeToDslStep(node, index)),
-    rollback: buildRollbackSteps(normalized),
+    rollback: resolveRollbackSteps(normalized),
   }
 }
 
@@ -485,7 +553,21 @@ export function workflowDslToCanvas(dsl: WorkflowDslV1): WorkflowCanvasDefinitio
     nodes,
     edges: [],
     viewport: { x: 0, y: 0, zoom: 1 },
+    draftState: {
+      importedRollback: cloneRecord(dsl.rollback ?? []),
+    },
   })
+}
+
+export function isWorkflowDslV1(value: unknown): value is WorkflowDslV1 {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const record = value as Record<string, unknown>
+  if (record.apiVersion !== 'gcac.workflow/v1' || record.kind !== 'CurlSshWorkflow') return false
+  if (!record.metadata || typeof record.metadata !== 'object' || Array.isArray(record.metadata)) return false
+  if (!record.variables || typeof record.variables !== 'object' || Array.isArray(record.variables)) return false
+  if (!Array.isArray(record.steps) || record.steps.length === 0) return false
+  if (record.rollback !== undefined && !Array.isArray(record.rollback)) return false
+  return true
 }
 
 export function cloneCanvas(canvas: WorkflowCanvasDefinition): WorkflowCanvasDefinition {
@@ -591,7 +673,7 @@ export function getVariableFlow(canvas: WorkflowCanvasDefinition) {
 function nodeToDslStep(node: WorkflowCanvasNode, index: number): WorkflowDslStep {
   const name = buildDslStepName(node, index)
   if (node.type === 'http') {
-    return {
+    return mergeImportedDslStep(node, {
       name,
       type: 'http',
       stage: getNodeStage(node),
@@ -604,78 +686,70 @@ function nodeToDslStep(node: WorkflowCanvasNode, index: number): WorkflowDslStep
       },
       extract: [{ name: `${name}_status`, type: 'statusCode', optional: true }],
       assert: [{ type: 'statusCode', equals: 200 }],
-    }
+    })
   }
   if (node.type === 'ssh') {
     const commands = splitCommandLines(String(node.config.command ?? ''))
-    return {
+    const imported = readImportedStep(node)
+    const importedMode = imported?.type === 'ssh' ? imported.ssh.mode : 'command'
+    const sshBody = importedMode === 'script'
+      ? { script: String(node.config.command ?? '') }
+      : commands.length > 1
+        ? { commands }
+        : { command: commands[0] ?? '' }
+    return mergeImportedDslStep(node, {
       name,
       type: 'ssh',
       stage: getNodeStage(node),
       ssh: {
-        mode: 'command',
+        mode: importedMode === 'script' ? 'script' : 'command',
         connection: {
           host: String(node.config.hostRef ?? '{{deviceHost}}'),
           username: String(node.config.username ?? '{{sshUsername}}'),
           credentialSecretRef: String(node.config.credentialSecretRef ?? 'secret://workflow/ssh'),
           hostKeyPolicy: 'manual_approval_required',
         },
-        ...(commands.length > 1 ? { commands } : { command: commands[0] ?? '' }),
+        ...sshBody,
         timeoutSeconds: Number(node.config.timeoutSeconds ?? 60),
       },
       assert: [{ type: 'regex', pattern: '.*' }],
-    }
+    })
   }
   if (node.type === 'sftp') {
-    const direction = String(node.config.direction ?? 'upload').toUpperCase()
-    return {
-      name,
-      type: 'ssh',
-      stage: getNodeStage(node),
-      ssh: {
-        mode: 'command',
-        connection: {
-          host: String(node.config.connectionRef ?? '{{deviceHost}}'),
-          username: '{{sshUsername}}',
-          credentialSecretRef: String(node.config.credentialSecretRef ?? 'secret://workflow/ssh'),
-          hostKeyPolicy: 'manual_approval_required',
-        },
-        // 中文说明：后端 DSL v1 没有 sftp step，这里只保存计划语义，不实现真实 SFTP 协议。
-        command: `SFTP_${direction} ${String(node.config.localArtifactRef ?? '{{certificate.pem}}')} ${String(node.config.remotePath ?? '/tmp/cert.pem')}`,
-        timeoutSeconds: Number(node.config.timeoutSeconds ?? 60),
-      },
-      extract: [{ name: `${name}_remotePath`, type: 'regex', pattern: 'SFTP_.*\\s+.*\\s+(.+)$', optional: true }],
-    }
+    return mergeImportedDslStep(node, buildFileTransferDslStep(node, name, 'sftp'))
+  }
+  if (node.type === 'scp') {
+    return mergeImportedDslStep(node, buildFileTransferDslStep(node, name, 'scp'))
   }
   if (node.type === 'verify') {
     const verifyType = String(node.config.verifyType ?? 'httpStatus')
     if (verifyType === 'httpStatus') {
-      return {
+      return mergeImportedDslStep(node, {
         name,
         type: 'http',
         stage: getNodeStage(node),
         request: { method: 'GET', url: String(node.config.inputRef ?? '{{verifyUrl}}'), timeoutSeconds: Number(node.config.timeoutSeconds ?? 30) },
         assert: [{ type: 'statusCode', equals: Number(node.config.expected ?? 200) }],
-      }
+      })
     }
-    return {
+    return mergeImportedDslStep(node, {
       name,
       type: 'manual',
       stage: getNodeStage(node),
       instruction: `验证 ${String(node.config.inputRef ?? '')} 应匹配 ${String(node.config.expected ?? '')}`,
-    }
+    })
   }
   if (node.type === 'condition') {
-    return {
+    return mergeImportedDslStep(node, {
       name,
       type: 'condition',
       stage: getNodeStage(node),
       condition: buildDslCondition(node.config),
       description: String(node.config.description ?? ''),
-    }
+    })
   }
-  if (node.type === 'wait') return { name, type: 'wait', stage: getNodeStage(node), seconds: Number(node.config.seconds ?? 10) }
-  return { name, type: 'manual', stage: getNodeStage(node), instruction: String(node.config.instruction ?? '人工确认') }
+  if (node.type === 'wait') return mergeImportedDslStep(node, { name, type: 'wait', stage: getNodeStage(node), seconds: Number(node.config.seconds ?? 10) })
+  return mergeImportedDslStep(node, { name, type: 'manual', stage: getNodeStage(node), instruction: String(node.config.instruction ?? '人工确认') })
 }
 
 function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode {
@@ -686,23 +760,29 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
       id: `${isVerify ? 'verify' : 'http'}_${index + 1}`,
       type: isVerify ? 'verify' : 'http',
       position: { x: 80 + index * 260, y: 120 },
-      label: isVerify ? '验证' : 'HTTP/CURL',
-      ui: { stage },
+      label: dslStepLabel(step, isVerify ? '验证' : 'HTTP/CURL'),
+      ui: { stage, rawStep: cloneRecord(step) },
       config: isVerify
         ? { verifyType: 'httpStatus', inputRef: step.request.url, expected: String((step.assert?.[0] as { equals?: unknown } | undefined)?.equals ?? 200), timeoutSeconds: step.request.timeoutSeconds ?? 30 }
-        : { method: step.request.method, url: step.request.url, body: stringifyBody(step.request.body), timeoutSeconds: step.request.timeoutSeconds ?? 30 },
+        : {
+            method: step.request.method,
+            url: step.request.url,
+            authRef: step.request.auth?.type === 'bearer' ? step.request.auth.secretRef : '',
+            body: stringifyBody(step.request.body),
+            timeoutSeconds: step.request.timeoutSeconds ?? 30,
+          },
     }
   }
   if (step.type === 'ssh') {
-    const command = step.ssh.commands?.length ? step.ssh.commands.join('\n') : step.ssh.command ?? ''
+    const command = sshConfigText(step)
     if (command.startsWith('SFTP_')) {
       const [, direction = 'UPLOAD', localArtifactRef = '{{certificate.pem}}', remotePath = '/tmp/cert.pem'] = command.split(/\s+/)
       return {
         id: `sftp_${index + 1}`,
         type: 'sftp',
         position: { x: 80 + index * 260, y: 120 },
-        label: 'SFTP 上传/下载',
-        ui: { stage },
+        label: dslStepLabel(step, 'SFTP 上传/下载'),
+        ui: { stage, rawStep: cloneRecord(step) },
         config: {
           direction: direction.toLowerCase() === 'download' ? 'download' : 'upload',
           connectionRef: step.ssh.connection.host,
@@ -717,8 +797,8 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
       id: `ssh_${index + 1}`,
       type: 'ssh',
       position: { x: 80 + index * 260, y: 120 },
-      label: 'SSH 命令',
-      ui: { stage },
+      label: dslStepLabel(step, 'SSH 命令'),
+      ui: { stage, rawStep: cloneRecord(step) },
       config: {
         hostRef: step.ssh.connection.host,
         username: step.ssh.connection.username,
@@ -728,13 +808,34 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
       },
     }
   }
+  if (step.type === 'sftp' || step.type === 'scp') {
+    const config = step.type === 'sftp' ? step.sftp : step.scp
+    return {
+      id: `${step.type}_${index + 1}`,
+      type: step.type,
+      position: { x: 80 + index * 260, y: 120 },
+      label: dslStepLabel(step, step.type === 'sftp' ? 'SFTP 上传/下载' : 'SCP 上传/下载'),
+      ui: { stage, rawStep: cloneRecord(step) },
+      config: {
+        direction: config.direction,
+        connectionRef: config.connection.host,
+        username: config.connection.username,
+        credentialSecretRef: config.connection.credentialSecretRef,
+        remotePath: config.remotePath,
+        contentRef: config.contentRef ?? '',
+        localPath: config.localPath ?? '',
+        mode: config.mode ?? '',
+        timeoutSeconds: config.timeoutSeconds ?? 60,
+      },
+    }
+  }
   if (step.type === 'condition') {
     return {
       id: `condition_${index + 1}`,
       type: 'condition',
       position: { x: 80 + index * 260, y: 120 },
-      label: '分支判断',
-      ui: { stage },
+      label: dslStepLabel(step, '分支判断'),
+      ui: { stage, rawStep: cloneRecord(step) },
       config: {
         variable: step.condition.variable,
         operator: step.condition.equals !== undefined ? 'equals' : step.condition.notEquals !== undefined ? 'notEquals' : step.condition.exists === false ? 'notExists' : 'exists',
@@ -743,8 +844,8 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
       },
     }
   }
-  if (step.type === 'wait') return { id: `wait_${index + 1}`, type: 'wait', position: { x: 80 + index * 260, y: 120 }, label: '等待', config: { seconds: step.seconds }, ui: { stage } }
-  return { id: `manual_${index + 1}`, type: 'manual', position: { x: 80 + index * 260, y: 120 }, label: '人工确认', config: { instruction: step.instruction }, ui: { stage } }
+  if (step.type === 'wait') return { id: `wait_${index + 1}`, type: 'wait', position: { x: 80 + index * 260, y: 120 }, label: dslStepLabel(step, '等待'), config: { seconds: step.seconds }, ui: { stage, rawStep: cloneRecord(step) } }
+  return { id: `manual_${index + 1}`, type: 'manual', position: { x: 80 + index * 260, y: 120 }, label: dslStepLabel(step, '人工确认'), config: { instruction: step.instruction }, ui: { stage, rawStep: cloneRecord(step) } }
 }
 
 function buildRollbackSteps(canvas: WorkflowCanvasDefinition): readonly WorkflowDslStep[] {
@@ -753,12 +854,19 @@ function buildRollbackSteps(canvas: WorkflowCanvasDefinition): readonly Workflow
   return steps.length ? steps : [{ name: 'manual_rollback', type: 'manual', instruction: '回滚到上一个稳定证书版本' }]
 }
 
+function resolveRollbackSteps(canvas: WorkflowCanvasDefinition): readonly WorkflowDslStep[] {
+  const imported = canvas.draftState?.importedRollback
+  return Array.isArray(imported) && imported.length > 0 ? cloneRecord(imported) as WorkflowDslStep[] : buildRollbackSteps(canvas)
+}
+
 function getExecutableDslNodes(canvas: WorkflowCanvasDefinition): WorkflowCanvasNode[] {
   const normalized = normalizeWorkflowCanvasFlow(canvas)
   return sortNodesByStage(normalized.nodes).filter((node) => !isRollbackOnlyNode(normalized, node.id))
 }
 
 function buildDslStepName(node: WorkflowCanvasNode, index: number): string {
+  const imported = readImportedStep(node)
+  if (imported?.name && node.label === imported.name) return normalizeIdentifier(imported.name)
   return normalizeIdentifier(`${node.type}_${index + 1}_${node.label}`)
 }
 
@@ -831,7 +939,7 @@ function buildStageEdges(nodes: readonly WorkflowCanvasNode[]): WorkflowCanvasEd
 
 function defaultStageForType(type: WorkflowCanvasNodeType): WorkflowCanvasStage {
   if (type === 'http' || type === 'condition') return 'prepare'
-  if (type === 'sftp') return 'install'
+  if (type === 'sftp' || type === 'scp') return 'install'
   if (type === 'ssh' || type === 'wait') return 'refresh'
   if (type === 'verify') return 'verify'
   return 'backup'
@@ -841,6 +949,7 @@ function stageForDslStep(step: WorkflowDslStep, index: number): WorkflowCanvasSt
   if (step.stage && isWorkflowStage(step.stage)) return step.stage
   if (step.type === 'http' && step.name.includes('verify')) return 'verify'
   if (step.type === 'http') return 'prepare'
+  if (step.type === 'sftp' || step.type === 'scp') return 'install'
   if (step.type === 'ssh' && (step.ssh.command ?? '').startsWith('SFTP_')) return 'install'
   if (step.type === 'ssh' || step.type === 'wait') return 'refresh'
   if (step.type === 'manual' && index > 0) return 'verify'
@@ -920,6 +1029,16 @@ function splitCommandLines(value: string): string[] {
   return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
 }
 
+function sshConfigText(step: Extract<WorkflowDslStep, { type: 'ssh' }>): string {
+  if (step.ssh.mode === 'script') return step.ssh.script ?? ''
+  if (step.ssh.commands?.length) return step.ssh.commands.join('\n')
+  return step.ssh.command ?? ''
+}
+
+function dslStepLabel(step: WorkflowDslStep, fallback: string): string {
+  return step.name?.trim() || fallback
+}
+
 function normalizeVariableName(value: string): string {
   const normalized = value.trim().replace(/[^a-zA-Z0-9_]+/g, '_')
   if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(normalized)) return ''
@@ -954,6 +1073,118 @@ function parseConditionValue(value: unknown): unknown {
   if (trimmed === 'false') return false
   if (trimmed !== '' && /^-?\d+(\.\d+)?$/.test(trimmed)) return Number(trimmed)
   return value
+}
+
+function createDefaultFileTransferConfig(contentRef: string, remotePath: string, mode: string): Record<string, unknown> {
+  return {
+    direction: 'upload',
+    connectionRef: '{{deviceHost}}',
+    username: '{{sshUsername}}',
+    credentialSecretRef: 'secret://workflow/ssh',
+    remotePath,
+    contentRef,
+    localPath: '',
+    mode,
+    timeoutSeconds: 60,
+  }
+}
+
+function buildFileTransferDslStep(node: WorkflowCanvasNode, name: string, protocol: 'sftp' | 'scp'): Extract<WorkflowDslStep, { type: 'sftp' | 'scp' }> {
+  const config = {
+    direction: normalizeTransferDirection(node.config.direction),
+    connection: {
+      host: String(node.config.connectionRef ?? '{{deviceHost}}'),
+      username: String(node.config.username ?? '{{sshUsername}}'),
+      credentialSecretRef: String(node.config.credentialSecretRef ?? 'secret://workflow/ssh'),
+      hostKeyPolicy: 'manual_approval_required' as const,
+    },
+    remotePath: String(node.config.remotePath ?? '/tmp/cert.pem'),
+    ...(isBlank(node.config.contentRef) ? {} : { contentRef: String(node.config.contentRef) }),
+    ...(isBlank(node.config.localPath) ? {} : { localPath: String(node.config.localPath) }),
+    ...(isBlank(node.config.mode) ? {} : { mode: String(node.config.mode) }),
+    timeoutSeconds: Number(node.config.timeoutSeconds ?? 60),
+  }
+  const common = {
+    name,
+    stage: getNodeStage(node),
+    extract: [{ name: `${name}_hash`, type: 'jsonPath', path: '$.transferResults[0].hash', optional: true } satisfies WorkflowDslExtractor],
+  }
+  return protocol === 'sftp'
+    ? { ...common, type: 'sftp', sftp: config }
+    : { ...common, type: 'scp', scp: config }
+}
+
+function normalizeTransferDirection(value: unknown): 'upload' | 'download' {
+  return String(value ?? 'upload').toLowerCase() === 'download' ? 'download' : 'upload'
+}
+
+function readImportedStep(node: WorkflowCanvasNode): WorkflowDslStep | null {
+  const value = node.ui?.rawStep
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  if (typeof record.name !== 'string' || typeof record.type !== 'string') return null
+  return cloneRecord(record) as WorkflowDslStep
+}
+
+function mergeImportedDslStep(node: WorkflowCanvasNode, generated: WorkflowDslStep): WorkflowDslStep {
+  const imported = readImportedStep(node)
+  if (!imported || imported.type !== generated.type) return generated
+  if (generated.type === 'http' && imported.type === 'http') {
+    return {
+      ...imported,
+      ...generated,
+      request: { ...imported.request, ...generated.request },
+      retry: generated.retry ?? imported.retry,
+      extract: imported.extract ?? generated.extract,
+      assert: imported.assert ?? generated.assert,
+    }
+  }
+  if (generated.type === 'ssh' && imported.type === 'ssh') {
+    return {
+      ...imported,
+      ...generated,
+      ssh: {
+        ...imported.ssh,
+        ...generated.ssh,
+        connection: { ...imported.ssh.connection, ...generated.ssh.connection },
+      },
+      retry: generated.retry ?? imported.retry,
+      extract: imported.extract ?? generated.extract,
+      assert: imported.assert ?? generated.assert,
+    }
+  }
+  if (generated.type === 'sftp' && imported.type === 'sftp') {
+    return {
+      ...imported,
+      ...generated,
+      sftp: {
+        ...imported.sftp,
+        ...generated.sftp,
+        connection: { ...imported.sftp.connection, ...generated.sftp.connection },
+      },
+      retry: generated.retry ?? imported.retry,
+      extract: imported.extract ?? generated.extract,
+      assert: imported.assert ?? generated.assert,
+    }
+  }
+  if (generated.type === 'scp' && imported.type === 'scp') {
+    return {
+      ...imported,
+      ...generated,
+      scp: {
+        ...imported.scp,
+        ...generated.scp,
+        connection: { ...imported.scp.connection, ...generated.scp.connection },
+      },
+      retry: generated.retry ?? imported.retry,
+      extract: imported.extract ?? generated.extract,
+      assert: imported.assert ?? generated.assert,
+    }
+  }
+  if (generated.type === 'condition' && imported.type === 'condition') {
+    return { ...imported, ...generated, condition: { ...imported.condition, ...generated.condition } }
+  }
+  return { ...imported, ...generated }
 }
 
 function normalizeIdentifier(value: string): string {
