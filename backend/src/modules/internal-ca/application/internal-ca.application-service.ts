@@ -406,7 +406,7 @@ export class InternalCaApplicationService {
     if (input.deploymentMode === 'external' && input.runtimePlatform !== 'external') {
       blockers.push('外部 CA 的运行平台必须为 external。');
     }
-    if (input.keyBackend === 'file' || input.keyBackend === 'secret') {
+    if (input.deploymentMode !== 'external' && (input.keyBackend === 'file' || input.keyBackend === 'secret')) {
       warnings.push('软件密钥可以被授权进程解密或复制，不能标记为不可导出。');
     }
 

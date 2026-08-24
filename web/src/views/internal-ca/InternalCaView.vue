@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ApiClientError } from '@/api/client'
 import { internalCaApi, type InternalCaRecord } from '@/api/modules/internal-ca.api'
 import { GcConfirmAction, GcDataTable, GcModal, GcPageHeader, GcStatusTag, GcTabs } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
@@ -142,8 +143,8 @@ async function runAction(action: () => Promise<unknown>, successKey: string): Pr
     await loadAll()
     window.dispatchEvent(new CustomEvent('gcac:toast', { detail: { message: t(successKey), tone: 'success' } }))
     return true
-  } catch {
-    error.value = t('internalCa.messages.actionFailed')
+  } catch (caught) {
+    error.value = caught instanceof ApiClientError ? caught.message : t('internalCa.messages.actionFailed')
     return false
   } finally {
     actionPending.value = false

@@ -505,6 +505,7 @@ test('同一租户可管理多套根 CA 信任域并拒绝跨域签发', async (
   const preview = service.previewAuthority({
     topologyMode: 'external_managed', deploymentMode: 'external', runtimePlatform: 'external', availabilityMode: 'single', keyBackend: 'hsm',
   });
+  assert.equal(preview.warnings.some((warning) => warning.includes('软件密钥')), false);
   const productionAuthority = (await service.createAuthority(tenantId, {
     providerId: provider.id, trustDomainId: productionDomain.id, name: '生产 CA', commonName: 'Production Root CA', securityDomain: 'shared',
     topologyMode: 'external_managed', deploymentMode: 'external', runtimePlatform: 'external', availabilityMode: 'single', keyBackend: 'hsm',
