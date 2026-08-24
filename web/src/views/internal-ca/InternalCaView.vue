@@ -8,6 +8,7 @@ import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
 const { t } = useI18n()
+const props = defineProps<{ embedded?: boolean }>()
 const loading = ref(false)
 const actionPending = ref(false)
 const error = ref('')
@@ -456,8 +457,8 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
 </script>
 
 <template>
-  <section class="gc-page internal-ca-page">
-    <GcPageHeader :title="t('internalCa.title')" :description="t('internalCa.description')">
+  <section class="internal-ca-page" :class="{ 'gc-page': !props.embedded, 'internal-ca-page--embedded': props.embedded }">
+    <GcPageHeader v-if="!props.embedded" :title="t('internalCa.title')" :description="t('internalCa.description')">
       <template #actions>
         <button class="gc-button" type="button" :disabled="loading" @click="loadAll">
           {{ loading ? t('common.loading') : t('internalCa.actions.refresh') }}
@@ -743,6 +744,7 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
 
 <style scoped>
 .internal-ca-page { display: grid; gap: var(--gc-space-5); }
+.internal-ca-page--embedded { gap: var(--gc-space-4); }
 .trust-domain-page__table-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-3); }
 .trust-domain-page__table-toolbar span { color: var(--gc-color-text-muted); }
 .trust-domain-page__cell-main { display: grid; gap: var(--gc-space-1); }

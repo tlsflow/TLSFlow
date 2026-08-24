@@ -1,6 +1,6 @@
 export const caOperationsZhCN = {
-  title: 'CA 运营管理',
-  actions: { sync: '同步当前视图', syncing: '正在创建同步任务…', search: '搜索' },
+  title: 'CA管理',
+  actions: { sync: '同步当前视图', syncing: '正在创建同步任务…', search: '搜索', manageInternalCa: '内部CA管理' },
   tree: { title: '证书颁发机构', count: '共 {count} 个 CA', unassigned: '未分配信任域' },
   views: { request: '申请', issuance: '已颁发证书', revocation: '已吊销证书', template: '证书模板' },
   columns: { subject: '使用者', identifier: '标识', template: '模板', source: '数据来源', status: '状态', observedAt: '观测时间' },
@@ -15,7 +15,7 @@ export const caOperationsZhCN = {
 
 export const caOperationsEnUS = {
   title: 'CA Operations',
-  actions: { sync: 'Sync current view', syncing: 'Creating sync run…', search: 'Search' },
+  actions: { sync: 'Sync current view', syncing: 'Creating sync run…', search: 'Search', manageInternalCa: 'Manage Internal CA' },
   tree: { title: 'Certificate Authorities', count: '{count} CAs', unassigned: 'Unassigned trust domain' },
   views: { request: 'Requests', issuance: 'Issued Certificates', revocation: 'Revoked Certificates', template: 'Certificate Templates' },
   columns: { subject: 'Subject', identifier: 'Identifier', template: 'Template', source: 'Source', status: 'Status', observedAt: 'Observed at' },

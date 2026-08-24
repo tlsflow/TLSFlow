@@ -3,10 +3,11 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { caOperationsApi, normalizeCaSyncRuns, type CaOperationObjectType, type CaOperationRecord, type CaOperationsTree, type CaOperationsTreeAuthority, type CaSyncRun } from '@/api/modules/ca-operations.api'
-import { GcDataTable, GcEmptyState, GcPageHeader, GcPageToolbar, GcStatusTag, type StatusTone } from '@/design-system/components'
+import { GcDataTable, GcEmptyState, GcModal, GcPageHeader, GcPageToolbar, GcStatusTag, type StatusTone } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { translateDynamic } from '@/i18n/translate'
+import InternalCaView from '@/views/internal-ca/InternalCaView.vue'
 
 interface OperationRow extends Record<string, unknown> {
   recordKey: string
@@ -34,6 +35,7 @@ const loadingTree = ref(false)
 const loadingRecords = ref(false)
 const syncing = ref(false)
 const errorKey = ref('')
+const internalCaModalOpen = ref(false)
 const currentTime = ref(Date.now())
 let freshnessTimer: ReturnType<typeof setInterval> | undefined
 
@@ -209,6 +211,9 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
         <button class="gc-button" type="button" :disabled="loadingTree" @click="loadTree">{{ t('common.refresh') }}</button>
       </template>
       <template #primary>
+        <button class="gc-button" type="button" @click="internalCaModalOpen = true">
+          {{ t('caOperations.actions.manageInternalCa') }}
+        </button>
         <button class="gc-button gc-button--primary" type="button" :disabled="!selectedAuthority || syncing" @click="startSync">
           {{ syncing ? t('caOperations.actions.syncing') : t('caOperations.actions.sync') }}
         </button>
@@ -303,6 +308,10 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
     </div>
 
     <GcEmptyState v-else-if="!loadingTree" :title="t('caOperations.messages.noAuthority')" :description="t('caOperations.messages.noAuthorityDescription')" />
+
+    <GcModal v-model:open="internalCaModalOpen" size="xxl" :title="t('caOperations.actions.manageInternalCa')" :description="t('internalCa.description')">
+      <InternalCaView embedded />
+    </GcModal>
   </section>
 </template>
 
