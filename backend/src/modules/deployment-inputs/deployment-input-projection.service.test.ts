@@ -11,6 +11,7 @@ test('Projection 只根据 Contract 和 Resolver 输出生成统一分组', () =
   assert.deepEqual(projection.requiredVariables.map((item) => item.slot), ['requiredValue']);
   assert.deepEqual(projection.advancedVariables.map((item) => item.slot), ['advancedValue']);
   assert.equal(projection.connections[0]?.fields.host.type, 'string');
+  assert.equal(projection.connections[0]?.fields.host.slot, 'host');
   assert.equal(projection.credentials[0]?.selectedCredentialId, 'cred-1');
   assert.equal(projection.artifacts[0]?.outputs.privateKey.sensitive, true);
   assert.deepEqual(projection.fixedValues, [{ slot: 'fixedValue', value: 'asset-value', source: { kind: 'asset', path: 'application.name' } }]);

@@ -73,14 +73,14 @@ function connectionFields(definition: DeploymentInputContractV1['connections'][s
   const fields: Record<string, DeploymentInputFieldProjectionV1> = {};
   for (const [slot, field] of Object.entries({ host: definition.host, port: definition.port, username: definition.username, 'tls.verifyPeer': definition.tls?.verifyPeer, 'tls.serverName': definition.tls?.serverName, 'hostKey.expectedFingerprint': definition.hostKey?.expectedFingerprint })) {
     if (!field) continue;
-    fields[slot] = fieldProjection(field);
+    fields[slot] = fieldProjection(slot, field);
   }
   return fields;
 }
 
-function fieldProjection(field: DeploymentConnectionFieldV1): DeploymentInputFieldProjectionV1 {
+function fieldProjection(slot: string, field: DeploymentConnectionFieldV1): DeploymentInputFieldProjectionV1 {
   return {
-    slot: '',
+    slot,
     type: field.type,
     required: field.required,
     configurationMode: field.configurationMode,
