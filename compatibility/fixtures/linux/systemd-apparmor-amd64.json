@@ -1,9 +1,0 @@
-{
-  "apiVersion": "gcac.linux.fact-fixture/v1",
-  "fixtureId": "linux-systemd-apparmor-amd64",
-  "certificationStatus": "fixture_only",
-  "environment": { "distribution": "Ubuntu 24.04 LTS representative environment", "kernel": "6.8", "architecture": "amd64" },
-  "facts": { "serviceManager": "systemd", "privilege": "sudo-noninteractive", "filesystem": "posix-atomic-rename", "securityModule": "apparmor" },
-  "products": ["nginx", "apache", "tomcat"],
-  "expectedCapabilities": ["linux.systemd.v1", "linux.privilege.sudo-noninteractive.v1", "linux.filesystem.posix-atomic.v1", "linux.security.apparmor.v1"]
-}
