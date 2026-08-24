@@ -206,6 +206,8 @@ namespace GCAC.WindowsCompatibilityAgent
         {
             Dictionary<string, object> detail = new Dictionary<string, object>();
             detail["planId"] = record.PlanId;
+            detail["idempotencyKey"] = record.IdempotencyKey;
+            detail["planDigest"] = record.PlanDigest;
             detail["executionMode"] = record.ExecutionMode;
             detail["operationResults"] = record.OperationResults;
             detail["rollbackResults"] = record.RollbackResults;

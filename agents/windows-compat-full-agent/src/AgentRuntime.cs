@@ -12,6 +12,7 @@ namespace GCAC.WindowsCompatibilityAgent
         private readonly AgentIdentityStore identityStore;
         private readonly ControlPlaneClient client;
         private readonly CapabilityCollector capabilityCollector;
+        private readonly WindowsRuntimeDiscovery runtimeDiscovery;
         private readonly ActionRegistry registry;
         private string activeAgentId;
         private DateTime? lastRecoveryAtUtc;
@@ -32,6 +33,7 @@ namespace GCAC.WindowsCompatibilityAgent
             identityStore = new AgentIdentityStore(config.dataDirectory);
             client = new ControlPlaneClient(config);
             capabilityCollector = new CapabilityCollector(config);
+            runtimeDiscovery = new WindowsRuntimeDiscovery(config);
             registry = BuildRegistry(config.dataDirectory);
         }
 
@@ -94,6 +96,7 @@ namespace GCAC.WindowsCompatibilityAgent
                 }
                 try
                 {
+                    ReplayPending(agentId);
                     AgentTask task = client.Poll(agentId);
                     lastTaskPollAtUtc = DateTime.UtcNow;
                     taskPollFailures = 0;
@@ -138,7 +141,7 @@ namespace GCAC.WindowsCompatibilityAgent
             ActionResult result;
             try { result = registry.Execute(task); }
             catch (Exception error) { result = ActionResult.Failed("ACTION_EXECUTION_FAILED", error.Message, null); }
-            ledger.SavePending(task.id, task.leaseId, result);
+            ledger.SavePending(task, result);
             try
             {
                 client.SubmitResult(agentId, task.id, task.leaseId, result);
@@ -146,6 +149,7 @@ namespace GCAC.WindowsCompatibilityAgent
             }
             catch (Exception error)
             {
+                ledger.MarkRetryFailure(task.id, error.Message);
                 recoveryFailures++;
                 lastError = error.Message;
                 logger.Write("error", "task.result_submit_failed", "taskId=" + task.id + " error=" + error.Message);
@@ -169,6 +173,7 @@ namespace GCAC.WindowsCompatibilityAgent
                 }
                 catch (Exception error)
                 {
+                    ledger.MarkRetryFailure(record.TaskId, error.Message);
                     recoveryFailures++;
                     lastError = error.Message;
                     logger.Write("error", "task.result_replay_failed", "taskId=" + record.TaskId + " error=" + error.Message);
@@ -259,6 +264,23 @@ namespace GCAC.WindowsCompatibilityAgent
                         { "factCount", snapshot.Facts.Count },
                         { "capabilityCount", snapshot.Capabilities.Count }
                     });
+                }
+            });
+            actionRegistry.Register(new ActionRegistration
+            {
+                CanonicalAction = "discovery.run",
+                SchemaVersion = ProductIdentity.ActionSchemaVersion,
+                Aliases = new string[] { "agent.discovery.run" },
+                Handler = delegate(AgentTask task)
+                {
+                    if (TextUtility.IsBlank(activeAgentId)) return ActionResult.Failed("AGENT_NOT_REGISTERED", "Agent 尚未完成注册", null);
+                    string requestId = task == null || task.payload == null ? string.Empty : AtomicValue.String(task.payload, "requestId");
+                    Dictionary<string, object> discovery = runtimeDiscovery.Collect(requestId);
+                    CapabilitySnapshot snapshot = capabilityCollector.Collect();
+                    UpdateSelfCheck(snapshot);
+                    client.ReportCapabilities(activeAgentId, snapshot);
+                    discovery["reportedCapability"] = true;
+                    return ActionResult.Succeeded(discovery);
                 }
             });
             actionRegistry.Register(new ActionRegistration

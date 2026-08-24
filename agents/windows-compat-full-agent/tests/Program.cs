@@ -38,6 +38,9 @@ internal static class Tests
         Run("IIS 管理程序集路径解析稳定", IisAdministrationAssemblyPathIsStable);
         Run("任务拉取结果展开公共动作载荷", PulledTaskNormalizesPublicActionPayload);
         Run("运行时注册手动重扫动作", RuntimeRegistersCapabilityRescan);
+        Run("运行时注册通用发现动作", RuntimeRegistersDiscovery);
+        Run("非 IIS 发现输出结构化公开事实", RuntimeDiscoveryReturnsStructuredFacts);
+        Run("非 IIS 发现部分失败保留 warning", RuntimeDiscoveryPreservesWarnings);
         Run("Direct Control 复用 Atomic Plan Registry", DirectControlUsesAtomicPlanRegistry);
         Run("文件备份替换失败后自动恢复", AtomicFileReplaceRollsBack);
         Run("不存在文件的备份和恢复保持幂等", AtomicMissingFileBackupRollsBack);
@@ -51,7 +54,10 @@ internal static class Tests
         Run("Atomic Plan 账本跨实例幂等", AtomicLedgerPersistsIdempotency);
         Run("相同幂等键的不同计划被拒绝", AtomicLedgerRejectsPlanConflict);
         Run("回滚失败进入人工处理", AtomicRollbackFailureRequiresManualIntervention);
-        Console.WriteLine("tests=" + 41 + " failures=" + failures);
+        Run("Recovery Ledger 保存摘要并支持重试确认", RecoveryLedgerPersistsRetryState);
+        Run("Recovery Ledger 损坏进入人工处理", RecoveryLedgerCorruptionRequiresManualIntervention);
+        Run("结果提交失败注入默认关闭且可控", ResultSubmissionFailureInjectionIsControlled);
+        Console.WriteLine("tests=" + 47 + " failures=" + failures);
         return failures == 0 ? 0 : 1;
     }
 
@@ -334,6 +340,82 @@ internal static class Tests
             Assert(Array.IndexOf(actions, "agent.atomic_plan.execute") >= 0, "运行时未注册 Atomic Plan 动作");
             Assert(Array.IndexOf(actions, "certificate.deploy") < 0, "运行时仍注册历史证书动作");
             Assert(Array.IndexOf(actions, "windows.iis.deploy_certificate") < 0, "运行时仍注册 IIS 历史别名");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    private static void RuntimeRegistersDiscovery()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-discovery-action-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            AgentConfig config = TestConfig();
+            config.dataDirectory = Path.Combine(root, "data");
+            config.logDirectory = Path.Combine(root, "logs");
+            string[] actions = new AgentRuntime(config).RegisteredActions();
+            Assert(Array.IndexOf(actions, "discovery.run") >= 0, "运行时未注册 discovery.run");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    private static void RuntimeDiscoveryReturnsStructuredFacts()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-discovery-fixture-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string nginx = Path.Combine(root, "nginx");
+            string apache = Path.Combine(root, "Apache24");
+            string tomcat = Path.Combine(root, "Tomcat");
+            Directory.CreateDirectory(Path.Combine(nginx, "conf"));
+            Directory.CreateDirectory(Path.Combine(apache, "bin"));
+            Directory.CreateDirectory(Path.Combine(apache, "conf"));
+            Directory.CreateDirectory(Path.Combine(tomcat, "conf"));
+            File.WriteAllText(Path.Combine(nginx, "nginx.exe"), string.Empty);
+            File.WriteAllText(Path.Combine(nginx, "conf\\nginx-gcac.conf"),
+                "http { server { listen 8543 ssl; server_name nginx.test.local; ssl_certificate certs/nginx.crt.pem; ssl_certificate_key certs/nginx.key.pem; } }");
+            File.WriteAllText(Path.Combine(apache, "bin\\httpd.exe"), string.Empty);
+            File.WriteAllText(Path.Combine(apache, "conf\\httpd-gcac.conf"),
+                "Listen 8544\n<VirtualHost *:8544>\nServerName apache.test.local\nSSLEngine on\nSSLCertificateFile certs/apache.crt.pem\nSSLCertificateKeyFile certs/apache.key.pem\n</VirtualHost>");
+            File.WriteAllText(Path.Combine(tomcat, "conf\\server.xml"),
+                "<Server><Service><Connector port=\"8545\" SSLEnabled=\"true\" scheme=\"https\" certificateKeystoreFile=\"certs/tomcat.p12\" certificateKeystoreType=\"PKCS12\" certificateKeystorePassword=\"changeit\" /></Service></Server>");
+            Dictionary<string, object> result = new WindowsRuntimeDiscovery(new string[] { root }).Collect("fixture-request");
+            Assert(Convert.ToString(result["requestId"]) == "fixture-request", "发现结果未保留 requestId");
+            List<Dictionary<string, object>> services = (List<Dictionary<string, object>>)result["services"];
+            List<Dictionary<string, object>> sites = (List<Dictionary<string, object>>)result["siteAssets"];
+            List<Dictionary<string, object>> bindings = (List<Dictionary<string, object>>)result["bindings"];
+            Assert(services.Exists(delegate(Dictionary<string, object> item) { return Convert.ToString(item["framework"]) == "NGINX"; }), "未发现 NGINX 服务事实");
+            Assert(services.Exists(delegate(Dictionary<string, object> item) { return Convert.ToString(item["framework"]) == "APACHE"; }), "未发现 Apache 服务事实");
+            Assert(services.Exists(delegate(Dictionary<string, object> item) { return Convert.ToString(item["framework"]) == "TOMCAT"; }), "未发现 Tomcat 服务事实");
+            Assert(sites.Count >= 3 && bindings.Count >= 3, "非 IIS 站点或证书绑定事实不完整");
+            string json = new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(result);
+            Assert(json.IndexOf("changeit", StringComparison.OrdinalIgnoreCase) < 0, "发现结果泄漏 KeyStore 密码");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    private static void RuntimeDiscoveryPreservesWarnings()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-discovery-warning-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string nginx = Path.Combine(root, "nginx");
+            Directory.CreateDirectory(Path.Combine(nginx, "conf"));
+            File.WriteAllText(Path.Combine(nginx, "nginx.exe"), string.Empty);
+            File.WriteAllText(Path.Combine(nginx, "conf\\nginx.conf"),
+                "http { server { listen 8543 ssl; server_name warning.test.local; ssl_certificate missing.crt.pem; ssl_certificate_key missing.key.pem; } }");
+            Dictionary<string, object> result = new WindowsRuntimeDiscovery(new string[] { root }).Collect(null);
+            List<Dictionary<string, object>> warnings = (List<Dictionary<string, object>>)result["warnings"];
+            Assert(warnings.Exists(delegate(Dictionary<string, object> item) { return Convert.ToString(item["code"]) == "CERTIFICATE_NOT_FOUND"; }), "证书缺失未形成结构化 warning");
+            Assert(((List<Dictionary<string, object>>)result["services"]).Count == 1, "单个产品 warning 污染了其他服务结果");
         }
         finally
         {
@@ -682,6 +764,79 @@ internal static class Tests
         {
             if (Directory.Exists(root)) Directory.Delete(root, true);
         }
+    }
+
+    private static void RecoveryLedgerPersistsRetryState()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-recovery-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Dictionary<string, object> plan = AtomicPlan("recovery-plan", new Dictionary<string, object> { { "value", true } });
+            plan["planId"] = "recovery-plan-id";
+            plan["idempotencyKey"] = "recovery-idempotency";
+            AgentTask task = new AgentTask
+            {
+                id = "recovery-task",
+                leaseId = "recovery-lease",
+                payload = new Dictionary<string, object> { { "plan", plan } }
+            };
+            ActionResult result = ActionResult.Failed("TEST_FAILURE", "提交失败", new Dictionary<string, object>
+            {
+                { "password", "changeit" },
+                { "privateKeyPem", "-----BEGIN PRIVATE KEY-----secret-----END PRIVATE KEY-----" },
+                { "state", "ROLLED_BACK" }
+            });
+            RecoveryLedger first = new RecoveryLedger(root);
+            first.SavePending(task, result);
+            RecoveryLedger restarted = new RecoveryLedger(root);
+            RecoveryRecord record = restarted.Records().Find(delegate(RecoveryRecord item) { return item.TaskId == "recovery-task"; });
+            Assert(record != null && record.PlanId == "recovery-plan-id" && record.IdempotencyKey == "recovery-idempotency", "Recovery Ledger 未保存计划元数据");
+            Assert(record.State == "PENDING_UPLOAD" && !TextUtility.IsBlank(record.ResultDigest), "Recovery Ledger 状态或结果摘要缺失");
+            string persisted = File.ReadAllText(Path.Combine(root, "recovery-ledger.json"));
+            Assert(persisted.IndexOf("changeit", StringComparison.OrdinalIgnoreCase) < 0 && persisted.IndexOf("BEGIN PRIVATE KEY", StringComparison.OrdinalIgnoreCase) < 0, "Recovery Ledger 保存了敏感值");
+            restarted.MarkRetryFailure("recovery-task", "control plane unavailable", DateTime.UtcNow);
+            RecoveryRecord retried = restarted.Records().Find(delegate(RecoveryRecord item) { return item.TaskId == "recovery-task"; });
+            Assert(retried.RetryCount == 1 && retried.LastError == "control plane unavailable" && retried.NextRetryAtUtc.HasValue, "结果补传失败未保留重试状态");
+            restarted.MarkReported("recovery-task");
+            RecoveryRecord reported = restarted.Records().Find(delegate(RecoveryRecord item) { return item.TaskId == "recovery-task"; });
+            Assert(reported.State == "REPORTED" && restarted.Pending().Count == 0, "结果补传成功未确认或重复待补传");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    private static void RecoveryLedgerCorruptionRequiresManualIntervention()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "gcac-compat-recovery-corrupt-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            File.WriteAllText(Path.Combine(root, "recovery-ledger.json"), "{not-json");
+            RecoveryLedger ledger = new RecoveryLedger(root);
+            Assert(ledger.ManualIntervention().Count == 1, "损坏 Recovery Ledger 未进入人工处理");
+            RecoveryLedger restarted = new RecoveryLedger(root);
+            Assert(restarted.ManualIntervention().Count == 1, "人工处理状态未跨进程持久化");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    private static void ResultSubmissionFailureInjectionIsControlled()
+    {
+        ResultSubmissionFailureInjector.ResetForTests();
+        Environment.SetEnvironmentVariable("GCAC_COMPAT_TEST_RESULT_SUBMIT_FAILURE", null);
+        Assert(!ResultSubmissionFailureInjector.ShouldFail(), "结果提交失败注入默认未关闭");
+        Environment.SetEnvironmentVariable("GCAC_COMPAT_TEST_RESULT_SUBMIT_FAILURE", "once");
+        ResultSubmissionFailureInjector.ResetForTests();
+        Assert(ResultSubmissionFailureInjector.ShouldFail() && !ResultSubmissionFailureInjector.ShouldFail(), "once 失败注入未按一次生效");
+        Environment.SetEnvironmentVariable("GCAC_COMPAT_TEST_RESULT_SUBMIT_FAILURE", "always");
+        Assert(ResultSubmissionFailureInjector.ShouldFail(), "always 失败注入未生效");
+        Environment.SetEnvironmentVariable("GCAC_COMPAT_TEST_RESULT_SUBMIT_FAILURE", null);
+        ResultSubmissionFailureInjector.ResetForTests();
     }
 
     private static AgentConfig TestConfig()

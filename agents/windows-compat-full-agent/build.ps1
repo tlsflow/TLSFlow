@@ -43,7 +43,8 @@ $references = @(
     "System.Core.dll",
     "System.Management.dll",
     "System.ServiceProcess.dll",
-    "System.Web.Extensions.dll"
+    "System.Web.Extensions.dll",
+    "System.Xml.dll"
 ) | ForEach-Object { "/reference:$([IO.Path]::Combine($ReferenceAssemblyPath, $_))" }
 
 $output = Join-Path $root "bin\$Configuration"

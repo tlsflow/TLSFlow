@@ -41,6 +41,29 @@ namespace GCAC.WindowsCompatibilityAgent
             facts["windows.iis.detail"] = iis.Detail;
             facts["windows.iis.sites"] = iis.Sites;
             facts["windows.iis.inspection_error"] = iis.Error ?? string.Empty;
+            try
+            {
+                facts["windows.discovery"] = new WindowsRuntimeDiscovery(config).Collect(null);
+            }
+            catch (Exception error)
+            {
+                facts["windows.discovery"] = new Dictionary<string, object>
+                {
+                    { "services", new List<Dictionary<string, object>>() },
+                    { "serviceAssets", new List<Dictionary<string, object>>() },
+                    { "siteAssets", new List<Dictionary<string, object>>() },
+                    { "bindings", new List<Dictionary<string, object>>() },
+                    { "warnings", new List<Dictionary<string, object>>
+                        {
+                            new Dictionary<string, object>
+                            {
+                                { "code", "DISCOVERY_FAILED" },
+                                { "message", error.Message }
+                            }
+                        }
+                    }
+                };
+            }
             facts["windows.required_hotfixes_present"] = RequiredHotfixesPresent(config == null ? new string[0] : config.requiredHotfixes);
             facts["windows.cert_store_writable"] = CanWriteCertificateStore();
             facts["network.control_plane_reachable"] = CanReachControlPlane(config == null ? null : config.controlPlaneUrl);
@@ -62,6 +85,7 @@ namespace GCAC.WindowsCompatibilityAgent
             capabilities.Add("rollback.restore");
             capabilities.Add("certificate.material.validate");
             capabilities.Add("certificate.verify");
+            capabilities.Add("windows.discovery");
             return new CapabilitySnapshot
             {
                 SchemaVersion = ProductIdentity.CapabilitySchemaVersion,

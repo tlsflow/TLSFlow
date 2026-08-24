@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Text;
+using System.Threading;
 using System.Web.Script.Serialization;
 
 namespace GCAC.WindowsCompatibilityAgent
@@ -142,6 +143,8 @@ namespace GCAC.WindowsCompatibilityAgent
 
         public void SubmitResult(string agentId, string taskId, string leaseId, ActionResult result)
         {
+            if (ResultSubmissionFailureInjector.ShouldFail())
+                throw new InvalidOperationException("测试注入：结果提交失败");
             Dictionary<string, object> body = new Dictionary<string, object>();
             body["agentId"] = agentId;
             body["taskId"] = taskId;
@@ -196,6 +199,9 @@ namespace GCAC.WindowsCompatibilityAgent
             object iisSites;
             if (snapshot.Facts.TryGetValue("windows.iis.sites", out iisSites) && iisSites != null)
                 reports.Add(Capability("windows.iis.sites", iisSites, 0.95, "microsoft-web-administration"));
+            object windowsDiscovery;
+            if (snapshot.Facts.TryGetValue("windows.discovery", out windowsDiscovery) && windowsDiscovery != null)
+                reports.Add(Capability("windows.discovery", windowsDiscovery, 0.9, "windows-runtime-discovery"));
             return reports;
         }
 
@@ -256,6 +262,24 @@ namespace GCAC.WindowsCompatibilityAgent
                 if (typeof(T) == typeof(object) || TextUtility.IsBlank(json)) return default(T);
                 return serializer.Deserialize<T>(json);
             }
+        }
+    }
+
+    internal static class ResultSubmissionFailureInjector
+    {
+        private static int onceConsumed;
+
+        public static bool ShouldFail()
+        {
+            string mode = Environment.GetEnvironmentVariable("GCAC_COMPAT_TEST_RESULT_SUBMIT_FAILURE");
+            if (string.Equals(mode, "always", StringComparison.OrdinalIgnoreCase)) return true;
+            if (!string.Equals(mode, "once", StringComparison.OrdinalIgnoreCase)) return false;
+            return Interlocked.Exchange(ref onceConsumed, 1) == 0;
+        }
+
+        internal static void ResetForTests()
+        {
+            Interlocked.Exchange(ref onceConsumed, 0);
         }
     }
 }
