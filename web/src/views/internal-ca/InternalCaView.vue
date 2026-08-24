@@ -2,11 +2,12 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { internalCaApi, type InternalCaRecord } from '@/api/modules/internal-ca.api'
-import { GcConfirmAction, GcModal, GcPageHeader, GcStatusTag, GcTabs } from '@/design-system/components'
+import { GcConfirmAction, GcDataTable, GcModal, GcPageHeader, GcStatusTag, GcTabs } from '@/design-system/components'
+import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
 const { t } = useI18n()
-const activeTab = ref('authorities')
+const activeTab = ref('trustDomains')
 const loading = ref(false)
 const actionPending = ref(false)
 const error = ref('')
@@ -34,10 +35,11 @@ const providerPrepared = ref(false)
 const adcsInstallSession = ref<InternalCaRecord | null>(null)
 const adcsWizardOpen = ref(false)
 const deletingProviderId = ref('')
+const trustDomainModalOpen = ref(false)
 
 const providerDraft = reactive({ id: '', name: '', type: 'gcac_managed_node', deploymentMode: 'managed_node', runtimePlatform: 'linux', availabilityMode: 'single', endpoint: '', authMode: 'enrollment_token', profile: '', template: '', crlUrl: '', ocspUrl: '' })
 const adcsDraft = reactive({ name: '' })
-const trustDomainDraft = reactive({ name: '', code: '', purpose: 'production_tls', isolationLevel: 'standard', isDefault: false })
+const trustDomainDraft = reactive({ name: '', purpose: 'production_tls', isolationLevel: 'standard', isDefault: false })
 const authorityDraft = reactive({ providerId: '', trustDomainId: '', parentCaId: '', name: '', commonName: '', securityDomain: 'production', topologyMode: 'root_with_intermediate', keyBackend: 'secret' })
 const profileDraft = reactive({ name: '', trustDomainId: '', securityDomain: 'production', allowedDnsSuffix: '', maximumValidityDays: 90, renewalWindowDays: 30, requireApproval: true })
 const requestDraft = reactive({ applicationAssetId: '', trustDomainId: '', caId: '', profileVersionId: '', commonName: '', sans: '', custodyMode: 'managed_secret' })
@@ -86,6 +88,14 @@ const selectedCreationMode = computed(() => {
   }
   return authorityCreationMode.value
 })
+const trustDomainColumns = computed<DataTableColumn<InternalCaRecord>[]>(() => [
+  { key: 'name', title: t('internalCa.trustDomains.columns.name'), width: '22%' },
+  { key: 'purpose', title: t('internalCa.trustDomains.columns.purpose'), width: '18%' },
+  { key: 'isolationLevel', title: t('internalCa.trustDomains.columns.isolationLevel'), width: '18%' },
+  { key: 'status', title: t('internalCa.trustDomains.columns.status'), width: '14%' },
+  { key: 'isDefault', title: t('internalCa.trustDomains.columns.default'), width: '14%' },
+  { key: 'createdAt', title: t('internalCa.trustDomains.columns.createdAt') },
+])
 
 onMounted(loadAll)
 
@@ -124,22 +134,36 @@ async function loadAll() {
   }
 }
 
-async function runAction(action: () => Promise<unknown>, successKey: string) {
+async function runAction(action: () => Promise<unknown>, successKey: string): Promise<boolean> {
   actionPending.value = true
   error.value = ''
   try {
     await action()
     await loadAll()
     window.dispatchEvent(new CustomEvent('gcac:toast', { detail: { message: t(successKey), tone: 'success' } }))
+    return true
   } catch {
     error.value = t('internalCa.messages.actionFailed')
+    return false
   } finally {
     actionPending.value = false
   }
 }
 
+function openTrustDomainModal() {
+  Object.assign(trustDomainDraft, { name: '', purpose: 'production_tls', isolationLevel: 'standard', isDefault: false })
+  error.value = ''
+  trustDomainModalOpen.value = true
+}
+
 async function createTrustDomain() {
-  await runAction(() => internalCaApi.createTrustDomain({ ...trustDomainDraft }), 'internalCa.messages.trustDomainCreated')
+  const created = await runAction(() => internalCaApi.createTrustDomain({
+    name: trustDomainDraft.name.trim(),
+    purpose: trustDomainDraft.purpose.trim(),
+    isolationLevel: trustDomainDraft.isolationLevel,
+    isDefault: trustDomainDraft.isDefault,
+  }), 'internalCa.messages.trustDomainCreated')
+  if (created) trustDomainModalOpen.value = false
 }
 
 async function previewAuthority() {
@@ -456,22 +480,31 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
 <template>
   <section class="internal-ca-page">
     <GcPageHeader :title="t('internalCa.title')" :description="t('internalCa.description')">
-      <template #actions><button class="gc-button" type="button" :disabled="loading" @click="loadAll">{{ t('internalCa.actions.refresh') }}</button></template>
+      <template #actions>
+        <button v-if="activeTab === 'trustDomains'" class="gc-button gc-button--primary" type="button" @click="openTrustDomainModal">{{ t('internalCa.actions.addTrustDomain') }}</button>
+        <button class="gc-button" type="button" :disabled="loading" @click="loadAll">{{ t('internalCa.actions.refresh') }}</button>
+      </template>
     </GcPageHeader>
     <div v-if="error" class="notice notice--danger">{{ error }}</div>
     <GcTabs v-model="activeTab" :tabs="tabs" :aria-label="t('internalCa.aria.tabs')" />
 
     <template v-if="activeTab === 'trustDomains'">
-      <form class="gc-card form-card wide-form" @submit.prevent="createTrustDomain">
-        <h2>{{ t('internalCa.sections.trustDomain') }}</h2>
-        <label>{{ t('internalCa.fields.name') }}<input v-model="trustDomainDraft.name" required /></label>
-        <label>{{ t('internalCa.fields.code') }}<input v-model="trustDomainDraft.code" required /></label>
-        <label>{{ t('internalCa.fields.purpose') }}<input v-model="trustDomainDraft.purpose" required /></label>
-        <label>{{ t('internalCa.fields.isolationLevel') }}<select v-model="trustDomainDraft.isolationLevel"><option value="standard">standard</option><option value="strict">strict</option><option value="regulated">regulated</option></select></label>
-        <label class="check"><input v-model="trustDomainDraft.isDefault" type="checkbox" />{{ t('internalCa.fields.defaultTrustDomain') }}</label>
-        <button class="gc-button gc-button--primary" :disabled="actionPending">{{ t('internalCa.actions.createTrustDomain') }}</button>
-      </form>
-      <div class="record-grid"><article v-for="item in trustDomains" :key="text(item.id)" class="gc-card record-card"><div><strong>{{ text(item.name) }}</strong><GcStatusTag :status="text(item.status)" /></div><p>{{ text(item.purpose) }}</p><small>{{ text(item.code) }} · {{ text(item.isolationLevel) }} · {{ item.isDefault ? t('internalCa.labels.defaultTrustDomain') : t('internalCa.labels.independentTrustDomain') }}</small></article></div>
+      <GcDataTable :columns="trustDomainColumns" :rows="trustDomains" :loading="loading" row-key="id" :empty-text="t('internalCa.trustDomains.empty')" dense>
+        <template #toolbar>
+          <div class="trust-domain-page__table-toolbar">
+            <strong>{{ t('internalCa.trustDomains.recordsTitle') }}</strong>
+            <span>{{ t('businessPage.total', { count: trustDomains.length }) }}</span>
+          </div>
+        </template>
+        <template #cell-name="{ row }">
+          <div class="trust-domain-page__cell-main">
+            <strong>{{ text(row.name) }}</strong>
+          </div>
+        </template>
+        <template #cell-status="{ row }"><GcStatusTag :status="text(row.status)" /></template>
+        <template #cell-isDefault="{ row }">{{ row.isDefault ? t('internalCa.labels.defaultTrustDomain') : t('internalCa.trustDomains.notDefault') }}</template>
+        <template #cell-createdAt="{ row }">{{ localTime(row.createdAt) }}</template>
+      </GcDataTable>
     </template>
 
     <template v-else-if="activeTab === 'authorities'">
@@ -530,6 +563,21 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
       <div class="record-grid"><article v-for="item in reuseRisks" :key="text(item.id)" class="gc-card record-card"><div><strong>{{ t(`internalCa.riskTypes.${text(item.riskType)}`) }}</strong><GcStatusTag :status="text(item.severity)" /></div><p>{{ text(item.explanation) }}</p><small>{{ t('internalCa.labels.assetCount', { count: asRecords(item.applicationAssets).length }) }} · {{ t('internalCa.labels.trustDomainCount', { count: asRecords(item.trustDomainIds).length }) }} · {{ text(item.fingerprintSha256).slice(0, 16) }}</small><small v-if="asRecords(item.trustDomainNames).length">{{ asRecords(item.trustDomainNames).join(' · ') }}</small><button class="gc-button" @click="previewRemediation(text(item.id))">{{ t('internalCa.actions.previewRemediation') }}</button></article></div>
       <article v-if="remediationPreview" class="gc-card"><h2>{{ t('internalCa.sections.remediation') }}</h2><p>{{ t('internalCa.labels.requestCount', { count: asRecords(remediationPreview.requests).length }) }}</p><pre>{{ JSON.stringify(remediationPreview, null, 2) }}</pre></article>
     </template>
+
+    <GcModal v-model:open="trustDomainModalOpen" size="lg" :title="t('internalCa.trustDomains.modalTitle')" :description="t('internalCa.trustDomains.modalDescription')">
+      <form id="trust-domain-form" class="trust-domain-form" @submit.prevent="createTrustDomain">
+        <label>{{ t('internalCa.fields.name') }}<input v-model="trustDomainDraft.name" required /></label>
+        <label>{{ t('internalCa.fields.purpose') }}<input v-model="trustDomainDraft.purpose" required /></label>
+        <label>{{ t('internalCa.fields.isolationLevel') }}<select v-model="trustDomainDraft.isolationLevel"><option value="standard">standard</option><option value="strict">strict</option><option value="regulated">regulated</option></select></label>
+        <label class="check"><input v-model="trustDomainDraft.isDefault" type="checkbox" />{{ t('internalCa.fields.defaultTrustDomain') }}</label>
+        <p class="trust-domain-form__hint">{{ t('internalCa.trustDomains.generatedCodeHint') }}</p>
+        <p v-if="error" class="notice notice--danger">{{ error }}</p>
+      </form>
+      <template #actions>
+        <button class="gc-button" type="button" :disabled="actionPending" @click="trustDomainModalOpen = false">{{ t('designSystem.confirm.cancel') }}</button>
+        <button class="gc-button gc-button--primary" form="trust-domain-form" type="submit" :disabled="actionPending">{{ actionPending ? t('businessPage.processing') : t('internalCa.actions.createTrustDomain') }}</button>
+      </template>
+    </GcModal>
 
     <GcModal v-model:open="adcsWizardOpen" size="lg" :title="t('internalCa.adcsAgent.wizardTitle')" :description="t('internalCa.adcsAgent.wizardDescription')">
       <form v-if="!adcsInstallSession" class="adcs-wizard" @submit.prevent="createAdcsAgentInstallSession">
@@ -627,6 +675,11 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
 
 <style scoped>
 .internal-ca-page { display: grid; gap: var(--gc-space-5); }
+.trust-domain-page__table-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-3); }
+.trust-domain-page__table-toolbar span { color: var(--gc-color-text-muted); }
+.trust-domain-page__cell-main { display: grid; gap: var(--gc-space-1); }
+.trust-domain-form { display: grid; gap: var(--gc-space-4); }
+.trust-domain-form__hint { margin: 0; padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-info-border); border-radius: var(--gc-radius-md); color: var(--gc-color-text-muted); background: var(--gc-color-info-bg); }
 .decision-grid, .content-grid, .record-grid, .metrics { display: grid; gap: var(--gc-space-4); grid-template-columns: repeat(auto-fit, minmax(var(--gc-size-card-min), 1fr)); }
 .decision-card, .form-card, .record-card, .metric { padding: var(--gc-space-5); }
 .decision-card--recommended { border-color: var(--gc-color-success-border); background: var(--gc-color-success-bg); }
