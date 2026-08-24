@@ -84,6 +84,7 @@ import {
 import { PgDocumentRepository } from './persistence/repositories/pg-document-repository.js';
 import { createDeploymentPersistenceRepositories, type DeploymentPersistenceOptions } from './persistence/repositories/deployment-persistence-factory.js';
 import { AutomationsApplicationService, AutomationConfiguredActionExecutor, AutomationDeploymentActionService, AutomationNotificationActionService, AutomationRunCoordinator, AutomationScheduler, AutomationTargetSelector, AutomationsController, AutomationsRepository, DeploymentPlansAutomationAdapter, FakeNotificationPort, getAutomationRouteContracts } from './modules/automations/index.js';
+import { createDefaultLicensingService, getLicensingRouteContracts, LicensingController } from './modules/licensing/index.js';
 
 export interface AppDependencies {
   db?: DatabasePort;
@@ -108,6 +109,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const appDb = dependencies.db ?? new PgliteDatabase();
   app.setResource('database', appDb);
   const security = dependencies.security ?? createPersistedSecurityServices(appDb).services;
+  const licensingService = createDefaultLicensingService(appDb, security.audit);
+  app.setResource('licensingService', licensingService);
   const gatewayPersistence = createGatewayPersistenceRepositories({
     ...(dependencies.gatewayPersistence ?? {}),
     db: appDb,
@@ -583,6 +586,7 @@ export function getRouteContracts(): RouteContract[] {
     ...getMonitorRouteContracts(),
     ...getNotificationRouteContracts(),
     ...getReportRouteContracts(),
+    ...getLicensingRouteContracts(),
     {
       method: 'GET',
       path: '/api/v1/openapi.json',
