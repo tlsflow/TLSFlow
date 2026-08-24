@@ -2,16 +2,13 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { ApiClientError } from '@/api/client'
 import { listAssets } from '@/api/modules/assets.api'
 import { listAutomations } from '@/api/modules/automations.api'
 import {
   deleteCertificateVersion,
   getCertificateAssetDetail,
-  importCertificate,
   listCertificates,
   listCertificateVersions,
-  validateCertificateImport,
 } from '@/api/modules/certificates.api'
 import type { ApiRecord } from '@/api/modules/common'
 import {
@@ -36,15 +33,8 @@ import type { StatusTone } from '@/design-system/status/status-map'
 import { useAppStore } from '@/stores/app.store'
 import { usePermissionStore } from '@/stores/permission.store'
 import CertificateDetailPanel from './CertificateDetailPanel.vue'
-import CertificateImportForm from './CertificateImportForm.vue'
+import CertificateAddModal from './CertificateAddModal.vue'
 import CertificateTrustRootsModalContent from './CertificateTrustRootsModalContent.vue'
-import {
-  buildCertificateImportPayload,
-  type CertificateImportValidationResult,
-  createCertificateImportDraft,
-  isMaterialReady,
-  resetCertificateImportDraft,
-} from './certificate-import.shared'
 import { readPath, readString, toErrorState, type CertificatePageError } from './certificate-view-utils'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
@@ -113,16 +103,11 @@ const trustRootsDialogOpen = ref(false)
 const trustRootTargetId = ref('')
 const versionsDialogOpen = ref(false)
 const detailDialogOpen = ref(false)
-const importLoading = ref(false)
-const importValidating = ref(false)
 const deletingVersionId = ref('')
 const versionActionError = ref<CertificatePageError | null>(null)
-const importError = ref('')
 const importResultId = ref('')
-const importValidationResult = ref<CertificateImportValidationResult | null>(null)
 const detailVersionId = ref('')
 const detailAssetId = ref('')
-const draft = reactive(createCertificateImportDraft())
 const applicationAssetCount = ref<number | null>(null)
 const automationPlanCount = ref<number | null>(null)
 const activeAutomationPlanCount = ref<number | null>(null)
@@ -293,8 +278,6 @@ const versionRows = computed<CertificateVersionRow[]>(() => {
 const versionCount = computed(() => versionRows.value.length)
 const canDeleteVersion = computed(() => permissionStore.hasPermission('certificate.lifecycle'))
 
-const hasCertificateMaterial = computed(() => isMaterialReady(draft))
-
 watch(selectedAssetId, () => {
   if (skipSelectedAssetVersionRequest) {
     skipSelectedAssetVersionRequest = false
@@ -312,24 +295,6 @@ watch(
     trustRootsDialogOpen.value = true
   },
   { immediate: true },
-)
-
-watch(
-  () => [
-    draft.format,
-    draft.importMethod,
-    draft.certificatePem,
-    draft.pfxBase64,
-    draft.pfxPassword,
-    draft.privateKeyPem,
-    draft.name,
-  ],
-  () => {
-    importValidationResult.value = null
-    if (!importLoading.value && !importValidating.value) {
-      importError.value = ''
-    }
-  },
 )
 
 onMounted(() => {
@@ -698,16 +663,8 @@ async function openRouteVersionsDialog(assetId: string) {
 }
 
 function openImportDialog() {
-  importError.value = ''
   importResultId.value = ''
-  importValidationResult.value = null
-  resetCertificateImportDraft(draft)
   importDialogOpen.value = true
-}
-
-function closeImportDialog() {
-  if (importLoading.value) return
-  importDialogOpen.value = false
 }
 
 function openTrustRootsDialog() {
@@ -772,57 +729,9 @@ function navigateUserFlow(stepId: string) {
   void router.push({ name: 'asset.list' })
 }
 
-async function submitImport() {
-  if (!hasCertificateMaterial.value) {
-    importError.value = t('certificates.list.errors.materialRequiredForFormat')
-    return
-  }
-  if (!importValidationResult.value?.importable) {
-    importError.value = t('certificates.import.errors.needPassedValidation')
-    return
-  }
-  importLoading.value = true
-  importError.value = ''
-  importResultId.value = ''
-  try {
-    const result = await importCertificate(buildCertificateImportPayload(draft))
-    importResultId.value = String(result.data?.id ?? result.data?.certificateId ?? result.data?.certificateAssetId ?? '')
-    importDialogOpen.value = false
-    importValidationResult.value = null
-    resetCertificateImportDraft(draft)
-    await loadAssets()
-  } catch (cause) {
-    if (cause instanceof ApiClientError) {
-      importError.value = `${cause.message}（${cause.errorCode}）`
-      return
-    }
-    importError.value = cause instanceof Error ? cause.message : t('certificates.list.errors.importFailedWithCheck')
-  } finally {
-    importLoading.value = false
-  }
-}
-
-async function validateImportDraft() {
-  if (!hasCertificateMaterial.value) {
-    importError.value = t('certificates.import.errors.materialRequiredBeforeValidate')
-    importValidationResult.value = null
-    return
-  }
-  importValidating.value = true
-  importError.value = ''
-  importValidationResult.value = null
-  try {
-    const result = await validateCertificateImport(buildCertificateImportPayload(draft))
-    importValidationResult.value = result.data as unknown as CertificateImportValidationResult
-  } catch (cause) {
-    if (cause instanceof ApiClientError) {
-      importError.value = `${cause.message}（${cause.errorCode}）`
-      return
-    }
-    importError.value = cause instanceof Error ? cause.message : t('certificates.list.errors.validateFailedWithCheck')
-  } finally {
-    importValidating.value = false
-  }
+async function handleImported(id: string): Promise<void> {
+  importResultId.value = id
+  await loadAssets()
 }
 
 function readAssetLifecycleStatus(record: ApiRecord | null) {
@@ -1069,7 +978,7 @@ async function removeVersion(row: CertificateVersionRow) {
           </template>
           <template #primary>
             <GcPermissionButton class="gc-button gc-button--primary" permission="certificate.import" @click="openImportDialog">
-              {{ t('certificates.import.title') }}
+              {{ t('certificates.import.addTitle') }}
             </GcPermissionButton>
           </template>
         </GcPageToolbar>
@@ -1271,7 +1180,7 @@ async function removeVersion(row: CertificateVersionRow) {
       >
         <template #actions>
           <GcPermissionButton class="certificate-page__import-button" permission="certificate.import" @click="openImportDialog">
-            {{ t('certificates.userView.hero.primaryAction') }}
+            {{ t('certificates.import.addTitle') }}
           </GcPermissionButton>
         </template>
 
@@ -1311,7 +1220,7 @@ async function removeVersion(row: CertificateVersionRow) {
             >
               <p>{{ t('certificates.userView.simple.empty.description') }}</p>
               <GcPermissionButton permission="certificate.import" @click="openImportDialog">
-                {{ t('certificates.userView.hero.primaryAction') }}
+                {{ t('certificates.import.addTitle') }}
               </GcPermissionButton>
             </GcEmptyState>
 
@@ -1561,24 +1470,10 @@ async function removeVersion(row: CertificateVersionRow) {
       <CertificateDetailPanel :asset-id="detailAssetId" :version-id="detailVersionId" />
     </GcModal>
 
-    <GcModal
+    <CertificateAddModal
       v-model:open="importDialogOpen"
-      :title="t('certificates.import.title')"
-      :description="t('certificates.list.import.description')"
-      size="xxl"
-    >
-      <CertificateImportForm
-        :draft="draft"
-        :loading="importLoading"
-        :validating="importValidating"
-        :error="importError"
-        :result-id="importResultId"
-        :validation-result="importValidationResult"
-        @validate="validateImportDraft"
-        @submit="submitImport"
-        @cancel="closeImportDialog"
-      />
-    </GcModal>
+      @imported="handleImported"
+    />
   </section>
 </template>
 

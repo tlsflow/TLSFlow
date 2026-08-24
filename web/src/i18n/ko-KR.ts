@@ -3386,6 +3386,7 @@ export default {
       unsupported: '{format} 현재 기능을 생성할 수 없습니다.'
     },
     import: {
+      addTitle: '인증서 추가',
       backList: '인증서 목록 반환하기',
       description: '현재 PEM + KEY와 PFX만 지원된다.PFX는 파일 가져오기만 지원합니다.가져오는 자료에는 서버 인증서, 전체 중간 인증서 체인, 개인 키가 포함되어야 합니다. 루트 인증서는 강제 항목이 아닙니다.',
       errors: {
@@ -3515,6 +3516,10 @@ export default {
         warnings: '경고'
       },
       selectedFile: '선택: {name}',
+      upload: {
+        choose: '파일 선택',
+        noFile: '선택한 파일 없음'
+      },
       importSuccess: '인증서 버전 ID:{id}를 성공적으로 가져왔습니다',
       actions: {
         validating: '체크하는 중...',

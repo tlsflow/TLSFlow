@@ -3398,6 +3398,7 @@ export default {
       unsupported: '{format} não pode ser criado pela declaração de capacidade atual.'
     },
     import: {
+      addTitle: 'Adicionar certificado',
       backList: 'Voltar à lista de certificados',
       description: 'Atualmente, apenas PEM + KEY e PFX são suportados; PFX só permite importação por arquivo. Os materiais importados devem incluir certificado do servidor, cadeia intermediária completa e chave privada. O certificado raiz não é obrigatório.',
       errors: {
@@ -3527,6 +3528,10 @@ export default {
         warnings: 'Alertas'
       },
       selectedFile: 'Selecionado: {name}',
+      upload: {
+        choose: 'Escolher arquivo',
+        noFile: 'Nenhum arquivo selecionado'
+      },
       importSuccess: 'Importação concluída. ID da versão do certificado: {id}',
       actions: {
         validating: 'Validando...',

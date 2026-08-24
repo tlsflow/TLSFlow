@@ -3412,6 +3412,7 @@ export default {
       unsupported: '{format} は現在の機能宣言では作成できません。'
     },
     import: {
+      addTitle: '証明書を追加',
       backList: '証明書一覧へ戻る',
       description: '現在は PEM + KEY と PFX のみサポートします。PFX はファイルインポートのみ対応です。インポートマテリアルにはサーバー証明書、完全な中間証明書チェーン、秘密鍵を必ず含めてください。ルート証明書は必須ではありません。',
       errors: {
@@ -3541,6 +3542,10 @@ export default {
         warnings: '警告'
       },
       selectedFile: '選択：{name}済み',
+      upload: {
+        choose: 'ファイルを選択',
+        noFile: 'ファイル未選択'
+      },
       importSuccess: 'インポート成功、証明書バージョン ID：{id}',
       actions: {
         validating: '検証中...',

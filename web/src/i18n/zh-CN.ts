@@ -3566,6 +3566,7 @@ export default {
       unsupported: '{format} 当前能力声明不可创建。'
     },
     import: {
+      addTitle: '添加证书',
       backList: '返回证书列表',
       description: '当前仅支持 PEM + KEY 和 PFX；PFX 仅支持文件导入。导入材料必须包含服务器证书、完整中间证书链和私钥，根证书不是强制项。',
       errors: {
@@ -3695,6 +3696,10 @@ export default {
         warnings: '警告'
       },
       selectedFile: '已选择：{name}',
+      upload: {
+        choose: '选择文件',
+        noFile: '尚未选择文件'
+      },
       importSuccess: '导入成功，证书版本 ID：{id}',
       actions: {
         validating: '校验中...',

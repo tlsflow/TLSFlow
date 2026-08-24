@@ -3411,6 +3411,7 @@ export default {
       unsupported: "{format} 目前能力宣告不可建立。"
     },
     import: {
+      addTitle: "新增憑證",
       backList: "返回憑證列表",
       description: "目前僅支援 PEM + KEY 和 PFX；PFX 僅支援檔案匯入。匯入材料必須包含伺服器憑證、完整中間憑證鏈和私密金鑰，根憑證不是強制項。",
       errors: {
@@ -3540,6 +3541,10 @@ export default {
         warnings: "警告"
       },
       selectedFile: "已選擇：{name}",
+      upload: {
+        choose: "選擇檔案",
+        noFile: "尚未選擇檔案"
+      },
       importSuccess: "匯入成功，憑證版本 ID：{id}",
       actions: {
         validating: "驗證中...",
