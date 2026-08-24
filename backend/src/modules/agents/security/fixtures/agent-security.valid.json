@@ -1,0 +1,41 @@
+{
+  "contracts": {
+    "AgentFactEnvelopeV1": {
+      "contractVersion": "gcac.agent-security/v1",
+      "factId": "fact-1",
+      "agentId": "agent-1",
+      "tenantId": "tenant-1",
+      "collectedAt": "2026-08-08T00:00:00.000Z",
+      "ttlSeconds": 3600,
+      "source": "linux",
+      "facts": [{ "kind": "process", "pid": 101, "parentPid": 1, "executablePath": "/usr/bin/gcac-agent", "executableSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "commandLine": "gcac-agent --config [REDACTED]" }],
+      "digest": "948b9757b2a5b889692567f59bd88d50f4456ec49cb06c8ccd8b8d2403879f6b",
+      "warnings": []
+    },
+    "ProcessFactV1": { "kind": "process", "pid": 101, "executablePath": "/usr/bin/gcac-agent" },
+    "ServiceFactV1": { "kind": "service", "name": "gcac-agent", "status": "running" },
+    "ListeningPortFactV1": { "kind": "listening_port", "address": "127.0.0.1", "port": 9443, "protocol": "tcp", "pid": 101 },
+    "FileStatFactV1": { "kind": "file_stat", "path": "/var/lib/gcac/config.json", "exists": true, "sizeBytes": 128, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    "FileContentFactV1": { "kind": "file_content", "path": "/var/lib/gcac/config.json", "contentBase64": "aGk=", "bytesRead": 2, "truncated": false, "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+    "CertificateStoreFactV1": { "kind": "certificate_store", "store": "local-machine", "subject": "CN=example.test", "thumbprint": "AA11", "hasPrivateKey": false },
+    "PrivilegeFactV1": { "kind": "privilege", "principal": "gcac-agent", "elevated": false, "groups": ["gcac-agent"] },
+    "AgentPlanOperationV1": { "operationId": "op-1", "operationType": "filesystem.read", "stage": "prepare", "input": { "path": "/var/lib/gcac/config.json" }, "dependsOn": [], "idempotencyKey": "idem-1", "timeoutSeconds": 30 },
+    "AgentPlanV1": {
+      "planVersion": "gcac.agent-security/v1", "planId": "plan-1", "agentId": "agent-1", "tenantId": "tenant-1", "pluginId": "web.nginx", "pluginVersionId": "plugin-version-1", "capability": "filesystem.read",
+      "operations": [{ "operationId": "op-1", "operationType": "filesystem.read", "stage": "prepare", "input": { "path": "/var/lib/gcac/config.json" }, "dependsOn": [], "idempotencyKey": "idem-1", "timeoutSeconds": 30 }],
+      "planDigest": "d727a546983d32de1c857a6d5c00f25e1723fd20f05549bd49e81f3adc432bca", "tokenId": "token-1", "policyDecisionId": "decision-1", "nonce": "nonce-1", "expiresAt": "2026-08-08T00:10:00.000Z", "writeEffect": false
+    },
+    "AgentCapabilityTokenV1": {
+      "tokenVersion": "gcac.agent-security/v1", "tokenId": "token-1", "agentId": "agent-1", "tenantId": "tenant-1", "pluginId": "web.nginx", "pluginVersionId": "plugin-version-1", "capability": "filesystem.read", "actions": ["filesystem.read"], "allowedPaths": ["/var/lib/gcac"], "allowedServices": [], "artifactDigests": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"], "policyRef": "policy-1", "policyVersion": "1", "issuedAt": "2026-08-08T00:00:00.000Z", "expiresAt": "2026-08-08T00:10:00.000Z", "nonce": "nonce-1", "planDigest": "d727a546983d32de1c857a6d5c00f25e1723fd20f05549bd49e81f3adc432bca", "authorityKeyId": "authority-key-1", "signature": "fixture-signature"
+    },
+    "PolicyAuthorityDecisionV1": {
+      "decisionVersion": "gcac.agent-security/v1", "decisionId": "decision-1", "allowed": true, "agentId": "agent-1", "tenantId": "tenant-1", "pluginId": "web.nginx", "pluginVersionId": "plugin-version-1", "capability": "filesystem.read", "actions": ["filesystem.read"], "allowedPaths": ["/var/lib/gcac"], "allowedServices": [], "artifactDigests": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"], "policyRef": "policy-1", "policyVersion": "1", "planDigest": "d727a546983d32de1c857a6d5c00f25e1723fd20f05549bd49e81f3adc432bca", "tokenId": "token-1", "nonce": "nonce-1", "issuedAt": "2026-08-08T00:00:00.000Z", "validUntil": "2026-08-08T00:10:00.000Z", "authorityKeyId": "authority-key-1", "revocationRef": "revocation-1", "signature": "fixture-signature"
+    },
+    "AgentExecutionReceiptV1": { "receiptVersion": "gcac.agent-security/v1", "operationId": "op-1", "planId": "plan-1", "planDigest": "d727a546983d32de1c857a6d5c00f25e1723fd20f05549bd49e81f3adc432bca", "agentId": "agent-1", "tenantId": "tenant-1", "tokenId": "token-1", "status": "SUCCESS", "startedAt": "2026-08-08T00:00:00.000Z", "completedAt": "2026-08-08T00:00:01.000Z", "operationResults": [{ "status": "read" }], "nonceConsumed": true, "digest": "e2ac3027b33b395824f06ae42c57b8571093ca0b621fa6e21973cd960a45e493" },
+    "AgentLocalPolicyV1": { "policyVersion": "gcac.agent-security/v1", "agentId": "agent-1", "authorityKeyIds": ["authority-key-1"], "allowedActions": ["filesystem.read"], "pathRules": [{ "prefix": "/var/lib/gcac", "operations": ["filesystem.read"] }], "serviceRules": [], "commandRules": [], "disabled": false, "updatedAt": "2026-08-08T00:00:00.000Z" },
+    "PolicyAuthorityKeySetV1": { "keySetVersion": "gcac.agent-security/v1", "authorityId": "policy-authority-1", "activeKeyId": "authority-key-1", "keys": [{ "keyId": "authority-key-1", "algorithm": "Ed25519", "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nfixture\n-----END PUBLIC KEY-----", "status": "ACTIVE", "notBefore": "2026-08-07T00:00:00.000Z", "notAfter": "2026-08-09T00:00:00.000Z" }], "issuedAt": "2026-08-07T00:00:00.000Z" },
+    "TokenRevocationRecordV1": { "recordVersion": "gcac.agent-security/v1", "tokenId": "token-revoked", "authorityKeyId": "authority-key-1", "reason": "人工撤销", "revokedAt": "2026-08-08T00:00:00.000Z" },
+    "DecisionRevocationRecordV1": { "recordVersion": "gcac.agent-security/v1", "decisionId": "decision-revoked", "authorityKeyId": "authority-key-1", "reason": "人工撤销决策", "revokedAt": "2026-08-08T00:00:00.000Z" },
+    "NonceConsumptionRecordV1": { "recordVersion": "gcac.agent-security/v1", "nonce": "nonce-used", "tokenId": "token-1", "consumedAt": "2026-08-08T00:00:00.000Z", "resultDigest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" }
+  }
+}

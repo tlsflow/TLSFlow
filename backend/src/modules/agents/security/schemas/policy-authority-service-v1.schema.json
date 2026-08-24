@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gcac://policy-authority-service/v1",
+  "title": "GCAC Policy Authority 服务边界 v1",
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,256}$" },
+    "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "nonEmpty": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "dateTime": { "type": "string", "format": "date-time", "maxLength": 64 },
+    "path": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^(?:[A-Za-z]:[\\/]|[\\/]{1,2})" },
+    "stringArray": { "type": "array", "minItems": 1, "maxItems": 200, "items": { "$ref": "#/$defs/nonEmpty" } },
+    "trustRoot": {
+      "type": "object", "additionalProperties": false,
+      "required": ["rootKeyId", "authorityId", "algorithm", "publicKeyPem", "fingerprintSha256"],
+      "properties": {
+        "rootKeyId": { "$ref": "#/$defs/id" }, "authorityId": { "$ref": "#/$defs/id" }, "algorithm": { "const": "Ed25519" },
+        "publicKeyPem": { "type": "string", "pattern": "BEGIN PUBLIC KEY" }, "fingerprintSha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "policyKey": {
+      "type": "object", "additionalProperties": false,
+      "required": ["keyId", "algorithm", "publicKeyPem", "status", "notBefore", "notAfter"],
+      "properties": {
+        "keyId": { "$ref": "#/$defs/id" }, "algorithm": { "const": "Ed25519" }, "publicKeyPem": { "type": "string", "pattern": "BEGIN PUBLIC KEY" },
+        "status": { "enum": ["ACTIVE", "REVOKED"] }, "notBefore": { "$ref": "#/$defs/dateTime" }, "notAfter": { "$ref": "#/$defs/dateTime" }
+      }
+    },
+    "keySet": {
+      "type": "object", "additionalProperties": false,
+      "required": ["keySetVersion", "authorityId", "activeKeyId", "keys", "issuedAt"],
+      "properties": {
+        "keySetVersion": { "const": "gcac.agent-security/v1" }, "authorityId": { "$ref": "#/$defs/id" }, "activeKeyId": { "$ref": "#/$defs/id" },
+        "keys": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "$ref": "#/$defs/policyKey" } }, "issuedAt": { "$ref": "#/$defs/dateTime" }
+      }
+    },
+    "keySetEnvelope": {
+      "type": "object", "additionalProperties": false,
+      "required": ["envelopeVersion", "rootKeyId", "authorityId", "keySet", "signature"],
+      "properties": {
+        "envelopeVersion": { "const": "gcac.agent-security/v1" }, "rootKeyId": { "$ref": "#/$defs/id" }, "authorityId": { "$ref": "#/$defs/id" },
+        "keySet": { "$ref": "#/$defs/keySet" }, "signature": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "authorizationRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["agentId", "tenantId", "pluginId", "pluginVersionId", "capability", "actions", "allowedPaths", "allowedServices", "artifactDigests", "policyRef", "policyVersion", "planDigest", "lifetimeSeconds"],
+      "properties": {
+        "agentId": { "$ref": "#/$defs/id" }, "tenantId": { "$ref": "#/$defs/id" },
+        "pluginId": { "type": "string", "pattern": "^(?:web|app|device|cloud|ca)\\.[a-z0-9]+(?:\\.[a-z0-9-]+)*$" },
+        "pluginVersionId": { "$ref": "#/$defs/id" }, "capability": { "$ref": "#/$defs/id" }, "actions": { "$ref": "#/$defs/stringArray" },
+        "allowedPaths": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/path" } },
+        "allowedServices": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/nonEmpty" } },
+        "artifactDigests": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/digest" } },
+        "policyRef": { "$ref": "#/$defs/id" }, "policyVersion": { "$ref": "#/$defs/id" }, "planDigest": { "$ref": "#/$defs/digest" },
+        "approvalRef": { "$ref": "#/$defs/id" }, "lifetimeSeconds": { "type": "integer", "minimum": 1, "maximum": 900 }
+      }
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/trustRoot" }, { "$ref": "#/$defs/keySetEnvelope" }, { "$ref": "#/$defs/authorizationRequest" }
+  ]
+}

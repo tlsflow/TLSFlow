@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gcac://agent-security/v1",
+  "title": "GCAC Agent 安全合同 v1",
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,256}$" },
+    "nonEmpty": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "dateTime": { "type": "string", "format": "date-time", "maxLength": 64 },
+    "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "absolutePath": { "type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^(?:[A-Za-z]:[\\/]|[\\/]{1,2})" },
+    "stringArray": { "type": "array", "items": { "$ref": "#/$defs/nonEmpty" }, "maxItems": 200 },
+    "processFact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "pid", "executablePath"],
+      "properties": {
+        "kind": { "const": "process" }, "pid": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+        "parentPid": { "type": "integer", "minimum": 1, "maximum": 2147483647 }, "executablePath": { "$ref": "#/$defs/absolutePath" },
+        "executableSha256": { "$ref": "#/$defs/digest" }, "commandLine": { "type": "string", "maxLength": 4096 }, "startedAt": { "$ref": "#/$defs/dateTime" }
+      }
+    },
+    "serviceFact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "name", "status"],
+      "properties": {
+        "kind": { "const": "service" }, "name": { "$ref": "#/$defs/id" },
+        "status": { "enum": ["running", "stopped", "paused", "unknown"] }, "executablePath": { "$ref": "#/$defs/absolutePath" },
+        "startType": { "enum": ["automatic", "manual", "disabled", "unknown"] }
+      }
+    },
+    "listeningPortFact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "address", "port", "protocol"],
+      "properties": {
+        "kind": { "const": "listening_port" }, "address": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 }, "protocol": { "enum": ["tcp", "udp"] },
+        "pid": { "type": "integer", "minimum": 1, "maximum": 2147483647 }
+      }
+    },
+    "fileStatFact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "path", "exists", "sizeBytes"],
+      "properties": {
+        "kind": { "const": "file_stat" }, "path": { "$ref": "#/$defs/absolutePath" }, "exists": { "type": "boolean" },
+        "sizeBytes": { "type": "integer", "minimum": 0, "maximum": 1073741824 }, "sha256": { "$ref": "#/$defs/digest" },
+        "modifiedAt": { "$ref": "#/$defs/dateTime" }, "mode": { "type": "string", "maxLength": 32 }
+      }
+    },
+    "fileContentFact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "path", "contentBase64", "bytesRead", "truncated", "sha256"],
+      "properties": {
+        "kind": { "const": "file_content" }, "path": { "$ref": "#/$defs/absolutePath" }, "contentBase64": { "type": "string", "maxLength": 131072 },
+        "bytesRead": { "type": "integer", "minimum": 0, "maximum": 65536 }, "truncated": { "type": "boolean" }, "sha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "certificateStoreFact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "store", "subject", "thumbprint", "hasPrivateKey"],
+      "properties": {
+        "kind": { "const": "certificate_store" }, "store": { "$ref": "#/$defs/id" }, "subject": { "$ref": "#/$defs/nonEmpty" },
+        "thumbprint": { "$ref": "#/$defs/nonEmpty" }, "notAfter": { "$ref": "#/$defs/dateTime" }, "hasPrivateKey": { "type": "boolean" }
+      }
+    },
+    "privilegeFact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "principal", "elevated", "groups"],
+      "properties": { "kind": { "const": "privilege" }, "principal": { "$ref": "#/$defs/nonEmpty" }, "elevated": { "type": "boolean" }, "groups": { "$ref": "#/$defs/stringArray" } }
+    },
+    "rawFact": { "oneOf": [
+      { "$ref": "#/$defs/processFact" }, { "$ref": "#/$defs/serviceFact" }, { "$ref": "#/$defs/listeningPortFact" },
+      { "$ref": "#/$defs/fileStatFact" }, { "$ref": "#/$defs/fileContentFact" }, { "$ref": "#/$defs/certificateStoreFact" }, { "$ref": "#/$defs/privilegeFact" }
+    ] },
+    "planOperation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["operationId", "operationType", "stage", "input", "dependsOn", "idempotencyKey", "timeoutSeconds"],
+      "properties": {
+        "operationId": { "$ref": "#/$defs/id" },
+        "operationType": { "enum": ["process.list", "service.list", "service.status", "filesystem.stat", "filesystem.read", "filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.material.validate", "certificate.store.inspect", "service.start", "service.stop", "service.reload", "command.execute_allowlisted"] },
+        "stage": { "enum": ["prepare", "execute", "verify", "compensate"] }, "input": { "type": "object", "additionalProperties": true, "maxProperties": 200 },
+        "dependsOn": { "$ref": "#/$defs/stringArray" }, "idempotencyKey": { "$ref": "#/$defs/id" }, "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 3600 }, "compensation": { "$ref": "#/$defs/id" }
+      }
+    },
+    "pathRule": { "type": "object", "additionalProperties": false, "required": ["prefix", "operations"], "properties": { "prefix": { "$ref": "#/$defs/absolutePath" }, "operations": { "$ref": "#/$defs/stringArray" } } },
+    "commandRule": {
+      "type": "object", "additionalProperties": false,
+      "required": ["executablePath", "executableSha256", "argumentTemplate", "environmentAllowlist", "workingDirectory", "networkScopes", "childProcessPolicy", "timeoutSeconds", "outputLimitBytes"],
+      "properties": {
+        "executablePath": { "$ref": "#/$defs/absolutePath" }, "executableSha256": { "$ref": "#/$defs/digest" }, "argumentTemplate": { "$ref": "#/$defs/stringArray" },
+        "environmentAllowlist": { "$ref": "#/$defs/stringArray" }, "workingDirectory": { "$ref": "#/$defs/absolutePath" }, "networkScopes": { "$ref": "#/$defs/stringArray" },
+        "childProcessPolicy": { "enum": ["deny", "allow-listed"] }, "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 3600 }, "outputLimitBytes": { "type": "integer", "minimum": 1, "maximum": 16777216 }
+      }
+    },
+    "policyKey": {
+      "type": "object", "additionalProperties": false,
+      "required": ["keyId", "algorithm", "publicKeyPem", "status", "notBefore", "notAfter"],
+      "properties": { "keyId": { "$ref": "#/$defs/id" }, "algorithm": { "const": "Ed25519" }, "publicKeyPem": { "type": "string", "pattern": "BEGIN PUBLIC KEY" }, "status": { "enum": ["ACTIVE", "REVOKED"] }, "notBefore": { "$ref": "#/$defs/dateTime" }, "notAfter": { "$ref": "#/$defs/dateTime" } }
+    },
+    "agentFactEnvelope": {
+      "type": "object", "additionalProperties": false,
+      "required": ["contractVersion", "factId", "agentId", "tenantId", "collectedAt", "ttlSeconds", "source", "facts", "digest", "warnings"],
+      "properties": { "contractVersion": { "const": "gcac.agent-security/v1" }, "factId": { "$ref": "#/$defs/id" }, "agentId": { "$ref": "#/$defs/id" }, "tenantId": { "$ref": "#/$defs/id" }, "collectedAt": { "$ref": "#/$defs/dateTime" }, "ttlSeconds": { "type": "integer", "minimum": 1, "maximum": 86400 }, "source": { "enum": ["windows", "linux", "compatibility"] }, "facts": { "type": "array", "minItems": 1, "maxItems": 1000, "items": { "$ref": "#/$defs/rawFact" } }, "digest": { "$ref": "#/$defs/digest" }, "warnings": { "$ref": "#/$defs/stringArray" } }
+    },
+    "agentPlan": {
+      "type": "object", "additionalProperties": false,
+      "required": ["planVersion", "planId", "agentId", "tenantId", "pluginId", "pluginVersionId", "capability", "operations", "planDigest", "tokenId", "policyDecisionId", "nonce", "expiresAt", "writeEffect"],
+      "properties": { "planVersion": { "const": "gcac.agent-security/v1" }, "planId": { "$ref": "#/$defs/id" }, "agentId": { "$ref": "#/$defs/id" }, "tenantId": { "$ref": "#/$defs/id" }, "pluginId": { "type": "string", "pattern": "^(?:web|app|device|cloud|ca)\\.[a-z0-9]+(?:\\.[a-z0-9-]+)*$" }, "pluginVersionId": { "$ref": "#/$defs/id" }, "capability": { "$ref": "#/$defs/id" }, "operations": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "$ref": "#/$defs/planOperation" } }, "planDigest": { "$ref": "#/$defs/digest" }, "tokenId": { "$ref": "#/$defs/id" }, "policyDecisionId": { "$ref": "#/$defs/id" }, "nonce": { "$ref": "#/$defs/id" }, "expiresAt": { "$ref": "#/$defs/dateTime" }, "writeEffect": { "type": "boolean" }, "approvalRef": { "$ref": "#/$defs/id" } }
+    },
+    "capabilityToken": {
+      "type": "object", "additionalProperties": false,
+      "required": ["tokenVersion", "tokenId", "agentId", "tenantId", "pluginId", "pluginVersionId", "capability", "actions", "allowedPaths", "allowedServices", "artifactDigests", "policyRef", "policyVersion", "issuedAt", "expiresAt", "nonce", "planDigest", "authorityKeyId", "signature"],
+      "properties": { "tokenVersion": { "const": "gcac.agent-security/v1" }, "tokenId": { "$ref": "#/$defs/id" }, "agentId": { "$ref": "#/$defs/id" }, "tenantId": { "$ref": "#/$defs/id" }, "pluginId": { "type": "string", "pattern": "^(?:web|app|device|cloud|ca)\\.[a-z0-9]+(?:\\.[a-z0-9-]+)*$" }, "pluginVersionId": { "$ref": "#/$defs/id" }, "capability": { "$ref": "#/$defs/id" }, "actions": { "$ref": "#/$defs/stringArray" }, "allowedPaths": { "type": "array", "items": { "$ref": "#/$defs/absolutePath" }, "maxItems": 100 }, "allowedServices": { "$ref": "#/$defs/stringArray" }, "artifactDigests": { "type": "array", "items": { "$ref": "#/$defs/digest" }, "maxItems": 100 }, "approvalRef": { "$ref": "#/$defs/id" }, "policyRef": { "$ref": "#/$defs/id" }, "policyVersion": { "$ref": "#/$defs/id" }, "issuedAt": { "$ref": "#/$defs/dateTime" }, "expiresAt": { "$ref": "#/$defs/dateTime" }, "nonce": { "$ref": "#/$defs/id" }, "planDigest": { "$ref": "#/$defs/digest" }, "authorityKeyId": { "$ref": "#/$defs/id" }, "signature": { "$ref": "#/$defs/nonEmpty" } }
+    },
+    "authorityDecision": {
+      "type": "object", "additionalProperties": false,
+      "required": ["decisionVersion", "decisionId", "allowed", "agentId", "tenantId", "pluginId", "pluginVersionId", "capability", "actions", "allowedPaths", "allowedServices", "artifactDigests", "policyRef", "policyVersion", "planDigest", "tokenId", "nonce", "issuedAt", "validUntil", "authorityKeyId", "revocationRef", "signature"],
+      "properties": { "decisionVersion": { "const": "gcac.agent-security/v1" }, "decisionId": { "$ref": "#/$defs/id" }, "allowed": { "type": "boolean" }, "agentId": { "$ref": "#/$defs/id" }, "tenantId": { "$ref": "#/$defs/id" }, "pluginId": { "type": "string", "pattern": "^(?:web|app|device|cloud|ca)\\.[a-z0-9]+(?:\\.[a-z0-9-]+)*$" }, "pluginVersionId": { "$ref": "#/$defs/id" }, "capability": { "$ref": "#/$defs/id" }, "actions": { "$ref": "#/$defs/stringArray" }, "allowedPaths": { "type": "array", "items": { "$ref": "#/$defs/absolutePath" }, "maxItems": 100 }, "allowedServices": { "$ref": "#/$defs/stringArray" }, "artifactDigests": { "type": "array", "items": { "$ref": "#/$defs/digest" }, "maxItems": 100 }, "policyRef": { "$ref": "#/$defs/id" }, "policyVersion": { "$ref": "#/$defs/id" }, "planDigest": { "$ref": "#/$defs/digest" }, "tokenId": { "$ref": "#/$defs/id" }, "nonce": { "$ref": "#/$defs/id" }, "approvalRef": { "$ref": "#/$defs/id" }, "issuedAt": { "$ref": "#/$defs/dateTime" }, "validUntil": { "$ref": "#/$defs/dateTime" }, "authorityKeyId": { "$ref": "#/$defs/id" }, "revocationRef": { "$ref": "#/$defs/id" }, "signature": { "$ref": "#/$defs/nonEmpty" }, "reason": { "$ref": "#/$defs/nonEmpty" } }
+    },
+    "executionReceipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["receiptVersion", "operationId", "planId", "planDigest", "agentId", "tenantId", "tokenId", "status", "startedAt", "completedAt", "operationResults", "nonceConsumed", "digest"],
+      "properties": { "receiptVersion": { "const": "gcac.agent-security/v1" }, "operationId": { "$ref": "#/$defs/id" }, "planId": { "$ref": "#/$defs/id" }, "planDigest": { "$ref": "#/$defs/digest" }, "agentId": { "$ref": "#/$defs/id" }, "tenantId": { "$ref": "#/$defs/id" }, "tokenId": { "$ref": "#/$defs/id" }, "status": { "enum": ["SUCCESS", "FAILED", "UNKNOWN", "CANCELLED"] }, "startedAt": { "$ref": "#/$defs/dateTime" }, "completedAt": { "$ref": "#/$defs/dateTime" }, "operationResults": { "type": "array", "items": { "type": "object", "additionalProperties": true }, "maxItems": 100 }, "nonceConsumed": { "type": "boolean" }, "errorCode": { "$ref": "#/$defs/id" }, "unknownReason": { "$ref": "#/$defs/nonEmpty" }, "digest": { "$ref": "#/$defs/digest" } }
+    },
+    "localPolicy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["policyVersion", "agentId", "authorityKeyIds", "allowedActions", "pathRules", "serviceRules", "commandRules", "disabled", "updatedAt"],
+      "properties": { "policyVersion": { "const": "gcac.agent-security/v1" }, "agentId": { "$ref": "#/$defs/id" }, "authorityKeyIds": { "$ref": "#/$defs/stringArray" }, "allowedActions": { "$ref": "#/$defs/stringArray" }, "pathRules": { "type": "array", "items": { "$ref": "#/$defs/pathRule" }, "maxItems": 100 }, "serviceRules": { "$ref": "#/$defs/stringArray" }, "commandRules": { "type": "array", "items": { "$ref": "#/$defs/commandRule" }, "maxItems": 100 }, "disabled": { "type": "boolean" }, "updatedAt": { "$ref": "#/$defs/dateTime" } }
+    },
+    "keySet": { "type": "object", "additionalProperties": false, "required": ["keySetVersion", "authorityId", "activeKeyId", "keys", "issuedAt"], "properties": { "keySetVersion": { "const": "gcac.agent-security/v1" }, "authorityId": { "$ref": "#/$defs/id" }, "activeKeyId": { "$ref": "#/$defs/id" }, "keys": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "$ref": "#/$defs/policyKey" } }, "issuedAt": { "$ref": "#/$defs/dateTime" } } },
+    "tokenRevocation": { "type": "object", "additionalProperties": false, "required": ["recordVersion", "tokenId", "authorityKeyId", "reason", "revokedAt"], "properties": { "recordVersion": { "const": "gcac.agent-security/v1" }, "tokenId": { "$ref": "#/$defs/id" }, "authorityKeyId": { "$ref": "#/$defs/id" }, "reason": { "$ref": "#/$defs/nonEmpty" }, "revokedAt": { "$ref": "#/$defs/dateTime" } } },
+    "decisionRevocation": { "type": "object", "additionalProperties": false, "required": ["recordVersion", "decisionId", "authorityKeyId", "reason", "revokedAt"], "properties": { "recordVersion": { "const": "gcac.agent-security/v1" }, "decisionId": { "$ref": "#/$defs/id" }, "authorityKeyId": { "$ref": "#/$defs/id" }, "reason": { "$ref": "#/$defs/nonEmpty" }, "revokedAt": { "$ref": "#/$defs/dateTime" } } },
+    "nonceConsumption": { "type": "object", "additionalProperties": false, "required": ["recordVersion", "nonce", "tokenId", "consumedAt", "resultDigest"], "properties": { "recordVersion": { "const": "gcac.agent-security/v1" }, "nonce": { "$ref": "#/$defs/id" }, "tokenId": { "$ref": "#/$defs/id" }, "consumedAt": { "$ref": "#/$defs/dateTime" }, "resultDigest": { "$ref": "#/$defs/digest" } } }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/agentFactEnvelope" }, { "$ref": "#/$defs/processFact" }, { "$ref": "#/$defs/serviceFact" }, { "$ref": "#/$defs/listeningPortFact" },
+    { "$ref": "#/$defs/fileStatFact" }, { "$ref": "#/$defs/fileContentFact" }, { "$ref": "#/$defs/certificateStoreFact" }, { "$ref": "#/$defs/privilegeFact" },
+    { "$ref": "#/$defs/agentPlan" }, { "$ref": "#/$defs/planOperation" }, { "$ref": "#/$defs/capabilityToken" }, { "$ref": "#/$defs/authorityDecision" },
+    { "$ref": "#/$defs/executionReceipt" }, { "$ref": "#/$defs/localPolicy" }, { "$ref": "#/$defs/keySet" }, { "$ref": "#/$defs/tokenRevocation" }, { "$ref": "#/$defs/decisionRevocation" }, { "$ref": "#/$defs/nonceConsumption" }
+  ]
+}

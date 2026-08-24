@@ -1,0 +1,29 @@
+{
+  "schemaCases": [
+    { "name": "default-development-key", "type": "PolicyAuthorityKeySetV1", "path": "keys[0].keyId", "value": "default-development-key" },
+    { "name": "revoked-key", "type": "PolicyAuthorityKeySetV1", "path": "keys[0].status", "value": "REVOKED" },
+    { "name": "expired-token", "type": "AgentCapabilityTokenV1", "path": "expiresAt", "value": "2026-08-07T23:00:00.000Z" },
+    { "name": "shell", "type": "AgentPlanV1", "path": "operations[0].operationType", "value": "shell.execute" },
+    { "name": "cmd", "type": "AgentPlanV1", "path": "operations[0].input.command", "value": "cmd.exe /c whoami" },
+    { "name": "powershell", "type": "AgentPlanV1", "path": "operations[0].input.powershell", "value": "Get-Process" },
+    { "name": "interpreter", "type": "AgentPlanV1", "path": "operations[0]", "value": { "operationId": "op-1", "operationType": "command.execute_allowlisted", "stage": "execute", "input": { "executablePath": "/bin/bash", "executableSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "args": ["--version"], "argumentTemplate": ["--version"], "environmentAllowlist": [], "workingDirectory": "/var/lib/gcac", "networkScopes": [], "childProcessPolicy": "deny", "timeoutSeconds": 30, "outputLimitBytes": 1024 }, "dependsOn": [], "idempotencyKey": "idem-1", "timeoutSeconds": 30 } },
+    { "name": "pipeline", "type": "AgentPlanV1", "path": "operations[0].input.args", "value": ["--name", "x | whoami"] },
+    { "name": "download-after-execution", "type": "AgentPlanV1", "path": "operations[0].input.url", "value": "https://example.test/download" },
+    { "name": "arbitrary-command-string", "type": "AgentPlanV1", "path": "operations[0].input.command", "value": "arbitrary command" },
+    { "name": "child-process-escape", "type": "AgentPlanV1", "path": "operations[0].input.childProcessEscape", "value": true },
+    { "name": "product-judgement-in-fact", "type": "AgentFactEnvelopeV1", "path": "facts[0].detectedProduct", "value": "nginx" }
+  ],
+  "authorizationCases": [
+    { "name": "unknown-authority-key", "change": { "token": { "authorityKeyId": "unknown-authority-key" } } },
+    { "name": "revoked-authority-key", "change": { "keyStatus": "REVOKED" } },
+    { "name": "revoked-token", "change": { "revokedTokenIds": ["token-1"] } },
+    { "name": "tenant-mismatch", "change": { "token": { "tenantId": "tenant-2" } } },
+    { "name": "agent-mismatch", "change": { "token": { "agentId": "agent-2" } } },
+    { "name": "plugin-version-mismatch", "change": { "token": { "pluginVersionId": "plugin-version-2" } } },
+    { "name": "capability-mismatch", "change": { "token": { "capability": "filesystem.stat" } } },
+    { "name": "plan-digest-mismatch", "change": { "token": { "planDigest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" } } },
+    { "name": "path-outside-authorized-root", "change": { "plan": { "operations": [{ "operationId": "op-1", "operationType": "filesystem.read", "stage": "prepare", "input": { "path": "/etc/shadow" }, "dependsOn": [], "idempotencyKey": "idem-1", "timeoutSeconds": 30 }] } } },
+    { "name": "service-outside-authorized-list", "change": { "plan": { "operations": [{ "operationId": "op-1", "operationType": "service.status", "stage": "prepare", "input": { "serviceName": "sshd" }, "dependsOn": [], "idempotencyKey": "idem-1", "timeoutSeconds": 30 }] } } },
+    { "name": "artifact-digest-mismatch", "change": { "plan": { "operations": [{ "operationId": "op-1", "operationType": "command.execute_allowlisted", "stage": "execute", "input": { "executablePath": "/usr/bin/gcac-helper", "executableSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "args": ["--version"], "argumentTemplate": ["--version"], "environmentAllowlist": [], "workingDirectory": "/var/lib/gcac", "networkScopes": [], "childProcessPolicy": "deny", "timeoutSeconds": 30, "outputLimitBytes": 1024, "artifactDigest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" }, "dependsOn": [], "idempotencyKey": "idem-1", "timeoutSeconds": 30 }] } } }
+  ]
+}
