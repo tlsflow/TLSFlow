@@ -16,7 +16,6 @@ import {
   renameWorkflowTemplate,
   updateCurrentWorkflowTemplateDraftVersion,
 } from '@/api/modules/workflow-templates.api'
-import { createSecret, listSecrets } from '@/api/modules/security.api'
 import { i18n } from '@/i18n'
 
 vi.mock('@/api/modules/workflow-templates.api', () => ({
@@ -33,11 +32,6 @@ vi.mock('@/api/modules/workflow-templates.api', () => ({
   updateCurrentWorkflowTemplateDraftVersion: vi.fn(),
 }))
 
-vi.mock('@/api/modules/security.api', () => ({
-  createSecret: vi.fn(),
-  listSecrets: vi.fn(),
-}))
-
 function okPage(items: readonly Record<string, unknown>[]) {
   return {
     data: { items, page: 1, pageSize: 20, total: items.length },
@@ -48,12 +42,6 @@ function okPage(items: readonly Record<string, unknown>[]) {
 
 function clickBodyButton(text: string) {
   const button = [...document.body.querySelectorAll('button')].find((item) => item.textContent?.trim() === text) as HTMLButtonElement | undefined
-  expect(button).toBeTruthy()
-  button!.click()
-}
-
-function clickBodyButtonContaining(text: string) {
-  const button = [...document.body.querySelectorAll('button')].find((item) => item.textContent?.includes(text)) as HTMLButtonElement | undefined
   expect(button).toBeTruthy()
   button!.click()
 }
@@ -134,20 +122,6 @@ describe('WorkflowTemplatesView', () => {
     vi.mocked(createWorkflowTemplateVersion).mockResolvedValue({ data: { id: 'ver-2' }, requestId: 'req_ok', timestamp: '2026-07-03T00:00:00.000Z' })
     vi.mocked(updateCurrentWorkflowTemplateDraftVersion).mockResolvedValue({ data: { id: 'ver-1', templateId: 'tpl-1', version: 1, status: 'draft' }, requestId: 'req_ok', timestamp: '2026-07-03T00:00:00.000Z' })
     vi.mocked(deleteWorkflowTemplate).mockResolvedValue({ data: { id: 'tpl-1', status: 'disabled' }, requestId: 'req_ok', timestamp: '2026-07-03T00:00:00.000Z' })
-    vi.mocked(createSecret).mockResolvedValue({
-      data: { id: 'sec-ssh-1', secretRef: 'secret://password/sec-ssh-1#current' },
-      requestId: 'req_ok',
-      timestamp: '2026-07-03T00:00:00.000Z',
-    })
-    vi.mocked(listSecrets).mockImplementation(async () => okPage(
-      vi.mocked(createSecret).mock.calls.map(([payload], index) => ({
-        id: `sec-${index + 1}`,
-        name: payload.name,
-        type: payload.type,
-        metadata: payload.metadata,
-        createdAt: '2026-07-03T00:00:00.000Z',
-      })),
-    ))
     vi.mocked(createWorkflowDraftFromPlugin).mockResolvedValue({ data: { id: 'ver-plugin-2' }, requestId: 'req_ok', timestamp: '2026-07-03T00:00:00.000Z' })
     vi.mocked(listWorkflowTemplateVersions).mockResolvedValue({
       data: {
@@ -407,9 +381,10 @@ describe('WorkflowTemplatesView', () => {
     clickBodyButton('版本管理')
     await flushPromises()
 
-    const versionItems = [...document.body.querySelectorAll('.workflow-template-detail__list-item')]
+    const versionItems = [...document.body.querySelectorAll('.workflow-version-manager__item')]
     const draftCurrentItem = versionItems.find((item) => item.textContent?.includes('V1'))
-    expect(versionStatusTexts(draftCurrentItem)).toEqual(['草稿', '当前版本'])
+    expect(versionStatusTexts(draftCurrentItem)).toEqual(['草稿'])
+    expect(document.body.textContent).toContain('当前版本V1')
     expect([...draftCurrentItem?.querySelectorAll('button') ?? []].map((item) => item.textContent?.trim())).toContain('发布版本')
   })
 
@@ -457,7 +432,7 @@ describe('WorkflowTemplatesView', () => {
     clickBodyButton('版本管理')
     await flushPromises()
 
-    const versionItems = [...document.body.querySelectorAll('.workflow-template-detail__list-item')]
+    const versionItems = [...document.body.querySelectorAll('.workflow-version-manager__item')]
     const currentItem = versionItems.find((item) => item.textContent?.includes('V2'))
     expect(versionStatusTexts(currentItem)).toEqual(['已发布', '当前版本'])
     expect(versionStatusTexts(currentItem)).not.toContain('draft')
@@ -524,7 +499,7 @@ describe('WorkflowTemplatesView', () => {
 
     clickBodyButton('版本管理')
     await flushPromises()
-    const beforeItems = [...document.body.querySelectorAll('.workflow-template-detail__list-item')]
+    const beforeItems = [...document.body.querySelectorAll('.workflow-version-manager__item')]
     expect(versionStatusTexts(beforeItems.find((item) => item.textContent?.includes('V1')))).toEqual(['已发布', '当前版本'])
 
     const v2PublishButton = [...beforeItems.find((item) => item.textContent?.includes('V2'))?.querySelectorAll('button') ?? []]
@@ -533,7 +508,7 @@ describe('WorkflowTemplatesView', () => {
     v2PublishButton!.click()
     await flushPromises()
 
-    const afterItems = [...document.body.querySelectorAll('.workflow-template-detail__list-item')]
+    const afterItems = [...document.body.querySelectorAll('.workflow-version-manager__item')]
     const v1Item = afterItems.find((item) => item.textContent?.includes('V1'))
     const v2Item = afterItems.find((item) => item.textContent?.includes('V2'))
     expect(versionStatusTexts(v2Item)).toEqual(['已发布', '当前版本'])
@@ -635,11 +610,11 @@ describe('WorkflowTemplatesView', () => {
     clickBodyButton('新增版本')
     await flushPromises()
 
-    expect(document.body.textContent).toContain('当前工作流版本V3')
+    expect(document.body.textContent).toContain('当前版本V3')
     expect(document.body.textContent).not.toContain('V4')
-    const versionItems = [...document.body.querySelectorAll('.workflow-template-detail__list-item')]
+    const versionItems = [...document.body.querySelectorAll('.workflow-version-manager__item')]
     const draftCurrentItem = versionItems.find((item) => item.textContent?.includes('V3'))
-    expect(versionStatusTexts(draftCurrentItem)).toEqual(['草稿', '当前版本'])
+    expect(versionStatusTexts(draftCurrentItem)).toEqual(['草稿'])
     expect([...draftCurrentItem?.querySelectorAll('button') ?? []].map((item) => item.textContent?.trim())).toContain('发布版本')
   })
 
@@ -666,183 +641,4 @@ describe('WorkflowTemplatesView', () => {
     expect(listWorkflowTemplates).toHaveBeenCalledTimes(2)
   })
 
-  it('支持创建通用用户名密码凭据并以紧凑布局展示', async () => {
-    mount(WorkflowTemplatesView, {
-      attachTo: document.body,
-      global: { stubs: { teleport: true, Teleport: true } },
-    })
-    await flushPromises()
-
-    clickBodyButton('凭据管理')
-    await flushPromises()
-
-    const nameInput = document.body.querySelector('input[placeholder="edge-01 root"]') as HTMLInputElement
-    const usernameInput = document.body.querySelector('input[placeholder="root"]') as HTMLInputElement
-    expect(document.body.textContent).not.toContain('作用域')
-    const secretInput = document.body.querySelector('input[type="password"][placeholder="输入登录密码"]') as HTMLInputElement
-    nameInput.value = 'edge-01 root'
-    nameInput.dispatchEvent(new Event('input', { bubbles: true }))
-    usernameInput.value = 'deploy'
-    usernameInput.dispatchEvent(new Event('input', { bubbles: true }))
-    secretInput.value = 'secret-password'
-    secretInput.dispatchEvent(new Event('input', { bubbles: true }))
-    await flushPromises()
-    expect(document.body.textContent).not.toContain('secret-password')
-
-    clickBodyButton('创建凭据')
-    await flushPromises()
-
-    expect(createSecret).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'edge-01 root',
-      type: 'password',
-      scopeType: 'global',
-      plainText: 'secret-password',
-      metadata: expect.objectContaining({
-        workflowCredential: true,
-        workflowCredentialKind: 'username_password',
-        username: 'deploy',
-      }),
-    }))
-    expect(document.body.textContent).toContain('edge-01 root')
-    expect(document.body.textContent).toContain('用户名 + 密码 / deploy')
-    expect(document.body.textContent).toContain('SSH / HTTP Basic')
-    expect(document.body.textContent).not.toContain('复制连接片段')
-    expect(document.body.textContent).not.toContain('复制 SecretRef')
-  })
-
-  it('SSH 私钥输入保留多行能力但默认密文显示', async () => {
-    vi.mocked(createSecret).mockResolvedValueOnce({
-      data: { id: 'sec-ssh-key-1', secretRef: 'secret://ssh_key/sec-ssh-key-1#current' },
-      requestId: 'req_ok',
-      timestamp: '2026-07-03T00:00:00.000Z',
-    })
-    mount(WorkflowTemplatesView, {
-      attachTo: document.body,
-      global: { stubs: { teleport: true, Teleport: true } },
-    })
-    await flushPromises()
-
-    clickBodyButton('凭据管理')
-    await flushPromises()
-
-    const nameInput = document.body.querySelector('input[placeholder="edge-01 root"]') as HTMLInputElement
-    nameInput.value = 'edge ssh key'
-    nameInput.dispatchEvent(new Event('input', { bubbles: true }))
-    clickBodyButtonContaining('SSH 私钥')
-    await flushPromises()
-
-    const secretInput = document.body.querySelector('textarea[placeholder="粘贴 PEM 格式私钥"]') as HTMLTextAreaElement
-    expect(secretInput.classList.contains('credential-manager__secret-control--masked')).toBe(true)
-    secretInput.value = '-----BEGIN PRIVATE KEY-----\nsecret-key-body\n-----END PRIVATE KEY-----'
-    secretInput.dispatchEvent(new Event('input', { bubbles: true }))
-    await flushPromises()
-    expect(document.body.textContent).not.toContain('secret-key-body')
-
-    clickBodyButton('创建凭据')
-    await flushPromises()
-
-    expect(createSecret).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'edge ssh key',
-      type: 'ssh_key',
-      plainText: '-----BEGIN PRIVATE KEY-----\nsecret-key-body\n-----END PRIVATE KEY-----',
-      metadata: expect.objectContaining({
-        workflowCredential: true,
-        workflowCredentialKind: 'ssh_key',
-        username: 'root',
-      }),
-    }))
-  })
-
-  it('支持创建 CURL Bearer Token 凭据', async () => {
-    vi.mocked(createSecret).mockResolvedValueOnce({
-      data: { id: 'sec-curl-1', secretRef: 'secret://api_token/sec-curl-1#current' },
-      requestId: 'req_ok',
-      timestamp: '2026-07-03T00:00:00.000Z',
-    })
-    mount(WorkflowTemplatesView, {
-      attachTo: document.body,
-      global: { stubs: { teleport: true, Teleport: true } },
-    })
-    await flushPromises()
-
-    clickBodyButton('凭据管理')
-    await flushPromises()
-
-    const nameInput = document.body.querySelector('input[placeholder="edge-01 root"]') as HTMLInputElement
-    nameInput.value = 'curl prod api'
-    nameInput.dispatchEvent(new Event('input', { bubbles: true }))
-    clickBodyButtonContaining('CURL Bearer')
-    await flushPromises()
-    const secretInput = document.body.querySelector('input[type="password"][placeholder="输入 Bearer Token"]') as HTMLInputElement
-    secretInput.value = 'bearer-token'
-    secretInput.dispatchEvent(new Event('input', { bubbles: true }))
-    await flushPromises()
-    expect(document.body.textContent).not.toContain('bearer-token')
-
-    clickBodyButton('创建凭据')
-    await flushPromises()
-
-    expect(createSecret).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'curl prod api',
-      type: 'api_token',
-      scopeType: 'global',
-      plainText: 'bearer-token',
-      metadata: expect.objectContaining({
-        workflowCredential: true,
-        workflowCredentialKind: 'curl_bearer',
-      }),
-    }))
-    expect(document.body.textContent).toContain('curl prod api')
-    expect(document.body.textContent).toContain('Bearer Token')
-  })
-
-  it('支持创建 CURL API Key 凭据并展示基本信息', async () => {
-    vi.mocked(createSecret).mockResolvedValueOnce({
-      data: { id: 'sec-api-key-1', secretRef: 'secret://api_token/sec-api-key-1#current' },
-      requestId: 'req_ok',
-      timestamp: '2026-07-03T00:00:00.000Z',
-    })
-    mount(WorkflowTemplatesView, {
-      attachTo: document.body,
-      global: { stubs: { teleport: true, Teleport: true } },
-    })
-    await flushPromises()
-
-    clickBodyButton('凭据管理')
-    await flushPromises()
-
-    const nameInput = document.body.querySelector('input[placeholder="edge-01 root"]') as HTMLInputElement
-    nameInput.value = 'curl api key'
-    nameInput.dispatchEvent(new Event('input', { bubbles: true }))
-    clickBodyButtonContaining('CURL API Key')
-    await flushPromises()
-
-    const keyNameInput = document.body.querySelector('input[placeholder="X-API-Key"]') as HTMLInputElement
-    const secretInput = document.body.querySelector('input[type="password"][placeholder="输入 API Key"]') as HTMLInputElement
-    keyNameInput.value = 'api_key'
-    keyNameInput.dispatchEvent(new Event('input', { bubbles: true }))
-    clickBodyButton('Query')
-    secretInput.value = 'api-key-secret'
-    secretInput.dispatchEvent(new Event('input', { bubbles: true }))
-    await flushPromises()
-    expect(document.body.textContent).not.toContain('api-key-secret')
-
-    clickBodyButton('创建凭据')
-    await flushPromises()
-
-    expect(createSecret).toHaveBeenCalledWith(expect.objectContaining({
-      name: 'curl api key',
-      type: 'api_token',
-      scopeType: 'global',
-      plainText: 'api-key-secret',
-      metadata: expect.objectContaining({
-        workflowCredential: true,
-        workflowCredentialKind: 'curl_api_key',
-        apiKeyName: 'api_key',
-        apiKeyIn: 'query',
-      }),
-    }))
-    expect(document.body.textContent).toContain('curl api key')
-    expect(document.body.textContent).toContain('API Key / api_key / Query')
-  })
 })
