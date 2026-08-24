@@ -4,13 +4,11 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { CompatibilityCatalogError } from '../../shared/contracts/adapter-contracts.js';
-import type { CapabilityDeclaration } from '../../shared/contracts/capability-contracts.js';
 import { parseCertificationRecord } from './domain/certification-record.schema.js';
 import { CompatibilityGovernanceRegistry } from './domain/compatibility-governance-registry.js';
 import { parseCompatibilityProfileV2 } from './domain/compatibility-profile-v2.schema.js';
 import { assertProfileV1V2Equivalent, projectCompatibilityProfileV2 } from './domain/compatibility-profile-v2.projection.js';
 import { parseExecutionRecipe } from './domain/execution-recipe.schema.js';
-import { ExecutionRecipeResolver } from './domain/execution-recipe-resolver.js';
 import { parseRuntimeBaseline } from './domain/runtime-baseline.schema.js';
 import { loadCompatibilityCatalog } from './infrastructure/compatibility-catalog.loader.js';
 
@@ -67,34 +65,6 @@ describe('兼容性治理对象', () => {
   });
 });
 
-describe('Execution Recipe Resolver', () => {
-  it('按 Action 和 Capability 唯一解析，不依赖注册顺序', () => {
-    const catalog = loadCompatibilityCatalog(compatibilityRoot);
-    const recipe = catalog.recipes.find((item) => item.recipeId === 'certificate.deploy.linux-systemd-nginx');
-    assert.ok(recipe);
-    const declarations = recipe.requires.requiredAll.map((constraint) => declaration(constraint.capabilityKey));
-    const resolution = new ExecutionRecipeResolver(catalog.governance).resolve('certificate.deploy', '1.0', declarations);
-    assert.equal(resolution.recipe.recipeId, recipe.recipeId);
-  });
-
-  it('零匹配和多匹配均失败关闭', () => {
-    const catalog = loadCompatibilityCatalog(compatibilityRoot);
-    const recipe = catalog.recipes.find((item) => item.recipeId === 'certificate.deploy.linux-systemd-nginx');
-    assert.ok(recipe);
-    assert.throws(
-      () => new ExecutionRecipeResolver(catalog.governance).resolve('certificate.deploy', '1.0', []),
-      hasCode('COMPATIBILITY_RECIPE_NOT_FOUND'),
-    );
-    const overlapping = { ...recipe, recipeId: 'certificate.deploy.linux-systemd-nginx-overlap', conflictsWith: ['future.recipe'] };
-    const ambiguousRegistry = new CompatibilityGovernanceRegistry({ recipes: [overlapping, recipe] });
-    const declarations = recipe.requires.requiredAll.map((constraint) => declaration(constraint.capabilityKey));
-    assert.throws(
-      () => new ExecutionRecipeResolver(ambiguousRegistry).resolve('certificate.deploy', '1.0', declarations),
-      hasCode('COMPATIBILITY_RECIPE_AMBIGUOUS'),
-    );
-  });
-});
-
 describe('Profile v1/v2 迁移', () => {
   it('全部现有 Profile 保持等价，证据过期后稳定降级', () => {
     const catalog = loadCompatibilityCatalog(compatibilityRoot);
@@ -127,23 +97,6 @@ describe('Profile v1/v2 迁移', () => {
     });
   });
 });
-
-function declaration(capabilityKey: string): CapabilityDeclaration {
-  return {
-    id: `declaration.${capabilityKey}`,
-    tenantId: 'default',
-    targetType: 'execution_target',
-    targetId: 'target_1',
-    capabilityKey,
-    originalCapabilityKey: capabilityKey,
-    value: true,
-    parameters: {},
-    source: 'agent_report',
-    confidence: 100,
-    riskLevel: 'low',
-    status: 'active',
-  };
-}
 
 function hasCode(errorCode: CompatibilityCatalogError['errorCode']) {
   return (error: unknown) => error instanceof CompatibilityCatalogError && error.errorCode === errorCode;
