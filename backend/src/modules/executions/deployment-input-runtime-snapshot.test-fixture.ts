@@ -1,5 +1,6 @@
 const RESOLVED_SHA256 = 'f'.repeat(64);
 
+import { computeAgentPlanDigest, type AgentPlanV1 } from '../agents/security/agent-security.contract.js';
 import type { TaskEnqueuer } from '../tasks/task-enqueue.js';
 import type { TaskRun } from '../tasks/task.types.js';
 
@@ -42,6 +43,71 @@ export function withTestDeploymentInputSnapshot(
       snapshotId: snapshotId(deploymentPlanId, deploymentPlanTargetId),
       revision: 1,
       resolvedSha256: RESOLVED_SHA256,
+    },
+  };
+}
+
+/**
+ * 为执行创建阶段提供完整的 Agent v2 Plan 草案和授权请求。
+ * Token/Decision 必须由后续生产编译器通过 Policy Authority 签发，测试调用方不得预置。
+ */
+export function withTestAgentV2ExecutionAuthorization(
+  deploymentPlanId: string,
+  deploymentPlanTargetId: string,
+  payload: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const pluginVersionId = `plugin-version-agent-v2-${deploymentPlanTargetId}`;
+  const capability = 'filesystem.atomic_replace';
+  const operationType = capability;
+  const operationPath = `/var/lib/gcac/test/${deploymentPlanTargetId}/certificate.pem`;
+  const planBase = {
+    planVersion: 'gcac.agent-security/v1' as const,
+    planId: `agent-plan-${deploymentPlanTargetId}`,
+    agentId: `agent-${deploymentPlanTargetId}`,
+    tenantId: 'tenant_1',
+    pluginId: 'web.nginx',
+    pluginVersionId,
+    capability,
+    operations: [{
+      operationId: `operation-${deploymentPlanTargetId}`,
+      operationType,
+      stage: 'execute' as const,
+      input: { path: operationPath },
+      dependsOn: [],
+      idempotencyKey: `idempotency-${deploymentPlanTargetId}`,
+      timeoutSeconds: 30,
+    }],
+    planDigest: '',
+    tokenId: `token-${deploymentPlanTargetId}`,
+    policyDecisionId: `decision-${deploymentPlanTargetId}`,
+    nonce: `nonce-${deploymentPlanTargetId}`,
+    expiresAt: new Date(Date.now() + 300_000).toISOString(),
+    writeEffect: true,
+  } satisfies AgentPlanV1;
+  const plan = { ...planBase, planDigest: computeAgentPlanDigest(planBase) };
+
+  return {
+    ...payload,
+    actionType: 'agent.plan.execute',
+    actionSchemaVersion: '1.0',
+    agentId: plan.agentId,
+    pluginBindingId: `plugin-binding-${deploymentPlanTargetId}`,
+    pluginRuntimeCapability: {
+      runtime: 'AGENT_V2',
+      pluginId: plan.pluginId,
+      pluginVersionId: plan.pluginVersionId,
+      capabilityKey: plan.capability,
+    },
+    plan,
+    executionAuthorization: {
+      planId: deploymentPlanId,
+      actions: [operationType],
+      allowedPaths: ['/var/lib/gcac/test'],
+      allowedServices: [],
+      artifactDigests: [],
+      policyRef: `policy-${deploymentPlanTargetId}`,
+      policyVersion: '1',
+      lifetimeSeconds: 300,
     },
   };
 }

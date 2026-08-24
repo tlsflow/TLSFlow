@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DeploymentPlansRepository } from '../deployment-plans/repository/deployment-plans.repository.js';
 import { ExecutionsApplicationService } from './application/executions.application-service.js';
-import { testTaskEnqueuer } from './deployment-input-runtime-snapshot.test-fixture.js';
+import { ExecutionGrantService } from './execution-grant.service.js';
+import { testTaskEnqueuer, withTestAgentV2ExecutionAuthorization } from './deployment-input-runtime-snapshot.test-fixture.js';
 
 test('LATEST_AUTO 的运行时材料封存到执行步骤，并优先于计划输入快照', async () => {
   const service = new ExecutionsApplicationService({
     deploymentPlansRepository: new DeploymentPlansRepository(),
     tasks: testTaskEnqueuer(),
+    executionGrants: new ExecutionGrantService(),
   });
   const created = await service.createApplyRun({
     deploymentPlanId: 'plan_latest_auto_runtime',
@@ -17,8 +19,7 @@ test('LATEST_AUTO 的运行时材料封存到执行步骤，并优先于计划�
     actorId: 'tester',
     tenantId: 'tenant_1',
     executorTypeByTargetId: new Map([['target_latest_auto_runtime', 'AGENT']]),
-    agentPayloadByTargetId: new Map([['target_latest_auto_runtime', {
-      actionType: 'agent.plan.execute',
+    agentPayloadByTargetId: new Map([['target_latest_auto_runtime', withTestAgentV2ExecutionAuthorization('plan_latest_auto_runtime', 'target_latest_auto_runtime', {
       actionSchemaVersion: '1.0',
       deploymentInputSnapshotRef: {
         apiVersion: 'gcac.deployment-input-snapshot/v1',
@@ -38,8 +39,8 @@ test('LATEST_AUTO 的运行时材料封存到执行步骤，并优先于计划�
           format: 'pfx',
           containsPrivateKey: true,
         },
-      },
-    }]]),
+        },
+    })]]),
   });
 
   const step = created.steps[0]!;

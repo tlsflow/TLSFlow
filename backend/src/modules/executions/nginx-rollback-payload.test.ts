@@ -3,12 +3,14 @@ import test from 'node:test';
 import { DeploymentPlansRepository } from '../deployment-plans/repository/deployment-plans.repository.js';
 import { ExecutionsApplicationService } from './application/executions.application-service.js';
 import type { ExecutionStepDto } from './dto/executions.dto.js';
-import { testTaskEnqueuer } from './deployment-input-runtime-snapshot.test-fixture.js';
+import { ExecutionGrantService } from './execution-grant.service.js';
+import { testTaskEnqueuer, withTestAgentV2ExecutionAuthorization } from './deployment-input-runtime-snapshot.test-fixture.js';
 
 function createService() {
   return new ExecutionsApplicationService({
     deploymentPlansRepository: new DeploymentPlansRepository(),
     tasks: testTaskEnqueuer(),
+    executionGrants: new ExecutionGrantService(),
   });
 }
 
@@ -42,8 +44,7 @@ test('NGINX rollback payload 只验证 sourceRunId 和 rollbackContext 传播', 
     actorId: 'tester',
     tenantId: 'tenant_1',
     executorTypeByTargetId: new Map([['target_nginx_rb', 'AGENT']]),
-    agentPayloadByTargetId: new Map([['target_nginx_rb', {
-      actionType: 'agent.plan.execute',
+    agentPayloadByTargetId: new Map([['target_nginx_rb', withTestAgentV2ExecutionAuthorization('plan_nginx_rb_payload', 'target_nginx_rb', {
       actionSchemaVersion: '1.0',
       deploymentInputSnapshotRef: {
         apiVersion: 'gcac.deployment-input-snapshot/v1',
@@ -64,7 +65,7 @@ test('NGINX rollback payload 只验证 sourceRunId 和 rollbackContext 传播', 
         testCommand: '/usr/sbin/nginx -t',
         reloadCommand: '/usr/bin/systemctl reload nginx',
       },
-    }]]),
+    })]]),
   });
 
   const sourceSteps = (await service.listSteps({
