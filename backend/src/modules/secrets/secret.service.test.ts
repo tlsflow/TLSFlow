@@ -9,7 +9,7 @@ import { CryptoService } from './crypto.service.js';
 import { parseSecretRef } from './secret-ref.js';
 import { SecretService } from './secret.service.js';
 import { ExecutionGrantService } from '../executions/execution-grant.service.js';
-import { AuditService } from '../audits/audit.service.js';
+import { AuditService, type WriteAuditInput } from '../audits/audit.service.js';
 
 const previousSecretKek = process.env.GCAC_SECRET_KEK;
 before(() => {
@@ -116,7 +116,7 @@ test('SecretService 创建密钥后可通过执行授权解析', async () => {
   });
   assert.equal(resolved.plainText, 'PRIVATE_KEY_VALUE');
   assert.match(resolved.secretRef, /#v1$/);
-  assert.equal((await audit.query({ eventType: 'secret.used' })).length, 1);
+  assert.equal((await audit.query({ eventType: 'secret.used' })).length, 0);
 });
 
 test('SecretService 在重建后仍可解析持久化 Secret', async () => {
@@ -180,8 +180,44 @@ test('SecretService 不为健康检查成功读取写入逐条审计', async () 
   });
 
   const serviceReadAudits = await audit.query({ eventType: 'secret.used', resourceType: 'secret', resourceId: created.id });
-  assert.equal(serviceReadAudits.length, 1);
-  assert.equal((serviceReadAudits[0]?.detail as { purpose?: string }).purpose, 'ldap.bind');
+  assert.equal(serviceReadAudits.length, 0);
+});
+
+test('SecretService 不为 HTTP 请求头凭据读取写入逐条审计', async () => {
+  const writes: WriteAuditInput[] = [];
+  const audit = {
+    write: async (input: WriteAuditInput) => {
+      writes.push(input);
+    },
+  } as unknown as AuditService;
+  const service = new SecretService(new CryptoService(new KeyManager(Buffer.alloc(32, 8))), new ExecutionGrantService(), audit);
+  const created = await service.create({
+    tenantId: 'tenant_secret_http_header',
+    name: 'HTTP 请求头凭据',
+    type: 'api_token',
+    scopeType: 'global',
+    plainText: 'http-header-secret',
+    createdBy: 'user_admin',
+  });
+
+  writes.length = 0;
+  await service.resolveForService({
+    secretRef: created.secretRef,
+    tenantId: 'tenant_secret_http_header',
+    expectedType: 'api_token',
+    purpose: 'http.header',
+    actorId: 'user_admin',
+  });
+  assert.equal(writes.filter((input) => input.eventType === 'secret.used').length, 0);
+
+  await service.resolveForService({
+    secretRef: created.secretRef,
+    tenantId: 'tenant_secret_http_header',
+    expectedType: 'api_token',
+    purpose: 'ldap.bind',
+    actorId: 'user_admin',
+  });
+  assert.equal(writes.filter((input) => input.eventType === 'secret.used').length, 0);
 });
 
 test('SecretService 支持持久化工作流凭据元数据且列表不泄露明文', async () => {

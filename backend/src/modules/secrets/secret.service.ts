@@ -296,27 +296,6 @@ export class SecretService {
     }
 
     const plainText = this.crypto.decryptSecret(version as EnvelopeEncryptedPayload);
-    await this.audit.write({
-      eventType: AUDIT_EVENT_TYPES.SECRET_USED,
-      actorType: 'executor',
-      actorId: input.executorType,
-      action: 'secret.resolve',
-      resourceType: 'secret',
-      resourceId: secret.id,
-      result: 'success',
-      riskLevel: 'high',
-      context: input.context,
-      failClosed: true,
-      detail: {
-        actorId: input.actorId,
-        secretRef: buildSecretRef(secret.type, secret.id, version.versionNo),
-        runId: input.runId,
-        stepId: input.stepId,
-        purpose: input.purpose,
-        fingerprint: version.fingerprint,
-      },
-    });
-
     return {
       secretRef: buildSecretRef(secret.type, secret.id, version.versionNo),
       versionId: version.id,
@@ -351,26 +330,6 @@ export class SecretService {
     }
 
     const plainText = this.crypto.decryptSecret(version as EnvelopeEncryptedPayload);
-    if (input.purpose !== 'secret.health_check') {
-      await this.audit.write({
-        eventType: AUDIT_EVENT_TYPES.SECRET_USED,
-        actorType: 'user',
-        actorId: input.actorId,
-        action: 'secret.resolve.service',
-        resourceType: 'secret',
-        resourceId: secret.id,
-        result: 'success',
-        riskLevel: 'high',
-        context: input.context,
-        failClosed: true,
-        detail: {
-          secretRef: buildSecretRef(secret.type, secret.id, version.versionNo),
-          purpose: input.purpose,
-          fingerprint: version.fingerprint,
-        },
-      });
-    }
-
     return {
       secretRef: buildSecretRef(secret.type, secret.id, version.versionNo),
       versionId: version.id,
