@@ -318,9 +318,11 @@ function submit() {
 .automation-editor__panel > header { display: grid; gap: var(--gc-space-1); }
 .automation-editor__panel p, .automation-editor small { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); line-height: var(--gc-line-height-relaxed); }
 .automation-editor__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-4); }
-.automation-editor label, .automation-editor__field { display: grid; gap: var(--gc-space-2); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); }
+.automation-editor label, .automation-editor__field { display: grid; align-content: start; gap: var(--gc-space-2); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); }
 .automation-editor__field--full { grid-column: 1 / -1; }
-.automation-editor input, .automation-editor textarea, .automation-editor select { width: 100%; padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-solid); color: var(--gc-color-text); font: inherit; }
+.automation-editor input, .automation-editor textarea, .automation-editor select { width: 100%; border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-solid); color: var(--gc-color-text); font: inherit; }
+.automation-editor input:not([type='checkbox']), .automation-editor select:not([multiple]) { align-self: start; height: var(--gc-control-height-md); padding: 0 var(--gc-space-3); }
+.automation-editor textarea, .automation-editor select[multiple] { padding: var(--gc-space-3); }
 .automation-editor__domain-picker { position: relative; }
 .automation-editor__domain-picker summary { padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-solid); color: var(--gc-color-text); cursor: pointer; list-style: none; }
 .automation-editor__domain-picker summary::-webkit-details-marker { display: none; }
