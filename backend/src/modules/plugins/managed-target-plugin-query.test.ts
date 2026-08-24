@@ -5,7 +5,9 @@ import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { PgAssetsRepository } from '../assets/repository/assets.repository.js';
 import { PgDeviceAssetsRepository } from '../device-assets/repository/device-assets.repository.js';
+import { PgAgentsRepository } from '../agents/repository/agents.repository.js';
 import { ManagedTargetPluginQueryService } from './application/managed-target-plugin-query.service.js';
+import { BuiltinUnifiedPluginLoader } from './builtin-plugins/builtin-unified-plugin-loader.js';
 import { PluginBindingsApplicationService } from './application/plugin-bindings.application-service.js';
 import { UnifiedPluginsApplicationService } from './application/unified-plugins.application-service.js';
 import { PluginBindingsRepository } from './repository/plugin-bindings.repository.js';
@@ -390,4 +392,112 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
       },
     },
   }), /版本冲突/);
+});
+
+test('真实 Windows Host 的 web.nginx ManagedTarget 可选择 Windows 证书更新插件', async () => {
+  const db = new PgliteDatabase();
+  await runMigrations(db, 'src/database/migrations', {
+    checksum: (content) => createHash('sha256').update(content, 'utf8').digest('hex'),
+  });
+  const tenantId = 'tenant-windows-nginx-compatibility';
+  const agentId = 'agent-windows-nginx-compatibility';
+  const now = new Date().toISOString();
+  await new PgAgentsRepository(db).upsertRegistration({
+    id: agentId,
+    tenantId,
+    agentKey: agentId,
+    descriptor: {
+      agentKey: agentId,
+      hostname: 'win-nginx-regression.example.test',
+      version: '0.1.0',
+      osType: 'WINDOWS',
+      ipAddress: '10.20.30.40',
+      labels: [],
+    },
+    status: 'ONLINE',
+    registeredAt: now,
+    updatedAt: now,
+    version: 1,
+  });
+
+  const assets = new PgAssetsRepository(db);
+  const host = await assets.getHost(tenantId, `host_${agentId}`);
+  assert.equal(host?.osType, 'WINDOWS');
+  assert.equal(host?.agentId, agentId);
+  const framework = await assets.createFrameworkInstance(tenantId, {
+    deviceId: host!.id,
+    frameworkType: 'web.nginx',
+    frameworkKey: 'web.nginx:runtime-effective-config',
+    discoveryProviderKey: `agent:${agentId}`,
+    displayName: 'Nginx',
+    frameworkVersion: '1.26.1',
+    discoverySource: 'AGENT',
+    rawFacts: {
+      programPath: 'D:/runtime/nginx/nginx.exe',
+      configPath: 'D:/runtime/nginx/conf/nginx.conf',
+      configFingerprint: 'a'.repeat(64),
+      serviceName: 'nginx-production',
+    },
+  });
+  const site = await assets.createSiteAsset(tenantId, {
+    frameworkInstanceId: framework.id,
+    deviceId: host!.id,
+    discoveryProviderKey: `agent:${agentId}`,
+    siteType: 'web.site',
+    siteName: 'portal.example.test',
+    siteKey: 'portal.example.test',
+    hostHeader: 'portal.example.test',
+    port: 443,
+    protocol: 'HTTPS',
+    discoverySource: 'AGENT',
+    metadata: { configFingerprint: 'a'.repeat(64) },
+  });
+  const target = await assets.createManagedTarget(tenantId, {
+    deviceId: host!.id,
+    frameworkInstanceId: framework.id,
+    siteId: site.id,
+    discoveryProviderKey: `agent:${agentId}`,
+    targetType: 'tls.binding',
+    targetKey: 'portal.example.test:443',
+    supportedCapabilities: ['certificate.deploy', 'certificate.verify', 'certificate.rollback'],
+    executionLocations: ['AGENT'],
+    metadata: {
+      frameworkType: 'web.nginx',
+      bindingKey: 'portal.example.test:443',
+      configFingerprint: 'a'.repeat(64),
+      certificateLocation: {
+        apiVersion: 'gcac.certificate-location/v1',
+        storageKind: 'PEM_FILES',
+        certificatePath: 'D:/runtime/nginx/conf/certs/portal.crt',
+        privateKeyPath: 'D:/runtime/nginx/conf/certs/portal.key',
+        sourceConfigPath: 'D:/runtime/nginx/conf/nginx.conf',
+        serviceName: 'nginx-production',
+        programPath: 'D:/runtime/nginx/nginx.exe',
+        configFingerprint: 'a'.repeat(64),
+        confidence: 'EXACT',
+        observedAt: now,
+      },
+    },
+  });
+
+  const plugins = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(db));
+  const loader = new BuiltinUnifiedPluginLoader();
+  const packages = (await loader.loadPackages()).filter((item) => ['web.nginx.linux', 'web.nginx.windows'].includes(String((item.manifest as { pluginId?: string }).pluginId)));
+  const installed = await loader.installPackages(plugins, packages);
+  assert.equal(installed.some((item) => item.pluginId === 'web.nginx.windows'), true);
+
+  const compatible = await new ManagedTargetPluginQueryService(db).listCompatiblePlugins({
+    tenantId,
+    managedTargetId: target.id,
+    capabilityKey: 'certificate.deploy',
+    locale: 'zh-CN',
+  });
+  const windowsPlugin = compatible.items.find((item) => item.pluginId === 'web.nginx.windows');
+  assert.ok(windowsPlugin, JSON.stringify(compatible.items));
+  assert.equal(windowsPlugin.compatible, true, JSON.stringify(windowsPlugin.reasons));
+  assert.deepEqual(windowsPlugin.executionLocations, ['AGENT']);
+  const linuxPlugin = compatible.items.find((item) => item.pluginId === 'web.nginx.linux');
+  assert.ok(linuxPlugin);
+  assert.equal(linuxPlugin.compatible, false);
+  assert.equal(linuxPlugin.reasons.some((reason) => reason.dimension === 'productFamily' && reason.actual === 'WINDOWS_SERVER'), true);
 });
