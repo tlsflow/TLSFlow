@@ -31,6 +31,7 @@ export const statusDictionary = {
   IGNORED: { labelKey: 'designSystem.status.IGNORED', tone: 'muted' },
   ONLINE: { labelKey: 'designSystem.status.ONLINE', tone: 'success' },
   OFFLINE: { labelKey: 'designSystem.status.OFFLINE', tone: 'danger' },
+  ACTIVE: { labelKey: 'designSystem.status.ACTIVE', tone: 'success' },
   DISABLED: { labelKey: 'designSystem.status.DISABLED', tone: 'muted' },
   UPGRADING: { labelKey: 'designSystem.status.UPGRADING', tone: 'info' },
   UPDATE_REQUIRED: { labelKey: 'designSystem.status.UPDATE_REQUIRED', tone: 'warning' },

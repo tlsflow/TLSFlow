@@ -96,6 +96,7 @@ export default {
       IGNORED: 'Ignorado',
       ONLINE: 'Online',
       OFFLINE: 'Offline',
+      ACTIVE: 'Ativo',
       DISABLED: 'Desabilitado',
       UPGRADING: 'Atualizando',
       UPDATE_REQUIRED: 'Atualização necessária',

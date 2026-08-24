@@ -96,6 +96,7 @@ export default {
       IGNORED: '無視済み',
       ONLINE: 'オンライン',
       OFFLINE: 'オフライン',
+      ACTIVE: '有効',
       DISABLED: '無効化済み',
       UPGRADING: 'アップグレード中',
       UPDATE_REQUIRED: '更新が必要',

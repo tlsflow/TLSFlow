@@ -95,6 +95,7 @@ export default {
       IGNORED: "已忽略",
       ONLINE: "線上",
       OFFLINE: "離線",
+      ACTIVE: "已啟用",
       DISABLED: "已停用",
       UPGRADING: "升級中",
       UPDATE_REQUIRED: "需更新",

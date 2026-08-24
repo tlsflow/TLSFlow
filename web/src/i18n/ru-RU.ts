@@ -96,6 +96,7 @@ export default {
       IGNORED: 'Игнорируется',
       ONLINE: 'В сети',
       OFFLINE: 'Не в сети',
+      ACTIVE: 'Включено',
       DISABLED: 'Отключено',
       UPGRADING: 'Обновляется',
       UPDATE_REQUIRED: 'Требует обновления',
