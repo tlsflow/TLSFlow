@@ -6,7 +6,9 @@ productVersion: current
 sourceLocale: zh-CN
 locale: en-US
 specRefs:
+  - specs/004.5-插件进程隔离与宿主能力边界重构治理
   - specs/007-工作流DSL与模板运行管理
+  - specs/007.1-工作流DSL、模板版本与来源治理
   - specs/006-应用资产、绑定与受管目标管理
 codeRefs:
   - backend/src/modules/workflow-templates
@@ -32,4 +34,4 @@ Do not select or restore templates from a third sample directory. A workflow fil
 4. Run validation and preflight.
 5. Bind the workflow to an application asset or Standalone target.
 
-Plugin-internal workflows use the read-only `plugin_internal` source. A copied user-owned version uses `plugin_derived` and must preserve complete Provenance.
+Plugin-internal workflows use the read-only `plugin_internal` source. User workflows are submitted directly as DSL and remain user-owned; historical `plugin_derived` records are cleanup evidence only and cannot be copied, converted, or selected at runtime.

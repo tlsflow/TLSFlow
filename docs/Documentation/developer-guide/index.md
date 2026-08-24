@@ -8,6 +8,7 @@ locale: zh-CN
 specRefs:
   - specs/001-平台基础与工程治理
   - specs/004-统一插件平台与厂商扩展治理
+  - specs/004.5-插件进程隔离与宿主能力边界重构治理
   - specs/007-工作流DSL与模板运行管理
   - specs/008-证书部署输入与执行编排管理
 codeRefs:
@@ -27,8 +28,8 @@ GCAC 扩展优先使用现有平台合同。新增厂商不能通过宿主增加
 
 1. 先确定对象、能力和事实所有者。
 2. 复用统一输入、Secret、Artifact、权限和审计合同。
-3. 根据能力选择 `agent_plan`、`declarative` 或 `isolated_process`；代码型插件必须进入同 Docker 独立 Plugin Runner，不能在宿主进程动态加载。
+3. 根据能力选择 `agent_plan`、`declarative` 或 `isolated_process`；普通 DSL 始终由 DSL 执行器主导，代码型能力只有在 `plugin.action` 步骤中进入同 Docker 独立 Plugin Runner，不能在宿主进程动态加载。
 4. 为发现、部署、验证和回滚补齐资源和测试。
 5. 记录实现状态，不能把模拟测试当成真实外部验收。
 
-继续阅读：[平台扩展基础](/developer-guide/platform)、[自动化平台扩展与证书事件接入](/developer-guide/20260807-%E8%87%AA%E5%8A%A8%E5%8C%96%E5%B9%B3%E5%8F%B0%E6%89%A9%E5%B1%95%E4%B8%8E%E8%AF%81%E4%B9%A6%E4%BA%8B%E4%BB%B6%E6%8E%A5%E5%85%A5)、[插件开发](/developer-guide/plugins/)、[工作流开发](/developer-guide/workflows/)。
+继续阅读：[平台扩展基础](/developer-guide/platform)、[自动化平台扩展与证书事件接入](./20260807-自动化平台扩展与证书事件接入.md)、[插件开发](/developer-guide/plugins/)、[工作流开发](/developer-guide/workflows/)。

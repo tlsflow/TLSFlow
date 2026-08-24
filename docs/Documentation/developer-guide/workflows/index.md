@@ -6,6 +6,7 @@ productVersion: current
 sourceLocale: zh-CN
 locale: zh-CN
 specRefs:
+  - specs/004.5-插件进程隔离与宿主能力边界重构治理
   - specs/007-工作流DSL与模板运行管理
   - specs/008-证书部署输入与执行编排管理
 codeRefs:
@@ -17,7 +18,7 @@ lastVerified: 2026-08-02
 
 # 工作流开发
 
-工作流 DSL（领域专用语言）是 GCAC 的私有领域协议，不是脚本容器。开发新模板时，先阅读 DSL 与模板来源，再阅读输入契约和执行器，最后按证书部署主链完成预检、快照、执行、验证和回滚设计。
+工作流 DSL（领域专用语言）是 GCAC 的私有领域协议，不是脚本容器，也是证书部署的唯一编排权威。开发新模板时，先阅读 DSL 与模板来源，再阅读输入契约和执行器，最后按证书部署主链完成预检、快照、执行、验证和回滚设计；厂商专属代码只能作为 DSL 的 `plugin.action` 步骤接入。
 
 推荐阅读顺序：
 
@@ -33,3 +34,4 @@ lastVerified: 2026-08-02
 - 连接、Credential、Artifact 和变量必须声明在 `DeploymentInputContractV1` 中。
 - 执行器只能消费 `ResolvedDeploymentInputV1` 和受控 Grant，不能从模板根作用域或宿主对象猜测秘密。
 - 部署、变更和回滚默认失败关闭；只读发现才可以按契约使用 `foreach.continueOnError`。
+- `plugin.action` 只返回当前步骤的结构化输出，不能接收或接管完整 Workflow、checkpoint 或 rollback。
