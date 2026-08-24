@@ -138,6 +138,150 @@ test('恢复的首次 ACME 任务复用已批准申请签发，不重复创建 C
   assert.equal(saved.length, 1);
 });
 
+test('已签发证书被删除后，首次恢复任务会创建新申请而不是重试旧版本', async () => {
+  const job = {
+    id: 'acmerenew-recover-deleted-version',
+    tenantId,
+    renewalWindowKey: 'manual-initial:certasset-deleted',
+    status: 'scheduled' as const,
+    certificateRequestId: 'certreq-deleted',
+    policyId: 'acmepolicy-deleted',
+    promotionStatus: 'not_required' as const,
+    attemptCount: 0,
+    scheduledAt: now.toISOString(),
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  };
+  const deletedRequest = {
+    id: job.certificateRequestId,
+    tenantId,
+    applicationAssetId: 'certasset-deleted',
+    caId: 'ca-acme',
+    trustDomainId: 'catd-acme',
+    profileVersionId: 'certprofv-acme',
+    keyReferenceId: 'keyref-deleted',
+    csrPem: '-----BEGIN CERTIFICATE REQUEST-----\nMIIB\n-----END CERTIFICATE REQUEST-----',
+    csrSha256: 'csr-sha256',
+    publicKeyFingerprintSha256: 'key-sha256',
+    idempotencyKey: 'acme-initial-request:certasset-deleted',
+    status: 'issued' as const,
+    certificateVersionId: 'certver-deleted',
+    requestedBy: 'user-admin',
+    deferIssuance: true,
+    subjectCommonName: '*.example.com',
+    sans: [],
+    requestedValidityDays: 90,
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  };
+  const recoveredRequest = {
+    ...deletedRequest,
+    id: 'certreq-recovered',
+    idempotencyKey: `acme-renewal-recovery-request:${job.id}`,
+    status: 'approved' as const,
+    certificateVersionId: undefined,
+  };
+  const policy = {
+    id: job.policyId,
+    tenantId,
+    certificateAssetId: deletedRequest.applicationAssetId,
+    providerId: 'caprov-letsencrypt',
+    accountId: 'acmeacct-active',
+    enabled: true,
+    renewalWindowDays: 7,
+    challengeType: 'dns-01' as const,
+    rotateKeyOnRenewal: true,
+    deploymentMode: 'manual' as const,
+    maxAttempts: 5,
+    backoffSeconds: 300,
+    maintenanceWindow: {
+      domains: ['*.example.com'],
+      dnsProvider: 'cloudflare',
+      dnsCredentialId: 'cred-cloudflare',
+      contactEmail: 'admin@example.com',
+    },
+    status: 'active' as const,
+    version: 1,
+    createdBy: 'user-admin',
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  };
+  const saved: Array<Record<string, unknown>> = [];
+  let createdIdempotencyKey: string | undefined;
+  let legoRequestId: string | undefined;
+  let promotedVersionId: string | undefined;
+  const worker = new AcmeRenewalWorker({
+    repository: {
+      listDueRenewalJobs: async () => [job],
+      claimRenewalJob: async () => job,
+      getPolicy: async () => policy,
+      saveRenewalJob: async (value: Record<string, unknown>) => {
+        saved.push(value);
+        return value;
+      },
+    } as never,
+    certificates: {
+      getAsset: async () => ({
+        id: deletedRequest.applicationAssetId,
+        primaryDomain: deletedRequest.subjectCommonName,
+        sans: [],
+      }),
+      getVersion: async (certificateVersionId: string) => certificateVersionId === 'certver-reissued'
+        ? { id: certificateVersionId, certificateAssetId: deletedRequest.applicationAssetId, status: 'active', activationState: 'staged' }
+        : undefined,
+      promoteVersionAtomic: async (certificateVersionId: string) => {
+        promotedVersionId = certificateVersionId;
+        return { id: certificateVersionId, certificateAssetId: deletedRequest.applicationAssetId, status: 'active', activationState: 'promoted' };
+      },
+    } as never,
+    internalCa: {
+      getRepository: () => ({
+        getRequest: async (_tenantId: string, requestId: string) => requestId === deletedRequest.id ? deletedRequest : recoveredRequest,
+        getProvider: async () => ({ id: policy.providerId, type: 'acme' }),
+      }),
+      ensureAcmeIssuanceContext: async () => ({
+        caId: 'ca-acme',
+        trustDomainId: 'catd-acme',
+        profileVersionId: 'certprofv-acme',
+      }),
+      createCertificateRequest: async (_tenantId: string, input: { idempotencyKey: string }) => {
+        createdIdempotencyKey = input.idempotencyKey;
+        return recoveredRequest;
+      },
+      importAcmeCertificate: async (_tenantId: string, requestId: string) => ({
+        ...recoveredRequest,
+        id: requestId,
+        status: 'issued' as const,
+        certificateVersionId: 'certver-reissued',
+      }),
+    } as never,
+    orders: {} as never,
+    challenges: {} as never,
+    lego: {
+      issue: async (input: { request: { id: string } }) => {
+        legoRequestId = input.request.id;
+        return {
+          certificatePem: '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----',
+          certificateChainPem: '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----',
+        };
+      },
+    } as never,
+    leaseOwner: 'test-worker',
+    now: () => now,
+  });
+
+  const [result] = await worker.runOnce();
+
+  assert.equal(result?.status, 'completed');
+  assert.equal(result?.certificateRequestId, recoveredRequest.id);
+  assert.equal(result?.certificateVersionId, 'certver-reissued');
+  assert.equal(createdIdempotencyKey, `acme-renewal-recovery-request:${job.id}`);
+  assert.equal(legoRequestId, recoveredRequest.id);
+  assert.equal(promotedVersionId, 'certver-reissued');
+  assert.equal(saved[0]?.certificateRequestId, undefined);
+  assert.equal(saved[1]?.certificateRequestId, recoveredRequest.id);
+});
+
 test('DNS-01 签发失败时保留已持久化的证书申请和原始失败原因', async () => {
   const job = {
     id: 'acmerenew-failed-dns',

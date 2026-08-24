@@ -203,3 +203,48 @@ test('手动续签会重新排队失败的首次申请任务', async () => {
   assert.equal(retried, true);
   assert.equal(job.status, 'scheduled');
 });
+
+test('首次任务已完成但资产没有当前版本时，手动续签会创建恢复任务', async () => {
+  const completed = {
+    id: 'acmerenew-completed-without-current-version',
+    tenantId,
+    renewalWindowKey: `initial:${assetId}`,
+    status: 'completed',
+    certificateRequestId: requestId,
+    policyId: policy().id,
+    promotionStatus: 'not_required',
+    attemptCount: 1,
+    scheduledAt: fixedNow.toISOString(),
+    createdAt: fixedNow.toISOString(),
+    updatedAt: fixedNow.toISOString(),
+  };
+  const saved: Array<Record<string, unknown>> = [];
+  const scheduler = new AcmeRenewalScheduler({
+    listPolicies: async () => [policy()],
+    getRenewalJobByWindow: async (_tenant: string, _source: string | undefined, windowKey: string) => (
+      windowKey === `initial:${assetId}` ? completed : undefined
+    ),
+    saveRenewalJob: async (job: Record<string, unknown>) => {
+      saved.push(job);
+      return job;
+    },
+  } as never, {
+    getAsset: async () => asset(),
+  } as never, undefined, {
+    getRequestByIdempotencyKey: async () => approvedInitialRequest(),
+    ensureAcmeIssuanceContext: async () => {
+      throw new Error('已有首次申请不应重复创建签发上下文');
+    },
+    createCertificateRequest: async () => {
+      throw new Error('已有首次申请不应重复生成');
+    },
+  } as never);
+
+  const job = await scheduler.scheduleManualRenewal(tenantId, assetId, 'user-admin', fixedNow);
+
+  assert.equal(job.status, 'scheduled');
+  assert.notEqual(job.id, completed.id);
+  assert.equal(job.certificateRequestId, requestId);
+  assert.equal(job.renewalWindowKey, `manual-initial:${assetId}:${fixedNow.toISOString()}`);
+  assert.equal(saved.length, 1);
+});

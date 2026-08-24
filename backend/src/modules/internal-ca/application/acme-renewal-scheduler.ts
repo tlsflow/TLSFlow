@@ -92,6 +92,20 @@ export class AcmeRenewalScheduler {
         if (['retry_waiting', 'failed'].includes(existing.status)) {
           return this.repository.retryRenewalJob(tenantId, existing.id, now.toISOString());
         }
+        if (['scheduled', 'key_pending', 'csr_pending', 'issuing', 'deploying', 'verifying'].includes(existing.status)) {
+          return existing;
+        }
+        // 已完成的首次任务却没有资产当前版本，说明历史任务只保存了签发结果，
+        // 没有完成 Promotion。手动操作必须创建新的可执行任务，不能再次入队
+        // 已完成任务并把幂等成功误报成新的续签成功。
+        if (existing.status === 'completed') {
+          const recovered = await this.scheduleMissingInitialIssuance(
+            policy,
+            now,
+            `manual-initial:${certificateAssetId}:${now.toISOString()}`,
+          );
+          if (recovered) return recovered;
+        }
         return existing;
       }
       const created = await this.scheduleMissingInitialIssuance(policy, now);
@@ -146,9 +160,12 @@ export class AcmeRenewalScheduler {
     }
   }
 
-  private async scheduleMissingInitialIssuance(policy: AcmeRenewalPolicyEntity, now: Date): Promise<AcmeRenewalJobEntity | undefined> {
+  private async scheduleMissingInitialIssuance(
+    policy: AcmeRenewalPolicyEntity,
+    now: Date,
+    renewalWindowKey = `initial:${policy.certificateAssetId}`,
+  ): Promise<AcmeRenewalJobEntity | undefined> {
     if (!this.issuance || !policy.certificateAssetId) return undefined;
-    const renewalWindowKey = `initial:${policy.certificateAssetId}`;
     const existing = await this.repository.getRenewalJobByWindow(policy.tenantId, undefined, renewalWindowKey);
     if (existing) {
       return ['scheduled', 'key_pending', 'csr_pending', 'issuing', 'deploying', 'verifying'].includes(existing.status)
@@ -160,7 +177,7 @@ export class AcmeRenewalScheduler {
 
     const request = await this.findExecutableInitialRequest(policy.tenantId, asset.id);
     const resolvedRequest = request ?? await this.createInitialRequest(policy, asset);
-    return this.createInitialJob(policy, resolvedRequest.id, now);
+    return this.createInitialJob(policy, resolvedRequest.id, now, renewalWindowKey);
   }
 
   private async findExecutableInitialRequest(tenantId: string, certificateAssetId: string): Promise<CertificateRequestEntity | undefined> {
@@ -195,8 +212,12 @@ export class AcmeRenewalScheduler {
     }
   }
 
-  private async createInitialJob(policy: AcmeRenewalPolicyEntity, certificateRequestId: string, now: Date): Promise<AcmeRenewalJobEntity> {
-    const renewalWindowKey = `initial:${policy.certificateAssetId}`;
+  private async createInitialJob(
+    policy: AcmeRenewalPolicyEntity,
+    certificateRequestId: string,
+    now: Date,
+    renewalWindowKey = `initial:${policy.certificateAssetId}`,
+  ): Promise<AcmeRenewalJobEntity> {
     const timestamp = now.toISOString();
     const job: AcmeRenewalJobEntity = {
       id: newId('acmerenew'),

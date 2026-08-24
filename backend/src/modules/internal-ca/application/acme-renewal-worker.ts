@@ -128,6 +128,7 @@ export class AcmeRenewalWorker {
     let current = job;
     let requestId = job.certificateRequestId;
     let issuedRequest: CertificateRequestEntity | undefined;
+    let recreateRequest = false;
     if (requestId) {
       const resumedRequest = await this.dependencies.internalCa.getRepository().getRequest(job.tenantId, requestId);
       if (!resumedRequest?.certificateVersionId || !['issued', 'deploying', 'active'].includes(resumedRequest.status)) {
@@ -135,10 +136,28 @@ export class AcmeRenewalWorker {
           throw new AppError('ACME_RENEWAL_FAILED', '续签任务已记录新证书版本，但证书申请状态不完整');
         }
       } else {
-        issuedRequest = resumedRequest;
+        const version = await this.dependencies.certificates.getVersion(resumedRequest.certificateVersionId, job.tenantId);
+        if (version?.status === 'active') {
+          issuedRequest = resumedRequest;
+        } else {
+          // 证书版本被手动删除或已不可用时，历史申请不能再被当作签发成功。
+          // 清除引用后由当前任务创建新的申请，避免无限重试已经失效的版本 ID。
+          requestId = undefined;
+          recreateRequest = true;
+          current = await this.saveJob({
+            ...current,
+            certificateRequestId: undefined,
+            certificateVersionId: undefined,
+            acmeOrderId: undefined,
+            status: 'issuing',
+            failureCode: undefined,
+            failureMessage: undefined,
+            nextAttemptAt: undefined,
+          });
+        }
       }
     }
-    if (!issuedRequest && !requestId && !initialIssuance && !sourceRequest) {
+    if (!issuedRequest && !requestId && (initialIssuance || !sourceRequest)) {
       const assetId = policy.certificateAssetId;
       const asset = assetId ? await this.dependencies.certificates.getAsset(assetId, job.tenantId) : undefined;
       if (!asset) throw new AppError('ACME_RENEWAL_FAILED', '续签任务缺少源证书申请上下文');
@@ -158,7 +177,7 @@ export class AcmeRenewalWorker {
         requestedValidityDays: 90,
         custodyMode: 'managed_secret',
         deferIssuance: true,
-        idempotencyKey: `acme-renewal-request:${job.id}`,
+        idempotencyKey: renewalRequestIdempotencyKey(job, recreateRequest),
         actorId,
       }, context);
       requestId = request.id;
@@ -189,7 +208,7 @@ export class AcmeRenewalWorker {
           protectionEvidence: sourceKey.evidence,
         }),
         deferIssuance: true,
-        idempotencyKey: `acme-renewal-request:${job.id}`,
+        idempotencyKey: renewalRequestIdempotencyKey(job, recreateRequest),
         actorId,
       }, context);
       requestId = request.id;
@@ -458,6 +477,12 @@ function stringValues(value: unknown): string[] {
   return Array.isArray(value)
     ? [...new Set(value.map(String).map((item) => item.trim().toLowerCase()).filter(Boolean))]
     : [];
+}
+
+function renewalRequestIdempotencyKey(job: AcmeRenewalJobEntity, recreateRequest: boolean): string {
+  return recreateRequest
+    ? `acme-renewal-recovery-request:${job.id}`
+    : `acme-renewal-request:${job.id}`;
 }
 
 function isRetryableRenewalError(error: unknown): boolean {
