@@ -20,10 +20,20 @@ interface RenderSegment {
   readonly path: string
 }
 
+interface AxisTick {
+  readonly value: number
+  readonly y: number
+}
+
 const chartWidth = 100
 const chartHeight = 48
 const chartPadding = 6
+const plotLeft = 14
+const plotRight = 96
+const axisTickCount = 4
+const valueRangePaddingRatio = 0.08
 const curveTension = 0.18
+const defaultGridLinePositions = [12, 24, 36] as const
 
 const props = withDefaults(defineProps<{
   /** 趋势数据点，按时间或调用方定义的顺序排列。 */
@@ -34,8 +44,14 @@ const props = withDefaults(defineProps<{
   emptyLabel: string
   /** 趋势线的语义状态。 */
   tone?: StatusTone
+  /** 数值后缀，由业务调用方按展示语义提供。 */
+  valueUnit?: string
+  /** 是否显示纵轴刻度。紧凑趋势图默认不显示。 */
+  showYAxis?: boolean
 }>(), {
   tone: 'info',
+  valueUnit: '',
+  showYAxis: false,
 })
 
 const activePointIndex = ref<number | null>(null)
@@ -44,15 +60,52 @@ const validValues = computed(() => props.data
   .map((point, index) => ({ index, value: point?.value }))
   .filter((point): point is { index: number; value: number } => Number.isFinite(point.value)))
 
+// 中文说明：曲线与纵轴共用带少量边距的范围，避免视觉比例与刻度含义不一致。
 const valueRange = computed(() => {
   if (validValues.value.length === 0) return { min: 0, max: 1 }
   const values = validValues.value.map((point) => point.value)
-  return { min: Math.min(...values), max: Math.max(...values) }
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  if (!props.showYAxis) return { min, max }
+  if (min === max) {
+    const padding = Math.max(Math.abs(min) * valueRangePaddingRatio, 1)
+    return { min: min - padding, max: max + padding }
+  }
+  const padding = (max - min) * valueRangePaddingRatio
+  return { min: min - padding, max: max + padding }
 })
+
+const axisTicks = computed<readonly AxisTick[]>(() => {
+  if (!props.showYAxis || validValues.value.length === 0) return []
+  const values = validValues.value.map((point) => point.value)
+  const actualMin = Math.min(...values)
+  const actualMax = Math.max(...values)
+  if (actualMin === actualMax) {
+    return [{ value: actualMin, y: chartHeight / 2 }]
+  }
+
+  const verticalRange = chartHeight - (chartPadding * 2)
+  const range = valueRange.value.max - valueRange.value.min
+  return Array.from({ length: axisTickCount }, (_, index) => {
+    const relativePosition = index / (axisTickCount - 1)
+    return {
+      value: valueRange.value.max - (relativePosition * range),
+      y: chartPadding + (relativePosition * verticalRange),
+    }
+  })
+})
+
+const plotBounds = computed(() => props.showYAxis
+  ? { left: plotLeft, right: plotRight }
+  : { left: chartPadding, right: chartWidth - chartPadding })
+
+const gridLinePositions = computed<readonly number[]>(() => props.showYAxis
+  ? axisTicks.value.map((tick) => tick.y)
+  : defaultGridLinePositions)
 
 const points = computed<readonly RenderPoint[]>(() => {
   const range = valueRange.value.max - valueRange.value.min
-  const horizontalRange = chartWidth - (chartPadding * 2)
+  const horizontalRange = plotBounds.value.right - plotBounds.value.left
   const verticalRange = chartHeight - (chartPadding * 2)
   const totalIntervals = Math.max(props.data.length - 1, 1)
 
@@ -61,7 +114,7 @@ const points = computed<readonly RenderPoint[]>(() => {
     return {
       index: point.index,
       value: point.value,
-      x: chartPadding + ((point.index / totalIntervals) * horizontalRange),
+      x: plotBounds.value.left + ((point.index / totalIntervals) * horizontalRange),
       y: chartHeight - chartPadding - (relativeValue * verticalRange),
     }
   })
@@ -99,7 +152,11 @@ const lineSegments = computed<readonly RenderSegment[]>(() => {
 
 const activePoint = computed(() => points.value.find((point) => point.index === activePointIndex.value) ?? null)
 const hasData = computed(() => points.value.length > 0)
-const activeValue = computed(() => activePoint.value ? formatValue(activePoint.value.value) : '')
+const activeValue = computed(() => {
+  if (!activePoint.value) return ''
+  const value = formatValue(activePoint.value.value)
+  return props.valueUnit ? `${value} ${props.valueUnit}` : value
+})
 
 function coordinate(value: number): string {
   return Number(value.toFixed(3)).toString()
@@ -128,7 +185,12 @@ function smoothPath(segment: readonly RenderPoint[]): string {
 }
 
 function formatValue(value: number): string {
-  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value)
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(Object.is(value, -0) ? 0 : value)
+}
+
+function formatAxisTick(value: number): string {
+  const formattedValue = formatValue(value)
+  return props.valueUnit ? `${formattedValue} ${props.valueUnit}` : formattedValue
 }
 
 function activatePoint(index: number): void {
@@ -198,6 +260,13 @@ function handleKeydown(event: KeyboardEvent): void {
     @blur="clearActivePoint"
     @keydown="handleKeydown"
   >
+    <span
+      v-for="tick in axisTicks"
+      :key="`axis-${tick.y}`"
+      class="gc-trend-chart__axis-tick"
+      :style="{ top: `${(tick.y / chartHeight) * 100}%`, width: `${plotLeft}%` }"
+      aria-hidden="true"
+    >{{ formatAxisTick(tick.value) }}</span>
     <svg
       v-if="hasData"
       class="gc-trend-chart__canvas"
@@ -209,9 +278,15 @@ function handleKeydown(event: KeyboardEvent): void {
       @pointerdown="activateNearestPoint"
       @pointerleave="clearActivePoint"
     >
-      <line class="gc-trend-chart__grid-line" x1="6" x2="94" y1="12" y2="12" />
-      <line class="gc-trend-chart__grid-line" x1="6" x2="94" y1="24" y2="24" />
-      <line class="gc-trend-chart__grid-line" x1="6" x2="94" y1="36" y2="36" />
+      <line
+        v-for="gridLine in gridLinePositions"
+        :key="`grid-${gridLine}`"
+        class="gc-trend-chart__grid-line"
+        :x1="plotBounds.left"
+        :x2="plotBounds.right"
+        :y1="gridLine"
+        :y2="gridLine"
+      />
       <path
         v-for="segment in lineSegments"
         :key="`area-${segment.key}`"
@@ -269,7 +344,8 @@ function handleKeydown(event: KeyboardEvent): void {
 
 .gc-trend-chart__canvas,
 .gc-trend-chart__empty {
-  grid-area: 1 / 1;
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
 }
@@ -278,6 +354,22 @@ function handleKeydown(event: KeyboardEvent): void {
   display: block;
   overflow: visible;
   cursor: crosshair;
+}
+
+.gc-trend-chart__axis-tick {
+  position: absolute;
+  z-index: 1;
+  left: 0;
+  box-sizing: border-box;
+  padding-right: var(--gc-space-2);
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  font-family: var(--gc-font-family-mono);
+  line-height: var(--gc-line-height-tight);
+  text-align: right;
+  white-space: nowrap;
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 
 .gc-trend-chart__grid-line {

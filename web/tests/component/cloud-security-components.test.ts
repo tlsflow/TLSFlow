@@ -102,7 +102,25 @@ describe('Cloud Security Pro 共享组件', () => {
     expect(wrapper.findAll('.gc-trend-chart__point').every((point) => point.attributes('aria-hidden') === 'true')).toBe(true)
     expect(wrapper.findAll('.gc-trend-chart__line')).toHaveLength(1)
     expect(wrapper.findAll('.gc-trend-chart__area')).toHaveLength(1)
+    expect(wrapper.findAll('.gc-trend-chart__axis-tick')).toHaveLength(0)
+    expect(wrapper.findAll('.gc-trend-chart__grid-line')).toHaveLength(3)
     expect(wrapper.html()).not.toContain('NaN')
+  })
+
+  it('GcTrendChart 仅在调用方开启时显示带单位的纵轴刻度', () => {
+    const wrapper = mount(GcTrendChart, {
+      props: {
+        data: [{ value: 12 }, { value: 24 }, { value: 36 }],
+        ariaLabel: '探测延时趋势',
+        emptyLabel: '暂无趋势数据',
+        valueUnit: 'ms',
+        showYAxis: true,
+      },
+    })
+
+    expect(wrapper.findAll('.gc-trend-chart__axis-tick')).toHaveLength(4)
+    expect(wrapper.find('.gc-trend-chart__axis-tick').text()).toContain('ms')
+    expect(wrapper.findAll('.gc-trend-chart__grid-line')).toHaveLength(4)
   })
 
   it('GcTrendChart 提供平滑曲线与键盘可访问的数值提示', async () => {
@@ -111,17 +129,35 @@ describe('Cloud Security Pro 共享组件', () => {
         data: [{ value: 12 }, { value: 24 }, { value: 18 }],
         ariaLabel: '证书趋势',
         emptyLabel: '暂无趋势数据',
+        valueUnit: 'ms',
+        showYAxis: true,
       },
     })
 
     expect(wrapper.find('.gc-trend-chart__line').attributes('d')).toContain('C ')
     await wrapper.get('[role="img"]').trigger('focus')
-    expect(wrapper.find('.gc-trend-chart__tooltip').text()).toBe('12')
+    expect(wrapper.find('.gc-trend-chart__tooltip').text()).toBe('12 ms')
     await wrapper.get('[role="img"]').trigger('keydown', { key: 'ArrowRight' })
-    expect(wrapper.find('.gc-trend-chart__tooltip').text()).toBe('24')
+    expect(wrapper.find('.gc-trend-chart__tooltip').text()).toBe('24 ms')
     await wrapper.findAll('.gc-trend-chart__point')[2].trigger('pointerenter')
-    expect(wrapper.find('.gc-trend-chart__tooltip').text()).toBe('18')
+    expect(wrapper.find('.gc-trend-chart__tooltip').text()).toBe('18 ms')
     expect(wrapper.findAll('.gc-trend-chart__point')[2].classes()).toContain('gc-trend-chart__point--active')
+  })
+
+  it('GcTrendChart 对相同数值只显示一个带单位的纵轴刻度', () => {
+    const wrapper = mount(GcTrendChart, {
+      props: {
+        data: [{ value: 33 }, { value: 33 }, { value: 33 }],
+        ariaLabel: '探测延时趋势',
+        emptyLabel: '暂无趋势数据',
+        valueUnit: 'ms',
+        showYAxis: true,
+      },
+    })
+
+    expect(wrapper.findAll('.gc-trend-chart__axis-tick')).toHaveLength(1)
+    expect(wrapper.find('.gc-trend-chart__axis-tick').text()).toBe('33 ms')
+    expect(wrapper.findAll('.gc-trend-chart__grid-line')).toHaveLength(1)
   })
 
   it('GcTrendChart 在无有效数据时显示调用方提供的空态文案', () => {

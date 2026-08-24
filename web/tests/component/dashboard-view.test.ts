@@ -139,6 +139,7 @@ describe('DashboardView', () => {
     expect(wrapper.find('.dashboard-quick-start').exists()).toBe(true)
     expect(wrapper.find('.dashboard-quick-start__meta').exists()).toBe(false)
     expect(wrapper.find('.dashboard-trend-card').exists()).toBe(true)
+    expect(wrapper.findAll('.dashboard-trend-card .gc-trend-chart__axis-tick')).toHaveLength(0)
     expect(wrapper.find('.dashboard-panel--status-summary').exists()).toBe(false)
     expect(wrapper.find('.dashboard-panel--type-stats').exists()).toBe(false)
     expect(wrapper.find('.dashboard-status-row .dashboard-panel--asset-heatmap').exists()).toBe(true)
