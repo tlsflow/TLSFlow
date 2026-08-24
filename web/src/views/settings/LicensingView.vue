@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { GcModal, GcPageHeader } from '@/design-system/components'
+import { GcModal } from '@/design-system/components'
+import { ApiClientError } from '@/api/client'
 import {
   createActivationRequest,
   exportLicense,
@@ -22,10 +23,11 @@ const upgradeModalOpen = ref(false)
 const message = ref('')
 const errorMessage = ref('')
 
-type ProductPlanCode = 'free' | 'commercial' | 'enterprise'
+type ProductPlanCode = 'none' | 'community' | 'commercial' | 'enterprise' | 'trial'
+type ComparisonPlanCode = Exclude<ProductPlanCode, 'none'>
 
 interface ComparisonCard {
-  code: ProductPlanCode
+  code: ComparisonPlanCode
   title: string
   summary: string
   features: string[]
@@ -34,10 +36,11 @@ interface ComparisonCard {
   recommended: boolean
 }
 
-const comparisonFeatureKeys: Record<ProductPlanCode, string[]> = {
-  free: ['full', 'usage', 'automation', 'quota', 'support'],
+const comparisonFeatureKeys: Record<ComparisonPlanCode, string[]> = {
+  community: ['full', 'usage', 'quota', 'support'],
   commercial: ['full', 'usage', 'automation', 'quota', 'support'],
   enterprise: ['full', 'usage', 'automation', 'approval', 'quota', 'customization', 'support'],
+  trial: ['full', 'usage', 'automation', 'quota', 'trial', 'support'],
 }
 
 const stateLabel = computed(() => {
@@ -45,7 +48,7 @@ const stateLabel = computed(() => {
   return t(`settings.licensing.states.${status.value.state}`)
 })
 
-const stateClass = computed(() => `licensing-page__state licensing-page__state--${status.value?.state ?? 'unlicensed'}`)
+const stateClass = computed(() => `licensing-page__state licensing-page__state--${status.value?.state ?? 'none'}`)
 
 const planLabel = computed(() => {
   if (!status.value?.planCode) return t('settings.licensing.summary.unconfigured')
@@ -56,27 +59,47 @@ const planLabel = computed(() => {
 
 const activePlanCode = computed<ProductPlanCode | null>(() => normalizePlanCode(status.value?.planCode))
 
+const versionCompatibilityLabel = computed(() => {
+  if (!status.value) return t('common.notAvailable')
+  return status.value.versionCompatible
+    ? t('settings.licensing.version.compatible')
+    : t('settings.licensing.version.incompatible')
+})
+
+const versionRangeLabel = computed(() => {
+  const versionRange = status.value?.versionRange
+  if (!versionRange?.min && !versionRange?.max) return t('common.notAvailable')
+  return [
+    versionRange.min ? `>= ${versionRange.min}` : '',
+    versionRange.max ? `<= ${versionRange.max}` : '',
+  ].filter(Boolean).join(', ')
+})
+
 const comparisonCards = computed<ComparisonCard[]>(() => {
-  const nextUpgradeCode = activePlanCode.value === 'free'
-    ? 'commercial'
-    : activePlanCode.value === 'commercial'
-      ? 'enterprise'
-      : null
+  const nextUpgradeCode = activePlanCode.value === 'none'
+    ? 'community'
+    : activePlanCode.value === 'community'
+      ? 'commercial'
+      : activePlanCode.value === 'commercial' || activePlanCode.value === 'trial'
+        ? 'enterprise'
+        : null
 
   const commercialPrice = locale.value.startsWith('zh')
     ? t('settings.licensing.comparison.cards.commercial.priceCny')
     : t('settings.licensing.comparison.cards.commercial.priceUsd')
 
-  return (['free', 'commercial', 'enterprise'] as const).map((code) => ({
+  return (['community', 'commercial', 'enterprise', 'trial'] as const).map((code) => ({
     code,
     title: t(`settings.licensing.plans.${code}`),
     summary: t(`settings.licensing.comparison.cards.${code}.summary`),
     features: comparisonFeatureKeys[code].map((featureKey) => t(`settings.licensing.comparison.cards.${code}.features.${featureKey}`)),
-    price: code === 'free'
-      ? t('settings.licensing.comparison.cards.free.price')
+    price: code === 'community'
+      ? t('settings.licensing.comparison.cards.community.price')
       : code === 'commercial'
         ? commercialPrice
-        : t('settings.licensing.comparison.cards.enterprise.price'),
+        : code === 'enterprise'
+          ? t('settings.licensing.comparison.cards.enterprise.price')
+          : t('settings.licensing.comparison.cards.trial.price'),
     current: activePlanCode.value === code,
     recommended: nextUpgradeCode === code,
   }))
@@ -137,7 +160,15 @@ async function createRequest(kind: 'online' | 'offline'): Promise<void> {
 async function importCurrentLicense(): Promise<void> {
   errorMessage.value = ''
   message.value = ''
-  let parsed: { licenseGrant?: Record<string, unknown>; revocationList?: Record<string, unknown>; activationResponse?: ActivationResponse; requestId?: string; nonce?: string; responseId?: string }
+  let parsed: {
+    licenseGrant?: Record<string, unknown>
+    revocationList?: Record<string, unknown>
+    activationResponse?: ActivationResponse
+    requestId?: string
+    nonce?: string
+    responseId?: string
+    schemaVersion?: number
+  }
   try {
     parsed = JSON.parse(licenseText.value) as typeof parsed
   } catch {
@@ -154,9 +185,11 @@ async function importCurrentLicense(): Promise<void> {
     if (response.data) status.value = response.data
     licenseText.value = ''
     message.value = t('settings.licensing.messages.imported')
-  } catch {
+  } catch (error: unknown) {
     errorMessage.value = parsed.licenseGrant || isActivationResponsePayload(parsed)
-      ? t('settings.licensing.messages.importFailed')
+      ? error instanceof ApiClientError && error.errorCode === 'LICENSE_TAMPERED'
+        ? t('settings.licensing.messages.licenseTampered')
+        : t('settings.licensing.messages.importFailed')
       : t('settings.licensing.messages.licenseMissing')
   } finally {
     importing.value = false
@@ -166,7 +199,7 @@ async function importCurrentLicense(): Promise<void> {
 function isActivationResponsePayload(value: unknown): value is ActivationResponse {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const response = value as Partial<ActivationResponse>
-  return response.schemaVersion === 1
+  return (response.schemaVersion === 1 || response.schemaVersion === 2)
     && typeof response.responseId === 'string'
     && typeof response.requestId === 'string'
     && typeof response.nonce === 'string'
@@ -175,15 +208,19 @@ function isActivationResponsePayload(value: unknown): value is ActivationRespons
 
 function normalizePlanCode(planCode?: string): ProductPlanCode | null {
   switch (planCode) {
+    case 'none':
+      return 'none'
+    case 'community':
     case 'free':
-    case 'trial':
-      return 'free'
+      return 'community'
     case 'commercial':
     case 'standard':
     case 'professional':
       return 'commercial'
     case 'enterprise':
       return 'enterprise'
+    case 'trial':
+      return 'trial'
     default:
       return null
   }
@@ -194,10 +231,11 @@ onMounted(loadStatus)
 
 <template>
   <section class="gc-page licensing-page">
-    <GcPageHeader :title="t('settings.licensing.title')" :description="t('settings.licensing.description')" />
-
     <p v-if="message" class="licensing-page__message licensing-page__message--success" role="status">{{ message }}</p>
     <p v-if="errorMessage" class="licensing-page__message licensing-page__message--error" role="alert">{{ errorMessage }}</p>
+    <p v-if="status?.integrityStatus === 'tampered'" class="licensing-page__message licensing-page__message--error" role="alert">
+      {{ t('settings.licensing.messages.licenseTampered') }}
+    </p>
 
     <section class="gc-card licensing-page__summary" :aria-label="t('settings.licensing.summary.title')">
       <div class="licensing-page__summary-head">
@@ -213,12 +251,32 @@ onMounted(loadStatus)
           <dd class="licensing-page__mono">{{ status?.installationId || t('common.notAvailable') }}</dd>
         </div>
         <div>
+          <dt>{{ t('settings.licensing.fields.deviceId') }}</dt>
+          <dd class="licensing-page__mono">{{ status?.deviceId || t('common.notAvailable') }}</dd>
+        </div>
+        <div>
+          <dt>{{ t('settings.licensing.fields.currentVersion') }}</dt>
+          <dd>{{ status?.currentVersion || t('common.notAvailable') }}</dd>
+        </div>
+        <div>
+          <dt>{{ t('settings.licensing.fields.versionCompatibility') }}</dt>
+          <dd>{{ versionCompatibilityLabel }}</dd>
+        </div>
+        <div>
+          <dt>{{ t('settings.licensing.fields.versionRange') }}</dt>
+          <dd>{{ versionRangeLabel }}</dd>
+        </div>
+        <div>
           <dt>{{ t('settings.licensing.fields.expiresAt') }}</dt>
           <dd>{{ status?.expiresAt ? formatBrowserLocalTime(status.expiresAt, { includeSeconds: false }) : t('common.notAvailable') }}</dd>
         </div>
         <div>
           <dt>{{ t('settings.licensing.fields.graceEndsAt') }}</dt>
           <dd>{{ status?.graceEndsAt ? formatBrowserLocalTime(status.graceEndsAt, { includeSeconds: false }) : t('common.notAvailable') }}</dd>
+        </div>
+        <div>
+          <dt>{{ t('settings.licensing.fields.upgradeGraceEndsAt') }}</dt>
+          <dd>{{ status?.upgradeGraceEndsAt ? formatBrowserLocalTime(status.upgradeGraceEndsAt, { includeSeconds: false }) : t('common.notAvailable') }}</dd>
         </div>
         <div>
           <dt>{{ t('settings.licensing.fields.lastClockAt') }}</dt>
@@ -239,7 +297,7 @@ onMounted(loadStatus)
       <section class="gc-card licensing-page__panel">
         <h2>{{ t('settings.licensing.quotas.title') }}</h2>
         <dl class="licensing-page__quota-list">
-          <div><dt>{{ t('settings.licensing.quotas.managedTargets') }}</dt><dd>{{ status?.quotas.managedTargets ?? t('settings.licensing.quotas.unlimited') }}</dd></div>
+          <div><dt>{{ t('settings.licensing.quotas.applicationAssets') }}</dt><dd>{{ status?.quotas.applicationAssets ?? status?.quotas.managedTargets ?? t('settings.licensing.quotas.unlimited') }}</dd></div>
           <div><dt>{{ t('settings.licensing.quotas.concurrentExecutions') }}</dt><dd>{{ status?.quotas.concurrentExecutions ?? t('settings.licensing.quotas.unlimited') }}</dd></div>
           <div><dt>{{ t('settings.licensing.quotas.plugins') }}</dt><dd>{{ status?.quotas.plugins ?? t('settings.licensing.quotas.unlimited') }}</dd></div>
         </dl>
@@ -394,11 +452,12 @@ onMounted(loadStatus)
 }
 
 .licensing-page__state--active { color: var(--gc-color-success); background: var(--gc-color-success-bg); }
-.licensing-page__state--grace { color: var(--gc-color-warning); background: var(--gc-color-warning-bg); }
+.licensing-page__state--grace,
+.licensing-page__state--upgrade_grace { color: var(--gc-color-warning); background: var(--gc-color-warning-bg); }
 .licensing-page__state--revoked,
 .licensing-page__state--expired,
 .licensing-page__state--clock_rollback_detected { color: var(--gc-color-danger); background: var(--gc-color-danger-bg); }
-.licensing-page__state--unlicensed { color: var(--gc-color-text-muted); background: var(--gc-color-surface-muted); }
+.licensing-page__state--none { color: var(--gc-color-text-muted); background: var(--gc-color-surface-muted); }
 
 .licensing-page__facts,
 .licensing-page__quota-list {
@@ -555,7 +614,7 @@ onMounted(loadStatus)
 
 .licensing-upgrade-modal__cards {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--gc-space-4);
 }
 
@@ -666,6 +725,12 @@ onMounted(loadStatus)
   padding-top: var(--gc-space-2);
 }
 
+@media (max-width: 1100px) {
+  .licensing-upgrade-modal__cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 800px) {
   .licensing-page__summary-head,
   .licensing-page__panel-head {
@@ -674,10 +739,7 @@ onMounted(loadStatus)
 
   .licensing-page__facts,
   .licensing-page__quota-list,
-  .licensing-page__grid {
-    grid-template-columns: 1fr;
-  }
-
+  .licensing-page__grid,
   .licensing-upgrade-modal__cards {
     grid-template-columns: 1fr;
   }

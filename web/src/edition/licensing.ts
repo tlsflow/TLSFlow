@@ -8,6 +8,7 @@ export const licensingRoutes: GcRouteRecord[] = [
     meta: {
       title: 'settings.licensing.title',
       titleKey: 'settings.licensing.title',
+      heroTitle: true,
       module: 'settings',
       requiresAuth: true,
       permission: 'settings.read',
