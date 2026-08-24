@@ -91,6 +91,40 @@ describe('Agent 安装会话安全约束', () => {
     assert.equal(manifestAfterBootstrap.statusCode, 403);
   });
 
+  it('Windows 短安装入口不要求安装端携带租户头', async () => {
+    const app = createApp();
+    const headers = {
+      'x-tenant-id': 'tenant_agent_windows_short_public',
+      'x-request-id': 'req_agent_windows_short_public',
+      host: 'gcac.example.test',
+      'x-forwarded-proto': 'https',
+    };
+
+    const created = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/install-sessions/windows-powershell',
+      headers,
+      body: { zone: 'default', startAfterInstall: true },
+    });
+    assert.equal(created.statusCode, 201);
+
+    const bootstrapToken = new URL((created.body as { bootstrapUrl: string }).bootstrapUrl).searchParams.get('token');
+    assert.ok(bootstrapToken);
+
+    const bootstrap = await app.inject({
+      method: 'GET',
+      path: `/agent-install.ps1?token=${encodeURIComponent(bootstrapToken)}`,
+      headers: {
+        host: 'gcac.example.test',
+        'x-forwarded-proto': 'https',
+      },
+    });
+
+    assert.equal(bootstrap.statusCode, 200);
+    assert.equal(bootstrap.headers['content-type'], 'text/plain; charset=utf-8');
+    assert.match(String(bootstrap.body), /\$manifest = @'/);
+  });
+
   it('Linux bootstrap 短码只能使用一次且脚本不再二次拉 manifest', async () => {
     const app = createApp();
     const headers = {

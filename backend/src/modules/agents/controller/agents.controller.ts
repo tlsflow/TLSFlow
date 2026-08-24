@@ -154,7 +154,7 @@ export class AgentsController {
 
   private async getWindowsPowerShellBootstrap(request: HttpRequest) {
     const token = readQuery(request, 'token');
-    const session = await this.service.consumeWindowsPowerShellInstallSessionByToken(tenantId(request), token, request.context.ip);
+    const session = await this.service.consumeInstallSessionByToken(token, request.context.ip);
     const baseUrl = resolveInstallBaseUrl(request);
     const manifest = {
       ...(await this.service.buildWindowsPowerShellInstallManifest(session)),
