@@ -8,9 +8,11 @@ import { AuditService } from '../audits/audit.service.js';
 import type { WriteAuditInput } from '../audits/audit.service.js';
 import { ForwardingGrantService } from './forwarding-grant.service.js';
 import { GatewayAgentProcess } from './gateway-agent-process.js';
+import { computeAgentExecutionReceiptDigest, computeAgentPlanDigest, type AgentExecutionReceiptV1, type AgentPlanV1, type AgentCapabilityTokenV1, type PolicyAuthorityDecisionV1 } from '../agents/security/agent-security.contract.js';
+import { GatewayV2ForwardingService, GatewayV2ReplayGuard } from './gateway-v2-forwarding.service.js';
 import { GatewayTaskAuditWriter, type GatewayTargetHistoryRecord, type GatewayTargetHistoryRepositoryPort } from './gateway-target-history.service.js';
 import { GatewayTaskService } from './gateway-task.service.js';
-import type { GatewayAgentProfile, Zone } from './gateway-agent.types.js';
+import type { GatewayAgentProfile, GatewayAgentV2ForwardRequest, GatewayAgentV2ForwardResult, GatewayAgentV2Forwarder, GatewayGrantV1, Zone } from './gateway-agent.types.js';
 import { ReachabilityService } from './reachability.service.js';
 import { ZoneRouter } from './zone-router.js';
 
@@ -62,6 +64,193 @@ function issueGrant(overrides: Partial<Parameters<ForwardingGrantService['issue'
   });
 }
 
+function createV2Materials(
+  tenantId: string,
+  agentId: string,
+  forwardingGrantId: string,
+  status: 'SUCCESS' | 'FAILED' | 'UNKNOWN' = 'SUCCESS',
+  options: {
+    operationType?: AgentPlanV1['operations'][number]['operationType'];
+    operationInput?: Record<string, unknown>;
+    capability?: string;
+    allowedPaths?: string[];
+    allowedServices?: string[];
+    artifactDigests?: string[];
+  } = {},
+) {
+  const operationType = options.operationType ?? 'filesystem.read';
+  const capability = options.capability ?? operationType;
+  const allowedPaths = options.allowedPaths ?? ['/var/lib/gcac'];
+  const allowedServices = options.allowedServices ?? [];
+  const artifactDigests = options.artifactDigests ?? ['a'.repeat(64)];
+  const issuedAt = new Date(Date.now() - 1_000).toISOString();
+  const expiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
+  const planBase = {
+    planVersion: 'gcac.agent-security/v1' as const,
+    planId: 'plan_gateway_v2_001',
+    agentId,
+    tenantId,
+    pluginId: 'web.nginx',
+    pluginVersionId: 'plugin-version-1',
+    capability,
+    operations: [{
+      operationId: 'operation-1',
+      operationType,
+      stage: 'prepare' as const,
+      input: options.operationInput ?? { path: '/var/lib/gcac/config.json' },
+      dependsOn: [],
+      idempotencyKey: 'operation-idempotency-1',
+      timeoutSeconds: 30,
+    }],
+    planDigest: '',
+    tokenId: 'token_gateway_v2_001',
+    policyDecisionId: 'decision_gateway_v2_001',
+    nonce: `nonce_gateway_v2_${Date.now()}`,
+    expiresAt,
+    writeEffect: true,
+  } satisfies AgentPlanV1;
+  const plan = { ...planBase, planDigest: computeAgentPlanDigest(planBase) };
+  const token: AgentCapabilityTokenV1 = {
+    tokenVersion: 'gcac.agent-security/v1',
+    tokenId: plan.tokenId,
+    agentId,
+    tenantId,
+    pluginId: plan.pluginId,
+    pluginVersionId: plan.pluginVersionId,
+    capability: plan.capability,
+    actions: [capability],
+    allowedPaths,
+    allowedServices,
+    artifactDigests,
+    policyRef: 'policy-gateway-v2-001',
+    policyVersion: 'policy-version-1',
+    issuedAt,
+    expiresAt,
+    nonce: plan.nonce,
+    planDigest: plan.planDigest,
+    authorityKeyId: 'authority-production-1',
+    signature: 'signed-capability-token',
+  };
+  const policyDecision: PolicyAuthorityDecisionV1 = {
+    decisionVersion: 'gcac.agent-security/v1',
+    decisionId: plan.policyDecisionId,
+    allowed: true,
+    agentId,
+    tenantId,
+    pluginId: plan.pluginId,
+    pluginVersionId: plan.pluginVersionId,
+    capability: plan.capability,
+    actions: [capability],
+    allowedPaths,
+    allowedServices,
+    artifactDigests,
+    policyRef: token.policyRef,
+    policyVersion: token.policyVersion,
+    planDigest: plan.planDigest,
+    tokenId: token.tokenId,
+    nonce: token.nonce,
+    issuedAt,
+    validUntil: expiresAt,
+    authorityKeyId: token.authorityKeyId,
+    revocationRef: 'revocation-gateway-v2-001',
+    signature: 'signed-policy-decision',
+  };
+  const grant: GatewayGrantV1 = {
+    grantId: 'grant-gateway-v2-001',
+    tenantId,
+    agentId,
+    actionType: 'agent.plan.execute',
+    planId: plan.planId,
+    planDigest: plan.planDigest,
+    pluginId: token.pluginId,
+    pluginVersionId: token.pluginVersionId,
+    tokenId: token.tokenId,
+    nonce: token.nonce,
+    revocationRef: policyDecision.revocationRef,
+    forwardingGrantId,
+  };
+  const receiptBase = {
+    receiptVersion: 'gcac.agent-security/v1' as const,
+    operationId: 'operation-1',
+    planId: plan.planId,
+    planDigest: plan.planDigest,
+    agentId,
+    tenantId,
+    tokenId: token.tokenId,
+    status,
+    startedAt: issuedAt,
+    completedAt: new Date().toISOString(),
+    operationResults: [{ operationId: 'operation-1', status }],
+    nonceConsumed: true,
+    ...(status === 'SUCCESS' ? {} : status === 'UNKNOWN' ? { unknownReason: 'Agent 返回结果不明' } : { errorCode: 'AGENT_OPERATION_FAILED' }),
+    digest: '',
+  } satisfies AgentExecutionReceiptV1;
+  const receipt = { ...receiptBase, digest: computeAgentExecutionReceiptDigest(receiptBase) };
+  return { plan, token, policyDecision, grant, receipt };
+}
+
+class FakeGatewayV2Forwarder implements GatewayAgentV2Forwarder {
+  readonly requests: GatewayAgentV2ForwardRequest[] = [];
+  constructor(private readonly outcome: 'SUCCESS' | 'FAILED' | 'UNKNOWN' = 'SUCCESS', private readonly throwError = false) {}
+
+  async forward(request: GatewayAgentV2ForwardRequest): Promise<GatewayAgentV2ForwardResult> {
+    this.requests.push(structuredClone(request));
+    if (this.throwError) throw new Error('模拟 Gateway 到目标 Agent 的连接崩溃');
+    const receipt = request.plan ? (() => {
+      const base = {
+        receiptVersion: 'gcac.agent-security/v1' as const,
+        operationId: request.plan.operations[0].operationId,
+        planId: request.plan.planId,
+        planDigest: request.plan.planDigest,
+        agentId: request.token.agentId,
+        tenantId: request.tenantId,
+        tokenId: request.token.tokenId,
+        status: this.outcome,
+        startedAt: request.token.issuedAt,
+        completedAt: new Date().toISOString(),
+        operationResults: [{ operationId: request.plan.operations[0].operationId, status: this.outcome }],
+        nonceConsumed: true,
+        ...(this.outcome === 'SUCCESS' ? {} : this.outcome === 'UNKNOWN' ? { unknownReason: 'Agent 返回结果不明' } : { errorCode: 'AGENT_OPERATION_FAILED' }),
+        digest: '',
+      } satisfies AgentExecutionReceiptV1;
+      return { ...base, digest: computeAgentExecutionReceiptDigest(base) };
+    })() : undefined;
+    return {
+      accepted: true,
+      tenantId: request.tenantId,
+      agentId: request.token.agentId,
+      actionType: request.actionType,
+      tokenId: request.token.tokenId,
+      planDigest: request.token.planDigest,
+      nonce: request.token.nonce,
+      revocationRef: request.policyDecision.revocationRef,
+      grantId: request.grant.grantId,
+      forwardingGrantId: request.forwardingGrant.id,
+      receipt,
+    };
+  }
+}
+
+function dispatchV2Task(tenantId: string, materials: ReturnType<typeof createV2Materials>, forwardingGrant: ReturnType<typeof issueGrant>): GatewayTaskService {
+  const service = new GatewayTaskService();
+  service.dispatch({
+    idempotencyKey: `idem-${materials.token.nonce}`,
+    tenantId,
+    planId: materials.plan.planId,
+    executionRunId: 'run_process',
+    stepId: 'step_process',
+    gatewayId: forwardingGrant.gatewayId,
+    delegatedTargetId: forwardingGrant.delegatedTargetId,
+    target: { id: forwardingGrant.delegatedTargetId, zoneId: 'zone_prod' },
+    adapter: forwardingGrant.routeChannel,
+    action: 'gateway.forward.agent_task',
+    payload: { actionType: materials.grant.actionType, token: materials.token, policyDecision: materials.policyDecision, plan: materials.plan },
+    grant: materials.grant,
+    forwardingGrant,
+  });
+  return service;
+}
+
 class MemoryAuditService extends AuditService {
   readonly writes: WriteAuditInput[] = [];
 
@@ -91,6 +280,41 @@ class MemoryGatewayTargetHistoryRepository implements GatewayTargetHistoryReposi
 }
 
 describe('spec014 Gateway 区域路由器', () => {
+  it('拒绝不受支持的 Gateway 路由通道', () => {
+    const router = new ZoneRouter(zones, [gateway()], new ReachabilityService());
+
+    assert.throws(() => router.route({
+      zoneId: 'zone_prod',
+      targetId: 'host_legacy',
+      protocols: ['ssh'],
+      action: 'gateway.forward.agent_task',
+      now,
+    }), { errorCode: 'VALIDATION_FAILED' });
+  });
+
+  it('GatewayTask 和 ForwardingGrant 都拒绝不受支持的路由通道', () => {
+    const gatewayTasks = new GatewayTaskService();
+    assert.throws(() => gatewayTasks.dispatch({
+      idempotencyKey: 'idem_legacy_gateway_task',
+      executionRunId: 'run_legacy_gateway_task',
+      stepId: 'step_legacy_gateway_task',
+      gatewayId: 'gw_001',
+      delegatedTargetId: 'target_legacy_gateway_task',
+      target: { id: 'target_legacy_gateway_task', zoneId: 'zone_prod' },
+      adapter: 'script_package',
+      action: 'gateway.forward.agent_task',
+    }), { errorCode: 'VALIDATION_FAILED' });
+
+    assert.throws(() => new ForwardingGrantService().issue({
+      gatewayId: 'gw_001',
+      delegatedTargetId: 'target_legacy_gateway_task',
+      taskType: 'gateway.forward.agent_task',
+      routeChannel: 'manual',
+      executionRunId: 'run_legacy_gateway_task',
+      stepId: 'step_legacy_gateway_task',
+    }), { errorCode: 'VALIDATION_FAILED' });
+  });
+
   it('ZoneRouter 只按 probe/forward 通道选择 Gateway，不依赖协议 Adapter', () => {
     const reachability = new ReachabilityService();
     const fast = gateway({ id: 'gw_fast', currentLoad: 1, successRate: 0.99 });
@@ -189,7 +413,66 @@ describe('spec014 Gateway 区域路由器', () => {
     assert.equal((await history.listByTarget('agent_target_001')).length, 2);
   });
 
-  it('GatewayAgentProcess 只处理 gateway.probe/forward 任务，不执行协议 Adapter', async () => {
+  it('Gateway v2 拒绝跨租户、越权路径、服务和 Artifact', () => {
+    const forwardingService = new GatewayV2ForwardingService();
+    const tenantId = 'tenant_gateway_scope';
+
+    const crossTenantGrant = issueGrant({ tenantId, gatewayId: 'gw_scope', delegatedTargetId: 'agent_scope', delegatedAgentId: 'agent_scope' });
+    const crossTenantMaterials = createV2Materials(tenantId, 'agent_scope', crossTenantGrant.id);
+    const crossTenantTasks = dispatchV2Task(tenantId, crossTenantMaterials, crossTenantGrant);
+    const crossTenantTask = crossTenantTasks.listRecoverable()[0];
+    assert.throws(() => forwardingService.prepare(crossTenantTask, 'tenant_other', 'req-cross-tenant'), { errorCode: 'AUTH_FORBIDDEN' });
+
+    const pathGrant = issueGrant({ tenantId, gatewayId: 'gw_scope', delegatedTargetId: 'agent_scope', delegatedAgentId: 'agent_scope' });
+    const pathMaterials = createV2Materials(tenantId, 'agent_scope', pathGrant.id, 'SUCCESS', { operationInput: { path: '/etc/shadow' } });
+    const pathTask = dispatchV2Task(tenantId, pathMaterials, pathGrant).listRecoverable()[0];
+    assert.throws(() => forwardingService.prepare(pathTask, tenantId, 'req-path'), { errorCode: 'AUTH_FORBIDDEN' });
+
+    const serviceGrant = issueGrant({ tenantId, gatewayId: 'gw_scope', delegatedTargetId: 'agent_scope', delegatedAgentId: 'agent_scope' });
+    const serviceMaterials = createV2Materials(tenantId, 'agent_scope', serviceGrant.id, 'SUCCESS', {
+      operationType: 'service.status',
+      capability: 'service.status',
+      operationInput: { serviceName: 'sshd' },
+      allowedServices: ['nginx'],
+    });
+    const serviceTask = dispatchV2Task(tenantId, serviceMaterials, serviceGrant).listRecoverable()[0];
+    assert.throws(() => forwardingService.prepare(serviceTask, tenantId, 'req-service'), { errorCode: 'AUTH_FORBIDDEN' });
+
+    const artifactGrant = issueGrant({ tenantId, gatewayId: 'gw_scope', delegatedTargetId: 'agent_scope', delegatedAgentId: 'agent_scope' });
+    const artifactMaterials = createV2Materials(tenantId, 'agent_scope', artifactGrant.id, 'SUCCESS', { operationInput: { path: '/var/lib/gcac/config.json', artifactDigest: 'b'.repeat(64) } });
+    const artifactTask = dispatchV2Task(tenantId, artifactMaterials, artifactGrant).listRecoverable()[0];
+    assert.throws(() => forwardingService.prepare(artifactTask, tenantId, 'req-artifact'), { errorCode: 'AUTH_FORBIDDEN' });
+  });
+
+  it('Gateway v2 拒绝 Token/Nonce 重放和错误 receipt 绑定', () => {
+    const guard = new GatewayV2ReplayGuard();
+    const binding = { tenantId: 'tenant-replay', agentId: 'agent-replay', tokenId: 'token-replay', nonce: 'nonce-replay', revocationRef: 'revocation-replay' };
+    guard.consume(binding);
+    assert.throws(() => guard.consume(binding), { errorCode: 'AUTH_FORBIDDEN' });
+
+    const forwardingService = new GatewayV2ForwardingService();
+    const forwardingGrant = issueGrant({ tenantId: 'tenant-receipt', gatewayId: 'gw_receipt', delegatedTargetId: 'agent_receipt', delegatedAgentId: 'agent_receipt' });
+    const materials = createV2Materials('tenant-receipt', 'agent_receipt', forwardingGrant.id);
+    const task = dispatchV2Task('tenant-receipt', materials, forwardingGrant).listRecoverable()[0];
+    const request = forwardingService.prepare(task, 'tenant-receipt', 'req-receipt');
+    const invalidReceiptBase = { ...materials.receipt, agentId: 'agent-attacker', digest: '' };
+    const invalidReceipt = { ...invalidReceiptBase, digest: computeAgentExecutionReceiptDigest(invalidReceiptBase) };
+    assert.throws(() => forwardingService.validateResult(request, {
+      accepted: true,
+      tenantId: request.tenantId,
+      agentId: request.token.agentId,
+      actionType: request.actionType,
+      tokenId: request.token.tokenId,
+      planDigest: request.token.planDigest,
+      nonce: request.token.nonce,
+      revocationRef: request.policyDecision.revocationRef,
+      grantId: request.grant.grantId,
+      forwardingGrantId: request.forwardingGrant.id,
+      receipt: invalidReceipt,
+    }), { errorCode: 'AUTH_FORBIDDEN' });
+  });
+
+  it('GatewayAgentProcess 必须把完整 Agent v2 授权材料转发给真实 Agent，并只接受真实 receipt', async () => {
     const tenantId = 'tenant_gateway_process';
     const db = new PgliteDatabase();
     await runMigrations(db);
@@ -205,6 +488,8 @@ describe('spec014 Gateway 区域路由器', () => {
       capabilities: ['gateway.forward.agent_task'],
     }, 'req_register_gateway_process');
     const gatewayTasks = new GatewayTaskService();
+    const forwardingGrant = issueGrant({ tenantId, gatewayId: 'gw_process', delegatedTargetId: 'agent_target_process', delegatedAgentId: 'agent_target_process' });
+    const materials = createV2Materials(tenantId, 'agent_target_process', forwardingGrant.id);
     const gatewayTask = gatewayTasks.dispatch({
       id: 'gateway_task_process_001',
       idempotencyKey: 'idem_gateway_process_001',
@@ -215,8 +500,10 @@ describe('spec014 Gateway 区域路由器', () => {
       target: { id: 'agent_target_process', zoneId: 'zone_prod' },
       adapter: 'forward.agent_task',
       action: 'gateway.forward.agent_task',
-      payload: { type: 'gateway.forward.agent_task', targetPayload: { type: 'linux.nginx.deploy_certificate' } },
-      forwardingGrant: issueGrant(),
+      payload: { actionType: 'agent.plan.execute', ...materials },
+      grant: materials.grant,
+      tenantId,
+      forwardingGrant,
       now,
     });
     const agentTask = await agents.enqueueTask(tenantId, {
@@ -224,7 +511,7 @@ describe('spec014 Gateway 区域路由器', () => {
       executionRunId: gatewayTask.executionRunId,
       executionStepId: gatewayTask.stepId,
       idempotencyKey: gatewayTask.idempotencyKey,
-      payload: { type: 'gateway.forward.agent_task', gatewayTask, dryRun: false },
+      payload: { actionType: 'agent.plan.execute', gatewayTask, dryRun: false },
     }, 'req_enqueue_gateway_process');
 
     const process = new GatewayAgentProcess({
@@ -232,16 +519,19 @@ describe('spec014 Gateway 区域路由器', () => {
       agentId: gatewayAgent.id,
       agents,
       gatewayTasks,
+      forwarder: new FakeGatewayV2Forwarder(),
       leaseFactory: () => 'lease_gateway_process_001',
     });
     const tick = await process.tick();
 
     assert.deepEqual(tick, { pulled: 1, processed: 1, succeeded: 1, failed: 0 });
     assert.equal(gatewayTasks.get(gatewayTask.id)?.status, 'success');
+    assert.equal(gatewayTasks.get(gatewayTask.id)?.result?.executionStatus, 'SUCCESS');
     assert.equal(gatewayTasks.listEvidence(gatewayTask.id)[0].adapter, 'forward.agent_task');
     const completedAgentTask = (await agents.listTaskQueue(tenantId, gatewayAgent.id)).tasks.find((task) => task.id === agentTask.id)!;
     assert.equal(completedAgentTask.status, 'succeeded');
     assert.equal(gatewayTasks.get(gatewayTask.id)?.forwardingGrant?.status, 'used');
+    assert.equal(gatewayTasks.get(gatewayTask.id)?.result?.receipt?.planDigest, materials.plan.planDigest);
   });
 
   it('GatewayAgentProcess 缺少 ForwardingGrant 时拒绝转发', async () => {
@@ -260,6 +550,7 @@ describe('spec014 Gateway 区域路由器', () => {
       capabilities: ['gateway.forward.agent_task'],
     }, 'req_register_gateway_grant_denied');
     const gatewayTasks = new GatewayTaskService();
+    const materials = createV2Materials(tenantId, 'agent_target_process', 'missing-forwarding-grant');
     const gatewayTask = gatewayTasks.dispatch({
       id: 'gateway_task_grant_denied',
       idempotencyKey: 'idem_gateway_grant_denied',
@@ -270,7 +561,9 @@ describe('spec014 Gateway 区域路由器', () => {
       target: { id: 'agent_target_process', zoneId: 'zone_prod' },
       adapter: 'forward.agent_task',
       action: 'gateway.forward.agent_task',
-      payload: { type: 'gateway.forward.agent_task', targetPayload: { type: 'linux.nginx.deploy_certificate' } },
+      payload: { actionType: 'agent.plan.execute', ...materials },
+      grant: materials.grant,
+      tenantId,
       now,
     });
     await agents.enqueueTask(tenantId, {
@@ -278,7 +571,7 @@ describe('spec014 Gateway 区域路由器', () => {
       executionRunId: gatewayTask.executionRunId,
       executionStepId: gatewayTask.stepId,
       idempotencyKey: gatewayTask.idempotencyKey,
-      payload: { type: 'gateway.forward.agent_task', gatewayTask },
+      payload: { actionType: 'agent.plan.execute', gatewayTask },
     }, 'req_enqueue_gateway_grant_denied');
 
     const process = new GatewayAgentProcess({
@@ -286,12 +579,50 @@ describe('spec014 Gateway 区域路由器', () => {
       agentId: gatewayAgent.id,
       agents,
       gatewayTasks,
+      forwarder: new FakeGatewayV2Forwarder(),
       leaseFactory: () => 'lease_gateway_grant_denied',
     });
 
     const tick = await process.tick();
 
     assert.deepEqual(tick, { pulled: 1, processed: 1, succeeded: 0, failed: 1 });
-    assert.equal(gatewayTasks.get(gatewayTask.id)?.result?.errorCode, 'GATEWAY_FORWARDING_GRANT_DENIED');
+    assert.equal(gatewayTasks.get(gatewayTask.id)?.result?.errorCode, 'AUTH_FORBIDDEN');
+  });
+
+  it('目标 Agent 崩溃或超时后写入 UNKNOWN，ForwardingGrant 和 nonce 均禁止重放', async () => {
+    const tenantId = 'tenant_gateway_unknown';
+    const db = new PgliteDatabase();
+    await runMigrations(db);
+    const agents = new AgentsApplicationService(new PgAgentsRepository(db));
+    const gatewayAgent = await agents.register(tenantId, {
+      agentKey: 'gateway-agent-unknown', hostname: 'gw-unknown', version: '0.1.0', osType: 'linux', role: 'gateway',
+      zoneIds: ['zone_prod'], adapters: ['forward.agent_task'], capabilities: ['gateway.forward.agent_task'],
+    }, 'req_register_gateway_unknown');
+    const gatewayTasks = new GatewayTaskService();
+    const forwardingGrant = issueGrant({ tenantId, gatewayId: 'gw_unknown', delegatedTargetId: 'agent_unknown', delegatedAgentId: 'agent_unknown', executionRunId: 'run_unknown', stepId: 'step_unknown' });
+    const materials = createV2Materials(tenantId, 'agent_unknown', forwardingGrant.id);
+    const gatewayTask = gatewayTasks.dispatch({
+      id: 'gateway_task_unknown', idempotencyKey: 'idem_gateway_unknown', tenantId, planId: materials.plan.planId,
+      executionRunId: 'run_unknown', stepId: 'step_unknown', gatewayId: 'gw_unknown', delegatedTargetId: 'agent_unknown',
+      target: { id: 'agent_unknown', zoneId: 'zone_prod' }, adapter: 'forward.agent_task', action: 'gateway.forward.agent_task',
+      payload: { actionType: 'agent.plan.execute', ...materials }, grant: materials.grant, forwardingGrant,
+    });
+    const agentTask = await agents.enqueueTask(tenantId, {
+      agentId: gatewayAgent.id, executionRunId: gatewayTask.executionRunId, executionStepId: gatewayTask.stepId,
+      idempotencyKey: gatewayTask.idempotencyKey, payload: { actionType: 'agent.plan.execute', gatewayTask },
+    }, 'req_enqueue_gateway_unknown');
+    const forwarder = new FakeGatewayV2Forwarder('SUCCESS', true);
+    const process = new GatewayAgentProcess({ tenantId, agentId: gatewayAgent.id, agents, gatewayTasks, forwarder, leaseFactory: () => 'lease_gateway_unknown' });
+
+    const tick = await process.tick();
+
+    assert.deepEqual(tick, { pulled: 1, processed: 1, succeeded: 0, failed: 1 });
+    assert.equal(gatewayTasks.get(gatewayTask.id)?.status, 'unknown');
+    assert.equal(gatewayTasks.get(gatewayTask.id)?.result?.executionStatus, 'UNKNOWN');
+    assert.equal(gatewayTasks.get(gatewayTask.id)?.forwardingGrant?.status, 'used');
+    assert.equal(gatewayTasks.get(gatewayTask.id)?.v2NonceBinding?.nonce, materials.token.nonce);
+    assert.equal(forwarder.requests.length, 1);
+    const completedAgentTask = (await agents.listTaskQueue(tenantId, gatewayAgent.id)).tasks.find((task) => task.id === agentTask.id)!;
+    assert.equal(completedAgentTask.result?.status, 'UNKNOWN');
   });
 });

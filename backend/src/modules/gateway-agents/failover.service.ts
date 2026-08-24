@@ -1,4 +1,4 @@
-import type { FallbackSuggestion, GatewayCandidate, ZoneRouteResult } from './gateway-agent.types.js';
+import type { GatewayCandidate, ZoneRouteResult } from './gateway-agent.types.js';
 
 export class GatewayFailoverService {
   rankCandidates(candidates: GatewayCandidate[]): GatewayCandidate[] {
@@ -9,10 +9,8 @@ export class GatewayFailoverService {
     });
   }
 
-  fallbackFor(reason: ZoneRouteResult['blockedReason']): FallbackSuggestion[] {
-    if (reason === 'no_gateway') return ['gateway_required', 'script_package', 'manual'];
-    if (reason === 'unreachable' || reason === 'reachability_expired') return ['script_package', 'manual'];
-    if (reason === 'capability_missing') return ['gateway_required', 'manual'];
-    return ['manual'];
+  fallbackFor(_reason: ZoneRouteResult['blockedReason']): ZoneRouteResult['fallbackSuggestions'] {
+    // 路由失败只能阻断当前计划，不能偷偷切换到脚本包或人工执行路径。
+    return [];
   }
 }

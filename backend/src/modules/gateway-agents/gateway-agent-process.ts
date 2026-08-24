@@ -1,8 +1,10 @@
 import { newId } from '../../shared/id.js';
+import { AppError } from '../../common/errors/app-error.js';
 import type { AgentsApplicationService } from '../agents/application/agents.application-service.js';
 import type { AgentTaskEnvelope } from '../agents/schema/agents.schema.js';
 import { ForwardingGrantService } from './forwarding-grant.service.js';
-import type { GatewayTask } from './gateway-agent.types.js';
+import { GatewayTaskReplayGuard, GatewayV2ForwardingService, HttpGatewayAgentV2Forwarder, type GatewayV2ReplayGuardPort } from './gateway-v2-forwarding.service.js';
+import type { GatewayAgentV2Forwarder, GatewayTask } from './gateway-agent.types.js';
 import { GatewayTaskService } from './gateway-task.service.js';
 
 export interface GatewayAgentProcessOptions {
@@ -11,6 +13,9 @@ export interface GatewayAgentProcessOptions {
   agents: AgentsApplicationService;
   gatewayTasks: GatewayTaskService;
   grants?: ForwardingGrantService;
+  /** 未注入时 Gateway 只失败关闭，不允许使用本地合成路由。 */
+  forwarder?: GatewayAgentV2Forwarder;
+  replayGuard?: GatewayV2ReplayGuardPort;
   leaseFactory?: () => string;
 }
 
@@ -24,10 +29,15 @@ export interface GatewayAgentProcessTickResult {
 export class GatewayAgentProcess {
   private readonly leaseFactory: () => string;
   private readonly grants: ForwardingGrantService;
+  private readonly forwarder: GatewayAgentV2Forwarder;
+  private readonly replayGuard: GatewayV2ReplayGuardPort;
+  private readonly v2Forwarding = new GatewayV2ForwardingService();
 
   constructor(private readonly options: GatewayAgentProcessOptions) {
     this.leaseFactory = options.leaseFactory ?? (() => newId('gw_lease'));
     this.grants = options.grants ?? new ForwardingGrantService();
+    this.forwarder = options.forwarder ?? new HttpGatewayAgentV2Forwarder();
+    this.replayGuard = options.replayGuard ?? new GatewayTaskReplayGuard(options.gatewayTasks);
   }
 
   async tick(limit = 10): Promise<GatewayAgentProcessTickResult> {
@@ -61,6 +71,7 @@ export class GatewayAgentProcess {
     }
     const gatewayTask = agentTask.payload.gatewayTask as GatewayTask;
 
+    let authorizationCommitted = false;
     try {
       this.options.gatewayTasks.ack(gatewayTask.id, leaseId);
       this.options.gatewayTasks.markRunning(gatewayTask.id, leaseId);
@@ -69,15 +80,78 @@ export class GatewayAgentProcess {
         await this.submitAgentResult(agentTask, leaseId, current, current.result.success);
         return { success: current.result.success };
       }
-      const completed = this.recordGatewayResult(agentTask, gatewayTask, leaseId, this.evaluateGatewayRouteTask(gatewayTask));
+
+      // 已消费的单次授权说明之前可能已经把写入送出；恢复时只能记录 UNKNOWN，绝不能重放。
+      if (current.forwardingGrant?.status === 'used') {
+        const completed = this.recordGatewayResult(agentTask, gatewayTask, leaseId, {
+          success: false,
+          executionStatus: 'UNKNOWN',
+          summary: 'Gateway 进程在 Agent v2 结果落盘前崩溃，禁止重放，写入结果不明',
+          errorCode: 'GATEWAY_EXECUTION_UNKNOWN',
+          kind: 'log',
+          logs: ['Gateway v2 recovery stopped: forwarding grant already consumed'],
+          detail: { mode: 'gateway.v2.recovery_unknown', executionStatus: 'UNKNOWN', forwardingGrantId: current.forwardingGrant.id },
+        });
+        await this.submitAgentResult(agentTask, leaseId, completed, false);
+        return { success: false };
+      }
+
+      const request = this.v2Forwarding.prepare(gatewayTask, this.options.tenantId, `gateway-v2:${gatewayTask.id}`, new Date());
+      const replayBinding = { tenantId: request.tenantId, agentId: request.token.agentId, tokenId: request.token.tokenId, nonce: request.token.nonce, revocationRef: request.policyDecision.revocationRef, taskId: gatewayTask.id };
+      this.replayGuard.assertAvailable(replayBinding);
+      const grant = this.grants.validate(request.forwardingGrant, {
+        gatewayId: gatewayTask.gatewayId,
+        delegatedTargetId: gatewayTask.delegatedTargetId,
+        taskType: gatewayTask.action,
+        routeChannel: gatewayTask.adapter,
+        executionRunId: gatewayTask.executionRunId,
+        stepId: gatewayTask.stepId,
+      });
+      const consumed = this.grants.consume(grant);
+      const updated = this.options.gatewayTasks.updateForwardingGrant(gatewayTask.id, consumed);
+      gatewayTask.forwardingGrant = updated.forwardingGrant;
+      authorizationCommitted = true;
+      this.replayGuard.consume(replayBinding);
+
+      const forwarded = this.v2Forwarding.validateResult(request, await this.forwarder.forward({ ...request, forwardingGrant: consumed }));
+      const reportedStatus = forwarded.receipt?.status ?? 'SUCCESS';
+      // 写入动作一旦离开 Gateway，任何非成功结果都不能再被当作可重试的普通失败。
+      const executionStatus = request.actionType === 'agent.plan.execute' && reportedStatus !== 'SUCCESS' ? 'UNKNOWN' : reportedStatus;
+      const completed = this.recordGatewayResult(agentTask, gatewayTask, leaseId, {
+        success: executionStatus === 'SUCCESS',
+        executionStatus,
+        summary: executionStatus === 'SUCCESS' ? 'Agent v2 已返回真实授权结果' : `Agent v2 返回 ${executionStatus}`,
+        errorCode: executionStatus === 'SUCCESS' ? undefined : executionStatus === 'UNKNOWN' ? 'GATEWAY_EXECUTION_UNKNOWN' : 'AGENT_V2_EXECUTION_FAILED',
+        kind: 'response_summary',
+        logs: [`${request.actionType} ${gatewayTask.delegatedTargetId} via ${gatewayTask.adapter}`],
+        detail: {
+          mode: 'gateway.v2.forward',
+          actionType: request.actionType,
+          tenantId: request.tenantId,
+          delegatedAgentId: request.token.agentId,
+          pluginId: request.token.pluginId,
+          pluginVersionId: request.token.pluginVersionId,
+          planDigest: request.token.planDigest,
+          tokenId: request.token.tokenId,
+          nonce: request.token.nonce,
+          revocationRef: request.policyDecision.revocationRef,
+          grantId: request.grant.grantId,
+          forwardingGrantId: request.forwardingGrant.id,
+          receipt: forwarded.receipt,
+          ...(forwarded.detail ?? {}),
+        },
+        receipt: forwarded.receipt,
+      });
       await this.submitAgentResult(agentTask, leaseId, completed, completed.result?.success ?? false);
       return { success: completed.result?.success ?? false };
     } catch (error) {
+      const status = authorizationCommitted ? 'unknown' : 'failed';
       const failed = this.options.gatewayTasks.result(gatewayTask.id, leaseId, {
         success: false,
-        status: 'failed',
-        summary: error instanceof Error ? error.message : String(error),
-        errorCode: 'GATEWAY_AGENT_PROCESS_FAILED',
+        status,
+        executionStatus: authorizationCommitted ? 'UNKNOWN' : 'FAILED',
+        summary: authorizationCommitted ? 'Agent v2 转发失败、超时或结果不明，禁止重放，写入状态为 UNKNOWN' : error instanceof Error ? error.message : String(error),
+        errorCode: authorizationCommitted ? 'GATEWAY_EXECUTION_UNKNOWN' : error instanceof AppError ? error.errorCode : 'GATEWAY_AGENT_PROCESS_FAILED',
         errorMessage: error instanceof Error ? error.message : String(error),
       });
       await this.options.agents.submitResult(this.options.tenantId, {
@@ -87,7 +161,7 @@ export class GatewayAgentProcess {
         success: false,
         errorCode: failed.result?.errorCode,
         errorMessage: failed.result?.errorMessage,
-        detail: { mode: 'gateway_agent_process', gatewayTaskId: failed.id, gatewayTaskStatus: failed.status },
+        detail: { mode: 'gateway_agent_process', gatewayTaskId: failed.id, gatewayTaskStatus: failed.status, executionStatus: failed.result?.executionStatus ?? 'FAILED' },
       });
       return { success: false };
     }
@@ -104,7 +178,7 @@ export class GatewayAgentProcess {
       executionRunId: gatewayTask.executionRunId,
       stepId: gatewayTask.stepId,
       action: gatewayTask.action,
-      result: routeResult.success ? 'success' : 'failed',
+      result: routeResult.executionStatus === 'UNKNOWN' ? 'unknown' : routeResult.success ? 'success' : 'failed',
       evidenceRef: `audit://gateway-route/${gatewayTask.id}/${index + 1}`,
       sequence: index + 1,
       kind: routeResult.kind,
@@ -114,11 +188,13 @@ export class GatewayAgentProcess {
     void this.submitEvidenceLogs(agentTask, gatewayTask.id);
     return this.options.gatewayTasks.result(gatewayTask.id, leaseId, {
       success: routeResult.success,
-      status: routeResult.success ? 'success' : 'failed',
+      status: routeResult.executionStatus === 'UNKNOWN' ? 'unknown' : routeResult.success ? 'success' : 'failed',
       summary: routeResult.summary,
       evidenceIds,
       errorCode: routeResult.success ? undefined : routeResult.errorCode,
       errorMessage: routeResult.success ? undefined : routeResult.summary,
+      executionStatus: routeResult.executionStatus,
+      receipt: routeResult.receipt,
     });
   }
 
@@ -156,6 +232,9 @@ export class GatewayAgentProcess {
         evidenceIds: completed.result?.evidenceIds ?? [],
         evidenceRef: completed.result?.evidenceRef,
         summary: completed.result?.summary,
+        executionStatus: completed.result?.executionStatus,
+        receipt: completed.result?.receipt,
+        gatewayV2: completed.payload,
       },
     });
   }
@@ -166,76 +245,19 @@ export class GatewayAgentProcess {
       && (task.payload.gatewayTask as GatewayTask).id === gatewayTask.id
       && ['queued', 'leased', 'acked'].includes(task.status));
   }
-  private evaluateGatewayRouteTask(task: GatewayTask): GatewayRouteProcessResult {
-    try {
-      const grant = this.grants.validate(task.forwardingGrant, {
-        gatewayId: task.gatewayId,
-        delegatedTargetId: task.delegatedTargetId,
-        taskType: task.action,
-        routeChannel: task.adapter,
-        executionRunId: task.executionRunId,
-        stepId: task.stepId,
-      });
-      const consumed = this.grants.consume(grant);
-      this.options.gatewayTasks.updateForwardingGrant(task.id, consumed);
-      task.forwardingGrant = consumed;
-      return evaluateGatewayRouteTask(task, consumed.id);
-    } catch (error) {
-      return {
-        success: false,
-        summary: error instanceof Error ? error.message : String(error),
-        errorCode: 'GATEWAY_FORWARDING_GRANT_DENIED',
-        kind: 'log',
-        logs: ['ForwardingGrant 校验失败，拒绝 Gateway 转发'],
-        detail: {
-          mode: 'gateway.forwarding_grant.denied',
-          errorCode: error instanceof Error && 'errorCode' in error ? (error as { errorCode?: string }).errorCode : 'GATEWAY_FORWARDING_GRANT_DENIED',
-        },
-      };
-    }
-  }
 }
 
 function isGatewayTaskRun(task: AgentTaskEnvelope): boolean {
-  return (task.payload.type === 'gateway.probe'
-    || task.payload.type === 'gateway.forward.agent_task'
-    || task.payload.type === 'gateway.forward.direct_control') && Boolean(task.payload.gatewayTask);
+  return Boolean(task.payload.gatewayTask);
 }
 
 interface GatewayRouteProcessResult {
   success: boolean;
+  executionStatus: 'SUCCESS' | 'FAILED' | 'UNKNOWN' | 'CANCELLED';
   summary: string;
   errorCode?: string;
   kind: 'log' | 'response_summary';
   logs: string[];
   detail: Record<string, unknown>;
-}
-
-function evaluateGatewayRouteTask(task: GatewayTask, forwardingGrantId: string): GatewayRouteProcessResult {
-  if (task.action === 'gateway.probe') {
-    return {
-      success: true,
-      summary: 'Gateway probe 已由区域路由任务处理',
-      kind: 'response_summary',
-      logs: [`gateway.probe ${task.delegatedTargetId} via ${task.adapter}`],
-      detail: { mode: 'gateway.probe', routeChannel: task.adapter, delegatedTargetId: task.delegatedTargetId, forwardingGrantId },
-    };
-  }
-  if (task.action === 'gateway.forward.agent_task' || task.action === 'gateway.forward.direct_control') {
-    return {
-      success: true,
-      summary: 'Gateway forward 已完成路由包装',
-      kind: 'log',
-      logs: [`${task.action} ${task.delegatedTargetId} via ${task.adapter}`],
-      detail: { mode: task.action, routeChannel: task.adapter, delegatedTargetId: task.delegatedTargetId, forwardingGrantId },
-    };
-  }
-  return {
-    success: false,
-    summary: `不支持的 Gateway 路由任务: ${task.action}`,
-    errorCode: 'GATEWAY_ROUTE_TASK_UNSUPPORTED',
-    kind: 'log',
-    logs: [`unsupported gateway route task ${task.action}`],
-    detail: { mode: 'gateway.route.unsupported', action: task.action },
-  };
+  receipt?: import('../agents/security/agent-security.contract.js').AgentExecutionReceiptV1;
 }

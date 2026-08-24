@@ -7,7 +7,7 @@ import { parsePageQuery } from '../../common/pagination/pagination.js';
 import { validateObject } from '../../common/validation/schema-validation.js';
 import type { SecurityServices } from '../security/security.controller.js';
 import type { SecuritySubject } from '../../shared/security-types.js';
-import { TasksApplicationService } from './task.application-service.js';
+import { TasksApplicationService, type TaskControlPlaneLifecycle } from './task.application-service.js';
 import { isPendingApprovalTask, taskCategories, taskStatuses, type TaskCategory, type TaskStatus } from './task.types.js';
 
 const tags = ['Tasks'];
@@ -27,6 +27,8 @@ export class TasksController {
   }
 
   private async list(request: HttpRequest) {
+    const unavailable = this.lifecycleResponse(request);
+    if (unavailable) return unavailable;
     const subject = await this.subjectFromRequest(request);
     await this.assertRead(subject, request, 'task.read');
     const query = parsePageQuery(request.query, {
@@ -67,6 +69,8 @@ export class TasksController {
   }
 
   private async detail(request: HttpRequest) {
+    const unavailable = this.lifecycleResponse(request);
+    if (unavailable) return unavailable;
     const subject = await this.subjectFromRequest(request);
     await this.assertRead(subject, request, 'task.read');
     const taskId = readPathId(request);
@@ -79,6 +83,8 @@ export class TasksController {
   }
 
   private async cancel(request: HttpRequest) {
+    const unavailable = this.lifecycleResponse(request);
+    if (unavailable) return unavailable;
     const subject = await this.subjectFromRequest(request);
     await this.assertRead(subject, request, 'task.read.all');
     const taskId = readPathId(request);
@@ -88,6 +94,8 @@ export class TasksController {
   }
 
   private async retry(request: HttpRequest) {
+    const unavailable = this.lifecycleResponse(request);
+    if (unavailable) return unavailable;
     const subject = await this.subjectFromRequest(request);
     await this.assertRead(subject, request, 'task.read.all');
     const taskId = readPathId(request);
@@ -95,6 +103,8 @@ export class TasksController {
   }
 
   private async probes(request: HttpRequest) {
+    const unavailable = this.lifecycleResponse(request);
+    if (unavailable) return unavailable;
     const subject = await this.subjectFromRequest(request);
     await this.assertRead(subject, request, 'task.read');
     const taskRunId = readPathId(request);
@@ -147,6 +157,38 @@ export class TasksController {
   private async canDecideApprovals(subject: SecuritySubject): Promise<boolean> {
     const permissions = await this.security.rbac.permissionsForSubject(subject);
     return permissions.some((permission) => matchesPermission(permission, 'approval.decide'));
+  }
+
+  private lifecycleResponse(request: HttpRequest): {
+    statusCode: 503;
+    body: {
+      errorCode: 'TASK_CONTROL_PLANE_NOT_READY';
+      message: string;
+      details: { status: TaskControlPlaneLifecycle['status']; error?: TaskControlPlaneLifecycle['error'] };
+      requestId: string;
+    };
+  } | undefined {
+    const getLifecycle = (this.service as TasksApplicationService & {
+      getLifecycle?: () => TaskControlPlaneLifecycle;
+    }).getLifecycle;
+    if (typeof getLifecycle !== 'function') return undefined;
+    const lifecycle = getLifecycle.call(this.service);
+    if (lifecycle.status === 'READY') return undefined;
+    return {
+      statusCode: 503,
+      body: {
+        errorCode: 'TASK_CONTROL_PLANE_NOT_READY',
+        message: lifecycle.status === 'FAILED'
+          ? '任务控制面初始化失败'
+          : lifecycle.status === 'INITIALIZING'
+            ? '任务控制面正在初始化'
+            : '任务控制面等待数据库迁移完成',
+        details: lifecycle.error
+          ? { status: lifecycle.status, error: lifecycle.error }
+          : { status: lifecycle.status },
+        requestId: request.context.requestId,
+      },
+    };
   }
 }
 

@@ -1,11 +1,12 @@
 import { AppError } from '../../common/errors/app-error.js';
 import { newId } from '../../shared/id.js';
-import type { ForwardingGrant, GatewayAdapterType, GatewayTaskType } from './gateway-agent.types.js';
+import { assertGatewayRouteChannel, assertGatewayTaskType, type ForwardingGrant, type GatewayAdapterType, type GatewayTaskType } from './gateway-agent.types.js';
 
 export interface IssueForwardingGrantInput {
   gatewayId: string;
   delegatedTargetId: string;
   delegatedAgentId?: string;
+  tenantId?: string;
   taskType: GatewayTaskType;
   routeChannel: GatewayAdapterType;
   executionRunId: string;
@@ -17,6 +18,8 @@ export interface IssueForwardingGrantInput {
 
 export class ForwardingGrantService {
   issue(input: IssueForwardingGrantInput): ForwardingGrant {
+    const taskType = assertGatewayTaskType(input.taskType, 'taskType');
+    const routeChannel = assertGatewayRouteChannel(input.routeChannel, 'routeChannel');
     const now = input.now ?? new Date();
     const ttlSeconds = normalizeTtl(input.ttlSeconds ?? 900);
     const maxUses = normalizeUses(input.maxUses ?? 1);
@@ -25,8 +28,9 @@ export class ForwardingGrantService {
       gatewayId: input.gatewayId,
       delegatedTargetId: input.delegatedTargetId,
       delegatedAgentId: input.delegatedAgentId,
-      taskType: input.taskType,
-      routeChannel: input.routeChannel,
+      tenantId: input.tenantId,
+      taskType,
+      routeChannel,
       executionRunId: input.executionRunId,
       stepId: input.stepId,
       maxUses,
@@ -46,6 +50,8 @@ export class ForwardingGrantService {
     stepId: string;
     now?: Date;
   }): ForwardingGrant {
+    const taskType = assertGatewayTaskType(expected.taskType, 'taskType');
+    const routeChannel = assertGatewayRouteChannel(expected.routeChannel, 'routeChannel');
     if (!grant) throw new AppError('AUTH_FORBIDDEN', 'Gateway 转发缺少 ForwardingGrant', { reason: 'GATEWAY_FORWARDING_GRANT_REQUIRED' });
     const now = expected.now ?? new Date();
     if (grant.status !== 'active') throw new AppError('AUTH_FORBIDDEN', 'ForwardingGrant 不可用', { reason: 'GATEWAY_FORWARDING_GRANT_DENIED', grantId: grant.id, status: grant.status });
@@ -53,8 +59,8 @@ export class ForwardingGrantService {
     if (grant.remainingUses <= 0) throw new AppError('AUTH_FORBIDDEN', 'ForwardingGrant 使用次数已耗尽', { reason: 'GATEWAY_FORWARDING_GRANT_DENIED', grantId: grant.id });
     if (grant.gatewayId !== expected.gatewayId
       || grant.delegatedTargetId !== expected.delegatedTargetId
-      || grant.taskType !== expected.taskType
-      || grant.routeChannel !== expected.routeChannel
+      || grant.taskType !== taskType
+      || grant.routeChannel !== routeChannel
       || grant.executionRunId !== expected.executionRunId
       || grant.stepId !== expected.stepId) {
       throw new AppError('AUTH_FORBIDDEN', 'ForwardingGrant 与当前转发任务不匹配', {

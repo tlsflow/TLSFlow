@@ -1,6 +1,7 @@
+import { AppError } from '../../common/errors/app-error.js';
 import type { RepositoryPort } from '../../persistence/repositories/repository-port.js';
 import { newId } from '../../shared/id.js';
-import type { GatewayDelegatedTaskInput, GatewayEvidence, GatewayTask, GatewayTaskResult } from './gateway-agent.types.js';
+import { assertGatewayRouteChannel, assertGatewayTaskType, type GatewayDelegatedTaskInput, type GatewayEvidence, type GatewayTask, type GatewayTaskResult } from './gateway-agent.types.js';
 import type { GatewayTaskAuditWriter } from './gateway-target-history.service.js';
 
 export interface GatewayTaskRepositories {
@@ -19,6 +20,7 @@ export class GatewayTaskService {
   private readonly evidence = new Map<string, GatewayEvidence>();
   private readonly evidenceSequenceIndex = new Map<string, string>();
   private readonly evidenceRefIndex = new Map<string, string>();
+  private readonly v2NonceIndex = new Map<string, string>();
 
   private readonly repositories?: GatewayTaskRepositories;
   private readonly auditWriter?: GatewayTaskAuditWriter;
@@ -29,7 +31,8 @@ export class GatewayTaskService {
     // 默认路径仍是纯内存 Map。只有调用方显式传入 RepositoryPort 时，才从持久层重建状态。
     for (const task of this.repositories?.tasks.list() ?? []) {
       this.tasks.set(task.id, task);
-      this.idempotencyIndex.set(task.idempotencyKey, task.id);
+      this.idempotencyIndex.set(this.idempotencyKey(task.tenantId, task.idempotencyKey), task.id);
+      if (task.v2NonceBinding) this.v2NonceIndex.set(this.v2NonceKey(task.v2NonceBinding), task.id);
     }
     for (const item of this.repositories?.evidence.list() ?? []) {
       this.evidence.set(item.id, item);
@@ -38,8 +41,25 @@ export class GatewayTaskService {
   }
 
   dispatch(input: GatewayDelegatedTaskInput): GatewayTask {
-    const existingId = this.idempotencyIndex.get(input.idempotencyKey);
-    if (existingId) return this.tasks.get(existingId)!;
+    const adapter = assertGatewayRouteChannel(input.adapter, 'adapter');
+    const action = assertGatewayTaskType(input.action, 'action');
+    const existingId = this.idempotencyIndex.get(this.idempotencyKey(input.tenantId, input.idempotencyKey));
+    if (existingId) {
+      const existing = this.tasks.get(existingId)!;
+      if (existing.gatewayId !== input.gatewayId
+        || existing.delegatedTargetId !== input.delegatedTargetId
+        || existing.executionRunId !== input.executionRunId
+        || existing.stepId !== input.stepId
+        || existing.action !== action
+        || existing.adapter !== adapter) {
+        throw new AppError('IDEMPOTENCY_CONFLICT', 'GatewayTask 幂等键与转发范围不一致', {
+          tenantId: input.tenantId,
+          idempotencyKey: input.idempotencyKey,
+          taskId: existing.id,
+        });
+      }
+      return existing;
+    }
 
     const now = input.now ?? new Date();
     const task: GatewayTask = {
@@ -53,9 +73,10 @@ export class GatewayTaskService {
       gatewayId: input.gatewayId,
       delegatedTargetId: input.delegatedTargetId,
       target: input.target,
-      adapter: input.adapter,
-      action: input.action,
+      adapter,
+      action,
       payload: input.payload ?? {},
+      grant: input.grant,
       forwardingGrant: input.forwardingGrant,
       status: 'queued',
       evidenceIds: [],
@@ -141,6 +162,20 @@ export class GatewayTaskService {
     return this.save({ ...task, forwardingGrant, updatedAt: now.toISOString() });
   }
 
+  assertV2NonceAvailable(binding: Omit<NonNullable<GatewayTask['v2NonceBinding']>, 'consumedAt'>): void {
+    const taskId = this.v2NonceIndex.get(this.v2NonceKey(binding));
+    if (taskId) throw new AppError('AUTH_FORBIDDEN', 'Gateway 拒绝重复使用 Agent v2 nonce', { reason: 'GATEWAY_V2_NONCE_REPLAY', taskId, tokenId: binding.tokenId, nonce: binding.nonce });
+  }
+
+  consumeV2Nonce(taskId: string, binding: Omit<NonNullable<GatewayTask['v2NonceBinding']>, 'consumedAt'>, now = new Date()): GatewayTask {
+    this.assertV2NonceAvailable(binding);
+    const task = this.requireTask(taskId);
+    const { taskId: _taskId, ...nonceBinding } = binding as typeof binding & { taskId?: string };
+    const next = { ...task, v2NonceBinding: { ...nonceBinding, consumedAt: now.toISOString() }, updatedAt: now.toISOString() };
+    this.v2NonceIndex.set(this.v2NonceKey(binding), taskId);
+    return this.save(next);
+  }
+
   get(taskId: string): GatewayTask | undefined {
     return this.tasks.get(taskId);
   }
@@ -168,7 +203,7 @@ export class GatewayTaskService {
 
   private save(task: GatewayTask): GatewayTask {
     this.tasks.set(task.id, task);
-    this.idempotencyIndex.set(task.idempotencyKey, task.id);
+    this.idempotencyIndex.set(this.idempotencyKey(task.tenantId, task.idempotencyKey), task.id);
     this.repositories?.tasks.upsert(task);
     return task;
   }
@@ -191,6 +226,14 @@ export class GatewayTaskService {
       .filter((sequence): sequence is number => typeof sequence === 'number')
       .reduce((max, sequence) => Math.max(max, sequence), 0);
     return Math.max(task.evidenceAckCursor ?? 0, maxExisting) + 1;
+  }
+
+  private idempotencyKey(tenantId: string | undefined, idempotencyKey: string): string {
+    return `${tenantId ?? ''}:${idempotencyKey}`;
+  }
+
+  private v2NonceKey(binding: { tenantId: string; agentId: string; tokenId: string; nonce: string }): string {
+    return [binding.tenantId, binding.agentId, binding.tokenId, binding.nonce].join(':');
   }
 
   private evidenceSequenceKey(taskId: string, sequence: number): string {

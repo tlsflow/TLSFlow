@@ -7,6 +7,7 @@ import type {
   ZoneRouteRequest,
   ZoneRouteResult,
 } from './gateway-agent.types.js';
+import { assertGatewayRouteChannel } from './gateway-agent.types.js';
 import { GatewayFailoverService } from './failover.service.js';
 import { ReachabilityService } from './reachability.service.js';
 
@@ -21,6 +22,7 @@ export class ZoneRouter {
   ) {}
 
   route(request: ZoneRouteRequest): ZoneRouteResult {
+    const protocols = request.protocols.map((protocol, index) => assertGatewayRouteChannel(protocol, `protocols[${index}]`));
     const now = request.now ?? new Date();
     const zone = this.zones.find((item) => item.id === request.zoneId);
     if (!zone?.enabled) return this.blocked('zone_disabled');
@@ -60,15 +62,15 @@ export class ZoneRouter {
       missing.forEach((capability) => missingCapabilities.add(capability));
       if (missing.length > 0) continue;
 
-      const adapterAllowed = request.protocols.some((protocol) => gateway.adapters.includes(protocol));
+      const adapterAllowed = protocols.some((protocol) => gateway.adapters.includes(protocol));
       if (!adapterAllowed) continue;
       sawGatewayWithCapability = true;
 
       const zoneAdapterAllowed =
-        !zone.policy.allowedAdapters || request.protocols.some((protocol) => zone.policy.allowedAdapters?.includes(protocol));
+        !zone.policy.allowedAdapters || protocols.some((protocol) => zone.policy.allowedAdapters?.includes(protocol));
       if (!zoneAdapterAllowed) continue;
 
-      const record = this.reachability.findAny(gateway.id, request.targetId, request.protocols, now);
+      const record = this.reachability.findAny(gateway.id, request.targetId, protocols, now);
       if (!record) continue;
       if (record.status === 'expired') {
         sawExpired = true;
