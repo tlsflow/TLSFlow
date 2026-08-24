@@ -12,12 +12,12 @@ codeRefs:
   - backend/src/modules/plugins/runtime
   - backend/src/modules/plugins/builtin-agent-plugins
 testRefs: []
-lastVerified: 2026-08-02
+lastVerified: 2026-08-06
 ---
 
 # Agent runtime
 
-Agent plugins use `gcac.agent-plan/v1` and controlled atomic operations. A plugin declares actions, variables, permissions, Artifacts, rollback, and compatibility conditions; it cannot carry scripts, interpreters, or binaries.
+Agent plugins use `gcac.agent-plan/v1` and controlled atomic operations. An `AGENT_ATOMIC` plugin declares actions, variables, permissions, Artifacts, rollback, and compatibility conditions, and cannot carry scripts, interpreters, or binaries. This restriction applies to the Agent atomic runtime only; ordinary plugins still do not execute code by default, and unknown-code execution must be authorized separately.
 
 Unknown Actions, unapproved permissions, target mismatches, expired plans, invalid signatures, and path traversal must fail closed before queueing. The Agent must not infer capabilities from an operating-system name.
 
