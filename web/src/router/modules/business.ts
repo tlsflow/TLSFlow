@@ -60,7 +60,8 @@ export const businessRoutes: GcRouteRecord[] = [
       resourceType: 'certificate_authority',
       riskLevel: 'medium',
       breadcrumbKeys: ['nav.certificates', 'caOperations.title'],
-      keepAlive: true
+      keepAlive: true,
+      heroTitle: true
     }
   },
   {

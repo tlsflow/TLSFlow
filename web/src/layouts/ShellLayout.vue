@@ -69,8 +69,15 @@ const activeTopItem = computed(() => navItems.value.find((item) => isMenuItemAct
 const activeChildren = computed(() => isUserViewMode.value ? [] : (activeTopItem.value?.children ?? []))
 const brandTarget = computed(() => isUserViewMode.value ? '/certificates' : '/dashboard')
 const lockContentScroll = computed(() => route.path === '/certificates')
-const showDashboardRefresh = computed(() => route.name === 'dashboard.overview')
-const showHeroBar = computed(() => activeChildren.value.length > 0 || showDashboardRefresh.value)
+const showHeroBar = computed(() => activeChildren.value.length > 0)
+const currentPageTitle = computed(() => {
+  if (!route.meta.heroTitle) return ''
+  const titleKey = route.meta.titleKey
+  if (typeof titleKey === 'string' && titleKey) return t(titleKey)
+  const title = route.meta.title
+  if (typeof title === 'string' && title) return title
+  return ''
+})
 const showTaskEntry = computed(() => permissionStore.hasPermission('task.read'))
 const TASK_ENTRY_REFRESH_INTERVAL_MS = 15_000
 const ACTIVE_TASK_STATUSES: readonly TaskStatus[] = ['QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING']
@@ -155,10 +162,6 @@ async function logout() {
   closeUserMenu()
   await authStore.logout()
   await router.push({ name: 'login' })
-}
-
-function refreshDashboard() {
-  window.dispatchEvent(new CustomEvent('dashboard:refresh'))
 }
 
 function toggleUserMenu() {
@@ -550,16 +553,8 @@ async function refreshTaskEntryCount(): Promise<void> {
 
     <main class="gc-shell__content" :class="{ 'gc-shell__content--locked': lockContentScroll }">
       <section v-if="showHeroBar" class="gc-shell__hero" :aria-label="t('shell.currentLocation')">
-        <div v-if="showDashboardRefresh" class="gc-shell__hero-actions">
-          <button
-            class="gc-button gc-button--primary"
-            type="button"
-            @click="refreshDashboard"
-          >
-            <span aria-hidden="true">↻</span>
-            {{ t('common.refresh') }}
-          </button>
-        </div>
+        <h1 v-if="currentPageTitle" class="gc-shell__page-title">{{ currentPageTitle }}</h1>
+        <div id="gc-shell-hero-actions" class="gc-shell__hero-actions"></div>
         <nav v-if="activeChildren.length" class="gc-shell__submenu" :aria-label="t('shell.currentGroupNavigation')">
           <RouterLink
             v-for="child in activeChildren"

@@ -17,6 +17,7 @@ export interface GcRouteMeta {
   readonly keepAlive?: boolean
   readonly featureFlag?: string
   readonly hiddenInMenu?: boolean
+  readonly heroTitle?: boolean
 }
 
 export type GcRouteRecord = RouteRecordRaw & {

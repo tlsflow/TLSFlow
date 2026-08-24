@@ -614,6 +614,17 @@
   min-width: 0;
 }
 
+.gc-shell__page-title {
+  display: inline-flex;
+  align-items: center;
+  align-self: stretch;
+  margin: 0;
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-lg);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
 .gc-shell__submenu-item {
   display: inline-flex;
   align-items: center;
