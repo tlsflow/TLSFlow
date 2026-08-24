@@ -18,7 +18,13 @@ import { useTenantStore } from '@/stores/tenant.store'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
-import { buildManagedTargetDeploymentStrategy, resolveDeploymentStrategyMode } from './asset-deployment-strategy.model'
+import {
+  buildManagedTargetDeploymentStrategy,
+  collectFrameworkTypeOptions,
+  frameworkTypesMatch,
+  normalizeFrameworkType,
+  resolveDeploymentStrategyMode,
+} from './asset-deployment-strategy.model'
 import {
   loadCredentialProfiles,
   credentialProfileBinding,
@@ -29,7 +35,6 @@ import {
 
 type AssetPlatform = 'LINUX' | 'WINDOWS' | 'APPLIANCE'
 type AssetProtocol = 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP' | 'CUSTOM'
-type FrameworkType = 'IIS' | 'NGINX' | 'APACHE' | 'TOMCAT' | 'CUSTOM' | 'DEVICE_TEMPLATE'
 type AssetManagementMode = 'MANAGED_TARGET' | 'WORKFLOW'
 type ManagedExecutionMode = 'PLUGIN' | 'WORKFLOW_OVERRIDE'
 type WorkflowRunnerType = 'CONTROL_PLANE' | 'GATEWAY'
@@ -47,7 +52,7 @@ interface AssetDraft {
   protocol: AssetProtocol
   platform: AssetPlatform
   verifyUrl: string
-  frameworkType: FrameworkType
+  frameworkType: string
   siteAssetId: string
   managedTargetId: string
   agentCertificateFormatId: string
@@ -117,7 +122,7 @@ interface WorkflowCertificateArtifactBinding {
 }
 
 interface WorkflowTargetInfo {
-  frameworkType: FrameworkType
+  frameworkType: string
   siteName: string
   bindingInformation?: string
   hostHeader?: string
@@ -210,8 +215,6 @@ const workflowVariablePresets: readonly WorkflowVariablePreset[] = [
   { name: 'sshUsername', type: 'string', descriptionKey: 'assets.workflowVariables.presets.sshUsername' },
   { name: 'credential', type: 'credential', descriptionKey: 'assets.workflowVariables.presets.credential' },
   { name: 'certificate', type: 'certificate', descriptionKey: 'assets.workflowVariables.presets.certificate' },
-  { name: 'apacheServiceName', type: 'string', descriptionKey: 'assets.workflowVariables.presets.apacheServiceName' },
-  { name: 'apacheSiteConfigPath', type: 'string', descriptionKey: 'assets.workflowVariables.presets.apacheSiteConfigPath' },
   { name: 'certificateFilePath', type: 'string', descriptionKey: 'assets.workflowVariables.presets.certificateFilePath' },
   { name: 'certificateKeyFilePath', type: 'string', descriptionKey: 'assets.workflowVariables.presets.certificateKeyFilePath' },
   { name: 'backupRoot', type: 'string', descriptionKey: 'assets.workflowVariables.presets.backupRoot' },
@@ -243,7 +246,7 @@ const assetDraft = reactive<AssetDraft>({
   protocol: 'HTTPS',
   platform: 'LINUX',
   verifyUrl: '',
-  frameworkType: 'NGINX',
+  frameworkType: '',
   siteAssetId: '',
   managedTargetId: '',
   agentCertificateFormatId: '',
@@ -372,7 +375,9 @@ const selectedServiceInstance = computed(() =>
   serviceInstanceItems.value.find((item) => String(item.id ?? '') === assetDraft.frameworkInstanceId) ?? null,
 )
 
-const availableFrameworkOptions: readonly FrameworkType[] = ['NGINX', 'APACHE', 'TOMCAT', 'IIS', 'CUSTOM']
+const availableFrameworkOptions = computed(() =>
+  collectFrameworkTypeOptions(serviceInstanceItems.value, assetDraft.frameworkType),
+)
 
 const filteredSiteItems = computed(() => {
   return siteItems.value.filter((item) =>
@@ -706,7 +711,7 @@ async function openEditDialog(row: ViewRow) {
   assetDraft.environment = String(readNested(source, ['environment']) ?? '')
   const tags = readNested(source, ['tags'])
   assetDraft.tagsText = Array.isArray(tags) ? tags.map((item: unknown) => String(item)).join(', ') : ''
-  assetDraft.frameworkType = String(contextFramework?.frameworkType ?? assetDraft.frameworkType) as FrameworkType
+  assetDraft.frameworkType = normalizeFrameworkType(contextFramework?.frameworkType ?? assetDraft.frameworkType)
   assetDraft.siteAssetId = String(contextSite?.id ?? '')
   assetDraft.managedTargetId = String(contextManagedTarget?.id ?? '')
   const deploymentStrategy = readDeploymentStrategy(source)
@@ -1300,7 +1305,7 @@ function resetDraft() {
   assetDraft.protocol = 'HTTPS'
   assetDraft.platform = 'LINUX'
   assetDraft.verifyUrl = ''
-  assetDraft.frameworkType = 'NGINX'
+  assetDraft.frameworkType = ''
   assetDraft.siteAssetId = ''
   assetDraft.managedTargetId = ''
   assetDraft.agentCertificateFormatId = ''
@@ -1377,23 +1382,12 @@ async function refreshManagedTargetSelection() {
   const previousTargetId = assetDraft.managedTargetId
   await loadServiceInstances(assetDraft.deviceId)
   const matchingFramework = serviceInstanceItems.value.find((item) => String(item.id ?? '') === previousFrameworkId)
-    ?? serviceInstanceItems.value.find((item) => normalizeFrameworkType(String(item.frameworkType ?? '')) === normalizeFrameworkType(assetDraft.frameworkType))
+    ?? serviceInstanceItems.value.find((item) => frameworkTypesMatch(item.frameworkType, assetDraft.frameworkType))
   assetDraft.frameworkInstanceId = String(matchingFramework?.id ?? '')
   await refreshAssetTargets()
   assetDraft.siteAssetId = siteItems.value.some((item) => String(item.id ?? '') === previousSiteId) ? previousSiteId : ''
   await loadManagedTargets(assetDraft.siteAssetId)
   assetDraft.managedTargetId = managedTargetItems.value.some((item) => String(item.id ?? '') === previousTargetId) ? previousTargetId : ''
-}
-
-function normalizeFrameworkType(value: string): string {
-  const normalized = value.trim().toLowerCase()
-  const aliases: Record<string, string> = {
-    iis: 'web.iis',
-    nginx: 'web.nginx',
-    apache: 'web.apache',
-    tomcat: 'app.tomcat',
-  }
-  return aliases[normalized] ?? normalized
 }
 
 function assetWizardStepState(step: AssetWizardStep): 'done' | 'active' | 'pending' {
@@ -1511,9 +1505,8 @@ function readWorkflowVariableText(name: string): string {
   return ''
 }
 
-function normalizeWorkflowTargetFramework(value: string): FrameworkType {
-  const normalized = value.trim().toUpperCase()
-  return ['IIS', 'NGINX', 'APACHE', 'TOMCAT', 'CUSTOM'].includes(normalized) ? normalized as FrameworkType : 'CUSTOM'
+function normalizeWorkflowTargetFramework(value: string): string {
+  return normalizeFrameworkType(value)
 }
 
 function normalizeWorkflowTargetProtocol(value: string): AssetProtocol {
@@ -1992,7 +1985,7 @@ function readWorkflowTargetFromAsset(source: unknown, deploymentStrategy: ApiRec
   if (!target) return null
   const port = normalizeWorkflowTargetPort(String(target.port ?? ''))
   return {
-    frameworkType: normalizeWorkflowTargetFramework(String(target.frameworkType ?? 'CUSTOM')),
+    frameworkType: normalizeWorkflowTargetFramework(String(target.frameworkType ?? '')),
     siteName: String(target.siteName ?? ''),
     bindingInformation: typeof target.bindingInformation === 'string' ? target.bindingInformation : undefined,
     hostHeader: typeof target.hostHeader === 'string' ? target.hostHeader : undefined,
@@ -2220,7 +2213,7 @@ watch(
   async () => {
     if (targetSelectionInitializing.value) return
     const service = selectedServiceInstance.value
-    assetDraft.frameworkType = String(service?.frameworkType ?? '') as FrameworkType
+    assetDraft.frameworkType = normalizeFrameworkType(service?.frameworkType)
     assetDraft.siteAssetId = ''
     assetDraft.managedTargetId = ''
     await refreshAssetTargets()
@@ -2753,11 +2746,10 @@ function managedTargetLabel(target: ApiRecord): string {
                 <div class="workflow-target-form__grid">
                   <label class="asset-form__field">
                     <span>{{ t('assets.fields.frameworkType') }} <strong>*</strong></span>
-                    <select v-model="assetDraft.frameworkType">
-                      <option v-for="framework in availableFrameworkOptions" :key="framework" :value="framework">
-                        {{ framework }}
-                      </option>
-                    </select>
+                    <input v-model="assetDraft.frameworkType" list="asset-framework-type-options" autocomplete="off">
+                    <datalist id="asset-framework-type-options">
+                      <option v-for="framework in availableFrameworkOptions" :key="framework" :value="framework" />
+                    </datalist>
                   </label>
                   <label class="asset-form__field">
                     <span>{{ t('assets.fields.siteName') }}</span>

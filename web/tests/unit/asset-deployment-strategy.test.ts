@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { buildManagedTargetDeploymentStrategy, resolveDeploymentStrategyMode } from '@/views/assets/asset-deployment-strategy.model'
+import {
+  buildManagedTargetDeploymentStrategy,
+  collectFrameworkTypeOptions,
+  frameworkTypesMatch,
+  normalizeFrameworkType,
+  resolveDeploymentStrategyMode,
+} from '@/views/assets/asset-deployment-strategy.model'
 
 describe('应用资产部署策略语义', () => {
   it('新受管目标默认显式使用插件执行', () => {
@@ -13,5 +19,18 @@ describe('应用资产部署策略语义', () => {
     expect(resolveDeploymentStrategyMode({ type: 'AGENT' })).toBe('MANAGED_TARGET')
     expect(resolveDeploymentStrategyMode({ type: 'MANAGED_TARGET' })).toBe('MANAGED_TARGET')
     expect(resolveDeploymentStrategyMode({ type: 'WORKFLOW' })).toBe('WORKFLOW')
+  })
+
+  it('框架类型选项来自标准投影并保留未知当前值', () => {
+    const options = collectFrameworkTypeOptions([
+      { frameworkType: 'web.nginx' },
+      { frameworkType: 'kubernetes.cluster' },
+      { frameworkType: 'web.nginx' },
+    ], 'nas.service')
+
+    expect(options).toEqual(['kubernetes.cluster', 'nas.service', 'web.nginx'])
+    expect(normalizeFrameworkType(' kubernetes.cluster ')).toBe('kubernetes.cluster')
+    expect(frameworkTypesMatch('Kubernetes.Cluster', 'kubernetes.cluster')).toBe(true)
+    expect(frameworkTypesMatch('', '')).toBe(false)
   })
 })

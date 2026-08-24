@@ -7,9 +7,9 @@ import type {
   DeviceDetailSection,
   DeviceLogView,
   DeviceSiteBindingView,
-  DeviceSiteKind,
   DeviceSiteView,
 } from './device-detail.model'
+import { DEVICE_SITE_KIND_PATTERN, type DeviceSiteKind } from './device-detail.model'
 
 export class DeviceDetailAdapterRegistry {
   private readonly adapters: DeviceDetailAdapter[]
@@ -59,7 +59,7 @@ function readFramework(value: unknown): DeviceFrameworkView | undefined {
   return {
     id,
     name,
-    type: readString(record.type) || undefined,
+    type: readString(record.frameworkType) || readString(record.type) || undefined,
     version: readString(record.version) || undefined,
     status: readString(record.status) || undefined,
     metadata: readRecord(record.metadata),
@@ -95,15 +95,15 @@ function readSite(value: unknown): DeviceSiteView | undefined {
   const record = readRecord(value)
   const id = readString(record.id)
   const siteAssetId = readString(record.siteAssetId)
-  const kind = readString(record.kind) as DeviceSiteKind
+  const kind = readString(record.kind)
   const name = readString(record.name)
-  if (!id || !siteAssetId || !name || !['IIS', 'NGINX', 'APACHE', 'TOMCAT', 'LB', 'VPN', 'CUSTOM'].includes(kind)) return undefined
+  if (!id || !siteAssetId || !name || !DEVICE_SITE_KIND_PATTERN.test(kind)) return undefined
   const endpoint = readRecord(record.endpoint)
   return {
     id,
     siteAssetId,
     managedTargetId: readString(record.managedTargetId) || undefined,
-    kind,
+    kind: kind as DeviceSiteKind,
     name,
     status: readString(record.status) || undefined,
     endpoint: Object.keys(endpoint).length ? {

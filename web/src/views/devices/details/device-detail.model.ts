@@ -1,6 +1,7 @@
 import type { Component } from 'vue'
 
-export type DeviceSiteKind = 'IIS' | 'NGINX' | 'APACHE' | 'TOMCAT' | 'LB' | 'VPN' | 'CUSTOM'
+export type DeviceSiteKind = `${string}${'.' | '-'}${string}`
+export const DEVICE_SITE_KIND_PATTERN = /^[a-z0-9]+(?:[.-][a-z0-9]+)+$/
 export type DeviceDetailFieldValueType = 'TEXT' | 'STATUS' | 'DATETIME' | 'BOOLEAN' | 'NUMBER'
 
 export interface DeviceDetailField {
