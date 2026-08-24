@@ -509,7 +509,6 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
 
     <GcModal v-model:open="adcsWizardOpen" size="lg" :title="t('internalCa.adcsAgent.wizardTitle')" :description="t('internalCa.adcsAgent.wizardDescription')">
       <form v-if="!adcsInstallSession" class="adcs-wizard" @submit.prevent="createAdcsAgentInstallSession">
-        <article class="ca-wizard__notice"><strong>{{ t('internalCa.adcsAgent.adapterRoleTitle') }}</strong><p>{{ t('internalCa.adcsAgent.adapterRoleDescription') }}</p></article>
         <article class="adcs-wizard__requirements"><strong>{{ t('internalCa.adcsAgent.requirementsTitle') }}</strong><ul><li>{{ t('internalCa.adcsAgent.requirementInstalled') }}</li><li>{{ t('internalCa.adcsAgent.requirementConfigured') }}</li><li>{{ t('internalCa.adcsAgent.requirementService') }}</li><li>{{ t('internalCa.adcsAgent.requirementPermission') }}</li></ul></article>
         <label>{{ t('internalCa.adcsAgent.connectionName') }}<input v-model="adcsDraft.name" required /></label>
         <article class="adcs-wizard__compatibility"><strong>{{ t('internalCa.adcsAgent.coexistenceTitle') }}</strong><p>{{ t('internalCa.adcsAgent.coexistenceDescription') }}</p></article>
