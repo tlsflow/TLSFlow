@@ -5,6 +5,16 @@ import { PluginBindingsRepository } from '../repository/plugin-bindings.reposito
 
 type CreatePluginBindingInput = Omit<PluginBindingV1, 'id' | 'tenantId' | 'status' | 'version' | 'createdAt' | 'updatedAt'>;
 
+/** 中文说明：CloudAccountAsset 只承载云账号连接和资源识别，不再承载证书生命周期能力。 */
+export const cloudAccountIdentificationCapabilities = [
+  'cloud.service.connection-test',
+  'cloud.service.discover',
+] as const;
+
+export function isCloudAccountIdentificationCapability(capabilityKey: string): boolean {
+  return (cloudAccountIdentificationCapabilities as readonly string[]).includes(capabilityKey);
+}
+
 export class PluginBindingsApplicationService {
   constructor(private readonly repository = new PluginBindingsRepository()) {}
 
@@ -54,6 +64,12 @@ export class PluginBindingsApplicationService {
   async assignCapability(tenantId: string, input: Omit<CapabilityAssignmentV1, 'id' | 'tenantId' | 'status' | 'createdAt' | 'updatedAt'>): Promise<CapabilityAssignmentV1> {
     const binding = await this.repository.getBinding(input.pluginBindingId);
     if (!binding || binding.tenantId !== tenantId || binding.pluginVersionId !== input.pluginVersionId) throw new AppError('VALIDATION_FAILED', 'Capability Assignment 与 Binding 不一致');
+    if (input.ownerType === 'CLOUD_ACCOUNT_ASSET' && !isCloudAccountIdentificationCapability(input.capabilityKey)) {
+      throw new AppError('VALIDATION_FAILED', '云账号只允许绑定连接测试和资源发现能力，证书生命周期必须使用 V1 DSL Workflow', {
+        ownerType: input.ownerType,
+        capabilityKey: input.capabilityKey,
+      });
+    }
     if (input.ownerType === 'CLOUD_ACCOUNT_ASSET' && binding.managedContext?.cloudAccountAssetId !== input.ownerId) {
       throw new AppError('VALIDATION_FAILED', '云账号 Capability Assignment 必须绑定同一 CloudAccountAsset', {
         ownerId: input.ownerId,

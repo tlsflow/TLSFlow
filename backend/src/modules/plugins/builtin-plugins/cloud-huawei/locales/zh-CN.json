@@ -4,7 +4,6 @@
   "plugin.cloud.huawei.cloudService": "云服务对象",
   "plugin.cloud.huawei.credential": "云账号凭据",
   "plugin.cloud.huawei.region": "区域",
-  "plugin.cloud.huawei.certificateArtifact": "证书制品",
   "plugin.cloud.huawei.accessKey": "Access Key (AK)",
   "plugin.cloud.huawei.secretKey": "Secret Key (SK)"
 }

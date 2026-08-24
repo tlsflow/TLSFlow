@@ -4,7 +4,6 @@
   "plugin.cloud.volcengine.cloudService": "云服务对象",
   "plugin.cloud.volcengine.credential": "云账号凭据",
   "plugin.cloud.volcengine.region": "地域",
-  "plugin.cloud.volcengine.certificateArtifact": "证书制品",
   "plugin.cloud.volcengine.accessKey": "Access Key",
   "plugin.cloud.volcengine.secretKey": "Secret Key"
 }

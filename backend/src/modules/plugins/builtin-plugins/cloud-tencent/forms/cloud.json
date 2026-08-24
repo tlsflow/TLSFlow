@@ -4,8 +4,7 @@
   "fields": [
     { "key": "cloudServiceRef", "type": "objectRef", "required": true, "labelKey": "plugin.cloud.tencent.cloudService" },
     { "key": "credential.secretRef", "type": "secretRef", "required": true, "labelKey": "plugin.cloud.tencent.credential" },
-    { "key": "region", "type": "string", "required": true, "labelKey": "plugin.cloud.tencent.region" },
-    { "key": "certificateArtifactRef", "type": "artifactRef", "required": false, "labelKey": "plugin.cloud.tencent.certificateArtifact" }
+    { "key": "region", "type": "string", "required": true, "labelKey": "plugin.cloud.tencent.region" }
   ],
   "credentialContract": {
     "kind": "CLOUD_PROVIDER",

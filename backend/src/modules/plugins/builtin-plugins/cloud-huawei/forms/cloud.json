@@ -4,8 +4,7 @@
   "fields": [
     { "key": "cloudServiceRef", "type": "objectRef", "required": true, "labelKey": "plugin.cloud.huawei.cloudService" },
     { "key": "credential.secretRef", "type": "secretRef", "required": true, "labelKey": "plugin.cloud.huawei.credential" },
-    { "key": "region", "type": "string", "required": true, "labelKey": "plugin.cloud.huawei.region" },
-    { "key": "certificateArtifactRef", "type": "artifactRef", "required": false, "labelKey": "plugin.cloud.huawei.certificateArtifact" }
+    { "key": "region", "type": "string", "required": true, "labelKey": "plugin.cloud.huawei.region" }
   ],
   "credentialContract": {
     "kind": "CLOUD_PROVIDER",

@@ -1,6 +1,5 @@
 import { createHash, createHmac } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import readline from 'node:readline';
 
@@ -19,13 +18,10 @@ for (const [key, value] of Object.entries(descriptorEnv)) if (!value) fail(`缺�
 Object.assign(process.env, descriptorEnv);
 
 const provider = providerFor(pluginId);
-const vectors = loadVector(executorPath, pluginId);
-const deployFailureFixture = loadDeployFailureFixture(executorPath, pluginId);
 const module = await import(pathToFileURL(resolve(executorPath)).href);
 if (typeof module.createPluginRunnerExecutor !== 'function') fail('插件入口缺少固定工厂导出');
 const executor = await module.createPluginRunnerExecutor();
 let activeExecution;
-let operationPolls = 0;
 
 const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 for await (const line of input) {
@@ -53,7 +49,6 @@ async function handle(message) {
   }
   if (message.messageType !== 'execute') return;
   activeExecution = message;
-  operationPolls = 0;
   let result;
   try {
     result = await executor.execute({
@@ -64,6 +59,14 @@ async function handle(message) {
       executionId: message.executionId,
       executionStepId: message.executionStepId,
       capability: message.capability,
+      actionId: message.actionId,
+      actionContractVersion: message.actionContractVersion,
+      inputSchemaSha256: message.inputSchemaSha256,
+      outputSchemaSha256: message.outputSchemaSha256,
+      packageHash: message.packageHash,
+      manifestHash: message.manifestHash,
+      resourceHash: message.resourceHash,
+      planDigest: message.planDigest,
       input: message.input,
       grantRefs: message.grantRefs,
       idempotencyKey: message.idempotencyKey,
@@ -72,11 +75,11 @@ async function handle(message) {
       signal: new AbortController().signal,
     }, { call: hostCall });
   } catch (error) {
-    result = { success: false, status: message.writeEffect ? 'UNKNOWN' : 'FAILED', summary: {}, normalizedObjects: [], warnings: [], error: { code: 'FIXTURE_RUNNER_FAILED', message: 'Fixture Runner 执行失败', retryable: false, mayBeUnknown: message.writeEffect, secretRedacted: true } };
+    result = { success: false, status: 'FAILED', summary: {}, normalizedObjects: [], warnings: [], error: { code: 'FIXTURE_RUNNER_FAILED', message: 'Fixture Runner 执行失败', retryable: false, mayBeUnknown: false, secretRedacted: true } };
   }
-  // 与标准 Runner 的写操作规则保持一致：非 SUCCESS 不可被解释成已完成。
-  if (message.writeEffect && result.status !== 'SUCCESS') result = { ...result, success: false, status: 'UNKNOWN' };
-  write({ protocolVersion: 'gcac.plugin-runner/v1', messageType: 'execute_result', requestId: message.requestId, sentAt: new Date().toISOString(), pluginVersionId: executor.descriptor.pluginVersionId, tenantId: message.tenantId, executionId: message.executionId, executionStepId: message.executionStepId, success: result.success, status: result.status, summary: result.summary ?? {}, normalizedObjects: result.normalizedObjects ?? [], warnings: result.warnings ?? [], ...(result.error ? { error: result.error } : {}) });
+  const output = result.output && typeof result.output === 'object' && !Array.isArray(result.output) ? result.output : {};
+  const normalizedObjects = result.normalizedObjects ?? (Array.isArray(output.resources) ? output.resources : []);
+  write({ protocolVersion: 'gcac.plugin-runner/v1', messageType: 'execute_result', requestId: message.requestId, sentAt: new Date().toISOString(), pluginVersionId: executor.descriptor.pluginVersionId, tenantId: message.tenantId, executionId: message.executionId, executionStepId: message.executionStepId, success: result.success, status: result.status, summary: result.summary ?? output, normalizedObjects, warnings: result.warnings ?? [], ...(result.error ? { error: result.error } : {}) });
   activeExecution = undefined;
 }
 
@@ -85,19 +88,10 @@ async function hostCall(method, request) {
   if (!Array.isArray(request) && method === undefined) throw new Error('Fixture Host API 请求无效');
   if (method === 'cloudService.get') return { ok: true, data: provider.service };
   if (method === 'secret.grant.resolve') return { ok: true, data: provider.secret };
-  if (method === 'artifact.grant.read') return { ok: true, data: { certificateChain: '-----BEGIN CERTIFICATE-----fixture-public-chain-----END CERTIFICATE-----' } };
   if (method !== 'http.request') throw new Error('Fixture Host API 拒绝未知方法');
   if (!verifySignature(request, provider)) return { ok: true, data: { statusCode: 401, body: { status: 'FAILED', code: 'InvalidSignature' }, signatureVerified: false } };
   const operationPath = request.operationPath ?? request.path;
-  if (operationPath === '/fixture/unknown') throw new Error('Fixture 网络连接中断');
   if (operationPath === '/fixture/discover') return { ok: true, data: { statusCode: 200, body: { resources: [{ id: `${provider.name}-resource`, type: provider.resourceType, region: provider.service.scope.metadata.region }] }, signatureVerified: true } };
-  if (operationPath === '/fixture/deploy-failure') return { ok: true, data: deployFailureFixture };
-  if (operationPath === '/fixture/deploy' && request.method === 'POST') return { ok: true, data: { statusCode: 202, body: { status: 'PENDING', operationId: `${provider.name}-operation` }, operationId: `${provider.name}-operation`, signatureVerified: true } };
-  if (operationPath.startsWith('/operations/')) {
-    operationPolls += 1;
-    if (operationPolls > 1) return { ok: true, data: { statusCode: 200, body: { status: 'SUCCEEDED' }, signatureVerified: true } };
-    return { ok: true, data: { statusCode: 202, body: { status: 'PENDING', operationId: `${provider.name}-operation` }, operationId: `${provider.name}-operation`, signatureVerified: true } };
-  }
   return { ok: true, data: { statusCode: 200, body: { status: 'SUCCEEDED', requestId: `${provider.name}-request` }, signatureVerified: true } };
 }
 
@@ -121,23 +115,6 @@ function providerService(providerKey, providerName, metadata) {
     status: 'ACTIVE',
     version: 1,
   };
-}
-
-function loadVector(executorPath, id) {
-  const packageDirectory = dirname(dirname(resolve(executorPath)));
-  const vectorPath = join(packageDirectory, 'fixtures', 'request-vectors.json');
-  try { return JSON.parse(readFileSync(vectorPath, 'utf8')); } catch { return { provider: id }; }
-}
-
-function loadDeployFailureFixture(executorPath, id) {
-  const packageDirectory = dirname(dirname(resolve(executorPath)));
-  const fixturePath = join(packageDirectory, 'fixtures', 'deploy-failure.json');
-  let fixture;
-  try { fixture = JSON.parse(readFileSync(fixturePath, 'utf8')); } catch { fail(`${id} deploy-failure Fixture 无法加载`); }
-  if (!fixture || typeof fixture !== 'object' || Array.isArray(fixture)) fail(`${id} deploy-failure Fixture 格式无效`);
-  if (!Number.isInteger(fixture.statusCode) || fixture.statusCode < 400 || fixture.statusCode > 599) fail(`${id} deploy-failure Fixture 必须是失败响应`);
-  if (!fixture.body || typeof fixture.body !== 'object' || Array.isArray(fixture.body) || String(fixture.body.status).toUpperCase() !== 'FAILED') fail(`${id} deploy-failure Fixture 缺少失败状态`);
-  return Object.freeze({ statusCode: fixture.statusCode, body: fixture.body, signatureVerified: true });
 }
 
 function verifySignature(request, item) {

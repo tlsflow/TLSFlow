@@ -4,7 +4,6 @@
   "plugin.cloud.tencent.cloudService": "云服务对象",
   "plugin.cloud.tencent.credential": "云账号凭据",
   "plugin.cloud.tencent.region": "地域",
-  "plugin.cloud.tencent.certificateArtifact": "证书制品",
   "plugin.cloud.tencent.secretId": "SecretId",
   "plugin.cloud.tencent.secretKey": "SecretKey"
 }

@@ -12,7 +12,7 @@ const providers = [
   ['cloud-volcengine', 'cloud.volcengine'],
 ];
 
-test('四个 Cloud Runtime 工厂遵守固定 PluginVersion、五类 Capability 和失败关闭合同', async () => {
+test('四个 Cloud Runtime 工厂只执行服务识别，证书命令失败关闭', async () => {
   for (const [directory, pluginId] of providers) {
     const manifest = JSON.parse(readFileSync(join(root, directory, 'manifest.json'), 'utf8'));
     const module = await import(pathToFileURL(join(root, directory, 'runtime', 'index.js')).href);
@@ -34,13 +34,20 @@ test('四个 Cloud Runtime 工厂遵守固定 PluginVersion、五类 Capability 
       assert.equal(executor.descriptor.pluginVersion, manifest.version);
       assert.deepEqual(executor.descriptor.capabilities, manifest.capabilities.map((item) => item.key));
       const hostApi = mockHostApi(pluginId);
-      for (const capability of ['cloud.service.connection-test', 'cloud.service.discover', 'certificate.deploy', 'certificate.verify', 'certificate.rollback']) {
+      assert.deepEqual(executor.descriptor.actions.map((action) => action.capability), ['cloud.service.connection-test', 'cloud.service.discover']);
+      assert.equal(manifest.capabilities.some((item) => item.key.startsWith('certificate.')), false);
+      for (const capability of ['cloud.service.connection-test', 'cloud.service.discover']) {
         const result = await executor.execute(context({ pluginId, versionId, manifest, hashes, capability }), hostApi);
         assert.equal(result.success, true, `${pluginId} ${capability} 未成功`);
       }
+      const forbidden = await executor.execute(context({ pluginId, versionId, manifest, hashes, capability: 'certificate.deploy' }), hostApi);
+      assert.equal(forbidden.success, false, `${pluginId} certificate.deploy 不得由 Runner 执行`);
+      assert.equal(forbidden.status, 'FAILED');
+      assert.equal(forbidden.error.code, 'PLUGIN_RUNNER_SCOPE_FORBIDDEN');
+      assert.equal(forbidden.error.mayBeUnknown, false);
       const discovery = await executor.execute(context({ pluginId, versionId, manifest, hashes, capability: 'cloud.service.discover' }), hostApi);
-      assert.equal(discovery.normalizedObjects[0].apiVersion, 'gcac.cloud-service/v1');
-      assert.equal(discovery.normalizedObjects[0].pluginVersionId, versionId);
+      assert.equal(discovery.output.resources[0].apiVersion, 'gcac.cloud-service/v1');
+      assert.equal(discovery.output.resources[0].pluginVersionId, versionId);
       const denied = await executor.execute(context({ pluginId, versionId, manifest, hashes, capability: 'cloud.service.connection-test', grantRefs: [] }), hostApi);
       assert.equal(denied.success, false);
       assert.equal(denied.status, 'FAILED');
@@ -75,12 +82,20 @@ function context({ pluginId, versionId, manifest, hashes, capability, grantRefs 
     pluginId,
     pluginVersion: manifest.version,
     capability,
+    actionId: `${capability}.v1`,
+    actionContractVersion: 'v1',
+    packageHash: hashes.packageHash,
+    manifestHash: hashes.manifestHash,
+    resourceHash: hashes.resourceHash,
+    planDigest: 'd'.repeat(64),
+    idempotencyKey: 'idem-cloud-fixture',
+    deadlineAt: new Date(Date.now() + 10_000).toISOString(),
+    signal: new AbortController().signal,
     grantRefs,
-    writeEffect: capability === 'certificate.deploy' || capability === 'certificate.rollback',
+    writeEffect: false,
     input: {
       cloudServiceRef: 'caa_fixture',
       credential: { grantId: 'grant-cloud', secretRef: 'secret://api_token/cloud-fixture#current' },
-      certificateArtifactRef: 'artifact://fixture/cloud',
       request: { method: 'POST', uri: '/fixture', action: capability, timestamp: '2026-08-11T00:00:00Z', body: {} },
       security: {
         tokenRef: 'token://fixture', decisionRef: 'decision://fixture', nonce: 'nonce-fixture', receiptRef: 'receipt://fixture',
@@ -119,7 +134,6 @@ function mockHostApi(pluginId) {
           ...(pluginId === 'cloud.aliyun' ? { accessKeyId: 'fixture-access', accessKeySecret: 'fixture-secret' } : {}),
         },
       };
-      if (method === 'artifact.grant.read') return { ok: true, data: { artifactRef: 'artifact://fixture/cloud', certificateChain: '-----BEGIN CERTIFICATE-----fixture' } };
       if (method === 'http.request') return { ok: true, data: { statusCode: 200, signatureVerified: true, body: { status: 'SUCCEEDED', resources: [{ id: 'resource-1', type: 'cdn.domain', region: 'cn-hangzhou' }] } } };
       throw new Error(`unexpected host method ${method}`);
     },

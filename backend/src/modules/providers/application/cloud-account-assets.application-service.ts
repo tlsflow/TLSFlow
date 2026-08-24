@@ -36,9 +36,6 @@ export class CloudAccountAssetsApplicationService {
 
   constructor(
     private readonly db: DatabasePort,
-    // ProviderKey 只是 Cloud Service 的不透明引用，厂商目录由插件/Runner 负责。
-    // 保留第二参数是为了兼容现有应用装配，宿主资产 CRUD 不再调用它做产品路由。
-    private readonly _providerCatalog?: unknown,
   ) {}
 
   /** 中文说明：由应用装配注入 CloudAccountAsset -> PluginBinding 的事务内实现。 */

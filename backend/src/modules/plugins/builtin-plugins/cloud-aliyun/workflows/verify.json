@@ -1,8 +1,0 @@
-{
-  "apiVersion": "gcac.workflow/v1",
-  "kind": "PluginWorkflow",
-  "metadata": { "name": "cloud-aliyun-certificate-verify", "version": "2.0.1", "pluginId": "cloud.aliyun", "capability": "certificate.verify", "readOnly": true },
-  "inputContract": { "required": ["cloudServiceRef", "credential.secretRef", "security"] },
-  "executionBinding": { "capability": "certificate.verify", "runner": "gcac.plugin-runner/v1" },
-  "steps": [{ "type": "plugin.execute", "capability": "certificate.verify" }]
-}

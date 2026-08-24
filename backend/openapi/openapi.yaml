@@ -3649,33 +3649,6 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
-  /api/v1/cloud-account-assets/:id/actions/:action:
-    post:
-      operationId: "enqueueCloudCapabilityAction"
-      summary: "执行云账号 Capability 任务"
-      tags:
-        - "Cloud Service"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: "object"
-              additionalProperties: true
-      responses:
-        200:
-          description: "成功"
-          content:
-            application/json:
-              schema:
-                type: "object"
-                additionalProperties: true
-        400:
-          $ref: "#/components/responses/ErrorResponse"
-        404:
-          $ref: "#/components/responses/ErrorResponse"
-        500:
-          $ref: "#/components/responses/ErrorResponse"
   /api/v1/deployment-inputs/projection:
     post:
       operationId: "projectDeploymentInputs"
@@ -14806,4 +14779,4 @@ tags:
   -
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-08-16T18:27:16.163Z"
+x-generatedAt: "2026-08-17T16:15:03.681Z"

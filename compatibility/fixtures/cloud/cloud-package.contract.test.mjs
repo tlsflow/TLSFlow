@@ -20,13 +20,12 @@ const publicManifestKeys = [
   'apiVersion', 'kind', 'pluginId', 'version', 'displayNameKey', 'descriptionKey', 'defaultLocale', 'publisher',
   'runtime', 'source', 'scope', 'trust', 'support', 'capabilities', 'permissions', 'compatibility', 'resources',
 ];
-const publicResourceKeys = ['runtimeEntrypoint', 'workflows', 'forms', 'presentations', 'discoveryMappings', 'locales'];
+const publicResourceKeys = ['runtimeEntrypoint', 'workflows', 'actionContracts', 'forms', 'presentations', 'discoveryMappings', 'locales'];
 
-test('四个 Cloud 包由真实 Runner 子进程执行，并对缺失授权和失败 Fixture 失败关闭', async () => {
+test('四个 Cloud 包只执行只读服务识别，并拒绝证书命令', async () => {
   for (const [directory, pluginId, provider] of packageCases) {
     const packageDirectory = join(packageRoot, directory);
     const manifest = readJson(join(packageDirectory, 'manifest.json'));
-    const deployFailureFixture = readJson(join(packageDirectory, 'fixtures', 'deploy-failure.json'));
     assert.equal(manifest.apiVersion, 'gcac.plugin-manifest/v1');
     assert.equal(manifest.kind, 'GcacPlugin');
     assert.equal(manifest.pluginId, pluginId);
@@ -38,12 +37,10 @@ test('四个 Cloud 包由真实 Runner 子进程执行，并对缺失授权和�
     assert.ok(manifest.resources.workflows);
     assert.equal(Object.hasOwn(manifest.resources, 'agentPlans'), false, `${pluginId} 不得声明 Agent Plan`);
     for (const forbidden of ['executionMode', 'ipcProtocol', 'providerKey', 'hostApiGrants', 'readOnly']) assert.equal(Object.hasOwn(manifest, forbidden), false, `${pluginId} 含旧 Manifest 字段 ${forbidden}`);
+    assert.deepEqual(manifest.capabilities.map((item) => item.key), ['cloud.service.connection-test', 'cloud.service.discover']);
+    assert.equal(manifest.capabilities.some((item) => item.key.startsWith('certificate.')), false, `${pluginId} 不得声明云端证书执行能力`);
     assert.deepEqual(Object.keys(manifest.resources.workflows).sort(), manifest.capabilities.map((item) => item.key).sort(), `${pluginId} Capability 与 Workflow 未一一绑定`);
-    for (const directoryName of ['runtime', 'workflows', 'discovery', 'locales', 'presentations', 'fixtures']) assert.equal(existsSync(join(packageDirectory, directoryName)), true, `${pluginId} 缺少 ${directoryName} 目录`);
-    assert.equal(Number.isInteger(deployFailureFixture.statusCode), true, `${pluginId} deploy-failure Fixture 缺少 HTTP 状态码`);
-    assert.equal(deployFailureFixture.statusCode >= 400 && deployFailureFixture.statusCode <= 599, true, `${pluginId} deploy-failure Fixture 必须描述失败响应`);
-    assert.equal(deployFailureFixture.body?.status, 'FAILED', `${pluginId} deploy-failure Fixture 必须描述失败状态`);
-    assert.equal(typeof deployFailureFixture.body?.code, 'string', `${pluginId} deploy-failure Fixture 缺少厂商失败码`);
+    for (const directoryName of ['runtime', 'workflows', 'discovery', 'locales', 'presentations']) assert.equal(existsSync(join(packageDirectory, directoryName)), true, `${pluginId} 缺少 ${directoryName} 目录`);
     const digest = packageDigest(packageDirectory, manifest);
     const result = await runChild({ packageDirectory, manifest, pluginId, provider, digest });
     assert.equal(result.hello.accepted, true, `${pluginId} Runner 握手失败`);
@@ -63,20 +60,16 @@ test('四个 Cloud 包由真实 Runner 子进程执行，并对缺失授权和�
     assert.equal(cloudResource?.pluginVersionId, `${pluginId}:${manifest.version}`);
     assert.equal(cloudResource?.provider, provider);
     assert.equal(Object.hasOwn(cloudResource ?? {}, 'objectType'), false);
-    assert.equal(result.deploy.status, 'SUCCESS');
-    assert.equal(result.verify.status, 'SUCCESS');
     assert.equal(result.authorizationDenied.success, false, `${pluginId} 缺失 Receipt 不得成功`);
     assert.equal(result.authorizationDenied.status, 'FAILED', `${pluginId} 缺失 Receipt 必须失败关闭`);
     assert.equal(result.authorizationDenied.error?.code, 'CLOUD_CONTRACT_DENIED', `${pluginId} 缺失 Grant 必须拒绝执行合同`);
     assert.equal(result.authorizationDenied.error?.mayBeUnknown, false, `${pluginId} 缺失 Grant 不得产生写入不确定性`);
     assert.equal(result.authorizationDenied.error?.secretRedacted, true, `${pluginId} 缺失 Grant 错误不得泄露密钥`);
-    assert.equal(result.deployUnknown.status, 'UNKNOWN');
-    assert.equal(result.deployFailure.success, false, `${pluginId} Fixture 写失败不得被报告为成功`);
-    assert.equal(result.deployFailure.status, 'UNKNOWN');
-    assert.equal(result.deployFailure.error?.code, 'CLOUD_OPERATION_REJECTED', `${pluginId} 必须消费 deploy-failure Fixture 的厂商拒绝响应`);
-    assert.equal(result.deployFailure.error?.mayBeUnknown, false, `${pluginId} 厂商拒绝本身不得伪装为已确认结果`);
-    assert.equal(result.deployFailure.error?.secretRedacted, true, `${pluginId} Fixture 失败错误不得泄露密钥`);
-    assert.equal(result.rollback.status, 'SUCCESS');
+    assert.equal(result.forbiddenCertificateAction.success, false, `${pluginId} 不得执行 certificate.deploy`);
+    assert.equal(result.forbiddenCertificateAction.status, 'FAILED');
+    assert.equal(result.forbiddenCertificateAction.error?.code, 'PLUGIN_RUNNER_SCOPE_FORBIDDEN');
+    assert.equal(result.forbiddenCertificateAction.error?.mayBeUnknown, false);
+    assert.equal(result.forbiddenCertificateAction.error?.secretRedacted, true);
   }
 });
 
@@ -108,27 +101,22 @@ async function runChild({ packageDirectory, manifest, pluginId, provider, digest
   const baseInput = {
     cloudServiceRef: `cloud-service://${provider}`,
     credential: { grantId: 'cloud-credential', secretRef: `secret://fixture/${provider}` },
-    security: { tokenRef: 'token://fixture', decisionRef: 'decision://fixture', nonce: 'nonce-fixture', receiptRef: 'receipt://fixture', localPolicyRef: 'policy://fixture', grantRef: 'cloud-credential', packageHash: digest.packageHash, manifestHash: digest.manifestHash, resourceHash: digest.resourceHash },
   };
-  const execute = async (capability, request, writeEffect, suffix, extra = {}, grantRefs = ['cloud-credential']) => {
+  const execute = async (capability, request, suffix, grantRefs = ['cloud-credential']) => {
     const requestId = `execute-${provider}-${suffix}`;
-    child.stdin.write(`${JSON.stringify({ protocolVersion: 'gcac.plugin-runner/v1', messageType: 'execute', requestId, sentAt: '2026-08-11T00:00:01.000Z', pluginVersionId: versionId, tenantId: 'tenant-fixture', executionId: `execution-${suffix}`, executionStepId: `step-${suffix}`, capability, input: { ...baseInput, ...extra, request }, grantRefs, idempotencyKey: `idempotency-${suffix}`, deadlineAt: '2099-08-11T00:00:00.000Z', writeEffect })}\n`);
+    child.stdin.write(`${JSON.stringify({ protocolVersion: 'gcac.plugin-runner/v1', messageType: 'execute', requestId, sentAt: '2026-08-11T00:00:01.000Z', pluginVersionId: versionId, tenantId: 'tenant-fixture', executionId: `execution-${suffix}`, executionStepId: `step-${suffix}`, capability, actionId: `${capability}.v1`, actionContractVersion: 'v1', packageHash: digest.packageHash, manifestHash: digest.manifestHash, resourceHash: digest.resourceHash, planDigest: 'd'.repeat(64), input: { ...baseInput, request }, grantRefs, idempotencyKey: `idempotency-${suffix}`, deadlineAt: '2099-08-11T00:00:00.000Z', writeEffect: false })}\n`);
     return reader.next();
   };
-  const connection = await execute('cloud.service.connection-test', { method: 'POST', uri: '/fixture/connection', action: 'DescribeService', timestamp: '2026-08-11T00:00:00Z', body: {} }, false, `${provider}-connection`);
-  const authorizationDenied = await execute('cloud.service.connection-test', { method: 'POST', uri: '/fixture/connection', action: 'DescribeService', timestamp: '2026-08-11T00:00:00Z', body: {} }, false, `${provider}-missing-grant`, {}, []);
-  const discovery = await execute('cloud.service.discover', { method: 'POST', uri: '/fixture/discover', action: 'ListResources', timestamp: '2026-08-11T00:00:00Z', body: {} }, false, `${provider}-discover`);
-  const deploy = await execute('certificate.deploy', { method: 'POST', uri: '/fixture/deploy', action: 'DeployCertificate', timestamp: '2026-08-11T00:00:00Z', body: { targetRef: 'target-fixture' } }, true, `${provider}-deploy`, { certificateArtifactRef: `artifact://fixture/${provider}` });
-  const verify = await execute('certificate.verify', { method: 'POST', uri: '/fixture/verify', action: 'VerifyCertificate', timestamp: '2026-08-11T00:00:00Z', body: { targetRef: 'target-fixture' } }, false, `${provider}-verify`);
-  const deployUnknown = await execute('certificate.deploy', { method: 'POST', uri: '/fixture/unknown', action: 'DeployCertificate', timestamp: '2026-08-11T00:00:00Z', body: { targetRef: 'target-fixture' } }, true, `${provider}-unknown`, { certificateArtifactRef: `artifact://fixture/${provider}` });
-  const deployFailure = await execute('certificate.deploy', { method: 'POST', uri: '/fixture/deploy-failure', action: 'DeployCertificate', timestamp: '2026-08-11T00:00:00Z', body: { targetRef: 'target-fixture' } }, true, `${provider}-failure`, { certificateArtifactRef: `artifact://fixture/${provider}` });
-  const rollback = await execute('certificate.rollback', { method: 'POST', uri: '/fixture/rollback', action: 'RollbackCertificate', timestamp: '2026-08-11T00:00:00Z', body: { targetRef: 'target-fixture' } }, true, `${provider}-rollback`, { certificateArtifactRef: `artifact://fixture/${provider}` });
+  const connection = await execute('cloud.service.connection-test', { method: 'POST', uri: '/fixture/connection', action: 'DescribeService', timestamp: '2026-08-11T00:00:00Z', body: {} }, `${provider}-connection`);
+  const authorizationDenied = await execute('cloud.service.connection-test', { method: 'POST', uri: '/fixture/connection', action: 'DescribeService', timestamp: '2026-08-11T00:00:00Z', body: {} }, `${provider}-missing-grant`, []);
+  const discovery = await execute('cloud.service.discover', { method: 'POST', uri: '/fixture/discover', action: 'ListResources', timestamp: '2026-08-11T00:00:00Z', body: {} }, `${provider}-discover`);
+  const forbiddenCertificateAction = await execute('certificate.deploy', { method: 'POST', uri: '/fixture/certificate-deploy', action: 'DeployCertificate', timestamp: '2026-08-11T00:00:00Z', body: {} }, `${provider}-certificate-forbidden`);
   child.stdin.write(`${JSON.stringify({ protocolVersion: 'gcac.plugin-runner/v1', messageType: 'shutdown', requestId: `shutdown-${provider}`, sentAt: '2026-08-11T00:00:10.000Z', pluginVersionId: versionId })}\n`);
   await reader.next();
   child.stdin.end();
   const exit = await new Promise((resolveExit) => child.once('close', (code) => resolveExit(code)));
   assert.equal(exit, 0, `${pluginId} Fixture Runner stderr: ${reader.stderr()}`);
-  return { hello, connection, authorizationDenied, discovery, deploy, verify, deployUnknown, deployFailure, rollback };
+  return { hello, connection, authorizationDenied, discovery, forbiddenCertificateAction };
 }
 
 function packageDigest(packageDirectory, manifest) {

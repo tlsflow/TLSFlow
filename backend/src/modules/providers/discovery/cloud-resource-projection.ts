@@ -22,8 +22,6 @@ export interface CloudResourceProjectionContext {
   pluginId: string;
   pluginVersionId: string;
   provider: string;
-  /** 中文说明：只有 Manifest 明确声明的能力才可以进入 ManagedTarget。 */
-  declaredCapabilities: readonly string[];
   discoveryProviderKey?: string;
   discoveredAt?: string;
 }
@@ -53,30 +51,12 @@ export interface CloudResourceProjection {
     discoverySource: 'PROVIDER';
     metadata: Record<string, unknown>;
   };
-  managedTarget?: {
-    id: string;
-    tenantId: string;
-    assetId: string;
-    frameworkId: string;
-    siteId: string;
-    targetType: 'cloud.resource';
-    targetKey: string;
-    bindingKey: string;
-    discoveryProviderKey: string;
-    supportedCapabilities: string[];
-    executionLocations: ['CONTROL_PLANE'];
-    metadata: Record<string, unknown>;
-  };
 }
 
 export interface CloudResourceProjectionSummary {
   frameworks: number;
   sites: number;
-  managedTargets: number;
-  skippedTargets: number;
 }
-
-const deployCapabilities = ['certificate.deploy', 'certificate.verify', 'certificate.rollback'] as const;
 
 export class CloudResourceProjectionService {
   constructor(private readonly db?: DatabasePort) {}
@@ -107,8 +87,6 @@ export class CloudResourceProjectionService {
     return {
       frameworks: projections.length,
       sites: projections.length,
-      managedTargets: projections.filter((item) => item.managedTarget).length,
-      skippedTargets: projections.filter((item) => !item.managedTarget).length,
     };
   }
 
@@ -158,25 +136,10 @@ export class CloudResourceProjectionService {
       discoverySource: 'PROVIDER' as const,
       metadata: { ...metadata, resourceId: resource.resourceId },
     };
-    const supportedCapabilities = deployCapabilities.filter((capability) => context.declaredCapabilities.includes(capability));
-    const managedTarget = supportedCapabilities.length === 0 ? undefined : {
-      id: `target_${root}`,
-      tenantId: context.tenantId,
-      assetId: context.cloudAccountAssetId,
-      frameworkId: framework.id,
-      siteId: site.id,
-      targetType: 'cloud.resource' as const,
-      targetKey: resource.stableKey,
-      bindingKey: `${resource.resourceType}:${resource.resourceId}`,
-      discoveryProviderKey: providerKey,
-      supportedCapabilities: [...supportedCapabilities],
-      executionLocations: ['CONTROL_PLANE'] as ['CONTROL_PLANE'],
-      metadata: { ...metadata, deployable: true },
-    };
-    return { framework, site, ...(managedTarget ? { managedTarget } : {}) };
+    return { framework, site };
   }
 
-  /** 中文说明：将同一稳定键幂等写入三类标准拓扑对象；未声明部署能力的资源只写 Framework/Site。 */
+  /** 中文说明：云资源发现只维护 Framework/Site，不创建可部署 ManagedTarget。 */
   async persist(context: CloudResourceProjectionContext, input: unknown): Promise<CloudResourceProjection> {
     if (!this.db) throw new AppError('SYSTEM_INTERNAL_ERROR', 'Cloud Resource 投影数据库未接入');
     const owner = await this.db.query<{ id: string }>(
@@ -216,34 +179,6 @@ export class CloudResourceProjectionService {
         projection.site.siteType, projection.site.siteName, projection.site.siteKey, projection.site.discoverySource, now,
         JSON.stringify(projection.site.metadata),
       ]);
-      if (projection.managedTarget) {
-        const target = projection.managedTarget;
-        await tx.query(`insert into pg_managed_targets
-          (id, tenant_id, device_id, asset_id, framework_instance_id, site_id, discovery_provider_key, target_type, target_key, binding_key,
-           supported_capabilities, execution_locations, last_seen_at, status, metadata, created_at, updated_at, version)
-          values ($1,$2,null,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12,'ACTIVE',$13::jsonb,$12,$12,1)
-          on conflict (id) do update set framework_instance_id=excluded.framework_instance_id, site_id=excluded.site_id,
-            asset_id=excluded.asset_id, supported_capabilities=excluded.supported_capabilities,
-            execution_locations=excluded.execution_locations, last_seen_at=excluded.last_seen_at, status='ACTIVE', metadata=excluded.metadata,
-            deleted_at=null,
-            updated_at=excluded.updated_at, version=pg_managed_targets.version+1`, [
-          target.id, target.tenantId, target.assetId, target.frameworkId, target.siteId, target.discoveryProviderKey, target.targetType,
-          target.targetKey, target.bindingKey, JSON.stringify(target.supportedCapabilities), JSON.stringify(target.executionLocations), now,
-          JSON.stringify(target.metadata),
-        ]);
-      } else {
-        // 中文说明：能力收回时保留历史目标，但立即撤销可部署状态，避免旧发现结果继续被选中。
-        await tx.query(`update pg_managed_targets
-          set status='DISABLED', metadata=coalesce(metadata, '{}'::jsonb) || $2::jsonb,
-              updated_at=$3, version=version+1
-          where tenant_id=$1 and asset_id=$4 and id=$5 and deleted_at is null`, [
-          context.tenantId,
-          JSON.stringify({ deployable: false, disabledReason: 'CAPABILITY_NOT_DECLARED' }),
-          now,
-          context.cloudAccountAssetId,
-          `target_${stableId(context.cloudAccountAssetId, projection.site.siteKey)}`,
-        ]);
-      }
     });
     return projection;
   }
@@ -254,7 +189,6 @@ function assertContext(context: CloudResourceProjectionContext): void {
     if (['tenantId', 'cloudAccountAssetId', 'pluginId', 'pluginVersionId', 'provider'].includes(key)
       && (typeof value !== 'string' || value.trim() === '')) throw invalid(`${key} 不能为空`);
   }
-  if (!Array.isArray(context.declaredCapabilities)) throw invalid('declaredCapabilities 必须是数组');
 }
 
 function stableId(assetId: string, stableKey: string): string {

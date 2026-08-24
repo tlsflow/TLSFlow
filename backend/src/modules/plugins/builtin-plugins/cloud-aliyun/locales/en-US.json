@@ -4,7 +4,6 @@
   "plugin.cloud.aliyun.cloudService": "Cloud service object",
   "plugin.cloud.aliyun.credential": "Cloud account credential",
   "plugin.cloud.aliyun.region": "Region",
-  "plugin.cloud.aliyun.certificateArtifact": "Certificate artifact",
   "plugin.cloud.aliyun.accessKeyId": "AccessKey ID",
   "plugin.cloud.aliyun.accessKeySecret": "AccessKey Secret"
 }

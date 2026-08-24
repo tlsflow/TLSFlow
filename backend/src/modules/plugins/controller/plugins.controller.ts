@@ -6,7 +6,7 @@ import { AppError } from '../../../common/errors/app-error.js';
 import type { ObjectValidationSchema } from '../../../common/validation/schema-validation.js';
 import { validateObject as validateBaseObject } from '../../../common/validation/schema-validation.js';
 import { UnifiedPluginsApplicationService } from '../application/unified-plugins.application-service.js';
-import { PluginBindingsApplicationService } from '../application/plugin-bindings.application-service.js';
+import { isCloudAccountIdentificationCapability, PluginBindingsApplicationService } from '../application/plugin-bindings.application-service.js';
 import { ManagedTargetPluginQueryService, type SaveManagedTargetPluginOverrideInput } from '../application/managed-target-plugin-query.service.js';
 import type { ImportUnifiedPluginVersionInput, UnifiedPluginManifestV1 } from '../dto/unified-plugins.dto.js';
 import { StandardPluginFieldRegistry } from '../forms/standard-plugin-field.registry.js';
@@ -261,6 +261,17 @@ export class PluginsController {
     });
     const version = await this.requirePluginVersion(security, String(body.pluginVersionId), 'control');
     const capabilityKey = String(body.capabilityKey);
+    if (!isCloudAccountIdentificationCapability(capabilityKey)) {
+      throw new AppError('VALIDATION_FAILED', '云账号只允许绑定连接测试和资源发现能力，证书生命周期必须使用 V1 DSL Workflow', {
+        capabilityKey,
+      });
+    }
+    if (version.pluginId !== asset.providerKey) {
+      throw new AppError('VALIDATION_FAILED', '云账号能力绑定的插件必须与资产 providerKey 一致', {
+        providerKey: asset.providerKey,
+        pluginId: version.pluginId,
+      });
+    }
     if (!version.manifest.capabilities.some((item) => item.key === capabilityKey)) {
       throw new AppError('VALIDATION_FAILED', '插件版本未声明该 Capability', { pluginVersionId: version.id, capabilityKey });
     }

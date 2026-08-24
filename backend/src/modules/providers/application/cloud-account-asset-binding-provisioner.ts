@@ -13,9 +13,6 @@ import type {
 const cloudCapabilityKeys = [
   'cloud.service.connection-test',
   'cloud.service.discover',
-  'certificate.deploy',
-  'certificate.verify',
-  'certificate.rollback',
 ] as const;
 
 /**

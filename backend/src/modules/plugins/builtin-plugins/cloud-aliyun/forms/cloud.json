@@ -4,8 +4,7 @@
   "fields": [
     { "key": "cloudServiceRef", "type": "objectRef", "required": true, "labelKey": "plugin.cloud.aliyun.cloudService" },
     { "key": "credential.secretRef", "type": "secretRef", "required": true, "labelKey": "plugin.cloud.aliyun.credential" },
-    { "key": "region", "type": "string", "required": true, "labelKey": "plugin.cloud.aliyun.region" },
-    { "key": "certificateArtifactRef", "type": "artifactRef", "required": false, "labelKey": "plugin.cloud.aliyun.certificateArtifact" }
+    { "key": "region", "type": "string", "required": true, "labelKey": "plugin.cloud.aliyun.region" }
   ],
   "credentialContract": {
     "kind": "CLOUD_PROVIDER",

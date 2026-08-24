@@ -4,7 +4,6 @@
   "plugin.cloud.aliyun.cloudService": "云服务对象",
   "plugin.cloud.aliyun.credential": "云账号凭据",
   "plugin.cloud.aliyun.region": "地域",
-  "plugin.cloud.aliyun.certificateArtifact": "证书制品",
   "plugin.cloud.aliyun.accessKeyId": "AccessKey ID",
   "plugin.cloud.aliyun.accessKeySecret": "AccessKey Secret"
 }

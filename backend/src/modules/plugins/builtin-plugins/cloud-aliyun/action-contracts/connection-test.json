@@ -1,0 +1,32 @@
+{
+  "apiVersion": "gcac.plugin-action-contract/v1",
+  "actionId": "cloud.service.connection-test.v1",
+  "capability": "cloud.service.connection-test",
+  "actionContractVersion": "v1",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "cloudServiceRef": { "type": "string", "minLength": 1, "maxLength": 512 },
+      "credential": { "type": "object", "properties": { "secretRef": { "type": "string", "pattern": "^secret://[A-Za-z0-9._:/#-]{1,512}$" } }, "required": ["secretRef"], "additionalProperties": false },
+      "request": { "type": "object", "properties": { "method": { "type": "string", "enum": ["GET", "POST"] }, "uri": { "type": "string", "pattern": "^/" }, "action": { "type": "string", "minLength": 1, "maxLength": 256 }, "apiVersion": { "type": "string", "minLength": 1, "maxLength": 64 }, "timestamp": { "type": "string", "format": "date-time" }, "query": { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean"] } }, "body": { "type": "object" } }, "required": ["uri"], "additionalProperties": false }
+    },
+    "required": ["cloudServiceRef", "credential", "request"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "provider": { "type": "string", "minLength": 1 },
+      "operation": { "type": "string", "minLength": 1 },
+      "signatureAlgorithm": { "type": "string", "minLength": 1 },
+      "signatureVerified": { "type": "boolean" },
+      "status": { "type": "string", "enum": ["SUCCEEDED", "ACCEPTED"] },
+      "descriptor": { "type": "string", "minLength": 1 },
+      "resources": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+    },
+    "required": ["provider", "operation", "signatureAlgorithm", "signatureVerified", "status"],
+    "additionalProperties": false
+  },
+  "writeEffect": false,
+  "hostPermissions": ["secret.resolve", "network.http", "cloud.service.get"]
+}

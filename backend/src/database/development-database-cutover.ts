@@ -9,7 +9,6 @@ import { BuiltinPluginRegistry, type BuiltinPluginRegistryEntry } from '../modul
 import { BuiltinUnifiedPluginLoader } from '../modules/plugins/builtin-plugins/builtin-unified-plugin-loader.js';
 import { UnifiedPluginsApplicationService } from '../modules/plugins/application/unified-plugins.application-service.js';
 import { PluginWorkflowPublisherService } from '../modules/plugins/application/plugin-workflow-publisher.service.js';
-import { PluginWorkflowVersionStore } from '../modules/plugins/application/plugin-workflow-version-store.js';
 import { createPluginWorkflowDeclarationResolver } from '../modules/plugins/application/plugin-workflow-declaration-resolver.js';
 import { PgUnifiedPluginsRepository } from '../modules/plugins/repository/unified-plugins.repository.js';
 import { PluginWorkflowBindingsRepository } from '../modules/plugins/repository/plugin-workflow-bindings.repository.js';
@@ -22,12 +21,17 @@ const requiredMigrations = [
   '20260811000200',
   '20260811000300',
   '20260811000400',
+  '20260817000900',
+  '20260817001000',
 ] as const;
 
 const snapshotTables = [
   'unified_plugin_versions',
   'unified_plugin_resources',
   'unified_plugin_workflow_bindings',
+  'workflow_execution_bindings',
+  'plugin_workflow_ledgers',
+  'browser_credential_sessions',
   'pg_documents',
   'database_forward_cleanup_audits',
 ] as const;
@@ -165,7 +169,6 @@ export async function publishBuiltinPlugins(
   const publisher = new PluginWorkflowPublisherService(
     workflows,
     workflowBindings,
-    new PluginWorkflowVersionStore(db),
     declarationResolver,
   );
   const installed = await registry.registerAll(plugins);
@@ -193,6 +196,13 @@ function assertDevelopmentCutoverAllowed(environment: NodeJS.ProcessEnv): void {
   if (environment.GCAC_P2_DEV_CUTOVER !== '1') {
     throw new Error('P2 开发数据库切换必须显式设置 GCAC_P2_DEV_CUTOVER=1');
   }
+}
+
+function isCurlSshWorkflowContent(value: unknown): value is { kind: 'CurlSshWorkflow' } {
+  return typeof value === 'object'
+    && value !== null
+    && !Array.isArray(value)
+    && (value as { kind?: unknown }).kind === 'CurlSshWorkflow';
 }
 
 async function assertDatabasePreflight(
@@ -266,6 +276,17 @@ async function assertDatabasePreflight(
          or workflow_version_id is null)
   `);
   if (invalidExecutionCount !== 0) throw new Error(`开发数据库存在未固定执行绑定：${invalidExecutionCount}`);
+
+  const legacyPackageBindingCount = await scalarNumber(db, `
+    select count(*)::integer as count
+      from unified_plugin_workflow_bindings binding
+      join pg_documents version
+        on version.namespace = 'workflow.template_versions'
+       and version.document_id = binding.workflow_version_id
+     where coalesce(version.payload->>'executionMode', '') = 'PLUGIN_RUNNER'
+        or coalesce(version.payload->'content'->>'kind', '') = 'PluginWorkflow'
+  `);
+  if (legacyPackageBindingCount !== 0) throw new Error(`开发数据库仍存在包级 Plugin Runner Binding：${legacyPackageBindingCount}`);
 
   const builtinIds = new Set(expected.map((entry) => entry.pluginId));
   const builtinVersions = await db.query<{ plugin_id: string; plugin_version: string }>(
@@ -373,15 +394,17 @@ async function assertDatabasePostflight(
     const version = versionById.get(binding.workflow_version_id);
     const template = templateById.get(binding.workflow_template_id);
     if (!version || !template) throw new Error(`Workflow Binding 指向不存在的 Workflow 文档：${binding.workflow_version_id}`);
+    const content = version.content;
     if (version.templateId !== binding.workflow_template_id
       || version.status !== 'published'
-      || version.executionMode !== 'PLUGIN_RUNNER'
+      || version.executionMode !== undefined
+      || !isCurlSshWorkflowContent(content)
       || version.contentHash !== binding.workflow_content_sha256
-      || computeWorkflowContentHash(version.content) !== binding.workflow_content_sha256) {
+      || computeWorkflowContentHash(content) !== binding.workflow_content_sha256) {
       throw new Error(`Workflow Binding 版本链或摘要不一致：${binding.workflow_version_id}`);
     }
     if (template.origin !== 'plugin_internal' || template.currentVersionId !== binding.workflow_version_id) {
-      throw new Error(`Workflow Template 不是已发布 PluginWorkflow：${binding.workflow_template_id}`);
+      throw new Error(`Workflow Template 不是已发布普通 DSL Workflow：${binding.workflow_template_id}`);
     }
   }
   if (seenBindings.size !== expectedBindings.size) {
@@ -392,7 +415,7 @@ async function assertDatabasePostflight(
   const auditCount = await scalarNumber(db, `
     select count(*)::integer as count
       from database_forward_cleanup_audits
-     where migration_version in ('20260811000100', '20260811000200', '20260811000300', '20260811000400')
+     where migration_version in ('20260811000100', '20260811000200', '20260811000300', '20260811000400', '20260817000900')
   `);
   if (auditCount < 20) throw new Error(`开发数据库清退审计不足 20 条：${auditCount}`);
 

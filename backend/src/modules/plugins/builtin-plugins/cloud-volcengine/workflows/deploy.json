@@ -1,8 +1,0 @@
-{
-  "apiVersion": "gcac.workflow/v1",
-  "kind": "PluginWorkflow",
-  "metadata": { "name": "cloud-volcengine-certificate-deploy", "version": "2.0.1", "pluginId": "cloud.volcengine", "capability": "certificate.deploy", "readOnly": false },
-  "inputContract": { "required": ["cloudServiceRef", "credential.secretRef", "certificateArtifactRef", "security"] },
-  "executionBinding": { "capability": "certificate.deploy", "runner": "gcac.plugin-runner/v1", "writeEffect": true },
-  "steps": [{ "type": "plugin.execute", "capability": "certificate.deploy", "writeEffect": true }]
-}

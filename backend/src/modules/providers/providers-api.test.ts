@@ -71,14 +71,26 @@ test('云账号资产保留通用租户隔离 CRUD，凭据只接受 CredentialR
     ['tenant-provider-api', assetId],
   );
   assert.deepEqual(assignments.rows.map((row) => row.capability_key), [
-    'certificate.deploy',
-    'certificate.rollback',
-    'certificate.verify',
     'cloud.service.connection-test',
     'cloud.service.discover',
   ]);
   assert.ok(assignments.rows.every((row) => row.plugin_version_id === binding.rows[0]?.plugin_version_id));
   assert.ok(assignments.rows.every((row) => row.plugin_binding_id === binding.rows[0]?.id));
+
+  const rejectedCertificateAssignment = await app.inject({
+    method: 'POST',
+    path: '/api/v1/capability-assignments',
+    headers,
+    body: {
+      ownerType: 'CLOUD_ACCOUNT_ASSET',
+      ownerId: assetId,
+      capabilityKey: 'certificate.deploy',
+      pluginVersionId: binding.rows[0]?.plugin_version_id,
+      pluginBindingId: binding.rows[0]?.id,
+      precedence: 'ASSET_OVERRIDE',
+    },
+  });
+  assert.equal(rejectedCertificateAssignment.statusCode, 400, JSON.stringify(rejectedCertificateAssignment.body));
 
   const updated = await app.inject({
     method: 'PATCH',
@@ -219,7 +231,6 @@ test('Provider 厂商旁路全部移除，OpenAPI 只暴露 Cloud Account 基础
     'GET /api/v1/cloud-account-assets/:id',
     'PATCH /api/v1/cloud-account-assets',
     'POST /api/v1/cloud-account-assets',
-    'POST /api/v1/cloud-account-assets/:id/actions/:action',
     'POST /api/v1/cloud-account-assets/delete',
   ]);
 
@@ -230,7 +241,8 @@ test('Provider 厂商旁路全部移除，OpenAPI 只暴露 Cloud Account 基础
   assert.ok(!openApiPaths.includes('/api/v1/providers'));
   assert.ok(!openApiPaths.some((path) => path.startsWith('/api/v1/providers/')
     || path === '/api/v1/provider-capability-plugins'
-    || /^\/api\/v1\/cloud-account-assets\/[^/]+\/(connection-test|discover|execute(?:-task)?)$/.test(path)));
+    || /^\/api\/v1\/cloud-account-assets\/[^/]+\/(connection-test|discover|execute(?:-task)?)$/.test(path)
+    || path.includes('/cloud-account-assets/{id}/actions/{action}')));
 });
 
 test('云账号创建、更新和删除使用后端持久化幂等记录', async () => {
@@ -275,18 +287,6 @@ test('云账号创建、更新和删除使用后端持久化幂等记录', async
   assert.equal(updateConflict.statusCode, 409, JSON.stringify(updateConflict.body));
   assert.equal((updateConflict.body as { errorCode: string }).errorCode, 'IDEMPOTENCY_CONFLICT');
 
-  const actionHeaders = { authorization: 'Bearer tenant-provider-idempotency', 'x-idempotency-key': 'cloud-action-idem' };
-  const actionPath = `/api/v1/cloud-account-assets/${assetId}/actions/connection-test`;
-  const actionBody = { input: { region: 'cn-hangzhou' } };
-  const action = await app.inject({ method: 'POST', path: actionPath, headers: actionHeaders, body: actionBody });
-  assert.equal(action.statusCode, 202, JSON.stringify(action.body));
-  const replayAction = await app.inject({ method: 'POST', path: actionPath, headers: actionHeaders, body: actionBody });
-  assert.equal(replayAction.statusCode, 202, JSON.stringify(replayAction.body));
-  assert.equal((replayAction.body as { taskId: string }).taskId, (action.body as { taskId: string }).taskId);
-  const actionConflict = await app.inject({ method: 'POST', path: actionPath, headers: actionHeaders, body: { input: { region: 'cn-shenzhen' } } });
-  assert.equal(actionConflict.statusCode, 409, JSON.stringify(actionConflict.body));
-  assert.equal((actionConflict.body as { errorCode: string }).errorCode, 'IDEMPOTENCY_CONFLICT');
-
   const deleteHeaders = { authorization: 'Bearer tenant-provider-idempotency', 'x-idempotency-key': 'cloud-delete-idem' };
   const deleted = await app.inject({ method: 'POST', path: '/api/v1/cloud-account-assets/delete', headers: deleteHeaders, body: { id: assetId } });
   assert.equal(deleted.statusCode, 200, JSON.stringify(deleted.body));
@@ -297,6 +297,6 @@ test('云账号创建、更新和删除使用后端持久化幂等记录', async
     `select count(*) from idempotency_records where tenant_id=$1`,
     ['tenant-provider-idempotency'],
   );
-  assert.equal(Number(records.rows[0]?.count), 4);
+  assert.equal(Number(records.rows[0]?.count), 3);
   await db.close();
 });

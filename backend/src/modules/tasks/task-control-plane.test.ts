@@ -83,16 +83,16 @@ test('持久化幂等记录支持完成任务重放、同键不同请求体冲�
   const { db, service } = await createFixture();
   const input = {
     tenantId: 'tenant-task-idempotency',
-    taskType: 'CLOUD_DISCOVER',
+    taskType: 'CERTIFICATE_DRY_RUN',
     requestedBy: 'user-idempotency',
     triggerSource: 'test',
-    idempotencyKey: 'cloud-discover-idempotency',
+    idempotencyKey: 'certificate-dry-run-idempotency',
     idempotencyScope: {
-      actionType: 'cloud-account-asset.discover',
-      resourceType: 'cloudAccountAsset',
-      resourceId: 'caa-idempotency',
+      actionType: 'certificate.dry-run',
+      resourceType: 'deploymentPlan',
+      resourceId: 'plan-idempotency',
     },
-    payload: { action: 'discover', cloudAccountAssetId: 'caa-idempotency', input: { region: 'cn-hangzhou' } },
+    payload: { deploymentPlanId: 'plan-idempotency', input: { dryRun: true } },
   } as const;
   const concurrent = await Promise.all([service.enqueue(input), service.enqueue(input)]);
   assert.equal(concurrent[0].id, concurrent[1].id);
@@ -109,7 +109,7 @@ test('持久化幂等记录支持完成任务重放、同键不同请求体冲�
   assert.equal(record.rows[0]?.status_code, 202);
   assert.equal(record.rows[0]?.resource_id, input.idempotencyScope.resourceId);
   await assert.rejects(
-    () => service.enqueue({ ...input, payload: { ...input.payload, input: { region: 'cn-shenzhen' } } }),
+    () => service.enqueue({ ...input, payload: { ...input.payload, input: { dryRun: false } } }),
     (error: unknown) => error instanceof AppError && error.errorCode === 'IDEMPOTENCY_CONFLICT',
   );
 });

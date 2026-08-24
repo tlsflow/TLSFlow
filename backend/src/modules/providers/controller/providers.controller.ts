@@ -1,7 +1,7 @@
 import type { HttpRequest } from '../../../common/http/http-types.js';
-import { AppError } from '../../../common/errors/app-error.js';
 import type { Router } from '../../../common/http/router.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
+import { AppError } from '../../../common/errors/app-error.js';
 import { validateObject } from '../../../common/validation/schema-validation.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import {
@@ -11,9 +11,6 @@ import {
   requireRouteSecurity,
 } from '../../security/security-route-helpers.js';
 import { CloudAccountAssetsApplicationService } from '../application/cloud-account-assets.application-service.js';
-import { cloudCapabilityActionTypes, type CloudCapabilityAction } from '../application/cloud-capability-task.service.js';
-import type { TaskEnqueuer } from '../../tasks/task-enqueue.js';
-import { createHash } from 'node:crypto';
 
 const tags = ['Cloud Service'];
 
@@ -21,7 +18,6 @@ export class ProvidersController {
   constructor(
     private readonly cloudAccounts: CloudAccountAssetsApplicationService,
     private readonly security?: SecurityServices,
-    private readonly tasks?: TaskEnqueuer,
   ) {}
 
   register(router: Router): void {
@@ -30,7 +26,6 @@ export class ProvidersController {
     router.post('/api/v1/cloud-account-assets', '创建云账号资产', tags, (request) => this.createCloudAccount(request));
     router.patch('/api/v1/cloud-account-assets', '更新云账号资产', tags, (request) => this.updateCloudAccount(request));
     router.post('/api/v1/cloud-account-assets/delete', '删除云账号资产', tags, (request) => this.deleteCloudAccount(request));
-    router.post('/api/v1/cloud-account-assets/:id/actions/:action', '执行云账号 Capability 任务', tags, (request) => this.enqueueCapabilityAction(request));
   }
 
   private async listCloudAccounts(request: HttpRequest) {
@@ -106,52 +101,6 @@ export class ProvidersController {
     return this.cloudAccounts.delete(security.tenantId, String(body.id), idempotencyKey);
   }
 
-  private async enqueueCapabilityAction(request: HttpRequest) {
-    const security = requireRouteSecurity(request, this.security);
-    await assertRouteAction(security, 'cloud_account_asset.update', 'cloud_account_asset');
-    if (!this.tasks) throw new Error('统一任务控制面未接入云 Capability');
-    const match = request.path.match(/^\/api\/v1\/cloud-account-assets\/([^/]+)\/actions\/([^/]+)$/);
-    if (!match) throw new Error('云账号 Capability 路径无效');
-    const assetId = decodeURIComponent(match[1]!);
-    const action = decodeURIComponent(match[2]!) as CloudCapabilityAction;
-    const taskType = cloudCapabilityTaskType(action);
-    const asset = await this.cloudAccounts.get(security.tenantId, assetId);
-    await assertRouteObjectAccess(security, 'control', {
-      objectType: 'cloud_account_asset',
-      objectId: asset.id,
-      tenantId: asset.tenantId,
-    });
-    const body = validateObject(request.body, {
-      input: { type: 'object' },
-      certificateArtifactRef: { type: 'string' },
-      idempotencyKey: { type: 'string' },
-    });
-    const input = body.input as Record<string, unknown> | undefined;
-    const idempotencyKey = readIdempotencyKey(request, body.idempotencyKey)
-      ?? `cloud:${asset.id}:${action}:${asset.version}:${createHash('sha256').update(JSON.stringify(input ?? {}), 'utf8').digest('hex')}`;
-    const task = await this.tasks.enqueue({
-      tenantId: security.tenantId,
-      taskType,
-      requestedBy: request.context.actorId ?? 'system',
-      triggerSource: `cloud-account-asset.${action}`,
-      idempotencyKey,
-      idempotencyScope: {
-        actionType: `cloud-account-asset.${action}`,
-        resourceType: 'cloudAccountAsset',
-        resourceId: asset.id,
-      },
-      payload: {
-        action,
-        cloudAccountAssetId: asset.id,
-        ...(input ? { input } : {}),
-        ...(typeof body.certificateArtifactRef === 'string' ? { certificateArtifactRef: body.certificateArtifactRef } : {}),
-      },
-      resourceSummary: { displayName: asset.displayName, providerKey: asset.providerKey, action },
-      resourceRefs: [{ resourceType: 'cloudAccountAsset', resourceId: asset.id }],
-    });
-    return { statusCode: 202, body: { taskId: task.id, taskType: task.taskType, status: task.status } };
-  }
-
 }
 
 export function getCloudAccountRouteContracts(): RouteContract[] {
@@ -161,21 +110,7 @@ export function getCloudAccountRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/cloud-account-assets', operationId: 'createCloudAccountAsset', summary: '创建云账号资产', tags, requestSchema: { type: 'object', required: ['displayName', 'providerKey', 'credentialRef'], additionalProperties: true }, responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'PATCH', path: '/api/v1/cloud-account-assets', operationId: 'updateCloudAccountAsset', summary: '更新云账号资产', tags, requestSchema: { type: 'object', required: ['id', 'expectedVersion'], additionalProperties: false }, responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/cloud-account-assets/delete', operationId: 'deleteCloudAccountAsset', summary: '删除云账号资产', tags, responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'POST', path: '/api/v1/cloud-account-assets/:id/actions/:action', operationId: 'enqueueCloudCapabilityAction', summary: '执行云账号 Capability 任务', tags, requestSchema: { type: 'object', additionalProperties: true }, responseSchema: { type: 'object', additionalProperties: true } },
   ];
-}
-
-function cloudCapabilityTaskType(action: CloudCapabilityAction): string {
-  const map: Record<CloudCapabilityAction, string> = {
-    'connection-test': cloudCapabilityActionTypes.CONNECTION_TEST,
-    discover: cloudCapabilityActionTypes.DISCOVER,
-    deploy: cloudCapabilityActionTypes.DEPLOY,
-    verify: cloudCapabilityActionTypes.VERIFY,
-    rollback: cloudCapabilityActionTypes.ROLLBACK,
-  };
-  const taskType = map[action];
-  if (!Object.hasOwn(map, action) || !taskType) throw new AppError('VALIDATION_FAILED', `不支持的 Cloud Capability action: ${action}`);
-  return taskType;
 }
 
 function readIdempotencyKey(request: HttpRequest, bodyValue?: unknown): string | undefined {

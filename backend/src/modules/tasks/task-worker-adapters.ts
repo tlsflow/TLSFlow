@@ -15,7 +15,6 @@ import type { ReportExportService } from '../reports/application/report-export.s
 import { buildAutomationTaskProgress } from '../automations/application/automation-task-progress.js';
 import type { TaskAttempt, TaskExecutionResult, TaskRun } from './task.types.js';
 import { TaskExecutorRegistry } from './task-worker-supervisor.js';
-import type { CloudCapabilityTaskService } from '../providers/application/cloud-capability-task.service.js';
 
 export interface BuiltinPluginCatalogRefresher {
   refresh(tenantId?: string): Promise<{
@@ -45,7 +44,6 @@ export interface TaskWorkerAdapterDependencies {
   reports?: Pick<ReportExportService, 'executeTask'>;
   agents?: Pick<AgentsApplicationService, 'getRepository'>;
   pluginCatalog?: BuiltinPluginCatalogRefresher;
-  cloudCapability?: Pick<CloudCapabilityTaskService, 'execute'>;
 }
 
 /**
@@ -133,10 +131,6 @@ export function createTaskExecutorRegistry(
   registry.register('certificate.deploy', execution);
   registry.register('certificate.verify', execution);
   registry.register('certificate.rollback', execution);
-
-  registry.register('cloud.capability-action', dependencyExecutor('Cloud Capability Worker', dependencies.cloudCapability, async (task) => {
-    return dependencies.cloudCapability!.execute(task);
-  }));
 
   registry.register('agent.install', async (task, attempt) => executeAgentEnrollmentTask(task, attempt, dependencies, 'install'));
 
