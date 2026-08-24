@@ -1,2 +1,6 @@
+export * from './application/device-assets.application-service.js';
+export * from './controller/device-assets.controller.js';
+export * from './domain/device-assets.domain-service.js';
 export * from './dto/device-assets.dto.js';
+export * from './repository/device-assets.repository.js';
 export * from './schema/device-assets.schema.js';

@@ -1,4 +1,6 @@
-export const deviceAssetSchema = {
+import type { OpenApiSchema } from '../../../common/openapi/route-contract.js';
+
+export const deviceAssetSchema: OpenApiSchema = {
   type: 'object',
   required: ['id', 'tenantId', 'displayName', 'managementAddress', 'managementPort', 'deviceFamily', 'credentialId', 'authMode', 'tlsVerify', 'supportTier'],
   properties: {
@@ -14,9 +16,9 @@ export const deviceAssetSchema = {
     supportTier: { type: 'string', enum: ['SUPPORTED', 'COMPATIBLE', 'READ_ONLY', 'UNSUPPORTED'] },
     capabilityProfile: { type: 'object' },
   },
-} as const;
+};
 
-export const deviceVirtualServerSchema = {
+export const deviceVirtualServerSchema: OpenApiSchema = {
   type: 'object',
   required: ['id', 'tenantId', 'deviceAssetId', 'type', 'name', 'targetKey', 'sniNames', 'status'],
   properties: {
@@ -29,4 +31,4 @@ export const deviceVirtualServerSchema = {
     sniNames: { type: 'array', items: { type: 'string' } },
     status: { type: 'string', enum: ['ACTIVE', 'INACTIVE', 'UNKNOWN', 'STALE', 'DELETED'] },
   },
-} as const;
+};
