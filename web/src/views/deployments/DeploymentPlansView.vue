@@ -7,6 +7,7 @@ import type { ApiRecord } from '@/api/modules/common'
 import { listCertificates, listCertificateFormats, listCertificateVersions } from '@/api/modules/certificates.api'
 import { useExecutionDetail } from '@/composables/useExecutionDetail'
 import { listExecutionsByPlanId } from '@/api/modules/executions.api'
+import { getWorkflowExecutionBinding, listWorkflowTemplates } from '@/api/modules/workflow-templates.api'
 import {
   createDeploymentPlanFromApplicationAsset,
   deleteDraftDeploymentPlan,
@@ -340,9 +341,15 @@ async function loadWizardOptions() {
     certificateItems.value = [...(certificatesResult.data?.items ?? [])]
     certificateVersionItems.value = versionsResult
     certificateFormatItems.value = formatsResult
+    const assets = assetsResult.data?.items ?? []
     const managedTargetsById = new Map(targetsResult.map((item) => [readString(item, ['id']), item]))
-    targetItems.value = (assetsResult.data?.items ?? [])
-      .map((item) => normalizeApplicationAssetTarget(item, managedTargetsById))
+    const [workflowExecutionBindingsById, workflowTemplates] = await Promise.all([
+      loadWorkflowExecutionBindings(assets),
+      loadWorkflowTemplatesForTargets(),
+    ])
+    const workflowTemplatesById = new Map(workflowTemplates.map((item) => [readString(item, ['id']), item]))
+    targetItems.value = assets
+      .map((item) => normalizeApplicationAssetTarget(item, managedTargetsById, workflowExecutionBindingsById, workflowTemplatesById))
       .filter((item): item is ApiRecord => item !== null)
   } catch (cause) {
     errorMessage.value = toErrorMessage(cause, t('deploymentPlans.errors.loadCreateDataFailed'))
@@ -696,8 +703,25 @@ function readResponseData(result: unknown): ApiRecord | undefined {
   return result as ApiRecord
 }
 
-function normalizeApplicationAssetTarget(item: ApiRecord, managedTargetsById: ReadonlyMap<string, ApiRecord>): ApiRecord | null {
+function normalizeApplicationAssetTarget(
+  item: ApiRecord,
+  managedTargetsById: ReadonlyMap<string, ApiRecord>,
+  workflowExecutionBindingsById: ReadonlyMap<string, ApiRecord>,
+  workflowTemplatesById: ReadonlyMap<string, ApiRecord>,
+): ApiRecord | null {
   const applicationAssetId = readString(item, ['id'])
+  if (!applicationAssetId) return null
+
+  const deploymentStrategyType = readString(item, ['deploymentStrategy.type', 'metadata.deploymentStrategy.type'])
+  if (deploymentStrategyType === 'WORKFLOW') {
+    return normalizeWorkflowApplicationAssetTarget(
+      item,
+      applicationAssetId,
+      workflowExecutionBindingsById,
+      workflowTemplatesById,
+    )
+  }
+
   const managedTargetId = readString(item, ['deploymentStrategy.managedTarget.managedTargetId', 'targetBinding.managedTargetId'])
   const managedTarget = managedTargetsById.get(managedTargetId)
   const certificateFormatId = readString(item, [
@@ -710,7 +734,7 @@ function normalizeApplicationAssetTarget(item: ApiRecord, managedTargetsById: Re
     ? readPath(item, 'targetBindingDetail.certificateBindings') as ApiRecord[]
     : []
   const certificateBindingId = readString(certificateBindings[0], ['id'])
-  if (!applicationAssetId || !managedTargetId) return null
+  if (!managedTargetId) return null
 
   const displayName = readString(item, ['displayName', 'address', 'domainName'], applicationAssetId)
   const targetType = readString(managedTarget, ['targetType'])
@@ -741,6 +765,91 @@ function normalizeApplicationAssetTarget(item: ApiRecord, managedTargetsById: Re
     certificateFormatId,
     certificateFormatLabel: certificateFormatLabelById(certificateFormatId),
   }
+}
+
+function normalizeWorkflowApplicationAssetTarget(
+  item: ApiRecord,
+  applicationAssetId: string,
+  workflowExecutionBindingsById: ReadonlyMap<string, ApiRecord>,
+  workflowTemplatesById: ReadonlyMap<string, ApiRecord>,
+): ApiRecord {
+  const displayName = readString(item, ['displayName', 'address', 'domainName'], applicationAssetId)
+  const workflowExecutionBindingId = readString(item, [
+    'deploymentStrategy.workflow.workflowExecutionBindingId',
+    'metadata.deploymentStrategy.workflow.workflowExecutionBindingId',
+  ])
+  const workflowExecutionBinding = workflowExecutionBindingsById.get(workflowExecutionBindingId)
+  const workflowId = readString(workflowExecutionBinding, ['workflowTemplateId']) || readString(item, [
+    'deploymentStrategy.workflow.workflowId',
+    'metadata.deploymentStrategy.workflow.workflowId',
+  ])
+  const workflowTemplate = workflowTemplatesById.get(workflowId)
+  const workflowName = readString(workflowTemplate, ['name', 'displayName'], workflowId)
+  const workflowRunner = readString(workflowExecutionBinding, ['runner']) || readString(item, [
+    'deploymentStrategy.workflow.runner',
+    'metadata.deploymentStrategy.workflow.runner',
+  ])
+  const certificateFormatId = workflowCertificateFormatId(workflowExecutionBinding)
+  const targetSourceLabel = workflowName
+    ? t('designSystem.deploymentWizard.target.workflowModeWithName', { name: workflowName })
+    : t('designSystem.deploymentWizard.target.workflowMode')
+
+  return {
+    id: applicationAssetId,
+    applicationAssetId,
+    name: displayName,
+    displayName,
+    domainName: readString(item, ['address', 'domainName']),
+    bindingSummary: workflowName,
+    bindingName: workflowName,
+    targetType: 'WORKFLOW',
+    targetKey: workflowExecutionBindingId || workflowId,
+    executionLocations: workflowRunner,
+    targetSourceLabel,
+    certificateFormatId,
+    certificateFormatLabel: certificateFormatLabelById(certificateFormatId),
+    workflowId,
+    workflowName,
+    workflowExecutionBindingId,
+  }
+}
+
+async function loadWorkflowExecutionBindings(assets: readonly ApiRecord[]): Promise<Map<string, ApiRecord>> {
+  const bindingIds = [...new Set(assets.map((item) => readString(item, [
+    'deploymentStrategy.workflow.workflowExecutionBindingId',
+    'metadata.deploymentStrategy.workflow.workflowExecutionBindingId',
+  ])).filter(Boolean))]
+  const entries = await Promise.all(bindingIds.map(async (bindingId) => {
+    try {
+      const result = await getWorkflowExecutionBinding(bindingId)
+      const binding = result.data && typeof result.data === 'object' && !Array.isArray(result.data)
+        ? result.data as ApiRecord
+        : undefined
+      return [bindingId, binding] as const
+    } catch {
+      return [bindingId, undefined] as const
+    }
+  }))
+  return new Map(entries.filter((entry): entry is readonly [string, ApiRecord] => Boolean(entry[1])))
+}
+
+async function loadWorkflowTemplatesForTargets(): Promise<ApiRecord[]> {
+  try {
+    return await fetchAllPages((page, pageSize) => listWorkflowTemplates({ page, pageSize, sort: 'updatedAt:desc' }))
+  } catch {
+    return []
+  }
+}
+
+function workflowCertificateFormatId(binding: ApiRecord | undefined): string {
+  const artifactBindings = readRecord(binding, ['certificateArtifactBindings'])
+  if (!artifactBindings) return ''
+  for (const artifactBinding of Object.values(artifactBindings)) {
+    if (!artifactBinding || typeof artifactBinding !== 'object' || Array.isArray(artifactBinding)) continue
+    const certificateFormatId = readString(artifactBinding as ApiRecord, ['certificateFormatId'])
+    if (certificateFormatId) return certificateFormatId
+  }
+  return ''
 }
 
 function buildManagedTargetLabel(targetType: string, targetKey: string, managedTargetId: string): string {

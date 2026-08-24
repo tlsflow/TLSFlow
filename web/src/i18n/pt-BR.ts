@@ -382,7 +382,8 @@ export default {
         pending: 'Pendente'
       },
       target: {
-        workflowMode: 'Modo de workflow'
+        workflowMode: 'Modo de workflow',
+        workflowModeWithName: 'Modo de workflow ({name})'
       },
       version: {
         autoLatest: 'Selecionar automaticamente a versão implantável mais recente (atual: {current})',

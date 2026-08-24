@@ -381,7 +381,8 @@ export default {
         pending: 'Pending'
       },
       target: {
-        workflowMode: 'Workflow mode'
+        workflowMode: 'Workflow mode',
+        workflowModeWithName: 'Workflow mode ({name})'
       },
       version: {
         autoLatest: 'Always select the latest deployable certificate automatically (current: {current})',

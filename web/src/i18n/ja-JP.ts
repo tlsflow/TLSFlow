@@ -382,7 +382,8 @@ export default {
         pending: '開始待ち'
       },
       target: {
-        workflowMode: 'ワークフローモード'
+        workflowMode: 'ワークフローモード',
+        workflowModeWithName: 'ワークフローモード（{name}）'
       },
       version: {
         autoLatest: '自動選択最新可デプロイバージョン（現在：{current}）',

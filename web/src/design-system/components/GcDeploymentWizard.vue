@@ -148,6 +148,7 @@ const filteredTargets = computed(() => {
       readString(item, ['frameworkLabel']),
       readString(item, ['siteName']),
       readString(item, ['bindingName', 'bindingSummary']),
+      readString(item, ['targetSourceLabel']),
       readString(item, ['managedTargetLabel', 'managedTargetId']),
       readString(item, ['targetType', 'targetKey', 'executionLocations']),
     ].join(' ').toLowerCase()
@@ -315,11 +316,14 @@ function resolveCertificateOptionId(assetId: string): string {
 
 function targetLabel(item: ApiRecord): string {
   const name = readString(item, ['name', 'displayName', 'domainName'], readString(item, ['id']))
-  const parts = [
+  if (readString(item, ['targetType']) === 'WORKFLOW') {
+    return [name, readString(item, ['targetSourceLabel'])].filter(Boolean).join(' / ')
+  }
+  const parts = [...new Set([
     readString(item, ['siteName', 'frameworkLabel']),
     readString(item, ['bindingName', 'bindingSummary', 'targetKey']),
-    readString(item, ['managedTargetLabel', 'targetType', 'managedTargetId']),
-  ].filter(Boolean)
+    readString(item, ['targetSourceLabel', 'managedTargetLabel', 'targetType', 'managedTargetId']),
+  ].filter(Boolean))]
   return [name, ...parts].join(' / ')
 }
 
@@ -499,11 +503,11 @@ function normalizeDomainKey(value: string): string {
           </label>
         </div>
 
-        <div v-if="selectedTarget" class="gc-deployment-wizard__target-card">
-          <div class="gc-deployment-wizard__target-head">
-            <strong>{{ readString(selectedTarget, ['name', 'displayName', 'domainName'], readString(selectedTarget, ['id'])) }}</strong>
-            <span>{{ readString(selectedTarget, ['managedTargetLabel', 'targetType', 'managedTargetId'], t('designSystem.deploymentWizard.fallback.unrecognizedManagedTarget')) }}</span>
-          </div>
+          <div v-if="selectedTarget" class="gc-deployment-wizard__target-card">
+            <div class="gc-deployment-wizard__target-head">
+              <strong>{{ readString(selectedTarget, ['name', 'displayName', 'domainName'], readString(selectedTarget, ['id'])) }}</strong>
+              <span>{{ readString(selectedTarget, ['targetSourceLabel', 'managedTargetLabel', 'targetType', 'managedTargetId'], t('designSystem.deploymentWizard.fallback.unrecognizedManagedTarget')) }}</span>
+            </div>
           <dl class="gc-deployment-wizard__target-meta">
             <div v-if="readString(selectedTarget, ['siteName'])">
               <dt>{{ t('designSystem.deploymentWizard.fields.site') }}</dt>
@@ -514,8 +518,8 @@ function normalizeDomainKey(value: string): string {
               <dd>{{ readString(selectedTarget, ['bindingName', 'bindingSummary', 'targetKey'], t('designSystem.deploymentWizard.fallback.missingBinding')) }}</dd>
             </div>
             <div>
-              <dt>{{ t('designSystem.deploymentWizard.fields.managedTarget') }}</dt>
-              <dd>{{ readString(selectedTarget, ['managedTargetLabel', 'targetType', 'managedTargetId'], t('designSystem.deploymentWizard.fallback.unrecognizedManagedTarget')) }}</dd>
+              <dt>{{ t('designSystem.deploymentWizard.fields.deploymentTarget') }}</dt>
+              <dd>{{ readString(selectedTarget, ['targetSourceLabel', 'managedTargetLabel', 'targetType', 'managedTargetId'], t('designSystem.deploymentWizard.fallback.unrecognizedManagedTarget')) }}</dd>
             </div>
             <div>
               <dt>{{ t('designSystem.deploymentWizard.fields.artifactConfig') }}</dt>

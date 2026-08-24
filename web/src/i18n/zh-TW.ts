@@ -381,7 +381,8 @@ export default {
         pending: "待開始"
       },
       target: {
-        workflowMode: "工作流模式"
+        workflowMode: "工作流模式",
+        workflowModeWithName: "工作流模式（{name}）"
       },
       version: {
         autoLatest: "自動選擇最新可部署版本（目前：{current}）",

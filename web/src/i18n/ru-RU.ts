@@ -382,7 +382,8 @@ export default {
         pending: 'Ожидает начала'
       },
       target: {
-        workflowMode: 'Режим рабочего процесса'
+        workflowMode: 'Режим рабочего процесса',
+        workflowModeWithName: 'Режим рабочего процесса ({name})'
       },
       version: {
         autoLatest: 'Автоматически выбирать последнюю доступную для развертывания версию (текущая: {current})',

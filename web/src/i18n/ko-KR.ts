@@ -382,7 +382,8 @@ export default {
         pending: '시작 대기'
       },
       target: {
-        workflowMode: '워크플로 모드'
+        workflowMode: '워크플로 모드',
+        workflowModeWithName: '워크플로 모드({name})'
       },
       version: {
         autoLatest: '최신 배포 가능한 버전 자동 선택 (현재:{current})',

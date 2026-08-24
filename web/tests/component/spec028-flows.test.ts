@@ -53,6 +53,7 @@ const monitorMocks = vi.hoisted(() => ({
 }))
 
 const workflowMocks = vi.hoisted(() => ({
+  getWorkflowExecutionBinding: vi.fn(),
   listWorkflowTemplates: vi.fn(),
   createWorkflowTemplate: vi.fn(),
   listWorkflowFileTemplates: vi.fn(),
@@ -120,6 +121,7 @@ vi.mock('@/api/modules/monitors.api', () => ({
 }))
 
 vi.mock('@/api/modules/workflow-templates.api', () => ({
+  getWorkflowExecutionBinding: workflowMocks.getWorkflowExecutionBinding,
   listWorkflowTemplates: workflowMocks.listWorkflowTemplates,
   createWorkflowTemplate: workflowMocks.createWorkflowTemplate,
   listWorkflowFileTemplates: workflowMocks.listWorkflowFileTemplates,
@@ -383,6 +385,78 @@ describe('spec028 前端闭环', () => {
     expect(bodyText()).toContain('Dry-run 结果')
     expect(bodyText()).toContain('等待执行步骤')
     expect(bodyText()).toContain('任务进度')
+  })
+
+  it('部署向导会展示非受管工作流应用资产并按应用资产创建计划', async () => {
+    workflowMocks.getWorkflowExecutionBinding.mockResolvedValue({
+      data: {
+        id: 'wfeb-1',
+        workflowTemplateId: 'tpl-workflow',
+        runner: 'CONTROL_PLANE',
+        certificateArtifactBindings: {
+          serverCert: { certificateFormatId: 'fmt-1', outputBindings: { certFile: 'fullchain', keyFile: 'private' } },
+        },
+      },
+    })
+    workflowMocks.listWorkflowTemplates.mockResolvedValue(okPage([
+      { id: 'tpl-workflow', name: 'Nginx 证书部署工作流' },
+    ]))
+    deploymentMocks.listAssets.mockResolvedValue(okPage([
+      {
+        id: 'asset-managed',
+        address: 'managed.example.com',
+        displayName: 'Managed Asset',
+        targetBinding: { managedTargetId: 'target-1', metadata: { siteName: 'SITE-1', bindingInformation: '*:443:managed.example.com' } },
+      },
+      {
+        id: 'asset-workflow',
+        address: 'workflow.example.com',
+        displayName: 'Workflow Asset',
+        deploymentStrategy: {
+          type: 'WORKFLOW',
+          workflow: { workflowExecutionBindingId: 'wfeb-1' },
+        },
+      },
+    ]))
+
+    const router = createTestRouter()
+    router.push('/deployment-plans')
+    await router.isReady()
+
+    mount(DeploymentPlansView, {
+      attachTo: document.body,
+      global: {
+        plugins: [router, i18n],
+        stubs: { teleport: true, Teleport: true },
+      },
+    })
+    await flushPromises()
+
+    clickBodyButton('创建部署计划')
+    await flushPromises()
+    clickBodyButton('下一步')
+    await flushPromises()
+
+    const targetSelect = [...document.body.querySelectorAll('select')].find((select) => (
+      [...select.options].some((option) => option.value === 'asset-workflow')
+    )) as HTMLSelectElement | undefined
+    expect(targetSelect).toBeTruthy()
+    expect([...targetSelect!.options].find((option) => option.value === 'asset-workflow')?.textContent).toContain('工作流模式（Nginx 证书部署工作流）')
+    targetSelect!.value = 'asset-workflow'
+    targetSelect!.dispatchEvent(new Event('change', { bubbles: true }))
+    await flushPromises()
+    expect(bodyText()).toContain('Linux-NGINX-PEM')
+    expect(bodyText()).toContain('工作流模式（Nginx 证书部署工作流）')
+
+    clickBodyButton('下一步')
+    await flushPromises()
+    clickBodyButton('保存计划')
+    await flushPromises()
+
+    expect(deploymentMocks.createDeploymentPlanFromApplicationAsset).toHaveBeenCalledWith(expect.objectContaining({
+      applicationAssetId: 'asset-workflow',
+      selectionMode: 'LATEST_AUTO',
+    }))
   })
 
   it('unknown deployment update state retries asset probe on a timer', async () => {
