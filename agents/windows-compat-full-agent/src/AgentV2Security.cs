@@ -70,6 +70,8 @@ namespace GCAC.WindowsCompatibilityAgent
         internal const int MaximumFileContentBytes = 64 * 1024;
         private const int MaximumPlanOperations = 100;
         private const int MaximumTokenLifetimeSeconds = 15 * 60;
+        private const string WindowsSystem32Directory = @"C:\Windows\System32";
+        private const string WindowsSystemControlPath = WindowsSystem32Directory + @"\sc.exe";
         private static readonly JavaScriptSerializer Serializer = new JavaScriptSerializer();
         private static readonly Regex IdentifierPattern = new Regex("^[A-Za-z0-9._:-]{1,256}$", RegexOptions.Compiled);
         private static readonly Regex DigestPattern = new Regex("^[a-f0-9]{64}$", RegexOptions.Compiled);
@@ -369,23 +371,38 @@ namespace GCAC.WindowsCompatibilityAgent
         private static void ValidateAllowlistedCommand(Dictionary<string, object> input, int timeoutSeconds)
         {
             EnsureExact(input, new string[] { "executablePath", "executableSha256", "args", "argumentTemplate", "environmentAllowlist", "workingDirectory", "networkScopes", "childProcessPolicy", "timeoutSeconds", "outputLimitBytes", "artifactDigest" });
-            RequiredWindowsPath(input, "executablePath");
-            RequiredDigest(input, "executableSha256");
+            string executable = RequiredWindowsPath(input, "executablePath");
+            if (!string.Equals(executable, WindowsSystemControlPath, StringComparison.OrdinalIgnoreCase)) Reject("AGENT_PLAN_INVALID", "外部程序不在固定绝对路径白名单内");
+            if (!VerifyFileDigest(executable, RequiredDigest(input, "executableSha256"))) Reject("AGENT_PLAN_INVALID", "固定外部程序摘要不匹配");
+            if (!string.Equals(RequiredWindowsPath(input, "workingDirectory"), WindowsSystem32Directory, StringComparison.OrdinalIgnoreCase)) Reject("AGENT_PLAN_INVALID", "外部程序工作目录不是固定目录");
             IList args = ListValue(input, "args");
             IList templates = ListValue(input, "argumentTemplate");
-            if (args.Count != templates.Count || args.Count > 100) Reject("AGENT_PLAN_INVALID", "命令参数模板不合法");
-            for (int index = 0; index < args.Count; index++)
-            {
-                string arg = Convert.ToString(args[index], CultureInfo.InvariantCulture);
-                string template = Convert.ToString(templates[index], CultureInfo.InvariantCulture);
-                if (TextUtility.IsBlank(arg) || TextUtility.IsBlank(template) || (!template.StartsWith("{", StringComparison.Ordinal) && template != arg)) Reject("AGENT_PLAN_INVALID", "命令参数不符合固定模板");
-            }
-            ListValue(input, "environmentAllowlist");
-            ListValue(input, "networkScopes");
+            if (args.Count != 2 || templates.Count != args.Count) Reject("AGENT_PLAN_INVALID", "命令参数模板不合法");
+            string verb = Convert.ToString(args[0], CultureInfo.InvariantCulture);
+            string service = Convert.ToString(args[1], CultureInfo.InvariantCulture);
+            if (verb != "start" && verb != "stop" && verb != "query") Reject("AGENT_PLAN_INVALID", "命令动作不在固定模板内");
+            if (!IdentifierPattern.IsMatch(service) || service.StartsWith("-", StringComparison.Ordinal)) Reject("AGENT_PLAN_INVALID", "命令服务参数无效");
+            string verbTemplate = Convert.ToString(templates[0], CultureInfo.InvariantCulture);
+            string serviceTemplate = Convert.ToString(templates[1], CultureInfo.InvariantCulture);
+            if (verbTemplate != verb && verbTemplate != "{verb}") Reject("AGENT_PLAN_INVALID", "命令动作参数不符合固定模板");
+            if (serviceTemplate != service && serviceTemplate != "{serviceName}") Reject("AGENT_PLAN_INVALID", "命令服务参数不符合固定模板");
+            if (ListValue(input, "environmentAllowlist").Count != 0 || ListValue(input, "networkScopes").Count != 0) Reject("AGENT_PLAN_INVALID", "外部程序环境和网络范围不得扩展");
             if (RequiredString(input, "childProcessPolicy") != "deny") Reject("AGENT_PLAN_INVALID", "命令子进程策略必须为 deny");
-            if (RequiredInteger(input, "timeoutSeconds") > timeoutSeconds || RequiredInteger(input, "timeoutSeconds") < 1 || RequiredInteger(input, "outputLimitBytes") < 1 || RequiredInteger(input, "outputLimitBytes") > 16 * 1024 * 1024) Reject("AGENT_PLAN_INVALID", "命令资源限制无效");
-            string executable = RequiredString(input, "executablePath").ToLowerInvariant();
-            if (executable.EndsWith("cmd.exe", StringComparison.Ordinal) || executable.EndsWith("powershell.exe", StringComparison.Ordinal) || executable.EndsWith("pwsh.exe", StringComparison.Ordinal) || executable.EndsWith("bash.exe", StringComparison.Ordinal) || executable.EndsWith("sh.exe", StringComparison.Ordinal)) Reject("AGENT_PLAN_INVALID", "Shell 和解释器不得作为通用原语执行");
+            int commandTimeout = RequiredInteger(input, "timeoutSeconds");
+            int outputLimit = RequiredInteger(input, "outputLimitBytes");
+            if (commandTimeout < 1 || commandTimeout > timeoutSeconds || outputLimit < 1 || outputLimit > 16 * 1024 * 1024) Reject("AGENT_PLAN_INVALID", "命令资源限制无效");
+            RequiredDigest(input, "artifactDigest");
+        }
+
+        private static bool VerifyFileDigest(string path, string expected)
+        {
+            if (!File.Exists(path)) return false;
+            byte[] digest;
+            using (FileStream stream = File.OpenRead(path))
+            using (SHA256 sha = SHA256.Create()) digest = sha.ComputeHash(stream);
+            StringBuilder actual = new StringBuilder(digest.Length * 2);
+            for (int index = 0; index < digest.Length; index++) actual.Append(digest[index].ToString("x2"));
+            return string.Equals(actual.ToString(), expected, StringComparison.OrdinalIgnoreCase);
         }
 
         private static void ValidateRequestScopes(Dictionary<string, object> payload, Dictionary<string, object> token, Dictionary<string, object> decision, Dictionary<string, object> localPolicy)
@@ -419,6 +436,13 @@ namespace GCAC.WindowsCompatibilityAgent
                 {
                     string service = RequiredIdentifier(input, "serviceName");
                     if (!ListScopeAllowedExact(new ArrayList { service }, allowedServices) || !serviceRules.Contains(service)) Reject("AGENT_V2_AUTHORIZATION_REJECTED", "操作服务超出授权或本地策略范围");
+                }
+                if (operationType == "command.execute_allowlisted")
+                {
+                    string executableDigest = RequiredDigest(input, "executableSha256");
+                    string artifactDigest = RequiredDigest(input, "artifactDigest");
+                    if (!StringList(token, "artifactDigests").Contains(executableDigest) || !StringList(decision, "artifactDigests").Contains(executableDigest) || !StringList(token, "artifactDigests").Contains(artifactDigest) || !StringList(decision, "artifactDigests").Contains(artifactDigest))
+                        Reject("AGENT_V2_AUTHORIZATION_REJECTED", "外部程序摘要不在 Token 或 Policy Authority 授权范围内");
                 }
                 if (input.ContainsKey("artifactDigest"))
                 {

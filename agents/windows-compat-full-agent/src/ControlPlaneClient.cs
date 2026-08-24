@@ -94,12 +94,41 @@ namespace GCAC.WindowsCompatibilityAgent
         {
             if (task == null) return null;
             task.leaseId = "compat:" + Guid.NewGuid().ToString("N");
+            string taskAction = ReadCanonicalAction(task.action, "task.action");
+            string payloadAction = ReadCanonicalAction(task.payload, "action");
+            string payloadActionType = ReadCanonicalAction(task.payload, "actionType");
+            if (task.payload != null && task.payload.ContainsKey("actionSchemaVersion"))
+                throw new InvalidOperationException("旧 Agent 动作协议字段 actionSchemaVersion 被拒绝");
+            if (!TextUtility.IsBlank(payloadAction) && !TextUtility.IsBlank(payloadActionType) && !string.Equals(payloadAction, payloadActionType, StringComparison.Ordinal))
+                throw new InvalidOperationException("控制面动作字段 action 与 actionType 不一致");
+            string normalizedAction = !TextUtility.IsBlank(payloadActionType) ? payloadActionType : payloadAction;
+            if (!TextUtility.IsBlank(taskAction) && !TextUtility.IsBlank(normalizedAction) && !string.Equals(taskAction, normalizedAction, StringComparison.Ordinal))
+                throw new InvalidOperationException("任务动作与控制面载荷动作不一致");
+            if (!TextUtility.IsBlank(normalizedAction)) task.action = normalizedAction;
+            else if (!TextUtility.IsBlank(taskAction)) task.action = taskAction;
             object value;
-            if (task.payload != null && task.payload.TryGetValue("action", out value)) task.action = Convert.ToString(value);
-            else if (task.payload != null && task.payload.TryGetValue("actionType", out value)) task.action = Convert.ToString(value);
-            if (task.payload != null && task.payload.TryGetValue("schemaVersion", out value)) task.schemaVersion = Convert.ToString(value);
-            else if (task.payload != null && task.payload.TryGetValue("actionSchemaVersion", out value)) task.schemaVersion = Convert.ToString(value);
+            if (task.payload != null && task.payload.TryGetValue("schemaVersion", out value))
+            {
+                if (!(value is string) || TextUtility.IsBlank((string)value)) throw new InvalidOperationException("动作 Schema Version 无效");
+                task.schemaVersion = (string)value;
+            }
             return task;
+        }
+
+        private static string ReadCanonicalAction(string value, string fieldName)
+        {
+            if (TextUtility.IsBlank(value)) return null;
+            foreach (string supported in AgentV2Actions.All())
+                if (string.Equals(value, supported, StringComparison.Ordinal)) return supported;
+            throw new InvalidOperationException(fieldName + " 不是受支持的 Agent v2 canonical 动作");
+        }
+
+        private static string ReadCanonicalAction(Dictionary<string, object> payload, string fieldName)
+        {
+            if (payload == null || !payload.ContainsKey(fieldName)) return null;
+            object value = payload[fieldName];
+            if (!(value is string)) throw new InvalidOperationException(fieldName + " 必须是字符串");
+            return ReadCanonicalAction((string)value, "payload." + fieldName);
         }
 
         public void Acknowledge(string agentId, AgentTask task)

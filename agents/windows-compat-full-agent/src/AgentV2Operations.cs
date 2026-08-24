@@ -8,6 +8,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
 using System.ServiceProcess;
 using System.Text;
+using System.Threading;
 
 namespace GCAC.WindowsCompatibilityAgent
 {
@@ -64,8 +65,95 @@ namespace GCAC.WindowsCompatibilityAgent
             if (operation.operationType == "service.start" || operation.operationType == "service.stop" || operation.operationType == "service.reload") { ChangeService(ReadString(operation.input, "serviceName"), operation.operationType); return new Dictionary<string, object> { { "status", "SUCCEEDED" } }; }
             if (operation.operationType == "certificate.material.validate") return ValidateCertificate(operation.input);
             if (operation.operationType == "certificate.store.inspect") return InspectCertificateStore(operation.input);
-            if (operation.operationType == "command.execute_allowlisted") throw new InvalidOperationException("Compatibility Agent 不执行命令进程；请使用固定服务原语");
+            if (operation.operationType == "command.execute_allowlisted") return ExecuteAllowlistedCommand(operation);
             throw new InvalidOperationException("Agent 原语未实现");
+        }
+
+        private const string WindowsSystem32Directory = "C:\\Windows\\System32";
+        private const string WindowsSystemControlPath = WindowsSystem32Directory + "\\sc.exe";
+
+        private sealed class OutputCapture
+        {
+            private readonly int limit;
+            private readonly StringBuilder value = new StringBuilder();
+            internal bool Exceeded { get; private set; }
+
+            internal OutputCapture(int limit) { this.limit = limit; }
+
+            internal void Read(StreamReader reader)
+            {
+                char[] buffer = new char[4096];
+                int count;
+                while ((count = reader.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    lock (value)
+                    {
+                        if (value.Length + count > limit) { Exceeded = true; return; }
+                        value.Append(buffer, 0, count);
+                    }
+                }
+            }
+
+            internal string Text
+            {
+                get { lock (value) return value.ToString(); }
+            }
+        }
+
+        private static Dictionary<string, object> ExecuteAllowlistedCommand(AgentPlanOperationV1 operation)
+        {
+            string executable = ReadString(operation.input, "executablePath");
+            string[] args = AgentV2Security.Strings(operation.input["args"], "args", false);
+            int timeoutSeconds = Convert.ToInt32(operation.input["timeoutSeconds"], System.Globalization.CultureInfo.InvariantCulture);
+            int outputLimit = Convert.ToInt32(operation.input["outputLimitBytes"], System.Globalization.CultureInfo.InvariantCulture);
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = executable,
+                Arguments = JoinWindowsArguments(args),
+                WorkingDirectory = WindowsSystem32Directory,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            startInfo.EnvironmentVariables.Clear();
+            startInfo.EnvironmentVariables["SystemRoot"] = "C:\\Windows";
+            startInfo.EnvironmentVariables["PATH"] = WindowsSystem32Directory;
+            using (Process process = new Process { StartInfo = startInfo })
+            {
+                if (!process.Start()) throw new InvalidOperationException("固定外部程序启动失败");
+                OutputCapture standardOutput = new OutputCapture(outputLimit);
+                OutputCapture standardError = new OutputCapture(outputLimit);
+                Thread outputThread = new Thread(new ThreadStart(delegate { standardOutput.Read(process.StandardOutput); }));
+                Thread errorThread = new Thread(new ThreadStart(delegate { standardError.Read(process.StandardError); }));
+                outputThread.Start(); errorThread.Start();
+                bool timedOut = false;
+                DateTime deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
+                while (!process.HasExited)
+                {
+                    if (standardOutput.Exceeded || standardError.Exceeded) { process.Kill(); break; }
+                    if (DateTime.UtcNow >= deadline) { timedOut = true; process.Kill(); break; }
+                    Thread.Sleep(25);
+                }
+                process.WaitForExit();
+                outputThread.Join(1000); errorThread.Join(1000);
+                if (timedOut) throw new InvalidOperationException("固定外部程序执行超时");
+                if (standardOutput.Exceeded || standardError.Exceeded) throw new InvalidOperationException("固定外部程序输出超出限制");
+                return new Dictionary<string, object> { { "status", process.ExitCode == 0 ? "SUCCEEDED" : "FAILED" }, { "exitCode", process.ExitCode }, { "stdout", standardOutput.Text }, { "stderr", standardError.Text } };
+            }
+        }
+
+        private static string JoinWindowsArguments(string[] args)
+        {
+            StringBuilder result = new StringBuilder();
+            for (int index = 0; index < args.Length; index++)
+            {
+                if (index > 0) result.Append(' ');
+                string value = args[index] ?? string.Empty;
+                result.Append('"').Append(value.Replace("\"", "\\\""));
+                result.Append('"');
+            }
+            return result.ToString();
         }
 
         private static Dictionary<string, object> ProcessFact()

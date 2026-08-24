@@ -210,6 +210,9 @@ func validateAgentV2Request(request agentV2Request, agentID string) error {
 		if err := validateAgentPlanAuthorization(request.Plan, request.PolicyDecision); err != nil {
 			return err
 		}
+		if err := validateAgentPlanLocalPolicy(request.Plan); err != nil {
+			return err
+		}
 	}
 	if request.Action == agentExecutionReceipt && request.PlanDigest != request.Token.PlanDigest {
 		return errors.New("receipt planDigest does not match capability token")
@@ -468,6 +471,15 @@ func validateAgentPlan(plan agentPlanV2, token AgentCapabilityTokenV1) error {
 		if service := stringValue(operation.Input, "serviceName"); service != "" && !scopeContains(token.AllowedServices, service) {
 			return errors.New("operation service is outside token scope")
 		}
+		if operation.OperationType == "command.execute_allowlisted" {
+			args, _ := stringArrayValue(operation.Input, "args")
+			if len(args) != 2 || !scopeContains(token.AllowedServices, args[1]) {
+				return errors.New("allowlisted command service is outside token scope")
+			}
+			if digest := stringValue(operation.Input, "executableSha256"); !v2ContainsString(token.ArtifactDigests, digest) {
+				return errors.New("allowlisted command executable is outside token scope")
+			}
+		}
 		if artifact := stringValue(operation.Input, "artifactDigest"); artifact != "" && !v2ContainsString(token.ArtifactDigests, artifact) {
 			return errors.New("operation artifact is outside token scope")
 		}
@@ -479,6 +491,15 @@ func validateAgentPlanAuthorization(plan agentPlanV2, decision PolicyAuthorityDe
 	for _, operation := range plan.Operations {
 		if !v2ContainsString(decision.Actions, operation.OperationType) {
 			return fmt.Errorf("Policy Decision 未授权 Agent 操作: %s", operation.OperationType)
+		}
+		if operation.OperationType == "command.execute_allowlisted" {
+			args, _ := stringArrayValue(operation.Input, "args")
+			if len(args) != 2 || !scopeContains(decision.AllowedServices, args[1]) {
+				return errors.New("allowlisted command service is outside Policy Decision scope")
+			}
+			if digest := stringValue(operation.Input, "executableSha256"); !v2ContainsString(decision.ArtifactDigests, digest) {
+				return errors.New("allowlisted command executable is outside Policy Decision scope")
+			}
 		}
 	}
 	return nil
@@ -734,6 +755,7 @@ func executeAllowlistedService(ctx context.Context, operation agentPlanAction) e
 	command.Env = fixedWindowsEnvironment()
 	return command.Run()
 }
+
 func executeAllowlistedProgram(ctx context.Context, operation agentPlanAction) error {
 	if err := validateAllowlistedCommandInput(operation); err != nil {
 		return err
@@ -1145,6 +1167,35 @@ func validateLocalPolicy(paths, services []string) error {
 	}
 	return nil
 }
+
+func validateAgentPlanLocalPolicy(plan agentPlanV2) error {
+	raw := strings.TrimSpace(os.Getenv("GCAC_AGENT_LOCAL_POLICY_JSON"))
+	if raw == "" {
+		return errors.New("local agent policy is unavailable; fail closed")
+	}
+	var policy struct {
+		AllowedPaths    []string `json:"allowedPaths"`
+		AllowedServices []string `json:"allowedServices"`
+	}
+	if err := json.Unmarshal([]byte(raw), &policy); err != nil {
+		return errors.New("local agent policy is invalid")
+	}
+	for _, operation := range plan.Operations {
+		if path := stringValue(operation.Input, "path"); path != "" && !pathScopeContains(policy.AllowedPaths, path) {
+			return errors.New("operation path is denied by local policy")
+		}
+		if service := stringValue(operation.Input, "serviceName"); service != "" && !scopeContains(policy.AllowedServices, service) {
+			return errors.New("operation service is denied by local policy")
+		}
+		if operation.OperationType == "command.execute_allowlisted" {
+			args, _ := stringArrayValue(operation.Input, "args")
+			if len(args) != 2 || !scopeContains(policy.AllowedServices, args[1]) {
+				return errors.New("allowlisted command service is denied by local policy")
+			}
+		}
+	}
+	return nil
+}
 func sameStringSet(left, right []string) bool {
 	a, b := append([]string(nil), left...), append([]string(nil), right...)
 	sort.Strings(a)
@@ -1234,7 +1285,7 @@ func atomicWriteFile(path string, content []byte, mode os.FileMode) error {
 
 func v2ActionHandler(action string) actionHandler {
 	return actionHandlerFunc{
-		descriptor: actionHandlerDescriptor{ActionType: action, SchemaVersions: []string{"1.0"}},
+		descriptor: actionHandlerDescriptor{ActionType: action},
 		execute: func(execution *taskExecutionContext) actionExecutionResult {
 			payload := cloneMap(execution.task.Payload)
 			payload["action"] = action

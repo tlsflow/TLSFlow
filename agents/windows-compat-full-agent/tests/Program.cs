@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Web.Script.Serialization;
@@ -46,6 +47,9 @@ internal static class Tests
         Run("IIS HTTP.sys 动作不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("windows.iis.http.sys"); });
         Run("IIS 管理程序集路径不进入 Agent Core", delegate { LegacyExecutionPathIsRejected("windows.iis.management"); });
         Run("任务拉取结果展开公共动作载荷", PulledTaskNormalizesPublicActionPayload);
+        Run("控制面 actionType 仅在边界转换为 Agent v2 action", QueueActionTypeMapsToCanonicalAction);
+        Run("控制面拒绝旧动作、Alias、冲突和旧协议", QueueBoundaryRejectsLegacyActions);
+        Run("Agent v2 安全原语登记受控外部程序", AgentV2RegistersAllowlistedCommand);
         Run("运行时只注册四个 Agent v2 动作", RuntimeRegistersOnlyAgentV2Actions);
         Run("运行时不注册历史 Agent 动作", RuntimeDoesNotRegisterLegacyActions);
         Run("第三方产品发现不再进入 Agent Core", delegate { LegacyExecutionPathIsRejected("agent.plan.execute", "product.discovery"); });
@@ -194,6 +198,77 @@ internal static class Tests
         Assert(!result.Success && result.ErrorCode == "ACTION_NOT_REGISTERED", "旧 payload.type 绕过规范动作注册表");
         Assert(task.schemaVersion == ProductIdentity.ActionSchemaVersion, "未从 payload.schemaVersion 展开协议版本");
         Assert(task.leaseId != null && task.leaseId.StartsWith("compat:"), "未生成 Compatibility Agent Lease ID");
+    }
+
+    private static void QueueActionTypeMapsToCanonicalAction()
+    {
+        AgentTask task = ControlPlaneClient.NormalizeTask(new AgentTask
+        {
+            id = "task-action-type",
+            payload = new Dictionary<string, object>
+            {
+                { "actionType", AgentV2Actions.PlanValidate },
+                { "schemaVersion", ProductIdentity.ActionSchemaVersion }
+            }
+        });
+        Assert(task.action == AgentV2Actions.PlanValidate, "控制面 actionType 未转换为 canonical action");
+        Assert(task.schemaVersion == ProductIdentity.ActionSchemaVersion, "actionType 转换丢失 Schema Version");
+    }
+
+    private static void QueueBoundaryRejectsLegacyActions()
+    {
+        string[] rejected = new string[] { "agent.atomic_plan.execute", "agent.execute", "command.execute", "agent.plan.execute.alias" };
+        foreach (string action in rejected)
+        {
+            try
+            {
+                ControlPlaneClient.NormalizeTask(new AgentTask
+                {
+                    payload = new Dictionary<string, object> { { "actionType", action } }
+                });
+                throw new InvalidOperationException("旧动作或 Alias 未被拒绝：" + action);
+            }
+            catch (InvalidOperationException error)
+            {
+                Assert(error.Message.IndexOf("Agent v2 canonical", StringComparison.Ordinal) >= 0, "旧动作拒绝原因不明确：" + action);
+            }
+        }
+        try
+        {
+            ControlPlaneClient.NormalizeTask(new AgentTask
+            {
+                payload = new Dictionary<string, object>
+                {
+                    { "action", AgentV2Actions.PlanValidate },
+                    { "actionType", AgentV2Actions.PlanExecute }
+                }
+            });
+            throw new InvalidOperationException("冲突动作字段未被拒绝");
+        }
+        catch (InvalidOperationException error)
+        {
+            Assert(error.Message.IndexOf("不一致", StringComparison.Ordinal) >= 0, "冲突动作拒绝原因不明确");
+        }
+        try
+        {
+            ControlPlaneClient.NormalizeTask(new AgentTask
+            {
+                payload = new Dictionary<string, object> { { "actionType", AgentV2Actions.PlanValidate }, { "actionSchemaVersion", "gcac.action/v1" } }
+            });
+            throw new InvalidOperationException("旧 actionSchemaVersion 未被拒绝");
+        }
+        catch (InvalidOperationException error)
+        {
+            Assert(error.Message.IndexOf("actionSchemaVersion", StringComparison.Ordinal) >= 0, "旧协议字段拒绝原因不明确");
+        }
+    }
+
+    private static void AgentV2RegistersAllowlistedCommand()
+    {
+        FieldInfo field = typeof(AgentV2Security).GetField("OperationTypes", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert(field != null, "Agent v2 原语登记表不存在");
+        string[] operations = (string[])field.GetValue(null);
+        Assert(Array.IndexOf(operations, "command.execute_allowlisted") >= 0, "受控外部程序原语未登记");
     }
 
     private static void CapabilityRequestExcludesIisInspection()

@@ -1864,11 +1864,11 @@ func forwardGatewayAgentTask(ctx context.Context, client *http.Client, config *A
 		IdempotencyKey:  firstNonEmpty(stringFromMap(gatewayTask, "idempotencyKey"), "gateway-forward:"+task.ID),
 		Payload:         forwardPayload,
 	}, &response)
-	detail := map[string]any{"mode": "gateway.forward.agent_task", "targetAgentId": targetAgentID, "forwardedTaskId": response.ID, "actionType": stringFromMap(forwardPayload, "actionType")}
+	detail := map[string]any{"mode": "gateway.forward.agent_task", "targetAgentId": targetAgentID, "forwardedTaskId": response.ID, "action": stringFromMap(forwardPayload, "action")}
 	if err != nil {
 		return false, "GATEWAY_FORWARD_AGENT_TASK_FAILED", err.Error(), detail, true
 	}
-	return waitForGatewayAgentTask(ctx, client, config, response.ID, targetAgentID, stringFromMap(forwardPayload, "actionType"), detail, gatewayForwardWaitDuration(gatewayPayload))
+	return waitForGatewayAgentTask(ctx, client, config, response.ID, targetAgentID, stringFromMap(forwardPayload, "action"), detail, gatewayForwardWaitDuration(gatewayPayload))
 }
 
 func buildGatewayAgentV2Payload(source map[string]any, task agentTaskEnvelope, targetAgentID string) (map[string]any, error) {
@@ -1877,9 +1877,9 @@ func buildGatewayAgentV2Payload(source map[string]any, task agentTaskEnvelope, t
 	if token == nil || decision == nil {
 		return nil, errors.New("Gateway 转发缺少 Token 或 Policy Decision")
 	}
-	actionType := firstNonEmpty(stringFromMap(source, "actionType"), stringFromMap(source, "action"))
-	if actionType == "" {
-		return nil, errors.New("Gateway 转发缺少 Agent v2 actionType")
+	action := stringFromMap(source, "action")
+	if action == "" {
+		return nil, errors.New("Gateway 转发缺少 Agent v2 action")
 	}
 	if tokenAgentID := stringFromMap(token, "agentId"); tokenAgentID != targetAgentID {
 		return nil, errors.New("Gateway Token agentId 与目标 Agent 不一致")
@@ -1887,23 +1887,21 @@ func buildGatewayAgentV2Payload(source map[string]any, task agentTaskEnvelope, t
 	pluginVersion := firstNonEmpty(stringFromMap(source, "pluginVersion"), stringFromMap(token, "pluginVersionId"))
 	planDigest := stringFromMap(token, "planDigest")
 	payload := map[string]any{
-		"action":              actionType,
-		"actionType":          actionType,
-		"actionSchemaVersion": firstNonEmpty(stringFromMap(source, "actionSchemaVersion"), "1.0"),
-		"requestId":           firstNonEmpty(stringFromMap(source, "requestId"), "gateway-forward:"+task.ID),
-		"agentId":             targetAgentID,
-		"tenantId":            firstNonEmpty(stringFromMap(source, "tenantId"), stringFromMap(token, "tenantId")),
-		"pluginId":            stringFromMap(token, "pluginId"),
-		"pluginVersion":       pluginVersion,
-		"pluginVersionId":     stringFromMap(token, "pluginVersionId"),
-		"capability":          stringFromMap(token, "capability"),
-		"actions":             token["actions"],
-		"paths":               token["allowedPaths"],
-		"services":            token["allowedServices"],
-		"artifactDigests":     token["artifactDigests"],
-		"planDigest":          planDigest,
-		"token":               token,
-		"policyDecision":      decision,
+		"action":          action,
+		"requestId":       firstNonEmpty(stringFromMap(source, "requestId"), "gateway-forward:"+task.ID),
+		"agentId":         targetAgentID,
+		"tenantId":        firstNonEmpty(stringFromMap(source, "tenantId"), stringFromMap(token, "tenantId")),
+		"pluginId":        stringFromMap(token, "pluginId"),
+		"pluginVersion":   pluginVersion,
+		"pluginVersionId": stringFromMap(token, "pluginVersionId"),
+		"capability":      stringFromMap(token, "capability"),
+		"actions":         token["actions"],
+		"paths":           token["allowedPaths"],
+		"services":        token["allowedServices"],
+		"artifactDigests": token["artifactDigests"],
+		"planDigest":      planDigest,
+		"token":           token,
+		"policyDecision":  decision,
 	}
 	if plan := mapFromMap(source, "plan"); plan != nil {
 		payload["plan"] = plan

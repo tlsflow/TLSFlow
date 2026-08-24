@@ -47,7 +47,7 @@ namespace GCAC.WindowsCompatibilityAgent
         private void Add(string key, ActionRegistration registration)
         {
             if (TextUtility.IsBlank(key)) throw new InvalidOperationException("动作标识不能为空");
-            if (registrations.ContainsKey(key)) throw new InvalidOperationException("动作或 Alias 重复注册：" + key);
+            if (registrations.ContainsKey(key)) throw new InvalidOperationException("动作重复注册：" + key);
             registrations.Add(key, registration);
         }
 

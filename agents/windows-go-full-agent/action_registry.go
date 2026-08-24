@@ -15,8 +15,7 @@ type actionExecutionResult struct {
 }
 
 type actionHandlerDescriptor struct {
-	ActionType     string
-	SchemaVersions []string
+	ActionType string
 }
 
 type actionHandler interface {
@@ -38,9 +37,8 @@ func (h actionHandlerFunc) Execute(execution *taskExecutionContext) actionExecut
 }
 
 type resolvedActionHandler struct {
-	Handler       actionHandler
-	ActionType    string
-	SchemaVersion string
+	Handler    actionHandler
+	ActionType string
 }
 
 type actionRegistryError struct {
@@ -89,7 +87,7 @@ func (r *actionHandlerRegistry) register(handler actionHandler) error {
 	}
 	descriptor := handler.Descriptor()
 	actionType := normalizeActionName(descriptor.ActionType)
-	if actionType == "" || len(descriptor.SchemaVersions) == 0 {
+	if actionType == "" {
 		return &actionRegistryError{Code: "ACTION_HANDLER_INVALID", Message: "action handler descriptor is incomplete"}
 	}
 	if _, exists := r.handlers[actionType]; exists {
@@ -100,23 +98,18 @@ func (r *actionHandlerRegistry) register(handler actionHandler) error {
 }
 
 func (r *actionHandlerRegistry) Resolve(payload map[string]any) (*resolvedActionHandler, error) {
-	requestedType := strings.TrimSpace(stringFromMap(payload, "actionType"))
-	if requestedType == "" {
-		return nil, &actionRegistryError{Code: "ACTION_TYPE_REQUIRED", Message: "canonical actionType is required"}
+	requestedAction := strings.TrimSpace(stringFromMap(payload, "action"))
+	if requestedAction == "" {
+		return nil, &actionRegistryError{Code: "ACTION_TYPE_REQUIRED", Message: "canonical action is required"}
 	}
-	actionType := normalizeActionName(requestedType)
+	actionType := normalizeActionName(requestedAction)
 	handler, exists := r.handlers[actionType]
 	if !exists {
-		return nil, &actionRegistryError{Code: "ACTION_HANDLER_NOT_REGISTERED", Message: fmt.Sprintf("action handler not registered: %s", requestedType)}
-	}
-	schemaVersion := firstNonEmpty(stringFromMap(payload, "actionSchemaVersion"), "1.0")
-	if !containsString(handler.Descriptor().SchemaVersions, schemaVersion) {
-		return nil, &actionRegistryError{Code: "ACTION_SCHEMA_UNSUPPORTED", Message: fmt.Sprintf("unsupported action schema %s for %s", schemaVersion, requestedType)}
+		return nil, &actionRegistryError{Code: "ACTION_HANDLER_NOT_REGISTERED", Message: fmt.Sprintf("action handler not registered: %s", requestedAction)}
 	}
 	return &resolvedActionHandler{
-		Handler:       handler,
-		ActionType:    actionType,
-		SchemaVersion: schemaVersion,
+		Handler:    handler,
+		ActionType: actionType,
 	}, nil
 }
 
@@ -146,8 +139,7 @@ func (r *actionHandlerRegistry) Execute(execution *taskExecutionContext) actionE
 	if result.Detail == nil {
 		result.Detail = map[string]any{}
 	}
-	result.Detail["actionType"] = resolved.ActionType
-	result.Detail["actionSchemaVersion"] = resolved.SchemaVersion
+	result.Detail["action"] = resolved.ActionType
 	return result
 }
 
