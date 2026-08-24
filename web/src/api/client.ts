@@ -194,6 +194,14 @@ export function setApiTokenProvider(provider: (() => string | null) | undefined)
   apiTokenProvider = provider
 }
 
+export function readApiRequestContext(): ApiRequestContext | null {
+  return apiRequestContextProvider?.() ?? null
+}
+
+export function readApiToken(): string | null {
+  return apiTokenProvider?.() ?? null
+}
+
 export const apiClient = new ApiClient({
   getToken: () => apiTokenProvider?.() ?? null,
   getRequestContext: () => apiRequestContextProvider?.() ?? null

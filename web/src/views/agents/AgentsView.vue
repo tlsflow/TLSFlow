@@ -113,6 +113,9 @@ interface LinuxBindingView {
   readonly certificateName: string
   readonly certificatePath: string
   readonly certificateKeyPath: string
+  readonly permissionSummary: string
+  readonly testCommand: string
+  readonly reloadCommand: string
   readonly certificate: BindingCertificateView | null
 }
 
@@ -374,6 +377,10 @@ function buildLinuxBindingView(binding: Record<string, unknown>): LinuxBindingVi
   const certificateRecord = certificateValue && typeof certificateValue === 'object'
     ? certificateValue as Record<string, unknown>
     : null
+  const permissionRecord = readObjectValue(binding, ['Permission', 'permission'])
+  const permission = permissionRecord && typeof permissionRecord === 'object'
+    ? permissionRecord as Record<string, unknown>
+    : null
   return {
     protocol: normalizeText(readObjectValue(binding, ['Protocol', 'protocol'])),
     port: normalizePortText(readObjectValue(binding, ['Port', 'port'])),
@@ -381,6 +388,9 @@ function buildLinuxBindingView(binding: Record<string, unknown>): LinuxBindingVi
     certificateName,
     certificatePath: normalizeText(readObjectValue(binding, ['CertificatePath', 'certificatePath'])),
     certificateKeyPath: normalizeText(readObjectValue(binding, ['CertificateKeyPath', 'certificateKeyPath'])),
+    permissionSummary: formatLinuxPermissionSummary(permission),
+    testCommand: normalizeText(readObjectValue(binding, ['TestCommand', 'testCommand'])),
+    reloadCommand: normalizeText(readObjectValue(binding, ['ReloadCommand', 'reloadCommand'])),
     certificate: certificateRecord
       ? {
           subject: normalizeText(readObjectValue(certificateRecord, ['Subject', 'subject']), certificateName),
@@ -403,6 +413,20 @@ function buildLinuxBindingView(binding: Record<string, unknown>): LinuxBindingVi
         }
       : null,
   }
+}
+
+function formatLinuxPermissionSummary(permission: Record<string, unknown> | null): string {
+  if (!permission) return EMPTY_TEXT
+  const mode = normalizeText(readObjectValue(permission, ['privilegeMode']), '')
+  const helperRequired = readObjectValue(permission, ['helperRequired']) === true
+  const certWritable = readObjectValue(permission, ['certPath', 'parentDirWritable']) === true
+  const keyWritable = readObjectValue(permission, ['keyPath', 'parentDirWritable']) === true
+  const parts: string[] = []
+  if (mode) parts.push(`权限模式：${mode}`)
+  parts.push(`证书目录：${certWritable ? '可写' : '不可写'}`)
+  parts.push(`私钥目录：${keyWritable ? '可写' : '不可写'}`)
+  if (helperRequired) parts.push('需要 helper')
+  return parts.join(' / ')
 }
 
 function buildLinuxSites(detail: Record<string, unknown>): LinuxSiteView[] {
@@ -1566,6 +1590,9 @@ const config: BusinessPageConfig = {
                           <small>{{ binding.certificateName }}</small>
                           <em>证书：{{ binding.certificatePath }}</em>
                           <em>私钥：{{ binding.certificateKeyPath }}</em>
+                          <em v-if="binding.permissionSummary !== EMPTY_TEXT">{{ binding.permissionSummary }}</em>
+                          <em v-if="binding.testCommand !== EMPTY_TEXT">测试命令：{{ binding.testCommand }}</em>
+                          <em v-if="binding.reloadCommand !== EMPTY_TEXT">Reload 命令：{{ binding.reloadCommand }}</em>
                           <em v-if="binding.certificate">
                             {{ certificateRemainingLabel(binding.certificate) }} / 点击查看证书
                           </em>

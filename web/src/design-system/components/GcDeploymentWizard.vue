@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import type { ApiRecord } from '@/api/modules/common'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import type { CapabilityMatrixItem } from './GcCapabilityMatrix.vue'
-import type { DeploymentWizardPlan } from './GcDeploymentWizard.types'
+import type { DeploymentWizardInitialPlan, DeploymentWizardPlan } from './GcDeploymentWizard.types'
 
 type WizardStep = 1 | 2 | 3
 
@@ -17,6 +17,7 @@ const props = withDefaults(defineProps<{
   submitRequestId?: string
   approvalHint?: string
   initialCertificateId?: string | null
+  initialPlan?: DeploymentWizardInitialPlan | null
   dryRunChecks?: readonly ApiRecord[]
 }>(), {
   loading: false,
@@ -24,6 +25,7 @@ const props = withDefaults(defineProps<{
   submitRequestId: '',
   approvalHint: '',
   initialCertificateId: null,
+  initialPlan: null,
   dryRunChecks: () => [],
 })
 
@@ -43,19 +45,69 @@ const selectedCertificateFormatId = ref('')
 const selectedTargetId = ref('')
 const targetKeyword = ref('')
 
+const certificateAssetOptions = computed(() => {
+  const grouped = new Map<string, ApiRecord & { relatedAssetIds: string[] }>()
+  for (const item of props.certificates) {
+    const domain = normalizeDomainKey(readString(item, ['primaryDomain', 'name', 'commonName'], readString(item, ['id', 'certificateId'])))
+    const id = readString(item, ['id', 'certificateId'])
+    if (!domain || !id) continue
+    const existing = grouped.get(domain)
+    if (existing) {
+      existing.relatedAssetIds = [...new Set([...existing.relatedAssetIds, id])]
+      continue
+    }
+    grouped.set(domain, {
+      ...item,
+      id,
+      primaryDomain: readString(item, ['primaryDomain', 'name', 'commonName'], domain),
+      relatedAssetIds: [id],
+    })
+  }
+  return [...grouped.values()].sort((left, right) => certificateAssetLabel(left).localeCompare(certificateAssetLabel(right)))
+})
+
+const selectedCertificateAssetIds = computed(() => {
+  const selected = certificateAssetOptions.value.find((item) => readString(item, ['id', 'certificateId']) === selectedCertificateId.value)
+  return selected?.relatedAssetIds ?? (selectedCertificateId.value ? [selectedCertificateId.value] : [])
+})
+
 watch(() => props.initialCertificateId, (value) => {
-  if (value) selectedCertificateId.value = value
+  if (value) selectedCertificateId.value = resolveCertificateOptionId(value)
 }, { immediate: true })
 
-watch(() => props.certificates, (items) => {
-  if (!selectedCertificateId.value && items[0]) {
-    selectedCertificateId.value = readString(items[0], ['id', 'certificateId'])
+watch(() => props.initialPlan, (plan) => {
+  if (!plan) {
+    selectedCertificateId.value = props.initialCertificateId ?? readString(certificateAssetOptions.value[0], ['id', 'certificateId'])
+    selectedCertificateVersionId.value = ''
+    selectedCertificateFormatId.value = ''
+    selectedTargetId.value = readString(props.targets[0], ['id'])
+    targetKeyword.value = ''
+    currentStep.value = 1
+    return
+  }
+  selectedCertificateId.value = resolveCertificateOptionId(plan.certificateId ?? '')
+  selectedCertificateVersionId.value = plan.selectionMode === 'LATEST_AUTO'
+    ? LATEST_VERSION_MARKER
+    : (plan.certificateVersionId ?? '')
+  selectedCertificateFormatId.value = plan.certificateFormatId ?? ''
+  selectedTargetId.value = plan.applicationAssetId ?? ''
+  currentStep.value = 1
+}, { immediate: true, deep: true })
+
+watch(() => props.certificates, () => {
+  if (!selectedCertificateId.value && certificateAssetOptions.value[0]) {
+    selectedCertificateId.value = readString(certificateAssetOptions.value[0], ['id', 'certificateId'])
+    return
+  }
+  if (selectedCertificateId.value && !certificateAssetOptions.value.some((item) => readString(item, ['id', 'certificateId']) === selectedCertificateId.value)) {
+    selectedCertificateId.value = readString(certificateAssetOptions.value[0], ['id', 'certificateId'])
   }
 }, { immediate: true })
 
 const filteredVersions = computed(() => {
   if (!selectedCertificateId.value) return []
-  return props.certificateVersions.filter((item) => readString(item, ['certificateAssetId', 'certificateId']) === selectedCertificateId.value)
+  const assetIds = new Set(selectedCertificateAssetIds.value)
+  return props.certificateVersions.filter((item) => assetIds.has(readString(item, ['certificateAssetId', 'certificateId'])))
 })
 
 const sortedVersions = computed(() =>
@@ -88,7 +140,10 @@ const resolvedCertificateVersionId = computed(() =>
 
 const filteredFormats = computed(() => {
   if (!resolvedCertificateVersionId.value) return []
-  return props.certificateFormats
+  return props.certificateFormats.filter((item) => {
+    const formatVersionId = readString(item, ['certificateVersionId'])
+    return !formatVersionId || formatVersionId === resolvedCertificateVersionId.value
+  })
 })
 
 watch(filteredFormats, (items) => {
@@ -121,7 +176,7 @@ const selectedTargets = computed(() =>
 )
 
 const selectedCertificate = computed(() =>
-  props.certificates.find((item) => readString(item, ['id', 'certificateId']) === selectedCertificateId.value) ?? null,
+  certificateAssetOptions.value.find((item) => readString(item, ['id', 'certificateId']) === selectedCertificateId.value) ?? null,
 )
 const selectedVersion = computed(() =>
   props.certificateVersions.find((item) => readString(item, ['id', 'certificateVersionId']) === resolvedCertificateVersionId.value) ?? null,
@@ -263,6 +318,16 @@ function formatLabel(item: ApiRecord): string {
   return [configName, format, privateKey, extraPrivateKeyFile, runtime, extension ? `.${extension}` : ''].filter(Boolean).join(' / ')
 }
 
+function certificateAssetLabel(item: ApiRecord): string {
+  return readString(item, ['primaryDomain', 'name', 'commonName'], readString(item, ['id']))
+}
+
+function resolveCertificateOptionId(assetId: string): string {
+  if (!assetId) return ''
+  const matched = certificateAssetOptions.value.find((item) => item.relatedAssetIds.includes(assetId))
+  return readString(matched, ['id', 'certificateId'], assetId)
+}
+
 function targetLabel(item: ApiRecord): string {
   const name = readString(item, ['name', 'displayName', 'domainName'], readString(item, ['id']))
   const siteName = readString(item, ['siteName'], '未命名站点')
@@ -329,6 +394,10 @@ function readBoolean(record: ApiRecord | null | undefined, candidates: readonly 
     if (typeof value === 'string') return value === 'true'
   }
   return false
+}
+
+function normalizeDomainKey(value: string): string {
+  return value.trim().toLowerCase()
 }
 </script>
 
@@ -402,8 +471,8 @@ function readBoolean(record: ApiRecord | null | undefined, candidates: readonly 
           <label class="gc-form-field">
             <span>证书资产</span>
             <select v-model="selectedCertificateId" :disabled="loading">
-              <option v-for="item in certificates" :key="readString(item, ['id', 'certificateId'])" :value="readString(item, ['id', 'certificateId'])">
-                {{ readString(item, ['primaryDomain', 'name', 'commonName'], readString(item, ['id'])) }}
+              <option v-for="item in certificateAssetOptions" :key="readString(item, ['id', 'certificateId'])" :value="readString(item, ['id', 'certificateId'])">
+                {{ certificateAssetLabel(item) }}
               </option>
             </select>
           </label>

@@ -13,9 +13,10 @@ import {
   executeDeploymentPlan,
   listDeploymentPlans,
   submitDeploymentPlan,
+  updateDeploymentPlanFromApplicationAsset,
 } from '@/api/modules/deployments.api'
 import { GcDeploymentWizard, GcDryRunResultModal, GcExecutionProgressPanel, GcModal, GcStatusTag } from '@/design-system/components'
-import type { DeploymentWizardPlan } from '@/design-system/components/GcDeploymentWizard.types'
+import type { DeploymentWizardInitialPlan, DeploymentWizardPlan } from '@/design-system/components/GcDeploymentWizard.types'
 import type { ViewRow } from '@/composables/useBusinessPage'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
@@ -45,6 +46,8 @@ const pageRef = ref<InstanceType<typeof BusinessResourcePage> | null>(null)
 const createDialogOpen = ref(false)
 const loading = ref(false)
 const editingPlanId = ref('')
+const editingSourcePlanId = ref('')
+const wizardInitialPlan = ref<DeploymentWizardInitialPlan | null>(null)
 const errorMessage = ref('')
 const infoMessage = ref('')
 const approvalHint = ref('')
@@ -106,9 +109,8 @@ const pageConfig: BusinessPageConfig = {
       },
     },
     {
-      label: '编辑草稿',
+      label: '编辑计划',
       permission: 'deployment.plan.write',
-      hidden: (row) => String(row.status) !== 'DRAFT',
       reloadAfterRun: false,
       run: async (row) => {
         await openEditDialog(row)
@@ -137,10 +139,11 @@ const pageConfig: BusinessPageConfig = {
   ],
 }
 
-const modalTitle = computed(() => (editingPlanId.value ? '编辑部署计划草稿' : '创建部署计划'))
+const modalTitle = computed(() => (editingPlanId.value || editingSourcePlanId.value ? '编辑部署计划' : '创建部署计划'))
 const modalDescription = computed(() => {
   if (loading.value) return '正在加载部署目标与证书数据。'
-  if (editingPlanId.value) return `当前正在编辑草稿计划 ${editingPlanId.value}。保存会重建草稿，dry-run、提交和执行会作用于当前草稿。`
+  if (editingPlanId.value) return `当前正在编辑草稿计划 ${editingPlanId.value}。保存会更新当前草稿，dry-run、提交和执行会作用于当前草稿。`
+  if (editingSourcePlanId.value) return `当前基于计划 ${editingSourcePlanId.value} 编辑配置。保存会创建新草稿，原计划和执行记录会保留。`
   return '从应用资产选择部署目标，再选择证书版本与证书格式配置。'
 })
 const latestExecutionTitle = computed(() => resolveExecutionDialogTitle(latestExecutionMode.value))
@@ -155,6 +158,7 @@ const activeExecutionChecks = computed(() => {
 })
 const activeExecutionError = computed(() => {
   if (activeExecutionSource.value === 'related') return relatedExecutionDetail.error.value
+  if (latestExecutionMode.value !== 'dry-run') return dryRunExecutionDetail.error.value
   return dryRunExecutionDetail.error.value || dryRunActionError.value
 })
 const detailExecutionViewMode = computed<'dry-run' | 'execution'>(() => {
@@ -165,32 +169,45 @@ const detailExecutionViewMode = computed<'dry-run' | 'execution'>(() => {
 async function openCreateDialog() {
   createDialogOpen.value = true
   editingPlanId.value = ''
+  editingSourcePlanId.value = ''
+  wizardInitialPlan.value = null
   resetMessages()
   await loadWizardOptions()
 }
 
 async function openEditDialog(row: ViewRow) {
   createDialogOpen.value = true
-  editingPlanId.value = readString(row.raw, ['id', 'planId'])
+  const planId = readString(row.raw, ['id', 'planId'])
+  editingPlanId.value = String(row.status) === 'DRAFT' ? planId : ''
+  editingSourcePlanId.value = String(row.status) === 'DRAFT' ? '' : planId
+  wizardInitialPlan.value = null
   resetMessages()
+  if (editingSourcePlanId.value) {
+    infoMessage.value = `将基于计划 ${editingSourcePlanId.value} 创建新的部署草稿，原计划和执行记录会保留。`
+  }
   await loadWizardOptions()
+  wizardInitialPlan.value = buildInitialPlanFromRow(row.raw)
 }
 
 async function openCloneDialog(row: ViewRow) {
   createDialogOpen.value = true
   editingPlanId.value = ''
+  editingSourcePlanId.value = readString(row.raw, ['id', 'planId'])
+  wizardInitialPlan.value = null
   resetMessages()
-  const sourcePlanId = readString(row.raw, ['id', 'planId'])
-  infoMessage.value = sourcePlanId
-    ? `将基于计划 ${sourcePlanId} 创建新的部署草稿，原计划和执行记录会保留。`
+  infoMessage.value = editingSourcePlanId.value
+    ? `将基于计划 ${editingSourcePlanId.value} 创建新的部署草稿，原计划和执行记录会保留。`
     : '将创建新的部署草稿，原计划和执行记录会保留。'
   await loadWizardOptions()
+  wizardInitialPlan.value = buildInitialPlanFromRow(row.raw)
 }
 
 function closeCreateDialog() {
   if (loading.value) return
   createDialogOpen.value = false
   editingPlanId.value = ''
+  editingSourcePlanId.value = ''
+  wizardInitialPlan.value = null
 }
 
 async function openDetailDialog(row: ViewRow) {
@@ -218,6 +235,7 @@ function resetMessages() {
 
 function closeDryRunResultModal() {
   dryRunResultModalOpen.value = false
+  dryRunActionError.value = ''
   latestExecutionRequestId.value = ''
 }
 
@@ -262,11 +280,17 @@ async function handleSave(plan: DeploymentWizardPlan) {
   resetMessages()
   try {
     if (editingPlanId.value) {
-      await deleteDraftDeploymentPlan(editingPlanId.value, { reason: 'wizard-edit-recreate' })
+      const updated = await updateDeploymentPlanDraft(editingPlanId.value, plan)
+      infoMessage.value = `部署计划草稿已更新。planId: ${String(updated.data?.id ?? editingPlanId.value)}`
+      await pageRef.value?.reload()
+      return
     }
     const planId = await createPlanDraft(plan)
-    infoMessage.value = `部署计划草稿已保存。planId: ${planId}`
+    infoMessage.value = editingSourcePlanId.value
+      ? `已基于计划 ${editingSourcePlanId.value} 创建新的部署草稿。planId: ${planId}`
+      : `部署计划草稿已保存。planId: ${planId}`
     editingPlanId.value = planId
+    editingSourcePlanId.value = ''
     await pageRef.value?.reload()
   } catch (cause) {
     errorMessage.value = toErrorMessage(cause, '保存部署计划草稿失败')
@@ -334,6 +358,7 @@ async function openExecutionDetailFromPlan(row: ViewRow) {
 }
 
 function openRelatedExecutionDetail(record: RelatedExecutionRecord) {
+  dryRunActionError.value = ''
   activeExecutionSource.value = 'related'
   relatedExecutionRow.value = {
     id: record.runId,
@@ -458,6 +483,16 @@ async function createPlanDraft(plan: DeploymentWizardPlan): Promise<string> {
   return planId
 }
 
+async function updateDeploymentPlanDraft(planId: string, plan: DeploymentWizardPlan) {
+  return updateDeploymentPlanFromApplicationAsset({
+    planId,
+    applicationAssetId: plan.applicationAssetId,
+    selectionMode: plan.selectionMode,
+    targetCertificateVersionId: plan.selectionMode === 'EXPLICIT' ? plan.certificateVersionId : undefined,
+    certificateFormatId: plan.certificateFormatId,
+  })
+}
+
 async function runPlanAction(actionLabel: string, row: ViewRow | null, run: () => Promise<unknown> | undefined): Promise<unknown> {
   const result = await run()
   if (actionLabel === 'Dry-run 影响预览') {
@@ -488,7 +523,7 @@ async function handleActionFeedback(actionLabel: string, row: ViewRow | null, re
       : (planId ? `dry-run 已触发。planId: ${planId}` : 'dry-run 已触发。')
   } else if (actionLabel === '取消计划') {
     infoMessage.value = planId ? `部署计划已取消。planId: ${planId}` : '部署计划已取消。'
-  } else if (actionLabel === '编辑草稿') {
+  } else if (actionLabel === '编辑计划') {
     infoMessage.value = planId ? `已加载草稿计划。planId: ${planId}` : '已加载草稿计划。'
   }
   await pageRef.value?.reload()
@@ -547,6 +582,7 @@ async function runRequiredDryRun() {
 }
 
 function openExecutionModalFromResult(result: unknown, mode: 'dry-run' | 'apply' | 'rollback', fallbackRow?: ViewRow | null) {
+  dryRunActionError.value = ''
   activeExecutionSource.value = 'plan'
   const data = readResponseData(result)
   const run = readRecord(data, ['run'])
@@ -571,8 +607,8 @@ function openExecutionModalFromResult(result: unknown, mode: 'dry-run' | 'apply'
 }
 
 function resolveExecutionDialogTitle(mode: 'dry-run' | 'apply' | 'rollback'): string {
-  if (mode === 'rollback') return 'IIS 证书回滚执行'
-  if (mode === 'apply') return 'IIS 证书更新执行'
+  if (mode === 'rollback') return '证书回滚执行'
+  if (mode === 'apply') return '证书更新执行'
   return 'Dry-run 结果'
 }
 
@@ -594,6 +630,10 @@ function normalizeApplicationAssetTarget(item: ApiRecord): ApiRecord | null {
   const applicationAssetId = readString(item, ['id'])
   const managedTargetId = readString(item, ['targetBinding.managedTargetId'])
   const siteAssetId = readString(item, ['targetBinding.siteAssetId'])
+  const certificateBindings = Array.isArray(readPath(item, 'targetBindingDetail.certificateBindings'))
+    ? readPath(item, 'targetBindingDetail.certificateBindings') as ApiRecord[]
+    : []
+  const certificateBindingId = readString(certificateBindings[0], ['id'])
   if (!applicationAssetId || !managedTargetId || !siteAssetId) return null
 
   const displayName = readString(item, ['displayName', 'address', 'domainName'], applicationAssetId)
@@ -621,7 +661,34 @@ function normalizeApplicationAssetTarget(item: ApiRecord): ApiRecord | null {
     managedTargetId,
     managedTargetLabel: `${hostHeader}:${port}`,
     siteAssetId,
+    certificateBindingId,
   }
+}
+
+function buildInitialPlanFromRow(row: ApiRecord): DeploymentWizardInitialPlan {
+  const certificateVersionId = readString(row, ['certificateVersionId'])
+  const certificateFormatId = readString(row, ['certificateFormatId'])
+  const certificateVersion = certificateVersionItems.value.find((item) => readString(item, ['id', 'certificateVersionId']) === certificateVersionId)
+  return {
+    certificateId: readString(certificateVersion, ['certificateAssetId', 'certificateId']),
+    certificateVersionId,
+    certificateFormatId,
+    applicationAssetId: resolveApplicationAssetIdFromPlan(row),
+    selectionMode: 'EXPLICIT',
+  }
+}
+
+function resolveApplicationAssetIdFromPlan(row: ApiRecord): string {
+  const targets = Array.isArray(row.targets) ? row.targets as ApiRecord[] : []
+  const target = targets[0]
+  const certificateBindingId = readString(target, ['certificateBindingId'])
+  const executionTargetId = readString(target, ['executionTargetId'])
+  const matched = targetItems.value.find((item) => (
+    readString(item, ['applicationAssetId', 'id']) === readString(target, ['applicationAssetId', 'serviceAssetId'])
+    || (certificateBindingId && readString(item, ['certificateBindingId']) === certificateBindingId)
+    || (executionTargetId && readString(item, ['managedTargetId']) === executionTargetId)
+  ))
+  return readString(matched, ['applicationAssetId', 'id'], readString(target, ['applicationAssetId', 'serviceAssetId']))
 }
 
 function extractDryRunChecks(data: ApiRecord | undefined): ApiRecord[] {
@@ -771,6 +838,7 @@ async function fetchAllPages(
           :certificate-formats="certificateFormatItems"
           :targets="targetItems"
           :loading="loading"
+          :initial-plan="wizardInitialPlan"
           :dry-run-request-id="dryRunRequestId"
           :submit-request-id="submitRequestId"
           :approval-hint="approvalHint"

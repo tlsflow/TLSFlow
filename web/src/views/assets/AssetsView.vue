@@ -30,27 +30,29 @@ interface AssetDraft {
   tagsText: string
 }
 
-interface AgentIisBindingCandidate {
+interface AgentBindingCandidate {
   protocol: string
   port?: number
   hostHeader: string
   bindingInformation: string
+  listenIp?: string
 }
 
-interface AgentIisSiteCandidate {
+interface AgentSiteCandidate {
   id: string
   siteName: string
-  appPool: string
-  physicalPath: string
+  appPool?: string
+  physicalPath?: string
   providerType: FrameworkType
   hostHeader: string
+  listenIp?: string
   port?: number
   bindingInformation: string
-  bindings: AgentIisBindingCandidate[]
+  bindings: AgentBindingCandidate[]
   source: 'persisted' | 'agent_capability'
 }
 
-interface AgentIisManagedTargetCandidate {
+interface AgentManagedTargetCandidate {
   id: string
   agentId: string
   frameworkType: FrameworkType
@@ -81,8 +83,8 @@ const siteListError = ref('')
 const managedTargetListLoading = ref(false)
 const managedTargetItems = ref<ApiRecord[]>([])
 const managedTargetListError = ref('')
-const fallbackSiteItems = ref<AgentIisSiteCandidate[]>([])
-const fallbackManagedTargetItems = ref<AgentIisManagedTargetCandidate[]>([])
+const fallbackSiteItems = ref<AgentSiteCandidate[]>([])
+const fallbackManagedTargetItems = ref<AgentManagedTargetCandidate[]>([])
 const selectedAssetDetail = ref<ApiRecord | null>(null)
 const snapshotItems = ref<ApiRecord[]>([])
 const detailLoading = ref(false)
@@ -452,8 +454,8 @@ async function refreshAssetTargets() {
       },
     })
     siteItems.value = [...(siteResult.data?.items ?? [])]
-    if (siteItems.value.length === 0 && frameworkType === 'IIS') {
-      fallbackSiteItems.value = await loadAgentIisSiteCandidates(agentId)
+    if (siteItems.value.length === 0) {
+      fallbackSiteItems.value = await loadAgentSiteCandidates(agentId, frameworkType as FrameworkType)
       fallbackManagedTargetItems.value = buildFallbackManagedTargetCandidates(agentId, fallbackSiteItems.value)
     }
     if (!siteAssetId) return
@@ -614,9 +616,11 @@ function siteLabel(site: ApiRecord): string {
   return hostHeader ? `${siteName} (${hostHeader})` : `${siteName} (${bindingInformation || '未提供绑定信息'})`
 }
 
-async function loadAgentIisSiteCandidates(agentId: string): Promise<AgentIisSiteCandidate[]> {
+async function loadAgentSiteCandidates(agentId: string, frameworkType: FrameworkType): Promise<AgentSiteCandidate[]> {
   const detail = await getAgentDetail(agentId)
-  const sites = readAgentIisSites(detail.data)
+  const sites = frameworkType === 'IIS'
+    ? readAgentIisSites(detail.data)
+    : readAgentLinuxSites(detail.data, frameworkType)
   return sites
     .filter((site) => site.bindings.length > 0)
     .map((site, index) => {
@@ -626,7 +630,7 @@ async function loadAgentIisSiteCandidates(agentId: string): Promise<AgentIisSite
         siteName: site.siteName,
         appPool: site.appPool,
         physicalPath: site.physicalPath,
-        providerType: 'IIS',
+        providerType: frameworkType,
         hostHeader: preferred.hostHeader,
         port: preferred.port,
         bindingInformation: preferred.bindingInformation,
@@ -638,9 +642,9 @@ async function loadAgentIisSiteCandidates(agentId: string): Promise<AgentIisSite
 
 function readAgentIisSites(agentDetail: ApiRecord | undefined): Array<{
   siteName: string
-  physicalPath: string
-  appPool: string
-  bindings: AgentIisBindingCandidate[]
+  physicalPath?: string
+  appPool?: string
+  bindings: AgentBindingCandidate[]
 }> {
   const snapshot = readNested(agentDetail, ['capabilitySnapshot', 'capabilities'])
   if (!Array.isArray(snapshot)) return []
@@ -675,14 +679,96 @@ function readAgentIisSites(agentDetail: ApiRecord | undefined): Array<{
     })
 }
 
+function readAgentLinuxSites(agentDetail: ApiRecord | undefined, frameworkType: Exclude<FrameworkType, 'IIS'>): Array<{
+  siteName: string
+  physicalPath?: string
+  appPool?: string
+  bindings: AgentBindingCandidate[]
+}> {
+  const capabilityKey = frameworkType === 'NGINX'
+    ? 'linux.nginx.detail'
+    : frameworkType === 'APACHE'
+      ? 'linux.apache.detail'
+      : 'linux.tomcat.detail'
+  const detail = readAgentCapabilityRecord(agentDetail, capabilityKey)
+  if (frameworkType === 'TOMCAT') {
+    const connectorsRaw = readNested(detail, ['Connectors']) ?? readNested(detail, ['connectors'])
+    const bindings = Array.isArray(connectorsRaw)
+      ? connectorsRaw
+          .filter((connector): connector is Record<string, unknown> => Boolean(connector) && typeof connector === 'object')
+          .map((connector, index) => {
+            const protocol = String(readNested(connector, ['Protocol']) ?? readNested(connector, ['protocol']) ?? '')
+            const port = Number(readNested(connector, ['Port']) ?? readNested(connector, ['port']) ?? 0) || undefined
+            const address = String(readNested(connector, ['Address']) ?? readNested(connector, ['address']) ?? '*')
+            const hostHeader = address && address !== '*' ? address : `connector-${index + 1}`
+            return {
+              protocol,
+              port,
+              hostHeader,
+              listenIp: address,
+              bindingInformation: `${address}:${port ?? ''}:${hostHeader}`,
+            }
+          })
+      : []
+    return bindings.length > 0
+      ? [{
+          siteName: 'Tomcat Connector',
+          physicalPath: String(readNested(detail, ['ConfigPath']) ?? readNested(detail, ['configPath']) ?? ''),
+          bindings,
+        }]
+      : []
+  }
+
+  const rawSites = readNested(detail, ['Sites']) ?? readNested(detail, ['sites'])
+  if (!Array.isArray(rawSites)) return []
+  return rawSites
+    .filter((site): site is Record<string, unknown> => Boolean(site) && typeof site === 'object')
+    .map((site, index) => {
+      const siteName = String(readNested(site, ['Name']) ?? readNested(site, ['name']) ?? `site-${index + 1}`)
+      const physicalPath = String(readNested(site, ['SitePath']) ?? readNested(site, ['sitePath']) ?? '')
+      const serverNamesRaw = readNested(site, ['ServerNames']) ?? readNested(site, ['serverNames'])
+      const serverNames = Array.isArray(serverNamesRaw)
+        ? serverNamesRaw.map((item) => String(item ?? '').trim()).filter(Boolean)
+        : []
+      const bindingsRaw = readNested(site, ['Listen']) ?? readNested(site, ['listen'])
+      const bindings = Array.isArray(bindingsRaw)
+        ? bindingsRaw
+            .filter((binding): binding is Record<string, unknown> => Boolean(binding) && typeof binding === 'object')
+            .map((binding) => {
+              const protocol = String(readNested(binding, ['Protocol']) ?? readNested(binding, ['protocol']) ?? '')
+              const port = Number(readNested(binding, ['Port']) ?? readNested(binding, ['port']) ?? 0) || undefined
+              const address = String(readNested(binding, ['Address']) ?? readNested(binding, ['address']) ?? '*')
+              const hostHeader = serverNames[0] || siteName
+              return {
+                protocol,
+                port,
+                hostHeader,
+                listenIp: address,
+                bindingInformation: `${address}:${port ?? ''}:${hostHeader}`,
+              }
+            })
+        : []
+      return { siteName, physicalPath, bindings }
+    })
+}
+
+function readAgentCapabilityRecord(agentDetail: ApiRecord | undefined, capabilityKey: string): Record<string, unknown> {
+  const snapshot = readNested(agentDetail, ['capabilitySnapshot', 'capabilities'])
+  if (!Array.isArray(snapshot)) return {}
+  const capability = snapshot.find((item) =>
+    item && typeof item === 'object' && String((item as Record<string, unknown>).capabilityKey ?? '') === capabilityKey)
+  const value = readNested(capability, ['value'])
+  return value && typeof value === 'object' ? value as Record<string, unknown> : {}
+}
+
 function buildFallbackManagedTargetCandidates(
   agentId: string,
-  sites: AgentIisSiteCandidate[],
-): AgentIisManagedTargetCandidate[] {
+  sites: AgentSiteCandidate[],
+): AgentManagedTargetCandidate[] {
   return sites.map((site) => ({
     id: `agent-target:${agentId}:${site.siteName}:${site.bindingInformation}`.toLowerCase(),
     agentId,
-    frameworkType: 'IIS',
+    frameworkType: site.providerType,
     siteAssetId: site.id,
     targetType: 'SITE_BINDING',
     targetKey: `${agentId}:site-binding:${site.siteName}:${site.bindingInformation}`.toLowerCase(),
@@ -720,14 +806,15 @@ async function ensureTargetBindingResources(): Promise<{
 
   const fallbackSite = fallbackSiteItems.value.find((item) => item.id === assetDraft.siteAssetId.trim())
   if (!fallbackSite) {
-    throw new Error('未找到可用的 IIS 站点实例，请先确认 Agent 详情中的 IIS 站点已成功上报。')
+    throw new Error('未找到可用的站点实例，请先确认 Agent 详情中的框架站点已成功上报。')
   }
 
   const agentId = assetDraft.agentId.trim()
+  const frameworkType = assetDraft.frameworkType.trim() as FrameworkType
   let serviceInstance = (await listServiceInstances({
     page: 1,
     pageSize: 50,
-    filters: { providerType: 'IIS' },
+    filters: { providerType: frameworkType },
   })).data?.items?.[0]
   if (serviceInstance) {
     const candidate = serviceInstance as ApiRecord
@@ -736,11 +823,11 @@ async function ensureTargetBindingResources(): Promise<{
   }
   if (!serviceInstance?.id) {
     const createdService = await createServiceInstance({
-      providerType: 'IIS',
-      serviceName: 'iis',
-      displayName: 'Default IIS',
-      providerKey: `iis:${agentId}`,
-      configPath: 'IIS:\\\\Sites',
+      providerType: frameworkType,
+      serviceName: frameworkType.toLowerCase(),
+      displayName: frameworkType,
+      providerKey: `${frameworkType.toLowerCase()}:${agentId}`,
+      configPath: fallbackSite.physicalPath || undefined,
       rawFacts: {
         agentId,
       },
@@ -751,18 +838,19 @@ async function ensureTargetBindingResources(): Promise<{
   const createdSite = await createSiteAsset({
     serviceInstanceId: String(serviceInstance?.id),
     agentId,
-    providerType: 'IIS',
+    providerType: frameworkType,
     siteType: 'WEB_SITE',
     siteName: fallbackSite.siteName,
-    siteKey: `${agentId}:iis:${fallbackSite.siteName}:${fallbackSite.bindingInformation}`.toLowerCase(),
+    siteKey: `${agentId}:${frameworkType.toLowerCase()}:${fallbackSite.siteName}:${fallbackSite.bindingInformation}`.toLowerCase(),
     bindingInformation: fallbackSite.bindingInformation,
     hostHeader: fallbackSite.hostHeader || undefined,
-    listenIp: fallbackSite.bindingInformation.split(':')[0] || '*',
+    listenIp: fallbackSite.listenIp || fallbackSite.bindingInformation.split(':')[0] || '*',
     port: fallbackSite.port,
-    protocol: 'HTTPS',
+    protocol: fallbackSite.bindings.find((binding) => binding.bindingInformation === fallbackSite.bindingInformation)?.protocol?.toUpperCase() as AssetProtocol || 'HTTPS',
     configPath: fallbackSite.physicalPath || undefined,
     metadata: {
       appPool: fallbackSite.appPool,
+      providerType: frameworkType,
       source: 'agent_capability_fallback',
     },
   })
@@ -771,15 +859,16 @@ async function ensureTargetBindingResources(): Promise<{
     agentId,
     serviceInstanceId: String(serviceInstance?.id),
     siteAssetId: String(createdSite.data?.id),
-    providerType: 'IIS',
-    frameworkType: 'IIS',
+    providerType: frameworkType,
+    frameworkType,
     targetType: 'SITE_BINDING',
     targetKey: `${agentId}:site-binding:${fallbackSite.siteName}:${fallbackSite.bindingInformation}`.toLowerCase(),
     bindingKey: fallbackSite.bindingInformation,
     capabilityProfile: {
-      providerType: 'IIS',
+      providerType: frameworkType,
       bindingInformation: fallbackSite.bindingInformation,
       hostHeader: fallbackSite.hostHeader,
+      port: fallbackSite.port,
       source: 'agent_capability_fallback',
     },
     status: 'ACTIVE',

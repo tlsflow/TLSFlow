@@ -14,3 +14,11 @@ export interface DeploymentWizardPlan {
   readonly dryRunSummary?: string
   readonly submitSummary?: string
 }
+
+export interface DeploymentWizardInitialPlan {
+  readonly certificateId?: string
+  readonly certificateVersionId?: string
+  readonly certificateFormatId?: string
+  readonly applicationAssetId?: string
+  readonly selectionMode?: 'EXPLICIT' | 'LATEST_AUTO'
+}

@@ -20,6 +20,10 @@ export function createDeploymentPlanFromApplicationAsset(payload: ApiBody) {
   return postAction(`${DEPLOYMENT_PLANS_PATH}/from-application-asset`, payload, 'deployment_from_application_asset')
 }
 
+export function updateDeploymentPlanFromApplicationAsset(payload: ApiBody) {
+  return postAction(`${DEPLOYMENT_PLANS_PATH}/update-from-application-asset`, payload, 'deployment_update_from_application_asset')
+}
+
 export function dryRunDeploymentPlan(payload: ApiBody) {
   const planId = requireId(String(payload.planId ?? ''), 'dry-run')
   return postAction(`${DEPLOYMENT_PLANS_PATH}/dry-run`, { ...payload, planId }, 'deployment_dry_run')

@@ -1,5 +1,11 @@
-import { computed, ref, watch } from 'vue'
-import { listAgentTaskLogsByTaskId, listExecutionStepsByRunId } from '@/api/modules/executions.api'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import {
+  listAgentTaskLogsByTaskId,
+  listExecutionStepsByRunId,
+  streamExecutionDetail,
+  type ExecutionDetailStreamEvent,
+  type ExecutionDetailStreamSnapshot,
+} from '@/api/modules/executions.api'
 import type { ApiRecord } from '@/api/modules/common'
 import type { ExecutionLogLine, ExecutionStepLine } from '@/design-system/components/GcExecutionLogViewer.vue'
 import { usePolling } from './usePolling'
@@ -16,6 +22,7 @@ export interface ExecutionDryRunSummary {
 }
 
 type DryRunStatus = 'passed' | 'failed' | 'warning' | 'unknown'
+
 const terminalRunStatuses = new Set(['SUCCESS', 'FAILED', 'TIMEOUT', 'CANCELLED', 'ROLLBACK_SUCCESS', 'ROLLBACK_FAILED'])
 
 export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null }) {
@@ -26,13 +33,19 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
   const error = ref('')
   const dryRunSummary = ref<ExecutionDryRunSummary | null>(null)
   const dryRunChecks = ref<ApiRecord[]>([])
+  const isStreaming = ref(false)
+
+  const stepRecords = ref<ApiRecord[]>([])
+  const agentLogsByTaskId = ref(new Map<string, readonly ApiRecord[]>())
   let lastLoadedRunId = ''
+  let stopStream: (() => void) | null = null
 
   const runId = computed(() => {
     const row = selectedRow.value
     if (!row) return ''
     return readString(row.raw, ['id', 'runId'], row.id)
   })
+
   const runStatus = computed(() => {
     const row = selectedRow.value
     if (!row) return ''
@@ -41,11 +54,7 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
 
   async function load() {
     if (!runId.value) {
-      steps.value = []
-      lines.value = []
-      dryRunSummary.value = null
-      dryRunChecks.value = []
-      lastLoadedRunId = ''
+      resetState()
       return
     }
 
@@ -58,53 +67,181 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
         sort: 'startedAt:asc',
       })
       requestId.value = result.requestId
-      const items = result.data?.items ?? []
-      const agentLogsByTaskId = await loadAgentLogsByTaskId(items)
-      steps.value = items.map((record, index) => ({
-        id: readString(record, ['id', 'stepId'], `${runId.value}-step-${index + 1}`),
-        name: readString(record, ['name', 'stepName'], `步骤 ${index + 1}`),
-        status: readString(record, ['status', 'state', 'result'], 'UNKNOWN'),
-        detail: buildStepDetail(record, index),
-        startedAt: formatStepRange(record, 'start'),
-        finishedAt: formatStepRange(record, 'end'),
-        requestId: readString(record, ['requestId'], ''),
-      }))
-      lines.value = items.flatMap((record, index) => buildLogLines(record, index, agentLogsByTaskId.get(readDispatchTaskId(record)) ?? []))
-      dryRunSummary.value = summarizeDryRun(items)
-      dryRunChecks.value = collectDryRunChecks(items)
+      const items = [...(result.data?.items ?? [])]
+      stepRecords.value = items
+      agentLogsByTaskId.value = await loadAgentLogsByTaskId(items)
+      recomputeView()
       lastLoadedRunId = runId.value
     } catch (cause) {
-      steps.value = []
-      lines.value = []
-      dryRunSummary.value = null
-      dryRunChecks.value = []
-      error.value = cause instanceof Error ? cause.message : '执行步骤查询失败'
+      resetState()
+      error.value = cause instanceof Error ? cause.message : '查询执行步骤失败'
     } finally {
       loading.value = false
+    }
+  }
+
+  function resetState() {
+    stepRecords.value = []
+    agentLogsByTaskId.value = new Map()
+    steps.value = []
+    lines.value = []
+    dryRunSummary.value = null
+    dryRunChecks.value = []
+    lastLoadedRunId = ''
+  }
+
+  function recomputeView() {
+    const items = stepRecords.value
+    steps.value = items.map((record, index) => ({
+      id: readString(record, ['id', 'stepId'], `${runId.value}-step-${index + 1}`),
+      name: readString(record, ['name', 'stepName'], `步骤 ${index + 1}`),
+      status: readString(record, ['status', 'state', 'result'], 'UNKNOWN'),
+      detail: buildStepDetail(record, index),
+      startedAt: formatStepRange(record, 'start'),
+      finishedAt: formatStepRange(record, 'end'),
+      requestId: readString(record, ['requestId'], ''),
+    }))
+    lines.value = items.flatMap((record, index) => buildLogLines(record, index, agentLogsByTaskId.value.get(readDispatchTaskId(record)) ?? []))
+    dryRunSummary.value = summarizeDryRun(items)
+    dryRunChecks.value = collectDryRunChecks(items)
+  }
+
+  async function connectStream() {
+    disconnectStream()
+    if (!runId.value || terminalRunStatuses.has(runStatus.value)) {
+      isStreaming.value = false
+      return
+    }
+
+    try {
+      stopStream = await streamExecutionDetail(runId.value, {
+        onSnapshot: (snapshot) => {
+          applySnapshot(snapshot)
+        },
+        onEvent: (event) => {
+          void applyEvent(event)
+        },
+        onError: () => {
+          isStreaming.value = false
+          void polling.start()
+        },
+      })
+      isStreaming.value = true
+    } catch (cause) {
+      isStreaming.value = false
+      error.value = cause instanceof Error ? cause.message : '连接执行详情流失败'
+    }
+  }
+
+  function disconnectStream() {
+    if (!stopStream) return
+    stopStream()
+    stopStream = null
+    isStreaming.value = false
+  }
+
+  function applySnapshot(snapshot: ExecutionDetailStreamSnapshot) {
+    const items = [...(snapshot.steps ?? [])]
+    if (items.length > 0) {
+      stepRecords.value = items
+      void refreshAgentLogsForItems(items)
+      recomputeView()
+    }
+  }
+
+  async function applyEvent(event: ExecutionDetailStreamEvent) {
+    if (event.type === 'step' && event.step) {
+      upsertStep(event.step)
+      const taskId = readDispatchTaskId(event.step)
+      if (taskId) {
+        await refreshAgentLogForTask(taskId)
+      }
+      recomputeView()
+      return
+    }
+    if (event.type === 'log' && event.log) {
+      mergeAgentLog(event.log)
+      recomputeView()
+    }
+  }
+
+  function upsertStep(step: ApiRecord) {
+    const items = [...stepRecords.value]
+    const id = readString(step, ['id', 'stepId'], '')
+    const index = items.findIndex((item) => readString(item, ['id', 'stepId'], '') === id)
+    if (index >= 0) items[index] = step
+    else items.push(step)
+    items.sort((left, right) => {
+      const leftNo = Number(readPath(left, 'stepNo') ?? 0)
+      const rightNo = Number(readPath(right, 'stepNo') ?? 0)
+      return leftNo - rightNo
+    })
+    stepRecords.value = items
+  }
+
+  async function refreshAgentLogsForItems(items: readonly ApiRecord[]) {
+    agentLogsByTaskId.value = await loadAgentLogsByTaskId(items)
+    recomputeView()
+  }
+
+  async function refreshAgentLogForTask(taskId: string) {
+    try {
+      const result = await listAgentTaskLogsByTaskId(taskId)
+      const next = new Map(agentLogsByTaskId.value)
+      next.set(taskId, result.data ?? [])
+      agentLogsByTaskId.value = next
+    } catch {
+      // 日志查询失败不阻断主视图
+    }
+  }
+
+  function mergeAgentLog(log: ApiRecord) {
+    const taskId = readString(log, ['taskId'], '')
+    if (!taskId) return
+    const next = new Map(agentLogsByTaskId.value)
+    const current = [...(next.get(taskId) ?? [])]
+    const logId = readString(log, ['id'], '')
+    if (!current.some((item) => readString(item, ['id'], '') === logId)) {
+      current.push(log)
+      current.sort((left, right) => Number(readPath(left, 'sequence') ?? 0) - Number(readPath(right, 'sequence') ?? 0))
+      next.set(taskId, current)
+      agentLogsByTaskId.value = next
     }
   }
 
   const polling = usePolling(() => load(), {
     intervalMs: 5_000,
     immediate: false,
-    stopWhen: () => !runId.value || terminalRunStatuses.has(runStatus.value),
+    stopWhen: () => !runId.value || terminalRunStatuses.has(runStatus.value) || isStreaming.value,
   })
 
-  watch([runId, runStatus], ([value, status]) => {
+  watch([runId, runStatus], async ([value, status]) => {
     if (!value) {
+      disconnectStream()
       polling.stop()
-      void load()
+      resetState()
       return
     }
     if (value !== lastLoadedRunId) {
-      void load()
+      await load()
     }
     if (terminalRunStatuses.has(status)) {
+      disconnectStream()
       polling.stop()
       return
     }
-    void polling.start()
+    await connectStream()
+    if (!isStreaming.value) {
+      void polling.start()
+    } else {
+      polling.stop()
+    }
   }, { immediate: true })
+
+  onBeforeUnmount(() => {
+    disconnectStream()
+    polling.stop()
+  })
 
   return {
     loading,
@@ -115,6 +252,7 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
     dryRunSummary,
     dryRunChecks,
     isPolling: polling.isPolling,
+    isStreaming,
     reload: load,
   }
 }
@@ -179,50 +317,26 @@ function summarizeDryRun(items: readonly Record<string, unknown>[]): ExecutionDr
     return {
       state: 'failed',
       label: 'Dry-run 执行失败',
-      detail: `已有 ${failedStepCount} 个预检步骤失败或超时，Agent 没有回传结构化结论。当前应该先检查执行日志与 Agent 回传链路。`,
+      detail: `已有 ${failedStepCount} 个预检步骤失败或超时，Agent 没有回传结构化结论。`,
       ...counts,
     }
   }
 
   if (!hasChecks) {
     if (queuedCount === dryRunItems.length) {
-      return {
-        state: 'queued',
-        label: 'Dry-run 排队中',
-        detail: '预检任务已经创建，但仍停留在队列或等待调度，当前还没有开始执行。',
-        passed: 0,
-        warning: 0,
-        failed: 0,
-        unknown: 0,
-      }
+      return { state: 'queued', label: 'Dry-run 排队中', detail: '预检任务已创建，等待开始执行。', passed: 0, warning: 0, failed: 0, unknown: 0 }
     }
     if (runningCount > 0 || queuedCount > 0) {
-      return {
-        state: 'running',
-        label: 'Dry-run 执行中',
-        detail: '预检已经开始，但还没有收到可判定成功或失败的结构化结果。',
-        passed: 0,
-        warning: 0,
-        failed: 0,
-        unknown: 0,
-      }
+      return { state: 'running', label: 'Dry-run 执行中', detail: '预检已开始，等待结构化结果回传。', passed: 0, warning: 0, failed: 0, unknown: 0 }
     }
-    return {
-      state: 'pending',
-      label: 'Dry-run 已结束但无结论',
-      detail: `共有 ${finishedWithoutChecks} 个步骤已结束，但没有 dryRunChecks / dryRunSummary。这里不是成功，只是结果回写缺失。`,
-      passed: 0,
-      warning: 0,
-      failed: 0,
-      unknown: 0,
-    }
+    return { state: 'pending', label: 'Dry-run 已结束但无结论', detail: `共有 ${finishedWithoutChecks} 个步骤已结束，但没有 dryRunChecks / dryRunSummary。`, passed: 0, warning: 0, failed: 0, unknown: 0 }
   }
 
   if (queuedCount > 0 || runningCount > 0) {
     return {
       state: 'running',
       label: 'Dry-run 回传中',
-      detail: `已收到部分结论：通过 ${counts.passed}，警告 ${counts.warning}，失败 ${counts.failed}，未知 ${counts.unknown}。仍有步骤尚未完成。`,
+      detail: `已收到部分结论：通过 ${counts.passed}，警告 ${counts.warning}，失败 ${counts.failed}，未知 ${counts.unknown}。`,
       ...counts,
     }
   }
@@ -231,7 +345,7 @@ function summarizeDryRun(items: readonly Record<string, unknown>[]): ExecutionDr
     return {
       state: 'failed',
       label: 'Dry-run 失败',
-      detail: `预检失败 ${counts.failed} 项，警告 ${counts.warning} 项，通过 ${counts.passed} 项。当前不应继续正式部署。`,
+      detail: `预检失败 ${counts.failed} 项，警告 ${counts.warning} 项，通过 ${counts.passed} 项。`,
       ...counts,
     }
   }
@@ -240,7 +354,7 @@ function summarizeDryRun(items: readonly Record<string, unknown>[]): ExecutionDr
     return {
       state: 'warning',
       label: 'Dry-run 有风险提示',
-      detail: `预检已完成：通过 ${counts.passed} 项，警告 ${counts.warning} 项，未知 ${counts.unknown} 项。可以继续，但需要先看清风险项。`,
+      detail: `预检已完成：通过 ${counts.passed} 项，警告 ${counts.warning} 项，未知 ${counts.unknown} 项。`,
       ...counts,
     }
   }
@@ -248,7 +362,7 @@ function summarizeDryRun(items: readonly Record<string, unknown>[]): ExecutionDr
   return {
     state: 'passed',
     label: 'Dry-run 成功',
-    detail: `预检全部通过，共 ${counts.passed} 项，没有失败或警告。`,
+    detail: `预检全部通过，共 ${counts.passed} 项。`,
     ...counts,
   }
 }
@@ -273,6 +387,7 @@ function buildStepDetail(record: Record<string, unknown>, index: number): string
   const bindingSelector = readObject(record, 'inputSnapshot.bindingSelector')
   const hostHeader = readPath(bindingSelector ?? {}, 'hostHeader')
   const port = readPath(bindingSelector ?? {}, 'port')
+  const providerLabel = inferProviderLabel(record)
 
   if (dryRunChecks.length > 0) {
     const passed = readCount(dryRunSummary, 'passed')
@@ -295,10 +410,10 @@ function buildStepDetail(record: Record<string, unknown>, index: number): string
           ? '当前步骤执行失败，且还没有拿到结构化预检结论。'
           : '当前步骤已结束，但还没有拿到结构化预检结论。'
     if (stepType === 'DISCOVER') {
-      return `只读预检：识别部署目标与 IIS 站点上下文。站点 ${stringValue(siteName, '未命名站点')}，绑定 ${formatBinding(hostHeader, port)}。${pendingText}`
+      return `只读预检：识别部署目标与 ${providerLabel} 站点上下文。站点 ${stringValue(siteName, '未命名站点')}，绑定 ${formatBinding(hostHeader, port)}。${pendingText}`
     }
     if (stepType === 'VERIFY') {
-      return `只读预检：校验证书材料、目标绑定和域名匹配。目标 ${formatBinding(hostHeader, port)}。${pendingText}`
+      return `只读预检：校验证书材料、目标绑定和域名匹配。目标 ${providerLabel} 绑定 ${formatBinding(hostHeader, port)}。${pendingText}`
     }
     return `只读预检已创建。${pendingText}`
   }
@@ -322,7 +437,7 @@ function buildStepDetail(record: Record<string, unknown>, index: number): string
   if (stepStatus === 'SUCCESS' && stepType === 'VERIFY' && verificationRecovery) {
     const remoteTarget = readString(resultDetail ?? {}, ['verify.target'], verifyUrl || formatBinding(hostHeader, port))
     const originalError = readString(verificationRecovery, ['originalErrorMessage'], '')
-    return `Agent 侧远程 TLS 探测失败，但控制面已对 ${remoteTarget} 完成真实 TLS 验证并确认目标证书匹配，最终以控制面验证结果判定成功。${originalError ? `原始 Agent 错误：${originalError}` : ''}`
+    return `Agent 侧远程 TLS 探测失败，但控制面已对 ${remoteTarget} 完成真实 TLS 验证并确认目标证书匹配。${originalError ? `原始 Agent 错误：${originalError}` : ''}`
   }
 
   if (resultDetail) {
@@ -384,7 +499,7 @@ function buildLogLines(record: Record<string, unknown>, index: number, agentLogs
     time: baseTime,
     level: 'warn' as const,
     step: baseStep,
-    message: `[ControlPlane] Agent 侧远程 TLS 探测失败，但控制面已完成真实 TLS 验证并确认目标证书匹配，最终以控制面验证结果判定成功。`,
+    message: '[ControlPlane] Agent 侧远程 TLS 探测失败，但控制面已完成真实 TLS 验证并确认目标证书匹配。',
     requestId: readString(record, ['requestId'], ''),
   }] : []
   return [baseLine, ...recoveryLine, ...agentLines]
@@ -489,4 +604,14 @@ function stringValue(value: unknown, fallback: string): string {
   if (typeof value === 'string' && value.trim()) return value.trim()
   if (typeof value === 'number' && Number.isFinite(value)) return String(value)
   return fallback
+}
+
+function inferProviderLabel(record: Record<string, unknown>): string {
+  const providerType = readString(record, ['inputSnapshot.providerType'], '').trim().toUpperCase()
+  if (providerType === 'NGINX') return 'NGINX'
+  if (providerType === 'IIS') return 'IIS'
+  const type = readString(record, ['inputSnapshot.type'], '').trim().toLowerCase()
+  if (type.startsWith('linux.nginx.')) return 'NGINX'
+  if (type.startsWith('windows.iis.')) return 'IIS'
+  return '目标'
 }
