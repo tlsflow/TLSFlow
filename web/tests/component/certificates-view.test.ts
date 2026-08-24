@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -38,6 +40,14 @@ describe('CertificatesView', () => {
     Date.now = realDateNow
     vi.restoreAllMocks()
     document.body.innerHTML = ''
+  })
+
+  it('专业视图卡片使用固定 285px 列宽，并按容器空间自动换行', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/views/certificates/CertificatesView.vue'), 'utf8')
+
+    expect(source).toContain('grid-template-columns: repeat(auto-fill, var(--gc-size-certificate-card-min));')
+    expect(source).toContain('width: var(--gc-size-certificate-card-min);')
+    expect(source).not.toContain('minmax(var(--gc-size-certificate-card-min), 1fr)')
   })
 
   it('资产筛选默认隐藏，并通过 Shell 操作槽切换显示状态', async () => {
@@ -811,6 +821,14 @@ describe('CertificatesView', () => {
     expect(presentationButtons[1]?.attributes('aria-pressed')).toBe('false')
     await presentationButtons[1]!.trigger('click')
     expect(wrapper.find('.certificate-page__asset-card-list--list').exists()).toBe(true)
+    expect(wrapper.find('.certificate-page__asset-table').exists()).toBe(true)
+    expect(wrapper.find('.certificate-page__asset-table table').exists()).toBe(true)
+    expect(wrapper.find('.certificate-page__asset-card').exists()).toBe(false)
+    expect(wrapper.findAll('.certificate-page__asset-table tbody tr')).toHaveLength(2)
+    expect(wrapper.findAll('.certificate-page__asset-table [role="progressbar"]')).toHaveLength(2)
+    expect(wrapper.find('.certificate-page__asset-table').text()).toContain('证书有效期')
+    expect(wrapper.find('.certificate-page__asset-table').text()).toContain('到期时间')
+    expect(wrapper.find('.certificate-page__asset-table').text()).toContain('来源')
     expect(presentationButtons[0]?.attributes('aria-pressed')).toBe('false')
     expect(presentationButtons[1]?.attributes('aria-pressed')).toBe('true')
     await presentationButtons[0]!.trigger('click')
