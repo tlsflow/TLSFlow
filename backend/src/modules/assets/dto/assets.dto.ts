@@ -23,6 +23,7 @@ export type ApplicationAssetTargetStatus = 'ACTIVE' | 'INACTIVE' | 'PENDING' | '
 export type ManagedTargetSnapshotType = 'PRE_DEPLOY' | 'POST_DEPLOY' | 'ROLLBACK_POINT' | 'POST_ROLLBACK' | 'ERROR_STATE';
 export type DeploymentStrategyType = 'AGENT' | 'WORKFLOW';
 export type WorkflowRunnerType = 'CONTROL_PLANE' | 'GATEWAY';
+export type WorkflowVersionSelection = 'PINNED' | 'LATEST_PUBLISHED';
 
 export interface ManagementChannelDto {
   type: 'AGENT' | 'GATEWAY' | 'SSH' | 'WINRM' | 'MANUAL' | 'AGENTLESS' | 'SCRIPT_PACKAGE' | string;
@@ -41,7 +42,8 @@ export interface AgentDeploymentStrategyDto {
 
 export interface WorkflowDeploymentStrategyDto {
   workflowId: string;
-  workflowVersionId: string;
+  workflowVersionSelection?: WorkflowVersionSelection;
+  workflowVersionId?: string;
   runner: WorkflowRunnerType;
   gatewayId?: string;
   target?: {

@@ -35,11 +35,15 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
     if (runner !== 'CONTROL_PLANE' && runner !== 'GATEWAY') throw strategyError('workflow.runner 只支持 CONTROL_PLANE/GATEWAY');
     if (runner === 'GATEWAY' && !optionalNonEmpty(workflow.gatewayId)) throw strategyError('runner=GATEWAY 时 gatewayId 必填');
     const credentialRefs = normalizeSecretRefRecord(workflow.credentialRefs, 'workflow.credentialRefs');
+    const workflowVersionSelection = normalizeWorkflowVersionSelection(workflow.workflowVersionSelection, workflow.workflowVersionId);
     return {
       type: 'WORKFLOW',
       workflow: {
         workflowId: requireNonEmpty(workflow.workflowId, 'workflow.workflowId'),
-        workflowVersionId: requireNonEmpty(workflow.workflowVersionId, 'workflow.workflowVersionId'),
+        workflowVersionSelection,
+        workflowVersionId: workflowVersionSelection === 'PINNED'
+          ? requireNonEmpty(workflow.workflowVersionId, 'workflow.workflowVersionId')
+          : undefined,
         runner,
         gatewayId: optionalNonEmpty(workflow.gatewayId),
         target: normalizeWorkflowTarget(workflow.target),
@@ -54,6 +58,14 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
   }
 
   throw strategyError('deploymentStrategy.type 只支持 AGENT/WORKFLOW');
+}
+
+function normalizeWorkflowVersionSelection(value: unknown, workflowVersionId: unknown): 'PINNED' | 'LATEST_PUBLISHED' {
+  if (value === undefined || value === null || value === '') {
+    return optionalNonEmpty(workflowVersionId) ? 'PINNED' : 'LATEST_PUBLISHED';
+  }
+  if (value === 'PINNED' || value === 'LATEST_PUBLISHED') return value;
+  throw strategyError('workflow.workflowVersionSelection 只支持 PINNED/LATEST_PUBLISHED');
 }
 
 export function resolveDeploymentStrategy(context: DeploymentStrategyContext): DeploymentStrategyDto | undefined {
