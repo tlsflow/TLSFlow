@@ -6,6 +6,7 @@ import { runMigrations } from '../../database/migration-runner.js';
 import { createCertificateServices } from '../certificates/index.js';
 import { createSecurityServices } from '../security/security.controller.js';
 import { buildReuseRisks, InternalCaApplicationService } from './application/internal-ca.application-service.js';
+import { agentInstallPublicBaseUrl } from './controller/internal-ca.controller.js';
 import { CaProviderRegistry } from './providers/ca-provider.js';
 
 async function createFixture(providers?: CaProviderRegistry) {
@@ -23,6 +24,21 @@ async function createFixture(providers?: CaProviderRegistry) {
   });
   return { db, security, certificates, service };
 }
+
+test('AD CS Agent 安装地址优先使用统一公开地址配置', () => {
+  const previous = process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL;
+  process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL = 'http://10.255.0.85:5172/';
+  try {
+    const baseUrl = agentInstallPublicBaseUrl({
+      method: 'POST', path: '/api/v1/adcs-agents/install-sessions', query: {}, body: {}, context: { requestId: 'req_url', traceId: 'trace_url' },
+      headers: { host: '127.0.0.1:3003' },
+    });
+    assert.equal(baseUrl, 'http://10.255.0.85:5172');
+  } finally {
+    if (previous === undefined) delete process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL;
+    else process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL = previous;
+  }
+});
 
 test('内置 CA 完成根与中间拓扑、Profile、签发、续期、吊销和信任分发', async () => {
   const { db, service, certificates, security } = await createFixture();

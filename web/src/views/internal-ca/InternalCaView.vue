@@ -32,8 +32,10 @@ const authorityWizardForm = ref<HTMLFormElement | null>(null)
 const providerEnrollment = ref<InternalCaRecord | null>(null)
 const providerPrepared = ref(false)
 const adcsInstallSession = ref<InternalCaRecord | null>(null)
+const adcsWizardOpen = ref(false)
 
 const providerDraft = reactive({ id: '', name: '', type: 'gcac_managed_node', deploymentMode: 'managed_node', runtimePlatform: 'linux', availabilityMode: 'single', endpoint: '', authMode: 'enrollment_token', profile: '', template: '', crlUrl: '', ocspUrl: '' })
+const adcsDraft = reactive({ name: '', availabilityMode: 'single' })
 const trustDomainDraft = reactive({ name: '', code: '', purpose: 'production_tls', isolationLevel: 'standard', isDefault: false })
 const authorityDraft = reactive({ providerId: '', trustDomainId: '', parentCaId: '', name: '', commonName: '', securityDomain: 'production', topologyMode: 'root_with_intermediate', keyBackend: 'secret' })
 const profileDraft = reactive({ name: '', trustDomainId: '', securityDomain: 'production', allowedDnsSuffix: '', maximumValidityDays: 90, renewalWindowDays: 30, requireApproval: true })
@@ -51,6 +53,7 @@ const tabs = computed(() => [
 ])
 
 const selectedProvider = computed(() => providers.value.find((item) => text(item.id) === authorityDraft.providerId))
+const adcsProviders = computed(() => providers.value.filter((item) => text(item.type) === 'microsoft_adcs'))
 const rootAuthorities = computed(() => authorities.value.filter((item) => text(item.role) === 'root' || !text(item.parentCaId)))
 const selectedRoot = computed(() => rootAuthorities.value.find((item) => text(item.id) === selectedRootId.value) ?? rootAuthorities.value[0])
 const selectedIntermediates = computed(() => authorities.value.filter((item) => text(item.parentCaId) === text(selectedRoot.value?.id)))
@@ -289,9 +292,16 @@ function capabilityCount(provider: InternalCaRecord, state: string): number {
   return asRecords(provider.capabilityRecords).filter((record) => text(record.state) === state).length
 }
 
+function openAdcsWizard() {
+  adcsInstallSession.value = null
+  adcsDraft.name = t('internalCa.adcsAgent.defaultProviderNameIndexed', { index: adcsProviders.value.length + 1 })
+  adcsDraft.availabilityMode = 'single'
+  adcsWizardOpen.value = true
+}
+
 async function createAdcsAgentInstallSession() {
   await runAction(async () => {
-    adcsInstallSession.value = (await internalCaApi.createAdcsAgentInstallSession({ name: t('internalCa.adcsAgent.defaultProviderName') })).data ?? null
+    adcsInstallSession.value = (await internalCaApi.createAdcsAgentInstallSession({ name: adcsDraft.name, availabilityMode: adcsDraft.availabilityMode })).data ?? null
   }, 'internalCa.messages.adcsAgentInstallCreated')
 }
 
@@ -458,9 +468,8 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
       <details class="gc-card provider-settings">
         <summary>{{ t('internalCa.sections.issuingBackends') }}</summary>
         <section class="adcs-agent-install">
-          <div><strong>{{ t('internalCa.adcsAgent.title') }}</strong><p>{{ t('internalCa.adcsAgent.description') }}</p></div>
-          <button class="gc-button gc-button--primary" type="button" :disabled="actionPending" @click="createAdcsAgentInstallSession">{{ t('internalCa.adcsAgent.createCommand') }}</button>
-          <div v-if="adcsInstallSession" class="adcs-agent-install__command"><code>{{ text(adcsInstallSession.installCommand) }}</code><small>{{ t('internalCa.adcsAgent.expiresAt', { time: localTime(adcsInstallSession.expiresAt) }) }}</small></div>
+          <div><strong>{{ t('internalCa.adcsAgent.title') }}</strong><p>{{ t('internalCa.adcsAgent.description') }}</p><small>{{ t('internalCa.adcsAgent.providerCount', { count: adcsProviders.length }) }}</small></div>
+          <button class="gc-button gc-button--primary" type="button" :disabled="actionPending" @click="openAdcsWizard">{{ t('internalCa.adcsAgent.addProvider') }}</button>
         </section>
         <div class="provider-settings__list"><article v-for="provider in providers" :key="text(provider.id)" class="provider-summary"><div><strong>{{ text(provider.name) }}</strong><span>{{ providerTypeLabel(provider.type) }}</span></div><GcStatusTag :status="text(provider.status)" /><small>{{ t('internalCa.labels.backendUsageCount', { count: authorities.filter((item) => text(item.providerId) === text(provider.id)).length }) }}</small><small>{{ t('internalCa.labels.unverifiedCapabilityCount', { count: capabilityCount(provider, 'declared') }) }}</small></article></div>
       </details>
@@ -488,6 +497,21 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
       <div class="record-grid"><article v-for="item in reuseRisks" :key="text(item.id)" class="gc-card record-card"><div><strong>{{ t(`internalCa.riskTypes.${text(item.riskType)}`) }}</strong><GcStatusTag :status="text(item.severity)" /></div><p>{{ text(item.explanation) }}</p><small>{{ t('internalCa.labels.assetCount', { count: asRecords(item.applicationAssets).length }) }} · {{ t('internalCa.labels.trustDomainCount', { count: asRecords(item.trustDomainIds).length }) }} · {{ text(item.fingerprintSha256).slice(0, 16) }}</small><small v-if="asRecords(item.trustDomainNames).length">{{ asRecords(item.trustDomainNames).join(' · ') }}</small><button class="gc-button" @click="previewRemediation(text(item.id))">{{ t('internalCa.actions.previewRemediation') }}</button></article></div>
       <article v-if="remediationPreview" class="gc-card"><h2>{{ t('internalCa.sections.remediation') }}</h2><p>{{ t('internalCa.labels.requestCount', { count: asRecords(remediationPreview.requests).length }) }}</p><pre>{{ JSON.stringify(remediationPreview, null, 2) }}</pre></article>
     </template>
+
+    <GcModal v-model:open="adcsWizardOpen" size="lg" :title="t('internalCa.adcsAgent.wizardTitle')" :description="t('internalCa.adcsAgent.wizardDescription')">
+      <form v-if="!adcsInstallSession" class="adcs-wizard" @submit.prevent="createAdcsAgentInstallSession">
+        <article class="ca-wizard__notice"><strong>{{ t('internalCa.adcsAgent.multiProviderTitle') }}</strong><p>{{ t('internalCa.adcsAgent.multiProviderDescription') }}</p></article>
+        <label>{{ t('internalCa.adcsAgent.providerName') }}<input v-model="adcsDraft.name" required /></label>
+        <label>{{ t('internalCa.fields.availabilityMode') }}<select v-model="adcsDraft.availabilityMode"><option value="single">{{ t('internalCa.availability.single') }}</option><option value="active_standby">{{ t('internalCa.availability.activeStandby') }}</option><option value="active_active">{{ t('internalCa.availability.activeActive') }}</option></select></label>
+        <button class="ca-wizard__hidden-submit" tabindex="-1"></button>
+      </form>
+      <section v-else class="adcs-wizard adcs-wizard--result">
+        <article class="ca-wizard__notice"><strong>{{ t('internalCa.adcsAgent.commandReadyTitle') }}</strong><p>{{ t('internalCa.adcsAgent.commandReadyDescription', { name: text((adcsInstallSession.provider as InternalCaRecord)?.name) }) }}</p></article>
+        <code>{{ text(adcsInstallSession.installCommand) }}</code>
+        <small>{{ t('internalCa.adcsAgent.expiresAt', { time: localTime(adcsInstallSession.expiresAt) }) }}</small>
+      </section>
+      <template #actions><button v-if="!adcsInstallSession" class="gc-button gc-button--primary" type="button" :disabled="actionPending || !adcsDraft.name.trim()" @click="createAdcsAgentInstallSession">{{ t('internalCa.adcsAgent.createCommand') }}</button><button v-else class="gc-button gc-button--primary" type="button" @click="adcsWizardOpen = false">{{ t('common.actions.done') }}</button></template>
+    </GcModal>
 
     <GcModal v-model:open="authorityWizardOpen" size="xl" :title="t('internalCa.wizard.title')" :description="t('internalCa.wizard.description')">
       <div class="ca-wizard">
@@ -604,8 +628,12 @@ pre { overflow: auto; padding: var(--gc-space-3); color: var(--gc-color-text); b
 .provider-settings__list { display: grid; gap: var(--gc-space-3); margin-top: var(--gc-space-4); }
 .adcs-agent-install { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--gc-space-4); align-items: center; margin-top: var(--gc-space-4); padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-muted); }
 .adcs-agent-install p { margin: var(--gc-space-1) 0 0; color: var(--gc-color-text-muted); }
+.adcs-agent-install small { display: block; margin-top: var(--gc-space-2); color: var(--gc-color-text-soft); }
 .adcs-agent-install__command { grid-column: 1 / -1; display: grid; gap: var(--gc-space-2); }
 .adcs-agent-install__command code { overflow-wrap: anywhere; padding: var(--gc-space-3); border-radius: var(--gc-radius-sm); background: var(--gc-color-surface); color: var(--gc-color-text-strong); }
+.adcs-wizard { display: grid; gap: var(--gc-space-4); }
+.adcs-wizard--result code { overflow-wrap: anywhere; padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-muted); color: var(--gc-color-text-strong); }
+.adcs-wizard--result small { color: var(--gc-color-text-muted); }
 .provider-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: var(--gc-space-3); padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-muted); }
 .provider-summary div { display: grid; gap: var(--gc-space-1); }
 .provider-summary span, .provider-summary small { color: var(--gc-color-text-muted); }

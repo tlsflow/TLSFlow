@@ -328,7 +328,7 @@ export class InternalCaController {
     return {
       statusCode: 201,
       body: await this.service.createAdcsAgentInstallSession(
-        tenantId(request), objectBody(request), actorId(request), publicBaseUrl(request), request.context,
+        tenantId(request), objectBody(request), actorId(request), agentInstallPublicBaseUrl(request), request.context,
       ),
     };
   }
@@ -338,7 +338,7 @@ export class InternalCaController {
     return {
       statusCode: 200,
       headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' },
-      body: renderAdcsAgentInstallScript({ ...context, controlPlaneUrl: publicBaseUrl(request) }),
+      body: renderAdcsAgentInstallScript({ ...context, controlPlaneUrl: agentInstallPublicBaseUrl(request) }),
     };
   }
 
@@ -494,8 +494,8 @@ function requiredQuery(request: HttpRequest, name: string): string {
   return value;
 }
 
-function publicBaseUrl(request: HttpRequest): string {
-  const configured = process.env.GCAC_PUBLIC_BASE_URL?.trim();
+export function agentInstallPublicBaseUrl(request: HttpRequest): string {
+  const configured = process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL?.trim() || process.env.GCAC_PUBLIC_BASE_URL?.trim();
   if (configured) return configured.replace(/\/$/, '');
   const protocol = String(request.headers['x-forwarded-proto'] ?? 'http').split(',')[0].trim();
   const host = String(request.headers['x-forwarded-host'] ?? request.headers.host ?? '127.0.0.1:3000').split(',')[0].trim();
