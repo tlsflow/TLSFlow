@@ -781,6 +781,7 @@ export class AssetsApplicationService {
     if (strategy.type === 'WORKFLOW') {
       const workflow = strategy.workflow;
       if (!workflow) throw new AppError('VALIDATION_FAILED', 'WORKFLOW 策略缺少 workflow 配置', { code: 'DEPLOYMENT_STRATEGY_INVALID' });
+      if (workflow.workflowExecutionBindingId) return;
       if (workflow.pluginBindingId) return;
       if (!this.workflowTemplates) {
         throw new AppError('SYSTEM_INTERNAL_ERROR', '工作流版本服务未接入，不能保存 WORKFLOW 部署策略', { code: 'WORKFLOW_VERSION_VALIDATOR_MISSING' });

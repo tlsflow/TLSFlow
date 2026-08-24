@@ -334,12 +334,12 @@ export class PgAssetsRepository implements AssetsRepository {
     const merged = { ...current, ...assetPatch };
     const duplicate = await this.findServiceAssetByIdentity(tenantId, merged);
     if (duplicate && duplicate.id !== current.id) throw new AppError('RESOURCE_ALREADY_EXISTS', 'ServiceAsset 已存在', { serviceAssetId: duplicate.id, address: merged.address, port: merged.port, protocol: merged.protocol });
-    const metadata = withServiceAssetVerifyUrl(
-      input.deploymentStrategy
-        ? writeDeploymentStrategyMetadata(assetPatch.metadata ?? current.metadata, input.deploymentStrategy)
-        : assetPatch.metadata ?? current.metadata,
-      assetPatch.verifyUrl,
-    );
+    const strategyMetadata = input.deploymentStrategy
+      ? writeDeploymentStrategyMetadata(assetPatch.metadata ?? current.metadata, input.deploymentStrategy)
+      : assetPatch.metadata ?? current.metadata;
+    const metadata = Object.prototype.hasOwnProperty.call(assetPatch, 'verifyUrl')
+      ? withServiceAssetVerifyUrl(strategyMetadata, assetPatch.verifyUrl)
+      : strategyMetadata;
     const updated = touch({ ...merged, metadata, verifyUrl: readServiceAssetVerifyUrl(metadata) });
     await this.db.query(`update pg_service_assets set address=$2, address_type=$3, port=$4, protocol=$5, platform=$6, agent_id=$7, sni_name=$8, display_name=$9, service_instance_id=$10, service_endpoint_id=$11, host_id=$12, environment=$13, discovery_source=$14, last_discovered_at=$15::timestamptz, status=$16, tags=$17::jsonb, metadata=$18::jsonb, updated_at=$19::timestamptz, version=$20 where id=$1`, [
       updated.id, updated.address, updated.addressType, updated.port, updated.protocol, updated.platform ?? null, updated.agentId ?? null, updated.sniName ?? null, updated.displayName ?? null, updated.serviceInstanceId ?? null, updated.serviceEndpointId ?? null, updated.hostId ?? null, updated.environment ?? null, updated.discoverySource, updated.lastDiscoveredAt ?? null, updated.status, JSON.stringify(updated.tags), JSON.stringify(updated.metadata), updated.updatedAt, updated.version,
@@ -923,7 +923,27 @@ export class PgAssetsRepository implements AssetsRepository {
 
   private async attachTargetBindingSummary(tenantId: string, asset: ServiceAssetDto): Promise<ServiceAssetDto> {
     const targetBinding = await this.getApplicationAssetTargetByApplicationAssetId(tenantId, asset.id);
-    return targetBinding ? { ...asset, targetBinding } : asset;
+    if (!targetBinding) return asset;
+    const managedTarget = await this.getManagedTargetIncludingDeleted(tenantId, targetBinding.managedTargetId);
+    if (!managedTarget) return { ...asset, targetBinding };
+    const [host, frameworkInstance, siteAsset] = await Promise.all([
+      this.getHostIncludingDeleted(tenantId, managedTarget.deviceId),
+      managedTarget.frameworkInstanceId ? this.getFrameworkInstanceIncludingDeleted(tenantId, managedTarget.frameworkInstanceId) : undefined,
+      managedTarget.siteId ? this.getSiteAssetIncludingDeleted(tenantId, managedTarget.siteId) : undefined,
+    ]);
+    return {
+      ...asset,
+      targetBinding: {
+        ...targetBinding,
+        deviceId: managedTarget.deviceId,
+        deviceDisplayName: host?.displayName ?? host?.hostname ?? host?.primaryIp ?? host?.id,
+        frameworkInstanceId: managedTarget.frameworkInstanceId,
+        frameworkType: frameworkInstance?.frameworkType,
+        frameworkDisplayName: frameworkInstance?.displayName,
+        siteAssetId: managedTarget.siteId,
+        siteName: siteAsset?.siteName,
+      },
+    };
   }
 
 }

@@ -3,7 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import { ApiClientError } from '@/api/client'
-import { createServiceAsset, deleteServiceAsset, getAssetDetail, getManagedTargetEffectiveCapability, listAgents, listAssets, listManagedTargets, listManagedTargetCompatiblePlugins, listManagedTargetSnapshots, listFrameworkInstances, listSiteAssets, projectWorkflowBinding, saveApplicationAssetManagedTarget, saveApplicationAssetStandaloneWorkflow, updateServiceAsset } from '@/api/modules/assets.api'
+import { createServiceAsset, deleteServiceAsset, getAssetDetail, getManagedTargetEffectiveCapability, listAssets, listManagedTargets, listManagedTargetCompatiblePlugins, listManagedTargetSnapshots, listFrameworkInstances, listSiteAssets, projectWorkflowBinding, saveApplicationAssetManagedTarget, saveApplicationAssetStandaloneWorkflow, updateServiceAsset } from '@/api/modules/assets.api'
 import { rollbackExecution } from '@/api/modules/executions.api'
 import { listGateways } from '@/api/modules/gateways.api'
 import { getWorkflowExecutionBinding, listWorkflowTemplates, listWorkflowTemplateVersions } from '@/api/modules/workflow-templates.api'
@@ -280,9 +280,9 @@ const config = computed<BusinessPageConfig>(() => ({
     { key: 'port', title: t('assets.columns.port'), candidates: ['port'] },
     { key: 'protocol', title: t('assets.columns.protocol'), candidates: ['protocol'] },
     { key: 'platform', title: t('assets.columns.platform'), candidates: ['platform'] },
-    { key: 'frameworkType', title: t('assets.columns.framework'), candidates: ['targetBinding.frameworkType', 'metadata.workflowTarget.frameworkType', 'deploymentStrategy.workflow.target.frameworkType'] },
-    { key: 'siteName', title: t('assets.columns.site'), candidates: ['siteDisplayName', 'targetBindingDetail.siteAsset.siteName', 'targetBinding.metadata.siteName', 'metadata.workflowTarget.siteName', 'deploymentStrategy.workflow.target.siteName', 'targetBinding.siteAssetId'] },
-    { key: 'agentId', title: 'Agent', candidates: ['agentDisplayName', 'agentName', 'targetBinding.agentDisplayName', 'agentId'] },
+    { key: 'frameworkType', title: t('assets.columns.framework'), candidates: ['targetBinding.frameworkDisplayName', 'targetBinding.frameworkType', 'metadata.workflowTarget.frameworkType', 'deploymentStrategy.workflow.target.frameworkType'] },
+    { key: 'siteName', title: t('assets.columns.site'), candidates: ['siteDisplayName', 'targetBinding.siteName', 'targetBindingDetail.siteAsset.siteName', 'targetBinding.metadata.siteName', 'metadata.workflowTarget.siteName', 'deploymentStrategy.workflow.target.siteName', 'targetBinding.siteAssetId'] },
+    { key: 'deviceId', title: t('devices.page.title'), candidates: ['targetBinding.deviceDisplayName', 'deviceDisplayName', 'targetBinding.deviceId', 'hostId'] },
     { key: 'status', title: t('assets.columns.status'), candidates: ['status'] },
     { key: 'actions', title: t('assets.columns.actions'), candidates: [] },
   ],
@@ -899,7 +899,7 @@ async function loadServiceInstances(hostId: string) {
       page: 1,
       pageSize: 200,
       sort: 'updatedAt:desc',
-      filters: { deviceId: hostId },
+      filters: { deviceId: hostId, status: 'ACTIVE' },
     })
     serviceInstanceItems.value = [...(result.data?.items ?? [])]
   } finally {
@@ -2038,36 +2038,16 @@ async function loadAssetsWithDisplayNames(): Promise<ApiPageResult> {
   const result = await listAssets({ page: 1, pageSize: 20, sort: 'updatedAt:desc' })
   const page = result.data
   if (!page || page.items.length === 0) return result
-  const items = page.items
-
-  try {
-    const [agents, sites] = await Promise.all([
-      listAgents({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
-      listSiteAssets({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
-    ])
-    const agentById = new Map((agents.data?.items ?? []).map((agent) => [String(agent.id ?? ''), agent]))
-    const siteById = new Map((sites.data?.items ?? []).map((site) => [String(site.id ?? ''), site]))
-    return {
-      ...result,
-      data: {
-        ...page,
-        items: items.map((item) => enrichAssetDisplayNames(item, agentById, siteById)),
-      },
-    }
-  } catch {
-    return result
+  return {
+    ...result,
+    data: {
+      ...page,
+      items: page.items.map((item) => enrichAssetDisplayNames(item)),
+    },
   }
 }
 
-function enrichAssetDisplayNames(
-  asset: ApiRecord,
-  agentById: ReadonlyMap<string, ApiRecord>,
-  siteById: ReadonlyMap<string, ApiRecord>,
-): ApiRecord {
-  const agentId = String(readNested(asset, ['agentId']) ?? readNested(asset, ['targetBinding', 'agentId']) ?? '')
-  const siteAssetId = String(readNested(asset, ['targetBinding', 'siteAssetId']) ?? '')
-  const agent = agentById.get(agentId)
-  const site = siteById.get(siteAssetId)
+function enrichAssetDisplayNames(asset: ApiRecord): ApiRecord {
   const workflowTarget = readWorkflowTargetFromAsset(asset)
   return {
     ...asset,
@@ -2080,22 +2060,10 @@ function enrichAssetDisplayNames(
             hostHeader: workflowTarget.hostHeader,
             port: workflowTarget.port,
           },
-        }
+      }
       : undefined),
-    agentDisplayName: agent ? agentName(agent) : readNested(asset, ['agentDisplayName']),
-    siteDisplayName: site ? siteName(site) : readNested(asset, ['siteDisplayName']) ?? workflowTarget?.siteName,
+    siteDisplayName: readNested(asset, ['targetBinding', 'siteName']) ?? readNested(asset, ['siteDisplayName']) ?? workflowTarget?.siteName,
   }
-}
-
-function agentName(agent: ApiRecord): string {
-  return String(
-    agent.displayName
-    ?? readNested(agent, ['descriptor', 'hostname'])
-    ?? agent.hostname
-    ?? agent.name
-    ?? agent.id
-    ?? '',
-  )
 }
 
 function siteName(site: ApiRecord): string {

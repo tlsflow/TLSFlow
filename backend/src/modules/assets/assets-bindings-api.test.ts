@@ -1514,9 +1514,25 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
       headers,
     });
     assert.equal(listed.statusCode, 200);
-    const listedBody = listed.body as { total: number; items: Array<{ id: string; targetBinding?: { managedTargetId: string } }> };
+    const listedBody = listed.body as {
+      total: number;
+      items: Array<{
+        id: string;
+        targetBinding?: {
+          managedTargetId: string;
+          deviceDisplayName?: string;
+          frameworkType?: string;
+          frameworkDisplayName?: string;
+          siteName?: string;
+        };
+      }>;
+    };
     assert.equal(listedBody.total, 1);
     assert.equal(listedBody.items[0]!.targetBinding?.managedTargetId, managedTarget.id);
+    assert.equal(listedBody.items[0]!.targetBinding?.deviceDisplayName, 'app-target.example.com');
+    assert.equal(listedBody.items[0]!.targetBinding?.frameworkType, 'web.iis');
+    assert.equal(listedBody.items[0]!.targetBinding?.frameworkDisplayName, 'iis');
+    assert.equal(listedBody.items[0]!.targetBinding?.siteName, 'Default Web Site');
 
     const updated = await app.inject({
       method: 'PATCH',
@@ -1524,6 +1540,14 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
       headers,
       body: {
         id: createdAsset.id,
+        verifyUrl: 'https://manual-app-target.example.com/health',
+        deploymentStrategy: {
+          type: 'MANAGED_TARGET',
+          managedTarget: {
+            managedTargetId: managedTarget.id,
+            certificateFormatId: 'format-api-test',
+          },
+        },
         targetBinding: {
           managedTargetId: managedTarget.id,
           status: 'ACTIVE',
@@ -1532,7 +1556,13 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
       },
     });
     assert.equal(updated.statusCode, 200);
-    const updatedBody = updated.body as { targetBinding?: { managedTargetId: string; metadata?: { source?: string } } };
+    const updatedBody = updated.body as {
+      verifyUrl?: string;
+      deploymentStrategy?: { managedTarget?: { certificateFormatId?: string } };
+      targetBinding?: { managedTargetId: string; metadata?: { source?: string } };
+    };
+    assert.equal(updatedBody.verifyUrl, 'https://manual-app-target.example.com/health');
+    assert.equal(updatedBody.deploymentStrategy?.managedTarget?.certificateFormatId, 'format-api-test');
     assert.equal(updatedBody.targetBinding?.managedTargetId, managedTarget.id);
     assert.equal(updatedBody.targetBinding?.metadata?.source, 'updated');
 
@@ -1544,6 +1574,8 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
     assert.equal(detail.statusCode, 200);
     const detailBody = detail.body as {
       id: string;
+      verifyUrl?: string;
+      deploymentStrategy?: { managedTarget?: { certificateFormatId?: string } };
       targetBinding?: { managedTargetId: string };
       targetBindingDetail?: {
         host?: { id: string };
@@ -1554,6 +1586,8 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
       };
     };
     assert.equal(detailBody.id, createdAsset.id);
+    assert.equal(detailBody.verifyUrl, 'https://manual-app-target.example.com/health');
+    assert.equal(detailBody.deploymentStrategy?.managedTarget?.certificateFormatId, 'format-api-test');
     assert.equal(detailBody.targetBinding?.managedTargetId, managedTarget.id);
     assert.equal(detailBody.targetBindingDetail?.host?.id, host.id);
     assert.equal(detailBody.targetBindingDetail?.frameworkInstance?.id, service.id);

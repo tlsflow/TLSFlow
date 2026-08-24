@@ -302,7 +302,7 @@ describe('资产与证书产物视图', () => {
     expect(assetMocks.listAssets).toHaveBeenCalledTimes(2)
   })
 
-  it('asset list renders site and agent display names instead of ids', async () => {
+  it('应用资产列表直接显示后端投影的设备、框架和站点名称', async () => {
     assetMocks.listAssets.mockResolvedValue(okPage([
       {
         id: 'asset-name-1',
@@ -311,28 +311,59 @@ describe('资产与证书产物视图', () => {
         port: 443,
         protocol: 'HTTPS',
         platform: 'LINUX',
-        agentId: 'agt_001',
         targetBinding: {
-          frameworkType: 'NGINX',
+          deviceId: 'host_001',
+          deviceDisplayName: 'prod-device',
+          frameworkType: 'web.nginx',
+          frameworkDisplayName: 'NGINX',
           siteAssetId: 'sit_001',
+          siteName: 'prod-site',
         },
         status: 'ACTIVE',
       },
-    ]))
-    assetMocks.listAgents.mockResolvedValue(okPage([
-      { id: 'agt_001', displayName: 'prod-agent' },
-    ]))
-    assetMocks.listSiteAssets.mockResolvedValue(okPage([
-      { id: 'sit_001', siteName: 'prod-site' },
     ]))
 
     const wrapper = mountBusinessView(AssetsView)
     await flushPromises()
 
+    expect(wrapper.text()).toContain('设备')
+    expect(wrapper.text()).toContain('NGINX')
     expect(wrapper.text()).toContain('prod-site')
-    expect(wrapper.text()).toContain('prod-agent')
+    expect(wrapper.text()).toContain('prod-device')
     expect(wrapper.text()).not.toContain('sit_001')
-    expect(wrapper.text()).not.toContain('agt_001')
+    expect(wrapper.text()).not.toContain('host_001')
+    expect(assetMocks.listAgents).not.toHaveBeenCalled()
+  })
+
+  it('添加应用资产时显示全部证书产物配置', async () => {
+    certificateMocks.listCertificateFormats.mockResolvedValue(okPage([
+      {
+        id: 'certfmt-pem',
+        format: 'pem',
+        containsPrivateKey: true,
+        parameters: { configName: '通用 PEM', systemPlatform: 'windows', runtimePlatform: 'other' },
+      },
+      {
+        id: 'certfmt-pfx',
+        format: 'pfx',
+        containsPrivateKey: true,
+        parameters: { configName: 'Windows IIS PFX', systemPlatform: 'windows', runtimePlatform: 'iis' },
+      },
+    ]))
+
+    const wrapper = mountBusinessView(AssetsView)
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === '添加资产')!.trigger('click')
+    await flushPromises()
+    const addressInput = wrapper.findAll('input').find((input) => input.attributes('placeholder') === 'app.example.com')!
+    await setInputElementValue(addressInput.element as HTMLInputElement, 'pfx.example.com')
+    await wrapper.findAll('button').find((button) => button.text() === '下一步')!.trigger('click')
+    await flushPromises()
+
+    const certificateFormatSelect = wrapper.findAll('select').find((select) => select.find('option[value="certfmt-pfx"]').exists())
+    expect(certificateFormatSelect).toBeTruthy()
+    expect(certificateFormatSelect!.find('option[value="certfmt-pem"]').exists()).toBe(true)
+    expect(certificateFormatSelect!.find('option[value="certfmt-pfx"]').exists()).toBe(true)
   })
 
   it('应用资产按设备、框架和站点统一选择后创建', async () => {
@@ -375,7 +406,7 @@ describe('资产与证书产物视图', () => {
       page: 1,
       pageSize: 200,
       sort: 'updatedAt:desc',
-      filters: { deviceId: 'host-1' },
+      filters: { deviceId: 'host-1', status: 'ACTIVE' },
     })
 
     const serviceSelect = wrapper.findAll('select').find((select) => select.find('option[value="svc-1"]').exists())!
@@ -508,6 +539,8 @@ describe('资产与证书产物视图', () => {
       port: 443,
       protocol: 'HTTPS',
       platform: 'APPLIANCE',
+      verifyUrl: 'https://10.255.0.41/health',
+      environment: 'prod',
       targetBinding: {
         managedTargetId: 'target-adc-1',
       },
@@ -558,8 +591,13 @@ describe('资产与证书产物视图', () => {
     await wrapper.findAll('button').find((button) => button.text() === '编辑')!.trigger('click')
     await flushPromises()
 
+    const verifyUrlInput = wrapper.findAll('input').find((input) => input.attributes('placeholder') === '例如：https://example.com/health')
+    const environmentInput = wrapper.findAll('input').find((input) => input.attributes('placeholder') === 'prod / staging')
+    expect(verifyUrlInput?.element.value).toBe('https://10.255.0.41/health')
+    expect(environmentInput?.element.value).toBe('prod')
+
     expect(deviceMocks.listManagedDevices).toHaveBeenCalledWith(expect.objectContaining({ sort: 'displayName:asc' }))
-    expect(assetMocks.listFrameworkInstances).toHaveBeenCalledWith(expect.objectContaining({ filters: { deviceId: 'host-adc-1' } }))
+    expect(assetMocks.listFrameworkInstances).toHaveBeenCalledWith(expect.objectContaining({ filters: { deviceId: 'host-adc-1', status: 'ACTIVE' } }))
     expect(assetMocks.listSiteAssets).toHaveBeenCalledWith(expect.objectContaining({ filters: { frameworkInstanceId: 'svc-adc-1', status: 'ACTIVE' } }))
     expect(assetMocks.listManagedTargets).toHaveBeenCalledWith(expect.objectContaining({ filters: { siteId: 'site-adc-1', status: 'ACTIVE' } }))
     expect(assetMocks.listManagedTargetCompatiblePlugins).toHaveBeenCalledWith('target-adc-1', 'certificate.deploy', 'asset-1', 'zh-CN')
@@ -582,8 +620,15 @@ describe('资产与证书产物视图', () => {
     await wrapper.findAll('button').find((button) => button.text() === '保存修改')!.trigger('click')
     await flushPromises()
 
+    expect(assetMocks.updateServiceAsset).toHaveBeenCalledWith('asset-1', expect.objectContaining({
+      verifyUrl: 'https://10.255.0.41/health',
+      environment: 'prod',
+    }))
     expect(assetMocks.updateServiceAsset).toHaveBeenCalledWith('asset-1', expect.not.objectContaining({ hostId: expect.anything(), serviceInstanceId: expect.anything(), targetBinding: expect.anything() }))
-    expect(assetMocks.saveApplicationAssetManagedTarget).toHaveBeenCalledWith('asset-1', expect.objectContaining({ managedTargetId: 'target-adc-1' }))
+    expect(assetMocks.saveApplicationAssetManagedTarget).toHaveBeenCalledWith('asset-1', expect.objectContaining({
+      managedTargetId: 'target-adc-1',
+      certificateFormatId: 'certfmt-1',
+    }))
   })
 
   it('应用资产可以按工作流模式创建并保存部署策略', async () => {

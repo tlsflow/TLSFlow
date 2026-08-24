@@ -360,6 +360,13 @@ export interface ApplicationAssetTargetSummaryDto {
   id: string;
   applicationAssetId: string;
   managedTargetId: string;
+  deviceId?: string;
+  deviceDisplayName?: string;
+  frameworkInstanceId?: string;
+  frameworkType?: string;
+  frameworkDisplayName?: string;
+  siteAssetId?: string;
+  siteName?: string;
   status: ApplicationAssetTargetStatus;
   metadata: Record<string, unknown>;
   createdAt: string;

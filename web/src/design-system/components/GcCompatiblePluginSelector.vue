@@ -6,6 +6,7 @@ defineProps<{
   modelValue: string
   items: ApiRecord[]
   loading?: boolean
+  required?: boolean
   label: string
   selectText: string
   loadingText: string
@@ -30,8 +31,11 @@ function text(value: unknown): string {
 
 <template>
   <label class="gc-compatible-plugin-selector">
-    <span>{{ label }}</span>
-    <select class="gc-native-select" :value="modelValue" :disabled="loading" @change="emit('update:modelValue', ($event.target as HTMLSelectElement).value)">
+    <span class="gc-compatible-plugin-selector__label">
+      {{ label }}
+      <span v-if="required" class="gc-compatible-plugin-selector__required" aria-hidden="true">*</span>
+    </span>
+    <select class="gc-native-select" :value="modelValue" :disabled="loading" :required="required" @change="emit('update:modelValue', ($event.target as HTMLSelectElement).value)">
       <option value="">{{ loading ? loadingText : items.length ? selectText : emptyText }}</option>
       <option v-for="plugin in items" :key="String(plugin.pluginVersionId)" :value="String(plugin.pluginVersionId)">
         {{ pluginLabel(plugin) }} · {{ String(plugin.version ?? '') }} · {{ String(plugin.runtime ?? '') }}
@@ -46,8 +50,12 @@ function text(value: unknown): string {
   gap: var(--gc-space-2);
 }
 
-.gc-compatible-plugin-selector span {
+.gc-compatible-plugin-selector__label {
   color: var(--gc-color-text-secondary);
   font-size: var(--gc-font-size-sm);
+}
+
+.gc-compatible-plugin-selector__required {
+  color: var(--gc-color-danger);
 }
 </style>
