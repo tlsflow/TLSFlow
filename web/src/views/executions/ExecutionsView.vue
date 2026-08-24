@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { GcEmptyState, GcModal, GcPageHeader, GcPageToolbar, GcStatusTag } from '@/design-system/components'
@@ -45,6 +45,7 @@ const currentPage = ref(1)
 const detailModalOpen = ref(false)
 const detailRow = ref<ExecutionListRow | null>(null)
 const activeTab = ref<'summary' | 'steps' | 'logs'>('summary')
+const autoOpenedRunId = ref('')
 
 const filteredRows = computed(() => {
   const runId = queryValue('runId')
@@ -87,6 +88,10 @@ watch(filteredRows, () => {
   currentPage.value = Math.min(currentPage.value, pageCount.value)
 })
 
+watch(() => route.query.runId, () => {
+  void openRunFromQuery()
+})
+
 onMounted(() => {
   void loadExecutions()
 })
@@ -105,12 +110,23 @@ async function loadExecutions() {
     const assets = assetResult.status === 'fulfilled' ? assetResult.value.data?.items ?? [] : []
     allRows.value = buildExecutionRows(executions, plans, assets)
     currentPage.value = 1
+    await openRunFromQuery()
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : t('executions.errors.loadFailed')
     allRows.value = []
   } finally {
     loading.value = false
   }
+}
+
+async function openRunFromQuery(): Promise<void> {
+  const runId = queryValue('runId')
+  if (!runId || autoOpenedRunId.value === runId) return
+  const row = allRows.value.find((item) => item.id === runId)
+  if (!row) return
+  autoOpenedRunId.value = runId
+  openExecutionDetail(row)
+  await nextTick()
 }
 
 function buildExecutionRows(executions: readonly ApiRecord[], plans: readonly ApiRecord[], assets: readonly ApiRecord[]): ExecutionListRow[] {
@@ -271,7 +287,9 @@ function goToPage(page: number) {
 
 function queryValue(key: string): string {
   const value = route.query[key]
-  return typeof value === 'string' ? value : ''
+  if (typeof value === 'string') return value
+  if (key === 'runId' && typeof route.query.id === 'string') return route.query.id
+  return ''
 }
 
 function timestamp(record: ApiRecord): number {

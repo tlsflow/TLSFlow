@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { listAssets } from '@/api/modules/assets.api'
@@ -214,6 +214,11 @@ const monitorStatusOptions = computed(() => [
 ])
 
 onMounted(() => {
+  void nextTick(() => {
+    const target = document.getElementById('gc-shell-hero-actions')
+    const actions = document.querySelector('.monitor-page__actions')
+    if (target && actions && actions.parentElement !== target) target.appendChild(actions)
+  })
   clearStoredMonitorState()
   void refreshAll()
   refreshTimer = setInterval(() => {

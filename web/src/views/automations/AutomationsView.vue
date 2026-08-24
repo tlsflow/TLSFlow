@@ -821,7 +821,7 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
                   </div>
                 </div>
                 <div class="automation-history__target-actions">
-                  <GcButton v-if="target.deploymentPlanId" @click="router.push(`/deployment-plans?id=${target.deploymentPlanId}`)">{{ t('automations.actions.openPlan') }}</GcButton>
+                  <GcButton v-if="target.deploymentPlanId" @click="router.push(`/executions?planId=${target.deploymentPlanId}`)">{{ t('automations.actions.openPlan') }}</GcButton>
                   <GcButton v-if="target.executionRunId" @click="router.push(`/executions?runId=${target.executionRunId}`)">{{ t('automations.actions.openExecution') }}</GcButton>
                 </div>
               </article>

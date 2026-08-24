@@ -111,7 +111,7 @@ describe('ShellLayout', () => {
     expect(contextChildren[1]?.tagName).toBe('NAV')
   })
 
-  it('将全局任务入口紧邻右侧用户菜单', async () => {
+  it('将搜索和全局任务入口紧邻右侧用户菜单', async () => {
     const router = createTestRouter()
     await router.push('/dashboard')
     await router.isReady()
@@ -125,8 +125,34 @@ describe('ShellLayout', () => {
 
     const accountActions = wrapper.get('.gc-workbench__account-actions')
     const accountChildren = Array.from(accountActions.element.children)
-    expect(accountChildren[0]?.classList.contains('gc-shell__task-entry')).toBe(true)
-    expect(accountChildren[1]?.classList.contains('gc-shell__user')).toBe(true)
+    expect(accountChildren[0]?.classList.contains('gc-shell__search-button')).toBe(true)
+    expect(accountChildren[1]?.classList.contains('gc-shell__task-entry')).toBe(true)
+    expect(accountChildren[2]?.classList.contains('gc-shell__user')).toBe(true)
+  })
+
+  it('在全局任务入口左侧提供全局搜索按钮并打开搜索模态框', async () => {
+    const router = createTestRouter()
+    await router.push('/dashboard')
+    await router.isReady()
+
+    const wrapper = mount(ShellLayout, {
+      attachTo: document.body,
+      global: {
+        plugins: [router, i18n],
+        stubs: { RouterLink: false, RouterView: { template: '<div />' } },
+      },
+    })
+
+    const accountActions = wrapper.get('.gc-workbench__account-actions')
+    const accountChildren = Array.from(accountActions.element.children)
+    expect(accountChildren[0]?.classList.contains('gc-shell__search-button')).toBe(true)
+    expect(accountChildren[1]?.classList.contains('gc-shell__task-entry')).toBe(true)
+
+    await wrapper.get('.gc-shell__search-button').trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(document.body.querySelector('.gc-modal')).not.toBeNull()
+    expect(document.body.textContent).toContain('全局搜索')
+    wrapper.unmount()
   })
 
   it('将设置固定在侧栏底部，并将视图切换放入用户菜单', async () => {

@@ -258,8 +258,8 @@ onMounted(() => { void load() })
         </section>
 
         <footer>
-          <button v-if="target.deploymentPlanId" class="gc-button" type="button" @click="router.push(`/deployment-plans?id=${target.deploymentPlanId}`)">{{ t('automations.actions.openPlan') }}</button>
-          <button v-if="target.executionRunId" class="gc-button" type="button" @click="router.push(`/executions?id=${target.executionRunId}`)">{{ t('automations.actions.openExecution') }}</button>
+          <button v-if="target.deploymentPlanId" class="gc-button" type="button" @click="router.push(`/executions?planId=${target.deploymentPlanId}`)">{{ t('automations.actions.openPlan') }}</button>
+          <button v-if="target.executionRunId" class="gc-button" type="button" @click="router.push(`/executions?runId=${target.executionRunId}`)">{{ t('automations.actions.openExecution') }}</button>
         </footer>
       </article>
     </div>

@@ -20,7 +20,7 @@ const config = computed<SecurityAdminConfig>(() => ({
   submitLabel: t('settings.groupRoleMappings.actions.create'),
   fields: [
     { key: 'sourceId', label: t('settings.groupRoleMappings.fields.sourceId'), placeholder: 'ids_xxx' },
-    { key: 'externalGroup', label: t('settings.groupRoleMappings.fields.externalGroup'), placeholder: 'CN=GCAC-Ops,OU=Groups,DC=example,DC=com' },
+    { key: 'externalGroup', label: t('settings.groupRoleMappings.fields.externalGroup'), placeholder: t('settings.groupRoleMappings.fields.externalGroupPlaceholder') },
     { key: 'roleId', label: t('settings.groupRoleMappings.fields.roleId'), placeholder: 'role_operator' }
   ]
 }))

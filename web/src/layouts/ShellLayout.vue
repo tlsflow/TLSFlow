@@ -13,8 +13,9 @@ import { useAuthStore } from '@/stores/auth.store'
 import { usePermissionStore } from '@/stores/permission.store'
 import type { MenuItem } from '@/types/router'
 import { gcacVersion } from '@/version'
+import GlobalSearchModal from '@/views/global-search/GlobalSearchModal.vue'
 import TaskDrawer from '@/views/tasks/TaskDrawer.vue'
-import { isQuickTask, subscribeGlobalTaskRefresh, subscribeTaskActivity, subscribeTaskRealtime, type TaskRealtimeMessage } from '@/views/tasks/task-events'
+import { isQuickTask, subscribeTaskActivity, subscribeTaskRealtime, type TaskRealtimeMessage } from '@/views/tasks/task-events'
 
 type ToastTone = 'success' | 'warning' | 'danger' | 'info'
 
@@ -85,6 +86,7 @@ const currentPageTitle = computed(() => {
 const showTaskEntry = computed(() => permissionStore.hasPermission('task.read'))
 const TASK_ENTRY_REFRESH_INTERVAL_MS = 15_000
 const ACTIVE_TASK_STATUSES: readonly TaskStatus[] = ['QUEUED', 'RUNNING', 'RETRY_WAITING', 'CANCELLING']
+const globalSearchOpen = ref(false)
 const taskDrawerOpen = ref(false)
 const activeTaskCount = ref(0)
 const taskEntryConnected = ref(false)
@@ -113,7 +115,6 @@ const currentUserInitial = computed(() => currentUserName.value.slice(0, 1).toUp
 const currentThemeLabel = computed(() => appStore.theme === 'dark' ? t('preferences.themeDark') : t('preferences.themeLight'))
 const currentLocaleLabel = computed(() => localeLabels[appStore.locale])
 let disposeTaskActivity: (() => void) | undefined
-let disposeTaskRefresh: (() => void) | undefined
 let disposeTaskRealtime: (() => void) | undefined
 let taskEntryRefreshTimer: number | undefined
 let taskEntryRefreshPending = false
@@ -262,15 +263,23 @@ async function logout() {
 }
 
 function toggleUserMenu() {
+  globalSearchOpen.value = false
   taskDrawerOpen.value = false
   userMenuOpen.value = !userMenuOpen.value
   if (!userMenuOpen.value) languageMenuOpen.value = false
 }
 
 function toggleTaskDrawer() {
+  globalSearchOpen.value = false
   closeUserMenu()
   taskDrawerOpen.value = !taskDrawerOpen.value
   if (taskDrawerOpen.value) void refreshTaskEntryCount()
+}
+
+function openGlobalSearch() {
+  closeUserMenu()
+  taskDrawerOpen.value = false
+  globalSearchOpen.value = true
 }
 
 function closeUserMenu() {
@@ -388,9 +397,6 @@ onMounted(() => {
     void refreshTaskEntryCount()
   })
   disposeTaskRealtime = subscribeTaskRealtime(handleTaskRealtime)
-  disposeTaskRefresh = subscribeGlobalTaskRefresh(() => {
-    void refreshTaskEntryCount()
-  })
   void refreshTaskEntryCount()
 })
 
@@ -404,11 +410,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('gcac:toast', handleToastEvent as EventListener)
   disposeTaskActivity?.()
   disposeTaskRealtime?.()
-  disposeTaskRefresh?.()
   stopTaskEntryRefresh()
   disposeTaskActivity = undefined
   disposeTaskRealtime = undefined
-  disposeTaskRefresh = undefined
   executionTaskSuccessToastIds.clear()
   toastTimers.forEach((timer) => window.clearTimeout(timer))
   toastTimers.clear()
@@ -500,6 +504,7 @@ async function refreshTaskEntryCount(): Promise<void> {
     taskEntryRefreshPending = false
   }
 }
+
 </script>
 
 <template>
@@ -626,6 +631,19 @@ async function refreshTaskEntryCount(): Promise<void> {
         </div>
 
         <div class="gc-workbench__account-actions">
+          <button
+            class="gc-shell__search-button"
+            type="button"
+            :aria-label="t('globalSearch.aria.open')"
+            :aria-expanded="globalSearchOpen"
+            @click="openGlobalSearch"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="11" cy="11" r="6.5" />
+              <path d="m16 16 4.5 4.5" />
+            </svg>
+          </button>
+
           <div v-if="showTaskEntry" ref="taskEntryRoot" class="gc-shell__task-entry">
             <button
               class="gc-shell__task-button"
@@ -804,6 +822,8 @@ async function refreshTaskEntryCount(): Promise<void> {
         </div>
       </form>
     </GcModal>
+
+    <GlobalSearchModal :open="globalSearchOpen" @close="globalSearchOpen = false" />
 
     <Teleport to="body">
       <TransitionGroup name="gc-shell-toast" tag="div" class="gc-shell__toasts">

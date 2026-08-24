@@ -300,11 +300,11 @@ onBeforeUnmount(() => {
               <p v-if="error" :id="errorId" class="gc-modal__error" role="alert">{{ error }}</p>
               <slot />
             </div>
-
-            <footer v-if="!frameless && $slots.actions" class="gc-modal__actions">
-              <slot name="actions" />
-            </footer>
           </fieldset>
+
+          <footer v-if="!frameless && $slots.actions" class="gc-modal__actions">
+            <slot name="actions" />
+          </footer>
         </section>
       </div>
     </Transition>
@@ -320,7 +320,7 @@ onBeforeUnmount(() => {
   place-items: center;
   padding: var(--gc-space-3);
   background: var(--gc-color-backdrop);
-  backdrop-filter: blur(var(--gc-space-3)) saturate(125%);
+  backdrop-filter: blur(var(--gc-space-2));
 }
 
 :global(html.gc-modal-open .gc-shell__content) {
@@ -333,26 +333,28 @@ onBeforeUnmount(() => {
 
 .gc-modal {
   width: min(var(--gc-modal-width, var(--gc-size-modal-default)), calc(100vw - var(--gc-space-6)));
+  height: fit-content;
   max-height: var(--gc-modal-max-height, calc(100vh - var(--gc-space-6)));
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: var(--gc-space-3);
+  gap: 0;
   overflow: hidden;
   border-radius: var(--gc-radius-modal);
-  padding: var(--gc-space-modal-y) var(--gc-space-modal-x);
-  border-color: var(--gc-color-surface-field);
+  padding: 0;
+  border-color: var(--gc-color-border-subtle);
+  background: var(--gc-color-surface-solid);
   box-shadow: var(--gc-shadow-overlay);
 }
 
 .gc-modal__content {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  gap: var(--gc-space-3);
+  grid-template-rows: minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   margin: 0;
   border: 0;
   padding: 0;
+  overflow: hidden;
 }
 
 .gc-modal--sm { --gc-modal-width: var(--gc-size-modal-confirm); }
@@ -362,7 +364,6 @@ onBeforeUnmount(() => {
 .gc-modal--xxl { --gc-modal-width: var(--gc-size-modal-xxl); }
 
 .gc-modal--edge-to-edge {
-  gap: var(--gc-space-2);
   padding: var(--gc-space-2);
 }
 
@@ -375,15 +376,16 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--gc-space-3);
-  padding-bottom: var(--gc-space-3);
-  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border);
+  padding: var(--gc-space-6) var(--gc-space-8);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
 }
 
 .gc-modal__header h2 {
   margin: 0;
-  color: var(--gc-color-text);
-  font-size: var(--gc-font-size-xl);
-  line-height: 1.1;
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-lg);
+  font-weight: 700;
+  line-height: var(--gc-line-height-tight);
   letter-spacing: 0;
 }
 
@@ -399,14 +401,26 @@ onBeforeUnmount(() => {
   width: var(--gc-space-8);
   height: var(--gc-space-8);
   padding: 0;
-  border-radius: var(--gc-radius-md);
+  border-color: transparent;
+  border-radius: var(--gc-radius-full);
+  color: var(--gc-color-text-soft);
+  background: transparent;
   font-size: var(--gc-font-size-lg);
   line-height: 1;
 }
 
+.gc-modal__close:hover:not(:disabled) {
+  border-color: var(--gc-color-border-subtle);
+  color: var(--gc-color-text-muted);
+  background: var(--gc-color-surface-hover);
+  box-shadow: none;
+}
+
 .gc-modal__body {
   min-height: 0;
+  min-width: 0;
   overflow: auto;
+  padding: var(--gc-space-10) var(--gc-space-8);
 }
 
 .gc-modal__error {
@@ -424,22 +438,23 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--gc-space-2);
-  padding-top: var(--gc-space-3);
-  border-top: var(--gc-border-width-default) solid var(--gc-color-border);
+  padding: var(--gc-space-5) var(--gc-space-8);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
+  background: var(--gc-color-surface-muted);
 }
 
 .gc-modal-enter-active,
 .gc-modal-leave-active,
 .gc-modal-task-icon-enter-active,
 .gc-modal-task-icon-leave-active {
-  transition: opacity 180ms ease;
+  transition: opacity 300ms ease;
 }
 
 .gc-modal-enter-active .gc-modal,
 .gc-modal-leave-active .gc-modal,
 .gc-modal-task-icon-enter-active .gc-modal,
 .gc-modal-task-icon-leave-active .gc-modal {
-  transition: opacity 180ms ease, transform 180ms ease;
+  transition: opacity 300ms ease, transform 300ms ease;
 }
 
 .gc-modal-enter-from,
@@ -453,7 +468,7 @@ onBeforeUnmount(() => {
 .gc-modal-leave-to .gc-modal,
 .gc-modal-task-icon-enter-from .gc-modal {
   opacity: 0;
-  transform: translateY(var(--gc-space-3)) scale(0.98);
+  transform: scale(0.98);
 }
 
 .gc-modal-task-icon-leave-active {
@@ -494,12 +509,24 @@ onBeforeUnmount(() => {
 
 .gc-modal--frameless .gc-modal__body {
   overflow: auto;
+  padding: 0;
 }
 
 @media (max-width: 40rem) {
   .gc-modal {
-    padding: var(--gc-space-3);
     border-radius: var(--gc-radius-modal);
+  }
+
+  .gc-modal__header,
+  .gc-modal__body,
+  .gc-modal__actions {
+    padding-right: var(--gc-space-4);
+    padding-left: var(--gc-space-4);
+  }
+
+  .gc-modal__body {
+    padding-top: var(--gc-space-8);
+    padding-bottom: var(--gc-space-8);
   }
 
   .gc-modal__header h2 {

@@ -20,6 +20,38 @@
   overflow: visible;
 }
 
+.gc-shell__search-button {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: var(--gc-control-height-md);
+  height: var(--gc-control-height-md);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-sm);
+  color: var(--gc-color-text-muted);
+  background: var(--gc-color-surface-field);
+  cursor: pointer;
+  transition: border-color .16s ease, color .16s ease, background-color .16s ease, box-shadow .16s ease;
+}
+
+.gc-shell__search-button:hover,
+.gc-shell__search-button[aria-expanded="true"] {
+  border-color: var(--gc-color-primary-border);
+  color: var(--gc-color-primary);
+  background: var(--gc-color-primary-soft);
+}
+
+.gc-shell__search-button svg {
+  width: var(--gc-font-size-md);
+  height: var(--gc-font-size-md);
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
 .gc-shell__task-button {
   position: relative;
   display: inline-grid;
@@ -907,6 +939,7 @@ select.gc-native-select:disabled,
 }
 
 .gc-shell__task-button,
+.gc-shell__search-button,
 .gc-shell__user-button {
   width: 100%;
 }
@@ -965,6 +998,7 @@ select.gc-native-select:disabled,
   }
 
   .gc-shell__task-button,
+  .gc-shell__search-button,
   .gc-shell__user-button {
     width: var(--gc-size-icon-button);
     min-width: var(--gc-size-icon-button);
@@ -1494,6 +1528,7 @@ select.gc-native-select:disabled,
 }
 
 .gc-workbench__topbar .gc-shell__task-button,
+.gc-workbench__topbar .gc-shell__search-button,
 .gc-workbench__topbar .gc-shell__user-button {
   width: auto;
 }
@@ -1502,6 +1537,13 @@ select.gc-native-select:disabled,
   width: var(--gc-size-icon-button);
   height: var(--gc-size-icon-button);
   margin-right: 0;
+  border-radius: var(--gc-radius-full);
+  background: var(--gc-color-surface-solid);
+}
+
+.gc-workbench__topbar .gc-shell__search-button {
+  width: var(--gc-size-icon-button);
+  height: var(--gc-size-icon-button);
   border-radius: var(--gc-radius-full);
   background: var(--gc-color-surface-solid);
 }
@@ -1615,6 +1657,7 @@ select.gc-native-select:disabled,
   }
 
   .gc-workbench__topbar .gc-shell__user-button,
+  .gc-workbench__topbar .gc-shell__search-button,
   .gc-workbench__topbar .gc-shell__task-button {
     width: var(--gc-size-icon-button);
     min-width: var(--gc-size-icon-button);

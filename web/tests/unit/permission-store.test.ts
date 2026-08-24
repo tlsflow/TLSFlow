@@ -26,13 +26,15 @@ describe('权限 Store', () => {
       '/automations',
       '/plugins',
       '/monitors',
+      '/audits',
       '/settings'
     ])
     const settings = store.visibleMenuItems.find((item) => item.path === '/settings')
     expect(settings?.children?.map((item) => item.path)).toContain('/settings/version')
     expect(settings?.children?.map((item) => item.path)).toContain('/settings/notifications')
     const monitoring = store.visibleMenuItems.find((item) => item.path === '/monitors')
-    expect(monitoring?.children?.map((item) => item.path)).toEqual(['/monitors', '/audits'])
+    expect(monitoring?.children).toBeUndefined()
+    expect(store.visibleMenuItems.find((item) => item.path === '/audits')).toBeTruthy()
   })
 
   it('通知读取权限会显示设置下的通知中心标签', () => {
@@ -92,7 +94,7 @@ describe('权限 Store', () => {
     expect(store.hasPermission('certificate.asset.read')).toBe(true)
     expect(store.visibleMenuItems.map((item) => item.path)).toEqual(['/dashboard', '/certificates'])
     const certificates = store.visibleMenuItems.find((item) => item.path === '/certificates')
-    expect(certificates?.children?.map((item) => item.path)).toEqual(['/certificates'])
+    expect(certificates?.children?.map((item) => item.path)).toEqual(['/certificates', '/acme'])
   })
 
   it('对象级证书和应用资产权限会隐式放开对应页面入口', async () => {
@@ -113,7 +115,7 @@ describe('权限 Store', () => {
     expect(store.hasPermission('service_asset.read')).toBe(true)
     expect(store.visibleMenuItems.map((item) => item.path)).toEqual(['/dashboard', '/certificates', '/assets'])
     const certificates = store.visibleMenuItems.find((item) => item.path === '/certificates')
-    expect(certificates?.children?.map((item) => item.path)).toEqual(['/certificates'])
+    expect(certificates?.children?.map((item) => item.path)).toEqual(['/certificates', '/acme'])
     const assets = store.visibleMenuItems.find((item) => item.path === '/assets')
     expect(assets?.children?.map((item) => item.path)).toEqual(['/assets'])
   })

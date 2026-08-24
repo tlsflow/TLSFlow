@@ -34,6 +34,36 @@ describe('GcModal', () => {
     wrapper.unmount()
   })
 
+  it('使用 CertVault 基准结构渲染遮罩、内容容器和 footer', () => {
+    const wrapper = mount(GcModal, {
+      attachTo: document.body,
+      props: {
+        open: true,
+        title: '测试模态框',
+      },
+      slots: {
+        default: '<p>模态框内容</p>',
+        actions: '<button type="button">保存</button>',
+      },
+    })
+
+    const mask = document.body.querySelector<HTMLElement>('.gc-modal__mask')
+    const modal = document.body.querySelector<HTMLElement>('.gc-modal')
+    const header = document.body.querySelector<HTMLElement>('.gc-modal__header')
+    const body = document.body.querySelector<HTMLElement>('.gc-modal__body')
+    const footer = document.body.querySelector<HTMLElement>('.gc-modal__actions')
+
+    expect(mask).not.toBeNull()
+    expect(modal).not.toBeNull()
+    expect(header).not.toBeNull()
+    expect(body).not.toBeNull()
+    expect(footer).not.toBeNull()
+    expect(footer?.parentElement).toBe(modal)
+    expect(footer?.parentElement).not.toBe(body?.parentElement)
+
+    wrapper.unmount()
+  })
+
   it('显式传入 closeOnBackdrop 也不能通过遮罩关闭', async () => {
     const wrapper = mount(GcModal, {
       attachTo: document.body,
