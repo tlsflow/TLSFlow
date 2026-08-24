@@ -99,8 +99,11 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
   const dryRunChecks = ref<ApiRecord[]>([])
   const isStreaming = ref(false)
 
+  const liveRunStatus = ref('')
   const stepRecords = ref<ApiRecord[]>([])
+  const stepRecordsById = ref(new Map<string, ApiRecord>())
   const agentLogsByTaskId = ref(new Map<string, readonly ApiRecord[]>())
+  const logLinesById = ref(new Map<string, ExecutionLogLine>())
   let lastLoadedRunId = ''
   let stopStream: (() => void) | null = null
 
@@ -115,6 +118,7 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
     if (!row) return ''
     return readString(row.raw, ['status', 'state', 'result'], '').toUpperCase()
   })
+  const effectiveRunStatus = computed(() => liveRunStatus.value || runStatus.value)
 
   async function load() {
     if (!runId.value) {
@@ -132,7 +136,7 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
       })
       requestId.value = result.requestId
       const items = [...(result.data?.items ?? [])]
-      stepRecords.value = items
+      replaceStepRecords(items)
       agentLogsByTaskId.value = await loadAgentLogsByTaskId(items)
       recomputeView()
       lastLoadedRunId = runId.value
@@ -146,7 +150,10 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
 
   function resetState() {
     stepRecords.value = []
+    stepRecordsById.value = new Map()
     agentLogsByTaskId.value = new Map()
+    logLinesById.value = new Map()
+    liveRunStatus.value = ''
     steps.value = []
     lines.value = []
     dryRunSummary.value = null
@@ -156,7 +163,7 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
 
   function recomputeView() {
     const displayItems = stepRecords.value
-    const logItems = expandWorkflowStepRecords(stepRecords.value)
+    const logItems = expandWorkflowStepRecords(displayItems)
     steps.value = displayItems.map((record, index) => ({
       id: readString(record, ['id', 'stepId'], `${runId.value}-step-${index + 1}`),
       name: readString(record, ['name', 'stepName'], text('executionDetail.step.nameFallback', { index: index + 1 })),
@@ -167,9 +174,9 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
       finishedAt: formatStepRange(record, 'end'),
       requestId: readString(record, ['requestId'], ''),
     }))
-    lines.value = logItems.flatMap((record, index) => buildLogLines(record, index, agentLogsByTaskId.value.get(readDispatchTaskId(record)) ?? [], text))
-    dryRunSummary.value = summarizeDryRun(stepRecords.value, text)
-    dryRunChecks.value = collectDryRunChecks(stepRecords.value)
+    setLogLines(logItems.flatMap((record, index) => buildLogLines(record, index, agentLogsByTaskId.value.get(readDispatchTaskId(record)) ?? [], text)))
+    dryRunSummary.value = summarizeDryRun(logItems, text, true)
+    dryRunChecks.value = collectDryRunChecks(logItems, true)
   }
 
   async function connectStream() {
@@ -207,15 +214,20 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
   }
 
   function applySnapshot(snapshot: ExecutionDetailStreamSnapshot) {
+    updateRunStatus(snapshot.run)
     const items = [...(snapshot.steps ?? [])]
     if (items.length > 0) {
-      stepRecords.value = items
+      replaceStepRecords(items)
       void refreshAgentLogsForItems(items)
       recomputeView()
     }
   }
 
   async function applyEvent(event: ExecutionDetailStreamEvent) {
+    if (event.type === 'run') {
+      updateRunStatus(event.run)
+      return
+    }
     if (event.type === 'step' && event.step) {
       upsertStep(event.step)
       const taskId = readDispatchTaskId(event.step)
@@ -226,23 +238,31 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
       return
     }
     if (event.type === 'log' && event.log) {
-      mergeAgentLog(event.log)
-      recomputeView()
+      const appended = mergeAgentLog(event.log)
+      if (appended) appendAgentLogLine(event.log)
     }
   }
 
+  function updateRunStatus(run: ApiRecord | undefined) {
+    const status = readString(run ?? {}, ['status', 'state', 'result'], '').toUpperCase()
+    if (status) liveRunStatus.value = status
+  }
+
   function upsertStep(step: ApiRecord) {
-    const items = [...stepRecords.value]
-    const id = readString(step, ['id', 'stepId'], '')
-    const index = items.findIndex((item) => readString(item, ['id', 'stepId'], '') === id)
-    if (index >= 0) items[index] = step
-    else items.push(step)
+    const id = stepRecordId(step)
+    const nextById = new Map(stepRecordsById.value)
+    if (id) {
+      nextById.set(id, step)
+    } else {
+      nextById.set(`anonymous-${nextById.size + 1}`, step)
+    }
+    const items = [...nextById.values()]
     items.sort((left, right) => {
       const leftNo = Number(readPath(left, 'stepNo') ?? 0)
       const rightNo = Number(readPath(right, 'stepNo') ?? 0)
       return leftNo - rightNo
     })
-    stepRecords.value = items
+    replaceStepRecords(items)
   }
 
   async function refreshAgentLogsForItems(items: readonly ApiRecord[]) {
@@ -261,9 +281,9 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
     }
   }
 
-  function mergeAgentLog(log: ApiRecord) {
+  function mergeAgentLog(log: ApiRecord): boolean {
     const taskId = readString(log, ['taskId'], '')
-    if (!taskId) return
+    if (!taskId) return false
     const next = new Map(agentLogsByTaskId.value)
     const current = [...(next.get(taskId) ?? [])]
     const logId = readString(log, ['id'], '')
@@ -272,16 +292,44 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
       current.sort((left, right) => Number(readPath(left, 'sequence') ?? 0) - Number(readPath(right, 'sequence') ?? 0))
       next.set(taskId, current)
       agentLogsByTaskId.value = next
+      return true
     }
+    return false
+  }
+
+  function replaceStepRecords(items: readonly ApiRecord[]) {
+    const nextItems = [...items]
+    stepRecords.value = nextItems
+    stepRecordsById.value = new Map(nextItems.map((item, index) => [stepRecordId(item) || `anonymous-${index + 1}`, item]))
+  }
+
+  function setLogLines(items: readonly ExecutionLogLine[]) {
+    logLinesById.value = new Map(items.map((line) => [line.id, line]))
+    lines.value = [...logLinesById.value.values()]
+  }
+
+  function appendAgentLogLine(log: ApiRecord) {
+    const taskId = readString(log, ['taskId'], '')
+    if (!taskId) return
+    const recordIndex = stepRecords.value.findIndex((item) => readDispatchTaskId(item) === taskId)
+    const record = recordIndex >= 0 ? stepRecords.value[recordIndex] : undefined
+    if (!record) return
+    const taskLogs = agentLogsByTaskId.value.get(taskId) ?? []
+    const line = buildAgentLogLine(record, recordIndex, log, Math.max(taskLogs.length - 1, 0), text)
+    const next = new Map(logLinesById.value)
+    if (next.has(line.id)) return
+    next.set(line.id, line)
+    logLinesById.value = next
+    lines.value = [...next.values()]
   }
 
   const polling = usePolling(() => load(), {
     intervalMs: 5_000,
     immediate: false,
-    stopWhen: () => !runId.value || terminalRunStatuses.has(runStatus.value) || isStreaming.value,
+    stopWhen: () => !runId.value || terminalRunStatuses.has(effectiveRunStatus.value) || isStreaming.value,
   })
 
-  watch([runId, runStatus], async ([value, status]) => {
+  watch([runId, effectiveRunStatus], async ([value, status]) => {
     if (!value) {
       disconnectStream()
       polling.stop()
@@ -289,6 +337,7 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
       return
     }
     if (value !== lastLoadedRunId) {
+      liveRunStatus.value = ''
       await load()
     }
     if (terminalRunStatuses.has(status)) {
@@ -317,6 +366,7 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
     error,
     dryRunSummary,
     dryRunChecks,
+    runStatus: effectiveRunStatus,
     isPolling: polling.isPolling,
     isStreaming,
     reload: load,
@@ -340,16 +390,22 @@ function readDispatchTaskId(record: Record<string, unknown>): string {
   return readString(record, ['inputSnapshot.dispatchDetail.taskId', 'inputSnapshot.resultDetail.taskId', 'inputSnapshot.resultDetail.failure.taskId'], '')
 }
 
-function collectDryRunChecks(items: readonly Record<string, unknown>[]): ApiRecord[] {
-  const checks = expandWorkflowStepRecords(items).flatMap((item) => {
+function stepRecordId(record: Record<string, unknown>): string {
+  return readString(record, ['id', 'stepId'], '')
+}
+
+function collectDryRunChecks(items: readonly Record<string, unknown>[], alreadyExpanded = false): ApiRecord[] {
+  const records = alreadyExpanded ? items : expandWorkflowStepRecords(items)
+  const checks = records.flatMap((item) => {
     const resultDetail = readObject(item, 'inputSnapshot.resultDetail')
     return readArray(resultDetail, 'dryRunChecks')
   })
   return mergeDryRunChecks(checks)
 }
 
-function summarizeDryRun(items: readonly Record<string, unknown>[], text: ExecutionDetailText): ExecutionDryRunSummary | null {
-  const dryRunItems = expandWorkflowStepRecords(items).filter((item) => readPath(item, 'inputSnapshot.dryRun') === true)
+function summarizeDryRun(items: readonly Record<string, unknown>[], text: ExecutionDetailText, alreadyExpanded = false): ExecutionDryRunSummary | null {
+  const records = alreadyExpanded ? items : expandWorkflowStepRecords(items)
+  const dryRunItems = records.filter((item) => readPath(item, 'inputSnapshot.dryRun') === true)
   if (dryRunItems.length === 0) return null
 
   let hasChecks = false
@@ -624,14 +680,7 @@ function buildLogLines(record: Record<string, unknown>, index: number, agentLogs
     ? agentLogs.filter((log) => !matchesRecoveredVerificationFailure(verificationRecovery, log))
     : agentLogs
 
-  const agentLines = normalizedAgentLogs.map((log, logIndex) => ({
-    id: `line-${baseId}-agent-${readString(log, ['id'], String(logIndex + 1))}`,
-    time: formatLocalTime(readString(log, ['emittedAt', 'createdAt'], '')) || baseTime,
-    level: normalizeLevel(readPath(log, 'level')),
-    step: baseStep,
-    message: `[Agent] ${readString(log, ['message'], '')}`,
-    requestId: readString(log, ['requestId'], ''),
-  }))
+  const agentLines = normalizedAgentLogs.map((log, logIndex) => buildAgentLogLine(record, index, log, logIndex, text))
   const recoveryLine = verificationRecovery ? [{
     id: `line-${baseId}-recovery`,
     time: baseTime,
@@ -641,6 +690,26 @@ function buildLogLines(record: Record<string, unknown>, index: number, agentLogs
     requestId: readString(record, ['requestId'], ''),
   }] : []
   return [baseLine, ...recoveryLine, ...agentLines]
+}
+
+function buildAgentLogLine(
+  record: Record<string, unknown>,
+  index: number,
+  log: ApiRecord,
+  logIndex: number,
+  text: ExecutionDetailText,
+): ExecutionLogLine {
+  const baseTime = formatLocalTime(readString(record, ['updatedAt', 'finishedAt', 'startedAt', 'createdAt'], ''))
+  const baseStep = readString(record, ['name', 'stepName'], text('executionDetail.step.nameFallback', { index: index + 1 }))
+  const baseId = readString(record, ['id', 'stepId'], String(index + 1))
+  return {
+    id: `line-${baseId}-agent-${readString(log, ['id'], String(logIndex + 1))}`,
+    time: formatLocalTime(readString(log, ['emittedAt', 'createdAt'], '')) || baseTime,
+    level: normalizeLevel(readPath(log, 'level')),
+    step: baseStep,
+    message: `[Agent] ${readString(log, ['message'], '')}`,
+    requestId: readString(log, ['requestId'], ''),
+  }
 }
 
 function matchesRecoveredVerificationFailure(

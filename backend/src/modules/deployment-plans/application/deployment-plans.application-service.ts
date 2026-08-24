@@ -67,6 +67,7 @@ import type {
   DeploymentInputRuntimeSnapshotV1,
   DeploymentInputSnapshotV1,
 } from '../../deployment-inputs/dto/deployment-input-snapshot.dto.js';
+import type { ApprovalRequestEntity } from '../../../persistence/entities/approval.entity.js';
 import { sanitizeDeploymentInputPersistencePayload } from '../../deployment-inputs/application/deployment-input-persistence-sanitizer.js';
 import { readCertificateLocation } from '../../deployment-inputs/dto/certificate-location.dto.js';
 import { validateDiscoveredLocationConsistency } from '../../deployment-inputs/domain/deployment-input-consistency.js';
@@ -101,6 +102,15 @@ interface WorkflowCertificateArtifactBinding {
 }
 
 type DeploymentPreflightIssue = DeploymentInputPreflightIssue;
+
+type WorkflowVersion = Awaited<ReturnType<WorkflowTemplatesApplicationService['getVersion']>>;
+
+interface DeploymentPlanListContext {
+  readonly runsByPlanId: ReadonlyMap<string, ExecutionRunDto[]>;
+  readonly targetsByPlanId: ReadonlyMap<string, DeploymentPlanTargetEntity[]>;
+  readonly approvalsById: ReadonlyMap<string, ApprovalRequestEntity>;
+  readonly workflowVersions: Map<string, Promise<WorkflowVersion | undefined>>;
+}
 
 export interface DeploymentPlansApplicationDependencies {
   repository?: DeploymentPlansRepository;
@@ -204,10 +214,37 @@ export class DeploymentPlansApplicationService {
   }
 
   async list(input: { tenantId?: string } = {}): Promise<DeploymentPlanDto[]> {
+    const sourcePlans = await this.repository.listPlans(input.tenantId);
+    const approvalIds = sourcePlans
+      .map((plan) => plan.approvalId)
+      .filter((id): id is string => Boolean(id));
+    const approvalsById = await this.approval.getMany(approvalIds);
     const plans = await Promise.all(
-      (await this.repository.listPlans(input.tenantId)).map((plan) => this.synchronizeApprovalState(plan)),
+      sourcePlans.map((plan) => this.synchronizeApprovalState(plan, approvalsById.get(plan.approvalId ?? ''))),
     );
-    return Promise.all(plans.map((plan) => this.toDto(plan)));
+    const [runs, targets] = await Promise.all([
+      this.executions.listRuns({ tenantId: input.tenantId }) as Promise<ExecutionRunDto[]>,
+      this.repository.listTargetsByPlans(plans.map((plan) => plan.id), input.tenantId),
+    ]);
+    const runsByPlanId = new Map<string, ExecutionRunDto[]>();
+    for (const run of runs) {
+      const current = runsByPlanId.get(run.deploymentPlanId) ?? [];
+      current.push(run);
+      runsByPlanId.set(run.deploymentPlanId, current);
+    }
+    const targetsByPlanId = new Map<string, DeploymentPlanTargetEntity[]>();
+    for (const target of targets) {
+      const current = targetsByPlanId.get(target.deploymentPlanId) ?? [];
+      current.push(target);
+      targetsByPlanId.set(target.deploymentPlanId, current);
+    }
+    const context: DeploymentPlanListContext = {
+      runsByPlanId,
+      targetsByPlanId,
+      approvalsById,
+      workflowVersions: new Map(),
+    };
+    return Promise.all(plans.map((plan) => this.toDto(plan, context)));
   }
 
   async get(id: string, tenantId?: string): Promise<DeploymentPlanDto> {
@@ -2368,12 +2405,12 @@ export class DeploymentPlansApplicationService {
    * 审批决定由 Security 模块写入审批单，部署计划不能依赖前端或插件自行伪造审批状态。
    * 每次进入部署计划边界时读取关联审批单，确保审批通过后计划能从等待状态恢复为可执行状态。
    */
-  private async synchronizeApprovalState(plan: DeploymentPlanEntity): Promise<DeploymentPlanEntity> {
+  private async synchronizeApprovalState(plan: DeploymentPlanEntity, knownApproval?: ApprovalRequestEntity): Promise<DeploymentPlanEntity> {
     if (!plan.approvalId || plan.approvalStatus === 'APPROVED' || plan.approvalStatus === 'NOT_REQUIRED') {
       return plan;
     }
 
-    const approval = await this.approval.get(plan.approvalId);
+    const approval = knownApproval ?? await this.approval.get(plan.approvalId);
     if (!approval) return plan;
 
     const actorId = approval.approvedBy ?? 'system';
@@ -2690,16 +2727,20 @@ export class DeploymentPlansApplicationService {
     return Object.keys(compact).length > 0 ? compact : undefined;
   }
 
-  private async toDto(plan: DeploymentPlanEntity): Promise<DeploymentPlanDto> {
-    const runs = await this.executions.listRuns({ tenantId: plan.tenantId, deploymentPlanId: plan.id });
+  private async toDto(plan: DeploymentPlanEntity, context?: DeploymentPlanListContext): Promise<DeploymentPlanDto> {
+    const runs = context?.runsByPlanId.get(plan.id)
+      ?? await this.executions.listRuns({ tenantId: plan.tenantId, deploymentPlanId: plan.id }) as ExecutionRunDto[];
     const latestRun = [...runs].sort((left, right) => {
       const runNo = Number(right.runNo ?? 0) - Number(left.runNo ?? 0);
       if (runNo !== 0) return runNo;
       return String(right.createdAt ?? '').localeCompare(String(left.createdAt ?? ''));
     })[0];
-    const targets = (await this.repository.listTargetsByPlan(plan.id, plan.tenantId)).map((target) => this.toTargetDto(target));
-    const workflowExecutionIdentities = await this.resolveWorkflowExecutionIdentities(targets);
-    const approval = plan.approvalId ? await this.approval.get(plan.approvalId) : undefined;
+    const targets = (context?.targetsByPlanId.get(plan.id) ?? await this.repository.listTargetsByPlan(plan.id, plan.tenantId))
+      .map((target) => this.toTargetDto(target));
+    const workflowExecutionIdentities = await this.resolveWorkflowExecutionIdentities(targets, context?.workflowVersions);
+    const approval = plan.approvalId
+      ? context?.approvalsById.get(plan.approvalId) ?? await this.approval.get(plan.approvalId)
+      : undefined;
     return {
       ...plan,
       targets,
@@ -2730,10 +2771,11 @@ export class DeploymentPlansApplicationService {
    */
   private async resolveWorkflowExecutionIdentities(
     targets: readonly DeploymentPlanTargetDto[],
+    workflowVersions = new Map<string, Promise<WorkflowVersion | undefined>>(),
   ): Promise<DeploymentPlanWorkflowIdentityDto[]> {
     const identities = new Map<string, DeploymentPlanWorkflowIdentityDto>();
     for (const target of targets) {
-      const identity = await this.resolveWorkflowExecutionIdentity(target);
+      const identity = await this.resolveWorkflowExecutionIdentity(target, workflowVersions);
       if (!identity) continue;
       const key = [
         identity.mode,
@@ -2754,6 +2796,7 @@ export class DeploymentPlansApplicationService {
 
   private async resolveWorkflowExecutionIdentity(
     target: DeploymentPlanTargetDto,
+    workflowVersions = new Map<string, Promise<WorkflowVersion | undefined>>(),
   ): Promise<Omit<DeploymentPlanWorkflowIdentityDto, 'targetIds'> | undefined> {
     const strategyPayload = target.strategyPayload;
     const executionSource = readRecord(strategyPayload?.executionSource);
@@ -2775,7 +2818,7 @@ export class DeploymentPlansApplicationService {
     let workflowVersion: Awaited<ReturnType<WorkflowTemplatesApplicationService['getVersion']>> | undefined;
     if (!workflowVersionId && workflowVersionSelection === 'LATEST_PUBLISHED' && declaredWorkflowId && this.workflows) {
       try {
-        workflowVersion = await this.workflows.getRuntimePublishedVersion(declaredWorkflowId);
+        workflowVersion = await this.getWorkflowVersion(workflowVersions, `latest:${declaredWorkflowId}`, () => this.workflows!.getRuntimePublishedVersion(declaredWorkflowId));
         workflowVersionId = workflowVersion?.id;
       } catch {
         // 目录服务异常时保留无版本身份，不能阻断部署计划列表。
@@ -2783,7 +2826,7 @@ export class DeploymentPlansApplicationService {
     }
     if (workflowVersionId && this.workflows) {
       try {
-        workflowVersion = await this.workflows.getVersion(workflowVersionId);
+        workflowVersion = await this.getWorkflowVersion(workflowVersions, `version:${workflowVersionId}`, () => this.workflows!.getVersion(workflowVersionId));
       } catch {
         // 历史计划可能引用已经清理的工作流版本，仍返回不可变 ID 供审计定位。
       }
@@ -2810,6 +2853,18 @@ export class DeploymentPlansApplicationService {
       ...(pluginVersion ? { pluginVersion } : {}),
       ...(pluginVersionId ? { pluginVersionId } : {}),
     };
+  }
+
+  private async getWorkflowVersion(
+    cache: Map<string, Promise<WorkflowVersion | undefined>>,
+    key: string,
+    load: () => Promise<WorkflowVersion | undefined>,
+  ): Promise<WorkflowVersion | undefined> {
+    const cached = cache.get(key);
+    if (cached) return cached;
+    const pending = load().catch(() => undefined);
+    cache.set(key, pending);
+    return pending;
   }
 
   private async persistDeploymentInputSnapshot(

@@ -144,10 +144,15 @@ export default {
         aria: 'Nível do log',
         all: 'Todos'
       },
+      actions: {
+        showAll: 'Mostrar todos os {count}',
+        showRecent: 'Mostrar os últimos {count}'
+      },
       hint: {
         streaming: 'O status da tarefa e os logs serão atualizados em tempo real.',
         autoRefresh: 'O status da tarefa e os logs serão atualizados automaticamente.',
-        pollingFallback: 'Atualmente usando atualização periódica.'
+        pollingFallback: 'Atualmente usando atualização periódica.',
+        limited: 'Mostrando os últimos {visible} de {total} logs.'
       },
       steps: {
         aria: 'Etapas de execução',
@@ -963,9 +968,11 @@ export default {
     execution: {
       applyName: 'Execução de implantação {runId}',
       applyTitle: 'Execução de atualização de certificado',
+      dryRunName: 'Dry-run {runId}',
       dryRunTitle: 'Resultado do Dry-run',
       fallbackName: 'Execução {runId}',
-      rollbackTitle: 'Execução de rollback de certificado'
+      rollbackTitle: 'Execução de rollback de certificado',
+      startingName: 'Iniciando execução'
     },
     feedback: {
       cancelled: 'Plano de implantação cancelado.',

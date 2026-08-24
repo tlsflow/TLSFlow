@@ -137,6 +137,13 @@ export class ApprovalService {
     return this.approvals.get(id);
   }
 
+  async getMany(ids: readonly string[]): Promise<Map<string, ApprovalRequestEntity>> {
+    const idSet = new Set(ids.filter(Boolean));
+    if (idSet.size === 0) return new Map();
+    const approvals = await this.approvals.list((approval) => idSet.has(approval.id));
+    return new Map(approvals.map((approval) => [approval.id, approval]));
+  }
+
   async deleteByDeploymentPlan(planId: string, approvalId?: string): Promise<string[]> {
     const matched = await this.approvals.list((approval) => {
       if (approvalId && approval.id === approvalId) return true;

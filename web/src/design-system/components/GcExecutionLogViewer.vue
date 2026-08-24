@@ -2,6 +2,8 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+const DEFAULT_VISIBLE_LOG_LIMIT = 500
+
 export interface ExecutionLogLine {
   readonly id: string
   readonly time: string
@@ -28,15 +30,18 @@ const props = withDefaults(defineProps<{
   polling?: boolean
   streaming?: boolean
   mode?: 'live' | 'static'
+  maxVisibleLines?: number
 }>(), {
   steps: () => [],
   polling: false,
   streaming: false,
   mode: 'static',
+  maxVisibleLines: DEFAULT_VISIBLE_LOG_LIMIT,
 })
 
 const keyword = ref('')
 const level = ref('all')
+const showAllLogs = ref(false)
 const { t } = useI18n()
 
 const filteredLines = computed(() => props.lines.filter((line) => {
@@ -44,6 +49,11 @@ const filteredLines = computed(() => props.lines.filter((line) => {
   const matchKeyword = !keyword.value || line.message.includes(keyword.value)
   return matchLevel && matchKeyword
 }))
+const hiddenLineCount = computed(() => Math.max(filteredLines.value.length - props.maxVisibleLines, 0))
+const visibleLines = computed(() => {
+  if (showAllLogs.value || hiddenLineCount.value === 0) return filteredLines.value
+  return filteredLines.value.slice(-props.maxVisibleLines)
+})
 </script>
 
 <template>
@@ -63,7 +73,20 @@ const filteredLines = computed(() => props.lines.filter((line) => {
         <option value="warn">warn</option>
         <option value="error">error</option>
       </select>
+      <button
+        v-if="hiddenLineCount > 0"
+        class="gc-button gc-log-viewer__toggle"
+        type="button"
+        @click="showAllLogs = !showAllLogs"
+      >
+        {{ showAllLogs
+          ? t('designSystem.executionLogViewer.actions.showRecent', { count: props.maxVisibleLines })
+          : t('designSystem.executionLogViewer.actions.showAll', { count: filteredLines.length }) }}
+      </button>
     </header>
+    <p v-if="hiddenLineCount > 0 && !showAllLogs" class="gc-log-viewer__hint">
+      {{ t('designSystem.executionLogViewer.hint.limited', { visible: visibleLines.length, total: filteredLines.length }) }}
+    </p>
     <p v-if="mode === 'live'" class="gc-log-viewer__hint">
       {{ streaming ? t('designSystem.executionLogViewer.hint.streaming') : t('designSystem.executionLogViewer.hint.autoRefresh') }}
       <span v-if="polling && !streaming">
@@ -84,7 +107,7 @@ const filteredLines = computed(() => props.lines.filter((line) => {
         <small>{{ step.startedAt ?? t('designSystem.executionProgress.time.waitingStart') }}{{ step.finishedAt ? ` -> ${step.finishedAt}` : '' }}</small>
       </article>
     </section>
-    <pre v-if="filteredLines.length"><code v-for="line in filteredLines" :key="line.id">[{{ line.time }}] [{{ line.level }}] {{ line.step ? `[${line.step}] ` : '' }}{{ line.message }}
+    <pre v-if="visibleLines.length"><code v-for="line in visibleLines" :key="line.id">[{{ line.time }}] [{{ line.level }}] {{ line.step ? `[${line.step}] ` : '' }}{{ line.message }}
 </code></pre>
     <p v-else class="gc-log-viewer__empty">{{ t('designSystem.executionLogViewer.empty.logs') }}</p>
   </section>
@@ -119,6 +142,10 @@ const filteredLines = computed(() => props.lines.filter((line) => {
   padding: 2px 8px;
   font-size: var(--gc-font-size-xs);
   font-weight: 700;
+}
+
+.gc-log-viewer__toggle {
+  min-height: 32px;
 }
 
 .gc-log-viewer__hint,

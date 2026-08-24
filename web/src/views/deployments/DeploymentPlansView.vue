@@ -89,8 +89,11 @@ const certificateFormatItems = ref<ApiRecord[]>([])
 const targetItems = ref<ApiRecord[]>([])
 const dryRunChecks = ref<ApiRecord[]>([])
 const dryRunExecutionDetail = useExecutionDetail(dryRunRunRow, { t })
+const detailExecutionRow = ref<ViewRow | null>(null)
+const detailExecutionDetail = useExecutionDetail(detailExecutionRow, { t })
 const dryRunResultModalOpen = ref(false)
 const dryRunActionError = ref('')
+const executionStarting = ref(false)
 const activeExecutionSource = ref<'plan' | 'related'>('plan')
 const latestExecutionMode = ref<'dry-run' | 'apply' | 'rollback'>('dry-run')
 const latestExecutionRequestId = ref('')
@@ -102,6 +105,8 @@ const dryRunRequiredRow = ref<ViewRow | null>(null)
 const refreshedTerminalRunIds = new Set<string>()
 const probingAssetIds = new Set<string>()
 let unknownStateProbeTimer: number | null = null
+const relatedRecordsLoadedPlanId = ref('')
+const detailExecutionLoadedPlanId = ref('')
 
 const unknownStateProbeRetryMs = 15_000
 
@@ -227,17 +232,18 @@ const deploymentInputSourceRows = computed<DeploymentInputSourceRow[]>(() => dep
 }))
 const activeExecutionError = computed(() => {
   if (activeExecutionSource.value === 'related') return relatedExecutionDetail.error.value
-  if (latestExecutionMode.value !== 'dry-run') return dryRunExecutionDetail.error.value
   return dryRunExecutionDetail.error.value || dryRunActionError.value
 })
+const activeExecutionLoading = computed(() => executionStarting.value || activeExecutionDetail.value.loading.value)
 const detailExecutionViewMode = computed<'dry-run' | 'execution'>(() => {
-  const type = readString(dryRunRunRow.value?.raw as ApiRecord | undefined, ['type'], 'dry_run')
+  const type = readString(detailExecutionRow.value?.raw as ApiRecord | undefined, ['type'], 'dry_run')
   return normalizeExecutionMode(type) === 'dry-run' ? 'dry-run' : 'execution'
 })
 const terminalPlanExecutionRunId = computed(() => {
   if (activeExecutionSource.value !== 'plan') return ''
   const runId = dryRunRunRow.value?.id ?? ''
   if (!runId) return ''
+  if (isTerminalExecutionRunStatus(dryRunExecutionDetail.runStatus.value)) return runId
   const steps = dryRunExecutionDetail.steps.value
   if (steps.length === 0) return ''
   return steps.every((step) => isTerminalExecutionStepStatus(step.status)) ? runId : ''
@@ -247,6 +253,17 @@ watch(terminalPlanExecutionRunId, async (runId) => {
   if (!runId || refreshedTerminalRunIds.has(runId)) return
   refreshedTerminalRunIds.add(runId)
   await pageRef.value?.reload()
+})
+
+watch(activeDetailTab, async (tab) => {
+  if (!detailPlanRow.value) return
+  if (tab === 'versions') {
+    await ensureRelatedRecordsLoaded(detailPlanRow.value)
+    return
+  }
+  if (tab === 'execution') {
+    await ensureDetailExecutionLoaded(detailPlanRow.value)
+  }
 })
 
 onUnmounted(() => {
@@ -262,8 +279,8 @@ async function loadDeploymentPlansPage() {
   ])
   const page = plansResult.data ?? { items: [], page: 1, pageSize: 20, total: 0 }
   const assets = assetsResult
-  const assetDetails = await loadApplicationAssetDetailMap(page.items ?? [], assets)
   const latestObservationsByAssetId = latestCertificateObservationsByAssetId(observationsResult.data?.items ?? [])
+  const assetDetails = await loadApplicationAssetDetailMap(page.items ?? [], assets, latestObservationsByAssetId)
   const enrichedItems = (page.items ?? []).map((item) => enrichDeploymentPlanRecord(item, versions, assets, assetDetails, latestObservationsByAssetId))
   scheduleUnknownStateProbeRetry(enrichedItems, assets)
   return {
@@ -293,9 +310,19 @@ function latestCertificateObservationsByAssetId(items: readonly ApiRecord[]): Ma
 async function loadApplicationAssetDetailMap(
   plans: readonly ApiRecord[],
   assets: readonly ApiRecord[],
+  latestObservationsByAssetId: ReadonlyMap<string, ApiRecord>,
 ): Promise<Map<string, ApiRecord>> {
   const applicationAssetIds = Array.from(new Set(
     plans
+      .filter((plan) => {
+        const applicationAssetId = resolveApplicationAssetIdForPlan(plan, assets)
+        if (!applicationAssetId) return false
+        const observedNotAfter = Date.parse(readString(latestObservationsByAssetId.get(applicationAssetId), ['notAfter']))
+        if (Number.isFinite(observedNotAfter)) return false
+        const asset = assets.find((item) => readString(item, ['id']) === applicationAssetId)
+        const metadataNotAfter = Date.parse(readString(asset, ['metadata.currentCertificate.notAfter', 'metadata.currentCertificateNotAfter']))
+        return !Number.isFinite(metadataNotAfter)
+      })
       .map((plan) => resolveApplicationAssetIdForPlan(plan, assets))
       .filter(Boolean),
   ))
@@ -341,11 +368,24 @@ async function openDetailDialog(row: ViewRow) {
   activeDetailTab.value = 'summary'
   relatedRecordsError.value = ''
   relatedRecords.value = []
-  await Promise.all([
-    loadRelatedRecords(row),
-    openExecutionDetailFromPlan(row),
-    loadDeploymentInputSnapshots(row),
-  ])
+  relatedRecordsLoadedPlanId.value = ''
+  detailExecutionLoadedPlanId.value = ''
+  detailExecutionRow.value = null
+  await loadDeploymentInputSnapshots(row)
+}
+
+async function ensureRelatedRecordsLoaded(row: ViewRow): Promise<void> {
+  const planId = readString(row.raw, ['id', 'planId'], row.id)
+  if (relatedRecordsLoadedPlanId.value === planId || relatedRecordsLoading.value) return
+  await loadRelatedRecords(row)
+  relatedRecordsLoadedPlanId.value = planId
+}
+
+async function ensureDetailExecutionLoaded(row: ViewRow): Promise<void> {
+  const planId = readString(row.raw, ['id', 'planId'], row.id)
+  if (detailExecutionLoadedPlanId.value === planId) return
+  await openExecutionDetailFromPlan(row)
+  detailExecutionLoadedPlanId.value = planId
 }
 
 async function loadDeploymentInputSnapshots(row: ViewRow): Promise<void> {
@@ -374,6 +414,7 @@ function resetMessages() {
   dryRunChecks.value = []
   dryRunActionError.value = ''
   latestExecutionRequestId.value = ''
+  executionStarting.value = false
 }
 
 function openApprovalModal(row: ViewRow) {
@@ -535,12 +576,12 @@ async function openExecutionDetailFromPlan(row: ViewRow) {
   const runId = readString(latestRun, ['id', 'runId'])
     || readString(row.raw, ['latestRunId', 'runId'])
   if (!runId) {
-    dryRunRunRow.value = null
+    detailExecutionRow.value = null
     return
   }
   const runStatus = readString(latestRun, ['status'], readString(row.raw, ['status'], 'UNKNOWN'))
   const runType = readString(latestRun, ['type'], readString(row.raw, ['latestRunType', 'type'], 'dry_run'))
-  dryRunRunRow.value = {
+  detailExecutionRow.value = {
     id: runId,
     name: t('deploymentPlans.execution.fallbackName', { runId }),
     status: runStatus,
@@ -580,20 +621,22 @@ async function handleDryRun(plan: DeploymentWizardPlan) {
   }
   loading.value = true
   resetMessages()
+  openExecutionModalStarting('dry-run')
   try {
     const planId = await ensurePlanId(plan)
     const dryRun = await dryRunDeploymentPlan({ planId })
+    executionStarting.value = false
     dryRunRequestId.value = dryRun.requestId
     openExecutionModalFromResult(dryRun, 'dry-run')
-    dryRunResultModalOpen.value = true
     dryRunChecks.value = extractDryRunChecks(dryRun.data)
     const runId = dryRunRunRow.value?.id ?? ''
     infoMessage.value = runId
       ? t('deploymentPlans.feedback.dryRunStartedWithRunId', { runId })
       : t('deploymentPlans.feedback.dryRunStartedMissingRunId')
-    await pageRef.value?.reload()
   } catch (cause) {
+    executionStarting.value = false
     dryRunRunRow.value = null
+    dryRunActionError.value = toErrorMessage(cause, t('deploymentPlans.errors.startDryRunFailed'))
     errorMessage.value = toErrorMessage(cause, t('deploymentPlans.errors.startDryRunFailed'))
   } finally {
     loading.value = false
@@ -677,15 +720,19 @@ async function updateDeploymentPlanDraft(planId: string, plan: DeploymentWizardP
 }
 
 async function runPlanAction(actionLabel: string, row: ViewRow | null, run: () => Promise<unknown> | undefined): Promise<unknown> {
-  const result = await run()
-  if (isDeploymentPlanActionLabel(actionLabel, 'dryRun')) {
-    openExecutionModalFromResult(result, 'dry-run', row)
-  } else if (isDeploymentPlanActionLabel(actionLabel, 'execute')) {
-    openExecutionModalFromResult(result, 'apply', row)
-  } else if (isDeploymentPlanActionLabel(actionLabel, 'rollback')) {
-    openExecutionModalFromResult(result, 'rollback', row)
+  const mode = executionModeForActionLabel(actionLabel)
+  if (mode) openExecutionModalStarting(mode, row)
+  try {
+    const result = await run()
+    if (mode) {
+      executionStarting.value = false
+      openExecutionModalFromResult(result, mode, row)
+    }
+    return result
+  } catch (cause) {
+    if (mode) executionStarting.value = false
+    throw cause
   }
-  return result
 }
 
 async function handleActionFeedback(actionLabel: string, row: ViewRow | null, result?: unknown) {
@@ -709,12 +756,18 @@ async function handleActionFeedback(actionLabel: string, row: ViewRow | null, re
   } else if (isDeploymentPlanActionLabel(actionLabel, 'edit')) {
     infoMessage.value = messageWithOptionalPlanId('deploymentPlans.feedback.loadedDraftWithPlanId', 'deploymentPlans.feedback.loadedDraft', planId)
   }
-  if (isDeploymentPlanActionLabel(actionLabel, 'execute')) return
+  if (
+    isDeploymentPlanActionLabel(actionLabel, 'dryRun')
+    || isDeploymentPlanActionLabel(actionLabel, 'execute')
+    || isDeploymentPlanActionLabel(actionLabel, 'rollback')
+  ) return
   await pageRef.value?.reload()
 }
 
 function handleActionError(actionLabel: string, row: ViewRow | null, cause: unknown) {
   if (shouldPromptDryRun(actionLabel, cause)) {
+    executionStarting.value = false
+    dryRunResultModalOpen.value = false
     dryRunRequiredRow.value = row
     dryRunRequiredActionLabel.value = actionLabel
     dryRunRequiredMessage.value = toErrorMessage(cause, t('deploymentPlans.disabled.needDryRun'))
@@ -724,12 +777,17 @@ function handleActionError(actionLabel: string, row: ViewRow | null, cause: unkn
     return
   }
   if (isDryRunActionLabel(actionLabel)) {
-    dryRunResultModalOpen.value = true
     errorMessage.value = ''
     infoMessage.value = ''
     dryRunChecks.value = []
     dryRunRunRow.value = null
     dryRunActionError.value = toErrorMessage(cause, t('deploymentPlans.errors.startDryRunFailed'))
+    return
+  }
+  if (executionModeForActionLabel(actionLabel)) {
+    errorMessage.value = ''
+    infoMessage.value = ''
+    dryRunActionError.value = toErrorMessage(cause, t('deploymentPlans.errors.actionFailed', { action: actionLabel }))
     return
   }
   errorMessage.value = toErrorMessage(cause, t('deploymentPlans.errors.actionFailed', { action: actionLabel }))
@@ -774,7 +832,7 @@ function openExecutionModalFromResult(result: unknown, mode: 'dry-run' | 'apply'
   dryRunRequestId.value = readString(result as ApiRecord, ['requestId'], dryRunRequestId.value)
   dryRunRunRow.value = {
     id: runId,
-    name: mode === 'dry-run' ? `Dry-run ${runId}` : t('deploymentPlans.execution.applyName', { runId }),
+    name: mode === 'dry-run' ? t('deploymentPlans.execution.dryRunName', { runId }) : t('deploymentPlans.execution.applyName', { runId }),
     status: readString(run, ['status'], 'DISPATCHED'),
     risk: mode === 'dry-run' ? 'MEDIUM' : normalizeRisk(readString(fallbackRow?.raw, ['risk', 'riskLevel'], 'HIGH')),
     raw: run ?? { id: runId },
@@ -786,6 +844,33 @@ function openExecutionModalFromResult(result: unknown, mode: 'dry-run' | 'apply'
   }
 }
 
+function openExecutionModalStarting(mode: 'dry-run' | 'apply' | 'rollback', fallbackRow?: ViewRow | null) {
+  dryRunActionError.value = ''
+  dryRunChecks.value = []
+  activeExecutionSource.value = 'plan'
+  latestExecutionMode.value = mode
+  latestExecutionRequestId.value = ''
+  executionStarting.value = true
+  dryRunRunRow.value = null
+  dryRunResultModalOpen.value = true
+  if (mode !== 'dry-run' && fallbackRow) {
+    dryRunRunRow.value = {
+      id: '',
+      name: t('deploymentPlans.execution.startingName'),
+      status: 'DISPATCHED',
+      risk: normalizeRisk(readString(fallbackRow.raw, ['risk', 'riskLevel'], 'HIGH')),
+      raw: {},
+    }
+  }
+}
+
+function executionModeForActionLabel(actionLabel: string): 'dry-run' | 'apply' | 'rollback' | '' {
+  if (isDeploymentPlanActionLabel(actionLabel, 'dryRun')) return 'dry-run'
+  if (isDeploymentPlanActionLabel(actionLabel, 'execute')) return 'apply'
+  if (isDeploymentPlanActionLabel(actionLabel, 'rollback')) return 'rollback'
+  return ''
+}
+
 function resolveExecutionDialogTitle(mode: 'dry-run' | 'apply' | 'rollback'): string {
   if (mode === 'rollback') return t('deploymentPlans.execution.rollbackTitle')
   if (mode === 'apply') return t('deploymentPlans.execution.applyTitle')
@@ -794,6 +879,10 @@ function resolveExecutionDialogTitle(mode: 'dry-run' | 'apply' | 'rollback'): st
 
 function isTerminalExecutionStepStatus(status: string): boolean {
   return ['SUCCESS', 'FAILED', 'TIMEOUT', 'CANCELLED', 'CANCELED', 'SKIPPED'].includes(status.toUpperCase())
+}
+
+function isTerminalExecutionRunStatus(status: string): boolean {
+  return ['SUCCESS', 'FAILED', 'TIMEOUT', 'CANCELLED', 'CANCELED', 'ROLLBACK_SUCCESS', 'ROLLBACK_FAILED'].includes(status.toUpperCase())
 }
 
 function normalizeExecutionMode(type: string): 'dry-run' | 'apply' | 'rollback' {
@@ -1212,7 +1301,7 @@ async function fetchAllPages(
       :checks="activeExecutionChecks"
       :steps="activeExecutionDetail.steps.value"
       :lines="activeExecutionDetail.lines.value"
-      :loading="activeExecutionDetail.loading.value"
+      :loading="activeExecutionLoading"
       :polling="activeExecutionDetail.isPolling.value"
       :error="activeExecutionError"
       :mode="latestExecutionViewMode"
@@ -1419,18 +1508,18 @@ async function fetchAllPages(
         </section>
 
         <section v-else class="deployment-plan-detail__section">
-          <p v-if="!dryRunRunRow" class="deployment-plan-detail__loading">{{ t('deploymentPlans.detail.noExecutionRecords') }}</p>
+          <p v-if="!detailExecutionRow" class="deployment-plan-detail__loading">{{ t('deploymentPlans.detail.noExecutionRecords') }}</p>
           <GcExecutionProgressPanel
             v-else
-            :run-id="dryRunRunRow.id"
-            :request-id="dryRunExecutionDetail.requestId.value"
-            :summary="dryRunExecutionDetail.dryRunSummary.value"
-            :checks="dryRunExecutionDetail.dryRunChecks.value"
-            :steps="dryRunExecutionDetail.steps.value"
-            :lines="dryRunExecutionDetail.lines.value"
-            :loading="dryRunExecutionDetail.loading.value"
-            :polling="dryRunExecutionDetail.isPolling.value"
-            :error="dryRunExecutionDetail.error.value"
+            :run-id="detailExecutionRow.id"
+            :request-id="detailExecutionDetail.requestId.value"
+            :summary="detailExecutionDetail.dryRunSummary.value"
+            :checks="detailExecutionDetail.dryRunChecks.value"
+            :steps="detailExecutionDetail.steps.value"
+            :lines="detailExecutionDetail.lines.value"
+            :loading="detailExecutionDetail.loading.value"
+            :polling="detailExecutionDetail.isPolling.value"
+            :error="detailExecutionDetail.error.value"
             :reveal-on-mount="false"
             :mode="detailExecutionViewMode"
           />

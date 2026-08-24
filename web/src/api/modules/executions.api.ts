@@ -104,12 +104,12 @@ export async function streamExecutionDetail(
         const { value, done } = await reader.read()
         if (done) break
         buffer += decoder.decode(value, { stream: true })
-        let index = buffer.indexOf('\n\n')
-        while (index >= 0) {
-          const rawEvent = buffer.slice(0, index)
-          buffer = buffer.slice(index + 2)
+        let boundary = findSseBoundary(buffer)
+        while (boundary) {
+          const rawEvent = buffer.slice(0, boundary.index)
+          buffer = buffer.slice(boundary.index + boundary.length)
           consumeSseEvent(rawEvent, handlers)
-          index = buffer.indexOf('\n\n')
+          boundary = findSseBoundary(buffer)
         }
       }
     } catch (cause) {
@@ -126,6 +126,11 @@ export async function streamExecutionDetail(
   }
 }
 
+function findSseBoundary(buffer: string): { index: number; length: number } | null {
+  const match = /\r?\n\r?\n/.exec(buffer)
+  return match ? { index: match.index, length: match[0].length } : null
+}
+
 function consumeSseEvent(
   rawEvent: string,
   handlers: {
@@ -134,7 +139,7 @@ function consumeSseEvent(
     onError?: (error: Error) => void
   },
 ) {
-  const lines = rawEvent.split('\n')
+  const lines = rawEvent.split('\n').map((line) => line.replace(/\r$/, ''))
   let eventName = 'message'
   const dataLines: string[] = []
   for (const line of lines) {

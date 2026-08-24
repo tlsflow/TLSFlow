@@ -101,6 +101,12 @@ export class DeploymentPlansRepository {
     return this.targets.list((target) => target.deploymentPlanId === planId && sameTenantOrLegacyMissing(target.tenantId, tenantId));
   }
 
+  async listTargetsByPlans(planIds: readonly string[], tenantId?: string): Promise<DeploymentPlanTargetEntity[]> {
+    const ids = new Set(planIds);
+    if (ids.size === 0) return [];
+    return this.targets.list((target) => ids.has(target.deploymentPlanId) && sameTenantOrLegacyMissing(target.tenantId, tenantId));
+  }
+
   async createTransition(event: StateTransitionEventEntity): Promise<StateTransitionEventEntity> {
     return this.transitions.create(event);
   }

@@ -143,10 +143,15 @@ export default {
         aria: '日志级别',
         all: '全部'
       },
+      actions: {
+        showAll: '显示全部 {count} 条',
+        showRecent: '只显示最近 {count} 条'
+      },
       hint: {
         streaming: '任务状态与日志会持续实时更新。',
         autoRefresh: '任务状态与日志会自动刷新。',
-        pollingFallback: '当前使用定时刷新模式。'
+        pollingFallback: '当前使用定时刷新模式。',
+        limited: '已显示最近 {visible} 条日志，共 {total} 条。'
       },
       steps: {
         aria: '执行步骤',
@@ -1049,9 +1054,11 @@ export default {
     execution: {
       applyName: '部署执行 {runId}',
       applyTitle: '证书更新执行',
+      dryRunName: 'Dry-run {runId}',
       dryRunTitle: 'Dry-run 结果',
       fallbackName: '执行 {runId}',
-      rollbackTitle: '证书回滚执行'
+      rollbackTitle: '证书回滚执行',
+      startingName: '正在启动执行'
     },
     feedback: {
       cancelled: '部署计划已取消。',

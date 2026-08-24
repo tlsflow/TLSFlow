@@ -144,10 +144,15 @@ export default {
         aria: '로그 단계',
         all: '전체'
       },
+      actions: {
+        showAll: '전체 {count}개 표시',
+        showRecent: '최근 {count}개만 표시'
+      },
       hint: {
         streaming: '작업 상태와 로그는 실시간으로 업데이트됩니다.',
         autoRefresh: '작업 상태와 로그는 자동으로 새로 고칩니다.',
-        pollingFallback: '현재 예약 새로고침 모드를 사용 중입니다.'
+        pollingFallback: '현재 예약 새로고침 모드를 사용 중입니다.',
+        limited: '최근 {visible}개 로그를 표시 중입니다. 전체 {total}개.'
       },
       steps: {
         aria: '실행 단계',
@@ -963,9 +968,11 @@ export default {
     execution: {
       applyName: '{runId}를 구현합니다',
       applyTitle: '인증서 갱신 실행',
+      dryRunName: 'Dry-run {runId}',
       dryRunTitle: 'Dry-run 결과',
       fallbackName: '{runId}를 실행합니다',
-      rollbackTitle: '인증서 롤백 실행'
+      rollbackTitle: '인증서 롤백 실행',
+      startingName: '실행 시작 중'
     },
     feedback: {
       cancelled: '배포 계획은 이미 취소되었다.',

@@ -143,10 +143,15 @@ export default {
         aria: 'Log level',
         all: 'All'
       },
+      actions: {
+        showAll: 'Show all {count}',
+        showRecent: 'Show latest {count}'
+      },
       hint: {
         streaming: 'Task status and logs will update live.',
         autoRefresh: 'Task status and logs will refresh automatically.',
-        pollingFallback: 'Currently using polling fallback.'
+        pollingFallback: 'Currently using polling fallback.',
+        limited: 'Showing latest {visible} of {total} log lines.'
       },
       steps: {
         aria: 'Execution steps',
@@ -1030,9 +1035,11 @@ export default {
     execution: {
       applyName: 'Deployment execution {runId}',
       applyTitle: 'Certificate update execution',
+      dryRunName: 'Dry-run {runId}',
       dryRunTitle: 'Dry-run result',
       fallbackName: 'Execution {runId}',
-      rollbackTitle: 'Certificate rollback execution'
+      rollbackTitle: 'Certificate rollback execution',
+      startingName: 'Starting execution'
     },
     feedback: {
       cancelled: 'Deployment plan cancelled.',

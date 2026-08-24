@@ -144,10 +144,15 @@ export default {
         aria: 'Уровень журнала',
         all: 'Все'
       },
+      actions: {
+        showAll: 'Показать все {count}',
+        showRecent: 'Показать последние {count}'
+      },
       hint: {
         streaming: 'Статус задачи и журналы будут обновляться в реальном времени.',
         autoRefresh: 'Статус задачи и журналы будут обновляться автоматически.',
-        pollingFallback: 'Сейчас используется периодическое обновление.'
+        pollingFallback: 'Сейчас используется периодическое обновление.',
+        limited: 'Показаны последние {visible} из {total} строк журнала.'
       },
       steps: {
         aria: 'Шаги выполнения',
@@ -963,9 +968,11 @@ export default {
     execution: {
       applyName: 'Выполнение развертывания {runId}',
       applyTitle: 'Выполнение обновления сертификата',
+      dryRunName: 'Dry-run {runId}',
       dryRunTitle: 'Результат Dry-run',
       fallbackName: 'Выполнение {runId}',
-      rollbackTitle: 'Выполнение отката сертификата'
+      rollbackTitle: 'Выполнение отката сертификата',
+      startingName: 'Запуск выполнения'
     },
     feedback: {
       cancelled: 'План развертывания отменен.',

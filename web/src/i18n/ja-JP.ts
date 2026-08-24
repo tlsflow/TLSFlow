@@ -144,10 +144,15 @@ export default {
         aria: 'ログレベル',
         all: 'すべて'
       },
+      actions: {
+        showAll: '全 {count} 件を表示',
+        showRecent: '最新 {count} 件だけ表示'
+      },
       hint: {
         streaming: 'タスクステータスとログは持継リアルタイム更新。',
         autoRefresh: 'タスクステータスとログは自動更新。',
-        pollingFallback: '現在は定期更新モードを使用しています。'
+        pollingFallback: '現在は定期更新モードを使用しています。',
+        limited: '最新 {visible} 件のログを表示中。全 {total} 件。'
       },
       steps: {
         aria: '実行ステップ',
@@ -989,9 +994,11 @@ export default {
     execution: {
       applyName: 'デプロイ実行 {runId}',
       applyTitle: '証明書更新実行',
+      dryRunName: 'Dry-run {runId}',
       dryRunTitle: 'Dry-run 結果',
       fallbackName: '実行 {runId}',
-      rollbackTitle: '証明書ロールバック実行'
+      rollbackTitle: '証明書ロールバック実行',
+      startingName: '実行を開始中'
     },
     feedback: {
       cancelled: 'デプロイプランキャンセル済み。',

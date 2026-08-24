@@ -185,9 +185,14 @@ const heroMetrics = computed(() => {
     { label: t('designSystem.executionProgress.metrics.queued'), value: String(displayCounts.value.queued) },
   ]
 })
+const latestFeedSignature = computed(() => {
+  const items = executionFeed.value
+  const latest = items[items.length - 1]
+  return latest ? `${items.length}:${latest.id}:${latest.status}:${latest.timeLabel}` : '0'
+})
 
 watch(
-  () => executionFeed.value.map((item) => `${item.id}:${item.status}:${item.timeLabel}:${item.detail}`).join('|'),
+  latestFeedSignature,
   async () => {
     if (!followLatestFeedItem.value) return
     await nextTick()
@@ -250,6 +255,9 @@ function groupLinesByStep(lines: readonly ExecutionLogLine[]): Map<string, TaskC
       detail: parts.detail,
       status: normalizeCheckStatus(line.level),
     })
+    output.set(stepName, list)
+  }
+  for (const [stepName, list] of output.entries()) {
     output.set(stepName, dedupeChecks(list))
   }
   return output

@@ -143,10 +143,15 @@ export default {
         aria: "記錄級別",
         all: "全部"
       },
+      actions: {
+        showAll: "顯示全部 {count} 條",
+        showRecent: "只顯示最近 {count} 條"
+      },
       hint: {
         streaming: "任務狀態與記錄會持續即時更新。",
         autoRefresh: "任務狀態與記錄會自動重新整理。",
-        pollingFallback: "目前使用定時重新整理模式。"
+        pollingFallback: "目前使用定時重新整理模式。",
+        limited: "已顯示最近 {visible} 條記錄，共 {total} 條。"
       },
       steps: {
         aria: "執行步驟",
@@ -988,9 +993,11 @@ export default {
     execution: {
       applyName: "部署執行 {runId}",
       applyTitle: "憑證更新執行",
+      dryRunName: "Dry-run {runId}",
       dryRunTitle: "Dry-run 結果",
       fallbackName: "執行 {runId}",
-      rollbackTitle: "憑證復原執行"
+      rollbackTitle: "憑證復原執行",
+      startingName: "正在啟動執行"
     },
     feedback: {
       cancelled: "部署計畫已取消。",
