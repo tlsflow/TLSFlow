@@ -196,18 +196,24 @@ export class RBACService {
   }
 
   async can(subject: SecuritySubject, action: string, resource: ResourceDescriptor, context: RequestContext = {}): Promise<RbacDecision> {
-    if (subject.scope?.tenantScope && !this.tenantScope.allowsResource(subject.scope.tenantScope, resource.scope ?? {})) {
-      await this.auditDeny(subject, action, resource, context, 'tenant scope denied');
-      return { allowed: false, reason: 'tenant scope denied', matchedPolicyIds: [] };
-    }
     const subjectIds = new Set<string>([subject.id, ...(subject.roleIds ?? [])]);
     if (subject.type === 'user') {
       for (const userRole of await this.userRoles.list((row) => row.userId === subject.id)) {
         subjectIds.add(userRole.roleId);
       }
     }
+    const subjectPolicies = await this.policies.list((policy) => subjectIds.has(policy.subjectId));
+    const adminWildcard = subjectPolicies.some((policy) =>
+      policy.effect === 'allow'
+      && policy.actions.includes('*')
+      && policy.resourceTypes.includes('*'),
+    );
+    if (subject.scope?.tenantScope && !adminWildcard && !this.tenantScope.allowsResource(subject.scope.tenantScope, resource.scope ?? {})) {
+      await this.auditDeny(subject, action, resource, context, 'tenant scope denied');
+      return { allowed: false, reason: 'tenant scope denied', matchedPolicyIds: [] };
+    }
 
-    const matched = await this.policies.list((policy) => {
+    const matched = subjectPolicies.filter((policy) => {
       if (!subjectIds.has(policy.subjectId)) {
         return false;
       }

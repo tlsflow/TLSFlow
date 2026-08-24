@@ -429,6 +429,7 @@ export class AuthService {
         status: 'active',
       });
     }
+    await this.objectPermissions.syncObjectSetObjectTypes(BUILTIN_ADMIN_ALL_OBJECT_SET_ID, objectTypes);
     if (!objectSets.some((item) => item.id === BUILTIN_AUDITOR_READONLY_OBJECT_SET_ID)) {
       await this.objectPermissions.createObjectSet({
         id: BUILTIN_AUDITOR_READONLY_OBJECT_SET_ID,
@@ -440,6 +441,7 @@ export class AuthService {
         status: 'active',
       });
     }
+    await this.objectPermissions.syncObjectSetObjectTypes(BUILTIN_AUDITOR_READONLY_OBJECT_SET_ID, objectTypes);
 
     const roleBindings = await this.objectPermissions.listRoleBindings();
     if (!roleBindings.some((item) => item.id === BUILTIN_ADMIN_ROLE_BINDING_ID)) {

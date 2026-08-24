@@ -76,3 +76,37 @@ test('RBAC 先校验结构化租户范围，再处理动作策略', async () => 
   assert.equal(system.allowed, false);
   assert.equal(system.reason, 'tenant scope denied');
 });
+
+test('管理员通配策略不会被租户范围提前拦截', async () => {
+  const rbac = new RBACService();
+  await rbac.createPolicy({
+    id: 'policy_admin_all',
+    subjectType: 'role',
+    subjectId: 'role_admin',
+    effect: 'allow',
+    actions: ['*'],
+    resourceTypes: ['*'],
+    scope: { tenantId: '*' },
+  });
+
+  const subject = {
+    id: 'user_admin',
+    type: 'user' as const,
+    roleIds: ['role_admin'],
+    scope: {
+      tenantId: 'tenant_a',
+      tenantScope: {
+        type: 'SELF' as const,
+        rootTenantId: 'tenant_a',
+        tenantIds: ['tenant_a'],
+      },
+    },
+  };
+
+  const result = await rbac.can(subject, 'plugin.read', {
+    type: 'plugin',
+    scope: { ownerType: 'SYSTEM' },
+  });
+  assert.equal(result.allowed, true);
+  assert.equal(result.reason, 'allow');
+});

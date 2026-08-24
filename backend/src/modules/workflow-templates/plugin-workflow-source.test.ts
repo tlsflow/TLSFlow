@@ -25,7 +25,13 @@ test('插件工作流来源过滤、派生和内部只读形成闭环', async ()
   });
   await plugins.enableVersion(importedV2.id);
   await bindings.save({pluginVersionId:importedV2.id,capabilityKey:'certificate.deploy',workflowResourcePath:'workflows/deploy.json',workflowTemplateId:internal.template.id,workflowVersionId:internal.version.id,workflowContentSha256:internal.version.contentHash,createdAt:new Date().toISOString()});
-  const service=new PluginWorkflowSourceService(plugins,bindings,workflows); const candidates=await service.list(tenantId); assert.equal(candidates.length,2); assert.deepEqual(new Set(candidates.map((item) => item.pluginVersionId)), new Set([imported.id, importedV2.id])); assert.equal(candidates[0]?.stepCount,1); assert.equal(candidates[0]?.workflowVersion,1); assert.equal(candidates[0]?.displayName, '示例来源'); assert.equal((await service.list(tenantId, 'en-US'))[0]?.displayName, 'Fixture Source');
+  const service=new PluginWorkflowSourceService(plugins,bindings,workflows); const candidates=await service.list(tenantId); assert.equal(candidates.length,2); assert.deepEqual(new Set(candidates.map((item) => item.pluginVersionId)), new Set([imported.id, importedV2.id])); assert.equal(candidates[0]?.stepCount,1); assert.equal(candidates[0]?.workflowVersion,1); assert.equal(candidates[0]?.displayName, '示例来源'); assert.equal(candidates[0]?.workflowName, 'plugin-deploy'); assert.equal(candidates[0]?.workflowResourcePath, 'workflows/deploy.json'); assert.equal((await service.list(tenantId, 'en-US'))[0]?.displayName, 'Fixture Source');
+  const originalGetUiResources = plugins.getUiResources.bind(plugins);
+  plugins.getUiResources = async () => { throw new Error('插件引用了未知标准字段'); };
+  const fallbackCandidates = await service.list(tenantId);
+  assert.equal(fallbackCandidates.length, 2);
+  assert.equal(fallbackCandidates[0]?.displayName, 'fixture.source');
+  plugins.getUiResources = originalGetUiResources;
   const derived=await service.createWorkflow(tenantId,{pluginVersionId:imported.id,capabilityKey:'certificate.deploy',name:'my-deploy'}); assert.equal(derived.template.origin,'user'); assert.equal(derived.template.ownerType,'TENANT'); assert.equal(derived.version.pluginSource?.sourceWorkflowVersionId,internal.version.id);
   const derivedV2=await service.createWorkflow(tenantId,{pluginVersionId:importedV2.id,capabilityKey:'certificate.deploy',name:'my-deploy-v2'}); assert.equal(derivedV2.version.pluginSource?.pluginVersionId, importedV2.id);
   await assert.rejects(()=>workflows.renameTemplate({templateId:internal.template.id,name:'forbidden'}),(error:any)=>error.errorCode==='WORKFLOW_INTERNAL_READ_ONLY');

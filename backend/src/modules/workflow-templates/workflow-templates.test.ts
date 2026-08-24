@@ -10,7 +10,7 @@ import { PgDocumentRepository } from '../../persistence/repositories/pg-document
 import { WorkflowTemplatesApplicationService } from './application/workflow-templates.application-service.js';
 import { createWorkflowStepDispatcher } from './application/workflow-step-dispatcher.js';
 import { WorkflowTemplatesController } from './controller/workflow-templates.controller.js';
-import { WorkflowTemplatesDomainService } from './domain/workflow-templates.domain-service.js';
+import { computeWorkflowContentHash, WorkflowTemplatesDomainService } from './domain/workflow-templates.domain-service.js';
 import type { WorkflowDslV1, WorkflowRunProgress, WorkflowTemplate, WorkflowTemplateVersion } from './dto/workflow-templates.dto.js';
 import { workflowTemplatesSchemaRegistry } from './schema/workflow-templates.schema.js';
 import type { PluginWorkflowBindingRecord } from '../plugins/dto/plugin-workflow-bindings.dto.js';
@@ -354,6 +354,67 @@ describe('WorkflowTemplates', () => {
     assert.equal(publishedTemplate?.currentVersionLabel, 'V2');
     await assert.rejects(() => service.updateCurrentDraftVersion({ templateId: created.template.id, content: edited }), /no draft version/);
     await assert.rejects(() => service.createDraftVersion({ templateId: created.template.id, content: edited }), /duplicate workflow version content/);
+  });
+
+  it('显式新增版本草稿时允许复制当前版本内容', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const created = await service.createTemplate({ content: templateFixture(), changeSummary: '初始版本' });
+
+    const clonedDraft = await service.createDraftVersion({
+      templateId: created.template.id,
+      content: templateFixture(),
+      changeSummary: '版本管理创建新版本草稿',
+      allowDuplicateContent: true,
+    });
+
+    assert.equal(clonedDraft.version, 2);
+    assert.equal(clonedDraft.status, 'draft');
+    assert.equal(clonedDraft.contentHash, created.version.contentHash);
+  });
+
+  it('显式克隆历史版本时保留旧 DSL 字段，不重新用当前 Schema 拒绝历史内容', async () => {
+    const db = new PgliteDatabase();
+    const templatesRepository = new PgDocumentRepository<WorkflowTemplate>(db, 'workflow.templates');
+    const versionsRepository = new PgDocumentRepository<WorkflowTemplateVersion>(db, 'workflow.template_versions');
+    const createdAt = '2026-08-07T00:00:00.000Z';
+    const templateId = 'wftpl_legacy_clone';
+    const versionId = 'wftplv_legacy_clone';
+    const legacyContent = {
+      ...templateFixture(),
+      legacyField: true,
+    } as unknown as WorkflowDslV1;
+    await templatesRepository.upsert({
+      id: templateId,
+      name: 'legacy-clone',
+      origin: 'user',
+      ownerType: 'TENANT',
+      tenantId: 'tenant-legacy-clone',
+      status: 'published',
+      currentVersionId: versionId,
+      createdAt,
+      updatedAt: createdAt,
+    });
+    await versionsRepository.upsert({
+      id: versionId,
+      templateId,
+      version: 1,
+      dslVersion: 'v1',
+      content: legacyContent,
+      contentHash: computeWorkflowContentHash(legacyContent),
+      status: 'published',
+      createdAt,
+    });
+
+    const service = new WorkflowTemplatesApplicationService(new WorkflowTemplatesDomainService(templatesRepository, versionsRepository));
+    const clonedDraft = await service.createDraftVersion({
+      templateId,
+      content: legacyContent,
+      changeSummary: '克隆历史版本',
+      allowDuplicateContent: true,
+    });
+
+    assert.equal(clonedDraft.version, 2);
+    assert.equal((clonedDraft.content as unknown as { legacyField?: boolean }).legacyField, true);
   });
 
   it('HTTP 列表接口返回真实数组，不能把 Promise 泄漏进 items', async () => {

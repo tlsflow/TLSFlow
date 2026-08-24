@@ -3,7 +3,7 @@ import type { HttpRequest } from '../../common/http/http-types.js';
 import { requireTenantId } from '../../common/http/tenant-context.js';
 import { applyAuthorizationFilter, withAuthorization, type PageQuery } from '../../common/pagination/pagination.js';
 import type { AccessLevel } from '../../persistence/entities/object-permission.entity.js';
-import type { ResourceScope, SecuritySubject } from '../../shared/security-types.js';
+import type { ResourceOwnerType, ResourceScope, SecuritySubject } from '../../shared/security-types.js';
 import type { ObjectRef } from './object-permission.service.js';
 import type { SecurityServices } from './security.controller.js';
 
@@ -67,10 +67,7 @@ export async function assertRouteObjectAccess(
   await context.services.objectPermissions.assertCan(
     context.subject,
     accessLevel,
-    {
-      ...object,
-      tenantId: object.tenantId ?? context.tenantId,
-    },
+    normalizeRouteObjectRef(object, context.tenantId),
     requestSecurityContext(context),
   );
 }
@@ -104,6 +101,47 @@ export async function filterAuthorizedItems<T extends object>(
       objectIdField,
     },
   });
+}
+
+export function normalizeRouteObjectRef(object: ObjectRef, fallbackTenantId: string): ObjectRef {
+  const ownerType = object.ownerType;
+  return {
+    ...object,
+    ...(ownerType ? { ownerType } : {}),
+    tenantId: normalizeOwnedTenantId(object.tenantId, ownerType, fallbackTenantId),
+  };
+}
+
+export function decorateAuthorizedItem<T extends object>(
+  item: T,
+  fallbackTenantId: string,
+  ownership: { tenantId?: string; ownerType?: ResourceOwnerType } = {},
+): T & { tenantId?: string; ownerType?: ResourceOwnerType } {
+  const ownerType = ownership.ownerType ?? readRecordOwnerType(item);
+  return {
+    ...item,
+    ...(ownerType ? { ownerType } : {}),
+    tenantId: normalizeOwnedTenantId(ownership.tenantId ?? readRecordTenantId(item), ownerType, fallbackTenantId),
+  };
+}
+
+function readRecordTenantId(item: object): string | undefined {
+  const value = (item as Record<string, unknown>).tenantId;
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function readRecordOwnerType(item: object): ResourceOwnerType | undefined {
+  const value = (item as Record<string, unknown>).ownerType;
+  return value === 'SYSTEM' || value === 'GROUP' || value === 'TENANT' ? value : undefined;
+}
+
+function normalizeOwnedTenantId(
+  tenantId: string | undefined,
+  ownerType: ResourceOwnerType | undefined,
+  fallbackTenantId: string,
+): string | undefined {
+  if (ownerType === 'SYSTEM') return undefined;
+  return tenantId ?? fallbackTenantId;
 }
 
 export function requestSecurityContext(context: RouteSecurityContext) {

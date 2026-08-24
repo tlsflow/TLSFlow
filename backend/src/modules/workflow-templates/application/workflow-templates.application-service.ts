@@ -126,6 +126,10 @@ export class WorkflowTemplatesApplicationService {
     return this.domain.getVersion(versionId);
   }
 
+  async getTemplate(templateId: string): Promise<WorkflowTemplate> {
+    return this.domain.getTemplate(templateId);
+  }
+
   async getRuntimePublishedVersion(templateId: string): Promise<WorkflowTemplateVersion | undefined> {
     return this.domain.getRuntimePublishedVersion(templateId);
   }

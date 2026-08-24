@@ -142,8 +142,43 @@ test('对象级权限兼容管理员通配权限', async () => {
     'control',
     { objectType: 'gateway', objectId: 'gw_b', tenantId: 'tenant_b' },
   );
-  assert.equal(constrained.allowed, false);
-  assert.equal(constrained.reason, 'tenant scope denied');
+  assert.equal(constrained.allowed, true);
+  assert.equal(constrained.reason, 'admin wildcard');
+
+  const authorization = await service.buildAuthorizedQuery(
+    {
+      id: 'user_admin',
+      type: 'user',
+      roleIds: ['role_admin'],
+      scope: {
+        tenantId: 'tenant_a',
+        tenantScope: { type: 'SELF', rootTenantId: 'tenant_a', tenantIds: ['tenant_a'] },
+      },
+    },
+    'workflow',
+    'read',
+  );
+  assert.equal(authorization.unrestricted, true);
+  assert.equal(authorization.tenantIds, undefined);
+});
+
+test('内置对象集合支持在升级后回填新增对象类型', async () => {
+  const service = createService();
+  await service.ensureDefaultObjectTypes();
+  await service.createObjectSet({
+    id: 'oset_builtin_admin_all',
+    tenantId: '*',
+    name: '系统管理员全部业务对象',
+    kind: 'dynamic',
+    objectTypes: ['certificate'],
+    conditions: {},
+    status: 'active',
+  });
+
+  const synced = await service.syncObjectSetObjectTypes('oset_builtin_admin_all', ['certificate', 'workflow_execution_binding', 'approval']);
+  assert.equal(synced?.objectTypes.includes('certificate'), true);
+  assert.equal(synced?.objectTypes.includes('workflow_execution_binding'), true);
+  assert.equal(synced?.objectTypes.includes('approval'), true);
 });
 
 test('结构化租户范围约束旧通配绑定和列表授权', async () => {
@@ -254,6 +289,75 @@ test('SYSTEM 范围只允许系统所有权对象', async () => {
     objectId: 'setting_builtin',
     tenantId: 'tenant_a',
   })).allowed, false);
+});
+
+test('租户范围内可通过对象集合授权访问共享 SYSTEM 对象，但不会放开其他 SYSTEM 对象', async () => {
+  const { service, roles } = createServiceWithRepos();
+  await roles.create({ id: 'role_builtin_plugin_reader', code: 'builtin_plugin_reader', name: '内置插件只读', builtin: false });
+  await service.ensureDefaultObjectTypes();
+  const objectSet = await service.createObjectSet({
+    id: 'oset_builtin_plugins',
+    tenantId: '*',
+    name: '共享内置插件',
+    kind: 'static',
+    objectTypes: ['plugin_version'],
+    status: 'active',
+  });
+  await service.addObjectSetMember({
+    objectSetId: objectSet.id,
+    objectType: 'plugin_version',
+    objectId: 'plugin_builtin_v1',
+    addedBy: 'system',
+  });
+  await service.createRoleBinding({
+    tenantId: '*',
+    principalType: 'user',
+    principalId: 'user_tenant_reader',
+    roleId: 'role_builtin_plugin_reader',
+    objectSetId: objectSet.id,
+    effect: 'allow',
+    enabled: true,
+  });
+  await service.createAccessGrant({
+    tenantId: '*',
+    roleId: 'role_builtin_plugin_reader',
+    objectSetId: objectSet.id,
+    accessLevel: 'read',
+    effect: 'allow',
+  });
+
+  const subject = {
+    id: 'user_tenant_reader',
+    type: 'user' as const,
+    scope: {
+      tenantId: 'group_a',
+      tenantScope: {
+        type: 'SUBTREE' as const,
+        rootTenantId: 'group_a',
+        tenantIds: ['group_a', 'company_a'],
+      },
+    },
+  };
+
+  assert.equal((await service.can(subject, 'read', {
+    objectType: 'plugin_version',
+    objectId: 'plugin_builtin_v1',
+    ownerType: 'SYSTEM',
+  })).allowed, true);
+  assert.equal((await service.can(subject, 'read', {
+    objectType: 'plugin_version',
+    objectId: 'plugin_builtin_v2',
+    ownerType: 'SYSTEM',
+  })).allowed, false);
+
+  const authorization = await service.buildAuthorizedQuery(subject, 'plugin_version', 'read');
+  assert.deepEqual(authorization.ownerTypes, ['TENANT', 'SYSTEM']);
+  const items = applyAuthorizationFilter([
+    { id: 'plugin_builtin_v1', ownerType: 'SYSTEM' },
+    { id: 'plugin_builtin_v2', ownerType: 'SYSTEM' },
+    { id: 'plugin_tenant_v1', tenantId: 'company_a' },
+  ], { page: 1, pageSize: 20, filter: {}, authorization });
+  assert.deepEqual(items.map((item) => item.id), ['plugin_builtin_v1']);
 });
 
 test('静态对象集合成员必须与真实租户一致，不能把同一对象 ID 扩散到其他租户', async () => {

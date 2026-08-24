@@ -77,6 +77,28 @@ test('插件版本详情在对象权限拒绝时不可见', async () => {
   assert.equal((response.body as { errorCode: string }).errorCode, 'SEC_PERMISSION_DENIED');
 });
 
+test('系统内置插件版本在租户上下文下可以按对象授权读取详情', async () => {
+  const capturedObjects: Array<{ objectType: string; objectId: string; tenantId?: string; ownerType?: string }> = [];
+  const app = createApp([version('plugin-builtin', 'fixture.plugin', '1.0.0', 'BUILTIN', 'SYSTEM')], routeSecurity({
+    allowedObjectIds: { plugin_version: ['plugin-builtin'] },
+    captureObjects: capturedObjects,
+  }));
+  const response = await app.inject({
+    method: 'GET',
+    path: '/api/v1/plugin-version-management/plugin-builtin',
+    headers: actorHeaders(),
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal((response.body as { id: string }).id, 'plugin-builtin');
+  assert.deepEqual(capturedObjects.at(-1), {
+    objectType: 'plugin_version',
+    objectId: 'plugin-builtin',
+    ownerType: 'SYSTEM',
+    tenantId: undefined,
+  });
+});
+
 test('Binding 查询同时校验 Binding 和关联插件版本', async () => {
   const pluginVersion = version('plugin-visible', 'fixture.plugin', '1.0.0', 'USER', 'tenant-1');
   const binding = {
@@ -217,6 +239,7 @@ function actorHeaders(): Record<string, string> {
 function routeSecurity(options: {
   denyActions?: string[];
   allowedObjectIds?: Record<string, string[]>;
+  captureObjects?: Array<{ objectType: string; objectId: string; tenantId?: string; ownerType?: string }>;
 } = {}): SecurityServices {
   const deniedActions = new Set(options.denyActions ?? []);
   return {
@@ -227,6 +250,7 @@ function routeSecurity(options: {
     } as never,
     objectPermissions: {
       assertCan: async (subject: { id: string }, _accessLevel: string, object: { objectType: string; objectId: string }) => {
+        options.captureObjects?.push(object as { objectType: string; objectId: string; tenantId?: string; ownerType?: string });
         const allowed = options.allowedObjectIds?.[object.objectType];
         if (allowed && !allowed.includes(object.objectId)) {
           throw securityErrors.permissionDenied({ actorId: subject.id, object });

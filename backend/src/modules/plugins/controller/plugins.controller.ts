@@ -17,10 +17,12 @@ import type { SecurityServices } from '../../security/security.controller.js';
 import {
   assertRouteAction,
   assertRouteObjectAccess,
+  decorateAuthorizedItem,
   filterAuthorizedItems,
   requireRouteSecurity,
   type RouteSecurityContext,
 } from '../../security/security-route-helpers.js';
+import { unifiedPluginVersionOwnerType } from '../application/unified-plugins.application-service.js';
 
 export interface BuiltinPluginCatalogRefresher {
   refresh(tenantId?: string): Promise<{
@@ -553,11 +555,12 @@ export class PluginsController {
   ) {
     if (!pluginVersionId.trim()) throw new Error('pluginVersionId 不能为空');
     const version = await this.unifiedPlugins.getVersionForTenant(security.tenantId, pluginVersionId);
+    const ownerType = unifiedPluginVersionOwnerType(version);
     await assertRouteObjectAccess(security, accessLevel, {
       objectType: 'plugin_version',
       objectId: version.id,
-      tenantId: version.ownerType === 'SYSTEM' ? security.tenantId : version.tenantId,
-      ownerType: version.ownerType,
+      ownerType,
+      tenantId: ownerType === 'SYSTEM' ? undefined : version.tenantId,
     });
     return version;
   }
@@ -567,7 +570,14 @@ export class PluginsController {
     items: T[],
     objectIdField: string,
   ): Promise<T[]> {
-    const decorated = items.map((item) => ({ ...item, tenantId: security.tenantId }));
+    const decorated = items.map((item) => decorateAuthorizedItem(
+      item,
+      security.tenantId,
+      {
+        tenantId: readOptionalString(item, 'tenantId'),
+        ownerType: readOwnerType(item),
+      },
+    ));
     const authorized = await filterAuthorizedItems(security, decorated, 'plugin_version', 'read', objectIdField);
     const allowed = new Set(authorized.map((item) => String((item as Record<string, unknown>)[objectIdField])));
     return items.filter((item) => allowed.has(String((item as Record<string, unknown>)[objectIdField])));
@@ -636,6 +646,16 @@ export class PluginsController {
     return this.promotions;
   }
 
+}
+
+function readOptionalString(value: object, key: string): string | undefined {
+  const current = (value as Record<string, unknown>)[key];
+  return typeof current === 'string' && current.trim() ? current : undefined;
+}
+
+function readOwnerType(value: object): 'SYSTEM' | 'TENANT' | undefined {
+  const current = (value as Record<string, unknown>).ownerType;
+  return current === 'SYSTEM' || current === 'TENANT' ? current : undefined;
 }
 
 export function getPluginsRouteContracts(): RouteContract[] {

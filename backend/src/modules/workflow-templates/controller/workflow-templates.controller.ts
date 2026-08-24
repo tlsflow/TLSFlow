@@ -6,9 +6,12 @@ import type { SecurityServices } from '../../security/security.controller.js';
 import {
   assertRouteAction,
   assertRouteObjectAccess,
+  decorateAuthorizedItem,
   filterAuthorizedItems,
   requireRouteSecurity,
 } from '../../security/security-route-helpers.js';
+import { unifiedPluginVersionOwnerType } from '../../plugins/application/unified-plugins.application-service.js';
+import type { ResourceOwnerType } from '../../../shared/security-types.js';
 import { WorkflowTemplatesApplicationService } from '../application/workflow-templates.application-service.js';
 import { PluginWorkflowSourceService } from '../application/plugin-workflow-source.service.js';
 import { WorkflowExecutionBindingsService } from '../application/workflow-execution-bindings.service.js';
@@ -72,27 +75,47 @@ export class WorkflowTemplatesController {
     const security = requireRouteSecurity(request, this.security);
     await assertRouteAction(security, 'workflow.read', 'workflow');
     const items = await this.service.listTemplates();
-    return { statusCode: 200, body: { items: await filterAuthorizedItems(security, items, 'workflow', 'read') } };
+    return { statusCode: 200, body: { items: await this.filterWorkflowItems(security, items) } };
   }
 
   private async listWorkflows(request: HttpRequest) {
     const security = requireRouteSecurity(request, this.security);
     await assertRouteAction(security, 'workflow.read', 'workflow');
     const items = await this.service.listWorkflows(security.tenantId);
-    return { statusCode: 200, body: { items: await filterAuthorizedItems(security, items, 'workflow', 'read') } };
+    return { statusCode: 200, body: { items: await this.filterWorkflowItems(security, items) } };
   }
 
   private async listVersions(request: HttpRequest) {
     const security = requireRouteSecurity(request, this.security);
     await assertRouteAction(security, 'workflow.read', 'workflow');
     const templateId = String(request.query.templateId ?? '');
+    let requestedTemplate:
+      | Awaited<ReturnType<WorkflowTemplatesController['requireWorkflowTemplate']>>
+      | undefined;
     if (templateId) {
-      await assertRouteObjectAccess(security, 'read', { objectType: 'workflow', objectId: templateId, tenantId: security.tenantId });
+      requestedTemplate = await this.requireWorkflowTemplate(templateId);
+      await assertRouteObjectAccess(security, 'read', {
+        objectType: 'workflow',
+        objectId: requestedTemplate.id,
+        ...this.workflowOwnership(requestedTemplate),
+      });
     }
     const items = await this.service.listVersions(templateId);
+    const ownershipByTemplateId = requestedTemplate
+      ? new Map([[requestedTemplate.id, this.workflowOwnership(requestedTemplate)] as const])
+      : new Map(
+        (await this.service.listTemplates()).map((template) => [template.id, this.workflowOwnership(template)] as const),
+      );
     return {
       statusCode: 200,
-      body: { items: await filterAuthorizedItems(security, items, 'workflow', 'read', 'templateId') },
+      body: {
+        items: await this.filterWorkflowItems(
+          security,
+          items,
+          'templateId',
+          (item) => ownershipByTemplateId.get(String((item as unknown as Record<string, unknown>).templateId)),
+        ),
+      },
     };
   }
 
@@ -125,7 +148,7 @@ export class WorkflowTemplatesController {
     const input = request.body as CreateWorkflowFromPluginInput;
     await assertRouteAction(security, 'workflow.create', 'workflow');
     if (typeof input.pluginVersionId === 'string' && input.pluginVersionId.trim() !== '') {
-      await assertRouteObjectAccess(security, 'read', { objectType: 'plugin_version', objectId: input.pluginVersionId, tenantId: security.tenantId });
+      await this.assertPluginVersionAccess(security, 'read', input.pluginVersionId);
     }
     return { statusCode: 201, body: await this.requirePluginSources().createWorkflow(security.tenantId, input) };
   }
@@ -137,9 +160,9 @@ export class WorkflowTemplatesController {
     const templateId = decodeURIComponent(workflowId);
     const input = request.body as CreateWorkflowFromPluginInput;
     await assertRouteAction(security, 'workflow.update', 'workflow', { resourceId: templateId });
-    await assertRouteObjectAccess(security, 'edit', { objectType: 'workflow', objectId: templateId, tenantId: security.tenantId });
+    await this.assertWorkflowTemplateAccess(security, 'edit', templateId);
     if (typeof input.pluginVersionId === 'string' && input.pluginVersionId.trim() !== '') {
-      await assertRouteObjectAccess(security, 'read', { objectType: 'plugin_version', objectId: input.pluginVersionId, tenantId: security.tenantId });
+      await this.assertPluginVersionAccess(security, 'read', input.pluginVersionId);
     }
     return { statusCode: 201, body: await this.requirePluginSources().createDraft(security.tenantId, { ...input, templateId }) };
   }
@@ -148,7 +171,7 @@ export class WorkflowTemplatesController {
     const security = requireRouteSecurity(request, this.security);
     const input = request.body as RenameWorkflowTemplateInput;
     await assertRouteAction(security, 'workflow.update', 'workflow', { resourceId: input.templateId });
-    await assertRouteObjectAccess(security, 'edit', { objectType: 'workflow', objectId: input.templateId, tenantId: security.tenantId });
+    await this.assertWorkflowTemplateAccess(security, 'edit', input.templateId);
     return { statusCode: 200, body: await this.service.renameTemplate(input) };
   }
 
@@ -156,7 +179,7 @@ export class WorkflowTemplatesController {
     const security = requireRouteSecurity(request, this.security);
     const templateId = String((request.body as { id?: string }).id ?? '');
     await assertRouteAction(security, 'workflow.delete', 'workflow', { resourceId: templateId });
-    await assertRouteObjectAccess(security, 'control', { objectType: 'workflow', objectId: templateId, tenantId: security.tenantId });
+    await this.assertWorkflowTemplateAccess(security, 'control', templateId);
     return { statusCode: 200, body: await this.service.disableTemplate(templateId) };
   }
 
@@ -164,7 +187,7 @@ export class WorkflowTemplatesController {
     const security = requireRouteSecurity(request, this.security);
     const input = request.body as UpdateWorkflowTemplateInput;
     await assertRouteAction(security, 'workflow.update', 'workflow', { resourceId: input.templateId });
-    await assertRouteObjectAccess(security, 'edit', { objectType: 'workflow', objectId: input.templateId, tenantId: security.tenantId });
+    await this.assertWorkflowTemplateAccess(security, 'edit', input.templateId);
     return { statusCode: 201, body: await this.service.createDraftVersion(input) };
   }
 
@@ -172,7 +195,7 @@ export class WorkflowTemplatesController {
     const security = requireRouteSecurity(request, this.security);
     const input = request.body as UpdateWorkflowTemplateInput;
     await assertRouteAction(security, 'workflow.update', 'workflow', { resourceId: input.templateId });
-    await assertRouteObjectAccess(security, 'edit', { objectType: 'workflow', objectId: input.templateId, tenantId: security.tenantId });
+    await this.assertWorkflowTemplateAccess(security, 'edit', input.templateId);
     return { statusCode: 200, body: await this.service.updateCurrentDraftVersion(input) };
   }
 
@@ -181,7 +204,7 @@ export class WorkflowTemplatesController {
     const input = request.body as UpdateWorkflowTemplateVersionNoteInput;
     const version = await this.service.getVersion(input.versionId);
     await assertRouteAction(security, 'workflow.update', 'workflow', { resourceId: version.templateId });
-    await assertRouteObjectAccess(security, 'edit', { objectType: 'workflow', objectId: version.templateId, tenantId: security.tenantId });
+    await this.assertWorkflowTemplateAccess(security, 'edit', version.templateId);
     return { statusCode: 200, body: await this.service.updateVersionNote(input) };
   }
 
@@ -190,7 +213,7 @@ export class WorkflowTemplatesController {
     const versionId = (request.body as { versionId: string }).versionId;
     const version = await this.service.getVersion(versionId);
     await assertRouteAction(security, 'workflow.publish', 'workflow', { resourceId: version.templateId });
-    await assertRouteObjectAccess(security, 'control', { objectType: 'workflow', objectId: version.templateId, tenantId: security.tenantId });
+    await this.assertWorkflowTemplateAccess(security, 'control', version.templateId);
     return { statusCode: 200, body: await this.service.publishVersion(versionId) };
   }
 
@@ -222,13 +245,83 @@ export class WorkflowTemplatesController {
     await assertRouteAction(security, 'workflow.test', 'workflow');
     if ('templateVersionId' in input && typeof input.templateVersionId === 'string' && input.templateVersionId.trim() !== '') {
       const version = await this.service.getVersion(input.templateVersionId);
-      await assertRouteObjectAccess(security, 'control', { objectType: 'workflow', objectId: version.templateId, tenantId: security.tenantId });
+      await this.assertWorkflowTemplateAccess(security, 'control', version.templateId);
     }
+  }
+
+  private async filterWorkflowItems<T extends object>(
+    security: ReturnType<typeof requireRouteSecurity>,
+    items: T[],
+    objectIdField = 'id',
+    ownershipOfItem?: (item: T) => { tenantId?: string; ownerType?: ResourceOwnerType } | undefined,
+  ): Promise<T[]> {
+    const decorated = items.map((item) => decorateAuthorizedItem(
+      item,
+      security.tenantId,
+      ownershipOfItem?.(item)
+        ?? {
+          tenantId: readOptionalString(item, 'tenantId'),
+          ownerType: readWorkflowOwnerType(item),
+        },
+    ));
+    const authorized = await filterAuthorizedItems(security, decorated, 'workflow', 'read', objectIdField);
+    const allowed = new Set(authorized.map((item) => String((item as Record<string, unknown>)[objectIdField])));
+    return items.filter((item) => allowed.has(String((item as Record<string, unknown>)[objectIdField])));
+  }
+
+  private async assertWorkflowTemplateAccess(
+    security: ReturnType<typeof requireRouteSecurity>,
+    accessLevel: 'read' | 'edit' | 'control',
+    templateId: string,
+  ): Promise<void> {
+    const template = await this.requireWorkflowTemplate(templateId);
+    await assertRouteObjectAccess(security, accessLevel, {
+      objectType: 'workflow',
+      objectId: template.id,
+      ...this.workflowOwnership(template),
+    });
+  }
+
+  private async assertPluginVersionAccess(
+    security: ReturnType<typeof requireRouteSecurity>,
+    accessLevel: 'read' | 'control',
+    pluginVersionId: string,
+  ): Promise<void> {
+    const version = await this.requirePluginSources().getAccessiblePluginVersion(security.tenantId, pluginVersionId);
+    const ownerType = unifiedPluginVersionOwnerType(version);
+    await assertRouteObjectAccess(security, accessLevel, {
+      objectType: 'plugin_version',
+      objectId: version.id,
+      ownerType,
+      tenantId: ownerType === 'SYSTEM' ? undefined : version.tenantId,
+    });
+  }
+
+  private async requireWorkflowTemplate(templateId: string) {
+    return this.service.getTemplate(templateId);
+  }
+
+  private workflowOwnership(template: { ownerType?: string; tenantId?: string }) {
+    const ownerType = template.ownerType === 'SYSTEM' ? 'SYSTEM' : 'TENANT';
+    return {
+      ownerType,
+      tenantId: ownerType === 'SYSTEM' ? undefined : template.tenantId,
+    } as const;
   }
 }
 
 function tenantId(request: HttpRequest): string {
   return requireTenantId(request);
+}
+
+function readOptionalString(value: object, key: string): string | undefined {
+  const current = (value as Record<string, unknown>)[key];
+  return typeof current === 'string' && current.trim() ? current : undefined;
+}
+
+function readWorkflowOwnerType(value: object): ResourceOwnerType | undefined {
+  const current = (value as Record<string, unknown>).ownerType;
+  return current === 'SYSTEM' || current === 'GROUP' || current === 'TENANT' ? current : undefined;
 }
 
 export function getWorkflowTemplateRouteContracts(): RouteContract[] {

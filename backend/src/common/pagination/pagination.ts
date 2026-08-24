@@ -86,19 +86,16 @@ export function applyAuthorizationFilter<T extends object>(items: T[], query: Pa
 }
 
 function matchesTenantScopeFilter(item: object, authorization: TenantScopeFilter): boolean {
-  if (authorization.tenantIds !== undefined) {
-    const tenantId = readObjectField(item, 'tenantId') ?? readObjectField(item, 'tenant_id');
+  const declaredOwnerType = readObjectField(item, 'ownerType') ?? readObjectField(item, 'owner_type');
+  const tenantId = readObjectField(item, 'tenantId') ?? readObjectField(item, 'tenant_id');
+  const ownerType = typeof declaredOwnerType === 'string'
+    ? declaredOwnerType
+    : typeof tenantId === 'string'
+      ? 'TENANT'
+      : undefined;
+  if (authorization.ownerTypes !== undefined && !authorization.ownerTypes.includes(ownerType as ResourceOwnerType)) return false;
+  if (authorization.tenantIds !== undefined && ownerType !== 'SYSTEM') {
     if (typeof tenantId !== 'string' || !authorization.tenantIds.includes(tenantId)) return false;
-  }
-  if (authorization.ownerTypes !== undefined) {
-    const declaredOwnerType = readObjectField(item, 'ownerType') ?? readObjectField(item, 'owner_type');
-    const tenantId = readObjectField(item, 'tenantId') ?? readObjectField(item, 'tenant_id');
-    const ownerType = typeof declaredOwnerType === 'string'
-      ? declaredOwnerType
-      : typeof tenantId === 'string'
-        ? 'TENANT'
-        : undefined;
-    if (!authorization.ownerTypes.includes(ownerType as ResourceOwnerType)) return false;
   }
   return true;
 }

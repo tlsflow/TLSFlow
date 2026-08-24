@@ -132,8 +132,18 @@ export class WorkflowTemplatesDomainService {
     const template = await this.getTemplateOrThrow(input.templateId);
     assertUserEditable(template);
     if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'template is disabled');
+    const existingContent = this.findExistingContentForExplicitClone(template.id, input);
+    if (existingContent) {
+      return await this.appendDraftVersion(template, existingContent, input.changeSummary, {
+        rejectDuplicateContent: false,
+        enforcePluginVersionIncrement: false,
+      });
+    }
     const content = workflowTemplatesSchemaRegistry.validate(input.content);
-    return await this.appendDraftVersion(template, content, input.changeSummary, { rejectDuplicateContent: true, enforcePluginVersionIncrement: true });
+    return await this.appendDraftVersion(template, content, input.changeSummary, {
+      rejectDuplicateContent: input.allowDuplicateContent !== true,
+      enforcePluginVersionIncrement: true,
+    });
   }
 
   async createPluginInternalDraftVersion(input: UpdateWorkflowTemplateInput): Promise<WorkflowTemplateVersion> {
@@ -250,6 +260,11 @@ export class WorkflowTemplatesDomainService {
   async getVersion(versionId: string): Promise<WorkflowTemplateVersion> {
     await this.ready;
     return clone((await this.findVersion(versionId)).version);
+  }
+
+  async getTemplate(templateId: string): Promise<WorkflowTemplate> {
+    await this.ready;
+    return this.withCurrentVersionSummary(await this.getTemplateOrThrow(templateId));
   }
 
   async getRuntimePublishedVersion(templateId: string): Promise<WorkflowTemplateVersion | undefined> {
@@ -665,6 +680,13 @@ export class WorkflowTemplatesDomainService {
     return current ?? [...list]
       .filter((item) => item.status === 'draft')
       .sort((left, right) => right.version - left.version)[0];
+  }
+
+  private findExistingContentForExplicitClone(templateId: string, input: UpdateWorkflowTemplateInput): WorkflowDslV1 | undefined {
+    if (input.allowDuplicateContent !== true || !isRecord(input.content)) return undefined;
+    const contentHash = computeWorkflowContentHash(input.content as WorkflowDslV1);
+    const existing = (this.versions.get(templateId) ?? []).find((item) => item.contentHash === contentHash);
+    return existing ? clone(existing.content) : undefined;
   }
 
   private async appendDraftVersion(

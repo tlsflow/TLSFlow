@@ -349,6 +349,9 @@ export interface WorkflowSourceCandidate {
   pluginVersionId: string;
   pluginVersion: string;
   displayName: string;
+  workflowName: string;
+  workflowDisplayName?: string;
+  workflowResourcePath: string;
   capabilityKey: 'certificate.deploy' | 'certificate.rollback';
   workflowTemplateId: string;
   workflowVersionId: string;
@@ -379,6 +382,7 @@ export interface UpdateWorkflowTemplateInput {
   content: WorkflowDslV1;
   changeSummary?: string;
   pluginSource?: WorkflowPluginSource;
+  allowDuplicateContent?: boolean;
 }
 
 export interface UpdateWorkflowTemplateVersionNoteInput {

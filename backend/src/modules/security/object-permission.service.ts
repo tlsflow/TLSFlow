@@ -163,6 +163,25 @@ export class ObjectPermissionService {
     return result;
   }
 
+  async syncObjectSetObjectTypes(objectSetId: string, objectTypes: string[]): Promise<ObjectSetEntity | undefined> {
+    const objectSet = await this.objectSets.get(objectSetId);
+    if (!objectSet) return undefined;
+    await this.ensureDefaultObjectTypes();
+    const validTypes = new Set((await this.objectTypes.list()).map((item) => item.code));
+    const normalized = [...new Set(objectTypes.map((item) => item.trim()).filter(Boolean))];
+    if (normalized.length === 0 || normalized.some((item) => !validTypes.has(item))) {
+      throw securityErrors.permissionDenied({ reason: 'object type not registered', objectTypes: normalized });
+    }
+    const mergedTypes = [...new Set([...objectSet.objectTypes, ...normalized])];
+    if (mergedTypes.length === objectSet.objectTypes.length) return objectSet;
+    const updated = await this.objectSets.update(objectSetId, {
+      objectTypes: mergedTypes,
+      updatedAt: new Date().toISOString(),
+    });
+    this.invalidateAuthorizationStateCache();
+    return updated;
+  }
+
   async addObjectSetMember(input: Omit<ObjectSetMemberEntity, 'id' | 'createdAt'> & { id?: string }): Promise<ObjectSetMemberEntity> {
     const objectSet = await this.objectSets.get(input.objectSetId);
     if (!objectSet || objectSet.status !== 'active') {
@@ -315,10 +334,6 @@ export class ObjectPermissionService {
     await this.ensureDefaultObjectTypes();
     const authorizationState = await this.getAuthorizationState(subject);
     const action = actionFor(object.objectType, accessLevel);
-    if (subject.scope?.tenantScope && !this.tenantScope.allowsResource(subject.scope.tenantScope, object)) {
-      await this.auditDeny(subject, action, object, context, 'tenant scope denied');
-      return decision(false, accessLevel, action, 'tenant scope denied', [], []);
-    }
     if (authorizationState.adminWildcard) {
       return {
         allowed: true,
@@ -330,6 +345,10 @@ export class ObjectPermissionService {
         matchedActions: [action, '*'],
         requiresApproval: isHighRiskAction(action),
       };
+    }
+    if (subject.scope?.tenantScope && !allowsObjectPermissionScope(this.tenantScope, subject.scope.tenantScope, object)) {
+      await this.auditDeny(subject, action, object, context, 'tenant scope denied');
+      return decision(false, accessLevel, action, 'tenant scope denied', [], []);
     }
 
     const bindings = authorizationState.bindings.filter((item) =>
@@ -371,8 +390,8 @@ export class ObjectPermissionService {
   async isAllowed(subject: SecuritySubject, accessLevel: AccessLevel, object: ObjectRef): Promise<boolean> {
     await this.ensureDefaultObjectTypes();
     const authorizationState = await this.getAuthorizationState(subject);
-    if (subject.scope?.tenantScope && !this.tenantScope.allowsResource(subject.scope.tenantScope, object)) return false;
     if (authorizationState.adminWildcard) return true;
+    if (subject.scope?.tenantScope && !allowsObjectPermissionScope(this.tenantScope, subject.scope.tenantScope, object)) return false;
 
     const bindings = authorizationState.bindings.filter((item) =>
       item.enabled
@@ -411,7 +430,7 @@ export class ObjectPermissionService {
     const tenantFilter = subject.scope?.tenantScope ? this.tenantScope.toFilter(subject.scope.tenantScope) : {};
     const authorizationState = await this.getAuthorizationState(subject);
     if (authorizationState.adminWildcard) {
-      return { ...tenantFilter, empty: false, unrestricted: true, dynamicConditions: [] };
+      return { empty: false, unrestricted: true, dynamicConditions: [] };
     }
     const tenantId = subject.scope?.tenantId;
     const bindings = authorizationState.bindings.filter((item) =>
@@ -449,8 +468,17 @@ export class ObjectPermissionService {
       .map((item) => item.objectId);
     const dynamicConditions = allowSets.filter((item) => item.kind === 'dynamic').map((item) => item.conditions ?? {});
     const deniedDynamicConditions = denySets.filter((item) => item.kind === 'dynamic').map((item) => item.conditions ?? {});
+    const hasSystemOwnedAllowSet = allowSets.some((item) => item.tenantId === '*')
+      && (
+        authorizationState.members.some((item) => allowStaticSetIds.has(item.objectSetId) && item.tenantId === undefined)
+        || allowSets.some((item) => item.kind === 'dynamic')
+      );
+    const ownerTypes = hasSystemOwnedAllowSet
+      ? [...new Set([...(tenantFilter.ownerTypes ?? []), 'SYSTEM' as const])]
+      : tenantFilter.ownerTypes;
     return {
       ...tenantFilter,
+      ...(ownerTypes ? { ownerTypes } : {}),
       empty: staticIds.length === 0 && dynamicConditions.length === 0,
       objectIds: [...new Set(staticIds)],
       dynamicConditions,
@@ -624,6 +652,7 @@ function defaultObjectTypes(): ObjectTypeEntity[] {
     rootObjectType('monitor_risk', '监控风险', 'pg_monitor_risk_events', now),
     rootObjectType('monitor_alert_rule', '监控告警规则', 'pg_monitor_alert_rules', now),
     rootObjectType('workflow_execution_binding', '工作流执行绑定', 'workflow_execution_bindings', now),
+    rootObjectType('approval', '审批单', 'security.approval_requests', now),
     derivedObjectType('audit_log', '审计日志', 'audit_logs', [], now),
     rootObjectType('system_setting', '系统设置', 'settings', now, { tenantField: 'owner_tenant_id' }),
     rootObjectType('identity_source', '身份源', 'identity_sources', now),
@@ -762,6 +791,15 @@ function actionFor(objectType: string, level: AccessLevel): string {
   if (level === 'read') return `${objectType}.read`;
   if (level === 'edit') return `${objectType}.update`;
   return `${objectType}.control`;
+}
+
+function allowsObjectPermissionScope(
+  tenantScope: TenantScopeService,
+  scope: TenantScope,
+  object: ObjectRef,
+): boolean {
+  if (tenantScope.allowsResource(scope, object)) return true;
+  return object.ownerType === 'SYSTEM' && scope.type !== 'SYSTEM';
 }
 
 function isHighRiskAction(action: string): boolean {

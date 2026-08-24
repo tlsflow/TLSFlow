@@ -21,8 +21,7 @@ export class PluginWorkflowSourceService {
     const output: WorkflowSourceCandidate[] = [];
     for (const plugin of versions) {
       if (plugin.status !== 'ENABLED' || plugin.runtime !== 'WORKFLOW_DSL') continue;
-      const uiResources = await this.plugins.getUiResources(plugin.id, locale);
-      const displayName = uiResources.locale?.messages[plugin.manifest.displayNameKey] ?? plugin.manifest.displayNameKey;
+      const displayName = await this.resolveDisplayName(plugin.id, plugin.manifest.displayNameKey, locale);
       const pluginBindings = await this.bindings.list(plugin.id);
       const bindingsByWorkflow = new Map<string, typeof pluginBindings>();
       for (const binding of pluginBindings) {
@@ -39,6 +38,9 @@ export class PluginWorkflowSourceService {
           pluginVersionId: plugin.id,
           pluginVersion: plugin.version,
           displayName,
+          workflowName: source.content.metadata.name,
+          workflowDisplayName: source.content.metadata.displayName,
+          workflowResourcePath: binding.workflowResourcePath,
           capabilityKey: binding.capabilityKey as WorkflowSourceCandidate['capabilityKey'],
           workflowTemplateId: binding.workflowTemplateId,
           workflowVersionId: binding.workflowVersionId,
@@ -50,6 +52,16 @@ export class PluginWorkflowSourceService {
       }
     }
     return output.sort((left, right) => left.pluginId.localeCompare(right.pluginId) || left.capabilityKey.localeCompare(right.capabilityKey));
+  }
+
+  private async resolveDisplayName(pluginVersionId: string, displayNameKey: string, locale: string): Promise<string> {
+    try {
+      const uiResources = await this.plugins.getUiResources(pluginVersionId, locale);
+      return uiResources.locale?.messages[displayNameKey] ?? displayNameKey;
+    } catch {
+      // 工作流来源只依赖 Workflow DSL 和 Binding。历史插件的表单/展示资源损坏时，不能阻断其他可用来源。
+      return displayNameKey;
+    }
   }
 
   async createWorkflow(tenantId: string, input: CreateWorkflowFromPluginInput) {
@@ -73,6 +85,14 @@ export class PluginWorkflowSourceService {
       changeSummary: input.changeSummary,
       pluginSource: pluginSourceOf(source.plugin.pluginId, input.pluginVersionId, input.capabilityKey, source.version.id, source.version.contentHash),
     });
+  }
+
+  async getAccessiblePluginVersion(tenantId: string, pluginVersionId: string) {
+    const plugin = await this.plugins.getVersion(pluginVersionId);
+    if (!this.isAccessible(plugin, tenantId)) {
+      throw new AppError('PLUGIN_WORKFLOW_SOURCE_UNAVAILABLE', '插件版本不能作为工作流来源', { pluginVersionId });
+    }
+    return plugin;
   }
 
   private async requireSource(tenantId: string, pluginVersionId: string, capabilityKey: string) {
