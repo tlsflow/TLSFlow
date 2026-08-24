@@ -36,3 +36,38 @@ test('部署计划凭据快照固定 CredentialProfile 和 Secret 精确版本',
   assert.notEqual(second.management!.snapshotSha256, first.management!.snapshotSha256);
   assert.match(first.management!.secretRefs.password!, /#v1$/);
 });
+
+test('部署计划凭据快照兼容租户凭据引用历史全局 Secret', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const security = createPersistedSecurityServices(database).services;
+  const repository = new CredentialsRepository(database);
+  const resolver = new RuntimeCredentialResolver(repository, security.secrets);
+  const secret = await security.secrets.create({
+    name: '历史全局 Secret',
+    type: 'password',
+    scopeType: 'global',
+    plainText: 'legacy-global-secret',
+    createdBy: 'system',
+  });
+  const now = new Date().toISOString();
+  await repository.save({
+    id: 'cred_global_secret_cutover',
+    tenantId: 'tenant-plan',
+    name: '历史迁移凭据',
+    kind: 'USERNAME_PASSWORD',
+    scopeType: 'global',
+    username: 'admin',
+    secretSlots: { password: secret.secretRef },
+    metadata: {},
+    status: 'active',
+    version: 1,
+    createdBy: 'system',
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const resolved = await resolver.resolveBindingsForPlan('tenant-plan', { management: { credentialId: 'cred_global_secret_cutover' } });
+  assert.match(resolved.management!.secretRefs.password!, /#v1$/);
+  assert.equal(resolved.management!.credentialVersionId, '1');
+});

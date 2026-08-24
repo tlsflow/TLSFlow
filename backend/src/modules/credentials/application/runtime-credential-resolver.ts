@@ -62,8 +62,8 @@ export class RuntimeCredentialResolver {
       const secretRefs = Object.fromEntries(await Promise.all(Object.entries(profile.secretSlots).map(async ([name, secretRef]) => {
         const parsed = parseSecretRef(secretRef);
         if (parsed.version !== 'current') return [name, secretRef];
-        const metadata = await this.secrets!.getMetadata(parsed.secretId, tenantId);
-        const version = (await this.secrets!.listSecretVersions(parsed.secretId, tenantId)).find((item) => item.id === metadata.currentVersionId);
+        const { metadata, versions } = await this.resolvePinnedSecretVersion(parsed.secretId, tenantId);
+        const version = versions.find((item) => item.id === metadata.currentVersionId);
         if (!version) throw new AppError('RESOURCE_NOT_FOUND', 'CredentialProfile 当前 Secret 版本不存在', { credentialId: profile.id, slot: name });
         return [name, buildSecretRef(parsed.type, parsed.secretId, version.versionNo)];
       })));
@@ -81,6 +81,22 @@ export class RuntimeCredentialResolver {
         snapshotSha256: createHash('sha256').update(JSON.stringify(snapshot)).digest('hex'),
       }];
     })));
+  }
+
+  private async resolvePinnedSecretVersion(secretId: string, tenantId: string) {
+    try {
+      return {
+        metadata: await this.secrets!.getMetadata(secretId, tenantId),
+        versions: await this.secrets!.listSecretVersions(secretId, tenantId),
+      };
+    } catch (error) {
+      if (!isSecretNotFound(error)) throw error;
+      // 兼容历史 cutover 数据：租户 CredentialProfile 可能引用全局 Secret。
+      return {
+        metadata: await this.secrets!.getMetadata(secretId),
+        versions: await this.secrets!.listSecretVersions(secretId),
+      };
+    }
   }
 }
 
@@ -111,4 +127,8 @@ function browserSessionRuntimeMetadata(metadata: Record<string, unknown>): Recor
     expiresAt: metadata.expiresAt,
     outputContract: metadata.outputContract,
   };
+}
+
+function isSecretNotFound(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && 'errorCode' in error && (error as { errorCode?: unknown }).errorCode === 'SEC_SECRET_NOT_FOUND');
 }
