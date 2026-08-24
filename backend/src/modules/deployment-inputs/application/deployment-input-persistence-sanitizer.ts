@@ -25,9 +25,20 @@ function sanitizeValue(value: unknown): unknown {
   if (!isRecord(value)) return value;
   return Object.fromEntries(Object.entries(value)
     .filter(([key]) => !RUNTIME_MATERIAL_CONTAINER_KEYS.has(key) && !SENSITIVE_KEY_PATTERN.test(key))
-    .map(([key, child]) => [key, sanitizeValue(child)]));
+    .map(([key, child]) => [key, key === 'plan' && isRecord(child) ? sanitizePlan(child) : sanitizeValue(child)]));
+}
+
+function sanitizePlan(value: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => !RUNTIME_MATERIAL_CONTAINER_KEYS.has(key) && (!SENSITIVE_KEY_PATTERN.test(key) || key === 'tokenId'))
+    .map(([key, child]) => [key, sanitizeValue(child)] as const)
+    .filter(([, child]) => !isEmptyRecord(child)));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isEmptyRecord(value: unknown): value is Record<string, unknown> {
+  return isRecord(value) && Object.keys(value).length === 0;
 }
