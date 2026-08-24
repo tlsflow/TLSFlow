@@ -66,7 +66,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeydown))
 .gc-drawer__layer {
   position: fixed;
   inset: 0;
-  z-index: 45;
+  z-index: var(--gc-z-drawer);
   pointer-events: none;
 }
 

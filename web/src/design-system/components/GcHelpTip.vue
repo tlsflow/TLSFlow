@@ -52,7 +52,7 @@ defineProps<{
   position: absolute;
   top: calc(100% + var(--gc-space-2));
   right: 0;
-  z-index: 80;
+  z-index: var(--gc-z-tooltip);
   width: max-content;
   max-width: calc(var(--gc-size-card-min) + var(--gc-space-10));
   padding: var(--gc-space-3) var(--gc-space-4);

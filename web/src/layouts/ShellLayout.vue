@@ -42,21 +42,21 @@ const USER_MODE_MENU_ITEMS: readonly MenuItem[] = [
     path: '/certificates',
     module: 'certificate',
     permission: 'certificate.asset.read',
-    icon: 'shield',
+    icon: 'certificate',
   },
   {
     titleKey: 'viewMode.steps.applications',
     path: '/assets',
     module: 'asset',
     permission: 'service_asset.read',
-    icon: 'server',
+    icon: 'stack',
   },
   {
     titleKey: 'viewMode.steps.deployments',
     path: '/deployment-plans',
     module: 'certificate-deployment',
     permission: 'deployment.plan.read',
-    icon: 'bolt',
+    icon: 'rocket',
   },
 ]
 
@@ -64,8 +64,12 @@ const isUserViewMode = computed(() => appStore.viewMode === 'user')
 const userModeMenuItems = computed(() => USER_MODE_MENU_ITEMS.filter((item) => (
   !item.permission || permissionStore.hasPermission(item.permission)
 )))
-const navItems = computed(() => isUserViewMode.value ? userModeMenuItems.value : permissionStore.visibleMenuItems)
-const activeTopItem = computed(() => navItems.value.find((item) => isMenuItemActive(item)) ?? null)
+const settingsMenuItem = computed(() => permissionStore.visibleMenuItems.find((item) => item.module === 'settings') ?? null)
+const navItems = computed(() => {
+  if (isUserViewMode.value) return userModeMenuItems.value
+  return permissionStore.visibleMenuItems.filter((item) => item.module !== 'settings')
+})
+const activeTopItem = computed(() => navItems.value.find((item) => isMenuItemActive(item)) ?? (settingsMenuItem.value && isMenuItemActive(settingsMenuItem.value) ? settingsMenuItem.value : null))
 const activeChildren = computed(() => isUserViewMode.value ? [] : (activeTopItem.value?.children ?? []))
 const brandTarget = computed(() => isUserViewMode.value ? '/certificates' : '/dashboard')
 const lockContentScroll = computed(() => route.path === '/certificates')
@@ -85,6 +89,7 @@ const activeTaskCount = ref(0)
 const taskEntryConnected = ref(false)
 const mobileNavOpen = ref(false)
 const isMobileViewport = ref(false)
+const sidebarCollapsed = ref(false)
 const mobileNavCloseButton = ref<HTMLButtonElement | null>(null)
 const mobileNavToggleButton = ref<HTMLButtonElement | null>(null)
 const userMenuOpen = ref(false)
@@ -114,6 +119,8 @@ let taskEntryRefreshPending = false
 let toastSequence = 0
 let mobileNavPreviousFocus: HTMLElement | null = null
 let mobileViewportQuery: MediaQueryList | undefined
+let overlayStateObserver: MutationObserver | undefined
+let sidebarCollapsedBeforeModal = false
 const toastTimers = new Map<number, number>()
 const executionTaskSuccessToastIds = new Set<string>()
 const DEPLOYMENT_EXECUTION_TASK_TYPES = new Set([
@@ -151,6 +158,32 @@ function switchViewMode(mode: 'user' | 'professional'): void {
 function selectViewMode(mode: 'user' | 'professional'): void {
   switchViewMode(mode)
   closeMobileNav(false)
+  closeUserMenu()
+}
+
+function toggleSidebar(): void {
+  if (isMobileViewport.value) {
+    toggleMobileNav()
+    return
+  }
+  sidebarCollapsed.value = !sidebarCollapsed.value
+}
+
+function syncModalNavigation(): void {
+  const modalOpen = document.documentElement.classList.contains('gc-modal-open')
+    || Boolean(document.body.querySelector('.gc-modal__mask, .gc-confirm__mask, .gc-drawer__layer'))
+  if (modalOpen) {
+    if (!sidebarCollapsed.value) {
+      sidebarCollapsedBeforeModal = true
+      sidebarCollapsed.value = true
+    }
+    closeMobileNav(false)
+    return
+  }
+  if (sidebarCollapsedBeforeModal) {
+    sidebarCollapsed.value = false
+    sidebarCollapsedBeforeModal = false
+  }
 }
 
 function updateMobileViewport(): void {
@@ -203,6 +236,12 @@ watch(() => route.path, () => closeMobileNav(false))
 function iconPath(icon?: string): string {
   const paths: Record<string, string> = {
     dashboard: 'M4 5.5A1.5 1.5 0 0 1 5.5 4h3A1.5 1.5 0 0 1 10 5.5v3A1.5 1.5 0 0 1 8.5 10h-3A1.5 1.5 0 0 1 4 8.5v-3Zm10 0A1.5 1.5 0 0 1 15.5 4h3A1.5 1.5 0 0 1 20 5.5v3a1.5 1.5 0 0 1-1.5 1.5h-3A1.5 1.5 0 0 1 14 8.5v-3ZM4 15.5A1.5 1.5 0 0 1 5.5 14h3a1.5 1.5 0 0 1 1.5 1.5v3A1.5 1.5 0 0 1 8.5 20h-3A1.5 1.5 0 0 1 4 18.5v-3Zm10 0a1.5 1.5 0 0 1 1.5-1.5h3a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5h-3a1.5 1.5 0 0 1-1.5-1.5v-3Z',
+    certificate: 'M12 3.5 18.5 7v5c0 4-2.4 7.5-6.5 9-4.1-1.5-6.5-5-6.5-9V7L12 3.5Zm-2.5 8 1.7 1.7 3.8-3.8',
+    stack: 'M4 7.5 12 4l8 3.5-8 3.5-8-3.5Zm0 4.5 8 3.5 8-3.5M4 16.5 12 20l8-3.5',
+    rocket: 'M14.5 4.5c2.5-.3 4.7.2 5.5 1s1.3 3 .9 5.5l-5.1 5.1-4.2-4.2 2.9-2.9ZM11.6 7.4 8.3 5.8 5.1 8.9l3.2 1.1m4.4 4.4-1.1 3.2-3.2 3.2-1.1-4.4 2.9-2.9m-2.2 2.2-2.4-.1',
+    plug: 'M9 3v5m6-5v5m-8 0h10v3a5 5 0 0 1-5 5v5m-4-10H5a2 2 0 1 0 0 4h2m10-4h2a2 2 0 1 1 0 4h-2',
+    activity: 'M3 12h4l2.5-6 4.5 12 2.5-6H21',
+    sliders: 'M4 6h16M4 12h16M4 18h16M8 4v4m8 4v4m-5 4v4',
     shield: 'M12 3.5 19 6v5.2c0 4.5-2.9 8.2-7 9.3-4.1-1.1-7-4.8-7-9.3V6l7-2.5Z',
     server: 'M5 5h14v5H5V5Zm0 9h14v5H5v-5Zm3-6.5h.01M8 16.5h.01',
     bolt: 'm13 2-8 12h6l-1 8 9-13h-6l0-7Z',
@@ -331,6 +370,10 @@ onMounted(() => {
     mobileViewportQuery.addEventListener('change', updateMobileViewport)
   }
   updateMobileViewport()
+  overlayStateObserver = new MutationObserver(syncModalNavigation)
+  overlayStateObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+  overlayStateObserver.observe(document.body, { childList: true })
+  syncModalNavigation()
   window.addEventListener('keydown', handleShellKeydown)
   document.addEventListener('pointerdown', handleDocumentPointerDown)
   window.addEventListener('gcac:toast', handleToastEvent as EventListener)
@@ -353,6 +396,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleShellKeydown)
   mobileViewportQuery?.removeEventListener('change', updateMobileViewport)
   mobileViewportQuery = undefined
+  overlayStateObserver?.disconnect()
+  overlayStateObserver = undefined
   document.removeEventListener('pointerdown', handleDocumentPointerDown)
   window.removeEventListener('gcac:toast', handleToastEvent as EventListener)
   disposeTaskActivity?.()
@@ -456,7 +501,13 @@ async function refreshTaskEntryCount(): Promise<void> {
 </script>
 
 <template>
-  <div class="gc-shell gc-workbench" :class="{ 'gc-workbench--nav-open': mobileNavOpen }">
+  <div
+    class="gc-shell gc-workbench"
+    :class="{
+      'gc-workbench--nav-open': mobileNavOpen,
+      'gc-workbench--nav-collapsed': sidebarCollapsed && !isMobileViewport,
+    }"
+  >
     <aside
       id="gc-workbench-navigation"
       class="gc-workbench__sidebar"
@@ -488,43 +539,47 @@ async function refreshTaskEntryCount(): Promise<void> {
           class="gc-workbench__nav-item"
           :class="{ 'gc-workbench__nav-item--active': isMenuItemActive(item) }"
           :to="item.path"
+          :aria-label="sidebarCollapsed ? menuTitle(item) : undefined"
+          :title="sidebarCollapsed ? menuTitle(item) : undefined"
           @click="closeMobileNav(false)"
         >
           <svg class="gc-workbench__nav-icon" viewBox="0 0 24 24" aria-hidden="true">
             <path :d="iconPath(item.icon)" />
           </svg>
-          <span>{{ menuTitle(item) }}</span>
-          <span v-if="isMenuItemActive(item)" class="gc-workbench__nav-active-mark" aria-hidden="true" />
+          <span class="gc-workbench__nav-label">{{ menuTitle(item) }}</span>
+          <span v-if="isMenuItemActive(item) && !sidebarCollapsed" class="gc-workbench__nav-active-mark" aria-hidden="true" />
         </RouterLink>
       </nav>
 
       <div class="gc-workbench__sidebar-footer">
-        <div class="gc-workbench__view-mode" role="group" :aria-label="t('viewMode.switchLabel')">
-          <span
-            class="gc-workbench__view-mode-thumb"
-            :class="{ 'gc-workbench__view-mode-thumb--right': !isUserViewMode }"
-            aria-hidden="true"
-          />
+        <RouterLink
+          v-if="settingsMenuItem"
+          class="gc-workbench__nav-item gc-workbench__settings-item"
+          :class="{ 'gc-workbench__nav-item--active': isMenuItemActive(settingsMenuItem) }"
+          :to="settingsMenuItem.path"
+          :aria-label="sidebarCollapsed ? menuTitle(settingsMenuItem) : undefined"
+          :title="sidebarCollapsed ? menuTitle(settingsMenuItem) : undefined"
+          @click="closeMobileNav(false)"
+        >
+          <svg class="gc-workbench__nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path :d="iconPath(settingsMenuItem.icon)" />
+          </svg>
+          <span class="gc-workbench__nav-label">{{ menuTitle(settingsMenuItem) }}</span>
+          <span v-if="isMenuItemActive(settingsMenuItem) && !sidebarCollapsed" class="gc-workbench__nav-active-mark" aria-hidden="true" />
+        </RouterLink>
+        <div class="gc-workbench__sidebar-meta">
+          <span class="gc-workbench__version">{{ t('app.versionLabel', { version: gcacVersion }) }}</span>
           <button
-            class="gc-workbench__view-mode-button"
-            :class="{ 'gc-workbench__view-mode-button--active': isUserViewMode }"
+            class="gc-workbench__icon-button gc-workbench__sidebar-toggle"
             type="button"
-            :aria-pressed="isUserViewMode"
-            @click="selectViewMode('user')"
+            :aria-label="sidebarCollapsed ? t('shell.sidebarExpand') : t('shell.sidebarCollapse')"
+            :aria-expanded="!sidebarCollapsed"
+            aria-controls="gc-workbench-navigation"
+            @click="toggleSidebar"
           >
-            {{ t('viewMode.user') }}
-          </button>
-          <button
-            class="gc-workbench__view-mode-button"
-            :class="{ 'gc-workbench__view-mode-button--active': !isUserViewMode }"
-            type="button"
-            :aria-pressed="!isUserViewMode"
-            @click="selectViewMode('professional')"
-          >
-            {{ t('viewMode.professional') }}
+            <span aria-hidden="true">{{ sidebarCollapsed ? '›' : '‹' }}</span>
           </button>
         </div>
-        <span class="gc-workbench__version">{{ t('app.versionLabel', { version: gcacVersion }) }}</span>
       </div>
     </aside>
 
@@ -552,11 +607,8 @@ async function refreshTaskEntryCount(): Promise<void> {
 
         <div class="gc-workbench__context">
           <div class="gc-workbench__context-heading">
-            <span class="gc-workbench__context-eyebrow">{{ t('shell.currentLocation') }}</span>
             <h1 class="gc-workbench__context-title">{{ currentPageTitle || (activeTopItem ? menuTitle(activeTopItem) : t('nav.dashboard')) }}</h1>
           </div>
-          <div id="gc-shell-hero-leading" class="gc-workbench__context-leading" />
-          <div id="gc-shell-hero-actions" class="gc-workbench__context-actions" />
           <nav v-if="activeChildren.length" class="gc-workbench__submenu" :aria-label="t('shell.currentGroupNavigation')">
             <RouterLink
               v-for="child in activeChildren"
@@ -571,55 +623,82 @@ async function refreshTaskEntryCount(): Promise<void> {
           </nav>
         </div>
 
-      <div v-if="showTaskEntry" ref="taskEntryRoot" class="gc-shell__task-entry">
-        <button
-          class="gc-shell__task-button"
-          :class="{ 'gc-shell__task-button--active': activeTaskCount > 0, 'gc-shell__task-button--connected': taskEntryConnected }"
-          type="button"
-          :aria-label="t('tasks.aria.openDrawer')"
-          :aria-expanded="taskDrawerOpen"
-          @click="toggleTaskDrawer"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M7 4.5h10A2.5 2.5 0 0 1 19.5 7v10a2.5 2.5 0 0 1-2.5 2.5H7A2.5 2.5 0 0 1 4.5 17V7A2.5 2.5 0 0 1 7 4.5Z" />
-            <path d="m8 12 2.2 2.2L16 8.5" />
-          </svg>
-          <span v-if="activeTaskCount > 0" class="gc-shell__task-badge">{{ activeTaskCount > 99 ? '99+' : activeTaskCount }}</span>
-        </button>
-        <TaskDrawer :open="taskDrawerOpen" @close="taskDrawerOpen = false" />
-      </div>
-
-      <div ref="userMenuRoot" class="gc-shell__user" :aria-label="t('userMenu.currentUser')">
-        <button
-          class="gc-shell__user-button"
-          type="button"
-          aria-haspopup="menu"
-          :aria-expanded="userMenuOpen"
-          @click="toggleUserMenu"
-        >
-          <span class="gc-shell__user-avatar" aria-hidden="true">{{ currentUserInitial }}</span>
-          <span class="gc-shell__user-meta">
-            <span class="gc-shell__user-name">{{ currentUserName }}</span>
-          </span>
-          <span class="gc-shell__user-chevron" aria-hidden="true">⌄</span>
-        </button>
-
-        <div v-if="userMenuOpen" class="gc-shell__user-menu" role="menu">
-          <div class="gc-shell__user-menu-header">
-            <span class="gc-shell__user-avatar gc-shell__user-avatar--menu" aria-hidden="true">{{ currentUserInitial }}</span>
-            <span>
-              <strong>{{ currentUserName }}</strong>
-              <small>{{ currentTenantName }}</small>
-            </span>
+        <div class="gc-workbench__account-actions">
+          <div v-if="showTaskEntry" ref="taskEntryRoot" class="gc-shell__task-entry">
+            <button
+              class="gc-shell__task-button"
+              :class="{ 'gc-shell__task-button--active': activeTaskCount > 0, 'gc-shell__task-button--connected': taskEntryConnected }"
+              type="button"
+              :aria-label="t('tasks.aria.openDrawer')"
+              :aria-expanded="taskDrawerOpen"
+              @click="toggleTaskDrawer"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M7 4.5h10A2.5 2.5 0 0 1 19.5 7v10a2.5 2.5 0 0 1-2.5 2.5H7A2.5 2.5 0 0 1 4.5 17V7A2.5 2.5 0 0 1 7 4.5Z" />
+                <path d="m8 12 2.2 2.2L16 8.5" />
+              </svg>
+              <span v-if="activeTaskCount > 0" class="gc-shell__task-badge">{{ activeTaskCount > 99 ? '99+' : activeTaskCount }}</span>
+            </button>
+            <TaskDrawer :open="taskDrawerOpen" @close="taskDrawerOpen = false" />
           </div>
 
-          <div class="gc-shell__user-menu-list" role="none">
-            <button class="gc-shell__user-menu-action" type="button" role="menuitem" @click="openPasswordDialog">
-              <span class="gc-shell__user-menu-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24"><path d="M14 10a4 4 0 1 0-3.2 3.9L13 16h2v2h3v-3.2l-3.7-3.7" /><path d="M7.5 10.5h.01" /></svg>
+          <div ref="userMenuRoot" class="gc-shell__user" :aria-label="t('userMenu.currentUser')">
+            <button
+              class="gc-shell__user-button"
+              type="button"
+              aria-haspopup="menu"
+              :aria-expanded="userMenuOpen"
+              @click="toggleUserMenu"
+            >
+              <span class="gc-shell__user-avatar" aria-hidden="true">{{ currentUserInitial }}</span>
+              <span class="gc-shell__user-meta">
+                <span class="gc-shell__user-name">{{ currentUserName }}</span>
               </span>
-              <span>{{ t('userMenu.changePassword') }}</span>
+              <span class="gc-shell__user-chevron" aria-hidden="true">⌄</span>
             </button>
+
+            <div v-if="userMenuOpen" class="gc-shell__user-menu" role="menu">
+              <div class="gc-shell__user-menu-header">
+                <span class="gc-shell__user-avatar gc-shell__user-avatar--menu" aria-hidden="true">{{ currentUserInitial }}</span>
+                <span>
+                  <strong>{{ currentUserName }}</strong>
+                  <small>{{ currentTenantName }}</small>
+                </span>
+              </div>
+
+              <div class="gc-shell__user-menu-list" role="none">
+                <button class="gc-shell__user-menu-action" type="button" role="menuitem" @click="openPasswordDialog">
+                  <span class="gc-shell__user-menu-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24"><path d="M14 10a4 4 0 1 0-3.2 3.9L13 16h2v2h3v-3.2l-3.7-3.7" /><path d="M7.5 10.5h.01" /></svg>
+                  </span>
+                  <span>{{ t('userMenu.changePassword') }}</span>
+                </button>
+
+                <div class="gc-shell__view-mode" role="group" :aria-label="t('viewMode.switchLabel')">
+                  <span
+                    class="gc-shell__view-mode-thumb"
+                    :class="{ 'gc-shell__view-mode-thumb--right': !isUserViewMode }"
+                    aria-hidden="true"
+                  />
+                  <button
+                    class="gc-shell__view-mode-button"
+                    :class="{ 'gc-shell__view-mode-button--active': isUserViewMode }"
+                    type="button"
+                    :aria-pressed="isUserViewMode"
+                    @click="selectViewMode('user')"
+                  >
+                    {{ t('viewMode.user') }}
+                  </button>
+                  <button
+                    class="gc-shell__view-mode-button"
+                    :class="{ 'gc-shell__view-mode-button--active': !isUserViewMode }"
+                    type="button"
+                    :aria-pressed="!isUserViewMode"
+                    @click="selectViewMode('professional')"
+                  >
+                    {{ t('viewMode.professional') }}
+                  </button>
+                </div>
 
             <button
               class="gc-shell__user-menu-action"
@@ -679,10 +758,11 @@ async function refreshTaskEntryCount(): Promise<void> {
             <div class="gc-shell__user-menu-version">
               {{ t('app.versionLabel', { version: gcacVersion }) }}
             </div>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-    </header>
+      </header>
 
     <main class="gc-shell__content gc-workbench__content" :class="{ 'gc-shell__content--locked': lockContentScroll, 'gc-workbench__content--locked': lockContentScroll }">
       <RouterView />

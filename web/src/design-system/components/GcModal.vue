@@ -315,7 +315,7 @@ onBeforeUnmount(() => {
 .gc-modal__mask {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: var(--gc-z-modal);
   display: grid;
   place-items: center;
   padding: var(--gc-space-3);

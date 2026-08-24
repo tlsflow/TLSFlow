@@ -53,7 +53,7 @@ function confirm() {
 </template>
 
 <style scoped>
-.gc-confirm__mask { position: fixed; inset: 0; display: grid; place-items: center; padding: var(--gc-space-4); background: var(--gc-color-backdrop); z-index: 60; }
+.gc-confirm__mask { position: fixed; inset: 0; display: grid; place-items: center; padding: var(--gc-space-4); background: var(--gc-color-backdrop); z-index: var(--gc-z-modal); }
 .gc-confirm { width: min(var(--gc-size-modal-confirm), calc(100vw - var(--gc-space-8))); max-width: 100%; }
 .gc-confirm__risk { white-space: normal; overflow-wrap: anywhere; word-break: break-word; line-height: 1.6; color: var(--gc-color-text-muted); }
 .gc-confirm__risk--danger { color: var(--gc-color-danger); }

@@ -113,6 +113,7 @@
   --gc-control-height-lg: 48px;
   --gc-size-card-min: 180px;
   --gc-size-shell-sidebar: 260px;
+  --gc-size-shell-sidebar-collapsed: 76px;
   --gc-size-shell-header: 58px;
   --gc-size-sidebar: var(--gc-size-shell-sidebar);
   --gc-size-modal-default: 672px;
@@ -153,6 +154,12 @@
   --gc-drawer-width: var(--gc-size-drawer-default);
   --gc-modal-width: var(--gc-size-modal-default);
   --gc-modal-max-height: calc(100vh - (var(--gc-space-6) * 2));
+  --gc-z-scrim: 40;
+  --gc-z-sidebar: 50;
+  --gc-z-drawer: 90;
+  --gc-z-modal: 100;
+  --gc-z-toast: 110;
+  --gc-z-tooltip: 80;
   --gc-modal-collapse-x: 0px;
   --gc-modal-collapse-y: 0px;
   --gc-viewmode-pad: var(--gc-space-1);

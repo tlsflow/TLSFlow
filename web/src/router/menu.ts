@@ -14,7 +14,7 @@ export const mainMenuItems: MenuItem[] = [
     path: '/certificates',
     module: 'certificate',
     permission: 'certificate.asset.read',
-    icon: 'shield',
+    icon: 'certificate',
     descriptionKey: 'nav.certificatesDesc',
     children: [
       { titleKey: 'nav.certificateAssets', path: '/certificates', module: 'certificate', permission: 'certificate.asset.read', descriptionKey: 'nav.certificateAssetsDesc' },
@@ -28,7 +28,7 @@ export const mainMenuItems: MenuItem[] = [
     path: '/assets',
     module: 'asset',
     permission: 'service_asset.read',
-    icon: 'server',
+    icon: 'stack',
     descriptionKey: 'nav.assetCenterDesc',
     children: [
       { titleKey: 'nav.assets', path: '/assets', module: 'asset', permission: 'service_asset.read', descriptionKey: 'nav.assetsDesc' },
@@ -43,7 +43,7 @@ export const mainMenuItems: MenuItem[] = [
     module: 'certificate-deployment',
     permissions: ['deployment.plan.read', 'workflow.read', 'automation.read', 'execution.run.read'],
     activePaths: ['/deployment-plans', '/workflows', '/automations', '/automation-runs', '/executions'],
-    icon: 'bolt',
+    icon: 'rocket',
     descriptionKey: 'nav.deploymentsDesc',
     children: [
       { titleKey: 'nav.deploymentPlans', path: '/deployment-plans', module: 'deployment', permission: 'deployment.plan.read', descriptionKey: 'nav.deploymentPlansDesc' },
@@ -57,7 +57,7 @@ export const mainMenuItems: MenuItem[] = [
     path: '/plugins',
     module: 'plugin',
     permission: 'plugin.read',
-    icon: 'plugin',
+    icon: 'plug',
     descriptionKey: 'nav.pluginsDesc'
   },
   {
@@ -65,7 +65,7 @@ export const mainMenuItems: MenuItem[] = [
     path: '/monitors',
     module: 'monitoring',
     permissions: ['monitor.target.read', 'monitor.risk.read', 'monitor.dashboard.read', 'monitor.alert_rule.read'],
-    icon: 'pulse',
+    icon: 'activity',
     descriptionKey: 'nav.monitoringDesc',
     children: [
       {
@@ -83,7 +83,7 @@ export const mainMenuItems: MenuItem[] = [
     path: '/settings',
     module: 'settings',
     permission: 'settings.read',
-    icon: 'settings',
+    icon: 'sliders',
     descriptionKey: 'nav.settingsDesc',
     children: [
       { titleKey: 'nav.systemSettings', path: '/settings', module: 'settings', permission: 'settings.read', descriptionKey: 'nav.systemSettingsDesc' },
