@@ -173,6 +173,17 @@ describe('WorkflowTemplates', () => {
     const version2 = await service.createDraftVersion({ templateId: created.template.id, content: changed, changeSummary: '改展示名' });
     assert.notEqual(version2.id, created.version.id);
     assert.notEqual(version2.contentHash, created.version.contentHash);
+    const createdDraftTemplate = (await service.listTemplates()).find((item) => item.id === created.template.id);
+    assert.equal(createdDraftTemplate?.status, 'draft');
+    assert.equal(createdDraftTemplate?.currentVersionLabel, 'V2');
+
+    const edited = templateFixture();
+    edited.metadata.displayName = '第二版编辑后';
+    const updatedDraft = await service.updateCurrentDraftVersion({ templateId: created.template.id, content: edited, changeSummary: '编辑当前草稿' });
+    assert.equal(updatedDraft.id, version2.id);
+    assert.equal(updatedDraft.version, 2);
+    assert.equal(updatedDraft.changeSummary, '编辑当前草稿');
+    assert.equal((await service.listVersions(created.template.id)).length, 2);
 
     const published = await service.publishVersion(created.version.id);
     assert.equal(published.status, 'published');
@@ -187,7 +198,8 @@ describe('WorkflowTemplates', () => {
     const publishedTemplate = (await service.listTemplates()).find((item) => item.id === created.template.id);
     assert.equal(publishedTemplate?.status, 'published');
     assert.equal(publishedTemplate?.currentVersionLabel, 'V2');
-    await assert.rejects(() => service.createDraftVersion({ templateId: created.template.id, content: changed }), /duplicate workflow version content/);
+    await assert.rejects(() => service.updateCurrentDraftVersion({ templateId: created.template.id, content: edited }), /no draft version/);
+    await assert.rejects(() => service.createDraftVersion({ templateId: created.template.id, content: edited }), /duplicate workflow version content/);
   });
 
   it('可以扫描 data/workflows 文件模板，并支持基于模板新建或覆盖现有工作流', async () => {

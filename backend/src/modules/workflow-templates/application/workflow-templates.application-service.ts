@@ -47,6 +47,10 @@ export class WorkflowTemplatesApplicationService {
     return this.domain.createDraftVersion(input);
   }
 
+  async updateCurrentDraftVersion(input: UpdateWorkflowTemplateInput): Promise<WorkflowTemplateVersion> {
+    return this.domain.updateCurrentDraftVersion(input);
+  }
+
   async applyFileTemplateToTemplate(input: ApplyWorkflowTemplateFromFileInput): Promise<WorkflowTemplateVersion> {
     return await this.domain.applyFileTemplateToTemplate(input);
   }

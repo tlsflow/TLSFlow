@@ -110,6 +110,28 @@ export class WorkflowTemplatesDomainService {
     return clone(version);
   }
 
+  async updateCurrentDraftVersion(input: UpdateWorkflowTemplateInput): Promise<WorkflowTemplateVersion> {
+    await this.ready;
+    const template = await this.getTemplateOrThrow(input.templateId);
+    if (template.status === 'disabled') throw new AppError('VALIDATION_FAILED', 'template is disabled');
+    const content = workflowTemplatesSchemaRegistry.validate(input.content);
+    const list = this.versions.get(template.id) ?? [];
+    const version = this.findEditableDraftVersion(template, list);
+    if (!version) throw new AppError('VALIDATION_FAILED', 'workflow template has no draft version');
+    const hash = digest(content);
+    if (list.some((item) => item.id !== version.id && item.contentHash === hash)) throw new AppError('VALIDATION_FAILED', 'duplicate workflow version content');
+    version.content = clone(content);
+    version.contentHash = hash;
+    version.changeSummary = input.changeSummary ?? version.changeSummary;
+    template.currentVersionId = version.id;
+    template.status = 'draft';
+    template.updatedAt = new Date().toISOString();
+    this.templates.set(template.id, template);
+    await this.templatesRepository.upsert(template);
+    await this.versionsRepository.upsert(version);
+    return clone(version);
+  }
+
   async applyFileTemplateToTemplate(input: ApplyWorkflowTemplateFromFileInput): Promise<WorkflowTemplateVersion> {
     await this.ready;
     const template = await this.getTemplateOrThrow(input.templateId);
@@ -348,6 +370,13 @@ export class WorkflowTemplatesDomainService {
     const enabled = list.filter((item) => item.status !== 'disabled');
     if (enabled.some((item) => item.status === 'draft')) return 'draft';
     return enabled.length > 0 ? 'published' : 'draft';
+  }
+
+  private findEditableDraftVersion(template: WorkflowTemplate, list: readonly WorkflowTemplateVersion[]): WorkflowTemplateVersion | undefined {
+    const current = list.find((item) => item.id === template.currentVersionId && item.status === 'draft');
+    return current ?? [...list]
+      .filter((item) => item.status === 'draft')
+      .sort((left, right) => right.version - left.version)[0];
   }
 
   private createVersion(templateId: string, versionNumber: number, content: WorkflowDslV1, status: WorkflowTemplateVersion['status'], changeSummary?: string): WorkflowTemplateVersion {

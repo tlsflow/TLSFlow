@@ -12,6 +12,7 @@ import {
   listWorkflowTemplateVersions,
   listWorkflowTemplates,
   publishWorkflowTemplateVersion,
+  updateCurrentWorkflowTemplateDraftVersion,
 } from '@/api/modules/workflow-templates.api'
 import { createSecret } from '@/api/modules/security.api'
 import { GcModal, GcStatusTag } from '@/design-system/components'
@@ -139,6 +140,7 @@ const config: BusinessPageConfig = {
       label: '编辑',
       permission: 'workflow.template.write',
       reloadAfterRun: false,
+      hidden: (row) => readString(row.raw, ['status']) !== 'draft',
       run: async (row) => {
         await openEditor(row)
       },
@@ -195,6 +197,7 @@ const fileTemplateModalTitle = computed(() => fileTemplateMode.value === 'create
 const fileTemplateActionLabel = computed(() => fileTemplateMode.value === 'create' ? '按模板创建工作流' : '按模板覆盖当前工作流')
 const credentialRequiresUsername = computed(() => ['username_password', 'ssh_key'].includes(credentialForm.value.kind))
 const credentialRequiresApiKeyName = computed(() => credentialForm.value.kind === 'curl_api_key')
+const credentialRequiresMultilineSecret = computed(() => credentialForm.value.kind === 'ssh_key')
 const selectedCredentialKindOption = computed(() => credentialKindOptions.find((item) => item.kind === credentialForm.value.kind) ?? credentialKindOptions[0]!)
 const credentialTargetLabel = computed(() => {
   if (credentialForm.value.kind === 'username_password') return 'SSH / HTTP Basic'
@@ -305,20 +308,19 @@ function isCurrentWorkflowVersion(item: ApiRecord, row: ViewRow | null = version
   return Boolean(currentVersion && currentVersion !== '—' && currentVersion === readString(item, ['version'], ''))
 }
 
-function versionStatusLabel(item: ApiRecord): string {
-  if (isCurrentWorkflowVersion(item)) return '当前版本'
-  const status = readString(item, ['status'], 'draft')
-  if (status === 'published') return '已发布'
-  if (status === 'disabled') return '已禁用'
-  return '草稿'
+interface VersionStatusBadge {
+  readonly label: string
+  readonly tone: string
 }
 
-function versionStatusTone(item: ApiRecord): string {
-  if (isCurrentWorkflowVersion(item)) return 'current'
+function versionStatusBadges(item: ApiRecord): VersionStatusBadge[] {
   const status = readString(item, ['status'], 'draft')
-  if (status === 'published') return 'published'
-  if (status === 'disabled') return 'disabled'
-  return 'draft'
+  const badges: VersionStatusBadge[] = [{
+    label: status === 'published' ? '已发布' : status === 'disabled' ? '已禁用' : '草稿',
+    tone: status === 'published' ? 'published' : status === 'disabled' ? 'disabled' : 'draft',
+  }]
+  if (isCurrentWorkflowVersion(item)) badges.push({ label: '当前版本', tone: 'current' })
+  return badges
 }
 
 function canRunVersionAction(item: ApiRecord): boolean {
@@ -358,7 +360,7 @@ async function openEditor(row: ViewRow) {
   canvasMessage.value = ''
   canvasDraft.value = createDefaultWorkflowCanvas(readString(row.raw, ['name'], 'workflow-canvas-draft'))
   await loadVersions(row)
-  hydrateCanvasFromLatestVersion()
+  hydrateCanvasFromEditableDraft(row)
 }
 
 async function openFileTemplateModal(mode: 'create' | 'apply', row?: ViewRow) {
@@ -412,6 +414,19 @@ function hydrateCanvasFromLatestVersion() {
   }
 }
 
+function hydrateCanvasFromEditableDraft(row: ViewRow) {
+  const currentVersionId = readString(row.raw, ['currentVersionId'], '')
+  const draft = versionItems.value.find((item) =>
+    readString(item, ['id']) === currentVersionId && readString(item, ['status']) === 'draft',
+  ) ?? [...versionItems.value]
+    .filter((item) => readString(item, ['status']) === 'draft')
+    .sort((left, right) => Number(readString(right, ['version'], '0')) - Number(readString(left, ['version'], '0')))[0]
+  const content = draft?.content
+  canvasDraft.value = isWorkflowDsl(content)
+    ? workflowDslToCanvas(content)
+    : createDefaultWorkflowCanvas(readString(row.raw, ['name'], 'workflow-canvas-draft'))
+}
+
 async function submitFileTemplateAction() {
   if (!selectedFileTemplateId.value || fileTemplatePending.value) return
   fileTemplatePending.value = true
@@ -450,12 +465,13 @@ async function saveCanvasDraft(payload: { canvas: WorkflowCanvasDefinition }) {
   canvasMessage.value = ''
   try {
     const compiled = await compileCanvasOnBackend(payload.canvas)
-    await createWorkflowTemplateVersion({
+    const result = await updateCurrentWorkflowTemplateDraftVersion({
       templateId: readString(editorRow.value.raw, ['id']),
       content: compiled.content,
       changeSummary: '画布编辑器保存草稿版本',
     })
-    canvasMessage.value = '画布草稿已保存为新版本。'
+    syncCreatedDraftVersion(result.data ?? {})
+    canvasMessage.value = '当前草稿版本已更新。'
     await loadVersions(editorRow.value)
     await pageRef.value?.reload()
   } catch (cause) {
@@ -479,9 +495,9 @@ async function createManagedVersion() {
       content: compiled.content,
       changeSummary: '版本管理创建新版本草稿',
     })
-    syncCreatedDraftVersion(result.data ?? {})
     publishMessage.value = '新版本草稿已创建。'
     await loadVersions(row)
+    syncCreatedDraftVersion(result.data ?? {})
     await pageRef.value?.reload()
   } catch (cause) {
     versionError.value = cause instanceof Error ? cause.message : '创建工作流版本失败'
@@ -529,16 +545,23 @@ async function publishVersion(versionId: string) {
 
 function syncCreatedDraftVersion(version: ApiRecord) {
   const versionId = readString(version, ['id'], '')
-  if (versionId) {
-    versionItems.value = [...versionItems.value, { ...version, status: 'draft' }]
+  const existing = versionItems.value.find((item) => readString(item, ['id']) === versionId)
+  const syncedVersion = { ...(existing ?? {}), ...version, status: 'draft' }
+  if (versionId && existing) {
+    versionItems.value = versionItems.value.map((item) =>
+      readString(item, ['id']) === versionId ? syncedVersion : item,
+    )
+  } else if (versionId) {
+    versionItems.value = [...versionItems.value, syncedVersion]
   }
+  const versionNumber = readString(syncedVersion, ['version'], '')
   syncTemplateRows({
     currentVersionId: versionId || undefined,
-    currentVersion: readString(version, ['version'], '') ? Number(readString(version, ['version'])) : undefined,
-    currentVersionLabel: readString(version, ['version'], '') ? `V${readString(version, ['version'])}` : undefined,
+    currentVersion: versionNumber ? Number(versionNumber) : undefined,
+    currentVersionLabel: versionNumber ? `V${versionNumber}` : undefined,
     status: 'draft',
     updatedAt: new Date().toISOString(),
-  }, readString(version, ['templateId'], ''))
+  }, readString(syncedVersion, ['templateId'], ''))
 }
 
 function syncCurrentVersionRow(version: ApiRecord) {
@@ -695,7 +718,14 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
           <li v-for="item in versionItems" :key="readString(item, ['id'])" class="workflow-template-detail__list-item">
             <div class="workflow-template-detail__list-head">
               <strong>V{{ readString(item, ['version']) }}</strong>
-              <span class="workflow-version-manager__status" :data-status="versionStatusTone(item)">{{ versionStatusLabel(item) }}</span>
+              <span
+                v-for="badge in versionStatusBadges(item)"
+                :key="`${readString(item, ['id'])}:${badge.tone}`"
+                class="workflow-version-manager__status"
+                :data-status="badge.tone"
+              >
+                {{ badge.label }}
+              </span>
             </div>
             <p>{{ readString(item, ['changeSummary'], '没有变更说明。') }}</p>
             <small>{{ formatBrowserLocalTime(readString(item, ['createdAt'])) || readString(item, ['createdAt']) }}</small>
@@ -849,10 +879,23 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
           <label class="credential-manager__secret">
             <span>{{ credentialSecretLabel }}</span>
             <textarea
+              v-if="credentialRequiresMultilineSecret"
               v-model="credentialForm.secretValue"
-              class="gc-input"
+              class="gc-input credential-manager__secret-control credential-manager__secret-control--masked"
               :placeholder="credentialValuePlaceholder"
               rows="7"
+              autocomplete="new-password"
+              autocapitalize="off"
+              spellcheck="false"
+            />
+            <input
+              v-else
+              v-model="credentialForm.secretValue"
+              class="gc-input credential-manager__secret-control"
+              type="password"
+              :placeholder="credentialValuePlaceholder"
+              autocomplete="new-password"
+              autocapitalize="off"
               spellcheck="false"
             />
           </label>
@@ -1428,6 +1471,23 @@ function isWorkflowDsl(value: unknown): value is WorkflowDslV1 {
 .credential-manager .gc-input:focus {
   border-color: #60a5fa;
   box-shadow: 0 0 0 3px rgb(96 165 250 / 18%);
+}
+
+.credential-manager__secret-control {
+  width: 100%;
+  padding: 9px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.credential-manager__secret-control[type='password'] {
+  letter-spacing: 0.08em;
+}
+
+.credential-manager__secret-control--masked {
+  min-height: 168px;
+  resize: vertical;
+  line-height: 1.5;
+  -webkit-text-security: disc;
 }
 
 .credential-manager__segmented {

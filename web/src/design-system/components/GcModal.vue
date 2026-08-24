@@ -14,7 +14,7 @@ const props = withDefaults(defineProps<{
   description?: string
   /** 模态框宽度档位。 */
   size?: ModalSize
-  /** 点击遮罩是否关闭模态框，默认 true。 */
+  /** 兼容旧调用参数；遮罩点击不再关闭模态框。 */
   closeOnBackdrop?: boolean
   /** 自定义模态框宽度，优先级高于 size（例如 '60vw'、'800px'）。 */
   width?: string
@@ -22,7 +22,7 @@ const props = withDefaults(defineProps<{
   frameless?: boolean
 }>(), {
   size: 'md',
-  closeOnBackdrop: true,
+  closeOnBackdrop: false,
   frameless: false,
 })
 
@@ -53,10 +53,6 @@ function closeModal() {
   isOpen.value = false
 }
 
-function handleMaskClick() {
-  if (props.closeOnBackdrop) closeModal()
-}
-
 function handleKeydown(event: KeyboardEvent) {
   if (event.key !== 'Escape') return
   closeModal()
@@ -83,7 +79,6 @@ onBeforeUnmount(() => {
       v-if="isOpen"
       class="gc-modal__mask"
       role="presentation"
-      @click="handleMaskClick"
     >
       <section
         :class="modalClass"

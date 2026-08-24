@@ -6,6 +6,7 @@ const WORKFLOW_CANVAS_COMPILE_PATH = '/api/v1/workflow-templates/canvas/compile'
 const WORKFLOW_CANVAS_VALIDATE_PATH = '/api/v1/workflow-templates/canvas/validate'
 const WORKFLOW_FILE_TEMPLATES_PATH = '/api/v1/workflow-file-templates'
 const WORKFLOW_TEMPLATE_VERSIONS_PATH = '/api/v1/workflow-template-versions'
+const WORKFLOW_TEMPLATE_DRAFT_PATH = '/api/v1/workflow-template-versions/draft'
 const WORKFLOW_TEMPLATE_PUBLISH_PATH = '/api/v1/workflow-template-versions/publish'
 const WORKFLOW_TEMPLATE_STEP_TEST_PATH = '/api/v1/workflow-template-runs/test-step'
 const WORKFLOWS_PATH = '/api/v1/workflows'
@@ -50,6 +51,10 @@ export function listWorkflowTemplateVersions(templateId: string) {
 
 export function createWorkflowTemplateVersion(payload: ApiBody) {
   return postAction(WORKFLOW_TEMPLATE_VERSIONS_PATH, payload, 'workflow_template_version_create')
+}
+
+export function updateCurrentWorkflowTemplateDraftVersion(payload: ApiBody) {
+  return postAction(WORKFLOW_TEMPLATE_DRAFT_PATH, payload, 'workflow_template_draft_update')
 }
 
 export function publishWorkflowTemplateVersion(versionId: string, payload: ApiBody = {}) {
