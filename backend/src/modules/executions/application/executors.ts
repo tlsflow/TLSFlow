@@ -22,7 +22,6 @@ import { PluginResourceLockService, type PluginResourceLockRecord } from './plug
 import { projectWorkflowBusinessSteps } from './workflow-business-step-projector.js';
 import type { ExecutionGrantService } from '../execution-grant.service.js';
 import { enrichWorkflowCertificateMaterial } from '../../certificates/artifacts/workflow-certificate-material.js';
-import { TrustedJsPluginExecutionService } from '../../plugins/runtime/trusted-js-plugin-execution.service.js';
 import {
   createDefaultPluginRunnerExecutionDependencies,
   createPluginRunnerExecutors,
@@ -109,7 +108,6 @@ export interface DefaultExecutorDependencies {
   workflowRecovery?: WorkflowRecoveryLedgerService;
   pluginResourceLocks?: PluginResourceLockService;
   executionGrants?: ExecutionGrantService;
-  trustedJsProviderRuntime?: TrustedJsPluginExecutionService;
   pluginRunner?: PluginRunnerExecutionDependencies;
 }
 
@@ -172,9 +170,8 @@ function createDefaultExecutors(dependencies: DefaultExecutorDependencies = {}):
     ...(dependencies.executionGrants ? { executionGrantService: dependencies.executionGrants } : {}),
   });
   const pluginRunner = dependencies.pluginRunner ?? createDefaultPluginRunnerExecutionDependencies();
-  // WORKFLOW DSL 必须留在宿主适配器，Plugin Runner 只承载 Agent/插件边界。
-  const pluginRunnerExecutors = createPluginRunnerExecutors(pluginRunner)
-    .filter((executor) => executor.type !== 'WORKFLOW');
+  // Runner 只接受已固定的 PLUGIN_RUNNER 绑定，不复用 Agent、Workflow 或 Trusted JS 类型。
+  const pluginRunnerExecutors = createPluginRunnerExecutors(pluginRunner);
   return [
     sshExecutor,
     curlExecutor,
@@ -325,7 +322,8 @@ function resolveAgentActionType(input: StepExecutionInput, actionType: string): 
 export class TrustedJsExecutorAdapter implements Executor {
   readonly type = 'TRUSTED_JS';
 
-  constructor(private readonly trustedJsProviderRuntime?: TrustedJsPluginExecutionService) {}
+  // 仅兼容测试构造形状；运行期不读取、保存或调用旧 Provider 服务。
+  constructor(_retiredRuntime?: unknown) {}
 
   async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
     return {
@@ -335,7 +333,7 @@ export class TrustedJsExecutorAdapter implements Executor {
       detail: {
         executionMode: 'trusted_js_fail_closed',
         stepId: input.step.id,
-        runtimeConfigured: Boolean(this.trustedJsProviderRuntime),
+        runtimeConfigured: false,
       },
     };
   }

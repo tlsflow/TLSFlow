@@ -43,17 +43,15 @@ export class PluginRunnerSupervisor {
       if (existing.restartPromise) return existing.restartPromise;
       if (existing.startPromise) return existing.startPromise;
       if (existing.client.state === 'DRAINING') throw new AppError('PLUGIN_RUNNER_DRAINING', '旧 Runner 正在排空');
-      if (existing.client.state === 'CRASHED') throw new AppError('PLUGIN_RUNNER_CRASHED', 'Runner 已崩溃，需要显式 restart');
+      // 只在新的 start 调用中重建固定 Runner；绝不重放导致崩溃的原执行。
+      if (existing.client.state === 'CRASHED') return this.restart(spec.pluginVersionId, spec.tenantId);
     }
     const client = new PluginRunnerClient(spec, this.onProgress);
     const record: RunnerRecord = existing ?? { key, spec: immutableCopy(spec), client, restartCount: 0 };
     record.spec = immutableCopy(spec);
     record.client = client;
     this.records.set(key, record);
-    record.startPromise = client.start().then(() => client).catch((error) => {
-      if (this.records.get(key) === record) this.records.delete(key);
-      throw error;
-    }).finally(() => {
+    record.startPromise = client.start().then(() => client).finally(() => {
       if (record.startPromise) record.startPromise = undefined;
     });
     return record.startPromise;

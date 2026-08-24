@@ -219,6 +219,24 @@ test('Supervisor 重启上限为零时失败关闭', async () => {
   assert.throws(() => new PluginRunnerSupervisor({ maxRestarts: -1 }), /重启次数/);
 });
 
+test('Supervisor 仅在后续新入口受控重建崩溃 Runner，且达到上限后熔断', async () => {
+  const supervisor = new PluginRunnerSupervisor({ maxRestarts: 1 });
+  const crashSpec = spec('crash');
+  const first = await supervisor.start(crashSpec);
+  await assert.rejects(first.execute(executionInput(false)), /异常退出|崩溃/);
+  await waitFor(() => first.state === 'CRASHED');
+
+  const recovered = await supervisor.start(crashSpec);
+  assert.notEqual(recovered, first);
+  assert.equal(recovered.state, 'READY');
+  assert.equal(supervisor.list()[0]?.restartCount, 1);
+
+  await assert.rejects(recovered.execute(executionInput(false)), /异常退出|崩溃/);
+  await waitFor(() => recovered.state === 'CRASHED');
+  await assert.rejects(supervisor.start(crashSpec), /熔断上限/);
+  await supervisor.shutdownAll();
+});
+
 function spec(mode: string, overrides: Partial<PluginRunnerLaunchSpec> = {}): PluginRunnerLaunchSpec {
   const pluginVersionId = overrides.pluginVersionId ?? 'test-version-v1';
   return {

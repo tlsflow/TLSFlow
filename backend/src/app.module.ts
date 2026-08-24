@@ -219,7 +219,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const productionPluginRunner = resolveProductionPluginRunnerConfig(process.env);
   const pluginResourceLockService = new PluginResourceLockService(appDb);
   const pluginRunnerSupervisor = productionPluginRunner
-    ? new PluginRunnerSupervisor({ maxRestarts: 0 })
+    ? new PluginRunnerSupervisor({ maxRestarts: 3 })
     : undefined;
   const pluginRunnerHostApiHandler = productionPluginRunner
     ? createPluginRunnerHostApiHandler(security, pluginResourceLockService)
@@ -348,7 +348,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
     workflowRecovery: workflowRecoveryService,
     pluginResourceLocks: pluginResourceLockService,
     executionGrants: security.grants,
-    trustedJsProviderRuntime,
     pluginRunner: pluginRunnerDependencies,
   });
   if (pluginRunnerSupervisor && pluginRunnerHostApiHandler) {
