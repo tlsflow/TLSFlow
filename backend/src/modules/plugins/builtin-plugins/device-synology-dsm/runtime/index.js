@@ -1,12 +1,17 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
+const runtimeDirectory = dirname(fileURLToPath(import.meta.url));
+const packageDirectory = resolve(runtimeDirectory, '..');
 const packageManifest = JSON.parse(readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
 const PLUGIN_ID = packageManifest.pluginId;
 const PLUGIN_VERSION = packageManifest.version;
 const PROTOCOL = 'DSM';
 const CAPABILITIES = Object.freeze(packageManifest.capabilities.map((item) => item.key));
 const PERMISSIONS = Object.freeze([...packageManifest.permissions]);
+const WRITE_CAPABILITIES = new Set(['certificate.deploy', 'certificate.rollback']);
 const HASH_PATTERN = /^sha256:[a-f0-9]{64}$/;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9._:-]{1,256}$/;
 const SECRET_REF_PATTERN = /^secret:\/\/[A-Za-z0-9._:/#-]{1,512}$/;
@@ -14,29 +19,32 @@ const ARTIFACT_REF_PATTERN = /^artifact:\/\/[A-Za-z0-9._:/#-]{1,512}$/;
 const AUTH_PATH = '/webapi/auth.cgi?api=SYNO.API.Auth&version=7&method=login&session=GCAC&format=sid';
 const INFO_PATH = '/webapi/entry.cgi?api=SYNO.DSM.Info&version=2&method=get';
 const SERVICE_PATH = '/webapi/entry.cgi?api=SYNO.Core.Network.Interface&version=1&method=list';
-const CERTIFICATE_PATH = '/webapi/entry.cgi?api=SYNO.Core.Certificate&version=1&method=list';
+const CERTIFICATE_PATH = '/webapi/entry.cgi?api=SYNO.Core.Certificate.CRT&version=1&method=list';
 const IMPORT_PATH = '/webapi/entry.cgi?api=SYNO.Core.Certificate&version=1&method=import';
-const ROLLBACK_PATH = '/webapi/entry.cgi?api=SYNO.Core.Certificate&version=1&method=rollback';
+const SERVICE_BINDING_PATH = '/webapi/entry.cgi?api=SYNO.Core.Certificate.Service&version=1&method=set';
 
 /** 标准 Runner 只加载这个工厂；本文件不实现 IPC 入口，也不监听 stdin/stdout。 */
 export function createPluginRunnerExecutor() {
-  return {
-    descriptor: {
-      pluginVersionId: injected('GCAC_PLUGIN_VERSION_ID', IDENTIFIER_PATTERN),
-      pluginId: PLUGIN_ID,
-      pluginVersion: PLUGIN_VERSION,
-      capabilities: [...CAPABILITIES],
-      permissions: [...PERMISSIONS],
-      packageHash: injected('GCAC_PLUGIN_PACKAGE_HASH', HASH_PATTERN),
-      resourceHash: injected('GCAC_PLUGIN_RESOURCE_HASH', HASH_PATTERN),
-      manifestHash: injected('GCAC_PLUGIN_MANIFEST_HASH', HASH_PATTERN),
-    },
-    execute: (context, hostApi) => execute(context, hostApi),
-  };
+  const resourceHash = injected('GCAC_PLUGIN_RESOURCE_HASH', HASH_PATTERN);
+  const descriptor = Object.freeze({
+    pluginVersionId: injected('GCAC_PLUGIN_VERSION_ID', IDENTIFIER_PATTERN),
+    pluginId: PLUGIN_ID,
+    pluginVersion: PLUGIN_VERSION,
+    capabilities: Object.freeze([...CAPABILITIES]),
+    actions: actionDescriptors(resourceHash),
+    permissions: Object.freeze([...PERMISSIONS]),
+    packageHash: injected('GCAC_PLUGIN_PACKAGE_HASH', HASH_PATTERN),
+    resourceHash,
+    manifestHash: injected('GCAC_PLUGIN_MANIFEST_HASH', HASH_PATTERN),
+  });
+  return Object.freeze({
+    descriptor,
+    execute: (context, hostApi) => execute(context, hostApi, descriptor),
+  });
 }
 
-async function execute(context, hostApi) {
-  assertContext(context);
+async function execute(context, hostApi, descriptor) {
+  assertContext(context, descriptor);
   if (!CAPABILITIES.includes(context.capability)) fail('Capability 未绑定到 Synology DSM PluginVersion');
   const input = record(context.input, 'input');
   const state = { requestCount: 0, writeStarted: false, responseIndexes: {} };
@@ -63,21 +71,67 @@ async function execute(context, hostApi) {
   }
 }
 
-async function connectionTest(input, fixture, credential, state, signal) {
-  const response = await requestFixture(fixture, state, signal, 'POST', AUTH_PATH, {
-    account: credential.username,
-    password: '[REDACTED]',
-    secretGrantId: credential.grantId,
+function actionDescriptors(resourceHash) {
+  const contracts = packageManifest.resources?.actionContracts;
+  if (!contracts || typeof contracts !== 'object' || Array.isArray(contracts)) {
+    fail('Synology DSM 插件缺少 Action Contract 资源声明', 'PLUGIN_RUNNER_START_FAILED');
+  }
+  const actions = Object.entries(contracts).flatMap(([actionId, resourcePath]) => {
+    let contract;
+    try {
+      contract = JSON.parse(readPackageResource(String(resourcePath)));
+    } catch {
+      fail(`Synology DSM Action Contract 资源无效：${actionId}`, 'PLUGIN_RUNNER_START_FAILED');
+    }
+    if (!contract
+      || typeof contract !== 'object'
+      || Array.isArray(contract)
+      || contract.apiVersion !== 'gcac.plugin-action-contract/v1'
+      || contract.actionId !== actionId
+      || !CAPABILITIES.includes(contract.capability)
+      || contract.actionContractVersion !== 'v1'
+      || !contract.inputSchema
+      || !contract.outputSchema
+      || typeof contract.writeEffect !== 'boolean'
+      || WRITE_CAPABILITIES.has(contract.capability) !== contract.writeEffect) {
+      fail(`Synology DSM Action Contract 内容无效：${actionId}`, 'PLUGIN_RUNNER_START_FAILED');
+    }
+    return [{
+      actionId,
+      capability: contract.capability,
+      actionContractVersion: contract.actionContractVersion,
+      inputSchemaSha256: schemaHash(contract.inputSchema),
+      outputSchemaSha256: schemaHash(contract.outputSchema),
+      resourceHash,
+    }];
   });
-  assertDsmSuccess(response, state);
-  const sid = stringValue(response.body.data?.sid, 'DSM 会话 SID');
-  const info = await requestFixture(fixture, state, signal, 'GET', INFO_PATH, { sid });
+  if (actions.length === 0) fail('Synology DSM 插件没有可执行 Action Contract', 'PLUGIN_RUNNER_START_FAILED');
+  return Object.freeze(actions.map((action) => Object.freeze(action)));
+}
+
+function readPackageResource(resourcePath) {
+  const normalized = String(resourcePath).replaceAll('\\', '/');
+  const absolute = resolve(packageDirectory, normalized);
+  const relativePath = relative(packageDirectory, absolute).replaceAll('\\', '/');
+  if (!normalized
+    || normalized.startsWith('/')
+    || normalized.includes(String.fromCharCode(0))
+    || relativePath === '..'
+    || relativePath.startsWith('../')) {
+    throw new Error('插件包资源路径越界');
+  }
+  return readFileSync(join(packageDirectory, relativePath), 'utf8');
+}
+
+async function connectionTest(input, fixture, credential, state, signal) {
+  const session = await login(fixture, credential, state, signal);
+  const info = await requestFixture(fixture, state, signal, 'GET', INFO_PATH, { sid: session.sid });
   assertDsmSuccess(info, state);
   return successResult({
     protocol: PROTOCOL,
     managementAddress: requiredAddress(input.deviceAddress),
     productVersion: dsmVersion(info.body),
-    sessionEstablished: Boolean(sid),
+    sessionEstablished: Boolean(session.sid && session.synotoken),
     requestCount: state.requestCount,
   });
 }
@@ -116,6 +170,7 @@ async function deploy(input, fixture, credential, state, context, hostApi) {
       artifactSha256: artifact.sha256,
       intermediateCount: optionalNonNegativeInteger(input.intermediateCount) ?? 0,
     });
+    await bindCertificate(fixture, state, context.signal, session.sid, target, previous, certificateId);
     const verified = await requestFixture(fixture, state, context.signal, 'GET', CERTIFICATE_PATH, { sid: session.sid });
     assertDsmSuccess(verified, state);
     if (!hasTargetCertificate(verified.body, target, certificateId)) {
@@ -142,13 +197,12 @@ async function deploy(input, fixture, credential, state, context, hostApi) {
 async function rollback(input, fixture, credential, state, signal) {
   const target = requiredTarget(input.target);
   const previous = record(input.previousCertificate, 'previousCertificate');
-  const certificateId = requiredIdentifier(previous.id ?? previous.certificateId, 'previousCertificate.id');
+  const certificateId = requiredIdentifier(String(previous.id ?? previous.certificateId ?? ''), 'previousCertificate.id');
   const session = await login(fixture, credential, state, signal);
-  await writeDsm(fixture, state, signal, ROLLBACK_PATH, {
-    sid: session.sid,
-    target,
-    certificateId,
-  });
+  const current = await requestFixture(fixture, state, signal, 'GET', CERTIFICATE_PATH, { sid: session.sid });
+  assertDsmSuccess(current, state);
+  const currentCertificate = findTargetCertificate(current.body, target);
+  await bindCertificate(fixture, state, signal, session.sid, target, previous, certificateId, currentCertificate);
   const verified = await requestFixture(fixture, state, signal, 'GET', CERTIFICATE_PATH, { sid: session.sid });
   assertDsmSuccess(verified, state);
   if (!hasTargetCertificate(verified.body, target, certificateId)) {
@@ -166,19 +220,28 @@ async function rollback(input, fixture, credential, state, signal) {
 
 async function attemptRollback(fixture, state, signal, sid, target, previous, failedCertificateId) {
   if (!previous) return;
-  const certificateId = previous.id ?? previous.certificateId;
-  if (typeof certificateId !== 'string') return;
+  const rawCertificateId = previous.id ?? previous.certificateId;
+  if (rawCertificateId === undefined || rawCertificateId === null) return;
+  const certificateId = String(rawCertificateId);
   try {
-    await writeDsm(fixture, state, signal, ROLLBACK_PATH, {
-      sid,
-      target,
-      certificateId,
-      failedCertificateId,
-    });
+    await bindCertificate(fixture, state, signal, sid, target, previous, certificateId, { id: failedCertificateId });
   } catch (error) {
     error.writeStarted = true;
     throw error;
   }
+}
+
+async function bindCertificate(fixture, state, signal, sid, target, previous, certificateId, current = previous) {
+  const previousService = findTargetService(previous, target) ?? { display_name: target };
+  const currentId = current?.id ?? current?.certificateId ?? certificateId;
+  await writeDsm(fixture, state, signal, SERVICE_BINDING_PATH, {
+    sid,
+    settings: JSON.stringify([{
+      service: { ...sanitizeService(previousService), multiple_cert: true, user_setable: true },
+      old_id: String(currentId),
+      id: String(certificateId),
+    }]),
+  });
 }
 
 async function login(fixture, credential, state, signal) {
@@ -188,7 +251,10 @@ async function login(fixture, credential, state, signal) {
     secretGrantId: credential.grantId,
   });
   assertDsmSuccess(response, state);
-  return { sid: stringValue(response.body.data?.sid, 'DSM 会话 SID') };
+  return {
+    sid: stringValue(response.body.data?.sid, 'DSM 会话 SID'),
+    synotoken: stringValue(response.body.data?.synotoken, 'DSM 会话 Token'),
+  };
 }
 
 async function resolveCredential(input, context, hostApi) {
@@ -220,7 +286,7 @@ async function resolveArtifact(input, context, hostApi) {
 
 async function requestFixture(fixture, state, signal, method, path, body) {
   state.requestCount += 1;
-  if (method !== 'GET' && method !== 'HEAD') state.writeStarted = path === IMPORT_PATH || path === ROLLBACK_PATH;
+  if (method !== 'GET' && method !== 'HEAD') state.writeStarted = path === IMPORT_PATH || path === SERVICE_BINDING_PATH;
   const responseKey = `${method} ${path}`;
   const definedResponse = fixture.responses[responseKey];
   const response = Array.isArray(definedResponse)
@@ -292,20 +358,22 @@ function toDiscovery(input, fixture, infoBody, servicesBody, certificatesBody) {
     metadata: { certificateId: requiredIdentifier(String(certificate.id ?? certificate.certificateId), 'DSM certificate id') },
   }));
   const certificateById = new Map(normalizedCertificates.map((item) => [String(item.metadata.certificateId), item]));
-  const certificateBindings = services.map((service) => {
-    const serviceName = String(service.name ?? service.id ?? '');
-    const certificateId = String(service.certificateId ?? '');
-    const certificate = certificateById.get(certificateId);
-    const site = sites.find((item) => item.displayName === serviceName);
-    if (!certificate || !site) return undefined;
-    return {
-      stableKey: `BINDING:${safeKey(`${serviceName}:${certificateId}`)}`,
-      managedTargetStableKey: `TARGET:${site.stableKey}`,
-      certificateStableKey: certificate.stableKey,
-      bindingName: serviceName,
-      metadata: { certificateId },
-    };
-  }).filter(Boolean);
+  const certificateBindings = certificates.flatMap((certificate) => {
+    const certificateId = String(certificate.id ?? certificate.certificateId ?? '');
+    const normalizedCertificate = certificateById.get(certificateId);
+    if (!normalizedCertificate) return [];
+    return certificateServiceNames(certificate).flatMap((serviceName) => {
+      const site = sites.find((item) => item.displayName === serviceName);
+      if (!site) return [];
+      return [{
+        stableKey: `BINDING:${safeKey(`${serviceName}:${certificateId}`)}`,
+        managedTargetStableKey: `TARGET:${site.stableKey}`,
+        certificateStableKey: normalizedCertificate.stableKey,
+        bindingName: serviceName,
+        metadata: { certificateId },
+      }];
+    });
+  });
   return {
     apiVersion: 'gcac.device-discovery/v2',
     device: {
@@ -328,15 +396,62 @@ function toDiscovery(input, fixture, infoBody, servicesBody, certificatesBody) {
 
 function findTargetCertificate(body, target) {
   const certificates = array(body.data?.certificates ?? [], 'DSM certificates');
-  return certificates.find((certificate) => {
-    const targets = Array.isArray(certificate.serviceNames) ? certificate.serviceNames : [certificate.serviceName];
-    return targets.includes(target);
-  });
+  return certificates.find((certificate) => findDefaultDsmService(certificate) !== undefined)
+    ?? certificates.find((certificate) => certificateServiceNames(certificate).includes(target));
 }
 
 function hasTargetCertificate(body, target, certificateId) {
-  return Boolean(findTargetCertificate(body, target)?.id === certificateId
-    || findTargetCertificate(body, target)?.certificateId === certificateId);
+  const certificate = findTargetCertificate(body, target);
+  return Boolean(certificate && sameIdentifier(certificate.id ?? certificate.certificateId, certificateId));
+}
+
+function findTargetService(certificate, target) {
+  if (!certificate || typeof certificate !== 'object') return undefined;
+  const defaultService = findDefaultDsmService(certificate);
+  if (defaultService) return defaultService;
+  const service = Array.isArray(certificate.services)
+    ? certificate.services.find((item) => serviceName(item) === target)
+    : undefined;
+  if (service && typeof service === 'object' && !Array.isArray(service)) return service;
+  if (Array.isArray(certificate.serviceNames) && certificate.serviceNames.includes(target)) return { display_name: target };
+  if (certificate.serviceName === target) return { display_name: target };
+  return undefined;
+}
+
+function findDefaultDsmService(certificate) {
+  if (!certificate || typeof certificate !== 'object' || !Array.isArray(certificate.services)) return undefined;
+  const service = certificate.services.find((item) => serviceKey(item) === 'default');
+  return service && typeof service === 'object' && !Array.isArray(service) ? service : undefined;
+}
+
+function certificateServiceNames(certificate) {
+  if (!certificate || typeof certificate !== 'object') return [];
+  const services = Array.isArray(certificate.services) ? certificate.services : [];
+  const names = services.map(serviceName).filter(Boolean);
+  if (Array.isArray(certificate.serviceNames)) names.push(...certificate.serviceNames.filter((item) => typeof item === 'string'));
+  if (typeof certificate.serviceName === 'string') names.push(certificate.serviceName);
+  return [...new Set(names)];
+}
+
+function serviceName(service) {
+  if (typeof service === 'string') return service;
+  if (!service || typeof service !== 'object' || Array.isArray(service)) return undefined;
+  return optionalText(service.display_name ?? service.displayName ?? service.serviceName ?? service.name ?? service.service);
+}
+
+function serviceKey(service) {
+  if (!service || typeof service !== 'object' || Array.isArray(service)) return undefined;
+  return optionalText(service.service ?? service.serviceName ?? service.name);
+}
+
+function sanitizeService(service) {
+  if (!service || typeof service !== 'object' || Array.isArray(service)) return { display_name: undefined };
+  const allowed = ['display_name', 'displayName', 'service', 'serviceName', 'name', 'multiple_cert', 'user_setable', 'is_default'];
+  return Object.fromEntries(Object.entries(service).filter(([key, value]) => allowed.includes(key) && value !== undefined));
+}
+
+function sameIdentifier(left, right) {
+  return left !== undefined && right !== undefined && String(left) === String(right);
 }
 
 function requireFixture(value) {
@@ -346,12 +461,31 @@ function requireFixture(value) {
   return fixture;
 }
 
-function assertContext(context) {
+function assertContext(context, descriptor) {
   if (!context || typeof context !== 'object') fail('Runner 执行上下文缺失');
   for (const [key, pattern] of [['pluginVersionId', IDENTIFIER_PATTERN], ['pluginId', IDENTIFIER_PATTERN], ['pluginVersion', IDENTIFIER_PATTERN]]) {
     if (typeof context[key] !== 'string' || !pattern.test(context[key])) fail(`Runner 上下文 ${key} 无效`);
   }
-  if (context.pluginId !== PLUGIN_ID || context.pluginVersion !== PLUGIN_VERSION) fail('Runner 执行上下文 PluginVersion 不匹配');
+  if (context.pluginVersionId !== descriptor.pluginVersionId
+    || context.pluginId !== PLUGIN_ID
+    || context.pluginVersion !== PLUGIN_VERSION) {
+    fail('Runner 执行上下文 PluginVersion 不匹配');
+  }
+  const action = descriptor.actions.find((item) => item.actionId === context.actionId);
+  if (!action
+    || action.capability !== context.capability
+    || action.actionContractVersion !== context.actionContractVersion
+    || action.inputSchemaSha256 !== context.inputSchemaSha256
+    || action.outputSchemaSha256 !== context.outputSchemaSha256
+    || action.resourceHash !== context.resourceHash) {
+    fail('Runner Action Contract 未绑定到固定 PluginVersion', 'PLUGIN_RUNNER_VERSION_MISMATCH');
+  }
+  if (context.packageHash !== descriptor.packageHash || context.manifestHash !== descriptor.manifestHash) {
+    fail('Runner 执行上下文 PluginVersion 摘要不匹配', 'PLUGIN_RUNNER_VERSION_MISMATCH');
+  }
+  if (context.writeEffect !== WRITE_CAPABILITIES.has(context.capability)) {
+    fail(`Synology DSM ${context.capability} 的 writeEffect 标记不匹配`, 'PLUGIN_CONTRACT_INVALID');
+  }
   if (!Array.isArray(context.grantRefs) || context.grantRefs.length === 0) fail('Runner 执行缺少 Grant');
   if (!(context.signal instanceof AbortSignal)) fail('Runner 执行缺少取消信号');
   if (!context.deadlineAt || Date.parse(context.deadlineAt) <= Date.now()) fail('Runner 执行超时');
@@ -368,15 +502,19 @@ function injected(name, pattern) {
 }
 
 function successResult(summary, normalizedObjects = []) {
-  return { success: true, status: 'SUCCESS', summary: redact(summary), normalizedObjects, warnings: [] };
+  const safeSummary = redact(summary);
+  const output = { summary: safeSummary, normalizedObjects };
+  return { success: true, status: 'SUCCESS', output, summary: safeSummary, normalizedObjects, warnings: [] };
 }
 
 function unknownResult() {
+  const output = { summary: {}, normalizedObjects: [] };
   return {
     success: false,
     status: 'UNKNOWN',
-    summary: {},
-    normalizedObjects: [],
+    output,
+    summary: output.summary,
+    normalizedObjects: output.normalizedObjects,
     warnings: [],
     error: { code: 'PLUGIN_OPERATION_UNKNOWN_STATE', message: 'DSM 写操作结果无法确认，必须进入恢复流程', retryable: false, mayBeUnknown: true, secretRedacted: true },
   };
@@ -446,6 +584,7 @@ function redactCertificate(value) {
     id: optionalText(value.id ?? value.certificateId),
     serviceName: optionalText(value.serviceName),
     serviceNames: Array.isArray(value.serviceNames) ? value.serviceNames.map((item) => optionalText(item)).filter(Boolean) : undefined,
+    services: Array.isArray(value.services) ? value.services.map(sanitizeService) : undefined,
     sha256Fingerprint: optionalText(value.sha256Fingerprint ?? value.fingerprint),
   };
 }
@@ -480,6 +619,20 @@ function safeKey(value) {
 
 function sha256Hex(value) {
   return createHash('sha256').update(String(value)).digest('hex');
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(
+      ([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`,
+    ).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function schemaHash(schema) {
+  return `sha256:${createHash('sha256').update(stableJson(schema), 'utf8').digest('hex')}`;
 }
 
 function canonical(value) {

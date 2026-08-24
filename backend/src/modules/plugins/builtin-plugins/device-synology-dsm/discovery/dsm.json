@@ -2,15 +2,15 @@
   "apiVersion": "gcac.device-discovery-mapping/v2",
   "kind": "DeviceDiscoveryMapping",
   "pluginId": "device.synology-dsm",
-  "pluginVersion": "1.0.6",
+  "pluginVersion": "1.0.14",
   "protocol": "DSM",
   "apiContract": {
     "authentication": { "path": "/webapi/auth.cgi", "api": "SYNO.API.Auth", "version": 7, "method": "login", "secretFields": ["passwd"], "responseSidPath": "$.data.sid" },
     "identity": { "path": "/webapi/entry.cgi", "api": "SYNO.DSM.Info", "version": 2, "method": "get", "versionPath": "$.data.version" },
     "services": { "api": "SYNO.Core.Network.Interface", "version": 1, "method": "list", "itemsPath": "$.data.services" },
-    "certificates": { "api": "SYNO.Core.Certificate", "version": 1, "method": "list", "itemsPath": "$.data.certificates" },
-    "import": { "api": "SYNO.Core.Certificate", "version": 1, "method": "import", "methodType": "POST" },
-    "rollback": { "api": "SYNO.Core.Certificate", "version": 1, "method": "rollback", "methodType": "POST" }
+    "certificates": { "api": "SYNO.Core.Certificate.CRT", "version": 1, "method": "list", "itemsPath": "$.data.certificates" },
+    "import": { "api": "SYNO.Core.Certificate", "version": 1, "method": "import", "methodType": "POST", "bodyType": "multipart", "multipartFields": ["key", "cert", "inter_cert", "id", "desc", "as_default"] },
+    "rollback": { "api": "SYNO.Core.Certificate.Service", "version": 1, "method": "set", "methodType": "POST", "settingsField": "settings" }
   },
   "errorContract": { "successPath": "$.success", "errorPath": "$.error", "failureRequiresCode": true, "unknownAfterWrite": true }
 }

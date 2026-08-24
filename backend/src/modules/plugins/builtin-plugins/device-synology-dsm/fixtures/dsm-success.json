@@ -3,9 +3,9 @@
   "protocol": "DSM",
   "device": { "managementAddress": "192.0.2.50" },
   "responses": {
-    "POST /webapi/auth.cgi?api=SYNO.API.Auth&version=7&method=login&session=GCAC&format=sid": { "statusCode": 200, "body": { "success": true, "data": { "sid": "fixture-session" } } },
+    "POST /webapi/auth.cgi?api=SYNO.API.Auth&version=7&method=login&session=GCAC&format=sid": { "statusCode": 200, "body": { "success": true, "data": { "sid": "fixture-session", "synotoken": "fixture-token" } } },
     "GET /webapi/entry.cgi?api=SYNO.DSM.Info&version=2&method=get": { "statusCode": 200, "body": { "success": true, "data": { "version": "DSM 7.2.1 Fixture" } } },
     "GET /webapi/entry.cgi?api=SYNO.Core.Network.Interface&version=1&method=list": { "statusCode": 200, "body": { "success": true, "data": { "services": [{ "id": "dsm-web", "name": "DSM Management", "port": 5001, "protocol": "HTTPS", "certificateId": "cert-old" }] } } },
-    "GET /webapi/entry.cgi?api=SYNO.Core.Certificate&version=1&method=list": { "statusCode": 200, "body": { "success": true, "data": { "certificates": [{ "id": "cert-old", "serviceNames": ["DSM Management"], "sha256Fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "subject": "CN=dsm.example.invalid", "issuer": "CN=Fixture Issuer", "notAfter": "2027-01-01T00:00:00Z" }] } } }
+    "GET /webapi/entry.cgi?api=SYNO.Core.Certificate.CRT&version=1&method=list": { "statusCode": 200, "body": { "success": true, "data": { "certificates": [{ "id": "cert-old", "services": [{ "display_name": "DSM Desktop Service", "service": "default", "multiple_cert": true, "user_setable": true }], "sha256Fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "subject": "CN=dsm.example.invalid", "issuer": "CN=Fixture Issuer", "notAfter": "2027-01-01T00:00:00Z" }] } } }
   }
 }
