@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import CertificatesView from '@/views/certificates/CertificatesView.vue'
+import { useAppStore } from '@/stores/app.store'
 import { usePermissionStore } from '@/stores/permission.store'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
@@ -144,6 +145,7 @@ describe('CertificatesView', () => {
                   issuer: { commonName: 'GeoTrust TLS RSA CA G1' },
                   subject: { commonName: 'soon.weichai.com' },
                   status: 'MANAGED',
+                  sourceType: 'external_api',
                 },
               ],
               page: 1,
@@ -169,9 +171,9 @@ describe('CertificatesView', () => {
     const footerVersionsTrigger = assetRecord.find('.certificate-page__asset-versions-trigger')
 
     expect(recordTrigger.attributes('aria-expanded')).toBe('false')
-    expect(panelId).toBe('certificate-versions-panel-asset-1')
+    expect(recordTrigger.attributes('aria-label')).toContain('*.weichai.com')
+    expect(panelId).toBe('certificate-versions-dialog-asset-1')
     expect(assetRecord.find(`#${panelId}`).exists()).toBe(false)
-    expect(wrapper.find('.certificate-page__selection-empty-state').text()).toContain('未选择域名')
     expect(footerVersionsTrigger.attributes('aria-controls')).toBe(panelId)
     expect(footerVersionsTrigger.attributes('aria-expanded')).toBe('false')
     expect(footerVersionsTrigger.text()).toBe('SSL 证书列表')
@@ -180,52 +182,53 @@ describe('CertificatesView', () => {
 
     await footerVersionsTrigger.trigger('click')
     await waitFor(() => {
-      expect(wrapper.findAll('.certificate-page__version-table tbody tr')).toHaveLength(3)
+      expect(document.body.querySelectorAll('.certificate-page__version-table tbody tr')).toHaveLength(3)
     })
 
     expect(recordTrigger.attributes('aria-expanded')).toBe('true')
     expect(footerVersionsTrigger.attributes('aria-expanded')).toBe('true')
-    expect(assetRecord.find(`#${panelId}`).exists()).toBe(true)
-    expect(assetRecord.find(`#${panelId}`).attributes('role')).toBe('region')
-    expect(assetRecord.find(`#${panelId}`).attributes('aria-labelledby')).toBe(recordTrigger.attributes('id'))
+    const versionModalPanel = document.body.querySelector<HTMLElement>(`#${panelId}`)
+    expect(versionModalPanel).not.toBeNull()
+    expect(versionModalPanel?.getAttribute('role')).toBe('region')
+    expect(versionModalPanel?.getAttribute('aria-labelledby')).toBe(recordTrigger.attributes('id'))
 
-    expect(wrapper.find('.certificate-page__version-table').exists()).toBe(true)
-    expect(wrapper.find('.certificate-page__sort-row').exists()).toBe(false)
-    expect(wrapper.find('.gc-data-table__footer').exists()).toBe(false)
+    expect(document.body.querySelector('.certificate-page__version-table')).not.toBeNull()
+    expect(document.body.querySelector('.certificate-page__sort-row')).toBeNull()
+    expect(document.body.querySelector('.gc-data-table__footer')).toBeNull()
 
-    const tableText = wrapper.text()
+    const tableText = document.body.textContent ?? ''
     expect(tableText).toContain('开始日期')
     expect(tableText).toContain('结束日期')
     expect(tableText).toContain('添加方式')
     expect(tableText).not.toContain('至')
 
-    const rows = wrapper.findAll('.certificate-page__version-table tbody tr')
+    const rows = [...document.body.querySelectorAll<HTMLTableRowElement>('.certificate-page__version-table tbody tr')]
     expect(rows).toHaveLength(3)
-    expect(rows[0]?.text()).toContain('2025-01-01')
-    expect(rows[0]?.text()).toContain('2025-01-02')
-    expect(rows[0]?.text()).toContain('过期')
-    expect(rows[0]?.text()).toContain('手动导入')
-    expect(rows[0]?.findAll('.gc-tag').map((tag) => tag.classes())).toEqual(
+    expect(rows[0]?.textContent).toContain('2025-01-01')
+    expect(rows[0]?.textContent).toContain('2025-01-02')
+    expect(rows[0]?.textContent).toContain('过期')
+    expect(rows[0]?.textContent).toContain('手动导入')
+    expect([...rows[0]!.querySelectorAll('.gc-tag')].map((tag) => [...tag.classList])).toEqual(
       expect.arrayContaining([
         expect.arrayContaining(['gc-tag--muted']),
         expect.arrayContaining(['gc-tag--danger']),
       ]),
     )
-    expect(rows[1]?.text()).toContain('2026-06-01')
-    expect(rows[1]?.text()).toContain(formatBrowserLocalTime('2026-06-15T23:59:59.000Z', { includeTime: false }))
-    expect(rows[1]?.text()).toContain('即将过期')
-    expect(rows[1]?.text()).toContain('外部 API')
-    expect(rows[1]?.findAll('.gc-tag').map((tag) => tag.classes())).toEqual(
+    expect(rows[1]?.textContent).toContain('2026-06-01')
+    expect(rows[1]?.textContent).toContain(formatBrowserLocalTime('2026-06-15T23:59:59.000Z', { includeTime: false }))
+    expect(rows[1]?.textContent).toContain('即将过期')
+    expect(rows[1]?.textContent).toContain('外部 API')
+    expect([...rows[1]!.querySelectorAll('.gc-tag')].map((tag) => [...tag.classList])).toEqual(
       expect.arrayContaining([
         expect.arrayContaining(['gc-tag--info']),
         expect.arrayContaining(['gc-tag--warning']),
       ]),
     )
-    expect(rows[2]?.text()).toContain('2026-06-10')
-    expect(rows[2]?.text()).toContain(formatBrowserLocalTime('2026-12-17T23:59:59.000Z', { includeTime: false }))
-    expect(rows[2]?.text()).toContain('有效')
-    expect(rows[2]?.text()).toContain('外部 API')
-    expect(rows[2]?.findAll('.gc-tag').map((tag) => tag.classes())).toEqual(
+    expect(rows[2]?.textContent).toContain('2026-06-10')
+    expect(rows[2]?.textContent).toContain(formatBrowserLocalTime('2026-12-17T23:59:59.000Z', { includeTime: false }))
+    expect(rows[2]?.textContent).toContain('有效')
+    expect(rows[2]?.textContent).toContain('外部 API')
+    expect([...rows[2]!.querySelectorAll('.gc-tag')].map((tag) => [...tag.classList])).toEqual(
       expect.arrayContaining([
         expect.arrayContaining(['gc-tag--info']),
         expect.arrayContaining(['gc-tag--success']),
@@ -235,34 +238,70 @@ describe('CertificatesView', () => {
     const assetCard = wrapper.find('.certificate-page__asset-card')
     expect(assetCard.exists()).toBe(true)
     expect(assetCard.text()).toContain('即将过期')
-    expect(assetCard.find('[role="progressbar"]').exists()).toBe(true)
+    expect(assetCard.text()).toContain(formatBrowserLocalTime('2026-06-15T23:59:59.000Z', { includeTime: false }))
+    expect(assetCard.text()).toContain('外部 API')
+    const validityProgress = assetCard.get('[role="progressbar"]')
+    expect(validityProgress.classes()).toContain('gc-progress--outlined')
 
-    await recordTrigger.trigger('click')
-    await flushPromises()
-    expect(recordTrigger.attributes('aria-expanded')).toBe('false')
-    expect(footerVersionsTrigger.attributes('aria-expanded')).toBe('false')
-    expect(assetRecord.find(`#${panelId}`).exists()).toBe(false)
-    expect(wrapper.find('.certificate-page__version-table').exists()).toBe(false)
-    expect(wrapper.find('.certificate-page__selection-empty-state').text()).toContain('未选择域名')
-
-    await recordTrigger.trigger('click')
-    await waitFor(() => {
-      expect(wrapper.findAll('.certificate-page__version-table tbody tr')).toHaveLength(3)
-    })
-
-    const headerButtons = wrapper.findAll('.certificate-page__header-sort')
-    const nameHeader = headerButtons.find((button) => button.text().includes('证书名称'))
+    const headerButtons = [...document.body.querySelectorAll<HTMLButtonElement>('.certificate-page__header-sort')]
+    const nameHeader = headerButtons.find((button) => button.textContent?.includes('证书名称'))
     expect(nameHeader).toBeTruthy()
-    await nameHeader!.trigger('click')
+    nameHeader!.click()
     await waitFor(() => {
-      const sortedRows = wrapper.findAll('.certificate-page__version-table tbody tr')
-      expect(sortedRows[0]?.text()).toContain('zeta.weichai.com')
+      const sortedRows = [...document.body.querySelectorAll<HTMLTableRowElement>('.certificate-page__version-table tbody tr')]
+      expect(sortedRows[0]?.textContent).toContain('zeta.weichai.com')
     })
 
-    const sortedRows = wrapper.findAll('.certificate-page__version-table tbody tr')
-    expect(sortedRows[0]?.text()).toContain('zeta.weichai.com')
-    expect(sortedRows[1]?.text()).toContain('beta.weichai.com')
-    expect(sortedRows[2]?.text()).toContain('alpha.weichai.com')
+    const sortedRows = [...document.body.querySelectorAll<HTMLTableRowElement>('.certificate-page__version-table tbody tr')]
+    expect(sortedRows[0]?.textContent).toContain('zeta.weichai.com')
+    expect(sortedRows[1]?.textContent).toContain('beta.weichai.com')
+    expect(sortedRows[2]?.textContent).toContain('alpha.weichai.com')
+  })
+
+  it('用户视图也使用最新证书版本的来源摘要', async () => {
+    useAppStore().setViewMode('user')
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const target = String(url)
+      if (target.includes('/certificate-assets')) {
+        return new Response(JSON.stringify({
+          data: {
+            items: [{
+              id: 'asset-user',
+              primaryDomain: '*.weichai.com',
+              sourceType: 'unknown',
+            }],
+            page: 1,
+            pageSize: 20,
+            total: 1,
+          },
+        }), { status: 200 })
+      }
+      if (target.includes('/certificate-versions')) {
+        return new Response(JSON.stringify({
+          data: {
+            items: [{
+              id: 'certver-user',
+              certificateAssetId: 'asset-user',
+              notBefore: '2026-06-01T00:00:00.000Z',
+              notAfter: '2026-12-17T23:59:59.000Z',
+              sourceType: 'external_api',
+              status: 'MANAGED',
+            }],
+            page: 1,
+            pageSize: 1,
+            total: 1,
+          },
+        }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ data: {} }), { status: 200 })
+    }))
+
+    const wrapper = mount(CertificatesView, { attachTo: document.body })
+    await waitFor(() => {
+      expect(wrapper.find('.certificate-simple-view__field-value').exists()).toBe(true)
+    })
+
+    expect(wrapper.findAll('.certificate-simple-view__field-value')[1]?.text()).toBe('外部 API')
   })
 
   it('快速切换证书记录时不会展示旧请求返回的版本', async () => {
@@ -359,24 +398,24 @@ describe('CertificatesView', () => {
     const recordTriggers = () => wrapper.findAll('.certificate-page__asset-record-trigger')
     const firstPanelId = recordTriggers()[0]?.attributes('aria-controls')
     const secondPanelId = recordTriggers()[1]?.attributes('aria-controls')
-    expect(firstPanelId).toBe('certificate-versions-panel-asset-a')
-    expect(secondPanelId).toBe('certificate-versions-panel-asset-b')
+    expect(firstPanelId).toBe('certificate-versions-dialog-asset-a')
+    expect(secondPanelId).toBe('certificate-versions-dialog-asset-b')
     expect(new Set(recordTriggers().map((trigger) => trigger.attributes('aria-controls'))).size).toBe(2)
 
     await recordTriggers()[0]!.trigger('click')
     await waitFor(() => {
       expect(resolveFirstVersionRequest).toBeDefined()
-      expect(wrapper.find(`#${firstPanelId}`).exists()).toBe(true)
+      expect(document.body.querySelector(`#${firstPanelId}`)).not.toBeNull()
     })
 
     await recordTriggers()[1]!.trigger('click')
     await waitFor(() => {
-      expect(wrapper.find(`#${secondPanelId}`).findAll('.certificate-page__version-table tbody tr')).toHaveLength(1)
+      expect(document.body.querySelectorAll(`#${secondPanelId} .certificate-page__version-table tbody tr`)).toHaveLength(1)
     })
 
-    expect(wrapper.find(`#${firstPanelId}`).exists()).toBe(false)
-    expect(wrapper.find(`#${secondPanelId}`).text()).toContain('current.beta.weichai.com')
-    expect(wrapper.find(`#${secondPanelId}`).text()).not.toContain('stale.alpha.weichai.com')
+    expect(document.body.querySelector(`#${firstPanelId}`)).toBeNull()
+    expect(document.body.querySelector(`#${secondPanelId}`)?.textContent).toContain('current.beta.weichai.com')
+    expect(document.body.querySelector(`#${secondPanelId}`)?.textContent).not.toContain('stale.alpha.weichai.com')
 
     const resolvePendingRequest = resolveFirstVersionRequest
     expect(resolvePendingRequest).toBeDefined()
@@ -401,8 +440,8 @@ describe('CertificatesView', () => {
     }), { status: 200 }))
 
     await flushPromises()
-    expect(wrapper.find(`#${secondPanelId}`).text()).toContain('current.beta.weichai.com')
-    expect(wrapper.find(`#${secondPanelId}`).text()).not.toContain('stale.alpha.weichai.com')
+    expect(document.body.querySelector(`#${secondPanelId}`)?.textContent).toContain('current.beta.weichai.com')
+    expect(document.body.querySelector(`#${secondPanelId}`)?.textContent).not.toContain('stale.alpha.weichai.com')
   })
 
   it('证书版本支持删除确认，并在成功后刷新列表', async () => {
@@ -517,15 +556,15 @@ describe('CertificatesView', () => {
     })
     await wrapper.find('.certificate-page__asset-record-trigger').trigger('click')
     await waitFor(() => {
-      expect(wrapper.findAll('.certificate-page__version-table tbody tr')).toHaveLength(2)
+      expect(document.body.querySelectorAll('.certificate-page__version-table tbody tr')).toHaveLength(2)
     })
 
-    expect(wrapper.text()).toContain('remove.weichai.com')
-    expect(wrapper.text()).toContain('keep.weichai.com')
+    expect(document.body.textContent).toContain('remove.weichai.com')
+    expect(document.body.textContent).toContain('keep.weichai.com')
 
-    const deleteTrigger = wrapper.find('.certificate-page__row-actions .gc-button--danger')
-    expect(deleteTrigger.exists()).toBe(true)
-    await deleteTrigger.trigger('click')
+    const deleteTrigger = document.body.querySelector<HTMLButtonElement>('.certificate-page__row-actions .gc-button--danger')
+    expect(deleteTrigger).not.toBeNull()
+    deleteTrigger?.click()
     await vi.waitFor(() => expect(document.body.querySelector('.gc-confirm input')).toBeTruthy())
     const confirmInput = document.body.querySelector('.gc-confirm input') as HTMLInputElement | null
     expect(confirmInput).toBeTruthy()
@@ -540,10 +579,10 @@ describe('CertificatesView', () => {
 
     await waitFor(() => {
       expect(deletedVersionId).toBe('certver-remove')
-      expect(wrapper.text()).not.toContain('remove.weichai.com')
+      expect(document.body.textContent).not.toContain('remove.weichai.com')
     })
 
-    expect(wrapper.text()).toContain('keep.weichai.com')
+    expect(document.body.textContent).toContain('keep.weichai.com')
   })
 
   it('域名列表会隐藏没有证书的记录，并合并同名域名', async () => {
@@ -729,8 +768,8 @@ describe('CertificatesView', () => {
 
     await wrapper.find('.certificate-page__asset-record-trigger').trigger('click')
     await waitFor(() => {
-      expect(wrapper.findAll('.certificate-page__version-table tbody tr')).toHaveLength(1)
+      expect(document.body.querySelectorAll('.certificate-page__version-table tbody tr')).toHaveLength(1)
     })
-    expect(wrapper.text()).toContain('*.jacksonz.cn')
+    expect(document.body.textContent).toContain('*.jacksonz.cn')
   })
 })

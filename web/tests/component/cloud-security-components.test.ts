@@ -48,6 +48,14 @@ describe('Cloud Security Pro 共享组件', () => {
     expect(progress.text()).toBe('已完成')
   })
 
+  it('GcProgressBar 按需显示完整进度轨道边界', () => {
+    const wrapper = mount(GcProgressBar, {
+      props: { value: 100, outlined: true, ariaLabel: '证书有效期进度' },
+    })
+
+    expect(wrapper.get('[role="progressbar"]').classes()).toContain('gc-progress--outlined')
+  })
+
   it('GcSelectionCard 通过受控事件切换选择状态', async () => {
     const wrapper = mount(GcSelectionCard, {
       props: { title: '证书部署', description: '选择部署目标' },
