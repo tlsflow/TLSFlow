@@ -3777,6 +3777,26 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-requests/:id/query:
+    post:
+      operationId: "queryCertificateRequestIssuance"
+      summary: "查询远程签发结果"
+      tags:
+        - "Internal CA"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/certificate-requests/:id/activate:
     post:
       operationId: "activateCertificateRequest"
@@ -7678,4 +7698,4 @@ tags:
   -
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-07-22T15:52:35.946Z"
+x-generatedAt: "2026-07-22T16:21:52.102Z"

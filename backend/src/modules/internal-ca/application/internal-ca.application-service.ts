@@ -7,7 +7,7 @@ import type { AuditService } from '../../audits/audit.service.js';
 import type { ApprovalService } from '../../approvals/approval.service.js';
 import type { CertificatesApplicationService } from '../../certificates/application/certificates.application-service.js';
 import type { SecretService } from '../../secrets/secret.service.js';
-import { CaProviderRegistry, createDefaultCaProviderRegistry } from '../providers/ca-provider.js';
+import { CaProviderRegistry, createDefaultCaProviderRegistry, type CaIssuanceResult } from '../providers/ca-provider.js';
 import { OpenSslCa } from '../providers/openssl-ca.js';
 import { InternalCaRepository } from '../repository/internal-ca.repository.js';
 import type {
@@ -469,39 +469,8 @@ export class InternalCaApplicationService {
         idempotencyKey: request.idempotencyKey,
         actorId,
       });
-      if (issued.publicKeyFingerprintSha256 !== request.publicKeyFingerprintSha256) {
-        throw new AppError('PUBLIC_KEY_MISMATCH', '签发证书公钥与 CSR 不匹配');
-      }
-      const imported = await this.dependencies.certificates.importVersion({
-        certificatePem: issued.certificateChainPem,
-        allowCertificateOnly: !keyReference.secretRef,
-        existingPrivateKeySecretRef: keyReference.secretRef,
-        issuingCaId: authority.id,
-        certificateRequestId: request.id,
-        certificateProfileVersionId: request.profileVersionId,
-        keyReferenceId: keyReference.id,
-        keyCustodyMode: keyReference.custodyMode,
-        sourceType: provider.type === 'microsoft_adcs' ? 'adcs' : provider.type === 'acme' ? 'acme' : 'internal_ca',
-        name: request.subjectCommonName,
-        tags: ['internal-ca', authority.securityDomain],
-        createdBy: actorId,
-      }, context);
-      const completed: CertificateRequestEntity = {
-        ...request,
-        status: 'issued',
-        providerRequestId: issued.providerRequestId,
-        certificateVersionId: imported.version.id,
-        failureCode: undefined,
-        failureMessage: undefined,
-        updatedAt: new Date().toISOString(),
-      };
-      await this.repository.saveRequest(completed);
-      await this.audit('internal_ca.request.issued', actorId, 'certificate_request.issue', 'certificate_request', request.id, 'high', context, {
-        certificateVersionId: imported.version.id,
-        fingerprintSha256: imported.version.fingerprintSha256,
-        publicKeyFingerprintSha256: request.publicKeyFingerprintSha256,
-      });
-      return completed;
+      if (issued.status !== 'issued') return this.saveNonFinalIssuance(request, issued);
+      return this.completeIssuedRequest(request, issued, provider, authority, keyReference, actorId, context);
     } catch (error) {
       const failed = {
         ...request,
@@ -513,6 +482,24 @@ export class InternalCaApplicationService {
       await this.repository.saveRequest(failed);
       throw error;
     }
+  }
+
+  async refreshRequestIssuance(tenantId: string, requestId: string, actorId: string, context?: RequestContext): Promise<CertificateRequestEntity> {
+    const request = await this.requireRequest(tenantId, requestId);
+    if (request.status !== 'issuing' || !request.providerRequestId) {
+      throw new AppError('RESOURCE_VERSION_CONFLICT', '证书申请当前没有可查询的远程签发结果', { status: request.status });
+    }
+    const authority = await this.requireAuthority(tenantId, request.caId);
+    const provider = await this.requireProvider(tenantId, authority.providerId);
+    const adapter = this.providers.get(provider.type);
+    if (!adapter.queryIssuance || !provider.capabilities.queryIssuance) {
+      throw new AppError('CA_CAPABILITY_UNSUPPORTED', '当前 CA Provider 不支持查询签发结果');
+    }
+    const keyReference = await this.repository.getKeyReference(tenantId, request.keyReferenceId);
+    if (!keyReference) throw new AppError('RESOURCE_NOT_FOUND', '证书申请密钥引用不存在');
+    const result = await adapter.queryIssuance({ provider, providerRequestId: request.providerRequestId, actorId });
+    if (result.status !== 'issued') return this.saveNonFinalIssuance(request, result);
+    return this.completeIssuedRequest(request, result, provider, authority, keyReference, actorId, context);
   }
 
   listRequests(tenantId: string): Promise<CertificateRequestEntity[]> {
@@ -956,9 +943,67 @@ export class InternalCaApplicationService {
 
   private async assertNoActiveNodeConflict(candidate: CaNodeEntity): Promise<void> {
     if (candidate.role !== 'active' || candidate.healthStatus !== 'online') return;
+    const provider = await this.requireProvider(candidate.tenantId, candidate.providerId);
+    if (provider.availabilityMode === 'active_active') return;
     const conflict = (await this.repository.listNodes(candidate.tenantId, candidate.providerId))
       .find((node) => node.id !== candidate.id && node.role === 'active' && node.healthStatus === 'online');
     if (conflict) throw new AppError('CA_NODE_SPLIT_BRAIN_RISK', '同一 Provider 已存在在线活动 CA Node', { nodeId: conflict.id });
+  }
+
+  private async saveNonFinalIssuance(request: CertificateRequestEntity, result: Exclude<CaIssuanceResult, { status: 'issued' }>): Promise<CertificateRequestEntity> {
+    const updated: CertificateRequestEntity = {
+      ...request,
+      status: result.status === 'rejected' ? 'rejected' : 'issuing',
+      providerRequestId: result.providerRequestId,
+      failureCode: result.status === 'rejected' ? 'CA_REQUEST_REJECTED' : undefined,
+      failureMessage: result.detail,
+      updatedAt: new Date().toISOString(),
+    };
+    return this.repository.saveRequest(updated);
+  }
+
+  private async completeIssuedRequest(
+    request: CertificateRequestEntity,
+    issued: Extract<CaIssuanceResult, { status: 'issued' }>,
+    provider: CaProviderEntity,
+    authority: CertificateAuthorityEntity,
+    keyReference: KeyReferenceEntity,
+    actorId: string,
+    context?: RequestContext,
+  ): Promise<CertificateRequestEntity> {
+    if (issued.publicKeyFingerprintSha256 !== request.publicKeyFingerprintSha256) {
+      throw new AppError('PUBLIC_KEY_MISMATCH', '签发证书公钥与 CSR 不匹配');
+    }
+    const imported = await this.dependencies.certificates.importVersion({
+      certificatePem: issued.certificateChainPem,
+      allowCertificateOnly: !keyReference.secretRef,
+      existingPrivateKeySecretRef: keyReference.secretRef,
+      issuingCaId: authority.id,
+      certificateRequestId: request.id,
+      certificateProfileVersionId: request.profileVersionId,
+      keyReferenceId: keyReference.id,
+      keyCustodyMode: keyReference.custodyMode,
+      sourceType: provider.type === 'microsoft_adcs' ? 'adcs' : provider.type === 'acme' ? 'acme' : 'internal_ca',
+      name: request.subjectCommonName,
+      tags: ['internal-ca', authority.securityDomain],
+      createdBy: actorId,
+    }, context);
+    const completed: CertificateRequestEntity = {
+      ...request,
+      status: 'issued',
+      providerRequestId: issued.providerRequestId,
+      certificateVersionId: imported.version.id,
+      failureCode: undefined,
+      failureMessage: undefined,
+      updatedAt: new Date().toISOString(),
+    };
+    await this.repository.saveRequest(completed);
+    await this.audit('internal_ca.request.issued', actorId, 'certificate_request.issue', 'certificate_request', request.id, 'high', context, {
+      certificateVersionId: imported.version.id,
+      fingerprintSha256: imported.version.fingerprintSha256,
+      publicKeyFingerprintSha256: request.publicKeyFingerprintSha256,
+    });
+    return completed;
   }
 
   private async audit(eventType: string, actorId: string, action: string, resourceType: string, resourceId: string, riskLevel: 'high' | 'critical', context: RequestContext | undefined, detail: Record<string, unknown>): Promise<void> {

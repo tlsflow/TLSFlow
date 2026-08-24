@@ -33,6 +33,7 @@ export class InternalCaController {
     router.post('/api/v1/certificate-requests', '创建证书申请', tags, (request) => this.createRequest(request));
     router.post('/api/v1/certificate-requests/:id/approve', '审批证书申请', tags, (request) => this.approveRequest(request));
     router.post('/api/v1/certificate-requests/:id/retry', '重试证书签发', tags, (request) => this.retryRequest(request));
+    router.post('/api/v1/certificate-requests/:id/query', '查询远程签发结果', tags, (request) => this.queryRequest(request));
     router.post('/api/v1/certificate-requests/:id/activate', '确认应用证书已安装', tags, (request) => this.activateRequest(request));
     router.get('/api/v1/certificate-renewals', '查询证书续期任务', tags, (request) => this.listRenewals(request));
     router.post('/api/v1/certificate-renewals/scan', '扫描并创建到期续期任务', tags, (request) => this.scanRenewals(request));
@@ -138,6 +139,11 @@ export class InternalCaController {
   private async retryRequest(request: HttpRequest) {
     await this.assertManage(request, 'certificate_request');
     return this.service.issueRequest(tenantId(request), pathId(request), actorId(request), request.context);
+  }
+
+  private async queryRequest(request: HttpRequest) {
+    await this.assertManage(request, 'certificate_request');
+    return this.service.refreshRequestIssuance(tenantId(request), pathId(request), actorId(request), request.context);
   }
 
   private async activateRequest(request: HttpRequest) {
@@ -309,6 +315,7 @@ export function getInternalCaRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/certificate-requests', operationId: 'createCertificateRequest', summary: '创建证书申请', tags, responseSchema },
     { method: 'POST', path: '/api/v1/certificate-requests/:id/approve', operationId: 'approveCertificateRequest', summary: '审批证书申请', tags, responseSchema },
     { method: 'POST', path: '/api/v1/certificate-requests/:id/retry', operationId: 'retryCertificateRequest', summary: '重试证书签发', tags, responseSchema },
+    { method: 'POST', path: '/api/v1/certificate-requests/:id/query', operationId: 'queryCertificateRequestIssuance', summary: '查询远程签发结果', tags, responseSchema },
     { method: 'POST', path: '/api/v1/certificate-requests/:id/activate', operationId: 'activateCertificateRequest', summary: '确认应用证书已安装', tags, responseSchema },
     { method: 'GET', path: '/api/v1/certificate-renewals', operationId: 'listCertificateRenewals', summary: '查询证书续期任务', tags, responseSchema: arraySchema },
     { method: 'POST', path: '/api/v1/certificate-renewals/scan', operationId: 'scanCertificateRenewals', summary: '扫描并创建到期续期任务', tags, responseSchema: arraySchema },

@@ -144,7 +144,7 @@ test('内置 CA 完成根与中间拓扑、Profile、签发、续期、吊销和
   assert.equal(verified.status, 'verified');
 });
 
-test('CA Node 注册令牌只能使用一次，并拒绝在线双主', async () => {
+test('CA Node 注册令牌只能使用一次，主备拒绝双主且多活允许多节点', async () => {
   const { service } = await createFixture();
   const tenantId = 'tenant-ca-node';
   const provider = await service.createProvider(tenantId, {
@@ -201,4 +201,27 @@ test('CA Node 注册令牌只能使用一次，并拒绝在线双主', async () 
     exportability: 'non_exportable',
     capabilities,
   }));
+
+  const activeActiveProvider = await service.createProvider(tenantId, {
+    name: '多活 CA Node',
+    type: 'gcac_managed_node',
+    deploymentMode: 'managed_node',
+    runtimePlatform: 'linux',
+    availabilityMode: 'active_active',
+    configuration: { keyBackend: 'pkcs11' },
+  }, 'user-admin');
+  for (const suffix of ['a', 'b']) {
+    const token = await service.createNodeEnrollmentToken(tenantId, activeActiveProvider.id, 'user-admin');
+    const node = await service.registerNode({
+      token: token.token,
+      name: `active-active-${suffix}`,
+      platform: 'linux',
+      role: 'active',
+      identityFingerprint: (suffix === 'a' ? 'dd' : 'ee').repeat(32),
+      keyBackend: 'pkcs11',
+      exportability: 'non_exportable',
+      capabilities,
+    });
+    assert.equal(node.role, 'active');
+  }
 });
