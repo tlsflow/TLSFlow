@@ -1570,7 +1570,7 @@ export class DeploymentPlansApplicationService {
       }
       // 审批消费是本次正式执行的授权事实。不能只在 DRAFT/PENDING_APPROVAL
       // 状态转换时回写，否则 READY/历史结束计划会继续携带 NOT_REQUIRED，
-      // 进而让工作流子步骤无法获得 workflow.tls.insecure Grant。
+      // 进而让本次正式执行的审批事实与计划状态脱节。
       executionApproved = true;
       if (plan.status === 'DRAFT' || plan.status === 'PENDING_APPROVAL') {
         plan = await this.transitionPlan(plan, 'READY', input.actorId, 'approval.approved', {

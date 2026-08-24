@@ -424,6 +424,59 @@ function readRecord(value: unknown): Record<string, unknown> {
 }
 
 describe('WorkflowExecutorAdapter', () => {
+  it('TLS 例外 Grant 不依赖 approved 状态，仍绑定当前工作流步骤', async () => {
+    const grants = new ExecutionGrantService();
+    const grantInputs: Array<Record<string, unknown>> = [];
+    const createGrant = grants.create.bind(grants);
+    grants.create = async (input) => {
+      grantInputs.push(input as unknown as Record<string, unknown>);
+      return createGrant(input);
+    };
+    let networkCalls = 0;
+    const curlExecutor = new CurlExecutor({
+      executionGrantService: grants,
+      httpClient: {
+        async send(request) {
+          networkCalls += 1;
+          assert.equal(request.tls?.verify, false);
+          return { statusCode: 200, body: { ok: true } };
+        },
+      },
+    });
+    const adapter = new WorkflowExecutorAdapter({ curlExecutor, executionGrants: grants });
+    const step = workflowStep('workflow-tls-grant');
+    step.inputSnapshot.executionAuthorization = {
+      tenantId: 'tenant_1',
+      planId: 'plan_tls',
+      targetId: 'target_1',
+      workflowVersionId: 'workflow-tls-grant',
+      approvalId: 'stale-approval-must-not-flow',
+      approved: false,
+      allowInsecureTls: true,
+    };
+    const dispatch = adapter as unknown as {
+      dispatchWorkflowStep(input: StepExecutionInput, plan: unknown, stepName: string, attempt: number): Promise<{ success: boolean; errorCode?: string }>;
+    };
+
+    const result = await dispatch.dispatchWorkflowStep({ step, runType: 'apply', dryRun: false }, {
+      executor: '017.CURL_HTTP',
+      curlRequest: {
+        template: {
+          method: 'GET',
+          url: 'https://example.test/health',
+          tls: { verify: false, allowInsecure: true },
+        },
+        responsePolicy: { successStatusCodes: [200] },
+      },
+    }, 'readSystem', 1);
+
+    assert.equal(result.success, true);
+    assert.equal(result.errorCode, undefined);
+    assert.equal(networkCalls, 1);
+    assert.equal(grantInputs.length, 1);
+    assert.equal(grantInputs[0]?.approvalId, undefined, 'TLS 工作流 Grant 不得携带审批号');
+  });
+
   it('DSL 执行到 plugin.action 后将结构化输出交回后续 DSL transform', async () => {
     const inputSchema: JsonSchema = {
       type: 'object',
@@ -705,7 +758,7 @@ describe('WorkflowExecutorAdapter', () => {
     assert.match(apply.errorMessage ?? '', /ExecutionGrant/);
   });
 
-  it('Synology 工作流获得宿主批准和 ExecutionGrant 后正式执行允许自签名 TLS', async () => {
+  it('Synology 工作流仅绑定 allowInsecureTls 和 ExecutionGrant 即可正式执行自签名 TLS', async () => {
     const { workflows, versionId } = await createPublishedSynologyInsecureTlsWorkflow();
     const grants = new ExecutionGrantService();
     let networkCalls = 0;
@@ -729,10 +782,9 @@ describe('WorkflowExecutorAdapter', () => {
       tenantId: 'tenant_1',
       planId: 'plan_synology_tls',
       targetId: 'target_1',
-      approvalId: 'approval_synology_tls',
       workflowVersionId: versionId,
       snapshotHash: 'snapshot_synology_tls',
-      approved: true,
+      approved: false,
       allowInsecureTls: true,
     };
 

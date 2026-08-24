@@ -657,10 +657,12 @@ export class WorkflowExecutorAdapter implements Executor {
     const curlTls = readRecord(curlTemplate.tls) ?? {};
     const allowInsecureTls = authorization?.allowInsecureTls === true;
     const isInsecureTlsRequest = executor === '017.CURL_HTTP' && curlTls.verify === false;
+    // TLS 例外由插件显式输入和当前步骤 Grant 约束，不再额外依赖部署审批状态。
+    // 审批状态属于高风险写操作治理，不能阻断已绑定的管理连接读取；旧门禁会让
+    // allowInsecureTls=true 的工作流在第一个 CURL 节点前得到“Grant 无效”。
     const allowInsecureAction = executor === '017.CURL_HTTP'
       && isInsecureTlsRequest
       && allowInsecureTls
-      && (input.dryRun || authorization?.approved === true)
       ? 'workflow.tls.insecure'
       : undefined;
     const childStepId = workflowChildStepId(input.step, executor ?? 'unknown', workflowStepName, attempt);
@@ -675,7 +677,6 @@ export class WorkflowExecutorAdapter implements Executor {
           stepId: childStepId,
           targetId: authorization?.targetId ?? input.step.deploymentPlanTargetId,
           workflowVersionId,
-          approvalId: authorization?.approvalId,
           executorType: executor,
           allowedSecretRefs: collectReferencesByScheme(plan, 'secret://'),
           allowedArtifactRefs: collectReferencesByScheme(plan, 'artifact://'),
@@ -713,7 +714,6 @@ export class WorkflowExecutorAdapter implements Executor {
         workflowVersionId: stringFromSnapshot(readRecord(context.input.step.inputSnapshot.workflowRequest)?.workflowVersionId)
           ?? stringFromSnapshot(context.input.step.inputSnapshot.workflowVersionId)
           ?? authorization?.workflowVersionId,
-        approvalId: authorization?.approvalId,
         executionGrantId,
         allowInsecureTls: authorization?.allowInsecureTls === true,
         executionGrantService: this.executionGrants,
@@ -1181,10 +1181,8 @@ function readExecutionAuthorization(value: unknown): {
   tenantId?: string;
   planId?: string;
   targetId?: string;
-  approvalId?: string;
   workflowVersionId?: string;
   snapshotHash?: string;
-  approved?: boolean;
   allowInsecureTls?: boolean;
 } | undefined {
   const authorization = readRecord(value);
@@ -1193,10 +1191,8 @@ function readExecutionAuthorization(value: unknown): {
     tenantId: stringFromSnapshot(authorization.tenantId),
     planId: stringFromSnapshot(authorization.planId),
     targetId: stringFromSnapshot(authorization.targetId),
-    approvalId: stringFromSnapshot(authorization.approvalId),
     workflowVersionId: stringFromSnapshot(authorization.workflowVersionId),
     snapshotHash: stringFromSnapshot(authorization.snapshotHash),
-    approved: authorization.approved === true,
     allowInsecureTls: authorization.allowInsecureTls === true,
   };
 }
