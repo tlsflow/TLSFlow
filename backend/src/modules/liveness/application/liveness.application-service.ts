@@ -134,7 +134,7 @@ export class LivenessApplicationService {
          select payload->>'tenantId' tenant_id,
                 'AGENT'::text resource_type,
                 document_id resource_id,
-                coalesce(nullif(payload->'directControl'->>'listenAddress', ''), nullif(payload->'descriptor'->>'ipAddress', ''), nullif(payload->'descriptor'->>'hostname', '')) endpoint_host,
+                 coalesce(nullif(payload->'descriptor'->>'ipAddress', ''), nullif(payload->'descriptor'->>'hostname', '')) endpoint_host,
                 null::integer endpoint_port,
                 null::text gateway_id
            from pg_documents

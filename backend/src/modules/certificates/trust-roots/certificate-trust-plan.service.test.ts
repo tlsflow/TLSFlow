@@ -2,251 +2,108 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AppError } from '../../../common/errors/app-error.js';
 import { CertificateTrustPlanService } from './application/certificate-trust-plan.service.js';
+import type { RootCertificateRecordDto } from './dto/trust-roots.dto.js';
 
-function agentTask(id: string) {
-  return {
-    id,
-    tenantId: 'tenant_1',
-    agentId: 'agt_test',
-    executionRunId: 'run_test',
-    executionStepId: 'step_test',
-    idempotencyKey: `idem:${id}`,
-    payload: {},
-    status: 'acked',
-    leaseId: `direct:${id}`,
-    ackedAt: '2026-08-07T00:00:00.000Z',
-    createdAt: '2026-08-07T00:00:00.000Z',
-    updatedAt: '2026-08-07T00:00:00.000Z',
-    requestId: 'req_test',
-  } as const;
-}
-
-test('CertificateTrustPlanService 在宿主已信任根证书时返回 skip', async () => {
-  let enqueueCount = 0;
-  let inspectIdempotencyKey = '';
+test('根信任检查只提交 agent.fact.collect，不再直连执行', async () => {
+  let payload: Record<string, unknown> | undefined;
   const service = new CertificateTrustPlanService({
     trustRoots: {
-      resolveVersionInstallableRoot: async () => ({
-        root: {
-          id: 'trustroot_1',
-          fingerprintSha256: 'abc123',
-          certificateArtifactRef: 'artifact://trust-root/abc123',
-          subject: { raw: 'CN=Root' },
-          issuer: { raw: 'CN=Root' },
-          serialNumber: '01',
-          notBefore: '2026-01-01T00:00:00.000Z',
-          notAfter: '2036-01-01T00:00:00.000Z',
-          basicConstraints: { ca: true },
-          validationStatus: 'verified',
-          createdAt: '2026-08-07T00:00:00.000Z',
-          updatedAt: '2026-08-07T00:00:00.000Z',
-        },
-        certificatePem: '-----BEGIN CERTIFICATE-----\nROOT\n-----END CERTIFICATE-----\n',
-      }),
-      discoverRoot: async () => {
-        throw new Error('should not discover');
-      },
+      resolveVersionInstallableRoot: async () => rootMaterial('abc123'),
+      discoverRoot: async () => { throw new Error('不应发现'); },
     },
     agents: {
-      enqueueDirectTask: async (_tenantId, input) => {
-        enqueueCount += 1;
-        inspectIdempotencyKey = input.idempotencyKey;
-        return agentTask('task_1');
+      enqueueTask: async (_tenantId, input) => {
+        payload = input.payload;
+        return taskEnvelope('task_fact_collect');
       },
-      executeTaskDirect: async () => ({
-        task: {} as never,
-        success: true,
-        detail: {
-          status: 'found',
-          fingerprintSha256: 'abc123',
-          certificatePem: '-----BEGIN CERTIFICATE-----\nROOT\n-----END CERTIFICATE-----\n',
-        },
-      }),
     },
   });
 
-  const result = await service.build({
-    tenantId: 'tenant_1',
-    actorId: 'tester',
-    agentId: 'agt_1',
-    certificateVersionId: 'certver_1',
-    requestId: 'req_1',
-  });
-
-  assert.equal(enqueueCount, 1);
-  assert.equal(inspectIdempotencyKey, 'certificate.trust.inspect:agt_1:abc123:req_1');
-  assert.equal(result.plan.decision, 'skip');
-  assert.equal(result.plan.reasonCode, 'root_already_trusted');
-  assert.equal(result.plan.fingerprintSha256, 'abc123');
+  await assert.rejects(
+    service.build({ tenantId: 'tenant_1', actorId: 'tester', agentId: 'agent_1', certificateVersionId: 'certver_1', requestId: 'request_1' }),
+    (error: unknown) => error instanceof AppError
+      && error.errorCode === 'EXECUTION_TARGET_UNAVAILABLE'
+      && (error.details as { code?: string } | undefined)?.code === 'CERTIFICATE_TRUST_INSPECT_PENDING'
+      && (error.details as { asyncPending?: boolean } | undefined)?.asyncPending === true,
+  );
+  assert.equal(payload?.actionType, 'agent.fact.collect');
+  assert.deepEqual(payload?.factKinds, ['certificate_store']);
+  assert.equal((payload?.factRequest as Record<string, unknown>).store, 'root');
 });
 
-test('CertificateTrustPlanService 在宿主缺根时返回 install，并允许先触发定向发现', async () => {
+test('根信任检查发现阶段完成后仍必须等待 Agent v2 Receipt', async () => {
   let resolveCount = 0;
   let discoverCount = 0;
   const service = new CertificateTrustPlanService({
     trustRoots: {
       resolveVersionInstallableRoot: async () => {
         resolveCount += 1;
-        if (resolveCount === 1) return undefined;
-        return {
-          root: {
-            id: 'trustroot_2',
-            fingerprintSha256: 'def456',
-            certificateArtifactRef: 'artifact://trust-root/def456',
-            subject: { raw: 'CN=Root2' },
-            issuer: { raw: 'CN=Root2' },
-            serialNumber: '02',
-            notBefore: '2026-01-01T00:00:00.000Z',
-            notAfter: '2036-01-01T00:00:00.000Z',
-            basicConstraints: { ca: true },
-            validationStatus: 'verified',
-            createdAt: '2026-08-07T00:00:00.000Z',
-            updatedAt: '2026-08-07T00:00:00.000Z',
-          },
-          certificatePem: '-----BEGIN CERTIFICATE-----\nROOT2\n-----END CERTIFICATE-----\n',
-        };
+        return resolveCount === 1 ? undefined : rootMaterial('def456');
       },
       discoverRoot: async () => {
         discoverCount += 1;
-        return {
-          status: 'found',
-          fingerprintSha256: 'def456',
-          root: {
-            id: 'trustroot_2',
-            fingerprintSha256: 'def456',
-            certificateArtifactRef: 'artifact://trust-root/def456',
-            subject: { raw: 'CN=Root2' },
-            issuer: { raw: 'CN=Root2' },
-            serialNumber: '02',
-            notBefore: '2026-01-01T00:00:00.000Z',
-            notAfter: '2036-01-01T00:00:00.000Z',
-            basicConstraints: { ca: true },
-            validationStatus: 'verified',
-            createdAt: '2026-08-07T00:00:00.000Z',
-            updatedAt: '2026-08-07T00:00:00.000Z',
-          },
-        };
+        return { status: 'found', fingerprintSha256: 'def456', root: rootMaterial('def456').root } as never;
       },
     },
-    agents: {
-      enqueueDirectTask: async () => agentTask('task_2'),
-      executeTaskDirect: async () => ({
-        task: {} as never,
-        success: true,
-        detail: { status: 'NOT-FOUND', fingerprintSha256: 'DEF:456' },
-      }),
-    },
+    agents: { enqueueTask: async () => taskEnvelope('task_fact_collect_after_discovery') },
   });
 
-  const result = await service.build({
-    tenantId: 'tenant_1',
-    actorId: 'tester',
-    agentId: 'agt_2',
-    certificateVersionId: 'certver_2',
-    requestId: 'req_2',
-  });
-
+  await assert.rejects(
+    service.build({ tenantId: 'tenant_1', actorId: 'tester', agentId: 'agent_2', certificateVersionId: 'certver_2', requestId: 'request_2' }),
+    (error: unknown) => error instanceof AppError
+      && (error.details as { code?: string } | undefined)?.code === 'CERTIFICATE_TRUST_INSPECT_PENDING',
+  );
   assert.equal(discoverCount, 1);
-  assert.equal(result.plan.decision, 'install');
-  assert.equal(result.plan.reasonCode, 'root_missing_install_required');
-  assert.equal(result.plan.certificatePem.includes('ROOT2'), true);
 });
 
-test('CertificateTrustPlanService 透传 Agent 根信任检查失败，不再误报结果无效', async () => {
+test('根信任检查无法发现根证书时失败关闭', async () => {
   const service = new CertificateTrustPlanService({
     trustRoots: {
-      resolveVersionInstallableRoot: async () => ({
-        root: {
-          id: 'trustroot_failed',
-          fingerprintSha256: 'abc123',
-          certificateArtifactRef: 'artifact://trust-root/abc123',
-          subject: { raw: 'CN=Root' },
-          issuer: { raw: 'CN=Root' },
-          serialNumber: '04',
-          notBefore: '2026-01-01T00:00:00.000Z',
-          notAfter: '2036-01-01T00:00:00.000Z',
-          basicConstraints: { ca: true },
-          validationStatus: 'verified',
-          createdAt: '2026-08-07T00:00:00.000Z',
-          updatedAt: '2026-08-07T00:00:00.000Z',
-        },
-        certificatePem: '-----BEGIN CERTIFICATE-----\nROOT\n-----END CERTIFICATE-----\n',
-      }),
-      discoverRoot: async () => {
-        throw new Error('should not discover');
-      },
+      resolveVersionInstallableRoot: async () => undefined,
+      discoverRoot: async () => ({ status: 'not_found', fingerprintSha256: 'unknown', failureCode: 'ROOT_NOT_FOUND' } as never),
     },
-    agents: {
-      enqueueDirectTask: async () => agentTask('task_failed'),
-      executeTaskDirect: async () => ({
-        task: {} as never,
-        success: false,
-        errorCode: 'TRUST_INSPECT_FAILED',
-        errorMessage: 'root store access denied',
-        detail: { mode: 'direct', store: 'root' },
-      }),
-    },
+    agents: { enqueueTask: async () => { throw new Error('不应提交任务'); } },
   });
 
-  await assert.rejects(() => service.build({
-    tenantId: 'tenant_1',
-    actorId: 'tester',
-    agentId: 'agt_failed',
-    certificateVersionId: 'certver_failed',
-    requestId: 'req_failed',
-  }), (error: unknown) => {
-    assert.ok(error instanceof AppError);
-    assert.equal(error.message, '宿主根信任检查执行失败，拒绝继续部署');
-    assert.equal((error.details as { code?: string } | undefined)?.code, 'CERTIFICATE_TRUST_INSPECT_FAILED');
-    assert.equal((error.details as { agentErrorCode?: string } | undefined)?.agentErrorCode, 'TRUST_INSPECT_FAILED');
-    assert.equal((error.details as { agentErrorMessage?: string } | undefined)?.agentErrorMessage, 'root store access denied');
-    return true;
-  });
+  await assert.rejects(
+    service.build({ tenantId: 'tenant_1', actorId: 'tester', agentId: 'agent_3', certificateVersionId: 'certver_3', requestId: 'request_3' }),
+    (error: unknown) => error instanceof AppError
+      && (error.details as { code?: string } | undefined)?.code === 'CERTIFICATE_TRUST_ROOT_UNRESOLVED',
+  );
 });
 
-test('CertificateTrustPlanService 对 inspect 指纹不一致失败关闭', async () => {
-  const service = new CertificateTrustPlanService({
-    trustRoots: {
-      resolveVersionInstallableRoot: async () => ({
-        root: {
-          id: 'trustroot_3',
-          fingerprintSha256: 'abc123',
-          certificateArtifactRef: 'artifact://trust-root/abc123',
-          subject: { raw: 'CN=Root3' },
-          issuer: { raw: 'CN=Root3' },
-          serialNumber: '03',
-          notBefore: '2026-01-01T00:00:00.000Z',
-          notAfter: '2036-01-01T00:00:00.000Z',
-          basicConstraints: { ca: true },
-          validationStatus: 'verified',
-          createdAt: '2026-08-07T00:00:00.000Z',
-          updatedAt: '2026-08-07T00:00:00.000Z',
-        },
-        certificatePem: '-----BEGIN CERTIFICATE-----\nROOT3\n-----END CERTIFICATE-----\n',
-      }),
-      discoverRoot: async () => {
-        throw new Error('should not discover');
-      },
-    },
-    agents: {
-      enqueueDirectTask: async () => agentTask('task_3'),
-      executeTaskDirect: async () => ({
-        task: {} as never,
-        success: true,
-        detail: { status: 'found', fingerprintSha256: 'ffff' },
-      }),
-    },
-  });
+function rootMaterial(fingerprintSha256: string): { root: RootCertificateRecordDto; certificatePem: string } {
+  return {
+    root: {
+      id: `trustroot_${fingerprintSha256}`,
+      fingerprintSha256,
+      certificateArtifactRef: `artifact://trust-root/${fingerprintSha256}`,
+      subject: { raw: 'CN=Root' },
+      issuer: { raw: 'CN=Root' },
+      serialNumber: '01',
+      notBefore: '2026-01-01T00:00:00.000Z',
+      notAfter: '2036-01-01T00:00:00.000Z',
+      basicConstraints: { ca: true },
+      validationStatus: 'verified',
+      createdAt: '2026-08-07T00:00:00.000Z',
+      updatedAt: '2026-08-07T00:00:00.000Z',
+    } as RootCertificateRecordDto,
+    certificatePem: '-----BEGIN CERTIFICATE-----\nROOT\n-----END CERTIFICATE-----\n',
+  };
+}
 
-  await assert.rejects(() => service.build({
+function taskEnvelope(id: string) {
+  return {
+    id,
     tenantId: 'tenant_1',
-    actorId: 'tester',
-    agentId: 'agt_3',
-    certificateVersionId: 'certver_3',
-    requestId: 'req_3',
-  }), (error: unknown) => {
-    assert.ok(error instanceof AppError);
-    assert.equal((error.details as { code?: string } | undefined)?.code, 'CERTIFICATE_TRUST_INSPECT_MISMATCH');
-    return true;
-  });
-});
+    agentId: 'agent_1',
+    executionRunId: 'run_test',
+    executionStepId: 'step_test',
+    idempotencyKey: `idem:${id}`,
+    payload: {},
+    status: 'queued',
+    createdAt: '2026-08-07T00:00:00.000Z',
+    updatedAt: '2026-08-07T00:00:00.000Z',
+    requestId: 'request_test',
+  } as never;
+}

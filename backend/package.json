@@ -8,6 +8,7 @@
     "prebuild": "npm run clean && npm run check:utf8-mojibake",
     "build": "tsc -p tsconfig.json && node scripts/copy-runtime-resources.mjs",
     "test:files": "node scripts/run-node-test-files.mjs --root dist --serial --require-test-secret",
+    "test:p1": "node scripts/run-p1-test-suite.mjs --root dist --require-test-secret",
     "test:isolated": "node scripts/run-node-test-files.mjs --build-isolated --serial --require-test-secret",
     "test:runner": "node --test scripts/run-node-test-files.test.mjs scripts/run-node-test-shards.test.mjs scripts/copy-runtime-resources.test.mjs",
     "test": "npm run check:builtin-plugin-versions && npm run check:compatibility-architecture && npm run test:full",

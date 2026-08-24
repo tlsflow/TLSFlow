@@ -39,7 +39,7 @@ export interface BuildCertificateTrustPlanResult {
 }
 
 export interface CertificateTrustPlanDependencies {
-  agents: Pick<AgentsApplicationService, 'enqueueDirectTask' | 'executeTaskDirect'>;
+  agents: Pick<AgentsApplicationService, 'enqueueTask'>;
   trustRoots: Pick<TrustRootsApplicationService, 'discoverRoot' | 'resolveVersionInstallableRoot'>;
 }
 
@@ -80,97 +80,30 @@ export class CertificateTrustPlanService {
       });
     }
 
-    const inspectTask = await this.dependencies.agents.enqueueDirectTask(input.tenantId, {
+    const inspectTask = await this.dependencies.agents.enqueueTask(input.tenantId, {
       agentId: input.agentId,
       executionRunId: `trustplan:${input.certificateVersionId}`,
       executionStepId: `trustinspect:${input.agentId}:${material.root.fingerprintSha256}`,
       idempotencyKey: `certificate.trust.inspect:${input.agentId}:${material.root.fingerprintSha256}:${input.requestId}`,
       payload: {
-        actionType: 'certificate.trust.inspect',
+        actionType: 'agent.fact.collect',
         actionSchemaVersion: '1.0',
-        store: 'root',
-        fingerprintSha256: material.root.fingerprintSha256,
-      },
-    }, input.requestId);
-    const inspection = await this.dependencies.agents.executeTaskDirect(
-      input.tenantId,
-      inspectTask.id,
-      `${input.requestId}:execute`,
-    );
-    const inspectionDetail = inspection.detail ?? {};
-    if (!inspection.success) {
-      throw new AppError('VALIDATION_FAILED', '宿主根信任检查执行失败，拒绝继续部署', {
-        code: 'CERTIFICATE_TRUST_INSPECT_FAILED',
-        certificateVersionId: input.certificateVersionId,
-        agentId: input.agentId,
-        agentErrorCode: inspection.errorCode,
-        agentErrorMessage: inspection.errorMessage,
-        detail: inspectionDetail,
-      });
-    }
-    const status = readInspectStatus(inspectionDetail.status);
-    if (!status) {
-      throw new AppError('VALIDATION_FAILED', '宿主根信任检查结果无效，拒绝继续部署', {
-        code: 'CERTIFICATE_TRUST_INSPECT_INVALID',
-        certificateVersionId: input.certificateVersionId,
-        agentId: input.agentId,
-        detail: inspectionDetail,
-      });
-    }
-    const fingerprintSha256 = normalizeFingerprint(
-      readOptionalString(inspectionDetail.fingerprintSha256) ?? material.root.fingerprintSha256,
-    );
-    if (fingerprintSha256 !== material.root.fingerprintSha256) {
-      throw new AppError('VALIDATION_FAILED', '宿主根信任检查返回的证书指纹与目标根不一致，拒绝继续部署', {
-        code: 'CERTIFICATE_TRUST_INSPECT_MISMATCH',
-        certificateVersionId: input.certificateVersionId,
-        agentId: input.agentId,
-        expectedFingerprintSha256: material.root.fingerprintSha256,
-        actualFingerprintSha256: fingerprintSha256,
-      });
-    }
-
-    const plannedAt = new Date().toISOString();
-    return {
-      root: material.root,
-      plan: {
-        apiVersion: 'gcac.certificate-trust-plan/v1',
-        decision: status === 'found' ? 'skip' : 'install',
-        reasonCode: status === 'found' ? 'root_already_trusted' : 'root_missing_install_required',
-        actionType: 'certificate.trust.install',
-        actionSchemaVersion: '1.0',
-        store: 'root',
-        agentId: input.agentId,
-        rootCertificateId: material.root.id,
-        fingerprintSha256: material.root.fingerprintSha256,
-        certificatePem: material.certificatePem,
-        plannedAt,
-        inspection: {
-          actionType: 'certificate.trust.inspect',
-          actionSchemaVersion: '1.0',
-          status,
-          inspectedAt: plannedAt,
-          detail: structuredClone(inspectionDetail),
+        factKinds: ['certificate_store'],
+        factRequest: {
+          store: 'root',
+          fingerprintSha256: material.root.fingerprintSha256,
         },
       },
-    };
+    }, input.requestId);
+    throw new AppError('EXECUTION_TARGET_UNAVAILABLE', '宿主根信任检查已提交 Agent v2 事实采集任务，必须等待 Receipt 后再生成计划', {
+      code: 'CERTIFICATE_TRUST_INSPECT_PENDING',
+      certificateVersionId: input.certificateVersionId,
+      agentId: input.agentId,
+      taskId: inspectTask.id,
+      actionType: 'agent.fact.collect',
+      asyncPending: true,
+    });
   }
-}
-
-function readInspectStatus(value: unknown): 'found' | 'not_found' | undefined {
-  if (typeof value !== 'string') return undefined;
-  const normalized = value.trim().toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
-  if (normalized === 'found') return 'found';
-  if (normalized === 'not_found') return 'not_found';
-  return undefined;
-}
-
-function readOptionalString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-}
-
-function normalizeFingerprint(value: string | undefined): string | undefined {
-  return value?.replaceAll(':', '').trim().toLowerCase() || undefined;
 }
 
 export function derToPem(der: Buffer): string {

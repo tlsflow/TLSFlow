@@ -130,13 +130,7 @@ test('Agent 注册自动创建设备主记录并兼容 Windows Server 2008 R2', 
   await agents.heartbeat('tenant_windows_2008_r2', {
     agentId: registered.id,
     version: '1.0.0',
-    directControl: {
-      enabled: true,
-      reachable: true,
-      listenAddress: '10.33.2.18:18933',
-      protocolVersion: 'v1',
-      supportedActions: ['health'],
-    },
+    status: 'ONLINE',
   }, 'request_windows_2008_r2_heartbeat');
   const refreshed = await new PgDevicesRepository(database).list('tenant_windows_2008_r2', {
     page: 1,
@@ -144,7 +138,7 @@ test('Agent 注册自动创建设备主记录并兼容 Windows Server 2008 R2', 
     filter: {},
     sort: { field: 'displayName', direction: 'asc' },
   });
-  assert.equal(refreshed.items[0]?.managementAddress, '10.33.2.18');
+  assert.equal(refreshed.items[0]?.managementAddress, '10.33.2.8');
 
   await agents.register('tenant_windows_2008_r2', {
     agentKey: 'windows-2008-r2-agent-reinstalled',
