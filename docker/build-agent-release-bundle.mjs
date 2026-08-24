@@ -73,7 +73,6 @@ for (const [goArch, bundleArch] of [['amd64', 'amd64'], ['arm64', 'arm64']]) {
     'service-control.sh',
     'config/agent.config.template.json',
     'linux/gcac-linux-agent.service',
-    'linux/gcac-nginx-helper.sh',
     'linux/install-systemd.sh',
     'linux/uninstall-systemd.sh',
     'README.md',
