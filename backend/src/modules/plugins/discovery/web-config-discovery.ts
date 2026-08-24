@@ -115,18 +115,30 @@ function parseApache(content: string, fallbackAddress?: string): WebConfigDiscov
 }
 
 function parseTomcat(content: string, fallbackAddress?: string): WebConfigDiscoveryResult {
+  // Tomcat 默认 server.xml 带有大量注释示例；注释中的 Connector 不能成为运行时站点。
+  const activeContent = content.replace(/<!--[\s\S]*?-->/g, '');
   const sites: Array<Record<string, unknown>> = [];
-  const connectorPattern = /<Connector\b([^>]*?)(?:\/>|>)/gi;
+  const connectorPattern = /<Connector\b([^>]*?)(?:\/>|>)([\s\S]*?<\/Connector>)?/gi;
   let connector: RegExpExecArray | null;
-  while ((connector = connectorPattern.exec(content))) {
+  while ((connector = connectorPattern.exec(activeContent))) {
     const attrs = attributes(connector[1] ?? '');
+    const connectorBody = connector[2] ?? '';
     const port = Number(attrs.port ?? 8080);
-    const protocol = /ssl|https/i.test(String(attrs.protocol ?? '')) || attrs.scheme === 'https' ? 'HTTPS' : 'HTTP';
-    const hosts = [...content.matchAll(/<Host\b([^>]*?)(?:\/>|>)/gi)].map((item) => attributes(item[1] ?? '').name).filter(Boolean);
+    const certificatePath = attrs.certificateKeystoreFile
+      ?? attrs.keystoreFile
+      ?? attrs.certificateFile
+      ?? [...connectorBody.matchAll(/<Certificate\b([^>]*?)(?:\/>|>)/gi)]
+        .map((item) => {
+          const certificateAttrs = attributes(item[1] ?? '');
+          return certificateAttrs.certificateKeystoreFile ?? certificateAttrs.certificateFile;
+        })
+        .find(Boolean);
+    const protocol = /ssl|https/i.test(String(attrs.protocol ?? '')) || attrs.scheme === 'https' || Boolean(certificatePath) ? 'HTTPS' : 'HTTP';
+    const hosts = [...activeContent.matchAll(/<Host\b([^>]*?)(?:\/>|>)/gi)].map((item) => attributes(item[1] ?? '').name).filter(Boolean);
     const names = hosts.length ? hosts : [fallbackAddress ?? 'localhost'];
-    for (const name of names) sites.push({ frameworkType: 'app.tomcat', name, addresses: [name], port, protocol, metadata: { connectorProtocol: attrs.protocol, keystoreFile: attrs.keystoreFile } });
+    for (const name of names) sites.push({ frameworkType: 'app.tomcat', name, addresses: [name], port, protocol, metadata: { connectorProtocol: attrs.protocol, keystoreFile: certificatePath, listeners: [{ port, protocol, certificatePath }] } });
   }
-  const contexts = [...content.matchAll(/<Context\b([^>]*?)(?:\/>|>)/gi)].map((item) => attributes(item[1] ?? '').path).filter(Boolean);
+  const contexts = [...activeContent.matchAll(/<Context\b([^>]*?)(?:\/>|>)/gi)].map((item) => attributes(item[1] ?? '').path).filter(Boolean);
   for (const context of contexts) sites.push({ frameworkType: 'app.tomcat', name: context, addresses: [fallbackAddress ?? 'localhost'], metadata: { contextPath: context } });
   return { frameworks: [{ frameworkType: 'app.tomcat', displayName: 'Tomcat' }], sites };
 }

@@ -279,7 +279,8 @@ function addWebSite(
     targetBySite.set(site.stableKey, target);
     managedTargets.push(target);
   }
-  const certificatePath = listenersOf(site).map((item) => stringValue(item.certificatePath)).find(Boolean)
+  const certificatePath = listenersOf(site).map((item) => stringValue(item.certificatePath)).find((path) => Boolean(path && certificateByPath.has(normalizePath(path))))
+    ?? listenersOf(site).map((item) => stringValue(item.certificatePath)).find(Boolean)
     ?? stringValue(site.metadata?.certificatePath);
   const certificate = certificatePath ? certificateByPath.get(normalizePath(certificatePath)) : undefined;
   if (certificate && !certificates.some((item) => item.stableKey === certificate.stableKey)) certificates.push(certificate);
@@ -302,7 +303,12 @@ function buildCertificateIndex(capabilities: AgentCapabilitySnapshot['capabiliti
     const value = asRecord(entry); const path = stringValue(value?.path);
     if (!value || !path) continue;
     const reported = certificateFromReportedMetadata(value, path) ?? certificateFromPem(value, path);
-    if (reported) index.set(normalizePath(path), reported);
+    if (!reported) continue;
+    index.set(normalizePath(path), reported);
+    for (const configuredPath of arrayValue(value.configuredPaths) ?? []) {
+      const alias = stringValue(configuredPath);
+      if (alias) index.set(normalizePath(alias), reported);
+    }
   }
   return index;
 }

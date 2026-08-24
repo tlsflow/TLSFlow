@@ -185,6 +185,55 @@ test('同一 Nginx 站点聚合 HTTP 和 HTTPS 监听，并关联 Agent 上报�
   assert.equal(projected.certificateBindings[0]?.certificateStableKey, `CERT:${'A'.repeat(64)}`);
 });
 
+test('Tomcat 的相对 keystore 配置路径可关联 Agent 读取到的绝对路径证书', async () => {
+  const fixture = createFixture();
+  await fixture.service.project(agent(), snapshot([{
+    capabilityKey: 'web.inventory', confidence: 0.95, value: {
+      configFiles: [{ path: '/opt/tomcat/conf/server.xml', content: `<Connector port="8445" scheme="https"><SSLHostConfig><Certificate certificateKeystoreFile="localhost-rsa.p12" /></SSLHostConfig></Connector><Host name="localhost" />` }],
+      certificateFiles: [{ path: '/opt/tomcat/conf/localhost-rsa.p12', configuredPaths: ['localhost-rsa.p12'], name: 'localhost', sha256Fingerprint: 'b'.repeat(64), subject: 'CN=localhost', issuer: 'CN=GCAC Test CA', notBefore: '2026-08-01T00:00:00Z', notAfter: '2027-08-01T00:00:00Z' }],
+    },
+  }]));
+
+  const projected = fixture.projected() as {
+    sites: Array<{ stableKey: string; displayName: string; port?: number; protocol?: string }>;
+    certificates: Array<{ sha256Fingerprint?: string }>;
+    certificateBindings: Array<{ certificateStableKey: string }>;
+  };
+  assert.deepEqual(projected.sites, [{
+    stableKey: projected.sites[0]?.stableKey,
+    frameworkStableKey: 'framework:app.tomcat',
+    siteType: 'web.site',
+    displayName: 'localhost',
+    addresses: ['localhost', '10.0.0.10'],
+    port: 8445,
+    protocol: 'HTTPS',
+    metadata: {
+      connectorProtocol: undefined,
+      keystoreFile: 'localhost-rsa.p12',
+      listeners: [{ port: 8445, protocol: 'HTTPS', certificatePath: 'localhost-rsa.p12' }],
+    },
+  }]);
+  assert.equal(projected.certificates[0]?.sha256Fingerprint, 'B'.repeat(64));
+  assert.equal(projected.certificateBindings[0]?.certificateStableKey, `CERT:${'B'.repeat(64)}`);
+});
+
+test('Tomcat 多 listener 中会选择已上报证书路径，而不是注释示例路径', async () => {
+  const fixture = createFixture();
+  await fixture.service.project(agent(), snapshot([{
+    capabilityKey: 'web.inventory', confidence: 0.95, value: {
+      sites: [{ name: 'localhost', frameworkType: 'app.tomcat', port: 8443, protocol: 'HTTPS', addresses: ['localhost'], metadata: { listeners: [
+        { port: 8443, protocol: 'HTTPS', certificatePath: 'conf/localhost-rsa-cert.pem' },
+        { port: 8445, protocol: 'HTTPS', certificatePath: '/etc/gcac-test/certs/test.p12' },
+      ] } }],
+      certificateFiles: [{ path: '/etc/gcac-test/certs/test.p12', name: 'test.local', sha256Fingerprint: 'c'.repeat(64), subject: 'CN=test.local', issuer: 'CN=Test CA', notBefore: '2026-08-01T00:00:00Z', notAfter: '2027-08-01T00:00:00Z' }],
+    },
+  }]));
+  const projected = fixture.projected() as { certificateBindings: Array<{ certificateStableKey: string; metadata?: { certificatePath?: string } }> };
+  assert.equal(projected.certificateBindings.length, 1);
+  assert.equal(projected.certificateBindings[0]?.certificateStableKey, `CERT:${'C'.repeat(64)}`);
+  assert.equal(projected.certificateBindings[0]?.metadata?.certificatePath, '/etc/gcac-test/certs/test.p12');
+});
+
 test('权威 web.inventory 投影成功后只淘汰旧 Agent Web 插件资产', async () => {
   const fixture = createFixture();
   await fixture.service.project(agent(), snapshot([{

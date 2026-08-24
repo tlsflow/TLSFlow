@@ -21,3 +21,27 @@ test('Web 配置事实解析出 Apache VirtualHost 和 Tomcat Connector/Context'
   assert.equal(tomcat.sites.some((site) => site.name === 'app.example.test'), true);
   assert.equal(tomcat.sites.some((site) => site.name === '/shop'), true);
 });
+
+test('Web 配置事实把 Tomcat Connector 和 SSLHostConfig keystore 作为 HTTPS 证书路径', () => {
+  const result = discoverWebConfigs([{ path: '/opt/tomcat/conf/server.xml', content: `<Connector port="8445" protocol="org.apache.coyote.http11.Http11NioProtocol"><SSLHostConfig><Certificate certificateKeystoreFile="localhost-rsa.p12" certificateKeystorePassword="changeit" /></SSLHostConfig></Connector><Host name="localhost" />` }]);
+  const site = result.sites.find((item) => item.name === 'localhost');
+  assert.equal(site?.protocol, 'HTTPS');
+  assert.equal((site?.metadata as { keystoreFile?: string } | undefined)?.keystoreFile, 'localhost-rsa.p12');
+  assert.deepEqual((site?.metadata as { listeners?: Array<{ certificatePath?: string }> } | undefined)?.listeners, [{ port: 8445, protocol: 'HTTPS', certificatePath: 'localhost-rsa.p12' }]);
+});
+
+test('Web 配置事实支持 Tomcat SSLHostConfig 的 PEM certificateFile', () => {
+  const result = discoverWebConfigs([{ path: '/opt/tomcat/conf/server.xml', content: `<Connector port="8445" protocol="org.apache.coyote.http11.Http11NioProtocol"><SSLHostConfig><Certificate certificateFile="/opt/tomcat/conf/localhost.pem" /></SSLHostConfig></Connector>` }]);
+  const site = result.sites.find((item) => item.name === 'localhost');
+  assert.equal((site?.metadata as { keystoreFile?: string } | undefined)?.keystoreFile, '/opt/tomcat/conf/localhost.pem');
+  assert.equal((site?.metadata as { listeners?: Array<{ certificatePath?: string }> } | undefined)?.listeners?.[0]?.certificatePath, '/opt/tomcat/conf/localhost.pem');
+});
+
+test('Web 配置事实忽略 Tomcat server.xml 注释中的示例 Connector', () => {
+  const result = discoverWebConfigs([{ path: '/etc/tomcat9/server.xml', content: `<!-- <Connector port="8443" protocol="org.apache.coyote.http11.Http11NioProtocol"><SSLHostConfig><Certificate certificateKeystoreFile="conf/localhost-rsa.jks" /></SSLHostConfig></Connector> --><Connector port="8445" protocol="org.apache.coyote.http11.Http11NioProtocol" SSLEnabled="true" keystoreFile="/etc/gcac-test/certs/test.p12" />` }]);
+  const site = result.sites.find((item) => item.name === 'localhost');
+  assert.equal(result.sites.length, 1);
+  assert.equal(site?.port, 8445);
+  assert.equal(site?.protocol, 'HTTPS');
+  assert.equal((site?.metadata as { keystoreFile?: string } | undefined)?.keystoreFile, '/etc/gcac-test/certs/test.p12');
+});
