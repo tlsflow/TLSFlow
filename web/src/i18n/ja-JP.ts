@@ -1632,22 +1632,28 @@ export default {
     }
   },
   notifications: {
-    title: 'マルチチャネル通知センター',
+    title: '通知管理',
     description: '通知チャネル、ルート、テンプレート、サイレンス、配信履歴を一元管理します。',
     tabs: { channels: '通知チャネル', deliveries: '配信履歴', rules: 'ルールとテンプレート' },
-    channels: { createTitle: '通知チャネルを作成' },
+    sections: { channels: '通知チャネル一覧', deliveries: '配信履歴' },
+    channels: { createTitle: '通知チャネルを新規作成' },
     fields: {
       name: 'チャネル名', type: 'チャネル種別', smtpHost: 'SMTP ホスト', smtpPort: 'SMTP ポート', from: '送信元アドレス',
       secretRef: 'SecretRef', secretRefPlaceholder: '平文の秘密情報ではなく SecretRef のみ入力', testTarget: 'テスト送信先',
       testTargetPlaceholder: 'Email はカンマ区切りで入力できます', lastSuccess: '最終成功', latency: '遅延（ミリ秒）',
-      createdAt: '作成日時', failureCategory: '失敗分類', channel: '通知チャネル', selectChannel: '通知チャネルを選択',
-      source: 'イベントソース', priority: 'ルート優先度', dedupeWindow: '重複排除時間（秒）', templateKey: 'テンプレートキー',
+      createdAt: '作成日時', updatedAt: '更新日時', failureCategory: '失敗分類', channel: '通知チャネル', selectChannel: '通知チャネルを選択',
+      source: 'イベントソース', priority: 'ルート優先度', dedupeWindow: '重複排除時間（秒）', templateKey: 'テンプレートキー', locale: '言語',
       titleTemplate: 'タイトルテンプレート', bodyTemplate: '本文テンプレート', reason: 'サイレンス理由', startsAt: '開始日時', endsAt: '終了日時'
     },
-    actions: { test: 'テスト送信', retry: '再配信' },
-    rules: { createRoute: '通知ルートを作成', createTemplate: '通知テンプレートを保存', createSilence: 'サイレンスルールを作成' },
-    summary: { routes: '通知ルート', templates: '通知テンプレート', silences: 'サイレンスルール' },
-    messages: { loadFailed: '通知センターのデータ読み込みに失敗しました' }
+    actions: {
+      createChannel: 'チャネルを新規作成', createRoute: 'ルートを新規作成', createTemplate: 'テンプレートを新規作成', createSilence: 'サイレンスを新規作成',
+      confirmCreate: '作成', cancel: 'キャンセル', test: 'テスト送信', testChannel: 'チャネルをテスト：{name}', retry: '再配信', enable: '有効化', disable: '無効化'
+    },
+    rules: { createRoute: '通知ルートを新規作成', createTemplate: '通知テンプレートを新規作成', createSilence: 'サイレンスルールを新規作成' },
+    summary: { routes: '通知ルート', templates: '通知テンプレート', silences: 'サイレンスルール', recordCount: '{count} 件' },
+    empty: { channels: '通知チャネルはありません', deliveries: '配信履歴はありません', routes: '通知ルートはありません', templates: '通知テンプレートはありません', silences: 'サイレンスルールはありません' },
+    values: { notAvailable: '—' },
+    messages: { loadFailed: '通知管理データの読み込みに失敗しました', operationFailed: '通知管理の操作に失敗しました', testUsesChannelTarget: '設定済みの送信先へテスト通知を送信します。' }
   },
   settings: {
     securityLabel: 'セキュリティ設定への導線',

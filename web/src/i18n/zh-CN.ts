@@ -1632,22 +1632,28 @@ export default {
     }
   },
   notifications: {
-    title: '多渠道通知中心',
+    title: '通知管理',
     description: '统一管理通知渠道、路由、模板、静默和可靠投递记录。',
     tabs: { channels: '通知渠道', deliveries: '投递记录', rules: '规则与模板' },
-    channels: { createTitle: '创建通知渠道' },
+    sections: { channels: '通知渠道记录', deliveries: '投递记录' },
+    channels: { createTitle: '新建通知渠道' },
     fields: {
       name: '渠道名称', type: '渠道类型', smtpHost: 'SMTP 主机', smtpPort: 'SMTP 端口', from: '发件地址',
       secretRef: 'SecretRef', secretRefPlaceholder: '仅输入 SecretRef，不输入明文密钥', testTarget: '测试接收目标',
       testTargetPlaceholder: 'Email 可输入逗号分隔的收件地址', lastSuccess: '最近成功', latency: '延迟（毫秒）',
-      createdAt: '创建时间', failureCategory: '失败分类', channel: '通知渠道', selectChannel: '请选择通知渠道',
-      source: '事件来源', priority: '路由优先级', dedupeWindow: '去重窗口（秒）', templateKey: '模板键',
+      createdAt: '创建时间', updatedAt: '更新时间', failureCategory: '失败分类', channel: '通知渠道', selectChannel: '请选择通知渠道',
+      source: '事件来源', priority: '路由优先级', dedupeWindow: '去重窗口（秒）', templateKey: '模板键', locale: '语言',
       titleTemplate: '标题模板', bodyTemplate: '正文模板', reason: '静默原因', startsAt: '开始时间', endsAt: '结束时间'
     },
-    actions: { test: '测试发送', retry: '重新投递' },
-    rules: { createRoute: '创建通知路由', createTemplate: '保存通知模板', createSilence: '创建静默规则' },
-    summary: { routes: '通知路由', templates: '通知模板', silences: '静默规则' },
-    messages: { loadFailed: '通知中心数据加载失败' }
+    actions: {
+      createChannel: '新建通知渠道', createRoute: '新建通知路由', createTemplate: '新建通知模板', createSilence: '新建静默规则',
+      confirmCreate: '确认创建', cancel: '取消', test: '测试发送', testChannel: '测试渠道：{name}', retry: '重新投递', enable: '启用', disable: '停用'
+    },
+    rules: { createRoute: '新建通知路由', createTemplate: '新建通知模板', createSilence: '新建静默规则' },
+    summary: { routes: '通知路由', templates: '通知模板', silences: '静默规则', recordCount: '共 {count} 条记录' },
+    empty: { channels: '暂无通知渠道记录', deliveries: '暂无投递记录', routes: '暂无通知路由', templates: '暂无通知模板', silences: '暂无静默规则' },
+    values: { notAvailable: '—' },
+    messages: { loadFailed: '通知管理数据加载失败', operationFailed: '通知管理操作失败', testUsesChannelTarget: '该渠道将使用已配置的接收目标发送测试通知。' }
   },
   settings: {
     securityLabel: '安全设置入口',

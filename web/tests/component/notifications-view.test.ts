@@ -10,6 +10,9 @@ const apiMocks = vi.hoisted(() => ({
   listNotificationTemplates: vi.fn(),
   listNotificationSilences: vi.fn(),
   createNotificationChannel: vi.fn(),
+  createNotificationRoute: vi.fn(),
+  createNotificationSilence: vi.fn(),
+  saveNotificationTemplate: vi.fn(),
   updateNotificationChannel: vi.fn(),
   testNotificationChannel: vi.fn(),
   retryNotificationDelivery: vi.fn()
@@ -35,10 +38,13 @@ describe('NotificationsView', () => {
       global: {
         plugins: [i18n],
         stubs: {
-          GcPageHeader: { template: '<header><slot name="actions" /></header>' },
           GcTabs: {
             props: ['modelValue'],
             template: '<nav><button @click="$emit(\'update:modelValue\', \'channels\')">channels</button></nav>'
+          },
+          GcModal: {
+            props: ['open', 'title'],
+            template: '<section v-if="open" role="dialog"><h2>{{ title }}</h2><slot /><slot name="actions" /></section>'
           },
           GcStatusTag: { props: ['status'], template: '<span>{{ status }}</span>' }
         }
@@ -50,6 +56,13 @@ describe('NotificationsView', () => {
     expect(wrapper.text()).toContain('healthy')
     expect(wrapper.text()).not.toContain('secret://api_token/slack#current')
     expect(wrapper.text()).not.toContain('plaintext-token')
+    expect(wrapper.find('#notification-channel-form').exists()).toBe(false)
+
+    const createButton = wrapper.findAll('button').find((button) => button.text() === '新建通知渠道')
+    expect(createButton).toBeDefined()
+    await createButton?.trigger('click')
+
+    expect(wrapper.find('#notification-channel-form').exists()).toBe(true)
     expect(wrapper.find('input[autocomplete="off"]').exists()).toBe(true)
   })
 })

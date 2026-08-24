@@ -1632,22 +1632,28 @@ export default {
     }
   },
   notifications: {
-    title: '多渠道通知中心',
+    title: '通知管理',
     description: '統一管理通知渠道、路由、範本、靜默和可靠投遞記錄。',
     tabs: { channels: '通知渠道', deliveries: '投遞記錄', rules: '規則與範本' },
-    channels: { createTitle: '建立通知渠道' },
+    sections: { channels: '通知渠道記錄', deliveries: '投遞記錄' },
+    channels: { createTitle: '新增通知渠道' },
     fields: {
       name: '渠道名稱', type: '渠道類型', smtpHost: 'SMTP 主機', smtpPort: 'SMTP 連接埠', from: '寄件地址',
       secretRef: 'SecretRef', secretRefPlaceholder: '僅輸入 SecretRef，不輸入明文密鑰', testTarget: '測試接收目標',
       testTargetPlaceholder: 'Email 可輸入逗號分隔的收件地址', lastSuccess: '最近成功', latency: '延遲（毫秒）',
-      createdAt: '建立時間', failureCategory: '失敗分類', channel: '通知渠道', selectChannel: '請選擇通知渠道',
-      source: '事件來源', priority: '路由優先順序', dedupeWindow: '去重視窗（秒）', templateKey: '範本鍵',
+      createdAt: '建立時間', updatedAt: '更新時間', failureCategory: '失敗分類', channel: '通知渠道', selectChannel: '請選擇通知渠道',
+      source: '事件來源', priority: '路由優先順序', dedupeWindow: '去重視窗（秒）', templateKey: '範本鍵', locale: '語言',
       titleTemplate: '標題範本', bodyTemplate: '正文範本', reason: '靜默原因', startsAt: '開始時間', endsAt: '結束時間'
     },
-    actions: { test: '測試發送', retry: '重新投遞' },
-    rules: { createRoute: '建立通知路由', createTemplate: '儲存通知範本', createSilence: '建立靜默規則' },
-    summary: { routes: '通知路由', templates: '通知範本', silences: '靜默規則' },
-    messages: { loadFailed: '通知中心資料載入失敗' }
+    actions: {
+      createChannel: '新增通知渠道', createRoute: '新增通知路由', createTemplate: '新增通知範本', createSilence: '新增靜默規則',
+      confirmCreate: '確認建立', cancel: '取消', test: '測試發送', testChannel: '測試渠道：{name}', retry: '重新投遞', enable: '啟用', disable: '停用'
+    },
+    rules: { createRoute: '新增通知路由', createTemplate: '新增通知範本', createSilence: '新增靜默規則' },
+    summary: { routes: '通知路由', templates: '通知範本', silences: '靜默規則', recordCount: '共 {count} 筆記錄' },
+    empty: { channels: '暫無通知渠道記錄', deliveries: '暫無投遞記錄', routes: '暫無通知路由', templates: '暫無通知範本', silences: '暫無靜默規則' },
+    values: { notAvailable: '—' },
+    messages: { loadFailed: '通知管理資料載入失敗', operationFailed: '通知管理操作失敗', testUsesChannelTarget: '此渠道將使用已設定的接收目標發送測試通知。' }
   },
   settings: {
     securityLabel: "安全設定入口",

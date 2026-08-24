@@ -1632,22 +1632,28 @@ export default {
     }
   },
   notifications: {
-    title: 'Multi-channel Notification Center',
+    title: 'Notification Management',
     description: 'Manage notification channels, routes, templates, silences, and reliable delivery records.',
     tabs: { channels: 'Channels', deliveries: 'Deliveries', rules: 'Rules and templates' },
+    sections: { channels: 'Channel records', deliveries: 'Delivery records' },
     channels: { createTitle: 'Create notification channel' },
     fields: {
       name: 'Channel name', type: 'Channel type', smtpHost: 'SMTP host', smtpPort: 'SMTP port', from: 'From address',
       secretRef: 'SecretRef', secretRefPlaceholder: 'Enter a SecretRef only, never a plaintext secret', testTarget: 'Test recipient',
       testTargetPlaceholder: 'Email recipients can be comma-separated', lastSuccess: 'Last success', latency: 'Latency (ms)',
-      createdAt: 'Created at', failureCategory: 'Failure category', channel: 'Notification channel', selectChannel: 'Select a notification channel',
-      source: 'Event source', priority: 'Route priority', dedupeWindow: 'Dedupe window (seconds)', templateKey: 'Template key',
+      createdAt: 'Created at', updatedAt: 'Updated at', failureCategory: 'Failure category', channel: 'Notification channel', selectChannel: 'Select a notification channel',
+      source: 'Event source', priority: 'Route priority', dedupeWindow: 'Dedupe window (seconds)', templateKey: 'Template key', locale: 'Locale',
       titleTemplate: 'Title template', bodyTemplate: 'Body template', reason: 'Silence reason', startsAt: 'Starts at', endsAt: 'Ends at'
     },
-    actions: { test: 'Send test', retry: 'Retry delivery' },
-    rules: { createRoute: 'Create notification route', createTemplate: 'Save notification template', createSilence: 'Create silence rule' },
-    summary: { routes: 'Notification routes', templates: 'Notification templates', silences: 'Silence rules' },
-    messages: { loadFailed: 'Failed to load notification center data' }
+    actions: {
+      createChannel: 'New channel', createRoute: 'New route', createTemplate: 'New template', createSilence: 'New silence',
+      confirmCreate: 'Create', cancel: 'Cancel', test: 'Send test', testChannel: 'Test channel: {name}', retry: 'Retry delivery', enable: 'Enable', disable: 'Disable'
+    },
+    rules: { createRoute: 'Create notification route', createTemplate: 'Create notification template', createSilence: 'Create silence rule' },
+    summary: { routes: 'Notification routes', templates: 'Notification templates', silences: 'Silence rules', recordCount: '{count} records' },
+    empty: { channels: 'No notification channels', deliveries: 'No delivery records', routes: 'No notification routes', templates: 'No notification templates', silences: 'No silence rules' },
+    values: { notAvailable: '—' },
+    messages: { loadFailed: 'Failed to load notification management data', operationFailed: 'Notification management operation failed', testUsesChannelTarget: 'This channel will send the test notification to its configured target.' }
   },
   settings: {
     securityLabel: 'Security settings entry',

@@ -1606,22 +1606,28 @@ export default {
     }
   },
   notifications: {
-    title: 'Centre de notifications multicanal',
+    title: 'Gestion des notifications',
     description: 'Gérez les canaux, routes, modèles, silences et historiques de livraison fiables.',
     tabs: { channels: 'Canaux', deliveries: 'Livraisons', rules: 'Règles et modèles' },
+    sections: { channels: 'Canaux enregistrés', deliveries: 'Historique des livraisons' },
     channels: { createTitle: 'Créer un canal de notification' },
     fields: {
       name: 'Nom du canal', type: 'Type de canal', smtpHost: 'Hôte SMTP', smtpPort: 'Port SMTP', from: 'Adresse expéditeur',
       secretRef: 'SecretRef', secretRefPlaceholder: 'Saisissez uniquement un SecretRef', testTarget: 'Destinataire de test',
       testTargetPlaceholder: 'Séparez les adresses Email par des virgules', lastSuccess: 'Dernier succès', latency: 'Latence (ms)',
-      createdAt: 'Créé le', failureCategory: 'Catégorie d’échec', channel: 'Canal de notification', selectChannel: 'Sélectionnez un canal',
-      source: 'Source de l’événement', priority: 'Priorité de route', dedupeWindow: 'Fenêtre de déduplication (secondes)', templateKey: 'Clé du modèle',
+      createdAt: 'Créé le', updatedAt: 'Mis à jour le', failureCategory: 'Catégorie d’échec', channel: 'Canal de notification', selectChannel: 'Sélectionnez un canal',
+      source: 'Source de l’événement', priority: 'Priorité de route', dedupeWindow: 'Fenêtre de déduplication (secondes)', templateKey: 'Clé du modèle', locale: 'Langue',
       titleTemplate: 'Modèle de titre', bodyTemplate: 'Modèle de corps', reason: 'Motif du silence', startsAt: 'Début', endsAt: 'Fin'
     },
-    actions: { test: 'Envoyer un test', retry: 'Relancer la livraison' },
-    rules: { createRoute: 'Créer une route de notification', createTemplate: 'Enregistrer le modèle', createSilence: 'Créer une règle de silence' },
-    summary: { routes: 'Routes de notification', templates: 'Modèles de notification', silences: 'Règles de silence' },
-    messages: { loadFailed: 'Échec du chargement du centre de notifications' }
+    actions: {
+      createChannel: 'Nouveau canal', createRoute: 'Nouvelle route', createTemplate: 'Nouveau modèle', createSilence: 'Nouveau silence',
+      confirmCreate: 'Créer', cancel: 'Annuler', test: 'Envoyer un test', testChannel: 'Tester le canal : {name}', retry: 'Relancer la livraison', enable: 'Activer', disable: 'Désactiver'
+    },
+    rules: { createRoute: 'Créer une route de notification', createTemplate: 'Créer un modèle de notification', createSilence: 'Créer une règle de silence' },
+    summary: { routes: 'Routes de notification', templates: 'Modèles de notification', silences: 'Règles de silence', recordCount: '{count} enregistrements' },
+    empty: { channels: 'Aucun canal de notification', deliveries: 'Aucun historique de livraison', routes: 'Aucune route de notification', templates: 'Aucun modèle de notification', silences: 'Aucune règle de silence' },
+    values: { notAvailable: '—' },
+    messages: { loadFailed: 'Échec du chargement des données de gestion des notifications', operationFailed: 'Échec de l’opération de gestion des notifications', testUsesChannelTarget: 'Ce canal enverra la notification de test à sa destination configurée.' }
   },
   settings: {
     securityLabel: 'Sécurité paramètres entrée',
