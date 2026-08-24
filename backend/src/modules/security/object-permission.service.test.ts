@@ -425,12 +425,20 @@ test('静态对象集合成员必须与真实租户一致，不能把同一对�
 test('默认对象目录覆盖阶段 3 的授权根对象与派生对象', async () => {
   const { service } = createServiceWithRepos();
   const types = await service.listObjectTypes();
+  const typeCodes = new Set(types.map((item) => item.code));
   const executionStep = types.find((item) => item.code === 'execution_step');
   const certificateVersion = types.find((item) => item.code === 'certificate_version');
+  const certificateRequest = types.find((item) => item.code === 'certificate_request');
+  const certificateRenewal = types.find((item) => item.code === 'certificate_renewal');
   const workflowTemplate = types.find((item) => item.code === 'workflow_template');
   const secret = types.find((item) => item.code === 'secret');
   assert.deepEqual(executionStep?.parentTypes, ['execution_run']);
   assert.deepEqual(certificateVersion?.parentTypes, ['certificate', 'certificate_asset']);
+  assert.deepEqual(certificateRequest?.parentTypes, ['certificate_authority']);
+  assert.deepEqual(certificateRenewal?.parentTypes, ['certificate_asset', 'certificate_authority']);
+  for (const retiredType of ['acme_account', 'ca_provider', 'ca_node', 'cloud_account_asset', 'provider_operation']) {
+    assert.equal(typeCodes.has(retiredType), false, `不应注册已删除的厂商对象类型：${retiredType}`);
+  }
   assert.equal(workflowTemplate?.tableName, 'workflow_templates');
   assert.equal(secret?.tenantField, 'tenant_id');
 });
