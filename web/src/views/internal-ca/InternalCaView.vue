@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import { internalCaApi, type InternalCaRecord } from '@/api/modules/internal-ca.api'
@@ -29,6 +29,8 @@ const authorityCreationKind = ref<'root' | 'intermediate'>('root')
 const authorityCreationMode = ref<'builtin' | 'managed_node'>('builtin')
 const selectedRootId = ref('')
 const authorityWizardForm = ref<HTMLFormElement | null>(null)
+const authoritySubjectAdvancedOpen = ref(false)
+const commonNameCustomized = ref(false)
 const backendEnrollment = ref<InternalCaRecord | null>(null)
 const backendPrepared = ref(false)
 const trustDomainModalOpen = ref(false)
@@ -96,6 +98,10 @@ const profileColumns = computed<DataTableColumn<InternalCaRecord>[]>(() => [
 ])
 
 onMounted(loadAll)
+
+watch(() => authorityDraft.name, (name) => {
+  if (!commonNameCustomized.value) authorityDraft.commonName = name
+})
 
 async function loadAll() {
   loading.value = true
@@ -215,6 +221,8 @@ function openAuthorityWizard(kind: 'root' | 'intermediate' = 'root', parent?: In
   authorityDraft.parentCaId = ''
   authorityDraft.name = ''
   authorityDraft.commonName = ''
+  authoritySubjectAdvancedOpen.value = false
+  commonNameCustomized.value = false
   authorityDraft.topologyMode = 'root_with_intermediate'
   if (kind === 'intermediate') {
     applyParentRoot(parent ?? selectedRoot.value)
@@ -301,22 +309,27 @@ function authorityWizardStepLabel(step: number): string {
 }
 
 function backendModeLabel(backend: InternalCaRecord): string {
-  const mode = text(backend.deploymentMode)
-  if (mode === 'managed_node') return t('internalCa.wizard.managedTitle')
-  if (mode === 'builtin') return t('internalCa.wizard.builtinTitle')
-  return text(backend.protocol, t('common.notAvailable'))
+  const type = text(backend.type)
+  if (type === 'gcac_builtin') return t('internalCa.backendTypes.builtin')
+  if (type === 'gcac_managed_node') return t('internalCa.backendTypes.managedNode')
+  if (type === 'acme') return t('internalCa.backendTypes.acme')
+  return t('internalCa.backendTypes.external')
 }
 
-function backendProtocolLabel(backend: InternalCaRecord): string {
-  return text(backend.protocol, text(backend.profile, t('common.notAvailable')))
+function backendCapabilitySummary(backend: InternalCaRecord): string {
+  const type = text(backend.type)
+  if (type === 'gcac_builtin') return t('internalCa.backendSummary.createAndIssue')
+  if (type === 'acme') return t('internalCa.backendSummary.requestPublicCertificates')
+  if (type === 'gcac_managed_node') return t('internalCa.backendSummary.managedNode')
+  return t('internalCa.backendSummary.external')
 }
 
-function capabilityCount(backend: InternalCaRecord, state: string): number {
-  return asRecords(backend.capabilityRecords).filter((record) => text(record.state) === state).length
-}
-
-function capabilityLabel(capability: InternalCaRecord): string {
-  return text(capability.key, text(capability.name, t('internalCa.common.unknown')))
+function backendVerificationSummary(backend: InternalCaRecord): string {
+  const isVerified = asRecords(backend.capabilityRecords).some((record) => text(record.state) === 'verified')
+  if (!isVerified) return t('internalCa.backendSummary.unverified')
+  const type = text(backend.type)
+  if (type === 'gcac_builtin') return t('internalCa.backendSummary.localVerified')
+  return t('internalCa.backendSummary.remoteVerified')
 }
 
 function backendLabel(providerId: unknown): string {
@@ -520,20 +533,13 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
 
         <details class="gc-card backend-settings">
           <summary>{{ t('internalCa.sections.issuingBackends') }}</summary>
-          <section class="capability-overview">
-            <strong>{{ t('designSystem.capability.title') }}</strong>
-            <p>{{ t('designSystem.capability.description') }}</p>
-          </section>
           <div class="backend-settings__list">
             <article v-for="backend in providers" :key="text(backend.id)" class="backend-summary">
-              <div class="backend-summary__heading"><strong>{{ text(backend.name) }}</strong><span>{{ backendModeLabel(backend) }} · {{ backendProtocolLabel(backend) }}</span></div>
+              <div class="backend-summary__heading"><strong>{{ text(backend.name) }}</strong><span>{{ backendModeLabel(backend) }}</span></div>
               <GcStatusTag :status="text(backend.status)" />
               <small>{{ t('internalCa.labels.backendUsageCount', { count: authorities.filter((item) => text(item.providerId) === text(backend.id)).length }) }}</small>
-              <small>{{ t('internalCa.labels.unverifiedCapabilityCount', { count: capabilityCount(backend, 'declared') }) }}</small>
-              <div v-if="asRecords(backend.capabilityRecords).length" class="backend-summary__capabilities">
-                <span v-for="capability in asRecords(backend.capabilityRecords)" :key="`${capabilityLabel(capability)}:${text(capability.state)}`">{{ capabilityLabel(capability) }} · {{ text(capability.state, t('internalCa.common.unknown')) }}</span>
-              </div>
-              <p v-else class="backend-summary__empty">{{ t('designSystem.capability.empty') }}</p>
+              <small>{{ backendCapabilitySummary(backend) }}</small>
+              <small>{{ backendVerificationSummary(backend) }}</small>
             </article>
           </div>
         </details>
@@ -707,19 +713,25 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
           <header class="ca-wizard__panel-heading ca-wizard__full"><span>{{ t('internalCa.wizard.authorityEyebrow') }}</span><h3>{{ authorityCreationKind === 'root' ? t('internalCa.wizard.rootConfigurationTitle') : t('internalCa.wizard.intermediateConfigurationTitle') }}</h3><p>{{ authorityCreationKind === 'root' ? t('internalCa.wizard.rootConfigurationDescription') : t('internalCa.wizard.intermediateConfigurationDescription') }}</p></header>
           <label v-if="authorityCreationKind === 'intermediate' && authorityWizardStep === 1" class="ca-wizard__full">{{ t('internalCa.fields.parentAuthority') }}<select :value="authorityDraft.parentCaId" required @change="selectParentRoot(($event.target as HTMLSelectElement).value)"><option v-for="item in eligibleParentRoots" :key="text(item.id)" :value="text(item.id)">{{ text(item.name) }}</option></select></label>
           <template v-else>
-            <label v-if="authorityCreationKind === 'root'">{{ t('internalCa.fields.trustDomain') }}<select v-model="authorityDraft.trustDomainId" required><option v-for="item in trustDomains" :key="text(item.id)" :value="text(item.id)">{{ text(item.name) }}</option></select></label>
+             <label v-if="authorityCreationKind === 'root'">{{ t('internalCa.fields.trustDomain') }}<select v-model="authorityDraft.trustDomainId" required><option v-for="item in trustDomains" :key="text(item.id)" :value="text(item.id)">{{ text(item.name) }}</option></select></label>
              <label>{{ t('internalCa.fields.name') }}<input v-model="authorityDraft.name" required /></label>
-             <label>{{ t('internalCa.fields.commonName') }}<input v-model="authorityDraft.commonName" required /></label>
              <label>{{ t('internalCa.fields.securityDomain') }}<input v-model="authorityDraft.securityDomain" required /></label>
              <label v-if="authorityCreationKind === 'root'">{{ t('internalCa.fields.topology') }}<select v-model="authorityDraft.topologyMode"><option value="root_only">{{ t('internalCa.topology.rootOnly') }}</option><option value="root_with_intermediate">{{ t('internalCa.topology.intermediate') }}</option></select></label>
-            <article class="ca-wizard__backend-summary ca-wizard__full"><span>{{ t('internalCa.fields.issuingBackend') }}</span><strong>{{ authorityCreationKind === 'intermediate' ? backendLabel(authorityDraft.providerId) : t(`internalCa.wizard.${authorityCreationMode}Title`) }}</strong><small>{{ t(`internalCa.wizard.${selectedCreationMode}SecurityNote`) }}</small></article>
+             <details class="ca-wizard__advanced ca-wizard__full" :open="authoritySubjectAdvancedOpen" @toggle="authoritySubjectAdvancedOpen = ($event.target as HTMLDetailsElement).open">
+               <summary>{{ t('internalCa.wizard.advancedSubjectTitle') }}</summary>
+               <div v-if="authoritySubjectAdvancedOpen" class="ca-wizard__advanced-body">
+                 <label>{{ t('internalCa.fields.certificateSubjectCommonName') }}<input v-model="authorityDraft.commonName" :placeholder="authorityDraft.name" required @input="commonNameCustomized = true" /></label>
+                 <small>{{ t('internalCa.wizard.commonNameHelp') }}</small>
+               </div>
+             </details>
+             <article class="ca-wizard__backend-summary ca-wizard__full"><span>{{ t('internalCa.fields.issuingBackend') }}</span><strong>{{ authorityCreationKind === 'intermediate' ? backendLabel(authorityDraft.providerId) : t(`internalCa.wizard.${authorityCreationMode}Title`) }}</strong><small>{{ t(`internalCa.wizard.${selectedCreationMode}SecurityNote`) }}</small></article>
           </template>
           <button class="ca-wizard__hidden-submit" tabindex="-1"></button>
         </form>
 
         <section v-else class="ca-wizard__panel ca-wizard__review">
           <header class="ca-wizard__panel-heading"><span>{{ t('internalCa.wizard.reviewEyebrow') }}</span><h3>{{ t('internalCa.wizard.reviewTitle') }}</h3><p>{{ t('internalCa.wizard.reviewDescription') }}</p></header>
-          <div class="ca-wizard__review-grid"><span>{{ t('internalCa.fields.entryMode') }}</span><strong>{{ t(`internalCa.wizard.${selectedCreationMode}Title`) }}</strong><span>{{ t('internalCa.fields.authorityType') }}</span><strong>{{ authorityCreationKind === 'root' ? t('internalCa.wizard.rootTitle') : t('internalCa.wizard.intermediateTitle') }}</strong><span>{{ t('internalCa.fields.name') }}</span><strong>{{ authorityDraft.name }}</strong><span>{{ t('internalCa.fields.commonName') }}</span><strong>{{ authorityDraft.commonName }}</strong><span>{{ t('internalCa.fields.trustDomain') }}</span><strong>{{ trustDomainName(authorityDraft.trustDomainId) }}</strong></div>
+          <div class="ca-wizard__review-grid"><span>{{ t('internalCa.fields.entryMode') }}</span><strong>{{ t(`internalCa.wizard.${selectedCreationMode}Title`) }}</strong><span>{{ t('internalCa.fields.authorityType') }}</span><strong>{{ authorityCreationKind === 'root' ? t('internalCa.wizard.rootTitle') : t('internalCa.wizard.intermediateTitle') }}</strong><span>{{ t('internalCa.fields.name') }}</span><strong>{{ authorityDraft.name }}</strong><span>{{ t('internalCa.fields.certificateSubjectCommonName') }}</span><strong>{{ authorityDraft.commonName }}</strong><span>{{ t('internalCa.fields.trustDomain') }}</span><strong>{{ trustDomainName(authorityDraft.trustDomainId) }}</strong></div>
           <article v-if="selectedCreationMode === 'managed_node' && backendEnrollment" class="ca-wizard__enrollment"><strong>{{ t('internalCa.wizard.enrollmentTitle') }}</strong><p>{{ t('internalCa.wizard.enrollmentDescription') }}</p><code>{{ text(backendEnrollment.token) }}</code><small>{{ t('internalCa.wizard.enrollmentExpiresAt', { time: localTime(backendEnrollment.expiresAt) }) }}</small></article>
           <article class="ca-wizard__risk"><strong>{{ t('internalCa.sections.riskSummary') }}</strong><p>{{ text(authorityPreview?.overallRecommendation) }}</p><ul><li v-for="warning in asRecords(authorityPreview?.warnings)" :key="String(warning)">{{ warning }}</li></ul><p v-if="!asRecords(authorityPreview?.warnings).length">{{ t('internalCa.wizard.noWarnings') }}</p></article>
         </section>
@@ -823,6 +835,10 @@ pre { overflow: auto; padding: var(--gc-space-3); color: var(--gc-color-text); b
 .ca-entry-card ul { display: grid; gap: var(--gc-space-2); margin: 0; padding-inline-start: var(--gc-space-5); color: var(--gc-color-text-muted); }
 .ca-wizard__form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-4); }
 .ca-wizard__full { grid-column: 1 / -1; }
+.ca-wizard__advanced { display: grid; gap: var(--gc-space-3); padding-top: var(--gc-space-3); border-top: var(--gc-border-width-default) solid var(--gc-color-border); }
+.ca-wizard__advanced summary { width: fit-content; color: var(--gc-color-primary); font-size: var(--gc-font-size-sm); font-weight: 700; cursor: pointer; }
+.ca-wizard__advanced-body { display: grid; gap: var(--gc-space-2); }
+.ca-wizard__advanced-body small { color: var(--gc-color-text-muted); }
 .ca-wizard__hidden-submit { position: absolute; width: 0; height: 0; padding: 0; border: 0; overflow: hidden; }
 .ca-wizard__review { display: grid; gap: var(--gc-space-4); }
 .ca-wizard__review-grid { display: grid; grid-template-columns: minmax(0, .65fr) minmax(0, 1.35fr); gap: var(--gc-space-2) var(--gc-space-4); padding: var(--gc-space-4); border-radius: var(--gc-radius-lg); background: var(--gc-color-surface-muted); }
