@@ -1,0 +1,19 @@
+{
+  "apiVersion": "gcac.compatibility/v1", "profileId": "linux-openrc-nginx", "version": "1.0", "status": "experimental",
+  "match": {
+    "id": "linux-openrc-nginx.match", "ownerType": "provider_action", "ownerId": "linux-openrc-nginx",
+    "requiredAll": [
+      { "capabilityKey": "agent.full.online", "operator": "equals", "expected": true, "reason": "需要 Linux Full Agent 在线", "riskIfMissing": "无法执行本机部署" },
+      { "capabilityKey": "linux.openrc.v1", "operator": "equals", "expected": true, "reason": "需要唯一有效的 OpenRC 服务控制能力", "riskIfMissing": "无法安全重载服务" },
+      { "capabilityKey": "linux.filesystem.posix-atomic.v1", "operator": "equals", "expected": true, "reason": "需要 POSIX 原子文件替换", "riskIfMissing": "证书替换可能留下不完整文件" },
+      { "capabilityKey": "nginx.cert.install", "operator": "equals", "expected": true, "reason": "需要 Nginx 证书安装能力", "riskIfMissing": "无法完成证书部署" }
+    ], "optional": [], "anyOfGroups": [], "forbidden": [], "minConfidence": 80, "allowManual": false, "riskLevel": "critical"
+  },
+  "composition": { "product": "product.nginx", "certificate_store": "certificate-store.posix-filesystem", "artifact_codec": "artifact-codec.pem", "service_controller": "service-controller.openrc", "transport": "transport.agent-local", "verifier": "verifier.tls-remote", "rollback": "rollback.posix-certificate-files" },
+  "automation": "full", "rollbackRequired": true, "verificationRequired": true,
+  "limitations": ["仅有 OpenRC fixture 和合同测试，缺少真实 OpenRC 服务认证", "不得从代表环境推导为所有 Alpine 或其他发行版版本均支持"],
+  "evidence": [
+    { "evidenceId": "linux.openrc.root.fixture", "type": "fixture", "status": "passed", "reference": "compatibility/fixtures/linux/openrc-root-amd64.json", "observedAt": "2026-07-21T00:00:00.000Z", "expiresAt": "2026-10-21T00:00:00.000Z" },
+    { "evidenceId": "linux.nginx.agent-regression", "type": "contract_test", "status": "passed", "reference": "agents/linux-go-full-agent/main_test.go", "observedAt": "2026-07-21T00:00:00.000Z", "expiresAt": "2026-10-21T00:00:00.000Z" }
+  ], "publishedAt": "2026-07-21T00:00:00.000Z"
+}

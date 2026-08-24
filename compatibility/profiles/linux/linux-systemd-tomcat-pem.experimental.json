@@ -1,0 +1,19 @@
+{
+  "apiVersion": "gcac.compatibility/v1", "profileId": "linux-systemd-tomcat-pem", "version": "1.0", "status": "experimental",
+  "match": {
+    "id": "linux-systemd-tomcat-pem.match", "ownerType": "provider_action", "ownerId": "linux-systemd-tomcat-pem",
+    "requiredAll": [
+      { "capabilityKey": "agent.full.online", "operator": "equals", "expected": true, "reason": "需要 Linux Full Agent 在线", "riskIfMissing": "无法执行本机部署" },
+      { "capabilityKey": "linux.systemd.v1", "operator": "equals", "expected": true, "reason": "需要唯一有效的 systemd 服务控制能力", "riskIfMissing": "无法安全重启服务" },
+      { "capabilityKey": "linux.filesystem.posix-atomic.v1", "operator": "equals", "expected": true, "reason": "需要 POSIX 原子文件替换", "riskIfMissing": "证书替换可能留下不完整文件" },
+      { "capabilityKey": "tomcat.keystore.replace", "operator": "equals", "expected": true, "reason": "需要 Tomcat 证书材料替换能力", "riskIfMissing": "无法完成 Connector 部署" }
+    ], "optional": [], "anyOfGroups": [], "forbidden": [], "minConfidence": 80, "allowManual": false, "riskLevel": "critical"
+  },
+  "composition": { "product": "product.tomcat", "certificate_store": "certificate-store.posix-filesystem", "artifact_codec": "artifact-codec.pem", "service_controller": "service-controller.systemd", "transport": "transport.agent-local", "verifier": "verifier.tls-remote", "rollback": "rollback.posix-certificate-files" },
+  "automation": "full", "rollbackRequired": true, "verificationRequired": true,
+  "limitations": ["仅覆盖明确的 PEM Connector 输入，不宣称支持所有 Tomcat/JDK 历史组合", "真实 Tomcat/JDK 环境认证完成前不得提升为 certified"],
+  "evidence": [
+    { "evidenceId": "linux.tomcat.pem.contract", "type": "contract_test", "status": "passed", "reference": "agents/linux-go-full-agent/internal/handlers/tomcat/handler_test.go", "observedAt": "2026-07-21T00:00:00.000Z", "expiresAt": "2026-10-21T00:00:00.000Z" },
+    { "evidenceId": "linux.systemd.selinux.arm64.fixture", "type": "fixture", "status": "passed", "reference": "compatibility/fixtures/linux/systemd-selinux-arm64.json", "observedAt": "2026-07-21T00:00:00.000Z", "expiresAt": "2026-10-21T00:00:00.000Z" }
+  ], "publishedAt": "2026-07-21T00:00:00.000Z"
+}
