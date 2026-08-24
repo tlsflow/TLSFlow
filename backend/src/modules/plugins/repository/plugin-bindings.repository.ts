@@ -35,6 +35,14 @@ export class PluginBindingsRepository {
     return row ? binding(row) : undefined;
   }
 
+  async getBindingForUpdate(tenantId: string, id: string): Promise<PluginBindingV1 | undefined> {
+    const row = (await this.db.query<BindingRow>(
+      'select * from unified_plugin_bindings where tenant_id=$1 and id=$2 for update',
+      [tenantId, id],
+    )).rows[0];
+    return row ? binding(row) : undefined;
+  }
+
   async saveAssignment(record: CapabilityAssignmentV1): Promise<CapabilityAssignmentV1> {
     await this.db.query(`insert into plugin_capability_assignments
       (id,tenant_id,owner_type,owner_id,capability_key,plugin_version_id,plugin_binding_id,precedence,status,created_at,updated_at)
@@ -66,6 +74,16 @@ export class PluginBindingsRepository {
     const rows = (await this.db.query<AssignmentRow>(
       'select * from plugin_capability_assignments where tenant_id=$1 and capability_key=$2 and status=$3',
       [tenantId, capabilityKey, 'ACTIVE'],
+    )).rows;
+    return rows.map(assignment);
+  }
+
+  async listOwnerAssignments(tenantId: string, ownerType: CapabilityAssignmentV1['ownerType'], ownerId: string): Promise<CapabilityAssignmentV1[]> {
+    const rows = (await this.db.query<AssignmentRow>(
+      `select * from plugin_capability_assignments
+       where tenant_id=$1 and owner_type=$2 and owner_id=$3
+       order by capability_key`,
+      [tenantId, ownerType, ownerId],
     )).rows;
     return rows.map(assignment);
   }

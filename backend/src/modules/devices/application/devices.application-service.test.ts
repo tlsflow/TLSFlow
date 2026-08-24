@@ -7,6 +7,7 @@ import type { ManagedDeviceDetailDto } from '../dto/devices.dto.js';
 import type { DevicesRepository } from '../repository/devices.repository.js';
 import { DevicesApplicationService, resolvePluginDeviceFamilies, resolvePluginDeviceFamily } from './devices.application-service.js';
 import type { UnifiedPluginVersionRecord } from '../../plugins/dto/unified-plugins.dto.js';
+import type { UnifiedPluginsApplicationService } from '../../plugins/application/unified-plugins.application-service.js';
 import type { PluginBindingsApplicationService } from '../../plugins/application/plugin-bindings.application-service.js';
 import type { PluginWorkflowPublisherService } from '../../plugins/application/plugin-workflow-publisher.service.js';
 import type { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
@@ -295,4 +296,65 @@ test('设备插件能力执行缺少统一工作流服务时失败关闭而不�
     service.executeCapability('tenant-1', 'host-plugin-missing', 'device.connection.test'),
     (error: unknown) => error instanceof AppError && error.errorCode === 'CAPABILITY_MISSING',
   );
+});
+
+function versionFixture(id: string, version: string, overrides: Partial<UnifiedPluginVersionRecord> = {}): UnifiedPluginVersionRecord {
+  return {
+    id,
+    tenantId: 'tenant-1',
+    pluginId: 'device.test-platform',
+    version,
+    source: 'BUILTIN',
+    runtime: 'WORKFLOW_DSL',
+    scope: 'BOTH',
+    trust: 'OFFICIAL_SIGNED',
+    support: 'OFFICIAL',
+    manifest: {
+      apiVersion: 'gcac.plugin-manifest/v1', kind: 'GcacPlugin', pluginId: 'device.test-platform', version,
+      displayNameKey: 'plugin.test.name', publisher: 'GCAC', runtime: 'WORKFLOW_DSL', source: 'BUILTIN',
+      scope: 'BOTH', trust: 'OFFICIAL_SIGNED', support: 'OFFICIAL', permissions: [],
+      compatibility: { productFamilies: ['test.platform'], managementMethods: ['PLUGIN'], executionLocations: ['CONTROL_PLANE'] },
+      capabilities: [
+        { key: 'device.connection.test', contractVersion: 'v1', actionContractId: 'device.connection.test.v1', riskLevel: 'LOW', executionLocations: ['CONTROL_PLANE'] },
+        { key: 'device.discover', contractVersion: 'v1', actionContractId: 'device.discover.v1', riskLevel: 'LOW', executionLocations: ['CONTROL_PLANE'] },
+      ],
+      resources: { workflows: { 'device.connection.test': 'connection.json', 'device.discover': 'discover.json' } },
+    },
+    packageSha256: `sha256:${id}:package`, manifestSha256: `sha256:${id}:manifest`,
+    resourceSha256: { 'connection.json': `sha256:${id}:connection`, 'discover.json': `sha256:${id}:discover` },
+    resources: { 'connection.json': '{}', 'discover.json': '{}' },
+    status: 'ENABLED', permissionApprovalStatus: 'NOT_REQUIRED', approvedPermissions: [],
+    validationReport: { valid: true, errors: [], warnings: [], manifestSha256: `sha256:${id}:manifest`, resourceSha256: {} },
+    createdAt: '2026-08-22T00:00:00.000Z', updatedAt: '2026-08-22T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+test('设备插件版本候选保留同插件兼容版本，并展示历史不可切换版本', async () => {
+  const current = versionFixture('version-current', '1.0.0', { status: 'DISABLED' });
+  const compatible = versionFixture('version-compatible', '1.1.0');
+  const historical = versionFixture('version-history', '0.9.0', { status: 'RETIRED' });
+  const wrongFamily = versionFixture('version-wrong-family', '2.0.0', {
+    manifest: { ...versionFixture('version-wrong-family', '2.0.0').manifest, compatibility: { productFamilies: ['other.platform'], managementMethods: ['PLUGIN'], executionLocations: ['CONTROL_PLANE'] } },
+  });
+  const otherPlugin = versionFixture('version-other-plugin', '3.0.0', { pluginId: 'other.plugin' });
+  const device = {
+    id: 'host-version-candidate', displayName: 'Test device', category: 'NETWORK_APPLIANCE', productFamily: 'test.platform',
+    managementMethod: 'PLUGIN', extensionType: 'NETWORK_APPLIANCE', applicationAssetCount: 0, capabilities: [],
+    health: 'HEALTHY', sourceStatus: 'ONLINE', extension: { type: 'PLUGIN', deviceAssetId: 'asset-1', pluginVersionId: current.id, pluginBindingId: 'binding-1' },
+    publicSummary: { osType: 'NETWORK', managementMode: 'PLUGIN', updatedAt: current.updatedAt }, overview: { deviceId: 'host-version-candidate', displayName: 'Test device', deviceType: 'NETWORK_APPLIANCE', managementMode: 'PLUGIN', status: 'HEALTHY', updatedAt: current.updatedAt },
+    informationSections: [], frameworks: [], sites: [], certificates: [], logs: [], extensionSummary: {},
+  } as unknown as ManagedDeviceDetailDto;
+  const repository = { get: async () => device } as unknown as DevicesRepository;
+  const plugins = {
+    getVersionForTenant: async (_tenantId: string, id: string) => [current, compatible, wrongFamily].find((item) => item.id === id) ?? current,
+    listAccessibleVersions: async () => [current, compatible, historical, wrongFamily, otherPlugin],
+  } as unknown as UnifiedPluginsApplicationService;
+  const result = await new DevicesApplicationService(repository, undefined, undefined, {} as never, plugins).listPluginVersionCandidates('tenant-1', device.id);
+  assert.deepEqual(result.map((item) => item.pluginVersionId), ['version-current', 'version-compatible', 'version-history']);
+  assert.equal(result[0]?.current, true);
+  assert.equal(result[0]?.switchable, false);
+  assert.equal(result[1]?.switchable, true);
+  assert.equal(result[2]?.status, 'RETIRED');
+  assert.equal(result[2]?.switchable, false);
 });

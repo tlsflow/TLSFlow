@@ -28,6 +28,16 @@ export class PluginBindingsApplicationService {
     return binding;
   }
 
+  async getTenantBindingForUpdate(tenantId: string, bindingId: string): Promise<PluginBindingV1> {
+    const binding = await this.repository.getBindingForUpdate(tenantId, bindingId);
+    if (!binding || binding.tenantId !== tenantId) throw new AppError('RESOURCE_NOT_FOUND', 'PluginBinding 不存在', { bindingId });
+    return binding;
+  }
+
+  async listOwnerAssignments(tenantId: string, ownerType: CapabilityAssignmentV1['ownerType'], ownerId: string): Promise<CapabilityAssignmentV1[]> {
+    return this.repository.listOwnerAssignments(tenantId, ownerType, ownerId);
+  }
+
   async updateBinding(
     tenantId: string,
     bindingId: string,

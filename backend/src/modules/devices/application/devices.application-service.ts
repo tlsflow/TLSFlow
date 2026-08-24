@@ -1,5 +1,10 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { ManagedDeviceDetailDto, ManagedDeviceListQuery, ManagedDevicePageDto } from '../dto/devices.dto.js';
+import type {
+  ManagedDevicePluginVersionCandidateDto,
+  SwitchManagedDevicePluginVersionInput,
+  SwitchManagedDevicePluginVersionResultDto,
+} from '../dto/devices.dto.js';
 import type { DeviceOnboardingPlatformDescriptor } from '../dto/devices.dto.js';
 import { DevicePlatformRegistry } from '../domain/device-platform.registry.js';
 import type { DeviceAssetDto } from '../../device-assets/dto/device-assets.dto.js';
@@ -31,6 +36,7 @@ import { DeploymentInputContractLoader } from '../../deployment-inputs/applicati
 import { DeploymentAssetContextBuilder } from '../../deployment-inputs/application/deployment-asset-context.builder.js';
 import { ProductionDeploymentInputResolverService } from '../../deployment-inputs/application/production-deployment-input-resolver.service.js';
 import type { DeploymentInputContractV1 } from '../../deployment-inputs/dto/deployment-input-contract.dto.js';
+import { evaluatePluginCompatibility } from '../../plugins/capabilities/plugin-compatibility.evaluator.js';
 
 export class DevicesApplicationService {
   constructor(
@@ -93,6 +99,197 @@ export class DevicesApplicationService {
         messages: ui.locale?.messages ?? {},
       },
     };
+  }
+
+  async listPluginVersionCandidates(tenantId: string, deviceId: string): Promise<ManagedDevicePluginVersionCandidateDto[]> {
+    const device = await this.repository.get(tenantId, deviceId, { includes: new Set() });
+    const current = this.requireSwitchableDevice(deviceId, device);
+    if (!this.unifiedPlugins) throw new AppError('CAPABILITY_MISSING', '统一插件服务未注册');
+    const currentVersion = current.extension.pluginVersionId
+      ? await this.unifiedPlugins.getVersionForTenant(tenantId, current.extension.pluginVersionId)
+      : undefined;
+    if (!currentVersion) throw new AppError('RESOURCE_NOT_FOUND', '设备当前插件版本不存在');
+    const versions = await this.unifiedPlugins.listAccessibleVersions(tenantId);
+    const visible = versions.some((version) => version.id === currentVersion.id)
+      ? versions
+      : [currentVersion, ...versions];
+    const candidates: ManagedDevicePluginVersionCandidateDto[] = [];
+    for (const version of visible.filter((item) => item.pluginId === currentVersion.pluginId)) {
+      const compatibility = evaluatePluginCompatibility(version.manifest, {
+        productFamily: current.productFamily,
+        managementMethod: 'PLUGIN',
+        executionLocation: 'CONTROL_PLANE',
+      });
+      const contract = await this.inspectDevicePluginContract(version);
+      const isCurrent = version.id === currentVersion.id;
+      const hasResourceSnapshot = Object.keys(version.resources ?? {}).length > 0;
+      // 历史版本必须可见，以便确认版本快照仍被保留；只有启用且通过兼容性/能力合同的版本才允许切换。
+      if (!isCurrent && (!hasResourceSnapshot || (version.status === 'ENABLED' && (!compatibility.compatible || !contract.valid)))) continue;
+      candidates.push({
+        pluginVersionId: version.id,
+        pluginId: version.pluginId,
+        version: version.version,
+        status: version.status,
+        source: version.source,
+        current: isCurrent,
+        switchable: version.status === 'ENABLED' && compatibility.compatible && contract.valid,
+        compatibility: {
+          compatible: compatibility.compatible && contract.valid,
+          reasons: [...compatibility.reasons, ...contract.reasons],
+        },
+        capabilities: version.manifest.capabilities.map((capability) => capability.key),
+      });
+    }
+    return candidates.sort((left, right) => Number(right.current) - Number(left.current) || compareVersions(right.version, left.version));
+  }
+
+  async switchPluginVersion(
+    tenantId: string,
+    deviceId: string,
+    input: SwitchManagedDevicePluginVersionInput,
+  ): Promise<SwitchManagedDevicePluginVersionResultDto> {
+    const device = await this.repository.get(tenantId, deviceId, { includes: new Set() });
+    const current = this.requireSwitchableDevice(deviceId, device);
+    if (!this.unifiedPlugins) throw new AppError('CAPABILITY_MISSING', '统一插件服务未注册');
+    const currentVersionId = current.extension.pluginVersionId;
+    const currentBindingId = current.extension.pluginBindingId;
+    if (!currentVersionId || !currentBindingId) throw new AppError('VALIDATION_FAILED', '设备缺少当前插件版本或 Binding');
+    if (input.expectedCurrentPluginVersionId !== currentVersionId) {
+      throw new AppError('RESOURCE_VERSION_CONFLICT', '设备当前插件版本已变化', {
+        deviceId,
+        expectedCurrentPluginVersionId: input.expectedCurrentPluginVersionId,
+        actualCurrentPluginVersionId: currentVersionId,
+      });
+    }
+    if (input.targetPluginVersionId === currentVersionId) {
+      throw new AppError('VALIDATION_FAILED', '目标插件版本已经生效', { deviceId, pluginVersionId: currentVersionId });
+    }
+    const [currentVersion, targetVersion] = await Promise.all([
+      this.unifiedPlugins.getVersionForTenant(tenantId, currentVersionId),
+      this.unifiedPlugins.getVersionForTenant(tenantId, input.targetPluginVersionId),
+    ]);
+    if (targetVersion.pluginId !== currentVersion.pluginId) {
+      throw new AppError('VALIDATION_FAILED', '目标插件必须属于同一 pluginId', { currentPluginId: currentVersion.pluginId, targetPluginId: targetVersion.pluginId });
+    }
+    const compatibility = evaluatePluginCompatibility(targetVersion.manifest, {
+      productFamily: current.productFamily,
+      managementMethod: 'PLUGIN',
+      executionLocation: 'CONTROL_PLANE',
+    });
+    const contract = await this.inspectDevicePluginContract(targetVersion);
+    if (targetVersion.status !== 'ENABLED' || !compatibility.compatible || !contract.valid) {
+      throw new AppError('VALIDATION_FAILED', '目标插件版本未通过设备兼容性校验', {
+        pluginVersionId: targetVersion.id,
+        status: targetVersion.status,
+        reasons: [...compatibility.reasons, ...contract.reasons],
+      });
+    }
+    const switchedAt = new Date().toISOString();
+    return this.db.transaction(async (tx) => {
+      const assetRow = (await tx.query<DevicePluginAssetRow>(
+        `select service_asset_id, host_id, plugin_version_id, plugin_binding_id, version
+         from pg_device_assets where tenant_id=$1 and service_asset_id=$2 for update`,
+        [tenantId, current.extension.deviceAssetId],
+      )).rows[0];
+      if (!assetRow || assetRow.plugin_version_id !== currentVersionId || assetRow.plugin_binding_id !== currentBindingId) {
+        throw new AppError('RESOURCE_VERSION_CONFLICT', '设备当前插件绑定已变化', { deviceId });
+      }
+      const targetRow = (await tx.query<{ plugin_id: string; status: string }>(
+        `select plugin_id, status from unified_plugin_versions
+         where id=$1 and (tenant_id=$2 or source='BUILTIN') for update`,
+        [targetVersion.id, tenantId],
+      )).rows[0];
+      if (!targetRow || targetRow.plugin_id !== currentVersion.pluginId || targetRow.status !== 'ENABLED') {
+        throw new AppError('RESOURCE_VERSION_CONFLICT', '目标插件版本状态已变化', { pluginVersionId: targetVersion.id });
+      }
+      const bindingService = new PluginBindingsApplicationService(new PluginBindingsRepository(tx));
+      const oldBinding = await bindingService.getTenantBindingForUpdate(tenantId, currentBindingId);
+      if (oldBinding.pluginVersionId !== currentVersionId || oldBinding.status !== 'ACTIVE') {
+        throw new AppError('RESOURCE_VERSION_CONFLICT', '设备当前 Binding 已变化', { deviceId, bindingId: currentBindingId });
+      }
+      const targetBinding = await bindingService.createBinding(tenantId, {
+        pluginVersionId: targetVersion.id,
+        mode: 'MANAGED',
+        inputBindings: structuredClone(oldBinding.inputBindings),
+        managedContext: oldBinding.managedContext ? structuredClone(oldBinding.managedContext) : { hostId: assetRow.host_id },
+      });
+      const assignments = await bindingService.listOwnerAssignments(tenantId, 'DEVICE', assetRow.host_id);
+      const targetCapabilities = new Set(targetVersion.manifest.capabilities.map((capability) => capability.key));
+      let activated = 0;
+      for (const capability of targetVersion.manifest.capabilities) {
+        const existing = assignments.find((item) => item.capabilityKey === capability.key && item.status === 'ACTIVE');
+        await bindingService.assignCapability(tenantId, {
+          ownerType: 'DEVICE', ownerId: assetRow.host_id, capabilityKey: capability.key,
+          pluginVersionId: targetVersion.id, pluginBindingId: targetBinding.id, precedence: existing?.precedence ?? 'DEVICE_DEFAULT',
+        });
+        activated += existing?.pluginVersionId === targetVersion.id && existing.pluginBindingId === targetBinding.id ? 0 : 1;
+      }
+      let disabled = 0;
+      for (const assignment of assignments) {
+        if (assignment.status === 'ACTIVE' && !targetCapabilities.has(assignment.capabilityKey)) {
+          await bindingService.disableOwnerAssignment(tenantId, {
+            ownerType: 'DEVICE', ownerId: assetRow.host_id, capabilityKey: assignment.capabilityKey,
+          });
+          disabled += 1;
+        }
+      }
+      await bindingService.updateBinding(tenantId, oldBinding.id, { expectedVersion: oldBinding.version, status: 'DISABLED' });
+      const updated = await tx.query<{ service_asset_id: string }>(
+        `update pg_device_assets
+         set plugin_version_id=$1, plugin_binding_id=$2, updated_at=$3, version=version+1
+         where tenant_id=$4 and service_asset_id=$5 and plugin_version_id=$6 and plugin_binding_id=$7
+         returning service_asset_id`,
+        [targetVersion.id, targetBinding.id, switchedAt, tenantId, assetRow.service_asset_id, currentVersionId, currentBindingId],
+      );
+      if (updated.rows.length !== 1) throw new AppError('RESOURCE_VERSION_CONFLICT', '设备资产版本已变化', { deviceId });
+      return {
+        deviceId,
+        previousPluginVersionId: currentVersion.id,
+        pluginVersionId: targetVersion.id,
+        previousPluginBindingId: oldBinding.id,
+        pluginBindingId: targetBinding.id,
+        assignments: { activated, disabled },
+        switchedAt,
+        validationRequired: ['device.connection.test', 'device.discover'],
+      };
+    });
+  }
+
+  private requireSwitchableDevice(deviceId: string, device: ManagedDeviceDetailDto | undefined): ManagedDeviceDetailDto & { extension: Extract<ManagedDeviceDetailDto['extension'], { type: 'PLUGIN' }> } {
+    if (!device) throw new AppError('RESOURCE_NOT_FOUND', '设备不存在', { deviceId });
+    if (device.category !== 'NETWORK_APPLIANCE' || device.managementMethod !== 'PLUGIN' || device.extension.type !== 'PLUGIN') {
+      throw new AppError('VALIDATION_FAILED', '只有 NETWORK_APPLIANCE 插件设备支持版本切换', { deviceId });
+    }
+    return device as ManagedDeviceDetailDto & { extension: Extract<ManagedDeviceDetailDto['extension'], { type: 'PLUGIN' }> };
+  }
+
+  private async inspectDevicePluginContract(version: UnifiedPluginVersionRecord): Promise<{ valid: boolean; reasons: Array<{ dimension: string; expected: string[]; actual?: string }> }> {
+    const required = ['device.connection.test', 'device.discover'];
+    const reasons: Array<{ dimension: string; expected: string[]; actual?: string }> = [];
+    if (version.runtime !== 'WORKFLOW_DSL') reasons.push({ dimension: 'runtime', expected: ['WORKFLOW_DSL'], actual: version.runtime });
+    if (!['MANAGED', 'BOTH'].includes(version.scope)) reasons.push({ dimension: 'scope', expected: ['MANAGED', 'BOTH'], actual: version.scope });
+    for (const key of required) {
+      const capability = version.manifest.capabilities.find((item) => item.key === key);
+      if (!capability) {
+        reasons.push({ dimension: 'capability', expected: [key], actual: undefined });
+        continue;
+      }
+      if (!capability.executionLocations.includes('CONTROL_PLANE')) {
+        reasons.push({ dimension: 'executionLocation', expected: ['CONTROL_PLANE'], actual: capability.executionLocations.join(',') });
+      }
+      const workflowPath = version.manifest.resources.workflows?.[key];
+      if (!workflowPath || typeof version.resources[workflowPath] !== 'string') {
+        reasons.push({ dimension: 'workflow', expected: [key], actual: workflowPath });
+      }
+      if (this.pluginWorkflows) {
+        try {
+          await this.pluginWorkflows.require(version.id, key);
+        } catch {
+          reasons.push({ dimension: 'workflow', expected: [key], actual: undefined });
+        }
+      }
+    }
+    return { valid: reasons.length === 0, reasons };
   }
 
   listOnboardingPlatforms(): DeviceOnboardingPlatformDescriptor[] {
@@ -353,6 +550,25 @@ export class DevicesApplicationService {
       throw error;
     }
   }
+}
+
+interface DevicePluginAssetRow extends Record<string, unknown> {
+  service_asset_id: string;
+  host_id: string;
+  plugin_version_id: string | null;
+  plugin_binding_id: string | null;
+  version: number;
+}
+
+function compareVersions(left: string, right: string): number {
+  const parse = (value: string) => value.split(/[.+-]/u).map((part) => Number(part) || 0);
+  const a = parse(left);
+  const b = parse(right);
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+    const delta = (a[index] ?? 0) - (b[index] ?? 0);
+    if (delta !== 0) return delta;
+  }
+  return left.localeCompare(right);
 }
 
 function applyResourceLabels(
