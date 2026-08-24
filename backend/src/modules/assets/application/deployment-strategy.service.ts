@@ -20,11 +20,11 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
   if (input.type === 'MANAGED_TARGET') {
     const managedTarget = input.managedTarget;
     if (!managedTarget) throw strategyError('MANAGED_TARGET 策略必须提供 managedTarget 配置');
+    const managedTargetId = requireNonEmpty(managedTarget.managedTargetId, 'managedTarget.managedTargetId');
+    const certificateFormatId = optionalNonEmpty(managedTarget.certificateFormatId);
     return {
       type: 'MANAGED_TARGET',
-      managedTarget: {
-        managedTargetId: requireNonEmpty(managedTarget.managedTargetId, 'managedTarget.managedTargetId'),
-      },
+      managedTarget: certificateFormatId ? { managedTargetId, certificateFormatId } : { managedTargetId },
       compatibilityMode: 'UNIFIED',
       updatedAt: now,
       updatedBy: context.actorId,

@@ -683,6 +683,8 @@ async function openEditDialog(row: ViewRow) {
     assetDraft.managementMode = 'MANAGED_TARGET'
     assetDraft.agentCertificateFormatId = String(
       readNested(managedTargetStrategy, ['certificateFormatId'])
+        ?? readNested(source, ['metadata', 'certificateFormatId'])
+        ?? readNested(source, ['certificateFormatId'])
         ?? '',
     )
   }
@@ -1151,7 +1153,6 @@ async function submitCreate() {
       discoverySource: 'MANUAL',
       status: 'ACTIVE',
       metadata: {},
-      certificateFormatId: assetDraft.agentCertificateFormatId.trim() || undefined,
     })
     const createdAssetId = String(result.data?.id ?? '')
     if (createdAssetId) await saveManagedTargetConfiguration(createdAssetId)

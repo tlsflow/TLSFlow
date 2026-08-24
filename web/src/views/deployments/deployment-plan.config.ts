@@ -150,7 +150,7 @@ export function createDeploymentPlansPageConfig(t: I18nTranslate = defaultT): Bu
     { label: t('deploymentPlans.fields.status'), candidates: ['status', 'state'] },
     { label: t('deploymentPlans.fields.approvalStatus'), candidates: ['approval.status', 'approvalStatus'] },
     { label: t('deploymentPlans.fields.certificateVersionId'), candidates: ['certificateVersionId'] },
-    { label: t('deploymentPlans.fields.certificateFormatId'), candidates: ['certificateFormatId'] },
+    { label: t('deploymentPlans.fields.certificateFormatId'), candidates: ['certificateFormatId', 'deploymentStrategy.managedTarget.certificateFormatId', 'metadata.deploymentStrategy.managedTarget.certificateFormatId'] },
     { label: t('deploymentPlans.fields.currentAssetCertificateExpiresAt'), candidates: ['currentAssetCertificate.expiresAt', 'currentAssetCertificateExpiresAt', 'currentAssetCertificateNotAfter'] },
     { label: t('deploymentPlans.fields.updateNeeded'), candidates: ['updateNeeded'] },
     { label: t('deploymentPlans.fields.targetSummary'), candidates: ['targetSummary', 'targets.0.certificateBindingId', 'targets.0.executionTargetId'] },

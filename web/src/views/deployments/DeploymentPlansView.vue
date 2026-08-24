@@ -500,7 +500,8 @@ async function createPlanDraft(plan: DeploymentWizardPlan): Promise<string> {
   const created = await createDeploymentPlanFromApplicationAsset({
     applicationAssetId,
     selectionMode: plan.selectionMode,
-    targetCertificateVersionId: plan.selectionMode === 'EXPLICIT' ? plan.certificateVersionId : undefined,
+    targetCertificateVersionId: plan.certificateVersionId || undefined,
+    certificateFormatId: plan.certificateFormatId || undefined,
   })
   const planId = String(created.data?.id ?? '')
   if (!planId) throw new Error(t('deploymentPlans.errors.createReturnedMissingPlanId'))
@@ -557,7 +558,8 @@ async function updateDeploymentPlanDraft(planId: string, plan: DeploymentWizardP
     planId,
     applicationAssetId: plan.applicationAssetId,
     selectionMode: plan.selectionMode,
-    targetCertificateVersionId: plan.selectionMode === 'EXPLICIT' ? plan.certificateVersionId : undefined,
+    targetCertificateVersionId: plan.certificateVersionId || undefined,
+    certificateFormatId: plan.certificateFormatId || undefined,
   })
 }
 
@@ -698,7 +700,12 @@ function normalizeApplicationAssetTarget(item: ApiRecord, managedTargetsById: Re
   const applicationAssetId = readString(item, ['id'])
   const managedTargetId = readString(item, ['deploymentStrategy.managedTarget.managedTargetId', 'targetBinding.managedTargetId'])
   const managedTarget = managedTargetsById.get(managedTargetId)
-  const certificateFormatId = readString(item, ['certificateFormatId', 'metadata.certificateFormatId'])
+  const certificateFormatId = readString(item, [
+    'deploymentStrategy.managedTarget.certificateFormatId',
+    'metadata.deploymentStrategy.managedTarget.certificateFormatId',
+    'certificateFormatId',
+    'metadata.certificateFormatId',
+  ])
   const certificateBindings = Array.isArray(readPath(item, 'targetBindingDetail.certificateBindings'))
     ? readPath(item, 'targetBindingDetail.certificateBindings') as ApiRecord[]
     : []

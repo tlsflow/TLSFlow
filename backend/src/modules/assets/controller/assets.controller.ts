@@ -267,7 +267,6 @@ export class AssetsController {
       deploymentStrategy: { type: 'object' },
       targetBinding: { type: 'object' },
       siteAssetId: { type: 'string' },
-      certificateFormatId: { type: 'string' },
     });
     const subject = this.subjectFromRequest(request);
     await this.assertCan(subject, 'service_asset.manage', 'service_asset', request);

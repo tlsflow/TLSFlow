@@ -37,6 +37,7 @@ export interface ManagementChannelDto {
 
 export interface ManagedTargetDeploymentStrategyDto {
   managedTargetId: string;
+  certificateFormatId?: string;
 }
 
 export interface WorkflowDeploymentStrategyDto {
@@ -249,7 +250,6 @@ export interface CreateServiceAssetDto {
   deploymentStrategy?: DeploymentStrategyDto;
   targetBinding?: CreateApplicationAssetTargetDto;
   siteAssetId?: string;
-  certificateFormatId?: string;
 }
 
 export type UpdateServiceAssetDto = Partial<CreateServiceAssetDto>;

@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { PgliteDatabase } from '../../database/pglite-database.js';
+import { runMigrations } from '../../database/migration-runner.js';
 import {
   normalizeDeploymentStrategy,
   normalizeManagedDeploymentIntent,
   validateDeploymentStrategyPluginBinding,
 } from './application/deployment-strategy.service.js';
+import { AssetsApplicationService } from './application/assets.application-service.js';
+import { PgAssetsRepository } from './repository/assets.repository.js';
 import type { PluginBindingV1 } from '../plugins/dto/plugin-bindings.dto.js';
 
 const context = {
@@ -28,6 +32,44 @@ test('Spec033 新 MANAGED_TARGET 策略只要求目标 ID', () => {
     managedTargetId: 'target_spec033_strategy',
   });
   assert.equal(strategy.compatibilityMode, 'UNIFIED');
+});
+
+test('Spec033 MANAGED_TARGET 策略保留证书产物配置', () => {
+  const strategy = normalizeDeploymentStrategy({
+    type: 'MANAGED_TARGET',
+    managedTarget: {
+      managedTargetId: 'target_spec033_strategy',
+      certificateFormatId: 'format_spec033_strategy',
+    },
+  }, context);
+  assert.deepEqual(strategy.managedTarget, {
+    managedTargetId: 'target_spec033_strategy',
+    certificateFormatId: 'format_spec033_strategy',
+  });
+});
+
+test('Spec033 应用资产保存后可回读 ManagedTarget 证书产物配置', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const service = new AssetsApplicationService(new PgAssetsRepository(database));
+  const created = await service.createServiceAsset('tenant_spec033_strategy_persist', {
+    address: 'strategy-persist.example.com',
+    port: 443,
+    protocol: 'HTTPS',
+    platform: 'LINUX',
+    discoverySource: 'MANUAL',
+    deploymentStrategy: {
+      type: 'MANAGED_TARGET',
+      managedTarget: {
+        managedTargetId: 'target_spec033_strategy_persist',
+        certificateFormatId: 'format_spec033_strategy_persist',
+      },
+    },
+  });
+
+  assert.equal(created.deploymentStrategy?.managedTarget?.certificateFormatId, 'format_spec033_strategy_persist');
+  const detail = await service.getServiceAssetDetail('tenant_spec033_strategy_persist', created.id);
+  assert.equal(detail?.deploymentStrategy?.managedTarget?.certificateFormatId, 'format_spec033_strategy_persist');
 });
 
 test('Spec033.4 ManagedTarget 策略不保存 PluginBinding', () => {
