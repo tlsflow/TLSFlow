@@ -79,6 +79,17 @@ interface CertificateObservation {
 const storageKey = 'gcac.monitor.targets.v1'
 const historyStorageKey = 'gcac.monitor.probe-history.v1'
 
+// ── 监控页懒加载配置（可按需调整）────────────────────────────────
+// 监控目标列表完整加载的单页大小（后端分页上限 500）。
+const MONITOR_TARGETS_PAGE_SIZE = 500
+// 监控目标列表每次增量渲染的最大条数：列表先渲染一批，滚动到底自动追加下一批，
+// 直至全部目标渲染完成（目标数据本身始终完整加载）。
+const MONITOR_LIST_PAGE_SIZE = 10
+// 列表级“最近探测”单次最多拉取的记录数：目标数 × 10，封顶 200。
+// 小规模目标下保证每个监控项在列表中能展示最近 10 次探测结果；
+// 目标变多时列表只展示最新摘要，完整历史在点击目标后才按资产懒加载。
+const MONITOR_LIST_MAX_PROBE_RECORDS = 200
+
 const assets = ref<ApiRecord[]>([])
 const risks = ref<ApiRecord[]>([])
 const bindings = ref<ApiRecord[]>([])
@@ -90,6 +101,13 @@ const monitorTargets = ref<MonitorTarget[]>([])
 const probeResults = ref<Record<string, ProbeResult>>({})
 const probeHistory = ref<Record<string, ProbeResult[]>>({})
 const certificateObservations = ref<Record<string, CertificateObservation[]>>({})
+// 已懒加载完整历史（探测 + 证书观测）的应用资产集合：这些资产的历史不再被列表级摘要覆盖。
+const detailLoadedAssetIds = new Set<string>()
+const detailLoadingAssetIds = new Set<string>()
+// 监控目标列表懒渲染：当前最多渲染条数（每批 MONITOR_LIST_PAGE_SIZE，滚动追加）。
+const visibleListCount = ref(MONITOR_LIST_PAGE_SIZE)
+const listSentinel = ref<HTMLElement | null>(null)
+let listObserver: IntersectionObserver | undefined
 const selectedAssetId = ref('')
 const selectedIntervalSeconds = ref(60)
 const selectedTargetId = ref('')
@@ -187,6 +205,9 @@ const filteredMonitorRows = computed(() => {
   })
 })
 
+// 监控目标列表懒渲染：完整数据参与过滤，仅按批增量渲染，最多一次渲染 MONITOR_LIST_PAGE_SIZE 条。
+const visibleMonitorRows = computed(() => filteredMonitorRows.value.slice(0, visibleListCount.value))
+
 const selectedMonitorRow = computed(() =>
   monitorRows.value.find((row) => row.target.id === selectedTarget.value?.id) ?? null,
 )
@@ -226,6 +247,8 @@ onMounted(() => {
 onUnmounted(() => {
   if (refreshTimer) clearInterval(refreshTimer)
   refreshTimer = undefined
+  listObserver?.disconnect()
+  listObserver = undefined
 })
 
 watch(
@@ -242,14 +265,45 @@ watch(filteredMonitorRows, (rows) => {
   selectedTargetId.value = rows[0]?.target.id ?? ''
 })
 
+// 选中目标变化时懒加载该目标的完整探测历史与证书观测历史（点击后触发）。
+watch(selectedTargetId, (targetId) => {
+  const target = monitorTargets.value.find((item) => item.id === targetId)
+  if (!target) return
+  loadTargetDetail(target.assetId).catch(() => {
+    // 中文说明：懒加载失败不打断主流程，下一轮定时刷新会自动重试。
+  })
+})
+
+// 过滤条件变化时列表从头开始按批渲染。
+watch([monitorKeyword, monitorStatusFilter], () => {
+  visibleListCount.value = MONITOR_LIST_PAGE_SIZE
+})
+
+// 列表底部哨兵出现/消失时重建观察器，滚动到底自动追加下一批监控目标。
+watch(listSentinel, (element) => {
+  listObserver?.disconnect()
+  listObserver = undefined
+  if (!element || typeof IntersectionObserver === 'undefined') return
+  listObserver = new IntersectionObserver(
+    (entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return
+      const total = filteredMonitorRows.value.length
+      if (visibleListCount.value >= total) return
+      visibleListCount.value = Math.min(total, visibleListCount.value + MONITOR_LIST_PAGE_SIZE)
+    },
+    { rootMargin: '160px 0px' },
+  )
+  listObserver.observe(element)
+})
+
 async function refreshAll(options: { scanRisks?: boolean; silent?: boolean } = {}) {
   if (!options.silent) loading.value = true
   error.value = ''
   try {
     if (options.scanRisks) await scanMonitorRisks()
-    const [targetResult, probeResult, assetResult, riskResult, bindingResult, certificateAssetResult, certificateVersionResult, tlsInspectorResult] = await Promise.all([
-      listMonitorTargets({ page: 1, pageSize: 200, sort: 'createdAt:desc' }),
-      listMonitorProbeResults({ page: 1, pageSize: 200 }),
+    // 第一批：监控目标列表（完整加载）与列表渲染所需的基础数据。
+    const [targetResult, assetResult, riskResult, bindingResult, certificateAssetResult, certificateVersionResult, tlsInspectorResult] = await Promise.all([
+      listMonitorTargets({ page: 1, pageSize: MONITOR_TARGETS_PAGE_SIZE, sort: 'createdAt:desc' }),
       listAssets({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
       listRiskEvents({ page: 1, pageSize: 200, sort: 'lastDetectedAt:desc' }),
       listBindings({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
@@ -260,9 +314,6 @@ async function refreshAll(options: { scanRisks?: boolean; silent?: boolean } = {
     monitorTargets.value = (targetResult.data?.items ?? [])
       .map(normalizeMonitorTargetRecord)
       .filter((target): target is MonitorTarget => Boolean(target))
-    probeHistory.value = groupProbeResults(probeResult.data?.items ?? [])
-    probeResults.value = latestProbeResultsFromHistory(probeHistory.value)
-    trimProbeStateToTargets()
     assets.value = [...(assetResult.data?.items ?? [])]
     risks.value = [...(riskResult.data?.items ?? [])]
     bindings.value = [...(bindingResult.data?.items ?? [])]
@@ -271,16 +322,101 @@ async function refreshAll(options: { scanRisks?: boolean; silent?: boolean } = {
     if (tlsInspectorResult) {
       tlsInspectorTargets.value = [...(tlsInspectorResult.data?.items ?? [])]
     }
-    await refreshCertificateObservations()
+    // 第二批：列表级摘要（每个目标的最新探测与实测证书观测）。
+    // 不再全量拉取所有监控项的探测/证书历史，其余历史在点击目标后按资产懒加载。
+    await refreshListSummaries()
     if (!monitorTargets.value.some((target) => target.id === selectedTargetId.value)) {
       selectedTargetId.value = monitorTargets.value[0]?.id ?? ''
     }
+    // 当前活跃目标的完整历史：选中即懒加载，并随定时刷新保持新鲜。
+    await loadTargetDetail(selectedTarget.value?.assetId ?? '')
     syncTlsDialogFromRoute()
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : t('monitoring.errors.loadFailed')
   } finally {
     if (!options.silent) loading.value = false
   }
+}
+
+// 列表级摘要：只拉取“最近探测”与“实测证书观测”，为每个监控项提供状态、TLS 评级与最近探测块。
+async function refreshListSummaries() {
+  const targetCount = monitorTargets.value.length
+  const pageSize = Math.min(MONITOR_LIST_MAX_PROBE_RECORDS, Math.max(10, targetCount) * 10)
+  const [probeResult, certificateObservationResult] = await Promise.all([
+    listMonitorProbeResults({ page: 1, pageSize }),
+    listMonitorCertificateObservations({ page: 1, pageSize: 200 }),
+  ])
+  const grouped = groupProbeResults(probeResult.data?.items ?? [])
+  const merged: Record<string, ProbeResult[]> = {}
+  for (const [assetId, items] of Object.entries(grouped)) {
+    merged[assetId] = detailLoadedAssetIds.has(assetId)
+      ? mergeProbeHistories(probeHistory.value[assetId] ?? [], items)
+      : items
+  }
+  // 已懒加载完整历史的资产即使不在最近窗口内也保留其历史，状态保持最新已知值。
+  for (const assetId of detailLoadedAssetIds) {
+    if (!merged[assetId] && probeHistory.value[assetId]?.length) {
+      merged[assetId] = probeHistory.value[assetId]
+    }
+  }
+  probeHistory.value = merged
+  probeResults.value = latestProbeResultsFromHistory(probeHistory.value)
+
+  const groupedObservations = groupCertificateObservations(certificateObservationResult.data?.items ?? [])
+  const mergedObservations: Record<string, CertificateObservation[]> = {}
+  for (const [assetId, items] of Object.entries(groupedObservations)) {
+    mergedObservations[assetId] = detailLoadedAssetIds.has(assetId)
+      ? mergeCertificateObservations(certificateObservations.value[assetId] ?? [], items)
+      : items
+  }
+  for (const assetId of detailLoadedAssetIds) {
+    if (!mergedObservations[assetId] && certificateObservations.value[assetId]?.length) {
+      mergedObservations[assetId] = certificateObservations.value[assetId]
+    }
+  }
+  certificateObservations.value = mergedObservations
+  trimProbeStateToTargets()
+}
+
+// 懒加载指定应用资产的完整探测历史与证书观测历史（点击监控项后触发）。
+async function loadTargetDetail(assetId: string) {
+  if (!assetId || detailLoadingAssetIds.has(assetId)) return
+  detailLoadingAssetIds.add(assetId)
+  try {
+    await Promise.all([
+      refreshProbeResults(assetId),
+      refreshCertificateObservations(assetId),
+    ])
+  } finally {
+    detailLoadingAssetIds.delete(assetId)
+  }
+}
+
+// 合并列表级最近探测与已加载的完整历史：按时间去重，保留传入顺序（接口按时间倒序返回，最新在前），最多保留 20 条。
+function mergeProbeHistories(existing: readonly ProbeResult[], recent: readonly ProbeResult[]): ProbeResult[] {
+  const seen = new Set<string>()
+  const merged: ProbeResult[] = []
+  for (const item of [...recent, ...existing]) {
+    const key = String(item.checkedAt)
+    if (seen.has(key)) continue
+    seen.add(key)
+    merged.push(item)
+  }
+  return merged.slice(0, 20)
+}
+
+// 合并列表级证书观测与已加载的完整历史：同一指纹保留先出现（更新）的观测，保留传入顺序。
+function mergeCertificateObservations(
+  existing: readonly CertificateObservation[],
+  recent: readonly CertificateObservation[],
+): CertificateObservation[] {
+  const byFingerprint = new Map<string, CertificateObservation>()
+  for (const item of [...recent, ...existing]) {
+    const fingerprint = normalizeFingerprint(item.fingerprintSha256)
+    if (byFingerprint.has(fingerprint)) continue
+    byFingerprint.set(fingerprint, item)
+  }
+  return [...byFingerprint.values()]
 }
 
 async function addMonitorTarget() {
@@ -444,6 +580,7 @@ async function refreshCertificateObservations(assetId?: string) {
   certificateObservations.value = assetId
     ? { ...certificateObservations.value, [assetId]: grouped[assetId] ?? [] }
     : grouped
+  if (assetId) detailLoadedAssetIds.add(assetId)
 }
 
 async function refreshProbeResults(assetId?: string) {
@@ -457,6 +594,7 @@ async function refreshProbeResults(assetId?: string) {
     ? { ...probeHistory.value, [assetId]: grouped[assetId] ?? [] }
     : grouped
   probeResults.value = latestProbeResultsFromHistory(probeHistory.value)
+  if (assetId) detailLoadedAssetIds.add(assetId)
 }
 
 function saveProbeResult(assetId: string, result: ProbeResult) {
@@ -953,7 +1091,7 @@ function trimProbeStateToTargets() {
           </div>
         </header>
         <button
-          v-for="row in filteredMonitorRows"
+          v-for="row in visibleMonitorRows"
           :key="row.target.id"
           class="monitor-page__target"
           :class="{ 'is-active': selectedTargetId === row.target.id }"
@@ -997,6 +1135,14 @@ function trimProbeStateToTargets() {
             {{ t('businessPage.clearFilters') }}
           </GcButton>
         </div>
+        <span
+          v-if="visibleListCount < filteredMonitorRows.length"
+          ref="listSentinel"
+          class="monitor-page__list-lazy-hint"
+          role="status"
+        >
+          {{ t('monitoring.targets.lazyLoadHint', { shown: visibleListCount, total: filteredMonitorRows.length }) }}
+        </span>
       </aside>
 
       <section class="monitor-page__detail">
@@ -1373,6 +1519,15 @@ function trimProbeStateToTargets() {
 .monitor-page__filtered-empty strong {
   color: var(--gc-color-text);
   font-size: var(--gc-font-size-sm);
+}
+
+.monitor-page__list-lazy-hint {
+  display: block;
+  padding: var(--gc-space-2) 0;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 700;
+  text-align: center;
 }
 
 .monitor-page__section-head {

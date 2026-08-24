@@ -4431,7 +4431,8 @@ export default {
       controlPlane: "平台"
     },
     targets: {
-      assetCount: "{count} 個資產"
+      assetCount: "{count} 個資產",
+      lazyLoadHint: "已載入 {shown} / {total} 條，繼續捲動載入更多"
     }
   },
   login: {

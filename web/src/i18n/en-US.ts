@@ -4549,7 +4549,8 @@ export default {
       controlPlane: 'Control plane'
     },
     targets: {
-      assetCount: '{count} assets'
+      assetCount: '{count} assets',
+      lazyLoadHint: '{shown} / {total} loaded, scroll to load more'
     }
   },
   login: {

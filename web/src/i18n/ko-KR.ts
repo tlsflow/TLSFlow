@@ -4406,7 +4406,8 @@ export default {
       controlPlane: '플랫폼'
     },
     targets: {
-      assetCount: '{count} 개 자산'
+      assetCount: '{count} 개 자산',
+      lazyLoadHint: '{shown} / {total}개 로드됨, 스크롤하여 더 로드'
     }
   },
   login: {

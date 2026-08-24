@@ -4432,7 +4432,8 @@ export default {
       controlPlane: 'プラットフォーム'
     },
     targets: {
-      assetCount: '{count} 件の資産'
+      assetCount: '{count} 件の資産',
+      lazyLoadHint: '{shown} / {total} 件を読み込み中、スクロールしてさらに読み込む'
     }
   },
   login: {

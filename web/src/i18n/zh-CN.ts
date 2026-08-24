@@ -4601,7 +4601,8 @@ export default {
       controlPlane: '平台'
     },
     targets: {
-      assetCount: '{count} 个资产'
+      assetCount: '{count} 个资产',
+      lazyLoadHint: '已加载 {shown} / {total} 条，继续滚动加载更多'
     }
   },
   login: {

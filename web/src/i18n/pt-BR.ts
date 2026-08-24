@@ -4418,7 +4418,8 @@ export default {
       controlPlane: 'Plataforma'
     },
     targets: {
-      assetCount: '{count} ativos'
+      assetCount: '{count} ativos',
+      lazyLoadHint: '{shown} / {total} carregados, role para carregar mais'
     }
   },
   login: {

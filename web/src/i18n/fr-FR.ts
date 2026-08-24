@@ -4481,7 +4481,8 @@ export default {
       controlPlane: 'Plan de contrôle'
     },
     targets: {
-      assetCount: '{count} actifs'
+      assetCount: '{count} actifs',
+      lazyLoadHint: '{shown} / {total} chargés, faites défiler pour charger plus'
     }
   },
   login: {

@@ -4418,7 +4418,8 @@ export default {
       controlPlane: 'Платформа'
     },
     targets: {
-      assetCount: 'Активов: {count}'
+      assetCount: 'Активов: {count}',
+      lazyLoadHint: 'Загружено {shown} / {total}, прокрутите для загрузки'
     }
   },
   login: {

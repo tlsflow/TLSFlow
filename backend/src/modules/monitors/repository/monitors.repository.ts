@@ -221,15 +221,22 @@ export class PgMonitorsRepository implements MonitorsRepository {
   }
 
   async listMonitorProbeResults(query: ListMonitorProbeResultsQuery = {}): Promise<MonitorProbeResultDto[]> {
+    // 中文说明：过滤条件下沉到 SQL（命中 idx_pg_monitor_probe_results_asset/target 索引），
+    // 避免监控目标增多后全表扫描拖慢监控页与按资产懒加载。
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    addOptionalCondition(query.tenantId, 'tenant_id = $PARAM', conditions, params);
+    addOptionalCondition(query.monitorTargetId, 'monitor_target_id = $PARAM', conditions, params);
+    addOptionalCondition(query.serviceAssetId, 'service_asset_id = $PARAM', conditions, params);
+    params.push(normalizePageSize(query.pageSize));
     const rows = (await this.db.query<MonitorProbeResultRow>(
-      `select * from pg_monitor_probe_results order by checked_at desc, created_at desc`,
+      `select * from pg_monitor_probe_results
+       ${conditions.length > 0 ? `where ${conditions.join(' and ')}` : ''}
+       order by checked_at desc, created_at desc
+       limit $${params.length}`,
+      params,
     )).rows.map(toMonitorProbeResult);
-    const pageSize = normalizePageSize(query.pageSize);
-    return rows
-      .filter((item) => query.tenantId === undefined || item.tenantId === query.tenantId)
-      .filter((item) => query.monitorTargetId === undefined || item.monitorTargetId === query.monitorTargetId)
-      .filter((item) => query.serviceAssetId === undefined || item.serviceAssetId === query.serviceAssetId)
-      .slice(0, pageSize);
+    return rows;
   }
 
   async getLatestMonitorProbeResult(tenantId: string, monitorTargetId: string): Promise<MonitorProbeResultDto | undefined> {
@@ -555,19 +562,31 @@ export class PgMonitorsRepository implements MonitorsRepository {
   }
 
   async listCertificateObservations(query: ListCertificateObservationsQuery = {}): Promise<CertificateObservationDto[]> {
+    // 中文说明：去重与过滤条件下沉到 SQL（distinct on 保留每个资产+指纹的最新观测），
+    // 避免监控目标增多后全表扫描拖慢监控页与按资产懒加载。
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    addOptionalCondition(query.tenantId, 'tenant_id = $PARAM', conditions, params);
+    addOptionalCondition(query.serviceAssetId, 'service_asset_id = $PARAM', conditions, params);
+    params.push(normalizePageSize(query.pageSize));
     const rows = (await this.db.query<CertificateObservationRow>(
-      `select * from pg_monitor_certificate_observations order by observed_at desc, created_at desc`,
+      `select * from (
+         select distinct on (
+           service_asset_id,
+           upper(regexp_replace(fingerprint_sha256, '[^a-f0-9]', '', 'g'))
+         ) *
+         from pg_monitor_certificate_observations
+         ${conditions.length > 0 ? `where ${conditions.join(' and ')}` : ''}
+         order by service_asset_id,
+                  upper(regexp_replace(fingerprint_sha256, '[^a-f0-9]', '', 'g')),
+                  observed_at desc,
+                  created_at desc
+       ) t
+       order by observed_at desc, created_at desc
+       limit $${params.length}`,
+      params,
     )).rows.map(toCertificateObservation);
-    const pageSize = normalizePageSize(query.pageSize);
-    const uniqueRows = new Map<string, CertificateObservationDto>();
-    for (const item of rows) {
-      const key = `${item.tenantId ?? ''}|${item.serviceAssetId}|${normalizeObservationFingerprint(item.fingerprintSha256)}`;
-      if (!uniqueRows.has(key)) uniqueRows.set(key, item);
-    }
-    return [...uniqueRows.values()]
-      .filter((item) => query.tenantId === undefined || item.tenantId === query.tenantId)
-      .filter((item) => query.serviceAssetId === undefined || item.serviceAssetId === query.serviceAssetId)
-      .slice(0, pageSize);
+    return rows;
   }
 
   async getLatestCertificateObservation(tenantId: string | undefined, serviceAssetId: string): Promise<CertificateObservationDto | undefined> {
@@ -906,6 +925,12 @@ function asObject(value: unknown): Record<string, unknown> {
 function normalizePageSize(value: number | undefined): number {
   if (!Number.isFinite(value)) return 200;
   return Math.min(500, Math.max(1, Math.trunc(value!)));
+}
+
+function addOptionalCondition(value: string | undefined, template: string, conditions: string[], params: unknown[]): void {
+  if (value === undefined) return;
+  params.push(value);
+  conditions.push(template.replace('$PARAM', `$${params.length}`));
 }
 
 function toIsoText(value: string | Date): string {
