@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { SecretService } from '../../secrets/secret.service.js';
 import { AgentsApplicationService } from '../../agents/application/agents.application-service.js';
@@ -16,9 +15,6 @@ import type { WorkflowConnectionBinding, WorkflowExecutorDispatchResult, Workflo
 import type { ExecutionStepEntity } from '../schema/executions.schema.js';
 import { AgentActionDispatchRegistry, type AgentActionDispatchResolution } from './agent-action-dispatch-registry.js';
 import type { UnifiedAgentPlanCompilerService } from '../../plugins/application/unified-agent-plan-compiler.service.js';
-import { canonicalAgentPlanJson } from '../../plugins/application/unified-agent-plan-compiler.service.js';
-import { readHistoricalResolvedDeploymentInput, type HistoricalAgentActionResolver } from '../../plugins/application/historical-agent-action-resolver.js';
-import type { ResolvedDeploymentInputV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
 import { evaluateTlsVerification, probeTlsCertificate, type TlsVerifyTarget } from './tls-verification.js';
 import { WorkflowRecoveryLedgerService, type WorkflowRecoveryLedgerRecord } from './workflow-recovery-ledger.service.js';
 import { PluginResourceLockService, type PluginResourceLockRecord } from './plugin-resource-lock.service.js';
@@ -104,7 +100,6 @@ export interface DefaultExecutorDependencies {
   secrets?: SecretService;
   workflows?: WorkflowTemplatesApplicationService;
   agentPlanCompiler?: UnifiedAgentPlanCompilerService;
-  historicalAgentActions?: HistoricalAgentActionResolver;
   workflowRecovery?: WorkflowRecoveryLedgerService;
   pluginResourceLocks?: PluginResourceLockService;
   executionGrants?: ExecutionGrantService;
@@ -171,7 +166,7 @@ function createDefaultExecutors(dependencies: DefaultExecutorDependencies = {}):
 	    new WorkflowExecutorAdapter({ workflows: dependencies.workflows, curlExecutor, sshExecutor, recovery: dependencies.workflowRecovery, resourceLocks: dependencies.pluginResourceLocks, executionGrants: dependencies.executionGrants }),
 	    new WindowsRemoteExecutorAdapter('WINRM'),
     new WindowsRemoteExecutorAdapter('SMB_WMI'),
-    new AgentExecutorAdapter(dependencies.agents, new AgentActionDispatchRegistry(), dependencies.agentPlanCompiler, dependencies.historicalAgentActions),
+    new AgentExecutorAdapter(dependencies.agents, new AgentActionDispatchRegistry(), dependencies.agentPlanCompiler),
     new GatewayRouteExecutorAdapter({ agents: dependencies.agents, gatewayTasks: dependencies.gatewayTasks, auditWriter: dependencies.gatewayTaskAuditWriter }),
     new ControlPlaneTlsExecutor(),
     new LegacyAgentExecutorAdapter(),
@@ -211,7 +206,6 @@ export class AgentExecutorAdapter implements Executor {
     private readonly agents = new AgentsApplicationService(),
     private readonly actionDispatch = new AgentActionDispatchRegistry(),
     private readonly agentPlanCompiler?: UnifiedAgentPlanCompilerService,
-    private readonly historicalAgentActions?: HistoricalAgentActionResolver,
   ) {}
 
   async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
@@ -219,18 +213,6 @@ export class AgentExecutorAdapter implements Executor {
     if (!agentId) return { success: false, errorCode: 'AGENT_ID_REQUIRED', errorMessage: 'AGENT 执行器缺少 agentId/executionTargetId，拒绝伪装成功' };
     const requiredAction = this.actionDispatch.requireResolution(input.step.inputSnapshot);
     if (!requiredAction.ok) {
-      if (requiredAction.errorCode === 'AGENT_ACTION_UNREGISTERED' && requiredAction.requestedActionType && this.historicalAgentActions) {
-        const migrated = await this.resolveHistoricalAgentPayload(input, agentId, requiredAction.requestedActionType);
-        if (migrated.error) return migrated.error;
-        return this.executeResolvedPayload(input, agentId, migrated.payload, {
-          requestedActionType: requiredAction.requestedActionType,
-          actionType: 'agent.atomic_plan.execute',
-          mode: 'direct_required',
-          kind: 'HISTORICAL_PLUGIN_ALIAS',
-          contract: { schemaVersions: ['legacy'], riskBoundary: 'DEPLOYMENT', acceptsSecrets: false },
-          aliased: true,
-        });
-      }
       return {
         success: false,
         errorCode: requiredAction.errorCode,
@@ -241,10 +223,7 @@ export class AgentExecutorAdapter implements Executor {
     const dispatch = requiredAction.resolution;
     const resolved = await this.resolveAgentPayload(input, agentId, dispatch);
     if (resolved.error) return resolved.error;
-    return this.executeResolvedPayload(input, agentId, resolved.payload, dispatch);
-  }
-
-  private async executeResolvedPayload(input: StepExecutionInput, agentId: string, payload: Record<string, unknown>, dispatch: AgentActionDispatchResolution): Promise<StepExecutionResult> {
+    const payload = resolved.payload;
     const task = await this.agents.enqueueDirectTask(input.step.tenantId ?? '', {
       agentId,
       executionRunId: input.step.executionRunId,
@@ -289,61 +268,6 @@ export class AgentExecutorAdapter implements Executor {
     }
   }
 
-  private async resolveHistoricalAgentPayload(input: StepExecutionInput, agentId: string, actionType: string): Promise<{
-    payload: Record<string, unknown>;
-    error?: undefined;
-  } | { payload?: undefined; error: StepExecutionResult }> {
-    if (!this.agentPlanCompiler || !this.historicalAgentActions) {
-      return { error: this.historicalMigrationError(actionType) };
-    }
-    const resolvedInput = readHistoricalResolvedDeploymentInput(input.step.inputSnapshot.resolvedDeploymentInput);
-    if (!resolvedInput) return { error: this.historicalMigrationError(actionType) };
-    try {
-      const migration = await this.historicalAgentActions.resolve({
-        tenantId: input.step.tenantId ?? '',
-        actionType,
-        resolvedInput,
-        frameworkType: stringFromSnapshot(input.step.inputSnapshot.frameworkType),
-        productFamily: stringFromSnapshot(input.step.inputSnapshot.productFamily),
-      });
-      const plan = await (this.agentPlanCompiler.compile as unknown as (compilerInput: unknown) => Promise<Record<string, unknown>>)({
-        tenantId: input.step.tenantId ?? '',
-        agentId,
-        executionRunId: input.step.executionRunId,
-        executionStepId: input.step.id,
-        pluginVersionId: migration.capability.pluginVersionId,
-        pluginBindingId: migration.capability.binding.id,
-        resolvedInput,
-        executionMode: input.runType === 'rollback' ? 'ROLLBACK' : input.dryRun ? 'PREFLIGHT' : 'APPLY',
-      });
-      const planSha256 = `sha256:${createHash('sha256').update(canonicalAgentPlanJson(plan)).digest('hex')}`;
-      return { payload: {
-        actionType: 'agent.atomic_plan.execute',
-        actionSchemaVersion: '1.0',
-        plan,
-        historicalActionMigration: {
-          originalActionType: migration.originalActionType,
-          capabilityKey: migration.alias.capabilityKey,
-          pluginVersionId: migration.capability.pluginVersionId,
-          pluginBindingId: migration.capability.binding.id,
-          planSha256,
-        },
-      } };
-    } catch (error) {
-      const appError = error instanceof AppError ? error : undefined;
-      const errorCode = appError?.errorCode === 'HISTORICAL_AGENT_ACTION_AMBIGUOUS'
-        ? appError.errorCode
-        : 'HISTORICAL_AGENT_ACTION_MIGRATION_REQUIRED';
-      return { error: { success: false, errorCode, errorMessage: errorCode === 'HISTORICAL_AGENT_ACTION_AMBIGUOUS'
-        ? '历史 Agent Action 在当前标准插件上下文中存在歧义'
-        : '历史 Agent Action 无法转换，请重新生成部署计划', detail: { requestedActionType: actionType } } };
-    }
-  }
-
-  private historicalMigrationError(actionType: string): StepExecutionResult {
-    return { success: false, errorCode: 'HISTORICAL_AGENT_ACTION_MIGRATION_REQUIRED', errorMessage: '历史 Agent Action 无法转换，请重新生成部署计划', detail: { requestedActionType: actionType } };
-  }
-
   private async resolveAgentPayload(input: StepExecutionInput, agentId: string, dispatch: AgentActionDispatchResolution): Promise<{
     payload: Record<string, unknown>;
     error?: undefined;
@@ -360,18 +284,16 @@ export class AgentExecutorAdapter implements Executor {
     }
     const pluginBindingId = stringFromSnapshot(snapshot.pluginBindingId);
     if (!pluginBindingId) return { error: { success: false, errorCode: 'AGENT_PLUGIN_BINDING_REQUIRED', errorMessage: 'Agent 插件执行缺少统一 Binding ID' } };
-    const pluginVersionId = stringFromSnapshot(readRecord(snapshot.pluginRuntimeCapability)?.pluginVersionId);
-    if (!pluginVersionId) return { error: { success: false, errorCode: 'VALIDATION_FAILED', errorMessage: 'Agent 插件执行缺少固定 PluginVersion' } };
-    const resolvedInput = readResolvedDeploymentInput(snapshot.resolvedDeploymentInput);
-    if (!resolvedInput) return { error: { success: false, errorCode: 'VALIDATION_FAILED', errorMessage: 'Agent 执行缺少统一部署输入快照' } };
+    const artifact = readRecord(snapshot.deploymentArtifact) ?? {};
+    const artifacts = resolveAgentAtomicArtifacts(artifact);
     const plan = await this.agentPlanCompiler.compile({
       tenantId: input.step.tenantId ?? '',
       agentId,
       executionRunId: input.step.executionRunId,
       executionStepId: input.step.id,
-      pluginVersionId,
       pluginBindingId,
-      resolvedInput,
+      artifacts,
+      executionContext: resolvePluginExecutionContext(snapshot),
       executionMode: input.runType === 'rollback' ? 'ROLLBACK' : input.dryRun ? 'PREFLIGHT' : 'APPLY',
     });
     return { payload: {
@@ -391,14 +313,71 @@ function buildRegisteredAgentPayload(snapshot: Record<string, unknown>, input: S
   return payload;
 }
 
-function readResolvedDeploymentInput(value: unknown): ResolvedDeploymentInputV1 | undefined {
-  const input = readRecord(value);
-  if (input?.apiVersion !== 'gcac.resolved-deployment-input/v1') return undefined;
-  if (!readRecord(input.assetContext) || !readRecord(input.variables) || !readRecord(input.connections)
-    || !readRecord(input.credentials) || !readRecord(input.artifacts) || !readRecord(input.provenance)
-    || !Array.isArray(input.sensitivePaths) || !Array.isArray(input.issues)
-    || typeof input.executable !== 'boolean' || typeof input.resolvedSha256 !== 'string') return undefined;
-  return input as unknown as ResolvedDeploymentInputV1;
+function resolvePluginExecutionContext(snapshot: Record<string, unknown>): Record<string, unknown> | undefined {
+  const current = readRecord(snapshot.pluginExecutionContext);
+  if (current) return current;
+
+  const targetSnapshot = readRecord(snapshot.targetSnapshot);
+  if (!targetSnapshot) return undefined;
+  const managedTarget = readRecord(targetSnapshot.managedTarget);
+  const host = readRecord(targetSnapshot.host);
+  const siteAsset = readRecord(targetSnapshot.siteAsset);
+  const verification = readRecord(snapshot.certificateVerification);
+  return {
+    application: {
+      id: snapshot.applicationAssetId,
+      serverName: verification?.serverName,
+      port: verification?.port,
+    },
+    target: managedTarget ? {
+      id: managedTarget.id,
+      type: managedTarget.targetType,
+      key: managedTarget.targetKey,
+      bindingKey: managedTarget.bindingKey,
+      frameworkType: snapshot.frameworkType,
+      metadata: managedTarget.metadata,
+    } : undefined,
+    host: host ? {
+      id: host.id,
+      primaryIp: host.primaryIp,
+      osType: host.osType,
+    } : undefined,
+    site: siteAsset ? {
+      id: siteAsset.id,
+      type: siteAsset.siteType,
+      name: siteAsset.siteName,
+      key: siteAsset.siteKey,
+      bindingInformation: siteAsset.bindingInformation ?? managedTarget?.bindingKey,
+      hostHeader: siteAsset.hostHeader,
+      listenIp: siteAsset.listenIp,
+      port: siteAsset.port,
+      protocol: siteAsset.protocol,
+      configPath: siteAsset.configPath,
+      metadata: siteAsset.metadata,
+    } : undefined,
+  };
+}
+
+function resolveAgentAtomicArtifacts(artifact: Record<string, unknown>): Record<string, unknown> {
+  const workflowMaterials = readRecord(artifact.workflowCertificateMaterials);
+  if (workflowMaterials && Object.keys(workflowMaterials).length > 0) return workflowMaterials;
+
+  const certificatePem = stringFromSnapshot(artifact.certificatePem);
+  const privateKeyPem = stringFromSnapshot(artifact.privateKeyPem);
+  const pfxBase64 = stringFromSnapshot(artifact.pfxBase64);
+  const pfxPassword = stringFromSnapshot(artifact.pfxPassword);
+  const fingerprintSha256 = stringFromSnapshot(artifact.expectedFingerprintSha256);
+  return {
+    certificate: {
+      ...(certificatePem ? { content: certificatePem } : {}),
+      ...(pfxBase64 ? { contentBase64: pfxBase64 } : {}),
+      ...(pfxPassword ? { password: pfxPassword } : {}),
+      ...(fingerprintSha256 ? { fingerprintSha256 } : {}),
+    },
+    privateKey: {
+      ...(privateKeyPem ? { content: privateKeyPem } : {}),
+    },
+  };
 }
 
 function isSuccessfulAtomicDryRun(detail: Record<string, unknown> | undefined): boolean {
