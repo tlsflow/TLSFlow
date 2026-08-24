@@ -1172,11 +1172,6 @@ async function fetchAllPages(
   gap: var(--gc-space-4);
 }
 
-.deployment-plans-page :deep(.business-page__row-actions) {
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
 .deployment-plans-page__dry-run-required {
   display: grid;
   gap: 12px;

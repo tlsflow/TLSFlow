@@ -105,11 +105,6 @@ const config: BusinessPageConfig = {
   gap: var(--gc-space-4);
 }
 
-.plugins-page :deep(.business-page__row-actions) {
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
 .plugin-detail {
   display: grid;
   gap: 12px;

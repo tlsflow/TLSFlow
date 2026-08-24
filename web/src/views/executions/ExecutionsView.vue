@@ -247,10 +247,6 @@ function openExecutionDetail(row: ViewRow) {
   white-space: nowrap;
 }
 
-.gc-execution-page :deep(.business-page__row-actions) {
-  gap: 6px;
-}
-
 .execution-detail-modal {
   display: grid;
   gap: 12px;

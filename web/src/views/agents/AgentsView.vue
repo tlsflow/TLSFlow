@@ -1972,51 +1972,6 @@ const config: BusinessPageConfig = {
 </template>
 
 <style scoped>
-.agent-page :deep(.gc-page-header h1) {
-  font-size: 22px;
-  letter-spacing: -0.04em;
-}
-
-.agent-page :deep(.gc-page-header p) {
-  font-size: 12px;
-}
-
-.agent-page :deep(.gc-data-table th),
-.agent-page :deep(.gc-data-table td) {
-  padding: 10px 12px;
-  font-size: 12px;
-}
-
-.agent-page :deep(.gc-data-table th) {
-  font-size: 11px;
-}
-
-.agent-page :deep(.gc-data-table__toolbar) {
-  padding: 14px 18px;
-}
-
-.agent-page :deep(.business-page__toolbar-title strong) {
-  font-size: 14px;
-}
-
-.agent-page :deep(.business-page__toolbar-title span),
-.agent-page :deep(.gc-data-table__footer) {
-  font-size: 11px;
-}
-
-.agent-page :deep(.business-page__row-actions) {
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.agent-page :deep(.business-page__row-actions .gc-button),
-.agent-page :deep(.business-page__toolbar-actions .gc-button),
-.agent-page :deep(.business-page__toolbar-actions .gc-permission-button) {
-  min-height: 30px;
-  padding: 0 10px;
-  font-size: 12px;
-}
-
 .agent-page :deep(.gc-tag) {
   font-size: 11px;
 }

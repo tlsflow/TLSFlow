@@ -32,15 +32,15 @@ defineProps<{
 h1 {
   margin: 0;
   color: #05070d;
-  font-size: clamp(26px, 2.5vw, 34px);
+  font-size: 24px;
   line-height: 1.1;
-  letter-spacing: -0.045em;
+  letter-spacing: 0;
 }
 p {
   max-width: min(100%, 960px);
   margin: var(--gc-space-2) 0 0;
   color: var(--gc-color-text-muted);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 520;
   line-height: 1.6;
 }
