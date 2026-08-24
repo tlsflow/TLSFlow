@@ -1680,8 +1680,8 @@ export default {
       unavailableAria: '{metric}暂无数据'
     },
     quickStart: {
-      title: '自动化下一次证书发布',
-      description: '通过一个入口完成准备、校验和部署。',
+      title: '从这里快速开始',
+      description: '帮您快速完成证书准备并部署到您的应用',
       addCertificate: '导入或申请新证书',
       deployExistingApplication: '部署到网站或应用',
       unavailable: '暂无可用入口',

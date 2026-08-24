@@ -1571,7 +1571,7 @@ export default {
       title: '시스템 리소스', description: '대시보드 호스트의 CPU 및 메모리 실시간 사용량입니다.', cpu: 'CPU 사용량', memory: '메모리 사용량', host: '호스트', abnormal: '주의', usageAria: '{metric} 사용량 {value}%', unavailableAria: '{metric}을 사용할 수 없습니다'
     },
     quickStart: {
-      title: '다음 인증서 배포 자동화', description: '하나의 안내된 입구에서 준비, 검증, 배포를 수행합니다.', addCertificate: '새 인증서 가져오기 또는 신청', deployExistingApplication: '웹 사이트 또는 애플리케이션에 배포', unavailable: '사용 가능한 입구 없음', safeExecution: '안전한 실행', guidedFlow: '안내 흐름'
+      title: '여기에서 빠르게 시작', description: '인증서 준비를 빠르게 완료하고 애플리케이션에 배포하도록 도와줍니다.', addCertificate: '새 인증서 가져오기 또는 신청', deployExistingApplication: '웹 사이트 또는 애플리케이션에 배포', unavailable: '사용 가능한 입구 없음', safeExecution: '안전한 실행', guidedFlow: '안내 흐름'
     },
     trends: {
       title: '실행 추세', noDelta: '--', auditSuccess: { title: '감사 성공률', suffix: '성공률' }, managedObjects: { title: '객체 상태', suffix: '정상 객체' }, certificateAttention: { title: '인증서 주의', suffix: '검토 필요' }

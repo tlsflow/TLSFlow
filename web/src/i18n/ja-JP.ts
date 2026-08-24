@@ -1597,7 +1597,7 @@ export default {
       title: 'システムリソース', description: 'ダッシュボードホストの CPU とメモリのリアルタイム使用率です。', cpu: 'CPU 使用率', memory: 'メモリ使用率', host: 'ホスト', abnormal: '要確認', usageAria: '{metric}使用率 {value}%', unavailableAria: '{metric}は利用できません'
     },
     quickStart: {
-      title: '次の証明書配布を自動化', description: '準備、検証、配布をひとつの導線で実行します。', addCertificate: '証明書をインポートまたは申請', deployExistingApplication: 'Web サイトまたはアプリケーションへ配布', unavailable: '利用可能な入口なし', safeExecution: '安全な実行', guidedFlow: 'ガイド付きフロー'
+      title: 'ここからすぐに始める', description: '証明書の準備をすばやく完了し、アプリケーションへ配布します。', addCertificate: '証明書をインポートまたは申請', deployExistingApplication: 'Web サイトまたはアプリケーションへ配布', unavailable: '利用可能な入口なし', safeExecution: '安全な実行', guidedFlow: 'ガイド付きフロー'
     },
     trends: {
       title: '実行トレンド', noDelta: '--', auditSuccess: { title: '監査成功率', suffix: '成功率' }, managedObjects: { title: 'オブジェクト健全性', suffix: '正常なオブジェクト' }, certificateAttention: { title: '証明書の要確認', suffix: '確認対象' }

@@ -1596,7 +1596,7 @@ export default {
       title: "系統資源", description: "顯示儀表板主機的 CPU 與記憶體即時使用率。", cpu: "CPU 使用率", memory: "記憶體使用率", host: "主機", abnormal: "需關注", usageAria: "{metric}使用率 {value}%", unavailableAria: "{metric}暫無資料"
     },
     quickStart: {
-      title: "自動化下一次憑證發布", description: "透過一個入口完成準備、驗證和部署。", addCertificate: "匯入或申請新憑證", deployExistingApplication: "部署到網站或應用", unavailable: "暫無可用入口", safeExecution: "安全執行", guidedFlow: "向導流程"
+      title: "從這裡快速開始", description: "幫您快速完成憑證準備並部署到您的應用", addCertificate: "匯入或申請新憑證", deployExistingApplication: "部署到網站或應用", unavailable: "暫無可用入口", safeExecution: "安全執行", guidedFlow: "向導流程"
     },
     trends: {
       title: "執行趨勢", noDelta: "--", auditSuccess: { title: "審計操作成功率", suffix: "成功率" }, managedObjects: { title: "物件健康度", suffix: "正常物件" }, certificateAttention: { title: "憑證到期關注", suffix: "待處理" }

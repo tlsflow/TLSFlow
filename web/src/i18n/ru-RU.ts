@@ -1571,7 +1571,7 @@ export default {
       title: 'Системные ресурсы', description: 'Текущее использование CPU и памяти хоста панели мониторинга.', cpu: 'Использование CPU', memory: 'Использование памяти', host: 'Хост', abnormal: 'Внимание', usageAria: 'Использование {metric}: {value}%', unavailableAria: '{metric} недоступен'
     },
     quickStart: {
-      title: 'Автоматизируйте следующий выпуск сертификата', description: 'Подготовьте, проверьте и разверните сертификат через один вход.', addCertificate: 'Импортировать или запросить новый сертификат', deployExistingApplication: 'Развернуть на сайте или в приложении', unavailable: 'Нет доступного входа', safeExecution: 'Безопасное выполнение', guidedFlow: 'Пошаговый процесс'
+      title: 'Быстрый старт отсюда', description: 'Поможет быстро подготовить сертификат и развернуть его в вашем приложении.', addCertificate: 'Импортировать или запросить новый сертификат', deployExistingApplication: 'Развернуть на сайте или в приложении', unavailable: 'Нет доступного входа', safeExecution: 'Безопасное выполнение', guidedFlow: 'Пошаговый процесс'
     },
     trends: {
       title: 'Тренды выполнения', noDelta: '--', auditSuccess: { title: 'Успешность аудита', suffix: 'успешность' }, managedObjects: { title: 'Состояние объектов', suffix: 'объектов в норме' }, certificateAttention: { title: 'Внимание к сертификатам', suffix: 'на проверку' }

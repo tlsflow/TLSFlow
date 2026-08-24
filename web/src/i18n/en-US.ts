@@ -1658,8 +1658,8 @@ export default {
       unavailableAria: '{metric} is unavailable'
     },
     quickStart: {
-      title: 'Automate your next certificate rollout',
-      description: 'Prepare, validate, and deploy from one guided entry point.',
+      title: 'Quick start from here',
+      description: 'Helps you quickly prepare certificates and deploy them to your applications',
       addCertificate: 'Import or request a new certificate',
       deployExistingApplication: 'Deploy to a website or application',
       unavailable: 'No entry available',

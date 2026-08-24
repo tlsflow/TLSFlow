@@ -1593,7 +1593,7 @@ export default {
       title: 'Ressources système', description: 'Utilisation en temps réel du CPU et de la mémoire de l’hôte du tableau de bord.', cpu: 'Utilisation CPU', memory: 'Utilisation mémoire', host: 'Hôte', abnormal: 'Attention', usageAria: 'Utilisation de {metric} : {value} %', unavailableAria: '{metric} indisponible'
     },
     quickStart: {
-      title: 'Automatisez votre prochain déploiement de certificat', description: 'Préparez, validez et déployez depuis un point d’entrée guidé.', addCertificate: 'Importer ou demander un nouveau certificat', deployExistingApplication: 'Déployer vers un site ou une application', unavailable: 'Aucune entrée disponible', safeExecution: 'Exécution sûre', guidedFlow: 'Parcours guidé'
+      title: 'Commencez ici rapidement', description: 'Vous aide à préparer rapidement vos certificats et à les déployer vers vos applications.', addCertificate: 'Importer ou demander un nouveau certificat', deployExistingApplication: 'Déployer vers un site ou une application', unavailable: 'Aucune entrée disponible', safeExecution: 'Exécution sûre', guidedFlow: 'Parcours guidé'
     },
     trends: {
       title: 'Tendances d’exécution', noDelta: '--', auditSuccess: { title: 'Taux de réussite des audits', suffix: 'taux de réussite' }, managedObjects: { title: 'Santé des objets', suffix: 'objets sains' }, certificateAttention: { title: 'Certificats à surveiller', suffix: 'à examiner' }

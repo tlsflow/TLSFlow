@@ -1571,7 +1571,7 @@ export default {
       title: 'Recursos do sistema', description: 'Uso em tempo real de CPU e memória do host do painel.', cpu: 'Uso de CPU', memory: 'Uso de memória', host: 'Host', abnormal: 'Atenção', usageAria: 'Uso de {metric}: {value}%', unavailableAria: '{metric} indisponível'
     },
     quickStart: {
-      title: 'Automatize sua próxima implantação de certificado', description: 'Prepare, valide e implante por uma entrada guiada.', addCertificate: 'Importar ou solicitar um novo certificado', deployExistingApplication: 'Implantar em um site ou aplicação', unavailable: 'Nenhuma entrada disponível', safeExecution: 'Execução segura', guidedFlow: 'Fluxo guiado'
+      title: 'Comece aqui rapidamente', description: 'Ajuda você a preparar certificados rapidamente e implantá-los em suas aplicações.', addCertificate: 'Importar ou solicitar um novo certificado', deployExistingApplication: 'Implantar em um site ou aplicação', unavailable: 'Nenhuma entrada disponível', safeExecution: 'Execução segura', guidedFlow: 'Fluxo guiado'
     },
     trends: {
       title: 'Tendências de execução', noDelta: '--', auditSuccess: { title: 'Taxa de sucesso da auditoria', suffix: 'taxa de sucesso' }, managedObjects: { title: 'Saúde dos objetos', suffix: 'objetos saudáveis' }, certificateAttention: { title: 'Atenção a certificados', suffix: 'para revisar' }
