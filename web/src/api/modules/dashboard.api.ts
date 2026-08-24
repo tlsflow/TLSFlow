@@ -4,6 +4,7 @@ import { listRecords, toClientPath, type BusinessListQuery } from './common'
 
 const RISK_EVENTS_PATH = '/api/v1/monitors/risks'
 const DASHBOARD_OVERVIEW_PATH = '/api/v1/dashboard/overview'
+const DASHBOARD_RESOURCES_PATH = '/api/v1/dashboard/resources'
 
 export type DashboardMetricTrend = 'neutral' | 'good' | 'warning' | 'danger'
 
@@ -98,6 +99,10 @@ export interface DashboardOverview {
 
 export function getDashboardOverview(): Promise<ApiResult<DashboardOverview>> {
   return apiClient.get<DashboardOverview>(toClientPath(DASHBOARD_OVERVIEW_PATH))
+}
+
+export function getDashboardResources(): Promise<ApiResult<DashboardSystemResources>> {
+  return apiClient.get<DashboardSystemResources>(toClientPath(DASHBOARD_RESOURCES_PATH))
 }
 
 export function listDashboardRisks(query?: BusinessListQuery) {

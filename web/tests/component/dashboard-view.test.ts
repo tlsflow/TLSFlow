@@ -6,6 +6,7 @@ import { usePermissionStore } from '@/stores/permission.store'
 
 const apiMocks = vi.hoisted(() => ({
   getDashboardOverview: vi.fn(),
+  getDashboardResources: vi.fn(),
 }))
 const routerMocks = vi.hoisted(() => ({
   push: vi.fn(),
@@ -13,6 +14,7 @@ const routerMocks = vi.hoisted(() => ({
 
 vi.mock('@/api/modules/dashboard.api', () => ({
   getDashboardOverview: apiMocks.getDashboardOverview,
+  getDashboardResources: apiMocks.getDashboardResources,
 }))
 
 vi.mock('@/views/acme/AcmeCertificateRequestModal.vue', () => ({
@@ -30,6 +32,8 @@ vi.mock('vue-router', () => ({
 describe('DashboardView', () => {
   beforeEach(() => {
     apiMocks.getDashboardOverview.mockReset()
+    apiMocks.getDashboardResources.mockReset()
+    apiMocks.getDashboardResources.mockResolvedValue({ data: { cpuUsage: 22, memoryUsage: 41 } })
     routerMocks.push.mockReset()
     setActivePinia(createPinia())
     usePermissionStore().setPermissions(['audit.read'])
@@ -305,6 +309,19 @@ describe('DashboardView', () => {
     document.querySelectorAll<HTMLButtonElement>('.certificate-add-modal__source .gc-selection-card')[1]?.click()
     await vi.waitFor(() => expect(wrapper.find('[data-testid="acme-request-modal"]').exists()).toBe(true))
     expect(wrapper.find('[data-testid="acme-request-modal"]').exists()).toBe(true)
+    expect(quickStartButtons[1].text()).toContain('部署到网站或应用')
+    expect(quickStartButtons[1].attributes('href')).toBe('/assets')
+  })
+
+  it('快捷启动不等待仪表盘总览请求即可同时显示两个入口', () => {
+    usePermissionStore().setPermissions(['certificate.import', 'service_asset.read'])
+    apiMocks.getDashboardOverview.mockImplementation(() => new Promise(() => undefined))
+
+    const wrapper = mount(DashboardView)
+
+    const quickStartButtons = wrapper.findAll('.dashboard-quick-start__button')
+    expect(quickStartButtons).toHaveLength(2)
+    expect(quickStartButtons[0].text()).toContain('导入或申请新证书')
     expect(quickStartButtons[1].text()).toContain('部署到网站或应用')
     expect(quickStartButtons[1].attributes('href')).toBe('/assets')
   })

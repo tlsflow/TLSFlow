@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import {
   getDashboardOverview,
+  getDashboardResources,
   type DashboardMetric,
   type DashboardOverview,
   type DashboardQuickAction,
@@ -36,6 +37,7 @@ interface QuickStartAction {
 const permissionStore = usePermissionStore()
 const { t, te } = useI18n()
 const overview = ref<DashboardOverview | null>(null)
+const systemResources = ref<DashboardOverview['systemResources'] | null>(null)
 const loading = ref(false)
 const error = ref('')
 const activeTooltip = ref<DashboardStatusBlock | null>(null)
@@ -44,10 +46,6 @@ let activeLoad: Promise<void> | null = null
 
 const visibleQuickActions = computed(() =>
   (overview.value?.quickActions ?? []).filter((action) => permissionStore.hasPermission(action.permission)),
-)
-
-const deploymentQuickAction = computed(() =>
-  visibleQuickActions.value.find((action) => action.key === 'deploymentPlans'),
 )
 
 const quickStartActions = computed<readonly QuickStartAction[]>(() => {
@@ -62,10 +60,10 @@ const quickStartActions = computed<readonly QuickStartAction[]>(() => {
     })
   }
 
-  if (deploymentQuickAction.value) {
+  if (permissionStore.hasPermission('service_asset.read')) {
     actions.push({
       key: 'deployment',
-      path: deploymentQuickAction.value.path,
+      path: '/assets',
       label: t('dashboard.quickStart.deployExistingApplication'),
       emphasis: 'primary',
     })
@@ -125,7 +123,7 @@ const dashboardHealth = computed(() => {
 })
 
 const resourceMetrics = computed<readonly ResourceMetric[]>(() => {
-  const resources = overview.value?.systemResources
+  const resources = systemResources.value ?? overview.value?.systemResources
   return [
     { key: 'cpu', value: resources?.cpuUsage ?? null, tone: resourceTone(resources?.cpuUsage ?? null) },
     { key: 'memory', value: resources?.memoryUsage ?? null, tone: resourceTone(resources?.memoryUsage ?? null) },
@@ -188,6 +186,7 @@ async function loadOverviewOnce() {
     const result = await getDashboardOverview()
     if (!result.data) throw new Error(t('dashboard.errors.missingOverviewData'))
     overview.value = result.data
+    systemResources.value = result.data.systemResources
     error.value = ''
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : t('dashboard.errors.loadFailed')
@@ -203,7 +202,17 @@ function resourceTone(value: number | null): StatusTone {
   return 'info'
 }
 
-usePolling(loadOverview, { intervalMs: 30_000, immediate: true })
+async function loadSystemResources() {
+  try {
+    const result = await getDashboardResources()
+    if (result.data) systemResources.value = result.data
+  } catch {
+    // 资源采样失败不能覆盖最近一次总览数据，也不阻塞结构化内容。
+  }
+}
+
+usePolling(loadOverview, { intervalMs: 300_000, immediate: true })
+usePolling(loadSystemResources, { intervalMs: 30_000, immediate: false })
 
 onMounted(() => {
   window.addEventListener('dashboard:refresh', loadOverview)
