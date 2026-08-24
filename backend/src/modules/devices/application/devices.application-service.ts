@@ -431,7 +431,6 @@ function optionalString(value: unknown): string | undefined {
 function enrichAgentDetail(device: ManagedDeviceDetailDto, projection: AgentDetailProjection): ManagedDeviceDetailDto {
   const { agent, latestHeartbeat, health, taskQueue, upgradeSuggestion } = projection;
   const descriptor = agent.descriptor;
-  const capabilitySites = buildAgentCapabilitySites(projection);
   const agentSection = {
     key: 'agent',
     fields: [
@@ -489,7 +488,6 @@ function enrichAgentDetail(device: ManagedDeviceDetailDto, projection: AgentDeta
       updatedAt: agent.updatedAt,
     },
     informationSections: [device.informationSections[0] ?? { key: 'common', fields: [] }, agentSection, runtimeSection],
-    sites: mergeAgentSites(device.sites, capabilitySites),
     logs: [...runtimeLogs, ...errorLogs].sort((left, right) => right.occurredAt.localeCompare(left.occurredAt)),
     extension: { type: 'AGENT', agentId: agent.id, agentType: agent.role },
     extensionSummary: {
@@ -498,169 +496,6 @@ function enrichAgentDetail(device: ManagedDeviceDetailDto, projection: AgentDeta
       descriptor,
     },
   };
-}
-
-function buildAgentCapabilitySites(projection: AgentDetailProjection): ManagedDeviceDetailDto['sites'] {
-  const capabilities = projection.capabilitySnapshot?.capabilities ?? projection.capabilities.declarations;
-  const values = new Map(capabilities.map((item) => [item.capabilityKey, item.value]));
-  const sites: ManagedDeviceDetailDto['sites'] = [];
-  appendIisSites(sites, values.get('windows.iis.sites') ?? recordValue(values.get('windows.iis.detail'), 'Sites'));
-  appendLinuxSites(sites, 'NGINX', values.get('linux.nginx.detail'));
-  appendLinuxSites(sites, 'APACHE', values.get('linux.apache.detail'));
-  appendTomcatSites(sites, values.get('linux.tomcat.detail'));
-  return sites;
-}
-
-function appendIisSites(sites: ManagedDeviceDetailDto['sites'], raw: unknown): void {
-  for (const site of objectList(raw)) {
-    const name = textValue(site, 'Name') || textValue(site, 'name');
-    if (!name) continue;
-    const bindings = objectList(site.Bindings ?? site.bindings).map((binding, index) => ({
-      id: `agent-site-binding:iis:${name}:${index}`,
-      bindingKey: textValue(binding, 'BindingInformation') || textValue(binding, 'bindingInformation') || `iis:${name}:${index}`,
-      bindingType: 'IIS_BINDING',
-      hostName: textValue(binding, 'HostHeader') || textValue(binding, 'hostHeader') || undefined,
-      status: textValue(site, 'State') || textValue(site, 'state') || 'UNKNOWN',
-      certificate: capabilityCertificate(binding),
-      replacement: { allowed: false, reasonCode: 'AGENT_DISCOVERY_ONLY' },
-    }));
-    const firstBinding = objectList(site.Bindings ?? site.bindings)[0];
-    sites.push({
-      id: `agent-site:iis:${name}`,
-      siteAssetId: `agent-site:iis:${name}`,
-      kind: 'IIS',
-      name,
-      status: textValue(site, 'State') || textValue(site, 'state') || undefined,
-      endpoint: firstBinding ? {
-        address: textValue(firstBinding, 'IPAddress') || textValue(firstBinding, 'ipAddress') || undefined,
-        hostName: textValue(firstBinding, 'HostHeader') || textValue(firstBinding, 'hostHeader') || undefined,
-        port: numberValue(firstBinding, 'Port') ?? numberValue(firstBinding, 'port'),
-        protocol: textValue(firstBinding, 'Protocol') || textValue(firstBinding, 'protocol') || undefined,
-      } : undefined,
-      configPath: textValue(site, 'PhysicalPath') || textValue(site, 'physicalPath') || undefined,
-      bindings,
-      metadata: { source: 'agent_capability_snapshot', appPool: textValue(site, 'AppPool') || textValue(site, 'appPool') },
-    });
-  }
-}
-
-function appendLinuxSites(sites: ManagedDeviceDetailDto['sites'], kind: 'NGINX' | 'APACHE', raw: unknown): void {
-  const detail = asRecord(raw);
-  const capabilitySites = objectList(detail.Sites ?? detail.sites);
-  for (const [siteIndex, site] of capabilitySites.entries()) {
-    const name = textValue(site, 'Name') || textValue(site, 'name') || textValue(site, 'ServerNames') || textValue(site, 'serverNames') || `${kind} site ${sites.length + 1}`;
-    const rawBindings = site.Bindings ?? site.bindings ?? site.Listen ?? site.listen;
-    const bindings = objectList(rawBindings).map((binding, index) => ({
-      id: `agent-site-binding:${kind.toLowerCase()}:${name}:${index}`,
-      bindingKey: textValue(binding, 'BindingInformation') || textValue(binding, 'bindingInformation') || `${kind.toLowerCase()}:${name}:${index}`,
-      bindingType: 'LISTEN',
-      hostName: textValue(binding, 'Address') || textValue(binding, 'address') || undefined,
-      status: 'UNKNOWN',
-      certificate: capabilityCertificate(binding),
-      replacement: { allowed: false, reasonCode: 'AGENT_DISCOVERY_ONLY' },
-    }));
-    const firstBinding = objectList(rawBindings)[0];
-    sites.push({
-      id: `agent-site:${kind.toLowerCase()}:${siteIndex}:${name}`,
-      siteAssetId: `agent-site:${kind.toLowerCase()}:${siteIndex}:${name}`,
-      kind,
-      name,
-      endpoint: firstBinding ? {
-        address: textValue(firstBinding, 'Address') || textValue(firstBinding, 'address') || undefined,
-        port: numberValue(firstBinding, 'Port') ?? numberValue(firstBinding, 'port'),
-        protocol: textValue(firstBinding, 'Protocol') || textValue(firstBinding, 'protocol') || undefined,
-      } : undefined,
-      configPath: textValue(site, 'SitePath') || textValue(site, 'sitePath') || undefined,
-      bindings,
-      metadata: { source: 'agent_capability_snapshot' },
-    });
-  }
-}
-
-function appendTomcatSites(sites: ManagedDeviceDetailDto['sites'], raw: unknown): void {
-  const detail = asRecord(raw);
-  for (const connector of objectList(detail.Connectors ?? detail.connectors)) {
-    const port = numberValue(connector, 'Port') ?? numberValue(connector, 'port');
-    const protocol = textValue(connector, 'Protocol') || textValue(connector, 'protocol') || 'HTTP';
-    const name = textValue(connector, 'Name') || textValue(connector, 'name') || `Tomcat ${protocol}:${port ?? sites.length + 1}`;
-    const address = textValue(connector, 'Address') || textValue(connector, 'address') || undefined;
-    const bindingKey = `${address ?? '*'}:${port ?? 0}:${protocol}`;
-    sites.push({
-      id: `agent-site:tomcat:${name}`,
-      siteAssetId: `agent-site:tomcat:${name}`,
-      kind: 'TOMCAT',
-      name,
-      endpoint: { address, port, protocol },
-      configPath: textValue(detail, 'ConfigPath') || textValue(detail, 'configPath') || undefined,
-      bindings: [{
-        id: `agent-site-binding:tomcat:${bindingKey}`,
-        bindingKey,
-        bindingType: 'CONNECTOR',
-        hostName: address,
-        status: 'UNKNOWN',
-        certificate: capabilityCertificate(connector),
-        replacement: { allowed: false, reasonCode: 'AGENT_DISCOVERY_ONLY' },
-      }],
-      metadata: { source: 'agent_capability_snapshot' },
-    });
-  }
-}
-
-function capabilityCertificate(binding: Record<string, unknown>): ManagedDeviceDetailDto['sites'][number]['bindings'][number]['certificate'] {
-  const certificate = asRecord(binding.Certificate ?? binding.certificate);
-  const fingerprint = textValue(certificate, 'FingerprintSHA256')
-    || textValue(certificate, 'fingerprintSha256')
-    || textValue(certificate, 'Thumbprint')
-    || textValue(certificate, 'thumbprint')
-    || textValue(binding, 'CertificateThumbprint')
-    || textValue(binding, 'certificateThumbprint');
-  const subject = textValue(certificate, 'Subject') || textValue(certificate, 'subject');
-  const name = textValue(binding, 'CertificateName') || textValue(binding, 'certificateName');
-  if (!fingerprint && !subject && !name) return undefined;
-  return {
-    name: name || undefined,
-    subject: subject || undefined,
-    issuer: textValue(certificate, 'Issuer') || textValue(certificate, 'issuer') || undefined,
-    notBefore: textValue(certificate, 'NotBefore') || textValue(certificate, 'notBefore') || undefined,
-    notAfter: textValue(certificate, 'NotAfter') || textValue(certificate, 'notAfter') || undefined,
-    fingerprintSha256: fingerprint || undefined,
-  };
-}
-
-function mergeAgentSites(existing: ManagedDeviceDetailDto['sites'], discovered: ManagedDeviceDetailDto['sites']): ManagedDeviceDetailDto['sites'] {
-  const result = [...existing];
-  for (const site of discovered) {
-    if (!result.some((item) => siteIdentity(item) === siteIdentity(site))) result.push(site);
-  }
-  return result;
-}
-
-function siteIdentity(site: ManagedDeviceDetailDto['sites'][number]): string {
-  return [site.kind, site.name, site.configPath, site.endpoint?.address, site.endpoint?.hostName, site.endpoint?.port, site.endpoint?.protocol]
-    .map((value) => String(value ?? '').toLowerCase())
-    .join('|');
-}
-
-function recordValue(value: unknown, key: string): unknown {
-  return asRecord(value)[key];
-}
-
-function objectList(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item)) : [];
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-function textValue(record: Record<string, unknown>, key: string): string {
-  const value = record[key];
-  return value === undefined || value === null ? '' : String(value).trim();
-}
-
-function numberValue(record: Record<string, unknown>, key: string): number | undefined {
-  const value = Number(record[key]);
-  return Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
 function required(value: string | undefined, field: string): string {

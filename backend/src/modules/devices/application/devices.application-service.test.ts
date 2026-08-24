@@ -59,3 +59,56 @@ test('统一设备发现动作会转发到 Agent 能力重扫', async () => {
   assert.equal(rescanRequestId, 'request-1');
   assert.equal((result as { id: string }).id, 'task-1');
 });
+
+test('Agent 设备详情只保留标准投影站点，不再解析厂商 capability snapshot', async () => {
+  const standardSite = {
+    id: 'site-standard',
+    siteAssetId: 'site-standard',
+    kind: 'CUSTOM',
+    name: '标准投影站点',
+    bindings: [],
+    metadata: { source: 'standard_discovery_projection' },
+  } as ManagedDeviceDetailDto['sites'][number];
+  const device = {
+    id: 'host-standard',
+    displayName: 'Standard Host',
+    category: 'SERVER',
+    productFamily: 'fixture.standard',
+    managementMethod: 'AGENT',
+    health: 'HEALTHY',
+    sourceStatus: 'ONLINE',
+    applicationAssetCount: 1,
+    capabilities: [],
+    extensionType: 'AGENT',
+    allowedActions: [],
+    publicSummary: { osType: 'WINDOWS', managementMode: 'AGENT', updatedAt: '2026-07-30T00:00:00.000Z' },
+    overview: { deviceId: 'host-standard', displayName: 'Standard Host', deviceType: 'AGENT', managementMode: 'AGENT', status: 'ONLINE', updatedAt: '2026-07-30T00:00:00.000Z' },
+    informationSections: [{ key: 'common', fields: [] }],
+    frameworks: [],
+    sites: [standardSite],
+    certificates: [],
+    logs: [],
+    extension: { type: 'AGENT', agentId: 'agent-standard' },
+    extensionSummary: {},
+  } as ManagedDeviceDetailDto;
+  const repository = { get: async () => device } as unknown as DevicesRepository;
+  const agents = {
+    getAgentDetail: async () => ({
+      agent: { id: 'agent-standard', agentKey: 'agent-key', status: 'ONLINE', registeredAt: '2026-07-30T00:00:00.000Z', updatedAt: '2026-07-30T00:00:00.000Z', descriptor: { hostname: 'standard-host', osType: 'WINDOWS' } },
+      health: { status: 'HEALTHY', offline: false },
+      taskQueue: { counts: { queued: 0, leased: 0, acked: 0 } },
+      upgradeSuggestion: { suggestion: { status: 'CURRENT' } },
+      runtimeLogs: [],
+      recentErrors: [],
+      capabilities: { declarations: [] },
+      capabilitySnapshot: {
+        capabilities: [{ capabilityKey: 'windows.iis.sites', value: [{ Name: '不应出现的旧 IIS 站点' }] }],
+      },
+    }) as unknown as AgentDetailProjection,
+  } as unknown as AgentsApplicationService;
+
+  const result = await new DevicesApplicationService(repository, undefined, agents).get('tenant-1', device.id);
+
+  assert.deepEqual(result.sites, [standardSite]);
+  assert.equal(JSON.stringify(result.sites).includes('不应出现的旧 IIS 站点'), false);
+});
