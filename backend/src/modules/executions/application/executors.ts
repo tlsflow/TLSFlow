@@ -241,7 +241,7 @@ export class WorkflowExecutorAdapter implements Executor {
     try {
       const workflowRun = input.dryRun
         ? await this.workflows.preview(runtimeInput)
-        : await this.workflows.runWithDispatcher(runtimeInput, async (dispatch) => this.dispatchWorkflowStep(input, dispatch.renderedPlan, dispatch.attempt));
+        : await this.workflows.runWithDispatcher(runtimeInput, async (dispatch) => this.dispatchWorkflowStep(input, dispatch.renderedPlan, dispatch.step.name, dispatch.attempt));
       const dryRunChecks = input.dryRun ? buildWorkflowDryRunChecks(workflowRun) : undefined;
       const detail = {
         mode: input.dryRun ? 'workflow_plan' : 'workflow_runner',
@@ -273,13 +273,13 @@ export class WorkflowExecutorAdapter implements Executor {
     }
   }
 
-  private async dispatchWorkflowStep(input: StepExecutionInput, renderedPlan: unknown, attempt: number): Promise<WorkflowExecutorDispatchResult> {
+  private async dispatchWorkflowStep(input: StepExecutionInput, renderedPlan: unknown, workflowStepName: string, attempt: number): Promise<WorkflowExecutorDispatchResult> {
     const plan = readRecord(renderedPlan);
     const executor = stringFromSnapshot(plan?.executor);
     if (executor === '017.CURL_HTTP') {
       const result = await this.curlExecutor.executeStep({
         ...input,
-        step: workflowChildStep(input.step, `workflow-curl-${attempt}`, { curlRequest: readRecord(plan?.curlRequest) }),
+        step: workflowChildStep(input.step, `workflow-curl-${workflowStepName}-${attempt}`, { curlRequest: toWorkflowCurlRequest(plan, input.step, workflowStepName, attempt) }),
         dryRun: false,
       });
       return curlWorkflowOutput(result);
@@ -287,7 +287,7 @@ export class WorkflowExecutorAdapter implements Executor {
     if (executor === '015.SSH') {
       const result = await this.sshExecutor.executeStep({
         ...input,
-        step: workflowChildStep(input.step, `workflow-ssh-${attempt}`, { sshRequest: toWorkflowSshRequest(plan, input.step, attempt) }),
+        step: workflowChildStep(input.step, `workflow-ssh-${workflowStepName}-${attempt}`, { sshRequest: toWorkflowSshRequest(plan, input.step, workflowStepName, attempt) }),
         dryRun: false,
       });
       return sshWorkflowOutput(result);
@@ -719,20 +719,30 @@ function buildWorkflowCertificateOutputs(files: Array<Record<string, unknown>>):
   return outputs;
 }
 
-function toWorkflowSshRequest(plan: Record<string, unknown> | undefined, parent: ExecutionStepEntity, attempt: number): Record<string, unknown> {
+function toWorkflowSshRequest(plan: Record<string, unknown> | undefined, parent: ExecutionStepEntity, stepName: string, attempt: number): Record<string, unknown> {
   const connection = readRecord(plan?.connection);
   const command = stringFromSnapshot(plan?.command);
   const timeoutMs = typeof plan?.timeoutMs === 'number' ? plan.timeoutMs : undefined;
   const directRequest = readRecord(plan?.sshRequest);
   return {
-    idempotencyKey: `${parent.executionRunId}:${parent.id}:workflow-ssh:${attempt}`,
+    ...(directRequest ?? {}),
+    idempotencyKey: `${parent.executionRunId}:${parent.id}:workflow-ssh:${stepName}:${attempt}`,
     connection,
     command,
     commands: readStringArray(plan?.commands),
     script: stringFromSnapshot(plan?.script),
     timeoutMs,
     dryRun: false,
-    ...(directRequest ?? {}),
+  };
+}
+
+function toWorkflowCurlRequest(plan: Record<string, unknown> | undefined, parent: ExecutionStepEntity, stepName: string, attempt: number): Record<string, unknown> | undefined {
+  const directRequest = readRecord(plan?.curlRequest);
+  if (!directRequest) return undefined;
+  return {
+    ...directRequest,
+    idempotencyKey: `${parent.executionRunId}:${parent.id}:workflow-curl:${stepName}:${attempt}`,
+    dryRun: false,
   };
 }
 

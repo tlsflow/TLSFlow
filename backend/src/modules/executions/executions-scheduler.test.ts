@@ -303,17 +303,45 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
             },
             assert: [{ type: 'contains', value: 'ok' }],
           },
+          {
+            name: 'verifyHttp',
+            type: 'http',
+            request: {
+              method: 'GET',
+              url: 'https://{{deviceHost}}/api/cert/status',
+              auth: { type: 'bearer', credential: '{{credential}}' },
+            },
+            assert: [{ type: 'statusCode', equals: 200 }],
+          },
+          {
+            name: 'verifyReload',
+            type: 'ssh',
+            ssh: {
+              mode: 'command',
+              connection: {
+                host: '{{deviceHost}}',
+                username: 'deploy',
+                credential: '{{credential}}',
+                expectedHostKeyFingerprint: 'aabbccddeeff0011',
+              },
+              command: 'verify reload',
+            },
+            assert: [{ type: 'contains', value: 'ok' }],
+          },
         ],
       },
     });
     await workflows.publishVersion(created.version.id);
     const calls: string[] = [];
+    const curlIdempotencyKeys: string[] = [];
+    const sshIdempotencyKeys: string[] = [];
     const adapter = new WorkflowExecutorAdapter({
       workflows,
       curlExecutor: {
         type: 'CURL',
         async executeStep(input: StepExecutionInput) {
           calls.push(`curl:${input.step.inputSnapshot.curlRequest.template.method}`);
+          curlIdempotencyKeys.push(input.step.inputSnapshot.curlRequest.idempotencyKey);
           return { success: true, detail: { response: { statusCode: 200, headers: {}, bodyJson: { success: true }, bodyText: '{"success":true}' }, logs: ['curl:ok'] } };
         },
       },
@@ -321,6 +349,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
         type: 'SSH',
         async executeStep(input: StepExecutionInput) {
           calls.push(`ssh:${input.step.inputSnapshot.sshRequest.command}`);
+          sshIdempotencyKeys.push(input.step.inputSnapshot.sshRequest.idempotencyKey);
           return { success: true, detail: { commandResult: { exitCode: 0, stdout: 'reload ok', stderr: '', logs: ['ssh:ok'] } } };
         },
       },
@@ -358,7 +387,15 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     });
 
     assert.equal(result.success, true);
-    assert.deepEqual(calls, ['curl:PUT', 'ssh:reload cert']);
+    assert.deepEqual(calls, ['curl:PUT', 'ssh:reload cert', 'curl:GET', 'ssh:verify reload']);
+    assert.equal(curlIdempotencyKeys.length, 2);
+    assert.notEqual(curlIdempotencyKeys[0], curlIdempotencyKeys[1]);
+    assert.match(curlIdempotencyKeys[0]!, /^run_workflow_runtime:stp_workflow_runtime:workflow-curl:upload:1$/);
+    assert.match(curlIdempotencyKeys[1]!, /^run_workflow_runtime:stp_workflow_runtime:workflow-curl:verifyHttp:1$/);
+    assert.equal(sshIdempotencyKeys.length, 2);
+    assert.notEqual(sshIdempotencyKeys[0], sshIdempotencyKeys[1]);
+    assert.match(sshIdempotencyKeys[0]!, /^run_workflow_runtime:stp_workflow_runtime:workflow-ssh:reload:1$/);
+    assert.match(sshIdempotencyKeys[1]!, /^run_workflow_runtime:stp_workflow_runtime:workflow-ssh:verifyReload:1$/);
     assert.equal(result.detail.workflowRun.status, 'success');
   });
 
