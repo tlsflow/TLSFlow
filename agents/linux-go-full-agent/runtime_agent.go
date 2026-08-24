@@ -18,7 +18,7 @@ import (
 	"syscall"
 	"time"
 
-	"gcac/linux-go-full-agent/internal/core/actioncontract"
+	"gcac/linux-go-full-agent/internal/atomicplan"
 	coreRegistry "gcac/linux-go-full-agent/internal/core/registry"
 	coreRuntime "gcac/linux-go-full-agent/internal/core/runtime"
 	"gcac/linux-go-full-agent/internal/handlers/productruntime"
@@ -995,12 +995,14 @@ func executeDirectControlAction(request directActionExecuteRequest) (map[string]
 	actionType := strings.TrimSpace(request.ActionType)
 	payload := cloneMap(request.Inputs)
 	payload["type"] = actionType
+	schemaVersion := resolveActionSchemaVersion(actionType, payload)
 
 	taskID := fmt.Sprintf("direct_%d", time.Now().UnixNano())
 	result := newLinuxActionRegistry(nil).Execute(context.Background(), coreRegistry.Request{
-		TaskID:     taskID,
-		ActionType: actionType,
-		Payload:    payload,
+		TaskID:        taskID,
+		ActionType:    actionType,
+		SchemaVersion: schemaVersion,
+		Payload:       payload,
 	})
 	statusCode := http.StatusOK
 	if !result.Success {
@@ -1046,17 +1048,17 @@ func executeDirectControlActionWithRuntime(
 
 func startDirectControlAction(request directActionStartRequest) (map[string]any, int) {
 	actionType := strings.TrimSpace(request.ActionType)
+	payload := cloneMap(request.Inputs)
+	payload["type"] = actionType
+	schemaVersion := resolveActionSchemaVersion(actionType, payload)
 	registry := newLinuxActionRegistry(nil)
-	if _, err := registry.Lookup(actionType, coreRegistry.DefaultSchemaVersion); err != nil {
+	if _, err := registry.Lookup(actionType, schemaVersion); err != nil {
 		return map[string]any{
 			"success":      false,
 			"errorCode":    "ACTION_HANDLER_NOT_REGISTERED",
 			"errorMessage": fmt.Sprintf("action handler not registered: %s", actionType),
 		}, http.StatusBadRequest
 	}
-
-	payload := cloneMap(request.Inputs)
-	payload["type"] = actionType
 
 	actionID := fmt.Sprintf("direct_action_%d", time.Now().UnixNano())
 	startedAt := time.Now().Format(time.RFC3339)
@@ -1070,9 +1072,10 @@ func startDirectControlAction(request directActionStartRequest) (map[string]any,
 
 	go func() {
 		result := registry.Execute(context.Background(), coreRegistry.Request{
-			TaskID:     actionID,
-			ActionType: actionType,
-			Payload:    payload,
+			TaskID:        actionID,
+			ActionType:    actionType,
+			SchemaVersion: schemaVersion,
+			Payload:       payload,
 		})
 		globalDirectActionStatusStore.upsert(directActionStatusSnapshot{
 			ActionID:     actionID,
@@ -1164,6 +1167,11 @@ func executeDirectActionPayload(
 	actionType string,
 	inputs map[string]any,
 ) (bool, string, string, map[string]any) {
+	if strings.EqualFold(strings.TrimSpace(actionType), "agent.atomic_plan.execute") {
+		ctx = atomicplan.WithProgressReporter(ctx, func(detail map[string]any) {
+			globalDirectActionStatusStore.updateProgress(taskID, detail)
+		})
+	}
 	payload := cloneMap(inputs)
 	payload["type"] = actionType
 	registry := newLinuxActionRegistry(&linuxActionRuntime{
@@ -1174,9 +1182,10 @@ func executeDirectActionPayload(
 		rescan:   rescan,
 	})
 	result := registry.Execute(ctx, coreRegistry.Request{
-		TaskID:     taskID,
-		ActionType: actionType,
-		Payload:    payload,
+		TaskID:        taskID,
+		ActionType:    actionType,
+		SchemaVersion: resolveActionSchemaVersion(actionType, payload),
+		Payload:       payload,
 	})
 	return result.Success, result.ErrorCode, result.ErrorMessage, result.Detail
 }
@@ -1222,6 +1231,17 @@ func (s *directActionStatusStore) get(actionID string) (directActionStatusSnapsh
 	defer s.mu.Unlock()
 	snapshot, ok := s.actions[actionID]
 	return snapshot, ok
+}
+
+func (s *directActionStatusStore) updateProgress(actionID string, detail map[string]any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	snapshot, ok := s.actions[actionID]
+	if !ok || snapshot.Status != "running" {
+		return
+	}
+	snapshot.Detail = cloneMap(detail)
+	s.actions[actionID] = snapshot
 }
 
 func buildDirectDiscoveryPayloadLinux(controlPlaneURL string, request directDiscoveryRequest) map[string]any {
@@ -1673,11 +1693,12 @@ func executeTask(ctx context.Context, client *http.Client, config *AgentConfig, 
 		counters: counters,
 		rescan:   rescan,
 	})
-	schemaVersion := coreRegistry.DefaultSchemaVersion
-	if taskType == actioncontract.DeployAction {
-		schemaVersion = actioncontract.DeployVersion
-	}
-	result := registry.Execute(ctx, coreRegistry.Request{TaskID: task.ID, ActionType: taskType, SchemaVersion: schemaVersion, Payload: payload})
+	result := registry.Execute(ctx, coreRegistry.Request{
+		TaskID:        task.ID,
+		ActionType:    taskType,
+		SchemaVersion: resolveActionSchemaVersion(taskType, payload),
+		Payload:       payload,
+	})
 	return result.Success, result.ErrorCode, result.ErrorMessage, result.Detail
 }
 

@@ -30,10 +30,6 @@ type Security interface {
 	RestoreFileContext(context.Context, string) error
 }
 
-type Verifier interface {
-	Verify(context.Context) error
-}
-
 type RecoveryRecorder interface {
 	CompleteStep(string) error
 	Complete() error
@@ -69,12 +65,11 @@ type Handler struct {
 	filesystem Filesystem
 	service    Service
 	security   Security
-	verifier   Verifier
 	recovery   RecoveryRecorder
 }
 
-func New(filesystem Filesystem, service Service, security Security, verifier Verifier) *Handler {
-	return &Handler{filesystem: filesystem, service: service, security: security, verifier: verifier}
+func New(filesystem Filesystem, service Service, security Security) *Handler {
+	return &Handler{filesystem: filesystem, service: service, security: security}
 }
 
 func (handler *Handler) WithRecovery(recorder RecoveryRecorder) *Handler {
@@ -124,11 +119,6 @@ func (handler *Handler) Deploy(ctx context.Context, input Input) Result {
 	}
 	completed = append(completed, "reload")
 	handler.recordStep("reload")
-	if err := handler.verifier.Verify(ctx); err != nil {
-		return handler.recover(ctx, "APACHE_VERIFY_FAILED", err, completed, backups)
-	}
-	completed = append(completed, "verify")
-	handler.recordStep("verify")
 	handler.recordComplete()
 	return Result{Success: true, CompletedSteps: completed}
 }

@@ -1,21 +1,16 @@
 package main
 
 import (
-	"context"
 	"crypto/sha1"
 	"crypto/sha256"
-	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
-	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -34,7 +29,6 @@ type windowsIISDeploymentInput struct {
 	ExpectedCertificateSHA256 string                 `json:"expectedCertificateFingerprintSha256"`
 	ExpectedDomains           []string               `json:"expectedDomains"`
 	AppPoolName               string                 `json:"appPoolName"`
-	VerifyURL                 string                 `json:"verifyUrl"`
 }
 
 type bindingSelector struct {
@@ -183,34 +177,6 @@ func runWindowsIISDeployment(execution *taskExecutionContext) (bool, string, str
 			},
 		}
 		execution.submitLog("info", "IIS Binding 当前不需要额外的 RELOAD 操作")
-		return true, "", "", detail
-	case "VERIFY":
-		detail := map[string]any{
-			"executor": "windows-iis-provider",
-			"mode":     "iis_binding_verify",
-			"taskId":   execution.task.ID,
-			"siteName": site.Name,
-			"binding": map[string]any{
-				"bindingInformation": binding.BindingInformation,
-				"hostHeader":         binding.HostHeader,
-				"port":               binding.Port,
-				"currentThumbprint":  normalizeThumbprint(binding.CertificateThumbprint),
-			},
-			"verify": map[string]any{
-				"mode":              "iis_local_binding_state",
-				"bindingThumbprint": normalizeThumbprint(binding.CertificateThumbprint),
-				"bindingHostHeader": binding.HostHeader,
-				"bindingPort":       binding.Port,
-				"bindingAddress":    binding.BindingInformation,
-				"verifiedAt":        time.Now().Format(time.RFC3339),
-			},
-		}
-		currentThumbprint := normalizeThumbprint(binding.CertificateThumbprint)
-		if currentThumbprint == "" {
-			execution.submitLog("error", "IIS Binding 当前未配置证书 thumbprint")
-			return false, "IIS_BINDING_CERTIFICATE_MISSING", "IIS Binding 当前未配置证书 thumbprint", detail
-		}
-		execution.submitLog("info", "IIS Binding 校验通过 thumbprint=%s", currentThumbprint)
 		return true, "", "", detail
 	case "", "INSTALL":
 		// 兼容旧 payload 未显式携带 stepType 的情况，默认按 INSTALL 处理。
@@ -387,7 +353,6 @@ func parseWindowsIISDeploymentInput(payload map[string]any) (windowsIISDeploymen
 	input.PFXBase64 = strings.TrimSpace(input.PFXBase64)
 	input.ExpectedThumbprint = normalizeThumbprint(input.ExpectedThumbprint)
 	input.AppPoolName = strings.TrimSpace(input.AppPoolName)
-	input.VerifyURL = strings.TrimSpace(input.VerifyURL)
 	input.BindingSelector.IP = normalizeBindingIP(input.BindingSelector.IP)
 	input.BindingSelector.BindingInformation = strings.TrimSpace(input.BindingSelector.BindingInformation)
 	if input.DeploymentArtifact != nil {
@@ -856,59 +821,6 @@ $binding.AddSslCertificate($thumbprint, 'My')
 	return nil
 }
 
-func verifyTLSBinding(ctx context.Context, input windowsIISDeploymentInput, expectedThumbprint string) (map[string]any, error) {
-	address, serverName, targetURL, err := resolveVerifyTarget(input)
-	if err != nil {
-		return nil, err
-	}
-	dialer := &net.Dialer{Timeout: 15 * time.Second}
-	conn, err := tls.DialWithDialer(dialer, "tcp", address, &tls.Config{
-		ServerName:         serverName,
-		InsecureSkipVerify: true,
-		MinVersion:         tls.VersionTLS12,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("TLS 閺夆晝鍋炵敮瀛樺緞鏉堫偉袝: %w", err)
-	}
-	defer conn.Close()
-
-	state := conn.ConnectionState()
-	if len(state.PeerCertificates) == 0 {
-		return nil, errors.New("TLS ?????????????")
-	}
-	leaf := state.PeerCertificates[0]
-	remoteThumbprint := certificateThumbprintSHA1(leaf)
-	remoteCertificateSHA256 := certificateFingerprintSHA256(leaf)
-	report := map[string]any{
-		"target":                  targetURL,
-		"address":                 address,
-		"serverName":              serverName,
-		"remoteThumbprint":        remoteThumbprint,
-		"remoteCertificateSha256": remoteCertificateSHA256,
-		"subject":                 leaf.Subject.String(),
-		"issuer":                  leaf.Issuer.String(),
-		"notAfter":                leaf.NotAfter.Format(time.RFC3339),
-		"dnsNames":                leaf.DNSNames,
-		"verifiedAt":              time.Now().Format(time.RFC3339),
-	}
-	if expectedThumbprint != "" && !strings.EqualFold(remoteThumbprint, normalizeThumbprint(expectedThumbprint)) {
-		return report, fmt.Errorf("TLS 閺夆晜绮庨顒傛嫚娴ｅ嘲濮?thumbprint 濞戞挸绉寸亸顕€鏌?expected=%s actual=%s", normalizeThumbprint(expectedThumbprint), remoteThumbprint)
-	}
-	if expectedSHA256 := normalizeSHA256(input.ExpectedCertificateSHA256); expectedSHA256 != "" && remoteCertificateSHA256 != expectedSHA256 {
-		return report, fmt.Errorf("TLS 閺夆晜绮庨顒傛嫚娴ｅ嘲濮?SHA256 濞戞挸绉寸亸顕€鏌?expected=%s actual=%s", expectedSHA256, remoteCertificateSHA256)
-	}
-	for _, domain := range input.ExpectedDomains {
-		if domain == "" {
-			continue
-		}
-		if err := leaf.VerifyHostname(domain); err != nil {
-			return report, fmt.Errorf("TLS 閻犲洣妞掗崝鐔煎春閻旈攱鍊抽柡宥忕節閻涙瑦寰勬潏顐バ?domain=%s: %w", domain, err)
-		}
-	}
-	_ = ctx
-	return report, nil
-}
-
 func verifyExpectedDomainsAgainstCertificate(certificate *x509.Certificate, expectedDomains []string) error {
 	if certificate == nil {
 		return errors.New("???????????????")
@@ -923,36 +835,6 @@ func verifyExpectedDomainsAgainstCertificate(certificate *x509.Certificate, expe
 		}
 	}
 	return nil
-}
-
-func resolveVerifyTarget(input windowsIISDeploymentInput) (address string, serverName string, targetURL string, err error) {
-	host := strings.TrimSpace(input.BindingSelector.HostHeader)
-	port := input.BindingSelector.Port
-	if port == 0 {
-		port = 443
-	}
-	if input.VerifyURL != "" {
-		parsed, parseErr := url.Parse(input.VerifyURL)
-		if parseErr != nil {
-			return "", "", "", fmt.Errorf("verifyUrl is invalid: %w", parseErr)
-		}
-		serverName = parsed.Hostname()
-		targetPort := parsed.Port()
-		if targetPort == "" {
-			targetPort = strconv.Itoa(port)
-		}
-		return net.JoinHostPort(parsed.Hostname(), targetPort), serverName, input.VerifyURL, nil
-	}
-	verifyHost := host
-	if verifyHost == "" || verifyHost == "*" {
-		verifyHost = "127.0.0.1"
-	}
-	targetURL = fmt.Sprintf("https://%s:%d", verifyHost, port)
-	serverName = host
-	if serverName == "" || serverName == "*" {
-		serverName = verifyHost
-	}
-	return net.JoinHostPort(verifyHost, strconv.Itoa(port)), serverName, targetURL, nil
 }
 
 func certificateThumbprintSHA1(certificate *x509.Certificate) string {

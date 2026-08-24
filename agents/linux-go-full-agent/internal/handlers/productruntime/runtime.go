@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -17,7 +16,6 @@ import (
 	"gcac/linux-go-full-agent/internal/core/recovery"
 	"gcac/linux-go-full-agent/internal/handlers/apache"
 	productregistry "gcac/linux-go-full-agent/internal/handlers/registry"
-	"gcac/linux-go-full-agent/internal/handlers/tlsverifier"
 	"gcac/linux-go-full-agent/internal/handlers/tomcat"
 	"gcac/linux-go-full-agent/internal/platform/linux/assembly"
 	"gcac/linux-go-full-agent/internal/platform/linux/command"
@@ -25,24 +23,20 @@ import (
 )
 
 type Input struct {
-	ServiceName               string      `json:"serviceName"`
-	CertificatePath           string      `json:"certificatePath"`
-	PrivateKeyPath            string      `json:"privateKeyPath"`
-	ChainPath                 string      `json:"chainPath"`
-	KeystorePath              string      `json:"keystorePath"`
-	CertificatePEM            string      `json:"certificatePem"`
-	PrivateKeyPEM             string      `json:"privateKeyPem"`
-	ChainPEM                  string      `json:"chainPem"`
-	KeystoreContent           string      `json:"keystoreContent"`
-	KeystoreContentEncoding   string      `json:"keystoreContentEncoding"`
-	BackupDirectory           string      `json:"backupDirectory"`
-	RecoveryLedgerPath        string      `json:"recoveryLedgerPath"`
-	AllowRestart              bool        `json:"allowRestart"`
-	ValidationCommand         CommandSpec `json:"validationCommand"`
-	VerifyHost                string      `json:"verifyHost"`
-	VerifyPort                int         `json:"verifyPort"`
-	VerifyServerName          string      `json:"verifyServerName"`
-	ExpectedFingerprintSHA256 string      `json:"expectedFingerprintSha256"`
+	ServiceName             string      `json:"serviceName"`
+	CertificatePath         string      `json:"certificatePath"`
+	PrivateKeyPath          string      `json:"privateKeyPath"`
+	ChainPath               string      `json:"chainPath"`
+	KeystorePath            string      `json:"keystorePath"`
+	CertificatePEM          string      `json:"certificatePem"`
+	PrivateKeyPEM           string      `json:"privateKeyPem"`
+	ChainPEM                string      `json:"chainPem"`
+	KeystoreContent         string      `json:"keystoreContent"`
+	KeystoreContentEncoding string      `json:"keystoreContentEncoding"`
+	BackupDirectory         string      `json:"backupDirectory"`
+	RecoveryLedgerPath      string      `json:"recoveryLedgerPath"`
+	AllowRestart            bool        `json:"allowRestart"`
+	ValidationCommand       CommandSpec `json:"validationCommand"`
 }
 
 type CommandSpec struct {
@@ -77,7 +71,7 @@ func apacheHandler(runner command.Runner) func(context.Context, productregistry.
 			return failure("APACHE_RUNTIME_PREPARE_FAILED", err)
 		}
 		service := assembly.BoundService{Controller: runtime.Service, Name: input.ServiceName, Validation: input.ValidationCommand.spec()}
-		result := apache.New(runtime.Filesystem, service, runtime.Security, input.verifier()).WithRecovery(ledger).Deploy(ctx, apache.Input{
+		result := apache.New(runtime.Filesystem, service, runtime.Security).WithRecovery(ledger).Deploy(ctx, apache.Input{
 			CertificatePath: input.CertificatePath, PrivateKeyPath: input.PrivateKeyPath, ChainPath: input.ChainPath,
 			CertificatePEM: []byte(input.CertificatePEM), PrivateKeyPEM: []byte(input.PrivateKeyPEM), ChainPEM: []byte(input.ChainPEM),
 			BackupDirectory: input.BackupDirectory, AllowRestart: input.AllowRestart,
@@ -101,7 +95,7 @@ func tomcatHandler(runner command.Runner) func(context.Context, productregistry.
 			mode = tomcat.ModeKeystore
 		}
 		service := assembly.BoundService{Controller: runtime.Service, Name: input.ServiceName, Validation: input.ValidationCommand.spec()}
-		result := tomcat.New(runtime.Filesystem, service, runtime.Security, input.verifier()).WithRecovery(ledger).Deploy(ctx, tomcat.Input{
+		result := tomcat.New(runtime.Filesystem, service, runtime.Security).WithRecovery(ledger).Deploy(ctx, tomcat.Input{
 			Mode: mode, CertificatePath: input.CertificatePath, PrivateKeyPath: input.PrivateKeyPath, ChainPath: input.ChainPath,
 			KeystorePath: input.KeystorePath, CertificatePEM: []byte(input.CertificatePEM), PrivateKeyPEM: []byte(input.PrivateKeyPEM),
 			ChainPEM: []byte(input.ChainPEM), KeystoreContent: keystore, BackupDirectory: input.BackupDirectory,
@@ -157,14 +151,6 @@ func targetRoots(input Input) []string {
 		}
 	}
 	return roots
-}
-
-func (input Input) verifier() tlsverifier.Verifier {
-	address := ""
-	if strings.TrimSpace(input.VerifyHost) != "" && input.VerifyPort > 0 {
-		address = net.JoinHostPort(input.VerifyHost, fmt.Sprintf("%d", input.VerifyPort))
-	}
-	return tlsverifier.Verifier{Address: address, ServerName: input.VerifyServerName, ExpectedFingerprint: input.ExpectedFingerprintSHA256, Timeout: 5 * time.Second}
 }
 
 func (input Input) keystoreBytes() ([]byte, error) {

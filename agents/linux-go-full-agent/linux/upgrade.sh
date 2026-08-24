@@ -4,6 +4,7 @@ set -eu
 INSTALL_ROOT="${INSTALL_ROOT:-/opt/gcac/linux-agent}"
 DATA_DIR="${DATA_DIR:-/var/lib/gcac/linux-agent}"
 SERVICE_NAME="${SERVICE_NAME:-gcac-linux-agent}"
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 NEW_BINARY="${1:-}"
 CHECKSUM_FILE="${2:-}"
 SIGNATURE_FILE="${3:-${SIGNATURE_FILE:-}}"
@@ -12,6 +13,8 @@ CURRENT_BINARY="${INSTALL_ROOT}/gcac-linux-agent"
 BACKUP_DIR="${DATA_DIR}/upgrades"
 AUDIT_LOG="${DATA_DIR}/upgrade-audit.jsonl"
 TRANSACTION_FILE="${BACKUP_DIR}/active-transaction"
+HELPER_SOURCE="${HELPER_SOURCE:-${SCRIPT_DIR}/gcac-nginx-helper.sh}"
+HELPER_TARGET="${HELPER_TARGET:-/usr/local/libexec/gcac-nginx-helper}"
 
 fail() {
   echo "错误：$*" >&2
@@ -21,6 +24,7 @@ fail() {
 [ "${GCAC_TEST_EUID:-$(id -u)}" = "0" ] || fail "升级需要 root 权限"
 [ -f "${CURRENT_BINARY}" ] || fail "当前版本不存在：${CURRENT_BINARY}"
 [ -f "${NEW_BINARY}" ] || fail "新版本不存在：${NEW_BINARY}"
+[ -f "${HELPER_SOURCE}" ] || fail "新版本缺少受控 helper：${HELPER_SOURCE}"
 
 verify_signature() {
   if [ -z "${PUBLIC_KEY_FILE}" ] && [ -z "${SIGNATURE_FILE}" ]; then
@@ -28,8 +32,7 @@ verify_signature() {
     return
   fi
   [ -n "${PUBLIC_KEY_FILE}" ] && [ -n "${SIGNATURE_FILE}" ] || fail "PUBLIC_KEY_FILE 与 SIGNATURE_FILE 必须同时提供"
-  script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-  "${script_dir}/../release/verify-signature.sh" "${PUBLIC_KEY_FILE}" "${NEW_BINARY}" "${SIGNATURE_FILE}" || fail "新版本发布签名验证失败"
+  "${SCRIPT_DIR}/../release/verify-signature.sh" "${PUBLIC_KEY_FILE}" "${NEW_BINARY}" "${SIGNATURE_FILE}" || fail "新版本发布签名验证失败"
 }
 
 read_version() {
@@ -57,7 +60,8 @@ write_transaction() {
   state="$1"
   mkdir -p "${BACKUP_DIR}"
   temporary="${TRANSACTION_FILE}.tmp.$$"
-  printf 'state=%s\nbackup=%s\ncurrent=%s\n' "${state}" "${backup_binary:-}" "${CURRENT_BINARY}" > "${temporary}"
+  printf 'state=%s\nbackup=%s\ncurrent=%s\nhelper_backup=%s\nhelper_target=%s\nhelper_existed=%s\n' \
+    "${state}" "${backup_binary:-}" "${CURRENT_BINARY}" "${backup_helper:-}" "${HELPER_TARGET}" "${helper_existed:-0}" > "${temporary}"
   mv -f "${temporary}" "${TRANSACTION_FILE}"
 }
 
@@ -70,10 +74,20 @@ recover_interrupted_upgrade() {
   [ -f "${TRANSACTION_FILE}" ] || return 0
   state=$(transaction_value state)
   interrupted_backup=$(transaction_value backup)
+  interrupted_helper_backup=$(transaction_value helper_backup)
+  interrupted_helper_target=$(transaction_value helper_target)
+  interrupted_helper_existed=$(transaction_value helper_existed)
   if [ "${state}" = "replaced" ] || [ "${state}" = "stopped" ]; then
     [ -f "${interrupted_backup}" ] || fail "发现中断升级但备份不存在：${interrupted_backup}"
     install -m 0755 "${interrupted_backup}" "${CURRENT_BINARY}.recovery.$$"
     mv -f "${CURRENT_BINARY}.recovery.$$" "${CURRENT_BINARY}"
+    if [ "${interrupted_helper_existed}" = "1" ]; then
+      [ -f "${interrupted_helper_backup}" ] || fail "发现中断升级但 helper 备份不存在：${interrupted_helper_backup}"
+      install -m 0755 "${interrupted_helper_backup}" "${interrupted_helper_target}.recovery.$$"
+      mv -f "${interrupted_helper_target}.recovery.$$" "${interrupted_helper_target}"
+    else
+      rm -f "${interrupted_helper_target}"
+    fi
     printf '{"event":"upgrade_power_loss_recovered","observedAt":"%s","backup":"%s"}\n' "$(date -u '+%Y%m%dT%H%M%SZ')" "${interrupted_backup}" >> "${AUDIT_LOG}"
   fi
   rm -f "${TRANSACTION_FILE}"
@@ -112,6 +126,12 @@ recover_interrupted_upgrade
 timestamp=$(date -u '+%Y%m%dT%H%M%SZ')
 backup_binary="${BACKUP_DIR}/gcac-linux-agent.${timestamp}"
 cp -p "${CURRENT_BINARY}" "${backup_binary}"
+helper_existed=0
+backup_helper="${BACKUP_DIR}/gcac-nginx-helper.${timestamp}"
+if [ -f "${HELPER_TARGET}" ]; then
+  cp -p "${HELPER_TARGET}" "${backup_helper}"
+  helper_existed=1
+fi
 write_transaction prepared
 printf '{"event":"upgrade_started","observedAt":"%s","backup":"%s"}\n' "${timestamp}" "${backup_binary}" >> "${AUDIT_LOG}"
 
@@ -120,6 +140,10 @@ write_transaction stopped
 temporary_binary="${INSTALL_ROOT}/.gcac-linux-agent.upgrade.$$"
 install -m 0755 "${NEW_BINARY}" "${temporary_binary}"
 mv -f "${temporary_binary}" "${CURRENT_BINARY}"
+install -d -m 0755 "$(dirname -- "${HELPER_TARGET}")"
+temporary_helper="${HELPER_TARGET}.upgrade.$$"
+install -m 0755 "${HELPER_SOURCE}" "${temporary_helper}"
+mv -f "${temporary_helper}" "${HELPER_TARGET}"
 write_transaction replaced
 
 if [ "${GCAC_TEST_INTERRUPT_AFTER_REPLACE:-0}" = "1" ]; then
@@ -139,6 +163,12 @@ echo "新版本启动验证失败，开始自动回滚" >&2
 service_action stop >/dev/null 2>&1 || true
 install -m 0755 "${backup_binary}" "${temporary_binary}"
 mv -f "${temporary_binary}" "${CURRENT_BINARY}"
+if [ "${helper_existed}" = "1" ]; then
+  install -m 0755 "${backup_helper}" "${temporary_helper}"
+  mv -f "${temporary_helper}" "${HELPER_TARGET}"
+else
+  rm -f "${HELPER_TARGET}"
+fi
 service_action start
 service_action status >/dev/null 2>&1 || fail "回滚后服务仍不可用，需要人工处理；backup=${backup_binary}"
 printf '{"event":"upgrade_rolled_back","observedAt":"%s","backup":"%s"}\n' "$(date -u '+%Y%m%dT%H%M%SZ')" "${backup_binary}" >> "${AUDIT_LOG}"

@@ -5,7 +5,7 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 OUTPUT_NAME="${OUTPUT_NAME:-gcac-linux-agent}"
 GOOS_VALUE="${GOOS:-linux}"
 GOARCH_VALUE="${GOARCH:-amd64}"
-VERSION_VALUE="${VERSION:-0.1.0-dev}"
+VERSION_VALUE="${VERSION:-0.1.8}"
 COMMIT_VALUE="${COMMIT:-$(git -C "${SCRIPT_DIR}" rev-parse HEAD 2>/dev/null || printf 'unknown')}"
 SOURCE_DATE_EPOCH_VALUE="${SOURCE_DATE_EPOCH:-$(git -C "${SCRIPT_DIR}" log -1 --format=%ct 2>/dev/null || printf '0')}"
 BUILD_TIME_VALUE="${BUILD_TIME:-$(date -u -d "@${SOURCE_DATE_EPOCH_VALUE}" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || printf 'unknown')}"

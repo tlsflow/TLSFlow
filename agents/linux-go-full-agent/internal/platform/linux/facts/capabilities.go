@@ -23,8 +23,6 @@ func Capabilities(snapshot Snapshot) []Capability {
 	}
 	declare(compatibility.CapabilityAgentOnline, true, "runtime")
 	declare(compatibility.CapabilityTaskReceive, true, "runtime")
-	declare(compatibility.CapabilityTLSLocalVerify, true, "runtime")
-	declare(compatibility.CapabilityTLSRemoteProbe, true, "runtime")
 	declare(compatibility.CapabilityRollbackRestore, true, "filesystem")
 	declare(compatibility.CapabilityFileAtomicReplace, boolFact(snapshot, "filesystem", "atomicRename"), "filesystem")
 	declare(compatibility.CapabilityFileBackup, boolFact(snapshot, "filesystem", "posixPermissions"), "filesystem")

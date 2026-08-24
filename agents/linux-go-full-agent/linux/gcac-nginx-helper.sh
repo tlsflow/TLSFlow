@@ -55,6 +55,22 @@ cmd_read_file() {
   exec cat -- "${TARGET_PATH}"
 }
 
+cmd_check_readable() {
+  TARGET_PATH="$1"
+  require_absolute_path "${TARGET_PATH}"
+  [ -f "${TARGET_PATH}" ] || fail "target file does not exist: ${TARGET_PATH}" 66
+  cat -- "${TARGET_PATH}" >/dev/null
+}
+
+cmd_check_writable() {
+  TARGET_PATH="$1"
+  require_absolute_path "${TARGET_PATH}"
+  ensure_parent_dir "${TARGET_PATH}"
+  [ ! -L "${TARGET_PATH}" ] || fail "symbolic link is not allowed: ${TARGET_PATH}" 65
+  PARENT_DIR=$(dirname -- "${TARGET_PATH}")
+  [ -w "${PARENT_DIR}" ] || fail "target parent directory is not writable: ${PARENT_DIR}" 77
+}
+
 cmd_write_file() {
   TARGET_PATH="$1"
   TARGET_MODE="$2"
@@ -104,6 +120,16 @@ case "${ACTION}" in
     [ "$#" -eq 1 ] || fail "read-file requires <path>" 64
     cmd_read_file "$1"
     ;;
+  check-readable)
+    shift
+    [ "$#" -eq 1 ] || fail "check-readable requires <path>" 64
+    cmd_check_readable "$1"
+    ;;
+  check-writable)
+    shift
+    [ "$#" -eq 1 ] || fail "check-writable requires <path>" 64
+    cmd_check_writable "$1"
+    ;;
   write-file)
     shift
     [ "$#" -eq 2 ] || fail "write-file requires <path> <mode>" 64
@@ -115,6 +141,6 @@ case "${ACTION}" in
     cmd_remove_file "$1"
     ;;
   *)
-    fail "usage: $0 {test|reload|exists|read-file|write-file|remove-file}" 64
+    fail "usage: $0 {test|reload|exists|check-readable|check-writable|read-file|write-file|remove-file}" 64
     ;;
 esac

@@ -22,6 +22,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gcac/linux-go-full-agent/internal/core/actioncontract"
+	coreRegistry "gcac/linux-go-full-agent/internal/core/registry"
 )
 
 func successCommand() string {
@@ -367,10 +370,6 @@ func TestExecuteLinuxTaskPayloadDryRunSuccess(t *testing.T) {
 		"executionPolicy": map[string]any{
 			"testCommand":   successCommand(),
 			"reloadCommand": successCommand(),
-			"verifyHost":    "test.local",
-			"verifyPort":    443,
-			"hostHeader":    "test.local",
-			"verifyUrl":     "https://test.local:443",
 		},
 	}
 	if err := os.MkdirAll(filepath.Join(tempDir, "tls"), 0o755); err != nil {
@@ -887,8 +886,6 @@ func TestDirectControlExecuteActionSupportsLinuxNginxDryRun(t *testing.T) {
 			"executionPolicy": map[string]any{
 				"testCommand":   successCommand(),
 				"reloadCommand": successCommand(),
-				"verifyHost":    "direct.local",
-				"verifyPort":    443,
 			},
 		},
 	}
@@ -933,6 +930,47 @@ func TestDirectControlExecuteActionSupportsLinuxNginxDryRun(t *testing.T) {
 	}
 }
 
+func TestDirectControlExecuteActionUsesDeclaredAtomicPlanSchemaVersion(t *testing.T) {
+	response, statusCode := executeDirectControlAction(directActionExecuteRequest{
+		ActionType: "agent.atomic_plan.execute",
+		RequestID:  "req_atomic_schema",
+		Inputs: map[string]any{
+			"actionSchemaVersion": "1.0",
+		},
+	})
+
+	if statusCode != http.StatusBadRequest {
+		t.Fatalf("expected atomic handler validation failure, got status=%d response=%v", statusCode, response)
+	}
+	if response["errorCode"] == "ACTION_HANDLER_NOT_REGISTERED" {
+		t.Fatalf("expected request to enter atomic handler, got response=%v", response)
+	}
+	if response["errorCode"] != "AGENT_ATOMIC_OPERATION_FAILED" {
+		t.Fatalf("expected AGENT_ATOMIC_OPERATION_FAILED, got response=%v", response)
+	}
+}
+
+func TestResolveActionSchemaVersion(t *testing.T) {
+	tests := []struct {
+		name       string
+		actionType string
+		payload    map[string]any
+		expected   string
+	}{
+		{name: "uses payload declaration", actionType: "agent.atomic_plan.execute", payload: map[string]any{"actionSchemaVersion": "1.0"}, expected: "1.0"},
+		{name: "keeps legacy certificate compatibility", actionType: actioncontract.DeployAction, payload: map[string]any{}, expected: actioncontract.DeployVersion},
+		{name: "uses registry default", actionType: "agent.self_test", payload: map[string]any{}, expected: coreRegistry.DefaultSchemaVersion},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if actual := resolveActionSchemaVersion(test.actionType, test.payload); actual != test.expected {
+				t.Fatalf("expected %s, got %s", test.expected, actual)
+			}
+		})
+	}
+}
+
 func TestExecuteLinuxTaskPayloadDryRunDetectsCurrentFilesMatchTarget(t *testing.T) {
 	tempDir := t.TempDir()
 	certPEM, keyPEM, fingerprint := generateTestPEMMaterial(t)
@@ -968,8 +1006,6 @@ func TestExecuteLinuxTaskPayloadDryRunDetectsCurrentFilesMatchTarget(t *testing.
 		"executionPolicy": map[string]any{
 			"testCommand":   successCommand(),
 			"reloadCommand": successCommand(),
-			"verifyHost":    "match.local",
-			"verifyPort":    443,
 		},
 	}
 	if err := os.WriteFile(filepath.Join(tempDir, "nginx.conf"), []byte("server {}"), 0o644); err != nil {
@@ -1021,8 +1057,6 @@ func TestExecuteLinuxTaskPayloadDryRunWarnsWhenSourceFileMissing(t *testing.T) {
 		"executionPolicy": map[string]any{
 			"testCommand":   successCommand(),
 			"reloadCommand": successCommand(),
-			"verifyHost":    "warn.local",
-			"verifyPort":    443,
 		},
 	}
 
@@ -1071,10 +1105,6 @@ func TestExecuteLinuxTaskPayloadInstallSuccess(t *testing.T) {
 		"executionPolicy": map[string]any{
 			"testCommand":   successCommand(),
 			"reloadCommand": successCommand(),
-			"verifyHost":    "install.local",
-			"verifyPort":    443,
-			"hostHeader":    "install.local",
-			"verifyUrl":     "https://install.local:443",
 		},
 	}
 
@@ -1138,10 +1168,6 @@ func TestExecuteLinuxTaskPayloadInstallBackupCanRollback(t *testing.T) {
 		"executionPolicy": map[string]any{
 			"testCommand":   successCommand(),
 			"reloadCommand": successCommand(),
-			"verifyHost":    "public.example.com",
-			"verifyPort":    443,
-			"hostHeader":    "mismatch.local",
-			"verifyUrl":     "https://public.example.com:443",
 		},
 	}
 
@@ -1337,10 +1363,6 @@ func TestExecuteLinuxTaskPayloadRollbackDelegatesVerifyToControlPlane(t *testing
 		"executionPolicy": map[string]any{
 			"testCommand":   successCommand(),
 			"reloadCommand": successCommand(),
-			"verifyHost":    "public.example.com",
-			"verifyPort":    443,
-			"hostHeader":    "rollback-verify-old.local",
-			"verifyUrl":     "https://public.example.com:443",
 		},
 		"rollbackContext": map[string]any{
 			"backupManifestPath": resolveManifestPathFromManifest(manifest),
@@ -1351,49 +1373,8 @@ func TestExecuteLinuxTaskPayloadRollbackDelegatesVerifyToControlPlane(t *testing
 	if !success {
 		t.Fatalf("expected rollback success, got code=%s message=%s detail=%v", errorCode, errorMessage, rollbackDetail)
 	}
-	verify := rollbackDetail["verify"].(map[string]any)
-	if verify["delegatedTo"] != "control-plane" {
-		t.Fatalf("expected rollback verify delegated to control-plane, got %v", verify["delegatedTo"])
-	}
-	if verify["expectedCertificateSha256"] != oldFingerprint {
-		t.Fatalf("expected rollback delegated fingerprint %s, got %v", oldFingerprint, verify["expectedCertificateSha256"])
-	}
-}
-
-func TestExecuteLinuxTaskPayloadVerifyDelegatesRemoteTLSCheck(t *testing.T) {
-	_, _, fingerprint := generateTestPEMMaterialForHost(t, "test.local")
-	payload := map[string]any{
-		"type":         "linux.nginx.deploy_certificate",
-		"providerType": "NGINX",
-		"operation":    "verify",
-		"bindingSelector": map[string]any{
-			"certPath":    "/etc/nginx/test.crt",
-			"keyPath":     "/etc/nginx/test.key",
-			"listenPort":  443,
-			"serverNames": []string{"test.local"},
-		},
-		"artifact": map[string]any{
-			"certificatePem":          "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n",
-			"privateKeyPem":           "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n",
-			"targetFingerprintSha256": fingerprint,
-		},
-		"executionPolicy": map[string]any{
-			"verifyHost": "gcac-nonexistent.invalid",
-			"verifyPort": 443,
-			"hostHeader": "test.local",
-			"verifyUrl":  "https://gcac-nonexistent.invalid:443",
-		},
-	}
-	success, errorCode, errorMessage, detail := executeLinuxTaskPayload("task_verify_delegated", payload)
-	if !success {
-		t.Fatalf("expected delegated verify success, got code=%s message=%s detail=%v", errorCode, errorMessage, detail)
-	}
-	verify := detail["verify"].(map[string]any)
-	if verify["delegatedTo"] != "control-plane" {
-		t.Fatalf("expected verify delegated to control-plane, got %v", verify["delegatedTo"])
-	}
-	if verify["remoteCertificateSha256"] != nil {
-		t.Fatalf("agent must not return remote certificate fingerprint, got %v", verify["remoteCertificateSha256"])
+	if _, exists := rollbackDetail["verify"]; exists {
+		t.Fatalf("rollback result must not contain plugin verification detail: %v", rollbackDetail["verify"])
 	}
 }
 

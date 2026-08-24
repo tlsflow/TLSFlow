@@ -4,12 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
-	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,19 +26,17 @@ func (runnerStub) Run(context.Context, command.Spec) (command.Result, error) {
 
 func TestApacheHandlerCompletesLocalDeployment(t *testing.T) {
 	root := t.TempDir()
-	certificate, privateKey, address := startTLSServer(t)
+	certificate, privateKey := generateCertificateMaterial(t)
 	registry := productregistry.New()
 	if err := Register(registry, runnerStub{}); err != nil {
 		t.Fatal(err)
 	}
-	host, port := splitAddress(t, address)
 	result := registry.Execute(context.Background(), productregistry.Request{
 		TaskID: "apache-task",
 		Input: map[string]any{
 			"serviceName": "apache2", "certificatePath": filepath.Join(root, "cert.pem"), "privateKeyPath": filepath.Join(root, "key.pem"),
 			"certificatePem": string(certificate), "privateKeyPem": string(privateKey), "backupDirectory": filepath.Join(root, "backup"),
 			"recoveryLedgerPath": filepath.Join(root, "recovery", "apache.json"), "validationCommand": map[string]any{"name": "apachectl", "args": []string{"configtest"}},
-			"verifyHost": host, "verifyPort": port,
 		},
 		Capabilities: runtimeCapabilities(),
 		Resolution:   compatibility.Resolution{ProductAdapterID: compatibility.ProductApache, ArtifactCodecID: compatibility.CodecPEM},
@@ -54,18 +50,16 @@ func TestApacheHandlerCompletesLocalDeployment(t *testing.T) {
 
 func TestTomcatHandlerCompletesKeystoreDeployment(t *testing.T) {
 	root := t.TempDir()
-	_, _, address := startTLSServer(t)
 	registry := productregistry.New()
 	if err := Register(registry, runnerStub{}); err != nil {
 		t.Fatal(err)
 	}
-	host, port := splitAddress(t, address)
 	result := registry.Execute(context.Background(), productregistry.Request{
 		TaskID: "tomcat-task",
 		Input: map[string]any{
 			"serviceName": "tomcat", "keystorePath": filepath.Join(root, "server.p12"), "keystoreContent": "keystore-fixture",
 			"backupDirectory": filepath.Join(root, "backup"), "recoveryLedgerPath": filepath.Join(root, "recovery", "tomcat.json"),
-			"validationCommand": map[string]any{"name": "java", "args": []string{"-version"}}, "verifyHost": host, "verifyPort": port,
+			"validationCommand": map[string]any{"name": "java", "args": []string{"-version"}},
 		},
 		Capabilities: runtimeCapabilities(),
 		Resolution:   compatibility.Resolution{ProductAdapterID: compatibility.ProductTomcat, ArtifactCodecID: compatibility.CodecPKCS12},
@@ -87,7 +81,7 @@ func runtimeCapabilities() map[string]bool {
 	}
 }
 
-func startTLSServer(t *testing.T) ([]byte, []byte, string) {
+func generateCertificateMaterial(t *testing.T) ([]byte, []byte) {
 	t.Helper()
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -105,42 +99,7 @@ func startTLSServer(t *testing.T) ([]byte, []byte, string) {
 	}
 	certificatePEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 	privateKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)})
-	pair, err := tls.X509KeyPair(certificatePEM, privateKeyPEM)
-	if err != nil {
-		t.Fatal(err)
-	}
-	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{Certificates: []tls.Certificate{pair}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = listener.Close() })
-	go func() {
-		for {
-			connection, err := listener.Accept()
-			if err != nil {
-				return
-			}
-			_ = connection.SetDeadline(time.Now().Add(time.Second))
-			if tlsConnection, ok := connection.(*tls.Conn); ok {
-				_ = tlsConnection.Handshake()
-			}
-			_ = connection.Close()
-		}
-	}()
-	return certificatePEM, privateKeyPEM, listener.Addr().String()
-}
-
-func splitAddress(t *testing.T, address string) (string, int) {
-	t.Helper()
-	host, rawPort, err := net.SplitHostPort(address)
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := 0
-	for _, current := range rawPort {
-		port = port*10 + int(current-'0')
-	}
-	return host, port
+	return certificatePEM, privateKeyPEM
 }
 
 func assertFileExists(t *testing.T, path string) {

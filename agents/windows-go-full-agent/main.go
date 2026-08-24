@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -28,7 +29,7 @@ import (
 )
 
 const (
-	agentVersion      = "0.1.1"
+	agentVersion      = "0.1.4"
 	defaultConfigPath = `C:\ProgramData\GCAC\FullAgentGo\config\agent.config.json`
 	defaultMetadata   = `C:\ProgramData\GCAC\FullAgentGo\service.install.json`
 	defaultTaskPoll   = 60
@@ -2571,7 +2572,9 @@ func executeGatewayProbe(ctx context.Context, client *http.Client, config *Agent
 	var success bool
 	var detail map[string]any
 	var err error
-	if channel == "probe.http" {
+	if channel == "probe.tls" {
+		success, detail, err = probeTLSReachability(ctx, gatewayPayload)
+	} else if channel == "probe.http" {
 		success, detail, err = probeHTTPReachability(ctx, gatewayPayload)
 	} else {
 		success, detail, err = probeTCPReachability(ctx, gatewayTask, gatewayPayload)
@@ -2586,6 +2589,47 @@ func executeGatewayProbe(ctx context.Context, client *http.Client, config *Agent
 	}
 	recordGatewayReachability(ctx, client, config, gatewayTask, detail, "reachable")
 	return success, "", "", detail, true
+}
+
+func probeTLSReachability(ctx context.Context, gatewayPayload map[string]any) (bool, map[string]any, error) {
+	input := gatewayProbeInput(gatewayPayload)
+	verification := mapFromMap(input, "certificateVerification")
+	if stringFromMap(verification, "capabilityKey") != "certificate.verify" || stringFromMap(verification, "schemaVersion") != "1.0" {
+		return false, map[string]any{}, errors.New("gateway.probe TLS 缺少 certificate.verify/v1 宿主能力输入")
+	}
+	host := stringFromMap(verification, "connectHost")
+	port := intFromMap(verification, "port")
+	serverName := stringFromMap(verification, "serverName")
+	if host == "" || port <= 0 || serverName == "" {
+		return false, map[string]any{"host": host, "port": port, "serverName": serverName}, errors.New("gateway.probe TLS 缺少连接地址、端口或 SNI")
+	}
+	dialer := &net.Dialer{Timeout: 8 * time.Second}
+	connection, err := (&tls.Dialer{NetDialer: dialer, Config: &tls.Config{ServerName: serverName, InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}}).DialContext(ctx, "tcp", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
+	if err != nil {
+		return false, map[string]any{"host": host, "port": port, "serverName": serverName}, err
+	}
+	defer connection.Close()
+	certificates := connection.(*tls.Conn).ConnectionState().PeerCertificates
+	if len(certificates) == 0 {
+		return false, map[string]any{"host": host, "port": port, "serverName": serverName}, errors.New("TLS 握手未返回远端证书")
+	}
+	certificate := certificates[0]
+	if err := certificate.VerifyHostname(serverName); err != nil {
+		return false, map[string]any{"host": host, "port": port, "serverName": serverName}, fmt.Errorf("TLS 证书域名不匹配: %w", err)
+	}
+	fingerprint := fmt.Sprintf("%x", sha256.Sum256(certificate.Raw))
+	return true, map[string]any{
+		"verify": map[string]any{
+			"remoteCertificateSha256": fingerprint,
+			"subject":                 certificate.Subject.String(),
+			"notAfter":                certificate.NotAfter.UTC().Format(time.RFC3339),
+		},
+		"certificateVerification": map[string]any{
+			"capabilityKey": "certificate.verify",
+			"schemaVersion": "1.0",
+			"source":        "GATEWAY",
+		},
+	}, nil
 }
 
 func probeTCPReachability(ctx context.Context, gatewayTask map[string]any, gatewayPayload map[string]any) (bool, map[string]any, error) {
@@ -2705,6 +2749,8 @@ func gatewayRouteChannel(gatewayTask map[string]any, gatewayPayload map[string]a
 	switch channel {
 	case "http", "https", "curl", "probe.http":
 		return "probe.http"
+	case "probe.tls":
+		return "probe.tls"
 	case "agent", "probe.agent":
 		return "probe.agent"
 	case "forward.direct_control", "gateway.forward.direct_control", "direct_control":
@@ -2717,12 +2763,10 @@ func gatewayRouteChannel(gatewayTask map[string]any, gatewayPayload map[string]a
 }
 
 func gatewayProbeHostPort(gatewayTask map[string]any, gatewayPayload map[string]any) (string, int) {
+	gatewayPayload = gatewayProbeInput(gatewayPayload)
 	target := mapFromMap(gatewayTask, "target")
-	host := firstNonEmpty(stringFromMap(gatewayPayload, "host"), stringFromMap(gatewayPayload, "verifyHost"), stringFromMap(target, "host"))
+	host := firstNonEmpty(stringFromMap(gatewayPayload, "host"), stringFromMap(target, "host"))
 	port := intFromMap(gatewayPayload, "port")
-	if port == 0 {
-		port = intFromMap(gatewayPayload, "verifyPort")
-	}
 	if port == 0 {
 		port = intFromMap(target, "port")
 	}
@@ -2738,6 +2782,13 @@ func gatewayProbeHostPort(gatewayTask map[string]any, gatewayPayload map[string]
 		port = 443
 	}
 	return host, port
+}
+
+func gatewayProbeInput(gatewayPayload map[string]any) map[string]any {
+	if targetPayload := mapFromMap(gatewayPayload, "targetPayload"); targetPayload != nil {
+		return targetPayload
+	}
+	return gatewayPayload
 }
 
 func gatewayProbeURL(gatewayPayload map[string]any) string {

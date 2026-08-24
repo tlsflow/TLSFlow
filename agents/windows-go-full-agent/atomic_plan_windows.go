@@ -10,12 +10,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -210,8 +208,6 @@ func executeWindowsAtomicOperation(ctx context.Context, plan atomicPlan, operati
 		return windowsCommandExecute(ctx, operation, permissions)
 	case "service.control":
 		return windowsServiceControl(ctx, operation, permissions)
-	case "tls.verify":
-		return atomicTLSVerify(operation, permissions)
 	case "windows.certificate.inspect_pfx":
 		return windowsCertificateInspectPFX(operation, permissions)
 	case "windows.certificate_store.import_pfx":
@@ -627,41 +623,6 @@ func runAtomicCommand(ctx context.Context, program string, args []string, timeou
 		return detail, err
 	}
 	return detail, nil
-}
-
-func atomicTLSVerify(operation atomicOperation, permissions map[string][]string) (map[string]any, error) {
-	host := atomicString(operation.Input, "host")
-	port := atomicInt(operation.Input, "port")
-	target := net.JoinHostPort(host, strconv.Itoa(port))
-	if !atomicAllowed(target, permissions["network"]) {
-		return nil, fmt.Errorf("network target is not allowed: %s", target)
-	}
-	sni := firstAtomicString(operation.Input, "sni", "serverName")
-	if sni == "" {
-		sni = host
-	}
-	expected := strings.ToLower(strings.ReplaceAll(atomicString(operation.Input, "expectedFingerprint"), ":", ""))
-	skipChainValidation := atomicBool(operation.Input, "skipChainValidation")
-	if skipChainValidation && expected == "" {
-		return nil, errors.New("skipChainValidation requires expectedFingerprint")
-	}
-	dialer := &net.Dialer{Timeout: 15 * time.Second}
-	connection, err := tls.DialWithDialer(dialer, "tcp", target, &tls.Config{ServerName: sni, MinVersion: tls.VersionTLS12, InsecureSkipVerify: skipChainValidation})
-	if err != nil {
-		return nil, err
-	}
-	defer connection.Close()
-	certificates := connection.ConnectionState().PeerCertificates
-	if len(certificates) == 0 {
-		return nil, errors.New("peer did not provide certificate")
-	}
-	certificate := certificates[0]
-	fingerprint := sha256.Sum256(certificate.Raw)
-	actual := strings.ToLower(hex.EncodeToString(fingerprint[:]))
-	if expected != "" && actual != expected {
-		return nil, fmt.Errorf("certificate fingerprint mismatch: %s", actual)
-	}
-	return map[string]any{"fingerprintSha256": actual, "serialNumber": certificate.SerialNumber.String(), "subject": certificate.Subject.String(), "dnsNames": certificate.DNSNames, "notBefore": certificate.NotBefore.UTC().Format(time.RFC3339), "notAfter": certificate.NotAfter.UTC().Format(time.RFC3339), "tlsVersion": tlsVersionName(connection.ConnectionState().Version)}, nil
 }
 
 func parseAtomicPlan(payload map[string]any) (atomicPlan, error) {

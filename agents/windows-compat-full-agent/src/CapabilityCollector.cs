@@ -60,9 +60,8 @@ namespace GCAC.WindowsCompatibilityAgent
             capabilities.Add("iis.discover");
             capabilities.Add("service.restart");
             capabilities.Add("rollback.restore");
-            capabilities.Add("tls.local_verify");
-            capabilities.Add("tls.remote_probe");
-            capabilities.Add("network.tls.verify");
+            capabilities.Add("certificate.material.validate");
+            capabilities.Add("certificate.verify");
             return new CapabilitySnapshot
             {
                 SchemaVersion = ProductIdentity.CapabilitySchemaVersion,

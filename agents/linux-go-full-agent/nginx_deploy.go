@@ -53,10 +53,6 @@ type linuxNginxExecutionPolicy struct {
 	TestCommand   string `json:"testCommand"`
 	ReloadCommand string `json:"reloadCommand"`
 	HelperCommand string `json:"helperCommand"`
-	VerifyHost    string `json:"verifyHost"`
-	VerifyPort    int    `json:"verifyPort"`
-	HostHeader    string `json:"hostHeader"`
-	VerifyURL     string `json:"verifyUrl"`
 }
 
 type parsedLinuxNginxArtifact struct {
@@ -242,8 +238,6 @@ func runLinuxNginxDeploymentInternal(taskID string, input linuxNginxDeployInput)
 		return runLinuxNginxInstall(taskID, input)
 	case "reload":
 		return runLinuxNginxReload(taskID, input)
-	case "verify":
-		return runLinuxNginxVerify(taskID, input)
 	case "rollback":
 		return runLinuxNginxRollback(taskID, input)
 	default:
@@ -251,7 +245,7 @@ func runLinuxNginxDeploymentInternal(taskID string, input linuxNginxDeployInput)
 			"taskId":         taskID,
 			"executor":       "linux-nginx-provider",
 			"operation":      operation,
-			"supportedModes": []string{"dryRun", "backup", "install", "reload", "verify", "rollback"},
+			"supportedModes": []string{"dryRun", "backup", "install", "reload", "rollback"},
 		}
 	}
 }
@@ -270,7 +264,6 @@ func runLinuxNginxDryRun(taskID string, input linuxNginxDeployInput) (bool, stri
 	checks = append(checks, evaluatePathChecks(input.BindingSelector, privilegeEvidence)...)
 	dryRunState, stateChecks := evaluateLinuxNginxTargetState(input.BindingSelector, parsedArtifact, input.ExecutionPolicy.HelperCommand, privilegeEvidence)
 	checks = append(checks, stateChecks...)
-	checks = append(checks, evaluateVerifyEndpointCheck(input.ExecutionPolicy))
 
 	for _, check := range checks {
 		status := strings.TrimSpace(stringFromAny(check["status"]))
@@ -325,10 +318,6 @@ func runLinuxNginxDryRun(taskID string, input linuxNginxDeployInput) (bool, stri
 		"executionPolicy": map[string]any{
 			"testCommand":   input.ExecutionPolicy.TestCommand,
 			"reloadCommand": input.ExecutionPolicy.ReloadCommand,
-			"verifyHost":    input.ExecutionPolicy.VerifyHost,
-			"verifyPort":    input.ExecutionPolicy.VerifyPort,
-			"hostHeader":    input.ExecutionPolicy.HostHeader,
-			"verifyUrl":     input.ExecutionPolicy.VerifyURL,
 		},
 		"privilegeAssessment": privilegeEvidence,
 		"dryRunChecks":        checks,
@@ -498,27 +487,6 @@ func runLinuxNginxReload(taskID string, input linuxNginxDeployInput) (bool, stri
 	}
 }
 
-func runLinuxNginxVerify(taskID string, input linuxNginxDeployInput) (bool, string, string, map[string]any) {
-	return true, "", "", map[string]any{
-		"executor":  "linux-nginx-provider",
-		"mode":      "nginx_verify_delegated",
-		"taskId":    taskID,
-		"operation": "verify",
-		"verify": map[string]any{
-			"delegatedTo":               "control-plane",
-			"reason":                    "远端 TLS 验证必须从控制面或 Gateway 的访问视角发起，Agent 只负责本机安装、nginx -t 与 reload",
-			"verifyHost":                strings.TrimSpace(input.ExecutionPolicy.VerifyHost),
-			"verifyPort":                input.ExecutionPolicy.VerifyPort,
-			"verifyUrl":                 strings.TrimSpace(input.ExecutionPolicy.VerifyURL),
-			"serverName":                strings.TrimSpace(input.ExecutionPolicy.HostHeader),
-			"expectedCertificateSha256": normalizeHexFingerprint(input.Artifact.TargetFingerprintSHA256),
-			"remoteCertificateSha256":   nil,
-			"remoteFingerprintSha256":   nil,
-			"remoteThumbprint":          nil,
-		},
-	}
-}
-
 func runLinuxNginxRollback(taskID string, input linuxNginxDeployInput) (bool, string, string, map[string]any) {
 	manifest, manifestPath, err := resolveRollbackManifest(input)
 	if err != nil {
@@ -576,7 +544,6 @@ func runLinuxNginxRollback(taskID string, input linuxNginxDeployInput) (bool, st
 			"reloadCommand":      mapFromCommandResult(reloadResult, reloadMode),
 		}
 	}
-	rollbackCertificateSHA := resolveRollbackCertificateSHA256(manifest, input)
 	return true, "", "", map[string]any{
 		"executor":           "linux-nginx-provider",
 		"mode":               "nginx_rollback_completed",
@@ -587,15 +554,6 @@ func runLinuxNginxRollback(taskID string, input linuxNginxDeployInput) (bool, st
 		"testCommand":        mapFromCommandResult(testResult, testMode),
 		"reloadCommand":      mapFromCommandResult(reloadResult, reloadMode),
 		"fileRestoreMode":    mergeLinuxNginxPrivilegeMode(certRestoreMode, keyRestoreMode),
-		"verify": map[string]any{
-			"delegatedTo":               "control-plane",
-			"reason":                    "回滚后的远端 TLS 验证必须从控制面或 Gateway 的访问视角发起",
-			"verifyHost":                strings.TrimSpace(input.ExecutionPolicy.VerifyHost),
-			"verifyPort":                input.ExecutionPolicy.VerifyPort,
-			"verifyUrl":                 strings.TrimSpace(input.ExecutionPolicy.VerifyURL),
-			"serverName":                strings.TrimSpace(input.ExecutionPolicy.HostHeader),
-			"expectedCertificateSha256": rollbackCertificateSHA,
-		},
 	}
 }
 
@@ -828,26 +786,6 @@ func evaluateCommandCheck(key string, label string, command string) map[string]a
 		"command":    command,
 		"executable": executable,
 		"resolved":   found,
-	})
-}
-
-func evaluateVerifyEndpointCheck(policy linuxNginxExecutionPolicy) map[string]any {
-	verifyHost := strings.TrimSpace(policy.VerifyHost)
-	verifyURL := strings.TrimSpace(policy.VerifyURL)
-	if verifyHost == "" && verifyURL == "" {
-		return dryRunCheck("verify_endpoint_resolved", "验证端点可推导", "failed", "verifyHost/verifyUrl 至少需要一个", nil)
-	}
-	if verifyHost != "" && policy.VerifyPort <= 0 {
-		return dryRunCheck("verify_endpoint_resolved", "验证端点可推导", "failed", "verifyHost 存在但 verifyPort 非法", map[string]any{
-			"verifyHost": verifyHost,
-			"verifyPort": policy.VerifyPort,
-		})
-	}
-	return dryRunCheck("verify_endpoint_resolved", "验证端点可推导", "passed", "已推导 TLS 验证目标", map[string]any{
-		"verifyHost": verifyHost,
-		"verifyPort": policy.VerifyPort,
-		"verifyUrl":  verifyURL,
-		"hostHeader": strings.TrimSpace(policy.HostHeader),
 	})
 }
 
@@ -2235,21 +2173,6 @@ func resolveRollbackManifest(input linuxNginxDeployInput) (*linuxNginxBackupMani
 		return &manifest, "", nil
 	}
 	return nil, "", errors.New("rollbackContext 缺少 backupManifestPath/backupManifest")
-}
-
-func resolveRollbackCertificateSHA256(manifest *linuxNginxBackupManifest, input linuxNginxDeployInput) string {
-	if manifest != nil {
-		if value := normalizeHexFingerprint(manifest.CertBackup.CertificateFingerprintSHA256); value != "" {
-			return value
-		}
-		if value := normalizeHexFingerprint(manifest.CertificateSHA256); value != "" {
-			return value
-		}
-	}
-	if value := normalizeHexFingerprint(input.RollbackContext.RollbackCertificateSHA); value != "" {
-		return value
-	}
-	return normalizeHexFingerprint(input.Artifact.TargetFingerprintSHA256)
 }
 
 func loadLinuxNginxBackupManifest(path string) (*linuxNginxBackupManifest, error) {

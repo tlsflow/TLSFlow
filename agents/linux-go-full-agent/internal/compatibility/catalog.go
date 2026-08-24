@@ -46,8 +46,6 @@ func NormalizeLegacyAction(actionType, taskID string, payload map[string]any) (m
 const (
 	CapabilityAgentOnline       = "agent.full.online"
 	CapabilityTaskReceive       = "agent.task.receive"
-	CapabilityTLSLocalVerify    = "tls.local_verify"
-	CapabilityTLSRemoteProbe    = "tls.remote_probe"
 	CapabilityRollbackRestore   = "rollback.restore"
 	CapabilityFileAtomicReplace = "file.atomic_replace"
 	CapabilityFileBackup        = "file.backup"
@@ -90,19 +88,19 @@ var products = []Product{
 		AdapterID:            ProductNginx,
 		Aliases:              []string{"nginx", "linux.nginx.deploy_certificate"},
 		ArtifactCodecs:       []string{CodecPEM},
-		RequiredCapabilities: []string{CapabilityNginxConfigParse, CapabilityNginxInstall, CapabilityPOSIXFilesystem, CapabilityServiceReload, CapabilityTLSLocalVerify, CapabilityTLSRemoteProbe, CapabilityRollbackRestore},
+		RequiredCapabilities: []string{CapabilityNginxConfigParse, CapabilityNginxInstall, CapabilityPOSIXFilesystem, CapabilityServiceReload, CapabilityRollbackRestore},
 	},
 	{
 		AdapterID:            ProductApache,
 		Aliases:              []string{"apache", "linux.apache.deploy_certificate"},
 		ArtifactCodecs:       []string{CodecPEM},
-		RequiredCapabilities: []string{CapabilityApacheConfigParse, CapabilityApacheInstall, CapabilityPOSIXFilesystem, CapabilityServiceReload, CapabilityTLSLocalVerify, CapabilityTLSRemoteProbe, CapabilityRollbackRestore},
+		RequiredCapabilities: []string{CapabilityApacheConfigParse, CapabilityApacheInstall, CapabilityPOSIXFilesystem, CapabilityServiceReload, CapabilityRollbackRestore},
 	},
 	{
 		AdapterID:            ProductTomcat,
 		Aliases:              []string{"tomcat", "linux.tomcat.deploy_certificate"},
 		ArtifactCodecs:       []string{CodecPEM, CodecPKCS12, CodecJKS},
-		RequiredCapabilities: []string{CapabilityTomcatServerXML, CapabilityTomcatKeystore, CapabilityPOSIXFilesystem, CapabilityServiceRestart, CapabilityTLSLocalVerify, CapabilityTLSRemoteProbe, CapabilityRollbackRestore},
+		RequiredCapabilities: []string{CapabilityTomcatServerXML, CapabilityTomcatKeystore, CapabilityPOSIXFilesystem, CapabilityServiceRestart, CapabilityRollbackRestore},
 	},
 }
 
@@ -150,7 +148,7 @@ func ResolveProduct(productAdapterID, legacyActionType, artifactFormat string, c
 
 func PublicCapabilityKeys() []string {
 	keys := []string{
-		CapabilityAgentOnline, CapabilityTaskReceive, CapabilityTLSLocalVerify, CapabilityTLSRemoteProbe,
+		CapabilityAgentOnline, CapabilityTaskReceive,
 		CapabilityRollbackRestore, CapabilityFileAtomicReplace, CapabilityFileBackup, CapabilityFileRestore,
 		CapabilityServiceReload, CapabilityServiceRestart, CapabilityPOSIXFilesystem,
 		CapabilityNginxDiscover, CapabilityNginxConfigParse, CapabilityNginxInstall, CapabilityNginxConfigTest,
