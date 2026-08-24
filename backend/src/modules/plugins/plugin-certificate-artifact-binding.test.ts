@@ -108,6 +108,47 @@ test('根据 Agent Recipe Artifact Contract 生成通用原子插件证书产物
   });
 });
 
+test('PFX Artifact Contract 通过标准角色映射包和密码输出', () => {
+  const plugin = {
+    id: 'plugin-version-pfx',
+    runtime: 'WORKFLOW_DSL',
+    manifest: {
+      resources: { workflows: { 'certificate.deploy': 'workflows/pfx-deploy.json' } },
+    },
+    resources: {
+      'workflows/pfx-deploy.json': JSON.stringify({
+        inputContract: {
+          apiVersion: 'gcac.deployment-input/v1',
+          variables: {},
+          connections: {},
+          credentials: {},
+          artifacts: {
+            certificate: {
+              kind: 'certificate',
+              required: true,
+              configurationMode: 'required',
+              lifecycle: 'pre_execution',
+              artifactContract: {
+                outputs: {
+                  bundle: { role: 'pkcs12_bundle', required: true, sensitive: true },
+                  password: { role: 'pkcs12_password', required: true, sensitive: true },
+                },
+              },
+            },
+          },
+        },
+      }),
+    },
+  } as unknown as UnifiedPluginVersionRecord;
+
+  assert.deepEqual(buildPluginCertificateArtifactBindings(plugin, 'certificate.deploy', 'certfmt-pfx'), {
+    certificate: {
+      certificateFormatId: 'certfmt-pfx',
+      outputBindings: { bundle: 'pfxBase64', password: 'pfxPassword' },
+    },
+  });
+});
+
 test('不同插件运行时都通过统一 Contract Loader 拒绝缺失能力资源', () => {
   const atomicPlugin = {
     id: 'plugin-version-atomic-missing',

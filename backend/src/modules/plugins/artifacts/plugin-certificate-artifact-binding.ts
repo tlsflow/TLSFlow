@@ -54,5 +54,6 @@ function standardOutputKey(outputName: string, role: string): string {
   if (normalizedRole === 'certificate_chain') return 'orderedChainPem';
   if (normalizedRole === 'fingerprint_sha256') return 'fingerprintSha256';
   if (normalizedRole === 'pkcs12_bundle') return 'pfxBase64';
+  if (normalizedRole === 'pkcs12_password') return 'pfxPassword';
   return outputName.trim();
 }

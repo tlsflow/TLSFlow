@@ -2231,7 +2231,7 @@ function readWorkflowCertificateArtifactBindings(value: unknown): Record<string,
   return output;
 }
 
-function resolveStandardCertificateOutput(
+export function resolveStandardCertificateOutput(
   material: Record<string, unknown>,
   outputKey: string,
 ): Record<string, unknown> | undefined {
@@ -2242,6 +2242,8 @@ function resolveStandardCertificateOutput(
     orderedChainPem: { sourceKey: 'orderedChainPem', role: 'certificate_chain', format: 'pem' },
     chain: { sourceKey: 'orderedChainPem', role: 'certificate_chain', format: 'pem' },
     fingerprintSha256: { sourceKey: 'fingerprintSha256', role: 'fingerprint_sha256', format: 'hex' },
+    pfxBase64: { sourceKey: 'pfxBase64', role: 'pkcs12_bundle', format: 'base64' },
+    pfxPassword: { sourceKey: 'pfxPassword', role: 'pkcs12_password', format: 'text' },
   };
   const definition = definitions[outputKey];
   if (!definition) return undefined;
