@@ -5,7 +5,7 @@ import {
   type WorkflowManagedCredential,
 } from './workflow-credentials'
 
-export type WorkflowCanvasNodeType = 'http' | 'ssh' | 'sftp' | 'scp' | 'verify' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'wait' | 'manual'
+export type WorkflowCanvasNodeType = 'http' | 'ssh' | 'sftp' | 'scp' | 'tls_probe' | 'verify' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'wait' | 'manual'
 export type WorkflowCanvasEdgeType = 'success' | 'failure' | 'always' | 'rollback'
 export type WorkflowCanvasFieldKind = 'text' | 'textarea' | 'number' | 'select' | 'secret'
 export type WorkflowValidationSeverity = 'error' | 'warning' | 'risk'
@@ -67,7 +67,7 @@ export interface WorkflowCanvasDefinition {
 }
 
 export interface WorkflowVariableDefinition {
-  readonly type: 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'file' | 'credential' | 'certificate'
+  readonly type: 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'array' | 'file' | 'credential' | 'certificate'
   readonly required?: boolean
   readonly configurationMode?: WorkflowConfigurationMode
   readonly default?: unknown
@@ -236,6 +236,18 @@ export type WorkflowDslStep =
         readonly timeoutMs?: number
         readonly maxInputBytes?: number
         readonly maxOutputBytes?: number
+      }
+    }
+  | {
+      readonly name: string
+      readonly type: 'tls_probe'
+      readonly stage?: WorkflowCanvasStage
+      readonly tlsProbe: {
+        readonly host: string
+        readonly port?: number
+        readonly serverName?: string
+        readonly expectedFingerprintSha256: string
+        readonly timeoutSeconds?: number
       }
     }
   | {
@@ -925,6 +937,16 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
       },
     }
   }
+  if (step.type === 'tls_probe') {
+    return {
+      id: `tls_probe_${index + 1}`,
+      type: 'tls_probe',
+      position: { x: 80 + index * 260, y: 120 },
+      label: dslStepLabel(step, 'TLS Probe'),
+      ui: { stage, rawStep: cloneRecord(step) },
+      config: cloneRecord(step.tlsProbe),
+    }
+  }
   if (step.type === 'foreach') {
     return {
       id: `foreach_${index + 1}`,
@@ -1028,13 +1050,14 @@ function defaultStageForType(type: WorkflowCanvasNodeType): WorkflowCanvasStage 
   if (type === 'transform' || type === 'foreach') return 'refresh'
   if (type === 'sftp' || type === 'scp') return 'install'
   if (type === 'ssh' || type === 'wait') return 'refresh'
-  if (type === 'verify') return 'verify'
+  if (type === 'verify' || type === 'tls_probe') return 'verify'
   return 'backup'
 }
 
 function stageForDslStep(step: WorkflowDslStep, index: number): WorkflowCanvasStage {
   if (step.stage && isWorkflowStage(step.stage)) return step.stage
   if (step.type === 'http' && step.name.includes('verify')) return 'verify'
+  if (step.type === 'tls_probe') return 'verify'
   if (step.type === 'http') return 'prepare'
   if (step.type === 'sftp' || step.type === 'scp') return 'install'
   if (step.type === 'checkpoint') return 'backup'

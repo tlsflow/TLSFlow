@@ -1148,6 +1148,7 @@ function firstNumber(...values: unknown[]): number | undefined {
                 <option value="boolean">boolean</option>
                 <option value="enum">enum</option>
                 <option value="object">object</option>
+                <option value="array">array</option>
                 <option value="file">file</option>
                 <option value="certificate">certificate</option>
                 <option value="credential">credential</option>

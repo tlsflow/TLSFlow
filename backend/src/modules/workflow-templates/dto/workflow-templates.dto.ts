@@ -1,7 +1,7 @@
 export type WorkflowTemplateStatus = 'draft' | 'published' | 'disabled';
 export type WorkflowTemplateVersionStatus = 'draft' | 'published' | 'disabled';
-export type WorkflowStepType = 'http' | 'ssh' | 'sftp' | 'scp' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'wait' | 'manual';
-export type WorkflowVariableType = 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'file' | 'credential' | 'certificate';
+export type WorkflowStepType = 'http' | 'ssh' | 'sftp' | 'scp' | 'tls_probe' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'wait' | 'manual';
+export type WorkflowVariableType = 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'array' | 'file' | 'credential' | 'certificate';
 export type WorkflowStage = 'prepare' | 'backup' | 'install' | 'refresh' | 'verify';
 export type WorkflowTestRunMode = 'render_only' | 'mock' | 'real_test';
 export type WorkflowRunStatus = 'success' | 'failed' | 'rolled_back';
@@ -259,6 +259,17 @@ export interface WorkflowTransformStep extends WorkflowStepBase {
   transform: WorkflowTransformStepConfig;
 }
 
+export interface WorkflowTlsProbeStep extends WorkflowStepBase {
+  type: 'tls_probe';
+  tlsProbe: {
+    host: string;
+    port?: number;
+    serverName?: string;
+    expectedFingerprintSha256: string;
+    timeoutSeconds?: number;
+  };
+}
+
 export interface WorkflowForeachStep extends WorkflowStepBase {
   type: 'foreach';
   foreach: {
@@ -290,7 +301,7 @@ export interface WorkflowManualStep extends WorkflowStepBase {
   instruction: string;
 }
 
-export type WorkflowStep = WorkflowHttpStep | WorkflowSshStep | WorkflowSftpStep | WorkflowScpStep | WorkflowConditionStep | WorkflowTransformStep | WorkflowForeachStep | WorkflowCheckpointStep | WorkflowWaitStep | WorkflowManualStep;
+export type WorkflowStep = WorkflowHttpStep | WorkflowSshStep | WorkflowSftpStep | WorkflowScpStep | WorkflowTlsProbeStep | WorkflowConditionStep | WorkflowTransformStep | WorkflowForeachStep | WorkflowCheckpointStep | WorkflowWaitStep | WorkflowManualStep;
 
 export interface WorkflowDslV1 {
   apiVersion: 'gcac.workflow/v1';

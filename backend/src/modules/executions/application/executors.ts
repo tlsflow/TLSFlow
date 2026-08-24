@@ -21,6 +21,7 @@ import { WorkflowRecoveryLedgerService, type WorkflowRecoveryLedgerRecord } from
 import { PluginResourceLockService, type PluginResourceLockRecord } from './plugin-resource-lock.service.js';
 import { projectWorkflowBusinessSteps } from './workflow-business-step-projector.js';
 import type { ExecutionGrantService } from '../execution-grant.service.js';
+import { enrichWorkflowCertificateMaterial } from '../../certificates/artifacts/workflow-certificate-material.js';
 
 export interface StepExecutionInput {
   step: ExecutionStepEntity;
@@ -310,6 +311,10 @@ export class WorkflowExecutorAdapter implements Executor {
         executorId: '015.SSH',
         execute: async (context) => this.executeSshWorkflowStep(context),
       },
+      {
+        executorId: 'workflow.tls_probe',
+        execute: async (context) => this.executeTlsProbeWorkflowStep(context),
+      },
       ...['workflow.condition', 'workflow.transform', 'workflow.wait', 'workflow.manual'].map((executorId) => ({
         executorId,
         execute: async () => ({ success: true, body: { success: true, plannedOnly: true, executor: executorId }, logs: [`workflow:${executorId}:planned`] }),
@@ -525,6 +530,33 @@ export class WorkflowExecutorAdapter implements Executor {
     });
     return sshWorkflowOutput(result);
   }
+
+  private async executeTlsProbeWorkflowStep(context: WorkflowStepExecutorContext): Promise<WorkflowExecutorDispatchResult> {
+    const host = stringFromSnapshot(context.plan?.host);
+    const expected = normalizeWorkflowFingerprint(stringFromSnapshot(context.plan?.expectedFingerprintSha256));
+    const port = readNumberValue(context.plan?.port) ?? 443;
+    if (!host || !expected) return { success: false, errorCode: 'TLS_PROBE_INPUT_INVALID', errorMessage: 'TLS 探测缺少主机或期望 SHA-256 指纹' };
+    try {
+      const report = await probeTlsCertificate({
+        target: `https://${host}:${port}`,
+        host,
+        port,
+        serverName: stringFromSnapshot(context.plan?.serverName) ?? host,
+      });
+      const actual = normalizeWorkflowFingerprint(report.remoteCertificateSha256);
+      if (actual !== expected) {
+        return { success: false, errorCode: 'TLS_VERIFY_FINGERPRINT_MISMATCH', errorMessage: 'TLS 握手证书指纹与目标证书不一致', body: { expectedFingerprintSha256: expected, remoteCertificateSha256: actual } };
+      }
+      return { success: true, body: { ...report, expectedFingerprintSha256: expected }, logs: ['workflow:tls_probe:fingerprint:matched'] };
+    } catch (error) {
+      return { success: false, errorCode: 'TLS_VERIFY_FAILED', errorMessage: error instanceof Error ? error.message : String(error) };
+    }
+  }
+}
+
+function normalizeWorkflowFingerprint(value?: string): string | undefined {
+  const normalized = value?.replace(/:/g, '').trim().toLowerCase();
+  return normalized || undefined;
 }
 
 export interface WorkflowStepExecutorContext {
@@ -983,14 +1015,14 @@ function buildWorkflowCertificateMaterial(artifact: Record<string, unknown>, sna
 function normalizeWorkflowCertificateMaterial(material: Record<string, unknown>, snapshot: Record<string, unknown>): Record<string, unknown> {
   const files = normalizeWorkflowCertificateFiles(material);
   const existingOutputs = readRecord(material.outputs);
-  return {
+  return enrichWorkflowCertificateMaterial({
     ...material,
     fingerprintSha256: material.fingerprintSha256 ?? material.expectedFingerprintSha256 ?? snapshot.expectedCertificateFingerprintSha256,
     files,
     outputs: existingOutputs && Object.keys(existingOutputs).length > 0
       ? existingOutputs
       : buildWorkflowCertificateOutputs(files),
-  };
+  });
 }
 
 function normalizeWorkflowCertificateFiles(artifact: Record<string, unknown>): Array<Record<string, unknown>> {

@@ -1,7 +1,15 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "citrix-adc-certificate-deploy", "displayName": "Citrix ADC certificate deployment", "category": "certificate", "version": "1.0.0", "platforms": ["appliance"], "updateMethods": ["curl"], "maintainer": "GCAC" },
+  "metadata": {
+    "name": "citrix-adc-certificate-deploy",
+    "displayName": "Citrix ADC certificate deployment",
+    "category": "certificate",
+    "version": "1.1.0",
+    "platforms": ["appliance"],
+    "updateMethods": ["curl"],
+    "maintainer": "GCAC"
+  },
   "variables": {
     "deviceHost": { "type": "string", "required": true },
     "managementPort": { "type": "number", "required": true, "default": 443 },
@@ -13,38 +21,352 @@
       "sensitive": true,
       "artifactContract": {
         "outputs": {
-          "pemBase64": { "role": "public_certificate", "required": true, "format": "PEM", "encoding": "BASE64" },
-          "privateKeyPemBase64": { "role": "private_key", "required": true, "format": "PEM", "encoding": "BASE64" },
-          "orderedChainPem": { "role": "certificate_chain", "required": true, "format": "PEM", "encoding": "UTF-8" },
+          "leafPem": { "role": "public_certificate", "required": true, "format": "PEM", "encoding": "UTF-8" },
+          "privateKeyPem": { "role": "private_key", "required": true, "format": "PEM", "encoding": "UTF-8" },
+          "orderedChainPem": { "role": "certificate_chain", "required": false, "format": "PEM", "encoding": "UTF-8" },
           "fingerprintSha256": { "role": "fingerprint_sha256", "required": true, "format": "HEX", "encoding": "UTF-8" }
         }
       }
     },
-    "targetVirtualServers": { "type": "object", "required": true },
-    "certificateKeyName": { "type": "string", "required": true },
-    "intermediateCertificates": { "type": "object", "required": true },
-    "backupBindings": { "type": "object", "required": false }
+    "targetVirtualServers": { "type": "array", "required": true },
+    "certificateKeyName": { "type": "string", "required": true }
   },
   "steps": [
-    { "name": "preflight", "type": "http", "stage": "prepare", "request": { "method": "GET", "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/nsversion", "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" }, "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true }, "successStatusCodes": [200] }, "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }] },
-    { "name": "readOldBindings", "type": "http", "stage": "backup", "request": { "method": "GET", "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslvserver_sslcertkey_binding", "query": { "bulkbindings": "yes" }, "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" }, "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true }, "successStatusCodes": [200] }, "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }] },
-    { "name": "bindingCheckpoint", "type": "checkpoint", "stage": "backup", "checkpoint": { "name": "citrix-adc-binding-backup", "capture": { "bindings": "steps.readOldBindings.body", "certificateKeyName": "certificateKeyName", "targets": "targetVirtualServers" }, "normalizedHash": true, "requiredForRollback": true } },
-    { "name": "uploadLeafCertificate", "type": "http", "stage": "install", "request": { "method": "POST", "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/systemfile", "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" }, "bodyType": "json", "body": { "systemfile": { "filename": "{{certificateKeyName}}.pem", "filelocation": "/nsconfig/ssl", "filecontent": "{{certificate.pemBase64}}", "fileencoding": "BASE64" } }, "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true }, "successStatusCodes": [200, 201] }, "assert": [{ "type": "statusCode", "equals": 201 }] },
-    { "name": "uploadPrivateKey", "type": "http", "stage": "install", "request": { "method": "POST", "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/systemfile", "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" }, "bodyType": "json", "body": { "systemfile": { "filename": "{{certificateKeyName}}.key", "filelocation": "/nsconfig/ssl", "filecontent": "{{certificate.privateKeyPemBase64}}", "fileencoding": "BASE64" } }, "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true }, "successStatusCodes": [200, 201] }, "assert": [{ "type": "statusCode", "equals": 201 }] },
-    { "name": "uploadIntermediates", "type": "foreach", "stage": "install", "foreach": { "itemsPath": "intermediateCertificates", "itemVariable": "intermediate", "indexVariable": "intermediateIndex", "maxItems": 16, "steps": [
-      { "name": "uploadIntermediate", "type": "http", "request": { "method": "POST", "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/systemfile", "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" }, "bodyType": "json", "body": { "systemfile": { "filename": "{{intermediate.name}}.pem", "filelocation": "/nsconfig/ssl", "filecontent": "{{intermediate.pemBase64}}", "fileencoding": "BASE64" } }, "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true }, "successStatusCodes": [200, 201] } },
-      { "name": "createIntermediateCertKey", "type": "http", "request": { "method": "POST", "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslcertkey", "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" }, "bodyType": "json", "body": { "sslcertkey": { "certkey": "{{intermediate.name}}", "cert": "/nsconfig/ssl/{{intermediate.name}}.pem" } }, "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true }, "successStatusCodes": [200, 201] } }
-    ] } },
-    { "name": "createLeafCertKey", "type": "http", "stage": "install", "request": { "method": "POST", "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslcertkey", "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" }, "bodyType": "json", "body": { "sslcertkey": { "certkey": "{{certificateKeyName}}", "cert": "/nsconfig/ssl/{{certificateKeyName}}.pem", "key": "/nsconfig/ssl/{{certificateKeyName}}.key" } }, "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true }, "successStatusCodes": [200, 201] } },
-    { "name": "bindTargets", "type": "foreach", "stage": "refresh", "foreach": { "itemsPath": "targetVirtualServers", "itemVariable": "target", "maxItems": 1000, "steps": [
-      { "name": "bindNewCertificate", "type": "http", "request": { "method": "POST", "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslvserver_sslcertkey_binding", "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" }, "bodyType": "json", "body": { "sslvserver_sslcertkey_binding": { "vservername": "{{target.name}}", "certkeyname": "{{certificateKeyName}}", "snicert": "{{target.sniCertificate}}" } }, "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true }, "successStatusCodes": [200, 201] } }
-    ] } },
-    { "name": "saveConfiguration", "type": "http", "stage": "refresh", "request": { "method": "POST", "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/nsconfig", "query": { "action": "save" }, "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" }, "bodyType": "json", "body": { "nsconfig": {} }, "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true }, "successStatusCodes": [200] }, "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }] },
-    { "name": "verifyCertificate", "type": "http", "stage": "verify", "request": { "method": "GET", "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslcertkey/{{certificateKeyName}}", "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" }, "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true }, "successStatusCodes": [200] }, "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }] }
-  ],
-  "rollback": [
-    { "name": "rollbackBindings", "type": "foreach", "stage": "refresh", "foreach": { "itemsPath": "backupBindings", "itemVariable": "oldBinding", "maxItems": 1000, "steps": [
-      { "name": "restoreBinding", "type": "http", "request": { "method": "POST", "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslvserver_sslcertkey_binding", "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" }, "bodyType": "json", "body": { "sslvserver_sslcertkey_binding": "{{oldBinding}}" }, "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true }, "successStatusCodes": [200, 201] } }
-    ] } }
+    {
+      "name": "preflight",
+      "type": "http",
+      "stage": "prepare",
+      "request": {
+        "method": "GET",
+        "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/nsversion",
+        "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+        "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
+        "successStatusCodes": [200]
+      },
+      "extract": {
+        "deviceVersion": { "type": "firstOf", "paths": ["$.body.nsversion.version", "$.body.nsversion[0].version"], "optional": false }
+      },
+      "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }]
+    },
+    {
+      "name": "readOldBindings",
+      "type": "http",
+      "stage": "backup",
+      "request": {
+        "method": "GET",
+        "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslvserver_sslcertkey_binding",
+        "query": { "bulkbindings": "yes" },
+        "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+        "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
+        "successStatusCodes": [200]
+      },
+      "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }]
+    },
+    {
+      "name": "selectLiveBindings",
+      "type": "transform",
+      "stage": "backup",
+      "transform": {
+        "engine": "jsonata",
+        "input": {
+          "bindings": "{{steps.readOldBindings.output.body.sslvserver_sslcertkey_binding}}",
+          "targets": "{{targetVirtualServers}}",
+          "newCertificateKeyName": "{{certificateKeyName}}"
+        },
+        "outputs": {
+          "targetBindings": { "expression": "$append([], $filter(bindings, function($binding) { $binding.vservername in targets.name }))" },
+          "oldCertificateKeys": { "expression": "$append([], $map($distinct($filter(bindings, function($binding) { $binding.vservername in targets.name and $binding.certkeyname != newCertificateKeyName }).certkeyname), function($name) { {'name': $name} }))" }
+        }
+      }
+    },
+    {
+      "name": "readOldCertKeys",
+      "type": "foreach",
+      "stage": "backup",
+      "foreach": {
+        "itemsPath": "oldCertificateKeys",
+        "itemVariable": "oldCertificateKey",
+        "maxItems": 256,
+        "steps": [
+          {
+            "name": "readOldCertKey",
+            "type": "http",
+            "request": {
+              "method": "GET",
+              "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslcertkey/{{oldCertificateKey.name}}",
+              "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+              "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
+              "successStatusCodes": [200]
+            },
+            "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }]
+          }
+        ]
+      }
+    },
+    {
+      "name": "buildDeploymentSnapshot",
+      "type": "transform",
+      "stage": "backup",
+      "transform": {
+        "engine": "jsonata",
+        "input": {
+          "version": "{{deviceVersion}}",
+          "versionResponse": "{{steps.preflight.output.body}}",
+          "bindings": "{{targetBindings}}",
+          "certkeyIterations": "{{steps.readOldCertKeys.output.iterations}}",
+          "targets": "{{targetVirtualServers}}",
+          "newCertificateKeyName": "{{certificateKeyName}}",
+          "targetFingerprintSha256": "{{certificate.fingerprintSha256}}"
+        },
+        "outputs": {
+          "deploymentSnapshot": {
+            "expression": "{'deviceVersion': version, 'versionResponse': versionResponse, 'bindings': bindings, 'certkeys': $append([], $map(certkeyIterations, function($iteration) { $iteration.outputs[0].output.body.sslcertkey })), 'targets': targets, 'newCertificateKeyName': newCertificateKeyName, 'targetFingerprintSha256': targetFingerprintSha256}"
+          }
+        }
+      }
+    },
+    {
+      "name": "deploymentCheckpoint",
+      "type": "checkpoint",
+      "stage": "backup",
+      "checkpoint": {
+        "name": "citrix-adc-certificate-deployment",
+        "capture": {
+          "snapshot": "deploymentSnapshot"
+        },
+        "normalizedHash": true,
+        "requiredForRollback": true
+      }
+    },
+    {
+      "name": "uploadLeafCertificate",
+      "type": "http",
+      "stage": "install",
+      "request": {
+        "method": "POST",
+        "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/systemfile",
+        "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+        "bodyType": "json",
+        "body": { "systemfile": { "filename": "{{certificateKeyName}}.pem", "filelocation": "/nsconfig/ssl", "filecontent": "{{certificate.leafPemBase64}}", "fileencoding": "BASE64" } },
+        "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
+        "successStatusCodes": [200, 201]
+      }
+    },
+    {
+      "name": "uploadPrivateKey",
+      "type": "http",
+      "stage": "install",
+      "request": {
+        "method": "POST",
+        "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/systemfile",
+        "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+        "bodyType": "json",
+        "body": { "systemfile": { "filename": "{{certificateKeyName}}.key", "filelocation": "/nsconfig/ssl", "filecontent": "{{certificate.privateKeyPemBase64}}", "fileencoding": "BASE64" } },
+        "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
+        "successStatusCodes": [200, 201]
+      }
+    },
+    {
+      "name": "installIntermediates",
+      "type": "foreach",
+      "stage": "install",
+      "foreach": {
+        "itemsPath": "certificate.orderedIntermediates",
+        "itemVariable": "intermediate",
+        "maxItems": 16,
+        "steps": [
+          {
+            "name": "uploadIntermediate",
+            "type": "http",
+            "request": {
+              "method": "POST",
+              "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/systemfile",
+              "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+              "bodyType": "json",
+              "body": { "systemfile": { "filename": "{{certificateKeyName}}-ca-{{intermediate.sequence}}.pem", "filelocation": "/nsconfig/ssl", "filecontent": "{{intermediate.pemBase64}}", "fileencoding": "BASE64" } },
+              "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
+              "successStatusCodes": [200, 201]
+            }
+          },
+          {
+            "name": "createIntermediateCertKey",
+            "type": "http",
+            "request": {
+              "method": "POST",
+              "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslcertkey",
+              "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+              "bodyType": "json",
+              "body": { "sslcertkey": { "certkey": "{{certificateKeyName}}-ca-{{intermediate.sequence}}", "cert": "/nsconfig/ssl/{{certificateKeyName}}-ca-{{intermediate.sequence}}.pem" } },
+              "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
+              "successStatusCodes": [200, 201]
+            }
+          },
+          {
+            "name": "linkIntermediateCertKey",
+            "type": "http",
+            "when": { "variable": "intermediate.hasNext", "equals": true },
+            "request": {
+              "method": "POST",
+              "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslcertkey",
+              "query": { "action": "link" },
+              "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+              "bodyType": "json",
+              "body": { "sslcertkey": { "certkey": "{{certificateKeyName}}-ca-{{intermediate.sequence}}", "linkcertkeyname": "{{certificateKeyName}}-ca-{{intermediate.nextSequence}}" } },
+              "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
+              "successStatusCodes": [200, 201]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "createLeafCertKey",
+      "type": "http",
+      "stage": "install",
+      "request": {
+        "method": "POST",
+        "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslcertkey",
+        "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+        "bodyType": "json",
+        "body": { "sslcertkey": { "certkey": "{{certificateKeyName}}", "cert": "/nsconfig/ssl/{{certificateKeyName}}.pem", "key": "/nsconfig/ssl/{{certificateKeyName}}.key" } },
+        "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
+        "successStatusCodes": [200, 201]
+      }
+    },
+    {
+      "name": "linkLeafCertKey",
+      "type": "http",
+      "stage": "install",
+      "when": { "variable": "certificate.orderedIntermediates.0.sequence", "exists": true },
+      "request": {
+        "method": "POST",
+        "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslcertkey",
+        "query": { "action": "link" },
+        "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+        "bodyType": "json",
+        "body": { "sslcertkey": { "certkey": "{{certificateKeyName}}", "linkcertkeyname": "{{certificateKeyName}}-ca-1" } },
+        "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
+        "successStatusCodes": [200, 201]
+      }
+    },
+    {
+      "name": "bindTargets",
+      "type": "foreach",
+      "stage": "refresh",
+      "foreach": {
+        "itemsPath": "targetVirtualServers",
+        "itemVariable": "target",
+        "maxItems": 1000,
+        "steps": [
+          {
+            "name": "bindNewCertificate",
+            "type": "http",
+            "request": {
+              "method": "POST",
+              "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslvserver_sslcertkey_binding",
+              "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+              "bodyType": "json",
+              "body": { "sslvserver_sslcertkey_binding": { "vservername": "{{target.name}}", "certkeyname": "{{certificateKeyName}}", "snicert": "{{target.sniCertificate}}" } },
+              "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
+              "successStatusCodes": [200, 201]
+            }
+          },
+          {
+            "name": "verifyNewBinding",
+            "type": "http",
+            "request": {
+              "method": "GET",
+              "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslvserver_sslcertkey_binding/{{target.name}}",
+              "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+              "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
+              "successStatusCodes": [200]
+            },
+            "assert": [
+              { "type": "jsonPath", "path": "$.errorcode", "equals": 0 },
+              { "type": "contains", "value": "{{certificateKeyName}}" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "removeOldBindings",
+      "type": "foreach",
+      "stage": "refresh",
+      "foreach": {
+        "itemsPath": "targetBindings",
+        "itemVariable": "oldBinding",
+        "maxItems": 1000,
+        "steps": [
+          {
+            "name": "removeOldBinding",
+            "type": "http",
+            "when": { "variable": "oldBinding.certkeyname", "notEquals": "{{certificateKeyName}}" },
+            "request": {
+              "method": "DELETE",
+              "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslvserver_sslcertkey_binding/{{oldBinding.vservername}}?args=certkeyname:{{oldBinding.certkeyname}}",
+              "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+              "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
+              "successStatusCodes": [200, 201]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "saveConfiguration",
+      "type": "http",
+      "stage": "refresh",
+      "request": {
+        "method": "POST",
+        "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/nsconfig",
+        "query": { "action": "save" },
+        "headers": { "Content-Type": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+        "bodyType": "json",
+        "body": { "nsconfig": {} },
+        "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
+        "successStatusCodes": [200]
+      },
+      "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }]
+    },
+    {
+      "name": "verifyCertificateControlPlane",
+      "type": "http",
+      "stage": "verify",
+      "request": {
+        "method": "GET",
+        "url": "https://{{deviceHost}}:{{managementPort}}/nitro/v1/config/sslcertkey/{{certificateKeyName}}",
+        "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credential.username}}", "X-NITRO-PASS": "{{credential.password}}" },
+        "tls": { "verify": "{{tlsVerify}}", "allowInsecure": true },
+        "successStatusCodes": [200]
+      },
+      "assert": [
+        { "type": "jsonPath", "path": "$.errorcode", "equals": 0 },
+        { "type": "contains", "value": "Valid" }
+      ]
+    },
+    {
+      "name": "verifyTlsHandshakes",
+      "type": "foreach",
+      "stage": "verify",
+      "foreach": {
+        "itemsPath": "targetVirtualServers",
+        "itemVariable": "target",
+        "maxItems": 1000,
+        "steps": [
+          {
+            "name": "verifyTlsHandshake",
+            "type": "tls_probe",
+            "tlsProbe": {
+              "host": "{{target.verifyHost}}",
+              "port": 443,
+              "serverName": "{{target.serverName}}",
+              "expectedFingerprintSha256": "{{certificate.fingerprintSha256}}",
+              "timeoutSeconds": 15
+            }
+          }
+        ]
+      }
+    }
   ]
 }

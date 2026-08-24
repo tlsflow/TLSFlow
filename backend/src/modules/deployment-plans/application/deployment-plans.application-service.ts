@@ -33,6 +33,7 @@ import type { WorkflowDeploymentStrategyDto } from '../../assets/dto/assets.dto.
 import { ManagedTargetContextResolver } from '../../assets/application/managed-target-context.resolver.js';
 import type { DeviceAssetsRepository } from '../../device-assets/repository/device-assets.repository.js';
 import type { PluginBindingsApplicationService } from '../../plugins/application/plugin-bindings.application-service.js';
+import { enrichWorkflowCertificateMaterial } from '../../certificates/artifacts/workflow-certificate-material.js';
 import type { PluginWorkflowPublisherService } from '../../plugins/application/plugin-workflow-publisher.service.js';
 import {
   getDeploymentStrategyPluginBindingId,
@@ -1944,7 +1945,7 @@ export class DeploymentPlansApplicationService {
         }
         outputs[slotName] = file;
       }
-      const material = {
+      const material = enrichWorkflowCertificateMaterial({
         certificateVersionId,
         certificateFormatId: generated.certificateFormatId,
         format: generated.format,
@@ -1960,7 +1961,7 @@ export class DeploymentPlansApplicationService {
         pfxPassword: generated.pfxPassword,
         files,
         outputs,
-      };
+      });
       workflowCertificateMaterials[variableName] = material;
       warnings.push(...generated.warnings);
       first ??= {

@@ -469,7 +469,12 @@ export class WorkflowTemplatesDomainService {
     const hadPreviousIndex = step.foreach.indexVariable
       ? Object.prototype.hasOwnProperty.call(context.values, step.foreach.indexVariable)
       : false;
-    const iterations: Array<{ index: number; status: WorkflowStepRunResult['status']; steps: WorkflowStepRunResult[] }> = [];
+    const iterations: Array<{
+      index: number;
+      status: WorkflowStepRunResult['status'];
+      steps: WorkflowStepRunResult[];
+      outputs: Array<{ name: string; output: unknown; extracted: Record<string, unknown> }>;
+    }> = [];
     const logs: string[] = [];
     let failedResult: WorkflowStepRunResult | undefined;
 
@@ -479,9 +484,11 @@ export class WorkflowTemplatesDomainService {
         if (step.foreach.indexVariable) context.values[step.foreach.indexVariable] = index;
 
         const childResults: WorkflowStepRunResult[] = [];
+        const childOutputs: Array<{ name: string; output: unknown; extracted: Record<string, unknown> }> = [];
         for (const childStep of step.foreach.steps) {
           const child = await this.runStep(childStep, context, input, rollback, runId, dispatcher);
           childResults.push(child.result);
+          childOutputs.push({ name: childStep.name, output: child.output, extracted: child.result.extracted });
           logs.push(...child.result.logs.map((line) => `foreach:${step.name}:index:${index}:${line}`));
           if (child.result.status === 'failed') {
             failedResult = child.result;
@@ -493,6 +500,7 @@ export class WorkflowTemplatesDomainService {
           index,
           status: failedResult ? 'failed' : childResults.every((result) => result.status === 'skipped') ? 'skipped' : 'success',
           steps: childResults,
+          outputs: childOutputs,
         });
         if (failedResult) break;
       }
@@ -836,6 +844,17 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
       plannedOnly: mode === 'render_only',
     };
   }
+  if (step.type === 'tls_probe') {
+    return {
+      executor: 'workflow.tls_probe',
+      host: renderString(step.tlsProbe.host, context.values, mode === 'render_only'),
+      port: step.tlsProbe.port ?? 443,
+      serverName: step.tlsProbe.serverName ? renderString(step.tlsProbe.serverName, context.values, mode === 'render_only') : undefined,
+      expectedFingerprintSha256: renderString(step.tlsProbe.expectedFingerprintSha256, context.values, mode === 'render_only'),
+      timeoutMs: (step.tlsProbe.timeoutSeconds ?? 15) * 1000,
+      dryRun: mode !== 'real_test',
+    };
+  }
   if (step.type === 'foreach') {
     const items = readPath(context.values, step.foreach.itemsPath);
     return {
@@ -1124,8 +1143,8 @@ function evaluateCondition(condition: WorkflowStep['when'], values: Record<strin
   if (!condition) return true;
   const value = readPath(values, condition.variable);
   if (condition.exists !== undefined) return (value !== undefined) === condition.exists;
-  if (condition.equals !== undefined) return Object.is(value, condition.equals);
-  if (condition.notEquals !== undefined) return !Object.is(value, condition.notEquals);
+  if (condition.equals !== undefined) return Object.is(value, renderUnknown(condition.equals, values));
+  if (condition.notEquals !== undefined) return !Object.is(value, renderUnknown(condition.notEquals, values));
   return true;
 }
 
@@ -1283,7 +1302,16 @@ function stepOutputSuccess(step: WorkflowStep, output: WorkflowMockStepOutput, v
 }
 
 function renderUnknown(value: unknown, variables: Record<string, unknown>, keepMissing = false): unknown {
-  if (typeof value === 'string') return renderString(value, variables, keepMissing);
+  if (typeof value === 'string') {
+    const match = value.match(/^\s*\{\{\s*([a-zA-Z][a-zA-Z0-9_.]*)\s*\}\}\s*$/);
+    if (match) {
+      const resolved = readPath(variables, match[1]!);
+      if (resolved === undefined && keepMissing) return value;
+      if (resolved === undefined) throw new AppError('VALIDATION_FAILED', '变量缺失', { key: match[1] });
+      return resolved;
+    }
+    return renderString(value, variables, keepMissing);
+  }
   if (Array.isArray(value)) return value.map((item) => renderUnknown(item, variables, keepMissing));
   if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, renderUnknown(child, variables, keepMissing)]));
   return value;
