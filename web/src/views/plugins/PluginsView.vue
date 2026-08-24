@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ApiRecord } from '@/api/modules/common'
-import { disableUnifiedPluginVersion, enableUnifiedPluginVersion, getUnifiedPluginUiResources, listPluginCatalog } from '@/api/modules/plugins.api'
+import { disableUnifiedPluginVersion, enableUnifiedPluginVersion, getUnifiedPluginUiResources, listPluginCatalog, refreshBuiltinPluginCatalog } from '@/api/modules/plugins.api'
 import { GcDevicePresentation, GcEmptyState, GcModal, GcPluginForm, type DevicePresentationSchema, type PluginFormSchema } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
@@ -124,11 +124,12 @@ watch(locale, () => {
   void loadPlugins()
 })
 
-async function loadPlugins(): Promise<void> {
+async function loadPlugins(refreshBuiltins = false): Promise<void> {
   if (loading.value) return
   loading.value = true
   loadError.value = ''
   try {
+    if (refreshBuiltins) await refreshBuiltinPluginCatalog()
     const catalogResult = await listPluginCatalog({
       page: 1,
       pageSize: 500,
@@ -142,6 +143,11 @@ async function loadPlugins(): Promise<void> {
   } finally {
     loading.value = false
   }
+}
+
+
+async function refreshPlugins(): Promise<void> {
+  await loadPlugins(true)
 }
 
 function toCatalogPluginRecord(record: ApiRecord): PluginRecord {
@@ -423,7 +429,7 @@ function pluginStatusClass(plugin: PluginRecord): string {
       <select v-model="validityFilter" class="market-select" :aria-label="t('plugins.filters.statusLabel')">
         <option v-for="option in validityOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
       </select>
-      <button class="gc-button market-refresh" type="button" :disabled="loading" @click="loadPlugins">
+      <button class="gc-button market-refresh" type="button" :disabled="loading" @click="refreshPlugins">
         {{ loading ? t('plugins.actions.refreshing') : t('plugins.actions.refresh') }}
       </button>
     </section>
