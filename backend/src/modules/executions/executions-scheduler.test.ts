@@ -274,7 +274,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
         metadata: { name: 'runtime-dispatch' },
         variables: {
           deviceHost: { type: 'string', required: true },
-          credential: { type: 'secret', required: true },
+          credential: { type: 'credential', required: true },
         },
         steps: [
           {
@@ -283,7 +283,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
             request: {
               method: 'PUT',
               url: 'https://{{deviceHost}}/api/cert',
-              headers: { Authorization: 'Bearer {{credential.token}}' },
+              auth: { type: 'bearer', credential: '{{credential}}' },
               body: { ok: true },
             },
             assert: [{ type: 'statusCode', equals: 200 }],
@@ -296,7 +296,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
               connection: {
                 host: '{{deviceHost}}',
                 username: 'deploy',
-                credentialSecretRef: 'secret://ssh/runtime',
+                credential: '{{credential}}',
                 expectedHostKeyFingerprint: 'aabbccddeeff0011',
               },
               command: 'reload cert',
@@ -344,7 +344,10 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
             workflowId: created.template.id,
             workflowVersionId: created.version.id,
             runner: 'CONTROL_PLANE',
-            variableBindings: { deviceHost: 'edge-runtime.example.com', credential: { token: 'secret-token' } },
+            variableBindings: {
+              deviceHost: 'edge-runtime.example.com',
+              credential: { id: 'cred_runtime', kind: 'username_password', type: 'password', username: 'deploy' },
+            },
           },
         },
         status: 'PENDING',
