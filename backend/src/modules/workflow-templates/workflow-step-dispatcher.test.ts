@@ -6,6 +6,8 @@ import type { CurlExecutionRequest } from '../executors/curl/curl.executor.js';
 import { SSHExecutor } from '../executors/ssh/ssh.executor.js';
 import type { SshConnectionManager } from '../executors/ssh/ssh.connection-manager.js';
 import type { SSHExecutionRequest } from '../executors/ssh/ssh.executor.js';
+import type { ExecutionGrantEntity } from '../../persistence/entities/execution-grant.entity.js';
+import type { ExecutionGrantService } from '../executions/execution-grant.service.js';
 import { createWorkflowStepDispatcher } from './application/workflow-step-dispatcher.js';
 import type { WorkflowExecutorDispatchInput } from './dto/workflow-templates.dto.js';
 
@@ -146,20 +148,224 @@ describe('WorkflowStepDispatcher 旧执行器无回退边界', () => {
     assert.equal(curlCalls, 0);
     assert.equal(sshCalls, 0);
   });
+
+  it('显式注入 CurlExecutor 时 017.CURL_HTTP 真实发出请求并映射结果', async () => {
+    const requests: Array<{ url: string; method: string; headers: Record<string, string> }> = [];
+    const httpClient: CurlHttpClient = {
+      async send(input) {
+        requests.push({ url: input.url, method: input.method, headers: input.headers });
+        return { statusCode: 200, body: { errorcode: 0 } };
+      },
+    };
+    const curlExecutor = new CurlExecutor({ httpClient });
+    const dispatcher = createWorkflowStepDispatcher({ curlExecutor });
+
+    const result = await dispatcher(dispatchInput({
+      executor: '017.CURL_HTTP',
+      curlRequest: {
+        template: {
+          method: 'GET',
+          url: 'https://10.0.0.1:8443/nitro/v1/config/nsversion',
+          headers: { Accept: 'application/json' },
+        },
+        responsePolicy: { successStatusCodes: [200] },
+      },
+    }, { runId: 'run-curl-real' }));
+
+    assert.equal(result.success, true);
+    assert.equal(result.statusCode, 200);
+    assert.deepEqual(requests, [{
+      url: 'https://10.0.0.1:8443/nitro/v1/config/nsversion',
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+    }]);
+    assert.deepEqual(result.body, { errorcode: 0 });
+    assert.equal((result.body as { plannedOnly?: boolean }).plannedOnly, undefined);
+  });
+
+  it('把宿主租户与 WorkflowVersion 上下文透传给旧 Curl/SSH 执行器', async () => {
+    const curlContexts: Array<Record<string, unknown>> = [];
+    const sshContexts: Array<Record<string, unknown>> = [];
+    const dispatcher = createWorkflowStepDispatcher({
+      curlExecutor: {
+        async execute(request: CurlExecutionRequest, _forceDryRun: boolean, context: Record<string, unknown>) {
+          curlContexts.push(context);
+          return { success: true, statusCode: 200, logs: [] };
+        },
+      } as never,
+      sshExecutor: {
+        async execute(request: SSHExecutionRequest, _forceDryRun: boolean, context: Record<string, unknown>) {
+          sshContexts.push(context);
+          return { success: true, exitCode: 0, mode: 'dry_run', dryRun: true, plannedActions: [], hostKeyDecision: 'verified', backupManifest: [] };
+        },
+      } as never,
+    });
+
+    await dispatcher(dispatchInput({
+      executor: '017.CURL_HTTP',
+      curlRequest: { template: { method: 'GET', url: 'https://adc.example.test' } },
+    }, { runId: 'run-tenant-ctx', tenantId: 'tenant-ctx-1', workflowVersionId: 'wf-ctx-1' }));
+    await dispatcher(dispatchInput({
+      executor: '015.SSH',
+      connection: sshConnection(),
+      program: 'systemctl',
+      args: ['service-main'],
+      argumentTemplate: 'systemctl.reload',
+    }, { runId: 'run-tenant-ctx', stepType: 'ssh', tenantId: 'tenant-ctx-1', workflowVersionId: 'wf-ctx-1' }));
+
+    assert.equal(curlContexts[0]?.tenantId, 'tenant-ctx-1');
+    assert.equal(curlContexts[0]?.workflowVersionId, 'wf-ctx-1');
+    assert.equal(curlContexts[0]?.actorId, 'workflow-step-test');
+    assert.equal(sshContexts[0]?.tenantId, 'tenant-ctx-1');
+    assert.equal(sshContexts[0]?.workflowVersionId, 'wf-ctx-1');
+    assert.equal(sshContexts[0]?.actorId, 'workflow-step-test');
+  });
+
+  it('TLS 例外请求仅在授权条件下签发 ExecutionGrant，未授权时失败关闭', async () => {
+    const grantStore = new InMemoryExecutionGrantService();
+    const grants = grantStore as unknown as ExecutionGrantService;
+    const httpClient: CurlHttpClient = {
+      async send() {
+        return { statusCode: 200, body: { errorcode: 0 } };
+      },
+    };
+    const curlExecutor = new CurlExecutor({ httpClient, executionGrantService: grants });
+    const dispatcher = createWorkflowStepDispatcher({ curlExecutor, executionGrantService: grants });
+
+    // 授权条件：渲染 verify=false + DSL 声明 allowInsecure + 宿主租户与 Grant 服务齐备。
+    const authorized = await dispatcher(dispatchInput({
+      executor: '017.CURL_HTTP',
+      curlRequest: {
+        template: {
+          method: 'GET',
+          url: 'https://10.0.0.1:443/nitro/v1/config/nsversion',
+          tls: { verify: false, allowInsecure: true },
+        },
+        responsePolicy: { successStatusCodes: [200] },
+      },
+    }, { runId: 'run-tls-grant', tenantId: 'tenant-tls', workflowVersionId: 'wf-tls' }));
+
+    assert.equal(authorized.success, true);
+    assert.equal(grantStore.createdCount(), 1);
+    assert.equal(grantStore.activeCount(), 0, '执行结束后 Grant 必须立即撤销');
+
+    // 未授权：没有租户上下文时不签发 Grant，CurlExecutor 自身 TLS 授权链失败关闭。
+    const denied = await dispatcher(dispatchInput({
+      executor: '017.CURL_HTTP',
+      curlRequest: {
+        template: {
+          method: 'GET',
+          url: 'https://10.0.0.1:443/nitro/v1/config/nsversion',
+          tls: { verify: false, allowInsecure: true },
+        },
+      },
+    }, { runId: 'run-tls-denied' }));
+
+    assert.equal(denied.success, false);
+    assert.equal(denied.errorCode, 'VALIDATION_FAILED');
+    assert.match(denied.errorMessage ?? '', /allowInsecureTls/);
+    assert.equal(grantStore.createdCount(), 1, '未授权请求不得签发 Grant');
+
+    // 未授权：DSL 未声明 allowInsecure 时即使有租户也不签发 Grant。
+    const undeclared = await dispatcher(dispatchInput({
+      executor: '017.CURL_HTTP',
+      curlRequest: {
+        template: {
+          method: 'GET',
+          url: 'https://10.0.0.1:443/nitro/v1/config/nsversion',
+          tls: { verify: false },
+        },
+      },
+    }, { runId: 'run-tls-undeclared', tenantId: 'tenant-tls', workflowVersionId: 'wf-tls' }));
+
+    assert.equal(undeclared.success, false);
+    assert.equal(undeclared.errorCode, 'VALIDATION_FAILED');
+    assert.equal(grantStore.createdCount(), 1, 'DSL 未声明 allowInsecure 意图时不得签发 Grant');
+  });
 });
 
 function dispatchInput(
   renderedPlan: Record<string, unknown>,
-  options: { dryRun?: boolean; stepType?: 'http' | 'ssh' } = {},
+  options: { dryRun?: boolean; stepType?: 'http' | 'ssh'; runId?: string; tenantId?: string; workflowVersionId?: string } = {},
 ): WorkflowExecutorDispatchInput {
   return {
-    runId: 'run-dispatcher-test',
+    runId: options.runId ?? 'run-dispatcher-test',
     step: { name: 'step-dispatcher-test', type: options.stepType ?? 'http' } as never,
     renderedPlan,
     attempt: 1,
     rollback: false,
     ...(options.dryRun === undefined ? {} : { dryRun: options.dryRun }),
+    ...(options.tenantId ? { tenantId: options.tenantId } : {}),
+    ...(options.workflowVersionId ? { workflowVersionId: options.workflowVersionId } : {}),
   };
+}
+
+class InMemoryExecutionGrantService {
+  private readonly grants = new Map<string, ExecutionGrantEntity>();
+  private created = 0;
+
+  async create(input: {
+    tenantId: string;
+    runId: string;
+    stepId: string;
+    workflowVersionId?: string;
+    executorType: string;
+    allowedSecretRefs: string[];
+    allowedActions: string[];
+    expiresAt: string;
+  }): Promise<ExecutionGrantEntity> {
+    this.created += 1;
+    const grant: ExecutionGrantEntity = {
+      id: `grant-test-${this.created}`,
+      tenantId: input.tenantId,
+      runId: input.runId,
+      stepId: input.stepId,
+      workflowVersionId: input.workflowVersionId,
+      executorType: input.executorType,
+      allowedSecretRefs: input.allowedSecretRefs,
+      allowedActions: input.allowedActions,
+      expiresAt: input.expiresAt,
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    this.grants.set(grant.id, grant);
+    return grant;
+  }
+
+  async validate(input: { grantId: string; tenantId?: string; runId: string; stepId: string; workflowVersionId?: string; executorType: string; action?: string }): Promise<ExecutionGrantEntity> {
+    const grant = this.grants.get(input.grantId);
+    if (!grant || grant.status !== 'active') throw new Error('grant invalid');
+    if (grant.runId !== input.runId || grant.stepId !== input.stepId || grant.executorType !== input.executorType) {
+      throw new Error('grant context mismatch');
+    }
+    if (input.tenantId !== undefined && grant.tenantId !== input.tenantId) throw new Error('grant tenant mismatch');
+    if (input.workflowVersionId !== undefined && grant.workflowVersionId !== input.workflowVersionId) throw new Error('grant workflow version mismatch');
+    if (input.action && !grant.allowedActions.includes(input.action)) throw new Error('action not allowed');
+    return grant;
+  }
+
+  async get(id: string): Promise<ExecutionGrantEntity | undefined> {
+    return this.grants.get(id);
+  }
+
+  async revoke(id: string): Promise<ExecutionGrantEntity> {
+    const grant = this.grants.get(id);
+    if (grant) {
+      const updated = { ...grant, status: 'revoked' as const, updatedAt: new Date().toISOString() };
+      this.grants.set(id, updated);
+      return updated;
+    }
+    throw new Error('grant not found');
+  }
+
+  createdCount(): number {
+    return this.created;
+  }
+
+  activeCount(): number {
+    return [...this.grants.values()].filter((grant) => grant.status === 'active').length;
+  }
 }
 
 function sshConnection() {

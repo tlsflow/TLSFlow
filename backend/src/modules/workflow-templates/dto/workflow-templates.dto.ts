@@ -456,6 +456,11 @@ export interface WorkflowRuntimeInput {
    * 未提供时按 deploy 处理，并保留旧调用方的自动回滚兼容行为。
    */
   executionBranch?: WorkflowExecutionBranch;
+  /**
+   * 宿主租户上下文。旧 Curl/SSH 执行器的 SecretService 解析和 ExecutionGrant
+   * 签发依赖它解析租户级凭据；缺失时租户级 Secret 解析与 TLS 例外授权会失败关闭。
+   */
+  tenantId?: string;
 }
 
 export type WorkflowExecutionBranch = 'deploy' | 'rollback';
@@ -560,6 +565,13 @@ export interface WorkflowExecutorDispatchInput {
    * 调用方传入的 dry-run 上下文；只允许把计划提升为 dry-run，不能被 dispatcher 降级为真实执行。
    */
   dryRun?: boolean;
+  /**
+   * 宿主租户上下文，供旧 Curl/SSH 执行器解析租户级 Secret 与签发 ExecutionGrant。
+   * 由 WorkflowRuntimeInput.tenantId 透传；缺失时租户级 Secret 解析失败关闭。
+   */
+  tenantId?: string;
+  /** 当前执行的 WorkflowVersion id（来自 WorkflowRuntimeInput.templateVersionId），用于 TLS 例外授权 Grant 绑定。 */
+  workflowVersionId?: string;
 }
 
 export interface WorkflowExecutorDispatchResult extends WorkflowMockStepOutput {

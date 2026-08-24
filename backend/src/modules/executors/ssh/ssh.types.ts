@@ -84,6 +84,7 @@ export interface SshSecretResolverContext {
   stepId?: string;
   actorId?: string;
   tenantId?: string;
+  workflowVersionId?: string;
 }
 
 export interface SshSecretResolver {

@@ -1,7 +1,9 @@
 import type { SecretService } from '../../secrets/secret.service.js';
 import { AppError } from '../../../common/errors/app-error.js';
 import { CurlExecutor, type CurlExecutionRequest } from '../../executors/curl/curl.executor.js';
+import type { CurlSecretResolverContext } from '../../executors/curl/curl.secret-resolver.js';
 import { SSHExecutor, type SSHExecutionRequest } from '../../executors/ssh/ssh.executor.js';
+import type { ExecutionGrantService } from '../../executions/execution-grant.service.js';
 import type { WorkflowExecutorDispatcher, WorkflowExecutorDispatchResult } from '../dto/workflow-templates.dto.js';
 
 export interface WorkflowStepDispatcherDependencies {
@@ -13,11 +15,20 @@ export interface WorkflowStepDispatcherDependencies {
   sshExecutor?: Pick<SSHExecutor, 'execute'>;
   /** 仅保留应用装配兼容字段；SecretService 不会自动生成执行能力。 */
   secrets?: SecretService;
+  /**
+   * 宿主导入的 ExecutionGrant 服务。Curl 步骤需要 TLS 例外（verify=false）时，
+   * dispatcher 只签发绑定当前 run/step 的短期 Grant 交给 CurlExecutor 校验，
+   * 不绕过旧执行器自身的 TLS 授权链。
+   */
+  executionGrantService?: ExecutionGrantService;
 }
+
+const grantTtlMs = 5 * 60_000;
 
 export function createWorkflowStepDispatcher(dependencies: WorkflowStepDispatcherDependencies = {}): WorkflowExecutorDispatcher {
   const curlExecutor = dependencies.curlExecutor;
   const sshExecutor = dependencies.sshExecutor;
+  const executionGrantService = dependencies.executionGrantService;
 
   return async (input) => {
     const plan = asRecord(input.renderedPlan);
@@ -31,12 +42,23 @@ export function createWorkflowStepDispatcher(dependencies: WorkflowStepDispatche
       if (!curlExecutor) return executionCapabilityMissing(executor);
       const request = toCurlExecutionRequest(plan, input.runId, input.step.name, input.attempt, dryRun);
       if (!request) return { success: false, errorCode: 'CURL_REQUEST_REQUIRED', errorMessage: '工作流节点缺少 curlRequest' };
+      const tlsBypassGrantId = await authorizeCurlTlsBypass(request, {
+        runId: input.runId,
+        stepName: input.step.name,
+        tenantId: input.tenantId,
+        workflowVersionId: input.workflowVersionId,
+      }, executionGrantService);
+      const curlContext: CurlSecretResolverContext = {
+        runId: input.runId,
+        stepId: input.step.name,
+        tenantId: input.tenantId,
+        workflowVersionId: input.workflowVersionId,
+        actorId: 'workflow-step-test',
+        executionGrantService,
+        ...(tlsBypassGrantId ? { allowInsecureTls: true, executionGrantId: tlsBypassGrantId } : {}),
+      };
       try {
-        const result = await curlExecutor.execute(request, request.dryRun === true, {
-          runId: input.runId,
-          stepId: input.step.name,
-          actorId: 'workflow-step-test',
-        });
+        const result = await curlExecutor.execute(request, request.dryRun === true, curlContext);
         return {
           success: result.success,
           statusCode: result.statusCode ?? (result.success ? 200 : 500),
@@ -50,6 +72,8 @@ export function createWorkflowStepDispatcher(dependencies: WorkflowStepDispatche
         };
       } catch (error) {
         return executorFailure('curl', error, 'CURL_EXECUTION_FAILED');
+      } finally {
+        if (tlsBypassGrantId) await executionGrantService?.revoke(tlsBypassGrantId);
       }
     }
     if (executor === '015.SSH') {
@@ -59,6 +83,8 @@ export function createWorkflowStepDispatcher(dependencies: WorkflowStepDispatche
         const result = await sshExecutor.execute(request, request.dryRun === true, {
           runId: input.runId,
           stepId: input.step.name,
+          tenantId: input.tenantId,
+          workflowVersionId: input.workflowVersionId,
           actorId: 'workflow-step-test',
         });
         const stdout = result.commandResult?.stdout
@@ -99,6 +125,33 @@ export function createWorkflowStepDispatcher(dependencies: WorkflowStepDispatche
       logs: [`workflow:${executor}:rejected:unregistered`],
     };
   };
+}
+
+/**
+ * 只有 DSL 显式声明 tls.allowInsecure 意图、渲染结果 verify=false（设备绑定关闭校验）
+ * 且宿主提供租户上下文与 ExecutionGrant 服务时，才签发绑定当前 run/step 的短期 Grant。
+ * 其余情况不签发 Grant，CurlExecutor 自身的 TLS 授权链会失败关闭，绝不静默降级。
+ */
+async function authorizeCurlTlsBypass(
+  request: CurlExecutionRequest,
+  input: { runId: string; stepName: string; tenantId?: string; workflowVersionId?: string },
+  executionGrantService: ExecutionGrantService | undefined,
+): Promise<string | undefined> {
+  const tls = request.template.tls;
+  if (tls?.verify !== false) return undefined;
+  if (tls.allowInsecure !== true) return undefined;
+  if (!input.tenantId || !executionGrantService) return undefined;
+  const grant = await executionGrantService.create({
+    tenantId: input.tenantId,
+    runId: input.runId,
+    stepId: input.stepName,
+    workflowVersionId: input.workflowVersionId,
+    executorType: '017.CURL_HTTP',
+    allowedSecretRefs: collectReferencesByScheme(request, 'secret://'),
+    allowedActions: ['workflow.step.execute', '017.CURL_HTTP', 'workflow.tls.insecure'],
+    expiresAt: new Date(Date.now() + grantTtlMs).toISOString(),
+  });
+  return grant.id;
 }
 
 const plannedOnlyExecutorIds = new Set([
@@ -212,6 +265,26 @@ function toSshExecutionRequest(plan: Record<string, unknown> | undefined, runId:
     timeoutMs: typeof plan?.timeoutMs === 'number' ? plan.timeoutMs : direct?.timeoutMs,
     dryRun: dryRun || direct?.dryRun === true,
   };
+}
+
+function collectReferencesByScheme(value: unknown, scheme: string): string[] {
+  const found: string[] = [];
+  collectReferences(value, scheme, found);
+  return [...new Set(found)];
+}
+
+function collectReferences(value: unknown, scheme: string, found: string[]): void {
+  if (typeof value === 'string') {
+    if (value.startsWith(scheme)) found.push(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectReferences(item, scheme, found);
+    return;
+  }
+  if (value !== null && typeof value === 'object') {
+    for (const child of Object.values(value as Record<string, unknown>)) collectReferences(child, scheme, found);
+  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

@@ -421,7 +421,15 @@ export class WorkflowTemplatesDomainService {
       const dispatchOutput = dispatcher
         && (input.mode !== 'render_only' || input.dispatchInRenderOnly === true)
         && step.type !== 'transform'
-        ? await dispatcher({ runId, step: executionName === step.name ? step : { ...step, name: executionName }, renderedPlan: plan, attempt, rollback })
+        ? await dispatcher({
+          runId,
+          step: executionName === step.name ? step : { ...step, name: executionName },
+          renderedPlan: plan,
+          attempt,
+          rollback,
+          ...(input.tenantId ? { tenantId: input.tenantId } : {}),
+          ...(input.templateVersionId ? { workflowVersionId: input.templateVersionId } : {}),
+        })
         : undefined;
       const structuredOutput = normalizeStepOutput(step, dispatchOutput ?? mockOutput);
       const dispatchSucceeded = dispatchOutput ? dispatchOutput.success : true;
@@ -450,6 +458,7 @@ export class WorkflowTemplatesDomainService {
           .filter((item) => !item.passed)
           .map((item) => `assertion:${item.type}:failed:${item.message}`),
       ];
+      const failedAssertions = assertions.filter((item) => !item.passed);
       last = {
         name: step.name,
         type,
@@ -457,6 +466,10 @@ export class WorkflowTemplatesDomainService {
         status: success ? 'success' : 'failed',
         ...(success || !dispatchOutput?.errorCode ? {} : { errorCode: dispatchOutput.errorCode }),
         ...(success || !dispatchOutput?.errorMessage ? {} : { errorMessage: dispatchOutput.errorMessage }),
+        ...(!success && failedAssertions.length > 0 ? {
+          errorCode: 'WORKFLOW_ASSERTION_FAILED',
+          errorMessage: `工作流断言失败：step=${step.name}，${failedAssertions.map((item) => `${item.type} ${item.message}`).join('；')}`,
+        } : {}),
         attempts: attempt,
         plan: maskUnknown(finalPlan, context.secretPaths, localValues),
         extracted: maskUnknown(extracted, context.secretPaths, localValues) as Record<string, unknown>,
