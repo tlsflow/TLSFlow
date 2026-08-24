@@ -5,7 +5,7 @@
     "name": "citrix-adc-certificate-rollback",
     "displayName": "Citrix ADC certificate rollback",
     "category": "certificate",
-    "version": "1.1.3",
+    "version": "1.1.4",
     "platforms": ["appliance"],
     "updateMethods": ["curl"],
     "maintainer": "GCAC"
@@ -31,10 +31,6 @@
       "credential": { "allowedKinds": ["USERNAME_PASSWORD"], "required": true, "configurationMode": "required", "lifecycle": "pre_execution" }
     },
     "artifacts": {}
-  },
-  "variables": {
-    "recoverySnapshot": { "type": "object", "required": true },
-    "recoverySnapshotHash": { "type": "string", "required": true }
   },
   "steps": [
     {

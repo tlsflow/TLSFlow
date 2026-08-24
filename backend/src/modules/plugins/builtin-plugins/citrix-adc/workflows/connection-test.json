@@ -1,7 +1,7 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "citrix-adc-connection-test", "displayName": "Citrix ADC connection test", "category": "device", "version": "1.0.2", "platforms": ["appliance"], "updateMethods": ["curl"], "maintainer": "GCAC" },
+  "metadata": { "name": "citrix-adc-connection-test", "displayName": "Citrix ADC connection test", "category": "device", "version": "1.0.3", "platforms": ["appliance"], "updateMethods": ["curl"], "maintainer": "GCAC" },
   "inputContract": {
     "apiVersion": "gcac.deployment-input/v1",
     "variables": {},
@@ -21,7 +21,6 @@
     },
     "artifacts": {}
   },
-  "variables": {},
   "steps": [
     {
       "name": "readVersion",

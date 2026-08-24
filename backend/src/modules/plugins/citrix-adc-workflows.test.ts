@@ -7,6 +7,7 @@ import type { WorkflowMockStepOutput } from '../workflow-templates/dto/workflow-
 import { enrichWorkflowCertificateMaterial } from '../certificates/artifacts/workflow-certificate-material.js';
 import { createHash } from 'node:crypto';
 import type { ResolvedDeploymentInputV1 } from '../deployment-inputs/dto/resolved-deployment-input.dto.js';
+import { workflowTemplatesSchemaRegistry } from '../workflow-templates/schema/workflow-templates.schema.js';
 
 function resolvedWorkflowInput(variables: Record<string, unknown> = {}): ResolvedDeploymentInputV1 {
   const credential = variables.credential ?? fixtureCredential();
@@ -49,6 +50,55 @@ function fixtureCredential() {
     username: 'fixture',
     secretRefs: { password: 'secret://password/fixture-secret#v1' },
   };
+}
+
+test('Citrix ADC 所有 Workflow 只声明统一部署输入协议', async () => {
+  const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
+  const workflowResources = Object.entries(pluginPackage.resources).filter(([resourcePath]) => resourcePath.startsWith('workflows/'));
+
+  for (const [resourcePath, resourceContent] of workflowResources) {
+    const workflow = JSON.parse(resourceContent) as Record<string, any>;
+    assert.equal(workflow.variables, undefined, `${resourcePath} 不得保留顶层旧 variables`);
+    assert.equal(workflow.inputContract?.apiVersion, 'gcac.deployment-input/v1');
+    assert.deepEqual(Object.keys(workflow.inputContract?.connections ?? {}), ['management']);
+    assert.deepEqual(Object.keys(workflow.inputContract?.credentials ?? {}), ['credential']);
+    assertHttpRequestsUseConnectionRef(workflow.steps ?? [], resourcePath);
+  }
+
+  const deploy = JSON.parse(pluginPackage.resources['workflows/certificate-deploy.json']!);
+  assert.deepEqual(deploy.inputContract.variables.targetVirtualServers.source, { kind: 'asset', path: 'deployment.targets' });
+  assert.deepEqual(deploy.inputContract.variables.certificateKeyName.source, { kind: 'derived', resolver: 'certificate_resource_name' });
+  assert.deepEqual(Object.keys(deploy.inputContract.artifacts), ['certificate']);
+  assert.equal(JSON.stringify(deploy).includes('deviceHost'), false);
+  assert.equal(JSON.stringify(deploy).includes('managementPort'), false);
+});
+
+test('Workflow Schema 拒绝顶层旧 variables 和 connections', () => {
+  const content = {
+    apiVersion: 'gcac.workflow/v1',
+    kind: 'CurlSshWorkflow',
+    metadata: { name: 'legacy-inputs', displayName: 'legacy inputs' },
+    inputContract: { apiVersion: 'gcac.deployment-input/v1', variables: {}, connections: {}, credentials: {}, artifacts: {} },
+    steps: [{ name: 'wait', type: 'wait', stage: 'prepare', seconds: 1 }],
+  };
+  for (const field of ['variables', 'connections']) {
+    let error: any;
+    try {
+      workflowTemplatesSchemaRegistry.validate({ ...content, [field]: {} });
+    } catch (caught) {
+      error = caught;
+    }
+    assert.ok(error);
+    assert.equal(error.errorCode, 'VALIDATION_FAILED');
+    assert.equal(error.details?.field, field);
+  }
+});
+
+function assertHttpRequestsUseConnectionRef(steps: Array<Record<string, any>>, resourcePath: string): void {
+  for (const step of steps) {
+    if (step.type === 'http') assert.equal(step.request?.connectionRef, 'management', `${resourcePath}:${step.name}`);
+    if (step.type === 'foreach') assertHttpRequestsUseConnectionRef(step.foreach?.steps ?? [], resourcePath);
+  }
 }
 
 test('Citrix ADC 展示结构使用统一详情路径且标签页包含列定义', async () => {

@@ -4,15 +4,12 @@ import type {
   WorkflowDslV1,
   WorkflowExtractor,
   WorkflowStep,
-  WorkflowVariableDefinition,
-  WorkflowVariableType,
 } from '../dto/workflow-templates.dto.js';
 
-const rootKeys = new Set(['apiVersion', 'kind', 'metadata', 'inputContract', 'variables', 'connections', 'steps', 'rollback']);
+const rootKeys = new Set(['apiVersion', 'kind', 'metadata', 'inputContract', 'steps', 'rollback']);
 const metadataKeys = new Set(['name', 'displayName', 'description', 'category', 'tags', 'version', 'logoUrl', 'platforms', 'updateMethods', 'maintainer', 'homepage']);
 const updateMethodValues = new Set(['ssh', 'curl']);
 const semanticVersionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
-const variableKeys = new Set(['type', 'configurationMode', 'required', 'default', 'enum', 'sensitive', 'description', 'source', 'lifecycle', 'bindingPolicy', 'ui']);
 const stepBaseKeys = new Set(['name', 'type', 'stage', 'when', 'retry', 'extract', 'assert']);
 const httpStepKeys = new Set([...stepBaseKeys, 'request']);
 const sshStepKeys = new Set([...stepBaseKeys, 'ssh']);
@@ -25,7 +22,6 @@ const checkpointStepKeys = new Set([...stepBaseKeys, 'checkpoint']);
 const checkpointVerifyStepKeys = new Set([...stepBaseKeys, 'checkpointVerify']);
 const waitStepKeys = new Set([...stepBaseKeys, 'seconds']);
 const manualStepKeys = new Set([...stepBaseKeys, 'instruction']);
-const variableTypes = new Set<WorkflowVariableType>(['string', 'number', 'boolean', 'enum', 'object', 'array', 'file']);
 const stepTypes = new Set(['http', 'ssh', 'sftp', 'scp', 'condition', 'transform', 'foreach', 'checkpoint', 'checkpoint_verify', 'wait', 'manual']);
 const workflowStages = new Set(['prepare', 'backup', 'install', 'refresh', 'verify']);
 const reservedRoots = new Set(['asset', 'variables', 'connections', 'credentials', 'artifacts', 'steps', 'system']);
@@ -37,17 +33,15 @@ export class WorkflowSchemaRegistry {
     if (content.apiVersion !== 'gcac.workflow/v1') throw validationError('apiVersion 只支持 gcac.workflow/v1');
     if (content.kind !== 'CurlSshWorkflow') throw validationError('kind 只支持 CurlSshWorkflow');
     validateMetadata(content.metadata);
-    const inputContract = content.inputContract === undefined ? undefined : validateDeploymentInputContractV1(content.inputContract);
-    validateVariables(content.variables);
-    if (content.connections !== undefined) validateConnections(content.connections);
+    if (content.inputContract === undefined) throw validationError('inputContract 必填');
+    const inputContract = validateDeploymentInputContractV1(content.inputContract);
     validateSteps(content.steps, 'steps');
     if (content.rollback !== undefined) validateSteps(content.rollback, 'rollback');
     scanPlainSecrets(content, []);
     const typedContent = {
       ...content,
-      ...(inputContract === undefined ? {} : { inputContract }),
+      inputContract,
     } as unknown as WorkflowDslV1;
-    validateExplicitConfigurationContract(typedContent);
     validateVariableReferences(typedContent);
     return typedContent;
   }
@@ -86,62 +80,6 @@ function validateLogoUrl(value: unknown): void {
   }
   const normalized = value.replace(/\\/g, '/');
   if (normalized.split('/').includes('..')) throw validationError('metadata.logoUrl 本地路径不能包含 ..');
-}
-
-function validateVariables(value: unknown): void {
-  if (!isRecord(value)) throw validationError('variables 必须是对象');
-  for (const [name, definition] of Object.entries(value)) {
-    if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name)) throw validationError('变量名必须是英文标识符', { name });
-    if (!isRecord(definition)) throw validationError('变量定义必须是对象', { name });
-    rejectUnknown(definition, variableKeys, `variables.${name}`);
-    const typed = definition as unknown as WorkflowVariableDefinition;
-    if (!variableTypes.has(typed.type)) throw validationError('变量类型不支持', { name, type: typed.type });
-    if (typed.required !== undefined && typeof typed.required !== 'boolean') throw validationError('required 必须是布尔值', { name });
-    if (typed.sensitive !== undefined && typeof typed.sensitive !== 'boolean') throw validationError('sensitive 必须是布尔值', { name });
-    if (typed.type === 'enum' && (!Array.isArray(typed.enum) || typed.enum.length === 0)) throw validationError('enum 变量必须提供枚举值', { name });
-    if (typed.configurationMode !== undefined && !['required', 'advanced', 'runtime'].includes(typed.configurationMode)) throw validationError('configurationMode 不支持', { name });
-    if (typed.lifecycle !== undefined && !['pre_execution', 'runtime_injected', 'step_output'].includes(typed.lifecycle)) throw validationError('lifecycle 不支持', { name });
-    if (typed.bindingPolicy !== undefined && !['fixed', 'default_overridable', 'required_binding'].includes(typed.bindingPolicy)) throw validationError('bindingPolicy 不支持', { name });
-    if (typed.source !== undefined) validateVariableSource(typed.source, `variables.${name}.source`);
-    if (typed.ui !== undefined && !isRecord(typed.ui)) throw validationError(`variables.${name}.ui 必须是对象`);
-    if (typed.configurationMode === 'runtime' && typed.lifecycle === 'pre_execution') throw validationError('runtime 变量不能使用 pre_execution 生命周期', { name });
-    if (typed.configurationMode === 'advanced' && typed.bindingPolicy === 'required_binding') throw validationError('advanced 变量不能使用 required_binding', { name });
-    if (typed.default !== undefined) validateVariableValue(typed, typed.default, `variables.${name}.default`);
-  }
-}
-
-function validateVariableSource(source: unknown, path: string): void {
-  if (!isRecord(source) || typeof source.kind !== 'string') throw validationError(`${path} 必须声明 kind`);
-  if (source.kind === 'asset' && typeof source.path !== 'string') throw validationError(`${path}.path 必填`);
-  if (source.kind === 'default' && Object.keys(source).some((key) => key !== 'kind')) throw validationError(`${path} 使用 default 时不得携带额外字段`);
-  if (source.kind === 'derived' && !['endpoint_url', 'authority', 'binding_information'].includes(String(source.resolver))) throw validationError(`${path}.resolver 不支持`);
-  if (source.kind === 'system' && typeof source.key !== 'string') throw validationError(`${path}.key 必填`);
-  if (source.kind === 'step_output' && (typeof source.step !== 'string' || typeof source.output !== 'string')) throw validationError(`${path}.step/output 必填`);
-  if (!['asset', 'default', 'derived', 'system', 'step_output'].includes(source.kind)) throw validationError(`${path}.kind 不支持`);
-}
-
-function validateConnections(value: unknown): void {
-  if (!isRecord(value)) throw validationError('connections 必须是对象');
-  for (const [name, connection] of Object.entries(value)) {
-    if (!isRecord(connection) || !['ssh', 'http'].includes(String(connection.protocol))) throw validationError('连接槽位定义无效', { name });
-    for (const fieldName of ['host', 'port', 'username']) {
-      const field = connection[fieldName];
-      if (field === undefined && fieldName === 'username') continue;
-      if (!isRecord(field) || !['required', 'advanced'].includes(String(field.configurationMode))) throw validationError(`connections.${name}.${fieldName} 必须声明 configurationMode`);
-    }
-    if (connection.credential !== undefined) {
-      if (!isRecord(connection.credential) || typeof connection.credential.slot !== 'string' || !['required', 'advanced'].includes(String(connection.credential.configurationMode))) throw validationError(`connections.${name}.credential 定义无效`);
-    }
-    if (connection.hostKey !== undefined && (!isRecord(connection.hostKey) || !['required', 'advanced'].includes(String(connection.hostKey.configurationMode)))) throw validationError(`connections.${name}.hostKey 定义无效`);
-  }
-}
-
-function validateExplicitConfigurationContract(content: WorkflowDslV1): void {
-  const explicit = content.connections !== undefined || Object.values(content.variables).some((item) => item.configurationMode || item.source || item.lifecycle || item.bindingPolicy);
-  if (!explicit) return;
-  for (const [name, definition] of Object.entries(content.variables)) {
-    if (!definition.configurationMode || !definition.source || !definition.lifecycle) throw validationError('新 DSL 变量必须显式声明 configurationMode/source/lifecycle', { name });
-  }
 }
 
 function validateSteps(value: unknown, path: string, depth = 0): void {
@@ -434,16 +372,16 @@ function validateHttpTls(value: unknown, path: string): void {
 }
 
 function validateVariableReferences(content: WorkflowDslV1): void {
-  const declared = new Set([...Object.keys(content.variables), ...reservedRoots]);
+  const declared = new Set(reservedRoots);
   const produced = new Set<string>();
-  validateStepVariableReferences([...content.steps, ...(content.rollback ?? [])], declared, produced);
+  validateStepVariableReferences([...content.steps, ...(content.rollback ?? [])], declared, produced, content);
 }
 
 function isTemplateExpression(value: unknown): value is string {
   return typeof value === 'string' && /^\{\{\s*[a-zA-Z][a-zA-Z0-9_.]*\s*\}\}$/.test(value);
 }
 
-function validateStepVariableReferences(steps: WorkflowStep[], declared: Set<string>, produced: Set<string>): void {
+function validateStepVariableReferences(steps: WorkflowStep[], declared: Set<string>, produced: Set<string>, content: WorkflowDslV1): void {
   for (const step of steps) {
     const stepExtracts = normalizeExtractors(step.extract).map((extractor) => extractor.name);
     const known = new Set([...declared, ...produced, ...stepExtracts]);
@@ -453,17 +391,30 @@ function validateStepVariableReferences(steps: WorkflowStep[], declared: Set<str
         ? [...Object.values(step.checkpoint.capture), ...collectReferences({ ...step, checkpoint: { ...step.checkpoint, capture: {} } })]
         : collectReferences(step);
     for (const reference of references) {
-      const root = reference.split('.')[0]!;
-      if (!known.has(root)) throw validationError('变量引用不存在', { reference, step: step.name });
+      if (!isDeclaredReference(reference, known, produced, content)) {
+        throw validationError('变量引用不存在', { reference, step: step.name });
+      }
     }
     if (step.type === 'foreach') {
       const childDeclared = new Set([...known, step.foreach.itemVariable]);
       if (step.foreach.indexVariable) childDeclared.add(step.foreach.indexVariable);
-      validateStepVariableReferences(step.foreach.steps, childDeclared, new Set(produced));
+      validateStepVariableReferences(step.foreach.steps, childDeclared, new Set(produced), content);
     }
     for (const outputName of [...stepExtracts, ...transformOutputNames(step)]) produced.add(outputName);
     produced.add(`steps.${step.name}`);
   }
+}
+
+function isDeclaredReference(reference: string, declared: Set<string>, produced: Set<string>, content: WorkflowDslV1): boolean {
+  const [root, slot] = reference.split('.');
+  if (!root) return false;
+  if (root === 'asset' || root === 'system') return true;
+  if (root === 'variables') return Boolean(slot && content.inputContract.variables[slot]);
+  if (root === 'connections') return Boolean(slot && content.inputContract.connections[slot]);
+  if (root === 'credentials') return Boolean(slot && content.inputContract.credentials[slot]);
+  if (root === 'artifacts') return Boolean(slot && content.inputContract.artifacts[slot]);
+  if (root === 'steps') return Boolean(slot && produced.has(`steps.${slot}`));
+  return declared.has(root) || produced.has(root);
 }
 
 function transformOutputNames(step: WorkflowStep): string[] {
@@ -482,22 +433,6 @@ function collectReferences(value: unknown): string[] {
   };
   visit(value);
   return refs;
-}
-
-export function validateVariableValue(definition: WorkflowVariableDefinition, value: unknown, path: string): void {
-  if (definition.type === 'string' || definition.type === 'file') {
-    if (typeof value !== 'string') throw validationError(`${path} 必须是字符串`);
-  } else if (definition.type === 'number') {
-    if (typeof value !== 'number' || Number.isNaN(value)) throw validationError(`${path} 必须是数字`);
-  } else if (definition.type === 'boolean') {
-    if (typeof value !== 'boolean') throw validationError(`${path} 必须是布尔值`);
-  } else if (definition.type === 'enum') {
-    if (!definition.enum?.some((item) => Object.is(item, value))) throw validationError(`${path} 不在枚举范围内`);
-  } else if (definition.type === 'object') {
-    if (!isRecord(value)) throw validationError(`${path} 必须是对象`);
-  } else if (definition.type === 'array') {
-    if (!Array.isArray(value)) throw validationError(`${path} 必须是数组`);
-  }
 }
 
 function scanPlainSecrets(value: unknown, path: string[]): void {

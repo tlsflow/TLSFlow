@@ -1,7 +1,7 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "citrix-adc-discover", "displayName": "Citrix ADC discovery", "category": "device", "version": "1.0.8", "platforms": ["appliance"], "updateMethods": ["curl"], "maintainer": "GCAC" },
+  "metadata": { "name": "citrix-adc-discover", "displayName": "Citrix ADC discovery", "category": "device", "version": "1.0.9", "platforms": ["appliance"], "updateMethods": ["curl"], "maintainer": "GCAC" },
   "inputContract": {
     "apiVersion": "gcac.deployment-input/v1",
     "variables": {},
@@ -21,7 +21,6 @@
     },
     "artifacts": {}
   },
-  "variables": {},
   "steps": [
     { "name": "readVersion", "type": "http", "stage": "prepare", "request": { "method": "GET", "connectionRef": "management", "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/nsversion", "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" }, "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true }, "successStatusCodes": [200] }, "extract": [{ "name": "versionResponse", "type": "outputPath", "path": "$.body" }], "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }] },
     { "name": "readLbVirtualServers", "type": "http", "stage": "prepare", "request": { "method": "GET", "connectionRef": "management", "url": "https://{{connections.management.host}}:{{connections.management.port}}/nitro/v1/config/lbvserver", "headers": { "Accept": "application/json", "X-NITRO-USER": "{{credentials.credential.username}}", "X-NITRO-PASS": "{{credentials.credential.secretRefs.password}}" }, "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true }, "successStatusCodes": [200] }, "extract": [{ "name": "lbResponse", "type": "outputPath", "path": "$.body" }], "assert": [{ "type": "jsonPath", "path": "$.errorcode", "equals": 0 }] },
