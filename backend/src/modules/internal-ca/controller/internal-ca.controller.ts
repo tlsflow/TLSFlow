@@ -880,7 +880,7 @@ function optionalQuery(request: HttpRequest, key: string): string | undefined {
 
 function pathId(request: HttpRequest): string {
   const segments = request.path.split('/').filter(Boolean);
-  const actionIndex = segments.findIndex((segment) => ['test', 'versions', 'approve', 'retry', 'activate', 'result', 'complete', 'remediation-preview', 'reconcile', 'finalize', 'renew'].includes(segment));
+  const actionIndex = segments.findIndex((segment) => ['test', 'versions', 'approve', 'retry', 'activate', 'result', 'complete', 'remediation-preview', 'reconcile', 'finalize', 'renew', 'cancel'].includes(segment));
   const value = actionIndex > 0 ? segments[actionIndex - 1] : segments.at(-1);
   if (!value) throw new AppError('VALIDATION_FAILED', '路径缺少资源 ID');
   return value;
