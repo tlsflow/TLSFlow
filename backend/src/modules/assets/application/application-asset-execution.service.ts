@@ -1,0 +1,40 @@
+import { AppError } from '../../../common/errors/app-error.js';
+import type { DatabasePort } from '../../../database/database-port.js';
+import { PgAssetsRepository } from '../repository/assets.repository.js';
+import type { CreateWorkflowExecutionBindingInput } from '../../workflow-templates/dto/workflow-execution-bindings.dto.js';
+import { WorkflowExecutionBindingsRepository } from '../../workflow-templates/repository/workflow-execution-bindings.repository.js';
+import { WorkflowExecutionBindingsService } from '../../workflow-templates/application/workflow-execution-bindings.service.js';
+
+export interface SaveStandaloneWorkflowExecutionInput {
+  workflowExecution: CreateWorkflowExecutionBindingInput & { bindingId?: string; expectedVersion?: number };
+  expectedAssetVersion?: number;
+}
+
+export class ApplicationAssetExecutionService {
+  constructor(private readonly db: DatabasePort) {}
+
+  async saveStandaloneWorkflowExecution(tenantId: string, applicationAssetId: string, input: SaveStandaloneWorkflowExecutionInput) {
+    return this.db.transaction(async (tx) => {
+      const assets = new PgAssetsRepository(tx);
+      const asset = await assets.getServiceAsset(tenantId, applicationAssetId);
+      if (!asset) throw new AppError('RESOURCE_NOT_FOUND', 'ApplicationAsset 不存在', { applicationAssetId });
+      if (input.expectedAssetVersion !== undefined && asset.version !== input.expectedAssetVersion) {
+        throw new AppError('RESOURCE_VERSION_CONFLICT', 'ApplicationAsset 版本冲突', { expectedVersion: input.expectedAssetVersion, actualVersion: asset.version });
+      }
+      const relation = await assets.getApplicationAssetTargetByApplicationAssetId(tenantId, applicationAssetId);
+      if (relation?.status === 'ACTIVE') throw new AppError('EXECUTION_SOURCE_CONFLICT', '非受管工作流资产不得存在 ManagedTarget 关系', { managedTargetId: relation.managedTargetId });
+      const assignments = await tx.query<{ id: string }>(`select id from plugin_capability_assignments where tenant_id=$1 and owner_type='APPLICATION_ASSET' and owner_id=$2 and status='ACTIVE'`, [tenantId, applicationAssetId]);
+      if (assignments.rows.length) throw new AppError('EXECUTION_SOURCE_CONFLICT', '非受管工作流资产不得存在 ACTIVE CapabilityAssignment', { assignmentIds: assignments.rows.map((item) => item.id) });
+      const { bindingId, expectedVersion, ...bindingInput } = input.workflowExecution;
+      if (bindingInput.tenantId !== tenantId) throw new AppError('VALIDATION_FAILED', 'WorkflowExecutionBinding tenantId 不匹配');
+      const bindings = new WorkflowExecutionBindingsService(new WorkflowExecutionBindingsRepository(tx));
+      const binding = bindingId
+        ? await bindings.update(tenantId, bindingId, { ...bindingInput, expectedVersion: expectedVersion ?? 0 })
+        : await bindings.create(bindingInput);
+      const updated = await assets.updateServiceAsset(tenantId, applicationAssetId, {
+        deploymentStrategy: { type: 'WORKFLOW', workflow: { workflowExecutionBindingId: binding.id } },
+      });
+      return { asset: updated, executionMode: 'WORKFLOW' as const, workflowExecutionBinding: binding };
+    });
+  }
+}

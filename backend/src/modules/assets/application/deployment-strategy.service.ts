@@ -22,9 +22,14 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
     if (!managedTarget) throw strategyError('MANAGED_TARGET 策略必须提供 managedTarget 配置');
     const managedTargetId = requireNonEmpty(managedTarget.managedTargetId, 'managedTarget.managedTargetId');
     const certificateFormatId = optionalNonEmpty(managedTarget.certificateFormatId);
+    const executionMode = managedTarget.executionMode ?? 'PLUGIN';
+    const workflowExecutionBindingId = optionalNonEmpty(managedTarget.workflowExecutionBindingId);
+    if (executionMode !== 'PLUGIN' && executionMode !== 'WORKFLOW_OVERRIDE') throw strategyError('managedTarget.executionMode 只支持 PLUGIN/WORKFLOW_OVERRIDE');
+    if (executionMode === 'PLUGIN' && workflowExecutionBindingId) throw strategyError('PLUGIN 模式不得引用 WorkflowExecutionBinding');
+    if (executionMode === 'WORKFLOW_OVERRIDE' && !workflowExecutionBindingId) throw strategyError('WORKFLOW_OVERRIDE 模式必须引用 WorkflowExecutionBinding');
     return {
       type: 'MANAGED_TARGET',
-      managedTarget: certificateFormatId ? { managedTargetId, certificateFormatId } : { managedTargetId },
+      managedTarget: { managedTargetId, ...(certificateFormatId ? { certificateFormatId } : {}), executionMode, ...(workflowExecutionBindingId ? { workflowExecutionBindingId } : {}) },
       compatibilityMode: 'UNIFIED',
       updatedAt: now,
       updatedBy: context.actorId,
@@ -33,6 +38,17 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
   if (input.type === 'WORKFLOW') {
     const workflow = input.workflow;
     if (!workflow) throw strategyError('WORKFLOW 策略必须提供 workflow 配置');
+    const workflowExecutionBindingId = optionalNonEmpty(workflow.workflowExecutionBindingId);
+    if (workflowExecutionBindingId && workflow.pluginBindingId) throw strategyError('WORKFLOW 策略不得同时引用 WorkflowExecutionBinding 和 PluginBinding');
+    if (workflowExecutionBindingId) {
+      return {
+        type: 'WORKFLOW',
+        workflow: { workflowExecutionBindingId },
+        compatibilityMode: 'UNIFIED',
+        updatedAt: now,
+        updatedBy: context.actorId,
+      };
+    }
     const pluginBindingId = optionalNonEmpty(workflow.pluginBindingId);
     const runner = workflow.runner;
     if (runner !== 'CONTROL_PLANE' && runner !== 'GATEWAY') throw strategyError('workflow.runner 只支持 CONTROL_PLANE/GATEWAY');

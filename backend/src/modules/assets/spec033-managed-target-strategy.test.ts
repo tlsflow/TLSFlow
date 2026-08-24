@@ -30,6 +30,7 @@ test('Spec033 新 MANAGED_TARGET 策略只要求目标 ID', () => {
   }, context);
   assert.deepEqual(strategy.managedTarget, {
     managedTargetId: 'target_spec033_strategy',
+    executionMode: 'PLUGIN',
   });
   assert.equal(strategy.compatibilityMode, 'UNIFIED');
 });
@@ -45,7 +46,20 @@ test('Spec033 MANAGED_TARGET 策略保留证书产物配置', () => {
   assert.deepEqual(strategy.managedTarget, {
     managedTargetId: 'target_spec033_strategy',
     certificateFormatId: 'format_spec033_strategy',
+    executionMode: 'PLUGIN',
   });
+});
+
+test('Spec033.5 受管工作流覆盖必须且只能引用 WorkflowExecutionBinding', () => {
+  const strategy = normalizeDeploymentStrategy({
+    type: 'MANAGED_TARGET',
+    managedTarget: { managedTargetId: 'target_spec033_strategy', executionMode: 'WORKFLOW_OVERRIDE', workflowExecutionBindingId: 'wfeb_1' },
+  }, context);
+  assert.equal(strategy.managedTarget?.workflowExecutionBindingId, 'wfeb_1');
+  assert.throws(() => normalizeDeploymentStrategy({
+    type: 'MANAGED_TARGET',
+    managedTarget: { managedTargetId: 'target_spec033_strategy', executionMode: 'PLUGIN', workflowExecutionBindingId: 'wfeb_1' },
+  }, context), /PLUGIN 模式不得引用/);
 });
 
 test('Spec033 应用资产保存后可回读 ManagedTarget 证书产物配置', async () => {

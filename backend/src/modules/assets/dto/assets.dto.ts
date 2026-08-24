@@ -27,6 +27,7 @@ export type DeploymentStrategyType = 'MANAGED_TARGET' | 'WORKFLOW';
 export type WorkflowRunnerType = 'CONTROL_PLANE' | 'GATEWAY';
 export type WorkflowVersionSelection = 'PINNED' | 'LATEST_PUBLISHED';
 export type DeploymentStrategyCompatibilityMode = 'UNIFIED';
+export type ManagedTargetExecutionMode = 'PLUGIN' | 'WORKFLOW_OVERRIDE';
 
 export interface ManagementChannelDto {
   type: 'AGENT' | 'GATEWAY' | 'SSH' | 'WINRM' | 'MANUAL' | 'AGENTLESS' | 'SCRIPT_PACKAGE' | string;
@@ -38,14 +39,17 @@ export interface ManagementChannelDto {
 export interface ManagedTargetDeploymentStrategyDto {
   managedTargetId: string;
   certificateFormatId?: string;
+  executionMode?: ManagedTargetExecutionMode;
+  workflowExecutionBindingId?: string;
 }
 
 export interface WorkflowDeploymentStrategyDto {
+  workflowExecutionBindingId?: string;
   pluginBindingId?: string;
   workflowId?: string;
   workflowVersionSelection?: WorkflowVersionSelection;
   workflowVersionId?: string;
-  runner: WorkflowRunnerType;
+  runner?: WorkflowRunnerType;
   gatewayId?: string;
   target?: {
     frameworkType?: 'NGINX' | 'APACHE' | 'TOMCAT' | 'IIS' | 'CUSTOM' | string;

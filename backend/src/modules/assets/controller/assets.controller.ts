@@ -12,6 +12,7 @@ import {
 import type { SecuritySubject } from '../../../shared/security-types.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import { AssetsApplicationService } from '../application/assets.application-service.js';
+import { ApplicationAssetExecutionService, type SaveStandaloneWorkflowExecutionInput } from '../application/application-asset-execution.service.js';
 import { assetsEnumValues } from '../domain/assets.domain-service.js';
 import type {
   CreateDiscoverySnapshotDto,
@@ -39,7 +40,7 @@ const tags = ['Assets'];
 const tenantFallback = '00000000-0000-0000-0000-000000000000';
 
 export class AssetsController {
-  constructor(private readonly security?: SecurityServices, private readonly service = new AssetsApplicationService()) {}
+  constructor(private readonly security?: SecurityServices, private readonly service = new AssetsApplicationService(), private readonly executionService?: ApplicationAssetExecutionService) {}
 
   register(router: Router): void {
     router.get('/api/v1/hosts', '查询 Host 列表', tags, (request) => this.listHosts(request));
@@ -57,6 +58,7 @@ export class AssetsController {
     router.patch('/api/v1/service-assets/:id/deployment-strategy', '按 ID 更新 ServiceAsset 证书部署策略', tags, (request) => this.updateServiceAssetDeploymentStrategy(request));
     router.patch('/api/v1/service-assets/deployment-strategy', '更新 ServiceAsset 证书部署策略', tags, (request) => this.updateServiceAssetDeploymentStrategy(request));
     router.post('/api/v1/service-assets/workflow-binding-projection', '生成工作流绑定配置投影', tags, (request) => this.projectWorkflowBinding(request));
+    router.put('/api/v1/application-assets/:applicationAssetId/standalone-workflow', '保存非受管工作流执行配置', tags, (request) => this.saveStandaloneWorkflowExecution(request));
     router.post('/api/v1/service-assets/delete', '软删除 ServiceAsset', tags, (request) => this.deleteServiceAsset(request));
     router.get('/api/v1/application-asset-targets', '查询 ApplicationAssetTarget 列表', tags, (request) => this.listApplicationAssetTargets(request));
     router.post('/api/v1/application-asset-targets', '创建 ApplicationAssetTarget', tags, (request) => this.createApplicationAssetTarget(request));
@@ -318,6 +320,7 @@ export class AssetsController {
       status: { type: 'string', enum: assetsEnumValues.serviceAssetStatuses },
       tags: { type: 'array' },
       metadata: { type: 'object' },
+      deploymentStrategy: { type: 'object' },
       targetBinding: { type: 'object' },
     });
     const { id, ...patch } = body as unknown as UpdateServiceAssetDto & { id: string };
@@ -345,6 +348,14 @@ export class AssetsController {
         return updated;
       }),
     );
+  }
+
+  private saveStandaloneWorkflowExecution(request: HttpRequest) {
+    if (!this.executionService) throw new AppError('SYSTEM_INTERNAL_ERROR', 'ApplicationAssetExecutionService 未接入');
+    const applicationAssetId = request.path.match(/^\/api\/v1\/application-assets\/([^/]+)\/standalone-workflow$/)?.[1];
+    if (!applicationAssetId) throw new AppError('VALIDATION_FAILED', '非受管工作流路径无效');
+    const body = validateObject(request.body, { workflowExecution: { type: 'object', required: true }, expectedAssetVersion: { type: 'number' } }) as unknown as SaveStandaloneWorkflowExecutionInput;
+    return this.executionService.saveStandaloneWorkflowExecution(tenantId(request), decodeURIComponent(applicationAssetId), body);
   }
 
   private async projectWorkflowBinding(request: HttpRequest) {
@@ -823,6 +834,7 @@ export function getAssetsRouteContracts(): RouteContract[] {
     { method: 'PATCH', path: '/api/v1/service-assets/:id/deployment-strategy', operationId: 'updateServiceAssetDeploymentStrategyById', summary: '按 ID 更新 ServiceAsset 证书部署策略', tags, responseSchema: objectSchema() },
     { method: 'PATCH', path: '/api/v1/service-assets/deployment-strategy', operationId: 'updateServiceAssetDeploymentStrategy', summary: '更新 ServiceAsset 证书部署策略', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/service-assets/workflow-binding-projection', operationId: 'projectWorkflowBinding', summary: '生成工作流绑定配置投影', tags, responseSchema: objectSchema() },
+    { method: 'PUT', path: '/api/v1/application-assets/:applicationAssetId/standalone-workflow', operationId: 'saveStandaloneWorkflowExecution', summary: '保存非受管工作流执行配置', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/service-assets/delete', operationId: 'deleteServiceAsset', summary: '软删除 ServiceAsset', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/application-asset-targets', operationId: 'listApplicationAssetTargets', summary: '查询 ApplicationAssetTarget 列表', tags, responseSchema: pageSchema() },
     { method: 'POST', path: '/api/v1/application-asset-targets', operationId: 'createApplicationAssetTarget', summary: '创建 ApplicationAssetTarget', tags, responseSchema: objectSchema() },
