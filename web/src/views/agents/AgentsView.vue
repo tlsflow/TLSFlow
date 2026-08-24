@@ -1,5 +1,6 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import { GcModal, GcStatusTag } from '@/design-system/components'
@@ -13,6 +14,7 @@ import {
   getAgentDetail,
   listAgents,
 } from '@/api/modules/assets.api'
+import { listCertificateVersions } from '@/api/modules/certificates.api'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
 
 type InstallPlatform = 'linux_go_systemd' | 'windows_powershell_service'
@@ -29,18 +31,30 @@ interface DetailField {
   readonly label: string
   readonly value: string
   readonly emphasis?: boolean
+  readonly meta?: unknown
 }
 
 interface DetailSection {
   readonly title: string
   readonly description: string
   readonly fields: ReadonlyArray<DetailField>
+  readonly variant?: 'default' | 'iis-sites'
 }
 
 interface DetailTab {
   readonly key: string
   readonly label: string
   readonly sections: ReadonlyArray<DetailSection>
+}
+
+interface BindingCertificateView {
+  readonly subject: string
+  readonly issuer: string
+  readonly notBefore: string
+  readonly notAfter: string
+  readonly thumbprint: string
+  readonly storeName: string
+  readonly notAfterAt: number | null
 }
 
 interface AgentDetailView {
@@ -62,15 +76,20 @@ interface IisBindingView {
   readonly protocol: string
   readonly port: string
   readonly certificateSubject: string
+  readonly hostHeader: string
+  readonly certificate: BindingCertificateView | null
 }
 
 interface IisSiteView {
   readonly name: string
   readonly physicalPath: string
+  readonly appPool: string
+  readonly state: string
   readonly bindings: ReadonlyArray<IisBindingView>
 }
 
 const EMPTY_TEXT = '—'
+const CERTIFICATE_EXPIRING_DAYS = 30
 
 const installModalOpen = ref(false)
 const detailModalOpen = ref(false)
@@ -81,10 +100,15 @@ const detailData = ref<AgentDetailView | null>(null)
 const activeDetailTab = ref('overview')
 const detailLoading = ref(false)
 const detailError = ref('')
+const certificateModalOpen = ref(false)
+const selectedCertificate = ref<{ siteName: string; binding: IisBindingView } | null>(null)
+const certificateAssetPending = ref(false)
+const certificateAssetError = ref('')
 const copiedText = ref<'token' | 'command' | null>(null)
 const installPending = ref(false)
 const installError = ref('')
 const now = ref(Date.now())
+const router = useRouter()
 
 const versionOptions = [
   { value: 'latest', label: '最新稳定版' },
@@ -100,7 +124,7 @@ const platformOptions: Array<{ value: InstallPlatform; label: string; descriptio
   },
   {
     value: 'windows_powershell_service',
-    label: 'Windows PowerShell',
+    label: 'Windows Go Service',
     description: '适用于 Windows Server 与 Windows 10/11，安装后注册为系统服务。',
   },
 ]
@@ -147,6 +171,56 @@ function normalizeText(value: unknown, fallback = EMPTY_TEXT): string {
   return String(value)
 }
 
+function normalizeDateTime(value: unknown): string {
+  const text = normalizeText(value)
+  if (text === EMPTY_TEXT) return text
+  const parsed = Date.parse(text)
+  if (Number.isNaN(parsed)) return text
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(parsed))
+}
+
+function parseDateTime(value: unknown): number | null {
+  const text = normalizeText(value)
+  if (text === EMPTY_TEXT) return null
+  const parsed = Date.parse(text)
+  return Number.isNaN(parsed) ? null : parsed
+}
+
+function certificateRemainingDays(certificate: BindingCertificateView | null): number | null {
+  if (certificate?.notAfterAt === null || certificate?.notAfterAt === undefined) return null
+  return Math.ceil((certificate.notAfterAt - now.value) / (24 * 60 * 60 * 1000))
+}
+
+function certificateValidityStatus(certificate: BindingCertificateView | null): 'valid' | 'expiring' | 'expired' | 'unknown' {
+  const remainingDays = certificateRemainingDays(certificate)
+  if (remainingDays === null) return 'unknown'
+  if (remainingDays < 0) return 'expired'
+  if (remainingDays <= CERTIFICATE_EXPIRING_DAYS) return 'expiring'
+  return 'valid'
+}
+
+function certificateStatusLabel(certificate: BindingCertificateView | null): string {
+  const status = certificateValidityStatus(certificate)
+  if (status === 'expired') return '已过期'
+  if (status === 'expiring') return '即将过期'
+  if (status === 'valid') return '有效'
+  return '有效期未知'
+}
+
+function certificateRemainingLabel(certificate: BindingCertificateView | null): string {
+  const remainingDays = certificateRemainingDays(certificate)
+  if (remainingDays === null) return '有效期未知'
+  if (remainingDays < 0) return `已过期 ${Math.abs(remainingDays)} 天`
+  if (remainingDays === 0) return '今天到期'
+  return `剩余 ${remainingDays} 天`
+}
+
 function firstNonEmptyValue(value: unknown, fallback = EMPTY_TEXT): string {
   const normalized = normalizeText(value, fallback)
   const firstLine = normalized.split('\n').map((item) => item.trim()).find(Boolean)
@@ -163,6 +237,16 @@ function readCapabilityItems(data: ApiRecord): CapabilityItem[] {
 
 function readCapabilityValue(data: ApiRecord, capabilityKey: string): unknown {
   return readCapabilityItems(data).find((item) => item.capabilityKey === capabilityKey)?.value
+}
+
+function readObjectValue(record: Record<string, unknown>, candidates: readonly string[]): unknown {
+  for (const key of candidates) {
+    const value = record[key]
+    if (value !== undefined && value !== null && value !== '') {
+      return value
+    }
+  }
+  return undefined
 }
 
 function readWindowsInspect(data: ApiRecord): Record<string, unknown> {
@@ -224,12 +308,12 @@ function buildRuntimeFields(data: ApiRecord, osType: string): DetailField[] {
 
   if (osType.toUpperCase() === 'WINDOWS') {
     const windowsInspect = readWindowsInspect(data)
-    const productName = typeof windowsInspect.ProductName === 'string' && windowsInspect.ProductName.trim() !== ''
-      ? windowsInspect.ProductName
+    const productNameValue = readObjectValue(windowsInspect, ['ProductName', 'productName'])
+    const buildRevisionValue = readObjectValue(windowsInspect, ['BuildRevision', 'buildRevision', 'BuildNumber', 'buildNumber'])
+    const productName = typeof productNameValue === 'string' && productNameValue.trim() !== ''
+      ? productNameValue
       : readValue(data, ['agent.descriptor.osVersion', 'descriptor.osVersion', 'osVersion'])
-    const patchVersion = typeof windowsInspect.BuildRevision === 'string' && windowsInspect.BuildRevision.trim() !== ''
-      ? windowsInspect.BuildRevision
-      : normalizeText(windowsInspect.BuildNumber)
+    const patchVersion = normalizeText(buildRevisionValue)
 
     return [
       { label: 'IP 地址', value: ipAddress, emphasis: true },
@@ -261,23 +345,39 @@ function buildIisSites(data: ApiRecord): IisSiteView[] {
   return rawSites
     .filter((site): site is Record<string, unknown> => Boolean(site) && typeof site === 'object')
     .map((site, index) => {
-      const bindingsRaw = Array.isArray(site.Bindings) ? site.Bindings : []
+      const bindingsValue = readObjectValue(site, ['Bindings', 'bindings'])
+      const bindingsRaw = Array.isArray(bindingsValue) ? bindingsValue : []
       const bindings = bindingsRaw
         .filter((binding): binding is Record<string, unknown> => Boolean(binding) && typeof binding === 'object')
         .map((binding) => {
-          const certificate = binding.Certificate && typeof binding.Certificate === 'object'
-            ? binding.Certificate as Record<string, unknown>
+          const certificateValue = readObjectValue(binding, ['Certificate', 'certificate'])
+          const certificate = certificateValue && typeof certificateValue === 'object'
+            ? certificateValue as Record<string, unknown>
             : null
           return {
-            protocol: normalizeText(binding.Protocol),
-            port: normalizeText(binding.Port),
-            certificateSubject: certificate ? normalizeText(certificate.Subject) : EMPTY_TEXT,
+            protocol: normalizeText(readObjectValue(binding, ['Protocol', 'protocol'])),
+            port: normalizeText(readObjectValue(binding, ['Port', 'port'])),
+            hostHeader: normalizeText(readObjectValue(binding, ['HostHeader', 'hostHeader'])),
+            certificateSubject: certificate ? normalizeText(readObjectValue(certificate, ['Subject', 'subject'])) : EMPTY_TEXT,
+            certificate: certificate
+              ? {
+                  subject: normalizeText(readObjectValue(certificate, ['Subject', 'subject'])),
+                  issuer: normalizeText(readObjectValue(certificate, ['Issuer', 'issuer'])),
+                  notBefore: normalizeDateTime(readObjectValue(certificate, ['NotBefore', 'notBefore'])),
+                  notAfter: normalizeDateTime(readObjectValue(certificate, ['NotAfter', 'notAfter'])),
+                  thumbprint: normalizeText(readObjectValue(certificate, ['Thumbprint', 'thumbprint'])),
+                  storeName: normalizeText(readObjectValue(certificate, ['StoreName', 'storeName'])),
+                  notAfterAt: parseDateTime(readObjectValue(certificate, ['NotAfter', 'notAfter'])),
+                }
+              : null,
           }
         })
 
       return {
-        name: normalizeText(site.Name, `站点 ${index + 1}`),
-        physicalPath: normalizeText(site.PhysicalPath),
+        name: normalizeText(readObjectValue(site, ['Name', 'name']), `站点 ${index + 1}`),
+        physicalPath: normalizeText(readObjectValue(site, ['PhysicalPath', 'physicalPath'])),
+        appPool: normalizeText(readObjectValue(site, ['AppPool', 'appPool'])),
+        state: normalizeText(readObjectValue(site, ['State', 'state'])),
         bindings,
       }
     })
@@ -287,35 +387,51 @@ function buildIisSections(data: ApiRecord): DetailSection[] {
   const iisDetail = readCapabilityValue(data, 'windows.iis.detail')
   const iis = iisDetail && typeof iisDetail === 'object' ? iisDetail as Record<string, unknown> : {}
   const sites = buildIisSites(data)
+  const installed = readObjectValue(iis, ['Installed', 'installed'])
+  const versionString = normalizeText(readObjectValue(iis, ['VersionString', 'versionString']))
+  const httpsBindings = sites.flatMap((site) => site.bindings).filter((binding) => binding.protocol.toLowerCase() === 'https')
+  const uniqueAppPools = new Set(sites.map((site) => site.appPool).filter((value) => value !== EMPTY_TEXT))
+  const uniqueCertificates = new Set(
+    httpsBindings
+      .map((binding) => binding.certificateSubject)
+      .filter((value) => value !== EMPTY_TEXT),
+  )
 
   const overview: DetailSection = {
     title: 'IIS 概况',
     description: '这里展示宿主机上的 IIS 安装状态和版本信息。',
     fields: [
-      { label: '已安装', value: normalizeText(iis.Installed), emphasis: true },
-      { label: '版本字符串', value: normalizeText(iis.VersionString) },
-      { label: '主版本', value: normalizeText(iis.MajorVersion) },
-      { label: '次版本', value: normalizeText(iis.MinorVersion) },
-      { label: 'Build Number', value: normalizeText(iis.BuildNumber) },
-      { label: 'Setup String', value: normalizeText(iis.SetupString) },
+      { label: '安装状态', value: installed === true ? '已安装' : '未安装', emphasis: true },
+      { label: 'IIS 版本', value: versionString },
+      { label: '站点数量', value: String(sites.length), emphasis: true },
+      { label: 'HTTPS 绑定', value: String(httpsBindings.length) },
+      { label: '应用程序池', value: String(uniqueAppPools.size) },
+      { label: '证书主题', value: String(uniqueCertificates.size) },
     ],
   }
 
   const siteSection: DetailSection = {
     title: 'IIS 站点',
     description: '这里展示 IIS 网站列表、站点路径、绑定端口以及证书主题名。',
+    variant: 'iis-sites',
     fields: sites.length > 0
       ? sites.map((site) => ({
           label: site.name,
-          value: [
-            `路径：${site.physicalPath}`,
-            ...site.bindings.map((binding) => `绑定：${binding.protocol.toUpperCase()}:${binding.port} / 证书：${binding.certificateSubject}`),
-          ].join('\n'),
+          value: site.physicalPath,
+          meta: site,
         }))
       : [{ label: '站点列表', value: '未发现 IIS 站点' }],
   }
 
   return [overview, siteSection]
+}
+
+function hasIisCapability(data: ApiRecord): boolean {
+  const iisDetail = readCapabilityValue(data, 'windows.iis.detail')
+  const iis = iisDetail && typeof iisDetail === 'object' ? iisDetail as Record<string, unknown> : {}
+  const installedValue = readObjectValue(iis, ['Installed', 'installed'])
+  const installed = installedValue === true || String(installedValue).toLowerCase() === 'true'
+  return installed || buildIisSites(data).length > 0
 }
 
 function buildAgentDetail(data: ApiRecord, fallbackRow?: ViewRow): AgentDetailView {
@@ -328,6 +444,40 @@ function buildAgentDetail(data: ApiRecord, fallbackRow?: ViewRow): AgentDetailVi
   const zone = readValue(data, ['agent.zone', 'zone', 'zoneId'])
   const lastHeartbeat = readValue(data, ['latestHeartbeat.receivedAt', 'agent.gateway.lastHeartbeatAt', 'agent.updatedAt', 'updatedAt'])
 
+  const tabs: DetailTab[] = [
+    {
+      key: 'overview',
+      label: '概览',
+      sections: [
+        {
+          title: '主要信息',
+          description: '这里展示 Agent 的身份、角色和最近心跳。',
+          fields: [
+            { label: '主机名', value: hostname, emphasis: true },
+            { label: 'Agent ID', value: agentId },
+            { label: 'Agent Key', value: agentKey },
+            { label: '角色', value: role },
+            { label: '区域', value: zone },
+            { label: '最近心跳', value: lastHeartbeat },
+          ],
+        },
+        {
+          title: '运行环境',
+          description: '这里展示 Agent 上报的运行系统与版本信息。',
+          fields: buildRuntimeFields(data, osType),
+        },
+      ],
+    },
+  ]
+
+  if (hasIisCapability(data)) {
+    tabs.push({
+      key: 'iis',
+      label: 'IIS',
+      sections: buildIisSections(data),
+    })
+  }
+
   return {
     id: agentId,
     title: hostname,
@@ -335,36 +485,7 @@ function buildAgentDetail(data: ApiRecord, fallbackRow?: ViewRow): AgentDetailVi
     status,
     spotlightLabel: 'IP 地址',
     spotlightValue: resolveIpAddress(data),
-    tabs: [
-      {
-        key: 'overview',
-        label: '概览',
-        sections: [
-          {
-            title: '主要信息',
-            description: '这里展示 Agent 的身份、角色和最近心跳。',
-            fields: [
-              { label: '主机名', value: hostname, emphasis: true },
-              { label: 'Agent ID', value: agentId },
-              { label: 'Agent Key', value: agentKey },
-              { label: '角色', value: role },
-              { label: '区域', value: zone },
-              { label: '最近心跳', value: lastHeartbeat },
-            ],
-          },
-          {
-            title: '运行环境',
-            description: '这里展示 Agent 上报的运行系统与版本信息。',
-            fields: buildRuntimeFields(data, osType),
-          },
-        ],
-      },
-      {
-        key: 'iis',
-        label: 'IIS',
-        sections: buildIisSections(data),
-      },
-    ],
+    tabs,
   }
 }
 
@@ -404,6 +525,107 @@ function closeInstallModal() {
 function closeDetailModal() {
   if (detailLoading.value) return
   detailModalOpen.value = false
+}
+
+function openCertificateModal(siteName: string, binding: IisBindingView) {
+  if (!binding.certificate) return
+  selectedCertificate.value = { siteName, binding }
+  certificateAssetError.value = ''
+  certificateModalOpen.value = true
+}
+
+function closeCertificateModal() {
+  certificateModalOpen.value = false
+  selectedCertificate.value = null
+  certificateAssetPending.value = false
+  certificateAssetError.value = ''
+}
+
+async function resolveCertificateAssetRoute(certificate: BindingCertificateView): Promise<{ assetId: string; versionId: string } | null> {
+  const keyword = certificate.thumbprint !== EMPTY_TEXT ? certificate.thumbprint : certificate.subject
+  const result = await listCertificateVersions({
+    page: 1,
+    pageSize: 20,
+    keyword,
+  })
+  const items = Array.isArray(result.data?.items) ? result.data.items : []
+  const matched = items.find((item) => {
+    const versionId = normalizeText(readPath(item, 'id'), '')
+    const assetId = normalizeText(readPath(item, 'certificateAssetId'), '')
+    if (!versionId || versionId === EMPTY_TEXT || !assetId || assetId === EMPTY_TEXT) return false
+
+    const thumbprint = normalizeText(readPath(item, 'fingerprintSha256'), '').toUpperCase()
+    const commonName = normalizeText(readPath(item, 'commonName'), '')
+    const subjectCommonName = normalizeText(readPath(item, 'subject.commonName'), '')
+
+    return thumbprint === certificate.thumbprint.toUpperCase()
+      || commonName === certificate.subject
+      || subjectCommonName === certificate.subject
+  }) as ApiRecord | undefined
+
+  if (!matched) return null
+
+  const assetId = normalizeText(readPath(matched, 'certificateAssetId'), '')
+  const versionId = normalizeText(readPath(matched, 'id'), '')
+  if (assetId === EMPTY_TEXT || versionId === EMPTY_TEXT) {
+    throw new Error('证书资产数据不完整，无法跳转详情。')
+  }
+
+  return { assetId, versionId }
+}
+
+async function navigateToCertificateAsset(route: { assetId: string; versionId: string }) {
+  closeCertificateModal()
+  await router.push({
+    name: 'certificate.detail',
+    params: { id: route.assetId },
+    query: { versionId: route.versionId },
+  })
+}
+
+async function openCertificateAssetDetail() {
+  const certificate = selectedCertificate.value?.binding.certificate
+  if (!certificate || certificateAssetPending.value) return
+
+  certificateAssetPending.value = true
+  certificateAssetError.value = ''
+
+  try {
+    const route = await resolveCertificateAssetRoute(certificate)
+    if (!route) {
+      certificateAssetError.value = '本项目中未找到对应证书资产。'
+      return
+    }
+    await navigateToCertificateAsset(route)
+  } catch (cause) {
+    certificateAssetError.value = cause instanceof Error ? cause.message : '查询证书资产失败。'
+  } finally {
+    certificateAssetPending.value = false
+  }
+}
+
+async function openBindingCertificate(siteName: string, binding: IisBindingView) {
+  if (!binding.certificate || certificateAssetPending.value) return
+
+  certificateAssetPending.value = true
+  certificateAssetError.value = ''
+  selectedCertificate.value = { siteName, binding }
+
+  try {
+    const route = await resolveCertificateAssetRoute(binding.certificate)
+    if (route) {
+      await navigateToCertificateAsset(route)
+      return
+    }
+
+    certificateAssetError.value = '本项目中未找到对应证书资产，已切换为证书详情视图。'
+    certificateModalOpen.value = true
+  } catch (cause) {
+    certificateAssetError.value = cause instanceof Error ? cause.message : '查询证书资产失败。'
+    certificateModalOpen.value = true
+  } finally {
+    certificateAssetPending.value = false
+  }
 }
 
 async function generateInstallCommand() {
@@ -497,7 +719,7 @@ function buildInstallCommand(platform: InstallPlatform, bootstrapUrl: string, fa
   if (platform === 'linux_go_systemd') {
     return `curl -fsSL '${bootstrapUrl}' | sudo bash`
   }
-  return `powershell -NoProfile -ExecutionPolicy Bypass -Command "irm '${bootstrapUrl}' | iex"`
+  return `irm '${bootstrapUrl}' | iex`
 }
 
 async function openDetailModal(row: ViewRow) {
@@ -644,15 +866,75 @@ const config: BusinessPageConfig = {
               </header>
 
               <dl class="agent-detail-modal__grid">
-                <div
-                  v-for="field in section.fields"
-                  :key="`${section.title}-${field.label}`"
-                  class="agent-detail-modal__item"
-                  :data-emphasis="field.emphasis ? 'true' : 'false'"
-                >
-                  <dt>{{ field.label }}</dt>
-                  <dd>{{ field.value }}</dd>
-                </div>
+                <template v-if="section.variant === 'iis-sites'">
+                  <article
+                    v-for="field in section.fields"
+                    :key="`${section.title}-${field.label}`"
+                    class="agent-detail-modal__site-card"
+                  >
+                    <template v-if="field.meta && typeof field.meta === 'object'">
+                    <header class="agent-detail-modal__site-head">
+                      <div>
+                        <p class="agent-detail-modal__site-name">{{ field.label }}</p>
+                        <p class="agent-detail-modal__site-path">路径：{{ (field.meta as IisSiteView).physicalPath }}</p>
+                      </div>
+                      <div class="agent-detail-modal__site-meta">
+                        <span>{{ (field.meta as IisSiteView).state }}</span>
+                        <strong>{{ (field.meta as IisSiteView).appPool }}</strong>
+                      </div>
+                    </header>
+                    <div class="agent-detail-modal__site-bindings">
+                      <div
+                        v-for="binding in (field.meta as IisSiteView).bindings"
+                        :key="`${field.label}-${binding.protocol}-${binding.port}-${binding.hostHeader}`"
+                        class="agent-detail-modal__binding-chip"
+                        :data-clickable="binding.certificate ? 'true' : 'false'"
+                        :data-cert-status="certificateValidityStatus(binding.certificate)"
+                        role="button"
+                        tabindex="0"
+                        @click="openBindingCertificate(field.label, binding)"
+                        @keydown.enter="openBindingCertificate(field.label, binding)"
+                        @keydown.space.prevent="openBindingCertificate(field.label, binding)"
+                      >
+                        <div class="agent-detail-modal__binding-topline">
+                          <strong>{{ String(binding.protocol).toUpperCase() }}:{{ binding.port }}</strong>
+                          <span
+                            v-if="binding.certificate"
+                            class="agent-detail-modal__cert-badge"
+                            :data-status="certificateValidityStatus(binding.certificate)"
+                          >
+                            {{ certificateStatusLabel(binding.certificate) }}
+                          </span>
+                        </div>
+                        <span>{{ binding.hostHeader && binding.hostHeader !== EMPTY_TEXT ? binding.hostHeader : '无 Host Header' }}</span>
+                        <small>{{ binding.certificateSubject }}</small>
+                        <em v-if="binding.certificate">
+                          {{ certificateRemainingLabel(binding.certificate) }} / 点击查看证书
+                        </em>
+                      </div>
+                    </div>
+                    </template>
+                    <template v-else>
+                      <header class="agent-detail-modal__site-head">
+                        <div>
+                          <p class="agent-detail-modal__site-name">{{ field.label }}</p>
+                          <p class="agent-detail-modal__site-path">{{ field.value }}</p>
+                        </div>
+                      </header>
+                    </template>
+                  </article>
+                </template>
+                <template v-else>
+                  <div
+                    v-for="field in section.fields"
+                    :key="`${section.title}-${field.label}`"
+                    class="agent-detail-modal__item"
+                    :data-emphasis="field.emphasis ? 'true' : 'false'"
+                  >
+                    <dt>{{ field.label }}</dt>
+                    <dd>{{ field.value }}</dd>
+                  </div>
+                </template>
               </dl>
             </article>
           </div>
@@ -661,6 +943,87 @@ const config: BusinessPageConfig = {
 
       <template #actions>
         <button class="gc-button" type="button" :disabled="detailLoading" @click="closeDetailModal">关闭</button>
+      </template>
+    </GcModal>
+
+    <GcModal
+      v-model:open="certificateModalOpen"
+      title="证书详情"
+      description="展示当前 IIS 绑定使用的证书关键信息。"
+      size="lg"
+      width="56vw"
+    >
+      <section v-if="selectedCertificate?.binding.certificate" class="agent-certificate-modal">
+        <div class="agent-certificate-modal__hero">
+          <div>
+            <p class="agent-certificate-modal__eyebrow">IIS 绑定证书</p>
+            <h3>{{ selectedCertificate.binding.certificate.subject }}</h3>
+            <span>{{ selectedCertificate.siteName }} / {{ selectedCertificate.binding.protocol.toUpperCase() }}:{{ selectedCertificate.binding.port }}</span>
+          </div>
+          <div class="agent-certificate-modal__status">
+            <small>证书状态</small>
+            <strong>{{ certificateStatusLabel(selectedCertificate.binding.certificate) }}</strong>
+            <span>{{ certificateRemainingLabel(selectedCertificate.binding.certificate) }}</span>
+          </div>
+        </div>
+
+        <article class="agent-detail-modal__section">
+          <header class="agent-detail-modal__section-head">
+            <h3>证书概览</h3>
+            <p>展示证书名称、颁发者、开始时间、到期时间和指纹等关键信息。</p>
+          </header>
+          <dl class="agent-detail-modal__grid">
+            <div class="agent-detail-modal__item" data-emphasis="true">
+              <dt>证书名称</dt>
+              <dd>{{ selectedCertificate.binding.certificate.subject }}</dd>
+            </div>
+            <div class="agent-detail-modal__item">
+              <dt>颁发者</dt>
+              <dd>{{ selectedCertificate.binding.certificate.issuer }}</dd>
+            </div>
+            <div class="agent-detail-modal__item">
+              <dt>证书仓库</dt>
+              <dd>{{ selectedCertificate.binding.certificate.storeName }}</dd>
+            </div>
+            <div class="agent-detail-modal__item">
+              <dt>开始时间</dt>
+              <dd>{{ selectedCertificate.binding.certificate.notBefore }}</dd>
+            </div>
+            <div class="agent-detail-modal__item">
+              <dt>到期时间</dt>
+              <dd>{{ selectedCertificate.binding.certificate.notAfter }}</dd>
+            </div>
+            <div
+              class="agent-detail-modal__item"
+              :data-emphasis="certificateValidityStatus(selectedCertificate.binding.certificate) !== 'valid' ? 'true' : 'false'"
+            >
+              <dt>剩余天数</dt>
+              <dd>{{ certificateRemainingLabel(selectedCertificate.binding.certificate) }}</dd>
+            </div>
+            <div class="agent-detail-modal__item">
+              <dt>证书指纹</dt>
+              <dd>{{ selectedCertificate.binding.certificate.thumbprint }}</dd>
+            </div>
+            <div class="agent-detail-modal__item">
+              <dt>Host Header</dt>
+              <dd>{{ selectedCertificate.binding.hostHeader !== EMPTY_TEXT ? selectedCertificate.binding.hostHeader : '无 Host Header' }}</dd>
+            </div>
+          </dl>
+        </article>
+        <p v-if="certificateAssetError" class="agent-certificate-modal__error">{{ certificateAssetError }}</p>
+      </section>
+
+      <template #actions>
+        <button
+          class="gc-button"
+          data-variant="secondary"
+          type="button"
+          :disabled="certificateAssetPending || !selectedCertificate?.binding.certificate"
+          @click="openCertificateAssetDetail"
+        >
+          {{ certificateAssetPending ? '查询中...' : '查看本项目证书详情' }}
+        </button>
+        <button class="gc-button" type="button" @click="closeCertificateModal">关闭</button>
       </template>
     </GcModal>
 
@@ -714,7 +1077,7 @@ const config: BusinessPageConfig = {
           <dl class="agent-install-modal__meta">
             <div>
               <dt>平台</dt>
-              <dd>{{ installSession.platform === 'linux_go_systemd' ? 'Linux systemd' : 'Windows PowerShell' }}</dd>
+              <dd>{{ installSession.platform === 'linux_go_systemd' ? 'Linux systemd' : 'Windows Go Service' }}</dd>
             </div>
             <div>
               <dt>安装码</dt>
@@ -992,6 +1355,280 @@ const config: BusinessPageConfig = {
   white-space: pre-line;
 }
 
+.agent-detail-modal__site-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid #dce7f5;
+  background: linear-gradient(180deg, #f8fbff, #ffffff);
+}
+
+.agent-detail-modal__site-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: start;
+}
+
+.agent-detail-modal__site-name,
+.agent-detail-modal__site-path {
+  margin: 0;
+}
+
+.agent-detail-modal__site-name {
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+}
+
+.agent-detail-modal__site-path {
+  margin-top: 4px;
+  color: #52627a;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.agent-detail-modal__site-meta {
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+  text-align: right;
+}
+
+.agent-detail-modal__site-meta span {
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.agent-detail-modal__site-meta strong {
+  color: #0f172a;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.agent-detail-modal__site-bindings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.agent-detail-modal__binding-chip {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #0f172a;
+  color: #fff;
+  border: 1px solid transparent;
+}
+
+.agent-detail-modal__binding-chip[data-clickable='true'] {
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.agent-detail-modal__binding-chip[data-clickable='true']:hover,
+.agent-detail-modal__binding-chip[data-clickable='true']:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgb(15 23 42 / 18%);
+  background: linear-gradient(180deg, #0f172a, #1d4ed8);
+  outline: none;
+}
+
+.agent-detail-modal__binding-chip[data-cert-status='expiring'] {
+  background: linear-gradient(180deg, #422006, #7c2d12);
+  border-color: rgb(251 191 36 / 42%);
+}
+
+.agent-detail-modal__binding-chip[data-cert-status='expired'] {
+  background: linear-gradient(180deg, #3f0d16, #7f1d1d);
+  border-color: rgb(248 113 113 / 38%);
+}
+
+.agent-detail-modal__binding-topline {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.agent-detail-modal__cert-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 20px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.agent-detail-modal__cert-badge[data-status='valid'] {
+  color: #052e16;
+  background: #86efac;
+}
+
+.agent-detail-modal__cert-badge[data-status='expiring'] {
+  color: #78350f;
+  background: #fcd34d;
+}
+
+.agent-detail-modal__cert-badge[data-status='expired'] {
+  color: #fff1f2;
+  background: #ef4444;
+}
+
+.agent-detail-modal__cert-badge[data-status='unknown'] {
+  color: #e2e8f0;
+  background: rgb(148 163 184 / 30%);
+}
+
+.agent-detail-modal__binding-chip strong,
+.agent-detail-modal__binding-chip span,
+.agent-detail-modal__binding-chip small,
+.agent-detail-modal__binding-chip em {
+  overflow-wrap: anywhere;
+}
+
+.agent-detail-modal__binding-chip strong {
+  font-size: 13px;
+}
+
+.agent-detail-modal__binding-chip span {
+  color: rgb(255 255 255 / 72%);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.agent-detail-modal__binding-chip small {
+  color: #bfdbfe;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.agent-detail-modal__binding-chip em {
+  color: #f8fafc;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.agent-detail-modal__binding-link {
+  justify-self: start;
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #93c5fd;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.agent-detail-modal__binding-link:hover,
+.agent-detail-modal__binding-link:focus-visible {
+  color: #dbeafe;
+  outline: none;
+  text-decoration: underline;
+}
+
+.agent-certificate-modal {
+  display: grid;
+  gap: 12px;
+}
+
+.agent-certificate-modal__hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #d9e5f7;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top right, rgb(59 130 246 / 14%), transparent 30%),
+    linear-gradient(140deg, #f7fbff 0%, #ffffff 54%, #f3f7fc 100%);
+}
+
+.agent-certificate-modal__hero h3,
+.agent-certificate-modal__hero p,
+.agent-certificate-modal__hero span {
+  margin: 0;
+}
+
+.agent-certificate-modal__hero h3 {
+  color: #0f172a;
+  font-size: 24px;
+  line-height: 1.08;
+  letter-spacing: -0.05em;
+  overflow-wrap: anywhere;
+}
+
+.agent-certificate-modal__hero span {
+  display: block;
+  margin-top: 6px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.agent-certificate-modal__eyebrow {
+  color: #5b6f88;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.agent-certificate-modal__status {
+  display: grid;
+  gap: 4px;
+  min-width: 180px;
+  align-content: start;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #0f172a;
+  color: #fff;
+}
+
+.agent-certificate-modal__status small {
+  color: rgb(255 255 255 / 68%);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.agent-certificate-modal__status strong {
+  font-size: 14px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.agent-certificate-modal__status span {
+  color: rgb(255 255 255 / 72%);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.agent-certificate-modal__error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #fecaca;
+  background: #fff1f2;
+  color: #9f1239;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .agent-detail-modal__loading,
 .agent-detail-modal__error,
 .agent-install-modal__error {
@@ -1149,6 +1786,11 @@ const config: BusinessPageConfig = {
 
   .agent-detail-modal__hero-side {
     justify-items: start;
+  }
+
+  .agent-certificate-modal__hero {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 
   .agent-detail-modal__grid {
