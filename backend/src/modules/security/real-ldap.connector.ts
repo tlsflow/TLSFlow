@@ -30,6 +30,30 @@ export class RealLdapConnector implements LdapConnector {
     }
   }
 
+  async lookupUser(source: IdentitySource, username: string, credentials?: LdapServiceCredentials): Promise<ExternalIdentityProfile> {
+    const client = this.createClient(source);
+    try {
+      const userRecord = await this.resolveUserRecord(client, source, username, credentials, 'lookup');
+      const groups = await this.searchUserGroups(client, source, userRecord, username);
+      return {
+        externalId: userRecord.externalId,
+        username: userRecord.username,
+        displayName: userRecord.displayName,
+        email: userRecord.email,
+        userDn: userRecord.userDn,
+        groups,
+        disabled: userRecord.disabled,
+      };
+    } catch (error) {
+      if (error instanceof AppError || 'errorCode' in Object(error ?? {})) {
+        throw error;
+      }
+      throw this.mapLdapError(error, { sourceId: source.id, phase: 'lookupUser' });
+    } finally {
+      await safeUnbind(client);
+    }
+  }
+
   async testConnection(source: IdentitySource, credentials?: LdapServiceCredentials): Promise<LdapConnectionTestResult> {
     const client = this.createClient(source);
     try {
@@ -67,14 +91,19 @@ export class RealLdapConnector implements LdapConnector {
     });
   }
 
-  private async resolveUserRecord(client: Client, source: IdentitySource, username: string, credentials?: LdapServiceCredentials) {
+  private async resolveUserRecord(client: Client, source: IdentitySource, username: string, credentials?: LdapServiceCredentials, purpose: 'auth' | 'lookup' = 'auth') {
     if (source.userDnTemplate) {
       const userDn = renderLdapTemplate(source.userDnTemplate, {
         username: escapeLdapDnValue(username),
       });
       await this.bindAsServiceIfNeeded(client, source, credentials);
-      const entry = await this.lookupUserByDn(client, source, userDn);
-      return this.normalizeProfile(entry, source);
+      if (looksLikeLdapDn(userDn)) {
+        const entry = await this.lookupUserByDn(client, source, userDn, purpose);
+        return this.normalizeProfile(entry, source);
+      }
+      if (source.type === 'active_directory') {
+        return this.searchSingleUser(client, source, buildAdLookupFilter(username, userDn), purpose);
+      }
     }
 
     if (!source.userFilter) {
@@ -84,14 +113,22 @@ export class RealLdapConnector implements LdapConnector {
     const renderedFilter = renderLdapTemplate(source.userFilter, {
       username: escapeLdapFilterValue(username),
     });
+    return this.searchSingleUser(client, source, renderedFilter, purpose);
+  }
+
+  private async searchSingleUser(client: Client, source: IdentitySource, filter: string, purpose: 'auth' | 'lookup') {
     const { searchEntries } = await client.search(source.baseDn, {
       scope: 'sub',
-      filter: renderedFilter,
+      filter,
       attributes: requestedUserAttributes(source),
       sizeLimit: 2,
     });
     const entries = searchEntries as LdapSearchEntry[];
-    if (entries.length === 0) throw new AppError('AUTH_UNAUTHENTICATED', '用户名或密码错误');
+    if (entries.length === 0) {
+      throw purpose === 'lookup'
+        ? new AppError('RESOURCE_NOT_FOUND', '身份源用户不存在')
+        : new AppError('AUTH_UNAUTHENTICATED', '用户名或密码错误');
+    }
     if (entries.length > 1) throw securityErrors.ldapSearchFailed({ sourceId: source.id, reason: 'multiple users matched' });
     return this.normalizeProfile(entries[0], source);
   }
@@ -147,7 +184,7 @@ export class RealLdapConnector implements LdapConnector {
     }
   }
 
-  private async lookupUserByDn(client: Client, source: IdentitySource, userDn: string): Promise<LdapSearchEntry> {
+  private async lookupUserByDn(client: Client, source: IdentitySource, userDn: string, purpose: 'auth' | 'lookup'): Promise<LdapSearchEntry> {
     try {
       const { searchEntries } = await client.search(userDn, {
         scope: 'base',
@@ -156,7 +193,9 @@ export class RealLdapConnector implements LdapConnector {
       });
       const entry = (searchEntries as LdapSearchEntry[])[0];
       if (!entry) {
-        throw new AppError('AUTH_UNAUTHENTICATED', '用户名或密码错误');
+        throw purpose === 'lookup'
+          ? new AppError('RESOURCE_NOT_FOUND', '身份源用户不存在')
+          : new AppError('AUTH_UNAUTHENTICATED', '用户名或密码错误');
       }
       return entry;
     } catch (error) {
@@ -257,6 +296,26 @@ ${samAccountClause}
     ? `(uid=${escapeLdapFilterValue(`${usernamePrefix}*`)})`
     : '(uid=*)';
   return `(&(objectClass=person)${uidClause})`;
+}
+
+export function buildAdLookupFilter(username: string, renderedUserName: string): string {
+  const candidates = [...new Set([username.trim(), renderedUserName.trim()].filter(Boolean))];
+  const clauses = candidates.flatMap((candidate) => [
+    `(sAMAccountName=${escapeLdapFilterValue(candidate)})`,
+    `(userPrincipalName=${escapeLdapFilterValue(candidate)})`,
+  ]);
+  return `(&
+(objectCategory=person)
+(objectClass=user)
+(!(objectClass=computer))
+(!(userAccountControl:1.2.840.113556.1.4.803:=2))
+(!(|(sAMAccountName=*$)(userPrincipalName=*$)))
+(|${clauses.join('')})
+)`.replace(/\s+/g, '');
+}
+
+function looksLikeLdapDn(value: string): boolean {
+  return /(^|,)\s*(cn|uid|ou|dc|o|c|sn|givenName)=/i.test(value);
 }
 
 function firstString(value: unknown): string | undefined {

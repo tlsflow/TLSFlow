@@ -1,5 +1,5 @@
 import type { CurrentUser } from '@/stores/auth.store'
-import { externalLogin, getCurrentUser, login as loginApi, logout as logoutApi, type AuthUser } from '@/api/modules/security.api'
+import { getCurrentUser, login as loginApi, logout as logoutApi, type AuthUser } from '@/api/modules/security.api'
 
 export interface AuthSession {
   readonly token: string
@@ -10,7 +10,6 @@ export interface AuthSession {
 export interface LoginCredentials {
   readonly username: string
   readonly password: string
-  readonly sourceId?: string
 }
 
 export interface AuthProvider {
@@ -43,9 +42,7 @@ export class ApiAuthProvider implements AuthProvider {
   }
 
   async login(credentials: LoginCredentials): Promise<AuthSession> {
-    const result = credentials.sourceId
-      ? await externalLogin({ sourceId: credentials.sourceId, username: credentials.username, password: credentials.password })
-      : await loginApi(credentials)
+    const result = await loginApi(credentials)
     if (!result.data) throw new Error('登录接口没有返回会话')
     return {
       token: result.data.token,

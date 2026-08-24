@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import { useAuthStore } from '@/stores/auth.store'
 import { usePermissionStore } from '@/stores/permission.store'
-import { listPublicIdentitySources } from '@/api/modules/security.api'
 
 const route = useRoute()
 const router = useRouter()
@@ -13,8 +12,6 @@ const permissionStore = usePermissionStore()
 
 const username = ref('admin')
 const password = ref('admin12345')
-const sourceId = ref('')
-const identitySources = ref<Array<{ id: string; name: string; type: string }>>([])
 const loading = ref(false)
 const error = ref('')
 
@@ -28,7 +25,7 @@ async function submit() {
   error.value = ''
   loading.value = true
   try {
-    const session = await authStore.login({ username: username.value.trim(), password: password.value, sourceId: sourceId.value || undefined })
+    const session = await authStore.login({ username: username.value.trim(), password: password.value })
     permissionStore.setPermissions(session.permissions ?? [])
     await router.push(redirectPath.value)
   } catch (cause) {
@@ -41,19 +38,6 @@ async function submit() {
     loading.value = false
   }
 }
-
-onMounted(async () => {
-  try {
-    const result = await listPublicIdentitySources()
-    identitySources.value = (result.data?.items ?? []).map((item) => ({
-      id: String(item.id),
-      name: String(item.name),
-      type: String(item.type)
-    }))
-  } catch {
-    identitySources.value = []
-  }
-})
 </script>
 
 <template>
@@ -82,16 +66,6 @@ onMounted(async () => {
           <h2>登录 GCAC</h2>
           <span>使用控制台账号进入。开发默认账号已预填，生产环境必须替换。</span>
         </header>
-
-        <label>
-          <span>登录方式</span>
-          <select v-model="sourceId">
-            <option value="">本地账号</option>
-            <option v-for="source in identitySources" :key="source.id" :value="source.id">
-              {{ source.name }}（{{ source.type === 'active_directory' ? 'AD' : 'LDAP' }}）
-            </option>
-          </select>
-        </label>
 
         <label>
           <span>用户名</span>

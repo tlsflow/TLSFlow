@@ -81,6 +81,7 @@ export interface ExternalIdentitySyncResult {
 
 export interface LdapConnector {
   authenticate(source: IdentitySource, username: string, password: string, credentials?: LdapServiceCredentials): Promise<ExternalIdentityProfile>;
+  lookupUser(source: IdentitySource, username: string, credentials?: LdapServiceCredentials): Promise<ExternalIdentityProfile>;
   testConnection(source: IdentitySource, credentials?: LdapServiceCredentials): Promise<LdapConnectionTestResult>;
   syncUsers(source: IdentitySource, credentials?: LdapServiceCredentials, options?: { pageSize?: number; usernamePrefix?: string }): Promise<ExternalIdentityProfile[]>;
 }
@@ -96,6 +97,15 @@ export class MockDirectoryConnector implements LdapConnector {
     const profile = this.profiles.get(`${source.id}:${username.toLowerCase()}`);
     if (!profile || profile.password !== password) {
       throw new AppError('AUTH_UNAUTHENTICATED', '用户名或密码错误');
+    }
+    const { password: _password, ...safeProfile } = profile;
+    return safeProfile;
+  }
+
+  async lookupUser(source: IdentitySource, username: string): Promise<ExternalIdentityProfile> {
+    const profile = this.profiles.get(`${source.id}:${username.toLowerCase()}`);
+    if (!profile) {
+      throw new AppError('RESOURCE_NOT_FOUND', '身份源用户不存在');
     }
     const { password: _password, ...safeProfile } = profile;
     return safeProfile;
@@ -343,31 +353,76 @@ export class ExternalIdentityService {
     }
     if (profile.disabled) throw new AppError('AUTH_FORBIDDEN', '外部目录用户已禁用');
 
-    const matchedRoles = await this.matchRoleIds(source.id, profile.groups);
-    if (matchedRoles.length === 0 && source.defaultRoleId) matchedRoles.push(source.defaultRoleId);
-    if (matchedRoles.length === 0 && source.requireGroupMapping) {
-      throw new AppError('AUTH_FORBIDDEN', '未命中任何外部组角色映射');
+    const user = await this.rbac.findUserByExternalIdentity(source.id, profile.externalId);
+    if (!user) {
+      throw new AppError('AUTH_FORBIDDEN', '该外部目录用户尚未在控制台中创建');
     }
-
-    const user = await this.upsertShadowUser(source, profile, 'login');
     if (user.status !== 'active') throw new AppError('AUTH_FORBIDDEN', '本地影子用户已禁用');
+    const refreshedUser = await this.updateLinkedUserFromProfile(user.id, source, profile, 'login');
+    const matchedRoles = await this.matchRoleIds(source.id, profile.groups);
     for (const roleId of matchedRoles) {
-      await this.rbac.assignRole(user.id, roleId);
+      await this.rbac.assignRole(refreshedUser.id, roleId);
     }
 
     await this.audit.write({
       eventType: AUDIT_EVENT_TYPES.EXTERNAL_LOGIN_SUCCESS,
       actorType: 'user',
-      actorId: user.id,
+      actorId: refreshedUser.id,
       action: 'auth.external_login',
       resourceType: 'identitySource',
       resourceId: source.id,
       result: 'success',
       riskLevel: 'low',
-      context: { requestId: context.requestId, sourceIp: context.sourceIp, actor: { id: user.id, type: 'user' } },
+      context: { requestId: context.requestId, sourceIp: context.sourceIp, actor: { id: refreshedUser.id, type: 'user' } },
       detail: { sourceType: source.type, groups: profile.groups, roleIds: matchedRoles },
     });
-    return this.auth.currentSession(user.id);
+    return this.auth.currentSession(refreshedUser.id);
+  }
+
+  async lookupUser(input: { sourceId: string; username: string }, actor: SecuritySubject, context: RequestContext): Promise<ExternalIdentityProfile & { sourceId: string; sourceName: string; identityProvider: IdentitySourceType }> {
+    const source = await this.sources.get(input.sourceId);
+    if (!source || !source.enabled) throw new AppError('RESOURCE_NOT_FOUND', '身份源不存在或未启用');
+    const credentials = await this.resolveServiceCredentials(source, actor.id, context);
+    const profile = await this.connector.lookupUser(source, input.username, credentials);
+    return {
+      ...profile,
+      sourceId: source.id,
+      sourceName: source.name,
+      identityProvider: source.type,
+    };
+  }
+
+  async createLinkedUser(
+    input: { sourceId: string; username: string; roleId?: string; tenantId?: string; tenantName?: string },
+    actor: SecuritySubject,
+    context: RequestContext,
+  ) {
+    const source = await this.sources.get(input.sourceId);
+    if (!source || !source.enabled) throw new AppError('RESOURCE_NOT_FOUND', '身份源不存在或未启用');
+    const credentials = await this.resolveServiceCredentials(source, actor.id, context);
+    const profile = await this.connector.lookupUser(source, input.username, credentials);
+    if (profile.disabled) throw new AppError('VALIDATION_FAILED', '外部目录用户已禁用');
+    const existingExternalUser = await this.rbac.findUserByExternalIdentity(source.id, profile.externalId);
+    if (existingExternalUser) throw new AppError('VALIDATION_FAILED', '该身份源用户已存在');
+    const existingUsername = await this.rbac.findUserByUsername(profile.username);
+    if (existingUsername) throw new AppError('VALIDATION_FAILED', '用户名已存在');
+    const user = await this.createLinkedUserFromProfile(source, profile, input.tenantId ?? 'default', input.tenantName ?? '默认租户');
+    if (input.roleId) {
+      await this.rbac.assignRole(user.id, input.roleId);
+    }
+    await this.audit.write({
+      eventType: AUDIT_EVENT_TYPES.SECURITY_USER_CREATED,
+      actorType: 'user',
+      actorId: actor.id,
+      action: 'security.user.create_external',
+      resourceType: 'user',
+      resourceId: user.id,
+      result: 'success',
+      riskLevel: 'medium',
+      context: { requestId: context.requestId, sourceIp: context.sourceIp, actor },
+      detail: { sourceId: source.id, username: profile.username, externalId: profile.externalId, roleId: input.roleId },
+    });
+    return user;
   }
 
   async syncUsers(input: { sourceId: string; usernamePrefix?: string; pageSize?: number }, actor: SecuritySubject, context: RequestContext): Promise<ExternalIdentitySyncResult> {
@@ -471,6 +526,37 @@ export class ExternalIdentityService {
       externalSourceId: source.id,
       lastSyncedAt: new Date().toISOString(),
       syncSource,
+    });
+  }
+
+  private async updateLinkedUserFromProfile(userId: string, source: IdentitySource, profile: ExternalIdentityProfile, syncSource: 'login' | 'manual_sync') {
+    const patch = {
+      username: this.buildShadowUsername(profile),
+      displayName: profile.displayName || profile.username,
+      email: profile.email,
+      identityProvider: source.type,
+      externalId: profile.externalId,
+      externalSourceId: source.id,
+      lastSyncedAt: new Date().toISOString(),
+      syncSource,
+    } satisfies Parameters<RBACService['updateUser']>[1];
+    return this.rbac.updateUser(userId, profile.disabled ? { ...patch, status: 'disabled' } : patch);
+  }
+
+  private async createLinkedUserFromProfile(source: IdentitySource, profile: ExternalIdentityProfile, tenantId: string, tenantName: string) {
+    return this.rbac.createUser({
+      id: `external_${source.id}_${profile.externalId}`.replace(/[^a-zA-Z0-9_]/g, '_'),
+      username: this.buildShadowUsername(profile),
+      displayName: profile.displayName || profile.username,
+      email: profile.email,
+      status: 'active',
+      tenantId,
+      tenantName,
+      identityProvider: source.type,
+      externalId: profile.externalId,
+      externalSourceId: source.id,
+      lastSyncedAt: new Date().toISOString(),
+      syncSource: 'manual_sync',
     });
   }
 

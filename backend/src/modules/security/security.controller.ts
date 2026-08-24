@@ -52,6 +52,8 @@ export class SecurityController {
     router.get('/api/v1/audit-events', '鏌ヨ瀹¤浜嬩欢', ['Security'], (request) => this.queryAudits(request));
     router.get('/api/v1/security/users', '鏌ヨ鐢ㄦ埛鍒楄〃', ['Security'], (request) => this.listUsers(request));
     router.post('/api/v1/security/users', '鍒涘缓鐢ㄦ埛', ['Security'], (request) => this.createUser(request));
+    router.post('/api/v1/security/users/lookup-external', '检索身份源用户', ['Security'], (request) => this.lookupExternalUser(request));
+    router.post('/api/v1/security/users/external', '创建身份源用户', ['Security'], (request) => this.createExternalUser(request));
     router.patch('/api/v1/security/users', '更新用户', ['Security'], (request) => this.updateUser(request));
     router.patch('/api/v1/security/users/status', '淇敼鐢ㄦ埛鐘舵€?', ['Security'], (request) => this.updateUserStatus(request));
     router.post('/api/v1/security/users/roles', '鍒嗛厤鐢ㄦ埛瑙掕壊', ['Security'], (request) => this.assignUserRole(request));
@@ -75,7 +77,16 @@ export class SecurityController {
       username: { type: 'string', required: true },
       password: { type: 'string', required: true },
     });
-    return this.services.auth.login({ username: String(body.username), password: String(body.password) }, request.context);
+    const username = String(body.username);
+    const localUser = await this.services.rbac.findUserByUsername(username);
+    if (localUser?.externalSourceId) {
+      return this.services.externalIdentity.login({
+        sourceId: localUser.externalSourceId,
+        username,
+        password: String(body.password),
+      }, request.context);
+    }
+    return this.services.auth.login({ username, password: String(body.password) }, request.context);
   }
 
   private async externalLogin(request: HttpRequest) {
@@ -255,6 +266,7 @@ export class SecurityController {
     const body = validateObject(request.body, {
       username: { type: 'string', required: true },
       displayName: { type: 'string', required: true },
+      email: { type: 'string' },
       password: { type: 'string', required: true },
       tenantId: { type: 'string' },
       tenantName: { type: 'string' },
@@ -264,6 +276,7 @@ export class SecurityController {
       id: `user_${String(body.username).trim().toLowerCase().replace(/[^a-z0-9_]/g, '_')}`,
       username: String(body.username),
       displayName: String(body.displayName),
+      email: body.email === undefined ? undefined : String(body.email),
       password: String(body.password),
       status: 'active',
       tenantId: body.tenantId === undefined ? request.context.tenantId ?? 'default' : String(body.tenantId),
@@ -273,6 +286,39 @@ export class SecurityController {
       await this.services.rbac.assignRole(user.id, String(body.roleId));
     }
     await this.writeAudit(request, subject, AUDIT_EVENT_TYPES.SECURITY_USER_CREATED, 'security.user.create', 'user', user.id);
+    return { statusCode: 201, body: user };
+  }
+
+  private async lookupExternalUser(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.user.write', request, 'user');
+    const body = validateObject(request.body, {
+      sourceId: { type: 'string', required: true },
+      username: { type: 'string', required: true },
+    });
+    return this.services.externalIdentity.lookupUser({
+      sourceId: String(body.sourceId),
+      username: String(body.username),
+    }, subject, this.securityContext(request, subject));
+  }
+
+  private async createExternalUser(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.user.write', request, 'user');
+    const body = validateObject(request.body, {
+      sourceId: { type: 'string', required: true },
+      username: { type: 'string', required: true },
+      roleId: { type: 'string' },
+      tenantId: { type: 'string' },
+      tenantName: { type: 'string' },
+    });
+    const user = await this.services.externalIdentity.createLinkedUser({
+      sourceId: String(body.sourceId),
+      username: String(body.username),
+      roleId: body.roleId === undefined ? undefined : String(body.roleId),
+      tenantId: body.tenantId === undefined ? request.context.tenantId ?? 'default' : String(body.tenantId),
+      tenantName: body.tenantName === undefined ? '默认租户' : String(body.tenantName),
+    }, subject, this.securityContext(request, subject));
     return { statusCode: 201, body: user };
   }
 
@@ -655,6 +701,8 @@ export function getSecurityRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/audit-events', operationId: 'queryAuditEvents', summary: '鏌ヨ瀹¤浜嬩欢', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/security/users', operationId: 'listSecurityUsers', summary: '鏌ヨ鐢ㄦ埛鍒楄〃', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/users', operationId: 'createSecurityUser', summary: '鍒涘缓鐢ㄦ埛', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/security/users/lookup-external', operationId: 'lookupExternalSecurityUser', summary: '检索身份源用户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/security/users/external', operationId: 'createExternalSecurityUser', summary: '创建身份源用户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'PATCH', path: '/api/v1/security/users', operationId: 'updateSecurityUser', summary: '更新用户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'PATCH', path: '/api/v1/security/users/status', operationId: 'updateSecurityUserStatus', summary: '淇敼鐢ㄦ埛鐘舵€?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/users/roles', operationId: 'assignSecurityUserRole', summary: '鍒嗛厤鐢ㄦ埛瑙掕壊', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },

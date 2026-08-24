@@ -68,6 +68,26 @@ export function createUser(body: Record<string, unknown>): Promise<ApiResult<Api
   return apiClient.post<ApiRecord>('/v1/security/users', body)
 }
 
+export interface ExternalUserLookupResponse extends ApiRecord {
+  readonly sourceId: string
+  readonly sourceName: string
+  readonly identityProvider: string
+  readonly externalId: string
+  readonly username: string
+  readonly displayName: string
+  readonly email?: string
+  readonly userDn: string
+  readonly disabled?: boolean
+}
+
+export function lookupExternalUser(body: { sourceId: string; username: string }): Promise<ApiResult<ExternalUserLookupResponse>> {
+  return apiClient.post<ExternalUserLookupResponse>('/v1/security/users/lookup-external', body)
+}
+
+export function createExternalUser(body: { sourceId: string; username: string; roleId?: string }): Promise<ApiResult<ApiRecord>> {
+  return apiClient.post<ApiRecord>('/v1/security/users/external', body)
+}
+
 export function updateUser(body: {
   userId: string
   displayName?: string

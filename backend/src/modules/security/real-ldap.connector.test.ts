@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { buildDefaultSyncFilter } from './real-ldap.connector.js';
+import { buildAdLookupFilter, buildDefaultSyncFilter } from './real-ldap.connector.js';
 import type { IdentitySource } from './external-identity.service.js';
 
 describe('RealLdapConnector', () => {
@@ -41,5 +41,14 @@ describe('RealLdapConnector', () => {
 
     const filter = buildDefaultSyncFilter(source, 'jack');
     assert.equal(filter.includes('(sAMAccountName=jack\\\\2a)'.replace('\\\\', '\\')), true);
+  });
+
+  it('AD 按需检索同时匹配 sAMAccountName 和 UPN', async () => {
+    const filter = buildAdLookupFilter('test01', 'test01@jacksonz.cn');
+
+    assert.equal(filter.includes('(sAMAccountName=test01)'), true);
+    assert.equal(filter.includes('(userPrincipalName=test01@jacksonz.cn)'), true);
+    assert.equal(filter.includes('(!(objectClass=computer))'), true);
+    assert.equal(filter.includes('userDnTemplate'), false);
   });
 });

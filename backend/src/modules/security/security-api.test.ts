@@ -72,16 +72,134 @@ describe('安全 API 最小闭环', () => {
       password: 'alice-password',
     });
 
+    const createExternalUser = await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/users/external',
+      headers: { authorization: `Bearer ${token}` },
+      body: { sourceId, username: 'alice' },
+    });
+    assert.equal(createExternalUser.statusCode, 201);
+
     const externalLogin = await app.inject({
       method: 'POST',
-      path: '/api/v1/auth/external-login',
-      body: { sourceId, username: 'alice', password: 'alice-password' },
+      path: '/api/v1/auth/login',
+      body: { username: 'alice', password: 'alice-password' },
     });
     assert.equal(externalLogin.statusCode, 200);
     const session = externalLogin.body as { token: string; user: { username: string; roles: Array<{ code: string }> }; permissions: string[] };
     assert.equal(session.user.username, 'alice');
     assert.deepEqual(session.user.roles.map((item) => item.code), ['ad_ops']);
     assert.equal(session.permissions.includes('dashboard.read'), true);
+  });
+
+  it('支持按用户名检索身份源用户并创建绑定用户', async () => {
+    const security = createSecurityServices();
+    const connector = new MockDirectoryConnector();
+    security.externalIdentity = new ExternalIdentityService(security.rbac, security.auth, security.audit, security.secrets, connector);
+    const app = createApp({ security });
+
+    const login = await app.inject({
+      method: 'POST',
+      path: '/api/v1/auth/login',
+      body: { username: 'admin', password: 'admin12345' },
+    });
+    const token = (login.body as { token: string }).token;
+
+    const source = await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/identity-sources',
+      headers: { authorization: `Bearer ${token}` },
+      body: {
+        name: '企业 LDAP',
+        type: 'ldap',
+        url: 'ldap://ldap.example.test:389',
+        baseDn: 'dc=example,dc=test',
+        userFilter: '(uid={{username}})',
+        requireGroupMapping: false,
+        tlsMode: 'none',
+      },
+    });
+    const sourceId = (source.body as { id: string }).id;
+
+    connector.addProfile(sourceId, {
+      externalId: 'ldap-user-lookup',
+      username: 'lookup-user',
+      displayName: 'Lookup User',
+      email: 'lookup@example.test',
+      userDn: 'uid=lookup-user,ou=people,dc=example,dc=test',
+      groups: [],
+      password: 'lookup-password',
+    });
+
+    const lookup = await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/users/lookup-external',
+      headers: { authorization: `Bearer ${token}` },
+      body: { sourceId, username: 'lookup-user' },
+    });
+    assert.equal(lookup.statusCode, 200);
+    const profile = lookup.body as { username: string; displayName: string; email: string; sourceId: string };
+    assert.equal(profile.username, 'lookup-user');
+    assert.equal(profile.displayName, 'Lookup User');
+    assert.equal(profile.email, 'lookup@example.test');
+    assert.equal(profile.sourceId, sourceId);
+
+    const created = await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/users/external',
+      headers: { authorization: `Bearer ${token}` },
+      body: { sourceId, username: 'lookup-user' },
+    });
+    assert.equal(created.statusCode, 201);
+    const createdUser = created.body as { username: string; identityProvider: string; externalSourceId: string; email: string };
+    assert.equal(createdUser.username, 'lookup-user');
+    assert.equal(createdUser.identityProvider, 'ldap');
+    assert.equal(createdUser.externalSourceId, sourceId);
+    assert.equal(createdUser.email, 'lookup@example.test');
+  });
+
+  it('未由管理员创建的身份源用户不能直接登录控制台', async () => {
+    const security = createSecurityServices();
+    const connector = new MockDirectoryConnector();
+    security.externalIdentity = new ExternalIdentityService(security.rbac, security.auth, security.audit, security.secrets, connector);
+    const app = createApp({ security });
+
+    const login = await app.inject({
+      method: 'POST',
+      path: '/api/v1/auth/login',
+      body: { username: 'admin', password: 'admin12345' },
+    });
+    const token = (login.body as { token: string }).token;
+    const source = await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/identity-sources',
+      headers: { authorization: `Bearer ${token}` },
+      body: {
+        name: '企业 LDAP',
+        type: 'ldap',
+        url: 'ldap://ldap.example.test:389',
+        baseDn: 'dc=example,dc=test',
+        userFilter: '(uid={{username}})',
+        requireGroupMapping: false,
+        tlsMode: 'none',
+      },
+    });
+    const sourceId = (source.body as { id: string }).id;
+    connector.addProfile(sourceId, {
+      externalId: 'ldap-user-not-created',
+      username: 'not-created',
+      displayName: 'Not Created',
+      userDn: 'uid=not-created,ou=people,dc=example,dc=test',
+      groups: [],
+      password: 'not-created-password',
+    });
+
+    const externalLogin = await app.inject({
+      method: 'POST',
+      path: '/api/v1/auth/external-login',
+      body: { sourceId, username: 'not-created', password: 'not-created-password' },
+    });
+    assert.equal(externalLogin.statusCode, 403);
   });
 
   it('LDAP 用户同步会写入本地用户列表并带来源字段', async () => {
