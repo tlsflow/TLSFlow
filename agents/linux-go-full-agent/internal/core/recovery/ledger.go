@@ -46,6 +46,17 @@ type Ledger struct {
 	mu    sync.Mutex
 }
 
+type Journal interface {
+	Fail(string, string, string) error
+	RecordRecovery([]string, string, string) error
+	Snapshot() Entry
+}
+
+type PendingEntry struct {
+	Path  string
+	Entry Entry
+}
+
 func Start(path string, entry Entry) (*Ledger, error) {
 	if strings.TrimSpace(path) == "" || strings.TrimSpace(entry.OperationID) == "" {
 		return nil, errors.New("recovery ledger path and operation id are required")
@@ -90,6 +101,20 @@ func (ledger *Ledger) CompleteStep(step string) error {
 	return ledger.persistLocked()
 }
 
+func (ledger *Ledger) RecordFiles(files []FileState) error {
+	ledger.mu.Lock()
+	defer ledger.mu.Unlock()
+	ledger.entry.Files = append([]FileState(nil), files...)
+	return ledger.persistLocked()
+}
+
+func (ledger *Ledger) RecordServiceState(state map[string]any) error {
+	ledger.mu.Lock()
+	defer ledger.mu.Unlock()
+	ledger.entry.ServiceState = cloneMap(state)
+	return ledger.persistLocked()
+}
+
 func (ledger *Ledger) Fail(step, code, message string) error {
 	ledger.mu.Lock()
 	defer ledger.mu.Unlock()
@@ -120,7 +145,19 @@ func (ledger *Ledger) RecordRecovery(steps []string, result, message string) err
 }
 
 func Pending(root string) ([]Entry, error) {
-	entries := []Entry{}
+	pending, err := ScanPending(root)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]Entry, 0, len(pending))
+	for _, item := range pending {
+		entries = append(entries, item.Entry)
+	}
+	return entries, nil
+}
+
+func ScanPending(root string) ([]PendingEntry, error) {
+	entries := []PendingEntry{}
 	err := filepath.WalkDir(root, func(path string, item os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -133,7 +170,7 @@ func Pending(root string) ([]Entry, error) {
 			return nil
 		}
 		if entry.State == "in_progress" || entry.State == "failed" {
-			entries = append(entries, entry)
+			entries = append(entries, PendingEntry{Path: path, Entry: entry})
 		}
 		return nil
 	})
@@ -141,6 +178,25 @@ func Pending(root string) ([]Entry, error) {
 		return entries, nil
 	}
 	return entries, err
+}
+
+func Open(path string) (*Ledger, error) {
+	entry, err := Load(path)
+	if err != nil {
+		return nil, err
+	}
+	return &Ledger{path: path, entry: entry}, nil
+}
+
+func (ledger *Ledger) Snapshot() Entry {
+	ledger.mu.Lock()
+	defer ledger.mu.Unlock()
+	entry := ledger.entry
+	entry.Files = append([]FileState(nil), ledger.entry.Files...)
+	entry.CompletedSteps = append([]string(nil), ledger.entry.CompletedSteps...)
+	entry.ServiceState = cloneMap(ledger.entry.ServiceState)
+	entry.BeforeState = cloneMap(ledger.entry.BeforeState)
+	return entry
 }
 
 func (ledger *Ledger) persist() error {
@@ -183,4 +239,15 @@ func (ledger *Ledger) persistLocked() error {
 		return fmt.Errorf("persist recovery ledger: %w", err)
 	}
 	return nil
+}
+
+func cloneMap(source map[string]any) map[string]any {
+	if source == nil {
+		return nil
+	}
+	result := make(map[string]any, len(source))
+	for key, value := range source {
+		result[key] = value
+	}
+	return result
 }

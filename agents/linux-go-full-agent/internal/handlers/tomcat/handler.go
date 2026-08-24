@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
+	"gcac/linux-go-full-agent/internal/core/recovery"
 	linuxfs "gcac/linux-go-full-agent/internal/platform/linux/filesystem"
 )
 
@@ -34,7 +37,9 @@ type RecoveryRecorder interface {
 	CompleteStep(string) error
 	Complete() error
 	Fail(string, string, string) error
+	RecordFiles([]recovery.FileState) error
 	RecordRecovery([]string, string, string) error
+	Snapshot() recovery.Entry
 }
 
 type Mode string
@@ -96,6 +101,7 @@ func (handler *Handler) Deploy(ctx context.Context, input Input) Result {
 		}
 		backups = append(backups, backup)
 	}
+	handler.recordFiles(backups)
 	completed = append(completed, "backup")
 	handler.recordStep("backup")
 	for _, target := range targets {
@@ -128,6 +134,17 @@ func (handler *Handler) Deploy(ctx context.Context, input Input) Result {
 }
 
 func (handler *Handler) recover(ctx context.Context, code string, cause error, completed []string, backups []linuxfs.Backup) Result {
+	coordinator := recovery.NewCoordinator(30 * time.Second)
+	outcome := coordinator.Recover(ctx, handler.recovery, "deploy", code, cause, func(recoveryContext context.Context, _ recovery.Entry) ([]string, error) {
+		return handler.restore(recoveryContext, backups)
+	})
+	if outcome.RecoveryFailed {
+		return failed("TOMCAT_RECOVERY_FAILED", fmt.Errorf("%v; recovery: %w", cause, outcome.Error), completed, outcome.RecoverySteps)
+	}
+	return failed(outcome.FailureCode, cause, completed, outcome.RecoverySteps)
+}
+
+func (handler *Handler) restore(ctx context.Context, backups []linuxfs.Backup) ([]string, error) {
 	recoverySteps := []string{}
 	var recoveryErrors []string
 	for index := len(backups) - 1; index >= 0; index-- {
@@ -143,13 +160,9 @@ func (handler *Handler) recover(ctx context.Context, code string, cause error, c
 		recoverySteps = append(recoverySteps, "restart-service")
 	}
 	if len(recoveryErrors) > 0 {
-		handler.recordFailure(code, cause)
-		handler.recordRecovery(recoverySteps, "failed", strings.Join(recoveryErrors, "; "))
-		return failed("TOMCAT_RECOVERY_FAILED", fmt.Errorf("%v; recovery: %s", cause, strings.Join(recoveryErrors, "; ")), completed, recoverySteps)
+		return recoverySteps, errors.New(strings.Join(recoveryErrors, "; "))
 	}
-	handler.recordFailure(code, cause)
-	handler.recordRecovery(recoverySteps, "completed", cause.Error())
-	return failed(code, cause, completed, recoverySteps)
+	return recoverySteps, nil
 }
 
 func (handler *Handler) recordStep(step string) {
@@ -168,6 +181,20 @@ func (handler *Handler) recordFailure(code string, cause error) {
 	if handler.recovery != nil {
 		_ = handler.recovery.Fail("deploy", code, cause.Error())
 	}
+}
+
+func (handler *Handler) recordFiles(backups []linuxfs.Backup) {
+	if handler.recovery == nil {
+		return
+	}
+	files := make([]recovery.FileState, 0, len(backups))
+	for _, backup := range backups {
+		files = append(files, recovery.FileState{
+			Path: backup.TargetPath, BackupPath: backup.BackupPath, Existed: backup.Existed,
+			Mode: fmt.Sprintf("%04o", backup.Mode.Perm()), Owner: strconv.Itoa(backup.OwnerUID), Group: strconv.Itoa(backup.OwnerGID),
+		})
+	}
+	_ = handler.recovery.RecordFiles(files)
 }
 
 func (handler *Handler) recordRecovery(steps []string, result, message string) {

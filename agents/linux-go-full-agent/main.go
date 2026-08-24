@@ -741,6 +741,14 @@ func handleRun(args []string) error {
 	saveRuntimeStatusSnapshot(statusPath, status)
 
 	fmt.Fprintf(os.Stderr, "GCAC Linux Agent running service=%s config=%s agentId=%s\n", config.Service.Name, configPath, state.AgentID)
+	if err := productruntime.RecoverPending(ctx, filepath.Join(config.Paths.Linux.DataDir, "recovery"), linuxCommand.ExecRunner{}); err != nil {
+		status.LastError = err.Error()
+		status.ConsecutiveRecoveryFailures++
+		fmt.Fprintf(os.Stderr, "[operation-recovery] %v\n", err)
+	} else {
+		status.LastRecoveryAt = time.Now().Format(time.RFC3339)
+		status.ConsecutiveRecoveryFailures = 0
+	}
 	if err := postHeartbeat(ctx, client, config, state, counters, &status); err != nil {
 		status.LastError = err.Error()
 		status.ConsecutiveHeartbeatFailures++
