@@ -2107,10 +2107,12 @@ function managedTargetLabel(target: ApiRecord): string {
                 <div class="workflow-target-form__grid">
                   <label class="asset-form__field">
                     <span>{{ t('assets.fields.frameworkType') }} <strong>*</strong></span>
-                    <input v-model="assetDraft.frameworkType" list="asset-framework-type-options" autocomplete="off">
-                    <datalist id="asset-framework-type-options">
-                      <option v-for="framework in availableFrameworkOptions" :key="framework" :value="framework" />
-                    </datalist>
+                    <select v-model="assetDraft.frameworkType">
+                      <option value="" disabled>{{ t('assets.select.generic') }}</option>
+                      <option v-for="framework in availableFrameworkOptions" :key="framework" :value="framework">
+                        {{ framework }}
+                      </option>
+                    </select>
                   </label>
                   <label class="asset-form__field">
                     <span>{{ t('assets.fields.siteName') }}</span>
