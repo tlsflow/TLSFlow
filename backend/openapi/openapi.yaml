@@ -2953,6 +2953,26 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/cloud-account-assets/:id:
+    get:
+      operationId: "getCloudAccountAsset"
+      summary: "查询云账号资产详情"
+      tags:
+        - "Cloud Service"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/cloud-account-assets/delete:
     post:
       operationId: "deleteCloudAccountAsset"
@@ -13159,6 +13179,26 @@ paths:
       summary: "运营报表接口"
       tags:
         - "Reports"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/global-search:
+    get:
+      operationId: "searchGlobal"
+      summary: "全局搜索证书、资产、设置和插件"
+      tags:
+        - "Global Search"
       responses:
         200:
           description: "成功"
