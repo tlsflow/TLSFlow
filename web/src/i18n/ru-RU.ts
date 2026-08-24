@@ -437,7 +437,7 @@ export default {
     gateways: 'Шлюзы',
     gatewaysDesc: 'Шлюзы изолированных зон, протоколы и доступные цели',
     deployments: 'Развертывание сертификатов',
-    deploymentsDesc: 'Планы развертывания и записи выполнения',
+    deploymentsDesc: 'Планы развертывания, workflow, автоматизации и записи выполнения',
     deploymentPlans: 'Планы развертывания',
     deploymentPlansDesc: 'Планы развертывания сертификатов и входы согласования',
     executions: 'Записи выполнения',
@@ -732,7 +732,7 @@ export default {
     sources: { builtin: 'Встроенный', user: 'Пользовательский' },
     statuses: { valid: 'Доступен', invalid: 'Недействителен', available: 'Можно создать', enabled: 'Включен', disabled: 'Не включен', pendingApproval: 'Ожидает одобрения', inUse: 'Используется', notInUse: 'Не используется' },
     filters: { searchLabel: 'Поиск плагинов', searchPlaceholder: 'Поиск по имени, тегу, категории или пути', allSources: 'Все источники', allStatuses: 'Все статусы', statusLabel: 'Статус плагина' },
-    card: { defaultDescription: 'Для этого DSL-плагина пока нет описания.', unversioned: 'Без версии', stepCount: 'Шагов выполнения: {count}' },
+    card: { defaultDescription: 'Для этого DSL-плагина пока нет описания.', unversioned: 'Без версии', stepCount: 'Шагов выполнения: {count}', moreTags: 'Еще {count}' },
     columns: {
       name: 'Название плагина',
       status: 'Статус',
@@ -770,8 +770,13 @@ export default {
       version: 'Версия',
       source: 'Источник', category: 'Категория', steps: 'Шаги выполнения', rollbackSteps: 'Шаги отката', updatedAt: 'Обновлено', filePath: 'Путь шаблона', logoUrl: 'URL логотипа', platforms: 'Целевые платформы', updateMethods: 'Способы обновления', maintainer: 'Сопровождающий', homepage: 'Страница проекта', usage: 'Статус использования', validationError: 'Ошибка проверки',
       signatureStatus: 'Статус подписи',
-      riskLevel: 'Уровень риска', runtime: 'Среда выполнения', scope: 'Область применения', support: 'Уровень поддержки', capabilities: 'Возможности'
+      riskLevel: 'Уровень риска', runtime: 'Среда выполнения', scope: 'Область применения', support: 'Уровень поддержки', capabilities: 'Возможности', frameworks: 'Целевые фреймворки'
     },
+    capabilityKeys: { device_connection_test: 'Проверка подключения', device_identity_detect: 'Определение устройства', device_discover: 'Обнаружение устройства', device_logs_read: 'Чтение журналов устройства', certificate_discover: 'Обнаружение сертификатов', certificate_deploy: 'Развертывание сертификата', certificate_rollback: 'Откат сертификата', certificate_verify: 'Проверка сертификата' },
+    frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: 'Пользовательская среда', adc_load_balancer: 'ADC-балансировщик' },
+    runtimeTypes: { agent_atomic: 'Атомарное выполнение Agent', workflow_dsl: 'Workflow DSL' },
+    scopeTypes: { managed: 'Управляемая цель', standalone: 'Автономная цель', both: 'Управляемая / автономная' },
+    supportTypes: { official: 'Официальная поддержка', community: 'Поддержка сообщества', self_managed: 'Самостоятельное сопровождение' },
     aria: { filters: 'Фильтры каталога плагинов', list: 'Список DSL-плагинов', logo: 'Логотип {name}' },
     errors: { loadFailed: 'Не удалось загрузить каталог плагинов', createFailed: 'Не удалось создать процесс из плагина' },
     agentDeployment: {

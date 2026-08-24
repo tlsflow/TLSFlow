@@ -436,7 +436,7 @@ export default {
     gateways: 'Gateways',
     gatewaysDesc: 'Gateway, protocol, and reachable target status for isolated zones',
     deployments: 'Certificate deployment',
-    deploymentsDesc: 'Deployment plans and execution records',
+    deploymentsDesc: 'Deployment plans, workflows, automations, and execution records',
     deploymentPlans: 'Deployment plans',
     deploymentPlansDesc: 'Certificate deployment plans and approval entry points',
     executions: 'Execution records',
@@ -778,7 +778,8 @@ export default {
     card: {
       defaultDescription: 'This DSL plugin has no description yet.',
       unversioned: 'Unversioned',
-      stepCount: '{count} execution steps'
+      stepCount: '{count} execution steps',
+      moreTags: '+{count} more'
     },
     columns: {
       name: 'Plugin name',
@@ -829,8 +830,13 @@ export default {
       usage: 'Usage status',
       validationError: 'Validation error',
       signatureStatus: 'Signature status',
-      riskLevel: 'Risk level', runtime: 'Runtime', scope: 'Scope', support: 'Support level', capabilities: 'Capabilities'
+      riskLevel: 'Risk level', runtime: 'Runtime', scope: 'Scope', support: 'Support level', capabilities: 'Capabilities', frameworks: 'Target frameworks'
     },
+    capabilityKeys: { device_connection_test: 'Connection test', device_identity_detect: 'Device identity detection', device_discover: 'Device discovery', device_logs_read: 'Device log reading', certificate_discover: 'Certificate discovery', certificate_deploy: 'Certificate deployment', certificate_rollback: 'Certificate rollback', certificate_verify: 'Certificate verification' },
+    frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: 'Custom runtime', adc_load_balancer: 'ADC load balancer' },
+    runtimeTypes: { agent_atomic: 'Agent atomic execution', workflow_dsl: 'Workflow DSL' },
+    scopeTypes: { managed: 'Managed target', standalone: 'Standalone target', both: 'Managed / standalone' },
+    supportTypes: { official: 'Official support', community: 'Community support', self_managed: 'Self managed' },
     aria: {
       filters: 'Plugin market filters',
       list: 'DSL plugin list',

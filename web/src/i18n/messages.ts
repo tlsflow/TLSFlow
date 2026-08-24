@@ -417,7 +417,7 @@ const zhCN = {
     gateways: '网关',
     gatewaysDesc: '隔离区网关、协议和可达目标',
     deployments: '证书部署',
-    deploymentsDesc: '部署计划和执行记录',
+    deploymentsDesc: '部署计划、工作流、自动化和执行记录',
     deploymentPlans: '部署计划',
     deploymentPlansDesc: '证书部署计划和审批入口',
     executions: '执行记录',
@@ -936,8 +936,20 @@ const zhCN = {
       runtime: '运行时',
       scope: '适用范围',
       support: '支持等级',
-      capabilities: '能力'
-    }
+      capabilities: '能力',
+      frameworks: '面向框架'
+    },
+    card: {
+      defaultDescription: '该 DSL 插件尚未配置说明。',
+      unversioned: '未标注版本',
+      stepCount: '{count} 个执行步骤',
+      moreTags: '另 {count} 项'
+    },
+    capabilityKeys: { device_connection_test: '连接测试', device_identity_detect: '设备身份识别', device_discover: '设备发现', device_logs_read: '设备日志读取', certificate_discover: '证书发现', certificate_deploy: '证书部署', certificate_rollback: '证书回滚', certificate_verify: '证书验证' },
+    frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: '自定义运行环境', adc_load_balancer: 'ADC 负载均衡' },
+    runtimeTypes: { agent_atomic: 'Agent 原子执行', workflow_dsl: '工作流 DSL' },
+    scopeTypes: { managed: '受管目标', standalone: '独立目标', both: '受管 / 独立' },
+    supportTypes: { official: '官方支持', community: '社区支持', self_managed: '自行维护' }
   },
   deploymentPlans: {
     title: '部署计划',
@@ -3383,7 +3395,7 @@ const zhTW = {
   preferences: { ...zhCN.preferences, theme: '主題', language: '語言', themeLight: '日間模式', themeDark: '夜間模式', title: '顯示偏好', description: '主題和語言會儲存到目前使用者的後端偏好。' },
   userMenu: { ...zhCN.userMenu, currentUser: '目前使用者', changePassword: '修改密碼', logout: '登出' },
   password: { ...zhCN.password, title: '修改密碼', description: '修改目前登入使用者的本機密碼。', current: '目前密碼', new: '新密碼', confirm: '確認新密碼', submit: '儲存密碼', success: '密碼已更新', failed: '密碼修改失敗', mismatch: '兩次輸入的新密碼不一致' },
-  nav: { ...zhCN.nav, automations: '自動化', automationsDesc: '定時、按需和批次執行憑證更新計畫' },
+  nav: { ...zhCN.nav, deploymentsDesc: '部署計畫、工作流、自動化和執行記錄', automations: '自動化', automationsDesc: '定時、按需和批次執行憑證更新計畫' },
   automations: {
     ...zhCN.automations,
     title: '自動化',
@@ -3696,7 +3708,7 @@ const enUS = {
     gateways: 'Gateways',
     gatewaysDesc: 'Gateway, protocol, and reachable target status for isolated zones',
     deployments: 'Certificate deployment',
-    deploymentsDesc: 'Deployment plans and execution records',
+    deploymentsDesc: 'Deployment plans, workflows, automations, and execution records',
     deploymentPlans: 'Deployment plans',
     deploymentPlansDesc: 'Certificate deployment plans and approval entry points',
     executions: 'Execution records',
@@ -4107,8 +4119,20 @@ const enUS = {
       runtime: 'Runtime',
       scope: 'Scope',
       support: 'Support level',
-      capabilities: 'Capabilities'
-    }
+      capabilities: 'Capabilities',
+      frameworks: 'Target frameworks'
+    },
+    card: {
+      defaultDescription: 'This DSL plugin does not have a description yet.',
+      unversioned: 'Unversioned',
+      stepCount: '{count} execution steps',
+      moreTags: '+{count} more'
+    },
+    capabilityKeys: { device_connection_test: 'Connection test', device_identity_detect: 'Device identity detection', device_discover: 'Device discovery', device_logs_read: 'Device log reading', certificate_discover: 'Certificate discovery', certificate_deploy: 'Certificate deployment', certificate_rollback: 'Certificate rollback', certificate_verify: 'Certificate verification' },
+    frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: 'Custom runtime', adc_load_balancer: 'ADC load balancer' },
+    runtimeTypes: { agent_atomic: 'Agent atomic execution', workflow_dsl: 'Workflow DSL' },
+    scopeTypes: { managed: 'Managed target', standalone: 'Standalone target', both: 'Managed / standalone' },
+    supportTypes: { official: 'Official support', community: 'Community support', self_managed: 'Self managed' }
   },
   deploymentPlans: {
     title: 'Deployment plans',

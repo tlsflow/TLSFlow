@@ -436,7 +436,7 @@ export default {
     gateways: '网关',
     gatewaysDesc: '隔离区网关、协议和可达目标',
     deployments: '证书部署',
-    deploymentsDesc: '部署计划和执行记录',
+    deploymentsDesc: '部署计划、工作流、自动化和执行记录',
     deploymentPlans: '部署计划',
     deploymentPlansDesc: '证书部署计划和审批入口',
     executions: '执行记录',
@@ -790,7 +790,8 @@ export default {
     card: {
       defaultDescription: '该 DSL 插件尚未配置说明。',
       unversioned: '未标注版本',
-      stepCount: '{count} 个执行步骤'
+      stepCount: '{count} 个执行步骤',
+      moreTags: '另 {count} 项'
     },
     columns: {
       name: '插件名称',
@@ -841,8 +842,18 @@ export default {
       usage: '使用状态',
       validationError: '校验错误',
       signatureStatus: '签名状态',
-      riskLevel: '风险等级'
+      riskLevel: '风险等级',
+      runtime: '运行时',
+      scope: '适用范围',
+      support: '支持等级',
+      capabilities: '能力',
+      frameworks: '面向框架'
     },
+    capabilityKeys: { device_connection_test: '连接测试', device_identity_detect: '设备身份识别', device_discover: '设备发现', device_logs_read: '设备日志读取', certificate_discover: '证书发现', certificate_deploy: '证书部署', certificate_rollback: '证书回滚', certificate_verify: '证书验证' },
+    frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: '自定义运行环境', adc_load_balancer: 'ADC 负载均衡' },
+    runtimeTypes: { agent_atomic: 'Agent 原子执行', workflow_dsl: '工作流 DSL' },
+    scopeTypes: { managed: '受管目标', standalone: '独立目标', both: '受管 / 独立' },
+    supportTypes: { official: '官方支持', community: '社区支持', self_managed: '自行维护' },
     aria: {
       filters: '插件市场筛选条件',
       list: 'DSL 插件列表',

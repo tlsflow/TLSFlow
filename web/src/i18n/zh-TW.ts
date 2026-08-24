@@ -436,7 +436,7 @@ export default {
     gateways: "閘道",
     gatewaysDesc: "隔離區閘道、協議和可連線目標",
     deployments: "憑證部署",
-    deploymentsDesc: "部署計畫和執行記錄",
+    deploymentsDesc: "部署計畫、工作流、自動化和執行記錄",
     deploymentPlans: "部署計畫",
     deploymentPlansDesc: "憑證部署計畫和審核入口",
     executions: "執行記錄",
@@ -757,7 +757,7 @@ export default {
     sources: { builtin: "內建外掛", user: "使用者外掛" },
     statuses: { valid: "可用", invalid: "無效", available: "可建立", enabled: "已啟用", disabled: "未啟用", pendingApproval: "待審批", inUse: "正在使用", notInUse: "尚未使用" },
     filters: { searchLabel: "搜尋外掛", searchPlaceholder: "依名稱、標籤、分類或路徑搜尋", allSources: "全部來源", allStatuses: "全部狀態", statusLabel: "外掛狀態" },
-    card: { defaultDescription: "此 DSL 外掛尚未設定說明。", unversioned: "未標示版本", stepCount: "{count} 個執行步驟" },
+    card: { defaultDescription: "此 DSL 外掛尚未設定說明。", unversioned: "未標示版本", stepCount: "{count} 個執行步驟", moreTags: "另 {count} 項" },
     columns: {
       name: "外掛名稱",
       status: "狀態",
@@ -795,8 +795,13 @@ export default {
       version: "版本",
       source: "來源", category: "分類", steps: "執行步驟", rollbackSteps: "復原步驟", updatedAt: "更新時間", filePath: "模板路徑", logoUrl: "Logo 位址", platforms: "面向平台", updateMethods: "更新方式", maintainer: "維護者", homepage: "專案首頁", usage: "使用狀態", validationError: "驗證錯誤",
       signatureStatus: "簽名狀態",
-      riskLevel: "風險等級", runtime: "執行環境", scope: "適用範圍", support: "支援等級", capabilities: "能力"
+      riskLevel: "風險等級", runtime: "執行環境", scope: "適用範圍", support: "支援等級", capabilities: "能力", frameworks: "面向框架"
     },
+    capabilityKeys: { device_connection_test: "連線測試", device_identity_detect: "裝置身分識別", device_discover: "裝置發現", device_logs_read: "裝置記錄讀取", certificate_discover: "憑證發現", certificate_deploy: "憑證部署", certificate_rollback: "憑證復原", certificate_verify: "憑證驗證" },
+    frameworkTypes: { web_iis: "IIS", web_nginx: "NGINX", web_apache: "Apache", app_tomcat: "Tomcat", custom_runtime: "自訂執行環境", adc_load_balancer: "ADC 負載平衡" },
+    runtimeTypes: { agent_atomic: "Agent 原子執行", workflow_dsl: "工作流 DSL" },
+    scopeTypes: { managed: "受管目標", standalone: "獨立目標", both: "受管 / 獨立" },
+    supportTypes: { official: "官方支援", community: "社群支援", self_managed: "自行維護" },
     aria: { filters: "外掛市場篩選條件", list: "DSL 外掛清單", logo: "{name} 的 Logo" },
     errors: { loadFailed: "外掛市場載入失敗", createFailed: "依外掛建立工作流程失敗" },
     agentDeployment: {

@@ -437,7 +437,7 @@ export default {
     gateways: 'Gateways',
     gatewaysDesc: 'Gateway, protocol, and reachable target status for isolated zones',
     deployments: 'Certificate deployment',
-    deploymentsDesc: 'Deployment plans and execution records',
+    deploymentsDesc: 'Plans de déploiement, workflows, automatisations et enregistrements d’exécution',
     deploymentPlans: 'Deployment plans',
     deploymentPlansDesc: 'Certificate deployment plans and approval entry points',
     executions: 'Execution records',
@@ -766,7 +766,7 @@ export default {
     sources: { builtin: 'Intégré', user: 'Plugin utilisateur' },
     statuses: { valid: 'Disponible', invalid: 'Invalide', available: 'Prêt à créer', enabled: 'Activé', disabled: 'Non activé', pendingApproval: 'En attente d’approbation', inUse: 'Utilisé', notInUse: 'Non utilisé' },
     filters: { searchLabel: 'Rechercher des plugins', searchPlaceholder: 'Rechercher par nom, tag, catégorie ou chemin', allSources: 'Toutes les sources', allStatuses: 'Tous les états', statusLabel: 'État du plugin' },
-    card: { defaultDescription: 'Ce plugin DSL ne possède pas encore de description.', unversioned: 'Sans version', stepCount: '{count} étapes d’exécution' },
+    card: { defaultDescription: 'Ce plugin DSL ne possède pas encore de description.', unversioned: 'Sans version', stepCount: '{count} étapes d’exécution', moreTags: '+{count} autres' },
     columns: {
       name: 'Plugin name',
       status: 'Status',
@@ -804,8 +804,13 @@ export default {
       version: 'Version',
       source: 'Source', category: 'Catégorie', steps: 'Étapes d’exécution', rollbackSteps: 'Étapes de restauration', updatedAt: 'Mis à jour le', filePath: 'Chemin du modèle', logoUrl: 'URL du logo', platforms: 'Plateformes cibles', updateMethods: 'Méthodes de mise à jour', maintainer: 'Mainteneur', homepage: 'Page du projet', usage: 'État d’utilisation', validationError: 'Erreur de validation',
       signatureStatus: 'Signature status',
-      riskLevel: 'Risk level', runtime: 'Runtime', scope: 'Portée', support: 'Niveau de support', capabilities: 'Capacités'
+      riskLevel: 'Risk level', runtime: 'Runtime', scope: 'Portée', support: 'Niveau de support', capabilities: 'Capacités', frameworks: 'Frameworks cibles'
     },
+    capabilityKeys: { device_connection_test: 'Test de connexion', device_identity_detect: 'Détection d’identité appareil', device_discover: 'Découverte appareil', device_logs_read: 'Lecture des journaux appareil', certificate_discover: 'Découverte de certificats', certificate_deploy: 'Déploiement de certificat', certificate_rollback: 'Restauration de certificat', certificate_verify: 'Vérification de certificat' },
+    frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: 'Runtime personnalisé', adc_load_balancer: 'Répartiteur de charge ADC' },
+    runtimeTypes: { agent_atomic: 'Exécution atomique Agent', workflow_dsl: 'Workflow DSL' },
+    scopeTypes: { managed: 'Cible gérée', standalone: 'Cible autonome', both: 'Gérée / autonome' },
+    supportTypes: { official: 'Support officiel', community: 'Support communautaire', self_managed: 'Auto-maintenu' },
     aria: { filters: 'Plugin market filters', list: 'DSL plugin list', logo: '{name} logo' },
     errors: { loadFailed: 'Échec du chargement du marché des plugins', createFailed: 'Échec de la création du workflow depuis le plugin' },
     agentDeployment: {

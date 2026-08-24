@@ -437,7 +437,7 @@ export default {
     gateways: '게이트웨이',
     gatewaysDesc: '격리 구역 관문, 프로토콜 및 접근 가능성',
     deployments: '인증서 배포',
-    deploymentsDesc: '배포 계획 및 실행 기록',
+    deploymentsDesc: '배포 계획, 워크플로, 자동화 및 실행 기록',
     deploymentPlans: '계획을 배포하다.',
     deploymentPlansDesc: '인증서 배포 계획 및 승인 포털입니다',
     executions: '실행 기록',
@@ -732,7 +732,7 @@ export default {
     sources: { builtin: '기본 제공', user: '사용자 플러그인' },
     statuses: { valid: '사용 가능', invalid: '유효하지 않음', available: '생성 가능', enabled: '활성화됨', disabled: '활성화되지 않음', pendingApproval: '승인 대기', inUse: '사용 중', notInUse: '사용하지 않음' },
     filters: { searchLabel: '플러그인 검색', searchPlaceholder: '이름, 태그, 분류 또는 경로로 검색', allSources: '모든 출처', allStatuses: '모든 상태', statusLabel: '플러그인 상태' },
-    card: { defaultDescription: '이 DSL 플러그인에는 아직 설명이 없습니다.', unversioned: '버전 없음', stepCount: '실행 단계 {count}개' },
+    card: { defaultDescription: '이 DSL 플러그인에는 아직 설명이 없습니다.', unversioned: '버전 없음', stepCount: '실행 단계 {count}개', moreTags: '{count}개 더' },
     columns: {
       name: '플러그인 이름',
       status: '상태',
@@ -770,8 +770,13 @@ export default {
       version: '버전',
       source: '출처', category: '분류', steps: '실행 단계', rollbackSteps: '롤백 단계', updatedAt: '업데이트 시간', filePath: '템플릿 경로', logoUrl: 'Logo URL', platforms: '대상 플랫폼', updateMethods: '업데이트 방식', maintainer: '관리자', homepage: '프로젝트 홈페이지', usage: '사용 상태', validationError: '검증 오류',
       signatureStatus: '서명 상태',
-      riskLevel: '위험수준', runtime: '런타임', scope: '적용 범위', support: '지원 수준', capabilities: '기능'
+      riskLevel: '위험수준', runtime: '런타임', scope: '적용 범위', support: '지원 수준', capabilities: '기능', frameworks: '대상 프레임워크'
     },
+    capabilityKeys: { device_connection_test: '연결 테스트', device_identity_detect: '장치 식별', device_discover: '장치 검색', device_logs_read: '장치 로그 읽기', certificate_discover: '인증서 검색', certificate_deploy: '인증서 배포', certificate_rollback: '인증서 롤백', certificate_verify: '인증서 검증' },
+    frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: '사용자 지정 런타임', adc_load_balancer: 'ADC 로드 밸런서' },
+    runtimeTypes: { agent_atomic: 'Agent 원자 실행', workflow_dsl: '워크플로 DSL' },
+    scopeTypes: { managed: '관리 대상', standalone: '독립 대상', both: '관리 / 독립' },
+    supportTypes: { official: '공식 지원', community: '커뮤니티 지원', self_managed: '자체 관리' },
     aria: { filters: '플러그인 마켓 필터', list: 'DSL 플러그인 목록', logo: '{name} Logo' },
     errors: { loadFailed: '플러그인 마켓을 불러오지 못했습니다', createFailed: '플러그인에서 워크플로를 만들지 못했습니다' },
     agentDeployment: {

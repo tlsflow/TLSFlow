@@ -437,7 +437,7 @@ export default {
     gateways: 'ゲートウェイ',
     gatewaysDesc: '隔離ゾーンゲートウェイ、プロトコルとへ達可能ターゲット',
     deployments: '証明書デプロイ',
-    deploymentsDesc: 'デプロイプランと実行記録',
+    deploymentsDesc: 'デプロイプラン、ワークフロー、自動化、実行記録',
     deploymentPlans: 'デプロイプラン',
     deploymentPlansDesc: '証明書デプロイプランと承認導線',
     executions: '実行記録',
@@ -758,7 +758,7 @@ export default {
     sources: { builtin: '組み込み', user: 'ユーザープラグイン' },
     statuses: { valid: '利用可能', invalid: '無効', available: '作成可能', enabled: '有効', disabled: '未有効化', pendingApproval: '承認待ち', inUse: '使用中', notInUse: '未使用' },
     filters: { searchLabel: 'プラグイン検索', searchPlaceholder: '名前、タグ、カテゴリ、パスで検索', allSources: 'すべての提供元', allStatuses: 'すべての状態', statusLabel: 'プラグイン状態' },
-    card: { defaultDescription: 'この DSL プラグインには説明がありません。', unversioned: 'バージョン未設定', stepCount: '実行ステップ {count} 件' },
+    card: { defaultDescription: 'この DSL プラグインには説明がありません。', unversioned: 'バージョン未設定', stepCount: '実行ステップ {count} 件', moreTags: 'ほか {count} 件' },
     columns: {
       name: 'プラグイン名前',
       status: 'ステータス',
@@ -796,8 +796,13 @@ export default {
       version: 'バージョン',
       source: '提供元', category: 'カテゴリ', steps: '実行ステップ', rollbackSteps: 'ロールバックステップ', updatedAt: '更新日時', filePath: 'テンプレートパス', logoUrl: 'Logo URL', platforms: '対象プラットフォーム', updateMethods: '更新方法', maintainer: 'メンテナー', homepage: 'ホームページ', usage: '使用状態', validationError: '検証エラー',
       signatureStatus: '署名ステータス',
-      riskLevel: 'リスク等级', runtime: 'ランタイム', scope: '適用範囲', support: 'サポートレベル', capabilities: 'ケイパビリティ'
+      riskLevel: 'リスク等级', runtime: 'ランタイム', scope: '適用範囲', support: 'サポートレベル', capabilities: 'ケイパビリティ', frameworks: '対象フレームワーク'
     },
+    capabilityKeys: { device_connection_test: '接続テスト', device_identity_detect: 'デバイス識別', device_discover: 'デバイス検出', device_logs_read: 'デバイスログ読み取り', certificate_discover: '証明書検出', certificate_deploy: '証明書デプロイ', certificate_rollback: '証明書ロールバック', certificate_verify: '証明書検証' },
+    frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: 'カスタムランタイム', adc_load_balancer: 'ADC ロードバランサー' },
+    runtimeTypes: { agent_atomic: 'Agent 原子実行', workflow_dsl: 'ワークフロー DSL' },
+    scopeTypes: { managed: '管理対象', standalone: 'スタンドアロン対象', both: '管理対象 / スタンドアロン' },
+    supportTypes: { official: '公式サポート', community: 'コミュニティサポート', self_managed: '自己管理' },
     aria: { filters: 'プラグインマーケットのフィルター', list: 'DSL プラグイン一覧', logo: '{name} の Logo' },
     errors: { loadFailed: 'プラグインマーケットの読み込みに失敗しました', createFailed: 'プラグインからワークフローを作成できませんでした' },
     agentDeployment: {

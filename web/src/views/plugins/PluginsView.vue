@@ -43,6 +43,14 @@ interface PluginRecord {
   scope?: string
   support?: string
   capabilities: string[]
+  frameworks: string[]
+}
+
+interface PluginChip {
+  key: string
+  label: string
+  kind: 'capability' | 'framework' | 'more'
+  hiddenItems?: Array<Pick<PluginChip, 'key' | 'label' | 'kind'>>
 }
 
 const { t, locale } = useI18n()
@@ -95,6 +103,10 @@ const filteredPlugins = computed(() => {
       plugin.metadata.category,
       plugin.relativePath,
       ...plugin.metadata.tags,
+      ...plugin.capabilities,
+      ...plugin.capabilities.map(pluginCapabilityLabel),
+      ...plugin.frameworks,
+      ...plugin.frameworks.map(pluginFrameworkLabel),
     ].filter(Boolean).join(' ').toLocaleLowerCase()
     return searchable.includes(normalizedKeyword)
   })
@@ -158,10 +170,22 @@ function toCatalogPluginRecord(record: ApiRecord): PluginRecord {
     runtime: readOptionalString(record.runtime),
     scope: readOptionalString(record.scope),
     support: readOptionalString(record.support),
-    capabilities: Array.isArray(record.capabilities)
-      ? record.capabilities.map((item) => readString(readRecord(item).key)).filter(Boolean)
-      : [],
+    capabilities: readCatalogValueArray(record.capabilities),
+    frameworks: readFrameworkTypes(record),
   }
+}
+
+function readFrameworkTypes(record: ApiRecord): string[] {
+  const compatibility = readRecord(record.compatibility)
+  const configurationCompatibility = readRecord(readRecord(record.configuration).compatibility)
+  return readFirstStringArray([
+    record.frameworkTypes,
+    record.frameworks,
+    compatibility.frameworkTypes,
+    compatibility.frameworks,
+    configurationCompatibility.frameworkTypes,
+    configurationCompatibility.frameworks,
+  ])
 }
 
 function readRecord(value: unknown): Record<string, unknown> {
@@ -182,6 +206,94 @@ function readNumber(value: unknown): number {
 
 function readStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
+function readCatalogValueArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => {
+      if (typeof item === 'string') return item
+      const record = readRecord(item)
+      return readString(record.key) || readString(record.type) || readString(record.value) || readString(record.name)
+    })
+    .filter(Boolean)
+}
+
+function readFirstStringArray(values: unknown[]): string[] {
+  for (const value of values) {
+    const items = readCatalogValueArray(value)
+    if (items.length) return items
+  }
+  return []
+}
+
+function catalogTranslationToken(value: string): string {
+  return value.trim().toLocaleLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+}
+
+function translateCatalogValue(namespace: string, value?: string): string {
+  const rawValue = value?.trim() ?? ''
+  if (!rawValue) return t('common.notAvailable')
+  const key = `${namespace}.${catalogTranslationToken(rawValue)}`
+  const label = t(key)
+  return label === key ? rawValue : label
+}
+
+function pluginCapabilityLabel(capability: string): string {
+  return translateCatalogValue('plugins.capabilityKeys', capability)
+}
+
+function pluginFrameworkLabel(framework: string): string {
+  return translateCatalogValue('plugins.frameworkTypes', framework)
+}
+
+function pluginRuntimeLabel(runtime?: string): string {
+  return translateCatalogValue('plugins.runtimeTypes', runtime)
+}
+
+function pluginScopeLabel(scope?: string): string {
+  return translateCatalogValue('plugins.scopeTypes', scope)
+}
+
+function pluginSupportLabel(support?: string): string {
+  return translateCatalogValue('plugins.supportTypes', support)
+}
+
+function compactPluginChips(plugin: PluginRecord): PluginChip[] {
+  const visibleCapabilities = plugin.capabilities.slice(0, 2)
+  const visibleFrameworks = plugin.frameworks.slice(0, 2)
+  const capabilityChips = visibleCapabilities.map((capability) => ({
+    key: `capability:${capability}`,
+    label: pluginCapabilityLabel(capability),
+    kind: 'capability' as const,
+  }))
+  const frameworkChips = visibleFrameworks.map((framework) => ({
+    key: `framework:${framework}`,
+    label: pluginFrameworkLabel(framework),
+    kind: 'framework' as const,
+  }))
+  const hiddenItems: PluginChip['hiddenItems'] = [
+    ...plugin.capabilities.slice(visibleCapabilities.length).map((capability) => ({
+      key: `capability:${capability}`,
+      label: pluginCapabilityLabel(capability),
+      kind: 'capability' as const,
+    })),
+    ...plugin.frameworks.slice(visibleFrameworks.length).map((framework) => ({
+      key: `framework:${framework}`,
+      label: pluginFrameworkLabel(framework),
+      kind: 'framework' as const,
+    })),
+  ]
+  const chips: PluginChip[] = [...capabilityChips, ...frameworkChips]
+  if (hiddenItems.length > 0) {
+    chips.push({
+      key: 'more',
+      label: t('plugins.card.moreTags', { count: hiddenItems.length }),
+      kind: 'more',
+      hiddenItems,
+    })
+  }
+  return chips
 }
 
 function pluginTitle(plugin: PluginRecord): string {
@@ -350,6 +462,27 @@ function pluginStatusClass(plugin: PluginRecord): string {
           <div v-if="plugin.metadata.updateMethods.length" class="plugin-methods">
             <span v-for="method in plugin.metadata.updateMethods" :key="method">{{ method.toUpperCase() }}</span>
           </div>
+          <div v-if="compactPluginChips(plugin).length" class="plugin-card__chips">
+            <span
+              v-for="chip in compactPluginChips(plugin)"
+              :key="chip.key"
+              class="plugin-chip"
+              :data-kind="chip.kind"
+              :tabindex="chip.kind === 'more' ? 0 : undefined"
+            >
+              {{ chip.label }}
+              <span v-if="chip.hiddenItems?.length" class="plugin-chip__popover" role="tooltip">
+                <span
+                  v-for="hiddenItem in chip.hiddenItems"
+                  :key="hiddenItem.key"
+                  class="plugin-chip plugin-chip--popover-item"
+                  :data-kind="hiddenItem.kind"
+                >
+                  {{ hiddenItem.label }}
+                </span>
+              </span>
+            </span>
+          </div>
         </div>
 
         <footer class="plugin-card__footer">
@@ -390,22 +523,29 @@ function pluginStatusClass(plugin: PluginRecord): string {
       :title="selectedPlugin ? pluginTitle(selectedPlugin) : t('plugins.detail.title')"
       :description="t('plugins.detail.description')"
       size="lg"
+      width="82vw"
     >
       <section v-if="selectedPlugin" class="plugin-detail">
         <div class="plugin-detail__identity">
-          <div class="plugin-logo plugin-logo--large" :class="{ 'plugin-logo--fallback': !resolvedLogoUrl(selectedPlugin), 'plugin-logo--wide': resolvedLogoUrl(selectedPlugin) }">
-            <img
-              v-if="resolvedLogoUrl(selectedPlugin)"
-              :src="resolvedLogoUrl(selectedPlugin)"
-              :alt="t('plugins.aria.logo', { name: pluginTitle(selectedPlugin) })"
-              @error="markLogoFailed(selectedPlugin.id)"
-            >
-            <span v-else aria-hidden="true">{{ pluginInitial(selectedPlugin) }}</span>
+          <div class="plugin-detail__identity-main">
+            <div class="plugin-logo plugin-logo--large" :class="{ 'plugin-logo--fallback': !resolvedLogoUrl(selectedPlugin), 'plugin-logo--wide': resolvedLogoUrl(selectedPlugin) }">
+              <img
+                v-if="resolvedLogoUrl(selectedPlugin)"
+                :src="resolvedLogoUrl(selectedPlugin)"
+                :alt="t('plugins.aria.logo', { name: pluginTitle(selectedPlugin) })"
+                @error="markLogoFailed(selectedPlugin.id)"
+              >
+              <span v-else aria-hidden="true">{{ pluginInitial(selectedPlugin) }}</span>
+            </div>
+            <div class="plugin-detail__identity-copy">
+              <span class="market-hero__eyebrow">{{ t(`plugins.sources.${selectedPlugin.source}`) }}</span>
+              <h3>{{ pluginTitle(selectedPlugin) }}</h3>
+              <p>{{ pluginDescription(selectedPlugin) }}</p>
+            </div>
           </div>
-          <div>
-            <span class="market-hero__eyebrow">{{ t(`plugins.sources.${selectedPlugin.source}`) }}</span>
-            <h3>{{ pluginTitle(selectedPlugin) }}</h3>
-            <p>{{ pluginDescription(selectedPlugin) }}</p>
+          <div class="plugin-detail__identity-side">
+            <span class="plugin-state" :class="pluginStatusClass(selectedPlugin)">{{ pluginStatusLabel(selectedPlugin) }}</span>
+            <span class="plugin-version">{{ pluginVersion(selectedPlugin) }}</span>
           </div>
         </div>
 
@@ -419,11 +559,28 @@ function pluginStatusClass(plugin: PluginRecord): string {
           <div><dt>{{ t('plugins.fields.rollbackSteps') }}</dt><dd>{{ selectedPlugin.rollbackCount }}</dd></div>
           <div><dt>{{ t('plugins.fields.usage') }}</dt><dd>{{ selectedPlugin.used ? t('plugins.statuses.inUse') : t('plugins.statuses.notInUse') }}</dd></div>
           <div><dt>{{ t('plugins.fields.currentStatus') }}</dt><dd>{{ pluginStatusLabel(selectedPlugin) }}</dd></div>
-          <div><dt>{{ t('plugins.fields.platforms') }}</dt><dd>{{ selectedPlugin.metadata.platforms.join(', ') || '—' }}</dd></div>
-          <div><dt>{{ t('plugins.fields.runtime') }}</dt><dd>{{ selectedPlugin.runtime ?? '—' }}</dd></div>
-          <div><dt>{{ t('plugins.fields.scope') }}</dt><dd>{{ selectedPlugin.scope ?? '—' }}</dd></div>
-          <div><dt>{{ t('plugins.fields.support') }}</dt><dd>{{ selectedPlugin.support ?? '—' }}</dd></div>
-          <div class="plugin-detail__fact-wide"><dt>{{ t('plugins.fields.capabilities') }}</dt><dd>{{ selectedPlugin.capabilities.join(', ') || '—' }}</dd></div>
+          <div><dt>{{ t('plugins.fields.platforms') }}</dt><dd>{{ selectedPlugin.metadata.platforms.join(', ') || t('common.notAvailable') }}</dd></div>
+          <div><dt>{{ t('plugins.fields.runtime') }}</dt><dd>{{ pluginRuntimeLabel(selectedPlugin.runtime) }}</dd></div>
+          <div><dt>{{ t('plugins.fields.scope') }}</dt><dd>{{ pluginScopeLabel(selectedPlugin.scope) }}</dd></div>
+          <div><dt>{{ t('plugins.fields.support') }}</dt><dd>{{ pluginSupportLabel(selectedPlugin.support) }}</dd></div>
+          <div class="plugin-detail__fact-wide">
+            <dt>{{ t('plugins.fields.frameworks') }}</dt>
+            <dd class="plugin-detail__chip-list">
+              <span v-for="framework in selectedPlugin.frameworks" :key="framework" class="plugin-chip" data-kind="framework" :title="framework">
+                {{ pluginFrameworkLabel(framework) }}
+              </span>
+              <span v-if="!selectedPlugin.frameworks.length">{{ t('common.notAvailable') }}</span>
+            </dd>
+          </div>
+          <div class="plugin-detail__fact-wide">
+            <dt>{{ t('plugins.fields.capabilities') }}</dt>
+            <dd class="plugin-detail__chip-list">
+              <span v-for="capability in selectedPlugin.capabilities" :key="capability" class="plugin-chip" data-kind="capability" :title="capability">
+                {{ pluginCapabilityLabel(capability) }}
+              </span>
+              <span v-if="!selectedPlugin.capabilities.length">{{ t('common.notAvailable') }}</span>
+            </dd>
+          </div>
           <div><dt>{{ t('plugins.fields.updateMethods') }}</dt><dd>{{ selectedPlugin.metadata.updateMethods.map((method) => method.toUpperCase()).join(', ') || '—' }}</dd></div>
           <div><dt>{{ t('plugins.fields.maintainer') }}</dt><dd>{{ selectedPlugin.metadata.maintainer ?? '—' }}</dd></div>
           <div><dt>{{ t('plugins.fields.updatedAt') }}</dt><dd>{{ formatBrowserLocalTime(selectedPlugin.updatedAt) }}</dd></div>
@@ -499,13 +656,16 @@ function pluginStatusClass(plugin: PluginRecord): string {
 .plugin-detail h3 {
   margin: 0;
   color: var(--gc-color-text-strong);
-  font-size: var(--gc-font-size-2xl);
+  font-size: var(--gc-font-size-lg);
+  line-height: 1.1;
+  overflow-wrap: anywhere;
 }
 
 .plugin-detail p {
   margin: 0;
   color: var(--gc-color-text-muted);
-  line-height: 1.7;
+  line-height: 1.45;
+  font-size: var(--gc-font-size-xs);
 }
 
 .market-stats {
@@ -706,6 +866,7 @@ function pluginStatusClass(plugin: PluginRecord): string {
 .plugin-source,
 .plugin-state,
 .plugin-version,
+.plugin-chip,
 .plugin-tags span,
 .plugin-methods span {
   display: inline-flex;
@@ -801,6 +962,58 @@ function pluginStatusClass(plugin: PluginRecord): string {
   background: var(--gc-color-primary-soft);
 }
 
+.plugin-chip[data-kind='capability'] {
+  border: var(--gc-border-width-default) solid var(--gc-color-info-border);
+  color: var(--gc-color-info);
+  background: var(--gc-color-info-soft);
+}
+
+.plugin-chip[data-kind='framework'] {
+  border: var(--gc-border-width-default) solid var(--gc-color-success-border);
+  color: var(--gc-color-success);
+  background: var(--gc-color-success-soft);
+}
+
+.plugin-chip[data-kind='more'] {
+  position: relative;
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  color: var(--gc-color-text-muted);
+  background: var(--gc-color-surface-hover);
+  cursor: default;
+}
+
+.plugin-chip[data-kind='more']:focus-visible {
+  outline: none;
+  box-shadow: var(--gc-shadow-focus);
+}
+
+.plugin-chip__popover {
+  position: absolute;
+  left: 0;
+  top: calc(100% + var(--gc-space-1));
+  z-index: 5;
+  display: none;
+  flex-wrap: wrap;
+  gap: var(--gc-space-1);
+  width: max-content;
+  max-width: min(70vw, calc(var(--gc-size-card-min) + var(--gc-space-10)));
+  padding: var(--gc-space-2);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-md);
+  background: var(--gc-color-surface-overlay);
+  box-shadow: var(--gc-shadow-overlay);
+}
+
+.plugin-chip[data-kind='more']:hover .plugin-chip__popover,
+.plugin-chip[data-kind='more']:focus .plugin-chip__popover,
+.plugin-chip[data-kind='more']:focus-within .plugin-chip__popover {
+  display: flex;
+}
+
+.plugin-chip--popover-item {
+  white-space: nowrap;
+}
+
 .plugin-card__footer {
   padding-top: var(--gc-space-2);
   border-top: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
@@ -822,27 +1035,41 @@ function pluginStatusClass(plugin: PluginRecord): string {
 
 .plugin-detail {
   display: grid;
-  gap: var(--gc-space-5);
+  gap: var(--gc-space-2);
 }
 
 .plugin-detail__identity {
   justify-content: flex-start;
-  align-items: flex-start;
-  padding: var(--gc-space-5);
-  border: var(--gc-border-width-default) solid var(--gc-color-primary-border);
-  border-radius: var(--gc-radius-xl);
-  background: var(--gc-gradient-surface-soft);
+  align-items: center;
+  padding: var(--gc-space-2) var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-info-border);
+  border-radius: var(--gc-radius-md);
+  background: radial-gradient(circle at top right, var(--gc-color-primary-soft), transparent 26%), linear-gradient(140deg, var(--gc-color-surface-hover) 0%, var(--gc-color-surface-solid) 54%, var(--gc-color-surface-subtle) 100%);
 }
 
-.plugin-detail__identity > div:last-child {
-  display: grid;
+.plugin-detail__identity-main {
+  display: flex;
+  align-items: center;
+  min-width: 0;
   gap: var(--gc-space-2);
+}
+
+.plugin-detail__identity-copy,
+.plugin-detail__identity-side {
+  display: grid;
+  min-width: 0;
+  gap: var(--gc-space-1);
+}
+
+.plugin-detail__identity-side {
+  justify-items: end;
+  margin-left: auto;
 }
 
 .plugin-detail__facts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(var(--gc-size-card-min), 1fr));
-  gap: var(--gc-space-3);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--gc-space-10) * 4)), 1fr));
+  gap: var(--gc-space-2);
   margin: 0;
 }
 
@@ -850,17 +1077,25 @@ function pluginStatusClass(plugin: PluginRecord): string {
   display: grid;
   gap: var(--gc-space-1);
   min-width: 0;
-  padding: var(--gc-space-3);
+  padding: var(--gc-space-2);
   border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
-  border-radius: var(--gc-radius-md);
+  border-radius: var(--gc-radius-sm);
   background: var(--gc-color-surface-hover);
 }
 
 .plugin-detail__facts dd {
   margin: 0;
   color: var(--gc-color-text);
+  font-size: var(--gc-font-size-xs);
   font-weight: 700;
   overflow-wrap: anywhere;
+}
+
+.plugin-card__chips,
+.plugin-detail__chip-list {
+  display: flex;
+  gap: var(--gc-space-1);
+  flex-wrap: wrap;
 }
 
 .plugin-detail__fact-wide {
@@ -873,8 +1108,12 @@ function pluginStatusClass(plugin: PluginRecord): string {
   background: var(--gc-color-danger-bg) !important;
 }
 
-.plugin-detail__resource-preview { display: grid; gap: var(--gc-space-4); margin-top: var(--gc-space-4); }
+.plugin-detail__resource-preview { display: grid; gap: var(--gc-space-2); margin-top: var(--gc-space-1); }
 .plugin-detail__resource-preview h3, .plugin-detail__resource-preview p { margin: 0; }
+
+.plugin-detail__resource-preview h3 {
+  font-size: var(--gc-font-size-sm);
+}
 
 @media (max-width: 900px) {
   .market-stats {
@@ -889,6 +1128,20 @@ function pluginStatusClass(plugin: PluginRecord): string {
 
   .market-refresh {
     width: 100%;
+    margin-left: 0;
+  }
+
+  .plugin-detail__identity {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .plugin-detail__identity-main {
+    align-items: flex-start;
+  }
+
+  .plugin-detail__identity-side {
+    justify-items: start;
     margin-left: 0;
   }
 }
