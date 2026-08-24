@@ -5,6 +5,8 @@ export * from './dto/unified-plugins.dto.js';
 export * from './schema/unified-plugins.schema.js';
 export * from './repository/unified-plugins.repository.js';
 export * from './application/unified-plugins.application-service.js';
+export * from './application/plugin-fact-pipeline.service.js';
+export * from './application/plugin-fact-runner.adapter.js';
 export * from './dto/plugin-bindings.dto.js';
 export * from './repository/plugin-bindings.repository.js';
 export * from './application/plugin-bindings.application-service.js';

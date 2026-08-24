@@ -6,6 +6,7 @@ import type { StandardDiscoveryProjectionSummary, StandardDeviceDiscoveryProject
 import type { StandardPluginObject } from '../schema/standard-plugin-object.schema.js';
 import { StandardPluginObjectSchemaService } from '../schema/standard-plugin-object.schema.js';
 import { newId } from '../../../shared/id.js';
+import { canonicalPluginIds, type CanonicalPluginId } from '../canonical-plugin-id/canonical-plugin-id.registry.js';
 
 const discoveryCapabilities = new Set(['application.discover', 'device.discover', 'cloud.service.discover']);
 const identifierPattern = /^[A-Za-z0-9._:-]{1,256}$/;
@@ -131,6 +132,7 @@ export class PluginFactPipelineService {
       manifestHash: input.manifestHash,
       resourceHash: input.resourceHash,
     });
+    assertRunnerResultBinding(result, input);
     if (result.status !== 'SUCCESS' || !result.success) {
       return {
         status: result.status === 'UNKNOWN' ? 'UNKNOWN' : 'FAILED',
@@ -222,6 +224,20 @@ function validatePipelineInput(input: PluginFactPipelineExecutionInput): void {
     if (['factEnvelope', 'input', 'grantRefs', 'hostPermissions'].includes(name)) continue;
     if (typeof value !== 'string' || value.trim() === '') throw new AppError('VALIDATION_FAILED', `Fact Pipeline ${name} 缺失`);
   }
+  for (const [name, value] of [
+    ['tenantId', input.tenantId], ['agentId', input.agentId], ['hostId', input.hostId], ['executionId', input.executionId],
+    ['executionStepId', input.executionStepId], ['pluginId', input.pluginId], ['pluginVersion', input.pluginVersion],
+    ['pluginVersionId', input.pluginVersionId], ['workflowVersionId', input.workflowVersionId], ['capability', input.capability],
+    ['idempotencyKey', input.idempotencyKey],
+  ] as const) {
+    requireIdentifier(value, name);
+  }
+  if (!canonicalPluginIds.includes(input.pluginId as CanonicalPluginId)) {
+    throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', 'Fact Pipeline Plugin ID 不是当前 Canonical Plugin ID', { pluginId: input.pluginId });
+  }
+  if (input.input !== undefined && !isRecord(input.input)) {
+    throw new AppError('VALIDATION_FAILED', 'Fact Pipeline input 必须是对象');
+  }
   for (const [name, value] of [['packageHash', input.packageHash], ['manifestHash', input.manifestHash], ['resourceHash', input.resourceHash]] as const) {
     if (!/^sha256:[a-f0-9]{64}$/.test(value)) throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', `${name} 不是固定摘要`);
   }
@@ -229,8 +245,28 @@ function validatePipelineInput(input: PluginFactPipelineExecutionInput): void {
   if (!Array.isArray(input.grantRefs) || input.grantRefs.length === 0 || new Set(input.grantRefs).size !== input.grantRefs.length || input.grantRefs.some((item) => !identifierPattern.test(item))) {
     throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Fact Pipeline 缺少唯一 Grant 引用');
   }
+  if (!Array.isArray(input.hostPermissions) || new Set(input.hostPermissions).size !== input.hostPermissions.length || input.hostPermissions.some((item) => !identifierPattern.test(item))) {
+    throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Fact Pipeline Host API 权限列表无效');
+  }
   if (!Number.isFinite(Date.parse(input.deadlineAt)) || Date.parse(input.deadlineAt) <= Date.now()) {
     throw new AppError('PLUGIN_RUNNER_TIMEOUT', 'Fact Pipeline 执行截止时间无效或已过期');
+  }
+}
+
+function assertRunnerResultBinding(
+  result: PluginRunnerExecuteResult,
+  input: PluginFactPipelineExecutionInput,
+): void {
+  if (result.pluginVersionId !== input.pluginVersionId
+    || result.executionId !== input.executionId
+    || result.executionStepId !== input.executionStepId) {
+    throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', 'Runner 结果未绑定当前 PluginVersion 或执行步骤', {
+      expected: { pluginVersionId: input.pluginVersionId, executionId: input.executionId, executionStepId: input.executionStepId },
+      actual: { pluginVersionId: result.pluginVersionId, executionId: result.executionId, executionStepId: result.executionStepId },
+    });
+  }
+  if (result.tenantId !== input.tenantId) {
+    throw new AppError('TENANT_SCOPE_DENIED', 'Runner 结果租户与执行租户不一致');
   }
 }
 

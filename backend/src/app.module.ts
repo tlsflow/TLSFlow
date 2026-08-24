@@ -71,6 +71,8 @@ import { BuiltinUnifiedPluginLoader } from './modules/plugins/builtin-plugins/bu
 import { PluginWorkflowPublisherService } from './modules/plugins/application/plugin-workflow-publisher.service.js';
 import { PluginWorkflowBindingsRepository } from './modules/plugins/repository/plugin-workflow-bindings.repository.js';
 import { UnifiedAgentPlanCompilerService } from './modules/plugins/application/unified-agent-plan-compiler.service.js';
+import { PluginFactPipelineService } from './modules/plugins/application/plugin-fact-pipeline.service.js';
+import { PluginFactRunnerAdapter } from './modules/plugins/application/plugin-fact-runner.adapter.js';
 import {
   createUnifiedAgentPlanPolicyAuthorityPortV1,
   createUnifiedAgentPlanPolicyAuthorityProcessPortV1,
@@ -264,6 +266,12 @@ export function createApp(dependencies: AppDependencies = {}): App {
   ).register(app.router);
   app.setResource('cloudAccountAssetsService', cloudAccountAssetsService);
   const standardDeviceDiscoveryProjector = new StandardDeviceDiscoveryProjector(appDb);
+  const pluginFactPipeline = createPluginFactPipeline(
+    pluginRunnerDependencies,
+    standardDeviceDiscoveryProjector,
+    security.grants,
+  );
+  if (pluginFactPipeline) app.setResource('pluginFactPipeline', pluginFactPipeline);
   const agentCapabilityDiscoveryProjector = new AgentCapabilityDiscoveryProjector(appDb, standardDeviceDiscoveryProjector, unifiedPluginsService);
   const executionResultSync = new ExecutionResultSyncService(
     executionPersistence.executions,
@@ -871,6 +879,22 @@ function errorCodeOf(error: unknown): string {
 
 function errorMessageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function createPluginFactPipeline(
+  dependencies: PluginRunnerExecutionDependencies | undefined,
+  projector: StandardDeviceDiscoveryProjector,
+  executionGrants: Pick<import('./modules/executions/execution-grant.service.js').ExecutionGrantService, 'validate'>,
+): PluginFactPipelineService | undefined {
+  if (!dependencies?.runner || !dependencies.supervisor) return undefined;
+  const runner = new PluginFactRunnerAdapter({
+    runner: dependencies.runner,
+    supervisor: dependencies.supervisor,
+    builtinRegistry: dependencies.builtinRegistry ?? new BuiltinPluginRegistry(),
+    ...(dependencies.hostApiHandler ? { hostApiHandler: dependencies.hostApiHandler } : {}),
+    executionGrants,
+  });
+  return new PluginFactPipelineService(runner, projector);
 }
 
 function positiveInteger(value: string | undefined, fallback: number): number {

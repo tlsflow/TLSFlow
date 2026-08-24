@@ -8,7 +8,8 @@ test('Fact Pipeline 校验事实、标准对象并生成固定 Atomic Plan', asy
   const planDigest = 'a'.repeat(64);
   const runner: PluginFactRunner = {
     async execute(input) {
-      assert.equal(input.input.factEnvelope.digest, fact.digest);
+      const factInput = input.input as { factEnvelope: AgentFactEnvelopeV1 };
+      assert.equal(factInput.factEnvelope.digest, fact.digest);
       assert.equal(input.writeEffect, false);
       return {
         protocolVersion: 'gcac.plugin-runner/v1', messageType: 'execute_result', requestId: 'request-1', sentAt: new Date().toISOString(),
@@ -68,6 +69,19 @@ test('写入或失败结果不会被 Fact Pipeline 伪装成成功对象', async
   assert.equal(result.status, 'UNKNOWN');
   assert.equal(result.atomicPlan, undefined);
   assert.equal(result.normalizedObjects.length, 0);
+});
+
+test('Fact Pipeline 拒绝未绑定当前执行步骤的 Runner 结果', async () => {
+  const runner: PluginFactRunner = {
+    async execute() {
+      return {
+        protocolVersion: 'gcac.plugin-runner/v1', messageType: 'execute_result', requestId: 'request-4', sentAt: new Date().toISOString(),
+        pluginVersionId: 'other-plugin-version', tenantId: 'tenant-1', executionId: 'execution-1', executionStepId: 'step-1',
+        success: true, status: 'SUCCESS', summary: {}, normalizedObjects: [], warnings: [],
+      };
+    },
+  };
+  await assert.rejects(() => new PluginFactPipelineService(runner).execute({ ...validInput(), factEnvelope: factEnvelope() }), /绑定当前 PluginVersion/);
 });
 
 function validInput() {
