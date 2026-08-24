@@ -11,6 +11,7 @@ export type GlobalSearchResultType =
 export interface GlobalSearchResultDto {
   id: string;
   title: string;
+  summary?: string;
   type: GlobalSearchResultType;
   category: GlobalSearchCategory;
   path: string;

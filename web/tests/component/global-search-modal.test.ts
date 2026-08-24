@@ -72,12 +72,12 @@ describe('GlobalSearchModal', () => {
 
     apiMocks.searchGlobal.mockImplementation(async (query: string) => {
       const all = [
-        { id: 'certificate-asset:1', title: 'api.example.com', type: 'serverCertificate', category: 'certificates', path: '/certificates', query: { versionsModal: '1', assetId: 'certificate-1' }, keywords: ['api.example.com'] },
-        { id: 'certificate-intermediate:1', title: 'Intermediate CA', type: 'intermediateCertificate', category: 'certificates', path: '/certificates', query: { versionsModal: '1', assetId: 'certificate-1' }, keywords: ['Intermediate CA', 'intermediate-fingerprint'] },
-        { id: 'certificate-root:1', title: 'Root CA', type: 'rootCertificate', category: 'certificates', path: '/certificates', query: { rootId: 'root-1' }, keywords: ['root-fingerprint'] },
-        { id: 'device:1', title: 'search-device', type: 'device', category: 'assets', path: '/assets/devices', query: { detailModal: '1', deviceId: 'device-1' }, keywords: ['search-device'] },
-        { id: 'application:1', title: 'search-app', type: 'application', category: 'assets', path: '/assets', query: { detailModal: '1', assetId: 'application-1' }, keywords: ['search-app'] },
-        { id: 'plugin:1', title: 'search-plugin', type: 'plugin', category: 'plugins', path: '/plugins', query: { detailModal: '1', pluginVersionId: 'plugin-version-1' }, keywords: ['search-plugin'] },
+        { id: 'certificate-asset:1', title: 'api.example.com', summary: 'fingerprint-1', type: 'serverCertificate', category: 'certificates', path: '/certificates', query: { versionsModal: '1', assetId: 'certificate-1' }, keywords: ['api.example.com'] },
+        { id: 'certificate-intermediate:1', title: 'Intermediate CA', summary: 'issuer.example.com', type: 'intermediateCertificate', category: 'certificates', path: '/certificates', query: { versionsModal: '1', assetId: 'certificate-1' }, keywords: ['Intermediate CA', 'intermediate-fingerprint'] },
+        { id: 'certificate-root:1', title: 'Root CA', summary: 'root.example.com', type: 'rootCertificate', category: 'certificates', path: '/certificates', query: { rootId: 'root-1' }, keywords: ['root-fingerprint'] },
+        { id: 'device:1', title: 'search-device', summary: '10.0.0.10 · nginx', type: 'device', category: 'assets', path: '/assets/devices', query: { detailModal: '1', deviceId: 'device-1' }, keywords: ['search-device'] },
+        { id: 'application:1', title: 'search-app', summary: 'app.example.com · production', type: 'application', category: 'assets', path: '/assets', query: { detailModal: '1', assetId: 'application-1' }, keywords: ['search-app'] },
+        { id: 'plugin:1', title: 'search-plugin', summary: 'v1.2.3 · AGENT_PLAN', type: 'plugin', category: 'plugins', path: '/plugins', query: { detailModal: '1', pluginVersionId: 'plugin-version-1' }, keywords: ['search-plugin'] },
       ]
       const needle = query.toLowerCase()
       const visible = all.filter((item) => {
@@ -126,6 +126,7 @@ describe('GlobalSearchModal', () => {
     expect(wrapper.find('.global-search__result-icon').element.tagName).toBe('SPAN')
     expect(wrapper.find('.global-search__result-icon svg').exists()).toBe(true)
     expect(wrapper.find('.global-search__result-arrow svg').exists()).toBe(true)
+    expect(wrapper.find('.global-search__result-summary').text()).toBe('fingerprint-1')
   })
 
   it('搜索设备资产和插件，并按权限隐藏未授权远程资源', async () => {
@@ -144,7 +145,8 @@ describe('GlobalSearchModal', () => {
     usePermissionStore().setPermissions(['settings.read'])
     await wrapper.get('input').setValue('search-app')
     await settle()
-    expect(wrapper.text()).not.toContain('search-app')
+    expect(wrapper.find('.global-search__groups').exists()).toBe(false)
+    expect(wrapper.find('.global-search__empty').exists()).toBe(true)
     expect(apiMocks.searchGlobal).toHaveBeenCalledTimes(3)
   })
 

@@ -110,9 +110,15 @@ export class GlobalSearchApplicationService {
     for (const asset of assets.items) {
       const assetVersions = versionsByAsset.get(asset.id) ?? [];
       const currentVersionId = asset.currentVersionId ?? assetVersions[0]?.id;
+      const currentVersion = assetVersions.find((version) => version.id === currentVersionId) ?? assetVersions[0];
       items.push({
         id: `certificate-asset:${asset.id}`,
         title: asset.name || asset.primaryDomain || asset.id,
+        summary: summaryValues(
+          currentVersion?.fingerprintSha256,
+          currentVersion?.issuer.commonName,
+          asset.primaryDomain,
+        ),
         type: 'serverCertificate',
         category: 'certificates',
         path: '/certificates',
@@ -141,6 +147,7 @@ export class GlobalSearchApplicationService {
           items.push({
             id: `certificate-intermediate:${version.id}:${fingerprint}`,
             title: fingerprint,
+            summary: summaryValues(version.issuer.commonName, version.issuer.organization),
             type: 'intermediateCertificate',
             category: 'certificates',
             path: '/certificates',
@@ -161,6 +168,7 @@ export class GlobalSearchApplicationService {
       items.push({
         id: `certificate-root:${root.id}`,
         title: root.subject.commonName || root.fingerprintSha256 || root.id,
+        summary: summaryValues(root.issuer.commonName, root.fingerprintSha256),
         type: 'rootCertificate',
         category: 'certificates',
         path: '/certificates',
@@ -186,6 +194,11 @@ export class GlobalSearchApplicationService {
       items.push({
         id: `application:${id}`,
         title: stringValue(record, ['displayName', 'address', 'domainName', 'id'], id),
+        summary: summaryValues(
+          stringValue(record, ['address'], ''),
+          record.port === undefined ? '' : String(record.port),
+          stringValue(record, ['environment', 'protocol'], ''),
+        ),
         type: 'application',
         category: 'assets',
         path: '/assets',
@@ -206,6 +219,7 @@ export class GlobalSearchApplicationService {
       items.push({
         id: `device:${device.id}`,
         title: device.displayName || device.managementAddress || device.id,
+        summary: summaryValues(device.managementAddress, device.productFamily, device.softwareVersion),
         type: 'device',
         category: 'assets',
         path: '/assets/devices',
@@ -230,6 +244,7 @@ export class GlobalSearchApplicationService {
       items.push({
         id: `cloud:${asset.id}`,
         title: asset.displayName || asset.accountId || asset.providerKey || asset.id,
+        summary: summaryValues(asset.providerKey, asset.accountId),
         type: 'cloudService',
         category: 'assets',
         path: '/providers',
@@ -251,6 +266,11 @@ export class GlobalSearchApplicationService {
       items.push({
         id: `plugin:${plugin.pluginVersionId}`,
         title: plugin.displayName || plugin.name || plugin.pluginId,
+        summary: summaryValues(
+          plugin.version ? `v${plugin.version}` : '',
+          plugin.runtime,
+          plugin.capabilities.slice(0, 2).map((capability) => capability.key).join(' · '),
+        ),
         type: 'plugin',
         category: 'plugins',
         path: '/plugins',
@@ -270,13 +290,14 @@ export class GlobalSearchApplicationService {
 }
 
 function permissionKey(permissions: GlobalSearchPermissions): string {
-  return [
-    permissions.certificates ? 'c' : '',
-    permissions.assets ? 'a' : '',
-    permissions.devices ? 'd' : '',
-    permissions.cloudServices ? 's' : '',
-    permissions.plugins ? 'p' : '',
-  ].join('');
+  return stableSerialize(permissions);
+}
+
+function stableSerialize(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(',')}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableSerialize(record[key])}`).join(',')}}`;
 }
 
 function normalize(value: string, locale: string): string {
@@ -297,4 +318,14 @@ function values(record: Record<string, unknown>, fields: string[]): string[] {
     if (Array.isArray(value)) return value.map(String);
     return value === undefined || value === null ? [] : [String(value)];
   });
+}
+
+function summaryValues(...values: unknown[]): string | undefined {
+  const summary = values
+    .flatMap((value) => Array.isArray(value) ? value : [value])
+    .map((value) => String(value ?? '').trim())
+    .filter(Boolean)
+    .filter((value, index, items) => items.indexOf(value) === index)
+    .join(' · ');
+  return summary || undefined;
 }

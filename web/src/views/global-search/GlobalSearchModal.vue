@@ -10,6 +10,7 @@ import type { MenuItem } from '@/types/router'
 interface SearchResult {
   readonly id: string
   readonly title: string
+  readonly summary: string
   readonly subtitle: string
   readonly category: SearchCategory
   readonly path: string
@@ -76,7 +77,7 @@ function normalize(value: unknown): string {
 
 function matchesSearch(result: SearchResult, query: string): boolean {
   const needle = normalize(query)
-  return [result.title, result.subtitle, ...result.keywords].some((value) => normalize(value).includes(needle))
+  return [result.title, result.summary, result.subtitle, ...result.keywords].some((value) => normalize(value).includes(needle))
 }
 
 function flattenMenuItems(items: readonly MenuItem[]): MenuItem[] {
@@ -89,6 +90,7 @@ function settingsResults(query: string): SearchResult[] {
     .map((item) => ({
       id: `settings:${item.path}`,
       title: item.titleKey ? t(item.titleKey) : (item.title ?? item.path),
+      summary: item.descriptionKey ? t(item.descriptionKey) : item.path,
       subtitle: t('globalSearch.types.systemSetting'),
       category: 'settings' as const,
       path: item.path,
@@ -116,6 +118,7 @@ async function search(query: string): Promise<void> {
       ...remoteResults.map((item) => ({
         id: String(item.id ?? ''),
         title: String(item.title ?? item.id ?? ''),
+        summary: String(item.summary ?? ''),
         subtitle: t(`globalSearch.types.${String(item.type ?? '')}`),
         category: item.category as SearchCategory,
         path: String(item.path ?? ''),
@@ -197,6 +200,7 @@ async function openResult(result: SearchResult): Promise<void> {
             <span class="global-search__result-copy">
               <strong>{{ result.title }}</strong>
               <small>{{ result.subtitle }}</small>
+              <small v-if="result.summary" class="global-search__result-summary">{{ result.summary }}</small>
             </span>
             <span class="global-search__result-arrow" aria-hidden="true">
               <svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7" /></svg>
@@ -341,7 +345,7 @@ async function openResult(result: SearchResult): Promise<void> {
 .global-search__result-copy {
   display: grid;
   min-width: 0;
-  gap: var(--gc-space-1);
+  gap: var(--gc-space-tight);
 }
 
 .global-search__result-copy strong,
@@ -360,6 +364,11 @@ async function openResult(result: SearchResult): Promise<void> {
 .global-search__result-copy small {
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-xs);
+}
+
+.global-search__result-copy .global-search__result-summary {
+  color: var(--gc-color-text-soft);
+  font-size: var(--gc-font-size-caption);
 }
 
 .global-search__result-arrow {
