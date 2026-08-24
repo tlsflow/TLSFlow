@@ -1,18 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { testWorkflowTemplateStep } from '@/api/modules/workflow-templates.api'
+import { listSecrets } from '@/api/modules/security.api'
+import { compileWorkflowCanvas, testWorkflowTemplateStep, validateWorkflowCanvasOnBackend } from '@/api/modules/workflow-templates.api'
 import WorkflowCanvasEditor from '@/views/workflows/WorkflowCanvasEditor.vue'
 import { createDefaultWorkflowCanvas } from '@/views/workflows/workflow-canvas.model'
-import { WORKFLOW_CREDENTIAL_STORAGE_KEY } from '@/views/workflows/workflow-credentials'
+
+vi.mock('@/api/modules/security.api', () => ({
+  listSecrets: vi.fn(),
+}))
 
 vi.mock('@/api/modules/workflow-templates.api', () => ({
+  compileWorkflowCanvas: vi.fn(),
+  validateWorkflowCanvasOnBackend: vi.fn(),
   testWorkflowTemplateStep: vi.fn(),
 }))
 
 describe('WorkflowCanvasEditor', () => {
   beforeEach(() => {
-    localStorage.clear()
+    vi.mocked(compileWorkflowCanvas).mockReset()
+    vi.mocked(validateWorkflowCanvasOnBackend).mockReset()
     vi.mocked(testWorkflowTemplateStep).mockReset()
+    vi.mocked(listSecrets).mockReset()
+    mockWorkflowCredentialSecrets([])
+    mockCompileWorkflowCanvas()
   })
 
   it('渲染节点库、画布、属性面板、变量面板和校验面板', () => {
@@ -89,24 +99,23 @@ describe('WorkflowCanvasEditor', () => {
 
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
       canvas: expect.objectContaining({ schemaVersion: 'gcac.workflow.canvas/v1' }),
-      dsl: expect.objectContaining({ apiVersion: 'gcac.workflow/v1' }),
     }))
   })
 
   it('HTTP 节点会读取已保存凭据并支持 Bearer 选择器', async () => {
-    localStorage.setItem(WORKFLOW_CREDENTIAL_STORAGE_KEY, JSON.stringify([
+    mockWorkflowCredentialSecrets([
       {
         id: 'sec-bearer-1',
         name: 'prod token',
         kind: 'curl_bearer',
-        username: '',
-        secretRef: 'secret://api_token/sec-bearer-1#current',
+        type: 'api_token',
         createdAt: '2026-07-04T00:00:00.000Z',
       },
-    ]))
+    ])
     const wrapper = mount(WorkflowCanvasEditor, {
       props: { modelValue: createDefaultWorkflowCanvas() },
     })
+    await flushPromises()
 
     const authTypeSelect = wrapper.findAll('.workflow-canvas-editor__properties select').find((item) => item.text().includes('bearer'))!
     await authTypeSelect.setValue('bearer')
@@ -128,29 +137,30 @@ describe('WorkflowCanvasEditor', () => {
   })
 
   it('HTTP 节点支持 Basic 和 API Key 结构化凭据表单', async () => {
-    localStorage.setItem(WORKFLOW_CREDENTIAL_STORAGE_KEY, JSON.stringify([
+    mockWorkflowCredentialSecrets([
       {
         id: 'sec-basic-1',
         name: 'ssh basic',
         kind: 'username_password',
+        type: 'password',
         username: 'deploy',
-        secretRef: 'secret://password/sec-basic-1#current',
         createdAt: '2026-07-04T00:00:00.000Z',
       },
       {
         id: 'sec-api-key-1',
         name: 'gateway api key',
         kind: 'curl_api_key',
+        type: 'api_token',
         username: '',
         apiKeyName: 'X-Deploy-Key',
         apiKeyIn: 'query',
-        secretRef: 'secret://api_token/sec-api-key-1#current',
         createdAt: '2026-07-04T00:00:00.000Z',
       },
-    ]))
+    ])
     const wrapper = mount(WorkflowCanvasEditor, {
       props: { modelValue: createDefaultWorkflowCanvas() },
     })
+    await flushPromises()
 
     const authTypeSelect = wrapper.findAll('.workflow-canvas-editor__properties select').find((item) => item.text().includes('basic'))!
     await authTypeSelect.setValue('basic')
@@ -207,7 +217,7 @@ describe('WorkflowCanvasEditor', () => {
       props: { modelValue: createDefaultWorkflowCanvas() },
     })
 
-    await wrapper.findAll('button').find((button) => button.text() === '模拟运行当前节点')!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === '仅模拟当前节点')!.trigger('click')
     await flushPromises()
 
     expect(testWorkflowTemplateStep).toHaveBeenCalledWith(expect.objectContaining({
@@ -252,7 +262,7 @@ describe('WorkflowCanvasEditor', () => {
       },
     })
 
-    await wrapper.findAll('button').find((button) => button.text() === '模拟运行当前节点')!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === '仅模拟当前节点')!.trigger('click')
     await flushPromises()
 
     expect(testWorkflowTemplateStep).toHaveBeenCalledWith(expect.objectContaining({
@@ -276,16 +286,16 @@ describe('WorkflowCanvasEditor', () => {
       requestId: 'req_step_test_real',
       timestamp: '2026-07-03T00:00:00.000Z',
     })
-    localStorage.setItem(WORKFLOW_CREDENTIAL_STORAGE_KEY, JSON.stringify([
+    mockWorkflowCredentialSecrets([
       {
         id: 'sec_real',
         name: 'real ssh',
         kind: 'username_password',
+        type: 'password',
         username: 'deploy',
-        secretRef: 'secret://password/sec_real#current',
         createdAt: '2026-07-04T00:00:00.000Z',
       },
-    ]))
+    ])
     const canvas = createDefaultWorkflowCanvas()
     const modelValue = {
       ...canvas,
@@ -302,11 +312,12 @@ describe('WorkflowCanvasEditor', () => {
     const wrapper = mount(WorkflowCanvasEditor, {
       props: { modelValue },
     })
+    await flushPromises()
 
     await wrapper.findAll('.workflow-canvas-editor__node').find((node) => node.attributes('data-node-type') === 'ssh')!.trigger('click')
     await wrapper.findAll('.workflow-canvas-editor__tabs button').find((button) => button.text() === '运行态')!.trigger('click')
 
-    await wrapper.findAll('button').find((button) => button.text() === '真实试跑当前节点')!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === '真实 SSH 执行当前节点')!.trigger('click')
     await flushPromises()
 
     const payload = vi.mocked(testWorkflowTemplateStep).mock.calls[0]?.[0] as Record<string, any>
@@ -325,6 +336,7 @@ describe('WorkflowCanvasEditor', () => {
     const sshStep = payload.content.steps.find((step: Record<string, any>) => step.type === 'ssh')
     expect(sshStep?.ssh?.connection?.credential).toBe('{{credential}}')
     expect(wrapper.text()).toContain('真实试跑完成：success')
+    expect(wrapper.text()).toContain('退出码')
     expect(wrapper.text()).toContain('real ssh ok')
   })
 
@@ -381,7 +393,7 @@ describe('WorkflowCanvasEditor', () => {
     })
 
     await wrapper.findAll('.workflow-canvas-editor__node').find((node) => node.attributes('data-node-type') === 'ssh')!.trigger('click')
-    await wrapper.findAll('button').find((button) => button.text() === '真实试跑当前节点')!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === '真实 SSH 执行当前节点')!.trigger('click')
     await flushPromises()
 
     expect(wrapper.text()).toContain('真实试跑失败：SSH 连接失败')
@@ -412,19 +424,20 @@ describe('WorkflowCanvasEditor', () => {
   })
 
   it('凭据变量使用下拉框选择已登记凭据', async () => {
-    localStorage.setItem(WORKFLOW_CREDENTIAL_STORAGE_KEY, JSON.stringify([
+    mockWorkflowCredentialSecrets([
       {
         id: 'sec-variable-1',
         name: 'workflow login',
         kind: 'username_password',
+        type: 'password',
         username: 'root',
-        secretRef: 'secret://password/sec-variable-1#current',
         createdAt: '2026-07-04T00:00:00.000Z',
       },
-    ]))
+    ])
     const wrapper = mount(WorkflowCanvasEditor, {
       props: { modelValue: createDefaultWorkflowCanvas() },
     })
+    await flushPromises()
 
     await wrapper.findAll('.workflow-canvas-editor__tabs button').find((button) => button.text() === '变量')!.trigger('click')
     const credentialSelect = wrapper.findAll('[aria-label=\"变量面板\"] select').find((item) => item.text().includes('workflow login'))!
@@ -505,3 +518,94 @@ describe('WorkflowCanvasEditor', () => {
     expect(wrapper.text()).toContain('DSL 已导入并覆盖当前画布')
   })
 })
+
+function mockWorkflowCredentialSecrets(items: Array<{
+  id: string
+  name: string
+  kind: 'username_password' | 'ssh_key' | 'curl_bearer' | 'curl_api_key'
+  type?: 'ssh_key' | 'password' | 'api_token'
+  username?: string
+  apiKeyName?: string
+  apiKeyIn?: 'header' | 'query'
+  createdAt: string
+}>) {
+  vi.mocked(listSecrets).mockResolvedValue({
+    data: {
+      items: items.map((item) => ({
+        id: item.id,
+        name: item.name,
+        type: item.type ?? 'password',
+        scopeType: 'global',
+        status: 'active',
+        secretRef: `secret://${item.type ?? 'password'}/${item.id}#current`,
+        createdAt: item.createdAt,
+        updatedAt: item.createdAt,
+        metadata: {
+          workflowCredential: true,
+          workflowCredentialKind: item.kind,
+          username: item.username,
+          apiKeyName: item.apiKeyName,
+          apiKeyIn: item.apiKeyIn,
+        },
+      })),
+      page: 1,
+      pageSize: 200,
+      total: items.length,
+    },
+    requestId: 'req_credentials',
+    timestamp: '2026-07-04T00:00:00.000Z',
+  })
+}
+
+function mockCompileWorkflowCanvas() {
+  vi.mocked(compileWorkflowCanvas).mockImplementation(async (payload: Record<string, any>) => {
+    const canvas = payload.canvas as ReturnType<typeof createDefaultWorkflowCanvas>
+    const stepNames = Object.fromEntries(canvas.nodes.map((node, index) => [node.id, `${node.type}_${index + 1}`]))
+    return {
+      data: {
+        content: {
+          apiVersion: 'gcac.workflow/v1',
+          kind: 'CurlSshWorkflow',
+          metadata: canvas.metadata,
+          variables: canvas.variables,
+          steps: canvas.nodes.map((node, index) => node.type === 'ssh'
+            ? {
+                name: stepNames[node.id],
+                type: 'ssh',
+                stage: node.ui?.stage,
+                ssh: {
+                  mode: 'command',
+                  connection: {
+                    host: '{{deviceHost}}',
+                    username: '{{sshUsername}}',
+                    credential: '{{credential}}',
+                    hostKeyPolicy: 'trust_on_first_use',
+                  },
+                  command: String(node.config.command ?? ''),
+                  timeoutSeconds: Number(node.config.timeoutSeconds ?? 60),
+                },
+              }
+            : {
+                name: stepNames[node.id],
+                type: 'http',
+                stage: node.ui?.stage,
+                request: {
+                  method: 'GET',
+                  url: String(node.config.url ?? node.config.inputRef ?? '{{verifyUrl}}'),
+                  timeoutSeconds: Number(node.config.timeoutSeconds ?? 30),
+                },
+              }),
+        },
+        stepNames,
+        issues: [],
+      },
+      requestId: 'req_compile',
+      timestamp: '2026-07-04T00:00:00.000Z',
+    }
+  })
+  vi.mocked(validateWorkflowCanvasOnBackend).mockResolvedValue({
+    data: { issues: [] },
+    requestId: 'req_validate',
+    timestamp: '2026-07-04T00:00:00.000Z',
+  })
+}

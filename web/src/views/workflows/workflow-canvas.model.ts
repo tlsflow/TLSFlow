@@ -1,5 +1,4 @@
 import {
-  isWorkflowCredentialBinding,
   workflowCredentialBinding,
   type WorkflowCredentialBinding,
   type WorkflowManagedCredential,
@@ -540,84 +539,6 @@ export function createDefaultConfig(type: WorkflowCanvasNodeType): Record<string
   return { instruction: '请确认目标设备证书已切换到新版本。' }
 }
 
-export function validateWorkflowCanvas(canvas: WorkflowCanvasDefinition): WorkflowValidationIssue[] {
-  const issues: WorkflowValidationIssue[] = []
-  const nodeIds = new Set(canvas.nodes.map((node) => node.id))
-  if (canvas.nodes.length === 0) {
-    issues.push(canvasIssue('empty-canvas', 'error', '画布至少需要一个执行节点。', '添加 HTTP、SSH、SFTP 或验证节点。'))
-  }
-
-  for (const node of canvas.nodes) {
-    const definition = getNodeTypeDefinition(node.type)
-    for (const field of definition.fields) {
-      const value = node.config[field.key]
-      if (field.required && isBlank(value)) {
-        issues.push(fieldIssue(node, field.key, `${node.label} 缺少 ${field.label}。`, `在属性面板补全 ${field.label}。`))
-      }
-      if (field.kind === 'secret' && !isBlank(value) && containsPlainSecret(String(value))) {
-        issues.push(fieldIssue(node, field.key, `${node.label} 的 ${field.label} 疑似包含明文密钥。`, '改为选择已保存凭据或使用密文输入。'))
-      }
-    }
-    for (const [key, value] of Object.entries(node.config)) {
-      if (containsPlainSecret(value)) {
-        issues.push(fieldIssue(node, key, `${node.label} 的 ${key} 疑似包含明文密钥。`, '改为选择已保存凭据、密文输入或变量表达式。'))
-      }
-    }
-    if (node.type === 'http') validateHttpNodeConfig(node, issues)
-    const timeout = node.config.timeoutSeconds ?? node.config.seconds
-    if (['http', 'ssh', 'sftp', 'scp', 'verify'].includes(node.type) && (!Number.isInteger(Number(timeout)) || Number(timeout) <= 0)) {
-      issues.push(fieldIssue(node, 'timeoutSeconds', `${node.label} 必须声明正整数超时。`, '为外部动作设置明确 timeoutSeconds。'))
-    }
-  }
-
-  for (const edge of canvas.edges) {
-    if (!nodeIds.has(edge.sourceNodeId) || !nodeIds.has(edge.targetNodeId)) {
-      issues.push(edgeIssue(edge.id, '连线引用了不存在的节点。', '删除这条连线或重新连接有效节点。'))
-    }
-    if (edge.sourceNodeId === edge.targetNodeId) {
-      issues.push(edgeIssue(edge.id, '节点不能连接到自己。', '选择另一个目标节点。'))
-    }
-  }
-
-  if (hasCycle(canvas)) {
-    issues.push(canvasIssue('graph-cycle', 'error', '画布存在循环依赖。', '删除导致回到上游节点的连线。'))
-  }
-
-  const requiredTypes: WorkflowCanvasNodeType[] = ['http', 'ssh', 'sftp', 'verify']
-  for (const type of requiredTypes) {
-    if (!canvas.nodes.some((node) => node.type === type)) {
-      issues.push(canvasIssue(`missing-${type}`, 'warning', `草稿缺少 ${getNodeTypeDefinition(type).displayName} 节点。`, '验收草稿建议包含 HTTP、SSH、SFTP 和验证节点。'))
-    }
-  }
-
-  return issues
-}
-
-export function workflowCanvasToDsl(canvas: WorkflowCanvasDefinition): WorkflowDslV1 {
-  const normalized = normalizeWorkflowCanvasFlow(canvas)
-  const orderedNodes = getExecutableDslNodes(normalized)
-  return {
-    apiVersion: 'gcac.workflow/v1',
-    kind: 'CurlSshWorkflow',
-    metadata: {
-      name: normalizeIdentifier(canvas.metadata.name),
-      displayName: canvas.metadata.displayName,
-      category: canvas.metadata.category,
-      tags: [...(canvas.metadata.tags ?? [])],
-    },
-    variables: cloneRecord(canvas.variables),
-    steps: orderedNodes.map((node, index) => nodeToDslStep(node, index)),
-    rollback: resolveRollbackSteps(normalized),
-  }
-}
-
-export function getWorkflowDslStepName(canvas: WorkflowCanvasDefinition, nodeId: string): string {
-  const orderedNodes = getExecutableDslNodes(canvas)
-  const index = orderedNodes.findIndex((node) => node.id === nodeId)
-  if (index < 0) throw new Error(`节点不存在：${nodeId}`)
-  return buildDslStepName(orderedNodes[index]!, index)
-}
-
 export function workflowDslToCanvas(dsl: WorkflowDslV1): WorkflowCanvasDefinition {
   const nodes = dsl.steps.map((step, index) => dslStepToNode(step, index))
   return normalizeWorkflowCanvasFlow({
@@ -745,90 +666,6 @@ export function getVariableFlow(canvas: WorkflowCanvasDefinition) {
   return [...system, ...declared, ...produced]
 }
 
-function nodeToDslStep(node: WorkflowCanvasNode, index: number): WorkflowDslStep {
-  const name = buildDslStepName(node, index)
-  if (node.type === 'http') {
-    const auth = buildHttpRequestAuth(node.config)
-    return mergeImportedDslStep(node, {
-      name,
-      type: 'http',
-      stage: getNodeStage(node),
-      request: {
-        method: String(node.config.method ?? 'GET') as 'GET',
-        url: String(node.config.url ?? '{{verifyUrl}}'),
-        ...(auth ? { auth } : {}),
-        ...(isBlank(node.config.body) ? {} : { body: parseLooseJson(String(node.config.body)) }),
-        timeoutSeconds: Number(node.config.timeoutSeconds ?? 30),
-      },
-      extract: [{ name: `${name}_status`, type: 'statusCode', optional: true }],
-      assert: [{ type: 'statusCode', equals: 200 }],
-    })
-  }
-  if (node.type === 'ssh') {
-    const commands = splitCommandLines(String(node.config.command ?? ''))
-    const imported = readImportedStep(node)
-    const importedMode = imported?.type === 'ssh' ? imported.ssh.mode : 'command'
-    const sshBody = importedMode === 'script'
-      ? { script: String(node.config.command ?? '') }
-      : commands.length > 1
-        ? { commands }
-        : { command: commands[0] ?? '' }
-    return mergeImportedDslStep(node, {
-      name,
-      type: 'ssh',
-      stage: getNodeStage(node),
-      ssh: {
-        mode: importedMode === 'script' ? 'script' : 'command',
-        connection: {
-          host: String(node.config.hostRef ?? '{{deviceHost}}'),
-          username: String(node.config.username ?? '{{sshUsername}}'),
-          credential: readCredentialValue(node.config.credential) ?? '{{credential}}',
-          hostKeyPolicy: readHostKeyPolicy(node.config.hostKeyPolicy),
-          ...(isBlank(node.config.expectedHostKeyFingerprint) ? {} : { expectedHostKeyFingerprint: String(node.config.expectedHostKeyFingerprint) }),
-        },
-        ...sshBody,
-        timeoutSeconds: Number(node.config.timeoutSeconds ?? 60),
-      },
-      assert: [{ type: 'regex', pattern: '.*' }],
-    })
-  }
-  if (node.type === 'sftp') {
-    return mergeImportedDslStep(node, buildFileTransferDslStep(node, name, 'sftp'))
-  }
-  if (node.type === 'scp') {
-    return mergeImportedDslStep(node, buildFileTransferDslStep(node, name, 'scp'))
-  }
-  if (node.type === 'verify') {
-    const verifyType = String(node.config.verifyType ?? 'httpStatus')
-    if (verifyType === 'httpStatus') {
-      return mergeImportedDslStep(node, {
-        name,
-        type: 'http',
-        stage: getNodeStage(node),
-        request: { method: 'GET', url: String(node.config.inputRef ?? '{{verifyUrl}}'), timeoutSeconds: Number(node.config.timeoutSeconds ?? 30) },
-        assert: [{ type: 'statusCode', equals: Number(node.config.expected ?? 200) }],
-      })
-    }
-    return mergeImportedDslStep(node, {
-      name,
-      type: 'manual',
-      stage: getNodeStage(node),
-      instruction: `验证 ${String(node.config.inputRef ?? '')} 应匹配 ${String(node.config.expected ?? '')}`,
-    })
-  }
-  if (node.type === 'condition') {
-    return mergeImportedDslStep(node, {
-      name,
-      type: 'condition',
-      stage: getNodeStage(node),
-      condition: buildDslCondition(node.config),
-      description: String(node.config.description ?? ''),
-    })
-  }
-  if (node.type === 'wait') return mergeImportedDslStep(node, { name, type: 'wait', stage: getNodeStage(node), seconds: Number(node.config.seconds ?? 10) })
-  return mergeImportedDslStep(node, { name, type: 'manual', stage: getNodeStage(node), instruction: String(node.config.instruction ?? '人工确认') })
-}
-
 function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode {
   const stage = stageForDslStep(step, index)
   if (step.type === 'http') {
@@ -930,32 +767,6 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
   return { id: `manual_${index + 1}`, type: 'manual', position: { x: 80 + index * 260, y: 120 }, label: dslStepLabel(step, '人工确认'), config: { instruction: step.instruction }, ui: { stage, rawStep: cloneRecord(step) } }
 }
 
-function buildRollbackSteps(canvas: WorkflowCanvasDefinition): readonly WorkflowDslStep[] {
-  const rollbackTargets = new Set(canvas.edges.filter((edge) => edge.edgeType === 'rollback').map((edge) => edge.targetNodeId))
-  const steps = canvas.nodes.filter((node) => rollbackTargets.has(node.id)).map((node, index) => nodeToDslStep(node, index))
-  return steps.length ? steps : [{ name: 'manual_rollback', type: 'manual', instruction: '回滚到上一个稳定证书版本' }]
-}
-
-function resolveRollbackSteps(canvas: WorkflowCanvasDefinition): readonly WorkflowDslStep[] {
-  const imported = canvas.draftState?.importedRollback
-  return Array.isArray(imported) && imported.length > 0 ? cloneRecord(imported) as WorkflowDslStep[] : buildRollbackSteps(canvas)
-}
-
-function getExecutableDslNodes(canvas: WorkflowCanvasDefinition): WorkflowCanvasNode[] {
-  const normalized = normalizeWorkflowCanvasFlow(canvas)
-  return sortNodesByStage(normalized.nodes).filter((node) => !isRollbackOnlyNode(normalized, node.id))
-}
-
-function buildDslStepName(node: WorkflowCanvasNode, index: number): string {
-  const imported = readImportedStep(node)
-  if (imported?.name && node.label === imported.name) return normalizeIdentifier(imported.name)
-  return normalizeIdentifier(`${node.type}_${index + 1}_${node.label}`)
-}
-
-function isRollbackOnlyNode(canvas: WorkflowCanvasDefinition, nodeId: string): boolean {
-  return canvas.edges.some((edge) => edge.edgeType === 'rollback' && edge.targetNodeId === nodeId)
-}
-
 function sortNodesByEdges(canvas: WorkflowCanvasDefinition): WorkflowCanvasNode[] {
   const byId = new Map(canvas.nodes.map((node) => [node.id, node]))
   const incoming = new Map(canvas.nodes.map((node) => [node.id, 0]))
@@ -1043,89 +854,6 @@ function isWorkflowStage(value: string): value is WorkflowCanvasStage {
   return WORKFLOW_STAGE_DEFINITIONS.some((stage) => stage.key === value)
 }
 
-function hasCycle(canvas: WorkflowCanvasDefinition): boolean {
-  const visiting = new Set<string>()
-  const visited = new Set<string>()
-  const next = (nodeId: string): string[] => canvas.edges.filter((edge) => edge.sourceNodeId === nodeId && edge.edgeType !== 'rollback').map((edge) => edge.targetNodeId)
-  const visit = (nodeId: string): boolean => {
-    if (visiting.has(nodeId)) return true
-    if (visited.has(nodeId)) return false
-    visiting.add(nodeId)
-    for (const target of next(nodeId)) {
-      if (visit(target)) return true
-    }
-    visiting.delete(nodeId)
-    visited.add(nodeId)
-    return false
-  }
-  return canvas.nodes.some((node) => visit(node.id))
-}
-
-function validateHttpNodeConfig(node: WorkflowCanvasNode, issues: WorkflowValidationIssue[]) {
-  const authType = readHttpAuthType(node.config.authType)
-  if (!authType) {
-    issues.push(fieldIssue(node, 'authType', `${node.label} 的 HTTP 认证类型不支持。`, '改为 none、basic、bearer、api_key、cookie、custom_header 或 mtls。'))
-    return
-  }
-  if (authType === 'none') return
-  if (authType === 'basic') {
-    if (isBlank(node.config.authUsername)) issues.push(fieldIssue(node, 'authUsername', `${node.label} 的 Basic 用户名不能为空。`, '填写用户名或选择已保存的用户名密码凭据。'))
-    if (!isCredentialValue(node.config.authCredential)) issues.push(fieldIssue(node, 'authCredential', `${node.label} 的 Basic 凭据不能为空。`, '直接选择已保存的用户名密码凭据，或引用 credential 变量。'))
-    return
-  }
-  if (authType === 'bearer') {
-    if (!isCredentialValue(node.config.authCredential)) issues.push(fieldIssue(node, 'authCredential', `${node.label} 的 Bearer 凭据不能为空。`, '直接选择已保存的 Bearer 凭据，或引用 credential 变量。'))
-    return
-  }
-  if (authType === 'cookie') {
-    if (isBlank(node.config.authSecretValue)) issues.push(fieldIssue(node, 'authSecretValue', `${node.label} 的认证值不能为空。`, '填写密文值或改用已保存凭据。'))
-    return
-  }
-  if (authType === 'api_key') {
-    if (!isCredentialValue(node.config.authCredential)) issues.push(fieldIssue(node, 'authCredential', `${node.label} 的 API Key 凭据不能为空。`, '直接选择已保存的 API Key 凭据，或引用 credential 变量。'))
-    if (isBlank(node.config.authApiKeyName)) issues.push(fieldIssue(node, 'authApiKeyName', `${node.label} 的 API Key 名称不能为空。`, '填写 Header 名称或 Query 参数名。'))
-    if (!['header', 'query'].includes(String(node.config.authApiKeyIn ?? 'header'))) issues.push(fieldIssue(node, 'authApiKeyIn', `${node.label} 的 API Key 传递位置不支持。`, '改为 header 或 query。'))
-    return
-  }
-  if (authType === 'custom_header') {
-    if (isBlank(node.config.authSecretValue)) issues.push(fieldIssue(node, 'authSecretValue', `${node.label} 的自定义 Header 值不能为空。`, '填写密文值或改用已保存凭据。'))
-    if (isBlank(node.config.authHeaderName)) issues.push(fieldIssue(node, 'authHeaderName', `${node.label} 的 Header 名称不能为空。`, '填写实际 Header 名称。'))
-    return
-  }
-  if (isBlank(node.config.authCertSecretRef)) issues.push(fieldIssue(node, 'authCertSecretRef', `${node.label} 的客户端证书不能为空。`, '填写证书密文或使用证书变量。'))
-  if (isBlank(node.config.authKeySecretRef)) issues.push(fieldIssue(node, 'authKeySecretRef', `${node.label} 的客户端私钥不能为空。`, '填写私钥密文或使用证书变量。'))
-}
-
-function buildHttpRequestAuth(config: Record<string, unknown>): WorkflowHttpRequestAuth | undefined {
-  const authType = readHttpAuthType(config.authType) ?? 'none'
-  if (authType === 'none') return { type: 'none' }
-  if (authType === 'basic') {
-    const credential = readCredentialValue(config.authCredential)
-    if (!credential || isBlank(config.authUsername)) return undefined
-    return { type: 'basic', username: String(config.authUsername), credential }
-  }
-  if (authType === 'bearer') {
-    const credential = readCredentialValue(config.authCredential)
-    if (!credential) return undefined
-    return { type: 'bearer', credential }
-  }
-  if (authType === 'api_key') {
-    const credential = readCredentialValue(config.authCredential)
-    if (!credential || isBlank(config.authApiKeyName)) return undefined
-    return { type: 'api_key', credential, name: String(config.authApiKeyName), in: String(config.authApiKeyIn ?? 'header') === 'query' ? 'query' : 'header' }
-  }
-  if (authType === 'cookie') {
-    if (isBlank(config.authSecretValue)) return undefined
-    return { type: 'cookie', secretRef: String(config.authSecretValue), ...(isBlank(config.authCookieName) ? {} : { name: String(config.authCookieName) }) }
-  }
-  if (authType === 'custom_header') {
-    if (isBlank(config.authSecretValue) || isBlank(config.authHeaderName)) return undefined
-    return { type: 'custom_header', secretRef: String(config.authSecretValue), headerName: String(config.authHeaderName) }
-  }
-  if (isBlank(config.authCertSecretRef) || isBlank(config.authKeySecretRef)) return undefined
-  return { type: 'mtls', certSecretRef: String(config.authCertSecretRef), keySecretRef: String(config.authKeySecretRef) }
-}
-
 function buildHttpNodeConfig(auth: Extract<WorkflowDslStep, { type: 'http' }>['request']['auth']): Record<string, unknown> {
   const base = {
     authType: 'none',
@@ -1149,24 +877,6 @@ function buildHttpNodeConfig(auth: Extract<WorkflowDslStep, { type: 'http' }>['r
   return { ...base, authType: 'mtls', authCertSecretRef: auth.certSecretRef, authKeySecretRef: auth.keySecretRef }
 }
 
-function readHttpAuthType(value: unknown): WorkflowCanvasHttpAuthType | null {
-  const authType = String(value ?? 'none')
-  return ['none', 'basic', 'bearer', 'api_key', 'cookie', 'custom_header', 'mtls'].includes(authType)
-    ? authType as WorkflowCanvasHttpAuthType
-    : null
-}
-
-function isCredentialValue(value: unknown): value is WorkflowDslCredentialValue {
-  return typeof value === 'string'
-    ? value.trim().startsWith('{{') && value.trim().endsWith('}}')
-    : isWorkflowCredentialBinding(value)
-}
-
-function readCredentialValue(value: unknown): WorkflowDslCredentialValue | undefined {
-  if (!isCredentialValue(value)) return undefined
-  return typeof value === 'string' ? value.trim() : workflowCredentialBinding(value)
-}
-
 function cloneCredentialValue(value: WorkflowDslCredentialValue): WorkflowDslCredentialValue {
   return typeof value === 'string' ? value : workflowCredentialBinding(value)
 }
@@ -1175,60 +885,14 @@ function credentialValueId(value: WorkflowDslCredentialValue): string {
   return typeof value === 'string' ? '' : value.id
 }
 
-function readHostKeyPolicy(value: unknown): 'strict' | 'trust_on_first_use' | 'manual_approval_required' {
-  const policy = String(value ?? 'trust_on_first_use')
-  if (policy === 'strict' || policy === 'manual_approval_required') return policy
-  return 'trust_on_first_use'
-}
-
 function findVariableUsers(canvas: WorkflowCanvasDefinition, variableName: string): string[] {
   const needle = `{{${variableName}}}`
   return canvas.nodes.filter((node) => JSON.stringify(node.config).includes(needle)).map((node) => node.label)
 }
 
-function canvasIssue(id: string, severity: WorkflowValidationSeverity, message: string, suggestion: string): WorkflowValidationIssue {
-  return { id, severity, message, targetType: 'canvas', suggestion }
-}
-
-function fieldIssue(node: WorkflowCanvasNode, field: string, message: string, suggestion: string): WorkflowValidationIssue {
-  return { id: `${node.id}:${field}`, severity: 'error', message, targetType: 'field', nodeId: node.id, field, suggestion }
-}
-
-function edgeIssue(edgeId: string, message: string, suggestion: string): WorkflowValidationIssue {
-  return { id: edgeId, severity: 'error', message, targetType: 'edge', edgeId, suggestion }
-}
-
-function isBlank(value: unknown): boolean {
-  return value === undefined || value === null || String(value).trim() === ''
-}
-
-function isSecretRef(value: string): boolean {
-  return /^secret:\/\/[a-zA-Z0-9/_#.-]+$/.test(value)
-}
-
-function containsPlainSecret(value: unknown): boolean {
-  if (typeof value !== 'string') return false
-  if (value.includes('{{') || isSecretRef(value)) return false
-  return /-----BEGIN [A-Z ]*PRIVATE KEY-----|password\s*[:=]\s*[^{}\s]+|token\s*[:=]\s*[^{}\s]+|api[_-]?key\s*[:=]\s*[^{}\s]+/i.test(value)
-}
-
-function parseLooseJson(value: string): unknown {
-  const trimmed = value.trim()
-  if (!trimmed) return undefined
-  try {
-    return JSON.parse(trimmed) as unknown
-  } catch {
-    return trimmed
-  }
-}
-
 function stringifyBody(value: unknown): string {
   if (value === undefined) return ''
   return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
-}
-
-function splitCommandLines(value: string): string[] {
-  return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
 }
 
 function sshConfigText(step: Extract<WorkflowDslStep, { type: 'ssh' }>): string {
@@ -1259,24 +923,6 @@ function sanitizeVariableDefinition(definition: WorkflowVariableDefinition): Wor
   return next
 }
 
-function buildDslCondition(config: Record<string, unknown>): WorkflowDslCondition {
-  const variable = String(config.variable ?? '').trim() || 'deviceHost'
-  const operator = String(config.operator ?? 'exists')
-  if (operator === 'equals') return { variable, equals: parseConditionValue(config.expected) }
-  if (operator === 'notEquals') return { variable, notEquals: parseConditionValue(config.expected) }
-  if (operator === 'notExists') return { variable, exists: false }
-  return { variable, exists: true }
-}
-
-function parseConditionValue(value: unknown): unknown {
-  if (typeof value !== 'string') return value
-  const trimmed = value.trim()
-  if (trimmed === 'true') return true
-  if (trimmed === 'false') return false
-  if (trimmed !== '' && /^-?\d+(\.\d+)?$/.test(trimmed)) return Number(trimmed)
-  return value
-}
-
 function createDefaultFileTransferConfig(contentRef: string, remotePath: string, temporaryPath: string, mode: string): Record<string, unknown> {
   return {
     direction: 'upload',
@@ -1292,106 +938,6 @@ function createDefaultFileTransferConfig(contentRef: string, remotePath: string,
     mode,
     timeoutSeconds: 60,
   }
-}
-
-function buildFileTransferDslStep(node: WorkflowCanvasNode, name: string, protocol: 'sftp' | 'scp'): Extract<WorkflowDslStep, { type: 'sftp' | 'scp' }> {
-  const config = {
-    direction: normalizeTransferDirection(node.config.direction),
-    connection: {
-      host: String(node.config.connectionRef ?? '{{deviceHost}}'),
-      username: String(node.config.username ?? '{{sshUsername}}'),
-      credential: readCredentialValue(node.config.credential) ?? '{{credential}}',
-      hostKeyPolicy: readHostKeyPolicy(node.config.hostKeyPolicy),
-      ...(isBlank(node.config.expectedHostKeyFingerprint) ? {} : { expectedHostKeyFingerprint: String(node.config.expectedHostKeyFingerprint) }),
-    },
-    remotePath: String(node.config.remotePath ?? '/tmp/cert.pem'),
-    ...(isBlank(node.config.temporaryPath) ? {} : { temporaryPath: String(node.config.temporaryPath) }),
-    ...(isBlank(node.config.contentRef) ? {} : { contentRef: String(node.config.contentRef) }),
-    ...(isBlank(node.config.localPath) ? {} : { localPath: String(node.config.localPath) }),
-    ...(isBlank(node.config.mode) ? {} : { mode: String(node.config.mode) }),
-    timeoutSeconds: Number(node.config.timeoutSeconds ?? 60),
-  }
-  const common = {
-    name,
-    stage: getNodeStage(node),
-    extract: [{ name: `${name}_hash`, type: 'jsonPath', path: '$.transferResults[0].hash', optional: true } satisfies WorkflowDslExtractor],
-  }
-  return protocol === 'sftp'
-    ? { ...common, type: 'sftp', sftp: config }
-    : { ...common, type: 'scp', scp: config }
-}
-
-function normalizeTransferDirection(value: unknown): 'upload' | 'download' {
-  return String(value ?? 'upload').toLowerCase() === 'download' ? 'download' : 'upload'
-}
-
-function readImportedStep(node: WorkflowCanvasNode): WorkflowDslStep | null {
-  const value = node.ui?.rawStep
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const record = value as Record<string, unknown>
-  if (typeof record.name !== 'string' || typeof record.type !== 'string') return null
-  return cloneRecord(record) as WorkflowDslStep
-}
-
-function mergeImportedDslStep(node: WorkflowCanvasNode, generated: WorkflowDslStep): WorkflowDslStep {
-  const imported = readImportedStep(node)
-  if (!imported || imported.type !== generated.type) return generated
-  if (generated.type === 'http' && imported.type === 'http') {
-    return {
-      ...imported,
-      ...generated,
-      request: { ...imported.request, ...generated.request },
-      retry: generated.retry ?? imported.retry,
-      extract: imported.extract ?? generated.extract,
-      assert: imported.assert ?? generated.assert,
-    }
-  }
-  if (generated.type === 'ssh' && imported.type === 'ssh') {
-    return {
-      ...imported,
-      ...generated,
-      ssh: {
-        ...imported.ssh,
-        ...generated.ssh,
-        connection: { ...imported.ssh.connection, ...generated.ssh.connection },
-      },
-      retry: generated.retry ?? imported.retry,
-      extract: imported.extract ?? generated.extract,
-      assert: imported.assert ?? generated.assert,
-    }
-  }
-  if (generated.type === 'sftp' && imported.type === 'sftp') {
-    return {
-      ...imported,
-      ...generated,
-      sftp: {
-        ...imported.sftp,
-        ...generated.sftp,
-        connection: { ...imported.sftp.connection, ...generated.sftp.connection },
-      },
-      retry: generated.retry ?? imported.retry,
-      extract: imported.extract ?? generated.extract,
-      assert: imported.assert ?? generated.assert,
-    }
-  }
-  if (generated.type === 'scp' && imported.type === 'scp') {
-    return {
-      ...imported,
-      ...generated,
-      scp: {
-        ...imported.scp,
-        ...generated.scp,
-        connection: { ...imported.scp.connection, ...generated.scp.connection },
-      },
-      retry: generated.retry ?? imported.retry,
-      extract: imported.extract ?? generated.extract,
-      assert: imported.assert ?? generated.assert,
-    }
-  }
-  if (generated.type === 'condition' && imported.type === 'condition') {
-    return { ...imported, ...generated, condition: { ...imported.condition, ...generated.condition } }
-  }
-  return { ...imported, ...generated }
 }
 
 function normalizeIdentifier(value: string): string {

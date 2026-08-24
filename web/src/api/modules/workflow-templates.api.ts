@@ -2,6 +2,8 @@ import { apiClient, createIdempotencyKey } from '@/api/client'
 import { listRecords, postAction, toClientPath, type ApiBody, type ApiRecord, type BusinessListQuery } from './common'
 
 const WORKFLOW_TEMPLATES_PATH = '/api/v1/workflow-templates'
+const WORKFLOW_CANVAS_COMPILE_PATH = '/api/v1/workflow-templates/canvas/compile'
+const WORKFLOW_CANVAS_VALIDATE_PATH = '/api/v1/workflow-templates/canvas/validate'
 const WORKFLOW_FILE_TEMPLATES_PATH = '/api/v1/workflow-file-templates'
 const WORKFLOW_TEMPLATE_VERSIONS_PATH = '/api/v1/workflow-template-versions'
 const WORKFLOW_TEMPLATE_PUBLISH_PATH = '/api/v1/workflow-template-versions/publish'
@@ -15,6 +17,14 @@ export function listWorkflowTemplates(query?: BusinessListQuery) {
 
 export function createWorkflowTemplate(payload: ApiBody) {
   return postAction(WORKFLOW_TEMPLATES_PATH, payload, 'workflow_template_create')
+}
+
+export function compileWorkflowCanvas(payload: ApiBody) {
+  return postAction(WORKFLOW_CANVAS_COMPILE_PATH, payload, 'workflow_canvas_compile')
+}
+
+export function validateWorkflowCanvasOnBackend(payload: ApiBody) {
+  return postAction(WORKFLOW_CANVAS_VALIDATE_PATH, payload, 'workflow_canvas_validate')
 }
 
 export function deleteWorkflowTemplate(templateId: string, payload: ApiBody = {}) {

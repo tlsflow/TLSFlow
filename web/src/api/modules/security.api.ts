@@ -148,12 +148,17 @@ export function deleteIdentitySource(id: string): Promise<ApiResult<{ id: string
   })
 }
 
+export function listSecrets(query?: BusinessListQuery): Promise<ApiPageResult> {
+  return listRecords('/api/v1/secrets', query)
+}
+
 export function createSecret(body: {
   name: string
   type: 'ssh_key' | 'password' | 'api_token' | 'pfx_password' | 'private_key' | 'certificate_private_key'
   scopeType: 'global' | 'team' | 'zone' | 'host' | 'plugin'
   plainText: string
   scopeId?: string
+  metadata?: Record<string, unknown>
 }): Promise<ApiResult<{ id: string; secretRef: string }>> {
   return apiClient.post<{ id: string; secretRef: string }>('/v1/secrets', body)
 }

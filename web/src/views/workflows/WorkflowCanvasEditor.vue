@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { testWorkflowTemplateStep } from '@/api/modules/workflow-templates.api'
+import { computed, onMounted, ref, watch } from 'vue'
+import { compileWorkflowCanvas, testWorkflowTemplateStep, validateWorkflowCanvasOnBackend } from '@/api/modules/workflow-templates.api'
 import {
   findWorkflowCredentialById,
-  loadStoredWorkflowCredentials,
+  loadWorkflowCredentials,
   workflowCredentialBinding,
   workflowCredentialLabel,
   type WorkflowCredentialKind,
@@ -17,7 +17,6 @@ import {
   autoLayoutCanvas,
   cloneCanvas,
   createDefaultWorkflowCanvas,
-  getWorkflowDslStepName,
   getNodeTypeDefinition,
   getNodeStage,
   getVariableFlow,
@@ -29,14 +28,14 @@ import {
   setNodeLabel,
   setNodeStage,
   upsertWorkflowVariable,
-  validateWorkflowCanvas,
-  workflowCanvasToDsl,
   workflowDslToCanvas,
   type WorkflowCanvasDefinition,
   type WorkflowCanvasHttpAuthType,
   type WorkflowCanvasNode,
   type WorkflowCanvasNodeType,
   type WorkflowCanvasStage,
+  type WorkflowDslV1,
+  type WorkflowValidationIssue,
   type WorkflowVariableDefinition,
   type WorkflowNodeFieldDefinition,
 } from './workflow-canvas.model'
@@ -80,7 +79,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [value: WorkflowCanvasDefinition]
-  save: [value: { canvas: WorkflowCanvasDefinition; dsl: ReturnType<typeof workflowCanvasToDsl> }]
+  save: [value: { canvas: WorkflowCanvasDefinition }]
 }>()
 
 const history = ref<WorkflowCanvasDefinition[]>([])
@@ -98,13 +97,24 @@ const stepRuntimeState = ref<StepRuntimeState>({ userVariables: {} })
 const dslEditorText = ref('')
 const dslEditorDirty = ref(false)
 const dslEditorMessage = ref('')
-const managedCredentials = ref<WorkflowManagedCredential[]>(loadStoredWorkflowCredentials())
+const managedCredentials = ref<WorkflowManagedCredential[]>([])
+const credentialsLoading = ref(false)
+const credentialsLoadError = ref('')
 
 const SSH_NODE_TYPES: readonly WorkflowCanvasNodeType[] = ['ssh', 'sftp', 'scp']
 const HTTP_CREDENTIAL_AUTH_TYPES: readonly WorkflowCanvasHttpAuthType[] = ['basic', 'bearer', 'api_key']
 
-function refreshManagedCredentials() {
-  managedCredentials.value = loadStoredWorkflowCredentials()
+async function refreshManagedCredentials() {
+  credentialsLoading.value = true
+  credentialsLoadError.value = ''
+  try {
+    managedCredentials.value = await loadWorkflowCredentials()
+  } catch (cause) {
+    managedCredentials.value = []
+    credentialsLoadError.value = cause instanceof Error ? cause.message : '加载后端凭据失败'
+  } finally {
+    credentialsLoading.value = false
+  }
 }
 
 function readNodeHttpAuthType(value: unknown): WorkflowCanvasHttpAuthType {
@@ -168,9 +178,10 @@ const selectedNodeHttpAuthType = computed(() => selectedNode.value?.type === 'ht
 const canvas = computed(() => props.modelValue ?? createDefaultWorkflowCanvas())
 const selectedNode = computed(() => canvas.value.nodes.find((node) => node.id === selectedNodeId.value) ?? canvas.value.nodes[0] ?? null)
 const selectedNodeDefinition = computed(() => selectedNode.value ? getNodeTypeDefinition(selectedNode.value.type) : null)
-const validationIssues = computed(() => validateWorkflowCanvas(canvas.value))
+const validationIssues = ref<WorkflowValidationIssue[]>([])
 const variableFlow = computed(() => getVariableFlow(canvas.value))
-const dslPreview = computed(() => workflowCanvasToDsl(canvas.value))
+const dslPreview = ref<WorkflowDslV1 | null>(null)
+const backendValidationMessage = ref('')
 const canEdit = computed(() => !props.readonly)
 const zoomPercent = computed(() => Math.round((canvas.value.viewport.zoom ?? 1) * 100))
 const stageSections = computed(() => {
@@ -188,10 +199,48 @@ const stepTestStepResult = computed(() => readRecord(stepTestResult.value?.stepR
 const stepTestRenderedStep = computed(() => readRecord(stepTestResult.value?.renderedStep))
 const stepTestOutput = computed(() => stepTestResult.value?.stepOutput ?? null)
 const stepTestOutputRecord = computed(() => readRecord(stepTestOutput.value))
+const stepTestOutputBodyRecord = computed(() => readRecord(stepTestOutputRecord.value?.body))
+const stepTestOutputRawRecord = computed(() => readRecord(stepTestOutputRecord.value?.raw))
+const stepTestCommandResult = computed(() =>
+  readRecord(stepTestOutputRecord.value?.commandResult)
+  ?? readRecord(stepTestOutputBodyRecord.value?.commandResult)
+  ?? readRecord(stepTestOutputRawRecord.value?.commandResult),
+)
 const stepTestPlan = computed(() => stepTestStepResult.value?.plan ?? stepTestRenderedStep.value?.preview ?? null)
 const stepTestPlanText = computed(() => stepTestPlan.value === null ? '' : JSON.stringify(stepTestPlan.value, null, 2))
 const stepTestOutputText = computed(() => stepTestOutput.value === null ? '' : JSON.stringify(stepTestOutput.value, null, 2))
 const stepTestLogs = computed(() => [...readStringArray(stepTestStepResult.value?.logs), ...readStringArray(stepTestResult.value?.logs)])
+const stepTestExitCode = computed(() =>
+  firstNumber(
+    stepTestOutputRecord.value?.exitCode,
+    stepTestCommandResult.value?.exitCode,
+    stepTestOutputBodyRecord.value?.exitCode,
+    stepTestOutputRawRecord.value?.exitCode,
+  ),
+)
+const stepTestStdout = computed(() =>
+  firstString(
+    stepTestOutputRecord.value?.stdout,
+    stepTestCommandResult.value?.stdout,
+    stepTestOutputBodyRecord.value?.stdout,
+    stepTestOutputRawRecord.value?.stdout,
+  ),
+)
+const stepTestStderr = computed(() =>
+  firstString(
+    stepTestOutputRecord.value?.stderr,
+    stepTestCommandResult.value?.stderr,
+    stepTestOutputBodyRecord.value?.stderr,
+    stepTestOutputRawRecord.value?.stderr,
+  ),
+)
+const realRunButtonLabel = computed(() => {
+  if (stepTesting.value) return '试跑中...'
+  if (selectedNode.value?.type === 'ssh') return '真实 SSH 执行当前节点'
+  if (selectedNode.value?.type === 'sftp' || selectedNode.value?.type === 'scp') return '真实文件传输试跑'
+  if (selectedNode.value?.type === 'http' || selectedNode.value?.type === 'verify') return '真实 HTTP 试跑当前节点'
+  return '真实试跑当前节点'
+})
 const stepTestErrorDetail = computed<StepTestErrorDetail | null>(() => {
   const result = stepTestStepResult.value
   const output = stepTestOutputRecord.value
@@ -208,20 +257,53 @@ const stepTestErrorDetail = computed<StepTestErrorDetail | null>(() => {
   if (!message && !code && !target && !cause && !suggestion) return null
   return { message, code, target, stage, category, cause, suggestion }
 })
+let backendCanvasSyncSeq = 0
 
 watch(() => props.modelValue, () => {
-  refreshManagedCredentials()
   if (!selectedNodeId.value && canvas.value.nodes[0]) selectedNodeId.value = canvas.value.nodes[0].id
 }, { immediate: true })
 
+onMounted(() => {
+  void refreshManagedCredentials()
+})
+
 watch(dslPreview, (value) => {
   if (dslEditorDirty.value) return
-  dslEditorText.value = JSON.stringify(value, null, 2)
+  dslEditorText.value = value ? JSON.stringify(value, null, 2) : ''
 }, { immediate: true })
+
+watch(canvas, (value) => {
+  void syncBackendCanvasState(value)
+}, { immediate: true, deep: true })
 
 watch([canvas, selectedNodeId], () => {
   stepRuntimeState.value = mergeRuntimeState(stepRuntimeState.value, canvas.value)
 }, { immediate: true, deep: true })
+
+async function syncBackendCanvasState(value: WorkflowCanvasDefinition) {
+  const seq = ++backendCanvasSyncSeq
+  backendValidationMessage.value = ''
+  try {
+    const snapshot = cloneCanvas(value)
+    const validation = await validateWorkflowCanvasOnBackend({ canvas: snapshot })
+    if (seq !== backendCanvasSyncSeq) return
+    validationIssues.value = Array.isArray(validation.data?.issues)
+      ? validation.data.issues as WorkflowValidationIssue[]
+      : []
+    if (validationIssues.value.some((issue) => issue.severity === 'error')) {
+      dslPreview.value = null
+      return
+    }
+    const compiled = await compileWorkflowCanvas({ canvas: snapshot })
+    if (seq !== backendCanvasSyncSeq) return
+    dslPreview.value = (compiled.data?.content ?? null) as WorkflowDslV1 | null
+  } catch (error) {
+    if (seq !== backendCanvasSyncSeq) return
+    validationIssues.value = []
+    dslPreview.value = null
+    backendValidationMessage.value = error instanceof Error ? error.message : '后端画布校验失败'
+  }
+}
 
 function commit(next: WorkflowCanvasDefinition) {
   if (!canEdit.value) return
@@ -327,7 +409,6 @@ function updateHttpAuthType(event: Event) {
 function updateSelectedCredential(event: Event) {
   const node = selectedNode.value
   if (!node) return
-  refreshManagedCredentials()
   const target = event.target as HTMLSelectElement
   const credential = managedCredentials.value.find((item) => item.id === target.value) ?? null
   if (node.type === 'http') {
@@ -453,14 +534,13 @@ function deleteVariable(name: string) {
 }
 
 function save() {
-  refreshManagedCredentials()
-  emit('save', { canvas: cloneCanvas(canvas.value), dsl: workflowCanvasToDsl(canvas.value) })
+  emit('save', { canvas: cloneCanvas(canvas.value) })
 }
 
 function resetDslEditorToCanvas() {
-  dslEditorText.value = JSON.stringify(dslPreview.value, null, 2)
+  dslEditorText.value = dslPreview.value ? JSON.stringify(dslPreview.value, null, 2) : ''
   dslEditorDirty.value = false
-  dslEditorMessage.value = '已回填当前画布对应的 DSL。'
+  dslEditorMessage.value = '已回填后端编译后的 DSL。'
 }
 
 function updateDslEditor(event: Event) {
@@ -520,10 +600,17 @@ async function runSelectedNode(mode: 'mock' | 'real_test') {
   activeBottomPanel.value = 'runtime'
   bottomPanelCollapsed.value = false
   try {
-    const stepName = getWorkflowDslStepName(canvas.value, selectedNode.value.id)
+    const compiled = await compileWorkflowCanvas({ canvas: cloneCanvas(canvas.value) })
+    const compiledData = readRecord(compiled.data)
+    const content = compiledData?.content as WorkflowDslV1 | undefined
+    const stepNamesSource = compiledData ? readRecord(compiledData.stepNames) : null
+    const stepNames = stepNamesSource ? stepNamesSource as Record<string, string> : {}
+    if (!content) throw new Error('后端未返回工作流 DSL')
+    const stepName = stepNames[selectedNode.value.id]
+    if (!stepName) throw new Error('后端未返回当前节点对应的 stepName')
     stepTestStepName.value = stepName
     const result = await testWorkflowTemplateStep({
-      content: workflowCanvasToDsl(canvas.value),
+      content,
       stepName,
       mode,
       userVariables: mode === 'mock' ? buildMockUserVariables(canvas.value) : buildRuntimeUserVariables(),
@@ -699,6 +786,14 @@ function firstString(...values: unknown[]): string | undefined {
   }
   return undefined
 }
+
+function firstNumber(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+    if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) return Number(value)
+  }
+  return undefined
+}
 </script>
 
 <template>
@@ -844,6 +939,8 @@ function firstString(...values: unknown[]): string | undefined {
                 </select>
                 <small class="workflow-canvas-editor__property-hint">{{ credentialSelectorHint(selectedNode) }}</small>
               </label>
+              <p v-if="credentialsLoadError" class="workflow-canvas-editor__property-empty">{{ credentialsLoadError }}</p>
+              <p v-else-if="credentialsLoading" class="workflow-canvas-editor__property-empty">正在从后端加载凭据...</p>
               <label v-if="selectedNodeHttpAuthType === 'basic'">
                 <span>用户名</span>
                 <input :value="String(selectedNode.config.authUsername ?? '')" :disabled="!canEdit" @input="updateField({ key: 'authUsername', label: '用户名', kind: 'text' }, $event)" />
@@ -910,7 +1007,9 @@ function firstString(...values: unknown[]): string | undefined {
               </select>
               <small class="workflow-canvas-editor__property-hint">{{ credentialSelectorHint(selectedNode) }}</small>
             </label>
-            <p v-if="!selectedNodeCredentialOptions.length" class="workflow-canvas-editor__property-empty">暂无可用凭据，请先在列表页打开“凭据管理”创建。</p>
+            <p v-if="credentialsLoadError" class="workflow-canvas-editor__property-empty">{{ credentialsLoadError }}</p>
+            <p v-else-if="credentialsLoading" class="workflow-canvas-editor__property-empty">正在从后端加载凭据...</p>
+            <p v-else-if="!selectedNodeCredentialOptions.length" class="workflow-canvas-editor__property-empty">暂无可用凭据，请先在列表页打开“凭据管理”创建。</p>
             <template v-if="selectedNode.type === 'ssh'">
               <label>
                 <span>命令</span>
@@ -962,14 +1061,14 @@ function firstString(...values: unknown[]): string | undefined {
             </label>
           </template>
           <div class="workflow-canvas-editor__test-actions">
-            <button class="gc-button workflow-canvas-editor__test-button" type="button" :disabled="stepTesting" @click="testSelectedNode">
-              {{ stepTesting ? '模拟中...' : '模拟运行当前节点' }}
-            </button>
             <button class="gc-button gc-button--primary workflow-canvas-editor__test-button" type="button" :disabled="stepTesting" @click="runSelectedNode('real_test')">
-              {{ stepTesting ? '试跑中...' : '真实试跑当前节点' }}
+              {{ realRunButtonLabel }}
+            </button>
+            <button class="gc-button workflow-canvas-editor__test-button" type="button" :disabled="stepTesting" @click="testSelectedNode">
+              {{ stepTesting ? '模拟中...' : '仅模拟当前节点' }}
             </button>
           </div>
-          <small class="workflow-canvas-editor__test-hint">模拟运行只校验渲染和计划；真实试跑会直接访问目标 HTTP/SSH/SFTP/SCP 节点，并返回当前节点输出。</small>
+          <small class="workflow-canvas-editor__test-hint">真实试跑会直接访问目标 HTTP/SSH/SFTP/SCP 节点并返回输出；仅模拟不会连接目标主机。</small>
         </template>
         <p v-else>选择节点后编辑配置。</p>
       </aside>
@@ -1000,7 +1099,8 @@ function firstString(...values: unknown[]): string | undefined {
       </div>
 
       <div v-if="!bottomPanelCollapsed && activeBottomPanel === 'validation'" class="workflow-canvas-editor__panel" aria-label="校验面板">
-        <p v-if="validationIssues.length === 0">没有阻断错误。</p>
+        <p v-if="backendValidationMessage" class="workflow-canvas-editor__runtime-empty">{{ backendValidationMessage }}</p>
+        <p v-else-if="validationIssues.length === 0">没有阻断错误。</p>
         <ul v-else>
           <li v-for="issue in validationIssues" :key="issue.id" :data-severity="issue.severity">
             <strong>{{ issueLevelLabel(issue.severity) }}</strong>
@@ -1015,6 +1115,8 @@ function firstString(...values: unknown[]): string | undefined {
           <strong>变量配置</strong>
           <button class="gc-button" type="button" :disabled="!canEdit" @click="addVariable">添加变量</button>
         </div>
+        <p v-if="credentialsLoadError" class="workflow-canvas-editor__runtime-empty">{{ credentialsLoadError }}</p>
+        <p v-else-if="credentialsLoading" class="workflow-canvas-editor__runtime-empty">正在从后端加载凭据...</p>
         <ul class="workflow-canvas-editor__variable-editor-list">
           <li v-for="(definition, name) in canvas.variables" :key="name" class="workflow-canvas-editor__variable-editor">
             <label>
@@ -1079,6 +1181,8 @@ function firstString(...values: unknown[]): string | undefined {
         </div>
         <div class="workflow-canvas-editor__runtime-inputs">
           <strong>运行时凭据变量</strong>
+          <p v-if="credentialsLoadError" class="workflow-canvas-editor__runtime-empty">{{ credentialsLoadError }}</p>
+          <p v-else-if="credentialsLoading" class="workflow-canvas-editor__runtime-empty">正在从后端加载凭据...</p>
           <div v-if="Object.entries(canvas.variables).some(([, definition]) => definition.type === 'credential')" class="workflow-canvas-editor__runtime-form">
             <label v-for="(definition, name) in canvas.variables" v-show="definition.type === 'credential'" :key="`runtime-credential:${name}`">
               <span>{{ name }}</span>
@@ -1161,17 +1265,28 @@ function firstString(...values: unknown[]): string | undefined {
               </div>
             </dl>
           </div>
+          <dl
+            v-if="stepTestExitCode !== undefined || stepTestStdout || stepTestStderr"
+            class="workflow-canvas-editor__runtime-summary"
+          >
+            <div v-if="stepTestExitCode !== undefined">
+              <dt>退出码</dt>
+              <dd>{{ stepTestExitCode }}</dd>
+            </div>
+            <div v-if="stepTestStdout">
+              <dt>标准输出</dt>
+              <dd><pre>{{ stepTestStdout }}</pre></dd>
+            </div>
+            <div v-if="stepTestStderr">
+              <dt>标准错误</dt>
+              <dd><pre>{{ stepTestStderr }}</pre></dd>
+            </div>
+          </dl>
           <strong>执行计划</strong>
           <pre>{{ stepTestPlanText }}</pre>
           <template v-if="stepTestOutput !== null">
             <strong>节点输出</strong>
             <pre>{{ stepTestOutputText }}</pre>
-            <template v-if="stepTestOutputRecord">
-              <strong v-if="typeof stepTestOutputRecord.stdout === 'string'">标准输出</strong>
-              <pre v-if="typeof stepTestOutputRecord.stdout === 'string'">{{ String(stepTestOutputRecord.stdout) }}</pre>
-              <strong v-if="typeof stepTestOutputRecord.stderr === 'string'">标准错误</strong>
-              <pre v-if="typeof stepTestOutputRecord.stderr === 'string'">{{ String(stepTestOutputRecord.stderr) }}</pre>
-            </template>
           </template>
           <strong>日志</strong>
           <ul>
@@ -1864,6 +1979,44 @@ function firstString(...values: unknown[]): string | undefined {
   color: #334155;
   font-size: 12px;
   overflow-wrap: anywhere;
+}
+
+.workflow-canvas-editor__runtime-summary {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #bfdbfe;
+  border-left: 4px solid #2563eb;
+  border-radius: 8px;
+  background: #eff6ff;
+}
+
+.workflow-canvas-editor__runtime-summary > div {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.workflow-canvas-editor__runtime-summary dt {
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.workflow-canvas-editor__runtime-summary dd {
+  min-width: 0;
+  margin: 0;
+  color: #0f172a;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.workflow-canvas-editor__runtime-summary pre {
+  max-height: 180px;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow: auto;
 }
 
 .workflow-canvas-editor__runtime-result > strong {

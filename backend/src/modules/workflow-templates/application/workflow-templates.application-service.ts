@@ -1,4 +1,5 @@
 import { WorkflowTemplatesDomainService } from '../domain/workflow-templates.domain-service.js';
+import { compileWorkflowCanvas, validateWorkflowCanvasInput } from '../domain/workflow-canvas.compiler.js';
 import type {
   ApplyWorkflowTemplateFromFileInput,
   CreateWorkflowTemplateInput,
@@ -24,6 +25,14 @@ export class WorkflowTemplatesApplicationService {
 
   async createTemplate(input: CreateWorkflowTemplateInput) {
     return this.domain.createTemplate(input);
+  }
+
+  compileCanvas(input: unknown) {
+    return compileWorkflowCanvas(input);
+  }
+
+  validateCanvas(input: unknown) {
+    return validateWorkflowCanvasInput(input);
   }
 
   async listFileTemplates(): Promise<WorkflowFileTemplate[]> {

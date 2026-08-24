@@ -1,3 +1,6 @@
+import type { ApiRecord } from '@/api/modules/common'
+import { listSecrets } from '@/api/modules/security.api'
+
 export type WorkflowCredentialKind = 'username_password' | 'ssh_key' | 'curl_bearer' | 'curl_api_key'
 export type WorkflowCredentialSecretType = 'ssh_key' | 'password' | 'api_token'
 
@@ -15,7 +18,13 @@ export interface WorkflowManagedCredential extends WorkflowCredentialBinding {
   readonly createdAt: string
 }
 
-export const WORKFLOW_CREDENTIAL_STORAGE_KEY = 'gcac.workflow.credentials.v3'
+export interface WorkflowCredentialMetadata extends Record<string, unknown> {
+  readonly workflowCredential: true
+  readonly workflowCredentialKind: WorkflowCredentialKind
+  readonly username?: string
+  readonly apiKeyName?: string
+  readonly apiKeyIn?: 'header' | 'query'
+}
 
 export function isWorkflowCredentialKind(value: unknown): value is WorkflowCredentialKind {
   return value === 'username_password'
@@ -55,32 +64,39 @@ export function workflowCredentialBinding(item: Pick<WorkflowManagedCredential, 
   }
 }
 
-export function loadStoredWorkflowCredentials(): WorkflowManagedCredential[] {
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(WORKFLOW_CREDENTIAL_STORAGE_KEY) ?? '[]') as Array<Partial<WorkflowManagedCredential>>
-    return Array.isArray(parsed)
-      ? parsed.flatMap((item) => {
-        if (!item || typeof item.id !== 'string' || !isWorkflowCredentialKind(item.kind)) return []
-        const type = isWorkflowCredentialSecretType(item.type) ? item.type : workflowSecretTypeForCredentialKind(item.kind)
-        return [{
-          id: item.id,
-          name: typeof item.name === 'string' ? item.name : item.id,
-          username: typeof item.username === 'string' ? item.username : undefined,
-          kind: item.kind,
-          type,
-          apiKeyName: typeof item.apiKeyName === 'string' ? item.apiKeyName : undefined,
-          apiKeyIn: item.apiKeyIn === 'query' ? 'query' : item.apiKeyIn === 'header' ? 'header' : undefined,
-          createdAt: typeof item.createdAt === 'string' ? item.createdAt : '',
-        }]
-      })
-      : []
-  } catch {
-    return []
+export function workflowCredentialMetadata(item: Pick<WorkflowManagedCredential, 'kind' | 'username' | 'apiKeyName' | 'apiKeyIn'>): WorkflowCredentialMetadata {
+  return {
+    workflowCredential: true,
+    workflowCredentialKind: item.kind,
+    username: item.username?.trim() ? item.username.trim() : undefined,
+    apiKeyName: item.apiKeyName?.trim() ? item.apiKeyName.trim() : undefined,
+    apiKeyIn: item.apiKeyIn,
   }
 }
 
-export function saveStoredWorkflowCredentials(items: readonly WorkflowManagedCredential[]) {
-  window.localStorage.setItem(WORKFLOW_CREDENTIAL_STORAGE_KEY, JSON.stringify(items))
+export async function loadWorkflowCredentials(): Promise<WorkflowManagedCredential[]> {
+  const result = await listSecrets({ page: 1, pageSize: 200, filters: { workflowCredential: true } })
+  return [...(result.data?.items ?? [])].flatMap(workflowCredentialFromSecret)
+}
+
+export function workflowCredentialFromSecret(secret: ApiRecord): WorkflowManagedCredential[] {
+  const metadata = readRecord(secret.metadata)
+  if (!metadata) return []
+  const kind = isWorkflowCredentialKind(metadata.workflowCredentialKind) ? metadata.workflowCredentialKind : null
+  if (!kind) return []
+  const id = readString(secret.id)
+  if (!id) return []
+  const type = isWorkflowCredentialSecretType(secret.type) ? secret.type : workflowSecretTypeForCredentialKind(kind)
+  return [{
+    id,
+    name: readString(secret.name) || id,
+    kind,
+    type,
+    username: readString(metadata.username) || undefined,
+    apiKeyName: readString(metadata.apiKeyName) || undefined,
+    apiKeyIn: metadata.apiKeyIn === 'query' ? 'query' : metadata.apiKeyIn === 'header' ? 'header' : undefined,
+    createdAt: readString(secret.createdAt) || '',
+  }]
 }
 
 export function workflowCredentialLabel(item: Pick<WorkflowManagedCredential, 'name' | 'kind' | 'username' | 'apiKeyName'>): string {
@@ -98,4 +114,12 @@ export function workflowCredentialSummary(item: Pick<WorkflowManagedCredential, 
 
 export function findWorkflowCredentialById(id: string, items: readonly WorkflowManagedCredential[]): WorkflowManagedCredential | null {
   return items.find((item) => item.id === id) ?? null
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+}
+
+function readString(value: unknown): string {
+  return typeof value === 'string' ? value : ''
 }
