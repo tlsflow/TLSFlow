@@ -60,6 +60,15 @@ export interface CertificateVersionFormatDto {
   expiresAt?: string;
 }
 
+export interface CertificateArtifactFileDto {
+  key: string;
+  role: 'public_certificate' | 'private_key' | 'certificate_chain' | 'bundle' | string;
+  format: string;
+  content?: string;
+  contentBase64?: string;
+  contentEncoding: 'utf8' | 'base64' | string;
+}
+
 export interface CreateCertificateAssetInput {
   name: string;
   primaryDomain: string;

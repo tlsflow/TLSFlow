@@ -164,6 +164,40 @@ describe('WorkflowTemplates', () => {
     assert.throws(() => workflowTemplatesSchemaRegistry.validate(invalidFirstOf), /paths/);
   });
 
+  it('校验 certificate 变量的证书产物合同', () => {
+    const valid = templateFixture();
+    valid.variables.serverCert = {
+      type: 'certificate',
+      required: true,
+      sensitive: true,
+      artifactContract: {
+        outputs: {
+          certFile: { role: 'public_certificate', required: true, format: 'pem', encoding: 'utf8' },
+          keyFile: { role: 'private_key', required: true, format: 'pem', encoding: 'utf8' },
+        },
+      },
+    };
+    workflowTemplatesSchemaRegistry.validate(valid);
+
+    const onStringVariable = templateFixture();
+    onStringVariable.variables.deviceHost = {
+      type: 'string',
+      artifactContract: { outputs: { certFile: { role: 'public_certificate' } } },
+    } as never;
+    assert.throws(() => workflowTemplatesSchemaRegistry.validate(onStringVariable), /artifactContract 只能用于 certificate/);
+
+    const emptyOutputs = templateFixture();
+    emptyOutputs.variables.cert = { type: 'certificate', artifactContract: { outputs: {} } } as never;
+    assert.throws(() => workflowTemplatesSchemaRegistry.validate(emptyOutputs), /artifactContract\.outputs/);
+
+    const missingRole = templateFixture();
+    missingRole.variables.cert = {
+      type: 'certificate',
+      artifactContract: { outputs: { certFile: { required: true } } },
+    } as never;
+    assert.throws(() => workflowTemplatesSchemaRegistry.validate(missingRole), /output\.role/);
+  });
+
   it('模板版本不可变：新内容生成新 version/hash，发布不会覆盖旧版本', async () => {
     const service = new WorkflowTemplatesApplicationService();
     const created = await service.createTemplate({ content: templateFixture(), changeSummary: '初始版本' });

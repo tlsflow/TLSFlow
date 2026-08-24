@@ -63,6 +63,15 @@ export interface WorkflowVariableDefinition {
   readonly enum?: readonly unknown[]
   readonly sensitive?: boolean
   readonly description?: string
+  readonly artifactContract?: {
+    readonly outputs: Record<string, {
+      readonly role: string
+      readonly required?: boolean
+      readonly format?: string
+      readonly encoding?: string
+      readonly description?: string
+    }>
+  }
 }
 
 export interface WorkflowNodeFieldDefinition {
@@ -468,7 +477,18 @@ export function createDefaultWorkflowCanvas(name = 'workflow-canvas-draft'): Wor
       deviceHost: { type: 'string', required: true, description: '目标主机' },
       sshUsername: { type: 'string', required: true, description: 'SSH 用户名' },
       credential: { type: 'credential', required: true, sensitive: true, description: '连接凭据' },
-      certificate: { type: 'certificate', required: true, sensitive: true, description: '证书材料' },
+      serverCert: {
+        type: 'certificate',
+        required: true,
+        sensitive: true,
+        description: '服务器证书产物',
+        artifactContract: {
+          outputs: {
+            certFile: { role: 'public_certificate', required: true, format: 'pem', encoding: 'utf8', description: '写入证书文件的内容' },
+            keyFile: { role: 'private_key', required: true, format: 'pem', encoding: 'utf8', description: '写入私钥文件的内容' },
+          },
+        },
+      },
       certificatePaths: {
         type: 'object',
         required: true,
@@ -531,8 +551,8 @@ export function getNodeTypeDefinition(type: WorkflowCanvasNodeType): WorkflowNod
 export function createDefaultConfig(type: WorkflowCanvasNodeType): Record<string, unknown> {
   if (type === 'http') return { method: 'GET', url: '{{verifyUrl}}', authType: 'none', authCredential: '', authUsername: '', authApiKeyName: 'X-API-Key', authApiKeyIn: 'header', authHeaderName: 'X-Custom-Auth', authCookieName: '', authSecretValue: '', authCertSecretRef: '', authKeySecretRef: '', authCredentialId: '', body: '', timeoutSeconds: 30 }
   if (type === 'ssh') return { hostRef: '{{deviceHost}}', username: '{{sshUsername}}', credential: '{{credential}}', hostKeyPolicy: 'trust_on_first_use', expectedHostKeyFingerprint: '', command: 'systemctl reload nginx', timeoutSeconds: 60 }
-  if (type === 'sftp') return createDefaultFileTransferConfig('{{certificate.pem}}', '{{certificatePaths.certPath}}', '{{certificatePaths.tempCertPath}}', '0644')
-  if (type === 'scp') return createDefaultFileTransferConfig('{{certificate.privateKey}}', '{{certificatePaths.keyPath}}', '{{certificatePaths.tempKeyPath}}', '0600')
+  if (type === 'sftp') return createDefaultFileTransferConfig('{{serverCert.outputs.certFile.content}}', '{{certificatePaths.certPath}}', '{{certificatePaths.tempCertPath}}', '0644')
+  if (type === 'scp') return createDefaultFileTransferConfig('{{serverCert.outputs.keyFile.content}}', '{{certificatePaths.keyPath}}', '{{certificatePaths.tempKeyPath}}', '0600')
   if (type === 'verify') return { verifyType: 'httpStatus', inputRef: '{{verifyUrl}}', expected: '200', timeoutSeconds: 30 }
   if (type === 'condition') return { variable: 'deviceHost', operator: 'exists', expected: '', description: '目标变量存在时继续执行' }
   if (type === 'wait') return { seconds: 10 }
@@ -690,7 +710,7 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
   if (step.type === 'ssh') {
     const command = sshConfigText(step)
     if (command.startsWith('SFTP_')) {
-      const [, direction = 'UPLOAD', localArtifactRef = '{{certificate.pem}}', remotePath = '/tmp/cert.pem'] = command.split(/\s+/)
+      const [, direction = 'UPLOAD', localArtifactRef = '{{serverCert.outputs.certFile.content}}', remotePath = '/tmp/cert.pem'] = command.split(/\s+/)
       return {
         id: `sftp_${index + 1}`,
         type: 'sftp',
@@ -918,6 +938,7 @@ function sanitizeVariableDefinition(definition: WorkflowVariableDefinition): Wor
     sensitive: Boolean(definition.sensitive || definition.type === 'credential' || definition.type === 'certificate'),
     description: definition.description,
     enum: definition.enum,
+    artifactContract: definition.type === 'certificate' ? definition.artifactContract : undefined,
   }
   if (definition.default !== undefined && definition.default !== '') return { ...next, default: definition.default }
   return next

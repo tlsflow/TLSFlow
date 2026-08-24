@@ -9,7 +9,7 @@ import type {
 
 const rootKeys = new Set(['apiVersion', 'kind', 'metadata', 'variables', 'steps', 'rollback']);
 const metadataKeys = new Set(['name', 'displayName', 'category', 'tags']);
-const variableKeys = new Set(['type', 'required', 'default', 'enum', 'sensitive', 'description']);
+const variableKeys = new Set(['type', 'required', 'default', 'enum', 'sensitive', 'description', 'artifactContract']);
 const stepBaseKeys = new Set(['name', 'type', 'stage', 'when', 'retry', 'extract', 'assert']);
 const httpStepKeys = new Set([...stepBaseKeys, 'request']);
 const sshStepKeys = new Set([...stepBaseKeys, 'ssh']);
@@ -62,7 +62,28 @@ function validateVariables(value: unknown): void {
     if (typed.required !== undefined && typeof typed.required !== 'boolean') throw validationError('required 必须是布尔值', { name });
     if (typed.sensitive !== undefined && typeof typed.sensitive !== 'boolean') throw validationError('sensitive 必须是布尔值', { name });
     if (typed.type === 'enum' && (!Array.isArray(typed.enum) || typed.enum.length === 0)) throw validationError('enum 变量必须提供枚举值', { name });
+    if (typed.artifactContract !== undefined) validateArtifactContract(typed, name);
     if (typed.default !== undefined) validateVariableValue(typed, typed.default, `variables.${name}.default`);
+  }
+}
+
+function validateArtifactContract(definition: WorkflowVariableDefinition, name: string): void {
+  if (definition.type !== 'certificate') throw validationError('artifactContract 只能用于 certificate 变量', { name });
+  const contract = definition.artifactContract;
+  if (!isRecord(contract)) throw validationError('artifactContract 必须是对象', { name });
+  rejectUnknown(contract, new Set(['outputs']), `variables.${name}.artifactContract`);
+  if (!isRecord(contract.outputs) || Object.keys(contract.outputs).length === 0) {
+    throw validationError('artifactContract.outputs 必须是非空对象', { name });
+  }
+  for (const [outputName, output] of Object.entries(contract.outputs)) {
+    if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(outputName)) throw validationError('artifactContract output 名称不合法', { name, outputName });
+    if (!isRecord(output)) throw validationError('artifactContract output 必须是对象', { name, outputName });
+    rejectUnknown(output, new Set(['role', 'required', 'format', 'encoding', 'description']), `variables.${name}.artifactContract.outputs.${outputName}`);
+    if (!isNonEmptyString(output.role)) throw validationError('artifactContract output.role 必填', { name, outputName });
+    if (output.required !== undefined && typeof output.required !== 'boolean') throw validationError('artifactContract output.required 必须是布尔值', { name, outputName });
+    if (output.format !== undefined && typeof output.format !== 'string') throw validationError('artifactContract output.format 必须是字符串', { name, outputName });
+    if (output.encoding !== undefined && typeof output.encoding !== 'string') throw validationError('artifactContract output.encoding 必须是字符串', { name, outputName });
+    if (output.description !== undefined && typeof output.description !== 'string') throw validationError('artifactContract output.description 必须是字符串', { name, outputName });
   }
 }
 

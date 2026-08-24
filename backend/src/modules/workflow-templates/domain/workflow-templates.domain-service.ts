@@ -438,7 +438,7 @@ function resolveRuntimeContext(content: WorkflowDslV1, input: WorkflowRuntimeInp
 function markSensitive(name: string, definition: WorkflowVariableDefinition, value: unknown, secretPaths: Set<string>): void {
   if (definition.sensitive || definition.type === 'credential') collectValuePaths(name, value, secretPaths);
   if (definition.type === 'certificate' && isRecord(value)) {
-    for (const key of ['privateKey', 'pfx', 'jks']) {
+    for (const key of ['privateKey', 'privateKeyPem', 'pfx', 'pfxBase64', 'pfxPassword', 'jks', 'files', 'outputs']) {
       if (value[key] !== undefined) collectValuePaths(`${name}.${key}`, value[key], secretPaths);
     }
   }

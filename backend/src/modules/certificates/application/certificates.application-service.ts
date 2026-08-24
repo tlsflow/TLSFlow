@@ -24,6 +24,7 @@ import {
   type CertificateAssetDetailDto,
   type CertificateFormatCapabilitiesDto,
   type CertificateUsageDto,
+  type CertificateArtifactFileDto,
   type CertificateVersionDetailDto,
   type CertificateVersionDto,
   type CertificateVersionFormatDto,
@@ -519,6 +520,7 @@ export class CertificatesApplicationService {
     privateKeyPem?: string;
     pfxBase64?: string;
     pfxPassword?: string;
+    files: CertificateArtifactFileDto[];
     warnings: string[];
   }> {
     const format = await this.repository.getFormat(input.certificateFormatId);
@@ -553,6 +555,7 @@ export class CertificatesApplicationService {
       privateKeyPem: generated.format === 'pem' && (format.containsPrivateKey || pemNeedsSeparatePrivateKey) ? privateKey?.plainText : undefined,
       pfxBase64: generated.format === 'pfx' ? generated.content.toString('base64') : undefined,
       pfxPassword: generated.format === 'pfx' ? password?.plainText : undefined,
+      files: generated.files.map((file) => ({ ...file })),
       warnings: [...warnings, ...generated.warnings],
     };
   }

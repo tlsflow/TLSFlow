@@ -8,6 +8,7 @@ export type WorkflowRunStatus = 'success' | 'failed' | 'rolled_back';
 export type WorkflowFileTransferContentEncoding = 'utf8' | 'base64';
 export type WorkflowCredentialKind = 'username_password' | 'ssh_key' | 'curl_bearer' | 'curl_api_key';
 export type WorkflowCredentialSecretType = 'password' | 'ssh_key' | 'api_token';
+export type WorkflowCertificateArtifactRole = 'public_certificate' | 'private_key' | 'certificate_chain' | 'bundle';
 
 export interface WorkflowCredentialBinding {
   id: string;
@@ -20,6 +21,18 @@ export interface WorkflowCredentialBinding {
 
 export type WorkflowCredentialValue = WorkflowCredentialBinding | string;
 
+export interface WorkflowCertificateArtifactOutputContract {
+  role: WorkflowCertificateArtifactRole | string;
+  required?: boolean;
+  format?: string;
+  encoding?: WorkflowFileTransferContentEncoding | string;
+  description?: string;
+}
+
+export interface WorkflowCertificateArtifactContract {
+  outputs: Record<string, WorkflowCertificateArtifactOutputContract>;
+}
+
 export interface WorkflowVariableDefinition {
   type: WorkflowVariableType;
   required?: boolean;
@@ -27,6 +40,7 @@ export interface WorkflowVariableDefinition {
   enum?: unknown[];
   sensitive?: boolean;
   description?: string;
+  artifactContract?: WorkflowCertificateArtifactContract;
 }
 
 export interface WorkflowMetadata {
