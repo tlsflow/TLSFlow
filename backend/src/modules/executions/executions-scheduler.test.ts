@@ -13,13 +13,14 @@ import type { Executor, StepExecutionInput, StepExecutionResult } from './applic
 import { createDefaultExecutorRegistry, ExecutorRegistry, GatewayRouteExecutorAdapter, WorkflowExecutorAdapter } from './application/executors.js';
 import { ExecutionsRepository } from './repository/executions.repository.js';
 import { WorkflowTemplatesApplicationService } from '../workflow-templates/application/workflow-templates.application-service.js';
-import { testDeploymentInputSnapshotsRepository, withTestDeploymentInputSnapshot } from './deployment-input-runtime-snapshot.test-fixture.js';
+import { testDeploymentInputSnapshotsRepository, testTaskEnqueuer, withTestDeploymentInputSnapshot } from './deployment-input-runtime-snapshot.test-fixture.js';
 
 function createService(dependencies: Record<string, unknown> = {}) {
   return new ExecutionsApplicationService({
     deploymentPlansRepository: new DeploymentPlansRepository(),
     deploymentInputSnapshots: testDeploymentInputSnapshotsRepository as any,
     stageIntervalMs: 0,
+    tasks: testTaskEnqueuer(),
     ...dependencies,
   });
 }
@@ -316,6 +317,35 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
         attemptCount: 0,
         inputSnapshot: {
           deploymentPlanId: 'plan_gateway_enqueue',
+          actionType: 'agent.plan.execute',
+          pluginId: 'web.nginx',
+          pluginVersion: '1.0.0',
+          pluginVersionId: 'plugin-version-gateway-fixture',
+          capability: 'web.nginx.deploy',
+          packageSha256: `sha256:${'a'.repeat(64)}`,
+          manifestSha256: `sha256:${'b'.repeat(64)}`,
+          resourceHash: `sha256:${'c'.repeat(64)}`,
+          plan: {
+            planId: 'plan_gateway_enqueue',
+            planDigest: 'd'.repeat(64),
+            writeEffect: true,
+          },
+          token: {
+            tokenId: 'token-gateway-fixture',
+            agentId: 'host_gateway_enqueue',
+            tenantId: 'tenant_1',
+            pluginId: 'web.nginx',
+            pluginVersionId: 'plugin-version-gateway-fixture',
+            capability: 'web.nginx.deploy',
+            planDigest: 'd'.repeat(64),
+            nonce: 'nonce-gateway-fixture',
+          },
+          policyDecision: {
+            decisionId: 'decision-gateway-fixture',
+            agentId: 'host_gateway_enqueue',
+            tenantId: 'tenant_1',
+            revocationRef: 'revocation-gateway-fixture',
+          },
           gatewayRoute: {
             gatewayId: 'gw_exec_01',
             agentId: 'agt_gateway_exec_01',
@@ -329,7 +359,11 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
 
     assert.equal(result.success, true);
     assert.equal(result.detail?.mode, 'gateway_route_direct_execute');
-    assert.equal(capturedPayload?.type, 'gateway.forward.agent_task');
+    assert.equal(capturedPayload?.actionType, 'agent.plan.execute');
+    assert.equal((capturedPayload?.token as { tokenId?: string } | undefined)?.tokenId, 'token-gateway-fixture');
+    assert.equal((capturedPayload?.policyDecision as { decisionId?: string } | undefined)?.decisionId, 'decision-gateway-fixture');
+    assert.equal((capturedPayload?.plan as { planId?: string } | undefined)?.planId, 'plan_gateway_enqueue');
+    assert.equal(capturedPayload?.type, undefined);
     const gatewayTask = capturedPayload?.gatewayTask as { delegatedTargetId: string; forwardingGrant?: { status: string; taskType: string } };
     assert.equal(gatewayTask.delegatedTargetId, 'host_gateway_enqueue');
     assert.equal(gatewayTask.forwardingGrant?.status, 'active');
@@ -338,84 +372,89 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
 
   it('Gateway Agent 提交转发结果后回写原 ExecutionStep', async () => {
     const db = new PgliteDatabase();
-    await runMigrations(db);
-    const repository = new ExecutionsRepository(db);
-    const resultSync = new ExecutionResultSyncService(repository, {} as any, {} as any);
-    const agents = new AgentsApplicationService(new PgAgentsRepository(db), undefined, undefined, undefined, undefined, resultSync);
-    const now = new Date().toISOString();
-    const run = await repository.createRun({
-      id: 'run_gateway_result_sync',
-      tenantId: 'tenant_gateway_result_sync',
-      deploymentPlanId: 'plan_gateway_result_sync',
-      runNo: 1,
-      type: 'apply',
-      idempotencyKey: 'idem_gateway_result_sync',
-      requestHash: 'hash_gateway_result_sync',
-      status: 'RUNNING',
-      concurrencyLimit: 1,
-      summary: {},
-      createdAt: now,
-      updatedAt: now,
-      createdBy: 'tester',
-      version: 1,
-    });
-    const step = await repository.createStep({
-      id: 'step_gateway_result_sync',
-      tenantId: run.tenantId,
-      executionRunId: run.id,
-      deploymentPlanTargetId: 'target_gateway_result_sync',
-      stepNo: 1,
-      stepType: 'INSTALL',
-      name: 'Gateway routed install',
-      dependsOn: [],
-      idempotent: true,
-      attemptCount: 1,
-      maxAttempts: 1,
-      inputSnapshot: { executorType: 'GATEWAY_FORWARD' },
-      status: 'RUNNING',
-      createdAt: now,
-      updatedAt: now,
-      createdBy: 'tester',
-      version: 1,
-    });
-    const gateway = await agents.register(run.tenantId, {
-      agentKey: 'gateway.result.sync.01',
-      hostname: 'gateway-result-sync-01',
-      version: '1.0.0',
-      osType: 'linux',
-      role: 'gateway',
-      zoneIds: ['zone_prod'],
-      adapters: ['forward.agent_task'],
-      capabilities: ['gateway.forward.agent_task'],
-    }, 'req_gateway_result_sync_register');
-    const task = await agents.enqueueTask(run.tenantId, {
-      agentId: gateway.id,
-      executionRunId: run.id,
-      executionStepId: step.id,
-      idempotencyKey: 'gateway-result-sync-task',
-      payload: {
-        type: 'gateway.forward.agent_task',
-        gatewayTaskId: 'gateway_task_result_sync',
-      },
-    }, 'req_gateway_result_sync_enqueue');
-    await agents.ackTask(run.tenantId, { agentId: gateway.id, taskId: task.id, leaseId: 'lease_gateway_result_sync' });
-    await agents.submitResult(run.tenantId, {
-      agentId: gateway.id,
-      taskId: task.id,
-      leaseId: 'lease_gateway_result_sync',
-      success: true,
-      detail: {
-        mode: 'gateway_agent_process',
-        gatewayTaskId: 'gateway_task_result_sync',
-        delegatedTargetId: 'target_gateway_result_sync',
-      },
-    });
+    try {
+      await runMigrations(db);
+      const repository = new ExecutionsRepository(db);
+      const resultSync = new ExecutionResultSyncService(repository, {} as any, {} as any);
+      const agents = new AgentsApplicationService(new PgAgentsRepository(db), undefined, undefined, undefined, undefined, resultSync);
+      const now = new Date().toISOString();
+      const run = await repository.createRun({
+        id: 'run_gateway_result_sync',
+        tenantId: 'tenant_gateway_result_sync',
+        deploymentPlanId: 'plan_gateway_result_sync',
+        runNo: 1,
+        type: 'apply',
+        idempotencyKey: 'idem_gateway_result_sync',
+        requestHash: 'hash_gateway_result_sync',
+        status: 'RUNNING',
+        concurrencyLimit: 1,
+        summary: {},
+        createdAt: now,
+        updatedAt: now,
+        createdBy: 'tester',
+        version: 1,
+      });
+      const step = await repository.createStep({
+        id: 'step_gateway_result_sync',
+        tenantId: run.tenantId,
+        executionRunId: run.id,
+        deploymentPlanTargetId: 'target_gateway_result_sync',
+        stepNo: 1,
+        stepType: 'INSTALL',
+        name: 'Gateway routed install',
+        dependsOn: [],
+        idempotent: true,
+        attemptCount: 1,
+        maxAttempts: 1,
+        inputSnapshot: { executorType: 'GATEWAY_FORWARD' },
+        status: 'RUNNING',
+        createdAt: now,
+        updatedAt: now,
+        createdBy: 'tester',
+        version: 1,
+      });
+      const gateway = await agents.register(run.tenantId, {
+        agentKey: 'gateway.result.sync.01',
+        hostname: 'gateway-result-sync-01',
+        version: '1.0.0',
+        osType: 'linux',
+        role: 'gateway',
+        zoneIds: ['zone_prod'],
+        adapters: ['forward.agent_task'],
+        capabilities: ['gateway.forward.agent_task'],
+      }, 'req_gateway_result_sync_register');
+      const task = await agents.enqueueTask(run.tenantId, {
+        agentId: gateway.id,
+        executionRunId: run.id,
+        executionStepId: step.id,
+        idempotencyKey: 'gateway-result-sync-task',
+        payload: {
+          actionType: 'agent.plan.execute',
+          actionSchemaVersion: '1.0',
+          gatewayTaskId: 'gateway_task_result_sync',
+        },
+      }, 'req_gateway_result_sync_enqueue');
+      await agents.ackTask(run.tenantId, { agentId: gateway.id, taskId: task.id, leaseId: 'lease_gateway_result_sync' });
+      await agents.submitResult(run.tenantId, {
+        agentId: gateway.id,
+        taskId: task.id,
+        leaseId: 'lease_gateway_result_sync',
+        success: true,
+        detail: {
+          mode: 'gateway_agent_process',
+          gatewayTaskId: 'gateway_task_result_sync',
+          delegatedTargetId: 'target_gateway_result_sync',
+        },
+      });
 
-    const updatedStep = await repository.getStepOrThrow(step.id, run.tenantId);
-    const updatedRun = await repository.getRunOrThrow(run.id, run.tenantId);
-    assert.equal(updatedStep.status, 'SUCCESS');
-    assert.equal(updatedRun.status, 'SUCCESS');
-    assert.equal(updatedStep.inputSnapshot.resultDetail.gatewayTaskId, 'gateway_task_result_sync');
+      const updatedStep = await repository.getStepOrThrow(step.id, run.tenantId);
+      const updatedRun = await repository.getRunOrThrow(run.id, run.tenantId);
+      assert.equal(updatedStep.status, 'SUCCESS');
+      assert.equal(updatedRun.status, 'SUCCESS');
+      assert.equal(updatedStep.inputSnapshot.resultDetail.gatewayTaskId, 'gateway_task_result_sync');
+    } finally {
+      await db.close();
+    }
   });
 
   it('WORKFLOW 执行目标生成统一五阶段，dry-run 可预览，apply 失败关闭', async () => {
@@ -519,9 +558,10 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
             name: 'reload',
             type: 'ssh',
             ssh: {
-              mode: 'command',
               connectionRef: 'targetSsh',
-              command: 'reload cert',
+              program: 'systemctl',
+              args: ['cert'],
+              argumentTemplate: 'systemctl.reload',
             },
             assert: [{ type: 'contains', value: 'ok' }],
           },
@@ -539,9 +579,10 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
             name: 'verifyReload',
             type: 'ssh',
             ssh: {
-              mode: 'command',
               connectionRef: 'targetSsh',
-              command: 'verify reload',
+              program: 'systemctl',
+              args: ['cert'],
+              argumentTemplate: 'systemctl.restart',
             },
             assert: [{ type: 'contains', value: 'ok' }],
           },
@@ -565,9 +606,10 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
       sshExecutor: {
         type: 'SSH',
         async executeStep(input: StepExecutionInput) {
-          calls.push(`ssh:${input.step.inputSnapshot.sshRequest.command}`);
+          const sshRequest = input.step.inputSnapshot.sshRequest as Record<string, unknown>;
+          calls.push(`ssh:${sshRequest.argumentTemplate}:${(sshRequest.args as string[]).join(' ')}`);
           sshIdempotencyKeys.push(input.step.inputSnapshot.sshRequest.idempotencyKey);
-          return { success: true, detail: { commandResult: { exitCode: 0, stdout: 'reload ok', stderr: '', logs: ['ssh:ok'] } } };
+          return { success: true, detail: { exitCode: 0, stdout: 'reload ok', logs: ['ssh:ok'] } };
         },
       },
     });
@@ -601,7 +643,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     });
 
     assert.equal(result.success, true);
-    assert.deepEqual(calls, ['curl:PUT', 'ssh:reload cert', 'curl:GET', 'ssh:verify reload']);
+    assert.deepEqual(calls, ['curl:PUT', 'ssh:systemctl.reload:cert', 'curl:GET', 'ssh:systemctl.restart:cert']);
     assert.equal(curlIdempotencyKeys.length, 2);
     assert.notEqual(curlIdempotencyKeys[0], curlIdempotencyKeys[1]);
     assert.match(curlIdempotencyKeys[0]!, /^run_workflow_runtime:stp_workflow_runtime:workflow-curl:upload:1$/);
@@ -692,6 +734,31 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     });
     await service.runDispatchedExecution(cancelledRun.run.id, 'tester', 'tenant_1', createTrackingRegistry(cancelledExecutor));
     assert.equal((await service.getStep(cancelledStep.id, 'tenant_1')).lastFailureCategory, 'cancelled');
+  });
+
+  it('取消与 Agent v2 写操作竞态时落账 UNKNOWN，且不会把运行完成为成功', async () => {
+    const service = createService();
+    const created = await createRun(service, {
+      idempotencyKey: 'idem_cancel_write_unknown',
+      targetIds: ['target_cancel_write_unknown'],
+      agentPayloads: new Map([['target_cancel_write_unknown', {
+        actionType: 'agent.plan.execute',
+        writeEffect: true,
+        plan: { writeEffect: true },
+      }]]),
+    });
+    const steps = (await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id })).sort((left, right) => left.stepNo - right.stepNo);
+    await service.updateRunForTest(created.run.id, { status: 'RUNNING' }, 'tenant_1');
+    await service.updateStepForTest(steps[0].id, { status: 'RUNNING' }, 'tenant_1');
+
+    await service.cancelRun(created.run.id, 'canceller', 'tenant_1');
+
+    const cancelledStep = await service.getStep(steps[0].id, 'tenant_1');
+    const cancelledRun = await service.getRun(created.run.id, 'tenant_1');
+    assert.equal(cancelledRun.status, 'CANCELLED');
+    assert.equal(cancelledStep.status, 'RUNNING');
+    assert.equal(cancelledStep.inputSnapshot.resultDetail.executionStatus, 'UNKNOWN');
+    assert.equal(cancelledRun.summary.executionStatus, 'UNKNOWN');
   });
 
   it('失败步骤完整保存四类输入问题并脱敏敏感详情', async () => {
@@ -793,14 +860,14 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     assert.equal(result.success, true);
   });
 
-  it('Agent Atomic 使用独立控制面 TLS VERIFY，并区分连接地址与 SNI', async () => {
+  it('Agent v2 使用独立控制面 TLS VERIFY，并区分连接地址与 SNI', async () => {
     const service = createService();
     const created = await createRun(service, {
-      idempotencyKey: 'idem_atomic_control_plane_verify',
-      targetIds: ['target_atomic'],
+      idempotencyKey: 'idem_v2_control_plane_verify',
+      targetIds: ['target_v2'],
       executorType: 'AGENT',
-      agentPayloads: new Map([['target_atomic', {
-        pluginRuntimeCapability: { runtime: 'AGENT_ATOMIC' },
+      agentPayloads: new Map([['target_v2', {
+        pluginRuntimeCapability: { runtime: 'AGENT_V2' },
         certificateVerification: { capabilityKey: 'certificate.verify', schemaVersion: '1.0', connectHost: '10.255.0.127', serverName: 'test02.jacksonz.cn', port: 443 },
       }]]),
     });
@@ -813,17 +880,17 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     assert.deepEqual(steps[4]?.dependsOn, [steps[3]?.stepNo]);
   });
 
-  it('Agent Atomic 指定 Gateway 时由 Gateway 主动执行独立 TLS VERIFY', async () => {
+  it('Agent v2 指定 Gateway 时由 Gateway 主动执行独立 TLS VERIFY', async () => {
     const service = createService();
     const created = await createRun(service, {
-      idempotencyKey: 'idem_atomic_gateway_verify',
-      targetIds: ['target_atomic_gateway'],
+      idempotencyKey: 'idem_v2_gateway_verify',
+      targetIds: ['target_v2_gateway'],
       executorType: 'AGENT',
-      agentPayloads: new Map([['target_atomic_gateway', {
-        pluginRuntimeCapability: { runtime: 'AGENT_ATOMIC' },
+      agentPayloads: new Map([['target_v2_gateway', {
+        pluginRuntimeCapability: { runtime: 'AGENT_V2' },
         certificateVerification: { capabilityKey: 'certificate.verify', schemaVersion: '1.0', connectHost: '10.255.0.127', serverName: 'test02.jacksonz.cn', port: 443 },
       }]]),
-      gatewayRoutes: new Map([['target_atomic_gateway', {
+      gatewayRoutes: new Map([['target_v2_gateway', {
         gatewayId: 'gateway-1',
         agentId: 'gateway-agent-1',
         adapter: 'probe.tls',
