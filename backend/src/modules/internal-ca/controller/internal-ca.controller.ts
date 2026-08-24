@@ -26,6 +26,7 @@ export class InternalCaController {
   register(router: Router): void {
     router.get('/api/v1/ca-providers', '查询 CA Provider', tags, (request) => this.listProviders(request));
     router.post('/api/v1/ca-providers', '创建 CA Provider', tags, (request) => this.createProvider(request));
+    router.delete('/api/v1/ca-providers/:id', '删除未绑定的 CA Provider', tags, (request) => this.deleteProvider(request));
     router.post('/api/v1/ca-providers/:id/test', '测试 CA Provider', tags, (request) => this.testProvider(request));
     router.get('/api/v1/ca-trust-domains', '查询 CA 信任域', tags, (request) => this.listTrustDomains(request));
     router.post('/api/v1/ca-trust-domains', '创建 CA 信任域', tags, (request) => this.createTrustDomain(request));
@@ -333,6 +334,11 @@ export class InternalCaController {
     };
   }
 
+  private async deleteProvider(request: HttpRequest) {
+    await this.assertManage(request, 'ca_provider');
+    return this.service.deleteProvider(tenantId(request), pathId(request), actorId(request), request.context);
+  }
+
   private async getAdcsAgentInstallScript(request: HttpRequest) {
     const context = await this.service.getAdcsAgentInstallContext(requiredQuery(request, 'token'));
     return {
@@ -401,6 +407,7 @@ export function getInternalCaRouteContracts(): RouteContract[] {
   return [
     { method: 'GET', path: '/api/v1/ca-providers', operationId: 'listCaProviders', summary: '查询 CA Provider', tags, responseSchema: arraySchema },
     { method: 'POST', path: '/api/v1/ca-providers', operationId: 'createCaProvider', summary: '创建 CA Provider', tags, responseSchema },
+    { method: 'DELETE', path: '/api/v1/ca-providers/:id', operationId: 'deleteCaProvider', summary: '删除未绑定的 CA Provider', tags, responseSchema },
     { method: 'POST', path: '/api/v1/ca-providers/:id/test', operationId: 'testCaProvider', summary: '测试 CA Provider', tags, responseSchema },
     { method: 'GET', path: '/api/v1/certificate-authorities', operationId: 'listCertificateAuthorities', summary: '查询证书机构', tags, responseSchema: arraySchema },
     { method: 'POST', path: '/api/v1/certificate-authorities/preview', operationId: 'previewCertificateAuthority', summary: '预览 CA 拓扑风险', tags, responseSchema },

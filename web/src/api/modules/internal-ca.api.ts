@@ -15,9 +15,14 @@ function patch(path: string, body: ApiBody = {}) {
   return apiClient.request<InternalCaRecord>(toClientPath(path), { method: 'PATCH', body })
 }
 
+function remove(path: string) {
+  return apiClient.request<InternalCaRecord>(toClientPath(path), { method: 'DELETE' })
+}
+
 export const internalCaApi = {
   listProviders: () => getList('/api/v1/ca-providers'),
   createProvider: (body: ApiBody) => post('/api/v1/ca-providers', body),
+  deleteProvider: (providerId: string) => remove(`/api/v1/ca-providers/${encodeURIComponent(providerId)}`),
   listTrustDomains: () => getList('/api/v1/ca-trust-domains'),
   createTrustDomain: (body: ApiBody) => post('/api/v1/ca-trust-domains', body),
   updateTrustDomain: (trustDomainId: string, body: ApiBody) => patch(`/api/v1/ca-trust-domains/${encodeURIComponent(trustDomainId)}`, body),

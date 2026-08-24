@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { internalCaApi, type InternalCaRecord } from '@/api/modules/internal-ca.api'
-import { GcModal, GcPageHeader, GcStatusTag, GcTabs } from '@/design-system/components'
+import { GcConfirmAction, GcModal, GcPageHeader, GcStatusTag, GcTabs } from '@/design-system/components'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
 const { t } = useI18n()
@@ -33,6 +33,7 @@ const providerEnrollment = ref<InternalCaRecord | null>(null)
 const providerPrepared = ref(false)
 const adcsInstallSession = ref<InternalCaRecord | null>(null)
 const adcsWizardOpen = ref(false)
+const deletingProviderId = ref('')
 
 const providerDraft = reactive({ id: '', name: '', type: 'gcac_managed_node', deploymentMode: 'managed_node', runtimePlatform: 'linux', availabilityMode: 'single', endpoint: '', authMode: 'enrollment_token', profile: '', template: '', crlUrl: '', ocspUrl: '' })
 const adcsDraft = reactive({ name: '', availabilityMode: 'single' })
@@ -305,6 +306,15 @@ async function createAdcsAgentInstallSession() {
   }, 'internalCa.messages.adcsAgentInstallCreated')
 }
 
+async function deleteProvider(provider: InternalCaRecord) {
+  deletingProviderId.value = text(provider.id)
+  try {
+    await runAction(() => internalCaApi.deleteProvider(text(provider.id)), 'internalCa.messages.providerDeleted')
+  } finally {
+    deletingProviderId.value = ''
+  }
+}
+
 async function prepareProvider() {
   if (providerPrepared.value || authorityCreationKind.value === 'intermediate') return
   actionPending.value = true
@@ -471,7 +481,7 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
           <div><strong>{{ t('internalCa.adcsAgent.title') }}</strong><p>{{ t('internalCa.adcsAgent.description') }}</p><small>{{ t('internalCa.adcsAgent.providerCount', { count: adcsProviders.length }) }}</small></div>
           <button class="gc-button gc-button--primary" type="button" :disabled="actionPending" @click="openAdcsWizard">{{ t('internalCa.adcsAgent.addProvider') }}</button>
         </section>
-        <div class="provider-settings__list"><article v-for="provider in providers" :key="text(provider.id)" class="provider-summary"><div><strong>{{ text(provider.name) }}</strong><span>{{ providerTypeLabel(provider.type) }}</span></div><GcStatusTag :status="text(provider.status)" /><small>{{ t('internalCa.labels.backendUsageCount', { count: authorities.filter((item) => text(item.providerId) === text(provider.id)).length }) }}</small><small>{{ t('internalCa.labels.unverifiedCapabilityCount', { count: capabilityCount(provider, 'declared') }) }}</small></article></div>
+        <div class="provider-settings__list"><article v-for="provider in providers" :key="text(provider.id)" class="provider-summary"><div><strong>{{ text(provider.name) }}</strong><span>{{ providerTypeLabel(provider.type) }}</span></div><GcStatusTag :status="text(provider.status)" /><small>{{ t('internalCa.labels.backendUsageCount', { count: authorities.filter((item) => text(item.providerId) === text(provider.id)).length }) }}</small><small>{{ t('internalCa.labels.unverifiedCapabilityCount', { count: capabilityCount(provider, 'declared') }) }}</small><GcConfirmAction v-if="text(provider.type) === 'microsoft_adcs'" :action-name="deletingProviderId === text(provider.id) ? t('internalCa.adcsAgent.deletingProvider') : t('internalCa.adcsAgent.deleteProvider')" :impact-count="nodes.filter((item) => text(item.providerId) === text(provider.id)).length" :risk-text="t('internalCa.adcsAgent.deleteProviderRisk')" :confirm-text="text(provider.name)" :disabled="authorities.some((item) => text(item.providerId) === text(provider.id)) || Boolean(deletingProviderId)" :disabled-reason="authorities.some((item) => text(item.providerId) === text(provider.id)) ? t('internalCa.adcsAgent.deleteProviderBlocked') : ''" @confirm="deleteProvider(provider)" /></article></div>
       </details>
     </template>
 

@@ -180,6 +180,15 @@ export class InternalCaApplicationService {
     return sanitizeProvider(provider);
   }
 
+  async deleteProvider(tenantId: string, providerId: string, actorId: string, context?: RequestContext): Promise<{ id: string; deleted: true }> {
+    const provider = await this.requireProvider(tenantId, providerId);
+    if (provider.type !== 'microsoft_adcs') throw new AppError('AUTH_FORBIDDEN', '当前仅允许删除未绑定证书机构的 Microsoft AD CS Provider');
+    const deleted = await this.repository.deleteUnboundProvider(tenantId, provider.id);
+    if (!deleted) throw new AppError('RESOURCE_VERSION_CONFLICT', '该 AD CS Provider 已被证书机构使用，必须先迁移或移除证书机构');
+    await this.audit('internal_ca.provider.deleted', actorId, 'ca_provider.delete', 'ca_provider', provider.id, 'high', context, { type: provider.type });
+    return { id: provider.id, deleted: true };
+  }
+
   listTrustDomains(tenantId: string): Promise<CaTrustDomainEntity[]> {
     return this.repository.listTrustDomains(tenantId);
   }

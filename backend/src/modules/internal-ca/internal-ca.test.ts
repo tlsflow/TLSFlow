@@ -414,6 +414,23 @@ test('AD CS Agent 一键安装会话自动创建 Provider 且注册令牌只能�
   }), /无效、已使用或已过期/);
 });
 
+test('未绑定证书机构的 AD CS Provider 可删除，绑定后必须拒绝', async () => {
+  const { service } = await createFixture();
+  const tenantId = 'tenant-adcs-provider-delete';
+  const input = { name: '待清理 AD CS', type: 'microsoft_adcs' as const, deploymentMode: 'external' as const, runtimePlatform: 'external' as const, availabilityMode: 'single' as const };
+  const removable = await service.createProvider(tenantId, input, 'user-admin');
+  assert.deepEqual(await service.deleteProvider(tenantId, removable.id, 'user-admin'), { id: removable.id, deleted: true });
+  assert.equal((await service.listProviders(tenantId)).some((item) => item.id === removable.id), false);
+
+  const bound = await service.createProvider(tenantId, { ...input, name: '已绑定 AD CS' }, 'user-admin');
+  const now = new Date().toISOString();
+  await service.getRepository().saveAuthority({
+    id: 'ca_bound_adcs', tenantId, name: '已管理 AD CA', role: 'root', topologyMode: 'external_managed', providerId: bound.id,
+    securityDomain: 'production', status: 'active', subjectCommonName: 'Contoso Issuing CA', createdAt: now, updatedAt: now,
+  });
+  await assert.rejects(service.deleteProvider(tenantId, bound.id, 'user-admin'), /已被证书机构使用/);
+});
+
 test('同一租户可管理多套根 CA 信任域并拒绝跨域签发', async () => {
   const { service } = await createFixture();
   const tenantId = 'tenant-multi-root-ca';

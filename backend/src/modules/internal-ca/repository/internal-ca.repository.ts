@@ -43,6 +43,26 @@ export class InternalCaRepository {
     return this.list('pg_ca_providers', tenantId);
   }
 
+  async deleteUnboundProvider(tenantId: string, providerId: string): Promise<boolean> {
+    return this.db.transaction(async (tx) => {
+      const authorities = await tx.query('select id from pg_certificate_authorities where tenant_id = $1 and provider_id = $2 limit 1', [tenantId, providerId]);
+      if (authorities.rows[0]) return false;
+      const nodes = await tx.query<{ id: string }>('select id from pg_ca_nodes where tenant_id = $1 and provider_id = $2', [tenantId, providerId]);
+      const nodeIds = nodes.rows.map((row) => row.id);
+      if (nodeIds.length) {
+        await tx.query('delete from pg_ca_capability_records where tenant_id = $1 and owner_type = $2 and owner_id = any($3::text[])', [tenantId, 'node', nodeIds]);
+        await tx.query('delete from pg_ca_node_request_nonces where node_id = any($1::text[])', [nodeIds]);
+      }
+      await tx.query('delete from pg_ca_capability_records where tenant_id = $1 and owner_type = $2 and owner_id = $3', [tenantId, 'provider', providerId]);
+      await tx.query('delete from pg_ca_node_tasks where tenant_id = $1 and provider_id = $2', [tenantId, providerId]);
+      await tx.query('delete from pg_ca_node_enrollment_tokens where tenant_id = $1 and provider_id = $2', [tenantId, providerId]);
+      await tx.query('delete from pg_ca_nodes where tenant_id = $1 and provider_id = $2', [tenantId, providerId]);
+      await tx.query('delete from pg_certificate_issuances where tenant_id = $1 and provider_id = $2', [tenantId, providerId]);
+      const deleted = await tx.query('delete from pg_ca_providers where tenant_id = $1 and id = $2 returning id', [tenantId, providerId]);
+      return deleted.rows.length === 1;
+    });
+  }
+
   saveCapabilityRecord(entity: CaCapabilityRecordEntity): Promise<CaCapabilityRecordEntity> {
     return this.upsert('pg_ca_capability_records', entity.id, entity, {
       tenant_id: entity.tenantId,
