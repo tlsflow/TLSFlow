@@ -1900,6 +1900,50 @@ export default {
   },
   settings: {
     securityLabel: '安全设置入口',
+    licensing: {
+      title: '产品授权',
+      description: '查看当前安装实例的授权状态，并完成在线或离线授权文件操作。',
+      summary: { title: '授权状态', unconfigured: '未配置许可证' },
+      fields: { installationId: '安装实例 ID', expiresAt: '到期时间', graceEndsAt: '宽限期结束', lastClockAt: '最近时间检查' },
+      states: { unlicensed: '未授权', active: '有效', grace: '宽限期', expired: '已过期', revoked: '已撤销', clock_rollback_detected: '检测到时间回退' },
+      plans: { free: '免费版', commercial: '商业版', enterprise: '企业版', trial: '免费版', standard: '商业版', professional: '商业版' },
+      features: { title: '已授权功能', empty: '当前没有可用功能。' },
+      quotas: { title: '额度', managedTargets: '应用资产', concurrentExecutions: '并发执行', plugins: '插件数量', unlimited: '不限' },
+      actions: {
+        title: '授权文件',
+        description: '在线请求适用于联网环境，离线请求可导出后交给授权方处理。',
+        upgrade: '升级授权',
+        onlineRequest: '导出在线请求',
+        offlineRequest: '导出离线请求',
+        export: '导出当前授权',
+        importLabel: '导入许可证 JSON',
+        importPlaceholder: '粘贴许可证导出文件内容',
+        import: '导入许可证'
+      },
+      comparison: {
+        title: '升级授权',
+        subtitle: '查看不同授权版本的功能边界，再决定是否升级。',
+        currentPlan: '当前授权：{plan}',
+        noActivePlan: '当前尚未导入有效授权，可先查看版本能力差异。',
+        badges: { current: '当前版本', recommended: '推荐升级' },
+        footer: { consult: '采购咨询', faq: '授权常见问题' },
+        cards: {
+          free: { summary: '适合评估、自用或轻量场景', price: '免费使用', features: { full: '全功能可用', usage: '仅限非商业用途使用', automation: '包含自动化更新流程', quota: '限制 5 个应用资产', support: '社区 / 邮件支持' } },
+          commercial: { summary: '适合标准生产环境和按需扩容', priceCny: '288 ￥ 资产*年', priceUsd: 'USD 50 / asset / year', features: { full: '全功能可用', usage: '可用于商业场景', automation: '包含自动化更新流程', approval: '包含流程审批引擎', quota: '按需购买应用资产', support: '1 年技术支持' } },
+          enterprise: { summary: '适合私有化、离线和定制合作', price: '联系销售', features: { full: '全功能可用', usage: '可用于商业场景', automation: '包含自动化更新流程', approval: '包含流程审批引擎', quota: '支持插件定制与买断', support: '专属技术支持' } },
+        }
+      },
+      messages: {
+        loadFailed: '授权状态加载失败。',
+        operationFailed: '授权操作失败。',
+        exported: '授权文件已导出。',
+        requestExported: '激活请求文件已导出。',
+        invalidJson: '请输入合法的 JSON。',
+        licenseMissing: 'JSON 中缺少许可证对象。',
+        imported: '许可证已导入。',
+        importFailed: '许可证导入失败。'
+      }
+    },
     version: {
       title: '版本信息',
       description: '查看当前运行的 GCAC 版本。',

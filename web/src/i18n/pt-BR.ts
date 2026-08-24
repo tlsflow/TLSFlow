@@ -1773,6 +1773,31 @@ export default {
   },
   settings: {
     securityLabel: 'Entrada de configurações de segurança',
+    licensing: {
+      title: 'Licenciamento do produto',
+      description: 'Consulte a licença desta instalação e gerencie arquivos de licença online ou offline.',
+      summary: { title: 'Status da licença', unconfigured: 'Licença não configurada' },
+      fields: { installationId: 'ID da instalação', expiresAt: 'Expira em', graceEndsAt: 'Fim do período de tolerância', lastClockAt: 'Última verificação do relógio' },
+      states: { unlicensed: 'Sem licença', active: 'Ativa', grace: 'Período de tolerância', expired: 'Expirada', revoked: 'Revogada', clock_rollback_detected: 'Retrocesso do relógio detectado' },
+      plans: { free: 'Gratuito', commercial: 'Comercial', enterprise: 'Empresarial', trial: 'Gratuito', standard: 'Comercial', professional: 'Comercial' },
+      features: { title: 'Recursos licenciados', empty: 'Nenhum recurso licenciado disponível.' },
+      quotas: { title: 'Cotas', managedTargets: 'Ativos de aplicações', concurrentExecutions: 'Execuções simultâneas', plugins: 'Plugins', unlimited: 'Ilimitado' },
+      actions: { title: 'Arquivos de licença', description: 'Use uma solicitação online em ambientes conectados ou exporte uma solicitação offline para ambientes isolados.', upgrade: 'Atualizar licença', onlineRequest: 'Exportar solicitação online', offlineRequest: 'Exportar solicitação offline', export: 'Exportar licença atual', importLabel: 'Importar JSON da licença', importPlaceholder: 'Cole o conteúdo do arquivo de licença', import: 'Importar licença' },
+      comparison: {
+        title: 'Atualizar licença',
+        subtitle: 'Compare as versões antes de decidir pela atualização.',
+        currentPlan: 'Licença atual: {plan}',
+        noActivePlan: 'Ainda não há uma licença ativa importada. Revise primeiro as diferenças entre as versões.',
+        badges: { current: 'Versão atual', recommended: 'Upgrade recomendado' },
+        footer: { consult: 'Consulta comercial', faq: 'FAQ da licença' },
+        cards: {
+          free: { summary: 'Para avaliação, uso pessoal e cenários leves', price: 'Uso gratuito', features: { full: 'Todos os recursos disponíveis', usage: 'Apenas para uso não comercial', automation: 'Inclui fluxos automatizados de atualização', quota: 'Limitado a 5 ativos de aplicações', support: 'Suporte por comunidade e e-mail' } },
+          commercial: { summary: 'Para produção padrão e expansão sob demanda', priceCny: 'CNY 288 / asset / year', priceUsd: 'USD 50 / asset / year', features: { full: 'Todos os recursos disponíveis', usage: 'Pode ser usado em cenários comerciais', automation: 'Inclui fluxos automatizados de atualização', approval: 'Inclui motor de aprovação de fluxos', quota: 'Compre ativos de aplicações conforme a necessidade', support: '1 ano de suporte técnico' } },
+          enterprise: { summary: 'Para implantação privada, ambientes offline e entrega sob medida', price: 'Fale com vendas', features: { full: 'Todos os recursos disponíveis', usage: 'Pode ser usado em cenários comerciais', automation: 'Inclui fluxos automatizados de atualização', approval: 'Inclui motor de aprovação de fluxos', quota: 'Customização de plugins e compra definitiva', support: 'Suporte técnico dedicado' } },
+        }
+      },
+      messages: { loadFailed: 'Falha ao carregar o status da licença.', operationFailed: 'Falha na operação de licença.', exported: 'Arquivo de licença exportado.', requestExported: 'Solicitação de ativação exportada.', invalidJson: 'Insira um JSON válido.', licenseMissing: 'O JSON não contém uma licença.', imported: 'Licença importada.', importFailed: 'Falha ao importar a licença.' }
+    },
     version: {
       title: 'Informações da versão',
       description: 'Visualize a versão do GCAC em execução.',

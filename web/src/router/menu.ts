@@ -82,6 +82,7 @@ export const mainMenuItems: MenuItem[] = [
       { titleKey: 'nav.systemSettings', path: '/settings', module: 'settings', permission: 'settings.read', descriptionKey: 'nav.systemSettingsDesc' },
       { titleKey: 'credentials.title', path: '/settings/credentials', module: 'settings', permission: 'credential.read', descriptionKey: 'credentials.description' },
       { titleKey: 'settings.version.title', path: '/settings/version', module: 'settings', permission: 'settings.read', descriptionKey: 'settings.version.description' },
+      { titleKey: 'settings.licensing.title', path: '/settings/licensing', module: 'settings', permission: 'settings.read', descriptionKey: 'settings.licensing.description' },
       { titleKey: 'notifications.title', path: '/settings/notifications', module: 'settings', permission: 'notification.channel.read', descriptionKey: 'notifications.description' },
       { titleKey: 'nav.users', path: '/settings/users', module: 'settings', permission: 'security.user.read', descriptionKey: 'nav.usersDesc' },
       { titleKey: 'nav.roles', path: '/settings/roles', module: 'settings', permission: 'security.role.read', descriptionKey: 'nav.rolesDesc' },
