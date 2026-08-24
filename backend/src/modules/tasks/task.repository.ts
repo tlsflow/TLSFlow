@@ -264,16 +264,38 @@ export class TaskRepository {
     await appendEvent(this.db, task.id, progress ? 'PROGRESS' : 'HEARTBEAT', progress ?? { workerId }, undefined, attempt.id);
   }
 
-  async finish(task: TaskRun, attempt: TaskAttempt, workerId: string, status: Extract<TaskStatus, 'SUCCEEDED' | 'FAILED' | 'CANCELLED' | 'RETRY_WAITING'>, result: { errorCode?: string; errorMessage?: string; detail?: Record<string, unknown> }, nextAttemptAt?: string): Promise<void> {
+  async finish(
+    task: TaskRun,
+    attempt: TaskAttempt,
+    workerId: string,
+    status: Extract<TaskStatus, 'SUCCEEDED' | 'FAILED' | 'CANCELLED' | 'RETRY_WAITING'>,
+    result: { errorCode?: string; errorMessage?: string; detail?: Record<string, unknown> },
+    nextAttemptAt?: string,
+    retryAfterSeconds?: number,
+  ): Promise<void> {
     await this.db.transaction(async (tx) => {
       const nextStatus = status === 'RETRY_WAITING' ? 'RETRY_WAITING' : status;
       const updated = await tx.query(
         `update task_runs set status = $4, lease_owner = null, lease_expires_at = null,
-            next_attempt_at = $5, finished_at = case when $4 in ('SUCCEEDED', 'FAILED', 'CANCELLED') then now() else finished_at end,
-            last_error_code = $6, last_error_message = $7, progress = coalesce($8::jsonb, progress)
+            next_attempt_at = case
+              when $6::double precision is not null then now() + ($6::double precision * interval '1 second')
+              else $5::timestamptz
+            end,
+            finished_at = case when $4 in ('SUCCEEDED', 'FAILED', 'CANCELLED') then now() else finished_at end,
+            last_error_code = $7, last_error_message = $8, progress = coalesce($9::jsonb, progress)
           where id = $1 and tenant_id = $2 and lease_owner = $3 and status = 'RUNNING'
           returning id`,
-        [task.id, task.tenantId, workerId, nextStatus, nextAttemptAt ?? null, result.errorCode ?? null, result.errorMessage ?? null, result.detail ? JSON.stringify(result.detail) : null],
+        [
+          task.id,
+          task.tenantId,
+          workerId,
+          nextStatus,
+          nextAttemptAt ?? null,
+          retryAfterSeconds ?? null,
+          result.errorCode ?? null,
+          result.errorMessage ?? null,
+          result.detail ? JSON.stringify(result.detail) : null,
+        ],
       );
       if (updated.rows.length === 0) throw new Error('TASK_LEASE_LOST');
       await tx.query(

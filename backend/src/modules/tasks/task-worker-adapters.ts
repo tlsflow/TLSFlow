@@ -253,6 +253,7 @@ export function createTaskExecutorRegistry(
         errorCode: 'AUTOMATION_RUN_LEASE_UNAVAILABLE',
         errorMessage: '自动化运行租约暂不可用',
         detail: { runId },
+        retryAfterSeconds: 5,
       };
     }
     const current = await dependencies.automationRuns?.getRun(task.tenantId, runId);
@@ -263,6 +264,7 @@ export function createTaskExecutorRegistry(
         errorCode: 'AUTOMATION_RUN_PENDING',
         errorMessage: '自动化运行仍未进入终态',
         detail: { runId, status: current?.status ?? 'unknown' },
+        retryAfterSeconds: 5,
       };
     }
     if (['failed', 'needs_attention', 'stopped'].includes(current.status)) {
@@ -351,7 +353,7 @@ async function executeAgentEnrollmentTask(
     return {
       success: false,
       defer: true,
-      nextAttemptAt: nextPollAt(),
+      retryAfterSeconds: 15,
       errorCode: 'AGENT_INSTALL_PENDING',
       errorMessage: '等待 Agent 消费安装会话并回连',
       detail: { sessionId, platform: session.platform, bootstrapCompleted: false },
@@ -386,7 +388,7 @@ async function executeAgentEnrollmentTask(
     return {
       success: false,
       defer: true,
-      nextAttemptAt: nextPollAt(),
+      retryAfterSeconds: 15,
       errorCode: mode === 'install' ? 'AGENT_INSTALL_PENDING' : 'AGENT_UPDATE_PENDING',
       errorMessage: mode === 'install' ? '等待 CA Node Agent 注册并回连' : '等待 CA Node Agent 更新后回连',
       detail: { enrollmentTokenId, providerId: token.providerId, bootstrapCompleted: false },
@@ -400,10 +402,6 @@ async function executeAgentEnrollmentTask(
       ? 'Agent 安装任务缺少 sessionId 或 enrollmentTokenId'
       : 'Agent 更新任务缺少 enrollmentTokenId',
   };
-}
-
-function nextPollAt(): string {
-  return new Date(Date.now() + 15_000).toISOString();
 }
 
 function dependencyExecutor<T>(

@@ -138,15 +138,16 @@ export class TasksApplicationService {
       return finished;
     }
     const shouldRetry = result.defer === true || attempt.attemptNo < definition.retryPolicy.maxAttempts;
-    const nextAttemptAt = shouldRetry
-      ? result.nextAttemptAt
-        ?? new Date(Date.now() + definition.retryPolicy.backoffSeconds * 1000 * Math.max(1, attempt.attemptNo)).toISOString()
+    const nextAttemptAt = shouldRetry && result.nextAttemptAt ? result.nextAttemptAt : undefined;
+    const retryAfterSeconds = shouldRetry && !nextAttemptAt
+      ? result.retryAfterSeconds
+        ?? definition.retryPolicy.backoffSeconds * Math.max(1, attempt.attemptNo)
       : undefined;
     await this.repository.finish(task, attempt, workerId, shouldRetry ? 'RETRY_WAITING' : 'FAILED', {
       errorCode: result.errorCode,
       errorMessage: result.errorMessage,
       detail: result.detail,
-    }, nextAttemptAt);
+    }, nextAttemptAt, retryAfterSeconds);
     const finished = await this.repository.getById(task.tenantId, task.id) as TaskRun;
     this.realtime?.publishTask(finished);
     return finished;

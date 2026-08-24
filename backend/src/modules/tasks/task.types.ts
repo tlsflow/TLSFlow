@@ -189,6 +189,10 @@ export interface TaskExecutionResult {
    * 中文说明：外部系统尚未完成时保留任务在重试队列，不能伪造成功或消耗完固定失败次数。
    */
   defer?: boolean;
+  /**
+   * 中文说明：由数据库基于自身时钟计算下一次执行时间，避免应用节点与数据库时钟偏差导致立即重试。
+   */
+  retryAfterSeconds?: number;
   nextAttemptAt?: string;
   errorCode?: string;
   errorMessage?: string;
