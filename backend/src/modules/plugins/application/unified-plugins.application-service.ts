@@ -369,7 +369,7 @@ export class UnifiedPluginsApplicationService {
     for (const version of versions) {
       const key = `${version.pluginId}@${version.version}`;
       const current = byIdentity.get(key);
-      if (!current || (version.source === 'BUILTIN' && current.source !== 'BUILTIN') || version.updatedAt > current.updatedAt) {
+      if (!current || shouldPreferAccessibleVersion(version, current)) {
         byIdentity.set(key, version);
       }
     }
@@ -464,6 +464,17 @@ export class UnifiedPluginsApplicationService {
       return undefined;
     }
   }
+}
+
+function shouldPreferAccessibleVersion(
+  candidate: UnifiedPluginVersionRecord,
+  current: UnifiedPluginVersionRecord,
+): boolean {
+  const candidateRetired = candidate.status === 'RETIRED' || candidate.status === 'QUARANTINED';
+  const currentRetired = current.status === 'RETIRED' || current.status === 'QUARANTINED';
+  if (candidateRetired !== currentRetired) return !candidateRetired;
+  if (candidate.source !== current.source) return candidate.source === 'BUILTIN';
+  return candidate.updatedAt > current.updatedAt;
 }
 
 export function pluginLogoResourceUrl(pluginVersionId: string, variant: keyof UnifiedPluginLogoResources): string {

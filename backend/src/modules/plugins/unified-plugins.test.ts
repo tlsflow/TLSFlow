@@ -278,6 +278,24 @@ test('统一插件目录对租户展示系统注册表中的最新内置版本',
   assert.equal(catalog[0]?.version, '1.1.25');
 });
 
+test('已退休的内置同版本不遮蔽仍可用的用户插件版本', async () => {
+  const records = new Map<string, UnifiedPluginVersionRecord>();
+  const service = new UnifiedPluginsApplicationService(memoryRepository(records));
+  const userVersion = await service.importVersion('tenant-1', workflowPluginInput());
+  await service.enableVersion(userVersion.id);
+  const builtinVersion = await service.importVersion('SYSTEM', {
+    ...workflowPluginInput(),
+    packageContent: 'builtin-package',
+    manifest: { ...workflowPluginInput().manifest, source: 'BUILTIN' },
+  }, 'BUILTIN');
+  const approvedBuiltin = await service.approvePermissions(builtinVersion.id, ['network.http']);
+  await service.enableVersion(approvedBuiltin.id);
+  records.set(approvedBuiltin.id, { ...approvedBuiltin, status: 'RETIRED' });
+
+  const accessible = await service.listAccessibleVersions('tenant-1');
+  assert.equal(accessible.find((version) => version.pluginId === 'test.device.workflow')?.source, 'USER');
+});
+
 test('统一插件目录跳过缺失资源的坏版本并回退到上一个可用版本', async () => {
   const base = workflowPluginInput();
   const service = new UnifiedPluginsApplicationService(memoryRepository(new Map([
