@@ -69,6 +69,7 @@ watch(() => props.automation, (automation) => {
 }, { immediate: true })
 
 const domains = computed(() => form.certificateDomains.map((item) => item.trim()).filter(Boolean))
+const stepProgressWidth = computed(() => `${(currentStep.value / 3) * 100}%`)
 const selectedDomainSummary = computed(() => domains.value.length ? domains.value.join(', ') : t('certificates.list.assets.unselectedTitle'))
 const valid = computed(() => Boolean(form.name.trim() && domains.value.length && form.maxTargets > 0 && form.concurrency > 0 && form.concurrency <= form.maxTargets && (form.versionSelection === 'latest' || form.certificateVersionIds.length)))
 const stepOneReady = computed(() => Boolean(domains.value.length && (form.versionSelection === 'latest' || form.certificateVersionIds.length)))
@@ -248,19 +249,21 @@ function submit() {
 <template>
   <form class="automation-editor" @submit.prevent="submit">
     <header class="automation-editor__wizard-header">
-      <div>
+      <div class="automation-editor__wizard-title">
         <span class="automation-editor__eyebrow">{{ t('automations.formStep.stepProgress', { current: currentStep, total: 3 }) }}</span>
         <h3>{{ currentStep === 1 ? t('automations.editor.sections.targets') : currentStep === 2 ? t('automations.form.schedule') : t('automations.editor.sections.guardrails') }}</h3>
       </div>
-      <ol class="automation-editor__steps" :aria-label="t('automations.formStep.stepProgress', { current: currentStep, total: 3 })">
-        <li :class="{ 'is-active': currentStep === 1, 'is-done': currentStep > 1 }"><button type="button" @click="goToStep(1)"><strong>1</strong><span>{{ t('automations.editor.sections.targets') }}</span></button></li>
-        <li :class="{ 'is-active': currentStep === 2, 'is-done': currentStep > 2 }"><button type="button" :disabled="!stepOneReady" @click="goToStep(2)"><strong>2</strong><span>{{ t('automations.form.schedule') }}</span></button></li>
-        <li :class="{ 'is-active': currentStep === 3 }"><button type="button" :disabled="!stepOneReady || !stepTwoReady" @click="goToStep(3)"><strong>3</strong><span>{{ t('automations.editor.sections.guardrails') }}</span></button></li>
-      </ol>
+      <div class="automation-editor__progress">
+        <div class="automation-editor__progress-bar" aria-hidden="true"><span :style="{ width: stepProgressWidth }"></span></div>
+        <ol class="automation-editor__steps" :aria-label="t('automations.formStep.stepProgress', { current: currentStep, total: 3 })">
+          <li :class="{ 'is-active': currentStep === 1, 'is-done': currentStep > 1 }"><button type="button" @click="goToStep(1)"><span class="automation-editor__step-index">1</span><strong>{{ t('automations.editor.sections.targets') }}</strong></button></li>
+          <li :class="{ 'is-active': currentStep === 2, 'is-done': currentStep > 2 }"><button type="button" :disabled="!stepOneReady" @click="goToStep(2)"><span class="automation-editor__step-index">2</span><strong>{{ t('automations.form.schedule') }}</strong></button></li>
+          <li :class="{ 'is-active': currentStep === 3 }"><button type="button" :disabled="!stepOneReady || !stepTwoReady" @click="goToStep(3)"><span class="automation-editor__step-index">3</span><strong>{{ t('automations.editor.sections.guardrails') }}</strong></button></li>
+        </ol>
+      </div>
     </header>
 
     <section v-if="currentStep === 1" class="automation-editor__panel">
-      <header><h4>{{ t('automations.form.existingAssetTitle') }}</h4><p>{{ t('automations.form.existingAssetDescription') }}</p></header>
       <div class="automation-editor__grid">
         <div class="automation-editor__field automation-editor__field--full"><span>{{ t('automations.form.certificateDomains') }}</span><details class="automation-editor__domain-picker" :class="{ 'is-disabled': certificateAssetsLoading || certificateAssetsLoadFailed }"><summary data-testid="automation-certificate-domains" @click="(certificateAssetsLoading || certificateAssetsLoadFailed) && $event.preventDefault()">{{ selectedDomainSummary }}</summary><div class="automation-editor__domain-options" role="group" :aria-label="t('automations.form.certificateDomains')"><label v-for="option in certificateDomainOptions" :key="option.value" class="automation-editor__domain-option"><input data-testid="automation-certificate-domain-option" type="checkbox" :checked="domains.includes(option.value)" :value="option.value" @change="toggleDomain(option.value)" /><span>{{ option.label }}</span></label></div></details><small>{{ t('automations.form.certificateDomainsHelp') }}</small><small v-if="certificateAssetsLoading">{{ t('certificates.detailPanel.states.loading') }}</small><small v-else-if="certificateAssetsLoadFailed">{{ t('certificates.list.assets.loadFailed') }}</small><small v-else-if="certificateDomainOptions.length === 0">{{ t('certificates.list.assets.empty') }}</small></div>
         <label><span>{{ t('automations.form.versionSelection') }}</span><select v-model="form.versionSelection" data-testid="automation-version-selection"><option value="latest">{{ t('automations.form.versionSelectionLatest') }}</option><option value="specific">{{ t('automations.form.versionSelectionSpecific') }}</option></select><small>{{ t('automations.form.versionSelectionHelp') }}</small></label>
@@ -269,7 +272,7 @@ function submit() {
     </section>
 
     <section v-else-if="currentStep === 2" class="automation-editor__panel">
-      <header><h4>{{ t('automations.form.schedule') }}</h4><p>{{ t('automations.form.scheduleHelp') }}</p></header>
+      <header><h4>{{ t('automations.form.schedule') }}</h4></header>
       <div class="automation-editor__grid">
         <label class="automation-editor__field--full"><span>{{ t('automations.fields.trigger') }}</span><select v-model="form.triggerType" data-testid="automation-trigger"><option value="api">{{ t('automations.scheduleBuilder.api') }}</option><option value="once">{{ t('automations.scheduleBuilder.once') }}</option><option value="schedule">{{ t('automations.scheduleBuilder.recurring') }}</option></select><small>{{ t(`automations.scheduleBuilder.${form.triggerType}Help`) }}</small></label>
         <template v-if="form.triggerType === 'once'"><label><span>{{ t('automations.scheduleBuilder.runAt') }}</span><input v-model="form.onceRunAt" data-testid="automation-once-run-at" type="datetime-local" /></label><label><span>{{ t('automations.fields.timeZone') }}</span><input :value="form.timeZone" disabled /></label></template>
@@ -290,17 +293,26 @@ function submit() {
 
 <style scoped>
 .automation-editor { display: grid; gap: var(--gc-space-5); }
-.automation-editor__wizard-header, .automation-editor__footer { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-4); }
-.automation-editor__wizard-header { padding-bottom: var(--gc-space-4); border-bottom: var(--gc-border-width-default) solid var(--gc-color-border); }
+.automation-editor__footer { display: flex; align-items: center; justify-content: space-between; gap: var(--gc-space-4); }
+.automation-editor__wizard-header { display: grid; gap: var(--gc-space-4); padding-bottom: var(--gc-space-4); border-bottom: var(--gc-border-width-default) solid var(--gc-color-border); }
+.automation-editor__wizard-title { display: grid; gap: var(--gc-space-1); }
 .automation-editor__eyebrow { color: var(--gc-color-primary); font-size: var(--gc-font-size-sm); font-weight: var(--gc-font-weight-semibold); }
 .automation-editor h3, .automation-editor h4, .automation-editor p { margin: 0; }
-.automation-editor h3 { margin-top: var(--gc-space-1); color: var(--gc-color-text); font-size: var(--gc-font-size-xl); }
+.automation-editor h3 { color: var(--gc-color-text); font-size: var(--gc-font-size-xl); }
 .automation-editor h4 { color: var(--gc-color-text); font-size: var(--gc-font-size-lg); }
+.automation-editor__progress { display: grid; gap: var(--gc-space-3); }
+.automation-editor__progress-bar { height: var(--gc-space-1); overflow: hidden; border-radius: var(--gc-radius-full); background: var(--gc-color-border-muted); }
+.automation-editor__progress-bar span { display: block; height: 100%; border-radius: inherit; background: var(--gc-color-primary); }
 .automation-editor__steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-2); margin: 0; padding: 0; list-style: none; }
-.automation-editor__steps button { display: flex; align-items: center; gap: var(--gc-space-2); min-width: var(--gc-space-10); border: 0; background: transparent; color: var(--gc-color-text-muted); font: inherit; text-align: left; }
-.automation-editor__steps strong { display: grid; place-items: center; min-width: var(--gc-space-7); min-height: var(--gc-space-7); border-radius: var(--gc-radius-full); background: var(--gc-color-surface-raised); color: var(--gc-color-text-muted); }
+.automation-editor__steps li { position: relative; overflow: hidden; border: var(--gc-border-width-default) solid var(--gc-color-border-muted); border-radius: var(--gc-radius-lg); background: var(--gc-color-surface-panel); box-shadow: var(--gc-shadow-sm); }
+.automation-editor__steps li::before { position: absolute; inset: 0 auto 0 0; width: var(--gc-space-1); background: transparent; content: ''; }
+.automation-editor__steps button { display: flex; align-items: center; gap: var(--gc-space-3); width: 100%; min-height: calc(var(--gc-space-10) + var(--gc-space-6)); padding: var(--gc-space-3) var(--gc-space-4); border: 0; background: transparent; color: var(--gc-color-text-muted); font: inherit; text-align: left; cursor: pointer; }
+.automation-editor__steps button strong { min-width: 0; color: inherit; font-size: var(--gc-font-size-sm); line-height: var(--gc-line-height-tight); }
+.automation-editor__step-index { display: grid; place-items: center; flex: 0 0 var(--gc-space-8); width: var(--gc-space-8); height: var(--gc-space-8); border-radius: var(--gc-radius-full); background: var(--gc-color-surface-raised); color: var(--gc-color-text-muted); font-weight: var(--gc-font-weight-semibold); }
+.automation-editor__steps li.is-active { border-color: var(--gc-color-primary-border-strong); background: var(--gc-color-primary-soft); box-shadow: var(--gc-shadow-md); }
+.automation-editor__steps li.is-active::before, .automation-editor__steps li.is-done::before { background: var(--gc-color-primary); }
 .automation-editor__steps li.is-active button, .automation-editor__steps li.is-done button { color: var(--gc-color-text); }
-.automation-editor__steps li.is-active strong, .automation-editor__steps li.is-done strong { background: var(--gc-color-primary); color: var(--gc-color-text-inverse); }
+.automation-editor__steps li.is-active .automation-editor__step-index, .automation-editor__steps li.is-done .automation-editor__step-index { background: var(--gc-color-primary); color: var(--gc-color-text-inverse); }
 .automation-editor__steps button:disabled { cursor: not-allowed; opacity: var(--gc-opacity-disabled); }
 .automation-editor__panel { display: grid; gap: var(--gc-space-4); min-height: calc(var(--gc-space-10) + var(--gc-space-8) + var(--gc-space-6)); }
 .automation-editor__panel > header { display: grid; gap: var(--gc-space-1); }

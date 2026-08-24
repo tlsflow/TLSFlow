@@ -94,7 +94,7 @@ onMounted(load)
       <p v-if="items.length === 0">{{ t('automations.empty') }}</p>
     </div>
 
-    <GcModal v-model:open="editorOpen" :title="editing ? t('automations.editor.editTitle') : t('automations.editor.createTitle')" :description="t('automations.editor.description')" size="xxl" width="var(--gc-size-modal-wide)">
+    <GcModal v-model:open="editorOpen" :title="editing ? t('automations.editor.editTitle') : t('automations.editor.createTitle')" size="xxl" width="var(--gc-size-modal-wide)">
       <AutomationEditor :automation="editing" @save="save" @cancel="editorOpen = false" />
     </GcModal>
     <GcModal v-model:open="previewOpen" :title="t('automations.preview.title')" :description="t('automations.preview.description')" size="lg">

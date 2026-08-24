@@ -12,12 +12,18 @@ vi.mock('@/api/modules/certificates.api', () => ({
 describe('AutomationEditor', () => {
   it('通过友好计划配置提交每周执行的目标条件、动作和安全护栏', async () => {
     const wrapper = mount(AutomationEditor, { global: { plugins: [i18n] } })
+    expect(wrapper.find('.automation-editor__progress-bar').exists()).toBe(true)
+    expect(wrapper.findAll('.automation-editor__steps li')).toHaveLength(3)
+    expect(wrapper.get('.automation-editor__steps li').classes()).toContain('is-active')
+    expect(wrapper.text()).not.toContain(i18n.global.t('automations.form.existingAssetTitle'))
+    expect(wrapper.text()).not.toContain(i18n.global.t('automations.form.existingAssetDescription'))
     const domainPicker = wrapper.get('[data-testid="automation-certificate-domains"]')
     expect(domainPicker.element.tagName).toBe('SUMMARY')
     await vi.waitFor(() => expect(wrapper.findAll('[data-testid="automation-certificate-domain-option"]')).toHaveLength(1))
     expect(vi.mocked(listCertificates)).toHaveBeenCalledWith({ page: 1, pageSize: 200, sort: 'updatedAt:desc' })
     await wrapper.get('[data-testid="automation-certificate-domain-option"]').setValue(true)
     await wrapper.get('[data-testid="automation-next"]').trigger('click')
+    expect(wrapper.text()).not.toContain(i18n.global.t('automations.form.scheduleHelp'))
     await wrapper.get('[data-testid="automation-trigger"]').setValue('schedule')
     await wrapper.get('[data-testid="automation-recurrence"]').setValue('weekly')
     await wrapper.get('[data-testid="automation-recurrence-time"]').setValue('03:15')
