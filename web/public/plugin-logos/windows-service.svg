@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 88" role="img" aria-labelledby="title">
+  <title id="title">Windows Service</title>
+  <path d="M10 20l29-4v27H10zm33-5 31-4v32H43zM10 47h29v27l-29-4zm33 0h31v31l-31-4z" fill="#1683E7"/>
+  <circle cx="67" cy="66" r="16" fill="#20354F" stroke="#FFFFFF" stroke-width="4"/>
+  <path d="M67 55v5m0 12v5m-11-11h5m12 0h5m-18.8-7.8 3.5 3.5m8.6 8.6 3.5 3.5m0-15.6-3.5 3.5m-8.6 8.6-3.5 3.5" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round"/>
+  <circle cx="67" cy="66" r="5" fill="#FFFFFF"/>
+  <text x="91" y="55" fill="#1264C0" font-family="Arial, sans-serif" font-size="23" font-weight="700">Windows Service</text>
+</svg>

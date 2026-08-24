@@ -144,6 +144,7 @@ function toCatalogPluginRecord(record: ApiRecord): PluginRecord {
       name: readString(record.name),
       displayName: readOptionalString(record.displayName),
       description: readOptionalString(record.description),
+      logoUrl: readOptionalString(record.logoUrl),
       tags: readStringArray(record.tags),
       version: readOptionalString(record.version),
       platforms: readStringArray(record.platforms),
@@ -204,11 +205,6 @@ function resolvedLogoUrl(plugin: PluginRecord): string | undefined {
   if (!value || failedLogos.value.has(plugin.id)) return undefined
   if (/^https?:\/\//i.test(value) || value.startsWith('/')) return value
   return `/${value.replace(/^\.\//, '')}`
-}
-
-function isWideLogo(plugin: PluginRecord): boolean {
-  const logoUrl = plugin.metadata.logoUrl?.toLowerCase() ?? ''
-  return logoUrl.includes('apache-httpd') || logoUrl.includes('apache-wordmark')
 }
 
 function markLogoFailed(pluginId: string): void {
@@ -325,7 +321,7 @@ function pluginStatusClass(plugin: PluginRecord): string {
     <section v-if="filteredPlugins.length" class="plugin-grid" :aria-label="t('plugins.aria.list')">
       <article v-for="plugin in filteredPlugins" :key="plugin.id" class="plugin-card">
         <header class="plugin-card__header">
-          <div class="plugin-logo" :class="{ 'plugin-logo--fallback': !resolvedLogoUrl(plugin), 'plugin-logo--wide': isWideLogo(plugin) }">
+          <div class="plugin-logo" :class="{ 'plugin-logo--fallback': !resolvedLogoUrl(plugin), 'plugin-logo--wide': resolvedLogoUrl(plugin) }">
             <img
               v-if="resolvedLogoUrl(plugin)"
               :src="resolvedLogoUrl(plugin)"
@@ -397,7 +393,7 @@ function pluginStatusClass(plugin: PluginRecord): string {
     >
       <section v-if="selectedPlugin" class="plugin-detail">
         <div class="plugin-detail__identity">
-          <div class="plugin-logo plugin-logo--large" :class="{ 'plugin-logo--fallback': !resolvedLogoUrl(selectedPlugin), 'plugin-logo--wide': isWideLogo(selectedPlugin) }">
+          <div class="plugin-logo plugin-logo--large" :class="{ 'plugin-logo--fallback': !resolvedLogoUrl(selectedPlugin), 'plugin-logo--wide': resolvedLogoUrl(selectedPlugin) }">
             <img
               v-if="resolvedLogoUrl(selectedPlugin)"
               :src="resolvedLogoUrl(selectedPlugin)"

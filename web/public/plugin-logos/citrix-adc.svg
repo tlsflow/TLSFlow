@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 88" role="img" aria-labelledby="title">
+  <title id="title">Citrix ADC</title>
+  <defs>
+    <linearGradient id="adc-bg" x1="10" y1="10" x2="78" y2="78" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#213B67"/>
+      <stop offset="1" stop-color="#0C1F3B"/>
+    </linearGradient>
+  </defs>
+  <rect x="10" y="10" width="68" height="68" rx="16" fill="url(#adc-bg)"/>
+  <path d="M44 21 64 33v23L44 68 24 56V33z" fill="none" stroke="#FFFFFF" stroke-width="5" stroke-linejoin="round"/>
+  <circle cx="44" cy="44" r="7" fill="#E5484D"/>
+  <circle cx="44" cy="30" r="3" fill="#FFFFFF"/>
+  <circle cx="56" cy="51" r="3" fill="#FFFFFF"/>
+  <circle cx="32" cy="51" r="3" fill="#FFFFFF"/>
+  <text x="94" y="57" fill="#17345D" font-family="Arial, sans-serif" font-size="36" font-weight="700">Citrix ADC</text>
+</svg>
