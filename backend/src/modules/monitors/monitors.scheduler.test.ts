@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { structuredLogger, type LogEvent } from '../../common/logging/structured-logger.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { PgAssetsRepository } from '../assets/repository/assets.repository.js';
@@ -111,6 +112,10 @@ test('任务创建失败后复用同一时间窗和领取结果重试', async ()
     },
   } as unknown as MonitorsRepository;
   let enqueueAttempts = 0;
+  const events: LogEvent[] = [];
+  const logger = structuredLogger as unknown as { sink: (event: LogEvent) => void };
+  const originalSink = logger.sink;
+  logger.sink = (event) => events.push(event);
   const service = new MonitorsApplicationService({
     repository,
     certificates: {} as never,
@@ -131,6 +136,24 @@ test('任务创建失败后复用同一时间窗和领取结果重试', async ()
     await service.scheduleMonitorBatches({ maxTargets: 5, now: '2026-08-17T12:00:10.000Z' });
     assert.deepEqual(failedWindows, [batch.windowStart]);
     assert.equal(enqueuedWindows.length, 0);
+    assert.deepEqual(events.map((event) => ({
+      level: event.level,
+      module: event.module,
+      resourceType: event.resourceType,
+      message: event.message,
+      details: event.details,
+    })), [{
+      level: 'error',
+      module: 'monitors',
+      resourceType: 'monitorScheduler',
+      message: '监控调度任务入队失败',
+      details: {
+        tenantId: batch.tenantId,
+        windowStart: batch.windowStart,
+        candidateCount: batch.candidateCount,
+        error: '任务控制面暂不可用',
+      },
+    }]);
 
     await service.scheduleMonitorBatches({ maxTargets: 5, now: '2026-08-17T12:00:15.000Z' });
     assert.equal(enqueueAttempts, 2);
@@ -139,7 +162,9 @@ test('任务创建失败后复用同一时间窗和领取结果重试', async ()
       windowStart: batch.windowStart,
       taskId: 'task-monitor-retry',
     }]);
+    assert.equal(events.length, 1);
   } finally {
+    logger.sink = originalSink;
     if (originalWorkerFlag === undefined) delete process.env.GCAC_UNIFIED_TASK_WORKER_ENABLED;
     else process.env.GCAC_UNIFIED_TASK_WORKER_ENABLED = originalWorkerFlag;
   }

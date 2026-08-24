@@ -161,7 +161,7 @@ async function startWithPortLock(releasePortLock: () => void): Promise<void> {
       schedulingMonitorBatches = true;
       void monitorsService.scheduleMonitorBatches({ maxTargets: maxTargetsPerTick })
         .catch((error: unknown) => {
-          structuredLogger.warn('Monitor batch scheduler failed', {
+          structuredLogger.error('Monitor batch scheduler failed', {
             error: error instanceof Error ? error.message : String(error),
           }, { module: 'monitor-batch-scheduler' });
         })

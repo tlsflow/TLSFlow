@@ -210,52 +210,25 @@ export class MonitorsApplicationService {
   }
 
   async scheduleMonitorBatches(input: { maxTargets?: number; now?: string } = {}): Promise<{ tenantIds: string[]; candidateCount: number }> {
-    const startedAt = Date.now();
     const maxTargets = normalizeWorkerLimit(input.maxTargets);
     const now = input.now ? new Date(input.now) : new Date();
     if (Number.isNaN(now.getTime())) throw new AppError('VALIDATION_FAILED', '监控调度时间无效');
     // 中文说明：风险恢复使用已有最新观测，必须独立于本轮是否执行实际探测。
     await this.reconcileMonitorCertificateRisks({ occurredAt: now.toISOString() });
     if (!this.dependencies.tasks || !isUnifiedTaskWorkerEnabled()) {
-      structuredLogger.info('监控调度周期跳过', {
-        durationMs: Date.now() - startedAt,
-        workerEnabled: false,
-        claimedBatchCount: 0,
-        enqueuedTaskCount: 0,
-        failedTaskCount: 0,
-        candidateCount: 0,
-        skippedReason: !this.dependencies.tasks ? 'task_enqueuer_missing' : 'unified_worker_disabled',
-      }, { module: 'monitors', resourceType: 'monitorScheduler' });
       return { tenantIds: [], candidateCount: 0 };
     }
 
     const recovered = await this.repository.claimRecoverableMonitorSchedulerWindows(now.toISOString(), maxTargets);
     const claimed = await this.repository.claimDueMonitorTargets(now.toISOString(), maxTargets);
     const batches = mergeSchedulerBatches([...recovered, ...claimed]);
-    let enqueuedTaskCount = 0;
-    let failedTaskCount = 0;
     for (const batch of batches) {
-      const result = await this.enqueueClaimedMonitorBatch(batch, this.dependencies.tasks);
-      if (result === 'ENQUEUED') enqueuedTaskCount += 1;
-      else failedTaskCount += 1;
+      await this.enqueueClaimedMonitorBatch(batch, this.dependencies.tasks);
     }
-    const summary = {
+    return {
       tenantIds: [...new Set(batches.map((batch) => batch.tenantId))],
       candidateCount: batches.reduce((total, batch) => total + batch.candidateCount, 0),
     };
-    structuredLogger.info('监控调度周期完成', {
-      durationMs: Date.now() - startedAt,
-      workerEnabled: true,
-      recoveredWindowCount: recovered.length,
-      claimedWindowCount: claimed.length,
-      mergedWindowCount: batches.length,
-      deduplicatedWindowCount: Math.max(0, recovered.length + claimed.length - batches.length),
-      enqueuedTaskCount,
-      failedTaskCount,
-      candidateCount: summary.candidateCount,
-      tenantCount: summary.tenantIds.length,
-    }, { module: 'monitors', resourceType: 'monitorScheduler' });
-    return summary;
   }
 
   async runMonitorBatch(input: {
@@ -305,7 +278,7 @@ export class MonitorsApplicationService {
     return { checkedCount, skippedCount, failedCount };
   }
 
-  private async enqueueClaimedMonitorBatch(batch: ClaimedMonitorSchedulerBatch, tasks: TaskEnqueuer): Promise<'ENQUEUED' | 'FAILED'> {
+  private async enqueueClaimedMonitorBatch(batch: ClaimedMonitorSchedulerBatch, tasks: TaskEnqueuer): Promise<void> {
     try {
       const task = await tasks.enqueue({
         tenantId: batch.tenantId,
@@ -324,14 +297,19 @@ export class MonitorsApplicationService {
         windowStart: batch.windowStart,
         taskId: task.id,
       });
-      return 'ENQUEUED';
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       await this.repository.markMonitorSchedulerWindowFailed({
         tenantId: batch.tenantId,
         windowStart: batch.windowStart,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage,
       });
-      return 'FAILED';
+      structuredLogger.error('监控调度任务入队失败', {
+        tenantId: batch.tenantId,
+        windowStart: batch.windowStart,
+        candidateCount: batch.candidateCount,
+        error: errorMessage,
+      }, { module: 'monitors', resourceType: 'monitorScheduler' });
     }
   }
 
