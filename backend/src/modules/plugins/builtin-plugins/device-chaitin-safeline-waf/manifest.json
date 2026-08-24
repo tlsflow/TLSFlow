@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "device.chaitin-safeline-waf",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "displayNameKey": "plugin.chaitinSafelineWaf.name",
   "descriptionKey": "plugin.chaitinSafelineWaf.description",
   "defaultLocale": "zh-CN",

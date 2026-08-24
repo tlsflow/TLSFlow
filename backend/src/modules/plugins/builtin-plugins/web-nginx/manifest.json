@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "web.nginx",
-  "version": "1.0.16",
+  "version": "1.0.17",
   "displayNameKey": "plugin.webNginx.name",
   "descriptionKey": "plugin.webNginx.description",
   "defaultLocale": "zh-CN",

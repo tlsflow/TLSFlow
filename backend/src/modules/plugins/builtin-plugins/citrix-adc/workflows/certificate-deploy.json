@@ -5,7 +5,7 @@
     "name": "citrix-adc-certificate-deploy",
     "displayName": "Citrix ADC certificate deployment",
     "category": "certificate",
-    "version": "2.0.19",
+    "version": "2.0.20",
     "platforms": ["appliance"],
     "updateMethods": ["curl"],
     "maintainer": "GCAC"

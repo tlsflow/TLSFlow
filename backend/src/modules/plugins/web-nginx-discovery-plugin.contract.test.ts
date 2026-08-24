@@ -28,7 +28,7 @@ test('独立 web.nginx 发现包注册统一向导，不携带证书更新能力
     };
   };
   assert.equal(manifest.pluginId, 'web.nginx');
-  assert.equal(manifest.version, '1.0.16');
+  assert.equal(manifest.version, '1.0.17');
   assert.deepEqual(manifest.capabilities.map((item) => item.key), ['application.discover']);
   assert.equal(manifest.resources.actionContracts?.['application.discover.v1'], 'action-contracts/application-discover.json');
   assert.equal(manifest.resources.workflows?.['application.discover'], 'workflows/discover.json');
