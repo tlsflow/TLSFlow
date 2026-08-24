@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { caOperationsApi, type CaOperationObjectType, type CaOperationRecord, type CaOperationsTree, type CaOperationsTreeAuthority, type CaSyncRun } from '@/api/modules/ca-operations.api'
-import { GcDataTable, GcEmptyState, GcPageHeader } from '@/design-system/components'
+import { GcDataTable, GcEmptyState } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
@@ -21,6 +21,7 @@ const objectTypes: CaOperationObjectType[] = ['request', 'issuance', 'revocation
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
+const shouldTeleportToolbarActions = computed(() => typeof document !== 'undefined' && Boolean(document.querySelector('#gc-shell-hero-actions')))
 const tree = ref<CaOperationsTree>({ trustDomains: [], unassignedAuthorities: [] })
 const selectedCaId = ref('')
 const selectedView = ref<CaOperationObjectType>('request')
@@ -197,12 +198,14 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
 
 <template>
   <main class="ca-operations">
-    <GcPageHeader :title="t('caOperations.title')" :description="t('caOperations.description')">
-      <button class="gc-button" type="button" :disabled="loadingTree" @click="loadTree">{{ t('common.refresh') }}</button>
-      <button class="gc-button gc-button--primary" type="button" :disabled="!selectedAuthority || syncing" @click="startSync">
-        {{ syncing ? t('caOperations.actions.syncing') : t('caOperations.actions.sync') }}
-      </button>
-    </GcPageHeader>
+    <Teleport to="#gc-shell-hero-actions" :disabled="!shouldTeleportToolbarActions">
+      <div class="ca-operations__hero-actions">
+        <button class="gc-button" type="button" :disabled="loadingTree" @click="loadTree">{{ t('common.refresh') }}</button>
+        <button class="gc-button gc-button--primary" type="button" :disabled="!selectedAuthority || syncing" @click="startSync">
+          {{ syncing ? t('caOperations.actions.syncing') : t('caOperations.actions.sync') }}
+        </button>
+      </div>
+    </Teleport>
 
     <p v-if="errorKey" class="ca-operations__error" role="alert">{{ t(errorKey) }}</p>
 
@@ -278,7 +281,7 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
           </button>
         </nav>
 
-        <GcDataTable :columns="columns" :rows="rows" :loading="loadingRecords" row-key="recordKey" :empty-text="t('caOperations.messages.empty')">
+        <GcDataTable :columns="columns" :rows="rows" :loading="loadingRecords" row-key="recordKey" :empty-text="t('caOperations.messages.empty')" dense>
           <template #toolbar>
             <form class="ca-operations__toolbar" @submit.prevent="loadRecords">
               <input v-model="query" class="ca-operations__search" :placeholder="t('caOperations.filters.searchPlaceholder')" :aria-label="t('caOperations.aria.search')" />
@@ -295,34 +298,206 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
 </template>
 
 <style scoped>
-.ca-operations { display: grid; gap: var(--gc-space-5); }
-.ca-operations__error { margin: 0; padding: var(--gc-space-3) var(--gc-space-4); color: var(--gc-color-danger); background: var(--gc-color-danger-bg); border: var(--gc-border-width) solid var(--gc-color-danger-border); border-radius: var(--gc-radius-md); }
-.ca-operations__layout { display: grid; grid-template-columns: minmax(var(--gc-size-card-min), 1fr) 4fr; gap: var(--gc-space-4); align-items: start; }
-.ca-operations__tree { padding: var(--gc-space-4); display: grid; gap: var(--gc-space-4); position: sticky; top: var(--gc-space-10); }
-.ca-operations__tree header { display: flex; justify-content: space-between; gap: var(--gc-space-3); color: var(--gc-color-text-muted); }
-.ca-operations__tree header strong { color: var(--gc-color-text-strong); }
-.ca-operations__tree-group { display: grid; gap: var(--gc-space-2); }
-.ca-operations__tree-group h2 { margin: 0; color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); }
-.ca-operations__authority { display: grid; gap: var(--gc-space-1); width: 100%; padding: var(--gc-space-3); text-align: left; color: var(--gc-color-text); background: var(--gc-color-surface-raised); border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-md); cursor: pointer; }
-.ca-operations__authority:hover, .ca-operations__authority--active { color: var(--gc-color-primary); background: var(--gc-color-primary-soft); border-color: var(--gc-color-primary-border-strong); }
-.ca-operations__authority small { color: var(--gc-color-text-muted); }
-.ca-operations__content { min-width: 0; display: grid; gap: var(--gc-space-4); }
-.ca-operations__summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gc-space-4); padding: var(--gc-space-4); }
-.ca-operations__summary > div { display: grid; gap: var(--gc-space-2); }
-.ca-operations__summary span, .ca-operations__summary small { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); }
-.ca-operations__summary strong { color: var(--gc-color-text-strong); overflow-wrap: anywhere; }
-.ca-operations__views { display: flex; gap: var(--gc-space-2); padding: var(--gc-space-1); overflow-x: auto; background: var(--gc-color-surface-raised); border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-lg); }
-.ca-operations__views button { display: inline-flex; align-items: center; gap: var(--gc-space-2); min-width: max-content; padding: var(--gc-space-2) var(--gc-space-4); color: var(--gc-color-text-muted); background: transparent; border: 0; border-radius: var(--gc-radius-md); cursor: pointer; }
-.ca-operations__views button:hover, .ca-operations__view--active { color: var(--gc-color-primary); background: var(--gc-color-primary-soft); }
-.ca-operations__views small { display: inline-grid; place-items: center; min-width: var(--gc-space-5); color: inherit; }
-.ca-operations__status { display: inline-flex; width: max-content; padding: var(--gc-space-1) var(--gc-space-2); border-radius: var(--gc-radius-xl); font-size: var(--gc-font-size-xs); font-weight: 600; }
+.ca-operations { display: grid; gap: var(--gc-space-4); }
+.ca-operations__hero-actions { display: flex; align-items: center; gap: var(--gc-space-2); }
+.ca-operations__error { margin: 0; padding: 12px 14px; color: var(--gc-color-danger); background: var(--gc-color-danger-soft); border: 1px solid var(--gc-color-danger-border); border-radius: 14px; font-size: 12px; }
+
+.ca-operations__layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+  gap: var(--gc-space-4);
+  align-items: start;
+}
+
+/* CA 树 —— 参考证书页资产面板 */
+.ca-operations__tree {
+  padding: 0;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  position: sticky;
+  top: var(--gc-space-10);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.ca-operations__tree header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 4px 0 10px;
+  border-bottom: 1px solid var(--gc-color-border-subtle);
+}
+.ca-operations__tree header strong {
+  color: var(--gc-color-text);
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.04em;
+}
+.ca-operations__tree header span {
+  color: var(--gc-color-text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.ca-operations__tree-group { display: grid; gap: 6px; }
+.ca-operations__tree-group h2 {
+  margin: 0;
+  color: var(--gc-color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .01em;
+}
+.ca-operations__authority {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 11px;
+  text-align: left;
+  color: var(--gc-color-text);
+  background: var(--gc-color-surface-soft);
+  border: 1px solid transparent;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color .16s ease, background .16s ease, box-shadow .16s ease;
+}
+.ca-operations__authority:hover {
+  border-color: var(--gc-color-border-soft);
+  background: var(--gc-color-surface-muted);
+  box-shadow: 0 4px 14px var(--gc-color-border-subtle);
+}
+.ca-operations__authority--active {
+  border-color: var(--gc-color-primary-border);
+  box-shadow: inset 0 0 0 1px var(--gc-color-primary-weak);
+  background: linear-gradient(180deg, var(--gc-color-surface-panel), var(--gc-color-surface-selected));
+}
+.ca-operations__authority span {
+  color: var(--gc-color-text);
+  font-size: 13px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.ca-operations__authority small {
+  color: var(--gc-color-text-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+/* 内容列 */
+.ca-operations__content {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+/* 摘要卡 —— 参考证书页指标卡 */
+.ca-operations__summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-lg);
+  background: linear-gradient(180deg, var(--gc-color-surface-solid), var(--gc-color-surface-subtle));
+  box-shadow: none;
+}
+.ca-operations__summary > div { display: grid; gap: 4px; }
+.ca-operations__summary span {
+  color: var(--gc-color-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.ca-operations__summary small {
+  color: var(--gc-color-text-muted);
+  font-size: 11px;
+}
+.ca-operations__summary strong {
+  color: var(--gc-color-text);
+  font-size: 14px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+/* 视图标签页 —— 横向分段控件 */
+.ca-operations__views {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  overflow-x: auto;
+  background: var(--gc-color-surface-muted);
+  border: 1px solid var(--gc-color-border-subtle);
+  border-radius: 999px;
+}
+.ca-operations__views button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: max-content;
+  padding: 6px 14px;
+  color: var(--gc-color-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: background-color .18s ease, color .18s ease, box-shadow .18s ease;
+}
+.ca-operations__views button:hover,
+.ca-operations__view--active {
+  color: var(--gc-color-text);
+  background: var(--gc-color-surface-solid);
+  box-shadow: 0 4px 14px var(--gc-color-border);
+}
+.ca-operations__views small {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  color: inherit;
+}
+
+/* 状态徽标 —— 参考证书页 pill 徽标 */
+.ca-operations__status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
 .ca-operations__status--success { color: var(--gc-color-success); background: var(--gc-color-success-bg); }
 .ca-operations__status--warning { color: var(--gc-color-warning); background: var(--gc-color-warning-bg); }
 .ca-operations__status--danger { color: var(--gc-color-danger); background: var(--gc-color-danger-bg); }
 .ca-operations__status--info { color: var(--gc-color-info); background: var(--gc-color-info-bg); }
-.ca-operations__status--muted { color: var(--gc-color-muted); background: var(--gc-color-muted-bg); }.ca-operations__toolbar { display: flex; gap: var(--gc-space-2); }
-.ca-operations__search { flex: 1; min-width: 0; padding: var(--gc-space-2) var(--gc-space-3); color: var(--gc-color-text); background: var(--gc-color-surface-field); border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-sm); font: inherit; }
+.ca-operations__status--muted { color: var(--gc-color-muted); background: var(--gc-color-muted-bg); }
+
+/* 记录表工具栏 / 搜索 —— 参考证书页筛选输入 */
+.ca-operations__toolbar { display: flex; gap: 8px; }
+.ca-operations__search {
+  flex: 1;
+  min-width: 0;
+  min-height: 32px;
+  padding: 6px 10px;
+  color: var(--gc-color-text);
+  background: var(--gc-color-surface-glass);
+  border: 1px solid var(--gc-color-border);
+  border-radius: 12px;
+  font: inherit;
+  font-size: 12px;
+}
 .ca-operations__search:focus { outline: none; border-color: var(--gc-color-primary-border-strong); background: var(--gc-color-surface-field-focus); }
+
+/* 紧凑记录表格 */
+.ca-operations :deep(.gc-data-table th),
+.ca-operations :deep(.gc-data-table td) { padding: var(--gc-space-1) var(--gc-space-2); }
+.ca-operations :deep(.gc-data-table__toolbar) { padding: var(--gc-space-2) var(--gc-space-3); }
+
 @media (max-width: 56.25rem) {
   .ca-operations__layout { grid-template-columns: 1fr; }
   .ca-operations__tree { position: static; }

@@ -1,6 +1,5 @@
 export const caOperationsZhCN = {
   title: 'CA 运营管理',
-  description: '统一查询和同步 Microsoft AD CS、GCAC 内置 CA 以及兼容 Provider 的申请、签发、吊销和模板记录。',
   actions: { sync: '同步当前视图', syncing: '正在创建同步任务…', search: '搜索' },
   tree: { title: '证书颁发机构', count: '共 {count} 个 CA', unassigned: '未分配信任域' },
   views: { request: '申请', issuance: '已颁发证书', revocation: '已吊销证书', template: '证书模板' },
@@ -16,7 +15,6 @@ export const caOperationsZhCN = {
 
 export const caOperationsEnUS = {
   title: 'CA Operations',
-  description: 'Query and synchronize requests, issued certificates, revocations, and templates across Microsoft AD CS, GCAC built-in CAs, and compatible providers.',
   actions: { sync: 'Sync current view', syncing: 'Creating sync run…', search: 'Search' },
   tree: { title: 'Certificate Authorities', count: '{count} CAs', unassigned: 'Unassigned trust domain' },
   views: { request: 'Requests', issuance: 'Issued Certificates', revocation: 'Revoked Certificates', template: 'Certificate Templates' },
