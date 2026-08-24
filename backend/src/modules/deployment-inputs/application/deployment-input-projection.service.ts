@@ -1,4 +1,5 @@
 import type { DeploymentInputContractV1, DeploymentConnectionFieldV1 } from '../dto/deployment-input-contract.dto.js';
+import type { InputBindingsV1 } from '../dto/input-bindings.dto.js';
 import type {
   BuildDeploymentInputProjectionRequest,
   DeploymentConnectionProjectionV1,
@@ -8,7 +9,7 @@ import type {
 
 export class DeploymentInputProjectionService {
   project(request: BuildDeploymentInputProjectionRequest): DeploymentInputProjectionV1 {
-    const { contract, resolvedInput } = request;
+    const { contract, resolvedInput, effectiveBinding } = request;
     const variables = Object.entries(contract.variables).map(([slot, definition]) => ({
       slot,
       type: definition.type,
@@ -21,7 +22,7 @@ export class DeploymentInputProjectionService {
       sensitive: definition.sensitive,
       descriptionKey: definition.descriptionKey,
       ui: definition.ui,
-      value: definition.bindingPolicy === 'fixed' && !definition.sensitive ? resolvedInput.variables[slot] : undefined,
+      value: definition.sensitive ? undefined : definition.bindingPolicy === 'fixed' ? resolvedInput.variables[slot] : effectiveBinding?.inputBindings.variables[slot],
     } satisfies DeploymentInputFieldProjectionV1));
     const fixedValues = variables.filter((item) => item.bindingPolicy === 'fixed' && item.value !== undefined).map((item) => ({ slot: item.slot, value: item.value, source: item.source }));
     const runtimeValues = variables
@@ -32,7 +33,7 @@ export class DeploymentInputProjectionService {
       slot,
       transport: definition.transport,
       credentialSlot: definition.credentialSlot,
-      fields: connectionFields(definition),
+      fields: connectionFields(definition, effectiveBinding?.inputBindings.connections[slot]),
       descriptionKey: definition.descriptionKey,
       ui: definition.ui,
     } satisfies DeploymentConnectionProjectionV1));
@@ -41,7 +42,7 @@ export class DeploymentInputProjectionService {
       allowedKinds: [...definition.allowedKinds],
       required: definition.required,
       configurationMode: definition.configurationMode,
-      selectedCredentialId: resolvedInput.credentials[slot]?.credentialId,
+      selectedCredentialId: effectiveBinding?.inputBindings.credentials[slot]?.credentialId,
       descriptionKey: definition.descriptionKey,
       ui: definition.ui,
     }));
@@ -51,6 +52,7 @@ export class DeploymentInputProjectionService {
       required: definition.required,
       configurationMode: definition.configurationMode,
       outputs: definition.artifactContract.outputs,
+      binding: effectiveBinding?.inputBindings.artifacts[slot],
       descriptionKey: definition.descriptionKey,
       ui: definition.ui,
     }));
@@ -69,16 +71,16 @@ export class DeploymentInputProjectionService {
   }
 }
 
-function connectionFields(definition: DeploymentInputContractV1['connections'][string]): Record<string, DeploymentInputFieldProjectionV1> {
+function connectionFields(definition: DeploymentInputContractV1['connections'][string], binding?: InputBindingsV1['connections'][string]): Record<string, DeploymentInputFieldProjectionV1> {
   const fields: Record<string, DeploymentInputFieldProjectionV1> = {};
   for (const [slot, field] of Object.entries({ host: definition.host, port: definition.port, username: definition.username, 'tls.verifyPeer': definition.tls?.verifyPeer, 'tls.serverName': definition.tls?.serverName, 'hostKey.expectedFingerprint': definition.hostKey?.expectedFingerprint })) {
     if (!field) continue;
-    fields[slot] = fieldProjection(slot, field);
+    fields[slot] = fieldProjection(slot, field, readConnectionBindingValue(binding, slot));
   }
   return fields;
 }
 
-function fieldProjection(slot: string, field: DeploymentConnectionFieldV1): DeploymentInputFieldProjectionV1 {
+function fieldProjection(slot: string, field: DeploymentConnectionFieldV1, value?: unknown): DeploymentInputFieldProjectionV1 {
   return {
     slot,
     type: field.type,
@@ -90,5 +92,10 @@ function fieldProjection(slot: string, field: DeploymentConnectionFieldV1): Depl
     sensitive: field.sensitive,
     descriptionKey: field.descriptionKey,
     ui: field.ui,
+    value: field.sensitive ? undefined : value,
   };
+}
+
+function readConnectionBindingValue(binding: InputBindingsV1['connections'][string] | undefined, path: string): unknown {
+  return path.split('.').reduce<unknown>((current, segment) => current && typeof current === 'object' ? (current as Record<string, unknown>)[segment] : undefined, binding);
 }

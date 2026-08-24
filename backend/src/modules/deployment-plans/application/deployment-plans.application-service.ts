@@ -52,6 +52,7 @@ import { deploymentAssetContextBuilder } from '../../deployment-inputs/applicati
 import { DeploymentInputContractLoader } from '../../deployment-inputs/application/deployment-input-contract-loader.js';
 import { ProductionDeploymentInputResolverService } from '../../deployment-inputs/application/production-deployment-input-resolver.service.js';
 import type { ResolveDeploymentInputPhase, ResolvedArtifactV1, ResolvedDeploymentInputV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
+import type { InputBindingsV1 } from '../../deployment-inputs/dto/input-bindings.dto.js';
 import { readResolvedDeploymentInputV1 } from '../../deployment-inputs/schema/resolved-deployment-input.schema.js';
 import { DeploymentInputSnapshotService } from '../../deployment-inputs/application/deployment-input-snapshot.service.js';
 import { DeploymentInputSnapshotsRepository } from '../../deployment-inputs/repository/deployment-input-snapshots.repository.js';
@@ -358,6 +359,38 @@ export class DeploymentPlansApplicationService {
   async createFromApplicationAsset(input: CreateDeploymentPlanFromApplicationAssetInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
     const draft = await this.buildCreateInputFromApplicationAsset(input);
     return this.create(draft, context);
+  }
+
+  async resolveProjectionSource(input: Pick<CreateDeploymentPlanFromApplicationAssetInput, 'applicationAssetId' | 'tenantId'>): Promise<{
+    contract: ReturnType<DeploymentInputContractLoader['fromPlugin']>;
+    resolvedInput: ResolvedDeploymentInputV1;
+    effectiveBinding?: import('../../deployment-inputs/domain/deployment-input-provenance.js').EffectiveInputBindingV1;
+  }> {
+    if (!input.tenantId) throw new AppError('VALIDATION_FAILED', 'tenantId 不能为空');
+    const draft = await this.buildCreateInputFromApplicationAsset({
+      applicationAssetId: input.applicationAssetId,
+      tenantId: input.tenantId,
+      idempotencyKey: `projection:${input.applicationAssetId}`,
+      actorId: 'projection',
+    });
+    const target = draft.targets[0];
+    const payload = target?.strategyPayload ?? {};
+    const resolvedInput = readResolvedDeploymentInputV1(payload.resolvedDeploymentInput);
+    if (!resolvedInput) throw new AppError('VALIDATION_FAILED', '应用资产执行来源未生成统一部署输入', { applicationAssetId: input.applicationAssetId });
+    const runtimeCapability = readRecord(payload.pluginRuntimeCapability);
+    if (runtimeCapability) {
+      if (!this.unifiedPlugins) throw new AppError('SYSTEM_INTERNAL_ERROR', '统一插件版本服务未接入');
+      const pluginVersionId = readOptionalString(runtimeCapability.pluginVersionId);
+      const capabilityKey = readOptionalString(runtimeCapability.capabilityKey);
+      if (!pluginVersionId || !capabilityKey) throw new AppError('VALIDATION_FAILED', '插件 Projection 缺少版本化输入身份');
+      const plugin = await this.unifiedPlugins.getVersion(pluginVersionId);
+      return { contract: new DeploymentInputContractLoader().fromPlugin(plugin, capabilityKey), resolvedInput, effectiveBinding: effectiveBindingFromPayload(payload) };
+    }
+    const executionSource = readRecord(payload.executionSource);
+    const workflowVersionId = readOptionalString(executionSource?.workflowVersionId);
+    if (!workflowVersionId || !this.workflows) throw new AppError('VALIDATION_FAILED', 'Workflow Projection 缺少版本化输入身份');
+    const version = await this.workflows.getVersion(workflowVersionId);
+    return { contract: new DeploymentInputContractLoader().fromWorkflowVersion(version), resolvedInput, effectiveBinding: effectiveBindingFromPayload(payload) };
   }
 
   async updateDraftFromApplicationAsset(input: UpdateDeploymentPlanFromApplicationAssetInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
@@ -675,6 +708,13 @@ export class DeploymentPlansApplicationService {
     }
     const workflowVersionId = await this.resolveWorkflowExecutionVersion(binding);
     const executionSource = this.executionSourceResolver.resolveWorkflow({ mode, binding, workflowVersionId });
+    const effectiveBinding = this.deploymentInputResolver.resolveProjectionResult({
+      phase: 'configure',
+      contract: new DeploymentInputContractLoader().fromWorkflowVersion(await this.workflows!.getVersion(workflowVersionId)),
+      assetContext: deploymentAssetContextBuilder.build({ applicationAsset: asset, managedTargetContext: context }),
+      bindingLayers: { assetOverride: { pluginVersionId: workflowVersionId, inputBindings: binding.inputBindings } },
+      credentialSnapshots: await this.snapshotCredentials(tenantId, binding.inputBindings.credentials),
+    }).effectiveBinding;
     const resolvedInput = await this.resolveWorkflowBindingDeploymentInput('configure', tenantId, binding, workflowVersionId, asset, context);
     const materializedAsset: ServiceAssetDto = {
       ...asset,
@@ -701,6 +741,7 @@ export class DeploymentPlansApplicationService {
       payload: {
         ...resolved.payload,
         resolvedDeploymentInput: resolvedInput,
+        effectiveInputBindings: effectiveBinding.inputBindings,
         executionSource: {
           type: executionSource.type,
           mode: executionSource.mode,
@@ -769,7 +810,8 @@ export class DeploymentPlansApplicationService {
       capability,
       internalWorkflowVersionId: workflow?.workflowVersionId,
     });
-    const resolvedInput = await this.resolveCapabilityDeploymentInput('configure', tenantId, capability, context, asset);
+    const inputResult = await this.resolveCapabilityDeploymentInput('configure', tenantId, capability, context, asset);
+    const resolvedInput = inputResult.resolvedInput;
     const runtime = await this.pluginRuntimeAdapters.compile({
       capability,
       context,
@@ -789,6 +831,7 @@ export class DeploymentPlansApplicationService {
       ...resolved,
       payload: {
         ...resolved.payload,
+        effectiveInputBindings: inputResult.effectiveBinding.inputBindings,
         executionSource: {
           type: executionSource.type,
           mode: 'PLUGIN',
@@ -815,25 +858,44 @@ export class DeploymentPlansApplicationService {
     context: Awaited<ReturnType<ManagedTargetContextResolver['resolve']>>,
     asset: ServiceAssetDto,
     artifact?: DeploymentArtifactSnapshotDto,
-  ): Promise<ResolvedDeploymentInputV1> {
+  ): Promise<{ resolvedInput: ResolvedDeploymentInputV1; effectiveBinding: import('../../deployment-inputs/domain/deployment-input-provenance.js').EffectiveInputBindingV1 }> {
     const contract = new DeploymentInputContractLoader().fromPlugin(capability.plugin, capability.assignment.capabilityKey);
-    const bindingLayer = {
-      pluginVersionId: capability.pluginVersionId,
-      inputBindings: capability.binding.inputBindings,
-    };
-    const bindingLayers = capability.assignment.ownerType === 'DEVICE'
-      ? { deviceDefault: bindingLayer }
-      : capability.assignment.ownerType === 'MANAGED_TARGET'
-        ? { targetOverride: bindingLayer }
-        : { assetOverride: bindingLayer };
-    return this.deploymentInputResolver.resolve({
+    const bindingLayers = await this.resolveCapabilityBindingLayers(tenantId, capability, context, asset.id);
+    const request = {
       phase,
       contract,
       assetContext: deploymentAssetContextBuilder.build({ applicationAsset: asset, managedTargetContext: context }),
       bindingLayers,
       credentialSnapshots: await this.snapshotCredentials(tenantId, capability.binding.inputBindings.credentials),
       artifactSnapshots: artifact ? artifactSnapshotsFromDeploymentArtifact(artifact) : undefined,
+    };
+    if (phase === 'configure') return this.deploymentInputResolver.resolveProjectionResult(request);
+    const resolvedInput = this.deploymentInputResolver.resolve(request);
+    return { resolvedInput, effectiveBinding: this.deploymentInputResolver.resolveProjectionResult(request).effectiveBinding };
+  }
+
+  private async resolveCapabilityBindingLayers(
+    tenantId: string,
+    capability: ResolvedDeploymentCapability,
+    context: Awaited<ReturnType<ManagedTargetContextResolver['resolve']>>,
+    applicationAssetId: string,
+  ) {
+    if (!this.pluginBindings) throw new AppError('SYSTEM_INTERNAL_ERROR', 'PluginBinding 服务未接入');
+    const assignments = await this.pluginBindings.listAssignmentCandidates(tenantId, capability.assignment.capabilityKey, {
+      deviceId: context.host.id,
+      managedTargetId: context.managedTarget.id,
+      applicationAssetId,
     });
+    const layers: Record<string, { pluginVersionId: string; inputBindings: InputBindingsV1 }> = {};
+    for (const assignment of assignments.filter((item) => item.pluginVersionId === capability.pluginVersionId)) {
+      const binding = await this.pluginBindings.getTenantBinding(tenantId, assignment.pluginBindingId);
+      if (binding.status !== 'ACTIVE' || binding.pluginVersionId !== capability.pluginVersionId) continue;
+      const layer = { pluginVersionId: capability.pluginVersionId, inputBindings: binding.inputBindings };
+      if (assignment.ownerType === 'DEVICE') layers.deviceDefault = layer;
+      if (assignment.ownerType === 'MANAGED_TARGET') layers.targetOverride = layer;
+      if (assignment.ownerType === 'APPLICATION_ASSET') layers.assetOverride = layer;
+    }
+    return layers;
   }
 
   private async resolveTargetDeploymentInput(
@@ -922,14 +984,15 @@ export class DeploymentPlansApplicationService {
           ? { assetOverride: layer }
           : undefined;
     if (!bindingLayers) throw new AppError('VALIDATION_FAILED', '插件 Assignment Owner 类型不受支持', { ownerType });
-    return this.deploymentInputResolver.resolve({
+    const request = {
       phase,
       contract,
       assetContext: deploymentAssetContextBuilder.build({ applicationAsset, managedTargetContext: context }),
       bindingLayers,
       credentialSnapshots: await this.snapshotCredentials(tenantId, binding.inputBindings.credentials),
       artifactSnapshots: artifactSnapshotsFromDeploymentArtifact(artifact),
-    });
+    };
+    return phase === 'configure' ? this.deploymentInputResolver.resolveResult(request) : this.deploymentInputResolver.resolve(request);
   }
 
   private async resolveWorkflowBindingDeploymentInput(
@@ -944,7 +1007,7 @@ export class DeploymentPlansApplicationService {
     if (!this.workflows) throw new AppError('SYSTEM_INTERNAL_ERROR', '工作流版本服务未接入');
     const version = await this.workflows.getVersion(workflowVersionId);
     const contract = new DeploymentInputContractLoader().fromWorkflowVersion(version);
-    return this.deploymentInputResolver.resolve({
+    const request = {
       phase,
       contract,
       assetContext: deploymentAssetContextBuilder.build({ applicationAsset: asset, managedTargetContext: context }),
@@ -956,7 +1019,8 @@ export class DeploymentPlansApplicationService {
       },
       credentialSnapshots: await this.snapshotCredentials(tenantId, binding.inputBindings.credentials),
       artifactSnapshots: artifact ? artifactSnapshotsFromDeploymentArtifact(artifact) : undefined,
-    });
+    };
+    return phase === 'configure' ? this.deploymentInputResolver.resolveResult(request) : this.deploymentInputResolver.resolve(request);
   }
 
   private async snapshotCredentials(tenantId: string, bindings: Record<string, { credentialId: string }>) {
@@ -2676,6 +2740,12 @@ function isMissingRelationError(error: unknown): boolean {
 
 function agentProductFamily(osType: string): string | undefined {
   return AGENT_PRODUCT_FAMILY_BY_OS[osType.trim().toUpperCase()];
+}
+
+function effectiveBindingFromPayload(payload: Record<string, unknown>) {
+  const value = readRecord(payload.effectiveInputBindings);
+  if (!value || value.apiVersion !== 'gcac.input-bindings/v1') return undefined;
+  return { inputBindings: value as unknown as InputBindingsV1, provenance: {} };
 }
 
 const AGENT_PRODUCT_FAMILY_BY_OS: Readonly<Record<string, string>> = Object.freeze({

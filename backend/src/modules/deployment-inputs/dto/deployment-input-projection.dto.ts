@@ -1,5 +1,6 @@
 import type { DeploymentInputContractV1, DeploymentInputUiDefinitionV1, DeploymentVariableSourceV1 } from './deployment-input-contract.dto.js';
 import type { DeploymentInputIssueV1, ResolvedDeploymentInputV1 } from './resolved-deployment-input.dto.js';
+import type { EffectiveInputBindingV1 } from '../domain/deployment-input-provenance.js';
 
 export interface DeploymentInputFieldProjectionV1 {
   slot: string;
@@ -41,6 +42,7 @@ export interface DeploymentArtifactProjectionV1 {
   required: boolean;
   configurationMode: 'required' | 'advanced';
   outputs: Record<string, { role: string; required: boolean; format?: string; encoding?: string; sensitive?: boolean; descriptionKey?: string }>;
+  binding?: { certificateFormatId?: string; outputBindings: Record<string, string> };
   descriptionKey?: string;
   ui?: DeploymentInputUiDefinitionV1;
 }
@@ -73,4 +75,5 @@ export interface DeploymentInputProjectionV1 {
 export interface BuildDeploymentInputProjectionRequest {
   contract: DeploymentInputContractV1;
   resolvedInput: ResolvedDeploymentInputV1;
+  effectiveBinding?: EffectiveInputBindingV1;
 }

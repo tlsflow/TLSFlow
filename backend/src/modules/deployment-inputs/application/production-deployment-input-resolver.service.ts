@@ -9,6 +9,7 @@ import type {
   ResolvedDeploymentInputV1,
   RuntimeCredentialV1,
 } from '../dto/resolved-deployment-input.dto.js';
+import type { EffectiveInputBindingV1 } from '../domain/deployment-input-provenance.js';
 import { EffectiveBindingResolver, type ResolveEffectiveBindingRequest } from './effective-binding.resolver.js';
 
 export interface ResolveProductionDeploymentInputRequest {
@@ -30,11 +31,27 @@ export class ProductionDeploymentInputResolverService {
   ) {}
 
   resolve(request: ResolveProductionDeploymentInputRequest): ResolvedDeploymentInputV1 {
+    const resolved = this.resolveResult(request);
+    if (!resolved.executable) {
+      throw new AppError('VALIDATION_FAILED', '统一部署输入校验失败', {
+        code: 'DEPLOYMENT_INPUT_INVALID',
+        phase: request.phase,
+        issues: resolved.issues,
+      });
+    }
+    return resolved;
+  }
+
+  resolveResult(request: ResolveProductionDeploymentInputRequest): ResolvedDeploymentInputV1 {
+    return this.resolveProjectionResult(request).resolvedInput;
+  }
+
+  resolveProjectionResult(request: ResolveProductionDeploymentInputRequest): { effectiveBinding: EffectiveInputBindingV1; resolvedInput: ResolvedDeploymentInputV1 } {
     const effectiveBinding = this.bindings.resolve({
       contract: request.contract,
       ...request.bindingLayers,
     });
-    const resolved = this.inputs.resolve({
+    const resolvedInput = this.inputs.resolve({
       phase: request.phase,
       contract: request.contract,
       assetContext: request.assetContext,
@@ -45,13 +62,6 @@ export class ProductionDeploymentInputResolverService {
       systemValues: request.systemValues,
       stepOutputs: request.stepOutputs,
     });
-    if (!resolved.executable) {
-      throw new AppError('VALIDATION_FAILED', '统一部署输入校验失败', {
-        code: 'DEPLOYMENT_INPUT_INVALID',
-        phase: request.phase,
-        issues: resolved.issues,
-      });
-    }
-    return resolved;
+    return { effectiveBinding, resolvedInput };
   }
 }

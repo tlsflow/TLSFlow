@@ -239,7 +239,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
 
   app.setAuthTokenResolver((authorization, cookie) => security.auth.parseRequestIdentity(authorization, cookie));
   new HealthController().register(app.router);
-  new DeploymentInputProjectionController().register(app.router);
 
   assetsService.setAgentsService(agentsService);
   assetsService.setBindingsRepository(bindingsService.getRepository());
@@ -296,6 +295,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     database: appDb,
   }), undefined, security);
   deploymentPlans.register(app.router);
+  new DeploymentInputProjectionController(deploymentPlans.getApplicationService()).register(app.router);
   new SecurityController(security, new AuditPresentationService({
     deploymentPlans: deploymentPlans.getRepository(),
     assets: assetsService.getRepository(),

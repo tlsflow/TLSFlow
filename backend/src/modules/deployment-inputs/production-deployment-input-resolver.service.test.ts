@@ -78,6 +78,21 @@ test('生产解析服务在进入 Runtime 前聚合并抛出统一输入问题',
   );
 });
 
+test('配置投影阶段返回全部问题而不是提前抛错', () => {
+  const resolved = new ProductionDeploymentInputResolverService().resolveResult({
+    phase: 'configure',
+    contract,
+    assetContext: {
+      apiVersion: 'gcac.deployment-asset-context/v1',
+      application: { id: 'asset-1', address: 'example.com', serverName: 'example.com', port: 443, protocol: 'HTTPS' },
+      deployment: { targets: [], certificateResourceName: 'certificate-example' },
+    },
+    bindingLayers: { assetOverride: { pluginVersionId: 'plugin-version-1', inputBindings: emptyInputBindingsV1() } },
+  });
+  assert.equal(resolved.executable, false);
+  assert.deepEqual(resolved.issues.map((item) => item.code), ['DEPLOYMENT_CREDENTIAL_REQUIRED', 'DEPLOYMENT_ARTIFACT_REQUIRED']);
+});
+
 test('标准与历史 Runtime 共用读取器并拒绝缺少 Contract 版本的旧快照', () => {
   const service = new ProductionDeploymentInputResolverService();
   const inputBindings = emptyInputBindingsV1();
