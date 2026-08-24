@@ -330,7 +330,7 @@ onMounted(loadStatus)
         <textarea v-model="licenseText" rows="8" :placeholder="t('settings.licensing.actions.importPlaceholder')" />
       </label>
       <button class="gc-button gc-button--primary" type="button" :disabled="importing || !licenseText.trim()" @click="importCurrentLicense">
-        {{ importing ? t('common.saving') : t('settings.licensing.actions.import') }}
+        {{ importing ? t('settings.licensing.actions.importing') : t('settings.licensing.actions.import') }}
       </button>
     </section>
 

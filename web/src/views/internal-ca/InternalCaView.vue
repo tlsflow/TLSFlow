@@ -316,7 +316,7 @@ function capabilityCount(backend: InternalCaRecord, state: string): number {
 }
 
 function capabilityLabel(capability: InternalCaRecord): string {
-  return text(capability.key, text(capability.name, t('common.unknown')))
+  return text(capability.key, text(capability.name, t('internalCa.common.unknown')))
 }
 
 function backendLabel(providerId: unknown): string {
@@ -521,8 +521,8 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
         <details class="gc-card backend-settings">
           <summary>{{ t('internalCa.sections.issuingBackends') }}</summary>
           <section class="capability-overview">
-            <strong>{{ t('capability.title') }}</strong>
-            <p>{{ t('capability.description') }}</p>
+            <strong>{{ t('designSystem.capability.title') }}</strong>
+            <p>{{ t('designSystem.capability.description') }}</p>
           </section>
           <div class="backend-settings__list">
             <article v-for="backend in providers" :key="text(backend.id)" class="backend-summary">
@@ -531,9 +531,9 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
               <small>{{ t('internalCa.labels.backendUsageCount', { count: authorities.filter((item) => text(item.providerId) === text(backend.id)).length }) }}</small>
               <small>{{ t('internalCa.labels.unverifiedCapabilityCount', { count: capabilityCount(backend, 'declared') }) }}</small>
               <div v-if="asRecords(backend.capabilityRecords).length" class="backend-summary__capabilities">
-                <span v-for="capability in asRecords(backend.capabilityRecords)" :key="`${capabilityLabel(capability)}:${text(capability.state)}`">{{ capabilityLabel(capability) }} · {{ text(capability.state, t('common.unknown')) }}</span>
+                <span v-for="capability in asRecords(backend.capabilityRecords)" :key="`${capabilityLabel(capability)}:${text(capability.state)}`">{{ capabilityLabel(capability) }} · {{ text(capability.state, t('internalCa.common.unknown')) }}</span>
               </div>
-              <p v-else class="backend-summary__empty">{{ t('capability.empty') }}</p>
+              <p v-else class="backend-summary__empty">{{ t('designSystem.capability.empty') }}</p>
             </article>
           </div>
         </details>
@@ -698,7 +698,7 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
             <label>{{ t('internalCa.fields.backendName') }}<input v-model="backendDraft.name" required /></label>
             <label>{{ t('internalCa.fields.platform') }}<select v-model="backendDraft.runtimePlatform" required><option value="windows">{{ t('assets.platforms.windows') }}</option><option value="linux">{{ t('assets.platforms.linux') }}</option></select></label>
             <label>{{ t('internalCa.fields.availabilityMode') }}<select v-model="backendDraft.availabilityMode"><option value="single">{{ t('internalCa.availability.single') }}</option><option value="active_standby">{{ t('internalCa.availability.activeStandby') }}</option><option value="active_active">{{ t('internalCa.availability.activeActive') }}</option></select></label>
-            <article class="ca-wizard__notice ca-wizard__full"><strong>{{ t('capability.title') }}</strong><p>{{ t('capability.description') }}</p></article>
+            <article class="ca-wizard__notice ca-wizard__full"><strong>{{ t('designSystem.capability.title') }}</strong><p>{{ t('designSystem.capability.description') }}</p></article>
           </template>
           <button class="ca-wizard__hidden-submit" tabindex="-1"></button>
         </form>
