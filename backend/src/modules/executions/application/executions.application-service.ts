@@ -185,7 +185,7 @@ export class ExecutionsApplicationService {
     return this.toRunDto(await this.transitionRunEntity(run, 'CANCELLED', actorId, 'run.cancelled'));
   }
 
-  async runDispatchedExecution(runId: string, actorId: string, tenantId: string | undefined, registry: ExecutorRegistry = new ExecutorRegistry()): Promise<any> {
+  async runDispatchedExecution(runId: string, actorId: string, tenantId: string | undefined, registry: ExecutorRegistry = this.executorRegistry): Promise<any> {
     let run = await this.repository.getRunOrThrow(runId, tenantId);
     if (run.status === 'CANCELLED') return { success: false, errorCode: 'RUN_CANCELLED', errorMessage: '执行运行已取消' };
     if (!['DISPATCHED', 'RUNNING'].includes(run.status)) {
@@ -620,6 +620,15 @@ export class ExecutionsApplicationService {
       result = error instanceof AppError
         ? { success: false, errorCode: error.errorCode, errorMessage: error.message, detail: readRecord(error.details) }
         : { success: false, errorCode: 'EXECUTOR_FAILED', errorMessage: error instanceof Error ? error.message : String(error) };
+    }
+    const latestStep = await this.repository.getStepOrThrow(runningStep.id, tenantId);
+    if (latestStep.status !== 'RUNNING') {
+      return {
+        success: latestStep.status !== 'FAILED' && latestStep.status !== 'TIMEOUT',
+        errorCode: latestStep.lastErrorCode,
+        errorMessage: latestStep.lastErrorMessage,
+        deploymentPlanTargetId: latestStep.deploymentPlanTargetId,
+      };
     }
     if (result.success && result.asyncPending) {
       await this.repository.updateStep(runningStep.id, {

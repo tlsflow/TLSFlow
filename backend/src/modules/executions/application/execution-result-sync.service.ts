@@ -47,6 +47,19 @@ export class ExecutionResultSyncService {
       ...(input.detail ?? {}),
     };
     const isDryRun = run.type === 'dry_run' || step.inputSnapshot.dryRun === true;
+    if (isDryRun) {
+      const mergedDryRunChecks = mergeDryRunChecks(
+        readDryRunChecks((step.inputSnapshot.resultDetail as Record<string, unknown> | undefined) ?? {}),
+        readDryRunChecks(input.detail ?? {}),
+      );
+      if (!input.success && dryRunChecksContainNoFailure(mergedDryRunChecks)) {
+        mergedDryRunChecks.push(buildDryRunExecutionFailureCheck(input, step, mergedDetail));
+      }
+      if (mergedDryRunChecks.length > 0) {
+        mergedDetail.dryRunChecks = mergedDryRunChecks;
+        mergedDetail.dryRunSummary = summarizeDryRunChecks(mergedDryRunChecks);
+      }
+    }
     const allowLegacyVerifyRecovery = shouldRecoverLegacyVerifyFailure(step, input, mergedDetail, isDryRun);
     const remoteVerification = await this.performFormalRemoteVerification(
       step,
@@ -767,6 +780,78 @@ function normalizeThumbprint(value: string | undefined): string | undefined {
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function readDryRunChecks(detail: Record<string, unknown> | undefined): Record<string, unknown>[] {
+  const candidate = detail?.dryRunChecks;
+  return Array.isArray(candidate)
+    ? candidate.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
+    : [];
+}
+
+function mergeDryRunChecks(...groups: ReadonlyArray<readonly Record<string, unknown>[]>): Record<string, unknown>[] {
+  const byKey = new Map<string, Record<string, unknown>>();
+  for (const checks of groups) {
+    for (const check of checks) {
+      const key = readString(check, 'key') ?? readString(check, 'label') ?? readString(check, 'id');
+      if (!key) continue;
+      const existing = byKey.get(key);
+      if (!existing || dryRunStatusRank(check.status) >= dryRunStatusRank(existing.status)) {
+        byKey.set(key, { ...existing, ...check });
+      }
+    }
+  }
+  return [...byKey.values()];
+}
+
+function dryRunChecksContainNoFailure(checks: readonly Record<string, unknown>[]): boolean {
+  return !checks.some((check) => normalizeDryRunStatus(check.status) === 'failed');
+}
+
+function buildDryRunExecutionFailureCheck(
+  input: { errorCode?: string; errorMessage?: string },
+  step: ExecutionStepEntity,
+  detail: Record<string, unknown>,
+): Record<string, unknown> {
+  const taskId = readString(detail, 'taskId') ?? readString(step.inputSnapshot, 'dispatchDetail.taskId');
+  return {
+    key: 'agent_execution',
+    label: 'Agent 执行结果',
+    status: 'failed',
+    detail: input.errorMessage?.trim() || 'Agent 返回失败状态，但没有提供对应的 failed 预检项',
+    evidence: {
+      stepType: step.stepType,
+      taskId,
+      errorCode: input.errorCode,
+      executor: readString(detail, 'executor'),
+      mode: readString(detail, 'mode'),
+    },
+  };
+}
+
+function summarizeDryRunChecks(checks: readonly Record<string, unknown>[]): { passed: number; failed: number; warning: number; unknown: number } {
+  const summary = { passed: 0, failed: 0, warning: 0, unknown: 0 };
+  for (const check of checks) {
+    const status = normalizeDryRunStatus(check.status);
+    summary[status] += 1;
+  }
+  return summary;
+}
+
+function normalizeDryRunStatus(value: unknown): 'passed' | 'failed' | 'warning' | 'unknown' {
+  const current = String(value ?? '').trim().toLowerCase();
+  if (current === 'passed' || current === 'success') return 'passed';
+  if (current === 'failed' || current === 'error') return 'failed';
+  if (current === 'warning' || current === 'warn') return 'warning';
+  return 'unknown';
+}
+
+function dryRunStatusRank(value: unknown): number {
+  const status = normalizeDryRunStatus(value);
+  if (status === 'failed') return 4;
+  if (status === 'warning') return 3;
+  if (status === 'unknown') return 2;
+  return 1;
 }
 
 function readStringArray(value: unknown): string[] {

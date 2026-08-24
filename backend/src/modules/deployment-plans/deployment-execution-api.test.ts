@@ -30,6 +30,7 @@ type DeploymentFixture = {
   hostId: string;
   serviceInstanceId: string;
   certificateVersionId: string;
+  certificateFormatId: string;
   certificateFingerprintSha256: string;
   target_1: { siteAssetId: string; managedTargetId: string; bindingId: string; bindingKey: string; domain: string };
   binding_ok: { siteAssetId: string; managedTargetId: string; bindingId: string; bindingKey: string; domain: string };
@@ -94,6 +95,7 @@ function createPlanBody(
   return {
     name: '更新 nginx 证书',
     certificateVersionId: fixture.certificateVersionId,
+    certificateFormatId: fixture.certificateFormatId,
     idempotencyKey,
     policy: { riskLevel, approvalRequired: riskLevel === 'high', failurePolicy: 'rollback' },
     targets: [
@@ -129,6 +131,7 @@ async function createApprovedHighRiskPlan(app: ReturnType<typeof createApp>, fix
   assert.equal(decided.statusCode, 200);
   return { planId: plan.id, approvalId: pending.approvalId };
 }
+
 
 describe('部署计划与执行编排 API', () => {
   it('创建部署计划成功，并展开 certificateBindingId 目标', async () => {
@@ -292,6 +295,41 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(body.run.status, 'DISPATCHED');
     assert.deepEqual(body.steps.map((step) => step.stepType), ['DISCOVER', 'VERIFY']);
     assert.equal(body.steps.every((step) => step.inputSnapshot.dryRun === true), true);
+  });
+
+  it('dry-run 返回时保留过程态，并在当前证书已一致时生成 warning', async () => {
+    const { db, security, service: deploymentService, fixture, bindings } = await createMigratedDeploymentService();
+    const app = createApp({ db, security, corePersistence: { mode: 'memory' }, deploymentPlans: new DeploymentPlansController(deploymentService) });
+    await bindings.updateCertificateBinding('tenant_1', fixture.target_1.bindingId, {
+      observedFingerprintSha256: fixture.certificateFingerprintSha256,
+      metadata: {
+        currentThumbprint: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      },
+    });
+    const ready = await createReadyLowRiskPlan(app, fixture, 'idem_dry_run_warning_plan');
+
+    const response = await app.inject({
+      method: 'POST',
+      path: '/api/v1/deployment-plans/dry-run',
+      headers: userHeaders,
+      body: { planId: ready.id, idempotencyKey: 'idem_dry_run_warning' },
+    });
+
+    assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+    const body = response.body as {
+      run: { status: string };
+      steps: Array<{ stepType: string; status: string; inputSnapshot: { resultDetail?: { dryRunChecks?: Array<{ key: string; status: string; evidence?: Record<string, unknown> }> } } }>;
+    };
+    assert.equal(body.run.status, 'DISPATCHED');
+    assert.equal(body.steps.every((step) => step.status === 'PENDING'), true);
+
+    const warningChecks = body.steps
+      .flatMap((step) => step.inputSnapshot.resultDetail?.dryRunChecks ?? [])
+      .filter((check) => check.key === 'certificate_already_active');
+    assert.equal(warningChecks.length >= 1, true);
+    assert.equal(warningChecks[0]?.status, 'warning');
+    assert.equal(warningChecks[0]?.evidence?.expectedFingerprintSha256, fixture.certificateFingerprintSha256);
+    assert.equal(warningChecks[0]?.evidence?.currentFingerprintSha256, fixture.certificateFingerprintSha256);
   });
 
   it('mock-safe gateway adapter 成功时 run 和 step 从 DISPATCHED/RUNNING 走到 SUCCESS', async () => {
@@ -1908,6 +1946,7 @@ describe('部署计划与执行编排 API', () => {
       detail: '已命中 IIS 站点',
     });
   });
+
 });
 
 function grantDeploymentFixturePolicies(security: ReturnType<typeof createSecurityServices>, tenantId: string): void {
@@ -1980,16 +2019,17 @@ async function seedDeploymentFixture(app: ReturnType<typeof createApp>, tenantId
     method: 'POST',
     path: '/api/v1/certificate-version-formats',
     headers,
-    body: {
-      certificateVersionId,
-      format: 'pfx',
-      artifactRef: `artifact://certificate-format/${certificateVersionId}/pfx`,
-      containsPrivateKey: true,
-      passwordSecretRef,
-      parameters: { alias: tenantId },
-    },
-  });
+      body: {
+        certificateVersionId,
+        format: 'pfx',
+        artifactRef: `artifact://certificate-format/${certificateVersionId}/pfx`,
+        containsPrivateKey: true,
+        passwordSecretRef,
+        parameters: { alias: tenantId, systemPlatform: 'windows', runtimePlatform: 'iis' },
+      },
+    });
   assert.equal(exported.statusCode, 201);
+  const certificateFormatId = (exported.body as { id: string }).id;
 
   const targets: Array<{ key: keyof Pick<DeploymentFixture, 'target_1' | 'binding_ok' | 'binding_blocked'>; domain: string }> = [
     { key: 'target_1', domain: 'iis-site.example.com' },
@@ -2076,6 +2116,7 @@ async function seedDeploymentFixture(app: ReturnType<typeof createApp>, tenantId
     hostId,
     serviceInstanceId,
     certificateVersionId,
+    certificateFormatId,
     certificateFingerprintSha256: importedBody.version.fingerprintSha256,
     ...seededTargets,
   };

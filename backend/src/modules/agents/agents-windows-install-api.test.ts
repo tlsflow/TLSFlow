@@ -59,6 +59,10 @@ describe('Agent 安装会话安全约束', () => {
     assert.match(bootstrapBody, /\.env/);
     assert.match(bootstrapBody, /GCAC_CONTROL_PLANE_URL=/);
     assert.match(bootstrapBody, /\.controlPlaneUrl = \[string\]\$manifest\.controlPlaneUrl/);
+    assert.match(bootstrapBody, /directControlEnabled/);
+    assert.match(bootstrapBody, /directControlListenHost/);
+    assert.match(bootstrapBody, /directControlListenPort/);
+    assert.match(bootstrapBody, /directControlAdvertiseHost/);
     assert.match(bootstrapBody, /bootstrap-selfcheck\.json/);
     assert.match(bootstrapBody, /bootstrap-register\.json/);
     assert.match(bootstrapBody, /WriteAllBytes/);
@@ -135,6 +139,10 @@ describe('Agent 安装会话安全约束', () => {
     assert.match(bootstrapBody, /bundle\.tar\.gz/);
     assert.match(bootstrapBody, /BUNDLE_URL='https:\/\/gcac\.example\.test\/api\/v1\/agents\/install\/linux\/bundle\.tar\.gz'/);
     assert.match(bootstrapBody, /SERVICE_NAME='gcac-linux-agent'/);
+    assert.match(bootstrapBody, /directControlEnabled: true/);
+    assert.match(bootstrapBody, /directControlListenHost: "0\.0\.0\.0"/);
+    assert.match(bootstrapBody, /directControlListenPort: 18931/);
+    assert.match(bootstrapBody, /directControlAdvertiseHost: ""/);
     assert.doesNotMatch(bootstrapBody, /manifest\?token=/);
     assert.doesNotMatch(bootstrapBody, /MANIFEST_URL=/);
     assert.doesNotMatch(bootstrapBody, /process\.stdout\.write\(m\.bundleUrl\)/);

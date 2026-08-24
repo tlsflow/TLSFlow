@@ -7,7 +7,7 @@ import { newId } from '../../../shared/id.js';
 import type { RequestContext, RiskLevel } from '../../../shared/security-types.js';
 import { ExecutionsApplicationService } from '../../executions/application/executions.application-service.js';
 import type { ExecutionRunDto, ExecutionStepDto } from '../../executions/dto/executions.dto.js';
-import type { CreateDeploymentPlanFromApplicationAssetInput, CreateDeploymentPlanInput, DeploymentGatewayRouteDto, DeploymentPlanDto, DeploymentPlanTargetDto, ExecuteDeploymentPlanInput, CancelDeploymentPlanInput, SubmitDeploymentPlanInput, DryRunDeploymentPlanInput, ReevaluateDeploymentPlanCapabilitiesInput } from '../dto/deployment-plans.dto.js';
+import type { CreateDeploymentPlanFromApplicationAssetInput, CreateDeploymentPlanInput, DeploymentGatewayRouteDto, DeploymentPlanDryRunCheckDto, DeploymentPlanDto, DeploymentPlanTargetDto, ExecuteDeploymentPlanInput, CancelDeploymentPlanInput, SubmitDeploymentPlanInput, DryRunDeploymentPlanInput, ReevaluateDeploymentPlanCapabilitiesInput } from '../dto/deployment-plans.dto.js';
 import { DeploymentPlansDomainService } from '../domain/deployment-plans.domain-service.js';
 import { DeploymentPlansRepository } from '../repository/deployment-plans.repository.js';
 import type { DeploymentPlanEntity, DeploymentPlanTargetEntity, StateTransitionEventEntity } from '../schema/deployment-plans.schema.js';
@@ -524,6 +524,7 @@ export class DeploymentPlansApplicationService {
     const targets = (await this.repository.listTargetsByPlan(plan.id, input.tenantId)).filter((target) => ['READY', 'COMPLETED', 'FAILED'].includes(target.status));
     if (!targets.length) throw new AppError('VALIDATION_FAILED', '部署计划没有可 dry-run 目标', { planId: plan.id });
     const deploymentArtifactByTargetId = await this.buildDeploymentArtifactByTargetIds(plan, targets.map((target) => target.id));
+    const agentPayloadByTargetId = await this.buildAgentPayloadByTargetIds(plan, targets, deploymentArtifactByTargetId);
     const created = await this.executions.createDryRun({
       deploymentPlanId: plan.id,
       deploymentPlanTargetIds: targets.map((target) => target.id),
@@ -534,14 +535,14 @@ export class DeploymentPlansApplicationService {
       executorTypeByTargetId: new Map(targets.map((target) => [target.id, target.executorType] as const)),
       gatewayRouteByTargetId: new Map(targets.map((target) => [target.id, target.gatewayRoute] as const)),
       deploymentArtifactByTargetId,
-      agentPayloadByTargetId: await this.buildAgentPayloadByTargetIds(plan, targets, deploymentArtifactByTargetId),
+      agentPayloadByTargetId,
       concurrencyLimit: plan.policy.batchSize,
       stepMaxAttempts: plan.policy.retry?.maxAttempts,
       retry: plan.policy.retry,
       failurePolicy: plan.policy.failurePolicy,
     }, context);
-
-    return { plan: await this.toDto(plan), ...created };
+    const stepsWithInitialChecks = await this.attachInitialDryRunChecks(created.steps, targets, deploymentArtifactByTargetId, agentPayloadByTargetId, input.actorId, input.tenantId);
+    return { plan: await this.toDto(plan), ...created, steps: stepsWithInitialChecks };
   }
 
   async cancel(input: CancelDeploymentPlanInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
@@ -652,6 +653,7 @@ export class DeploymentPlansApplicationService {
       tenantId: input.tenantId,
       selectionMode,
       requestedCertificateVersionId: input.certificateVersionId,
+      requestedCertificateFormatId: input.certificateFormatId,
       binding: target.binding,
       requestedDomain: target.domain,
     })));
@@ -773,6 +775,7 @@ export class DeploymentPlansApplicationService {
     tenantId?: string;
     selectionMode: 'EXPLICIT' | 'LATEST_AUTO';
     requestedCertificateVersionId?: string;
+    requestedCertificateFormatId?: string;
     binding: CertificateBindingDto;
     requestedDomain?: string;
   }): Promise<string> {
@@ -780,13 +783,23 @@ export class DeploymentPlansApplicationService {
       if (!input.requestedCertificateVersionId) {
         throw new AppError('VALIDATION_FAILED', 'EXPLICIT 模式必须指定 certificateVersionId');
       }
-      await this.assertCertificateVersionDeployable(input.requestedCertificateVersionId, input.binding, input.requestedDomain);
+      await this.assertCertificateVersionDeployable(
+        input.requestedCertificateVersionId,
+        input.binding,
+        input.requestedDomain,
+        input.requestedCertificateFormatId,
+      );
       return input.requestedCertificateVersionId;
     }
     return this.findLatestDeployableCertificateVersionId(input.binding, input.requestedDomain);
   }
 
-  private async assertCertificateVersionDeployable(certificateVersionId: string, binding: CertificateBindingDto, requestedDomain?: string): Promise<void> {
+  private async assertCertificateVersionDeployable(
+    certificateVersionId: string,
+    binding: CertificateBindingDto,
+    requestedDomain?: string,
+    requestedCertificateFormatId?: string,
+  ): Promise<void> {
     const version = await this.certificates.getVersion(certificateVersionId);
     if (!version) throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId });
     const asset = await this.certificates.getAsset(version.certificateAssetId);
@@ -797,9 +810,35 @@ export class DeploymentPlansApplicationService {
     if (!this.coversBindingDomain(binding, version, asset, requestedDomain)) {
       throw new AppError('VALIDATION_FAILED', '证书版本域名与绑定域名不匹配', { certificateVersionId, domain: requestedDomain ?? binding.domainName ?? binding.domain });
     }
+    if (requestedCertificateFormatId) {
+      await this.assertExplicitCertificateFormatDeployable(certificateVersionId, requestedCertificateFormatId);
+      return;
+    }
     const hasCompatibleFormat = await this.hasCompatibleWindowsIisFormat(certificateVersionId);
     if (!hasCompatibleFormat) {
       throw new AppError('VALIDATION_FAILED', '当前不存在可用于 Windows IIS 的证书格式配置', { certificateVersionId, requiredFormat: 'pfx' });
+    }
+  }
+
+  private async assertExplicitCertificateFormatDeployable(certificateVersionId: string, certificateFormatId: string): Promise<void> {
+    const format = await this.certificates.getFormat(certificateFormatId);
+    if (!format) {
+      throw new AppError('RESOURCE_NOT_FOUND', '证书格式配置不存在', { certificateFormatId });
+    }
+    if (format.certificateVersionId && format.certificateVersionId !== certificateVersionId) {
+      throw new AppError('VALIDATION_FAILED', '证书格式配置不属于当前证书版本', {
+        certificateVersionId,
+        certificateFormatId,
+        formatCertificateVersionId: format.certificateVersionId,
+      });
+    }
+    if (format.format !== 'pfx' || format.containsPrivateKey !== true) {
+      throw new AppError('VALIDATION_FAILED', 'Windows IIS 目前只支持带私钥的 PFX 格式配置', {
+        certificateVersionId,
+        certificateFormatId,
+        format: format.format,
+        containsPrivateKey: format.containsPrivateKey,
+      });
     }
   }
 
@@ -943,6 +982,16 @@ export class DeploymentPlansApplicationService {
       expectedDomains,
       verifyUrl,
       appPoolName: readOptionalString(siteAsset?.metadata?.appPool) ?? readOptionalString(binding.metadata?.appPool),
+      currentBindingCertificate: {
+        bindingId: binding.id,
+        certificateVersionId: binding.certificateVersionId,
+        targetCertificateVersionId: binding.targetCertificateVersionId,
+        observedFingerprintSha256: binding.observedFingerprintSha256,
+        targetFingerprintSha256: binding.targetFingerprintSha256,
+        desiredFingerprintSha256: binding.desiredFingerprintSha256,
+        storeThumbprint: binding.storeThumbprint,
+        currentThumbprint: readOptionalString(binding.metadata?.currentThumbprint),
+      },
       pfxBase64: artifact.pfxBase64,
       pfxPassword: artifact.pfxPassword,
       expectedCertificateFingerprintSha256: artifact.expectedFingerprintSha256,
@@ -955,6 +1004,105 @@ export class DeploymentPlansApplicationService {
         expectedFingerprintSha256: artifact.expectedFingerprintSha256,
       },
     };
+  }
+
+  private async attachInitialDryRunChecks(
+    steps: ExecutionStepDto[],
+    targets: DeploymentPlanTargetEntity[],
+    deploymentArtifactByTargetId: Map<string, DeploymentArtifactSnapshotDto>,
+    agentPayloadByTargetId: Map<string, Record<string, unknown>>,
+    actorId: string,
+    tenantId?: string,
+  ): Promise<ExecutionStepDto[]> {
+    if (!steps.length) return steps;
+
+    const targetById = new Map(targets.map((target) => [target.id, target] as const));
+    const updatedStepIds = new Set<string>();
+
+    for (const step of steps) {
+      if (step.stepType !== 'DISCOVER' && step.stepType !== 'VERIFY') continue;
+      const targetId = step.deploymentPlanTargetId;
+      if (!targetId) continue;
+      const target = targetById.get(targetId);
+      const artifact = deploymentArtifactByTargetId.get(targetId);
+      const agentPayload = agentPayloadByTargetId.get(targetId);
+      if (!target || !artifact || !agentPayload) continue;
+
+      const checks = await this.buildInitialDryRunChecks(target, artifact, agentPayload, tenantId);
+      if (checks.length === 0) continue;
+
+      const resultDetail = {
+        ...(readRecord(step.inputSnapshot.resultDetail) ?? {}),
+        dryRunChecks: checks,
+        dryRunSummary: summarizeDryRunChecks(checks),
+      };
+      await this.executions.updateStepForTest(step.id, {
+        inputSnapshot: {
+          ...step.inputSnapshot,
+          resultDetail,
+        },
+        updatedAt: new Date().toISOString(),
+        updatedBy: actorId,
+      }, tenantId);
+      updatedStepIds.add(step.id);
+    }
+
+    if (updatedStepIds.size === 0) return steps;
+    return this.executions.listSteps({ tenantId, executionRunId: steps[0]?.executionRunId });
+  }
+
+  private async buildInitialDryRunChecks(
+    target: DeploymentPlanTargetEntity,
+    artifact: DeploymentArtifactSnapshotDto,
+    agentPayload: Record<string, unknown>,
+    tenantId?: string,
+  ): Promise<DeploymentPlanDryRunCheckDto[]> {
+    const resolvedTenantId = tenantId ?? target.tenantId;
+    if (!resolvedTenantId) return [];
+    const binding = await this.tryGetBinding(resolvedTenantId, target.certificateBindingId);
+    if (!binding) return [];
+
+    const expectedFingerprint = normalizeSha256(
+      artifact.expectedFingerprintSha256
+      ?? readOptionalString((agentPayload.deploymentArtifact as Record<string, unknown> | undefined)?.expectedFingerprintSha256)
+      ?? readOptionalString(agentPayload.expectedCertificateFingerprintSha256),
+    );
+    const observedFingerprint = normalizeSha256(binding.observedFingerprintSha256);
+    const targetFingerprint = normalizeSha256(binding.targetFingerprintSha256 ?? binding.desiredFingerprintSha256);
+    const currentThumbprint = normalizeThumbprint(readOptionalString(binding.metadata?.currentThumbprint) ?? binding.storeThumbprint);
+
+    const checks: DeploymentPlanDryRunCheckDto[] = [];
+    if (expectedFingerprint && observedFingerprint && expectedFingerprint === observedFingerprint) {
+      checks.push({
+        key: 'certificate_already_active',
+        label: '当前站点证书已与目标一致',
+        status: 'warning',
+        detail: '站点当前观测到的证书指纹已经等于本次计划目标证书，本次更新可能不会产生实际变更。',
+        evidence: {
+          bindingId: binding.id,
+          certificateVersionId: binding.certificateVersionId,
+          targetCertificateVersionId: artifact.certificateVersionId,
+          currentFingerprintSha256: observedFingerprint,
+          expectedFingerprintSha256: expectedFingerprint,
+          currentThumbprint,
+        },
+      });
+    } else if (expectedFingerprint && targetFingerprint && expectedFingerprint !== targetFingerprint) {
+      checks.push({
+        key: 'binding_target_fingerprint_drift',
+        label: '绑定目标证书与计划目标不一致',
+        status: 'warning',
+        detail: '绑定记录里的目标指纹与本次计划目标证书不一致，dry-run 结论应结合绑定规则重新确认。',
+        evidence: {
+          bindingId: binding.id,
+          targetFingerprintSha256: targetFingerprint,
+          expectedFingerprintSha256: expectedFingerprint,
+          certificateVersionId: binding.certificateVersionId,
+          targetCertificateVersionId: artifact.certificateVersionId,
+        },
+      });
+    }
+    return checks;
   }
 
   private resolveVerifyUrl(binding: CertificateBindingDto, siteAsset?: SiteAssetDto): string {
@@ -1269,6 +1417,31 @@ function parseIisBindingInformation(value: string): { ip?: string; port?: number
 
 function readOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function readRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function normalizeSha256(value: string | undefined): string | undefined {
+  const normalized = value?.replaceAll(':', '').trim().toLowerCase();
+  return normalized && /^[a-f0-9]{64}$/.test(normalized) ? normalized : undefined;
+}
+
+function normalizeThumbprint(value: string | undefined): string | undefined {
+  const normalized = value?.replaceAll(':', '').replaceAll(' ', '').trim().toUpperCase();
+  return normalized || undefined;
+}
+
+function summarizeDryRunChecks(checks: readonly DeploymentPlanDryRunCheckDto[]): { passed: number; failed: number; warning: number; unknown: number } {
+  const summary = { passed: 0, failed: 0, warning: 0, unknown: 0 };
+  for (const check of checks) {
+    if (check.status === 'passed') summary.passed += 1;
+    else if (check.status === 'failed') summary.failed += 1;
+    else if (check.status === 'warning') summary.warning += 1;
+    else summary.unknown += 1;
+  }
+  return summary;
 }
 
 function domainMatches(pattern: string, domain: string): boolean {

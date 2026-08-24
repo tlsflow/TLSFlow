@@ -1073,6 +1073,8 @@ export class AgentsApplicationService {
           siteName: readStringValue(payload.siteName),
           bindingInformation: readStringValue(bindingSelector.bindingInformation) ?? readStringValue(payload.bindingInformation),
           dryRun: payload.dryRun === true,
+          executionMode: task.leaseId?.startsWith('direct:') ? 'direct' as const : 'queued' as const,
+          directFallback: readDirectFallback(payload.dispatchDetail),
         };
       })
       .filter((item): item is NonNullable<typeof item> => item !== null)
@@ -1106,6 +1108,17 @@ function readRecord(value: unknown): Record<string, unknown> {
 
 function readStringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function readDirectFallback(value: unknown): AgentDetailProjection['recentTaskLogs'][number]['directFallback'] | undefined {
+  const record = readRecord(value);
+  const fallback = readRecord(record.directFallback);
+  if (!fallback || fallback.attempted !== true) return undefined;
+  return {
+    attempted: true,
+    errorCode: readStringValue(fallback.errorCode),
+    errorMessage: readStringValue(fallback.errorMessage),
+  };
 }
 
 function sha256(value: string): string {

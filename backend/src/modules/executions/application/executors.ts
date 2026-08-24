@@ -156,6 +156,44 @@ export class AgentExecutorAdapter implements Executor {
       idempotencyKey: `${input.step.executionRunId}:${input.step.id}:${input.step.attemptCount}`,
       payload: { ...input.step.inputSnapshot, stepType: input.step.stepType, runType: input.runType, dryRun: input.dryRun },
     }, `execution-step:${input.step.id}`);
+    if (shouldPreferDirectExecute(input.step.inputSnapshot)) {
+      try {
+        const direct = await this.agents.executeTaskDirect(input.step.tenantId ?? '', task.id, `execution-direct:${input.step.id}`);
+        return {
+          success: direct.success,
+          errorCode: direct.errorCode,
+          errorMessage: direct.errorMessage,
+          detail: direct.detail,
+        };
+      } catch (error) {
+        const appError = error instanceof AppError ? error : undefined;
+        if (!shouldFallbackDirectError(appError)) {
+          return {
+            success: false,
+            errorCode: appError?.errorCode ?? 'DIRECT_EXECUTION_FAILED',
+            errorMessage: error instanceof Error ? error.message : String(error),
+            detail: {
+              mode: 'agent_direct_execute_failed',
+              taskId: task.id,
+            },
+          };
+        }
+        return {
+          success: true,
+          asyncPending: true,
+          detail: {
+            mode: 'agent_task_enqueued',
+            taskId: task.id,
+            status: task.status,
+            directFallback: {
+              attempted: true,
+              errorCode: appError?.errorCode ?? 'DIRECT_EXECUTION_FAILED',
+              errorMessage: error instanceof Error ? error.message : String(error),
+            },
+          },
+        };
+      }
+    }
     return { success: true, asyncPending: true, detail: { mode: 'agent_task_enqueued', taskId: task.id, status: task.status } };
   }
 }
@@ -277,4 +315,14 @@ function stringFromSnapshot(value: unknown): string | undefined {
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function shouldPreferDirectExecute(snapshot: Record<string, unknown>): boolean {
+  return stringFromSnapshot(snapshot.type) === 'windows.iis.deploy_certificate';
+}
+
+function shouldFallbackDirectError(error: AppError | undefined): boolean {
+  return error?.errorCode === 'EXECUTION_TARGET_UNAVAILABLE'
+    || error?.errorCode === 'CAPABILITY_MISSING'
+    || error?.errorCode === 'VALIDATION_FAILED';
 }

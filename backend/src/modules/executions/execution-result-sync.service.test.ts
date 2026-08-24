@@ -280,3 +280,86 @@ C38mSIcEm7mdLCLa7psXWxsMvH15ynl34RzjI/Ne3iWIVWHbnJ9yitudvM1UcdiX
 PyyRtpZNjzHF1i72Y3Ox3WRenxBqp+KjnkkOMTrK8YqxeMXgQ1XBPXXSjhrn8yD8
 HVlUi9P3lKu3lUEi2bOiP2KYvg==
 -----END PRIVATE KEY-----`;
+
+test('dry-run failure adds fallback failed check when agent returns no failed preflight check', async () => {
+  const repository = new ExecutionsRepository();
+  const service = new ExecutionResultSyncService(
+    repository,
+    {} as unknown as AssetsApplicationService,
+    {} as unknown as BindingsApplicationService,
+  );
+  const now = new Date().toISOString();
+  const run = await repository.createRun({
+    id: 'run_dry_run_failure_check',
+    tenantId,
+    deploymentPlanId: 'dplan_dry_run_failure_check',
+    runNo: 1,
+    type: 'dry_run',
+    idempotencyKey: 'dry-run-failure-check',
+    requestHash: 'hash-dry-run-failure-check',
+    status: 'RUNNING',
+    concurrencyLimit: 1,
+    summary: {},
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actorId,
+    version: 1,
+  });
+  const step = await repository.createStep({
+    id: 'stp_dry_run_failure_check',
+    tenantId,
+    executionRunId: run.id,
+    deploymentPlanTargetId: 'dpt_dry_run_failure_check',
+    stepNo: 1,
+    stepType: 'DISCOVER',
+    name: 'DISCOVER certificate target',
+    dependsOn: [],
+    idempotent: true,
+    attemptCount: 1,
+    maxAttempts: 1,
+    inputSnapshot: {
+      dryRun: true,
+      resultDetail: {
+        dryRunChecks: [
+          { key: 'site_exists', label: 'IIS 站点存在', status: 'passed', detail: '已命中 IIS 站点 TEST' },
+          { key: 'https_binding_matched', label: 'HTTPS 绑定匹配', status: 'passed', detail: '已定位目标 HTTPS Binding' },
+        ],
+      },
+    },
+    status: 'RUNNING',
+    createdAt: now,
+    updatedAt: now,
+    createdBy: actorId,
+    version: 1,
+  });
+
+  await service.applyAgentTaskResult({
+    tenantId,
+    executionRunId: run.id,
+    executionStepId: step.id,
+    success: false,
+    errorCode: 'IIS_DRY_RUN_FAILED',
+    errorMessage: 'Agent 返回失败，但未附带 failed 检查项',
+    actorId,
+    detail: {
+      mode: 'dry_run_preflight',
+      executor: 'windows-iis-provider',
+      taskId: 'task_dry_run_failure_check',
+      dryRunChecks: [
+        { key: 'site_exists', label: 'IIS 站点存在', status: 'passed', detail: '已命中 IIS 站点 TEST' },
+        { key: 'https_binding_matched', label: 'HTTPS 绑定匹配', status: 'passed', detail: '已定位目标 HTTPS Binding' },
+      ],
+    },
+  });
+
+  const updatedRun = await repository.getRunOrThrow(run.id, tenantId);
+  const updatedStep = await repository.getStepOrThrow(step.id, tenantId);
+  const resultDetail = updatedStep.inputSnapshot.resultDetail as Record<string, unknown>;
+  const checks = resultDetail.dryRunChecks as Array<Record<string, unknown>>;
+  const summary = resultDetail.dryRunSummary as Record<string, number>;
+
+  assert.equal(updatedStep.status, 'FAILED');
+  assert.equal(updatedRun.status, 'FAILED');
+  assert.equal(summary.failed, 1);
+  assert.ok(checks.some((check) => check.key === 'agent_execution' && check.status === 'failed'));
+});

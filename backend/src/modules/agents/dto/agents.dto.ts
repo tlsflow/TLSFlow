@@ -359,6 +359,12 @@ export interface AgentTaskRuntimeLogProjection {
   siteName?: string;
   bindingInformation?: string;
   dryRun: boolean;
+  executionMode?: 'direct' | 'queued';
+  directFallback?: {
+    attempted: boolean;
+    errorCode?: string;
+    errorMessage?: string;
+  };
 }
 
 export interface AgentCapabilityProjection {

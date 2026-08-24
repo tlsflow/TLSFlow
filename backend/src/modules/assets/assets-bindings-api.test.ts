@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
 import { describe, it } from 'node:test';
 import { createApp } from '../../app.module.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
@@ -59,6 +60,34 @@ async function createMigratedApp() {
   const db = new PgliteDatabase();
   await runMigrations(db);
   return createApp({ db, corePersistence: { mode: 'memory' } });
+}
+
+async function startMockAgentServer(handler: (body: any) => any) {
+  const server = createServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/api/v1/control/discovery/run') {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+    req.on('end', () => {
+      const raw = Buffer.concat(chunks).toString('utf8');
+      const body = raw.trim() ? JSON.parse(raw) : {};
+      const payload = handler(body);
+      res.setHeader('content-type', 'application/json; charset=utf-8');
+      res.end(JSON.stringify(payload));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('mock agent listen failed');
+  return {
+    listenAddress: `127.0.0.1:${address.port}`,
+    close: async () => {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    },
+  };
 }
 
 
@@ -625,6 +654,141 @@ describe('资产与证书绑定 API', () => {
 });
 
 describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
+  it('资产刷新优先使用 Agent 直连发现结果入库', async () => {
+    const app = await createMigratedApp();
+    const headers = { 'x-tenant-id': 'tenant_spec011_direct_asset_refresh', 'x-actor-id': 'user_admin', 'x-request-id': 'req_spec011_direct_asset_refresh' };
+    const mockAgent = await startMockAgentServer(() => ({
+      collectedAt: '2026-06-30T13:00:00.000Z',
+      source: 'agent_direct',
+      platform: 'linux',
+      hosts: [{ hostname: 'direct-nginx.example.com', primaryIp: '10.9.0.20', osType: 'LINUX', agentId: 'agent-direct-01' }],
+      services: [{ hostname: 'direct-nginx.example.com', providerType: 'NGINX', serviceName: 'nginx', displayName: 'nginx', configPath: '/etc/nginx/nginx.conf' }],
+      serviceAssets: [{ hostname: 'direct-nginx.example.com', providerType: 'NGINX', serviceName: 'nginx', address: 'direct-nginx.example.com', port: 443, protocol: 'HTTPS', sniName: 'direct-nginx.example.com', displayName: 'direct-nginx.example.com' }],
+      bindings: [{ hostname: 'direct-nginx.example.com', providerType: 'NGINX', serviceName: 'nginx', domainName: 'direct-nginx.example.com', port: 443, protocol: 'HTTPS', bindingType: 'FILE_PATH', certPath: '/etc/nginx/direct.pem', observedFingerprintSha256: '3'.repeat(64), verifyMethod: 'TLS_CONNECT' }],
+    }));
+    try {
+      const registered = await app.inject({
+        method: 'POST',
+        path: '/api/v1/agents/register',
+        headers,
+        body: {
+          agentKey: 'agent-direct-01',
+          hostname: 'direct-nginx.example.com',
+          version: '0.1.0',
+          osType: 'linux',
+          directControl: {
+            enabled: true,
+            reachable: true,
+            listenAddress: mockAgent.listenAddress,
+            protocolVersion: 'v1',
+            supportedActions: ['health', 'discovery.run'],
+          },
+        },
+      });
+      assert.equal(registered.statusCode, 201);
+      const agent = registered.body as { id: string };
+
+      const refreshed = await app.inject({
+        method: 'POST',
+        path: '/api/v1/assets/refresh-from-agent',
+        headers,
+        body: { agentId: agent.id, includeBindings: true },
+      });
+      assert.equal(refreshed.statusCode, 201);
+      assert.equal((refreshed.body as { mode: string }).mode, 'direct');
+
+      const hosts = await app.inject({ method: 'GET', path: '/api/v1/hosts?filter[hostname]=direct-nginx.example.com', headers });
+      assert.equal((hosts.body as { total: number }).total, 1);
+      const bindings = await app.inject({ method: 'GET', path: `/api/v1/certificate-bindings?filter[observedFingerprintSha256]=${'3'.repeat(64)}`, headers });
+      assert.equal((bindings.body as { total: number }).total, 1);
+    } finally {
+      await mockAgent.close();
+    }
+  });
+
+  it('资产刷新在直连失败时回退 capability snapshot 入库', async () => {
+    const app = await createMigratedApp();
+    const headers = { 'x-tenant-id': 'tenant_spec011_direct_asset_fallback', 'x-actor-id': 'user_admin', 'x-request-id': 'req_spec011_direct_asset_fallback' };
+    const registered = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/register',
+      headers,
+      body: {
+        agentKey: 'agent-direct-fallback-01',
+        hostname: 'fallback-iis.example.com',
+        version: '0.1.0',
+        osType: 'windows',
+        directControl: {
+          enabled: true,
+          reachable: true,
+          listenAddress: '127.0.0.1:9',
+          protocolVersion: 'v1',
+          supportedActions: ['health', 'discovery.run'],
+        },
+      },
+    });
+    assert.equal(registered.statusCode, 201);
+    const agent = registered.body as { id: string };
+
+    const capabilities = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/capabilities',
+      headers,
+      body: {
+        agentId: agent.id,
+        compatibilityLevel: 'L1',
+        capabilities: [
+          {
+            capabilityKey: 'windows.os.detail',
+            value: { ProductName: 'Windows Server 2022', Version: '10.0.20348' },
+            confidence: 1,
+          },
+          {
+            capabilityKey: 'windows.network.adapters',
+            value: [{ IPv4: ['10.9.0.30'] }],
+            confidence: 1,
+          },
+          {
+            capabilityKey: 'windows.iis.detail',
+            value: {
+              Installed: true,
+              Sites: [{
+                Name: 'Default Web Site',
+                Bindings: [{
+                  Protocol: 'https',
+                  BindingInformation: '*:443:fallback-iis.example.com',
+                  IPAddress: '*',
+                  Port: 443,
+                  HostHeader: 'fallback-iis.example.com',
+                  CertificateStoreName: 'My',
+                  CertificateThumbprint: 'ABCDEF1234567890ABCDEF1234567890ABCDEF12',
+                }],
+              }],
+            },
+            confidence: 1,
+          },
+        ],
+      },
+    });
+    assert.equal(capabilities.statusCode, 201);
+
+    const refreshed = await app.inject({
+      method: 'POST',
+      path: '/api/v1/assets/refresh-from-agent',
+      headers,
+      body: { agentId: agent.id, includeBindings: true },
+    });
+    assert.equal(refreshed.statusCode, 201);
+    const refreshedBody = refreshed.body as { mode: string; fallbackReason?: string };
+    assert.equal(refreshedBody.mode, 'fallback_capability_snapshot');
+    assert.ok(refreshedBody.fallbackReason);
+
+    const siteAssets = await app.inject({ method: 'GET', path: '/api/v1/site-assets?filter[siteName]=default%20web%20site', headers });
+    assert.equal((siteAssets.body as { total: number }).total, 1);
+    const bindings = await app.inject({ method: 'GET', path: '/api/v1/certificate-bindings?filter[domainName]=fallback-iis.example.com', headers });
+    assert.equal((bindings.body as { total: number }).total, 1);
+  });
+
   it('DiscoveryIngest apply 创建 Host/Service/Binding，重复 normalizedHash 幂等不重复创建', async () => {
     const app = await createMigratedApp();
     const headers = { 'x-tenant-id': 'tenant_spec007_ingest_create', 'x-actor-id': 'user_admin' };

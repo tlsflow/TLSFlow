@@ -22,6 +22,7 @@ import type {
   CreateSiteAssetDto,
   IngestDiscoveryDto,
   PreviewDiscoveryMergeDto,
+  RefreshAssetsFromAgentDto,
   ResolveAssetConflictDto,
   UpdateManagedTargetDto,
   UpdateServiceAssetDto,
@@ -70,6 +71,7 @@ export class AssetsController {
     router.post('/api/v1/discovery-snapshots', '写入发现快照', tags, (request) => this.upsertDiscoverySnapshot(request));
     router.post('/api/v1/discovery-snapshots/ingest', '入库发现结果', tags, (request) => this.ingestDiscovery(request));
     router.post('/api/v1/discovery-snapshots/merge-preview', '预览发现结果合并', tags, (request) => this.previewDiscoveryMerge(request));
+    router.post('/api/v1/assets/refresh-from-agent', '通过 Agent 主动刷新资产', tags, (request) => this.refreshFromAgent(request));
     router.get('/api/v1/asset-conflicts', '查询资产冲突', tags, (request) => this.listAssetConflicts(request));
     router.post('/api/v1/asset-conflicts/resolve', '解决资产冲突', tags, (request) => this.resolveAssetConflict(request));
   }
@@ -630,6 +632,21 @@ export class AssetsController {
     });
   }
 
+  private refreshFromAgent(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      agentId: { type: 'string', required: true },
+      providerTypes: { type: 'array' },
+      includeBindings: { type: 'boolean' },
+      requestId: { type: 'string' },
+    });
+    const subject = this.subjectFromRequest(request);
+    this.assertCan(subject, 'discovery.manage', 'discovery_snapshot', request);
+    return this.service.refreshAssetsFromAgent(tenantId(request), body as unknown as RefreshAssetsFromAgentDto).then((result) => {
+      this.audit(request, subject, 'discovery_snapshot.agent_refreshed', 'discovery.manage', 'discovery_snapshot', result.snapshot.id, undefined, result);
+      return { statusCode: 201, body: result };
+    });
+  }
+
   private listAssetConflicts(request: HttpRequest) {
     const query = parsePageQuery(request.query, {
       allowedSortFields: ['resourceType', 'resourceId', 'field', 'status', 'createdAt', 'updatedAt', 'resolvedAt'],
@@ -729,6 +746,7 @@ export function getAssetsRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/discovery-snapshots', operationId: 'upsertDiscoverySnapshot', summary: '写入发现快照', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/discovery-snapshots/ingest', operationId: 'ingestDiscovery', summary: '入库发现结果', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/discovery-snapshots/merge-preview', operationId: 'previewDiscoveryMerge', summary: '预览发现结果合并', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/assets/refresh-from-agent', operationId: 'refreshAssetsFromAgent', summary: '通过 Agent 主动刷新资产', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/asset-conflicts', operationId: 'listAssetConflicts', summary: '查询资产冲突', tags, responseSchema: pageSchema() },
     { method: 'POST', path: '/api/v1/asset-conflicts/resolve', operationId: 'resolveAssetConflict', summary: '解决资产冲突', tags, responseSchema: objectSchema() },
   ];

@@ -634,6 +634,18 @@ export interface IngestDiscoveryDto extends CreateDiscoverySnapshotDto {
   apply?: boolean;
 }
 
+export interface RefreshAssetsFromAgentDto {
+  agentId: string;
+  providerTypes?: string[];
+  includeBindings?: boolean;
+  requestId?: string;
+}
+
+export interface RefreshAssetsFromAgentResultDto extends DiscoveryIngestResultDto {
+  mode: 'direct' | 'fallback_capability_snapshot';
+  fallbackReason?: string;
+}
+
 export interface DiscoveryIngestResultDto {
   snapshot: DiscoverySnapshotDto;
   actions: Array<{

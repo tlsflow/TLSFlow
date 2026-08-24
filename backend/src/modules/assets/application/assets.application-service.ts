@@ -20,6 +20,8 @@ import type {
   NormalizedDiscoveredSiteAssetDto,
   NormalizedDiscoveredServiceDto,
   PreviewDiscoveryMergeDto,
+  RefreshAssetsFromAgentDto,
+  RefreshAssetsFromAgentResultDto,
   ResolveAssetConflictDto,
   ResolvedAssetConflictDto,
   CreateManagedTargetSnapshotDto,
@@ -35,6 +37,7 @@ import type {
 } from '../dto/assets.dto.js';
 import { PgAssetsRepository, type AssetsRepository } from '../repository/assets.repository.js';
 import { AgentsApplicationService } from '../../agents/application/agents.application-service.js';
+import { AgentDirectClient } from '../../agents/application/agent-direct-client.js';
 
 export class AssetsApplicationService {
   constructor(
@@ -42,6 +45,7 @@ export class AssetsApplicationService {
     private readonly domain = new AssetsDomainService(),
     private bindingsRepository?: BindingsRepository,
     private agentsService?: AgentsApplicationService,
+    private readonly directClient = new AgentDirectClient(),
   ) {}
 
   setBindingsRepository(bindingsRepository: BindingsRepository): void {
@@ -525,6 +529,57 @@ export class AssetsApplicationService {
     return result;
   }
 
+  async refreshAssetsFromAgent(tenantId: string, input: RefreshAssetsFromAgentDto): Promise<RefreshAssetsFromAgentResultDto> {
+    if (!this.agentsService) {
+      throw new AppError('SYSTEM_INTERNAL_ERROR', 'AssetsApplicationService 未注入 AgentsApplicationService');
+    }
+    const detail = await this.agentsService.getAgentDetail(tenantId, input.agentId);
+    const normalizedHashPrefix = `agent-direct:${input.agentId}:${new Date().toISOString()}`;
+    try {
+      const direct = await this.directClient.runDiscovery(detail.agent, {
+        providerTypes: input.providerTypes,
+        includeBindings: input.includeBindings,
+        requestId: input.requestId,
+      });
+      const result = await this.ingestDiscovery(tenantId, {
+        normalizedHash: buildDiscoveryHash(normalizedHashPrefix, 'direct'),
+        source: 'AGENT',
+        apply: true,
+        normalizedPayload: direct.payload as unknown as Record<string, unknown>,
+        rawPayload: {
+          mode: 'direct',
+          directControl: direct.directControl,
+          request: input,
+        },
+      });
+      return {
+        ...result,
+        mode: 'direct',
+      };
+    } catch (error) {
+      const fallbackPayload = this.buildFallbackPayloadFromCapabilitySnapshot(detail.agent.id, detail.capabilitySnapshot?.capabilities ?? []);
+      if (isEmptyDiscoveryPayload(fallbackPayload)) {
+        throw error;
+      }
+      const result = await this.ingestDiscovery(tenantId, {
+        normalizedHash: buildDiscoveryHash(normalizedHashPrefix, 'fallback'),
+        source: 'AGENT',
+        apply: true,
+        normalizedPayload: fallbackPayload,
+        rawPayload: {
+          mode: 'fallback_capability_snapshot',
+          reason: error instanceof Error ? error.message : 'unknown',
+          request: input,
+        },
+      });
+      return {
+        ...result,
+        mode: 'fallback_capability_snapshot',
+        fallbackReason: error instanceof Error ? error.message : 'unknown',
+      };
+    }
+  }
+
   async listAssetConflicts(tenantId: string, query: PageQuery) {
     return this.repository.listAssetConflicts(tenantId, query);
   }
@@ -737,6 +792,46 @@ export class AssetsApplicationService {
     }
     return host.id;
   }
+
+  private buildFallbackPayloadFromCapabilitySnapshot(agentId: string, capabilities: Array<{ capabilityKey: string; value: unknown }>): Record<string, unknown> {
+    const payload: {
+      hosts: NormalizedDiscoveredHostDto[];
+      services: NormalizedDiscoveredServiceDto[];
+      serviceAssets: NormalizedDiscoveredServiceAssetDto[];
+      siteAssets: NormalizedDiscoveredSiteAssetDto[];
+      bindings: NormalizedDiscoveredBindingDto[];
+    } = {
+      hosts: [],
+      services: [],
+      serviceAssets: [],
+      siteAssets: [],
+      bindings: [],
+    };
+
+    const osDetail = readCapabilityRecord(capabilities, 'windows.os.detail');
+    const adapters = readCapabilityArray(capabilities, 'windows.network.adapters');
+    const iisDetail = readCapabilityRecord(capabilities, 'windows.iis.detail');
+    const nginxDetail = readCapabilityRecord(capabilities, 'linux.nginx.detail');
+    const apacheDetail = readCapabilityRecord(capabilities, 'linux.apache.detail');
+    const tomcatDetail = readCapabilityRecord(capabilities, 'linux.tomcat.detail');
+
+    if (osDetail || adapters.length > 0 || iisDetail) {
+      payload.hosts.push(projectWindowsHost(agentId, osDetail, adapters, iisDetail));
+    }
+    if (iisDetail) {
+      projectWindowsIISDiscovery(agentId, iisDetail, payload);
+    }
+    if (nginxDetail) {
+      projectLinuxWebDiscovery(agentId, 'NGINX', nginxDetail, payload);
+    }
+    if (apacheDetail) {
+      projectLinuxWebDiscovery(agentId, 'APACHE', apacheDetail, payload);
+    }
+    if (tomcatDetail) {
+      projectLinuxTomcatDiscovery(agentId, tomcatDetail, payload);
+    }
+    return payload;
+  }
 }
 
 function normalizeDiscoveryPayload(payload: Record<string, unknown>): { hosts: NormalizedDiscoveredHostDto[]; services: NormalizedDiscoveredServiceDto[]; serviceAssets: NormalizedDiscoveredServiceAssetDto[]; siteAssets: NormalizedDiscoveredSiteAssetDto[]; bindings: NormalizedDiscoveredBindingDto[] } {
@@ -754,6 +849,284 @@ function normalizeDiscoveryPayload(payload: Record<string, unknown>): { hosts: N
 
 function arrayOfObjects(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item))) : [];
+}
+
+function readCapabilityRecord(capabilities: Array<{ capabilityKey: string; value: unknown }>, key: string): Record<string, unknown> | undefined {
+  const item = capabilities.find((capability) => capability.capabilityKey === key)?.value;
+  return item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : undefined;
+}
+
+function readCapabilityArray(capabilities: Array<{ capabilityKey: string; value: unknown }>, key: string): Record<string, unknown>[] {
+  const item = capabilities.find((capability) => capability.capabilityKey === key)?.value;
+  return Array.isArray(item) ? item.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === 'object' && !Array.isArray(entry))) : [];
+}
+
+function buildDiscoveryHash(prefix: string, mode: string): string {
+  return `${prefix}:${mode}`.toLowerCase();
+}
+
+function isEmptyDiscoveryPayload(payload: Record<string, unknown>): boolean {
+  const arrays = ['hosts', 'services', 'serviceAssets', 'siteAssets', 'bindings']
+    .map((key) => payload[key])
+    .filter(Array.isArray) as unknown[][];
+  return arrays.every((items) => items.length === 0);
+}
+
+function projectWindowsHost(agentId: string, osDetail: Record<string, unknown> | undefined, adapters: Record<string, unknown>[], iisDetail: Record<string, unknown> | undefined): NormalizedDiscoveredHostDto {
+  const hostname = normalizeOptionalString(
+    readString(osDetail, 'hostname')
+      ?? readString(iisDetail, 'hostName')
+      ?? readString(osDetail, 'machineName')
+      ?? readString(osDetail, 'ProductName'),
+  ) ?? `${agentId}.local`;
+  const ipv4 = adapters.flatMap((adapter) => readStringArray(adapter, 'IPv4'));
+  return {
+    hostname,
+    primaryIp: ipv4[0],
+    ipAddresses: ipv4,
+    osType: 'WINDOWS',
+    osName: readString(osDetail, 'ProductName'),
+    osVersion: readString(osDetail, 'Version') ?? readString(osDetail, 'osVersion'),
+    agentId,
+    discoverySource: 'AGENT',
+    managementMode: 'AGENT',
+    status: 'ACTIVE',
+  };
+}
+
+function projectWindowsIISDiscovery(
+  agentId: string,
+  iisDetail: Record<string, unknown>,
+  payload: {
+    hosts: NormalizedDiscoveredHostDto[];
+    services: NormalizedDiscoveredServiceDto[];
+    serviceAssets: NormalizedDiscoveredServiceAssetDto[];
+    siteAssets: NormalizedDiscoveredSiteAssetDto[];
+    bindings: NormalizedDiscoveredBindingDto[];
+  },
+): void {
+  const hostRef = payload.hosts[0]?.hostname;
+  if (!hostRef) return;
+  payload.services.push({
+    hostname: hostRef,
+    providerType: 'IIS',
+    serviceName: 'iis',
+    displayName: 'iis',
+    configPath: 'IIS:\\Sites',
+    discoverySource: 'AGENT',
+    status: 'ACTIVE',
+    rawFacts: iisDetail,
+  });
+  const sites = readObjectArray(iisDetail, 'Sites');
+  for (const site of sites) {
+    const siteName = normalizeOptionalString(readString(site, 'Name'));
+    if (!siteName) continue;
+    const bindings = readObjectArray(site, 'Bindings');
+    for (const binding of bindings) {
+      const protocol = normalizeProtocol(readString(binding, 'Protocol'));
+      const port = readNumber(binding, 'Port');
+      const hostHeader = normalizeOptionalString(readString(binding, 'HostHeader'));
+      if (!protocol || !port || !hostHeader) continue;
+      payload.serviceAssets.push({
+        hostname: hostRef,
+        providerType: 'IIS',
+        serviceName: 'iis',
+        address: hostHeader,
+        port,
+        protocol,
+        sniName: hostHeader,
+        displayName: hostHeader,
+        discoverySource: 'AGENT',
+        status: 'ACTIVE',
+        metadata: { source: 'direct_control' },
+      });
+      const siteKey = `${agentId}:iis:${siteName.toLowerCase()}:${readString(binding, 'BindingInformation') ?? hostHeader}`;
+      payload.siteAssets.push({
+        hostname: hostRef,
+        providerType: 'IIS',
+        serviceName: 'iis',
+        agentId,
+        siteType: 'WEB_SITE',
+        siteName,
+        siteKey,
+        bindingInformation: readString(binding, 'BindingInformation'),
+        hostHeader,
+        listenIp: readString(binding, 'IPAddress'),
+        port,
+        protocol,
+        configPath: 'IIS:\\Sites',
+        discoverySource: 'AGENT',
+        status: 'ACTIVE',
+      });
+      payload.bindings.push({
+        hostname: hostRef,
+        providerType: 'IIS',
+        serviceName: 'iis',
+        domainName: hostHeader,
+        port,
+        protocol,
+        bindingType: 'WINDOWS_CERT_STORE',
+        storeLocation: 'LocalMachine',
+        storeName: readString(binding, 'CertificateStoreName') ?? 'My',
+        storeThumbprint: readString(binding, 'CertificateThumbprint'),
+        verifyMethod: 'TLS_CONNECT',
+        serviceAssetRef: `${hostHeader}:${port}:${protocol}`.toLowerCase(),
+        siteAssetRef: `site-asset:${siteKey}`.toLowerCase(),
+      });
+    }
+  }
+}
+
+function projectLinuxWebDiscovery(
+  agentId: string,
+  providerType: 'NGINX' | 'APACHE',
+  detail: Record<string, unknown>,
+  payload: {
+    hosts: NormalizedDiscoveredHostDto[];
+    services: NormalizedDiscoveredServiceDto[];
+    serviceAssets: NormalizedDiscoveredServiceAssetDto[];
+    siteAssets: NormalizedDiscoveredSiteAssetDto[];
+    bindings: NormalizedDiscoveredBindingDto[];
+  },
+): void {
+  const hostRef = payload.hosts[0]?.hostname ?? `${agentId}.local`;
+  const serviceName = providerType === 'NGINX' ? 'nginx' : 'apache';
+  payload.services.push({
+    hostname: hostRef,
+    providerType,
+    serviceName,
+    displayName: serviceName,
+    configPath: readString(detail, 'ConfigPath') ?? readString(detail, 'configPath'),
+    discoverySource: 'AGENT',
+    status: 'ACTIVE',
+    rawFacts: detail,
+  });
+  const sites = readObjectArray(detail, 'Sites').concat(readObjectArray(detail, 'sites'));
+  for (const site of sites) {
+    const siteName = normalizeOptionalString(readString(site, 'Name') ?? readString(site, 'name'));
+    if (!siteName) continue;
+    const bindings = readObjectArray(site, 'Listen').concat(readObjectArray(site, 'listen'));
+    for (const binding of bindings) {
+      const port = readNumber(binding, 'Port') ?? readNumber(binding, 'port');
+      const protocol = normalizeProtocol(readString(binding, 'Protocol') ?? readString(binding, 'protocol'));
+      const address = normalizeOptionalString(readStringArray(site, 'ServerNames')[0] ?? readStringArray(site, 'serverNames')[0] ?? siteName);
+      if (!port || !protocol || !address) continue;
+      payload.serviceAssets.push({
+        hostname: hostRef,
+        providerType,
+        serviceName,
+        address,
+        port,
+        protocol,
+        sniName: address,
+        displayName: address,
+        discoverySource: 'AGENT',
+        status: 'ACTIVE',
+      });
+      payload.bindings.push({
+        hostname: hostRef,
+        providerType,
+        serviceName,
+        domainName: address,
+        port,
+        protocol,
+        bindingType: 'FILE_PATH',
+        certPath: readString(binding, 'CertificatePath') ?? readString(binding, 'certificatePath'),
+        keyPath: readString(binding, 'CertificateKeyPath') ?? readString(binding, 'certificateKeyPath'),
+        verifyMethod: 'TLS_CONNECT',
+        serviceAssetRef: `${address}:${port}:${protocol}`.toLowerCase(),
+      });
+    }
+  }
+}
+
+function projectLinuxTomcatDiscovery(
+  agentId: string,
+  detail: Record<string, unknown>,
+  payload: {
+    hosts: NormalizedDiscoveredHostDto[];
+    services: NormalizedDiscoveredServiceDto[];
+    serviceAssets: NormalizedDiscoveredServiceAssetDto[];
+    siteAssets: NormalizedDiscoveredSiteAssetDto[];
+    bindings: NormalizedDiscoveredBindingDto[];
+  },
+): void {
+  const hostRef = payload.hosts[0]?.hostname ?? `${agentId}.local`;
+  payload.services.push({
+    hostname: hostRef,
+    providerType: 'TOMCAT',
+    serviceName: 'tomcat',
+    displayName: 'tomcat',
+    configPath: readString(detail, 'ConfigPath') ?? readString(detail, 'configPath'),
+    discoverySource: 'AGENT',
+    status: 'ACTIVE',
+    rawFacts: detail,
+  });
+  const connectors = readObjectArray(detail, 'Connectors').concat(readObjectArray(detail, 'connectors'));
+  for (const connector of connectors) {
+    const port = readNumber(connector, 'Port') ?? readNumber(connector, 'port');
+    const protocol = normalizeProtocol(readString(connector, 'Protocol') ?? readString(connector, 'protocol'));
+    if (!port || !protocol) continue;
+    const address = normalizeOptionalString(readString(connector, 'Address') ?? readString(connector, 'address')) ?? hostRef;
+    payload.serviceAssets.push({
+      hostname: hostRef,
+      providerType: 'TOMCAT',
+      serviceName: 'tomcat',
+      address,
+      port,
+      protocol,
+      sniName: address,
+      displayName: address,
+      discoverySource: 'AGENT',
+      status: 'ACTIVE',
+    });
+    payload.bindings.push({
+      hostname: hostRef,
+      providerType: 'TOMCAT',
+      serviceName: 'tomcat',
+      domainName: address,
+      port,
+      protocol,
+      bindingType: 'FILE_PATH',
+      certPath: readString(connector, 'CertificatePath') ?? readString(connector, 'certificatePath'),
+      keyPath: readString(connector, 'CertificateKeyPath') ?? readString(connector, 'certificateKeyPath'),
+      keystorePath: readString(connector, 'KeystorePath') ?? readString(connector, 'keystorePath'),
+      verifyMethod: 'TLS_CONNECT',
+      serviceAssetRef: `${address}:${port}:${protocol}`.toLowerCase(),
+    });
+  }
+}
+
+function readString(value: Record<string, unknown> | undefined, key: string): string | undefined {
+  if (!value) return undefined;
+  const direct = value[key];
+  return typeof direct === 'string' && direct.trim() ? direct.trim() : undefined;
+}
+
+function readNumber(value: Record<string, unknown> | undefined, key: string): number | undefined {
+  if (!value) return undefined;
+  const direct = value[key];
+  return typeof direct === 'number' && Number.isFinite(direct) ? direct : undefined;
+}
+
+function readObjectArray(value: Record<string, unknown> | undefined, key: string): Record<string, unknown>[] {
+  if (!value) return [];
+  const direct = value[key];
+  return Array.isArray(direct) ? direct.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item))) : [];
+}
+
+function readStringArray(value: Record<string, unknown> | undefined, key: string): string[] {
+  if (!value) return [];
+  const direct = value[key];
+  return Array.isArray(direct) ? direct.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim()) : [];
+}
+
+function normalizeProtocol(value: string | undefined): 'HTTPS' | 'HTTP' | 'TLS' | 'STARTTLS' | undefined {
+  const normalized = normalizeOptionalString(value)?.toUpperCase();
+  if (!normalized) return undefined;
+  if (normalized === 'HTTPS' || normalized === 'HTTP' || normalized === 'TLS' || normalized === 'STARTTLS') return normalized;
+  if (normalized == 'HTTP/1.1') return 'HTTPS';
+  return undefined;
 }
 
 function hostIdentityKey(host: NormalizedDiscoveredHostDto): string | undefined {
