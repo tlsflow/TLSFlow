@@ -24,7 +24,7 @@ describe('权限 Store', () => {
       '/certificates',
       '/assets',
       '/deployment-plans',
-      '/workflows',
+      '/plugins',
       '/monitors',
       '/settings'
     ])
@@ -47,14 +47,14 @@ describe('权限 Store', () => {
     store.setPermissions(['execution.read'])
     expect(store.visibleMenuItems.map((item) => item.titleKey)).toEqual(['nav.deployments'])
     expect(store.visibleMenuItems[0]?.path).toBe('/executions')
-    expect(store.visibleMenuItems[0]?.activePaths).toEqual(['/deployment-plans', '/executions'])
+    expect(store.visibleMenuItems[0]?.activePaths).toEqual(['/deployment-plans', '/workflows', '/workflow-templates', '/automations', '/automation-runs', '/executions'])
     expect(store.visibleMenuItems[0]?.children?.map((item) => item.titleKey)).toEqual(['nav.executions'])
 
     store.setPermissions(['plugin.read'])
-    expect(store.visibleMenuItems.map((item) => item.titleKey)).toEqual(['nav.workflows'])
+    expect(store.visibleMenuItems.map((item) => item.titleKey)).toEqual(['nav.plugins'])
     expect(store.visibleMenuItems[0]?.path).toBe('/plugins')
-    expect(store.visibleMenuItems[0]?.activePaths).toEqual(['/workflows', '/automations', '/automation-runs', '/plugins'])
-    expect(store.visibleMenuItems[0]?.children?.map((item) => item.titleKey)).toEqual(['nav.plugins'])
+    expect(store.visibleMenuItems[0]?.activePaths).toBeUndefined()
+    expect(store.visibleMenuItems[0]?.children).toBeUndefined()
   })
 
   it('报表暂时不显示主菜单入口', () => {
@@ -75,6 +75,6 @@ describe('权限 Store', () => {
     await store.loadPermissions()
     expect(store.hasPermission('certificate.asset.read')).toBe(true)
     expect(store.visibleMenuItems.map((item) => item.path)).toEqual(['/certificates'])
-    expect(store.visibleMenuItems[0]?.children?.map((item) => item.path)).toEqual(['/certificates'])
+    expect(store.visibleMenuItems[0]?.children?.map((item) => item.path)).toEqual(['/certificates', '/ca-operations', '/internal-ca'])
   })
 })

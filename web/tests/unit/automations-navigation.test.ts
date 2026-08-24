@@ -12,13 +12,15 @@ import zhTW from '@/i18n/zh-TW'
 
 describe('Spec 030 自动化导航', () => {
   it('按工作流、自动化、插件顺序展示并使用自动化权限', () => {
-    const workflowGroup = mainMenuItems.find((item) => item.titleKey === 'nav.workflows')
-    expect(workflowGroup?.children?.map((item) => item.titleKey)).toEqual([
+    const deploymentGroup = mainMenuItems.find((item) => item.titleKey === 'nav.deployments')
+    expect(deploymentGroup?.children?.map((item) => item.titleKey)).toEqual([
+      'nav.deploymentPlans',
       'nav.workflowTemplates',
       'nav.automations',
-      'nav.plugins'
+      'nav.executions'
     ])
-    expect(workflowGroup?.children?.[1]).toMatchObject({ path: '/automations', permission: 'automation.read' })
+    expect(deploymentGroup?.children?.[2]).toMatchObject({ path: '/automations', permission: 'automation.read' })
+    expect(mainMenuItems.find((item) => item.titleKey === 'nav.plugins')).toMatchObject({ path: '/plugins', permission: 'plugin.read' })
   })
 
   it('自动化路由均由 automation.read 守卫', () => {
