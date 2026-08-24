@@ -30,12 +30,8 @@ import (
 	"gcac/linux-go-full-agent/internal/atomicplan"
 	"gcac/linux-go-full-agent/internal/buildinfo"
 	"gcac/linux-go-full-agent/internal/compatibility"
-	"gcac/linux-go-full-agent/internal/core/actioncontract"
 	"gcac/linux-go-full-agent/internal/core/controlplane"
 	coreRegistry "gcac/linux-go-full-agent/internal/core/registry"
-	"gcac/linux-go-full-agent/internal/handlers/productruntime"
-	productRegistry "gcac/linux-go-full-agent/internal/handlers/registry"
-	linuxCommand "gcac/linux-go-full-agent/internal/platform/linux/command"
 	linuxFacts "gcac/linux-go-full-agent/internal/platform/linux/facts"
 )
 
@@ -662,9 +658,6 @@ func resolveActionSchemaVersion(actionType string, payload map[string]any) strin
 	if schemaVersion := strings.TrimSpace(stringFromMap(payload, "actionSchemaVersion")); schemaVersion != "" {
 		return schemaVersion
 	}
-	if strings.EqualFold(strings.TrimSpace(actionType), actioncontract.DeployAction) {
-		return actioncontract.DeployVersion
-	}
 	return coreRegistry.DefaultSchemaVersion
 }
 
@@ -702,13 +695,6 @@ func newLinuxActionRegistry(runtime *linuxActionRuntime) *coreRegistry.Registry 
 			}}
 		},
 	})
-	mustRegisterAction(registry, coreRegistry.HandlerFunc{
-		ActionType:    actioncontract.DeployAction,
-		SchemaVersion: actioncontract.DeployVersion,
-		Execute: func(ctx context.Context, request coreRegistry.Request) coreRegistry.Result {
-			return executeCanonicalDeploy(ctx, request.TaskID, request.Payload, currentLinuxCapabilityMap())
-		},
-	})
 	for _, handler := range []coreRegistry.HandlerFunc{
 		{ActionType: "certificate.key.create_csr", SchemaVersion: "1.0", Execute: linuxCreateCertificateCSR},
 		{ActionType: "certificate.install_issued", SchemaVersion: "1.0", Execute: linuxInstallIssuedCertificate},
@@ -717,22 +703,6 @@ func newLinuxActionRegistry(runtime *linuxActionRuntime) *coreRegistry.Registry 
 		{ActionType: "certificate.trust.rollback", SchemaVersion: "1.0", Execute: linuxRollbackCertificateTrust},
 	} {
 		mustRegisterAction(registry, handler)
-	}
-	for _, alias := range []string{"linux.nginx.deploy_certificate", "linux.apache.deploy_certificate", "linux.tomcat.deploy_certificate"} {
-		aliasAction := alias
-		mustRegisterAction(registry, coreRegistry.HandlerFunc{
-			ActionType: aliasAction,
-			Execute: func(ctx context.Context, request coreRegistry.Request) coreRegistry.Result {
-				payload, err := compatibility.NormalizeLegacyAction(aliasAction, request.TaskID, request.Payload)
-				if err != nil {
-					return coreRegistry.Result{ErrorCode: "ACTION_HANDLER_NOT_REGISTERED", ErrorMessage: err.Error(), Detail: map[string]any{"taskId": request.TaskID}}
-				}
-				capabilities := currentLinuxCapabilityMap()
-				capabilities[compatibility.CapabilityServiceReload] = true
-				capabilities[compatibility.CapabilityServiceRestart] = true
-				return executeCanonicalDeploy(ctx, request.TaskID, payload, capabilities)
-			},
-		})
 	}
 	if runtime != nil {
 		mustRegisterAction(registry, coreRegistry.HandlerFunc{
@@ -749,75 +719,9 @@ func newLinuxActionRegistry(runtime *linuxActionRuntime) *coreRegistry.Registry 
 	return registry
 }
 
-func executeCanonicalDeploy(_ context.Context, taskID string, payload map[string]any, capabilities map[string]bool) coreRegistry.Result {
-	action, err := actioncontract.Parse(payload)
-	if err != nil {
-		return actionContractFailure(taskID, err)
-	}
-	resolution, err := compatibility.ResolveProduct(action.ProductAdapterID, "", action.ArtifactFormat, capabilities)
-	if err != nil {
-		return coreRegistry.Result{ErrorCode: "ADAPTER_NOT_FOUND", ErrorMessage: err.Error(), Detail: map[string]any{"taskId": taskID}}
-	}
-	result := newLinuxProductRegistry().Execute(context.Background(), productRegistry.Request{
-		TaskID: taskID, Input: action.Input, Capabilities: capabilities, Resolution: resolution,
-	})
-	detail := result.Detail
-	if detail == nil {
-		detail = map[string]any{}
-	}
-	for key, value := range adapterResolutionDetail(taskID, resolution) {
-		detail[key] = value
-	}
-	return coreRegistry.Result{Success: result.Success, ErrorCode: result.ErrorCode, ErrorMessage: result.ErrorMessage, Detail: detail}
-}
-
-func newLinuxProductRegistry() *productRegistry.Registry {
-	registry := productRegistry.New()
-	mustRegisterProductHandler(registry, productRegistry.HandlerFunc{
-		AdapterID: compatibility.ProductNginx,
-		Execute: func(_ context.Context, request productRegistry.Request) productRegistry.Result {
-			input, err := parseLinuxNginxDeployInput(request.Input)
-			if err != nil {
-				return productRegistry.Result{ErrorCode: "TASK_PAYLOAD_INVALID", ErrorMessage: err.Error()}
-			}
-			success, code, message, detail := runLinuxNginxDeployment(request.TaskID, input)
-			return productRegistry.Result{Success: success, ErrorCode: code, ErrorMessage: message, Detail: detail}
-		},
-	})
-	if err := productruntime.Register(registry, linuxCommand.ExecRunner{}); err != nil {
-		panic(err)
-	}
-	return registry
-}
-
-func mustRegisterProductHandler(registry *productRegistry.Registry, handler productRegistry.Handler) {
-	if err := registry.Register(handler); err != nil {
-		panic(err)
-	}
-}
-
 func mustRegisterAction(registry *coreRegistry.Registry, handler coreRegistry.Handler) {
 	if err := registry.Register(handler); err != nil {
 		panic(err)
-	}
-}
-
-func actionContractFailure(taskID string, err error) coreRegistry.Result {
-	code := strings.TrimSpace(err.Error())
-	if !strings.Contains(code, "_") {
-		code = "ACTION_REQUEST_INVALID"
-	}
-	return coreRegistry.Result{ErrorCode: code, ErrorMessage: err.Error(), Detail: map[string]any{"taskId": taskID}}
-}
-
-func adapterResolutionDetail(taskID string, resolution compatibility.Resolution) map[string]any {
-	return map[string]any{
-		"taskId": taskID,
-		"adapters": map[string]any{
-			"product": resolution.ProductAdapterID, "certificateStore": resolution.StoreAdapterID,
-			"artifactCodec": resolution.ArtifactCodecID, "serviceController": resolution.ServiceID,
-			"verifier": resolution.VerifierID, "rollback": resolution.RollbackID,
-		},
 	}
 }
 

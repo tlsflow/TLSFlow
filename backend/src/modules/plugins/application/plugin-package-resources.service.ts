@@ -85,6 +85,8 @@ function collectLocaleKeys(
     }
   }
   for (const presentation of Object.values(presentations)) {
+    for (const framework of presentation.resourceLabels?.frameworks ?? []) keys.push(framework.labelKey);
+    for (const site of presentation.resourceLabels?.sites ?? []) keys.push(site.groupLabelKey, site.typeLabelKey);
     for (const group of presentation.overview) {
       keys.push(group.titleKey, ...group.fields.map((field) => field.labelKey));
     }

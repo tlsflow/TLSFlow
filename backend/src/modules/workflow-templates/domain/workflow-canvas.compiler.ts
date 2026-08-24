@@ -1,15 +1,14 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type {
-  WorkflowCredentialBinding,
   WorkflowDslV1,
   WorkflowHttpRequest,
   WorkflowStage,
   WorkflowStep,
   WorkflowStepType,
-  WorkflowVariableDefinition,
 } from '../dto/workflow-templates.dto.js';
 import { workflowTemplatesSchemaRegistry } from '../schema/workflow-templates.schema.js';
-import type { DeploymentInputContractV1, DeploymentVariableDefinitionV1 } from '../../deployment-inputs/dto/deployment-input-contract.dto.js';
+import { validateDeploymentInputContractV1 } from '../../deployment-inputs/schema/deployment-input-contract.schema.js';
+import type { DeploymentInputContractV1 } from '../../deployment-inputs/dto/deployment-input-contract.dto.js';
 
 type CanvasNodeType = 'http' | 'ssh' | 'sftp' | 'scp' | 'verify' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'wait' | 'manual';
 type CanvasEdgeType = 'success' | 'failure' | 'always' | 'rollback';
@@ -39,7 +38,6 @@ interface WorkflowCanvasDefinition {
     readonly category?: string;
     readonly tags?: readonly string[];
   };
-  readonly variables?: Record<string, WorkflowVariableDefinition>;
   readonly inputContract?: DeploymentInputContractV1;
   readonly nodes?: readonly CanvasNode[];
   readonly edges?: readonly CanvasEdge[];
@@ -95,6 +93,18 @@ function validateWorkflowCanvas(canvas: WorkflowCanvasDefinition): WorkflowCanva
   const edges = Array.isArray(canvas.edges) ? canvas.edges : [];
   const issues: WorkflowCanvasValidationIssue[] = [];
   const nodeIds = new Set(nodes.map((node) => node.id));
+  if (isRecord(canvas) && ('variables' in canvas || 'connections' in canvas)) {
+    issues.push(canvasIssue('legacy-input-contract', 'error', '画布不能包含旧 variables/connections 根字段。', '迁移为完整的 inputContract。'));
+  }
+  if (canvas.inputContract === undefined) {
+    issues.push(canvasIssue('input-contract-required', 'error', '画布缺少 inputContract。', '声明 gcac.deployment-input/v1 输入契约。'));
+  } else {
+    try {
+      validateDeploymentInputContractV1(canvas.inputContract);
+    } catch (cause) {
+      issues.push(canvasIssue('input-contract-invalid', 'error', cause instanceof Error ? cause.message : 'inputContract 校验失败。', '修正变量、连接、凭据和 Artifact 槽位定义。'));
+    }
+  }
   if (nodes.length === 0) issues.push(canvasIssue('empty-canvas', 'error', '画布至少需要一个执行节点。', '添加 HTTP、SSH、SFTP 或验证节点。'));
 
   for (const node of nodes) {
@@ -147,70 +157,11 @@ function workflowCanvasToDsl(canvas: WorkflowCanvasDefinition): { content: Workf
       category: canvas.metadata?.category,
       tags: [...(canvas.metadata?.tags ?? [])],
     },
-    inputContract: canvas.inputContract
-      ? cloneRecord(canvas.inputContract)
-      : buildCanvasInputContract(canvas.variables ?? {}, [...steps, ...rollback]),
+    inputContract: cloneRecord(canvas.inputContract!),
     steps,
     rollback,
     },
   };
-}
-
-function buildCanvasInputContract(variables: Record<string, WorkflowVariableDefinition>, steps: WorkflowStep[]): DeploymentInputContractV1 {
-  return {
-    apiVersion: 'gcac.deployment-input/v1',
-    variables: Object.fromEntries(Object.entries(variables).map(([name, definition]) => [name, canvasVariableToContract(definition)])),
-    connections: inferCanvasConnections(steps),
-    credentials: {},
-    artifacts: {},
-  };
-}
-
-function canvasVariableToContract(definition: WorkflowVariableDefinition): DeploymentVariableDefinitionV1 {
-  const hasDefault = definition.default !== undefined;
-  const source = definition.source ?? (hasDefault ? { kind: 'default' as const } : { kind: 'binding' as const });
-  return {
-    type: definition.type,
-    required: definition.required ?? !hasDefault,
-    configurationMode: definition.configurationMode ?? (hasDefault ? 'advanced' : 'required'),
-    source,
-    lifecycle: definition.lifecycle ?? 'pre_execution',
-    bindingPolicy: definition.bindingPolicy ?? (hasDefault ? 'default_overridable' : 'required_binding'),
-    ...(hasDefault ? { default: cloneRecord(definition.default) } : {}),
-    ...(definition.enum ? { enum: cloneRecord(definition.enum) } : {}),
-    ...(definition.sensitive === undefined ? {} : { sensitive: definition.sensitive }),
-  };
-}
-
-function inferCanvasConnections(steps: WorkflowStep[]): DeploymentInputContractV1['connections'] {
-  const transports = new Map<string, 'http' | 'ssh'>();
-  const visit = (step: WorkflowStep): void => {
-    const connectionRef = step.type === 'http' ? step.request.connectionRef
-      : step.type === 'ssh' ? step.ssh.connectionRef
-        : step.type === 'sftp' ? step.sftp.connectionRef
-          : step.type === 'scp' ? step.scp.connectionRef
-            : undefined;
-    const transport = step.type === 'http' ? 'http' : connectionRef ? 'ssh' : undefined;
-    if (connectionRef && transport) {
-      const previous = transports.get(connectionRef);
-      if (previous && previous !== transport) {
-        throw new AppError('VALIDATION_FAILED', '同一 connectionRef 不能同时用于 HTTP 和 SSH', { connectionRef });
-      }
-      transports.set(connectionRef, transport);
-    }
-    if (step.type === 'foreach') step.foreach.steps.forEach(visit);
-  };
-  steps.forEach(visit);
-  const requiredField = (type: 'string' | 'number') => ({
-    type, required: true, configurationMode: 'required' as const, source: { kind: 'binding' as const },
-    lifecycle: 'pre_execution' as const, bindingPolicy: 'required_binding' as const,
-  });
-  return Object.fromEntries([...transports].map(([name, transport]) => [name, {
-    transport,
-    host: requiredField('string'),
-    port: requiredField('number'),
-    ...(transport === 'ssh' ? { username: requiredField('string'), hostKey: { policy: 'strict' as const } } : {}),
-  }]));
 }
 
 function nodeToDslStep(node: CanvasNode, index: number): WorkflowStep {
@@ -570,32 +521,13 @@ function readHttpAuthType(value: unknown): CanvasHttpAuthType | null {
     : null;
 }
 
-function isCredentialValue(value: unknown): value is WorkflowCredentialBinding | string {
-  return typeof value === 'string'
-    ? value.trim().startsWith('{{') && value.trim().endsWith('}}')
-    : isWorkflowCredentialBinding(value);
+function isCredentialValue(value: unknown): value is string {
+  return typeof value === 'string' && /^\{\{credentials\.[A-Za-z][A-Za-z0-9_.-]*\}\}$/.test(value.trim());
 }
 
-function readCredentialValue(value: unknown): WorkflowCredentialBinding | string | undefined {
+function readCredentialValue(value: unknown): string | undefined {
   if (!isCredentialValue(value)) return undefined;
-  return typeof value === 'string' ? value.trim() : workflowCredentialBinding(value);
-}
-
-function isWorkflowCredentialBinding(value: unknown): value is WorkflowCredentialBinding {
-  return isRecord(value)
-    && typeof value.credentialId === 'string'
-    && typeof value.kind === 'string'
-    && isRecord(value.secretRefs);
-}
-
-function workflowCredentialBinding(value: WorkflowCredentialBinding): WorkflowCredentialBinding {
-  return {
-    credentialId: value.credentialId,
-    kind: value.kind,
-    username: value.username,
-    delivery: value.delivery,
-    secretRefs: structuredClone(value.secretRefs),
-  };
+  return value.trim();
 }
 
 function readHostKeyPolicy(value: unknown): 'strict' | 'trust_on_first_use' | 'manual_approval_required' {

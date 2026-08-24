@@ -15,6 +15,7 @@ describe('证书模块共享数据库回归', () => {
     await runMigrations(db);
     const chain = createPemChainFixture();
     const security = createSecurityServices();
+    grantUnrestrictedObjectVisibility(security, 'user_shared_db');
     for (const action of ['certificate.read', 'certificate.create', 'certificate.import', 'certificate.format.create', 'certificate.lifecycle']) {
       security.rbac.createPolicy({
         subjectType: 'user',
@@ -56,6 +57,7 @@ describe('证书模块共享数据库回归', () => {
     const firstChain = createPemChainFixture('same-domain.example.test');
     const secondChain = createPemChainFixture('same-domain.example.test');
     const security = createSecurityServices();
+    grantUnrestrictedObjectVisibility(security, 'user_same_domain');
     for (const action of ['certificate.read', 'certificate.create', 'certificate.import', 'certificate.format.create', 'certificate.lifecycle']) {
       security.rbac.createPolicy({
         subjectType: 'user',
@@ -101,11 +103,12 @@ describe('证书模块共享数据库回归', () => {
     assert.equal((listedVersions.body as any).total, 2);
   });
 
-  it('宸插垹闄ょ殑璇佷功鐗堟湰涓嶅簲缁х画鍗犵敤 fingerprint锛屽簲鍏佽閲嶆柊瀵煎叆', async () => {
+  it('已删除的证书版本不应继续占用 fingerprint，应允许重新导入', async () => {
     const db = new PgliteDatabase();
     await runMigrations(db);
     const chain = createPemChainFixture();
     const security = createSecurityServices();
+    grantUnrestrictedObjectVisibility(security, 'user_reimport_deleted');
     for (const action of ['certificate.read', 'certificate.create', 'certificate.import', 'certificate.format.create', 'certificate.lifecycle']) {
       security.rbac.createPolicy({
         subjectType: 'user',
@@ -159,6 +162,17 @@ describe('证书模块共享数据库回归', () => {
     assert.equal((listed.body as any).total, 1);
   });
 });
+
+function grantUnrestrictedObjectVisibility(security: ReturnType<typeof createSecurityServices>, actorId: string): void {
+  security.rbac.createPolicy({
+    subjectType: 'user',
+    subjectId: actorId,
+    effect: 'allow',
+    actions: ['*'],
+    resourceTypes: ['*'],
+    scope: { tenantId: 'tenant_1' },
+  });
+}
 
 function createPemChainFixture(commonName = 'leaf.example.test'): { pem: string; privateKeyPem: string } {
   const dir = mkdtempSync(join(tmpdir(), 'gcac-cert-chain-regression-'));

@@ -12,12 +12,16 @@ func TestCapabilitiesUsePublicVersionedKeys(t *testing.T) {
 		"service":    map[string]any{"systemd": map[string]any{"available": true}},
 		"privilege":  map[string]any{"root": true},
 		"security":   map[string]any{"selinux": map[string]any{"available": true}},
-		"products":   map[string]any{"nginx": map[string]any{"installed": true}},
 	}}
 	capabilities := CapabilityMap(snapshot)
-	for _, key := range []string{compatibility.CapabilityPOSIXFilesystem, compatibility.CapabilitySystemd, compatibility.CapabilityPrivilegeRoot, compatibility.CapabilitySELinux, compatibility.CapabilityNginxInstall} {
+	for _, key := range []string{compatibility.CapabilityPOSIXFilesystem, compatibility.CapabilitySystemd, compatibility.CapabilityPrivilegeRoot, compatibility.CapabilitySELinux} {
 		if !capabilities[key] {
 			t.Fatalf("缺少公共 Capability Key: %s", key)
+		}
+	}
+	for _, key := range []string{"nginx.cert.install", "apache.cert.install", "tomcat.keystore.replace"} {
+		if capabilities[key] {
+			t.Fatalf("Agent 不得声明插件拥有的产品能力: %s", key)
 		}
 	}
 }

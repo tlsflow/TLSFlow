@@ -53,7 +53,7 @@ export interface WorkflowCredentialBinding {
   secretRefs: Record<string, string>;
 }
 
-export type WorkflowCredentialValue = WorkflowCredentialBinding | string;
+export type WorkflowCredentialValue = string;
 
 export interface WorkflowVariableDefinition {
   type: WorkflowVariableType;
@@ -148,7 +148,7 @@ export interface WorkflowSshConnection {
   host: string;
   port?: number;
   username: string;
-  credential: WorkflowCredentialValue;
+  credential: WorkflowCredentialBinding;
   expectedHostKeyFingerprint?: string;
   hostKeyPolicy?: 'strict' | 'trust_on_first_use' | 'manual_approval_required';
 }

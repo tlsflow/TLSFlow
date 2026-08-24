@@ -298,10 +298,10 @@ func handleRun(args []string) error {
 		config.EnrollmentToken = ""
 	}
 	if strings.TrimSpace(config.ControlPlane) == "" {
-		return errors.New("controlPlaneUrl ?????Linux Agent ??????")
+		return errors.New("controlPlaneUrl 不能为空，Linux Agent 无法启动")
 	}
 	if strings.TrimSpace(config.AgentKey) == "" {
-		return errors.New("agentKey ?????Linux Agent ??????")
+		return errors.New("agentKey 不能为空，Linux Agent 无法启动")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -861,7 +861,7 @@ func newDirectControlState(config *AgentConfig) *directControlState {
 		Enabled:          config.DirectControlEnabled,
 		Reachable:        false,
 		ProtocolVersion:  "v1",
-		SupportedActions: []string{"health", "discovery.run", "agent.capability.rescan", "agent.atomic_plan.execute", "linux.nginx.deploy_certificate"},
+		SupportedActions: []string{"health", "discovery.run", "agent.capability.rescan", "agent.atomic_plan.execute"},
 	}
 	if config.DirectControlEnabled {
 		state.ListenAddress = fmt.Sprintf("%s:%d", effectiveDirectControlAdvertiseHost(config), effectiveDirectControlListenPort(config))
@@ -1602,7 +1602,7 @@ func pullAndProcessTasks(ctx context.Context, client *http.Client, config *Agent
 func pullTasks(ctx context.Context, client *http.Client, config *AgentConfig, agentID string) ([]agentTaskEnvelope, error) {
 	var tasks []agentTaskEnvelope
 	if err := doJSONRequest(ctx, client, config, http.MethodGet, "/api/v1/agents/tasks/pull?agentId="+agentID, nil, &tasks); err != nil {
-		return nil, fmt.Errorf("??????: %w", err)
+		return nil, fmt.Errorf("拉取任务失败: %w", err)
 	}
 	return tasks, nil
 }
@@ -1610,7 +1610,7 @@ func pullTasks(ctx context.Context, client *http.Client, config *AgentConfig, ag
 func processTask(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState, counters *runtimeCounters, rescan *rescanState, ledger *resultLedger, task agentTaskEnvelope) error {
 	leaseID := newLeaseID(task.ID)
 	if _, err := ackTask(ctx, client, config, state.AgentID, task.ID, leaseID); err != nil {
-		return fmt.Errorf("ack ????: %w", err)
+		return fmt.Errorf("ack 任务失败: %w", err)
 	}
 	if counters != nil {
 		counters.Running++
@@ -1628,13 +1628,13 @@ func processTask(ctx context.Context, client *http.Client, config *AgentConfig, 
 		Detail:       detail,
 	}
 	if err := ledger.stage(request); err != nil {
-		return fmt.Errorf("????????: %w", err)
+		return fmt.Errorf("暂存任务结果失败: %w", err)
 	}
 	if _, err := submitTaskResult(ctx, client, config, request); err != nil {
-		return fmt.Errorf("????????: %w", err)
+		return fmt.Errorf("上报任务结果失败: %w", err)
 	}
 	if err := ledger.markReported(task.ID); err != nil {
-		return fmt.Errorf("?????????: %w", err)
+		return fmt.Errorf("标记任务结果已上报失败: %w", err)
 	}
 	if counters != nil {
 		if success {
@@ -1658,7 +1658,7 @@ func recoverPendingResults(ctx context.Context, client *http.Client, config *Age
 			Detail:       item.Detail,
 		}
 		if _, err := submitTaskResult(ctx, client, config, request); err != nil {
-			return fmt.Errorf("???????? taskId=%s: %w", item.TaskID, err)
+			return fmt.Errorf("恢复上报任务结果失败 taskId=%s: %w", item.TaskID, err)
 		}
 		if err := ledger.markReported(item.TaskID); err != nil {
 			return err

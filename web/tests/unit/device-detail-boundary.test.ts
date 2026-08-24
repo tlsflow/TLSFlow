@@ -40,7 +40,7 @@ describe('统一设备详情动作边界', () => {
       logs: [],
       frameworks: [
         { stableKey: 'framework:nitro', displayName: 'NITRO', type: 'ADC' },
-        { stableKey: 'framework:kubernetes', displayName: 'Ingress Controller', frameworkType: 'kubernetes.controller' },
+        { stableKey: 'framework:kubernetes', displayName: 'Ingress Controller', frameworkType: 'kubernetes.controller', presentation: { typeLabel: 'Kubernetes 控制器' } },
       ],
       allowedActions: ['VIEW_RUNTIME'],
     })
@@ -49,7 +49,7 @@ describe('统一设备详情动作边界', () => {
     expect(context.certificates[0]?.certificateAssetId).toBe('asset_1')
     expect(context.certificates[0]?.certificateVersionId).toBe('version_1')
     expect(context.frameworks[0]).toMatchObject({ id: 'framework:nitro', name: 'NITRO', type: 'ADC' })
-    expect(context.frameworks[1]).toMatchObject({ id: 'framework:kubernetes', name: 'Ingress Controller', type: 'CONTROLLER' })
+    expect(context.frameworks[1]).toMatchObject({ id: 'framework:kubernetes', name: 'Ingress Controller', type: 'Kubernetes 控制器' })
   })
 
   it('站点绑定证书可使用指纹作为稳定身份', () => {
@@ -59,6 +59,7 @@ describe('统一设备详情动作边界', () => {
         id: 'site_web',
         siteAssetId: 'site_web',
         kind: 'web.site',
+        frameworkType: 'web.iis',
         name: 'test08',
         bindings: [{
           id: 'binding_https',
@@ -83,7 +84,7 @@ describe('统一设备详情动作边界', () => {
     const component = defineComponent({ template: '<div />' })
     const context = new DeviceDetailAdapterRegistry().buildContext({
       informationSections: [],
-      sites: [{ id: 'site_1', siteAssetId: 'site_1', kind: 'web.site', name: 'Default', bindings: [], metadata: {} }],
+      sites: [{ id: 'site_1', siteAssetId: 'site_1', kind: 'web.site', frameworkType: 'web.generic', name: 'Default', bindings: [], metadata: {} }],
       certificates: [],
       logs: [],
     })
@@ -108,15 +109,15 @@ describe('统一设备详情动作边界', () => {
       informationSections: [],
       frameworks: [{ stableKey: 'framework:nitro', displayName: 'NITRO', type: 'ADC' }],
       sites: [
-        { id: 'lb_1', siteAssetId: 'lb_1', kind: 'network.virtual-server', name: 'lb', bindings: [], metadata: { virtualServerType: 'LB' } },
-        { id: 'vpn_1', siteAssetId: 'vpn_1', kind: 'network.virtual-server', name: 'vpn', bindings: [], metadata: { virtualServerType: 'VPN' } },
+        { id: 'lb_1', siteAssetId: 'lb_1', kind: 'network.virtual-server', frameworkType: 'network.load-balancer', name: 'lb', bindings: [], metadata: { virtualServerType: 'LB' } },
+        { id: 'vpn_1', siteAssetId: 'vpn_1', kind: 'network.virtual-server', frameworkType: 'network.load-balancer', name: 'vpn', bindings: [], metadata: { virtualServerType: 'VPN' } },
       ],
       certificates: [{ id: 'cert_1', name: 'cert' }],
       logs: [],
       extension: { type: 'CITRIX_ADC' },
     })
     adc.frameworks = []
-    expect(deviceDetailTabRegistry.resolve(adc).map(tab => tab.key)).toEqual(['overview', 'sites:network.virtual-server', 'certificates', 'logs'])
+    expect(deviceDetailTabRegistry.resolve(adc).map(tab => tab.key)).toEqual(['overview', 'sites:network.load-balancer', 'certificates', 'logs'])
   })
 
   it('标准站点分类和未知插件分类均由通用标签完整保留', () => {
@@ -127,8 +128,9 @@ describe('统一设备详情动作边界', () => {
           id: 'web_1',
           siteAssetId: 'web_1',
           kind: 'web.site',
+          frameworkType: 'web.nginx',
           name: 'Web',
-          presentation: { groupKey: 'web.nginx', groupLabel: 'NGINX', typeLabel: 'NGINX' },
+          presentation: { groupKey: 'web.nginx', groupLabelKey: 'fixture.web.group', typeLabelKey: 'fixture.web.type', groupLabel: 'NGINX', typeLabel: 'NGINX' },
           bindings: [],
           metadata: {},
         },
@@ -136,8 +138,9 @@ describe('统一设备详情动作边界', () => {
           id: 'k8s_1',
           siteAssetId: 'k8s_1',
           kind: 'kubernetes.ingress',
+          frameworkType: 'kubernetes.cluster',
           name: 'Ingress',
-          presentation: { groupKey: 'kubernetes.cluster', groupLabel: 'Kubernetes', typeLabel: 'Ingress' },
+          presentation: { groupKey: 'kubernetes.cluster', groupLabelKey: 'fixture.k8s.group', typeLabelKey: 'fixture.k8s.type', groupLabel: 'Kubernetes', typeLabel: 'Ingress' },
           bindings: [],
           metadata: {},
         },

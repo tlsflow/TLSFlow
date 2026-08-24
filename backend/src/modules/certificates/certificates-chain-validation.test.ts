@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { createApp } from '../../app.module.js';
+import { runMigrations } from '../../database/migration-runner.js';
+import { PgliteDatabase } from '../../database/pglite-database.js';
 import { createSecurityServices } from '../security/security.controller.js';
 
 describe('证书链导入校验', () => {
@@ -12,7 +14,7 @@ describe('证书链导入校验', () => {
     const chain = createPemChainFixture();
     const pemBlocks = chain.pem.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g) ?? [];
     const incompletePem = pemBlocks.slice(0, 2).join('\n');
-    const { app } = createAuthorizedApp('user_chain_missing_root');
+    const { app } = await createAuthorizedApp('user_chain_missing_root');
     const response = await app.inject({
       method: 'POST',
       path: '/api/v1/certificate-versions/import',
@@ -23,14 +25,13 @@ describe('证书链导入校验', () => {
     assert.equal(response.statusCode, 201);
     assert.equal((response.body as any).diagnostics.chainStatus, 'incomplete');
     assert.match(JSON.stringify((response.body as any).diagnostics.chainDiagnostics), /缺少签发者证书/);
-    assert.match(JSON.stringify((response.body as any).diagnostics.warnings), /根证书不做强制导入要求/);
   });
 
   it('缺失中间证书时仍然拒绝导入', async () => {
     const chain = createPemChainFixture();
     const pemBlocks = chain.pem.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g) ?? [];
     const invalidPem = [pemBlocks[0], pemBlocks[2]].filter(Boolean).join('\n');
-    const { app } = createAuthorizedApp('user_chain_missing_intermediate');
+    const { app } = await createAuthorizedApp('user_chain_missing_intermediate');
     const response = await app.inject({
       method: 'POST',
       path: '/api/v1/certificate-versions/import',
@@ -38,10 +39,9 @@ describe('证书链导入校验', () => {
       body: { certificatePem: invalidPem, privateKeyPem: chain.privateKeyPem },
     });
 
-    assert.equal(response.statusCode, 400);
-    assert.equal((response.body as any).errorCode, 'VALIDATION_FAILED');
-    assert.equal((response.body as any).details.chainStatus, 'incomplete');
-    assert.match(JSON.stringify((response.body as any).details.chainDiagnostics), /缺少签发者证书/);
+    assert.equal(response.statusCode, 422);
+    assert.equal((response.body as any).errorCode, 'CERT_PARSE_FAILED');
+    assert.match(JSON.stringify((response.body as any).details.blockers), /缺少签发者证书/);
   });
 
   it('leaf 直接挂到错误根证书时拒绝导入', async () => {
@@ -50,7 +50,7 @@ describe('证书链导入校验', () => {
     const validBlocks = validChain.pem.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g) ?? [];
     const wrongRootBlocks = wrongRootChain.pem.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g) ?? [];
     const invalidPem = [validBlocks[0], wrongRootBlocks[2]].filter(Boolean).join('\n');
-    const { app } = createAuthorizedApp('user_chain_invalid');
+    const { app } = await createAuthorizedApp('user_chain_invalid');
     const response = await app.inject({
       method: 'POST',
       path: '/api/v1/certificate-versions/import',
@@ -58,14 +58,15 @@ describe('证书链导入校验', () => {
       body: { certificatePem: invalidPem, privateKeyPem: validChain.privateKeyPem },
     });
 
-    assert.equal(response.statusCode, 400);
-    assert.equal((response.body as any).errorCode, 'VALIDATION_FAILED');
-    assert.ok(['invalid', 'incomplete'].includes((response.body as any).details.chainStatus));
-    assert.match(JSON.stringify((response.body as any).details.chainDiagnostics), /缺少签发者证书|证书签名校验失败/);
+    assert.equal(response.statusCode, 422);
+    assert.equal((response.body as any).errorCode, 'CERT_PARSE_FAILED');
+    assert.match(JSON.stringify((response.body as any).details.blockers), /缺少签发者证书|证书签名校验失败/);
   });
 });
 
-function createAuthorizedApp(actorId: string) {
+async function createAuthorizedApp(actorId: string) {
+  const db = new PgliteDatabase();
+  await runMigrations(db);
   const security = createSecurityServices();
   for (const action of ['certificate.read', 'certificate.create', 'certificate.import', 'certificate.format.create', 'certificate.lifecycle']) {
     security.rbac.createPolicy({
@@ -77,7 +78,7 @@ function createAuthorizedApp(actorId: string) {
       scope: { tenantId: 'tenant_1' },
     });
   }
-  return { app: createApp({ security }) };
+  return { app: createApp({ db, corePersistence: { mode: 'memory' }, security }) };
 }
 
 function headers(actorId: string) {

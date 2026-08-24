@@ -30,7 +30,7 @@ import type {
   DegradationSuggestion,
   ManualCapabilityDeclarationInput,
 } from '../../../shared/contracts/capability-contracts.js';
-import { capabilityDefinitionMap } from '../schema/capabilities.schema.js';
+import { capabilityDefinitionMap, createExtensionCapabilityDefinition } from '../schema/capabilities.schema.js';
 
 interface NormalizedDeclarationBucket {
   definition?: CapabilityDefinition;
@@ -58,7 +58,8 @@ export class CapabilitiesDomainService {
     const source = readEnum(input.source, CapabilityDeclarationSources, 'source');
     const status = readEnum(input.status, CapabilityDeclarationStatuses, 'status');
     const capabilityKey = normalizeCapabilityKey(input.capabilityKey);
-    const definition = this.requireDefinition(capabilityKey);
+    const builtInDefinition = capabilityDefinitionMap.get(capabilityKey);
+    const definition = builtInDefinition ?? createExtensionCapabilityDefinition(capabilityKey);
     const confidence = normalizeConfidence(input.confidence, 'confidence');
     const parameters = normalizeParameters(input.parameters);
     const detectedAt = normalizeOptionalIso(input.detectedAt, 'detectedAt');
@@ -67,7 +68,7 @@ export class CapabilitiesDomainService {
     if (source === 'manual') {
       throw new AppError('VALIDATION_FAILED', '标准能力声明不能使用 manual 来源', { field: 'source' });
     }
-    if (definition.valueType === 'boolean' && typeof input.value !== 'boolean') {
+    if (builtInDefinition?.valueType === 'boolean' && typeof input.value !== 'boolean') {
       throw new AppError('VALIDATION_FAILED', '布尔能力值必须为 boolean', { field: 'value', capabilityKey });
     }
     if (detectedAt === undefined && isAutoSource(source)) {
@@ -372,7 +373,6 @@ export class CapabilitiesDomainService {
 
   private normalizeConstraint(input: CapabilityConstraint, field: string): CapabilityConstraint {
     const capabilityKey = normalizeCapabilityKey(input.capabilityKey);
-    this.requireDefinition(capabilityKey);
     const operator = readEnum(input.operator, CapabilityConstraintOperators, `${field}.operator`);
     const reason = normalizeRequiredString(input.reason, `${field}.reason`);
     const riskIfMissing = normalizeRequiredString(input.riskIfMissing, `${field}.riskIfMissing`);
@@ -398,7 +398,7 @@ export class CapabilitiesDomainService {
     const buckets = new Map<string, NormalizedDeclarationBucket>();
     for (const item of declarations) {
       const normalizedKey = normalizeCapabilityKey(item.capabilityKey);
-      const definition = capabilityDefinitionMap.get(normalizedKey);
+      const definition = capabilityDefinitionMap.get(normalizedKey) ?? createExtensionCapabilityDefinition(normalizedKey);
       const bucket = buckets.get(normalizedKey) ?? { definition, declarations: [] };
       bucket.declarations.push({ ...item, capabilityKey: definition?.key ?? normalizedKey });
       bucket.definition = definition;
@@ -431,20 +431,7 @@ export class CapabilitiesDomainService {
   ): ConstraintMatchState {
     const normalizedKey = normalizeCapabilityKey(constraint.capabilityKey);
     const bucket = buckets.get(normalizedKey);
-    const definition = capabilityDefinitionMap.get(normalizedKey);
-    if (!definition) {
-      return {
-        unknown: {
-          capabilityKey: normalizedKey,
-          originalCapabilityKey: constraint.capabilityKey,
-          operator: constraint.operator,
-          reason: constraint.reason,
-          expected: constraint.expected,
-          blockingReason: 'unknown_definition',
-          candidateDeclarationIds: [],
-        },
-      };
-    }
+    const definition = capabilityDefinitionMap.get(normalizedKey) ?? createExtensionCapabilityDefinition(normalizedKey);
     if (!bucket) {
       return {
         missing: {
@@ -603,7 +590,11 @@ export class CapabilitiesDomainService {
 }
 
 function normalizeCapabilityKey(value: string): string {
-  return normalizeRequiredString(value, 'capabilityKey').trim();
+  const normalized = normalizeRequiredString(value, 'capabilityKey').trim();
+  if (!/^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+$/.test(normalized)) {
+    throw new AppError('VALIDATION_FAILED', '能力键不合法', { field: 'capabilityKey', capabilityKey: normalized });
+  }
+  return normalized;
 }
 
 function normalizeConfidence(value: number, field: string): number {

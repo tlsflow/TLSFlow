@@ -916,23 +916,20 @@ export class AgentsApplicationService {
       await this.requireAgent(tenantId, input.agentId);
     }
     const platform = input.platform;
-    if (platform !== 'windows_powershell_service' && platform !== 'linux_go_systemd') {
+    const profile = gatewayEnablePlatformProfiles[platform];
+    if (!profile) {
       throw new AppError('VALIDATION_FAILED', 'platform 只能是 windows_powershell_service 或 linux_go_systemd', { platform });
     }
     const zone = normalizeCommandValue(input.zone ?? 'default', 'zone');
-    const serviceName = normalizeCommandValue(input.serviceName ?? (platform === 'windows_powershell_service' ? 'gcac-agent' : 'gcac-linux-agent'), 'serviceName');
-    const configPath = input.configPath?.trim()
-      || (platform === 'windows_powershell_service'
-        ? 'C:\\ProgramData\\GCAC\\FullAgentGo\\config\\agent.config.json'
-        : '/etc/gcac/linux-agent/agent.config.json');
+    const serviceName = normalizeCommandValue(input.serviceName ?? profile.serviceName, 'serviceName');
+    const configPath = input.configPath?.trim() || profile.configPath;
     const query = new URLSearchParams({
       zone,
       serviceName,
       configPath,
       ...(input.agentId ? { agentId: input.agentId } : {}),
     });
-    const pathSuffix = platform === 'windows_powershell_service' ? '/agent-enable-gateway.ps1' : '/agent-enable-gateway';
-    const enableUrl = `${baseUrl}${pathSuffix}?${query.toString()}`;
+    const enableUrl = `${baseUrl}${profile.pathSuffix}?${query.toString()}`;
     return {
       platform,
       agentId: input.agentId,
@@ -940,9 +937,7 @@ export class AgentsApplicationService {
       serviceName,
       configPath,
       enableUrl,
-      enableCommand: platform === 'windows_powershell_service'
-        ? `irm '${enableUrl}' | iex`
-        : `curl -fsSL '${enableUrl}' | sudo bash`,
+      enableCommand: profile.command(enableUrl),
     };
   }
 
@@ -1423,6 +1418,26 @@ function readDirectFallback(value: unknown): AgentDetailProjection['recentTaskLo
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
+
+const gatewayEnablePlatformProfiles: Partial<Record<CreateGatewayEnableSessionInput['platform'], {
+  serviceName: string;
+  configPath: string;
+  pathSuffix: string;
+  command: (url: string) => string;
+}>> = {
+  windows_powershell_service: {
+    serviceName: 'gcac-agent',
+    configPath: 'C:\\ProgramData\\GCAC\\FullAgentGo\\config\\agent.config.json',
+    pathSuffix: '/agent-enable-gateway.ps1',
+    command: (url) => `irm '${url}' | iex`,
+  },
+  linux_go_systemd: {
+    serviceName: 'gcac-linux-agent',
+    configPath: '/etc/gcac/linux-agent/agent.config.json',
+    pathSuffix: '/agent-enable-gateway',
+    command: (url) => `curl -fsSL '${url}' | sudo bash`,
+  },
+};
 
 const currentFilePath = fileURLToPath(import.meta.url);
 const currentDirPath = path.dirname(currentFilePath);

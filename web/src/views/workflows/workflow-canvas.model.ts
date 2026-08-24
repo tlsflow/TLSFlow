@@ -1,9 +1,5 @@
 import { i18n } from '@/i18n'
-import {
-  credentialProfileBinding,
-  type RuntimeCredentialBinding,
-  type CredentialProfileOption,
-} from './credential-profiles'
+import type { CredentialProfileOption } from './credential-profiles'
 
 export type WorkflowCanvasNodeType = 'http' | 'ssh' | 'sftp' | 'scp' | 'verify' | 'condition' | 'transform' | 'foreach' | 'checkpoint' | 'checkpoint_verify' | 'wait' | 'manual'
 export type WorkflowCanvasEdgeType = 'success' | 'failure' | 'always' | 'rollback'
@@ -11,7 +7,7 @@ export type WorkflowCanvasFieldKind = 'text' | 'textarea' | 'number' | 'select' 
 export type WorkflowValidationSeverity = 'error' | 'warning' | 'risk'
 export type WorkflowCanvasStage = 'prepare' | 'backup' | 'install' | 'refresh' | 'verify'
 export type WorkflowCanvasHttpAuthType = 'none' | 'basic' | 'bearer' | 'api_key' | 'cookie' | 'custom_header' | 'mtls'
-export type WorkflowDslCredentialValue = RuntimeCredentialBinding | string
+export type WorkflowDslCredentialValue = string
 export type WorkflowConfigurationMode = 'required' | 'advanced' | 'runtime'
 export type WorkflowVariableLifecycle = 'pre_execution' | 'runtime_injected' | 'step_output'
 export type WorkflowBindingPolicy = 'fixed' | 'default_overridable' | 'required_binding'
@@ -54,8 +50,7 @@ export interface WorkflowCanvasDefinition {
     readonly category?: string
     readonly tags?: readonly string[]
   }
-  readonly variables: Record<string, WorkflowVariableDefinition>
-  readonly connections?: Record<string, WorkflowConnectionDefinition>
+  readonly inputContract: DeploymentInputContractV1
   readonly nodes: readonly WorkflowCanvasNode[]
   readonly edges: readonly WorkflowCanvasEdge[]
   readonly viewport: {
@@ -67,35 +62,76 @@ export interface WorkflowCanvasDefinition {
 }
 
 export interface WorkflowVariableDefinition {
-  readonly type: 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'array' | 'file' | 'credential' | 'certificate'
-  readonly required?: boolean
-  readonly configurationMode?: WorkflowConfigurationMode
+  readonly type: 'string' | 'number' | 'boolean' | 'enum' | 'object' | 'array' | 'file'
+  readonly required: boolean
+  readonly configurationMode: WorkflowConfigurationMode
   readonly default?: unknown
   readonly enum?: readonly unknown[]
   readonly sensitive?: boolean
-  readonly description?: string
-  readonly source?: Record<string, unknown>
-  readonly lifecycle?: WorkflowVariableLifecycle
-  readonly bindingPolicy?: WorkflowBindingPolicy
+  readonly descriptionKey?: string
+  readonly source: DeploymentVariableSourceV1
+  readonly lifecycle: WorkflowVariableLifecycle
+  readonly bindingPolicy: WorkflowBindingPolicy
   readonly ui?: Record<string, unknown>
-  readonly artifactContract?: {
+}
+
+export type DeploymentVariableSourceV1 =
+  | { readonly kind: 'asset'; readonly path: string }
+  | { readonly kind: 'binding' }
+  | { readonly kind: 'default' }
+  | { readonly kind: 'derived'; readonly resolver: string }
+  | { readonly kind: 'system'; readonly key: string }
+  | { readonly kind: 'step_output'; readonly step: string; readonly output: string }
+
+export interface DeploymentConnectionFieldV1 {
+  readonly type: 'string' | 'number' | 'boolean'
+  readonly required: boolean
+  readonly configurationMode: WorkflowConfigurationMode
+  readonly source: Exclude<DeploymentVariableSourceV1, { readonly kind: 'step_output' }>
+  readonly lifecycle: Exclude<WorkflowVariableLifecycle, 'step_output'>
+  readonly bindingPolicy: WorkflowBindingPolicy
+  readonly default?: string | number | boolean
+}
+
+export interface DeploymentConnectionDefinitionV1 {
+  readonly transport: 'ssh' | 'http'
+  readonly host: DeploymentConnectionFieldV1
+  readonly port: DeploymentConnectionFieldV1
+  readonly username?: DeploymentConnectionFieldV1
+  readonly credentialSlot?: string
+  readonly tls?: { readonly verifyPeer: DeploymentConnectionFieldV1; readonly serverName?: DeploymentConnectionFieldV1 }
+  readonly hostKey?: { readonly policy: 'strict' | 'trust_on_first_use' | 'manual_approval_required'; readonly expectedFingerprint?: DeploymentConnectionFieldV1 }
+}
+
+export interface DeploymentCredentialSlotV1 {
+  readonly allowedKinds: readonly ('USERNAME_PASSWORD' | 'SSH_KEY' | 'BEARER_TOKEN' | 'API_KEY' | 'CLIENT_CERTIFICATE')[]
+  readonly required: boolean
+  readonly configurationMode: Exclude<WorkflowConfigurationMode, 'runtime'>
+  readonly lifecycle: Exclude<WorkflowVariableLifecycle, 'step_output'>
+}
+
+export interface DeploymentArtifactSlotV1 {
+  readonly kind: 'certificate' | 'file'
+  readonly required: boolean
+  readonly configurationMode: Exclude<WorkflowConfigurationMode, 'runtime'>
+  readonly lifecycle: Exclude<WorkflowVariableLifecycle, 'step_output'>
+  readonly artifactContract: {
     readonly outputs: Record<string, {
       readonly role: string
-      readonly required?: boolean
+      readonly required: boolean
       readonly format?: string
       readonly encoding?: string
-      readonly description?: string
+      readonly sensitive?: boolean
     }>
   }
 }
 
-export interface WorkflowConnectionDefinition {
-  readonly protocol: 'ssh' | 'http'
-  readonly host: Record<string, unknown>
-  readonly port: Record<string, unknown>
-  readonly username?: Record<string, unknown>
-  readonly credential?: Record<string, unknown>
-  readonly hostKey?: Record<string, unknown>
+export interface DeploymentInputContractV1 {
+  readonly apiVersion: 'gcac.deployment-input/v1'
+  readonly variables: Record<string, WorkflowVariableDefinition>
+  readonly connections: Record<string, DeploymentConnectionDefinitionV1>
+  readonly credentials: Record<string, DeploymentCredentialSlotV1>
+  readonly artifacts: Record<string, DeploymentArtifactSlotV1>
 }
 
 export interface WorkflowNodeFieldDefinition {
@@ -138,8 +174,7 @@ export interface WorkflowDslV1 {
   readonly apiVersion: 'gcac.workflow/v1'
   readonly kind: 'CurlSshWorkflow'
   readonly metadata: WorkflowCanvasDefinition['metadata']
-  readonly variables: Record<string, WorkflowVariableDefinition>
-  readonly connections?: Record<string, WorkflowConnectionDefinition>
+  readonly inputContract: DeploymentInputContractV1
   readonly steps: readonly WorkflowDslStep[]
   readonly rollback?: readonly WorkflowDslStep[]
 }
@@ -151,6 +186,7 @@ export type WorkflowDslStep =
       readonly stage?: WorkflowCanvasStage
       readonly request: {
         readonly method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+        readonly connectionRef: string
         readonly url: string
         readonly query?: Record<string, string | number | boolean>
         readonly headers?: Record<string, string>
@@ -184,13 +220,7 @@ export type WorkflowDslStep =
       readonly stage?: WorkflowCanvasStage
       readonly ssh: {
         readonly mode: 'command' | 'script' | 'interactive'
-        readonly connection: {
-          readonly host: string
-          readonly username: string
-          readonly credential: WorkflowDslCredentialValue
-          readonly expectedHostKeyFingerprint?: string
-          readonly hostKeyPolicy?: 'strict' | 'trust_on_first_use' | 'manual_approval_required'
-        }
+        readonly connectionRef: string
         readonly command?: string
         readonly commands?: readonly string[]
         readonly script?: string
@@ -273,13 +303,7 @@ export type WorkflowDslStep =
 
 export interface WorkflowDslFileTransferConfig {
   readonly direction: 'upload' | 'download'
-  readonly connection: {
-    readonly host: string
-    readonly username: string
-    readonly credential: WorkflowDslCredentialValue
-    readonly expectedHostKeyFingerprint?: string
-    readonly hostKeyPolicy?: 'strict' | 'trust_on_first_use' | 'manual_approval_required'
-  }
+  readonly connectionRef: string
   readonly remotePath: string
   readonly contentRef?: string
   readonly contentEncoding?: 'utf8' | 'base64'
@@ -350,15 +374,7 @@ export const NODE_TYPE_DEFINITIONS: readonly WorkflowNodeTypeDefinition[] = [
     inputPorts: ['input'],
     outputPorts: ['success', 'failure'],
     fields: [
-      { key: 'hostRef', label: canvasModelText('fields.hostRef'), kind: 'text', required: true },
-      { key: 'username', label: canvasModelText('fields.usernameVariable'), kind: 'text', required: true },
-      { key: 'credential', label: canvasModelText('fields.credential'), kind: 'text', required: true },
-      { key: 'hostKeyPolicy', label: canvasModelText('fields.hostKeyPolicy'), kind: 'select', required: true, options: [
-        { label: canvasModelText('options.hostKeyPolicy.trustOnFirstUse'), value: 'trust_on_first_use' },
-        { label: canvasModelText('options.hostKeyPolicy.strict'), value: 'strict' },
-        { label: canvasModelText('options.hostKeyPolicy.manualApproval'), value: 'manual_approval_required' },
-      ] },
-      { key: 'expectedHostKeyFingerprint', label: canvasModelText('fields.expectedHostKeyFingerprint'), kind: 'text' },
+      { key: 'connectionRef', label: canvasModelText('fields.connectionRef'), kind: 'text', required: true },
       { key: 'command', label: canvasModelText('fields.command'), kind: 'textarea', required: true },
       { key: 'timeoutSeconds', label: canvasModelText('fields.timeoutSeconds'), kind: 'number', required: true },
     ],
@@ -378,16 +394,8 @@ export const NODE_TYPE_DEFINITIONS: readonly WorkflowNodeTypeDefinition[] = [
     fields: [
       { key: 'direction', label: canvasModelText('fields.direction'), kind: 'select', required: true, options: [{ label: canvasModelText('options.direction.upload'), value: 'upload' }, { label: canvasModelText('options.direction.download'), value: 'download' }] },
       { key: 'connectionRef', label: canvasModelText('fields.connectionRef'), kind: 'text', required: true },
-      { key: 'credential', label: canvasModelText('fields.credential'), kind: 'text', required: true },
       { key: 'remotePath', label: canvasModelText('fields.remotePath'), kind: 'text', required: true },
       { key: 'temporaryPath', label: canvasModelText('fields.temporaryPath'), kind: 'text' },
-      { key: 'username', label: canvasModelText('fields.usernameVariable'), kind: 'text', required: true },
-      { key: 'hostKeyPolicy', label: canvasModelText('fields.hostKeyPolicy'), kind: 'select', required: true, options: [
-        { label: canvasModelText('options.hostKeyPolicy.trustOnFirstUse'), value: 'trust_on_first_use' },
-        { label: canvasModelText('options.hostKeyPolicy.strict'), value: 'strict' },
-        { label: canvasModelText('options.hostKeyPolicy.manualApproval'), value: 'manual_approval_required' },
-      ] },
-      { key: 'expectedHostKeyFingerprint', label: canvasModelText('fields.expectedHostKeyFingerprint'), kind: 'text' },
       { key: 'contentRef', label: canvasModelText('fields.contentRef'), kind: 'text' },
       { key: 'localPath', label: canvasModelText('fields.localPath'), kind: 'text' },
       { key: 'mode', label: canvasModelText('fields.mode'), kind: 'text' },
@@ -409,16 +417,8 @@ export const NODE_TYPE_DEFINITIONS: readonly WorkflowNodeTypeDefinition[] = [
     fields: [
       { key: 'direction', label: canvasModelText('fields.direction'), kind: 'select', required: true, options: [{ label: canvasModelText('options.direction.upload'), value: 'upload' }, { label: canvasModelText('options.direction.download'), value: 'download' }] },
       { key: 'connectionRef', label: canvasModelText('fields.connectionRef'), kind: 'text', required: true },
-      { key: 'username', label: canvasModelText('fields.usernameVariable'), kind: 'text', required: true },
-      { key: 'credential', label: canvasModelText('fields.credential'), kind: 'text', required: true },
       { key: 'remotePath', label: canvasModelText('fields.remotePath'), kind: 'text', required: true },
       { key: 'temporaryPath', label: canvasModelText('fields.temporaryPath'), kind: 'text' },
-      { key: 'hostKeyPolicy', label: canvasModelText('fields.hostKeyPolicy'), kind: 'select', required: true, options: [
-        { label: canvasModelText('options.hostKeyPolicy.trustOnFirstUse'), value: 'trust_on_first_use' },
-        { label: canvasModelText('options.hostKeyPolicy.strict'), value: 'strict' },
-        { label: canvasModelText('options.hostKeyPolicy.manualApproval'), value: 'manual_approval_required' },
-      ] },
-      { key: 'expectedHostKeyFingerprint', label: canvasModelText('fields.expectedHostKeyFingerprint'), kind: 'text' },
       { key: 'contentRef', label: canvasModelText('fields.contentRef'), kind: 'text' },
       { key: 'localPath', label: canvasModelText('fields.localPath'), kind: 'text' },
       { key: 'mode', label: canvasModelText('fields.mode'), kind: 'text' },
@@ -602,26 +602,10 @@ export function createDefaultWorkflowCanvas(name = 'workflow-canvas-draft'): Wor
       category: 'deployment',
       tags: ['ssl', 'workflow'],
     },
-    variables: {
-      deviceHost: { type: 'string', required: true, description: canvasModelText('defaults.variables.deviceHost.description') },
-      sshUsername: { type: 'string', required: true, description: canvasModelText('defaults.variables.sshUsername.description') },
-      credential: { type: 'credential', required: true, sensitive: true, description: canvasModelText('defaults.variables.credential.description') },
-      serverCert: {
-        type: 'certificate',
-        required: true,
-        sensitive: true,
-        description: canvasModelText('defaults.variables.serverCert.description'),
-        artifactContract: {
-          outputs: {
-            certFile: { role: 'public_certificate', required: true, format: 'pem', encoding: 'utf8', description: canvasModelText('defaults.variables.serverCert.outputs.certFile.description') },
-            keyFile: { role: 'private_key', required: true, format: 'pem', encoding: 'utf8', description: canvasModelText('defaults.variables.serverCert.outputs.keyFile.description') },
-          },
-        },
-      },
-      certificatePaths: {
-        type: 'object',
-        required: true,
-        default: {
+    inputContract: {
+      apiVersion: 'gcac.deployment-input/v1',
+      variables: {
+        certificatePaths: defaultVariable('object', {
           certPath: '/etc/ssl/certs/site.pem',
           keyPath: '/etc/ssl/private/site.key',
           tempCertPath: '/tmp/gcac-certs/site.pem',
@@ -629,10 +613,35 @@ export function createDefaultWorkflowCanvas(name = 'workflow-canvas-draft'): Wor
           backupDir: '/var/backups/gcac-certs',
           backupCertPath: '/var/backups/gcac-certs/site.pem.bak',
           backupKeyPath: '/var/backups/gcac-certs/site.key.bak',
-        },
-        description: canvasModelText('defaults.variables.certificatePaths.description'),
+        }),
+        verifyUrl: requiredVariable('string'),
       },
-      verifyUrl: { type: 'string', required: true, description: canvasModelText('defaults.variables.verifyUrl.description') },
+      connections: {
+        management: httpConnectionContract(),
+        targetSsh: sshConnectionContract('sshCredential'),
+      },
+      credentials: {
+        sshCredential: {
+          allowedKinds: ['USERNAME_PASSWORD', 'SSH_KEY'],
+          required: true,
+          configurationMode: 'required',
+          lifecycle: 'pre_execution',
+        },
+      },
+      artifacts: {
+        serverCert: {
+          kind: 'certificate',
+          required: true,
+          configurationMode: 'required',
+          lifecycle: 'runtime_injected',
+          artifactContract: {
+            outputs: {
+              certFile: { role: 'public_certificate', required: true, format: 'pem', encoding: 'utf8' },
+              keyFile: { role: 'private_key', required: true, format: 'pem', encoding: 'utf8', sensitive: true },
+            },
+          },
+        },
+      },
     },
     nodes,
     edges: [],
@@ -678,12 +687,12 @@ export function getNodeTypeDefinition(type: WorkflowCanvasNodeType): WorkflowNod
 }
 
 export function createDefaultConfig(type: WorkflowCanvasNodeType): Record<string, unknown> {
-  if (type === 'http') return { method: 'GET', url: '{{verifyUrl}}', authType: 'none', authCredential: '', authUsername: '', authApiKeyName: 'X-API-Key', authApiKeyIn: 'header', authHeaderName: 'X-Custom-Auth', authCookieName: '', authSecretValue: '', authCertSecretRef: '', authKeySecretRef: '', authCredentialId: '', body: '', timeoutSeconds: 30 }
-  if (type === 'ssh') return { hostRef: '{{deviceHost}}', username: '{{sshUsername}}', credential: '{{credential}}', hostKeyPolicy: 'trust_on_first_use', expectedHostKeyFingerprint: '', command: 'systemctl reload nginx', timeoutSeconds: 60 }
-  if (type === 'sftp') return createDefaultFileTransferConfig('{{serverCert.outputs.certFile.content}}', '{{certificatePaths.certPath}}', '{{certificatePaths.tempCertPath}}', '0644')
-  if (type === 'scp') return createDefaultFileTransferConfig('{{serverCert.outputs.keyFile.content}}', '{{certificatePaths.keyPath}}', '{{certificatePaths.tempKeyPath}}', '0600')
-  if (type === 'verify') return { verifyType: 'httpStatus', inputRef: '{{verifyUrl}}', expected: '200', timeoutSeconds: 30 }
-  if (type === 'condition') return { variable: 'deviceHost', operator: 'exists', expected: '', description: canvasModelText('defaults.config.conditionDescription') }
+  if (type === 'http') return { method: 'GET', connectionRef: 'management', url: '{{variables.verifyUrl}}', authType: 'none', authCredential: '', authUsername: '', authApiKeyName: 'X-API-Key', authApiKeyIn: 'header', authHeaderName: 'X-Custom-Auth', authCookieName: '', authSecretValue: '', authCertSecretRef: '', authKeySecretRef: '', body: '', timeoutSeconds: 30 }
+  if (type === 'ssh') return { connectionRef: 'targetSsh', command: 'systemctl reload nginx', timeoutSeconds: 60 }
+  if (type === 'sftp') return createDefaultFileTransferConfig('{{artifacts.serverCert.outputs.certFile.content}}', '{{variables.certificatePaths.certPath}}', '{{variables.certificatePaths.tempCertPath}}', '0644')
+  if (type === 'scp') return createDefaultFileTransferConfig('{{artifacts.serverCert.outputs.keyFile.content}}', '{{variables.certificatePaths.keyPath}}', '{{variables.certificatePaths.tempKeyPath}}', '0600')
+  if (type === 'verify') return { verifyType: 'httpStatus', connectionRef: 'management', inputRef: '{{variables.verifyUrl}}', expected: '200', timeoutSeconds: 30 }
+  if (type === 'condition') return { variable: 'variables.verifyUrl', operator: 'exists', expected: '', description: canvasModelText('defaults.config.conditionDescription') }
   if (type === 'transform') return { input: '{}', expression: '$', format: 'raw', timeoutMs: 200 }
   if (type === 'foreach') return { itemsPath: 'asset.items', itemVariable: 'item', indexVariable: 'index', maxItems: 100, continueOnError: false, steps: '[]' }
   if (type === 'checkpoint') return { checkpointName: 'before-write', capture: '{}', requiredForRollback: 'true' }
@@ -697,8 +706,7 @@ export function workflowDslToCanvas(dsl: WorkflowDslV1): WorkflowCanvasDefinitio
     schemaVersion: 'gcac.workflow.canvas/v1',
     dslVersion: 'gcac.workflow/v1',
     metadata: dsl.metadata,
-    variables: cloneRecord(dsl.variables),
-    connections: cloneRecord(dsl.connections ?? {}),
+    inputContract: cloneRecord(dsl.inputContract),
     nodes,
     edges: [],
     viewport: { x: 0, y: 0, zoom: 1 },
@@ -713,7 +721,10 @@ export function isWorkflowDslV1(value: unknown): value is WorkflowDslV1 {
   const record = value as Record<string, unknown>
   if (record.apiVersion !== 'gcac.workflow/v1' || record.kind !== 'CurlSshWorkflow') return false
   if (!record.metadata || typeof record.metadata !== 'object' || Array.isArray(record.metadata)) return false
-  if (!record.variables || typeof record.variables !== 'object' || Array.isArray(record.variables)) return false
+  if (!record.inputContract || typeof record.inputContract !== 'object' || Array.isArray(record.inputContract)) return false
+  const inputContract = record.inputContract as Record<string, unknown>
+  if (inputContract.apiVersion !== 'gcac.deployment-input/v1') return false
+  if (!['variables', 'connections', 'credentials', 'artifacts'].every((key) => inputContract[key] && typeof inputContract[key] === 'object' && !Array.isArray(inputContract[key]))) return false
   if (!Array.isArray(record.steps) || record.steps.length === 0) return false
   if (record.rollback !== undefined && !Array.isArray(record.rollback)) return false
   return true
@@ -754,23 +765,32 @@ export function upsertWorkflowVariable(canvas: WorkflowCanvasDefinition, name: s
   if (!normalized) return canvas
   return {
     ...canvas,
-    variables: {
-      ...canvas.variables,
-      [normalized]: sanitizeVariableDefinition(definition),
+    inputContract: {
+      ...canvas.inputContract,
+      variables: {
+        ...canvas.inputContract.variables,
+        [normalized]: sanitizeVariableDefinition(definition),
+      },
     },
   }
 }
 
 export function renameWorkflowVariable(canvas: WorkflowCanvasDefinition, oldName: string, newName: string): WorkflowCanvasDefinition {
   const normalized = normalizeVariableName(newName)
-  if (!canvas.variables[oldName] || !normalized || normalized === oldName) return canvas
-  const entries = Object.entries(canvas.variables).map(([name, definition]) => name === oldName ? [normalized, definition] as const : [name, definition] as const)
-  return { ...canvas, variables: Object.fromEntries(entries) }
+  if (!canvas.inputContract.variables[oldName] || !normalized || normalized === oldName) return canvas
+  const entries = Object.entries(canvas.inputContract.variables).map(([name, definition]) => name === oldName ? [normalized, definition] as const : [name, definition] as const)
+  return { ...canvas, inputContract: { ...canvas.inputContract, variables: Object.fromEntries(entries) } }
 }
 
 export function removeWorkflowVariable(canvas: WorkflowCanvasDefinition, name: string): WorkflowCanvasDefinition {
-  if (!canvas.variables[name]) return canvas
-  return { ...canvas, variables: Object.fromEntries(Object.entries(canvas.variables).filter(([key]) => key !== name)) }
+  if (!canvas.inputContract.variables[name]) return canvas
+  return {
+    ...canvas,
+    inputContract: {
+      ...canvas.inputContract,
+      variables: Object.fromEntries(Object.entries(canvas.inputContract.variables).filter(([key]) => key !== name)),
+    },
+  }
 }
 
 export function autoLayoutCanvas(canvas: WorkflowCanvasDefinition): WorkflowCanvasDefinition {
@@ -802,11 +822,11 @@ export function getVariableFlow(canvas: WorkflowCanvasDefinition) {
     { source: canvasModelText('variableFlow.system'), name: 'runId', type: 'string', sensitive: false, usedBy: [] as string[] },
     { source: canvasModelText('variableFlow.system'), name: 'targetId', type: 'string', sensitive: false, usedBy: [] as string[] },
   ]
-  const declared = Object.entries(canvas.variables).map(([name, definition]) => ({
+  const declared = Object.entries(canvas.inputContract.variables).map(([name, definition]) => ({
     source: canvasModelText('variableFlow.variable'),
     name,
     type: definition.type,
-    sensitive: Boolean(definition.sensitive || definition.type === 'credential'),
+    sensitive: Boolean(definition.sensitive),
     usedBy: findVariableUsers(canvas, name),
   }))
   const produced = canvas.nodes.flatMap((node) => getNodeTypeDefinition(node.type).produces.map((item) => ({
@@ -832,8 +852,9 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
       config: isVerify
         ? { verifyType: 'httpStatus', inputRef: step.request.url, expected: String((step.assert?.[0] as { equals?: unknown } | undefined)?.equals ?? 200), timeoutSeconds: step.request.timeoutSeconds ?? 30 }
         : {
-            method: step.request.method,
-            url: step.request.url,
+          method: step.request.method,
+          connectionRef: step.request.connectionRef,
+          url: step.request.url,
             ...buildHttpNodeConfig(step.request.auth),
             body: stringifyBody(step.request.body),
             timeoutSeconds: step.request.timeoutSeconds ?? 30,
@@ -852,8 +873,7 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
         ui: { stage, rawStep: cloneRecord(step) },
         config: {
           direction: direction.toLowerCase() === 'download' ? 'download' : 'upload',
-          connectionRef: step.ssh.connection.host,
-          credential: cloneCredentialValue(step.ssh.connection.credential),
+          connectionRef: step.ssh.connectionRef,
           localArtifactRef,
           remotePath,
           timeoutSeconds: step.ssh.timeoutSeconds ?? 60,
@@ -867,11 +887,7 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
       label: dslStepLabel(step, canvasModelText('nodeTypes.ssh.displayName')),
       ui: { stage, rawStep: cloneRecord(step) },
       config: {
-        hostRef: step.ssh.connection.host,
-        username: step.ssh.connection.username,
-        credential: cloneCredentialValue(step.ssh.connection.credential),
-        hostKeyPolicy: step.ssh.connection.hostKeyPolicy ?? 'trust_on_first_use',
-        expectedHostKeyFingerprint: step.ssh.connection.expectedHostKeyFingerprint ?? '',
+        connectionRef: step.ssh.connectionRef,
         command,
         timeoutSeconds: step.ssh.timeoutSeconds ?? 60,
       },
@@ -887,11 +903,7 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
       ui: { stage, rawStep: cloneRecord(step) },
       config: {
         direction: config.direction,
-        connectionRef: config.connection.host,
-        username: config.connection.username,
-        credential: cloneCredentialValue(config.connection.credential),
-        hostKeyPolicy: config.connection.hostKeyPolicy ?? 'trust_on_first_use',
-        expectedHostKeyFingerprint: config.connection.expectedHostKeyFingerprint ?? '',
+        connectionRef: config.connectionRef,
         remotePath: config.remotePath,
         temporaryPath: config.temporaryPath ?? '',
         contentRef: config.contentRef ?? '',
@@ -1073,27 +1085,18 @@ function buildHttpNodeConfig(auth: Extract<WorkflowDslStep, { type: 'http' }>['r
     authSecretValue: '',
     authCertSecretRef: '',
     authKeySecretRef: '',
-    authCredentialId: '',
   } as Record<string, unknown>
   if (!auth || auth.type === 'none') return base
-  if (auth.type === 'basic') return { ...base, authType: 'basic', authCredential: cloneCredentialValue(auth.credential), authCredentialId: credentialValueId(auth.credential), authUsername: auth.username }
-  if (auth.type === 'bearer') return { ...base, authType: 'bearer', authCredential: cloneCredentialValue(auth.credential), authCredentialId: credentialValueId(auth.credential) }
-  if (auth.type === 'api_key') return { ...base, authType: 'api_key', authCredential: cloneCredentialValue(auth.credential), authCredentialId: credentialValueId(auth.credential), authApiKeyName: auth.name, authApiKeyIn: auth.in ?? 'header' }
+  if (auth.type === 'basic') return { ...base, authType: 'basic', authCredential: auth.credential, authUsername: auth.username }
+  if (auth.type === 'bearer') return { ...base, authType: 'bearer', authCredential: auth.credential }
+  if (auth.type === 'api_key') return { ...base, authType: 'api_key', authCredential: auth.credential, authApiKeyName: auth.name, authApiKeyIn: auth.in ?? 'header' }
   if (auth.type === 'cookie') return { ...base, authType: 'cookie', authSecretValue: auth.secretRef, authCookieName: auth.name ?? '' }
   if (auth.type === 'custom_header') return { ...base, authType: 'custom_header', authSecretValue: auth.secretRef, authHeaderName: auth.headerName }
   return { ...base, authType: 'mtls', authCertSecretRef: auth.certSecretRef, authKeySecretRef: auth.keySecretRef }
 }
 
-function cloneCredentialValue(value: WorkflowDslCredentialValue): WorkflowDslCredentialValue {
-  return typeof value === 'string' ? value : credentialProfileBinding(value)
-}
-
-function credentialValueId(value: WorkflowDslCredentialValue): string {
-  return typeof value === 'string' ? '' : value.credentialId
-}
-
 function findVariableUsers(canvas: WorkflowCanvasDefinition, variableName: string): string[] {
-  const needle = `{{${variableName}}}`
+  const needle = `{{variables.${variableName}`
   return canvas.nodes.filter((node) => JSON.stringify(node.config).includes(needle)).map((node) => node.label)
 }
 
@@ -1122,10 +1125,14 @@ function sanitizeVariableDefinition(definition: WorkflowVariableDefinition): Wor
   const next: WorkflowVariableDefinition = {
     type: definition.type,
     required: Boolean(definition.required),
-    sensitive: Boolean(definition.sensitive || definition.type === 'credential' || definition.type === 'certificate'),
-    description: definition.description,
+    configurationMode: definition.configurationMode,
+    source: cloneRecord(definition.source),
+    lifecycle: definition.lifecycle,
+    bindingPolicy: definition.bindingPolicy,
+    sensitive: Boolean(definition.sensitive),
+    descriptionKey: definition.descriptionKey,
     enum: definition.enum,
-    artifactContract: definition.type === 'certificate' ? definition.artifactContract : undefined,
+    ui: definition.ui,
   }
   if (definition.default !== undefined && definition.default !== '') return { ...next, default: definition.default }
   return next
@@ -1134,17 +1141,79 @@ function sanitizeVariableDefinition(definition: WorkflowVariableDefinition): Wor
 function createDefaultFileTransferConfig(contentRef: string, remotePath: string, temporaryPath: string, mode: string): Record<string, unknown> {
   return {
     direction: 'upload',
-    connectionRef: '{{deviceHost}}',
-    username: '{{sshUsername}}',
-    credential: '{{credential}}',
-    hostKeyPolicy: 'trust_on_first_use',
-    expectedHostKeyFingerprint: '',
+    connectionRef: 'targetSsh',
     remotePath,
     temporaryPath,
     contentRef,
     localPath: '',
     mode,
     timeoutSeconds: 60,
+  }
+}
+
+function requiredVariable(type: WorkflowVariableDefinition['type']): WorkflowVariableDefinition {
+  return {
+    type,
+    required: true,
+    configurationMode: 'required',
+    source: { kind: 'binding' },
+    lifecycle: 'pre_execution',
+    bindingPolicy: 'required_binding',
+  }
+}
+
+function defaultVariable(type: WorkflowVariableDefinition['type'], value: unknown): WorkflowVariableDefinition {
+  return {
+    type,
+    required: true,
+    configurationMode: 'advanced',
+    source: { kind: 'default' },
+    lifecycle: 'pre_execution',
+    bindingPolicy: 'default_overridable',
+    default: value,
+  }
+}
+
+function requiredConnectionField(type: DeploymentConnectionFieldV1['type']): DeploymentConnectionFieldV1 {
+  return {
+    type,
+    required: true,
+    configurationMode: 'required',
+    source: { kind: 'binding' },
+    lifecycle: 'pre_execution',
+    bindingPolicy: 'required_binding',
+  }
+}
+
+function defaultConnectionField(type: DeploymentConnectionFieldV1['type'], value: string | number | boolean): DeploymentConnectionFieldV1 {
+  return {
+    type,
+    required: true,
+    configurationMode: 'advanced',
+    source: { kind: 'default' },
+    lifecycle: 'pre_execution',
+    bindingPolicy: 'default_overridable',
+    default: value,
+  }
+}
+
+function httpConnectionContract(): DeploymentConnectionDefinitionV1 {
+  return {
+    transport: 'http',
+    host: requiredConnectionField('string'),
+    port: defaultConnectionField('number', 443),
+    tls: { verifyPeer: defaultConnectionField('boolean', true) },
+  }
+}
+
+function sshConnectionContract(credentialSlot: string): DeploymentConnectionDefinitionV1 {
+  return {
+    transport: 'ssh',
+    host: requiredConnectionField('string'),
+    port: defaultConnectionField('number', 22),
+    username: requiredConnectionField('string'),
+    credentialSlot,
+    hostKey: { policy: 'trust_on_first_use' },
   }
 }
 

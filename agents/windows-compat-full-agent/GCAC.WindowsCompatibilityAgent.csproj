@@ -19,6 +19,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="config\runtime.config" />
+    <Compile Include="src\AtomicPlanHandler.cs" />
     <Compile Include="src\ActionRegistry.cs" />
     <Compile Include="src\AgentConfig.cs" />
     <Compile Include="src\AgentIdentityStore.cs" />
@@ -29,7 +30,6 @@
     <Compile Include="src\DirectControlServer.cs" />
     <Compile Include="src\InfrastructureAdapters.cs" />
     <Compile Include="src\IisInspector.cs" />
-    <Compile Include="src\IisCertificateDeploymentHandler.cs" />
     <Compile Include="src\Models.cs" />
     <Compile Include="src\Preflight.cs" />
     <Compile Include="src\Program.cs" />

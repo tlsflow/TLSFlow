@@ -93,7 +93,6 @@ func newActionHandlerRegistry(handlers ...actionHandler) (*actionHandlerRegistry
 
 func mustBuildWindowsActionHandlerRegistry() *actionHandlerRegistry {
 	registry, err := newActionHandlerRegistry(
-		windowsIISActionHandler(),
 		selfTestActionHandler(),
 		capabilityRescanActionHandler(),
 		gatewayActionHandler(),
@@ -243,22 +242,6 @@ func (r *actionHandlerRegistry) matchLegacySelectors(payload map[string]any) []s
 		}
 	}
 	return uniqueSortedStrings(matches)
-}
-
-func windowsIISActionHandler() actionHandler {
-	return actionHandlerFunc{
-		descriptor: actionHandlerDescriptor{
-			ActionType:      "certificate.deploy",
-			SchemaVersions:  []string{"1.0"},
-			Aliases:         []string{"windows.iis.deploy_certificate"},
-			LegacySelectors: []actionAliasSelector{{Fields: map[string]string{"action": "INSTALL_CERTIFICATE"}}},
-			DirectControl:   true,
-		},
-		execute: func(execution *taskExecutionContext) actionExecutionResult {
-			success, code, message, detail := runWindowsIISDeployment(execution)
-			return actionExecutionResult{Success: success, ErrorCode: code, ErrorMessage: message, Detail: detail}
-		},
-	}
 }
 
 func selfTestActionHandler() actionHandler {

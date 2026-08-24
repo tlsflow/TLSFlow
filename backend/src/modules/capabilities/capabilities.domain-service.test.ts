@@ -212,11 +212,49 @@ test('契约校验入口拒绝非法能力键，供 Provider Executor Agent 插�
       optional: [],
       anyOfGroups: [],
       forbidden: [],
-      minConfidence: 0.8,
+      minConfidence: 80,
       allowManual: false,
       riskLevel: 'low',
     }],
   }), /能力键不合法|能力键不存在于字典中/);
+});
+
+test('插件扩展能力无需进入宿主产品字典即可声明和匹配', () => {
+  const domain = new CapabilitiesDomainService();
+  const detectedAt = new Date().toISOString();
+  const extension = domain.normalizeDeclaration({
+    tenantId: 'tenant_a',
+    targetType: 'plugin',
+    targetId: 'plugin_storage',
+    capabilityKey: 'storage.snapshot.create',
+    value: { supported: true },
+    source: 'plugin_manifest',
+    confidence: 100,
+    detectedAt,
+    status: 'active',
+    parameters: {},
+  });
+  const requirement = domain.normalizeRequirement({
+    id: 'req_storage',
+    ownerType: 'plugin_action',
+    ownerId: 'plugin_storage',
+    requiredAll: [{
+      capabilityKey: 'storage.snapshot.create',
+      operator: 'exists',
+      reason: '需要创建快照',
+      riskIfMissing: '无法回滚',
+    }],
+    optional: [],
+    anyOfGroups: [],
+    forbidden: [],
+    minConfidence: 80,
+    allowManual: false,
+    riskLevel: 'high',
+  });
+
+  const result = domain.matchRequirement(requirement, [extension]);
+  assert.equal(result.status, 'matched');
+  assert.equal(result.satisfied[0]?.capabilityKey, 'storage.snapshot.create');
 });
 
 function declaration(capabilityKey: string, detectedAt: string, value: unknown = true): CapabilityDeclaration {

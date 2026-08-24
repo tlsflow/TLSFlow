@@ -19,3 +19,31 @@ test('Agent Recipe 根对象严格拒绝旧输入字段和未知字段', () => {
     );
   }
 });
+
+test('Agent Recipe 接受插件声明的开放 Operation 与权限 Scope', () => {
+  const manifest = structuredClone(builtinAgentPluginManifests[0]);
+  manifest.permissions.push({
+    name: 'storage-admin',
+    risk: 'high',
+    scope: 'storage_admin',
+    values: ['pool-a'],
+  });
+  manifest.operations[0] = {
+    ...manifest.operations[0],
+    operationType: 'storage.nas.inspect',
+  };
+
+  const validated = validateAgentDeploymentPluginManifest(manifest);
+  assert.equal(validated.operations[0]?.operationType, 'storage.nas.inspect');
+  assert.equal(validated.permissions.at(-1)?.scope, 'storage_admin');
+});
+
+test('Agent Recipe 拒绝不能作为开放标识使用的 Operation 与权限 Scope', () => {
+  const manifest = structuredClone(builtinAgentPluginManifests[0]);
+  manifest.operations[0] = { ...manifest.operations[0], operationType: 'Bad Operation' };
+  assert.throws(() => validateAgentDeploymentPluginManifest(manifest), /operationType 格式不合法/);
+
+  const invalidScope = structuredClone(builtinAgentPluginManifests[0]);
+  invalidScope.permissions[0] = { ...invalidScope.permissions[0], scope: 'Bad Scope' };
+  assert.throws(() => validateAgentDeploymentPluginManifest(invalidScope), /scope 格式不合法/);
+});

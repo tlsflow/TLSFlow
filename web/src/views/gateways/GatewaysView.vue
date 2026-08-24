@@ -19,6 +19,26 @@ import { formatBrowserLocalTime, formatMaybeLocalTimeByCandidates } from '@/util
 type GatewayPlatform = 'linux_go_systemd' | 'windows_powershell_service'
 type CopiedKind = 'install' | 'enable' | null
 
+const gatewayPlatformProfiles: Record<GatewayPlatform, {
+  labelKey: 'devices.platforms.linux' | 'devices.platforms.windows'
+  install: (payload: Record<string, unknown>) => ReturnType<typeof createLinuxGoInstallSession>
+  installCommand: (url: string, fallback: string) => string
+  enableCommand: (url: string, fallback: string) => string
+}> = {
+  linux_go_systemd: {
+    labelKey: 'devices.platforms.linux',
+    install: (payload) => createLinuxGoInstallSession(payload),
+    installCommand: (url, fallback) => url ? `curl -fsSL '${url}' | sudo bash` : fallback,
+    enableCommand: (url, fallback) => url ? `curl -fsSL '${url}' | sudo bash` : fallback,
+  },
+  windows_powershell_service: {
+    labelKey: 'devices.platforms.windows',
+    install: (payload) => createWindowsPowerShellInstallSession(payload),
+    installCommand: (url, fallback) => url ? `irm '${url}' | iex` : fallback,
+    enableCommand: (url, fallback) => url ? `irm '${url}' | iex` : fallback,
+  },
+}
+
 interface CommandSession {
   platform: GatewayPlatform
   zone: string
@@ -50,8 +70,8 @@ const copiedKind = ref<CopiedKind>(null)
 const { t } = useI18n()
 
 const platformOptions = computed<Array<{ value: GatewayPlatform; label: string; description: string }>>(() => [
-  { value: 'linux_go_systemd', label: 'Linux systemd', description: t('gateways.platforms.linuxSystemd.description') },
-  { value: 'windows_powershell_service', label: 'Windows Service', description: t('gateways.platforms.windowsService.description') },
+  { value: 'linux_go_systemd', label: t(gatewayPlatformProfiles.linux_go_systemd.labelKey), description: t('gateways.platforms.linuxSystemd.description') },
+  { value: 'windows_powershell_service', label: t(gatewayPlatformProfiles.windows_powershell_service.labelKey), description: t('gateways.platforms.windowsService.description') },
 ])
 
 const gatewayRaw = computed<ApiRecord | null>(() => selectedGateway.value?.raw ?? null)
@@ -126,14 +146,13 @@ async function generateGatewayInstallCommand() {
   copiedKind.value = null
   try {
     const payload = { zone: installZone.value || 'default', role: 'gateway', startAfterInstall: true }
-    const result = selectedInstallPlatform.value === 'linux_go_systemd'
-      ? await createLinuxGoInstallSession(payload)
-      : await createWindowsPowerShellInstallSession(payload)
+    const platformProfile = gatewayPlatformProfiles[selectedInstallPlatform.value]
+    const result = await platformProfile.install(payload)
     const data = result.data ?? {}
     const rawBootstrapUrl = typeof data.bootstrapUrl === 'string' ? data.bootstrapUrl : ''
     const bootstrapUrl = rewriteUrlWithBrowserOrigin(rawBootstrapUrl)
     const fallback = typeof data.installCommand === 'string' ? data.installCommand : ''
-    const command = buildInstallCommand(selectedInstallPlatform.value, bootstrapUrl, fallback)
+    const command = platformProfile.installCommand(bootstrapUrl, fallback)
     if (!command) throw new Error(t('gateways.errors.missingInstallCommand'))
     installSession.value = {
       platform: selectedInstallPlatform.value,
@@ -165,7 +184,7 @@ async function generateGatewayEnableCommand() {
     const rawEnableUrl = typeof data.enableUrl === 'string' ? data.enableUrl : ''
     const enableUrl = rewriteUrlWithBrowserOrigin(rawEnableUrl)
     const fallback = typeof data.enableCommand === 'string' ? data.enableCommand : ''
-    const command = buildEnableCommand(selectedEnablePlatform.value, enableUrl, fallback)
+    const command = gatewayPlatformProfiles[selectedEnablePlatform.value].enableCommand(enableUrl, fallback)
     if (!command) throw new Error(t('gateways.errors.missingEnableCommand'))
     enableSession.value = {
       platform: selectedEnablePlatform.value,
@@ -296,20 +315,6 @@ function rewriteUrlWithBrowserOrigin(rawUrl: string): string {
   }
 }
 
-function buildInstallCommand(platform: GatewayPlatform, bootstrapUrl: string, fallbackCommand: string): string {
-  if (!bootstrapUrl) return fallbackCommand
-  return platform === 'linux_go_systemd'
-    ? `curl -fsSL '${bootstrapUrl}' | sudo bash`
-    : `irm '${bootstrapUrl}' | iex`
-}
-
-function buildEnableCommand(platform: GatewayPlatform, enableUrl: string, fallbackCommand: string): string {
-  if (!enableUrl) return fallbackCommand
-  return platform === 'linux_go_systemd'
-    ? `curl -fsSL '${enableUrl}' | sudo bash`
-    : `irm '${enableUrl}' | iex`
-}
-
 async function copyCommand(kind: Exclude<CopiedKind, null>, command: string | undefined) {
   if (!command) return
   if (await copyToClipboard(command)) copiedKind.value = kind
@@ -347,7 +352,7 @@ function linkTarget(link: NonNullable<BusinessPageConfig['contextLinks']>[number
 }
 
 function platformLabel(platform: GatewayPlatform): string {
-  return platform === 'linux_go_systemd' ? 'Linux systemd' : 'Windows Service'
+  return t(gatewayPlatformProfiles[platform].labelKey)
 }
 
 const config = computed<BusinessPageConfig>(() => ({

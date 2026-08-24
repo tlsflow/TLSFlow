@@ -15,6 +15,7 @@ import { ProductionDeploymentInputResolverService } from '../deployment-inputs/a
 import { emptyInputBindingsV1 } from '../deployment-inputs/dto/input-bindings.dto.js';
 import { createDefaultPluginRuntimeAdapterRegistry } from '../deployment-plans/application/plugin-runtime-adapter.registry.js';
 import { PgDevicesRepository } from '../devices/repository/devices.repository.js';
+import { DevicesApplicationService } from '../devices/application/devices.application-service.js';
 import { WorkflowTemplatesApplicationService } from '../workflow-templates/application/workflow-templates.application-service.js';
 import { BuiltinUnifiedPluginLoader } from './builtin-plugins/builtin-unified-plugin-loader.js';
 import { ManagedTargetPluginQueryService } from './application/managed-target-plugin-query.service.js';
@@ -88,6 +89,15 @@ test('NAS 与 Kubernetes 用户插件无需宿主产品分派即可走通标准�
     const target = (await assets.listManagedTargets(tenantId, { page: 1, pageSize: 20, filter: {} })).items
       .find((item) => item.deviceId === device.hostId);
     assert.ok(target);
+    const projectedFramework = (await assets.listFrameworkInstances(tenantId, { page: 1, pageSize: 20, filter: {} })).items
+      .find((item) => item.deviceId === device.hostId);
+    assert.equal(projectedFramework?.frameworkType, fixture.frameworkType);
+    assert.equal(projectedFramework?.displayName, fixture.frameworkDisplayName);
+    await db.query(
+      `update plugin_discovery_snapshots set payload='{}'::jsonb
+       where tenant_id=$1 and device_asset_id=$2`,
+      [tenantId, device.id],
+    );
     const deviceDetail = await new PgDevicesRepository(db).get(tenantId, device.hostId);
     assert.equal(deviceDetail?.productFamily, fixture.productFamily);
     assert.equal(deviceDetail?.frameworks[0]?.frameworkType, fixture.frameworkType);
@@ -125,6 +135,24 @@ test('NAS 与 Kubernetes 用户插件无需宿主产品分派即可走通标准�
     assert.equal(saved.effectiveCapability?.executionLocation, 'CONTROL_PLANE');
     const pluginBindingId = saved.effectiveCapability?.binding.pluginBindingId;
     assert.ok(pluginBindingId);
+    await db.query(
+      'update pg_device_assets set plugin_binding_id=$1 where tenant_id=$2 and service_asset_id=$3',
+      [pluginBindingId, tenantId, device.id],
+    );
+    const localizedDetail = await new DevicesApplicationService(
+      new PgDevicesRepository(db), undefined, undefined, db, plugins,
+    ).get(tenantId, device.hostId, 'zh-CN');
+    assert.deepEqual(localizedDetail.frameworks[0]?.presentation, {
+      typeLabelKey: fixture.frameworkLabelKey,
+      typeLabel: fixture.frameworkLabel,
+    });
+    assert.deepEqual(localizedDetail.sites[0]?.presentation, {
+      groupKey: fixture.frameworkType,
+      groupLabelKey: fixture.frameworkLabelKey,
+      typeLabelKey: fixture.siteTypeLabelKey,
+      groupLabel: fixture.frameworkLabel,
+      typeLabel: fixture.siteTypeLabel,
+    });
 
     const pluginBinding = await bindings.getTenantBinding(tenantId, pluginBindingId);
     const assignment = (await bindings.listAssignmentCandidates(tenantId, 'certificate.deploy', {
@@ -186,12 +214,16 @@ function fixtureFor(pluginId: string) {
   if (pluginId === 'fixture.mock-nas') return {
     displayName: '模拟 NAS', address: '192.0.2.40', port: 5001,
     productFamily: 'fixture.mock-nas', frameworkType: 'storage.nas', siteType: 'network.virtual-server',
+    frameworkDisplayName: 'NAS 管理服务', frameworkLabelKey: 'plugin.fixture.mockNas.presentation.framework',
+    frameworkLabel: 'NAS 服务', siteTypeLabelKey: 'plugin.fixture.mockNas.presentation.siteType', siteTypeLabel: '管理入口',
     applicationAddress: 'nas.example.test',
   };
   assert.equal(pluginId, 'fixture.mock-kubernetes');
   return {
     displayName: '模拟 Kubernetes', address: '192.0.2.41', port: 6443,
     productFamily: 'fixture.mock-kubernetes', frameworkType: 'kubernetes.cluster', siteType: 'kubernetes.ingress',
+    frameworkDisplayName: 'Kubernetes 集群', frameworkLabelKey: 'plugin.fixture.mockKubernetes.presentation.framework',
+    frameworkLabel: 'Kubernetes 集群', siteTypeLabelKey: 'plugin.fixture.mockKubernetes.presentation.siteType', siteTypeLabel: 'Ingress',
     applicationAddress: 'k8s.example.test',
   };
 }

@@ -36,6 +36,16 @@ test('递增迁移将旧 Binding 转换为 InputBindingsV1 并物化四层父级
   assert.equal(audit.legacyColumnsRemaining, 0);
   assert.equal(audit.unresolvedApplicationAssetBindings, 0);
   assert.equal((await migration.dryRun()).alreadyMigrated, true);
+
+  // 仅绑定制品也是有效的应用资产输入，不能被审计误判为空 Binding。
+  await db.query(`update unified_plugin_bindings set input_bindings=$1::jsonb where id='binding-asset'`, [JSON.stringify({
+    apiVersion: 'gcac.input-bindings/v1',
+    variables: {},
+    connections: {},
+    credentials: {},
+    artifacts: { certificate: { certificateFormatId: 'format-1', outputBindings: { certificate: 'leafPem' } } },
+  })]);
+  assert.equal((await migration.audit()).unresolvedApplicationAssetBindings, 0);
 });
 
 test('迁移服务只报告旧 Secret 数量并拒绝静默丢弃', async () => {

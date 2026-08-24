@@ -23,14 +23,13 @@ type BackendFormat = 'pem' | 'pfx' | 'jks' | 'p7b' | 'der'
 type PublicEncoding = 'pem' | 'der' | 'base64'
 type PrivateEncoding = 'pem' | 'pkcs8' | 'base64'
 type SystemPlatform = 'windows' | 'linux' | ''
-type RuntimePlatform = 'iis' | 'nginx' | 'apache' | 'tomcat' | 'other' | ''
 
 interface ArtifactDraft {
   id: string
   configName: string
   alias: string
   systemPlatform: SystemPlatform
-  runtimePlatform: RuntimePlatform
+  runtimePlatform: string
   presetFormat: PresetFormat
   customBackendFormat: BackendFormat
   customExtension: string
@@ -76,150 +75,34 @@ interface TemplatePreset {
 
 const { t } = useI18n()
 
-const TEMPLATE_PRESETS: Record<Exclude<SystemPlatform, ''>, Record<Exclude<RuntimePlatform, ''>, TemplatePreset>> = {
+const PLATFORM_PRESETS: Record<Exclude<SystemPlatform, ''>, TemplatePreset> = {
   windows: {
-    iis: {
-      configNameKey: 'bindings.templates.windowsIis.configName',
-      alias: '',
-      presetFormat: 'pfx',
-      publicEncoding: 'pem',
-      privateEncoding: 'pkcs8',
-      includeLeafCertificate: true,
-      includeCertificateChain: true,
-      includePrivateKey: true,
-      generateChainFile: false,
-      generatePrivateKeyFile: false,
-      passwordSecretRef: '',
-      descriptionKey: 'bindings.templates.windowsIis.description',
-    },
-    nginx: {
-      configNameKey: 'bindings.templates.windowsNginx.configName',
-      alias: '',
-      presetFormat: 'pem_bundle',
-      publicEncoding: 'pem',
-      privateEncoding: 'pem',
-      includeLeafCertificate: true,
-      includeCertificateChain: true,
-      includePrivateKey: false,
-      generateChainFile: false,
-      generatePrivateKeyFile: true,
-      passwordSecretRef: '',
-      descriptionKey: 'bindings.templates.windowsNginx.description',
-    },
-    apache: {
-      configNameKey: 'bindings.templates.windowsApache.configName',
-      alias: '',
-      presetFormat: 'pem_bundle',
-      publicEncoding: 'pem',
-      privateEncoding: 'pem',
-      includeLeafCertificate: true,
-      includeCertificateChain: true,
-      includePrivateKey: false,
-      generateChainFile: true,
-      generatePrivateKeyFile: true,
-      passwordSecretRef: '',
-      descriptionKey: 'bindings.templates.windowsApache.description',
-    },
-    tomcat: {
-      configNameKey: 'bindings.templates.windowsTomcat.configName',
-      alias: 'tomcat',
-      presetFormat: 'pfx',
-      publicEncoding: 'pem',
-      privateEncoding: 'pkcs8',
-      includeLeafCertificate: true,
-      includeCertificateChain: true,
-      includePrivateKey: true,
-      generateChainFile: false,
-      generatePrivateKeyFile: false,
-      passwordSecretRef: '',
-      descriptionKey: 'bindings.templates.windowsTomcat.description',
-    },
-    other: {
-      configNameKey: 'bindings.templates.windowsOther.configName',
-      alias: '',
-      presetFormat: 'pem_bundle',
-      publicEncoding: 'pem',
-      privateEncoding: 'pem',
-      includeLeafCertificate: true,
-      includeCertificateChain: true,
-      includePrivateKey: true,
-      generateChainFile: false,
-      generatePrivateKeyFile: false,
-      passwordSecretRef: '',
-      descriptionKey: 'bindings.templates.windowsOther.description',
-    },
+    configNameKey: 'bindings.templates.windowsOther.configName',
+    alias: '',
+    presetFormat: 'pem_bundle',
+    publicEncoding: 'pem',
+    privateEncoding: 'pem',
+    includeLeafCertificate: true,
+    includeCertificateChain: true,
+    includePrivateKey: true,
+    generateChainFile: false,
+    generatePrivateKeyFile: false,
+    passwordSecretRef: '',
+    descriptionKey: 'bindings.templates.windowsOther.description',
   },
   linux: {
-    iis: {
-      configNameKey: 'bindings.templates.linuxIis.configName',
-      alias: '',
-      presetFormat: 'pfx',
-      publicEncoding: 'pem',
-      privateEncoding: 'pkcs8',
-      includeLeafCertificate: true,
-      includeCertificateChain: true,
-      includePrivateKey: true,
-      generateChainFile: false,
-      generatePrivateKeyFile: false,
-      passwordSecretRef: '',
-      descriptionKey: 'bindings.templates.linuxIis.description',
-    },
-    nginx: {
-      configNameKey: 'bindings.templates.linuxNginx.configName',
-      alias: '',
-      presetFormat: 'pem_bundle',
-      publicEncoding: 'pem',
-      privateEncoding: 'pem',
-      includeLeafCertificate: true,
-      includeCertificateChain: true,
-      includePrivateKey: false,
-      generateChainFile: false,
-      generatePrivateKeyFile: true,
-      passwordSecretRef: '',
-      descriptionKey: 'bindings.templates.linuxNginx.description',
-    },
-    apache: {
-      configNameKey: 'bindings.templates.linuxApache.configName',
-      alias: '',
-      presetFormat: 'pem_bundle',
-      publicEncoding: 'pem',
-      privateEncoding: 'pem',
-      includeLeafCertificate: true,
-      includeCertificateChain: true,
-      includePrivateKey: false,
-      generateChainFile: true,
-      generatePrivateKeyFile: true,
-      passwordSecretRef: '',
-      descriptionKey: 'bindings.templates.linuxApache.description',
-    },
-    tomcat: {
-      configNameKey: 'bindings.templates.linuxTomcat.configName',
-      alias: 'tomcat',
-      presetFormat: 'pfx',
-      publicEncoding: 'pem',
-      privateEncoding: 'pkcs8',
-      includeLeafCertificate: true,
-      includeCertificateChain: true,
-      includePrivateKey: true,
-      generateChainFile: false,
-      generatePrivateKeyFile: false,
-      passwordSecretRef: '',
-      descriptionKey: 'bindings.templates.linuxTomcat.description',
-    },
-    other: {
-      configNameKey: 'bindings.templates.linuxOther.configName',
-      alias: '',
-      presetFormat: 'pem_bundle',
-      publicEncoding: 'pem',
-      privateEncoding: 'pem',
-      includeLeafCertificate: true,
-      includeCertificateChain: true,
-      includePrivateKey: false,
-      generateChainFile: false,
-      generatePrivateKeyFile: true,
-      passwordSecretRef: '',
-      descriptionKey: 'bindings.templates.linuxOther.description',
-    },
+    configNameKey: 'bindings.templates.linuxOther.configName',
+    alias: '',
+    presetFormat: 'pem_bundle',
+    publicEncoding: 'pem',
+    privateEncoding: 'pem',
+    includeLeafCertificate: true,
+    includeCertificateChain: true,
+    includePrivateKey: false,
+    generateChainFile: false,
+    generatePrivateKeyFile: true,
+    passwordSecretRef: '',
+    descriptionKey: 'bindings.templates.linuxOther.description',
   },
 }
 
@@ -227,23 +110,6 @@ const SYSTEM_PLATFORM_OPTIONS: Array<{ value: Exclude<SystemPlatform, ''>; label
   { value: 'windows', label: 'Windows' },
   { value: 'linux', label: 'Linux' },
 ]
-
-const RUNTIME_PLATFORM_OPTIONS: Record<Exclude<SystemPlatform, ''>, Array<{ value: Exclude<RuntimePlatform, ''>; label: string }>> = {
-  windows: [
-    { value: 'iis', label: 'IIS' },
-    { value: 'nginx', label: 'NGINX' },
-    { value: 'apache', label: 'Apache' },
-    { value: 'tomcat', label: 'Tomcat' },
-    { value: 'other', label: 'Other' },
-  ],
-  linux: [
-    { value: 'nginx', label: 'NGINX' },
-    { value: 'apache', label: 'Apache' },
-    { value: 'tomcat', label: 'Tomcat' },
-    { value: 'other', label: 'Other' },
-    { value: 'iis', label: 'IIS' },
-  ],
-}
 
 const FORMAT_OPTION_DEFINITIONS: Array<{ value: PresetFormat; labelKey: string }> = [
   { value: 'pfx', labelKey: 'bindings.formats.pfx' },
@@ -285,13 +151,9 @@ const showsPrivateEncoding = computed(() => !isContainerFormat.value && (isPemBu
 const showsContentSelection = computed(() => !isContainerFormat.value)
 const showsPasswordSecret = computed(() => isContainerFormat.value)
 const formatOptions = computed(() => FORMAT_OPTION_DEFINITIONS.map((item) => ({ ...item, label: t(item.labelKey) })))
-const runtimeOptions = computed(() => {
-  if (!draft.systemPlatform) return []
-  return RUNTIME_PLATFORM_OPTIONS[draft.systemPlatform]
-})
 const selectedTemplate = computed(() => {
-  if (!draft.systemPlatform || !draft.runtimePlatform) return null
-  return TEMPLATE_PRESETS[draft.systemPlatform][draft.runtimePlatform]
+  if (!draft.systemPlatform) return null
+  return PLATFORM_PRESETS[draft.systemPlatform]
 })
 const templateMessage = computed(() => {
   if (templateMessageKey.value) return t(templateMessageKey.value)
@@ -445,7 +307,7 @@ function applyTemplate() {
     return
   }
 
-  const preset = TEMPLATE_PRESETS[draft.systemPlatform][draft.runtimePlatform]
+  const preset = PLATFORM_PRESETS[draft.systemPlatform]
   Object.assign(draft, {
     configName: t(preset.configNameKey),
     alias: preset.alias,
@@ -666,20 +528,7 @@ function renderSystemPlatform(value: string) {
 }
 
 function renderRuntimePlatform(value: string) {
-  switch (value) {
-    case 'iis':
-      return 'IIS'
-    case 'nginx':
-      return 'NGINX'
-    case 'apache':
-      return 'Apache'
-    case 'tomcat':
-      return 'Tomcat'
-    case 'other':
-      return 'Other'
-    default:
-      return ''
-  }
+  return value.trim()
 }
 
 function isCustomLike(value: PresetFormat) {
@@ -721,9 +570,8 @@ function normalizeSystemPlatform(value: string): SystemPlatform {
   return ''
 }
 
-function normalizeRuntimePlatform(value: string): RuntimePlatform {
-  if (['iis', 'nginx', 'apache', 'tomcat', 'other'].includes(value)) return value as RuntimePlatform
-  return ''
+function normalizeRuntimePlatform(value: string): string {
+  return value.trim()
 }
 
 function readString(record: ApiRecord, keys: string[], fallback = ''): string {
@@ -855,10 +703,12 @@ function toErrorMessage(cause: unknown, fallback: string) {
             </label>
             <label class="artifact-form__field">
               <span>{{ t('bindings.fields.runtimePlatform') }}</span>
-              <select v-model="draft.runtimePlatform" :disabled="!draft.systemPlatform">
-                <option value="">{{ t('bindings.select.placeholder') }}</option>
-                <option v-for="item in runtimeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-              </select>
+              <input
+                v-model="draft.runtimePlatform"
+                data-testid="runtime-platform-input"
+                :disabled="!draft.systemPlatform"
+                :placeholder="t('bindings.select.placeholder')"
+              />
             </label>
           </div>
           <div class="artifact-form__template-actions">

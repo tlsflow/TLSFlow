@@ -135,6 +135,6 @@ sudo bash ./linux/uninstall-systemd.sh
 - 执行计划必须包含目标 Agent、租户、插件包哈希、过期时间、幂等键和 HMAC-SHA256 签名。
 - 签名密钥读取 `GCAC_AGENT_PLAN_SIGNING_KEY`；开发环境未配置时才使用仓库约定的开发密钥。
 - 支持文件备份、原子替换、恢复、权限/属主设置、受控程序执行、systemd Service 控制和 TLS 校验。
-- 内置 `builtin.linux.nginx.pem` 插件使用上述原子操作完成证书/私钥替换、`nginx -t`、reload 和指纹验证；旧 `linux.nginx.deploy_certificate` 继续作为 `NATIVE_HANDLER` 兼容回退。
+- 内置插件统一通过 `agent.atomic_plan.execute` 组合上述原子操作；历史产品 Action 必须先由控制面转换，Linux Agent 不再提供 `NATIVE_HANDLER` 兼容回退。
 - `command.execute` 只接受 `program + args`，Shell 模式默认并强制禁用；插件不能借用 `/bin/sh -c` 绕过权限声明。
 - 每个计划写入恢复账本；重复计划返回缓存结果，失败时逆序执行回滚；`whenOperationCompleted` 防止预检失败时执行无意义回滚，真正回滚失败才进入 `MANUAL_INTERVENTION`。

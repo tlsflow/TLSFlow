@@ -2767,6 +2767,7 @@ paths:
                         - "id"
                         - "siteAssetId"
                         - "kind"
+                        - "frameworkType"
                         - "name"
                         - "bindings"
                         - "metadata"
@@ -2778,6 +2779,9 @@ paths:
                         managedTargetId:
                           type: "string"
                         kind:
+                          type: "string"
+                          pattern: "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
+                        frameworkType:
                           type: "string"
                           pattern: "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
                         name:
@@ -2798,6 +2802,24 @@ paths:
                               type: "string"
                         configPath:
                           type: "string"
+                        presentation:
+                          type: "object"
+                          additionalProperties: false
+                          required:
+                            - "groupKey"
+                            - "groupLabelKey"
+                            - "typeLabelKey"
+                          properties:
+                            groupKey:
+                              type: "string"
+                            groupLabelKey:
+                              type: "string"
+                            typeLabelKey:
+                              type: "string"
+                            groupLabel:
+                              type: "string"
+                            typeLabel:
+                              type: "string"
                         bindings:
                           type: "array"
                           items:
@@ -7970,4 +7992,4 @@ tags:
   -
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-07-30T17:30:27.886Z"
+x-generatedAt: "2026-07-31T15:29:44.674Z"

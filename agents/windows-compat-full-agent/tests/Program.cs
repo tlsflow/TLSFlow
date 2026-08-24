@@ -13,7 +13,10 @@ internal static class Tests
         Run("Registry 拒绝重复 Alias", RegistryRejectsDuplicateAlias);
         Run("未知 Schema Version 失败关闭", RegistryRejectsUnknownSchema);
         Run("前置检查按事实和通用操作符解析", PreflightUsesFacts);
-        Run("IIS Handler 拒绝不完整载荷", IisHandlerRejectsInvalidPayload);
+        Run("签名 Atomic Plan 可进入通用执行入口", AtomicPlanAcceptsSignedPlan);
+        Run("未签名 Atomic Plan 失败关闭", AtomicPlanRejectsUnsignedPlan);
+        Run("未知 Atomic Operation 失败关闭", AtomicPlanRejectsUnknownOperation);
+        Run("未知 Atomic Action Schema 失败关闭", AtomicPlanRejectsUnknownActionSchema);
         Run("缺失前置事实返回稳定阻塞错误", PreflightReportsStableBlocker);
         Run("HTTP 控制面不启用 TLS 配置", HttpControlPlaneDoesNotRequireTls);
         Run("HTTPS 控制面仍识别为 TLS 传输", HttpsControlPlaneRequiresTls);
@@ -29,7 +32,8 @@ internal static class Tests
         Run("IIS Binding 信息解析兼容主机头", IisBindingInformationParsesHostHeader);
         Run("任务拉取结果展开公共动作载荷", PulledTaskNormalizesPublicActionPayload);
         Run("运行时注册手动重扫动作", RuntimeRegistersCapabilityRescan);
-        Console.WriteLine("tests=" + 20 + " failures=" + failures);
+        Run("Direct Control 复用 Atomic Plan Registry", DirectControlUsesAtomicPlanRegistry);
+        Console.WriteLine("tests=" + 24 + " failures=" + failures);
         return failures == 0 ? 0 : 1;
     }
 
@@ -62,11 +66,36 @@ internal static class Tests
         Assert(evaluator.Evaluate(snapshot).Supported, "通用事实约束未通过");
     }
 
-    private static void IisHandlerRejectsInvalidPayload()
+    private static void AtomicPlanAcceptsSignedPlan()
     {
-        IisCertificateDeploymentHandler handler = new IisCertificateDeploymentHandler(Environment.CurrentDirectory);
-        ActionResult result = handler.Execute(new AgentTask { payload = new Dictionary<string, object>() });
-        Assert(!result.Success && result.ErrorCode == "ACTION_PAYLOAD_INVALID", "IIS Handler 未校验必要参数");
+        Dictionary<string, object> plan = AtomicPlan("preflight.assert", new Dictionary<string, object> { { "value", true } });
+        Assert(AtomicPlanSecurity.ComputeSignature(plan) == "31cb3999874d81bcecafc1b550ef1a51f4204ca32df1ab46e0d79d2ee45ebc6c", "Atomic Plan 规范化签名与控制面不一致");
+        SignPlan(plan);
+        ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
+        Assert(result.Success && Convert.ToString(result.Detail["state"]) == "SUCCEEDED", "签名 Atomic Plan 未执行成功");
+    }
+
+    private static void AtomicPlanRejectsUnsignedPlan()
+    {
+        Dictionary<string, object> plan = AtomicPlan("preflight.assert", new Dictionary<string, object> { { "value", true } });
+        ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
+        Assert(!result.Success && result.ErrorCode == "AGENT_PLAN_SIGNATURE_INVALID", "未签名 Atomic Plan 未失败关闭");
+    }
+
+    private static void AtomicPlanRejectsUnknownOperation()
+    {
+        Dictionary<string, object> plan = AtomicPlan("windows.iis.unknown", new Dictionary<string, object>());
+        SignPlan(plan);
+        ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }).Execute(new AgentTask { payload = new Dictionary<string, object> { { "plan", plan } } });
+        Assert(!result.Success && result.ErrorCode == "AGENT_ATOMIC_PREFLIGHT_FAILED", "未知 Atomic Operation 未失败关闭");
+    }
+
+    private static void AtomicPlanRejectsUnknownActionSchema()
+    {
+        Dictionary<string, object> plan = AtomicPlan("preflight.assert", new Dictionary<string, object> { { "value", true } });
+        SignPlan(plan);
+        ActionResult result = new AtomicPlanHandler(delegate { return "agent-1"; }).Execute(new AgentTask { payload = new Dictionary<string, object> { { "actionSchemaVersion", "2.0" }, { "plan", plan } } });
+        Assert(!result.Success && result.ErrorCode == "AGENT_ACTION_SCHEMA_UNSUPPORTED", "未知 Atomic Action Schema 未失败关闭");
     }
 
     private static void PreflightReportsStableBlocker()
@@ -230,11 +259,25 @@ internal static class Tests
             config.logDirectory = Path.Combine(root, "logs");
             string[] actions = new AgentRuntime(config).RegisteredActions();
             Assert(Array.IndexOf(actions, "agent.capability.rescan") >= 0, "运行时未注册手动重扫动作");
+            Assert(Array.IndexOf(actions, "agent.atomic_plan.execute") >= 0, "运行时未注册 Atomic Plan 动作");
+            Assert(Array.IndexOf(actions, "certificate.deploy") < 0, "运行时仍注册历史证书动作");
+            Assert(Array.IndexOf(actions, "windows.iis.deploy_certificate") < 0, "运行时仍注册 IIS 历史别名");
         }
         finally
         {
             if (Directory.Exists(root)) Directory.Delete(root, true);
         }
+    }
+
+    private static void DirectControlUsesAtomicPlanRegistry()
+    {
+        Dictionary<string, object> plan = AtomicPlan("preflight.assert", new Dictionary<string, object> { { "value", true } });
+        SignPlan(plan);
+        ActionRegistry registry = new ActionRegistry();
+        registry.Register(new ActionRegistration { CanonicalAction = "agent.atomic_plan.execute", SchemaVersion = ProductIdentity.ActionSchemaVersion, Aliases = new string[0], Handler = new AtomicPlanHandler(delegate { return "agent-1"; }).Execute });
+        Dictionary<string, object> response = DirectControlServer.ExecuteAction(registry, "agent.atomic_plan.execute", new Dictionary<string, object> { { "plan", plan } }, "request-1");
+        Assert(Convert.ToBoolean(response["success"]), "Direct Control 未复用 Atomic Plan Registry");
+        Assert(Convert.ToString(response["requestId"]) == "request-1", "Direct Control 未回传 requestId");
     }
 
     private static AgentConfig TestConfig()
@@ -285,6 +328,33 @@ internal static class Tests
         ActionRegistry registry = new ActionRegistry();
         registry.Register(new ActionRegistration { CanonicalAction = "test.action", SchemaVersion = ProductIdentity.ActionSchemaVersion, Aliases = new string[] { "legacy.action" }, Handler = delegate { return ActionResult.Succeeded(null); } });
         return registry;
+    }
+
+    private static Dictionary<string, object> AtomicPlan(string operationType, Dictionary<string, object> input)
+    {
+        return new Dictionary<string, object>
+        {
+            { "apiVersion", "gcac.agent-plan/v1" },
+            { "planId", "plan-test-1" },
+            { "tenantId", "tenant-1" },
+            { "agentId", "agent-1" },
+            { "executionRunId", "run-1" },
+            { "executionStepId", "step-1" },
+            { "issuedAt", "2026-07-31T00:00:00.000Z" },
+            { "expiresAt", "2099-07-31T00:00:00.000Z" },
+            { "idempotencyKey", "atomic-test-" + operationType },
+            { "plugin", new Dictionary<string, object> { { "pluginId", "fixture.atomic" }, { "version", "1.0.0" } } },
+            { "permissions", new object[0] },
+            { "variablesDigest", "fixture" },
+            { "executionMode", "PREFLIGHT" },
+            { "operations", new object[] { new Dictionary<string, object> { { "id", "operation-1" }, { "name", "test" }, { "stage", "prepare" }, { "operationType", operationType }, { "schemaVersion", "1.0" }, { "input", input } } } },
+            { "rollback", new object[0] }
+        };
+    }
+
+    private static void SignPlan(Dictionary<string, object> plan)
+    {
+        plan["authorization"] = new Dictionary<string, object> { { "keyId", "agent-plan-v1" }, { "signature", AtomicPlanSecurity.ComputeSignature(plan) } };
     }
 
     private static void Run(string name, Action test)

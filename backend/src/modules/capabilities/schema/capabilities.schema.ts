@@ -38,11 +38,6 @@ export const builtInCapabilityDefinitions = [
   definition('windows.certutil.import_pfx', 'certutil 导入 PFX', 'windows', 'critical', 'boolean', true, '老 Windows 兼容路径'),
   definition('windows.powershell.exec', 'PowerShell 执行', 'windows', 'critical', 'boolean', true, '能执行 PowerShell'),
   definition('windows.cmd.exec', 'CMD 执行', 'windows', 'critical', 'boolean', true, '能执行 cmd 命令'),
-  definition('iis.discover', 'IIS 发现', 'iis', 'medium', 'boolean', true, '能发现 IIS Site 和 Binding'),
-  definition('iis.binding.list', 'IIS Binding 列出', 'iis', 'medium', 'boolean', true, '能读取 HTTPS Binding'),
-  definition('iis.binding.update', 'IIS Binding 更新', 'iis', 'critical', 'boolean', true, '能更新 HTTPS Binding 的证书'),
-  definition('iis.app_pool.recycle', 'IIS 应用池回收', 'iis', 'high', 'boolean', true, '能回收应用池'),
-  definition('iis.service.restart', 'IIS 服务重启', 'iis', 'critical', 'boolean', true, '能重启 IIS 相关服务'),
   definition('linux.systemd.available', 'systemd 可用', 'linux', 'medium', 'boolean', true, '能使用 systemctl'),
   definition('linux.initd.available', 'init.d 可用', 'linux', 'medium', 'boolean', true, '能使用 /etc/init.d'),
   definition('linux.service.command', 'service 命令可用', 'linux', 'medium', 'boolean', true, '能使用 service 命令'),
@@ -57,24 +52,6 @@ export const builtInCapabilityDefinitions = [
   definition('linux.security.apparmor.v1', 'AppArmor 安全策略处理能力 v1', 'linux', 'high', 'boolean', false, 'Linux Agent 可识别并验证 AppArmor 对证书文件访问的影响'),
   definition('linux.security.selinux.v1', 'SELinux 安全上下文处理能力 v1', 'linux', 'critical', 'boolean', false, 'Linux Agent 可识别并恢复证书文件的 SELinux 安全上下文'),
   definition('linux.security.none.v1', '无强制安全模块能力 v1', 'linux', 'low', 'boolean', false, 'Linux Agent 已确认目标环境没有启用受支持的强制安全模块'),
-  definition('nginx.discover', 'NGINX 发现', 'nginx', 'medium', 'boolean', true, '能发现 NGINX 实例和配置路径'),
-  definition('nginx.config_dump', 'NGINX 配置展开', 'nginx', 'medium', 'boolean', true, '能执行或等效获取 nginx -T'),
-  definition('nginx.config_parse', 'NGINX 配置解析', 'nginx', 'low', 'boolean', true, '能解析 ssl_certificate 等配置'),
-  definition('nginx.config_test', 'NGINX 配置测试', 'nginx', 'high', 'boolean', true, '能执行 nginx -t 或等效测试'),
-  definition('nginx.cert.install', 'NGINX 证书安装', 'nginx', 'high', 'boolean', true, '能更新 NGINX 证书文件'),
-  definition('nginx.reload', 'NGINX 重载', 'nginx', 'high', 'boolean', true, '能执行平滑 reload'),
-  definition('apache.discover', 'Apache 发现', 'apache', 'medium', 'boolean', true, '能发现 Apache/httpd 实例'),
-  definition('apache.vhost_list', '虚拟主机列出', 'apache', 'medium', 'boolean', true, '能执行 apachectl -S 或等效方式'),
-  definition('apache.config_parse', 'Apache 配置解析', 'apache', 'low', 'boolean', true, '能解析证书指令'),
-  definition('apache.config_test', 'Apache 配置测试', 'apache', 'high', 'boolean', true, '能执行 configtest'),
-  definition('apache.cert.install', 'Apache 证书安装', 'apache', 'high', 'boolean', true, '能更新 Apache 证书文件'),
-  definition('apache.reload', 'Apache 重载', 'apache', 'high', 'boolean', true, '能 reload Apache/httpd'),
-  definition('tomcat.discover', 'Tomcat 发现', 'tomcat', 'medium', 'boolean', true, '能发现 Tomcat 实例'),
-  definition('tomcat.server_xml.parse', 'server.xml 解析', 'tomcat', 'medium', 'boolean', true, '能解析 TLS Connector'),
-  definition('tomcat.keystore.read', 'keystore 读取', 'tomcat', 'high', 'boolean', true, '能读取 JKS/PFX/PKCS12 摘要'),
-  definition('tomcat.keystore.replace', 'keystore 替换', 'tomcat', 'critical', 'boolean', true, '能替换 keystore'),
-  definition('tomcat.restart', 'Tomcat 重启', 'tomcat', 'critical', 'boolean', true, '能重启 Tomcat'),
-  definition('tomcat.connector.verify', 'Connector 验证', 'tomcat', 'medium', 'boolean', true, '能验证 Tomcat TLS 端口'),
   definition('ssh.connect', 'SSH 连接', 'remote', 'medium', 'boolean', true, '能建立 SSH 连接'),
   definition('ssh.exec', 'SSH 命令执行', 'remote', 'critical', 'boolean', true, '能通过 SSH 执行命令'),
   definition('ssh.sftp', 'SFTP 文件传输', 'remote', 'high', 'boolean', true, '能通过 SFTP 上传下载'),
@@ -122,6 +99,19 @@ export const capabilitiesSchemaBoundary = {
   dictionaryVersion: `builtin-${builtInCapabilityDefinitions.length}`,
   builtInCapabilityKeys,
 } as const;
+
+export function createExtensionCapabilityDefinition(key: string): CapabilityDefinition {
+  const category = key.split('.')[0] ?? 'extension';
+  return definition(
+    key,
+    key,
+    category,
+    'critical',
+    'object',
+    false,
+    '由已启用插件或受信任 Agent 声明的扩展能力',
+  );
+}
 
 function definition(
   key: string,

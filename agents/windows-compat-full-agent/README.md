@@ -10,6 +10,7 @@ Windows Compatibility Agent（Windows 兼容版 Agent）是面向 Windows Server
 - 服务名：`GCACWindowsCompatibilityAgent`
 - 显示名：`GCAC Windows Compatibility Agent`
 - Action Contract：`gcac.action/v1`
+- 唯一部署动作：`agent.atomic_plan.execute`
 - 运行时基线：.NET Framework 3.5.1
 
 Windows Server 2003、2003 R2 和 Windows Server 2008 非 R2 明确不支持。PowerShell 仅用于安装、升级和卸载编排，不是正式 Agent Runtime。
@@ -45,4 +46,4 @@ Windows Server 2003、2003 R2 和 Windows Server 2008 非 R2 明确不支持。P
 
 ## 当前认证状态
 
-本工程具备统一注册、心跳、能力上报、任务拉取、确认、结果上报、动作 Registry、前置检查、恢复账本和审计日志。Windows Server 2008 R2 SP1 + IIS 7.5 真实认证完成前，兼容性状态只能是 `experimental` 或 `blocked`，不得声明 `certified`。
+本工程具备统一注册、心跳、能力上报、任务拉取、确认、结果上报、动作 Registry、前置检查、恢复账本和审计日志。部署只接受控制面签名的 `agent.atomic_plan.execute`，校验目标 Agent、有效期、权限 scope 和 Operation Schema；历史 `certificate.deploy` 与 `windows.iis.deploy_certificate` 不再注册。Windows Server 2008 R2 SP1 + IIS 7.5 真实认证完成前，兼容性状态只能是 `experimental` 或 `blocked`，不得声明 `certified`。

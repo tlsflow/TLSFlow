@@ -182,7 +182,7 @@ describe('核心数据模型迁移', () => {
     });
   });
 });
-  it('ServiceAsset ????? pg_service_assets???? binding ?? service_asset_id', async () => {
+  it('ServiceAsset 迁移到 pg_service_assets，并将 binding 关联到 service_asset_id', async () => {
     const db = await migratedDb();
     const endpointId = 'sep_legacy_001';
     const serviceId = 'svc_legacy_001';

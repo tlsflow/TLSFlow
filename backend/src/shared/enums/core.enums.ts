@@ -35,7 +35,6 @@ export type CapabilityMatchStatus = (typeof CapabilityMatchStatuses)[number];
 export const CapabilitySuggestionTypes = ['use_full_agent', 'use_legacy_agent', 'use_gateway', 'use_ssh', 'use_winrm', 'generate_script_package', 'manual_confirm', 'monitor_only'] as const;
 export type CapabilitySuggestionType = (typeof CapabilitySuggestionTypes)[number];
 
-export const ProviderTypes = ['NGINX', 'APACHE', 'TOMCAT', 'IIS', 'WINDOWS_CERT_STORE', 'CUSTOM', 'DEVICE_TEMPLATE'] as const;
 export type ProviderType = string;
 
 export const BindingTypes = ['FILE_PATH', 'WINDOWS_CERT_STORE', 'KEYSTORE', 'DEVICE_API', 'CUSTOM'] as const;

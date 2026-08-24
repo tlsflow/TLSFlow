@@ -42,9 +42,31 @@ export class WorkflowSchemaRegistry {
       ...content,
       inputContract,
     } as unknown as WorkflowDslV1;
+    validateConnectionReferences(typedContent);
     validateVariableReferences(typedContent);
     return typedContent;
   }
+}
+
+function validateConnectionReferences(content: WorkflowDslV1): void {
+  const visit = (step: WorkflowStep, path: string): void => {
+    const reference = step.type === 'http' ? step.request.connectionRef
+      : step.type === 'ssh' ? step.ssh.connectionRef
+        : step.type === 'sftp' ? step.sftp.connectionRef
+          : step.type === 'scp' ? step.scp.connectionRef
+            : undefined;
+    if (reference) {
+      const connection = content.inputContract.connections[reference];
+      if (!connection) throw validationError(`${path} 引用了未声明的连接槽位`, { path, connectionRef: reference });
+      const expectedTransport = step.type === 'http' ? 'http' : 'ssh';
+      if (connection.transport !== expectedTransport) {
+        throw validationError(`${path} 引用的连接类型不匹配`, { path, connectionRef: reference, expectedTransport, actualTransport: connection.transport });
+      }
+    }
+    if (step.type === 'foreach') step.foreach.steps.forEach((child, index) => visit(child, `${path}.foreach.steps.${index}`));
+  };
+  content.steps.forEach((step, index) => visit(step, `steps.${index}`));
+  content.rollback?.forEach((step, index) => visit(step, `rollback.${index}`));
 }
 
 export const workflowTemplatesSchemaRegistry = new WorkflowSchemaRegistry();
@@ -312,7 +334,7 @@ function validateCredentialRecord(value: unknown, path: string): void {
   if (!isRecord(value)) throw validationError(`${path} 必须是对象`);
   for (const [name, credential] of Object.entries(value)) {
     if (!/^[a-zA-Z][a-zA-Z0-9_.-]*$/.test(name)) throw validationError(`${path}.${name} 字段名不合法`);
-    if (!isCredentialValue(credential)) throw validationError(`${path}.${name} 必须是凭据对象或 credential 变量引用`);
+    if (!isCredentialValue(credential)) throw validationError(`${path}.${name} 必须引用 Credential Slot`);
   }
 }
 
@@ -494,11 +516,7 @@ function isSecretRef(value: unknown): value is string {
 }
 
 function isCredentialValue(value: unknown): boolean {
-  if (typeof value === 'string') return /^\s*\{\{\s*[a-zA-Z][a-zA-Z0-9_.]*\s*\}\}\s*$/.test(value);
-  if (!isRecord(value)) return false;
-  return isNonEmptyString(value.credentialId)
-    && ['USERNAME_PASSWORD', 'SSH_KEY', 'BEARER_TOKEN', 'API_KEY', 'CLIENT_CERTIFICATE'].includes(String(value.kind))
-    && isSecretRefRecord(value.secretRefs);
+  return typeof value === 'string' && /^\s*\{\{credentials\.[A-Za-z][A-Za-z0-9_.-]*\}\}\s*$/.test(value);
 }
 
 function isSecretRefOrVariableRecord(value: unknown): boolean {

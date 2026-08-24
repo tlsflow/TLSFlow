@@ -9,21 +9,7 @@ import type {
 
 const platforms = ['WINDOWS', 'LINUX'] as const;
 const stages = ['prepare', 'backup', 'install', 'refresh', 'verify', 'rollback'] as const;
-const operationTypes = [
-  'preflight.assert',
-  'file.backup',
-  'file.atomic_replace',
-  'file.restore',
-  'file.set_permissions',
-  'command.execute',
-  'service.control',
-  'windows.certificate.inspect_pfx',
-  'windows.certificate_store.import_pfx',
-  'windows.certificate_private_key.grant',
-  'windows.iis.binding.capture',
-  'windows.iis.binding.update_certificate',
-  'windows.iis.binding.restore_certificate',
-] as const;
+const extensionIdentifierPattern = /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$/;
 const stageOrder = new Map(stages.map((stage, index) => [stage, index]));
 const manifestKeys = new Set([
   'apiVersion',
@@ -115,7 +101,7 @@ function validatePermissions(input: unknown): AgentPluginPermissionDeclaration[]
     const risk = nonEmptyString(value.risk, `permissions.${index}.risk`);
     const scope = nonEmptyString(value.scope, `permissions.${index}.scope`);
     if (!['low', 'medium', 'high'].includes(risk)) throw validationError(`permissions.${index}.risk 不支持`);
-    if (!['filesystem', 'process', 'service', 'network', 'secret', 'shell', 'certificate_store', 'iis'].includes(scope)) throw validationError(`permissions.${index}.scope 不支持`);
+    if (!extensionIdentifierPattern.test(scope)) throw validationError(`permissions.${index}.scope 格式不合法`);
     return {
       name,
       description: optionalString(value.description),
@@ -139,13 +125,13 @@ function validateOperations(input: unknown, rollback: boolean): AgentPluginOpera
     const operationType = nonEmptyString(value.operationType, `${path}.operationType`);
     if (!stages.includes(stage as typeof stages[number])) throw validationError(`${path}.stage 不支持`);
     if (rollback && stage !== 'rollback') throw validationError(`${path}.stage 必须是 rollback`);
-    if (!operationTypes.includes(operationType as typeof operationTypes[number])) throw validationError(`${path}.operationType 不支持`);
+    if (!extensionIdentifierPattern.test(operationType) || !operationType.includes('.')) throw validationError(`${path}.operationType 格式不合法`);
     requireExact(value.schemaVersion, '1.0', `${path}.schemaVersion`);
     const operation: AgentPluginOperation = {
       id,
       name: nonEmptyString(value.name, `${path}.name`),
       stage: stage as AgentPluginOperation['stage'],
-      operationType: operationType as AgentPluginOperation['operationType'],
+      operationType,
       schemaVersion: '1.0',
       timeoutSeconds: optionalPositiveNumber(value.timeoutSeconds, `${path}.timeoutSeconds`),
       continueOnError: value.continueOnError === true,
@@ -199,15 +185,8 @@ function validateStageOrder(operations: AgentPluginOperation[]): void {
 }
 
 function validateRollbackCoverage(operations: AgentPluginOperation[], rollback: AgentPluginOperation[]): void {
-  const hasSideEffect = operations.some((item) => [
-    'file.atomic_replace',
-    'file.set_permissions',
-    'command.execute',
-    'service.control',
-    'windows.certificate_store.import_pfx',
-    'windows.certificate_private_key.grant',
-    'windows.iis.binding.update_certificate',
-  ].includes(item.operationType));
+  // 副作用由阶段语义决定，不能维护一个会阻止新插件扩展的产品 Operation 白名单。
+  const hasSideEffect = operations.some((item) => item.stage === 'install' || item.stage === 'refresh');
   if (hasSideEffect && rollback.length === 0) throw validationError('包含副作用的插件必须声明 rollback');
 }
 

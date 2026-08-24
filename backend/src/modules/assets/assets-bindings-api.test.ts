@@ -784,7 +784,7 @@ describe('资产与证书绑定 API', () => {
 });
 
 describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
-  it('Agent capability snapshot 自动投影统一 Framework、Site 与 ManagedTarget', async () => {
+  it('Agent 产品明细不能由宿主推断为产品 Framework、Site 与 ManagedTarget', async () => {
     const app = await createMigratedApp();
     const headers = { 'x-tenant-id': 'tenant_spec011_direct_asset_fallback', 'x-actor-id': 'user_admin', 'x-request-id': 'req_spec011_direct_asset_fallback' };
     const registered = await app.inject({
@@ -862,21 +862,12 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
 
     const frameworks = await app.inject({ method: 'GET', path: `/api/v1/framework-instances?filter[deviceId]=${host.id}`, headers });
     const framework = (frameworks.body as { items: Array<{ id: string; frameworkType: string; discoveryProviderKey: string }> }).items[0];
-    assert.equal(framework?.frameworkType, 'web.iis');
+    assert.equal(framework?.frameworkType, 'device.generic');
     assert.equal(framework?.discoveryProviderKey, `agent:${agent.id}`);
 
     const sites = await app.inject({ method: 'GET', path: `/api/v1/site-assets?filter[deviceId]=${host.id}`, headers });
     const siteBody = sites.body as { total: number; items: Array<{ id: string; siteName: string; bindingInformation?: string; metadata?: { listeners?: unknown[] } }> };
-    assert.equal(siteBody.total, 1);
-    const site = siteBody.items[0];
-    assert.equal(site?.siteName, 'Default Web Site');
-    assert.equal(site?.bindingInformation, '*:443:fallback-iis.example.com');
-    assert.equal(site?.metadata?.listeners?.length, 2);
-
-    const targets = await app.inject({ method: 'GET', path: `/api/v1/managed-targets?filter[siteId]=${site?.id}`, headers });
-    const target = (targets.body as { items: Array<{ targetType: string; executionLocations: string[] }> }).items[0];
-    assert.equal(target?.targetType, 'tls.binding');
-    assert.deepEqual(target?.executionLocations, ['AGENT']);
+    assert.equal(siteBody.total, 0);
   });
 
   it('drift-results 持久化 local/remote 结果并更新 driftStatus，unreachable 不覆盖 local 字段', async () => {
@@ -1303,7 +1294,7 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
     assert.equal(detailBody.targetBindingDetail?.certificateBindings[0]?.siteAssetId, siteAsset.id);
   });
 
-  it('ServiceAsset 使用显式 ManagedTarget 策略，并拒绝未发布工作流和明文 Secret', async () => {
+  it('ServiceAsset 使用显式 ManagedTarget 策略，且通用空白工作流创建入口已退役', async () => {
     const headers = { 'x-tenant-id': 'tenant_spec0151_strategy', 'x-actor-id': 'user_admin' };
     const app = await createMigratedAppWithWildcardPolicy('user_admin', headers['x-tenant-id']);
     const chain = await createApplicationAssetTargetChain(app, headers);
@@ -1324,77 +1315,7 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
       headers,
       body: { content: workflowTemplateFixture('未发布策略工作流') },
     });
-    assert.equal(draft.statusCode, 201, JSON.stringify(draft.body));
-    const draftBody = draft.body as { template: { id: string }; version: { id: string } };
-
-    const rejectedDraft = await app.inject({
-      method: 'PATCH',
-      path: `/api/v1/service-assets/${chain.serviceAssetId}/deployment-strategy`,
-      headers,
-      body: {
-        deploymentStrategy: {
-          type: 'WORKFLOW',
-          workflow: {
-            workflowId: draftBody.template.id,
-            workflowVersionId: draftBody.version.id,
-            runner: 'CONTROL_PLANE',
-          },
-        },
-      },
-    });
-    assert.equal(rejectedDraft.statusCode, 400);
-    assert.equal((rejectedDraft.body as { details?: { code?: string } }).details?.code, 'WORKFLOW_VERSION_NOT_PUBLISHED');
-
-    const published = await app.inject({
-      method: 'POST',
-      path: '/api/v1/workflow-template-versions/publish',
-      headers,
-      body: { versionId: draftBody.version.id },
-    });
-    assert.equal(published.statusCode, 200, JSON.stringify(published.body));
-
-    const rejectedSecret = await app.inject({
-      method: 'PATCH',
-      path: `/api/v1/service-assets/${chain.serviceAssetId}/deployment-strategy`,
-      headers,
-      body: {
-        deploymentStrategy: {
-          type: 'WORKFLOW',
-          workflow: {
-            workflowId: draftBody.template.id,
-            workflowVersionId: draftBody.version.id,
-            runner: 'CONTROL_PLANE',
-            credentialBindings: { ssh: { credentialId: '' } },
-          },
-        },
-      },
-    });
-    assert.equal(rejectedSecret.statusCode, 400);
-    assert.equal((rejectedSecret.body as { details?: { code?: string } }).details?.code, 'DEPLOYMENT_STRATEGY_INVALID');
-
-    const updated = await app.inject({
-      method: 'PATCH',
-      path: `/api/v1/service-assets/${chain.serviceAssetId}/deployment-strategy`,
-      headers,
-      body: {
-        deploymentStrategy: {
-          type: 'WORKFLOW',
-          workflow: {
-            workflowId: draftBody.template.id,
-            workflowVersionId: draftBody.version.id,
-            runner: 'CONTROL_PLANE',
-            credentialBindings: { ssh: { credentialId: 'cred_app_target' } },
-            variableBindings: { host: chain.domain },
-          },
-        },
-      },
-    });
-    assert.equal(updated.statusCode, 200, JSON.stringify(updated.body));
-    const updatedBody = updated.body as { deploymentStrategy?: { type: string; workflow?: { workflowVersionId: string; credentialBindings?: Record<string, { credentialId: string }> } }; metadata?: { deploymentStrategy?: { type: string } } };
-    assert.equal(updatedBody.deploymentStrategy?.type, 'WORKFLOW');
-    assert.equal(updatedBody.deploymentStrategy?.workflow?.workflowVersionId, draftBody.version.id);
-    assert.equal(updatedBody.deploymentStrategy?.workflow?.credentialBindings?.ssh?.credentialId, 'cred_app_target');
-    assert.equal(updatedBody.metadata?.deploymentStrategy?.type, 'WORKFLOW');
+    assert.equal(draft.statusCode, 404, JSON.stringify(draft.body));
   });
 
   it('NGINX ApplicationAssetTarget 通过 ManagedTarget 获取显式证书部署上下文', async () => {

@@ -39,9 +39,6 @@ func Capabilities(snapshot Snapshot) []Capability {
 	declare(compatibility.CapabilitySELinux, nestedBoolFact(snapshot, "security", "selinux", "available"), "security")
 	declare(compatibility.CapabilityAppArmor, nestedBoolFact(snapshot, "security", "apparmor", "available"), "security")
 	declare(compatibility.CapabilitySecurityNone, !hasAny(values, compatibility.CapabilitySELinux, compatibility.CapabilityAppArmor), "security")
-	declareProduct(values, snapshot, "nginx", []string{compatibility.CapabilityNginxDiscover, compatibility.CapabilityNginxConfigParse, compatibility.CapabilityNginxInstall, compatibility.CapabilityNginxConfigTest})
-	declareProduct(values, snapshot, "apache", []string{compatibility.CapabilityApacheDiscover, compatibility.CapabilityApacheConfigParse, compatibility.CapabilityApacheInstall, compatibility.CapabilityApacheConfigTest})
-	declareProduct(values, snapshot, "tomcat", []string{compatibility.CapabilityTomcatDiscover, compatibility.CapabilityTomcatServerXML, compatibility.CapabilityTomcatKeystore, compatibility.CapabilityTomcatVerify})
 	items := make([]Capability, 0, len(values))
 	for _, item := range values {
 		items = append(items, item)
@@ -58,16 +55,6 @@ func CapabilityMap(snapshot Snapshot) map[string]bool {
 		}
 	}
 	return result
-}
-
-func declareProduct(values map[string]Capability, snapshot Snapshot, product string, keys []string) {
-	for _, key := range keys {
-		values[key] = Capability{Key: key, Value: true, Confidence: 1, Evidence: map[string]any{
-			"source":    "linux-agent-handler-registry",
-			"product":   product,
-			"installed": nestedBoolFact(snapshot, "products", product, "installed"),
-		}}
-	}
 }
 
 func boolFact(snapshot Snapshot, collector, key string) bool {

@@ -81,6 +81,36 @@ export interface SSHExecutorOptions {
   rollback?: RemoteRollbackService;
 }
 
+interface SshPlatformPolicy {
+  scpAvailable: boolean;
+  scpConfidence: number;
+  windowsOpenSsh: boolean;
+  compatibilityWarnings: string[];
+  rejectsPosixCommands: boolean;
+}
+
+const defaultSshPlatformPolicy: SshPlatformPolicy = {
+  scpAvailable: true,
+  scpConfidence: 0.75,
+  windowsOpenSsh: false,
+  compatibilityWarnings: [],
+  rejectsPosixCommands: false,
+};
+
+const sshPlatformPolicies: Readonly<Record<string, SshPlatformPolicy>> = {
+  WINDOWS_OPENSSH: {
+    scpAvailable: false,
+    scpConfidence: 0.45,
+    windowsOpenSsh: true,
+    compatibilityWarnings: ['Windows OpenSSH 目标不得执行 POSIX 文件权限和 systemctl 步骤'],
+    rejectsPosixCommands: true,
+  },
+};
+
+function sshPlatformPolicy(platform: string | undefined): SshPlatformPolicy {
+  return sshPlatformPolicies[platform ?? ''] ?? defaultSshPlatformPolicy;
+}
+
 export class SSHExecutor implements Executor {
   readonly type = 'SSH';
   private readonly executed = new Set<string>();
@@ -261,17 +291,17 @@ export class SSHExecutor implements Executor {
   }
 
   probeCapabilities(connection: SSHConnectionProfile): SSHCapabilityProbeResult {
-    const platform = connection.platform ?? 'UNKNOWN';
+    const policy = sshPlatformPolicy(connection.platform);
     return {
       declarations: [
         declaration('ssh.connect', true, connection, 0.9),
         declaration('ssh.hostkey.verify', Boolean(connection.expectedHostKeyFingerprint), connection, connection.expectedHostKeyFingerprint ? 0.95 : 0.6),
         declaration('ssh.exec', true, connection, 0.85),
         declaration('ssh.sftp', true, connection, 0.8),
-        declaration('ssh.scp', platform !== 'WINDOWS_OPENSSH', connection, platform === 'WINDOWS_OPENSSH' ? 0.45 : 0.75),
-        declaration('os.windows_openssh', platform === 'WINDOWS_OPENSSH', connection, 0.8),
+        declaration('ssh.scp', policy.scpAvailable, connection, policy.scpConfidence),
+        declaration('os.windows_openssh', policy.windowsOpenSsh, connection, 0.8),
       ],
-      compatibilityWarnings: platform === 'WINDOWS_OPENSSH' ? ['Windows OpenSSH 目标不得执行 POSIX 文件权限和 systemctl 步骤'] : [],
+      compatibilityWarnings: policy.compatibilityWarnings,
     };
   }
 }
@@ -288,7 +318,8 @@ function validateRequest(request: SSHExecutionRequest): void {
   if (request.command) validateCommand(request.command);
   for (const command of request.commands ?? []) validateCommand(command);
   if (request.script) validateCommand(request.script);
-  if (request.connection.platform === 'WINDOWS_OPENSSH' && (request.command || request.commands?.length || request.script) && /(systemctl|chmod|chown|\/etc\/|sudo\b)/.test(`${request.command ?? ''}\n${(request.commands ?? []).join('\n')}\n${request.script ?? ''}`)) {
+  const platformPolicy = sshPlatformPolicy(request.connection.platform);
+  if (platformPolicy.rejectsPosixCommands && (request.command || request.commands?.length || request.script) && /(systemctl|chmod|chown|\/etc\/|sudo\b)/.test(`${request.command ?? ''}\n${(request.commands ?? []).join('\n')}\n${request.script ?? ''}`)) {
     throw new AppError('VALIDATION_FAILED', 'Windows OpenSSH 目标不允许执行 POSIX 专用步骤', { command: request.command });
   }
   for (const item of [...(request.sftp ?? []), ...(request.scp ?? [])]) {

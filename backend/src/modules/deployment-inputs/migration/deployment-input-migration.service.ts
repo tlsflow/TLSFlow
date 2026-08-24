@@ -98,7 +98,8 @@ export class DeploymentInputMigrationService {
       where assignment.owner_type='APPLICATION_ASSET' and assignment.status='ACTIVE'
         and binding.input_bindings->'variables'='{}'::jsonb
         and binding.input_bindings->'connections'='{}'::jsonb
-        and binding.input_bindings->'credentials'='{}'::jsonb`);
+        and binding.input_bindings->'credentials'='{}'::jsonb
+        and binding.input_bindings->'artifacts'='{}'::jsonb`);
     return {
       legacyColumnsRemaining,
       pluginBindingsMissingInputBindings,

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { RBACService } from './rbac.service.js';
 import { AuditService } from '../audits/audit.service.js';
 
-test('RBAC 鏀寔浣滅敤鍩熷尮閰嶅拰 deny 浼樺厛', async () => {
+test('RBAC 支持作用域匹配和 deny 优先', async () => {
   const audit = new AuditService();
   const rbac = new RBACService(undefined, undefined, undefined, undefined, audit);
   await rbac.createPolicy({

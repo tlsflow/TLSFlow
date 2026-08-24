@@ -15,7 +15,7 @@ export interface AgentPluginPermissionDeclaration {
   name: string;
   description?: string;
   risk: 'low' | 'medium' | 'high';
-  scope: 'filesystem' | 'process' | 'service' | 'network' | 'secret' | 'shell' | 'certificate_store' | 'iis';
+  scope: string;
   values: string[];
 }
 
@@ -23,20 +23,7 @@ export interface AgentPluginOperation {
   id: string;
   name: string;
   stage: AgentPluginStage;
-  operationType:
-    | 'preflight.assert'
-    | 'file.backup'
-    | 'file.atomic_replace'
-    | 'file.restore'
-    | 'file.set_permissions'
-    | 'command.execute'
-    | 'service.control'
-    | 'windows.certificate.inspect_pfx'
-    | 'windows.certificate_store.import_pfx'
-    | 'windows.certificate_private_key.grant'
-    | 'windows.iis.binding.capture'
-    | 'windows.iis.binding.update_certificate'
-    | 'windows.iis.binding.restore_certificate';
+  operationType: string;
   schemaVersion: '1.0';
   timeoutSeconds?: number;
   continueOnError?: boolean;

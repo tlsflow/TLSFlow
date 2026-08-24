@@ -42,7 +42,7 @@ namespace GCAC.WindowsCompatibilityAgent
             {
                 if (config.directControlEnabled)
                 {
-                    directControl = new DirectControlServer(config, logger);
+                    directControl = new DirectControlServer(config, logger, registry);
                     directControl.Start();
                     client.SetDirectControlState(true, null);
                 }
@@ -261,13 +261,13 @@ namespace GCAC.WindowsCompatibilityAgent
                         : ActionResult.Failed("PREFLIGHT_BLOCKED", "前置检查未通过", new Dictionary<string, object> { { "supported", false }, { "checks", result.Checks } });
                 }
             });
-            IisCertificateDeploymentHandler iisHandler = new IisCertificateDeploymentHandler(dataDirectory);
+            AtomicPlanHandler atomicPlanHandler = new AtomicPlanHandler(delegate { return activeAgentId; });
             actionRegistry.Register(new ActionRegistration
             {
-                CanonicalAction = "certificate.deploy",
+                CanonicalAction = "agent.atomic_plan.execute",
                 SchemaVersion = ProductIdentity.ActionSchemaVersion,
-                Aliases = new string[] { "windows.iis.deploy_certificate" },
-                Handler = iisHandler.Execute
+                Aliases = new string[0],
+                Handler = atomicPlanHandler.Execute
             });
             return actionRegistry;
         }

@@ -960,9 +960,9 @@ describe('资产与证书产物视图', () => {
     await systemSelect!.setValue('windows')
     await flushPromises()
 
-    const runtimeSelect = wrapper.findAll('select').find((select) => select.find('option[value="other"]').exists())
-    expect(runtimeSelect).toBeTruthy()
-    await runtimeSelect!.setValue('other')
+    const runtimeInput = wrapper.find('[data-testid="runtime-platform-input"]')
+    expect(runtimeInput.exists()).toBe(true)
+    await runtimeInput.setValue('other')
     await flushPromises()
 
     const applyButton = wrapper.findAll('button').find((button) => button.text() === '套用内置模板')
@@ -1005,7 +1005,7 @@ describe('资产与证书产物视图', () => {
     }))
   })
 
-  it('IIS PFX 模板隐藏编码，只保留容器包含项与密码', async () => {
+  it('陌生运行时无需宿主选项即可使用平台通用模板', async () => {
     const wrapper = mountBusinessView(BindingsView)
     await flushPromises()
 
@@ -1019,9 +1019,9 @@ describe('资产与证书产物视图', () => {
     await systemSelect!.setValue('windows')
     await flushPromises()
 
-    const runtimeSelect = wrapper.findAll('select').find((select) => select.find('option[value="iis"]').exists())
-    expect(runtimeSelect).toBeTruthy()
-    await runtimeSelect!.setValue('iis')
+    const runtimeInput = wrapper.find('[data-testid="runtime-platform-input"]')
+    expect(runtimeInput.exists()).toBe(true)
+    await runtimeInput.setValue('storage.nas')
     await flushPromises()
 
     const applyButton = wrapper.findAll('button').find((button) => button.text() === '套用内置模板')
@@ -1029,10 +1029,10 @@ describe('资产与证书产物视图', () => {
     await applyButton!.trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('IIS 使用 PKCS#12/PFX 容器最常见')
-    expect(wrapper.text()).not.toContain('编码选择')
+    expect(wrapper.text()).toContain('兼容部分设备要求')
+    expect(wrapper.text()).toContain('编码选择')
     expect(wrapper.text()).toContain('包含私钥')
-    expect(wrapper.text()).toContain('导出密码')
+    expect((wrapper.find('[data-testid="runtime-platform-input"]').element as HTMLInputElement).value).toBe('storage.nas')
   })
 
   it('KEY 格式只保留私钥编码与私钥内容选择', async () => {

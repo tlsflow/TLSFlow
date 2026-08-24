@@ -2,24 +2,22 @@ package main
 
 import "testing"
 
-func TestActionRegistryResolvesCanonicalAliasAndLegacySelector(t *testing.T) {
+func TestActionRegistryRejectsHistoricalProductActions(t *testing.T) {
 	registry := mustBuildWindowsActionHandlerRegistry()
 	cases := []struct {
 		name    string
 		payload map[string]any
 	}{
-		{name: "canonical", payload: map[string]any{"type": "certificate.deploy"}},
+		{name: "legacy canonical", payload: map[string]any{"type": "certificate.deploy"}},
 		{name: "published alias", payload: map[string]any{"type": "windows.iis.deploy_certificate"}},
 		{name: "legacy action", payload: map[string]any{"action": "INSTALL_CERTIFICATE"}},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			resolved, err := registry.Resolve(testCase.payload)
-			if err != nil {
-				t.Fatalf("resolve failed: %v", err)
-			}
-			if resolved.ActionType != "certificate.deploy" {
-				t.Fatalf("unexpected action type: %s", resolved.ActionType)
+			_, err := registry.Resolve(testCase.payload)
+			registryError, ok := err.(*actionRegistryError)
+			if !ok || registryError.Code != "ACTION_HANDLER_NOT_REGISTERED" {
+				t.Fatalf("expected ACTION_HANDLER_NOT_REGISTERED, got %#v", err)
 			}
 		})
 	}
@@ -27,7 +25,7 @@ func TestActionRegistryResolvesCanonicalAliasAndLegacySelector(t *testing.T) {
 
 func TestActionRegistryRejectsUnknownSchema(t *testing.T) {
 	registry := mustBuildWindowsActionHandlerRegistry()
-	_, err := registry.Resolve(map[string]any{"type": "windows.iis.deploy_certificate", "actionSchemaVersion": "2.0"})
+	_, err := registry.Resolve(map[string]any{"type": "agent.atomic_plan.execute", "actionSchemaVersion": "2.0"})
 	registryError, ok := err.(*actionRegistryError)
 	if !ok || registryError.Code != "ACTION_SCHEMA_UNSUPPORTED" {
 		t.Fatalf("expected ACTION_SCHEMA_UNSUPPORTED, got %#v", err)

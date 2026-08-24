@@ -13,7 +13,7 @@ describe('workflow canvas model', () => {
     expect(canvas.nodes.map((node) => node.ui?.stage)).toEqual(['prepare', 'backup', 'install', 'install', 'refresh', 'verify'])
     expect(new Set(canvas.nodes.map((node) => node.position.x)).size).toBe(1)
     expect(canvas.nodes.every((node, index, nodes) => index === 0 || node.position.y > nodes[index - 1]!.position.y)).toBe(true)
-    expect(canvas.variables.certificatePaths).toEqual(expect.objectContaining({
+    expect(canvas.inputContract.variables.certificatePaths).toEqual(expect.objectContaining({
       type: 'object',
       required: true,
       default: expect.objectContaining({
@@ -36,10 +36,7 @@ describe('workflow canvas model', () => {
         category: 'deployment',
         tags: ['import'],
       },
-      variables: {
-        deviceHost: { type: 'string', required: true, description: '目标主机' },
-        apiCredential: { type: 'credential', required: true, sensitive: true },
-      },
+      inputContract: createDefaultWorkflowCanvas().inputContract,
       steps: [
         {
           name: 'prepare_auth',
@@ -47,9 +44,10 @@ describe('workflow canvas model', () => {
           stage: 'prepare',
           request: {
             method: 'POST',
-            url: 'https://{{deviceHost}}/api/login',
+            connectionRef: 'management',
+            url: 'https://{{connections.management.host}}/api/login',
             headers: { 'X-Trace-Id': 'trace-1' },
-            auth: { type: 'bearer', credential: '{{apiCredential}}' },
+            auth: { type: 'bearer', credential: '{{credentials.sshCredential}}' },
             body: { username: 'api-user' },
             timeoutSeconds: 45,
           },
@@ -75,7 +73,7 @@ describe('workflow canvas model', () => {
     const rawStep = node?.ui?.rawStep as typeof importedDsl.steps[number] | undefined
 
     expect(node?.type).toBe('http')
-    expect(node?.config.url).toBe('https://{{deviceHost}}/api/login')
+    expect(node?.config.url).toBe('https://{{connections.management.host}}/api/login')
     expect(rawStep?.type).toBe('http')
     expect(rawStep?.type === 'http' ? rawStep.request.headers : undefined).toEqual({ 'X-Trace-Id': 'trace-1' })
     expect(rawStep?.type === 'http' ? rawStep.retry : undefined).toEqual({ count: 2, intervalSeconds: 3 })
@@ -88,11 +86,7 @@ describe('workflow canvas model', () => {
       apiVersion: 'gcac.workflow/v1',
       kind: 'CurlSshWorkflow',
       metadata: { name: 'apache_script_workflow', displayName: 'Apache 脚本工作流' },
-      variables: {
-        deviceHost: { type: 'string', required: true },
-        sshUsername: { type: 'string', required: true },
-        credential: { type: 'credential', required: true, sensitive: true },
-      },
+      inputContract: createDefaultWorkflowCanvas().inputContract,
       steps: [
         {
           name: 'prepare_validate_staged_certificate_files',
@@ -100,12 +94,7 @@ describe('workflow canvas model', () => {
           stage: 'prepare',
           ssh: {
             mode: 'script',
-            connection: {
-              host: '{{deviceHost}}',
-              username: '{{sshUsername}}',
-              credential: '{{credential}}',
-              hostKeyPolicy: 'manual_approval_required',
-            },
+            connectionRef: 'targetSsh',
             script: "set -eu\nsite_conf='{{apacheSiteConfigPath}}'\ntest -f \"$site_conf\"\nprintf 'OK\\n'",
             timeoutSeconds: 120,
           },
@@ -122,7 +111,7 @@ describe('workflow canvas model', () => {
     expect(node?.config.command).toContain("site_conf='{{apacheSiteConfigPath}}'")
     expect(rawStep?.type).toBe('ssh')
     expect(rawStep?.type === 'ssh' ? rawStep.ssh.mode : undefined).toBe('script')
-    expect(rawStep?.type === 'ssh' ? rawStep.ssh.connection.hostKeyPolicy : undefined).toBe('manual_approval_required')
+    expect(rawStep?.type === 'ssh' ? rawStep.ssh.connectionRef : undefined).toBe('targetSsh')
     expect(rawStep?.type === 'ssh' ? rawStep.ssh.script : undefined).toContain("site_conf='{{apacheSiteConfigPath}}'")
     expect(rawStep?.type === 'ssh' ? rawStep.extract : undefined).toEqual([{ name: 'ok', type: 'regex', pattern: 'OK' }])
   })
@@ -132,12 +121,7 @@ describe('workflow canvas model', () => {
       apiVersion: 'gcac.workflow/v1',
       kind: 'CurlSshWorkflow',
       metadata: { name: 'file_transfer_workflow', displayName: '文件传输工作流' },
-      variables: {
-        deviceHost: { type: 'string', required: true },
-        sshUsername: { type: 'string', required: true },
-        credential: { type: 'credential', required: true, sensitive: true },
-        certificate: { type: 'certificate', required: true, sensitive: true },
-      },
+      inputContract: createDefaultWorkflowCanvas().inputContract,
       steps: [
         {
           name: 'install_certificate_pem',
@@ -145,15 +129,10 @@ describe('workflow canvas model', () => {
           stage: 'install',
           sftp: {
             direction: 'upload',
-            connection: {
-              host: '{{deviceHost}}',
-              username: '{{sshUsername}}',
-              credential: '{{credential}}',
-              hostKeyPolicy: 'manual_approval_required',
-            },
+            connectionRef: 'targetSsh',
             remotePath: '/etc/gcac-test/certs/test.crt',
             temporaryPath: '/tmp/gcac-test/certs/test.crt',
-            contentRef: '{{certificate.pem}}',
+            contentRef: '{{artifacts.serverCert.outputs.certFile.content}}',
             mode: '0644',
             timeoutSeconds: 90,
           },
@@ -165,15 +144,10 @@ describe('workflow canvas model', () => {
           stage: 'install',
           scp: {
             direction: 'upload',
-            connection: {
-              host: '{{deviceHost}}',
-              username: '{{sshUsername}}',
-              credential: '{{credential}}',
-              hostKeyPolicy: 'manual_approval_required',
-            },
+            connectionRef: 'targetSsh',
             remotePath: '/etc/gcac-test/certs/test.key',
             temporaryPath: '/tmp/gcac-test/certs/test.key',
-            contentRef: '{{certificate.privateKey}}',
+            contentRef: '{{artifacts.serverCert.outputs.keyFile.content}}',
             mode: '0600',
             timeoutSeconds: 90,
           },
@@ -190,10 +164,10 @@ describe('workflow canvas model', () => {
       name: 'install_certificate_pem',
       type: 'sftp',
       sftp: expect.objectContaining({
-        connection: expect.objectContaining({ hostKeyPolicy: 'manual_approval_required' }),
+        connectionRef: 'targetSsh',
         remotePath: '/etc/gcac-test/certs/test.crt',
         temporaryPath: '/tmp/gcac-test/certs/test.crt',
-        contentRef: '{{certificate.pem}}',
+        contentRef: '{{artifacts.serverCert.outputs.certFile.content}}',
         mode: '0644',
       }),
       extract: [{ name: 'certHash', type: 'outputPath', path: '$.body.transferResults[0].hash' }],
@@ -202,10 +176,10 @@ describe('workflow canvas model', () => {
       name: 'install_private_key',
       type: 'scp',
       scp: expect.objectContaining({
-        connection: expect.objectContaining({ hostKeyPolicy: 'manual_approval_required' }),
+        connectionRef: 'targetSsh',
         remotePath: '/etc/gcac-test/certs/test.key',
         temporaryPath: '/tmp/gcac-test/certs/test.key',
-        contentRef: '{{certificate.privateKey}}',
+        contentRef: '{{artifacts.serverCert.outputs.keyFile.content}}',
         mode: '0600',
       }),
     }))
@@ -216,9 +190,7 @@ describe('workflow canvas model', () => {
       apiVersion: 'gcac.workflow/v1',
       kind: 'CurlSshWorkflow',
       metadata: { name: 'transform_workflow', displayName: '转换工作流' },
-      variables: {
-        certificateList: { type: 'object', required: true },
-      },
+      inputContract: createDefaultWorkflowCanvas().inputContract,
       steps: [
         {
           name: 'build_service_bindings',

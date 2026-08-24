@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { createApp } from '../../app.module.js';
+import { PgliteDatabase } from '../../database/pglite-database.js';
+import { runMigrations } from '../../database/migration-runner.js';
 
 describe('Agent 安装会话安全约束', () => {
   it('Windows bootstrap 短码 10 分钟过期且只能使用一次', async () => {
@@ -358,7 +361,12 @@ describe('Agent 安装会话安全约束', () => {
   });
 
   it('现有 Agent 启用 Gateway 会话应返回直接可运行命令', async () => {
-    const app = createApp();
+    const db = new PgliteDatabase();
+    await runMigrations(db, undefined, {
+      appliedBy: 'test',
+      checksum: (content) => createHash('sha256').update(content).digest('hex'),
+    });
+    const app = createApp({ db });
     const headers = {
       'x-tenant-id': 'tenant_gateway_enable_command',
       'x-request-id': 'req_gateway_enable_register',

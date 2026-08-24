@@ -909,13 +909,13 @@ export class PgAssetsRepository implements AssetsRepository {
     if (!duplicate) return;
 
     if (normalizedAgentId && duplicate.agent_id === normalizedAgentId) {
-      throw new AppError('RESOURCE_ALREADY_EXISTS', 'Host ????? Agent ??', {
+      throw new AppError('RESOURCE_ALREADY_EXISTS', 'Host 已绑定其他 Agent', {
         hostId: duplicate.id,
         agentId: normalizedAgentId,
       });
     }
 
-    throw new AppError('RESOURCE_ALREADY_EXISTS', 'Host ????? hostname', {
+    throw new AppError('RESOURCE_ALREADY_EXISTS', '已存在相同 hostname 的 Host', {
       hostId: duplicate.id,
       hostname: normalizedHostname,
     });
