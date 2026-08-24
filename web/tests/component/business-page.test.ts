@@ -84,7 +84,7 @@ describe('BusinessResourcePage', () => {
 
     await vi.waitFor(() => expect(wrapper.text()).toContain('资源一'))
     expect(wrapper.text()).toContain('成功')
-    expect(wrapper.text()).toContain('风险：高')
+    expect(wrapper.text()).toContain('级别：高')
     expect(wrapper.text()).toContain('证书 ID')
     expect(wrapper.text()).toContain('cert-1')
   })
@@ -198,7 +198,7 @@ describe('BusinessResourcePage', () => {
       },
     })
 
-    await vi.waitFor(() => expect(wrapper.text()).toContain('接口调用失败'))
+    await vi.waitFor(() => expect(wrapper.text()).toContain('服务请求失败'))
     expect(wrapper.text()).toContain('requestId：req_denied')
     expect(wrapper.text()).toContain('PERMISSION_DENIED')
   })

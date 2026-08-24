@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import CertificatesView from '@/views/certificates/CertificatesView.vue'
 import { usePermissionStore } from '@/stores/permission.store'
+import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
 vi.mock('vue-router', () => ({
   useRoute: () => ({ query: {} }),
@@ -149,10 +150,10 @@ describe('CertificatesView', () => {
     expect(rows[0]?.text()).toContain('2025-01-02')
     expect(rows[0]?.text()).toContain('过期')
     expect(rows[1]?.text()).toContain('2026-06-01')
-    expect(rows[1]?.text()).toContain('2026-06-15')
+    expect(rows[1]?.text()).toContain(formatBrowserLocalTime('2026-06-15T23:59:59.000Z', { includeTime: false }))
     expect(rows[1]?.text()).toContain('即将过期')
     expect(rows[2]?.text()).toContain('2026-06-10')
-    expect(rows[2]?.text()).toContain('2026-12-17')
+    expect(rows[2]?.text()).toContain(formatBrowserLocalTime('2026-12-17T23:59:59.000Z', { includeTime: false }))
     expect(rows[2]?.text()).toContain('有效')
 
     const assetListText = wrapper.find('.certificate-page__asset-list').text()
