@@ -39,6 +39,8 @@ export interface ManagedDeviceProjectionSource {
     lastDiscoveredAt?: string;
     lastErrorCode?: string;
     managementAddress?: string;
+    /** 中文说明：云控制面只依赖发现结果，不应被管理 TCP 探测覆盖。 */
+    metadata?: Record<string, unknown>;
   };
 }
 
@@ -105,6 +107,9 @@ export class PluginManagedDeviceProjectionAdapter implements ManagedDeviceProjec
 
   project(source: ManagedDeviceProjectionSource): ManagedDeviceSummaryDto {
     const appliance = requireNetworkAppliance(source);
+    const isCloudService = stringValue(appliance.metadata?.deviceCategory)?.toUpperCase() === 'CLOUD'
+      || stringValue(appliance.metadata?.livenessMode)?.toUpperCase() === 'DISCOVERY'
+      || appliance.deviceFamily.trim().toLowerCase().startsWith('cloud.');
     const capabilities = Object.entries(appliance.capabilityProfile)
       .filter(([, enabled]) => enabled === true)
       .map(([name]) => name);
@@ -119,21 +124,25 @@ export class PluginManagedDeviceProjectionAdapter implements ManagedDeviceProjec
       appliance.supportTier,
       appliance.lastDiscoveredAt,
     );
-    const liveness = new LivenessDomainService().project(source.livenessSignals ?? [], ['MANAGEMENT_TCP']);
-    const projectedHealth = mergeNetworkHealthWithLiveness(healthStatus, liveness.livenessStatus);
+    const liveness = isCloudService
+      ? undefined
+      : new LivenessDomainService().project(source.livenessSignals ?? [], ['MANAGEMENT_TCP']);
+    const projectedHealth = liveness
+      ? mergeNetworkHealthWithLiveness(healthStatus, liveness.livenessStatus)
+      : healthStatus;
     return {
       id: source.id,
       displayName: source.displayName ?? appliance.managementAddress ?? source.id,
-      category: 'NETWORK_APPLIANCE',
+      category: isCloudService ? 'CLOUD' : 'NETWORK_APPLIANCE',
       productFamily: appliance.productName ?? appliance.deviceFamily,
       managementMethod: 'PLUGIN',
       managementAddress: appliance.managementAddress ?? source.primaryIp ?? source.hostname,
-      ...liveness,
-      livenessSignals: liveness.signals,
+      ...(liveness ?? {}),
+      livenessSignals: liveness?.signals ?? [],
       healthStatus: projectedHealth,
       health: projectedHealth,
       sourceStatus,
-      softwareVersion: joinVersion(appliance.softwareVersion, appliance.softwareBuild),
+      ...(isCloudService ? {} : { softwareVersion: joinVersion(appliance.softwareVersion, appliance.softwareBuild) }),
       controlVersion: appliance.pluginVersion,
       lastContactAt: appliance.lastDiscoveredAt ?? source.lastDiscoveredAt,
       applicationAssetCount: source.applicationAssetCount,

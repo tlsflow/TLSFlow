@@ -72,7 +72,9 @@ export class PgDevicesRepository implements DevicesRepository {
       overview: {
         deviceId: summary.id,
         displayName: summary.displayName,
-        deviceType: summary.extensionType === 'AGENT' ? 'AGENT' : row.device_family ?? 'NETWORK_APPLIANCE',
+        deviceType: summary.extensionType === 'AGENT'
+          ? 'AGENT'
+          : summary.category === 'CLOUD' ? 'CLOUD' : row.device_family ?? 'NETWORK_APPLIANCE',
         productFamily: summary.productFamily,
         managementMode: row.management_mode,
         status: summary.livenessStatus ?? 'UNKNOWN',
@@ -574,6 +576,7 @@ function buildDeviceListSql(query: ManagedDeviceListQuery, parameters: unknown[]
              device.software_version as device_software_version,
              device.software_build as device_software_build,
              device.support_tier,
+             device.metadata as device_metadata,
              (select coalesce(array_agg(capability.key order by capability.key), '{}'::text[])
                 from jsonb_each_text(coalesce(device.capability_profile, '{}'::jsonb)) capability
                where capability.value = 'true') as device_capabilities,
@@ -605,6 +608,15 @@ function buildDeviceListSql(query: ManagedDeviceListQuery, parameters: unknown[]
              and signal.resource_type = case when host.agent_id is not null then 'AGENT' else 'DEVICE' end
              and signal.resource_id = coalesce(host.agent_id, host.id)
              and signal.signal_type = case when host.agent_id is not null then 'HEARTBEAT' else 'MANAGEMENT_TCP' end
+             and (host.agent_id is not null or not exists (
+               select 1
+                 from pg_device_assets target_device
+                where target_device.tenant_id = host.tenant_id
+                  and target_device.host_id = host.id
+                  and (upper(coalesce(target_device.metadata->>'deviceCategory', '')) = 'CLOUD'
+                    or upper(coalesce(target_device.metadata->>'livenessMode', '')) = 'DISCOVERY'
+                    or lower(coalesce(target_device.device_family, '')) like 'cloud.%')
+             ))
            order by signal.last_observed_at desc nulls last, signal.updated_at desc, signal.id desc
            limit 1
         ) liveness on true
@@ -635,7 +647,11 @@ function buildDeviceListSql(query: ManagedDeviceListQuery, parameters: unknown[]
        where host.agent_id is not null or service.id is not null
     ), projected as (
       select base.*,
-             case when agent_id is not null then 'SERVER' else 'NETWORK_APPLIANCE' end as category,
+             case when agent_id is not null then 'SERVER'
+                  when upper(coalesce(device_metadata->>'deviceCategory', '')) = 'CLOUD'
+                    or upper(coalesce(device_metadata->>'livenessMode', '')) = 'DISCOVERY'
+                    or lower(coalesce(device_family, '')) like 'cloud.%' then 'CLOUD'
+                  else 'NETWORK_APPLIANCE' end as category,
              case when agent_id is not null then
                case upper(coalesce(agent_os_type, os_type))
                  when 'WINDOWS' then 'Windows Server'
@@ -650,11 +666,14 @@ function buildDeviceListSql(query: ManagedDeviceListQuery, parameters: unknown[]
                when device_last_discovered_at is not null then 'DISCOVERED'
                else host_status end as source_status,
              case when agent_id is not null then coalesce(agent_last_heartbeat_at, agent_gateway_last_contact)::text else coalesce(device_last_discovered_at, last_discovered_at)::text end as last_contact_at,
-             case
+             case when upper(coalesce(device_metadata->>'deviceCategory', '')) = 'CLOUD'
+                    or upper(coalesce(device_metadata->>'livenessMode', '')) = 'DISCOVERY'
+                    or lower(coalesce(device_family, '')) like 'cloud.%' then null
+                  else case
                when liveness_signal_status = 'FAILED' then 'OFFLINE'
                when liveness_signal_status is null or liveness_signal_status = 'UNKNOWN' then 'UNKNOWN'
                else 'ONLINE'
-             end as liveness_status,
+             end end as liveness_status,
              case when agent_id is not null then
                case
                  when liveness_signal_status = 'FAILED' then 'UNREACHABLE'
@@ -1082,6 +1101,7 @@ function toProjectionSource(row: ManagedDeviceRow): ManagedDeviceProjectionSourc
       lastDiscoveredAt: row.device_last_discovered_at ?? undefined,
       lastErrorCode: row.last_error_code ?? undefined,
       managementAddress: row.device_address ?? undefined,
+      metadata: asRecord(row.device_metadata),
     };
   } else {
     source.agent = {

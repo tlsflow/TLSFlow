@@ -206,6 +206,61 @@ test('插件设备管理端口在线时健康状态不再停留在未知', () =>
   assert.equal(result.health, 'HEALTHY');
 });
 
+test('云服务不消费管理 TCP 探测，也不返回设备软件版本', () => {
+  const discoveredAt = new Date().toISOString();
+  const result = new PluginManagedDeviceProjectionAdapter().project({
+    ...commonSource,
+    hostStatus: 'ACTIVE',
+    managementMode: 'API',
+    livenessSignals: [{
+      id: 'signal_cloud_tcp_failed',
+      tenantId: 'default',
+      resourceType: 'DEVICE',
+      resourceId: commonSource.id,
+      signalType: 'MANAGEMENT_TCP',
+      required: true,
+      status: 'FAILED',
+      consecutiveFailures: 3,
+      lastObservedAt: discoveredAt,
+      lastFailureAt: discoveredAt,
+      reasonCode: 'TCP_DNS_FAILED',
+      source: 'CONTROL_PLANE',
+      createdAt: discoveredAt,
+      updatedAt: discoveredAt,
+    }],
+    networkAppliance: {
+      deviceFamily: 'cloud.aliyun.cdn',
+      productName: '阿里云 CDN',
+      softwareVersion: 'should-not-be-exposed',
+      softwareBuild: 'should-not-be-exposed',
+      capabilityProfile: {},
+      lastDiscoveredAt: discoveredAt,
+      managementAddress: 'cdn.cloud.aliyun-test',
+      metadata: { deviceCategory: 'CLOUD', livenessMode: 'DISCOVERY' },
+    },
+  });
+
+  assert.equal(result.category, 'CLOUD');
+  assert.equal(result.livenessStatus, undefined);
+  assert.equal(result.softwareVersion, undefined);
+  assert.deepEqual(result.livenessSignals, []);
+});
+
+test('存量 cloud.* 设备即使没有新 metadata 也按云服务处理', () => {
+  const result = new PluginManagedDeviceProjectionAdapter().project({
+    ...commonSource,
+    networkAppliance: {
+      deviceFamily: 'cloud.aliyun.cdn',
+      softwareVersion: 'legacy-version',
+      capabilityProfile: {},
+    },
+  });
+
+  assert.equal(result.category, 'CLOUD');
+  assert.equal(result.livenessStatus, undefined);
+  assert.equal(result.softwareVersion, undefined);
+});
+
 test('统一设备投影 Registry 支持注册新的设备类型适配器', () => {
   const f5Adapter: ManagedDeviceProjectionAdapter = {
     key: 'F5_BIG_IP',

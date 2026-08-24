@@ -1,4 +1,4 @@
-export type ManagedDeviceCategory = 'SERVER' | 'NETWORK_APPLIANCE' | 'SECURITY_APPLIANCE';
+export type ManagedDeviceCategory = 'SERVER' | 'NETWORK_APPLIANCE' | 'SECURITY_APPLIANCE' | 'CLOUD';
 export type ManagedDeviceHealth = 'HEALTHY' | 'DEGRADED' | 'UNREACHABLE' | 'DISABLED' | 'UNKNOWN';
 export type ManagedDeviceLivenessStatus = 'ONLINE' | 'OFFLINE' | 'UNKNOWN';
 export type ManagedDeviceExtensionType = 'AGENT' | 'NETWORK_APPLIANCE';

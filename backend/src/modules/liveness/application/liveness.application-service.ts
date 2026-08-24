@@ -198,6 +198,8 @@ export class LivenessApplicationService {
            join pg_device_assets device on device.tenant_id=host.tenant_id and device.host_id=host.id
            join pg_service_assets service on service.tenant_id=device.tenant_id and service.id=device.service_asset_id and service.deleted_at is null
           where host.deleted_at is null and host.agent_id is null
+            and coalesce(device.metadata->>'livenessMode', 'MANAGEMENT_TCP') <> 'DISCOVERY'
+            and lower(coalesce(device.device_family, '')) not like 'cloud.%'
        )
        select * from agent_targets
        union all
