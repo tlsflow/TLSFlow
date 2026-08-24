@@ -104,6 +104,7 @@
   --gc-color-legacy-rgb-45-212-191-a6p: rgb(45 212 191 / 6%);
   --gc-color-legacy-rgb-8-20-39-a58p: rgb(8 20 39 / 58%);
   /* 旧样式裸色桥接变量结束。 */
+  --gc-space-hairline: 1px;
   --gc-space-1: 4px;
   --gc-space-2: 8px;
   --gc-space-3: 12px;

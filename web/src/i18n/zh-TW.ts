@@ -1631,6 +1631,24 @@ export default {
       total: "共 {count} 筆"
     }
   },
+  notifications: {
+    title: '多渠道通知中心',
+    description: '統一管理通知渠道、路由、範本、靜默和可靠投遞記錄。',
+    tabs: { channels: '通知渠道', deliveries: '投遞記錄', rules: '規則與範本' },
+    channels: { createTitle: '建立通知渠道' },
+    fields: {
+      name: '渠道名稱', type: '渠道類型', smtpHost: 'SMTP 主機', smtpPort: 'SMTP 連接埠', from: '寄件地址',
+      secretRef: 'SecretRef', secretRefPlaceholder: '僅輸入 SecretRef，不輸入明文密鑰', testTarget: '測試接收目標',
+      testTargetPlaceholder: 'Email 可輸入逗號分隔的收件地址', lastSuccess: '最近成功', latency: '延遲（毫秒）',
+      createdAt: '建立時間', failureCategory: '失敗分類', channel: '通知渠道', selectChannel: '請選擇通知渠道',
+      source: '事件來源', priority: '路由優先順序', dedupeWindow: '去重視窗（秒）', templateKey: '範本鍵',
+      titleTemplate: '標題範本', bodyTemplate: '正文範本', reason: '靜默原因', startsAt: '開始時間', endsAt: '結束時間'
+    },
+    actions: { test: '測試發送', retry: '重新投遞' },
+    rules: { createRoute: '建立通知路由', createTemplate: '儲存通知範本', createSilence: '建立靜默規則' },
+    summary: { routes: '通知路由', templates: '通知範本', silences: '靜默規則' },
+    messages: { loadFailed: '通知中心資料載入失敗' }
+  },
   settings: {
     securityLabel: "安全設定入口",
     permissionPolicies: {

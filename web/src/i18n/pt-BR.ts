@@ -1605,6 +1605,24 @@ export default {
       total: '{count} no total'
     }
   },
+  notifications: {
+    title: 'Central de notificações multicanal',
+    description: 'Gerencie canais, rotas, modelos, silêncios e registros confiáveis de entrega.',
+    tabs: { channels: 'Canais', deliveries: 'Entregas', rules: 'Regras e modelos' },
+    channels: { createTitle: 'Criar canal de notificação' },
+    fields: {
+      name: 'Nome do canal', type: 'Tipo do canal', smtpHost: 'Host SMTP', smtpPort: 'Porta SMTP', from: 'Endereço remetente',
+      secretRef: 'SecretRef', secretRefPlaceholder: 'Informe apenas um SecretRef, nunca o segredo em texto', testTarget: 'Destino de teste',
+      testTargetPlaceholder: 'Separe destinatários de Email por vírgulas', lastSuccess: 'Último sucesso', latency: 'Latência (ms)',
+      createdAt: 'Criado em', failureCategory: 'Categoria da falha', channel: 'Canal de notificação', selectChannel: 'Selecione um canal',
+      source: 'Origem do evento', priority: 'Prioridade da rota', dedupeWindow: 'Janela de deduplicação (segundos)', templateKey: 'Chave do modelo',
+      titleTemplate: 'Modelo do título', bodyTemplate: 'Modelo do corpo', reason: 'Motivo do silêncio', startsAt: 'Início', endsAt: 'Fim'
+    },
+    actions: { test: 'Enviar teste', retry: 'Tentar novamente' },
+    rules: { createRoute: 'Criar rota de notificação', createTemplate: 'Salvar modelo', createSilence: 'Criar regra de silêncio' },
+    summary: { routes: 'Rotas de notificação', templates: 'Modelos de notificação', silences: 'Regras de silêncio' },
+    messages: { loadFailed: 'Falha ao carregar a central de notificações' }
+  },
   settings: {
     securityLabel: 'Entrada de configurações de segurança',
     permissionPolicies: {

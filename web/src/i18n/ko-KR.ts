@@ -1605,6 +1605,24 @@ export default {
       total: '총 {count} 개'
     }
   },
+  notifications: {
+    title: '다중 채널 알림 센터',
+    description: '알림 채널, 라우트, 템플릿, 음소거 및 안정적인 전송 기록을 관리합니다.',
+    tabs: { channels: '알림 채널', deliveries: '전송 기록', rules: '규칙 및 템플릿' },
+    channels: { createTitle: '알림 채널 만들기' },
+    fields: {
+      name: '채널 이름', type: '채널 유형', smtpHost: 'SMTP 호스트', smtpPort: 'SMTP 포트', from: '발신 주소',
+      secretRef: 'SecretRef', secretRefPlaceholder: '평문 비밀 대신 SecretRef만 입력', testTarget: '테스트 수신 대상',
+      testTargetPlaceholder: 'Email 수신자는 쉼표로 구분할 수 있습니다', lastSuccess: '최근 성공', latency: '지연 시간(ms)',
+      createdAt: '생성 시간', failureCategory: '실패 분류', channel: '알림 채널', selectChannel: '알림 채널 선택',
+      source: '이벤트 소스', priority: '라우트 우선순위', dedupeWindow: '중복 제거 시간(초)', templateKey: '템플릿 키',
+      titleTemplate: '제목 템플릿', bodyTemplate: '본문 템플릿', reason: '음소거 사유', startsAt: '시작 시간', endsAt: '종료 시간'
+    },
+    actions: { test: '테스트 전송', retry: '다시 전송' },
+    rules: { createRoute: '알림 라우트 만들기', createTemplate: '알림 템플릿 저장', createSilence: '음소거 규칙 만들기' },
+    summary: { routes: '알림 라우트', templates: '알림 템플릿', silences: '음소거 규칙' },
+    messages: { loadFailed: '알림 센터 데이터를 불러오지 못했습니다' }
+  },
   settings: {
     securityLabel: '출입구 안전 설치',
     permissionPolicies: {

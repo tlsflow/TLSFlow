@@ -1631,6 +1631,24 @@ export default {
       total: '{count} total'
     }
   },
+  notifications: {
+    title: 'Multi-channel Notification Center',
+    description: 'Manage notification channels, routes, templates, silences, and reliable delivery records.',
+    tabs: { channels: 'Channels', deliveries: 'Deliveries', rules: 'Rules and templates' },
+    channels: { createTitle: 'Create notification channel' },
+    fields: {
+      name: 'Channel name', type: 'Channel type', smtpHost: 'SMTP host', smtpPort: 'SMTP port', from: 'From address',
+      secretRef: 'SecretRef', secretRefPlaceholder: 'Enter a SecretRef only, never a plaintext secret', testTarget: 'Test recipient',
+      testTargetPlaceholder: 'Email recipients can be comma-separated', lastSuccess: 'Last success', latency: 'Latency (ms)',
+      createdAt: 'Created at', failureCategory: 'Failure category', channel: 'Notification channel', selectChannel: 'Select a notification channel',
+      source: 'Event source', priority: 'Route priority', dedupeWindow: 'Dedupe window (seconds)', templateKey: 'Template key',
+      titleTemplate: 'Title template', bodyTemplate: 'Body template', reason: 'Silence reason', startsAt: 'Starts at', endsAt: 'Ends at'
+    },
+    actions: { test: 'Send test', retry: 'Retry delivery' },
+    rules: { createRoute: 'Create notification route', createTemplate: 'Save notification template', createSilence: 'Create silence rule' },
+    summary: { routes: 'Notification routes', templates: 'Notification templates', silences: 'Silence rules' },
+    messages: { loadFailed: 'Failed to load notification center data' }
+  },
   settings: {
     securityLabel: 'Security settings entry',
     permissionPolicies: {

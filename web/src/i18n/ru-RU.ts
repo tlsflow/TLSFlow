@@ -1605,6 +1605,24 @@ export default {
       total: 'Всего {count}'
     }
   },
+  notifications: {
+    title: 'Многоканальный центр уведомлений',
+    description: 'Управление каналами, маршрутами, шаблонами, периодами тишины и доставками.',
+    tabs: { channels: 'Каналы', deliveries: 'Доставки', rules: 'Правила и шаблоны' },
+    channels: { createTitle: 'Создать канал уведомлений' },
+    fields: {
+      name: 'Имя канала', type: 'Тип канала', smtpHost: 'SMTP-хост', smtpPort: 'SMTP-порт', from: 'Адрес отправителя',
+      secretRef: 'SecretRef', secretRefPlaceholder: 'Введите только SecretRef, без открытого секрета', testTarget: 'Тестовый получатель',
+      testTargetPlaceholder: 'Email-адреса можно разделить запятыми', lastSuccess: 'Последний успех', latency: 'Задержка (мс)',
+      createdAt: 'Создано', failureCategory: 'Категория ошибки', channel: 'Канал уведомлений', selectChannel: 'Выберите канал',
+      source: 'Источник события', priority: 'Приоритет маршрута', dedupeWindow: 'Окно дедупликации (секунды)', templateKey: 'Ключ шаблона',
+      titleTemplate: 'Шаблон заголовка', bodyTemplate: 'Шаблон текста', reason: 'Причина тишины', startsAt: 'Начало', endsAt: 'Окончание'
+    },
+    actions: { test: 'Тестовая отправка', retry: 'Повторить доставку' },
+    rules: { createRoute: 'Создать маршрут уведомлений', createTemplate: 'Сохранить шаблон', createSilence: 'Создать правило тишины' },
+    summary: { routes: 'Маршруты уведомлений', templates: 'Шаблоны уведомлений', silences: 'Правила тишины' },
+    messages: { loadFailed: 'Не удалось загрузить данные центра уведомлений' }
+  },
   settings: {
     securityLabel: 'Вход в настройки безопасности',
     permissionPolicies: {

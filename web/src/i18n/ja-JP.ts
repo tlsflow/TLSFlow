@@ -1631,6 +1631,24 @@ export default {
       total: '共 {count} 件'
     }
   },
+  notifications: {
+    title: 'マルチチャネル通知センター',
+    description: '通知チャネル、ルート、テンプレート、サイレンス、配信履歴を一元管理します。',
+    tabs: { channels: '通知チャネル', deliveries: '配信履歴', rules: 'ルールとテンプレート' },
+    channels: { createTitle: '通知チャネルを作成' },
+    fields: {
+      name: 'チャネル名', type: 'チャネル種別', smtpHost: 'SMTP ホスト', smtpPort: 'SMTP ポート', from: '送信元アドレス',
+      secretRef: 'SecretRef', secretRefPlaceholder: '平文の秘密情報ではなく SecretRef のみ入力', testTarget: 'テスト送信先',
+      testTargetPlaceholder: 'Email はカンマ区切りで入力できます', lastSuccess: '最終成功', latency: '遅延（ミリ秒）',
+      createdAt: '作成日時', failureCategory: '失敗分類', channel: '通知チャネル', selectChannel: '通知チャネルを選択',
+      source: 'イベントソース', priority: 'ルート優先度', dedupeWindow: '重複排除時間（秒）', templateKey: 'テンプレートキー',
+      titleTemplate: 'タイトルテンプレート', bodyTemplate: '本文テンプレート', reason: 'サイレンス理由', startsAt: '開始日時', endsAt: '終了日時'
+    },
+    actions: { test: 'テスト送信', retry: '再配信' },
+    rules: { createRoute: '通知ルートを作成', createTemplate: '通知テンプレートを保存', createSilence: 'サイレンスルールを作成' },
+    summary: { routes: '通知ルート', templates: '通知テンプレート', silences: 'サイレンスルール' },
+    messages: { loadFailed: '通知センターのデータ読み込みに失敗しました' }
+  },
   settings: {
     securityLabel: 'セキュリティ設定への導線',
     permissionPolicies: {
