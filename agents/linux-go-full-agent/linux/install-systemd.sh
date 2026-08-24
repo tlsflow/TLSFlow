@@ -160,6 +160,8 @@ install -d -m 0750 -o root -g "${SERVICE_GROUP}" "${CONFIG_DIR}"
 install -d -m 0750 -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" "${DATA_DIR}" "${LOG_DIR}"
 install -m 0755 -o root -g root "${BINARY_SOURCE_PATH}" "${BINARY_TARGET_PATH}"
 install_nginx_helper
+binary_version=$("${BINARY_TARGET_PATH}" version 2>/dev/null | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+binary_version="${binary_version:-unknown}"
 
 if [ -f "${CONFIG_PATH}" ]; then
   BACKUP_PATH="${CONFIG_PATH}.bak.$(date -u +"%Y%m%dT%H%M%SZ")"
@@ -180,6 +182,8 @@ cat > "${METADATA_PATH}" <<EOF
   "configPath": "${CONFIG_PATH}",
   "dataDir": "${DATA_DIR}",
   "logDir": "${LOG_DIR}",
+  "binaryPath": "${BINARY_TARGET_PATH}",
+  "binaryVersion": "${binary_version}",
   "installedAt": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
   "mode": "linux-go-systemd"
 }
@@ -211,6 +215,7 @@ if [ "${START_AFTER_INSTALL}" = "true" ]; then
 fi
 
 echo "安装完成。"
+echo "已安装版本：${binary_version}"
 echo "自检命令：${BINARY_TARGET_PATH} self-check --config ${CONFIG_PATH}"
 echo "健康检查：${BINARY_TARGET_PATH} health --config ${CONFIG_PATH}"
 echo "服务信息：${BINARY_TARGET_PATH} service-info --config ${CONFIG_PATH} --metadata ${METADATA_PATH}"

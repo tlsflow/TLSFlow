@@ -9,6 +9,7 @@ CONFIG_DIR="${CONFIG_DIR:-/etc/gcac/linux-agent}"
 DATA_DIR="${DATA_DIR:-/var/lib/gcac/linux-agent}"
 LOG_DIR="${LOG_DIR:-/var/log/gcac/linux-agent}"
 SERVICE_NAME="${SERVICE_NAME:-gcac-linux-agent}"
+METADATA_PATH="${CONFIG_DIR}/service.install.json"
 PRECHECK_ONLY=0
 SIGNATURE_FILE="${SIGNATURE_FILE:-}"
 PUBLIC_KEY_FILE="${PUBLIC_KEY_FILE:-}"
@@ -154,8 +155,25 @@ install -d -m 0755 "${INSTALL_ROOT}" "${CONFIG_DIR}" "${DATA_DIR}" "${LOG_DIR}"
 temporary_binary="${INSTALL_ROOT}/.gcac-linux-agent.new.$$"
 install -m 0755 "${SOURCE_BINARY}" "${temporary_binary}"
 mv -f "${temporary_binary}" "${INSTALL_ROOT}/gcac-linux-agent"
+binary_version=$("${INSTALL_ROOT}/gcac-linux-agent" version 2>/dev/null | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+binary_version="${binary_version:-unknown}"
 if [ ! -e "${CONFIG_DIR}/agent.config.json" ]; then
   install -m 0600 "${AGENT_DIR}/config/agent.config.template.json" "${CONFIG_DIR}/agent.config.json"
 fi
 install_service
+cat > "${METADATA_PATH}" <<EOF
+{
+  "serviceName": "${SERVICE_NAME}",
+  "installRoot": "${INSTALL_ROOT}",
+  "configPath": "${CONFIG_DIR}/agent.config.json",
+  "dataDir": "${DATA_DIR}",
+  "logDir": "${LOG_DIR}",
+  "binaryPath": "${INSTALL_ROOT}/gcac-linux-agent",
+  "binaryVersion": "${binary_version}",
+  "installedAt": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "mode": "linux-go-${service_manager}"
+}
+EOF
+chmod 0644 "${METADATA_PATH}"
 printf '安装完成，服务未自动启动：%s\n' "${SERVICE_NAME}"
+printf '已安装版本：%s\n' "${binary_version}"

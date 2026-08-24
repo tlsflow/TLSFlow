@@ -134,6 +134,8 @@ type InstallMetadata struct {
 	ConfigPath  string `json:"configPath"`
 	DataDir     string `json:"dataDir"`
 	LogDir      string `json:"logDir"`
+	BinaryPath  string `json:"binaryPath"`
+	BinaryVersion string `json:"binaryVersion"`
 	InstalledAt string `json:"installedAt"`
 	Mode        string `json:"mode"`
 }
@@ -372,6 +374,7 @@ func handleServiceInfo(args []string) error {
 	identity := collectRuntimeIdentity(config.AgentKey, config.ControlPlane)
 
 	result := map[string]any{
+		"binaryVersion": buildinfo.Current().Version,
 		"config": map[string]any{
 			"path":              configPath,
 			"schema":            config.SchemaVersion,
@@ -580,7 +583,7 @@ func buildLinuxHealthChecks(config *AgentConfig, configPath string) []map[string
 	checks := []map[string]any{
 		checkItem("config.exists", fileExists(configPath), map[string]any{"configPath": configPath}),
 		checkItem("service.name", config.Service.Name != "", map[string]any{"serviceName": config.Service.Name}),
-		checkItem("controlPlane.url", strings.TrimSpace(config.ControlPlane) != "", map[string]any{"value": config.ControlPlane}),
+		checkItem("controlPlane.url", isValidControlPlaneURL(config.ControlPlane), map[string]any{"value": config.ControlPlane}),
 		checkItem("agent.key", strings.TrimSpace(config.AgentKey) != "", map[string]any{"value": config.AgentKey}),
 		checkItem("task.poll.interval", effectiveTaskPollSeconds(config) > 0, map[string]any{"seconds": effectiveTaskPollSeconds(config)}),
 		checkItem("health.check.interval", effectiveHealthCheckSeconds(config) > 0, map[string]any{"seconds": effectiveHealthCheckSeconds(config)}),
@@ -2845,6 +2848,21 @@ func loadInstallMetadata(path string) (*InstallMetadata, error) {
 		return nil, err
 	}
 	return &metadata, nil
+}
+
+func isValidControlPlaneURL(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return false
+	}
+	if strings.Contains(trimmed, "gcac.example.invalid") || strings.Contains(trimmed, "CHANGE_ME") {
+		return false
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(parsed.Scheme) != "" && strings.TrimSpace(parsed.Hostname()) != ""
 }
 
 func fileExists(path string) bool {

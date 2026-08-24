@@ -4,7 +4,7 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 AGENT_DIR=$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)
 OUTPUT_DIR="${OUTPUT_DIR:-${AGENT_DIR}/dist}"
-VERSION_VALUE="${VERSION:-0.1.9}"
+VERSION_VALUE="${VERSION:-0.1.10}"
 COMMIT_VALUE="${COMMIT:-$(git -C "${AGENT_DIR}" rev-parse HEAD)}"
 SOURCE_DATE_EPOCH_VALUE="${SOURCE_DATE_EPOCH:-$(git -C "${AGENT_DIR}" log -1 --format=%ct)}"
 BUILD_TIME_VALUE="${BUILD_TIME:-$(date -u -d "@${SOURCE_DATE_EPOCH_VALUE}" '+%Y-%m-%dT%H:%M:%SZ')}"

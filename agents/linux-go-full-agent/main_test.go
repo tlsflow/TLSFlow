@@ -39,6 +39,46 @@ func TestCapabilityRescanDefaultsRemainEnabledForLegacyConfigs(t *testing.T) {
 	}
 }
 
+func TestIsValidControlPlaneURLRejectsTemplatePlaceholder(t *testing.T) {
+	if isValidControlPlaneURL("https://gcac.example.invalid") {
+		t.Fatal("模板占位控制面地址必须被判为无效")
+	}
+	if isValidControlPlaneURL("CHANGE_ME_CONTROL_PLANE") {
+		t.Fatal("CHANGE_ME 占位值必须被判为无效")
+	}
+	if !isValidControlPlaneURL("https://gcac.example.com") {
+		t.Fatal("真实控制面地址不应被误判为无效")
+	}
+}
+
+func TestLoadInstallMetadataIncludesBinaryVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "service.install.json")
+	content := `{
+  "serviceName": "gcac-linux-agent",
+  "installRoot": "/opt/gcac/linux-agent",
+  "configPath": "/etc/gcac/linux-agent/agent.config.json",
+  "dataDir": "/var/lib/gcac/linux-agent",
+  "logDir": "/var/log/gcac/linux-agent",
+  "binaryPath": "/opt/gcac/linux-agent/gcac-linux-agent",
+  "binaryVersion": "0.1.10",
+  "installedAt": "2026-08-06T13:34:48Z",
+  "mode": "linux-go-systemd"
+}`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write metadata failed: %v", err)
+	}
+	metadata, err := loadInstallMetadata(path)
+	if err != nil {
+		t.Fatalf("load install metadata failed: %v", err)
+	}
+	if metadata.BinaryPath != "/opt/gcac/linux-agent/gcac-linux-agent" {
+		t.Fatalf("binaryPath 读取错误: %s", metadata.BinaryPath)
+	}
+	if metadata.BinaryVersion != "0.1.10" {
+		t.Fatalf("binaryVersion 读取错误: %s", metadata.BinaryVersion)
+	}
+}
+
 func TestParseNginxConfigTreeCollectsIncludedSites(t *testing.T) {
 	tempDir := t.TempDir()
 	nginxRoot := filepath.Join(tempDir, "nginx")
