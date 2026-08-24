@@ -14,6 +14,12 @@ export function listProviderCapabilities(providerKey: string): Promise<ApiRecord
   return apiClient.get<ApiRecord>(toClientPath(`${PROVIDERS_PATH}/${encodeURIComponent(providerKey)}/capabilities`))
 }
 
+export function previewProviderDraftDiscovery(providerKey: string, payload: ApiBody): Promise<ApiRecordResult> {
+  return apiClient.post<ApiRecord>(toClientPath(`${PROVIDERS_PATH}/${encodeURIComponent(providerKey)}/draft-discovery`), payload, {
+    idempotencyKey: createIdempotencyKey('provider_draft_discovery')
+  })
+}
+
 export function listProviderCapabilityPlugins(): Promise<ApiRecordResult> {
   return apiClient.get<ApiRecord>(toClientPath('/api/v1/provider-capability-plugins'))
 }

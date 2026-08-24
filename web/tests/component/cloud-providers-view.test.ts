@@ -10,6 +10,7 @@ import CloudProvidersView from '@/views/providers/CloudProvidersView.vue'
 const providerApiMocks = vi.hoisted(() => ({
   listProviders: vi.fn(),
   listProviderCapabilities: vi.fn(),
+  previewProviderDraftDiscovery: vi.fn(),
   listCloudAccountAssets: vi.fn(),
   createCloudAccountAsset: vi.fn(),
   updateCloudAccountAsset: vi.fn(),
@@ -168,6 +169,35 @@ describe('CloudProvidersView', () => {
       requestId: 'req_create_ok',
       timestamp: '2026-08-06T00:00:00.000Z',
     })
+    providerApiMocks.previewProviderDraftDiscovery.mockResolvedValue({
+      data: {
+        providerKey: 'cloud.aliyun',
+        availableFrameworks: ['cloud.aliyun.cdn', 'cloud.aliyun.oss'],
+        connection: {
+          reachable: true,
+          accountId: 'detected-account',
+        },
+        discovery: {
+          frameworks: [
+            { stableKey: 'cloud.aliyun.cdn', frameworkType: 'cloud.aliyun.cdn', displayName: 'CDN' },
+          ],
+          sites: [
+            { stableKey: 'site-1', displayName: 'cdn.example.com', addresses: ['cdn.example.com'] },
+          ],
+          managedTargets: [
+            { stableKey: 'target-1', bindingKey: 'cdn.example.com', targetType: 'cloud.aliyun.cdn.domain' },
+          ],
+          warnings: [],
+        },
+        summary: {
+          frameworks: 1,
+          sites: 1,
+          managedTargets: 1,
+        },
+      },
+      requestId: 'req_preview_ok',
+      timestamp: '2026-08-06T00:00:00.000Z',
+    })
     credentialApiMocks.listCredentials.mockResolvedValue({
       data: {
         items: [
@@ -216,7 +246,7 @@ describe('CloudProvidersView', () => {
     expect(wrapper.findAll('.provider-card img')).toHaveLength(2)
   })
 
-  it('阿里云向导保存时只提交凭据引用和阿里云作用域字段', async () => {
+  it('阿里云向导保存时只提交凭据引用和阿里云高级作用域字段', async () => {
     const wrapper = mountView()
 
     await flushPromises()
@@ -237,6 +267,12 @@ describe('CloudProvidersView', () => {
     await flushPromises()
 
     await clickButton(wrapper, '下一步')
+
+    expect(wrapper.text()).toContain('选择要探测的产品')
+    expect(wrapper.text()).toContain('CDN')
+    expect(wrapper.text()).toContain('OSS')
+
+    await clickButton(wrapper, '高级作用域')
 
     expect(wrapper.text()).toContain('资源组 ID')
     expect(wrapper.text()).toContain('企业项目 ID')
@@ -263,7 +299,7 @@ describe('CloudProvidersView', () => {
     })
   })
 
-  it('腾讯云第三步展示项目和可用区字段，并按腾讯云作用域提交', async () => {
+  it('腾讯云第三步通过高级作用域展示项目和可用区字段，并按腾讯云作用域提交', async () => {
     const wrapper = mountView()
 
     await flushPromises()
@@ -283,6 +319,7 @@ describe('CloudProvidersView', () => {
     await flushPromises()
 
     await clickButton(wrapper, '下一步')
+    await clickButton(wrapper, '高级作用域')
 
     expect(wrapper.text()).toContain('项目 ID')
     expect(wrapper.text()).toContain('可用区')
@@ -306,6 +343,33 @@ describe('CloudProvidersView', () => {
         availabilityZone: 'ap-guangzhou-3',
       },
     })
+  })
+
+  it('第三步可基于草稿凭据执行资源探测并展示结果', async () => {
+    const wrapper = mountView()
+
+    await flushPromises()
+    await openAccountWizard(wrapper)
+    await clickButton(wrapper, '下一步')
+    await wrapper.get('input[placeholder="例如：生产阿里云账号"]').setValue('探测阿里云账号')
+    await wrapper.get('.provider-credential-select select').setValue('cred-aliyun')
+    await flushPromises()
+
+    await clickButton(wrapper, '下一步')
+    await clickButton(wrapper, '执行探测')
+
+    expect(providerApiMocks.previewProviderDraftDiscovery).toHaveBeenCalledWith('cloud.aliyun', {
+      assetId: undefined,
+      displayName: '探测阿里云账号',
+      accountId: undefined,
+      credentialRef: 'credential://cred-aliyun',
+      scope: {},
+      frameworkTypes: ['cloud.aliyun.cdn'],
+    })
+    expect(wrapper.text()).toContain('凭据校验结果')
+    expect(wrapper.text()).toContain('detected-account')
+    expect(wrapper.text()).toContain('cdn.example.com')
+    expect(wrapper.text()).toContain('受管目标数')
   })
 
   it('可在云账号向导内创建当前 Provider 的专用凭据并自动选中', async () => {

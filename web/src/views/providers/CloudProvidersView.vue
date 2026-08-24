@@ -10,6 +10,7 @@ import {
   listCloudAccountAssets,
   listProviderCapabilities,
   listProviders,
+  previewProviderDraftDiscovery,
   testCloudAccountAsset,
   updateCloudAccountAsset,
 } from '@/api/modules/providers.api'
@@ -72,6 +73,11 @@ const credentialCreateOpen = ref(false)
 const credentialCreateError = ref('')
 const credentialCreating = ref(false)
 const credentialRefreshKey = ref(0)
+const advancedScopeOpen = ref(false)
+const draftDiscoveryResult = ref<ApiRecord | null>(null)
+const draftDiscoveryError = ref('')
+const draftDiscoveryExecuted = ref(false)
+const selectedFrameworkTypes = ref<string[]>([])
 
 const accountDraft = reactive({
   displayName: '',
@@ -126,6 +132,7 @@ const providerOptions = computed(() => providers.value
   .filter((item) => item.value))
 
 const selectedProvider = computed(() => providerOptions.value.find((item) => item.value === accountDraft.providerKey) ?? providerOptions.value[0] ?? null)
+const selectedProviderRecord = computed(() => providers.value.find((item) => stringValue(item.providerKey) === accountDraft.providerKey) ?? null)
 const providerTokenValue = computed(() => providerToken(accountDraft.providerKey))
 const isEditing = computed(() => Boolean(editingAccountId.value))
 const selectedCredentialRef = computed(() => {
@@ -172,6 +179,16 @@ const operationOptions = computed(() =>
     .filter(Boolean),
 )
 
+const providerFrameworkOptions = computed(() => {
+  const supportedProducts = Array.isArray(selectedProviderRecord.value?.supportedProducts)
+    ? selectedProviderRecord.value?.supportedProducts.map((item) => String(item).trim()).filter(Boolean)
+    : []
+  return [...new Set(supportedProducts)].map((frameworkType) => ({
+    value: frameworkType,
+    label: frameworkLabel(frameworkType),
+  }))
+})
+
 const accountScopeHint = computed(() => t(`providers.scopeHints.${providerTokenValue.value}`))
 
 const accountScopeSummary = computed(() => {
@@ -206,6 +223,24 @@ const canSaveProviderCredential = computed(() => Boolean(
 const canGoNextFromStep1 = computed(() => Boolean(selectedProvider.value) && (isEditing.value || Boolean(accountDraft.providerKey.trim())))
 const canGoNextFromStep2 = computed(() => accountStepTwoReady.value)
 const canSaveAccount = computed(() => accountStepReady.value && !scopeValidationError.value)
+const canRunDraftDiscovery = computed(() =>
+  accountStepTwoReady.value
+  && selectedFrameworkTypes.value.length > 0
+  && !scopeValidationError.value
+  && Boolean(accountDraft.providerKey.trim()),
+)
+const draftDiscoveryConnection = computed(() => readRecord(draftDiscoveryResult.value?.connection))
+const draftDiscoverySummary = computed(() => readRecord(draftDiscoveryResult.value?.summary))
+const draftDiscoveryPayload = computed(() => readRecord(draftDiscoveryResult.value?.discovery))
+const draftDiscoveryFrameworks = computed(() => recordArray(draftDiscoveryPayload.value.frameworks))
+const draftDiscoverySites = computed(() => recordArray(draftDiscoveryPayload.value.sites))
+const draftDiscoveryTargets = computed(() => recordArray(draftDiscoveryPayload.value.managedTargets))
+const draftDiscoveryWarnings = computed(() => stringArray(draftDiscoveryPayload.value.warnings))
+const draftDiscoveryReachable = computed(() => Boolean(draftDiscoveryConnection.value.reachable))
+const draftDiscoveryAvailableAccountId = computed(() => stringValue(draftDiscoveryConnection.value.accountId))
+const draftDiscoveryHasResult = computed(() => draftDiscoveryExecuted.value && Boolean(draftDiscoveryResult.value))
+const draftDiscoverySitePreview = computed(() => draftDiscoverySites.value.slice(0, 8))
+const draftDiscoveryTargetPreview = computed(() => draftDiscoveryTargets.value.slice(0, 8))
 
 const config = computed<BusinessPageConfig>(() => ({
   title: t('providers.page.title'),
@@ -292,6 +327,18 @@ watch(locale, () => {
   reloadKey.value += 1
 })
 
+watch(providerFrameworkOptions, (options) => {
+  const allowed = new Set(options.map((item) => item.value))
+  const retained = selectedFrameworkTypes.value.filter((item) => allowed.has(item))
+  if (retained.length === 0 && options.length > 0) {
+    selectedFrameworkTypes.value = recommendedFrameworkTypes(options)
+    return
+  }
+  if (retained.length !== selectedFrameworkTypes.value.length) {
+    selectedFrameworkTypes.value = retained
+  }
+}, { immediate: true })
+
 async function loadCatalog(): Promise<void> {
   catalogLoading.value = true
   catalogError.value = ''
@@ -328,6 +375,7 @@ function openAccountForm(): void {
   })
   resetCredentialDraft()
   resetScopeDraft()
+  resetDraftDiscovery()
   accountFormOpen.value = true
 }
 
@@ -343,6 +391,7 @@ function openEditForm(row: ViewRow): void {
   })
   resetCredentialDraft()
   fillScopeDraft(row.raw.scope)
+  resetDraftDiscovery()
   accountFormOpen.value = true
 }
 
@@ -365,6 +414,7 @@ function chooseProvider(providerKey: string): void {
   if (accountDraft.providerKey !== providerKey) accountDraft.credentialRef = ''
   accountDraft.providerKey = providerKey
   resetCredentialDraft()
+  resetDraftDiscovery()
   if (accountFormStep.value === 1) return
 }
 
@@ -490,6 +540,41 @@ async function saveAccount(): Promise<void> {
     reloadKey.value += 1
   } catch (cause) {
     accountError.value = errorMessage(cause, t('providers.messages.createFailed'))
+  } finally {
+    actionLoading.value = ''
+  }
+}
+
+async function runDraftDiscovery(): Promise<void> {
+  accountError.value = ''
+  draftDiscoveryError.value = ''
+  if (!canRunDraftDiscovery.value) {
+    draftDiscoveryError.value = scopeValidationError.value || t('providers.messages.frameworkRequired')
+    return
+  }
+  actionLoading.value = 'draft-discovery'
+  try {
+    const result = await previewProviderDraftDiscovery(accountDraft.providerKey, {
+      assetId: editingAccountId.value || undefined,
+      displayName: accountDraft.displayName.trim(),
+      accountId: accountDraft.accountId.trim() || undefined,
+      credentialRef: selectedCredentialRef.value,
+      scope: buildScope(),
+      frameworkTypes: selectedFrameworkTypes.value,
+    })
+    draftDiscoveryResult.value = readRecord(result.data)
+    draftDiscoveryExecuted.value = true
+    const discoveredAccountId = stringValue(readRecord(draftDiscoveryResult.value.connection).accountId)
+    if (!accountDraft.accountId.trim() && discoveredAccountId) {
+      accountDraft.accountId = discoveredAccountId
+    }
+    notice.value = t('providers.messages.draftDiscoveryCompleted', {
+      frameworks: numberValue(draftDiscoverySummary.value.frameworks),
+      sites: numberValue(draftDiscoverySummary.value.sites),
+      managedTargets: numberValue(draftDiscoverySummary.value.managedTargets),
+    })
+  } catch (cause) {
+    draftDiscoveryError.value = errorMessage(cause, t('providers.messages.draftDiscoveryFailed'))
   } finally {
     actionLoading.value = ''
   }
@@ -647,6 +732,30 @@ function resetScopeDraft(): void {
   scopeDraft.metadataJson = '{}'
 }
 
+function resetDraftDiscovery(): void {
+  advancedScopeOpen.value = false
+  draftDiscoveryResult.value = null
+  draftDiscoveryError.value = ''
+  draftDiscoveryExecuted.value = false
+  if (providerFrameworkOptions.value.length > 0) {
+    selectedFrameworkTypes.value = recommendedFrameworkTypes(providerFrameworkOptions.value)
+  }
+}
+
+function recommendedFrameworkTypes(options: Array<{ value: string; label: string }>): string[] {
+  const cdn = options.filter((item) => item.value.endsWith('.cdn')).map((item) => item.value)
+  return cdn.length > 0 ? cdn : options.slice(0, 1).map((item) => item.value)
+}
+
+function toggleFrameworkType(frameworkType: string): void {
+  const values = new Set(selectedFrameworkTypes.value)
+  if (values.has(frameworkType)) values.delete(frameworkType)
+  else values.add(frameworkType)
+  selectedFrameworkTypes.value = providerFrameworkOptions.value
+    .map((item) => item.value)
+    .filter((item) => values.has(item))
+}
+
 function parseMetadataJson(value: string): Record<string, unknown> {
   const trimmed = value.trim()
   if (!trimmed || trimmed === '{}') return {}
@@ -685,6 +794,10 @@ function readRecord(value: unknown): ApiRecord {
   return isRecord(value) ? value : {}
 }
 
+function recordArray(value: unknown): ApiRecord[] {
+  return Array.isArray(value) ? value.filter(isRecord) : []
+}
+
 function isRecord(value: unknown): value is ApiRecord {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
@@ -695,6 +808,10 @@ function stringValue(value: unknown): string {
 
 function numberValue(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.trim() !== '') : []
 }
 
 function errorMessage(cause: unknown, fallback: string): string {
@@ -741,8 +858,8 @@ function errorMessage(cause: unknown, fallback: string): string {
             <button type="button" class="provider-wizard__step-button" :disabled="!canGoNextFromStep2 || accountFormStep === 3" @click="accountFormStep = 3">
               <span class="provider-wizard__step-index">3</span>
               <span>
-                <strong>{{ t('providers.wizard.steps.scope') }}</strong>
-                <small>{{ t('providers.wizard.stepDescriptions.scope') }}</small>
+                <strong>{{ t('providers.wizard.steps.discovery') }}</strong>
+                <small>{{ t('providers.wizard.stepDescriptions.discovery') }}</small>
               </span>
             </button>
           </li>
@@ -881,8 +998,8 @@ function errorMessage(cause: unknown, fallback: string): string {
         <section v-else class="provider-wizard__panel">
           <header class="provider-wizard__panel-header">
             <div>
-              <h3>{{ t('providers.wizard.panels.scopeTitle') }}</h3>
-              <p>{{ t('providers.wizard.panels.scopeDescription') }}</p>
+              <h3>{{ t('providers.wizard.panels.discoveryTitle') }}</h3>
+              <p>{{ t('providers.wizard.panels.discoveryDescription') }}</p>
             </div>
             <span class="provider-wizard__state is-active">{{ t('providers.wizard.state.active') }}</span>
           </header>
@@ -891,48 +1008,191 @@ function errorMessage(cause: unknown, fallback: string): string {
             <div><span>{{ t('providers.wizard.summary.account') }}</span><strong>{{ accountDraft.displayName || t('providers.messages.scopeEmpty') }}</strong></div>
             <div><span>{{ t('providers.wizard.summary.credential') }}</span><strong>{{ accountCredentialSummary }}</strong></div>
           </div>
-          <p class="provider-wizard__hint">{{ accountScopeHint }}</p>
-          <div class="provider-wizard__grid">
-            <label class="provider-field provider-field--wide">
-              <span>{{ t('providers.fields.regions') }}</span>
-              <textarea v-model="scopeDraft.regionsText" :placeholder="t('providers.placeholders.regions')" />
-              <small>{{ t('providers.messages.regionHint') }}</small>
-            </label>
-            <template v-if="providerTokenValue === 'aliyun'">
-              <label class="provider-field">
-                <span>{{ t('providers.fields.resourceGroupId') }}</span>
-                <input v-model="scopeDraft.resourceGroupId" :placeholder="t('providers.placeholders.resourceGroupId')" />
-              </label>
-              <label class="provider-field">
-                <span>{{ t('providers.fields.enterpriseProjectId') }}</span>
-                <input v-model="scopeDraft.enterpriseProjectId" :placeholder="t('providers.placeholders.enterpriseProjectId')" />
-              </label>
+          <section class="provider-discovery">
+            <div class="provider-discovery__section">
+              <div class="provider-discovery__section-header">
+                <div>
+                  <h4>{{ t('providers.discovery.frameworkTitle') }}</h4>
+                  <p>{{ t('providers.discovery.frameworkDescription') }}</p>
+                </div>
+                <strong>{{ selectedFrameworkTypes.length }}/{{ providerFrameworkOptions.length }}</strong>
+              </div>
+              <div v-if="providerFrameworkOptions.length" class="provider-discovery__frameworks">
+                <button
+                  v-for="item in providerFrameworkOptions"
+                  :key="item.value"
+                  type="button"
+                  class="provider-framework-chip"
+                  :class="{ 'provider-framework-chip--selected': selectedFrameworkTypes.includes(item.value) }"
+                  @click="toggleFrameworkType(item.value)"
+                >
+                  <span>{{ item.label }}</span>
+                  <small>{{ item.value }}</small>
+                </button>
+              </div>
+              <p v-else class="provider-wizard__hint">{{ t('providers.messages.noCapabilities') }}</p>
+              <div class="provider-discovery__actions">
+                <button class="gc-button gc-button--primary" type="button" :disabled="!canRunDraftDiscovery || Boolean(actionLoading)" @click="runDraftDiscovery">
+                  {{ t('providers.actions.detectDraft') }}
+                </button>
+                <button class="gc-button" type="button" @click="advancedScopeOpen = !advancedScopeOpen">
+                  {{ advancedScopeOpen ? t('providers.actions.hideAdvanced') : t('providers.actions.showAdvanced') }}
+                </button>
+              </div>
+              <p class="provider-wizard__hint">{{ t('providers.messages.discoveryHint') }}</p>
+            </div>
+
+            <div v-if="draftDiscoveryError" class="provider-message provider-message--error">{{ draftDiscoveryError }}</div>
+
+            <template v-if="draftDiscoveryHasResult">
+              <div class="provider-discovery__section">
+                <div class="provider-discovery__section-header">
+                  <div>
+                    <h4>{{ t('providers.discovery.connectionTitle') }}</h4>
+                    <p>{{ t('providers.discovery.connectionDescription') }}</p>
+                  </div>
+                  <span class="provider-wizard__state" :class="draftDiscoveryReachable ? 'is-ready' : 'is-incomplete'">
+                    {{ draftDiscoveryReachable ? t('providers.status.success') : t('providers.status.error') }}
+                  </span>
+                </div>
+                <div class="provider-wizard__preview">
+                  <div><span>{{ t('providers.fields.accountId') }}</span><strong>{{ draftDiscoveryAvailableAccountId || accountDraft.accountId || t('common.notAvailable') }}</strong></div>
+                  <div><span>{{ t('providers.discovery.selectedFrameworks') }}</span><strong>{{ selectedFrameworkTypes.map((item) => frameworkLabel(item)).join(' / ') }}</strong></div>
+                  <div><span>{{ t('providers.fields.scope') }}</span><strong>{{ accountScopeSummary }}</strong></div>
+                </div>
+              </div>
+
+              <div class="provider-discovery__metrics">
+                <article>
+                  <span>{{ t('providers.discovery.metrics.frameworks') }}</span>
+                  <strong>{{ numberValue(draftDiscoverySummary.frameworks) }}</strong>
+                </article>
+                <article>
+                  <span>{{ t('providers.discovery.metrics.sites') }}</span>
+                  <strong>{{ numberValue(draftDiscoverySummary.sites) }}</strong>
+                </article>
+                <article>
+                  <span>{{ t('providers.discovery.metrics.managedTargets') }}</span>
+                  <strong>{{ numberValue(draftDiscoverySummary.managedTargets) }}</strong>
+                </article>
+              </div>
+
+              <div v-if="draftDiscoveryFrameworks.length" class="provider-discovery__section">
+                <div class="provider-discovery__section-header">
+                  <div>
+                    <h4>{{ t('providers.discovery.frameworkResultTitle') }}</h4>
+                    <p>{{ t('providers.discovery.frameworkResultDescription') }}</p>
+                  </div>
+                </div>
+                <div class="provider-discovery__list provider-discovery__list--compact">
+                  <article v-for="item in draftDiscoveryFrameworks" :key="stringValue(item.stableKey) || stringValue(item.frameworkType)">
+                    <strong>{{ stringValue(item.displayName) || frameworkLabel(stringValue(item.frameworkType)) }}</strong>
+                    <small>{{ stringValue(item.frameworkType) }}</small>
+                  </article>
+                </div>
+              </div>
+
+              <div v-if="draftDiscoverySitePreview.length" class="provider-discovery__section">
+                <div class="provider-discovery__section-header">
+                  <div>
+                    <h4>{{ t('providers.discovery.siteTitle') }}</h4>
+                    <p>{{ t('providers.discovery.siteDescription') }}</p>
+                  </div>
+                  <strong>{{ draftDiscoverySites.length }}</strong>
+                </div>
+                <div class="provider-discovery__list">
+                  <article v-for="item in draftDiscoverySitePreview" :key="stringValue(item.stableKey)">
+                    <strong>{{ stringValue(item.displayName) || stringValue(item.stableKey) }}</strong>
+                    <small>{{ (Array.isArray(item.addresses) ? item.addresses.join(' / ') : '') || stringValue(item.siteType) }}</small>
+                  </article>
+                </div>
+              </div>
+
+              <div v-if="draftDiscoveryTargetPreview.length" class="provider-discovery__section">
+                <div class="provider-discovery__section-header">
+                  <div>
+                    <h4>{{ t('providers.discovery.targetTitle') }}</h4>
+                    <p>{{ t('providers.discovery.targetDescription') }}</p>
+                  </div>
+                  <strong>{{ draftDiscoveryTargets.length }}</strong>
+                </div>
+                <div class="provider-discovery__list">
+                  <article v-for="item in draftDiscoveryTargetPreview" :key="stringValue(item.stableKey)">
+                    <strong>{{ stringValue(item.bindingKey) || stringValue(item.targetKey) || stringValue(item.stableKey) }}</strong>
+                    <small>{{ stringValue(item.targetType) }}</small>
+                  </article>
+                </div>
+              </div>
+
+              <div v-if="draftDiscoveryWarnings.length" class="provider-discovery__section">
+                <div class="provider-discovery__section-header">
+                  <div>
+                    <h4>{{ t('providers.discovery.warningTitle') }}</h4>
+                    <p>{{ t('providers.discovery.warningDescription') }}</p>
+                  </div>
+                </div>
+                <ul class="provider-discovery__warnings">
+                  <li v-for="warning in draftDiscoveryWarnings" :key="warning">{{ warning }}</li>
+                </ul>
+              </div>
+
+              <p v-if="!draftDiscoverySites.length && !draftDiscoveryTargets.length" class="provider-wizard__hint">
+                {{ t('providers.messages.discoveryEmpty') }}
+              </p>
             </template>
-            <template v-else>
-              <label class="provider-field">
-                <span>{{ t('providers.fields.projectId') }}</span>
-                <input v-model="scopeDraft.projectId" :placeholder="t('providers.placeholders.projectId')" />
-              </label>
-              <label class="provider-field">
-                <span>{{ t('providers.fields.availabilityZone') }}</span>
-                <input v-model="scopeDraft.availabilityZone" :placeholder="t('providers.placeholders.availabilityZone')" />
-              </label>
-            </template>
-            <label class="provider-field provider-field--wide">
-              <span>{{ t('providers.fields.endpoint') }}</span>
-              <input v-model="scopeDraft.endpoint" :placeholder="t('providers.placeholders.endpoint')" />
-            </label>
-            <label class="provider-field provider-field--wide">
-              <span>{{ t('providers.fields.metadataJson') }}</span>
-              <textarea v-model="scopeDraft.metadataJson" :placeholder="t('providers.placeholders.metadataJson')" />
-              <small>{{ t('providers.messages.metadataHint') }}</small>
-            </label>
-          </div>
-          <p v-if="scopeValidationError" class="provider-wizard__error">{{ scopeValidationError }}</p>
-          <p v-else class="provider-wizard__hint">{{ t('providers.messages.scopeHint') }}</p>
-          <div class="provider-wizard__preview">
-            <div><span>{{ t('providers.fields.scope') }}</span><strong>{{ accountScopeSummary }}</strong></div>
-          </div>
+            <p v-else class="provider-wizard__hint">{{ t('providers.messages.discoveryIdle') }}</p>
+
+            <section v-if="advancedScopeOpen" class="provider-discovery__section">
+              <div class="provider-discovery__section-header">
+                <div>
+                  <h4>{{ t('providers.discovery.advancedTitle') }}</h4>
+                  <p>{{ t('providers.discovery.advancedDescription') }}</p>
+                </div>
+              </div>
+              <p class="provider-wizard__hint">{{ accountScopeHint }}</p>
+              <div class="provider-wizard__grid">
+                <label class="provider-field provider-field--wide">
+                  <span>{{ t('providers.fields.regions') }}</span>
+                  <textarea v-model="scopeDraft.regionsText" :placeholder="t('providers.placeholders.regions')" />
+                  <small>{{ t('providers.messages.regionHint') }}</small>
+                </label>
+                <template v-if="providerTokenValue === 'aliyun'">
+                  <label class="provider-field">
+                    <span>{{ t('providers.fields.resourceGroupId') }}</span>
+                    <input v-model="scopeDraft.resourceGroupId" :placeholder="t('providers.placeholders.resourceGroupId')" />
+                  </label>
+                  <label class="provider-field">
+                    <span>{{ t('providers.fields.enterpriseProjectId') }}</span>
+                    <input v-model="scopeDraft.enterpriseProjectId" :placeholder="t('providers.placeholders.enterpriseProjectId')" />
+                  </label>
+                </template>
+                <template v-else>
+                  <label class="provider-field">
+                    <span>{{ t('providers.fields.projectId') }}</span>
+                    <input v-model="scopeDraft.projectId" :placeholder="t('providers.placeholders.projectId')" />
+                  </label>
+                  <label class="provider-field">
+                    <span>{{ t('providers.fields.availabilityZone') }}</span>
+                    <input v-model="scopeDraft.availabilityZone" :placeholder="t('providers.placeholders.availabilityZone')" />
+                  </label>
+                </template>
+                <label class="provider-field provider-field--wide">
+                  <span>{{ t('providers.fields.endpoint') }}</span>
+                  <input v-model="scopeDraft.endpoint" :placeholder="t('providers.placeholders.endpoint')" />
+                </label>
+                <label class="provider-field provider-field--wide">
+                  <span>{{ t('providers.fields.metadataJson') }}</span>
+                  <textarea v-model="scopeDraft.metadataJson" :placeholder="t('providers.placeholders.metadataJson')" />
+                  <small>{{ t('providers.messages.metadataHint') }}</small>
+                </label>
+              </div>
+              <p v-if="scopeValidationError" class="provider-wizard__error">{{ scopeValidationError }}</p>
+              <p v-else class="provider-wizard__hint">{{ t('providers.messages.scopeHint') }}</p>
+              <div class="provider-wizard__preview">
+                <div><span>{{ t('providers.fields.scope') }}</span><strong>{{ accountScopeSummary }}</strong></div>
+              </div>
+            </section>
+          </section>
         </section>
 
         <p v-if="accountError" class="provider-wizard__error">{{ accountError }}</p>
@@ -1467,6 +1727,108 @@ function errorMessage(cause: unknown, fallback: string): string {
   font-weight: 850;
 }
 
+.provider-discovery {
+  display: grid;
+  gap: var(--gc-space-4);
+}
+
+.provider-discovery__section {
+  display: grid;
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-4);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-md);
+  background: var(--gc-color-surface-soft);
+}
+
+.provider-discovery__section-header,
+.provider-discovery__actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+}
+
+.provider-discovery__section-header h4,
+.provider-discovery__section-header p {
+  margin: 0;
+}
+
+.provider-discovery__section-header h4 {
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-md);
+}
+
+.provider-discovery__section-header p,
+.provider-framework-chip small,
+.provider-discovery__list small,
+.provider-discovery__warnings {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+}
+
+.provider-discovery__frameworks,
+.provider-discovery__metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gc-space-3);
+}
+
+.provider-framework-chip,
+.provider-discovery__metrics article,
+.provider-discovery__list article {
+  display: grid;
+  gap: var(--gc-space-1);
+  padding: var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-md);
+  background: var(--gc-color-surface-solid);
+  color: var(--gc-color-text);
+  text-align: left;
+}
+
+.provider-framework-chip--selected {
+  border-color: var(--gc-color-primary-border-strong);
+  background: var(--gc-color-primary-soft);
+}
+
+.provider-framework-chip span,
+.provider-discovery__metrics strong,
+.provider-discovery__list strong {
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-sm);
+  font-weight: 850;
+}
+
+.provider-discovery__metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.provider-discovery__metrics article span {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 850;
+}
+
+.provider-discovery__metrics strong {
+  font-size: var(--gc-font-size-xl);
+  line-height: 1.1;
+}
+
+.provider-discovery__list {
+  display: grid;
+  gap: var(--gc-space-2);
+}
+
+.provider-discovery__list--compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.provider-discovery__warnings {
+  margin: 0;
+  padding-left: var(--gc-space-4);
+}
+
 .provider-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1518,6 +1880,9 @@ function errorMessage(cause: unknown, fallback: string): string {
   .provider-wizard__summary,
   .provider-wizard__preview,
   .provider-credential-requirements,
+  .provider-discovery__frameworks,
+  .provider-discovery__metrics,
+  .provider-discovery__list--compact,
   .provider-credential-select,
   .provider-form {
     grid-template-columns: 1fr;
@@ -1536,6 +1901,11 @@ function errorMessage(cause: unknown, fallback: string): string {
   }
 
   .provider-inline-credential__header {
+    display: grid;
+  }
+
+  .provider-discovery__section-header,
+  .provider-discovery__actions {
     display: grid;
   }
 }
