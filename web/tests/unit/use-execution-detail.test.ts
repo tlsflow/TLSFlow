@@ -280,6 +280,7 @@ describe('useExecutionDetail', () => {
 
     await vi.waitFor(() => expect(detail?.hasUnknownResult.value).toBe(true))
     expect(detail?.steps.value[0]?.unknownResult).toBe(true)
+    expect(detail?.steps.value[0]?.status).toBe('UNKNOWN')
     expect(detail?.steps.value[0]?.detail).toContain('PLUGIN_OPERATION_UNKNOWN_STATE')
     expect(detail?.steps.value[0]?.detail).toContain('系统不会自动重放')
     expect(detail?.steps.value[0]?.diagnostics?.some((item) => item.label === 'errorCode')).toBe(true)

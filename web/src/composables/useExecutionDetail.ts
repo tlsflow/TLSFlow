@@ -231,7 +231,8 @@ export function useExecutionDetail(selectedRow: { readonly value: ViewRow | null
         id: readString(record, ['id', 'stepId'], `${runId.value}-step-${index + 1}`),
         name: friendlyStepName(record, index, text),
         stepType: readString(record, ['stepType', 'type'], ''),
-        status: readString(record, ['status', 'state', 'result'], 'UNKNOWN'),
+        // UNKNOWN 是写入结果的安全状态，不是可重放的 RUNNING；避免取消后步骤永远显示“执行中”。
+        status: unknownResult ? 'UNKNOWN' : readString(record, ['status', 'state', 'result'], 'UNKNOWN'),
         detail: buildStepDetail(record, index, text),
         startedAt: formatStepRange(record, 'start'),
         finishedAt: formatStepRange(record, 'end'),
