@@ -1,0 +1,61 @@
+# Windows Go Full Agent
+
+这是 `012.1` 对应的 **Windows Go Full Agent** 最小真实闭环落地产物。
+
+当前已包含：
+
+- Go 主入口 `gcac-agent.exe`
+- Windows Service 正式宿主骨架
+- 控制面注册、心跳、拉任务、ack、日志和结果回传
+- 本地任务幂等账本与 Recovery Ledger
+- Windows Adapter 基础能力采集
+- IIS Provider 最小真实闭环：`PFX -> 私钥 ACL -> Binding -> TLS 验证 -> 失败回滚`
+- Windows 配置模板
+- 安装、卸载、运维辅助脚本
+- 最小前台运行、自检、健康检查和服务信息输出
+
+当前明确不包含：
+
+- 多 Provider 并发调度与更通用的 Provider 插件化框架
+- SecretRef 正式解析链路
+- 更完整的实机验收记录与环境矩阵文档沉淀
+
+## 关键边界
+
+- 正式宿主是 `gcac-agent.exe`
+- Windows Service 不再启动 `powershell.exe -File ...`
+- PowerShell 脚本只保留为安装器和运维辅助资产
+
+## 目录
+
+- `main.go`
+- `go.mod`
+- `config/agent.config.template.json`
+- `install-service.ps1`
+- `uninstall-service.ps1`
+- `service-control.ps1`
+
+## 构建
+
+```powershell
+go build -o gcac-agent.exe .
+```
+
+## 运维入口
+
+- 安装服务：`powershell -ExecutionPolicy Bypass -File .\install-service.ps1`
+- 卸载服务：`powershell -ExecutionPolicy Bypass -File .\uninstall-service.ps1`
+- 查看状态：`powershell -ExecutionPolicy Bypass -File .\service-control.ps1 -Action status`
+- 自检：`powershell -ExecutionPolicy Bypass -File .\service-control.ps1 -Action selfcheck`
+- 健康检查：`powershell -ExecutionPolicy Bypass -File .\service-control.ps1 -Action healthcheck`
+- 服务信息：`powershell -ExecutionPolicy Bypass -File .\service-control.ps1 -Action service-info`
+
+## 安装迁移行为
+
+- 如果目标宿主之前安装过旧版 PowerShell Windows agent，`install-service.ps1` 会先探测并卸载旧服务，再安装新的 Go agent。
+- 旧宿主识别范围包括：`gcac-full-agent-ps*` 服务名、`GCAC PowerShell Full Agent` 显示名，以及旧安装根目录 `C:\Program Files\GCAC\FullAgentPS` / 旧元数据 `C:\ProgramData\GCAC\FullAgent\service.install.json`。
+- 这一步是强制迁移，不允许 Go agent 与旧 PowerShell 正式宿主并存。
+
+## 当前结论
+
+这一版已经不再是“Go 外壳包 PowerShell Runtime”的假迁移，而是 Go 正式承担宿主、控制面、账本和 Provider 调度，PowerShell 只保留为安装器、排障脚本和受控平台动作边界。

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "full-agent.go.windows.config.v1",
+  "tenantId": "CHANGE_ME_TENANT_ID",
+  "agentKey": "wingo.mid.change-me",
+  "zone": "default",
+  "controlPlaneUrl": "https://gcac.example.invalid",
+  "heartbeatIntervalSeconds": 30,
+  "paths": {
+    "windows": {
+      "configPath": "C:\\ProgramData\\GCAC\\FullAgentGo\\config\\agent.config.json",
+      "dataDir": "C:\\ProgramData\\GCAC\\FullAgentGo\\data",
+      "logDir": "C:\\ProgramData\\GCAC\\FullAgentGo\\logs"
+    }
+  },
+  "service": {
+    "name": "gcac-agent",
+    "displayName": "GCAC Go Full Agent"
+  }
+}

@@ -1,78 +1,42 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
-  [ValidateSet("start", "stop", "restart", "status", "selfcheck", "healthcheck")]
+  [ValidateSet("start", "stop", "restart", "status", "selfcheck", "healthcheck", "service-info")]
   [string]$Action,
 
-  [string]$ServiceName = "gcac-full-agent-ps",
-  [string]$InstallRoot = "C:\Program Files\GCAC\FullAgentPS",
-  [string]$ConfigDir = "C:\ProgramData\GCAC\FullAgent",
-  [string]$LogDir = "C:\ProgramData\GCAC\FullAgent\logs",
-  [string]$ConfigPath = ""
+  [string]$ServiceName = "gcac-agent",
+  [string]$BinaryPath = "C:\Program Files\GCAC\FullAgentGo\gcac-agent.exe",
+  [string]$ConfigDir = "C:\ProgramData\GCAC\FullAgentGo\config",
+  [string]$LogDir = "C:\ProgramData\GCAC\FullAgentGo\logs",
+  [string]$ConfigPath = "",
+  [string]$MetadataPath = "C:\ProgramData\GCAC\FullAgentGo\service.install.json"
 )
 
 $ErrorActionPreference = "Stop"
 
-function Get-GcacInstalledEntryPath {
-  param(
-    [string]$InstallRootPath
-  )
+$sourceRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$repoRoot = Split-Path -Parent (Split-Path -Parent $sourceRoot)
+$goAgentRoot = Join-Path $repoRoot "agents\windows-go-full-agent"
+$goController = Join-Path $goAgentRoot "service-control.ps1"
 
-  $entryPath = Join-Path $InstallRootPath "Start-GcacFullAgent.ps1"
-  if (-not (Test-Path -LiteralPath $entryPath)) {
-    throw "Installed agent entry script not found: $entryPath"
-  }
-
-  return $entryPath
+if (-not (Test-Path -LiteralPath $goController)) {
+  throw "Go agent service control script not found: $goController"
 }
 
-function Get-GcacInstalledConfigPath {
-  param(
-    [string]$ConfigRoot,
-    [string]$ExplicitConfigPath
-  )
+Write-Host "Legacy PowerShell service-control entry detected."
+Write-Host "This entry now delegates to the Go agent service-control script."
+Write-Host "Target controller: $goController"
 
-  if (-not [string]::IsNullOrWhiteSpace($ExplicitConfigPath)) {
-    if (-not (Test-Path -LiteralPath $ExplicitConfigPath)) {
-      throw "Specified config file not found: $ExplicitConfigPath"
-    }
-
-    return $ExplicitConfigPath
-  }
-
-  $configPath = Join-Path $ConfigRoot "agent.config.json"
-  if (-not (Test-Path -LiteralPath $configPath)) {
-    throw "Installed agent config not found: $configPath"
-  }
-
-  return $configPath
+if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
+  $ConfigPath = Join-Path $ConfigDir "agent.config.json"
 }
 
-$powershellExe = Join-Path $PSHOME "powershell.exe"
+& $goController `
+  -Action $Action `
+  -ServiceName $ServiceName `
+  -BinaryPath $BinaryPath `
+  -ConfigPath $ConfigPath `
+  -MetadataPath $MetadataPath
 
-switch ($Action) {
-  "start" {
-    Start-Service -Name $ServiceName
-    Get-Service -Name $ServiceName
-  }
-  "stop" {
-    Stop-Service -Name $ServiceName
-    Get-Service -Name $ServiceName
-  }
-  "restart" {
-    Restart-Service -Name $ServiceName
-    Get-Service -Name $ServiceName
-  }
-  "status" {
-    Get-Service -Name $ServiceName
-  }
-  "selfcheck" {
-    $entryPath = Get-GcacInstalledEntryPath -InstallRootPath $InstallRoot
-    $configPath = Get-GcacInstalledConfigPath -ConfigRoot $ConfigDir -ExplicitConfigPath $ConfigPath
-    & $powershellExe -NoProfile -ExecutionPolicy Bypass -File $entryPath -SelfCheck -ConfigPath $configPath -LogDir $LogDir
-  }
-  "healthcheck" {
-    $entryPath = Get-GcacInstalledEntryPath -InstallRootPath $InstallRoot
-    $configPath = Get-GcacInstalledConfigPath -ConfigRoot $ConfigDir -ExplicitConfigPath $ConfigPath
-    & $powershellExe -NoProfile -ExecutionPolicy Bypass -File $entryPath -HealthCheck -ConfigPath $configPath -LogDir $LogDir
-  }
+if ($LASTEXITCODE -ne 0) {
+  throw "Go agent service-control script exited with code $LASTEXITCODE"
 }
