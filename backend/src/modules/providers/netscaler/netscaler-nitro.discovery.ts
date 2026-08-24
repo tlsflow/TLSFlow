@@ -42,7 +42,7 @@ export async function discoverNetscaler(client: NetscalerNitroClient): Promise<N
     ? normalizeNetscalerCertificates(await readRows(client, 'sslcertkey', warnings), sourceVersion)
     : [];
   const bindings = capabilityProfile.discovery.sslBindings
-    ? normalizeNetscalerBindings(await readRows(client, 'sslvserver_sslcertkey_binding', warnings), sourceVersion)
+    ? normalizeNetscalerBindings(await readRows(client, 'sslvserver_sslcertkey_binding', warnings, { bulkbindings: 'yes' }), sourceVersion)
     : [];
 
   return {
@@ -64,9 +64,9 @@ export async function discoverNetscaler(client: NetscalerNitroClient): Promise<N
   };
 }
 
-async function readRows(client: NetscalerNitroClient, resource: string, warnings: string[]): Promise<unknown[]> {
+async function readRows(client: NetscalerNitroClient, resource: string, warnings: string[], query?: Record<string, string>): Promise<unknown[]> {
   try {
-    const response = await client.request({ path: `/nitro/v1/config/${resource}` });
+    const response = await client.request({ path: `/nitro/v1/config/${resource}`, query });
     return Array.isArray(response[resource]) ? response[resource] as unknown[] : [];
   } catch (error) {
     warnings.push(`${resource}:${error instanceof Error ? error.name : 'UNKNOWN_ERROR'}`);
