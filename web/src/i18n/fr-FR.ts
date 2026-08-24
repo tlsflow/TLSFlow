@@ -450,6 +450,16 @@ export default {
     actions: { backToList: 'Retour à la liste', viewAll: 'Voir toutes les tâches', viewRawLogs: 'Voir les journaux bruts', search: 'Rechercher', reset: 'Réinitialiser', previousPage: 'Page précédente', nextPage: 'Page suivante', forceCancel: 'Arrêt forcé', forceCancelConfirm: 'Forcer l’arrêt de cette tâche ? Une action distante en cours peut nécessiter une vérification manuelle.', forceCancelReason: 'Arrêt forcé par un opérateur depuis les tâches globales' },
     messages: { loadFailed: 'Impossible de charger les tâches.', detailFailed: 'Impossible de charger le détail de la tâche.', forceCancelFailed: 'Impossible d’arrêter la tâche.' },
     values: { system: 'Système', empty: 'Aucun enregistrement', none: 'Aucune' },
+    approval: {
+      title: 'Détail de la tâche d’approbation',
+      description: 'Consultez le contenu, l’historique du statut et les actions disponibles.',
+      contentTitle: 'Contenu de l’approbation',
+      fields: { operation: 'Opération', target: 'Cible', approvalId: 'ID d’approbation', requestedBy: 'Demandeur', riskLevel: 'Niveau de risque', createdAt: 'Soumise le', decision: 'Décision', summary: 'Résumé de l’opération' },
+      content: { deployment: 'Déploiement du certificat', automation: 'Exécution automatisée', defaultSummary: 'Cette tâche attend une décision d’approbation.' },
+      values: { approved: 'Approuvée', rejected: 'Rejetée', pending: 'En attente d’approbation' },
+      timelineTitle: 'Chronologie du statut',
+      timeline: { created: 'Approbation soumise', createdDescription: 'La tâche a été créée et attend un approbateur.', approved: 'Approbation accordée', approvedDescription: 'L’approbateur a autorisé la poursuite de l’opération.', rejected: 'Approbation rejetée', rejectedDescription: 'L’approbateur a rejeté cette opération.', forceEnded: 'Tâche arrêtée de force', forceEndedDescription: 'Un opérateur a arrêté cette tâche de force.', pending: 'Approbation en cours', pendingDescription: 'Le système attend le résultat de l’approbation.' }
+    },
     relatedNames: { builtinCatalog: 'Catalogue de plugins intégré', deploymentPlan: 'Plan de déploiement', acmeRenewal: 'Fournisseur ACME ({provider}) - renouvellement du certificat {certificate}' },
     acmeHistory: {
       queued: { title: 'En attente de renouvellement', description: 'Le système attend de traiter ce renouvellement de certificat.' },

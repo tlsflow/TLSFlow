@@ -454,6 +454,16 @@ export default {
     actions: { backToList: 'Вернуться к списку', viewAll: 'Посмотреть все задачи', viewRawLogs: 'Показать исходные журналы', search: 'Поиск', reset: 'Сбросить', previousPage: 'Предыдущая страница', nextPage: 'Следующая страница', forceCancel: 'Принудительно остановить', forceCancelConfirm: 'Принудительно остановить эту задачу? Для уже выполняющегося удалённого действия может потребоваться ручная проверка.', forceCancelReason: 'Принудительно остановлено оператором из глобальных задач' },
     messages: { loadFailed: 'Не удалось загрузить задачи.', detailFailed: 'Не удалось загрузить сведения о задаче.', forceCancelFailed: 'Не удалось принудительно остановить задачу.' },
     values: { system: 'Система', empty: 'Нет записей', none: 'Нет' },
+    approval: {
+      title: 'Сведения о задаче согласования',
+      description: 'Просмотрите содержание согласования, историю статуса и доступные действия.',
+      contentTitle: 'Содержание согласования',
+      fields: { operation: 'Операция', target: 'Цель', approvalId: 'ID согласования', requestedBy: 'Инициатор', riskLevel: 'Уровень риска', createdAt: 'Отправлено', decision: 'Решение', summary: 'Описание операции' },
+      content: { deployment: 'Развертывание сертификата', automation: 'Автоматический запуск', defaultSummary: 'Эта задача ожидает решения по согласованию.' },
+      values: { approved: 'Согласовано', rejected: 'Отклонено', pending: 'Ожидает согласования' },
+      timelineTitle: 'Хронология статуса',
+      timeline: { created: 'Согласование отправлено', createdDescription: 'Задача создана и ожидает обработки согласующим.', approved: 'Согласование выдано', approvedDescription: 'Согласующий разрешил продолжить операцию.', rejected: 'Согласование отклонено', rejectedDescription: 'Согласующий отклонил эту операцию.', forceEnded: 'Задача завершена принудительно', forceEndedDescription: 'Оператор принудительно завершил эту задачу.', pending: 'Согласование выполняется', pendingDescription: 'Система ожидает результата согласования.' }
+    },
     relatedNames: { builtinCatalog: 'Встроенный каталог плагинов', deploymentPlan: 'План развёртывания', acmeRenewal: 'ACME Provider ({provider}) - продление сертификата {certificate}' },
     acmeHistory: {
       queued: { title: 'Ожидание продления', description: 'Система ожидает обработки этого продления сертификата.' },

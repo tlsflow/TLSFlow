@@ -454,6 +454,16 @@ export default {
     actions: { backToList: '一覧に戻る', viewAll: 'すべてのタスクを表示', viewRawLogs: '生ログを表示', search: '検索', reset: 'リセット', previousPage: '前のページ', nextPage: '次のページ', forceCancel: '強制終了', forceCancelConfirm: 'このタスクを強制終了しますか？ 実行中のリモート処理は手動確認が必要になる場合があります。', forceCancelReason: 'グローバルタスクからオペレーターが強制終了' },
     messages: { loadFailed: 'タスク一覧の読み込みに失敗しました。', detailFailed: 'タスク詳細の読み込みに失敗しました。', forceCancelFailed: 'タスクの強制終了に失敗しました。' },
     values: { system: 'システム', empty: '記録なし', none: 'なし' },
+    approval: {
+      title: '承認タスクの詳細',
+      description: '承認内容、状態の履歴、実行できる操作を確認します。',
+      contentTitle: '承認内容',
+      fields: { operation: '操作種別', target: '対象', approvalId: '承認 ID', requestedBy: '申請者', riskLevel: 'リスクレベル', createdAt: '申請日時', decision: '承認結果', summary: '操作概要' },
+      content: { deployment: '証明書デプロイ', automation: '自動化実行', defaultSummary: 'このタスクは承認判断を待っています。' },
+      values: { approved: '承認済み', rejected: '拒否済み', pending: '承認待ち' },
+      timelineTitle: '状態のタイムライン',
+      timeline: { created: '承認を申請', createdDescription: 'タスクが作成され、承認者の処理を待っています。', approved: '承認済み', approvedDescription: '承認者が操作の続行を許可しました。', rejected: '承認を拒否', rejectedDescription: '承認者がこの操作を拒否しました。', forceEnded: 'タスクを強制終了', forceEndedDescription: 'オペレーターがこのタスクを強制終了しました。', pending: '承認処理中', pendingDescription: 'システムが承認結果を待っています。' }
+    },
     relatedNames: { builtinCatalog: '組み込みプラグインカタログ', deploymentPlan: '配備計画', acmeRenewal: 'ACME Provider（{provider}）- {certificate} 証明書更新' },
     acmeHistory: {
       queued: { title: '更新待ち', description: 'システムはこの証明書更新の処理を待機しています。' },

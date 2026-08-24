@@ -453,6 +453,16 @@ export default {
     actions: { backToList: "返回任務列表", viewAll: "查看所有任務", viewRawLogs: "查看原始日誌", search: "搜尋", reset: "重設", previousPage: "上一頁", nextPage: "下一頁", forceCancel: "強制結束", forceCancelConfirm: "確定要強制結束此任務嗎？正在進行的遠端動作可能仍需人工確認。", forceCancelReason: "由操作員從全域任務強制結束" },
     messages: { loadFailed: "任務列表載入失敗。", detailFailed: "任務詳情載入失敗。", forceCancelFailed: "強制結束任務失敗。" },
     values: { system: "系統", empty: "暫無記錄", none: "無" },
+    approval: {
+      title: "審批任務詳情",
+      description: "查看審批內容、處理狀態與後續操作。",
+      contentTitle: "審批內容",
+      fields: { operation: "操作類型", target: "目標", approvalId: "審批單號", requestedBy: "發起使用者", riskLevel: "風險等級", createdAt: "提交時間", decision: "審批結果", summary: "操作摘要" },
+      content: { deployment: "憑證部署", automation: "自動化執行", defaultSummary: "此任務正在等待審批決定。" },
+      values: { approved: "已核准", rejected: "已拒絕", pending: "待審批" },
+      timelineTitle: "狀態時間線",
+      timeline: { created: "已提交審批", createdDescription: "任務已建立，等待審批人處理。", approved: "審批已核准", approvedDescription: "審批人已允許繼續執行。", rejected: "審批已拒絕", rejectedDescription: "審批人已拒絕本次操作。", forceEnded: "任務已強制結束", forceEndedDescription: "操作員已強制結束此任務。", pending: "審批處理中", pendingDescription: "系統正在等待審批結果。" }
+    },
     relatedNames: { builtinCatalog: "內建外掛目錄", deploymentPlan: "部署計畫", acmeRenewal: "ACME Provider（{provider}）— {certificate} 憑證續期" },
     acmeHistory: {
       queued: { title: "等待續期", description: "系統正在等待處理此憑證續期。" },

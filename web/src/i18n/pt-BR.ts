@@ -454,6 +454,16 @@ export default {
     actions: { backToList: 'Voltar à lista', viewAll: 'Ver todas as tarefas', viewRawLogs: 'Ver logs brutos', search: 'Pesquisar', reset: 'Redefinir', previousPage: 'Página anterior', nextPage: 'Próxima página', forceCancel: 'Parar à força', forceCancelConfirm: 'Forçar a parada desta tarefa? Uma ação remota em andamento pode exigir verificação manual.', forceCancelReason: 'Parada forçada por um operador nas tarefas globais' },
     messages: { loadFailed: 'Falha ao carregar tarefas.', detailFailed: 'Falha ao carregar detalhes da tarefa.', forceCancelFailed: 'Falha ao parar a tarefa.' },
     values: { system: 'Sistema', empty: 'Nenhum registro', none: 'Nenhum' },
+    approval: {
+      title: 'Detalhes da tarefa de aprovação',
+      description: 'Revise o conteúdo da aprovação, o histórico de status e as ações disponíveis.',
+      contentTitle: 'Conteúdo da aprovação',
+      fields: { operation: 'Operação', target: 'Alvo', approvalId: 'ID da aprovação', requestedBy: 'Solicitado por', riskLevel: 'Nível de risco', createdAt: 'Enviado em', decision: 'Decisão', summary: 'Resumo da operação' },
+      content: { deployment: 'Implantação de certificado', automation: 'Execução automatizada', defaultSummary: 'Esta tarefa aguarda uma decisão de aprovação.' },
+      values: { approved: 'Aprovada', rejected: 'Rejeitada', pending: 'Aguardando aprovação' },
+      timelineTitle: 'Linha do tempo do status',
+      timeline: { created: 'Aprovação enviada', createdDescription: 'A tarefa foi criada e aguarda o aprovador.', approved: 'Aprovação concedida', approvedDescription: 'O aprovador permitiu a continuidade da operação.', rejected: 'Aprovação rejeitada', rejectedDescription: 'O aprovador rejeitou esta operação.', forceEnded: 'Tarefa encerrada à força', forceEndedDescription: 'Um operador encerrou esta tarefa à força.', pending: 'Aprovação em andamento', pendingDescription: 'O sistema aguarda o resultado da aprovação.' }
+    },
     relatedNames: { builtinCatalog: 'Catálogo interno de plugins', deploymentPlan: 'Plano de implantação', acmeRenewal: 'Provedor ACME ({provider}) - renovação do certificado {certificate}' },
     acmeHistory: {
       queued: { title: 'Aguardando renovação', description: 'O sistema está aguardando para processar esta renovação de certificado.' },

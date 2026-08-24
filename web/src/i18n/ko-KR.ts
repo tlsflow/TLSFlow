@@ -454,6 +454,16 @@ export default {
     actions: { backToList: '목록으로 돌아가기', viewAll: '모든 작업 보기', viewRawLogs: '원시 로그 보기', search: '검색', reset: '초기화', previousPage: '이전 페이지', nextPage: '다음 페이지', forceCancel: '강제 종료', forceCancelConfirm: '이 작업을 강제 종료할까요? 진행 중인 원격 작업은 수동 확인이 필요할 수 있습니다.', forceCancelReason: '전체 작업에서 운영자가 강제 종료' },
     messages: { loadFailed: '작업을 불러오지 못했습니다.', detailFailed: '작업 상세를 불러오지 못했습니다.', forceCancelFailed: '작업을 강제 종료하지 못했습니다.' },
     values: { system: '시스템', empty: '기록 없음', none: '없음' },
+    approval: {
+      title: '승인 작업 세부 정보',
+      description: '승인 내용, 상태 이력 및 가능한 작업을 확인합니다.',
+      contentTitle: '승인 내용',
+      fields: { operation: '작업 유형', target: '대상', approvalId: '승인 ID', requestedBy: '요청자', riskLevel: '위험 수준', createdAt: '요청 시간', decision: '승인 결과', summary: '작업 요약' },
+      content: { deployment: '인증서 배포', automation: '자동화 실행', defaultSummary: '이 작업은 승인 결정을 기다리고 있습니다.' },
+      values: { approved: '승인됨', rejected: '거부됨', pending: '승인 대기' },
+      timelineTitle: '상태 타임라인',
+      timeline: { created: '승인 요청됨', createdDescription: '작업이 생성되었으며 승인자의 처리를 기다립니다.', approved: '승인됨', approvedDescription: '승인자가 작업을 계속하도록 허용했습니다.', rejected: '승인 거부됨', rejectedDescription: '승인자가 이 작업을 거부했습니다.', forceEnded: '작업 강제 종료됨', forceEndedDescription: '운영자가 이 작업을 강제 종료했습니다.', pending: '승인 처리 중', pendingDescription: '시스템이 승인 결과를 기다리고 있습니다.' }
+    },
     relatedNames: { builtinCatalog: '내장 플러그인 카탈로그', deploymentPlan: '배포 계획', acmeRenewal: 'ACME Provider({provider}) - {certificate} 인증서 갱신' },
     acmeHistory: {
       queued: { title: '갱신 대기 중', description: '시스템이 이 인증서 갱신을 처리할 때까지 대기 중입니다.' },

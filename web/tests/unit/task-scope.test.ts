@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskRun } from '@/api/modules/tasks.api'
-import { isAutomationApprovalTask, isDeploymentApprovalTask, isDeploymentExecutionTask, isDeploymentRunTask, isQuickTask } from '@/views/tasks/task-events'
+import { isAutomationApprovalTask, isDeploymentApprovalTask, isDeploymentExecutionTask, isDeploymentRunTask, isQuickTask, isTerminalTaskStatus, RECENT_TASK_LIMIT } from '@/views/tasks/task-events'
 
 function task(overrides: Partial<TaskRun> = {}): TaskRun {
   return {
@@ -17,6 +17,15 @@ function task(overrides: Partial<TaskRun> = {}): TaskRun {
 }
 
 describe('任务快速区范围', () => {
+  it('最近完成任务统一保留十条', () => {
+    expect(RECENT_TASK_LIMIT).toBe(10)
+  })
+
+  it('成功、失败和取消都属于可展示的完成状态', () => {
+    expect(['SUCCEEDED', 'FAILED', 'CANCELLED'].every((status) => isTerminalTaskStatus(status as TaskRun['status']))).toBe(true)
+    expect(isTerminalTaskStatus('RUNNING')).toBe(false)
+  })
+
   it('显示执行类任务', () => {
     expect(isQuickTask(task({
       taskType: 'CERTIFICATE_DEPLOY',

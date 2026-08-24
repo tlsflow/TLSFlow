@@ -11,6 +11,7 @@ const taskApiMocks = vi.hoisted(() => ({
   listTasks: vi.fn(),
 }))
 const taskEventMocks = vi.hoisted(() => ({
+  RECENT_TASK_LIMIT: 10,
   currentTaskActivity: vi.fn(),
   isAutomationApprovalTask: vi.fn(() => false),
   isDeploymentApprovalTask: vi.fn(() => false),
@@ -59,6 +60,29 @@ function activityWithCompletedAcmeTask() {
       createdAt: '2026-08-14T04:04:00.000Z',
       finishedAt: '2026-08-14T04:04:20.000Z',
     }],
+    activeCount: 0,
+    hasActive: false,
+    connected: true,
+  }
+}
+
+function activityWithRecentTasks(count: number) {
+  return {
+    activeTasks: [],
+    recentTasks: Array.from({ length: count }, (_, index) => ({
+      id: `task-recent-${index + 1}`,
+      tenantId: 'tenant-1',
+      taskType: 'WORKFLOW_RUN',
+      definitionVersion: 1,
+      category: 'SYSTEM',
+      status: index % 3 === 0 ? 'SUCCEEDED' : index % 3 === 1 ? 'FAILED' : 'CANCELLED',
+      triggerSource: 'test',
+      payload: {},
+      resourceSummary: { displayName: `测试任务 ${index + 1}` },
+      progress: { status: 'completed' },
+      createdAt: `2026-08-14T04:${String(index).padStart(2, '0')}:00.000Z`,
+      finishedAt: `2026-08-14T04:${String(index).padStart(2, '0')}:20.000Z`,
+    })),
     activeCount: 0,
     hasActive: false,
     connected: true,
@@ -115,10 +139,40 @@ describe('TaskDrawer ACME 任务展示', () => {
 
     expect(acmeApiMocks.listAcmeRenewalJobs).toHaveBeenCalledTimes(1)
     expect(certificateApiMocks.getCertificateAssetDetail).toHaveBeenCalledWith('asset-1')
-    expect(wrapper.get('.task-drawer__item-title').text()).toBe("*.ginease.cn（Let's Encrypt）证书续签")
+    expect(wrapper.get('.task-drawer__item-title').text()).toBe("ACME · *.ginease.cn（Let's Encrypt）证书续签")
     expect(wrapper.get('.task-drawer__item-summary').text()).toBe('续签成功')
     expect(wrapper.text()).not.toContain('成功 · completed')
     expect(taskApiMocks.listTasks).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('快速任务区最多展示最近十个已完成任务', async () => {
+    const activity = activityWithRecentTasks(12)
+    taskEventMocks.currentTaskActivity.mockReturnValue(activity)
+    taskEventMocks.subscribeTaskActivity.mockImplementation((listener) => {
+      listener(activity)
+      return () => undefined
+    })
+
+    const wrapper = mount(TaskDrawer, {
+      props: { open: true },
+      global: {
+        stubs: {
+          GcButton: SlotStub,
+          GcEmptyState: SlotStub,
+          GcModal: SlotStub,
+          GcProgressBar: SlotStub,
+          GcStatusTag: SlotStub,
+          GcTabs: SlotStub,
+        },
+      },
+    })
+
+    await flushAsyncWork()
+
+    const groups = wrapper.findAll('.task-drawer__group')
+    expect(groups).toHaveLength(2)
+    expect(groups[1]?.findAll('.task-drawer__item')).toHaveLength(10)
     wrapper.unmount()
   })
 })

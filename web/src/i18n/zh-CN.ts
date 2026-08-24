@@ -449,6 +449,16 @@ export default {
     actions: { backToList: '返回任务列表', viewAll: '查看所有任务', viewRawLogs: '查看原始日志', search: '搜索', reset: '重置', previousPage: '上一页', nextPage: '下一页', forceCancel: '强制结束', forceCancelConfirm: '确定要强制结束此任务吗？正在进行的远端动作可能仍需人工确认。', forceCancelReason: '操作员从全局任务中强制结束' },
     messages: { loadFailed: '任务列表加载失败。', detailFailed: '任务详情加载失败。', forceCancelFailed: '强制结束任务失败。' },
     values: { system: '系统', empty: '暂无记录', none: '无' },
+    approval: {
+      title: '审批任务详情',
+      description: '查看审批内容、处理状态和后续操作。',
+      contentTitle: '审批内容',
+      fields: { operation: '操作类型', target: '目标', approvalId: '审批单号', requestedBy: '发起用户', riskLevel: '风险等级', createdAt: '提交时间', decision: '审批结果', summary: '操作摘要' },
+      content: { deployment: '证书部署', automation: '自动化执行', defaultSummary: '该任务正在等待审批决定。' },
+      values: { approved: '已通过', rejected: '已拒绝', pending: '待审批' },
+      timelineTitle: '状态时间线',
+      timeline: { created: '已提交审批', createdDescription: '任务已创建，等待审批人处理。', approved: '审批已通过', approvedDescription: '审批人已允许继续执行。', rejected: '审批已拒绝', rejectedDescription: '审批人已拒绝本次操作。', forceEnded: '任务已强制结束', forceEndedDescription: '操作员已强制结束该任务。', pending: '审批处理中', pendingDescription: '系统正在等待审批结果。' }
+    },
     relatedNames: { builtinCatalog: '内置插件目录', deploymentPlan: '部署计划', acmeRenewal: '{certificate}（{provider}）证书续签' },
     acmeHistory: {
       queued: { title: '等待续签', description: '系统正在等待处理此证书续签。' },
