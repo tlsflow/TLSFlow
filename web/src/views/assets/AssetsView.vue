@@ -2263,11 +2263,23 @@ function managedTargetLabel(target: ApiRecord): string {
     <template v-else>
       <section class="asset-page__workspace" data-testid="asset-professional-workspace">
         <header class="asset-page__workspace-head">
-          <div class="asset-page__workspace-copy">
-            <strong>{{ t('businessPage.resourceList', { resource: t('assets.resourceName') }) }}</strong>
-            <span>{{ t('businessPage.total', { count: assetOverviewTotal }) }}</span>
+          <div class="asset-page__workspace-view">
+            <span class="asset-page__workspace-view-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M5 5h5v5H5V5Zm9 0h5v5h-5V5ZM5 14h5v5H5v-5Zm9 0h5v5h-5v-5Z" /></svg>
+            </span>
+            <span class="asset-page__workspace-selection">
+              {{ t('businessPage.total', { count: assetOverviewTotal }) }}
+            </span>
           </div>
           <div class="asset-page__workspace-actions">
+            <GcButton
+              variant="secondary"
+              :aria-expanded="assetOverviewFiltersVisible"
+              data-testid="asset-overview-filter-toggle"
+              @click="assetOverviewFiltersVisible = !assetOverviewFiltersVisible"
+            >
+              {{ t('businessPage.toggleFilters') }}
+            </GcButton>
             <GcButton variant="secondary" :loading="assetOverviewLoading" @click="loadAssetOverviewPage(assetOverviewPage)">
               {{ t('common.refresh') }}
             </GcButton>
@@ -2276,17 +2288,6 @@ function managedTargetLabel(target: ApiRecord): string {
             </GcPermissionButton>
           </div>
         </header>
-
-        <div class="asset-page__workspace-controls">
-          <GcButton
-            variant="secondary"
-            :aria-expanded="assetOverviewFiltersVisible"
-            data-testid="asset-overview-filter-toggle"
-            @click="assetOverviewFiltersVisible = !assetOverviewFiltersVisible"
-          >
-            {{ t('businessPage.toggleFilters') }}
-          </GcButton>
-        </div>
 
         <form
           v-if="assetOverviewFiltersVisible"
@@ -2341,6 +2342,9 @@ function managedTargetLabel(target: ApiRecord): string {
               data-testid="asset-professional-card"
             >
               <template #header>
+                <span class="asset-page__card-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="M4 5h16v5H4V5Zm0 9h16v5H4v-5Zm3-6.5h.01M7 16.5h.01" /></svg>
+                </span>
                 <div class="asset-page__card-heading">
                   <h3>{{ card.name }}</h3>
                   <p>{{ card.address }}</p>
@@ -2351,24 +2355,8 @@ function managedTargetLabel(target: ApiRecord): string {
               <template #body>
                 <dl class="asset-page__card-facts">
                   <div>
-                    <dt>{{ t('devices.unifiedDetail.nodeEyebrow') }}</dt>
-                    <dd>{{ card.device }}</dd>
-                  </div>
-                  <div>
-                    <dt>{{ t('assets.columns.framework') }}</dt>
-                    <dd>{{ card.framework }}</dd>
-                  </div>
-                  <div>
-                    <dt>{{ t('assets.columns.site') }}</dt>
-                    <dd>{{ card.site }}</dd>
-                  </div>
-                  <div>
                     <dt>{{ t('assets.fields.currentCertificate') }}</dt>
                     <dd>{{ card.certificate.name }}</dd>
-                  </div>
-                  <div>
-                    <dt>{{ t('assets.fields.managedTarget') }}</dt>
-                    <dd>{{ card.deploymentTarget }}</dd>
                   </div>
                 </dl>
 
@@ -2388,10 +2376,23 @@ function managedTargetLabel(target: ApiRecord): string {
                     :value="card.certificate.progress"
                     :tone="card.certificate.tone"
                     :ariaLabel="t('assets.fields.currentCertificate')"
-                  >
-                    <span>{{ card.certificate.expiresAt }}</span>
-                  </GcProgressBar>
+                  />
                 </section>
+
+                <dl class="asset-page__card-meta">
+                  <div>
+                    <dt>{{ t('devices.unifiedDetail.nodeEyebrow') }}</dt>
+                    <dd>{{ card.device }}</dd>
+                  </div>
+                  <div>
+                    <dt>{{ t('assets.columns.framework') }}</dt>
+                    <dd>{{ card.framework }}</dd>
+                  </div>
+                  <div>
+                    <dt>{{ t('assets.columns.site') }}</dt>
+                    <dd>{{ card.site }}</dd>
+                  </div>
+                </dl>
               </template>
 
               <template #footer>
@@ -3122,12 +3123,12 @@ function managedTargetLabel(target: ApiRecord): string {
 <style scoped>
 .asset-page {
   display: grid;
-  gap: var(--gc-space-4);
+  gap: var(--gc-space-5);
 }
 
 .asset-page__workspace {
   display: grid;
-  gap: var(--gc-space-4);
+  gap: var(--gc-space-5);
   min-width: 0;
 }
 
@@ -3136,10 +3137,10 @@ function managedTargetLabel(target: ApiRecord): string {
   align-items: center;
   justify-content: space-between;
   gap: var(--gc-space-4);
+  min-height: var(--gc-control-height-comfortable);
 }
 
 .asset-page__workspace-actions,
-.asset-page__workspace-controls,
 .asset-page__filter-actions,
 .asset-page__pagination {
   display: flex;
@@ -3152,25 +3153,41 @@ function managedTargetLabel(target: ApiRecord): string {
   justify-content: flex-end;
 }
 
-.asset-page__workspace-controls {
-  justify-content: flex-start;
-}
-
-.asset-page__workspace-copy {
-  display: grid;
-  gap: var(--gc-space-1);
+.asset-page__workspace-view {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gc-space-4);
   min-width: 0;
 }
 
-.asset-page__workspace-copy strong {
-  color: var(--gc-color-text);
-  font-size: var(--gc-font-size-sm);
+.asset-page__workspace-view-mark {
+  display: grid;
+  place-items: center;
+  width: var(--gc-control-height-comfortable);
+  height: var(--gc-control-height-comfortable);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-control);
+  color: var(--gc-color-primary);
+  background: var(--gc-color-surface-solid);
+  box-shadow: var(--gc-shadow-sm);
 }
 
-.asset-page__workspace-copy span,
+.asset-page__workspace-view-mark svg,
+.asset-page__card-icon svg {
+  width: var(--gc-size-icon-md);
+  height: var(--gc-size-icon-md);
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.asset-page__workspace-selection,
 .asset-page__card-state {
   color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
+  font-size: var(--gc-font-size-sm);
+  font-weight: var(--gc-font-weight-semibold);
 }
 
 .asset-page__card-state {
@@ -3183,11 +3200,12 @@ function managedTargetLabel(target: ApiRecord): string {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
   align-items: end;
-  gap: var(--gc-space-3);
+  gap: var(--gc-space-4);
   padding: var(--gc-space-4);
   border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
-  border-radius: var(--gc-radius-card);
-  background: var(--gc-color-surface-subtle);
+  border-radius: var(--gc-radius-control);
+  background: var(--gc-color-surface-glass);
+  box-shadow: var(--gc-shadow-sm);
 }
 
 .asset-page__filter {
@@ -3228,13 +3246,15 @@ function managedTargetLabel(target: ApiRecord): string {
 
 .asset-page__card-view {
   display: grid;
-  gap: var(--gc-space-3);
+  gap: var(--gc-space-5);
+  min-height: 0;
 }
 
 .asset-page__card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(var(--gc-size-card-min), 1fr));
-  gap: var(--gc-space-3);
+  grid-template-columns: repeat(auto-fill, minmax(calc(var(--gc-size-card-min) + var(--gc-space-10)), 1fr));
+  gap: var(--gc-space-4);
+  align-content: start;
 }
 
 .asset-page__card {
@@ -3242,6 +3262,36 @@ function managedTargetLabel(target: ApiRecord): string {
   border-color: var(--gc-color-border-muted);
   background: var(--gc-color-surface-solid);
   box-shadow: var(--gc-shadow-card);
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.asset-page__card:hover {
+  border-color: var(--gc-color-primary-border);
+  box-shadow: var(--gc-shadow-hover);
+  transform: translateY(calc(-1 * var(--gc-space-tight)));
+}
+
+.asset-page__card :deep(.gc-pro-card__header) {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.asset-page__card :deep(.gc-pro-card__footer) {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.asset-page__card-icon {
+  display: grid;
+  place-items: center;
+  width: var(--gc-control-height-sm);
+  height: var(--gc-control-height-sm);
+  border-radius: var(--gc-radius-control);
+  color: var(--gc-color-primary);
+  background: var(--gc-color-primary-soft);
 }
 
 .asset-page__card-heading {
@@ -3264,16 +3314,17 @@ function managedTargetLabel(target: ApiRecord): string {
 .asset-page__card-heading p {
   color: var(--gc-color-text-muted);
   font-family: var(--gc-font-family-mono);
-  font-size: var(--gc-font-size-xs);
+  font-size: var(--gc-font-size-caption);
 }
 
 .asset-page__card-facts {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--gc-space-3);
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--gc-space-2);
   margin: 0;
-  padding-bottom: var(--gc-space-3);
-  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
+  padding: var(--gc-space-3);
+  border-radius: var(--gc-radius-control);
+  background: var(--gc-color-surface-muted);
 }
 
 .asset-page__card-facts div {
@@ -3301,7 +3352,7 @@ function managedTargetLabel(target: ApiRecord): string {
 
 .asset-page__card-lifecycle {
   display: grid;
-  gap: var(--gc-space-3);
+  gap: var(--gc-space-2);
   padding-top: var(--gc-space-3);
 }
 
@@ -3319,9 +3370,38 @@ function managedTargetLabel(target: ApiRecord): string {
 }
 
 .asset-page__card-lifecycle-head strong {
-  color: var(--gc-color-text);
-  font-size: var(--gc-font-size-sm);
+  color: var(--gc-color-success);
+  font-size: var(--gc-font-size-xs);
   overflow-wrap: anywhere;
+}
+
+.asset-page__card-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gc-space-3);
+  margin: 0;
+}
+
+.asset-page__card-meta div {
+  display: grid;
+  gap: var(--gc-space-1);
+  min-width: 0;
+}
+
+.asset-page__card-meta dt {
+  color: var(--gc-color-text-soft);
+  font-size: var(--gc-font-size-overline);
+  font-weight: var(--gc-font-weight-semibold);
+}
+
+.asset-page__card-meta dd {
+  margin: 0;
+  overflow: hidden;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  font-weight: var(--gc-font-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .asset-page__card :deep(.gc-pro-card__footer) {
@@ -3337,7 +3417,9 @@ function managedTargetLabel(target: ApiRecord): string {
 }
 
 .asset-page__pagination {
-  justify-content: flex-end;
+  justify-content: space-between;
+  padding-top: var(--gc-space-4);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
   flex-wrap: wrap;
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-xs);
@@ -3359,6 +3441,10 @@ function managedTargetLabel(target: ApiRecord): string {
   }
 
   .asset-page__card-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .asset-page__card-meta {
     grid-template-columns: 1fr;
   }
 }
@@ -4119,5 +4205,3 @@ function managedTargetLabel(target: ApiRecord): string {
   .asset-binding-relations__grid { grid-template-columns: 1fr; }
 }
 </style>
-
-
