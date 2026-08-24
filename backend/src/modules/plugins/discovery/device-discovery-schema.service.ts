@@ -13,8 +13,22 @@ export class DeviceDiscoverySchemaService {
     requireStableKey(result.device.stableKey, 'device.stableKey');
     for (const [collectionName, maximum] of Object.entries(limits)) {
       const collection = result[collectionName as keyof typeof limits];
-      if (!Array.isArray(collection) || collection.length > maximum) {
-        throw new AppError('VALIDATION_FAILED', '设备发现对象数量越界', { collection: collectionName, maximum });
+      if (!Array.isArray(collection)) {
+        throw new AppError('VALIDATION_FAILED', '设备发现集合类型不合法', {
+          collection: collectionName,
+          expectedType: 'array',
+          actualType: describeType(collection),
+          maximum,
+        });
+      }
+      if (collection.length > maximum) {
+        throw new AppError('VALIDATION_FAILED', '设备发现对象数量越界', {
+          collection: collectionName,
+          expectedType: 'array',
+          actualType: 'array',
+          actualCount: collection.length,
+          maximum,
+        });
       }
     }
     assertUnique(result.frameworks, 'frameworks');
@@ -66,4 +80,10 @@ function assertNoSecrets(value: unknown, path = '$') {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function describeType(value: unknown): string {
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return 'array';
+  return typeof value;
 }

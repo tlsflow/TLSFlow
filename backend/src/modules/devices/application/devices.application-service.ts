@@ -21,6 +21,7 @@ import { pluginRuntimeGuard, type PluginRuntimeGuardService } from '../../plugin
 import { StandardDeviceDiscoveryProjector } from '../../plugins/discovery/standard-device-discovery.projector.js';
 import { RuntimeCredentialResolver } from '../../credentials/application/runtime-credential-resolver.js';
 import { CredentialsRepository } from '../../credentials/repository/credentials.repository.js';
+import { structuredLogger } from '../../../common/logging/structured-logger.js';
 
 export class DevicesApplicationService {
   constructor(
@@ -138,29 +139,77 @@ export class DevicesApplicationService {
       userVariables: { ...binding.variableBindings, ...credentials },
     }));
     if (result.status !== 'success') {
+      const failedStep = findFailedWorkflowStep(result.stepResults);
+      structuredLogger.error('设备插件能力执行失败', {
+        deviceId: device.id,
+        deviceAssetId: device.extension.deviceAssetId,
+        pluginVersionId: assignment.pluginVersionId,
+        pluginBindingId: assignment.pluginBindingId,
+        capabilityKey,
+        workflowRunId: result.id,
+        workflowStatus: result.status,
+        failedStepName: failedStep?.name,
+        failedStepType: failedStep?.type,
+        failedStepStage: failedStep?.stage,
+        errorCode: failedStep?.errorCode,
+        errorMessage: failedStep?.errorMessage,
+      }, {
+        tenantId,
+        module: 'devices',
+        resourceType: 'managedDevice',
+        resourceId: device.id,
+      });
       throw new AppError('PLUGIN_CAPABILITY_EXECUTION_FAILED', '设备插件能力执行失败', {
         capabilityKey,
         workflowRunId: result.id,
         status: result.status,
+        failedStepName: failedStep?.name,
+        errorCode: failedStep?.errorCode,
       });
     }
     if (!['device.discover', 'certificate.discover'].includes(capabilityKey)) return result;
     if (!this.discoveryProjector) throw new AppError('CAPABILITY_MISSING', '标准设备发现投影器未注册');
-    const discovery = findWorkflowExtractedValue(result.stepResults, 'discovery');
-    if (!discovery) {
-      throw new AppError('PLUGIN_DISCOVERY_SCHEMA_INVALID', '设备发现工作流未输出标准 discovery 结果', {
+    try {
+      const discovery = findWorkflowExtractedValue(result.stepResults, 'discovery');
+      if (!discovery) {
+        throw new AppError('PLUGIN_DISCOVERY_SCHEMA_INVALID', '设备发现工作流未输出标准 discovery 结果', {
+          capabilityKey,
+          workflowRunId: result.id,
+        });
+      }
+      const projection = await this.discoveryProjector.project({
+        tenantId,
+        deviceAssetId: device.extension.deviceAssetId,
+        hostId: device.id,
+        pluginVersionId: assignment.pluginVersionId,
+        pluginBindingId: assignment.pluginBindingId,
+      }, discovery);
+      return { ...result, projection };
+    } catch (error) {
+      const errorDetails = error instanceof AppError ? {
+        errorCode: error.errorCode,
+        errorMessage: error.message,
+        errorDetails: error.details,
+      } : {
+        errorType: error instanceof Error ? error.name : typeof error,
+        errorMessage: error instanceof Error ? error.message : '未知错误',
+      };
+      structuredLogger.error('设备发现结果投影失败', {
+        ...errorDetails,
+        deviceId: device.id,
+        deviceAssetId: device.extension.deviceAssetId,
+        pluginVersionId: assignment.pluginVersionId,
+        pluginBindingId: assignment.pluginBindingId,
         capabilityKey,
         workflowRunId: result.id,
+      }, {
+        tenantId,
+        module: 'devices',
+        resourceType: 'managedDevice',
+        resourceId: device.id,
       });
+      throw error;
     }
-    const projection = await this.discoveryProjector.project({
-      tenantId,
-      deviceAssetId: device.extension.deviceAssetId,
-      hostId: device.id,
-      pluginVersionId: assignment.pluginVersionId,
-      pluginBindingId: assignment.pluginBindingId,
-    }, discovery);
-    return { ...result, projection };
   }
 
   private async onboardPluginDevice(tenantId: string, input: CreateManagedDeviceOnboardingDto, actorId: string) {
@@ -256,6 +305,15 @@ function findWorkflowExtractedValue(
     if (step.extracted[key] !== undefined) return step.extracted[key];
     const childValue = findWorkflowExtractedValue((step.children ?? []) as typeof steps, key);
     if (childValue !== undefined) return childValue;
+  }
+  return undefined;
+}
+
+function findFailedWorkflowStep<T extends { status: string; children?: T[] }>(steps: T[]): T | undefined {
+  for (const step of steps) {
+    const failedChild = findFailedWorkflowStep(step.children ?? []);
+    if (failedChild) return failedChild;
+    if (step.status === 'failed') return step;
   }
   return undefined;
 }

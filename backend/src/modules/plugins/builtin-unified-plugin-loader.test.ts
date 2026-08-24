@@ -19,7 +19,7 @@ test('内置 DSL、Agent 与设备插件统一投影为不可变版本并可幂�
   const synology = first.find((item) => item.pluginId === 'builtin.workflow.synology-dsm-cert-import');
   const agent = first.find((item) => item.pluginId === 'builtin.linux.nginx.pem');
   assert.equal(citrix?.status, 'ENABLED');
-  assert.equal(citrix?.version, '1.1.3');
+  assert.equal(citrix?.version, '1.1.11');
   assert.equal(citrix?.manifest.scope, 'BOTH');
   assert.equal(citrix?.manifest.logoUrl, '/plugin-logos/citrix-adc.svg');
   assert.equal(citrix?.manifest.resources.locales && Object.keys(citrix.manifest.resources.locales).length, 8);
@@ -33,6 +33,17 @@ test('内置 DSL、Agent 与设备插件统一投影为不可变版本并可幂�
   assert.equal(records.size, 8);
 
   const pluginPackage = (await loader.loadPackages()).find((item) => (item.manifest as { pluginId?: string }).pluginId === 'citrix.netscaler-adc')!;
+  await assert.rejects(
+    () => service.importVersion('tenant-1', {
+      ...pluginPackage,
+      resources: {
+        ...pluginPackage.resources,
+        'locales/zh-CN.json': `${pluginPackage.resources['locales/zh-CN.json']}\n`,
+      },
+      packageContent: `${pluginPackage.packageContent}\n`,
+    }, 'BUILTIN'),
+    /同一插件版本不可覆盖/,
+  );
   for (const workflowPath of Object.values(citrix!.manifest.resources.workflows ?? {})) {
     workflowTemplatesSchemaRegistry.validate(JSON.parse(pluginPackage.resources[workflowPath]!));
   }

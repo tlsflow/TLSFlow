@@ -16,6 +16,24 @@ function fixtureCredential() {
   };
 }
 
+test('Citrix ADC 展示结构使用统一详情路径且标签页包含列定义', async () => {
+  const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
+  const presentation = JSON.parse(pluginPackage.resources['presentations/device.json']!) as {
+    overview: Array<{ fields: Array<{ valuePath: string }> }>;
+    tabs: Array<{ id: string; columns: unknown[] }>;
+  };
+  assert.deepEqual(presentation.overview[0]?.fields.map((field) => field.valuePath), [
+    'productFamily',
+    'softwareVersion',
+    'extensionSummary.softwareBuild',
+    'extensionSummary.discoveryMetadata.managementProtocol',
+    'extensionSummary.pluginVersion',
+    'health',
+  ]);
+  assert.equal(presentation.tabs.some((tab) => tab.id === 'frameworks'), false);
+  assert.equal(presentation.tabs.every((tab) => tab.columns.length > 0), true);
+});
+
 test('Citrix ADC 连接测试识别版本且不泄漏认证值', async () => {
   const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
   const content = JSON.parse(pluginPackage.resources['workflows/connection-test.json']!);
@@ -54,10 +72,76 @@ test('Citrix ADC 13.1 脱敏 Fixture 生成标准发现对象', async () => {
   });
   const discovery = result.stepResults.at(-1)?.extracted.discovery;
   const validated = new DeviceDiscoverySchemaService().validate(discovery);
+  assert.deepEqual(validated.frameworks, []);
+  assert.equal(validated.device.metadata?.managementProtocol, 'NITRO API');
   assert.deepEqual(validated.sites.map((site) => site.stableKey), ['LB:lb-one', 'VPN:vpn-one', 'CS:cs-one', 'GSLB:gslb-one']);
   assert.equal(validated.certificates[0]?.stableKey, 'CERT:leaf-one');
+  assert.equal(validated.certificates[0]?.sha256Fingerprint, '7ba6becd05012d4dc445954692203028e5042f2f13949ccf9acd4f7a5b2d293d');
+  assert.equal(validated.certificates[0]?.notBefore, '2026-01-01T00:00:00Z');
+  assert.equal(validated.certificates[0]?.notAfter, '2027-01-01T00:00:00Z');
   assert.deepEqual(validated.certificateBindings.map((binding) => binding.siteStableKey), ['LB:lb-one', 'VPN:vpn-one', 'CS:cs-one', 'GSLB:gslb-one']);
   assert.equal(JSON.stringify(result).includes('fixture-only'), false);
+});
+
+test('Citrix ADC 发现对零个和单个站点始终输出数组', async () => {
+  const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
+  const content = JSON.parse(pluginPackage.resources['workflows/discover.json']!);
+  const fixture = JSON.parse(pluginPackage.resources['discovery-mappings/nitro-13.1.json']!) as { mockResponses: Record<string, WorkflowMockStepOutput> };
+  const workflows = new WorkflowTemplatesApplicationService();
+  const { version } = await workflows.createTemplate({ content });
+  const run = async (lbvserver: Array<Record<string, unknown>>) => {
+    const mockResponses = structuredClone(fixture.mockResponses);
+    mockResponses.readLbVirtualServers = { statusCode: 200, body: { errorcode: 0, lbvserver } };
+    mockResponses.readVpnVirtualServers = { statusCode: 200, body: { errorcode: 0, vpnvserver: [] } };
+    mockResponses.readCsVirtualServers = { statusCode: 200, body: { errorcode: 0, csvserver: [] } };
+    mockResponses.readGslbVirtualServers = { statusCode: 200, body: { errorcode: 0, gslbvserver: [] } };
+    mockResponses.readCertificateBindings = { statusCode: 200, body: { errorcode: 0, sslvserver_sslcertkey_binding: [] } };
+    mockResponses.readCertificates = { statusCode: 200, body: { errorcode: 0, sslcertkey: [] } };
+    const result = await workflows.testRun({
+      templateVersionId: version.id,
+      mode: 'mock',
+      userVariables: {
+        deviceHost: '10.0.0.1', managementPort: 443, tlsVerify: true,
+        credential: fixtureCredential(),
+      },
+      mockResponses,
+    });
+    return new DeviceDiscoverySchemaService().validate(result.stepResults.at(-1)?.extracted.discovery);
+  };
+
+  const empty = await run([]);
+  assert.deepEqual(empty.sites, []);
+  const single = await run([{ name: 'lb-one', servicetype: 'SSL', ipv46: '10.0.0.41', port: 443 }]);
+  assert.equal(Array.isArray(single.sites), true);
+  assert.deepEqual(single.sites.map((site) => site.stableKey), ['LB:lb-one']);
+});
+
+test('Citrix ADC 发现为包含特殊字符的厂商名称生成合法稳定键', async () => {
+  const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
+  const content = JSON.parse(pluginPackage.resources['workflows/discover.json']!);
+  const fixture = JSON.parse(pluginPackage.resources['discovery-mappings/nitro-13.1.json']!) as { mockResponses: Record<string, WorkflowMockStepOutput> };
+  const mockResponses = structuredClone(fixture.mockResponses);
+  mockResponses.readLbVirtualServers = { statusCode: 200, body: { errorcode: 0, lbvserver: [{ name: '门户 站点(*)', servicetype: 'SSL', ipv46: '10.0.0.41', port: 443 }] } };
+  mockResponses.readVpnVirtualServers = { statusCode: 200, body: { errorcode: 0, vpnvserver: [] } };
+  mockResponses.readCsVirtualServers = { statusCode: 200, body: { errorcode: 0, csvserver: [] } };
+  mockResponses.readGslbVirtualServers = { statusCode: 200, body: { errorcode: 0, gslbvserver: [] } };
+  mockResponses.readCertificates = { statusCode: 200, body: { errorcode: 0, sslcertkey: [{ certkey: '新证书 2026(*).pem', subject: 'CN=example.invalid', issuer: 'CN=Fixture Issuer', clientcertnotbefore: '2026-01-01T00:00:00Z', clientcertnotafter: '2027-01-01T00:00:00Z' }] } };
+  mockResponses.readCertificateBindings = { statusCode: 200, body: { errorcode: 0, sslvserver_sslcertkey_binding: [{ vservername: '门户 站点(*)', certkeyname: '新证书 2026(*).pem', snicert: false }] } };
+  const workflows = new WorkflowTemplatesApplicationService();
+  const { version } = await workflows.createTemplate({ content });
+  const result = await workflows.testRun({
+    templateVersionId: version.id,
+    mode: 'mock',
+    userVariables: { deviceHost: '10.0.0.1', managementPort: 443, tlsVerify: true, credential: fixtureCredential() },
+    mockResponses,
+  });
+  const validated = new DeviceDiscoverySchemaService().validate(result.stepResults.at(-1)?.extracted.discovery);
+  const stableKeyPattern = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/;
+  assert.match(validated.sites[0]!.stableKey, stableKeyPattern);
+  assert.match(validated.certificates[0]!.stableKey, stableKeyPattern);
+  assert.match(validated.certificateBindings[0]!.stableKey, stableKeyPattern);
+  assert.equal(validated.certificateBindings[0]!.siteStableKey, validated.sites[0]!.stableKey);
+  assert.equal(validated.certificateBindings[0]!.certificateStableKey, validated.certificates[0]!.stableKey);
 });
 
 test('统一证书材料生成 Base64 和有序中间证书数组', () => {

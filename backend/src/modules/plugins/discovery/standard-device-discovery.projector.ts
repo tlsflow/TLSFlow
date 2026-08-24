@@ -57,7 +57,7 @@ export class StandardDeviceDiscoveryProjector {
              plugin_version_id=$4, plugin_binding_id=$5, capability_profile=$6::jsonb, metadata=$7::jsonb,
              last_discovered_at=$8, last_error_code=null, updated_at=$8, version=version+1
            where tenant_id=$9 and service_asset_id=$10`,
-          [discovery.device.productFamily, discovery.device.displayName, discovery.device.softwareVersion ?? null,
+          [discovery.device.productFamily, discovery.device.productFamily, discovery.device.softwareVersion ?? null,
             context.pluginVersionId, context.pluginBindingId ?? null, JSON.stringify(capabilityProfile(discovery)),
             JSON.stringify(discovery.device.metadata ?? {}), discoveredAt, context.tenantId, context.deviceAssetId],
         );
@@ -110,7 +110,7 @@ export class StandardDeviceDiscoveryProjector {
                metadata=excluded.metadata, deleted_at=null, updated_at=excluded.updated_at, version=pg_site_assets.version+1`,
             [siteId, context.tenantId, serviceInstanceId, context.hostId, providerType, site.displayName, site.stableKey,
               bindingInformation(site), site.addresses[0] ?? null, site.port ?? null, normalizeProtocol(site.protocol),
-              discoveredAt, JSON.stringify({ ...(site.metadata ?? {}), addresses: site.addresses })],
+              discoveredAt, JSON.stringify({ ...(site.metadata ?? {}), deviceAssetId: context.deviceAssetId, addresses: site.addresses })],
           );
           const targetId = stableId('pmt', context.deviceAssetId, site.stableKey);
           targetIds.set(site.stableKey, targetId);
@@ -136,17 +136,23 @@ export class StandardDeviceDiscoveryProjector {
           const certificateId = stableId('pdc', context.deviceAssetId, certificate.stableKey);
           certificateIds.set(certificate.stableKey, certificateId);
           certificateFingerprints.set(certificate.stableKey, normalizeFingerprint(certificate.sha256Fingerprint));
-          await tx.query(
-            `insert into plugin_discovered_certificates (
-               id, tenant_id, device_asset_id, stable_key, fingerprint_sha256, subject, issuer, not_after,
-               metadata, status, last_discovered_at, created_at, updated_at
-             ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,'ACTIVE',$10,$10,$10)
-             on conflict (tenant_id, device_asset_id, stable_key) do update set fingerprint_sha256=excluded.fingerprint_sha256,
-               subject=excluded.subject, issuer=excluded.issuer, not_after=excluded.not_after, metadata=excluded.metadata,
+           await tx.query(
+             `insert into plugin_discovered_certificates (
+               id, tenant_id, device_asset_id, stable_key, fingerprint_sha256, certificate_version_id,
+               subject, issuer, not_before, not_after,
+                metadata, status, last_discovered_at, created_at, updated_at
+             ) values ($1,$2,$3,$4,$5::text,
+               (select id from pg_certificate_versions where upper(fingerprint_sha256)=upper($5::text) limit 1),
+               $6,$7,$8,$9,$10::jsonb,'ACTIVE',$11,$11,$11)
+              on conflict (tenant_id, device_asset_id, stable_key) do update set fingerprint_sha256=excluded.fingerprint_sha256,
+               certificate_version_id=excluded.certificate_version_id, subject=excluded.subject,
+               issuer=excluded.issuer, not_before=excluded.not_before,
+               not_after=excluded.not_after, metadata=excluded.metadata,
                status='ACTIVE', last_discovered_at=excluded.last_discovered_at, updated_at=excluded.updated_at`,
             [certificateId, context.tenantId, context.deviceAssetId, certificate.stableKey,
               normalizeFingerprint(certificate.sha256Fingerprint), certificate.subject ?? null, certificate.issuer ?? null,
-              certificate.notAfter ?? null, JSON.stringify(certificate.metadata ?? {}), discoveredAt],
+              certificate.notBefore ?? null, certificate.notAfter ?? null,
+              JSON.stringify(certificate.metadata ?? {}), discoveredAt],
           );
         }
         for (const binding of discovery.certificateBindings) {
@@ -159,17 +165,26 @@ export class StandardDeviceDiscoveryProjector {
           const formalBindingId = stableId('bnd', context.deviceAssetId, binding.stableKey);
           const fingerprint = certificateFingerprints.get(binding.certificateStableKey) ?? null;
           const site = discovery.sites.find((item) => item.stableKey === binding.siteStableKey)!;
-          await tx.query(
-            `insert into plugin_discovered_certificate_bindings (
-               id, tenant_id, device_asset_id, stable_key, site_asset_id, discovered_certificate_id,
-               binding_name, metadata, status, last_discovered_at, created_at, updated_at
-             ) values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,'ACTIVE',$9,$9,$9)
-             on conflict (tenant_id, device_asset_id, stable_key) do update set site_asset_id=excluded.site_asset_id,
-               discovered_certificate_id=excluded.discovered_certificate_id, binding_name=excluded.binding_name,
-               metadata=excluded.metadata, status='ACTIVE', last_discovered_at=excluded.last_discovered_at,
-               updated_at=excluded.updated_at`,
-            [bindingId, context.tenantId, context.deviceAssetId, binding.stableKey, siteId, certificateId,
-              binding.bindingName ?? null, JSON.stringify({ ...(binding.metadata ?? {}), formalBindingId }), discoveredAt],
+           await tx.query(
+             `insert into plugin_discovered_certificate_bindings (
+                id, tenant_id, device_asset_id, stable_key, site_asset_id, discovered_certificate_id,
+               binding_name, metadata, current_certificate_version_id, observed_fingerprint_sha256,
+               drift_state, status, last_discovered_at, created_at, updated_at
+             ) values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,
+               (select id from pg_certificate_versions where upper(fingerprint_sha256)=upper($9::text) limit 1),
+               $9::text, case
+                 when $9 is null then 'INCOMPLETE'
+                 when exists (select 1 from pg_certificate_versions where upper(fingerprint_sha256)=upper($9::text)) then 'SYNCED'
+                 else 'UNMANAGED'
+               end,'ACTIVE',$10,$10,$10)
+              on conflict (tenant_id, device_asset_id, stable_key) do update set site_asset_id=excluded.site_asset_id,
+                discovered_certificate_id=excluded.discovered_certificate_id, binding_name=excluded.binding_name,
+               metadata=excluded.metadata, current_certificate_version_id=excluded.current_certificate_version_id,
+               observed_fingerprint_sha256=excluded.observed_fingerprint_sha256, drift_state=excluded.drift_state,
+               status='ACTIVE', last_discovered_at=excluded.last_discovered_at,
+                updated_at=excluded.updated_at`,
+             [bindingId, context.tenantId, context.deviceAssetId, binding.stableKey, siteId, certificateId,
+               binding.bindingName ?? null, JSON.stringify({ ...(binding.metadata ?? {}), formalBindingId }), fingerprint, discoveredAt],
           );
           await tx.query(
             `insert into pg_certificate_bindings (
@@ -180,7 +195,7 @@ export class StandardDeviceDiscoveryProjector {
                created_at, updated_at, version
              ) values (
                $1,$2,$3,$4,$5,$6,$7,$7,$8,$9,$10,'DEVICE_API',
-               (select id from pg_certificate_versions where upper(fingerprint_sha256)=upper($11) limit 1),$11,$11,
+               (select id from pg_certificate_versions where upper(fingerprint_sha256)=upper($11::text) limit 1),$11::text,$11::text,
                'PLUGIN','TLS_CONNECT','reachable',$12,'UNKNOWN','DISCOVERED',$13::jsonb,$12,$12,1
              )
              on conflict (id) do update set service_instance_id=excluded.service_instance_id,

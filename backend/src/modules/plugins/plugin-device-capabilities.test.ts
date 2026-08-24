@@ -44,6 +44,29 @@ test('标准设备发现校验父子关系、数量、稳定键和敏感字段',
   assert.throws(() => service.validate({ ...fixture, rawFacts: { apiToken: 'secret' } }));
 });
 
+test('标准设备发现校验区分集合类型错误和真实数量超限', () => {
+  const service = new DeviceDiscoverySchemaService();
+  const fixture = {
+    apiVersion: 'gcac.device-discovery/v1',
+    device: { stableKey: 'device:mock-a', displayName: 'Mock A', productFamily: 'Mock ADC' },
+    capabilities: [], frameworks: [], sites: [], certificates: [], certificateBindings: [], warnings: [],
+  };
+  assert.throws(() => service.validate({ ...fixture, sites: { stableKey: 'site:single' } }), (error: unknown) => {
+    assert.equal(error instanceof Error && error.message, '设备发现集合类型不合法');
+    assert.deepEqual((error as { details?: unknown }).details, {
+      collection: 'sites', expectedType: 'array', actualType: 'object', maximum: 5000,
+    });
+    return true;
+  });
+  assert.throws(() => service.validate({ ...fixture, capabilities: Array.from({ length: 101 }, (_, index) => ({ key: 'capability.' + index, available: true })) }), (error: unknown) => {
+    assert.equal(error instanceof Error && error.message, '设备发现对象数量越界');
+    assert.deepEqual((error as { details?: unknown }).details, {
+      collection: 'capabilities', expectedType: 'array', actualType: 'array', actualCount: 101, maximum: 100,
+    });
+    return true;
+  });
+});
+
 test('两个不同产品 Fixture 使用同一发现 Schema', async () => {
   const service = new DeviceDiscoverySchemaService();
   for (const name of ['mock-adc', 'mock-nas']) {

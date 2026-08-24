@@ -24,6 +24,7 @@ export interface StandardDeviceDiscoveryV1 {
     sha256Fingerprint?: string;
     subject?: string;
     issuer?: string;
+    notBefore?: string;
     notAfter?: string;
     metadata?: Record<string, unknown>;
   }>;
