@@ -43,7 +43,7 @@ test('插件升级复用原工作流模板并追加不可变版本', async () =>
   assert.equal(first?.workflowTemplateId, second?.workflowTemplateId);
   assert.notEqual(first?.workflowVersionId, second?.workflowVersionId);
   assert.equal((await workflows.listTemplates()).find((item) => item.id === first?.workflowTemplateId)?.origin, 'plugin_internal');
-  assert.deepEqual((await workflows.listVersions(first!.workflowTemplateId)).map((item) => item.version), [1, 2]);
+  assert.deepEqual((await workflows.listVersions(first!.workflowTemplateId)).map((item) => item.version).sort((left, right) => left - right), [1, 2]);
 });
 
 test('插件版本变化但工作流内容未变化时复用已有版本', async () => {
@@ -59,6 +59,24 @@ test('插件版本变化但工作流内容未变化时复用已有版本', async
   assert.equal(first?.workflowTemplateId, second?.workflowTemplateId);
   assert.equal(first?.workflowVersionId, second?.workflowVersionId);
   assert.equal((await workflows.listVersions(first!.workflowTemplateId)).length, 1);
+});
+
+test('Workflow DSL 插件声明能力缺少绑定时拒绝发布', async () => {
+  const workflows = new WorkflowTemplatesApplicationService();
+  const plugin = pluginRecord('missing-capability-binding', '1.0.0', '1.0.0');
+  plugin.manifest.capabilities.push({
+    key: 'certificate.rollback',
+    contractVersion: 'v1',
+    actionContractId: 'certificate.rollback.v1',
+    riskLevel: 'HIGH',
+    executionLocations: ['CONTROL_PLANE'],
+  });
+  const publisher = new PluginWorkflowPublisherService(workflows, workflowRepository(new Map()));
+
+  await assert.rejects(
+    () => publisher.publishPlugin(plugin),
+    (error: any) => error.errorCode === 'VALIDATION_FAILED' && error.details?.missingCapabilityKeys?.includes('certificate.rollback'),
+  );
 });
 
 test('内置插件发布会纠正历史误标为 user 的内部工作流', async () => {

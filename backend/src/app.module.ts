@@ -484,11 +484,17 @@ export async function initializeBuiltinPlugins(
     return [];
   }
 
-  for (const plugin of installed) {
+  for (let index = 0; index < installed.length; index += 1) {
+    const plugin = installed[index]!;
     try {
       await pluginWorkflowPublisher.publishPlugin(plugin);
     } catch (error) {
       warnBuiltinPluginFailure(logger, 'publishWorkflow', plugin, plugin.id, error);
+      try {
+        installed[index] = await unifiedPlugins.disableVersion(plugin.id);
+      } catch (disableError) {
+        warnBuiltinPluginFailure(logger, 'disableAfterPublishWorkflow', plugin, plugin.id, disableError);
+      }
     }
   }
 
@@ -525,7 +531,7 @@ export async function createAppAsync(
 
 function warnBuiltinPluginFailure(
   logger: Pick<typeof structuredLogger, 'warn'>,
-  phase: 'load' | 'publishWorkflow' | 'upgradeCompatibility',
+  phase: 'load' | 'publishWorkflow' | 'disableAfterPublishWorkflow' | 'upgradeCompatibility',
   plugin: { id: string; pluginId: string; version: string } | undefined,
   resourceId: string | undefined,
   error: unknown,

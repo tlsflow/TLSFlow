@@ -5,7 +5,7 @@
     "name": "synology-dsm-cert-import",
     "displayName": "更新Synology DSM 证书",
     "description": "通过 Synology DSM WebAPI 导入证书并迁移现有服务绑定。",
-    "version": "1.2.4",
+    "version": "1.2.6",
     "logoUrl": "/plugin-logos/synology.svg",
     "platforms": ["synology-dsm"],
     "updateMethods": ["curl"],
@@ -182,10 +182,10 @@
         },
         "outputs": {
           "previousCertificateId": {
-            "expression": "$filter(certificates, function($c){$c.is_default = true})[0].id"
+            "expression": "certificates[is_default][0].id"
           },
           "previousCertificateServices": {
-            "expression": "$filter(certificates, function($c){$c.is_default = true})[0].services"
+            "expression": "certificates[is_default][0].services"
           }
         },
         "timeoutMs": 1000,
@@ -329,7 +329,7 @@
         },
         "outputs": {
           "newCertificateId": {
-            "expression": "$filter(certificates, function($c){$c.desc = certificateDescription})[0].id"
+            "expression": "certificates[desc = $$.certificateDescription][0].id"
           },
           "serviceBindingsJson": {
             "expression": "[$map(previousCertificateServices, function($service){{\"service\":$service,\"old_id\":previousCertificateId,\"id\":newCertificateId}})]",

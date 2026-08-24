@@ -14,6 +14,7 @@ test('内置插件 Workflow 发布和兼容升级失败时启动初始化仍继�
     pluginRecord('plugin.upgrade-failure', '1.0.1'),
   ];
   const published: string[] = [];
+  const disabled: string[] = [];
   const upgraded: string[] = [];
   const warnings: LogEvent[] = [];
   const logger = new StructuredLogger((event) => warnings.push(event));
@@ -29,6 +30,13 @@ test('内置插件 Workflow 发布和兼容升级失败时启动初始化仍继�
       return [];
     },
   } as unknown as PluginWorkflowPublisherService;
+  const unifiedPlugins = {
+    disableVersion: async (id: string) => {
+      disabled.push(id);
+      const plugin = plugins.find((item) => item.id === id)!;
+      return { ...plugin, status: 'DISABLED' as const };
+    },
+  } as unknown as UnifiedPluginsApplicationService;
   const compatibilityUpgrader = {
     upgradePatchLine: async (_tenantId: string, pluginVersionId: string) => {
       upgraded.push(pluginVersionId);
@@ -39,13 +47,14 @@ test('内置插件 Workflow 发布和兼容升级失败时启动初始化仍继�
   };
 
   await initializeBuiltinPlugins(
-    {} as UnifiedPluginsApplicationService,
+    unifiedPlugins,
     publisher,
     {} as never,
     { loader, compatibilityUpgrader, logger },
   );
 
   assert.deepEqual(published, ['plugin.publish-failure', 'plugin.upgrade-failure']);
+  assert.deepEqual(disabled, ['plugin-version-1']);
   assert.deepEqual(upgraded, ['plugin-version-1', 'plugin-version-2']);
   assert.deepEqual(
     warnings.map((event) => {

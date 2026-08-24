@@ -52,6 +52,15 @@ export class PluginWorkflowPublisherService {
         createdAt: new Date().toISOString(),
       }));
     }
+    const expectedCapabilityKeys = record.manifest.capabilities.map((capability) => capability.key);
+    const publishedCapabilityKeys = new Set(output.map((binding) => binding.capabilityKey));
+    const missingCapabilityKeys = expectedCapabilityKeys.filter((capabilityKey) => !publishedCapabilityKeys.has(capabilityKey));
+    if (missingCapabilityKeys.length > 0) {
+      throw new AppError('VALIDATION_FAILED', '插件 Workflow 绑定未完整发布', {
+        pluginVersionId: record.id,
+        missingCapabilityKeys,
+      });
+    }
     return output;
   }
 
