@@ -1646,6 +1646,7 @@ export default {
         disabled: '비활성화',
         expired: '만료됨',
         expiring: '만기가 다가오다',
+      tooltip: { name: '이름', issuer: '발급자', startTime: '시작 시간', endTime: '종료 시간', daysRemaining: '남은 일수', connectionStatus: '연결 상태', version: '버전', managementAddress: '관리 주소', lastCommunicationTime: '최근 통신 시간', platform: '애플리케이션 플랫폼', protocolPort: '프로토콜 및 포트', certificateDaysRemaining: '인증서 남은 일수', region: '지역', latency: '지연 시간' },
         inactive: '비활성',
         offline: '오프라인',
         online: '온라인',
@@ -1660,7 +1661,7 @@ export default {
     },
     statusGroups: {
       agents: {
-        title: 'Agent'
+        title: '장치'
       },
       applicationAssets: {
         title: '응용자산'

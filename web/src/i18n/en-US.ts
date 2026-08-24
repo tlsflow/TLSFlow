@@ -1726,6 +1726,9 @@ export default {
         expiring: 'Expiring soon',
         inactive: 'Inactive',
         offline: 'Offline',
+      tooltip: {
+        name: 'Name', issuer: 'Issuer', startTime: 'Start time', endTime: 'End time', daysRemaining: 'Days remaining', connectionStatus: 'Connection status', version: 'Version', managementAddress: 'Management address', lastCommunicationTime: 'Last communication', platform: 'Platform', protocolPort: 'Protocol and port', certificateDaysRemaining: 'Certificate days remaining', region: 'Region', latency: 'Latency'
+      },
         online: 'Online',
         retired: 'Retired',
         revoked: 'Revoked',
@@ -1738,7 +1741,7 @@ export default {
     },
     statusGroups: {
       agents: {
-        title: 'Agent'
+        title: 'Devices'
       },
       applicationAssets: {
         title: 'Application assets'

@@ -1646,6 +1646,7 @@ export default {
         disabled: 'Desativado',
         expired: 'Expirado',
         expiring: 'Expirando em breve',
+      tooltip: { name: 'Nome', issuer: 'Emissor', startTime: 'Início', endTime: 'Fim', daysRemaining: 'Dias restantes', connectionStatus: 'Status da conexão', version: 'Versão', managementAddress: 'Endereço de gerenciamento', lastCommunicationTime: 'Última comunicação', platform: 'Plataforma', protocolPort: 'Protocolo e porta', certificateDaysRemaining: 'Dias restantes do certificado', region: 'Região', latency: 'Latência' },
         inactive: 'Inativo',
         offline: 'Offline',
         online: 'Online',
@@ -1660,7 +1661,7 @@ export default {
     },
     statusGroups: {
       agents: {
-        title: 'Agent'
+        title: 'Dispositivos'
       },
       applicationAssets: {
         title: 'Ativos de aplicação'

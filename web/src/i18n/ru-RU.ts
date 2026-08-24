@@ -1646,6 +1646,7 @@ export default {
         disabled: 'Отключено',
         expired: 'Истекло',
         expiring: 'Скоро истекает',
+      tooltip: { name: 'Имя', issuer: 'Издатель', startTime: 'Начало', endTime: 'Окончание', daysRemaining: 'Осталось дней', connectionStatus: 'Состояние подключения', version: 'Версия', managementAddress: 'Адрес управления', lastCommunicationTime: 'Последняя связь', platform: 'Платформа', protocolPort: 'Протокол и порт', certificateDaysRemaining: 'Дней сертификата осталось', region: 'Регион', latency: 'Задержка' },
         inactive: 'Неактивно',
         offline: 'Не в сети',
         online: 'В сети',
@@ -1660,7 +1661,7 @@ export default {
     },
     statusGroups: {
       agents: {
-        title: 'Agent'
+        title: 'Устройства'
       },
       applicationAssets: {
         title: 'Активы приложений'

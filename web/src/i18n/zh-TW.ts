@@ -1671,6 +1671,7 @@ export default {
         disabled: "停用",
         expired: "已過期",
         expiring: "即將到期",
+      tooltip: { name: "名稱", issuer: "頒發者", startTime: "開始時間", endTime: "結束時間", daysRemaining: "剩餘天數", connectionStatus: "連線狀態", version: "版本", managementAddress: "管理位址", lastCommunicationTime: "最近通訊時間", platform: "應用平台", protocolPort: "協定與連接埠", certificateDaysRemaining: "剩餘憑證天數", region: "區域", latency: "延遲" },
         inactive: "不活躍",
         offline: "離線",
         online: "線上",
@@ -1685,7 +1686,7 @@ export default {
     },
     statusGroups: {
       agents: {
-        title: "Agent"
+        title: "裝置"
       },
       applicationAssets: {
         title: "應用資產"

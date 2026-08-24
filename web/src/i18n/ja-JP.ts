@@ -1672,6 +1672,7 @@ export default {
         disabled: '無効化',
         expired: '期限切れ',
         expiring: '期限切れ間近',
+      tooltip: { name: '名前', issuer: '発行者', startTime: '開始時間', endTime: '終了時間', daysRemaining: '残り日数', connectionStatus: '接続状態', version: 'バージョン', managementAddress: '管理アドレス', lastCommunicationTime: '最終通信', platform: 'アプリプラットフォーム', protocolPort: 'プロトコルとポート', certificateDaysRemaining: '証明書残り日数', region: 'リージョン', latency: '遅延' },
         inactive: '不アクティブ',
         offline: 'オフライン',
         online: 'オンライン',
@@ -1686,7 +1687,7 @@ export default {
     },
     statusGroups: {
       agents: {
-        title: 'Agent'
+        title: 'デバイス'
       },
       applicationAssets: {
         title: 'アプリケーションアセット'

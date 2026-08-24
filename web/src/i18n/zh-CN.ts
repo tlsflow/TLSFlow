@@ -1748,6 +1748,9 @@ export default {
         expiring: '即将到期',
         inactive: '不活跃',
         offline: '离线',
+      tooltip: {
+        name: '名称', issuer: '颁发者', startTime: '开始时间', endTime: '结束时间', daysRemaining: '剩余天数', connectionStatus: '连接状态', version: '版本', managementAddress: '管理地址', lastCommunicationTime: '最近通信时间', platform: '应用平台', protocolPort: '协议与端口', certificateDaysRemaining: '剩余证书天数', region: '区域', latency: '延时'
+      },
         online: '在线',
         retired: '已退役',
         revoked: '已吊销',
@@ -1760,7 +1763,7 @@ export default {
     },
     statusGroups: {
       agents: {
-        title: 'Agent'
+        title: '设备'
       },
       applicationAssets: {
         title: '应用资产'
