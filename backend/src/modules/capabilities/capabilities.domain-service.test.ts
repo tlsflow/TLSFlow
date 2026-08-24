@@ -10,6 +10,11 @@ test('能力字典包含内置能力和兼容别名定义', async () => {
 
   assert.ok(definitions.length > 50);
   assert.ok(definitions.some((item) => item.key === 'agent.full.online'));
+  assert.ok(definitions.some((item) => item.key === 'linux.systemd.v1'));
+  assert.ok(definitions.some((item) => item.key === 'linux.openrc.v1'));
+  assert.ok(definitions.some((item) => item.key === 'linux.sysv.v1'));
+  assert.ok(definitions.some((item) => item.key === 'linux.filesystem.posix-atomic.v1'));
+  assert.ok(definitions.some((item) => item.key === 'linux.security.selinux.v1'));
 
   const deprecated = definitions.find((item) => item.key === 'service.reload.custom');
   assert.ok(deprecated);

@@ -1,0 +1,32 @@
+{
+  "apiVersion": "gcac.adapter/v1",
+  "adapterId": "service-controller.systemd",
+  "version": "1.0",
+  "kind": "service_controller",
+  "consumes": ["operation.service.refresh"],
+  "produces": ["evidence.service.state"],
+  "requirements": {
+    "id": "service-controller.systemd.requirement",
+    "ownerType": "provider_action",
+    "ownerId": "service-controller.systemd",
+    "requiredAll": [
+      {
+        "capabilityKey": "linux.systemd.v1",
+        "operator": "equals",
+        "expected": true,
+        "reason": "目标环境需要提供 systemd 服务控制能力",
+        "riskIfMissing": "无法通过 systemd 刷新产品服务"
+      }
+    ],
+    "optional": [],
+    "anyOfGroups": [],
+    "forbidden": [],
+    "minConfidence": 80,
+    "allowManual": false,
+    "riskLevel": "critical"
+  },
+  "conflicts": [],
+  "priority": 100,
+  "riskLevel": "critical",
+  "supportedOperationSchemas": ["1.0"]
+}

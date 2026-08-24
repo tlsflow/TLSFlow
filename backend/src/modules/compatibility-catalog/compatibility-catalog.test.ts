@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import type { CapabilityDeclaration, CapabilityRequirement } from '../../shared/contracts/capability-contracts.js';
@@ -119,6 +120,76 @@ describe('Compatibility Profile 与目录', () => {
     assert.equal(result.resolution.selected.certificate_store?.adapterId, 'certificate-store.windows');
   });
 
+  it('Linux 事实夹具按能力选择对应服务控制器', () => {
+    const root = resolve(process.cwd(), '..', 'compatibility');
+    const catalog = loadCompatibilityCatalog(root);
+    const resolver = new AdapterResolver(catalog.registry);
+    const cases = [
+      ['systemd-apparmor-amd64.json', 'service-controller.systemd'],
+      ['systemd-selinux-arm64.json', 'service-controller.systemd'],
+      ['openrc-root-amd64.json', 'service-controller.openrc'],
+      ['sysv-sudo-amd64.json', 'service-controller.sysv'],
+    ] as const;
+
+    for (const [fixtureName, expectedAdapterId] of cases) {
+      const capabilities = linuxFixtureCapabilities(root, fixtureName);
+      const result = resolver.resolve(request(['service_controller'], capabilities.map(declaration)));
+      assert.equal(result.status, 'resolved', fixtureName);
+      assert.equal(result.selected.service_controller?.adapterId, expectedAdapterId, fixtureName);
+    }
+  });
+
+  it('仅通过公共目录和 Linux Capability 解析 Nginx 本地部署组合', () => {
+    const root = resolve(process.cwd(), '..', 'compatibility');
+    const catalog = loadCompatibilityCatalog(root);
+    const capabilities = [
+      ...linuxFixtureCapabilities(root, 'systemd-apparmor-amd64.json'),
+      'agent.full.online',
+      'agent.task.receive',
+      'tls.local_verify',
+      'tls.remote_probe',
+      'nginx.config_parse',
+      'nginx.cert.install',
+      'rollback.restore',
+    ];
+    const profileItem = parseCompatibilityProfile({
+      apiVersion: 'gcac.compatibility/v1',
+      profileId: 'linux.systemd-apparmor-amd64.nginx.fixture',
+      version: '1.0',
+      status: 'experimental',
+      match: requirement('linux.systemd-apparmor-amd64.nginx.fixture.match', 'agent.full.online'),
+      composition: {
+        product: 'product.nginx',
+        certificate_store: 'certificate-store.posix-filesystem',
+        artifact_codec: 'artifact-codec.pem',
+        service_controller: 'service-controller.systemd',
+        transport: 'transport.agent-local',
+        verifier: 'verifier.tls-remote',
+        rollback: 'rollback.posix-certificate-files',
+      },
+      automation: 'full',
+      rollbackRequired: true,
+      verificationRequired: true,
+      limitations: ['仅用于公共目录和 fixture 解析测试，不代表真实 Linux 环境认证'],
+      evidence: [{
+        evidenceId: 'fixture.linux.systemd-apparmor-amd64.nginx',
+        type: 'fixture',
+        status: 'passed',
+        reference: 'compatibility/fixtures/linux/systemd-apparmor-amd64.json',
+        observedAt: '2026-07-21T00:00:00.000Z',
+      }],
+    });
+    const result = new CompatibilityCatalogResolver(new AdapterResolver(catalog.registry))
+      .resolve(profileItem, capabilities.map(declaration), '1.0');
+
+    assert.equal(result.resolution.status, 'resolved');
+    assert.equal(result.resolution.selected.product?.adapterId, 'product.nginx');
+    assert.equal(result.resolution.selected.certificate_store?.adapterId, 'certificate-store.posix-filesystem');
+    assert.equal(result.resolution.selected.artifact_codec?.adapterId, 'artifact-codec.pem');
+    assert.equal(result.resolution.selected.service_controller?.adapterId, 'service-controller.systemd');
+    assert.equal(result.resolution.selected.rollback?.adapterId, 'rollback.posix-certificate-files');
+  });
+
   it('Profile 能力不满足时在进入适配器选择前阻断', () => {
     const root = resolve(process.cwd(), '..', 'compatibility');
     const catalog = loadCompatibilityCatalog(root);
@@ -206,4 +277,13 @@ function declaration(capabilityKey: string): CapabilityDeclaration {
     riskLevel: 'low',
     status: 'active',
   };
+}
+
+function linuxFixtureCapabilities(root: string, fixtureName: string): string[] {
+  const fixture = JSON.parse(readFileSync(resolve(root, 'fixtures', 'linux', fixtureName), 'utf8')) as {
+    expectedCapabilities?: unknown;
+  };
+  assert.ok(Array.isArray(fixture.expectedCapabilities));
+  assert.ok(fixture.expectedCapabilities.every((item) => typeof item === 'string'));
+  return fixture.expectedCapabilities as string[];
 }

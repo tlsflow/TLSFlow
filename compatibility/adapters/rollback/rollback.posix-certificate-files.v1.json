@@ -1,0 +1,39 @@
+{
+  "apiVersion": "gcac.adapter/v1",
+  "adapterId": "rollback.posix-certificate-files",
+  "version": "1.0",
+  "kind": "rollback",
+  "consumes": ["recovery.ledger"],
+  "produces": ["evidence.rollback"],
+  "requirements": {
+    "id": "rollback.posix-certificate-files.requirement",
+    "ownerType": "provider_action",
+    "ownerId": "rollback.posix-certificate-files",
+    "requiredAll": [
+      {
+        "capabilityKey": "rollback.restore",
+        "operator": "equals",
+        "expected": true,
+        "reason": "需要按恢复账本还原证书材料和服务状态",
+        "riskIfMissing": "部署失败后无法自动恢复"
+      },
+      {
+        "capabilityKey": "linux.filesystem.posix-atomic.v1",
+        "operator": "equals",
+        "expected": true,
+        "reason": "需要安全恢复原文件、权限和所有者",
+        "riskIfMissing": "恢复过程可能再次破坏证书文件"
+      }
+    ],
+    "optional": [],
+    "anyOfGroups": [],
+    "forbidden": [],
+    "minConfidence": 80,
+    "allowManual": false,
+    "riskLevel": "critical"
+  },
+  "conflicts": [],
+  "priority": 100,
+  "riskLevel": "critical",
+  "supportedOperationSchemas": ["1.0"]
+}
