@@ -1,11 +1,15 @@
 // @ts-nocheck
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { runMigrations } from '../../database/migration-runner.js';
+import { PgliteDatabase } from '../../database/pglite-database.js';
 import { createDeploymentPersistenceRepositories } from '../../persistence/repositories/deployment-persistence-factory.js';
 
 describe('部署计划持久化仓储', () => {
   it('重建仓储工厂后保留计划、目标、运行、步骤和状态流转', async () => {
-    const persistence = createDeploymentPersistenceRepositories({ backend: 'postgres' });
+    const db = new PgliteDatabase();
+    await runMigrations(db);
+    const persistence = createDeploymentPersistenceRepositories({ backend: 'postgres', db });
     const now = new Date().toISOString();
 
     await persistence.deploymentPlans.createPlan({
@@ -135,7 +139,8 @@ describe('部署计划持久化仓储', () => {
       createdAt: now,
     });
 
-    const rebuilt = createDeploymentPersistenceRepositories({ backend: 'postgres' });
+    // 重建的是仓储实例；持久化后端必须仍指向同一个数据库。
+    const rebuilt = createDeploymentPersistenceRepositories({ backend: 'postgres', db });
     const persistedPlan = await rebuilt.deploymentPlans.getPlanOrThrow('pln_persist_1', 'tenant_persist');
     const persistedTargets = await rebuilt.deploymentPlans.listTargetsByPlan('pln_persist_1', 'tenant_persist');
     const persistedRuns = await rebuilt.executions.listRuns('tenant_persist', 'pln_persist_1');

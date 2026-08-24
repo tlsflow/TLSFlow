@@ -5,7 +5,7 @@
     "name": "apache-8444-cert-switch",
     "displayName": "SSH更新Apache站点证书",
     "description": "通过 SSH 更新 Apache 证书文件并验证 8444 HTTPS 服务。",
-    "version": "1.2.1",
+    "version": "1.2.2",
     "logoUrl": "/plugin-logos/apache-wordmark.svg",
     "platforms": ["linux"],
     "updateMethods": ["ssh"],
@@ -24,7 +24,7 @@
     "variables": {
       "targetPlatform": { "type": "enum", "required": true, "configurationMode": "required", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": "linux", "enum": ["linux"] },
       "frameworkType": { "type": "enum", "required": true, "configurationMode": "required", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": "APACHE", "enum": ["APACHE"] },
-      "siteName": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "asset", "path": "site.name" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "siteName": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "asset", "path": "application.serverName" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
       "bindingInformation": { "type": "string", "required": false, "configurationMode": "advanced", "source": { "kind": "asset", "path": "site.bindingInformation" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
       "hostHeader": { "type": "string", "required": false, "configurationMode": "advanced", "source": { "kind": "asset", "path": "application.serverName" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
       "port": { "type": "number", "required": true, "configurationMode": "required", "source": { "kind": "asset", "path": "application.port" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },

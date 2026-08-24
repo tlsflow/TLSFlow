@@ -208,11 +208,11 @@ onBeforeUnmount(() => {
   border: 0;
   background: transparent;
   box-shadow: none;
-  overflow: visible;
+  overflow: hidden;
 }
 
 .gc-modal--frameless .gc-modal__body {
-  overflow: visible;
+  overflow: auto;
 }
 
 @media (max-width: 640px) {

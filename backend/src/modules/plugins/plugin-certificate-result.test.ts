@@ -72,7 +72,9 @@ test('正式执行结果同步后自动回写插件发现证书绑定', async ()
     dependsOn: [], idempotent: true, attemptCount: 1, maxAttempts: 1,
     inputSnapshot: {
       certificateBindingId: 'binding-formal-1',
-      expectedCertificateFingerprintSha256: 'BB'.repeat(32),
+      certificateVerification: {
+        expectedFingerprintSha256: 'BB'.repeat(32),
+      },
       dryRun: false,
     },
     status: 'RUNNING', createdAt: now, updatedAt: now, createdBy: 'test', version: 1,
@@ -105,10 +107,18 @@ async function fixtureDatabase() {
   const db = new PgliteDatabase();
   await runMigrations(db, undefined, { appliedBy: 'test', checksum: (content) => createHash('sha256').update(content).digest('hex') });
   await db.query("insert into pg_hosts (id,tenant_id,hostname,os_type,discovery_source,compatibility_level,management_mode,status) values ('host-1','tenant-1','device','NETWORK_DEVICE','MANUAL','L1','AGENTLESS','ACTIVE')");
-  await db.query("insert into pg_service_instances (id,tenant_id,host_id,provider_type,display_name,discovery_source,status) values ('service-1','tenant-1','host-1','PLUGIN:test','Device','PROVIDER','ACTIVE')");
+  await db.query(`insert into pg_framework_instances (
+      id,tenant_id,device_id,discovery_provider_key,framework_key,framework_type,display_name,discovery_source,status
+    ) values ('service-1','tenant-1','host-1','plugin-version:test','mock:device','device.generic','Device','PROVIDER','ACTIVE')`);
   await db.query("insert into pg_service_assets (id,tenant_id,address,address_type,port,protocol,display_name,host_id,discovery_source,status,asset_kind) values ('device-1','tenant-1','192.0.2.1','IPV4',443,'HTTPS','Device','host-1','MANUAL','ACTIVE','DEVICE')");
   await db.query("insert into pg_device_assets (service_asset_id,tenant_id,device_family,credential_id) values ('device-1','tenant-1','MOCK','secret://credential/mock')");
-  await db.query("insert into pg_site_assets (id,tenant_id,service_instance_id,host_id,provider_type,site_type,site_name,site_key,discovery_source,status,created_at,updated_at) values ('site-1','tenant-1','service-1','host-1','PLUGIN:test','CUSTOM','Main','site:main','PROVIDER','ACTIVE',now(),now())");
+  await db.query(`insert into pg_site_assets (
+      id,tenant_id,framework_instance_id,device_id,discovery_provider_key,site_type,site_name,site_key,
+      discovery_source,status,created_at,updated_at
+    ) values (
+      'site-1','tenant-1','service-1','host-1','plugin-version:test','device.site','Main','site:main',
+      'PROVIDER','ACTIVE',now(),now()
+    )`);
   await db.query(`insert into pg_certificate_assets (id,name,primary_domain,sans,source_type,status,created_by)
     values ('cert-a1','Old','old.example','[]'::jsonb,'MANUAL','ACTIVE','test'),
            ('cert-a2','New','new.example','[]'::jsonb,'MANUAL','ACTIVE','test')`);

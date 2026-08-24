@@ -435,8 +435,11 @@ export class WorkflowTemplatesDomainService {
     dispatcher?: WorkflowExecutorDispatcher,
   ): Promise<{ rendered: WorkflowRenderedStep; result: WorkflowStepRunResult; output: unknown }> {
     const items = readPath(context.values, step.foreach.itemsPath);
+    if (input.mode === 'render_only' && items === undefined && isDeferredRuntimePath(step.foreach.itemsPath, context.values)) {
+      return renderDeferredForeachStep(step, context);
+    }
     if (!Array.isArray(items)) {
-      throw new AppError('VALIDATION_FAILED', 'foreach.itemsPath 必须指向数组', {
+      throw new AppError('VALIDATION_FAILED', `foreach.itemsPath 必须指向数组：${step.name} -> ${step.foreach.itemsPath}`, {
         step: step.name,
         itemsPath: step.foreach.itemsPath,
       });
@@ -713,6 +716,41 @@ function collectValuePaths(path: string, value: unknown, paths: Set<string>): vo
   }
 }
 
+function isDeferredRuntimePath(path: string, values: Record<string, unknown>): boolean {
+  const match = path.match(/^steps\.([A-Za-z][A-Za-z0-9_-]*)\.(?:output|extracted)(?:\.|$)/);
+  return Boolean(match && readPath(values, `steps.${match[1]}`) !== undefined);
+}
+
+function renderDeferredForeachStep(
+  step: Extract<WorkflowStep, { type: 'foreach' }>,
+  context: RuntimeContext,
+): { rendered: WorkflowRenderedStep; result: WorkflowStepRunResult; output: unknown } {
+  const plan = adaptStep(step, context, 'render_only');
+  const output = { deferred: true, itemsPath: step.foreach.itemsPath };
+  const maskedPlan = maskUnknown(plan, context.secretPaths, context.values);
+  const result: WorkflowStepRunResult = {
+    name: step.name,
+    type: step.type,
+    stage: step.stage,
+    status: 'success',
+    attempts: 1,
+    plan: maskedPlan,
+    extracted: {},
+    assertions: [],
+    logs: [`foreach:${step.name}:deferred:${step.foreach.itemsPath}:status:success`],
+    children: [],
+  };
+  context.values.steps = {
+    ...(context.values.steps as Record<string, unknown>),
+    [step.name]: stepSnapshot(step, result, output, {}),
+  };
+  return {
+    rendered: { name: step.name, type: step.type, stage: step.stage, request: maskedPlan, preview: maskedPlan },
+    result,
+    output,
+  };
+}
+
 function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRuntimeInput['mode'], output?: WorkflowMockStepOutput): unknown {
   if (step.type === 'http') {
     const httpConnection = resolveHttpConnection(step.request.connectionRef, context);
@@ -835,15 +873,34 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
     };
   }
   if (step.type === 'checkpoint') {
-    const capture = Object.fromEntries(Object.entries(step.checkpoint.capture).map(([name, path]) => {
+    const captureEntries: Array<[string, unknown]> = [];
+    const deferredCapturePaths: Record<string, string> = {};
+    for (const [name, path] of Object.entries(step.checkpoint.capture)) {
       if (isSecretCapturePath(path, context.secretPaths)) {
         throw new AppError('VALIDATION_FAILED', 'checkpoint 不允许捕获敏感变量', { step: step.name, name, path });
       }
       const value = readPath(context.values, path);
+      if (value === undefined && mode === 'render_only' && isDeferredRuntimePath(path, context.values)) {
+        deferredCapturePaths[name] = path;
+        continue;
+      }
       if (value === undefined) throw new AppError('VALIDATION_FAILED', 'checkpoint 捕获路径不存在', { step: step.name, name, path });
       assertCheckpointValueSafe(value, `${step.name}.${name}`);
-      return [name, value];
-    }));
+      captureEntries.push([name, value]);
+    }
+    if (Object.keys(deferredCapturePaths).length > 0) {
+      return {
+        executor: 'workflow.checkpoint',
+        checkpointName: step.checkpoint.name,
+        capturePaths: step.checkpoint.capture,
+        deferredCapturePaths,
+        normalizedHash: step.checkpoint.normalizedHash !== false,
+        requiredForRollback: step.checkpoint.requiredForRollback,
+        deferred: true,
+        plannedOnly: true,
+      };
+    }
+    const capture = Object.fromEntries(captureEntries);
     const normalized = stableStringify(capture);
     return {
       executor: 'workflow.checkpoint',
@@ -857,6 +914,15 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
   }
   if (step.type === 'checkpoint_verify') {
     const value = readPath(context.values, step.checkpointVerify.valuePath);
+    if (value === undefined && mode === 'render_only' && isDeferredRuntimePath(step.checkpointVerify.valuePath, context.values)) {
+      return {
+        executor: 'workflow.checkpoint_verify',
+        valuePath: step.checkpointVerify.valuePath,
+        expectedHash: renderString(step.checkpointVerify.expectedHash, context.values, true),
+        deferred: true,
+        plannedOnly: true,
+      };
+    }
     if (value === undefined) throw new AppError('VALIDATION_FAILED', 'checkpoint_verify 路径不存在', { step: step.name, valuePath: step.checkpointVerify.valuePath });
     assertCheckpointValueSafe(value, step.checkpointVerify.valuePath);
     const actualHash = createHash('sha256').update(stableStringify(value)).digest('hex');

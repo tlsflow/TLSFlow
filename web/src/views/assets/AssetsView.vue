@@ -1286,6 +1286,11 @@ function workflowCertificateOutputOptions(certificateFormatId: string): Array<{ 
   const parameters = readRecord(format.parameters) ?? {}
   const formatName = String(format.format ?? '').toLowerCase()
   const containsPrivateKey = Boolean(format.containsPrivateKey || parameters.includePrivateKey)
+  const fingerprintOutput = {
+    key: 'fingerprintSha256',
+    label: t('certificates.detailPanel.fields.fingerprintSha256'),
+    role: 'fingerprint_sha256',
+  }
   const options: Array<{ key: string; label: string; role: string }> = []
   if (formatName === 'pem') {
     if (parameters.includeLeafCertificate !== false && (parameters.includeCertificateChain || parameters.generateChainFile)) {
@@ -1295,10 +1300,11 @@ function workflowCertificateOutputOptions(certificateFormatId: string): Array<{ 
     if (parameters.includeCertificateChain || parameters.generateChainFile) options.push({ key: 'chain', label: `chain / ${t('assets.certificateOutputs.certificateChain')}`, role: 'certificate_chain' })
     if (containsPrivateKey || parameters.generatePrivateKeyFile) options.push({ key: 'private', label: `private / ${t('assets.certificateOutputs.privateKey')}`, role: 'private_key' })
     options.push({ key: 'bundle', label: `bundle / ${t('assets.certificateOutputs.pemBundle')}`, role: 'bundle' })
+    options.push(fingerprintOutput)
     return dedupeOutputOptions(options)
   }
-  if (formatName === 'der') return [{ key: 'public', label: `public / DER ${t('assets.certificateOutputs.publicCertificate')}`, role: 'public_certificate' }]
-  return [{ key: 'bundle', label: `bundle / ${t('assets.certificateOutputs.container', { format: formatName.toUpperCase() })}`, role: 'bundle' }]
+  if (formatName === 'der') return [{ key: 'public', label: `public / DER ${t('assets.certificateOutputs.publicCertificate')}`, role: 'public_certificate' }, fingerprintOutput]
+  return [{ key: 'bundle', label: `bundle / ${t('assets.certificateOutputs.container', { format: formatName.toUpperCase() })}`, role: 'bundle' }, fingerprintOutput]
 }
 
 function dedupeOutputOptions(options: Array<{ key: string; label: string; role: string }>): Array<{ key: string; label: string; role: string }> {

@@ -20,6 +20,10 @@ describe('核心状态机', () => {
     assert.equal(canTransition('executionRun', 'ROLLBACK_RUNNING', 'ROLLBACK_SUCCESS'), true);
   });
 
+  it('允许成功的执行运行进入人工回滚', () => {
+    assert.equal(canTransition('executionRun', 'SUCCESS', 'ROLLBACK_RUNNING'), true);
+  });
+
   it('禁止已经成功的执行运行重新失败', () => {
     assert.equal(canTransition('executionRun', 'SUCCESS', 'FAILED'), false);
   });

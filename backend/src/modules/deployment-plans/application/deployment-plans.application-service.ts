@@ -1000,21 +1000,51 @@ export class DeploymentPlansApplicationService {
     const context = await this.managedTargetContextResolver.resolve(tenantId, managedTargetId);
     const plugin = await this.unifiedPlugins.getVersion(pluginVersionId);
     const contract = new DeploymentInputContractLoader().fromPlugin(plugin, capabilityKey);
-    const layer = { pluginVersionId, inputBindings: binding.inputBindings };
-    const bindingLayers = ownerType === 'DEVICE'
-      ? { deviceDefault: layer }
-      : ownerType === 'MANAGED_TARGET'
-        ? { targetOverride: layer }
-        : ownerType === 'APPLICATION_ASSET'
-          ? { assetOverride: layer }
-          : undefined;
-    if (!bindingLayers) throw new AppError('VALIDATION_FAILED', '插件 Assignment Owner 类型不受支持', { ownerType });
+    const assignments = await this.pluginBindings.listAssignmentCandidates(tenantId, capabilityKey, {
+      deviceId: context.host.id,
+      managedTargetId: context.managedTarget.id,
+      applicationAssetId,
+    });
+    const bindingLayers: {
+      deviceDefault?: { pluginVersionId: string; inputBindings: InputBindingsV1 };
+      targetOverride?: { pluginVersionId: string; inputBindings: InputBindingsV1 };
+      assetOverride?: { pluginVersionId: string; inputBindings: InputBindingsV1 };
+    } = {};
+    let pinnedAssignmentFound = false;
+    for (const assignment of assignments.filter((item) => item.pluginVersionId === pluginVersionId)) {
+      const candidate = await this.pluginBindings.getTenantBinding(tenantId, assignment.pluginBindingId);
+      if (candidate.status !== 'ACTIVE' || candidate.pluginVersionId !== pluginVersionId) continue;
+      const layer = { pluginVersionId, inputBindings: candidate.inputBindings };
+      if (assignment.ownerType === 'DEVICE') bindingLayers.deviceDefault = layer;
+      else if (assignment.ownerType === 'MANAGED_TARGET') bindingLayers.targetOverride = layer;
+      else if (assignment.ownerType === 'APPLICATION_ASSET') bindingLayers.assetOverride = layer;
+      if (assignment.ownerType === ownerType && assignment.pluginBindingId === pluginBindingId) {
+        pinnedAssignmentFound = true;
+        if (runtimeCapability.pluginBindingVersion !== undefined
+          && candidate.version !== Number(runtimeCapability.pluginBindingVersion)) {
+          throw new AppError('VALIDATION_FAILED', '部署目标 PluginBinding 版本已变化', {
+            code: 'DEPLOYMENT_INPUT_BINDING_VERSION_MISMATCH',
+            pluginBindingId,
+            expectedVersion: runtimeCapability.pluginBindingVersion,
+            actualVersion: candidate.version,
+          });
+        }
+      }
+    }
+    if (!pinnedAssignmentFound) {
+      throw new AppError('VALIDATION_FAILED', '部署目标插件 Binding 指派已失效', {
+        code: 'DEPLOYMENT_INPUT_BINDING_ASSIGNMENT_MISSING',
+        pluginBindingId,
+        pluginVersionId,
+        ownerType,
+      });
+    }
     const request = {
       phase,
       contract,
       assetContext: deploymentAssetContextBuilder.build({ applicationAsset, managedTargetContext: context }),
       bindingLayers,
-      credentialSnapshots: await this.snapshotCredentials(tenantId, binding.inputBindings.credentials),
+      credentialSnapshots: await this.snapshotCredentials(tenantId, collectBindingCredentials(bindingLayers)),
       artifactSnapshots: artifactSnapshotsFromDeploymentArtifact(artifact),
     };
     const projection = this.deploymentInputResolver.resolveProjectionResult(request);
@@ -1976,11 +2006,12 @@ export class DeploymentPlansApplicationService {
         pfxPassword: generated.pfxPassword,
         files,
       });
-      const outputs: Record<string, Record<string, unknown>> = {};
+      const outputs: Record<string, unknown> = {};
       for (const [slotName, outputKey] of Object.entries(binding.outputBindings)) {
         const file = files.find((item) => item.key === outputKey || item.name === outputKey);
         const virtualOutput = resolveStandardCertificateOutput(baseMaterial, outputKey);
-        if (!file && !virtualOutput) {
+        const output = resolveBoundCertificateOutput(baseMaterial, slotName, file, virtualOutput);
+        if (output === undefined) {
           throw new AppError('VALIDATION_FAILED', '证书产物输出项不存在', {
             certificateVersionId,
             certificateFormatId: binding.certificateFormatId,
@@ -1990,7 +2021,7 @@ export class DeploymentPlansApplicationService {
             availableOutputKeys: files.map((item) => item.key ?? item.name).filter(Boolean),
           });
         }
-        outputs[slotName] = file ?? virtualOutput!;
+        outputs[slotName] = output;
       }
       const material = enrichWorkflowCertificateMaterial({
         ...baseMaterial,
@@ -2584,8 +2615,49 @@ export function resolveStandardCertificateOutput(
   };
 }
 
+const canonicalCertificateOutputKeys = new Set([
+  'leafPem',
+  'certificatePem',
+  'privateKeyPem',
+  'orderedChainPem',
+  'fingerprintSha256',
+  'leafPemBase64',
+  'privateKeyPemBase64',
+  'orderedChainPemBase64',
+  'orderedIntermediates',
+  'pfxBase64',
+  'pfxPassword',
+]);
+
+export function resolveBoundCertificateOutput(
+  material: Record<string, unknown>,
+  slotName: string,
+  file: Record<string, unknown> | undefined,
+  virtualOutput: Record<string, unknown> | undefined,
+): unknown {
+  if (canonicalCertificateOutputKeys.has(slotName) && material[slotName] !== undefined) {
+    return structuredClone(material[slotName]);
+  }
+  return file ?? virtualOutput;
+}
+
 function readOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function collectBindingCredentials(
+  layers: {
+    deviceDefault?: { pluginVersionId: string; inputBindings: InputBindingsV1 };
+    targetOverride?: { pluginVersionId: string; inputBindings: InputBindingsV1 };
+    assetOverride?: { pluginVersionId: string; inputBindings: InputBindingsV1 };
+  },
+): Record<string, { credentialId: string }> {
+  const credentials: Record<string, { credentialId: string }> = {};
+  for (const layer of Object.values(layers)) {
+    if (!layer) continue;
+    Object.assign(credentials, layer.inputBindings.credentials);
+  }
+  return credentials;
 }
 
 function compareTimeDesc(left: unknown, right: unknown): number {

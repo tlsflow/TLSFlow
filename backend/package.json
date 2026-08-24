@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "prebuild": "npm run check:utf8-mojibake",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "prebuild": "npm run clean && npm run check:utf8-mojibake",
     "build": "tsc -p tsconfig.json",
     "test": "npm run check:builtin-plugin-versions && npm run check:compatibility-architecture && npm run build && node --test \"dist/**/*.test.js\"",
     "test:unit": "npm run check:builtin-plugin-versions && npm run build && node --test \"dist/**/*.test.js\"",

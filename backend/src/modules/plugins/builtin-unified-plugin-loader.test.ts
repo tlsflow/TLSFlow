@@ -20,8 +20,8 @@ test('内置 DSL、Agent 与设备插件统一投影为不可变版本并可幂�
   const agent = first.find((item) => item.pluginId === 'builtin.linux.nginx.pem');
   assert.equal(citrix?.status, 'ENABLED');
   assert.equal(citrix?.version, '1.1.23');
-  assert.equal(apache?.version, '1.2.2');
-  assert.equal(synology?.version, '1.2.1');
+  assert.equal(apache?.version, '1.2.3');
+  assert.equal(synology?.version, '1.2.2');
   assert.equal(agent?.version, '1.0.11');
   assert.equal(agent?.manifest.resources.actionAliases?.certificateDeploy, 'action-aliases/certificate-deploy.json');
   assert.equal(citrix?.manifest.scope, 'BOTH');
@@ -36,7 +36,16 @@ test('内置 DSL、Agent 与设备插件统一投影为不可变版本并可幂�
   assert.deepEqual(second.map((item) => item.id), first.map((item) => item.id));
   assert.equal(records.size, 8);
 
-  const pluginPackage = (await loader.loadPackages()).find((item) => (item.manifest as { pluginId?: string }).pluginId === 'citrix.netscaler-adc')!;
+  const packages = await loader.loadPackages();
+  const pluginPackage = packages.find((item) => (item.manifest as { pluginId?: string }).pluginId === 'citrix.netscaler-adc')!;
+  for (const pluginId of ['builtin.workflow.apache-8444-cert-switch', 'builtin.workflow.synology-dsm-cert-import']) {
+    const workflowPackage = packages.find((item) => (item.manifest as { pluginId?: string }).pluginId === pluginId)!;
+    const workflowPath = Object.values((workflowPackage.manifest as { resources: { workflows: Record<string, string> } }).resources.workflows)[0]!;
+    const workflow = JSON.parse(workflowPackage.resources[workflowPath]!) as {
+      inputContract: { variables: { siteName: { source: { path: string } } } };
+    };
+    assert.equal(workflow.inputContract.variables.siteName.source.path, 'application.serverName');
+  }
   await assert.rejects(
     () => service.importVersion('tenant-1', {
       ...pluginPackage,

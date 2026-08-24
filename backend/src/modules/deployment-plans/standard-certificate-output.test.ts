@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveStandardCertificateOutput } from './application/deployment-plans.application-service.js';
+import { resolveBoundCertificateOutput, resolveStandardCertificateOutput } from './application/deployment-plans.application-service.js';
 
 test('标准证书输出解析器同时支持 PEM、PFX 和 PFX 密码', () => {
   const material = {
@@ -29,4 +29,19 @@ test('标准证书输出解析器同时支持 PEM、PFX 和 PFX 密码', () => {
     format: 'text',
     content: 'PFX_PASSWORD',
   });
+});
+
+test('标准证书槽输出原始值，自定义文件槽保留文件对象', () => {
+  const intermediates = [{ sequence: 1, pemBase64: 'CHAIN_BASE64' }];
+  const material = {
+    leafPemBase64: 'LEAF_BASE64',
+    orderedIntermediates: intermediates,
+  };
+  const file = { key: 'chain', content: 'CHAIN_PEM' };
+  const virtualOutput = { key: 'orderedChainPem', content: 'CHAIN_PEM' };
+
+  assert.equal(resolveBoundCertificateOutput(material, 'leafPemBase64', file, undefined), 'LEAF_BASE64');
+  assert.deepEqual(resolveBoundCertificateOutput(material, 'orderedIntermediates', file, virtualOutput), intermediates);
+  assert.equal(resolveBoundCertificateOutput(material, 'orderedIntermediates', file, virtualOutput) === intermediates, false);
+  assert.equal(resolveBoundCertificateOutput(material, 'certFile', file, virtualOutput), file);
 });

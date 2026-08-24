@@ -37,7 +37,7 @@ test('Standalone 归集支持预览、确认幂等和撤销恢复', async () => 
   assert.equal(sourceBinding.rows[0]?.status, 'ACTIVE');
 });
 
-test('Standalone 归集预览阻止地址冲突和非 SecretRef', async () => {
+test('Standalone 归集预览阻止地址冲突和无效 Credential ID', async () => {
   const db = new PgliteDatabase();
   await runMigrations(db, undefined, { appliedBy: 'test', checksum: (value) => createHash('sha256').update(value).digest('hex') });
   const plugin = await createPlugin(db);
@@ -52,11 +52,18 @@ test('Standalone 归集预览阻止地址冲突和非 SecretRef', async () => {
 
   const invalid = await bindings.createBinding('tenant-1', {
     pluginVersionId: plugin.id, mode: 'STANDALONE', inputBindings: { apiVersion: 'gcac.input-bindings/v1', variables: {},
-    credentials: { credential: { credentialId: '' } }, artifacts: {}, connections: {} },
+    credentials: { credential: { credentialId: 'cred-invalid-history' } }, artifacts: {}, connections: {} },
   });
+  // 模拟现役写入校验上线前遗留的空 SecretRef，验证归集预览仍能显式报告脏数据。
+  await db.query(
+    `update unified_plugin_bindings
+     set input_bindings=jsonb_set(input_bindings, '{credentials,credential,credentialId}', to_jsonb(''::text))
+     where id=$1`,
+    [invalid.id],
+  );
   const conflict = await existing.preview('tenant-1', input(invalid.id));
   assert.equal(conflict.status, 'CONFLICT');
-  assert.deepEqual(conflict.conflicts.map((item) => item.code).sort(), ['DEVICE_ADDRESS_CONFLICT', 'SECRET_REF_INVALID']);
+  assert.deepEqual(conflict.conflicts.map((item) => item.code).sort(), ['CREDENTIAL_ID_INVALID', 'DEVICE_ADDRESS_CONFLICT']);
 });
 
 async function createPlugin(db: PgliteDatabase) {

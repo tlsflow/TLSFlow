@@ -1118,6 +1118,49 @@ describe('部署计划与执行编排 API', () => {
     assert.ok(body.jobId);
   });
 
+  it('执行成功后可以通过公开 API 进入人工回滚', async () => {
+    const { app, service: deploymentService } = await createMigratedDeploymentService();
+    const executions = deploymentService.getExecutionsService();
+    const targetId = 'dpt_success_rollback';
+    const created = await executions.createApplyRun({
+      deploymentPlanId: 'pln_success_rollback',
+      deploymentPlanTargetIds: [targetId],
+      type: 'apply',
+      idempotencyKey: 'idem_success_rollback_run',
+      actorId: 'user_1',
+      tenantId: 'tenant_1',
+      executorTypeByTargetId: new Map([[targetId, 'AGENT']]),
+      agentPayloadByTargetId: new Map([[targetId, {
+        deploymentInputSnapshotRef: {
+          apiVersion: 'gcac.deployment-input-snapshot/v1',
+          snapshotId: 'dpis_success_rollback',
+          revision: 1,
+          resolvedSha256: 'f'.repeat(64),
+        },
+      }]]),
+    });
+    const runId = created.run.id;
+    await executions.getRepository().updateRun(runId, {
+      status: 'SUCCESS',
+      finishedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      updatedBy: 'orchestrator_1',
+    });
+
+    const rollback = await app.inject({
+      method: 'POST',
+      path: '/api/v1/execution-runs/rollback',
+      headers: userHeaders,
+      body: { runId, idempotencyKey: 'idem_success_rollback_ok' },
+    });
+
+    assert.equal(rollback.statusCode, 200, JSON.stringify(rollback.body));
+    const body = rollback.body as { sourceRun: { status: string }; rollbackRun: { status: string }; steps: Array<{ stepType: string }> };
+    assert.equal(body.sourceRun.status, 'ROLLBACK_RUNNING');
+    assert.equal(body.rollbackRun.status, 'DISPATCHED');
+    assert.deepEqual(body.steps.map((step) => step.stepType), ['ROLLBACK', 'VERIFY']);
+  });
+
   it('回滚缺少源步骤目标时拒绝创建空 rollback', async () => {
     const { app, service: deploymentService, fixture } = await createMigratedDeploymentService();
     const plan = await deploymentService.create({ ...createPlanBody(fixture, 'idem_empty_rollback_plan', 'low'), actorId: 'user_1', tenantId: 'tenant_1' }, { actor: { id: 'user_1', type: 'user', scope: { tenantId: 'tenant_1' } } });

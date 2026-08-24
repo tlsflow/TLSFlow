@@ -177,18 +177,24 @@ describe('Legacy SCRIPT_PACKAGE 执行下线守卫', () => {
     assertZeroWrites(harness.writes);
   });
 
-  it('回滚在目标后来改为 Legacy 时仍在源运行状态迁移前失败', async () => {
+  it('回滚不读取目标后来修改的 Legacy 配置，源快照不完整时按校验失败关闭', async () => {
     const targetChangedHarness = createHarness({
       runStatus: 'FAILED',
       stepExecutorType: 'AGENT',
       targetExecutorType: 'SCRIPT_PACKAGE',
     });
-    await assertRetired(() => targetChangedHarness.service.rollback({
-      runId,
-      actorId: 'user_legacy',
-      tenantId,
-      idempotencyKey: 'idem_rollback_changed_target',
-    }));
+    await assert.rejects(
+      () => targetChangedHarness.service.rollback({
+        runId,
+        actorId: 'user_legacy',
+        tenantId,
+        idempotencyKey: 'idem_rollback_changed_target',
+      }),
+      (error: unknown) => {
+        assert.equal((error as { errorCode?: string }).errorCode, 'VALIDATION_FAILED');
+        return true;
+      },
+    );
     assertZeroWrites(targetChangedHarness.writes);
   });
 

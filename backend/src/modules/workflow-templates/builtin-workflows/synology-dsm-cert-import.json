@@ -5,7 +5,7 @@
     "name": "synology-dsm-cert-import",
     "displayName": "更新Synology DSM 证书",
     "description": "通过 Synology DSM WebAPI 导入证书并迁移现有服务绑定。",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "logoUrl": "/plugin-logos/synology.svg",
     "platforms": ["synology-dsm"],
     "updateMethods": ["curl"],
@@ -22,7 +22,7 @@
     "apiVersion": "gcac.deployment-input/v1",
     "variables": {
       "frameworkType": { "type": "enum", "required": true, "configurationMode": "required", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": "CUSTOM", "enum": ["NGINX", "APACHE", "TOMCAT", "IIS", "CUSTOM"] },
-      "siteName": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "asset", "path": "site.name" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "siteName": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "asset", "path": "application.serverName" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
       "bindingInformation": { "type": "string", "required": false, "configurationMode": "advanced", "source": { "kind": "asset", "path": "site.bindingInformation" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
       "hostHeader": { "type": "string", "required": false, "configurationMode": "advanced", "source": { "kind": "asset", "path": "application.serverName" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
       "port": { "type": "number", "required": true, "configurationMode": "required", "source": { "kind": "asset", "path": "application.port" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },

@@ -48,6 +48,31 @@ test('不同版本不继承父级并一次返回缺失和非法覆盖问题', ()
   assert.deepEqual(result.assetOverride, emptyInputBindingsV1());
 });
 
+test('保存时清理历史资产覆盖层中的旧协议字段', () => {
+  const submitted = emptyInputBindingsV1();
+  submitted.variables.targetName = 'asset-target';
+  submitted.connections.management = { port: 8443 };
+  const result = service.validate({
+    pluginVersionId: 'version-1', contract, assetContext,
+    deviceDefault: { pluginVersionId: 'version-1', inputBindings: bindings({
+      connections: { management: { host: 'device.example.com', port: 443 } },
+      credentials: { management: { credentialId: 'credential-1' } },
+    }) },
+    currentAssetOverride: { pluginVersionId: 'version-1', inputBindings: bindings({
+      variables: { deviceHost: '10.0.0.1', fixedName: 'old-fixed' },
+      connections: { management: { 'connection.address': '10.0.0.1', host: 'old.example.com', port: 443 } as never },
+      credentials: { management: { credentialId: 'credential-2' } },
+    }) },
+    submitted,
+  });
+  assert.equal(result.saveable, true);
+  assert.deepEqual(result.assetOverride.variables, { targetName: 'asset-target' });
+  assert.deepEqual(result.assetOverride.connections, { management: { host: 'old.example.com', port: 8443 } });
+  assert.deepEqual(result.assetOverride.credentials, { management: { credentialId: 'credential-2' } });
+  assert.equal(result.resolved.connections.management?.host, 'old.example.com');
+  assert.equal(result.resolved.connections.management?.port, 8443);
+});
+
 function bindings(overrides: Partial<ReturnType<typeof emptyInputBindingsV1>>): ReturnType<typeof emptyInputBindingsV1> {
   return { ...emptyInputBindingsV1(), ...overrides };
 }

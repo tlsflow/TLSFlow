@@ -33,8 +33,8 @@ export class ExecutionsDomainService {
   }
 
   assertRollbackAllowed(run: ExecutionRunEntity): void {
-    if (run.status !== 'FAILED' && run.status !== 'TIMEOUT') {
-      throw new AppError('DEPLOYMENT_INVALID_STATE', '只有失败或超时的执行运行允许进入回滚', { runId: run.id, status: run.status });
+    if (!['SUCCESS', 'FAILED', 'TIMEOUT'].includes(run.status)) {
+      throw new AppError('DEPLOYMENT_INVALID_STATE', '只有成功、失败或超时的执行运行允许进入回滚', { runId: run.id, status: run.status });
     }
   }
 }

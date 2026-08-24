@@ -186,8 +186,12 @@ test('内置 CA 完成根与中间拓扑、Profile、签发、续期、吊销和
   ]) {
     await db.query(`insert into pg_hosts (id, tenant_id, hostname, os_type, discovery_source, compatibility_level, management_mode, status)
       values ($1,$2,$3,'LINUX','MANUAL','L1','AGENT','ACTIVE')`, [`host-${fixture.suffix}`, tenantId, `host-${fixture.suffix}.example.com`]);
-    await db.query(`insert into pg_service_instances (id, tenant_id, host_id, provider_type, display_name, discovery_source, status)
-      values ($1,$2,$3,'NGINX',$4,'MANUAL','ACTIVE')`, [`svc-${fixture.suffix}`, tenantId, `host-${fixture.suffix}`, `NGINX ${fixture.suffix}`]);
+    await db.query(`insert into pg_framework_instances (
+        id, tenant_id, device_id, discovery_provider_key, framework_key, framework_type,
+        display_name, discovery_source, status
+      ) values ($1,$2,$3,'manual:nginx',$4,'web.nginx',$5,'MANUAL','ACTIVE')`, [
+        `svc-${fixture.suffix}`, tenantId, `host-${fixture.suffix}`, `nginx:${fixture.suffix}`, `NGINX ${fixture.suffix}`,
+      ]);
     await db.query(`insert into pg_service_assets (id, tenant_id, address, address_type, port, protocol, display_name, service_instance_id, host_id, environment, discovery_source, status, metadata)
       values ($1,$2,$3,'DNS',443,'HTTPS',$4,$5,$6,$7,'MANUAL','ACTIVE',$8::jsonb)`, [
         `asset-${fixture.suffix}`, tenantId, `app-${fixture.suffix}.example.com`, `应用 ${fixture.suffix}`, `svc-${fixture.suffix}`, `host-${fixture.suffix}`,

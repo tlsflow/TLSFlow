@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { runMigrations } from '../../database/migration-runner.js';
+import { PgliteDatabase } from '../../database/pglite-database.js';
 import { AgentsApplicationService } from '../agents/application/agents.application-service.js';
+import { PgAgentsRepository } from '../agents/repository/agents.repository.js';
 import { AuditService } from '../audits/audit.service.js';
 import type { WriteAuditInput } from '../audits/audit.service.js';
 import { ForwardingGrantService } from './forwarding-grant.service.js';
@@ -188,7 +191,9 @@ describe('spec014 Gateway 区域路由器', () => {
 
   it('GatewayAgentProcess 只处理 gateway.probe/forward 任务，不执行协议 Adapter', async () => {
     const tenantId = 'tenant_gateway_process';
-    const agents = new AgentsApplicationService();
+    const db = new PgliteDatabase();
+    await runMigrations(db);
+    const agents = new AgentsApplicationService(new PgAgentsRepository(db));
     const gatewayAgent = await agents.register(tenantId, {
       agentKey: 'gateway-agent-process-001',
       hostname: 'gw-process-001',
@@ -241,7 +246,9 @@ describe('spec014 Gateway 区域路由器', () => {
 
   it('GatewayAgentProcess 缺少 ForwardingGrant 时拒绝转发', async () => {
     const tenantId = 'tenant_gateway_grant_denied';
-    const agents = new AgentsApplicationService();
+    const db = new PgliteDatabase();
+    await runMigrations(db);
+    const agents = new AgentsApplicationService(new PgAgentsRepository(db));
     const gatewayAgent = await agents.register(tenantId, {
       agentKey: 'gateway-agent-grant-denied',
       hostname: 'gw-grant-denied',

@@ -147,6 +147,11 @@
       "packageSha256": "sha256:f9f4059c67525fb4836f285bd1520a9d8848121d9f94ff1208fa6172c29866c9"
     },
     {
+      "pluginId": "builtin.workflow.apache-8444-cert-switch",
+      "version": "1.2.3",
+      "packageSha256": "sha256:2cc39eca12c40e102a83818b7d60d9e9d243fdfecf289959e28015f3749cabe5"
+    },
+    {
       "pluginId": "builtin.workflow.synology-dsm-cert-import",
       "version": "1.1.5",
       "packageSha256": "sha256:6603b0ffc14ca0052fd618d2445450808899d5a926f15c04b8b75bd204ce5b0c"
@@ -160,6 +165,11 @@
       "pluginId": "builtin.workflow.synology-dsm-cert-import",
       "version": "1.2.1",
       "packageSha256": "sha256:c6303ed7d6a69d4dce838f1f312b4966d8f915b091c5365fa5bbb9408d6baf14"
+    },
+    {
+      "pluginId": "builtin.workflow.synology-dsm-cert-import",
+      "version": "1.2.2",
+      "packageSha256": "sha256:92da8adcd785ea6b41ec9821cd6452b036a05bc2cdba37f32e23757489d40b16"
     },
     {
       "pluginId": "citrix.netscaler-adc",

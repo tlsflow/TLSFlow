@@ -29,8 +29,10 @@ export class DeploymentInputBindingSaveService {
 
   validate(request: ValidateDeploymentInputBindingSaveRequest): ValidatedDeploymentInputBindingSaveV1 {
     const filtered = filterSubmittedBindings(request.contract, request.submitted);
+    // 历史迁移可能把旧协议字段留在资产覆盖层。按当前 Contract 重新投影，
+    // 让一次正常保存可以清掉非法残留，而不会把它们继续合并进解析器。
     const current = request.currentAssetOverride?.pluginVersionId === request.pluginVersionId
-      ? request.currentAssetOverride.inputBindings
+      ? filterSubmittedBindings(request.contract, request.currentAssetOverride.inputBindings).inputBindings
       : emptyInputBindingsV1();
     const assetOverride = mergeBindingPatch(current, filtered.inputBindings);
     const { resolvedInput: resolved } = this.resolver.resolveProjectionResult({

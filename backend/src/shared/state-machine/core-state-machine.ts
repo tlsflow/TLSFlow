@@ -27,7 +27,7 @@ export const executionRunTransitions: TransitionMap<ExecutionRunStatus> = {
   PENDING: ['DISPATCHED', 'CANCELLED'],
   DISPATCHED: ['RUNNING', 'TIMEOUT', 'CANCELLED'],
   RUNNING: ['SUCCESS', 'FAILED', 'TIMEOUT', 'CANCELLED'],
-  SUCCESS: [],
+  SUCCESS: ['ROLLBACK_RUNNING'],
   FAILED: ['ROLLBACK_RUNNING'],
   TIMEOUT: ['ROLLBACK_RUNNING'],
   CANCELLED: [],

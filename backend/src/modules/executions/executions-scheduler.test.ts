@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { DeploymentPlansRepository } from '../deployment-plans/repository/deployment-plans.repository.js';
 import { AgentsApplicationService } from '../agents/application/agents.application-service.js';
+import { PgAgentsRepository } from '../agents/repository/agents.repository.js';
+import { runMigrations } from '../../database/migration-runner.js';
+import { PgliteDatabase } from '../../database/pglite-database.js';
 import { ExecutionsApplicationService } from './application/executions.application-service.js';
 import { ExecutionDetailStreamService } from './application/execution-detail-stream.service.js';
 import { ExecutionResultSyncService } from './application/execution-result-sync.service.js';
@@ -79,6 +82,106 @@ class TrackingExecutor implements Executor {
   }
 }
 
+function createTrackingRegistry(executor: TrackingExecutor): ExecutorRegistry {
+  const alias = (type: string): Executor => ({
+    type,
+    executeStep: (input) => executor.executeStep(input),
+  });
+  return ExecutorRegistry.forTests([
+    executor,
+    alias('PLATFORM_STAGE'),
+    alias('CONTROL_PLANE_TLS'),
+  ]);
+}
+
+function requiredStringVariable() {
+  return {
+    type: 'string',
+    required: true,
+    configurationMode: 'required',
+    source: { kind: 'binding' },
+    lifecycle: 'pre_execution',
+    bindingPolicy: 'required_binding',
+  };
+}
+
+function workflowInputContract(options: { credential?: boolean } = {}) {
+  const requiredField = (type: 'string' | 'number') => ({
+    type,
+    required: true,
+    configurationMode: 'required',
+    source: { kind: 'binding' },
+    lifecycle: 'pre_execution',
+    bindingPolicy: 'required_binding',
+  });
+  return {
+    apiVersion: 'gcac.deployment-input/v1',
+    variables: { deviceHost: requiredStringVariable() },
+    connections: options.credential
+      ? {
+          management: { transport: 'http', host: requiredField('string'), port: requiredField('number') },
+          targetSsh: {
+            transport: 'ssh',
+            host: requiredField('string'),
+            port: requiredField('number'),
+            username: requiredField('string'),
+            credentialSlot: 'credential',
+            hostKey: { policy: 'strict' },
+          },
+        }
+      : {},
+    credentials: options.credential
+      ? {
+          credential: {
+            allowedKinds: ['USERNAME_PASSWORD', 'SSH_KEY'],
+            required: true,
+            configurationMode: 'required',
+            lifecycle: 'pre_execution',
+          },
+        }
+      : {},
+    artifacts: {},
+  };
+}
+
+function resolvedWorkflowInput() {
+  return {
+    apiVersion: 'gcac.resolved-deployment-input/v1',
+    contractVersion: 'gcac.deployment-input/v1',
+    assetContext: {
+      apiVersion: 'gcac.deployment-asset-context/v1',
+      application: { id: 'asset_runtime', address: 'edge-runtime.example.com', serverName: 'edge-runtime.example.com', port: 443, protocol: 'https' },
+      deployment: { targets: [], certificateResourceName: 'certificate-runtime' },
+    },
+    variables: { deviceHost: 'edge-runtime.example.com' },
+    connections: {
+      management: { transport: 'http', host: 'edge-runtime.example.com', port: 443, tls: { verifyPeer: true } },
+      targetSsh: {
+        transport: 'ssh',
+        host: 'edge-runtime.example.com',
+        port: 22,
+        username: 'deploy',
+        credentialSlot: 'credential',
+        hostKey: { policy: 'strict', expectedFingerprint: 'aabbccddeeff0011' },
+      },
+    },
+    credentials: {
+      credential: {
+        credentialId: 'cred_runtime',
+        kind: 'USERNAME_PASSWORD',
+        username: 'deploy',
+        secretRefs: { password: 'secret://password/cred_runtime#current' },
+      },
+    },
+    artifacts: {},
+    provenance: {},
+    sensitivePaths: ['credentials.credential'],
+    issues: [],
+    executable: true,
+    resolvedSha256: 'runtime-dispatch-resolved-input',
+  };
+}
+
 describe('ExecutionsApplicationService 调度与恢复', () => {
   it('执行器进度会先持久化到运行中步骤，再通过 SSE 逐次发布', async () => {
     const detailStream = new ExecutionDetailStreamService();
@@ -126,7 +229,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
         created.run.id,
         'tester',
         'tenant_1',
-        ExecutorRegistry.forTests([executor]),
+        createTrackingRegistry(executor),
       );
       assert.equal(result.success, true, JSON.stringify(result));
     } finally {
@@ -187,9 +290,11 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
   });
 
   it('Gateway Agent 提交转发结果后回写原 ExecutionStep', async () => {
-    const repository = new ExecutionsRepository();
+    const db = new PgliteDatabase();
+    await runMigrations(db);
+    const repository = new ExecutionsRepository(db);
     const resultSync = new ExecutionResultSyncService(repository, {} as any, {} as any);
-    const agents = new AgentsApplicationService(undefined, undefined, undefined, undefined, undefined, resultSync);
+    const agents = new AgentsApplicationService(new PgAgentsRepository(db), undefined, undefined, undefined, undefined, resultSync);
     const now = new Date().toISOString();
     const run = await repository.createRun({
       id: 'run_gateway_result_sync',
@@ -266,7 +371,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     assert.equal(updatedStep.inputSnapshot.resultDetail.gatewayTaskId, 'gateway_task_result_sync');
   });
 
-  it('WORKFLOW 执行目标只生成一个 CUSTOM 步骤，dry-run 可预览，apply 失败关闭', async () => {
+  it('WORKFLOW 执行目标生成统一五阶段，dry-run 可预览，apply 失败关闭', async () => {
     const service = createService();
     const workflows = new WorkflowTemplatesApplicationService();
     const workflow = await workflows.createTemplate({
@@ -274,7 +379,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
         apiVersion: 'gcac.workflow/v1',
         kind: 'CurlSshWorkflow',
         metadata: { name: 'workflow-shell-dry-run' },
-        variables: { deviceHost: { type: 'string', required: true } },
+        inputContract: workflowInputContract(),
         steps: [{ name: 'wait', type: 'wait', seconds: 1 }],
       },
     });
@@ -299,17 +404,22 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
       })]]),
     });
     const steps = await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id });
-    assert.equal(steps.length, 1);
-    assert.equal(steps[0].stepType, 'CUSTOM');
-    assert.equal(steps[0].inputSnapshot.executorType, 'WORKFLOW');
-    assert.equal(steps[0].inputSnapshot.operation, 'workflow');
+    assert.deepEqual(steps.map((step) => step.stepType), ['DISCOVER', 'BACKUP', 'INSTALL', 'RELOAD', 'VERIFY']);
+    const workflowStep = steps.find((step) => step.stepType === 'INSTALL');
+    assert.ok(workflowStep);
+    assert.equal(workflowStep.inputSnapshot.executorType, 'WORKFLOW');
+    assert.equal(workflowStep.inputSnapshot.operation, 'install');
 
-    const dryRunResult = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', new ExecutorRegistry([new WorkflowExecutorAdapter({ workflows })]));
+    const dryRunResult = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', new ExecutorRegistry([
+      new WorkflowExecutorAdapter({ workflows }),
+      { type: 'CONTROL_PLANE_TLS', executeStep: async () => ({ success: true }) },
+    ]));
     assert.equal(dryRunResult.success, true);
-    const dryRunStep = await service.getStep(steps[0].id, 'tenant_1');
+    const dryRunStep = await service.getStep(workflowStep.id, 'tenant_1');
     assert.equal(dryRunStep.status, 'SUCCESS');
     assert.equal(dryRunStep.inputSnapshot.resultDetail.mode, 'workflow_plan');
-    assert.equal(dryRunStep.inputSnapshot.resultDetail.workflowRequest.credentialRefs, '[REDACTED]');
+    assert.equal(dryRunStep.inputSnapshot.resultDetail.workflowRequest.credentialRefs, undefined);
+    assert.equal(JSON.stringify(dryRunStep.inputSnapshot.resultDetail).includes('secret://ssh/workflow'), false);
     assert.equal(dryRunStep.inputSnapshot.resultDetail.dryRunSummary.passed, 1);
     assert.equal(dryRunStep.inputSnapshot.resultDetail.dryRunChecks[0].key, 'workflow_step_1_wait');
     assert.equal(dryRunStep.inputSnapshot.resultDetail.dryRunChecks[0].status, 'passed');
@@ -332,7 +442,9 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     });
     const applyResult = await service.runDispatchedExecution(apply.run.id, 'tester', 'tenant_1', createDefaultExecutorRegistry());
     assert.equal(applyResult.success, false);
-    const applyStep = (await service.listSteps({ tenantId: 'tenant_1', executionRunId: apply.run.id }))[0];
+    const applyStep = (await service.listSteps({ tenantId: 'tenant_1', executionRunId: apply.run.id }))
+      .find((step) => step.stepType === 'INSTALL');
+    assert.ok(applyStep);
     assert.equal(applyStep.lastErrorCode, 'RESOURCE_NOT_FOUND');
   });
 
@@ -343,18 +455,15 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
         apiVersion: 'gcac.workflow/v1',
         kind: 'CurlSshWorkflow',
         metadata: { name: 'runtime-dispatch' },
-        variables: {
-          deviceHost: { type: 'string', required: true },
-          credential: { type: 'credential', required: true },
-        },
+        inputContract: workflowInputContract({ credential: true }),
         steps: [
           {
             name: 'upload',
             type: 'http',
             request: {
               method: 'PUT',
-              url: 'https://{{deviceHost}}/api/cert',
-              auth: { type: 'bearer', credential: '{{credential}}' },
+              connectionRef: 'management',
+              url: 'https://{{variables.deviceHost}}/api/cert',
               body: { ok: true },
             },
             assert: [{ type: 'statusCode', equals: 200 }],
@@ -364,12 +473,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
             type: 'ssh',
             ssh: {
               mode: 'command',
-              connection: {
-                host: '{{deviceHost}}',
-                username: 'deploy',
-                credential: '{{credential}}',
-                expectedHostKeyFingerprint: 'aabbccddeeff0011',
-              },
+              connectionRef: 'targetSsh',
               command: 'reload cert',
             },
             assert: [{ type: 'contains', value: 'ok' }],
@@ -379,8 +483,8 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
             type: 'http',
             request: {
               method: 'GET',
-              url: 'https://{{deviceHost}}/api/cert/status',
-              auth: { type: 'bearer', credential: '{{credential}}' },
+              connectionRef: 'management',
+              url: 'https://{{variables.deviceHost}}/api/cert/status',
             },
             assert: [{ type: 'statusCode', equals: 200 }],
           },
@@ -389,12 +493,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
             type: 'ssh',
             ssh: {
               mode: 'command',
-              connection: {
-                host: '{{deviceHost}}',
-                username: 'deploy',
-                credential: '{{credential}}',
-                expectedHostKeyFingerprint: 'aabbccddeeff0011',
-              },
+              connectionRef: 'targetSsh',
               command: 'verify reload',
             },
             assert: [{ type: 'contains', value: 'ok' }],
@@ -444,11 +543,8 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
             workflowId: created.template.id,
             workflowVersionId: created.version.id,
             runner: 'CONTROL_PLANE',
-            variableBindings: {
-              deviceHost: 'edge-runtime.example.com',
-              credential: { id: 'cred_runtime', kind: 'username_password', type: 'password', username: 'deploy' },
-            },
           },
+          resolvedDeploymentInput: resolvedWorkflowInput(),
         },
         status: 'PENDING',
         createdAt: new Date().toISOString(),
@@ -473,16 +569,16 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
   it('按 dependsOn 形成 DAG 调度，不满足依赖的步骤不会先跑', async () => {
     const service = createService();
     const created = await createRun(service, { idempotencyKey: 'idem_dag', targetIds: ['target_a', 'target_b'], concurrencyLimit: 2 });
-    const steps = service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id }).sort((left, right) => left.stepNo - right.stepNo);
+    const steps = (await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id })).sort((left, right) => left.stepNo - right.stepNo);
 
     const stepByName = new Map(steps.map((step) => [step.name, step] as const));
-    service.updateStepForTest(stepByName.get('BACKUP target_b')!.id, { dependsOn: [stepByName.get('VERIFY target_a')!.stepNo] }, 'tenant_1');
-    service.updateStepForTest(stepByName.get('INSTALL target_b')!.id, { dependsOn: [stepByName.get('BACKUP target_b')!.stepNo] }, 'tenant_1');
-    service.updateStepForTest(stepByName.get('RELOAD target_b')!.id, { dependsOn: [stepByName.get('INSTALL target_b')!.stepNo] }, 'tenant_1');
-    service.updateStepForTest(stepByName.get('VERIFY target_b')!.id, { dependsOn: [stepByName.get('RELOAD target_b')!.stepNo] }, 'tenant_1');
+    await service.updateStepForTest(stepByName.get('BACKUP target_b')!.id, { dependsOn: [stepByName.get('VERIFY target_a')!.stepNo] }, 'tenant_1');
+    await service.updateStepForTest(stepByName.get('INSTALL target_b')!.id, { dependsOn: [stepByName.get('BACKUP target_b')!.stepNo] }, 'tenant_1');
+    await service.updateStepForTest(stepByName.get('RELOAD target_b')!.id, { dependsOn: [stepByName.get('INSTALL target_b')!.stepNo] }, 'tenant_1');
+    await service.updateStepForTest(stepByName.get('VERIFY target_b')!.id, { dependsOn: [stepByName.get('RELOAD target_b')!.stepNo] }, 'tenant_1');
 
     const executor = new TrackingExecutor(async () => ({ success: true }));
-    const result = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', ExecutorRegistry.forTests([executor]));
+    const result = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', createTrackingRegistry(executor));
 
     assert.equal(result.success, true);
     const startEvents = executor.timeline.filter((item) => item.startsWith('start:'));
@@ -495,11 +591,11 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     const service = createService();
     const created = await createRun(service, { idempotencyKey: 'idem_concurrency', concurrencyLimit: 2 });
     const executor = new TrackingExecutor(async () => {
-      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 10));
       return { success: true };
     });
 
-    const result = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', ExecutorRegistry.forTests([executor]));
+    const result = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', createTrackingRegistry(executor));
 
     assert.equal(result.success, true);
     assert.equal(executor.maxRunningCount, 2);
@@ -508,7 +604,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
   it('FailurePolicyEngine 会把 transient 失败自动重试，把 unsafe/timeout/cancelled 正确分类', async () => {
     const service = createService();
     const transientRun = await createRun(service, { idempotencyKey: 'idem_transient', targetIds: ['target_a'], stepMaxAttempts: 2 });
-    const transientStep = service.listSteps({ tenantId: 'tenant_1', executionRunId: transientRun.run.id }).sort((left, right) => left.stepNo - right.stepNo)[0];
+    const transientStep = (await service.listSteps({ tenantId: 'tenant_1', executionRunId: transientRun.run.id })).sort((left, right) => left.stepNo - right.stepNo)[0];
     let transientCalls = 0;
     const transientExecutor = new TrackingExecutor(async (input) => {
       if (input.step.id !== transientStep.id) return { success: true };
@@ -516,39 +612,39 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
       if (transientCalls === 1) return { success: false, errorCode: 'SSH_TEMP_ERROR', errorMessage: 'temporary network glitch' };
       return { success: true };
     });
-    const transientResult = await service.runDispatchedExecution(transientRun.run.id, 'tester', 'tenant_1', ExecutorRegistry.forTests([transientExecutor]));
+    const transientResult = await service.runDispatchedExecution(transientRun.run.id, 'tester', 'tenant_1', createTrackingRegistry(transientExecutor));
     assert.equal(transientResult.success, true);
     assert.equal(transientCalls, 2);
 
     const unsafeRun = await createRun(service, { idempotencyKey: 'idem_unsafe', targetIds: ['target_b'], stepMaxAttempts: 3 });
-    const unsafeStep = service.listSteps({ tenantId: 'tenant_1', executionRunId: unsafeRun.run.id }).sort((left, right) => left.stepNo - right.stepNo)[0];
+    const unsafeStep = (await service.listSteps({ tenantId: 'tenant_1', executionRunId: unsafeRun.run.id })).sort((left, right) => left.stepNo - right.stepNo)[0];
     const unsafeExecutor = new TrackingExecutor(async (input) => {
       if (input.step.id !== unsafeStep.id) return { success: true };
       return { success: false, errorCode: 'UNSAFE_REMOTE_STATE', errorMessage: 'unsafe to retry' };
     });
-    const unsafeResult = await service.runDispatchedExecution(unsafeRun.run.id, 'tester', 'tenant_1', ExecutorRegistry.forTests([unsafeExecutor]));
-    const unsafeStored = service.getStep(unsafeStep.id, 'tenant_1');
+    const unsafeResult = await service.runDispatchedExecution(unsafeRun.run.id, 'tester', 'tenant_1', createTrackingRegistry(unsafeExecutor));
+    const unsafeStored = await service.getStep(unsafeStep.id, 'tenant_1');
     assert.equal(unsafeResult.success, false);
     assert.equal(unsafeStored.lastFailureCategory, 'unsafe');
     assert.equal(unsafeStored.attemptCount, 1);
 
     const timeoutRun = await createRun(service, { idempotencyKey: 'idem_timeout', targetIds: ['target_c'], stepMaxAttempts: 1 });
-    const timeoutStep = service.listSteps({ tenantId: 'tenant_1', executionRunId: timeoutRun.run.id }).sort((left, right) => left.stepNo - right.stepNo)[0];
+    const timeoutStep = (await service.listSteps({ tenantId: 'tenant_1', executionRunId: timeoutRun.run.id })).sort((left, right) => left.stepNo - right.stepNo)[0];
     const timeoutExecutor = new TrackingExecutor(async (input) => {
       if (input.step.id !== timeoutStep.id) return { success: true };
       return { success: false, errorCode: 'STEP_TIMEOUT', errorMessage: 'timeout waiting remote ack' };
     });
-    await service.runDispatchedExecution(timeoutRun.run.id, 'tester', 'tenant_1', ExecutorRegistry.forTests([timeoutExecutor]));
-    assert.equal(service.getStep(timeoutStep.id, 'tenant_1').lastFailureCategory, 'timeout');
+    await service.runDispatchedExecution(timeoutRun.run.id, 'tester', 'tenant_1', createTrackingRegistry(timeoutExecutor));
+    assert.equal((await service.getStep(timeoutStep.id, 'tenant_1')).lastFailureCategory, 'timeout');
 
     const cancelledRun = await createRun(service, { idempotencyKey: 'idem_cancelled', targetIds: ['target_d'], stepMaxAttempts: 1 });
-    const cancelledStep = service.listSteps({ tenantId: 'tenant_1', executionRunId: cancelledRun.run.id }).sort((left, right) => left.stepNo - right.stepNo)[0];
+    const cancelledStep = (await service.listSteps({ tenantId: 'tenant_1', executionRunId: cancelledRun.run.id })).sort((left, right) => left.stepNo - right.stepNo)[0];
     const cancelledExecutor = new TrackingExecutor(async (input) => {
       if (input.step.id !== cancelledStep.id) return { success: true };
       return { success: false, errorCode: 'RUN_CANCELLED', errorMessage: 'cancelled by operator' };
     });
-    await service.runDispatchedExecution(cancelledRun.run.id, 'tester', 'tenant_1', ExecutorRegistry.forTests([cancelledExecutor]));
-    assert.equal(service.getStep(cancelledStep.id, 'tenant_1').lastFailureCategory, 'cancelled');
+    await service.runDispatchedExecution(cancelledRun.run.id, 'tester', 'tenant_1', createTrackingRegistry(cancelledExecutor));
+    assert.equal((await service.getStep(cancelledStep.id, 'tenant_1')).lastFailureCategory, 'cancelled');
   });
 
   it('失败步骤完整保存四类输入问题并脱敏敏感详情', async () => {
@@ -573,7 +669,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
         }
       : { success: true });
 
-    const result = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', ExecutorRegistry.forTests([executor]));
+    const result = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', createTrackingRegistry(executor));
     const stored = await service.getStep(failedStep.id, 'tenant_1');
 
     assert.equal(result.success, false);
@@ -590,27 +686,27 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     const dispatched = await createRun(service, { idempotencyKey: 'idem_recover_dispatched', targetIds: ['target_b'] });
     const running = await createRun(service, { idempotencyKey: 'idem_recover_running', targetIds: ['target_c'] });
 
-    const runningSteps = service.listSteps({ tenantId: 'tenant_1', executionRunId: running.run.id }).sort((left, right) => left.stepNo - right.stepNo);
-    service.updateRunForTest(running.run.id, { status: 'RUNNING', errorCode: undefined, errorMessage: undefined }, 'tenant_1');
-    service.updateStepForTest(runningSteps[0].id, { status: 'RUNNING', idempotent: false, startedAt: new Date().toISOString() }, 'tenant_1');
-    service.updateStepForTest(runningSteps[1].id, { status: 'PENDING' }, 'tenant_1');
+    const runningSteps = (await service.listSteps({ tenantId: 'tenant_1', executionRunId: running.run.id })).sort((left, right) => left.stepNo - right.stepNo);
+    await service.updateRunForTest(running.run.id, { status: 'RUNNING', errorCode: undefined, errorMessage: undefined }, 'tenant_1');
+    await service.updateStepForTest(runningSteps[0].id, { status: 'RUNNING', idempotent: false, startedAt: new Date().toISOString() }, 'tenant_1');
+    await service.updateStepForTest(runningSteps[1].id, { status: 'PENDING' }, 'tenant_1');
 
     const executor = new TrackingExecutor(async () => ({ success: true }));
-    const recovered = await service.recoverRunsForTest('recovery_bot', 'tenant_1', ExecutorRegistry.forTests([executor]));
+    const recovered = await service.recoverRunsForTest('recovery_bot', 'tenant_1', createTrackingRegistry(executor));
 
     assert.equal(recovered.length, 3);
     const recoveredRunning = recovered.find((item) => item.run.id === running.run.id);
     assert.ok(recoveredRunning);
     assert.deepEqual(recoveredRunning?.result.skippedStepIds.length, 1);
-    assert.equal(service.getStep(runningSteps[0].id, 'tenant_1').status, 'SKIPPED');
-    assert.equal(service.getRun(queued.run.id, 'tenant_1').status, 'SUCCESS');
-    assert.equal(service.getRun(dispatched.run.id, 'tenant_1').status, 'SUCCESS');
+    assert.equal((await service.getStep(runningSteps[0].id, 'tenant_1')).status, 'SKIPPED');
+    assert.equal((await service.getRun(queued.run.id, 'tenant_1')).status, 'SUCCESS');
+    assert.equal((await service.getRun(dispatched.run.id, 'tenant_1')).status, 'SUCCESS');
   });
 
   it('同一 step 不会被重复执行', async () => {
     const service = createService();
     const created = await createRun(service, { idempotencyKey: 'idem_dedup', targetIds: ['target_a'], concurrencyLimit: 1 });
-    const firstStep = service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id }).sort((left, right) => left.stepNo - right.stepNo)[0];
+    const firstStep = (await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id })).sort((left, right) => left.stepNo - right.stepNo)[0];
     let calls = 0;
     const executor = new TrackingExecutor(async (input) => {
       if (input.step.id === firstStep.id) {
@@ -619,7 +715,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
       return { success: true };
     });
 
-    await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', ExecutorRegistry.forTests([executor]));
+    await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', createTrackingRegistry(executor));
 
     assert.equal(calls, 1);
   });
@@ -629,8 +725,8 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     const created = await createRun(service, { idempotencyKey: 'idem_unknown_executor', targetIds: ['target_x'], executorType: 'NO_SUCH_EXECUTOR' });
 
     const result = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1');
-    const run = service.getRun(created.run.id, 'tenant_1');
-    const failedStep = service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id }).find((step) => step.status === 'FAILED');
+    const run = await service.getRun(created.run.id, 'tenant_1');
+    const failedStep = (await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id })).find((step) => step.status === 'FAILED');
 
     assert.equal(result.success, false);
     assert.equal(run.status, 'FAILED');
@@ -662,12 +758,12 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
       }]]),
     });
     const steps = await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id });
-    assert.deepEqual(steps.map((step) => step.stepType), ['CUSTOM', 'VERIFY']);
-    assert.equal(steps[0]?.inputSnapshot.executorType, 'AGENT');
-    assert.equal(steps[1]?.inputSnapshot.executorType, 'CONTROL_PLANE_TLS');
-    assert.equal((steps[1]?.inputSnapshot.certificateVerification as Record<string, unknown>).connectHost, '10.255.0.127');
-    assert.equal((steps[1]?.inputSnapshot.certificateVerification as Record<string, unknown>).serverName, 'test02.jacksonz.cn');
-    assert.deepEqual(steps[1]?.dependsOn, [steps[0]?.stepNo]);
+    assert.deepEqual(steps.map((step) => step.stepType), ['DISCOVER', 'BACKUP', 'INSTALL', 'RELOAD', 'VERIFY']);
+    assert.equal(steps[2]?.inputSnapshot.executorType, 'AGENT');
+    assert.equal(steps[4]?.inputSnapshot.executorType, 'CONTROL_PLANE_TLS');
+    assert.equal((steps[4]?.inputSnapshot.certificateVerification as Record<string, unknown>).connectHost, '10.255.0.127');
+    assert.equal((steps[4]?.inputSnapshot.certificateVerification as Record<string, unknown>).serverName, 'test02.jacksonz.cn');
+    assert.deepEqual(steps[4]?.dependsOn, [steps[3]?.stepNo]);
   });
 
   it('Agent Atomic 指定 Gateway 时由 Gateway 主动执行独立 TLS VERIFY', async () => {
@@ -707,9 +803,9 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
       }]]),
     });
     const steps = await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id });
-    assert.deepEqual(steps.map((step) => step.stepType), ['CUSTOM', 'VERIFY']);
-    assert.equal(steps[0]?.inputSnapshot.executorType, 'WORKFLOW');
-    assert.equal(steps[1]?.inputSnapshot.executorType, 'CONTROL_PLANE_TLS');
+    assert.deepEqual(steps.map((step) => step.stepType), ['DISCOVER', 'BACKUP', 'INSTALL', 'RELOAD', 'VERIFY']);
+    assert.equal(steps[2]?.inputSnapshot.executorType, 'WORKFLOW');
+    assert.equal(steps[4]?.inputSnapshot.executorType, 'CONTROL_PLANE_TLS');
   });
 
   it('failurePolicy=continue 跳过失败目标剩余步骤，但继续其它目标；batchSize 和 retry 写入实际调度', async () => {
@@ -721,7 +817,7 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
       failurePolicy: 'continue',
       retry: { maxAttempts: 2, backoffSeconds: 7 },
     });
-    const firstStepA = service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id }).find((step) => step.name === 'BACKUP target_a')!;
+    const firstStepA = (await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id })).find((step) => step.name === 'BACKUP target_a')!;
     let callsA = 0;
     const executor = new TrackingExecutor(async (input) => {
       if (input.step.id === firstStepA.id) {
@@ -731,9 +827,9 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
       return { success: true };
     });
 
-    const result = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', ExecutorRegistry.forTests([executor]));
-    const run = service.getRun(created.run.id, 'tenant_1');
-    const steps = service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id });
+    const result = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', createTrackingRegistry(executor));
+    const run = await service.getRun(created.run.id, 'tenant_1');
+    const steps = await service.listSteps({ tenantId: 'tenant_1', executionRunId: created.run.id });
 
     assert.equal(result.success, false);
     assert.equal(run.status, 'FAILED');
@@ -752,9 +848,9 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
       return { success: true };
     });
 
-    const result = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', ExecutorRegistry.forTests([executor]));
-    const sourceRun = service.getRun(created.run.id, 'tenant_1');
-    const runs = service.listRuns({ tenantId: 'tenant_1', deploymentPlanId: 'plan_1' });
+    const result = await service.runDispatchedExecution(created.run.id, 'tester', 'tenant_1', createTrackingRegistry(executor));
+    const sourceRun = await service.getRun(created.run.id, 'tenant_1');
+    const runs = await service.listRuns({ tenantId: 'tenant_1', deploymentPlanId: 'plan_1' });
     const rollbackRun = runs.find((run) => run.type === 'rollback');
 
     assert.equal(result.success, false);
@@ -763,4 +859,3 @@ describe('ExecutionsApplicationService 调度与恢复', () => {
     assert.equal(rollbackRun?.status, 'DISPATCHED');
   });
 });
-// @ts-nocheck

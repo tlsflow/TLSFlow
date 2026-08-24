@@ -2,14 +2,22 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { App } from '../../common/http/app.js';
 import { createApp } from '../../app.module.js';
+import { runMigrations } from '../../database/migration-runner.js';
+import { PgliteDatabase } from '../../database/pglite-database.js';
 import { AuditService } from '../audits/audit.service.js';
 import { GatewayTaskAuditWriter, GatewayTaskService } from '../gateway-agents/index.js';
 import { GatewaysApplicationService } from './application/gateways.application-service.js';
 import { GatewaysController } from './controller/gateways.controller.js';
 
+async function createMigratedApp() {
+  const db = new PgliteDatabase();
+  await runMigrations(db);
+  return createApp({ db, corePersistence: { mode: 'memory' } });
+}
+
 describe('spec014 Gateway 后端 API', () => {
   it('Full Agent 启用 Gateway 能力后应同步到 GatewayRegistry', async () => {
-    const app = createApp();
+    const app = await createMigratedApp();
     const headers = { 'x-tenant-id': 'tenant_gateway_extension', 'x-request-id': 'req_gateway_extension_register' };
 
     const registered = await app.inject({
@@ -48,7 +56,7 @@ describe('spec014 Gateway 后端 API', () => {
   });
 
   it('Agent 注册 Gateway 时应允许租户内自定义中文区域并同步到 GatewayRegistry', async () => {
-    const app = createApp();
+    const app = await createMigratedApp();
     const headers = { 'x-tenant-id': 'tenant_gateway_custom_zone', 'x-request-id': 'req_gateway_custom_zone_register' };
 
     const registered = await app.inject({

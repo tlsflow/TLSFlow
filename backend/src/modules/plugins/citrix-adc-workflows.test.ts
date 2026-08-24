@@ -333,6 +333,46 @@ test('Citrix ADC 部署先验证新绑定再解绑旧证书，全部写操作后
   assert.equal(JSON.stringify(result).includes('fixture-only'), false);
 });
 
+test('Citrix ADC Dry-run 对运行时发现结果延迟展开 foreach', async () => {
+  const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
+  const content = JSON.parse(pluginPackage.resources['workflows/certificate-deploy.json']!);
+  const workflows = new WorkflowTemplatesApplicationService();
+  const { version } = await workflows.createTemplate({ content });
+  const result = await workflows.testRun({
+    templateVersionId: version.id,
+    mode: 'render_only',
+    resolvedInput: resolvedWorkflowInput(deploymentVariables()),
+  });
+
+  assert.equal(result.status, 'success');
+  assert.equal(result.plannedOnly, true);
+  assert.match(result.stepResults.find((item) => item.name === 'readOldCertKeys')?.logs[0] ?? '', /:deferred:/);
+  assert.equal((result.stepResults.find((item) => item.name === 'deploymentCheckpoint')?.plan as { deferred?: boolean }).deferred, true);
+  assert.match(result.stepResults.find((item) => item.name === 'removeOldBindings')?.logs[0] ?? '', /:deferred:/);
+  assert.equal((result.stepResults.find((item) => item.name === 'installIntermediates')?.plan as { itemCount?: number }).itemCount, 2);
+});
+
+test('Citrix ADC 旧证书键在零条和单条绑定时始终为数组', async () => {
+  const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
+  const content = JSON.parse(pluginPackage.resources['workflows/certificate-deploy.json']!);
+  const workflows = new WorkflowTemplatesApplicationService();
+  const { version } = await workflows.createTemplate({ content });
+
+  for (const bindings of [[], [{ vservername: 'lb-one', certkeyname: 'old-cert', snicert: false, priority: 1 }]]) {
+    const responses = deploymentResponses();
+    responses.readOldBindings = { statusCode: 200, body: { errorcode: 0, sslvserver_sslcertkey_binding: bindings } };
+    const result = await workflows.testRun({
+      templateVersionId: version.id,
+      mode: 'mock',
+      resolvedInput: resolvedWorkflowInput(deploymentVariables()),
+      mockResponses: responses,
+    });
+    const oldCertificateKeys = result.stepResults.find((item) => item.name === 'selectLiveBindings')?.extracted.oldCertificateKeys;
+    assert.ok(Array.isArray(oldCertificateKeys));
+    assert.equal(oldCertificateKeys.length, bindings.length);
+  }
+});
+
 test('Citrix ADC 仅凭标准 Asset Context 和分层 Binding 解析后可直接 Dry-run', async () => {
   const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())[0]!;
   const content = JSON.parse(pluginPackage.resources['workflows/certificate-deploy.json']!);
