@@ -72,6 +72,7 @@ import { sanitizeDeploymentInputPersistencePayload } from '../../deployment-inpu
 import { readCertificateLocation } from '../../deployment-inputs/dto/certificate-location.dto.js';
 import { validateDiscoveredLocationConsistency } from '../../deployment-inputs/domain/deployment-input-consistency.js';
 import { canonicalize } from '../../../shared/canonical-json.js';
+import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
 
 type ResolvedCreateTarget = CreateDeploymentPlanInput['targets'][number] & {
   certificateBindingId?: string;
@@ -137,6 +138,7 @@ export interface DeploymentPlansApplicationDependencies {
   pluginRuntimeAdapters?: PluginRuntimeAdapterRegistry;
   deploymentInputResolver?: ProductionDeploymentInputResolverService;
   deploymentInputSnapshots?: DeploymentInputSnapshotsRepository;
+  tasks?: TaskEnqueuer;
 }
 
 export class DeploymentPlansApplicationService {
@@ -166,6 +168,7 @@ export class DeploymentPlansApplicationService {
   private readonly workflowExecutionBindings?: WorkflowExecutionBindingsService;
   private readonly deploymentInputSnapshotService = new DeploymentInputSnapshotService();
   private readonly deploymentInputSnapshots?: DeploymentInputSnapshotsRepository;
+  private readonly tasks?: TaskEnqueuer;
 
   constructor(dependencies: DeploymentPlansApplicationDependencies = {}) {
     this.repository = dependencies.repository ?? new DeploymentPlansRepository();
@@ -203,6 +206,7 @@ export class DeploymentPlansApplicationService {
     this.workflowExecutionBindings = dependencies.database
       ? new WorkflowExecutionBindingsService(new WorkflowExecutionBindingsRepository(dependencies.database))
       : undefined;
+    this.tasks = dependencies.tasks;
   }
 
   getRepository(): DeploymentPlansRepository {
@@ -1376,6 +1380,20 @@ export class DeploymentPlansApplicationService {
       failurePolicy: plan.policy.failurePolicy,
     }, context);
 
+    const taskTenantId = plan.tenantId ?? input.tenantId;
+    if (!taskTenantId) throw new AppError('TENANT_CONTEXT_INVALID', '部署计划缺少租户上下文', { planId: plan.id });
+    enqueueTaskBestEffort(this.tasks, {
+      tenantId: taskTenantId,
+      taskType: 'CERTIFICATE_DEPLOY',
+      requestedBy: input.actorId,
+      triggerSource: 'deployment-plan.execute',
+      idempotencyKey: `deployment-plan:execute:${created.run.id}`,
+      payload: { planId: plan.id, executionRunId: created.run.id },
+      resourceRefs: [
+        { resourceType: 'deploymentPlan', resourceId: plan.id },
+        { resourceType: 'executionRun', resourceId: created.run.id },
+      ],
+    });
     return { plan: await this.toDto(running), ...created };
   }
 
@@ -1424,6 +1442,20 @@ export class DeploymentPlansApplicationService {
       failurePolicy: plan.policy.failurePolicy,
     }, context);
     const stepsWithInitialChecks = await this.attachInitialDryRunChecks(created.steps, targets, deploymentArtifactByTargetId, agentPayloadByTargetId, input.actorId, input.tenantId);
+    const taskTenantId = plan.tenantId ?? input.tenantId;
+    if (!taskTenantId) throw new AppError('TENANT_CONTEXT_INVALID', '部署计划缺少租户上下文', { planId: plan.id });
+    enqueueTaskBestEffort(this.tasks, {
+      tenantId: taskTenantId,
+      taskType: 'CERTIFICATE_DRY_RUN',
+      requestedBy: input.actorId,
+      triggerSource: 'deployment-plan.dry-run',
+      idempotencyKey: `deployment-plan:dry-run:${created.run.id}`,
+      payload: { planId: plan.id, executionRunId: created.run.id },
+      resourceRefs: [
+        { resourceType: 'deploymentPlan', resourceId: plan.id },
+        { resourceType: 'executionRun', resourceId: created.run.id },
+      ],
+    });
     return { plan: await this.toDto(plan), ...created, steps: stepsWithInitialChecks };
   }
 

@@ -30,6 +30,7 @@ import type { AcmeRenewalWorker } from '../application/acme-renewal-worker.js';
 import type { AcmeRepository } from '../repository/acme.repository.js';
 import { listAcmeDnsProviders } from '../providers/acme-dns-provider.registry.js';
 import { structuredLogger } from '../../../common/logging/structured-logger.js';
+import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
 
 const tags = ['Internal CA'];
 
@@ -48,6 +49,7 @@ export class InternalCaController {
     private readonly service: InternalCaApplicationService,
     private readonly security: SecurityServices,
     private readonly acme?: InternalCaAcmeServices,
+    private readonly tasks?: TaskEnqueuer,
   ) {}
 
   register(router: Router): void {
@@ -405,24 +407,41 @@ export class InternalCaController {
     await this.assertManage(request, 'certificate_renewal');
     const body = objectBody(request);
     await this.service.ensureBuiltinAcmeProvider(tenantId(request), actorId(request));
+    const certificate = await this.requireAcme().certificates.create({
+      tenantId: tenantId(request),
+      name: optionalString(body.name),
+      domains: Array.isArray(body.domains) ? body.domains.map(String) : [],
+      contactEmail: requiredString(body, 'contactEmail'),
+      providerId: optionalString(body.providerId),
+      challengeType: requiredString(body, 'challengeType') as never,
+      dnsProvider: optionalString(body.dnsProvider),
+      dnsCredentialId: optionalString(body.dnsCredentialId),
+      dnsPropagationSeconds: optionalNumber(body, 'dnsPropagationSeconds'),
+      keyType: (optionalString(body.keyType) as 'rsa' | 'ecdsa' | undefined),
+      autoRenew: body.autoRenew !== false,
+      renewalWindowDays: optionalNumber(body, 'renewalWindowDays') ?? 7,
+      termsOfServiceAgreed: body.termsOfServiceAgreed === true,
+      actorId: actorId(request),
+    });
+    enqueueTaskBestEffort(this.tasks, {
+      tenantId: tenantId(request),
+      taskType: 'ACME_CERTIFICATE_ISSUE',
+      requestedBy: actorId(request),
+      triggerSource: 'acme.certificate.create',
+      idempotencyKey: `acme-issue:${certificate.asset.id}`,
+      payload: {
+        certificateAssetId: certificate.asset.id,
+        certificateRequestId: certificate.certificateRequestId,
+        renewalJobId: certificate.renewalJobId,
+      },
+      resourceRefs: [
+        { resourceType: 'certificateAsset', resourceId: certificate.asset.id },
+        { resourceType: 'acmeRenewalJob', resourceId: certificate.renewalJobId },
+      ],
+    });
     return {
       statusCode: 201,
-      body: await this.requireAcme().certificates.create({
-        tenantId: tenantId(request),
-        name: optionalString(body.name),
-        domains: Array.isArray(body.domains) ? body.domains.map(String) : [],
-        contactEmail: requiredString(body, 'contactEmail'),
-        providerId: optionalString(body.providerId),
-        challengeType: requiredString(body, 'challengeType') as never,
-        dnsProvider: optionalString(body.dnsProvider),
-        dnsCredentialId: optionalString(body.dnsCredentialId),
-        dnsPropagationSeconds: optionalNumber(body, 'dnsPropagationSeconds'),
-        keyType: (optionalString(body.keyType) as 'rsa' | 'ecdsa' | undefined),
-        autoRenew: body.autoRenew !== false,
-        renewalWindowDays: optionalNumber(body, 'renewalWindowDays') ?? 7,
-        termsOfServiceAgreed: body.termsOfServiceAgreed === true,
-        actorId: actorId(request),
-      }),
+      body: certificate,
     };
   }
 
@@ -436,6 +455,15 @@ export class InternalCaController {
       actor,
       new Date(),
     );
+    enqueueTaskBestEffort(this.tasks, {
+      tenantId: tenant,
+      taskType: 'ACME_CERTIFICATE_RENEWAL',
+      requestedBy: actor,
+      triggerSource: 'acme.certificate.manual-renewal',
+      idempotencyKey: `acme-renewal:${job.id}`,
+      payload: { renewalJobId: job.id },
+      resourceRefs: [{ resourceType: 'acmeRenewalJob', resourceId: job.id }, { resourceType: 'certificateAsset', resourceId: pathId(request) }],
+    });
     void this.requireAcme().worker.runJob(tenant, job.id, actor, request.context).catch((error: unknown) => {
       structuredLogger.warn('手动 ACME 续签任务唤醒失败', {
         renewalJobId: job.id,
@@ -561,12 +589,36 @@ export class InternalCaController {
 
   private async scanAcmeRenewalJobs(request: HttpRequest) {
     await this.assertManage(request, 'certificate_renewal');
-    return this.requireAcme().scheduler.runOnce(optionalNumber(objectBody(request), 'limit') ?? 50, new Date());
+    const jobs = await this.requireAcme().scheduler.runOnce(optionalNumber(objectBody(request), 'limit') ?? 50, new Date());
+    for (const job of jobs) {
+      enqueueTaskBestEffort(this.tasks, {
+        tenantId: job.tenantId,
+        taskType: 'ACME_CERTIFICATE_RENEWAL',
+        requestedBy: actorId(request),
+        triggerSource: 'acme.renewal.scan',
+        idempotencyKey: `acme-renewal:${job.id}`,
+        payload: { renewalJobId: job.id },
+        resourceRefs: [{ resourceType: 'acmeRenewalJob', resourceId: job.id }],
+      });
+    }
+    return jobs;
   }
 
   private async runAcmeRenewalJobs(request: HttpRequest) {
     await this.assertManage(request, 'certificate_renewal');
-    return this.requireAcme().worker.runOnce(optionalNumber(objectBody(request), 'limit') ?? 10, actorId(request), request.context);
+    const jobs = await this.requireAcme().worker.runOnce(optionalNumber(objectBody(request), 'limit') ?? 10, actorId(request), request.context);
+    for (const job of jobs) {
+      enqueueTaskBestEffort(this.tasks, {
+        tenantId: job.tenantId,
+        taskType: 'ACME_CERTIFICATE_RENEWAL',
+        requestedBy: actorId(request),
+        triggerSource: 'acme.renewal.run',
+        idempotencyKey: `acme-renewal:${job.id}`,
+        payload: { renewalJobId: job.id },
+        resourceRefs: [{ resourceType: 'acmeRenewalJob', resourceId: job.id }],
+      });
+    }
+    return jobs;
   }
 
   private async retryAcmeRenewalJob(request: HttpRequest) {
@@ -759,36 +811,76 @@ export class InternalCaController {
 
   private async createAdcsAgentInstallSession(request: HttpRequest) {
     await this.assertManage(request, 'ca_node');
+    const tenant = tenantId(request);
+    const actor = actorId(request);
+    const result = await this.service.createAdcsAgentInstallSession(
+      tenant, objectBody(request), actor, agentInstallPublicBaseUrl(request), request.context,
+    );
+    const provider = result.provider as { id?: string } | undefined;
+    if (provider?.id) {
+      enqueueTaskBestEffort(this.tasks, {
+        tenantId: tenant,
+        taskType: 'AGENT_INSTALL',
+        requestedBy: actor,
+        triggerSource: 'adcs-agent.install-session',
+        idempotencyKey: `adcs-agent-install:${provider.id}`,
+        payload: { providerId: provider.id },
+        resourceRefs: [{ resourceType: 'caProvider', resourceId: provider.id }],
+      });
+    }
     return {
       statusCode: 201,
-      body: await this.service.createAdcsAgentInstallSession(
-        tenantId(request), objectBody(request), actorId(request), agentInstallPublicBaseUrl(request), request.context,
-      ),
+      body: result,
     };
   }
 
   private async createAdcsAgentUpdateSession(request: HttpRequest) {
     await this.assertManage(request, 'ca_node');
+    const tenant = tenantId(request);
+    const actor = actorId(request);
+    const providerId = pathId(request);
+    const result = await this.service.createAdcsAgentUpdateSession(
+      tenant, providerId, actor, agentInstallPublicBaseUrl(request), request.context,
+    );
+    enqueueTaskBestEffort(this.tasks, {
+      tenantId: tenant,
+      taskType: 'AGENT_UPDATE',
+      requestedBy: actor,
+      triggerSource: 'adcs-agent.update-session',
+      idempotencyKey: `adcs-agent-update:${providerId}:${result.expiresAt}`,
+      payload: { providerId },
+      resourceRefs: [{ resourceType: 'caProvider', resourceId: providerId }],
+    });
     return {
       statusCode: 201,
-      body: await this.service.createAdcsAgentUpdateSession(
-        tenantId(request), pathId(request), actorId(request), agentInstallPublicBaseUrl(request), request.context,
-      ),
+      body: result,
     };
   }
 
   private async createAdcsViewInspectionTask(request: HttpRequest) {
     await this.assertManage(request, 'ca_provider');
     const body = objectBody(request);
+    const tenant = tenantId(request);
+    const actor = actorId(request);
+    const result = await this.service.createAdcsViewInspectionTask(
+      tenant,
+      pathSegmentBefore(request, 'inspection-tasks'),
+      optionalNumber(body, 'limit') ?? 20,
+      actor,
+      request.context,
+    );
+    enqueueTaskBestEffort(this.tasks, {
+      tenantId: tenant,
+      taskType: 'AGENT_CAPABILITY_RESCAN',
+      requestedBy: actor,
+      triggerSource: 'adcs-agent.inspection-task',
+      idempotencyKey: `adcs-inspection:${result.id}`,
+      payload: { nodeTaskId: result.id, taskType: result.taskType },
+      resourceRefs: [{ resourceType: 'caNodeTask', resourceId: result.id }],
+    });
     return {
       statusCode: 201,
-      body: await this.service.createAdcsViewInspectionTask(
-        tenantId(request),
-        pathSegmentBefore(request, 'inspection-tasks'),
-        optionalNumber(body, 'limit') ?? 20,
-        actorId(request),
-        request.context,
-      ),
+      body: result,
     };
   }
 

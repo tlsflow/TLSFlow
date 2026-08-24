@@ -108,6 +108,12 @@ import { BrowserRuntimeClient } from './modules/browser-runtime/browser-runtime.
 import { BrowserCredentialSessionRepository } from './modules/browser-runtime/browser-credential-session.repository.js';
 import { BrowserCredentialSessionService } from './modules/browser-runtime/browser-credential-session.service.js';
 import { BrowserCredentialSessionController } from './modules/browser-runtime/browser-credential-session.controller.js';
+import {
+  resolveDeploymentArchitecture,
+  type DeploymentArchitecture,
+} from './config/deployment-architecture.js';
+import { HealthApplicationService } from './modules/health/application/health.application-service.js';
+import { getTaskRouteContracts, TaskRepository, TasksApplicationService, TasksController } from './modules/tasks/index.js';
 
 export interface AppDependencies {
   db?: DatabasePort;
@@ -123,9 +129,11 @@ export interface AppDependencies {
   assets?: AssetsApplicationService;
   bindings?: BindingsApplicationService;
   certificates?: CertificateServices;
+  deploymentArchitecture?: DeploymentArchitecture;
 }
 
 export function createApp(dependencies: AppDependencies = {}): App {
+  const deploymentArchitecture = dependencies.deploymentArchitecture ?? resolveDeploymentArchitecture();
   const corePersistence = dependencies.corePersistence ?? { mode: 'postgres' as const, strict: true };
   const missingPersistence = collectMissingCorePersistence(corePersistence, []);
   if (corePersistence.strict === true && missingPersistence.length > 0) {
@@ -135,7 +143,15 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const app = new App({ allowLegacyHeaderContext: dependencies.allowLegacyHeaderContext });
   const appDb = dependencies.db ?? new PgliteDatabase();
   app.setResource('database', appDb);
+  app.setResource('deploymentArchitecture', deploymentArchitecture);
   const security = dependencies.security ?? createPersistedSecurityServices(appDb).services;
+  const tasksService = new TasksApplicationService(new TaskRepository(appDb), security.audit);
+  void tasksService.initialize().catch((error: unknown) => {
+    structuredLogger.warn('统一任务控制面初始化失败，等待数据库迁移后重试', {
+      error: error instanceof Error ? error.message : String(error),
+    }, { module: 'task-control-plane' });
+  });
+  app.setResource('tasksService', tasksService);
   const credentialsService = new CredentialsApplicationService(
     new CredentialsRepository(appDb),
     undefined,
@@ -250,6 +266,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     executionDetailStream,
     livenessService,
     agentCapabilityDiscoveryProjector,
+    tasksService,
   );
   const capabilitiesService = new CapabilitiesApplicationService(new PgCapabilitiesRepository(appDb));
   const workflowTemplatesService = new WorkflowTemplatesApplicationService(
@@ -262,16 +279,20 @@ export function createApp(dependencies: AppDependencies = {}): App {
     },
     new PluginWorkflowBindingsRepository(appDb),
   );
-  const browserRuntimeClient = new BrowserRuntimeClient();
-  const browserCredentialSessionService = new BrowserCredentialSessionService(
-    new BrowserCredentialSessionRepository(appDb),
-    browserRuntimeClient,
-    credentialsService,
-    unifiedPluginsService,
-    new PluginWorkflowBindingsRepository(appDb),
-    workflowTemplatesService,
-    assetsService,
-  );
+  const browserRuntimeClient = deploymentArchitecture === 'standard'
+    ? new BrowserRuntimeClient()
+    : undefined;
+  const browserCredentialSessionService = browserRuntimeClient
+    ? new BrowserCredentialSessionService(
+        new BrowserCredentialSessionRepository(appDb),
+        browserRuntimeClient,
+        credentialsService,
+        unifiedPluginsService,
+        new PluginWorkflowBindingsRepository(appDb),
+        workflowTemplatesService,
+        assetsService,
+      )
+    : undefined;
   const pluginBindingsService = new PluginBindingsApplicationService(new PluginBindingsRepository(appDb));
   const pluginWorkflowPublisher = new PluginWorkflowPublisherService(workflowTemplatesService, new PluginWorkflowBindingsRepository(appDb));
   const devicesService = new DevicesApplicationService(
@@ -292,8 +313,10 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('livenessService', livenessService);
   app.setResource('unifiedPluginsService', unifiedPluginsService);
   app.setResource('workflowTemplatesService', workflowTemplatesService);
-  app.setResource('browserRuntimeClient', browserRuntimeClient);
-  app.setResource('browserCredentialSessionService', browserCredentialSessionService);
+  if (browserRuntimeClient && browserCredentialSessionService) {
+    app.setResource('browserRuntimeClient', browserRuntimeClient);
+    app.setResource('browserCredentialSessionService', browserCredentialSessionService);
+  }
   app.setResource('pluginWorkflowPublisher', pluginWorkflowPublisher);
   app.setResource('certificateServices', certificateServices);
   app.setResource('internalCaService', internalCaService);
@@ -330,7 +353,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
   ));
 
   app.setAuthTokenResolver((authorization, cookie) => security.auth.parseRequestIdentity(authorization, cookie));
-  new HealthController().register(app.router);
+  app.setAgentTokenResolver((token, request) => agentsService.parseAgentRequestIdentity(token, request));
+  new HealthController(new HealthApplicationService(deploymentArchitecture)).register(app.router);
 
   assetsService.setAgentsService(agentsService);
   assetsService.setBindingsRepository(bindingsService.getRepository());
@@ -389,6 +413,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     secrets: security.secrets,
     database: appDb,
     deploymentInputSnapshots,
+    tasks: tasksService,
   }), undefined, security);
   deploymentPlans.register(app.router);
   new DeploymentInputProjectionController(deploymentPlans.getApplicationService()).register(app.router);
@@ -401,7 +426,9 @@ export function createApp(dependencies: AppDependencies = {}): App {
   })).register(app.router);
   new LicensingController(licensingService).register(app.router);
   new CredentialsController(credentialsService, security).register(app.router);
-  new BrowserCredentialSessionController(browserCredentialSessionService, security).register(app.router);
+  if (browserCredentialSessionService) {
+    new BrowserCredentialSessionController(browserCredentialSessionService, security).register(app.router);
+  }
   const executionsService = deploymentPlans.getExecutionsService();
   app.setResource('deploymentPlansController', deploymentPlans);
   app.setResource('deploymentPlansService', deploymentPlans.getApplicationService());
@@ -504,12 +531,13 @@ export function createApp(dependencies: AppDependencies = {}): App {
     executions: deploymentPlans.getExecutionsService().getRepository(),
     assets: assetsService.getRepository(),
     notifications: notificationsService,
+    tasks: tasksService,
   });
   executionResultSync.setMonitorsService(monitorsService);
   app.setResource('monitorsService', monitorsService);
 
   new CertificatesController(security, certificateServices).register(app.router);
-  new InternalCaController(internalCaService, security, acmeServices).register(app.router);
+  new InternalCaController(internalCaService, security, acmeServices, tasksService).register(app.router);
   new DeviceAssetsController(deviceAssetsService, new SecurityServicesDeviceAssetPort(security)).register(app.router);
   new DevicesController(devicesService, security).register(app.router);
   new CapabilitiesController(capabilitiesService).register(app.router);
@@ -576,6 +604,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     deploymentPlans: deploymentPlans.getRepository(),
   })).register(app.router);
   new MonitorsController(monitorsService).register(app.router);
+  new TasksController(tasksService, security).register(app.router);
   new NotificationsController(notificationsService, security).register(app.router);
   const reportScope = new ReportScopeResolver({
     canRead: async (subject, object) => (await security.objectPermissions.can(subject, 'read', {
@@ -593,7 +622,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
 
   app.router.get('/api/v1/openapi.json', '获取 OpenAPI 契约', ['System'], async () => ({
     statusCode: 200,
-    body: generateOpenApiDocument(getRouteContracts()),
+    body: generateOpenApiDocument(getRouteContracts(deploymentArchitecture)),
   }));
 
   return app;
@@ -698,7 +727,53 @@ function positiveInteger(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
-export function getRouteContracts(): RouteContract[] {
+export function getRouteContracts(
+  deploymentArchitecture: DeploymentArchitecture = resolveDeploymentArchitecture(),
+): RouteContract[] {
+  const browserCredentialRouteContracts: RouteContract[] = deploymentArchitecture === 'standard'
+    ? [
+        {
+          method: 'POST',
+          path: '/api/v1/credentials/browser-sessions',
+          operationId: 'createBrowserCredentialSession',
+          summary: '创建浏览器临时凭据会话',
+          tags: ['BrowserCredentials'],
+          responseSchema: { type: 'object', additionalProperties: true },
+        },
+        {
+          method: 'GET',
+          path: '/api/v1/credentials/browser-sessions/:id',
+          operationId: 'getBrowserCredentialSession',
+          summary: '查询浏览器临时凭据会话',
+          tags: ['BrowserCredentials'],
+          responseSchema: { type: 'object', additionalProperties: true },
+        },
+        {
+          method: 'GET',
+          path: '/api/v1/credentials/browser-sessions/:id/connect',
+          operationId: 'connectBrowserCredentialSession',
+          summary: '连接浏览器临时 VNC',
+          tags: ['BrowserCredentials'],
+          responseSchema: { type: 'string' },
+        },
+        {
+          method: 'POST',
+          path: '/api/v1/credentials/browser-sessions/:id/acquire',
+          operationId: 'acquireBrowserCredentialSession',
+          summary: '手动获取浏览器凭据',
+          tags: ['BrowserCredentials'],
+          responseSchema: { type: 'object', additionalProperties: true },
+        },
+        {
+          method: 'POST',
+          path: '/api/v1/credentials/browser-sessions/:id/cancel',
+          operationId: 'cancelBrowserCredentialSession',
+          summary: '取消浏览器临时凭据会话',
+          tags: ['BrowserCredentials'],
+          responseSchema: { type: 'object', additionalProperties: true },
+        },
+      ]
+    : [];
   return [
     ...getHealthRouteContracts(),
     ...getSecurityRouteContracts(),
@@ -720,49 +795,11 @@ export function getRouteContracts(): RouteContract[] {
     ...getAutomationRouteContracts(),
     ...getDashboardRouteContracts(),
     ...getMonitorRouteContracts(),
+    ...getTaskRouteContracts(),
     ...getNotificationRouteContracts(),
     ...getReportRouteContracts(),
     ...getLicensingRouteContracts(),
-    {
-      method: 'POST',
-      path: '/api/v1/credentials/browser-sessions',
-      operationId: 'createBrowserCredentialSession',
-      summary: '创建浏览器临时凭据会话',
-      tags: ['BrowserCredentials'],
-      responseSchema: { type: 'object', additionalProperties: true },
-    },
-    {
-      method: 'GET',
-      path: '/api/v1/credentials/browser-sessions/:id',
-      operationId: 'getBrowserCredentialSession',
-      summary: '查询浏览器临时凭据会话',
-      tags: ['BrowserCredentials'],
-      responseSchema: { type: 'object', additionalProperties: true },
-    },
-    {
-      method: 'GET',
-      path: '/api/v1/credentials/browser-sessions/:id/connect',
-      operationId: 'connectBrowserCredentialSession',
-      summary: '连接浏览器临时 VNC',
-      tags: ['BrowserCredentials'],
-      responseSchema: { type: 'string' },
-    },
-    {
-      method: 'POST',
-      path: '/api/v1/credentials/browser-sessions/:id/acquire',
-      operationId: 'acquireBrowserCredentialSession',
-      summary: '手动获取浏览器凭据',
-      tags: ['BrowserCredentials'],
-      responseSchema: { type: 'object', additionalProperties: true },
-    },
-    {
-      method: 'POST',
-      path: '/api/v1/credentials/browser-sessions/:id/cancel',
-      operationId: 'cancelBrowserCredentialSession',
-      summary: '取消浏览器临时凭据会话',
-      tags: ['BrowserCredentials'],
-      responseSchema: { type: 'object', additionalProperties: true },
-    },
+    ...browserCredentialRouteContracts,
     {
       method: 'GET',
       path: '/api/v1/openapi.json',

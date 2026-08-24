@@ -36,6 +36,7 @@ import { AlertDispatcher } from './alert-dispatcher.js';
 import type { NotificationPort } from '../../notifications/application/notification.port.js';
 import { MonitoringScheduler } from './monitoring-scheduler.js';
 import { PgMonitorsRepository, type MonitorsRepository } from '../repository/monitors.repository.js';
+import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
 
 export interface MonitorsApplicationDependencies {
   repository?: MonitorsRepository;
@@ -45,6 +46,7 @@ export interface MonitorsApplicationDependencies {
   executions: ExecutionsRepository;
   assets?: AssetsRepository;
   notifications?: NotificationPort;
+  tasks?: TaskEnqueuer;
 }
 
 export class MonitorsApplicationService {
@@ -179,6 +181,16 @@ export class MonitorsApplicationService {
     // 中文说明：风险恢复使用已有最新观测，必须独立于本轮是否执行实际探测。
     await this.reconcileMonitorCertificateRisks({ occurredAt: now.toISOString() });
     const candidates = await this.repository.listActiveMonitorTargetsForScheduler(maxTargets * 3);
+    const batchTenants = new Set(candidates.map((target) => target.tenantId));
+    for (const tenantId of batchTenants) {
+      enqueueTaskBestEffort(this.dependencies.tasks, {
+        tenantId,
+        taskType: 'MONITORING_BATCH',
+        triggerSource: 'monitoring.scheduler',
+        idempotencyKey: `monitoring-batch:${tenantId}:${now.toISOString().slice(0, 16)}`,
+        payload: { maxTargets, candidateCount: candidates.filter((target) => target.tenantId === tenantId).length },
+      });
+    }
     let checkedCount = 0;
     let skippedCount = 0;
     let failedCount = 0;

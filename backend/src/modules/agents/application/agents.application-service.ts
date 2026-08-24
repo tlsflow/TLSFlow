@@ -23,6 +23,7 @@ import type { ExecutionDetailStreamService } from '../../executions/application/
 import type { LivenessApplicationService } from '../../liveness/application/liveness.application-service.js';
 import type { AgentCapabilityDiscoveryProjector } from '../discovery/agent-capability-discovery.projector.js';
 import type { StandardDiscoveryProjectionSummary } from '../../plugins/discovery/standard-device-discovery.projector.js';
+import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
 
 export class AgentsApplicationService {
   private readonly directClient = new AgentDirectClient();
@@ -37,6 +38,7 @@ export class AgentsApplicationService {
     private readonly detailStream?: ExecutionDetailStreamService,
     private readonly liveness?: LivenessApplicationService,
     private readonly capabilityDiscoveryProjector?: AgentCapabilityDiscoveryProjector,
+    private readonly tasks?: TaskEnqueuer,
   ) {}
 
   getModuleMetadata() {
@@ -288,6 +290,23 @@ export class AgentsApplicationService {
     }) : agent;
     await this.syncGatewayRegistry(tenantId, updated);
     return { agentId: agent.id, declarations: this.domain.toCapabilityDeclarations(updated, snapshot) };
+  }
+
+  async parseAgentRequestIdentity(
+    token: string,
+    request: { method: string; path: string },
+  ): Promise<{ actorId: string; tenantId: string } | undefined> {
+    if (!isAgentMachineRoute(request.method, request.path)) return undefined;
+    const normalizedToken = token.trim();
+    if (!normalizedToken) return undefined;
+    const enrollment = await this.repository.findEnrollmentTokenByHashAnyTenant(
+      this.domain.hashEnrollmentToken(normalizedToken),
+    );
+    if (!enrollment || enrollment.status === 'revoked') return undefined;
+    return {
+      actorId: `agent-token:${enrollment.id}`,
+      tenantId: enrollment.tenantId,
+    };
   }
 
   /**
@@ -836,7 +855,7 @@ export class AgentsApplicationService {
     return { deleted: true, agentId: agent.id };
   }
 
-  async createWindowsPowerShellInstallSession(tenantId: string, input: CreateWindowsPowerShellInstallSessionInput, requestId: string, baseUrl: string): Promise<AgentInstallSessionBootstrapProjection> {
+  async createWindowsPowerShellInstallSession(tenantId: string, input: CreateWindowsPowerShellInstallSessionInput, requestId: string, baseUrl: string, requestedBy?: string): Promise<AgentInstallSessionBootstrapProjection> {
     const session = this.domain.createWindowsPowerShellInstallSession(tenantId, input, requestId, baseUrl);
     await this.repository.createEnrollmentToken(session.enrollmentTokenRecord);
     await this.repository.createInstallSession({
@@ -862,6 +881,7 @@ export class AgentsApplicationService {
       dataDir: session.dataDir,
       logDir: session.logDir,
     });
+    this.recordAgentInstallTask(tenantId, session.id, session.platform, requestedBy);
     const token = encodeURIComponent((session as AgentInstallSession & { bootstrapToken: string }).bootstrapToken);
     const bootstrapUrl = `${baseUrl}/agent-install.ps1?token=${token}`;
     return {
@@ -886,7 +906,7 @@ export class AgentsApplicationService {
     };
   }
 
-  async createWindowsCompatibilityInstallSession(tenantId: string, input: CreateWindowsCompatibilityInstallSessionInput, requestId: string, baseUrl: string): Promise<AgentInstallSessionBootstrapProjection> {
+  async createWindowsCompatibilityInstallSession(tenantId: string, input: CreateWindowsCompatibilityInstallSessionInput, requestId: string, baseUrl: string, requestedBy?: string): Promise<AgentInstallSessionBootstrapProjection> {
     const session = this.domain.createWindowsCompatibilityInstallSession(tenantId, input, requestId, baseUrl);
     await this.repository.createEnrollmentToken(session.enrollmentTokenRecord);
     await this.repository.createInstallSession({
@@ -912,6 +932,7 @@ export class AgentsApplicationService {
       dataDir: session.dataDir,
       logDir: session.logDir,
     });
+    this.recordAgentInstallTask(tenantId, session.id, session.platform, requestedBy);
     const token = encodeURIComponent(session.bootstrapToken);
     const bootstrapUrl = `${baseUrl}/agent-install.ps1?token=${token}`;
     return {
@@ -936,7 +957,7 @@ export class AgentsApplicationService {
     };
   }
 
-  async createLinuxGoInstallSession(tenantId: string, input: CreateLinuxGoInstallSessionInput, requestId: string, baseUrl: string): Promise<AgentInstallSessionBootstrapProjection> {
+  async createLinuxGoInstallSession(tenantId: string, input: CreateLinuxGoInstallSessionInput, requestId: string, baseUrl: string, requestedBy?: string): Promise<AgentInstallSessionBootstrapProjection> {
     const session = this.domain.createLinuxGoInstallSession(tenantId, input, requestId, baseUrl);
     await this.repository.createEnrollmentToken(session.enrollmentTokenRecord);
     await this.repository.createInstallSession({
@@ -962,6 +983,7 @@ export class AgentsApplicationService {
       dataDir: session.dataDir,
       logDir: session.logDir,
     });
+    this.recordAgentInstallTask(tenantId, session.id, session.platform, requestedBy);
     const token = encodeURIComponent((session as AgentInstallSession & { bootstrapToken: string }).bootstrapToken);
     const bootstrapUrl = `${baseUrl}/agent-install?token=${token}`;
     const bundleUrl = `${baseUrl}/api/v1/agents/install/linux/bundle.tar.gz`;
@@ -1250,6 +1272,18 @@ export class AgentsApplicationService {
     return agent;
   }
 
+  private recordAgentInstallTask(tenantId: string, sessionId: string, platform: string, requestedBy?: string): void {
+    enqueueTaskBestEffort(this.tasks, {
+      tenantId,
+      taskType: 'AGENT_INSTALL',
+      requestedBy,
+      triggerSource: 'agents.install-session',
+      idempotencyKey: `agent-install:${sessionId}`,
+      payload: { sessionId, platform },
+      resourceRefs: [{ resourceType: 'agentInstallSession', resourceId: sessionId }],
+    });
+  }
+
   private async requireTask(tenantId: string, agentId: string, taskId: string) {
     const task = await this.repository.getTask(tenantId, taskId);
     if (!task || task.agentId !== agentId) throw new AppError('RESOURCE_NOT_FOUND', 'Agent task 不存在', { taskId });
@@ -1474,6 +1508,29 @@ function readRecord(value: unknown): Record<string, unknown> {
 
 function readStringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+const AGENT_MACHINE_ROUTES = new Set([
+  'POST /api/v1/agents/register',
+  'POST /api/v1/agents/sessions',
+  'POST /api/v1/agents/certificate-requests',
+  'POST /api/v1/agents/certificates/rotate',
+  'POST /api/v1/agents/heartbeat',
+  'POST /api/v1/agents/capabilities',
+  'GET /api/v1/agents/tasks/pull',
+  'POST /api/v1/agents/tasks/ack',
+  'POST /api/v1/agents/tasks/logs',
+  'POST /api/v1/agents/runtime-logs',
+  'POST /api/v1/agents/tasks/log-batches',
+  'POST /api/v1/agents/tasks/result',
+  'POST /api/v1/agents/upgrades/check',
+  'POST /api/v1/agents/upgrades/result',
+  'POST /api/v1/gateways/probe',
+  'POST /api/v1/gateways/status',
+]);
+
+function isAgentMachineRoute(method: string, path: string): boolean {
+  return AGENT_MACHINE_ROUTES.has(`${method.toUpperCase()} ${path}`);
 }
 
 export function resolveAgentTaskActionType(payload: Record<string, unknown> | undefined): string | undefined {
