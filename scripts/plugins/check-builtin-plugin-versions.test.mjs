@@ -85,6 +85,19 @@ test('Git 工作区资源变化必须同步升级 Manifest 版本', () => {
   }
 });
 
+test('按插件目录校验时不会把其他插件的违规变更带进来', () => {
+  const root = createGitFixture(['example', 'other']);
+  try {
+    const otherWorkflowPath = join(root, 'backend/src/modules/plugins/builtin-plugins/other/workflows/discover.json');
+    writeFileSync(otherWorkflowPath, JSON.stringify({ ...createWorkflow('1.0.0'), changed: true }), 'utf8');
+
+    assert.deepEqual(checkBuiltinPluginVersions(root, { baseRef: 'HEAD', pluginDirectories: ['example'] }), []);
+    assert.deepEqual(checkBuiltinPluginVersions(root, { baseRef: 'HEAD' }).map((violation) => violation.pluginDirectory), ['other']);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('即使没有 Git 变更，非法 Manifest SemVer 也必须失败关闭', () => {
   const root = createGitFixture();
   try {
@@ -111,12 +124,14 @@ test('Git 已提交资源变化必须同步升级 Manifest 版本', () => {
   }
 });
 
-function createGitFixture() {
+function createGitFixture(pluginDirectories = ['example']) {
   const root = mkdtempSync(join(tmpdir(), 'gcac-builtin-plugin-version-'));
-  const pluginDirectory = join(root, 'backend/src/modules/plugins/builtin-plugins/example');
-  mkdirSync(join(pluginDirectory, 'workflows'), { recursive: true });
-  writeFileSync(join(pluginDirectory, 'manifest.json'), JSON.stringify(createManifest('1.0.0')), 'utf8');
-  writeFileSync(join(pluginDirectory, 'workflows/discover.json'), JSON.stringify(createWorkflow('1.0.0')), 'utf8');
+  for (const directoryName of pluginDirectories) {
+    const pluginDirectory = join(root, 'backend/src/modules/plugins/builtin-plugins', directoryName);
+    mkdirSync(join(pluginDirectory, 'workflows'), { recursive: true });
+    writeFileSync(join(pluginDirectory, 'manifest.json'), JSON.stringify(createManifest('1.0.0')), 'utf8');
+    writeFileSync(join(pluginDirectory, 'workflows/discover.json'), JSON.stringify(createWorkflow('1.0.0')), 'utf8');
+  }
   git(root, ['init']);
   git(root, ['config', 'user.email', 'gcac-test@example.com']);
   git(root, ['config', 'user.name', 'GCAC Test']);

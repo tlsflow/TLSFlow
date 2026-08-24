@@ -19,7 +19,7 @@ for arg in "$@"; do
 用法：./scripts/dev-backend.sh [选项]
 
 选项：
-  --skip-plugin-check  跳过内置插件版本和最终包指纹检查
+  --skip-plugin-check  跳过内置插件版本检查
   --retry-failed-migrations
                        按当前文件重试失败数据库迁移（仅处理 FAILED 记录）
   -h, --help          显示帮助信息
@@ -42,6 +42,7 @@ fi
 export HOST="${HOST:-0.0.0.0}"
 export PORT="${PORT:-3003}"
 export API_PREFIX="${API_PREFIX:-/api/v1}"
+unset GCAC_BUILTIN_PLUGIN_VERSION_VIOLATIONS || true
 
 # 同一工作区只允许一个后端监听者。旧会话已经在提供热重载时，当前脚本
 # 直接复用它并退出，避免再创建一个永远抢不到端口的 tsx watcher。
@@ -75,7 +76,22 @@ if [ "$skip_plugin_check" = true ]; then
   echo "[backend] 已跳过内置插件版本不可变规则检查"
 else
   echo "[backend] 检查内置插件版本不可变规则"
-  npm run check:builtin-plugin-versions
+  plugin_violation_directories=""
+  set +e
+  plugin_violation_directories="$(node ../scripts/plugins/check-builtin-plugin-versions.mjs --format plugin-directories)"
+  plugin_check_status=$?
+  set -e
+  if [ "$plugin_check_status" -ne 0 ]; then
+    if [ -n "$plugin_violation_directories" ]; then
+      export GCAC_BUILTIN_PLUGIN_VERSION_VIOLATIONS="$plugin_violation_directories"
+      echo "[backend] 已隔离违规内置插件：${plugin_violation_directories}"
+    else
+      echo "[backend] 内置插件版本检查无法生成插件名单，继续启动并交由 Registry 逐插件校验" >&2
+    fi
+    echo "[backend] 版本违规不会阻止后端启动，其余插件继续加载"
+  else
+    echo "[backend] 内置插件版本不可变检查通过"
+  fi
 fi
 
 if [ "$retry_failed_migrations" = true ]; then

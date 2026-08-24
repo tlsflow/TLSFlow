@@ -8,9 +8,10 @@ const repositoryRoot = resolve(scriptDirectory, '..', '..');
 const builtinPluginRoot = 'backend/src/modules/plugins/builtin-plugins';
 
 export function checkBuiltinPluginVersions(root = repositoryRoot, options = {}) {
-  const manifestViolations = findBuiltinPluginManifestViolations(root);
+  const pluginDirectories = normalizePluginDirectories(options.pluginDirectories ?? options.pluginDirectory);
+  const manifestViolations = findBuiltinPluginManifestViolations(root, { pluginDirectories });
   const baseRef = options.baseRef ?? resolveBaseRef(root, options.environment ?? process.env);
-  const { committedPaths, workingTreePaths } = collectChangedPaths(root, baseRef);
+  const { committedPaths, workingTreePaths } = collectChangedPaths(root, baseRef, pluginDirectories);
   const committedViolations = findBuiltinPluginVersionViolations({
     changedPaths: committedPaths,
     readCurrentManifest: (manifestPath) => readJsonFile(resolve(root, manifestPath)),
@@ -28,14 +29,16 @@ export function checkBuiltinPluginVersions(root = repositoryRoot, options = {}) 
   return uniqueViolations([...manifestViolations, ...committedViolations, ...workingTreeViolations]);
 }
 
-/** 所有内置包都必须先通过同一条严格 SemVer 语法门禁，不能只校验发生 diff 的包。 */
-export function findBuiltinPluginManifestViolations(root = repositoryRoot) {
+/** 默认校验所有内置包；传入插件目录时只隔离校验目标包，避免插件之间互相阻塞。 */
+export function findBuiltinPluginManifestViolations(root = repositoryRoot, options = {}) {
+  const pluginDirectories = normalizePluginDirectories(options.pluginDirectories ?? options.pluginDirectory);
   const builtinRoot = resolve(root, builtinPluginRoot);
   if (!existsSync(builtinRoot)) return [];
   return readdirSync(builtinRoot, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => {
       const pluginDirectory = entry.name;
+      if (!isPluginDirectorySelected(pluginDirectory, pluginDirectories)) return undefined;
       const manifestPath = `${builtinPluginRoot}/${pluginDirectory}/manifest.json`;
       const manifest = readJsonFile(resolve(root, manifestPath));
       if (!manifest) return undefined;
@@ -89,16 +92,36 @@ export function findBuiltinPluginVersionViolations({
   return violations;
 }
 
-function collectChangedPaths(root, baseRef) {
+function collectChangedPaths(root, baseRef, pluginDirectories) {
   const committedPaths = baseRef === 'HEAD'
     ? []
     : gitLines(root, ['diff', '--name-only', '--diff-filter=ACMRT', `${baseRef}...HEAD`, '--', builtinPluginRoot]);
   const workingTree = gitLines(root, ['diff', '--name-only', '--diff-filter=ACMRT', 'HEAD', '--', builtinPluginRoot]);
   const untracked = gitLines(root, ['ls-files', '--others', '--exclude-standard', '--', builtinPluginRoot]);
   return {
-    committedPaths: [...new Set(committedPaths)].sort(),
-    workingTreePaths: [...new Set([...workingTree, ...untracked])].sort(),
+    committedPaths: filterChangedPaths([...new Set(committedPaths)].sort(), pluginDirectories),
+    workingTreePaths: filterChangedPaths([...new Set([...workingTree, ...untracked])].sort(), pluginDirectories),
   };
+}
+
+function filterChangedPaths(paths, pluginDirectories) {
+  return paths.filter((path) => isPluginDirectorySelected(pluginDirectoryFromPath(path), pluginDirectories));
+}
+
+function normalizePluginDirectories(value) {
+  if (value === undefined || value === null) return undefined;
+  const values = Array.isArray(value) ? value : [value];
+  const normalized = values
+    .flatMap((item) => typeof item === 'string' ? item.split(',') : [])
+    .map((item) => item.trim().replaceAll('\\', '/'))
+    .filter(Boolean)
+    .map((item) => item.split('/').at(-1))
+    .filter(Boolean);
+  return normalized.length > 0 ? new Set(normalized) : undefined;
+}
+
+function isPluginDirectorySelected(pluginDirectory, selectedDirectories) {
+  return !selectedDirectories || (pluginDirectory !== undefined && selectedDirectories.has(pluginDirectory));
 }
 
 function uniqueViolations(violations) {
@@ -228,13 +251,32 @@ function gitText(root, arguments_) {
   }).trim();
 }
 
-function run() {
-  const violations = checkBuiltinPluginVersions();
-  if (violations.length === 0) {
-    console.log('内置插件版本不可变检查通过。');
-    return;
+function parseCliArguments(arguments_) {
+  const options = { pluginDirectories: [], format: 'text' };
+  for (let index = 0; index < arguments_.length; index += 1) {
+    const argument = arguments_[index];
+    if (argument === '--plugin-directory') {
+      const value = arguments_[index + 1];
+      if (!value) throw new Error('--plugin-directory 缺少参数值');
+      options.pluginDirectories.push(value);
+      index += 1;
+      continue;
+    }
+    if (argument === '--format') {
+      const value = arguments_[index + 1];
+      if (value !== 'text' && value !== 'plugin-directories') {
+        throw new Error('--format 只支持 text 或 plugin-directories');
+      }
+      options.format = value;
+      index += 1;
+      continue;
+    }
+    throw new Error(`未知参数：${argument}`);
   }
+  return options;
+}
 
+function printViolations(violations) {
   console.error('内置插件或其 Workflow 内容已变化，但插件版本未正确递进：');
   for (const violation of violations) {
     if (violation.kind === 'plugin') {
@@ -244,6 +286,21 @@ function run() {
       console.error(`- 插件 ${violation.pluginId} 的 Manifest.version 不是合法 SemVer：${violation.version}，文件 ${violation.manifestPath}`);
     }
   }
+}
+
+function run() {
+  const cli = parseCliArguments(process.argv.slice(2));
+  const violations = checkBuiltinPluginVersions(repositoryRoot, {
+    pluginDirectories: cli.pluginDirectories,
+  });
+  if (cli.format === 'plugin-directories') {
+    console.log([...new Set(violations.map((violation) => violation.pluginDirectory))].join(','));
+  }
+  if (violations.length === 0) {
+    if (cli.format === 'text') console.log('内置插件版本不可变检查通过。');
+    return;
+  }
+  printViolations(violations);
   process.exitCode = 1;
 }
 
