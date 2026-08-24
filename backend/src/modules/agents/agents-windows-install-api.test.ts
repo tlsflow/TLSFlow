@@ -21,7 +21,7 @@ describe('Agent 安装会话安全约束', () => {
       method: 'POST',
       path: '/api/v1/agents/install-sessions/windows-powershell',
       headers,
-      body: { zone: 'default' },
+      body: { zone: 'default', startAfterInstall: true },
     });
     assert.equal(created.statusCode, 201);
 
@@ -160,7 +160,7 @@ describe('Agent 安装会话安全约束', () => {
       method: 'POST',
       path: '/api/v1/agents/install-sessions/windows-compatibility',
       headers,
-      body: { zone: 'default', startAfterInstall: true },
+      body: { zone: 'default' },
     });
     assert.equal(created.statusCode, 201);
     const createdBody = created.body as { platform: string; serviceName: string; installCommand: string; bootstrapUrl: string };
@@ -178,7 +178,10 @@ describe('Agent 安装会话安全约束', () => {
     assert.equal(bootstrap.statusCode, 200);
     const body = String(bootstrap.body);
     assert.match(body, /GCAC\.WindowsCompatibilityAgent\.exe/);
+    assert.match(body, /GCAC\.WindowsCompatibilityAgent\.exe\.config/);
     assert.match(body, /--preflight/);
+    assert.match(body, /\$bootstrapPreviousErrorActionPreference/);
+    assert.match(body, /\$ErrorActionPreference = 'Continue'/);
     assert.match(body, /install-service\.ps1/);
     assert.match(body, /uninstall-service\.ps1/);
     assert.match(body, /-InstallRoot \$installRoot -ConfigPath \$actualConfigPath/);
@@ -187,10 +190,16 @@ describe('Agent 安装会话安全约束', () => {
     assert.match(body, /executable replacement timed out/);
     assert.match(body, /FromBase64String/);
     assert.match(body, /bootstrap\.log/);
+    assert.match(body, /Detailed preflight output/);
+    assert.match(body, /Write-Host \$preflightOutput/);
+    assert.match(body, /bootstrap-preflight\.json/);
+    assert.match(body, /Start-Service -Name \$serviceName -ErrorAction Stop/);
     assert.match(body, /WaitForStatus\('Running', \[TimeSpan\]::FromSeconds\(30\)\)/);
     assert.ok(body.indexOf('$preflightOutput = & $sourceBinary') < body.indexOf('$uninstallOutput = & powershell'));
     assert.ok(body.indexOf('$uninstallOutput = & powershell') < body.indexOf('Copy-Item -LiteralPath $sourceBinary'));
+    assert.ok(body.indexOf('Copy-Item -LiteralPath $sourceBinary') < body.indexOf('Copy-Item -LiteralPath $sourceRuntimeConfig'));
     assert.ok(body.indexOf('Copy-Item -LiteralPath $sourceBinary') < body.indexOf('$installOutput = & powershell'));
+    assert.match(body, /-NoStartAfterInstall/);
     assert.doesNotMatch(body, /\[Console\]::OutputEncoding/);
     assert.doesNotMatch(body, /Write-Host \('Windows Compatibility Agent installed successfully/);
     assert.doesNotMatch(body, /ConvertFrom-Json/);
@@ -200,8 +209,12 @@ describe('Agent 安装会话安全约束', () => {
   it('Windows Compatibility Agent 防火墙配置兼容带空格路径并提供端口规则回退', async () => {
     const installScript = await readFile(resolve('../agents/windows-compat-full-agent/install-service.ps1'), 'utf8');
     const upgradeScript = await readFile(resolve('../agents/windows-compat-full-agent/upgrade-service.ps1'), 'utf8');
+    assert.match(installScript, /\[switch\]\$NoStartAfterInstall/);
+    assert.match(installScript, /Service installed without starting/);
     assert.match(installScript, /WaitForStatus\("Running", \[TimeSpan\]::FromSeconds\(30\)\)/);
     assert.match(installScript, /Service did not reach Running after start/);
+    assert.match(installScript, /actions= restart\/5000\/restart\/15000/);
+    assert.doesNotMatch(installScript, /none\/0/);
     for (const script of [installScript, upgradeScript]) {
       assert.match(script, /"name=\$firewallRuleName"/);
       assert.match(script, /"program=\$ProgramPath"/);

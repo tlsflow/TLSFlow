@@ -116,6 +116,7 @@ export class AgentsDomainService {
       agentKey: `wincompat.${id.toLowerCase()}`,
       controlPlaneUrl,
       zone,
+      // 兼容 Agent 预检通过后由 Bootstrap 负责启动服务，默认保持自动启动。
       startAfterInstall: input.startAfterInstall !== false,
       createdAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + INSTALL_SESSION_TTL_MS).toISOString(),
