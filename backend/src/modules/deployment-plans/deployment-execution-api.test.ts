@@ -1293,6 +1293,134 @@ describe('部署计划与执行编排 API', () => {
     assert.equal(step.inputSnapshot.deploymentArtifact?.passwordSecretRef, 'secret://pfx-password/2');
   });
 
+  it('LATEST_AUTO 保存计划时可处理数据库返回的 Date 类型证书时间', async () => {
+    const binding = {
+      id: 'binding_auto_latest_date_1',
+      tenantId: 'tenant_auto_latest_date',
+      siteAssetId: 'site_auto_latest_date_1',
+      managedTargetId: 'target_auto_latest_date_1',
+      serviceInstanceId: 'svc_auto_latest_date_1',
+      hostId: 'host_auto_latest_date_1',
+      domainName: 'date-site.example.com',
+      domain: 'date-site.example.com',
+      port: 443,
+      protocol: 'HTTPS',
+      bindingKey: '*:443:date-site.example.com',
+      bindingType: 'WINDOWS_CERT_STORE',
+      verifyMethod: 'TLS',
+      status: 'ACTIVE',
+      metadata: {},
+      createdAt: '2026-06-23T00:00:00.000Z',
+      updatedAt: '2026-06-23T00:00:00.000Z',
+      version: 1,
+    };
+    const managedTarget = {
+      id: 'target_auto_latest_date_1',
+      tenantId: 'tenant_auto_latest_date',
+      agentId: 'agent-auto-latest-date-01',
+      hostId: 'host_auto_latest_date_1',
+      serviceInstanceId: 'svc_auto_latest_date_1',
+      serviceAssetId: 'sat_auto_latest_date_1',
+      siteAssetId: 'site_auto_latest_date_1',
+      providerType: 'IIS',
+      frameworkType: 'IIS',
+      targetType: 'SITE_BINDING',
+      targetKey: 'agent-auto-latest-date-01:site-binding:agent-auto-latest-date-01:iis:default web site:*:443:date-site.example.com',
+      bindingKey: '*:443:date-site.example.com',
+      capabilityProfile: {},
+      status: 'ACTIVE',
+      metadata: {},
+      createdAt: '2026-06-23T00:00:00.000Z',
+      updatedAt: '2026-06-23T00:00:00.000Z',
+      version: 1,
+    };
+    const olderVersion = {
+      id: 'certver_auto_latest_date_1',
+      certificateAssetId: 'certasset_auto_latest_date_1',
+      versionNo: 1,
+      commonName: 'date-site.example.com',
+      sans: ['date-site.example.com'],
+      issuer: { raw: 'CN=issuer' },
+      subject: { raw: 'CN=date-site.example.com' },
+      serialNumber: 'date-001',
+      notBefore: '2026-06-23T00:00:00.000Z',
+      notAfter: '2026-12-31T00:00:00.000Z',
+      fingerprintSha256: 'fp-auto-latest-date-1',
+      publicKeyAlgorithm: 'RSA',
+      signatureAlgorithm: 'SHA256RSA',
+      leafStorageRef: 'vault://leaf/date-1',
+      privateKeySecretRef: 'secret://pfx/date-1',
+      chainCertificateRefs: [],
+      chainOrder: [],
+      chainDiagnostics: [],
+      chainStatus: 'valid',
+      deployable: true,
+      sourceType: 'manual',
+      status: 'active',
+      createdBy: 'user_1',
+      createdAt: '2026-06-23T00:00:00.000Z',
+    };
+    const newerVersion = {
+      ...olderVersion,
+      id: 'certver_auto_latest_date_2',
+      versionNo: 2,
+      serialNumber: 'date-002',
+      notAfter: new Date('2027-01-31T00:00:00.000Z') as unknown as string,
+      fingerprintSha256: 'fp-auto-latest-date-2',
+      leafStorageRef: 'vault://leaf/date-2',
+      privateKeySecretRef: 'secret://pfx/date-2',
+      createdAt: new Date('2026-07-03T00:00:00.000Z') as unknown as string,
+    };
+    const assets = {
+      getManagedTarget: async () => managedTarget,
+      getSiteAsset: async () => undefined,
+    };
+    const bindings = {
+      listCertificateBindings: async () => ({ items: [binding], total: 1, page: 1, pageSize: 5000 }),
+      getCertificateBinding: async () => binding,
+    };
+    const certificates = {
+      getVersion: async (id) => id === newerVersion.id ? newerVersion : olderVersion,
+      getAsset: async () => ({
+        id: 'certasset_auto_latest_date_1',
+        name: 'date-site.example.com',
+        primaryDomain: 'date-site.example.com',
+        sans: ['date-site.example.com'],
+        sourceType: 'manual',
+        status: 'active',
+        tags: [],
+        createdBy: 'user_1',
+        createdAt: '2026-06-23T00:00:00.000Z',
+        updatedAt: '2026-06-23T00:00:00.000Z',
+      }),
+      listVersions: async () => ({
+        items: [olderVersion, newerVersion],
+        total: 2,
+        page: 1,
+        pageSize: 5000,
+      }),
+      listFormatsByVersion: async () => [],
+      listFormats: async () => ({ items: [], total: 0, page: 1, pageSize: 5000 }),
+      getFormat: async () => undefined,
+    };
+    const repository = new DeploymentPlansRepository();
+    const executions = new ExecutionsApplicationService({
+      deploymentPlansRepository: repository,
+    });
+    const service = new DeploymentPlansApplicationService({ repository, executions, assets, bindings, certificates });
+
+    const plan = await service.create({
+      name: 'auto latest date iis deploy',
+      selectionMode: 'LATEST_AUTO',
+      idempotencyKey: 'idem_auto_latest_date_plan',
+      actorId: 'user_1',
+      tenantId: 'tenant_auto_latest_date',
+      targets: [{ managedTargetId: 'target_auto_latest_date_1', executorType: 'AGENT' }],
+    });
+
+    assert.equal(plan.certificateVersionId, 'certver_auto_latest_date_2');
+  });
+
   it('deployment plan -> execute -> agent task payload -> agent artifact download 最小链路可跑通 IIS 换证', async () => {
     const security = createSecurityServices();
     security.rbac.createPolicy({ subjectType: 'user', subjectId: 'approver_1', effect: 'allow', actions: ['approval.decide'], resourceTypes: ['approval'], scope: { tenantId: 'tenant_1' } });

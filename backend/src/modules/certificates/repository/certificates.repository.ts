@@ -409,8 +409,8 @@ type CertificateAssetRow = {
   status: CertificateAssetEntity['status'];
   tags: unknown;
   created_by: string;
-  created_at: string;
-  updated_at: string;
+  created_at: DbTime;
+  updated_at: DbTime;
 };
 
 type CertificateVersionRow = {
@@ -422,8 +422,8 @@ type CertificateVersionRow = {
   issuer: unknown;
   subject: unknown;
   serial_number: string;
-  not_before: string;
-  not_after: string;
+  not_before: DbTime;
+  not_after: DbTime;
   fingerprint_sha256: string;
   public_key_algorithm: string;
   signature_algorithm: string;
@@ -437,7 +437,7 @@ type CertificateVersionRow = {
   source_type: CertificateVersionEntity['sourceType'];
   status: CertificateVersionEntity['status'];
   created_by: string;
-  created_at: string;
+  created_at: DbTime;
 };
 
 type CertificateVersionFormatRow = {
@@ -450,9 +450,11 @@ type CertificateVersionFormatRow = {
   contains_private_key: boolean;
   password_secret_ref?: string | null;
   created_by: string;
-  created_at: string;
-  expires_at?: string | null;
+  created_at: DbTime;
+  expires_at?: DbTime | null;
 };
+
+type DbTime = string | Date;
 
 function toAssetEntity(row: CertificateAssetRow): CertificateAssetEntity {
   return {
@@ -465,8 +467,8 @@ function toAssetEntity(row: CertificateAssetRow): CertificateAssetEntity {
     status: row.status,
     tags: asStringArray(row.tags),
     createdBy: row.created_by,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    createdAt: toIsoText(row.created_at),
+    updatedAt: toIsoText(row.updated_at),
   };
 }
 
@@ -480,8 +482,8 @@ function toVersionEntity(row: CertificateVersionRow): CertificateVersionEntity {
     issuer: row.issuer as CertificateVersionEntity['issuer'],
     subject: row.subject as CertificateVersionEntity['subject'],
     serialNumber: row.serial_number,
-    notBefore: row.not_before,
-    notAfter: row.not_after,
+    notBefore: toIsoText(row.not_before),
+    notAfter: toIsoText(row.not_after),
     fingerprintSha256: row.fingerprint_sha256,
     publicKeyAlgorithm: row.public_key_algorithm,
     signatureAlgorithm: row.signature_algorithm,
@@ -495,7 +497,7 @@ function toVersionEntity(row: CertificateVersionRow): CertificateVersionEntity {
     sourceType: row.source_type,
     status: row.status,
     createdBy: row.created_by,
-    createdAt: row.created_at,
+    createdAt: toIsoText(row.created_at),
   };
 }
 
@@ -510,9 +512,13 @@ function toFormatEntity(row: CertificateVersionFormatRow): CertificateVersionFor
     containsPrivateKey: row.contains_private_key,
     passwordSecretRef: row.password_secret_ref ?? undefined,
     createdBy: row.created_by,
-    createdAt: row.created_at,
-    expiresAt: row.expires_at ?? undefined,
+    createdAt: toIsoText(row.created_at),
+    expiresAt: row.expires_at ? toIsoText(row.expires_at) : undefined,
   };
+}
+
+function toIsoText(value: DbTime): string {
+  return value instanceof Date ? value.toISOString() : value;
 }
 
 function asStringArray(value: unknown): string[] {

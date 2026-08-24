@@ -1504,11 +1504,11 @@ export class DeploymentPlansApplicationService {
       matched.push({ version, asset });
     }
     matched.sort((left, right) => {
-      const notAfter = right.version.notAfter.localeCompare(left.version.notAfter);
+      const notAfter = compareTimeDesc(left.version.notAfter, right.version.notAfter);
       if (notAfter !== 0) return notAfter;
       const versionNo = right.version.versionNo - left.version.versionNo;
       if (versionNo !== 0) return versionNo;
-      return right.version.createdAt.localeCompare(left.version.createdAt);
+      return compareTimeDesc(left.version.createdAt, right.version.createdAt);
     });
     const selected = matched[0];
     if (!selected) {
@@ -2521,6 +2521,18 @@ function parseIisBindingInformation(value: string): { ip?: string; port?: number
 
 function readOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function compareTimeDesc(left: unknown, right: unknown): number {
+  const leftTime = readTimeValue(left);
+  const rightTime = readTimeValue(right);
+  if (leftTime !== rightTime) return rightTime - leftTime;
+  return String(right ?? '').localeCompare(String(left ?? ''));
+}
+
+function readTimeValue(value: unknown): number {
+  const time = value instanceof Date ? value.getTime() : new Date(String(value ?? '')).getTime();
+  return Number.isFinite(time) ? time : 0;
 }
 
 function readStringArray(value: unknown): string[] {
