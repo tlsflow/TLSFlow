@@ -4,10 +4,12 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { createPinia, setActivePinia } from 'pinia'
 import { ApiClientError } from '@/api/client'
 import GcExecutionLogViewer from '@/design-system/components/GcExecutionLogViewer.vue'
+import { i18n } from '@/i18n'
 import { usePermissionStore } from '@/stores/permission.store'
 
 const deploymentMocks = vi.hoisted(() => ({
   listAssets: vi.fn(),
+  getAssetDetail: vi.fn(),
   listCertificates: vi.fn(),
   listCertificateVersions: vi.fn(),
   listCertificateFormats: vi.fn(),
@@ -64,6 +66,7 @@ const workflowMocks = vi.hoisted(() => ({
 
 vi.mock('@/api/modules/assets.api', () => ({
   listAssets: deploymentMocks.listAssets,
+  getAssetDetail: deploymentMocks.getAssetDetail,
 }))
 
 vi.mock('@/api/modules/certificates.api', () => ({
@@ -205,6 +208,11 @@ describe('spec028 前端闭环', () => {
         },
       },
     ]))
+    deploymentMocks.getAssetDetail.mockResolvedValue({
+      data: {},
+      requestId: 'req_asset_detail',
+      timestamp: '2026-06-08T00:00:00.000Z',
+    })
     deploymentMocks.listCertificates.mockResolvedValue(okPage([
       { id: 'cert-1', primaryDomain: 'a.example.com' },
     ]))
@@ -319,9 +327,11 @@ describe('spec028 前端闭环', () => {
     })
     workflowMocks.createWorkflowTemplateVersion.mockResolvedValue({ data: { id: 'ver-2' } })
     workflowMocks.publishWorkflowTemplateVersion.mockResolvedValue({ data: { ok: true } })
+    vi.clearAllMocks()
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     vi.restoreAllMocks()
     localStorage.clear()
     document.body.innerHTML = ''
@@ -335,7 +345,7 @@ describe('spec028 前端闭环', () => {
     mount(DeploymentPlansView, {
       attachTo: document.body,
       global: {
-        plugins: [router],
+        plugins: [router, i18n],
         stubs: { teleport: true, Teleport: true },
       },
     })
@@ -359,10 +369,54 @@ describe('spec028 前端闭环', () => {
       applicationAssetId: 'asset-1',
       selectionMode: 'LATEST_AUTO',
     }))
+    expect(monitorMocks.probeMonitorServiceAsset).toHaveBeenCalledWith(expect.objectContaining({
+      serviceAssetId: 'asset-1',
+      timeoutMs: 10000,
+    }))
     expect(deploymentMocks.dryRunDeploymentPlan).toHaveBeenCalledWith({ planId: 'plan-1' })
     expect(bodyText()).toContain('Dry-run 结果')
-    expect(bodyText()).toContain('等待后端返回执行步骤')
+    expect(bodyText()).toContain('等待执行步骤')
     expect(bodyText()).toContain('任务进度')
+  })
+
+  it('unknown deployment update state retries asset probe on a timer', async () => {
+    vi.useFakeTimers()
+    deploymentMocks.listDeploymentPlans.mockResolvedValue(okPage([
+      {
+        id: 'plan-unknown',
+        name: 'a.example.com certificate deployment',
+        status: 'DRAFT',
+        certificateVersionId: 'certver-1',
+        targets: [{ applicationAssetId: 'asset-1' }],
+      },
+    ]))
+
+    const router = createTestRouter()
+    router.push('/deployment-plans')
+    await router.isReady()
+
+    const wrapper = mount(DeploymentPlansView, {
+      attachTo: document.body,
+      global: {
+        plugins: [router, i18n],
+        stubs: { teleport: true, Teleport: true },
+      },
+    })
+    await flushPromises()
+
+    expect(monitorMocks.probeMonitorServiceAsset).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(15000)
+    await flushPromises()
+
+    expect(monitorMocks.probeMonitorServiceAsset).toHaveBeenCalledWith(expect.objectContaining({
+      serviceAssetId: 'asset-1',
+      timeoutMs: 10000,
+    }))
+    expect(deploymentMocks.listDeploymentPlans).toHaveBeenCalledTimes(2)
+
+    wrapper.unmount()
+    vi.useRealTimers()
   })
 
   it('部署计划草稿可以用创建视图回填并保存编辑', async () => {
@@ -400,7 +454,7 @@ describe('spec028 前端闭环', () => {
     mount(DeploymentPlansView, {
       attachTo: document.body,
       global: {
-        plugins: [router],
+        plugins: [router, i18n],
         stubs: { teleport: true, Teleport: true },
       },
     })
@@ -466,7 +520,7 @@ describe('spec028 前端闭环', () => {
     mount(DeploymentPlansView, {
       attachTo: document.body,
       global: {
-        plugins: [router],
+        plugins: [router, i18n],
         stubs: { teleport: true, Teleport: true },
       },
     })
@@ -521,7 +575,7 @@ describe('spec028 前端闭环', () => {
     mount(DeploymentPlansView, {
       attachTo: document.body,
       global: {
-        plugins: [router],
+        plugins: [router, i18n],
         stubs: { teleport: true, Teleport: true },
       },
     })
@@ -573,7 +627,7 @@ describe('spec028 前端闭环', () => {
 
     const wrapper = mount(DeploymentPlansView, {
       global: {
-        plugins: [router],
+        plugins: [router, i18n],
         stubs: { teleport: true, Teleport: true },
       },
     })
@@ -613,7 +667,7 @@ describe('spec028 前端闭环', () => {
     mount(DeploymentPlansView, {
       attachTo: document.body,
       global: {
-        plugins: [router],
+        plugins: [router, i18n],
         stubs: { teleport: true, Teleport: true },
       },
     })
@@ -665,7 +719,7 @@ describe('spec028 前端闭环', () => {
 
     const wrapper = mount(MonitorsView, {
       global: {
-        plugins: [router],
+        plugins: [router, i18n],
         stubs: { RouterLink: false },
       },
     })
@@ -696,7 +750,7 @@ describe('spec028 前端闭环', () => {
 
     const wrapper = mount(MonitorsView, {
       global: {
-        plugins: [router],
+        plugins: [router, i18n],
         stubs: { teleport: true, Teleport: true },
       },
     })
@@ -711,7 +765,7 @@ describe('spec028 前端闭环', () => {
   it('工作流详情可加载版本并发布草稿版本', async () => {
     const wrapper = mount(WorkflowTemplatesView, {
       attachTo: document.body,
-      global: { stubs: { teleport: true, Teleport: true } },
+      global: { plugins: [i18n], stubs: { teleport: true, Teleport: true } },
     })
     await flushPromises()
 
@@ -732,6 +786,7 @@ describe('spec028 前端闭环', () => {
 
   it('执行日志组件明确显示自动刷新兜底文案', () => {
     const wrapper = mount(GcExecutionLogViewer, {
+      global: { plugins: [i18n] },
       props: {
         mode: 'live',
         polling: true,
@@ -743,6 +798,6 @@ describe('spec028 前端闭环', () => {
 
     expect(wrapper.text()).toContain('自动刷新')
     expect(wrapper.text()).toContain('任务状态与日志会自动刷新')
-    expect(wrapper.text()).toContain('当前处于刷新兜底模式')
+    expect(wrapper.text()).toContain('当前使用定时刷新模式')
   })
 })
