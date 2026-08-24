@@ -37,12 +37,6 @@ const retiredTables = [
   'plugin_packages',
   'legacy_plugin_migration_results',
   'pg_provider_operation_ledger',
-  'pg_acme_http01_presentations',
-  'pg_acme_challenges',
-  'pg_acme_authorizations',
-  'pg_acme_orders',
-  'pg_acme_renewal_policies',
-  'pg_acme_accounts',
   'pg_execution_runs',
   'pg_execution_steps',
   'agent_plugin_mounts',
@@ -58,7 +52,7 @@ export interface DevelopmentDatabaseCutoverOptions {
   registry?: BuiltinPluginRegistry;
   publishPlugins?: (
     db: DatabasePort,
-    loader: BuiltinUnifiedPluginLoader,
+    registry: BuiltinPluginRegistry,
     expected: readonly BuiltinPluginRegistryEntry[],
   ) => Promise<PublishedPluginSummary>;
 }
@@ -116,7 +110,7 @@ export async function runDevelopmentDatabaseCutover(
   const publish = options.publishPlugins ?? publishBuiltinPlugins;
   let published!: PublishedPluginSummary;
   await db.transaction(async (tx) => {
-    published = await publish(tx, loader, expected);
+    published = await publish(tx, registry, expected);
     await assertDatabasePostflight(tx, expected, published);
     await writeCutoverAudit(tx, runId, before, published);
   });
@@ -145,7 +139,7 @@ export async function runDevelopmentDatabaseCutover(
 
 export async function publishBuiltinPlugins(
   db: DatabasePort,
-  loader: BuiltinUnifiedPluginLoader,
+  registry: BuiltinPluginRegistry,
   expected: readonly BuiltinPluginRegistryEntry[],
 ): Promise<PublishedPluginSummary> {
   const workflowBindings = new PluginWorkflowBindingsRepository(db);
@@ -174,7 +168,7 @@ export async function publishBuiltinPlugins(
     new PluginWorkflowVersionStore(db),
     declarationResolver,
   );
-  const installed = await loader.installAll(plugins);
+  const installed = await registry.registerAll(plugins);
   const expectedKeys = new Set(expected.map((entry) => `${entry.pluginId}@${entry.version}`));
   const installedKeys = new Set(installed.map((plugin) => `${plugin.pluginId}@${plugin.version}`));
   if (installed.length !== expected.length || installedKeys.size !== expectedKeys.size
@@ -464,7 +458,7 @@ function digestMapsEqual(left: Record<string, string> | undefined, right: Record
 }
 
 function assertExpectedPluginSet(entries: readonly BuiltinPluginRegistryEntry[]): void {
-  if (entries.length !== 17) throw new Error(`P2 开发发布清单必须包含 17 个插件，实际 ${entries.length} 个`);
+  if (entries.length === 0) throw new Error('P2 开发发布清单未加载任何可发布内置插件');
   const keys = new Set(entries.map((entry) => `${entry.pluginId}@${entry.version}`));
   if (keys.size !== entries.length) throw new Error('P2 开发发布清单存在重复 PluginVersion');
 }

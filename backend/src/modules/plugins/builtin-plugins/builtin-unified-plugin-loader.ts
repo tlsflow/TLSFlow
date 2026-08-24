@@ -2,7 +2,7 @@ import { access, readdir, readFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { structuredLogger, type StructuredLogger } from '../../../common/logging/structured-logger.js';
-import type { UnifiedPluginVersionRecord } from '../dto/unified-plugins.dto.js';
+import type { UnifiedPluginManifestV1, UnifiedPluginVersionRecord } from '../dto/unified-plugins.dto.js';
 import { assertUnifiedPluginResources, validateUnifiedPluginManifest } from '../schema/unified-plugins.schema.js';
 import type { UnifiedPluginsApplicationService } from '../application/unified-plugins.application-service.js';
 
@@ -42,8 +42,16 @@ export class BuiltinUnifiedPluginLoader {
   }
 
   async installAll(service: UnifiedPluginsApplicationService): Promise<UnifiedPluginVersionRecord[]> {
+    return this.installPackages(service, await this.loadPackages());
+  }
+
+  /** 由统一 Registry 扫描并校验后的包从这里进入数据库派生注册表。 */
+  async installPackages(
+    service: UnifiedPluginsApplicationService,
+    packages: readonly BuiltinPluginPackage[],
+    options: { failFast?: boolean } = {},
+  ): Promise<UnifiedPluginVersionRecord[]> {
     const storageTenantId = 'SYSTEM';
-    const packages = await this.loadPackages();
     const installed: UnifiedPluginVersionRecord[] = [];
     for (const pluginPackage of packages) {
       const identity = pluginIdentity(pluginPackage.manifest);
@@ -52,6 +60,7 @@ export class BuiltinUnifiedPluginLoader {
         imported = await service.importVersion(storageTenantId, pluginPackage, 'BUILTIN');
       } catch (error) {
         this.warnFailure('import', identity, error);
+        if (options.failFast) throw error;
         continue;
       }
 
@@ -62,6 +71,7 @@ export class BuiltinUnifiedPluginLoader {
           : await service.approvePermissions(imported.id, imported.manifest.permissions);
       } catch (error) {
         this.warnFailure('approvePermissions', identityOf(imported), error, imported.id);
+        if (options.failFast) throw error;
         continue;
       }
 
@@ -69,6 +79,7 @@ export class BuiltinUnifiedPluginLoader {
         installed.push(approved.status === 'ENABLED' ? approved : await service.enableVersion(approved.id));
       } catch (error) {
         this.warnFailure('enable', identityOf(approved), error, approved.id);
+        if (options.failFast) throw error;
       }
     }
     return installed;
@@ -96,7 +107,7 @@ export class BuiltinUnifiedPluginLoader {
   private async loadPackage(directory: string): Promise<BuiltinPluginPackage> {
     const manifestPath = join(directory, 'manifest.json');
     const manifestContent = await readFile(manifestPath, 'utf8');
-    const parsedManifest = JSON.parse(manifestContent) as { resources?: Record<string, Record<string, string> | string> };
+    const parsedManifest = JSON.parse(manifestContent) as { resources?: UnifiedPluginManifestV1['resources'] };
     const manifest = validateUnifiedPluginManifest(parsedManifest);
     const resourcePaths = collectManifestResourcePaths(manifest).sort();
     const resources = Object.fromEntries(await Promise.all(resourcePaths.map(async (resourcePath) => {
@@ -123,16 +134,16 @@ export class BuiltinUnifiedPluginLoader {
   }
 }
 
-function collectManifestResourcePaths(manifest: { resources?: Record<string, Record<string, string> | string> }): string[] {
+function collectManifestResourcePaths(manifest: { resources?: UnifiedPluginManifestV1['resources'] }): string[] {
   const paths: string[] = [];
-  for (const [key, value] of Object.entries(manifest.resources ?? {})) {
-    if (!value) continue;
-    if (key === 'runtimeEntrypoint' && typeof value === 'string') {
+  const collect = (value: unknown): void => {
+    if (typeof value === 'string') {
       paths.push(value);
-      continue;
+      return;
     }
-    if (typeof value === 'object') paths.push(...Object.values(value));
-  }
+    if (value && typeof value === 'object') Object.values(value).forEach(collect);
+  };
+  Object.values(manifest.resources ?? {}).forEach(collect);
   return [...new Set(paths)];
 }
 

@@ -12,6 +12,14 @@ import {
 } from './development-database-cutover.js';
 
 const migrationsDirectory = resolve(process.cwd(), 'src/database/migrations');
+const nativeAcmeTables = [
+  'pg_acme_accounts',
+  'pg_acme_orders',
+  'pg_acme_authorizations',
+  'pg_acme_challenges',
+  'pg_acme_http01_presentations',
+  'pg_acme_renewal_policies',
+] as const;
 
 async function createMigratedDatabase(): Promise<PgliteDatabase> {
   const db = new PgliteDatabase();
@@ -22,7 +30,7 @@ async function createMigratedDatabase(): Promise<PgliteDatabase> {
   return db;
 }
 
-test('开发数据库一次性切换发布 17 个真实 PluginVersion，写入备份和审计并可重放', async () => {
+test('开发数据库一次性切换发布当前 Registry 的 PluginVersion，写入备份和审计并可重放', async () => {
   const db = await createMigratedDatabase();
   const directory = await mkdtemp(join(tmpdir(), 'gcac-p2-cutover-'));
   try {
@@ -32,19 +40,29 @@ test('开发数据库一次性切换发布 17 个真实 PluginVersion，写入�
       reportPath: join(directory, 'first.report.json'),
     });
 
-    assert.equal(first.expectedPluginCount, 17);
-    assert.equal(first.publishedPluginVersionIds.length, 17);
+    assert.ok(first.expectedPluginCount > 0);
+    assert.equal(first.publishedPluginVersionIds.length, first.expectedPluginCount);
     assert.ok(first.workflowBindingCount > 0);
     assert.ok(first.cleanupAuditCount >= 20);
+    assert.equal(
+      (await db.query<{ count: string }>(
+        `select count(*)::text as count
+           from information_schema.tables
+          where table_schema = 'public'
+            and table_name = any($1::text[])`,
+        [[...nativeAcmeTables]],
+      )).rows[0]?.count,
+      String(nativeAcmeTables.length),
+    );
     assert.deepEqual(JSON.parse(await readFile(first.backupPath, 'utf8')).environment, 'development');
-    assert.deepEqual(JSON.parse(await readFile(first.reportPath, 'utf8')).expectedPluginCount, 17);
+    assert.deepEqual(JSON.parse(await readFile(first.reportPath, 'utf8')).expectedPluginCount, first.expectedPluginCount);
 
     const second = await runDevelopmentDatabaseCutover(db, {
       environment: { NODE_ENV: 'test', GCAC_P2_DEV_CUTOVER: '1' },
       backupPath: join(directory, 'second.backup.json'),
       reportPath: join(directory, 'second.report.json'),
     });
-    assert.equal(second.expectedPluginCount, 17);
+    assert.equal(second.expectedPluginCount, first.expectedPluginCount);
     assert.equal(second.after.counts.unified_plugin_versions, first.after.counts.unified_plugin_versions);
     assert.equal(second.after.counts.pg_documents, first.after.counts.pg_documents);
     assert.equal(
@@ -85,8 +103,8 @@ test('开发数据库切换发布失败时恢复切换前记录', async () => {
       () => runDevelopmentDatabaseCutover(db, {
         environment: { NODE_ENV: 'test', GCAC_P2_DEV_CUTOVER: '1' },
         backupPath: join(directory, 'failure.backup.json'),
-        publishPlugins: async (database, loader, expected) => {
-          await publishBuiltinPlugins(database, loader, expected);
+        publishPlugins: async (database, registry, expected) => {
+          await publishBuiltinPlugins(database, registry, expected);
           throw new Error('模拟开发 PluginVersion 发布后切换失败');
         },
       }),

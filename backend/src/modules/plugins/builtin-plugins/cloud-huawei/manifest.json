@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "cloud.huawei",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "displayNameKey": "plugin.cloud.huawei.name",
   "descriptionKey": "plugin.cloud.huawei.description",
   "defaultLocale": "zh-CN",

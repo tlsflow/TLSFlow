@@ -14,7 +14,6 @@ export interface PluginWorkflowInputContractV1 {
 }
 
 export interface PluginWorkflowExecutionBindingV1 {
-  pluginVersion: string;
   capability: string;
   runner: 'gcac.plugin-runner/v1';
   writeEffect?: boolean;
@@ -52,14 +51,13 @@ export type PluginWorkflowResourceV1 = PluginWorkflowV1 | PluginWorkflowRunnerRe
 
 export interface PluginWorkflowValidationContext {
   pluginId: string;
-  pluginVersion: string;
   capability: UnifiedPluginCapabilityDescriptor;
 }
 
 const rootKeys = new Set(['apiVersion', 'kind', 'metadata', 'inputContract', 'executionBinding', 'steps']);
 const metadataKeys = new Set(['name', 'version', 'pluginId', 'capability', 'readOnly']);
 const inputContractKeys = new Set(['required']);
-const executionBindingKeys = new Set(['pluginVersion', 'capability', 'runner', 'writeEffect']);
+const executionBindingKeys = new Set(['capability', 'runner', 'writeEffect']);
 const stepKeys = new Set(['type', 'capability', 'writeEffect']);
 const semanticVersionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
@@ -105,9 +103,6 @@ export class PluginWorkflowSchemaRegistry {
     const name = nonEmptyString(metadata.name, 'metadata.name');
     const version = nonEmptyString(metadata.version, 'metadata.version');
     if (!semanticVersionPattern.test(version)) fail('metadata.version', '必须是 SemVer 语义版本');
-    if (version !== context.pluginVersion) {
-      fail('metadata.version', '必须固定到当前 PluginVersion', { expected: context.pluginVersion, actual: version });
-    }
     const inputContract = record(root.inputContract, 'inputContract');
     const steps = runnerSteps(root.steps, 'steps');
     const rollback = root.rollback === undefined ? undefined : runnerSteps(root.rollback, 'rollback');
@@ -166,17 +161,11 @@ function validateInputContract(input: unknown): PluginWorkflowInputContractV1 {
 function validateExecutionBinding(input: unknown, context: PluginWorkflowValidationContext): PluginWorkflowExecutionBindingV1 {
   const binding = record(input, 'executionBinding');
   assertKnownKeys(binding, executionBindingKeys, 'executionBinding');
-  const pluginVersion = nonEmptyString(binding.pluginVersion, 'executionBinding.pluginVersion');
-  if (!semanticVersionPattern.test(pluginVersion)) fail('executionBinding.pluginVersion', '必须是 SemVer 语义版本');
-  if (pluginVersion !== context.pluginVersion) {
-    fail('executionBinding.pluginVersion', '必须固定到当前 PluginVersion', { expected: context.pluginVersion, actual: pluginVersion });
-  }
   const capability = nonEmptyString(binding.capability, 'executionBinding.capability');
   if (capability !== context.capability.key) fail('executionBinding.capability', '必须与 Manifest 能力一致', { expected: context.capability.key, actual: capability });
   if (binding.runner !== 'gcac.plugin-runner/v1') fail('executionBinding.runner', '只支持 gcac.plugin-runner/v1');
   if (binding.writeEffect !== undefined && typeof binding.writeEffect !== 'boolean') fail('executionBinding.writeEffect', '必须是布尔值');
   return {
-    pluginVersion,
     capability,
     runner: 'gcac.plugin-runner/v1',
     ...(binding.writeEffect === undefined ? {} : { writeEffect: binding.writeEffect }),

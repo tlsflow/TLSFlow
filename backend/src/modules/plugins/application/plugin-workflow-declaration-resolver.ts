@@ -8,8 +8,6 @@ export interface PluginWorkflowDeclaration {
   key: string;
   capabilityKey: string;
   path: string;
-  initialVersion: string;
-  readOnly: boolean;
 }
 
 export type PluginWorkflowDeclarationResolver = (
@@ -39,7 +37,5 @@ export function resolveManifestWorkflowDeclarations(
     key,
     capabilityKey: key,
     path,
-    initialVersion: record.version,
-    readOnly: false,
   }));
 }

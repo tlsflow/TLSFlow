@@ -5,7 +5,7 @@ import { AppError } from './common/errors/app-error.js';
 import { initializeBuiltinPlugins } from './app.module.js';
 import type { UnifiedPluginVersionRecord } from './modules/plugins/dto/unified-plugins.dto.js';
 import type { PluginWorkflowPublisherService } from './modules/plugins/application/plugin-workflow-publisher.service.js';
-import { BuiltinUnifiedPluginLoader } from './modules/plugins/builtin-plugins/builtin-unified-plugin-loader.js';
+import type { BuiltinPluginRegistry } from './modules/plugins/builtin-plugins/builtin-plugin-registry.js';
 import type { UnifiedPluginsApplicationService } from './modules/plugins/application/unified-plugins.application-service.js';
 import { PgliteDatabase } from './database/pglite-database.js';
 import { runMigrations } from './database/migration-runner.js';
@@ -99,9 +99,9 @@ test('内置插件 Workflow 发布失败时启动初始化仍继续', async () =
   const disabled: string[] = [];
   const warnings: LogEvent[] = [];
   const logger = new StructuredLogger((event) => warnings.push(event));
-  const loader = {
-    installAll: async () => plugins,
-  } as unknown as BuiltinUnifiedPluginLoader;
+  const registry = {
+    registerAll: async () => plugins,
+  } as unknown as BuiltinPluginRegistry;
   const publisher = {
     publishPlugin: async (plugin: UnifiedPluginVersionRecord) => {
       published.push(plugin.pluginId);
@@ -121,7 +121,7 @@ test('内置插件 Workflow 发布失败时启动初始化仍继续', async () =
   await initializeBuiltinPlugins(
     unifiedPlugins,
     publisher,
-    { loader, logger },
+    { registry, logger },
   );
 
   assert.deepEqual(published, ['plugin.publish-failure', 'plugin.continues']);
@@ -140,6 +140,26 @@ test('内置插件 Workflow 发布失败时启动初始化仍继续', async () =
       { phase: 'publishWorkflow', pluginId: 'plugin.publish-failure', version: '1.0.0', errorCode: 'VALIDATION_FAILED' },
     ],
   );
+});
+
+test('Registry 包摘要冲突会中止内置插件初始化', async () => {
+  const warnings: LogEvent[] = [];
+  const logger = new StructuredLogger((event) => warnings.push(event));
+  const registry = {
+    registerAll: async () => {
+      throw new AppError('RESOURCE_VERSION_CONFLICT', '同一插件版本存在不同包内容', {
+        pluginId: 'web.nginx',
+        version: '1.0.0',
+      });
+    },
+  };
+  const publisher = { publishPlugin: async () => [] } as unknown as PluginWorkflowPublisherService;
+
+  await assert.rejects(
+    () => initializeBuiltinPlugins({} as UnifiedPluginsApplicationService, publisher, { registry: registry as never, logger }),
+    (error: unknown) => error instanceof AppError && error.errorCode === 'RESOURCE_VERSION_CONFLICT',
+  );
+  assert.equal((warnings[0]?.details as { phase?: string } | undefined)?.phase, 'registry');
 });
 
 function pluginRecord(pluginId: string, version: string): UnifiedPluginVersionRecord {

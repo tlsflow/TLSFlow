@@ -3,6 +3,6 @@
   "kind": "PluginWorkflow",
   "metadata": { "name": "cloud-huawei-connection-test", "version": "2.0.1", "pluginId": "cloud.huawei", "capability": "cloud.service.connection-test", "readOnly": true },
   "inputContract": { "required": ["cloudServiceRef", "credential.secretRef", "security"] },
-  "executionBinding": { "pluginVersion": "2.0.1", "capability": "cloud.service.connection-test", "runner": "gcac.plugin-runner/v1" },
+  "executionBinding": { "capability": "cloud.service.connection-test", "runner": "gcac.plugin-runner/v1" },
   "steps": [{ "type": "plugin.execute", "capability": "cloud.service.connection-test" }]
 }

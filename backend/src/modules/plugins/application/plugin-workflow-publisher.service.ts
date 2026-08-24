@@ -226,7 +226,7 @@ export class PluginWorkflowPublisherService {
     if (isPluginWorkflowResource(raw)) {
       const capability = record.manifest.capabilities.find((item) => item.key === capabilityKey);
       if (!capability) throw new AppError('VALIDATION_FAILED', 'PluginWorkflow 引用了未声明能力', { pluginVersionId: record.id, capabilityKey });
-      return { kind: 'plugin', content: pluginWorkflowSchemaRegistry.validate(raw, { pluginId: record.pluginId, pluginVersion: record.version, capability }) };
+      return { kind: 'plugin', content: pluginWorkflowSchemaRegistry.validate(raw, { pluginId: record.pluginId, capability }) };
     }
     if (record.manifest.resources.runtimeEntrypoint === 'runtime/index.js') {
       const capability = record.manifest.capabilities.find((item) => item.key === capabilityKey);
@@ -235,7 +235,6 @@ export class PluginWorkflowPublisherService {
         kind: 'plugin',
         content: pluginWorkflowSchemaRegistry.validateRunnerResource(raw, {
           pluginId: record.pluginId,
-          pluginVersion: record.version,
           capability,
         }),
       };

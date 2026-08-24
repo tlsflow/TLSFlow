@@ -38,6 +38,48 @@ test('P2 Registry 对未发布包默认失败关闭，开发显式选项不能�
   assert.equal((await registry.refresh({ allowUnreleased: true }))[0]?.version, '1.0.0');
 });
 
+test('同一插件版本且摘要相同的重复扫描保持幂等', async () => {
+  const root = await createPackageRoot();
+  const loader = new BuiltinUnifiedPluginLoader(root);
+  const [pluginPackage] = await loader.loadPackages();
+  assert.ok(pluginPackage);
+  const repeatedLoader = {
+    loadPackages: async () => [pluginPackage, pluginPackage],
+    installPackages: loader.installPackages.bind(loader),
+  } as unknown as BuiltinUnifiedPluginLoader;
+  const registry = new BuiltinPluginRegistry(repeatedLoader, releaseManifest(pluginPackage.packageContent));
+
+  const entries = await registry.refresh();
+
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0]?.packageSha256, `sha256:${sha256(pluginPackage.packageContent)}`);
+});
+
+test('同一插件版本摘要不同会拒绝刷新并保留旧 Registry 快照', async () => {
+  const root = await createPackageRoot();
+  const loader = new BuiltinUnifiedPluginLoader(root);
+  const [pluginPackage] = await loader.loadPackages();
+  assert.ok(pluginPackage);
+  const release = releaseManifest(pluginPackage.packageContent);
+  release.plugins[0]!.packageDigest = { status: 'NOT_BUILT', sha256: null };
+  let scannedPackages = [pluginPackage];
+  const dynamicLoader = {
+    loadPackages: async () => scannedPackages,
+    installPackages: loader.installPackages.bind(loader),
+  } as unknown as BuiltinUnifiedPluginLoader;
+  const registry = new BuiltinPluginRegistry(dynamicLoader, release);
+  await registry.refresh({ allowUnreleased: true });
+
+  const conflictingPackage = { ...pluginPackage, packageContent: `${pluginPackage.packageContent}changed` };
+  scannedPackages = [pluginPackage, conflictingPackage];
+
+  await assert.rejects(
+    () => registry.refresh({ allowUnreleased: true }),
+    /同一插件版本存在不同包内容/,
+  );
+  assert.equal(registry.get('web.nginx', '1.0.0').version, '1.0.0');
+});
+
 async function createPackageRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'gcac-p2-registry-'));
   const packageRoot = join(root, 'web-nginx');
@@ -78,14 +120,11 @@ function releaseManifest(packageContent: string): P2PluginReleaseManifest {
     plugins: [{
       canonicalPluginId: 'web.nginx',
       packageDirectory: 'web-nginx',
-      pluginVersion: '1.0.0',
       implementationStatus: 'P2_RELEASED',
       executionMode: 'PLUGIN_RUNNER',
       agentSidePlugin: false,
       packageDigest: { status: 'P2_RELEASED', sha256: `sha256:${sha256(packageContent)}`, catalogEntryRequired: true },
-      capabilities: [{ key: 'application.discover', contractVersion: 'v1', riskLevel: 'LOW', executionLocations: ['CONTROL_PLANE'] }],
       hostApiGrants: [],
-      workflows: [{ key: 'application.discover', capabilityKey: 'application.discover', path: 'workflows/read.json', initialVersion: '1.0.0', readOnly: true }],
     }],
   };
 }

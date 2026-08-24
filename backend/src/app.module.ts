@@ -89,7 +89,6 @@ import {
 import { createGatewayPersistenceRepositories, GatewaysApplicationService, GatewaysController, getGatewayRouteContracts, type GatewayPersistenceOptions } from './modules/gateways/index.js';
 import { createDurableGatewayTaskRepositories, GatewayTaskAuditWriter, GatewayTaskService } from './modules/gateway-agents/index.js';
 import { PluginPromotionService, PluginsController, getPluginsRouteContracts } from './modules/plugins/index.js';
-import { BuiltinUnifiedPluginLoader } from './modules/plugins/builtin-plugins/builtin-unified-plugin-loader.js';
 import { PluginWorkflowPublisherService } from './modules/plugins/application/plugin-workflow-publisher.service.js';
 import { PluginWorkflowVersionStore } from './modules/plugins/application/plugin-workflow-version-store.js';
 import { PluginWorkflowBindingsRepository } from './modules/plugins/repository/plugin-workflow-bindings.repository.js';
@@ -445,6 +444,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('livenessService', livenessService);
   app.setResource('unifiedPluginsService', unifiedPluginsService);
   app.setResource('workflowTemplatesService', workflowTemplatesService);
+  app.setResource('builtinPluginRegistry', builtinPluginRegistry);
   if (browserRuntimeClient && browserCredentialSessionService) {
     app.setResource('browserRuntimeClient', browserRuntimeClient);
     app.setResource('browserCredentialSessionService', browserCredentialSessionService);
@@ -771,6 +771,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
         const versions = await initializeBuiltinPlugins(
           unifiedPluginsService,
           pluginWorkflowPublisher,
+          { registry: builtinPluginRegistry },
         );
         const projection = await agentsService.reprojectLatestCapabilitySnapshots(tenantId);
         return {
@@ -963,17 +964,18 @@ export async function initializeBuiltinPlugins(
   unifiedPlugins: UnifiedPluginsApplicationService,
   pluginWorkflowPublisher: PluginWorkflowPublisherService,
   options: {
-    loader?: BuiltinUnifiedPluginLoader;
+    registry?: BuiltinPluginRegistry;
     logger?: Pick<typeof structuredLogger, 'warn'>;
   } = {},
 ): Promise<UnifiedPluginVersionRecord[]> {
   const logger = options.logger ?? structuredLogger;
-  let installed: Awaited<ReturnType<BuiltinUnifiedPluginLoader['installAll']>>;
+  const registry = options.registry ?? new BuiltinPluginRegistry();
+  let installed: UnifiedPluginVersionRecord[];
   try {
-    installed = await (options.loader ?? new BuiltinUnifiedPluginLoader()).installAll(unifiedPlugins);
+    installed = await registry.registerAll(unifiedPlugins);
   } catch (error) {
-    warnBuiltinPluginFailure(logger, 'load', undefined, undefined, error);
-    return [];
+    warnBuiltinPluginFailure(logger, 'registry', undefined, undefined, error);
+    throw error;
   }
 
   for (let index = 0; index < installed.length; index += 1) {
@@ -1013,10 +1015,11 @@ export async function createAppAsync(
   const tasksService = app.getResource<TasksApplicationService>('tasksService');
   if (!tasksService) throw new Error('任务控制面服务未完成应用装配');
   await tasksService.initialize();
+  const builtinPluginRegistry = app.getResource<BuiltinPluginRegistry>('builtinPluginRegistry');
   const unifiedPlugins = app.getResource<UnifiedPluginsApplicationService>('unifiedPluginsService');
   const pluginWorkflowPublisher = app.getResource<PluginWorkflowPublisherService>('pluginWorkflowPublisher');
   if (unifiedPlugins && pluginWorkflowPublisher) {
-    await initializeBuiltinPlugins(unifiedPlugins, pluginWorkflowPublisher);
+    await initializeBuiltinPlugins(unifiedPlugins, pluginWorkflowPublisher, { registry: builtinPluginRegistry });
   }
   return app;
 }
@@ -1037,21 +1040,24 @@ function createTaskAwareHealthRepository(
 
 function warnBuiltinPluginFailure(
   logger: Pick<typeof structuredLogger, 'warn'>,
-  phase: 'load' | 'publishWorkflow' | 'disableAfterPublishWorkflow',
+  phase: 'registry' | 'load' | 'publishWorkflow' | 'disableAfterPublishWorkflow',
   plugin: { id: string; pluginId: string; version: string } | undefined,
   resourceId: string | undefined,
   error: unknown,
 ): void {
-  logger.warn('内置插件启动阶段失败，已继续启动后端', {
+  logger.warn(
+    phase === 'registry' ? '内置插件 Registry 校验失败，拒绝启动或热刷新' : '内置插件启动后处理失败，已继续启动后端',
+    {
     phase,
     ...(plugin ? { pluginId: plugin.pluginId, version: plugin.version } : {}),
     errorCode: errorCodeOf(error),
     error: errorMessageOf(error),
-  }, {
-    module: 'builtin-plugin-startup',
-    resourceType: 'pluginVersion',
-    ...(resourceId ? { resourceId } : {}),
-  });
+    }, {
+      module: 'builtin-plugin-startup',
+      resourceType: 'pluginVersion',
+      ...(resourceId ? { resourceId } : {}),
+    },
+  );
 }
 
 function errorCodeOf(error: unknown): string {

@@ -8,6 +8,7 @@ import type { UnifiedPluginCapabilityDescriptor, UnifiedPluginManifestV1 } from 
 import { validateUnifiedPluginManifest } from '../schema/unified-plugins.schema.js';
 import { BuiltinUnifiedPluginLoader, type BuiltinPluginPackage } from './builtin-unified-plugin-loader.js';
 import type { PluginWorkflowDeclaration } from '../application/plugin-workflow-declaration-resolver.js';
+import type { UnifiedPluginsApplicationService } from '../application/unified-plugins.application-service.js';
 
 const moduleDirectory = dirname(fileURLToPath(import.meta.url));
 const defaultReleaseManifestPath = resolve(moduleDirectory, '../../../../../scripts/architecture/p2-plugin-release-manifest.json');
@@ -15,14 +16,11 @@ const defaultReleaseManifestPath = resolve(moduleDirectory, '../../../../../scri
 export interface P2PluginReleaseEntry {
   canonicalPluginId: string;
   packageDirectory: string;
-  pluginVersion: string;
   implementationStatus: string;
   executionMode: 'PLUGIN_RUNNER';
   agentSidePlugin: boolean;
   packageDigest?: { status: string; sha256: string | null; catalogEntryRequired?: boolean };
-  capabilities: Array<{ key: string; contractVersion: string; riskLevel: 'LOW' | 'MEDIUM' | 'HIGH'; executionLocations: string[] }>;
   hostApiGrants: Array<{ method: string; grantKind: string; required: boolean }>;
-  workflows: PluginWorkflowDeclaration[];
 }
 
 export interface P2PluginReleaseManifest {
@@ -64,6 +62,7 @@ export interface BuiltinPluginRegistryOptions {
  */
 export class BuiltinPluginRegistry {
   private readonly entries = new Map<string, BuiltinPluginRegistryEntry>();
+  private readonly packages = new Map<string, BuiltinPluginPackage>();
 
   constructor(
     private readonly loader: BuiltinUnifiedPluginLoader = new BuiltinUnifiedPluginLoader(),
@@ -71,24 +70,44 @@ export class BuiltinPluginRegistry {
   ) {}
 
   async refresh(options: BuiltinPluginRegistryOptions = {}): Promise<BuiltinPluginRegistryEntry[]> {
-    this.entries.clear();
+    // 只有整批扫描校验成功后才替换内存 Registry，热刷新失败不能破坏当前可执行快照。
+    const nextEntries = new Map<string, BuiltinPluginRegistryEntry>();
+    const nextPackages = new Map<string, BuiltinPluginPackage>();
     const releaseByDirectory = new Map(this.releaseManifest.plugins.map((entry) => [entry.packageDirectory, entry]));
     const packages = await this.loader.loadPackages();
     for (const pluginPackage of packages) {
       const release = releaseByDirectory.get(basename(pluginPackage.packageDirectory));
       if (!release) throw new AppError('VALIDATION_FAILED', '内置插件包未进入 P2 发布清单', { packageDirectory: pluginPackage.packageDirectory });
       if (!options.allowUnreleased && release.packageDigest?.status !== 'P2_RELEASED') continue;
-      if (options.allowUnreleased && release.pluginVersion !== pluginIdentity(pluginPackage.manifest).version) continue;
       const entry = buildRegistryEntry(pluginPackage, release, this.releaseManifest);
       const key = identityKey(entry.pluginId, entry.version);
-      if (this.entries.has(key)) throw new AppError('VALIDATION_FAILED', '内置插件 Registry 存在重复身份', { key });
-      this.entries.set(key, entry);
+      const existing = nextEntries.get(key);
+      if (existing) {
+        if (existing.packageSha256 !== entry.packageSha256) {
+          throw new AppError('RESOURCE_VERSION_CONFLICT', '同一插件版本存在不同包内容', {
+            pluginId: entry.pluginId,
+            version: entry.version,
+            expectedPackageSha256: existing.packageSha256,
+            actualPackageSha256: entry.packageSha256,
+          });
+        }
+        // 同一摘要是重复扫描，不创建第二个 Registry 或数据库版本记录。
+        continue;
+      }
+      nextEntries.set(key, entry);
+      nextPackages.set(key, pluginPackage);
     }
+    this.entries.clear();
+    this.packages.clear();
+    nextEntries.forEach((entry, key) => this.entries.set(key, entry));
+    nextPackages.forEach((pluginPackage, key) => this.packages.set(key, pluginPackage));
     return this.list();
   }
 
   list(): BuiltinPluginRegistryEntry[] {
-    return [...this.entries.values()].sort((left, right) => left.pluginId.localeCompare(right.pluginId) || left.version.localeCompare(right.version));
+    return [...this.entries.values()]
+      .sort((left, right) => left.pluginId.localeCompare(right.pluginId) || left.version.localeCompare(right.version))
+      .map(cloneRegistryEntry);
   }
 
   get(pluginId: string, version: string): BuiltinPluginRegistryEntry {
@@ -104,10 +123,16 @@ export class BuiltinPluginRegistry {
     return this.get(pluginId, version).workflows;
   }
 
-  /** 返回发布清单中的声明，不依赖包是否已经刷新到运行时 Registry。 */
+  /** Workflow 声明由已扫描包的 Manifest 派生，不再维护 Catalog 镜像。 */
   getDeclaredWorkflowDeclarations(pluginId: string, version: string): PluginWorkflowDeclaration[] | undefined {
-    const release = this.releaseManifest.plugins.find((entry) => entry.canonicalPluginId === pluginId && entry.pluginVersion === version);
-    return release?.workflows.map((workflow) => ({ ...workflow }));
+    const entry = this.entries.get(identityKey(pluginId, version));
+    return entry?.workflows.map((workflow) => ({ ...workflow }));
+  }
+
+  /** 启动与热刷新共用同一条“扫描、校验、注册”链路。 */
+  async registerAll(service: UnifiedPluginsApplicationService): Promise<Awaited<ReturnType<BuiltinUnifiedPluginLoader['installAll']>>> {
+    await this.refresh();
+    return this.loader.installPackages(service, [...this.packages.values()], { failFast: true });
   }
 }
 
@@ -117,10 +142,9 @@ function buildRegistryEntry(
   releaseManifest: P2PluginReleaseManifest,
 ): BuiltinPluginRegistryEntry {
   const identity = pluginIdentity(pluginPackage.manifest);
-  if (identity.pluginId !== release.canonicalPluginId || identity.version !== release.pluginVersion) {
-    throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', 'Manifest 身份或版本与 P2 发布清单不一致', {
+  if (identity.pluginId !== release.canonicalPluginId || !identity.version) {
+    throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', 'Manifest 身份或版本无效', {
       expectedPluginId: release.canonicalPluginId,
-      expectedVersion: release.pluginVersion,
       actualPluginId: identity.pluginId,
       actualVersion: identity.version,
     });
@@ -150,7 +174,11 @@ function buildRegistryEntry(
     manifest,
     capabilities: structuredClone(manifest.capabilities),
     hostApiGrants: structuredClone(release.hostApiGrants),
-    workflows: structuredClone(release.workflows),
+    workflows: Object.entries(manifest.resources.workflows ?? {}).map(([key, path]) => ({
+      key,
+      capabilityKey: key,
+      path,
+    })),
     packageSha256,
     manifestSha256: sha256(stableJson(pluginPackage.manifest)),
     resourceSha256,

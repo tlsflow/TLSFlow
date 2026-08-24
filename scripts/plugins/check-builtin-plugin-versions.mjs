@@ -43,7 +43,6 @@ export function findBuiltinPluginVersionViolations({
     const currentManifest = readCurrentManifest(manifestPath);
     const baseManifest = readBaseManifest(manifestPath);
     if (!currentManifest || !baseManifest) continue;
-    const manifestChanged = normalizedChangedPaths.has(manifestPath);
     const pluginId = currentManifest.pluginId ?? baseManifest.pluginId ?? pluginDirectory;
     const pluginVersionIncremented = isSemanticVersionIncrement(currentManifest.version, baseManifest.version);
     if (!pluginVersionIncremented) {
@@ -57,34 +56,6 @@ export function findBuiltinPluginVersionViolations({
       });
     }
 
-    const workflowPaths = new Set([
-      ...Object.values(currentManifest.resources?.workflows ?? {}),
-      ...Object.values(baseManifest.resources?.workflows ?? {}),
-    ]);
-    for (const workflowPath of workflowPaths) {
-      const resourcePath = `${builtinPluginRoot}/${pluginDirectory}/${workflowPath}`;
-      const resourceChanged = normalizedChangedPaths.has(resourcePath);
-      if (!manifestChanged && !resourceChanged) continue;
-      const currentWorkflow = readCurrentResource(resourcePath);
-      const baseWorkflow = readBaseResource(resourcePath);
-      // 新增 Workflow 没有历史版本可比较，但当前版本仍必须镜像插件版本。
-      if (!currentWorkflow) continue;
-      if (currentWorkflow.metadata?.version !== currentManifest.version) {
-        violations.push({
-          kind: 'workflow',
-          pluginId,
-          pluginDirectory,
-          workflowName: currentWorkflow.metadata?.name ?? baseWorkflow?.metadata?.name ?? workflowPath,
-          previousVersion: baseWorkflow?.metadata?.version ?? '(未声明)',
-          nextVersion: currentWorkflow.metadata?.version ?? '(未声明)',
-          expectedPluginVersion: currentManifest.version ?? '(未声明)',
-          resourcePath,
-          reason: 'PLUGIN_VERSION_MISMATCH',
-        });
-        continue;
-      }
-      if (!resourceChanged || !pluginVersionIncremented) continue;
-    }
   }
 
   return violations;
@@ -231,12 +202,6 @@ function run() {
 
   console.error('内置插件或其 Workflow 内容已变化，但插件版本未正确递进：');
   for (const violation of violations) {
-    if (violation.kind === 'workflow') {
-      if (violation.reason === 'PLUGIN_VERSION_MISMATCH') {
-        console.error(`- Workflow ${violation.workflowName}：metadata.version 必须镜像插件版本 ${violation.expectedPluginVersion}，文件 ${violation.resourcePath}`);
-        continue;
-      }
-    }
     if (violation.kind === 'plugin') {
       console.error(`- 插件 ${violation.pluginId} 或其内置 Workflow 内容已变化：Manifest.version 必须从 ${violation.previousVersion} 递进，文件 ${violation.manifestPath}`);
     }

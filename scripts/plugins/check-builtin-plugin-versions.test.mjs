@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { checkBuiltinPluginVersions, findBuiltinPluginVersionViolations } from './check-builtin-plugin-versions.mjs';
 
-test('内置插件资源变化但版本不变时报告违规', () => {
+test('内置插件资源变化但 Manifest 版本不变时报告违规', () => {
   const violations = findBuiltinPluginVersionViolations({
     changedPaths: ['backend/src/modules/plugins/builtin-plugins/example/workflows/discover.json'],
     readCurrentManifest: () => ({ pluginId: 'example.plugin', version: '1.0.0' }),
@@ -23,34 +23,7 @@ test('内置插件资源变化但版本不变时报告违规', () => {
   }]);
 });
 
-test('内置插件资源变化且版本升级时允许通过', () => {
-  const violations = findBuiltinPluginVersionViolations({
-    changedPaths: ['backend/src/modules/plugins/builtin-plugins/example/workflows/discover.json'],
-    readCurrentManifest: () => ({ pluginId: 'example.plugin', version: '1.0.1' }),
-    readBaseManifest: () => ({ pluginId: 'example.plugin', version: '1.0.0' }),
-  });
-
-  assert.deepEqual(violations, []);
-});
-
-test('内置 Workflow 内容变化但插件版本未递进时只报告插件版本违规', () => {
-  const manifest = {
-    pluginId: 'example.plugin',
-    version: '1.0.0',
-    resources: { workflows: { discover: 'workflows/discover.json' } },
-  };
-  const violations = findBuiltinPluginVersionViolations({
-    changedPaths: ['backend/src/modules/plugins/builtin-plugins/example/workflows/discover.json'],
-    readCurrentManifest: () => manifest,
-    readBaseManifest: () => manifest,
-    readCurrentResource: () => ({ metadata: { name: 'example-discover', version: '1.0.0' }, changed: true }),
-    readBaseResource: () => ({ metadata: { name: 'example-discover', version: '1.0.0' } }),
-  });
-
-  assert.deepEqual(violations.map((violation) => violation.kind), ['plugin']);
-});
-
-test('内置 Workflow 内容变化且 metadata.version 与插件版本同步时允许通过', () => {
+test('资源变化且 Manifest 版本递进时允许通过，不检查 Workflow 自身版本', () => {
   const manifest = {
     pluginId: 'example.plugin',
     version: '1.0.1',
@@ -60,36 +33,32 @@ test('内置 Workflow 内容变化且 metadata.version 与插件版本同步时�
     changedPaths: ['backend/src/modules/plugins/builtin-plugins/example/workflows/discover.json'],
     readCurrentManifest: () => manifest,
     readBaseManifest: () => ({ ...manifest, version: '1.0.0' }),
-    readCurrentResource: () => ({ metadata: { name: 'example-discover', version: '1.0.1' } }),
+    readCurrentResource: () => ({ metadata: { name: 'example-discover', version: '9.0.0' } }),
     readBaseResource: () => ({ metadata: { name: 'example-discover', version: '1.0.0' } }),
   });
 
   assert.deepEqual(violations, []);
 });
 
-test('新增内置 Workflow 也必须镜像插件版本', () => {
-  const currentManifest = {
-    pluginId: 'example.plugin',
-    version: '1.0.1',
-    resources: { workflows: { deploy: 'workflows/deploy.json' } },
-  };
+test('新增内置 Workflow 只要求递进 Manifest 版本', () => {
   const violations = findBuiltinPluginVersionViolations({
     changedPaths: [
       'backend/src/modules/plugins/builtin-plugins/example/manifest.json',
       'backend/src/modules/plugins/builtin-plugins/example/workflows/deploy.json',
     ],
-    readCurrentManifest: () => currentManifest,
+    readCurrentManifest: () => ({
+      pluginId: 'example.plugin',
+      version: '1.0.1',
+      resources: { workflows: { deploy: 'workflows/deploy.json' } },
+    }),
     readBaseManifest: () => ({
       pluginId: 'example.plugin',
       version: '1.0.0',
       resources: { workflows: {} },
     }),
-    readCurrentResource: () => ({ metadata: { name: 'example-deploy', version: '1.0.0' } }),
-    readBaseResource: () => undefined,
   });
 
-  assert.deepEqual(violations.map((violation) => violation.kind), ['workflow']);
-  assert.equal(violations[0]?.reason, 'PLUGIN_VERSION_MISMATCH');
+  assert.deepEqual(violations, []);
 });
 
 test('预发布 SemVer 递进与领域服务保持一致', () => {
@@ -103,25 +72,13 @@ test('预发布 SemVer 递进与领域服务保持一致', () => {
 });
 
 test('Git 工作区资源变化必须同步升级 Manifest 版本', () => {
-  const root = mkdtempSync(join(tmpdir(), 'gcac-builtin-plugin-version-'));
+  const root = createGitFixture();
   try {
     const pluginDirectory = join(root, 'backend/src/modules/plugins/builtin-plugins/example');
-    mkdirSync(join(pluginDirectory, 'workflows'), { recursive: true });
-    writeFileSync(join(pluginDirectory, 'manifest.json'), JSON.stringify(createManifest('1.0.0')), 'utf8');
-    writeFileSync(join(pluginDirectory, 'workflows/discover.json'), JSON.stringify(createWorkflow('1.0.0')), 'utf8');
-    git(root, ['init']);
-    git(root, ['config', 'user.email', 'gcac-test@example.com']);
-    git(root, ['config', 'user.name', 'GCAC Test']);
-    git(root, ['add', '.']);
-    git(root, ['commit', '-m', '初始化测试插件']);
-
-    writeFileSync(join(pluginDirectory, 'workflows/discover.json'), JSON.stringify({ ...createWorkflow('1.0.0'), changed: true }), 'utf8');
+    writeFileSync(join(pluginDirectory, 'workflows/discover.json'), JSON.stringify({ ...createWorkflow('9.0.0'), changed: true }), 'utf8');
     assert.deepEqual(checkBuiltinPluginVersions(root, { baseRef: 'HEAD' }).map((violation) => violation.kind), ['plugin']);
 
     writeFileSync(join(pluginDirectory, 'manifest.json'), JSON.stringify(createManifest('1.0.1')), 'utf8');
-    assert.deepEqual(checkBuiltinPluginVersions(root, { baseRef: 'HEAD' }).map((violation) => violation.kind), ['workflow']);
-
-    writeFileSync(join(pluginDirectory, 'workflows/discover.json'), JSON.stringify({ ...createWorkflow('1.0.1'), changed: true }), 'utf8');
     assert.deepEqual(checkBuiltinPluginVersions(root, { baseRef: 'HEAD' }), []);
   } finally {
     rmSync(root, { recursive: true, force: true });
