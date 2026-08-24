@@ -77,7 +77,8 @@ const selectedPlatform = ref<Platform | null>(null)
 const session = ref<Session | null>(null)
 const targets = ref<Target[]>([])
 const devices = ref<DeviceOption[]>([])
-const loading = ref(false)
+// 平台列表首次请求尚未完成前保持明确的加载态，避免模态框出现空白内容区。
+const loading = ref(true)
 const deviceListLoading = ref(false)
 const deviceListLoaded = ref(false)
 const submitInFlight = ref(false)
@@ -939,7 +940,17 @@ defineExpose({ goPrevious, runFooterPrimary, cancel })
       </li>
     </ol>
     <p v-if="error" class="onboarding-error" role="alert">{{ error }}</p>
-    <section v-if="!selectedPlatform" class="platform-grid">
+    <section v-if="!selectedPlatform" class="platform-grid" :aria-busy="loading && platforms.length === 0">
+      <div
+        v-if="loading && platforms.length === 0"
+        class="onboarding-platform-loading"
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+      >
+        <span class="onboarding-platform-loading__spinner" aria-hidden="true" />
+        <span>{{ t('common.loading') }}</span>
+      </div>
       <button
         v-for="platform in platforms"
         :key="platform.platformKey"
@@ -1135,6 +1146,9 @@ h1, h2, p { margin: 0; }
 .onboarding-steps li.active .onboarding-steps__marker { color: var(--gc-color-primary); }
 .onboarding-steps li.done .onboarding-steps__marker { color: var(--gc-color-text-inverse); background: var(--gc-color-success); }
 .platform-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-content: start; min-block-size: 0; max-block-size: min(54vh, calc(100vh - (var(--gc-space-10) * 5))); gap: var(--gc-space-3); padding-inline-end: var(--gc-space-2); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.onboarding-platform-loading { display: flex; align-items: center; justify-content: center; min-block-size: var(--gc-size-card-min); gap: var(--gc-space-2); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); font-weight: var(--gc-font-weight-semibold); }
+.onboarding-platform-loading__spinner { inline-size: var(--gc-space-5); aspect-ratio: 1; border: var(--gc-border-width-thick) solid var(--gc-color-primary-border); border-top-color: var(--gc-color-primary); border-radius: var(--gc-radius-full); animation: application-onboarding-platform-spin 700ms linear infinite; }
+@keyframes application-onboarding-platform-spin { to { transform: rotate(1turn); } }
 .platform-card { display: grid; grid-template-columns: calc(var(--gc-space-4) * 3) minmax(0, 1fr); align-items: start; gap: var(--gc-space-3); min-block-size: var(--gc-size-card-compact); padding: var(--gc-space-3); text-align: left; color: var(--gc-color-text); cursor: pointer; background: var(--gc-color-surface-soft); border: var(--gc-space-hairline) solid var(--gc-color-border); border-radius: var(--gc-radius-card); box-shadow: var(--gc-shadow-sm); transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
 .platform-card:hover:not(:disabled) { background: var(--gc-color-surface); border-color: var(--gc-color-primary-border-strong); box-shadow: var(--gc-shadow-hover); transform: translateY(calc(var(--gc-space-hairline) * -1)); }
 .platform-card:focus-visible { outline: none; box-shadow: var(--gc-shadow-focus); }

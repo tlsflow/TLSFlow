@@ -86,6 +86,31 @@ describe('ApplicationOnboardingView', () => {
     certificateFormatMocks.listCertificateFormats.mockResolvedValue(response({ items: [] }))
   })
 
+  it('平台列表加载期间显示稳定的加载状态', async () => {
+    let resolvePlatforms: ((value: unknown) => void) | undefined
+    onboardingMocks.listOnboardingPlatforms.mockImplementation(() => new Promise((resolve) => {
+      resolvePlatforms = resolve
+    }))
+
+    const wrapper = mount(ApplicationOnboardingView, { props: { embedded: true }, global: { plugins: [i18n] } })
+    await wrapper.vm.$nextTick()
+
+    const loading = wrapper.get('.onboarding-platform-loading')
+    expect(loading.attributes('role')).toBe('status')
+    expect(loading.attributes('aria-busy')).toBe('true')
+    expect(loading.find('.onboarding-platform-loading__spinner').exists()).toBe(true)
+    expect(loading.text()).toContain('加载中')
+    expect(wrapper.find('.platform-card').exists()).toBe(false)
+
+    resolvePlatforms?.(response({
+      items: [{ platformKey: 'web.iis', source: 'PLUGIN', displayName: 'IIS', displayNameKey: 'applicationOnboarding.platforms.iis', supportStatus: 'SUPPORTED' }],
+    }))
+    await flushPromises()
+
+    expect(wrapper.find('.onboarding-platform-loading').exists()).toBe(false)
+    expect(wrapper.find('.platform-card').exists()).toBe(true)
+  })
+
   it('受管设备路径列出站点并默认选择首个可部署证书版本', async () => {
     onboardingMocks.listOnboardingPlatforms.mockResolvedValue(response({
       items: [{ platformKey: 'citrix.adc', source: 'PLUGIN', displayName: 'Citrix ADC', displayNameKey: 'applicationOnboarding.platforms.citrixAdc', logoUrl: '/plugin-logos/citrix-adc.svg', logoSquareUrl: '/plugin-logos/citrix-adc-square.svg', businessMetadata: { capabilityVersion: '1.0.4', compatibleVersions: ['Citrix ADC 13.1'], requiredInformation: ['管理地址', '管理员凭据'] }, deploymentMode: 'MANAGED_TARGET', supportStatus: 'SUPPORTED' }],
