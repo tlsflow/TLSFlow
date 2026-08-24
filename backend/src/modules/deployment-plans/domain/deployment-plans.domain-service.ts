@@ -28,6 +28,7 @@ export class DeploymentPlansDomainService {
       throw new AppError('VALIDATION_FAILED', 'certificateFormatId 不能为空', { field: 'certificateFormatId' });
     }
     for (const [index, target] of input.targets.entries()) {
+      assertLegacyExecutionRetired(target.executorType, { index });
       const isWorkflowTarget = target.executorType === 'WORKFLOW';
       const workflowPayload = target.strategyPayload?.workflowRequest;
       const executionSource = target.strategyPayload?.executionSource as Record<string, unknown> | undefined;
@@ -120,5 +121,11 @@ export class DeploymentPlansDomainService {
 
   private hash(value: unknown): string {
     return createHash('sha256').update(canonicalize(value)).digest('hex');
+  }
+}
+
+export function assertLegacyExecutionRetired(executorType: unknown, details: Record<string, unknown> = {}): void {
+  if (typeof executorType === 'string' && executorType.trim().toUpperCase() === 'SCRIPT_PACKAGE') {
+    throw new AppError('LEGACY_EXECUTION_RETIRED', 'Legacy SCRIPT_PACKAGE 执行类型已下线，请重新生成标准插件计划', details);
   }
 }

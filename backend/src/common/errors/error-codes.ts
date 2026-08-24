@@ -71,6 +71,7 @@ export const errorCodes = {
   AGENT_ACTION_SCHEMA_UNSUPPORTED: { httpStatus: 422, message: 'Agent Action Schema 不支持' },
   HISTORICAL_AGENT_ACTION_MIGRATION_REQUIRED: { httpStatus: 409, message: '历史 Agent Action 需要迁移' },
   HISTORICAL_AGENT_ACTION_AMBIGUOUS: { httpStatus: 409, message: '历史 Agent Action 存在歧义' },
+  LEGACY_EXECUTION_RETIRED: { httpStatus: 409, message: 'Legacy 执行类型已下线' },
   AGENT_ROLLBACK_FAILED: { httpStatus: 500, message: 'Agent 插件回滚失败' },
   AGENT_MANUAL_INTERVENTION_REQUIRED: { httpStatus: 409, message: 'Agent 插件执行需要人工处理' },
   WORKFLOW_ASSERTION_FAILED: { httpStatus: 422, message: '工作流断言失败' },

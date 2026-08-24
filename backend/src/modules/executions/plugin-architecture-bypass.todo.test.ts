@@ -102,7 +102,7 @@ test('T07 可转换历史 Action 只能作为带迁移审计的 Atomic Plan 入�
   assert.equal(queue.directCount(), 1);
 });
 
-test('T08 默认生产执行器注册表不得注册 Legacy SCRIPT_PACKAGE', { todo: '034.1-T08' }, () => {
+test('T08 默认生产执行器注册表不得注册 Legacy SCRIPT_PACKAGE', () => {
   const registry = createDefaultExecutorRegistry();
   assert.equal(registry.has('SCRIPT_PACKAGE'), false);
 });

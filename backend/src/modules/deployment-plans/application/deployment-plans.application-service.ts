@@ -8,7 +8,7 @@ import type { RequestContext, RiskLevel } from '../../../shared/security-types.j
 import { ExecutionsApplicationService } from '../../executions/application/executions.application-service.js';
 import type { ExecutionRunDto, ExecutionStepDto } from '../../executions/dto/executions.dto.js';
 import type { CreateDeploymentPlanFromApplicationAssetInput, CreateDeploymentPlanInput, DeploymentGatewayRouteDto, DeploymentPlanDryRunCheckDto, DeploymentPlanDto, DeploymentPlanTargetDto, ExecuteDeploymentPlanInput, CancelDeploymentPlanInput, SubmitDeploymentPlanInput, DryRunDeploymentPlanInput, ReevaluateDeploymentPlanCapabilitiesInput, UpdateDeploymentPlanFromApplicationAssetInput } from '../dto/deployment-plans.dto.js';
-import { DeploymentPlansDomainService } from '../domain/deployment-plans.domain-service.js';
+import { assertLegacyExecutionRetired, DeploymentPlansDomainService } from '../domain/deployment-plans.domain-service.js';
 import { DeploymentPlansRepository } from '../repository/deployment-plans.repository.js';
 import type { DeploymentPlanEntity, DeploymentPlanTargetEntity, StateTransitionEventEntity } from '../schema/deployment-plans.schema.js';
 import { GatewaysApplicationService } from '../../gateways/application/gateways.application-service.js';
@@ -231,6 +231,7 @@ export class DeploymentPlansApplicationService {
       };
     }));
     const hasCapabilityRisk = targetDrafts.some((target) => ['manual_required', 'degraded'].includes(String(target.matchResult?.status ?? '')));
+    targetDrafts.forEach((target, index) => assertLegacyExecutionRetired(target.executorType, { index }));
     if (hasCapabilityRisk) {
       policy.approvalRequired = true;
       if (policy.riskLevel === 'low' || policy.riskLevel === 'medium') policy.riskLevel = 'high';
@@ -376,6 +377,7 @@ export class DeploymentPlansApplicationService {
       };
     }));
     const hasCapabilityRisk = targetDrafts.some((target) => ['manual_required', 'degraded'].includes(String(target.matchResult?.status ?? '')));
+    targetDrafts.forEach((target, index) => assertLegacyExecutionRetired(target.executorType, { index, planId: plan.id }));
     if (hasCapabilityRisk) {
       policy.approvalRequired = true;
       if (policy.riskLevel === 'low' || policy.riskLevel === 'medium') policy.riskLevel = 'high';
@@ -943,6 +945,7 @@ export class DeploymentPlansApplicationService {
     const originalCertificateVersionId = plan.certificateVersionId;
     const targets = (await this.repository.listTargetsByPlan(plan.id, input.tenantId)).filter((target) => ['READY', 'COMPLETED', 'FAILED'].includes(target.status));
     if (!targets.length) throw new AppError('VALIDATION_FAILED', '部署计划没有可执行目标', { planId: plan.id });
+    targets.forEach((target) => assertLegacyExecutionRetired(target.executorType, { planId: plan.id, deploymentPlanTargetId: target.id }));
     const effective = await this.resolveEffectivePlanMaterial(plan, targets, input.actorId);
     plan = effective.plan;
     if (effective.certificateVersionId !== originalCertificateVersionId) {
@@ -983,6 +986,7 @@ export class DeploymentPlansApplicationService {
 
     const targets = (await this.repository.listTargetsByPlan(plan.id, input.tenantId)).filter((target) => ['READY', 'COMPLETED', 'FAILED'].includes(target.status));
     if (!targets.length) throw new AppError('VALIDATION_FAILED', '部署计划没有可 dry-run 目标', { planId: plan.id });
+    targets.forEach((target) => assertLegacyExecutionRetired(target.executorType, { planId: plan.id, deploymentPlanTargetId: target.id }));
     const effective = await this.resolveEffectivePlanMaterial(plan, targets, input.actorId);
     plan = effective.plan;
     const deploymentArtifactByTargetId = await this.buildDeploymentArtifactByTargetIds(plan, targets, effective.certificateVersionId);

@@ -105,10 +105,11 @@ export class ExecutionsApplicationService {
 
   async retry(input: RetryExecutionRunInput, context: RequestContext = {}): Promise<any> {
     const sourceRun = await this.repository.getRunOrThrow(input.runId, input.tenantId);
+    const sourceSteps = await this.repository.listSteps(input.tenantId, sourceRun.id);
+    assertLegacyExecutionRetired(sourceSteps.map(toExecutionStepRef), { runId: sourceRun.id });
     if (!['FAILED', 'TIMEOUT', 'CANCELLED'].includes(sourceRun.status)) {
       throw new AppError('DEPLOYMENT_INVALID_STATE', '只有失败、超时或取消的运行允许重试', { runId: sourceRun.id, status: sourceRun.status });
     }
-    const sourceSteps = await this.repository.listSteps(input.tenantId, sourceRun.id);
     const targetIds = sourceSteps
       .map((step) => step.deploymentPlanTargetId)
       .filter((id): id is string => Boolean(id));
@@ -147,24 +148,9 @@ export class ExecutionsApplicationService {
 
   async rollback(input: RollbackExecutionRunInput, context: RequestContext = {}): Promise<any> {
     const sourceRun = await this.repository.getRunOrThrow(input.runId, input.tenantId);
-    this.domain.assertRollbackAllowed(sourceRun);
-
-    const transitioned = await this.transitionRunEntity(sourceRun, 'ROLLBACK_RUNNING', input.actorId, 'rollback.requested');
-    void this.audit.write({
-      eventType: AUDIT_EVENT_TYPES.DEPLOYMENT_ROLLBACK_REQUESTED,
-      actorType: 'user',
-      actorId: input.actorId,
-      action: 'execution.rollback',
-      resourceType: 'executionRun',
-      resourceId: sourceRun.id,
-      result: 'success',
-      riskLevel: 'high',
-      context,
-      failClosed: true,
-      detail: { sourceRunId: sourceRun.id, approvalId: input.approvalId },
-    }).catch(() => undefined);
-
     const sourceSteps = await this.repository.listSteps(input.tenantId, sourceRun.id);
+    assertLegacyExecutionRetired(sourceSteps.map(toExecutionStepRef), { runId: sourceRun.id });
+    this.domain.assertRollbackAllowed(sourceRun);
     const targetIds = [...new Set(sourceSteps.map((step) => step.deploymentPlanTargetId).filter((id): id is string => Boolean(id)))];
     if (!sourceSteps.length || !targetIds.length) {
       throw new AppError('VALIDATION_FAILED', '回滚缺少源步骤或目标，不能静默创建空回滚，请人工介入', { runId: sourceRun.id, sourceStepCount: sourceSteps.length, targetCount: targetIds.length });
@@ -173,6 +159,10 @@ export class ExecutionsApplicationService {
       const target = await this.deploymentPlansRepository.getTarget(targetId, input.tenantId);
       return [targetId, target?.executorType ?? 'AGENT'] as const;
     })));
+    assertLegacyExecutionRetired(
+      [...executorTypeByTargetId].map(([targetId, executorType]) => ({ targetId, executorType })),
+      { runId: sourceRun.id },
+    );
     const gatewayRouteByTargetId = new Map(await Promise.all(targetIds.map(async (targetId) => {
       const target = await this.deploymentPlansRepository.getTarget(targetId, input.tenantId);
       return [targetId, target?.gatewayRoute] as const;
@@ -210,6 +200,20 @@ export class ExecutionsApplicationService {
         sourceArtifactByTargetId.set(targetId, step.inputSnapshot.deploymentArtifact);
       }
     }
+    const transitioned = await this.transitionRunEntity(sourceRun, 'ROLLBACK_RUNNING', input.actorId, 'rollback.requested');
+    void this.audit.write({
+      eventType: AUDIT_EVENT_TYPES.DEPLOYMENT_ROLLBACK_REQUESTED,
+      actorType: 'user',
+      actorId: input.actorId,
+      action: 'execution.rollback',
+      resourceType: 'executionRun',
+      resourceId: sourceRun.id,
+      result: 'success',
+      riskLevel: 'high',
+      context,
+      failClosed: true,
+      detail: { sourceRunId: sourceRun.id, approvalId: input.approvalId },
+    }).catch(() => undefined);
     const created = await this.createRunAndEnqueue({
       deploymentPlanId: sourceRun.deploymentPlanId,
       deploymentPlanTargetIds: targetIds,
@@ -248,6 +252,8 @@ export class ExecutionsApplicationService {
 
   async runDispatchedExecution(runId: string, actorId: string, tenantId: string | undefined, registry: ExecutorRegistry = this.executorRegistry): Promise<any> {
     let run = await this.repository.getRunOrThrow(runId, tenantId);
+    const persistedSteps = await this.repository.listSteps(tenantId, run.id);
+    assertLegacyExecutionRetired(persistedSteps.map(toExecutionStepRef), { runId: run.id });
     if (run.status === 'CANCELLED') return { success: false, errorCode: 'RUN_CANCELLED', errorMessage: '执行运行已取消' };
     if (!['DISPATCHED', 'RUNNING'].includes(run.status)) {
       throw new AppError('DEPLOYMENT_INVALID_STATE', '只有 DISPATCHED 或 RUNNING 运行允许调度执行', { runId: run.id, status: run.status });
@@ -340,6 +346,11 @@ export class ExecutionsApplicationService {
 
   async recoverRunsForTest(actorId: string, tenantId?: string, registry: ExecutorRegistry = new ExecutorRegistry()): Promise<any> {
     const candidates = await this.recoveryWorker.recoverableRuns(tenantId);
+    // 恢复前先检查整批候选运行，避免普通运行先产生写入后才遇到 Legacy 运行。
+    for (const candidate of candidates) {
+      const persistedSteps = await this.repository.listSteps(tenantId, candidate.run.id);
+      assertLegacyExecutionRetired(persistedSteps.map(toExecutionStepRef), { runId: candidate.run.id });
+    }
     const results: Array<{ run: ExecutionRunDto; result: { success: boolean; recovered: boolean; skippedStepIds: string[] } }> = [];
     for (const candidate of candidates) {
       for (const step of candidate.stepsToResume) {
@@ -395,6 +406,10 @@ export class ExecutionsApplicationService {
   }
 
   private async createRunAndEnqueue(input: CreateExecutionRunInput, context: RequestContext): Promise<{ run: ExecutionRunDto; steps: ExecutionStepDto[]; jobId: string }> {
+    assertLegacyExecutionRetired(
+      [...input.executorTypeByTargetId].map(([targetId, executorType]) => ({ targetId, executorType })),
+      { deploymentPlanId: input.deploymentPlanId },
+    );
     const existing = await this.repository.findRunByIdempotencyKey(input.tenantId, input.idempotencyKey);
     const requestHash = this.domain.buildRunRequestHash({ deploymentPlanId: input.deploymentPlanId, type: input.type });
     if (existing) {
@@ -827,6 +842,7 @@ export class ExecutionsApplicationService {
       const rollbackKey = `${run.idempotencyKey}:auto_rollback`;
       await this.rollback({ runId: run.id, actorId, tenantId, idempotencyKey: rollbackKey }, { actor: { id: actorId, type: 'system', scope: { tenantId } } });
     } catch (error) {
+      if (error instanceof AppError && error.errorCode === 'LEGACY_EXECUTION_RETIRED') return;
       const source = await this.repository.getRun(run.id, tenantId);
       if (source?.status === 'ROLLBACK_RUNNING') return;
       if (source?.status === 'FAILED' || source?.status === 'TIMEOUT') {
@@ -890,6 +906,29 @@ export class ExecutionsApplicationService {
   private readRunFailurePolicy(run: ExecutionRunEntity): FailurePolicy {
     const value = String(run.summary.failurePolicy ?? 'stop');
     return value === 'continue' || value === 'rollback' ? value : 'stop';
+  }
+}
+
+interface ExecutionStepRef {
+  targetId?: string;
+  executorType: unknown;
+}
+
+function toExecutionStepRef(step: ExecutionStepEntity): ExecutionStepRef {
+  return {
+    targetId: step.deploymentPlanTargetId,
+    executorType: step.inputSnapshot.executorType,
+  };
+}
+
+function assertLegacyExecutionRetired(executions: Iterable<ExecutionStepRef>, details: Record<string, unknown>): void {
+  for (const execution of executions) {
+    if (typeof execution.executorType !== 'string' || execution.executorType.trim().toUpperCase() !== 'SCRIPT_PACKAGE') continue;
+    throw new AppError(
+      'LEGACY_EXECUTION_RETIRED',
+      'Legacy SCRIPT_PACKAGE 执行已下线，请重新生成受支持的插件执行计划',
+      { ...details, targetId: execution.targetId, executorType: execution.executorType },
+    );
   }
 }
 

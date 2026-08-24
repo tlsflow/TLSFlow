@@ -5,9 +5,6 @@ import { AgentsApplicationService } from '../../agents/application/agents.applic
 import { ForwardingGrantService } from '../../gateway-agents/forwarding-grant.service.js';
 import type { GatewayTaskAuditWriter } from '../../gateway-agents/gateway-target-history.service.js';
 import { GatewayTaskService } from '../../gateway-agents/gateway-task.service.js';
-import { LegacyTaskDispatcher } from '../../legacy-agents/legacy-task-dispatcher.js';
-import { LegacyTaskTranslator } from '../../legacy-agents/legacy-task-translator.js';
-import type { LegacyAgentProfile, UnifiedLegacyStep } from '../../legacy-agents/legacy-agent.types.js';
 import { CurlExecutor, SSHExecutor, WindowsRemoteExecutor, type CurlExecutionRequest, type CurlExecutionResult, type HttpResponse } from '../../executors/index.js';
 import { SecretServiceCurlResolver } from '../../executors/curl/curl.secret-resolver.js';
 import { SecretServiceSshResolver } from '../../executors/ssh/ssh.secret-resolver.js';
@@ -174,7 +171,6 @@ function createDefaultExecutors(dependencies: DefaultExecutorDependencies = {}):
     new AgentExecutorAdapter(dependencies.agents, new AgentActionDispatchRegistry(), dependencies.agentPlanCompiler, dependencies.historicalAgentActions),
     new GatewayRouteExecutorAdapter({ agents: dependencies.agents, gatewayTasks: dependencies.gatewayTasks, auditWriter: dependencies.gatewayTaskAuditWriter }),
     new ControlPlaneTlsExecutor(),
-    new LegacyAgentExecutorAdapter(),
   ];
 }
 
@@ -822,29 +818,6 @@ export class GatewayRouteExecutorAdapter implements Executor {
         },
       };
     }
-  }
-}
-
-export class LegacyAgentExecutorAdapter implements Executor {
-  readonly type = 'SCRIPT_PACKAGE';
-
-  constructor(private readonly translator = new LegacyTaskTranslator(), private readonly dispatcher = new LegacyTaskDispatcher()) {}
-
-  async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
-    const profile = readRecord(input.step.inputSnapshot.legacyProfile) as LegacyAgentProfile | undefined;
-    const legacyStep = readRecord(input.step.inputSnapshot.legacyStep) as UnifiedLegacyStep | undefined;
-    if (!profile || !legacyStep) {
-      return { success: true, detail: { mode: 'legacy_mock_safe_adapter', reason: '未提供 legacyProfile/legacyStep，仅生成可审计的 mock-safe 占位结果，不执行真实协议', dryRun: input.dryRun } };
-    }
-    const translation = this.translator.translate(profile, legacyStep);
-    if (translation.mode === 'legacy_task' && translation.legacyTask) {
-      const record = this.dispatcher.dispatch(profile, translation.legacyTask);
-      return { success: true, detail: { mode: translation.mode, taskRecordId: record.id, status: record.status, gate: translation.gate } };
-    }
-    if (translation.mode === 'script_package_plan' && translation.scriptPackagePlan) {
-      return { success: true, detail: { mode: translation.mode, scriptPackagePlan: translation.scriptPackagePlan, gate: translation.gate } };
-    }
-    return { success: false, errorCode: 'LEGACY_EXECUTOR_MANUAL_REQUIRED', errorMessage: 'Legacy 执行器需要人工结果或监控模式，不能自动判定成功', detail: { mode: translation.mode, gate: translation.gate } };
   }
 }
 
