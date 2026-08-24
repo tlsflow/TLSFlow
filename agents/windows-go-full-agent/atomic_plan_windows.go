@@ -34,6 +34,7 @@ type atomicPlan struct {
 	Permissions     []atomicPermission  `json:"permissions"`
 	VariablesDigest string              `json:"variablesDigest"`
 	ExecutionMode   string              `json:"executionMode"`
+	Verification    *atomicVerification `json:"verification,omitempty"`
 	Operations      []atomicOperation   `json:"operations"`
 	Rollback        []atomicOperation   `json:"rollback"`
 	Authorization   atomicAuthorization `json:"authorization"`
@@ -48,6 +49,14 @@ type atomicPermission struct {
 	Name   string   `json:"name"`
 	Scope  string   `json:"scope"`
 	Values []string `json:"values"`
+}
+
+type atomicVerification struct {
+	CapabilityKey string `json:"capabilityKey"`
+	SchemaVersion string `json:"schemaVersion"`
+	ConnectHost   string `json:"connectHost"`
+	ServerName    string `json:"serverName"`
+	Port          int    `json:"port"`
 }
 
 type atomicOperation struct {
@@ -198,6 +207,13 @@ func executeWindowsAtomicPreflight(ctx context.Context, plan atomicPlan, permiss
 
 func previewWindowsAtomicOperation(ctx context.Context, operation atomicOperation, permissions map[string][]string) atomicOperationResult {
 	startedAt := time.Now().UTC()
+	if atomicOperationShouldSkip(operation) {
+		return atomicOperationResult{
+			OperationID: operation.ID, OperationType: operation.OperationType, Stage: operation.Stage,
+			Status: "SUCCEEDED", StartedAt: startedAt.Format(time.RFC3339Nano), FinishedAt: time.Now().UTC().Format(time.RFC3339Nano),
+			Detail: map[string]any{"skipped": true, "reason": "required variable is absent"},
+		}
+	}
 	detail, err := previewWindowsAtomicOperationDetail(ctx, operation, permissions)
 	result := atomicOperationResult{
 		OperationID: operation.ID, OperationType: operation.OperationType, Stage: operation.Stage,
@@ -390,6 +406,13 @@ func previewWindowsIISBindingUpdate(operation atomicOperation, permissions map[s
 
 func runWindowsAtomicOperation(ctx context.Context, plan atomicPlan, operation atomicOperation, permissions map[string][]string, dataDir string, ledger *atomicLedger) atomicOperationResult {
 	startedAt := time.Now().UTC()
+	if atomicOperationShouldSkip(operation) {
+		return atomicOperationResult{
+			OperationID: operation.ID, OperationType: operation.OperationType, Stage: operation.Stage, Status: "SUCCEEDED",
+			StartedAt: startedAt.Format(time.RFC3339Nano), FinishedAt: time.Now().UTC().Format(time.RFC3339Nano),
+			Detail: map[string]any{"skipped": true, "reason": "required variable is absent"},
+		}
+	}
 	if required := atomicString(operation.Input, "whenOperationCompleted"); required != "" && !containsAtomicString(ledger.CompletedOperations, required) {
 		return atomicOperationResult{
 			OperationID: operation.ID, OperationType: operation.OperationType, Stage: operation.Stage, Status: "SUCCEEDED",
@@ -407,6 +430,15 @@ func runWindowsAtomicOperation(ctx context.Context, plan atomicPlan, operation a
 	}
 	result.Status = "SUCCEEDED"
 	return result
+}
+
+func atomicOperationShouldSkip(operation atomicOperation) bool {
+	value, exists := operation.Input["whenVariablePresent"]
+	if !exists {
+		return false
+	}
+	text, ok := value.(string)
+	return !ok || strings.TrimSpace(text) == ""
 }
 
 func executeWindowsAtomicOperation(ctx context.Context, plan atomicPlan, operation atomicOperation, permissions map[string][]string, dataDir string, ledger *atomicLedger) (map[string]any, error) {
@@ -659,6 +691,17 @@ func windowsPreflight(input map[string]any, permissions map[string][]string) (ma
 		_, err := os.Stat(path)
 		if atomicBool(input, "mustExist") && err != nil {
 			return nil, err
+		}
+		expected := normalizeSHA256(firstAtomicString(input, "expectedSha256", "expectedFingerprintSha256"))
+		if expected != "" {
+			content, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return nil, readErr
+			}
+			actual := sha256.Sum256(content)
+			if hex.EncodeToString(actual[:]) != expected {
+				return nil, fmt.Errorf("file fingerprint mismatch: expected=%s actual=%s", expected, hex.EncodeToString(actual[:]))
+			}
 		}
 	}
 	program := atomicString(input, "program")

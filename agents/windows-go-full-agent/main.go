@@ -1595,6 +1595,13 @@ func buildDirectDiscoveryPayloadWindows(identity runtimeIdentity, request direct
 	serviceAssets := make([]map[string]any, 0)
 	siteAssets := make([]map[string]any, 0)
 	bindings := make([]map[string]any, 0)
+	payload := map[string]any{
+		"services":      services,
+		"serviceAssets": serviceAssets,
+		"siteAssets":    siteAssets,
+		"bindings":      bindings,
+		"warnings":      make([]map[string]any, 0),
+	}
 
 	if identity.AdapterSnapshot.IIS != nil && identity.AdapterSnapshot.IIS.Installed {
 		services = append(services, map[string]any{
@@ -1685,18 +1692,22 @@ func buildDirectDiscoveryPayloadWindows(identity runtimeIdentity, request direct
 			}
 		}
 	}
-
-	return map[string]any{
-		"collectedAt":   time.Now().Format(time.RFC3339),
-		"source":        "agent_direct",
-		"platform":      "windows",
-		"requestId":     request.RequestID,
-		"hosts":         hosts,
-		"services":      services,
-		"serviceAssets": serviceAssets,
-		"siteAssets":    siteAssets,
-		"bindings":      bindings,
+	payload["services"] = services
+	payload["serviceAssets"] = serviceAssets
+	payload["siteAssets"] = siteAssets
+	payload["bindings"] = bindings
+	appendWindowsRuntimeDiscovery(payload, hostName, identity.AdapterSnapshot.NGINX, "NGINX", "nginx", request.IncludeBindings)
+	appendWindowsRuntimeDiscovery(payload, hostName, identity.AdapterSnapshot.Apache, "APACHE", "apache", request.IncludeBindings)
+	if identity.AdapterSnapshot.Tomcat != nil {
+		appendWindowsTomcatDiscovery(payload, hostName, identity.AdapterSnapshot.Tomcat, request.IncludeBindings)
 	}
+
+	payload["collectedAt"] = time.Now().Format(time.RFC3339)
+	payload["source"] = "agent_direct"
+	payload["platform"] = "windows"
+	payload["requestId"] = request.RequestID
+	payload["hosts"] = hosts
+	return payload
 }
 
 func readWindowsOSValue(identity runtimeIdentity, key string) string {
@@ -2174,6 +2185,36 @@ func collectCapabilityReports(identity runtimeIdentity) []reportedCapability {
 				},
 			})
 		}
+	}
+	if identity.AdapterSnapshot.NGINX != nil {
+		capabilities = append(capabilities, reportedCapability{
+			CapabilityKey: "windows.nginx.detail",
+			Value:         identity.AdapterSnapshot.NGINX,
+			Confidence:    0.9,
+			Evidence: map[string]any{
+				"source": "adapter-exec",
+			},
+		})
+	}
+	if identity.AdapterSnapshot.Apache != nil {
+		capabilities = append(capabilities, reportedCapability{
+			CapabilityKey: "windows.apache.detail",
+			Value:         identity.AdapterSnapshot.Apache,
+			Confidence:    0.9,
+			Evidence: map[string]any{
+				"source": "adapter-exec",
+			},
+		})
+	}
+	if identity.AdapterSnapshot.Tomcat != nil {
+		capabilities = append(capabilities, reportedCapability{
+			CapabilityKey: "windows.tomcat.detail",
+			Value:         identity.AdapterSnapshot.Tomcat,
+			Confidence:    0.88,
+			Evidence: map[string]any{
+				"source": "adapter-exec",
+			},
+		})
 	}
 	return capabilities
 }

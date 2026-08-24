@@ -71,6 +71,16 @@ func TestWindowsAtomicPreflightDoesNotWriteFile(t *testing.T) {
 	}
 }
 
+func TestWindowsAtomicOperationSkipsAbsentOptionalVariable(t *testing.T) {
+	result := runWindowsAtomicOperation(t.Context(), atomicPlan{}, atomicOperation{
+		ID: "optional-chain", Name: "optional-chain", Stage: "backup", OperationType: "file.backup", SchemaVersion: "1.0",
+		Input: map[string]any{"path": "", "whenVariablePresent": ""},
+	}, map[string][]string{"filesystem": {}}, t.TempDir(), &atomicLedger{})
+	if result.Status != "SUCCEEDED" || result.Detail["skipped"] != true {
+		t.Fatalf("缺少可选变量时操作应安全跳过：%#v", result)
+	}
+}
+
 func TestSaveAtomicLedgerCreatesAndReplacesFile(t *testing.T) {
 	dataDir := t.TempDir()
 	path := atomicLedgerPath(dataDir, "sha256:"+strings.Repeat("a", 64))
