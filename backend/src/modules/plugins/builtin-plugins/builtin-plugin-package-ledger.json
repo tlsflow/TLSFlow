@@ -90,6 +90,11 @@
       "pluginId": "builtin.workflow.synology-dsm-cert-import",
       "version": "1.1.5",
       "packageSha256": "sha256:6603b0ffc14ca0052fd618d2445450808899d5a926f15c04b8b75bd204ce5b0c"
+    },
+    {
+      "pluginId": "builtin.workflow.synology-dsm-cert-import",
+      "version": "1.1.6",
+      "packageSha256": "sha256:dab05d0c6658bc4396e34158455a620676071e571a95aca25aac675fbf9ad896"
     }
   ]
 }

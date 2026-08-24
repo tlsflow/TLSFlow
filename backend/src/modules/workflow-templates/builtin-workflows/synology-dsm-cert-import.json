@@ -5,7 +5,7 @@
     "name": "synology-dsm-cert-import",
     "displayName": "更新Synology DSM 证书",
     "description": "通过 Synology DSM WebAPI 导入证书并迁移现有服务绑定。",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "logoUrl": "/plugin-logos/synology.svg",
     "platforms": ["synology-dsm"],
     "updateMethods": ["curl"],
@@ -215,19 +215,19 @@
       "stage": "prepare",
       "request": {
         "method": "POST",
-        "url": "{{deviceBaseUrl}}/webapi/entry.cgi",
+        "url": "{{variables.deviceBaseUrl}}/webapi/entry.cgi",
         "bodyType": "form",
         "form": {
           "api": "SYNO.API.Auth",
           "version": 7,
           "method": "login",
-          "account": "{{synologyCredential.username}}",
+          "account": "{{credentials.synologyCredential.username}}",
           "session": "webui",
           "format": "sid",
           "enable_syno_token": "yes"
         },
         "formCredentialRefs": {
-          "passwd": "{{synologyCredential}}"
+          "passwd": "{{credentials.synologyCredential}}"
         },
         "timeoutSeconds": 30,
         "maxResponseBytes": 1048576,
@@ -267,16 +267,16 @@
       "stage": "backup",
       "request": {
         "method": "GET",
-        "url": "{{deviceBaseUrl}}/webapi/entry.cgi",
+        "url": "{{variables.deviceBaseUrl}}/webapi/entry.cgi",
         "query": {
           "api": "SYNO.Core.Certificate.CRT",
           "method": "list",
           "version": 1,
-          "SynoToken": "{{synoToken}}",
-          "_sid": "{{synologySid}}"
+          "SynoToken": "{{steps.prepare_synology_login.extracted.synoToken}}",
+          "_sid": "{{steps.prepare_synology_login.extracted.synologySid}}"
         },
         "headers": {
-          "X-SYNO-TOKEN": "{{synoToken}}"
+          "X-SYNO-TOKEN": "{{steps.prepare_synology_login.extracted.synoToken}}"
         },
         "timeoutSeconds": 30,
         "maxResponseBytes": 1048576,
@@ -316,7 +316,7 @@
       "transform": {
         "engine": "jsonata",
         "input": {
-          "certificates": "{{synologyCertificatesBeforeImport}}"
+          "certificates": "{{steps.list_synology_certificates_before_import.extracted.synologyCertificatesBeforeImport}}"
         },
         "outputs": {
           "previousCertificateId": {
@@ -337,39 +337,39 @@
       "stage": "install",
       "request": {
         "method": "POST",
-        "url": "{{deviceBaseUrl}}/webapi/entry.cgi",
+        "url": "{{variables.deviceBaseUrl}}/webapi/entry.cgi",
         "query": {
           "api": "SYNO.Core.Certificate",
           "method": "import",
           "version": 1,
-          "SynoToken": "{{synoToken}}",
-          "_sid": "{{synologySid}}"
+          "SynoToken": "{{steps.prepare_synology_login.extracted.synoToken}}",
+          "_sid": "{{steps.prepare_synology_login.extracted.synologySid}}"
         },
         "headers": {
-          "X-SYNO-TOKEN": "{{synoToken}}"
+          "X-SYNO-TOKEN": "{{steps.prepare_synology_login.extracted.synoToken}}"
         },
         "bodyType": "multipart",
         "multipart": {
           "key": {
             "filename": "privkey.pem",
             "contentType": "application/octet-stream",
-            "value": "{{serverCert.outputs.keyFile.content}}"
+            "value": "{{artifacts.serverCert.outputs.keyFile.content}}"
           },
           "cert": {
             "filename": "fullchain.pem",
             "contentType": "application/octet-stream",
-            "value": "{{serverCert.outputs.certFile.content}}"
+            "value": "{{artifacts.serverCert.outputs.certFile.content}}"
           },
           "inter_cert": {
             "filename": "chain.pem",
             "contentType": "application/octet-stream",
-            "value": "{{serverCert.outputs.chainFile.content}}"
+            "value": "{{artifacts.serverCert.outputs.chainFile.content}}"
           },
           "id": {
             "value": ""
           },
           "desc": {
-            "value": "{{certificateDescription}}"
+            "value": "{{variables.certificateDescription}}"
           },
           "as_default": {
             "value": "true"
@@ -407,16 +407,16 @@
       "stage": "refresh",
       "request": {
         "method": "GET",
-        "url": "{{deviceBaseUrl}}/webapi/entry.cgi",
+        "url": "{{variables.deviceBaseUrl}}/webapi/entry.cgi",
         "query": {
           "api": "SYNO.Core.Certificate.CRT",
           "method": "list",
           "version": 1,
-          "SynoToken": "{{synoToken}}",
-          "_sid": "{{synologySid}}"
+          "SynoToken": "{{steps.prepare_synology_login.extracted.synoToken}}",
+          "_sid": "{{steps.prepare_synology_login.extracted.synologySid}}"
         },
         "headers": {
-          "X-SYNO-TOKEN": "{{synoToken}}"
+          "X-SYNO-TOKEN": "{{steps.prepare_synology_login.extracted.synoToken}}"
         },
         "timeoutSeconds": 30,
         "maxResponseBytes": 1048576,
@@ -456,10 +456,10 @@
       "transform": {
         "engine": "jsonata",
         "input": {
-          "certificateDescription": "{{certificateDescription}}",
-          "certificates": "{{synologyCertificatesAfterImport}}",
-          "previousCertificateId": "{{previousCertificateId}}",
-          "previousCertificateServices": "{{previousCertificateServices}}"
+          "certificateDescription": "{{variables.certificateDescription}}",
+          "certificates": "{{steps.list_synology_certificates_after_import.extracted.synologyCertificatesAfterImport}}",
+          "previousCertificateId": "{{steps.build_previous_synology_certificate_context.extracted.previousCertificateId}}",
+          "previousCertificateServices": "{{steps.build_previous_synology_certificate_context.extracted.previousCertificateServices}}"
         },
         "outputs": {
           "newCertificateId": {
@@ -481,26 +481,26 @@
       "stage": "refresh",
       "request": {
         "method": "POST",
-        "url": "{{deviceBaseUrl}}/webapi/entry.cgi",
+        "url": "{{variables.deviceBaseUrl}}/webapi/entry.cgi",
         "query": {
           "api": "SYNO.Core.Certificate.Service",
           "method": "set",
           "version": 1,
-          "SynoToken": "{{synoToken}}",
-          "_sid": "{{synologySid}}"
+          "SynoToken": "{{steps.prepare_synology_login.extracted.synoToken}}",
+          "_sid": "{{steps.prepare_synology_login.extracted.synologySid}}"
         },
         "headers": {
           "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-          "X-SYNO-TOKEN": "{{synoToken}}"
+          "X-SYNO-TOKEN": "{{steps.prepare_synology_login.extracted.synoToken}}"
         },
         "bodyType": "form",
         "form": {
           "api": "SYNO.Core.Certificate.Service",
           "version": 1,
           "method": "set",
-          "settings": "{{serviceBindingsJson}}",
-          "_sid": "{{synologySid}}",
-          "SynoToken": "{{synoToken}}"
+          "settings": "{{steps.build_synology_service_bindings.extracted.serviceBindingsJson}}",
+          "_sid": "{{steps.prepare_synology_login.extracted.synologySid}}",
+          "SynoToken": "{{steps.prepare_synology_login.extracted.synoToken}}"
         },
         "timeoutSeconds": 60,
         "maxResponseBytes": 1048576,
@@ -532,13 +532,13 @@
       "stage": "refresh",
       "request": {
         "method": "POST",
-        "url": "{{deviceBaseUrl}}/webapi/entry.cgi",
+        "url": "{{variables.deviceBaseUrl}}/webapi/entry.cgi",
         "query": {
           "api": "SYNO.API.Auth",
           "method": "logout",
           "version": 6,
-          "SynoToken": "{{synoToken}}",
-          "_sid": "{{synologySid}}"
+          "SynoToken": "{{steps.prepare_synology_login.extracted.synoToken}}",
+          "_sid": "{{steps.prepare_synology_login.extracted.synologySid}}"
         },
         "bodyType": "none",
         "timeoutSeconds": 30,
@@ -560,9 +560,9 @@
       "stage": "verify",
       "request": {
         "method": "GET",
-        "url": "{{verifyUrl}}",
+        "url": "{{variables.verifyUrl}}",
         "headers": {
-          "Host": "{{hostHeader}}"
+          "Host": "{{variables.hostHeader}}"
         },
         "timeoutSeconds": 30,
         "successStatusCodes": [

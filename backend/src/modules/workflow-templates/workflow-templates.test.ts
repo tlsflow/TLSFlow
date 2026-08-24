@@ -36,7 +36,7 @@ function resolvedWorkflowInput(input: Partial<Pick<ResolvedDeploymentInputV1, 'v
     provenance: {},
     sensitivePaths: [
       ...Object.keys(input.credentials ?? {}).map((name) => `credentials.${name}`),
-      ...Object.keys(input.artifacts ?? {}).map((name) => `artifacts.${name}`),
+      ...Object.entries(input.artifacts ?? {}).flatMap(([name, artifact]) => Object.keys((artifact as { outputs?: Record<string, unknown> }).outputs ?? {}).map((output) => `artifacts.${name}.outputs.${output}`)),
       ...Object.keys(input.variables ?? {}).filter((name) => /token|password|secret/i.test(name)).map((name) => `variables.${name}`),
     ],
     issues: [],
@@ -154,7 +154,10 @@ function runtimeInput(versionId: string) {
     mode: 'mock' as const,
     resolvedInput: resolvedWorkflowInput({
       variables: { deviceHost: 'edge-01.example.com', shouldUpload: true },
-      credentials: { credential: { credentialId: 'cred_device_login', kind: 'USERNAME_PASSWORD', username: 'admin', secretRefs: { password: 'secret://password/sec_device_login#current' } } },
+      credentials: {
+        credential: { credentialId: 'cred_device_login', kind: 'USERNAME_PASSWORD', username: 'admin', secretRefs: { password: 'secret://password/sec_device_login#current' } },
+        apiCredential: { credentialId: 'cred_device_api', kind: 'BEARER_TOKEN', secretRefs: { token: 'secret://api_token/sec_device_api#current' } },
+      },
       artifacts: { cert: { outputs: { pem: '-----BEGIN CERTIFICATE-----mock-----END CERTIFICATE-----', privateKey: 'super-private-key', fingerprintSha256: 'ff'.repeat(32) } } },
     }),
     mockResponses: {
@@ -324,7 +327,7 @@ describe('WorkflowTemplates', () => {
           name: 'prepare_login',
           type: 'http',
           stage: 'prepare',
-          request: { method: 'GET', url: 'https://{{deviceHost}}/ping' },
+          request: { method: 'GET', url: 'https://{{variables.deviceHost}}/ping' },
         },
       ],
       rollback: [
@@ -658,7 +661,7 @@ describe('WorkflowTemplates', () => {
           name: 'prepare_auth',
           type: 'http',
           stage: 'prepare',
-          request: { method: 'POST', url: 'https://{{deviceHost}}/api/login' },
+          request: { method: 'POST', url: 'https://{{variables.deviceHost}}/api/login' },
           extract: [
             {
               name: 'accessToken',
@@ -685,13 +688,13 @@ describe('WorkflowTemplates', () => {
           stage: 'install',
           request: {
             method: 'PUT',
-            url: 'https://{{deviceHost}}/api/certificate',
+            url: 'https://{{variables.deviceHost}}/api/certificate',
             headers: {
-              Authorization: 'Bearer {{accessToken}}',
-              'X-Session-Id': '{{sessionId}}',
-              'X-Tenant-Id': '{{tenantId}}',
+              Authorization: 'Bearer {{steps.prepare_auth.extracted.accessToken}}',
+              'X-Session-Id': '{{steps.prepare_auth.extracted.sessionId}}',
+              'X-Tenant-Id': '{{steps.prepare_auth.extracted.tenantId}}',
             },
-            body: { session: '{{sessionId}}', tenant: '{{tenantId}}', changed: true },
+            body: { session: '{{steps.prepare_auth.extracted.sessionId}}', tenant: '{{steps.prepare_auth.extracted.tenantId}}', changed: true },
           },
         },
       ],
@@ -743,7 +746,7 @@ describe('WorkflowTemplates', () => {
           name: 'prepare_auth',
           type: 'http',
           stage: 'prepare',
-          request: { method: 'POST', url: 'https://{{deviceHost}}/api/login' },
+          request: { method: 'POST', url: 'https://{{variables.deviceHost}}/api/login' },
           extract: [{ name: 'sessionId', type: 'jsonPath', path: '$.data.sid' }],
         },
       ],
@@ -793,6 +796,7 @@ describe('WorkflowTemplates', () => {
       stepName: 'reload',
       mode: 'mock',
       resolvedInput: withResolvedVariables(runtimeInput('single').resolvedInput, { remoteFingerprint: 'SHA256:single-node' }),
+      stepOutputs: { upload: { extracted: { remoteFingerprint: 'SHA256:single-node' } } },
       mockResponses: { reload: { exitCode: 0, stdout: 'single node ok' } },
     });
 
@@ -824,6 +828,7 @@ describe('WorkflowTemplates', () => {
       stepName: 'reload',
       mode: 'real_test',
       resolvedInput: withResolvedVariables(runtimeInput('single').resolvedInput, { remoteFingerprint: 'SHA256:single-node' }),
+      stepOutputs: { upload: { extracted: { remoteFingerprint: 'SHA256:single-node' } } },
     });
 
     assert.equal(run.mode, 'real_test');
@@ -856,6 +861,7 @@ describe('WorkflowTemplates', () => {
       stepName: 'reload',
       mode: 'real_test' as const,
       resolvedInput: withResolvedVariables(runtimeInput('single').resolvedInput, { remoteFingerprint: 'SHA256:single-node' }),
+      stepOutputs: { upload: { extracted: { remoteFingerprint: 'SHA256:single-node' } } },
     };
 
     const first = await service.testStep(input);
@@ -935,6 +941,7 @@ describe('WorkflowTemplates', () => {
       stepName: 'reload',
       mode: 'real_test',
       resolvedInput: withResolvedVariables(runtimeInput('single').resolvedInput, { remoteFingerprint: 'SHA256:single-node' }),
+      stepOutputs: { upload: { extracted: { remoteFingerprint: 'SHA256:single-node' } } },
     });
 
     assert.equal(run.stepResult.status, 'failed');
@@ -972,6 +979,7 @@ describe('WorkflowTemplates', () => {
       stepName: 'reload',
       mode: 'real_test',
       resolvedInput: withResolvedVariables(runtimeInput('single').resolvedInput, { remoteFingerprint: 'SHA256:single-node' }),
+      stepOutputs: { upload: { extracted: { remoteFingerprint: 'SHA256:single-node' } } },
     });
 
     assert.equal(run.stepResult.status, 'failed');
@@ -994,7 +1002,7 @@ describe('WorkflowTemplates', () => {
       {
         name: 'isLinux',
         type: 'condition',
-        condition: { variable: 'deviceOs', equals: 'linux' },
+        condition: { variable: 'variables.deviceOs', equals: 'linux' },
         description: '只允许 Linux 目标继续',
       },
     ];
@@ -1014,8 +1022,8 @@ describe('WorkflowTemplates', () => {
     const content = templateFixture();
     content.steps = [
       { name: 'verifyFirstInArray', type: 'manual', stage: 'verify', instruction: 'verify' },
-      { name: 'prepareSecondInArray', type: 'http', stage: 'prepare', request: { method: 'GET', url: 'https://{{deviceHost}}/login' } },
-      { name: 'refreshThirdInArray', type: 'ssh', stage: 'refresh', ssh: { mode: 'command', connection: { host: '{{deviceHost}}', username: 'admin', credential: '{{credential}}' }, commands: ['echo one', 'echo two'] } },
+      { name: 'prepareSecondInArray', type: 'http', stage: 'prepare', request: { method: 'GET', url: 'https://{{variables.deviceHost}}/login' } },
+      { name: 'refreshThirdInArray', type: 'ssh', stage: 'refresh', ssh: { mode: 'command', connection: { host: '{{variables.deviceHost}}', username: 'admin', credential: '{{credentials.credential}}' }, commands: ['echo one', 'echo two'] } },
     ];
     content.rollback = undefined;
     const { version } = await service.createTemplate({ content });
@@ -1060,13 +1068,13 @@ describe('WorkflowTemplates', () => {
         sftp: {
           direction: 'upload',
           connection: {
-            host: '{{deviceHost}}',
+            host: '{{variables.deviceHost}}',
             username: 'admin',
-            credential: '{{credential}}',
+            credential: '{{credentials.credential}}',
             hostKeyPolicy: 'manual_approval_required',
           },
           remotePath: '/etc/gcac-test/certs/test.crt',
-          contentRef: '{{cert.pem}}',
+          contentRef: '{{artifacts.cert.outputs.pem}}',
           mode: '0644',
           timeoutSeconds: 60,
         },
@@ -1079,13 +1087,13 @@ describe('WorkflowTemplates', () => {
         scp: {
           direction: 'upload',
           connection: {
-            host: '{{deviceHost}}',
+            host: '{{variables.deviceHost}}',
             username: 'admin',
-            credential: '{{credential}}',
+            credential: '{{credentials.credential}}',
             hostKeyPolicy: 'manual_approval_required',
           },
           remotePath: '/etc/gcac-test/certs/test.key',
-          contentRef: '{{cert.privateKey}}',
+          contentRef: '{{artifacts.cert.outputs.privateKey}}',
           mode: '0600',
           timeoutSeconds: 60,
         },
@@ -1187,16 +1195,16 @@ describe('WorkflowTemplates', () => {
         retry: { count: 2, intervalSeconds: 1, retryOnStatus: [500, 503], retryOnNetworkError: true },
         request: {
           method: 'POST',
-          url: 'https://{{deviceHost}}/api/submit',
+          url: 'https://{{variables.deviceHost}}/api/submit',
           query: { dryRun: true },
           headers: { Accept: 'application/json' },
           headerRefs: { 'X-Trace-Secret': 'secret://trace/id' },
           bodyType: 'multipart',
           multipart: {
-            cert: { value: '{{cert.pem}}', filename: 'cert.pem', contentType: 'application/x-pem-file' },
+            cert: { value: '{{artifacts.cert.outputs.pem}}', filename: 'cert.pem', contentType: 'application/x-pem-file' },
             key: { secretRef: 'secret://cert/key' },
           },
-          auth: { type: 'bearer', credential: '{{apiCredential}}' },
+          auth: { type: 'bearer', credential: '{{credentials.apiCredential}}' },
           tls: { verify: true, caSecretRef: 'secret://ca/root' },
           timeoutSeconds: 12,
           maxResponseBytes: 4096,
@@ -1257,10 +1265,10 @@ describe('WorkflowTemplates', () => {
         stage: 'prepare',
         request: {
           method: 'POST',
-          url: 'https://{{deviceHost}}/webapi/entry.cgi',
+          url: 'https://{{variables.deviceHost}}/webapi/entry.cgi',
           bodyType: 'form',
-          form: { account: '{{apiCredential.username}}', method: 'login' },
-          formCredentialRefs: { passwd: '{{apiCredential}}' },
+          form: { account: '{{credentials.apiCredential.username}}', method: 'login' },
+          formCredentialRefs: { passwd: '{{credentials.apiCredential}}' },
         },
         extract: [{ name: 'sid', type: 'jsonPath', path: '$.data.sid', sensitive: true }],
       },
@@ -1269,6 +1277,10 @@ describe('WorkflowTemplates', () => {
     const { version } = await service.createTemplate({ content });
     const run = await service.testRun({
       ...runtimeInput(version.id),
+      resolvedInput: resolvedWorkflowInput({
+        variables: { deviceHost: 'edge-01.example.com' },
+        credentials: { apiCredential: { credentialId: 'cred_device_login', kind: 'USERNAME_PASSWORD', username: 'admin', secretRefs: { password: 'secret://password/sec_device_login#current' } } },
+      }),
       mockResponses: { login_form: { statusCode: 200, body: { data: { sid: 'sid-secret-value' } } } },
     });
 
@@ -1282,7 +1294,7 @@ describe('WorkflowTemplates', () => {
     };
     const visible = JSON.stringify(run);
     assert.equal(run.status, 'success');
-    assert.deepEqual(plan.curlRequest.template.form, { account: '[REDACTED]', method: 'login' });
+    assert.deepEqual(plan.curlRequest.template.form, { account: 'admin', method: 'login' });
     assert.equal(plan.curlRequest.template.formSecretRefs, '[REDACTED]');
     assert.equal(run.stepResults[0]!.extracted.sid, '[REDACTED]');
     assert.doesNotMatch(visible, /sid-secret-value/);
@@ -1301,7 +1313,7 @@ describe('WorkflowTemplates', () => {
         transform: {
           engine: 'jsonata',
           input: {
-            previousCertificateServices: '{{previousServices.services}}',
+            previousCertificateServices: '{{variables.previousServices.services}}',
             previousCertificateId: 'old-cert',
             newCertificateId: 'new-cert',
           },
@@ -1322,9 +1334,9 @@ describe('WorkflowTemplates', () => {
         stage: 'refresh',
         request: {
           method: 'POST',
-          url: 'https://{{deviceHost}}/api/cert-service',
+          url: 'https://{{variables.deviceHost}}/api/cert-service',
           bodyType: 'form',
-          form: { settings: '{{serviceBindingsJson}}' },
+          form: { settings: '{{steps.build_bindings.extracted.serviceBindingsJson}}' },
         },
       },
     ];
@@ -1379,7 +1391,7 @@ describe('WorkflowTemplates', () => {
       type: 'transform',
       transform: {
         engine: 'jsonata',
-        input: { value: '{{largeValue}}' },
+        input: { value: '{{variables.largeValue}}' },
         outputs: { value: { expression: '$.value' } },
         maxInputBytes: 8,
       },
@@ -1437,6 +1449,12 @@ describe('WorkflowTemplates', () => {
       templateVersionId: version.id,
       mode: 'mock',
       resolvedInput: resolvedWorkflowInput({
+        variables: {
+          deviceBaseUrl: 'https://nas.example.com:5001',
+          certificateDescription: 'GCAC active certificate',
+          verifyUrl: 'https://nas.example.com:5001/',
+          hostHeader: 'nas.example.com',
+        },
         credentials: { synologyCredential: { credentialId: 'cred_synology_login', kind: 'USERNAME_PASSWORD', username: 'admin', secretRefs: { password: 'secret://password/sec_synology_login#current' } } },
         artifacts: { serverCert: { outputs: {
             certFile: { content: '-----BEGIN CERTIFICATE-----mock-----END CERTIFICATE-----' },
@@ -1512,7 +1530,7 @@ describe('WorkflowTemplates', () => {
           name: 'verify_body',
           type: 'http',
           request: { method: 'GET', url: 'https://example.com/' },
-          assert: [{ type: 'contains', value: '{{expectedResponseContains}}' }],
+          assert: [{ type: 'contains', value: '{{variables.expectedResponseContains}}' }],
         }],
       },
     });
@@ -1554,7 +1572,7 @@ describe('WorkflowTemplates', () => {
               request: {
                 method: 'POST',
                 url: 'https://{{target.serverName}}/deploy/{{targetIndex}}',
-                headers: { Authorization: 'Bearer {{apiToken}}' },
+                headers: { Authorization: 'Bearer {{variables.apiToken}}' },
               },
             }],
           },
@@ -1707,7 +1725,7 @@ describe('WorkflowTemplates', () => {
           stage: 'backup',
           checkpoint: {
             name: 'before-write',
-            capture: { remoteState: 'remoteState' },
+            capture: { remoteState: 'variables.remoteState' },
             normalizedHash: true,
             requiredForRollback: true,
           },
@@ -1726,7 +1744,7 @@ describe('WorkflowTemplates', () => {
     const unsafe = { ...version.content, steps: [{
       name: 'unsafe_checkpoint',
       type: 'checkpoint',
-      checkpoint: { name: 'unsafe', capture: { apiToken: 'apiToken' }, requiredForRollback: true },
+      checkpoint: { name: 'unsafe', capture: { apiToken: 'variables.apiToken' }, requiredForRollback: true },
     }] } as WorkflowDslV1;
     const unsafeTemplate = await service.createTemplate({ content: unsafe });
     await assert.rejects(() => service.testRun({

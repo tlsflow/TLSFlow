@@ -215,7 +215,7 @@ function builtinLocaleKey(pluginId: string): string {
 
 function workflowPluginVersion(pluginId: string, sourceVersion: string): string {
   if (pluginId === 'builtin.workflow.apache-8444-cert-switch') return '1.1.6';
-  if (pluginId === 'builtin.workflow.synology-dsm-cert-import') return '1.1.5';
+  if (pluginId === 'builtin.workflow.synology-dsm-cert-import') return '1.1.6';
   return incrementPatchVersion(sourceVersion);
 }
 
