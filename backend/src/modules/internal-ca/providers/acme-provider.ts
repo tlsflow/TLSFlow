@@ -357,7 +357,7 @@ export class AcmeProviderAdapter implements CaProviderAdapter {
     token: string;
     actorId: string;
   }): Promise<AcmeKeyAuthorization> {
-    const key = await this.resolvePrivateKey(input.account.accountKeySecretRef, input.actorId);
+    const key = await this.resolvePrivateKey(input.account.tenantId, input.account.accountKeySecretRef, input.actorId);
     const jwk = publicJwk(key);
     const thumbprint = encodeBase64Url(createHash('sha256').update(JSON.stringify({
       e: jwk.e,
@@ -382,15 +382,17 @@ export class AcmeProviderAdapter implements CaProviderAdapter {
   private async buildExternalAccountBinding(command: CreateAcmeAccountCommand, url: string): Promise<Record<string, string>> {
     const keyId = await this.secrets.resolveForService({
       secretRef: command.eabKeyIdSecretRef!,
+      tenantId: command.provider.tenantId,
       purpose: 'acme.eab.key_id',
       actorId: command.actorId,
     });
     const hmac = await this.secrets.resolveForService({
       secretRef: command.eabHmacSecretRef!,
+      tenantId: command.provider.tenantId,
       purpose: 'acme.eab.hmac',
       actorId: command.actorId,
     });
-    const accountKey = await this.resolvePrivateKey(command.accountKeySecretRef, command.actorId);
+    const accountKey = await this.resolvePrivateKey(command.provider.tenantId, command.accountKeySecretRef, command.actorId);
     const protectedEncoded = encodeBase64UrlJson({ alg: 'HS256', kid: keyId.plainText, url });
     const payloadEncoded = encodeBase64UrlJson(publicJwk(accountKey));
     const signature = encodeBase64Url(createHmac('sha256', hmac.plainText).update(`${protectedEncoded}.${payloadEncoded}`).digest());
@@ -408,7 +410,7 @@ export class AcmeProviderAdapter implements CaProviderAdapter {
     accept?: string;
   }): Promise<AcmeHttpResult> {
     const configuration = this.domain.assertProvider(input.provider);
-    const privateKey = await this.resolvePrivateKey(input.secretRef, input.actorId);
+    const privateKey = await this.resolvePrivateKey(input.provider.tenantId, input.secretRef, input.actorId);
     let nonce = await this.newNonce({ provider: input.provider });
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const protectedHeader: Record<string, unknown> = {
@@ -484,10 +486,11 @@ export class AcmeProviderAdapter implements CaProviderAdapter {
     };
   }
 
-  private async resolvePrivateKey(secretRef: string, actorId: string): Promise<KeyObject> {
+  private async resolvePrivateKey(tenantId: string, secretRef: string, actorId: string): Promise<KeyObject> {
     try {
       const secret = await this.secrets.resolveForService({
         secretRef,
+        tenantId,
         expectedType: 'certificate_private_key',
         purpose: 'acme.account.protocol',
         actorId,

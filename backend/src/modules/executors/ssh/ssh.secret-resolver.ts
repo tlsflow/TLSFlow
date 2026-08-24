@@ -7,9 +7,10 @@ export class SecretServiceSshResolver implements SshSecretResolver {
   async resolveSecret(secretRef: string, purpose: string, context: SshSecretResolverContext = {}): Promise<string> {
     const resolved = await this.secrets.resolveForService({
       secretRef,
+      tenantId: context.tenantId,
       purpose,
       actorId: context.actorId ?? 'ssh-executor',
-      context: {},
+      context,
     });
     return resolved.plainText;
   }

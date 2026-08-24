@@ -25,6 +25,7 @@ export interface CreateSecretInput {
 
 export interface SecretMetadataOutput {
   id: string;
+  tenantId?: string;
   name: string;
   type: SecretType;
   scopeType: SecretScopeType;
@@ -315,7 +316,7 @@ export class SecretService {
   async resolveForService(input: ResolveSecretForServiceInput): Promise<ResolvedSecret> {
     const parsed = parseSecretRef(input.secretRef);
     const secret = await this.secrets.get(parsed.secretId);
-    const tenantId = input.tenantId ?? resolveContextTenantId(input.context);
+    const tenantId = requireServiceTenantId(input);
     if (!secret || secret.status !== 'active' || !matchesTenant(secret.tenantId, tenantId)) {
       throw securityErrors.secretNotFound({ secretId: parsed.secretId });
     }
@@ -410,6 +411,7 @@ export class SecretService {
     }
     return {
       id: secret.id,
+      tenantId: secret.tenantId,
       name: secret.name,
       type: secret.type,
       scopeType: secret.scopeType,
@@ -444,4 +446,12 @@ function resolveContextTenantId(context?: RequestContext): string | undefined {
 function matchesTenant(actualTenantId: string | undefined, expectedTenantId: string | undefined): boolean {
   if (!expectedTenantId) return true;
   return actualTenantId === expectedTenantId;
+}
+
+function requireServiceTenantId(input: ResolveSecretForServiceInput): string {
+  const tenantId = input.tenantId ?? resolveContextTenantId(input.context);
+  if (!tenantId) {
+    throw securityErrors.secretResolveDenied({ reason: 'tenant context required for service secret resolution' });
+  }
+  return tenantId;
 }

@@ -23,6 +23,7 @@ function asset(providerKey: string): CloudAccountAsset {
 }
 
 test('CLOUD_PROVIDER 凭据按独立 Secret Slot 解析为阿里云签名字段', async () => {
+  const resolvedInputs: Array<{ secretRef: string; tenantId?: string }> = [];
   const resolver = new CredentialProfileProviderCredentialResolver(
     {
       async get() {
@@ -46,7 +47,8 @@ test('CLOUD_PROVIDER 凭据按独立 Secret Slot 解析为阿里云签名字段'
       },
     } as unknown as CredentialsRepository,
     {
-      async resolveForService(input: { secretRef: string }) {
+      async resolveForService(input: { secretRef: string; tenantId?: string }) {
+        resolvedInputs.push(input);
         return { plainText: input.secretRef.includes('sec_ak') ? 'ak-value' : 'sk-value' };
       },
     } as unknown as SecretService,
@@ -56,6 +58,20 @@ test('CLOUD_PROVIDER 凭据按独立 Secret Slot 解析为阿里云签名字段'
     accessKeyId: 'ak-value',
     accessKeySecret: 'sk-value',
   });
+  assert.deepEqual(resolvedInputs, [
+    {
+      secretRef: 'secret://api_token/sec_ak#current',
+      tenantId: 'tenant_test',
+      purpose: 'secret.provider_operation',
+      actorId: 'provider-extension',
+    },
+    {
+      secretRef: 'secret://api_token/sec_sk#current',
+      tenantId: 'tenant_test',
+      purpose: 'secret.provider_operation',
+      actorId: 'provider-extension',
+    },
+  ]);
 });
 
 test('云账号拒绝引用非 CLOUD_PROVIDER 类型凭据', async () => {

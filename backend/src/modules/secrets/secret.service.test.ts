@@ -202,3 +202,25 @@ test('SecretService 元数据和版本列表按租户隔离', async () => {
   );
   assert.equal((await service.listSecretVersions(tenantA.id, 'tenant_b')).length, 0);
 });
+
+test('SecretService 服务端解析缺少租户上下文时失败关闭', async () => {
+  const service = new SecretService(new CryptoService(new KeyManager(Buffer.alloc(32, 5))), new ExecutionGrantService(), new AuditService());
+  const created = await service.create({
+    tenantId: 'tenant_fail_closed',
+    name: 'tenant scoped secret',
+    type: 'password',
+    scopeType: 'global',
+    plainText: 'secret-value',
+    createdBy: 'user_admin',
+  });
+
+  await assert.rejects(
+    () => service.resolveForService({
+      secretRef: created.secretRef,
+      expectedType: 'password',
+      purpose: 'provider.test',
+      actorId: 'system',
+    }),
+    (error: any) => error.errorCode === 'SEC_SECRET_RESOLVE_DENIED',
+  );
+});

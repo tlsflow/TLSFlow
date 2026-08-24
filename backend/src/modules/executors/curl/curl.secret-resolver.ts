@@ -37,9 +37,10 @@ export class SecretServiceCurlResolver implements CurlSecretResolver {
   async resolveSecret(secretRef: string, purpose: string, context: CurlSecretResolverContext = {}): Promise<string> {
     const resolved = await this.secrets.resolveForService({
       secretRef,
+      tenantId: context.tenantId,
       purpose,
       actorId: context.actorId ?? 'curl-executor',
-      context: {},
+      context,
     });
     return resolved.plainText;
   }

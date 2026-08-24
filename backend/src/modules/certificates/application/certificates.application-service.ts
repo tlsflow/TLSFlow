@@ -726,10 +726,10 @@ export class CertificatesApplicationService {
     const warnings = this.validateFormatExportRequest(request, version);
     const pemNeedsSeparatePrivateKey = format.format === 'pem' && readBooleanParameter(format.parameters, 'generatePrivateKeyFile');
     const privateKey = (format.containsPrivateKey || pemNeedsSeparatePrivateKey)
-      ? await this.resolveSecret(version.privateKeySecretRef, 'certificate_private_key', 'certificate.deployment.private_key', actorId, context)
+      ? await this.resolveSecret(version.privateKeySecretRef, version.tenantId, 'certificate_private_key', 'certificate.deployment.private_key', actorId, context)
       : undefined;
     const password = format.passwordSecretRef
-      ? await this.resolveSecret(format.passwordSecretRef, 'pfx_password', 'certificate.deployment.password', actorId, context)
+      ? await this.resolveSecret(format.passwordSecretRef, version.tenantId, 'pfx_password', 'certificate.deployment.password', actorId, context)
       : undefined;
     const generated = this.exporter.generate(format.format, {
       version,
@@ -797,6 +797,7 @@ export class CertificatesApplicationService {
 
   private async resolveSecret(
     secretRef: string | undefined,
+    tenantId: string | undefined,
     expectedType: Parameters<SecretService['resolveForService']>[0]['expectedType'],
     purpose: string,
     actorId: string,
@@ -804,7 +805,7 @@ export class CertificatesApplicationService {
   ) {
     if (!secretRef) return undefined;
     try {
-      return await this.dependencies.secrets.resolveForService({ secretRef, expectedType, purpose, actorId, context });
+      return await this.dependencies.secrets.resolveForService({ secretRef, tenantId, expectedType, purpose, actorId, context });
     } catch (error) {
       if (error instanceof SecurityError && error.errorCode === 'SEC_SECRET_RESOLVE_DENIED') {
         throw new AppError(

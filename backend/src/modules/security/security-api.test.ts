@@ -111,6 +111,43 @@ describe('安全 API 最小闭环', () => {
     assert.equal(first.capabilities.edit.allowed, true);
   });
 
+  it('普通租户不能把历史全局对象集合重新用于新授权', async () => {
+    const security = createSecurityServices();
+    const app = createApp({ security });
+    const login = await app.inject({
+      method: 'POST',
+      path: '/api/v1/auth/login',
+      body: { username: 'admin', password: 'admin12345' },
+    });
+    const token = (login.body as { token: string }).token;
+
+    const role = await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/roles',
+      headers: { authorization: `Bearer ${token}` },
+      body: { code: 'legacy_global_guard', name: '历史全局集合守卫' },
+    });
+    const roleId = (role.body as { id: string }).id;
+
+    const deniedBinding = await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/role-bindings',
+      headers: { authorization: `Bearer ${token}` },
+      body: { principalType: 'user', principalId: 'user_admin', roleId, objectSetId: 'oset_builtin_admin_all' },
+    });
+    assert.equal(deniedBinding.statusCode, 403);
+    assert.equal((deniedBinding.body as { errorCode: string }).errorCode, 'SEC_PERMISSION_DENIED');
+
+    const deniedGrant = await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/access-grants',
+      headers: { authorization: `Bearer ${token}` },
+      body: { roleId, objectSetId: 'oset_builtin_admin_all', accessLevel: 'read' },
+    });
+    assert.equal(deniedGrant.statusCode, 403);
+    assert.equal((deniedGrant.body as { errorCode: string }).errorCode, 'SEC_PERMISSION_DENIED');
+  });
+
   it('非内置角色允许删除并清理对象级授权，内置角色拒绝删除', async () => {
     const security = createSecurityServices();
     const app = createApp({ security });

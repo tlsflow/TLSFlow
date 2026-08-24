@@ -4,15 +4,16 @@ import type { ChannelAdapterRegistry } from './channel-adapter-registry.js';
 import type { NotificationChannel } from '../schema/notifications.schema.js';
 
 export interface NotificationSecretResolver {
-  resolve(secretRef: string, channelId: string): Promise<string>;
+  resolve(secretRef: string, tenantId: string, channelId: string): Promise<string>;
 }
 
 export class ServiceNotificationSecretResolver implements NotificationSecretResolver {
   constructor(private readonly secrets: SecretService) {}
 
-  async resolve(secretRef: string, channelId: string): Promise<string> {
+  async resolve(secretRef: string, tenantId: string, channelId: string): Promise<string> {
     const result = await this.secrets.resolveForService({
       secretRef,
+      tenantId,
       purpose: 'notification.delivery',
       actorId: 'notification-worker',
       context: { requestId: `notification:${channelId}` },
@@ -73,7 +74,7 @@ export class NotificationWorker {
       await adapter.validateConfig(activeChannel);
       const secrets = Object.fromEntries(await Promise.all(Object.entries(activeChannel.secretRefs).map(async ([key, secretRef]) => [
         key,
-        await this.secretResolver.resolve(secretRef, activeChannel.id),
+        await this.secretResolver.resolve(secretRef, delivery.tenantId, activeChannel.id),
       ])));
       const privateOrigins = activeChannel.type === 'wecom' || activeChannel.type === 'feishu' || activeChannel.type === 'dingtalk'
         ? settings.privateOrigins[activeChannel.type]

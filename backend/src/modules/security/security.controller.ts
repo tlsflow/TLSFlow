@@ -890,6 +890,7 @@ export class SecurityController {
   private async createAccessGrant(request: HttpRequest) {
     const subject = await this.subjectFromRequest(request);
     await this.assertSecurityCan(subject, 'security.permission.write', request, 'permissionAccessGrant');
+    const tenantId = requireTenantId(request);
     const body = validateObject(request.body, {
       roleId: { type: 'string', required: true },
       objectSetId: { type: 'string', required: true },
@@ -898,6 +899,7 @@ export class SecurityController {
       constraints: { type: 'object' },
     });
     const created = await this.services.objectPermissions.createAccessGrant({
+      tenantId,
       roleId: String(body.roleId),
       objectSetId: String(body.objectSetId),
       accessLevel: body.accessLevel as AccessLevel,

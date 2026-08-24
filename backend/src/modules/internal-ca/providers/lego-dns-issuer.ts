@@ -92,6 +92,7 @@ export class LegoDnsIssuer {
     if (!credentialRef) throw new AppError('VALIDATION_FAILED', 'DNS 凭据缺少配置内容');
     const resolvedCredential = await this.dependencies.secrets.resolveForService({
       secretRef: credentialRef,
+      tenantId: input.tenantId,
       expectedType: 'password',
       purpose: 'acme.lego.dns_credentials',
       actorId: input.actorId,

@@ -81,6 +81,7 @@ class BuiltinCaProvider implements CaProviderAdapter {
     if (!secretRef) throw new AppError('CA_KEY_BACKEND_UNAVAILABLE', '内置 CA 密钥引用不可用', { caId: command.authority.id });
     const privateKey = await this.secrets.resolveForService({
       secretRef,
+      tenantId: command.authority.tenantId,
       expectedType: 'certificate_private_key',
       purpose: 'internal_ca.sign_csr',
       actorId: command.actorId,
@@ -158,6 +159,7 @@ class JsonProtocolCaProvider implements CaProviderAdapter {
     if (provider.credentialSecretRef) {
       const credential = await this.secrets.resolveForService({
         secretRef: provider.credentialSecretRef,
+        tenantId: provider.tenantId,
         purpose: 'internal_ca.provider_request',
         actorId,
       });

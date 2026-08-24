@@ -160,17 +160,25 @@ export class ObjectPermissionService {
     if (!objectSet) {
       throw securityErrors.permissionDenied({ reason: 'object set not found', objectSetId: input.objectSetId });
     }
-    if (objectSet.tenantId !== '*' && input.tenantId !== objectSet.tenantId) {
+    if (objectSet.tenantId === '*' && input.tenantId !== '*') {
       throw securityErrors.permissionDenied({
-        reason: 'role binding tenant must match object set tenant',
+        reason: 'historical global object set requires system tenant binding',
         roleBindingTenantId: input.tenantId,
         objectSetTenantId: objectSet.tenantId,
         objectSetId: input.objectSetId,
       });
     }
-    if (input.tenantId === '*' && objectSet.tenantId !== '*') {
+    if (objectSet.tenantId !== '*' && input.tenantId === '*') {
       throw securityErrors.permissionDenied({
         reason: 'tenant wildcard only allowed for historical global object sets',
+        objectSetId: input.objectSetId,
+      });
+    }
+    if (objectSet.tenantId !== '*' && input.tenantId !== objectSet.tenantId) {
+      throw securityErrors.permissionDenied({
+        reason: 'role binding tenant must match object set tenant',
+        roleBindingTenantId: input.tenantId,
+        objectSetTenantId: objectSet.tenantId,
         objectSetId: input.objectSetId,
       });
     }
@@ -192,16 +200,40 @@ export class ObjectPermissionService {
     return this.accessGrants.list();
   }
 
-  async createAccessGrant(input: Omit<AccessGrantEntity, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<AccessGrantEntity> {
-    if (!await this.objectSets.get(input.objectSetId)) {
+  async createAccessGrant(input: Omit<AccessGrantEntity, 'id' | 'createdAt' | 'updatedAt'> & { id?: string; tenantId: string }): Promise<AccessGrantEntity> {
+    const objectSet = await this.objectSets.get(input.objectSetId);
+    if (!objectSet) {
       throw securityErrors.permissionDenied({ reason: 'object set not found', objectSetId: input.objectSetId });
+    }
+    if (objectSet.tenantId === '*' && input.tenantId !== '*') {
+      throw securityErrors.permissionDenied({
+        reason: 'historical global object set requires system tenant grant',
+        accessGrantTenantId: input.tenantId,
+        objectSetTenantId: objectSet.tenantId,
+        objectSetId: input.objectSetId,
+      });
+    }
+    if (objectSet.tenantId !== '*' && input.tenantId === '*') {
+      throw securityErrors.permissionDenied({
+        reason: 'tenant wildcard only allowed for historical global object sets',
+        objectSetId: input.objectSetId,
+      });
+    }
+    if (objectSet.tenantId !== '*' && input.tenantId !== objectSet.tenantId) {
+      throw securityErrors.permissionDenied({
+        reason: 'access grant tenant must match object set tenant',
+        accessGrantTenantId: input.tenantId,
+        objectSetTenantId: objectSet.tenantId,
+        objectSetId: input.objectSetId,
+      });
     }
     if (this.roles && !await this.roles.get(input.roleId)) {
       throw securityErrors.permissionDenied({ reason: 'role not found', roleId: input.roleId });
     }
     const now = new Date().toISOString();
+    const { tenantId: _tenantId, ...entity } = input;
     return this.accessGrants.create({
-      ...input,
+      ...entity,
       id: input.id ?? newId('agrant'),
       effect: input.effect ?? 'allow',
       createdAt: now,

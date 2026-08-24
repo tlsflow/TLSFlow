@@ -471,6 +471,7 @@ export class AuthService {
     if (!accessGrants.some((item) => item.id === BUILTIN_ADMIN_ACCESS_GRANT_ID)) {
       await this.objectPermissions.createAccessGrant({
         id: BUILTIN_ADMIN_ACCESS_GRANT_ID,
+        tenantId: '*',
         roleId: adminRoleId,
         objectSetId: BUILTIN_ADMIN_ALL_OBJECT_SET_ID,
         accessLevel: 'control',
@@ -480,6 +481,7 @@ export class AuthService {
     if (!accessGrants.some((item) => item.id === BUILTIN_AUDITOR_ACCESS_GRANT_ID)) {
       await this.objectPermissions.createAccessGrant({
         id: BUILTIN_AUDITOR_ACCESS_GRANT_ID,
+        tenantId: '*',
         roleId: auditorRoleId,
         objectSetId: BUILTIN_AUDITOR_READONLY_OBJECT_SET_ID,
         accessLevel: 'read',

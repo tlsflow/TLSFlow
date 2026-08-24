@@ -44,6 +44,7 @@ test('对象级权限支持静态集合、三档权限和 deny 优先', async ()
     enabled: true,
   });
   await service.createAccessGrant({
+    tenantId: 'tenant_a',
     roleId: 'role_ops',
     objectSetId: objectSet.id,
     accessLevel: 'edit',
@@ -57,6 +58,7 @@ test('对象级权限支持静态集合、三档权限和 deny 优先', async ()
   assert.equal((await service.can(subject, 'read', { objectType: 'certificate', objectId: 'cert_b', tenantId: 'tenant_a' })).allowed, false);
 
   await service.createAccessGrant({
+    tenantId: 'tenant_a',
     roleId: 'role_ops',
     objectSetId: objectSet.id,
     accessLevel: 'read',
@@ -127,6 +129,7 @@ test('结构化租户范围约束旧通配绑定和列表授权', async () => {
     enabled: true,
   });
   await service.createAccessGrant({
+    tenantId: '*',
     roleId: 'role_group_reader',
     objectSetId: objectSet.id,
     accessLevel: 'read',
@@ -188,6 +191,7 @@ test('SYSTEM 范围只允许系统所有权对象', async () => {
     enabled: true,
   });
   await service.createAccessGrant({
+    tenantId: '*',
     roleId: 'role_system_reader',
     objectSetId: objectSet.id,
     accessLevel: 'read',
@@ -241,6 +245,7 @@ test('静态对象集合成员必须与真实租户一致，不能把同一对�
     enabled: true,
   });
   await service.createAccessGrant({
+    tenantId: '*',
     roleId: 'role_group_asset_reader',
     objectSetId: objectSet.id,
     accessLevel: 'read',
@@ -285,6 +290,86 @@ test('默认对象目录覆盖阶段 3 的授权根对象与派生对象', async
   assert.equal(secret?.tenantField, 'tenant_id');
 });
 
+test('AccessGrant 创建必须匹配对象集合租户边界', async () => {
+  const { service, roles } = createServiceWithRepos();
+  await roles.create({ id: 'role_access_guard', code: 'access_guard', name: '授权守卫', builtin: false });
+  await service.ensureDefaultObjectTypes();
+  const objectSet = await service.createObjectSet({
+    id: 'oset_tenant_a_only',
+    tenantId: 'tenant_a',
+    name: 'tenant a only',
+    kind: 'static',
+    objectTypes: ['secret'],
+    status: 'active',
+  });
+
+  await assert.rejects(
+    () => service.createAccessGrant({
+      tenantId: 'tenant_b',
+      roleId: 'role_access_guard',
+      objectSetId: objectSet.id,
+      accessLevel: 'read',
+      effect: 'allow',
+    }),
+    (error: any) => error.errorCode === 'SEC_PERMISSION_DENIED',
+  );
+});
+
+test('历史全局对象集合只允许系统租户继续引用', async () => {
+  const { service, roles } = createServiceWithRepos();
+  await roles.create({ id: 'role_global_guard', code: 'global_guard', name: '全局集合守卫', builtin: false });
+  await service.ensureDefaultObjectTypes();
+  const objectSet = await service.createObjectSet({
+    id: 'oset_legacy_global',
+    tenantId: '*',
+    name: 'legacy global',
+    kind: 'static',
+    objectTypes: ['secret'],
+    status: 'active',
+  });
+
+  await assert.rejects(
+    () => service.createRoleBinding({
+      tenantId: 'tenant_a',
+      principalType: 'user',
+      principalId: 'user_a',
+      roleId: 'role_global_guard',
+      objectSetId: objectSet.id,
+      effect: 'allow',
+      enabled: true,
+    }),
+    (error: any) => error.errorCode === 'SEC_PERMISSION_DENIED',
+  );
+
+  await assert.rejects(
+    () => service.createAccessGrant({
+      tenantId: 'tenant_a',
+      roleId: 'role_global_guard',
+      objectSetId: objectSet.id,
+      accessLevel: 'read',
+      effect: 'allow',
+    }),
+    (error: any) => error.errorCode === 'SEC_PERMISSION_DENIED',
+  );
+
+  await service.createRoleBinding({
+    tenantId: '*',
+    principalType: 'user',
+    principalId: 'user_system',
+    roleId: 'role_global_guard',
+    objectSetId: objectSet.id,
+    effect: 'allow',
+    enabled: true,
+  });
+  await service.createAccessGrant({
+    tenantId: '*',
+    roleId: 'role_global_guard',
+    objectSetId: objectSet.id,
+    accessLevel: 'read',
+    effect: 'allow',
+  });
+});
+
 test('列表授权查询支持静态成员、动态条件和 deny 优先', async () => {
   const { service, roles } = createServiceWithRepos();
   await roles.create({ id: 'role_asset_reader', code: 'asset_reader', name: '资产只读', builtin: false });
@@ -327,9 +412,9 @@ test('列表授权查询支持静态成员、动态条件和 deny 优先', async
       enabled: true,
     });
   }
-  await service.createAccessGrant({ roleId: 'role_asset_reader', objectSetId: staticSet.id, accessLevel: 'read', effect: 'allow' });
-  await service.createAccessGrant({ roleId: 'role_asset_reader', objectSetId: dynamicSet.id, accessLevel: 'read', effect: 'allow' });
-  await service.createAccessGrant({ roleId: 'role_asset_reader', objectSetId: denySet.id, accessLevel: 'read', effect: 'deny' });
+  await service.createAccessGrant({ tenantId: 'tenant_a', roleId: 'role_asset_reader', objectSetId: staticSet.id, accessLevel: 'read', effect: 'allow' });
+  await service.createAccessGrant({ tenantId: 'tenant_a', roleId: 'role_asset_reader', objectSetId: dynamicSet.id, accessLevel: 'read', effect: 'allow' });
+  await service.createAccessGrant({ tenantId: 'tenant_a', roleId: 'role_asset_reader', objectSetId: denySet.id, accessLevel: 'read', effect: 'deny' });
 
   const authorization = await service.buildAuthorizedQuery(
     { id: 'user_reader', type: 'user' as const, scope: { tenantId: 'tenant_a' } },

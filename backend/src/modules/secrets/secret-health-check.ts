@@ -9,6 +9,7 @@ export async function auditSecretDecryptability(secrets: SecretService): Promise
     try {
       await secrets.resolveForService({
         secretRef: secret.secretRef,
+        tenantId: secret.tenantId,
         expectedType: secret.type,
         purpose: 'secret.health_check',
         actorId: 'system',

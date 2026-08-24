@@ -134,6 +134,7 @@ export class AcmeAccountService {
     try {
       await this.secrets.resolveForService({
         secretRef: input.accountKeySecretRef,
+        tenantId: input.tenantId,
         expectedType: 'certificate_private_key',
         purpose: 'acme.account.validate',
         actorId: input.actorId,
@@ -142,6 +143,7 @@ export class AcmeAccountService {
         if (!secretRef) continue;
         await this.secrets.resolveForService({
           secretRef,
+          tenantId: input.tenantId,
           purpose: 'acme.account.validate',
           actorId: input.actorId,
         });

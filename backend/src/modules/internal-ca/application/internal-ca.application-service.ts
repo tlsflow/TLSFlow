@@ -1750,6 +1750,7 @@ export class InternalCaApplicationService {
     const resolvedParentKey = parentPrivateKeyPem ?? (parent.privateKeySecretRef
       ? (await this.dependencies.secrets.resolveForService({
           secretRef: parent.privateKeySecretRef,
+          tenantId,
           expectedType: 'certificate_private_key',
           purpose: 'internal_ca.intermediate.create',
           actorId: input.actorId,

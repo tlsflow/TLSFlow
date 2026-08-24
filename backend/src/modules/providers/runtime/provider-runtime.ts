@@ -71,12 +71,13 @@ export interface ProviderCertificateMaterialResolver {
 export class SecretProviderCertificateMaterialResolver implements ProviderCertificateMaterialResolver {
   constructor(private readonly secrets: SecretService) {}
 
-  async resolve(reference: string, _tenantId: string): Promise<Record<string, string>> {
+  async resolve(reference: string, tenantId: string): Promise<Record<string, string>> {
     if (!reference.startsWith('secret://')) {
       throw new AppError('SECRET_REF_INVALID', '证书材料引用必须使用 SecretRef', { certificateRef: reference });
     }
     const resolved = await this.secrets.resolveForService({
       secretRef: reference,
+      tenantId,
       purpose: 'secret.provider_operation',
       actorId: 'provider-extension',
     });
@@ -122,6 +123,7 @@ export class CredentialProfileProviderCredentialResolver implements ProviderCred
     for (const [slot, secretRef] of Object.entries(profile.secretSlots)) {
       const secret = await this.secrets.resolveForService({
         secretRef,
+        tenantId: asset.tenantId,
         purpose: 'secret.provider_operation',
         actorId: 'provider-extension',
       });
