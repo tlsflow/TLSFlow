@@ -26,6 +26,7 @@ import type {
   LicenseIntegrityStatus,
   LicenseQuotas,
   LicenseStatus,
+  LicenseUsage,
   LicenseVersionRange,
   RevocationList,
   StoredActivationRequest,
@@ -75,7 +76,7 @@ export class LicensingApplicationService {
   private readonly repositories: LicensingRepositories;
 
   constructor(
-    db: DatabasePort,
+    private readonly db: DatabasePort,
     private readonly audit?: AuditService,
     options: LicensingServiceOptions = {},
   ) {
@@ -90,13 +91,16 @@ export class LicensingApplicationService {
     this.storageKey = options.storageKey ?? loadStorageKey();
   }
 
-  async getStatus(): Promise<LicenseStatus> {
+  async getStatus(tenantId?: string): Promise<LicenseStatus> {
     const installation = await this.ensureInstallation();
     const clockRollbackDetected = await this.observeClock(installation);
     const storedGrant = await this.repositories.grants.get(CURRENT_LICENSE_ID);
     const storedRevocationList = await this.repositories.revocations.get(CURRENT_REVOCATION_LIST_ID);
     const revokedGrantIds = new Set(storedRevocationList?.list.revokedGrantIds ?? []);
-    const base = createBaseStatus(installation, clockRollbackDetected);
+    const base = {
+      ...createBaseStatus(installation, clockRollbackDetected),
+      usage: await this.readApplicationAssetUsage(tenantId),
+    };
 
     if (clockRollbackDetected) {
       return { ...base, state: 'clock_rollback_detected', reason: 'system clock moved backwards' };
@@ -178,7 +182,7 @@ export class LicensingApplicationService {
     } as LicenseStatus;
   }
 
-  async importLicense(grant: LicenseGrant, revocationList?: RevocationList): Promise<LicenseStatus> {
+  async importLicense(grant: LicenseGrant, revocationList?: RevocationList, tenantId?: string): Promise<LicenseStatus> {
     const installation = await this.ensureInstallation();
     const current = await this.repositories.grants.get(CURRENT_LICENSE_ID);
     if (revocationList && !verifyRevocationList(revocationList, this.trustKeys, this.now())) {
@@ -263,10 +267,10 @@ export class LicensingApplicationService {
       riskLevel: 'medium',
       detail: { planCode: toCanonicalPlanCode(grant.planCode), deviceId: installation.deviceId },
     });
-    return this.getStatus();
+    return this.getStatus(tenantId);
   }
 
-  async importActivationResponse(response: ActivationResponse): Promise<LicenseStatus> {
+  async importActivationResponse(response: ActivationResponse, tenantId?: string): Promise<LicenseStatus> {
     if (!isActivationResponse(response)) {
       throw new AppError('LICENSE_INVALID', '激活响应格式无效');
     }
@@ -285,7 +289,7 @@ export class LicensingApplicationService {
     ) {
       throw new AppError('LICENSE_INVALID', '激活响应与本地请求不匹配');
     }
-    const imported = await this.importLicense(response.licenseGrant, response.revocationList);
+    const imported = await this.importLicense(response.licenseGrant, response.revocationList, tenantId);
     await this.repositories.activationRequests.update(request.id, { status: 'fulfilled' });
     return imported;
   }
@@ -301,35 +305,13 @@ export class LicensingApplicationService {
     });
   }
 
-  async exportLicense(): Promise<{
-    installation: Pick<InstallationEntity, 'installationId' | 'publicKey' | 'productCode' | 'deviceId'>;
-    currentVersion: string;
-    licenseGrant?: LicenseGrant;
-    revocationList?: RevocationList;
-  }> {
-    const installation = await this.ensureInstallation();
-    const grant = await this.repositories.grants.get(CURRENT_LICENSE_ID);
-    const revocationList = await this.repositories.revocations.get(CURRENT_REVOCATION_LIST_ID);
-    return {
-      installation: {
-        installationId: installation.installationId,
-        publicKey: installation.publicKey,
-        productCode: installation.productCode,
-        deviceId: installation.deviceId,
-      },
-      currentVersion: GCAC_VERSION,
-      licenseGrant: grant?.grant,
-      revocationList: revocationList?.list,
-    };
-  }
-
-  async createActivationRequest(kind: 'online' | 'offline'): Promise<ActivationRequest> {
+  async createActivationRequest(): Promise<ActivationRequest> {
     const installation = await this.ensureInstallation();
     const request: ActivationRequest = {
       schemaVersion: 2,
       requestId: `lreq_${randomBytes(12).toString('hex')}`,
       nonce: randomBytes(24).toString('base64url'),
-      kind,
+      kind: 'offline',
       productCode: 'gcac',
       installationId: installation.installationId,
       installationPublicKey: installation.publicKey,
@@ -354,7 +336,7 @@ export class LicensingApplicationService {
       resourceId: request.requestId,
       result: 'success',
       riskLevel: 'low',
-      detail: { kind, deviceId: installation.deviceId },
+      detail: { kind: 'offline', deviceId: installation.deviceId },
     });
     return request;
   }
@@ -420,6 +402,20 @@ export class LicensingApplicationService {
     } catch {
       return this.repositories.installations.getOrThrow(INSTALLATION_ID);
     }
+  }
+
+  private async readApplicationAssetUsage(tenantId?: string): Promise<LicenseUsage | undefined> {
+    if (!tenantId) return undefined;
+    const result = await this.db.query<{ count: string }>(
+      `select count(*)::text as count
+         from pg_service_assets
+        where tenant_id = $1
+          and deleted_at is null
+          and asset_kind = 'APPLICATION'`,
+      [tenantId],
+    );
+    const count = Number(result.rows[0]?.count ?? 0);
+    return { applicationAssets: Number.isFinite(count) ? Math.max(0, Math.trunc(count)) : 0 };
   }
 
   private async observeClock(installation: InstallationEntity): Promise<boolean> {
@@ -544,7 +540,7 @@ function createVerifiedStatus(
     licenseSchemaVersion: grant.schemaVersion,
     grantId: grant.grantId,
     features: [...grant.features],
-    quotas: normalizeLicenseQuotas(grant.quotas),
+    quotas: capGrantQuotasToPlan(grant),
     issuedAt: grant.issuedAt,
     startsAt: grant.startsAt,
     expiresAt: readGrantExpiresAt(grant),
@@ -658,6 +654,9 @@ function validateGrantAgainstPlan(grant: LicenseGrant): void {
   for (const quotaCode of Object.keys(quotas) as Array<keyof LicenseQuotas>) {
     const granted = quotas[quotaCode];
     const allowed = plan.quotas[quotaCode];
+    if (granted === null && allowed !== null) {
+      throw new AppError('LICENSE_INVALID', '许可证额度不能超过套餐定义', { quotaCode, granted, allowed });
+    }
     if (granted !== null && allowed !== null && granted > allowed) {
       throw new AppError('LICENSE_INVALID', '许可证额度超出套餐定义', { quotaCode, granted, allowed });
     }
@@ -676,6 +675,25 @@ function validateGrantAgainstPlan(grant: LicenseGrant): void {
       }
     }
   }
+}
+
+function capGrantQuotasToPlan(grant: LicenseGrant): LicenseQuotas {
+  const quotas = normalizeLicenseQuotas(grant.quotas);
+  const planCode = normalizePlanCode(grant.planCode);
+  const plan = planCode ? findPlan(planCode) : undefined;
+  if (!plan) return quotas;
+  return {
+    applicationAssets: capQuota(quotas.applicationAssets, plan.quotas.applicationAssets),
+    managedTargets: capQuota(quotas.managedTargets, plan.quotas.managedTargets),
+    concurrentExecutions: capQuota(quotas.concurrentExecutions, plan.quotas.concurrentExecutions),
+    plugins: capQuota(quotas.plugins, plan.quotas.plugins),
+  };
+}
+
+function capQuota(granted: number | null, allowed: number | null): number | null {
+  if (allowed === null) return granted;
+  if (granted === null) return allowed;
+  return Math.min(granted, allowed);
 }
 
 function validateVersionRange(versionRange: LicenseVersionRange | undefined): void {

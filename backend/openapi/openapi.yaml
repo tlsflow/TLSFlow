@@ -12365,6 +12365,8 @@ paths:
                       type: "string"
                     sniName:
                       type: "string"
+                    verifyUrl:
+                      type: "string"
                     port:
                       type: "number"
                     protocol:
@@ -14397,26 +14399,6 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
-  /api/v1/licensing/license/export:
-    get:
-      operationId: "exportLicense"
-      summary: "导出许可证"
-      tags:
-        - "Licensing"
-      responses:
-        200:
-          description: "成功"
-          content:
-            application/json:
-              schema:
-                type: "object"
-                additionalProperties: true
-        400:
-          $ref: "#/components/responses/ErrorResponse"
-        404:
-          $ref: "#/components/responses/ErrorResponse"
-        500:
-          $ref: "#/components/responses/ErrorResponse"
   /api/v1/licensing/license/import:
     post:
       operationId: "importLicense"
@@ -14440,7 +14422,7 @@ paths:
   /api/v1/licensing/activation-requests:
     post:
       operationId: "createActivationRequest"
-      summary: "创建激活请求"
+      summary: "创建离线激活请求"
       tags:
         - "Licensing"
       responses:
@@ -14779,4 +14761,4 @@ tags:
   -
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-08-17T16:15:03.681Z"
+x-generatedAt: "2026-08-19T03:27:12.794Z"

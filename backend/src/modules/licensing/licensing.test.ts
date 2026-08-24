@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 import test from 'node:test';
+import { GCAC_VERSION } from '../../common/version.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { AuditService, type WriteAuditInput } from '../audits/audit.service.js';
 import type { AuditLogEntity } from '../../persistence/entities/audit-log.entity.js';
@@ -70,6 +71,53 @@ test('无许可证时按 none 状态运行社区功能，并把应用资产限�
   );
 });
 
+test('社区版额度上限为 5，并收敛旧的不限额度存量许可证', async () => {
+  const keys = createSigningFixture();
+  const service = new LicensingApplicationService(new PgliteDatabase(), undefined, {
+    trustKeys: new Map([['key-community-quota', keys.publicKey]]),
+    storageKey: Buffer.alloc(32, 34),
+    now: () => new Date('2026-08-18T00:00:00.000Z'),
+  });
+  const initialStatus = await service.getStatus();
+  const unlimitedGrant = signGrant<LicenseGrantV2>({
+    schemaVersion: 2,
+    grantId: 'grant_community_unlimited',
+    keyId: 'key-community-quota',
+    productCode: 'gcac',
+    installationId: initialStatus.installationId,
+    installationPublicKey: initialStatus.installationPublicKey,
+    deviceId: initialStatus.deviceId,
+    planCode: 'community',
+    features: [...initialStatus.features],
+    quotas: {
+      applicationAssets: null,
+      managedTargets: null,
+      concurrentExecutions: null,
+      plugins: null,
+    },
+    issuedAt: '2026-08-18T00:00:00.000Z',
+    startsAt: '2026-08-18T00:00:00.000Z',
+    gracePeriodDays: 0,
+    upgradeGraceDays: 30,
+    signature: '',
+  }, keys.privateKey);
+
+  await assert.rejects(
+    () => service.importLicense(unlimitedGrant),
+    (error: unknown) => error instanceof Error && 'errorCode' in error && error.errorCode === 'LICENSE_INVALID',
+  );
+  await (service as any).repositories.grants.upsert({
+    id: 'current',
+    grant: unlimitedGrant,
+    importedAt: '2026-08-18T00:00:00.000Z',
+  });
+
+  const status = await service.getStatus();
+  assert.equal(status.planCode, 'community');
+  assert.equal(status.quotas.applicationAssets, 5);
+  assert.equal(status.quotas.managedTargets, 5);
+});
+
 test('生产环境缺少显式许可证信任根时必须失败关闭', async () => {
   await withEnvironment({ NODE_ENV: 'production', GCAC_LICENSE_TRUST_KEYS_JSON: undefined }, async () => {
     assert.throws(
@@ -130,8 +178,8 @@ test('生产环境只使用显式 Ed25519 信任根验证许可证', async () =>
       planCode: 'community',
       features: [...initialStatus.features],
       quotas: {
-        applicationAssets: 5,
-        managedTargets: 5,
+        applicationAssets: 3,
+        managedTargets: 3,
         concurrentExecutions: null,
         plugins: null,
       },
@@ -187,8 +235,8 @@ test('许可证内容被修改后标记为 tampered，并拒绝再次导入', as
     planCode: 'community',
     features: [...initialStatus.features],
     quotas: {
-      applicationAssets: 5,
-      managedTargets: 5,
+      applicationAssets: 3,
+      managedTargets: 3,
       concurrentExecutions: null,
       plugins: null,
     },
@@ -387,10 +435,11 @@ test('激活请求导出 deviceId，旧套餐代码导入后按新口径归并�
   });
 
   const initialStatus = await service.getStatus();
-  const request = await service.createActivationRequest('offline');
+  const request = await service.createActivationRequest();
+  assert.equal(request.kind, 'offline');
   assert.equal(request.schemaVersion, 2);
   assert.equal(request.deviceId, initialStatus.deviceId);
-  assert.equal(request.productVersion, '0.1.0');
+  assert.equal(request.productVersion, GCAC_VERSION);
 
   const grant = signGrant<LicenseGrantV1>({
     schemaVersion: 1,
@@ -461,7 +510,7 @@ test('运行时可同时信任多个 keyId，并在导入撤销列表后把当�
     issuedAt: '2026-08-08T00:00:00.000Z',
     startsAt: '2026-08-08T00:00:00.000Z',
     gracePeriodDays: 0,
-    versionRange: { min: '0.1.0', max: '0.1.0' },
+    versionRange: { min: GCAC_VERSION, max: GCAC_VERSION },
     upgradeGraceDays: 30,
     signature: '',
   }, oldKeys.privateKey);

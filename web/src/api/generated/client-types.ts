@@ -254,7 +254,6 @@ export const apiContractMetadata: ApiContractMetadata = {
     "/api/v1/hosts/delete",
     "/api/v1/licensing/activation-requests",
     "/api/v1/licensing/activation-responses/import",
-    "/api/v1/licensing/license/export",
     "/api/v1/licensing/license/import",
     "/api/v1/licensing/revocations/import",
     "/api/v1/licensing/status",

@@ -10,8 +10,7 @@ export class LicensingController {
   constructor(private readonly service: LicensingApplicationService) {}
 
   register(router: Router): void {
-    router.get('/api/v1/licensing/status', '获取授权状态', ['Licensing'], (request) => this.requireAuth(request).then(() => this.service.getStatus()));
-    router.get('/api/v1/licensing/license/export', '导出许可证', ['Licensing'], (request) => this.requireAuth(request).then(() => this.service.exportLicense()));
+    router.get('/api/v1/licensing/status', '获取授权状态', ['Licensing'], (request) => this.requireAuth(request).then(() => this.service.getStatus(request.context.tenantId)));
     router.post('/api/v1/licensing/license/import', '导入许可证', ['Licensing'], (request) => this.importLicense(request));
     router.post('/api/v1/licensing/activation-requests', '创建激活请求', ['Licensing'], (request) => this.createActivationRequest(request));
     router.post('/api/v1/licensing/activation-responses/import', '导入激活响应', ['Licensing'], (request) => this.importActivationResponse(request));
@@ -27,16 +26,17 @@ export class LicensingController {
     return this.service.importLicense(
       body.licenseGrant as unknown as LicenseGrant,
       body.revocationList as unknown as RevocationList | undefined,
+      request.context.tenantId,
     );
   }
 
   private async createActivationRequest(request: HttpRequest) {
     await this.requireAuth(request);
     const body = validateObject(request.body, {
-      kind: { type: 'string', required: true, enum: ['online', 'offline'] },
+      kind: { type: 'string', required: true, enum: ['offline'] },
     });
     return {
-      request: await this.service.createActivationRequest(body.kind as 'online' | 'offline'),
+      request: await this.service.createActivationRequest(),
     };
   }
 
@@ -45,7 +45,7 @@ export class LicensingController {
     const body = validateObject(request.body, {
       activationResponse: { type: 'object', required: true },
     });
-    return this.service.importActivationResponse(body.activationResponse as unknown as ActivationResponse);
+    return this.service.importActivationResponse(body.activationResponse as unknown as ActivationResponse, request.context.tenantId);
   }
 
   private async importRevocationList(request: HttpRequest) {
@@ -54,7 +54,7 @@ export class LicensingController {
       revocationList: { type: 'object', required: true },
     });
     await this.service.importRevocationList(body.revocationList as unknown as RevocationList);
-    return this.service.getStatus();
+    return this.service.getStatus(request.context.tenantId);
   }
 
   private async requireAuth(request: HttpRequest): Promise<void> {
@@ -65,9 +65,8 @@ export class LicensingController {
 export function getLicensingRouteContracts(): RouteContract[] {
   return [
     { method: 'GET', path: '/api/v1/licensing/status', operationId: 'getLicensingStatus', summary: '获取授权状态', tags: ['Licensing'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'GET', path: '/api/v1/licensing/license/export', operationId: 'exportLicense', summary: '导出许可证', tags: ['Licensing'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/licensing/license/import', operationId: 'importLicense', summary: '导入许可证', tags: ['Licensing'], responseSchema: { type: 'object', additionalProperties: true } },
-    { method: 'POST', path: '/api/v1/licensing/activation-requests', operationId: 'createActivationRequest', summary: '创建激活请求', tags: ['Licensing'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/licensing/activation-requests', operationId: 'createActivationRequest', summary: '创建离线激活请求', tags: ['Licensing'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/licensing/activation-responses/import', operationId: 'importActivationResponse', summary: '导入激活响应', tags: ['Licensing'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/licensing/revocations/import', operationId: 'importRevocationList', summary: '导入撤销列表', tags: ['Licensing'], responseSchema: { type: 'object', additionalProperties: true } },
   ];

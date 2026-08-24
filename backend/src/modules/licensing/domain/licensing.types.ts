@@ -16,6 +16,10 @@ export interface LicenseQuotas {
   plugins: number | null;
 }
 
+export interface LicenseUsage {
+  applicationAssets: number;
+}
+
 export interface LicenseVersionRange {
   min?: string;
   max?: string;
@@ -75,7 +79,7 @@ export interface ActivationRequest {
   schemaVersion: 1 | 2;
   requestId: string;
   nonce: string;
-  kind: 'online' | 'offline';
+  kind: 'offline';
   productCode: 'gcac';
   installationId: string;
   installationPublicKey: string;
@@ -144,6 +148,7 @@ export interface LicenseStatus {
   grantId?: string;
   features: string[];
   quotas: LicenseQuotas;
+  usage?: LicenseUsage;
   issuedAt?: string;
   startsAt?: string;
   expiresAt?: string;

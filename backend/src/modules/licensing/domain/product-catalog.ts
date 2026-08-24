@@ -46,7 +46,7 @@ export const PRODUCT_PLANS: readonly ProductPlan[] = [
     aliases: ['free'],
     name: '社区版',
     features: Object.values(PRODUCT_FEATURES),
-    quotas: { applicationAssets: null, managedTargets: null, concurrentExecutions: null, plugins: null },
+    quotas: { applicationAssets: 5, managedTargets: 5, concurrentExecutions: null, plugins: null },
     validityDays: null,
     gracePeriodDays: 0,
     supportLevel: 'community_email',

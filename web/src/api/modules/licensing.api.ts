@@ -22,6 +22,9 @@ export interface LicenseStatus {
     readonly concurrentExecutions: number | null
     readonly plugins: number | null
   }
+  readonly usage?: {
+    readonly applicationAssets: number
+  }
   readonly issuedAt?: string
   readonly startsAt?: string
   readonly expiresAt?: string
@@ -42,7 +45,7 @@ export interface ActivationRequest {
   readonly schemaVersion: 1 | 2
   readonly requestId: string
   readonly nonce: string
-  readonly kind: 'online' | 'offline'
+  readonly kind: 'offline'
   readonly productCode: string
   readonly installationId: string
   readonly installationPublicKey: string
@@ -61,24 +64,8 @@ export interface ActivationResponse {
   readonly revocationList?: Record<string, unknown>
 }
 
-export interface LicenseExport {
-  readonly installation: {
-    readonly installationId: string
-    readonly publicKey: string
-    readonly productCode: string
-    readonly deviceId: string
-  }
-  readonly currentVersion: string
-  readonly licenseGrant?: Record<string, unknown>
-  readonly revocationList?: Record<string, unknown>
-}
-
 export function getLicensingStatus(): Promise<ApiResult<LicenseStatus>> {
   return apiClient.get<LicenseStatus>('/v1/licensing/status')
-}
-
-export function exportLicense(): Promise<ApiResult<LicenseExport>> {
-  return apiClient.get<LicenseExport>('/v1/licensing/license/export')
 }
 
 export function importLicense(body: {
@@ -88,8 +75,8 @@ export function importLicense(body: {
   return apiClient.post<LicenseStatus>('/v1/licensing/license/import', body)
 }
 
-export function createActivationRequest(kind: 'online' | 'offline'): Promise<ApiResult<{ request: ActivationRequest }>> {
-  return apiClient.post<{ request: ActivationRequest }>('/v1/licensing/activation-requests', { kind })
+export function createActivationRequest(): Promise<ApiResult<{ request: ActivationRequest }>> {
+  return apiClient.post<{ request: ActivationRequest }>('/v1/licensing/activation-requests', { kind: 'offline' })
 }
 
 export function importActivationResponse(activationResponse: ActivationResponse): Promise<ApiResult<LicenseStatus>> {
