@@ -264,7 +264,7 @@ export class BindingsController {
   }
 
   private audit(request: HttpRequest, subject: SecuritySubject, eventType: string, action: string, resourceType: string, resourceId: string | undefined, before: unknown, after: unknown): void {
-    this.security?.audit.write({
+    void this.security?.audit.write({
       eventType,
       actorType: subject.type === 'system' ? 'system' : 'user',
       actorId: subject.id,
@@ -275,7 +275,7 @@ export class BindingsController {
       riskLevel: 'low',
       context: this.securityContext(request, subject),
       detail: { before, after },
-    });
+    }).catch(() => undefined);
   }
 
   private securityContext(request: HttpRequest, actor: SecuritySubject) {

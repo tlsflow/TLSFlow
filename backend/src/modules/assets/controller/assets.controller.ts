@@ -57,6 +57,10 @@ export class AssetsController {
     router.patch('/api/v1/service-assets/:id/deployment-strategy', '按 ID 更新 ServiceAsset 证书部署策略', tags, (request) => this.updateServiceAssetDeploymentStrategy(request));
     router.patch('/api/v1/service-assets/deployment-strategy', '更新 ServiceAsset 证书部署策略', tags, (request) => this.updateServiceAssetDeploymentStrategy(request));
     router.post('/api/v1/service-assets/delete', '软删除 ServiceAsset', tags, (request) => this.deleteServiceAsset(request));
+    router.get('/api/v1/application-asset-targets', '查询 ApplicationAssetTarget 列表', tags, (request) => this.listApplicationAssetTargets(request));
+    router.post('/api/v1/application-asset-targets', '创建 ApplicationAssetTarget', tags, (request) => this.createApplicationAssetTarget(request));
+    router.patch('/api/v1/application-asset-targets', '更新 ApplicationAssetTarget', tags, (request) => this.updateApplicationAssetTarget(request));
+    router.post('/api/v1/application-asset-targets/delete', '软删除 ApplicationAssetTarget', tags, (request) => this.deleteApplicationAssetTarget(request));
     router.get('/api/v1/site-assets', '查询 SiteAsset 列表', tags, (request) => this.listSiteAssets(request));
     router.post('/api/v1/site-assets', '创建 SiteAsset', tags, (request) => this.createSiteAsset(request));
     router.patch('/api/v1/site-assets', '更新 SiteAsset', tags, (request) => this.updateSiteAsset(request));
@@ -360,6 +364,77 @@ export class AssetsController {
         return deleted;
       }),
     );
+  }
+
+  private async listApplicationAssetTargets(request: HttpRequest) {
+    const subject = this.subjectFromRequest(request);
+    await this.assertCanAsync(subject, 'service_asset.read', 'service_asset', request);
+    return this.service.getRepository().listApplicationAssetTargets(tenantId(request), parsePageQuery(request.query, {
+      allowedSortFields: ['createdAt', 'updatedAt', 'status', 'applicationAssetId', 'managedTargetId', 'siteAssetId'],
+      allowedFilterFields: ['id', 'applicationAssetId', 'managedTargetId', 'siteAssetId', 'agentId', 'providerType', 'targetType', 'status', 'bindingKey'],
+    }));
+  }
+
+  private async createApplicationAssetTarget(request: HttpRequest) {
+    const body = this.readApplicationAssetTargetBody(request, true);
+    const subject = this.subjectFromRequest(request);
+    await this.assertCanAsync(subject, 'service_asset.manage', 'service_asset', request, String(body.applicationAssetId));
+    const enriched = await this.enrichApplicationAssetTargetInput(tenantId(request), body);
+    return { statusCode: 201, body: await this.service.getRepository().createApplicationAssetTarget(tenantId(request), enriched as any) };
+  }
+
+  private async updateApplicationAssetTarget(request: HttpRequest) {
+    const body = this.readApplicationAssetTargetBody(request, false);
+    const id = String(body.id);
+    const subject = this.subjectFromRequest(request);
+    await this.assertCanAsync(subject, 'service_asset.manage', 'service_asset', request, id);
+    const { id: _id, ...patch } = body;
+    void _id;
+    return { statusCode: 200, body: await this.service.getRepository().updateApplicationAssetTarget(tenantId(request), id, patch as any) };
+  }
+
+  private async deleteApplicationAssetTarget(request: HttpRequest) {
+    const body = validateObject(request.body, { id: { type: 'string', required: true } });
+    const subject = this.subjectFromRequest(request);
+    await this.assertCanAsync(subject, 'service_asset.manage', 'service_asset', request, String(body.id));
+    return { statusCode: 200, body: await this.service.getRepository().deleteApplicationAssetTarget(tenantId(request), String(body.id)) };
+  }
+
+  private readApplicationAssetTargetBody(request: HttpRequest, creating: boolean): Record<string, unknown> {
+    return validateObject(request.body, {
+      id: { type: 'string', required: !creating },
+      applicationAssetId: { type: 'string', required: creating },
+      agentId: { type: 'string' },
+      siteAssetId: { type: 'string' },
+      managedTargetId: { type: 'string', required: creating },
+      providerType: { type: 'string', enum: ProviderTypes },
+      frameworkType: { type: 'string', enum: ProviderTypes },
+      targetType: { type: 'string', enum: assetsEnumValues.managedTargetTypes },
+      targetKey: { type: 'string' },
+      bindingKey: { type: 'string' },
+      status: { type: 'string', enum: assetsEnumValues.applicationAssetTargetStatuses },
+      metadata: { type: 'object' },
+    });
+  }
+
+  private async enrichApplicationAssetTargetInput(tenantIdValue: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const managedTargetId = String(body.managedTargetId);
+    const managedTarget = await this.service.getRepository().getManagedTarget(tenantIdValue, managedTargetId);
+    if (!managedTarget) throw new AppError('RESOURCE_NOT_FOUND', 'ManagedTarget 不存在', { managedTargetId });
+    const siteAssetId = typeof body.siteAssetId === 'string' && body.siteAssetId.trim()
+      ? body.siteAssetId
+      : managedTarget.siteAssetId;
+    const siteAsset = siteAssetId ? await this.service.getRepository().getSiteAsset(tenantIdValue, siteAssetId) : undefined;
+    return {
+      ...body,
+      agentId: body.agentId ?? managedTarget.agentId ?? siteAsset?.agentId,
+      siteAssetId,
+      providerType: body.providerType ?? managedTarget.providerType ?? siteAsset?.providerType,
+      frameworkType: body.frameworkType ?? managedTarget.frameworkType ?? managedTarget.providerType ?? siteAsset?.providerType,
+      targetType: body.targetType ?? managedTarget.targetType,
+      targetKey: body.targetKey ?? managedTarget.targetKey,
+      bindingKey: body.bindingKey ?? managedTarget.bindingKey ?? siteAsset?.bindingInformation,
+    };
   }
 
   private createSiteAsset(request: HttpRequest) {
@@ -708,8 +783,17 @@ export class AssetsController {
     }, this.securityContext(request, subject));
   }
 
+  private async assertCanAsync(subject: SecuritySubject, action: string, resourceType: string, request: HttpRequest, resourceId?: string): Promise<void> {
+    if (!this.security) return;
+    await this.security.rbac.assertCan(subject, action, {
+      type: resourceType,
+      id: resourceId,
+      scope: { tenantId: request.context.tenantId, ownerId: subject.id },
+    }, this.securityContext(request, subject));
+  }
+
   private audit(request: HttpRequest, subject: SecuritySubject, eventType: string, action: string, resourceType: string, resourceId: string | undefined, before: unknown, after: unknown): void {
-    this.security?.audit.write({
+    void this.security?.audit.write({
       eventType,
       actorType: subject.type === 'system' ? 'system' : 'user',
       actorId: subject.id,
@@ -720,7 +804,7 @@ export class AssetsController {
       riskLevel: 'low',
       context: this.securityContext(request, subject),
       detail: { before, after },
-    });
+    }).catch(() => undefined);
   }
 
   private securityContext(request: HttpRequest, actor: SecuritySubject) {
@@ -759,6 +843,10 @@ export function getAssetsRouteContracts(): RouteContract[] {
     { method: 'PATCH', path: '/api/v1/service-assets/:id/deployment-strategy', operationId: 'updateServiceAssetDeploymentStrategyById', summary: '按 ID 更新 ServiceAsset 证书部署策略', tags, responseSchema: objectSchema() },
     { method: 'PATCH', path: '/api/v1/service-assets/deployment-strategy', operationId: 'updateServiceAssetDeploymentStrategy', summary: '更新 ServiceAsset 证书部署策略', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/service-assets/delete', operationId: 'deleteServiceAsset', summary: '软删除 ServiceAsset', tags, responseSchema: objectSchema() },
+    { method: 'GET', path: '/api/v1/application-asset-targets', operationId: 'listApplicationAssetTargets', summary: '查询 ApplicationAssetTarget 列表', tags, responseSchema: pageSchema() },
+    { method: 'POST', path: '/api/v1/application-asset-targets', operationId: 'createApplicationAssetTarget', summary: '创建 ApplicationAssetTarget', tags, responseSchema: objectSchema() },
+    { method: 'PATCH', path: '/api/v1/application-asset-targets', operationId: 'updateApplicationAssetTarget', summary: '更新 ApplicationAssetTarget', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/application-asset-targets/delete', operationId: 'deleteApplicationAssetTarget', summary: '软删除 ApplicationAssetTarget', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/site-assets', operationId: 'listSiteAssets', summary: '查询 SiteAsset 列表', tags, responseSchema: pageSchema() },
     { method: 'POST', path: '/api/v1/site-assets', operationId: 'createSiteAsset', summary: '创建 SiteAsset', tags, responseSchema: objectSchema() },
     { method: 'PATCH', path: '/api/v1/site-assets', operationId: 'updateSiteAsset', summary: '更新 SiteAsset', tags, responseSchema: objectSchema() },

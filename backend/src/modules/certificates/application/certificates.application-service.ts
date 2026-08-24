@@ -12,7 +12,7 @@ import type { RequestContext } from '../../../shared/security-types.js';
 import type { AuditService } from '../../audits/audit.service.js';
 import { AUDIT_EVENT_TYPES } from '../../audits/audit-event-types.js';
 import { PgCertificateArtifactStore, type CertificateArtifactStore } from '../artifacts/certificate-artifact-store.js';
-import { CertificateFormatExporter } from './certificate-format-exporter.js';
+import { CertificateFormatExporter, type GeneratedCertificateFormatArtifact } from './certificate-format-exporter.js';
 import { CertificatesDomainService } from '../domain/certificates.domain-service.js';
 import {
   type CertificatesRepository,
@@ -47,6 +47,7 @@ import {
   type CertificateDistinguishedName,
   type CertificateSourceType,
   type CertificateVersionEntity,
+  type CertificateVersionFormatEntity,
   certificateFormats,
 } from '../schema/certificates.schema.js';
 
@@ -318,7 +319,7 @@ export class CertificatesApplicationService {
         fingerprintSha256: version.fingerprintSha256,
         privateKeySecretRef: version.privateKeySecretRef,
       },
-    });
+    }).catch(() => undefined);
 
     return {
       asset: toCertificateAssetDto(updatedAsset),
@@ -528,31 +529,7 @@ export class CertificatesApplicationService {
     if (!version) {
       throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId: input.certificateVersionId });
     }
-    const request = {
-      certificateVersionId: input.certificateVersionId,
-      format: format.format,
-      containsPrivateKey: format.containsPrivateKey,
-      passwordSecretRef: format.passwordSecretRef,
-      parameters: { ...format.parameters },
-      createdBy: input.createdBy,
-      expiresAt: input.expiresAt,
-    };
-    const warnings = this.validateFormatExportRequest(request, version);
-    const pemNeedsSeparatePrivateKey = format.format === 'pem' && readBooleanParameter(format.parameters, 'generatePrivateKeyFile');
-    const privateKey = (format.containsPrivateKey || pemNeedsSeparatePrivateKey)
-      ? await this.resolveSecret(version.privateKeySecretRef, 'certificate_private_key', 'certificate.deployment.private_key', input.createdBy, context)
-      : undefined;
-    const password = format.passwordSecretRef
-      ? await this.resolveSecret(format.passwordSecretRef, 'pfx_password', 'certificate.deployment.password', input.createdBy, context)
-      : undefined;
-    const generated = this.exporter.generate(format.format, {
-      version,
-      leafDer: await this.readArtifact(version.leafStorageRef),
-      chainDer: await Promise.all(version.chainCertificateRefs.map((artifactRef) => this.readArtifact(artifactRef))),
-      privateKeyPem: privateKey?.plainText,
-      password: password?.plainText,
-      parameters: { ...format.parameters },
-    });
+    const { generated, warnings, privateKey, password, pemNeedsSeparatePrivateKey } = await this.buildGeneratedFormatArtifact(format, version, input.createdBy, input.expiresAt, context);
     console.info('[certificates.generateDeploymentArtifactFromFormat]', JSON.stringify({
       certificateVersionId: input.certificateVersionId,
       certificateFormatId: format.id,
@@ -576,6 +553,51 @@ export class CertificatesApplicationService {
       privateKeyPem: generated.format === 'pem' && (format.containsPrivateKey || pemNeedsSeparatePrivateKey) ? privateKey?.plainText : undefined,
       pfxBase64: generated.format === 'pfx' ? generated.content.toString('base64') : undefined,
       pfxPassword: generated.format === 'pfx' ? password?.plainText : undefined,
+      warnings: [...warnings, ...generated.warnings],
+    };
+  }
+
+  async planFormatExport(input: CreateCertificateVersionFormatInput, context?: RequestContext): Promise<CertificateVersionFormatDto & { exportMode: 'planned'; artifactRef: string; warnings: string[] }> {
+    if (!input.certificateVersionId) {
+      throw new AppError('VALIDATION_FAILED', 'certificateVersionId 不能为空');
+    }
+    const version = await this.getExistingVersion(input.certificateVersionId);
+    const warnings = this.validateFormatExportRequest(input as Required<Pick<CreateCertificateVersionFormatInput, 'certificateVersionId' | 'format' | 'createdBy'>> & CreateCertificateVersionFormatInput, version);
+    const format = await this.createFormat(input);
+    const entity = await this.repository.getFormat(format.id);
+    if (!entity) {
+      throw new AppError('RESOURCE_NOT_FOUND', '证书格式配置不存在', { certificateFormatId: format.id });
+    }
+    return { ...format, artifactRef: `artifact://certificate-format/${entity.id}/planned`, exportMode: 'planned', warnings };
+  }
+
+  async exportFormatArtifact(input: CreateCertificateVersionFormatInput, context?: RequestContext): Promise<CertificateVersionFormatDto & { exportMode: 'generated'; artifactRef: string; artifactSha256: string; artifactSize: number; warnings: string[] }> {
+    if (!input.certificateVersionId) {
+      throw new AppError('VALIDATION_FAILED', 'certificateVersionId 不能为空');
+    }
+    const version = await this.getExistingVersion(input.certificateVersionId);
+    this.validateFormatExportRequest(input as Required<Pick<CreateCertificateVersionFormatInput, 'certificateVersionId' | 'format' | 'createdBy'>> & CreateCertificateVersionFormatInput, version);
+    const formatDto = await this.createFormat(input);
+    const format = await this.repository.getFormat(formatDto.id);
+    if (!format) {
+      throw new AppError('RESOURCE_NOT_FOUND', '证书格式配置不存在', { certificateFormatId: formatDto.id });
+    }
+    const { generated, warnings } = await this.buildGeneratedFormatArtifact(format, version, input.createdBy, input.expiresAt, context);
+    const artifactSha256 = createHash('sha256').update(generated.content).digest('hex');
+    const artifactRef = `artifact://certificate-format/${format.id}/${artifactSha256}`;
+    await this.artifacts.put({
+      artifactRef,
+      content: generated.content,
+      contentType: generated.contentType,
+      createdBy: input.createdBy,
+      expiresAt: input.expiresAt,
+    });
+    return {
+      ...formatDto,
+      artifactRef,
+      exportMode: 'generated',
+      artifactSha256,
+      artifactSize: generated.content.length,
       warnings: [...warnings, ...generated.warnings],
     };
   }
@@ -610,6 +632,47 @@ export class CertificatesApplicationService {
       throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId: id });
     }
     return version;
+  }
+
+  private async buildGeneratedFormatArtifact(
+    format: CertificateVersionFormatEntity,
+    version: CertificateVersionEntity,
+    actorId: string,
+    expiresAt: string | undefined,
+    context?: RequestContext,
+  ): Promise<{
+    generated: GeneratedCertificateFormatArtifact;
+    warnings: string[];
+    privateKey?: { plainText: string };
+    password?: { plainText: string };
+    pemNeedsSeparatePrivateKey: boolean;
+  }> {
+    const request = {
+      certificateVersionId: version.id,
+      format: format.format,
+      containsPrivateKey: format.containsPrivateKey,
+      passwordSecretRef: format.passwordSecretRef,
+      parameters: { ...format.parameters },
+      createdBy: actorId,
+      expiresAt,
+    };
+    const warnings = this.validateFormatExportRequest(request, version);
+    const pemNeedsSeparatePrivateKey = format.format === 'pem' && readBooleanParameter(format.parameters, 'generatePrivateKeyFile');
+    const privateKey = (format.containsPrivateKey || pemNeedsSeparatePrivateKey)
+      ? await this.resolveSecret(version.privateKeySecretRef, 'certificate_private_key', 'certificate.deployment.private_key', actorId, context)
+      : undefined;
+    const password = format.passwordSecretRef
+      ? await this.resolveSecret(format.passwordSecretRef, 'pfx_password', 'certificate.deployment.password', actorId, context)
+      : undefined;
+    const generated = this.exporter.generate(format.format, {
+      version,
+      leafDer: await this.readArtifact(version.leafStorageRef),
+      chainDer: await Promise.all(version.chainCertificateRefs.map((artifactRef) => this.readArtifact(artifactRef))),
+      privateKeyPem: privateKey?.plainText,
+      password: password?.plainText,
+      parameters: { ...format.parameters },
+    });
+    return { generated, warnings, privateKey, password, pemNeedsSeparatePrivateKey };
   }
 
   private validateFormatExportRequest(input: {

@@ -46,6 +46,8 @@ export class CertificatesController {
     router.post('/api/v1/certificate-versions/import', 'Import certificate material', ['Certificates'], (request) => this.importVersion(request));
     router.post('/api/v1/certificate-versions/validate-import', '校验证书导入材料', ['Certificates'], (request) => this.validateImportVersion(request));
     router.get('/api/v1/certificate-version-formats', '查询证书格式产物列表', ['Certificates'], (request) => this.listFormats(request));
+    router.post('/api/v1/certificate-version-formats/export-plan', '规划证书格式导出', ['Certificates'], (request) => this.planFormatExport(request));
+    router.post('/api/v1/certificate-version-formats/export', '生成证书格式导出产物', ['Certificates'], (request) => this.exportFormatArtifact(request));
     router.post('/api/v1/certificate-version-formats', '创建证书格式产物记录', ['Certificates'], (request) => this.createFormat(request));
     router.patch('/api/v1/certificate-version-formats', '更新证书格式产物记录', ['Certificates'], (request) => this.updateFormat(request));
     router.post('/api/v1/certificate-version-formats/delete', '删除证书格式产物记录', ['Certificates'], (request) => this.deleteFormat(request));
@@ -246,14 +248,7 @@ export class CertificatesController {
   }
 
   private async createFormat(request: HttpRequest) {
-    const body = validateObject(request.body, {
-      certificateVersionId: { type: 'string' },
-      format: { type: 'string', required: true, enum: certificateFormats },
-      containsPrivateKey: { type: 'boolean' },
-      passwordSecretRef: { type: 'string' },
-      parameters: { type: 'object' },
-      expiresAt: { type: 'string' },
-    });
+    const body = this.readFormatExportBody(request);
     const subject = this.subjectFromRequest(request);
     await this.assertCan(subject, 'certificate.format.create', 'certificate_version_format', request);
     return {
@@ -268,6 +263,53 @@ export class CertificatesController {
         expiresAt: body.expiresAt === undefined ? undefined : String(body.expiresAt),
       }),
     };
+  }
+
+  private async planFormatExport(request: HttpRequest) {
+    const body = this.readFormatExportBody(request);
+    const subject = this.subjectFromRequest(request);
+    await this.assertCan(subject, 'certificate.format.create', 'certificate_version_format', request);
+    return {
+      statusCode: 201,
+      body: await this.services.certificates.planFormatExport({
+        certificateVersionId: body.certificateVersionId === undefined ? undefined : String(body.certificateVersionId),
+        format: body.format as any,
+        containsPrivateKey: body.containsPrivateKey === undefined ? undefined : Boolean(body.containsPrivateKey),
+        passwordSecretRef: body.passwordSecretRef === undefined ? undefined : String(body.passwordSecretRef),
+        parameters: body.parameters as Record<string, unknown> | undefined,
+        createdBy: subject.id,
+        expiresAt: body.expiresAt === undefined ? undefined : String(body.expiresAt),
+      }, this.securityContext(request, subject)),
+    };
+  }
+
+  private async exportFormatArtifact(request: HttpRequest) {
+    const body = this.readFormatExportBody(request);
+    const subject = this.subjectFromRequest(request);
+    await this.assertCan(subject, 'certificate.format.create', 'certificate_version_format', request);
+    return {
+      statusCode: 201,
+      body: await this.services.certificates.exportFormatArtifact({
+        certificateVersionId: body.certificateVersionId === undefined ? undefined : String(body.certificateVersionId),
+        format: body.format as any,
+        containsPrivateKey: body.containsPrivateKey === undefined ? undefined : Boolean(body.containsPrivateKey),
+        passwordSecretRef: body.passwordSecretRef === undefined ? undefined : String(body.passwordSecretRef),
+        parameters: body.parameters as Record<string, unknown> | undefined,
+        createdBy: subject.id,
+        expiresAt: body.expiresAt === undefined ? undefined : String(body.expiresAt),
+      }, this.securityContext(request, subject)),
+    };
+  }
+
+  private readFormatExportBody(request: HttpRequest): Record<string, unknown> {
+    return validateObject(request.body, {
+      certificateVersionId: { type: 'string' },
+      format: { type: 'string', required: true, enum: certificateFormats },
+      containsPrivateKey: { type: 'boolean' },
+      passwordSecretRef: { type: 'string' },
+      parameters: { type: 'object' },
+      expiresAt: { type: 'string' },
+    });
   }
 
   private async updateFormat(request: HttpRequest) {
@@ -462,6 +504,8 @@ export function getCertificateRouteContracts(): RouteContract[] {
     { method: 'DELETE', path: '/api/v1/certificate-versions/delete', operationId: 'deleteCertificateVersion', summary: '删除证书版本', tags: ['Certificates'], responseSchema: certificateVersionSchema },
     { method: 'POST', path: '/api/v1/certificate-versions/validate-import', operationId: 'validateImportCertificateVersion', summary: 'Validate certificate import material', tags: ['Certificates'], requestSchema: importCertificateVersionRequestSchema, responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/certificate-version-formats', operationId: 'listCertificateVersionFormats', summary: '查询证书格式产物列表', tags: ['Certificates'], responseSchema: pageSchema },
+    { method: 'POST', path: '/api/v1/certificate-version-formats/export-plan', operationId: 'planCertificateVersionFormatExport', summary: '规划证书格式导出', tags: ['Certificates'], responseSchema: certificateVersionFormatSchema },
+    { method: 'POST', path: '/api/v1/certificate-version-formats/export', operationId: 'exportCertificateVersionFormatArtifact', summary: '生成证书格式导出产物', tags: ['Certificates'], responseSchema: certificateVersionFormatSchema },
     { method: 'POST', path: '/api/v1/certificate-version-formats', operationId: 'createCertificateVersionFormat', summary: '创建证书格式产物记录', tags: ['Certificates'], responseSchema: certificateVersionFormatSchema },
     { method: 'PATCH', path: '/api/v1/certificate-version-formats', operationId: 'updateCertificateVersionFormat', summary: '更新证书格式产物记录', tags: ['Certificates'], responseSchema: certificateVersionFormatSchema },
     { method: 'POST', path: '/api/v1/certificate-version-formats/delete', operationId: 'deleteCertificateVersionFormat', summary: '删除证书格式产物记录', tags: ['Certificates'], responseSchema: certificateVersionFormatSchema },

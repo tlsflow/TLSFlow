@@ -47,7 +47,15 @@ export class RBACService {
   }
 
   async createUserIfAbsent(input: Omit<UserEntity, 'createdAt' | 'updatedAt'>): Promise<UserEntity> {
-    return (await this.users.get(input.id)) ?? this.createUser(input);
+    const existing = await this.users.get(input.id);
+    if (existing) return existing;
+    try {
+      return await this.createUser(input);
+    } catch (error) {
+      const created = await this.users.get(input.id);
+      if (created && isEntityExistsError(error)) return created;
+      throw error;
+    }
   }
 
   async updateUser(userId: string, patch: Partial<Omit<UserEntity, 'id' | 'createdAt'>>): Promise<UserEntity> {
@@ -88,7 +96,15 @@ export class RBACService {
   }
 
   async createRoleIfAbsent(input: RoleEntity): Promise<RoleEntity> {
-    return (await this.roles.get(input.id)) ?? this.roles.create(input);
+    const existing = await this.roles.get(input.id);
+    if (existing) return existing;
+    try {
+      return await this.roles.create(input);
+    } catch (error) {
+      const created = await this.roles.get(input.id);
+      if (created && isEntityExistsError(error)) return created;
+      throw error;
+    }
   }
 
   async listRoles(): Promise<RoleEntity[]> {
@@ -102,7 +118,12 @@ export class RBACService {
   async assignRole(userId: string, roleId: string): Promise<void> {
     const id = `${userId}:${roleId}`;
     if (await this.userRoles.get(id)) return;
-    await this.userRoles.create({ id, userId, roleId, createdAt: new Date().toISOString() });
+    try {
+      await this.userRoles.create({ id, userId, roleId, createdAt: new Date().toISOString() });
+    } catch (error) {
+      if (isEntityExistsError(error) && await this.userRoles.get(id)) return;
+      throw error;
+    }
   }
 
   async userHasRole(userId: string, roleId: string): Promise<boolean> {
@@ -123,7 +144,15 @@ export class RBACService {
   }
 
   async createPolicyIfAbsent(input: Omit<PermissionPolicyEntity, 'id'> & { id: string }): Promise<PermissionPolicyEntity> {
-    return (await this.policies.get(input.id)) ?? this.policies.create(input);
+    const existing = await this.policies.get(input.id);
+    if (existing) return existing;
+    try {
+      return await this.policies.create(input);
+    } catch (error) {
+      const created = await this.policies.get(input.id);
+      if (created && isEntityExistsError(error)) return created;
+      throw error;
+    }
   }
 
   async listPolicies(): Promise<PermissionPolicyEntity[]> {
@@ -229,6 +258,13 @@ export class RBACService {
       riskLevel: 'medium',
       context,
       detail: { reason, resourceScope: resource.scope },
-    });
+    }).catch(() => undefined);
   }
+}
+
+function isEntityExistsError(error: unknown): boolean {
+  return error instanceof Error && (
+    error.message.startsWith('entity already exists:')
+    || (error as { code?: string }).code === '23505'
+  );
 }

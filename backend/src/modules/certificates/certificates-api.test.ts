@@ -199,13 +199,15 @@ describe('证书资产 API', () => {
   });
 
   it('格式导出规划要求 SecretRef，不导出明文，并能由来源同步复用导入管道', async () => {
-    const { app } = createAuthorizedApp('user_export_plan');
+    const { app } = await createAuthorizedMigratedApp('user_export_plan');
+    const chain = createPemChainFixture();
     const imported = await app.inject({
       method: 'POST',
       path: '/api/v1/certificate-versions/import',
       headers: headers('user_export_plan'),
-      body: { certificatePem: CERT_PEM, privateKeyPem: PRIVATE_KEY_PEM },
+      body: { certificatePem: chain.pem, privateKeyPem: chain.privateKeyPem },
     });
+    assert.equal(imported.statusCode, 201, `导入证书应成功：${JSON.stringify(imported.body)}`);
     const versionId = (imported.body as any).version.id;
 
     const missingPassword = await app.inject({
@@ -229,18 +231,19 @@ describe('证书资产 API', () => {
         parameters: { alias: 'example' },
       },
     });
-    assert.equal(planned.statusCode, 201);
+    assert.equal(planned.statusCode, 201, `导出规划应成功：${JSON.stringify(planned.body)}`);
     assert.equal((planned.body as any).exportMode, 'planned');
     assert.match((planned.body as any).artifactRef, /^artifact:\/\/certificate-format\//);
     assert.equal(JSON.stringify(planned.body).includes('BEGIN PRIVATE KEY'), false);
 
+    const sourceChain = createPemChainFixture();
     const source = await app.inject({
       method: 'POST',
       path: '/api/v1/certificate-sources/mock-sync',
       headers: headers('user_export_plan'),
-      body: { sourceType: 'external_api', externalId: 'ext-cert-001', certificatePem: createPemChainFixture().pem },
+      body: { sourceType: 'external_api', externalId: 'ext-cert-001', certificatePem: sourceChain.pem, privateKeyPem: sourceChain.privateKeyPem },
     });
-    assert.equal(source.statusCode, 201);
+    assert.equal(source.statusCode, 201, `来源同步应成功：${JSON.stringify(source.body)}`);
     assert.equal((source.body as any).sourceType, 'external_api');
     assert.equal((source.body as any).imported, true);
     assert.equal((source.body as any).version.sourceType, 'external_api');
@@ -570,7 +573,7 @@ describe('证书资产 API', () => {
   });
 
   it('真实格式导出会生成 PEM/DER/P7B/PFX/JKS 产物 bytes，并且不泄露密码和私钥', async () => {
-    const { app, security, artifacts } = createAuthorizedApp('user_export_real', true);
+    const { app, security, artifacts } = await createAuthorizedMigratedApp('user_export_real');
     const chain = createPemChainFixture();
     const imported = await app.inject({
       method: 'POST',
@@ -642,6 +645,25 @@ function createAuthorizedApp(actorId: string, exposeArtifacts = false) {
   }
   if (!exposeArtifacts) return { app: createApp({ security }), security, artifacts: undefined as unknown as PgCertificateArtifactStore };
   const db = new PgliteDatabase();
+  const artifacts = new PgCertificateArtifactStore(db);
+  const certificates = new CertificatesApplicationService({ db, secrets: security.secrets, audit: security.audit, artifacts });
+  return { app: createApp({ db, corePersistence: { mode: 'memory' }, security, certificates: { certificates } }), security, artifacts };
+}
+
+async function createAuthorizedMigratedApp(actorId: string) {
+  const security = createSecurityServices();
+  for (const action of ['certificate.read', 'certificate.create', 'certificate.import', 'certificate.format.create', 'certificate.lifecycle']) {
+    security.rbac.createPolicy({
+      subjectType: 'user',
+      subjectId: actorId,
+      effect: 'allow',
+      actions: [action],
+      resourceTypes: ['certificate_asset', 'certificate_version', 'certificate_version_format'],
+      scope: { tenantId: 'tenant_1' },
+    });
+  }
+  const db = new PgliteDatabase();
+  await runMigrations(db);
   const artifacts = new PgCertificateArtifactStore(db);
   const certificates = new CertificatesApplicationService({ db, secrets: security.secrets, audit: security.audit, artifacts });
   return { app: createApp({ db, corePersistence: { mode: 'memory' }, security, certificates: { certificates } }), security, artifacts };

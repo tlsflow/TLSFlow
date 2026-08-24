@@ -63,6 +63,21 @@ async function createMigratedApp() {
   return createApp({ db, corePersistence: { mode: 'memory' } });
 }
 
+async function createMigratedAppWithWildcardPolicy(actorId: string, tenantId: string) {
+  const db = new PgliteDatabase();
+  await runMigrations(db);
+  const security = createSecurityServices();
+  security.rbac.createPolicy({
+    subjectType: 'user',
+    subjectId: actorId,
+    effect: 'allow',
+    actions: ['*'],
+    resourceTypes: ['*'],
+    scope: { tenantId },
+  });
+  return createApp({ db, corePersistence: { mode: 'memory' }, security });
+}
+
 async function startMockAgentServer(handler: (body: any) => any) {
   const server = createServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/api/v1/control/discovery/run') {
@@ -1593,8 +1608,8 @@ describe('Spec 007 Discovery Ingest / Conflict / Drift 闭环', () => {
   });
 
   it('ServiceAsset 策略会从旧 Agent 绑定推导，并拒绝未发布工作流和明文 Secret', async () => {
-    const app = await createMigratedApp();
     const headers = { 'x-tenant-id': 'tenant_spec0151_strategy', 'x-actor-id': 'user_admin' };
+    const app = await createMigratedAppWithWildcardPolicy('user_admin', headers['x-tenant-id']);
     const chain = await createApplicationAssetTargetChain(app, headers);
 
     const detail = await app.inject({
