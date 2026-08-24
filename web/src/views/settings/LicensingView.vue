@@ -36,8 +36,8 @@ interface ComparisonCard {
 
 const comparisonFeatureKeys: Record<ProductPlanCode, string[]> = {
   free: ['full', 'usage', 'automation', 'quota', 'support'],
-  commercial: ['full', 'usage', 'automation', 'approval', 'quota', 'term', 'support'],
-  enterprise: ['full', 'usage', 'automation', 'approval', 'quota', 'support'],
+  commercial: ['full', 'usage', 'automation', 'quota', 'support'],
+  enterprise: ['full', 'usage', 'automation', 'approval', 'quota', 'customization', 'support'],
 }
 
 const stateLabel = computed(() => {
