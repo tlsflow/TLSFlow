@@ -510,7 +510,7 @@ function updateRuntimeCredentialBinding(key: string, event: Event) {
 function addVariable() {
   let index = Object.keys(canvas.value.variables).length + 1
   while (canvas.value.variables[`variable${index}`]) index += 1
-  commit(upsertWorkflowVariable(canvas.value, `variable${index}`, { type: 'string', required: false, description: t('workflows.canvasEditor.variables.customRuntimeDescription') }))
+  commit(upsertWorkflowVariable(canvas.value, `variable${index}`, { type: 'string', required: false, configurationMode: 'advanced', lifecycle: 'pre_execution', bindingPolicy: 'default_overridable', source: { kind: 'dsl', value: '' }, description: t('workflows.canvasEditor.variables.customRuntimeDescription') }))
 }
 
 function updateVariableName(oldName: string, event: Event) {
@@ -524,6 +524,11 @@ function updateVariableField(name: string, field: keyof WorkflowVariableDefiniti
   if (!current) return
   const value = target instanceof HTMLInputElement && target.type === 'checkbox' ? target.checked : target.value
   const next = { ...current, [field]: value }
+  if (field === 'configurationMode') {
+    next.required = value === 'required'
+    next.lifecycle = value === 'runtime' ? 'runtime_injected' : 'pre_execution'
+    next.bindingPolicy = value === 'required' ? 'required_binding' : value === 'advanced' ? 'default_overridable' : 'fixed'
+  }
   if (field === 'type' && value === 'credential') {
     next.default = undefined
     next.sensitive = true
@@ -1148,6 +1153,14 @@ function firstNumber(...values: unknown[]): number | undefined {
                 <option value="credential">credential</option>
               </select>
             </label>
+            <label>
+              <span>configurationMode</span>
+              <select :value="definition.configurationMode ?? (definition.type === 'certificate' ? 'runtime' : definition.required || definition.type === 'credential' ? 'required' : 'advanced')" :disabled="!canEdit" @change="updateVariableField(String(name), 'configurationMode', $event)">
+                <option value="required">required</option>
+                <option value="advanced">advanced</option>
+                <option value="runtime">runtime</option>
+              </select>
+            </label>
             <label v-if="definition.type === 'credential'">
               <span>{{ t('workflows.canvasEditor.fields.credential') }}</span>
               <select :value="resolveVariableCredentialId(definition)" :disabled="!canEdit" @change="updateVariableCredential(String(name), $event)">
@@ -1159,7 +1172,7 @@ function firstNumber(...values: unknown[]): number | undefined {
               <span>{{ t('workflows.canvasEditor.fields.defaultValue') }}</span>
               <input :value="String(definition.default ?? '')" :disabled="!canEdit" @change="updateVariableField(String(name), 'default', $event)" />
             </label>
-            <label class="workflow-canvas-editor__variable-check">
+            <label v-if="!definition.configurationMode" class="workflow-canvas-editor__variable-check">
               <input type="checkbox" :checked="Boolean(definition.required)" :disabled="!canEdit" @change="updateVariableField(String(name), 'required', $event)" />
               <span>{{ t('workflows.canvasEditor.fields.required') }}</span>
             </label>
