@@ -59,6 +59,13 @@ export interface ExternalIdentityProfile {
   disabled?: boolean;
 }
 
+export interface ExternalGroupProfile {
+  externalId: string;
+  name: string;
+  code: string;
+  groupDn: string;
+}
+
 export interface LdapServiceCredentials {
   bindPassword?: string;
 }
@@ -82,6 +89,7 @@ export interface ExternalIdentitySyncResult {
 export interface LdapConnector {
   authenticate(source: IdentitySource, username: string, password: string, credentials?: LdapServiceCredentials): Promise<ExternalIdentityProfile>;
   lookupUser(source: IdentitySource, username: string, credentials?: LdapServiceCredentials): Promise<ExternalIdentityProfile>;
+  lookupGroup(source: IdentitySource, groupName: string, credentials?: LdapServiceCredentials): Promise<ExternalGroupProfile>;
   testConnection(source: IdentitySource, credentials?: LdapServiceCredentials): Promise<LdapConnectionTestResult>;
   syncUsers(source: IdentitySource, credentials?: LdapServiceCredentials, options?: { pageSize?: number; usernamePrefix?: string }): Promise<ExternalIdentityProfile[]>;
 }
@@ -109,6 +117,22 @@ export class MockDirectoryConnector implements LdapConnector {
     }
     const { password: _password, ...safeProfile } = profile;
     return safeProfile;
+  }
+
+  async lookupGroup(source: IdentitySource, groupName: string): Promise<ExternalGroupProfile> {
+    const normalizedName = groupName.trim().toLowerCase();
+    const group = [...this.profiles.values()]
+      .flatMap((profile) => profile.groups)
+      .find((item) => item.trim().toLowerCase() === normalizedName || item.trim().toLowerCase().includes(normalizedName));
+    if (!group) {
+      throw new AppError('RESOURCE_NOT_FOUND', '身份源组不存在');
+    }
+    return {
+      externalId: group,
+      name: group,
+      code: group,
+      groupDn: group,
+    };
   }
 
   async testConnection(source: IdentitySource): Promise<LdapConnectionTestResult> {
@@ -384,6 +408,19 @@ export class ExternalIdentityService {
     if (!source || !source.enabled) throw new AppError('RESOURCE_NOT_FOUND', '身份源不存在或未启用');
     const credentials = await this.resolveServiceCredentials(source, actor.id, context);
     const profile = await this.connector.lookupUser(source, input.username, credentials);
+    return {
+      ...profile,
+      sourceId: source.id,
+      sourceName: source.name,
+      identityProvider: source.type,
+    };
+  }
+
+  async lookupGroup(input: { sourceId: string; groupName: string }, actor: SecuritySubject, context: RequestContext): Promise<ExternalGroupProfile & { sourceId: string; sourceName: string; identityProvider: IdentitySourceType }> {
+    const source = await this.sources.get(input.sourceId);
+    if (!source || !source.enabled) throw new AppError('RESOURCE_NOT_FOUND', '身份源不存在或未启用');
+    const credentials = await this.resolveServiceCredentials(source, actor.id, context);
+    const profile = await this.connector.lookupGroup(source, input.groupName, credentials);
     return {
       ...profile,
       sourceId: source.id,

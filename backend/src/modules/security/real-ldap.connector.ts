@@ -2,7 +2,7 @@ import { Client, type SearchOptions } from 'ldapts';
 import { AppError } from '../../common/errors/app-error.js';
 import { securityErrors } from '../../shared/security-error.js';
 import { escapeLdapDnValue, escapeLdapFilterValue, renderLdapTemplate } from './ldap-filter-escape.js';
-import type { ExternalIdentityProfile, IdentitySource, LdapConnector, LdapConnectionTestResult, LdapServiceCredentials } from './external-identity.service.js';
+import type { ExternalGroupProfile, ExternalIdentityProfile, IdentitySource, LdapConnector, LdapConnectionTestResult, LdapServiceCredentials } from './external-identity.service.js';
 
 type LdapSearchEntry = Record<string, unknown> & { dn?: string };
 
@@ -49,6 +49,31 @@ export class RealLdapConnector implements LdapConnector {
         throw error;
       }
       throw this.mapLdapError(error, { sourceId: source.id, phase: 'lookupUser' });
+    } finally {
+      await safeUnbind(client);
+    }
+  }
+
+  async lookupGroup(source: IdentitySource, groupName: string, credentials?: LdapServiceCredentials): Promise<ExternalGroupProfile> {
+    const client = this.createClient(source);
+    try {
+      await this.bindAsServiceIfNeeded(client, source, credentials);
+      const filterValue = escapeLdapFilterValue(groupName.trim());
+      const { searchEntries } = await client.search(source.baseDn, {
+        scope: 'sub',
+        filter: buildGroupLookupFilter(source, filterValue),
+        attributes: ['dn', 'cn', 'name', 'sAMAccountName', 'uid', 'objectGUID', 'entryUUID'],
+        sizeLimit: 2,
+      });
+      const entries = searchEntries as LdapSearchEntry[];
+      if (entries.length === 0) throw new AppError('RESOURCE_NOT_FOUND', '身份源组不存在');
+      if (entries.length > 1) throw securityErrors.ldapSearchFailed({ sourceId: source.id, reason: 'multiple groups matched' });
+      return normalizeGroupProfile(entries[0]);
+    } catch (error) {
+      if (error instanceof AppError || 'errorCode' in Object(error ?? {})) {
+        throw error;
+      }
+      throw this.mapLdapError(error, { sourceId: source.id, phase: 'lookupGroup' });
     } finally {
       await safeUnbind(client);
     }
@@ -344,6 +369,24 @@ function normalizeObjectGuid(value: unknown): string | undefined {
 function normalizeGroupCandidates(entry: LdapSearchEntry): string[] {
   const candidates = [firstString(entry.dn), firstString(entry.cn), firstString(entry.sAMAccountName), firstString(entry.uid)];
   return candidates.filter((value): value is string => typeof value === 'string' && value.trim() !== '').map((value) => value.trim());
+}
+
+function normalizeGroupProfile(entry: LdapSearchEntry): ExternalGroupProfile {
+  const groupDn = firstString(entry.dn) ?? '';
+  const code = firstString(entry.sAMAccountName) ?? firstString(entry.uid) ?? firstString(entry.cn) ?? firstString(entry.name) ?? groupDn;
+  return {
+    externalId: normalizeObjectGuid(entry.objectGUID) ?? firstString(entry.entryUUID) ?? groupDn,
+    name: firstString(entry.name) ?? firstString(entry.cn) ?? code,
+    code,
+    groupDn,
+  };
+}
+
+function buildGroupLookupFilter(source: IdentitySource, escapedGroupName: string): string {
+  const objectClass = source.type === 'active_directory'
+    ? '(objectClass=group)'
+    : '(|(objectClass=groupOfNames)(objectClass=groupOfUniqueNames)(objectClass=posixGroup))';
+  return `(&${objectClass}(|(cn=${escapedGroupName})(name=${escapedGroupName})(sAMAccountName=${escapedGroupName})(uid=${escapedGroupName})))`;
 }
 
 async function safeUnbind(client: Client): Promise<void> {
