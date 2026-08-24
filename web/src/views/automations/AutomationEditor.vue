@@ -15,7 +15,7 @@ const form = reactive({
   triggerType: 'on_demand',
   cron: '0 2 * * *',
   timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-  certificateDomains: '',
+  certificateDomains: [] as string[],
   versionSelection: 'latest',
   certificateVersionIds: [] as string[],
   maxTargets: 100,
@@ -26,9 +26,14 @@ const form = reactive({
 })
 
 const currentStep = ref<1 | 2 | 3>(1)
+const certificateAssets = ref<ApiRecord[]>([])
+const certificateDomainOptions = ref<Array<{ value: string; label: string }>>([])
+const certificateAssetsLoading = ref(false)
+const certificateAssetsLoadFailed = ref(false)
 const versionOptions = ref<Array<{ id: string; label: string }>>([])
 const versionsLoading = ref(false)
 const versionsLoadFailed = ref(false)
+let certificateAssetsRequest: Promise<void> | null = null
 
 watch(() => props.automation, (automation) => {
   if (!automation) {
@@ -43,7 +48,7 @@ watch(() => props.automation, (automation) => {
     triggerType: trigger.type,
     cron: trigger.type === 'schedule' ? trigger.cron : '0 2 * * *',
     timeZone: trigger.type === 'schedule' ? trigger.timeZone : form.timeZone,
-    certificateDomains: selector.certificateDomains?.join(',') ?? '',
+    certificateDomains: (selector.certificateDomains ?? []).map(normalizeDomain),
     versionSelection: selector.certificateVersionSelection ?? 'latest',
     certificateVersionIds: [...(selector.certificateVersionIds ?? [])],
     maxTargets: automation.configuration.guardrails.maxTargetsPerRun,
@@ -55,7 +60,8 @@ watch(() => props.automation, (automation) => {
   currentStep.value = 1
 }, { immediate: true })
 
-const domains = computed(() => form.certificateDomains.split(',').map((item) => item.trim()).filter(Boolean))
+const domains = computed(() => form.certificateDomains.map((item) => item.trim()).filter(Boolean))
+const selectedDomainSummary = computed(() => domains.value.length ? domains.value.join(', ') : t('certificates.list.assets.unselectedTitle'))
 const valid = computed(() => Boolean(form.name.trim() && domains.value.length && form.maxTargets > 0 && form.concurrency > 0 && form.concurrency <= form.maxTargets && (form.versionSelection === 'latest' || form.certificateVersionIds.length)))
 const stepOneReady = computed(() => Boolean(domains.value.length && (form.versionSelection === 'latest' || form.certificateVersionIds.length)))
 const stepTwoReady = computed(() => Boolean(form.triggerType === 'on_demand' || (form.cron.trim() && form.timeZone.trim())))
@@ -64,18 +70,51 @@ watch([() => form.versionSelection, () => form.certificateDomains], () => {
   if (form.versionSelection === 'specific') void loadVersionOptions()
 })
 
+function loadCertificateAssets(): Promise<void> {
+  if (certificateAssetsRequest) return certificateAssetsRequest
+
+  certificateAssetsRequest = (async () => {
+    certificateAssetsLoading.value = true
+    certificateAssetsLoadFailed.value = false
+    try {
+      certificateAssets.value = [...((await listCertificates({ page: 1, pageSize: 500 })).data?.items ?? [])]
+      const domainMap = new Map<string, string>()
+      certificateAssets.value.forEach((asset) => {
+        const domain = readString(asset, 'primaryDomain') || readString(asset, 'name') || readString(asset, 'commonName')
+        const normalized = normalizeDomain(domain)
+        if (normalized && !domainMap.has(normalized)) domainMap.set(normalized, domain)
+      })
+      certificateDomainOptions.value = [...domainMap.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([value, label]) => ({ value, label }))
+    } catch {
+      certificateAssets.value = []
+      certificateDomainOptions.value = []
+      certificateAssetsLoadFailed.value = true
+    } finally {
+      certificateAssetsLoading.value = false
+      certificateAssetsRequest = null
+    }
+  })()
+
+  return certificateAssetsRequest
+}
+
 async function loadVersionOptions() {
   versionsLoading.value = true
   versionsLoadFailed.value = false
   try {
-    const assets = (await listCertificates({ page: 1, pageSize: 500 })).data?.items ?? []
+    if (!certificateAssets.value.length) await loadCertificateAssets()
+    const assets = certificateAssets.value
     const domainSet = new Set(domains.value.map(normalizeDomain))
-    const matchedAssets = assets.filter((asset) => certificateDomains(asset).some((domain) => domainSet.has(normalizeDomain(domain))))
+    const matchedAssets = assets.filter((asset) => domainSet.has(normalizeDomain(readString(asset, 'primaryDomain') || readString(asset, 'name') || readString(asset, 'commonName'))))
     const versionResults = await Promise.all(matchedAssets.map((asset) => listCertificateVersions({ page: 1, pageSize: 100, sort: 'versionNo:desc', filters: { certificateAssetId: readString(asset, 'id') } })))
     versionOptions.value = versionResults.flatMap((result, index) => (result.data?.items ?? []).map((version) => ({
       id: readString(version, 'id'),
       label: `${readString(matchedAssets[index], 'primaryDomain') || readString(matchedAssets[index], 'name')} · ${readString(version, 'versionNo') || readString(version, 'id')}`,
     }))).filter((option) => option.id)
+    const availableVersionIds = new Set(versionOptions.value.map((option) => option.id))
+    form.certificateVersionIds = form.certificateVersionIds.filter((id) => availableVersionIds.has(id))
   } catch {
     versionOptions.value = []
     versionsLoadFailed.value = true
@@ -84,18 +123,21 @@ async function loadVersionOptions() {
   }
 }
 
+void loadCertificateAssets()
+
 function readString(record: ApiRecord | undefined, key: string): string {
   const value = record?.[key]
   return typeof value === 'string' || typeof value === 'number' ? String(value) : ''
 }
 
-function certificateDomains(record: ApiRecord): string[] {
-  const sans = Array.isArray(record.sans) ? record.sans.filter((item): item is string => typeof item === 'string') : []
-  return [readString(record, 'primaryDomain'), ...sans].filter(Boolean)
-}
-
 function normalizeDomain(domain: string): string {
   return domain.trim().toLowerCase().replace(/\.$/, '')
+}
+
+function toggleDomain(domain: string) {
+  form.certificateDomains = domains.value.includes(domain)
+    ? domains.value.filter((item) => item !== domain)
+    : [...domains.value, domain]
 }
 
 function goToStep(step: 1 | 2 | 3) {
@@ -155,7 +197,7 @@ function submit() {
     <section v-if="currentStep === 1" class="automation-editor__panel">
       <header><h4>{{ t('automations.form.existingAssetTitle') }}</h4><p>{{ t('automations.form.existingAssetDescription') }}</p></header>
       <div class="automation-editor__grid">
-        <label class="automation-editor__field--full"><span>{{ t('automations.form.certificateDomains') }}</span><input v-model="form.certificateDomains" data-testid="automation-certificate-domains" :placeholder="t('automations.form.certificateDomainsPlaceholder')" /><small>{{ t('automations.form.certificateDomainsHelp') }}</small></label>
+        <div class="automation-editor__field automation-editor__field--full"><span>{{ t('automations.form.certificateDomains') }}</span><details class="automation-editor__domain-picker" :class="{ 'is-disabled': certificateAssetsLoading || certificateAssetsLoadFailed }"><summary data-testid="automation-certificate-domains" @click="(certificateAssetsLoading || certificateAssetsLoadFailed) && $event.preventDefault()">{{ selectedDomainSummary }}</summary><div class="automation-editor__domain-options" role="group" :aria-label="t('automations.form.certificateDomains')"><label v-for="option in certificateDomainOptions" :key="option.value" class="automation-editor__domain-option"><input data-testid="automation-certificate-domain-option" type="checkbox" :checked="domains.includes(option.value)" :value="option.value" @change="toggleDomain(option.value)" /><span>{{ option.label }}</span></label></div></details><small>{{ t('automations.form.certificateDomainsHelp') }}</small><small v-if="certificateAssetsLoading">{{ t('certificates.detailPanel.states.loading') }}</small><small v-else-if="certificateAssetsLoadFailed">{{ t('certificates.list.assets.loadFailed') }}</small><small v-else-if="certificateDomainOptions.length === 0">{{ t('certificates.list.assets.empty') }}</small></div>
         <label><span>{{ t('automations.form.versionSelection') }}</span><select v-model="form.versionSelection" data-testid="automation-version-selection"><option value="latest">{{ t('automations.form.versionSelectionLatest') }}</option><option value="specific">{{ t('automations.form.versionSelectionSpecific') }}</option></select><small>{{ t('automations.form.versionSelectionHelp') }}</small></label>
         <label v-if="form.versionSelection === 'specific'"><span>{{ t('automations.form.certificateVersionIds') }}</span><select v-model="form.certificateVersionIds" data-testid="automation-certificate-version-ids" multiple><option v-for="option in versionOptions" :key="option.id" :value="option.id">{{ option.label }}</option></select><small>{{ t('automations.form.certificateVersionIdsHelp') }}</small><small v-if="versionsLoading">{{ t('automations.form.versionLoading') }}</small><small v-else-if="versionsLoadFailed">{{ t('automations.form.versionLoadFailed') }}</small><small v-else-if="versionOptions.length === 0">{{ t('automations.form.versionEmpty') }}</small></label>
       </div>
@@ -198,9 +240,19 @@ function submit() {
 .automation-editor__panel > header { display: grid; gap: var(--gc-space-1); }
 .automation-editor__panel p, .automation-editor small { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); line-height: var(--gc-line-height-relaxed); }
 .automation-editor__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-4); }
-.automation-editor label { display: grid; gap: var(--gc-space-2); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); }
+.automation-editor label, .automation-editor__field { display: grid; gap: var(--gc-space-2); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); }
 .automation-editor__field--full { grid-column: 1 / -1; }
 .automation-editor input, .automation-editor textarea, .automation-editor select { width: 100%; padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-solid); color: var(--gc-color-text); font: inherit; }
+.automation-editor__domain-picker { position: relative; }
+.automation-editor__domain-picker summary { padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-solid); color: var(--gc-color-text); cursor: pointer; list-style: none; }
+.automation-editor__domain-picker summary::-webkit-details-marker { display: none; }
+.automation-editor__domain-picker summary::after { float: right; content: '⌄'; color: var(--gc-color-text-muted); }
+.automation-editor__domain-picker[open] summary { border-color: var(--gc-color-primary); border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.automation-editor__domain-picker.is-disabled summary { cursor: not-allowed; opacity: var(--gc-opacity-disabled); }
+.automation-editor__domain-options { position: absolute; display: grid; width: 100%; max-height: calc(var(--gc-space-10) * 5); overflow-y: auto; padding: var(--gc-space-2); border: var(--gc-border-width-default) solid var(--gc-color-primary); border-top: 0; border-radius: 0 0 var(--gc-radius-md) var(--gc-radius-md); background: var(--gc-color-surface-solid); box-shadow: var(--gc-shadow-md); }
+.automation-editor__domain-option { display: flex !important; grid-template-columns: auto 1fr; align-items: center; padding: var(--gc-space-2); border-radius: var(--gc-radius-sm); color: var(--gc-color-text) !important; }
+.automation-editor__domain-option:hover { background: var(--gc-color-surface-raised); }
+.automation-editor__domain-option input { width: auto; }
 .automation-editor textarea, .automation-editor select[multiple] { min-height: calc(var(--gc-space-10) + var(--gc-space-8)); resize: vertical; }
 .automation-editor__summary, .automation-editor__review { display: grid; gap: var(--gc-space-2); padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-info-border); border-radius: var(--gc-radius-md); background: var(--gc-color-info-soft); }
 .automation-editor__chain { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-2); margin: 0; padding: 0; list-style: none; }

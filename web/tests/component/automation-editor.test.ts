@@ -4,14 +4,17 @@ import { i18n } from '@/i18n'
 import AutomationEditor from '@/views/automations/AutomationEditor.vue'
 
 vi.mock('@/api/modules/certificates.api', () => ({
-  listCertificates: vi.fn(async () => ({ data: { items: [{ id: 'certificate-a', name: 'example.com', primaryDomain: 'example.com', sans: [] }] } })),
+  listCertificates: vi.fn(async () => ({ data: { items: [{ id: 'certificate-a', name: 'example.com', primaryDomain: 'example.com', sans: ['api.example.com'] }] } })),
   listCertificateVersions: vi.fn(async () => ({ data: { items: [{ id: 'version-a', versionNo: 2 }, { id: 'version-b', versionNo: 1 }] } })),
 }))
 
 describe('AutomationEditor', () => {
   it('提交定时自动化的目标条件、动作和安全护栏', async () => {
     const wrapper = mount(AutomationEditor, { global: { plugins: [i18n] } })
-    await wrapper.get('[data-testid="automation-certificate-domains"]').setValue('example.com, api.example.com')
+    const domainPicker = wrapper.get('[data-testid="automation-certificate-domains"]')
+    expect(domainPicker.element.tagName).toBe('SUMMARY')
+    await vi.waitFor(() => expect(wrapper.findAll('[data-testid="automation-certificate-domain-option"]')).toHaveLength(1))
+    await wrapper.get('[data-testid="automation-certificate-domain-option"]').setValue(true)
     await wrapper.get('[data-testid="automation-next"]').trigger('click')
     await wrapper.get('[data-testid="automation-trigger"]').setValue('schedule')
     await wrapper.findAll('input')[0].setValue('15 3 * * *')
@@ -26,13 +29,14 @@ describe('AutomationEditor', () => {
     expect(payload.actions[0].config).toMatchObject({ planType: 'UPDATE', selectionMode: 'EXPLICIT' })
     expect(payload.actions[0].config).not.toHaveProperty('workflowTemplateId')
     expect(payload.guardrails).toMatchObject({ requirePreview: true, requireDryRun: true, requireApproval: true })
-    expect(payload.targetSelector).toMatchObject({ certificateDomains: ['example.com', 'api.example.com'], certificateVersionSelection: 'latest' })
+    expect(payload.targetSelector).toMatchObject({ certificateDomains: ['example.com'], certificateVersionSelection: 'latest' })
   })
 
   it('可以指定证书域名和证书版本', async () => {
     const wrapper = mount(AutomationEditor, { global: { plugins: [i18n] } })
 
-    await wrapper.get('[data-testid="automation-certificate-domains"]').setValue('example.com')
+    await vi.waitFor(() => expect(wrapper.findAll('[data-testid="automation-certificate-domain-option"]')).toHaveLength(1))
+    await wrapper.get('[data-testid="automation-certificate-domain-option"]').setValue(true)
     await wrapper.get('[data-testid="automation-version-selection"]').setValue('specific')
     await vi.waitFor(() => expect(wrapper.findAll('[data-testid="automation-certificate-version-ids"] option')).toHaveLength(2))
     await wrapper.get('[data-testid="automation-certificate-version-ids"]').setValue(['version-a', 'version-b'])
