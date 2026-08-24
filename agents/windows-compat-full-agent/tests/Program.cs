@@ -175,6 +175,9 @@ internal static class Tests
         Assert(snapshot.Facts.ContainsKey("windows.build_number"), "缺少 Windows 构建号事实");
         Assert(snapshot.Facts.ContainsKey("windows.machine_id"), "缺少 Windows Machine ID 事实");
         Assert(snapshot.Facts.ContainsKey("network.primary_ip"), "缺少主 IP 事实");
+        Dictionary<string, object> webInventory = snapshot.Facts["web.inventory"] as Dictionary<string, object>;
+        Assert(webInventory != null && webInventory.ContainsKey("configFiles"), "缺少通用 Web 配置事实");
+        Assert(webInventory != null && webInventory.ContainsKey("certificateFiles"), "缺少通用证书事实");
     }
 
     private static void RegistrationRequestIncludesSystemDescriptor()

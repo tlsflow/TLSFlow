@@ -5,7 +5,9 @@ using System.Management;
 using System.Net;
 using System.Net.Sockets;
 using System.IO;
+using System.Security.Cryptography;
 using System.Security.Principal;
+using System.Security.Cryptography.X509Certificates;
 
 namespace GCAC.WindowsCompatibilityAgent
 {
@@ -45,7 +47,8 @@ namespace GCAC.WindowsCompatibilityAgent
             {
                 { "processExecutables", CollectWebProcessExecutables() },
                 { "listeningPorts", CollectListeningPorts() },
-                { "configFiles", CollectWebConfigFiles() }
+                { "configFiles", CollectWebConfigFiles() },
+                { "certificateFiles", CollectCertificateFiles() }
             };
             List<string> capabilities = new List<string>();
             capabilities.Add("agent.control.register");
@@ -205,6 +208,111 @@ namespace GCAC.WindowsCompatibilityAgent
             return string.Empty;
         }
 
+        // 只回传公开证书摘要；不读取或上报私钥、PFX 和 JKS 原文。
+        private static object[] CollectCertificateFiles()
+        {
+            List<object> result = new List<object>();
+            string[] roots = new string[]
+            {
+                @"C:\nginx", @"C:\Apache24", @"C:\Tomcat",
+                @"C:\ProgramData", @"C:\Program Files", @"C:\Program Files (x86)"
+            };
+            for (int rootIndex = 0; rootIndex < roots.Length && result.Count < 256; rootIndex++)
+            {
+                try
+                {
+                    string[] paths = Directory.GetFiles(roots[rootIndex], "*.*", SearchOption.AllDirectories);
+                    for (int index = 0; index < paths.Length && result.Count < 256; index++)
+                    {
+                        string extension = Path.GetExtension(paths[index]).ToLowerInvariant();
+                        if (extension != ".pem" && extension != ".crt" && extension != ".cer" && extension != ".der") continue;
+                        Dictionary<string, object> certificate = ReadCertificateSummary(paths[index]);
+                        if (certificate == null) continue;
+                        certificate["path"] = paths[index].Replace('\\', '/');
+                        certificate["configuredPaths"] = new string[] { Path.GetFileName(paths[index]) };
+                        result.Add(certificate);
+                    }
+                }
+                catch { }
+            }
+            foreach (object item in ReadWindowsCertificateStore("My"))
+                if (result.Count < 512) result.Add(item);
+            return result.ToArray();
+        }
+
+        private static List<object> ReadWindowsCertificateStore(string storeName)
+        {
+            List<object> result = new List<object>();
+            try
+            {
+                X509Store store = new X509Store(storeName, StoreLocation.LocalMachine);
+                try
+                {
+                    store.Open(OpenFlags.OpenExistingOnly | OpenFlags.ReadOnly);
+                    foreach (X509Certificate2 certificate in store.Certificates)
+                    {
+                        string thumbprint = NormalizeHex(certificate.Thumbprint);
+                        if (TextUtility.IsBlank(thumbprint)) continue;
+                        Dictionary<string, object> summary = CertificateSummary(certificate);
+                        summary["path"] = "windows-certstore://LocalMachine/" + storeName + "/" + thumbprint;
+                        summary["thumbprint"] = thumbprint;
+                        summary["store"] = storeName;
+                        summary["storeLocation"] = "LocalMachine";
+                        result.Add(summary);
+                        certificate.Reset();
+                    }
+                }
+                finally { store.Close(); }
+            }
+            catch { }
+            return result;
+        }
+
+        private static Dictionary<string, object> ReadCertificateSummary(string path)
+        {
+            try
+            {
+                byte[] raw = File.ReadAllBytes(path);
+                string text = System.Text.Encoding.ASCII.GetString(raw);
+                System.Text.RegularExpressions.Match match = System.Text.RegularExpressions.Regex.Match(text, "-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----", System.Text.RegularExpressions.RegexOptions.Singleline);
+                if (match.Success) raw = Convert.FromBase64String(System.Text.RegularExpressions.Regex.Replace(match.Groups[1].Value, @"\s+", string.Empty));
+                X509Certificate2 certificate = new X509Certificate2(raw);
+                Dictionary<string, object> summary = CertificateSummary(certificate);
+                certificate.Reset();
+                return summary;
+            }
+            catch { return null; }
+        }
+
+        private static Dictionary<string, object> CertificateSummary(X509Certificate2 certificate)
+        {
+            byte[] digest;
+            using (SHA256 sha = new SHA256Managed()) digest = sha.ComputeHash(certificate.RawData);
+            Dictionary<string, object> summary = new Dictionary<string, object>();
+            summary["sha256Fingerprint"] = ToHex(digest);
+            summary["thumbprint"] = NormalizeHex(certificate.Thumbprint);
+            summary["subject"] = certificate.Subject;
+            summary["issuer"] = certificate.Issuer;
+            summary["notBefore"] = certificate.NotBefore.ToUniversalTime().ToString("o");
+            summary["notAfter"] = certificate.NotAfter.ToUniversalTime().ToString("o");
+            return summary;
+        }
+
+        private static string NormalizeHex(string value)
+        {
+            if (TextUtility.IsBlank(value)) return string.Empty;
+            System.Text.StringBuilder builder = new System.Text.StringBuilder();
+            foreach (char character in value)
+                if ((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f') || (character >= 'A' && character <= 'F')) builder.Append(character);
+            return builder.ToString().ToUpperInvariant();
+        }
+
+        private static string ToHex(byte[] bytes)
+        {
+            System.Text.StringBuilder builder = new System.Text.StringBuilder();
+            foreach (byte value in bytes) builder.Append(value.ToString("x2"));
+            return builder.ToString();
+        }
         private static bool SupportsTls12(string controlPlaneUrl)
         {
             if (!TransportProtocol.IsHttps(controlPlaneUrl)) return true;
