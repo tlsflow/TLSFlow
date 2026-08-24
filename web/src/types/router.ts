@@ -4,12 +4,14 @@ export type RiskLevel = 'low' | 'medium' | 'high' | 'critical'
 
 export interface GcRouteMeta {
   readonly title: string
+  readonly titleKey?: string
   readonly module: string
   readonly requiresAuth?: boolean
   readonly permission?: string
   readonly resourceType?: string
   readonly riskLevel?: RiskLevel
   readonly breadcrumb?: readonly string[]
+  readonly breadcrumbKeys?: readonly string[]
   readonly keepAlive?: boolean
   readonly featureFlag?: string
   readonly hiddenInMenu?: boolean
@@ -21,7 +23,7 @@ export type GcRouteRecord = RouteRecordRaw & {
 }
 
 export interface MenuItem {
-  readonly title: string
+  readonly title?: string
   readonly titleKey?: string
   readonly path: string
   readonly module: string

@@ -1,13 +1,16 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
 const model = defineModel<string>({ default: '' })
 defineProps<{ label?: string; placeholder?: string }>()
+const { t } = useI18n()
 </script>
 
 <template>
   <label class="gc-secret-input">
-    <span>{{ label ?? 'Secret 引用' }}</span>
-    <input v-model="model" :placeholder="placeholder ?? '选择或输入 SecretRef，不保存明文'" autocomplete="off" />
-    <small>敏感字段只保存引用，不在浏览器长期明文保存。</small>
+    <span>{{ label ?? t('designSystem.secretInput.label') }}</span>
+    <input v-model="model" :placeholder="placeholder ?? t('designSystem.secretInput.placeholder')" autocomplete="off" />
+    <small>{{ t('designSystem.secretInput.hint') }}</small>
   </label>
 </template>
 

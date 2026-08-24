@@ -1,4 +1,6 @@
 <script setup lang="ts" generic="T extends Record<string, unknown>">
+import { useI18n } from 'vue-i18n'
+
 export interface DataTableColumn<T> {
   readonly key: keyof T | string
   readonly title: string
@@ -14,9 +16,10 @@ withDefaults(defineProps<{
   dense?: boolean
 }>(), {
   rowKey: 'id',
-  emptyText: '暂无数据',
   dense: false,
 })
+
+const { t } = useI18n()
 </script>
 
 <template>
@@ -24,8 +27,8 @@ withDefaults(defineProps<{
     <div v-if="$slots.toolbar" class="gc-data-table__toolbar">
       <slot name="toolbar" />
     </div>
-    <div v-if="loading" class="gc-data-table__state">加载中...</div>
-    <div v-else-if="rows.length === 0" class="gc-data-table__state">{{ emptyText }}</div>
+    <div v-if="loading" class="gc-data-table__state">{{ t('designSystem.dataTable.loading') }}</div>
+    <div v-else-if="rows.length === 0" class="gc-data-table__state">{{ emptyText ?? t('designSystem.dataTable.empty') }}</div>
     <table v-else>
       <thead>
         <tr>

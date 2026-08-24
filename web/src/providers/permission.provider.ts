@@ -1,4 +1,5 @@
 import { getCurrentPermissions, getPermissionContext, type ObjectPermissionContextResponse } from '@/api/modules/security.api'
+import { i18n } from '@/i18n'
 
 export interface PermissionProvider {
   loadPermissions(): Promise<readonly string[]>
@@ -62,7 +63,7 @@ export class MockPermissionProvider implements PermissionProvider {
         username: 'mock',
         displayName: 'Mock User',
         tenantId: 'default',
-        tenantName: '默认租户',
+        tenantName: i18n.global.t('common.tenantFallback'),
         status: 'active',
         roles: []
       },

@@ -1,4 +1,5 @@
 import type { ApiResult } from './generated/client-types'
+import { i18n } from '@/i18n'
 
 export interface ApiClientOptions {
   readonly baseUrl?: string
@@ -158,7 +159,7 @@ export class ApiClient {
     const timestamp = parsed.timestamp ?? new Date().toISOString()
 
     if (!response.ok) {
-      throw new ApiClientError(typeof parsed.message === 'string' ? parsed.message : '请求失败', {
+      throw new ApiClientError(typeof parsed.message === 'string' ? parsed.message : i18n.global.t('api.errors.requestFailed'), {
         errorCode: typeof parsed.errorCode === 'string' ? parsed.errorCode : `HTTP_${response.status}`,
         requestId: String(requestId),
         status: response.status

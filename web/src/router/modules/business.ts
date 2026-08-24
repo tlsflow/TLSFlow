@@ -6,13 +6,14 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'certificate.list',
     component: () => import('@/views/certificates/CertificatesView.vue'),
     meta: {
-      title: '证书资产',
+      title: 'Certificate Assets',
+      titleKey: 'nav.certificateAssets',
       module: 'certificate',
       requiresAuth: true,
       permission: 'certificate.asset.read',
       resourceType: 'certificate',
       riskLevel: 'medium',
-      breadcrumb: ['证书资产'],
+      breadcrumbKeys: ['nav.certificateAssets'],
       keepAlive: true
     }
   },
@@ -21,13 +22,14 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'certificate.import',
     component: () => import('@/views/certificates/CertificateImportView.vue'),
     meta: {
-      title: '导入证书',
+      title: 'Import Certificate',
+      titleKey: 'routes.certificateImport',
       module: 'certificate',
       requiresAuth: true,
       permission: 'certificate.import',
       resourceType: 'certificate',
       riskLevel: 'high',
-      breadcrumb: ['证书资产', '导入证书']
+      breadcrumbKeys: ['nav.certificateAssets', 'routes.certificateImport']
     }
   },
   {
@@ -35,13 +37,14 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'certificate.detail',
     component: () => import('@/views/certificates/CertificateDetailView.vue'),
     meta: {
-      title: '证书详情',
+      title: 'Certificate Detail',
+      titleKey: 'routes.certificateDetail',
       module: 'certificate',
       requiresAuth: true,
       permission: 'certificate.asset.read',
       resourceType: 'certificate',
       riskLevel: 'medium',
-      breadcrumb: ['证书资产', '证书详情']
+      breadcrumbKeys: ['nav.certificateAssets', 'routes.certificateDetail']
     }
   },
   {
@@ -49,13 +52,14 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'certificate.usages',
     component: () => import('@/views/certificates/CertificateUsagesView.vue'),
     meta: {
-      title: '证书使用关系',
+      title: 'Certificate Usages',
+      titleKey: 'routes.certificateUsages',
       module: 'certificate',
       requiresAuth: true,
       permission: 'certificate.asset.read',
       resourceType: 'certificate',
       riskLevel: 'medium',
-      breadcrumb: ['证书资产', '使用关系']
+      breadcrumbKeys: ['nav.certificateAssets', 'routes.certificateUsages']
     }
   },
   {
@@ -63,13 +67,14 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'certificate.formats',
     component: () => import('@/views/certificates/CertificateFormatsView.vue'),
     meta: {
-      title: '证书格式产物',
+      title: 'Certificate Formats',
+      titleKey: 'routes.certificateFormats',
       module: 'certificate',
       requiresAuth: true,
       permission: 'certificate.asset.read',
       resourceType: 'certificate',
       riskLevel: 'medium',
-      breadcrumb: ['证书资产', '格式产物']
+      breadcrumbKeys: ['nav.certificateAssets', 'routes.certificateFormats']
     }
   },
   {
@@ -77,13 +82,14 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'asset.list',
     component: () => import('@/views/assets/AssetsView.vue'),
     meta: {
-      title: '应用资产',
+      title: 'Application Assets',
+      titleKey: 'nav.assets',
       module: 'asset',
       requiresAuth: true,
       permission: 'service_asset.read',
       resourceType: 'service_asset',
       riskLevel: 'low',
-      breadcrumb: ['应用资产'],
+      breadcrumbKeys: ['nav.assets'],
       keepAlive: true
     }
   },
@@ -92,13 +98,14 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'binding.list',
     component: () => import('@/views/bindings/BindingsView.vue'),
     meta: {
-      title: '证书格式配置',
+      title: 'Certificate Format Config',
+      titleKey: 'nav.certificateFormats',
       module: 'binding',
       requiresAuth: true,
       permission: 'binding.read',
       resourceType: 'binding',
       riskLevel: 'medium',
-      breadcrumb: ['证书格式配置'],
+      breadcrumbKeys: ['nav.certificateFormats'],
       keepAlive: true
     }
   },
@@ -107,13 +114,14 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'deployment.plan.list',
     component: () => import('@/views/deployments/DeploymentPlansView.vue'),
     meta: {
-      title: '部署计划',
+      title: 'Deployment Plans',
+      titleKey: 'nav.deploymentPlans',
       module: 'deployment',
       requiresAuth: true,
       permission: 'deployment.plan.read',
       resourceType: 'deploymentPlan',
       riskLevel: 'high',
-      breadcrumb: ['证书部署', '部署计划'],
+      breadcrumbKeys: ['nav.deployments', 'nav.deploymentPlans'],
       keepAlive: true
     }
   },
@@ -122,13 +130,14 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'execution.list',
     component: () => import('@/views/executions/ExecutionsView.vue'),
     meta: {
-      title: '执行记录',
+      title: 'Executions',
+      titleKey: 'nav.executions',
       module: 'execution',
       requiresAuth: true,
       permission: 'execution.read',
       resourceType: 'execution',
       riskLevel: 'medium',
-      breadcrumb: ['证书部署', '执行记录'],
+      breadcrumbKeys: ['nav.deployments', 'nav.executions'],
       keepAlive: true
     }
   },
@@ -138,12 +147,13 @@ export const businessRoutes: GcRouteRecord[] = [
     component: () => import('@/views/agents/AgentsView.vue'),
     meta: {
       title: 'Agent',
+      titleKey: 'nav.agents',
       module: 'agent',
       requiresAuth: true,
       permission: 'agent.read',
       resourceType: 'agent',
       riskLevel: 'medium',
-      breadcrumb: ['Agent'],
+      breadcrumbKeys: ['nav.agents'],
       keepAlive: true
     }
   },
@@ -152,13 +162,14 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'gateway.list',
     component: () => import('@/views/gateways/GatewaysView.vue'),
     meta: {
-      title: '网关',
+      title: 'Gateways',
+      titleKey: 'nav.gateways',
       module: 'gateway',
       requiresAuth: true,
       permission: 'gateway.read',
       resourceType: 'gateway',
       riskLevel: 'medium',
-      breadcrumb: ['网关'],
+      breadcrumbKeys: ['nav.gateways'],
       keepAlive: true
     }
   },
@@ -167,13 +178,14 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'plugin.list',
     component: () => import('@/views/plugins/PluginsView.vue'),
     meta: {
-      title: '插件',
+      title: 'Plugins',
+      titleKey: 'nav.plugins',
       module: 'plugin',
       requiresAuth: true,
       permission: 'plugin.read',
       resourceType: 'plugin',
       riskLevel: 'high',
-      breadcrumb: ['工作流', '插件'],
+      breadcrumbKeys: ['nav.workflows', 'nav.plugins'],
       keepAlive: true
     }
   },
@@ -182,13 +194,14 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'workflow.template.list',
     component: () => import('@/views/workflows/WorkflowTemplatesView.vue'),
     meta: {
-      title: '工作流',
+      title: 'Workflows',
+      titleKey: 'nav.workflowTemplates',
       module: 'workflow',
       requiresAuth: true,
       permission: 'workflow.template.read',
       resourceType: 'workflowTemplate',
       riskLevel: 'high',
-      breadcrumb: ['工作流', '工作流'],
+      breadcrumbKeys: ['nav.workflows', 'nav.workflowTemplates'],
       keepAlive: true,
       featureFlag: 'template.dsl.editor'
     }
@@ -198,13 +211,14 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'monitor.list',
     component: () => import('@/views/monitoring/MonitorsView.vue'),
     meta: {
-      title: '监控告警',
+      title: 'Monitor Alerts',
+      titleKey: 'nav.monitorAlerts',
       module: 'monitoring',
       requiresAuth: true,
       permission: 'monitor.read',
       resourceType: 'monitor',
       riskLevel: 'medium',
-      breadcrumb: ['监控告警'],
+      breadcrumbKeys: ['nav.monitorAlerts'],
       keepAlive: true
     }
   },
@@ -213,13 +227,14 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'audit.list',
     component: () => import('@/views/audit/AuditsView.vue'),
     meta: {
-      title: '审计日志',
+      title: 'Audit Logs',
+      titleKey: 'nav.audits',
       module: 'audit',
       requiresAuth: true,
       permission: 'audit.read',
       resourceType: 'auditLog',
       riskLevel: 'low',
-      breadcrumb: ['审计日志'],
+      breadcrumbKeys: ['nav.audits'],
       keepAlive: true
     }
   },
@@ -228,13 +243,14 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'settings.overview',
     component: () => import('@/views/settings/SettingsView.vue'),
     meta: {
-      title: '系统设置',
+      title: 'System Settings',
+      titleKey: 'nav.systemSettings',
       module: 'settings',
       requiresAuth: true,
       permission: 'settings.read',
       resourceType: 'settings',
       riskLevel: 'medium',
-      breadcrumb: ['系统设置'],
+      breadcrumbKeys: ['nav.systemSettings'],
       keepAlive: true
     }
   },
@@ -243,13 +259,14 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'settings.users',
     component: () => import('@/views/settings/UsersView.vue'),
     meta: {
-      title: '用户管理',
+      title: 'Users',
+      titleKey: 'nav.users',
       module: 'settings',
       requiresAuth: true,
       permission: 'security.user.read',
       resourceType: 'user',
       riskLevel: 'medium',
-      breadcrumb: ['系统设置', '用户管理'],
+      breadcrumbKeys: ['nav.systemSettings', 'nav.users'],
       keepAlive: true
     }
   },
@@ -258,13 +275,14 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'settings.roles',
     component: () => import('@/views/settings/RolesView.vue'),
     meta: {
-      title: '权限管理',
+      title: 'Roles',
+      titleKey: 'nav.roles',
       module: 'settings',
       requiresAuth: true,
       permission: 'security.role.read',
       resourceType: 'role',
       riskLevel: 'medium',
-      breadcrumb: ['系统设置', '权限管理'],
+      breadcrumbKeys: ['nav.systemSettings', 'nav.roles'],
       keepAlive: true
     }
   },
@@ -273,13 +291,14 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'settings.identitySources',
     component: () => import('@/views/settings/IdentitySourcesView.vue'),
     meta: {
-      title: '身份源',
+      title: 'Identity Sources',
+      titleKey: 'nav.identitySources',
       module: 'settings',
       requiresAuth: true,
       permission: 'security.identity_source.read',
       resourceType: 'identitySource',
       riskLevel: 'medium',
-      breadcrumb: ['系统设置', '身份源'],
+      breadcrumbKeys: ['nav.systemSettings', 'nav.identitySources'],
       keepAlive: true
     }
   },
@@ -288,13 +307,14 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'settings.groupRoleMappings',
     component: () => import('@/views/settings/GroupRoleMappingsView.vue'),
     meta: {
-      title: '组角色映射',
+      title: 'Group Role Mappings',
+      titleKey: 'nav.groupRoleMappings',
       module: 'settings',
       requiresAuth: true,
       permission: 'security.identity_source.read',
       resourceType: 'externalGroupRoleMapping',
       riskLevel: 'medium',
-      breadcrumb: ['系统设置', '组角色映射'],
+      breadcrumbKeys: ['nav.systemSettings', 'nav.groupRoleMappings'],
       keepAlive: true
     }
   }

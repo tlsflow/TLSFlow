@@ -19,8 +19,14 @@ const permissionStore = usePermissionStore()
 const { t } = useI18n()
 
 const breadcrumbs = computed(() => {
+  const keys = route.meta.breadcrumbKeys
+  if (Array.isArray(keys) && keys.length > 0) return keys.map((key) => t(key))
+
   const value = route.meta.breadcrumb
-  return Array.isArray(value) ? value : [String(route.meta.title ?? t('app.defaultBreadcrumb'))]
+  if (Array.isArray(value) && value.length > 0) return value
+
+  const titleKey = route.meta.titleKey
+  return [typeof titleKey === 'string' ? t(titleKey) : String(route.meta.title ?? t('app.defaultBreadcrumb'))]
 })
 
 const navItems = computed(() => permissionStore.visibleMenuItems)
@@ -53,7 +59,7 @@ function isMenuItemActive(item: MenuItem): boolean {
 }
 
 function menuTitle(item: MenuItem): string {
-  return item.titleKey ? t(item.titleKey) : item.title
+  return item.titleKey ? t(item.titleKey) : (item.title ?? item.path)
 }
 
 function iconPath(icon?: string): string {
@@ -164,7 +170,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="gc-shell">
     <header class="gc-shell__topbar">
-      <RouterLink class="gc-shell__brand" to="/dashboard" aria-label="返回仪表盘">
+      <RouterLink class="gc-shell__brand" to="/dashboard" :aria-label="t('shell.backDashboard')">
         <span class="gc-shell__brand-mark" aria-hidden="true">
           <svg viewBox="0 0 24 24"><path d="M12 3.5 19 6v5.2c0 4.5-2.9 8.2-7 9.3-4.1-1.1-7-4.8-7-9.3V6l7-2.5Z" /></svg>
         </span>
@@ -278,10 +284,10 @@ onBeforeUnmount(() => {
     </header>
 
     <main class="gc-shell__content" :class="{ 'gc-shell__content--locked': lockContentScroll }">
-      <section class="gc-shell__hero" aria-label="当前位置">
+      <section class="gc-shell__hero" :aria-label="t('shell.currentLocation')">
         <div>
           <p class="gc-shell__eyebrow">{{ t('app.platform') }}</p>
-          <div class="gc-shell__breadcrumbs" aria-label="面包屑">
+          <div class="gc-shell__breadcrumbs" :aria-label="t('shell.breadcrumb')">
             <span v-for="(item, index) in breadcrumbs" :key="`${item}-${index}`">
               <span v-if="index > 0" class="gc-shell__breadcrumb-separator">/</span>
               {{ item }}
@@ -289,7 +295,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <div class="gc-shell__hero-actions">
-          <nav v-if="activeChildren.length" class="gc-shell__submenu" aria-label="当前分组导航">
+          <nav v-if="activeChildren.length" class="gc-shell__submenu" :aria-label="t('shell.currentGroupNavigation')">
             <RouterLink
               v-for="child in activeChildren"
               :key="child.path"

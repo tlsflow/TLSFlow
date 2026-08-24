@@ -8,13 +8,26 @@ export interface RiskMeta {
   readonly description: string
 }
 
-export const riskDictionary = {
-  LOW: { label: '低', tone: 'info', description: '需要关注，但不会直接阻断操作。' },
-  MEDIUM: { label: '中', tone: 'warning', description: '可能影响部署或监控结果，需要确认。' },
-  HIGH: { label: '高', tone: 'danger', description: '可能导致服务中断或安全暴露。' },
-  CRITICAL: { label: '严重', tone: 'danger', description: '必须优先处理，危险操作需二次确认。' }
-} satisfies Record<RiskCode, RiskMeta>
+interface RiskDefinition {
+  readonly labelKey: string
+  readonly descriptionKey: string
+  readonly tone: StatusTone
+}
 
-export function resolveRiskMeta(risk: RiskCode): RiskMeta {
-  return riskDictionary[risk]
+type Translate = (key: string) => string
+
+export const riskDictionary = {
+  LOW: { labelKey: 'designSystem.risk.LOW.label', tone: 'info', descriptionKey: 'designSystem.risk.LOW.description' },
+  MEDIUM: { labelKey: 'designSystem.risk.MEDIUM.label', tone: 'warning', descriptionKey: 'designSystem.risk.MEDIUM.description' },
+  HIGH: { labelKey: 'designSystem.risk.HIGH.label', tone: 'danger', descriptionKey: 'designSystem.risk.HIGH.description' },
+  CRITICAL: { labelKey: 'designSystem.risk.CRITICAL.label', tone: 'danger', descriptionKey: 'designSystem.risk.CRITICAL.description' }
+} satisfies Record<RiskCode, RiskDefinition>
+
+export function resolveRiskMeta(risk: RiskCode, t: Translate = (key) => key): RiskMeta {
+  const definition = riskDictionary[risk]
+  return {
+    label: t(definition.labelKey),
+    tone: definition.tone,
+    description: t(definition.descriptionKey)
+  }
 }

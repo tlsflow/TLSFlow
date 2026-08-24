@@ -39,7 +39,11 @@ export function registerRouterGuards(router: Router): void {
   })
 
   router.afterEach((to) => {
-    const title = typeof to.meta.title === 'string' ? to.meta.title : i18n.global.t('app.defaultBreadcrumb')
+    const title = typeof to.meta.titleKey === 'string'
+      ? i18n.global.t(to.meta.titleKey)
+      : typeof to.meta.title === 'string'
+        ? to.meta.title
+        : i18n.global.t('app.defaultBreadcrumb')
     document.title = `${title} - ${i18n.global.t('app.platform')}`
   })
 }

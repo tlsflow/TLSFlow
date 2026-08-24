@@ -1,6 +1,7 @@
 import type { CurrentUser } from '@/stores/auth.store'
 import { ApiClientError } from '@/api/client'
 import { getCurrentUser, login as loginApi, logout as logoutApi, type AuthUser } from '@/api/modules/security.api'
+import { i18n } from '@/i18n'
 
 export interface AuthSession {
   readonly user: CurrentUser
@@ -50,7 +51,7 @@ export class ApiAuthProvider implements AuthProvider {
 
   async login(credentials: LoginCredentials): Promise<AuthSession> {
     const result = await loginApi(credentials)
-    if (!result.data) throw new Error('登录接口没有返回会话')
+    if (!result.data) throw new Error(i18n.global.t('auth.errors.missingSession'))
     return {
       user: toCurrentUser(result.data.user),
       permissions: result.data.permissions
@@ -69,9 +70,9 @@ export class MockAuthProvider implements AuthProvider {
       user: {
         id: 'mock-user',
         username: 'mock',
-        displayName: '前端骨架用户',
+        displayName: i18n.global.t('auth.mock.displayName'),
         tenantId: 'default',
-        tenantName: '默认租户',
+        tenantName: i18n.global.t('common.tenantFallback'),
         roles: ['admin']
       }
     }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 const props = withDefaults(defineProps<{
   actionName: string
@@ -14,6 +15,7 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{ confirm: [] }>()
+const { t } = useI18n()
 const opened = ref(false)
 const typed = ref('')
 
@@ -32,18 +34,18 @@ function confirm() {
   <Teleport to="body">
     <div v-if="opened" class="gc-confirm__mask" role="dialog" aria-modal="true">
       <section class="gc-card gc-confirm">
-        <h2>确认{{ actionName }}</h2>
-        <p>影响资源数量：{{ impactCount ?? 0 }}</p>
+        <h2>{{ t('designSystem.confirm.title', { action: actionName }) }}</h2>
+        <p>{{ t('designSystem.confirm.impactCount', { count: impactCount ?? 0 }) }}</p>
         <p class="gc-confirm__risk" :class="{ 'gc-confirm__risk--danger': danger }">
-          {{ riskText ?? '该操作可能触发部署、重试、回滚或不可逆变更。' }}
+          {{ riskText ?? t('designSystem.confirm.defaultRisk') }}
         </p>
         <label v-if="confirmText" class="gc-form-field">
-          <span>输入 {{ confirmText }} 二次确认</span>
+          <span>{{ t('designSystem.confirm.typeToConfirm', { text: confirmText }) }}</span>
           <input v-model="typed" />
         </label>
         <footer>
-          <button class="gc-button" type="button" @click="opened = false">取消</button>
-          <button class="gc-button" :class="{ 'gc-button--danger': danger }" type="button" @click="confirm">确认</button>
+          <button class="gc-button" type="button" @click="opened = false">{{ t('designSystem.confirm.cancel') }}</button>
+          <button class="gc-button" :class="{ 'gc-button--danger': danger }" type="button" @click="confirm">{{ t('designSystem.confirm.confirm') }}</button>
         </footer>
       </section>
     </div>

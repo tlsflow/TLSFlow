@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { resolveRiskMeta, type RiskCode } from '@/design-system/status/risk-map'
 
 const props = defineProps<{ risk: RiskCode }>()
-const meta = computed(() => resolveRiskMeta(props.risk))
+const { t } = useI18n()
+const meta = computed(() => resolveRiskMeta(props.risk, t))
 </script>
 
 <template>
   <span class="gc-risk" :class="`gc-risk--${meta.tone}`" :title="meta.description">
-    级别：{{ meta.label }}
+    {{ t('designSystem.riskBadge.levelPrefix') }}{{ meta.label }}
   </span>
 </template>
 

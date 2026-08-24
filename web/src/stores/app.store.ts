@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { getCurrentUserPreferences, updateCurrentUserPreferences } from '@/api/modules/security.api'
-import { setI18nLocale, type SupportedLocale } from '@/i18n'
+import { i18n, setI18nLocale, type SupportedLocale } from '@/i18n'
 import {
   applyThemeToDocument,
   defaultPreferences,
@@ -40,7 +40,7 @@ export const useAppStore = defineStore('app', {
         this.applyPreferences(normalizePreferences(result.data), { cache: true })
         this.preferenceError = null
       } catch (cause) {
-        this.preferenceError = cause instanceof Error ? cause.message : '偏好加载失败'
+        this.preferenceError = cause instanceof Error ? cause.message : i18n.global.t('preferences.errors.loadFailed')
       }
     },
     async setTheme(theme: ThemeMode): Promise<void> {
@@ -71,7 +71,7 @@ export const useAppStore = defineStore('app', {
         })
         this.applyPreferences(normalizePreferences(result.data), { cache: true })
       } catch (cause) {
-        this.preferenceError = cause instanceof Error ? cause.message : '偏好保存失败'
+        this.preferenceError = cause instanceof Error ? cause.message : i18n.global.t('preferences.errors.saveFailed')
       } finally {
         this.preferenceSyncing = false
       }

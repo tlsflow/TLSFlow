@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 type ModalSize = 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
 
@@ -30,6 +31,7 @@ const emit = defineEmits<{
   'update:open': [value: boolean]
   'update:modelValue': [value: boolean]
 }>()
+const { t } = useI18n()
 
 const isOpen = computed({
   get() {
@@ -93,7 +95,7 @@ onBeforeUnmount(() => {
             <h2 v-if="title">{{ title }}</h2>
             <p v-if="description">{{ description }}</p>
           </div>
-          <button class="gc-button gc-modal__close" type="button" aria-label="关闭模态框" @click="closeModal">
+          <button class="gc-button gc-modal__close" type="button" :aria-label="t('designSystem.modal.closeAria')" @click="closeModal">
             ×
           </button>
         </header>

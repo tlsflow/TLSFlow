@@ -6,13 +6,14 @@ export const coreRoutes: GcRouteRecord[] = [
     name: 'dashboard.overview',
     component: () => import('@/views/dashboard/DashboardView.vue'),
     meta: {
-      title: '仪表盘',
+      title: 'Dashboard',
+      titleKey: 'app.dashboard',
       module: 'dashboard',
       requiresAuth: true,
       permission: 'dashboard.read',
       resourceType: 'dashboard',
       riskLevel: 'low',
-      breadcrumb: ['仪表盘'],
+      breadcrumbKeys: ['app.dashboard'],
       keepAlive: true
     }
   }

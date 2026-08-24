@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { resolveStatusMeta } from '@/design-system/status/status-map'
 
 const props = defineProps<{ status: string }>()
-const meta = computed(() => resolveStatusMeta(props.status))
+const { t } = useI18n()
+const meta = computed(() => resolveStatusMeta(props.status, t))
 </script>
 
 <template>

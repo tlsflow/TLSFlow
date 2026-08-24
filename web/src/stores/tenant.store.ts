@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { i18n } from '@/i18n'
 
 export interface TenantOption {
   readonly id: string
@@ -13,7 +14,7 @@ interface TenantState {
 export const useTenantStore = defineStore('tenant', {
   state: (): TenantState => ({
     currentTenantId: 'default',
-    tenants: [{ id: 'default', name: '默认租户' }]
+    tenants: [{ id: 'default', name: i18n.global.t('common.tenantFallback') }]
   }),
   actions: {
     setCurrentTenant(tenantId: string): void {

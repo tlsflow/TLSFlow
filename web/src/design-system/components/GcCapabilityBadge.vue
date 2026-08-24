@@ -1,10 +1,14 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
 defineProps<{ capability: string; available?: boolean; confidence?: string }>()
+
+const { t } = useI18n()
 </script>
 
 <template>
   <span class="gc-capability" :class="available ? 'gc-capability--ok' : 'gc-capability--missing'">
-    {{ capability }} · {{ available ? '具备' : '缺失' }}<template v-if="confidence"> · {{ confidence }}</template>
+    {{ capability }} · {{ available ? t('designSystem.capability.available') : t('designSystem.capability.missing') }}<template v-if="confidence"> · {{ confidence }}</template>
   </span>
 </template>
 

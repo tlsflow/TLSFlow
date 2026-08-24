@@ -19,11 +19,12 @@ export const router = createRouter({
           name: 'login',
           component: () => import('@/views/auth/LoginView.vue'),
           meta: {
-            title: '登录',
+            title: 'Login',
+            titleKey: 'login.welcome',
             module: 'auth',
             requiresAuth: false,
             hiddenInMenu: true,
-            breadcrumb: ['登录']
+            breadcrumbKeys: ['login.welcome']
           }
         },
       ]
@@ -42,11 +43,12 @@ export const router = createRouter({
           name: 'error.forbidden',
           component: () => import('@/views/errors/ForbiddenView.vue'),
           meta: {
-            title: '无权限',
+            title: 'Forbidden',
+            titleKey: 'errors.forbiddenTitle',
             module: 'error',
             requiresAuth: false,
             hiddenInMenu: true,
-            breadcrumb: ['无权限']
+            breadcrumbKeys: ['errors.forbiddenTitle']
           }
         },
         {
@@ -54,11 +56,12 @@ export const router = createRouter({
           name: 'error.notFound',
           component: () => import('@/views/errors/NotFoundView.vue'),
           meta: {
-            title: '页面不存在',
+            title: 'Not Found',
+            titleKey: 'errors.notFoundTitle',
             module: 'error',
             requiresAuth: false,
             hiddenInMenu: true,
-            breadcrumb: ['页面不存在']
+            breadcrumbKeys: ['errors.notFoundTitle']
           }
         }
       ]

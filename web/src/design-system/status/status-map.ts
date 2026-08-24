@@ -5,33 +5,41 @@ export interface StatusMeta {
   readonly tone: StatusTone
 }
 
-export const statusDictionary = {
-  DRAFT: { label: '草稿', tone: 'muted' },
-  PUBLISHED: { label: '已发布', tone: 'success' },
-  PENDING_APPROVAL: { label: '待审批', tone: 'warning' },
-  READY: { label: '待执行', tone: 'info' },
-  RUNNING: { label: '执行中', tone: 'info' },
-  SUCCESS: { label: '成功', tone: 'success' },
-  PARTIAL_SUCCESS: { label: '部分成功', tone: 'warning' },
-  FAILED: { label: '失败', tone: 'danger' },
-  CANCELLED: { label: '已取消', tone: 'muted' },
-  ROLLED_BACK: { label: '已回滚', tone: 'warning' },
-  DISCOVERED: { label: '已发现', tone: 'info' },
-  MANAGED: { label: '已纳管', tone: 'success' },
-  DRIFTED: { label: '已漂移', tone: 'warning' },
-  EXPIRED: { label: '已过期', tone: 'danger' },
-  ERROR: { label: '异常', tone: 'danger' },
-  IGNORED: { label: '已忽略', tone: 'muted' },
-  ONLINE: { label: '在线', tone: 'success' },
-  OFFLINE: { label: '离线', tone: 'danger' },
-  DISABLED: { label: '已禁用', tone: 'muted' },
-  UPGRADING: { label: '升级中', tone: 'info' },
-  UPDATE_REQUIRED: { label: '需更新', tone: 'warning' },
-  UP_TO_DATE: { label: '已最新', tone: 'success' },
-  UNKNOWN: { label: '未知', tone: 'muted' },
-} satisfies Record<string, StatusMeta>
+interface StatusDefinition {
+  readonly labelKey: string
+  readonly tone: StatusTone
+}
 
-export function resolveStatusMeta(status: string): StatusMeta {
+type Translate = (key: string) => string
+
+export const statusDictionary = {
+  DRAFT: { labelKey: 'designSystem.status.DRAFT', tone: 'muted' },
+  PUBLISHED: { labelKey: 'designSystem.status.PUBLISHED', tone: 'success' },
+  PENDING_APPROVAL: { labelKey: 'designSystem.status.PENDING_APPROVAL', tone: 'warning' },
+  READY: { labelKey: 'designSystem.status.READY', tone: 'info' },
+  RUNNING: { labelKey: 'designSystem.status.RUNNING', tone: 'info' },
+  SUCCESS: { labelKey: 'designSystem.status.SUCCESS', tone: 'success' },
+  PARTIAL_SUCCESS: { labelKey: 'designSystem.status.PARTIAL_SUCCESS', tone: 'warning' },
+  FAILED: { labelKey: 'designSystem.status.FAILED', tone: 'danger' },
+  CANCELLED: { labelKey: 'designSystem.status.CANCELLED', tone: 'muted' },
+  ROLLED_BACK: { labelKey: 'designSystem.status.ROLLED_BACK', tone: 'warning' },
+  DISCOVERED: { labelKey: 'designSystem.status.DISCOVERED', tone: 'info' },
+  MANAGED: { labelKey: 'designSystem.status.MANAGED', tone: 'success' },
+  DRIFTED: { labelKey: 'designSystem.status.DRIFTED', tone: 'warning' },
+  EXPIRED: { labelKey: 'designSystem.status.EXPIRED', tone: 'danger' },
+  ERROR: { labelKey: 'designSystem.status.ERROR', tone: 'danger' },
+  IGNORED: { labelKey: 'designSystem.status.IGNORED', tone: 'muted' },
+  ONLINE: { labelKey: 'designSystem.status.ONLINE', tone: 'success' },
+  OFFLINE: { labelKey: 'designSystem.status.OFFLINE', tone: 'danger' },
+  DISABLED: { labelKey: 'designSystem.status.DISABLED', tone: 'muted' },
+  UPGRADING: { labelKey: 'designSystem.status.UPGRADING', tone: 'info' },
+  UPDATE_REQUIRED: { labelKey: 'designSystem.status.UPDATE_REQUIRED', tone: 'warning' },
+  UP_TO_DATE: { labelKey: 'designSystem.status.UP_TO_DATE', tone: 'success' },
+  UNKNOWN: { labelKey: 'designSystem.status.UNKNOWN', tone: 'muted' },
+} satisfies Record<string, StatusDefinition>
+
+export function resolveStatusMeta(status: string, t: Translate = (key) => key): StatusMeta {
   const key = status.toUpperCase() as keyof typeof statusDictionary
-  return statusDictionary[key] ?? { label: status, tone: 'muted' }
+  const definition = statusDictionary[key]
+  return definition ? { label: t(definition.labelKey), tone: definition.tone } : { label: status, tone: 'muted' }
 }
