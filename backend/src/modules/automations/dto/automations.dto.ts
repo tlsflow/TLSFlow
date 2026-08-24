@@ -23,7 +23,7 @@ export interface AutomationTargetSelectorDto {
 }
 
 export interface CreateDeploymentPlanActionConfigDto {
-  workflowTemplateId: string;
+  workflowTemplateId?: string;
   certificateVersionId?: string;
   planType?: 'INSTALL' | 'UPDATE' | 'VERIFY_ONLY';
   selectionMode?: 'EXPLICIT' | 'LATEST_AUTO';

@@ -464,6 +464,20 @@ const zhCN = {
       timeZone: '时区',
       expiresWithinDays: '到期天数范围',
       environments: '目标环境（逗号分隔）',
+      expiresWithinDaysHelp: '只匹配在此天数内到期的证书；留空由系统按规则筛选。',
+      environmentsHelp: '只处理这些环境中的证书，例如 production, staging。',
+      certificateIds: '指定证书（可选）',
+      certificateIdsPlaceholder: '输入证书 ID，多个用逗号分隔',
+      certificateIdsHelp: '填写后只处理指定证书；留空则按到期范围和环境自动匹配。',
+      planType: '部署计划类型',
+      planTypeHelp: '每个命中的证书目标都会在运行时创建一份独立的 DeploymentPlan。',
+      planTypeUpdate: '更新现有证书绑定',
+      planTypeInstall: '安装证书到目标',
+      planTypeVerifyOnly: '只验证，不变更证书',
+      planMode: '运行方式',
+      planModeHelp: '自动化不绑定已有计划；运行时会为每个目标创建新计划。',
+      planModeCreateAndExecute: '创建计划并执行',
+      planModeCreateOnly: '只创建计划，暂不执行',
       maxTargets: '单次最大目标数',
       concurrency: '并发数',
       failureCount: '失败数量阈值',
@@ -554,7 +568,25 @@ const zhCN = {
     editor: {
       createTitle: '新建自动化',
       editTitle: '编辑自动化',
-      description: '配置触发方式、目标选择条件、执行动作和安全护栏。'
+      description: '配置何时运行、处理哪些证书、如何创建部署计划以及失败时的安全边界。',
+      sections: {
+        basic: '基本信息',
+        basicHelp: '给自动化一个容易识别的名称，说明它负责哪类证书变更。',
+        targets: '处理哪些证书',
+        targetsHelp: '这里选择的是证书目标，不是已有部署计划；运行开始时会冻结目标快照。',
+        plan: '证书部署计划',
+        planRelationTitle: '不会绑定已有部署计划',
+        planRelationDescription: '自动化会根据上面的证书筛选条件，在每次运行时创建部署计划。',
+        planRelationHelp: '每个命中的证书目标对应一份独立 DeploymentPlan，计划 ID 会在运行详情中显示；这样不同证书不会共用错误的目标快照。',
+        guardrails: '执行安全控制',
+        guardrailsHelp: '这些限制决定一次最多处理多少目标、是否先预检/审批，以及失败后何时停止。'
+      },
+      chain: {
+        createPlan: '按目标创建 DeploymentPlan',
+        dryRun: '执行 Dry Run 预检',
+        approval: '等待审批通过',
+        executePlan: '执行该目标的 DeploymentPlan'
+      }
     },
     runs: {
       title: '自动化运行历史',
@@ -3279,7 +3311,7 @@ const zhTW = {
     summaries: { targets: '最多 {count} 個目標' },
     preview: { ...zhCN.automations.preview, title: '目標預覽', description: '確認啟動時將被凍結的目標快照及排除原因。', matched: '符合 {count} 項', executable: '可執行 {count} 項', excluded: '排除 {count} 項', ready: '可執行' },
     progress: { total: '總數', pending: '等待中', running: '執行中', waitingApproval: '等待審批', succeeded: '成功', failed: '失敗', skipped: '已跳過', cancelled: '已取消' },
-    editor: { createTitle: '新增自動化', editTitle: '編輯自動化', description: '設定觸發方式、目標選擇條件、執行動作和安全護欄。' },
+    editor: { ...zhCN.automations.editor, createTitle: '新增自動化', editTitle: '編輯自動化', description: '設定何時執行、處理哪些憑證、如何建立部署計畫，以及失敗時的安全邊界。' },
     runs: { title: '自動化執行歷史', description: '查看執行級狀態、不可變目標快照和失敗階段。', progress: '{succeeded}/{total} 成功' },
     runDetail: { title: '自動化執行詳情', description: '設定版本 {version}', noFailure: '未發生失敗' },
     aria: { preview: '自動化目標預覽', runs: '自動化執行列表', progress: '自動化執行進度' },
@@ -3609,7 +3641,7 @@ const enUS = {
     emptyDescription: 'No description',
     common: { notAvailable: 'Not available' },
     fields: {
-      name: 'Name', description: 'Description', trigger: 'Trigger', cron: 'Cron expression', timeZone: 'Time zone', expiresWithinDays: 'Expiry window in days', environments: 'Target environments (comma separated)', maxTargets: 'Maximum targets per run', concurrency: 'Concurrency', failureCount: 'Failure count threshold', requireDryRun: 'Require Dry Run before execution', requireApproval: 'Require approval before execution', startedAt: 'Started at', finishedAt: 'Finished at', failureStage: 'Failure stage', parentRun: 'Parent run'
+      name: 'Name', description: 'Description', trigger: 'Trigger', cron: 'Cron expression', timeZone: 'Time zone', expiresWithinDays: 'Expiry window in days', environments: 'Target environments (comma separated)', expiresWithinDaysHelp: 'Only match certificates expiring within this window.', environmentsHelp: 'Only process certificates in these environments, such as production or staging.', certificateIds: 'Specific certificates (optional)', certificateIdsPlaceholder: 'Enter certificate IDs separated by commas', certificateIdsHelp: 'When filled, only these certificates are processed; otherwise expiry and environment rules are used.', planType: 'Deployment plan type', planTypeHelp: 'A separate DeploymentPlan is created at runtime for each matched certificate target.', planTypeUpdate: 'Update an existing certificate binding', planTypeInstall: 'Install a certificate on the target', planTypeVerifyOnly: 'Verify only, make no certificate change', planMode: 'Run mode', planModeHelp: 'The automation does not bind an existing plan; it creates a new plan at runtime for each target.', planModeCreateAndExecute: 'Create and execute the plan', planModeCreateOnly: 'Create plans only, do not execute yet', maxTargets: 'Maximum targets per run', concurrency: 'Concurrency', failureCount: 'Failure count threshold', requireDryRun: 'Require Dry Run before execution', requireApproval: 'Require approval before execution', startedAt: 'Started at', finishedAt: 'Finished at', failureStage: 'Failure stage', parentRun: 'Parent run'
     },
     actions: {
       create: 'Create automation', edit: 'Edit', delete: 'Delete', cancel: 'Cancel', save: 'Save', copy: 'Copy', enable: 'Enable', disable: 'Disable', preview: 'Preview targets', history: 'Run history', confirmRun: 'Confirm run', stop: 'Stop run', retryFailed: 'Retry failed targets', openPlan: 'Open deployment plan', openExecution: 'Open execution run'
@@ -3623,7 +3655,7 @@ const enUS = {
     exclusions: { permission_denied: 'Target permission denied', missing_version: 'Certificate version missing', version_not_deployable: 'Certificate version is not deployable', binding_not_managed: 'Binding is unmanaged', environment_not_allowed: 'Environment is not allowed', unknown: 'Unknown exclusion reason' },
     failureStages: { selection: 'Target selection', plan_creation: 'Plan creation', dry_run: 'Dry Run', approval: 'Approval', execution: 'Execution', verification: 'Verification', rollback: 'Rollback', notification: 'Notification' },
     progress: { total: 'Total', pending: 'Pending', running: 'Running', waitingApproval: 'Waiting approval', succeeded: 'Succeeded', failed: 'Failed', skipped: 'Skipped', cancelled: 'Cancelled' },
-    editor: { createTitle: 'Create automation', editTitle: 'Edit automation', description: 'Configure triggers, target selection, actions, and safety guardrails.' },
+    editor: { createTitle: 'Create automation', editTitle: 'Edit automation', description: 'Configure when it runs, which certificates it handles, how deployment plans are created, and what happens on failure.', sections: { basic: 'Basic information', basicHelp: 'Give the automation a recognizable name and explain which certificate changes it handles.', targets: 'Which certificates to process', targetsHelp: 'This selects certificate targets, not existing deployment plans; the target snapshot is frozen when the run starts.', plan: 'Certificate deployment plan', planRelationTitle: 'This does not bind an existing deployment plan', planRelationDescription: 'A deployment plan is created at runtime from the certificate filters above.', planRelationHelp: 'Each matched certificate target gets its own DeploymentPlan, and its plan ID appears in run details. This prevents different certificates from sharing the wrong target snapshot.', guardrails: 'Execution safety controls', guardrailsHelp: 'These limits control batch size, prechecks, approval, and when failures stop the run.' }, chain: { createPlan: 'Create a DeploymentPlan for each target', dryRun: 'Run the Dry Run precheck', approval: 'Wait for approval', executePlan: 'Execute that target DeploymentPlan' } },
     runs: { title: 'Automation run history', description: 'Review run-level status, immutable target snapshots, and failure stages.', progress: '{succeeded}/{total} succeeded' },
     runDetail: { title: 'Automation run details', description: 'Configuration version {version}', noFailure: 'No failure' },
     aria: { preview: 'Automation target preview', runs: 'Automation run list', progress: 'Automation run progress' },
