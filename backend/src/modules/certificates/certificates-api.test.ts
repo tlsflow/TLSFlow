@@ -343,6 +343,9 @@ describe('证书资产 API', () => {
     const versionDetail = await app.inject({ method: 'GET', path: `/api/v1/certificate-versions/detail?id=${versionId}`, headers: headers('user_lifecycle') });
     assert.equal(versionDetail.statusCode, 200);
     assert.equal((versionDetail.body as any).asset.id, assetId);
+    assert.ok(Array.isArray((versionDetail.body as any).chainCertificates));
+    assert.equal((versionDetail.body as any).chainCertificates[0].role, 'leaf');
+    assert.notEqual((versionDetail.body as any).chainCertificates[0].displayName, (versionDetail.body as any).chainCertificates[0].fingerprintSha256);
 
     const usage = await app.inject({ method: 'GET', path: `/api/v1/certificate-versions/usage?id=${versionId}`, headers: headers('user_lifecycle') });
     assert.equal(usage.statusCode, 200);
