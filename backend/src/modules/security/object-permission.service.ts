@@ -52,6 +52,16 @@ export interface AuthorizedQuery extends PageAuthorizationFilter {}
 
 const accessOrder: Record<AccessLevel, number> = { read: 1, edit: 2, control: 3 };
 
+interface AuthorizationState {
+  principals: PrincipalRef[];
+  principalKeys: Set<string>;
+  bindings: RoleBindingEntity[];
+  activeSets: Map<string, ObjectSetEntity>;
+  grants: AccessGrantEntity[];
+  members: ObjectSetMemberEntity[];
+  adminWildcard: boolean;
+}
+
 export class ObjectPermissionService {
   private static readonly defaultDb = new PgliteDatabase();
 
@@ -60,6 +70,9 @@ export class ObjectPermissionService {
   }
 
   private readonly tenantScope = new TenantScopeService();
+  // 中文说明：同一个 HTTP 请求会复用同一个 SecuritySubject。只在该对象生命周期内缓存，
+  // 避免跨请求持有旧权限，既减少重复扫描，又不延迟权限回收。
+  private authorizationStateCache = new WeakMap<SecuritySubject, Promise<AuthorizationState>>();
 
   constructor(
     private readonly groups: AsyncRepositoryPort<GroupEntity> = ObjectPermissionService.repo<GroupEntity>('security.groups'),
@@ -98,14 +111,18 @@ export class ObjectPermissionService {
 
   async createGroup(input: Omit<GroupEntity, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<GroupEntity> {
     const now = new Date().toISOString();
-    return this.groups.create({ ...input, id: input.id ?? newId('grp'), createdAt: now, updatedAt: now });
+    const result = await this.groups.create({ ...input, id: input.id ?? newId('grp'), createdAt: now, updatedAt: now });
+    this.invalidateAuthorizationStateCache();
+    return result;
   }
 
   async addGroupMember(input: Omit<GroupMemberEntity, 'id' | 'createdAt'> & { id?: string }): Promise<GroupMemberEntity> {
     const id = input.id ?? `${input.groupId}:${input.userId}`;
     const existing = await this.groupMembers.get(id);
     if (existing) return existing;
-    return this.groupMembers.create({ ...input, id, createdAt: new Date().toISOString() });
+    const result = await this.groupMembers.create({ ...input, id, createdAt: new Date().toISOString() });
+    this.invalidateAuthorizationStateCache();
+    return result;
   }
 
   async listObjectTypes(): Promise<ObjectTypeEntity[]> {
@@ -116,7 +133,9 @@ export class ObjectPermissionService {
   async upsertObjectType(input: Omit<ObjectTypeEntity, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<ObjectTypeEntity> {
     const now = new Date().toISOString();
     const id = input.id ?? input.code;
-    return this.objectTypes.upsert({ ...input, id, createdAt: now, updatedAt: now });
+    const result = await this.objectTypes.upsert({ ...input, id, createdAt: now, updatedAt: now });
+    this.invalidateAuthorizationStateCache();
+    return result;
   }
 
   async listObjectSets(): Promise<ObjectSetEntity[]> {
@@ -132,7 +151,7 @@ export class ObjectPermissionService {
     }
     if (input.kind === 'dynamic') validateDynamicConditions(input.conditions ?? {});
     const now = new Date().toISOString();
-    return this.objectSets.create({
+    const result = await this.objectSets.create({
       ...input,
       id: input.id ?? newId('oset'),
       objectTypes,
@@ -140,6 +159,8 @@ export class ObjectPermissionService {
       createdAt: now,
       updatedAt: now,
     });
+    this.invalidateAuthorizationStateCache();
+    return result;
   }
 
   async addObjectSetMember(input: Omit<ObjectSetMemberEntity, 'id' | 'createdAt'> & { id?: string }): Promise<ObjectSetMemberEntity> {
@@ -147,14 +168,16 @@ export class ObjectPermissionService {
     if (!objectSet || objectSet.status !== 'active') {
       throw securityErrors.permissionDenied({ reason: 'object set unavailable', objectSetId: input.objectSetId });
     }
-    if (!objectSet.objectTypes.includes(input.objectType)) {
+    if (!objectSet.objectTypes.some((type) => objectTypesMatch(type, input.objectType))) {
       throw securityErrors.permissionDenied({ reason: 'object type not allowed in object set', objectType: input.objectType });
     }
     const memberTenantId = resolveObjectSetMemberTenantId(objectSet, input.tenantId);
     const id = input.id ?? `${input.objectSetId}:${input.objectType}:${input.objectId}`;
     const existing = await this.objectSetMembers.get(id);
     if (existing) return existing;
-    return this.objectSetMembers.create({ ...input, tenantId: memberTenantId, id, createdAt: new Date().toISOString() });
+    const result = await this.objectSetMembers.create({ ...input, tenantId: memberTenantId, id, createdAt: new Date().toISOString() });
+    this.invalidateAuthorizationStateCache();
+    return result;
   }
 
   async listObjectSetMembers(objectSetId?: string): Promise<ObjectSetMemberEntity[]> {
@@ -196,7 +219,7 @@ export class ObjectPermissionService {
       throw securityErrors.permissionDenied({ reason: 'role not found', roleId: input.roleId });
     }
     const now = new Date().toISOString();
-    return this.roleBindings.create({
+    const result = await this.roleBindings.create({
       ...input,
       id: input.id ?? newId('rbnd'),
       effect: input.effect ?? 'allow',
@@ -204,6 +227,8 @@ export class ObjectPermissionService {
       createdAt: now,
       updatedAt: now,
     });
+    this.invalidateAuthorizationStateCache();
+    return result;
   }
 
   async listAccessGrants(): Promise<AccessGrantEntity[]> {
@@ -242,13 +267,15 @@ export class ObjectPermissionService {
     }
     const now = new Date().toISOString();
     const { tenantId: _tenantId, ...entity } = input;
-    return this.accessGrants.create({
+    const result = await this.accessGrants.create({
       ...entity,
       id: input.id ?? newId('agrant'),
       effect: input.effect ?? 'allow',
       createdAt: now,
       updatedAt: now,
     });
+    this.invalidateAuthorizationStateCache();
+    return result;
   }
 
   async deleteRoleReferences(roleId: string): Promise<{ roleBindings: number; accessGrants: number }> {
@@ -260,6 +287,7 @@ export class ObjectPermissionService {
     for (const grant of accessGrants) {
       await this.accessGrants.delete(grant.id);
     }
+    this.invalidateAuthorizationStateCache();
     return { roleBindings: roleBindings.length, accessGrants: accessGrants.length };
   }
 
@@ -268,24 +296,30 @@ export class ObjectPermissionService {
     roleBindings: Array<Pick<RoleBindingEntity, 'id' | 'roleId' | 'objectSetId' | 'effect'>>;
     version: string;
   }> {
-    const principals = await this.resolvePrincipals(subject);
-    const principalKeys = new Set(principals.map(principalKey));
-    const bindings = (await this.roleBindings.list((item) => item.enabled && principalKeys.has(principalKey(item)) && isBindingCurrentlyActive(item)))
+    const authorizationState = await this.getAuthorizationState(subject);
+    const bindings = authorizationState.bindings
+      .filter((item) =>
+        item.enabled
+        && authorizationState.principalKeys.has(principalKey(item))
+        && isBindingCurrentlyActive(item),
+      )
       .map(({ id, roleId, objectSetId, effect }) => ({ id, roleId, objectSetId, effect }));
     const objectSetIds = new Set(bindings.map((item) => item.objectSetId));
-    const objectSets = (await this.objectSets.list((item) => objectSetIds.has(item.id)))
+    const objectSets = [...authorizationState.activeSets.values()]
+      .filter((item) => objectSetIds.has(item.id))
       .map(({ id, name, kind, objectTypes, status }) => ({ id, name, kind, objectTypes, status }));
     return { objectSets, roleBindings: bindings, version: this.contextVersion(bindings, objectSets) };
   }
 
   async can(subject: SecuritySubject, accessLevel: AccessLevel, object: ObjectRef, context: RequestContext = {}): Promise<PermissionDecision> {
     await this.ensureDefaultObjectTypes();
+    const authorizationState = await this.getAuthorizationState(subject);
     const action = actionFor(object.objectType, accessLevel);
     if (subject.scope?.tenantScope && !this.tenantScope.allowsResource(subject.scope.tenantScope, object)) {
       await this.auditDeny(subject, action, object, context, 'tenant scope denied');
       return decision(false, accessLevel, action, 'tenant scope denied', [], []);
     }
-    if (await this.hasAdminWildcard(subject)) {
+    if (authorizationState.adminWildcard) {
       return {
         allowed: true,
         accessLevel,
@@ -298,30 +332,21 @@ export class ObjectPermissionService {
       };
     }
 
-    const principals = await this.resolvePrincipals(subject);
-    const principalKeys = new Set(principals.map(principalKey));
-    const bindings = await this.roleBindings.list((item) =>
+    const bindings = authorizationState.bindings.filter((item) =>
       item.enabled
-      && principalKeys.has(principalKey(item))
+      && authorizationState.principalKeys.has(principalKey(item))
       && tenantBindingMatches(item.tenantId, object.tenantId, subject.scope?.tenantId, subject.scope?.tenantScope)
       && isBindingCurrentlyActive(item),
     );
-    const activeSets = new Map((await this.objectSets.list((item) => item.status === 'active')).map((item) => [item.id, item]));
-    const grants = await this.accessGrants.list((item) => accessOrder[item.accessLevel] >= accessOrder[accessLevel]);
-    const grantsByRoleAndSet = new Map<string, AccessGrantEntity[]>();
-    for (const grant of grants) {
-      const key = `${grant.roleId}:${grant.objectSetId}`;
-      grantsByRoleAndSet.set(key, [...(grantsByRoleAndSet.get(key) ?? []), grant]);
-    }
-
+    const grants = authorizationState.grants.filter((item) => accessOrder[item.accessLevel] >= accessOrder[accessLevel]);
+    const grantsByRoleAndSet = groupGrantsByRoleAndSet(grants);
     const matchedBindings: RoleBindingEntity[] = [];
     const matchedObjectSets: ObjectSetEntity[] = [];
     const matchedGrants: AccessGrantEntity[] = [];
-    const members = await this.objectSetMembers.list();
     for (const binding of bindings) {
-      const objectSet = activeSets.get(binding.objectSetId);
-      if (!objectSet || !objectSet.objectTypes.includes(object.objectType)) continue;
-      if (!matchesObjectSet(objectSet, object, members)) continue;
+      const objectSet = authorizationState.activeSets.get(binding.objectSetId);
+      if (!objectSet || !objectSet.objectTypes.some((item) => objectTypesMatch(item, object.objectType))) continue;
+      if (!matchesObjectSet(objectSet, object, authorizationState.members)) continue;
       const grantsForBinding = grantsByRoleAndSet.get(`${binding.roleId}:${binding.objectSetId}`) ?? [];
       if (grantsForBinding.length === 0) continue;
       matchedBindings.push(binding);
@@ -341,6 +366,40 @@ export class ObjectPermissionService {
     return decision(false, accessLevel, action, 'no object grant', matchedBindings, matchedObjectSets);
   }
 
+  // 中文说明：列表裁剪和审计展示只需要判断结果，不应为每条被过滤记录写一条拒绝审计。
+  // 正式的单对象访问仍然使用 can()，保留原有拒绝审计语义。
+  async isAllowed(subject: SecuritySubject, accessLevel: AccessLevel, object: ObjectRef): Promise<boolean> {
+    await this.ensureDefaultObjectTypes();
+    const authorizationState = await this.getAuthorizationState(subject);
+    if (subject.scope?.tenantScope && !this.tenantScope.allowsResource(subject.scope.tenantScope, object)) return false;
+    if (authorizationState.adminWildcard) return true;
+
+    const bindings = authorizationState.bindings.filter((item) =>
+      item.enabled
+      && authorizationState.principalKeys.has(principalKey(item))
+      && tenantBindingMatches(item.tenantId, object.tenantId, subject.scope?.tenantId, subject.scope?.tenantScope)
+      && isBindingCurrentlyActive(item),
+    );
+    const grantsByRoleAndSet = groupGrantsByRoleAndSet(
+      authorizationState.grants.filter((item) => accessOrder[item.accessLevel] >= accessOrder[accessLevel]),
+    );
+    const matchedBindings: RoleBindingEntity[] = [];
+    const matchedGrants: AccessGrantEntity[] = [];
+    for (const binding of bindings) {
+      const objectSet = authorizationState.activeSets.get(binding.objectSetId);
+      if (!objectSet || !objectSet.objectTypes.some((item) => objectTypesMatch(item, object.objectType))) continue;
+      if (!matchesObjectSet(objectSet, object, authorizationState.members)) continue;
+      const grantsForBinding = grantsByRoleAndSet.get(`${binding.roleId}:${binding.objectSetId}`) ?? [];
+      if (grantsForBinding.length === 0) continue;
+      matchedBindings.push(binding);
+      matchedGrants.push(...grantsForBinding);
+    }
+
+    if (matchedBindings.some((item) => item.effect === 'deny')) return false;
+    if (matchedGrants.some((item) => item.effect === 'deny')) return false;
+    return matchedGrants.some((item) => item.effect === 'allow');
+  }
+
   async assertCan(subject: SecuritySubject, accessLevel: AccessLevel, object: ObjectRef, context: RequestContext = {}): Promise<void> {
     const result = await this.can(subject, accessLevel, object, context);
     if (!result.allowed) {
@@ -350,24 +409,20 @@ export class ObjectPermissionService {
 
   async buildAuthorizedQuery(subject: SecuritySubject, objectType: string, accessLevel: AccessLevel): Promise<AuthorizedQuery> {
     const tenantFilter = subject.scope?.tenantScope ? this.tenantScope.toFilter(subject.scope.tenantScope) : {};
-    if (await this.hasAdminWildcard(subject)) {
+    const authorizationState = await this.getAuthorizationState(subject);
+    if (authorizationState.adminWildcard) {
       return { ...tenantFilter, empty: false, unrestricted: true, dynamicConditions: [] };
     }
-    const principals = await this.resolvePrincipals(subject);
-    const principalKeys = new Set(principals.map(principalKey));
     const tenantId = subject.scope?.tenantId;
-    const bindings = await this.roleBindings.list((item) =>
+    const bindings = authorizationState.bindings.filter((item) =>
       item.enabled
-      && principalKeys.has(principalKey(item))
+      && authorizationState.principalKeys.has(principalKey(item))
       && tenantBindingMatches(item.tenantId, undefined, tenantId, subject.scope?.tenantScope)
       && isBindingCurrentlyActive(item),
     );
-    const grants = await this.accessGrants.list((item) => accessOrder[item.accessLevel] >= accessOrder[accessLevel]);
-    const grantsByPair = new Map<string, AccessGrantEntity[]>();
-    for (const grant of grants) {
-      const key = `${grant.roleId}:${grant.objectSetId}`;
-      grantsByPair.set(key, [...(grantsByPair.get(key) ?? []), grant]);
-    }
+    const grantsByPair = groupGrantsByRoleAndSet(
+      authorizationState.grants.filter((item) => accessOrder[item.accessLevel] >= accessOrder[accessLevel]),
+    );
 
     const allowSetIds = new Set<string>();
     const denySetIds = new Set<string>();
@@ -382,12 +437,16 @@ export class ObjectPermissionService {
       }
     }
 
-    const allowSets = await this.objectSets.list((item) => allowSetIds.has(item.id) && item.status === 'active' && item.objectTypes.includes(objectType));
-    const denySets = await this.objectSets.list((item) => denySetIds.has(item.id) && item.status === 'active' && item.objectTypes.includes(objectType));
+    const allowSets = [...authorizationState.activeSets.values()].filter((item) => allowSetIds.has(item.id) && item.objectTypes.some((type) => objectTypesMatch(type, objectType)));
+    const denySets = [...authorizationState.activeSets.values()].filter((item) => denySetIds.has(item.id) && item.objectTypes.some((type) => objectTypesMatch(type, objectType)));
     const allowStaticSetIds = new Set(allowSets.filter((item) => item.kind === 'static').map((item) => item.id));
     const denyStaticSetIds = new Set(denySets.filter((item) => item.kind === 'static').map((item) => item.id));
-    const staticIds = (await this.objectSetMembers.list((item) => allowStaticSetIds.has(item.objectSetId) && item.objectType === objectType)).map((item) => item.objectId);
-    const deniedStaticIds = (await this.objectSetMembers.list((item) => denyStaticSetIds.has(item.objectSetId) && item.objectType === objectType)).map((item) => item.objectId);
+    const staticIds = authorizationState.members
+      .filter((item) => allowStaticSetIds.has(item.objectSetId) && objectTypesMatch(item.objectType, objectType))
+      .map((item) => item.objectId);
+    const deniedStaticIds = authorizationState.members
+      .filter((item) => denyStaticSetIds.has(item.objectSetId) && objectTypesMatch(item.objectType, objectType))
+      .map((item) => item.objectId);
     const dynamicConditions = allowSets.filter((item) => item.kind === 'dynamic').map((item) => item.conditions ?? {});
     const deniedDynamicConditions = denySets.filter((item) => item.kind === 'dynamic').map((item) => item.conditions ?? {});
     return {
@@ -408,8 +467,8 @@ export class ObjectPermissionService {
     }
     if (subject.type === 'user') {
       const memberships = await this.groupMembers.list((item) => item.userId === subject.id);
-      for (const membership of memberships) {
-        const group = await this.groups.get(membership.groupId);
+      const groups = await Promise.all(memberships.map((membership) => this.groups.get(membership.groupId)));
+      for (const group of groups) {
         if (group?.enabled) principals.push({ type: group.source === 'local' ? 'group' : 'external_group', id: group.id, tenantId: group.tenantId, source: group.source });
       }
       for (const userRole of await this.userRoles?.list((item) => item.userId === subject.id) ?? []) {
@@ -419,15 +478,77 @@ export class ObjectPermissionService {
     return dedupePrincipals(principals);
   }
 
-  private async hasAdminWildcard(subject: SecuritySubject): Promise<boolean> {
-    const subjectIds = new Set<string>([subject.id, ...(subject.roleIds ?? [])]);
-    if (subject.type === 'user') {
-      for (const userRole of await this.userRoles?.list((item) => item.userId === subject.id) ?? []) {
-        subjectIds.add(userRole.roleId);
-      }
-    }
-    const policies = await this.policies?.list((item) => subjectIds.has(item.subjectId) && item.effect === 'allow') ?? [];
-    return policies.some((item) => item.actions.includes('*') && item.resourceTypes.includes('*'));
+  private async getAuthorizationState(subject: SecuritySubject): Promise<AuthorizationState> {
+    const cached = this.authorizationStateCache.get(subject);
+    if (cached) return cached;
+
+    const state = this.loadAuthorizationState(subject).catch((error) => {
+      this.authorizationStateCache.delete(subject);
+      throw error;
+    });
+    this.authorizationStateCache.set(subject, state);
+    return state;
+  }
+
+  private invalidateAuthorizationStateCache(): void {
+    this.authorizationStateCache = new WeakMap<SecuritySubject, Promise<AuthorizationState>>();
+  }
+
+  private async loadAuthorizationState(subject: SecuritySubject): Promise<AuthorizationState> {
+    const principals = await this.resolvePrincipals(subject);
+    const principalKeys = new Set(principals.map(principalKey));
+    const legacyRoleIds = principals
+      .filter((principal) => principal.source === 'legacy-user-role')
+      .map((principal) => principal.id);
+    const contextRoleIds = principals
+      .filter((principal) => principal.source === 'legacy-role-context')
+      .map((principal) => principal.id);
+    const effectiveRoleIds = [...new Set([...legacyRoleIds, ...contextRoleIds])];
+    const subjectIds = new Set<string>([subject.id, ...(subject.roleIds ?? []), ...effectiveRoleIds]);
+    const [bindings, activeSets, grants, members, policies] = await Promise.all([
+      this.roleBindings.list((item) =>
+        item.enabled
+        && principalKeys.has(principalKey(item))
+        && isBindingCurrentlyActive(item),
+      ),
+      this.objectSets.list((item) => item.status === 'active'),
+      this.accessGrants.list(),
+      this.objectSetMembers.list(),
+      this.policies?.list((item) => subjectIds.has(item.subjectId) && item.effect === 'allow') ?? Promise.resolve([]),
+    ]);
+    const activeSetsById = new Map(activeSets.map((item) => [item.id, item]));
+    const existingBindingKeys = new Set(bindings.map((item) => [item.principalType, item.principalId, item.roleId, item.objectSetId].join(':')));
+    const syntheticBindings = effectiveRoleIds.flatMap((roleId) => grants
+      .filter((grant) => grant.roleId === roleId)
+      .map((grant): RoleBindingEntity | null => {
+        const objectSet = activeSetsById.get(grant.objectSetId);
+        if (!objectSet) return null;
+        const key = ['group', roleId, roleId, grant.objectSetId].join(':');
+        if (existingBindingKeys.has(key)) return null;
+        existingBindingKeys.add(key);
+        return {
+          id: `implicit:${roleId}:${grant.objectSetId}`,
+          tenantId: objectSet.tenantId,
+          principalType: 'group' as const,
+          principalId: roleId,
+          roleId,
+          objectSetId: grant.objectSetId,
+          effect: 'allow' as const,
+          enabled: true,
+          createdAt: objectSet.createdAt,
+          updatedAt: objectSet.updatedAt,
+        };
+      })
+      .filter((item): item is RoleBindingEntity => item !== null));
+    return {
+      principals,
+      principalKeys,
+      bindings: [...bindings, ...syntheticBindings],
+      activeSets: activeSetsById,
+      grants,
+      members,
+      adminWildcard: policies.some((item) => item.actions.includes('*') && item.resourceTypes.includes('*')),
+    };
   }
 
   private contextVersion(bindings: unknown[], objectSets: unknown[]): string {
@@ -551,9 +672,9 @@ function matchesObjectSet(objectSet: ObjectSetEntity, object: ObjectRef, members
     if (!object.objectId) return true;
     return members.some((item) =>
       item.objectSetId === objectSet.id
-      && item.objectType === object.objectType
-      && item.objectId === object.objectId
-      && objectSetMemberTenantMatches(item.tenantId, object.tenantId),
+        && objectTypesMatch(item.objectType, object.objectType)
+        && item.objectId === object.objectId
+        && objectSetMemberTenantMatches(item.tenantId, object.tenantId),
     );
   }
   const conditions = objectSet.conditions ?? {};
@@ -619,6 +740,22 @@ function resolveObjectSetMemberTenantId(objectSet: ObjectSetEntity, requestedTen
 function objectSetMemberTenantMatches(memberTenantId: string | undefined, objectTenantId: string | undefined): boolean {
   if (!memberTenantId && !objectTenantId) return true;
   return Boolean(memberTenantId) && memberTenantId === objectTenantId;
+}
+
+function objectTypesMatch(left: string, right: string): boolean {
+  return left === right || (
+    (left === 'certificate' || left === 'certificate_asset')
+    && (right === 'certificate' || right === 'certificate_asset')
+  );
+}
+
+function groupGrantsByRoleAndSet(grants: AccessGrantEntity[]): Map<string, AccessGrantEntity[]> {
+  const result = new Map<string, AccessGrantEntity[]>();
+  for (const grant of grants) {
+    const key = `${grant.roleId}:${grant.objectSetId}`;
+    result.set(key, [...(result.get(key) ?? []), grant]);
+  }
+  return result;
 }
 
 function actionFor(objectType: string, level: AccessLevel): string {

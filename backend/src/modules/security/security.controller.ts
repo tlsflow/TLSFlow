@@ -150,6 +150,7 @@ export class SecurityController {
     router.get('/api/v1/security/object-types', '查询权限对象类型', ['Security'], (request) => this.listObjectTypes(request));
     router.get('/api/v1/security/object-sets', '查询权限对象集合', ['Security'], (request) => this.listObjectSets(request));
     router.post('/api/v1/security/object-sets', '创建权限对象集合', ['Security'], (request) => this.createObjectSet(request));
+    router.get('/api/v1/security/object-set-members', '查询权限对象集合成员', ['Security'], (request) => this.listObjectSetMembers(request));
     router.post('/api/v1/security/object-set-members', '添加权限对象集合成员', ['Security'], (request) => this.addObjectSetMember(request));
     router.get('/api/v1/security/role-bindings', '查询对象级角色绑定', ['Security'], (request) => this.listRoleBindings(request));
     router.post('/api/v1/security/role-bindings', '创建对象级角色绑定', ['Security'], (request) => this.createRoleBinding(request));
@@ -1161,6 +1162,12 @@ export class SecurityController {
     return { statusCode: 201, body: created };
   }
 
+  private async listObjectSetMembers(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.permission.read', request, 'permissionObjectSet');
+    return page(await this.services.objectPermissions.listObjectSetMembers(readOptionalQueryString(request, 'objectSetId')));
+  }
+
   private async addObjectSetMember(request: HttpRequest) {
     const subject = await this.subjectFromRequest(request);
     await this.assertSecurityCan(subject, 'security.permission.write', request, 'permissionObjectSet');
@@ -1240,6 +1247,20 @@ export class SecurityController {
       effect: (body.effect ?? 'allow') as AccessEffect,
       constraints: body.constraints as Record<string, unknown> | undefined,
     });
+    const roleBindingKey = ['group', created.roleId, created.roleId, created.objectSetId].join(':');
+    const existingRoleBinding = (await this.services.objectPermissions.listRoleBindings())
+      .some((item) => [item.principalType, item.principalId, item.roleId, item.objectSetId].join(':') === roleBindingKey);
+    if (!existingRoleBinding) {
+      await this.services.objectPermissions.createRoleBinding({
+        tenantId,
+        principalType: 'group',
+        principalId: created.roleId,
+        roleId: created.roleId,
+        objectSetId: created.objectSetId,
+        effect: 'allow',
+        enabled: true,
+      });
+    }
     await this.writeAudit(request, subject, 'security.access_grant.created', 'security.access_grant.create', 'permissionAccessGrant', created.id, { after: created });
     return { statusCode: 201, body: created };
   }
@@ -1683,6 +1704,7 @@ export function getSecurityRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/security/object-types', operationId: 'listSecurityObjectTypes', summary: '查询权限对象类型', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/security/object-sets', operationId: 'listSecurityObjectSets', summary: '查询权限对象集合', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/object-sets', operationId: 'createSecurityObjectSet', summary: '创建权限对象集合', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/security/object-set-members', operationId: 'listSecurityObjectSetMembers', summary: '查询权限对象集合成员', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/object-set-members', operationId: 'addSecurityObjectSetMember', summary: '添加权限对象集合成员', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/security/role-bindings', operationId: 'listSecurityRoleBindings', summary: '查询对象级角色绑定', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/role-bindings', operationId: 'createSecurityRoleBinding', summary: '创建对象级角色绑定', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },

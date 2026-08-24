@@ -385,7 +385,8 @@ export class ExternalIdentityService {
   async login(input: { sourceId: string; username: string; password: string }, context: RequestContext): Promise<AuthSessionResponse> {
     const source = await this.sources.get(input.sourceId);
     if (!source || !source.enabled) throw new AppError('AUTH_UNAUTHENTICATED', '身份源不可用');
-    const credentials = await this.resolveServiceCredentials(source, source.id, context);
+    const credentialsContext = await this.resolveLoginContext(source.id, input.username, context);
+    const credentials = await this.resolveServiceCredentials(source, source.id, credentialsContext);
     let profile: ExternalIdentityProfile;
     try {
       profile = await this.connector.authenticate(source, input.username, input.password, credentials);
@@ -430,6 +431,14 @@ export class ExternalIdentityService {
       detail: { sourceType: source.type, groups: profile.groups, roleIds: matchedRoles },
     });
     return this.auth.currentSession(refreshedUser.id);
+  }
+
+  private async resolveLoginContext(sourceId: string, username: string, context: RequestContext): Promise<RequestContext> {
+    if (context.tenantId) return context;
+    const linkedUser = await this.rbac.findUserByUsername(username);
+    if (!linkedUser || linkedUser.externalSourceId !== sourceId) return context;
+    // 登录请求尚未建立会话，必须先用已绑定影子用户的租户解析 LDAP 服务账号 Secret。
+    return { ...context, tenantId: linkedUser.tenantId };
   }
 
   async lookupUser(input: { sourceId: string; username: string }, actor: SecuritySubject, context: RequestContext): Promise<ExternalIdentityProfile & { sourceId: string; sourceName: string; identityProvider: IdentitySourceType }> {

@@ -53,9 +53,12 @@ test('对象级权限支持静态集合、三档权限和 deny 优先', async ()
 
   const subject = { id: 'user_ops', type: 'user' as const, scope: { tenantId: 'tenant_a' } };
   assert.equal((await service.can(subject, 'read', { objectType: 'certificate', objectId: 'cert_a', tenantId: 'tenant_a' })).allowed, true);
+  assert.equal((await service.can(subject, 'read', { objectType: 'certificate_asset', objectId: 'cert_a', tenantId: 'tenant_a' })).allowed, true);
   assert.equal((await service.can(subject, 'edit', { objectType: 'certificate', objectId: 'cert_a', tenantId: 'tenant_a' })).allowed, true);
   assert.equal((await service.can(subject, 'control', { objectType: 'certificate', objectId: 'cert_a', tenantId: 'tenant_a' })).allowed, false);
   assert.equal((await service.can(subject, 'read', { objectType: 'certificate', objectId: 'cert_b', tenantId: 'tenant_a' })).allowed, false);
+  const certificateAssetQuery = await service.buildAuthorizedQuery(subject, 'certificate_asset', 'read');
+  assert.deepEqual(certificateAssetQuery.objectIds, ['cert_a']);
 
   await service.createAccessGrant({
     tenantId: 'tenant_a',
@@ -67,6 +70,44 @@ test('对象级权限支持静态集合、三档权限和 deny 优先', async ()
   const denied = await service.can(subject, 'read', { objectType: 'certificate', objectId: 'cert_a', tenantId: 'tenant_a' });
   assert.equal(denied.allowed, false);
   assert.equal(denied.reason, 'explicit deny');
+});
+
+test('旧版用户角色在没有显式对象绑定时也能继承角色对象授权', async () => {
+  const { service, roles, userRoles } = createServiceWithRepos();
+  await roles.create({ id: 'role_cert_reader', code: 'cert_reader', name: '证书只读', builtin: false });
+  await userRoles.create({
+    id: 'user_reader:role_cert_reader',
+    userId: 'user_reader',
+    roleId: 'role_cert_reader',
+    createdAt: '2026-08-07T00:00:00.000Z',
+  });
+  await service.ensureDefaultObjectTypes();
+  const objectSet = await service.createObjectSet({
+    id: 'oset_cert_reader',
+    tenantId: 'tenant_a',
+    name: 'tenant a 证书',
+    kind: 'static',
+    objectTypes: ['certificate'],
+    status: 'active',
+  });
+  await service.addObjectSetMember({
+    objectSetId: objectSet.id,
+    objectType: 'certificate',
+    objectId: 'cert_a',
+    addedBy: 'user_admin',
+  });
+  await service.createAccessGrant({
+    tenantId: 'tenant_a',
+    roleId: 'role_cert_reader',
+    objectSetId: objectSet.id,
+    accessLevel: 'read',
+    effect: 'allow',
+  });
+
+  const subject = { id: 'user_reader', type: 'user' as const, scope: { tenantId: 'tenant_a' } };
+  assert.equal((await service.can(subject, 'read', { objectType: 'certificate_asset', objectId: 'cert_a', tenantId: 'tenant_a' })).allowed, true);
+  const authorization = await service.buildAuthorizedQuery(subject, 'certificate_asset', 'read');
+  assert.deepEqual(authorization.objectIds, ['cert_a']);
 });
 
 test('对象级权限兼容管理员通配权限', async () => {
@@ -441,7 +482,12 @@ function createService(): ObjectPermissionService {
   return createServiceWithRepos().service;
 }
 
-function createServiceWithRepos(): { service: ObjectPermissionService; policies: PgDocumentRepository<PermissionPolicyEntity>; roles: PgDocumentRepository<RoleEntity> } {
+function createServiceWithRepos(): {
+  service: ObjectPermissionService;
+  policies: PgDocumentRepository<PermissionPolicyEntity>;
+  roles: PgDocumentRepository<RoleEntity>;
+  userRoles: PgDocumentRepository<UserRoleEntity & { id: string }>;
+} {
   const db = new PgliteDatabase();
   const groups = new PgDocumentRepository<GroupEntity>(db, 'test.groups');
   const groupMembers = new PgDocumentRepository<GroupMemberEntity>(db, 'test.group_members');
@@ -457,5 +503,6 @@ function createServiceWithRepos(): { service: ObjectPermissionService; policies:
     service: new ObjectPermissionService(groups, groupMembers, roleBindings, objectTypes, objectSets, objectSetMembers, accessGrants, userRoles, policies, roles, new AuditService()),
     policies,
     roles,
+    userRoles,
   };
 }

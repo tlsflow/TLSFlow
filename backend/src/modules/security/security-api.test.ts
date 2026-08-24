@@ -86,18 +86,33 @@ describe('安全 API 最小闭环', () => {
       headers: { authorization: `Bearer ${token}` },
       body: { objectSetId, objectType: 'certificate', objectId: 'cert_prod' },
     });
-    await app.inject({
-      method: 'POST',
-      path: '/api/v1/security/role-bindings',
-      headers: { authorization: `Bearer ${token}` },
-      body: { principalType: 'user', principalId: 'user_admin', roleId, objectSetId },
-    });
+    await security.rbac.assignRole('user_admin', roleId);
     await app.inject({
       method: 'POST',
       path: '/api/v1/security/access-grants',
       headers: { authorization: `Bearer ${token}` },
       body: { roleId, objectSetId, accessLevel: 'edit' },
     });
+
+    const objectSetMembers = await app.inject({
+      method: 'GET',
+      path: `/api/v1/security/object-set-members?objectSetId=${objectSetId}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal(objectSetMembers.statusCode, 200);
+    assert.equal((objectSetMembers.body as { items: Array<{ objectId: string }> }).items.some((item) => item.objectId === 'cert_prod'), true);
+
+    const roleBindings = await app.inject({
+      method: 'GET',
+      path: '/api/v1/security/role-bindings',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.equal((roleBindings.body as { items: Array<{ principalType: string; principalId: string; roleId: string; objectSetId: string }> }).items.some((item) =>
+      item.principalType === 'group'
+      && item.principalId === roleId
+      && item.roleId === roleId
+      && item.objectSetId === objectSetId,
+    ), true);
 
     const capabilities = await app.inject({
       method: 'POST',
@@ -295,6 +310,72 @@ describe('安全 API 最小闭环', () => {
     assert.equal(session.user.username, 'alice');
     assert.deepEqual(session.user.roles.map((item) => item.code), ['ad_ops']);
     assert.equal(session.permissions.includes('dashboard.read'), true);
+  });
+
+  it('LDAP 登录解析租户级服务账号 Secret 时使用影子用户租户上下文', async () => {
+    const security = createSecurityServices();
+    const connector = new MockDirectoryConnector();
+    security.externalIdentity = new ExternalIdentityService(security.rbac, security.auth, security.audit, security.secrets, connector);
+    const app = createApp({ security });
+
+    const adminLogin = await app.inject({
+      method: 'POST',
+      path: '/api/v1/auth/login',
+      body: { username: 'admin', password: 'admin12345' },
+    });
+    const adminToken = (adminLogin.body as { token: string }).token;
+    const secret = await security.secrets.create({
+      tenantId: 'default',
+      name: 'LDAP 服务账号密码',
+      type: 'password',
+      scopeType: 'global',
+      plainText: 'ldap-bind-password',
+      createdBy: 'user_admin',
+    });
+
+    const source = await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/identity-sources',
+      headers: { authorization: `Bearer ${adminToken}` },
+      body: {
+        name: '企业 LDAP',
+        type: 'ldap',
+        url: 'ldap://ldap.example.test:389',
+        baseDn: 'dc=example,dc=test',
+        userFilter: '(uid={{username}})',
+        bindDn: 'uid=svc,dc=example,dc=test',
+        bindPasswordSecretRef: secret.secretRef,
+        requireGroupMapping: false,
+        tlsMode: 'none',
+      },
+    });
+    assert.equal(source.statusCode, 201);
+    const sourceId = (source.body as { id: string }).id;
+
+    connector.addProfile(sourceId, {
+      externalId: 'ldap-user-001',
+      username: 'jackson',
+      displayName: 'Jackson LDAP',
+      userDn: 'uid=jackson,ou=people,dc=example,dc=test',
+      groups: [],
+      password: 'jackson-password',
+    });
+
+    const createExternalUser = await app.inject({
+      method: 'POST',
+      path: '/api/v1/security/users/external',
+      headers: { authorization: `Bearer ${adminToken}` },
+      body: { sourceId, username: 'jackson' },
+    });
+    assert.equal(createExternalUser.statusCode, 201);
+
+    const externalLogin = await app.inject({
+      method: 'POST',
+      path: '/api/v1/auth/login',
+      body: { username: 'jackson', password: 'jackson-password' },
+    });
+    assert.equal(externalLogin.statusCode, 200);
+    assert.equal((externalLogin.body as { user: { username: string } }).user.username, 'jackson');
   });
 
   it('支持按用户名检索身份源用户并创建绑定用户', async () => {
