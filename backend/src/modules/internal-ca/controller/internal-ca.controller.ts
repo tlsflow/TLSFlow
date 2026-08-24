@@ -5,6 +5,7 @@ import { requireTenantId } from '../../../common/http/tenant-context.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import type { SecuritySubject } from '../../../shared/security-types.js';
 import type { SecurityServices } from '../../security/security.controller.js';
+import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
 import type { CaOperationsPermissionAction } from '../ca-operations.security.js';
 import type { CaOperationsRecordQueryDto, CreateCaSyncRunsDto } from '../dto/ca-operations.dto.js';
 import type {
@@ -24,6 +25,7 @@ export class InternalCaController {
   constructor(
     private readonly service: InternalCaApplicationService,
     private readonly security: SecurityServices,
+    private readonly tasks?: TaskEnqueuer,
     ..._unusedAssemblyArguments: unknown[]
   ) {}
 
@@ -95,32 +97,60 @@ export class InternalCaController {
 
   private async listOperationsTree(request: HttpRequest) {
     await this.assertAction(request, 'ca.operations.read', 'caOperation');
-    return this.service.listCaOperationsTree(tenantId(request), async () => true);
+    return this.service.listCaOperationsTree(tenantId(request), async (authority) => (
+      await this.security.rbac.can(
+        subjectFromRequest(request),
+        'ca.operations.read',
+        this.authorityResource(request, authority),
+        request.context,
+      )
+    ).allowed);
   }
 
   private async listOperationRecords(request: HttpRequest) {
     await this.assertAction(request, 'ca.operations.read', 'caOperation');
-    return this.service.listCaOperationsRecords(tenantId(request), operationQuery(request));
+    const query = operationQuery(request);
+    await this.assertAuthorityRead(request, query.caId);
+    return this.service.listCaOperationsRecords(tenantId(request), query);
   }
 
   private async getOperationRecord(request: HttpRequest) {
     await this.assertAction(request, 'ca.operations.read', 'caOperation');
-    return this.service.getCaOperationsRecord(tenantId(request), lastPathSegment(request));
+    const record = await this.service.getCaOperationsRecord(tenantId(request), lastPathSegment(request));
+    await this.assertAuthorityRead(request, record.caId);
+    return record;
   }
 
   private async createSyncRuns(request: HttpRequest) {
     const rawBody = objectBody(request);
     const body = rawBody as unknown as CreateCaSyncRunsDto;
     await this.assertAction(request, body.mode === 'full' ? 'ca.operations.sync.full' : 'ca.operations.sync', 'certificate_authority');
-    return { statusCode: 202, body: await this.service.createCaSyncRuns({
+    const runs = await this.service.createCaSyncRuns({
       tenantId: tenantId(request), providerId: requiredString(rawBody, 'providerId'), caId: requiredString(rawBody, 'caId'),
       objectTypes: body.objectTypes, mode: body.mode, actor: subjectFromRequest(request), context: request.context,
-    }) };
+    });
+    for (const run of runs) {
+      enqueueTaskBestEffort(this.tasks, {
+        tenantId: run.tenantId,
+        taskType: 'CA_RECORD_SYNC',
+        requestedBy: run.requestedBy,
+        triggerSource: 'ca.sync.manual',
+        idempotencyKey: `ca-record-sync:${run.id}`,
+        payload: { syncRunId: run.id },
+        resourceRefs: [
+          { resourceType: 'caSyncRun', resourceId: run.id },
+          { resourceType: 'certificateAuthority', resourceId: run.caId },
+        ],
+      });
+    }
+    return { statusCode: 202, body: runs };
   }
 
   private async listSyncRuns(request: HttpRequest) {
     await this.assertAction(request, 'ca.operations.read', 'caOperation');
-    return { items: await this.service.listCaSyncRuns(tenantId(request), optionalQuery(request, 'caId')) };
+    const caId = optionalQuery(request, 'caId');
+    if (caId) await this.assertAuthorityRead(request, caId);
+    return { items: await this.service.listCaSyncRuns(tenantId(request), caId) };
   }
 
   private async listTrustDomains(request: HttpRequest) {
@@ -322,6 +352,33 @@ export class InternalCaController {
       type: resourceType,
       scope: { tenantId: tenantId(request), tenantScope: request.context.tenantScope, ownerId: subject.id, resourceType },
     }, request.context);
+  }
+
+  private async assertAuthorityRead(request: HttpRequest, caId: string): Promise<void> {
+    const authority = (await this.service.listAuthorities(tenantId(request))).find((item) => item.id === caId);
+    if (!authority) throw new AppError('RESOURCE_NOT_FOUND', '证书机构不存在', { caId });
+    await this.security.rbac.assertCan(
+      subjectFromRequest(request),
+      'ca.operations.read',
+      this.authorityResource(request, authority),
+      request.context,
+    );
+  }
+
+  private authorityResource(request: HttpRequest, authority: { id: string; providerId: string; trustDomainId?: string }) {
+    return {
+      type: 'certificate_authority',
+      id: authority.id,
+      scope: {
+        tenantId: tenantId(request),
+        tenantScope: request.context.tenantScope,
+        trustDomainId: authority.trustDomainId,
+        caId: authority.id,
+        providerId: authority.providerId,
+        resourceType: 'certificate_authority',
+        resourceId: authority.id,
+      },
+    };
   }
 }
 

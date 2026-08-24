@@ -13,6 +13,7 @@ import { createApp } from './app.module.js';
 import { App } from './common/http/app.js';
 import { registerPolicyAuthorityServices } from './app.module.js';
 import type { ProductionPolicyAuthorityServicesV1 } from './modules/agents/security/policy-authority.service.js';
+import type { TaskExecutorRegistry } from './modules/tasks/task-worker-supervisor.js';
 
 test('非生产 App 只注册显式注入的 Policy Authority 资源', () => {
   const app = new App();
@@ -52,9 +53,16 @@ test('主装配移除 ACME HTTP-01 和旧 Provider 资源，同时保留通用 C
   assert.ok(app.getResource('certificateServices'));
   assert.ok(app.getResource('taskWorkerSupervisor'));
   assert.ok(app.getResource('cloudAccountAssetsService'));
-  assert.equal(app.getResource('internalCaService'), undefined);
-  assert.equal(app.getResource('caSyncWorker'), undefined);
-  assert.equal(app.getResource('caAutoSyncScheduler'), undefined);
+  assert.ok(app.getResource('internalCaService'));
+  assert.ok(app.getResource('caSyncWorker'));
+  assert.ok(app.getResource('caAutoSyncScheduler'));
+  const taskExecutorRegistry = app.getResource<TaskExecutorRegistry>('taskExecutorRegistry');
+  assert.ok(taskExecutorRegistry?.keys().includes('ca.sync'));
+  assert.ok(taskExecutorRegistry?.keys().includes('ca.node-task'));
+  assert.ok(app.router.match('GET', '/api/v1/ca-operations/tree'));
+  assert.ok(app.router.match('GET', '/api/v1/ca-providers'));
+  assert.ok(app.router.match('GET', '/api/v1/ca-trust-domains'));
+  assert.ok(app.router.match('GET', '/api/v1/certificate-authorities'));
   assert.ok(app.router.match('GET', '/api/v1/cloud-account-assets'));
   assert.ok(app.router.match('POST', '/api/v1/cloud-account-assets'));
   assert.ok(app.router.match('PATCH', '/api/v1/cloud-account-assets'));

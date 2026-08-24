@@ -31,6 +31,7 @@ import { BindingsApplicationService } from './modules/bindings/application/bindi
 import { BindingsController, getBindingsRouteContracts } from './modules/bindings/controller/bindings.controller.js';
 import { PgBindingsRepository } from './modules/bindings/repository/bindings.repository.js';
 import { CertificatesController, createCertificateServices, getCertificateRouteContracts, type CertificateServices } from './modules/certificates/index.js';
+import { CaAutoSyncScheduler, CaOperationsRepository, CaSyncWorker, getInternalCaRouteContracts, InternalCaApplicationService, InternalCaController } from './modules/internal-ca/index.js';
 import { PgCertificateArtifactStore } from './modules/certificates/artifacts/certificate-artifact-store.js';
 import { AuditPresentationService } from './modules/audits/audit-presentation.service.js';
 import { CapabilitiesApplicationService, CapabilitiesController, getCapabilitiesRouteContracts, PgCapabilitiesRepository } from './modules/capabilities/index.js';
@@ -198,6 +199,13 @@ export function createApp(dependencies: AppDependencies = {}): App {
     db: appDb,
     versionEvents: certificateVersionEventPublisher,
   });
+  const internalCaService = new InternalCaApplicationService({
+    db: appDb,
+    secrets: security.secrets,
+    certificates: certificateServices.certificates,
+    audit: security.audit,
+    approvals: security.approvals,
+  });
   const gatewaysService = new GatewaysApplicationService(gatewayPersistence.gateways, gatewayPersistence.targetHistory);
   const gatewayTaskAuditWriter = new GatewayTaskAuditWriter({ audit: security.audit, history: gatewaysService.getTargetHistoryRepository() });
   const gatewayTasksService = new GatewayTaskService({ auditWriter: gatewayTaskAuditWriter });
@@ -356,6 +364,39 @@ export function createApp(dependencies: AppDependencies = {}): App {
   }
   app.setResource('pluginWorkflowPublisher', pluginWorkflowPublisher);
   app.setResource('certificateServices', certificateServices);
+  app.setResource('internalCaService', internalCaService);
+  app.setResource('caSyncWorker', new CaSyncWorker(
+    new CaOperationsRepository(appDb),
+    internalCaService,
+    `ca-sync-worker-${process.pid}`,
+    ({ run, error }) => {
+      structuredLogger.warn('CA sync run failed', {
+        error: error instanceof Error ? error.message : String(error),
+        status: run.status,
+      }, {
+        module: 'ca-sync-worker',
+        tenantId: run.tenantId,
+        resourceType: 'caSyncRun',
+        resourceId: run.id,
+      });
+    },
+  ));
+  app.setResource('caAutoSyncScheduler', new CaAutoSyncScheduler(
+    new CaOperationsRepository(appDb),
+    internalCaService,
+    ({ target, error }) => {
+      structuredLogger.warn('CA automatic sync scheduling failed', {
+        error: error instanceof Error ? error.message : String(error),
+        objectType: target.objectType,
+      }, {
+        module: 'ca-auto-sync-scheduler',
+        tenantId: target.tenantId,
+        resourceType: 'certificateAuthority',
+        resourceId: target.caId,
+      });
+    },
+    tasksService,
+  ));
 
   app.setAuthTokenResolver((authorization, cookie) => security.auth.parseRequestIdentity(authorization, cookie));
   app.setAgentTokenResolver((token, request) => agentsService.parseAgentRequestIdentity(token, request));
@@ -576,6 +617,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('monitorsService', monitorsService);
 
   new CertificatesController(security, certificateServices).register(app.router);
+  new InternalCaController(internalCaService, security, tasksService).register(app.router);
   new DeviceAssetsController(deviceAssetsService, new SecurityServicesDeviceAssetPort(security)).register(app.router);
   new DevicesController(devicesService, security).register(app.router);
   new CapabilitiesController(capabilitiesService).register(app.router);
@@ -680,6 +722,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const taskExecutorRegistry = createTaskExecutorRegistry({
     executions: executionsService,
     executionRegistry: executorRegistry,
+    caSync: app.getResource<CaSyncWorker>('caSyncWorker'),
+    internalCa: internalCaService,
     automation: automationScheduler,
     automationRuns: automationsService,
     automationEvents: automationEventDelivery,
@@ -995,6 +1039,7 @@ export function getRouteContracts(
     ...getDeviceRouteContracts(),
     ...getBindingsRouteContracts(),
     ...getCertificateRouteContracts(),
+    ...getInternalCaRouteContracts(),
     ...getCapabilitiesRouteContracts(),
     ...getAgentsRouteContracts(),
     ...getGatewayRouteContracts(),

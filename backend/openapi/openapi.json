@@ -6918,6 +6918,1359 @@
         }
       }
     },
+    "/api/v1/ca-providers": {
+      "get": {
+        "operationId": "listCaProviders",
+        "summary": "查询通用 CA Provider",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createCaProvider",
+        "summary": "创建通用 CA Provider",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/ca-providers/:id": {
+      "delete": {
+        "operationId": "deleteCaProvider",
+        "summary": "删除未绑定的 CA Provider",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/ca-providers/:id/test": {
+      "post": {
+        "operationId": "testCaProvider",
+        "summary": "检查 CA Provider 合同状态",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/ca-operations/tree": {
+      "get": {
+        "operationId": "listCaOperationsTree",
+        "summary": "查询 CA 运营资源树",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/ca-operations/records": {
+      "get": {
+        "operationId": "listCaOperationRecords",
+        "summary": "查询 CA 运营记录",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/ca-operations/records/:recordKey": {
+      "get": {
+        "operationId": "getCaOperationRecord",
+        "summary": "查询 CA 运营记录详情",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/ca-operations/sync-runs": {
+      "post": {
+        "operationId": "createCaSyncRuns",
+        "summary": "创建 CA 历史同步运行",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "get": {
+        "operationId": "listCaSyncRuns",
+        "summary": "查询 CA 历史同步运行",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/ca-trust-domains": {
+      "get": {
+        "operationId": "listCaTrustDomains",
+        "summary": "查询 CA 信任域",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createCaTrustDomain",
+        "summary": "创建 CA 信任域",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/ca-trust-domains/:id": {
+      "patch": {
+        "operationId": "updateCaTrustDomain",
+        "summary": "更新 CA 信任域",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/certificate-authorities": {
+      "get": {
+        "operationId": "listCertificateAuthorities",
+        "summary": "查询证书机构",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createCertificateAuthority",
+        "summary": "创建证书机构对象",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/certificate-authorities/preview": {
+      "post": {
+        "operationId": "previewCertificateAuthority",
+        "summary": "预览 CA 拓扑风险",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/certificate-profiles": {
+      "get": {
+        "operationId": "listCertificateProfiles",
+        "summary": "查询证书 Profile",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createCertificateProfile",
+        "summary": "创建证书 Profile",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/certificate-profiles/:id/versions": {
+      "post": {
+        "operationId": "createCertificateProfileVersion",
+        "summary": "创建证书 Profile 版本",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/certificate-requests": {
+      "get": {
+        "operationId": "listCertificateRequests",
+        "summary": "查询证书申请",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createCertificateRequest",
+        "summary": "创建证书申请对象",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/certificate-requests/:id/approve": {
+      "post": {
+        "operationId": "approveCertificateRequest",
+        "summary": "审批证书申请",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/certificate-requests/:id/retry": {
+      "post": {
+        "operationId": "retryCertificateRequest",
+        "summary": "请求插件重试签发",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/certificate-requests/:id/query": {
+      "post": {
+        "operationId": "queryCertificateRequest",
+        "summary": "查询插件签发结果",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/certificate-requests/:id/activate": {
+      "post": {
+        "operationId": "activateCertificateRequest",
+        "summary": "确认应用证书已安装",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/certificate-renewals": {
+      "get": {
+        "operationId": "listCertificateRenewals",
+        "summary": "查询证书续期任务",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/certificate-renewals/scan": {
+      "post": {
+        "operationId": "scanCertificateRenewals",
+        "summary": "创建通用证书续期任务",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/certificate-revocations": {
+      "get": {
+        "operationId": "listCertificateRevocations",
+        "summary": "查询证书吊销任务",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createCertificateRevocation",
+        "summary": "创建证书吊销任务",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/certificate-revocations/:id/approve": {
+      "post": {
+        "operationId": "approveCertificateRevocation",
+        "summary": "审批证书吊销任务",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/ca-trust-distributions": {
+      "get": {
+        "operationId": "listCaTrustDistributions",
+        "summary": "查询 CA 信任分发任务",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createCaTrustDistribution",
+        "summary": "创建 CA 信任分发任务",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/ca-trust-distributions/:id/approve": {
+      "post": {
+        "operationId": "approveCaTrustDistribution",
+        "summary": "审批 CA 信任分发任务",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/ca-trust-distributions/:id/complete": {
+      "post": {
+        "operationId": "completeCaTrustDistribution",
+        "summary": "回传 CA 信任分发验证结果",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/reports/certificate-reuse/overview": {
+      "get": {
+        "operationId": "getCertificateReuseRiskOverview",
+        "summary": "查询证书复用风险摘要",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/reports/certificate-reuse/items": {
+      "get": {
+        "operationId": "listCertificateReuseRisks",
+        "summary": "查询证书复用风险明细",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/reports/certificate-reuse/export": {
+      "get": {
+        "operationId": "exportCertificateReuseRisks",
+        "summary": "导出证书复用风险",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/reports/certificate-reuse/:id/remediation-preview": {
+      "post": {
+        "operationId": "previewCertificateReuseRemediation",
+        "summary": "预览证书复用风险整改",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/ca-nodes": {
+      "get": {
+        "operationId": "listCaNodes",
+        "summary": "查询受控 CA Node",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/ca-nodes/enrollment-tokens": {
+      "post": {
+        "operationId": "createCaNodeEnrollmentToken",
+        "summary": "创建 CA Node 注册令牌",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/ca-nodes/register": {
+      "post": {
+        "operationId": "registerCaNode",
+        "summary": "注册 CA Node",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/ca-nodes/heartbeat": {
+      "post": {
+        "operationId": "heartbeatCaNode",
+        "summary": "上报 CA Node 心跳",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/ca-nodes/tasks/lease": {
+      "post": {
+        "operationId": "leaseCaNodeTask",
+        "summary": "获取 CA Node 任务",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/ca-nodes/tasks/:id/result": {
+      "post": {
+        "operationId": "completeCaNodeTask",
+        "summary": "回传 CA Node 任务结果",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/capabilities/definitions": {
       "get": {
         "operationId": "listCapabilityDefinitions",
@@ -9052,8 +10405,8 @@
                           "runtime": {
                             "type": "string",
                             "enum": [
-                              "WORKFLOW_DSL",
-                              "TRUSTED_JS"
+                              "AGENT_PLAN",
+                              "WORKFLOW_DSL"
                             ]
                           },
                           "scope": {
@@ -9104,8 +10457,8 @@
                               "runtime": {
                                 "type": "string",
                                 "enum": [
-                                  "WORKFLOW_DSL",
-                                  "TRUSTED_JS"
+                                  "AGENT_PLAN",
+                                  "WORKFLOW_DSL"
                                 ]
                               },
                               "source": {
@@ -9237,14 +10590,17 @@
                               "resources": {
                                 "type": "object",
                                 "properties": {
-                                  "workflows": {
+                                  "agentPlans": {
                                     "type": "object",
                                     "additionalProperties": {
                                       "type": "string"
                                     }
                                   },
-                                  "runtimeEntrypoint": {
-                                    "type": "string"
+                                  "workflows": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                      "type": "string"
+                                    }
                                   },
                                   "forms": {
                                     "type": "object",
@@ -9681,8 +11037,8 @@
                         "runtime": {
                           "type": "string",
                           "enum": [
-                            "WORKFLOW_DSL",
-                            "TRUSTED_JS"
+                            "AGENT_PLAN",
+                            "WORKFLOW_DSL"
                           ]
                         },
                         "source": {
@@ -9814,14 +11170,17 @@
                         "resources": {
                           "type": "object",
                           "properties": {
-                            "workflows": {
+                            "agentPlans": {
                               "type": "object",
                               "additionalProperties": {
                                 "type": "string"
                               }
                             },
-                            "runtimeEntrypoint": {
-                              "type": "string"
+                            "workflows": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "string"
+                              }
                             },
                             "forms": {
                               "type": "object",
@@ -9962,8 +11321,8 @@
                       "runtime": {
                         "type": "string",
                         "enum": [
-                          "WORKFLOW_DSL",
-                          "TRUSTED_JS"
+                          "AGENT_PLAN",
+                          "WORKFLOW_DSL"
                         ]
                       },
                       "source": {
@@ -10095,14 +11454,17 @@
                       "resources": {
                         "type": "object",
                         "properties": {
-                          "workflows": {
+                          "agentPlans": {
                             "type": "object",
                             "additionalProperties": {
                               "type": "string"
                             }
                           },
-                          "runtimeEntrypoint": {
-                            "type": "string"
+                          "workflows": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
                           },
                           "forms": {
                             "type": "object",
@@ -10238,8 +11600,8 @@
                     "runtime": {
                       "type": "string",
                       "enum": [
-                        "WORKFLOW_DSL",
-                        "TRUSTED_JS"
+                        "AGENT_PLAN",
+                        "WORKFLOW_DSL"
                       ]
                     },
                     "scope": {
@@ -10290,8 +11652,8 @@
                         "runtime": {
                           "type": "string",
                           "enum": [
-                            "WORKFLOW_DSL",
-                            "TRUSTED_JS"
+                            "AGENT_PLAN",
+                            "WORKFLOW_DSL"
                           ]
                         },
                         "source": {
@@ -10423,14 +11785,17 @@
                         "resources": {
                           "type": "object",
                           "properties": {
-                            "workflows": {
+                            "agentPlans": {
                               "type": "object",
                               "additionalProperties": {
                                 "type": "string"
                               }
                             },
-                            "runtimeEntrypoint": {
-                              "type": "string"
+                            "workflows": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "string"
+                              }
                             },
                             "forms": {
                               "type": "object",
@@ -10687,8 +12052,8 @@
                     "runtime": {
                       "type": "string",
                       "enum": [
-                        "WORKFLOW_DSL",
-                        "TRUSTED_JS"
+                        "AGENT_PLAN",
+                        "WORKFLOW_DSL"
                       ]
                     },
                     "scope": {
@@ -10739,8 +12104,8 @@
                         "runtime": {
                           "type": "string",
                           "enum": [
-                            "WORKFLOW_DSL",
-                            "TRUSTED_JS"
+                            "AGENT_PLAN",
+                            "WORKFLOW_DSL"
                           ]
                         },
                         "source": {
@@ -10872,14 +12237,17 @@
                         "resources": {
                           "type": "object",
                           "properties": {
-                            "workflows": {
+                            "agentPlans": {
                               "type": "object",
                               "additionalProperties": {
                                 "type": "string"
                               }
                             },
-                            "runtimeEntrypoint": {
-                              "type": "string"
+                            "workflows": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "string"
+                              }
                             },
                             "forms": {
                               "type": "object",
@@ -11135,8 +12503,8 @@
                     "runtime": {
                       "type": "string",
                       "enum": [
-                        "WORKFLOW_DSL",
-                        "TRUSTED_JS"
+                        "AGENT_PLAN",
+                        "WORKFLOW_DSL"
                       ]
                     },
                     "scope": {
@@ -11187,8 +12555,8 @@
                         "runtime": {
                           "type": "string",
                           "enum": [
-                            "WORKFLOW_DSL",
-                            "TRUSTED_JS"
+                            "AGENT_PLAN",
+                            "WORKFLOW_DSL"
                           ]
                         },
                         "source": {
@@ -11320,14 +12688,17 @@
                         "resources": {
                           "type": "object",
                           "properties": {
-                            "workflows": {
+                            "agentPlans": {
                               "type": "object",
                               "additionalProperties": {
                                 "type": "string"
                               }
                             },
-                            "runtimeEntrypoint": {
-                              "type": "string"
+                            "workflows": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "string"
+                              }
                             },
                             "forms": {
                               "type": "object",
@@ -11583,8 +12954,8 @@
                     "runtime": {
                       "type": "string",
                       "enum": [
-                        "WORKFLOW_DSL",
-                        "TRUSTED_JS"
+                        "AGENT_PLAN",
+                        "WORKFLOW_DSL"
                       ]
                     },
                     "scope": {
@@ -11635,8 +13006,8 @@
                         "runtime": {
                           "type": "string",
                           "enum": [
-                            "WORKFLOW_DSL",
-                            "TRUSTED_JS"
+                            "AGENT_PLAN",
+                            "WORKFLOW_DSL"
                           ]
                         },
                         "source": {
@@ -11768,14 +13139,17 @@
                         "resources": {
                           "type": "object",
                           "properties": {
-                            "workflows": {
+                            "agentPlans": {
                               "type": "object",
                               "additionalProperties": {
                                 "type": "string"
                               }
                             },
-                            "runtimeEntrypoint": {
-                              "type": "string"
+                            "workflows": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "string"
+                              }
                             },
                             "forms": {
                               "type": "object",
@@ -12031,8 +13405,8 @@
                     "runtime": {
                       "type": "string",
                       "enum": [
-                        "WORKFLOW_DSL",
-                        "TRUSTED_JS"
+                        "AGENT_PLAN",
+                        "WORKFLOW_DSL"
                       ]
                     },
                     "scope": {
@@ -12083,8 +13457,8 @@
                         "runtime": {
                           "type": "string",
                           "enum": [
-                            "WORKFLOW_DSL",
-                            "TRUSTED_JS"
+                            "AGENT_PLAN",
+                            "WORKFLOW_DSL"
                           ]
                         },
                         "source": {
@@ -12216,14 +13590,17 @@
                         "resources": {
                           "type": "object",
                           "properties": {
-                            "workflows": {
+                            "agentPlans": {
                               "type": "object",
                               "additionalProperties": {
                                 "type": "string"
                               }
                             },
-                            "runtimeEntrypoint": {
-                              "type": "string"
+                            "workflows": {
+                              "type": "object",
+                              "additionalProperties": {
+                                "type": "string"
+                              }
                             },
                             "forms": {
                               "type": "object",
@@ -17939,5 +19316,5 @@
       "description": "证书绑定生产事实中心"
     }
   ],
-  "x-generatedAt": "2026-08-10T02:51:57.190Z"
+  "x-generatedAt": "2026-08-12T08:06:05.852Z"
 }
