@@ -1280,17 +1280,22 @@ export class InternalCaApplicationService {
 
   private async createExternalAuthority(tenantId: string, input: CreateAuthorityInput, provider: CaProviderEntity, trustDomainId: string): Promise<CertificateAuthorityEntity> {
     const now = new Date().toISOString();
+    const discovered = asObject(provider.configuration.discovered);
+    const discoveredName = provider.type === 'microsoft_adcs' ? textValue(discovered.caName) : undefined;
+    if (provider.type === 'microsoft_adcs' && !discoveredName) {
+      throw new AppError('CA_PROVIDER_UNAVAILABLE', 'Microsoft AD CS Agent 尚未完成 CA 发现');
+    }
     return this.repository.saveAuthority({
       id: newId('ca'),
       tenantId,
       name: input.name,
-      role: input.topologyMode === 'root_with_intermediate' ? 'intermediate' : 'root',
+      role: 'root',
       topologyMode: 'external_managed',
       providerId: provider.id,
       trustDomainId,
       securityDomain: input.securityDomain,
       status: 'active',
-      subjectCommonName: input.commonName,
+      subjectCommonName: discoveredName ?? input.commonName,
       createdAt: now,
       updatedAt: now,
     });
@@ -1620,6 +1625,10 @@ function normalizeAdcsDiscovery(input: AdcsDiscoveryInput, observedAt: string): 
     status: optionalText(input.status),
     observedAt,
   };
+}
+
+function asObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
 function sanitizeAuthority(authority: CertificateAuthorityEntity): Omit<CertificateAuthorityEntity, 'privateKeySecretRef'> {

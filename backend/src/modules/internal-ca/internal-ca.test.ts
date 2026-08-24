@@ -471,6 +471,7 @@ test('同一租户可管理多套根 CA 信任域并拒绝跨域签发', async (
     deploymentMode: 'external',
     runtimePlatform: 'external',
     availabilityMode: 'single',
+    configuration: { discovered: { caName: 'Contoso Root CA', caConfig: 'CA01\\Contoso Root CA' } },
   }, actorId);
   const productionDomain = await service.createTrustDomain(tenantId, {
     name: '生产信任域', code: 'production', purpose: 'production_tls', isDefault: true, isolationLevel: 'strict',

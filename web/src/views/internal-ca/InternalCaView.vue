@@ -230,6 +230,17 @@ function chooseAuthorityMode(mode: 'builtin' | 'managed_node' | 'external') {
   }
 }
 
+function selectAdcsProvider(providerId: string) {
+  authorityDraft.providerId = providerId
+  providerDraft.id = providerId
+  authorityDraft.topologyMode = 'external_managed'
+  const provider = providers.value.find((item) => text(item.id) === providerId)
+  const discovered = asRecord(asRecord(provider?.configuration).discovered)
+  const discoveredName = text(discovered.caName, text(provider?.name))
+  authorityDraft.name = discoveredName
+  authorityDraft.commonName = discoveredName
+}
+
 function applyParentRoot(parent?: InternalCaRecord) {
   if (!parent) return
   const provider = providers.value.find((item) => text(item.id) === text(parent.providerId))
@@ -560,7 +571,7 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
             <template v-else>
               <label class="ca-wizard__full">{{ t('internalCa.fields.providerType') }}<select v-model="providerDraft.type" required><option value="microsoft_adcs">{{ t('internalCa.providerTypes.microsoft_adcs') }}</option><option value="acme">{{ t('internalCa.providerTypes.acme') }}</option><option value="est">{{ t('internalCa.providerTypes.est') }}</option><option value="scep">{{ t('internalCa.providerTypes.scep') }}</option><option value="product_adapter">{{ t('internalCa.providerTypes.product_adapter') }}</option></select></label>
               <template v-if="providerDraft.type === 'microsoft_adcs'">
-                <label class="ca-wizard__full">{{ t('internalCa.fields.provider') }}<select v-model="authorityDraft.providerId" required @change="providerDraft.id = authorityDraft.providerId"><option value="" disabled>{{ t('internalCa.adcsAgent.description') }}</option><option v-for="provider in adcsProviders" :key="text(provider.id)" :value="text(provider.id)">{{ text(provider.name) }}</option></select></label>
+                <label class="ca-wizard__full">{{ t('internalCa.fields.provider') }}<select :value="authorityDraft.providerId" required @change="selectAdcsProvider(($event.target as HTMLSelectElement).value)"><option value="" disabled>{{ t('internalCa.adcsAgent.description') }}</option><option v-for="provider in adcsProviders" :key="text(provider.id)" :value="text(provider.id)">{{ text(provider.name) }}</option></select></label>
                 <article class="ca-wizard__notice ca-wizard__full" v-if="selectedProvider">
                   <strong>{{ text(selectedProvider.name) }}</strong>
                   <p>{{ text(selectedAdcsDiscovery.caConfig, t('internalCa.common.unknown')) }} · {{ text(selectedAdcsDiscovery.caName, t('internalCa.common.unknown')) }}</p>
@@ -584,14 +595,19 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
         </form>
 
         <form v-else-if="(authorityCreationKind === 'root' && authorityWizardStep === 3) || (authorityCreationKind === 'intermediate' && authorityWizardStep < 3)" ref="authorityWizardForm" class="ca-wizard__panel ca-wizard__form" @submit.prevent="advanceAuthorityWizard">
-          <header class="ca-wizard__panel-heading ca-wizard__full"><span>{{ t('internalCa.wizard.authorityEyebrow') }}</span><h3>{{ authorityCreationKind === 'root' ? t('internalCa.wizard.rootConfigurationTitle') : t('internalCa.wizard.intermediateConfigurationTitle') }}</h3><p>{{ authorityCreationKind === 'root' ? t('internalCa.wizard.rootConfigurationDescription') : t('internalCa.wizard.intermediateConfigurationDescription') }}</p></header>
+          <header class="ca-wizard__panel-heading ca-wizard__full"><span>{{ t('internalCa.wizard.authorityEyebrow') }}</span><h3>{{ authorityCreationMode === 'external' && providerDraft.type === 'microsoft_adcs' ? t('internalCa.adcsAgent.title') : authorityCreationKind === 'root' ? t('internalCa.wizard.rootConfigurationTitle') : t('internalCa.wizard.intermediateConfigurationTitle') }}</h3><p>{{ authorityCreationMode === 'external' && providerDraft.type === 'microsoft_adcs' ? t('internalCa.adcsAgent.description') : authorityCreationKind === 'root' ? t('internalCa.wizard.rootConfigurationDescription') : t('internalCa.wizard.intermediateConfigurationDescription') }}</p></header>
           <label v-if="authorityCreationKind === 'intermediate' && authorityWizardStep === 1" class="ca-wizard__full">{{ t('internalCa.fields.parentAuthority') }}<select :value="authorityDraft.parentCaId" required @change="selectParentRoot(($event.target as HTMLSelectElement).value)"><option v-for="item in eligibleParentRoots" :key="text(item.id)" :value="text(item.id)">{{ text(item.name) }}</option></select></label>
           <template v-else>
             <label v-if="authorityCreationKind === 'root'">{{ t('internalCa.fields.trustDomain') }}<select v-model="authorityDraft.trustDomainId" required><option v-for="item in trustDomains" :key="text(item.id)" :value="text(item.id)">{{ text(item.name) }}</option></select></label>
-            <label>{{ t('internalCa.fields.name') }}<input v-model="authorityDraft.name" required /></label>
-            <label>{{ t('internalCa.fields.commonName') }}<input v-model="authorityDraft.commonName" required /></label>
-            <label>{{ t('internalCa.fields.securityDomain') }}<input v-model="authorityDraft.securityDomain" required /></label>
-            <label v-if="authorityCreationKind === 'root'">{{ t('internalCa.fields.topology') }}<select v-model="authorityDraft.topologyMode"><option value="root_only">{{ t('internalCa.topology.rootOnly') }}</option><option value="root_with_intermediate">{{ t('internalCa.topology.intermediate') }}</option></select></label>
+             <template v-if="authorityCreationMode === 'external' && providerDraft.type === 'microsoft_adcs'">
+               <article class="ca-wizard__notice ca-wizard__full"><strong>{{ text(selectedAdcsDiscovery.caName, t('internalCa.common.unknown')) }}</strong><p>{{ text(selectedAdcsDiscovery.caConfig, t('internalCa.common.unknown')) }}</p><small>{{ asRecords(selectedAdcsDiscovery.templates).join(', ') || t('internalCa.common.unknown') }}</small></article>
+             </template>
+             <template v-else>
+               <label>{{ t('internalCa.fields.name') }}<input v-model="authorityDraft.name" required /></label>
+               <label>{{ t('internalCa.fields.commonName') }}<input v-model="authorityDraft.commonName" required /></label>
+             </template>
+             <label>{{ t('internalCa.fields.securityDomain') }}<input v-model="authorityDraft.securityDomain" required /></label>
+             <label v-if="authorityCreationKind === 'root' && !(authorityCreationMode === 'external' && providerDraft.type === 'microsoft_adcs')">{{ t('internalCa.fields.topology') }}<select v-model="authorityDraft.topologyMode"><option value="root_only">{{ t('internalCa.topology.rootOnly') }}</option><option value="root_with_intermediate">{{ t('internalCa.topology.intermediate') }}</option></select></label>
             <article class="ca-wizard__backend-summary ca-wizard__full"><span>{{ t('internalCa.fields.issuingBackend') }}</span><strong>{{ authorityCreationKind === 'intermediate' ? providerTypeLabel(selectedProvider?.type) : t(`internalCa.wizard.${authorityCreationMode}Title`) }}</strong><small>{{ t(`internalCa.wizard.${selectedCreationMode}SecurityNote`) }}</small></article>
           </template>
           <button class="ca-wizard__hidden-submit" tabindex="-1"></button>
