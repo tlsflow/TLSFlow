@@ -227,31 +227,50 @@ func discoverWindowsNginx(facts windowsRuntimeFactSnapshot) windowsNginxDetail {
 		return windowsNginxDetail{}
 	}
 
-	detail := windowsNginxDetail{
-		Installed:   strings.TrimSpace(process.ExecutablePath) != "",
-		Running:     firstWindowsRuntimeProcess(facts.Processes, "nginx") != nil,
-		Version:     process.Version,
-		BinaryPath:  strings.TrimSpace(process.ExecutablePath),
-		ServiceName: serviceName(service),
-	}
 	processCommandLine := strings.TrimSpace(process.CommandLine)
 	serviceCommandLine := ""
 	if service != nil {
 		serviceCommandLine = strings.TrimSpace(service.PathName)
 	}
+	binaryPath := firstNonEmpty(
+		strings.TrimSpace(process.ExecutablePath),
+		extractWindowsExecutablePath(processCommandLine),
+		strings.TrimSpace(serviceExecutablePath(service)),
+		extractWindowsExecutablePath(serviceCommandLine),
+	)
+	detail := windowsNginxDetail{
+		Installed:   binaryPath != "",
+		Running:     firstWindowsRuntimeProcess(facts.Processes, "nginx") != nil,
+		Version:     firstNonEmpty(process.Version, serviceVersion(service)),
+		BinaryPath:  binaryPath,
+		ServiceName: serviceName(service),
+	}
 	prefix := firstNonEmpty(
 		windowsCommandArgument(processCommandLine, "-p"),
 		windowsCommandArgument(serviceCommandLine, "-p"),
 	)
+	if prefix == "" && windowsRuntimePathIsAbsolute(binaryPath) {
+		// 未显式指定 -p 时，Windows 官方发行包以 nginx.exe 所在目录作为
+		// 前缀；只接受该目录下真实存在的默认配置，不扫描候选目录。
+		prefix = filepath.Dir(binaryPath)
+	}
 	detail.ConfigRoot = windowsCleanPath(prefix)
 	configPath := firstNonEmpty(
 		windowsCommandArgument(processCommandLine, "-c"),
 		windowsCommandArgument(serviceCommandLine, "-c"),
 	)
 	if configPath == "" {
+		if detail.ConfigRoot != "" {
+			defaultConfigPath := filepath.Join(detail.ConfigRoot, "conf", "nginx.conf")
+			if info, err := os.Stat(defaultConfigPath); err == nil && !info.IsDir() {
+				configPath = defaultConfigPath
+			}
+		}
+	}
+	if configPath == "" {
 		detail.Warnings = append(detail.Warnings, windowsDiscoveryWarning{
 			Code:    "CONFIG_PATH_UNCONFIRMED",
-			Message: "NGINX 运行参数未提供实际配置路径，跳过配置解析",
+			Message: "NGINX 运行参数未提供配置路径，且程序目录下不存在默认配置文件，跳过配置解析",
 		})
 		return detail
 	}
@@ -470,6 +489,13 @@ func serviceVersion(service *windowsRuntimeServiceFact) string {
 		return ""
 	}
 	return strings.TrimSpace(service.Version)
+}
+
+func serviceExecutablePath(service *windowsRuntimeServiceFact) string {
+	if service == nil {
+		return ""
+	}
+	return strings.TrimSpace(service.ExecutablePath)
 }
 
 func tomcatPathFromExecutable(service *windowsRuntimeServiceFact) string {

@@ -87,12 +87,62 @@ func TestMatureNginxInventoryProjectsConfirmedRuntimeFacts(t *testing.T) {
 	}
 }
 
-func TestDiscoverWindowsNginxDoesNotGuessConfigPath(t *testing.T) {
+func TestDiscoverWindowsNginxUsesExistingDefaultConfigPath(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "conf"), 0o700); err != nil {
+		t.Fatalf("创建 Nginx 配置目录失败: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "nginx.exe"), []byte("nginx"), 0o600); err != nil {
+		t.Fatalf("写入 Nginx 程序失败: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "conf", "nginx.conf"), []byte("server { listen 8080; server_name default.example.test; }"), 0o600); err != nil {
+		t.Fatalf("写入 Nginx 默认配置失败: %v", err)
+	}
 	detail := discoverWindowsNginx(windowsRuntimeFactSnapshot{
 		Processes: []windowsRuntimeProcessFact{{
 			Name:           "nginx.exe",
-			ExecutablePath: `D:\runtime\nginx\nginx.exe`,
-			CommandLine:    `"D:\runtime\nginx\nginx.exe"`,
+			ExecutablePath: filepath.Join(root, "nginx.exe"),
+			CommandLine:    "nginx.exe",
+		}},
+	})
+	if detail.ConfigPath != filepath.Join(root, "conf", "nginx.conf") {
+		t.Fatalf("存在程序目录默认配置时应解析 nginx.conf: %#v", detail)
+	}
+	if len(detail.Sites) != 1 || detail.Sites[0].Name != "default.example.test" {
+		t.Fatalf("默认配置中的 Nginx 站点未发现: %#v", detail.Sites)
+	}
+}
+
+func TestDiscoverWindowsNginxUsesServicePathWhenProcessPathUnavailable(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "conf"), 0o700); err != nil {
+		t.Fatalf("创建 Nginx 服务配置目录失败: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "nginx.exe"), []byte("nginx"), 0o600); err != nil {
+		t.Fatalf("写入 Nginx 服务程序失败: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "conf", "nginx.conf"), []byte("server { listen 8081; server_name service.example.test; }"), 0o600); err != nil {
+		t.Fatalf("写入 Nginx 服务默认配置失败: %v", err)
+	}
+	detail := discoverWindowsNginx(windowsRuntimeFactSnapshot{
+		Services: []windowsRuntimeServiceFact{{
+			Name:     "nginx-service",
+			State:    "Running",
+			PathName: `"` + filepath.Join(root, "nginx.exe") + `"`,
+		}},
+	})
+	if detail.BinaryPath != filepath.Join(root, "nginx.exe") || len(detail.Sites) != 1 || detail.Sites[0].Name != "service.example.test" {
+		t.Fatalf("进程路径不可用时未从 Nginx 服务事实发现站点: %#v", detail)
+	}
+}
+
+func TestDiscoverWindowsNginxDoesNotGuessMissingConfigPath(t *testing.T) {
+	root := t.TempDir()
+	detail := discoverWindowsNginx(windowsRuntimeFactSnapshot{
+		Processes: []windowsRuntimeProcessFact{{
+			Name:           "nginx.exe",
+			ExecutablePath: filepath.Join(root, "nginx.exe"),
+			CommandLine:    "nginx.exe",
 		}},
 	})
 
