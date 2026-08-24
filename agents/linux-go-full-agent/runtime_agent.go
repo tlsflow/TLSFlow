@@ -44,11 +44,7 @@ type registerRequest struct {
 	OSVersion          string   `json:"osVersion,omitempty"`
 	Labels             []string `json:"labels,omitempty"`
 	EnrollmentToken    string   `json:"enrollmentToken,omitempty"`
-	Role               string   `json:"role,omitempty"`
 	Zone               string   `json:"zone,omitempty"`
-	ZoneIDs            []string `json:"zoneIds,omitempty"`
-	Adapters           []string `json:"adapters,omitempty"`
-	Capabilities       []string `json:"capabilities,omitempty"`
 }
 
 type registerResponse struct {
@@ -92,8 +88,6 @@ type heartbeatRequest struct {
 	AgentID            string                  `json:"agentId"`
 	Version            string                  `json:"version"`
 	ManagementEndpoint string                  `json:"managementEndpoint,omitempty"`
-	Adapters           []string                `json:"adapters,omitempty"`
-	Capabilities       []string                `json:"capabilities,omitempty"`
 	RuntimeHealth      *heartbeatRuntimeHealth `json:"runtimeHealth,omitempty"`
 	TaskSummary        struct {
 		Running   int `json:"running"`
@@ -171,14 +165,6 @@ type submitResultRequest struct {
 	Detail       map[string]any `json:"detail,omitempty"`
 }
 
-type enqueueAgentTaskRequest struct {
-	AgentID         string         `json:"agentId"`
-	ExecutionRunID  string         `json:"executionRunId"`
-	ExecutionStepID string         `json:"executionStepId"`
-	IdempotencyKey  string         `json:"idempotencyKey"`
-	Payload         map[string]any `json:"payload,omitempty"`
-}
-
 type submitRuntimeLogRequest struct {
 	AgentID   string         `json:"agentId"`
 	Category  string         `json:"category"`
@@ -244,7 +230,6 @@ type capabilityReportRequest struct {
 	AgentID            string               `json:"agentId"`
 	CompatibilityLevel string               `json:"compatibilityLevel,omitempty"`
 	Capabilities       []reportedCapability `json:"capabilities"`
-	Adapters           []string             `json:"adapters,omitempty"`
 }
 
 type reportedCapability struct {
@@ -255,7 +240,7 @@ type reportedCapability struct {
 }
 
 // 管理监听只提供健康检查和经过 Agent v2 授权的 Web 重新发现。
-// 计划执行、Gateway 转发和任意命令仍只能走异步任务队列。
+// 计划执行和任意命令仍只能走异步任务队列。
 func startManagementServer(
 	config *AgentConfig,
 	identity runtimeIdentity,
@@ -391,13 +376,6 @@ func handleRun(args []string) error {
 		return err
 	}
 	defer managementServer.Shutdown(context.Background())
-	relayServer, err := startRelayServer(config)
-	if err != nil {
-		return err
-	}
-	if relayServer != nil {
-		defer relayServer.Close()
-	}
 	ledger := loadResultLedger(resolveResultLedgerPath(config))
 	statusPath := resolveAgentRuntimeStatusPath(config)
 	status := loadRuntimeStatusSnapshot(statusPath)
@@ -1061,13 +1039,7 @@ func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig
 		OSVersion:          identity.OSVersion,
 		Labels:             []string{"linux-go", "systemd"},
 		EnrollmentToken:    strings.TrimSpace(config.EnrollmentToken),
-		Role:               effectiveAgentRole(config),
 		Zone:               strings.TrimSpace(config.Zone),
-	}
-	if isGatewayEnabled(config) {
-		request.ZoneIDs = []string{firstNonEmpty(strings.TrimSpace(config.Zone), "default")}
-		request.Adapters = gatewayRouteChannels()
-		request.Capabilities = gatewayCapabilityKeys()
 	}
 
 	var response registerResponse
@@ -1087,10 +1059,6 @@ func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig
 
 func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState, counters *runtimeCounters, status *runtimeStatusSnapshot) error {
 	request := heartbeatRequest{AgentID: state.AgentID, Version: state.Version, ManagementEndpoint: managementEndpointForIdentity(collectRuntimeIdentity(config.ControlPlane), config)}
-	if isGatewayEnabled(config) {
-		request.Adapters = gatewayRouteChannels()
-		request.Capabilities = gatewayCapabilityKeys()
-	}
 	if counters != nil {
 		request.TaskSummary.Running = counters.Running
 		request.TaskSummary.Queued = counters.Queued
@@ -1104,28 +1072,14 @@ func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig
 }
 
 func reportCapabilities(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState) error {
-	capabilities := []reportedCapability{}
-	if !isPureGatewayRole(config) {
-		capabilities = collectCapabilityReports()
-	}
-	if len(capabilities) == 0 && !isGatewayEnabled(config) {
+	capabilities := collectCapabilityReports()
+	if len(capabilities) == 0 {
 		return nil
 	}
 	request := capabilityReportRequest{
 		AgentID:            state.AgentID,
 		CompatibilityLevel: "L1",
 		Capabilities:       capabilities,
-		Adapters:           registeredLinuxAdapterIDs(config),
-	}
-	if isGatewayEnabled(config) {
-		for _, capability := range gatewayCapabilityKeys() {
-			request.Capabilities = append(request.Capabilities, reportedCapability{
-				CapabilityKey: capability,
-				Value:         true,
-				Confidence:    0.95,
-				Evidence:      map[string]any{"source": "gateway-role"},
-			})
-		}
 	}
 	return doJSONRequest(ctx, client, config, http.MethodPost, "/api/v1/agents/capabilities", request, nil)
 }
@@ -1217,9 +1171,6 @@ func executeTask(ctx context.Context, client *http.Client, config *AgentConfig, 
 	payload := task.Payload
 	if payload == nil {
 		payload = map[string]any{}
-	}
-	if success, code, message, detail, handled := executeGatewayTask(ctx, client, config, task, payload); handled {
-		return success, code, message, detail
 	}
 	wirePayload, action, schemaVersion, err := decodeQueuedAgentV2Payload(payload)
 	if err != nil {

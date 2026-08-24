@@ -7,27 +7,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"path/filepath"
-	"reflect"
 	"runtime"
-	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	coreRegistry "gcac/linux-go-full-agent/internal/core/registry"
 )
-
-func TestRegisteredLinuxAdaptersExposeOnlyGatewayRoutes(t *testing.T) {
-	if adapters := registeredLinuxAdapterIDs(&AgentConfig{}); len(adapters) != 0 {
-		t.Fatalf("普通 Agent 不得暴露历史产品适配器: %+v", adapters)
-	}
-	config := &AgentConfig{GatewayEnabled: true}
-	want := gatewayRouteChannels()
-	sort.Strings(want)
-	if got := registeredLinuxAdapterIDs(config); !reflect.DeepEqual(got, want) {
-		t.Fatalf("Gateway 只能暴露通用路由适配器, got=%v want=%v", got, want)
-	}
-}
 
 func TestV2RegistryPublishesOnlyLongLivedActions(t *testing.T) {
 	descriptors := newLinuxActionRegistry(nil).Descriptors()
@@ -85,17 +71,6 @@ func TestV2QueueBoundaryRejectsWireAndLegacyActions(t *testing.T) {
 		if _, _, _, err := decodeQueuedAgentV2Payload(payload); err == nil {
 			t.Fatalf("非 canonical Agent v2 动作必须失败关闭: %+v", payload)
 		}
-	}
-}
-
-func TestGatewayForwardRejectsWireActionField(t *testing.T) {
-	source := map[string]any{
-		"action":         agentPlanExecute,
-		"token":          map[string]any{"agentId": "agent-target"},
-		"policyDecision": map[string]any{},
-	}
-	if _, _, err := buildGatewayAgentV2Payload(source, agentTaskEnvelope{ID: "gateway-task-1"}, "agent-target"); err == nil {
-		t.Fatal("Gateway 转发不得接受 wire action 字段")
 	}
 }
 
