@@ -1,6 +1,6 @@
 version: '1.0'
 name: gcac-sync-github
-displayName: GCAC 将已审核公开版本同步到 GitHub
+displayName: TLSFlow 将已审核公开版本同步到 GitHub
 
 # 该文件会进入 Gitee 公开仓库，禁止写入任何真实地址、Token 或私钥。
 # 不配置 push、PR 或定时触发，只允许发布负责人在 Gitee Go 页面手动执行。

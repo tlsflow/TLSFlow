@@ -1,14 +1,25 @@
 {
   "version": 1,
+  "publicRepositoryName": "TLSFlow",
+  "initialSync": {
+    "modeEnvironmentVariable": "PUBLIC_RELEASE_INITIAL_SYNC",
+    "sourceCommitEnvironmentVariable": "PUBLIC_RELEASE_INITIAL_SOURCE_COMMIT",
+    "projectionPolicy": "commit-on-whitelist-change",
+    "defaultMode": "snapshot"
+  },
   "publicPaths": [
     "agents",
     "backend",
     "web",
     "browser-runtime",
+    "tls-inspector",
     "compatibility",
+    "docker",
+    "docs/Documentation",
+    "docs/项目规范",
+    ".dockerignore",
+    "LICENSE",
     "version",
-    "scripts/audits/audit-plugin-product-families.mjs",
-    "scripts/audits/audit-unified-managed-target-baseline.mjs",
     "scripts/plugins/check-builtin-plugin-versions.mjs",
     "scripts/plugins/check-builtin-plugin-versions.test.mjs",
     "scripts/compatibility/check-compatibility-architecture.mjs",
@@ -24,7 +35,10 @@
     "scripts/public-release/public-release.config.json",
     "scripts/public-release/check-public-tree.mjs",
     "scripts/public-release/sync-github.mjs",
-    "scripts/plugins/update-plugin-version.mjs",
+    "scripts/dev-backend.sh",
+    "scripts/dev-web.sh",
+    "scripts/dev-tls-inspector.sh",
+    "scripts/dev/dev-all.sh",
     ".workflow/0014-sync-github.yml"
   ],
   "publicContributionPaths": [
@@ -32,6 +46,10 @@
     "backend",
     "browser-runtime",
     "compatibility",
+    "docker",
+    "docs/Documentation",
+    "docs/项目规范",
+    "tls-inspector",
     "web"
   ],
   "requiredPublicFiles": [
@@ -41,40 +59,29 @@
     {
       "source": "scripts/public-release/public-repository.gitignore",
       "target": ".gitignore"
-    },
-    {
-      "source": "scripts/public-release/overlays/backend/src/edition/licensing.ts",
-      "target": "backend/src/edition/licensing.ts"
-    },
-    {
-      "source": "scripts/public-release/overlays/backend/src/edition/licensing-error-codes.ts",
-      "target": "backend/src/edition/licensing-error-codes.ts"
-    },
-    {
-      "source": "scripts/public-release/overlays/web/src/edition/licensing.ts",
-      "target": "web/src/edition/licensing.ts"
-    },
-    {
-      "source": "scripts/public-release/overlays/web/src/edition/licensing-messages.ts",
-      "target": "web/src/edition/licensing-messages.ts"
     }
   ],
   "forbiddenPathPatterns": [
-    "^(?:specs|docs|data|output|tmp|temp|private|secrets)(?:/|$)",
+    "^(?:specs|data|output|tmp|temp|private|secrets)(?:/|$)",
+    "^data/license-generator/keys(?:/|$)",
+    "^docs/(?!Documentation(?:/|$)|项目规范(?:/|$))",
+    "^docs/Documentation/(?:node_modules|\\.vitepress/(?:dist|cache))(?:/|$)",
+    "^docker/docs/20260806-Docker镜像发布与凭据边界说明\\.md$",
     "^AGENTS\\.md$",
-    "^\\.workflow/0014-generate-public-candidate\\.yml$",
-    "^backend/src/modules/licensing(?:/|$)",
-    "^web/src/views/settings/LicensingView\\.vue$",
-    "^web/src/api/modules/licensing\\.api\\.ts$",
-    "^web/src/i18n/licensing\\.locale\\.ts$",
-    "^web/tests/e2e(?:/|$)",
-    "(?:^|/)(?:real-[^/]*|.*\\.e2e|.*\\.integration|.*\\.persistence|.*migration|.*\\.todo)\\.test\\.(?:ts|tsx|js|jsx|mjs)$",
-    "(?:^|/)(?:\\.env(?:\\.|$)|.*\\.(?:key|pem|p12|pfx|jks|keystore|crt|csr|cer|der))$",
+    "^\\.workflow/(?:0014-generate-public-candidate|0014-import-public-contribution)\\.yml$",
+    "^\\.workflow/20260805-公开发布凭据变量配置说明\\.md$",
+    "^scripts/(?:archive|versioning)(?:/|$)",
+    "^scripts/public-release/(?:generate-public-candidate|import-public-contribution)\\.mjs$",
+    "^scripts/public-release/(?:public-release(?:\\.integration)?|sync-github\\.integration)\\.test\\.mjs$",
+    "^scripts/20260806-脚本目录说明\\.md$",
+    "(?:^|/)\\.env(?:$|\\.(?!example(?:$|\\.)|template(?:$|\\.))[^/]+$)",
+    "(?:^|/)(?:.*\\.(?:key|pem|p12|pfx|jks|keystore|crt|csr|cer|der))$",
     "(?:^|/)(?:node_modules|\\.git|bin|obj)(?:/|$)",
     "(?:^|/).*(?:\\.exe|\\.dll|\\.pdb)$"
   ],
   "sensitiveFilePatterns": [
-    "(?:^|/)(?:\\.env(?:\\.|$)|id_rsa|id_ed25519)(?:$|\\.)",
+    "(?:^|/)\\.env(?:$|\\.(?!example(?:$|\\.)|template(?:$|\\.))[^/]+$)",
+    "(?:^|/)(?:id_rsa|id_ed25519)(?:$|\\.)",
     "\\.(?:key|pem|p12|pfx|jks|keystore|crt|csr|cer|der)$"
   ],
   "sensitiveContentPatterns": [
