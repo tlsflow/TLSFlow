@@ -46,6 +46,7 @@ export class CertificatesController {
     router.post('/api/v1/certificate-versions/validate-import', '校验证书导入材料', ['Certificates'], (request) => this.validateImportVersion(request));
     router.get('/api/v1/certificate-version-formats', '查询证书格式产物列表', ['Certificates'], (request) => this.listFormats(request));
     router.post('/api/v1/certificate-version-formats', '创建证书格式产物记录', ['Certificates'], (request) => this.createFormat(request));
+    router.get('/api/v1/certificate-version-formats/artifact', '????????', ['Certificates'], (request) => this.downloadFormatArtifact(request));
     router.patch('/api/v1/certificate-version-formats', '更新证书格式产物记录', ['Certificates'], (request) => this.updateFormat(request));
     router.post('/api/v1/certificate-version-formats/delete', '删除证书格式产物记录', ['Certificates'], (request) => this.deleteFormat(request));
     router.post('/api/v1/certificate-version-formats/export-plan', '规划证书格式导出', ['Certificates'], (request) => this.requestFormatExport(request));
@@ -242,6 +243,24 @@ export class CertificatesController {
   }
 
   private async createFormat(request: HttpRequest) {
+  private async downloadFormatArtifact(request: HttpRequest) {
+    const subject = this.subjectFromRequest(request);
+    await this.assertCan(subject, 'certificate.read', 'certificate_version_format', request);
+    const artifactRef = request.query.artifactRef;
+    if (Array.isArray(artifactRef) || typeof artifactRef !== 'string' || artifactRef.trim() === '') {
+      throw new AppError('VALIDATION_FAILED', 'artifactRef ????', { field: 'artifactRef' });
+    }
+    const artifact = await this.services.certificates.getFormatArtifact(artifactRef);
+    return {
+      statusCode: 200,
+      headers: {
+        'content-type': artifact.contentType,
+        'content-disposition': `attachment; filename="${sanitizeDownloadFileName(request.query.filename, artifact.artifactRef)}"`,
+      },
+      body: artifact.content,
+    };
+  }
+
     const body = validateObject(request.body, {
       certificateVersionId: { type: 'string' },
       format: { type: 'string', required: true, enum: certificateFormats },
@@ -497,6 +516,7 @@ export function getCertificateRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/certificate-versions/usage', operationId: 'getCertificateVersionUsage', summary: '查询证书版本使用位置', tags: ['Certificates'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/certificate-versions/:id/formats', operationId: 'listCertificateVersionFormatsByVersionId', summary: 'List certificate version formats by version id', tags: ['Certificates'], responseSchema: pageSchema },
     { method: 'POST', path: '/api/v1/certificate-versions/import', operationId: 'importCertificateVersion', summary: 'Import certificate material', tags: ['Certificates'], requestSchema: importCertificateVersionRequestSchema, responseSchema: certificateVersionSchema },
+    { method: 'GET', path: '/api/v1/certificate-version-formats/artifact', operationId: 'downloadCertificateVersionFormatArtifact', summary: '????????', tags: ['Certificates'], responseSchema: { type: 'string', format: 'binary' } },
     { method: 'POST', path: '/api/v1/certificate-versions/archive', operationId: 'archiveCertificateVersion', summary: '归档证书版本', tags: ['Certificates'], responseSchema: certificateVersionSchema },
     { method: 'POST', path: '/api/v1/certificate-versions/revoke', operationId: 'revokeCertificateVersion', summary: '吊销证书版本', tags: ['Certificates'], responseSchema: certificateVersionSchema },
     { method: 'DELETE', path: '/api/v1/certificate-versions/delete', operationId: 'deleteCertificateVersion', summary: '删除证书版本', tags: ['Certificates'], responseSchema: certificateVersionSchema },
@@ -519,4 +539,12 @@ function readRequiredId(request: HttpRequest): string {
     throw new AppError('VALIDATION_FAILED', 'id 不能为空', { field: 'id' });
   }
   return id;
+}
+
+function sanitizeDownloadFileName(input: string | string[] | undefined, artifactRef: string): string {
+  const raw = Array.isArray(input) ? input[0] : input;
+  if (typeof raw === 'string' && raw.trim()) {
+    return raw.replace(/[\\/:*?"<>|]+/g, '_');
+  }
+  return artifactRef.split('/').pop()?.replace(/[\\/:*?"<>|]+/g, '_') ?? 'certificate-artifact.bin';
 }

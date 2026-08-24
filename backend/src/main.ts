@@ -5,6 +5,7 @@ import { loadEnvFile } from './config/load-env.js';
 import { structuredLogger } from './common/logging/structured-logger.js';
 import { bootstrapDatabase } from './database/database-bootstrap.js';
 import { createPersistedSecurityServices } from './modules/security/security-services.persistence.js';
+import { auditSecretDecryptability } from './modules/secrets/secret-health-check.js';
 
 const entryFilePath = process.argv[1] ? resolve(process.argv[1]) : '';
 const currentFilePath = fileURLToPath(import.meta.url);
@@ -37,6 +38,7 @@ async function start(): Promise<void> {
   });
   if (securityBundle) {
     app.setAuthTokenResolver((authorization) => securityBundle.services.auth.parseAuthorizationHeader(authorization));
+    await auditSecretDecryptability(securityBundle.services.secrets);
   }
   const server = app.createNodeServer();
   server.listen(app.config.port, app.config.host, () => {

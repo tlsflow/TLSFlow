@@ -2,6 +2,7 @@ import { X509Certificate, createHash } from 'node:crypto';
 import type { PageQuery } from '../../../common/pagination/pagination.js';
 import { AppError } from '../../../common/errors/app-error.js';
 import { sha256Fingerprint } from '../../../common/crypto/fingerprint.js';
+import { SecurityError } from '../../../shared/security-error.js';
 import { newId } from '../../../shared/id.js';
 import type { PageResponse } from '../../../shared/dto/page-response.js';
 import type { DatabasePort } from '../../../database/database-port.js';
@@ -107,6 +108,14 @@ export class CertificatesApplicationService {
   async listFormats(query: PageQuery): Promise<PageResponse<CertificateVersionFormatDto>> {
     const page = await this.repository.listFormats(query);
     return { ...page, items: page.items.map(toCertificateVersionFormatDto) };
+  }
+
+  async getFormatArtifact(artifactRef: string) {
+    const artifact = await this.artifacts.get(artifactRef);
+    if (!artifact) {
+      throw new AppError('RESOURCE_NOT_FOUND', '证书产物不存在，无法下载', { artifactRef });
+    }
+    return artifact;
   }
 
   getFormatCapabilities(): CertificateFormatCapabilitiesDto {
@@ -334,6 +343,7 @@ export class CertificatesApplicationService {
     if (input.certificateVersionId && !await this.repository.getVersion(input.certificateVersionId)) {
       throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId: input.certificateVersionId });
     }
+    this.assertPasswordSecretRef(input.format, input.passwordSecretRef);
 
     const parameters = input.parameters ?? {};
     const parameterHash = buildCertificateFormatParameterHash({
@@ -384,6 +394,7 @@ export class CertificatesApplicationService {
     if (certificateVersionId && !await this.repository.getVersion(certificateVersionId)) {
       throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId });
     }
+    this.assertPasswordSecretRef(formatName, passwordSecretRef);
     const parameterHash = buildCertificateFormatParameterHash({
       format: formatName,
       containsPrivateKey: Boolean(containsPrivateKey),
@@ -597,16 +608,19 @@ export class CertificatesApplicationService {
       createdBy: input.createdBy,
       expiresAt: input.expiresAt,
     });
-    const format = await this.createFormat({
+    const format = {
+      id: newId('certfmt'),
       certificateVersionId: input.certificateVersionId,
       format: input.format,
       artifactRef,
-      containsPrivateKey: input.containsPrivateKey,
-      passwordSecretRef: input.passwordSecretRef,
+      parameterHash,
       parameters: { ...parameters, passwordSecretRef: password?.secretRef, privateKeySecretRef: privateKey?.secretRef },
+      containsPrivateKey: Boolean(input.containsPrivateKey),
+      passwordSecretRef: input.passwordSecretRef,
       createdBy: input.createdBy,
+      createdAt: new Date().toISOString(),
       expiresAt: input.expiresAt,
-    });
+    };
     void this.dependencies.audit?.write({
       eventType: AUDIT_EVENT_TYPES.CERTIFICATE_IMPORTED,
       actorType: 'user',
@@ -624,7 +638,7 @@ export class CertificatesApplicationService {
         artifactRef,
       },
     });
-    return { ...format, exportMode: 'generated', warnings: [...warnings, ...generated.warnings] };
+    return { ...format, exportMode: 'generated', persisted: false, warnings: [...warnings, ...generated.warnings] };
   }
 
   async syncFromSource(input: CertificateSourceSyncInput, context?: RequestContext): Promise<CertificateSourceSyncResult> {
@@ -676,10 +690,26 @@ export class CertificatesApplicationService {
     if ((input.format === 'pfx' || input.format === 'jks') && !input.passwordSecretRef) {
       throw new AppError('VALIDATION_FAILED', 'PFX/JKS 导出必须提供 passwordSecretRef', { format: input.format });
     }
+    this.assertPasswordSecretRef(input.format, input.passwordSecretRef);
     if (version.chainStatus !== 'valid') {
       warnings.push(`证书链状态为 ${version.chainStatus}，导出产物只可用于修复或人工确认场景`);
     }
     return warnings;
+  }
+
+  private assertPasswordSecretRef(format: string, passwordSecretRef: string | undefined): void {
+    if (format !== 'pfx' && format !== 'jks') {
+      return;
+    }
+    if (!passwordSecretRef) {
+      return;
+    }
+    if (!/^secret:\/\/[a-z0-9_/-]+(?:#[a-z0-9_-]+)?$/i.test(passwordSecretRef.trim())) {
+      throw new AppError('SECRET_REF_INVALID', 'PFX/JKS 配置中的 passwordSecretRef 不是合法 Secret 引用', {
+        format,
+        passwordSecretRef,
+      });
+    }
   }
 
   private async readArtifact(artifactRef: string): Promise<Buffer> {
@@ -696,7 +726,18 @@ export class CertificatesApplicationService {
     context?: RequestContext,
   ) {
     if (!secretRef) return undefined;
-    return this.dependencies.secrets.resolveForService({ secretRef, expectedType, purpose, actorId, context });
+    try {
+      return await this.dependencies.secrets.resolveForService({ secretRef, expectedType, purpose, actorId, context });
+    } catch (error) {
+      if (error instanceof SecurityError && error.errorCode === 'SEC_SECRET_RESOLVE_DENIED') {
+        throw new AppError(
+          'VALIDATION_FAILED',
+          '证书导出依赖的 Secret 无法解密，请重新导入对应私钥或重建导出密码 Secret',
+          { secretRef, expectedType, purpose, reason: error.details?.reason },
+        );
+      }
+      throw error;
+    }
   }
 
   private async changeAssetStatus(input: ChangeCertificateAssetStatusInput, context?: RequestContext): Promise<CertificateAssetEntity> {
