@@ -182,6 +182,7 @@ function changePageSize(event: Event): void {
   color: var(--gc-color-text);
   background: var(--gc-color-surface-hover);
 }
+.gc-pagination__page:hover:not(:disabled) { background: transparent; }
 .gc-pagination__button:disabled { cursor: default; opacity: .4; }
 .gc-pagination__button svg {
   width: var(--gc-font-size-sm);
@@ -194,7 +195,7 @@ function changePageSize(event: Event): void {
 }
 .gc-pagination__page--active {
   color: var(--gc-color-primary);
-  background: var(--gc-color-primary-soft);
+  background: transparent;
   font-weight: 850;
 }
 .gc-pagination__ellipsis { padding: 0 var(--gc-space-tight); }
