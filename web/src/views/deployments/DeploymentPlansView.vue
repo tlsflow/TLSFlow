@@ -122,7 +122,6 @@ const pageConfig = computed<BusinessPageConfig>(() => {
         label: t('deploymentPlans.actions.edit'),
         permission: 'deployment.plan.write',
         reloadAfterRun: false,
-        hidden: (row) => !row || !['DRAFT', 'DRY_RUN_PASSED', 'DRY_RUN_FAILED'].includes(row.status),
         run: async (row) => {
           await openEditDialog(row)
         },

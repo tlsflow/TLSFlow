@@ -11,9 +11,24 @@ describe('deployment-plan.config', () => {
     expect(dryRunAction?.confirmText).toBeUndefined()
   })
 
-  it('删除动作只对未提交草稿可见', () => {
+  it('删除动作对所有部署计划状态可见', () => {
     const deleteAction = deploymentPlanUiActions.find((action) => action.key === 'delete')
 
-    expect(deleteAction?.visibleWhen).toEqual(['DRAFT', 'DRY_RUN_PASSED', 'DRY_RUN_FAILED'])
+    expect(deleteAction?.visibleWhen).toEqual([
+      'DRAFT',
+      'DRY_RUN_PASSED',
+      'DRY_RUN_FAILED',
+      'PENDING_APPROVAL',
+      'APPROVED',
+      'READY',
+      'RUNNING',
+      'SUCCESS',
+      'PARTIAL_SUCCESS',
+      'FAILED',
+      'CANCELLED',
+      'CANCELED',
+      'ROLLED_BACK',
+      'ROLLBACK_FAILED',
+    ])
   })
 })
