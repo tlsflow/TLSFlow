@@ -24,7 +24,8 @@ const showDashboardRefresh = computed(() => route.name === 'dashboard.overview')
 
 function isMenuItemActive(item: MenuItem): boolean {
   if (route.path === item.path) return true
-  return item.children?.some((child) => route.path === child.path) ?? false
+  if (item.activePaths?.includes(route.path)) return true
+  return item.children?.some((child) => isMenuItemActive(child)) ?? false
 }
 
 function iconPath(icon?: string): string {
@@ -33,6 +34,7 @@ function iconPath(icon?: string): string {
     shield: 'M12 3.5 19 6v5.2c0 4.5-2.9 8.2-7 9.3-4.1-1.1-7-4.8-7-9.3V6l7-2.5Z',
     server: 'M5 5h14v5H5V5Zm0 9h14v5H5v-5Zm3-6.5h.01M8 16.5h.01',
     bolt: 'm13 2-8 12h6l-1 8 9-13h-6l0-7Z',
+    workflow: 'M5 7a2 2 0 1 1 4 0 2 2 0 0 1-4 0Zm10 10a2 2 0 1 1 4 0 2 2 0 0 1-4 0ZM7 9v3a3 3 0 0 0 3 3h5m-5-8h5a3 3 0 0 1 3 3v5',
     pulse: 'M3 12h4l2-6 4 12 2-6h6',
     settings: 'M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm8 3.5a7.8 7.8 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a8 8 0 0 0-1.7-1L15.5 3h-4l-.3 2.6a8 8 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.5a7.8 7.8 0 0 0 0 2l-2 1.5 2 3.4 2.4-1a8 8 0 0 0 1.7 1l.3 2.6h4l.3-2.6a8 8 0 0 0 1.7-1l2.4 1 2-3.4-2-1.5c.1-.3.1-.7.1-1Z'
   }
@@ -99,7 +101,7 @@ function refreshDashboard() {
               v-for="child in activeChildren"
               :key="child.path"
               class="gc-shell__submenu-item"
-              active-class="gc-shell__submenu-item--active"
+              :class="{ 'gc-shell__submenu-item--active': isMenuItemActive(child) }"
               :to="child.path"
             >
               {{ child.title }}

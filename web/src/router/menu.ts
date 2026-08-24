@@ -35,16 +35,28 @@ export const mainMenuItems: MenuItem[] = [
     ]
   },
   {
-    title: '自动化',
+    title: '证书部署',
     path: '/deployment-plans',
-    module: 'automation',
-    permission: 'deployment.plan.read',
+    module: 'certificate-deployment',
+    permissions: ['deployment.plan.read', 'execution.read'],
+    activePaths: ['/deployment-plans', '/executions'],
     icon: 'bolt',
-    description: '部署计划、执行记录、工作流和插件',
+    description: '部署计划和执行记录',
     children: [
       { title: '部署计划', path: '/deployment-plans', module: 'deployment', permission: 'deployment.plan.read', description: '证书部署计划和审批入口' },
-      { title: '执行记录', path: '/executions', module: 'execution', permission: 'execution.read', description: '执行步骤、日志、失败和回滚' },
-      { title: '工作流', path: '/workflow-templates', module: 'workflow', permission: 'workflow.template.read', description: '画布草稿、变量、能力声明和发布' },
+      { title: '执行记录', path: '/executions', module: 'execution', permission: 'execution.read', description: '执行步骤、日志、失败和回滚' }
+    ]
+  },
+  {
+    title: '工作流',
+    path: '/workflow-templates',
+    module: 'workflow',
+    permissions: ['workflow.template.read', 'plugin.read'],
+    activePaths: ['/workflow-templates', '/plugins'],
+    icon: 'workflow',
+    description: '工作流和插件',
+    children: [
+      { title: '工作流', path: '/workflow-templates', module: 'workflow-template', permission: 'workflow.template.read', description: '画布草稿、变量、能力声明和发布' },
       { title: '插件', path: '/plugins', module: 'plugin', permission: 'plugin.read', description: 'Provider、执行器和沙箱状态' }
     ]
   },

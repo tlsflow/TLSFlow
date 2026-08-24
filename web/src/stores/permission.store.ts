@@ -14,7 +14,11 @@ interface PermissionState {
 }
 
 function hasOwnMenuPermission(item: MenuItem, permissionSet: Set<string>): boolean {
-  return permissionSet.has('*') || !item.permission || permissionSet.has(item.permission)
+  if (permissionSet.has('*')) return true
+  if (item.permissions?.length) {
+    return item.permissions.some((permission) => permissionSet.has(permission))
+  }
+  return !item.permission || permissionSet.has(item.permission)
 }
 
 function filterMenuItem(item: MenuItem, permissionSet: Set<string>): MenuItem | null {
@@ -26,7 +30,13 @@ function filterMenuItem(item: MenuItem, permissionSet: Set<string>): MenuItem | 
     return null
   }
 
-  return children.length > 0 ? { ...item, children } : { ...item, children: undefined }
+  const visiblePath = children.length > 0 && !children.some((child) => child.path === item.path)
+    ? children[0].path
+    : item.path
+
+  return children.length > 0
+    ? { ...item, path: visiblePath, children }
+    : { ...item, children: undefined }
 }
 
 export const usePermissionStore = defineStore('permission', {

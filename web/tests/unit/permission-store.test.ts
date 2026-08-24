@@ -24,9 +24,26 @@ describe('权限 Store', () => {
       '/certificates',
       '/assets',
       '/deployment-plans',
+      '/workflow-templates',
       '/monitors',
       '/settings'
     ])
+  })
+
+  it('证书部署和工作流作为顶层菜单按权限展示', () => {
+    const store = usePermissionStore()
+
+    store.setPermissions(['execution.read'])
+    expect(store.visibleMenuItems.map((item) => item.title)).toEqual(['证书部署'])
+    expect(store.visibleMenuItems[0]?.path).toBe('/executions')
+    expect(store.visibleMenuItems[0]?.activePaths).toEqual(['/deployment-plans', '/executions'])
+    expect(store.visibleMenuItems[0]?.children?.map((item) => item.title)).toEqual(['执行记录'])
+
+    store.setPermissions(['plugin.read'])
+    expect(store.visibleMenuItems.map((item) => item.title)).toEqual(['工作流'])
+    expect(store.visibleMenuItems[0]?.path).toBe('/plugins')
+    expect(store.visibleMenuItems[0]?.activePaths).toEqual(['/workflow-templates', '/plugins'])
+    expect(store.visibleMenuItems[0]?.children?.map((item) => item.title)).toEqual(['插件'])
   })
 
   it('通过 Provider 加载权限', async () => {

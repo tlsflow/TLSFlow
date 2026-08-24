@@ -113,7 +113,7 @@ export const businessRoutes: GcRouteRecord[] = [
       permission: 'deployment.plan.read',
       resourceType: 'deploymentPlan',
       riskLevel: 'high',
-      breadcrumb: ['部署计划'],
+      breadcrumb: ['证书部署', '部署计划'],
       keepAlive: true
     }
   },
@@ -128,7 +128,7 @@ export const businessRoutes: GcRouteRecord[] = [
       permission: 'execution.read',
       resourceType: 'execution',
       riskLevel: 'medium',
-      breadcrumb: ['执行记录'],
+      breadcrumb: ['证书部署', '执行记录'],
       keepAlive: true
     }
   },
@@ -173,7 +173,7 @@ export const businessRoutes: GcRouteRecord[] = [
       permission: 'plugin.read',
       resourceType: 'plugin',
       riskLevel: 'high',
-      breadcrumb: ['插件'],
+      breadcrumb: ['工作流', '插件'],
       keepAlive: true
     }
   },
@@ -188,7 +188,7 @@ export const businessRoutes: GcRouteRecord[] = [
       permission: 'workflow.template.read',
       resourceType: 'workflowTemplate',
       riskLevel: 'high',
-      breadcrumb: ['工作流'],
+      breadcrumb: ['工作流', '工作流'],
       keepAlive: true,
       featureFlag: 'template.dsl.editor'
     }
