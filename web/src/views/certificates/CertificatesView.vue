@@ -1065,22 +1065,11 @@ async function removeVersion(row: CertificateVersionRow) {
                     <dt>{{ t('certificates.userView.simple.fields.source') }}</dt>
                     <dd>{{ t(`certificates.list.sourceTypes.${readAssetSourceType(asset)}`) }}</dd>
                   </div>
+                  <div>
+                    <dt>{{ t('certificates.detailPanel.fields.version') }}</dt>
+                    <dd>{{ t('certificates.userView.simple.versionCount', { count: assetVersionCountMap[readId(asset)] ?? 0 }) }}</dd>
+                  </div>
                 </dl>
-              </template>
-              <template #footer>
-                <span class="certificate-page__asset-card-version-count">
-                  {{ t('certificates.userView.simple.versionCount', { count: assetVersionCountMap[readId(asset)] ?? 0 }) }}
-                </span>
-                <GcButton
-                  variant="secondary"
-                  class="certificate-page__asset-versions-trigger"
-                  :aria-expanded="versionsDialogOpen && readId(asset) === selectedAssetId"
-                  :aria-controls="versionDialogPanelId(readId(asset))"
-                  :aria-label="t('certificates.list.versions.titleWithDomain', { domain: readAssetName(asset) })"
-                  @click.stop="openVersionsDialog(readId(asset))"
-                >
-                  {{ t('certificates.list.versions.title') }}
-                </GcButton>
               </template>
               </GcCard>
             </div>
@@ -1988,11 +1977,6 @@ async function removeVersion(row: CertificateVersionRow) {
   border-bottom: 0;
 }
 
-.certificate-page__asset-card :deep(.gc-pro-card__footer) {
-  padding-top: 0;
-  border-top: 0;
-}
-
 .certificate-page__asset-card-icon {
   display: grid;
   place-items: center;
@@ -2104,7 +2088,7 @@ async function removeVersion(row: CertificateVersionRow) {
 
 .certificate-page__asset-card-metadata {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--gc-space-3);
   margin: 0;
 }
@@ -2127,15 +2111,6 @@ async function removeVersion(row: CertificateVersionRow) {
   color: var(--gc-color-text);
   font-size: var(--gc-font-size-xs);
   font-weight: var(--gc-font-weight-semibold);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.certificate-page__asset-card-version-count {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
