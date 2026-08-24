@@ -12,11 +12,14 @@ const props = defineProps<{ config: BusinessPageConfig }>()
 const permissionStore = usePermissionStore()
 const state = useBusinessPage(props.config)
 const selectedId = ref<string | null>(null)
+const primaryActionError = ref('')
+const primaryActionPending = ref(false)
 const tableColumns = computed<DataTableColumn<ViewRow>[]>(() => props.config.columns.map((column) => ({ key: column.key, title: column.title })))
 const hasDangerAction = computed(() => props.config.actions.some((action) => action.danger))
 const visibleActions = computed(() => props.config.actions.filter((action) => permissionStore.hasPermission(action.permission)))
 const selectedRow = computed(() => state.rows.value.find((row) => row.id === selectedId.value) ?? state.rows.value[0] ?? null)
 const detailFields = computed(() => props.config.detailFields ?? props.config.columns.map((column) => ({ label: column.title, candidates: column.candidates })))
+const filterValues = computed(() => props.config.filterValues ?? {})
 
 watch(() => state.rows.value, (rows) => {
   if (rows.length === 0) {
@@ -46,8 +49,34 @@ async function runAction(actionIndex: number) {
   await state.reload()
 }
 
+async function runPrimaryAction() {
+  if (!props.config.primaryAction || primaryActionPending.value) return
+  primaryActionPending.value = true
+  primaryActionError.value = ''
+  try {
+    await props.config.primaryAction()
+  } catch (cause) {
+    primaryActionError.value = cause instanceof Error ? cause.message : '主操作执行失败'
+  } finally {
+    primaryActionPending.value = false
+  }
+}
+
 function selectRow(row: ViewRow) {
   selectedId.value = row.id
+}
+
+async function updateFilter(key: string, value: string) {
+  props.config.onFiltersChange?.({
+    ...filterValues.value,
+    [key]: value
+  })
+  await state.reload()
+}
+
+async function clearFilters() {
+  props.config.onFiltersChange?.({})
+  await state.reload()
 }
 
 function detailValue(row: ViewRow, candidates: readonly string[]): string {
@@ -58,17 +87,33 @@ function linkQueryValue(row: ViewRow, candidates: readonly string[]): string | n
   const value = candidates.map((candidate) => readPath(row.raw, candidate)).find((item) => item !== undefined && item !== null && item !== '')
   return value === undefined || value === null || value === '' ? null : String(value)
 }
+
+function linkTarget(row: ViewRow, link: NonNullable<BusinessPageConfig['contextLinks']>[number]) {
+  const value = linkQueryValue(row, link.candidates)
+  if (!value) return null
+  if (link.to.includes(':id')) {
+    return { path: link.to.replace(':id', encodeURIComponent(value)) }
+  }
+  return { path: link.to, query: { [link.queryKey]: value } }
+}
+
+defineExpose({
+  reload: state.reload
+})
 </script>
 
 <template>
   <section class="gc-page business-page" :data-module="config.moduleName">
     <GcPageHeader :title="config.title" :description="config.description">
       <template #actions>
-        <GcPermissionButton :permission="config.primaryPermission">
-          {{ config.primaryActionLabel }}
+        <GcPermissionButton :permission="config.primaryPermission" :disabled="primaryActionPending" @click="runPrimaryAction">
+          {{ primaryActionPending ? '处理中…' : config.primaryActionLabel }}
         </GcPermissionButton>
       </template>
     </GcPageHeader>
+
+    <p v-if="primaryActionError" class="business-page__primary-error">{{ primaryActionError }}</p>
+    <slot name="after-header" />
 
     <section class="business-page__metrics" aria-label="业务指标">
       <article v-for="metric in config.metrics" :key="metric.title" class="gc-card business-page__metric">
@@ -107,6 +152,26 @@ function linkQueryValue(row: ViewRow, candidates: readonly string[]): string | n
             <button class="gc-button" type="button" @click="state.reload">刷新</button>
           </div>
         </div>
+        <form v-if="config.filters?.length" class="business-page__filters" @submit.prevent="state.reload">
+          <label v-for="filter in config.filters" :key="filter.key" class="business-page__filter">
+            <span>{{ filter.label }}</span>
+            <select
+              v-if="filter.type === 'select'"
+              :value="filterValues[filter.key] ?? ''"
+              @change="updateFilter(filter.key, ($event.target as HTMLSelectElement).value)"
+            >
+              <option value="">全部</option>
+              <option v-for="option in filter.options ?? []" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+            <input
+              v-else
+              :value="filterValues[filter.key] ?? ''"
+              :placeholder="filter.placeholder"
+              @change="updateFilter(filter.key, ($event.target as HTMLInputElement).value)"
+            />
+          </label>
+          <button class="gc-button" type="button" @click="clearFilters">清空筛选</button>
+        </form>
       </template>
 
       <template #cell-name="{ row }">
@@ -153,9 +218,9 @@ function linkQueryValue(row: ViewRow, candidates: readonly string[]): string | n
       <nav v-if="config.contextLinks?.length" class="business-page__context" aria-label="上下文入口">
         <template v-for="link in config.contextLinks" :key="link.label">
           <RouterLink
-            v-if="linkQueryValue(selectedRow, link.candidates)"
+            v-if="linkTarget(selectedRow, link)"
             class="gc-button"
-            :to="{ path: link.to, query: { [link.queryKey]: linkQueryValue(selectedRow, link.candidates) } }"
+            :to="linkTarget(selectedRow, link)!"
           >
             {{ link.label }}
           </RouterLink>
@@ -179,7 +244,7 @@ function linkQueryValue(row: ViewRow, candidates: readonly string[]): string | n
             :confirm-text="action.confirmText"
             @confirm="runAction(index)"
           />
-          <GcPermissionButton v-else-if="!action.danger" :permission="action.permission" :danger="action.danger">
+          <GcPermissionButton v-else-if="!action.danger" :permission="action.permission" :danger="action.danger" @click="runAction(index)">
             {{ action.label }}
           </GcPermissionButton>
         </template>
@@ -190,6 +255,15 @@ function linkQueryValue(row: ViewRow, candidates: readonly string[]): string | n
 
 <style scoped>
 .business-page { display: grid; gap: var(--gc-space-5); }
+.business-page__primary-error {
+  margin: 0;
+  border: 1px solid #fecaca;
+  border-radius: 14px;
+  padding: 12px 14px;
+  color: var(--gc-color-danger);
+  background: var(--gc-color-danger-bg);
+  font-weight: 750;
+}
 .business-page__metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--gc-space-4); }
 .business-page__metric {
   position: relative;
@@ -221,6 +295,29 @@ function linkQueryValue(row: ViewRow, candidates: readonly string[]): string | n
 .business-page__toolbar-title strong { font-size: 17px; letter-spacing: -0.02em; }
 .business-page__toolbar-title span { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); font-weight: 650; }
 .business-page__toolbar-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--gc-space-2); align-items: center; }
+.business-page__filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--gc-space-3);
+  align-items: end;
+  margin-top: var(--gc-space-4);
+}
+.business-page__filter {
+  display: grid;
+  gap: var(--gc-space-1);
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 850;
+}
+.business-page__filter input,
+.business-page__filter select {
+  width: 100%;
+  border: 1px solid var(--gc-color-border);
+  border-radius: 11px;
+  padding: 9px 11px;
+  color: var(--gc-color-text);
+  background: #fff;
+}
 .business-page__pill {
   display: inline-flex;
   align-items: center;

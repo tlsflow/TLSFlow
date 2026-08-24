@@ -17,6 +17,62 @@ export const businessRoutes: GcRouteRecord[] = [
     }
   },
   {
+    path: '/certificates/import',
+    name: 'certificate.import',
+    component: () => import('@/views/certificates/CertificateImportView.vue'),
+    meta: {
+      title: '导入证书',
+      module: 'certificate',
+      requiresAuth: true,
+      permission: 'certificate.import',
+      resourceType: 'certificate',
+      riskLevel: 'high',
+      breadcrumb: ['证书资产', '导入证书']
+    }
+  },
+  {
+    path: '/certificates/:id',
+    name: 'certificate.detail',
+    component: () => import('@/views/certificates/CertificateDetailView.vue'),
+    meta: {
+      title: '证书详情',
+      module: 'certificate',
+      requiresAuth: true,
+      permission: 'certificate.asset.read',
+      resourceType: 'certificate',
+      riskLevel: 'medium',
+      breadcrumb: ['证书资产', '证书详情']
+    }
+  },
+  {
+    path: '/certificates/:id/usages',
+    name: 'certificate.usages',
+    component: () => import('@/views/certificates/CertificateUsagesView.vue'),
+    meta: {
+      title: '证书使用关系',
+      module: 'certificate',
+      requiresAuth: true,
+      permission: 'certificate.asset.read',
+      resourceType: 'certificate',
+      riskLevel: 'medium',
+      breadcrumb: ['证书资产', '使用关系']
+    }
+  },
+  {
+    path: '/certificates/:id/formats',
+    name: 'certificate.formats',
+    component: () => import('@/views/certificates/CertificateFormatsView.vue'),
+    meta: {
+      title: '证书格式产物',
+      module: 'certificate',
+      requiresAuth: true,
+      permission: 'certificate.asset.read',
+      resourceType: 'certificate',
+      riskLevel: 'medium',
+      breadcrumb: ['证书资产', '格式产物']
+    }
+  },
+  {
     path: '/assets',
     name: 'asset.list',
     component: () => import('@/views/assets/AssetsView.vue'),

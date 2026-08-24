@@ -6,6 +6,7 @@ import GcCapabilityMatrix from './GcCapabilityMatrix.vue'
 
 export interface DeploymentWizardPlan {
   readonly certificateId: string
+  readonly certificateVersionId: string
   readonly bindingIds: readonly string[]
   readonly capabilityItems: readonly CapabilityMatrixItem[]
   readonly previewSummary?: string
@@ -19,11 +20,13 @@ const props = withDefaults(defineProps<{
   loading?: boolean
   dryRunRequestId?: string
   submitRequestId?: string
+  approvalHint?: string
   initialCertificateId?: string | null
 }>(), {
   loading: false,
   dryRunRequestId: '',
   submitRequestId: '',
+  approvalHint: '',
   initialCertificateId: null
 })
 
@@ -47,6 +50,7 @@ watch(() => props.certificates, (items) => {
 }, { immediate: true })
 
 const selectedCertificate = computed(() => props.certificates.find((item) => readString(item, ['id', 'certificateId']) === selectedCertificateId.value) ?? null)
+const selectedCertificateVersionId = computed(() => readString(selectedCertificate.value, ['currentVersionId', 'certificateVersionId', 'currentVersion.id'], selectedCertificateId.value))
 const selectedBindings = computed(() => props.bindings.filter((item) => selectedBindingIds.value.includes(readString(item, ['id', 'bindingId']))))
 
 const capabilityItems = computed<CapabilityMatrixItem[]>(() => {
@@ -149,6 +153,7 @@ function toggleBinding(bindingId: string) {
 function buildPlan(): DeploymentWizardPlan {
   return {
     certificateId: selectedCertificateId.value,
+    certificateVersionId: selectedCertificateVersionId.value,
     bindingIds: [...selectedBindingIds.value],
     capabilityItems: capabilityItems.value,
     previewSummary: previewSummary.value,
@@ -162,8 +167,8 @@ function buildPlan(): DeploymentWizardPlan {
   <section class="gc-card gc-deployment-wizard" aria-label="部署向导">
     <header class="gc-deployment-wizard__header">
       <div>
-        <strong>部署向导最小闭环</strong>
-        <p>选择证书、选择绑定目标、预览计划、dry-run，再决定是否提交或执行。</p>
+        <strong>部署向导真实闭环</strong>
+        <p>按 create → dry-run → submit → approval 提示 → execute 推进，所有操作都依赖后端返回的真实 planId。</p>
       </div>
       <span class="gc-deployment-wizard__step">当前选择 {{ selectedBindingCount }} 个目标</span>
     </header>
@@ -207,6 +212,7 @@ function buildPlan(): DeploymentWizardPlan {
       <p>已选目标：{{ selectedBindingIds.join(', ') || '无' }}</p>
       <p v-if="dryRunRequestId">最近 dry-run：{{ dryRunRequestId }}</p>
       <p v-if="submitRequestId">最近提交：{{ submitRequestId }}</p>
+      <p v-if="approvalHint" class="gc-deployment-wizard__approval">{{ approvalHint }}</p>
     </section>
 
     <GcCapabilityMatrix
@@ -218,7 +224,7 @@ function buildPlan(): DeploymentWizardPlan {
     <footer class="gc-deployment-wizard__actions">
       <button class="gc-button" type="button" :disabled="!canOperate || loading" @click="emit('dryRun', buildPlan())">Dry-run</button>
       <button class="gc-button" type="button" :disabled="!canOperate || loading" @click="emit('submit', buildPlan())">提交计划</button>
-      <button class="gc-button gc-button--danger" type="button" :disabled="!canOperate || loading" @click="emit('execute', buildPlan())">执行入口</button>
+      <button class="gc-button gc-button--danger" type="button" :disabled="!canOperate || loading" @click="emit('execute', buildPlan())">提交并在可执行时执行</button>
     </footer>
   </section>
 </template>
@@ -234,5 +240,6 @@ function buildPlan(): DeploymentWizardPlan {
 .gc-deployment-wizard__targets { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--gc-space-2); }
 .gc-deployment-wizard__targets label { display: flex; gap: var(--gc-space-2); align-items: center; }
 .gc-deployment-wizard__empty, .gc-deployment-wizard__preview p { margin: 0; color: var(--gc-color-text-muted); }
+.gc-deployment-wizard__approval { border: 1px solid #fde68a; border-radius: 12px; padding: 10px 12px; color: #92400e !important; background: #fffbeb; font-weight: 800; }
 .gc-deployment-wizard__actions { display: flex; flex-wrap: wrap; gap: var(--gc-space-2); }
 </style>

@@ -1,0 +1,168 @@
+<script setup lang="ts">
+import { computed, onBeforeUnmount, watch } from 'vue'
+
+type ModalSize = 'sm' | 'md' | 'lg' | 'xl'
+
+const props = withDefaults(defineProps<{
+  /** 兼容 v-model:open 的受控开关。 */
+  open?: boolean
+  /** 兼容默认 v-model / modelValue 的受控开关。 */
+  modelValue?: boolean
+  /** 模态框标题。 */
+  title?: string
+  /** 标题下方的补充说明。 */
+  description?: string
+  /** 模态框宽度档位。 */
+  size?: ModalSize
+}>(), {
+  size: 'md',
+})
+
+const emit = defineEmits<{
+  'update:open': [value: boolean]
+  'update:modelValue': [value: boolean]
+}>()
+
+const isOpen = computed({
+  get() {
+    return props.open ?? props.modelValue ?? false
+  },
+  set(value: boolean) {
+    emit('update:open', value)
+    emit('update:modelValue', value)
+  },
+})
+
+const modalClass = computed(() => `gc-modal gc-modal--${props.size}`)
+
+function closeModal() {
+  isOpen.value = false
+}
+
+function handleKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Escape') return
+  closeModal()
+}
+
+// 只在打开时监听 ESC，关闭后立即释放，避免全局事件泄漏。
+watch(isOpen, (opened) => {
+  if (opened) {
+    window.addEventListener('keydown', handleKeydown)
+    return
+  }
+
+  window.removeEventListener('keydown', handleKeydown)
+}, { immediate: true })
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleKeydown)
+})
+</script>
+
+<template>
+  <Teleport to="body">
+    <div
+      v-if="isOpen"
+      class="gc-modal__mask"
+      role="presentation"
+      @click="closeModal"
+    >
+      <section
+        :class="modalClass"
+        class="gc-card"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="title"
+        @click.stop
+      >
+        <header v-if="title || description" class="gc-modal__header">
+          <div>
+            <h2 v-if="title">{{ title }}</h2>
+            <p v-if="description">{{ description }}</p>
+          </div>
+          <button class="gc-button gc-modal__close" type="button" aria-label="关闭模态框" @click="closeModal">
+            ×
+          </button>
+        </header>
+
+        <div class="gc-modal__body">
+          <slot />
+        </div>
+
+        <footer v-if="$slots.actions" class="gc-modal__actions">
+          <slot name="actions" />
+        </footer>
+      </section>
+    </div>
+  </Teleport>
+</template>
+
+<style scoped>
+.gc-modal__mask {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: var(--gc-space-4);
+  background: rgb(15 23 42 / 48%);
+}
+
+.gc-modal {
+  width: min(var(--gc-modal-width), calc(100vw - var(--gc-space-8)));
+  max-height: calc(100vh - var(--gc-space-8));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: var(--gc-space-4);
+  overflow: hidden;
+  border-radius: var(--gc-radius-lg);
+}
+
+.gc-modal--sm { --gc-modal-width: 420px; }
+.gc-modal--md { --gc-modal-width: 560px; }
+.gc-modal--lg { --gc-modal-width: 760px; }
+.gc-modal--xl { --gc-modal-width: 960px; }
+
+.gc-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--gc-space-4);
+  padding-bottom: var(--gc-space-3);
+  border-bottom: 1px solid var(--gc-color-border);
+}
+
+.gc-modal__header h2 {
+  margin: 0;
+  color: var(--gc-color-text);
+  letter-spacing: -0.03em;
+}
+
+.gc-modal__header p {
+  margin: var(--gc-space-1) 0 0;
+  color: var(--gc-color-text-muted);
+}
+
+.gc-modal__close {
+  min-width: 36px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.gc-modal__body {
+  min-height: 0;
+  overflow: auto;
+}
+
+.gc-modal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--gc-space-2);
+  padding-top: var(--gc-space-3);
+  border-top: 1px solid var(--gc-color-border);
+}
+</style>

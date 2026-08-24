@@ -7,11 +7,13 @@ export interface PermissionProvider {
 export const skeletonPermissions = [
   'dashboard.read',
   'certificate.asset.read',
+  'certificate.import',
   'host.read',
   'binding.read',
   'deployment.plan.read',
   'execution.read',
   'agent.read',
+  'agent.write',
   'gateway.read',
   'plugin.read',
   'workflow.template.read',

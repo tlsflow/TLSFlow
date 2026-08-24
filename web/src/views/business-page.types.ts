@@ -37,12 +37,21 @@ export interface BusinessContextLink {
   readonly candidates: readonly string[]
 }
 
+export interface BusinessFilterField {
+  readonly key: string
+  readonly label: string
+  readonly placeholder?: string
+  readonly type?: 'text' | 'select'
+  readonly options?: readonly { readonly label: string; readonly value: string }[]
+}
+
 export interface BusinessPageConfig {
   readonly title: string
   readonly description: string
   readonly readPermission: string
   readonly primaryPermission: string
   readonly primaryActionLabel: string
+  readonly primaryAction?: () => Promise<unknown> | unknown
   readonly moduleName: string
   readonly resourceName: string
   readonly defaultStatus: string
@@ -55,6 +64,9 @@ export interface BusinessPageConfig {
   readonly actions: readonly BusinessAction[]
   readonly detailFields?: readonly BusinessDetailField[]
   readonly contextLinks?: readonly BusinessContextLink[]
+  readonly filters?: readonly BusinessFilterField[]
+  readonly filterValues?: Record<string, string>
+  readonly onFiltersChange?: (filters: Record<string, string>) => void
   readonly mockRows?: readonly ApiRecord[]
   readonly onSelectionChange?: (row: import('@/composables/useBusinessPage').ViewRow | null) => void
 }

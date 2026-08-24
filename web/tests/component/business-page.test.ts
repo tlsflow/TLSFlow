@@ -97,6 +97,46 @@ describe('BusinessResourcePage', () => {
     expect(wrapper.text()).toContain('输入 CONFIRM 二次确认')
   })
 
+  it('主操作按钮点击后执行配置动作', async () => {
+    usePermissionStore().setPermissions(['test.write'])
+    const primaryAction = vi.fn(async () => undefined)
+    const wrapper = mount(BusinessResourcePage, {
+      props: {
+        config: createConfig({ primaryAction })
+      }
+    })
+
+    await vi.waitFor(() => expect(wrapper.text()).toContain('新增测试'))
+    await wrapper.findAll('button').find((button) => button.text() === '新增测试')?.trigger('click')
+    await flushPromises()
+
+    expect(primaryAction).toHaveBeenCalledTimes(1)
+  })
+
+  it('普通资源动作按钮会执行 run 并刷新列表', async () => {
+    usePermissionStore().setPermissions(['test.write'])
+    const run = vi.fn(async () => undefined)
+    const load = vi.fn(createConfig().load)
+    const wrapper = mount(BusinessResourcePage, {
+      props: {
+        config: createConfig({
+          load,
+          actions: [
+            { label: '普通测试', permission: 'test.write', run }
+          ]
+        })
+      }
+    })
+
+    await vi.waitFor(() => expect(wrapper.text()).toContain('普通测试'))
+    await wrapper.findAll('button').find((button) => button.text() === '普通测试')?.trigger('click')
+    await flushPromises()
+
+    expect(run).toHaveBeenCalledTimes(1)
+    expect(load).toHaveBeenCalledTimes(2)
+  })
+
+
   it('选择行后危险动作使用真实资源 id', async () => {
     usePermissionStore().setPermissions(['test.write', 'test.danger'])
     const run = vi.fn(async () => undefined)

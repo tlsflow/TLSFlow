@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { ApiClientError } from '@/api/client'
 import type { ApiPageResult, ApiRecord } from '@/api/modules/common'
+import { GcModal } from '@/design-system/components'
 
 export interface SecurityFormField {
   readonly key: string
@@ -31,6 +32,7 @@ const error = ref('')
 const requestId = ref('尚未请求')
 const rows = ref<ApiRecord[]>([])
 const form = ref<Record<string, string>>({})
+const createModalOpen = ref(false)
 
 function valueOf(row: ApiRecord, key: string): string {
   const value = key.split('.').reduce<unknown>((current, part) => {
@@ -63,6 +65,7 @@ async function submit() {
   error.value = ''
   try {
     await props.config.create({ ...form.value })
+    createModalOpen.value = false
     form.value = {}
     await load()
   } catch (cause) {
@@ -84,23 +87,47 @@ onMounted(load)
         <h1>{{ config.title }}</h1>
         <span>{{ config.description }}</span>
       </div>
-      <button class="gc-button" type="button" @click="load">刷新</button>
+      <div class="security-admin__actions">
+        <button
+          v-if="config.create && config.fields?.length"
+          class="gc-button gc-button--primary"
+          type="button"
+          @click="createModalOpen = true"
+        >
+          {{ config.submitLabel ?? `新增${config.resourceName}` }}
+        </button>
+        <button class="gc-button" type="button" @click="load">刷新</button>
+      </div>
     </header>
 
     <p v-if="error" class="security-admin__error" role="alert">{{ error }}</p>
 
-    <form v-if="config.create && config.fields?.length" class="gc-card security-admin__form" @submit.prevent="submit">
-      <label v-for="field in config.fields" :key="field.key">
-        <span>{{ field.label }}</span>
-        <select v-if="field.type === 'select'" v-model="form[field.key]" required>
-          <option value="" disabled>{{ field.placeholder ?? `请选择${field.label}` }}</option>
-          <option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.label }}</option>
-        </select>
-        <textarea v-else-if="field.type === 'textarea'" v-model="form[field.key]" :placeholder="field.placeholder" />
-        <input v-else v-model="form[field.key]" :type="field.type ?? 'text'" :placeholder="field.placeholder" required />
-      </label>
-      <button class="gc-button gc-button--primary" type="submit" :disabled="saving">{{ saving ? '提交中…' : config.submitLabel ?? `新增${config.resourceName}` }}</button>
-    </form>
+    <GcModal
+      v-if="config.create && config.fields?.length"
+      v-model:open="createModalOpen"
+      :title="config.submitLabel ?? `新增${config.resourceName}`"
+      :description="`填写以下字段后创建${config.resourceName}`"
+      size="lg"
+    >
+      <form id="security-admin-create-form" class="security-admin__form" @submit.prevent="submit">
+        <label v-for="field in config.fields" :key="field.key">
+          <span>{{ field.label }}</span>
+          <select v-if="field.type === 'select'" v-model="form[field.key]" required>
+            <option value="" disabled>{{ field.placeholder ?? `请选择${field.label}` }}</option>
+            <option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.label }}</option>
+          </select>
+          <textarea v-else-if="field.type === 'textarea'" v-model="form[field.key]" :placeholder="field.placeholder" />
+          <input v-else v-model="form[field.key]" :type="field.type ?? 'text'" :placeholder="field.placeholder" required />
+        </label>
+      </form>
+
+      <template #actions>
+        <button class="gc-button" type="button" :disabled="saving" @click="createModalOpen = false">取消</button>
+        <button class="gc-button gc-button--primary" type="submit" form="security-admin-create-form" :disabled="saving">
+          {{ saving ? '提交中…' : config.submitLabel ?? `新增${config.resourceName}` }}
+        </button>
+      </template>
+    </GcModal>
 
     <section class="gc-card security-admin__table" aria-label="管理列表">
       <div class="security-admin__table-head">
@@ -126,11 +153,12 @@ onMounted(load)
 <style scoped>
 .security-admin { display: grid; gap: var(--gc-space-5); }
 .security-admin__header { display: flex; justify-content: space-between; gap: var(--gc-space-4); align-items: flex-start; }
+.security-admin__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--gc-space-2); }
 .security-admin__header p { margin: 0 0 8px; color: var(--gc-color-primary); font-size: 12px; font-weight: 950; letter-spacing: .18em; }
 .security-admin__header h1 { margin: 0; font-size: 34px; letter-spacing: -0.055em; }
 .security-admin__header span { display: block; max-width: 760px; margin-top: 10px; color: var(--gc-color-text-muted); line-height: 1.65; font-weight: 650; }
 .security-admin__error { margin: 0; border: 1px solid #fecaca; border-radius: 14px; padding: 12px 14px; color: var(--gc-color-danger); background: var(--gc-color-danger-bg); font-weight: 750; }
-.security-admin__form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--gc-space-4); align-items: end; padding: 22px; }
+.security-admin__form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--gc-space-4); align-items: end; }
 .security-admin__form label { display: grid; gap: 7px; color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); font-weight: 850; }
 .security-admin__form input, .security-admin__form select, .security-admin__form textarea { width: 100%; min-height: 42px; border: 1px solid var(--gc-color-border); border-radius: 12px; padding: 10px 12px; background: var(--gc-color-surface-muted); outline: none; }
 .security-admin__form textarea { min-height: 42px; resize: vertical; }

@@ -2,13 +2,19 @@
 import { computed } from 'vue'
 import { usePermissionStore } from '@/stores/permission.store'
 
-const props = withDefaults(defineProps<{ permission: string; danger?: boolean }>(), { danger: false })
+const props = withDefaults(defineProps<{ permission: string; danger?: boolean; disabled?: boolean }>(), { danger: false, disabled: false })
+const emit = defineEmits<{ click: [event: MouseEvent] }>()
 const permissionStore = usePermissionStore()
 const allowed = computed(() => permissionStore.hasPermission(props.permission))
+
+function handleClick(event: MouseEvent) {
+  // 中文说明：这里只处理权限可见性；业务动作必须由调用方显式绑定。
+  emit('click', event)
+}
 </script>
 
 <template>
-  <button v-if="allowed" class="gc-button" :class="{ 'gc-button--danger': danger }" type="button">
+  <button v-if="allowed" class="gc-button" :class="{ 'gc-button--danger': danger }" type="button" :disabled="disabled" @click="handleClick">
     <slot />
   </button>
 </template>

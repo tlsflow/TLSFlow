@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import { GcCapabilityMatrix, GcConfirmAction, GcPageHeader } from '@/design-system/components'
+import { GcCapabilityMatrix, GcConfirmAction, GcModal, GcPageHeader } from '@/design-system/components'
 import type { CapabilityMatrixItem } from '@/design-system/components/GcCapabilityMatrix.vue'
 
 interface TemplateDraft {
@@ -43,6 +43,7 @@ const draft = reactive<TemplateDraft>({
 
 const dryRunPreview = ref<DryRunPreview | null>(null)
 const publishedVersion = ref('')
+const isTemplateModalOpen = ref(false)
 
 const validation = computed<TemplateValidation>(() => validateDraft(draft))
 const capabilityItems = computed<CapabilityMatrixItem[]>(() => validation.value.capabilities.map((capability) => ({
@@ -108,6 +109,7 @@ function publishTemplate() {
   const current = validation.value
   if (!current.ok) return
   publishedVersion.value = `v${new Date().toISOString()}`
+  isTemplateModalOpen.value = false
 }
 </script>
 
@@ -116,59 +118,67 @@ function publishTemplate() {
     <GcPageHeader
       title="工作流模板"
       description="CURL/SSH 模板编辑、变量校验、SecretRef 安全检查、dry-run 预览和发布入口。后端模板 API 尚未稳定，当前页只输出清晰的本地草案契约，不自造动态路由。"
-    />
+    >
+      <template #actions>
+        <button class="gc-button" type="button" @click="isTemplateModalOpen = true">新建模板</button>
+      </template>
+    </GcPageHeader>
 
-    <section class="gc-card gc-template-editor" aria-label="模板编辑器">
-      <header>
-        <div>
-          <strong>模板编辑器</strong>
-          <p>最小闭环是：编辑草案 -> 校验变量和敏感字段 -> dry-run 预览 -> 二次确认发布。</p>
+    <GcModal
+      v-model:open="isTemplateModalOpen"
+      title="模板编辑器"
+      description="最小闭环是：编辑草案 -> 校验变量和敏感字段 -> dry-run 预览 -> 二次确认发布。"
+      size="xl"
+    >
+      <section class="gc-template-editor" aria-label="模板编辑器">
+        <header>
+          <h2>模板编辑器</h2>
+          <span class="gc-template-editor__status" :class="{ 'is-ok': validation.ok }">{{ validation.ok ? '校验通过' : '校验失败' }}</span>
+        </header>
+
+        <div class="gc-template-editor__grid">
+          <label class="gc-form-field">
+            <span>模板名称</span>
+            <input v-model="draft.name" />
+          </label>
+          <label class="gc-form-field">
+            <span>模板类型</span>
+            <select v-model="draft.kind">
+              <option value="SSH">SSH</option>
+              <option value="CURL">CURL</option>
+            </select>
+          </label>
         </div>
-        <span class="gc-template-editor__status" :class="{ 'is-ok': validation.ok }">{{ validation.ok ? '校验通过' : '校验失败' }}</span>
-      </header>
 
-      <div class="gc-template-editor__grid">
         <label class="gc-form-field">
-          <span>模板名称</span>
-          <input v-model="draft.name" />
+          <span>执行草案</span>
+          <textarea v-model="draft.command" rows="7" spellcheck="false" />
         </label>
+
+        <div class="gc-template-editor__grid">
+          <label class="gc-form-field">
+            <span>变量白名单</span>
+            <textarea v-model="draft.variablesText" rows="5" spellcheck="false" />
+          </label>
+          <label class="gc-form-field">
+            <span>Required capabilities</span>
+            <textarea v-model="draft.requiredCapabilitiesText" rows="5" spellcheck="false" />
+          </label>
+        </div>
+
         <label class="gc-form-field">
-          <span>模板类型</span>
-          <select v-model="draft.kind">
-            <option value="SSH">SSH</option>
-            <option value="CURL">CURL</option>
-          </select>
+          <span>变更说明</span>
+          <input v-model="draft.changeNote" placeholder="例如：新增 NGINX reload 前的备份步骤" />
         </label>
-      </div>
 
-      <label class="gc-form-field">
-        <span>执行草案</span>
-        <textarea v-model="draft.command" rows="7" spellcheck="false" />
-      </label>
-
-      <div class="gc-template-editor__grid">
-        <label class="gc-form-field">
-          <span>变量白名单</span>
-          <textarea v-model="draft.variablesText" rows="5" spellcheck="false" />
-        </label>
-        <label class="gc-form-field">
-          <span>Required capabilities</span>
-          <textarea v-model="draft.requiredCapabilitiesText" rows="5" spellcheck="false" />
-        </label>
-      </div>
-
-      <label class="gc-form-field">
-        <span>变更说明</span>
-        <input v-model="draft.changeNote" placeholder="例如：新增 NGINX reload 前的备份步骤" />
-      </label>
-
-      <section class="gc-template-editor__messages" aria-label="模板校验结果">
-        <p v-if="validation.errors.length === 0" class="gc-template-editor__ok">没有阻断错误。</p>
-        <p v-for="error in validation.errors" :key="error" class="gc-template-editor__error">{{ error }}</p>
-        <p v-for="warning in validation.warnings" :key="warning" class="gc-template-editor__warning">{{ warning }}</p>
+        <section class="gc-template-editor__messages" aria-label="模板校验结果">
+          <p v-if="validation.errors.length === 0" class="gc-template-editor__ok">没有阻断错误。</p>
+          <p v-for="error in validation.errors" :key="error" class="gc-template-editor__error">{{ error }}</p>
+          <p v-for="warning in validation.warnings" :key="warning" class="gc-template-editor__warning">{{ warning }}</p>
+        </section>
       </section>
 
-      <footer>
+      <template #actions>
         <button class="gc-button" type="button" :disabled="!validation.ok" @click="runDryRun">Dry-run 预览</button>
         <GcConfirmAction
           action-name="发布模板"
@@ -177,8 +187,8 @@ function publishTemplate() {
           :impact-count="validation.capabilities.length"
           @confirm="publishTemplate"
         />
-      </footer>
-    </section>
+      </template>
+    </GcModal>
 
     <GcCapabilityMatrix
       :items="capabilityItems"
@@ -203,9 +213,8 @@ function publishTemplate() {
 
 <style scoped>
 .gc-workflow-template-page { display: grid; gap: var(--gc-space-5); }
-.gc-template-editor { display: grid; gap: var(--gc-space-5); padding: 26px; }
-.gc-template-editor header,
-.gc-template-editor footer { display: flex; justify-content: space-between; gap: var(--gc-space-3); align-items: center; flex-wrap: wrap; }
+.gc-template-editor { display: grid; gap: var(--gc-space-5); }
+.gc-template-editor header { display: flex; justify-content: flex-end; gap: var(--gc-space-3); align-items: center; flex-wrap: wrap; }
 .gc-template-editor h2 { margin: 0; font-size: 22px; letter-spacing: -0.04em; }
 .gc-template-editor__grid { display: grid; gap: var(--gc-space-4); grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
 .gc-template-editor__status { border-radius: 999px; padding: 5px 12px; background: var(--gc-color-danger-bg); color: var(--gc-color-danger); font-size: var(--gc-font-size-sm); font-weight: 900; }
