@@ -108,19 +108,23 @@ describe('资产与证书产物视图', () => {
     certificateMocks.listCertificateFormats.mockResolvedValue(okPage([
       {
         id: 'certfmt-1',
-        format: 'pfx',
+        format: 'pem',
         containsPrivateKey: true,
         createdAt: '2026-06-23T10:00:00.000Z',
         parameters: {
-          configName: 'Nginx-PFX-标准模板',
-          alias: 'gcac-cert',
-          outputPreset: 'pfx',
-          engineFormat: 'pfx',
-          extension: 'pfx',
+          configName: 'Windows-设备兼容单文件PEM模板',
+          alias: '',
+          systemPlatform: 'windows',
+          runtimePlatform: 'other',
+          outputPreset: 'pem_bundle',
+          engineFormat: 'pem',
+          extension: 'crt',
           publicEncoding: 'pem',
           privateEncoding: 'pem',
-          bundleMode: 'leaf_with_chain',
-          generateChainFile: true,
+          includeLeafCertificate: true,
+          includeCertificateChain: true,
+          includePrivateKey: true,
+          generateChainFile: false,
           generatePrivateKeyFile: false,
         },
       },
@@ -143,7 +147,7 @@ describe('资产与证书产物视图', () => {
     expect(wrapper.text()).toContain('www.example.com')
   })
 
-  it('证书产物页展示独立配置文件列表', async () => {
+  it('证书产物页展示真实内容格式与包含内容', async () => {
     const wrapper = mountBusinessView(BindingsView)
     await flushPromises()
 
@@ -152,13 +156,12 @@ describe('资产与证书产物视图', () => {
       pageSize: 200,
       sort: 'createdAt:desc',
     }))
-    expect(wrapper.text()).toContain('证书产物配置文件列表')
-    expect(wrapper.text()).toContain('Nginx-PFX-标准模板')
-    expect(wrapper.text()).toContain('Alias：gcac-cert')
-    expect(wrapper.text()).toContain('服务器公钥 + 证书链')
+    expect(wrapper.text()).toContain('Windows-设备兼容单文件PEM模板')
+    expect(wrapper.text()).toContain('PEM 单文件 Bundle')
+    expect(wrapper.text()).toContain('公钥 · 证书链 · 私钥')
   })
 
-  it('可以新建独立证书产物配置文件', async () => {
+  it('可以创建设备兼容单文件 PEM Bundle 并选择公钥、证书链、私钥', async () => {
     const wrapper = mountBusinessView(BindingsView)
     await flushPromises()
 
@@ -167,17 +170,34 @@ describe('资产与证书产物视图', () => {
     await createButton!.trigger('click')
     await flushPromises()
 
-    const nameInput = wrapper.findAll('input').find((input) => input.attributes('placeholder')?.includes('Nginx-PFX-标准模板'))
+    const systemSelect = wrapper.findAll('select').find((select) => select.find('option[value="windows"]').exists())
+    expect(systemSelect).toBeTruthy()
+    await systemSelect!.setValue('windows')
+    await flushPromises()
+
+    const runtimeSelect = wrapper.findAll('select').find((select) => select.find('option[value="other"]').exists())
+    expect(runtimeSelect).toBeTruthy()
+    await runtimeSelect!.setValue('other')
+    await flushPromises()
+
+    const applyButton = wrapper.findAll('button').find((button) => button.text() === '套用内置模板')
+    expect(applyButton).toBeTruthy()
+    await applyButton!.trigger('click')
+    await flushPromises()
+
+    const nameInput = wrapper.findAll('input').find((input) => input.attributes('placeholder')?.includes('设备兼容单文件PEM'))
     expect(nameInput).toBeTruthy()
-    await setInputElementValue(nameInput!.element as HTMLInputElement, 'Windows-JKS-导出模板')
+    await setInputElementValue(nameInput!.element as HTMLInputElement, '设备兼容CRT单文件模板')
 
-    const formatSelect = wrapper.findAll('select').find((select) => select.find('option[value="jks"]').exists())
-    expect(formatSelect).toBeTruthy()
-    await formatSelect!.setValue('jks')
+    const extensionInput = wrapper.findAll('input').find((input) => input.attributes('placeholder')?.includes('pem'))
+    expect(extensionInput).toBeTruthy()
+    await setInputElementValue(extensionInput!.element as HTMLInputElement, 'crt')
 
-    const passwordInput = wrapper.findAll('input').find((input) => input.attributes('placeholder')?.includes('secret://pfx_password'))
-    expect(passwordInput).toBeTruthy()
-    await setInputElementValue(passwordInput!.element as HTMLInputElement, 'secret://jks_password/sec_jacksonz#current')
+    const includePrivateKey = wrapper.findAll('input[type=\"checkbox\"]').find((input) => input.element.nextSibling?.textContent?.includes('包含私钥'))
+    expect(includePrivateKey).toBeTruthy()
+    if (!(includePrivateKey!.element as HTMLInputElement).checked) {
+      await includePrivateKey!.setValue(true)
+    }
 
     const saveButton = wrapper.findAll('button').find((button) => button.text() === '确认保存')
     expect(saveButton).toBeTruthy()
@@ -185,21 +205,22 @@ describe('资产与证书产物视图', () => {
     await flushPromises()
 
     expect(certificateMocks.createCertificateFormat).toHaveBeenCalledWith(expect.objectContaining({
-      format: 'jks',
+      format: 'pem',
       containsPrivateKey: true,
-      passwordSecretRef: 'secret://jks_password/sec_jacksonz#current',
       parameters: expect.objectContaining({
-        configName: 'Windows-JKS-导出模板',
-        outputPreset: 'jks',
-        engineFormat: 'jks',
+        configName: '设备兼容CRT单文件模板',
+        outputPreset: 'pem_bundle',
+        extension: 'crt',
+        includeLeafCertificate: true,
+        includeCertificateChain: true,
+        includePrivateKey: true,
+        runtimePlatform: 'other',
+        systemPlatform: 'windows',
       }),
-    }))
-    expect(certificateMocks.createCertificateFormat).not.toHaveBeenCalledWith(expect.objectContaining({
-      certificateVersionId: expect.anything(),
     }))
   })
 
-  it('非加密格式下不显示密码和主产物私钥选项', async () => {
+  it('IIS PFX 模板隐藏编码，只保留容器包含项与密码', async () => {
     const wrapper = mountBusinessView(BindingsView)
     await flushPromises()
 
@@ -208,13 +229,62 @@ describe('资产与证书产物视图', () => {
     await createButton!.trigger('click')
     await flushPromises()
 
-    const formatSelect = wrapper.findAll('select').find((select) => select.find('option[value="pem"]').exists())
-    expect(formatSelect).toBeTruthy()
-    await formatSelect!.setValue('pem')
+    const systemSelect = wrapper.findAll('select').find((select) => select.find('option[value="windows"]').exists())
+    expect(systemSelect).toBeTruthy()
+    await systemSelect!.setValue('windows')
     await flushPromises()
 
+    const runtimeSelect = wrapper.findAll('select').find((select) => select.find('option[value="iis"]').exists())
+    expect(runtimeSelect).toBeTruthy()
+    await runtimeSelect!.setValue('iis')
+    await flushPromises()
+
+    const applyButton = wrapper.findAll('button').find((button) => button.text() === '套用内置模板')
+    expect(applyButton).toBeTruthy()
+    await applyButton!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('IIS 使用 PKCS#12/PFX 容器最常见')
+    expect(wrapper.text()).not.toContain('编码选择')
+    expect(wrapper.text()).toContain('包含私钥')
+    expect(wrapper.text()).toContain('passwordSecretRef')
+  })
+
+  it('KEY 格式只保留私钥编码与私钥内容选择', async () => {
+    const wrapper = mountBusinessView(BindingsView)
+    await flushPromises()
+
+    const createButton = wrapper.findAll('button').find((button) => button.text() === '新建配置文件')
+    expect(createButton).toBeTruthy()
+    await createButton!.trigger('click')
+    await flushPromises()
+
+    const formatSelect = wrapper.findAll('select').find((select) => select.find('option[value="pem_key"]').exists())
+    expect(formatSelect).toBeTruthy()
+    await formatSelect!.setValue('pem_key')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('证书内容编码')
+    expect(wrapper.text()).toContain('私钥编码')
+    expect(wrapper.text()).toContain('包含私钥')
+  })
+
+  it('P7B 格式不显示私钥和密码，只保留链内容', async () => {
+    const wrapper = mountBusinessView(BindingsView)
+    await flushPromises()
+
+    const createButton = wrapper.findAll('button').find((button) => button.text() === '新建配置文件')
+    expect(createButton).toBeTruthy()
+    await createButton!.trigger('click')
+    await flushPromises()
+
+    const formatSelect = wrapper.findAll('select').find((select) => select.find('option[value="p7b"]').exists())
+    expect(formatSelect).toBeTruthy()
+    await formatSelect!.setValue('p7b')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('私钥编码')
     expect(wrapper.text()).not.toContain('passwordSecretRef')
-    expect(wrapper.text()).not.toContain('主产物包含私钥')
   })
 
   it('可以编辑证书产物配置文件名称', async () => {
@@ -226,9 +296,9 @@ describe('资产与证书产物视图', () => {
     await editButton!.trigger('click')
     await flushPromises()
 
-    const nameInput = wrapper.findAll('input').find((input) => input.element.value === 'Nginx-PFX-标准模板')
+    const nameInput = wrapper.findAll('input').find((input) => input.element.value === 'Windows-设备兼容单文件PEM模板')
     expect(nameInput).toBeTruthy()
-    await setInputElementValue(nameInput!.element as HTMLInputElement, 'Nginx-PFX-增强模板')
+    await setInputElementValue(nameInput!.element as HTMLInputElement, 'Windows-设备兼容单文件PEM模板-增强版')
 
     const saveButton = wrapper.findAll('button').find((button) => button.text() === '确认保存')
     expect(saveButton).toBeTruthy()
@@ -238,7 +308,7 @@ describe('资产与证书产物视图', () => {
     expect(certificateMocks.updateCertificateFormat).toHaveBeenCalledWith(expect.objectContaining({
       id: 'certfmt-1',
       parameters: expect.objectContaining({
-        configName: 'Nginx-PFX-增强模板',
+        configName: 'Windows-设备兼容单文件PEM模板-增强版',
       }),
     }))
   })

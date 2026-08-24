@@ -12,6 +12,7 @@ export interface ApiRequestOptions extends Omit<RequestInit, 'body'> {
   readonly idempotencyKey?: string
   readonly timeoutMs?: number
   readonly publicBaseUrl?: string
+  readonly accept?: string
 }
 
 export interface ApiRequestContext {
@@ -60,7 +61,7 @@ export class ApiClient {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? this.timeoutMs)
     const headers = new Headers(options.headers)
-    headers.set('Accept', 'application/json')
+    headers.set('Accept', options.accept ?? 'application/json')
     headers.set('X-Request-Id', requestId)
 
     const token = this.getToken?.()
@@ -103,6 +104,51 @@ export class ApiClient {
 
   post<T>(path: string, body?: unknown, options?: ApiRequestOptions): Promise<ApiResult<T>> {
     return this.request<T>(path, { ...options, method: 'POST', body })
+  }
+
+  async download(path: string, options: ApiRequestOptions = {}): Promise<Response> {
+    const requestId = createRequestId()
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? this.timeoutMs)
+    const headers = new Headers(options.headers)
+    headers.set('Accept', options.accept ?? '*/*')
+    headers.set('X-Request-Id', requestId)
+
+    const token = this.getToken?.()
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`)
+    }
+    const requestContext = this.getRequestContext?.()
+    if (requestContext?.actorId) {
+      headers.set('X-Actor-Id', requestContext.actorId)
+      headers.set('X-Actor-Type', requestContext.actorType ?? 'user')
+    }
+    if (requestContext?.tenantId) {
+      headers.set('X-Tenant-Id', requestContext.tenantId)
+    }
+    if (options.idempotencyKey) {
+      headers.set('X-Idempotency-Key', options.idempotencyKey)
+    }
+    if (options.publicBaseUrl) {
+      headers.set('X-Public-Base-Url', options.publicBaseUrl)
+    }
+
+    const body = this.encodeBody(options.body, headers)
+
+    try {
+      const response = await fetch(`${this.baseUrl}${path}`, {
+        ...options,
+        headers,
+        body,
+        signal: controller.signal
+      })
+      if (!response.ok) {
+        await this.parseResponse(response, requestId)
+      }
+      return response
+    } finally {
+      clearTimeout(timeout)
+    }
   }
 
   private encodeBody(body: unknown, headers: Headers): BodyInit | undefined {

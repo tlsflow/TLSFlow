@@ -81,3 +81,21 @@ export function requestCertificateFormatExport(payload: ApiBody) {
 export function generateCertificateFormatExport(payload: ApiBody) {
   return postAction(`${CERTIFICATE_FORMATS_PATH}/export`, payload, 'certificate_format_generate')
 }
+
+export function buildCertificateFormatArtifactDownloadUrl(artifactRef: string, filename?: string) {
+  const params = new URLSearchParams({ artifactRef })
+  if (filename) params.set('filename', filename)
+  return `${toClientPath(`${CERTIFICATE_FORMATS_PATH}/artifact`)}?${params.toString()}`
+}
+
+export async function downloadCertificateFormatArtifact(artifactRef: string, filename?: string) {
+  const response = await apiClient.download(buildCertificateFormatArtifactDownloadUrl(artifactRef, filename), {
+    method: 'GET',
+    accept: '*/*',
+  })
+  return {
+    blob: await response.blob(),
+    contentType: response.headers.get('content-type') ?? 'application/octet-stream',
+    contentDisposition: response.headers.get('content-disposition') ?? '',
+  }
+}
