@@ -46,6 +46,7 @@ export default async function createProviderPlugin({ hostApi, plugin }) {
         frameworks,
       );
       for (const frameworkType of frameworks) {
+        try {
         if (frameworkType === 'cloud.tencent.cdn') {
           mergeDiscovery(discovery, await discoverTencentDomains(runtime, frameworkType, 'cloud.tencent.cdn.domain', {
             action: 'DescribeDomains',
@@ -72,6 +73,9 @@ export default async function createProviderPlugin({ hostApi, plugin }) {
         }
         if (frameworkType === 'cloud.tencent.clb') {
           mergeDiscovery(discovery, await discoverTencentListeners(runtime));
+        }
+        } catch (cause) {
+          discovery.warnings.push(discoveryWarning(frameworkType, cause));
         }
       }
       return discovery;
@@ -385,6 +389,11 @@ function mergeDiscovery(target, input) {
   target.certificates.push(...input.certificates.filter((item) => !target.certificates.some((current) => current.stableKey === item.stableKey)));
   target.certificateBindings.push(...input.certificateBindings);
   target.warnings.push(...(input.warnings || []));
+}
+
+function discoveryWarning(frameworkType, cause) {
+  const message = cause instanceof Error && cause.message ? cause.message : '云厂商接口不可用或当前凭据无权访问';
+  return `${frameworkType}: ${message}`;
 }
 
 function selectFrameworks(requested) {

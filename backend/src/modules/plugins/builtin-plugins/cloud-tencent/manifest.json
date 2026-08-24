@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "builtin.cloud.tencent.provider",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "providerKey": "cloud.tencent",
   "displayNameKey": "plugin.builtin.cloud.tencent.name",
   "descriptionKey": "plugin.builtin.cloud.tencent.description",
