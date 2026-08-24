@@ -23,6 +23,7 @@ function agentTask(id: string) {
 
 test('CertificateTrustPlanService 在宿主已信任根证书时返回 skip', async () => {
   let enqueueCount = 0;
+  let inspectIdempotencyKey = '';
   const service = new CertificateTrustPlanService({
     trustRoots: {
       resolveVersionInstallableRoot: async () => ({
@@ -47,8 +48,9 @@ test('CertificateTrustPlanService 在宿主已信任根证书时返回 skip', as
       },
     },
     agents: {
-      enqueueDirectTask: async () => {
+      enqueueDirectTask: async (_tenantId, input) => {
         enqueueCount += 1;
+        inspectIdempotencyKey = input.idempotencyKey;
         return agentTask('task_1');
       },
       executeTaskDirect: async () => ({
@@ -72,6 +74,7 @@ test('CertificateTrustPlanService 在宿主已信任根证书时返回 skip', as
   });
 
   assert.equal(enqueueCount, 1);
+  assert.equal(inspectIdempotencyKey, 'certificate.trust.inspect:agt_1:abc123:req_1');
   assert.equal(result.plan.decision, 'skip');
   assert.equal(result.plan.reasonCode, 'root_already_trusted');
   assert.equal(result.plan.fingerprintSha256, 'abc123');
@@ -130,7 +133,7 @@ test('CertificateTrustPlanService 在宿主缺根时返回 install，并允许�
       executeTaskDirect: async () => ({
         task: {} as never,
         success: true,
-        detail: { status: 'not_found', fingerprintSha256: 'def456' },
+        detail: { status: 'NOT-FOUND', fingerprintSha256: 'DEF:456' },
       }),
     },
   });
@@ -147,6 +150,58 @@ test('CertificateTrustPlanService 在宿主缺根时返回 install，并允许�
   assert.equal(result.plan.decision, 'install');
   assert.equal(result.plan.reasonCode, 'root_missing_install_required');
   assert.equal(result.plan.certificatePem.includes('ROOT2'), true);
+});
+
+test('CertificateTrustPlanService 透传 Agent 根信任检查失败，不再误报结果无效', async () => {
+  const service = new CertificateTrustPlanService({
+    trustRoots: {
+      resolveVersionInstallableRoot: async () => ({
+        root: {
+          id: 'trustroot_failed',
+          fingerprintSha256: 'abc123',
+          certificateArtifactRef: 'artifact://trust-root/abc123',
+          subject: { raw: 'CN=Root' },
+          issuer: { raw: 'CN=Root' },
+          serialNumber: '04',
+          notBefore: '2026-01-01T00:00:00.000Z',
+          notAfter: '2036-01-01T00:00:00.000Z',
+          basicConstraints: { ca: true },
+          validationStatus: 'verified',
+          createdAt: '2026-08-07T00:00:00.000Z',
+          updatedAt: '2026-08-07T00:00:00.000Z',
+        },
+        certificatePem: '-----BEGIN CERTIFICATE-----\nROOT\n-----END CERTIFICATE-----\n',
+      }),
+      discoverRoot: async () => {
+        throw new Error('should not discover');
+      },
+    },
+    agents: {
+      enqueueDirectTask: async () => agentTask('task_failed'),
+      executeTaskDirect: async () => ({
+        task: {} as never,
+        success: false,
+        errorCode: 'TRUST_INSPECT_FAILED',
+        errorMessage: 'root store access denied',
+        detail: { mode: 'direct', store: 'root' },
+      }),
+    },
+  });
+
+  await assert.rejects(() => service.build({
+    tenantId: 'tenant_1',
+    actorId: 'tester',
+    agentId: 'agt_failed',
+    certificateVersionId: 'certver_failed',
+    requestId: 'req_failed',
+  }), (error: unknown) => {
+    assert.ok(error instanceof AppError);
+    assert.equal(error.message, '宿主根信任检查执行失败，拒绝继续部署');
+    assert.equal((error.details as { code?: string } | undefined)?.code, 'CERTIFICATE_TRUST_INSPECT_FAILED');
+    assert.equal((error.details as { agentErrorCode?: string } | undefined)?.agentErrorCode, 'TRUST_INSPECT_FAILED');
+    assert.equal((error.details as { agentErrorMessage?: string } | undefined)?.agentErrorMessage, 'root store access denied');
+    return true;
+  });
 });
 
 test('CertificateTrustPlanService 对 inspect 指纹不一致失败关闭', async () => {

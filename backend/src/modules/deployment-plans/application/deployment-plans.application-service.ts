@@ -1351,7 +1351,13 @@ export class DeploymentPlansApplicationService {
     const running = await this.transitionPlan(plan, 'RUNNING', input.actorId, 'execution.started');
     const runtimeSnapshots = await this.resolveRunDeploymentInputRuntimeSnapshots(plan, targets);
     const agentPayloadByTargetId = await this.buildAgentPayloadByTargetIds(plan, targets, runtimeSnapshots);
-    const trustPlanByTargetId = await this.buildCertificateTrustPlanByTargetIds(plan, targets, agentPayloadByTargetId, input.actorId);
+    const trustPlanByTargetId = await this.buildCertificateTrustPlanByTargetIds(
+      plan,
+      targets,
+      agentPayloadByTargetId,
+      input.actorId,
+      context.requestId ?? input.idempotencyKey,
+    );
     for (const [targetId, payload] of agentPayloadByTargetId) {
       const workflowRequest = readRecord(payload.workflowRequest);
       const workflowVersionId = readOptionalString(workflowRequest?.workflowVersionId);
@@ -1404,7 +1410,13 @@ export class DeploymentPlansApplicationService {
     const runtimeSnapshots = await this.resolveRunDeploymentInputRuntimeSnapshots(plan, targets);
     const deploymentArtifactByTargetId = deploymentArtifactsFromRuntimeSnapshots(runtimeSnapshots);
     const agentPayloadByTargetId = await this.buildAgentPayloadByTargetIds(plan, targets, runtimeSnapshots);
-    const trustPlanByTargetId = await this.buildCertificateTrustPlanByTargetIds(plan, targets, agentPayloadByTargetId, input.actorId);
+    const trustPlanByTargetId = await this.buildCertificateTrustPlanByTargetIds(
+      plan,
+      targets,
+      agentPayloadByTargetId,
+      input.actorId,
+      context.requestId ?? input.idempotencyKey,
+    );
     for (const [targetId, payload] of agentPayloadByTargetId) {
       const runtimeSnapshot = runtimeSnapshots.get(targetId);
       const workflowRequest = readRecord(payload.workflowRequest);
@@ -2043,6 +2055,7 @@ export class DeploymentPlansApplicationService {
     targets: DeploymentPlanTargetEntity[],
     agentPayloadByTargetId: Map<string, Record<string, unknown>>,
     actorId: string,
+    requestId: string,
   ): Promise<Map<string, CertificateTrustPlanSnapshot>> {
     const output = new Map<string, CertificateTrustPlanSnapshot>();
     for (const target of targets) {
@@ -2057,7 +2070,7 @@ export class DeploymentPlansApplicationService {
         actorId,
         agentId,
         certificateVersionId: plan.certificateVersionId,
-        requestId: `deployment-plan:${plan.id}:target:${target.id}:trust`,
+        requestId: `${requestId}:deployment-plan:${plan.id}:target:${target.id}:trust`,
       });
       output.set(target.id, trustPlan.plan);
     }

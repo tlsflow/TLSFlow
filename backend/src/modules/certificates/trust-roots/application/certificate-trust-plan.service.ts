@@ -84,7 +84,7 @@ export class CertificateTrustPlanService {
       agentId: input.agentId,
       executionRunId: `trustplan:${input.certificateVersionId}`,
       executionStepId: `trustinspect:${input.agentId}:${material.root.fingerprintSha256}`,
-      idempotencyKey: `certificate.trust.inspect:${input.agentId}:${material.root.fingerprintSha256}`,
+      idempotencyKey: `certificate.trust.inspect:${input.agentId}:${material.root.fingerprintSha256}:${input.requestId}`,
       payload: {
         actionType: 'certificate.trust.inspect',
         actionSchemaVersion: '1.0',
@@ -98,6 +98,16 @@ export class CertificateTrustPlanService {
       `${input.requestId}:execute`,
     );
     const inspectionDetail = inspection.detail ?? {};
+    if (!inspection.success) {
+      throw new AppError('VALIDATION_FAILED', '宿主根信任检查执行失败，拒绝继续部署', {
+        code: 'CERTIFICATE_TRUST_INSPECT_FAILED',
+        certificateVersionId: input.certificateVersionId,
+        agentId: input.agentId,
+        agentErrorCode: inspection.errorCode,
+        agentErrorMessage: inspection.errorMessage,
+        detail: inspectionDetail,
+      });
+    }
     const status = readInspectStatus(inspectionDetail.status);
     if (!status) {
       throw new AppError('VALIDATION_FAILED', '宿主根信任检查结果无效，拒绝继续部署', {
@@ -148,7 +158,10 @@ export class CertificateTrustPlanService {
 }
 
 function readInspectStatus(value: unknown): 'found' | 'not_found' | undefined {
-  if (value === 'found' || value === 'not_found') return value;
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
+  if (normalized === 'found') return 'found';
+  if (normalized === 'not_found') return 'not_found';
   return undefined;
 }
 
