@@ -1,4 +1,5 @@
 import { createConnection } from 'node:net';
+import { randomUUID } from 'node:crypto';
 import type { DatabasePort } from '../../../database/database-port.js';
 import type { GatewayTaskService } from '../../gateway-agents/gateway-task.service.js';
 import { LivenessDomainService } from '../domain/liveness.domain-service.js';
@@ -33,6 +34,7 @@ export class LivenessApplicationService {
   private readonly repository: LivenessRepository;
   private readonly domain = new LivenessDomainService();
   private readonly pendingGatewayProbes = new Map<string, PendingGatewayProbe>();
+  private readonly schedulerOwnerId = `liveness-${process.pid}-${randomUUID()}`;
 
   constructor(
     private readonly db: DatabasePort,
@@ -78,6 +80,9 @@ export class LivenessApplicationService {
     const now = options.now ?? new Date();
     const timeoutMs = positiveInteger(options.timeoutMs, 3_000);
     const concurrency = positiveInteger(options.concurrency, 20);
+    if (!await this.acquireSchedulerLease(now)) {
+      return { evaluated: 0, succeeded: 0, failed: 0, pendingGateway: this.pendingGatewayProbes.size, skipped: true, evaluatedAt: now.toISOString() };
+    }
     const targets = await this.listProbeTargets();
     await this.collectGatewayResults(now, timeoutMs);
     let cursor = 0;
@@ -104,6 +109,23 @@ export class LivenessApplicationService {
     });
     await Promise.all(workers);
     return { evaluated: targets.length, succeeded, failed, pendingGateway: this.pendingGatewayProbes.size, evaluatedAt: now.toISOString() };
+  }
+
+  private async acquireSchedulerLease(now: Date): Promise<boolean> {
+    const leasedUntil = new Date(now.getTime() + 9_000).toISOString();
+    const result = await this.db.query<{ owner_id: string }>(
+      `insert into pg_device_liveness_scheduler_leases (lease_key, owner_id, leased_until, updated_at)
+       values ('management-probe', $1, $2, $3)
+       on conflict (lease_key) do update set
+         owner_id=excluded.owner_id,
+         leased_until=excluded.leased_until,
+         updated_at=excluded.updated_at
+       where pg_device_liveness_scheduler_leases.leased_until <= $3
+          or pg_device_liveness_scheduler_leases.owner_id = $1
+       returning owner_id`,
+      [this.schedulerOwnerId, leasedUntil, now.toISOString()],
+    );
+    return result.rows[0]?.owner_id === this.schedulerOwnerId;
   }
 
   private async listProbeTargets(): Promise<ProbeTarget[]> {
@@ -234,7 +256,7 @@ function positiveInteger(value: number | undefined, fallback: number): number {
   return value && Number.isFinite(value) && value > 0 ? Math.ceil(value) : fallback;
 }
 
-function probeTcp(host: string, port: number, timeoutMs: number): Promise<{ success: boolean; reasonCode?: string; reasonDetail?: string }> {
+export function probeTcp(host: string, port: number, timeoutMs: number): Promise<{ success: boolean; reasonCode?: string; reasonDetail?: string }> {
   return new Promise((resolve) => {
     const socket = createConnection({ host, port });
     let settled = false;

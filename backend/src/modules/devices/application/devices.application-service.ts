@@ -108,6 +108,16 @@ export class DevicesApplicationService {
       throw new AppError('VALIDATION_FAILED', '该设备动作必须通过部署计划执行', { capabilityKey });
     }
     const device = await this.get(tenantId, deviceId);
+    if (capabilityKey !== 'device.connection.test'
+      && (device.livenessSignals?.length ?? 0) > 0
+      && device.livenessStatus !== 'ONLINE') {
+      throw new AppError('EXECUTION_TARGET_UNAVAILABLE', device.livenessStatus === 'OFFLINE' ? '设备已离线，不能执行该操作' : '设备存活状态尚未确认，不能执行该操作', {
+        deviceId,
+        capabilityKey,
+        livenessStatus: device.livenessStatus,
+        reasonCode: device.livenessReasonCode,
+      });
+    }
     if (device.extension.type !== 'PLUGIN' || !device.extension.pluginBindingId) throw new AppError('CAPABILITY_MISSING', '设备未绑定统一插件');
     const assignment = await this.pluginBindings.resolveAssignment(tenantId, capabilityKey, { deviceId: device.extension.deviceAssetId });
     if (!assignment || assignment.pluginBindingId !== device.extension.pluginBindingId) {
