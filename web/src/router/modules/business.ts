@@ -46,6 +46,22 @@ export const businessRoutes: GcRouteRecord[] = [
     }
   },
   {
+    path: '/ca-operations',
+    name: 'caOperations.console',
+    component: () => import('@/views/ca-operations/CaOperationsView.vue'),
+    meta: {
+      title: 'CA Operations',
+      titleKey: 'caOperations.title',
+      module: 'certificate',
+      requiresAuth: true,
+      permission: 'certificate.asset.read',
+      resourceType: 'certificate_authority',
+      riskLevel: 'medium',
+      breadcrumbKeys: ['nav.certificates', 'caOperations.title'],
+      keepAlive: true
+    }
+  },
+  {
     path: '/internal-ca',
     name: 'internalCa.console',
     component: () => import('@/views/internal-ca/InternalCaView.vue'),

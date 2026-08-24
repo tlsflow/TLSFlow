@@ -2,8 +2,10 @@
 // Edit messages.ts and re-run: npx tsx src/i18n/extract-locales.ts
 import { internalCaEnglish } from './internal-ca.locale'
 import { devicesPtBR } from './devices.locale'
+import { caOperationsPtBR } from './ca-operations.locale'
 export default {
   devices: devicesPtBR,
+  caOperations: caOperationsPtBR,
   app: {
     brand: 'Console GCAC',
     platform: 'Plataforma de ciclo de vida de certificados SSL corporativos',

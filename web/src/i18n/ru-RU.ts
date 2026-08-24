@@ -2,8 +2,10 @@
 // Edit messages.ts and re-run: npx tsx src/i18n/extract-locales.ts
 import { internalCaEnglish } from './internal-ca.locale'
 import { devicesRuRU } from './devices.locale'
+import { caOperationsRuRU } from './ca-operations.locale'
 export default {
   devices: devicesRuRU,
+  caOperations: caOperationsRuRU,
   app: {
     brand: 'Консоль GCAC',
     platform: 'Корпоративная платформа управления жизненным циклом SSL-сертификатов',

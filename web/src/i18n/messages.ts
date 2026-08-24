@@ -3272,6 +3272,20 @@ const zhCN = {
     policy: 'RBAC 权限保护',
     audit: '操作全程审计'
   },
+  caOperations: {
+    title: 'CA 运营管理',
+    description: '统一查询和同步 Microsoft AD CS、GCAC 内置 CA 以及兼容 Provider 的申请、签发、吊销和模板记录。',
+    actions: { sync: '同步当前视图', syncing: '正在创建同步任务…', search: '搜索' },
+    tree: { title: '证书颁发机构', count: '共 {count} 个 CA', unassigned: '未分配信任域' },
+    views: { request: '申请', issuance: '已颁发证书', revocation: '已吊销证书', template: '证书模板' },
+    columns: { subject: '使用者', identifier: '标识', template: '模板', source: '数据来源', status: '状态', observedAt: '观测时间' },
+    sources: { gcac_native: 'GCAC 原生', external_sync: '外部 CA 同步', historical_backfill: '历史回填' },
+  statuses: { pending: '待处理', issued: '已颁发', rejected: '已拒绝', revoked: '已吊销', failed: '失败', unknown: '未知', complete: '完整', partial: '部分完成', stale: '数据过期', syncing: '同步中', queued: '排队中', running: '运行中', succeeded: '已完成', cancelled: '已取消' },
+    summary: { currentAuthority: '当前 CA', integrity: '数据完整性', lastSuccessfulSync: '最近成功同步', latestRun: '当前视图同步' },
+    filters: { searchPlaceholder: '搜索使用者、序列号、申请 ID 或模板' },
+    messages: { loadTreeFailed: 'CA 资源树加载失败，请检查权限和服务状态。', loadRecordsFailed: 'CA 运营记录加载失败。', syncFailed: '无法创建 CA 同步任务，请检查 Agent 在线状态和权限。', empty: '当前 CA 和视图暂无记录。', noAuthority: '暂无可访问的证书颁发机构', noAuthorityDescription: '请先连接或创建 CA，并确认当前账号具有 CA 读取权限。' },
+    aria: { authorityTree: '证书颁发机构资源树', objectViews: 'CA 运营对象视图', search: '搜索 CA 运营记录' }
+  },
   reports: {
     common: {
       loadFailed: '报表加载失败，请稍后重试', dataAsOf: '数据截止时间：{time}', rangeDays: '最近 {days} 天', samples: '样本数：{count}', secondsValue: '{value} 秒', emptyValue: '—', trend: '历史趋势', date: '日期', snapshotMetrics: '快照指标数', completeness: '完整性', complete: '完整', incomplete: '不完整', noTrend: '当前时间范围暂无历史快照', groupBreakdown: '分组对比', dimension: '维度', groupValue: '分组值', count: '数量', noGroups: '暂无分组数据', drilldown: '对象下钻', selectedMetric: '当前指标：{metric}', noItems: '暂无符合条件的对象'
@@ -3307,6 +3321,7 @@ const zhTW = {
   ...zhCN,
   app: { ...zhCN.app, brand: 'GCAC 控制台', platform: '企業 SSL 憑證生命週期管理平台', defaultBreadcrumb: '控制台', dashboard: '儀表板', versionLabel: '版本 {version}' },
   common: { ...zhCN.common, refresh: '重新整理', logout: '登出', enter: '進入', actions: { done: '完成' }, cancel: '取消', save: '儲存', edit: '編輯', delete: '刪除', notAvailable: '暫無', unknownError: '未知錯誤', userFallback: '未登入使用者', tenantFallback: '預設租戶' },
+  caOperations: zhCN.caOperations,
   notifications: {
     ...zhCN.notifications,
     title: '通知管理',
@@ -3423,6 +3438,20 @@ const enUS = {
   ...zhCN,
   app: { brand: 'GCAC Console', platform: 'Enterprise SSL Certificate Lifecycle Platform', defaultBreadcrumb: 'Console', dashboard: 'Dashboard', versionLabel: 'Version {version}' },
   common: { refresh: 'Refresh', logout: 'Sign out', enter: 'Open', loading: 'Loading', actions: { done: 'Done' }, cancel: 'Cancel', save: 'Save', edit: 'Edit', delete: 'Delete', notAvailable: 'Not available', unknownError: 'Unknown error', userFallback: 'Guest user', tenantFallback: 'Default tenant' },
+  caOperations: {
+    title: 'CA Operations',
+    description: 'Query and synchronize requests, issued certificates, revocations, and templates across Microsoft AD CS, GCAC built-in CAs, and compatible providers.',
+    actions: { sync: 'Sync current view', syncing: 'Creating sync run…', search: 'Search' },
+    tree: { title: 'Certificate Authorities', count: '{count} CAs', unassigned: 'Unassigned trust domain' },
+    views: { request: 'Requests', issuance: 'Issued Certificates', revocation: 'Revoked Certificates', template: 'Certificate Templates' },
+    columns: { subject: 'Subject', identifier: 'Identifier', template: 'Template', source: 'Source', status: 'Status', observedAt: 'Observed at' },
+    sources: { gcac_native: 'GCAC native', external_sync: 'External CA sync', historical_backfill: 'Historical backfill' },
+  statuses: { pending: 'Pending', issued: 'Issued', rejected: 'Rejected', revoked: 'Revoked', failed: 'Failed', unknown: 'Unknown', complete: 'Complete', partial: 'Partial', stale: 'Stale', syncing: 'Syncing', queued: 'Queued', running: 'Running', succeeded: 'Succeeded', cancelled: 'Cancelled' },
+    summary: { currentAuthority: 'Current CA', integrity: 'Data integrity', lastSuccessfulSync: 'Last successful sync', latestRun: 'Current view sync' },
+    filters: { searchPlaceholder: 'Search subject, serial number, request ID, or template' },
+    messages: { loadTreeFailed: 'Failed to load the CA resource tree. Check permissions and service status.', loadRecordsFailed: 'Failed to load CA operation records.', syncFailed: 'Failed to create a CA sync run. Check Agent availability and permissions.', empty: 'No records exist for the selected CA and view.', noAuthority: 'No accessible certificate authorities', noAuthorityDescription: 'Connect or create a CA and verify that the current account has CA read access.' },
+    aria: { authorityTree: 'Certificate authority resource tree', objectViews: 'CA operation object views', search: 'Search CA operation records' }
+  },
   notifications: {
     title: 'Notification Management',
     description: 'Manage notification channels, routing, templates, silences, and reliable delivery records.',
@@ -6399,6 +6428,7 @@ const jaJP = {
   preferences: { ...enUS.preferences, theme: 'テーマ', language: '言語', themeLight: 'ライト', themeDark: 'ダーク', title: '表示設定' },
   userMenu: { ...enUS.userMenu, currentUser: '現在のユーザー', changePassword: 'パスワード変更', logout: 'ログアウト' },
   password: { ...enUS.password, title: 'パスワード変更', current: '現在のパスワード', new: '新しいパスワード', confirm: '新しいパスワードの確認', cancel: 'キャンセル', submit: '保存' },
+  caOperations: enUS.caOperations,
   nav: enUS.nav,
   routes: enUS.routes,
   businessPage: enUS.businessPage,
@@ -6449,6 +6479,7 @@ const frFR = {
   preferences: { ...enUS.preferences, theme: 'Thème', language: 'Langue', themeLight: 'Clair', themeDark: 'Sombre', title: 'Préférences d’affichage' },
   userMenu: { ...enUS.userMenu, currentUser: 'Utilisateur courant', changePassword: 'Modifier le mot de passe', logout: 'Déconnexion' },
   password: { ...enUS.password, title: 'Modifier le mot de passe', current: 'Mot de passe actuel', new: 'Nouveau mot de passe', confirm: 'Confirmer le mot de passe', cancel: 'Annuler', submit: 'Enregistrer' },
+  caOperations: enUS.caOperations,
   nav: enUS.nav,
   routes: enUS.routes,
   businessPage: enUS.businessPage,
@@ -6499,6 +6530,7 @@ const ruRU = {
   preferences: { ...enUS.preferences, theme: 'Тема', language: 'Язык', themeLight: 'Светлая', themeDark: 'Темная', title: 'Настройки отображения' },
   userMenu: { ...enUS.userMenu, currentUser: 'Текущий пользователь', changePassword: 'Сменить пароль', logout: 'Выйти' },
   password: { ...enUS.password, title: 'Сменить пароль', current: 'Текущий пароль', new: 'Новый пароль', confirm: 'Подтвердите пароль', cancel: 'Отмена', submit: 'Сохранить' },
+  caOperations: enUS.caOperations,
   nav: enUS.nav,
   routes: enUS.routes,
   businessPage: enUS.businessPage,
@@ -6549,6 +6581,7 @@ const ptBR = {
   preferences: { ...enUS.preferences, theme: 'Tema', language: 'Idioma', themeLight: 'Claro', themeDark: 'Escuro', title: 'Preferências de exibição' },
   userMenu: { currentUser: 'Usuário atual', changePassword: 'Alterar senha', logout: 'Sair' },
   password: { title: 'Alterar senha', description: 'Altere a senha local do usuário conectado.', current: 'Senha atual', new: 'Nova senha', confirm: 'Confirmar nova senha', cancel: 'Cancelar', submit: 'Salvar senha', submitting: 'Salvando…', success: 'Senha atualizada', failed: 'Falha ao alterar a senha', mismatch: 'As novas senhas não coincidem', tooShort: 'A nova senha deve ter pelo menos 8 caracteres' },
+  caOperations: enUS.caOperations,
   nav: enUS.nav,
   routes: enUS.routes,
   businessPage: enUS.businessPage,
@@ -6599,6 +6632,7 @@ const koKR = {
   preferences: { ...enUS.preferences, theme: '테마', language: '언어', themeLight: '라이트', themeDark: '다크', title: '표시 설정' },
   userMenu: { ...enUS.userMenu, currentUser: '현재 사용자', changePassword: '비밀번호 변경', logout: '로그아웃' },
   password: { ...enUS.password, title: '비밀번호 변경', current: '현재 비밀번호', new: '새 비밀번호', confirm: '새 비밀번호 확인', cancel: '취소', submit: '저장' },
+  caOperations: enUS.caOperations,
   nav: enUS.nav,
   routes: enUS.routes,
   businessPage: enUS.businessPage,

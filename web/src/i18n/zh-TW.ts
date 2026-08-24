@@ -1,8 +1,10 @@
 // Auto-generated from messages.ts — do not edit manually.
 // Edit messages.ts and re-run: npx tsx src/i18n/extract-locales.ts
 import { devicesZhTW } from './devices.locale'
+import { caOperationsZhTW } from './ca-operations.locale'
 export default {
   devices: devicesZhTW,
+  caOperations: caOperationsZhTW,
   app: {
     brand: "GCAC 控制台",
     platform: "企業 SSL 憑證生命週期管理平台",

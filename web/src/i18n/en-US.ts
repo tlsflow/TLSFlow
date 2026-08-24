@@ -1,8 +1,10 @@
 // Auto-generated from messages.ts — do not edit manually.
 // Edit messages.ts and re-run: npx tsx src/i18n/extract-locales.ts
 import { devicesEnUS } from './devices.locale'
+import { caOperationsEnUS } from './ca-operations.locale'
 export default {
   devices: devicesEnUS,
+  caOperations: caOperationsEnUS,
   app: {
     brand: 'GCAC Console',
     platform: 'Enterprise SSL Certificate Lifecycle Platform',
