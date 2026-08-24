@@ -55,7 +55,7 @@ export const businessRoutes: GcRouteRecord[] = [
       titleKey: 'caOperations.title',
       module: 'certificate',
       requiresAuth: true,
-      permission: 'certificate.asset.read',
+      permission: 'ca.operations.read',
       allowInferredPermission: false,
       resourceType: 'certificate_authority',
       riskLevel: 'medium',
@@ -72,7 +72,7 @@ export const businessRoutes: GcRouteRecord[] = [
       titleKey: 'internalCa.title',
       module: 'certificate',
       requiresAuth: true,
-      permission: 'certificate.asset.read',
+      permission: 'ca.operations.read',
       allowInferredPermission: false,
       resourceType: 'certificate_authority',
       riskLevel: 'high',
@@ -89,7 +89,7 @@ export const businessRoutes: GcRouteRecord[] = [
       titleKey: 'acme.title',
       module: 'certificate',
       requiresAuth: true,
-      permission: 'certificate.asset.read',
+      permission: 'ca.operations.read',
       allowInferredPermission: false,
       resourceType: 'certificate_authority',
       riskLevel: 'high',
@@ -166,7 +166,7 @@ export const businessRoutes: GcRouteRecord[] = [
       titleKey: 'providers.page.title',
       module: 'provider',
       requiresAuth: true,
-      permission: 'service_asset.read',
+      permission: 'cloud_account_asset.read',
       allowInferredPermission: false,
       resourceType: 'service_asset',
       riskLevel: 'high',
@@ -231,7 +231,7 @@ export const businessRoutes: GcRouteRecord[] = [
       titleKey: 'nav.executions',
       module: 'execution',
       requiresAuth: true,
-      permission: 'execution.read',
+      permission: 'execution.run.read',
       resourceType: 'execution',
       riskLevel: 'medium',
       breadcrumbKeys: ['nav.deployments', 'nav.executions'],
@@ -327,11 +327,11 @@ export const businessRoutes: GcRouteRecord[] = [
       titleKey: 'nav.workflowTemplates',
       module: 'workflow',
       requiresAuth: true,
-      permission: 'workflow.template.read',
+      permission: 'workflow.read',
       resourceType: 'workflowTemplate',
       riskLevel: 'high',
       breadcrumbKeys: ['nav.deployments', 'nav.workflowTemplates'],
-      keepAlive: true,
+      keepAlive: true
     }
   },
   {
@@ -343,7 +343,7 @@ export const businessRoutes: GcRouteRecord[] = [
       titleKey: 'nav.workflowTemplates',
       module: 'workflow',
       requiresAuth: true,
-      permission: 'workflow.template.read',
+      permission: 'workflow.read',
       resourceType: 'workflowTemplate',
       riskLevel: 'high',
       breadcrumbKeys: ['nav.deployments', 'nav.workflowTemplates'],
@@ -406,7 +406,7 @@ export const businessRoutes: GcRouteRecord[] = [
       titleKey: 'nav.monitorAlerts',
       module: 'monitoring',
       requiresAuth: true,
-      permission: 'monitor.read',
+      permissions: ['monitor.target.read', 'monitor.risk.read', 'monitor.dashboard.read', 'monitor.alert_rule.read'],
       resourceType: 'monitor',
       riskLevel: 'medium',
       breadcrumbKeys: ['nav.monitorAlerts'],
@@ -459,6 +459,37 @@ export const businessRoutes: GcRouteRecord[] = [
       riskLevel: 'high',
       breadcrumbKeys: ['nav.systemSettings', 'credentials.title'],
       keepAlive: true
+    }
+  },
+  {
+    path: '/monitors/tls',
+    name: 'monitor.tls.overview',
+    component: () => import('@/views/monitoring/MonitorTlsOverviewView.vue'),
+    meta: {
+      title: 'TLS Deep Monitoring',
+      titleKey: 'nav.monitorTls',
+      module: 'monitoring',
+      requiresAuth: true,
+      permissions: ['monitor.target.read', 'monitor.risk.read', 'monitor.dashboard.read', 'monitor.alert_rule.read'],
+      resourceType: 'monitor',
+      riskLevel: 'medium',
+      breadcrumbKeys: ['nav.monitorTls'],
+      keepAlive: true
+    }
+  },
+  {
+    path: '/monitors/tls/:id',
+    name: 'monitor.tls.detail',
+    component: () => import('@/views/monitoring/MonitorTlsDetailView.vue'),
+    meta: {
+      title: 'TLS Deep Detail',
+      titleKey: 'monitoring.tls.detailTitle',
+      module: 'monitoring',
+      requiresAuth: true,
+      permissions: ['monitor.target.read', 'monitor.dashboard.read'],
+      resourceType: 'monitor',
+      riskLevel: 'medium',
+      breadcrumbKeys: ['nav.monitorTls', 'monitoring.tls.detailTitle']
     }
   },
   {

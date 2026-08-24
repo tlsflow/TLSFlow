@@ -18,9 +18,9 @@ export const mainMenuItems: MenuItem[] = [
     descriptionKey: 'nav.certificatesDesc',
     children: [
       { titleKey: 'nav.certificateAssets', path: '/certificates', module: 'certificate', permission: 'certificate.asset.read', descriptionKey: 'nav.certificateAssetsDesc' },
-      { titleKey: 'caOperations.title', path: '/ca-operations', module: 'certificate', permission: 'certificate.asset.read', allowInferredPermission: false, descriptionKey: 'caOperations.description' },
-      { titleKey: 'internalCa.title', path: '/internal-ca', module: 'certificate', permission: 'certificate.asset.read', allowInferredPermission: false, descriptionKey: 'internalCa.description' },
-      { titleKey: 'acme.title', path: '/acme', module: 'certificate', permission: 'certificate.asset.read', allowInferredPermission: false, descriptionKey: 'acme.description' },
+      { titleKey: 'caOperations.title', path: '/ca-operations', module: 'certificate', permission: 'ca.operations.read', allowInferredPermission: false, descriptionKey: 'caOperations.description' },
+      { titleKey: 'internalCa.title', path: '/internal-ca', module: 'certificate', permission: 'ca.operations.read', allowInferredPermission: false, descriptionKey: 'internalCa.description' },
+      { titleKey: 'acme.title', path: '/acme', module: 'certificate', permission: 'ca.operations.read', allowInferredPermission: false, descriptionKey: 'acme.description' },
       { titleKey: 'nav.certificateFormats', path: '/bindings', module: 'binding', permission: 'binding.read', descriptionKey: 'nav.certificateFormatsDesc' }
     ]
   },
@@ -33,7 +33,7 @@ export const mainMenuItems: MenuItem[] = [
     descriptionKey: 'nav.assetCenterDesc',
     children: [
       { titleKey: 'nav.assets', path: '/assets', module: 'asset', permission: 'service_asset.read', descriptionKey: 'nav.assetsDesc' },
-      { titleKey: 'providers.page.title', path: '/providers', module: 'provider', permission: 'service_asset.read', allowInferredPermission: false, descriptionKey: 'providers.page.description' },
+      { titleKey: 'providers.page.title', path: '/providers', module: 'provider', permission: 'cloud_account_asset.read', allowInferredPermission: false, descriptionKey: 'providers.page.description' },
       { titleKey: 'nav.devices', path: '/assets/devices', module: 'asset', permission: 'host.read', descriptionKey: 'devices.page.description' },
       { titleKey: 'nav.gateways', path: '/gateways', module: 'gateway', permission: 'gateway.read', descriptionKey: 'nav.gatewaysDesc' }
     ]
@@ -42,15 +42,15 @@ export const mainMenuItems: MenuItem[] = [
     titleKey: 'nav.deployments',
     path: '/deployment-plans',
     module: 'certificate-deployment',
-    permissions: ['deployment.plan.read', 'workflow.template.read', 'automation.read', 'execution.read'],
+    permissions: ['deployment.plan.read', 'workflow.read', 'automation.read', 'execution.run.read'],
     activePaths: ['/deployment-plans', '/workflows', '/workflow-templates', '/automations', '/automation-runs', '/executions'],
     icon: 'bolt',
     descriptionKey: 'nav.deploymentsDesc',
     children: [
       { titleKey: 'nav.deploymentPlans', path: '/deployment-plans', module: 'deployment', permission: 'deployment.plan.read', descriptionKey: 'nav.deploymentPlansDesc' },
-      { titleKey: 'nav.workflowTemplates', path: '/workflows', module: 'workflow-template', permission: 'workflow.template.read', descriptionKey: 'nav.workflowTemplatesDesc' },
+      { titleKey: 'nav.workflowTemplates', path: '/workflows', module: 'workflow-template', permission: 'workflow.read', descriptionKey: 'nav.workflowTemplatesDesc' },
       { titleKey: 'nav.automations', path: '/automations', module: 'automation', permission: 'automation.read', descriptionKey: 'nav.automationsDesc' },
-      { titleKey: 'nav.executions', path: '/executions', module: 'execution', permission: 'execution.read', descriptionKey: 'nav.executionsDesc' }
+      { titleKey: 'nav.executions', path: '/executions', module: 'execution', permission: 'execution.run.read', descriptionKey: 'nav.executionsDesc' }
     ]
   },
   {
@@ -65,11 +65,24 @@ export const mainMenuItems: MenuItem[] = [
     titleKey: 'nav.monitoring',
     path: '/monitors',
     module: 'monitoring',
-    permission: 'monitor.read',
+    permissions: ['monitor.target.read', 'monitor.risk.read', 'monitor.dashboard.read', 'monitor.alert_rule.read'],
     icon: 'pulse',
     descriptionKey: 'nav.monitoringDesc',
     children: [
-      { titleKey: 'nav.monitorAlerts', path: '/monitors', module: 'monitoring', permission: 'monitor.read', descriptionKey: 'nav.monitorAlertsDesc' },
+      {
+        titleKey: 'nav.monitorAlerts',
+        path: '/monitors',
+        module: 'monitoring',
+        permissions: ['monitor.target.read', 'monitor.risk.read', 'monitor.dashboard.read', 'monitor.alert_rule.read'],
+        descriptionKey: 'nav.monitorAlertsDesc',
+      },
+      {
+        titleKey: 'nav.monitorTls',
+        path: '/monitors/tls',
+        module: 'monitoring',
+        permissions: ['monitor.target.read', 'monitor.risk.read', 'monitor.dashboard.read', 'monitor.alert_rule.read'],
+        descriptionKey: 'nav.monitorTlsDesc',
+      },
       { titleKey: 'nav.audits', path: '/audits', module: 'audit', permission: 'audit.read', descriptionKey: 'nav.auditsDesc' }
     ]
   },

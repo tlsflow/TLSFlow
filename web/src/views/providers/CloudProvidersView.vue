@@ -210,8 +210,8 @@ const canSaveAccount = computed(() => accountStepReady.value && !scopeValidation
 const config = computed<BusinessPageConfig>(() => ({
   title: t('providers.page.title'),
   description: t('providers.page.description'),
-  readPermission: 'service_asset.read',
-  primaryPermission: 'service_asset.manage',
+  readPermission: 'cloud_account_asset.read',
+  primaryPermission: 'cloud_account_asset.create',
   primaryActionLabel: t('providers.actions.add'),
   primaryAction: openAccountForm,
   moduleName: 'cloud-providers',
@@ -249,31 +249,31 @@ const config = computed<BusinessPageConfig>(() => ({
   rowActions: [
     {
       label: t('providers.actions.edit'),
-      permission: 'service_asset.manage',
+      permission: 'cloud_account_asset.update',
       reloadAfterRun: false,
       run: async (row) => openEditForm(row),
     },
     {
       label: t('providers.actions.test'),
-      permission: 'service_asset.manage',
+      permission: 'cloud_account_asset.control',
       reloadAfterRun: false,
       run: testAccount,
     },
     {
       label: t('providers.actions.discover'),
-      permission: 'service_asset.manage',
+      permission: 'cloud_account_asset.control',
       reloadAfterRun: false,
       run: discoverAccount,
     },
     {
       label: t('providers.actions.execute'),
-      permission: 'service_asset.manage',
+      permission: 'cloud_account_asset.control',
       reloadAfterRun: false,
       run: async (row) => openOperation(row),
     },
     {
       label: t('providers.actions.delete'),
-      permission: 'service_asset.manage',
+      permission: 'cloud_account_asset.delete',
       danger: true,
       confirmText: t('providers.messages.deleteConfirmText'),
       riskText: t('providers.messages.deleteRisk'),
@@ -295,12 +295,16 @@ async function loadCatalog(): Promise<void> {
   catalogLoading.value = true
   catalogError.value = ''
   try {
-    const [providerResult, capabilityResult] = await Promise.all([
-      listProviders(),
-      listProviderCapabilities(),
-    ])
+    const providerResult = await listProviders()
+    const providerItems = records(providerResult)
+    const capabilityResults = await Promise.all(
+      providerItems
+        .map((item) => stringValue(item.providerKey))
+        .filter(Boolean)
+        .map((providerKey) => listProviderCapabilities(providerKey)),
+    )
     providers.value = records(providerResult)
-    capabilities.value = records(capabilityResult)
+    capabilities.value = capabilityResults.flatMap((result) => records(result))
     if (!accountDraft.providerKey && providerOptions.value[0]) {
       accountDraft.providerKey = providerOptions.value[0].value
     }

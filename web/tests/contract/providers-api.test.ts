@@ -25,7 +25,7 @@ describe('云服务 API modules', () => {
   it('所有云服务请求都使用单层 /api/v1 路径', async () => {
     mockResponse()
     await listProviders()
-    await listProviderCapabilities()
+    await listProviderCapabilities('cloud.aliyun')
     await listCloudAccountAssets()
     await createCloudAccountAsset({ displayName: '阿里云生产账号' })
     await updateCloudAccountAsset({ id: 'asset-1', displayName: '阿里云生产账号' })
@@ -41,7 +41,7 @@ describe('云服务 API modules', () => {
     const urls = vi.mocked(fetch).mock.calls.map((call) => String(call[0]))
     expect(urls).toEqual([
       '/api/v1/providers',
-      '/api/v1/provider-capability-plugins',
+      '/api/v1/providers/cloud.aliyun/capabilities',
       '/api/v1/cloud-account-assets',
       '/api/v1/cloud-account-assets',
       '/api/v1/cloud-account-assets',

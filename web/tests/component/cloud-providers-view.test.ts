@@ -124,7 +124,14 @@ describe('CloudProvidersView', () => {
     document.body.innerHTML = ''
     setActivePinia(createPinia())
     vi.clearAllMocks()
-    usePermissionStore().setPermissions(['service_asset.read', 'service_asset.manage', 'credential.create'])
+    usePermissionStore().setPermissions([
+      'cloud_account_asset.read',
+      'cloud_account_asset.create',
+      'cloud_account_asset.update',
+      'cloud_account_asset.control',
+      'cloud_account_asset.delete',
+      'credential.create',
+    ])
     providerApiMocks.listProviders.mockResolvedValue({
       data: {
         items: [

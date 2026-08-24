@@ -26,12 +26,34 @@ const objectTypePermissionAliases: Record<string, readonly string[]> = {
   device_asset: ['host.read'],
   certificate_binding: ['binding.read'],
   deployment_plan: ['deployment.plan.read'],
-  execution_run: ['execution.read'],
-  workflow: ['workflow.template.read'],
-  workflow_template: ['workflow.template.read'],
+  execution_run: ['execution.run.read', 'execution.read'],
+  execution_step: ['execution.step.read', 'execution.read'],
+  workflow: ['workflow.read', 'workflow.template.read'],
+  workflow_template: ['workflow.read', 'workflow.template.read'],
   plugin_version: ['plugin.read'],
-  monitor_target: ['monitor.read'],
-  notification_channel: ['notification.channel.read']
+  plugin_binding: ['plugin.read'],
+  plugin_capability_assignment: ['plugin.read'],
+  cloud_account_asset: ['cloud_account_asset.read'],
+  monitor_target: ['monitor.target.read', 'monitor.read'],
+  monitor_risk: ['monitor.risk.read', 'monitor.read'],
+  monitor_dashboard: ['monitor.dashboard.read', 'monitor.read'],
+  monitor_alert_rule: ['monitor.alert_rule.read', 'monitor.read'],
+  notification_channel: ['notification.channel.read'],
+  notification_route: ['notification.route.read'],
+  notification_template: ['notification.template.read'],
+  notification_silence: ['notification.silence.read'],
+  notification_request: ['notification.request.read'],
+  notification_delivery: ['notification.delivery.read'],
+  workflow_execution_binding: ['workflow.execution_binding.read', 'workflow.read'],
+  identity_source: ['security.identity_source.read']
+}
+
+const permissionAliases: Record<string, readonly string[]> = {
+  'certificate.asset.read': ['certificate.read'],
+  'workflow.template.read': ['workflow.read'],
+  'workflow.template.write': ['workflow.create', 'workflow.update', 'workflow.delete', 'workflow.publish', 'workflow.test'],
+  'execution.read': ['execution.run.read', 'execution.step.read'],
+  'monitor.read': ['monitor.target.read', 'monitor.risk.read', 'monitor.dashboard.read', 'monitor.alert_rule.read'],
 }
 
 function readField(row: ApiRecord | null | undefined, key: string): unknown {
@@ -58,6 +80,11 @@ function inferredReadPermissions(objectSets: readonly ApiRecord[]): string[] {
   return [...permissions]
 }
 
+function permissionGranted(permissionSet: Set<string>, permission: string): boolean {
+  if (permissionSet.has('*') || permissionSet.has(permission)) return true
+  return (permissionAliases[permission] ?? []).some((candidate) => permissionSet.has(candidate))
+}
+
 function selectPermissionSet(
   item: Pick<MenuItem, 'allowInferredPermission'>,
   permissionSet: Set<string>,
@@ -68,11 +95,10 @@ function selectPermissionSet(
 
 function hasOwnMenuPermission(item: MenuItem, permissionSet: Set<string>, explicitPermissionSet: Set<string>): boolean {
   const activePermissionSet = selectPermissionSet(item, permissionSet, explicitPermissionSet)
-  if (activePermissionSet.has('*')) return true
   if (item.permissions?.length) {
-    return item.permissions.some((permission) => activePermissionSet.has(permission))
+    return item.permissions.some((permission) => permissionGranted(activePermissionSet, permission))
   }
-  return !item.permission || activePermissionSet.has(item.permission)
+  return !item.permission || permissionGranted(activePermissionSet, item.permission)
 }
 
 function filterMenuItem(item: MenuItem, permissionSet: Set<string>, explicitPermissionSet: Set<string>): MenuItem | null {
@@ -137,7 +163,7 @@ export const usePermissionStore = defineStore('permission', {
     },
     hasPermission(permission: string, options?: { explicitOnly?: boolean }): boolean {
       const activePermissionSet = options?.explicitOnly ? this.explicitPermissionSet : this.permissionSet
-      return activePermissionSet.has('*') || activePermissionSet.has(permission)
+      return permissionGranted(activePermissionSet, permission)
     }
   }
 })

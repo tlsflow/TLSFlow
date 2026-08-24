@@ -140,7 +140,7 @@ describe('路由权限守卫', () => {
             title: 'CA 运营管理',
             module: 'certificate',
             requiresAuth: true,
-            permission: 'certificate.asset.read',
+            permission: 'ca.operations.read',
             allowInferredPermission: false
           }
         },
@@ -169,6 +169,41 @@ describe('路由权限守卫', () => {
 
     await router.push('/ca-operations')
     expect(router.currentRoute.value.name).toBe('error.forbidden')
+  })
+
+  it('多权限路由满足任一显式权限即可放行', async () => {
+    const router = createRouter({
+      history: createWebHistory(),
+      routes: [
+        {
+          path: '/monitors',
+          name: 'monitor.list',
+          component: { template: '<div />' },
+          meta: {
+            title: '监控',
+            module: 'monitoring',
+            requiresAuth: true,
+            permissions: ['monitor.target.read', 'monitor.risk.read']
+          }
+        },
+        { path: '/login', name: 'login', component: { template: '<div />' }, meta: { title: '登录', module: 'auth' } },
+        { path: '/403', name: 'error.forbidden', component: { template: '<div />' }, meta: { title: '无权限', module: 'error' } }
+      ]
+    })
+    registerRouterGuards(router)
+    useAuthStore().setSession({
+      user: {
+        id: 'user_test',
+        displayName: '测试用户',
+        tenantId: 'default',
+        tenantName: '默认租户',
+        roles: []
+      }
+    })
+    usePermissionStore().setPermissions(['monitor.risk.read'])
+
+    await router.push('/monitors')
+    expect(router.currentRoute.value.name).toBe('monitor.list')
   })
 
   it('小型架构拒绝进入 Browser Runtime 功能路由', async () => {

@@ -45,13 +45,13 @@ export class ProvidersController {
 
   private async listProviders(request: HttpRequest) {
     const security = requireRouteSecurity(request, this.security);
-    await assertRouteAction(security, 'provider.read', 'provider_catalog');
+    await assertRouteAction(security, 'cloud_account_asset.read', 'cloud_account_asset');
     return { items: await this.catalog.listProviders(security.tenantId) };
   }
 
   private async listCapabilities(request: HttpRequest) {
     const security = requireRouteSecurity(request, this.security);
-    await assertRouteAction(security, 'provider.read', 'provider_catalog');
+    await assertRouteAction(security, 'cloud_account_asset.read', 'cloud_account_asset');
     const providerKey = providerKeyFromPath(request) ?? optionalString(request.query.providerKey);
     return {
       items: await this.catalog.listCapabilities(security.tenantId, {

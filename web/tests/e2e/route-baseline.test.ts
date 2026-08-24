@@ -6,7 +6,7 @@ describe('核心路由基线', () => {
   it('包含 004 要求的核心页面入口', () => {
     const paths = [...coreRoutes, ...businessRoutes].map((route) => route.path)
     expect(paths).toEqual(expect.arrayContaining([
-      '/dashboard', '/certificates', '/assets', '/bindings', '/deployment-plans', '/executions',
+      '/dashboard', '/certificates', '/assets', '/providers', '/bindings', '/deployment-plans', '/executions',
       '/agents', '/gateways', '/plugins', '/workflows', '/workflow-templates', '/monitors', '/audits', '/settings',
       '/settings/version', '/settings/notifications',
       '/reports/incident-window', '/reports/risk-response', '/reports/automation-effectiveness'

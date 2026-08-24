@@ -10,9 +10,8 @@ export function listProviders(): Promise<ApiRecordResult> {
   return apiClient.get<ApiRecord>(toClientPath(PROVIDERS_PATH))
 }
 
-export function listProviderCapabilities(providerKey?: string): Promise<ApiRecordResult> {
-  const query = providerKey ? `?providerKey=${encodeURIComponent(providerKey)}` : ''
-  return apiClient.get<ApiRecord>(`${toClientPath('/api/v1/provider-capability-plugins')}${query}`)
+export function listProviderCapabilities(providerKey: string): Promise<ApiRecordResult> {
+  return apiClient.get<ApiRecord>(toClientPath(`${PROVIDERS_PATH}/${encodeURIComponent(providerKey)}/capabilities`))
 }
 
 export function listProviderCapabilityPlugins(): Promise<ApiRecordResult> {

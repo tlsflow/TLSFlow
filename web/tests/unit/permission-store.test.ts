@@ -44,7 +44,7 @@ describe('权限 Store', () => {
   it('证书部署和工作流作为顶层菜单按权限展示', () => {
     const store = usePermissionStore()
 
-    store.setPermissions(['execution.read'])
+    store.setPermissions(['execution.run.read'])
     expect(store.visibleMenuItems.map((item) => item.titleKey)).toEqual(['nav.dashboard', 'nav.deployments'])
     const deployments = store.visibleMenuItems.find((item) => item.titleKey === 'nav.deployments')
     expect(deployments?.path).toBe('/executions')
@@ -78,7 +78,7 @@ describe('权限 Store', () => {
     expect(store.hasPermission('certificate.asset.read')).toBe(true)
     expect(store.visibleMenuItems.map((item) => item.path)).toEqual(['/dashboard', '/certificates'])
     const certificates = store.visibleMenuItems.find((item) => item.path === '/certificates')
-    expect(certificates?.children?.map((item) => item.path)).toEqual(['/certificates', '/ca-operations', '/internal-ca', '/acme'])
+    expect(certificates?.children?.map((item) => item.path)).toEqual(['/certificates'])
   })
 
   it('对象级证书和应用资产权限会隐式放开对应页面入口', async () => {
@@ -102,5 +102,14 @@ describe('权限 Store', () => {
     expect(certificates?.children?.map((item) => item.path)).toEqual(['/certificates'])
     const assets = store.visibleMenuItems.find((item) => item.path === '/assets')
     expect(assets?.children?.map((item) => item.path)).toEqual(['/assets'])
+  })
+
+  it('兼容历史前端权限名与后端真实动作名映射', () => {
+    const store = usePermissionStore()
+    store.setPermissions(['workflow.read', 'execution.run.read', 'monitor.target.read'])
+
+    expect(store.hasPermission('workflow.template.read')).toBe(true)
+    expect(store.hasPermission('execution.read')).toBe(true)
+    expect(store.hasPermission('monitor.read')).toBe(true)
   })
 })

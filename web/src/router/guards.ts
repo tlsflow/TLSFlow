@@ -33,14 +33,20 @@ export function registerRouterGuards(router: Router): void {
       await systemCapabilities.load().catch(() => undefined)
     }
 
-    const permission = to.meta.permission
+    const permissionOptions = { explicitOnly: to.meta.allowInferredPermission === false }
+    const permissions = Array.isArray(to.meta.permissions)
+      ? to.meta.permissions.filter((item): item is string => typeof item === 'string' && item.length > 0)
+      : []
+    const permission = typeof to.meta.permission === 'string' ? to.meta.permission : null
+    const routePermissions = permission ? [permission, ...permissions] : permissions
+
     if (
-      typeof permission === 'string'
-      && !permissionStore.hasPermission(permission, { explicitOnly: to.meta.allowInferredPermission === false })
+      routePermissions.length > 0
+      && !routePermissions.some((item) => permissionStore.hasPermission(item, permissionOptions))
     ) {
       return {
         name: 'error.forbidden',
-        query: { from: to.fullPath, permission }
+        query: { from: to.fullPath, permission: routePermissions.join(',') }
       }
     }
 
