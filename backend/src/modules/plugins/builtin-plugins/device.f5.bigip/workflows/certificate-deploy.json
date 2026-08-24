@@ -1,0 +1,245 @@
+{
+  "apiVersion": "gcac.workflow/v1",
+  "kind": "CurlSshWorkflow",
+  "metadata": {
+    "name": "f5-bigip-certificate-deploy",
+    "displayName": "F5 BIG-IP certificate deployment",
+    "category": "certificate",
+    "version": "1.0.6",
+    "platforms": ["appliance"],
+    "updateMethods": ["curl"],
+    "maintainer": "GCAC"
+  },
+  "inputContract": {
+    "apiVersion": "gcac.deployment-input/v1",
+    "variables": {
+      "targetVirtualServers": { "type": "array", "required": true, "configurationMode": "runtime", "source": { "kind": "asset", "path": "deployment.targets" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "certificateKeyName": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "derived", "resolver": "certificate_resource_name" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" },
+      "allowInsecureTls": { "type": "boolean", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding", "descriptionKey": "deploymentInputs.allowInsecureTls.description", "ui": { "labelKey": "deploymentInputs.allowInsecureTls.label", "group": "security", "order": 10, "helpKey": "deploymentInputs.allowInsecureTls.help" } },
+      "recoverySnapshot": { "type": "object", "required": false, "configurationMode": "advanced", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "sensitive": true },
+      "recoverySnapshotHash": { "type": "string", "required": false, "configurationMode": "advanced", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable" }
+    },
+    "connections": {
+      "management": {
+        "transport": "http",
+        "allowedProtocols": ["https"],
+        "host": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" },
+        "port": { "type": "number", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": 443 },
+        "credentialSlot": "credential",
+        "tls": {
+          "enabled": { "type": "boolean", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": true },
+          "verifyPeer": { "type": "boolean", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": false }
+        }
+      }
+    },
+    "credentials": { "credential": { "allowedKinds": ["USERNAME_PASSWORD"], "required": true, "configurationMode": "required", "lifecycle": "pre_execution" } },
+    "artifacts": {
+      "certificate": {
+        "kind": "certificate",
+        "required": true,
+        "configurationMode": "required",
+        "lifecycle": "pre_execution",
+        "artifactContract": {
+          "outputs": {
+            "leafPem": { "role": "public_certificate", "required": true, "format": "pem", "encoding": "utf8" },
+            "privateKeyPem": { "role": "private_key", "required": true, "format": "pem", "encoding": "utf8", "sensitive": true },
+            "orderedChainPem": { "role": "certificate_chain", "required": false, "format": "pem", "encoding": "utf8" },
+            "fingerprintSha256": { "role": "fingerprint_sha256", "required": true, "format": "hex", "encoding": "utf8" }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "preflightVersion",
+      "type": "http",
+      "stage": "prepare",
+      "request": { "method": "GET", "connectionRef": "management", "url": "/mgmt/tm/sys/version", "auth": { "type": "basic", "username": "{{credentials.credential.username}}", "credential": "{{credentials.credential}}" }, "headers": { "Accept": "application/json" }, "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true }, "timeoutSeconds": 30, "maxResponseBytes": 1048576, "successStatusCodes": [200] },
+      "extract": [{ "name": "versionResponse", "type": "outputPath", "path": "$.body" }],
+      "assert": [{ "type": "statusCode", "equals": 200 }]
+    },
+    {
+      "name": "preflightFailover",
+      "type": "http",
+      "stage": "prepare",
+      "request": { "method": "GET", "connectionRef": "management", "url": "/mgmt/tm/sys/failover", "auth": { "type": "basic", "username": "{{credentials.credential.username}}", "credential": "{{credentials.credential}}" }, "headers": { "Accept": "application/json" }, "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true }, "timeoutSeconds": 30, "maxResponseBytes": 1048576, "successStatusCodes": [200] },
+      "extract": [{ "name": "failoverResponse", "type": "outputPath", "path": "$.body" }],
+      "assert": [{ "type": "statusCode", "equals": 200 }]
+    },
+    {
+      "name": "normalizeFailover",
+      "type": "transform",
+      "stage": "prepare",
+      "transform": { "engine": "jsonata", "input": { "failoverResponse": "{{steps.preflightFailover.extracted.failoverResponse}}" }, "outputs": { "state": { "expression": "$contains($uppercase($string(failoverResponse.apiRawValues.apiAnonymous)), 'ACTIVE') ? 'ACTIVE' : ($contains($uppercase($string(failoverResponse.apiRawValues.apiAnonymous)), 'STANDBY') ? 'STANDBY' : $uppercase($string(failoverResponse.entries.*.nestedStats.entries.Status.description ? failoverResponse.entries.*.nestedStats.entries.Status.description : (failoverResponse.entries.*.nestedStats.entries.status.description ? failoverResponse.entries.*.nestedStats.entries.status.description : (failoverResponse.status ? failoverResponse.status : 'UNKNOWN')))))" } }, "timeoutMs": 1000, "maxOutputBytes": 65536 }
+    },
+    { "name": "requireActiveDevice", "type": "condition", "stage": "prepare", "condition": { "variable": "steps.normalizeFailover.extracted.state", "equals": "ACTIVE" }, "description": "F5 BIG-IP 非 Active 设备禁止证书写入" },
+    {
+      "name": "selectTarget",
+      "type": "transform",
+      "stage": "backup",
+      "transform": {
+        "engine": "jsonata",
+        "input": { "targets": "{{variables.targetVirtualServers}}", "certificateKeyName": "{{variables.certificateKeyName}}" },
+        "outputs": {
+          "target": { "expression": "targets[0]" },
+          "targetCount": { "expression": "$count(targets)" },
+          "profileUri": { "expression": "$string(targets[0].metadata.profileUri)" },
+          "profilePath": { "expression": "$string(targets[0].metadata.profilePath)" },
+          "entryName": { "expression": "$string(targets[0].metadata.keyChainEntryName)" },
+          "profileReferenceCount": { "expression": "$number(targets[0].metadata.profileReferenceCount)" },
+          "targetStableKey": { "expression": "$string(targets[0].stableKey)" },
+          "certificateKeyName": { "expression": "$string(certificateKeyName)" }
+        },
+        "timeoutMs": 1000,
+        "maxInputBytes": 1048576,
+        "maxOutputBytes": 262144
+      }
+    },
+    { "name": "requireSingleTarget", "type": "condition", "stage": "backup", "condition": { "variable": "steps.selectTarget.extracted.targetCount", "equals": 1 }, "description": "首版要求一次只更新一个明确的 LTM TLS 绑定" },
+    { "name": "requireUnsharedProfile", "type": "condition", "stage": "backup", "condition": { "variable": "steps.selectTarget.extracted.profileReferenceCount", "equals": 1 }, "description": "Client SSL Profile 被多个 Virtual Server 共享时禁止单站点更新" },
+    {
+      "name": "readProfile",
+      "type": "http",
+      "stage": "backup",
+      "request": { "method": "GET", "connectionRef": "management", "url": "{{steps.selectTarget.extracted.profileUri}}", "auth": { "type": "basic", "username": "{{credentials.credential.username}}", "credential": "{{credentials.credential}}" }, "headers": { "Accept": "application/json" }, "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true }, "timeoutSeconds": 60, "maxResponseBytes": 4194304, "successStatusCodes": [200] },
+      "extract": [{ "name": "profileSnapshot", "type": "outputPath", "path": "$.body" }],
+      "assert": [{ "type": "statusCode", "equals": 200 }]
+    },
+    {
+      "name": "buildDeploymentSnapshot",
+      "type": "transform",
+      "stage": "backup",
+      "transform": { "engine": "jsonata", "input": { "profile": "{{steps.readProfile.extracted.profileSnapshot}}", "target": "{{steps.selectTarget.extracted.target}}", "versionResponse": "{{steps.preflightVersion.extracted.versionResponse}}" }, "outputs": { "deploymentSnapshot": { "expression": "{'deviceVersion':$string(versionResponse.entries.*.nestedStats.entries.Version.description ? versionResponse.entries.*.nestedStats.entries.Version.description : (versionResponse.entries.*.nestedStats.entries.version.description ? versionResponse.entries.*.nestedStats.entries.version.description : (versionResponse.version ? versionResponse.version : (versionResponse.versionString ? versionResponse.versionString : 'unknown')))),'profile':profile,'target':target}" } }, "timeoutMs": 1000, "maxInputBytes": 1048576, "maxOutputBytes": 1048576 }
+    },
+    { "name": "deploymentCheckpoint", "type": "checkpoint", "stage": "backup", "checkpoint": { "name": "f5-bigip-certificate-deployment", "capture": { "snapshot": "steps.buildDeploymentSnapshot.extracted.deploymentSnapshot" }, "normalizedHash": true, "requiredForRollback": true } },
+    {
+      "name": "prepareNames",
+      "type": "transform",
+      "stage": "install",
+      "transform": { "engine": "jsonata", "input": { "fingerprint": "{{artifacts.certificate.outputs.fingerprintSha256}}" }, "outputs": { "baseName": { "expression": "'gcac-' & $substring($replace($lowercase($string(fingerprint)),/[^0-9a-f]/,''),0,32)" }, "certificateFile": { "expression": "'gcac-' & $substring($replace($lowercase($string(fingerprint)),/[^0-9a-f]/,''),0,32) & '.crt'" }, "keyFile": { "expression": "'gcac-' & $substring($replace($lowercase($string(fingerprint)),/[^0-9a-f]/,''),0,32) & '.key'" }, "chainFile": { "expression": "'gcac-' & $substring($replace($lowercase($string(fingerprint)),/[^0-9a-f]/,''),0,32) & '-chain.crt'" } }, "timeoutMs": 1000, "maxOutputBytes": 65536 }
+    },
+    {
+      "name": "prepareUpload",
+      "type": "transform",
+      "stage": "install",
+      "transform": { "engine": "jsonata", "input": { "leafPem": "{{artifacts.certificate.outputs.leafPem}}", "privateKeyPem": "{{artifacts.certificate.outputs.privateKeyPem}}", "orderedChainPem": "{{artifacts.certificate.outputs.orderedChainPem}}" }, "outputs": { "leafPem": { "expression": "$string(leafPem)" }, "privateKeyPem": { "expression": "$string(privateKeyPem)", "sensitive": true }, "chainPem": { "expression": "$string(orderedChainPem ? orderedChainPem : '')" }, "chainPresent": { "expression": "$length($string(orderedChainPem ? orderedChainPem : '')) > 0" }, "leafSize": { "expression": "$length($string(leafPem))" }, "leafLastByte": { "expression": "$length($string(leafPem))-1" }, "keySize": { "expression": "$length($string(privateKeyPem))" }, "keyLastByte": { "expression": "$length($string(privateKeyPem))-1" }, "chainSize": { "expression": "$length($string(orderedChainPem ? orderedChainPem : ''))" }, "chainLastByte": { "expression": "$length($string(orderedChainPem ? orderedChainPem : ''))-1" } }, "timeoutMs": 1000, "maxInputBytes": 1048576, "maxOutputBytes": 1048576 }
+    },
+    {
+      "name": "uploadCertificate",
+      "type": "http",
+      "stage": "install",
+      "request": { "method": "POST", "connectionRef": "management", "url": "/mgmt/shared/file-transfer/uploads/{{steps.prepareNames.extracted.certificateFile}}", "auth": { "type": "basic", "username": "{{credentials.credential.username}}", "credential": "{{credentials.credential}}" }, "headers": { "Content-Type": "application/octet-stream", "Content-Range": "0-{{steps.prepareUpload.extracted.leafLastByte}}/{{steps.prepareUpload.extracted.leafSize}}" }, "bodyType": "raw", "body": "{{steps.prepareUpload.extracted.leafPem}}", "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true }, "timeoutSeconds": 120, "maxResponseBytes": 1048576, "successStatusCodes": [200, 201, 202] }
+    },
+    {
+      "name": "uploadPrivateKey",
+      "type": "http",
+      "stage": "install",
+      "request": { "method": "POST", "connectionRef": "management", "url": "/mgmt/shared/file-transfer/uploads/{{steps.prepareNames.extracted.keyFile}}", "auth": { "type": "basic", "username": "{{credentials.credential.username}}", "credential": "{{credentials.credential}}" }, "headers": { "Content-Type": "application/octet-stream", "Content-Range": "0-{{steps.prepareUpload.extracted.keyLastByte}}/{{steps.prepareUpload.extracted.keySize}}" }, "bodyType": "raw", "body": "{{steps.prepareUpload.extracted.privateKeyPem}}", "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true }, "timeoutSeconds": 120, "maxResponseBytes": 1048576, "successStatusCodes": [200, 201, 202] }
+    },
+    {
+      "name": "uploadChain",
+      "type": "http",
+      "stage": "install",
+      "when": { "variable": "steps.prepareUpload.extracted.chainPresent", "equals": true },
+      "request": { "method": "POST", "connectionRef": "management", "url": "/mgmt/shared/file-transfer/uploads/{{steps.prepareNames.extracted.chainFile}}", "auth": { "type": "basic", "username": "{{credentials.credential.username}}", "credential": "{{credentials.credential}}" }, "headers": { "Content-Type": "application/octet-stream", "Content-Range": "0-{{steps.prepareUpload.extracted.chainLastByte}}/{{steps.prepareUpload.extracted.chainSize}}" }, "bodyType": "raw", "body": "{{steps.prepareUpload.extracted.chainPem}}", "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true }, "timeoutSeconds": 120, "maxResponseBytes": 1048576, "successStatusCodes": [200, 201, 202] }
+    },
+    {
+      "name": "installCertificate",
+      "type": "http",
+      "stage": "install",
+      "request": { "method": "POST", "connectionRef": "management", "url": "/mgmt/tm/sys/crypto/cert", "auth": { "type": "basic", "username": "{{credentials.credential.username}}", "credential": "{{credentials.credential}}" }, "headers": { "Accept": "application/json", "Content-Type": "application/json" }, "bodyType": "json", "body": { "command": "install", "name": "{{steps.prepareNames.extracted.certificateFile}}", "from-local-file": "/var/config/rest/downloads/{{steps.prepareNames.extracted.certificateFile}}" }, "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true }, "timeoutSeconds": 120, "maxResponseBytes": 1048576, "successStatusCodes": [200, 201, 202] }
+    },
+    {
+      "name": "installChain",
+      "type": "http",
+      "stage": "install",
+      "when": { "variable": "steps.prepareUpload.extracted.chainPresent", "equals": true },
+      "request": { "method": "POST", "connectionRef": "management", "url": "/mgmt/tm/sys/crypto/cert", "auth": { "type": "basic", "username": "{{credentials.credential.username}}", "credential": "{{credentials.credential}}" }, "headers": { "Accept": "application/json", "Content-Type": "application/json" }, "bodyType": "json", "body": { "command": "install", "name": "{{steps.prepareNames.extracted.chainFile}}", "from-local-file": "/var/config/rest/downloads/{{steps.prepareNames.extracted.chainFile}}" }, "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true }, "timeoutSeconds": 120, "maxResponseBytes": 1048576, "successStatusCodes": [200, 201, 202] }
+    },
+    {
+      "name": "installKey",
+      "type": "http",
+      "stage": "install",
+      "request": { "method": "POST", "connectionRef": "management", "url": "/mgmt/tm/sys/crypto/key", "auth": { "type": "basic", "username": "{{credentials.credential.username}}", "credential": "{{credentials.credential}}" }, "headers": { "Accept": "application/json", "Content-Type": "application/json" }, "bodyType": "json", "body": { "command": "install", "name": "{{steps.prepareNames.extracted.keyFile}}", "from-local-file": "/var/config/rest/downloads/{{steps.prepareNames.extracted.keyFile}}" }, "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true }, "timeoutSeconds": 120, "maxResponseBytes": 1048576, "successStatusCodes": [200, 201, 202] }
+    },
+    {
+      "name": "buildProfilePatch",
+      "type": "transform",
+      "stage": "refresh",
+      "transform": { "engine": "jsonata", "input": { "profile": "{{steps.readProfile.extracted.profileSnapshot}}", "entryName": "{{steps.selectTarget.extracted.entryName}}", "certPath": "{{steps.prepareNames.extracted.certificateFile}}", "keyPath": "{{steps.prepareNames.extracted.keyFile}}", "chainPath": "{{steps.prepareNames.extracted.chainFile}}", "chainPresent": "{{steps.prepareUpload.extracted.chainPresent}}" }, "outputs": { "entryCount": { "expression": "$count($filter(profile.certKeyChain,function($entry){$string($entry.name)=entryName}) )" }, "profilePatch": { "expression": "{'certKeyChain':$map(profile.certKeyChain,function($entry){$string($entry.name)=entryName ? $merge([$entry,{'cert':'/Common/' & certPath,'key':'/Common/' & keyPath,'chain':chainPresent ? '/Common/' & chainPath : $entry.chain}]) : $entry})}" } }, "timeoutMs": 1000, "maxInputBytes": 1048576, "maxOutputBytes": 1048576 }
+    },
+    { "name": "requireProfileEntry", "type": "condition", "stage": "refresh", "condition": { "variable": "steps.buildProfilePatch.extracted.entryCount", "equals": 1 }, "description": "目标 certKeyChain 条目不存在时禁止写入" },
+    {
+      "name": "patchProfile",
+      "type": "http",
+      "stage": "refresh",
+      "request": { "method": "PATCH", "connectionRef": "management", "url": "{{steps.selectTarget.extracted.profileUri}}", "auth": { "type": "basic", "username": "{{credentials.credential.username}}", "credential": "{{credentials.credential}}" }, "headers": { "Accept": "application/json", "Content-Type": "application/json" }, "bodyType": "json", "body": "{{steps.buildProfilePatch.extracted.profilePatch}}", "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true }, "timeoutSeconds": 120, "maxResponseBytes": 4194304, "successStatusCodes": [200] }
+    },
+    {
+      "name": "saveConfiguration",
+      "type": "http",
+      "stage": "refresh",
+      "request": { "method": "POST", "connectionRef": "management", "url": "/mgmt/tm/sys/config", "auth": { "type": "basic", "username": "{{credentials.credential.username}}", "credential": "{{credentials.credential}}" }, "headers": { "Accept": "application/json", "Content-Type": "application/json" }, "bodyType": "json", "body": { "command": "save" }, "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true }, "timeoutSeconds": 120, "maxResponseBytes": 1048576, "successStatusCodes": [200, 201, 202] }
+    },
+    {
+      "name": "verifyProfile",
+      "type": "http",
+      "stage": "verify",
+      "request": { "method": "GET", "connectionRef": "management", "url": "{{steps.selectTarget.extracted.profileUri}}", "auth": { "type": "basic", "username": "{{credentials.credential.username}}", "credential": "{{credentials.credential}}" }, "headers": { "Accept": "application/json" }, "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true }, "timeoutSeconds": 60, "maxResponseBytes": 4194304, "successStatusCodes": [200] },
+      "extract": [{ "name": "verifiedProfile", "type": "outputPath", "path": "$.body" }],
+      "assert": [{ "type": "statusCode", "equals": 200 }]
+    },
+    {
+      "name": "verifyCertificateReference",
+      "type": "transform",
+      "stage": "verify",
+      "transform": { "engine": "jsonata", "input": { "profile": "{{steps.verifyProfile.extracted.verifiedProfile}}", "entryName": "{{steps.selectTarget.extracted.entryName}}", "expectedCert": "{{steps.prepareNames.extracted.certificateFile}}" }, "outputs": { "effectiveCert": { "expression": "$string($filter(profile.certKeyChain,function($entry){$string($entry.name)=entryName})[0].cert)" } }, "timeoutMs": 1000, "maxOutputBytes": 65536 }
+    },
+    { "name": "requireCertificateReference", "type": "condition", "stage": "verify", "condition": { "variable": "steps.verifyCertificateReference.extracted.effectiveCert", "equals": "{{steps.prepareNames.extracted.certificateFile}}" }, "description": "控制面回读未确认新证书路径" }
+  ],
+  "rollback": [
+    { "name": "verifyRecoverySnapshot", "type": "checkpoint_verify", "stage": "prepare", "when": { "variable": "variables.recoverySnapshot", "exists": true }, "checkpointVerify": { "valuePath": "variables.recoverySnapshot", "expectedHash": "{{variables.recoverySnapshotHash}}" } },
+    {
+      "name": "readCurrentProfile",
+      "type": "http",
+      "stage": "prepare",
+      "request": { "method": "GET", "connectionRef": "management", "url": "{{steps.selectTarget.extracted.profileUri}}", "auth": { "type": "basic", "username": "{{credentials.credential.username}}", "credential": "{{credentials.credential}}" }, "headers": { "Accept": "application/json" }, "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true }, "timeoutSeconds": 60, "maxResponseBytes": 4194304, "successStatusCodes": [200] },
+      "extract": [{ "name": "currentProfile", "type": "outputPath", "path": "$.body" }],
+      "assert": [{ "type": "statusCode", "equals": 200 }]
+    },
+    {
+      "name": "buildRestorePatch",
+      "type": "transform",
+      "stage": "refresh",
+      "transform": { "engine": "jsonata", "input": { "snapshot": "{{steps.buildDeploymentSnapshot.extracted.deploymentSnapshot.profile}}" }, "outputs": { "profilePatch": { "expression": "{'certKeyChain':snapshot.certKeyChain}" } }, "timeoutMs": 1000, "maxInputBytes": 1048576, "maxOutputBytes": 1048576 }
+    },
+    {
+      "name": "restoreProfile",
+      "type": "http",
+      "stage": "refresh",
+      "request": { "method": "PATCH", "connectionRef": "management", "url": "{{steps.selectTarget.extracted.profileUri}}", "auth": { "type": "basic", "username": "{{credentials.credential.username}}", "credential": "{{credentials.credential}}" }, "headers": { "Accept": "application/json", "Content-Type": "application/json" }, "bodyType": "json", "body": "{{steps.buildRestorePatch.extracted.profilePatch}}", "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true }, "timeoutSeconds": 120, "maxResponseBytes": 4194304, "successStatusCodes": [200] }
+    },
+    {
+      "name": "saveRollbackConfiguration",
+      "type": "http",
+      "stage": "refresh",
+      "request": { "method": "POST", "connectionRef": "management", "url": "/mgmt/tm/sys/config", "auth": { "type": "basic", "username": "{{credentials.credential.username}}", "credential": "{{credentials.credential}}" }, "headers": { "Accept": "application/json", "Content-Type": "application/json" }, "bodyType": "json", "body": { "command": "save" }, "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true }, "timeoutSeconds": 120, "maxResponseBytes": 1048576, "successStatusCodes": [200, 201, 202] }
+    },
+    {
+      "name": "verifyRollbackProfile",
+      "type": "http",
+      "stage": "verify",
+      "request": { "method": "GET", "connectionRef": "management", "url": "{{steps.selectTarget.extracted.profileUri}}", "auth": { "type": "basic", "username": "{{credentials.credential.username}}", "credential": "{{credentials.credential}}" }, "headers": { "Accept": "application/json" }, "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true }, "timeoutSeconds": 60, "maxResponseBytes": 4194304, "successStatusCodes": [200] },
+      "extract": [{ "name": "rollbackProfile", "type": "outputPath", "path": "$.body" }],
+      "assert": [{ "type": "statusCode", "equals": 200 }]
+    },
+    {
+      "name": "verifyRollbackReference",
+      "type": "transform",
+      "stage": "verify",
+      "transform": { "engine": "jsonata", "input": { "profile": "{{steps.verifyRollbackProfile.extracted.rollbackProfile}}", "entryName": "{{steps.selectTarget.extracted.entryName}}", "snapshot": "{{steps.buildDeploymentSnapshot.extracted.deploymentSnapshot.profile}}" }, "outputs": { "effectiveCert": { "expression": "$string($filter(profile.certKeyChain,function($entry){$string($entry.name)=entryName})[0].cert)" }, "expectedCert": { "expression": "$string($filter(snapshot.certKeyChain,function($entry){$string($entry.name)=entryName})[0].cert)" } }, "timeoutMs": 1000, "maxOutputBytes": 65536 }
+    },
+    { "name": "requireRollbackReference", "type": "condition", "stage": "verify", "condition": { "variable": "steps.verifyRollbackReference.extracted.effectiveCert", "equals": "{{steps.verifyRollbackReference.extracted.expectedCert}}" }, "description": "回滚后控制面未恢复原始证书引用" }
+  ]
+}

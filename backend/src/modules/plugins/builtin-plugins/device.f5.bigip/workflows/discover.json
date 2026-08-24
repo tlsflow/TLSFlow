@@ -1,0 +1,257 @@
+{
+  "apiVersion": "gcac.workflow/v1",
+  "kind": "CurlSshWorkflow",
+  "metadata": {
+    "name": "f5-bigip-discover",
+    "displayName": "F5 BIG-IP discovery",
+    "category": "device",
+    "version": "1.0.6",
+    "platforms": ["appliance"],
+    "updateMethods": ["curl"],
+    "maintainer": "GCAC"
+  },
+  "inputContract": {
+    "apiVersion": "gcac.deployment-input/v1",
+    "variables": {
+      "allowInsecureTls": { "type": "boolean", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding", "descriptionKey": "deploymentInputs.allowInsecureTls.description", "ui": { "labelKey": "deploymentInputs.allowInsecureTls.label", "group": "security", "order": 10, "helpKey": "deploymentInputs.allowInsecureTls.help" } }
+    },
+    "connections": {
+      "management": {
+        "transport": "http",
+        "allowedProtocols": ["https"],
+        "host": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" },
+        "port": { "type": "number", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": 443 },
+        "credentialSlot": "credential",
+        "tls": {
+          "enabled": { "type": "boolean", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": true },
+          "verifyPeer": { "type": "boolean", "required": true, "configurationMode": "advanced", "source": { "kind": "default" }, "lifecycle": "pre_execution", "bindingPolicy": "default_overridable", "default": false }
+        }
+      }
+    },
+    "credentials": { "credential": { "allowedKinds": ["USERNAME_PASSWORD"], "required": true, "configurationMode": "required", "lifecycle": "pre_execution" } },
+    "artifacts": {}
+  },
+  "steps": [
+    {
+      "name": "readVersion",
+      "type": "http",
+      "stage": "prepare",
+      "request": { "method": "GET", "connectionRef": "management", "url": "/mgmt/tm/sys/version", "auth": { "type": "basic", "username": "{{credentials.credential.username}}", "credential": "{{credentials.credential}}" }, "headers": { "Accept": "application/json" }, "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true }, "timeoutSeconds": 30, "maxResponseBytes": 1048576, "successStatusCodes": [200] },
+      "extract": [{ "name": "versionResponse", "type": "outputPath", "path": "$.body" }],
+      "assert": [{ "type": "statusCode", "equals": 200 }]
+    },
+    {
+      "name": "readFailover",
+      "type": "http",
+      "stage": "prepare",
+      "request": { "method": "GET", "connectionRef": "management", "url": "/mgmt/tm/sys/failover", "auth": { "type": "basic", "username": "{{credentials.credential.username}}", "credential": "{{credentials.credential}}" }, "headers": { "Accept": "application/json" }, "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true }, "timeoutSeconds": 30, "maxResponseBytes": 1048576, "successStatusCodes": [200] },
+      "extract": [{ "name": "failoverResponse", "type": "outputPath", "path": "$.body" }],
+      "assert": [{ "type": "statusCode", "equals": 200 }]
+    },
+    {
+      "name": "normalizeVersion",
+      "type": "transform",
+      "stage": "verify",
+      "transform": {
+        "engine": "jsonata",
+        "input": { "versionResponse": "{{steps.readVersion.extracted.versionResponse}}" },
+        "outputs": { "productVersion": { "expression": "$string(versionResponse.entries.*.nestedStats.entries.Version.description ? versionResponse.entries.*.nestedStats.entries.Version.description : (versionResponse.entries.*.nestedStats.entries.version.description ? versionResponse.entries.*.nestedStats.entries.version.description : (versionResponse.version ? versionResponse.version : (versionResponse.versionString ? versionResponse.versionString : 'unknown'))))" } },
+        "timeoutMs": 1000,
+        "maxInputBytes": 1048576,
+        "maxOutputBytes": 65536
+      }
+    },
+    {
+      "name": "normalizeFailover",
+      "type": "transform",
+      "stage": "verify",
+      "transform": {
+        "engine": "jsonata",
+        "input": { "failoverResponse": "{{steps.readFailover.extracted.failoverResponse}}" },
+        "outputs": { "failoverState": { "expression": "$contains($uppercase($string(failoverResponse.apiRawValues.apiAnonymous)), 'ACTIVE') ? 'ACTIVE' : ($contains($uppercase($string(failoverResponse.apiRawValues.apiAnonymous)), 'STANDBY') ? 'STANDBY' : $uppercase($string(failoverResponse.entries.*.nestedStats.entries.Status.description ? failoverResponse.entries.*.nestedStats.entries.Status.description : (failoverResponse.entries.*.nestedStats.entries.status.description ? failoverResponse.entries.*.nestedStats.entries.status.description : (failoverResponse.status ? failoverResponse.status : 'UNKNOWN')))))" } },
+        "timeoutMs": 1000,
+        "maxInputBytes": 1048576,
+        "maxOutputBytes": 65536
+      }
+    },
+    {
+      "name": "readVirtualServers",
+      "type": "http",
+      "stage": "prepare",
+      "request": { "method": "GET", "connectionRef": "management", "url": "/mgmt/tm/ltm/virtual", "query": { "expandSubcollections": "true" }, "auth": { "type": "basic", "username": "{{credentials.credential.username}}", "credential": "{{credentials.credential}}" }, "headers": { "Accept": "application/json" }, "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true }, "timeoutSeconds": 60, "maxResponseBytes": 8388608, "successStatusCodes": [200] },
+      "extract": [{ "name": "virtualServerResponse", "type": "outputPath", "path": "$.body" }],
+      "assert": [{ "type": "statusCode", "equals": 200 }]
+    },
+    {
+      "name": "readClientSslProfiles",
+      "type": "http",
+      "stage": "prepare",
+      "request": { "method": "GET", "connectionRef": "management", "url": "/mgmt/tm/ltm/profile/client-ssl", "query": { "expandSubcollections": "true" }, "auth": { "type": "basic", "username": "{{credentials.credential.username}}", "credential": "{{credentials.credential}}" }, "headers": { "Accept": "application/json" }, "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true }, "timeoutSeconds": 60, "maxResponseBytes": 8388608, "successStatusCodes": [200] },
+      "extract": [{ "name": "clientSslResponse", "type": "outputPath", "path": "$.body" }],
+      "assert": [{ "type": "statusCode", "equals": 200 }]
+    },
+    {
+      "name": "normalizeCertificateFiles",
+      "type": "transform",
+      "stage": "prepare",
+      "transform": {
+        "engine": "jsonata",
+        "input": { "profiles": "{{steps.readClientSslProfiles.extracted.clientSslResponse}}" },
+        "outputs": {
+          "certificateFiles": {
+            "expression": "$count(profiles.items) = 0 ? [] : $append([],$map($distinct($filter(profiles.items.certKeyChain.cert,function($path){$string($path)!=''})),function($path){{'certificatePath':$string($path),'certificateUri':'/mgmt/tm/sys/file/ssl-cert/~' & $replace($substring($string($path),1),'/','~')}}))"
+          }
+        },
+        "timeoutMs": 1000,
+        "maxInputBytes": 1048576,
+        "maxOutputBytes": 1048576
+      }
+    },
+    {
+      "name": "readCertificateFiles",
+      "type": "foreach",
+      "stage": "prepare",
+      "foreach": {
+        "itemsPath": "steps.normalizeCertificateFiles.extracted.certificateFiles",
+        "itemVariable": "certificateFile",
+        "maxItems": 512,
+        "continueOnError": true,
+        "steps": [
+          {
+            "name": "readCertificate",
+            "type": "http",
+            "request": { "method": "GET", "connectionRef": "management", "url": "{{certificateFile.certificateUri}}", "auth": { "type": "basic", "username": "{{credentials.credential.username}}", "credential": "{{credentials.credential}}" }, "headers": { "Accept": "application/json" }, "tls": { "verify": "{{connections.management.tls.verifyPeer}}", "allowInsecure": true }, "timeoutSeconds": 30, "maxResponseBytes": 1048576, "successStatusCodes": [200] },
+            "extract": [{ "name": "certificateResponse", "type": "outputPath", "path": "$.body" }],
+            "assert": [{ "type": "statusCode", "equals": 200 }]
+          },
+          {
+            "name": "normalizeCertificate",
+            "type": "transform",
+            "transform": {
+              "engine": "jsonata",
+              "input": { "certificatePath": "{{certificateFile.certificatePath}}", "certificate": "{{steps.readCertificate.extracted.certificateResponse}}" },
+              "outputs": {
+                "certificate": {
+                  "expression": "($fingerprint := $replace($replace($string(certificate.fingerprint),/^SHA256\\//i,''),/[^A-Fa-f0-9]/,''); $expirationText := $string(certificate.expirationDate ? certificate.expirationDate : certificate.expirationString); $expiration := $match($expirationText,/^\\d+$/) ? $fromMillis($number($expirationText)*1000) : $expirationText; {'stableKey':'CERT:' & $replace($string(certificatePath),/[^A-Za-z0-9._:\\/-]/,'-'),'sha256Fingerprint':$length($fingerprint)=64 ? $lowercase($fingerprint) : undefined,'subject':$string(certificate.subject),'issuer':$string(certificate.issuer),'notAfter':$expiration,'metadata':{'name':$string(certificatePath),'certificatePath':$string(certificatePath),'fullPath':$string(certificate.fullPath ? certificate.fullPath : certificatePath),'serialNumber':$string(certificate.serialNumber),'subjectAlternativeName':$string(certificate.subjectAlternativeName)}})"
+                }
+              },
+              "timeoutMs": 1000,
+              "maxInputBytes": 1048576,
+              "maxOutputBytes": 65536
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "collectCertificateDetails",
+      "type": "transform",
+      "stage": "prepare",
+      "transform": {
+        "engine": "jsonata",
+        "input": { "iterations": "{{steps.readCertificateFiles.output.iterations}}" },
+        "outputs": {
+          "certificates": {
+            "expression": "$append([],$map($filter(iterations,function($iteration){$string($iteration.status)='success' and $count($iteration.outputs[name='normalizeCertificate'])>0}),function($iteration){$iteration.outputs[name='normalizeCertificate'][0].output.body.outputs.certificate}))"
+          }
+        },
+        "timeoutMs": 1000,
+        "maxInputBytes": 1048576,
+        "maxOutputBytes": 1048576
+      }
+    },
+    {
+      "name": "projectSites",
+      "type": "transform",
+      "stage": "verify",
+      "transform": {
+        "engine": "jsonata",
+        "input": { "virtuals": "{{steps.readVirtualServers.extracted.virtualServerResponse}}" },
+        "outputs": {
+          "sites": {
+            "expression": "($https := $filter(virtuals.items,function($vs){$count($filter($vs.profilesReference.items,function($r){$lowercase($string($r.context))='clientside'}))>0}); $append([],$map($https,function($vs){ {'stableKey':'VS:' & $replace($string($vs.fullPath),/[^A-Za-z0-9._:\/-]/,'-'),'frameworkStableKey':'framework:f5.ltm','siteType':'network.virtual-server','displayName':$string($vs.fullPath),'addresses':[$split($replace($string($vs.destination),/^\\/[^/]+\\//,''),':')[0]],'port':$number($split($replace($string($vs.destination),/^\\/[^/]+\\//,''),':')[1]),'protocol':'HTTPS','metadata':{'virtualServerPath':$string($vs.fullPath)}} })))"
+          }
+        },
+        "timeoutMs": 1000,
+        "maxInputBytes": 1048576,
+        "maxOutputBytes": 1048576
+      }
+    },
+    {
+      "name": "projectTargets",
+      "type": "transform",
+      "stage": "verify",
+      "transform": {
+        "engine": "jsonata",
+        "input": { "virtuals": "{{steps.readVirtualServers.extracted.virtualServerResponse}}", "profiles": "{{steps.readClientSslProfiles.extracted.clientSslResponse}}" },
+        "outputs": {
+          "targets": {
+            "expression": "$count(virtuals.items) = 0 ? [] : $reduce($map($filter(virtuals.items,function($vs){$count($filter($vs.profilesReference.items,function($r){$lowercase($string($r.context))='clientside'}))>0}),function($vs){$reduce($map($filter(profiles.items,function($profile){$profile.fullPath in $vs.profilesReference.items.fullPath}),function($profile){$map($filter($profile.certKeyChain,function($entry){$uppercase($string($entry.usage ? $entry.usage : 'SERVER'))!='CA'}),function($entry){{'stableKey':'TARGET:' & $replace('VS:' & $string($vs.fullPath) & '#' & $string($profile.fullPath) & '#' & $string($entry.name),/[^A-Za-z0-9._:\/-]/,'-'),'frameworkStableKey':'framework:f5.ltm','siteStableKey':'VS:' & $replace($string($vs.fullPath),/[^A-Za-z0-9._:\/-]/,'-'),'targetType':'tls.binding','targetKey':'F5:' & $replace($string($profile.fullPath) & ':' & $string($entry.name),/[^A-Za-z0-9._:\/-]/,'-'),'supportedCapabilities':['certificate.deploy','certificate.rollback'],'executionLocations':['CONTROL_PLANE','GATEWAY'],'metadata':{'profilePath':$string($profile.fullPath),'profileUri':'/mgmt/tm/ltm/profile/client-ssl/~' & $replace($substring($string($profile.fullPath),1),'/','~'),'keyChainEntryName':$string($entry.name),'certificatePath':$string($entry.cert),'profileReferenceCount':$count($filter(virtuals.items,function($candidate){$profile.fullPath in $candidate.profilesReference.items.fullPath})), 'referencingVirtualServers':$filter(virtuals.items,function($candidate){$profile.fullPath in $candidate.profilesReference.items.fullPath}).fullPath,'serverName':$profile.serverName,'sniDefault':$boolean($profile.sniDefault),'sniRequire':$boolean($profile.sniRequire),'usage':$entry.usage ? $entry.usage : 'SERVER','generation':$profile.generation}}})}),function($profiles,$entries){$append($profiles,$entries)},[])}),function($all,$items){$append($all,$items)},[])"
+          }
+        },
+        "timeoutMs": 1000,
+        "maxInputBytes": 1048576,
+        "maxOutputBytes": 1048576
+      }
+    },
+    {
+      "name": "projectCertificates",
+      "type": "transform",
+      "stage": "verify",
+      "transform": {
+        "engine": "jsonata",
+        "input": { "certificates": "{{steps.collectCertificateDetails.extracted.certificates}}" },
+        "outputs": {
+          "certificates": {
+            "expression": "$append([],certificates)"
+          }
+        },
+        "timeoutMs": 1000,
+        "maxInputBytes": 1048576,
+        "maxOutputBytes": 1048576
+      }
+    },
+    {
+      "name": "projectBindings",
+      "type": "transform",
+      "stage": "verify",
+      "transform": {
+        "engine": "jsonata",
+        "input": { "targets": "{{steps.projectTargets.extracted.targets}}", "certificates": "{{steps.projectCertificates.extracted.certificates}}" },
+        "outputs": {
+          "bindings": {
+            "expression": "$append([],$map($filter(targets,function($target){$count($filter(certificates,function($cert){$cert.metadata.certificatePath=$target.metadata.certificatePath}))>0}),function($target){{'stableKey':'BINDING:' & $replace($target.stableKey & ':' & $target.metadata.certificatePath,/[^A-Za-z0-9._:\/-]/,'-'),'managedTargetStableKey':$target.stableKey,'certificateStableKey':$filter(certificates,function($cert){$cert.metadata.certificatePath=$target.metadata.certificatePath}).stableKey,'bindingName':$target.metadata.profilePath & '#' & $target.metadata.keyChainEntryName,'metadata':{'profilePath':$target.metadata.profilePath,'keyChainEntryName':$target.metadata.keyChainEntryName,'sharedProfile':$target.metadata.profileReferenceCount>1}}}))"
+          }
+        },
+        "timeoutMs": 1000,
+        "maxInputBytes": 1048576,
+        "maxOutputBytes": 1048576
+      }
+    },
+    {
+      "name": "projectDiscovery",
+      "type": "transform",
+      "stage": "verify",
+      "transform": {
+        "engine": "jsonata",
+        "input": {
+          "deviceHost": "{{connections.management.host}}",
+          "version": "{{steps.normalizeVersion.extracted.productVersion}}",
+          "failoverState": "{{steps.normalizeFailover.extracted.failoverState}}",
+          "sites": "{{steps.projectSites.extracted.sites}}",
+          "targets": "{{steps.projectTargets.extracted.targets}}",
+          "certificates": "{{steps.projectCertificates.extracted.certificates}}",
+          "bindings": "{{steps.projectBindings.extracted.bindings}}"
+        },
+        "outputs": {
+          "discovery": {
+            "expression": "{'apiVersion':'gcac.device-discovery/v2','device':{'stableKey':'f5-bigip:' & $replace($string(deviceHost),/[^A-Za-z0-9._:\/-]/,'-'),'displayName':$string(deviceHost),'productFamily':'device.f5.bigip','softwareVersion':$string(version),'managementAddress':$string(deviceHost),'metadata':{'managementProtocol':'iControl REST','haState':$uppercase($string(failoverState))}},'capabilities':[{'key':'device.connection.test','available':true},{'key':'device.identity.detect','available':true},{'key':'device.discover','available':true},{'key':'certificate.deploy','available':true},{'key':'certificate.rollback','available':true}],'frameworks':[{'stableKey':'framework:f5.ltm','frameworkType':'f5.ltm','displayName':'LTM'}],'sites':sites,'managedTargets':targets,'certificates':certificates,'certificateBindings':bindings,'warnings':[]}"
+          }
+        },
+        "timeoutMs": 1000,
+        "maxInputBytes": 1048576,
+        "maxOutputBytes": 1048576
+      }
+    }
+  ]
+}

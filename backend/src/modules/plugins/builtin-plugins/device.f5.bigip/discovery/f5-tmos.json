@@ -1,0 +1,15 @@
+{
+  "source": "REAL_DEVICE_REDACTED",
+  "productFamily": "device.f5.bigip",
+  "protocol": "F5_ICONTROL_REST",
+  "containsSecrets": false,
+  "productVersions": ["13.1", "14.1", "15.1", "16.1", "17.1", "17.5"],
+  "mockResponses": {
+    "readVersion": { "statusCode": 200, "body": { "entries": { "https://localhost/mgmt/tm/sys/version/0": { "nestedStats": { "entries": { "product": { "description": "BIG-IP" }, "version": { "description": "16.1.5" }, "build": { "description": "0.0.12" } } } } } } },
+    "readManagementIp": { "statusCode": 200, "body": { "entries": { "https://localhost/mgmt/tm/sys/management-ip/0": { "nestedStats": { "entries": { "network": { "description": "192.0.2.10" } } } } } } },
+    "readFailover": { "statusCode": 200, "body": { "entries": { "https://localhost/mgmt/tm/sys/failover/0": { "nestedStats": { "entries": { "status": { "description": "ACTIVE" } } } } } } },
+    "readVirtualServers": { "statusCode": 200, "body": { "items": [{ "name": "vs_https", "partition": "Common", "fullPath": "/Common/vs_https", "destination": "/Common/10.0.0.20:443", "profilesReference": { "items": [{ "name": "clientssl", "partition": "Common", "fullPath": "/Common/clientssl", "context": "clientside" }] } }] } },
+    "readClientSslProfiles": { "statusCode": 200, "body": { "items": [{ "name": "clientssl", "partition": "Common", "fullPath": "/Common/clientssl", "certKeyChain": [{ "name": "default", "cert": "/Common/site.crt", "key": "/Common/site.key", "chain": "/Common/ca.crt", "usage": "SERVER" }], "serverName": "www.example.invalid", "sniDefault": true, "sniRequire": false, "generation": 12 }] } },
+    "readCertificates": { "statusCode": 200, "body": { "items": [{ "name": "site.crt", "partition": "Common", "fullPath": "/Common/site.crt", "subject": "CN=www.example.invalid", "issuer": "CN=Fixture Issuer", "expirationDate": "2027-01-01T00:00:00Z", "createTime": "2026-01-01T00:00:00Z", "fingerprint": "AA:BB:CC" }] } }
+  }
+}

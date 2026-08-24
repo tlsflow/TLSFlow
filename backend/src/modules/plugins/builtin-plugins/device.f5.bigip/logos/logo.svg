@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 48" role="img" aria-labelledby="title desc">
+  <title id="title">F5 BIG-IP</title>
+  <desc id="desc">F5 BIG-IP plugin logo</desc>
+  <svg x="0" y="0" width="72" height="48" viewBox="0 0 72 48" preserveAspectRatio="xMidYMid meet">
+    <rect width="72" height="48" rx="6" fill="#d71920"/>
+    <path d="M5 10h27v5H9v4h20v5H9v4h23v5H5z" fill="#fff"/>
+    <text x="37" y="30" fill="#fff" font-family="Arial,sans-serif" font-size="9" font-weight="700">BIG-IP</text>
+  </svg>
+</svg>

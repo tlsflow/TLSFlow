@@ -1,0 +1,64 @@
+{
+  "apiVersion": "gcac.plugin-manifest/v1",
+  "kind": "GcacPlugin",
+  "pluginId": "device.f5.bigip",
+  "version": "1.0.6",
+  "displayNameKey": "plugin.f5Bigip.name",
+  "descriptionKey": "plugin.f5Bigip.description",
+  "defaultLocale": "zh-CN",
+  "publisher": "GCAC",
+  "runtime": "WORKFLOW_DSL",
+  "source": "BUILTIN",
+  "scope": "BOTH",
+  "trust": "OFFICIAL_SIGNED",
+  "support": "OFFICIAL",
+  "capabilities": [
+    { "key": "device.connection.test", "contractVersion": "v1", "actionContractId": "device.connection.test.v1", "riskLevel": "LOW", "executionLocations": ["CONTROL_PLANE", "GATEWAY"] },
+    { "key": "device.identity.detect", "contractVersion": "v1", "actionContractId": "device.identity.detect.v1", "riskLevel": "LOW", "executionLocations": ["CONTROL_PLANE", "GATEWAY"] },
+    { "key": "device.discover", "contractVersion": "v1", "actionContractId": "device.discover.v1", "riskLevel": "LOW", "executionLocations": ["CONTROL_PLANE", "GATEWAY"] },
+    { "key": "certificate.deploy", "contractVersion": "v1", "actionContractId": "certificate.deploy.v1", "riskLevel": "HIGH", "executionLocations": ["CONTROL_PLANE", "GATEWAY"] },
+    { "key": "certificate.rollback", "contractVersion": "v1", "actionContractId": "certificate.rollback.v1", "riskLevel": "HIGH", "executionLocations": ["CONTROL_PLANE", "GATEWAY"] }
+  ],
+  "permissions": [
+    "secret.resolve",
+    "artifact.read",
+    "network.http",
+    "device.write",
+    "audit.append"
+  ],
+  "compatibility": {
+    "productFamilies": ["device.f5.bigip"],
+    "frameworkTypes": ["f5.ltm"],
+    "targetTypes": ["tls.binding"],
+    "managementMethods": ["PLUGIN"],
+    "executionLocations": ["CONTROL_PLANE", "GATEWAY"],
+    "artifactContracts": ["certificate.deploy.v1"]
+  },
+  "resources": {
+    "logos": {
+      "horizontal": "logos/logo.svg",
+      "square": "logos/logo-square.svg"
+    },
+    "runtimeEntrypoint": "runtime/index.js",
+    "actionContracts": {
+      "device.connection.test.v1": "action-contracts/device-connection-test.json",
+      "device.identity.detect.v1": "action-contracts/device-identity-detect.json",
+      "device.discover.v1": "action-contracts/device-discover.json"
+    },
+    "workflows": {
+      "device.connection.test": "workflows/connection-test.json",
+      "device.identity.detect": "workflows/identity-detect.json",
+      "device.discover": "workflows/discover.json",
+      "certificate.deploy": "workflows/certificate-deploy.json",
+      "certificate.rollback": "workflows/certificate-deploy.json"
+    },
+    "forms": { "device": "forms/device.json" },
+    "presentations": { "device": "presentations/device.json" },
+    "discoveryMappings": { "f5-tmos": "discovery/f5-tmos.json" },
+    "onboarding": { "applicationAsset": "onboarding/application-asset.json" },
+    "locales": {
+      "zh-CN": "locales/zh-CN.json",
+      "en-US": "locales/en-US.json"
+    }
+  }
+}
