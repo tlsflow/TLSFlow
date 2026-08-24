@@ -24,7 +24,7 @@ Manifest 使用 `gcac.plugin-manifest/v1`。必须声明 Runtime、Source、Scop
 
 每个内置包的 `manifest.json.version` 是插件版本的唯一事实源。后端启动和热刷新扫描包后，Registry、数据库 `PluginVersion` 和 Workflow Binding 都是不可变派生状态，不能反向定义或覆盖 Manifest。相同 `pluginId@version` 且摘要相同必须幂等注册；摘要不同必须拒绝启动或热刷新；更高 Manifest 版本创建新记录并保留旧记录。
 
-`scripts/architecture/p2-plugin-release-manifest.json` 是发布 Catalog，只保存发布策略、包摘要、Host API 授权和所有权元数据。它不保存插件版本、Capability 或 Workflow 版本镜像。Workflow `metadata.version` 属于 Workflow 自身，不是插件版本副本。
+历史 P2 发布 Catalog 已退休并从仓库删除。当前只使用包内 Manifest、Registry 派生摘要以及 Policy/Execution Grant 授权边界；Workflow `metadata.version` 属于 Workflow 自身，不是插件版本副本。
 
 插件导入、审批、启用、绑定和执行是独立阶段。未通过任何一个阶段都必须失败关闭。
 
@@ -44,4 +44,4 @@ Manifest 使用 `gcac.plugin-manifest/v1`。必须声明 Runtime、Source、Scop
 
 `pluginId` 必须是目标设备插件的稳定标识。向导加载该插件版本在 Manifest `resources.forms` 中声明的真实 `forms.device` 资源；逻辑别名、内嵌表单和宿主专属字段都会被拒绝。`EXISTING_ONLY` 和 `NONE` 配方不得声明该字段。未声明该字段的历史插件仍可选择已有设备，但不会在应用向导中展示新增设备选项。
 
-设备插件完成创建后，宿主恢复原接入会话并刷新兼容设备列表。修改接入配方、表单或 Manifest onboarding 资源属于包内容变更，必须递进 Manifest 版本并更新发布 Catalog 摘要；不得直接修改运行数据库或在宿主增加厂商特判。
+设备插件完成创建后，宿主恢复原接入会话并刷新兼容设备列表。修改接入配方、表单或 Manifest onboarding 资源属于包内容变更，必须递进 Manifest 版本；Registry 在加载时重新计算摘要，不得直接修改运行数据库或在宿主增加厂商特判。
