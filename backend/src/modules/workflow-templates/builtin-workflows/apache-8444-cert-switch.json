@@ -23,6 +23,67 @@
       ],
       "description": "目标平台，当前工作流只允许 Linux。"
     },
+    "frameworkType": {
+      "type": "enum",
+      "required": true,
+      "default": "APACHE",
+      "enum": [
+        "NGINX",
+        "APACHE",
+        "TOMCAT",
+        "IIS",
+        "CUSTOM"
+      ],
+      "description": "应用资产框架类型，当前模板固定为 APACHE。"
+    },
+    "siteName": {
+      "type": "string",
+      "required": true,
+      "default": "Apache 8444",
+      "description": "应用资产站点显示名称。"
+    },
+    "bindingInformation": {
+      "type": "string",
+      "required": false,
+      "default": "*:8444:test.local",
+      "description": "应用资产站点绑定信息。"
+    },
+    "hostHeader": {
+      "type": "string",
+      "required": false,
+      "default": "test.local",
+      "description": "HTTPS 验证请求使用的 Host 头。"
+    },
+    "port": {
+      "type": "number",
+      "required": true,
+      "default": 8444,
+      "description": "Apache HTTPS 监听端口。"
+    },
+    "protocol": {
+      "type": "enum",
+      "required": true,
+      "default": "HTTPS",
+      "enum": [
+        "HTTP",
+        "HTTPS",
+        "TLS",
+        "CUSTOM"
+      ],
+      "description": "应用资产访问协议，当前模板固定使用 HTTPS。"
+    },
+    "verifyUrl": {
+      "type": "string",
+      "required": true,
+      "default": "https://127.0.0.1:8444/",
+      "description": "后端和工作流共同使用的 HTTPS 验证 URL。"
+    },
+    "sniName": {
+      "type": "string",
+      "required": false,
+      "default": "test.local",
+      "description": "TLS SNI 名称。"
+    },
     "deviceHost": {
       "type": "string",
       "required": true,
@@ -38,29 +99,6 @@
       "required": true,
       "sensitive": true,
       "description": "SSH 登录凭据，从工作流凭据管理中选择。"
-    },
-    "verifyHost": {
-      "type": "string",
-      "required": true,
-      "description": "后端 HTTPS 验证时访问的主机名或 IP。"
-    },
-    "verifyPort": {
-      "type": "number",
-      "required": true,
-      "default": 8444,
-      "description": "Apache HTTPS 监听端口。"
-    },
-    "verifyPath": {
-      "type": "string",
-      "required": true,
-      "default": "/",
-      "description": "HTTPS 验证路径。"
-    },
-    "virtualHostServerName": {
-      "type": "string",
-      "required": true,
-      "default": "test.local",
-      "description": "Apache 站点的 ServerName，用于 Host 头和 TLS SNI。"
     },
     "apacheServiceName": {
       "type": "string",
@@ -133,6 +171,16 @@
         "equals": "linux"
       },
       "description": "当前工作流只支持 Linux Apache 目标。"
+    },
+    {
+      "name": "prepare_apache_framework_only",
+      "type": "condition",
+      "stage": "prepare",
+      "condition": {
+        "variable": "frameworkType",
+        "equals": "APACHE"
+      },
+      "description": "当前工作流只支持 APACHE 框架类型。"
     },
     {
       "name": "prepare_validate_apache_site",
@@ -365,14 +413,14 @@
       },
       "request": {
         "method": "GET",
-        "url": "https://{{verifyHost}}:{{verifyPort}}{{verifyPath}}",
+        "url": "{{verifyUrl}}",
         "headers": {
-          "Host": "{{virtualHostServerName}}"
+          "Host": "{{hostHeader}}"
         },
         "tls": {
           "allowInsecure": true,
           "verify": false,
-          "sni": "{{virtualHostServerName}}"
+          "sni": "{{sniName}}"
         },
         "timeoutSeconds": 30,
         "maxResponseBytes": 65536,
@@ -406,7 +454,7 @@
           "credential": "{{credential}}",
           "hostKeyPolicy": "trust_on_first_use"
         },
-        "script": "set -eu\nlive_cert=\"$(mktemp)\"\necho | openssl s_client -connect 127.0.0.1:{{verifyPort}} -servername '{{virtualHostServerName}}' 2>/dev/null | openssl x509 -out \"$live_cert\"\nlive_subject=\"$(openssl x509 -in \"$live_cert\" -noout -subject | sed 's/^subject=//')\"\nlive_issuer=\"$(openssl x509 -in \"$live_cert\" -noout -issuer | sed 's/^issuer=//')\"\nlive_serial=\"$(openssl x509 -in \"$live_cert\" -noout -serial | sed 's/^serial=//')\"\nlive_not_before=\"$(openssl x509 -in \"$live_cert\" -noout -startdate | sed 's/^notBefore=//')\"\nlive_not_after=\"$(openssl x509 -in \"$live_cert\" -noout -enddate | sed 's/^notAfter=//')\"\nlive_fingerprint=\"$(openssl x509 -in \"$live_cert\" -noout -fingerprint -sha256 | awk -F= '{print tolower($2)}' | tr -d ':')\"\nrm -f \"$live_cert\"\nprintf 'LIVE_CERT_SUBJECT=%s\\n' \"$live_subject\"\nprintf 'LIVE_CERT_ISSUER=%s\\n' \"$live_issuer\"\nprintf 'LIVE_CERT_SERIAL=%s\\n' \"$live_serial\"\nprintf 'LIVE_CERT_NOT_BEFORE=%s\\n' \"$live_not_before\"\nprintf 'LIVE_CERT_NOT_AFTER=%s\\n' \"$live_not_after\"\nprintf 'LIVE_CERT_FINGERPRINT=%s\\n' \"$live_fingerprint\"\nprintf 'CERT_COMPARE_OLD=%s\\n' '{{oldCertificateFingerprintSha256}}'\nprintf 'CERT_COMPARE_NEW=%s\\n' \"$live_fingerprint\"",
+        "script": "set -eu\nlive_cert=\"$(mktemp)\"\necho | openssl s_client -connect 127.0.0.1:{{port}} -servername '{{sniName}}' 2>/dev/null | openssl x509 -out \"$live_cert\"\nlive_subject=\"$(openssl x509 -in \"$live_cert\" -noout -subject | sed 's/^subject=//')\"\nlive_issuer=\"$(openssl x509 -in \"$live_cert\" -noout -issuer | sed 's/^issuer=//')\"\nlive_serial=\"$(openssl x509 -in \"$live_cert\" -noout -serial | sed 's/^serial=//')\"\nlive_not_before=\"$(openssl x509 -in \"$live_cert\" -noout -startdate | sed 's/^notBefore=//')\"\nlive_not_after=\"$(openssl x509 -in \"$live_cert\" -noout -enddate | sed 's/^notAfter=//')\"\nlive_fingerprint=\"$(openssl x509 -in \"$live_cert\" -noout -fingerprint -sha256 | awk -F= '{print tolower($2)}' | tr -d ':')\"\nrm -f \"$live_cert\"\nprintf 'LIVE_CERT_SUBJECT=%s\\n' \"$live_subject\"\nprintf 'LIVE_CERT_ISSUER=%s\\n' \"$live_issuer\"\nprintf 'LIVE_CERT_SERIAL=%s\\n' \"$live_serial\"\nprintf 'LIVE_CERT_NOT_BEFORE=%s\\n' \"$live_not_before\"\nprintf 'LIVE_CERT_NOT_AFTER=%s\\n' \"$live_not_after\"\nprintf 'LIVE_CERT_FINGERPRINT=%s\\n' \"$live_fingerprint\"\nprintf 'CERT_COMPARE_OLD=%s\\n' '{{oldCertificateFingerprintSha256}}'\nprintf 'CERT_COMPARE_NEW=%s\\n' \"$live_fingerprint\"",
         "timeoutSeconds": 120
       },
       "extract": [
@@ -453,7 +501,7 @@
       "name": "verify_show_certificate_comparison",
       "type": "manual",
       "stage": "verify",
-      "instruction": "Apache 8444 证书替换完成。备份目录：{{backupDirectory}}。后端 HTTPS 验证状态：{{backendHttpStatus}}。替换前证书：subject={{oldCertificateSubject}}；issuer={{oldCertificateIssuer}}；serial={{oldCertificateSerial}}；notBefore={{oldCertificateNotBefore}}；notAfter={{oldCertificateNotAfter}}；sha256={{oldCertificateFingerprintSha256}}。替换后证书：subject={{liveCertificateSubject}}；issuer={{liveCertificateIssuer}}；serial={{liveCertificateSerial}}；notBefore={{liveCertificateNotBefore}}；notAfter={{liveCertificateNotAfter}}；sha256={{liveCertificateFingerprintSha256}}。"
+      "instruction": "{{siteName}} 证书替换完成。站点绑定：{{bindingInformation}}。备份目录：{{backupDirectory}}。后端 HTTPS 验证状态：{{backendHttpStatus}}。替换前证书：subject={{oldCertificateSubject}}；issuer={{oldCertificateIssuer}}；serial={{oldCertificateSerial}}；notBefore={{oldCertificateNotBefore}}；notAfter={{oldCertificateNotAfter}}；sha256={{oldCertificateFingerprintSha256}}。替换后证书：subject={{liveCertificateSubject}}；issuer={{liveCertificateIssuer}}；serial={{liveCertificateSerial}}；notBefore={{liveCertificateNotBefore}}；notAfter={{liveCertificateNotAfter}}；sha256={{liveCertificateFingerprintSha256}}。"
     }
   ],
   "rollback": [
@@ -499,7 +547,7 @@
           "credential": "{{credential}}",
           "hostKeyPolicy": "trust_on_first_use"
         },
-        "script": "set -eu\nsystemctl reload '{{apacheServiceName}}'\nsystemctl is-active '{{apacheServiceName}}'\nlive_cert=\"$(mktemp)\"\necho | openssl s_client -connect 127.0.0.1:{{verifyPort}} -servername '{{virtualHostServerName}}' 2>/dev/null | openssl x509 -out \"$live_cert\"\nlive_fingerprint=\"$(openssl x509 -in \"$live_cert\" -noout -fingerprint -sha256 | awk -F= '{print tolower($2)}' | tr -d ':')\"\nrm -f \"$live_cert\"\ntest \"$live_fingerprint\" = '{{oldCertificateFingerprintSha256}}'\nprintf 'ROLLBACK_LIVE_FINGERPRINT=%s\\n' \"$live_fingerprint\"\nprintf 'ROLLBACK_RELOAD=ok\\n'",
+        "script": "set -eu\nsystemctl reload '{{apacheServiceName}}'\nsystemctl is-active '{{apacheServiceName}}'\nlive_cert=\"$(mktemp)\"\necho | openssl s_client -connect 127.0.0.1:{{port}} -servername '{{sniName}}' 2>/dev/null | openssl x509 -out \"$live_cert\"\nlive_fingerprint=\"$(openssl x509 -in \"$live_cert\" -noout -fingerprint -sha256 | awk -F= '{print tolower($2)}' | tr -d ':')\"\nrm -f \"$live_cert\"\ntest \"$live_fingerprint\" = '{{oldCertificateFingerprintSha256}}'\nprintf 'ROLLBACK_LIVE_FINGERPRINT=%s\\n' \"$live_fingerprint\"\nprintf 'ROLLBACK_RELOAD=ok\\n'",
         "timeoutSeconds": 120
       },
       "assert": [

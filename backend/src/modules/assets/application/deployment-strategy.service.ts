@@ -42,6 +42,7 @@ export function normalizeDeploymentStrategy(input: DeploymentStrategyDto, contex
         workflowVersionId: requireNonEmpty(workflow.workflowVersionId, 'workflow.workflowVersionId'),
         runner,
         gatewayId: optionalNonEmpty(workflow.gatewayId),
+        target: normalizeWorkflowTarget(workflow.target),
         credentialRefs,
         certificateArtifactBindings: normalizeCertificateArtifactBindings(workflow.certificateArtifactBindings),
         variableBindings: isRecord(workflow.variableBindings) ? workflow.variableBindings : workflow.variableBindings === undefined ? undefined : strategyError('workflow.variableBindings 必须是对象'),
@@ -118,6 +119,27 @@ function requireNonEmpty(value: unknown, field: string): string {
   const normalized = optionalNonEmpty(value);
   if (!normalized) throw strategyError(`${field} 必填`);
   return normalized;
+}
+
+function normalizeWorkflowTarget(value: unknown): NonNullable<DeploymentStrategyDto['workflow']>['target'] | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw strategyError('workflow.target 必须是对象');
+  const port = typeof value.port === 'number'
+    ? value.port
+    : typeof value.port === 'string'
+      ? Number(value.port)
+      : undefined;
+  const target = {
+    frameworkType: optionalNonEmpty(value.frameworkType)?.toUpperCase(),
+    siteName: optionalNonEmpty(value.siteName),
+    bindingInformation: optionalNonEmpty(value.bindingInformation),
+    hostHeader: optionalNonEmpty(value.hostHeader),
+    port: Number.isInteger(port) && port! > 0 && port! <= 65535 ? port : undefined,
+    protocol: optionalNonEmpty(value.protocol)?.toUpperCase(),
+    verifyUrl: optionalNonEmpty(value.verifyUrl),
+    sniName: optionalNonEmpty(value.sniName),
+  };
+  return Object.values(target).some((item) => item !== undefined) ? target : undefined;
 }
 
 function optionalNonEmpty(value: unknown): string | undefined {

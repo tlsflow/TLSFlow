@@ -44,6 +44,16 @@ export interface WorkflowDeploymentStrategyDto {
   workflowVersionId: string;
   runner: WorkflowRunnerType;
   gatewayId?: string;
+  target?: {
+    frameworkType?: 'NGINX' | 'APACHE' | 'TOMCAT' | 'IIS' | 'CUSTOM' | string;
+    siteName?: string;
+    bindingInformation?: string;
+    hostHeader?: string;
+    port?: number;
+    protocol?: ServiceEndpointProtocol | string;
+    verifyUrl?: string;
+    sniName?: string;
+  };
   credentialRefs?: Record<string, string>;
   variableBindings?: Record<string, unknown>;
   certificateArtifactBindings?: Record<string, {

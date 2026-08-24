@@ -112,6 +112,7 @@ export class DeploymentStrategyResolver {
           workflowVersionId: workflow.workflowVersionId,
           runner: workflow.runner,
           gatewayId: workflow.gatewayId,
+          target: workflow.target,
           credentialRefs: workflow.credentialRefs ?? {},
           variableBindings: workflow.variableBindings ?? {},
           certificateArtifactBindings: workflow.certificateArtifactBindings ?? {},

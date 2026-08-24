@@ -23,8 +23,8 @@ import {
 } from '@/views/workflows/workflow-credentials'
 
 type AssetPlatform = 'WINDOWS' | 'LINUX' | 'APPLIANCE'
-type AssetProtocol = 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP'
-type FrameworkType = 'IIS' | 'NGINX' | 'APACHE' | 'TOMCAT'
+type AssetProtocol = 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP' | 'CUSTOM'
+type FrameworkType = 'IIS' | 'NGINX' | 'APACHE' | 'TOMCAT' | 'CUSTOM'
 type AssetManagementMode = 'AGENT' | 'WORKFLOW'
 type WorkflowRunnerType = 'CONTROL_PLANE' | 'GATEWAY'
 type AssetWizardStep = 1 | 2 | 3
@@ -49,6 +49,10 @@ interface AssetDraft {
   workflowVersionId: string
   workflowRunner: WorkflowRunnerType
   workflowGatewayId: string
+  workflowTargetSiteName: string
+  workflowTargetBindingInformation: string
+  workflowTargetHostHeader: string
+  workflowTargetSniName: string
 }
 
 interface WorkflowVariableRow {
@@ -71,6 +75,17 @@ interface WorkflowVariablePreset {
 interface WorkflowCertificateArtifactBinding {
   certificateFormatId: string
   outputBindings: Record<string, string>
+}
+
+interface WorkflowTargetInfo {
+  frameworkType: FrameworkType
+  siteName: string
+  bindingInformation?: string
+  hostHeader?: string
+  port: number
+  protocol: AssetProtocol
+  verifyUrl?: string
+  sniName?: string
 }
 
 interface AgentBindingCandidate {
@@ -179,6 +194,14 @@ const workflowVariablePresets: readonly WorkflowVariablePreset[] = [
   { name: 'backupRoot', type: 'string', descriptionKey: 'assets.workflowVariables.presets.backupRoot' },
   { name: 'expectedResponseContains', type: 'string', descriptionKey: 'assets.workflowVariables.presets.expectedResponseContains' },
   { name: 'virtualHostServerName', type: 'string', descriptionKey: 'assets.workflowVariables.presets.virtualHostServerName' },
+  { name: 'frameworkType', type: 'enum', descriptionKey: 'assets.fields.frameworkType' },
+  { name: 'siteName', type: 'string', descriptionKey: 'assets.fields.siteName' },
+  { name: 'bindingInformation', type: 'string', descriptionKey: 'assets.fields.bindingInformation' },
+  { name: 'hostHeader', type: 'string', descriptionKey: 'assets.fields.hostHeader' },
+  { name: 'port', type: 'number', descriptionKey: 'assets.fields.port' },
+  { name: 'protocol', type: 'enum', descriptionKey: 'assets.fields.protocol' },
+  { name: 'verifyUrl', type: 'string', descriptionKey: 'assets.fields.verifyUrl' },
+  { name: 'sniName', type: 'string', descriptionKey: 'assets.fields.sniName' },
 ]
 
 const assetDraft = reactive<AssetDraft>({
@@ -200,6 +223,10 @@ const assetDraft = reactive<AssetDraft>({
   workflowVersionId: '',
   workflowRunner: 'CONTROL_PLANE',
   workflowGatewayId: '',
+  workflowTargetSiteName: '',
+  workflowTargetBindingInformation: '',
+  workflowTargetHostHeader: '',
+  workflowTargetSniName: '',
 })
 
 const config = computed<BusinessPageConfig>(() => ({
@@ -223,8 +250,8 @@ const config = computed<BusinessPageConfig>(() => ({
     { key: 'port', title: t('assets.columns.port'), candidates: ['port'] },
     { key: 'protocol', title: t('assets.columns.protocol'), candidates: ['protocol'] },
     { key: 'platform', title: t('assets.columns.platform'), candidates: ['platform'] },
-    { key: 'frameworkType', title: t('assets.columns.framework'), candidates: ['targetBinding.frameworkType'] },
-    { key: 'siteName', title: t('assets.columns.site'), candidates: ['siteDisplayName', 'targetBindingDetail.siteAsset.siteName', 'targetBinding.metadata.siteName', 'targetBinding.siteAssetId'] },
+    { key: 'frameworkType', title: t('assets.columns.framework'), candidates: ['targetBinding.frameworkType', 'metadata.workflowTarget.frameworkType', 'deploymentStrategy.workflow.target.frameworkType'] },
+    { key: 'siteName', title: t('assets.columns.site'), candidates: ['siteDisplayName', 'targetBindingDetail.siteAsset.siteName', 'targetBinding.metadata.siteName', 'metadata.workflowTarget.siteName', 'deploymentStrategy.workflow.target.siteName', 'targetBinding.siteAssetId'] },
     { key: 'agentId', title: 'Agent', candidates: ['agentDisplayName', 'agentName', 'targetBinding.agentDisplayName', 'agentId'] },
     { key: 'status', title: t('assets.columns.status'), candidates: ['status'] },
     { key: 'actions', title: t('assets.columns.actions'), candidates: [] },
@@ -238,11 +265,11 @@ const config = computed<BusinessPageConfig>(() => ({
     { label: t('assets.fields.protocol'), candidates: ['protocol'] },
     { label: t('assets.fields.verifyUrl'), candidates: ['verifyUrl', 'metadata.verifyUrl'] },
     { label: t('assets.fields.platform'), candidates: ['platform'] },
-    { label: t('assets.fields.frameworkType'), candidates: ['targetBinding.frameworkType'] },
+    { label: t('assets.fields.frameworkType'), candidates: ['targetBinding.frameworkType', 'metadata.workflowTarget.frameworkType', 'deploymentStrategy.workflow.target.frameworkType'] },
     { label: 'Agent ID', candidates: ['agentId'] },
-    { label: 'SNI', candidates: ['sniName'] },
+    { label: 'SNI', candidates: ['sniName', 'metadata.workflowTarget.sniName', 'deploymentStrategy.workflow.target.sniName'] },
     { label: t('assets.fields.serviceInstanceId'), candidates: ['serviceInstanceId'] },
-    { label: t('assets.fields.siteId'), candidates: ['targetBinding.siteAssetId'] },
+    { label: t('assets.fields.siteId'), candidates: ['targetBinding.siteAssetId', 'metadata.workflowTarget.siteName'] },
     { label: t('assets.fields.managedTargetId'), candidates: ['targetBinding.managedTargetId'] },
     { label: t('assets.fields.bindingKey'), candidates: ['targetBinding.bindingKey'] },
     { label: t('assets.fields.hostId'), candidates: ['hostId'] },
@@ -300,6 +327,7 @@ const filteredAgentItems = computed(() => {
 })
 
 const availableFrameworkOptions = computed<FrameworkType[]>(() => {
+  if (assetDraft.managementMode === 'WORKFLOW') return ['NGINX', 'APACHE', 'TOMCAT', 'IIS', 'CUSTOM']
   if (assetDraft.platform === 'WINDOWS') return ['IIS']
   if (assetDraft.platform === 'LINUX') return ['NGINX', 'APACHE', 'TOMCAT']
   return ['NGINX']
@@ -459,6 +487,10 @@ const effectiveVerifyUrl = computed(() => {
   return `${assetDraft.protocol.toLowerCase()}://${address}:${port}`
 })
 
+const workflowTargetPreview = computed(() =>
+  assetDraft.managementMode === 'WORKFLOW' ? buildWorkflowTargetInfo() : null,
+)
+
 const commonStepReady = computed(() => {
   const port = Number(assetDraft.port)
   return Boolean(
@@ -568,6 +600,17 @@ async function openEditDialog(row: ViewRow) {
   const deploymentStrategy = readDeploymentStrategy(source)
   if (String(readNested(deploymentStrategy, ['type']) ?? '') === 'WORKFLOW') {
     assetDraft.managementMode = 'WORKFLOW'
+    const workflowTarget = readWorkflowTargetFromAsset(source, deploymentStrategy)
+    if (workflowTarget) {
+      assetDraft.frameworkType = workflowTarget.frameworkType
+      assetDraft.verifyUrl = workflowTarget.verifyUrl ?? assetDraft.verifyUrl
+      assetDraft.port = workflowTarget.port ? String(workflowTarget.port) : assetDraft.port
+      assetDraft.protocol = workflowTarget.protocol ?? assetDraft.protocol
+      assetDraft.workflowTargetSiteName = workflowTarget.siteName
+      assetDraft.workflowTargetBindingInformation = workflowTarget.bindingInformation ?? ''
+      assetDraft.workflowTargetHostHeader = workflowTarget.hostHeader ?? ''
+      assetDraft.workflowTargetSniName = workflowTarget.sniName ?? ''
+    }
     assetDraft.workflowId = String(readNested(deploymentStrategy, ['workflow', 'workflowId']) ?? '')
     assetDraft.workflowVersionId = String(readNested(deploymentStrategy, ['workflow', 'workflowVersionId']) ?? '')
     assetDraft.workflowRunner = String(readNested(deploymentStrategy, ['workflow', 'runner']) ?? 'CONTROL_PLANE') as WorkflowRunnerType
@@ -805,19 +848,25 @@ async function submitCreate() {
   createError.value = ''
   createRequestId.value = ''
   try {
+    syncWorkflowTargetVariableRowsFromDraft()
+    const workflowTarget = assetDraft.managementMode === 'WORKFLOW' ? buildWorkflowTargetInfo() : null
     const basePayload = {
       address: assetDraft.address.trim(),
       displayName: assetDraft.displayName.trim() || assetDraft.address.trim(),
       port: Number(assetDraft.port),
       protocol: assetDraft.protocol,
       platform: assetDraft.platform,
-      verifyUrl: assetDraft.verifyUrl.trim() || undefined,
+      verifyUrl: (workflowTarget?.verifyUrl ?? assetDraft.verifyUrl.trim()) || undefined,
+      sniName: workflowTarget?.sniName ?? undefined,
       environment: assetDraft.environment.trim() || undefined,
       tags: splitCsv(assetDraft.tagsText),
-      deploymentStrategy: buildDeploymentStrategyPayload(),
+      deploymentStrategy: buildDeploymentStrategyPayload(workflowTarget ?? undefined),
     }
     if (isEditMode.value) {
-      const result = await updateServiceAsset(editingServiceAssetId.value, basePayload)
+      const result = await updateServiceAsset(editingServiceAssetId.value, {
+        ...basePayload,
+        ...(workflowTarget ? { metadata: { ...(readRecord(readNested(editAssetDetail.value, ['metadata'])) ?? {}), workflowTarget } } : {}),
+      })
       createRequestId.value = result.requestId
       createDialogOpen.value = false
       editingServiceAssetId.value = ''
@@ -829,7 +878,7 @@ async function submitCreate() {
         ...basePayload,
         discoverySource: 'MANUAL',
         status: 'ACTIVE',
-        metadata: {},
+        metadata: workflowTarget ? { workflowTarget } : {},
       })
       createRequestId.value = result.requestId
       createDialogOpen.value = false
@@ -897,6 +946,10 @@ function resetDraft() {
   assetDraft.workflowVersionId = ''
   assetDraft.workflowRunner = 'CONTROL_PLANE'
   assetDraft.workflowGatewayId = ''
+  assetDraft.workflowTargetSiteName = ''
+  assetDraft.workflowTargetBindingInformation = ''
+  assetDraft.workflowTargetHostHeader = ''
+  assetDraft.workflowTargetSniName = ''
   workflowVariableRows.value = []
   workflowVariablePresetName.value = ''
   siteItems.value = []
@@ -946,7 +999,7 @@ function assetWizardStepStateLabel(step: AssetWizardStep): string {
   return t('assets.wizard.stepState.pending')
 }
 
-function buildDeploymentStrategyPayload(): Record<string, unknown> {
+function buildDeploymentStrategyPayload(workflowTarget?: WorkflowTargetInfo): Record<string, unknown> {
   if (assetDraft.managementMode === 'WORKFLOW') {
     const gatewayId = assetDraft.workflowRunner === 'GATEWAY'
       ? assetDraft.workflowGatewayId.trim()
@@ -958,6 +1011,7 @@ function buildDeploymentStrategyPayload(): Record<string, unknown> {
         workflowVersionId: assetDraft.workflowVersionId.trim(),
         runner: assetDraft.workflowRunner,
         gatewayId,
+        target: workflowTarget,
         variableBindings: buildWorkflowVariableBindings(),
         certificateArtifactBindings: buildWorkflowCertificateArtifactBindings(),
       },
@@ -973,6 +1027,84 @@ function buildDeploymentStrategyPayload(): Record<string, unknown> {
       certificateFormatId: assetDraft.agentCertificateFormatId.trim(),
     },
   }
+}
+
+function buildWorkflowTargetInfo(): WorkflowTargetInfo {
+  const port = normalizeWorkflowTargetPort(assetDraft.port)
+  const hostHeader = assetDraft.workflowTargetHostHeader.trim() || assetDraft.address.trim()
+  const bindingInformation = assetDraft.workflowTargetBindingInformation.trim() || `*:${port}:${hostHeader}`
+  const verifyUrl = assetDraft.verifyUrl.trim() || effectiveVerifyUrl.value
+  const protocol = normalizeWorkflowTargetProtocol(assetDraft.protocol)
+  const frameworkType = normalizeWorkflowTargetFramework(assetDraft.frameworkType)
+  const siteName = assetDraft.workflowTargetSiteName.trim() || assetDraft.displayName.trim() || assetDraft.address.trim()
+  const sniName = assetDraft.workflowTargetSniName.trim() || hostHeader
+  return {
+    frameworkType,
+    siteName,
+    bindingInformation,
+    hostHeader,
+    port,
+    protocol,
+    verifyUrl,
+    sniName,
+  }
+}
+
+function syncWorkflowTargetDraftFromRows(): void {
+  if (assetDraft.managementMode !== 'WORKFLOW') return
+  assetDraft.frameworkType = normalizeWorkflowTargetFramework(readWorkflowVariableText('frameworkType') || assetDraft.frameworkType)
+  assetDraft.workflowTargetSiteName = readWorkflowVariableText('siteName') || assetDraft.workflowTargetSiteName || assetDraft.displayName.trim() || assetDraft.address.trim()
+  assetDraft.workflowTargetBindingInformation = readWorkflowVariableText('bindingInformation') || assetDraft.workflowTargetBindingInformation
+  assetDraft.workflowTargetHostHeader = readWorkflowVariableText('hostHeader') || assetDraft.workflowTargetHostHeader || assetDraft.address.trim()
+  assetDraft.workflowTargetSniName = readWorkflowVariableText('sniName') || assetDraft.workflowTargetSniName || assetDraft.workflowTargetHostHeader || assetDraft.address.trim()
+  assetDraft.protocol = normalizeWorkflowTargetProtocol(readWorkflowVariableText('protocol') || assetDraft.protocol)
+  const port = readWorkflowVariableText('port')
+  if (port) assetDraft.port = String(normalizeWorkflowTargetPort(port))
+  const verifyUrl = readWorkflowVariableText('verifyUrl')
+  if (verifyUrl) assetDraft.verifyUrl = verifyUrl
+}
+
+function syncWorkflowTargetVariableRowsFromDraft(): void {
+  if (assetDraft.managementMode !== 'WORKFLOW') return
+  const target = buildWorkflowTargetInfo()
+  const values: Record<string, string> = {
+    frameworkType: target.frameworkType,
+    siteName: target.siteName,
+    bindingInformation: target.bindingInformation ?? '',
+    hostHeader: target.hostHeader ?? '',
+    port: String(target.port),
+    protocol: target.protocol,
+    verifyUrl: target.verifyUrl ?? '',
+    sniName: target.sniName ?? '',
+  }
+  for (const row of workflowVariableRows.value) {
+    const value = values[row.name.trim()]
+    if (value !== undefined && row.type !== 'certificate' && row.type !== 'credential') row.value = value
+  }
+}
+
+function readWorkflowVariableText(name: string): string {
+  const row = workflowVariableRows.value.find((item) => item.name.trim() === name)
+  if (row && rowValueHasContent(row)) return row.value.trim()
+  const definition = selectedWorkflowVariableDefinitions.value[name]
+  if (definition) return suggestedWorkflowVariableValue(name, definition).trim()
+  if (name === 'verifyUrl') return effectiveVerifyUrl.value
+  return ''
+}
+
+function normalizeWorkflowTargetFramework(value: string): FrameworkType {
+  const normalized = value.trim().toUpperCase()
+  return ['IIS', 'NGINX', 'APACHE', 'TOMCAT', 'CUSTOM'].includes(normalized) ? normalized as FrameworkType : 'CUSTOM'
+}
+
+function normalizeWorkflowTargetProtocol(value: string): AssetProtocol {
+  const normalized = value.trim().toUpperCase()
+  return ['HTTPS', 'TLS', 'STARTTLS', 'HTTP', 'CUSTOM'].includes(normalized) ? normalized as AssetProtocol : 'HTTPS'
+}
+
+function normalizeWorkflowTargetPort(value: string): number {
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 65535 ? parsed : Number(assetDraft.port) || 443
 }
 
 function readWorkflowVariableDefinitions(version: ApiRecord | null): Record<string, ApiRecord> {
@@ -1003,6 +1135,7 @@ function syncWorkflowVariableRowsFromVersion() {
   })
   const extraRows = workflowVariableRows.value.filter((row) => !definitions[row.name])
   workflowVariableRows.value = [...nextRows, ...extraRows]
+  syncWorkflowTargetDraftFromRows()
 }
 
 function addWorkflowVariableRow() {
@@ -1343,10 +1476,16 @@ function suggestedWorkflowVariableValue(name: string, definition: ApiRecord): st
   const defaultValue = definition.default
   if (defaultValue !== undefined) return valueToWorkflowVariableText(defaultValue)
   if (name === 'deviceHost' || name === 'verifyHost') return assetDraft.address.trim()
-  if (name === 'verifyPort') return assetDraft.port.trim()
+  if (name === 'verifyPort' || name === 'port') return assetDraft.port.trim()
   if (name === 'verifyUrl') return effectiveVerifyUrl.value
   if (name === 'verifyPath') return '/'
   if (name === 'targetPlatform') return assetDraft.platform.toLowerCase()
+  if (name === 'frameworkType') return assetDraft.frameworkType
+  if (name === 'siteName') return assetDraft.workflowTargetSiteName.trim() || assetDraft.displayName.trim() || assetDraft.address.trim()
+  if (name === 'hostHeader') return assetDraft.workflowTargetHostHeader.trim() || assetDraft.address.trim()
+  if (name === 'sniName') return assetDraft.workflowTargetSniName.trim() || assetDraft.workflowTargetHostHeader.trim() || assetDraft.address.trim()
+  if (name === 'bindingInformation') return assetDraft.workflowTargetBindingInformation.trim() || `*:${assetDraft.port.trim() || '443'}:${assetDraft.workflowTargetHostHeader.trim() || assetDraft.address.trim()}`
+  if (name === 'protocol') return assetDraft.protocol
   if (workflowVariableType(definition) === 'certificate') return ''
   if (workflowVariableType(definition) === 'boolean') return 'false'
   return ''
@@ -1401,6 +1540,24 @@ function readDeploymentStrategy(source: unknown): ApiRecord | null {
   const metadata = readNested(source, ['metadata', 'deploymentStrategy'])
   if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) return metadata as ApiRecord
   return null
+}
+
+function readWorkflowTargetFromAsset(source: unknown, deploymentStrategy: ApiRecord | null = readDeploymentStrategy(source)): WorkflowTargetInfo | null {
+  const target = readRecord(readNested(source, ['metadata', 'workflowTarget']))
+    ?? readRecord(readNested(deploymentStrategy, ['workflow', 'target']))
+    ?? readRecord(readNested(source, ['deploymentStrategy', 'workflow', 'target']))
+  if (!target) return null
+  const port = normalizeWorkflowTargetPort(String(target.port ?? ''))
+  return {
+    frameworkType: normalizeWorkflowTargetFramework(String(target.frameworkType ?? 'CUSTOM')),
+    siteName: String(target.siteName ?? ''),
+    bindingInformation: typeof target.bindingInformation === 'string' ? target.bindingInformation : undefined,
+    hostHeader: typeof target.hostHeader === 'string' ? target.hostHeader : undefined,
+    port,
+    protocol: normalizeWorkflowTargetProtocol(String(target.protocol ?? 'HTTPS')),
+    verifyUrl: typeof target.verifyUrl === 'string' ? target.verifyUrl : undefined,
+    sniName: typeof target.sniName === 'string' ? target.sniName : undefined,
+  }
 }
 
 function workflowTemplateLabel(item: ApiRecord): string {
@@ -1468,10 +1625,22 @@ function enrichAssetDisplayNames(
   const siteAssetId = String(readNested(asset, ['targetBinding', 'siteAssetId']) ?? '')
   const agent = agentById.get(agentId)
   const site = siteById.get(siteAssetId)
+  const workflowTarget = readWorkflowTargetFromAsset(asset)
   return {
     ...asset,
+    targetBinding: asset.targetBinding ?? (workflowTarget
+      ? {
+          frameworkType: workflowTarget.frameworkType,
+          metadata: {
+            siteName: workflowTarget.siteName,
+            bindingInformation: workflowTarget.bindingInformation,
+            hostHeader: workflowTarget.hostHeader,
+            port: workflowTarget.port,
+          },
+        }
+      : undefined),
     agentDisplayName: agent ? agentName(agent) : readNested(asset, ['agentDisplayName']),
-    siteDisplayName: site ? siteName(site) : readNested(asset, ['siteDisplayName']),
+    siteDisplayName: site ? siteName(site) : readNested(asset, ['siteDisplayName']) ?? workflowTarget?.siteName,
   }
 }
 
@@ -1860,10 +2029,26 @@ watch(
   () => {
     for (const row of workflowVariableRows.value) {
       if (row.value.trim()) continue
-      if (['deviceHost', 'verifyHost', 'verifyPort', 'targetPlatform'].includes(row.name)) {
+      if (['deviceHost', 'verifyHost', 'verifyPort', 'targetPlatform', 'frameworkType', 'siteName', 'bindingInformation', 'hostHeader', 'port', 'protocol', 'verifyUrl', 'sniName'].includes(row.name)) {
         row.value = suggestedWorkflowVariableValue(row.name, { type: row.type })
       }
     }
+  },
+)
+
+watch(
+  () => [
+    assetDraft.frameworkType,
+    assetDraft.workflowTargetSiteName,
+    assetDraft.workflowTargetBindingInformation,
+    assetDraft.workflowTargetHostHeader,
+    assetDraft.workflowTargetSniName,
+    assetDraft.port,
+    assetDraft.protocol,
+    assetDraft.verifyUrl,
+  ] as const,
+  () => {
+    if (assetDraft.managementMode === 'WORKFLOW') syncWorkflowTargetVariableRowsFromDraft()
   },
 )
 
@@ -1907,6 +2092,10 @@ watch(
   () => assetDraft.frameworkType,
   async () => {
     if (isEditMode.value) return
+    if (assetDraft.managementMode === 'WORKFLOW') {
+      syncWorkflowTargetVariableRowsFromDraft()
+      return
+    }
     assetDraft.siteAssetId = ''
     assetDraft.managedTargetId = ''
     managedTargetItems.value = []
@@ -2210,6 +2399,7 @@ watch(
                 <option value="HTTP">HTTP</option>
                 <option value="TLS">TLS</option>
                 <option value="STARTTLS">STARTTLS</option>
+                <option value="CUSTOM">CUSTOM</option>
               </select>
             </label>
             <label class="asset-form__field">
@@ -2360,6 +2550,82 @@ watch(
                   </option>
                 </select>
               </label>
+              <section class="asset-form__field--wide workflow-target-form" :aria-label="t('assets.workflowTarget.title')">
+                <div class="workflow-target-form__head">
+                  <div>
+                    <span>{{ t('assets.workflowTarget.title') }}</span>
+                    <strong>{{ t('assets.workflowTarget.description') }}</strong>
+                  </div>
+                </div>
+                <div class="workflow-target-form__grid">
+                  <label class="asset-form__field">
+                    <span>{{ t('assets.fields.frameworkType') }} <strong>*</strong></span>
+                    <select v-model="assetDraft.frameworkType">
+                      <option v-for="framework in availableFrameworkOptions" :key="framework" :value="framework">
+                        {{ framework }}
+                      </option>
+                    </select>
+                  </label>
+                  <label class="asset-form__field">
+                    <span>{{ t('assets.fields.siteName') }}</span>
+                    <input
+                      v-model="assetDraft.workflowTargetSiteName"
+                      :placeholder="t('assets.form.placeholders.siteName')"
+                      autocomplete="off"
+                    />
+                  </label>
+                  <label class="asset-form__field">
+                    <span>{{ t('assets.fields.bindingInformation') }}</span>
+                    <input
+                      v-model="assetDraft.workflowTargetBindingInformation"
+                      :placeholder="t('assets.form.placeholders.bindingInformation')"
+                      autocomplete="off"
+                    />
+                  </label>
+                  <label class="asset-form__field">
+                    <span>{{ t('assets.fields.hostHeader') }}</span>
+                    <input
+                      v-model="assetDraft.workflowTargetHostHeader"
+                      :placeholder="assetDraft.address || t('assets.form.placeholders.hostHeader')"
+                      autocomplete="off"
+                    />
+                  </label>
+                  <label class="asset-form__field">
+                    <span>{{ t('assets.fields.port') }} <strong>*</strong></span>
+                    <input v-model="assetDraft.port" inputmode="numeric" placeholder="443" autocomplete="off" />
+                  </label>
+                  <label class="asset-form__field">
+                    <span>{{ t('assets.fields.protocol') }} <strong>*</strong></span>
+                    <select v-model="assetDraft.protocol">
+                      <option value="HTTPS">HTTPS</option>
+                      <option value="HTTP">HTTP</option>
+                      <option value="TLS">TLS</option>
+                      <option value="STARTTLS">STARTTLS</option>
+                      <option value="CUSTOM">CUSTOM</option>
+                    </select>
+                  </label>
+                  <label class="asset-form__field">
+                    <span>{{ t('assets.fields.verifyUrl') }}</span>
+                    <input
+                      v-model="assetDraft.verifyUrl"
+                      :placeholder="t('assets.form.placeholders.verifyUrl')"
+                      autocomplete="off"
+                    />
+                  </label>
+                  <label class="asset-form__field">
+                    <span>{{ t('assets.fields.sniName') }}</span>
+                    <input
+                      v-model="assetDraft.workflowTargetSniName"
+                      :placeholder="assetDraft.workflowTargetHostHeader || assetDraft.address || t('assets.form.placeholders.sniName')"
+                      autocomplete="off"
+                    />
+                  </label>
+                </div>
+                <div class="workflow-target-form__summary">
+                  <span>{{ t('assets.workflowTarget.dslSyncHint') }}</span>
+                  <strong>{{ workflowTargetPreview?.frameworkType }} / {{ workflowTargetPreview?.siteName }} / {{ workflowTargetPreview?.verifyUrl }}</strong>
+                </div>
+              </section>
               <section class="asset-form__field asset-form__field--wide workflow-variable-form" :aria-label="t('assets.workflowVariables.title')">
                 <div class="workflow-variable-form__head">
                   <div>
@@ -2536,6 +2802,14 @@ watch(
             <div v-else>
               <dt>{{ t('assets.review.workflowVersion') }}</dt>
               <dd>{{ workflowTemplateLabel(selectedWorkflowTemplate ?? {}) || t('assets.empty.notSelected') }} / {{ workflowVersionLabel(selectedWorkflowVersion ?? {}) || t('assets.empty.notSelected') }}</dd>
+            </div>
+            <div v-if="assetDraft.managementMode === 'WORKFLOW'">
+              <dt>{{ t('assets.workflowTarget.title') }}</dt>
+              <dd>
+                {{ workflowTargetPreview?.frameworkType || t('assets.empty.notSet') }}
+                / {{ workflowTargetPreview?.siteName || t('assets.empty.notSet') }}
+                / {{ workflowTargetPreview?.bindingInformation || t('assets.empty.notSet') }}
+              </dd>
             </div>
             <div v-if="assetDraft.managementMode === 'WORKFLOW'">
               <dt>{{ t('assets.fields.runner') }}</dt>
@@ -2864,6 +3138,67 @@ watch(
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-sm);
   font-weight: 750;
+}
+
+.workflow-target-form {
+  display: grid;
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-3);
+  border: 1px solid var(--gc-color-border);
+  border-radius: var(--gc-radius-md);
+  background: var(--gc-color-surface-subtle);
+}
+
+.workflow-target-form__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+}
+
+.workflow-target-form__head > div:first-child {
+  display: grid;
+  gap: var(--gc-space-1);
+}
+
+.workflow-target-form__head span {
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-md);
+  font-weight: 900;
+}
+
+.workflow-target-form__head strong {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
+}
+
+.workflow-target-form__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gc-space-3);
+}
+
+.workflow-target-form__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-2) var(--gc-space-3);
+  border: 1px solid var(--gc-color-info-border);
+  border-radius: var(--gc-radius-sm);
+  background: var(--gc-color-surface-selected);
+}
+
+.workflow-target-form__summary span {
+  color: var(--gc-color-primary-strong);
+  font-size: var(--gc-font-size-sm);
+  font-weight: 900;
+}
+
+.workflow-target-form__summary strong {
+  color: var(--gc-color-text);
+  font-size: var(--gc-font-size-sm);
+  overflow-wrap: anywhere;
 }
 
 .workflow-variable-form {
@@ -3273,10 +3608,13 @@ watch(
 
 @media (max-width: 860px) {
   .asset-form__grid,
+  .workflow-target-form__grid,
   .asset-wizard__steps,
   .asset-wizard__mode-grid,
   .asset-wizard__review { grid-template-columns: 1fr; }
   .asset-wizard__panel-header { display: grid; }
+  .workflow-target-form__head,
+  .workflow-target-form__summary { align-items: stretch; flex-direction: column; }
   .workflow-variable-form__head,
   .workflow-variable-form__add,
   .workflow-variable-form__verify { align-items: stretch; flex-direction: column; }
