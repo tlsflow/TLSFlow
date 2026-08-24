@@ -2869,6 +2869,7 @@ export default {
       rollbackFromLatestSnapshot: '최신 스냅샷을 취소합니다',
       rollingBack: '뒤로...',
       deployCertificate: '인증서 배포',
+      latestCertificate: '최신 인증서',
       updateCertificate: '인증서 업데이트',
       saving: '저장 중...',
       creating: '생성 중...',

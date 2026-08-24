@@ -3000,6 +3000,7 @@ export default {
       rollbackFromLatestSnapshot: 'Rollback from latest snapshot',
       rollingBack: 'Rolling back...',
       deployCertificate: 'Deploy certificate',
+      latestCertificate: 'Latest certificate',
       updateCertificate: 'Update certificate',
       saving: 'Saving...',
       creating: 'Creating...',

@@ -3022,6 +3022,7 @@ export default {
       rollbackFromLatestSnapshot: '从最新快照发起回退',
       rollingBack: '回退中...',
       deployCertificate: '证书部署',
+      latestCertificate: '证书最新',
       updateCertificate: '证书更新',
       saving: '保存中...',
       creating: '创建中...',

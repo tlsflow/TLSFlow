@@ -3083,12 +3083,12 @@ function managedTargetLabel(target: ApiRecord): string {
                   class="asset-page__card-deploy-button gc-button"
                   :class="assetCertificateNeedsUpdate(card.certificate)
                     ? 'asset-page__card-deploy-button--update'
-                    : 'gc-button--primary'"
+                    : 'asset-page__card-deploy-button--latest'"
                   :data-testid="`asset-card-deploy-${card.id}`"
                   permission="deployment.plan.execute"
                   @click="openDeploymentDialog(assetOverviewCardRow(card))"
                 >
-                  {{ t(assetCertificateNeedsUpdate(card.certificate) ? 'assets.actions.updateCertificate' : 'assets.actions.deployCertificate') }}
+                  {{ t(assetCertificateNeedsUpdate(card.certificate) ? 'assets.actions.updateCertificate' : 'assets.actions.latestCertificate') }}
                 </GcPermissionButton>
                 <GcPermissionButton
                   class="asset-page__card-icon-action"
@@ -4287,16 +4287,29 @@ function managedTargetLabel(target: ApiRecord): string {
   font-weight: var(--gc-font-weight-semibold);
 }
 
-.asset-page__card-deploy-button--update {
+.asset-page__card-deploy-button--latest {
   border-color: var(--gc-color-success);
   color: var(--gc-color-text-inverse);
   background: var(--gc-color-success);
   box-shadow: var(--gc-shadow-sm);
 }
 
-.asset-page__card-deploy-button--update:hover:not(:disabled) {
+.asset-page__card-deploy-button--latest:hover:not(:disabled) {
   border-color: var(--gc-color-success);
   background: var(--gc-color-success);
+  box-shadow: var(--gc-shadow-hover);
+}
+
+.asset-page__card-deploy-button--update {
+  border-color: var(--gc-color-primary);
+  color: var(--gc-color-text-inverse);
+  background: var(--gc-color-primary);
+  box-shadow: var(--gc-shadow-sm);
+}
+
+.asset-page__card-deploy-button--update:hover:not(:disabled) {
+  border-color: var(--gc-color-primary-hover);
+  background: var(--gc-color-primary-hover);
   box-shadow: var(--gc-shadow-hover);
 }
 

@@ -2894,6 +2894,7 @@ export default {
       rollbackFromLatestSnapshot: "從最新快照啟動回復",
       rollingBack: "回復中...",
       deployCertificate: "憑證部署",
+      latestCertificate: "憑證最新",
       updateCertificate: "憑證更新",
       saving: "儲存中...",
       creating: "建立中...",

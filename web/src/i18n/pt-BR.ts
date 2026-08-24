@@ -2869,6 +2869,7 @@ export default {
       rollbackFromLatestSnapshot: 'Iniciar reversão a partir do snapshot mais recente',
       rollingBack: 'Revertendo...',
       deployCertificate: 'Implantar certificado',
+      latestCertificate: 'Certificado atualizado',
       updateCertificate: 'Atualizar certificado',
       saving: 'Salvando...',
       creating: 'Criando...',

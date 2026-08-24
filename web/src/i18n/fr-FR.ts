@@ -2932,6 +2932,7 @@ export default {
       rollbackFromLatestSnapshot: 'Rollback from latest snapshot',
       rollingBack: 'Rolling back...',
       deployCertificate: 'Déployer le certificat',
+      latestCertificate: 'Certificat à jour',
       updateCertificate: 'Mettre à jour le certificat',
       saving: 'Saving...',
       creating: 'Creating...',

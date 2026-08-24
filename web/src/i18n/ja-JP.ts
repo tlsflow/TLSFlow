@@ -2895,6 +2895,7 @@ export default {
       rollbackFromLatestSnapshot: '最新スナップショットからロールバックを開始',
       rollingBack: 'ロールバック中...',
       deployCertificate: '証明書をデプロイ',
+      latestCertificate: '最新の証明書',
       updateCertificate: '証明書を更新',
       saving: '保存中...',
       creating: '作成中...',

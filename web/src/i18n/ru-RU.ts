@@ -2869,6 +2869,7 @@ export default {
       rollbackFromLatestSnapshot: 'Запустить откат из последнего снимка',
       rollingBack: 'Откат...',
       deployCertificate: 'Развернуть сертификат',
+      latestCertificate: 'Актуальный сертификат',
       updateCertificate: 'Обновить сертификат',
       saving: 'Сохранение...',
       creating: 'Создание...',
