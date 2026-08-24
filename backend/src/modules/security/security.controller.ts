@@ -4,7 +4,10 @@ import type { Router } from '../../common/http/router.js';
 import type { RouteContract } from '../../common/openapi/route-contract.js';
 import { parsePageQuery } from '../../common/pagination/pagination.js';
 import { validateObject } from '../../common/validation/schema-validation.js';
+import { PgliteDatabase } from '../../database/pglite-database.js';
+import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
 import type { AuditLogEntity } from '../../persistence/entities/audit-log.entity.js';
+import type { PermissionPolicyEntity, RoleEntity, UserEntity, UserRoleEntity } from '../../persistence/entities/rbac.entity.js';
 import { SECRET_SCOPE_TYPES, SECRET_TYPES, type RiskLevel, type SecretScopeType, type SecretType, type SecuritySubject } from '../../shared/security-types.js';
 import { ApprovalService } from '../approvals/approval.service.js';
 import { AuditService } from '../audits/audit.service.js';
@@ -17,9 +20,12 @@ import { KeyManager } from '../secrets/key-manager.service.js';
 import { SecretService } from '../secrets/secret.service.js';
 import { AuthService } from './auth.service.js';
 import { ExternalIdentityService, type IdentitySourceTlsMode, type IdentitySourceType } from './external-identity.service.js';
+import { ObjectPermissionService, type ObjectRef } from './object-permission.service.js';
+import type { AccessEffect, AccessGrantEntity, AccessLevel, GroupEntity, GroupMemberEntity, ObjectSetEntity, ObjectSetKind, ObjectSetMemberEntity, ObjectTypeEntity, PrincipalType, RoleBindingEntity } from '../../persistence/entities/object-permission.entity.js';
 
 export interface SecurityServices {
   rbac: RBACService;
+  objectPermissions: ObjectPermissionService;
   audit: AuditService;
   approvals: ApprovalService;
   secrets: SecretService;
@@ -32,14 +38,27 @@ export interface AuditPresentationPort {
 }
 
 export function createSecurityServices(): SecurityServices {
+  const db = new PgliteDatabase();
+  const users = new PgDocumentRepository<UserEntity>(db, 'security.users');
+  const roles = new PgDocumentRepository<RoleEntity>(db, 'security.roles');
+  const userRoles = new PgDocumentRepository<UserRoleEntity & { id: string }>(db, 'security.user_roles');
+  const policies = new PgDocumentRepository<PermissionPolicyEntity>(db, 'security.permission_policies');
+  const groups = new PgDocumentRepository<GroupEntity>(db, 'security.groups');
+  const groupMembers = new PgDocumentRepository<GroupMemberEntity>(db, 'security.group_members');
+  const roleBindings = new PgDocumentRepository<RoleBindingEntity>(db, 'security.role_bindings');
+  const objectTypes = new PgDocumentRepository<ObjectTypeEntity>(db, 'security.object_types');
+  const objectSets = new PgDocumentRepository<ObjectSetEntity>(db, 'security.object_sets');
+  const objectSetMembers = new PgDocumentRepository<ObjectSetMemberEntity>(db, 'security.object_set_members');
+  const accessGrants = new PgDocumentRepository<AccessGrantEntity>(db, 'security.access_grants');
   const audit = new AuditService();
   const approvals = new ApprovalService(undefined, audit);
   const grants = new ExecutionGrantService();
   const secrets = new SecretService(new CryptoService(new KeyManager()), grants, audit);
-  const rbac = new RBACService(undefined, undefined, undefined, undefined, audit);
-  const auth = new AuthService(rbac, undefined, audit);
+  const rbac = new RBACService(users, roles, userRoles, policies, audit);
+  const objectPermissions = new ObjectPermissionService(groups, groupMembers, roleBindings, objectTypes, objectSets, objectSetMembers, accessGrants, userRoles, policies, roles, audit);
+  const auth = new AuthService(rbac, undefined, audit, undefined, objectPermissions);
   const externalIdentity = new ExternalIdentityService(rbac, auth, audit, secrets);
-  return { rbac, audit, approvals, secrets, auth, externalIdentity };
+  return { rbac, objectPermissions, audit, approvals, secrets, auth, externalIdentity };
 }
 
 export class SecurityController {
@@ -55,6 +74,7 @@ export class SecurityController {
     router.post('/api/v1/auth/logout', '閫€鍑虹櫥褰?', ['Auth'], (request) => this.logout(request));
     router.get('/api/v1/auth/me', '鑾峰彇褰撳墠鐢ㄦ埛', ['Auth'], (request) => this.getMe(request));
     router.get('/api/v1/auth/permissions', '鑾峰彇褰撳墠鏉冮檺', ['Auth'], (request) => this.getMyPermissions(request));
+    router.get('/api/v1/auth/permission-context', '获取当前对象级权限上下文', ['Auth'], (request) => this.getPermissionContext(request));
     router.get('/api/v1/secrets', '查询 Secret 元数据列表', ['Security'], (request) => this.listSecrets(request));
     router.post('/api/v1/secrets', '鍒涘缓 Secret', ['Security'], (request) => this.createSecret(request));
     router.get('/api/v1/secrets/metadata', '鏌ヨ Secret 鍏冩暟鎹?', ['Security'], (request) => this.getSecretMetadata(request));
@@ -63,6 +83,10 @@ export class SecurityController {
     router.get('/api/v1/audit-events', '鏌ヨ瀹¤浜嬩欢', ['Security'], (request) => this.queryAudits(request));
     router.get('/api/v1/security/users', '鏌ヨ鐢ㄦ埛鍒楄〃', ['Security'], (request) => this.listUsers(request));
     router.post('/api/v1/security/users', '鍒涘缓鐢ㄦ埛', ['Security'], (request) => this.createUser(request));
+    router.get('/api/v1/security/groups', '查询用户组列表', ['Security'], (request) => this.listGroups(request));
+    router.post('/api/v1/security/groups', '创建本地用户组', ['Security'], (request) => this.createGroup(request));
+    router.post('/api/v1/security/groups/lookup-external', '检索身份源用户组', ['Security'], (request) => this.lookupExternalGroup(request));
+    router.post('/api/v1/security/groups/external', '创建身份源用户组', ['Security'], (request) => this.createExternalGroup(request));
     router.post('/api/v1/security/users/lookup-external', '检索身份源用户', ['Security'], (request) => this.lookupExternalUser(request));
     router.post('/api/v1/security/users/external', '创建身份源用户', ['Security'], (request) => this.createExternalUser(request));
     router.patch('/api/v1/security/users', '更新用户', ['Security'], (request) => this.updateUser(request));
@@ -71,8 +95,18 @@ export class SecurityController {
     router.delete('/api/v1/security/users/delete', '删除用户', ['Security'], (request) => this.deleteUser(request));
     router.get('/api/v1/security/roles', '鏌ヨ瑙掕壊鍒楄〃', ['Security'], (request) => this.listRoles(request));
     router.post('/api/v1/security/roles', '鍒涘缓瑙掕壊', ['Security'], (request) => this.createRole(request));
+    router.delete('/api/v1/security/roles/delete', '删除角色', ['Security'], (request) => this.deleteRole(request));
     router.get('/api/v1/security/permission-policies', '鏌ヨ鏉冮檺绛栫暐', ['Security'], (request) => this.listPermissionPolicies(request));
     router.post('/api/v1/security/permission-policies', '鍒涘缓鏉冮檺绛栫暐', ['Security'], (request) => this.createPermissionPolicy(request));
+    router.get('/api/v1/security/object-types', '查询权限对象类型', ['Security'], (request) => this.listObjectTypes(request));
+    router.get('/api/v1/security/object-sets', '查询权限对象集合', ['Security'], (request) => this.listObjectSets(request));
+    router.post('/api/v1/security/object-sets', '创建权限对象集合', ['Security'], (request) => this.createObjectSet(request));
+    router.post('/api/v1/security/object-set-members', '添加权限对象集合成员', ['Security'], (request) => this.addObjectSetMember(request));
+    router.get('/api/v1/security/role-bindings', '查询对象级角色绑定', ['Security'], (request) => this.listRoleBindings(request));
+    router.post('/api/v1/security/role-bindings', '创建对象级角色绑定', ['Security'], (request) => this.createRoleBinding(request));
+    router.get('/api/v1/security/access-grants', '查询对象级访问授权', ['Security'], (request) => this.listAccessGrants(request));
+    router.post('/api/v1/security/access-grants', '创建对象级访问授权', ['Security'], (request) => this.createAccessGrant(request));
+    router.post('/api/v1/security/object-capabilities', '批量查询对象级能力', ['Security'], (request) => this.getObjectCapabilities(request));
     router.get('/api/v1/security/identity-sources', '鏌ヨ韬唤婧?', ['Security'], (request) => this.listIdentitySources(request));
     router.post('/api/v1/security/identity-sources', '鍒涘缓韬唤婧?', ['Security'], (request) => this.createIdentitySource(request));
     router.patch('/api/v1/security/identity-sources', '更新身份源', ['Security'], (request) => this.updateIdentitySource(request));
@@ -139,6 +173,21 @@ export class SecurityController {
     const subject = await this.subjectFromRequest(request);
     const session = await this.services.auth.currentSession(subject.id);
     return { permissions: session.permissions };
+  }
+
+  private async getPermissionContext(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    const session = await this.services.auth.currentSession(subject.id);
+    const objectPermission = await this.services.objectPermissions.permissionContext(subject);
+    return {
+      user: session.user,
+      roles: session.user.roles,
+      permissions: session.permissions,
+      objectSets: objectPermission.objectSets,
+      roleBindings: objectPermission.roleBindings,
+      objectPermissionVersion: objectPermission.version,
+      expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+    };
   }
 
   private async withBrowserSessionCookie(session: { user: { id: string } }, request: HttpRequest) {
@@ -346,6 +395,92 @@ export class SecurityController {
     return { statusCode: 201, body: user };
   }
 
+  private async listGroups(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.permission.read', request, 'group');
+    const identitySources = await this.services.externalIdentity.listSources();
+    const identitySourceNameById = new Map(identitySources.map((source) => [source.id, source.name]));
+    return page((await this.services.objectPermissions.listGroups()).map((group) => ({
+      ...group,
+      externalSourceName: group.externalSourceId ? identitySourceNameById.get(group.externalSourceId) : undefined,
+    })));
+  }
+
+  private async createGroup(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.permission.write', request, 'group');
+    const body = validateObject(request.body, {
+      name: { type: 'string', required: true },
+      code: { type: 'string' },
+      tenantId: { type: 'string' },
+      enabled: { type: 'boolean' },
+    });
+    const tenantId = body.tenantId === undefined ? request.context.tenantId ?? 'default' : String(body.tenantId);
+    const code = normalizeGroupCode(body.code === undefined ? String(body.name) : String(body.code));
+    const existing = (await this.services.objectPermissions.listGroups()).find((group) => group.tenantId === tenantId && group.code === code);
+    if (existing) throw new AppError('VALIDATION_FAILED', '用户组编码已存在', { code });
+    const group = await this.services.objectPermissions.createGroup({
+      tenantId,
+      code,
+      name: String(body.name).trim(),
+      source: 'local',
+      enabled: body.enabled === undefined ? true : Boolean(body.enabled),
+    });
+    await this.writeAudit(request, subject, 'security.group.created', 'security.group.create', 'group', group.id, { after: group });
+    return { statusCode: 201, body: group };
+  }
+
+  private async lookupExternalGroup(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.permission.write', request, 'group');
+    const body = validateObject(request.body, {
+      sourceId: { type: 'string', required: true },
+      groupName: { type: 'string', required: true },
+    });
+    return this.services.externalIdentity.lookupGroup({
+      sourceId: String(body.sourceId),
+      groupName: String(body.groupName),
+    }, subject, this.securityContext(request, subject));
+  }
+
+  private async createExternalGroup(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.permission.write', request, 'group');
+    const body = validateObject(request.body, {
+      sourceId: { type: 'string', required: true },
+      groupName: { type: 'string', required: true },
+      tenantId: { type: 'string' },
+      enabled: { type: 'boolean' },
+    });
+    const profile = await this.services.externalIdentity.lookupGroup({
+      sourceId: String(body.sourceId),
+      groupName: String(body.groupName),
+    }, subject, this.securityContext(request, subject));
+    const tenantId = body.tenantId === undefined ? request.context.tenantId ?? 'default' : String(body.tenantId);
+    const existing = (await this.services.objectPermissions.listGroups()).find((group) =>
+      group.tenantId === tenantId
+      && group.externalSourceId === profile.sourceId
+      && group.externalRef === profile.externalId,
+    );
+    if (existing) throw new AppError('VALIDATION_FAILED', '该身份源用户组已存在', { groupId: existing.id });
+    const group = await this.services.objectPermissions.createGroup({
+      id: `external_group_${profile.sourceId}_${profile.externalId}`.replace(/[^a-zA-Z0-9_]/g, '_'),
+      tenantId,
+      code: normalizeGroupCode(`${profile.sourceId}_${profile.code || profile.name}`),
+      name: profile.name,
+      source: profile.identityProvider,
+      externalSourceId: profile.sourceId,
+      externalRef: profile.externalId,
+      enabled: body.enabled === undefined ? true : Boolean(body.enabled),
+    });
+    await this.writeAudit(request, subject, 'security.group.created', 'security.group.create_external', 'group', group.id, {
+      after: group,
+      sourceId: profile.sourceId,
+      groupName: profile.name,
+    });
+    return { statusCode: 201, body: group };
+  }
+
   private async lookupExternalUser(request: HttpRequest) {
     const subject = await this.subjectFromRequest(request);
     await this.assertSecurityCan(subject, 'security.user.write', request, 'user');
@@ -484,6 +619,29 @@ export class SecurityController {
     return { statusCode: 201, body: role };
   }
 
+  private async deleteRole(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.role.write', request, 'role');
+    const body = validateObject(request.body, {
+      roleId: { type: 'string', required: true },
+    });
+    const roleId = String(body.roleId);
+    const role = await this.services.rbac.getRole(roleId);
+    if (!role) {
+      throw new AppError('RESOURCE_NOT_FOUND', '角色不存在');
+    }
+    if (role.builtin) {
+      throw new AppError('VALIDATION_FAILED', '不能删除内置角色');
+    }
+    const objectPermissionCleanup = await this.services.objectPermissions.deleteRoleReferences(roleId);
+    await this.services.rbac.deleteRole(roleId);
+    await this.writeAudit(request, subject, AUDIT_EVENT_TYPES.SECURITY_ROLE_DELETED, 'security.role.delete', 'role', roleId, {
+      before: role,
+      cleanup: objectPermissionCleanup,
+    });
+    return { roleId, deleted: true as const };
+  }
+
   private async listPermissionPolicies(request: HttpRequest) {
     const subject = await this.subjectFromRequest(request);
     await this.assertSecurityCan(subject, 'security.permission.read', request, 'permissionPolicy');
@@ -511,6 +669,138 @@ export class SecurityController {
     });
     await this.writeAudit(request, subject, AUDIT_EVENT_TYPES.SECURITY_PERMISSION_POLICY_CREATED, 'security.permission.create', 'permissionPolicy', policy.id);
     return { statusCode: 201, body: policy };
+  }
+
+  private async listObjectTypes(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.permission.read', request, 'permissionObjectType');
+    return page(await this.services.objectPermissions.listObjectTypes());
+  }
+
+  private async listObjectSets(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.permission.read', request, 'permissionObjectSet');
+    return page(await this.services.objectPermissions.listObjectSets());
+  }
+
+  private async createObjectSet(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.permission.write', request, 'permissionObjectSet');
+    const body = validateObject(request.body, {
+      name: { type: 'string', required: true },
+      kind: { type: 'string', required: true, enum: ['static', 'dynamic'] },
+      objectTypes: { type: 'array', required: true },
+      conditions: { type: 'object' },
+      status: { type: 'string', enum: ['active', 'disabled', 'invalid'] },
+    });
+    const created = await this.services.objectPermissions.createObjectSet({
+      tenantId: request.context.tenantId ?? 'default',
+      name: String(body.name),
+      kind: body.kind as ObjectSetKind,
+      objectTypes: toStringArray(body.objectTypes, 'objectTypes'),
+      conditions: body.conditions as Record<string, unknown> | undefined,
+      status: (body.status ?? 'active') as 'active' | 'disabled' | 'invalid',
+    });
+    await this.writeAudit(request, subject, 'security.object_set.created', 'security.object_set.create', 'permissionObjectSet', created.id, { after: created });
+    return { statusCode: 201, body: created };
+  }
+
+  private async addObjectSetMember(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.permission.write', request, 'permissionObjectSet');
+    const body = validateObject(request.body, {
+      objectSetId: { type: 'string', required: true },
+      objectType: { type: 'string', required: true },
+      objectId: { type: 'string', required: true },
+    });
+    const created = await this.services.objectPermissions.addObjectSetMember({
+      objectSetId: String(body.objectSetId),
+      objectType: String(body.objectType),
+      objectId: String(body.objectId),
+      addedBy: subject.id,
+    });
+    await this.writeAudit(request, subject, 'security.object_set_member.added', 'security.object_set_member.add', 'permissionObjectSet', created.objectSetId, { after: created });
+    return { statusCode: 201, body: created };
+  }
+
+  private async listRoleBindings(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.permission.read', request, 'permissionRoleBinding');
+    return page(await this.services.objectPermissions.listRoleBindings());
+  }
+
+  private async createRoleBinding(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.permission.write', request, 'permissionRoleBinding');
+    const body = validateObject(request.body, {
+      principalType: { type: 'string', required: true, enum: ['user', 'group', 'external_group', 'system', 'plugin', 'executor'] },
+      principalId: { type: 'string', required: true },
+      roleId: { type: 'string', required: true },
+      objectSetId: { type: 'string', required: true },
+      effect: { type: 'string', enum: ['allow', 'deny'] },
+      enabled: { type: 'boolean' },
+      validFrom: { type: 'string' },
+      validTo: { type: 'string' },
+    });
+    const created = await this.services.objectPermissions.createRoleBinding({
+      tenantId: request.context.tenantId ?? 'default',
+      principalType: body.principalType as PrincipalType,
+      principalId: String(body.principalId),
+      roleId: String(body.roleId),
+      objectSetId: String(body.objectSetId),
+      effect: (body.effect ?? 'allow') as AccessEffect,
+      enabled: body.enabled === undefined ? true : Boolean(body.enabled),
+      validFrom: body.validFrom === undefined ? undefined : String(body.validFrom),
+      validTo: body.validTo === undefined ? undefined : String(body.validTo),
+    });
+    await this.writeAudit(request, subject, 'security.role_binding.created', 'security.role_binding.create', 'permissionRoleBinding', created.id, { after: created });
+    return { statusCode: 201, body: created };
+  }
+
+  private async listAccessGrants(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.permission.read', request, 'permissionAccessGrant');
+    return page(await this.services.objectPermissions.listAccessGrants());
+  }
+
+  private async createAccessGrant(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    await this.assertSecurityCan(subject, 'security.permission.write', request, 'permissionAccessGrant');
+    const body = validateObject(request.body, {
+      roleId: { type: 'string', required: true },
+      objectSetId: { type: 'string', required: true },
+      accessLevel: { type: 'string', required: true, enum: ['read', 'edit', 'control'] },
+      effect: { type: 'string', enum: ['allow', 'deny'] },
+      constraints: { type: 'object' },
+    });
+    const created = await this.services.objectPermissions.createAccessGrant({
+      roleId: String(body.roleId),
+      objectSetId: String(body.objectSetId),
+      accessLevel: body.accessLevel as AccessLevel,
+      effect: (body.effect ?? 'allow') as AccessEffect,
+      constraints: body.constraints as Record<string, unknown> | undefined,
+    });
+    await this.writeAudit(request, subject, 'security.access_grant.created', 'security.access_grant.create', 'permissionAccessGrant', created.id, { after: created });
+    return { statusCode: 201, body: created };
+  }
+
+  private async getObjectCapabilities(request: HttpRequest) {
+    const subject = await this.subjectFromRequest(request);
+    const body = validateObject(request.body, {
+      objects: { type: 'array', required: true },
+      accessLevels: { type: 'array' },
+    });
+    const accessLevels = body.accessLevels === undefined ? ['read', 'edit', 'control'] as AccessLevel[] : readAccessLevels(body.accessLevels);
+    const objects = readObjectRefs(body.objects);
+    const items = [];
+    for (const object of objects) {
+      const levels: Record<string, unknown> = {};
+      for (const accessLevel of accessLevels) {
+        levels[accessLevel] = await this.services.objectPermissions.can(subject, accessLevel, object, this.securityContext(request, subject));
+      }
+      items.push({ object, capabilities: levels });
+    }
+    return { items };
   }
 
   private async listIdentitySources(request: HttpRequest) {
@@ -756,6 +1046,48 @@ function toStringArray(value: unknown, field: string): string[] {
   return value.map((item) => item.trim());
 }
 
+function normalizeGroupCode(value: string): string {
+  const code = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 96);
+  return code || `group_${Date.now().toString(36)}`;
+}
+
+function readAccessLevels(value: unknown): AccessLevel[] {
+  const values = toStringArray(value, 'accessLevels');
+  const allowed = new Set<AccessLevel>(['read', 'edit', 'control']);
+  if (!values.every((item): item is AccessLevel => allowed.has(item as AccessLevel))) {
+    throw new AppError('VALIDATION_FAILED', 'accessLevels 只能包含 read、edit、control', { field: 'accessLevels' });
+  }
+  return values;
+}
+
+function readObjectRefs(value: unknown): ObjectRef[] {
+  if (!Array.isArray(value)) {
+    throw new AppError('VALIDATION_FAILED', 'objects 必须是数组', { field: 'objects' });
+  }
+  return value.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new AppError('VALIDATION_FAILED', 'objects 项必须是对象', { field: `objects[${index}]` });
+    }
+    const record = item as Record<string, unknown>;
+    if (typeof record.objectType !== 'string' || record.objectType.trim() === '') {
+      throw new AppError('VALIDATION_FAILED', 'objectType 不能为空', { field: `objects[${index}].objectType` });
+    }
+    return {
+      objectType: record.objectType.trim(),
+      objectId: typeof record.objectId === 'string' && record.objectId.trim() !== '' ? record.objectId.trim() : undefined,
+      tenantId: typeof record.tenantId === 'string' && record.tenantId.trim() !== '' ? record.tenantId.trim() : undefined,
+      attributes: record.attributes && typeof record.attributes === 'object' && !Array.isArray(record.attributes)
+        ? record.attributes as Record<string, unknown>
+        : undefined,
+    };
+  });
+}
+
 function readQueryString(request: HttpRequest, key: string): string {
   const value = readOptionalQueryString(request, key);
   if (!value) throw new AppError('VALIDATION_FAILED', `缂哄皯鏌ヨ鍙傛暟 ${key}`, { field: key });
@@ -780,6 +1112,7 @@ export function getSecurityRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/auth/logout', operationId: 'logout', summary: '閫€鍑虹櫥褰?', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/auth/me', operationId: 'getCurrentUser', summary: '鑾峰彇褰撳墠鐢ㄦ埛', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/auth/permissions', operationId: 'getCurrentPermissions', summary: '鑾峰彇褰撳墠鏉冮檺', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/auth/permission-context', operationId: 'getPermissionContext', summary: '获取当前对象级权限上下文', tags: ['Auth'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/secrets', operationId: 'listSecrets', summary: '查询 Secret 元数据列表', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/secrets', operationId: 'createSecret', summary: '鍒涘缓 Secret', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/secrets/metadata', operationId: 'getSecretMetadata', summary: '鏌ヨ Secret 鍏冩暟鎹?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
@@ -788,6 +1121,10 @@ export function getSecurityRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/audit-events', operationId: 'queryAuditEvents', summary: '鏌ヨ瀹¤浜嬩欢', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/security/users', operationId: 'listSecurityUsers', summary: '鏌ヨ鐢ㄦ埛鍒楄〃', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/users', operationId: 'createSecurityUser', summary: '鍒涘缓鐢ㄦ埛', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/security/groups', operationId: 'listSecurityGroups', summary: '查询用户组列表', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/security/groups', operationId: 'createSecurityGroup', summary: '创建本地用户组', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/security/groups/lookup-external', operationId: 'lookupExternalSecurityGroup', summary: '检索身份源用户组', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/security/groups/external', operationId: 'createExternalSecurityGroup', summary: '创建身份源用户组', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/users/lookup-external', operationId: 'lookupExternalSecurityUser', summary: '检索身份源用户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/users/external', operationId: 'createExternalSecurityUser', summary: '创建身份源用户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'PATCH', path: '/api/v1/security/users', operationId: 'updateSecurityUser', summary: '更新用户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
@@ -796,8 +1133,18 @@ export function getSecurityRouteContracts(): RouteContract[] {
     { method: 'DELETE', path: '/api/v1/security/users/delete', operationId: 'deleteSecurityUser', summary: '删除用户', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/security/roles', operationId: 'listSecurityRoles', summary: '鏌ヨ瑙掕壊鍒楄〃', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/roles', operationId: 'createSecurityRole', summary: '鍒涘缓瑙掕壊', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'DELETE', path: '/api/v1/security/roles/delete', operationId: 'deleteSecurityRole', summary: '删除角色', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/security/permission-policies', operationId: 'listSecurityPermissionPolicies', summary: '鏌ヨ鏉冮檺绛栫暐', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/permission-policies', operationId: 'createSecurityPermissionPolicy', summary: '鍒涘缓鏉冮檺绛栫暐', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/security/object-types', operationId: 'listSecurityObjectTypes', summary: '查询权限对象类型', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/security/object-sets', operationId: 'listSecurityObjectSets', summary: '查询权限对象集合', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/security/object-sets', operationId: 'createSecurityObjectSet', summary: '创建权限对象集合', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/security/object-set-members', operationId: 'addSecurityObjectSetMember', summary: '添加权限对象集合成员', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/security/role-bindings', operationId: 'listSecurityRoleBindings', summary: '查询对象级角色绑定', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/security/role-bindings', operationId: 'createSecurityRoleBinding', summary: '创建对象级角色绑定', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/security/access-grants', operationId: 'listSecurityAccessGrants', summary: '查询对象级访问授权', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/security/access-grants', operationId: 'createSecurityAccessGrant', summary: '创建对象级访问授权', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'POST', path: '/api/v1/security/object-capabilities', operationId: 'getSecurityObjectCapabilities', summary: '批量查询对象级能力', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/security/identity-sources', operationId: 'listIdentitySources', summary: '鏌ヨ韬唤婧?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/security/identity-sources', operationId: 'createIdentitySource', summary: '鍒涘缓韬唤婧?', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'PATCH', path: '/api/v1/security/identity-sources', operationId: 'updateIdentitySource', summary: '更新身份源', tags: ['Security'], responseSchema: { type: 'object', additionalProperties: true } },

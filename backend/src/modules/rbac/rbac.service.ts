@@ -115,6 +115,18 @@ export class RBACService {
     return this.roles.get(id);
   }
 
+  async deleteRole(roleId: string): Promise<void> {
+    const links = await this.userRoles.list((row) => row.roleId === roleId);
+    for (const link of links) {
+      await this.userRoles.delete(link.id);
+    }
+    const policies = await this.policies.list((policy) => policy.subjectType === 'role' && policy.subjectId === roleId);
+    for (const policy of policies) {
+      await this.policies.delete(policy.id);
+    }
+    await this.roles.delete(roleId);
+  }
+
   async assignRole(userId: string, roleId: string): Promise<void> {
     const id = `${userId}:${roleId}`;
     if (await this.userRoles.get(id)) return;

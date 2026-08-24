@@ -10,6 +10,7 @@ import type { SecuritySubject } from '../../shared/security-types.js';
 import { AUDIT_EVENT_TYPES } from '../audits/audit-event-types.js';
 import type { AuditService } from '../audits/audit.service.js';
 import type { RBACService } from '../rbac/rbac.service.js';
+import type { ObjectPermissionService } from './object-permission.service.js';
 
 export interface AuthenticatedUser {
   id: string;
@@ -51,6 +52,12 @@ const DEFAULT_ADMIN_PASSWORD = 'admin12345';
 const TOKEN_SECRET = 'gcac-dev-session-secret-change-before-production';
 const AUTH_SESSION_COOKIE_NAME = 'gcac_session';
 const DEFAULT_BROWSER_SESSION_TTL_SECONDS = 8 * 60 * 60;
+const BUILTIN_ADMIN_ALL_OBJECT_SET_ID = 'oset_builtin_admin_all';
+const BUILTIN_AUDITOR_READONLY_OBJECT_SET_ID = 'oset_builtin_auditor_readonly';
+const BUILTIN_ADMIN_ROLE_BINDING_ID = 'rbnd_builtin_admin_role_all';
+const BUILTIN_AUDITOR_ROLE_BINDING_ID = 'rbnd_builtin_auditor_role_readonly';
+const BUILTIN_ADMIN_ACCESS_GRANT_ID = 'agrant_builtin_admin_all_control';
+const BUILTIN_AUDITOR_ACCESS_GRANT_ID = 'agrant_builtin_auditor_all_read';
 
 export class AuthService {
   private static readonly defaultDb = new PgliteDatabase();
@@ -70,6 +77,7 @@ export class AuthService {
     private readonly credentials: AsyncRepositoryPort<AuthPasswordCredentialEntity> = AuthService.createDefaultCredentialsRepository(),
     private readonly audit?: AuditService,
     private readonly browserSessions: AsyncRepositoryPort<AuthBrowserSessionEntity> = AuthService.createDefaultBrowserSessionsRepository(),
+    private readonly objectPermissions?: ObjectPermissionService,
   ) {
     this.seedReady = this.seedDefaultAdmin();
   }
@@ -305,6 +313,82 @@ export class AuthService {
     await this.rbac.createPolicyIfAbsent(policy);
     if (!await this.credentials.get(admin.id)) {
       await this.credentials.upsert(this.hashPassword(admin.id, DEFAULT_ADMIN_PASSWORD));
+    }
+    await this.seedDefaultObjectPermissions(adminRole.id, auditorRole.id);
+  }
+
+  private async seedDefaultObjectPermissions(adminRoleId: string, auditorRoleId: string): Promise<void> {
+    if (!this.objectPermissions) return;
+    const objectTypes = (await this.objectPermissions.listObjectTypes()).map((item) => item.code).sort();
+    if (objectTypes.length === 0) return;
+    const objectSets = await this.objectPermissions.listObjectSets();
+    if (!objectSets.some((item) => item.id === BUILTIN_ADMIN_ALL_OBJECT_SET_ID)) {
+      await this.objectPermissions.createObjectSet({
+        id: BUILTIN_ADMIN_ALL_OBJECT_SET_ID,
+        tenantId: '*',
+        name: '系统管理员全部业务对象',
+        kind: 'dynamic',
+        objectTypes,
+        conditions: {},
+        status: 'active',
+      });
+    }
+    if (!objectSets.some((item) => item.id === BUILTIN_AUDITOR_READONLY_OBJECT_SET_ID)) {
+      await this.objectPermissions.createObjectSet({
+        id: BUILTIN_AUDITOR_READONLY_OBJECT_SET_ID,
+        tenantId: '*',
+        name: '审计员只读业务对象',
+        kind: 'dynamic',
+        objectTypes,
+        conditions: {},
+        status: 'active',
+      });
+    }
+
+    const roleBindings = await this.objectPermissions.listRoleBindings();
+    if (!roleBindings.some((item) => item.id === BUILTIN_ADMIN_ROLE_BINDING_ID)) {
+      await this.objectPermissions.createRoleBinding({
+        id: BUILTIN_ADMIN_ROLE_BINDING_ID,
+        tenantId: '*',
+        principalType: 'group',
+        principalId: adminRoleId,
+        roleId: adminRoleId,
+        objectSetId: BUILTIN_ADMIN_ALL_OBJECT_SET_ID,
+        effect: 'allow',
+        enabled: true,
+      });
+    }
+    if (!roleBindings.some((item) => item.id === BUILTIN_AUDITOR_ROLE_BINDING_ID)) {
+      await this.objectPermissions.createRoleBinding({
+        id: BUILTIN_AUDITOR_ROLE_BINDING_ID,
+        tenantId: '*',
+        principalType: 'group',
+        principalId: auditorRoleId,
+        roleId: auditorRoleId,
+        objectSetId: BUILTIN_AUDITOR_READONLY_OBJECT_SET_ID,
+        effect: 'allow',
+        enabled: true,
+      });
+    }
+
+    const accessGrants = await this.objectPermissions.listAccessGrants();
+    if (!accessGrants.some((item) => item.id === BUILTIN_ADMIN_ACCESS_GRANT_ID)) {
+      await this.objectPermissions.createAccessGrant({
+        id: BUILTIN_ADMIN_ACCESS_GRANT_ID,
+        roleId: adminRoleId,
+        objectSetId: BUILTIN_ADMIN_ALL_OBJECT_SET_ID,
+        accessLevel: 'control',
+        effect: 'allow',
+      });
+    }
+    if (!accessGrants.some((item) => item.id === BUILTIN_AUDITOR_ACCESS_GRANT_ID)) {
+      await this.objectPermissions.createAccessGrant({
+        id: BUILTIN_AUDITOR_ACCESS_GRANT_ID,
+        roleId: auditorRoleId,
+        objectSetId: BUILTIN_AUDITOR_READONLY_OBJECT_SET_ID,
+        accessLevel: 'read',
+        effect: 'allow',
+      });
     }
   }
 

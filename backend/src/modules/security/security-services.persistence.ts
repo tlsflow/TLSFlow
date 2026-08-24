@@ -4,6 +4,15 @@ import type { AuthBrowserSessionEntity, AuthPasswordCredentialEntity } from '../
 import type { AuditLogEntity } from '../../persistence/entities/audit-log.entity.js';
 import type { ExecutionGrantEntity } from '../../persistence/entities/execution-grant.entity.js';
 import type { PermissionPolicyEntity, RoleEntity, UserEntity, UserRoleEntity } from '../../persistence/entities/rbac.entity.js';
+import type {
+  AccessGrantEntity,
+  GroupEntity,
+  GroupMemberEntity,
+  ObjectSetEntity,
+  ObjectSetMemberEntity,
+  ObjectTypeEntity,
+  RoleBindingEntity,
+} from '../../persistence/entities/object-permission.entity.js';
 import type { SecretEntity, SecretVersionEntity } from '../../persistence/entities/secret.entity.js';
 import { PgDocumentRepository } from '../../persistence/repositories/pg-document-repository.js';
 import { ApprovalService } from '../approvals/approval.service.js';
@@ -16,6 +25,7 @@ import { SecretService } from '../secrets/secret.service.js';
 import { AuthService } from './auth.service.js';
 import { ExternalIdentityService, type ExternalGroupRoleMapping, type IdentitySource } from './external-identity.service.js';
 import type { SecurityServices } from './security.controller.js';
+import { ObjectPermissionService } from './object-permission.service.js';
 
 type StoredSecretVersion = SecretVersionEntity & { dekIv: string; dekAuthTag: string };
 type StoredUserRole = UserRoleEntity & { id: string };
@@ -39,17 +49,25 @@ export function createPersistedSecurityServices(db: DatabasePort): PersistedSecu
   const authBrowserSessions = new PgDocumentRepository<AuthBrowserSessionEntity>(db, 'security.auth_browser_sessions');
   const identitySources = new PgDocumentRepository<IdentitySource>(db, 'security.identity_sources');
   const externalGroupRoleMappings = new PgDocumentRepository<ExternalGroupRoleMapping>(db, 'security.external_group_role_mappings');
+  const groups = new PgDocumentRepository<GroupEntity>(db, 'security.groups');
+  const groupMembers = new PgDocumentRepository<GroupMemberEntity>(db, 'security.group_members');
+  const roleBindings = new PgDocumentRepository<RoleBindingEntity>(db, 'security.role_bindings');
+  const objectTypes = new PgDocumentRepository<ObjectTypeEntity>(db, 'security.object_types');
+  const objectSets = new PgDocumentRepository<ObjectSetEntity>(db, 'security.object_sets');
+  const objectSetMembers = new PgDocumentRepository<ObjectSetMemberEntity>(db, 'security.object_set_members');
+  const accessGrants = new PgDocumentRepository<AccessGrantEntity>(db, 'security.access_grants');
 
   const audit = new AuditService(auditLogs);
   const approvals = new ApprovalService(approvalsRepo, audit);
   const grants = new ExecutionGrantService(executionGrants);
   const secrets = new SecretService(new CryptoService(new KeyManager()), grants, audit, secretsRepo, secretVersions);
   const rbac = new RBACService(users, roles, userRoles, policies, audit);
-  const auth = new AuthService(rbac, authCredentials, audit, authBrowserSessions);
+  const objectPermissions = new ObjectPermissionService(groups, groupMembers, roleBindings, objectTypes, objectSets, objectSetMembers, accessGrants, userRoles, policies, roles, audit);
+  const auth = new AuthService(rbac, authCredentials, audit, authBrowserSessions, objectPermissions);
   const externalIdentity = new ExternalIdentityService(rbac, auth, audit, secrets, undefined, identitySources, externalGroupRoleMappings);
 
   return {
-    services: { rbac, audit, approvals, secrets, auth, externalIdentity },
+    services: { rbac, objectPermissions, audit, approvals, secrets, auth, externalIdentity },
     flushers: [],
   };
 }

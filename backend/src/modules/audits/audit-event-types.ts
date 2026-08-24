@@ -9,6 +9,7 @@ export const AUDIT_EVENT_TYPES = {
   SECURITY_USER_STATUS_CHANGED: 'security.user.status_changed',
   SECURITY_USER_ROLE_ASSIGNED: 'security.user.role_assigned',
   SECURITY_ROLE_CREATED: 'security.role.created',
+  SECURITY_ROLE_DELETED: 'security.role.deleted',
   SECURITY_PERMISSION_POLICY_CREATED: 'security.permission_policy.created',
   IDENTITY_SOURCE_CREATED: 'security.identity_source.created',
   IDENTITY_SOURCE_UPDATED: 'security.identity_source.updated',
