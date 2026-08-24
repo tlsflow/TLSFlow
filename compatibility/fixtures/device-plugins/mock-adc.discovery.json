@@ -1,0 +1,28 @@
+{
+  "apiVersion": "gcac.device-discovery/v1",
+  "device": {
+    "stableKey": "device:mock-adc-01",
+    "displayName": "Mock ADC 01",
+    "productFamily": "Mock ADC",
+    "softwareVersion": "1.0.0",
+    "managementAddress": "192.0.2.20",
+    "metadata": { "partition": "default" }
+  },
+  "capabilities": [
+    { "key": "device.discover", "available": true },
+    { "key": "certificate.deploy", "available": true }
+  ],
+  "frameworks": [
+    { "stableKey": "framework:load-balancer", "type": "LOAD_BALANCER", "displayName": "Load Balancer" }
+  ],
+  "sites": [
+    { "stableKey": "site:https-main", "frameworkStableKey": "framework:load-balancer", "displayName": "HTTPS Main", "addresses": ["198.51.100.20"], "port": 443, "protocol": "HTTPS" }
+  ],
+  "certificates": [
+    { "stableKey": "certificate:main", "sha256Fingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "subject": "CN=example.test" }
+  ],
+  "certificateBindings": [
+    { "stableKey": "binding:https-main", "siteStableKey": "site:https-main", "certificateStableKey": "certificate:main", "bindingName": "frontend" }
+  ],
+  "warnings": []
+}

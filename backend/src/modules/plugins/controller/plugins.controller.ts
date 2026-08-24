@@ -9,6 +9,7 @@ import { UnifiedPluginsApplicationService } from '../application/unified-plugins
 import { PluginBindingsApplicationService } from '../application/plugin-bindings.application-service.js';
 import type { ImportUnifiedPluginVersionInput } from '../dto/unified-plugins.dto.js';
 import { StandardPluginFieldRegistry } from '../forms/standard-plugin-field.registry.js';
+import { PluginCapabilityRegistry } from '../capabilities/plugin-capability.registry.js';
 import type {
   PluginEnableInput,
   PluginExecutionRequest,
@@ -21,6 +22,7 @@ const tenantFallback = '00000000-0000-0000-0000-000000000000';
 
 export class PluginsController {
   private readonly standardFields = new StandardPluginFieldRegistry();
+  private readonly capabilityRegistry = new PluginCapabilityRegistry();
   constructor(
     private readonly service = new PluginsApplicationService(),
     private readonly agentPlugins = new AgentDeploymentPluginsApplicationService(),
@@ -48,6 +50,7 @@ export class PluginsController {
     router.post('/api/v1/plugin-versions/retire', '退休统一插件版本', tags, (request) => this.retireUnifiedPluginVersion(request));
     router.get('/api/v1/plugin-versions/upgrade-diff', '查询统一插件升级差异', tags, (request) => this.getUnifiedPluginUpgradeDiff(request));
     router.get('/api/v1/plugin-form/standard-fields', '查询插件标准字段', tags, () => ({ items: this.standardFields.list() }));
+    router.get('/api/v1/plugin-capabilities', '查询宿主支持的插件能力 Contract', tags, () => ({ items: this.capabilityRegistry.list() }));
     router.get('/api/v1/plugin-versions/ui-resources', '查询插件表单、展示和语言资源', tags, (request) => this.getUnifiedPluginUiResources(request));
     router.post('/api/v1/plugin-bindings', '创建统一插件绑定', tags, (request) => this.createPluginBinding(request));
     router.get('/api/v1/plugin-bindings', '查询统一插件绑定', tags, (request) => this.getPluginBinding(request));

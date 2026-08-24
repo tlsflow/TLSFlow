@@ -13,11 +13,13 @@ import { PgUnifiedPluginsRepository, type UnifiedPluginsRepository } from '../re
 import { assertUnifiedPluginResources, validateUnifiedPluginManifest } from '../schema/unified-plugins.schema.js';
 import { PluginPackageResourcesService } from './plugin-package-resources.service.js';
 import { PluginLocaleService } from '../locales/plugin-locale.service.js';
+import { PluginCapabilityRegistry } from '../capabilities/plugin-capability.registry.js';
 
 export class UnifiedPluginsApplicationService {
   constructor(
     private readonly repository: UnifiedPluginsRepository = new PgUnifiedPluginsRepository(),
     private readonly packageResources = new PluginPackageResourcesService(),
+    private readonly capabilityRegistry = new PluginCapabilityRegistry(),
   ) {}
 
   async importVersion(
@@ -26,6 +28,7 @@ export class UnifiedPluginsApplicationService {
     sourceChannel: UnifiedPluginSource = 'USER',
   ): Promise<UnifiedPluginVersionRecord> {
     const manifest = validateUnifiedPluginManifest(input.manifest);
+    manifest.capabilities.forEach((capability) => this.capabilityRegistry.validate(capability));
     if (manifest.source !== sourceChannel) {
       throw new AppError('VALIDATION_FAILED', '插件来源由安装通道决定，不能由 Manifest 伪造', {
         declaredSource: manifest.source,

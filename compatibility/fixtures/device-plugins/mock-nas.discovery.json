@@ -1,0 +1,26 @@
+{
+  "apiVersion": "gcac.device-discovery/v1",
+  "device": {
+    "stableKey": "device:mock-nas-01",
+    "displayName": "Mock NAS 01",
+    "productFamily": "Mock NAS",
+    "softwareVersion": "2.0.0",
+    "managementAddress": "192.0.2.30",
+    "metadata": { "clusterRole": "primary" }
+  },
+  "capabilities": [
+    { "key": "device.discover", "available": true },
+    { "key": "certificate.deploy", "available": true }
+  ],
+  "frameworks": [
+    { "stableKey": "framework:web-portal", "type": "WEB_PORTAL", "displayName": "Management Portal" }
+  ],
+  "sites": [
+    { "stableKey": "site:management", "frameworkStableKey": "framework:web-portal", "displayName": "Management", "addresses": ["192.0.2.30"], "port": 5001, "protocol": "HTTPS", "metadata": { "reverseProxy": false } }
+  ],
+  "certificates": [],
+  "certificateBindings": [],
+  "warnings": [
+    { "code": "CERTIFICATE_NOT_REPORTED", "messageKey": "plugin.mockNas.warnings.certificateNotReported" }
+  ]
+}
