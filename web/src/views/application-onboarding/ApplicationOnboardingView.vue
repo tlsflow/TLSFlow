@@ -59,6 +59,7 @@ const LATEST_VERSION_MARKER = '__LATEST__'
 
 const props = withDefaults(defineProps<{
   embedded?: boolean
+  platformKeyword?: string
 }>(), {
   embedded: false,
 })
@@ -66,6 +67,8 @@ const emit = defineEmits<{
   close: []
   customManual: []
   addDevice: [initialSelection: DeviceOnboardingInitialSelection]
+  'update:platformKeyword': [value: string]
+  'platform-selection-change': [active: boolean]
   'footer-actions-change': [actions: OnboardingFooterActions]
 }>()
 
@@ -73,6 +76,7 @@ const { t, locale } = useI18n()
 const router = useRouter()
 const route = useRoute()
 const platforms = ref<Platform[]>([])
+const standalonePlatformKeyword = ref('')
 const selectedPlatform = ref<Platform | null>(null)
 const session = ref<Session | null>(null)
 const targets = ref<Target[]>([])
@@ -156,9 +160,35 @@ const footerActions = computed<OnboardingFooterActions>(() => {
     primaryDisabled,
   }
 })
+const platformSearchKeyword = computed({
+  get: () => props.platformKeyword ?? standalonePlatformKeyword.value,
+  set: (value: string) => {
+    if (props.platformKeyword !== undefined) {
+      emit('update:platformKeyword', value)
+      return
+    }
+    standalonePlatformKeyword.value = value
+  },
+})
 const stepLabels = computed(() => [
   t('applicationOnboarding.steps.platform'), t('applicationOnboarding.steps.device'), t('applicationOnboarding.steps.target'), t('applicationOnboarding.steps.certificate'), t('applicationOnboarding.steps.complete')
 ])
+const hasPlatformKeyword = computed(() => platformSearchKeyword.value.trim().length > 0)
+const filteredPlatforms = computed(() => {
+  const keyword = platformSearchKeyword.value.trim().toLocaleLowerCase(locale.value)
+  if (!keyword) return platforms.value
+  return platforms.value.filter((platform) => {
+    const metadata = platform.businessMetadata
+    const searchableValues = [
+      platformLabel(platform),
+      platform.platformKey,
+      metadata?.capabilityVersion,
+      ...(metadata?.compatibleVersions ?? []),
+      ...(metadata?.requiredInformation ?? []),
+    ]
+    return searchableValues.some((value) => String(value ?? '').toLocaleLowerCase(locale.value).includes(keyword))
+  })
+})
 // 站点选择步骤只展示实际可用的受管目标；停用或不满足选择条件的目标不显示。
 const selectableTargets = computed(() => targets.value.filter((target) => target.selectable))
 // 证书版本列表按到期时间倒序，第一项即最新可部署版本。
@@ -239,6 +269,9 @@ const deploymentInputFormProjection = computed<DeploymentInputProjectionV1 | nul
   }
 })
 onMounted(restoreSession)
+watch(selectedPlatform, (platform) => {
+  emit('platform-selection-change', !platform)
+}, { immediate: true })
 watch(deviceMode, (mode) => {
   if (mode === 'EXISTING_DEVICE' && session.value && step.value === 2) void refreshDevices()
 })
@@ -272,6 +305,10 @@ function openCustomManual(): void {
     return
   }
   void router.push({ path: '/assets', query: { ...route.query, create: '1' } })
+}
+
+function openPluginCenter(): void {
+  void router.push('/plugins')
 }
 
 async function submitResource(): Promise<void> {
@@ -940,46 +977,73 @@ defineExpose({ goPrevious, runFooterPrimary, cancel })
       </li>
     </ol>
     <p v-if="error" class="onboarding-error" role="alert">{{ error }}</p>
-    <section v-if="!selectedPlatform" class="platform-grid" :aria-busy="loading && platforms.length === 0">
-      <div
-        v-if="loading && platforms.length === 0"
-        class="onboarding-platform-loading"
-        role="status"
-        aria-live="polite"
-        aria-busy="true"
-      >
-        <span class="onboarding-platform-loading__spinner" aria-hidden="true" />
-        <span>{{ t('common.loading') }}</span>
+    <section v-if="!selectedPlatform" class="platform-selection" :aria-busy="loading && platforms.length === 0">
+      <div v-if="!props.embedded" class="platform-selection__toolbar" role="search">
+        <label class="platform-selection__search">
+          <span class="platform-selection__sr-only">{{ t('applicationOnboarding.platforms.searchLabel') }}</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5" />
+            <path d="m16 16 4.5 4.5" />
+          </svg>
+          <input
+            v-model="platformSearchKeyword"
+            type="search"
+            autocomplete="off"
+            :placeholder="t('applicationOnboarding.platforms.searchPlaceholder')"
+            :aria-label="t('applicationOnboarding.platforms.searchLabel')"
+          >
+        </label>
       </div>
-      <button
-        v-for="platform in platforms"
-        :key="platform.platformKey"
-        class="platform-card"
-        :class="{ 'platform-card--review': platform.supportStatus === 'IN_REVIEW' }"
-        type="button"
-        :disabled="loading || platform.supportStatus === 'IN_REVIEW'"
-        @click="choosePlatform(platform)"
-      >
-        <GcPluginLogo
-          class="platform-card__logo"
-          :logo-url="platform.logoUrl"
-          :square-logo-url="platform.logoSquareUrl"
-          :fallback-text="platformInitial(platform)"
-          alt=""
-          size="onboarding"
-        />
-        <span class="platform-card__copy">
-          <strong>{{ platformLabel(platform) }}</strong>
-          <small v-if="platform.source === 'CUSTOM_MANUAL'">{{ t('applicationOnboarding.platforms.manualHint') }}</small>
-          <span v-else-if="platform.businessMetadata" class="platform-card__metadata">
-            <small class="platform-card__metadata-row"><span>{{ t('applicationOnboarding.platforms.capabilityVersion') }}</span><span>{{ platform.businessMetadata.capabilityVersion }}</span></small>
-            <small class="platform-card__metadata-row"><span>{{ t('applicationOnboarding.platforms.compatibility') }}</span><span>{{ platform.businessMetadata.compatibleVersions.join(' / ') }}</span></small>
-            <small class="platform-card__metadata-row"><span>{{ t('applicationOnboarding.platforms.requiredInformation') }}</span><span>{{ platform.businessMetadata.requiredInformation.join(' / ') }}</span></small>
+      <div class="platform-grid">
+        <div
+          v-if="loading && platforms.length === 0"
+          class="onboarding-platform-loading"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          <span class="onboarding-platform-loading__spinner" aria-hidden="true" />
+          <span>{{ t('common.loading') }}</span>
+        </div>
+        <button
+          v-for="platform in filteredPlatforms"
+          :key="platform.platformKey"
+          class="platform-card"
+          :class="{ 'platform-card--review': platform.supportStatus === 'IN_REVIEW' }"
+          type="button"
+          :disabled="loading || platform.supportStatus === 'IN_REVIEW'"
+          @click="choosePlatform(platform)"
+        >
+          <GcPluginLogo
+            class="platform-card__logo"
+            :logo-url="platform.logoUrl"
+            :square-logo-url="platform.logoSquareUrl"
+            :fallback-text="platformInitial(platform)"
+            alt=""
+            size="onboarding"
+          />
+          <span class="platform-card__copy">
+            <strong>{{ platformLabel(platform) }}</strong>
+            <small v-if="platform.source === 'CUSTOM_MANUAL'">{{ t('applicationOnboarding.platforms.manualHint') }}</small>
+            <span v-else-if="platform.businessMetadata" class="platform-card__metadata">
+              <small class="platform-card__metadata-row"><span>{{ t('applicationOnboarding.platforms.capabilityVersion') }}</span><span>{{ platform.businessMetadata.capabilityVersion }}</span></small>
+              <small class="platform-card__metadata-row"><span>{{ t('applicationOnboarding.platforms.compatibility') }}</span><span>{{ platform.businessMetadata.compatibleVersions.join(' / ') }}</span></small>
+              <small class="platform-card__metadata-row"><span>{{ t('applicationOnboarding.platforms.requiredInformation') }}</span><span>{{ platform.businessMetadata.requiredInformation.join(' / ') }}</span></small>
+            </span>
+            <small v-if="platform.supportStatus === 'IN_REVIEW'" class="platform-card__status">{{ t('applicationOnboarding.platforms.inReview') }}</small>
           </span>
-          <small v-if="platform.supportStatus === 'IN_REVIEW'" class="platform-card__status">{{ t('applicationOnboarding.platforms.inReview') }}</small>
-        </span>
-      </button>
-      <p v-if="!loading && platforms.length === 0" class="onboarding-empty">{{ t('applicationOnboarding.messages.noPlatforms') }}</p>
+        </button>
+      </div>
+      <div class="platform-selection__footer">
+        <p v-if="!loading && filteredPlatforms.length === 0" class="onboarding-empty">
+          {{ hasPlatformKeyword ? t('applicationOnboarding.messages.noSearchResults') : t('applicationOnboarding.messages.noPlatforms') }}
+        </p>
+        <button class="platform-plugin-link" type="button" @click="openPluginCenter">
+          <span>{{ t('applicationOnboarding.platforms.pluginCenterPrompt') }}</span>
+          <span>{{ t('applicationOnboarding.platforms.pluginCenterAction') }}</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13m-5-5 5 5-5 5" /></svg>
+        </button>
+      </div>
     </section>
     <section v-else class="onboarding-workspace">
       <section v-if="step === 2" class="onboarding-device-step" aria-labelledby="onboarding-device-title">
@@ -1145,6 +1209,19 @@ h1, h2, p { margin: 0; }
 .onboarding-steps__marker { display: grid; flex: 0 0 auto; place-items: center; inline-size: var(--gc-space-6); block-size: var(--gc-space-6); color: inherit; background: var(--gc-color-surface); border-radius: var(--gc-radius-full); }
 .onboarding-steps li.active .onboarding-steps__marker { color: var(--gc-color-primary); }
 .onboarding-steps li.done .onboarding-steps__marker { color: var(--gc-color-text-inverse); background: var(--gc-color-success); }
+.platform-selection { display: grid; gap: var(--gc-space-3); min-inline-size: 0; }
+.platform-selection__toolbar { display: flex; justify-content: flex-end; }
+.platform-selection__search { position: relative; display: flex; align-items: center; inline-size: min(100%, var(--gc-size-menu-max)); }
+.platform-selection__search svg { position: absolute; inset-inline-start: var(--gc-space-3); inline-size: var(--gc-size-icon-md); block-size: var(--gc-size-icon-md); color: var(--gc-color-text-soft); fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: var(--gc-border-width-thick); pointer-events: none; }
+.platform-selection__search input { inline-size: 100%; min-block-size: var(--gc-control-height-md); padding: 0 var(--gc-space-3) 0 calc(var(--gc-space-3) + var(--gc-size-icon-md) + var(--gc-space-2)); color: var(--gc-color-text); background: var(--gc-color-surface-field); border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-control); }
+.platform-selection__search input:focus { outline: none; border-color: var(--gc-color-primary-border-strong); box-shadow: var(--gc-shadow-focus); }
+.platform-selection__footer { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--gc-space-3); text-align: center; }
+.platform-selection__footer .onboarding-empty { text-align: center; }
+.platform-plugin-link { display: inline-flex; align-items: center; gap: var(--gc-space-1); padding: 0; color: var(--gc-color-primary); font-size: var(--gc-font-size-sm); font-weight: var(--gc-font-weight-semibold); text-align: left; cursor: pointer; background: transparent; border: 0; }
+.platform-plugin-link:hover { color: var(--gc-color-primary-hover); text-decoration: underline; }
+.platform-plugin-link:focus-visible { outline: none; border-radius: var(--gc-radius-control); box-shadow: var(--gc-shadow-focus); }
+.platform-plugin-link svg { inline-size: var(--gc-size-icon-sm); block-size: var(--gc-size-icon-sm); fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: var(--gc-border-width-thick); }
+.platform-selection__sr-only { position: absolute; inline-size: var(--gc-space-hairline); block-size: var(--gc-space-hairline); padding: 0; margin: calc(var(--gc-space-hairline) * -1); overflow: hidden; white-space: nowrap; clip-path: inset(50%); border: 0; }
 .platform-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-content: start; min-block-size: 0; max-block-size: min(54vh, calc(100vh - (var(--gc-space-10) * 5))); gap: var(--gc-space-3); padding-inline-end: var(--gc-space-2); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .onboarding-platform-loading { display: flex; align-items: center; justify-content: center; min-block-size: var(--gc-size-card-min); gap: var(--gc-space-2); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); font-weight: var(--gc-font-weight-semibold); }
 .onboarding-platform-loading__spinner { inline-size: var(--gc-space-5); aspect-ratio: 1; border: var(--gc-border-width-thick) solid var(--gc-color-primary-border); border-top-color: var(--gc-color-primary); border-radius: var(--gc-radius-full); animation: application-onboarding-platform-spin 700ms linear infinite; }

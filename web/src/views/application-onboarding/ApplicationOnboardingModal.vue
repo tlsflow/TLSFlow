@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { type LocationQueryRaw, useRoute, useRouter } from 'vue-router'
 import { GcModal } from '@/design-system/components'
@@ -49,15 +49,25 @@ const route = useRoute()
 const router = useRouter()
 const onboardingView = ref<OnboardingViewController | null>(null)
 const footerActions = ref<OnboardingFooterActions>(emptyFooterActions())
+const platformKeyword = ref('')
+const platformSelectionActive = ref(true)
 const modelOpen = computed({
   get: () => props.open,
   set: (value: boolean) => {
     if (!value) {
       footerActions.value = emptyFooterActions()
+      platformKeyword.value = ''
+      platformSelectionActive.value = true
       void clearOnboardingRoute()
     }
     emit('update:open', value)
   },
+})
+
+watch(() => props.open, (open) => {
+  if (!open) return
+  platformKeyword.value = ''
+  platformSelectionActive.value = true
 })
 
 function openCustomManual(): void {
@@ -71,6 +81,10 @@ function openDeviceOnboarding(initialSelection: DeviceOnboardingInitialSelection
 
 function updateFooterActions(actions: OnboardingFooterActions): void {
   footerActions.value = actions
+}
+
+function updatePlatformSelection(active: boolean): void {
+  platformSelectionActive.value = active
 }
 
 function goPrevious(): void {
@@ -101,13 +115,31 @@ async function clearOnboardingRoute(): Promise<void> {
     :title="t('applicationOnboarding.title')"
     :description="t('applicationOnboarding.description')"
   >
+    <template #header-actions>
+      <label v-if="platformSelectionActive" class="application-onboarding-modal__search">
+        <span class="application-onboarding-modal__sr-only">{{ t('applicationOnboarding.platforms.searchLabel') }}</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="11" cy="11" r="6.5" />
+          <path d="m16 16 4.5 4.5" />
+        </svg>
+        <input
+          v-model="platformKeyword"
+          type="search"
+          autocomplete="off"
+          :placeholder="t('applicationOnboarding.platforms.searchPlaceholder')"
+          :aria-label="t('applicationOnboarding.platforms.searchLabel')"
+        >
+      </label>
+    </template>
     <ApplicationOnboardingView
       v-if="modelOpen"
       ref="onboardingView"
       embedded
+      v-model:platform-keyword="platformKeyword"
       @close="modelOpen = false"
       @custom-manual="openCustomManual"
       @add-device="openDeviceOnboarding"
+      @platform-selection-change="updatePlatformSelection"
       @footer-actions-change="updateFooterActions"
     />
     <template v-if="footerActions.visible" #actions>
@@ -117,3 +149,14 @@ async function clearOnboardingRoute(): Promise<void> {
     </template>
   </GcModal>
 </template>
+
+<style scoped>
+.application-onboarding-modal__search { position: relative; display: flex; align-items: center; inline-size: min(100%, var(--gc-size-menu-max)); }
+.application-onboarding-modal__search svg { position: absolute; inset-inline-start: var(--gc-space-3); inline-size: var(--gc-size-icon-md); block-size: var(--gc-size-icon-md); color: var(--gc-color-text-soft); fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: var(--gc-border-width-thick); pointer-events: none; }
+.application-onboarding-modal__search input { inline-size: 100%; min-block-size: var(--gc-control-height-md); padding: 0 var(--gc-space-3) 0 calc(var(--gc-space-3) + var(--gc-size-icon-md) + var(--gc-space-2)); color: var(--gc-color-text); background: var(--gc-color-surface-field); border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-control); }
+.application-onboarding-modal__search input:focus { outline: none; border-color: var(--gc-color-primary-border-strong); box-shadow: var(--gc-shadow-focus); }
+.application-onboarding-modal__sr-only { position: absolute; inline-size: var(--gc-space-hairline); block-size: var(--gc-space-hairline); padding: 0; margin: calc(var(--gc-space-hairline) * -1); overflow: hidden; white-space: nowrap; clip-path: inset(50%); border: 0; }
+@media (max-width: 48rem) {
+  .application-onboarding-modal__search { inline-size: min(48vw, var(--gc-size-menu-max)); }
+}
+</style>
