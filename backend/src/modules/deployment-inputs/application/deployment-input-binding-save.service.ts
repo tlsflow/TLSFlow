@@ -2,6 +2,7 @@ import type { DeploymentAssetContextV1 } from '../dto/deployment-asset-context.d
 import type { DeploymentInputContractV1 } from '../dto/deployment-input-contract.dto.js';
 import { emptyInputBindingsV1, type InputBindingsV1 } from '../dto/input-bindings.dto.js';
 import type { DeploymentInputIssueV1, ResolvedDeploymentInputV1 } from '../dto/resolved-deployment-input.dto.js';
+import type { EffectiveInputBindingV1 } from '../domain/deployment-input-provenance.js';
 import type { VersionedInputBindingLayerV1 } from './effective-binding.resolver.js';
 import { ProductionDeploymentInputResolverService } from './production-deployment-input-resolver.service.js';
 
@@ -17,6 +18,7 @@ export interface ValidateDeploymentInputBindingSaveRequest {
 
 export interface ValidatedDeploymentInputBindingSaveV1 {
   assetOverride: InputBindingsV1;
+  effectiveBinding: EffectiveInputBindingV1;
   resolved: ResolvedDeploymentInputV1;
   issues: DeploymentInputIssueV1[];
   saveable: boolean;
@@ -35,7 +37,7 @@ export class DeploymentInputBindingSaveService {
       ? filterSubmittedBindings(request.contract, request.currentAssetOverride.inputBindings).inputBindings
       : emptyInputBindingsV1();
     const assetOverride = mergeBindingPatch(current, filtered.inputBindings);
-    const { resolvedInput: resolved } = this.resolver.resolveProjectionResult({
+    const { effectiveBinding, resolvedInput: resolved } = this.resolver.resolveProjectionResult({
       phase: 'save',
       contract: request.contract,
       assetContext: request.assetContext,
@@ -46,7 +48,13 @@ export class DeploymentInputBindingSaveService {
       },
     });
     const issues = [...filtered.issues, ...resolved.issues];
-    return { assetOverride, resolved: { ...resolved, issues, executable: issues.every((issue) => issue.severity !== 'ERROR') }, issues, saveable: issues.every((issue) => issue.severity !== 'ERROR') };
+    return {
+      assetOverride,
+      effectiveBinding,
+      resolved: { ...resolved, issues, executable: issues.every((issue) => issue.severity !== 'ERROR') },
+      issues,
+      saveable: issues.every((issue) => issue.severity !== 'ERROR'),
+    };
   }
 }
 

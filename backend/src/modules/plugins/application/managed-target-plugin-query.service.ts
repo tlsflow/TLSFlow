@@ -23,6 +23,8 @@ import { buildPluginCertificateArtifactBindings } from '../artifacts/plugin-cert
 import { deploymentAssetContextBuilder } from '../../deployment-inputs/application/deployment-asset-context.builder.js';
 import { DeploymentInputBindingSaveService } from '../../deployment-inputs/application/deployment-input-binding-save.service.js';
 import { DeploymentInputContractLoader } from '../../deployment-inputs/application/deployment-input-contract-loader.js';
+import { DeploymentInputProjectionService } from '../../deployment-inputs/application/deployment-input-projection.service.js';
+import type { DeploymentInputProjectionV1 } from '../../deployment-inputs/dto/deployment-input-projection.dto.js';
 import { WorkflowDeploymentInputSaveService } from '../../deployment-inputs/application/workflow-deployment-input-save.service.js';
 
 type ExecutionLocation = 'AGENT' | 'CONTROL_PLANE' | 'GATEWAY';
@@ -47,6 +49,7 @@ export class ManagedTargetPluginQueryService {
   private readonly pluginLocales = new PluginLocaleService();
   private readonly contractLoader = new DeploymentInputContractLoader();
   private readonly bindingSaves = new DeploymentInputBindingSaveService();
+  private readonly inputProjections = new DeploymentInputProjectionService();
 
   constructor(private readonly db: DatabasePort) {}
 
@@ -241,9 +244,10 @@ export class ManagedTargetPluginQueryService {
         applicationAssetId: input.applicationAssetId,
       });
       const layers = await this.loadBindingLayers(services.bindings, input.tenantId, candidates);
+      const contract = this.contractLoader.fromPlugin(plugin, capabilityKey);
       const validation = this.bindingSaves.validate({
         pluginVersionId: plugin.id,
-        contract: this.contractLoader.fromPlugin(plugin, capabilityKey),
+        contract,
         assetContext: deploymentAssetContextBuilder.build({ applicationAsset, managedTargetContext: context }),
         deviceDefault: layers.device,
         targetOverride: layers.target,
@@ -281,6 +285,81 @@ export class ManagedTargetPluginQueryService {
         deploymentStrategy: { type: 'MANAGED_TARGET', managedTarget: { managedTargetId: context.managedTarget.id, certificateFormatId, executionMode: 'PLUGIN' } },
       });
       return { target, executionMode: 'PLUGIN', effectiveCapability: summarizeCapability(resolved) };
+    });
+  }
+
+  async projectApplicationAssetPluginInputs(input: {
+    tenantId: string;
+    managedTargetId: string;
+    capabilityKey?: string;
+    pluginVersionId?: string;
+    certificateFormatId?: string;
+    applicationAsset: {
+      id: string;
+      address: string;
+      sniName?: string;
+      port: number;
+      protocol: string;
+      displayName?: string;
+    };
+    inputBindings?: InputBindingsV1;
+  }): Promise<DeploymentInputProjectionV1> {
+    const services = this.createServices(this.db);
+    const context = await services.contexts.resolve(input.tenantId, input.managedTargetId);
+    const capabilityKey = input.capabilityKey ?? 'certificate.deploy';
+    this.assertTargetCapability(context, capabilityKey);
+    const compatibility = await this.createCompatibilityContext(services.devices, input.tenantId, context, capabilityKey);
+    const applicationAssetId = input.applicationAsset.id === 'draft' ? undefined : input.applicationAsset.id;
+    const capability = input.pluginVersionId
+      ? undefined
+      : await services.capabilities.resolve({
+        tenantId: input.tenantId,
+        capabilityKey,
+        hostId: context.host.id,
+        managedTargetId: context.managedTarget.id,
+        applicationAssetId,
+        executionLocations: context.availableExecutionLocations,
+        compatibility,
+      });
+    const plugin = await services.plugins.getVersion(input.pluginVersionId ?? capability!.pluginVersionId);
+    const evaluated = evaluateCompatiblePlugin(plugin, capabilityKey, context.availableExecutionLocations, compatibility);
+    if (!evaluated.compatible) {
+      throw new AppError('CAPABILITY_MISSING', '插件与受管目标不兼容', {
+        code: 'PLUGIN_INCOMPATIBLE',
+        pluginVersionId: plugin.id,
+        reasons: evaluated.reasons,
+      });
+    }
+
+    const requestedInputBindings = input.inputBindings ?? emptyInputBindingsV1();
+    const artifacts = Object.keys(requestedInputBindings.artifacts).length > 0
+      ? requestedInputBindings.artifacts
+      : input.certificateFormatId?.trim()
+        ? buildPluginCertificateArtifactBindings(plugin, capabilityKey, input.certificateFormatId.trim())
+        : {};
+    const candidates = await services.bindings.listAssignmentCandidates(input.tenantId, capabilityKey, {
+      deviceId: context.host.id,
+      managedTargetId: context.managedTarget.id,
+      ...(applicationAssetId ? { applicationAssetId } : {}),
+    });
+    const layers = await this.loadBindingLayers(services.bindings, input.tenantId, candidates);
+    const contract = this.contractLoader.fromPlugin(plugin, capabilityKey);
+    const validation = this.bindingSaves.validate({
+      pluginVersionId: plugin.id,
+      contract,
+      assetContext: deploymentAssetContextBuilder.build({
+        applicationAsset: input.applicationAsset,
+        managedTargetContext: context,
+      }),
+      deviceDefault: layers.device,
+      targetOverride: layers.target,
+      currentAssetOverride: layers.asset,
+      submitted: { ...requestedInputBindings, artifacts },
+    });
+    return this.inputProjections.project({
+      contract,
+      resolvedInput: validation.resolved,
+      effectiveBinding: validation.effectiveBinding,
     });
   }
 

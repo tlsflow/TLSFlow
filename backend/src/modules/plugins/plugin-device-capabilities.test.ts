@@ -41,8 +41,31 @@ test('标准设备发现校验父子关系、数量、稳定键和敏感字段',
     warnings: [],
   };
   assert.equal(service.validate(fixture).sites.length, 1);
+  assert.equal(service.validate({
+    ...fixture,
+    managedTargets: [{
+      ...fixture.managedTargets[0],
+      metadata: {
+        certificateLocation: {
+          apiVersion: 'gcac.certificate-location/v1',
+          storageKind: 'PEM_FILES',
+          certificatePath: 'C:\\GCAC-Lab\\certs\\server.crt.pem',
+          privateKeyPath: 'C:\\GCAC-Lab\\certs\\server.key.pem',
+          confidence: 'EXACT',
+          observedAt: '2026-08-04T00:00:00.000Z',
+        },
+      },
+    }],
+  }).managedTargets.length, 1);
   assert.throws(() => service.validate({ ...fixture, certificateBindings: [{ ...fixture.certificateBindings[0], managedTargetStableKey: 'target:missing' }] }));
   assert.throws(() => service.validate({ ...fixture, rawFacts: { apiToken: 'secret' } }));
+  assert.throws(() => service.validate({
+    ...fixture,
+    managedTargets: [{
+      ...fixture.managedTargets[0],
+      metadata: { certificateLocation: { privateKeyPath: '-----BEGIN PRIVATE KEY-----secret' } },
+    }],
+  }));
 });
 
 test('标准设备发现校验区分集合类型错误和真实数量超限', () => {

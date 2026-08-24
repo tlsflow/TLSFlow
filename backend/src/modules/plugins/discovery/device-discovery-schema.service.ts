@@ -3,6 +3,7 @@ import type { StandardDeviceDiscoveryV2 } from './device-discovery.dto.js';
 
 const limits = { capabilities: 100, frameworks: 200, sites: 5000, managedTargets: 10000, certificates: 10000, certificateBindings: 20000, warnings: 500 } as const;
 const forbiddenKeyPattern = /(password|secret|token|private[_-]?key|authorization|cookie)/i;
+const allowedPathKeys = new Set(['privateKeyPath']);
 const executionLocations = new Set(['AGENT', 'CONTROL_PLANE', 'GATEWAY']);
 
 export class DeviceDiscoverySchemaService {
@@ -63,6 +64,24 @@ function invalidRelation(path: string, stableKey: string): never {
 }
 function invalidSchema(): never { throw new AppError('VALIDATION_FAILED', '设备发现结果 Schema 不合法', { code: 'DISCOVERY_SCHEMA_INVALID' }); }
 function invalidField(path: string): never { throw new AppError('VALIDATION_FAILED', '设备发现字段不合法', { code: 'DISCOVERY_SCHEMA_INVALID', path }); }
-function assertNoSecrets(value: unknown, path = '$') { if (Array.isArray(value)) return value.forEach((item, index) => assertNoSecrets(item, `${path}[${index}]`)); if (!isRecord(value)) return; for (const [key, child] of Object.entries(value)) { if (forbiddenKeyPattern.test(key)) throw new AppError('VALIDATION_FAILED', '设备发现结果包含敏感字段', { path: `${path}.${key}` }); assertNoSecrets(child, `${path}.${key}`); } }
+function assertNoSecrets(value: unknown, path = '$') {
+  if (Array.isArray(value)) return value.forEach((item, index) => assertNoSecrets(item, `${path}[${index}]`));
+  if (!isRecord(value)) return;
+  for (const [key, child] of Object.entries(value)) {
+    if (forbiddenKeyPattern.test(key) && !allowedPathKeys.has(key)) {
+      throw new AppError('VALIDATION_FAILED', '设备发现结果包含敏感字段', { path: `${path}.${key}` });
+    }
+    if (allowedPathKeys.has(key) && !isSafePathValue(child)) {
+      throw new AppError('VALIDATION_FAILED', '设备发现结果包含敏感字段', { path: `${path}.${key}` });
+    }
+    assertNoSecrets(child, `${path}.${key}`);
+  }
+}
+function isSafePathValue(value: unknown): boolean {
+  return typeof value === 'string'
+    && value.trim().length > 0
+    && !/[\r\n]/.test(value)
+    && !/-----BEGIN [^-]*PRIVATE KEY-----/i.test(value);
+}
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === 'object' && !Array.isArray(value); }
 function describeType(value: unknown): string { if (value === null) return 'null'; if (Array.isArray(value)) return 'array'; return typeof value; }

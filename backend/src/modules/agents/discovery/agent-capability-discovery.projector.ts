@@ -96,7 +96,9 @@ export class AgentCapabilityDiscoveryProjector {
     const capabilities = new Map(snapshot.capabilities.map((capability) => [capability.capabilityKey, capability.value]));
     for (const productProjector of await this.loadProductProjectors(snapshot.tenantId)) {
       const detail = asRecord(capabilities.get(productProjector.capabilityKey));
-      if (!detail || !isInstalledProduct(detail)) continue;
+      if (!detail) continue;
+      appendAgentDiscoveryWarnings(discovery, detail, productProjector.capabilityKey);
+      if (!isInstalledProduct(detail)) continue;
       productProjector.project({
         agent,
         snapshot,
@@ -242,10 +244,13 @@ function createConnectorProductProjector(descriptor: ProductDescriptor): AgentPr
         }),
       });
 
+      const discoveredHosts = readStrings(detail, 'hosts', 'Hosts');
       for (const [connectorIndex, connector] of readRecords(detail, 'connectors').entries()) {
         if (!hasValidPort(connector)) continue;
         const port = readNumber(connector, 'port', 'Port');
-        const siteName = readString(connector, 'certificateName') ?? `${descriptor.displayName} ${port ?? connectorIndex + 1}`;
+        const siteName = readString(connector, 'certificateName', 'hostHeader', 'HostHeader')
+          ?? discoveredHosts[connectorIndex]
+          ?? `${descriptor.displayName} ${port ?? connectorIndex + 1}`;
         const projectedSite = createSite(frameworkStableKey, frameworkType, siteName, connectorIndex, connector, connector, [connector]);
         discovery.sites.push(projectedSite);
         if (!isTlsListener(connector)) continue;
@@ -354,9 +359,10 @@ function projectObservedCertificate(
   const thumbprint = readString(certificate, 'thumbprint', 'Thumbprint')
     ?? readString(listener, 'certificateThumbprint', 'CertificateThumbprint');
   const certificatePath = readString(listener, 'certificatePath', 'CertificatePath');
+  const keystorePath = readString(listener, 'keystorePath', 'KeystorePath');
   const certificateName = readString(listener, 'certificateName', 'CertificateName')
     ?? readString(certificate, 'subject', 'Subject');
-  const identity = fingerprint ?? thumbprint ?? certificatePath ?? certificateName;
+  const identity = fingerprint ?? thumbprint ?? certificatePath ?? keystorePath ?? certificateName;
   if (!identity) return;
 
   // 证书身份只来自通用观测字段，与产品、框架和运行平台无关。
@@ -370,11 +376,12 @@ function projectObservedCertificate(
       notBefore: readString(certificate, 'notBefore', 'NotBefore'),
       notAfter: readString(certificate, 'notAfter', 'NotAfter'),
       metadata: compactRecord({
-        name: certificateName,
+        name: certificateName ?? (keystorePath ? 'KeyStore 公开证书待解析' : undefined),
         certificatePath,
         storeName: readString(certificate, 'storeName', 'StoreName')
           ?? readString(listener, 'certificateStoreName', 'CertificateStoreName'),
         thumbprint,
+        observationStatus: fingerprint || thumbprint || certificateName ? undefined : 'PENDING_PUBLIC_CERTIFICATE',
       }),
     });
   }
@@ -388,10 +395,11 @@ function projectObservedCertificate(
     bindingName,
     metadata: compactRecord({
       certificatePath,
-      keystorePath: readString(listener, 'keystorePath', 'KeystorePath'),
+      keystorePath,
       storeName: readString(certificate, 'storeName', 'StoreName')
         ?? readString(listener, 'certificateStoreName', 'CertificateStoreName'),
       storeThumbprint: thumbprint,
+      observationStatus: fingerprint || thumbprint || certificateName ? undefined : 'PENDING_PUBLIC_CERTIFICATE',
     }),
   });
 }
@@ -489,7 +497,7 @@ function buildCertificateLocation(
     storeThumbprint,
     sourceConfigPath: readString(listener, 'configPath', 'ConfigPath') ?? readStrings(site, 'configFiles')[0] ?? readString(framework, 'configPath'),
     serviceName: readString(framework, 'serviceName'),
-    programPath: readString(framework, 'binaryPath'),
+    programPath: readString(framework, 'binaryPath', 'javaPath', 'programPath'),
     testCommand: readString(listener, 'testCommand'),
     reloadCommand: readString(listener, 'reloadCommand'),
     configFingerprint: readString(listener, 'configFingerprint'),
@@ -506,6 +514,33 @@ function normalizeKeystoreType(value: string | undefined): CertificateLocationV1
 function isInstalledProduct(detail: Record<string, unknown>): boolean {
   const installed = readBoolean(detail, 'installed', 'Installed');
   return installed !== false;
+}
+
+function appendAgentDiscoveryWarnings(
+  discovery: StandardDeviceDiscoveryV2,
+  detail: Record<string, unknown>,
+  capabilityKey: string,
+): void {
+  for (const warning of readRecords(detail, 'warnings', 'Warnings')) {
+    const code = readString(warning, 'code', 'Code');
+    if (!code) continue;
+    const metadata = compactRecord({
+      capabilityKey,
+      message: readString(warning, 'message', 'Message'),
+      path: readString(warning, 'path', 'Path'),
+    });
+    const duplicate = discovery.warnings.some((item) =>
+      item.code === code
+      && item.metadata?.capabilityKey === capabilityKey
+      && item.metadata?.path === metadata.path,
+    );
+    if (duplicate) continue;
+    discovery.warnings.push({
+      code,
+      messageKey: `agents.discovery.warning.${code}`,
+      metadata,
+    });
+  }
 }
 
 function isTlsListener(listener: Record<string, unknown>): boolean {

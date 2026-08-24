@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import type { ResolvedManagedTargetTopology } from '../../assets/application/managed-target-context.resolver.js';
-import type { ServiceAssetDto } from '../../assets/dto/assets.dto.js';
 import type { DeviceAssetDto } from '../../device-assets/dto/device-assets.dto.js';
 import {
   DEPLOYMENT_ASSET_CONTEXT_API_VERSION,
@@ -10,7 +9,14 @@ import { validateDeploymentAssetContextV1 } from '../schema/deployment-asset-con
 import { readCertificateLocation } from '../dto/certificate-location.dto.js';
 
 export interface BuildDeploymentAssetContextInput {
-  applicationAsset: Pick<ServiceAssetDto, 'id' | 'address' | 'sniName' | 'port' | 'protocol' | 'displayName'>;
+  applicationAsset: {
+    id: string;
+    address: string;
+    sniName?: string;
+    port: number;
+    protocol: string;
+    displayName?: string;
+  };
   managedTargetContext?: ResolvedManagedTargetTopology;
 }
 

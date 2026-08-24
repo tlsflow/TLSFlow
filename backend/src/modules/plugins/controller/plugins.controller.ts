@@ -17,6 +17,12 @@ export interface BuiltinPluginCatalogRefresher {
   refresh(): Promise<{
     refreshedAt: string;
     versions: Array<{ id: string; pluginId: string; version: string; status: string }>;
+    projection?: {
+      attempted: number;
+      projected: number;
+      skipped: number;
+      failed: Array<{ tenantId: string; agentId: string; error: string }>;
+    };
   }>;
 }
 
@@ -63,6 +69,7 @@ export class PluginsController {
     router.get('/api/v1/plugin-runtime/metrics', '查询插件运行指标', tags, (request) => ({ items: pluginRuntimeGuard.listMetrics(tenantId(request)) }));
     router.get('/api/v1/managed-targets/:managedTargetId/deployment-capabilities/:capabilityKey', '查询受管目标生效部署能力', tags, (request) => this.getManagedTargetEffectiveCapability(request));
     router.get('/api/v1/managed-targets/:managedTargetId/compatible-plugins', '查询受管目标兼容插件', tags, (request) => this.listManagedTargetCompatiblePlugins(request));
+    router.post('/api/v1/managed-targets/:managedTargetId/deployment-input-projection', '生成应用资产插件部署输入投影', tags, (request) => this.projectApplicationAssetPluginInputs(request));
     router.put('/api/v1/application-assets/:applicationAssetId/managed-target', '保存应用资产受管目标和插件覆盖', tags, (request) => this.saveApplicationAssetManagedTarget(request));
   }
 
@@ -273,6 +280,36 @@ export class PluginsController {
     });
   }
 
+  private projectApplicationAssetPluginInputs(request: HttpRequest) {
+    const service = this.requireManagedTargetPlugins();
+    const managedTargetId = request.path.match(/^\/api\/v1\/managed-targets\/([^/]+)\/deployment-input-projection$/)?.[1];
+    if (!managedTargetId) throw new Error('受管目标部署输入投影路径无效');
+    const body = validateObject(request.body, {
+      capabilityKey: { type: 'string' },
+      pluginVersionId: { type: 'string' },
+      certificateFormatId: { type: 'string' },
+      applicationAsset: { type: 'object', required: true },
+      inputBindings: { type: 'object' },
+    });
+    const applicationAsset = body.applicationAsset as Record<string, unknown>;
+    return service.projectApplicationAssetPluginInputs({
+      tenantId: tenantId(request),
+      managedTargetId: decodeURIComponent(managedTargetId),
+      capabilityKey: typeof body.capabilityKey === 'string' ? body.capabilityKey : undefined,
+      pluginVersionId: typeof body.pluginVersionId === 'string' ? body.pluginVersionId : undefined,
+      certificateFormatId: typeof body.certificateFormatId === 'string' ? body.certificateFormatId : undefined,
+      applicationAsset: {
+        id: String(applicationAsset.id ?? 'draft'),
+        address: String(applicationAsset.address ?? ''),
+        sniName: typeof applicationAsset.sniName === 'string' ? applicationAsset.sniName : undefined,
+        port: Number(applicationAsset.port),
+        protocol: String(applicationAsset.protocol ?? 'HTTPS'),
+        displayName: typeof applicationAsset.displayName === 'string' ? applicationAsset.displayName : undefined,
+      },
+      inputBindings: body.inputBindings as never,
+    });
+  }
+
   private requireManagedTargetPlugins(): ManagedTargetPluginQueryService {
     if (!this.managedTargetPlugins) throw new Error('受管目标插件查询服务未接入');
     return this.managedTargetPlugins;
@@ -315,6 +352,7 @@ export function getPluginsRouteContracts(): RouteContract[] {
     { method: 'GET', path: '/api/v1/plugin-runtime/metrics', operationId: 'listPluginRuntimeMetrics', summary: '查询插件运行指标', tags, responseSchema: pageResponseSchema },
     { method: 'GET', path: '/api/v1/managed-targets/:managedTargetId/deployment-capabilities/:capabilityKey', operationId: 'getManagedTargetEffectiveCapability', summary: '查询受管目标生效部署能力', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/managed-targets/:managedTargetId/compatible-plugins', operationId: 'listManagedTargetCompatiblePlugins', summary: '查询受管目标兼容插件', tags, responseSchema: pageResponseSchema },
+    { method: 'POST', path: '/api/v1/managed-targets/:managedTargetId/deployment-input-projection', operationId: 'projectApplicationAssetPluginInputs', summary: '生成应用资产插件部署输入投影', tags, responseSchema: objectSchema() },
     { method: 'PUT', path: '/api/v1/application-assets/:applicationAssetId/managed-target', operationId: 'saveApplicationAssetManagedTarget', summary: '保存应用资产受管目标和插件覆盖', tags, responseSchema: objectSchema() },
   ];
 }

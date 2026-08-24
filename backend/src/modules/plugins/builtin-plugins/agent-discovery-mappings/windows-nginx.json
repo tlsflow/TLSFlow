@@ -1,0 +1,13 @@
+{
+  "apiVersion": "gcac.agent-discovery-mapping/v1",
+  "kind": "AgentCapabilityDiscoveryMapping",
+  "pluginId": "builtin.windows.nginx.pem",
+  "capabilityKey": "windows.nginx.detail",
+  "projection": {
+    "shape": "web_sites",
+    "frameworkType": "web.nginx",
+    "displayName": "Windows NGINX",
+    "targetType": "tls.file",
+    "deployCapability": "windows.nginx.cert.install"
+  }
+}

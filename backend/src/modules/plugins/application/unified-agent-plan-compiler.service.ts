@@ -2,7 +2,7 @@ import { createHash, createHmac } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
 import { assertPluginGcacCompatibility } from '../../../common/version.js';
 import { newId } from '../../../shared/id.js';
-import type { AgentAtomicExecutionPlanV1, AgentDeploymentPluginManifestV1, AgentPluginOperation } from '../dto/agent-deployment-plugins.dto.js';
+import type { AgentAtomicExecutionPlanV1, AgentDeploymentPluginManifestV1, AgentPluginOperation, AgentPlanVerificationV1 } from '../dto/agent-deployment-plugins.dto.js';
 import type { ResolvedDeploymentInputV1 } from '../../deployment-inputs/dto/resolved-deployment-input.dto.js';
 import { validateAgentDeploymentPluginManifest } from '../schema/agent-deployment-plugins.schema.js';
 import { isUnifiedPluginVersionAccessibleToTenant, type UnifiedPluginsApplicationService } from './unified-plugins.application-service.js';
@@ -54,6 +54,7 @@ export class UnifiedAgentPlanCompilerService {
     const rollback = executionMode === 'APPLY' ? renderOperations(recipe.rollback ?? [], values) : [];
     const permissions = resolveExecutionPermissions(recipe, variables);
     assertResolvedPermissions(permissions, [...operations, ...rollback]);
+    const verification = resolvePlanVerification(variables.verify);
     const now = new Date();
     const ttlSeconds = Math.min(Math.max(input.ttlSeconds ?? 300, 30), 3600);
     const unsigned = {
@@ -82,6 +83,7 @@ export class UnifiedAgentPlanCompilerService {
       permissions,
       variablesDigest: sha256(JSON.stringify(variables)),
       executionMode,
+      ...(verification ? { verification } : {}),
       operations,
       rollback,
     };
@@ -91,6 +93,24 @@ export class UnifiedAgentPlanCompilerService {
       .digest('hex');
     return { ...transportUnsigned, authorization: { keyId: 'agent-plan-v1', signature } };
   }
+}
+
+function resolvePlanVerification(value: unknown): AgentPlanVerificationV1 | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new AppError('VALIDATION_FAILED', 'TLS 验证输入必须是对象');
+  const host = typeof value.host === 'string' ? value.host.trim() : '';
+  const sni = typeof value.sni === 'string' ? value.sni.trim() : '';
+  const port = typeof value.port === 'number' && Number.isInteger(value.port) ? value.port : 0;
+  if (!host || !sni || port < 1 || port > 65535) {
+    throw new AppError('VALIDATION_FAILED', 'TLS 验证输入必须包含有效 host、port 和 sni');
+  }
+  return {
+    capabilityKey: 'certificate.verify',
+    schemaVersion: '1.0',
+    connectHost: host,
+    serverName: sni,
+    port,
+  };
 }
 
 function normalizeArtifacts(artifacts: ResolvedDeploymentInputV1['artifacts']): Record<string, unknown> {
@@ -112,7 +132,7 @@ function renderOperations(operations: AgentPluginOperation[], values: AgentOpera
 function interpolateValue(value: unknown, context: AgentOperationInputContext): unknown {
   if (typeof value === 'string') {
     const exact = value.match(/^\$\{(variables|connections|credentials|artifacts)\.([A-Za-z_][A-Za-z0-9_.-]*)\}$/);
-    if (exact) return resolveContextPath(context[exact[1] as keyof AgentOperationInputContext], exact[2]);
+    if (exact) return resolveContextPath(context[exact[1] as keyof AgentOperationInputContext], exact[2]) ?? '';
     return value.replace(/\$\{(variables|connections|credentials|artifacts)\.([A-Za-z_][A-Za-z0-9_.-]*)\}/g, (_, group: keyof AgentOperationInputContext, key: string) => String(resolveContextPath(context[group], key) ?? ''));
   }
   if (Array.isArray(value)) return value.map((item) => interpolateValue(item, context));
@@ -129,19 +149,43 @@ function resolveExecutionPermissions(
     .map(([name]) => variables[name])
     .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
     .map((value) => value.trim());
+  const referencedProcessPaths = referencedVariableValues(manifest, variables, 'program');
+  const referencedServiceNames = referencedVariableValues(manifest, variables, 'serviceName', 'service');
   return manifest.permissions.map((permission) => ({
     ...permission,
     values: [...new Set([
       ...permission.values,
       ...(permission.scope === 'filesystem' ? filePaths : []),
+      ...(permission.scope === 'process' ? referencedProcessPaths : []),
+      ...(permission.scope === 'service' ? referencedServiceNames : []),
     ])],
   }));
+}
+
+function referencedVariableValues(
+  manifest: AgentDeploymentPluginManifestV1,
+  variables: Record<string, unknown>,
+  ...inputKeys: string[]
+): string[] {
+  const values = new Set<string>();
+  for (const operation of [...manifest.operations, ...(manifest.rollback ?? [])]) {
+    for (const inputKey of inputKeys) {
+      const reference = operation.input[inputKey];
+      if (typeof reference !== 'string') continue;
+      const match = /^\$\{variables\.([A-Za-z_][A-Za-z0-9_.-]*)\}$/.exec(reference);
+      if (!match) continue;
+      const value = variables[match[1]];
+      if (typeof value === 'string' && value.trim()) values.add(value.trim());
+    }
+  }
+  return [...values];
 }
 
 function assertResolvedPermissions(permissions: AgentDeploymentPluginManifestV1['permissions'], operations: AgentPluginOperation[]): void {
   const byScope = new Map<string, string[]>();
   for (const permission of permissions) byScope.set(permission.scope, [...(byScope.get(permission.scope) ?? []), ...permission.values]);
   for (const operation of operations) {
+    if (operation.input.whenVariablePresent === '') continue;
     if (operation.operationType.startsWith('file.')) assertAllowed(operation.input.path ?? operation.input.targetPath, byScope.get('filesystem'), '文件路径');
     if (operation.operationType === 'command.execute') assertAllowed(operation.input.program, byScope.get('process'), '程序');
     if (operation.operationType === 'service.control') assertAllowed(operation.input.serviceName, byScope.get('service'), '服务');

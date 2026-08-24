@@ -71,6 +71,14 @@ export interface ResolvedAgentAtomicOperation extends AgentPluginOperation {
   input: Record<string, unknown>;
 }
 
+export interface AgentPlanVerificationV1 {
+  capabilityKey: 'certificate.verify';
+  schemaVersion: '1.0';
+  connectHost: string;
+  serverName: string;
+  port: number;
+}
+
 export interface AgentAtomicExecutionPlanV1 {
   apiVersion: 'gcac.agent-plan/v1';
   planId: string;
@@ -90,6 +98,7 @@ export interface AgentAtomicExecutionPlanV1 {
   permissions: AgentPluginPermissionDeclaration[];
   variablesDigest: string;
   executionMode: 'APPLY' | 'PREFLIGHT' | 'ROLLBACK';
+  verification?: AgentPlanVerificationV1;
   operations: ResolvedAgentAtomicOperation[];
   rollback: ResolvedAgentAtomicOperation[];
   authorization: {

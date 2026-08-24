@@ -148,10 +148,16 @@ function validateOperations(input: unknown, rollback: boolean): AgentPluginOpera
 
 function validateCommandInput(input: Record<string, unknown>, path: string): void {
   nonEmptyString(input.program, `${path}.input.program`);
-  stringArray(input.args, `${path}.input.args`, true);
+  if (input.args !== undefined && !isExactVariableReference(input.args)) {
+    stringArray(input.args, `${path}.input.args`);
+  }
   if (isRecord(input.shell) && input.shell.enabled === true) {
     throw validationError(`${path}.input.shell 第一版不允许启用`);
   }
+}
+
+function isExactVariableReference(value: unknown): value is string {
+  return typeof value === 'string' && /^\$\{variables\.[A-Za-z_][A-Za-z0-9_.-]*\}$/.test(value);
 }
 
 function validateDependencies(operations: AgentPluginOperation[], path: string): void {

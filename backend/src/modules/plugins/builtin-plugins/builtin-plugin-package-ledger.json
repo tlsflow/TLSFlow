@@ -8,6 +8,11 @@
     },
     {
       "pluginId": "builtin.java.pkcs12",
+      "version": "1.0.11",
+      "packageSha256": "sha256:a0de2e9053e2d19d66b6b8a01ad4fc4a2255b930a1d6079cac295b0fc005ca57"
+    },
+    {
+      "pluginId": "builtin.java.pkcs12",
       "version": "1.0.4",
       "packageSha256": "sha256:96fae1293f25659dfe295860b129d2c0e0c4efd1fb5ec0cecdec19659fb9aeba"
     },
@@ -45,6 +50,11 @@
       "pluginId": "builtin.linux.nginx.pem",
       "version": "1.0.14",
       "packageSha256": "sha256:85fbf2d86df89b903c811fcbf8e82b1336d4c920864871835f14ec51098a8c93"
+    },
+    {
+      "pluginId": "builtin.linux.nginx.pem",
+      "version": "1.0.15",
+      "packageSha256": "sha256:af31c459a1546db4e72ba9dc33fee1e9fb5aa1ee2cbc1cbf6e0ae217d59da421"
     },
     {
       "pluginId": "builtin.linux.nginx.pem",
@@ -87,6 +97,11 @@
       "packageSha256": "sha256:5fcb23b0b157912771f7b472b702c77ff957f46e72aa87850c738862d24dd1f4"
     },
     {
+      "pluginId": "builtin.rabbitmq.pem",
+      "version": "1.0.9",
+      "packageSha256": "sha256:424f61cc811d5f959b576488dafcc852af62046afa9445e72335bac2b1f90e0a"
+    },
+    {
       "pluginId": "builtin.windows-service.certificate-file",
       "version": "1.0.4",
       "packageSha256": "sha256:985eeafa5db46e952f109e50e754764d2a2e86d63f6b64fcbb3f50d112014997"
@@ -112,6 +127,26 @@
       "packageSha256": "sha256:a7119c2f4ba125cca8c7eb0d879cd8793c2b129c0fa68bebb1527af516b1e0e3"
     },
     {
+      "pluginId": "builtin.windows-service.certificate-file",
+      "version": "1.0.9",
+      "packageSha256": "sha256:bd811b0d7256aade3b464212c0b788873813edf9b16431c3e389136998e984eb"
+    },
+    {
+      "pluginId": "builtin.windows.apache.pem",
+      "version": "1.0.1",
+      "packageSha256": "sha256:9dfbb30ab5ec04bf8006efb44f4c076ea57635902d40c8ca5a329fb7e3788900"
+    },
+    {
+      "pluginId": "builtin.windows.apache.pem",
+      "version": "1.0.2",
+      "packageSha256": "sha256:fc64e5482cf594434127af7fac604a5b63151980ae3ba845646d5a7393232013"
+    },
+    {
+      "pluginId": "builtin.windows.custom.certificate",
+      "version": "1.0.2",
+      "packageSha256": "sha256:0563e4c80eb045d9514b28ea0f4bfd36d2be0b1240da24d01fccee9f19677529"
+    },
+    {
       "pluginId": "builtin.windows.iis.pfx",
       "version": "1.0.11",
       "packageSha256": "sha256:e14e6b3c863eeca1930092ae27d2ad0f6378ffae3bc18ba4b1aac4c49167377d"
@@ -120,6 +155,11 @@
       "pluginId": "builtin.windows.iis.pfx",
       "version": "1.0.12",
       "packageSha256": "sha256:e53f1a056a765ac91ca0aa2e2473dc721c3964c8b43c6c66e7cb62e45cc53b2e"
+    },
+    {
+      "pluginId": "builtin.windows.iis.pfx",
+      "version": "1.0.13",
+      "packageSha256": "sha256:ac833d024d8f8c89e0448096684c55c47d1161638274fe439b5c106b08755057"
     },
     {
       "pluginId": "builtin.windows.iis.pfx",
@@ -140,6 +180,26 @@
       "pluginId": "builtin.windows.iis.pfx",
       "version": "1.0.8",
       "packageSha256": "sha256:6efc7dfcdcfab3b42a147aad9b042aab04aa1df838a29ad0668bbafe0d08435f"
+    },
+    {
+      "pluginId": "builtin.windows.nginx.pem",
+      "version": "1.0.1",
+      "packageSha256": "sha256:2d9d5a9c6511a22e726aa67994209d63a325f1970be0dc1c8b89dbfb781aa7a1"
+    },
+    {
+      "pluginId": "builtin.windows.nginx.pem",
+      "version": "1.0.2",
+      "packageSha256": "sha256:b56d990a466a952d04aacc37dbc5061307755b1eee4d04f8dac2c1fbbe8599a8"
+    },
+    {
+      "pluginId": "builtin.windows.tomcat.pkcs12",
+      "version": "1.0.1",
+      "packageSha256": "sha256:e826c44b4ccebd562d5e679c59cc789ed3223f14ff0f2610325127c4e6696ad1"
+    },
+    {
+      "pluginId": "builtin.windows.tomcat.pkcs12",
+      "version": "1.0.2",
+      "packageSha256": "sha256:c4ce1718c95d1569bcedae64cb549448ad80b10296895979a6d3e9d278b34133"
     },
     {
       "pluginId": "builtin.workflow.apache-8444-cert-switch",
@@ -175,6 +235,16 @@
       "pluginId": "builtin.workflow.apache-8444-cert-switch",
       "version": "1.2.6",
       "packageSha256": "sha256:c7658ea1971aa8287167129621ecb1f723d8995423260ed8e84c9c16f09ad15a"
+    },
+    {
+      "pluginId": "builtin.workflow.apache-8444-cert-switch",
+      "version": "1.2.7",
+      "packageSha256": "sha256:f087d63eb9972246572d5ddffb0191d93bfbd38fdd25be801e04948af337b889"
+    },
+    {
+      "pluginId": "builtin.workflow.apache-8444-cert-switch",
+      "version": "1.2.8",
+      "packageSha256": "sha256:17288c347eb849d37c86f65a583fc458a75b2abe9204e9365752ebc2c02b88d0"
     },
     {
       "pluginId": "builtin.workflow.synology-dsm-cert-import",
@@ -215,6 +285,16 @@
       "pluginId": "builtin.workflow.synology-dsm-cert-import",
       "version": "1.2.6",
       "packageSha256": "sha256:29d9dae4c5154feec1185ef1b1e6f66dcd5621c6d8710269299b555d24918f04"
+    },
+    {
+      "pluginId": "builtin.workflow.synology-dsm-cert-import",
+      "version": "1.2.7",
+      "packageSha256": "sha256:c035718bfeb0a5fb081f7851527ee6baa4901aa81578ee19b97c9275fb0e2696"
+    },
+    {
+      "pluginId": "builtin.workflow.synology-dsm-cert-import",
+      "version": "1.2.8",
+      "packageSha256": "sha256:8304ffc2bf1bd8d5aa56c6470fef74d8036577f05061c2097d9728bbbade02cf"
     },
     {
       "pluginId": "citrix.netscaler-adc",
@@ -310,6 +390,56 @@
       "pluginId": "citrix.netscaler-adc",
       "version": "1.1.37",
       "packageSha256": "sha256:b66040e42e02438429675357f0d5d3e12c7e3ee6da74e75207b65b2337f619bc"
+    },
+    {
+      "pluginId": "citrix.netscaler-adc",
+      "version": "1.1.38",
+      "packageSha256": "sha256:de12252cdca3c02ef31bd60b2fae09dd9c64c818c028b10d66e1d84162245450"
+    },
+    {
+      "pluginId": "citrix.netscaler-adc",
+      "version": "1.1.39",
+      "packageSha256": "sha256:7ea47f25677cc8a552183dbf125eb9869a3cceea5f62f3e24608ea6e0f845b34"
+    },
+    {
+      "pluginId": "citrix.netscaler-adc",
+      "version": "1.1.40",
+      "packageSha256": "sha256:d81ff6c1dbbc8c1e761eac56ad1e0110388b1265a0d2c21cf2e7486bec603299"
+    },
+    {
+      "pluginId": "citrix.netscaler-adc",
+      "version": "1.1.41",
+      "packageSha256": "sha256:fb931e125927950a0e72d59c3b1f4c53594d6a0ade2287eb19bbacd8f7f967ee"
+    },
+    {
+      "pluginId": "citrix.netscaler-adc",
+      "version": "1.1.43",
+      "packageSha256": "sha256:6863de65eb68c9ac7bbc2ae2914b43f07e93df2b47bb86077787cc39472c36f8"
+    },
+    {
+      "pluginId": "citrix.netscaler-adc",
+      "version": "1.1.44",
+      "packageSha256": "sha256:b57fb417fe6d2c9c7f2755348d0b93b9398867d3d19eacf7e0c0b91eb3ee6e15"
+    },
+    {
+      "pluginId": "citrix.netscaler-adc",
+      "version": "1.1.45",
+      "packageSha256": "sha256:c21acff5b1450e6288fb29ae6a5d76cf69dd9ab0dab76d743d42350c759c506e"
+    },
+    {
+      "pluginId": "citrix.netscaler-adc",
+      "version": "1.1.46",
+      "packageSha256": "sha256:da79bf213f174e73442ce5ff5e1c90a612bbd69e34bb0301bd926d8e9b8b6f13"
+    },
+    {
+      "pluginId": "citrix.netscaler-adc",
+      "version": "1.1.47",
+      "packageSha256": "sha256:3f499d7cff03c2e5e329ec411be7c5e0bf5752d86d4a9744f845650e9a25e6fd"
+    },
+    {
+      "pluginId": "citrix.netscaler-adc",
+      "version": "1.1.48",
+      "packageSha256": "sha256:b8381b03b7337400bc17aa2ab1e575fd20ecbd041a07425dbb1b701ce953cd56"
     }
   ]
 }

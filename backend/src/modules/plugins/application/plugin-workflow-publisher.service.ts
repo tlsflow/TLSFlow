@@ -1,5 +1,6 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { WorkflowDslV1 } from '../../workflow-templates/dto/workflow-templates.dto.js';
+import type { WorkflowTemplateVersion } from '../../workflow-templates/dto/workflow-templates.dto.js';
 import { computeWorkflowContentHash } from '../../workflow-templates/domain/workflow-templates.domain-service.js';
 import { workflowTemplatesSchemaRegistry } from '../../workflow-templates/schema/workflow-templates.schema.js';
 import type { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
@@ -113,13 +114,28 @@ export class PluginWorkflowPublisherService {
       const published = await this.workflows.publishPluginVersion(created.version.id);
       return { templateId: created.template.id, versionId: published.id, contentHash: published.contentHash };
     }
-    const draft = await this.workflows.createPluginInternalDraftVersion({
-      templateId: previous.workflowTemplateId,
-      content,
-      changeSummary,
-    });
-    const published = await this.workflows.publishPluginVersion(draft.id);
-    return { templateId: previous.workflowTemplateId, versionId: published.id, contentHash: published.contentHash };
+    try {
+      const draft = await this.workflows.createPluginInternalDraftVersion({
+        templateId: previous.workflowTemplateId,
+        content,
+        changeSummary,
+      });
+      const published = await this.workflows.publishPluginVersion(draft.id);
+      return { templateId: previous.workflowTemplateId, versionId: published.id, contentHash: published.contentHash };
+    } catch (error) {
+      if (!isDuplicateWorkflowContentError(error)) throw error;
+      const existing = await this.findReusableWorkflowVersion(previous.workflowTemplateId, computeWorkflowContentHash(content));
+      if (!existing) throw error;
+      const published = existing.status === 'published' ? existing : await this.workflows.publishPluginVersion(existing.id);
+      return { templateId: previous.workflowTemplateId, versionId: published.id, contentHash: published.contentHash };
+    }
+  }
+
+  private async findReusableWorkflowVersion(templateId: string, contentHash: string): Promise<WorkflowTemplateVersion | undefined> {
+    const versions = await this.workflows.listVersions(templateId);
+    return [...versions]
+      .filter((version) => version.templateId === templateId && version.contentHash === contentHash && version.status !== 'disabled')
+      .sort((left, right) => right.version - left.version || right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id))[0];
   }
 }
 
@@ -129,4 +145,11 @@ function ownerTypeOf(record: UnifiedPluginVersionRecord): 'SYSTEM' | 'TENANT' {
 
 function ownerIdOf(record: UnifiedPluginVersionRecord): string | undefined {
   return record.ownerId ?? (ownerTypeOf(record) === 'TENANT' ? record.tenantId : undefined);
+}
+
+function isDuplicateWorkflowContentError(error: unknown): boolean {
+  return error instanceof AppError
+    && error.errorCode === 'VALIDATION_FAILED'
+    && typeof error.message === 'string'
+    && error.message.includes('duplicate workflow version content');
 }

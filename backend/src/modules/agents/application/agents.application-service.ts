@@ -290,6 +290,59 @@ export class AgentsApplicationService {
     return { agentId: agent.id, declarations: this.domain.toCapabilityDeclarations(updated, snapshot) };
   }
 
+  /**
+   * 内置插件发现映射发生变化后，重放每个 Agent 的最新事实快照。
+   *
+   * Agent capability snapshot 是事实来源，插件映射是投影规则。
+   * 只刷新插件注册表而不重放快照，会让历史 IIS 投影继续占据设备详情。
+   */
+  async reprojectLatestCapabilitySnapshots(): Promise<{
+    attempted: number;
+    projected: number;
+    skipped: number;
+    failed: Array<{ tenantId: string; agentId: string; error: string }>;
+  }> {
+    if (!this.capabilityDiscoveryProjector) {
+      return { attempted: 0, projected: 0, skipped: 0, failed: [] };
+    }
+
+    const summary = {
+      attempted: 0,
+      projected: 0,
+      skipped: 0,
+      failed: [] as Array<{ tenantId: string; agentId: string; error: string }>,
+    };
+
+    for (const agent of await this.repository.listAllRegistrations()) {
+      const snapshot = await this.repository.getLatestCapabilitySnapshot(agent.tenantId, agent.id);
+      if (!snapshot) {
+        summary.skipped += 1;
+        continue;
+      }
+
+      summary.attempted += 1;
+      try {
+        await this.capabilityDiscoveryProjector.project(agent, snapshot);
+        summary.projected += 1;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        summary.failed.push({ tenantId: agent.tenantId, agentId: agent.id, error: message });
+        structuredLogger.error('内置插件刷新后的 Agent 发现重投影失败', {
+          agentId: agent.id,
+          snapshotId: snapshot.id,
+          errorMessage: message,
+        }, {
+          tenantId: agent.tenantId,
+          module: 'agents',
+          resourceType: 'agent',
+          resourceId: agent.id,
+        });
+      }
+    }
+
+    return summary;
+  }
+
   async enqueueTask(tenantId: string, input: EnqueueAgentTaskInput, requestId: string): Promise<AgentTaskEnvelope> {
     await this.requireAgent(tenantId, input.agentId);
     await this.assertLivenessAllowsExecution(tenantId, input.agentId);

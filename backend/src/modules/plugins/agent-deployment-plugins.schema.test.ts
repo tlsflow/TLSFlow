@@ -47,3 +47,22 @@ test('Agent Recipe 拒绝不能作为开放标识使用的 Operation 与权限 S
   invalidScope.permissions[0] = { ...invalidScope.permissions[0], scope: 'Bad Scope' };
   assert.throws(() => validateAgentDeploymentPluginManifest(invalidScope), /scope 格式不合法/);
 });
+
+test('Windows NGINX、Apache、Tomcat Recipe 完整声明验证、回滚和精确权限范围', () => {
+  const pluginIds = [
+    'builtin.windows.nginx.pem',
+    'builtin.windows.apache.pem',
+    'builtin.windows.tomcat.pkcs12',
+    'builtin.windows.custom.certificate',
+  ];
+  for (const pluginId of pluginIds) {
+    const recipe = builtinAgentPluginManifests.find((item) => item.pluginId === pluginId);
+    assert.ok(recipe);
+    const validated = validateAgentDeploymentPluginManifest(recipe);
+    assert.deepEqual(validated.compatibility.platforms, ['WINDOWS']);
+    assert.ok(validated.operations.some((operation) => operation.stage === 'verify'));
+    assert.ok(validated.rollback?.length);
+    assert.ok(validated.permissions.every((permission) => !permission.values.includes('*')));
+    assert.ok(validated.operations.every((operation) => operation.operationType !== 'shell.execute'));
+  }
+});

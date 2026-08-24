@@ -15,16 +15,24 @@ test('内置 DSL、Agent 与设备插件统一投影为不可变版本并可幂�
   const first = await loader.installAll('tenant-1', service);
   const second = await loader.installAll('tenant-1', service);
 
-  assert.equal(first.length, 8);
+  assert.equal(first.length, 12);
   const citrix = first.find((item) => item.pluginId === 'citrix.netscaler-adc');
   const apache = first.find((item) => item.pluginId === 'builtin.workflow.apache-8444-cert-switch');
   const synology = first.find((item) => item.pluginId === 'builtin.workflow.synology-dsm-cert-import');
   const agent = first.find((item) => item.pluginId === 'builtin.linux.nginx.pem');
+  const windowsNginx = first.find((item) => item.pluginId === 'builtin.windows.nginx.pem');
+  const windowsApache = first.find((item) => item.pluginId === 'builtin.windows.apache.pem');
+  const windowsTomcat = first.find((item) => item.pluginId === 'builtin.windows.tomcat.pkcs12');
+  const windowsCustom = first.find((item) => item.pluginId === 'builtin.windows.custom.certificate');
   assert.equal(citrix?.status, 'ENABLED');
-  assert.equal(citrix?.version, '1.1.37');
-  assert.equal(apache?.version, '1.2.6');
-  assert.equal(synology?.version, '1.2.6');
-  assert.equal(agent?.version, '1.0.14');
+  assert.equal(citrix?.version, '1.1.48');
+  assert.equal(apache?.version, '1.2.8');
+  assert.equal(synology?.version, '1.2.8');
+  assert.equal(agent?.version, '1.0.15');
+  assert.equal(windowsNginx?.version, '1.0.2');
+  assert.equal(windowsApache?.version, '1.0.2');
+  assert.equal(windowsTomcat?.version, '1.0.2');
+  assert.equal(windowsCustom?.version, '1.0.2');
   assert.equal(agent?.manifest.resources.actionAliases?.certificateDeploy, 'action-aliases/certificate-deploy.json');
   assert.equal(citrix?.manifest.scope, 'BOTH');
   assert.equal(citrix?.manifest.logoUrl, '/plugin-logos/citrix-adc.svg');
@@ -33,10 +41,14 @@ test('内置 DSL、Agent 与设备插件统一投影为不可变版本并可幂�
   assert.equal(apache?.scope, 'BOTH');
   assert.equal(synology?.runtime, 'WORKFLOW_DSL');
   assert.equal(agent?.runtime, 'AGENT_ATOMIC');
+  assert.equal(windowsNginx?.manifest.resources.agentDiscoveryMappings?.['windows.nginx.detail'], 'discovery-mappings/windows-nginx.json');
+  assert.equal(windowsApache?.manifest.resources.agentDiscoveryMappings?.['windows.apache.detail'], 'discovery-mappings/windows-apache.json');
+  assert.equal(windowsTomcat?.manifest.resources.agentDiscoveryMappings?.['windows.tomcat.detail'], 'discovery-mappings/windows-tomcat.json');
+  assert.equal(windowsCustom?.runtime, 'AGENT_ATOMIC');
   assert.equal(agent?.scope, 'MANAGED');
   assert.equal(first.every((item) => item.manifest.logoUrl?.startsWith('/plugin-logos/')), true);
   assert.deepEqual(second.map((item) => item.id), first.map((item) => item.id));
-  assert.equal(records.size, 8);
+  assert.equal(records.size, 12);
 
   const packages = await loader.loadPackages();
   const pluginPackage = packages.find((item) => (item.manifest as { pluginId?: string }).pluginId === 'citrix.netscaler-adc')!;
@@ -115,9 +127,9 @@ test('内置插件导入、审批和启用失败时只告警并继续处理其�
       errorCode: (event.details as { errorCode: string }).errorCode,
     })),
     [
-      { phase: 'import', pluginId: 'citrix.netscaler-adc', version: '1.1.37', errorCode: 'RESOURCE_VERSION_CONFLICT' },
-      { phase: 'approvePermissions', pluginId: 'builtin.workflow.apache-8444-cert-switch', version: '1.2.6', errorCode: 'PLUGIN_PERMISSION_DENIED' },
-      { phase: 'enable', pluginId: 'builtin.linux.nginx.pem', version: '1.0.14', errorCode: 'PLUGIN_PERMISSION_DENIED' },
+      { phase: 'import', pluginId: 'citrix.netscaler-adc', version: '1.1.48', errorCode: 'RESOURCE_VERSION_CONFLICT' },
+      { phase: 'approvePermissions', pluginId: 'builtin.workflow.apache-8444-cert-switch', version: '1.2.8', errorCode: 'PLUGIN_PERMISSION_DENIED' },
+      { phase: 'enable', pluginId: 'builtin.linux.nginx.pem', version: '1.0.15', errorCode: 'PLUGIN_PERMISSION_DENIED' },
     ],
   );
 });

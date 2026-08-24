@@ -165,6 +165,186 @@ test('全部内置 Agent 仅通过统一 Contract、Asset Context 和 Binding �
   }
 });
 
+test('Windows NGINX、Apache、Tomcat 编译出精确程序、服务和文件权限', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, undefined, { appliedBy: 'test', checksum: (content) => createHash('sha256').update(content).digest('hex') });
+  const plugins = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(database));
+  const compiler = new UnifiedAgentPlanCompilerService(plugins);
+  const cases: Array<{
+    pluginId: string;
+    variables: Record<string, unknown>;
+    artifacts: Record<string, ResolvedArtifactV1>;
+    processPath: string;
+    serviceName?: string;
+  }> = [
+    {
+      pluginId: 'builtin.windows.nginx.pem',
+      variables: {
+        certificatePath: 'C:\\GCAC-Lab\\certs\\nginx.crt.pem',
+        privateKeyPath: 'C:\\GCAC-Lab\\certs\\nginx.key.pem',
+        configPath: 'C:\\GCAC-Lab\\nginx\\conf\\nginx-gcac.conf',
+        nginxProgram: 'C:\\GCAC-Lab\\nginx\\nginx.exe',
+      },
+      artifacts: {
+        certificate: { outputs: { certificate: { artifactRef: 'memory://nginx/cert' } } },
+        privateKey: { outputs: { privateKey: { artifactRef: 'memory://nginx/key' } } },
+      },
+      processPath: 'C:\\GCAC-Lab\\nginx\\nginx.exe',
+      serviceName: undefined,
+    },
+    {
+      pluginId: 'builtin.windows.apache.pem',
+      variables: {
+        certificatePath: 'C:\\GCAC-Lab\\certs\\apache.crt.pem',
+        privateKeyPath: 'C:\\GCAC-Lab\\certs\\apache.key.pem',
+        chainPath: 'C:\\GCAC-Lab\\certs\\ca.crt.pem',
+        configPath: 'C:\\GCAC-Lab\\Apache24\\conf\\httpd-gcac.conf',
+        apacheProgram: 'C:\\GCAC-Lab\\Apache24\\bin\\httpd.exe',
+        serviceName: 'GCAC-Lab-Apache',
+      },
+      artifacts: {
+        certificate: { outputs: { certificate: { artifactRef: 'memory://apache/cert' } } },
+        privateKey: { outputs: { privateKey: { artifactRef: 'memory://apache/key' } } },
+        chain: { outputs: { chain: { artifactRef: 'memory://apache/chain' } } },
+      },
+      processPath: 'C:\\GCAC-Lab\\Apache24\\bin\\httpd.exe',
+      serviceName: 'GCAC-Lab-Apache',
+    },
+    {
+      pluginId: 'builtin.windows.tomcat.pkcs12',
+      variables: {
+        keystorePath: 'C:\\GCAC-Lab\\certs\\tomcat.p12',
+        keystoreType: 'PKCS12',
+        configPath: 'C:\\GCAC-Lab\\Tomcat\\conf\\server.xml',
+        javaPath: 'C:\\GCAC-Lab\\Java\\bin\\java.exe',
+        serviceName: 'GCAC-Lab-Tomcat',
+      },
+      artifacts: {
+        keystore: { outputs: { keystore: { artifactRef: 'memory://tomcat/keystore' } } },
+      },
+      processPath: 'C:\\GCAC-Lab\\Java\\bin\\java.exe',
+      serviceName: 'GCAC-Lab-Tomcat',
+    },
+  ];
+
+  for (const fixture of cases) {
+    const recipe = builtinAgentPluginManifests.find((item) => item.pluginId === fixture.pluginId)!;
+    const imported = await importAgentRecipe(plugins, `tenant-${fixture.pluginId}`, recipe);
+    const resolvedInput: ResolvedDeploymentInputV1 = {
+      ...resolvedAgentInput(),
+      variables: fixture.variables,
+      artifacts: fixture.artifacts,
+    };
+    const plan = await compiler.compile({
+      tenantId: `tenant-${fixture.pluginId}`,
+      agentId: `agent-${fixture.pluginId}`,
+      executionRunId: `run-${fixture.pluginId}`,
+      executionStepId: `step-${fixture.pluginId}`,
+      pluginVersionId: imported.id,
+      pluginBindingId: `binding-${fixture.pluginId}`,
+      resolvedInput,
+      executionMode: 'APPLY',
+    });
+    const processPermission = plan.permissions.find((permission) => permission.scope === 'process');
+    assert.ok(processPermission?.values.includes(fixture.processPath));
+    if (fixture.serviceName) {
+      const servicePermission = plan.permissions.find((permission) => permission.scope === 'service');
+      assert.ok(servicePermission?.values.includes(fixture.serviceName));
+    }
+    const filesystemValues = plan.permissions.filter((permission) => permission.scope === 'filesystem').flatMap((permission) => permission.values);
+    for (const [name, definition] of Object.entries(recipe.inputContract.variables)) {
+      const value = fixture.variables[name];
+      if (definition.type === 'file' && typeof value === 'string') assert.ok(filesystemValues.includes(value));
+    }
+    assert.equal(plan.operations.some((operation) => operation.stage === 'verify'), true);
+    assert.ok(plan.rollback.length > 0);
+  }
+});
+
+test('手工 Windows 目标支持 PEM、KeyStore、程序或服务刷新和配置指纹门禁', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, undefined, { appliedBy: 'test', checksum: (content) => createHash('sha256').update(content).digest('hex') });
+  const plugins = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(database));
+  const compiler = new UnifiedAgentPlanCompilerService(plugins);
+  const recipe = builtinAgentPluginManifests.find((item) => item.pluginId === 'builtin.windows.custom.certificate')!;
+
+  const pemPlugin = await importAgentRecipe(plugins, 'tenant-manual-pem', recipe);
+  const pemPlan = await compiler.compile({
+    tenantId: 'tenant-manual-pem',
+    agentId: 'agent-manual-pem',
+    executionRunId: 'run-manual-pem',
+    executionStepId: 'step-manual-pem',
+    pluginVersionId: pemPlugin.id,
+    pluginBindingId: 'binding-manual-pem',
+    resolvedInput: {
+      ...resolvedAgentInput(),
+      variables: {
+        materialMode: 'PEM',
+        certificatePath: 'C:\\GCAC-Lab\\manual\\server.crt.pem',
+        privateKeyPath: 'C:\\GCAC-Lab\\manual\\server.key.pem',
+        chainPath: 'C:\\GCAC-Lab\\manual\\ca.crt.pem',
+        programPath: 'C:\\GCAC-Lab\\bin\\custom-service.exe',
+        configPath: 'C:\\GCAC-Lab\\manual\\service.conf',
+        configCheckProgram: 'C:\\GCAC-Lab\\bin\\custom-service.exe',
+        configCheckArgs: ['--check', 'C:\\GCAC-Lab\\manual\\service.conf'],
+        refreshMode: 'PROGRAM',
+        refreshProgram: 'C:\\GCAC-Lab\\bin\\custom-service.exe',
+        refreshArgs: ['--reload'],
+        verify: { host: 'custom.test.local', port: 8446, sni: 'custom.test.local' },
+        expectedConfigFingerprint: 'sha256:' + 'a'.repeat(64),
+      },
+      artifacts: {
+        certificate: { outputs: { material: { artifactRef: 'memory://manual/certificate' } } },
+        privateKey: { outputs: { material: { artifactRef: 'memory://manual/private-key' } } },
+        chain: { outputs: { material: { artifactRef: 'memory://manual/chain' } } },
+      },
+    },
+  });
+
+  const configCheck = pemPlan.operations.find((operation) => operation.id === 'windows-custom-config-check');
+  const refresh = pemPlan.operations.find((operation) => operation.id === 'windows-custom-program-refresh');
+  assert.deepEqual(configCheck?.input.args, ['--check', 'C:\\GCAC-Lab\\manual\\service.conf']);
+  assert.deepEqual(refresh?.input.args, ['--reload']);
+  assert.equal(pemPlan.operations.find((operation) => operation.id === 'windows-custom-config-fingerprint')?.input.expectedSha256, 'sha256:' + 'a'.repeat(64));
+  assert.equal(pemPlan.permissions.find((permission) => permission.scope === 'process')?.values.includes('C:\\GCAC-Lab\\bin\\custom-service.exe'), true);
+  assert.equal(pemPlan.permissions.find((permission) => permission.scope === 'service')?.values.includes(''), false);
+  assert.match(JSON.stringify(pemPlan), /custom\.test\.local/);
+  assert.equal(JSON.stringify(pemPlan).toLowerCase().includes('password'), false);
+  assert.ok(pemPlan.rollback.length > 0);
+
+  const keystorePlugin = await importAgentRecipe(plugins, 'tenant-manual-keystore', recipe);
+  const keystorePlan = await compiler.compile({
+    tenantId: 'tenant-manual-keystore',
+    agentId: 'agent-manual-keystore',
+    executionRunId: 'run-manual-keystore',
+    executionStepId: 'step-manual-keystore',
+    pluginVersionId: keystorePlugin.id,
+    pluginBindingId: 'binding-manual-keystore',
+    resolvedInput: {
+      ...resolvedAgentInput(),
+      variables: {
+        materialMode: 'KEYSTORE',
+        keystorePath: 'C:\\GCAC-Lab\\manual\\service.p12',
+        keystoreType: 'PKCS12',
+        programPath: 'C:\\GCAC-Lab\\bin\\custom-service.exe',
+        configPath: 'C:\\GCAC-Lab\\manual\\service.conf',
+        refreshMode: 'SERVICE',
+        serviceName: 'GCAC-Lab-Custom',
+        verify: { host: 'custom.test.local', port: 8446, sni: 'custom.test.local' },
+      },
+      artifacts: {
+        keystore: { outputs: { material: { artifactRef: 'memory://manual/keystore' } } },
+      },
+    },
+  });
+
+  assert.equal(keystorePlan.operations.find((operation) => operation.id === 'windows-custom-keystore-install')?.input.path, 'C:\\GCAC-Lab\\manual\\service.p12');
+  assert.equal(keystorePlan.operations.find((operation) => operation.id === 'windows-custom-service-refresh')?.input.serviceName, 'GCAC-Lab-Custom');
+  assert.equal(keystorePlan.operations.find((operation) => operation.id === 'windows-custom-certificate-install')?.input.path, '');
+  assert.equal(keystorePlan.permissions.find((permission) => permission.scope === 'service')?.values.includes('GCAC-Lab-Custom'), true);
+  assert.equal(JSON.stringify(keystorePlan).toLowerCase().includes('password'), false);
+});
+
 async function importAgentRecipe(
   plugins: UnifiedPluginsApplicationService,
   tenantId: string,

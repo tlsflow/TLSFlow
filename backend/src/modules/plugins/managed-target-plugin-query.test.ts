@@ -53,6 +53,7 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
           apiVersion: 'gcac.deployment-input/v1',
           variables: {
             virtualServer: { type: 'string', required: true, configurationMode: 'required', source: { kind: 'binding' }, lifecycle: 'pre_execution', bindingPolicy: 'required_binding' },
+            allowInsecureTls: { type: 'boolean', required: true, configurationMode: 'required', source: { kind: 'binding' }, lifecycle: 'pre_execution', bindingPolicy: 'required_binding' },
           },
           connections: {},
           credentials: {},
@@ -139,18 +140,44 @@ test('受管目标插件 API 在同一事务中保存目标、Binding 和 Assign
   assert.equal(compatible.items.find((item) => item.pluginId === 'fixture.legacy')?.compatible, false);
   assert.equal(compatible.items.find((item) => item.pluginId === 'fixture.legacy')?.reasons.some((reason) => reason.dimension === 'compatibilityContract'), true);
 
+  const draftProjection = await service.projectApplicationAssetPluginInputs({
+    tenantId,
+    managedTargetId: target.id,
+    pluginVersionId: imported.id,
+    certificateFormatId: 'format-existing',
+    applicationAsset: {
+      id: 'draft',
+      address: 'vpn-test.example.com',
+      port: 443,
+      protocol: 'HTTPS',
+      displayName: 'VPN Test',
+    },
+    inputBindings: {
+      apiVersion: 'gcac.input-bindings/v1',
+      variables: { virtualServer: 'vpn-test' },
+      connections: {},
+      credentials: {},
+      artifacts: {},
+    },
+  });
+  assert.equal(draftProjection.requiredVariables.find((item) => item.slot === 'allowInsecureTls')?.value, undefined);
+  assert.equal(draftProjection.saveable, false);
+
   const saved = await service.saveApplicationAssetTarget({
     tenantId,
     applicationAssetId: applicationAsset.id,
     value: {
       managedTargetId: target.id,
-      pluginOverride: { pluginVersionId: imported.id, inputBindings: { apiVersion: 'gcac.input-bindings/v1', variables: { virtualServer: 'https' }, credentials: {}, artifacts: {}, connections: {} } },
+      pluginOverride: { pluginVersionId: imported.id, inputBindings: { apiVersion: 'gcac.input-bindings/v1', variables: { virtualServer: 'https', allowInsecureTls: false }, credentials: {}, artifacts: {}, connections: {} } },
     },
   });
   assert.equal(saved.target.managedTargetId, target.id);
   assert.equal(saved.effectiveCapability?.source.ownerType, 'APPLICATION_ASSET');
   assert.equal(saved.effectiveCapability?.plugin.pluginId, 'fixture.managed');
   assert.equal(saved.effectiveCapability?.binding.hostId, device.hostId);
+  const savedBinding = await new PluginBindingsApplicationService(new PluginBindingsRepository(db))
+    .getTenantBinding(tenantId, saved.effectiveCapability!.binding.pluginBindingId);
+  assert.equal(savedBinding.inputBindings.variables.allowInsecureTls, false);
   assert.equal((await assets.getServiceAsset(tenantId, applicationAsset.id))?.deploymentStrategy?.managedTarget?.certificateFormatId, 'format-existing');
 
   const effective = await service.getEffectiveCapability({ tenantId, managedTargetId: target.id, applicationAssetId: applicationAsset.id, capabilityKey: 'certificate.deploy' });

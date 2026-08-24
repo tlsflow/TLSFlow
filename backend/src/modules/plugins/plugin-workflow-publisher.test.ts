@@ -61,6 +61,41 @@ test('插件版本变化但工作流内容未变化时复用已有版本', async
   assert.equal((await workflows.listVersions(first!.workflowTemplateId)).length, 1);
 });
 
+test('插件发布遇到已存在的 Workflow 内容时复用现有版本', async () => {
+  const bindings = new Map<string, PluginWorkflowBindingRecord>();
+  const workflows = new WorkflowTemplatesApplicationService();
+  const publisher = new PluginWorkflowPublisherService(workflows, workflowRepository(bindings));
+  const legacyPlugin = pluginRecord('legacy-publish', '1.0.0', '1.0.0');
+  const nextPlugin = pluginRecord('legacy-publish-next', '1.1.0', '1.1.0');
+  const legacyContent = JSON.parse(legacyPlugin.resources['workflows/deploy.json']!) as Parameters<typeof workflows.createWorkflow>[0]['content'];
+  const nextContent = JSON.parse(nextPlugin.resources['workflows/deploy.json']!) as Parameters<typeof workflows.createWorkflow>[0]['content'];
+  const internal = await workflows.createPluginTemplate({ content: legacyContent }, { ownerType: 'SYSTEM', ownerId: 'SYSTEM' });
+  const publishedLegacy = await workflows.publishPluginVersion(internal.version.id);
+  const nextDraft = await workflows.createPluginInternalDraftVersion({
+    templateId: internal.template.id,
+    content: nextContent,
+    changeSummary: 'seed existing published version',
+  });
+  const publishedNext = await workflows.publishPluginVersion(nextDraft.id);
+  bindings.set(`${legacyPlugin.id}:certificate.deploy`, {
+    pluginVersionId: legacyPlugin.id,
+    pluginId: legacyPlugin.pluginId,
+    ownerType: 'SYSTEM',
+    capabilityKey: 'certificate.deploy',
+    workflowResourcePath: 'workflows/deploy.json',
+    workflowTemplateId: internal.template.id,
+    workflowVersionId: publishedLegacy.id,
+    workflowContentSha256: publishedLegacy.contentHash,
+    createdAt: new Date().toISOString(),
+  });
+
+  const [binding] = await publisher.publishPlugin(nextPlugin);
+
+  assert.equal(binding?.workflowTemplateId, internal.template.id);
+  assert.equal(binding?.workflowVersionId, publishedNext.id);
+  assert.equal((await publisher.require(nextPlugin.id, 'certificate.deploy')).workflowVersionId, publishedNext.id);
+});
+
 test('Workflow DSL 插件声明能力缺少绑定时拒绝发布', async () => {
   const workflows = new WorkflowTemplatesApplicationService();
   const plugin = pluginRecord('missing-capability-binding', '1.0.0', '1.0.0');
