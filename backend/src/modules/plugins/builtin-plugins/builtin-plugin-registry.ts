@@ -6,7 +6,7 @@ import { canonicalPluginIds, type CanonicalPluginId } from '../canonical-plugin-
 import type { UnifiedPluginCapabilityDescriptor, UnifiedPluginManifestV1 } from '../dto/unified-plugins.dto.js';
 import { validateUnifiedPluginManifest } from '../schema/unified-plugins.schema.js';
 import { validateBuiltinPluginPolicy } from './builtin-plugin-policy.js';
-import { BuiltinUnifiedPluginLoader, type BuiltinPluginPackage } from './builtin-unified-plugin-loader.js';
+import { BuiltinUnifiedPluginLoader, type BuiltinPluginPackage, type BuiltinPluginScanReport } from './builtin-unified-plugin-loader.js';
 import type { PluginWorkflowDeclaration } from '../application/plugin-workflow-declaration-resolver.js';
 import type { UnifiedPluginsApplicationService } from '../application/unified-plugins.application-service.js';
 import { canonicalResourceHash } from '../../../shared/plugin-resource-hash.js';
@@ -46,6 +46,7 @@ export class BuiltinPluginRegistry {
   private readonly packages = new Map<string, BuiltinPluginPackage>();
   private readonly logger: Pick<StructuredLogger, 'warn'>;
   private readonly blockedPackageDirectories: ReadonlySet<string>;
+  private lastScanReport: BuiltinPluginScanReport | undefined;
 
   constructor(
     private readonly loader: BuiltinUnifiedPluginLoader = new BuiltinUnifiedPluginLoader(),
@@ -60,6 +61,7 @@ export class BuiltinPluginRegistry {
     const nextEntries = new Map<string, BuiltinPluginRegistryEntry>();
     const nextPackages = new Map<string, BuiltinPluginPackage>();
     const packages = await this.loader.loadPackages();
+    this.lastScanReport = this.loader.getLastScanReport?.();
     const conflictedKeys = new Set<string>();
     for (const pluginPackage of packages) {
       const packageDirectory = basename(pluginPackage.packageDirectory);
@@ -147,7 +149,23 @@ export class BuiltinPluginRegistry {
    * 只处理 source=BUILTIN 的孤儿记录；用户导入版本、仍在源码中的包均不受影响。
    */
   private async retireRemovedBuiltinVersions(service: UnifiedPluginsApplicationService): Promise<void> {
-    const currentPluginIds = new Set<string>([...this.entries.values()].map((entry) => entry.pluginId));
+    const scanReport = this.lastScanReport;
+    if (!scanReport || scanReport.packageDirectories.length === 0 || scanReport.failedPackageDirectories.length > 0) {
+      this.logger.warn('内置插件源码扫描未形成可安全回收的快照，跳过孤儿版本退休', {
+        packageDirectories: scanReport?.packageDirectories ?? [],
+        failedPackageDirectories: scanReport?.failedPackageDirectories ?? [],
+      }, {
+        module: 'builtin-plugin-startup',
+        resourceType: 'pluginVersion',
+      });
+      return;
+    }
+    // 使用所有成功读取的包身份，而不是 Registry 最终快照。
+    // 被版本门禁或 Policy 隔离的源码包仍然存在，不能被当作孤儿退休。
+    const currentPluginIds = new Set<string>(scanReport.packages.flatMap((pluginPackage) => {
+      const pluginId = identityOfManifest(pluginPackage.manifest).pluginId;
+      return pluginId ? [pluginId] : [];
+    }));
     const builtinVersions = await service.listBuiltinVersions();
     for (const version of builtinVersions) {
       if (currentPluginIds.has(version.pluginId)) continue;

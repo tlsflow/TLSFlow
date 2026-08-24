@@ -42,6 +42,70 @@ test('版本门禁名单只跳过指定插件包', async () => {
   assert.deepEqual(await registry.refresh(), []);
 });
 
+test('版本门禁隔离源码包时不得退休对应的历史内置版本', async () => {
+  const root = await createPackageRoot();
+  const loader = new BuiltinUnifiedPluginLoader(root);
+  const registry = new BuiltinPluginRegistry(loader, {
+    blockedPackageDirectories: ['fixture-plugin'],
+    logger: { warn: () => {} },
+  });
+  const disabled: string[] = [];
+  const retired: string[] = [];
+  const service = {
+    listBuiltinVersions: async () => [{
+      id: 'current-fixture',
+      pluginId: 'web.nginx',
+      version: '1.0.0',
+      status: 'ENABLED',
+    }],
+    disableVersion: async (id: string) => { disabled.push(id); return { id }; },
+    retireVersion: async (id: string) => { retired.push(id); return { id }; },
+    importVersion: async () => { throw new Error('被隔离的包不应进入导入阶段'); },
+    approvePermissions: async () => { throw new Error('被隔离的包不应进入审批阶段'); },
+    enableVersion: async () => { throw new Error('被隔离的包不应进入启用阶段'); },
+  } as unknown as Parameters<typeof registry.registerAll>[0];
+
+  const installed = await registry.registerAll(service);
+
+  assert.deepEqual(installed, []);
+  assert.deepEqual(disabled, []);
+  assert.deepEqual(retired, []);
+});
+
+test('插件包扫描失败时跳过全部孤儿退休，避免误伤历史内置版本', async () => {
+  const root = await createPackageRoot();
+  const brokenDirectory = join(root, 'broken-plugin');
+  await mkdir(brokenDirectory, { recursive: true });
+  await writeFile(join(brokenDirectory, 'manifest.json'), '{invalid-json', 'utf8');
+  const loader = new BuiltinUnifiedPluginLoader(root);
+  const registry = new BuiltinPluginRegistry(loader, { logger: { warn: () => {} } });
+  const retired: string[] = [];
+  const service = {
+    listBuiltinVersions: async () => [{
+      id: 'orphan-version',
+      pluginId: 'ca.removed',
+      version: '1.0.0',
+      status: 'DISABLED',
+    }],
+    disableVersion: async (id: string) => ({ id }),
+    retireVersion: async (id: string) => { retired.push(id); return { id }; },
+    importVersion: async () => ({
+      id: 'installed-fixture',
+      pluginId: 'web.nginx',
+      version: '1.0.0',
+      status: 'DISABLED',
+      permissionApprovalStatus: 'APPROVED',
+      manifest: {},
+    }),
+    approvePermissions: async (record: { id: string }) => ({ ...record, status: 'DISABLED' }),
+    enableVersion: async (id: string) => ({ id, status: 'ENABLED' }),
+  } as unknown as Parameters<typeof registry.registerAll>[0];
+
+  await registry.registerAll(service);
+
+  assert.deepEqual(retired, []);
+});
+
 test('一个插件 Registry 校验失败时其他插件仍保留', async () => {
   const root = await createPackageRoot();
   const loader = new BuiltinUnifiedPluginLoader(root);

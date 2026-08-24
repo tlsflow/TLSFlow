@@ -24,7 +24,17 @@ export interface BuiltinPluginPackage {
   runtimeEntrypointPath?: string;
 }
 
+export interface BuiltinPluginScanReport {
+  /** 本次扫描中包含 manifest.json 的插件目录。 */
+  packageDirectories: string[];
+  /** 发现但未能完整读取或校验的插件目录。 */
+  failedPackageDirectories: string[];
+  packages: BuiltinPluginPackage[];
+}
+
 export class BuiltinUnifiedPluginLoader {
+  private lastScanReport: BuiltinPluginScanReport | undefined;
+
   constructor(
     private readonly configuredRootDirectory?: string,
     private readonly logger: Pick<StructuredLogger, 'warn'> = structuredLogger,
@@ -34,7 +44,7 @@ export class BuiltinUnifiedPluginLoader {
     const rootDirectory = this.configuredRootDirectory ?? await resolveBuiltinRootDirectory();
     const entries = await readdir(rootDirectory, { withFileTypes: true });
     const directories = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-    const packageDirectories = [];
+    const packageDirectories: string[] = [];
     for (const directory of directories) {
       try {
         await access(join(rootDirectory, directory, 'manifest.json'));
@@ -43,17 +53,32 @@ export class BuiltinUnifiedPluginLoader {
         // 非插件资源目录不参与包扫描。
       }
     }
-    const nativePackages = (await Promise.all(packageDirectories.map(async (directory) => {
+    const scanResults = await Promise.all(packageDirectories.map(async (directory) => {
       try {
-        return await this.loadPackage(join(rootDirectory, directory));
+        return { directory, package: await this.loadPackage(join(rootDirectory, directory)) };
       } catch (error) {
         // 单个插件包损坏时只跳过该包，不能让其他插件或宿主启动失败。
         this.warnFailure('scan', { pluginId: directory }, error);
-        return undefined;
+        return { directory, package: undefined };
       }
-    }))).filter((pluginPackage): pluginPackage is BuiltinPluginPackage => pluginPackage !== undefined);
-    if (this.configuredRootDirectory) return nativePackages;
-    return nativePackages;
+    }));
+    const packages = scanResults
+      .map((result) => result.package)
+      .filter((pluginPackage): pluginPackage is BuiltinPluginPackage => pluginPackage !== undefined);
+    this.lastScanReport = {
+      packageDirectories,
+      failedPackageDirectories: scanResults.filter((result) => result.package === undefined).map((result) => result.directory),
+      packages,
+    };
+    return packages;
+  }
+
+  getLastScanReport(): BuiltinPluginScanReport | undefined {
+    return this.lastScanReport && {
+      packageDirectories: [...this.lastScanReport.packageDirectories],
+      failedPackageDirectories: [...this.lastScanReport.failedPackageDirectories],
+      packages: [...this.lastScanReport.packages],
+    };
   }
 
   async installAll(service: UnifiedPluginsApplicationService): Promise<UnifiedPluginVersionRecord[]> {
