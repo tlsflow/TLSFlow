@@ -5,6 +5,7 @@ import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { PluginBindingsApplicationService } from './application/plugin-bindings.application-service.js';
 import { PluginBindingsRepository } from './repository/plugin-bindings.repository.js';
+import { insertCanonicalPluginVersion } from './plugin-test-fixtures.js';
 import { emptyInputBindingsV1 } from '../deployment-inputs/dto/input-bindings.dto.js';
 
 const inputBindings = (variables: Record<string, unknown> = {}, credentials: Record<string, { credentialId: string }> = {}, connections: Record<string, unknown> = {}, artifacts: Record<string, unknown> = {}) => ({ ...emptyInputBindingsV1(), variables, credentials, connections: connections as never, artifacts: artifacts as never });
@@ -12,9 +13,7 @@ const inputBindings = (variables: Record<string, unknown> = {}, credentials: Rec
 test('Managed 与 Standalone Binding 使用同一数据模型并保护上下文边界', async () => {
   const db = new PgliteDatabase();
   await runMigrations(db, undefined, { appliedBy: 'test', checksum: (value) => createHash('sha256').update(value).digest('hex') });
-  await db.query(`insert into unified_plugin_versions
-    (id,tenant_id,plugin_id,plugin_version,source,runtime,scope,trust,support,manifest,package_sha256,manifest_sha256,resource_sha256,status,permission_approval_status,approved_permissions,validation_report,created_at,updated_at)
-    values ('version-1','tenant-1','fixture','1','USER','WORKFLOW_DSL','BOTH','UNSIGNED','SELF_MANAGED','{}','p','m','{}','ENABLED','NOT_REQUIRED','[]','{}',now(),now())`);
+  await insertCanonicalPluginVersion(db, 'version-1', 'tenant-1');
   const service = new PluginBindingsApplicationService(new PluginBindingsRepository(db));
   const managed = await service.createBinding('tenant-1', { pluginVersionId: 'version-1', mode: 'MANAGED', inputBindings: inputBindings({}, { auth: { credentialId: 'cred-1' } }), managedContext: { hostId: 'host-1', managedTargetId: 'target-1' } });
   const standalone = await service.createBinding('tenant-1', { pluginVersionId: 'version-1', mode: 'STANDALONE', inputBindings: inputBindings({}, {}, { management: { host: '10.0.0.1' } }) });
@@ -30,9 +29,7 @@ test('Managed 与 Standalone Binding 使用同一数据模型并保护上下文�
 test('Capability Assignment 按应用资产、受管目标、设备顺序覆盖', async () => {
   const db = new PgliteDatabase();
   await runMigrations(db, undefined, { appliedBy: 'test', checksum: (value) => createHash('sha256').update(value).digest('hex') });
-  await db.query(`insert into unified_plugin_versions
-    (id,tenant_id,plugin_id,plugin_version,source,runtime,scope,trust,support,manifest,package_sha256,manifest_sha256,resource_sha256,status,permission_approval_status,approved_permissions,validation_report,created_at,updated_at)
-    values ('version-1','tenant-1','fixture','1','USER','WORKFLOW_DSL','BOTH','UNSIGNED','SELF_MANAGED','{}','p','m','{}','ENABLED','NOT_REQUIRED','[]','{}',now(),now())`);
+  await insertCanonicalPluginVersion(db, 'version-1', 'tenant-1');
   const service = new PluginBindingsApplicationService(new PluginBindingsRepository(db));
   const binding = await service.createBinding('tenant-1', { pluginVersionId: 'version-1', mode: 'MANAGED', inputBindings: inputBindings(), managedContext: { hostId: 'host-1' } });
   for (const [ownerType, ownerId, precedence] of [['DEVICE','host-1','DEVICE_DEFAULT'],['MANAGED_TARGET','target-1','TARGET_OVERRIDE'],['APPLICATION_ASSET','asset-1','ASSET_OVERRIDE']] as const) {
@@ -45,9 +42,7 @@ test('Capability Assignment 按应用资产、受管目标、设备顺序覆盖'
 test('PluginBinding 支持乐观锁更新完整 InputBindings 信封', async () => {
   const database = new PgliteDatabase();
   await runMigrations(database, 'src/database/migrations');
-  await database.query(`insert into unified_plugin_versions
-    (id,tenant_id,plugin_id,plugin_version,source,runtime,scope,trust,support,manifest,package_sha256,manifest_sha256,resource_sha256,status,permission_approval_status,approved_permissions,validation_report,created_at,updated_at)
-    values ('version-1','tenant-1','fixture-update','1','USER','WORKFLOW_DSL','BOTH','UNSIGNED','SELF_MANAGED','{}','p','m','{}','ENABLED','NOT_REQUIRED','[]','{}',now(),now())`);
+  await insertCanonicalPluginVersion(database, 'version-1', 'tenant-1');
   const service = new PluginBindingsApplicationService(new PluginBindingsRepository(database));
   const created = await service.createBinding('tenant-1', {
     pluginVersionId: 'version-1', mode: 'STANDALONE', inputBindings: inputBindings({ region: 'default' }, { auth: { credentialId: 'cred-1' } }, { management: { host: '10.0.0.1' } }),

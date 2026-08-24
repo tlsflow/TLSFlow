@@ -8,6 +8,7 @@ import { PgUnifiedPluginsRepository } from './repository/unified-plugins.reposit
 import { PluginBindingsApplicationService } from './application/plugin-bindings.application-service.js';
 import { PluginBindingsRepository } from './repository/plugin-bindings.repository.js';
 import { PluginPromotionService } from './promotion/plugin-promotion.service.js';
+import { canonicalWorkflowPluginManifest, canonicalWorkflowPluginResources } from './plugin-test-fixtures.js';
 
 test('Standalone 归集支持预览、确认幂等和撤销恢复', async () => {
   const db = new PgliteDatabase();
@@ -69,17 +70,8 @@ test('Standalone 归集预览阻止地址冲突和无效 Credential ID', async (
 async function createPlugin(db: PgliteDatabase) {
   const service = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(db));
   const imported = await service.importVersion('tenant-1', {
-    manifest: {
-      apiVersion: 'gcac.plugin-manifest/v1', kind: 'GcacPlugin', pluginId: 'test.both-device', version: '1.0.0',
-      displayNameKey: 'plugin.test.name', publisher: 'test', runtime: 'WORKFLOW_DSL', source: 'USER', scope: 'BOTH',
-      trust: 'UNSIGNED', support: 'SELF_MANAGED', permissions: [],
-      resources: { workflows: { 'device.discover': 'workflows/discover.json', 'certificate.deploy': 'workflows/deploy.json' } },
-      capabilities: [
-        { key: 'device.discover', contractVersion: 'v1', actionContractId: 'device.discover.v1', riskLevel: 'LOW', executionLocations: ['CONTROL_PLANE'] },
-        { key: 'certificate.deploy', contractVersion: 'v1', actionContractId: 'certificate.deploy.v1', riskLevel: 'HIGH', executionLocations: ['CONTROL_PLANE'] },
-      ],
-    },
-    resources: { 'workflows/discover.json': '{}', 'workflows/deploy.json': '{}' },
+    manifest: canonicalWorkflowPluginManifest(),
+    resources: canonicalWorkflowPluginResources(),
   });
   return service.enableVersion(imported.id);
 }
