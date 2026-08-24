@@ -196,6 +196,68 @@ test('AgentExecutorAdapter 会把 Agent Atomic PREFLIGHT 派发给 Agent 并返�
   assert.equal(compiledResolvedInput?.apiVersion, 'gcac.resolved-deployment-input/v1');
 });
 
+test('AgentExecutorAdapter 允许受控根信任安装动作直连下发', async () => {
+  let enqueueCount = 0;
+  let directCount = 0;
+  let capturedPayload: Record<string, unknown> | undefined;
+  const agents = {
+    enqueueDirectTask: async (_tenantId: string, input: { payload: Record<string, unknown> }) => {
+      enqueueCount += 1;
+      capturedPayload = input.payload;
+      return { id: 'task_trust_install', status: 'acked' };
+    },
+    executeTaskDirect: async () => {
+      directCount += 1;
+      return {
+        success: true,
+        detail: {
+          mode: 'agent_direct_execute',
+          fingerprintSha256: 'abc123',
+          installed: true,
+        },
+      };
+    },
+  } as unknown as AgentsApplicationService;
+  const adapter = new AgentExecutorAdapter(agents);
+
+  const result = await adapter.executeStep({
+    step: {
+      id: 'stp_trust_install',
+      tenantId: headers['x-tenant-id'],
+      executionRunId: 'run_trust_install',
+      deploymentPlanTargetId: 'dpt_trust_install',
+      stepNo: 1,
+      stepType: 'CUSTOM',
+      name: 'TRUST_INSTALL trust target',
+      dependsOn: [],
+      idempotent: true,
+      attemptCount: 1,
+      maxAttempts: 1,
+      inputSnapshot: {
+        agentId: 'agt_trust_install',
+        actionType: 'certificate.trust.install',
+        actionSchemaVersion: '1.0',
+        certificatePem: '-----BEGIN CERTIFICATE-----\nROOT\n-----END CERTIFICATE-----\n',
+        fingerprintSha256: 'abc123',
+        trustStore: 'root',
+      },
+      status: 'PENDING',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      createdBy: 'tester',
+      version: 1,
+    },
+    runType: 'apply',
+    dryRun: false,
+  });
+
+  assert.equal(enqueueCount, 1);
+  assert.equal(directCount, 1);
+  assert.equal(capturedPayload?.actionType, 'certificate.trust.install');
+  assert.equal(result.success, true);
+  assert.equal(result.detail?.fingerprintSha256, 'abc123');
+});
+
 test('AgentExecutorAdapter 主动直连失败时明确失败且不会调用队列接口', async () => {
   let directTaskCount = 0;
   const agents = {

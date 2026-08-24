@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { AgentActionDispatchRegistry } from './application/agent-action-dispatch-registry.js';
 
 describe('AgentActionDispatchRegistry', () => {
-  it('默认注册表只接受标准 Atomic Plan', () => {
+  it('默认注册表放行标准 Atomic Plan 与受控根信任安装动作', () => {
     const registry = new AgentActionDispatchRegistry();
     const standard = registry.resolve({ actionType: 'agent.atomic_plan.execute', actionSchemaVersion: '1.0' });
     assert.equal(standard?.actionType, 'agent.atomic_plan.execute');
@@ -11,6 +11,14 @@ describe('AgentActionDispatchRegistry', () => {
     assert.equal(standard?.contract.riskBoundary, 'DEPLOYMENT');
     assert.equal(standard?.contract.acceptsSecrets, false);
     assert.equal(standard?.aliased, false);
+    const trustInstall = registry.resolve({ actionType: 'certificate.trust.install', actionSchemaVersion: '1.0' });
+    assert.equal(trustInstall?.actionType, 'certificate.trust.install');
+    assert.equal(trustInstall?.kind, 'DIRECT_STANDARD');
+    assert.equal(trustInstall?.allowExecution, true);
+    assert.deepEqual(registry.requireResolution({ actionType: 'certificate.trust.install', actionSchemaVersion: '1.0' }), {
+      ok: true,
+      resolution: trustInstall,
+    });
     assert.equal(registry.resolve({ actionType: 'certificate.deploy' }), undefined);
     assert.equal(registry.resolve({ type: 'windows.iis.deploy_certificate' }), undefined);
     assert.equal(registry.resolve({ type: 'linux.nginx.deploy_certificate' }), undefined);

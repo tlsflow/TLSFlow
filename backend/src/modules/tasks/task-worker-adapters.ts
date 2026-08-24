@@ -1,5 +1,6 @@
 import { AppError } from '../../common/errors/app-error.js';
 import type { AgentsApplicationService } from '../agents/application/agents.application-service.js';
+import type { AutomationEventDeliveryService } from '../automations/application/automation-event-delivery.service.js';
 import type { AutomationScheduler } from '../automations/application/automation-scheduler.js';
 import type { AutomationsApplicationService } from '../automations/application/automations.application-service.js';
 import type { ExecutorRegistry } from '../executions/application/executors.js';
@@ -39,6 +40,7 @@ export interface TaskWorkerAdapterDependencies {
   internalCa?: Pick<InternalCaApplicationService, 'getRepository'>;
   automation?: Pick<AutomationScheduler, 'runRun'>;
   automationRuns?: Pick<AutomationsApplicationService, 'getRun'>;
+  automationEvents?: Pick<AutomationEventDeliveryService, 'processDelivery'>;
   monitors?: Pick<MonitorsApplicationService, 'runMonitorBatch'>;
   notifications?: Pick<NotificationWorker, 'runDelivery' | 'getDelivery'>;
   reports?: Pick<ReportExportService, 'executeTask'>;
@@ -233,6 +235,12 @@ export function createTaskExecutorRegistry(
       errorMessage: result.errorMessage ?? `CA 同步以 ${result.status} 结束`,
       detail: { syncRunId, status: result.status },
     };
+  }));
+
+  registry.register('automation.trigger-delivery', dependencyExecutor('Automation Trigger Delivery Worker', dependencies.automationEvents, async (task) => {
+    const deliveryId = requiredPayloadString(task, 'deliveryId');
+    await dependencies.automationEvents!.processDelivery(task.tenantId, deliveryId);
+    return { success: true, detail: { deliveryId } };
   }));
 
   registry.register('automation.run', dependencyExecutor('Automation Worker', dependencies.automation, async (task) => {

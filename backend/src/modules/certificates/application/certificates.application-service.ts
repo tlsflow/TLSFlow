@@ -14,6 +14,8 @@ import { AUDIT_EVENT_TYPES } from '../../audits/audit-event-types.js';
 import { PgCertificateArtifactStore, type CertificateArtifactStore } from '../artifacts/certificate-artifact-store.js';
 import { CertificateFormatExporter, type GeneratedCertificateFormatArtifact } from './certificate-format-exporter.js';
 import { CertificatesDomainService } from '../domain/certificates.domain-service.js';
+import type { CertificateVersionEventPublisher } from '../../automations/application/automation-event-delivery.service.js';
+import { TrustRootsApplicationService } from '../trust-roots/application/trust-roots.application-service.js';
 import {
   type CertificatesRepository,
   PgCertificatesRepository,
@@ -60,6 +62,8 @@ export interface CertificatesApplicationDependencies {
   domain?: CertificatesDomainService;
   artifacts?: CertificateArtifactStore;
   exporter?: CertificateFormatExporter;
+  versionEvents?: CertificateVersionEventPublisher;
+  trustRoots?: TrustRootsApplicationService;
 }
 
 export class CertificatesApplicationService {
@@ -68,6 +72,7 @@ export class CertificatesApplicationService {
   private readonly artifacts: CertificateArtifactStore;
   private readonly domain: CertificatesDomainService;
   private readonly exporter: CertificateFormatExporter;
+  private readonly trustRoots: TrustRootsApplicationService;
   constructor(
     private readonly dependencies: CertificatesApplicationDependencies,
   ) {
@@ -76,6 +81,11 @@ export class CertificatesApplicationService {
     this.domain = dependencies.domain ?? new CertificatesDomainService();
     this.artifacts = dependencies.artifacts ?? new PgCertificateArtifactStore(this.db);
     this.exporter = dependencies.exporter ?? new CertificateFormatExporter();
+    this.trustRoots = dependencies.trustRoots ?? new TrustRootsApplicationService({
+      db: this.db,
+      certificates: this.repository,
+      artifacts: this.artifacts,
+    });
   }
 
   async createAsset(input: CreateCertificateAssetInput): Promise<CertificateAssetDto> {
@@ -140,11 +150,13 @@ export class CertificatesApplicationService {
     const version = await this.getExistingVersion(id, tenantId);
     const asset = await this.getExistingAsset(version.certificateAssetId, tenantId);
     const chainCertificates = await this.buildChainCertificates(version, tenantId);
+    const trustRoots = await this.trustRoots.getVersionTrustRoots(version.id, tenantId);
     return {
       ...toCertificateVersionDto(version),
       asset: toCertificateAssetDto(asset),
       formats: (await this.repository.listFormatsByVersion(id, tenantId)).map(toCertificateVersionFormatDto),
       chainCertificates,
+      trustRoots,
     };
   }
 
@@ -180,6 +192,10 @@ export class CertificatesApplicationService {
 
   getRepository(): CertificatesRepository {
     return this.repository;
+  }
+
+  getTrustRoots(): TrustRootsApplicationService {
+    return this.trustRoots;
   }
 
   async promoteVersion(input: {
@@ -358,6 +374,7 @@ export class CertificatesApplicationService {
       createdBy: input.createdBy,
       createdAt: now,
     });
+    await this.trustRoots.syncImportedVersionRoot(version, bundle, input.createdBy);
 
     const updatedAsset = await this.repository.updateAsset(asset.id, {
       ...(version.activationState === 'promoted' ? { currentVersionId: version.id } : {}),
@@ -380,6 +397,21 @@ export class CertificatesApplicationService {
         fingerprintSha256: version.fingerprintSha256,
         keyCustodyMode: version.keyCustodyMode,
       },
+    }).catch(() => undefined);
+
+    const eventSourceType: 'acme' | 'manual_import' = version.sourceType === 'acme' ? 'acme' : 'manual_import';
+    const eventTenantId = input.tenantId ?? asset.tenantId ?? version.tenantId ?? updatedAsset.tenantId;
+    if (!eventTenantId) throw new AppError('VALIDATION_FAILED', '证书版本事件缺少 tenantId');
+    void this.dependencies.versionEvents?.publishCertificateVersionCreated({
+      eventType: 'certificate.version.created',
+      tenantId: eventTenantId,
+      eventId: version.id,
+      certificateAssetId: updatedAsset.id,
+      certificateVersionId: version.id,
+      sourceType: eventSourceType,
+      domains: uniqueStrings([updatedAsset.primaryDomain, ...updatedAsset.sans].filter(Boolean)),
+      tags: [...updatedAsset.tags],
+      occurredAt: version.createdAt,
     }).catch(() => undefined);
 
     return {

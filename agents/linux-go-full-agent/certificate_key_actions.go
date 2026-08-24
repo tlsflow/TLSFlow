@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -118,51 +119,106 @@ func linuxRetireCertificateKey(_ context.Context, request coreRegistry.Request) 
 
 func linuxInstallCertificateTrust(_ context.Context, request coreRegistry.Request) coreRegistry.Result {
 	certificatePEM := strings.TrimSpace(stringValue(request.Payload, "certificatePem"))
-	trustStorePath := strings.TrimSpace(stringValue(request.Payload, "trustStorePath"))
-	if certificatePEM == "" || trustStorePath == "" {
-		return linuxCertificateActionError("TASK_PAYLOAD_INVALID", errors.New("certificatePem and trustStorePath are required"))
+	if certificatePEM == "" {
+		return linuxCertificateActionError("TASK_PAYLOAD_INVALID", errors.New("certificatePem is required"))
 	}
 	certificate, err := parseCertificate([]byte(certificatePEM))
 	if err != nil || !certificate.IsCA {
 		return linuxCertificateActionError("TRUST_CERTIFICATE_INVALID", errors.New("trust certificate must be a valid CA certificate"))
 	}
-	backupPath := trustStorePath + ".gcac.bak"
-	previous, readErr := os.ReadFile(trustStorePath)
-	if readErr == nil {
-		if err := atomicWriteFile(backupPath, previous, 0o644); err != nil {
-			return linuxCertificateActionError("TRUST_BACKUP_FAILED", err)
-		}
-	} else if !errors.Is(readErr, os.ErrNotExist) {
-		return linuxCertificateActionError("TRUST_BACKUP_FAILED", readErr)
-	}
-	if err := atomicWriteFile(trustStorePath, []byte(certificatePEM+"\n"), 0o644); err != nil {
+	fingerprint := certificateFingerprint(certificate)
+	target, err := linuxResolveTrustTarget(request.Payload, fingerprint)
+	if err != nil {
 		return linuxCertificateActionError("TRUST_INSTALL_FAILED", err)
 	}
-	installed, err := parseCertificateFile(trustStorePath)
-	if err != nil || !installed.Equal(certificate) {
-		_ = restoreTrustFile(trustStorePath, backupPath, readErr == nil)
+	inspection := inspectLinuxCertificateByFingerprint(fingerprint, target.Path)
+	if inspection.err == nil && inspection.certificate != nil {
+		return coreRegistry.Result{Success: true, Detail: map[string]any{
+			"trustStorePath":     target.Path,
+			"fingerprintSha256": fingerprint,
+			"verified":          true,
+			"preExisting":       true,
+			"installed":         false,
+			"refreshCommand":    target.RefreshCommand,
+		}}
+	}
+	if existing, err := os.ReadFile(target.Path); err == nil && len(strings.TrimSpace(string(existing))) > 0 {
+		return linuxCertificateActionError("TRUST_INSTALL_FAILED", errors.New("target trust anchor path already exists with different content"))
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return linuxCertificateActionError("TRUST_INSTALL_FAILED", err)
+	}
+	if err := atomicWriteFile(target.Path, []byte(certificatePEM+"\n"), 0o644); err != nil {
+		return linuxCertificateActionError("TRUST_INSTALL_FAILED", err)
+	}
+	if target.RefreshCommand != "" {
+		if err := linuxRunTrustRefresh(target.RefreshCommand); err != nil {
+			_ = os.Remove(target.Path)
+			return linuxCertificateActionError("TRUST_INSTALL_FAILED", err)
+		}
+	}
+	verification := inspectLinuxCertificateByFingerprint(fingerprint, target.Path)
+	if verification.err != nil || verification.certificate == nil {
+		_ = os.Remove(target.Path)
 		return linuxCertificateActionError("TRUST_VERIFY_FAILED", errors.New("installed trust certificate verification failed"))
 	}
 	return coreRegistry.Result{Success: true, Detail: map[string]any{
-		"trustStorePath": trustStorePath, "backupPath": backupPath, "hadPrevious": readErr == nil,
-		"fingerprintSha256": certificateFingerprint(certificate), "verified": true,
+		"trustStorePath":     target.Path,
+		"fingerprintSha256": fingerprint,
+		"verified":          true,
+		"preExisting":       false,
+		"installed":         true,
+		"refreshCommand":    target.RefreshCommand,
 	}}
 }
 
 func linuxRollbackCertificateTrust(_ context.Context, request coreRegistry.Request) coreRegistry.Result {
 	trustStorePath := strings.TrimSpace(stringValue(request.Payload, "trustStorePath"))
-	backupPath := strings.TrimSpace(stringValue(request.Payload, "backupPath"))
-	hadPrevious, _ := request.Payload["hadPrevious"].(bool)
 	if trustStorePath == "" {
 		return linuxCertificateActionError("TASK_PAYLOAD_INVALID", errors.New("trustStorePath is required"))
 	}
-	if backupPath == "" {
-		backupPath = trustStorePath + ".gcac.bak"
+	preExisting, _ := request.Payload["preExisting"].(bool)
+	if preExisting {
+		return coreRegistry.Result{Success: true, Detail: map[string]any{
+			"trustStorePath": trustStorePath,
+			"rolledBack":     false,
+			"skipped":        true,
+			"reason":         "pre_existing",
+		}}
 	}
-	if err := restoreTrustFile(trustStorePath, backupPath, hadPrevious); err != nil {
+	if err := os.Remove(trustStorePath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return linuxCertificateActionError("TRUST_ROLLBACK_FAILED", err)
 	}
+	refreshCommand := strings.TrimSpace(stringValue(request.Payload, "refreshCommand"))
+	if refreshCommand != "" {
+		if err := linuxRunTrustRefresh(refreshCommand); err != nil {
+			return linuxCertificateActionError("TRUST_ROLLBACK_FAILED", err)
+		}
+	}
 	return coreRegistry.Result{Success: true, Detail: map[string]any{"trustStorePath": trustStorePath, "rolledBack": true}}
+}
+
+func linuxInspectCertificateTrust(_ context.Context, request coreRegistry.Request) coreRegistry.Result {
+	fingerprint := strings.TrimSpace(stringValue(request.Payload, "fingerprintSha256"))
+	if len(fingerprint) != 64 {
+		return linuxCertificateActionError("TASK_PAYLOAD_INVALID", errors.New("fingerprintSha256 is required"))
+	}
+	inspection := inspectLinuxCertificateByFingerprint(strings.ToLower(fingerprint), strings.TrimSpace(stringValue(request.Payload, "trustStorePath")))
+	if inspection.err != nil {
+		return linuxCertificateActionError("TRUST_INSPECT_FAILED", inspection.err)
+	}
+	if inspection.certificate == nil {
+		return coreRegistry.Result{Success: true, Detail: map[string]any{
+			"status":            "not_found",
+			"fingerprintSha256": strings.ToLower(fingerprint),
+			"store":             "root",
+		}}
+	}
+	return coreRegistry.Result{Success: true, Detail: map[string]any{
+		"status":            "found",
+		"fingerprintSha256": certificateFingerprint(inspection.certificate),
+		"certificatePem":    inspection.pem,
+		"store":             "root",
+	}}
 }
 
 func parseCertificateFile(path string) (*x509.Certificate, error) {
@@ -178,15 +234,115 @@ func certificateFingerprint(certificate *x509.Certificate) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func restoreTrustFile(path string, backupPath string, hadPrevious bool) error {
-	if !hadPrevious {
-		return os.Remove(path)
+type linuxTrustStoreTarget struct {
+	Path           string
+	RefreshCommand string
+}
+
+type linuxTrustInspection struct {
+	certificate *x509.Certificate
+	pem         string
+	err         error
+}
+
+func linuxResolveTrustTarget(payload map[string]any, fingerprint string) (linuxTrustStoreTarget, error) {
+	if override := strings.TrimSpace(stringValue(payload, "trustStorePath")); override != "" {
+		if linuxIsSystemBundlePath(override) {
+			return linuxTrustStoreTarget{}, errors.New("refusing to overwrite system CA bundle directly")
+		}
+		return linuxTrustStoreTarget{Path: override, RefreshCommand: strings.TrimSpace(stringValue(payload, "refreshCommand"))}, nil
 	}
-	content, err := os.ReadFile(backupPath)
+	if _, err := os.Stat("/usr/local/share/ca-certificates"); err == nil {
+		return linuxTrustStoreTarget{
+			Path:           filepath.Join("/usr/local/share/ca-certificates", "gcac-"+fingerprint+".crt"),
+			RefreshCommand: "update-ca-certificates",
+		}, nil
+	}
+	if _, err := os.Stat("/etc/pki/ca-trust/source/anchors"); err == nil {
+		return linuxTrustStoreTarget{
+			Path:           filepath.Join("/etc/pki/ca-trust/source/anchors", "gcac-"+fingerprint+".crt"),
+			RefreshCommand: "update-ca-trust",
+		}, nil
+	}
+	return linuxTrustStoreTarget{}, errors.New("no supported Linux trust anchor directory found")
+}
+
+func linuxRunTrustRefresh(command string) error {
+	parts := strings.Fields(strings.TrimSpace(command))
+	if len(parts) == 0 {
+		return nil
+	}
+	output, err := exec.Command(parts[0], parts[1:]...).CombinedOutput()
 	if err != nil {
-		return err
+		return fmt.Errorf("%s failed: %s", command, strings.TrimSpace(string(output)))
 	}
-	return atomicWriteFile(path, content, 0o644)
+	return nil
+}
+
+func inspectLinuxCertificateByFingerprint(fingerprint string, preferredPath string) linuxTrustInspection {
+	paths := []string{}
+	if preferredPath != "" {
+		paths = append(paths, preferredPath)
+	}
+	paths = append(paths,
+		"/etc/ssl/certs/ca-certificates.crt",
+		"/etc/pki/tls/certs/ca-bundle.crt",
+		"/etc/ssl/cert.pem",
+	)
+	seen := map[string]struct{}{}
+	for _, candidatePath := range paths {
+		if candidatePath == "" {
+			continue
+		}
+		cleaned := filepath.Clean(candidatePath)
+		if _, exists := seen[cleaned]; exists {
+			continue
+		}
+		seen[cleaned] = struct{}{}
+		content, err := os.ReadFile(cleaned)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return linuxTrustInspection{err: err}
+		}
+		blocks := pemBlocks(content)
+		for _, block := range blocks {
+			certificate, err := parseCertificate(block)
+			if err != nil {
+				continue
+			}
+			actual := certificateFingerprint(certificate)
+			if strings.EqualFold(actual, fingerprint) {
+				return linuxTrustInspection{
+					certificate: certificate,
+					pem:         string(block),
+				}
+			}
+		}
+	}
+	return linuxTrustInspection{}
+}
+
+func pemBlocks(content []byte) [][]byte {
+	blocks := make([][]byte, 0, 4)
+	remaining := content
+	for {
+		block, rest := pem.Decode(remaining)
+		if block == nil {
+			break
+		}
+		if block.Type == "CERTIFICATE" {
+			blocks = append(blocks, pem.EncodeToMemory(block))
+		}
+		remaining = rest
+	}
+	return blocks
+}
+
+func linuxIsSystemBundlePath(path string) bool {
+	cleaned := filepath.Clean(path)
+	return cleaned == "/etc/ssl/certs/ca-certificates.crt" || cleaned == "/etc/pki/tls/certs/ca-bundle.crt" || cleaned == "/etc/ssl/cert.pem"
 }
 
 func atomicWriteFile(path string, content []byte, mode os.FileMode) error {

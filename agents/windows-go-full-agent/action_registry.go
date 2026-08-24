@@ -101,6 +101,7 @@ func mustBuildWindowsActionHandlerRegistry() *actionHandlerRegistry {
 		windowsCertificateInstallIssuedHandler(),
 		windowsCertificateRetireKeyHandler(),
 		windowsCertificateTrustInstallHandler(),
+		windowsCertificateTrustInspectHandler(),
 		windowsCertificateTrustRollbackHandler(),
 	)
 	if err != nil {

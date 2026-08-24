@@ -44,9 +44,6 @@ func TestLinuxCreateCertificateCSRUsesProtectedFile(t *testing.T) {
 func TestLinuxCertificateTrustInstallAndRollback(t *testing.T) {
 	directory := t.TempDir()
 	trustPath := filepath.Join(directory, "gcac-root.crt")
-	if err := os.WriteFile(trustPath, []byte("previous"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	certificatePEM := createTestCACertificate(t)
 	installed := linuxInstallCertificateTrust(context.Background(), coreRegistry.Request{Payload: map[string]any{
 		"certificatePem": certificatePEM, "trustStorePath": trustPath,
@@ -59,11 +56,30 @@ func TestLinuxCertificateTrustInstallAndRollback(t *testing.T) {
 		t.Fatalf("trust rollback failed: %s", rolledBack.ErrorMessage)
 	}
 	content, err := os.ReadFile(trustPath)
-	if err != nil {
-		t.Fatal(err)
+	if !os.IsNotExist(err) || len(content) != 0 {
+		t.Fatalf("trust anchor file should be removed on rollback, err=%v content=%q", err, content)
 	}
-	if string(content) != "previous" {
-		t.Fatalf("previous trust file was not restored: %q", content)
+}
+
+func TestLinuxCertificateTrustInspectReadsManagedAnchor(t *testing.T) {
+	directory := t.TempDir()
+	trustPath := filepath.Join(directory, "gcac-root.crt")
+	certificatePEM := createTestCACertificate(t)
+	installed := linuxInstallCertificateTrust(context.Background(), coreRegistry.Request{Payload: map[string]any{
+		"certificatePem": certificatePEM, "trustStorePath": trustPath,
+	}})
+	if !installed.Success {
+		t.Fatalf("trust install failed: %s", installed.ErrorMessage)
+	}
+	fingerprint := installed.Detail["fingerprintSha256"].(string)
+	inspection := linuxInspectCertificateTrust(context.Background(), coreRegistry.Request{Payload: map[string]any{
+		"fingerprintSha256": fingerprint, "trustStorePath": trustPath,
+	}})
+	if !inspection.Success {
+		t.Fatalf("trust inspect failed: %s", inspection.ErrorMessage)
+	}
+	if inspection.Detail["status"] != "found" {
+		t.Fatalf("unexpected inspect detail: %+v", inspection.Detail)
 	}
 }
 

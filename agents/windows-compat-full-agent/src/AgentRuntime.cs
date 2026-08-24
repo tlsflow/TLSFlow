@@ -297,6 +297,13 @@ namespace GCAC.WindowsCompatibilityAgent
                         : ActionResult.Failed("PREFLIGHT_BLOCKED", "前置检查未通过", new Dictionary<string, object> { { "supported", false }, { "checks", result.Checks } });
                 }
             });
+            actionRegistry.Register(new ActionRegistration
+            {
+                CanonicalAction = "certificate.trust.inspect",
+                SchemaVersion = ProductIdentity.ActionSchemaVersion,
+                Aliases = new string[0],
+                Handler = CertificateTrustInspector.Inspect
+            });
             AtomicPlanHandler atomicPlanHandler = new AtomicPlanHandler(delegate { return activeAgentId; }, dataDirectory);
             actionRegistry.Register(new ActionRegistration
             {

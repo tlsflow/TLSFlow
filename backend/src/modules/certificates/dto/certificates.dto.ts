@@ -5,6 +5,7 @@ import type {
   CertificateVersionEntity,
   CertificateVersionFormatEntity,
 } from '../schema/certificates.schema.js';
+import type { RootCertificateRecordDto } from '../trust-roots/dto/trust-roots.dto.js';
 
 export interface CertificateAssetDto {
   id: string;
@@ -97,6 +98,12 @@ export interface CertificateVersionDetailDto extends CertificateVersionDto {
     subject: CertificateVersionEntity['subject'];
     issuer: CertificateVersionEntity['issuer'];
     role: 'leaf' | 'intermediate' | 'root';
+  }>;
+  trustRoots?: Array<{
+    relation: 'selected_root' | 'candidate';
+    resolutionStatus: 'resolved' | 'ambiguous' | 'missing' | 'invalid';
+    selectionReason?: string;
+    root: RootCertificateRecordDto;
   }>;
 }
 

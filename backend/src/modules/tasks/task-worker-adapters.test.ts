@@ -73,7 +73,7 @@ test('Agent 安装会话未被消费时延后，不伪造 Bootstrap 成功', asy
           id: 'install-session-1',
           tenantId: 'tenant-task-adapter',
           platform: 'windows',
-          expiresAt: '2026-08-06T23:00:00.000Z',
+          expiresAt: '2026-08-08T23:00:00.000Z',
           createdAt: '2026-08-06T00:00:00.000Z',
         }),
       } as never),
@@ -137,7 +137,7 @@ test('Supervisor 只执行当前 Claim 的任务并返回执行器结果', async
     executorKey: 'workflow.run',
     timeoutSeconds: 60,
     retryPolicy: { maxAttempts: 1, backoffSeconds: 0 },
-    permissionKey: 'workflow.template.read',
+    permissionKey: 'workflow.read',
     sensitivePaths: [],
     enabled: true,
   };

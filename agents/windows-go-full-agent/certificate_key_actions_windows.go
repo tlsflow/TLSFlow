@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	b64 "encoding/base64"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
@@ -47,6 +48,15 @@ func windowsCertificateTrustInstallHandler() actionHandler {
 		descriptor: actionHandlerDescriptor{ActionType: "certificate.trust.install", SchemaVersions: []string{"1.0"}},
 		execute: func(execution *taskExecutionContext) actionExecutionResult {
 			return installWindowsCertificateTrust(execution.ctx, execution.task.Payload)
+		},
+	}
+}
+
+func windowsCertificateTrustInspectHandler() actionHandler {
+	return actionHandlerFunc{
+		descriptor: actionHandlerDescriptor{ActionType: "certificate.trust.inspect", SchemaVersions: []string{"1.0"}},
+		execute: func(execution *taskExecutionContext) actionExecutionResult {
+			return inspectWindowsCertificateTrust(execution.ctx, execution.task.Payload)
 		},
 	}
 }
@@ -151,6 +161,15 @@ func installWindowsCertificateTrust(ctx context.Context, payload map[string]any)
 	if err != nil || !certificate.IsCA {
 		return windowsCertificateActionError("TRUST_CERTIFICATE_INVALID", errors.New("certificatePem must contain a valid CA certificate"))
 	}
+	fingerprint := certificateFingerprintHex(certificate)
+	thumbprint := strings.ToUpper(fingerprint)
+	inspection := inspectWindowsRootCertificate(ctx, thumbprint)
+	if inspection.err == nil && inspection.certificate != nil {
+		return actionExecutionResult{Success: true, Detail: map[string]any{
+			"storeLocation": "LocalMachine", "storeName": "Root", "thumbprint": thumbprint,
+			"fingerprintSha256": fingerprint, "verified": true, "preExisting": true, "installed": false,
+		}}
+	}
 	directory, err := os.MkdirTemp("", "gcac-trust-install-")
 	if err != nil {
 		return windowsCertificateActionError("TRUST_INSTALL_FAILED", err)
@@ -163,21 +182,104 @@ func installWindowsCertificateTrust(ctx context.Context, payload map[string]any)
 	if output, err := exec.CommandContext(ctx, "certutil.exe", "-f", "-addstore", "Root", certificatePath).CombinedOutput(); err != nil {
 		return windowsCertificateActionError("TRUST_INSTALL_FAILED", fmt.Errorf("certutil addstore failed: %s", strings.TrimSpace(string(output))))
 	}
-	thumbprint := strings.ToUpper(certificateFingerprintHex(certificate))
+	verification := inspectWindowsRootCertificate(ctx, thumbprint)
+	if verification.err != nil || verification.certificate == nil {
+		return windowsCertificateActionError("TRUST_VERIFY_FAILED", errors.New("installed trust certificate verification failed"))
+	}
 	return actionExecutionResult{Success: true, Detail: map[string]any{
-		"storeLocation": "LocalMachine", "storeName": "Root", "thumbprint": thumbprint, "verified": true,
+		"storeLocation": "LocalMachine", "storeName": "Root", "thumbprint": thumbprint,
+		"fingerprintSha256": fingerprint, "verified": true, "preExisting": false, "installed": true,
+	}}
+}
+
+func inspectWindowsCertificateTrust(ctx context.Context, payload map[string]any) actionExecutionResult {
+	fingerprint := normalizeWindowsCertificateFingerprint(stringFromMap(payload, "fingerprintSha256"))
+	if fingerprint == "" {
+		return windowsCertificateActionError("TASK_PAYLOAD_INVALID", errors.New("fingerprintSha256 is required"))
+	}
+	inspection := inspectWindowsRootCertificate(ctx, strings.ToUpper(fingerprint))
+	if inspection.err != nil {
+		return windowsCertificateActionError("TRUST_INSPECT_FAILED", inspection.err)
+	}
+	if inspection.certificate == nil {
+		return actionExecutionResult{Success: true, Detail: map[string]any{
+			"status": "not_found", "fingerprintSha256": fingerprint, "store": "root",
+		}}
+	}
+	actualFingerprint := certificateFingerprintHex(inspection.certificate)
+	if !strings.EqualFold(actualFingerprint, fingerprint) {
+		return windowsCertificateActionError("TRUST_FINGERPRINT_MISMATCH", errors.New("certificate fingerprint does not match requested fingerprint"))
+	}
+	return actionExecutionResult{Success: true, Detail: map[string]any{
+		"status":            "found",
+		"fingerprintSha256": actualFingerprint,
+		"thumbprint":        strings.ToUpper(actualFingerprint),
+		"store":             "root",
+		"storeLocation":     "LocalMachine",
+		"storeName":         "Root",
+		"certificatePem":    inspection.pem,
 	}}
 }
 
 func rollbackWindowsCertificateTrust(ctx context.Context, payload map[string]any) actionExecutionResult {
-	thumbprint := strings.TrimSpace(stringFromMap(payload, "thumbprint"))
+	preExisting, _ := payload["preExisting"].(bool)
+	if preExisting {
+		return actionExecutionResult{Success: true, Detail: map[string]any{
+			"thumbprint": strings.TrimSpace(stringFromMap(payload, "thumbprint")),
+			"rolledBack": false,
+			"skipped":    true,
+			"reason":     "pre_existing",
+		}}
+	}
+	thumbprint := normalizeWindowsCertificateFingerprint(stringFromMap(payload, "thumbprint"))
 	if thumbprint == "" {
-		return windowsCertificateActionError("TASK_PAYLOAD_INVALID", errors.New("thumbprint is required"))
+		thumbprint = normalizeWindowsCertificateFingerprint(stringFromMap(payload, "fingerprintSha256"))
+	}
+	if thumbprint == "" {
+		return windowsCertificateActionError("TASK_PAYLOAD_INVALID", errors.New("thumbprint or fingerprintSha256 is required"))
 	}
 	if output, err := exec.CommandContext(ctx, "certutil.exe", "-delstore", "Root", thumbprint).CombinedOutput(); err != nil {
 		return windowsCertificateActionError("TRUST_ROLLBACK_FAILED", fmt.Errorf("certutil delstore failed: %s", strings.TrimSpace(string(output))))
 	}
 	return actionExecutionResult{Success: true, Detail: map[string]any{"thumbprint": thumbprint, "rolledBack": true}}
+}
+
+type windowsRootCertificateInspection struct {
+	certificate *x509.Certificate
+	pem         string
+	err         error
+}
+
+func inspectWindowsRootCertificate(ctx context.Context, thumbprint string) windowsRootCertificateInspection {
+	script := fmt.Sprintf("$cert = Get-ChildItem Cert:\\LocalMachine\\Root | Where-Object { $_.Thumbprint -eq '%s' } | Select-Object -First 1; if ($null -eq $cert) { exit 0 }; [Convert]::ToBase64String($cert.RawData)", thumbprint)
+	output, err := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput()
+	if err != nil {
+		return windowsRootCertificateInspection{err: fmt.Errorf("powershell root store inspect failed: %s", strings.TrimSpace(string(output)))}
+	}
+	encoded := strings.TrimSpace(string(output))
+	if encoded == "" {
+		return windowsRootCertificateInspection{}
+	}
+	der, err := b64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return windowsRootCertificateInspection{err: err}
+	}
+	certificate, err := x509.ParseCertificate(der)
+	if err != nil {
+		return windowsRootCertificateInspection{err: err}
+	}
+	return windowsRootCertificateInspection{
+		certificate: certificate,
+		pem:         string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate.Raw})),
+	}
+}
+
+func normalizeWindowsCertificateFingerprint(value string) string {
+	normalized := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(value), ":", ""))
+	if len(normalized) != 64 {
+		return ""
+	}
+	return normalized
 }
 
 func parseWindowsCertificate(data []byte) (*x509.Certificate, error) {

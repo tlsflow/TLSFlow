@@ -703,6 +703,7 @@ func newLinuxActionRegistry(runtime *linuxActionRuntime) *coreRegistry.Registry 
 		{ActionType: "certificate.install_issued", SchemaVersion: "1.0", Execute: linuxInstallIssuedCertificate},
 		{ActionType: "certificate.key.retire", SchemaVersion: "1.0", Execute: linuxRetireCertificateKey},
 		{ActionType: "certificate.trust.install", SchemaVersion: "1.0", Execute: linuxInstallCertificateTrust},
+		{ActionType: "certificate.trust.inspect", SchemaVersion: "1.0", Execute: linuxInspectCertificateTrust},
 		{ActionType: "certificate.trust.rollback", SchemaVersion: "1.0", Execute: linuxRollbackCertificateTrust},
 	} {
 		mustRegisterAction(registry, handler)

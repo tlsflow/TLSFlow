@@ -26,6 +26,7 @@ import { PgCertificatesRepository } from '../../certificates/repository/certific
 import type { CertificateAssetEntity, CertificateVersionEntity } from '../../certificates/schema/certificates.schema.js';
 import type { AgentsRepository } from '../../agents/repository/agents.repository.js';
 import { PgAgentsRepository } from '../../agents/repository/agents.repository.js';
+import { AgentsApplicationService } from '../../agents/application/agents.application-service.js';
 import { DeploymentStrategyResolver } from './deployment-strategy-resolver.js';
 import { ExecutionSourceResolver } from './execution-source.resolver.js';
 import type { DeploymentArtifactSnapshotDto } from '../../executions/dto/executions.dto.js';
@@ -72,6 +73,7 @@ import { sanitizeDeploymentInputPersistencePayload } from '../../deployment-inpu
 import { readCertificateLocation } from '../../deployment-inputs/dto/certificate-location.dto.js';
 import { validateDiscoveredLocationConsistency } from '../../deployment-inputs/domain/deployment-input-consistency.js';
 import { canonicalize } from '../../../shared/canonical-json.js';
+import { CertificateTrustPlanService, type CertificateTrustPlanSnapshot } from '../../certificates/trust-roots/application/certificate-trust-plan.service.js';
 
 type ResolvedCreateTarget = CreateDeploymentPlanInput['targets'][number] & {
   certificateBindingId?: string;
@@ -122,6 +124,7 @@ export interface DeploymentPlansApplicationDependencies {
   bindings?: BindingsRepository;
   assets?: AssetsRepository;
   agents?: AgentsRepository;
+  agentsApp?: AgentsApplicationService;
   certificates?: CertificatesRepository;
   certificatesApp?: CertificatesApplicationService;
   deploymentStrategyResolver?: DeploymentStrategyResolver;
@@ -150,6 +153,7 @@ export class DeploymentPlansApplicationService {
   private readonly bindings: BindingsRepository;
   private readonly assets: AssetsRepository;
   private readonly agents: AgentsRepository;
+  private readonly agentsApp: AgentsApplicationService;
   private readonly certificates: CertificatesRepository;
   private readonly certificatesApp: CertificatesApplicationService;
   private readonly deploymentStrategyResolver: DeploymentStrategyResolver;
@@ -166,6 +170,7 @@ export class DeploymentPlansApplicationService {
   private readonly workflowExecutionBindings?: WorkflowExecutionBindingsService;
   private readonly deploymentInputSnapshotService = new DeploymentInputSnapshotService();
   private readonly deploymentInputSnapshots?: DeploymentInputSnapshotsRepository;
+  private readonly certificateTrustPlans: CertificateTrustPlanService;
 
   constructor(dependencies: DeploymentPlansApplicationDependencies = {}) {
     this.repository = dependencies.repository ?? new DeploymentPlansRepository();
@@ -177,6 +182,7 @@ export class DeploymentPlansApplicationService {
     this.assets = dependencies.assets ?? new PgAssetsRepository();
     this.bindings = dependencies.bindings ?? new PgBindingsRepository(this.assets);
     this.agents = dependencies.agents ?? new PgAgentsRepository();
+    this.agentsApp = dependencies.agentsApp ?? new AgentsApplicationService(this.agents);
     this.certificates = dependencies.certificates ?? new PgCertificatesRepository(new PgliteDatabase());
     this.certificatesApp = dependencies.certificatesApp ?? new CertificatesApplicationService({
       secrets: { resolveForService: async () => { throw new AppError('VALIDATION_FAILED', '未配置 Secrets 服务'); } } as never,
@@ -203,6 +209,10 @@ export class DeploymentPlansApplicationService {
     this.workflowExecutionBindings = dependencies.database
       ? new WorkflowExecutionBindingsService(new WorkflowExecutionBindingsRepository(dependencies.database))
       : undefined;
+    this.certificateTrustPlans = new CertificateTrustPlanService({
+      agents: this.agentsApp,
+      trustRoots: this.certificatesApp.getTrustRoots(),
+    });
   }
 
   getRepository(): DeploymentPlansRepository {
@@ -1341,6 +1351,7 @@ export class DeploymentPlansApplicationService {
     const running = await this.transitionPlan(plan, 'RUNNING', input.actorId, 'execution.started');
     const runtimeSnapshots = await this.resolveRunDeploymentInputRuntimeSnapshots(plan, targets);
     const agentPayloadByTargetId = await this.buildAgentPayloadByTargetIds(plan, targets, runtimeSnapshots);
+    const trustPlanByTargetId = await this.buildCertificateTrustPlanByTargetIds(plan, targets, agentPayloadByTargetId, input.actorId);
     for (const [targetId, payload] of agentPayloadByTargetId) {
       const workflowRequest = readRecord(payload.workflowRequest);
       const workflowVersionId = readOptionalString(workflowRequest?.workflowVersionId);
@@ -1348,6 +1359,7 @@ export class DeploymentPlansApplicationService {
       const allowInsecureTls = runtimeSnapshot?.resolvedDeploymentInput.variables.allowInsecureTls === true;
       agentPayloadByTargetId.set(targetId, {
         ...payload,
+        ...(trustPlanByTargetId.get(targetId) ? { certificateTrustPlan: trustPlanByTargetId.get(targetId) } : {}),
         executionAuthorization: {
           tenantId: plan.tenantId,
           planId: plan.id,
@@ -1391,11 +1403,13 @@ export class DeploymentPlansApplicationService {
     const runtimeSnapshots = await this.resolveRunDeploymentInputRuntimeSnapshots(plan, targets);
     const deploymentArtifactByTargetId = deploymentArtifactsFromRuntimeSnapshots(runtimeSnapshots);
     const agentPayloadByTargetId = await this.buildAgentPayloadByTargetIds(plan, targets, runtimeSnapshots);
+    const trustPlanByTargetId = await this.buildCertificateTrustPlanByTargetIds(plan, targets, agentPayloadByTargetId, input.actorId);
     for (const [targetId, payload] of agentPayloadByTargetId) {
       const runtimeSnapshot = runtimeSnapshots.get(targetId);
       const workflowRequest = readRecord(payload.workflowRequest);
       agentPayloadByTargetId.set(targetId, {
         ...payload,
+        ...(trustPlanByTargetId.get(targetId) ? { certificateTrustPlan: trustPlanByTargetId.get(targetId) } : {}),
         executionAuthorization: {
           tenantId: plan.tenantId,
           planId: plan.id,
@@ -1424,7 +1438,8 @@ export class DeploymentPlansApplicationService {
       failurePolicy: plan.policy.failurePolicy,
     }, context);
     const stepsWithInitialChecks = await this.attachInitialDryRunChecks(created.steps, targets, deploymentArtifactByTargetId, agentPayloadByTargetId, input.actorId, input.tenantId);
-    return { plan: await this.toDto(plan), ...created, steps: stepsWithInitialChecks };
+    const stepsWithTrustChecks = await this.attachTrustPlanDryRunChecks(stepsWithInitialChecks, trustPlanByTargetId, input.actorId, input.tenantId);
+    return { plan: await this.toDto(plan), ...created, steps: stepsWithTrustChecks };
   }
 
   async cancel(input: CancelDeploymentPlanInput, context: RequestContext = {}): Promise<DeploymentPlanDto> {
@@ -2021,6 +2036,45 @@ export class DeploymentPlansApplicationService {
     return output;
   }
 
+  private async buildCertificateTrustPlanByTargetIds(
+    plan: DeploymentPlanEntity,
+    targets: DeploymentPlanTargetEntity[],
+    agentPayloadByTargetId: Map<string, Record<string, unknown>>,
+    actorId: string,
+  ): Promise<Map<string, CertificateTrustPlanSnapshot>> {
+    const output = new Map<string, CertificateTrustPlanSnapshot>();
+    for (const target of targets) {
+      const agentPayload = agentPayloadByTargetId.get(target.id);
+      if (!agentPayload) continue;
+      const tenantId = target.tenantId ?? plan.tenantId;
+      if (!tenantId) continue;
+      const agentId = await this.resolveTrustInspectionAgentId(target, agentPayload, tenantId);
+      if (!agentId) continue;
+      const trustPlan = await this.certificateTrustPlans.build({
+        tenantId,
+        actorId,
+        agentId,
+        certificateVersionId: plan.certificateVersionId,
+        requestId: `deployment-plan:${plan.id}:target:${target.id}:trust`,
+      });
+      output.set(target.id, trustPlan.plan);
+    }
+    return output;
+  }
+
+  private async resolveTrustInspectionAgentId(
+    target: DeploymentPlanTargetEntity,
+    agentPayload: Record<string, unknown>,
+    tenantId: string,
+  ): Promise<string | undefined> {
+    const directAgentId = readOptionalString(agentPayload.agentId);
+    if (directAgentId) return directAgentId;
+    const managedTargetId = resolveRuntimeManagedTargetId(target);
+    if (!managedTargetId || !this.managedTargetContextResolver) return undefined;
+    const context = await this.managedTargetContextResolver.resolve(tenantId, managedTargetId);
+    return context.agent?.id ?? context.host.agentId;
+  }
+
   private async readTargetDeploymentInputRuntimeSnapshot(
     target: DeploymentPlanTargetEntity,
     tenantId: string,
@@ -2365,6 +2419,47 @@ export class DeploymentPlansApplicationService {
     return this.executions.listSteps({ tenantId, executionRunId: steps[0]?.executionRunId });
   }
 
+  private async attachTrustPlanDryRunChecks(
+    steps: ExecutionStepDto[],
+    trustPlanByTargetId: Map<string, CertificateTrustPlanSnapshot>,
+    actorId: string,
+    tenantId?: string,
+  ): Promise<ExecutionStepDto[]> {
+    if (!steps.length || trustPlanByTargetId.size === 0) return steps;
+
+    const updatedStepIds = new Set<string>();
+    for (const step of steps) {
+      if (step.stepType !== 'DISCOVER') continue;
+      const targetId = step.deploymentPlanTargetId;
+      if (!targetId) continue;
+      const trustPlan = trustPlanByTargetId.get(targetId);
+      if (!trustPlan) continue;
+
+      const resultDetail = readRecord(step.inputSnapshot.resultDetail) ?? {};
+      const existingChecks = Array.isArray(resultDetail.dryRunChecks)
+        ? resultDetail.dryRunChecks.filter((item): item is DeploymentPlanDryRunCheckDto => Boolean(item))
+        : [];
+      const checks = [...existingChecks, this.buildTrustPlanDryRunCheck(trustPlan)];
+      await this.executions.updateStepForTest(step.id, {
+        inputSnapshot: {
+          ...step.inputSnapshot,
+          resultDetail: {
+            ...resultDetail,
+            dryRunChecks: checks,
+            dryRunSummary: summarizeDryRunChecks(checks),
+            certificateTrustPlan: trustPlan,
+          },
+        },
+        updatedAt: new Date().toISOString(),
+        updatedBy: actorId,
+      }, tenantId);
+      updatedStepIds.add(step.id);
+    }
+
+    if (updatedStepIds.size === 0) return steps;
+    return this.executions.listSteps({ tenantId, executionRunId: steps[0]?.executionRunId });
+  }
+
   private async buildInitialDryRunChecks(
     target: DeploymentPlanTargetEntity,
     artifact: DeploymentArtifactSnapshotDto,
@@ -2418,6 +2513,35 @@ export class DeploymentPlansApplicationService {
       });
     }
     return checks;
+  }
+
+  private buildTrustPlanDryRunCheck(trustPlan: CertificateTrustPlanSnapshot): DeploymentPlanDryRunCheckDto {
+    if (trustPlan.decision === 'skip') {
+      return {
+        key: 'root_trust_already_present',
+        label: '目标宿主已信任根证书',
+        status: 'passed',
+        detail: '按目标根指纹定向检查后，宿主 Root Store 已包含该根证书，本次不会新增根信任阶段。',
+        evidence: {
+          agentId: trustPlan.agentId,
+          rootCertificateId: trustPlan.rootCertificateId,
+          fingerprintSha256: trustPlan.fingerprintSha256,
+          inspectionStatus: trustPlan.inspection.status,
+        },
+      };
+    }
+    return {
+      key: 'root_trust_install_required',
+      label: '目标宿主缺少根证书信任',
+      status: 'warning',
+      detail: '按目标根指纹定向检查后，宿主 Root Store 未找到该根证书；正式执行会先插入独立根信任阶段，再继续原有证书部署链。',
+      evidence: {
+        agentId: trustPlan.agentId,
+        rootCertificateId: trustPlan.rootCertificateId,
+        fingerprintSha256: trustPlan.fingerprintSha256,
+        inspectionStatus: trustPlan.inspection.status,
+      },
+    };
   }
 
   /**

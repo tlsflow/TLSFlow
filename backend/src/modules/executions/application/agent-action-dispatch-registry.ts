@@ -13,6 +13,7 @@ export interface AgentActionDispatchDescriptor {
   mode: AgentActionDispatchMode;
   kind: AgentActionResolutionKind;
   contract: AgentActionContract;
+  allowExecution?: boolean;
 }
 
 export interface AgentActionDispatchResolution {
@@ -22,6 +23,7 @@ export interface AgentActionDispatchResolution {
   kind: AgentActionResolutionKind;
   contract: AgentActionContract;
   aliased: boolean;
+  allowExecution: boolean;
 }
 
 export type RequiredAgentActionResolution =
@@ -63,6 +65,7 @@ export class AgentActionDispatchRegistry {
       kind: descriptor.kind,
       contract: { ...descriptor.contract, schemaVersions: [...descriptor.contract.schemaVersions] },
       aliased: normalizeActionType(requestedActionType) !== actionType,
+      allowExecution: descriptor.allowExecution === true,
     };
   }
 
@@ -74,7 +77,7 @@ export class AgentActionDispatchRegistry {
     if (requestedSchemaVersion && !resolution.contract.schemaVersions.includes(requestedSchemaVersion)) {
       return { ok: false, requestedActionType, errorCode: 'AGENT_ACTION_SCHEMA_UNSUPPORTED' };
     }
-    if (resolution.kind === 'DIRECT_STANDARD' && resolution.contract.riskBoundary === 'DEPLOYMENT') {
+    if (resolution.kind === 'DIRECT_STANDARD' && resolution.contract.riskBoundary === 'DEPLOYMENT' && !resolution.allowExecution) {
       return { ok: false, requestedActionType, errorCode: 'AGENT_ACTION_UNREGISTERED' };
     }
     return { ok: true, resolution };
@@ -95,6 +98,14 @@ export function defaultAgentActionDispatchDescriptors(): AgentActionDispatchDesc
       mode: 'direct_required',
       kind: 'ATOMIC_PLAN',
       contract: { schemaVersions: ['1.0'], riskBoundary: 'DEPLOYMENT', acceptsSecrets: false },
+    },
+    {
+      actionType: 'certificate.trust.install',
+      aliases: [],
+      mode: 'direct_required',
+      kind: 'DIRECT_STANDARD',
+      contract: { schemaVersions: ['1.0'], riskBoundary: 'DEPLOYMENT', acceptsSecrets: false },
+      allowExecution: true,
     },
   ];
 }

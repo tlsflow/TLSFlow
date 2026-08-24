@@ -857,7 +857,7 @@ func newDirectControlState(config *AgentConfig) *directControlState {
 		Enabled:          config.DirectControlEnabled,
 		Reachable:        false,
 		ProtocolVersion:  "v1",
-		SupportedActions: []string{"health", "discovery.run", "agent.capability.rescan", "agent.atomic_plan.execute"},
+		SupportedActions: []string{"health", "discovery.run", "agent.capability.rescan", "agent.atomic_plan.execute", "certificate.trust.inspect"},
 	}
 	if config.DirectControlEnabled {
 		state.ListenAddress = fmt.Sprintf("%s:%d", effectiveDirectControlAdvertiseHost(config), effectiveDirectControlListenPort(config))

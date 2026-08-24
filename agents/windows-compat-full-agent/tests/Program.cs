@@ -254,6 +254,7 @@ internal static class Tests
         string[] supportedActions = (string[])directControl["supportedActions"];
         Assert(Array.IndexOf(supportedActions, "agent.capability.rescan") >= 0, "注册请求未声明能力重扫 Direct Control 动作");
         Assert(Array.IndexOf(supportedActions, "agent.atomic_plan.execute") >= 0, "注册请求未声明 Atomic Plan Direct Control 动作");
+        Assert(Array.IndexOf(supportedActions, "certificate.trust.inspect") >= 0, "注册请求未声明根证书只读检查动作");
         Assert(Array.IndexOf(supportedActions, "certificate.deploy") < 0, "注册请求仍声明历史证书动作");
         Assert(Array.IndexOf(supportedActions, "windows.iis.deploy_certificate") < 0, "注册请求仍声明历史 IIS 证书动作");
     }
@@ -338,6 +339,7 @@ internal static class Tests
             string[] actions = new AgentRuntime(config).RegisteredActions();
             Assert(Array.IndexOf(actions, "agent.capability.rescan") >= 0, "运行时未注册手动重扫动作");
             Assert(Array.IndexOf(actions, "agent.atomic_plan.execute") >= 0, "运行时未注册 Atomic Plan 动作");
+            Assert(Array.IndexOf(actions, "certificate.trust.inspect") >= 0, "运行时未注册根证书只读检查动作");
             Assert(Array.IndexOf(actions, "certificate.deploy") < 0, "运行时仍注册历史证书动作");
             Assert(Array.IndexOf(actions, "windows.iis.deploy_certificate") < 0, "运行时仍注册 IIS 历史别名");
         }

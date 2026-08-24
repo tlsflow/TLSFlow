@@ -8,7 +8,9 @@ import { validateObject } from '../../../common/validation/schema-validation.js'
 import type { DatabasePort } from '../../../database/database-port.js';
 import type { SecuritySubject } from '../../../shared/security-types.js';
 import type { SecurityServices } from '../../security/security.controller.js';
+import type { CertificateVersionEventPublisher } from '../../automations/application/automation-event-delivery.service.js';
 import { certificateFormats, certificateSourceTypes } from '../schema/certificates.schema.js';
+import { rootCertificateSourceTypes } from '../trust-roots/schema/trust-roots.schema.js';
 import { CertificatesApplicationService } from '../application/certificates.application-service.js';
 import type { BindingsApplicationService } from '../../bindings/application/bindings.application-service.js';
 
@@ -19,10 +21,11 @@ export interface CertificateServices {
 
 export interface CreateCertificateServicesOptions {
   db?: DatabasePort;
+  versionEvents?: CertificateVersionEventPublisher;
 }
 
 export function createCertificateServices(security: SecurityServices, options: CreateCertificateServicesOptions = {}): CertificateServices {
-  return { certificates: new CertificatesApplicationService({ db: options.db, secrets: security.secrets, audit: security.audit }) };
+  return { certificates: new CertificatesApplicationService({ db: options.db, secrets: security.secrets, audit: security.audit, versionEvents: options.versionEvents }) };
 }
 
 export class CertificatesController {
@@ -53,6 +56,10 @@ export class CertificatesController {
     router.patch('/api/v1/certificate-version-formats', '更新证书格式产物记录', ['Certificates'], (request) => this.updateFormat(request));
     router.post('/api/v1/certificate-version-formats/delete', '删除证书格式产物记录', ['Certificates'], (request) => this.deleteFormat(request));
     router.post('/api/v1/certificate-sources/mock-sync', 'Mock 来源同步证书', ['Certificates'], (request) => this.syncFromSource(request));
+    router.get('/api/v1/certificate-trust-roots', '查询根证书库', ['Certificates'], (request) => this.listTrustRoots(request));
+    router.get('/api/v1/certificate-trust-roots/:id', '查询根证书详情', ['Certificates'], (request) => this.getTrustRootDetail(request));
+    router.post('/api/v1/certificate-trust-roots/import', '手动导入根证书', ['Certificates'], (request) => this.importTrustRoot(request));
+    router.post('/api/v1/certificate-trust-roots/discover', '按指纹发现根证书', ['Certificates'], (request) => this.discoverTrustRoot(request));
   }
 
   private async getFormatCapabilities(request: HttpRequest) {
@@ -456,6 +463,67 @@ export class CertificatesController {
     };
   }
 
+  private async listTrustRoots(request: HttpRequest) {
+    const subject = this.subjectFromRequest(request);
+    await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_version', request);
+    const query = parsePageQuery(request.query, {
+      allowedSortFields: ['fingerprintSha256', 'notAfter', 'createdAt', 'updatedAt', 'validationStatus'],
+      allowedFilterFields: ['fingerprintSha256', 'serialNumber', 'validationStatus'],
+    });
+    return this.services.certificates.getTrustRoots().listRoots(query);
+  }
+
+  private async getTrustRootDetail(request: HttpRequest) {
+    const subject = this.subjectFromRequest(request);
+    const tenantId = requireTenantId(request);
+    await this.assertCanAny(subject, ['certificate.read', 'certificate.asset.read'], 'certificate_version', request);
+    return this.services.certificates.getTrustRoots().getRootDetail(readTrustRootId(request), tenantId);
+  }
+
+  private async importTrustRoot(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      certificatePem: { type: 'string' },
+      certificateDerBase64: { type: 'string' },
+      certificateVersionId: { type: 'string' },
+      sourceRef: { type: 'string' },
+    });
+    const subject = this.subjectFromRequest(request);
+    const tenantId = requireTenantId(request);
+    await this.assertCan(subject, 'certificate.import', 'certificate_version', request);
+    return {
+      statusCode: 201,
+      body: await this.services.certificates.getTrustRoots().importRoot({
+        certificatePem: body.certificatePem === undefined ? undefined : String(body.certificatePem),
+        certificateDerBase64: body.certificateDerBase64 === undefined ? undefined : String(body.certificateDerBase64),
+        certificateVersionId: body.certificateVersionId === undefined ? undefined : String(body.certificateVersionId),
+        sourceRef: body.sourceRef === undefined ? undefined : String(body.sourceRef),
+        tenantId,
+        createdBy: subject.id,
+      }),
+    };
+  }
+
+  private async discoverTrustRoot(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      fingerprintSha256: { type: 'string' },
+      certificateVersionId: { type: 'string' },
+      allowedSources: { type: 'array' },
+    });
+    const subject = this.subjectFromRequest(request);
+    const tenantId = requireTenantId(request);
+    await this.assertCan(subject, 'certificate.import', 'certificate_version', request);
+    return {
+      statusCode: 200,
+      body: await this.services.certificates.getTrustRoots().discoverRoot({
+        fingerprintSha256: body.fingerprintSha256 === undefined ? undefined : String(body.fingerprintSha256),
+        certificateVersionId: body.certificateVersionId === undefined ? undefined : String(body.certificateVersionId),
+        allowedSources: readStringArray(body.allowedSources, 'allowedSources') as typeof rootCertificateSourceTypes[number][] | undefined,
+        tenantId,
+        createdBy: subject.id,
+      }),
+    };
+  }
+
   private async findUsages(request: HttpRequest, query: { certificateAssetId?: string; certificateVersionId?: string; fingerprintSha256?: string; domains?: string[] }): Promise<unknown[]> {
     if (!this.services.bindings) return [];
     const tenantId = requireTenantId(request);
@@ -650,6 +718,10 @@ export function getCertificateRouteContracts(): RouteContract[] {
     { method: 'PATCH', path: '/api/v1/certificate-version-formats', operationId: 'updateCertificateVersionFormat', summary: '更新证书格式产物记录', tags: ['Certificates'], responseSchema: certificateVersionFormatSchema },
     { method: 'POST', path: '/api/v1/certificate-version-formats/delete', operationId: 'deleteCertificateVersionFormat', summary: '删除证书格式产物记录', tags: ['Certificates'], responseSchema: certificateVersionFormatSchema },
     { method: 'POST', path: '/api/v1/certificate-sources/mock-sync', operationId: 'mockSyncCertificateSource', summary: 'Mock 来源同步证书', tags: ['Certificates'], responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/certificate-trust-roots', operationId: 'listCertificateTrustRoots', summary: '查询根证书库', tags: ['Certificates'], responseSchema: pageSchema },
+    { method: 'GET', path: '/api/v1/certificate-trust-roots/:id', operationId: 'getCertificateTrustRootDetail', summary: '查询根证书详情', tags: ['Certificates'], responseSchema: certificateVersionSchema },
+    { method: 'POST', path: '/api/v1/certificate-trust-roots/import', operationId: 'importCertificateTrustRoot', summary: '手动导入根证书', tags: ['Certificates'], responseSchema: certificateVersionSchema },
+    { method: 'POST', path: '/api/v1/certificate-trust-roots/discover', operationId: 'discoverCertificateTrustRoot', summary: '按指纹发现根证书', tags: ['Certificates'], responseSchema: certificateVersionSchema },
   ];
 }
 
@@ -657,6 +729,15 @@ function readRequiredId(request: HttpRequest): string {
   const bodyId = typeof request.body === 'object' && request.body !== null ? (request.body as Record<string, unknown>).id : undefined;
   const pathId = request.path.match(/^\/api\/v1\/certificate-(?:assets|versions)\/([^/]+)/)?.[1];
   const id = bodyId ?? request.query.id ?? pathId;
+  if (Array.isArray(id) || typeof id !== 'string' || id.trim() === '') {
+    throw new AppError('VALIDATION_FAILED', 'id 不能为空', { field: 'id' });
+  }
+  return id;
+}
+
+function readTrustRootId(request: HttpRequest): string {
+  const pathId = request.path.match(/^\/api\/v1\/certificate-trust-roots\/([^/]+)/)?.[1];
+  const id = request.query.id ?? pathId;
   if (Array.isArray(id) || typeof id !== 'string' || id.trim() === '') {
     throw new AppError('VALIDATION_FAILED', 'id 不能为空', { field: 'id' });
   }

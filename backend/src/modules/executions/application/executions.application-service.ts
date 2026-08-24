@@ -518,6 +518,51 @@ export class ExecutionsApplicationService {
       let previousStepNo: number | undefined;
       const targetExecutorType = executorTypeByTargetId.get(targetId);
       const agentPayload = persistentExecutionPayload(agentPayloadByTargetId?.get(targetId) ?? {});
+      const trustPlan = run.type === 'apply' ? readCertificateTrustPlan(agentPayload.certificateTrustPlan) : undefined;
+      if (trustPlan?.decision === 'install') {
+        const now = new Date().toISOString();
+        const trustStep = await this.repository.createStep({
+          id: newId('stp'),
+          tenantId: run.tenantId,
+          executionRunId: run.id,
+          deploymentPlanTargetId: targetId,
+          stepNo,
+          stepType: 'CUSTOM',
+          name: `TRUST_INSTALL ${targetId}`,
+          dependsOn: [],
+          idempotent: true,
+          attemptCount: 0,
+          maxAttempts: stepMaxAttempts,
+          inputSnapshot: {
+            ...agentPayload,
+            actionType: trustPlan.actionType,
+            actionSchemaVersion: trustPlan.actionSchemaVersion,
+            agentId: trustPlan.agentId,
+            certificatePem: trustPlan.certificatePem,
+            fingerprintSha256: trustPlan.fingerprintSha256,
+            trustStore: trustPlan.store,
+            deploymentPlanId: run.deploymentPlanId,
+            deploymentPlanTargetId: targetId,
+            executionRunId: run.id,
+            deploymentExecutorType: 'AGENT',
+            executorType: 'AGENT',
+            dryRun: false,
+            stepType: 'CUSTOM',
+            operation: 'install_trust_root',
+            retryBackoffSeconds: readRetryBackoff(run.summary),
+          },
+          status: 'PENDING',
+          createdAt: now,
+          updatedAt: now,
+          createdBy: actorId,
+          version: 1,
+        });
+        this.recordTransition('executionStep', trustStep.id, undefined, 'PENDING', 'step.created', actorId, run.tenantId);
+        this.detailStream?.publishStep(trustStep);
+        created.push(trustStep);
+        previousStepNo = stepNo;
+        stepNo += 1;
+      }
       const stepTypes = defaultStepTypes;
       for (const stepType of stepTypes) {
         const now = new Date().toISOString();
@@ -1117,6 +1162,43 @@ function readDeploymentInputSnapshotRef(
     });
   }
   return { snapshotId, revision: Number(ref.revision), resolvedSha256 };
+}
+
+function readCertificateTrustPlan(value: unknown): {
+  decision: 'skip' | 'install';
+  actionType: 'certificate.trust.install';
+  actionSchemaVersion: '1.0';
+  agentId: string;
+  fingerprintSha256: string;
+  certificatePem: string;
+  store: 'root';
+} | undefined {
+  const plan = readRecord(value);
+  const decision = readString(plan, 'decision');
+  const actionType = readString(plan, 'actionType');
+  const actionSchemaVersion = readString(plan, 'actionSchemaVersion');
+  const agentId = readString(plan, 'agentId');
+  const fingerprintSha256 = readString(plan, 'fingerprintSha256');
+  const certificatePem = readString(plan, 'certificatePem');
+  const store = readString(plan, 'store');
+  if ((decision !== 'skip' && decision !== 'install')
+    || actionType !== 'certificate.trust.install'
+    || actionSchemaVersion !== '1.0'
+    || !agentId
+    || !fingerprintSha256
+    || !certificatePem
+    || store !== 'root') {
+    return undefined;
+  }
+  return {
+    decision,
+    actionType,
+    actionSchemaVersion: '1.0',
+    agentId,
+    fingerprintSha256,
+    certificatePem,
+    store: 'root',
+  };
 }
 
 function readSourceExecutorTypes(

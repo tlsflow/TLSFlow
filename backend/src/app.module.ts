@@ -99,7 +99,7 @@ import {
 } from './persistence/core-persistence.js';
 import { PgDocumentRepository } from './persistence/repositories/pg-document-repository.js';
 import { createDeploymentPersistenceRepositories, type DeploymentPersistenceOptions } from './persistence/repositories/deployment-persistence-factory.js';
-import { AutomationsApplicationService, AutomationConfiguredActionExecutor, AutomationDeploymentActionService, AutomationNotificationActionService, AutomationRunCoordinator, AutomationScheduler, AutomationTargetSelector, AutomationsController, AutomationsRepository, DeploymentPlansAutomationAdapter, FakeNotificationPort, getAutomationRouteContracts } from './modules/automations/index.js';
+import { AutomationsApplicationService, AutomationApprovalOrchestrator, AutomationConfiguredActionExecutor, AutomationDeploymentActionService, AutomationEventDeliveryService, AutomationFilterEvaluator, AutomationNotificationActionService, AutomationRunCoordinator, AutomationScheduler, AutomationTargetResolverRegistry, AutomationTargetSelector, AutomationTriggerRegistry, AutomationsController, AutomationsRepository, CertificateVersionTargetResolver, DeferredCertificateVersionEventPublisher, DeploymentPlansAutomationAdapter, FakeNotificationPort, getAutomationRouteContracts, AllowAllAutomationTargetAccess } from './modules/automations/index.js';
 import { getEditionLicensingRouteContracts, registerEditionLicensing } from './edition/licensing.js';
 import { PostgresHttp01Responder } from './modules/internal-ca/challenges/postgres-http-01.responder.js';
 import { Http01ChallengeAdapter } from './modules/internal-ca/challenges/http-01.adapter.js';
@@ -184,7 +184,11 @@ export function createApp(dependencies: AppDependencies = {}): App {
     ...(dependencies.gatewayPersistence ?? {}),
     db: appDb,
   });
-  const certificateServices = dependencies.certificates ?? createCertificateServices(security, { db: appDb });
+  const certificateVersionEventPublisher = new DeferredCertificateVersionEventPublisher();
+  const certificateServices = dependencies.certificates ?? createCertificateServices(security, {
+    db: appDb,
+    versionEvents: certificateVersionEventPublisher,
+  });
   const internalCaService = new InternalCaApplicationService({
     db: appDb,
     secrets: security.secrets,
@@ -459,6 +463,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     assets: assetsService.getRepository(),
     bindings: bindingsService.getRepository(),
     agents: agentsService.getRepository(),
+    agentsApp: agentsService,
     deviceAssets: deviceAssetsRepository,
     certificates: certificateServices.certificates.getRepository(),
     certificatesApp: certificateServices.certificates,
@@ -534,20 +539,55 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('acmeRepository', acmeRepository);
 
   const automationsRepository = new AutomationsRepository(appDb);
+  const automationTriggerRegistry = new AutomationTriggerRegistry();
+  const automationFilterEvaluator = new AutomationFilterEvaluator();
+  const automationResolverRegistry = new AutomationTargetResolverRegistry();
   const automationTargetSelector = new AutomationTargetSelector(
     certificateServices.certificates.getRepository(),
     bindingsService.getRepository(),
     assetsService.getRepository(),
   );
-  const automationsService = new AutomationsApplicationService(automationsRepository, undefined, undefined, automationTargetSelector);
+  automationResolverRegistry.register(new CertificateVersionTargetResolver(
+    certificateServices.certificates.getRepository(),
+    bindingsService.getRepository(),
+    assetsService.getRepository(),
+    new AllowAllAutomationTargetAccess(),
+  ));
+  const automationApprovalOrchestrator = new AutomationApprovalOrchestrator(
+    security.approvals,
+    automationsRepository,
+  );
+  const automationsService = new AutomationsApplicationService(
+    automationsRepository,
+    undefined,
+    undefined,
+    automationTargetSelector,
+    {
+      triggerRegistry: automationTriggerRegistry,
+      filterEvaluator: automationFilterEvaluator,
+      resolverRegistry: automationResolverRegistry,
+      approvalOrchestrator: automationApprovalOrchestrator,
+      tasks: tasksService,
+    },
+  );
+  const automationEventDelivery = new AutomationEventDeliveryService(
+    automationsRepository,
+    automationsService,
+    automationTriggerRegistry,
+    tasksService,
+  );
+  certificateVersionEventPublisher.setDelegate(automationEventDelivery);
   const automationDeployment = new AutomationDeploymentActionService(new DeploymentPlansAutomationAdapter(deploymentPlans.getApplicationService()));
   const automationNotifications = new AutomationNotificationActionService(new FakeNotificationPort());
   const automationCoordinator = new AutomationRunCoordinator(
     automationsRepository,
     new AutomationConfiguredActionExecutor(automationDeployment, automationNotifications),
+    undefined,
+    automationApprovalOrchestrator,
   );
   const automationScheduler = new AutomationScheduler(automationsRepository, automationsService, automationCoordinator, undefined, undefined, tasksService);
   app.setResource('automationScheduler', automationScheduler);
+  app.setResource('automationEventDelivery', automationEventDelivery);
   new AssetsController(security, assetsService, new ApplicationAssetExecutionService(appDb)).register(app.router);
   const bindingsController = new BindingsController(assetsService, bindingsService, security);
   bindingsController.register(app.router);
@@ -710,6 +750,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     internalCa: internalCaService,
     automation: automationScheduler,
     automationRuns: automationsService,
+    automationEvents: automationEventDelivery,
     monitors: monitorsService,
     notifications: notificationWorker,
     reports: reportExportService,
