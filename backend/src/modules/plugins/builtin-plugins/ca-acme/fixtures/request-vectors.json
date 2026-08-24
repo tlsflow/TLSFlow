@@ -1,8 +1,0 @@
-{
-  "apiVersion": "gcac.ca-fixture/v1",
-  "pluginId": "ca.acme",
-  "pluginVersion": "1.0.0",
-  "capabilityOwnership": { "account": "ca.acme", "order": "ca.acme", "challengeOrchestration": "ca.acme", "dnsSolver": "ca.acme-dns" },
-  "operations": ["account.ensure", "order.create", "order.poll", "order.finalize", "challenge.prepare", "challenge.poll", "certificate.renew", "certificate.revoke", "operation.recover"],
-  "negativeCases": ["solver-ownership-violation", "missing-token", "network-timeout", "async-failure", "unknown-write-result", "secret-leak"]
-}

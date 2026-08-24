@@ -1,7 +1,0 @@
-{
-  "apiVersion": "gcac.workflow/v1",
-  "kind": "CurlSshWorkflow",
-  "metadata": { "name": "ca-acme-order-revoke", "version": "1.0.0" },
-  "inputContract": { "apiVersion": "gcac.deployment-input/v1", "variables": { "operation": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" }, "certificatePem": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" } }, "connections": {}, "credentials": {}, "artifacts": {} },
-  "steps": [{ "name": "revoke-operation", "type": "wait", "stage": "execute", "seconds": 1 }]
-}

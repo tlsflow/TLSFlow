@@ -1,8 +1,0 @@
-{
-  "apiVersion": "gcac.ca-discovery/v1",
-  "kind": "CaDiscovery",
-  "authority": { "stableKey": "ca:acme-dns", "displayNameKey": "plugin.ca.acmeDns.name", "profile": "control-plane.ca" },
-  "capabilities": ["ca.challenge.dns-solver"],
-  "executionLocations": ["CONTROL_PLANE"],
-  "warnings": []
-}

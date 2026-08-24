@@ -1,7 +1,0 @@
-{
-  "apiVersion": "gcac.workflow/v1",
-  "kind": "CurlSshWorkflow",
-  "metadata": { "name": "ca-acme-dns-solver", "version": "1.0.0" },
-  "inputContract": { "apiVersion": "gcac.deployment-input/v1", "variables": { "operation": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" }, "recordName": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" }, "recordValue": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" } }, "connections": {}, "credentials": {}, "artifacts": {} },
-  "steps": [{ "name": "dns-solver-operation", "type": "wait", "stage": "execute", "seconds": 1 }]
-}

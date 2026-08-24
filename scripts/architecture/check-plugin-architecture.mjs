@@ -86,10 +86,7 @@ const canonicalPluginIds = new Set([
   'cloud.tencent',
   'cloud.huawei',
   'cloud.volcengine',
-  'ca.openssl',
-  'ca.acme',
   'ca.microsoft-adcs',
-  'ca.acme-dns',
 ]);
 const fixturePluginIdPattern = /^(?:fixture|test)\.[a-z0-9-]+(?:\.[a-z0-9-]+)*$/;
 const productIdentifierPattern = /(?:iis|nginx|apache|httpd|tomcat|rabbitmq|citrix|netscaler|synology|aliyun|tencent|huawei|volcengine|openssl|acme|adcs|dns|java[-_. ]?keystore)/i;
@@ -213,6 +210,15 @@ function isHostCodePath(path) {
 }
 function isHostSemanticCodePath(path) {
   return isHostCodePath(path) && !isTranslationResourcePath(path);
+}
+/**
+ * ACME、LEGO DNS Solver 与 OpenSSL 内置 CA 是宿主证书运行时。
+ * 这里仅豁免其实现目录和组合根；外部 CA 仍必须通过 PluginVersion 绑定。
+ */
+function isNativeCaRuntimePath(path) {
+  const normalizedPath = normalizePath(path);
+  return normalizedPath.startsWith('backend/src/modules/internal-ca/')
+    || normalizedPath === 'backend/src/app.module.ts';
 }
 function isRunnerExecutorLoaderPath(path) {
   return normalizePath(path) === 'backend/src/modules/plugins/runner/plugin-runner-executor.ts';
@@ -826,6 +832,7 @@ export function scanPluginArchitectureSource(path, source) {
   const sourceFile = ts.createSourceFile(normalizedPath, script, ts.ScriptTarget.Latest, true, kind);
   const findings = scanTextArchitectureRules(normalizedPath, source);
   const hostCodePath = isHostSemanticCodePath(normalizedPath);
+  const hostVendorDispatchPath = hostCodePath && !isNativeCaRuntimePath(normalizedPath);
   const pluginCodePath = isBuiltinPluginPath(normalizedPath);
   const bindingScopePath = isProductionContractPath(normalizedPath) && !isTranslationResourcePath(normalizedPath);
   const moduleLoadAliases = collectModuleLoadAliases(sourceFile);
@@ -849,12 +856,12 @@ export function scanPluginArchitectureSource(path, source) {
       if (!method) add('HOST_API_DYNAMIC_METHOD', node, 'Host API 方法必须使用可审计的已登记固定名称，不得动态拼接');
       else if (!registeredHostApiMethods.has(method)) add('HOST_API_UNREGISTERED_METHOD', node, 'Host API 方法未在 Registry 登记，必须失败关闭');
     }
-    if (hostCodePath && isImplementationConstructor(node)) add('HOST_VENDOR_DISPATCH', node, '宿主不得构造厂商专用实现');
-    if (hostCodePath && isVendorDispatchTable(node, sourceFile)) add('HOST_VENDOR_DISPATCH', node, '宿主不得用厂商映射表选择实现');
-    if (hostCodePath && isProductCatalogArray(node, sourceFile)) add('HOST_VENDOR_DISPATCH', node, '宿主不得维护封闭的产品或运行时目录');
+    if (hostVendorDispatchPath && isImplementationConstructor(node)) add('HOST_VENDOR_DISPATCH', node, '宿主不得构造厂商专用实现');
+    if (hostVendorDispatchPath && isVendorDispatchTable(node, sourceFile)) add('HOST_VENDOR_DISPATCH', node, '宿主不得用厂商映射表选择实现');
+    if (hostVendorDispatchPath && isProductCatalogArray(node, sourceFile)) add('HOST_VENDOR_DISPATCH', node, '宿主不得维护封闭的产品或运行时目录');
     if (hostCodePath && isProductOperationContract(node, sourceFile)) add('HOST_PRODUCT_OPERATION_CONTRACT', node, '插件 Operation 与权限范围必须使用开放标识并由 Agent 能力校验');
     if (hostCodePath && isProductCapabilityCatalogCall(node, sourceFile)) add('HOST_PRODUCT_CAPABILITY_CATALOG', node, '产品能力定义必须由插件贡献，宿主只保留通用能力');
-    if (hostCodePath && isSelectionNode(node)) {
+    if (hostVendorDispatchPath && isSelectionNode(node)) {
       const values = collectStringLiterals(node);
       const text = textOf(node, sourceFile);
       if (values.some(containsProduct) && /(?:providerType|deviceFamily|frameworkType|pluginId|productId|actionType|\.kind|\.type)/.test(text)) {

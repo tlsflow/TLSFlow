@@ -1,8 +1,0 @@
-{
-  "apiVersion": "gcac.ca-sandbox/v1",
-  "kind": "DnsSolverSandbox",
-  "mode": "development-only",
-  "providerKey": "fixture.dns",
-  "propagation": { "initial": "PENDING", "success": "PROPAGATED", "failure": "TIMEOUT" },
-  "network": "fixture-or-test-resolver"
-}

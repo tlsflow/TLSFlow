@@ -1,7 +1,0 @@
-{
-  "apiVersion": "gcac.ca-fixture/v1",
-  "pluginId": "ca.openssl",
-  "pluginVersion": "1.0.0",
-  "operations": ["create", "issue", "renew", "revoke", "recover"],
-  "negativeCases": ["missing-security", "invalid-csr", "deadline-expired", "unknown-write-result", "secret-leak"]
-}

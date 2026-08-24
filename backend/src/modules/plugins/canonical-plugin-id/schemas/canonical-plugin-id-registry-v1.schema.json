@@ -38,10 +38,7 @@
         "cloud.tencent",
         "cloud.huawei",
         "cloud.volcengine",
-        "ca.openssl",
-        "ca.acme",
-        "ca.microsoft-adcs",
-        "ca.acme-dns"
+        "ca.microsoft-adcs"
       ]
     },
     "entry": {

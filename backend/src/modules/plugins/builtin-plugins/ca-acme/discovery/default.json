@@ -1,8 +1,0 @@
-{
-  "apiVersion": "gcac.ca-discovery/v1",
-  "kind": "CaDiscovery",
-  "authority": { "stableKey": "ca:acme", "displayNameKey": "plugin.ca.acme.name", "profile": "control-plane.ca" },
-  "capabilities": ["ca.account.manage", "ca.order.manage", "ca.challenge.orchestrate"],
-  "executionLocations": ["CONTROL_PLANE"],
-  "warnings": []
-}

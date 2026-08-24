@@ -1,8 +1,0 @@
-{
-  "apiVersion": "gcac.ca-discovery/v1",
-  "kind": "CaDiscovery",
-  "authority": { "stableKey": "ca:openssl", "displayNameKey": "plugin.ca.openssl.name", "profile": "control-plane.ca" },
-  "capabilities": ["ca.certificate.issue", "ca.certificate.renew", "ca.certificate.revoke"],
-  "executionLocations": ["CONTROL_PLANE"],
-  "warnings": []
-}

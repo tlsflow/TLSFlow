@@ -19,10 +19,7 @@ export const canonicalPluginIds = [
   'cloud.tencent',
   'cloud.huawei',
   'cloud.volcengine',
-  'ca.openssl',
-  'ca.acme',
   'ca.microsoft-adcs',
-  'ca.acme-dns',
 ] as const;
 
 export type CanonicalPluginId = typeof canonicalPluginIds[number];
@@ -75,10 +72,7 @@ export const canonicalPluginIdRegistry: CanonicalPluginIdRegistryV1 = {
     entry('cloud.tencent', 'plugins.canonical.cloudTencent', ['control-plane.cloud']),
     entry('cloud.huawei', 'plugins.canonical.cloudHuawei', ['control-plane.cloud']),
     entry('cloud.volcengine', 'plugins.canonical.cloudVolcengine', ['control-plane.cloud']),
-    entry('ca.openssl', 'plugins.canonical.caOpenssl', ['control-plane.ca']),
-    entry('ca.acme', 'plugins.canonical.caAcme', ['control-plane.ca']),
     entry('ca.microsoft-adcs', 'plugins.canonical.caMicrosoftAdcs', ['control-plane.ca', 'windows.agent_plan.adcs']),
-    entry('ca.acme-dns', 'plugins.canonical.caAcmeDns', ['control-plane.ca']),
   ],
 };
 
@@ -91,7 +85,7 @@ export function validateCanonicalPluginIdRegistry(input: unknown): CanonicalPlug
     fail('$.registryVersion', '版本日期格式不合法');
   }
   const entries = array(registry.entries, '$.entries');
-  if (entries.length !== canonicalPluginIds.length) fail('$.entries', '必须完整覆盖 17 个 Canonical Plugin ID');
+  if (entries.length !== canonicalPluginIds.length) fail('$.entries', '必须完整覆盖当前 Canonical Plugin ID');
   const actualIds = new Set<string>();
   const displayKeys = new Set<string>();
   for (const [index, rawEntry] of entries.entries()) {

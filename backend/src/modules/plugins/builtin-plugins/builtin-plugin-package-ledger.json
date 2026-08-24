@@ -82,44 +82,6 @@
       "runtimeEntrypoint": "runtime/index.js"
     },
     {
-      "pluginId": "ca.acme",
-      "version": "1.0.0",
-      "packageSha256": "sha256:5237750b967ccd165d0228dd2d0db8d3d14ac86f45240088383e42d058ec74a2",
-      "manifestSha256": "sha256:5b8f5715664abc14669bcd29269b67b11c54c82a4479c44e6404d515daa6bc4f",
-      "resourceSha256": {
-        "forms/acme.json": "sha256:23229da10eec751176df0374086fd52856c09679c7ece3c2279ce46e32061caf",
-        "locales/en-US.json": "sha256:9107020657e11e13032a75b0642fc2a32f646e328d71d7b3da4e4acdbcee0533",
-        "locales/zh-CN.json": "sha256:c1de472be8fbca819b783387cc9f14ef38f0b8b13e1b9c98b2952125a64fd3bc",
-        "presentations/account.json": "sha256:940fbcf9d641d09be28026b399459006c9be9cae9907335e53cc7d80c2c1117e",
-        "presentations/challenge.json": "sha256:90feb9e32fb5e1d6b1e1aa837abc8aa6c6fb16e661e6cd2159cf61ec6dfb20d2",
-        "presentations/order.json": "sha256:3869442af822ddb93744f3a2f5e39c987017442971607d018d1e2f31122edd67",
-        "runtime/index.js": "sha256:85a20cf651262e8596fb621ef9aba3a17628a56101a23ac12d7bacc99994ee78",
-        "workflows/account.json": "sha256:80cd2b8ef62d91c0258268e675713b34a3559a302f22a53523beae3c25a626a5",
-        "workflows/challenge.json": "sha256:d5a44d5519ad2b75570d33177800dffcd5892d53062f1bc769abbe7e057a9a48",
-        "workflows/issue.json": "sha256:9b25bec86ba386924f6643e871cab0ef6075b0d6bdacc6d395baecdb3403182a",
-        "workflows/renew.json": "sha256:ec00f9d37220cafcede69fa59383d8318e96b68d1e7d7a4d7a3df37fbc812065",
-        "workflows/revoke.json": "sha256:89402616a697946fa462a8669dfd6786ef66cd32ade1ee9435ee14da15e12cb8"
-      },
-      "resourceHash": "sha256:cc55852d072b878fe2381f85ca24d09b61904e248a4d4b74f21acdbbbbf45771",
-      "runtimeEntrypoint": "runtime/index.js"
-    },
-    {
-      "pluginId": "ca.acme-dns",
-      "version": "1.0.0",
-      "packageSha256": "sha256:48e7f25aaa949657bc0d5692afc6b209a50adaa8cfebcc1e99e516987ab15a97",
-      "manifestSha256": "sha256:fb90bb35f11f6b1154f69619670c3e5c379ea1e806654f2d70dbc01bad2bac98",
-      "resourceSha256": {
-        "forms/dns-solver.json": "sha256:7a377dfb2863fa0c4a98cefee1df064e164d322a7b940e431cb55acd8aa322c1",
-        "locales/en-US.json": "sha256:e2eedac188922a861a5a38639a10be16be4affc1aeee0b32d150d5c6fa3f6789",
-        "locales/zh-CN.json": "sha256:8a7a57d14a41f5bbaf756a4a16c0da38274e4972d18f212a6d19ca82e2c9be36",
-        "presentations/dns-challenge.json": "sha256:1d4ac97ccf8b69b7d0acf034405294d1828b6c1f70a7654459a05eef21970d1a",
-        "runtime/index.js": "sha256:00ea5dcb9d372d7803a1f63c036511cd33e377f646a0777a921c71def5cfb221",
-        "workflows/solve.json": "sha256:ed38e231a1d08ae05907b66d49fc5bd63854aecfb9f30489ff7a032773044dbe"
-      },
-      "resourceHash": "sha256:9fef147b0b7327682515d2c48ddaaf47b2fcc29bad46526743e9f2b5b8f9116a",
-      "runtimeEntrypoint": "runtime/index.js"
-    },
-    {
       "pluginId": "ca.microsoft-adcs",
       "version": "1.0.0",
       "packageSha256": "sha256:8c0a4212cac7fc35bd5cf9a2e40626582aa30c79f70ebc45c123f2993c565f26",
@@ -136,25 +98,6 @@
         "workflows/revoke.json": "sha256:103a697a2954ba984da850a3f5762bba3c4515e1021e1388589d6ee0c22db471"
       },
       "resourceHash": "sha256:3bf3b9e73745692b03af1e03d13c943bb6a6d9f6d3a31528939ecc957d64bc61",
-      "runtimeEntrypoint": "runtime/index.js"
-    },
-    {
-      "pluginId": "ca.openssl",
-      "version": "1.0.0",
-      "packageSha256": "sha256:a96ff1d8985e691839d1dee91f51b4bd0a12ea19157ef13bd343932da699f0bb",
-      "manifestSha256": "sha256:bc72e4338dd9aaddd001df5393198c6e0b0aa97bef6759cb38bae2990398313f",
-      "resourceSha256": {
-        "forms/certificate-request.json": "sha256:8ad2747e4cdac627bff9850019924a0c4bee1ec353e452f4a7f43d4356ad9cd5",
-        "locales/en-US.json": "sha256:0ffb670c508347a84e10a24cb08e9d3b3256cf6a4fe4ad9d8713f6ba0f61684f",
-        "locales/zh-CN.json": "sha256:05d861f89cf95a7ea984a3f9b62c1a38ace355374deeaae06b5ad07421ef745c",
-        "presentations/certificate-authority.json": "sha256:c11ec6d20c71871de1ec5cfa7441e0289948a10388c9d27c63d6c87ad2c49867",
-        "presentations/certificate.json": "sha256:7ee795f0d5315e52e08cf0161a89b91a48f1744cfe922cad35256e47d5b12baf",
-        "runtime/index.js": "sha256:7c160b9fd3fda18fb0b2a9e7d632ffeb137cf9ee4a4e3f40c6656e08e631e78a",
-        "workflows/issue.json": "sha256:d2022c9058f50394e47ffccc32f3611393cf6af0694d39cd8c81c5f8727d123d",
-        "workflows/renew.json": "sha256:1f8accefd185943ac1c2bbf4cdbc872b85921add8e2010c94e36e5eb93964c50",
-        "workflows/revoke.json": "sha256:47c2406e45470014ee8a836707dda09e2d18e107e30cc8b04fbe506119910afd"
-      },
-      "resourceHash": "sha256:a2aede042b4c375bd3ee89a454c32b801e3eb276aa2d86488a4fde8c6529b0b0",
       "runtimeEntrypoint": "runtime/index.js"
     },
     {

@@ -16,9 +16,6 @@
     { "canonicalId": "cloud.tencent", "displayKey": "plugins.canonical.cloudTencent", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.cloud"] },
     { "canonicalId": "cloud.huawei", "displayKey": "plugins.canonical.cloudHuawei", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.cloud"] },
     { "canonicalId": "cloud.volcengine", "displayKey": "plugins.canonical.cloudVolcengine", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.cloud"] },
-    { "canonicalId": "ca.openssl", "displayKey": "plugins.canonical.caOpenssl", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.ca"] },
-    { "canonicalId": "ca.acme", "displayKey": "plugins.canonical.caAcme", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.ca"] },
-    { "canonicalId": "ca.microsoft-adcs", "displayKey": "plugins.canonical.caMicrosoftAdcs", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.ca", "windows.agent_plan.adcs"] },
-    { "canonicalId": "ca.acme-dns", "displayKey": "plugins.canonical.caAcmeDns", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.ca"] }
+    { "canonicalId": "ca.microsoft-adcs", "displayKey": "plugins.canonical.caMicrosoftAdcs", "executionMode": "isolated_process", "supportedPlatformProfiles": ["control-plane.ca", "windows.agent_plan.adcs"] }
   ]
 }
