@@ -80,7 +80,7 @@ export type PluginVersionRecord = {
   readonly "packageSha256": string
   readonly "resourceSha256": Record<string, string>
   readonly "source": "BUILTIN" | "USER"
-  readonly "runtime": string
+  readonly "runtime": "AGENT_PLAN" | "WORKFLOW_DSL"
   readonly "scope": "MANAGED" | "STANDALONE" | "BOTH"
   readonly "trust": string
   readonly "support": string
@@ -94,7 +94,7 @@ export type PluginVersionRecord = {
   readonly "logoUrl"?: string
   readonly "defaultLocale"?: string
   readonly "publisher": string
-  readonly "runtime": string
+  readonly "runtime": "AGENT_PLAN" | "WORKFLOW_DSL"
   readonly "source": "BUILTIN" | "USER"
   readonly "scope": "MANAGED" | "STANDALONE" | "BOTH"
   readonly "trust": "OFFICIAL_SIGNED" | "USER_SIGNED" | "UNSIGNED"
@@ -117,6 +117,7 @@ export type PluginVersionRecord = {
   readonly "artifactContracts"?: ReadonlyArray<string>
 }
   readonly "resources": {
+  readonly "agentPlans"?: Record<string, string>
   readonly "workflows"?: Record<string, string>
   readonly "forms"?: Record<string, string>
   readonly "presentations"?: Record<string, string>

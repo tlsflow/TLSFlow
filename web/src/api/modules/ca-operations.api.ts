@@ -70,6 +70,12 @@ export interface CaSyncRun {
   completedAt?: string
 }
 
+export interface CaSyncRunsResponse {
+  items: CaSyncRun[]
+}
+
+export type CaSyncRunsPayload = CaSyncRun[] | CaSyncRunsResponse
+
 export interface ListCaOperationRecordsQuery {
   caId: string
   view: CaOperationObjectType
@@ -77,6 +83,10 @@ export interface ListCaOperationRecordsQuery {
   query?: string
   cursor?: string
   limit?: number
+}
+
+export function normalizeCaSyncRuns(payload: CaSyncRunsPayload | undefined): CaSyncRun[] {
+  return Array.isArray(payload) ? payload : payload?.items ?? []
 }
 
 function queryPath(path: string, query: Record<string, string | number | string[] | undefined>): string {
@@ -98,5 +108,5 @@ export const caOperationsApi = {
   record: (recordKey: string) => apiClient.get<CaOperationRecord>(toClientPath(`/api/v1/ca-operations/records/${encodeURIComponent(recordKey)}`)),
   createSyncRuns: (body: { providerId: string; caId: string; objectTypes: CaOperationObjectType[]; mode: 'incremental' | 'full'; confirmed?: boolean }) =>
     apiClient.post<CaSyncRun[]>(toClientPath('/api/v1/ca-operations/sync-runs'), body, { idempotencyKey: createIdempotencyKey('ca_operations_sync') }),
-  syncRuns: (caId?: string) => apiClient.get<CaSyncRun[]>(queryPath('/api/v1/ca-operations/sync-runs', { caId })),
+  syncRuns: (caId?: string) => apiClient.get<CaSyncRunsPayload>(queryPath('/api/v1/ca-operations/sync-runs', { caId })),
 }

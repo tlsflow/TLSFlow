@@ -2,10 +2,11 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { caOperationsApi, type CaOperationObjectType, type CaOperationRecord, type CaOperationsTree, type CaOperationsTreeAuthority, type CaSyncRun } from '@/api/modules/ca-operations.api'
+import { caOperationsApi, normalizeCaSyncRuns, type CaOperationObjectType, type CaOperationRecord, type CaOperationsTree, type CaOperationsTreeAuthority, type CaSyncRun } from '@/api/modules/ca-operations.api'
 import { GcDataTable, GcEmptyState, GcPageHeader, GcPageToolbar, GcStatusTag, type StatusTone } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
+import { translateDynamic } from '@/i18n/translate'
 
 interface OperationRow extends Record<string, unknown> {
   recordKey: string
@@ -18,7 +19,7 @@ interface OperationRow extends Record<string, unknown> {
 }
 
 const objectTypes: CaOperationObjectType[] = ['request', 'issuance', 'revocation', 'template']
-const { t } = useI18n()
+const { t, te } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const tree = ref<CaOperationsTree>({ trustDomains: [], unassignedAuthorities: [] })
@@ -36,6 +37,10 @@ const errorKey = ref('')
 const currentTime = ref(Date.now())
 let freshnessTimer: ReturnType<typeof setInterval> | undefined
 
+function caOperationsLabel(namespace: string, value: unknown): string {
+  return translateDynamic(t, te, `caOperations.${namespace}`, value)
+}
+
 const authorities = computed(() => [
   ...tree.value.trustDomains.flatMap((domain) => domain.authorities),
   ...tree.value.unassignedAuthorities,
@@ -46,7 +51,7 @@ const rows = computed<OperationRow[]>(() => records.value.map((record) => ({
   subject: displayText(record, ['subjectCommonName', 'commonName', 'name']),
   identifier: displayText(record, ['serialNumber', 'requestId', 'externalObjectId']),
   template: displayText(record, ['templateExternalId', 'templateName']),
-  source: t(`caOperations.sources.${record.source}`),
+  source: caOperationsLabel('sources', record.source),
   status: record.normalizedStatus,
   observedAt: formatBrowserLocalTime(record.observedAt, { includeSeconds: false }) || t('common.notAvailable'),
 })))
@@ -129,7 +134,7 @@ async function loadRecords() {
 async function loadSyncRuns() {
   if (!selectedCaId.value) return
   try {
-    syncRuns.value = (await caOperationsApi.syncRuns(selectedCaId.value)).data ?? []
+    syncRuns.value = normalizeCaSyncRuns((await caOperationsApi.syncRuns(selectedCaId.value)).data)
   } catch {
     syncRuns.value = []
   }
@@ -263,7 +268,7 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
           <div>
             <span>{{ t('caOperations.summary.lastSuccessfulSync') }}</span>
             <strong>{{ lastSuccessfulSyncAt ? formatBrowserLocalTime(lastSuccessfulSyncAt, { includeSeconds: false }) : t('common.notAvailable') }}</strong>
-            <GcStatusTag :status="freshness" :label="t(`caOperations.freshness.${freshness}`)" :tone="statusTone(freshness)" />
+            <GcStatusTag :status="freshness" :label="caOperationsLabel('freshness', freshness)" :tone="statusTone(freshness)" />
           </div>
           <div>
             <span>{{ t('caOperations.summary.latestRun') }}</span>
@@ -280,7 +285,7 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
             :class="{ 'ca-operations__view--active': selectedView === objectType }"
             @click="selectedView = objectType"
           >
-            <span>{{ t(`caOperations.views.${objectType}`) }}</span>
+            <span>{{ caOperationsLabel('views', objectType) }}</span>
             <small>{{ viewCount(selectedAuthority, objectType) }}</small>
           </button>
         </nav>
