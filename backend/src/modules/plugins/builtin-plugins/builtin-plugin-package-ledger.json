@@ -3,6 +3,11 @@
   "packages": [
     {
       "pluginId": "builtin.java.pkcs12",
+      "version": "1.0.10",
+      "packageSha256": "sha256:4960d3ec320a1e6b8f3fc7a3d487194bed084fe1d0469c7685aefb31a6ec5261"
+    },
+    {
+      "pluginId": "builtin.java.pkcs12",
       "version": "1.0.4",
       "packageSha256": "sha256:96fae1293f25659dfe295860b129d2c0e0c4efd1fb5ec0cecdec19659fb9aeba"
     },
@@ -35,6 +40,11 @@
       "pluginId": "builtin.linux.nginx.pem",
       "version": "1.0.11",
       "packageSha256": "sha256:6dc819d595f5fa9ca3d141b1654adbe1ae10167ec965977f7d625e78f7fe84d5"
+    },
+    {
+      "pluginId": "builtin.linux.nginx.pem",
+      "version": "1.0.14",
+      "packageSha256": "sha256:85fbf2d86df89b903c811fcbf8e82b1336d4c920864871835f14ec51098a8c93"
     },
     {
       "pluginId": "builtin.linux.nginx.pem",
@@ -150,6 +160,11 @@
       "pluginId": "builtin.workflow.apache-8444-cert-switch",
       "version": "1.2.3",
       "packageSha256": "sha256:2cc39eca12c40e102a83818b7d60d9e9d243fdfecf289959e28015f3749cabe5"
+    },
+    {
+      "pluginId": "builtin.workflow.apache-8444-cert-switch",
+      "version": "1.2.4",
+      "packageSha256": "sha256:9030ef53ac4de965492f0a5a64c04793f2ce4a8b5df49546599d990245e38fb9"
     },
     {
       "pluginId": "builtin.workflow.synology-dsm-cert-import",

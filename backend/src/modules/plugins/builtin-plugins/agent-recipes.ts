@@ -20,7 +20,7 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
     pluginId: 'builtin.linux.nginx.pem',
     name: 'linux-nginx-pem-certificate-deployment',
     publisher: 'GCAC',
-    version: '1.0.9',
+    version: '1.0.12',
     minGcacVersion: GCAC_VERSION,
     metadata: { displayName: 'NGINX PEM 证书部署', description: '备份并原子替换 NGINX PEM 证书和私钥，执行配置检查和 reload；TLS 验证由平台或指定 Gateway 执行。', logoUrl: '/plugin-logos/nginx.svg', category: 'web-server', tags: ['nginx', 'pem', 'linux'] },
     compatibility: {
@@ -34,10 +34,10 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
       },
     },
     inputContract: agentInputContract({
-      certificatePath: { type: 'file', required: true, default: '/etc/nginx/tls/server.crt' },
-      privateKeyPath: { type: 'file', required: true, default: '/etc/nginx/tls/server.key' },
-      nginxProgram: { type: 'enum', required: true, default: '/usr/sbin/nginx', enum: ['/usr/sbin/nginx', '/usr/bin/nginx'] },
-      serviceName: { type: 'string', required: true, default: 'nginx' },
+      certificatePath: { type: 'file', required: true, default: '/etc/nginx/tls/server.crt', assetPath: 'target.certificateLocation.certificatePath', assetOverridable: true },
+      privateKeyPath: { type: 'file', required: true, default: '/etc/nginx/tls/server.key', assetPath: 'target.certificateLocation.privateKeyPath', assetOverridable: true },
+      nginxProgram: { type: 'enum', required: true, default: '/usr/sbin/nginx', enum: ['/usr/sbin/nginx', '/usr/bin/nginx'], assetPath: 'target.certificateLocation.programPath', assetOverridable: true },
+      serviceName: { type: 'string', required: true, default: 'nginx', assetPath: 'target.certificateLocation.serviceName', assetOverridable: true },
     }, { certificate: 'public_certificate', privateKey: 'private_key' }),
     permissions: [
       { name: 'nginx-files', risk: 'high', scope: 'filesystem', values: ['/etc/nginx/*'] },
@@ -110,13 +110,13 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
     pluginId: 'builtin.java.pkcs12',
     name: 'java-pkcs12-certificate-deployment',
     publisher: 'GCAC',
-    version: '1.0.7',
+    version: '1.0.9',
     minGcacVersion: GCAC_VERSION,
     metadata: { displayName: 'Java PKCS#12 / KeyStore 部署', description: '原子替换 Java 服务使用的 PKCS#12 或 KeyStore 文件并重启服务。', logoUrl: '/plugin-logos/java.svg', category: 'java', tags: ['java', 'pkcs12', 'keystore', 'linux', 'windows'] },
     compatibility: { ...commonCompatibility, platforms: ['WINDOWS', 'LINUX'], frameworks: ['app.tomcat', 'runtime.custom'] },
     inputContract: agentInputContract({
-      keystorePath: { type: 'file', required: true },
-      serviceName: { type: 'string', required: true },
+      keystorePath: { type: 'file', required: true, assetPath: 'target.certificateLocation.keystorePath', assetOverridable: true },
+      serviceName: { type: 'string', required: true, assetPath: 'target.certificateLocation.serviceName', assetOverridable: true },
     }, { keystore: 'pkcs12_bundle' }),
     permissions: [
       { name: 'keystore-files', risk: 'high', scope: 'filesystem', values: ['*'] },
@@ -148,7 +148,10 @@ export const builtinAgentPluginManifests: AgentDeploymentPluginManifestV1[] = [
   },
 ];
 
-type AgentVariableDeclaration = Pick<DeploymentVariableDefinitionV1, 'type' | 'required' | 'default' | 'enum'> & { assetPath?: string };
+type AgentVariableDeclaration = Pick<DeploymentVariableDefinitionV1, 'type' | 'required' | 'default' | 'enum'> & {
+  assetPath?: string;
+  assetOverridable?: boolean;
+};
 
 function agentInputContract(
   variables: Record<string, AgentVariableDeclaration>,
@@ -157,15 +160,16 @@ function agentInputContract(
   return {
     apiVersion: 'gcac.deployment-input/v1',
     variables: Object.fromEntries(Object.entries(variables).map(([name, definition]) => {
-      const fixed = definition.assetPath !== undefined;
+      const fromAsset = definition.assetPath !== undefined;
+      const fixed = fromAsset && definition.assetOverridable !== true;
       const hasDefault = definition.default !== undefined;
       return [name, {
         type: definition.type,
         required: definition.required,
         configurationMode: fixed ? 'runtime' : hasDefault || !definition.required ? 'advanced' : 'required',
-        source: fixed ? { kind: 'asset', path: definition.assetPath! } : hasDefault ? { kind: 'default' } : { kind: 'binding' },
+        source: fromAsset ? { kind: 'asset', path: definition.assetPath! } : hasDefault ? { kind: 'default' } : { kind: 'binding' },
         lifecycle: 'pre_execution',
-        bindingPolicy: fixed ? 'fixed' : hasDefault || !definition.required ? 'default_overridable' : 'required_binding',
+        bindingPolicy: fixed ? 'fixed' : fromAsset || hasDefault || !definition.required ? 'default_overridable' : 'required_binding',
         default: definition.default,
         enum: definition.enum,
       } satisfies DeploymentVariableDefinitionV1];
