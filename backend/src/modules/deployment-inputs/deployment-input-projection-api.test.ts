@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { App } from '../../common/http/app.js';
+import { configureTestAuth, testAuthHeaders } from '../../common/http/test-auth.js';
 import { DeploymentInputProjectionController } from './controller/deployment-input-projection.controller.js';
 
 test('统一 Deployment Input Projection API 不接受厂商分派字段且返回标准分组', async () => {
-  const app = new App();
+  const app = configureTestAuth(new App());
   let received: unknown;
   new DeploymentInputProjectionController({
     async resolveProjectionSource(input: { applicationAssetId: string; tenantId?: string }) {
@@ -18,7 +19,7 @@ test('统一 Deployment Input Projection API 不接受厂商分派字段且返�
   const response = await app.inject({
     method: 'POST',
     path: '/api/v1/deployment-inputs/projection',
-    headers: { 'x-tenant-id': 'tenant-projection' },
+    headers: testAuthHeaders('user_projection', 'tenant-projection'),
     body: {
       applicationAssetId: 'asset-1',
       vendor: 'forbidden-input',

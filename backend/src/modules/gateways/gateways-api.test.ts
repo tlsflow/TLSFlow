@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { App } from '../../common/http/app.js';
+import { configureTestAuth, testAuthHeaders } from '../../common/http/test-auth.js';
 import { createApp } from '../../app.module.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
@@ -8,17 +9,29 @@ import { AuditService } from '../audits/audit.service.js';
 import { GatewayTaskAuditWriter, GatewayTaskService } from '../gateway-agents/index.js';
 import { GatewaysApplicationService } from './application/gateways.application-service.js';
 import { GatewaysController } from './controller/gateways.controller.js';
+import type { SecurityServices } from '../security/security.controller.js';
 
-async function createMigratedApp() {
+async function createMigratedApp(actorId: string) {
   const db = new PgliteDatabase();
   await runMigrations(db);
-  return createApp({ db, corePersistence: { mode: 'memory' } });
+  const app = configureTestAuth(createApp({ db, corePersistence: { mode: 'memory' } }));
+  const security = app.getResource<SecurityServices>('securityServices');
+  if (!security) throw new Error('测试应用缺少安全服务');
+  await security.rbac.createPolicy({
+    subjectType: 'user',
+    subjectId: actorId,
+    effect: 'allow',
+    actions: ['*'],
+    resourceTypes: ['*'],
+    scope: { tenantId: '*' },
+  });
+  return app;
 }
 
 describe('spec014 Gateway 后端 API', () => {
   it('Full Agent 启用 Gateway 能力后应同步到 GatewayRegistry', async () => {
-    const app = await createMigratedApp();
-    const headers = { 'x-tenant-id': 'tenant_gateway_extension', 'x-request-id': 'req_gateway_extension_register' };
+    const app = await createMigratedApp('gateway_extension_test');
+    const headers = testAuthHeaders('gateway_extension_test', 'tenant_gateway_extension', { 'x-request-id': 'req_gateway_extension_register' });
 
     const registered = await app.inject({
       method: 'POST',
@@ -56,8 +69,8 @@ describe('spec014 Gateway 后端 API', () => {
   });
 
   it('Agent 注册 Gateway 时应允许租户内自定义中文区域并同步到 GatewayRegistry', async () => {
-    const app = await createMigratedApp();
-    const headers = { 'x-tenant-id': 'tenant_gateway_custom_zone', 'x-request-id': 'req_gateway_custom_zone_register' };
+    const app = await createMigratedApp('gateway_custom_zone_test');
+    const headers = testAuthHeaders('gateway_custom_zone_test', 'tenant_gateway_custom_zone', { 'x-request-id': 'req_gateway_custom_zone_register' });
 
     const registered = await app.inject({
       method: 'POST',
@@ -107,12 +120,12 @@ describe('spec014 Gateway 后端 API', () => {
   });
 
   it('默认 Gateway Zone 应按租户隔离，不能被 default 全局主键卡住', async () => {
-    const app = createApp();
+    const app = await createMigratedApp('gateway_default_test');
     for (const tenant of ['tenant_gateway_default_a', 'tenant_gateway_default_b']) {
       const registered = await app.inject({
         method: 'POST',
         path: '/api/v1/gateways/status',
-        headers: { 'x-tenant-id': tenant, 'x-request-id': `req_${tenant}` },
+        headers: testAuthHeaders('gateway_default_test', tenant, { 'x-request-id': `req_${tenant}` }),
         body: {
           action: 'register',
           agentId: `agent_${tenant}`,
@@ -128,8 +141,8 @@ describe('spec014 Gateway 后端 API', () => {
   });
 
   it('支持 Gateway 注册、列表、详情、可达性探测和区域路由', async () => {
-    const app = createApp();
-    const headers = { 'x-tenant-id': 'tenant_gateway', 'x-request-id': 'req_gateway_1' };
+    const app = await createMigratedApp('gateway_api_test');
+    const headers = testAuthHeaders('gateway_api_test', 'tenant_gateway', { 'x-request-id': 'req_gateway_1' });
 
     const registered = await app.inject({
       method: 'POST',
@@ -188,8 +201,8 @@ describe('spec014 Gateway 后端 API', () => {
   });
 
   it('禁用 Gateway 后不再被路由选中', async () => {
-    const app = createApp();
-    const headers = { 'x-tenant-id': 'tenant_gateway_disabled' };
+    const app = await createMigratedApp('gateway_disabled_test');
+    const headers = testAuthHeaders('gateway_disabled_test', 'tenant_gateway_disabled');
     const registered = await app.inject({
       method: 'POST',
       path: '/api/v1/gateways/status',
@@ -209,7 +222,7 @@ describe('spec014 Gateway 后端 API', () => {
   });
 
   it('Gateway 代表执行后可通过目标历史 API 查询谁通过哪个 Gateway 做了什么', async () => {
-    const app = new App();
+    const app = configureTestAuth(new App());
     const gateways = new GatewaysApplicationService();
     new GatewaysController(gateways).register(app.router);
     const auditWriter = new GatewayTaskAuditWriter({
@@ -219,7 +232,7 @@ describe('spec014 Gateway 后端 API', () => {
     const gatewayTasks = new GatewayTaskService({
       auditWriter,
     });
-    const headers = { 'x-tenant-id': 'tenant_gateway_history', 'x-actor-id': 'operator_gateway_history' };
+    const headers = testAuthHeaders('operator_gateway_history', 'tenant_gateway_history');
     const task = gatewayTasks.dispatch({
       id: 'gateway_task_history_api',
       idempotencyKey: 'idem_gateway_history_api',
@@ -277,8 +290,12 @@ describe('spec014 Gateway 后端 API', () => {
   });
 
   it('OpenAPI 包含 Gateway 路由契约', async () => {
-    const app = createApp();
-    const response = await app.inject({ method: 'GET', path: '/api/v1/openapi.json', headers: { 'x-tenant-id': 'tenant_gateway_openapi' } });
+    const app = await createMigratedApp('gateway_openapi_test');
+    const response = await app.inject({
+      method: 'GET',
+      path: '/api/v1/openapi.json',
+      headers: testAuthHeaders('gateway_openapi_test', 'tenant_gateway_openapi'),
+    });
     assert.equal(response.statusCode, 200);
     const paths = (response.body as { paths: Record<string, unknown> }).paths;
     assert.ok(paths['/api/v1/gateways']);

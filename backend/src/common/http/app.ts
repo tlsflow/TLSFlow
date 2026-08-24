@@ -42,16 +42,11 @@ export type UpgradeHandler = (request: IncomingMessage, socket: import('node:str
 
 export interface AppOptions {
   config?: AppConfig;
-  /**
-   * 仅供旧测试入口显式开启，真实 HTTP Server 永远不会使用请求头装配身份。
-   */
-  allowLegacyHeaderContext?: boolean;
 }
 
 export class App {
   readonly router = new Router();
   readonly config: AppConfig;
-  private readonly allowLegacyHeaderContext: boolean;
   private authTokenResolver?: AuthTokenResolver;
   private agentTokenResolver?: AgentTokenResolver;
   private readonly persistenceFlushers: PersistenceFlusher[] = [];
@@ -60,7 +55,6 @@ export class App {
 
   constructor(options: AppOptions = {}) {
     this.config = options.config ?? loadAppConfig();
-    this.allowLegacyHeaderContext = options.allowLegacyHeaderContext === true;
   }
 
   setAuthTokenResolver(resolver: AuthTokenResolver): void {
@@ -116,7 +110,6 @@ export class App {
         input.method.toUpperCase(),
         url.pathname,
         '127.0.0.1',
-        this.allowLegacyHeaderContext,
       );
     } catch (error) {
       const handled = toErrorResponse(error, requestId);
@@ -157,7 +150,6 @@ export class App {
           method,
           url.pathname,
           req.socket.remoteAddress,
-          false,
         );
       } catch (error) {
         const requestId = readHeader(req.headers, 'x-request-id') ?? generateRequestId();
@@ -233,7 +225,6 @@ export class App {
     method: string,
     path: string,
     ip?: string,
-    allowLegacyHeaderContext = false,
   ): Promise<RequestContext> {
     const requestId = readHeader(headers, 'x-request-id') ?? generateRequestId();
     const traceId = readHeader(headers, 'x-trace-id') ?? generateTraceId();
@@ -244,25 +235,18 @@ export class App {
     const agentIdentity = !tokenIdentity && agentToken
       ? await this.agentTokenResolver?.(agentToken, { method, path })
       : undefined;
-    const hasAuthenticationMaterial = Boolean(authorization?.trim() || cookie?.trim() || agentToken);
-    const legacyContext = allowLegacyHeaderContext && !hasAuthenticationMaterial
-      ? {
-        tenantId: readHeader(headers, 'x-tenant-id'),
-        actorId: readHeader(headers, 'x-actor-id'),
-      }
-      : {};
     return {
       requestId,
       traceId,
-      tenantId: tokenIdentity?.tenantId ?? agentIdentity?.tenantId ?? legacyContext.tenantId,
+      tenantId: tokenIdentity?.tenantId ?? agentIdentity?.tenantId,
       tenantScope: tokenIdentity?.tenantScope,
       tenantContextVersion: tokenIdentity?.contextVersion,
-      actorId: tokenIdentity?.actorId ?? agentIdentity?.actorId ?? legacyContext.actorId,
+      actorId: tokenIdentity?.actorId ?? agentIdentity?.actorId,
       actorType: tokenIdentity
         ? 'USER'
         : agentIdentity
           ? 'AGENT'
-        : readHeader(headers, 'x-actor-type') as RequestContext['actorType'] | undefined,
+          : undefined,
       ip,
       userAgent: readHeader(headers, 'user-agent'),
     };

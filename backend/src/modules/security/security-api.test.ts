@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { createApp } from '../../app.module.js';
+import { configureTestAuth, testAuthHeaders } from '../../common/http/test-auth.js';
 import { createSecurityServices } from './security.controller.js';
 import { MockDirectoryConnector, ExternalIdentityService } from './external-identity.service.js';
 
@@ -811,12 +812,12 @@ describe('安全 API 最小闭环', () => {
       resourceTypes: ['secret'],
       scope: { tenantId: 'tenant_1' },
     });
-    const app = createApp({ security, allowLegacyHeaderContext: true });
+    const app = configureTestAuth(createApp({ security }));
 
     const created = await app.inject({
       method: 'POST',
       path: '/api/v1/secrets',
-      headers: { 'x-tenant-id': 'tenant_1', 'x-actor-id': 'user_secret', 'x-request-id': 'req_secret_api' },
+      headers: testAuthHeaders('user_secret', 'tenant_1', { 'x-request-id': 'req_secret_api' }),
       body: {
         name: '生产 SSH Key',
         type: 'ssh_key',
@@ -834,7 +835,7 @@ describe('安全 API 最小闭环', () => {
     const metadata = await app.inject({
       method: 'GET',
       path: `/api/v1/secrets/metadata?id=${secret.id}`,
-      headers: { 'x-tenant-id': 'tenant_1', 'x-actor-id': 'user_secret' },
+      headers: testAuthHeaders('user_secret', 'tenant_1'),
     });
     assert.equal(metadata.statusCode, 200);
     assert.equal((metadata.body as { id: string }).id, secret.id);
@@ -842,7 +843,7 @@ describe('安全 API 最小闭环', () => {
     const audits = await app.inject({
       method: 'GET',
       path: '/api/v1/audit-events?resourceType=secret&eventType=secret.created',
-      headers: { 'x-tenant-id': 'tenant_1', 'x-actor-id': 'user_secret' },
+      headers: testAuthHeaders('user_secret', 'tenant_1'),
     });
     assert.equal(audits.statusCode, 200);
     assert.equal((audits.body as { items: unknown[] }).items.length, 1);
@@ -880,11 +881,11 @@ describe('安全 API 最小闭环', () => {
       context: { tenantId: 'tenant_1', requestId: 'req_new' },
     });
 
-    const app = createApp({ security, allowLegacyHeaderContext: true });
+    const app = configureTestAuth(createApp({ security }));
     const response = await app.inject({
       method: 'GET',
       path: '/api/v1/audit-events?resourceType=audit_sort_probe&page=1&pageSize=1',
-      headers: { 'x-tenant-id': 'tenant_1', 'x-actor-id': 'user_audit_sort' },
+      headers: testAuthHeaders('user_audit_sort', 'tenant_1'),
     });
 
     assert.equal(response.statusCode, 200);
@@ -906,12 +907,12 @@ describe('安全 API 最小闭环', () => {
       resourceTypes: ['secret'],
       scope: { tenantId: 'tenant_1' },
     });
-    const app = createApp({ security, allowLegacyHeaderContext: true });
+    const app = configureTestAuth(createApp({ security }));
 
     const password = await app.inject({
       method: 'POST',
       path: '/api/v1/secrets',
-      headers: { 'x-tenant-id': 'tenant_1', 'x-actor-id': 'user_secret_type' },
+      headers: testAuthHeaders('user_secret_type', 'tenant_1'),
       body: {
         name: '设备登录密码',
         type: 'password',
@@ -926,7 +927,7 @@ describe('安全 API 最小闭环', () => {
       const invalid = await app.inject({
         method: 'POST',
         path: '/api/v1/secrets',
-        headers: { 'x-tenant-id': 'tenant_1', 'x-actor-id': 'user_secret_type' },
+        headers: testAuthHeaders('user_secret_type', 'tenant_1'),
         body: {
           name: '无效凭据类型',
           type,
@@ -956,12 +957,12 @@ describe('安全 API 最小闭环', () => {
       resourceTypes: ['approval'],
       scope: { tenantId: 'tenant_1' },
     });
-    const app = createApp({ security, allowLegacyHeaderContext: true });
+    const app = configureTestAuth(createApp({ security }));
 
     const created = await app.inject({
       method: 'POST',
       path: '/api/v1/approvals',
-      headers: { 'x-tenant-id': 'tenant_1', 'x-actor-id': 'requester' },
+      headers: testAuthHeaders('requester', 'tenant_1'),
       body: {
         operationType: 'deployment.execute',
         resourceRefs: [{ type: 'execution', id: 'run_1' }],
@@ -975,7 +976,7 @@ describe('安全 API 最小闭环', () => {
     const decided = await app.inject({
       method: 'POST',
       path: '/api/v1/approvals/decide',
-      headers: { 'x-tenant-id': 'tenant_1', 'x-actor-id': 'approver' },
+      headers: testAuthHeaders('approver', 'tenant_1'),
       body: { approvalId, decision: 'approved', comment: '同意执行' },
     });
     assert.equal(decided.statusCode, 200);
@@ -984,7 +985,7 @@ describe('安全 API 最小闭环', () => {
     const deniedAudit = await app.inject({
       method: 'GET',
       path: '/api/v1/audit-events?resourceType=approval',
-      headers: { 'x-tenant-id': 'tenant_1', 'x-actor-id': 'requester' },
+      headers: testAuthHeaders('requester', 'tenant_1'),
     });
     assert.equal(deniedAudit.statusCode, 403);
     assert.equal((deniedAudit.body as { errorCode: string }).errorCode, 'SEC_PERMISSION_DENIED');

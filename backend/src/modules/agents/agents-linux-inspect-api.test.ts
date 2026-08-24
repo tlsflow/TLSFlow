@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { createApp } from '../../app.module.js';
+import { configureTestAuth, testAuthHeaders } from '../../common/http/test-auth.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 
@@ -8,8 +9,8 @@ describe('linux inspect capability api', () => {
   it('accepts detailed Linux inspect payloads and returns them from detail endpoints', async () => {
     const database = new PgliteDatabase();
     await runMigrations(database, 'src/database/migrations');
-    const app = createApp({ db: database });
-    const headers = { 'x-tenant-id': 'tenant_agent_linux', 'x-request-id': 'req_agent_linux_1' };
+    const app = configureTestAuth(createApp({ db: database }));
+    const headers = testAuthHeaders('agent_linux_test', 'tenant_agent_linux', { 'x-request-id': 'req_agent_linux_1' });
     const registered = await app.inject({
       method: 'POST',
       path: '/api/v1/agents/register',

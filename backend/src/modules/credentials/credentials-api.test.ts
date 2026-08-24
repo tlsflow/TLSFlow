@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { App } from '../../common/http/app.js';
+import { configureTestAuth, testAuthHeaders } from '../../common/http/test-auth.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { CredentialsApplicationService } from './application/credentials.application-service.js';
@@ -12,7 +13,7 @@ import { createPersistedSecurityServices } from '../security/security-services.p
 async function createTestApp() {
   const database = new PgliteDatabase();
   await runMigrations(database, 'src/database/migrations');
-  const app = new App({ allowLegacyHeaderContext: true });
+  const app = configureTestAuth(new App());
   const security = createPersistedSecurityServices(database).services;
   new CredentialsController(new CredentialsApplicationService(new CredentialsRepository(database), undefined, database, security.secrets)).register(app.router);
   return { app, database };
@@ -23,7 +24,7 @@ test('全局凭据 API 支持创建、查询、更新、禁用和删除', async 
   const created = await app.inject({
     method: 'POST',
     path: '/api/v1/credentials',
-    headers: { 'x-tenant-id': 'tenant-a', 'x-actor-id': 'user-a' },
+    headers: testAuthHeaders('user-a', 'tenant-a'),
     body: {
       name: 'ADC 生产凭据',
       kind: 'USERNAME_PASSWORD',
@@ -43,7 +44,7 @@ test('全局凭据 API 支持创建、查询、更新、禁用和删除', async 
   const updated = await app.inject({
     method: 'PATCH',
     path: '/api/v1/credentials',
-    headers: { 'x-tenant-id': 'tenant-a', 'x-actor-id': 'user-a' },
+    headers: testAuthHeaders('user-a', 'tenant-a'),
     body: { id: credential.id, name: 'ADC 主凭据', username: 'administrator', secretValues: { password: { plainText: 'rotated-password' } }, expectedVersion: 1 },
   });
   assert.equal(updated.statusCode, 200);
@@ -61,7 +62,7 @@ test('全局凭据 API 支持创建、查询、更新、禁用和删除', async 
   const listed = await app.inject({
     method: 'GET',
     path: '/api/v1/credentials?search=ADC',
-    headers: { 'x-tenant-id': 'tenant-a', 'x-actor-id': 'user-a' },
+    headers: testAuthHeaders('user-a', 'tenant-a'),
   });
   assert.equal(listed.statusCode, 200);
   assert.equal((listed.body as { total: number }).total, 1);
@@ -69,7 +70,7 @@ test('全局凭据 API 支持创建、查询、更新、禁用和删除', async 
   const renamed = await app.inject({
     method: 'PATCH',
     path: '/api/v1/credentials',
-    headers: { 'x-tenant-id': 'tenant-a', 'x-actor-id': 'user-a' },
+    headers: testAuthHeaders('user-a', 'tenant-a'),
     body: { id: credential.id, name: 'ADC 主凭据', expectedVersion: 2 },
   });
   assert.equal(renamed.statusCode, 200);
@@ -78,7 +79,7 @@ test('全局凭据 API 支持创建、查询、更新、禁用和删除', async 
   const disabled = await app.inject({
     method: 'POST',
     path: '/api/v1/credentials/status',
-    headers: { 'x-tenant-id': 'tenant-a', 'x-actor-id': 'user-a' },
+    headers: testAuthHeaders('user-a', 'tenant-a'),
     body: { id: credential.id, status: 'disabled', expectedVersion: 3 },
   });
   assert.equal(disabled.statusCode, 200);
@@ -87,7 +88,7 @@ test('全局凭据 API 支持创建、查询、更新、禁用和删除', async 
   const deleted = await app.inject({
     method: 'DELETE',
     path: '/api/v1/credentials/delete',
-    headers: { 'x-tenant-id': 'tenant-a', 'x-actor-id': 'user-a' },
+    headers: testAuthHeaders('user-a', 'tenant-a'),
     body: { id: credential.id },
   });
   assert.equal(deleted.statusCode, 200);
@@ -100,7 +101,7 @@ test('全局凭据 API 保存有效期，空值表示长期有效', async () => 
   const created = await app.inject({
     method: 'POST',
     path: '/api/v1/credentials',
-    headers: { 'x-tenant-id': 'tenant-expiry', 'x-actor-id': 'user-expiry' },
+    headers: testAuthHeaders('user-expiry', 'tenant-expiry'),
     body: {
       name: '有期限令牌',
       kind: 'BEARER_TOKEN',
@@ -115,7 +116,7 @@ test('全局凭据 API 保存有效期，空值表示长期有效', async () => 
   const cleared = await app.inject({
     method: 'PATCH',
     path: '/api/v1/credentials',
-    headers: { 'x-tenant-id': 'tenant-expiry', 'x-actor-id': 'user-expiry' },
+    headers: testAuthHeaders('user-expiry', 'tenant-expiry'),
     body: { id: (created.body as Record<string, unknown>).id, expiresAt: null, expectedVersion: 1 },
   });
   assert.equal(cleared.statusCode, 200);
@@ -133,7 +134,7 @@ test('全局凭据 API 支持创建 DNS Provider 配置', async () => {
   const created = await app.inject({
     method: 'POST',
     path: '/api/v1/credentials',
-    headers: { 'x-tenant-id': 'tenant-dns', 'x-actor-id': 'user-dns' },
+    headers: testAuthHeaders('user-dns', 'tenant-dns'),
     body: {
       name: 'Cloudflare DNS',
       kind: 'DNS_PROVIDER',
@@ -166,7 +167,7 @@ test('全局凭据 API 支持创建待浏览器获取的 BROWSER_SESSION', async
   const created = await app.inject({
     method: 'POST',
     path: '/api/v1/credentials',
-    headers: { 'x-tenant-id': 'tenant-browser', 'x-actor-id': 'user-browser' },
+    headers: testAuthHeaders('user-browser', 'tenant-browser'),
     body: {
       name: 'GCAC Web 浏览器会话',
       kind: 'BROWSER_SESSION',
@@ -196,7 +197,7 @@ test('BROWSER_SESSION 更新时按新的输出合同校验并保存 Secret Slot'
   const created = await app.inject({
     method: 'POST',
     path: '/api/v1/credentials',
-    headers: { 'x-tenant-id': 'tenant-browser-contract', 'x-actor-id': 'user-browser-contract' },
+    headers: testAuthHeaders('user-browser-contract', 'tenant-browser-contract'),
     body: {
       name: 'GCAC Web 浏览器会话合同测试',
       kind: 'BROWSER_SESSION',
@@ -223,7 +224,7 @@ test('BROWSER_SESSION 更新时按新的输出合同校验并保存 Secret Slot'
   const updated = await app.inject({
     method: 'PATCH',
     path: '/api/v1/credentials',
-    headers: { 'x-tenant-id': 'tenant-browser-contract', 'x-actor-id': 'user-browser-contract' },
+    headers: testAuthHeaders('user-browser-contract', 'tenant-browser-contract'),
     body: {
       id: credential.id,
       expectedVersion: 1,
@@ -246,7 +247,7 @@ test('BROWSER_SESSION 更新时按新的输出合同校验并保存 Secret Slot'
   const invalid = await app.inject({
     method: 'PATCH',
     path: '/api/v1/credentials',
-    headers: { 'x-tenant-id': 'tenant-browser-contract', 'x-actor-id': 'user-browser-contract' },
+    headers: testAuthHeaders('user-browser-contract', 'tenant-browser-contract'),
     body: {
       id: credential.id,
       expectedVersion: 2,
@@ -263,7 +264,7 @@ test('全局凭据 API 强制租户隔离和乐观锁', async () => {
   const created = await app.inject({
     method: 'POST',
     path: '/api/v1/credentials',
-    headers: { 'x-tenant-id': 'tenant-a', 'x-actor-id': 'user-a' },
+    headers: testAuthHeaders('user-a', 'tenant-a'),
     body: {
       name: 'SSH 凭据',
       kind: 'SSH_KEY',
@@ -277,14 +278,14 @@ test('全局凭据 API 强制租户隔离和乐观锁', async () => {
   const foreign = await app.inject({
     method: 'GET',
     path: `/api/v1/credentials/detail?id=${credentialId}`,
-    headers: { 'x-tenant-id': 'tenant-b', 'x-actor-id': 'user-b' },
+    headers: testAuthHeaders('user-b', 'tenant-b'),
   });
   assert.equal(foreign.statusCode, 404);
 
   const conflict = await app.inject({
     method: 'PATCH',
     path: '/api/v1/credentials',
-    headers: { 'x-tenant-id': 'tenant-a', 'x-actor-id': 'user-a' },
+    headers: testAuthHeaders('user-a', 'tenant-a'),
     body: { id: credentialId, name: '冲突更新', expectedVersion: 9 },
   });
   assert.equal(conflict.statusCode, 409);
@@ -296,7 +297,7 @@ test('修复完整的异常凭据后自动转为停用而不是继续残留异�
   const created = await app.inject({
     method: 'POST',
     path: '/api/v1/credentials',
-    headers: { 'x-tenant-id': 'tenant-repair', 'x-actor-id': 'user-a' },
+    headers: testAuthHeaders('user-a', 'tenant-repair'),
     body: {
       name: '待修复凭据',
       kind: 'USERNAME_PASSWORD',
@@ -312,7 +313,7 @@ test('修复完整的异常凭据后自动转为停用而不是继续残留异�
   const repaired = await app.inject({
     method: 'PATCH',
     path: '/api/v1/credentials',
-    headers: { 'x-tenant-id': 'tenant-repair', 'x-actor-id': 'user-a' },
+    headers: testAuthHeaders('user-a', 'tenant-repair'),
     body: { id: credential.id, username: 'administrator', expectedVersion: 1 },
   });
   assert.equal(repaired.statusCode, 200);
@@ -322,7 +323,7 @@ test('修复完整的异常凭据后自动转为停用而不是继续残留异�
   const enabled = await app.inject({
     method: 'POST',
     path: '/api/v1/credentials/status',
-    headers: { 'x-tenant-id': 'tenant-repair', 'x-actor-id': 'user-a' },
+    headers: testAuthHeaders('user-a', 'tenant-repair'),
     body: { id: credential.id, status: 'active', expectedVersion: 2 },
   });
   assert.equal(enabled.statusCode, 200);
@@ -334,7 +335,7 @@ test('全局凭据 API 拒绝非法运行时状态', async () => {
   const created = await app.inject({
     method: 'POST',
     path: '/api/v1/credentials',
-    headers: { 'x-tenant-id': 'tenant-a', 'x-actor-id': 'user-a' },
+    headers: testAuthHeaders('user-a', 'tenant-a'),
     body: {
       name: '令牌凭据',
       kind: 'BEARER_TOKEN',
@@ -346,7 +347,7 @@ test('全局凭据 API 拒绝非法运行时状态', async () => {
   const result = await app.inject({
     method: 'POST',
     path: '/api/v1/credentials/status',
-    headers: { 'x-tenant-id': 'tenant-a', 'x-actor-id': 'user-a' },
+    headers: testAuthHeaders('user-a', 'tenant-a'),
     body: { id: credentialId, status: 'deleted', expectedVersion: 1 },
   });
   assert.equal(result.statusCode, 400);
@@ -358,7 +359,7 @@ test('全局凭据 API 返回 PluginBinding Usage 并阻止删除', async () => 
   const created = await app.inject({
     method: 'POST',
     path: '/api/v1/credentials',
-    headers: { 'x-tenant-id': 'tenant-usage', 'x-actor-id': 'user-a' },
+    headers: testAuthHeaders('user-a', 'tenant-usage'),
     body: {
       name: '设备凭据',
       kind: 'USERNAME_PASSWORD',
@@ -397,7 +398,7 @@ test('全局凭据 API 返回 PluginBinding Usage 并阻止删除', async () => 
   const usage = await app.inject({
     method: 'GET',
     path: `/api/v1/credentials/usage?id=${credentialId}`,
-    headers: { 'x-tenant-id': 'tenant-usage', 'x-actor-id': 'user-a' },
+    headers: testAuthHeaders('user-a', 'tenant-usage'),
   });
   assert.equal(usage.statusCode, 200);
   assert.equal((usage.body as { total: number }).total, 1);
@@ -405,7 +406,7 @@ test('全局凭据 API 返回 PluginBinding Usage 并阻止删除', async () => 
   const deleted = await app.inject({
     method: 'DELETE',
     path: '/api/v1/credentials/delete',
-    headers: { 'x-tenant-id': 'tenant-usage', 'x-actor-id': 'user-a' },
+    headers: testAuthHeaders('user-a', 'tenant-usage'),
     body: { id: credentialId },
   });
   assert.equal(deleted.statusCode, 409);
@@ -418,7 +419,7 @@ test('CredentialProfile 创建失败时回滚 Secret、版本和审计', async (
     name: '重复凭据', kind: 'USERNAME_PASSWORD', scopeType: 'global', username: 'admin',
     secretValues: { password: { plainText: 'must-not-remain' } },
   };
-  const first = await app.inject({ method: 'POST', path: '/api/v1/credentials', headers: { 'x-tenant-id': 'tenant-rollback', 'x-actor-id': 'user-a' }, body: payload });
+  const first = await app.inject({ method: 'POST', path: '/api/v1/credentials', headers: testAuthHeaders('user-a', 'tenant-rollback'), body: payload });
   assert.equal(first.statusCode, 201);
   const before = await database.query<{ namespace: string; count: string }>(
     `select namespace, count(*)::text as count from pg_documents
@@ -426,7 +427,7 @@ test('CredentialProfile 创建失败时回滚 Secret、版本和审计', async (
       group by namespace order by namespace`,
   );
 
-  const duplicated = await app.inject({ method: 'POST', path: '/api/v1/credentials', headers: { 'x-tenant-id': 'tenant-rollback', 'x-actor-id': 'user-a' }, body: payload });
+  const duplicated = await app.inject({ method: 'POST', path: '/api/v1/credentials', headers: testAuthHeaders('user-a', 'tenant-rollback'), body: payload });
   assert.equal(duplicated.statusCode, 409);
   assert.equal((duplicated.body as { errorCode: string }).errorCode, 'RESOURCE_ALREADY_EXISTS');
   const after = await database.query<{ namespace: string; count: string }>(

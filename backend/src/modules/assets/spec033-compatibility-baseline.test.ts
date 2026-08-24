@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createApp } from '../../app.module.js';
+import { configureTestAuth, testAuthHeaders } from '../../common/http/test-auth.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import type { AgentsApplicationService } from '../agents/application/agents.application-service.js';
@@ -11,12 +12,12 @@ import { PgDeviceAssetsRepository } from '../device-assets/repository/device-ass
 test('Spec033 终态基线：Agent 注册后可通过 Agent 列表查询', async () => {
   const database = new PgliteDatabase();
   await runMigrations(database, 'src/database/migrations');
-  const app = createApp({ db: database });
+  const app = configureTestAuth(createApp({ db: database }));
   const tenantId = 'tenant_spec033_agent_baseline';
   const registered = await app.inject({
     method: 'POST',
     path: '/api/v1/agents/register',
-    headers: { 'x-tenant-id': tenantId, 'x-request-id': 'req_spec033_register' },
+    headers: testAuthHeaders('user_spec033', tenantId, { 'x-request-id': 'req_spec033_register' }),
     body: {
       agentKey: 'spec033-agent-baseline',
       hostname: 'SPEC033-WIN',

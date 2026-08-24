@@ -4,6 +4,7 @@ import { createServer as createHttpServer } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import { describe, it } from 'node:test';
 import { App } from '../../common/http/app.js';
+import { configureTestAuth, testAuthHeaders } from '../../common/http/test-auth.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { AssetsApplicationService } from '../assets/application/assets.application-service.js';
@@ -76,7 +77,7 @@ HVlUi9P3lKu3lUEi2bOiP2KYvg==
 describe('监控风险 API', () => {
   it('生成证书到期、绑定漂移、未知证书和执行失败风险，并返回仪表盘聚合', async () => {
     const { app, assetsService, bindingsService, certificatesRepository, executionsRepository } = await createMonitorHarness();
-    const headers = { 'x-tenant-id': 'tenant_monitor', 'x-actor-id': 'monitor_bot' };
+    const headers = testAuthHeaders('monitor_bot', 'tenant_monitor');
     await seedCertificate(certificatesRepository, { tenantId: 'tenant_monitor', primaryDomain: 'expired.example.com', notAfter: '2026-01-01T00:00:00.000Z' });
     const driftCertificateVersionId = await seedCertificate(certificatesRepository, { tenantId: 'tenant_monitor', primaryDomain: 'expiring.example.com', notAfter: '2026-06-20T00:00:00.000Z' });
 
@@ -179,7 +180,7 @@ describe('监控风险 API', () => {
 
   it('同一 dedupKey 重复扫描不会生成重复风险事件，只增加 occurrenceCount', async () => {
     const { app, certificatesRepository } = await createMonitorHarness();
-    const headers = { 'x-tenant-id': 'tenant_monitor_dedup', 'x-actor-id': 'monitor_bot' };
+    const headers = testAuthHeaders('monitor_bot', 'tenant_monitor_dedup');
     await seedCertificate(certificatesRepository, { tenantId: 'tenant_monitor_dedup', primaryDomain: 'dedup.example.com', notAfter: '2026-06-10T00:00:00.000Z' });
 
     const first = await app.inject({
@@ -208,7 +209,7 @@ describe('监控风险 API', () => {
 
   it('告警规则支持阈值、范围、状态与静默，并只对命中规则返回 matchedRuleIds', async () => {
     const { app, certificatesRepository } = await createMonitorHarness();
-    const headers = { 'x-tenant-id': 'tenant_monitor_rules', 'x-actor-id': 'monitor_bot' };
+    const headers = testAuthHeaders('monitor_bot', 'tenant_monitor_rules');
     await seedCertificate(certificatesRepository, { tenantId: 'tenant_monitor_rules', primaryDomain: 'rule.example.com', notAfter: '2026-06-09T00:00:00.000Z' });
 
     const activeRule = await app.inject({
@@ -330,7 +331,7 @@ describe('监控风险 API', () => {
 
   it('监控目标通过后端持久化，并由后端调度写入探测结果', async () => {
     const { app, assetsService, monitors } = await createMonitorHarness();
-    const headers = { 'x-tenant-id': 'tenant_monitor_targets', 'x-actor-id': 'monitor_bot' };
+    const headers = testAuthHeaders('monitor_bot', 'tenant_monitor_targets');
     const asset = await assetsService.createServiceAsset('tenant_monitor_targets', {
       address: '127.0.0.1',
       port: 9,
@@ -404,7 +405,7 @@ describe('监控风险 API', () => {
 
   it('应用资产探测由监控 API 发起，不依赖浏览器或资产绑定 Agent 直连业务地址', async () => {
     const { app, assetsService, monitors } = await createMonitorHarness();
-    const headers = { 'x-tenant-id': 'tenant_probe', 'x-actor-id': 'monitor_bot' };
+    const headers = testAuthHeaders('monitor_bot', 'tenant_probe');
     const asset = await assetsService.createServiceAsset('tenant_probe', {
       address: '127.0.0.1',
       port: 9,
@@ -668,7 +669,7 @@ describe('监控风险 API', () => {
 
     try {
       const { app, assetsService, monitors } = await createMonitorHarness();
-      const headers = { 'x-tenant-id': 'tenant_probe_tls_warning', 'x-actor-id': 'monitor_bot' };
+      const headers = testAuthHeaders('monitor_bot', 'tenant_probe_tls_warning');
       const asset = await assetsService.createServiceAsset('tenant_probe_tls_warning', {
         address: '127.0.0.1',
         port,
@@ -727,7 +728,7 @@ describe('监控风险 API', () => {
     try {
       const { app, assetsService, monitors } = await createMonitorHarness();
       const tenantId = 'tenant_probe_tls_unchanged';
-      const headers = { 'x-tenant-id': tenantId, 'x-actor-id': 'monitor_bot' };
+      const headers = testAuthHeaders('monitor_bot', tenantId);
       const asset = await assetsService.createServiceAsset(tenantId, {
         address: '127.0.0.1',
         port,
@@ -980,7 +981,7 @@ async function createMonitorHarness() {
     },
   } as any;
 
-  const app = new App({ allowLegacyHeaderContext: true });
+  const app = configureTestAuth(new App());
   const assetsRepository = new PgAssetsRepository(db);
   const assetsService = new AssetsApplicationService(assetsRepository);
   const bindingsRepository = new PgBindingsRepository(assetsRepository, db);

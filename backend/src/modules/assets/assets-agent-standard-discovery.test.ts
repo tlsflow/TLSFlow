@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import test from 'node:test';
 
 import { createApp } from '../../app.module.js';
+import { configureTestAuth, testAuthHeaders } from '../../common/http/test-auth.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { StandardDeviceDiscoveryProjector } from '../plugins/discovery/standard-device-discovery.projector.js';
@@ -23,12 +24,11 @@ test('旧 Agent 发现写入退役，刷新只进入 capability snapshot 标准�
     resourceTypes: ['*'],
     scope: { tenantId: '*' },
   });
-  const app = createApp({ db, corePersistence: { mode: 'memory' }, security });
-  const headers = {
-    'x-tenant-id': 'tenant-standard-agent-refresh',
-    'x-actor-id': 'user_admin',
+  const tenantId = 'tenant-standard-agent-refresh';
+  const app = configureTestAuth(createApp({ db, corePersistence: { mode: 'memory' }, security }));
+  const headers = testAuthHeaders('user_admin', tenantId, {
     'x-request-id': 'request-standard-agent-refresh',
-  };
+  });
 
   const registered = await app.inject({
     method: 'POST',
@@ -62,7 +62,7 @@ test('旧 Agent 发现写入退役，刷新只进入 capability snapshot 标准�
 
   const legacyHostCount = await db.query<{ count: string }>(
     'select count(*)::text as count from pg_hosts where tenant_id=$1 and hostname=$2',
-    [headers['x-tenant-id'], 'legacy-injected.example.com'],
+    [tenantId, 'legacy-injected.example.com'],
   );
   assert.equal(legacyHostCount.rows[0]?.count, '0');
 
