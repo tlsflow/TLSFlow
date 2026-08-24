@@ -1,24 +1,17 @@
-# GCAC Windows AD CS Agent
+# GCAC Windows ADCS Agent
 
-该 Agent 安装在 Microsoft AD CS 证书颁发机构服务器上，通过主动出站的任务推送长连接与 GCAC 双向交换任务和结果。
+该目录对应的旧 ADCS Agent 从未发布，现已永久停用。它不再提供 ADCS 发现、证书签发、证书吊销、CRL 发布、任务轮询、任务推送或任何其他厂商业务。
 
-Agent 不监听本地端口，复用 GCAC 控制面的 HTTP/HTTPS 服务端口，因此不会与设备管理 Agent 或 Gateway Agent 发生监听端口冲突。
+程序保留可执行文件形态仅用于识别并阻止误启动。启动会立即失败，并在标准错误输出中提示：迁移到 `Plugin Runner/Agent v2`。程序不会读取配置文件、访问网络、连接控制面、调用 Windows API，也不会启动外部命令或脚本。
 
-支持的固定任务：
+## 构建与验证
 
-- CA 配置和已发布模板发现。
-- CSR 提交及 AD CS Request ID 返回。
-- Pending、Issued、Denied 状态查询。
-- 签发证书取回。
-- 证书吊销。
-- CRL 发布。
-
-Agent 不读取或导出 AD CS CA 私钥，也不执行控制面下发的任意命令。
-
-## 构建
+在本目录执行：
 
 ```powershell
-go mod tidy
-go test ./...
+go test -count=1 ./...
+go vet ./...
 go build -trimpath -ldflags "-s -w" -o gcac-adcs-agent.exe .
 ```
+
+构建后的 `gcac-adcs-agent.exe` 必须以退出码 `1` 结束，并输出迁移提示。后续功能只能通过 `Plugin Runner/Agent v2` 实现，不得在本目录恢复旧协议或新增厂商业务。
