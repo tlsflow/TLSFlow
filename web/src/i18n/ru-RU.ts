@@ -588,6 +588,7 @@ export default {
   userMenu: {
     currentUser: 'Текущий пользователь',
     changePassword: 'Изменить пароль',
+    userGuide: 'Руководство пользователя',
     logout: 'Выйти'
   },
   password: {

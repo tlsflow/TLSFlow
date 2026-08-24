@@ -587,6 +587,7 @@ export default {
   userMenu: {
     currentUser: "目前使用者",
     changePassword: "修改密碼",
+    userGuide: "使用手冊",
     logout: "登出"
   },
   password: {

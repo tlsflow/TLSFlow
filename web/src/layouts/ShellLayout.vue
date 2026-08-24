@@ -861,6 +861,20 @@ function removeToastNotice(id: number): void {
               </div>
             </div>
 
+            <a
+              class="gc-shell__user-menu-action"
+              href="/docs/"
+              target="_blank"
+              rel="noopener noreferrer"
+              role="menuitem"
+              @click="closeUserMenu"
+            >
+              <span class="gc-shell__user-menu-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M6 3.5h8l4 4V20.5H6V3.5Z" /><path d="M14 3.5v4h4M9 12h6M9 15.5h6" /></svg>
+              </span>
+              <span>{{ t('userMenu.userGuide') }}</span>
+            </a>
+
             <button class="gc-shell__user-menu-action gc-shell__user-menu-action--danger" type="button" role="menuitem" @click="logout">
               <span class="gc-shell__user-menu-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24"><path d="M10 17 15 12l-5-5" /><path d="M15 12H3" /><path d="M21 5v14" /></svg>

@@ -584,6 +584,7 @@ export default {
   userMenu: {
     currentUser: 'Utilisateur courant',
     changePassword: 'Modifier le mot de passe',
+    userGuide: 'Guide utilisateur',
     logout: 'Déconnexion'
   },
   password: {

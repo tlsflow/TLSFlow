@@ -606,6 +606,7 @@ export default {
   userMenu: {
     currentUser: '当前用户',
     changePassword: '修改密码',
+    userGuide: '使用手册',
     logout: '退出登录'
   },
   password: {

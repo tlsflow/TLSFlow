@@ -606,6 +606,7 @@ export default {
   userMenu: {
     currentUser: 'Current user',
     changePassword: 'Change password',
+    userGuide: 'User guide',
     logout: 'Sign out'
   },
   password: {

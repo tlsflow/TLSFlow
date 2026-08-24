@@ -182,6 +182,31 @@ describe('ShellLayout', () => {
     expect(wrapper.find('.gc-shell__user-menu .gc-shell__view-mode').exists()).toBe(true)
   })
 
+  it('在退出登录上方提供使用手册入口', async () => {
+    const router = createTestRouter()
+    await router.push('/dashboard')
+    await router.isReady()
+
+    const wrapper = mount(ShellLayout, {
+      global: {
+        plugins: [router, i18n],
+        stubs: { RouterLink: false, RouterView: { template: '<div />' } },
+      },
+    })
+
+    await wrapper.get('.gc-shell__user-button').trigger('click')
+
+    const menuActions = wrapper.findAll('.gc-shell__user-menu-action')
+    const guideLink = menuActions.find((action) => action.element.tagName === 'A')
+    const logoutIndex = menuActions.findIndex((action) => action.text() === '退出登录')
+
+    expect(guideLink?.text()).toBe('使用手册')
+    expect(guideLink?.attributes('href')).toBe('/docs/')
+    expect(guideLink?.attributes('target')).toBe('_blank')
+    expect(guideLink?.attributes('rel')).toBe('noopener noreferrer')
+    expect(menuActions.indexOf(guideLink!)).toBe(logoutIndex - 1)
+  })
+
   it('仅层级模式下存在两个直接可切换租户时显示租户切换入口', async () => {
     const router = createTestRouter()
     await router.push('/dashboard')
