@@ -52,7 +52,7 @@ const config: BusinessPageConfig = {
   showEmptyState: false,
   readPermission: 'service_asset.read',
   primaryPermission: 'service_asset.manage',
-  primaryActionLabel: '手动添加应用资产',
+  primaryActionLabel: '添加资产',
   primaryAction: openCreateDialog,
   moduleName: 'assets',
   resourceName: '应用资产',

@@ -181,13 +181,13 @@ defineExpose({
           <div class="business-page__toolbar-actions">
             <GcPermissionButton
               v-if="!showHeader && showPrimaryAction"
+              class="business-page__primary-button"
               :permission="config.primaryPermission"
               :disabled="primaryActionPending"
               @click="runPrimaryAction"
             >
               {{ primaryActionPending ? '处理中…' : config.primaryActionLabel }}
             </GcPermissionButton>
-            <span class="business-page__pill">{{ selectedRow?.name ? `已选 ${selectedRow.name}` : '未选择资源' }}</span>
             <span v-if="hasDangerAction" class="business-page__pill business-page__pill--danger">高危操作需确认</span>
             <button class="gc-button" type="button" @click="state.reload">刷新</button>
           </div>
@@ -375,6 +375,17 @@ defineExpose({
   background: var(--gc-color-surface-soft);
   font-size: var(--gc-font-size-xs);
   font-weight: 850;
+}
+.business-page__primary-button {
+  border-color: var(--gc-color-primary);
+  background: var(--gc-color-primary);
+  color: #fff;
+}
+.business-page__primary-button:hover:not(:disabled),
+.business-page__primary-button:focus-visible:not(:disabled) {
+  border-color: var(--gc-color-primary-hover);
+  background: var(--gc-color-primary-hover);
+  color: #fff;
 }
 .business-page__pill--danger { color: var(--gc-color-danger); background: var(--gc-color-danger-bg); }
 .business-page__row-link { border: 0; background: transparent; color: var(--gc-color-primary); font: inherit; font-weight: 900; padding: 0; cursor: pointer; }
