@@ -797,7 +797,8 @@ export class DeploymentPlansApplicationService {
     const applicationAssetDetail = await this.assets.getServiceAssetDetail(input.tenantId, input.applicationAssetId);
     const selectionMode = input.selectionMode ?? (input.targetCertificateVersionId ? 'EXPLICIT' : 'LATEST_AUTO');
     const certificateVersionId = input.targetCertificateVersionId ?? undefined;
-    const planName = `${applicationAsset.displayName ?? applicationAsset.address} 证书部署`;
+    // 中文说明：部署计划名称只保存资源名称，操作类型由任务类型和前端国际化文案表达。
+    const planName = applicationAsset.displayName ?? applicationAsset.address;
     const strategyAsset = await this.validateStrategyPluginBinding(
       input.tenantId,
       applicationAssetDetail ?? applicationAsset,
@@ -1439,7 +1440,8 @@ export class DeploymentPlansApplicationService {
       ? await this.compileWorkflowExecutionBinding(input.tenantId, applicationAsset, workflow.workflowExecutionBindingId, 'WORKFLOW')
       : await this.attachWorkflowCredentialSnapshots(input.tenantId, await this.attachPluginExecutionIdentity(applicationAsset, this.deploymentStrategyResolver.resolve({ applicationAsset })));
     const selectionMode = input.selectionMode ?? (input.targetCertificateVersionId ? 'EXPLICIT' : 'LATEST_AUTO');
-    const planName = `${applicationAsset.displayName ?? applicationAsset.address} 证书部署`;
+    // 中文说明：部署计划名称只保存资源名称，操作类型由任务类型和前端国际化文案表达。
+    const planName = applicationAsset.displayName ?? applicationAsset.address;
     return {
       name: planName,
       certificateAssetId: input.certificateAssetId,
@@ -3059,7 +3061,7 @@ export class DeploymentPlansApplicationService {
   ): Promise<void> {
     if (!this.tasks || !plan.tenantId) return;
     const summary = {
-      displayName: plan.name,
+      resourceName: plan.name,
       deploymentPlanId: plan.id,
       approvalId,
       approvalStatus: 'pending',

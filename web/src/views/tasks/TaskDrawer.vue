@@ -979,6 +979,7 @@ function taskTypeLabel(task: TaskRun): string {
 }
 
 function taskRelatedName(task: TaskRun): string {
+  const isDeploymentTask = isDeploymentExecutionTask(task) || isDeploymentApprovalTask(task)
   if (task.taskType === 'ACME_CERTIFICATE_RENEWAL') {
     const presentation = acmeRenewalTaskPresentations.value[task.id]
     return presentation
@@ -990,14 +991,14 @@ function taskRelatedName(task: TaskRun): string {
   }
   if (isDeploymentExecutionTask(task)) {
     const planId = taskDeploymentPlanId(task)
-    if (planId && deploymentPlanNames.value[planId]) return deploymentPlanNames.value[planId]
+    if (planId && deploymentPlanNames.value[planId]) return normalizeDeploymentResourceName(deploymentPlanNames.value[planId]) ?? deploymentPlanNames.value[planId]
   }
   const candidate = normalizeTaskRelatedName(firstNonEmptyString(
-    recordStringByKeys(task.resourceSummary, ['displayName', 'name', 'planName', 'assetDisplayName', 'assetName', 'providerDisplayName', 'providerName', 'pluginName', 'workflowName', 'applicationName', 'siteName', 'bindingName', 'bindingDisplayName', 'certificateName', 'technologyName', 'targetName']),
+    recordStringByKeys(task.resourceSummary, ['resourceName', 'displayName', 'name', 'planName', 'assetDisplayName', 'assetName', 'providerDisplayName', 'providerName', 'pluginName', 'workflowName', 'applicationName', 'siteName', 'bindingName', 'bindingDisplayName', 'certificateName', 'technologyName', 'targetName']),
     recordStringByKeys(task.payload, ['displayName', 'name', 'planName', 'deploymentPlanName', 'pluginName', 'workflowName', 'workflowId', 'providerDisplayName', 'providerName', 'providerKey', 'operationKey', 'technologyName', 'siteName', 'bindingName', 'bindingInformation', 'agentId', 'certificateAssetId', 'deploymentPlanId', 'renewalJobId', 'certificateRequestId', 'targetPluginVersionId', 'pluginId', 'scope']),
   ))
   if (isDeploymentExecutionTask(task) && isRecordId(candidate, 'pln_')) return t('tasks.relatedNames.deploymentPlan')
-  return candidate ?? taskTypeLabel(task)
+  return isDeploymentTask ? normalizeDeploymentResourceName(candidate) ?? taskTypeLabel(task) : candidate ?? taskTypeLabel(task)
 }
 
 function taskDisplayTitle(task: TaskRun): string {
@@ -1447,6 +1448,13 @@ function normalizeTaskRelatedName(value?: string): string | undefined {
   if (!value) return undefined
   if (value === 'builtin-catalog') return t('tasks.relatedNames.builtinCatalog')
   return value
+}
+
+function normalizeDeploymentResourceName(value?: string): string | undefined {
+  const normalized = normalizeTaskRelatedName(value)
+  if (!normalized) return undefined
+  const legacyName = normalized.replace(/\s+证书部署$/, '').trim()
+  return legacyName || normalized
 }
 
 function taskDeploymentPlanId(task: TaskRun): string | undefined {
@@ -1954,17 +1962,17 @@ function recordString(record: InternalCaRecord, key: string): string {
                         <span v-if="!shouldRenderTaskProgress(task)" class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
                         <span class="task-drawer__item-meta-row">
                           <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
-                          <GcProgressBar
-                            v-if="shouldRenderTaskProgress(task)"
-                            class="task-drawer__item-progress"
-                            :value="taskProgressPercent(task)"
-                            :tone="statusTone(task.status)"
-                            captionInside
-                            :ariaLabel="taskStatusSummary(task)"
-                          >
-                            <span class="task-drawer__item-progress-text">{{ taskProgressPercent(task) }}%</span>
-                          </GcProgressBar>
                         </span>
+                        <GcProgressBar
+                          v-if="shouldRenderTaskProgress(task)"
+                          class="task-drawer__item-progress"
+                          :value="taskProgressPercent(task)"
+                          :tone="statusTone(task.status)"
+                          captionInside
+                          :ariaLabel="taskStatusSummary(task)"
+                        >
+                          <span class="task-drawer__item-progress-text">{{ taskProgressPercent(task) }}%</span>
+                        </GcProgressBar>
                       </span>
                     </GcButton>
                     <span class="task-drawer__item-controls">
@@ -2001,17 +2009,17 @@ function recordString(record: InternalCaRecord, key: string): string {
                         <span v-if="!shouldRenderTaskProgress(task)" class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
                         <span class="task-drawer__item-meta-row">
                           <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
-                          <GcProgressBar
-                            v-if="shouldRenderTaskProgress(task)"
-                            class="task-drawer__item-progress"
-                            :value="taskProgressPercent(task)"
-                            :tone="statusTone(task.status)"
-                            captionInside
-                            :ariaLabel="taskStatusSummary(task)"
-                          >
-                            <span class="task-drawer__item-progress-text">{{ taskProgressPercent(task) }}%</span>
-                          </GcProgressBar>
                         </span>
+                        <GcProgressBar
+                          v-if="shouldRenderTaskProgress(task)"
+                          class="task-drawer__item-progress"
+                          :value="taskProgressPercent(task)"
+                          :tone="statusTone(task.status)"
+                          captionInside
+                          :ariaLabel="taskStatusSummary(task)"
+                        >
+                          <span class="task-drawer__item-progress-text">{{ taskProgressPercent(task) }}%</span>
+                        </GcProgressBar>
                       </span>
                     </GcButton>
                     <span class="task-drawer__item-controls">
@@ -2059,17 +2067,17 @@ function recordString(record: InternalCaRecord, key: string): string {
                 <span v-if="!shouldRenderTaskProgress(task)" class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
                 <span class="task-drawer__item-meta-row">
                   <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
-                  <GcProgressBar
-                    v-if="shouldRenderTaskProgress(task)"
-                    class="task-drawer__item-progress"
-                    :value="taskProgressPercent(task)"
-                    :tone="statusTone(task.status)"
-                    captionInside
-                    :ariaLabel="taskStatusSummary(task)"
-                  >
-                    <span class="task-drawer__item-progress-text">{{ taskProgressPercent(task) }}%</span>
-                  </GcProgressBar>
                 </span>
+                <GcProgressBar
+                  v-if="shouldRenderTaskProgress(task)"
+                  class="task-drawer__item-progress"
+                  :value="taskProgressPercent(task)"
+                  :tone="statusTone(task.status)"
+                  captionInside
+                  :ariaLabel="taskStatusSummary(task)"
+                >
+                  <span class="task-drawer__item-progress-text">{{ taskProgressPercent(task) }}%</span>
+                </GcProgressBar>
               </span>
             </GcButton>
             <span class="task-drawer__item-controls">
@@ -2688,7 +2696,10 @@ function recordString(record: InternalCaRecord, key: string): string {
 
 .task-drawer__item {
   position: relative;
-  display: block;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: var(--gc-space-2);
   width: 100%;
   min-width: 0;
   border: var(--gc-border-width-default) solid var(--gc-color-border);
@@ -2697,10 +2708,11 @@ function recordString(record: InternalCaRecord, key: string): string {
 }
 
 .task-drawer__item-open {
+  grid-column: 1;
   display: flex;
   width: 100%;
   min-width: 0;
-  padding: var(--gc-space-3) calc((var(--gc-control-height-card-action) * 2) + var(--gc-space-3)) var(--gc-space-3) var(--gc-space-3);
+  padding: var(--gc-space-3) 0 var(--gc-space-3) var(--gc-space-3);
   border: 0;
   border-radius: inherit;
   color: var(--gc-color-text);
@@ -2712,7 +2724,7 @@ function recordString(record: InternalCaRecord, key: string): string {
 }
 
 .task-popover .task-drawer__item-open {
-  padding: var(--gc-space-2) calc((var(--gc-control-height-card-action) * 2) + var(--gc-space-2)) var(--gc-space-2) var(--gc-space-2);
+  padding: var(--gc-space-2) 0 var(--gc-space-2) var(--gc-space-2);
 }
 
 .task-drawer__item-open:hover:not(:disabled) {
@@ -2735,15 +2747,14 @@ function recordString(record: InternalCaRecord, key: string): string {
 }
 
 .task-drawer__item-controls {
-  position: absolute;
-  inset-block-start: 50%;
-  inset-inline-end: var(--gc-space-3);
+  grid-column: 2;
+  align-self: start;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-direction: column;
   gap: var(--gc-space-1);
-  transform: translateY(-50%);
+  padding: var(--gc-space-3) var(--gc-space-3) 0 0;
   pointer-events: none;
 }
 
@@ -2841,7 +2852,7 @@ function recordString(record: InternalCaRecord, key: string): string {
   align-items: center;
   gap: var(--gc-space-3);
   min-width: 0;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 
 .task-drawer__item-meta-row .task-drawer__item-meta {
@@ -2850,8 +2861,9 @@ function recordString(record: InternalCaRecord, key: string): string {
 }
 
 .task-drawer__item-progress {
-  flex: 1 1 0;
-  min-width: calc((var(--gc-space-10) * 3) + var(--gc-space-2));
+  display: block;
+  width: 100%;
+  min-width: 0;
   white-space: nowrap;
 }
 

@@ -1098,7 +1098,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
             'deploymentPlan',
             plan.id,
             {
-              displayName: plan.name,
+              resourceName: plan.name,
               deploymentPlanId: plan.id,
               approvalId: approval.id,
               approvalStatus: decision,
@@ -1116,7 +1116,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
             'deploymentPlan',
             plan.id,
             {
-              displayName: plan.name,
+              resourceName: plan.name,
               deploymentPlanId: plan.id,
               approvalId: approval.id,
               approvalStatus: decision,
@@ -1137,7 +1137,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
         'deploymentPlan',
         plan.id,
         {
-          displayName: plan.name,
+          resourceName: plan.name,
           deploymentPlanId: plan.id,
           approvalId: approval.id,
           approvalStatus: decision,
