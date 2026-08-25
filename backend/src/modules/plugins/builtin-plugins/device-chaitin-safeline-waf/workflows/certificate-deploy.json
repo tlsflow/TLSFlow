@@ -5,7 +5,7 @@
     "name": "chaitin-safeline-waf-certificate-deploy",
     "displayName": "SafeLine certificate deployment",
     "category": "certificate",
-    "version": "0.1.13",
+    "version": "0.1.15",
     "platforms": [
       "waf"
     ],
@@ -488,7 +488,6 @@
           "fingerprint": "{{artifacts.certificate.outputs.fingerprintSha256}}",
           "leaf": "{{artifacts.certificate.outputs.leafPem}}",
           "chain": "{{artifacts.certificate.outputs.orderedChainPem}}",
-          "defaultCertificate": "{{steps.readDefaultCertificate.extracted}}",
           "defaultTargetSelected": "{{steps.selectTargets.extracted.defaultTargetSelected}}",
           "defaultCertificateId": "{{steps.selectTargets.extracted.defaultCertificateId}}"
         },
@@ -497,7 +496,7 @@
             "expression": "($certs := $append([],certificates); $details := $append([],details); $normalizeFingerprint := function($value) { $lowercase($replace($replace($string($value),/^sha256:/,''),/[^A-Fa-f0-9]/,'')) }; $normalizePem := function($value) { $replace($string($value),/\\s+/, '') }; $expectedFingerprint := $normalizeFingerprint(fingerprint); $expectedCrt := $normalizePem($string(leaf) & ($exists(chain) and $string(chain) != '' ? $string(chain) : '')); $defaultId := $string(defaultCertificateId); $shaMatch := $filter($certs,function($certificate) { ($candidate := $normalizeFingerprint($certificate.sha256); $candidate != '' and $candidate = $expectedFingerprint) }); $indexedDetails := $map($details,function($item,$index) { {'index':$index,'item':$item} }); $pemMatch := $filter($indexedDetails,function($entry) { ($candidate := $entry.item.outputs[name='readCertificate'][0].extracted; $candidate.crt and $normalizePem($candidate.crt) = $expectedCrt) }); $matchedId := defaultTargetSelected and $defaultId != '' ? defaultCertificateId : ($count($shaMatch) > 0 ? $shaMatch[0].id : ($count($pemMatch) > 0 ? $certs[$pemMatch[0].index].id : '')); $matchedId)"
           },
           "defaultCertificateChanged": {
-            "expression": "($certs := $append([],certificates); $details := $append([],details); $defaultDetail := defaultCertificate; $normalizeFingerprint := function($value) { $lowercase($replace($replace($string($value),/^sha256:/,''),/[^A-Fa-f0-9]/,'')) }; $normalizePem := function($value) { $replace($string($value),/\\s+/, '') }; $expectedFingerprint := $normalizeFingerprint(fingerprint); $expectedCrt := $normalizePem($string(leaf) & ($exists(chain) and $string(chain) != '' ? $string(chain) : '')); $defaultId := $string(defaultCertificateId); $current := $certs[$string(id) = $defaultId][0]; $currentFingerprint := $normalizeFingerprint($current.sha256); $indexedDetails := $map($details,function($item,$index) { {'index':$index,'item':$item} }); $currentDetails := $filter($indexedDetails,function($entry) { $string($certs[$entry.index].id) = $defaultId }); $currentDetail := ($string($defaultDetail.crt) != '') ? $defaultDetail : ($count($currentDetails) > 0 ? $currentDetails[0].item.outputs[name='readCertificate'][0].extracted : {}); $currentCrt := $normalizePem($currentDetail.crt); $sameBySha := $expectedFingerprint != '' and $currentFingerprint != '' and $expectedFingerprint = $currentFingerprint; $sameByPem := $currentCrt != '' and $currentCrt = $expectedCrt; $boolean(defaultTargetSelected and $defaultId != '' and $not($sameBySha or $sameByPem)))"
+            "expression": "($certs := $append([],certificates); $details := $append([],details); $normalizeFingerprint := function($value) { $lowercase($replace($replace($string($value),/^sha256:/,''),/[^A-Fa-f0-9]/,'')) }; $normalizePem := function($value) { $replace($string($value),/\\s+/, '') }; $expectedFingerprint := $normalizeFingerprint(fingerprint); $expectedCrt := $normalizePem($string(leaf) & ($exists(chain) and $string(chain) != '' ? $string(chain) : '')); $defaultId := $string(defaultCertificateId); $current := $certs[$string(id) = $defaultId][0]; $currentFingerprint := $normalizeFingerprint($current.sha256); $indexedDetails := $map($details,function($item,$index) { {'index':$index,'item':$item} }); $currentDetails := $filter($indexedDetails,function($entry) { $string($certs[$entry.index].id) = $defaultId }); $currentDetail := $count($currentDetails) > 0 ? $currentDetails[0].item.outputs[name='readCertificate'][0].extracted : {}; $currentCrt := $normalizePem($currentDetail.crt); $sameBySha := $expectedFingerprint != '' and $currentFingerprint != '' and $expectedFingerprint = $currentFingerprint; $sameByPem := $currentCrt != '' and $currentCrt = $expectedCrt; $boolean(defaultTargetSelected and $defaultId != '' and $not($sameBySha or $sameByPem)))"
           }
         },
         "timeoutMs": 1000,
@@ -515,7 +514,6 @@
           "certificateId": "{{steps.matchExistingCertificate.extracted.existingCertificateId}}",
           "certificates": "{{steps.readCertificates.extracted.certificates}}",
           "details": "{{steps.readCertificateDetails.output.iterations}}",
-          "defaultCertificate": "{{steps.readDefaultCertificate.extracted}}",
           "defaultTargetSelected": "{{steps.selectTargets.extracted.defaultTargetSelected}}",
           "defaultCertificateChanged": "{{steps.matchExistingCertificate.extracted.defaultCertificateChanged}}"
         },
@@ -524,13 +522,38 @@
             "expression": "($string(certificateId) != '')"
           },
           "certificateSnapshot": {
-            "expression": "($id := certificateId; $certificates := $append([],certificates); $direct := defaultCertificate; $indexedDetails := $map($append([],details),function($item,$index) { {'index':$index,'item':$item} }); $matches := $filter($indexedDetails,function($entry) { $string($certificates[$entry.index].id) = $string($id) }); $detail := ($string($direct.crt) != '') ? $direct : ($count($matches) > 0 ? $matches[0].item.outputs[name='readCertificate'][0].extracted : {}); $crt := $string($detail.crt); $key := $string($detail.key); $hasPrivateKey := $contains($key,'-----BEGIN') and $contains($key,'PRIVATE KEY-----') and $contains($key,'-----END'); {'id':$id,'crt':$detail.crt,'key':$detail.key,'restoreRequired':$string($id) != '' and $crt != '' and $hasPrivateKey})"
-          },
-          "defaultBackupAvailable": {
-            "expression": "$boolean(defaultTargetSelected and defaultCertificateChanged and certificateSnapshot.restoreRequired)"
+            "expression": "($id := certificateId; $certificates := $append([],certificates); $indexedDetails := $map($append([],details),function($item,$index) { {'index':$index,'item':$item} }); $matches := $filter($indexedDetails,function($entry) { $string($certificates[$entry.index].id) = $string($id) }); $detail := $count($matches) > 0 ? $matches[0].item.outputs[name='readCertificate'][0].extracted : {}; $crt := $string($detail.crt); $key := $string($detail.key); $hasPrivateKey := $contains($key,'-----BEGIN') and $contains($key,'PRIVATE KEY-----') and $contains($key,'-----END'); {'id':$id,'crt':$detail.crt,'key':$detail.key,'restoreRequired':$string($id) != '' and $crt != '' and $hasPrivateKey})"
           },
           "createdCertificate": {
             "expression": "($string(certificateId) = '')"
+          }
+        },
+        "timeoutMs": 1000,
+        "maxInputBytes": 1048576,
+        "maxOutputBytes": 1048576
+      }
+    },
+    {
+      "name": "buildDefaultCertificateSnapshot",
+      "type": "transform",
+      "stage": "backup",
+      "when": {
+        "variable": "steps.selectTargets.extracted.defaultTargetSelected",
+        "equals": true
+      },
+      "transform": {
+        "engine": "jsonata",
+        "input": {
+          "defaultCertificate": "{{steps.readDefaultCertificate.extracted}}",
+          "defaultCertificateChanged": "{{steps.matchExistingCertificate.extracted.defaultCertificateChanged}}"
+        },
+        "outputs": {
+          "certificateSnapshot": {
+            "sensitive": true,
+            "expression": "($detail := defaultCertificate; $crt := $string($detail.crt); $key := $string($detail.key); $hasPrivateKey := $contains($key,'-----BEGIN') and $contains($key,'PRIVATE KEY-----') and $contains($key,'-----END'); {'id':$detail.certificateId,'crt':$detail.crt,'key':$detail.key,'restoreRequired':$crt != '' and $hasPrivateKey})"
+          },
+          "defaultBackupAvailable": {
+            "expression": "$boolean(defaultCertificateChanged and certificateSnapshot.restoreRequired)"
           }
         },
         "timeoutMs": 1000,
@@ -558,7 +581,7 @@
       "type": "http",
       "stage": "install",
       "when": {
-        "variable": "steps.buildCertificateSnapshot.extracted.defaultBackupAvailable",
+        "variable": "steps.buildDefaultCertificateSnapshot.extracted.defaultBackupAvailable",
         "equals": true
       },
       "request": {
@@ -579,8 +602,8 @@
         "body": {
           "type": 2,
           "manual": {
-            "crt": "{{steps.buildCertificateSnapshot.extracted.certificateSnapshot.crt}}",
-            "key": "{{steps.buildCertificateSnapshot.extracted.certificateSnapshot.key}}"
+            "crt": "{{steps.buildDefaultCertificateSnapshot.extracted.certificateSnapshot.crt}}",
+            "key": "{{steps.buildDefaultCertificateSnapshot.extracted.certificateSnapshot.key}}"
           }
         },
         "tls": {
