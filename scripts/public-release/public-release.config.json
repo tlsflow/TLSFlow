@@ -5,7 +5,7 @@
     "modeEnvironmentVariable": "PUBLIC_RELEASE_INITIAL_SYNC",
     "sourceCommitEnvironmentVariable": "PUBLIC_RELEASE_INITIAL_SOURCE_COMMIT",
     "projectionPolicy": "commit-on-whitelist-change",
-    "defaultMode": "snapshot"
+    "defaultMode": "history"
   },
   "publicPaths": [
     "agents",
