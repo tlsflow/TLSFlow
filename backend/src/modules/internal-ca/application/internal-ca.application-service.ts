@@ -1,4 +1,4 @@
-import { createHash, createHmac, createPublicKey, randomBytes, timingSafeEqual, verify } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { DatabasePort } from '../../../database/database-port.js';
 import { newId } from '../../../shared/id.js';
@@ -25,7 +25,6 @@ import {
 import { OpenSslCa } from '../providers/openssl-ca.js';
 import { InternalCaRepository } from '../repository/internal-ca.repository.js';
 import { CertificatePolicyService, normalizeCertificatePolicyRules } from './certificate-policy.service.js';
-import { CaNodeTaskChannel, type CaNodeTaskNotificationListener } from './ca-node-task-channel.js';
 import { CaOperationsQueryService } from './ca-operations-query.service.js';
 import { CaSyncCoordinator, type CreateCaSyncRunsInput } from './ca-sync-coordinator.js';
 import type {
@@ -42,8 +41,6 @@ import {
   type CaCrlPublicationEntity,
   type CaDeploymentMode,
   type CaIssuanceRecordEntity,
-  type CaNodeEntity,
-  type CaNodeTaskEntity,
   type CaProviderEntity,
   type CaProviderType,
   type CaRiskPreview,
@@ -73,8 +70,6 @@ import {
 } from '../schema/internal-ca.schema.js';
 import { AcmeDomainService } from '../domain/acme.domain-service.js';
 import type { AcmeChallengeType, AcmeProviderConfiguration } from '../schema/acme.schema.js';
-
-type CaNodePlatform = 'windows' | 'linux';
 
 export interface CreateCaProviderInput {
   name: string;
@@ -185,32 +180,10 @@ export interface CreateCertificateRequestInput {
   actorId: string;
 }
 
-export interface RegisterCaNodeInput {
-  enrollmentToken: string;
-  name: string;
-  platform: CaNodePlatform;
-  role?: CaNodeEntity['role'];
-  identityFingerprint: string;
-  authenticationPublicKeyPem?: string;
-  keyBackend: KeyBackendType;
-  exportability?: KeyExportability;
-  capabilities: CaNodeEntity['capabilities'];
-  endpoint?: string;
-  version?: string;
-}
-
-const runtimeNodePlatforms: Readonly<Record<CaRuntimePlatform, readonly CaNodePlatform[]>> = Object.freeze({
-  embedded: ['windows', 'linux'],
-  windows: ['windows'],
-  linux: ['linux'],
-  external: ['windows', 'linux'],
-});
-
 export class InternalCaApplicationService {
   private readonly repository: InternalCaRepository;
   private readonly providers: CaProviderRegistry;
   private readonly openssl: OpenSslCa;
-  private readonly nodeTaskChannel: CaNodeTaskChannel;
   private readonly operationsQuery: CaOperationsQueryService;
   private readonly syncCoordinator: CaSyncCoordinator;
   private readonly certificatePolicies: CertificatePolicyService;
@@ -224,13 +197,11 @@ export class InternalCaApplicationService {
     repository?: InternalCaRepository;
     providers?: CaProviderRegistry;
     openssl?: OpenSslCa;
-    nodeTaskChannel?: CaNodeTaskChannel;
     operationsAdapters?: CaOperationsAdapterRegistry;
   }) {
     this.repository = dependencies.repository ?? new InternalCaRepository(dependencies.db);
     this.providers = dependencies.providers ?? createDefaultCaProviderRegistry(dependencies.secrets);
     this.openssl = dependencies.openssl ?? new OpenSslCa();
-    this.nodeTaskChannel = dependencies.nodeTaskChannel ?? new CaNodeTaskChannel();
     const operationsAdapters = dependencies.operationsAdapters ?? new CaOperationsAdapterRegistry();
     this.operationsQuery = new CaOperationsQueryService(dependencies.db, operationsAdapters, undefined, this.repository);
     this.syncCoordinator = new CaSyncCoordinator(dependencies.db, operationsAdapters, dependencies.audit, undefined, this.repository);
@@ -694,7 +665,6 @@ export class InternalCaApplicationService {
     }
     if (input.topologyMode === 'root_only' && input.availabilityMode === 'active_active') blockers.push('根 CA 不允许在线多节点部署。');
     if (input.deploymentMode === 'builtin' && input.runtimePlatform !== 'embedded') blockers.push('内置 CA 必须使用 embedded 运行平台。');
-    if (input.deploymentMode === 'managed_node' && !['windows', 'linux'].includes(input.runtimePlatform)) blockers.push('受控节点必须选择 Windows 或 Linux 运行平台。');
     if (input.deploymentMode === 'external' && input.runtimePlatform !== 'external') blockers.push('插件 CA 必须使用 external 运行平台。');
     const overallRecommendation = blockers.length > 0 ? 'not_recommended' : warnings.length > 0 ? 'acceptable_with_risk' : 'recommended';
     return {
@@ -1726,113 +1696,6 @@ export class InternalCaApplicationService {
     };
   }
 
-  async createNodeEnrollmentToken(tenantId: string, providerId: string, actorId: string, ttlMinutes = 15): Promise<{ tokenId: string; token: string; expiresAt: string }> {
-    const provider = await this.requireProvider(tenantId, providerId);
-    if (provider.type !== 'gcac_managed_node' && provider.type !== 'plugin') throw new AppError('CA_TOPOLOGY_INVALID', '当前 Provider 不允许注册受控节点');
-    if (provider.type === 'plugin') await this.requireProviderActionBinding(tenantId, provider.id);
-    const token = `gcn_${randomBytes(32).toString('base64url')}`;
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + Math.max(1, Math.min(ttlMinutes, 60)) * 60_000).toISOString();
-    const entity = await this.repository.createNodeEnrollmentToken({
-      id: newId('cantok'), tenantId, providerId, tokenHash: createHash('sha256').update(token).digest('hex'),
-      status: 'active', expiresAt, createdBy: actorId, createdAt: now.toISOString(),
-    });
-    return { tokenId: entity.id, token, expiresAt };
-  }
-
-  async registerNode(input: RegisterCaNodeInput): Promise<CaNodeEntity> {
-    const tokenHash = createHash('sha256').update(requiredText(input.enrollmentToken, 'enrollmentToken')).digest('hex');
-    const consumed = await this.repository.consumeNodeEnrollmentToken(tokenHash, new Date().toISOString());
-    if (!consumed || consumed.status !== 'used') throw new AppError('AUTH_FORBIDDEN', 'CA Node 注册令牌无效、已使用或已过期');
-    const provider = await this.requireProvider(consumed.tenantId, consumed.providerId);
-    if (!runtimeNodePlatforms[provider.runtimePlatform].includes(input.platform)) throw new AppError('CA_TOPOLOGY_INVALID', '节点平台与 Provider 配置不一致');
-    const authenticationPublicKeyPem = optionalText(input.authenticationPublicKeyPem);
-    if (authenticationPublicKeyPem) validateNodeAuthenticationKey(authenticationPublicKeyPem, input.identityFingerprint);
-    const now = new Date().toISOString();
-    const node: CaNodeEntity = {
-      id: newId('canode'), tenantId: consumed.tenantId, providerId: consumed.providerId,
-      name: requiredText(input.name, 'name'), platform: input.platform,
-      role: input.role ?? 'member', identityFingerprint: normalizeHexFingerprint(input.identityFingerprint),
-      authenticationPublicKeyPem, keyBackend: input.keyBackend, exportability: normalizeExportability(input.keyBackend, input.exportability),
-      capabilities: input.capabilities, healthStatus: 'online', lastHeartbeatAt: now, endpoint: optionalText(input.endpoint),
-      version: optionalText(input.version), createdAt: now, updatedAt: now,
-    };
-    await this.assertNoActiveNodeConflict(node);
-    return this.repository.saveNode(node);
-  }
-
-  async verifyNodeRequest(input: { tenantId: string; nodeId: string; method: string; path: string; timestamp: string; nonce: string; signature: string; body: unknown }): Promise<CaNodeEntity> {
-    const node = await this.repository.getNode(requiredText(input.tenantId, 'tenantId'), requiredText(input.nodeId, 'nodeId'));
-    if (!node || node.healthStatus === 'revoked' || !node.authenticationPublicKeyPem) throw new AppError('AUTH_FORBIDDEN', 'CA Node 身份无效或未启用请求签名');
-    const requestedAt = new Date(requiredText(input.timestamp, 'timestamp'));
-    const now = new Date();
-    if (!Number.isFinite(requestedAt.getTime()) || Math.abs(now.getTime() - requestedAt.getTime()) > 5 * 60_000) throw new AppError('AUTH_FORBIDDEN', 'CA Node 请求时间戳无效或已过期');
-    const nonce = requiredText(input.nonce, 'nonce');
-    if (!/^[A-Za-z0-9_-]{16,128}$/.test(nonce)) throw new AppError('AUTH_FORBIDDEN', 'CA Node 请求 nonce 无效');
-    let valid = false;
-    try {
-      valid = verify(null, Buffer.from(nodeRequestCanonical(input)), createPublicKey(node.authenticationPublicKeyPem), Buffer.from(input.signature, 'base64'));
-    } catch {
-      valid = false;
-    }
-    if (!valid) throw new AppError('AUTH_FORBIDDEN', 'CA Node 请求签名无效');
-    if (!(await this.repository.consumeNodeRequestNonce(node.id, nonce, now.toISOString(), new Date(now.getTime() + 10 * 60_000).toISOString()))) throw new AppError('AUTH_FORBIDDEN', 'CA Node 请求已重放');
-    return node;
-  }
-
-  listNodes(tenantId: string, providerId?: string): Promise<CaNodeEntity[]> {
-    return this.repository.listNodes(tenantId, providerId);
-  }
-
-  async heartbeatNode(tenantId: string, nodeId: string, patch: { healthStatus?: CaNodeEntity['healthStatus']; role?: CaNodeEntity['role']; capabilities?: CaNodeEntity['capabilities']; version?: string }): Promise<CaNodeEntity> {
-    const node = await this.repository.getNode(tenantId, nodeId);
-    if (!node) throw new AppError('RESOURCE_NOT_FOUND', 'CA Node 不存在', { nodeId });
-    if (node.healthStatus === 'revoked') throw new AppError('AUTH_FORBIDDEN', 'CA Node 身份已吊销');
-    const next = { ...node, healthStatus: patch.healthStatus ?? 'online', role: patch.role ?? node.role, capabilities: patch.capabilities ?? node.capabilities, version: patch.version ?? node.version, lastHeartbeatAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-    await this.assertNoActiveNodeConflict(next);
-    return this.repository.saveNode(next);
-  }
-
-  async enqueueNodeTask(tenantId: string, providerId: string, taskType: CaNodeTaskEntity['taskType'], payload: Record<string, unknown>, idempotencyKey: string): Promise<CaNodeTaskEntity> {
-    await this.requireProvider(tenantId, providerId);
-    const existing = await this.repository.getNodeTaskByIdempotencyKey(tenantId, idempotencyKey);
-    if (existing) return existing;
-    const now = new Date().toISOString();
-    const task = await this.repository.saveNodeTask({ id: newId('cantask'), tenantId, providerId, taskType, payload, idempotencyKey, status: 'queued', createdAt: now, updatedAt: now });
-    this.nodeTaskChannel.notify(tenantId, providerId);
-    return task;
-  }
-
-  subscribeNodeTasks(tenantId: string, providerId: string, listener: CaNodeTaskNotificationListener): () => void {
-    return this.nodeTaskChannel.subscribe(tenantId, providerId, listener);
-  }
-
-  async leaseNodeTask(tenantId: string, nodeId: string): Promise<CaNodeTaskEntity | undefined> {
-    const node = await this.repository.getNode(tenantId, nodeId);
-    if (!node || node.healthStatus !== 'online') throw new AppError('CA_PROVIDER_UNAVAILABLE', 'CA Node 不在线', { nodeId });
-    if (node.role === 'standby') return undefined;
-    return this.repository.leaseNodeTask(tenantId, node.providerId, node.id, new Date(Date.now() + 120_000).toISOString());
-  }
-
-  async waitForNodeTaskResult(tenantId: string, taskId: string, timeoutMs = 90_000): Promise<CaNodeTaskEntity> {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      const task = await this.repository.getNodeTask(tenantId, taskId);
-      if (!task) throw new AppError('RESOURCE_NOT_FOUND', 'CA Node 任务不存在', { taskId });
-      if (task.status === 'succeeded' || task.status === 'failed') return task;
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }
-    throw new AppError('CA_SYNC_SOURCE_UNAVAILABLE', 'CA Node 任务超时', { taskId, timeoutMs });
-  }
-
-  async completeNodeTask(tenantId: string, nodeId: string, taskId: string, input: { success: boolean; result?: Record<string, unknown>; errorCode?: string; errorMessage?: string }): Promise<CaNodeTaskEntity> {
-    const task = await this.repository.getNodeTask(tenantId, taskId);
-    if (!task || task.nodeId !== nodeId || task.status !== 'leased') throw new AppError('RESOURCE_VERSION_CONFLICT', 'CA Node 任务租约无效');
-    const completed = await this.repository.saveNodeTask({ ...task, status: input.success ? 'succeeded' : 'failed', result: input.result, errorCode: input.success ? undefined : input.errorCode ?? 'CA_NODE_TASK_FAILED', errorMessage: input.success ? undefined : input.errorMessage ?? 'CA Node task failed', updatedAt: new Date().toISOString() });
-    this.nodeTaskChannel.notify(task.tenantId, task.providerId);
-    return completed;
-  }
-
   private async listCapabilityRecordsForProvider(provider: CaProviderEntity): Promise<void> {
     await this.saveDeclaredCapabilities(provider);
   }
@@ -1894,14 +1757,6 @@ export class InternalCaApplicationService {
     return request;
   }
 
-  private async assertNoActiveNodeConflict(candidate: CaNodeEntity): Promise<void> {
-    if (candidate.role !== 'active' || candidate.healthStatus !== 'online') return;
-    const provider = await this.requireProvider(candidate.tenantId, candidate.providerId);
-    if (provider.availabilityMode === 'active_active') return;
-    const conflict = (await this.repository.listNodes(candidate.tenantId, candidate.providerId)).find((node) => node.id !== candidate.id && node.role === 'active' && node.healthStatus === 'online');
-    if (conflict) throw new AppError('CA_NODE_SPLIT_BRAIN_RISK', '同一 Provider 已存在在线活动 CA Node', { nodeId: conflict.id });
-  }
-
   private async audit(eventType: string, actorId: string, action: string, resourceType: string, resourceId: string, riskLevel: 'high' | 'critical', context: RequestContext | undefined, detail: Record<string, unknown>): Promise<void> {
     await this.dependencies.audit?.write({ eventType, actorType: 'user', actorId, action, resourceType, resourceId, result: 'success', riskLevel, context, failClosed: true, detail });
   }
@@ -1909,8 +1764,7 @@ export class InternalCaApplicationService {
 
 function assertProviderCombination(provider: CaProviderEntity): void {
   if (provider.deploymentMode === 'builtin' && provider.type !== 'gcac_builtin') throw new AppError('CA_TOPOLOGY_INVALID', '内置部署必须使用 gcac_builtin Provider');
-  if (provider.deploymentMode === 'managed_node' && provider.type !== 'gcac_managed_node') throw new AppError('CA_TOPOLOGY_INVALID', '受控节点部署必须使用 gcac_managed_node Provider');
-  if (provider.deploymentMode === 'external' && ['gcac_builtin', 'gcac_managed_node'].includes(provider.type)) throw new AppError('CA_TOPOLOGY_INVALID', '外部部署不能使用 GCAC 内置 Provider');
+  if (provider.deploymentMode === 'external' && provider.type === 'gcac_builtin') throw new AppError('CA_TOPOLOGY_INVALID', '外部部署不能使用 GCAC 内置 Provider');
 }
 
 function normalizeProviderAction(
@@ -2085,26 +1939,6 @@ function normalizeFingerprint(value: string): string {
   const normalized = value.replaceAll(':', '').trim().toLowerCase();
   if (!/^[0-9a-f]{32,128}$/.test(normalized)) throw new AppError('VALIDATION_FAILED', '公钥指纹格式无效');
   return normalized;
-}
-
-function normalizeHexFingerprint(value: string): string {
-  return normalizeFingerprint(value);
-}
-
-function validateNodeAuthenticationKey(publicKeyPem: string, identityFingerprint: string): void {
-  try {
-    const key = createPublicKey(publicKeyPem);
-    if (key.asymmetricKeyType !== 'ed25519') throw new Error('unsupported key type');
-    const fingerprint = createHash('sha256').update(key.export({ type: 'spki', format: 'der' })).digest('hex');
-    if (fingerprint !== normalizeHexFingerprint(identityFingerprint)) throw new Error('fingerprint mismatch');
-  } catch {
-    throw new AppError('VALIDATION_FAILED', 'CA Node 请求签名公钥无效或与身份指纹不一致');
-  }
-}
-
-function nodeRequestCanonical(input: { tenantId: string; nodeId: string; method: string; path: string; timestamp: string; nonce: string; body: unknown }): string {
-  const bodyHash = createHash('sha256').update(JSON.stringify(input.body ?? null)).digest('hex');
-  return [input.method.toUpperCase(), input.path, input.tenantId, input.nodeId, input.timestamp, input.nonce, bodyHash].join('\n');
 }
 
 export type CertificateReuseRow = {

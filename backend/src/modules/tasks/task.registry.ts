@@ -9,7 +9,6 @@ const defaultDefinitions: TaskDefinition[] = [
   ['CERTIFICATE_ROLLBACK', 'EXECUTION', 'tasks.types.certificateRollback', 'certificate.rollback', 'execution.rollback'],
   ['AGENT_INSTALL', 'EXECUTION', 'tasks.types.agentInstall', 'agent.install', 'agent.write'],
   ['AGENT_UPDATE', 'EXECUTION', 'tasks.types.agentUpdate', 'agent.update', 'agent.write'],
-  ['CA_NODE_TASK', 'SYSTEM', 'tasks.types.caNodeTask', 'ca.node-task', 'ca.operations.read'],
   ['ACME_CERTIFICATE_ISSUE', 'SYSTEM', 'tasks.types.acmeCertificateIssue', 'acme.issue', 'ca.request.retry'],
   ['ACME_CERTIFICATE_RENEWAL', 'SYSTEM', 'tasks.types.acmeCertificateRenewal', 'acme.renewal', 'ca.request.retry'],
   ['PLUGIN_REFERENCE_REFRESH', 'EXECUTION', 'tasks.types.pluginReferenceRefresh', 'plugin.reference-refresh', 'plugin.manage'],

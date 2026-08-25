@@ -28,6 +28,7 @@ export interface AgentsRepository {
   readonly moduleName: 'agents';
   createEnrollmentToken(token: EnrollmentToken): Promise<EnrollmentToken>;
   updateEnrollmentToken(tokenId: string, patch: Partial<EnrollmentToken>): Promise<EnrollmentToken>;
+  getEnrollmentToken(tokenId: string): Promise<EnrollmentToken | undefined>;
   findEnrollmentTokenByHash(tenantId: string, tokenHash: string): Promise<EnrollmentToken | undefined>;
   findEnrollmentTokenByHashAnyTenant(tokenHash: string): Promise<EnrollmentToken | undefined>;
   upsertRegistration(agent: AgentRegistration): Promise<AgentRegistration>;
@@ -196,6 +197,10 @@ export class PgAgentsRepository implements AgentsRepository {
 
   async updateEnrollmentToken(tokenId: string, patch: Partial<EnrollmentToken>): Promise<EnrollmentToken> {
     return this.enrollmentTokens.update(tokenId, patch);
+  }
+
+  async getEnrollmentToken(tokenId: string): Promise<EnrollmentToken | undefined> {
+    return this.enrollmentTokens.get(tokenId);
   }
 
   async findEnrollmentTokenByHash(tenantId: string, tokenHash: string): Promise<EnrollmentToken | undefined> {

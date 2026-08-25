@@ -3,9 +3,6 @@ import type {
   CaCapabilityRecordEntity,
   CaCrlPublicationEntity,
   CaIssuanceRecordEntity,
-  CaNodeEntity,
-  CaNodeEnrollmentTokenEntity,
-  CaNodeTaskEntity,
   CaProviderEntity,
   ProviderActionBindingEntity,
   CaTrustDomainEntity,
@@ -78,17 +75,8 @@ export class InternalCaRepository {
     return this.db.transaction(async (tx) => {
       const authorities = await tx.query('select id from pg_certificate_authorities where tenant_id = $1 and provider_id = $2 limit 1', [tenantId, providerId]);
       if (authorities.rows[0]) return false;
-      const nodes = await tx.query<{ id: string }>('select id from pg_ca_nodes where tenant_id = $1 and provider_id = $2', [tenantId, providerId]);
-      const nodeIds = nodes.rows.map((row) => row.id);
-      if (nodeIds.length) {
-        await tx.query('delete from pg_ca_capability_records where tenant_id = $1 and owner_type = $2 and owner_id = any($3::text[])', [tenantId, 'node', nodeIds]);
-        await tx.query('delete from pg_ca_node_request_nonces where node_id = any($1::text[])', [nodeIds]);
-      }
       await tx.query('delete from pg_ca_capability_records where tenant_id = $1 and owner_type = $2 and owner_id = $3', [tenantId, 'provider', providerId]);
       await tx.query('delete from pg_ca_provider_action_bindings where tenant_id = $1 and provider_id = $2', [tenantId, providerId]);
-      await tx.query('delete from pg_ca_node_tasks where tenant_id = $1 and provider_id = $2', [tenantId, providerId]);
-      await tx.query('delete from pg_ca_node_enrollment_tokens where tenant_id = $1 and provider_id = $2', [tenantId, providerId]);
-      await tx.query('delete from pg_ca_nodes where tenant_id = $1 and provider_id = $2', [tenantId, providerId]);
       await tx.query('delete from pg_certificate_issuances where tenant_id = $1 and provider_id = $2', [tenantId, providerId]);
       const deleted = await tx.query('delete from pg_ca_providers where tenant_id = $1 and id = $2 returning id', [tenantId, providerId]);
       return deleted.rows.length === 1;
@@ -296,144 +284,6 @@ export class InternalCaRepository {
 
   listAuthorities(tenantId: string): Promise<CertificateAuthorityEntity[]> {
     return this.list('pg_certificate_authorities', tenantId);
-  }
-
-  saveNode(entity: CaNodeEntity): Promise<CaNodeEntity> {
-    return this.upsert('pg_ca_nodes', entity.id, entity, {
-      tenant_id: entity.tenantId,
-      provider_id: entity.providerId,
-      name: entity.name,
-      platform: entity.platform,
-      role: entity.role,
-      identity_fingerprint: entity.identityFingerprint,
-      key_backend: entity.keyBackend,
-      exportability: entity.exportability,
-      capabilities: entity.capabilities,
-      health_status: entity.healthStatus,
-      last_heartbeat_at: entity.lastHeartbeatAt ?? null,
-      lease_expires_at: entity.leaseExpiresAt ?? null,
-    });
-  }
-
-  getNode(tenantId: string, id: string): Promise<CaNodeEntity | undefined> {
-    return this.get('pg_ca_nodes', tenantId, id);
-  }
-
-  listNodes(tenantId: string, providerId?: string): Promise<CaNodeEntity[]> {
-    return this.list('pg_ca_nodes', tenantId, providerId ? { provider_id: providerId } : undefined);
-  }
-
-  async consumeNodeRequestNonce(nodeId: string, nonce: string, now: string, expiresAt: string): Promise<boolean> {
-    return this.db.transaction(async (tx) => {
-      await tx.query('delete from pg_ca_node_request_nonces where expires_at <= $1::timestamptz', [now]);
-      const result = await tx.query(
-        `insert into pg_ca_node_request_nonces (node_id, nonce, created_at, expires_at)
-         values ($1, $2, $3::timestamptz, $4::timestamptz)
-         on conflict (node_id, nonce) do nothing
-         returning nonce`,
-        [nodeId, nonce, now, expiresAt],
-      );
-      return result.rows.length === 1;
-    });
-  }
-
-  async createNodeEnrollmentToken(entity: CaNodeEnrollmentTokenEntity): Promise<CaNodeEnrollmentTokenEntity> {
-    await this.db.query(
-      `insert into pg_ca_node_enrollment_tokens (
-         id, tenant_id, provider_id, token_hash, status, expires_at, created_by, created_at, used_at
-       ) values ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8::timestamptz, $9::timestamptz)`,
-      [entity.id, entity.tenantId, entity.providerId, entity.tokenHash, entity.status, entity.expiresAt, entity.createdBy, entity.createdAt, entity.usedAt ?? null],
-    );
-    return structuredClone(entity);
-  }
-
-  async findActiveNodeEnrollmentToken(tokenHash: string, now: string): Promise<CaNodeEnrollmentTokenEntity | undefined> {
-    const result = await this.db.query<Record<string, unknown>>(
-      `select * from pg_ca_node_enrollment_tokens
-       where token_hash = $1 and status = 'active' and expires_at > $2
-       limit 1`,
-      [tokenHash, now],
-    );
-    return result.rows[0] ? nodeEnrollmentTokenFromRow(result.rows[0]) : undefined;
-  }
-
-  async getNodeEnrollmentToken(tenantId: string, id: string): Promise<CaNodeEnrollmentTokenEntity | undefined> {
-    const result = await this.db.query<Record<string, unknown>>(
-      `select * from pg_ca_node_enrollment_tokens
-       where tenant_id = $1 and id = $2
-       limit 1`,
-      [tenantId, id],
-    );
-    return result.rows[0] ? nodeEnrollmentTokenFromRow(result.rows[0]) : undefined;
-  }
-
-  async consumeNodeEnrollmentToken(tokenHash: string, now: string): Promise<CaNodeEnrollmentTokenEntity | undefined> {
-    return this.db.transaction(async (tx) => {
-      const result = await tx.query<Record<string, unknown>>(
-        `select * from pg_ca_node_enrollment_tokens where token_hash = $1 for update`,
-        [tokenHash],
-      );
-      const row = result.rows[0];
-      if (!row) return undefined;
-      const entity = nodeEnrollmentTokenFromRow(row);
-      if (entity.status !== 'active' || new Date(entity.expiresAt).getTime() <= new Date(now).getTime()) return entity;
-      await tx.query(`update pg_ca_node_enrollment_tokens set status = 'used', used_at = $2::timestamptz where id = $1`, [entity.id, now]);
-      return { ...entity, status: 'used', usedAt: now };
-    });
-  }
-
-  async saveNodeTask(entity: CaNodeTaskEntity): Promise<CaNodeTaskEntity> {
-    const result = await this.db.query<Record<string, unknown>>(
-      `insert into pg_ca_node_tasks (
-         id, tenant_id, provider_id, node_id, task_type, idempotency_key, payload, status,
-         lease_expires_at, result, error_code, error_message, created_at, updated_at
-       ) values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::timestamptz, $10::jsonb, $11, $12, $13::timestamptz, $14::timestamptz)
-       on conflict (id) do update set
-         node_id = excluded.node_id, status = excluded.status, lease_expires_at = excluded.lease_expires_at,
-         result = excluded.result, error_code = excluded.error_code, error_message = excluded.error_message,
-         updated_at = excluded.updated_at
-       returning *`,
-      [
-        entity.id, entity.tenantId, entity.providerId, entity.nodeId ?? null, entity.taskType, entity.idempotencyKey,
-        JSON.stringify(entity.payload), entity.status, entity.leaseExpiresAt ?? null,
-        entity.result ? JSON.stringify(entity.result) : null, entity.errorCode ?? null, entity.errorMessage ?? null,
-        entity.createdAt, entity.updatedAt,
-      ],
-    );
-    return nodeTaskFromRow(result.rows[0]!);
-  }
-
-  async getNodeTaskByIdempotencyKey(tenantId: string, idempotencyKey: string): Promise<CaNodeTaskEntity | undefined> {
-    const result = await this.db.query<Record<string, unknown>>(
-      'select * from pg_ca_node_tasks where tenant_id = $1 and idempotency_key = $2',
-      [tenantId, idempotencyKey],
-    );
-    return result.rows[0] ? nodeTaskFromRow(result.rows[0]) : undefined;
-  }
-
-  async leaseNodeTask(tenantId: string, providerId: string, nodeId: string, leaseExpiresAt: string): Promise<CaNodeTaskEntity | undefined> {
-    return this.db.transaction(async (tx) => {
-      const result = await tx.query<Record<string, unknown>>(
-        `select * from pg_ca_node_tasks
-          where tenant_id = $1 and provider_id = $2
-            and (status = 'queued' or (status = 'leased' and lease_expires_at < now()))
-          order by created_at asc limit 1 for update skip locked`,
-        [tenantId, providerId],
-      );
-      const row = result.rows[0];
-      if (!row) return undefined;
-      const task = nodeTaskFromRow(row);
-      await tx.query(
-        `update pg_ca_node_tasks set node_id = $2, status = 'leased', lease_expires_at = $3::timestamptz, updated_at = now() where id = $1`,
-        [task.id, nodeId, leaseExpiresAt],
-      );
-      return { ...task, nodeId, status: 'leased', leaseExpiresAt, updatedAt: new Date().toISOString() };
-    });
-  }
-
-  async getNodeTask(tenantId: string, id: string): Promise<CaNodeTaskEntity | undefined> {
-    const result = await this.db.query<Record<string, unknown>>('select * from pg_ca_node_tasks where tenant_id = $1 and id = $2', [tenantId, id]);
-    return result.rows[0] ? nodeTaskFromRow(result.rows[0]) : undefined;
   }
 
   saveKeyReference(entity: KeyReferenceEntity): Promise<KeyReferenceEntity> {
@@ -764,23 +614,4 @@ function certificatePolicyVersionFromRow(row: Record<string, unknown>): Certific
 
 function toIso(value: unknown): string {
   return value instanceof Date ? value.toISOString() : String(value);
-}
-
-function nodeEnrollmentTokenFromRow(row: Record<string, unknown>): CaNodeEnrollmentTokenEntity {
-  return {
-    id: String(row.id), tenantId: String(row.tenant_id), providerId: String(row.provider_id), tokenHash: String(row.token_hash),
-    status: row.status as CaNodeEnrollmentTokenEntity['status'], expiresAt: toIso(row.expires_at), createdBy: String(row.created_by),
-    createdAt: toIso(row.created_at), usedAt: row.used_at ? toIso(row.used_at) : undefined,
-  };
-}
-
-function nodeTaskFromRow(row: Record<string, unknown>): CaNodeTaskEntity {
-  return {
-    id: String(row.id), tenantId: String(row.tenant_id), providerId: String(row.provider_id),
-    nodeId: row.node_id ? String(row.node_id) : undefined, taskType: row.task_type as CaNodeTaskEntity['taskType'],
-    idempotencyKey: String(row.idempotency_key), payload: (row.payload ?? {}) as Record<string, unknown>,
-    status: row.status as CaNodeTaskEntity['status'], leaseExpiresAt: row.lease_expires_at ? toIso(row.lease_expires_at) : undefined,
-    result: row.result ? row.result as Record<string, unknown> : undefined, errorCode: row.error_code ? String(row.error_code) : undefined,
-    errorMessage: row.error_message ? String(row.error_message) : undefined, createdAt: toIso(row.created_at), updatedAt: toIso(row.updated_at),
-  };
 }

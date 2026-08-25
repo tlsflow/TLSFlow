@@ -120,7 +120,7 @@ function normalizeQuery(query: CaOperationsRecordQueryDto): Required<Pick<CaOper
 }
 
 function supportedViews(providerType: string, adapters?: CaOperationsAdapterRegistry): CaOperationObjectType[] {
-  if (providerType === 'gcac_builtin' || providerType === 'gcac_managed_node') return [...caOperationObjectTypes];
+  if (providerType === 'gcac_builtin') return [...caOperationObjectTypes];
   if (!adapters?.has(providerType as never)) return [];
   const capabilities = adapters.get(providerType as never).getOperationsCapabilities();
   return caOperationObjectTypes.filter((objectType) => (

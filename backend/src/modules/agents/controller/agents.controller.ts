@@ -597,7 +597,7 @@ export class AgentsController {
       arch: { type: 'string' },
       productLine: {
         type: 'string',
-        enum: ['windows-go-full', 'linux-go-full', 'windows-compat-full', 'gateway', 'ca-node'],
+        enum: ['windows-go-full', 'linux-go-full', 'windows-compat-full', 'gateway'],
       },
       signatureKeyId: { type: 'string' },
       artifactSignature: { type: 'string' },

@@ -2,8 +2,8 @@
  * ACME 是宿主内置协议能力；plugin 只表示需要由外部插件执行的 CA。
  * 不再把 Lets Encrypt、DNS Solver 或 OpenSSL CA 伪装成 PluginVersion。
  */
-export const caProviderTypes = ['gcac_builtin', 'gcac_managed_node', 'acme', 'plugin'] as const;
-export const caDeploymentModes = ['builtin', 'managed_node', 'external'] as const;
+export const caProviderTypes = ['gcac_builtin', 'acme', 'plugin'] as const;
+export const caDeploymentModes = ['builtin', 'external'] as const;
 export const caRuntimePlatforms = ['embedded', 'windows', 'linux', 'external'] as const;
 export const caAvailabilityModes = ['offline', 'single', 'active_standby', 'active_active'] as const;
 export const caTopologyModes = ['root_only', 'root_with_intermediate', 'external_managed'] as const;
@@ -37,7 +37,7 @@ export type KeyBackendType = typeof keyBackendTypes[number];
 export type KeyExportability = typeof keyExportabilities[number];
 export type CertificateRequestStatus = typeof certificateRequestStatuses[number];
 export type CertificateRotationStatus = typeof certificateRotationStatuses[number];
-export type CaCapabilityOwnerType = 'provider' | 'node';
+export type CaCapabilityOwnerType = 'provider';
 export type CaCapabilityState = 'declared' | 'discovered' | 'verified' | 'unavailable';
 export type CaIssuanceStatus = 'reserved' | 'issued' | 'revoked' | 'expired' | 'failed';
 export type CaIssuanceRecordOrigin = 'native' | 'historical_backfill' | 'external';
@@ -284,56 +284,6 @@ export interface CertificateAuthorityEntity {
   notAfter?: string;
   fingerprintSha256?: string;
   crlDistributionPoint?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface CaNodeEntity {
-  id: string;
-  tenantId: string;
-  providerId: string;
-  name: string;
-  platform: 'windows' | 'linux';
-  role: 'active' | 'standby' | 'member';
-  identityFingerprint: string;
-  authenticationPublicKeyPem?: string;
-  keyBackend: KeyBackendType;
-  exportability: KeyExportability;
-  capabilities: CaProviderCapabilities;
-  healthStatus: 'pending' | 'online' | 'degraded' | 'offline' | 'disabled' | 'revoked';
-  lastHeartbeatAt?: string;
-  leaseExpiresAt?: string;
-  endpoint?: string;
-  version?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface CaNodeEnrollmentTokenEntity {
-  id: string;
-  tenantId: string;
-  providerId: string;
-  tokenHash: string;
-  status: 'active' | 'used' | 'expired' | 'revoked';
-  expiresAt: string;
-  createdBy: string;
-  createdAt: string;
-  usedAt?: string;
-}
-
-export interface CaNodeTaskEntity {
-  id: string;
-  tenantId: string;
-  providerId: string;
-  nodeId?: string;
-  taskType: 'sync_records' | 'sign_csr' | 'query_issuance' | 'revoke_certificate' | 'publish_crl' | 'health_check';
-  idempotencyKey: string;
-  payload: Record<string, unknown>;
-  status: 'queued' | 'leased' | 'succeeded' | 'failed';
-  leaseExpiresAt?: string;
-  result?: Record<string, unknown>;
-  errorCode?: string;
-  errorMessage?: string;
   createdAt: string;
   updatedAt: string;
 }

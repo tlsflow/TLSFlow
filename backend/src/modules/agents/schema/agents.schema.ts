@@ -264,7 +264,7 @@ export interface AgentVersionRelease {
   platform: string;
   arch?: string;
   /** UpgradeEnvelope 使用的稳定产品线标识；旧 Release 没有时按 Agent 注册事实推导。 */
-  productLine?: 'windows-go-full' | 'linux-go-full' | 'windows-compat-full' | 'gateway' | 'ca-node';
+  productLine?: 'windows-go-full' | 'linux-go-full' | 'windows-compat-full' | 'gateway';
   /** 制品签名使用的独立 keyId；旧字段 signature 仍保留作为签名值兼容。 */
   signatureKeyId?: string;
   artifactSignature?: string;

@@ -128,12 +128,6 @@ export class InternalCaController {
     router.get('/api/v1/reports/certificate-reuse/items', '查询证书复用风险明细', tags, (request) => this.certificateReuseItems(request));
     router.get('/api/v1/reports/certificate-reuse/export', '导出证书复用风险', tags, (request) => this.exportCertificateReuse(request));
     router.post('/api/v1/reports/certificate-reuse/:id/remediation-preview', '预览证书复用风险整改', tags, (request) => this.previewCertificateReuseRemediation(request));
-    router.get('/api/v1/ca-nodes', '查询受控 CA Node', tags, (request) => this.listNodes(request));
-    router.post('/api/v1/ca-nodes/enrollment-tokens', '创建 CA Node 注册令牌', tags, (request) => this.createNodeEnrollmentToken(request));
-    router.post('/api/v1/ca-nodes/register', '注册 CA Node', tags, (request) => this.registerNode(request));
-    router.post('/api/v1/ca-nodes/heartbeat', '上报 CA Node 心跳', tags, (request) => this.heartbeatNode(request));
-    router.post('/api/v1/ca-nodes/tasks/lease', '获取 CA Node 任务', tags, (request) => this.leaseNodeTask(request));
-    router.post('/api/v1/ca-nodes/tasks/:id/result', '回传 CA Node 任务结果', tags, (request) => this.completeNodeTask(request));
   }
 
   private async listProviders(request: HttpRequest) {
@@ -735,51 +729,6 @@ export class InternalCaController {
     return this.service.previewCertificateReuseRemediation(tenantId(request), pathId(request));
   }
 
-  private async listNodes(request: HttpRequest) {
-    await this.assertAction(request, 'ca.operations.read', 'ca_node');
-    return this.service.listNodes(tenantId(request), optionalQuery(request, 'providerId'));
-  }
-
-  private async createNodeEnrollmentToken(request: HttpRequest) {
-    await this.assertAction(request, 'ca.provider.manage', 'ca_node');
-    const body = objectBody(request);
-    return this.service.createNodeEnrollmentToken(tenantId(request), requiredString(body, 'providerId'), actorId(request), optionalNumber(body, 'ttlMinutes') ?? 15);
-  }
-
-  private async registerNode(request: HttpRequest) {
-    return { statusCode: 201, body: await this.service.registerNode(objectBody(request) as never) };
-  }
-
-  private async heartbeatNode(request: HttpRequest) {
-    const body = objectBody(request);
-    const node = await this.authenticateNode(request, body);
-    return this.service.heartbeatNode(node.tenantId, node.id, body as never);
-  }
-
-  private async leaseNodeTask(request: HttpRequest) {
-    const node = await this.authenticateNode(request, objectBody(request));
-    return this.service.leaseNodeTask(node.tenantId, node.id);
-  }
-
-  private async completeNodeTask(request: HttpRequest) {
-    const body = objectBody(request);
-    const node = await this.authenticateNode(request, body);
-    return this.service.completeNodeTask(node.tenantId, node.id, pathId(request), body as never);
-  }
-
-  private authenticateNode(request: HttpRequest, body: Record<string, unknown>) {
-    return this.service.verifyNodeRequest({
-      tenantId: String(request.headers['x-tenant-id'] ?? tenantId(request)),
-      nodeId: String(request.headers['x-gcac-node-id'] ?? requiredString(body, 'nodeId')),
-      method: request.method,
-      path: request.path,
-      timestamp: String(request.headers['x-gcac-timestamp'] ?? ''),
-      nonce: String(request.headers['x-gcac-nonce'] ?? ''),
-      signature: String(request.headers['x-gcac-signature'] ?? ''),
-      body,
-    });
-  }
-
   private async assertAction(request: HttpRequest, action: CaOperationsPermissionAction, resourceType: string): Promise<void> {
     const subject = subjectFromRequest(request);
     await this.security.rbac.assertCan(subject, action, {
@@ -962,12 +911,6 @@ export function getInternalCaRouteContracts(): RouteContract[] {
     ['GET', '/api/v1/reports/certificate-reuse/items', 'listCertificateReuseRisks', '查询证书复用风险明细', arraySchema],
     ['GET', '/api/v1/reports/certificate-reuse/export', 'exportCertificateReuseRisks', '导出证书复用风险', responseSchema],
     ['POST', '/api/v1/reports/certificate-reuse/:id/remediation-preview', 'previewCertificateReuseRemediation', '预览证书复用风险整改', responseSchema],
-    ['GET', '/api/v1/ca-nodes', 'listCaNodes', '查询受控 CA Node', arraySchema],
-    ['POST', '/api/v1/ca-nodes/enrollment-tokens', 'createCaNodeEnrollmentToken', '创建 CA Node 注册令牌', responseSchema],
-    ['POST', '/api/v1/ca-nodes/register', 'registerCaNode', '注册 CA Node', responseSchema],
-    ['POST', '/api/v1/ca-nodes/heartbeat', 'heartbeatCaNode', '上报 CA Node 心跳', responseSchema],
-    ['POST', '/api/v1/ca-nodes/tasks/lease', 'leaseCaNodeTask', '获取 CA Node 任务', responseSchema],
-    ['POST', '/api/v1/ca-nodes/tasks/:id/result', 'completeCaNodeTask', '回传 CA Node 任务结果', responseSchema],
   ];
   return routes.map(([method, path, operationId, summary, responseSchema]) => ({
     method,

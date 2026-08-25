@@ -106,12 +106,11 @@ export class CaProviderRegistry {
 
 /**
  * 内置 CA 和 ACME 是宿主能力，不能依赖 Plugin Runner。
- * plugin 类型仍然失败关闭，外部 CA 必须由其插件运行时明确接入。
+ * plugin 类型仍然失败关闭，Microsoft ADCS 等外部 CA 必须由其插件运行时明确接入。
  */
 export function createDefaultCaProviderRegistry(secrets: SecretService, pluginDispatcher?: CaPluginActionDispatcher): CaProviderRegistry {
   const registry = new CaProviderRegistry();
   registry.register('gcac_builtin', new BuiltinCaProviderAdapter(new OpenSslCa(), secrets));
-  registry.register('gcac_managed_node', new UnavailableCaProviderAdapter('gcac_managed_node'));
   registry.register('acme', new AcmeProviderAdapter(secrets));
   registry.register('plugin', new PluginCaProviderAdapter(pluginDispatcher));
   return registry;

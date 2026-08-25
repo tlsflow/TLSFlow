@@ -1368,7 +1368,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
     executions: executionsService,
     executionRegistry: executorRegistry,
     caSync: app.getResource<CaSyncWorker>('caSyncWorker'),
-    internalCa: internalCaService,
     automation: automationScheduler,
     automationRuns: automationsService,
     automationEvents: automationEventDelivery,

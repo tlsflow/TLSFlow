@@ -5,7 +5,6 @@ import type { AutomationScheduler } from '../automations/application/automation-
 import type { AutomationsApplicationService } from '../automations/application/automations.application-service.js';
 import type { ExecutorRegistry } from '../executions/application/executors.js';
 import type { ExecutionsApplicationService } from '../executions/application/executions.application-service.js';
-import type { InternalCaApplicationService } from '../internal-ca/application/internal-ca.application-service.js';
 import type { AcmeRenewalWorker } from '../internal-ca/application/acme-renewal-worker.js';
 import type { CaSyncWorker } from '../internal-ca/application/ca-sync-worker.js';
 import type { AcmeRepository } from '../internal-ca/repository/acme.repository.js';
@@ -28,7 +27,6 @@ export interface TaskWorkerAdapterDependencies {
   executions?: Pick<ExecutionsApplicationService, 'runDispatchedExecution'>;
   executionRegistry?: ExecutorRegistry;
   caSync?: Pick<CaSyncWorker, 'runRun'>;
-  internalCa?: Pick<InternalCaApplicationService, 'getRepository'>;
   automation?: Pick<AutomationScheduler, 'runRun'>;
   automationRuns?: Pick<AutomationsApplicationService, 'getRun' | 'listRunTargets' | 'listRunActionResults'>;
   automationEvents?: Pick<AutomationEventDeliveryService, 'processDelivery'>;
@@ -146,11 +144,6 @@ export function createTaskExecutorRegistry(
     if (optionalPayloadString(task, 'planId')) return executeAgentUpgradeTask(task, dependencies);
     return executeAgentEnrollmentTask(task, attempt, dependencies, 'update');
   });
-
-  registry.register('ca.node-task', dependencyExecutor('CA Node 任务', dependencies.internalCa, async (task) => {
-    const nodeTaskId = requiredPayloadString(task, 'nodeTaskId');
-    return executeCaNodeTask(task, dependencies.internalCa!, nodeTaskId);
-  }));
 
   registry.register('plugin.reference-refresh', dependencyExecutor('插件引用刷新', dependencies.pluginCatalog, async (task) => {
     const result = await dependencies.pluginCatalog!.refresh(task.tenantId);
@@ -288,18 +281,17 @@ async function executeAgentEnrollmentTask(
 ): Promise<TaskExecutionResult> {
   const enrollmentTokenId = optionalPayloadString(task, 'enrollmentTokenId');
   if (enrollmentTokenId) {
-    if (!dependencies.internalCa) return unavailableExecutor('CA Node 注册令牌未接入统一任务控制面')(task, attempt);
-    const token = await dependencies.internalCa.getRepository().getNodeEnrollmentToken(task.tenantId, enrollmentTokenId);
-    if (!token) throw new AppError('RESOURCE_NOT_FOUND', 'CA Node 注册令牌不存在', { enrollmentTokenId });
-    if (token.status === 'used') {
+    if (!dependencies.agents) return unavailableExecutor('Agent 注册令牌未接入统一任务控制面')(task, attempt);
+    const token = await dependencies.agents.getRepository().getEnrollmentToken(enrollmentTokenId);
+    if (!token || token.tenantId !== task.tenantId) throw new AppError('RESOURCE_NOT_FOUND', 'Agent 注册令牌不存在', { enrollmentTokenId });
+    if (token.usedCount > 0) {
       return {
         success: true,
         detail: {
           enrollmentTokenId,
-          providerId: token.providerId,
           orchestration: mode === 'install' ? 'agent-install-session-created' : 'agent-update-session-created',
           bootstrapCompleted: true,
-          usedAt: token.usedAt,
+          usedAt: token.lastUsedAt,
         },
       };
     }
@@ -307,8 +299,8 @@ async function executeAgentEnrollmentTask(
       return {
         success: false,
         errorCode: 'AGENT_ENROLLMENT_TOKEN_EXPIRED',
-        errorMessage: 'CA Node Agent 注册令牌已过期或不可用',
-        detail: { enrollmentTokenId, providerId: token.providerId, status: token.status },
+        errorMessage: 'Agent 注册令牌已过期或不可用',
+        detail: { enrollmentTokenId, status: token.status },
       };
     }
     return {
@@ -316,8 +308,8 @@ async function executeAgentEnrollmentTask(
       defer: true,
       retryAfterSeconds: 15,
       errorCode: mode === 'install' ? 'AGENT_INSTALL_PENDING' : 'AGENT_UPDATE_PENDING',
-      errorMessage: mode === 'install' ? '等待 CA Node Agent 注册并回连' : '等待 CA Node Agent 更新后回连',
-      detail: { enrollmentTokenId, providerId: token.providerId, bootstrapCompleted: false },
+      errorMessage: mode === 'install' ? '等待 Agent 注册并回连' : '等待 Agent 更新后回连',
+      detail: { enrollmentTokenId, bootstrapCompleted: false },
     };
   }
 
@@ -436,33 +428,6 @@ function unavailableExecutor(message: string): (task: TaskRun, attempt: TaskAtte
     errorCode: 'TASK_EXECUTOR_NOT_CONFIGURED',
     errorMessage: message,
   });
-}
-
-async function executeCaNodeTask(
-  task: TaskRun,
-  internalCa: Pick<InternalCaApplicationService, 'getRepository'>,
-  nodeTaskId: string,
-): Promise<TaskExecutionResult> {
-  const nodeTask = await internalCa.getRepository().getNodeTask(task.tenantId, nodeTaskId);
-  if (!nodeTask) throw new AppError('RESOURCE_NOT_FOUND', 'CA Node 任务不存在', { nodeTaskId });
-  if (nodeTask.status === 'succeeded') {
-    return { success: true, detail: { nodeTaskId, status: nodeTask.status, result: nodeTask.result } };
-  }
-  if (nodeTask.status === 'failed') {
-    return {
-      success: false,
-      errorCode: nodeTask.errorCode ?? 'CA_NODE_TASK_FAILED',
-      errorMessage: nodeTask.errorMessage ?? 'CA Node 任务失败',
-      detail: { nodeTaskId, status: nodeTask.status },
-    };
-  }
-  return {
-    success: false,
-    defer: true,
-    errorCode: 'CA_NODE_TASK_PENDING',
-    errorMessage: '等待 CA Node 返回任务结果',
-    detail: { nodeTaskId, status: nodeTask.status },
-  };
 }
 
 function requiredPayloadString(task: TaskRun, key: string): string {

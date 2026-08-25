@@ -56,7 +56,6 @@ const registeredErrorCodes: Record<string, ErrorCodeDefinition> = {
   CA_KEY_BACKEND_UNAVAILABLE: { httpStatus: 503, message: 'CA 密钥后端不可用' },
   CA_LEDGER_INCONSISTENT: { httpStatus: 409, message: 'CA 签发账本与证书状态不一致' },
   CERTIFICATE_PROMOTION_BLOCKED: { httpStatus: 409, message: '证书版本 Promotion 被阻断' },
-  CA_NODE_SPLIT_BRAIN_RISK: { httpStatus: 409, message: 'CA 节点存在双主风险' },
   CERTIFICATE_PROFILE_VIOLATION: { httpStatus: 422, message: '证书申请不符合 Profile' },
   CERTIFICATE_TRUST_DOMAIN_MISMATCH: { httpStatus: 422, message: '证书申请、Profile 与 CA 不属于同一信任域' },
   CSR_SIGNATURE_INVALID: { httpStatus: 422, message: 'CSR 签名无效' },
