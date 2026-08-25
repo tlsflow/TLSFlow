@@ -9,7 +9,12 @@ export interface AuditDisplayItem {
   readonly riskLevel?: string
   readonly requestId?: string
   readonly detail?: unknown
-  readonly summary?: string
+  readonly presentation?: AuditPresentation
+}
+
+export interface AuditPresentation {
+  readonly kind: string
+  readonly params: Record<string, unknown>
 }
 
 export function isSuppressedAudit(item: Pick<AuditDisplayItem, 'eventType' | 'resourceType' | 'detail'>): boolean {
@@ -291,13 +296,225 @@ export function auditResultLabel(result: string, t: Translate = defaultT): strin
 }
 
 export function auditSummary(item: AuditDisplayItem, t: Translate = defaultT): string {
-  if (item.summary) return item.summary
+  const presentation = item.presentation
+  if (presentation) return localizedAuditPresentation(item, presentation, t)
+  // 兼容旧接口：旧版后端可能仍返回 summary，但它可能已经固化为其他语言，不能直接展示。
   return t('auditFormat.summary', {
     actor: auditActorLabel(item, t),
     verb: auditResultVerb(item.result, t),
     title: auditReadableTitle(item, t),
     resource: auditResourceLabel(item, t),
   })
+}
+
+function localizedAuditPresentation(item: AuditDisplayItem, presentation: AuditPresentation, t: Translate): string {
+  const params = presentation.params
+  const actor = auditActorLabel(item, t)
+  const verb = auditResultVerb(item.result, t)
+  const title = auditReadableTitle(item, t)
+  const resource = auditResourceLabel(item, t, params)
+
+  switch (presentation.kind) {
+    case 'deployment': {
+      const action = translateCode(t, params.deploymentAction, {
+        execute: 'auditFormat.deploymentActions.execute',
+        dryRun: 'auditFormat.deploymentActions.dryRun',
+        rollback: 'auditFormat.deploymentActions.rollback',
+      }, 'auditFormat.deploymentActions.execute')
+      return t('auditFormat.summaries.deployment', {
+        actor,
+        verb,
+        action,
+        planName: stringParam(params.planName) || t('auditFormat.fallbacks.unnamedDeploymentPlan'),
+        targetNames: formatTargetNames(t, params),
+      })
+    }
+    case 'caSyncStarted':
+      return t('auditFormat.summaries.caSyncStarted', { actor, objectType: translateCaObjectType(t, params.objectType) })
+    case 'caSyncCompleted':
+      return t('auditFormat.summaries.caSyncCompleted', {
+        actor,
+        objectType: translateCaObjectType(t, params.objectType),
+        counts: formatSyncCounts(t, params),
+      })
+    case 'caSyncFailed':
+      return t('auditFormat.summaries.caSyncFailed', {
+        actor,
+        objectType: translateCaObjectType(t, params.objectType),
+        reason: translateCaSyncError(t, params.errorCode),
+      })
+    case 'permissionDenied':
+      return t('auditFormat.summaries.permissionDenied', {
+        actor,
+        action: translatePermissionAction(t, params.permissionAction),
+        resource,
+        reason: translatePermissionReason(t, params.permissionReason),
+      })
+    case 'taskCreated':
+      return t('auditFormat.summaries.taskCreated', { actor, taskType: translateTaskType(t, params.taskType) })
+    case 'secretUsed':
+      return t('auditFormat.summaries.secretUsed', { actor, purpose: translateSecretPurpose(t, params.purpose) })
+    case 'authExternalLoginSuccess':
+      return t('auditFormat.summaries.authExternalLoginSuccess', { actor, sourceType: translateIdentitySource(t, params.sourceType) })
+    case 'authExternalLoginFailed':
+      return t('auditFormat.summaries.authExternalLoginFailed', { actor, sourceType: translateIdentitySource(t, params.sourceType) })
+    case 'authLoginSuccess':
+      return t('auditFormat.summaries.authLoginSuccess', { actor })
+    case 'authLoginFailed':
+      return t('auditFormat.summaries.authLoginFailed', { actor, reason: translateAuthFailureReason(t, params.authFailureReason) })
+    case 'authPasswordChanged':
+      return t('auditFormat.summaries.authPasswordChanged', { actor })
+    case 'authLogout':
+      return t('auditFormat.summaries.authLogout', { actor })
+    case 'securityIdentitySourceSynced':
+      return t('auditFormat.summaries.securityIdentitySourceSynced', {
+        actor,
+        resource,
+        counts: formatIdentitySyncCounts(t, params),
+      })
+    case 'securityIdentitySourceTested':
+      return t('auditFormat.summaries.securityIdentitySourceTested', { actor, resource })
+    case 'securityUserCreated':
+      return t('auditFormat.summaries.securityUserCreated', {
+        actor,
+        username: stringParam(params.username) || resource,
+      })
+    default:
+      return t('auditFormat.summary', { actor, verb, title, resource })
+  }
+}
+
+function stringParam(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function numberParam(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function translateCode(t: Translate, value: unknown, keys: Record<string, string>, fallbackKey: string): string {
+  const raw = stringParam(value)
+  return t(keys[raw] ?? fallbackKey)
+}
+
+function formatTargetNames(t: Translate, params: Record<string, unknown>): string {
+  const names = Array.isArray(params.targetNames)
+    ? params.targetNames.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    : []
+  if (!names.length) return t('auditFormat.fallbacks.noTargetAssets')
+  const count = numberParam(params.targetCount) ?? names.length
+  const visible = names.slice(0, 3).join(t('auditFormat.listSeparator'))
+  return count > 3 || count > names.length
+    ? t('auditFormat.moreTargets', { names: visible, count })
+    : visible
+}
+
+function formatSyncCounts(t: Translate, params: Record<string, unknown>): string {
+  const readCount = numberParam(params.readCount)
+  const upsertedCount = numberParam(params.upsertedCount)
+  if (readCount === undefined && upsertedCount === undefined) return ''
+  return t('auditFormat.syncCounts', { read: readCount ?? 0, upserted: upsertedCount ?? 0 })
+}
+
+function formatIdentitySyncCounts(t: Translate, params: Record<string, unknown>): string {
+  const total = numberParam(params.total)
+  if (total === undefined) return ''
+  return t('auditFormat.identitySyncCounts', {
+    total,
+    created: numberParam(params.created) ?? 0,
+    updated: numberParam(params.updated) ?? 0,
+    failed: numberParam(params.failed) ?? 0,
+  })
+}
+
+function translateCaObjectType(t: Translate, value: unknown): string {
+  return translateCode(t, value, {
+    request: 'auditFormat.caObjects.request',
+    issuance: 'auditFormat.caObjects.issuance',
+    revocation: 'auditFormat.caObjects.revocation',
+    template: 'auditFormat.caObjects.template',
+  }, 'auditFormat.caObjects.data')
+}
+
+function translateCaSyncError(t: Translate, value: unknown): string {
+  return translateCode(t, value, {
+    CA_SYNC_SOURCE_UNAVAILABLE: 'auditFormat.caSyncErrors.sourceUnavailable',
+    RESOURCE_NOT_FOUND: 'auditFormat.caSyncErrors.resourceNotFound',
+  }, 'auditFormat.caSyncErrors.unknown')
+}
+
+function translateTaskType(t: Translate, value: unknown): string {
+  return translateCode(t, value, {
+    CERTIFICATE_DRY_RUN: 'auditFormat.taskTypes.certificateDryRun',
+    CERTIFICATE_DEPLOY: 'auditFormat.taskTypes.certificateDeploy',
+    ACME_CERTIFICATE_RENEWAL: 'auditFormat.taskTypes.acmeRenewal',
+    AGENT_INSTALL: 'auditFormat.taskTypes.agentInstall',
+    AGENT_CAPABILITY_RESCAN: 'auditFormat.taskTypes.agentCapabilityRescan',
+    PLUGIN_REFERENCE_REFRESH: 'auditFormat.taskTypes.pluginReferenceRefresh',
+    AUTOMATION_RUN: 'auditFormat.taskTypes.automationRun',
+    AUTOMATION_TRIGGER_DELIVERY: 'auditFormat.taskTypes.automationTriggerDelivery',
+    MONITORING: 'auditFormat.taskTypes.monitoring',
+  }, 'auditFormat.taskTypes.backgroundTask')
+}
+
+function translateSecretPurpose(t: Translate, value: unknown): string {
+  return translateCode(t, value, {
+    'http.header': 'auditFormat.secretPurposes.httpHeader',
+    'certificate.deployment.private_key': 'auditFormat.secretPurposes.deploymentPrivateKey',
+    'certificate.deployment.password': 'auditFormat.secretPurposes.deploymentPassword',
+    'certificate.format.export.private_key': 'auditFormat.secretPurposes.exportPrivateKey',
+    'certificate.format.export.password': 'auditFormat.secretPurposes.exportPassword',
+    'ssh.authentication': 'auditFormat.secretPurposes.sshAuthentication',
+    'secret.provider_operation': 'auditFormat.secretPurposes.providerOperation',
+    'ldap.bind': 'auditFormat.secretPurposes.ldapBind',
+    'http.form.passwd': 'auditFormat.secretPurposes.httpFormPassword',
+    'debug.secret.check': 'auditFormat.secretPurposes.debugCheck',
+  }, 'auditFormat.secretPurposes.credential')
+}
+
+function translatePermissionAction(t: Translate, value: unknown): string {
+  return translateCode(t, value, {
+    'task.read': 'auditFormat.permissionActions.taskRead',
+    'audit.read': 'auditFormat.permissionActions.auditRead',
+    'service_asset.read': 'auditFormat.permissionActions.serviceAssetRead',
+    'certificate.read': 'auditFormat.permissionActions.certificateRead',
+    'certificate.asset.read': 'auditFormat.permissionActions.certificateAssetRead',
+    'binding.read': 'auditFormat.permissionActions.bindingRead',
+    'plugin_version.read': 'auditFormat.permissionActions.pluginVersionRead',
+    'ca.operations.read': 'auditFormat.permissionActions.caOperationsRead',
+    'approval.decide': 'auditFormat.permissionActions.approvalDecide',
+    'provider.read': 'auditFormat.permissionActions.providerRead',
+    'execution.run.read': 'auditFormat.permissionActions.executionRead',
+    'cloud_account_asset.read': 'auditFormat.permissionActions.cloudAssetRead',
+    'managed_target.read': 'auditFormat.permissionActions.managedTargetRead',
+    'host.read': 'auditFormat.permissionActions.hostRead',
+  }, 'auditFormat.permissionActions.resourceAccess')
+}
+
+function translatePermissionReason(t: Translate, value: unknown): string {
+  return translateCode(t, value, {
+    'no allow policy': 'auditFormat.permissionReasons.noAllowPolicy',
+    'no object grant': 'auditFormat.permissionReasons.noObjectGrant',
+    'explicit deny': 'auditFormat.permissionReasons.explicitDeny',
+    'explicit business deny': 'auditFormat.permissionReasons.explicitBusinessDeny',
+    'tenant scope denied': 'auditFormat.permissionReasons.tenantScopeDenied',
+    'resource scope denied': 'auditFormat.permissionReasons.resourceScopeDenied',
+  }, 'auditFormat.permissionReasons.missing')
+}
+
+function translateIdentitySource(t: Translate, value: unknown): string {
+  return translateCode(t, value, {
+    active_directory: 'auditFormat.identitySources.activeDirectory',
+    ldap: 'auditFormat.identitySources.ldap',
+    oidc: 'auditFormat.identitySources.oidc',
+    saml: 'auditFormat.identitySources.saml',
+  }, 'auditFormat.identitySources.external')
+}
+
+function translateAuthFailureReason(t: Translate, value: unknown): string {
+  return stringParam(value) === 'bad credentials'
+    ? t('auditFormat.authFailureReasons.badCredentials')
+    : t('auditFormat.authFailureReasons.invalid')
 }
 
 function auditResultVerb(result: string, t: Translate): string {
@@ -313,6 +530,7 @@ function auditResultVerb(result: string, t: Translate): string {
 
 function auditActorLabel(item: AuditDisplayItem, t: Translate): string {
   if (item.actorId === 'system' || item.actorId?.startsWith('system')) return t('auditFormat.actors.system')
+  if (item.actorId === 'admin' || item.actorId === 'user_admin') return t('auditFormat.actors.admin')
   const actorTypeKey = auditActorTypeLabelKeys[item.actorType ?? 'user']
   const actorType = actorTypeKey ? t(actorTypeKey) : item.actorType ?? t('auditFormat.actors.user')
   if (item.actorId?.startsWith('external_ids_') || item.actorId?.startsWith('external_group_ids_')) {
@@ -322,9 +540,11 @@ function auditActorLabel(item: AuditDisplayItem, t: Translate): string {
   return actorType
 }
 
-function auditResourceLabel(item: AuditDisplayItem, t: Translate): string {
+function auditResourceLabel(item: AuditDisplayItem, t: Translate, params: Record<string, unknown> = {}): string {
   const resourceTypeKey = auditResourceLabelKeys[item.resourceType]
   const resourceType = resourceTypeKey ? t(resourceTypeKey) : t('auditFormat.types.audit')
+  const presentationName = stringParam(params.resourceName)
+  if (presentationName) return `${resourceType} ${presentationName}`
   const detailName = detailBusinessName(item.detail)
   if (detailName) return `${resourceType} ${detailName}`
   const certificateFormat = certificateFormatDetailName(item)
@@ -375,7 +595,7 @@ function detailBusinessName(detail: unknown): string | undefined {
 }
 
 function cleanBusinessLabel(value: string): string | undefined {
-  const internalId = /(?:aud|task|casync|secv?|cert(?:asset|ver|fmt)?|pln|run|apr|autv?|arun|agt|sat|svc|sit|dev|ids|external_ids|external_group_ids|rbnd|oset|role|bpgr|agrant|caprov|canode|cantask|certreq|catd|mtg|cred|wfrun|wftplv?|artifact)[_-][a-z0-9-]+/gi
+  const internalId = /(?:aud|task|casync|secv?|cert(?:asset|ver|fmt)?|pln|run|apr|autv?|arun|agt|sat|svc|sit|dev|ids|external_ids|external_group_ids|rbnd|oset|role|bpgr|agrant|caprov|canode|cantask|certreq|catd|mtg|cred|wfrun|wftplv?|artifact)[_-][a-z0-9_-]+/gi
   const cleaned = value
     .replace(new RegExp(`\\s*[（(]\\s*${internalId.source}\\s*[）)]`, 'gi'), '')
     .replace(internalId, '')

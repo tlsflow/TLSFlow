@@ -1,6 +1,7 @@
 import { apiClient } from '@/api/client'
 import type { ApiResult } from '@/api/generated/client-types'
 import { listRecords, toClientPath, type BusinessListQuery } from './common'
+import type { AuditPresentation } from '@/utils/audit-format'
 
 const RISK_EVENTS_PATH = '/api/v1/monitors/risks'
 const DASHBOARD_OVERVIEW_PATH = '/api/v1/dashboard/overview'
@@ -70,7 +71,7 @@ export interface DashboardAuditItem {
   readonly riskLevel: string
   readonly requestId?: string
   readonly detail?: unknown
-  readonly summary?: string
+  readonly presentation: AuditPresentation
   readonly createdAt: string
 }
 

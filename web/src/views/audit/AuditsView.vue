@@ -6,7 +6,7 @@ import { exportAuditEvidence, listAudits } from '@/api/modules/audits.api'
 import type { ApiRecord } from '@/api/modules/common'
 import { ApiClientError } from '@/api/client'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
-import { auditReadableTitle, auditResultLabel, auditSummary, auditTypeLabel, isSuppressedAudit, type AuditDisplayItem } from '@/utils/audit-format'
+import { auditReadableTitle, auditResultLabel, auditSummary, auditTypeLabel, isSuppressedAudit, type AuditDisplayItem, type AuditPresentation } from '@/utils/audit-format'
 
 interface AuditRow extends AuditDisplayItem {
   readonly id: string
@@ -82,9 +82,18 @@ function toAuditRow(record: ApiRecord): AuditRow {
     riskLevel: readOptionalString(record, ['riskLevel']),
     requestId: readOptionalString(record, ['requestId']),
     detail: readPath(record, 'detail'),
-    summary: readOptionalString(record, ['summary']),
+    presentation: readPresentation(record),
     createdAt: readString(record, ['createdAt', 'timestamp'], ''),
   }
+}
+
+function readPresentation(record: ApiRecord): AuditPresentation | undefined {
+  const value = readPath(record, 'presentation')
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const kind = (value as Record<string, unknown>).kind
+  const params = (value as Record<string, unknown>).params
+  if (typeof kind !== 'string' || !params || typeof params !== 'object' || Array.isArray(params)) return undefined
+  return { kind, params: params as Record<string, unknown> }
 }
 
 function compareAuditRowsDesc(left: AuditRow, right: AuditRow): number {

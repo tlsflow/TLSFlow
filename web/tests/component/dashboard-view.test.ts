@@ -65,7 +65,15 @@ describe('DashboardView', () => {
             riskLevel: 'high',
             requestId: 'req_secret_001',
             createdAt: '2026-07-06T08:34:00.000Z',
-            summary: '用户 user_admin完成“执行部署”，部署计划：生产 NGINX 证书更新，资产：生产 API 网关。',
+            presentation: {
+              kind: 'deployment',
+              params: {
+                planName: '生产 NGINX 证书更新',
+                targetNames: ['生产 API 网关'],
+                targetCount: 1,
+                deploymentAction: 'execute',
+              },
+            },
             detail: {
               purpose: 'certificate.export',
               secretRef: 'secret://password/sec-prod-db-password/1',
