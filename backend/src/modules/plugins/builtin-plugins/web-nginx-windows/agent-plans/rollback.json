@@ -66,16 +66,6 @@
         "outputLimitBytes": 65536,
         "artifactDigest": { "$ref": "programSha256" }
       }
-    },
-    {
-      "operationId": "verify-service",
-      "operationType": "service.status",
-      "stage": "verify",
-      "input": {
-        "serviceName": {
-          "$ref": "serviceName"
-        }
-      }
     }
   ]
 }

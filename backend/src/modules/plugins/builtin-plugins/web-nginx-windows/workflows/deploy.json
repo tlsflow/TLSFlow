@@ -10,7 +10,7 @@
       "certificate",
       "deploy"
     ],
-    "version": "1.0.6",
+    "version": "1.0.8",
     "platforms": [
       "windows"
     ],
@@ -59,17 +59,6 @@
         "source": {
           "kind": "asset",
           "path": "target.certificateLocation.sourceConfigPath"
-        },
-        "lifecycle": "pre_execution",
-        "bindingPolicy": "fixed"
-      },
-      "serviceName": {
-        "type": "string",
-        "required": true,
-        "configurationMode": "required",
-        "source": {
-          "kind": "asset",
-          "path": "target.certificateLocation.serviceName"
         },
         "lifecycle": "pre_execution",
         "bindingPolicy": "fixed"
@@ -189,29 +178,6 @@
           },
           "artifactBound": {
             "expression": "$exists(artifact)"
-          }
-        },
-        "timeoutMs": 1000,
-        "maxInputBytes": 65536,
-        "maxOutputBytes": 65536
-      }
-    },
-    {
-      "name": "refreshService",
-      "type": "transform",
-      "stage": "refresh",
-      "transform": {
-        "engine": "jsonata",
-        "input": {
-          "serviceName": "{{variables.serviceName}}",
-          "programPath": "{{variables.programPath}}"
-        },
-        "outputs": {
-          "serviceName": {
-            "expression": "serviceName"
-          },
-          "programPath": {
-            "expression": "programPath"
           }
         },
         "timeoutMs": 1000,

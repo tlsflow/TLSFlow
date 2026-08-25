@@ -1,5 +1,5 @@
 {
-  "plugin.webNginxWindows.name": "Windows Nginx 证书更新",
+  "plugin.webNginxWindows.name": "Windows Nginx站点",
   "plugin.webNginxWindows.description": "固定windows平台与web.nginx框架，只消费 Agent 已确认事实执行证书更新。",
   "plugin.webNginxWindows.section.identity": "目标事实",
   "plugin.webNginxWindows.section.certificate": "证书更新",
@@ -10,5 +10,8 @@
   "plugin.webNginxWindows.field.configFingerprint": "配置指纹",
   "plugin.webNginxWindows.action.deploy": "部署证书",
   "plugin.webNginxWindows.action.verify": "验证证书",
-  "plugin.webNginxWindows.action.rollback": "回滚证书"
+  "plugin.webNginxWindows.action.rollback": "回滚证书",
+  "plugin.webNginxWindows.onboarding.compatibility": "Windows Nginx（版本由 Agent 发现）",
+  "plugin.webNginxWindows.onboarding.requiredHost": "已安装兼容 Agent 的 Windows 主机",
+  "plugin.webNginxWindows.onboarding.requiredTarget": "已发现的 Windows Nginx HTTPS 站点"
 }

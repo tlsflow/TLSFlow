@@ -111,16 +111,6 @@
         "storageKind": "PEM_FILES"
       },
       "expandPathRef": "paths"
-    },
-    {
-      "operationId": "verify-service",
-      "operationType": "service.status",
-      "stage": "verify",
-      "input": {
-        "serviceName": {
-          "$ref": "serviceName"
-        }
-      }
     }
   ]
 }

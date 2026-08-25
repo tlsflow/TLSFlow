@@ -10,7 +10,7 @@
       "certificate",
       "rollback"
     ],
-    "version": "1.0.6",
+    "version": "1.0.8",
     "platforms": [
       "windows"
     ],
@@ -59,17 +59,6 @@
         "source": {
           "kind": "asset",
           "path": "target.certificateLocation.sourceConfigPath"
-        },
-        "lifecycle": "pre_execution",
-        "bindingPolicy": "fixed"
-      },
-      "serviceName": {
-        "type": "string",
-        "required": true,
-        "configurationMode": "required",
-        "source": {
-          "kind": "asset",
-          "path": "target.certificateLocation.serviceName"
         },
         "lifecycle": "pre_execution",
         "bindingPolicy": "fixed"

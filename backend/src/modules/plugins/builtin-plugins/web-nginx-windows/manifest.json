@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "web.nginx.windows",
-  "version": "1.0.6",
+  "version": "1.0.8",
   "displayNameKey": "plugin.webNginxWindows.name",
   "descriptionKey": "plugin.webNginxWindows.description",
   "defaultLocale": "zh-CN",
@@ -92,6 +92,9 @@
     "presentations": {
       "application": "presentations/application.json",
       "certificate-binding": "presentations/certificate-binding.json"
+    },
+    "onboarding": {
+      "applicationAsset": "onboarding/application-asset.json"
     }
   }
 }
