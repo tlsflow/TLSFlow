@@ -55,6 +55,7 @@ export const credentialsZhTW = {
     errors: { load: '載入雲端服務外掛程式資源失敗' },
   },
   status: { errorLabel: '待處理', errorSummary: '未通過遷移或完整性驗證', errorHint: '此憑據目前不可使用。編輯並成功儲存後會轉為停用，再由管理員明確啟用。' },
+  health: { title: '憑據有效性檢測', openAria: '檢視{name}的有效性檢測', test: '手動檢測', testing: '檢測任務已提交', deviceCount: '關聯裝置 {count} 台', checkedAt: '最近檢測：{time}', empty: '暫無裝置級檢測記錄。', status: { DISABLED: '停用', UNUSED: '未使用', UNREACHABLE: '無法連線', VALID: '有效', ERROR: '錯誤' }, errors: { load: '載入有效性檢測詳情失敗', test: '提交有效性檢測失敗' } },
   list: { title: '憑據清單', description: '共 {count} 筆憑據，機密值始終加密保存。' }, form: { basicTitle: '基本資訊', basicDescription: '定義憑據身分、用途和可見範圍。', secretTitle: '機密資訊', secretCreateDescription: '直接輸入密碼或 API Key，系統會統一加密保存。', secretEditDescription: '留空保留原密文；輸入新值會在同一交易中完成更新。', browserSessionDescription: '瀏覽器臨時會話不手動填寫機密值。儲存後，請在記錄操作中點擊「瀏覽器取得」，由已發布外掛工作流程完成登入後的提取與驗證。' },
   create: { title: '新增憑據', description: '建立供裝置、外掛程式和工作流程重複使用的加密憑據。' }, edit: { title: '編輯憑據', description: '更新使用者名稱和機密值前，請先確認下方影響範圍。' }, detail: { title: '憑據詳情' }, rotate: { title: '輪換祕密值' },
   usage: { title: '影響範圍', description: '以下資源會繼續使用更新後的憑據。', total: '目前影響 {count} 項引用', changeWarning: '儲存新密碼或 API Key 後，這些引用會立即使用新密文。', empty: '目前沒有任何引用。', groupEmpty: '無', groups: { devices: '裝置（{count}）', workflows: '工作流程（{count}）', plugins: '外掛綁定（{count}）', acmeCertificates: 'ACME 憑證（{count}）', cloudAccounts: '雲端帳號資產（{count}）', browserSessions: '瀏覽器取得會話（{count}）' } },

@@ -1092,7 +1092,7 @@ export default {
       certificate_discover: '証明書検出', certificate_deploy: '証明書デプロイ', certificate_rollback: '証明書ロールバック', certificate_verify: '証明書検証',
       application_discover: 'アプリケーション検出', ca_account_manage: 'CA アカウント管理', ca_order_manage: 'CA オーダー管理', ca_challenge_orchestrate: 'CA チャレンジ調整',
       ca_challenge_dns_solver: 'CA DNS チャレンジ解決', ca_certificate_issue: 'CA 証明書発行', ca_certificate_renew: 'CA 証明書更新', ca_certificate_revoke: 'CA 証明書失効',
-      cloud_service_connection_test: 'クラウドサービス接続テスト', cloud_service_discover: 'クラウドサービス検出'
+      cloud_service_connection_test: 'クラウドサービス接続テスト', cloud_service_discover: 'クラウドサービス検出', credential_health_check: '資格情報の有効性チェック'
     },
     unknownCatalogValue: '不明なカタログ値: {value}',
     frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: 'カスタムランタイム', runtime_custom: 'カスタムランタイム', adc_load_balancer: 'ADC ロードバランサー', cloud_aliyun_cdn: 'Alibaba Cloud CDN', cloud_aliyun_alb: 'Alibaba Cloud ALB', cloud_aliyun_clb: 'Alibaba Cloud CLB', cloud_aliyun_oss: 'Alibaba Cloud OSS', cloud_aliyun_waf_cname: 'Alibaba Cloud WAF CNAME', cloud_aliyun_waf_cloud: 'Alibaba Cloud WAF Cloud', cloud_aliyun_live: 'Alibaba Cloud Live', cloud_aliyun_vod: 'Alibaba Cloud VOD', cloud_tencent_cdn: 'Tencent Cloud CDN', cloud_tencent_clb: 'Tencent Cloud CLB', cloud_tencent_live: 'Tencent Cloud Live', cloud_huawei_cdn: 'Huawei Cloud CDN', cloud_huawei_elb: 'Huawei Cloud ELB', cloud_volcengine_cdn: 'Volcengine CDN', cloud_volcengine_alb: 'Volcengine ALB', cloud_volcengine_clb: 'Volcengine CLB', cloud_volcengine_live: 'Volcengine Live', cloud_volcengine_vod: 'Volcengine VOD' },

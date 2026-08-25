@@ -1157,7 +1157,7 @@ export default {
       certificate_discover: '证书发现', certificate_deploy: '证书部署', certificate_rollback: '证书回滚', certificate_verify: '证书验证',
       application_discover: '应用发现', ca_account_manage: 'CA 账户管理', ca_order_manage: 'CA 订单管理', ca_challenge_orchestrate: 'CA 挑战编排',
       ca_challenge_dns_solver: 'CA DNS 挑战解析', ca_certificate_issue: 'CA 证书签发', ca_certificate_renew: 'CA 证书续期', ca_certificate_revoke: 'CA 证书吊销',
-      cloud_service_connection_test: '云服务连接测试', cloud_service_discover: '云服务发现'
+      cloud_service_connection_test: '云服务连接测试', cloud_service_discover: '云服务发现', credential_health_check: '凭据检测'
     },
     unknownCatalogValue: '未知目录值：{value}',
     frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: '自定义运行环境', runtime_custom: '自定义运行时', adc_load_balancer: 'ADC 负载均衡', cloud_aliyun_cdn: '阿里云 CDN', cloud_aliyun_alb: '阿里云 ALB', cloud_aliyun_clb: '阿里云 CLB', cloud_aliyun_oss: '阿里云 OSS', cloud_aliyun_waf_cname: '阿里云 WAF CNAME', cloud_aliyun_waf_cloud: '阿里云 WAF 云产品', cloud_aliyun_live: '阿里云 Live', cloud_aliyun_vod: '阿里云 VOD', cloud_tencent_cdn: '腾讯云 CDN', cloud_tencent_clb: '腾讯云 CLB', cloud_tencent_live: '腾讯云直播', cloud_huawei_cdn: '华为云 CDN', cloud_huawei_elb: '华为云 ELB', cloud_volcengine_cdn: '火山引擎 CDN', cloud_volcengine_alb: '火山引擎 ALB', cloud_volcengine_clb: '火山引擎 CLB', cloud_volcengine_live: '火山引擎直播', cloud_volcengine_vod: '火山引擎 VOD' },

@@ -1066,7 +1066,7 @@ export default {
       certificate_discover: '인증서 검색', certificate_deploy: '인증서 배포', certificate_rollback: '인증서 롤백', certificate_verify: '인증서 검증',
       application_discover: '애플리케이션 검색', ca_account_manage: 'CA 계정 관리', ca_order_manage: 'CA 주문 관리', ca_challenge_orchestrate: 'CA 챌린지 조정',
       ca_challenge_dns_solver: 'CA DNS 챌린지 해결', ca_certificate_issue: 'CA 인증서 발급', ca_certificate_renew: 'CA 인증서 갱신', ca_certificate_revoke: 'CA 인증서 폐기',
-      cloud_service_connection_test: '클라우드 서비스 연결 테스트', cloud_service_discover: '클라우드 서비스 검색'
+      cloud_service_connection_test: '클라우드 서비스 연결 테스트', cloud_service_discover: '클라우드 서비스 검색', credential_health_check: '자격 증명 유효성 검사'
     },
     unknownCatalogValue: '알 수 없는 카탈로그 값: {value}',
     frameworkTypes: { web_iis: 'IIS', web_nginx: 'NGINX', web_apache: 'Apache', app_tomcat: 'Tomcat', custom_runtime: '사용자 지정 런타임', runtime_custom: '사용자 지정 런타임', adc_load_balancer: 'ADC 로드 밸런서', cloud_aliyun_cdn: 'Alibaba Cloud CDN', cloud_aliyun_alb: 'Alibaba Cloud ALB', cloud_aliyun_clb: 'Alibaba Cloud CLB', cloud_aliyun_oss: 'Alibaba Cloud OSS', cloud_aliyun_waf_cname: 'Alibaba Cloud WAF CNAME', cloud_aliyun_waf_cloud: 'Alibaba Cloud WAF Cloud', cloud_aliyun_live: 'Alibaba Cloud Live', cloud_aliyun_vod: 'Alibaba Cloud VOD', cloud_tencent_cdn: 'Tencent Cloud CDN', cloud_tencent_clb: 'Tencent Cloud CLB', cloud_tencent_live: 'Tencent Cloud Live', cloud_huawei_cdn: 'Huawei Cloud CDN', cloud_huawei_elb: 'Huawei Cloud ELB', cloud_volcengine_cdn: 'Volcengine CDN', cloud_volcengine_alb: 'Volcengine ALB', cloud_volcengine_clb: 'Volcengine CLB', cloud_volcengine_live: 'Volcengine Live', cloud_volcengine_vod: 'Volcengine VOD' },

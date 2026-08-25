@@ -1091,7 +1091,7 @@ export default {
       certificate_discover: "憑證發現", certificate_deploy: "憑證部署", certificate_rollback: "憑證復原", certificate_verify: "憑證驗證",
       application_discover: "應用程式發現", ca_account_manage: "CA 帳戶管理", ca_order_manage: "CA 訂單管理", ca_challenge_orchestrate: "CA 挑戰編排",
       ca_challenge_dns_solver: "CA DNS 挑戰解析", ca_certificate_issue: "CA 憑證簽發", ca_certificate_renew: "CA 憑證續期", ca_certificate_revoke: "CA 憑證撤銷",
-      cloud_service_connection_test: "雲端服務連線測試", cloud_service_discover: "雲端服務發現"
+      cloud_service_connection_test: "雲端服務連線測試", cloud_service_discover: "雲端服務發現", credential_health_check: "憑據檢測"
     },
     unknownCatalogValue: "未知目錄值：{value}",
     frameworkTypes: { web_iis: "IIS", web_nginx: "NGINX", web_apache: "Apache", app_tomcat: "Tomcat", custom_runtime: "自訂執行環境", runtime_custom: "自訂執行環境", adc_load_balancer: "ADC 負載平衡", cloud_aliyun_cdn: "阿里雲 CDN", cloud_aliyun_alb: "阿里雲 ALB", cloud_aliyun_clb: "阿里雲 CLB", cloud_aliyun_oss: "阿里雲 OSS", cloud_aliyun_waf_cname: "阿里雲 WAF CNAME", cloud_aliyun_waf_cloud: "阿里雲 WAF 雲產品", cloud_aliyun_live: "阿里雲 Live", cloud_aliyun_vod: "阿里雲 VOD", cloud_tencent_cdn: "騰訊雲 CDN", cloud_tencent_clb: "騰訊雲 CLB", cloud_tencent_live: "騰訊雲直播", cloud_huawei_cdn: "華為雲 CDN", cloud_huawei_elb: "華為雲 ELB", cloud_volcengine_cdn: "火山引擎 CDN", cloud_volcengine_alb: "火山引擎 ALB", cloud_volcengine_clb: "火山引擎 CLB", cloud_volcengine_live: "火山引擎直播", cloud_volcengine_vod: "火山引擎 VOD" },
