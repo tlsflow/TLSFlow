@@ -44,4 +44,36 @@ describe('CA 管理导航与国际化', () => {
       expect(locale.caOperations.messages.noAuthority).toBeTruthy()
     }
   })
+
+  it('证书管理二级导航使用短标签，并覆盖全部语言', () => {
+    const certificateMenu = mainMenuItems.find((item) => item.path === '/certificates')
+    expect(certificateMenu?.children?.map((item) => item.submenuTitleKey)).toEqual([
+      'nav.certificateInventoryShort',
+      'nav.acmeAutomationShort',
+      'nav.caOperationsShort',
+      'nav.certificateFormatsShort',
+    ])
+    expect([
+      enUS.nav.certificateInventoryShort,
+      enUS.nav.acmeAutomationShort,
+      enUS.nav.caOperationsShort,
+      enUS.nav.certificateFormatsShort,
+    ]).toEqual(['Inventory', 'ACME automation', 'CA ops', 'Delivery formats'])
+
+    for (const locale of [zhCN, zhTW, enUS, jaJP, frFR, ruRU, ptBR, koKR]) {
+      expect(locale.nav.certificateInventoryShort).toBeTruthy()
+      expect(locale.nav.acmeAutomationShort).toBeTruthy()
+      expect(locale.nav.caOperationsShort).toBeTruthy()
+      expect(locale.nav.certificateFormatsShort).toBeTruthy()
+    }
+  })
+
+  it('CA 与宿主默认证书格式名称均通过国际化提供', () => {
+    for (const locale of [zhCN, zhTW, enUS, jaJP, frFR, ruRU, ptBR, koKR]) {
+      expect(locale.caOperations.actions.manageInternalCa).toBe('CA')
+      expect(locale.internalCa.wizard.builtinProviderName).toBeTruthy()
+      expect(locale.bindings.defaults.p12Container).toBeTruthy()
+      expect(locale.bindings.defaults.pemBundle).toBeTruthy()
+    }
+  })
 })

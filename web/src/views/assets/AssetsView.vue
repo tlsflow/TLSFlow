@@ -23,6 +23,7 @@ import { useAuthStore } from '@/stores/auth.store'
 import { usePermissionStore } from '@/stores/permission.store'
 import { useTenantStore } from '@/stores/tenant.store'
 import { formatMaybeLocalTime, getExpiryCountdown } from '@/utils/browser-local-time'
+import { localizeCertificateFormatName } from '@/utils/certificate-format-localization'
 import {
   buildManagedTargetDeploymentStrategy,
   collectFrameworkTypeOptions,
@@ -2572,8 +2573,9 @@ function workflowCertificateFormatLabel(item: ApiRecord): string {
   const privateKey = item.containsPrivateKey || parameters.includePrivateKey || parameters.generatePrivateKeyFile
     ? t('assets.certificateFormats.withPrivateKey')
     : t('assets.certificateFormats.withoutPrivateKey')
+  const configName = localizeCertificateFormatName(String(parameters.configName ?? item.name ?? item.displayName ?? item.id ?? ''), t)
   const parts = [
-    String(item.name ?? item.displayName ?? item.id ?? ''),
+    configName,
     format,
     preset,
     privateKey,

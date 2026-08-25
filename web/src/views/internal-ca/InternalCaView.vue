@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import { internalCaApi, type InternalCaRecord } from '@/api/modules/internal-ca.api'
-import { createWindowsGoInstallSession, listAgents } from '@/api/modules/assets.api'
+import { createWindowsAdcsInstallSession, listAgents } from '@/api/modules/assets.api'
 import { listUnifiedPluginVersions } from '@/api/modules/plugins.api'
 import { GcDataTable, GcModal, GcPageHeader, GcStatusTag } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
@@ -23,6 +23,7 @@ const renewals = ref<InternalCaRecord[]>([])
 const revocations = ref<InternalCaRecord[]>([])
 const trustDistributions = ref<InternalCaRecord[]>([])
 const reuseRisks = ref<InternalCaRecord[]>([])
+const registeredAdcsAgents = ref<InternalCaRecord[]>([])
 const riskOverview = ref<InternalCaRecord>({})
 const authorityPreview = ref<InternalCaRecord | null>(null)
 const remediationPreview = ref<InternalCaRecord | null>(null)
@@ -37,6 +38,8 @@ const commonNameCustomized = ref(false)
 const trustDomainModalOpen = ref(false)
 const requestModalOpen = ref(false)
 const profileModalOpen = ref(false)
+const authorityDeleteModalOpen = ref(false)
+const authorityDeleteTarget = ref<InternalCaRecord | null>(null)
 const adcsModalOpen = ref(false)
 const adcsEditingProviderId = ref('')
 const adcsInstallBusy = ref(false)
@@ -49,13 +52,14 @@ const requestDraft = reactive({ applicationAssetId: '', trustDomainId: '', caId:
 const revocationDraft = reactive({ certificateVersionId: '', reason: 'keyCompromise' })
 const trustDraft = reactive({ caId: '', targetIds: '', platform: 'linux' })
 const adcsDraft = reactive({
-  name: '', agentId: '', agentKey: '', installSessionId: '', installCommand: '', installExpiresAt: '',
+  agentId: '', agentKey: '', agentVersion: '', installSessionId: '', installCommand: '', installExpiresAt: '',
 })
 
 const selectedBackend = computed(() => providers.value.find((item) => text(item.id) === authorityDraft.providerId))
 const rootAuthorities = computed(() => authorities.value.filter((item) => (text(item.role) === 'root' || !text(item.parentCaId)) && text(item.status, 'active') === 'active'))
 const selectedRoot = computed(() => rootAuthorities.value.find((item) => text(item.id) === selectedRootId.value) ?? rootAuthorities.value[0])
 const selectedIntermediates = computed(() => authorities.value.filter((item) => text(item.parentCaId) === text(selectedRoot.value?.id) && text(item.status, 'active') === 'active'))
+const activeAuthorities = computed(() => authorities.value.filter((item) => text(item.status, 'active') === 'active'))
 const eligibleParentRoots = computed(() => rootAuthorities.value.filter(isEligibleParentRoot))
 const requestAuthorities = computed(() => authorities.value.filter((item) => text(item.status, 'active') === 'active' && (!requestDraft.trustDomainId || text(item.trustDomainId) === requestDraft.trustDomainId)))
 const requestProfileVersions = computed(() => profiles.value.flatMap((item) => {
@@ -112,11 +116,14 @@ async function loadAll() {
   loading.value = true
   error.value = ''
   try {
-    const [providerResult, trustDomainResult, authorityResult, profileResult, requestResult, renewalResult, revocationResult, trustResult, riskResult, overviewResult] = await Promise.all([
+    const [providerResult, trustDomainResult, authorityResult, profileResult, requestResult, renewalResult, revocationResult, trustResult, riskResult, overviewResult, agentResult] = await Promise.all([
       internalCaApi.listProviders(), internalCaApi.listTrustDomains(), internalCaApi.listAuthorities(), internalCaApi.listProfiles(), internalCaApi.listRequests(),
       internalCaApi.listRenewals(), internalCaApi.listRevocations(), internalCaApi.listTrustDistributions(), internalCaApi.listReuseRisks(), internalCaApi.reuseRiskOverview(),
+      listAgents({ page: 1, pageSize: 100 }),
     ])
     providers.value = providerResult.data ?? []
+    registeredAdcsAgents.value = (agentResult.data?.items ?? []).filter((item) => text(item.role) === 'adcs_agent' && text(asRecord(item.descriptor).osType) === 'windows_adcs')
+    await autoRegisterAdcsAgents()
     trustDomains.value = trustDomainResult.data ?? []
     authorities.value = authorityResult.data ?? []
     profiles.value = profileResult.data ?? []
@@ -141,6 +148,46 @@ async function loadAll() {
     error.value = t('internalCa.messages.loadFailed')
   } finally {
     loading.value = false
+  }
+}
+
+async function autoRegisterAdcsAgents(): Promise<void> {
+  const unregistered = registeredAdcsAgents.value.filter((agent) => !providers.value.some((provider) => {
+    if (!isAdcsProvider(provider) || text(provider.status, 'active') !== 'active') return false
+    const configuration = asRecord(provider.configuration)
+    return text(configuration.agentId) === text(agent.id)
+  }))
+  if (!unregistered.length) return
+  const pluginResult = await listUnifiedPluginVersions()
+  const plugin = ((pluginResult.data?.items ?? []) as unknown as Array<Record<string, unknown>>)
+    .filter((item) => text(item.pluginId) === 'ca.microsoft-adcs' && text(item.runtime) === 'WORKFLOW_DSL' && text(item.status) === 'ENABLED')
+    .sort((left, right) => text(right.version).localeCompare(text(left.version), undefined, { numeric: true }))[0]
+  if (!plugin) return
+  for (const agent of unregistered) {
+    const agentId = text(agent.id)
+    const agentKey = text(agent.agentKey)
+    if (!agentId || !agentKey) continue
+    let providerId = ''
+    try {
+      const created = await internalCaApi.createProvider({
+        name: text(asRecord(agent.descriptor).caName, text(asRecord(agent.descriptor).hostname, agentKey)), type: 'plugin', deploymentMode: 'external', runtimePlatform: 'windows', availabilityMode: 'single',
+        configuration: { providerKind: 'microsoft_adcs', profile: 'windows.agent_plan.adcs', agentId, agentKey, registrationStatus: 'linked', pluginVersionId: text(plugin.id) },
+      })
+      providerId = text(created.data?.id)
+      if (!providerId) continue
+      await internalCaApi.createProviderActionBinding(providerId, {
+        pluginVersionId: text(plugin.id), executionLocation: 'control_plane', approvalMode: 'none', status: 'active',
+        issueAction: { actionId: 'ca.certificate.issue.v1', actionVersion: 'v1' },
+        queryAction: { actionId: 'ca.certificate.query.v1', actionVersion: 'v1' },
+        revokeAction: { actionId: 'ca.certificate.revoke.v1', actionVersion: 'v1' },
+        revocationEvidenceAction: { actionId: 'ca.revocation.evidence.v1', actionVersion: 'v1' },
+        capabilityEvidence: { providerKind: 'microsoft_adcs', agentId, agentKey },
+      })
+      providers.value.push(created.data ?? {})
+    } catch (caught) {
+      if (providerId) await internalCaApi.deleteProvider(providerId).catch(() => undefined)
+      error.value = caught instanceof ApiClientError ? caught.message : t('internalCa.adcs.messages.autoRegistrationFailed')
+    }
   }
 }
 
@@ -327,6 +374,12 @@ function backendModeLabel(backend: InternalCaRecord): string {
   return t('internalCa.backendTypes.external')
 }
 
+function backendDisplayName(backend: InternalCaRecord): string {
+  return text(backend.type) === 'gcac_builtin'
+    ? t('internalCa.wizard.builtinProviderName')
+    : text(backend.name, t('common.notAvailable'))
+}
+
 function backendCapabilitySummary(backend: InternalCaRecord): string {
   const type = text(backend.type)
   if (type === 'gcac_builtin') return t('internalCa.backendSummary.createAndIssue')
@@ -411,9 +464,9 @@ function openAdcsModal(provider?: InternalCaRecord) {
   adcsEditingProviderId.value = text(provider?.id)
   const configuration = provider?.configuration as InternalCaRecord | undefined
   Object.assign(adcsDraft, {
-    name: text(provider?.name),
     agentId: text(configuration?.agentId),
     agentKey: text(configuration?.agentKey),
+    agentVersion: text(configuration?.agentVersion),
     installSessionId: text(configuration?.installSessionId),
     installCommand: text(configuration?.installCommand),
     installExpiresAt: text(configuration?.installExpiresAt),
@@ -423,24 +476,18 @@ function openAdcsModal(provider?: InternalCaRecord) {
 }
 
 async function generateAdcsInstallCommand() {
-  if (!adcsDraft.name.trim()) {
-    error.value = t('internalCa.adcs.messages.nameRequired')
-    return
-  }
   adcsInstallBusy.value = true
   error.value = ''
   try {
-    const slug = adcsDraft.name.trim().toLowerCase().replace(/[^a-z0-9]+/gu, '-').replace(/^-|-$/gu, '').slice(0, 32) || 'agent'
-    const result = await createWindowsGoInstallSession({
-      role: 'full_agent',
+    const result = await createWindowsAdcsInstallSession({
+      role: 'adcs_agent',
       zone: 'default',
       ...(adcsDraft.agentKey.trim() ? { agentKey: adcsDraft.agentKey.trim() } : {}),
-      serviceName: `gcac-adcs-${slug}-${Date.now().toString(36)}`,
-      displayName: t('internalCa.adcs.install.displayName', { name: adcsDraft.name.trim() }),
     })
     const material = asRecord(result.data)
     Object.assign(adcsDraft, {
       agentKey: text(material.agentKey),
+      agentVersion: text(material.agentVersion),
       installSessionId: text(material.sessionId),
       installCommand: text(material.installCommand),
       installExpiresAt: text(material.expiresAt),
@@ -486,10 +533,6 @@ function copyTextWithLegacyApi(value: string): void {
 }
 
 async function associateAdcsAgent() {
-  if (!adcsEditingProviderId.value) {
-    error.value = t('internalCa.adcs.messages.saveBeforeAssociation')
-    return
-  }
   if (!adcsDraft.agentKey.trim()) {
     error.value = t('internalCa.adcs.messages.agentKeyMissing')
     return
@@ -498,14 +541,23 @@ async function associateAdcsAgent() {
   error.value = ''
   try {
     const result = await listAgents({ page: 1, pageSize: 100, filters: { agentKey: adcsDraft.agentKey.trim() } })
-    const agent = (result.data?.items ?? []).find((item) => text(item.agentKey) === adcsDraft.agentKey.trim())
+    const agent = (result.data?.items ?? []).find((item) => text(item.agentKey) === adcsDraft.agentKey.trim() && text(item.role) === 'adcs_agent')
     if (!agent) throw new Error(t('internalCa.adcs.messages.agentNotFound'))
     const agentId = text(agent.id)
     if (!agentId) throw new Error(t('internalCa.adcs.messages.agentNotFound'))
-    await internalCaApi.updateProvider(adcsEditingProviderId.value, {
+    await loadAll()
+    const provider = providers.value.find((item) => isAdcsProvider(item) && (
+      text(item.id) === adcsEditingProviderId.value
+      || text(asRecord(item.configuration).agentKey) === adcsDraft.agentKey.trim()
+      || text(asRecord(item.configuration).agentId) === agentId
+    ))
+    if (!provider) throw new Error(t('internalCa.adcs.messages.agentNotFound'))
+    adcsEditingProviderId.value = text(provider.id)
+    await internalCaApi.updateProvider(text(provider.id), {
       configuration: {
         agentId,
         agentKey: adcsDraft.agentKey.trim(),
+        ...(adcsDraft.agentVersion.trim() ? { agentVersion: adcsDraft.agentVersion.trim() } : {}),
         registrationStatus: 'linked',
         linkedAt: new Date().toISOString(),
       },
@@ -520,59 +572,27 @@ async function associateAdcsAgent() {
   }
 }
 
-async function saveAdcsProvider() {
-  const ok = await runAction(async () => {
-    let plugin: Record<string, unknown> | undefined
-    if (!adcsEditingProviderId.value) {
-      const pluginResult = await listUnifiedPluginVersions()
-      const pluginVersions = (pluginResult.data?.items ?? []) as unknown as Array<Record<string, unknown>>
-      plugin = pluginVersions
-        .filter((item) => text(item.pluginId) === 'ca.microsoft-adcs' && text(item.runtime) === 'WORKFLOW_DSL' && text(item.status) === 'ENABLED')
-        .sort((left, right) => text(right.version).localeCompare(text(left.version), undefined, { numeric: true }))[0]
-    }
-    if (!plugin && !adcsEditingProviderId.value) throw new Error(t('internalCa.adcs.messages.pluginUnavailable'))
-    const configuration = {
-      providerKind: 'microsoft_adcs',
-      profile: 'windows.agent_plan.adcs',
-      agentId: adcsDraft.agentId.trim(),
-      ...(adcsDraft.agentKey.trim() ? { agentKey: adcsDraft.agentKey.trim() } : {}),
-      ...(adcsDraft.installSessionId.trim() ? { installSessionId: adcsDraft.installSessionId.trim() } : {}),
-      ...(adcsDraft.installExpiresAt.trim() ? { installExpiresAt: adcsDraft.installExpiresAt.trim() } : {}),
-      ...(plugin ? { pluginVersionId: text(plugin.id) } : {}),
-    }
-    let providerId = adcsEditingProviderId.value
-    const newlyCreatedProviderId = providerId
-    try {
-      if (providerId) {
-        await internalCaApi.updateProvider(providerId, { name: adcsDraft.name.trim(), configuration })
-      } else {
-        const created = await internalCaApi.createProvider({
-          name: adcsDraft.name.trim(), type: 'plugin', deploymentMode: 'external', runtimePlatform: 'windows', availabilityMode: 'single',
-          configuration,
-        })
-        providerId = text(created.data?.id)
-        if (!providerId || !plugin) throw new Error(t('internalCa.adcs.messages.pluginUnavailable'))
-        await internalCaApi.createProviderActionBinding(providerId, {
-          pluginVersionId: text(plugin.id), executionLocation: 'control_plane', approvalMode: 'none', status: 'active',
-          issueAction: { actionId: 'ca.certificate.issue.v1', actionVersion: 'v1' },
-          queryAction: { actionId: 'ca.certificate.query.v1', actionVersion: 'v1' },
-          revokeAction: { actionId: 'ca.certificate.revoke.v1', actionVersion: 'v1' },
-          revocationEvidenceAction: { actionId: 'ca.revocation.evidence.v1', actionVersion: 'v1' },
-          capabilityEvidence: { providerKind: 'microsoft_adcs', agentId: adcsDraft.agentId.trim(), agentKey: adcsDraft.agentKey.trim() },
-        })
-      }
-    } catch (caught) {
-      // Provider 创建失败时清理刚创建的记录，避免留下半成品。
-      if (!newlyCreatedProviderId && providerId) await internalCaApi.deleteProvider(providerId).catch(() => undefined)
-      throw caught
-    }
-  }, adcsEditingProviderId.value ? 'internalCa.adcs.messages.updated' : 'internalCa.adcs.messages.created')
-  if (ok) adcsModalOpen.value = false
-}
-
 async function deleteAdcsProvider(provider: InternalCaRecord) {
   const ok = await runAction(() => internalCaApi.deleteProvider(text(provider.id)), 'internalCa.adcs.messages.deleted')
   if (ok) adcsModalOpen.value = false
+}
+
+function openAuthorityDeleteModal(authority: InternalCaRecord) {
+  const authorityId = text(authority.id)
+  if (!authorityId) return
+  error.value = ''
+  authorityDeleteTarget.value = authority
+  authorityDeleteModalOpen.value = true
+}
+
+async function confirmAuthorityDelete() {
+  const authorityId = text(authorityDeleteTarget.value?.id)
+  if (!authorityId) return
+  const ok = await runAction(() => internalCaApi.deleteAuthority(authorityId), 'internalCa.messages.authorityDeleted')
+  if (ok) {
+    authorityDeleteModalOpen.value = false
+    authorityDeleteTarget.value = null
+  }
 }
 
 async function approveRequest(item: InternalCaRecord) {
@@ -637,19 +657,22 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
       </summary>
       <div class="ca-section__body">
         <div v-if="rootAuthorities.length" class="root-ca-grid">
-          <button v-for="root in rootAuthorities" :key="text(root.id)" type="button" class="root-ca-card gc-card" :class="{ 'is-selected': text(root.id) === text(selectedRoot?.id) }" @click="selectRoot(root)">
-            <span class="root-ca-card__accent"></span>
-            <span class="root-ca-card__body">
-              <span class="root-ca-card__title">
-                <strong>{{ text(root.name) }}</strong>
-                <GcStatusTag :status="text(root.status)" />
+          <article v-for="root in rootAuthorities" :key="text(root.id)" class="root-ca-card gc-card" :class="{ 'is-selected': text(root.id) === text(selectedRoot?.id) }">
+            <button type="button" class="root-ca-card__select" @click="selectRoot(root)">
+              <span class="root-ca-card__accent"></span>
+              <span class="root-ca-card__body">
+                <span class="root-ca-card__title">
+                  <strong>{{ text(root.name) }}</strong>
+                  <GcStatusTag :status="text(root.status)" />
+                </span>
+                <span class="root-ca-card__cn">{{ text(root.subjectCommonName) }}</span>
+                <span class="root-ca-card__meta">{{ trustDomainName(root.trustDomainId) }} · {{ text(root.securityDomain) }}</span>
+                <span class="root-ca-card__expiry">{{ t('internalCa.labels.expiresAt', { time: localTime(root.notAfter) }) }}</span>
+                <span class="root-ca-card__badge">{{ t('internalCa.labels.intermediateCount', { count: activeAuthorities.filter((item) => text(item.parentCaId) === text(root.id)).length }) }}</span>
               </span>
-              <span class="root-ca-card__cn">{{ text(root.subjectCommonName) }}</span>
-              <span class="root-ca-card__meta">{{ trustDomainName(root.trustDomainId) }} · {{ text(root.securityDomain) }}</span>
-              <span class="root-ca-card__expiry">{{ t('internalCa.labels.expiresAt', { time: localTime(root.notAfter) }) }}</span>
-            </span>
-            <span class="root-ca-card__badge">{{ t('internalCa.labels.intermediateCount', { count: authorities.filter((item) => text(item.parentCaId) === text(root.id)).length }) }}</span>
-          </button>
+            </button>
+            <button type="button" class="gc-button gc-button--sm gc-button--danger root-ca-card__delete" :aria-label="t('internalCa.actions.deleteAuthority')" @click="openAuthorityDeleteModal(root)">{{ t('internalCa.actions.deleteAuthority') }}</button>
+          </article>
         </div>
         <article v-if="selectedRoot" class="ca-architecture">
           <header class="ca-architecture__header">
@@ -692,9 +715,9 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
           <summary class="backend-settings__summary"><span>{{ t('internalCa.sections.issuingBackends') }}</span><button class="gc-button gc-button--primary gc-button--sm" type="button" @click.stop="openAdcsModal()">{{ t('internalCa.adcs.actions.add') }}</button></summary>
           <div class="backend-settings__list">
             <article v-for="backend in visibleProviders" :key="text(backend.id)" class="backend-summary">
-              <div class="backend-summary__heading"><strong>{{ text(backend.name) }}</strong><span>{{ backendModeLabel(backend) }}</span></div>
+              <div class="backend-summary__heading"><strong>{{ backendDisplayName(backend) }}</strong><span>{{ backendModeLabel(backend) }}</span></div>
               <GcStatusTag :status="text(backend.status)" />
-              <small>{{ t('internalCa.labels.backendUsageCount', { count: authorities.filter((item) => text(item.providerId) === text(backend.id)).length }) }}</small>
+              <small>{{ t('internalCa.labels.backendUsageCount', { count: activeAuthorities.filter((item) => text(item.providerId) === text(backend.id)).length }) }}</small>
               <small>{{ backendCapabilitySummary(backend) }}</small>
               <small>{{ backendVerificationSummary(backend) }}</small>
               <div v-if="isAdcsProvider(backend)" class="backend-summary__actions">
@@ -895,12 +918,18 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
       <template #actions><button v-if="authorityWizardStep > 1" class="gc-button" type="button" :disabled="actionPending" @click="previousAuthorityWizardStep">{{ t('internalCa.actions.previous') }}</button><button v-if="authorityWizardStep < wizardStepCount" class="gc-button gc-button--primary" type="button" :disabled="actionPending || (authorityCreationKind === 'intermediate' && authorityWizardStep === 1 && !authorityDraft.parentCaId)" @click="advanceAuthorityWizard">{{ t('internalCa.actions.next') }}</button><button v-else class="gc-button gc-button--primary" type="button" :disabled="actionPending || (authorityCreationMode === 'external' && !authorityDraft.providerId)" @click="createAuthority">{{ t('internalCa.actions.createAuthority') }}</button></template>
     </GcModal>
 
+    <GcModal v-model:open="authorityDeleteModalOpen" size="sm" :title="t('internalCa.actions.deleteAuthority')" :description="t('internalCa.messages.confirmAuthorityDelete', { name: text(authorityDeleteTarget?.name) })" :busy="actionPending" :error="error">
+      <template #actions>
+        <button class="gc-button" type="button" :disabled="actionPending" @click="authorityDeleteModalOpen = false">{{ t('designSystem.confirm.cancel') }}</button>
+        <button class="gc-button gc-button--danger" type="button" :disabled="actionPending" @click="confirmAuthorityDelete">{{ t('designSystem.confirm.confirm') }}</button>
+      </template>
+    </GcModal>
+
     <GcModal v-model:open="adcsModalOpen" size="xl" :title="adcsEditingProviderId ? t('internalCa.adcs.modal.editTitle') : t('internalCa.adcs.modal.addTitle')" :description="t('internalCa.adcs.modal.description')">
-      <form id="adcs-provider-form" class="adcs-provider-form" @submit.prevent="saveAdcsProvider">
-        <label>{{ t('internalCa.adcs.fields.name') }}<input v-model="adcsDraft.name" required /></label>
+      <div id="adcs-provider-form" class="adcs-provider-form">
         <section class="adcs-install-panel adcs-provider-form__full">
           <header class="adcs-install-panel__header">
-            <div><strong>{{ t('internalCa.adcs.install.title') }}</strong><p>{{ t('internalCa.adcs.install.description') }}</p></div>
+            <strong>{{ t('internalCa.adcs.install.title') }}</strong>
             <button class="gc-button gc-button--primary gc-button--sm" type="button" :disabled="adcsInstallBusy || actionPending" @click="generateAdcsInstallCommand">
               {{ adcsInstallBusy ? t('common.loading') : adcsDraft.installCommand ? t('internalCa.adcs.install.regenerate') : t('internalCa.adcs.install.generate') }}
             </button>
@@ -911,6 +940,7 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
           </div>
           <p v-else class="adcs-install-panel__empty">{{ t('internalCa.adcs.install.notGenerated') }}</p>
           <div class="adcs-install-panel__meta">
+            <span>{{ t('internalCa.adcs.install.version') }}: <code>{{ adcsDraft.agentVersion || t('internalCa.common.unknown') }}</code></span>
             <span>{{ t('internalCa.adcs.fields.agentKey') }}: <code>{{ adcsDraft.agentKey || t('internalCa.common.unknown') }}</code></span>
             <span v-if="adcsDraft.installExpiresAt">{{ t('internalCa.adcs.install.expiresAt', { time: localTime(adcsDraft.installExpiresAt) }) }}</span>
           </div>
@@ -922,11 +952,9 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
             </button>
           </div>
         </section>
-        <p class="adcs-provider-form__hint">{{ t('internalCa.adcs.messages.agentPlanHint') }}</p>
-      </form>
+      </div>
       <template #actions>
-        <button class="gc-button" type="button" @click="adcsModalOpen = false">{{ t('common.cancel') }}</button>
-        <button class="gc-button gc-button--primary" form="adcs-provider-form" type="submit" :disabled="actionPending">{{ actionPending ? t('common.saving') : t('common.save') }}</button>
+        <button class="gc-button gc-button--primary" type="button" @click="adcsModalOpen = false">{{ t('common.close') }}</button>
       </template>
     </GcModal>
   </section>
@@ -972,18 +1000,21 @@ pre { overflow: auto; padding: var(--gc-space-3); color: var(--gc-color-text); b
 .authority-toolbar h2, .authority-toolbar p, .ca-architecture__header h2 { margin: 0; }
 .authority-toolbar p { margin-top: var(--gc-space-1); color: var(--gc-color-text-muted); }
 .root-ca-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--gc-size-card-min), 1fr)); gap: var(--gc-space-3); }
-.root-ca-card { display: grid; grid-template-columns: var(--gc-space-1) minmax(0, 1fr) auto; gap: 0 var(--gc-space-3); padding: var(--gc-space-3) var(--gc-space-4); text-align: left; color: var(--gc-color-text); cursor: pointer; border: var(--gc-border-width-default) solid var(--gc-color-border-soft); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-glass); box-shadow: var(--gc-shadow-sm); transition: border-color 140ms ease, box-shadow 140ms ease; align-items: start; }
+.root-ca-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--gc-space-3); min-width: 0; padding: var(--gc-space-3) var(--gc-space-4); color: var(--gc-color-text); border: var(--gc-border-width-default) solid var(--gc-color-border-soft); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-glass); box-shadow: var(--gc-shadow-sm); transition: border-color 140ms ease, box-shadow 140ms ease; align-items: start; }
 .root-ca-card:hover { border-color: var(--gc-color-primary-border); box-shadow: var(--gc-shadow-hover); }
 .root-ca-card.is-selected { border-color: var(--gc-color-primary); background: var(--gc-color-surface-selected); }
-.root-ca-card__accent { width: var(--gc-space-1); height: 100%; border-radius: var(--gc-radius-xl); background: var(--gc-color-primary); grid-row: 1 / 3; }
+.root-ca-card__select { display: grid; grid-template-columns: var(--gc-space-1) minmax(0, 1fr); gap: 0 var(--gc-space-3); min-width: 0; padding: 0; text-align: left; color: inherit; cursor: pointer; border: 0; background: transparent; align-items: stretch; }
+.root-ca-card__select:focus-visible { outline: var(--gc-border-width-default) solid var(--gc-color-focus-ring); outline-offset: var(--gc-space-1); border-radius: var(--gc-radius-sm); }
+.root-ca-card__delete { align-self: start; white-space: nowrap; }
+.root-ca-card__accent { width: var(--gc-space-1); height: 100%; min-height: var(--gc-control-height-sm); border-radius: var(--gc-radius-xl); background: var(--gc-color-primary); }
 .root-ca-card.is-selected .root-ca-card__accent { background: var(--gc-color-primary); box-shadow: var(--gc-shadow-focus); }
 .root-ca-card__body { display: grid; gap: var(--gc-space-hairline); min-width: 0; }
-.root-ca-card__title { display: flex; align-items: center; gap: var(--gc-space-2); font-size: var(--gc-font-size-sm); }
-.root-ca-card__title strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.root-ca-card__title { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--gc-space-2); min-width: 0; font-size: var(--gc-font-size-sm); }
+.root-ca-card__title strong { min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .root-ca-card__cn { font-size: var(--gc-font-size-xs); color: var(--gc-color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .root-ca-card__meta { font-size: var(--gc-font-size-xs); color: var(--gc-color-text-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .root-ca-card__expiry { font-size: var(--gc-font-size-xs); color: var(--gc-color-text-soft); }
-.root-ca-card__badge { grid-row: 1; padding: var(--gc-space-hairline) var(--gc-space-2); border-radius: var(--gc-radius-xl); background: var(--gc-color-primary-soft); color: var(--gc-color-primary); font-size: var(--gc-font-size-xs); font-weight: var(--gc-font-weight-semibold); white-space: nowrap; }
+.root-ca-card__badge { justify-self: start; margin-top: var(--gc-space-1); padding: var(--gc-space-hairline) var(--gc-space-2); border-radius: var(--gc-radius-xl); background: var(--gc-color-primary-soft); color: var(--gc-color-primary); font-size: var(--gc-font-size-xs); font-weight: var(--gc-font-weight-semibold); white-space: normal; overflow-wrap: anywhere; }
 .ca-architecture { margin-top: var(--gc-space-3); padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-muted); overflow: hidden; }
 .ca-architecture__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--gc-space-3); margin-bottom: var(--gc-space-3); }
 .ca-architecture__eyebrow { font-size: var(--gc-font-size-sm); font-weight: 600; color: var(--gc-color-text-strong); }
@@ -1009,8 +1040,7 @@ pre { overflow: auto; padding: var(--gc-space-3); color: var(--gc-color-text); b
 .backend-summary span, .backend-summary small { color: var(--gc-color-text-muted); }
 .backend-summary__actions { display: flex !important; gap: var(--gc-space-2); align-items: center; justify-content: flex-end; }
 .adcs-provider-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-4); }
-.adcs-provider-form__full, .adcs-provider-form__hint { grid-column: 1 / -1; }
-.adcs-provider-form__hint { margin: 0; padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-info-border); border-radius: var(--gc-radius-md); color: var(--gc-color-text-muted); background: var(--gc-color-info-bg); }
+.adcs-provider-form__full { grid-column: 1 / -1; }
 .ca-wizard { display: grid; gap: var(--gc-space-5); }
 .ca-wizard__progress { display: grid; gap: var(--gc-space-3); }
 .ca-wizard__progress-bar { height: var(--gc-space-1); overflow: hidden; border-radius: var(--gc-radius-xl); background: var(--gc-color-surface-muted); }
@@ -1080,7 +1110,9 @@ pre { overflow: auto; padding: var(--gc-space-3); color: var(--gc-color-text); b
   .backend-summary { grid-template-columns: minmax(0, 1fr) auto; }
   .backend-summary small { grid-column: 1 / -1; }
   .backend-summary__actions { grid-column: 1 / -1; justify-content: flex-start; }
+  .root-ca-card { grid-template-columns: 1fr; }
+  .root-ca-card__delete { justify-self: end; }
   .adcs-provider-form { grid-template-columns: 1fr; }
-  .adcs-provider-form__full, .adcs-provider-form__hint { grid-column: auto; }
+  .adcs-provider-form__full { grid-column: auto; }
 }
 </style>

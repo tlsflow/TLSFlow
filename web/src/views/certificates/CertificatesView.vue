@@ -240,7 +240,7 @@ const assetColumns = computed<DataTableColumn<ApiRecord>[]>(() => [
   { key: 'validity', title: t('certificates.detailPanel.validity.title'), width: '25%' },
   { key: 'expires', title: t('certificates.userView.simple.fields.expires'), width: '13%' },
   { key: 'source', title: t('certificates.userView.simple.fields.source'), width: '12%' },
-  { key: 'version', title: t('certificates.detailPanel.fields.version'), width: '10%' },
+  { key: 'version', title: t('certificates.userView.simple.fields.versions'), width: '10%' },
   { key: 'actions', title: t('agents.columns.actions'), width: '12%' },
 ])
 const versionColumns = computed<DataTableColumn<CertificateVersionRow>[]>(() => [
@@ -1099,7 +1099,7 @@ async function removeVersion(row: CertificateVersionRow) {
                         </dd>
                       </div>
                       <div>
-                        <dt>{{ t('certificates.detailPanel.fields.version') }}</dt>
+                        <dt>{{ t('certificates.userView.simple.fields.versions') }}</dt>
                         <dd>{{ t('certificates.userView.simple.versionCountShort', { count: assetVersionCountMap[readId(asset)] ?? 0 }) }}</dd>
                       </div>
                     </dl>

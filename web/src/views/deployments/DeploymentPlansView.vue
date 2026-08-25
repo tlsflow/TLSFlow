@@ -24,6 +24,7 @@ import type { DeploymentWizardInitialPlan, DeploymentWizardPlan } from '@/design
 import type { UserFlowStep } from '@/design-system/components/GcUserFlowWizard.vue'
 import type { ViewRow } from '@/composables/useBusinessPage'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
+import { localizeCertificateFormatName } from '@/utils/certificate-format-localization'
 import { subscribeTaskRealtime, type DeploymentExecutionMode, type TaskRealtimeMessage } from '@/views/tasks/task-events'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
@@ -1262,7 +1263,7 @@ function certificateFormatLabelById(certificateFormatId: string): string {
   if (!certificateFormatId) return t('deploymentPlans.common.notConfigured')
   const item = certificateFormatItems.value.find((format) => readString(format, ['id']) === certificateFormatId)
   if (!item) return certificateFormatId
-  const configName = readString(item, ['parameters.configName', 'parameters.alias', 'parameters.friendlyName', 'name'], certificateFormatId)
+  const configName = localizeCertificateFormatName(readString(item, ['parameters.configName', 'parameters.alias', 'parameters.friendlyName', 'name'], certificateFormatId), t)
   const format = readString(item, ['format'], 'unknown').toUpperCase()
   const platform = [readString(item, ['parameters.systemPlatform']), readString(item, ['parameters.runtimePlatform'])].filter(Boolean).join('/')
   return [configName, format, platform].filter(Boolean).join(' / ')

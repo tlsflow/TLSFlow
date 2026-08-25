@@ -201,6 +201,13 @@ export function createWindowsGoInstallSession(payload: ApiBody = {}): Promise<Ap
   })
 }
 
+/** 创建独立 Windows AD CS Agent 安装会话。 */
+export function createWindowsAdcsInstallSession(payload: ApiBody = {}): Promise<ApiRecordResult> {
+  return apiClient.post<ApiRecord>(toClientPath(`${AGENTS_PATH}/install-sessions/windows-adcs`), payload, {
+    idempotencyKey: createIdempotencyKey('windows_adcs_install_session'),
+  })
+}
+
 export function startDiscovery(payload: ApiBody) {
   return postAction(DISCOVERY_RUNS_PATH, payload, 'asset_discovery')
 }

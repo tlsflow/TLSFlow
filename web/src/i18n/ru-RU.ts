@@ -8,6 +8,7 @@ import { providersRuRU } from './providers.locale'
 import { monitoringTlsRuRU } from './monitoring-tls.locale'
 import { acmeAutomationRuRU } from './acme.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
+import { certificateFormatDefaultsRuRU } from './certificate-format.locale'
 import { notificationsEnglish } from './notifications.locale'
 import { reportsEnglish } from './reports.locale'
 export default {
@@ -594,17 +595,17 @@ export default {
     }
   },
   systemInitialization: {
-    intro: { ariaLabel: 'Анимация инициализации системы', eyebrow: 'Первый запуск', title: 'Подготавливаем консоль', description: 'Мастер инициализации системы откроется далее.', loading: 'Загружаем мастер инициализации…', progressAriaLabel: 'Прогресс загрузки инициализации', start: 'Начать работу', skip: 'Пропустить анимацию', slogan: 'Для непрерывных сервисов безопасности' },
-    preview: { title: 'Предпросмотр инициализации системы', notice: 'Режим разработки: пользователи и лицензии не записываются.' },
-    title: 'Мастер инициализации системы', description: 'Создайте первую учетную запись Admin и настройки консоли.', help: 'Пошагово завершите первичную настройку.', stepsLabel: 'Шаги инициализации',
-    steps: { account: 'Учетная запись и настройки', accountHelp: 'Создайте первого локального администратора и выберите язык и тему.', license: 'Настройка лицензии', licenseHelp: 'Экспортируйте офлайн-запрос и импортируйте файл авторизации или выполните это позже.', confirm: 'Подтверждение записи', confirmHelp: 'Проверьте несекретную сводку и предупреждение безопасности.', complete: 'Готово', completeHelp: 'Инициализация завершена, вход доступен.' },
-    stage: { account: { title: 'Учетная запись Admin и интерфейс', help: 'Эти значения сохраняются у первого пользователя Admin.' }, license: { title: 'Настройка лицензии (необязательно)', help: 'Ошибка лицензии не отменяет инициализацию Admin.' }, confirm: { title: 'Подтверждение записи', help: 'Здесь показывается только несекретная сводка.' }, complete: { title: 'Инициализация завершена', help: 'Система готова к работе.' } },
-    account: { heading: 'Создайте первого пользователя Admin', description: 'Настройте локальную учетную запись администратора для входа в консоль.', username: 'Имя Admin', usernamePlaceholder: 'Например admin', displayName: 'Отображаемое имя Admin', displayNamePlaceholder: 'Например Системный администратор', password: 'Пароль Admin', passwordPlaceholder: 'Не менее 8 символов', passwordConfirmation: 'Подтверждение пароля', passwordConfirmationPlaceholder: 'Введите пароль еще раз', locale: 'Предпочтительный язык', theme: 'Тема' },
-    license: { description: 'Сначала экспортируйте файл офлайн-запроса активации, затем импортируйте файл авторизации или вставьте JSON.', createRequest: 'Экспортировать файл офлайн-запроса', copyRequest: 'Копировать запрос активации', requestCopied: 'Запрос активации скопирован', importFile: 'Импортировать файл авторизации', activationResponse: 'Файл авторизации или JSON ответа', activationResponsePlaceholder: 'Импортируйте файл авторизации или вставьте JSON', importResponse: 'Импортировать авторизацию', configured: 'Лицензия настроена.', skip: 'Пропустить и настроить позже' },
-    confirm: { username: 'Имя Admin', locale: 'Язык', theme: 'Тема', kekTitle: 'Храните GCAC_SECRET_KEK в безопасности', kekWarning: 'GCAC_SECRET_KEK — корневой ключ расшифровки материалов безопасности. Не записывайте его в код, журналы, публичную документацию или браузер. Утечка создает серьезный риск.' },
-    complete: { heading: 'Инициализация системы завершена', licenseConfigured: 'Лицензия настроена.', licenseSkipped: 'Настройка лицензии пропущена; ее можно выполнить позже на странице Licensing.' },
-    actions: { previous: 'Назад', continue: 'Продолжить', createAdmin: 'Создать Admin и продолжить', finish: 'Завершить инициализацию', login: 'Перейти ко входу' },
-    errors: { passwordMismatch: 'Пароли не совпадают.', missingSession: 'Инициализация успешна, но сессия не получена.', createFailed: 'Не удалось создать Admin.', licenseFailed: 'Операция с лицензией завершилась ошибкой.', activationRequestMissing: 'Запрос офлайн-активации не получен.', jsonObjectRequired: 'Введите корректный JSON-объект.' }
+    intro: { ariaLabel: 'Вступительная анимация', progressAriaLabel: 'Прогресс загрузки', start: 'Начать работу', slogan: 'Для непрерывных сервисов безопасности' },
+    preview: { title: 'Предпросмотр первой настройки' },
+    title: 'Первая настройка', description: 'Создайте учетную запись администратора и выберите параметры интерфейса.', help: 'Пройдите шаги, чтобы завершить настройку.', stepsLabel: 'Шаги настройки',
+    steps: { account: 'Учетная запись администратора', accountHelp: 'Задайте имя пользователя и пароль для входа.', license: 'Лицензия', licenseHelp: 'Импортируйте файл лицензии или сделайте это позже.', confirm: 'Проверка', confirmHelp: 'Проверьте только что введенные данные.', complete: 'Готово', completeHelp: 'Настройка завершена, можно войти.' },
+    stage: { account: { title: 'Учетная запись администратора', help: 'С этой учетной записью вы входите в систему и управляете ею.' }, license: { title: 'Лицензия (необязательно)', help: 'Можно пропустить сейчас и добавить лицензию позже на странице «Лицензия».' }, confirm: { title: 'Проверка', help: 'Пароль здесь не показывается.' }, complete: { title: 'Настройка завершена', help: 'Теперь можно войти.' } },
+    account: { username: 'Имя пользователя', usernamePlaceholder: 'Например admin', displayName: 'Отображаемое имя', displayNamePlaceholder: 'Например Системный администратор', password: 'Пароль', passwordPlaceholder: 'Не менее 8 символов', passwordConfirmation: 'Подтверждение пароля', passwordConfirmationPlaceholder: 'Введите пароль еще раз', locale: 'Язык интерфейса', theme: 'Тема' },
+    license: { description: 'Сначала экспортируйте файл запроса и отправьте его поставщику, затем импортируйте полученный файл лицензии.', createRequest: 'Экспортировать файл запроса', copyRequest: 'Копировать запрос', requestCopied: 'Скопировано', importFile: 'Импортировать файл лицензии', activationResponse: 'Содержимое лицензии', activationResponsePlaceholder: 'Импортируйте файл лицензии или вставьте его содержимое', importResponse: 'Импортировать лицензию', configured: 'Лицензия активна.', skip: 'Настроить позже' },
+    confirm: { username: 'Имя пользователя', locale: 'Язык интерфейса', theme: 'Тема', kekTitle: 'Храните GCAC_SECRET_KEK в безопасности', kekWarning: 'Это корневой ключ, которым система расшифровывает ваши данные. Храните его офлайн и никогда не записывайте в код, журналы или мессенджеры. Если ключ потерян, данные восстановить не удастся; если он утек, данные смогут прочитать посторонние.' },
+    complete: { licenseConfigured: 'Лицензия активна, можно войти в систему.', licenseSkipped: 'Лицензия пока не добавлена. Ее можно добавить позже на странице «Лицензия».' },
+    actions: { previous: 'Назад', continue: 'Продолжить', createAdmin: 'Создать учетную запись и продолжить', finish: 'Завершить настройку', login: 'Перейти ко входу' },
+    errors: { passwordMismatch: 'Введенные пароли не совпадают.', missingSession: 'Учетная запись создана, но автоматический вход не выполнен. Войдите вручную.', createFailed: 'Не удалось создать учетную запись. Попробуйте снова.', licenseFailed: 'Не удалось обработать лицензию. Проверьте, верный ли файл.', activationRequestMissing: 'Содержимое запроса не получено. Экспортируйте его снова.', jsonObjectRequired: 'Формат файла неверный. Проверьте, что это полный файл лицензии.' }
   },
   userMenu: {
     currentUser: 'Текущий пользователь',
@@ -642,10 +643,14 @@ export default {
     certificates: 'Управление сертификатами',
     certificatesDesc: 'Хранилище сертификатов, привязки и срок действия',
     certificateAssets: 'Сертификатные активы',
+    certificateInventoryShort: 'Реестр',
     certificateAssetsDesc: 'Сертификаты, ссылки на закрытые ключи, отпечатки и сроки действия',
     acmeAutomation: 'Автоматизация сертификатов ACME',
+    acmeAutomationShort: 'Автоматизация ACME',
     acmeAutomationDesc: 'Выпуск, продление и отслеживание сертификатов ACME',
+    caOperationsShort: 'Операции CA',
     certificateFormats: 'Конфигурации форматов сертификатов',
+    certificateFormatsShort: 'Форматы доставки',
     certificateFormatsDesc: 'Правила форматов PFX, CER, CRT, PEM и других для сохраненных сертификатов',
     assetCenter: 'Asset inventory',
     assetCenterDesc: 'Manage application, device, and cloud service assets',
@@ -2670,6 +2675,7 @@ export default {
     }
   },
   bindings: {
+    defaults: certificateFormatDefaultsRuRU,
     actions: {
       create: 'Создать конфигурационный файл',
       toggleFilters: 'Фильтры',
@@ -3418,7 +3424,8 @@ export default {
         },
         fields: {
           expires: 'Срок действия',
-          source: 'Источник'
+          source: 'Источник',
+          versions: 'Версии'
         },
         empty: {
           title: 'Сертификатов пока нет',

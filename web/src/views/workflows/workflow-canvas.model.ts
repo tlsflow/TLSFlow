@@ -197,6 +197,7 @@ export type WorkflowDslStep =
         readonly method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
         readonly connectionRef: string
         readonly url: string
+        readonly cookieSessionRef?: string
         readonly query?: Record<string, string | number | boolean>
         readonly headers?: Record<string, string>
         readonly headerRefs?: Record<string, string>
@@ -212,7 +213,7 @@ export type WorkflowDslStep =
         readonly body?: unknown
         readonly form?: Record<string, string | number | boolean>
         readonly formCredentialRefs?: Record<string, WorkflowDslCredentialValue>
-        readonly multipart?: Record<string, { readonly value?: string | number | boolean; readonly filename?: string; readonly contentType?: string; readonly secretRef?: string }>
+        readonly multipart?: Record<string, { readonly value?: string | number | boolean; readonly filename?: string; readonly contentType?: string; readonly secretRef?: string; readonly artifactRef?: string; readonly artifactSha256?: string }>
         readonly tls?: { readonly verify?: boolean; readonly caSecretRef?: string; readonly clientCertSecretRef?: string; readonly clientKeySecretRef?: string; readonly sni?: string; readonly allowInsecure?: boolean }
         readonly timeoutSeconds?: number
         readonly maxResponseBytes?: number
@@ -976,6 +977,7 @@ function dslStepToNode(step: WorkflowDslStep, index: number): WorkflowCanvasNode
         method: step.request.method,
         connectionRef: step.request.connectionRef,
         url: step.request.url,
+        ...(step.request.cookieSessionRef ? { cookieSessionRef: step.request.cookieSessionRef } : {}),
         ...buildHttpNodeConfig(step.request.auth),
         body: stringifyBody(step.request.body),
         timeoutSeconds: step.request.timeoutSeconds ?? 30,

@@ -1478,7 +1478,7 @@ select.gc-native-select:disabled,
   z-index: 1;
   display: flex;
   width: max-content;
-  max-width: min(48rem, 48%);
+  max-width: min(54rem, 54%);
   flex-wrap: nowrap;
   gap: var(--gc-space-1);
   min-width: 0;
@@ -1527,7 +1527,7 @@ select.gc-native-select:disabled,
   align-items: center;
   justify-content: center;
   min-height: var(--gc-control-height-sm);
-  padding: 0 var(--gc-space-4);
+  padding: 0 var(--gc-space-3);
   border-radius: var(--gc-radius-control);
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-sm);

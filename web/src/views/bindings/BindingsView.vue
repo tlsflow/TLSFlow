@@ -19,6 +19,7 @@ import {
   GcPermissionButton,
 } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
+import { localizeCertificateFormatName } from '@/utils/certificate-format-localization'
 
 type PresetFormat = 'pfx' | 'pem_bundle' | 'pem_cert' | 'pem_key' | 'cer' | 'crt' | 'jks' | 'p7b' | 'custom'
 type BackendFormat = 'pem' | 'pfx' | 'jks' | 'p7b' | 'der'
@@ -29,6 +30,7 @@ type SystemPlatform = 'windows' | 'linux' | ''
 interface ArtifactDraft {
   id: string
   configName: string
+  canonicalConfigName: string
   alias: string
   systemPlatform: SystemPlatform
   runtimePlatform: string
@@ -170,7 +172,7 @@ const rows = computed<FormatRow[]>(() => {
     .map((item, index) => {
       const parameters = readRecord(item.parameters)
       const presetFormat = normalizePresetFormat(String(parameters.outputPreset ?? item.format ?? 'pem_bundle'))
-      const configName = String(parameters.configName ?? parameters.alias ?? t('bindings.fallbacks.unnamedConfig', { index: index + 1 }))
+      const configName = localizeCertificateFormatName(String(parameters.configName ?? parameters.alias ?? t('bindings.fallbacks.unnamedConfig', { index: index + 1 })), t)
       const alias = String(parameters.alias ?? '-')
       const targetSummary = renderTargetSummary(parameters)
       const displayFormat = renderFormatLabel(presetFormat)
@@ -237,6 +239,7 @@ function createEmptyDraft(): ArtifactDraft {
   return {
     id: '',
     configName: '',
+    canonicalConfigName: '',
     alias: '',
     systemPlatform: '',
     runtimePlatform: '',
@@ -271,7 +274,8 @@ function openEditDialog(row: FormatRow) {
   const presetFormat = normalizePresetFormat(String(parameters.outputPreset ?? row.raw.format ?? 'pem_bundle'))
   Object.assign(draft, {
     id: row.id,
-    configName: String(parameters.configName ?? row.configName ?? ''),
+    configName: localizeCertificateFormatName(String(parameters.configName ?? row.configName ?? ''), t),
+    canonicalConfigName: String(parameters.configName ?? ''),
     alias: String(parameters.alias ?? ''),
     systemPlatform: normalizeSystemPlatform(String(parameters.systemPlatform ?? '')),
     runtimePlatform: normalizeRuntimePlatform(String(parameters.runtimePlatform ?? '')),
@@ -317,6 +321,7 @@ function applyTemplate() {
   const preset = PLATFORM_PRESETS[draft.systemPlatform]
   Object.assign(draft, {
     configName: t(preset.configNameKey),
+    canonicalConfigName: '',
     alias: preset.alias,
     presetFormat: preset.presetFormat,
     customBackendFormat: 'pem',
@@ -418,7 +423,7 @@ function buildPayload() {
     ...(passwordSecretRef ? { passwordSecretRef } : {}),
     ...(draft.expiresAt.trim() ? { expiresAt: draft.expiresAt.trim() } : {}),
     parameters: {
-      configName: draft.configName.trim(),
+      configName: draft.canonicalConfigName.trim() || draft.configName.trim(),
       systemPlatform: draft.systemPlatform || undefined,
       runtimePlatform: draft.runtimePlatform || undefined,
       outputPreset: draft.presetFormat,
@@ -742,7 +747,7 @@ function toErrorMessage(cause: unknown, fallback: string) {
           <div class="artifact-form__grid">
             <label class="artifact-form__field">
               <span>{{ t('bindings.fields.configName') }}</span>
-              <input v-model="draft.configName" :placeholder="t('bindings.placeholders.configName')" />
+              <input v-model="draft.configName" :placeholder="t('bindings.placeholders.configName')" @input="draft.canonicalConfigName = ''" />
             </label>
             <label class="artifact-form__field">
               <span>{{ t('certificates.formats.fields.alias') }}</span>

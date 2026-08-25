@@ -8,6 +8,7 @@ import { providersPtBR } from './providers.locale'
 import { monitoringTlsPtBR } from './monitoring-tls.locale'
 import { acmeAutomationPtBR } from './acme.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
+import { certificateFormatDefaultsPtBR } from './certificate-format.locale'
 import { notificationsEnglish } from './notifications.locale'
 import { reportsEnglish } from './reports.locale'
 export default {
@@ -594,17 +595,17 @@ export default {
     }
   },
   systemInitialization: {
-    intro: { ariaLabel: 'Animação de inicialização do sistema', eyebrow: 'Primeira execução', title: 'Preparando o console', description: 'O assistente de inicialização do sistema será aberto em seguida.', loading: 'Carregando o assistente de inicialização…', progressAriaLabel: 'Progresso de carregamento da inicialização', start: 'Começar a usar', skip: 'Pular animação', slogan: 'Para serviços de segurança que nunca param' },
-    preview: { title: 'Pré-visualização da inicialização', notice: 'Pré-visualização de desenvolvimento: nenhum usuário ou licença será gravado.' },
-    title: 'Assistente de inicialização', description: 'Crie a primeira conta Admin e as preferências do console.', help: 'Conclua a configuração inicial passo a passo.', stepsLabel: 'Etapas de inicialização',
-    steps: { account: 'Conta Admin e preferências', accountHelp: 'Crie o primeiro administrador local e escolha idioma e tema.', license: 'Configuração de licença', licenseHelp: 'Exporte uma solicitação offline e importe um arquivo de autorização, ou faça isso depois.', confirm: 'Confirmar gravação', confirmHelp: 'Revise o resumo não sensível e o aviso de segurança.', complete: 'Concluir', completeHelp: 'A inicialização terminou e o login está disponível.' },
-    stage: { account: { title: 'Conta Admin e preferências visuais', help: 'Esses valores são salvos no primeiro usuário Admin.' }, license: { title: 'Configuração de licença (opcional)', help: 'Uma falha de licença não desfaz a inicialização do Admin.' }, confirm: { title: 'Confirmar gravação', help: 'Somente um resumo não sensível é exibido aqui.' }, complete: { title: 'Inicialização concluída', help: 'O sistema está pronto para login.' } },
-    account: { heading: 'Crie o primeiro usuário Admin', description: 'Defina a conta de administrador local usada para entrar no console.', username: 'Nome de usuário Admin', usernamePlaceholder: 'Por exemplo admin', displayName: 'Nome de exibição Admin', displayNamePlaceholder: 'Por exemplo Administrador do sistema', password: 'Senha do Admin', passwordPlaceholder: 'Pelo menos 8 caracteres', passwordConfirmation: 'Confirmar senha', passwordConfirmationPlaceholder: 'Digite a senha novamente', locale: 'Idioma preferido', theme: 'Tema' },
-    license: { description: 'Primeiro exporte o arquivo de solicitação de ativação offline; depois importe um arquivo de autorização ou cole o JSON.', createRequest: 'Exportar arquivo de solicitação offline', copyRequest: 'Copiar solicitação de ativação', requestCopied: 'Solicitação de ativação copiada', importFile: 'Importar arquivo de autorização', activationResponse: 'Arquivo de autorização ou JSON de resposta', activationResponsePlaceholder: 'Importe um arquivo de autorização ou cole o JSON', importResponse: 'Importar autorização', configured: 'Licença configurada.', skip: 'Pular e configurar depois' },
-    confirm: { username: 'Nome de usuário Admin', locale: 'Idioma', theme: 'Tema', kekTitle: 'Mantenha GCAC_SECRET_KEK seguro', kekWarning: 'GCAC_SECRET_KEK é a chave raiz para descriptografar materiais de segurança. Nunca o coloque em código, logs, documentação pública ou no navegador. O vazamento pode causar um risco grave.' },
-    complete: { heading: 'A inicialização do sistema foi concluída', licenseConfigured: 'A licença está configurada.', licenseSkipped: 'A configuração da licença foi pulada e pode ser feita depois na página Licensing.' },
-    actions: { previous: 'Anterior', continue: 'Continuar', createAdmin: 'Criar Admin e continuar', finish: 'Concluir inicialização', login: 'Ir para login' },
-    errors: { passwordMismatch: 'As senhas não coincidem.', missingSession: 'A inicialização foi concluída, mas nenhuma sessão foi retornada.', createFailed: 'Falha ao criar o Admin.', licenseFailed: 'Falha na operação de licença.', activationRequestMissing: 'Nenhuma solicitação de ativação offline foi retornada.', jsonObjectRequired: 'Insira um objeto JSON válido.' }
+    intro: { ariaLabel: 'Animação de abertura', progressAriaLabel: 'Progresso do carregamento', start: 'Começar', slogan: 'Para serviços de segurança que nunca param' },
+    preview: { title: 'Pré-visualização da configuração inicial' },
+    title: 'Configuração inicial', description: 'Crie uma conta de administrador e escolha suas preferências de exibição.', help: 'Siga as etapas para concluir a configuração.', stepsLabel: 'Etapas da configuração',
+    steps: { account: 'Conta de administrador', accountHelp: 'Defina o nome de usuário e a senha que você usará para entrar.', license: 'Licenciamento', licenseHelp: 'Importe seu arquivo de licença, ou faça isso depois.', confirm: 'Revisão', confirmHelp: 'Confira as informações que você acabou de preencher.', complete: 'Concluído', completeHelp: 'A configuração terminou e você já pode entrar.' },
+    stage: { account: { title: 'Conta de administrador', help: 'Esta conta é usada para entrar e gerenciar o sistema.' }, license: { title: 'Licenciamento (opcional)', help: 'Pode pular agora sem problema. Você pode adicionar uma licença depois na página Licenciamento.' }, confirm: { title: 'Revisão', help: 'Sua senha nunca é exibida aqui.' }, complete: { title: 'Configuração concluída', help: 'Você já pode entrar.' } },
+    account: { username: 'Nome de usuário', usernamePlaceholder: 'Por exemplo admin', displayName: 'Nome de exibição', displayNamePlaceholder: 'Por exemplo Administrador do sistema', password: 'Senha', passwordPlaceholder: 'Pelo menos 8 caracteres', passwordConfirmation: 'Confirmar senha', passwordConfirmationPlaceholder: 'Digite a senha novamente', locale: 'Idioma de exibição', theme: 'Tema' },
+    license: { description: 'Primeiro exporte um arquivo de solicitação e envie ao seu fornecedor; depois importe o arquivo de licença recebido.', createRequest: 'Exportar arquivo de solicitação', copyRequest: 'Copiar solicitação', requestCopied: 'Copiado', importFile: 'Importar arquivo de licença', activationResponse: 'Conteúdo da licença', activationResponsePlaceholder: 'Importe um arquivo de licença ou cole o conteúdo', importResponse: 'Importar licença', configured: 'Sua licença está ativa.', skip: 'Configurar depois' },
+    confirm: { username: 'Nome de usuário', locale: 'Idioma de exibição', theme: 'Tema', kekTitle: 'Mantenha GCAC_SECRET_KEK seguro', kekWarning: 'Esta é a chave raiz que o sistema usa para descriptografar seus dados. Guarde-a offline e nunca a coloque em código, logs ou aplicativos de mensagem. Se você perdê-la, seus dados não poderão ser recuperados; se ela vazar, outras pessoas poderão lê-los.' },
+    complete: { licenseConfigured: 'Sua licença está ativa e você já pode entrar.', licenseSkipped: 'Ainda sem licença. Você pode adicionar uma depois na página Licenciamento.' },
+    actions: { previous: 'Voltar', continue: 'Continuar', createAdmin: 'Criar conta e continuar', finish: 'Concluir configuração', login: 'Ir para o login' },
+    errors: { passwordMismatch: 'As duas senhas não são iguais.', missingSession: 'Sua conta foi criada, mas você não entrou automaticamente. Faça login manualmente.', createFailed: 'Não foi possível criar a conta. Tente novamente.', licenseFailed: 'Não foi possível processar a licença. Verifique se o arquivo está correto.', activationRequestMissing: 'Nenhum conteúdo de solicitação foi retornado. Exporte novamente.', jsonObjectRequired: 'O formato do arquivo não está correto. Verifique se é um arquivo de licença completo.' }
   },
   userMenu: {
     currentUser: 'Usuário atual',
@@ -642,10 +643,14 @@ export default {
     certificates: 'Gerenciamento de certificados',
     certificatesDesc: 'Biblioteca de certificados, vínculos e status de expiração',
     certificateAssets: 'Ativos de certificado',
+    certificateInventoryShort: 'Inventário',
     certificateAssetsDesc: 'Certificados, referências de chave privada, impressões digitais e prazos de expiração',
     acmeAutomation: 'Automação de certificados ACME',
+    acmeAutomationShort: 'Automação ACME',
     acmeAutomationDesc: 'Emitir, renovar e acompanhar certificados ACME',
+    caOperationsShort: 'Operações CA',
     certificateFormats: 'Configuração de formatos de certificado',
+    certificateFormatsShort: 'Formatos de entrega',
     certificateFormatsDesc: 'Defina regras de formato como PFX, CER, CRT e PEM para certificados salvos',
     assetCenter: 'Asset inventory',
     assetCenterDesc: 'Manage application, device, and cloud service assets',
@@ -2670,6 +2675,7 @@ export default {
     }
   },
   bindings: {
+    defaults: certificateFormatDefaultsPtBR,
     actions: {
       create: 'Criar configuração',
       toggleFilters: 'Filtrar',
@@ -3418,7 +3424,8 @@ export default {
         },
         fields: {
           expires: 'Expira em',
-          source: 'Origem'
+          source: 'Origem',
+          versions: 'Versões'
         },
         empty: {
           title: 'Ainda não há certificados',

@@ -7,6 +7,7 @@ import { providersZhCN } from './providers.locale'
 import { monitoringTlsZhCN } from './monitoring-tls.locale'
 import { acmeAutomationZhCN } from './acme.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
+import { certificateFormatDefaultsZhCN } from './certificate-format.locale'
 export default {
   credentials: credentialsZhCN,
   devices: devicesZhCN,
@@ -612,17 +613,17 @@ export default {
     }
   },
   systemInitialization: {
-    intro: { ariaLabel: '系统初始化动画', eyebrow: '首次启动', title: '正在准备控制台', description: '即将进入系统初始化向导。', loading: '正在载入初始化向导…', progressAriaLabel: '初始化载入进度', start: '开始使用', skip: '跳过动画', slogan: '为了永不中断的安全服务' },
-    preview: { title: '系统初始化预览', notice: '开发预览模式：不会创建用户或写入许可证。' },
-    title: '系统初始化向导', description: '创建首个 Admin 账号并设置控制台偏好。', help: '按步骤完成首次初始化。', stepsLabel: '初始化步骤',
-    steps: { account: 'Admin 账号与偏好', accountHelp: '创建首个本地管理员并设置语言和主题。', license: '许可证配置', licenseHelp: '导出离线请求并导入授权文件，或稍后处理。', confirm: '确认写入', confirmHelp: '确认账号摘要和安全提示。', complete: '完成', completeHelp: '初始化已完成，可进入登录。' },
-    stage: { account: { title: 'Admin 账号与界面偏好', help: '这些信息会保存到首个 Admin 用户。' }, license: { title: '许可证配置（可选）', help: '许可证失败不会回滚 Admin 初始化。' }, confirm: { title: '确认写入', help: '这里只展示非敏感摘要。' }, complete: { title: '初始化完成', help: '系统已经可以登录使用。' } },
-    account: { heading: '创建首个 Admin 用户', description: '请设置用于登录控制台的本地管理员账号。', username: 'Admin 用户名', usernamePlaceholder: '例如 admin', displayName: 'Admin 显示名', displayNamePlaceholder: '例如 系统管理员', password: 'Admin 密码', passwordPlaceholder: '至少 8 位', passwordConfirmation: '确认密码', passwordConfirmationPlaceholder: '再次输入密码', locale: '首选语言', theme: '主题' },
-    license: { description: '先导出离线激活请求文件，再导入授权文件或粘贴授权 JSON。', createRequest: '导出离线请求文件', copyRequest: '复制激活请求', requestCopied: '已复制激活请求', importFile: '导入授权文件', activationResponse: '授权文件或激活响应 JSON', activationResponsePlaceholder: '导入授权文件，或粘贴授权 JSON', importResponse: '导入授权', configured: '许可证已配置。', skip: '跳过，稍后配置' },
-    confirm: { username: 'Admin 用户名', locale: '语言', theme: '主题', kekTitle: '请妥善保存 GCAC_SECRET_KEK', kekWarning: 'GCAC_SECRET_KEK 是运行时安全材料的解密根密钥。禁止写入代码、日志、公开文档或浏览器；一旦泄露，可能造成严重安全风险。' },
-    complete: { heading: '系统初始化已完成', licenseConfigured: '许可证已配置。', licenseSkipped: '许可证配置已跳过，可稍后在 Licensing 页面完成。' },
-    actions: { previous: '上一步', continue: '继续', createAdmin: '创建 Admin 并继续', finish: '完成初始化', login: '进入登录' },
-    errors: { passwordMismatch: '两次输入的密码不一致。', missingSession: '初始化成功但未获取到会话。', createFailed: 'Admin 创建失败。', licenseFailed: '许可证操作失败。', activationRequestMissing: '未获取到离线激活请求。', jsonObjectRequired: '请输入有效的 JSON 对象。' }
+    intro: { ariaLabel: '开场动画', progressAriaLabel: '载入进度', start: '开始使用', slogan: '为了永不中断的安全服务' },
+    preview: { title: '首次设置预览' },
+    title: '首次设置', description: '创建管理员账号并设置界面偏好。', help: '按提示逐步完成设置。', stepsLabel: '设置步骤',
+    steps: { account: '管理员账号', accountHelp: '设置用来登录系统的账号和密码。', license: '产品授权', licenseHelp: '导入授权文件，也可以稍后再填。', confirm: '确认信息', confirmHelp: '核对刚才填写的信息。', complete: '完成', completeHelp: '设置完成，可以登录使用了。' },
+    stage: { account: { title: '管理员账号', help: '这个账号用来登录和管理系统。' }, license: { title: '产品授权（可选）', help: '现在跳过不影响使用，之后可在“产品授权”页面补充。' }, confirm: { title: '确认信息', help: '这里不会显示密码。' }, complete: { title: '设置完成', help: '现在可以登录使用了。' } },
+    account: { username: '用户名', usernamePlaceholder: '例如 admin', displayName: '显示名称', displayNamePlaceholder: '例如 系统管理员', password: '密码', passwordPlaceholder: '至少 8 位', passwordConfirmation: '确认密码', passwordConfirmationPlaceholder: '再次输入密码', locale: '界面语言', theme: '主题' },
+    license: { description: '先导出请求文件发给供应商，拿到授权文件后再导入。', createRequest: '导出请求文件', copyRequest: '复制请求内容', requestCopied: '已复制', importFile: '导入授权文件', activationResponse: '授权内容', activationResponsePlaceholder: '导入授权文件，或粘贴授权内容', importResponse: '导入授权', configured: '授权已生效。', skip: '稍后设置' },
+    confirm: { username: '用户名', locale: '界面语言', theme: '主题', kekTitle: '请妥善保管 GCAC_SECRET_KEK', kekWarning: '这是系统解密数据用的根密钥。请离线保存，不要写进代码、日志或聊天工具。一旦丢失，数据将无法恢复；一旦泄露，数据可能被他人读取。' },
+    complete: { licenseConfigured: '授权已生效，现在可以登录使用。', licenseSkipped: '还没有填写授权，之后可在“产品授权”页面补充。' },
+    actions: { previous: '上一步', continue: '继续', createAdmin: '创建账号并继续', finish: '完成设置', login: '去登录' },
+    errors: { passwordMismatch: '两次输入的密码不一样。', missingSession: '账号已创建，但没有自动登录，请手动登录。', createFailed: '账号创建失败，请重试。', licenseFailed: '授权处理失败，请检查文件是否正确。', activationRequestMissing: '没有拿到请求内容，请重新导出。', jsonObjectRequired: '文件内容格式不对，请确认是完整的授权文件。' }
   },
   userMenu: {
     currentUser: '当前用户',
@@ -660,10 +661,14 @@ export default {
     certificates: '证书管理',
     certificatesDesc: '证书库、绑定关系和到期状态',
     certificateAssets: '证书资产',
+    certificateInventoryShort: '证书库',
     certificateAssetsDesc: '证书、私钥引用、指纹和到期时间',
     acmeAutomation: 'ACME 管理',
+    acmeAutomationShort: 'ACME 自动化',
     acmeAutomationDesc: '申请、续签和跟踪 ACME 证书',
+    caOperationsShort: 'CA 运维',
     certificateFormats: '证书格式配置',
+    certificateFormatsShort: '交付格式',
     certificateFormatsDesc: '为已保存证书定义 PFX、CER、CRT、PEM 等格式规则',
     assetCenter: '资产中心',
     assetCenterDesc: '统一管理应用资产、设备资产和云服务资产',
@@ -2838,6 +2843,7 @@ export default {
     }
   },
   bindings: {
+    defaults: certificateFormatDefaultsZhCN,
     actions: {
       create: '新建配置文件',
       toggleFilters: '筛选',
@@ -3621,7 +3627,8 @@ export default {
         },
         fields: {
           expires: '到期时间',
-          source: '来源'
+          source: '来源',
+          versions: '版本'
         },
         empty: {
           title: '还没有证书',
@@ -5072,9 +5079,9 @@ export default {
     topology: { rootOnly: '仅根 CA', rootOnlyDescription: '根 CA 直接承担日常签发，部署简单但根密钥需要长期在线。', rootOnlyRisk: '高风险：根密钥失陷会影响整个信任域。', intermediate: '根 CA + 中间 CA', intermediateDescription: '根 CA 离线保管，由中间 CA 承担日常签发。', recommended: '推荐：隔离根密钥并缩小签发故障域。' },
     sections: { trustDomain: '创建 CA 信任域', issuingBackends: '签发后端与连接状态', authorityWizard: 'CA 创建向导', authorityOverview: '证书机构架构', authorityOverviewDescription: '每张卡片代表一个根信任锚点，选择卡片可查看其下级签发架构。', caArchitecture: 'CA 层级架构', riskSummary: '安全决策摘要', profile: '创建证书 Profile', request: '创建应用证书申请', revocation: '创建吊销任务', trust: '创建信任分发任务', remediation: '整改预览' },
     fields: { name: '名称', code: '唯一代码', purpose: '用途', isolationLevel: '隔离等级', defaultTrustDomain: '设为默认信任域', trustDomain: 'CA 信任域', parentAuthority: '父根 CA', authorityType: '证书机构类型', deploymentMode: '部署模式', platform: '运行平台', backendName: '签发后端名称', availabilityMode: '可用性模式', endpoint: '服务地址', authMode: '身份认证方式', profile: '签发 Profile', template: '证书模板', crlUrl: 'CRL 地址', ocspUrl: 'OCSP 地址', issuingBackend: '签发后端', entryMode: '创建方式', commonName: 'Common Name', certificateSubjectCommonName: '证书主题 Common Name', securityDomain: '安全域', topology: 'CA 拓扑', dnsSuffixes: '允许的 DNS 后缀', validityDays: '最大有效期（天）', renewalDays: '提前续期（天）', requireApproval: '签发前需要审批', applicationAssetId: '应用资产 ID', authority: '证书机构', profileVersionId: 'Profile 版本 ID', sans: 'SAN 列表', custodyMode: '密钥托管模式', certificateVersionId: '证书版本 ID', reason: '吊销原因', targetIds: '目标 ID 列表' },
-    actions: { refresh: '刷新', addTrustDomain: '新增信任域', addAuthority: '添加 CA', addIntermediate: '添加中间 CA', previous: '上一步', next: '下一步', createTrustDomain: '创建信任域', previewRisk: '预览风险', createAuthority: '创建 CA', createProfile: '创建 Profile', createRequest: '提交申请', approve: '审批通过', retry: '重试', queryResult: '查询结果', scanRenewals: '扫描到期续期', createRevocation: '创建吊销任务', createTrust: '创建信任分发', previewRemediation: '预览整改' },
+    actions: { refresh: '刷新', addTrustDomain: '新增信任域', addAuthority: '添加 CA', deleteAuthority: '删除 CA', addIntermediate: '添加中间 CA', previous: '上一步', next: '下一步', createTrustDomain: '创建信任域', previewRisk: '预览风险', createAuthority: '创建 CA', createProfile: '创建 Profile', createRequest: '提交申请', approve: '审批通过', retry: '重试', queryResult: '查询结果', scanRenewals: '扫描到期续期', createRevocation: '创建吊销任务', createTrust: '创建信任分发', previewRemediation: '预览整改' },
     placeholders: { dnsSuffixes: 'example.com, office.example.com', sans: 'oa.example.com, 10.0.0.10' },
-    messages: { loadFailed: '内部 CA 数据加载失败。', actionFailed: '操作失败，请检查输入、权限和审批状态。', noIntermediate: '该根 CA 尚未配置中间证书颁发机构。', noRootAuthority: '尚未配置根 CA', noRootAuthorityDescription: '添加根 CA 以建立第一套独立信任架构。', trustDomainCreated: 'CA 信任域已创建。', authorityCreated: '证书机构已创建。', profileCreated: '证书 Profile 已创建。', requestCreated: '证书申请已提交。', requestApproved: '证书申请已审批。', requestRetried: '证书签发已重试。', requestQueried: '远程签发结果已刷新。', renewalScanned: '续期扫描已完成。', revocationCreated: '吊销任务已创建并等待审批。', revocationApproved: '证书吊销已审批。', trustCreated: '信任分发任务已创建并等待审批。', trustApproved: '信任分发已审批。' },
+    messages: { loadFailed: '内部 CA 数据加载失败。', actionFailed: '操作失败，请检查输入、权限和审批状态。', confirmAuthorityDelete: '确定删除 CA“{name}”？历史证书和审计记录会保留。', authorityDeleted: '证书机构已删除。', noIntermediate: '该根 CA 尚未配置中间证书颁发机构。', noRootAuthority: '尚未配置根 CA', noRootAuthorityDescription: '添加根 CA 以建立第一套独立信任架构。', trustDomainCreated: 'CA 信任域已创建。', authorityCreated: '证书机构已创建。', profileCreated: '证书 Profile 已创建。', requestCreated: '证书申请已提交。', requestApproved: '证书申请已审批。', requestRetried: '证书签发已重试。', requestQueried: '远程签发结果已刷新。', renewalScanned: '续期扫描已完成。', revocationCreated: '吊销任务已创建并等待审批。', revocationApproved: '证书吊销已审批。', trustCreated: '信任分发任务已创建并等待审批。', trustApproved: '信任分发已审批。' },
     metrics: { renewals: '续期任务', revocations: '吊销任务', trust: '信任分发', totalRisks: '风险总数', critical: '严重风险', affectedAssets: '受影响应用资产' },
     labels: { rootAuthority: '根证书颁发机构', intermediateAuthority: '中间证书颁发机构', intermediateCount: '{count} 个中间 CA', expiresAt: '到期时间：{time}', defaultTrustDomain: '默认信任域', independentTrustDomain: '独立根信任边界', trustDomainCount: '{count} 个 CA 信任域', versionCount: '{count} 个版本', assetCount: '{count} 个应用资产', requestCount: '将创建 {count} 个独立证书申请', backendUsageCount: '{count} 个证书机构正在使用', unverifiedCapabilityCount: '{count} 项能力尚未验证' },
     backendTypes: { builtin: '内置签发后端', acme: '公共 ACME 证书机构', external: '外部签发后端' },
@@ -5083,7 +5090,7 @@ export default {
       actions: { add: '添加 AD CS Agent', edit: '编辑', delete: '删除' },
       modal: { addTitle: '添加 Microsoft AD CS Agent', editTitle: '编辑 Microsoft AD CS Agent', description: '维护用于生成 AD CS 证书操作计划的 Windows Agent 连接。' },
       fields: { name: '实例名称', agentKey: 'Agent Key', caConfig: 'AD CS CA 配置', templateId: '证书模板', endpoint: 'AD CS 地址', secretRef: '凭据 SecretRef', commonName: 'CA 显示名称', securityDomain: '安全域', trustDomain: '信任域' },
-      install: { title: '安装 Windows AD CS Agent', description: '生成一次性 PowerShell 安装命令，在目标 Windows 服务器执行后，再关联注册成功的 Agent。', displayName: 'GCAC AD CS Agent - {name}', generate: '生成安装命令', regenerate: '重新生成命令', copy: '复制命令', notGenerated: '尚未生成安装命令。', expiresAt: '命令过期时间：{time}', associated: '已关联 Agent：{agentId}', waitingAssociation: '尚未关联 Agent。', associate: '检测并关联' },
+      install: { title: '安装 Windows AD CS Agent', description: '生成一次性 PowerShell 安装命令，在目标 Windows 服务器执行后，再关联注册成功的 Agent。', displayName: 'GCAC AD CS Agent - {name}', version: 'Agent 版本', generate: '生成安装命令', regenerate: '重新生成命令', copy: '复制命令', notGenerated: '尚未生成安装命令。', expiresAt: '命令过期时间：{time}', associated: '已关联 Agent：{agentId}', waitingAssociation: '尚未关联 Agent。', associate: '检测并关联' },
       placeholders: { caConfig: 'CA-SERVER\\\\IssuingCA', endpoint: 'https://ca-server.example.com', secretRef: 'secret://...' },
       options: { createTrustDomain: '自动创建新的信任域' },
       defaultTrustDomainName: '{name} 信任域',

@@ -32,6 +32,7 @@ import { listCredentials, type CredentialProfileSummary } from '@/api/modules/cr
 import { listCertificateFormats } from '@/api/modules/certificates.api'
 import { sortDeployableCertificateVersions } from '@/views/deployments/certificate-version-selection'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
+import { localizeCertificateFormatName } from '@/utils/certificate-format-localization'
 import { cloneReactiveValue } from '@/utils/clone-reactive-value'
 import type { DeviceOnboardingInitialSelection } from '@/views/devices/device-onboarding.model'
 import { createInputBindingsV1, readInputBindingsV1 } from '@/views/assets/asset-input-bindings.model'
@@ -616,15 +617,15 @@ function toCertificateOption(record: Record<string, unknown>): CertificateOption
 }
 function certificateFormatLabel(item: Record<string, unknown>): string {
   const parameters = readRecord(item.parameters) ?? {}
+  const configName = localizeCertificateFormatName(String(parameters.configName ?? item.name ?? item.displayName ?? item.id ?? ''), t)
   return [
-    String(item.name ?? item.displayName ?? item.id ?? ''),
+    configName || String(parameters.outputPreset ?? ''),
     String(item.format ?? '').toUpperCase(),
-    String(parameters.configName ?? parameters.outputPreset ?? ''),
   ].filter(Boolean).join(' / ')
 }
 function defaultCertificateFormatLabel(certificateFormatId: string): string {
   const selector = selectedPlatform.value?.deploymentDefaults?.certificateFormat
-  return selector ? `${selector.format.toUpperCase()} / ${selector.configName}` : certificateFormatId
+  return selector ? `${selector.format.toUpperCase()} / ${localizeCertificateFormatName(selector.configName, t)}` : certificateFormatId
 }
 function certificateFormatOutputOptions(certificateFormatId: string): Array<{ key: string; label: string }> {
   const format = deploymentCertificateFormats.value.find((item) => String(item.id ?? '') === certificateFormatId)

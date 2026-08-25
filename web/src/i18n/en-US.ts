@@ -7,6 +7,7 @@ import { providersEnUS } from './providers.locale'
 import { monitoringTlsEnUS } from './monitoring-tls.locale'
 import { acmeAutomationEnUS } from './acme.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
+import { certificateFormatDefaultsEnUS } from './certificate-format.locale'
 export default {
   credentials: credentialsEnUS,
   devices: devicesEnUS,
@@ -612,17 +613,17 @@ export default {
     }
   },
   systemInitialization: {
-    intro: { ariaLabel: 'System initialization animation', eyebrow: 'First launch', title: 'Preparing your console', description: 'The system initialization wizard will open next.', loading: 'Loading the initialization wizard…', progressAriaLabel: 'Initialization loading progress', start: 'Start using', skip: 'Skip animation', slogan: 'For security services that never stop' },
-    preview: { title: 'System initialization preview', notice: 'Development preview: no user or license data will be written.' },
-    title: 'System initialization', description: 'Create the first Admin account and set console preferences.', help: 'Complete the first-run setup step by step.', stepsLabel: 'Initialization steps',
-    steps: { account: 'Admin account and preferences', accountHelp: 'Create the first local administrator and choose language and theme.', license: 'License setup', licenseHelp: 'Export an offline request and import an authorization file, or do this later.', confirm: 'Confirm write', confirmHelp: 'Review the non-sensitive account summary and security warning.', complete: 'Complete', completeHelp: 'Initialization is complete and login is available.' },
-    stage: { account: { title: 'Admin account and display preferences', help: 'These values are stored on the first Admin user.' }, license: { title: 'License setup (optional)', help: 'A license failure does not roll back Admin initialization.' }, confirm: { title: 'Confirm write', help: 'Only a non-sensitive summary is shown here.' }, complete: { title: 'Initialization complete', help: 'The system is ready for login.' } },
-    account: { heading: 'Create the first Admin user', description: 'Set the local administrator account used to sign in to the console.', username: 'Admin username', usernamePlaceholder: 'For example, admin', displayName: 'Admin display name', displayNamePlaceholder: 'For example, System administrator', password: 'Admin password', passwordPlaceholder: 'At least 8 characters', passwordConfirmation: 'Confirm password', passwordConfirmationPlaceholder: 'Enter the password again', locale: 'Preferred language', theme: 'Theme' },
-    license: { description: 'First export an offline activation request file, then import an authorization file or paste its JSON.', createRequest: 'Export offline request file', copyRequest: 'Copy activation request', requestCopied: 'Activation request copied', importFile: 'Import authorization file', activationResponse: 'Authorization file or activation response JSON', activationResponsePlaceholder: 'Import an authorization file or paste its JSON', importResponse: 'Import authorization', configured: 'License configured.', skip: 'Skip and configure later' },
-    confirm: { username: 'Admin username', locale: 'Language', theme: 'Theme', kekTitle: 'Keep GCAC_SECRET_KEK safe', kekWarning: 'GCAC_SECRET_KEK is the root key for decrypting runtime security materials. Never put it in code, logs, public documentation, or the browser. Disclosure can create a serious security risk.' },
-    complete: { heading: 'System initialization is complete', licenseConfigured: 'The license is configured.', licenseSkipped: 'License setup was skipped and can be completed later from the Licensing page.' },
-    actions: { previous: 'Previous', continue: 'Continue', createAdmin: 'Create admin and continue', finish: 'Finish initialization', login: 'Go to login' },
-    errors: { passwordMismatch: 'The passwords do not match.', missingSession: 'Initialization succeeded but no session was returned.', createFailed: 'Admin creation failed.', licenseFailed: 'License operation failed.', activationRequestMissing: 'No offline activation request was returned.', jsonObjectRequired: 'Enter a valid JSON object.' }
+    intro: { ariaLabel: 'Intro animation', progressAriaLabel: 'Loading progress', start: 'Get started', slogan: 'For security services that never stop' },
+    preview: { title: 'First-time setup preview' },
+    title: 'First-time setup', description: 'Create an administrator account and set your display preferences.', help: 'Follow the steps to finish setup.', stepsLabel: 'Setup steps',
+    steps: { account: 'Administrator account', accountHelp: 'Set the username and password you will use to sign in.', license: 'Licensing', licenseHelp: 'Import your license file, or do this later.', confirm: 'Review', confirmHelp: 'Check the details you just entered.', complete: 'Done', completeHelp: 'Setup is finished and you can sign in.' },
+    stage: { account: { title: 'Administrator account', help: 'This account is used to sign in and manage the system.' }, license: { title: 'Licensing (optional)', help: 'Skipping now is fine. You can add a license later on the Licensing page.' }, confirm: { title: 'Review', help: 'Your password is never shown here.' }, complete: { title: 'Setup complete', help: 'You can sign in now.' } },
+    account: { username: 'Username', usernamePlaceholder: 'For example, admin', displayName: 'Display name', displayNamePlaceholder: 'For example, System administrator', password: 'Password', passwordPlaceholder: 'At least 8 characters', passwordConfirmation: 'Confirm password', passwordConfirmationPlaceholder: 'Enter the password again', locale: 'Display language', theme: 'Theme' },
+    license: { description: 'Export a request file and send it to your vendor, then import the license file you receive.', createRequest: 'Export request file', copyRequest: 'Copy request', requestCopied: 'Copied', importFile: 'Import license file', activationResponse: 'License content', activationResponsePlaceholder: 'Import a license file or paste its content', importResponse: 'Import license', configured: 'Your license is active.', skip: 'Set up later' },
+    confirm: { username: 'Username', locale: 'Display language', theme: 'Theme', kekTitle: 'Keep GCAC_SECRET_KEK safe', kekWarning: 'This is the root key the system uses to decrypt your data. Store it offline and never put it in code, logs, or chat tools. If you lose it, your data cannot be recovered. If it leaks, others can read your data.' },
+    complete: { licenseConfigured: 'Your license is active and you can sign in now.', licenseSkipped: 'No license yet. You can add one later on the Licensing page.' },
+    actions: { previous: 'Back', continue: 'Continue', createAdmin: 'Create account and continue', finish: 'Finish setup', login: 'Go to sign in' },
+    errors: { passwordMismatch: 'The two passwords do not match.', missingSession: 'Your account was created but you were not signed in automatically. Please sign in.', createFailed: 'Could not create the account. Please try again.', licenseFailed: 'Could not process the license. Please check that the file is correct.', activationRequestMissing: 'No request content was returned. Please export it again.', jsonObjectRequired: 'The file content is not in the expected format. Please check that it is a complete license file.' }
   },
   userMenu: {
     currentUser: 'Current user',
@@ -660,10 +661,14 @@ export default {
     certificates: 'Certificate lifecycle',
     certificatesDesc: 'Certificate inventory, bindings, and expiry status',
     certificateAssets: 'Certificate inventory',
+    certificateInventoryShort: 'Inventory',
     certificateAssetsDesc: 'Certificates, private key references, fingerprints, and expiry times',
     acmeAutomation: 'ACME issuance and renewal',
+    acmeAutomationShort: 'ACME automation',
     acmeAutomationDesc: 'Issue, renew, and track ACME certificates',
+    caOperationsShort: 'CA ops',
     certificateFormats: 'Certificate delivery formats',
+    certificateFormatsShort: 'Delivery formats',
     certificateFormatsDesc: 'Define PFX, CER, CRT, PEM, and other delivery rules for saved certificates',
     assetCenter: 'Asset inventory',
     assetCenterDesc: 'Manage applications, devices, and cloud services',
@@ -1415,7 +1420,7 @@ export default {
       projectDetailDescription: 'Shows project certificate inventory item details and related usages in the current agent context.',
       projectDetailTitle: 'Project certificate details',
       querying: 'Querying...',
-      remainingDays: '{days} days remaining',
+      remainingDays: '{days} days left',
       remainingWithViewAction: '{remaining} / click to view certificate',
       statusExpired: 'Expired',
       statusExpiring: 'Expiring soon',
@@ -2816,6 +2821,7 @@ export default {
     }
   },
   bindings: {
+    defaults: certificateFormatDefaultsEnUS,
     actions: {
       create: 'New configuration file',
       toggleFilters: 'Filter',
@@ -3551,7 +3557,7 @@ export default {
         sections: {
           certificates: {
             title: 'Certificate lifecycle',
-            help: 'View and manage all certificates, including expiry and status.'
+            help: 'Manage certificates, expiry, and status.'
           },
           applications: {
             title: 'Connected applications',
@@ -3571,8 +3577,9 @@ export default {
           unknown: 'Unknown'
         },
         fields: {
-          expires: 'Expires at',
-          source: 'Source'
+          expires: 'Expires on',
+          source: 'Source',
+          versions: 'Versions'
         },
         empty: {
           title: 'No certificates yet',
@@ -3699,7 +3706,7 @@ export default {
         usage: 'Connected applications'
       },
       validity: {
-        title: 'Certificate validity',
+        title: 'Validity',
         notBefore: 'Valid from: {value}',
         notAfter: 'Expires at: {value}'
       }
@@ -3918,9 +3925,9 @@ export default {
         noSupplement: 'No additional information'
       },
       assets: {
-        title: 'Certificate identity list',
-        loadFailed: 'Failed to load certificate identities',
-        empty: 'No certificate identities',
+        title: 'Certificate inventory',
+        loadFailed: 'Failed to load certificate inventory',
+        empty: 'No certificates',
         unselectedTitle: 'No domain selected',
         unselectedDescription: 'Select a logical certificate domain on the left first.'
       },
@@ -5004,22 +5011,22 @@ export default {
     }
   },
   internalCa: {
-    title: 'Internal CA', description: 'Manage internal certificate authorities, the certificate lifecycle for managed applications, CA nodes, and certificate reuse risks.',
+    title: 'Internal CA', description: 'Manage internal CAs, issuance, and revocation.',
     tabs: { trustDomains: 'CA trust domains', authorities: 'Authorities', profiles: 'Profiles', requests: 'Requests', operations: 'Operations', risks: 'Reuse risks' },
     trustDomains: { recordsTitle: 'Trust domain records', columns: { name: 'Name', purpose: 'Purpose', isolationLevel: 'Isolation level', status: 'Status', default: 'Default', createdAt: 'Created at' }, empty: 'No CA trust domains yet.', modalTitle: 'Add CA trust domain', modalDescription: 'Enter the trust domain basics. The unique code is generated automatically.', generatedCodeHint: 'The unique code is generated automatically and does not need to be entered manually.', notDefault: 'Not default' },
     requests: { recordsTitle: 'Certificate request records', columns: { commonName: 'Common name', applicationAssetId: 'Managed application ID', updatedAt: 'Updated at', actions: 'Actions' }, empty: 'No certificate requests.', modalTitle: 'New certificate request', modalDescription: 'Fill in the certificate request details. It will enter the approval and issuance flow after submission.' },
     profiles: { recordsTitle: 'Certificate profile records', columns: { securityDomain: 'Security domain', versionCount: 'Version count' }, empty: 'No certificate profiles.', modalTitle: 'New certificate profile', modalDescription: 'Define certificate issuance rules and constraints, including validity period, DNS suffixes, and approval requirements.' },
     topology: { rootOnly: 'Root CA only', rootOnlyDescription: 'The root CA performs daily issuance and remains online.', rootOnlyRisk: 'High risk: root key compromise affects the entire trust domain.', intermediate: 'Root CA + intermediate CA', intermediateDescription: 'Keep the root offline and use an intermediate CA for daily issuance.', recommended: 'Recommended: isolate the root key and reduce the issuance blast radius.' },
-    sections: { trustDomain: 'Create CA trust domain', issuingBackends: 'Issuing backends and connections', authorityWizard: 'CA creation wizard', authorityOverview: 'Certificate authority hierarchy', authorityOverviewDescription: 'Each card represents one root trust anchor. Select a card to inspect its issuing hierarchy.', caArchitecture: 'CA hierarchy', riskSummary: 'Security decision summary', profile: 'Create certificate profile', request: 'Create managed application certificate request', revocation: 'Create revocation task', trust: 'Create trust-store distribution', remediation: 'Remediation preview' },
+    sections: { trustDomain: 'Create CA trust domain', issuingBackends: 'Issuing backends', authorityWizard: 'CA creation wizard', authorityOverview: 'CA hierarchy', authorityOverviewDescription: 'Each card represents one root CA. Select a card to view its issuing hierarchy.', caArchitecture: 'CA hierarchy', riskSummary: 'Security decision summary', profile: 'Create certificate profile', request: 'Create managed application certificate request', revocation: 'Create revocation task', trust: 'Create trust-store distribution', remediation: 'Remediation preview' },
     fields: { name: 'Name', code: 'Code', purpose: 'Purpose', isolationLevel: 'Isolation level', defaultTrustDomain: 'Set as default trust domain', trustDomain: 'CA trust domain', parentAuthority: 'Parent root CA', authorityType: 'Authority type', deploymentMode: 'Deployment mode', platform: 'Runtime platform', backendName: 'Issuing backend name', availabilityMode: 'Availability mode', endpoint: 'Service endpoint', authMode: 'Authentication mode', profile: 'Issuance profile', template: 'Certificate template', crlUrl: 'CRL URL', ocspUrl: 'OCSP URL', issuingBackend: 'Issuing backend', entryMode: 'Creation mode', commonName: 'Common name', certificateSubjectCommonName: 'Certificate subject common name', securityDomain: 'Security domain', topology: 'CA topology', dnsSuffixes: 'Allowed DNS suffixes', validityDays: 'Maximum validity days', renewalDays: 'Renewal window days', requireApproval: 'Require approval before issuance', applicationAssetId: 'Managed application ID', authority: 'Certificate authority', profileVersionId: 'Profile version ID', sans: 'SAN list', custodyMode: 'Key custody mode', certificateVersionId: 'Certificate version ID', reason: 'Revocation reason', targetIds: 'Target ID list' },
-    actions: { refresh: 'Refresh', addTrustDomain: 'Add trust domain', addAuthority: 'Add CA', addIntermediate: 'Add intermediate CA', previous: 'Previous', next: 'Next', createTrustDomain: 'Create trust domain', previewRisk: 'Preview risk', createAuthority: 'Create CA', createProfile: 'Create profile', createRequest: 'Submit request', approve: 'Approve', retry: 'Retry', queryResult: 'Query result', scanRenewals: 'Scan renewals', createRevocation: 'Create revocation', createTrust: 'Create trust-store distribution', previewRemediation: 'Preview remediation' },
+    actions: { refresh: 'Refresh', addTrustDomain: 'Add trust domain', addAuthority: 'Add CA', deleteAuthority: 'Delete CA', addIntermediate: 'Add intermediate CA', previous: 'Previous', next: 'Next', createTrustDomain: 'Create trust domain', previewRisk: 'Preview risk', createAuthority: 'Create CA', createProfile: 'Create profile', createRequest: 'Submit request', approve: 'Approve', retry: 'Retry', queryResult: 'Query result', scanRenewals: 'Scan renewals', createRevocation: 'Create revocation', createTrust: 'Create trust-store distribution', previewRemediation: 'Preview remediation' },
     placeholders: { dnsSuffixes: 'example.com, office.example.com', sans: 'oa.example.com, 10.0.0.10' },
-    messages: { loadFailed: 'Failed to load internal CA data.', actionFailed: 'The operation failed. Check input, permissions, and approval status.', noIntermediate: 'This root CA has no intermediate authority yet.', noRootAuthority: 'No root CA configured', noRootAuthorityDescription: 'Add a root CA to establish the first independent trust hierarchy.', trustDomainCreated: 'CA trust domain created.', authorityCreated: 'Certificate authority created.', profileCreated: 'Certificate profile created.', requestCreated: 'Certificate request submitted.', requestApproved: 'Certificate request approved.', requestRetried: 'Certificate issuance retried.', requestQueried: 'Remote issuance result refreshed.', renewalScanned: 'Renewal scan completed.', revocationCreated: 'Revocation task created and awaiting approval.', revocationApproved: 'Certificate revocation approved.', trustCreated: 'Trust-store distribution created and awaiting approval.', trustApproved: 'Trust-store distribution approved.' },
+    messages: { loadFailed: 'Failed to load internal CA data.', actionFailed: 'The operation failed. Check input, permissions, and approval status.', confirmAuthorityDelete: 'Retire CA "{name}"? Historical certificates and audit records will be retained.', authorityDeleted: 'CA retired.', noIntermediate: 'No intermediate CA configured.', noRootAuthority: 'No root CA configured', noRootAuthorityDescription: 'Add a root CA to establish the first independent trust hierarchy.', trustDomainCreated: 'CA trust domain created.', authorityCreated: 'CA created.', profileCreated: 'Certificate profile created.', requestCreated: 'Certificate request submitted.', requestApproved: 'Certificate request approved.', requestRetried: 'Certificate issuance retried.', requestQueried: 'Remote issuance result refreshed.', renewalScanned: 'Renewal scan completed.', revocationCreated: 'Revocation task created and awaiting approval.', revocationApproved: 'Certificate revocation approved.', trustCreated: 'Trust-store distribution created and awaiting approval.', trustApproved: 'Trust-store distribution approved.' },
     metrics: { nodes: 'CA nodes', renewals: 'Renewals', revocations: 'Revocations', trust: 'Trust-store distributions', totalRisks: 'Total risks', critical: 'Critical risks', affectedAssets: 'Affected managed applications' },
-    labels: { rootAuthority: 'Root certificate authority', intermediateAuthority: 'Intermediate certificate authority', intermediateCount: '{count} intermediate authorities', expiresAt: 'Expires {time}', defaultTrustDomain: 'Default trust domain', independentTrustDomain: 'Independent root trust boundary', trustDomainCount: '{count} CA trust domains', versionCount: '{count} versions', assetCount: '{count} managed applications', requestCount: '{count} independent certificate requests will be created', backendUsageCount: 'Used by {count} certificate authorities', unverifiedCapabilityCount: '{count} capabilities are not verified' },
-    backendTypes: { builtin: 'Built-in backend', acme: 'Public ACME CA', external: 'External backend' },
+    labels: { rootAuthority: 'Root CA', intermediateAuthority: 'Intermediate CA', intermediateCount: '{count} intermediate CAs', expiresAt: 'Expires: {time}', defaultTrustDomain: 'Default trust domain', independentTrustDomain: 'Independent root trust boundary', trustDomainCount: '{count} CA trust domains', versionCount: '{count} versions', assetCount: '{count} managed applications', requestCount: '{count} independent certificate requests will be created', backendUsageCount: 'Used by {count} CAs', unverifiedCapabilityCount: '{count} capabilities are not verified' },
+    backendTypes: { builtin: 'Built-in', acme: 'Public ACME CA', external: 'External' },
     backendSummary: { createAndIssue: 'Can create and issue certificates', requestPublicCertificates: 'Can request public certificates', external: 'Requires an external integration', localVerified: 'Local verification passed', remoteVerified: 'Connection verification passed', unverified: 'Not verified' },
-    adcs: { actions: { add: 'Add AD CS agent', edit: 'Edit', delete: 'Delete' }, modal: { addTitle: 'Add Microsoft AD CS agent', editTitle: 'Edit Microsoft AD CS agent', description: 'Maintain the Windows agent connection used to generate AD CS certificate operation plans.' }, fields: { name: 'Instance name', agentKey: 'Agent key', caConfig: 'AD CS CA configuration', templateId: 'Certificate template', endpoint: 'AD CS endpoint', secretRef: 'Credential SecretRef', commonName: 'CA display name', securityDomain: 'Security domain', trustDomain: 'Trust domain' }, install: { title: 'Install Windows AD CS agent', description: 'Generate a one-time PowerShell command, run it on the target Windows server, then associate the registered agent.', displayName: 'GCAC AD CS agent - {name}', generate: 'Generate install command', regenerate: 'Regenerate command', copy: 'Copy command', notGenerated: 'No install command has been generated.', expiresAt: 'Command expires at {time}', associated: 'Associated agent: {agentId}', waitingAssociation: 'The agent is not associated yet.', associate: 'Detect and associate' }, placeholders: { caConfig: 'CA-SERVER\\IssuingCA', endpoint: 'https://ca-server.example.com', secretRef: 'secret://...' }, options: { createTrustDomain: 'Create a new trust domain automatically' }, defaultTrustDomainName: '{name} trust domain', messages: { created: 'Microsoft AD CS agent added and linked to CA management.', updated: 'Microsoft AD CS agent updated.', deleted: 'Microsoft AD CS agent deleted.', deleteInUse: 'This agent is linked to a CA and cannot be deleted.', pluginUnavailable: 'The Microsoft AD CS plugin is not enabled. Enable the built-in plugin first.', authorityRegistrationFailed: 'The agent was saved, but its CA registration failed. Complete the CA registration before issuing certificates.', agentPlanHint: 'The control plane generates a fixed agent plan; the Windows agent performs the local AD CS operation and returns the result.', nameRequired: 'Enter an instance name before generating the install command.', installCommandGenerated: 'The Windows agent install command was generated.', installCommandCopied: 'The install command was copied.', copyFailed: 'The browser did not allow copying. Copy the command manually.', installCommandFailed: 'Failed to generate the Windows agent install command.', saveBeforeAssociation: 'Save the AD CS agent first, then detect and associate it.', agentKeyMissing: 'Generate an install command before associating the agent.', agentNotFound: 'No registered agent with this agent key was found. Run the command on the target server first.', agentAssociated: 'The registered Windows agent was associated.', associationFailed: 'Failed to associate the Windows agent.', autoRegistrationFailed: 'A registered AD CS Agent could not be added to issuing backends.' } },
+    adcs: { actions: { add: 'Add AD CS agent', edit: 'Edit', delete: 'Delete' }, modal: { addTitle: 'Add Microsoft AD CS agent', editTitle: 'Edit Microsoft AD CS agent', description: 'Maintain the Windows agent connection used to generate AD CS certificate operation plans.' }, fields: { name: 'Instance name', agentKey: 'Agent key', caConfig: 'AD CS CA configuration', templateId: 'Certificate template', endpoint: 'AD CS endpoint', secretRef: 'Credential SecretRef', commonName: 'CA display name', securityDomain: 'Security domain', trustDomain: 'Trust domain' }, install: { title: 'Install Windows AD CS agent', description: 'Generate a one-time PowerShell command, run it on the target Windows server, then associate the registered agent.', displayName: 'GCAC AD CS agent - {name}', version: 'Agent version', generate: 'Generate install command', regenerate: 'Regenerate command', copy: 'Copy command', notGenerated: 'No install command has been generated.', expiresAt: 'Command expires at {time}', associated: 'Associated agent: {agentId}', waitingAssociation: 'The agent is not associated yet.', associate: 'Detect and associate' }, placeholders: { caConfig: 'CA-SERVER\\IssuingCA', endpoint: 'https://ca-server.example.com', secretRef: 'secret://...' }, options: { createTrustDomain: 'Create a new trust domain automatically' }, defaultTrustDomainName: '{name} trust domain', messages: { created: 'Microsoft AD CS agent added and linked to CA management.', updated: 'Microsoft AD CS agent updated.', deleted: 'Microsoft AD CS agent deleted.', deleteInUse: 'This agent is linked to a CA and cannot be deleted.', pluginUnavailable: 'The Microsoft AD CS plugin is not enabled. Enable the built-in plugin first.', authorityRegistrationFailed: 'The agent was saved, but its CA registration failed. Complete the CA registration before issuing certificates.', agentPlanHint: 'The control plane generates a fixed agent plan; the Windows agent performs the local AD CS operation and returns the result.', nameRequired: 'Enter an instance name before generating the install command.', installCommandGenerated: 'The Windows agent install command was generated.', installCommandCopied: 'The install command was copied.', copyFailed: 'The browser did not allow copying. Copy the command manually.', installCommandFailed: 'Failed to generate the Windows agent install command.', saveBeforeAssociation: 'Save the AD CS agent first, then detect and associate it.', agentKeyMissing: 'Generate an install command before associating the agent.', agentNotFound: 'No registered agent with this agent key was found. Run the command on the target server first.', agentAssociated: 'The registered Windows agent was associated.', associationFailed: 'Failed to associate the Windows agent.', autoRegistrationFailed: 'A registered AD CS Agent could not be added to issuing backends.' } },
     availability: { single: 'Single node', activeStandby: 'Active/standby', activeActive: 'Active/active' },
     authModes: { managedSecret: 'Managed credential', clientCertificate: 'Client certificate', none: 'No authentication' },
     isolationLevels: { standard: 'Standard isolation', strict: 'Strict isolation', regulated: 'Regulated isolation' },

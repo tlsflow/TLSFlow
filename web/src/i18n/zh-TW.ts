@@ -7,6 +7,7 @@ import { providersZhTW } from './providers.locale'
 import { monitoringTlsZhTW } from './monitoring-tls.locale'
 import { acmeAutomationZhTW } from './acme.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
+import { certificateFormatDefaultsZhTW } from './certificate-format.locale'
 import { notificationsEnglish } from './notifications.locale'
 import { reportsEnglish } from './reports.locale'
 export default {
@@ -593,17 +594,17 @@ export default {
     }
   },
   systemInitialization: {
-    intro: { ariaLabel: '系統初始化動畫', eyebrow: '首次啟動', title: '正在準備控制台', description: '即將進入系統初始化精靈。', loading: '正在載入初始化精靈…', progressAriaLabel: '初始化載入進度', start: '開始使用', skip: '跳過動畫', slogan: '為了永不中斷的安全服務' },
-    preview: { title: '系統初始化預覽', notice: '開發預覽模式：不會建立使用者或寫入授權。' },
-    title: '系統初始化精靈', description: '建立第一個 Admin 帳號並設定控制台偏好。', help: '依步驟完成首次初始化。', stepsLabel: '初始化步驟',
-    steps: { account: 'Admin 帳號與偏好', accountHelp: '建立第一個本機管理員並設定語言與主題。', license: '授權配置', licenseHelp: '匯出離線請求並匯入授權檔案，或稍後處理。', confirm: '確認寫入', confirmHelp: '確認帳號摘要與安全提示。', complete: '完成', completeHelp: '初始化完成，可進入登入。' },
-    stage: { account: { title: 'Admin 帳號與介面偏好', help: '這些資訊會儲存到第一個 Admin 使用者。' }, license: { title: '授權配置（可選）', help: '授權失敗不會回滾 Admin 初始化。' }, confirm: { title: '確認寫入', help: '這裡只顯示非敏感摘要。' }, complete: { title: '初始化完成', help: '系統已可登入使用。' } },
-    account: { heading: '建立第一個 Admin 使用者', description: '設定用於登入控制台的本機管理員帳號。', username: 'Admin 使用者名稱', usernamePlaceholder: '例如 admin', displayName: 'Admin 顯示名稱', displayNamePlaceholder: '例如 系統管理員', password: 'Admin 密碼', passwordPlaceholder: '至少 8 位', passwordConfirmation: '確認密碼', passwordConfirmationPlaceholder: '再次輸入密碼', locale: '偏好語言', theme: '主題' },
-    license: { description: '先匯出離線啟用請求檔案，再匯入授權檔案或貼上授權 JSON。', createRequest: '匯出離線請求檔案', copyRequest: '複製啟用請求', requestCopied: '已複製啟用請求', importFile: '匯入授權檔案', activationResponse: '授權檔案或啟用回應 JSON', activationResponsePlaceholder: '匯入授權檔案，或貼上授權 JSON', importResponse: '匯入授權', configured: '授權已配置。', skip: '跳過，稍後配置' },
-    confirm: { username: 'Admin 使用者名稱', locale: '語言', theme: '主題', kekTitle: '請妥善保存 GCAC_SECRET_KEK', kekWarning: 'GCAC_SECRET_KEK 是執行時安全材料的解密根密鑰。禁止寫入程式碼、日誌、公開文件或瀏覽器；洩露可能造成嚴重安全風險。' },
-    complete: { heading: '系統初始化已完成', licenseConfigured: '授權已配置。', licenseSkipped: '已跳過授權配置，可稍後在 Licensing 頁面完成。' },
-    actions: { previous: '上一步', continue: '繼續', createAdmin: '建立 Admin 並繼續', finish: '完成初始化', login: '進入登入' },
-    errors: { passwordMismatch: '兩次輸入的密碼不一致。', missingSession: '初始化成功但未取得工作階段。', createFailed: 'Admin 建立失敗。', licenseFailed: '授權操作失敗。', activationRequestMissing: '未取得離線啟用請求。', jsonObjectRequired: '請輸入有效的 JSON 物件。' }
+    intro: { ariaLabel: '開場動畫', progressAriaLabel: '載入進度', start: '開始使用', slogan: '為了永不中斷的安全服務' },
+    preview: { title: '首次設定預覽' },
+    title: '首次設定', description: '建立管理員帳號並設定介面偏好。', help: '依提示逐步完成設定。', stepsLabel: '設定步驟',
+    steps: { account: '管理員帳號', accountHelp: '設定用來登入系統的帳號與密碼。', license: '產品授權', licenseHelp: '匯入授權檔案，也可以稍後再填。', confirm: '確認資訊', confirmHelp: '核對剛才填寫的資訊。', complete: '完成', completeHelp: '設定完成，可以登入使用了。' },
+    stage: { account: { title: '管理員帳號', help: '這個帳號用來登入與管理系統。' }, license: { title: '產品授權（可選）', help: '現在跳過不影響使用，之後可在「產品授權」頁面補上。' }, confirm: { title: '確認資訊', help: '這裡不會顯示密碼。' }, complete: { title: '設定完成', help: '現在可以登入使用了。' } },
+    account: { username: '使用者名稱', usernamePlaceholder: '例如 admin', displayName: '顯示名稱', displayNamePlaceholder: '例如 系統管理員', password: '密碼', passwordPlaceholder: '至少 8 位', passwordConfirmation: '確認密碼', passwordConfirmationPlaceholder: '再次輸入密碼', locale: '介面語言', theme: '主題' },
+    license: { description: '先匯出請求檔案交給供應商，取得授權檔案後再匯入。', createRequest: '匯出請求檔案', copyRequest: '複製請求內容', requestCopied: '已複製', importFile: '匯入授權檔案', activationResponse: '授權內容', activationResponsePlaceholder: '匯入授權檔案，或貼上授權內容', importResponse: '匯入授權', configured: '授權已生效。', skip: '稍後設定' },
+    confirm: { username: '使用者名稱', locale: '介面語言', theme: '主題', kekTitle: '請妥善保管 GCAC_SECRET_KEK', kekWarning: '這是系統解密資料用的根密鑰。請離線保存，不要寫進程式碼、日誌或聊天工具。一旦遺失，資料將無法復原；一旦洩露，資料可能被他人讀取。' },
+    complete: { licenseConfigured: '授權已生效，現在可以登入使用。', licenseSkipped: '還沒有填寫授權，之後可在「產品授權」頁面補上。' },
+    actions: { previous: '上一步', continue: '繼續', createAdmin: '建立帳號並繼續', finish: '完成設定', login: '前往登入' },
+    errors: { passwordMismatch: '兩次輸入的密碼不一樣。', missingSession: '帳號已建立，但沒有自動登入，請手動登入。', createFailed: '帳號建立失敗，請重試。', licenseFailed: '授權處理失敗，請確認檔案是否正確。', activationRequestMissing: '沒有取得請求內容，請重新匯出。', jsonObjectRequired: '檔案內容格式不對，請確認是完整的授權檔案。' }
   },
   userMenu: {
     currentUser: "目前使用者",
@@ -641,10 +642,14 @@ export default {
     certificates: "憑證管理",
     certificatesDesc: "憑證庫、繫結關係和到期狀態",
     certificateAssets: "憑證資產",
+    certificateInventoryShort: "憑證庫",
     certificateAssetsDesc: "憑證、私密金鑰引用、指紋和到期時間",
     acmeAutomation: "ACME 憑證自動化",
+    acmeAutomationShort: "ACME 自動化",
     acmeAutomationDesc: "申請、續期和追蹤 ACME 憑證",
+    caOperationsShort: "CA 維運",
     certificateFormats: "憑證格式設定",
+    certificateFormatsShort: "交付格式",
     certificateFormatsDesc: "為已儲存憑證定義 PFX、CER、CRT、PEM 等格式規則",
     assetCenter: "資產中心",
     assetCenterDesc: "統一管理應用資產、設備資產和雲服務資產",
@@ -2695,6 +2700,7 @@ export default {
     }
   },
   bindings: {
+    defaults: certificateFormatDefaultsZhTW,
     actions: {
       create: "新增設定檔案",
       toggleFilters: "篩選",
@@ -3430,7 +3436,8 @@ export default {
         },
         fields: {
           expires: '到期時間',
-          source: '來源'
+          source: '來源',
+          versions: '版本'
         },
         empty: {
           title: '尚無憑證',
@@ -4673,14 +4680,14 @@ export default {
     topology: { rootOnly: '僅根 CA', rootOnlyDescription: '根 CA 直接承擔日常簽發，部署簡單但根金鑰需長期上線。', rootOnlyRisk: '高風險：根金鑰失陷會影響整個信任域。', intermediate: '根 CA + 中繼 CA', intermediateDescription: '根 CA 離線保管，由中繼 CA 承擔日常簽發。', recommended: '建議：隔離根金鑰並縮小簽發故障域。' },
     sections: { trustDomain: '建立 CA 信任域', issuingBackends: '簽發後端與連線狀態', authorityWizard: 'CA 建立精靈', authorityOverview: '憑證機構架構', authorityOverviewDescription: '每張卡片代表一個根信任錨點，選取卡片可查看其下級簽發架構。', caArchitecture: 'CA 層級架構', riskSummary: '安全決策摘要', profile: '建立憑證 Profile', request: '建立應用憑證申請', revocation: '建立撤銷工作', trust: '建立信任散發工作', remediation: '改善預覽' },
     fields: { name: '名稱', code: '唯一代碼', purpose: '用途', isolationLevel: '隔離等級', defaultTrustDomain: '設為預設信任域', trustDomain: 'CA 信任域', parentAuthority: '父根 CA', authorityType: '憑證機構類型', deploymentMode: '部署模式', platform: '執行平台', backendName: '簽發後端名稱', availabilityMode: '可用性模式', endpoint: '服務位址', authMode: '身分驗證方式', profile: '簽發 Profile', template: '憑證範本', crlUrl: 'CRL 位址', ocspUrl: 'OCSP 位址', issuingBackend: '簽發後端', entryMode: '建立方式', commonName: 'Common Name', certificateSubjectCommonName: '憑證主體 Common Name', securityDomain: '安全域', topology: 'CA 拓撲', dnsSuffixes: '允許的 DNS 後綴', validityDays: '最大有效期（天）', renewalDays: '提前續期（天）', requireApproval: '簽發前需要審批', applicationAssetId: '應用資產 ID', authority: '憑證機構', profileVersionId: 'Profile 版本 ID', sans: 'SAN 清單', custodyMode: '金鑰託管模式', certificateVersionId: '憑證版本 ID', reason: '撤銷原因', targetIds: '目標 ID 清單' },
-    actions: { refresh: '重新整理', addTrustDomain: '新增信任域', addAuthority: '新增 CA', addIntermediate: '新增中繼 CA', previous: '上一步', next: '下一步', createTrustDomain: '建立信任域', previewRisk: '預覽風險', createAuthority: '建立 CA', createProfile: '建立 Profile', createRequest: '提交申請', approve: '審批通過', retry: '重試', queryResult: '查詢結果', scanRenewals: '掃描到期續期', createRevocation: '建立撤銷工作', createTrust: '建立信任散發', previewRemediation: '預覽改善' },
+    actions: { refresh: '重新整理', addTrustDomain: '新增信任域', addAuthority: '新增 CA', deleteAuthority: '刪除 CA', addIntermediate: '新增中繼 CA', previous: '上一步', next: '下一步', createTrustDomain: '建立信任域', previewRisk: '預覽風險', createAuthority: '建立 CA', createProfile: '建立 Profile', createRequest: '提交申請', approve: '審批通過', retry: '重試', queryResult: '查詢結果', scanRenewals: '掃描到期續期', createRevocation: '建立撤銷工作', createTrust: '建立信任散發', previewRemediation: '預覽改善' },
     placeholders: { dnsSuffixes: 'example.com, office.example.com', sans: 'oa.example.com, 10.0.0.10' },
-    messages: { loadFailed: '內部 CA 資料載入失敗。', actionFailed: '操作失敗，請檢查輸入、權限和審批狀態。', noIntermediate: '此根 CA 尚未設定中繼憑證機構。', noRootAuthority: '尚未設定根 CA', noRootAuthorityDescription: '新增根 CA 以建立第一套獨立信任架構。', trustDomainCreated: 'CA 信任域已建立。', authorityCreated: '憑證機構已建立。', profileCreated: '憑證 Profile 已建立。', requestCreated: '憑證申請已提交。', requestApproved: '憑證申請已審批。', requestRetried: '憑證簽發已重試。', requestQueried: '遠端簽發結果已重新整理。', renewalScanned: '續期掃描已完成。', revocationCreated: '撤銷工作已建立並等待審批。', revocationApproved: '憑證撤銷已審批。', trustCreated: '信任散發工作已建立並等待審批。', trustApproved: '信任散發已審批。' },
+    messages: { loadFailed: '內部 CA 資料載入失敗。', actionFailed: '操作失敗，請檢查輸入、權限和審批狀態。', confirmAuthorityDelete: '確定刪除 CA「{name}」？歷史憑證和稽核記錄會保留。', authorityDeleted: '憑證機構已刪除。', noIntermediate: '此根 CA 尚未設定中繼憑證機構。', noRootAuthority: '尚未設定根 CA', noRootAuthorityDescription: '新增根 CA 以建立第一套獨立信任架構。', trustDomainCreated: 'CA 信任域已建立。', authorityCreated: '憑證機構已建立。', profileCreated: '憑證 Profile 已建立。', requestCreated: '憑證申請已提交。', requestApproved: '憑證申請已審批。', requestRetried: '憑證簽發已重試。', requestQueried: '遠端簽發結果已重新整理。', renewalScanned: '續期掃描已完成。', revocationCreated: '撤銷工作已建立並等待審批。', revocationApproved: '憑證撤銷已審批。', trustCreated: '信任散發工作已建立並等待審批。', trustApproved: '信任散發已審批。' },
     metrics: { renewals: '續期工作', revocations: '撤銷工作', trust: '信任散發', totalRisks: '風險總數', critical: '嚴重風險', affectedAssets: '受影響應用資產' },
     labels: { rootAuthority: '根憑證機構', intermediateAuthority: '中繼憑證機構', intermediateCount: '{count} 個中繼 CA', expiresAt: '到期時間：{time}', defaultTrustDomain: '預設信任域', independentTrustDomain: '獨立根信任邊界', trustDomainCount: '{count} 個 CA 信任域', versionCount: '{count} 個版本', assetCount: '{count} 個應用資產', requestCount: '將建立 {count} 個獨立憑證申請', backendUsageCount: '{count} 個憑證機構正在使用', unverifiedCapabilityCount: '有 {count} 項能力尚未驗證' },
     backendTypes: { builtin: '內建簽發後端', acme: '公共 ACME 憑證機構', external: '外部簽發後端' },
     backendSummary: { createAndIssue: '可建立和簽發憑證', requestPublicCertificates: '可申請公共憑證', external: '需接入外部執行器', localVerified: '本機驗證通過', remoteVerified: '連線驗證通過', unverified: '尚未驗證' },
-    adcs: { actions: { add: '新增 AD CS Agent', edit: '編輯', delete: '刪除' }, modal: { addTitle: '新增 Microsoft AD CS Agent', editTitle: '編輯 Microsoft AD CS Agent', description: '維護用於產生 AD CS 憑證操作計畫的 Windows Agent 連線。' }, fields: { name: '實例名稱', agentKey: 'Agent Key', caConfig: 'AD CS CA 設定', templateId: '憑證範本', endpoint: 'AD CS 位址', secretRef: '認證 SecretRef', commonName: 'CA 顯示名稱', securityDomain: '安全域', trustDomain: '信任域' }, install: { title: '安裝 Windows AD CS Agent', description: '產生一次性 PowerShell 命令，在目標 Windows 伺服器執行後，再關聯已註冊的 Agent。', displayName: 'GCAC AD CS Agent - {name}', generate: '產生安裝命令', regenerate: '重新產生命令', copy: '複製命令', notGenerated: '尚未產生安裝命令。', expiresAt: '命令到期時間：{time}', associated: '已關聯 Agent：{agentId}', waitingAssociation: '尚未關聯 Agent。', associate: '偵測並關聯' }, placeholders: { caConfig: 'CA-SERVER\\\\IssuingCA', endpoint: 'https://ca-server.example.com', secretRef: 'secret://...' }, options: { createTrustDomain: '自動建立新的信任域' }, defaultTrustDomainName: '{name} 信任域', messages: { created: 'Microsoft AD CS Agent 已新增並已關聯至 CA 管理。', updated: 'Microsoft AD CS Agent 已更新。', deleted: 'Microsoft AD CS Agent 已刪除。', deleteInUse: '此 Agent 已被 CA 使用，無法刪除。', pluginUnavailable: 'Microsoft AD CS 外掛尚未啟用，請先啟用內建外掛。', authorityRegistrationFailed: 'Agent 已儲存，但 CA 登記失敗。完成 CA 登記後才能簽發憑證。', agentPlanHint: '控制面產生固定 Agent Plan；Windows Agent 執行本機 AD CS 操作並回傳結果。', nameRequired: '請先填寫實例名稱，再產生安裝命令。', installCommandGenerated: 'Windows Agent 安裝命令已產生。', installCommandCopied: 'Windows Agent 安裝命令已複製。', copyFailed: '瀏覽器不允許使用剪貼簿，請手動複製命令。', installCommandFailed: 'Windows Agent 安裝命令產生失敗。', saveBeforeAssociation: '請先儲存 AD CS Agent，再偵測並關聯。', agentKeyMissing: '請先產生安裝命令，再關聯 Agent。', agentNotFound: '找不到此 Agent Key 對應的已註冊 Agent，請先在目標伺服器執行安裝命令。', agentAssociated: '已關聯註冊成功的 Windows Agent。', associationFailed: 'Windows Agent 關聯失敗。', autoRegistrationFailed: '已註冊的 AD CS Agent 無法加入簽發後端。' } },
+    adcs: { actions: { add: '新增 AD CS Agent', edit: '編輯', delete: '刪除' }, modal: { addTitle: '新增 Microsoft AD CS Agent', editTitle: '編輯 Microsoft AD CS Agent', description: '維護用於產生 AD CS 憑證操作計畫的 Windows Agent 連線。' }, fields: { name: '實例名稱', agentKey: 'Agent Key', caConfig: 'AD CS CA 設定', templateId: '憑證範本', endpoint: 'AD CS 位址', secretRef: '認證 SecretRef', commonName: 'CA 顯示名稱', securityDomain: '安全域', trustDomain: '信任域' }, install: { title: '安裝 Windows AD CS Agent', description: '產生一次性 PowerShell 命令，在目標 Windows 伺服器執行後，再關聯已註冊的 Agent。', displayName: 'GCAC AD CS Agent - {name}', version: 'Agent 版本', generate: '產生安裝命令', regenerate: '重新產生命令', copy: '複製命令', notGenerated: '尚未產生安裝命令。', expiresAt: '命令到期時間：{time}', associated: '已關聯 Agent：{agentId}', waitingAssociation: '尚未關聯 Agent。', associate: '偵測並關聯' }, placeholders: { caConfig: 'CA-SERVER\\\\IssuingCA', endpoint: 'https://ca-server.example.com', secretRef: 'secret://...' }, options: { createTrustDomain: '自動建立新的信任域' }, defaultTrustDomainName: '{name} 信任域', messages: { created: 'Microsoft AD CS Agent 已新增並已關聯至 CA 管理。', updated: 'Microsoft AD CS Agent 已更新。', deleted: 'Microsoft AD CS Agent 已刪除。', deleteInUse: '此 Agent 已被 CA 使用，無法刪除。', pluginUnavailable: 'Microsoft AD CS 外掛尚未啟用，請先啟用內建外掛。', authorityRegistrationFailed: 'Agent 已儲存，但 CA 登記失敗。完成 CA 登記後才能簽發憑證。', agentPlanHint: '控制面產生固定 Agent Plan；Windows Agent 執行本機 AD CS 操作並回傳結果。', nameRequired: '請先填寫實例名稱，再產生安裝命令。', installCommandGenerated: 'Windows Agent 安裝命令已產生。', installCommandCopied: 'Windows Agent 安裝命令已複製。', copyFailed: '瀏覽器不允許使用剪貼簿，請手動複製命令。', installCommandFailed: 'Windows Agent 安裝命令產生失敗。', saveBeforeAssociation: '請先儲存 AD CS Agent，再偵測並關聯。', agentKeyMissing: '請先產生安裝命令，再關聯 Agent。', agentNotFound: '找不到此 Agent Key 對應的已註冊 Agent，請先在目標伺服器執行安裝命令。', agentAssociated: '已關聯註冊成功的 Windows Agent。', associationFailed: 'Windows Agent 關聯失敗。', autoRegistrationFailed: '已註冊的 AD CS Agent 無法加入簽發後端。' } },
     availability: { single: '單一節點', activeStandby: '主備', activeActive: '多活' },
     authModes: { managedSecret: '託管認證資訊', clientCertificate: '用戶端憑證', none: '無驗證' },
     isolationLevels: { standard: '標準隔離', strict: '嚴格隔離', regulated: '受監管隔離' },

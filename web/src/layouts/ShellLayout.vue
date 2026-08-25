@@ -147,6 +147,10 @@ function menuTitle(item: MenuItem): string {
   return item.titleKey ? t(item.titleKey) : (item.title ?? item.path)
 }
 
+function submenuTitle(item: MenuItem): string {
+  return item.submenuTitleKey ? t(item.submenuTitleKey) : menuTitle(item)
+}
+
 function isUserModePath(path: string): boolean {
   return USER_MODE_MENU_ITEMS.some((item) => item.path === path)
 }
@@ -689,7 +693,7 @@ function removeToastNotice(id: number): void {
             :to="child.path"
             @click="closeMobileNav(false)"
           >
-            {{ menuTitle(child) }}
+            {{ submenuTitle(child) }}
           </RouterLink>
         </nav>
 

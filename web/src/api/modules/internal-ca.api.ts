@@ -28,6 +28,7 @@ export const internalCaApi = {
   createTrustDomain: (body: ApiBody) => post('/api/v1/ca-trust-domains', body),
   updateTrustDomain: (trustDomainId: string, body: ApiBody) => patch(`/api/v1/ca-trust-domains/${encodeURIComponent(trustDomainId)}`, body),
   listAuthorities: () => getList('/api/v1/certificate-authorities'),
+  deleteAuthority: (authorityId: string) => remove(`/api/v1/certificate-authorities/${encodeURIComponent(authorityId)}`),
   previewAuthority: (body: ApiBody) => post('/api/v1/certificate-authorities/preview', body),
   createAuthority: (body: ApiBody) => post('/api/v1/certificate-authorities', body),
   listProfiles: () => getList('/api/v1/certificate-profiles'),

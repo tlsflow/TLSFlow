@@ -17,10 +17,10 @@ export const mainMenuItems: MenuItem[] = [
     icon: 'certificate',
     descriptionKey: 'nav.certificatesDesc',
     children: [
-      { titleKey: 'nav.certificateAssets', path: '/certificates', module: 'certificate', permission: 'certificate.asset.read', descriptionKey: 'nav.certificateAssetsDesc' },
-      { titleKey: 'nav.acmeAutomation', path: '/acme', module: 'certificate', permission: 'certificate.asset.read', descriptionKey: 'nav.acmeAutomationDesc' },
-      { titleKey: 'caOperations.title', path: '/ca-operations', module: 'certificate', permission: 'ca.operations.read', allowInferredPermission: false },
-      { titleKey: 'nav.certificateFormats', path: '/bindings', module: 'binding', permission: 'binding.read', descriptionKey: 'nav.certificateFormatsDesc' }
+      { titleKey: 'nav.certificateAssets', submenuTitleKey: 'nav.certificateInventoryShort', path: '/certificates', module: 'certificate', permission: 'certificate.asset.read', descriptionKey: 'nav.certificateAssetsDesc' },
+      { titleKey: 'nav.acmeAutomation', submenuTitleKey: 'nav.acmeAutomationShort', path: '/acme', module: 'certificate', permission: 'certificate.asset.read', descriptionKey: 'nav.acmeAutomationDesc' },
+      { titleKey: 'caOperations.title', submenuTitleKey: 'nav.caOperationsShort', path: '/ca-operations', module: 'certificate', permission: 'ca.operations.read', allowInferredPermission: false },
+      { titleKey: 'nav.certificateFormats', submenuTitleKey: 'nav.certificateFormatsShort', path: '/bindings', module: 'binding', permission: 'binding.read', descriptionKey: 'nav.certificateFormatsDesc' }
     ]
   },
   {

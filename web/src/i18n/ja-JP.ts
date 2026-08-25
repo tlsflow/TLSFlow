@@ -8,6 +8,7 @@ import { providersJaJP } from './providers.locale'
 import { monitoringTlsJaJP } from './monitoring-tls.locale'
 import { acmeAutomationJaJP } from './acme.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
+import { certificateFormatDefaultsJaJP } from './certificate-format.locale'
 import { notificationsEnglish } from './notifications.locale'
 import { reportsEnglish } from './reports.locale'
 export default {
@@ -594,17 +595,17 @@ export default {
     }
   },
   systemInitialization: {
-    intro: { ariaLabel: 'システム初期化アニメーション', eyebrow: '初回起動', title: 'コンソールを準備しています', description: 'まもなくシステム初期化ウィザードを開きます。', loading: '初期化ウィザードを読み込んでいます…', progressAriaLabel: '初期化の読み込み進捗', start: '利用を開始', skip: 'アニメーションをスキップ', slogan: '止まらないセキュリティサービスのために' },
-    preview: { title: 'システム初期化プレビュー', notice: '開発プレビュー：ユーザーやライセンス情報は書き込まれません。' },
-    title: 'システム初期化ウィザード', description: '最初の Admin アカウントとコンソール設定を作成します。', help: '初回セットアップを順に完了します。', stepsLabel: '初期化手順',
-    steps: { account: 'Admin アカウントと設定', accountHelp: '最初のローカル管理者と言語・テーマを設定します。', license: 'ライセンス設定', licenseHelp: 'オフライン要求を出力して認証ファイルを取込むか、後で設定します。', confirm: '書込み確認', confirmHelp: '非機密の概要とセキュリティ警告を確認します。', complete: '完了', completeHelp: '初期化が完了し、ログインできます。' },
-    stage: { account: { title: 'Admin アカウントと表示設定', help: 'これらの値は最初の Admin ユーザーに保存されます。' }, license: { title: 'ライセンス設定（任意）', help: 'ライセンス失敗で Admin 初期化が取り消されることはありません。' }, confirm: { title: '書込み確認', help: 'ここでは非機密の概要だけを表示します。' }, complete: { title: '初期化完了', help: 'システムを利用できます。' } },
-    account: { heading: '最初の Admin ユーザーを作成', description: 'コンソールへのログインに使うローカル管理者アカウントを設定します。', username: 'Admin ユーザー名', usernamePlaceholder: '例：admin', displayName: 'Admin 表示名', displayNamePlaceholder: '例：システム管理者', password: 'Admin パスワード', passwordPlaceholder: '8 文字以上', passwordConfirmation: 'パスワード確認', passwordConfirmationPlaceholder: 'もう一度入力', locale: '優先言語', theme: 'テーマ' },
-    license: { description: 'まずオフライン認証リクエストを出力し、認証ファイルを取込むか JSON を貼り付けます。', createRequest: 'オフライン要求ファイルを出力', copyRequest: '認証リクエストをコピー', requestCopied: '認証リクエストをコピーしました', importFile: '認証ファイルを取込む', activationResponse: '認証ファイルまたは認証レスポンス JSON', activationResponsePlaceholder: '認証ファイルを取込むか JSON を貼り付け', importResponse: '認証を取込む', configured: 'ライセンスを設定しました。', skip: 'スキップして後で設定' },
-    confirm: { username: 'Admin ユーザー名', locale: '言語', theme: 'テーマ', kekTitle: 'GCAC_SECRET_KEK を安全に保管してください', kekWarning: 'GCAC_SECRET_KEK はランタイムのセキュリティ材料を復号するルートキーです。コード、ログ、公開文書、ブラウザーに保存しないでください。漏えいすると重大なセキュリティリスクになります。' },
-    complete: { heading: 'システム初期化が完了しました', licenseConfigured: 'ライセンスを設定しました。', licenseSkipped: 'ライセンス設定をスキップしました。後で Licensing ページから設定できます。' },
-    actions: { previous: '前へ', continue: '続ける', createAdmin: 'Admin を作成して続ける', finish: '初期化を完了', login: 'ログインへ' },
-    errors: { passwordMismatch: 'パスワードが一致しません。', missingSession: '初期化は成功しましたがセッションがありません。', createFailed: 'Admin の作成に失敗しました。', licenseFailed: 'ライセンス操作に失敗しました。', activationRequestMissing: 'オフライン認証リクエストがありません。', jsonObjectRequired: '有効な JSON オブジェクトを入力してください。' }
+    intro: { ariaLabel: 'オープニングアニメーション', progressAriaLabel: '読み込み進捗', start: '利用を開始', slogan: '止まらないセキュリティサービスのために' },
+    preview: { title: '初期設定プレビュー' },
+    title: '初期設定', description: '管理者アカウントを作成し、表示設定を選びます。', help: '手順に沿って設定を完了します。', stepsLabel: '設定手順',
+    steps: { account: '管理者アカウント', accountHelp: 'ログインに使うユーザー名とパスワードを設定します。', license: 'ライセンス', licenseHelp: 'ライセンスファイルを取り込みます。後で設定することもできます。', confirm: '内容の確認', confirmHelp: '入力した内容を確認します。', complete: '完了', completeHelp: '設定が終わり、ログインできます。' },
+    stage: { account: { title: '管理者アカウント', help: 'このアカウントでログインしてシステムを管理します。' }, license: { title: 'ライセンス（任意）', help: '今スキップしても利用できます。後で「ライセンス」ページから設定できます。' }, confirm: { title: '内容の確認', help: 'パスワードはここには表示されません。' }, complete: { title: '設定完了', help: 'これでログインできます。' } },
+    account: { username: 'ユーザー名', usernamePlaceholder: '例：admin', displayName: '表示名', displayNamePlaceholder: '例：システム管理者', password: 'パスワード', passwordPlaceholder: '8 文字以上', passwordConfirmation: 'パスワード確認', passwordConfirmationPlaceholder: 'もう一度入力', locale: '表示言語', theme: 'テーマ' },
+    license: { description: 'まずリクエストファイルを出力して提供元に送り、受け取ったライセンスファイルを取り込みます。', createRequest: 'リクエストファイルを出力', copyRequest: 'リクエスト内容をコピー', requestCopied: 'コピーしました', importFile: 'ライセンスファイルを取り込む', activationResponse: 'ライセンス内容', activationResponsePlaceholder: 'ライセンスファイルを取り込むか、内容を貼り付け', importResponse: 'ライセンスを取り込む', configured: 'ライセンスが有効になりました。', skip: '後で設定' },
+    confirm: { username: 'ユーザー名', locale: '表示言語', theme: 'テーマ', kekTitle: 'GCAC_SECRET_KEK を安全に保管してください', kekWarning: 'これはシステムがデータを復号するためのルートキーです。オフラインで保管し、コード、ログ、チャットツールには絶対に残さないでください。紛失するとデータを復元できず、漏えいすると他人にデータを読まれる可能性があります。' },
+    complete: { licenseConfigured: 'ライセンスが有効になりました。ログインできます。', licenseSkipped: 'ライセンスは未設定です。後で「ライセンス」ページから設定できます。' },
+    actions: { previous: '戻る', continue: '次へ', createAdmin: 'アカウントを作成して次へ', finish: '設定を完了', login: 'ログインへ' },
+    errors: { passwordMismatch: '2 回入力したパスワードが一致しません。', missingSession: 'アカウントは作成されましたが自動ログインできませんでした。手動でログインしてください。', createFailed: 'アカウントを作成できませんでした。もう一度お試しください。', licenseFailed: 'ライセンスを処理できませんでした。ファイルが正しいか確認してください。', activationRequestMissing: 'リクエスト内容を取得できませんでした。もう一度出力してください。', jsonObjectRequired: 'ファイルの形式が正しくありません。完全なライセンスファイルか確認してください。' }
   },
   userMenu: {
     currentUser: '現在のユーザー',
@@ -642,10 +643,14 @@ export default {
     certificates: '証明書管理',
     certificatesDesc: '証明書ライブラリ、バインド関係と期限切れステータス',
     certificateAssets: '証明書アセット',
+    certificateInventoryShort: '証明書台帳',
     certificateAssetsDesc: '証明書、秘密鍵参照、フィンガープリントと期限切れ日時',
     acmeAutomation: 'ACME 証明書自動化',
+    acmeAutomationShort: 'ACME 自動化',
     acmeAutomationDesc: 'ACME 証明書の発行、更新、追跡',
+    caOperationsShort: 'CA 運用',
     certificateFormats: '証明書形式設定',
+    certificateFormatsShort: '納品形式',
     certificateFormatsDesc: '保存済み証明書に対して PFX、CER、CRT、PEM などの形式ルールを定義',
     assetCenter: 'Asset inventory',
     assetCenterDesc: 'Manage application, device, and cloud service assets',
@@ -2692,6 +2697,7 @@ export default {
     }
   },
   bindings: {
+    defaults: certificateFormatDefaultsJaJP,
     actions: {
       create: '新建設定ファイル',
       toggleFilters: '絞り込み',
@@ -3427,7 +3433,8 @@ export default {
         },
         fields: {
           expires: '有効期限',
-          source: 'ソース'
+          source: 'ソース',
+          versions: 'バージョン'
         },
         empty: {
           title: '証明書はありません',

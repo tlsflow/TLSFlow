@@ -8,6 +8,7 @@ import { providersFrFR } from './providers.locale'
 import { monitoringTlsFrFR } from './monitoring-tls.locale'
 import { acmeAutomationFrFR } from './acme.locale'
 import { licensingLocaleMessages } from '@/edition/licensing-messages'
+import { certificateFormatDefaultsFrFR } from './certificate-format.locale'
 export default {
   credentials: credentialsFrFR,
   devices: devicesFrFR,
@@ -590,17 +591,17 @@ export default {
     }
   },
   systemInitialization: {
-    intro: { ariaLabel: "Animation d'initialisation du système", eyebrow: 'Premier démarrage', title: 'Préparation de la console', description: "L'assistant d'initialisation du système va s'ouvrir.", loading: "Chargement de l'assistant d'initialisation…", progressAriaLabel: "Progression du chargement de l'initialisation", start: 'Commencer', skip: "Ignorer l'animation", slogan: 'Pour des services de sécurité sans interruption' },
-    preview: { title: "Aperçu de l'initialisation", notice: "Aperçu de développement : aucun utilisateur ni licence ne sera enregistré." },
-    title: "Assistant d'initialisation", description: "Créez le premier compte Admin et les préférences de la console.", help: "Terminez la première configuration étape par étape.", stepsLabel: "Étapes d'initialisation",
-    steps: { account: "Compte Admin et préférences", accountHelp: "Créez le premier administrateur local et choisissez la langue et le thème.", license: "Configuration de licence", licenseHelp: "Exportez une demande hors ligne et importez un fichier d'autorisation, ou faites-le plus tard.", confirm: "Confirmer l'écriture", confirmHelp: "Vérifiez le résumé non sensible et l'avertissement de sécurité.", complete: "Terminer", completeHelp: "L'initialisation est terminée et la connexion est disponible." },
-    stage: { account: { title: "Compte Admin et affichage", help: "Ces valeurs sont enregistrées sur le premier utilisateur Admin." }, license: { title: "Configuration de licence (facultative)", help: "Un échec de licence n'annule pas l'initialisation Admin." }, confirm: { title: "Confirmer l'écriture", help: "Seul un résumé non sensible est affiché ici." }, complete: { title: "Initialisation terminée", help: "Le système est prêt à être utilisé." } },
-    account: { heading: "Créer le premier utilisateur Admin", description: "Définissez le compte administrateur local utilisé pour accéder à la console.", username: "Nom d'utilisateur Admin", usernamePlaceholder: "Par exemple admin", displayName: "Nom affiché Admin", displayNamePlaceholder: "Par exemple Administrateur système", password: "Mot de passe Admin", passwordPlaceholder: "8 caractères minimum", passwordConfirmation: "Confirmer le mot de passe", passwordConfirmationPlaceholder: "Saisissez-le à nouveau", locale: "Langue préférée", theme: "Thème" },
-    license: { description: "Exportez d'abord le fichier de demande d'activation hors ligne, puis importez un fichier d'autorisation ou collez son JSON.", createRequest: "Exporter le fichier de demande hors ligne", copyRequest: "Copier la demande d'activation", requestCopied: "Demande d'activation copiée", importFile: "Importer le fichier d'autorisation", activationResponse: "Fichier d'autorisation ou JSON de réponse", activationResponsePlaceholder: "Importez un fichier d'autorisation ou collez son JSON", importResponse: "Importer l'autorisation", configured: "Licence configurée.", skip: "Ignorer et configurer plus tard" },
-    confirm: { username: "Nom d'utilisateur Admin", locale: "Langue", theme: "Thème", kekTitle: "Conservez GCAC_SECRET_KEK en sécurité", kekWarning: "GCAC_SECRET_KEK est la clé racine de déchiffrement des matériaux de sécurité. Ne l'écrivez jamais dans le code, les journaux, la documentation publique ou le navigateur. Sa divulgation représente un risque grave." },
-    complete: { heading: "Initialisation terminée", licenseConfigured: "La licence est configurée.", licenseSkipped: "La licence a été ignorée et pourra être configurée plus tard dans Licensing." },
-    actions: { previous: "Précédent", continue: "Continuer", createAdmin: "Créer Admin et continuer", finish: "Terminer l'initialisation", login: "Aller à la connexion" },
-    errors: { passwordMismatch: "Les mots de passe ne correspondent pas.", missingSession: "L'initialisation a réussi mais aucune session n'a été renvoyée.", createFailed: "Échec de création de l'Admin.", licenseFailed: "Échec de l'opération de licence.", activationRequestMissing: "Aucune demande d'activation hors ligne n'a été renvoyée.", jsonObjectRequired: "Saisissez un objet JSON valide." }
+    intro: { ariaLabel: "Animation d'introduction", progressAriaLabel: 'Progression du chargement', start: 'Commencer', slogan: 'Pour des services de sécurité sans interruption' },
+    preview: { title: "Aperçu de la première configuration" },
+    title: "Première configuration", description: "Créez un compte administrateur et choisissez vos préférences d'affichage.", help: "Suivez les étapes pour terminer la configuration.", stepsLabel: "Étapes de configuration",
+    steps: { account: "Compte administrateur", accountHelp: "Définissez le nom d'utilisateur et le mot de passe de connexion.", license: "Licences", licenseHelp: "Importez votre fichier de licence, ou faites-le plus tard.", confirm: "Vérification", confirmHelp: "Vérifiez les informations que vous venez de saisir.", complete: "Terminé", completeHelp: "La configuration est terminée, vous pouvez vous connecter." },
+    stage: { account: { title: "Compte administrateur", help: "Ce compte sert à se connecter et à gérer le système." }, license: { title: "Licences (facultatif)", help: "Vous pouvez ignorer cette étape et ajouter une licence plus tard depuis la page Licences." }, confirm: { title: "Vérification", help: "Votre mot de passe n'est jamais affiché ici." }, complete: { title: "Configuration terminée", help: "Vous pouvez vous connecter maintenant." } },
+    account: { username: "Nom d'utilisateur", usernamePlaceholder: "Par exemple admin", displayName: "Nom affiché", displayNamePlaceholder: "Par exemple Administrateur système", password: "Mot de passe", passwordPlaceholder: "8 caractères minimum", passwordConfirmation: "Confirmer le mot de passe", passwordConfirmationPlaceholder: "Saisissez-le à nouveau", locale: "Langue d'affichage", theme: "Thème" },
+    license: { description: "Exportez d'abord un fichier de demande et envoyez-le à votre fournisseur, puis importez le fichier de licence reçu.", createRequest: "Exporter le fichier de demande", copyRequest: "Copier la demande", requestCopied: "Copié", importFile: "Importer le fichier de licence", activationResponse: "Contenu de la licence", activationResponsePlaceholder: "Importez un fichier de licence ou collez son contenu", importResponse: "Importer la licence", configured: "Votre licence est active.", skip: "Configurer plus tard" },
+    confirm: { username: "Nom d'utilisateur", locale: "Langue d'affichage", theme: "Thème", kekTitle: "Conservez GCAC_SECRET_KEK en sécurité", kekWarning: "C'est la clé racine que le système utilise pour déchiffrer vos données. Conservez-la hors ligne et ne l'écrivez jamais dans le code, les journaux ou une messagerie. Si vous la perdez, vos données seront irrécupérables ; si elle fuite, d'autres personnes pourront les lire." },
+    complete: { licenseConfigured: "Votre licence est active, vous pouvez vous connecter.", licenseSkipped: "Aucune licence pour le moment. Vous pourrez en ajouter une plus tard depuis la page Licences." },
+    actions: { previous: "Retour", continue: "Continuer", createAdmin: "Créer le compte et continuer", finish: "Terminer la configuration", login: "Aller à la connexion" },
+    errors: { passwordMismatch: "Les deux mots de passe ne correspondent pas.", missingSession: "Votre compte a été créé mais la connexion automatique a échoué. Veuillez vous connecter.", createFailed: "Impossible de créer le compte. Veuillez réessayer.", licenseFailed: "Impossible de traiter la licence. Vérifiez que le fichier est correct.", activationRequestMissing: "Aucun contenu de demande n'a été renvoyé. Exportez-le à nouveau.", jsonObjectRequired: "Le format du fichier est incorrect. Vérifiez qu'il s'agit d'un fichier de licence complet." }
   },
   userMenu: {
     currentUser: 'Utilisateur courant',
@@ -638,10 +639,14 @@ export default {
     certificates: 'Gestion des certificats',
     certificatesDesc: 'Certificate library, bindings, and expiry status',
     certificateAssets: 'Certificate inventory',
+    certificateInventoryShort: 'Inventaire',
     certificateAssetsDesc: 'Certificates, private key references, fingerprints, and expiry times',
     acmeAutomation: 'Automatisation des certificats ACME',
+    acmeAutomationShort: 'Automatisation ACME',
     acmeAutomationDesc: 'Émettre, renouveler et suivre les certificats ACME',
+    caOperationsShort: 'Opérations CA',
     certificateFormats: 'Certificate format configuration',
+    certificateFormatsShort: 'Formats de livraison',
     certificateFormatsDesc: 'Define PFX, CER, CRT, PEM, and other format rules for saved certificates',
     assetCenter: 'Asset inventory',
     assetCenterDesc: 'Manage application, device, and cloud service assets',
@@ -2733,6 +2738,7 @@ export default {
     }
   },
   bindings: {
+    defaults: certificateFormatDefaultsFrFR,
     actions: {
       create: 'New configuration file',
       toggleFilters: 'Filtrer',
@@ -3481,7 +3487,8 @@ export default {
         },
         fields: {
           expires: 'Expire le',
-          source: 'Source'
+          source: 'Source',
+          versions: 'Versions'
         },
         empty: {
           title: 'Aucun certificat',

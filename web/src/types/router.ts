@@ -28,6 +28,7 @@ export type GcRouteRecord = RouteRecordRaw & {
 export interface MenuItem {
   readonly title?: string
   readonly titleKey?: string
+  readonly submenuTitleKey?: string
   readonly path: string
   readonly module: string
   readonly permission?: string
