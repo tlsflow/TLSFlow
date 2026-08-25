@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useAppStore } from '@/stores/app.store'
 import { defaultPreferences } from '@/preferences/app-preferences'
+import { i18n } from '@/i18n'
 
 const preferenceApi = vi.hoisted(() => ({
   getCurrentUserPreferences: vi.fn(),
@@ -51,6 +52,7 @@ describe('App 偏好 Store', () => {
 
     expect(store.theme).toBe('dark')
     expect(store.locale).toBe('pt-BR')
+    expect(i18n.global.locale.value).toBe('pt-BR')
     expect(JSON.parse(localStorage.getItem('gcac.app.preferences') ?? '{}')).toEqual({ theme: 'dark', locale: 'pt-BR', version: 1 })
   })
 

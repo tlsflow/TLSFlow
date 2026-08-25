@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { ComposerTranslation } from 'vue-i18n'
 import enUS from '@/i18n/en-US'
 import frFR from '@/i18n/fr-FR'
@@ -111,8 +111,8 @@ describe('i18n 消息字典', () => {
   })
 
   it('兼容旧版本短 locale 并统一到正式语言代码', () => {
-    expect(fallbackLocale).toBe('en-US')
-    expect(i18n.global.fallbackLocale.value).toBe('en-US')
+    expect(fallbackLocale).toBe('zh-CN')
+    expect(i18n.global.fallbackLocale.value).toBe('zh-CN')
     expect(normalizeLocale('zh')).toBe('zh-CN')
     expect(normalizeLocale('en')).toBe('en-US')
     expect(normalizeLocale('en-GB')).toBe('en-US')
@@ -121,6 +121,15 @@ describe('i18n 消息字典', () => {
     expect(normalizeLocale('zh-CN')).toBe('zh-CN')
     expect(normalizeLocale('de')).toBe('en-US')
     expect(resolveBrowserLocale()).toBe('en-US')
+  })
+
+  it('无法识别浏览器语言时默认使用英文', () => {
+    vi.stubGlobal('navigator', { language: 'xx-XX', languages: ['xx-XX'] })
+    try {
+      expect(resolveBrowserLocale()).toBe('en-US')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('兼容旧 bundle 的证书剩余时间 key', () => {

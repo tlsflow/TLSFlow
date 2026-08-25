@@ -1,9 +1,10 @@
 export const supportedLocales = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'fr-FR', 'ru-RU', 'pt-BR', 'ko-KR'] as const
 export type SupportedLocale = (typeof supportedLocales)[number]
 
-export const defaultLocale: SupportedLocale = 'zh-CN'
-/** 默认语言缺失或无法使用时的全局第二语言。 */
-export const fallbackLocale: SupportedLocale = 'en-US'
+/** 首次访问或无法识别用户语言时使用的默认语言。 */
+export const defaultLocale: SupportedLocale = 'en-US'
+/** 默认语言缺失或无法使用时的全局中文回退语言。 */
+export const fallbackLocale: SupportedLocale = 'zh-CN'
 
 const languageLocaleMap: Record<string, SupportedLocale> = {
   en: 'en-US',
@@ -35,12 +36,12 @@ export function resolveBrowserLocale(): SupportedLocale {
     const resolved = matchLocale(candidate)
     if (resolved) return resolved
   }
-  return fallbackLocale
+  return defaultLocale
 }
 
 /** 兼容旧版本缓存或浏览器设置中的短 locale，最终只在应用内部使用正式 locale。 */
 export function normalizeLocale(value: unknown): SupportedLocale {
-  return matchLocale(value) ?? fallbackLocale
+  return matchLocale(value) ?? defaultLocale
 }
 
 export const localeLabels: Record<SupportedLocale, string> = {

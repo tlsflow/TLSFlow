@@ -39,13 +39,13 @@ export const useAppStore = defineStore('app', {
   },
   actions: {
     initializePreferences(): void {
-      this.applyPreferences(readCachedPreferences(), { cache: false })
+      void this.applyPreferences(readCachedPreferences(), { cache: false })
       this.setViewMode(readCachedViewMode())
     },
     async loadPreferencesFromBackend(): Promise<void> {
       try {
         const result = await getCurrentUserPreferences()
-        this.applyPreferences(normalizePreferences(result.data), { cache: true })
+        await this.applyPreferences(normalizePreferences(result.data), { cache: true })
         this.preferenceError = null
       } catch (cause) {
         this.preferenceError = cause instanceof Error ? cause.message : i18n.global.t('preferences.errors.loadFailed')
@@ -65,17 +65,17 @@ export const useAppStore = defineStore('app', {
     setGlobalLoading(loading: boolean): void {
       this.globalLoading = loading
     },
-    applyPreferences(preferences: AppPreferences, options: { cache: boolean }): void {
+    async applyPreferences(preferences: AppPreferences, options: { cache: boolean }): Promise<void> {
       this.theme = preferences.theme
       this.locale = preferences.locale
       applyThemeToDocument(preferences.theme)
-      // setI18nLocale 是异步方法，浏览器语言或用户偏好首次使用时按需加载语言包。
-      setI18nLocale(preferences.locale)
+      // 后端偏好是登录后的语言事实来源；等待懒加载语言包完成，避免任务文案短暂使用旧语言。
+      await setI18nLocale(preferences.locale)
       if (options.cache) writeCachedPreferences(preferences)
     },
     async updatePreferences(preferences: AppPreferences): Promise<void> {
       const normalized = normalizePreferences(preferences)
-      this.applyPreferences(normalized, { cache: true })
+      await this.applyPreferences(normalized, { cache: true })
       this.preferenceSyncing = true
       this.preferenceError = null
       try {
@@ -83,7 +83,7 @@ export const useAppStore = defineStore('app', {
           theme: normalized.theme,
           locale: normalized.locale
         })
-        this.applyPreferences(normalizePreferences(result.data), { cache: true })
+        await this.applyPreferences(normalizePreferences(result.data), { cache: true })
       } catch (cause) {
         this.preferenceError = cause instanceof Error ? cause.message : i18n.global.t('preferences.errors.saveFailed')
       } finally {

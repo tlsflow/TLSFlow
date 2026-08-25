@@ -3,13 +3,13 @@ import type { LocaleMessage } from '@intlify/core-base'
 import { applyProductBranding } from '@/brand/product-brand'
 import { defaultLocale, fallbackLocale, resolveBrowserLocale, supportedLocales, normalizeLocale, type SupportedLocale } from './locales'
 
-// 静态导入默认语言和全局第二语言，确保默认文案与回退文案立即可用。
+// 静态导入默认语言和中文回退语言，确保首屏文案立即可用。
 import zhCN from './zh-CN'
 import enUS from './en-US'
 
 const initialLocale = resolveBrowserLocale()
 
-// 创建包含默认语言和全局第二语言的 i18n 实例，其余语言按需加载。
+// 创建包含默认语言和中文回退语言的 i18n 实例，其余语言按需加载。
 export const i18n = createI18n({
   legacy: false,
   globalInjection: true,
@@ -18,8 +18,8 @@ export const i18n = createI18n({
   missingWarn: import.meta.env.DEV,
   fallbackWarn: import.meta.env.DEV,
   messages: {
-    [defaultLocale]: applyProductBranding(zhCN),
-    [fallbackLocale]: applyProductBranding(enUS)
+    [defaultLocale]: applyProductBranding(enUS),
+    [fallbackLocale]: applyProductBranding(zhCN)
   }
 })
 
@@ -33,7 +33,7 @@ type LocaleModule = {
 const localeLoaders: Record<SupportedLocale, () => Promise<LocaleModule>> = {
   'zh-CN': () => import('./zh-CN'),
   'zh-TW': () => import('./zh-TW'),
-  // 英文作为全局回退语言已静态加载，避免再次生成重复的异步包。
+  // 英文作为默认语言已静态加载，避免再次生成重复的异步包。
   'en-US': async () => ({ default: enUS }),
   'ja-JP': () => import('./ja-JP'),
   'fr-FR': () => import('./fr-FR'),
