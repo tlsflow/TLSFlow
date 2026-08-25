@@ -526,6 +526,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
     credentialsService,
     tasksService,
     devicesService,
+    undefined,
+    security.tenantHierarchy,
   );
   app.setResource('credentialHealthService', credentialHealthService);
   const agentPlanAuthorization = createAgentPlanAuthorizationDependencies(policyAuthorityServices, security, localPolicy)

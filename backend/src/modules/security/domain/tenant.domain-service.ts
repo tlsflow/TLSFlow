@@ -11,6 +11,7 @@ import type {
 } from '../../../persistence/entities/tenant.entity.js';
 import type { CreateTenantRecord, TenantMembershipFilter, TenantRepository } from '../repository/tenant.repository.js';
 import { mergeDeploymentTaskSettings, normalizeDeploymentTaskSettings, type DeploymentTaskSettings } from '../../../shared/deployment-task-settings.js';
+import { mergeCredentialHealthSettings, normalizeCredentialHealthSettings, type CredentialHealthSettings } from '../../../shared/credential-health-settings.js';
 
 export interface CreateTenantInput {
   name: string;
@@ -160,6 +161,35 @@ export class TenantHierarchyService {
   async getDeploymentTaskSettings(tenantId: string): Promise<DeploymentTaskSettings> {
     const tenant = await this.requireTenant(tenantId);
     return normalizeDeploymentTaskSettings(tenant.settings?.deploymentTasks);
+  }
+
+  async updateCredentialHealthSettings(
+    tenantId: string,
+    patch: Partial<CredentialHealthSettings>,
+    actorId: string,
+    contextTenantId?: string,
+  ): Promise<TenantEntity> {
+    const tenant = await this.requireTenant(tenantId);
+    const settings = mergeCredentialHealthSettings(tenant.settings, patch);
+    const updated = await this.repository.updateTenant(tenantId, { settings });
+    await this.writeAudit({
+      eventType: 'settings.updated',
+      actorType: 'user',
+      actorId,
+      action: 'settings.credential_health.update',
+      resourceType: 'settings',
+      resourceId: tenantId,
+      result: 'success',
+      riskLevel: 'low',
+      detail: { credentialHealth: normalizeCredentialHealthSettings(updated.settings.credentialHealth) },
+      context: { tenantId: contextTenantId ?? tenantId },
+    });
+    return updated;
+  }
+
+  async getCredentialHealthSettings(tenantId: string): Promise<CredentialHealthSettings> {
+    const tenant = await this.requireTenant(tenantId);
+    return normalizeCredentialHealthSettings(tenant.settings?.credentialHealth);
   }
 
   async addMembership(input: AddTenantMembershipInput): Promise<TenantMembershipEntity> {

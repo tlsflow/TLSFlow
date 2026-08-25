@@ -9,6 +9,11 @@ import { DeviceWorkflowCredentialHealthAdapter, CredentialHealthAdapterRegistry 
 import { aggregateCredentialHealth, type CredentialHealthAdapter, type CredentialHealthAdapterResult, type CredentialHealthCheckRecord, type CredentialHealthDeviceEligibility, type CredentialHealthEligibility, type CredentialHealthState } from './credential-health.types.js';
 import type { CredentialHealthDevice } from './credential-health.types.js';
 import type { CredentialHealthCapabilityExecutor } from './credential-health.adapter.js';
+import { DEFAULT_CREDENTIAL_HEALTH_SETTINGS, type CredentialHealthSettings } from '../../../shared/credential-health-settings.js';
+
+interface CredentialHealthSettingsReader {
+  getCredentialHealthSettings(tenantId: string): Promise<CredentialHealthSettings>;
+}
 
 export class CredentialHealthService {
   readonly adapters: CredentialHealthAdapterRegistry;
@@ -19,6 +24,7 @@ export class CredentialHealthService {
     private readonly tasks?: Pick<TasksApplicationService, 'enqueue' | 'findActiveByIdempotency'>,
     capabilityExecutor?: CredentialHealthCapabilityExecutor,
     adapterRegistry?: CredentialHealthAdapterRegistry,
+    private readonly settings?: CredentialHealthSettingsReader,
   ) {
     this.adapters = adapterRegistry ?? new CredentialHealthAdapterRegistry();
     if (capabilityExecutor) this.adapters.register(new DeviceWorkflowCredentialHealthAdapter(capabilityExecutor));
@@ -133,7 +139,7 @@ export class CredentialHealthService {
     if (devices[0]?.online !== true) {
       const checkedAt = new Date().toISOString();
       const record = await this.repository.saveRecord({ tenantId: task.tenantId, credentialId, deviceAssetId: taskDeviceAssetId, taskId: task.id, generation, profileVersion: profile.version, resultStatus: 'UNREACHABLE', reasonCode: 'NETWORK_UNREACHABLE', reasonSummary: '设备网络不可达', checkedAt, durationMs: 0, pluginVersionId: devices[0]?.pluginVersionId, detail: { livenessStatus: devices[0]?.livenessStatus ?? 'UNKNOWN' } });
-      await this.repository.finalizeState(task.tenantId, credentialId, generation, profile.version, 'UNREACHABLE', record.reasonCode, record.reasonSummary, 0, new Date(Date.now() + 15 * 60_000).toISOString());
+      await this.repository.finalizeState(task.tenantId, credentialId, generation, profile.version, 'UNREACHABLE', record.reasonCode, record.reasonSummary, 0, await this.nextCheckAt(task.tenantId));
       return { success: true, detail: { credentialId, generation, status: 'UNREACHABLE', deviceCount: 1, deviceAssetId: taskDeviceAssetId, reasonCode: 'NETWORK_UNREACHABLE' } };
     }
     const results: CredentialHealthCheckRecord[] = [];
@@ -148,8 +154,20 @@ export class CredentialHealthService {
       .reduce((map, item) => map.set(item.deviceAssetId, item), new Map<string, CredentialHealthCheckRecord>());
     const stateStatus = aggregateCredentialHealth({ profileStatus: profile.status, deviceCount: 1, results: [...aggregateRecords.values()] });
     const firstFailure = [...aggregateRecords.values()].find((item) => item.resultStatus !== 'VALID');
-    await this.repository.finalizeState(task.tenantId, credentialId, generation, profile.version, stateStatus, firstFailure?.reasonCode, firstFailure?.reasonSummary, [...aggregateRecords.values()].filter((item) => item.resultStatus === 'ERROR').length, new Date(Date.now() + 15 * 60_000).toISOString());
+    await this.repository.finalizeState(task.tenantId, credentialId, generation, profile.version, stateStatus, firstFailure?.reasonCode, firstFailure?.reasonSummary, [...aggregateRecords.values()].filter((item) => item.resultStatus === 'ERROR').length, await this.nextCheckAt(task.tenantId));
     return { success: true, detail: { credentialId, generation, status: stateStatus, deviceCount: aggregateRecords.size, deviceAssetId: taskDeviceAssetId } };
+  }
+
+  private async nextCheckAt(tenantId: string): Promise<string> {
+    let intervalMinutes = DEFAULT_CREDENTIAL_HEALTH_SETTINGS.intervalMinutes;
+    if (this.settings) {
+      try {
+        intervalMinutes = (await this.settings.getCredentialHealthSettings(tenantId)).intervalMinutes;
+      } catch {
+        // 中文说明：设置读取失败时继续使用默认间隔，避免一次配置故障停止全部检测调度。
+      }
+    }
+    return new Date(Date.now() + intervalMinutes * 60_000).toISOString();
   }
 
   async scheduleDue(tenantId?: string): Promise<TaskRun[]> {

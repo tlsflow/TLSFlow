@@ -20,6 +20,9 @@ export interface CredentialProfileSummary {
 }
 
 export type CredentialHealthStatus = 'DISABLED' | 'UNUSED' | 'UNREACHABLE' | 'VALID' | 'ERROR'
+export interface CredentialHealthSettings {
+  intervalMinutes: number
+}
 export interface CredentialHealthState {
   tenantId: string
   credentialId: string
@@ -152,6 +155,18 @@ export function getCredentialUsage(id: string): Promise<ApiResult<CredentialUsag
 
 export function getCredentialHealth(id: string): Promise<ApiResult<CredentialHealthState>> {
   return apiClient.get<CredentialHealthState>(`${toClientPath(`/api/v1/credentials/${encodeURIComponent(id)}/health`)}`)
+}
+
+export function getCredentialHealthSettings(): Promise<ApiResult<{ credentialHealth: CredentialHealthSettings }>> {
+  return apiClient.get<{ credentialHealth: CredentialHealthSettings }>(toClientPath('/api/v1/credentials/health-settings'))
+}
+
+export function updateCredentialHealthSettings(intervalMinutes: number): Promise<ApiResult<{ credentialHealth: CredentialHealthSettings }>> {
+  return apiClient.request<{ credentialHealth: CredentialHealthSettings }>(toClientPath('/api/v1/credentials/health-settings'), {
+    method: 'PATCH',
+    body: { intervalMinutes },
+    idempotencyKey: createIdempotencyKey('credential_health_settings'),
+  })
 }
 
 export function updateCredentialHealthConfig(id: string, input: { enabled: boolean; selectedDeviceAssetId?: string }): Promise<ApiResult<CredentialHealthState>> {

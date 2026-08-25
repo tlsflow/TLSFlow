@@ -11,10 +11,12 @@ import {
   getCredential,
   getCredentialUsage,
   getCredentialHealth,
+  getCredentialHealthSettings,
   listCredentialHealthChecks,
   listCredentials,
   triggerCredentialHealthCheck,
   updateCredentialHealthConfig,
+  updateCredentialHealthSettings,
   updateCredential,
   updateCredentialStatus,
   type CredentialKind,
@@ -122,6 +124,11 @@ const healthError = ref('')
 const healthCredential = ref<CredentialProfileSummary | null>(null)
 const healthState = ref<CredentialHealthState | null>(null)
 const healthChecks = ref<CredentialHealthCheckRecord[]>([])
+const healthSettingsModalOpen = ref(false)
+const healthSettingsLoading = ref(false)
+const healthSettingsSaving = ref(false)
+const healthSettingsError = ref('')
+const healthIntervalMinutes = ref(720)
 const editorHealth = ref<CredentialHealthState | null>(null)
 const editorHealthLoading = ref(false)
 const editorHealthError = ref('')
@@ -730,6 +737,35 @@ async function load(): Promise<void> {
   }
 }
 
+async function openHealthSettings(): Promise<void> {
+  healthSettingsModalOpen.value = true
+  healthSettingsLoading.value = true
+  healthSettingsError.value = ''
+  try {
+    const result = await getCredentialHealthSettings()
+    healthIntervalMinutes.value = result.data?.credentialHealth.intervalMinutes ?? 720
+  } catch (cause) {
+    healthSettingsError.value = cause instanceof Error ? cause.message : t('credentials.healthSettings.errors.load')
+  } finally {
+    healthSettingsLoading.value = false
+  }
+}
+
+async function saveHealthSettings(): Promise<void> {
+  if (!Number.isInteger(healthIntervalMinutes.value) || healthIntervalMinutes.value < 1 || healthIntervalMinutes.value > 43_200) return
+  healthSettingsSaving.value = true
+  healthSettingsError.value = ''
+  try {
+    const result = await updateCredentialHealthSettings(healthIntervalMinutes.value)
+    healthIntervalMinutes.value = result.data?.credentialHealth.intervalMinutes ?? healthIntervalMinutes.value
+    healthSettingsModalOpen.value = false
+  } catch (cause) {
+    healthSettingsError.value = cause instanceof Error ? cause.message : t('credentials.healthSettings.errors.save')
+  } finally {
+    healthSettingsSaving.value = false
+  }
+}
+
 async function openHealth(item: CredentialProfileSummary): Promise<void> {
   healthCredential.value = item
   healthModalOpen.value = true
@@ -974,11 +1010,28 @@ onUnmounted(() => {
         <button class="gc-button" type="button" :disabled="loading" @click="load">{{ t('credentials.actions.refresh') }}</button>
       </template>
       <template #primary>
+        <button class="gc-button" type="button" @click="openHealthSettings">{{ t('credentials.actions.configure') }}</button>
         <button class="gc-button gc-button--primary" type="button" @click="openCreate">{{ t('credentials.actions.create') }}</button>
       </template>
     </GcPageToolbar>
 
     <p v-if="error" class="credentials-page__error" role="alert">{{ error }}</p>
+
+    <GcModal v-model:open="healthSettingsModalOpen" :title="t('credentials.healthSettings.title')" :description="t('credentials.healthSettings.description')" size="sm">
+      <form class="credentials-health-settings" @submit.prevent="saveHealthSettings">
+        <p v-if="healthSettingsError" class="credentials-page__error" role="alert">{{ healthSettingsError }}</p>
+        <p v-if="healthSettingsLoading" class="credentials-list__state">{{ t('common.loading') }}</p>
+        <label v-else class="gc-form-field">
+          <span>{{ t('credentials.healthSettings.intervalLabel') }}</span>
+          <input v-model.number="healthIntervalMinutes" type="number" min="1" max="43200" step="1" required :disabled="healthSettingsSaving">
+          <small>{{ t('credentials.healthSettings.intervalHint') }}</small>
+        </label>
+      </form>
+      <template #actions>
+        <button class="gc-button" type="button" :disabled="healthSettingsSaving" @click="healthSettingsModalOpen = false">{{ t('credentials.actions.close') }}</button>
+        <button class="gc-button gc-button--primary" type="button" :disabled="healthSettingsLoading || healthSettingsSaving || !Number.isInteger(healthIntervalMinutes) || healthIntervalMinutes < 1 || healthIntervalMinutes > 43200" @click="saveHealthSettings">{{ t('credentials.actions.save') }}</button>
+      </template>
+    </GcModal>
 
     <section class="gc-card credentials-list">
       <p v-if="loading" class="credentials-list__state">{{ t('common.loading') }}</p>
@@ -1380,6 +1433,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .credential-health-button { display: inline-flex; padding: 0; border: 0; background: transparent; cursor: pointer; }
 .credential-health-button:focus-visible { outline: var(--gc-border-width-thick) solid var(--gc-color-focus); outline-offset: var(--gc-space-1); border-radius: var(--gc-radius-sm); }
 .credential-health-modal { display: grid; gap: var(--gc-space-4); }
+.credentials-health-settings { display: grid; gap: var(--gc-space-4); }
 .credential-health-modal__summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gc-space-3); padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-soft); color: var(--gc-color-text-muted); }
 .credential-health-modal__actions { display: flex; justify-content: flex-end; }
 .credential-health-modal__records { display: grid; gap: var(--gc-space-2); }
