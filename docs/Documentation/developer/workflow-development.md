@@ -84,6 +84,8 @@ lastVerified: 2026-08-24
 
 HTTP Step 必须引用 Contract 中的 `connectionRef`。Basic、Bearer、API Key、Cookie、自定义 Header 和 mTLS（双向 TLS）均通过 Credential/SecretRef 注入；URL 只允许 HTTP(S)，默认拒绝明文远程 HTTP。`tls.verify=false` 只有在 DSL 显式声明 `allowInsecure=true`、解析后的执行授权包含 `allowInsecureTls=true`，并且宿主为当前租户、run、step 和 WorkflowVersion 签发有效短期 `ExecutionGrant` 时才会执行；Grant 在步骤结束后撤销。`approvalId` 不是 TLS 连接前置字段，执行事件仍必须按宿主审计规则记录，不能把该例外当成生产目标已验证。`extract` 可读取 JSON 路径、响应 Header、正则或状态码，`assert` 可检查状态码、JSON 路径、Header、文本、正则和证书指纹。
 
+需要连续登录的设备 API 在 HTTP request 上声明 `cookieSessionRef`。该名称只在当前 `tenantId`、运行 ID 和 WorkflowVersion 内有效，宿主以内存 CookieJar 保存所有原始多值 `Set-Cookie`，按 Domain/Path/Secure/Host-only/Expires/Max-Age 计算后续请求；普通 DSL 在 Workflow finally 清理会话，Plugin Runner 在 Action finally 清理会话。Cookie 不进入日志、审计、step 输出、SSE、数据库或前端响应，显式 Cookie Header 与 CookieSession 不得同时声明。证书 multipart 只能使用 `artifact://` Artifact 或受控 PEM 输出，带文件名、Content-Type、大小限制和可选 SHA-256，严禁本地路径或 UNC 路径。厂商 nLIB/DNA 动态编码必须放在专用 Runner/适配器，不能向通用 DSL 增加任意脚本执行。
+
 ### Browser Step
 
 Browser Step 由宿主 Browser Runtime 执行，只允许 `navigate`、`extract`、`verify` 三种动作，不开放任意脚本、选择器点击或文件系统访问。`url` 默认来自当前能力合同；用户或已有凭据可以显式提供 HTTPS 登录地址，宿主会把该地址的规范化 Origin 临时加入当前会话白名单，后续导航仍只能访问会话允许的 Origin；同一个受控 BrowserContext 内完成导航、提取和验证。
