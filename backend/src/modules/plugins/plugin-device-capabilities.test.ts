@@ -5,6 +5,7 @@ import { PluginCapabilityRegistry } from './capabilities/plugin-capability.regis
 import { PluginConnectionProbeService } from './connections/plugin-connection-probe.service.js';
 import { DeviceDiscoverySchemaService } from './discovery/device-discovery-schema.service.js';
 import { BuiltinUnifiedPluginLoader } from './builtin-plugins/builtin-unified-plugin-loader.js';
+import { workflowTemplatesSchemaRegistry } from '../workflow-templates/schema/workflow-templates.schema.js';
 
 test('Capability Registry 拒绝未知能力和伪造风险等级', () => {
   const registry = new PluginCapabilityRegistry();
@@ -52,6 +53,21 @@ test('ADCS 内置 Manifest 的全部能力均有宿主合同', async () => {
   };
   for (const capability of manifest.capabilities) {
     assert.doesNotThrow(() => registry.validate(capability));
+  }
+});
+
+test('ADCS 内置 Workflow 的 plugin.action 输入保持对象合同', async () => {
+  const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())
+    .find((item) => item.manifest && typeof item.manifest === 'object' && !Array.isArray(item.manifest)
+      && (item.manifest as { pluginId?: unknown }).pluginId === 'ca.microsoft-adcs');
+  assert.ok(pluginPackage);
+  const manifest = pluginPackage.manifest as { resources?: { workflows?: Record<string, string> } };
+  for (const [workflowKey, resourcePath] of Object.entries(manifest.resources?.workflows ?? {})) {
+    const workflow = workflowTemplatesSchemaRegistry.validate(JSON.parse(pluginPackage.resources[resourcePath]!));
+    const action = workflow.steps.find((step) => step.type === 'plugin.action');
+    assert.ok(action, `${workflowKey} 缺少 plugin.action 步骤`);
+    assert.equal(typeof action.input, 'object', `${workflowKey} 的 plugin.action.input 必须是对象`);
+    assert.ok(action.input && !Array.isArray(action.input), `${workflowKey} 的 plugin.action.input 不能是数组`);
   }
 });
 
