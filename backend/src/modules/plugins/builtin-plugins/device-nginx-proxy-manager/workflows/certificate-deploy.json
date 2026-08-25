@@ -5,7 +5,7 @@
     "name": "nginx-proxy-manager-certificate-deploy",
     "displayName": "Nginx Proxy Manager certificate deployment",
     "category": "certificate",
-    "version": "0.1.11",
+    "version": "0.1.12",
     "platforms": ["proxy"],
     "updateMethods": ["curl"],
     "maintainer": "GCAC 用户插件"

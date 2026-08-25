@@ -5,7 +5,7 @@
     "name": "nginx-proxy-manager-connection-test",
     "displayName": "Nginx Proxy Manager connection test",
     "category": "device",
-    "version": "0.1.11",
+    "version": "0.1.12",
     "platforms": ["proxy"],
     "updateMethods": ["curl"],
     "maintainer": "GCAC 用户插件"

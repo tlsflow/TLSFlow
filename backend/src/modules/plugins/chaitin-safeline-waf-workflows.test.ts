@@ -14,8 +14,8 @@ test('SafeLine 发现把 API 版本投影到标准 softwareVersion 并发现 Sit
   const manifest = readJson('manifest.json');
   const workflow = readJson('workflows/discover.json');
   const fixture = readJson('fixtures/safeline-v1.json');
-  assert.equal(manifest.version, '0.1.12');
-  assert.equal(workflow.metadata?.version, '0.1.12');
+  assert.equal(manifest.version, '0.1.13');
+  assert.equal(workflow.metadata?.version, '0.1.13');
 
   const siteExpression = workflow.steps.find((step: Record<string, any>) => step.name === 'projectSites')
     ?.transform?.outputs?.discovery?.expression;
@@ -54,7 +54,7 @@ test('SafeLine 设备展示版本使用宿主标准字段', () => {
 
 test('SafeLine 证书部署复用已有证书并为 Default 目标生成带 id 的 upsert', async () => {
   const workflow = readJson('workflows/certificate-deploy.json');
-  assert.equal(workflow.metadata?.version, '0.1.12');
+  assert.equal(workflow.metadata?.version, '0.1.13');
   assert.equal(workflow.steps.some((step: Record<string, any>) => step.name === 'requireDefaultCertificateMaterial'), false);
   const match = workflow.steps.find((step: Record<string, any>) => step.name === 'matchExistingCertificate');
   const matchExpression = match?.transform?.outputs?.existingCertificateId?.expression;

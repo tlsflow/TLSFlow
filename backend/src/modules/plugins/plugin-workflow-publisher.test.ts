@@ -27,13 +27,13 @@ test('插件能力发布为固定 WorkflowVersion 且共享资源不重复创建
   const first = await publisher.publishPlugin(plugin!);
   const second = await publisher.publishPlugin(plugin!);
 
-  assert.equal(first.length, 5);
-  assert.equal(second.length, 5);
+  assert.equal(first.length, 6);
+  assert.equal(second.length, 6);
   const firstVersion = await workflows.getVersion(first[0]!.workflowVersionId);
   assert.equal(first[0]?.workflowContentSha256, firstVersion.contentHash);
   assert.equal(firstVersion.executionMode, undefined);
   assert.equal(firstVersion.content.kind, 'CurlSshWorkflow');
-  assert.equal(new Set(first.map((item) => item.workflowTemplateId)).size, 4);
+  assert.equal(new Set(first.map((item) => item.workflowTemplateId)).size, 5);
   assert.deepEqual(second.map((item) => item.workflowTemplateId), first.map((item) => item.workflowTemplateId));
   assert.notEqual((await publisher.require(plugin.id, 'device.connection.test')).workflowVersionId, (await publisher.require(plugin.id, 'device.identity.detect')).workflowVersionId);
   assert.equal((await publisher.require(plugin.id, 'certificate.deploy')).workflowVersionId, (await publisher.require(plugin.id, 'certificate.rollback')).workflowVersionId);

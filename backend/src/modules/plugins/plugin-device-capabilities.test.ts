@@ -8,6 +8,18 @@ import { DeviceDiscoverySchemaService } from './discovery/device-discovery-schem
 test('Capability Registry 拒绝未知能力和伪造风险等级', () => {
   const registry = new PluginCapabilityRegistry();
   assert.equal(registry.require('certificate.deploy').resourceLock, 'TARGET');
+  assert.deepEqual(registry.require('credential.health-check'), {
+    key: 'credential.health-check',
+    contractVersion: 'v1',
+    actionContractId: 'credential.health-check.v1',
+    riskLevel: 'LOW',
+    idempotency: 'READ_ONLY',
+    permission: 'credential.read',
+    inputSchemaId: 'gcac.credential-health-check-input/v1',
+    outputSchemaId: 'gcac.credential-health-result/v1',
+    resourceLock: 'DEVICE',
+    executionLocations: ['AGENT', 'CONTROL_PLANE', 'GATEWAY'],
+  });
   assert.throws(() => registry.require('vendor.special.action'));
   assert.throws(() => registry.validate({
     key: 'certificate.deploy', contractVersion: 'v1', actionContractId: 'certificate.deploy.v1',

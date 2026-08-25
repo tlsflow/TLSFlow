@@ -12,14 +12,15 @@ const PROTOCOL = 'NITRO';
 const IDENTIFIER = /^[A-Za-z0-9._:-]{1,256}$/;
 const HASH = /^sha256:[a-f0-9]{64}$/;
 const SECRET_REF = /^secret:\/\/[A-Za-z0-9._:/#-]{1,512}$/;
-const IDENTIFICATION_CAPABILITIES = Object.freeze([
+const DEVICE_IDENTIFICATION_CAPABILITIES = Object.freeze([
   'device.connection.test',
   'device.identity.detect',
   'device.discover',
 ]);
+const READONLY_CAPABILITIES = Object.freeze([...DEVICE_IDENTIFICATION_CAPABILITIES, 'credential.health-check']);
 
 /**
- * Citrix 插件只负责设备连接/身份/资源识别。
+ * Citrix 插件只负责设备连接/凭据健康/身份/资源识别。
  * 证书部署、终验和回滚全部保留在 certificate-deploy.json 的普通 DSL 中。
  */
 export function createPluginRunnerExecutor() {
@@ -42,7 +43,7 @@ export function createPluginRunnerExecutor() {
 }
 
 async function execute(context, hostApi, descriptor) {
-  if (!IDENTIFICATION_CAPABILITIES.includes(context?.capability)) {
+  if (!READONLY_CAPABILITIES.includes(context?.capability)) {
     fail('证书部署、验证和回滚必须由普通 DSL 执行', 'PLUGIN_RUNNER_SCOPE_FORBIDDEN');
   }
   assertContext(context, descriptor);
@@ -51,6 +52,9 @@ async function execute(context, hostApi, descriptor) {
   await resolveCredential(input, context, hostApi);
   if (context.capability === 'device.discover') {
     return discover(input, fixture, context.signal);
+  }
+  if (context.capability === 'credential.health-check') {
+    return credentialHealthCheck(input, fixture, context.signal);
   }
   return connectionTest(input, fixture, context.signal);
 }
@@ -72,7 +76,7 @@ function actionDescriptors(resourceHash) {
       || Array.isArray(contract)
       || contract.apiVersion !== 'gcac.plugin-action-contract/v1'
       || contract.actionId !== actionId
-      || !IDENTIFICATION_CAPABILITIES.includes(contract.capability)
+      || !READONLY_CAPABILITIES.includes(contract.capability)
       || contract.actionContractVersion !== 'v1'
       || !contract.inputSchema
       || !contract.outputSchema
@@ -88,7 +92,7 @@ function actionDescriptors(resourceHash) {
       resourceHash,
     }];
   });
-  if (actions.length === 0) fail('Citrix 插件没有可执行的设备识别 Action Contract', 'PLUGIN_RUNNER_START_FAILED');
+  if (actions.length === 0) fail('Citrix 插件没有可执行的只读 Action Contract', 'PLUGIN_RUNNER_START_FAILED');
   return Object.freeze(actions.map((action) => Object.freeze(action)));
 }
 
@@ -115,6 +119,22 @@ async function connectionTest(input, fixture, signal) {
     productVersion: stringValue(response.body.nsversion?.version, 'NITRO version'),
     requestCount: 1,
   });
+}
+
+async function credentialHealthCheck(input, fixture, signal) {
+  const response = await requestFixture(fixture, signal, 'GET', '/nitro/v1/config/nsversion');
+  const statusCode = response.statusCode;
+  const nitroErrorCode = response.body.errorcode;
+  if (statusCode === 200 && nitroErrorCode === 0) {
+    return { success: true, status: 'SUCCESS', output: { apiVersion: 'gcac.credential-health-result/v1', status: 'VALID', summary: '设备认证成功', evidence: { protocol: PROTOCOL, httpStatus: statusCode } }, warnings: [] };
+  }
+  if (statusCode === 401 || statusCode === 403 || (statusCode === 200 && nitroErrorCode !== 0)) {
+    return { success: true, status: 'SUCCESS', output: { apiVersion: 'gcac.credential-health-result/v1', status: 'ERROR', reasonCode: 'PASSWORD_INVALID', summary: '设备拒绝凭据认证', evidence: { protocol: PROTOCOL, httpStatus: statusCode, nitroErrorCode } }, warnings: [] };
+  }
+  if (statusCode >= 500) {
+    return { success: true, status: 'SUCCESS', output: { apiVersion: 'gcac.credential-health-result/v1', status: 'UNREACHABLE', reasonCode: 'REMOTE_SERVICE_ERROR', summary: '设备远端服务暂时不可用', evidence: { protocol: PROTOCOL, httpStatus: statusCode } }, warnings: [] };
+  }
+  return { success: true, status: 'SUCCESS', output: { apiVersion: 'gcac.credential-health-result/v1', status: 'UNREACHABLE', reasonCode: 'NETWORK_UNREACHABLE', summary: '设备网络暂时不可达', evidence: { protocol: PROTOCOL, httpStatus: statusCode } }, warnings: [] };
 }
 
 async function discover(input, fixture, signal) {
@@ -215,7 +235,7 @@ function toDiscovery(input, fixture, responses) {
   return {
     apiVersion: 'gcac.device-discovery/v2',
     device: { stableKey: `citrix-adc:${safeKey(deviceAddress)}`, displayName: input.displayName ?? deviceAddress, productFamily: PLUGIN_ID, softwareVersion: version, managementAddress: deviceAddress, metadata: { managementProtocol: 'NITRO API' } },
-    capabilities: IDENTIFICATION_CAPABILITIES.map((key) => ({ key, available: true })),
+    capabilities: DEVICE_IDENTIFICATION_CAPABILITIES.map((key) => ({ key, available: true })),
     frameworks,
     sites,
     managedTargets,

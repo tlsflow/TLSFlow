@@ -1727,7 +1727,10 @@ function normalizeStepOutput(step: WorkflowStep, output: WorkflowMockStepOutput)
 }
 
 function stepOutputSuccess(step: WorkflowStep, output: WorkflowMockStepOutput, values: Record<string, unknown>): boolean {
-  if (step.type === 'http') return (step.request.successStatusCodes ?? [200, 201, 202, 204]).includes(output.statusCode ?? 200);
+  if (step.type === 'http') {
+    if (step.request.successStatusCodes === undefined && step.request.failOnNon2xx === false) return true;
+    return (step.request.successStatusCodes ?? [200, 201, 202, 204]).includes(output.statusCode ?? 200);
+  }
   if (step.type === 'ssh') return (output.exitCode ?? 0) === 0;
   if (step.type === 'condition') return evaluateCondition(step.condition, values, 'mock');
   if (step.type === 'checkpoint_verify') {

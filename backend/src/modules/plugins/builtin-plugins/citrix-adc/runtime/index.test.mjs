@@ -70,6 +70,43 @@ test('Citrix 识别 Runner 可执行 NITRO Fixture 连接测试和发现', async
   }
 });
 
+test('Citrix Runner 凭据健康检测区分有效、认证拒绝和远端不可用', async () => {
+  const previous = { ...process.env };
+  Object.assign(process.env, {
+    GCAC_PLUGIN_VERSION_ID: `device-citrix-${manifest.version.replaceAll('.', '-')}-dev`,
+    GCAC_PLUGIN_PACKAGE_HASH: `sha256:${'a'.repeat(64)}`,
+    GCAC_PLUGIN_MANIFEST_HASH: `sha256:${'a'.repeat(64)}`,
+    GCAC_PLUGIN_RESOURCE_HASH: `sha256:${'a'.repeat(64)}`,
+  });
+  try {
+    const executor = createPluginRunnerExecutor();
+    const input = {
+      deviceAddress: '192.0.2.10',
+      credential: { username: 'nsroot', secretRef: 'secret://citrix/password', grantId: 'grant-device' },
+    };
+    const valid = await executor.execute(baseContext(executor, 'credential.health-check', { ...input, protocolFixture: fixture({
+      'GET /nitro/v1/config/nsversion': { statusCode: 200, body: { errorcode: 0, nsversion: { version: 'NS13.1' } } },
+    }) }), hostApi);
+    assert.equal(valid.output.status, 'VALID');
+
+    const rejected = await executor.execute(baseContext(executor, 'credential.health-check', { ...input, protocolFixture: fixture({
+      'GET /nitro/v1/config/nsversion': { statusCode: 401, body: { errorcode: 444, message: 'Invalid credentials' } },
+    }) }), hostApi);
+    assert.equal(rejected.output.status, 'ERROR');
+    assert.equal(rejected.output.reasonCode, 'PASSWORD_INVALID');
+
+    const unavailable = await executor.execute(baseContext(executor, 'credential.health-check', { ...input, protocolFixture: fixture({
+      'GET /nitro/v1/config/nsversion': { statusCode: 503, body: { errorcode: 0, message: 'Service unavailable' } },
+    }) }), hostApi);
+    assert.equal(unavailable.output.status, 'UNREACHABLE');
+    assert.equal(unavailable.output.reasonCode, 'REMOTE_SERVICE_ERROR');
+    assert.doesNotMatch(JSON.stringify({ valid, rejected, unavailable }), /fixture-password|secret-value/);
+  } finally {
+    for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];
+    Object.assign(process.env, previous);
+  }
+});
+
 test('Citrix Runner 拒绝篡改的 Action Binding 和写操作标记', async () => {
   const previous = { ...process.env };
   Object.assign(process.env, {

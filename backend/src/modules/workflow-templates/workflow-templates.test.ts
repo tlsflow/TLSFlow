@@ -1582,6 +1582,34 @@ describe('WorkflowTemplates', () => {
     assert.equal(run.stepResults[0]?.status, 'success');
   });
 
+  it('HTTP mock 在 failOnNon2xx=false 时保留 5xx 响应供后续分类', async () => {
+    const service = new WorkflowTemplatesApplicationService();
+    const content = templateFixture();
+    content.steps = [
+      {
+        name: 'healthCheck',
+        type: 'http',
+        request: {
+          method: 'GET',
+          connectionRef: 'management',
+          url: '/api/open/system',
+          failOnNon2xx: false,
+        },
+      },
+    ];
+    content.rollback = undefined;
+    const { version } = await service.createTemplate({ content });
+
+    const run = await service.testRun({
+      ...runtimeInput(version.id),
+      mockResponses: { healthCheck: { statusCode: 503, body: { message: 'Service unavailable' } } },
+    });
+
+    assert.equal(run.status, 'success');
+    assert.equal(run.stepResults[0]?.status, 'success');
+    assert.equal(run.stepResults[0]?.plan && (run.stepResults[0].plan as { curlRequest?: { responsePolicy?: { failOnNon2xx?: boolean } } }).curlRequest?.responsePolicy?.failOnNon2xx, false);
+  });
+
   it('HTTP formCredentialRefs 会转换成内部 formSecretRefs 并在计划中脱敏', async () => {
     const service = new WorkflowTemplatesApplicationService();
     const content = templateFixture();
