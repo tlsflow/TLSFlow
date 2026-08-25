@@ -1374,7 +1374,9 @@ function normalizeBaseUrl(value: string | undefined): string | undefined {
 
 function renderWindowsBootstrapScript(manifest: unknown): string {
   const platform = manifest && typeof manifest === 'object' ? (manifest as { platform?: unknown }).platform : undefined;
-  return WINDOWS_COMPATIBILITY_PLATFORMS.has(String(platform)) ? renderWindowsCompatibilityBootstrapScript(manifest) : renderWindowsGoBootstrapScript(manifest);
+  const script = WINDOWS_COMPATIBILITY_PLATFORMS.has(String(platform)) ? renderWindowsCompatibilityBootstrapScript(manifest) : renderWindowsGoBootstrapScript(manifest);
+  // 旧版 Windows PowerShell 5.1 按脚本头部 BOM 识别 UTF-8；升级器落盘前也可能尚未包含修复。
+  return script.charCodeAt(0) === 0xFEFF ? script : `\uFEFF${script}`;
 }
 
 function renderWindowsGoBootstrapScript(manifest: unknown): string {

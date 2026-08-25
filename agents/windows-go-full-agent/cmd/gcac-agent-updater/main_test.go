@@ -1,9 +1,30 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestWriteBootstrapScriptUsesSingleUTF8BOM(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bootstrap.ps1")
+	if err := writeBootstrapScript(path, "\uFEFF$变量 = '拓联思'\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(content[:3]), "\xEF\xBB\xBF"; got != want {
+		t.Fatalf("bootstrap 必须以 UTF-8 BOM 开头: got %q", got)
+	}
+	if len(content) >= 6 && string(content[3:6]) == "\xEF\xBB\xBF" {
+		t.Fatal("bootstrap 不应重复写入 UTF-8 BOM")
+	}
+	if got, want := string(content[3:]), "$变量 = '拓联思'\r\n"; got != want {
+		t.Fatalf("bootstrap 内容被错误改写: got %q", got)
+	}
+}
 
 func TestWriteFailurePreservesRollbackOutcome(t *testing.T) {
 	statusPath := filepath.Join(t.TempDir(), "upgrade-status.json")

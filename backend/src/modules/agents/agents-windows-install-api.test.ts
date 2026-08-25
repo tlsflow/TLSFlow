@@ -42,6 +42,7 @@ describe('Agent 一键安装会话', () => {
     });
     assert.equal(bootstrap.statusCode, 200, JSON.stringify(bootstrap.body));
     const script = String(bootstrap.body);
+    assert.equal(script.charCodeAt(0), 0xFEFF, 'Windows bootstrap 必须以 UTF-8 BOM 开头');
     assert.match(script, /gcac-agent\.exe/);
     assert.match(script, /register-once/);
     assert.match(script, /Agent registration or initial capability report failed/);
@@ -165,6 +166,7 @@ describe('Agent 一键安装会话', () => {
     });
     assert.equal(bootstrap.statusCode, 200, JSON.stringify(bootstrap.body));
     const script = String(bootstrap.body);
+    assert.equal(script.charCodeAt(0), 0xFEFF, 'Windows Compatibility bootstrap 必须以 UTF-8 BOM 开头');
     assert.match(script, /GCAC\.WindowsCompatibilityAgent\.exe/);
     assert.doesNotMatch(script, /GCAC\.WindowsCompatibilityAgent\.exe\.config/);
     assert.match(script, /plugins\/windows-runtime-discovery\.exe/);

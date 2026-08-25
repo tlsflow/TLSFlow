@@ -210,7 +210,7 @@ func runBootstrap(args updaterArgs) error {
 		return err
 	}
 	scriptPath := args.statusPath + fmt.Sprintf(".bootstrap-%d.ps1", os.Getpid())
-	if err := os.WriteFile(scriptPath, []byte(script), 0o600); err != nil {
+	if err := writeBootstrapScript(scriptPath, script); err != nil {
 		return fmt.Errorf("写入 bootstrap 临时脚本失败: %w", err)
 	}
 	defer os.Remove(scriptPath)
@@ -231,6 +231,13 @@ func runBootstrap(args updaterArgs) error {
 	status.Status = "succeeded"
 	status.Rollback = "not_required"
 	return saveStatus(args.statusPath, status)
+}
+
+// writeBootstrapScript 使用 UTF-8 BOM 写入脚本，兼容 Windows PowerShell 5.1 的默认编码识别。
+func writeBootstrapScript(path, script string) error {
+	content := []byte(strings.TrimPrefix(script, "\uFEFF"))
+	content = append([]byte{0xEF, 0xBB, 0xBF}, content...)
+	return os.WriteFile(path, content, 0o600)
 }
 
 func downloadBootstrap(rawURL string) (string, error) {
