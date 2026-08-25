@@ -35,7 +35,7 @@ import (
 var defaultAgentConfigTemplate []byte
 
 const (
-	agentVersion                = "0.1.45"
+	agentVersion                = "0.1.46"
 	defaultConfigPath           = `C:\ProgramData\GCAC\FullAgentGo\config\agent.config.json`
 	defaultMetadata             = `C:\ProgramData\GCAC\FullAgentGo\service.install.json`
 	defaultTaskPoll             = 5
