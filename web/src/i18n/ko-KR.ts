@@ -1708,8 +1708,8 @@ export default {
     },
     quickActions: {
       agents: {
-        title: 'Agent',
-        description: '온라인 상태 및 작업 능력 보기.'
+        title: '자산',
+        description: 'Agent가 관리하는 자산과 배포 상태를 확인합니다.'
       },
       assets: {
         title: '응용자산',

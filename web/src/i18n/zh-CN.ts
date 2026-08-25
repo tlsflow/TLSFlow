@@ -1833,8 +1833,8 @@ export default {
     },
     quickActions: {
       agents: {
-        title: 'Agent',
-        description: '查看在线状态和任务能力。'
+        title: '应用资产',
+        description: '查看 Agent 管理的应用资产及其部署状态。'
       },
       assets: {
         title: '应用资产',

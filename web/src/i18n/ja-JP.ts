@@ -1734,8 +1734,8 @@ export default {
     },
     quickActions: {
       agents: {
-        title: 'Agent',
-        description: '表示オンラインステータスとタスク機能。'
+        title: 'アセット',
+        description: 'Agent が管理するアセットとデプロイ状態を確認します。'
       },
       assets: {
         title: 'アプリケーションアセット',

@@ -1708,8 +1708,8 @@ export default {
     },
     quickActions: {
       agents: {
-        title: 'Agent',
-        description: 'Veja status online e capacidades de tarefa.'
+        title: 'Ativos',
+        description: 'Veja os ativos gerenciados pelo Agent e o status de implantação.'
       },
       assets: {
         title: 'Ativos de aplicação',

@@ -1811,8 +1811,8 @@ export default {
     },
     quickActions: {
       agents: {
-        title: 'Agent',
-        description: 'View online status and task capabilities.'
+        title: 'Assets',
+        description: 'View Agent-managed assets and their deployment status.'
       },
       assets: {
         title: 'Managed applications',

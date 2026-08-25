@@ -1708,8 +1708,8 @@ export default {
     },
     quickActions: {
       agents: {
-        title: 'Agent',
-        description: 'Посмотреть онлайн-статус и возможности задач.'
+        title: 'Активы',
+        description: 'Просмотр активов, управляемых Agent, и состояния развертывания.'
       },
       assets: {
         title: 'Активы приложений',

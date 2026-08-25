@@ -1733,8 +1733,8 @@ export default {
     },
     quickActions: {
       agents: {
-        title: "Agent",
-        description: "檢視線上狀態和任務能力。"
+        title: "資產",
+        description: "檢視 Agent 管理的資產及其部署狀態。"
       },
       assets: {
         title: "應用資產",
