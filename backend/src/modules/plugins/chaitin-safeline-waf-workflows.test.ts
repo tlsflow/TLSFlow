@@ -3,6 +3,9 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import jsonata from 'jsonata';
 import { DeviceDiscoverySchemaService } from './discovery/device-discovery-schema.service.js';
+import { WorkflowTemplatesApplicationService } from '../workflow-templates/application/workflow-templates.application-service.js';
+import type { WorkflowMockStepOutput } from '../workflow-templates/dto/workflow-templates.dto.js';
+import type { ResolvedDeploymentInputV1 } from '../deployment-inputs/dto/resolved-deployment-input.dto.js';
 
 const packageRoot = new URL('./builtin-plugins/device-chaitin-safeline-waf/', import.meta.url);
 
@@ -14,8 +17,8 @@ test('SafeLine 发现把 API 版本投影到标准 softwareVersion 并发现 Sit
   const manifest = readJson('manifest.json');
   const workflow = readJson('workflows/discover.json');
   const fixture = readJson('fixtures/safeline-v1.json');
-  assert.equal(manifest.version, '0.1.13');
-  assert.equal(workflow.metadata?.version, '0.1.13');
+  assert.equal(manifest.version, '0.1.14');
+  assert.equal(workflow.metadata?.version, '0.1.14');
 
   const siteExpression = workflow.steps.find((step: Record<string, any>) => step.name === 'projectSites')
     ?.transform?.outputs?.discovery?.expression;
@@ -54,7 +57,7 @@ test('SafeLine 设备展示版本使用宿主标准字段', () => {
 
 test('SafeLine 证书部署复用已有证书并为 Default 目标生成带 id 的 upsert', async () => {
   const workflow = readJson('workflows/certificate-deploy.json');
-  assert.equal(workflow.metadata?.version, '0.1.13');
+  assert.equal(workflow.metadata?.version, '0.1.14');
   assert.equal(workflow.steps.some((step: Record<string, any>) => step.name === 'requireDefaultCertificateMaterial'), false);
   const match = workflow.steps.find((step: Record<string, any>) => step.name === 'matchExistingCertificate');
   const matchExpression = match?.transform?.outputs?.existingCertificateId?.expression;
@@ -86,6 +89,10 @@ test('SafeLine 证书部署复用已有证书并为 Default 目标生成带 id �
   assert.equal(directRead?.extract?.find((item: Record<string, any>) => item.name === 'certificateId')?.optional, true);
   assert.equal(readCertificate?.extract?.find((item: Record<string, any>) => item.name === 'certificateId')?.optional, true);
   assert.equal(directRead?.extract?.find((item: Record<string, any>) => item.name === 'key')?.sensitive, true);
+  const defaultSnapshot = workflow.steps.find((step: Record<string, any>) => step.name === 'buildDefaultCertificateSnapshot');
+  assert.equal(defaultSnapshot?.when?.variable, 'steps.selectTargets.extracted.defaultTargetSelected');
+  assert.equal(defaultSnapshot?.transform?.input?.defaultCertificate, '{{steps.readDefaultCertificate.extracted}}');
+  assert.equal(workflow.steps.find((step: Record<string, any>) => step.name === 'matchExistingCertificate')?.transform?.input?.defaultCertificate, undefined);
 
   const verify = workflow.steps.find((step: Record<string, any>) => step.name === 'verifyUploadedCertificate');
   const certificateAssertion = verify?.assert?.find((item: Record<string, any>) => item.type === 'jsonPath');
@@ -115,8 +122,8 @@ test('SafeLine Default 证书仅在旧材料可回读时备份，仍支持原证
 
   const snapshotInput = {
     certificateId: 34,
+    certificates: [{ id: 34 }],
     details,
-    defaultCertificate: { certificateId: 34, crt: oldCertificate, key: oldPrivateKey },
     defaultTargetSelected: true,
     defaultCertificateChanged: true,
     certificateSnapshot: { id: 34, crt: oldCertificate, key: oldPrivateKey, restoreRequired: true },
@@ -124,24 +131,22 @@ test('SafeLine Default 证书仅在旧材料可回读时备份，仍支持原证
   const snapshotExpression = snapshot?.transform?.outputs?.certificateSnapshot?.expression;
   const snapshotResult = await jsonata(snapshotExpression).evaluate(snapshotInput);
   assert.equal(snapshotResult.restoreRequired, true);
-  const unusableSnapshot = await jsonata(snapshotExpression).evaluate({
-    ...snapshotInput,
-    defaultCertificate: { certificateId: 34, crt: oldCertificate, key: 'PRIVATE' },
-  });
-  assert.equal(unusableSnapshot.restoreRequired, false);
-  const backupExpression = snapshot?.transform?.outputs?.defaultBackupAvailable?.expression;
-  assert.equal(await jsonata(backupExpression).evaluate({
-    ...snapshotInput,
-    certificateSnapshot: snapshotResult,
-  }), true);
-  assert.equal(await jsonata(backupExpression).evaluate({
-    ...snapshotInput,
-    defaultTargetSelected: false,
-    certificateSnapshot: snapshotResult,
-  }), false);
   const backup = workflow.steps.find((step: Record<string, any>) => step.name === 'backupDefaultCertificate');
-  assert.equal(backup?.when?.variable, 'steps.buildCertificateSnapshot.extracted.defaultBackupAvailable');
+  assert.equal(backup?.when?.variable, 'steps.buildDefaultCertificateSnapshot.extracted.defaultBackupAvailable');
   assert.equal(backup?.extract?.find((item: Record<string, any>) => item.name === 'backupCreated')?.value, true);
+
+  const defaultSnapshot = workflow.steps.find((step: Record<string, any>) => step.name === 'buildDefaultCertificateSnapshot');
+  const defaultSnapshotExpression = defaultSnapshot?.transform?.outputs?.certificateSnapshot?.expression;
+  const defaultSnapshotResult = await jsonata(defaultSnapshotExpression).evaluate({
+    defaultCertificate: { certificateId: 34, crt: oldCertificate, key: oldPrivateKey },
+    defaultCertificateChanged: true,
+  });
+  assert.equal(defaultSnapshotResult.restoreRequired, true);
+  const unusableDefaultSnapshot = await jsonata(defaultSnapshotExpression).evaluate({
+    defaultCertificate: { certificateId: 34, crt: oldCertificate, key: 'PRIVATE' },
+    defaultCertificateChanged: true,
+  });
+  assert.equal(unusableDefaultSnapshot.restoreRequired, false);
 
   const rollback = workflow.rollback as Array<Record<string, any>>;
   const readBackup = rollback.find((step) => step.name === 'readBackupCertificate');
@@ -176,3 +181,84 @@ test('SafeLine 站点完整响应使用 content 敏感槽，避免 icon Base64 �
   });
   assert.equal(Object.hasOwn(selected[0].site, 'icon'), false);
 });
+
+test('SafeLine 单个站点部署不依赖被跳过的 Default 证书输出', async () => {
+  const workflow = readJson('workflows/certificate-deploy.json');
+  const workflows = new WorkflowTemplatesApplicationService();
+  const { version } = await workflows.createTemplate({ content: workflow as any });
+  const result = await workflows.testRun({
+    templateVersionId: version.id,
+    mode: 'mock',
+    resolvedInput: singleSiteResolvedInput(),
+    mockResponses: singleSiteMockResponses(),
+  });
+
+  assert.equal(result.status, 'success', JSON.stringify(result));
+  assert.equal(result.stepResults.find((item) => item.name === 'readDefaultCertificate')?.status, 'skipped');
+  assert.equal(result.stepResults.find((item) => item.name === 'matchExistingCertificate')?.status, 'success');
+  assert.equal(result.stepResults.find((item) => item.name === 'uploadCertificate')?.status, 'success');
+  assert.equal(result.stepResults.find((item) => item.name === 'updateSites')?.status, 'success');
+  assert.equal(result.stepResults.find((item) => item.name === 'verifySites')?.status, 'success');
+  assert.equal(result.logs.some((line) => line.includes('变量缺失：steps.readDefaultCertificate.extracted')), false);
+});
+
+function singleSiteResolvedInput(): ResolvedDeploymentInputV1 {
+  return {
+    apiVersion: 'gcac.resolved-deployment-input/v1',
+    contractVersion: 'gcac.deployment-input/v1',
+    assetContext: {
+      apiVersion: 'gcac.deployment-asset-context/v1',
+      application: { id: 'asset_safeline_test', address: '10.255.0.99', serverName: 'safeline.example.invalid', port: 9443, protocol: 'https' },
+      deployment: { targets: [], certificateResourceName: 'certificate-safeline-test' },
+    },
+    variables: {
+      targetSites: [{ metadata: { safeLineSiteId: 55 } }],
+      allowInsecureTls: true,
+    },
+    connections: {
+      management: {
+        transport: 'http',
+        host: '10.255.0.99',
+        port: 9443,
+        credentialSlot: 'credential',
+        tls: { enabled: true, verifyPeer: false, serverName: '' },
+      },
+    },
+    credentials: {
+      credential: {
+        credentialId: 'cred-safeline-test',
+        kind: 'API_KEY',
+        secretRefs: { token: 'secret://safeline/api-key#v1' },
+      },
+    },
+    artifacts: {
+      certificate: {
+        outputs: {
+          leafPem: '-----BEGIN CERTIFICATE-----\nNEW\n-----END CERTIFICATE-----',
+          privateKeyPem: '-----BEGIN PRIVATE KEY-----\nNEW_KEY\n-----END PRIVATE KEY-----',
+          orderedChainPem: '',
+          fingerprintSha256: 'bb'.repeat(32),
+        },
+      },
+    },
+    provenance: {},
+    sensitivePaths: [],
+    issues: [],
+    executable: true,
+    resolvedSha256: 'safeline-single-site-test-input',
+  };
+}
+
+function singleSiteMockResponses(): Record<string, WorkflowMockStepOutput> {
+  const ok = (body: Record<string, unknown>): WorkflowMockStepOutput => ({ statusCode: 200, body });
+  return {
+    readSystem: ok({ data: { version: '9.1.0', cert_id: 34 } }),
+    readCertificates: ok({ data: { nodes: [{ id: 34, sha256: 'sha256:' + 'aa'.repeat(32) }] } }),
+    readCertificate: ok({ data: { id: 34, manual: { crt: '-----BEGIN CERTIFICATE-----\nOLD\n-----END CERTIFICATE-----', key: '-----BEGIN PRIVATE KEY-----\nOLD_KEY\n-----END PRIVATE KEY-----' } } }),
+    readSites: ok({ data: { data: [{ id: 55, comment: 'MovePilot', email: '', group_id: 0, health_check: true, index: 0, load_balance: false, ports: ['4455_ssl'], redirect_status_code: 301, server_names: ['wechatapi.jacksonz.cn'], stat_enabled: true, static_default: false, type: 0, upstreams: ['http://10.255.0.51:3000'], cert_id: 34 }] } }),
+    uploadCertificate: ok({ data: 99 }),
+    verifyUploadedCertificate: ok({ data: { manual: { crt: '-----BEGIN CERTIFICATE-----\nNEW\n-----END CERTIFICATE-----' } } }),
+    updateSite: ok({ data: { success: true } }),
+    readUpdatedSite: ok({ data: { cert_id: 99 } }),
+  };
+}
