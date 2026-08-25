@@ -8,6 +8,7 @@ const outputRoot = resolve(process.env.GCAC_AGENT_BUNDLE_OUTPUT ?? join(reposito
 const dockerfile = join(repositoryRoot, 'docker', 'build-tools', 'Dockerfile.agent-release-bundle');
 const versions = JSON.parse(await readFile(join(repositoryRoot, 'docker', 'build-tools', 'versions.json'), 'utf8'));
 const agentToolchains = versions.agentToolchains;
+const goProxy = process.env.GCAC_GO_PROXY?.trim();
 if (!agentToolchains?.full || !agentToolchains?.compatibility) {
   throw new Error('versions.json 缺少 Agent Go builder 镜像版本。');
 }
@@ -28,6 +29,7 @@ const result = spawnSync('docker', [
   `GO_FULL_IMAGE=${agentToolchains.full}`,
   '--build-arg',
   `GO_COMPAT_IMAGE=${agentToolchains.compatibility}`,
+  ...(goProxy ? ['--build-arg', `GO_PROXY=${goProxy}`] : []),
   '--file',
   dockerfile,
   '--output',
