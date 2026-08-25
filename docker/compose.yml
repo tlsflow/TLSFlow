@@ -149,7 +149,8 @@ services:
     security_opt:
       - no-new-privileges:true
     pids_limit: 512
-    mem_limit: 2g
+    # 标准版 Backend 启动时会加载完整内置插件和运行时资源，峰值超过 2 GiB。
+    mem_limit: 4g
     cpus: 2
     depends_on:
       db:
