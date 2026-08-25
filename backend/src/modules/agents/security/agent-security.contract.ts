@@ -34,6 +34,8 @@ export const allowedAgentOperationTypes = [
   'certificate.material.validate',
   'certificate.store.inspect',
   'certificate.store.install',
+  'key.generate_csr',
+  'certificate.install_issued',
   'certificate.iis.binding.update',
   'certificate.iis.binding.verify',
   'certificate.iis.binding.rollback',
@@ -637,6 +639,32 @@ function validateOperationInput(operationType: AgentOperationType, input: Record
     }
     digest(input.fingerprintSha256, `${path}.fingerprintSha256`);
     exact(input.store, 'root', `${path}.store`);
+  }
+  if (operationType === 'key.generate_csr') {
+    exactKeys(input, ['path', 'targetId', 'commonName', 'sans', 'algorithm', 'rsaBits', 'storageMode'], path);
+    normalizeAbsolutePath(input.path, `${path}.path`);
+    identifier(input.targetId, `${path}.targetId`);
+    nonEmptyString(input.commonName, `${path}.commonName`);
+    stringArray(input.sans, `${path}.sans`);
+    enumValue(input.algorithm, ['rsa', 'ec'], `${path}.algorithm`);
+    if (input.rsaBits !== undefined) integerRange(input.rsaBits, 2048, 8192, `${path}.rsaBits`);
+    if (input.storageMode !== undefined) enumValue(input.storageMode, ['file_pem', 'windows_cng'], `${path}.storageMode`);
+  }
+  if (operationType === 'certificate.install_issued') {
+    exactKeys(input, ['path', 'keyPath', 'targetId', 'localKeyRef', 'certificatePem', 'certificateChainPem', 'expectedPublicKeyFingerprintSha256', 'format', 'alias', 'storageMode'], path);
+    normalizeAbsolutePath(input.path, `${path}.path`);
+    normalizeAbsolutePath(input.keyPath, `${path}.keyPath`);
+    identifier(input.targetId, `${path}.targetId`);
+    nonEmptyString(input.localKeyRef, `${path}.localKeyRef`);
+    const certificatePem = nonEmptyString(input.certificatePem, `${path}.certificatePem`);
+    const certificateChainPem = nonEmptyString(input.certificateChainPem, `${path}.certificateChainPem`);
+    if (certificatePem.length > 128 * 1024 || certificateChainPem.length > 256 * 1024 || !certificatePem.includes('BEGIN CERTIFICATE') || !certificateChainPem.includes('BEGIN CERTIFICATE')) {
+      fail(path, '已签发证书材料无效或超出大小限制');
+    }
+    digest(input.expectedPublicKeyFingerprintSha256, `${path}.expectedPublicKeyFingerprintSha256`);
+    enumValue(input.format, ['pem', 'pkcs12', 'jks'], `${path}.format`);
+    if (input.alias !== undefined) identifier(input.alias, `${path}.alias`);
+    if (input.storageMode !== undefined) enumValue(input.storageMode, ['file_pem', 'windows_cng'], `${path}.storageMode`);
   }
   if (operationType === 'certificate.iis.binding.update') {
     exactKeys(input, ['siteName', 'bindingInformation', 'storeName', 'storeLocation', 'pfxBase64', 'pfxPassword', 'expectedFingerprintSha256', 'artifactDigest', 'bindingKey', 'configFingerprint'], path);

@@ -13,6 +13,7 @@ import type {
   AcmeProviderConfigurationInput,
   CreateAuthorityInput,
   CreateCaProviderInput,
+  CreateProviderActionBindingInput,
   CreateCaTrustDomainInput,
   CreateCertificateRequestInput,
   CreateProfileInput,
@@ -20,6 +21,7 @@ import type {
   PreviewCaInput,
   UpdateCaTrustDomainInput,
 } from '../application/internal-ca.application-service.js';
+import type { CertificateLifecycleService, CreateCertificateRotationInput } from '../application/certificate-lifecycle.service.js';
 import type { AcmeAccountService } from '../application/acme-account.service.js';
 import type { AcmeCertificateService } from '../application/acme-certificate.service.js';
 import type { AcmeOrderService } from '../application/acme-order.service.js';
@@ -47,13 +49,18 @@ export class InternalCaController {
     private readonly security: SecurityServices,
     private readonly acme?: InternalCaAcmeServices,
     private readonly tasks?: TaskEnqueuer,
+    private readonly lifecycle?: CertificateLifecycleService,
   ) {}
 
   register(router: Router): void {
+    // 证书 CDP 由客户端匿名读取；路径同时包含租户和 CA，避免跨租户返回 CRL。
+    router.get('/api/v1/public/ca-crl/:tenantId/:caId', '读取公开 CA CRL', tags, (request) => this.getPublicCrl(request));
     router.get('/api/v1/ca-providers', '查询通用 CA Provider', tags, (request) => this.listProviders(request));
     router.post('/api/v1/ca-providers', '创建通用 CA Provider', tags, (request) => this.createProvider(request));
     router.delete('/api/v1/ca-providers/:id', '删除未绑定的 CA Provider', tags, (request) => this.deleteProvider(request));
     router.post('/api/v1/ca-providers/:id/test', '检查 CA Provider 合同状态', tags, (request) => this.testProvider(request));
+    router.get('/api/v1/ca-providers/:id/action-bindings', '查询 CA Provider 固定动作绑定', tags, (request) => this.listProviderActionBindings(request));
+    router.post('/api/v1/ca-providers/:id/action-bindings', '创建 CA Provider 固定动作绑定', tags, (request) => this.createProviderActionBinding(request));
     router.get('/api/v1/ca-operations/tree', '查询 CA 运营资源树', tags, (request) => this.listOperationsTree(request));
     router.get('/api/v1/ca-operations/records', '查询 CA 运营记录', tags, (request) => this.listOperationRecords(request));
     router.get('/api/v1/ca-operations/records/:recordKey', '查询 CA 运营记录详情', tags, (request) => this.getOperationRecord(request));
@@ -68,6 +75,8 @@ export class InternalCaController {
     router.get('/api/v1/certificate-profiles', '查询证书 Profile', tags, (request) => this.listProfiles(request));
     router.post('/api/v1/certificate-profiles', '创建证书 Profile', tags, (request) => this.createProfile(request));
     router.post('/api/v1/certificate-profiles/:id/versions', '创建证书 Profile 版本', tags, (request) => this.createProfileVersion(request));
+    router.get('/api/v1/certificate-policies', '查询租户证书策略', tags, (request) => this.listCertificatePolicies(request));
+    router.post('/api/v1/certificate-policies/:id/versions', '创建证书策略版本', tags, (request) => this.createCertificatePolicyVersion(request));
     router.get('/api/v1/certificate-requests', '查询证书申请', tags, (request) => this.listRequests(request));
     router.post('/api/v1/certificate-requests', '创建证书申请对象', tags, (request) => this.createRequest(request));
     router.post('/api/v1/certificate-requests/:id/approve', '审批证书申请', tags, (request) => this.approveRequest(request));
@@ -104,6 +113,13 @@ export class InternalCaController {
     router.get('/api/v1/certificate-revocations', '查询证书吊销任务', tags, (request) => this.listRevocations(request));
     router.post('/api/v1/certificate-revocations', '创建证书吊销任务', tags, (request) => this.createRevocation(request));
     router.post('/api/v1/certificate-revocations/:id/approve', '审批证书吊销任务', tags, (request) => this.approveRevocation(request));
+    router.get('/api/v1/ca-crl-publications', '查询 CA CRL 发布记录', tags, (request) => this.listCrlPublications(request));
+    router.post('/api/v1/certificate-authorities/:id/crl/publish', '发布内置 CA CRL', tags, (request) => this.publishCrl(request));
+    router.get('/api/v1/certificate-rotations', '查询证书换钥轮换任务', tags, (request) => this.listRotations(request));
+    router.post('/api/v1/certificate-rotations', '创建证书换钥轮换任务', tags, (request) => this.createRotation(request));
+    router.get('/api/v1/certificate-rotations/:id', '查询证书换钥轮换详情', tags, (request) => this.getRotation(request));
+    router.get('/api/v1/certificate-rotations/:id/install-action', '生成轮换证书安装动作', tags, (request) => this.getRotationInstallAction(request));
+    router.post('/api/v1/certificate-rotations/:id/tls-verify', '回传轮换 TLS 验证结果', tags, (request) => this.markRotationTlsVerified(request));
     router.get('/api/v1/ca-trust-distributions', '查询 CA 信任分发任务', tags, (request) => this.listTrustDistributions(request));
     router.post('/api/v1/ca-trust-distributions', '创建 CA 信任分发任务', tags, (request) => this.createTrustDistribution(request));
     router.post('/api/v1/ca-trust-distributions/:id/approve', '审批 CA 信任分发任务', tags, (request) => this.approveTrustDistribution(request));
@@ -138,6 +154,23 @@ export class InternalCaController {
   private async testProvider(request: HttpRequest) {
     await this.assertAction(request, 'ca.provider.manage', 'ca_provider');
     return this.service.testProvider(tenantId(request), pathId(request));
+  }
+
+  private async listProviderActionBindings(request: HttpRequest) {
+    await this.assertAction(request, 'ca.operations.read', 'ca_provider_action_binding');
+    return this.service.listProviderActionBindings(tenantId(request), providerIdFromBindingPath(request));
+  }
+
+  private async createProviderActionBinding(request: HttpRequest) {
+    await this.assertAction(request, 'ca.provider.manage', 'ca_provider_action_binding');
+    const body = objectBody(request);
+    return {
+      statusCode: 201,
+      body: await this.service.createProviderActionBinding(tenantId(request), {
+        ...body,
+        providerId: providerIdFromBindingPath(request),
+      } as unknown as CreateProviderActionBindingInput, actorId(request), request.context),
+    };
   }
 
   private async listOperationsTree(request: HttpRequest) {
@@ -243,6 +276,16 @@ export class InternalCaController {
   private async createProfileVersion(request: HttpRequest) {
     await this.assertAction(request, 'ca.template.mapping.manage', 'certificate_profile');
     return this.service.createProfileVersion(tenantId(request), pathId(request), objectBody(request), actorId(request));
+  }
+
+  private async listCertificatePolicies(request: HttpRequest) {
+    await this.assertAction(request, 'ca.operations.read', 'certificate_policy');
+    return this.service.listCertificatePolicies(tenantId(request));
+  }
+
+  private async createCertificatePolicyVersion(request: HttpRequest) {
+    await this.assertAction(request, 'ca.template.mapping.manage', 'certificate_policy');
+    return this.service.createCertificatePolicyVersion(tenantId(request), pathId(request), objectBody(request), actorId(request), request.context);
   }
 
   private async listRequests(request: HttpRequest) {
@@ -567,6 +610,87 @@ export class InternalCaController {
     return this.service.approveRevocation(tenantId(request), pathId(request), requiredString(objectBody(request), 'approvalId'), actorId(request));
   }
 
+  private async listCrlPublications(request: HttpRequest) {
+    await this.assertAction(request, 'ca.operations.read', 'ca_crl_publication');
+    return this.service.listCrlPublications(tenantId(request), optionalQuery(request, 'caId'));
+  }
+
+  private async getPublicCrl(request: HttpRequest) {
+    const parts = request.path.split('/').filter(Boolean);
+    const tenantId = decodeURIComponent(parts.at(-2) ?? '');
+    const caId = decodeURIComponent(parts.at(-1) ?? '');
+    if (!tenantId || !caId) throw new AppError('VALIDATION_FAILED', '公开 CRL 路径缺少租户或 CA ID');
+    const format = request.query.format === 'pem' ? 'pem' : 'der';
+    const result = await this.service.getPublicCrl(tenantId, caId, format);
+    return {
+      statusCode: 200,
+      headers: {
+        'content-type': result.contentType,
+        'cache-control': 'public, max-age=300, must-revalidate',
+        etag: result.etag,
+        'x-gcac-crl-number': String(result.crlNumber),
+      },
+      body: result.body,
+    };
+  }
+
+  private async publishCrl(request: HttpRequest) {
+    await this.assertAction(request, 'ca.certificate.revoke', 'ca_crl_publication');
+    return { statusCode: 201, body: await this.service.publishCrl(tenantId(request), pathId(request), actorId(request)) };
+  }
+
+  private requireLifecycle(): CertificateLifecycleService {
+    if (!this.lifecycle) throw new AppError('CA_CAPABILITY_UNSUPPORTED', '证书生命周期服务未接入');
+    return this.lifecycle;
+  }
+
+  private async listRotations(request: HttpRequest) {
+    await this.assertAction(request, 'ca.operations.read', 'certificate_rotation');
+    return this.requireLifecycle().listRotations(tenantId(request));
+  }
+
+  private async createRotation(request: HttpRequest) {
+    await this.assertAction(request, 'ca.request.retry', 'certificate_rotation');
+    const body = objectBody(request);
+    return {
+      statusCode: 201,
+      body: await this.requireLifecycle().createRotation({
+        ...body,
+        tenantId: tenantId(request),
+        applicationAssetId: requiredString(body, 'applicationAssetId'),
+        sourceCertificateVersionId: requiredString(body, 'sourceCertificateVersionId'),
+        idempotencyKey: requiredString(body, 'idempotencyKey'),
+        actorId: actorId(request),
+      } as unknown as CreateCertificateRotationInput),
+    };
+  }
+
+  private async getRotation(request: HttpRequest) {
+    await this.assertAction(request, 'ca.operations.read', 'certificate_rotation');
+    return this.requireLifecycle().getRotation(tenantId(request), pathId(request));
+  }
+
+  private async getRotationInstallAction(request: HttpRequest) {
+    await this.assertAction(request, 'ca.request.retry', 'certificate_rotation');
+    return this.requireLifecycle().getInstallAction(tenantId(request), pathId(request));
+  }
+
+  private async markRotationTlsVerified(request: HttpRequest) {
+    await this.assertAction(request, 'ca.request.retry', 'certificate_rotation');
+    const body = objectBody(request);
+    const tlsEvidence = body.tlsEvidence && typeof body.tlsEvidence === 'object' && !Array.isArray(body.tlsEvidence)
+      ? body.tlsEvidence as Record<string, unknown>
+      : {};
+    return this.requireLifecycle().markTlsVerified({
+      tenantId: tenantId(request),
+      rotationId: pathId(request),
+      certificateVersionId: requiredString(body, 'certificateVersionId'),
+      tlsEvidence,
+      actorId: actorId(request),
+      context: request.context,
+    });
+  }
+
   private async listTrustDistributions(request: HttpRequest) {
     await this.assertAction(request, 'ca.operations.read', 'trust_distribution');
     return this.service.listTrustDistributions(tenantId(request));
@@ -763,11 +887,14 @@ export class InternalCaController {
 export function getInternalCaRouteContracts(): RouteContract[] {
   const responseSchema = { type: 'object', additionalProperties: true } as const;
   const arraySchema = { type: 'array', items: responseSchema } as const;
-  const routes: Array<[RouteContract['method'], string, string, string, typeof responseSchema | typeof arraySchema]> = [
+  const routes: Array<[RouteContract['method'], string, string, string, NonNullable<RouteContract['responseSchema']>]> = [
+    ['GET', '/api/v1/public/ca-crl/:tenantId/:caId', 'getPublicCaCrl', '读取公开 CA CRL', { type: 'string', format: 'binary' }],
     ['GET', '/api/v1/ca-providers', 'listCaProviders', '查询通用 CA Provider', arraySchema],
     ['POST', '/api/v1/ca-providers', 'createCaProvider', '创建通用 CA Provider', responseSchema],
     ['DELETE', '/api/v1/ca-providers/:id', 'deleteCaProvider', '删除未绑定的 CA Provider', responseSchema],
     ['POST', '/api/v1/ca-providers/:id/test', 'testCaProvider', '检查 CA Provider 合同状态', responseSchema],
+    ['GET', '/api/v1/ca-providers/:id/action-bindings', 'listCaProviderActionBindings', '查询 CA Provider 固定动作绑定', arraySchema],
+    ['POST', '/api/v1/ca-providers/:id/action-bindings', 'createCaProviderActionBinding', '创建 CA Provider 固定动作绑定', responseSchema],
     ['GET', '/api/v1/ca-operations/tree', 'listCaOperationsTree', '查询 CA 运营资源树', responseSchema],
     ['GET', '/api/v1/ca-operations/records', 'listCaOperationRecords', '查询 CA 运营记录', responseSchema],
     ['GET', '/api/v1/ca-operations/records/:recordKey', 'getCaOperationRecord', '查询 CA 运营记录详情', responseSchema],
@@ -782,6 +909,8 @@ export function getInternalCaRouteContracts(): RouteContract[] {
     ['GET', '/api/v1/certificate-profiles', 'listCertificateProfiles', '查询证书 Profile', arraySchema],
     ['POST', '/api/v1/certificate-profiles', 'createCertificateProfile', '创建证书 Profile', responseSchema],
     ['POST', '/api/v1/certificate-profiles/:id/versions', 'createCertificateProfileVersion', '创建证书 Profile 版本', responseSchema],
+    ['GET', '/api/v1/certificate-policies', 'listCertificatePolicies', '查询租户证书策略', arraySchema],
+    ['POST', '/api/v1/certificate-policies/:id/versions', 'createCertificatePolicyVersion', '创建证书策略版本', responseSchema],
     ['GET', '/api/v1/certificate-requests', 'listCertificateRequests', '查询证书申请', arraySchema],
     ['POST', '/api/v1/certificate-requests', 'createCertificateRequest', '创建证书申请对象', responseSchema],
     ['POST', '/api/v1/certificate-requests/:id/approve', 'approveCertificateRequest', '审批证书申请', responseSchema],
@@ -818,6 +947,13 @@ export function getInternalCaRouteContracts(): RouteContract[] {
     ['GET', '/api/v1/certificate-revocations', 'listCertificateRevocations', '查询证书吊销任务', arraySchema],
     ['POST', '/api/v1/certificate-revocations', 'createCertificateRevocation', '创建证书吊销任务', responseSchema],
     ['POST', '/api/v1/certificate-revocations/:id/approve', 'approveCertificateRevocation', '审批证书吊销任务', responseSchema],
+    ['GET', '/api/v1/ca-crl-publications', 'listCaCrlPublications', '查询 CA CRL 发布记录', arraySchema],
+    ['POST', '/api/v1/certificate-authorities/:id/crl/publish', 'publishCaCrl', '发布内置 CA CRL', responseSchema],
+    ['GET', '/api/v1/certificate-rotations', 'listCertificateRotations', '查询证书换钥轮换任务', arraySchema],
+    ['POST', '/api/v1/certificate-rotations', 'createCertificateRotation', '创建证书换钥轮换任务', responseSchema],
+    ['GET', '/api/v1/certificate-rotations/:id', 'getCertificateRotation', '查询证书换钥轮换详情', responseSchema],
+    ['GET', '/api/v1/certificate-rotations/:id/install-action', 'getCertificateRotationInstallAction', '生成轮换证书安装动作', responseSchema],
+    ['POST', '/api/v1/certificate-rotations/:id/tls-verify', 'markCertificateRotationTlsVerified', '回传轮换 TLS 验证结果', responseSchema],
     ['GET', '/api/v1/ca-trust-distributions', 'listCaTrustDistributions', '查询 CA 信任分发任务', arraySchema],
     ['POST', '/api/v1/ca-trust-distributions', 'createCaTrustDistribution', '创建 CA 信任分发任务', responseSchema],
     ['POST', '/api/v1/ca-trust-distributions/:id/approve', 'approveCaTrustDistribution', '审批 CA 信任分发任务', responseSchema],
@@ -833,7 +969,15 @@ export function getInternalCaRouteContracts(): RouteContract[] {
     ['POST', '/api/v1/ca-nodes/tasks/lease', 'leaseCaNodeTask', '获取 CA Node 任务', responseSchema],
     ['POST', '/api/v1/ca-nodes/tasks/:id/result', 'completeCaNodeTask', '回传 CA Node 任务结果', responseSchema],
   ];
-  return routes.map(([method, path, operationId, summary, responseSchema]) => ({ method, path, operationId, summary, tags, responseSchema }));
+  return routes.map(([method, path, operationId, summary, responseSchema]) => ({
+    method,
+    path,
+    operationId,
+    summary,
+    tags,
+    responseSchema,
+    ...(path.startsWith('/api/v1/public/ca-crl/') ? { responseContentType: 'application/pkix-crl' } : {}),
+  }));
 }
 
 function tenantId(request: HttpRequest): string {
@@ -880,9 +1024,17 @@ function optionalQuery(request: HttpRequest, key: string): string | undefined {
 
 function pathId(request: HttpRequest): string {
   const segments = request.path.split('/').filter(Boolean);
-  const actionIndex = segments.findIndex((segment) => ['test', 'versions', 'approve', 'retry', 'activate', 'result', 'complete', 'remediation-preview', 'reconcile', 'finalize', 'renew', 'cancel'].includes(segment));
+  const actionIndex = segments.findIndex((segment) => ['test', 'versions', 'approve', 'retry', 'activate', 'result', 'complete', 'remediation-preview', 'reconcile', 'finalize', 'renew', 'cancel', 'crl', 'install-action', 'tls-verify'].includes(segment));
   const value = actionIndex > 0 ? segments[actionIndex - 1] : segments.at(-1);
   if (!value) throw new AppError('VALIDATION_FAILED', '路径缺少资源 ID');
+  return value;
+}
+
+function providerIdFromBindingPath(request: HttpRequest): string {
+  const segments = request.path.split('/').filter(Boolean);
+  const providerIndex = segments.indexOf('ca-providers');
+  const value = providerIndex >= 0 ? segments[providerIndex + 1] : undefined;
+  if (!value) throw new AppError('VALIDATION_FAILED', '路径缺少 CA Provider ID');
   return value;
 }
 

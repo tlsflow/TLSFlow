@@ -1,0 +1,10 @@
+{
+  "apiVersion": "gcac.plugin-action-contract/v1",
+  "actionId": "ca.revocation.evidence.v1",
+  "capability": "ca.revocation.evidence",
+  "actionContractVersion": "v1",
+  "inputSchema": { "type": "object", "required": ["operation", "serialNumber"], "properties": { "operation": { "const": "ca.revocation.evidence" }, "serialNumber": { "type": "string", "minLength": 1 }, "caConfig": { "type": "string", "minLength": 1 }, "certificatePath": { "type": "string", "minLength": 1 } }, "additionalProperties": true },
+  "outputSchema": { "type": "object", "required": ["serialNumber", "revocationStatus"], "additionalProperties": true },
+  "writeEffect": false,
+  "hostPermissions": ["secret.resolve", "audit.append"]
+}

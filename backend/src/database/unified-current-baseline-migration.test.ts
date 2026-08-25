@@ -10,10 +10,13 @@ import { PgliteDatabase } from './pglite-database.js';
 const activeMigrationDirectory = resolve(process.cwd(), 'src/database/migrations');
 const baselineFile = '20260823000000_unified_current_baseline.sql';
 const healthMigrationFile = '20260824000000_credential_health_check.sql';
+const caLifecycleMigrationFile = '20260824100000_ca_lifecycle_policy_and_provider_bindings.sql';
+const caCrlMigrationFile = '20260824110000_builtin_ca_crl_publications.sql';
+const certificateRotationMigrationFile = '20260824120000_certificate_rotations.sql';
 
-test('活动迁移目录包含统一 baseline 和凭据健康递增迁移，空 PGlite 可直接建立当前结构', async () => {
+test('活动迁移目录包含统一 baseline、凭据健康和 CA 生命周期递增迁移，空 PGlite 可直接建立当前结构', async () => {
   const files = (await readdir(activeMigrationDirectory)).filter((file) => file.endsWith('.sql')).sort();
-  assert.deepEqual(files, [baselineFile, healthMigrationFile]);
+  assert.deepEqual(files, [baselineFile, healthMigrationFile, caLifecycleMigrationFile, caCrlMigrationFile, certificateRotationMigrationFile]);
 
   const db = new PgliteDatabase();
   try {
@@ -23,6 +26,9 @@ test('活动迁移目录包含统一 baseline 和凭据健康递增迁移，空 
       [
         { version: '20260823000000', status: 'APPLIED' },
         { version: '20260824000000', status: 'APPLIED' },
+        { version: '20260824100000', status: 'APPLIED' },
+        { version: '20260824110000', status: 'APPLIED' },
+        { version: '20260824120000', status: 'APPLIED' },
       ],
     );
     const requiredTables = (await db.query<{ table_name: string }>(
@@ -30,9 +36,9 @@ test('活动迁移目录包含统一 baseline 和凭据健康递增迁移，空 
         where table_schema = 'public'
           and table_name = any($1::text[])
         order by table_name`,
-      [['tenants', 'tenant_memberships', 'system_initialization_state', 'pg_documents', 'job_queue', 'credential_health_states', 'credential_health_check_records']],
+        [['tenants', 'tenant_memberships', 'system_initialization_state', 'pg_documents', 'job_queue', 'credential_health_states', 'credential_health_check_records', 'pg_ca_provider_action_bindings', 'pg_certificate_policies', 'pg_certificate_policy_versions', 'pg_ca_crl_states', 'pg_ca_crl_publications', 'pg_certificate_rotations']],
     )).rows.map((row) => row.table_name);
-    assert.deepEqual(requiredTables, ['credential_health_check_records', 'credential_health_states', 'job_queue', 'pg_documents', 'system_initialization_state', 'tenant_memberships', 'tenants']);
+    assert.deepEqual(requiredTables, ['credential_health_check_records', 'credential_health_states', 'job_queue', 'pg_ca_crl_publications', 'pg_ca_crl_states', 'pg_ca_provider_action_bindings', 'pg_certificate_policies', 'pg_certificate_policy_versions', 'pg_certificate_rotations', 'pg_documents', 'system_initialization_state', 'tenant_memberships', 'tenants']);
     assert.equal((await db.query('select status from system_initialization_state where id = \'singleton\'')).rows[0]?.status, 'PENDING');
   } finally {
     await db.close();

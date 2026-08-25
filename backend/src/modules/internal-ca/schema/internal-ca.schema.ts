@@ -11,10 +11,14 @@ export const caRoles = ['root', 'intermediate'] as const;
 export const caStatuses = ['draft', 'pending_activation', 'active', 'suspended', 'retiring', 'retired', 'compromised'] as const;
 export const caTrustDomainStatuses = ['draft', 'active', 'rotating', 'retiring', 'retired', 'compromised'] as const;
 export const caTrustDomainIsolationLevels = ['standard', 'strict', 'regulated'] as const;
+export const providerActionBindingStatuses = ['draft', 'active', 'revalidation_required', 'disabled'] as const;
+export const providerActionExecutionLocations = ['control_plane', 'agent'] as const;
+export const certificatePolicyStatuses = ['active', 'disabled'] as const;
 export const keyCustodyModes = ['local_agent', 'managed_secret', 'external_key', 'device_local'] as const;
 export const keyBackendTypes = ['file', 'secret', 'cng', 'tpm', 'hsm', 'kms', 'pkcs11', 'device'] as const;
 export const keyExportabilities = ['non_exportable', 'exportable', 'unknown'] as const;
 export const certificateRequestStatuses = ['draft', 'pending_key', 'pending_csr', 'pending_approval', 'approved', 'issuing', 'issued', 'deploying', 'active', 'rejected', 'issue_failed', 'deploy_failed', 'cancelled', 'revoked', 'expired'] as const;
+export const certificateRotationStatuses = ['requested', 'key_csr_pending', 'issuing', 'install_pending', 'deploying', 'cutover_verified', 'revoke_pending', 'completed', 'failed', 'unknown'] as const;
 
 export type CaProviderType = typeof caProviderTypes[number];
 export type CaDeploymentMode = typeof caDeploymentModes[number];
@@ -25,10 +29,14 @@ export type CaRole = typeof caRoles[number];
 export type CaStatus = typeof caStatuses[number];
 export type CaTrustDomainStatus = typeof caTrustDomainStatuses[number];
 export type CaTrustDomainIsolationLevel = typeof caTrustDomainIsolationLevels[number];
+export type ProviderActionBindingStatus = typeof providerActionBindingStatuses[number];
+export type ProviderActionExecutionLocation = typeof providerActionExecutionLocations[number];
+export type CertificatePolicyStatus = typeof certificatePolicyStatuses[number];
 export type KeyCustodyMode = typeof keyCustodyModes[number];
 export type KeyBackendType = typeof keyBackendTypes[number];
 export type KeyExportability = typeof keyExportabilities[number];
 export type CertificateRequestStatus = typeof certificateRequestStatuses[number];
+export type CertificateRotationStatus = typeof certificateRotationStatuses[number];
 export type CaCapabilityOwnerType = 'provider' | 'node';
 export type CaCapabilityState = 'declared' | 'discovered' | 'verified' | 'unavailable';
 export type CaIssuanceStatus = 'reserved' | 'issued' | 'revoked' | 'expired' | 'failed';
@@ -93,6 +101,31 @@ export interface CaIssuanceRecordEntity {
   observedAt: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/** 内置 CA 每次 CRL 发布的不可变制品与传播回读证据。 */
+export interface CaCrlPublicationEntity {
+  id: string;
+  tenantId: string;
+  caId: string;
+  crlNumber: number;
+  thisUpdate: string;
+  nextUpdate: string;
+  distributionPoint?: string;
+  crlPem: string;
+  crlDerBase64: string;
+  crlFingerprintSha256: string;
+  revokedSerialNumbers: string[];
+  publicationStatus: 'published' | 'failed' | 'unknown';
+  verification: {
+    signatureVerified: boolean;
+    issuerFingerprintSha256?: string;
+    serialsVerified: boolean;
+    source: 'openssl' | 'external';
+  };
+  errorCode?: string;
+  errorMessage?: string;
+  createdAt: string;
 }
 
 export interface ExternalCaObservationEntity {
@@ -200,6 +233,35 @@ export interface CaProviderEntity {
   updatedAt: string;
 }
 
+/**
+ * 外部 CA 的唯一动作入口。动作版本固定后，后续插件升级不会改变正在执行的申请。
+ * Schema 与能力证据只表达就绪状态，首期不把它们作为调用前置条件。
+ */
+export interface ProviderActionReference {
+  actionId: string;
+  actionVersion: string;
+  inputSchemaDigest?: string;
+  outputSchemaDigest?: string;
+}
+
+export interface ProviderActionBindingEntity {
+  id: string;
+  tenantId: string;
+  providerId: string;
+  pluginVersionId: string;
+  executionLocation: ProviderActionExecutionLocation;
+  issueAction: ProviderActionReference;
+  queryAction?: ProviderActionReference;
+  revokeAction?: ProviderActionReference;
+  revocationEvidenceAction?: ProviderActionReference;
+  approvalMode: 'none' | 'gcac_before_submit' | 'external_ca_after_submit';
+  capabilityEvidence: Record<string, unknown>;
+  status: ProviderActionBindingStatus;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CertificateAuthorityEntity {
   id: string;
   tenantId: string;
@@ -221,6 +283,7 @@ export interface CertificateAuthorityEntity {
   notBefore?: string;
   notAfter?: string;
   fingerprintSha256?: string;
+  crlDistributionPoint?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -330,6 +393,47 @@ export interface CertificateProfileVersionEntity {
   createdAt: string;
 }
 
+/** 首期默认兼容策略；严格模式由租户管理员后续显式开启。 */
+export interface CertificatePolicyRules {
+  defaultValidityDays: number;
+  maximumValidityDays: number;
+  renewalWindowDays: number;
+  rotateKeyOnRenewal: boolean;
+  minimumProtectionLevel: KeyReferenceEntity['protectionLevel'];
+  issueApprovalRequired: boolean;
+  deploymentApprovalRequired: boolean;
+  revocationApprovalRequired: boolean;
+  requireCrlOrOcspEvidence: boolean;
+  strictEnforcement: boolean;
+}
+
+export interface CertificatePolicyEntity {
+  id: string;
+  tenantId: string;
+  status: CertificatePolicyStatus;
+  currentVersion: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CertificatePolicyVersionEntity {
+  id: string;
+  policyId: string;
+  versionNo: number;
+  rules: CertificatePolicyRules;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface EffectiveCertificatePolicySnapshot {
+  policyVersionId: string;
+  providerActionBindingId?: string;
+  rules: CertificatePolicyRules;
+  effectiveValidityDays: number;
+  requiresApproval: boolean;
+  warnings: string[];
+}
+
 export interface CertificateRequestEntity {
   id: string;
   tenantId: string;
@@ -337,6 +441,9 @@ export interface CertificateRequestEntity {
   caId: string;
   trustDomainId?: string;
   profileVersionId: string;
+  certificatePolicyVersionId?: string;
+  providerActionBindingId?: string;
+  effectivePolicySnapshot?: EffectiveCertificatePolicySnapshot;
   keyReferenceId: string;
   csrPem: string;
   csrSha256: string;
@@ -377,11 +484,31 @@ export interface CertificateRevocationEntity {
   caId: string;
   trustDomainId?: string;
   reason: string;
-  status: 'pending_approval' | 'approved' | 'revoking' | 'revoked' | 'failed';
+  status: 'pending_approval' | 'approved' | 'revoking' | 'revoked' | 'revoked_unpublished' | 'unknown' | 'failed';
   requestedBy: string;
   approvalId?: string;
   warnings?: string[];
   revokedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 证书换钥轮换账本。旧证书只有在新版本 TLS 验证后才允许进入撤销阶段。 */
+export interface CertificateRotationEntity {
+  id: string;
+  tenantId: string;
+  applicationAssetId: string;
+  sourceCertificateVersionId: string;
+  sourceKeyReferenceId?: string;
+  targetKeyReferenceId?: string;
+  targetCertificateRequestId?: string;
+  targetCertificateVersionId?: string;
+  policyVersionId?: string;
+  idempotencyKey: string;
+  status: CertificateRotationStatus;
+  evidence: Record<string, unknown>;
+  warnings: string[];
+  requestedBy: string;
   createdAt: string;
   updatedAt: string;
 }

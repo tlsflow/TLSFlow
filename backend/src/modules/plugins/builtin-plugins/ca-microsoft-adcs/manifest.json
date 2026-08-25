@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "ca.microsoft-adcs",
-  "version": "1.0.6",
+  "version": "1.0.8",
   "displayNameKey": "plugin.ca.microsoftAdcs.name",
   "descriptionKey": "plugin.ca.microsoftAdcs.description",
   "defaultLocale": "zh-CN",
@@ -16,6 +16,8 @@
     { "key": "ca.certificate.issue", "contractVersion": "v1", "actionContractId": "ca.certificate.issue.v1", "riskLevel": "HIGH", "executionLocations": ["CONTROL_PLANE", "AGENT"] },
     { "key": "ca.certificate.renew", "contractVersion": "v1", "actionContractId": "ca.certificate.renew.v1", "riskLevel": "HIGH", "executionLocations": ["CONTROL_PLANE", "AGENT"] },
     { "key": "ca.certificate.revoke", "contractVersion": "v1", "actionContractId": "ca.certificate.revoke.v1", "riskLevel": "HIGH", "executionLocations": ["CONTROL_PLANE", "AGENT"] }
+    ,{ "key": "ca.certificate.query", "contractVersion": "v1", "actionContractId": "ca.certificate.query.v1", "riskLevel": "MEDIUM", "executionLocations": ["CONTROL_PLANE", "AGENT"] }
+    ,{ "key": "ca.revocation.evidence", "contractVersion": "v1", "actionContractId": "ca.revocation.evidence.v1", "riskLevel": "MEDIUM", "executionLocations": ["CONTROL_PLANE", "AGENT"] }
   ],
   "permissions": [
     "secret.resolve", "audit.append"
@@ -35,7 +37,16 @@
     "workflows": {
       "ca.certificate.issue": "workflows/issue.json",
       "ca.certificate.renew": "workflows/renew.json",
-      "ca.certificate.revoke": "workflows/revoke.json"
+      "ca.certificate.revoke": "workflows/revoke.json",
+      "ca.certificate.query": "workflows/query.json",
+      "ca.revocation.evidence": "workflows/revocation-evidence.json"
+    },
+    "actionContracts": {
+      "ca.certificate.issue.v1": "action-contracts/ca-certificate-issue.json",
+      "ca.certificate.renew.v1": "action-contracts/ca-certificate-renew.json",
+      "ca.certificate.revoke.v1": "action-contracts/ca-certificate-revoke.json",
+      "ca.certificate.query.v1": "action-contracts/ca-certificate-query.json",
+      "ca.revocation.evidence.v1": "action-contracts/ca-revocation-evidence.json"
     },
     "locales": { "zh-CN": "locales/zh-CN.json", "zh-TW": "locales/zh-CN.json", "en-US": "locales/en-US.json", "ja-JP": "locales/en-US.json", "ko-KR": "locales/en-US.json", "fr-FR": "locales/en-US.json", "ru-RU": "locales/en-US.json", "pt-BR": "locales/en-US.json" },
     "presentations": { "certificateAuthority": "presentations/certificate-authority.json", "certificate": "presentations/certificate.json" },

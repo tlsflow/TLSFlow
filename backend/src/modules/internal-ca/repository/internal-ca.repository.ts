@@ -1,18 +1,23 @@
 import type { DatabasePort } from '../../../database/database-port.js';
 import type {
   CaCapabilityRecordEntity,
+  CaCrlPublicationEntity,
   CaIssuanceRecordEntity,
   CaNodeEntity,
   CaNodeEnrollmentTokenEntity,
   CaNodeTaskEntity,
   CaProviderEntity,
+  ProviderActionBindingEntity,
   CaTrustDomainEntity,
+  CertificatePolicyEntity,
+  CertificatePolicyVersionEntity,
   CertificateAuthorityEntity,
   CertificateProfileEntity,
   CertificateProfileVersionEntity,
   CertificateRequestEntity,
   CertificateRenewalJobEntity,
   CertificateRevocationEntity,
+  CertificateRotationEntity,
   KeyReferenceEntity,
   TrustDistributionEntity,
 } from '../schema/internal-ca.schema.js';
@@ -43,6 +48,32 @@ export class InternalCaRepository {
     return this.list('pg_ca_providers', tenantId);
   }
 
+  saveProviderActionBinding(entity: ProviderActionBindingEntity): Promise<ProviderActionBindingEntity> {
+    return this.upsert('pg_ca_provider_action_bindings', entity.id, entity, {
+      tenant_id: entity.tenantId,
+      provider_id: entity.providerId,
+      plugin_version_id: entity.pluginVersionId,
+      execution_location: entity.executionLocation,
+      status: entity.status,
+      approval_mode: entity.approvalMode,
+      capability_evidence: entity.capabilityEvidence,
+      created_by: entity.createdBy,
+    });
+  }
+
+  getProviderActionBinding(tenantId: string, id: string): Promise<ProviderActionBindingEntity | undefined> {
+    return this.get('pg_ca_provider_action_bindings', tenantId, id);
+  }
+
+  getActiveProviderActionBinding(tenantId: string, providerId: string): Promise<ProviderActionBindingEntity | undefined> {
+    return this.listProviderActionBindings(tenantId, providerId)
+      .then((items) => items.filter((item) => item.status !== 'disabled').sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]);
+  }
+
+  listProviderActionBindings(tenantId: string, providerId?: string): Promise<ProviderActionBindingEntity[]> {
+    return this.list('pg_ca_provider_action_bindings', tenantId, providerId ? { provider_id: providerId } : undefined);
+  }
+
   async deleteUnboundProvider(tenantId: string, providerId: string): Promise<boolean> {
     return this.db.transaction(async (tx) => {
       const authorities = await tx.query('select id from pg_certificate_authorities where tenant_id = $1 and provider_id = $2 limit 1', [tenantId, providerId]);
@@ -54,6 +85,7 @@ export class InternalCaRepository {
         await tx.query('delete from pg_ca_node_request_nonces where node_id = any($1::text[])', [nodeIds]);
       }
       await tx.query('delete from pg_ca_capability_records where tenant_id = $1 and owner_type = $2 and owner_id = $3', [tenantId, 'provider', providerId]);
+      await tx.query('delete from pg_ca_provider_action_bindings where tenant_id = $1 and provider_id = $2', [tenantId, providerId]);
       await tx.query('delete from pg_ca_node_tasks where tenant_id = $1 and provider_id = $2', [tenantId, providerId]);
       await tx.query('delete from pg_ca_node_enrollment_tokens where tenant_id = $1 and provider_id = $2', [tenantId, providerId]);
       await tx.query('delete from pg_ca_nodes where tenant_id = $1 and provider_id = $2', [tenantId, providerId]);
@@ -140,6 +172,63 @@ export class InternalCaRepository {
 
   listIssuanceRecords(tenantId: string, caId?: string): Promise<CaIssuanceRecordEntity[]> {
     return this.list('pg_ca_issuance_records', tenantId, caId ? { ca_id: caId } : undefined);
+  }
+
+  async allocateCrlNumber(tenantId: string, caId: string, now = new Date()): Promise<number> {
+    const result = await this.db.query<{ crl_number: number | string }>(
+      `insert into pg_ca_crl_states (tenant_id, ca_id, next_crl_number, created_at, updated_at)
+       values ($1, $2, 2, $3, $3)
+       on conflict (tenant_id, ca_id) do update
+       set next_crl_number = pg_ca_crl_states.next_crl_number + 1,
+           updated_at = excluded.updated_at
+       returning next_crl_number - 1 as crl_number`,
+      [tenantId, caId, now.toISOString()],
+    );
+    const value = result.rows[0]?.crl_number;
+    if (value === undefined) throw new Error('CRL Number 分配未返回结果');
+    return Number(value);
+  }
+
+  saveCrlPublication(entity: CaCrlPublicationEntity): Promise<CaCrlPublicationEntity> {
+    return this.upsert('pg_ca_crl_publications', entity.id, entity, {
+      tenant_id: entity.tenantId,
+      ca_id: entity.caId,
+      crl_number: entity.crlNumber,
+      this_update: entity.thisUpdate,
+      next_update: entity.nextUpdate,
+      distribution_point: entity.distributionPoint ?? null,
+      crl_fingerprint_sha256: entity.crlFingerprintSha256,
+      publication_status: entity.publicationStatus,
+    });
+  }
+
+  listCrlPublications(tenantId: string, caId?: string): Promise<CaCrlPublicationEntity[]> {
+    return this.list('pg_ca_crl_publications', tenantId, caId ? { ca_id: caId } : undefined);
+  }
+
+  getLatestCrlPublication(tenantId: string, caId: string): Promise<CaCrlPublicationEntity | undefined> {
+    return this.db.query<{ payload: CaCrlPublicationEntity }>(
+      'select payload from pg_ca_crl_publications where tenant_id = $1 and ca_id = $2 order by crl_number desc limit 1',
+      [tenantId, caId],
+    ).then((result) => result.rows[0]?.payload ? structuredClone(result.rows[0].payload) : undefined);
+  }
+
+  /**
+   * 公开 CDP 只读取已发布的最新制品，失败或未知状态不能被客户端当成有效 CRL。
+   * 租户和 CA 都来自发布 URL，避免把一个租户的 CRL 暴露给另一个租户。
+   */
+  getPublicCrlPublication(tenantId: string, caId: string): Promise<CaCrlPublicationEntity | undefined> {
+    return this.db.query<{ payload: CaCrlPublicationEntity }>(
+      `select payload
+         from pg_ca_crl_publications
+        where tenant_id = $1
+          and ca_id = $2
+          and publication_status = 'published'
+          and coalesce(payload->>'crlDerBase64', '') <> ''
+        order by crl_number desc
+        limit 1`,
+      [tenantId, caId],
+    ).then((result) => result.rows[0]?.payload ? structuredClone(result.rows[0].payload) : undefined);
   }
 
   saveTrustDomain(entity: CaTrustDomainEntity): Promise<CaTrustDomainEntity> {
@@ -400,6 +489,51 @@ export class InternalCaRepository {
     });
   }
 
+  async createCertificatePolicy(policy: CertificatePolicyEntity, version: CertificatePolicyVersionEntity): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const repository = new InternalCaRepository(tx);
+      await repository.saveCertificatePolicy(policy);
+      await repository.saveCertificatePolicyVersion(version);
+    });
+  }
+
+  saveCertificatePolicy(entity: CertificatePolicyEntity): Promise<CertificatePolicyEntity> {
+    return this.upsert('pg_certificate_policies', entity.id, entity, {
+      tenant_id: entity.tenantId,
+      status: entity.status,
+      current_version: entity.currentVersion,
+    });
+  }
+
+  saveCertificatePolicyVersion(entity: CertificatePolicyVersionEntity): Promise<CertificatePolicyVersionEntity> {
+    return this.upsert('pg_certificate_policy_versions', entity.id, entity, {
+      policy_id: entity.policyId,
+      version_no: entity.versionNo,
+      rules: entity.rules,
+      created_by: entity.createdBy,
+    });
+  }
+
+  getCertificatePolicy(tenantId: string, id: string): Promise<CertificatePolicyEntity | undefined> {
+    return this.get('pg_certificate_policies', tenantId, id);
+  }
+
+  listCertificatePolicies(tenantId: string): Promise<CertificatePolicyEntity[]> {
+    return this.list('pg_certificate_policies', tenantId);
+  }
+
+  async getCertificatePolicyVersion(id: string): Promise<CertificatePolicyVersionEntity | undefined> {
+    const result = await this.db.query<{ payload: CertificatePolicyVersionEntity }>(
+      'select payload from pg_certificate_policy_versions where id = $1',
+      [id],
+    );
+    return result.rows[0]?.payload ? structuredClone(result.rows[0].payload) : undefined;
+  }
+
+  listCertificatePolicyVersions(policyId: string): Promise<CertificatePolicyVersionEntity[]> {
+    return this.listWithoutTenant('pg_certificate_policy_versions', { policy_id: policyId });
+  }
+
   getProfile(tenantId: string, id: string): Promise<CertificateProfileEntity | undefined> {
     return this.get('pg_certificate_profiles', tenantId, id);
   }
@@ -427,6 +561,8 @@ export class InternalCaRepository {
       ca_id: entity.caId,
       trust_domain_id: entity.trustDomainId ?? null,
       profile_version_id: entity.profileVersionId,
+      certificate_policy_version_id: entity.certificatePolicyVersionId ?? null,
+      provider_action_binding_id: entity.providerActionBindingId ?? null,
       key_reference_id: entity.keyReferenceId,
       csr_pem: entity.csrPem,
       csr_sha256: entity.csrSha256,
@@ -488,6 +624,36 @@ export class InternalCaRepository {
 
   listRevocations(tenantId: string): Promise<CertificateRevocationEntity[]> {
     return this.list('pg_certificate_revocations', tenantId);
+  }
+
+  saveRotation(entity: CertificateRotationEntity): Promise<CertificateRotationEntity> {
+    return this.upsert('pg_certificate_rotations', entity.id, entity, {
+      tenant_id: entity.tenantId,
+      application_asset_id: entity.applicationAssetId,
+      source_certificate_version_id: entity.sourceCertificateVersionId,
+      source_key_reference_id: entity.sourceKeyReferenceId ?? null,
+      target_key_reference_id: entity.targetKeyReferenceId ?? null,
+      target_certificate_request_id: entity.targetCertificateRequestId ?? null,
+      target_certificate_version_id: entity.targetCertificateVersionId ?? null,
+      policy_version_id: entity.policyVersionId ?? null,
+      idempotency_key: entity.idempotencyKey,
+      status: entity.status,
+      evidence: entity.evidence,
+      warnings: entity.warnings,
+      requested_by: entity.requestedBy,
+    });
+  }
+
+  getRotation(tenantId: string, id: string): Promise<CertificateRotationEntity | undefined> {
+    return this.get('pg_certificate_rotations', tenantId, id);
+  }
+
+  getRotationByIdempotencyKey(tenantId: string, idempotencyKey: string): Promise<CertificateRotationEntity | undefined> {
+    return this.getByColumns('pg_certificate_rotations', tenantId, { idempotency_key: idempotencyKey });
+  }
+
+  listRotations(tenantId: string): Promise<CertificateRotationEntity[]> {
+    return this.list('pg_certificate_rotations', tenantId);
   }
 
   saveTrustDistribution(entity: TrustDistributionEntity): Promise<TrustDistributionEntity> {
@@ -567,11 +733,12 @@ export class InternalCaRepository {
       entries.map(([, value]) => value),
     );
     if (table === 'pg_certificate_profile_versions') return result.rows.map(profileVersionFromRow) as T[];
+    if (table === 'pg_certificate_policy_versions') return result.rows.map(certificatePolicyVersionFromRow) as T[];
     return [];
   }
 }
 
-const jsonColumns = new Set(['payload', 'capabilities', 'configuration', 'rules', 'target_scope', 'root_policy', 'trust_policy', 'evidence', 'sans']);
+const jsonColumns = new Set(['payload', 'capabilities', 'configuration', 'rules', 'target_scope', 'root_policy', 'trust_policy', 'evidence', 'warnings', 'sans', 'capability_evidence']);
 
 function profileVersionFromRow(row: Record<string, unknown>): CertificateProfileVersionEntity {
   return {
@@ -579,6 +746,17 @@ function profileVersionFromRow(row: Record<string, unknown>): CertificateProfile
     profileId: String(row.profile_id),
     versionNo: Number(row.version_no),
     rules: (row.rules ?? {}) as CertificateProfileVersionEntity['rules'],
+    createdBy: String(row.created_by),
+    createdAt: toIso(row.created_at),
+  };
+}
+
+function certificatePolicyVersionFromRow(row: Record<string, unknown>): CertificatePolicyVersionEntity {
+  return {
+    id: String(row.id),
+    policyId: String(row.policy_id),
+    versionNo: Number(row.version_no),
+    rules: (row.rules ?? {}) as CertificatePolicyVersionEntity['rules'],
     createdBy: String(row.created_by),
     createdAt: toIso(row.created_at),
   };

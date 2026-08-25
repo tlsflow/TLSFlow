@@ -75,7 +75,8 @@ test('通用 CA 路由同时暴露宿主 ACME 生命周期和运营合同', () =
   assert.ok(paths.every((path) => path.startsWith('/api/v1/ca-')
     || path.startsWith('/api/v1/certificate-')
     || path.startsWith('/api/v1/acme/')
-    || path.startsWith('/api/v1/reports/')));
+    || path.startsWith('/api/v1/reports/')
+    || path.startsWith('/api/v1/public/')));
   assert.equal(paths.includes('/api/v1/certificate-authorities'), true);
   assert.equal(paths.includes('/api/v1/certificate-requests'), true);
   assert.equal(paths.includes('/api/v1/ca-operations/records'), true);
@@ -83,6 +84,11 @@ test('通用 CA 路由同时暴露宿主 ACME 生命周期和运营合同', () =
   assert.equal(paths.includes('/api/v1/acme/provider-profiles'), true);
   assert.equal(paths.includes('/api/v1/acme/providers/probe-directory'), true);
   assert.equal(paths.includes('/api/v1/acme/certificates'), true);
+  assert.equal(paths.includes('/api/v1/certificate-rotations'), true);
+  assert.equal(paths.includes('/api/v1/certificate-rotations/:id/install-action'), true);
+  assert.equal(paths.includes('/api/v1/certificate-rotations/:id/tls-verify'), true);
+  const publicCrlRoute = routes.find((route) => route.path === '/api/v1/public/ca-crl/:tenantId/:caId');
+  assert.equal(publicCrlRoute?.responseContentType, 'application/pkix-crl');
   assert.equal(paths.some((path) => path.includes('certificate-acme')), false);
 });
 
@@ -210,21 +216,116 @@ test('ACME 首次申请并发初始化保持幂等', async () => {
   }
 });
 
-test('未绑定 PluginVersion 的外部 Provider 必须失败关闭', async () => {
+test('外部 Provider 可先创建，未绑定固定动作时申请被明确拒绝', async () => {
   const { db, service } = await createFixture();
   try {
-    await assert.rejects(
-      () => service.createProvider('tenant-plugin-binding', {
-        name: '未绑定版本的外部 Provider',
-        type: 'plugin',
-        deploymentMode: 'external',
-        runtimePlatform: 'external',
-        availabilityMode: 'single',
-      }, 'user-admin'),
+    const tenantId = 'tenant-plugin-binding';
+    const provider = await service.createProvider(tenantId, {
+      name: '未绑定版本的外部 Provider', type: 'plugin', deploymentMode: 'external', runtimePlatform: 'external', availabilityMode: 'single',
+    }, 'user-admin');
+    const preview = service.previewAuthority({
+      topologyMode: 'external_managed', deploymentMode: 'external', runtimePlatform: 'external', availabilityMode: 'single', keyBackend: 'secret',
+    });
+    const [authority] = await service.createAuthority(tenantId, {
+      providerId: provider.id, name: '外部 CA', securityDomain: 'production', commonName: '外部 CA', topologyMode: 'external_managed',
+      deploymentMode: 'external', runtimePlatform: 'external', availabilityMode: 'single', keyBackend: 'secret', confirmationToken: preview.confirmationToken, actorId: 'user-admin',
+    });
+    const profile = await service.createProfile(tenantId, {
+      name: '外部 CA Profile', securityDomain: 'production', actorId: 'user-admin',
+    });
+    await assert.rejects(() => service.createCertificateRequest(tenantId, {
+      applicationAssetId: 'app-1', caId: authority!.id, profileVersionId: profile.version.id, commonName: 'app.example.com', sans: ['app.example.com'],
+      custodyMode: 'managed_secret', deferIssuance: true, actorId: 'user-admin',
+    }),
       (error: unknown) => error instanceof Error
         && 'errorCode' in error
-        && error.errorCode === 'CA_PROVIDER_UNAVAILABLE',
+        && error.errorCode === 'CA_PROVIDER_ACTION_UNBOUND',
     );
+  } finally {
+    await db.close();
+  }
+});
+
+test('固定 Provider 动作和兼容策略快照在申请创建时冻结', async () => {
+  const { db, service } = await createFixture();
+  try {
+    const tenantId = 'tenant-policy-snapshot';
+    const provider = await service.createProvider(tenantId, {
+      name: '固定动作外部 CA', type: 'plugin', deploymentMode: 'external', runtimePlatform: 'external', availabilityMode: 'single',
+    }, 'user-admin');
+    const binding = await service.createProviderActionBinding(tenantId, {
+      providerId: provider.id, pluginVersionId: 'plugin-version-1', executionLocation: 'agent',
+      issueAction: { actionId: 'ca.issue', actionVersion: '1.0' }, status: 'revalidation_required',
+    }, 'user-admin');
+    const preview = service.previewAuthority({
+      topologyMode: 'external_managed', deploymentMode: 'external', runtimePlatform: 'external', availabilityMode: 'single', keyBackend: 'secret',
+    });
+    const [authority] = await service.createAuthority(tenantId, {
+      providerId: provider.id, name: '固定动作 CA', securityDomain: 'production', commonName: '固定动作 CA', topologyMode: 'external_managed',
+      deploymentMode: 'external', runtimePlatform: 'external', availabilityMode: 'single', keyBackend: 'secret', confirmationToken: preview.confirmationToken, actorId: 'user-admin',
+    });
+    const profile = await service.createProfile(tenantId, {
+      name: '固定动作 Profile', securityDomain: 'production', rules: { maximumValidityDays: 365 }, actorId: 'user-admin',
+    });
+    const request = await service.createCertificateRequest(tenantId, {
+      applicationAssetId: 'app-1', caId: authority!.id, profileVersionId: profile.version.id, commonName: 'app.example.com', sans: ['app.example.com'],
+      custodyMode: 'managed_secret', requestedValidityDays: 365, deferIssuance: true, actorId: 'user-admin',
+    });
+    assert.equal(request.status, 'approved');
+    assert.equal(request.providerActionBindingId, binding.id);
+    assert.equal(request.effectivePolicySnapshot?.effectiveValidityDays, 365);
+    assert.ok(request.effectivePolicySnapshot?.warnings.some((item) => item.includes('复验')));
+
+    const [{ policy }] = await service.listCertificatePolicies(tenantId);
+    const strict = await service.createCertificatePolicyVersion(tenantId, policy!.id, {
+      strictEnforcement: true, issueApprovalRequired: true,
+    }, 'user-admin');
+    const later = await service.createCertificateRequest(tenantId, {
+      applicationAssetId: 'app-2', caId: authority!.id, profileVersionId: profile.version.id, commonName: 'later.example.com', sans: ['later.example.com'],
+      custodyMode: 'managed_secret', deferIssuance: true, actorId: 'user-admin',
+    });
+    assert.equal(later.status, 'pending_approval');
+    assert.equal(later.certificatePolicyVersionId, strict.id);
+    assert.equal(request.effectivePolicySnapshot?.requiresApproval, false);
+  } finally {
+    await db.close();
+  }
+});
+
+test('内置 CA 吊销会写入账本并发布可验签 CRL', async () => {
+  const { db, service } = await createFixture();
+  try {
+    const tenantId = 'tenant-builtin-crl';
+    const provider = await service.createProvider(tenantId, {
+      name: '可发布 CRL 的内置 CA', type: 'gcac_builtin', deploymentMode: 'builtin', runtimePlatform: 'embedded', availabilityMode: 'single',
+    }, 'user-admin');
+    const preview = service.previewAuthority({
+      topologyMode: 'root_only', deploymentMode: 'builtin', runtimePlatform: 'embedded', availabilityMode: 'single', keyBackend: 'secret',
+    });
+    const [authority] = await service.createAuthority(tenantId, {
+      providerId: provider.id, name: 'CRL Root', securityDomain: 'production', topologyMode: 'root_only',
+      deploymentMode: 'builtin', runtimePlatform: 'embedded', availabilityMode: 'single', keyBackend: 'secret',
+      crlDistributionPoint: 'http://127.0.0.1/crl.pem', confirmationToken: preview.confirmationToken, actorId: 'user-admin',
+    });
+    const profile = await service.createProfile(tenantId, { name: 'CRL Web', securityDomain: 'production', actorId: 'user-admin' });
+    const request = await service.createCertificateRequest(tenantId, {
+      applicationAssetId: 'crl-app', caId: authority!.id, profileVersionId: profile.version.id,
+      commonName: 'crl.example.com', sans: ['crl.example.com'], custodyMode: 'managed_secret', actorId: 'user-admin',
+    });
+    assert.equal(request.status, 'issued');
+    assert.ok(request.certificateVersionId);
+    const revocation = await service.requestRevocation(tenantId, request.certificateVersionId!, 'keyCompromise', 'user-admin');
+    assert.equal(revocation.status, 'revoked');
+    const publications = await service.listCrlPublications(tenantId, authority!.id);
+    assert.equal(publications.length, 1);
+    assert.equal(publications[0]?.publicationStatus, 'published');
+    assert.equal(publications[0]?.verification.signatureVerified, true);
+    assert.deepEqual(publications[0]?.revokedSerialNumbers, ['01']);
+    const publicCrl = await service.getPublicCrl(tenantId, authority!.id);
+    assert.equal(publicCrl.contentType, 'application/pkix-crl');
+    assert.equal(publicCrl.crlNumber, 1);
+    assert.match(publicCrl.etag, /^"[a-f0-9]{64}"$/);
+    assert.ok(publicCrl.body.length > 0);
   } finally {
     await db.close();
   }

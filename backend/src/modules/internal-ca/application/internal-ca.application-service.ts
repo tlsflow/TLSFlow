@@ -10,6 +10,7 @@ import type { SecretService } from '../../secrets/secret.service.js';
 import {
   CaProviderRegistry,
   createDefaultCaProviderRegistry,
+  PluginCaProviderAdapter,
   type CaProviderValidationResult,
   type CaIssuanceResult,
 } from '../providers/ca-provider.js';
@@ -23,6 +24,7 @@ import {
 } from '../providers/acme-provider-profiles.js';
 import { OpenSslCa } from '../providers/openssl-ca.js';
 import { InternalCaRepository } from '../repository/internal-ca.repository.js';
+import { CertificatePolicyService, normalizeCertificatePolicyRules } from './certificate-policy.service.js';
 import { CaNodeTaskChannel, type CaNodeTaskNotificationListener } from './ca-node-task-channel.js';
 import { CaOperationsQueryService } from './ca-operations-query.service.js';
 import { CaSyncCoordinator, type CreateCaSyncRunsInput } from './ca-sync-coordinator.js';
@@ -37,6 +39,7 @@ import {
   caProviderTypes,
   type CaAvailabilityMode,
   type CaCapabilityRecordEntity,
+  type CaCrlPublicationEntity,
   type CaDeploymentMode,
   type CaIssuanceRecordEntity,
   type CaNodeEntity,
@@ -51,6 +54,9 @@ import {
   type CaTrustDomainIsolationLevel,
   type CaTrustDomainStatus,
   type CertificateAuthorityEntity,
+  type CertificatePolicyEntity,
+  type CertificatePolicyRules,
+  type CertificatePolicyVersionEntity,
   type CertificateProfileEntity,
   type CertificateProfileRules,
   type CertificateProfileVersionEntity,
@@ -61,6 +67,8 @@ import {
   type KeyBackendType,
   type KeyExportability,
   type KeyReferenceEntity,
+  type ProviderActionBindingEntity,
+  type ProviderActionExecutionLocation,
   type TrustDistributionEntity,
 } from '../schema/internal-ca.schema.js';
 import { AcmeDomainService } from '../domain/acme.domain-service.js';
@@ -77,6 +85,19 @@ export interface CreateCaProviderInput {
   endpoint?: string;
   credentialSecretRef?: string;
   configuration?: Record<string, unknown>;
+}
+
+export interface CreateProviderActionBindingInput {
+  providerId: string;
+  pluginVersionId: string;
+  executionLocation: ProviderActionExecutionLocation;
+  issueAction: ProviderActionBindingEntity['issueAction'];
+  queryAction?: ProviderActionBindingEntity['queryAction'];
+  revokeAction?: ProviderActionBindingEntity['revokeAction'];
+  revocationEvidenceAction?: ProviderActionBindingEntity['revocationEvidenceAction'];
+  approvalMode?: ProviderActionBindingEntity['approvalMode'];
+  capabilityEvidence?: Record<string, unknown>;
+  status?: ProviderActionBindingEntity['status'];
 }
 
 /** 管理员高级设置使用的 ACME Provider 配置；普通申请页不暴露 Directory URL。 */
@@ -130,6 +151,7 @@ export interface CreateAuthorityInput extends PreviewCaInput {
   securityDomain: string;
   rootValidityDays?: number;
   intermediateValidityDays?: number;
+  crlDistributionPoint?: string;
   confirmationToken: string;
   actorId: string;
 }
@@ -191,6 +213,7 @@ export class InternalCaApplicationService {
   private readonly nodeTaskChannel: CaNodeTaskChannel;
   private readonly operationsQuery: CaOperationsQueryService;
   private readonly syncCoordinator: CaSyncCoordinator;
+  private readonly certificatePolicies: CertificatePolicyService;
 
   constructor(private readonly dependencies: {
     db: DatabasePort;
@@ -211,10 +234,16 @@ export class InternalCaApplicationService {
     const operationsAdapters = dependencies.operationsAdapters ?? new CaOperationsAdapterRegistry();
     this.operationsQuery = new CaOperationsQueryService(dependencies.db, operationsAdapters, undefined, this.repository);
     this.syncCoordinator = new CaSyncCoordinator(dependencies.db, operationsAdapters, dependencies.audit, undefined, this.repository);
+    this.certificatePolicies = new CertificatePolicyService(this.repository);
   }
 
   getRepository(): InternalCaRepository {
     return this.repository;
+  }
+
+  /** 在完整 Runner 资源装配后注入外部 CA 动作执行器。 */
+  setPluginActionDispatcher(dispatcher: import('../providers/ca-provider.js').CaPluginActionDispatcher): void {
+    this.providers.register('plugin', new PluginCaProviderAdapter(dispatcher));
   }
 
   listCaOperationsRecords(tenantId: string, query: CaOperationsRecordQueryDto): Promise<CaOperationRecordPageDto> {
@@ -459,7 +488,6 @@ export class InternalCaApplicationService {
       updatedAt: now,
     };
     assertProviderCombination(provider);
-    assertPluginBinding(provider);
     await this.repository.saveProvider(provider);
     await this.saveDeclaredCapabilities(provider);
     await this.audit('internal_ca.provider.created', actorId, 'ca_provider.create', 'ca_provider', provider.id, 'high', context, {
@@ -480,7 +508,16 @@ export class InternalCaApplicationService {
 
   async testProvider(tenantId: string, providerId: string): Promise<CaProviderValidationResult> {
     const provider = await this.requireProvider(tenantId, providerId);
-    assertPluginBinding(provider);
+    if (provider.type === 'plugin') {
+      const binding = await this.requireProviderActionBinding(tenantId, provider.id);
+      return {
+        reachable: binding.status !== 'disabled',
+        capabilities: provider.capabilities,
+        detail: binding.status === 'revalidation_required'
+          ? '固定外部 CA 动作仍可使用，但 Schema 或能力证据需要复验。'
+          : '固定外部 CA 动作已配置；实际连通性由动作执行回执确认。',
+      };
+    }
     const result = await this.providers.get(provider.type).validateConnection(provider);
     if (provider.type === 'acme') {
       const existingVerification = provider.configuration.verification && typeof provider.configuration.verification === 'object'
@@ -513,6 +550,59 @@ export class InternalCaApplicationService {
     ownerId: string,
   ): Promise<CaCapabilityRecordEntity[]> {
     return this.repository.listCapabilityRecords(tenantId, ownerType, ownerId);
+  }
+
+  async createProviderActionBinding(
+    tenantId: string,
+    input: CreateProviderActionBindingInput,
+    actorId: string,
+    context?: RequestContext,
+  ): Promise<ProviderActionBindingEntity> {
+    const provider = await this.requireProvider(tenantId, input.providerId);
+    if (provider.type !== 'plugin') throw new AppError('CA_TOPOLOGY_INVALID', '只有 plugin 类型 CA Provider 可以绑定外部动作', { providerId: provider.id });
+    const now = new Date().toISOString();
+    const binding: ProviderActionBindingEntity = {
+      id: newId('capabind'), tenantId, providerId: provider.id,
+      pluginVersionId: requiredText(input.pluginVersionId, 'pluginVersionId'),
+      executionLocation: input.executionLocation,
+      issueAction: normalizeProviderAction(input.issueAction, 'issueAction'),
+      queryAction: input.queryAction ? normalizeProviderAction(input.queryAction, 'queryAction') : undefined,
+      revokeAction: input.revokeAction ? normalizeProviderAction(input.revokeAction, 'revokeAction') : undefined,
+      revocationEvidenceAction: input.revocationEvidenceAction ? normalizeProviderAction(input.revocationEvidenceAction, 'revocationEvidenceAction') : undefined,
+      approvalMode: input.approvalMode ?? 'none',
+      capabilityEvidence: structuredClone(input.capabilityEvidence ?? {}),
+      status: input.status ?? 'active',
+      createdBy: actorId, createdAt: now, updatedAt: now,
+    };
+    await this.repository.saveProviderActionBinding(binding);
+    await this.audit('internal_ca.provider_action_binding.created', actorId, 'ca_provider.manage', 'ca_provider_action_binding', binding.id, 'high', context, {
+      providerId: provider.id, pluginVersionId: binding.pluginVersionId, executionLocation: binding.executionLocation, status: binding.status,
+    });
+    return binding;
+  }
+
+  listProviderActionBindings(tenantId: string, providerId?: string): Promise<ProviderActionBindingEntity[]> {
+    return this.repository.listProviderActionBindings(tenantId, providerId);
+  }
+
+  async listCertificatePolicies(tenantId: string): Promise<Array<{ policy: CertificatePolicyEntity; versions: CertificatePolicyVersionEntity[] }>> {
+    await this.certificatePolicies.ensureDefault(tenantId);
+    return Promise.all((await this.repository.listCertificatePolicies(tenantId)).map(async (policy) => ({
+      policy,
+      versions: await this.repository.listCertificatePolicyVersions(policy.id),
+    })));
+  }
+
+  async createCertificatePolicyVersion(
+    tenantId: string,
+    policyId: string,
+    rules: Partial<CertificatePolicyRules>,
+    actorId: string,
+    context?: RequestContext,
+  ): Promise<CertificatePolicyVersionEntity> {
+    const version = await this.certificatePolicies.createVersion(tenantId, policyId, normalizeCertificatePolicyRules(rules), actorId);
+    await this.audit('internal_ca.certificate_policy.version_created', actorId, 'ca_policy.manage', 'certificate_policy', policyId, 'high', context, { versionNo: version.versionNo });
+    return version;
   }
 
   async reserveIssuanceRecord(tenantId: string, input: {
@@ -690,6 +780,7 @@ export class InternalCaApplicationService {
       notBefore: rootMaterial.notBefore,
       notAfter: rootMaterial.notAfter,
       fingerprintSha256: rootMaterial.fingerprintSha256,
+      crlDistributionPoint: optionalText(input.crlDistributionPoint),
       createdAt: now,
       updatedAt: now,
     };
@@ -872,6 +963,17 @@ export class InternalCaApplicationService {
     const profile = await this.repository.getProfile(tenantId, profileVersion.profileId);
     if (!profile) throw new AppError('RESOURCE_NOT_FOUND', '证书 Profile 不存在', { profileId: profileVersion.profileId });
     validateProfile(input, profileVersion.rules);
+    const provider = await this.requireProvider(tenantId, authority.providerId);
+    const providerActionBinding = provider.type === 'plugin'
+      ? await this.requireProviderActionBinding(tenantId, provider.id)
+      : undefined;
+    const policySnapshot = await this.certificatePolicies.snapshot({
+      tenantId,
+      actorId: input.actorId,
+      requestedValidityDays: input.requestedValidityDays,
+      profileRules: profileVersion.rules,
+      binding: providerActionBinding,
+    });
     if (authority.trustDomainId) {
       await this.requireUsableTrustDomain(tenantId, authority.trustDomainId);
       if (input.trustDomainId && authority.trustDomainId !== input.trustDomainId) throw new AppError('CERTIFICATE_TRUST_DOMAIN_MISMATCH', '证书申请与 CA 信任域不匹配');
@@ -888,7 +990,7 @@ export class InternalCaApplicationService {
     const keyMaterial = await this.prepareKeyMaterial(tenantId, input, profileVersion.rules, context);
     const now = new Date().toISOString();
     const requestId = newId('certreq');
-    const approval = profileVersion.rules.requireApproval && this.dependencies.approvals
+    const approval = policySnapshot.requiresApproval && this.dependencies.approvals
       ? await this.dependencies.approvals.create({
           operationType: 'certificate_request.issue',
           resourceRefs: [{ type: 'certificate_request', id: requestId }],
@@ -904,18 +1006,21 @@ export class InternalCaApplicationService {
       caId: authority.id,
       trustDomainId: authority.trustDomainId,
       profileVersionId: profileVersion.id,
+      certificatePolicyVersionId: policySnapshot.policyVersionId,
+      providerActionBindingId: policySnapshot.providerActionBindingId,
+      effectivePolicySnapshot: policySnapshot,
       keyReferenceId: keyMaterial.keyReference.id,
       csrPem: keyMaterial.csrPem,
       csrSha256: keyMaterial.csrSha256,
       publicKeyFingerprintSha256: keyMaterial.publicKeyFingerprintSha256,
       idempotencyKey,
-      status: profileVersion.rules.requireApproval ? 'pending_approval' : 'approved',
+      status: policySnapshot.requiresApproval ? 'pending_approval' : 'approved',
       requestedBy: input.actorId,
       approvalId: approval?.id,
       deferIssuance: input.deferIssuance === true,
       subjectCommonName: requiredText(input.commonName, 'commonName'),
       sans: normalizeCertificateNames(input.sans),
-      requestedValidityDays: Math.min(input.requestedValidityDays ?? profileVersion.rules.maximumValidityDays, profileVersion.rules.maximumValidityDays),
+      requestedValidityDays: policySnapshot.effectiveValidityDays,
       createdAt: now,
       updatedAt: now,
     };
@@ -926,7 +1031,7 @@ export class InternalCaApplicationService {
       keyCustodyMode: input.custodyMode,
       publicKeyFingerprintSha256: request.publicKeyFingerprintSha256,
     });
-    if (profileVersion.rules.requireApproval || input.deferIssuance === true) return request;
+    if (policySnapshot.requiresApproval || input.deferIssuance === true) return request;
     return this.issueRequest(tenantId, request.id, input.actorId, context);
   }
 
@@ -961,6 +1066,7 @@ export class InternalCaApplicationService {
     if (!['approved', 'issue_failed'].includes(request.status)) throw new AppError('RESOURCE_VERSION_CONFLICT', '证书申请尚未批准', { status: request.status });
     const authority = await this.requireAuthority(tenantId, request.caId);
     const provider = await this.requireProvider(tenantId, authority.providerId);
+    const actionBinding = request.providerActionBindingId ? await this.repository.getProviderActionBinding(tenantId, request.providerActionBindingId) : undefined;
     if (request.deferIssuance === true && provider.type === 'acme') throw new AppError('ACME_ORDER_REQUIRED', 'ACME 证书申请必须通过 Order 生命周期完成签发');
     const profileVersion = await this.repository.getProfileVersion(request.profileVersionId);
     const keyReference = await this.repository.getKeyReference(tenantId, request.keyReferenceId);
@@ -974,12 +1080,14 @@ export class InternalCaApplicationService {
         provider,
         authority,
         csrPem: request.csrPem,
+        subject: request.subjectCommonName,
         sans: request.sans,
         validityDays: request.requestedValidityDays,
         profileRules: profileVersion.rules,
         idempotencyKey: request.idempotencyKey,
         actorId,
         serialNumber: provider.type === 'gcac_builtin' ? ledgerRecord?.serialNumber : undefined,
+        actionBinding,
       });
       if (issued.status !== 'issued') return this.saveNonFinalIssuance(request, issued);
       return this.completeIssuedRequest(request, issued, provider, authority, keyReference, actorId, context);
@@ -1005,7 +1113,8 @@ export class InternalCaApplicationService {
     if (!adapter.queryIssuance || !provider.capabilities.queryIssuance) throw new AppError('CA_CAPABILITY_UNSUPPORTED', '当前 CA Provider 不支持查询签发结果');
     const keyReference = await this.repository.getKeyReference(tenantId, request.keyReferenceId);
     if (!keyReference) throw new AppError('RESOURCE_NOT_FOUND', '证书申请密钥引用不存在');
-    const result = await adapter.queryIssuance({ provider, providerRequestId: request.providerRequestId, actorId });
+    const actionBinding = request.providerActionBindingId ? await this.repository.getProviderActionBinding(tenantId, request.providerActionBindingId) : undefined;
+    const result = await adapter.queryIssuance({ provider, providerRequestId: request.providerRequestId, actorId, actionBinding, idempotencyKey: request.idempotencyKey });
     if (result.status !== 'issued') return this.saveNonFinalIssuance(request, result);
     return this.completeIssuedRequest(request, result, provider, authority, keyReference, actorId, context);
   }
@@ -1102,18 +1211,21 @@ export class InternalCaApplicationService {
     if (!version?.issuingCaId) throw new AppError('RESOURCE_NOT_FOUND', '证书版本没有可用的签发 CA', { certificateVersionId });
     const authority = await this.requireAuthority(tenantId, version.issuingCaId);
     const now = new Date().toISOString();
-    const approval = await this.dependencies.approvals?.create({
+    const policy = await this.certificatePolicies.ensureDefault(tenantId, actorId);
+    const requiresApproval = policy.version.rules.strictEnforcement && policy.version.rules.revocationApprovalRequired;
+    const approval = requiresApproval ? await this.dependencies.approvals?.create({
       operationType: 'certificate.revoke',
       resourceRefs: [{ type: 'certificate_version', id: certificateVersionId }],
       riskLevel: 'critical',
       parameters: { certificateVersionId, caId: authority.id, serialNumber: version.serialNumber, reason },
       requestedBy: actorId,
-    }, context);
-    return this.repository.saveRevocation({
+    }, context) : undefined;
+    const created = await this.repository.saveRevocation({
       id: newId('revoke'), tenantId, certificateVersionId, caId: authority.id, trustDomainId: authority.trustDomainId,
-      reason: requiredText(reason, 'reason'), status: 'pending_approval', requestedBy: actorId, approvalId: approval?.id,
+      reason: requiredText(reason, 'reason'), status: requiresApproval ? 'pending_approval' : 'approved', requestedBy: actorId, approvalId: approval?.id,
       warnings: [], createdAt: now, updatedAt: now,
     });
+    return requiresApproval ? created : this.executeRevocation(created, version.serialNumber, actorId, context);
   }
 
   listRevocations(tenantId: string): Promise<CertificateRevocationEntity[]> {
@@ -1125,12 +1237,113 @@ export class InternalCaApplicationService {
     if (!revocation) throw new AppError('RESOURCE_NOT_FOUND', '证书吊销任务不存在', { revocationId });
     const version = await this.dependencies.certificates.getRepository().getVersion(revocation.certificateVersionId, tenantId);
     if (!version) throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId: revocation.certificateVersionId });
-    const authority = await this.requireAuthority(tenantId, revocation.caId);
+    return this.executeRevocation(revocation, version.serialNumber, _actorId);
+  }
+
+  async publishCrl(tenantId: string, caId: string, actorId: string): Promise<CaCrlPublicationEntity> {
+    const authority = await this.requireAuthority(tenantId, caId);
     const provider = await this.requireProvider(tenantId, authority.providerId);
     const adapter = this.providers.get(provider.type);
+    if (!adapter.publishCrl) throw new AppError('CA_CRL_UNSUPPORTED', '当前 CA Provider 不支持 CRL 发布');
+    const actionBinding = provider.type === 'plugin' ? await this.repository.getActiveProviderActionBinding(tenantId, provider.id) : undefined;
+    const crlNumber = await this.repository.allocateCrlNumber(tenantId, caId);
+    const now = new Date();
+    const thisUpdate = now.toISOString();
+    const nextUpdate = new Date(now.getTime() + 7 * 86400000).toISOString();
+    try {
+      const material = await adapter.publishCrl({
+        provider,
+        authority,
+        issuanceRecords: await this.repository.listIssuanceRecords(tenantId, caId),
+        crlNumber,
+        actorId,
+        actionBinding,
+      });
+      return this.repository.saveCrlPublication({
+        id: newId('crlpub'), tenantId, caId, crlNumber: material.crlNumber, thisUpdate, nextUpdate,
+        distributionPoint: authority.crlDistributionPoint, crlPem: material.crlPem, crlDerBase64: material.crlDerBase64,
+        crlFingerprintSha256: material.crlFingerprintSha256, revokedSerialNumbers: material.revokedSerialNumbers,
+        publicationStatus: 'published', verification: {
+          signatureVerified: material.signatureVerified, issuerFingerprintSha256: material.issuerFingerprintSha256,
+          serialsVerified: true, source: provider.type === 'gcac_builtin' ? 'openssl' : 'external',
+        }, createdAt: thisUpdate,
+      });
+    } catch (error) {
+      return this.repository.saveCrlPublication({
+        id: newId('crlpub'), tenantId, caId, crlNumber, thisUpdate, nextUpdate,
+        distributionPoint: authority.crlDistributionPoint, crlPem: '', crlDerBase64: '', crlFingerprintSha256: '',
+        revokedSerialNumbers: [], publicationStatus: 'failed', verification: {
+          signatureVerified: false, serialsVerified: false, source: provider.type === 'gcac_builtin' ? 'openssl' : 'external',
+        }, errorCode: error instanceof AppError ? error.errorCode : 'CA_CRL_PUBLICATION_FAILED',
+        errorMessage: error instanceof Error ? error.message : String(error), createdAt: thisUpdate,
+      });
+    }
+  }
+
+  listCrlPublications(tenantId: string, caId?: string): Promise<CaCrlPublicationEntity[]> {
+    return this.repository.listCrlPublications(tenantId, caId);
+  }
+
+  /**
+   * 返回证书 CDP 使用的 DER CRL。该读取端不经过控制台权限，
+   * 但仍以租户/CA 路径精确定位，并且只允许已签名发布的制品。
+   */
+  async getPublicCrl(tenantId: string, caId: string, format: 'der' | 'pem' = 'der'): Promise<{
+    body: Buffer;
+    contentType: string;
+    etag: string;
+    crlNumber: number;
+  }> {
+    const authority = await this.repository.getAuthority(tenantId, caId);
+    if (!authority) throw new AppError('RESOURCE_NOT_FOUND', 'CRL 对应的 CA 不存在', { caId });
+    const publication = await this.repository.getPublicCrlPublication(tenantId, caId);
+    if (!publication) throw new AppError('RESOURCE_NOT_FOUND', 'CA 尚未发布可读取的 CRL', { caId });
+    const normalizedFormat = format === 'pem' ? 'pem' : 'der';
+    const body = normalizedFormat === 'pem'
+      ? Buffer.from(publication.crlPem, 'utf8')
+      : Buffer.from(publication.crlDerBase64, 'base64');
+    return {
+      body,
+      contentType: normalizedFormat === 'pem' ? 'application/pkix-crl; charset=us-ascii' : 'application/pkix-crl',
+      etag: `"${publication.crlFingerprintSha256}"`,
+      crlNumber: publication.crlNumber,
+    };
+  }
+
+  private async executeRevocation(revocation: CertificateRevocationEntity, serialNumber: string, actorId: string, context?: RequestContext): Promise<CertificateRevocationEntity> {
+    const authority = await this.requireAuthority(revocation.tenantId, revocation.caId);
+    const provider = await this.requireProvider(revocation.tenantId, authority.providerId);
+    const adapter = this.providers.get(provider.type);
     if (!adapter.revoke) throw new AppError('CERTIFICATE_REVOCATION_UNSUPPORTED', '当前 CA Provider 不支持吊销');
-    const revoked = await adapter.revoke({ provider, authority, serialNumber: version.serialNumber, reason: revocation.reason, actorId: _actorId });
-    return this.repository.saveRevocation({ ...revocation, status: 'revoked', revokedAt: revoked.revokedAt, updatedAt: new Date().toISOString() });
+    const revoking = await this.repository.saveRevocation({ ...revocation, status: 'revoking', updatedAt: new Date().toISOString() });
+    try {
+      const actionBinding = provider.type === 'plugin'
+        ? await this.repository.getActiveProviderActionBinding(revocation.tenantId, provider.id)
+        : undefined;
+      const revoked = await adapter.revoke({ provider, authority, serialNumber, reason: revocation.reason, actorId, actionBinding, idempotencyKey: `revoke:${revocation.id}` });
+      const issuance = await this.repository.getIssuanceByCertificateVersion(revocation.tenantId, revocation.certificateVersionId);
+      if (issuance) await this.repository.saveIssuanceRecord({ ...issuance, status: 'revoked', revocationReason: revocation.reason, revokedAt: revoked.revokedAt, updatedAt: revoked.revokedAt, observedAt: revoked.revokedAt });
+      if (provider.type === 'gcac_builtin') {
+        if (!authority.crlDistributionPoint) {
+          return this.repository.saveRevocation({
+            ...revoking,
+            status: 'revoked_unpublished',
+            revokedAt: revoked.revokedAt,
+            warnings: ['CA 已记录吊销，但未配置 CDP，不能确认撤销传播'],
+            updatedAt: new Date().toISOString(),
+          });
+        }
+        const publication = await this.publishCrl(revocation.tenantId, revocation.caId, actorId);
+        if (publication.publicationStatus !== 'published' || !publication.verification.signatureVerified || !publication.verification.serialsVerified) {
+          return this.repository.saveRevocation({ ...revoking, status: 'revoked_unpublished', revokedAt: revoked.revokedAt, warnings: ['CA 已记录吊销，但 CRL 未完成签名/传播验证'], updatedAt: new Date().toISOString() });
+        }
+      }
+      await this.audit('internal_ca.certificate.revoked', actorId, 'certificate.revoke', 'certificate_revocation', revocation.id, 'critical', context, { caId: authority.id, serialNumber });
+      return this.repository.saveRevocation({ ...revoking, status: 'revoked', revokedAt: revoked.revokedAt, updatedAt: new Date().toISOString() });
+    } catch (error) {
+      const status: CertificateRevocationEntity['status'] = error instanceof AppError && error.errorCode === 'CA_PROVIDER_UNAVAILABLE' ? 'unknown' : 'failed';
+      return this.repository.saveRevocation({ ...revoking, status, warnings: [error instanceof Error ? error.message : String(error)], updatedAt: new Date().toISOString() });
+    }
   }
 
   private async prepareKeyMaterial(
@@ -1299,6 +1512,7 @@ export class InternalCaApplicationService {
       notBefore: material.notBefore,
       notAfter: material.notAfter,
       fingerprintSha256: material.fingerprintSha256,
+      crlDistributionPoint: optionalText(input.crlDistributionPoint),
       createdAt: now,
       updatedAt: now,
     });
@@ -1515,7 +1729,7 @@ export class InternalCaApplicationService {
   async createNodeEnrollmentToken(tenantId: string, providerId: string, actorId: string, ttlMinutes = 15): Promise<{ tokenId: string; token: string; expiresAt: string }> {
     const provider = await this.requireProvider(tenantId, providerId);
     if (provider.type !== 'gcac_managed_node' && provider.type !== 'plugin') throw new AppError('CA_TOPOLOGY_INVALID', '当前 Provider 不允许注册受控节点');
-    assertPluginBinding(provider);
+    if (provider.type === 'plugin') await this.requireProviderActionBinding(tenantId, provider.id);
     const token = `gcn_${randomBytes(32).toString('base64url')}`;
     const now = new Date();
     const expiresAt = new Date(now.getTime() + Math.max(1, Math.min(ttlMinutes, 60)) * 60_000).toISOString();
@@ -1641,6 +1855,14 @@ export class InternalCaApplicationService {
     return provider;
   }
 
+  private async requireProviderActionBinding(tenantId: string, providerId: string): Promise<ProviderActionBindingEntity> {
+    const binding = await this.repository.getActiveProviderActionBinding(tenantId, providerId);
+    if (!binding || binding.status === 'disabled') {
+      throw new AppError('CA_PROVIDER_ACTION_UNBOUND', '外部 CA Provider 未绑定可执行的固定动作', { providerId });
+    }
+    return binding;
+  }
+
   private async requireAuthority(tenantId: string, id: string): Promise<CertificateAuthorityEntity> {
     const authority = await this.repository.getAuthority(tenantId, id);
     if (!authority) throw new AppError('RESOURCE_NOT_FOUND', '证书机构不存在', { caId: id });
@@ -1691,15 +1913,19 @@ function assertProviderCombination(provider: CaProviderEntity): void {
   if (provider.deploymentMode === 'external' && ['gcac_builtin', 'gcac_managed_node'].includes(provider.type)) throw new AppError('CA_TOPOLOGY_INVALID', '外部部署不能使用 GCAC 内置 Provider');
 }
 
-function assertPluginBinding(provider: CaProviderEntity): void {
-  if (provider.type !== 'plugin') return;
-  if (!textValue(provider.configuration.pluginId) || !textValue(provider.configuration.pluginVersionId)) {
-    throw new AppError('CA_PROVIDER_UNAVAILABLE', '外部 CA 插件缺少已发布的 PluginVersion 绑定', {
-      code: 'CA_PLUGIN_BINDING_REQUIRED',
-      providerId: provider.id,
-      providerType: provider.type,
-    });
-  }
+function normalizeProviderAction(
+  value: ProviderActionBindingEntity['issueAction'] | undefined,
+  field: string,
+): ProviderActionBindingEntity['issueAction'] {
+  if (!value) throw new AppError('VALIDATION_FAILED', `${field} 不能为空`, { field });
+  const inputSchemaDigest = optionalText(value.inputSchemaDigest);
+  const outputSchemaDigest = optionalText(value.outputSchemaDigest);
+  return {
+    actionId: requiredText(value.actionId, `${field}.actionId`),
+    actionVersion: requiredText(value.actionVersion, `${field}.actionVersion`),
+    ...(inputSchemaDigest ? { inputSchemaDigest } : {}),
+    ...(outputSchemaDigest ? { outputSchemaDigest } : {}),
+  };
 }
 
 function normalizeAcmeProviderConfiguration(
@@ -1758,7 +1984,7 @@ function normalizeProfileRules(input: Partial<CertificateProfileRules> = {}): Ce
     renewalWindowDays: Math.max(1, input.renewalWindowDays ?? 30),
     rotateKeyOnRenewal: input.rotateKeyOnRenewal ?? true,
     allowWildcard: input.allowWildcard ?? false,
-    requireApproval: input.requireApproval ?? true,
+    requireApproval: input.requireApproval ?? false,
     extendedKeyUsages: uniqueStrings(input.extendedKeyUsages ?? ['serverAuth']),
   };
 }

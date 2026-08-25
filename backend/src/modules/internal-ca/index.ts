@@ -11,6 +11,8 @@ export * from './application/ca-sync-worker.js';
 export * from './application/ca-auto-sync-scheduler.js';
 export * from './dto/ca-operations.dto.js';
 export * from './application/internal-ca.application-service.js';
+export * from './application/certificate-lifecycle.service.js';
+export * from './providers/plugin-ca-action-dispatcher.js';
 export * from './controller/internal-ca.controller.js';
 export * from './schema/acme.schema.js';
 export * from './repository/acme.repository.js';

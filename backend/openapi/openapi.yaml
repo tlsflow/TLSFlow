@@ -5463,6 +5463,26 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/public/ca-crl/:tenantId/:caId:
+    get:
+      operationId: "getPublicCaCrl"
+      summary: "读取公开 CA CRL"
+      tags:
+        - "Internal CA"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/pkix-crl:
+              schema:
+                type: "string"
+                format: "binary"
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/ca-providers:
     get:
       operationId: "listCaProviders"
@@ -5528,6 +5548,47 @@ paths:
     post:
       operationId: "testCaProvider"
       summary: "检查 CA Provider 合同状态"
+      tags:
+        - "Internal CA"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/ca-providers/:id/action-bindings:
+    get:
+      operationId: "listCaProviderActionBindings"
+      summary: "查询 CA Provider 固定动作绑定"
+      tags:
+        - "Internal CA"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "array"
+                items:
+                  type: "object"
+                  additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+    post:
+      operationId: "createCaProviderActionBinding"
+      summary: "创建 CA Provider 固定动作绑定"
       tags:
         - "Internal CA"
       responses:
@@ -5812,6 +5873,48 @@ paths:
     post:
       operationId: "createCertificateProfileVersion"
       summary: "创建证书 Profile 版本"
+      tags:
+        - "Internal CA"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-policies:
+    get:
+      operationId: "listCertificatePolicies"
+      summary: "查询租户证书策略"
+      tags:
+        - "Internal CA"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "array"
+                items:
+                  type: "object"
+                  additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-policies/:id/versions:
+    post:
+      operationId: "createCertificatePolicyVersion"
+      summary: "创建证书策略版本"
       tags:
         - "Internal CA"
       responses:
@@ -6551,6 +6654,149 @@ paths:
     post:
       operationId: "approveCertificateRevocation"
       summary: "审批证书吊销任务"
+      tags:
+        - "Internal CA"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/ca-crl-publications:
+    get:
+      operationId: "listCaCrlPublications"
+      summary: "查询 CA CRL 发布记录"
+      tags:
+        - "Internal CA"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "array"
+                items:
+                  type: "object"
+                  additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-authorities/:id/crl/publish:
+    post:
+      operationId: "publishCaCrl"
+      summary: "发布内置 CA CRL"
+      tags:
+        - "Internal CA"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-rotations:
+    get:
+      operationId: "listCertificateRotations"
+      summary: "查询证书换钥轮换任务"
+      tags:
+        - "Internal CA"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "array"
+                items:
+                  type: "object"
+                  additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+    post:
+      operationId: "createCertificateRotation"
+      summary: "创建证书换钥轮换任务"
+      tags:
+        - "Internal CA"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-rotations/:id:
+    get:
+      operationId: "getCertificateRotation"
+      summary: "查询证书换钥轮换详情"
+      tags:
+        - "Internal CA"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-rotations/:id/install-action:
+    get:
+      operationId: "getCertificateRotationInstallAction"
+      summary: "生成轮换证书安装动作"
+      tags:
+        - "Internal CA"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-rotations/:id/tls-verify:
+    post:
+      operationId: "markCertificateRotationTlsVerified"
+      summary: "回传轮换 TLS 验证结果"
       tags:
         - "Internal CA"
       responses:
@@ -15670,4 +15916,4 @@ tags:
   -
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-08-23T08:03:02.023Z"
+x-generatedAt: "2026-08-24T08:59:10.769Z"

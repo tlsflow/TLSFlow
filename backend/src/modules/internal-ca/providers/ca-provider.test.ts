@@ -15,8 +15,8 @@ const provider: CaProviderEntity = {
   endpoint: 'https://ca.example.test',
   status: 'active',
   capabilities: {
-    discoverHierarchy: false, createRoot: false, createIntermediate: false, signCsr: false,
-    queryIssuance: false, revokeCertificate: false, publishCrl: false, ocsp: false,
+    discoverHierarchy: false, createRoot: false, createIntermediate: false, signCsr: true,
+    queryIssuance: true, revokeCertificate: true, publishCrl: true, ocsp: false,
     listProfiles: false, deviceLocalCsr: false, hardwareBackedKey: false, highAvailability: false,
   },
   configuration: {},
@@ -36,6 +36,7 @@ test('默认 Provider Registry 不注册宿主 CA 执行实现', async () => {
       provider,
       authority: { id: 'ca-1', tenantId: provider.tenantId, name: 'CA', role: 'root', topologyMode: 'external_managed', providerId: provider.id, securityDomain: 'production', status: 'active', subjectCommonName: 'CA', createdAt: provider.createdAt, updatedAt: provider.updatedAt },
       csrPem: 'CSR', sans: [], validityDays: 30, profileRules: {} as never, idempotencyKey: 'request-1', actorId: 'actor-1',
+      actionBinding: { id: 'binding-1', tenantId: provider.tenantId, providerId: provider.id, pluginVersionId: 'plugin-v1', executionLocation: 'control_plane', issueAction: { actionId: 'ca.issue', actionVersion: 'v1' }, createdBy: 'actor-1', createdAt: provider.createdAt, updatedAt: provider.updatedAt, status: 'active', approvalMode: 'none', capabilityEvidence: {} },
     }),
     (error: unknown) => error instanceof Error
       && 'errorCode' in error && error.errorCode === 'CA_PROVIDER_UNAVAILABLE'

@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const packageManifest = JSON.parse(readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
+const packageDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PLUGIN_ID = packageManifest.pluginId;
 const PLUGIN_VERSION = packageManifest.version;
 const WORKFLOW_VERSION = '1.0.0';
@@ -103,6 +106,30 @@ function executeCaPort(context, input, operation, security, credential) {
       status: 'pending-agent-execution',
     });
   }
+  if (operation === 'ca.certificate.query') {
+    return successResult('query', {
+      kind: 'CertificateIssuanceQuery',
+      apiVersion: 'gcac.ca-object/v1',
+      stableKey: `query:${text(input.providerRequestId, 'providerRequestId')}`,
+      pluginId: PLUGIN_ID,
+      pluginVersionId: context.pluginVersionId,
+      providerRequestId: text(input.providerRequestId, 'providerRequestId'),
+      agentPlan: plan,
+      status: 'pending-agent-execution',
+    });
+  }
+  if (operation === 'ca.revocation.evidence') {
+    return successResult('revocation-evidence', {
+      kind: 'RevocationEvidenceQuery',
+      apiVersion: 'gcac.ca-object/v1',
+      stableKey: `revocation-evidence:${text(input.serialNumber, 'serialNumber').toUpperCase()}`,
+      pluginId: PLUGIN_ID,
+      pluginVersionId: context.pluginVersionId,
+      serialNumber: text(input.serialNumber, 'serialNumber').toUpperCase(),
+      agentPlan: plan,
+      status: 'pending-agent-execution',
+    });
+  }
   throw failure('ADCS_OPERATION_UNSUPPORTED', 'ADCS CA Port 不支持该生命周期操作', false, false);
 }
 
@@ -153,6 +180,10 @@ function buildAgentPlan(context, input, operation, security, credentialFingerpri
       ...(input.authorityId === undefined ? {} : { authorityId: identifier(input.authorityId, 'authorityId') }),
       ...(input.serialNumber === undefined ? {} : { serialNumber: text(input.serialNumber, 'serialNumber').toUpperCase() }),
       ...(input.reason === undefined ? {} : { reason: revocationReason(input.reason) }),
+      ...(typeof input.csrPem === 'string' ? { csrPem: input.csrPem } : {}),
+      ...(typeof input.certificateOutputPath === 'string' ? { certificateOutputPath: input.certificateOutputPath } : {}),
+      ...(typeof input.certificatePath === 'string' ? { certificatePath: input.certificatePath } : {}),
+      ...(typeof input.caConfig === 'string' ? { caConfig: input.caConfig } : {}),
     }],
   };
   return { ...plan, planDigest: digest(plan) };
@@ -173,6 +204,8 @@ function validateReceipt(input, plan) {
 function receiptResult(context, operation, receipt) {
   const certificatePem = receipt.certificatePem;
   if (operation === 'ca.certificate.revoke') return successResult('revoke', { kind: 'CertificateRevocation', apiVersion: 'gcac.ca-object/v1', stableKey: `revocation:${text(receipt.serialNumber, 'agentReceipt.serialNumber')}`, pluginId: PLUGIN_ID, pluginVersionId: context.pluginVersionId, status: 'revoked', serialNumber: text(receipt.serialNumber, 'agentReceipt.serialNumber'), receiptRef: receipt.receiptRef });
+  if (operation === 'ca.certificate.query') return successResult('query', { kind: 'CertificateIssuance', apiVersion: 'gcac.ca-object/v1', pluginId: PLUGIN_ID, pluginVersionId: context.pluginVersionId, status: text(receipt.issuanceStatus ?? receipt.status, 'agentReceipt.issuanceStatus'), providerRequestId: text(receipt.providerRequestId, 'agentReceipt.providerRequestId'), receiptRef: receipt.receiptRef, ...(typeof certificatePem === 'string' ? { certificatePem } : {}) });
+  if (operation === 'ca.revocation.evidence') return successResult('revocation-evidence', { kind: 'RevocationEvidence', apiVersion: 'gcac.ca-object/v1', pluginId: PLUGIN_ID, pluginVersionId: context.pluginVersionId, status: text(receipt.revocationStatus ?? receipt.status, 'agentReceipt.revocationStatus'), serialNumber: text(receipt.serialNumber, 'agentReceipt.serialNumber'), receiptRef: receipt.receiptRef, ...(receipt.crlFingerprintSha256 ? { crlFingerprintSha256: receipt.crlFingerprintSha256 } : {}) });
   if (typeof certificatePem !== 'string' || !certificatePem.includes('-----BEGIN CERTIFICATE-----')) throw failure('ADCS_RECEIPT_ARTIFACT_MISSING', 'Agent Receipt 缺少证书产物', false, false);
   return successResult(operation === 'ca.certificate.renew' ? 'renew' : 'issue', { kind: 'Certificate', apiVersion: 'gcac.ca-object/v1', stableKey: `certificate:${hash(certificatePem)}`, pluginId: PLUGIN_ID, pluginVersionId: context.pluginVersionId, status: 'issued', certificatePem, receiptRef: receipt.receiptRef });
 }
@@ -207,7 +240,7 @@ function validateSecurity(input, context, descriptor) {
 }
 
 function assertWorkflow(input, capability, operation) {
-  const expected = operation === 'operation.recover' ? RECOVERY_WORKFLOW : capability === 'ca.certificate.renew' ? 'ca.certificate.renew' : capability === 'ca.certificate.revoke' ? 'ca.certificate.revoke' : 'ca.certificate.issue';
+  const expected = operation === 'operation.recover' ? RECOVERY_WORKFLOW : capability === 'ca.certificate.renew' ? 'ca.certificate.renew' : capability === 'ca.certificate.revoke' ? 'ca.certificate.revoke' : capability === 'ca.certificate.query' ? 'ca.certificate.query' : capability === 'ca.revocation.evidence' ? 'ca.revocation.evidence' : 'ca.certificate.issue';
   if (text(input.workflowKey, 'workflowKey') !== expected) throw failure('ADCS_WORKFLOW_BINDING_INVALID', 'ADCS Workflow 绑定不匹配', false, false);
   if (text(input.workflowVersion, 'workflowVersion') !== WORKFLOW_VERSION) throw failure('ADCS_WORKFLOW_VERSION_INVALID', 'ADCS WorkflowVersion 未固定到首版', false, false);
 }
@@ -219,7 +252,67 @@ function assertContext(context, descriptor) {
 
 async function appendAudit(context, hostApi, security, operation, result, detail) { await hostApi.call('audit.append', { eventType: 'ca.plugin.operation', action: `${PLUGIN_ID}.${operation}`, resourceType: 'ca_operation', resourceId: context.idempotencyKey, result, detail: { pluginVersionId: context.pluginVersionId, capability: context.capability, operation, detail: typeof detail === 'object' ? 'recorded' : redact(String(detail)), receiptRef: security.receiptRef, operationDigest: security.operationDigest } }, context.grantRefs, 5000); }
 async function appendAuditSafely(context, hostApi, security, operation, result, detail) { try { await appendAudit(context, hostApi, security, operation, result, detail); } catch { /* 审计故障由宿主恢复账本接管。 */ } }
-function createDescriptor() { const pluginVersionId = requiredEnvironment('GCAC_PLUGIN_VERSION_ID'); return Object.freeze({ pluginVersionId, pluginId: PLUGIN_ID, pluginVersion: PLUGIN_VERSION, capabilities: [...CAPABILITIES], permissions: [...PERMISSIONS], packageHash: requiredDigest('GCAC_PLUGIN_PACKAGE_HASH'), resourceHash: requiredDigest('GCAC_PLUGIN_RESOURCE_HASH'), manifestHash: requiredDigest('GCAC_PLUGIN_MANIFEST_HASH') }); }
+function createDescriptor() {
+  const pluginVersionId = requiredEnvironment('GCAC_PLUGIN_VERSION_ID');
+  const resourceHash = requiredDigest('GCAC_PLUGIN_RESOURCE_HASH');
+  return Object.freeze({
+    pluginVersionId,
+    pluginId: PLUGIN_ID,
+    pluginVersion: PLUGIN_VERSION,
+    capabilities: [...CAPABILITIES],
+    actions: actionDescriptors(resourceHash),
+    permissions: [...PERMISSIONS],
+    packageHash: requiredDigest('GCAC_PLUGIN_PACKAGE_HASH'),
+    resourceHash,
+    manifestHash: requiredDigest('GCAC_PLUGIN_MANIFEST_HASH'),
+  });
+}
+
+function actionDescriptors(resourceHash) {
+  const contracts = packageManifest.resources?.actionContracts;
+  if (!contracts || typeof contracts !== 'object' || Array.isArray(contracts)) {
+    throw failure('PLUGIN_RUNNER_START_FAILED', 'AD CS 插件缺少 Action Contract 资源声明', false, false);
+  }
+  const actions = Object.entries(contracts).map(([actionId, resourcePath]) => {
+    let contract;
+    try {
+      contract = JSON.parse(readPackageResource(String(resourcePath)));
+    } catch {
+      throw failure('PLUGIN_RUNNER_START_FAILED', `AD CS Action Contract 资源无效：${actionId}`, false, false);
+    }
+    if (!contract || typeof contract !== 'object' || Array.isArray(contract)
+      || contract.apiVersion !== 'gcac.plugin-action-contract/v1'
+      || contract.actionId !== actionId
+      || !CAPABILITIES.includes(contract.capability)
+      || contract.actionContractVersion !== 'v1'
+      || !contract.inputSchema || !contract.outputSchema) {
+      throw failure('PLUGIN_RUNNER_START_FAILED', `AD CS Action Contract 内容无效：${actionId}`, false, false);
+    }
+    return Object.freeze({
+      actionId,
+      capability: contract.capability,
+      actionContractVersion: contract.actionContractVersion,
+      inputSchemaSha256: schemaHash(contract.inputSchema),
+      outputSchemaSha256: schemaHash(contract.outputSchema),
+      resourceHash,
+    });
+  });
+  if (actions.length === 0) throw failure('PLUGIN_RUNNER_START_FAILED', 'AD CS 插件没有可执行的 Action Contract', false, false);
+  return Object.freeze(actions);
+}
+
+function readPackageResource(resourcePath) {
+  const normalized = String(resourcePath).replaceAll('\\', '/');
+  const absolute = resolve(packageDirectory, normalized);
+  const relativePath = relative(packageDirectory, absolute).replaceAll('\\', '/');
+  if (!normalized || normalized.startsWith('/') || normalized.includes(String.fromCharCode(0))
+    || relativePath === '..' || relativePath.startsWith('../')) throw new Error('插件包资源路径越界');
+  return readFileSync(join(packageDirectory, relativePath), 'utf8');
+}
+
+function schemaHash(schema) {
+  return `sha256:${createHash('sha256').update(canonicalJson(schema), 'utf8').digest('hex')}`;
+}
 function requiredEnvironment(name) { const value = process.env[name]?.trim(); if (!value) throw failure('PLUGIN_RUNNER_START_FAILED', `Runner 缺少必需环境变量 ${name}`, false, false); return value; }
 function requiredDigest(name) { const value = requiredEnvironment(name); if (!/^sha256:[a-f0-9]{64}$/.test(value)) throw failure('PLUGIN_RUNNER_START_FAILED', `Runner 环境变量 ${name} 不是有效 SHA-256 摘要`, false, false); return value; }
 function checkDeadline(context) { if (!Number.isFinite(Date.parse(context.deadlineAt)) || Date.parse(context.deadlineAt) <= Date.now()) throw failure('PLUGIN_RUNNER_TIMEOUT', 'ADCS 执行已超过 deadline', true, Boolean(context.writeEffect)); }

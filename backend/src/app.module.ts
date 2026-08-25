@@ -179,6 +179,8 @@ import { GlobalSearchController, getGlobalSearchRouteContracts } from './modules
 import { ApplicationOnboardingController, ApplicationOnboardingService, ApplicationOnboardingSessionRepository, OnboardingCommitService, PublishedDirectWorkflowOnboardingAdapter, getApplicationOnboardingRouteContracts } from './modules/application-onboarding/index.js';
 import type { LoadedApplicationOnboardingRecipe } from './modules/application-onboarding/recipe/index.js';
 import { SystemInitializationController, getSystemInitializationRouteContracts, SystemInitializationService } from './modules/system-initialization/index.js';
+import { PluginCaActionDispatcher } from './modules/internal-ca/providers/plugin-ca-action-dispatcher.js';
+import { CertificateLifecycleService } from './modules/internal-ca/application/certificate-lifecycle.service.js';
 
 export interface AppDependencies {
   db?: DatabasePort;
@@ -262,6 +264,11 @@ export function createApp(dependencies: AppDependencies = {}): App {
     certificates: certificateServices.certificates,
     audit: security.audit,
     approvals: security.approvals,
+  });
+  const certificateLifecycleService = new CertificateLifecycleService({
+    internalCa: internalCaService,
+    certificates: certificateServices.certificates,
+    repository: internalCaService.getRepository(),
   });
   const acmeRepository = new AcmeRepository(appDb);
   const acmeProvider = new AcmeProviderAdapter(security.secrets);
@@ -400,6 +407,11 @@ export function createApp(dependencies: AppDependencies = {}): App {
         builtinRegistry: builtinPluginRegistry,
       }
       : undefined);
+  internalCaService.setPluginActionDispatcher(new PluginCaActionDispatcher(
+    unifiedPluginsService,
+    security.grants,
+    pluginRunnerDependencies ?? {},
+  ));
   app.setResource('cloudAccountAssetsService', cloudAccountAssetsService);
   const standardDeviceDiscoveryProjector = new StandardDeviceDiscoveryProjector(appDb);
   const pluginFactPipeline = createPluginFactPipeline(
@@ -560,6 +572,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   });
   app.setResource('globalSearchService', globalSearchService);
   app.setResource('internalCaService', internalCaService);
+  app.setResource('certificateLifecycleService', certificateLifecycleService);
   app.setResource('acmeRepository', acmeRepository);
   app.setResource('acmeRenewalScheduler', acmeRenewalScheduler);
   app.setResource('caSyncWorker', new CaSyncWorker(
@@ -1241,7 +1254,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     worker: acmeRenewalWorker,
   };
   app.setResource('acmeRenewalWorker', acmeRenewalWorker);
-  new InternalCaController(internalCaService, security, acmeServices, tasksService).register(app.router);
+  new InternalCaController(internalCaService, security, acmeServices, tasksService, certificateLifecycleService).register(app.router);
   new DeviceAssetsController(deviceAssetsService, new SecurityServicesDeviceAssetPort(security)).register(app.router);
   new DevicesController(devicesService, security).register(app.router);
   new CapabilitiesController(capabilitiesService).register(app.router);

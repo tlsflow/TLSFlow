@@ -658,7 +658,7 @@ func validateAgentPlanOperation(operation agentPlanAction) error {
 	if operation.Input == nil {
 		return errors.New("operation input is required")
 	}
-	if !containsString([]string{"process.list", "service.list", "service.status", "filesystem.stat", "filesystem.read", "filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.material.validate", "certificate.store.inspect", "certificate.store.install", "service.start", "service.stop", "service.reload", "command.execute_allowlisted"}, operation.OperationType) {
+	if !containsString([]string{"process.list", "service.list", "service.status", "filesystem.stat", "filesystem.read", "filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.material.validate", "certificate.store.inspect", "certificate.store.install", "key.generate_csr", "certificate.install_issued", "service.start", "service.stop", "service.reload", "command.execute_allowlisted"}, operation.OperationType) {
 		return fmt.Errorf("unsupported Agent operation: %s", operation.OperationType)
 	}
 	if strings.HasPrefix(operation.OperationType, "service.") && v2StringValue(operation.Input, "serviceName") == "" {
@@ -666,6 +666,12 @@ func validateAgentPlanOperation(operation agentPlanAction) error {
 	}
 	if operation.OperationType == "certificate.store.install" {
 		return validateCertificateStoreInstallInput(operation.Input)
+	}
+	if operation.OperationType == "key.generate_csr" {
+		return validateLocalKeyGenerateInput(operation.Input)
+	}
+	if operation.OperationType == "certificate.install_issued" {
+		return validateIssuedCertificateInstallInput(operation.Input)
 	}
 	if operation.OperationType == "command.execute_allowlisted" {
 		return validateAllowlistedCommandInput(operation)
@@ -739,6 +745,16 @@ func executeAgentPlan(ctx context.Context, plan agentPlanV2, token AgentCapabili
 				}
 			case "certificate.store.install":
 				err = executeCertificateStoreInstall(operationCtx, operation)
+			case "key.generate_csr":
+				operationDetail, err = executeLocalKeyGenerate(operationCtx, plan, operation)
+				if err == nil {
+					writeCommitted = true
+				}
+			case "certificate.install_issued":
+				operationDetail, err = executeIssuedCertificateInstall(operationCtx, plan, operation)
+				if err == nil {
+					writeCommitted = true
+				}
 			case "filesystem.restore":
 				operationDetail, err = executeFilesystemRestore(operationCtx, operation)
 			case "service.start", "service.stop", "service.reload":
@@ -823,7 +839,7 @@ func executeAgentPlan(ctx context.Context, plan agentPlanV2, token AgentCapabili
 }
 
 func isAgentWriteOperationType(operationType string) bool {
-	return containsString([]string{"filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.store.install", "service.start", "service.stop", "service.reload", "command.execute_allowlisted"}, operationType)
+	return containsString([]string{"filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.store.install", "key.generate_csr", "certificate.install_issued", "service.start", "service.stop", "service.reload", "command.execute_allowlisted"}, operationType)
 }
 
 func operationPathKey(operation agentPlanAction) string {
@@ -885,7 +901,7 @@ func receiptOperationID(plan agentPlanV2, results []map[string]any) string {
 
 func hasAgentWriteOperation(plan agentPlanV2) bool {
 	for _, operation := range plan.Operations {
-		if containsString([]string{"filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.store.install", "service.start", "service.stop", "service.reload", "command.execute_allowlisted"}, operation.OperationType) {
+		if containsString([]string{"filesystem.backup", "filesystem.atomic_replace", "filesystem.restore", "certificate.store.install", "key.generate_csr", "certificate.install_issued", "service.start", "service.stop", "service.reload", "command.execute_allowlisted"}, operation.OperationType) {
 			return true
 		}
 	}

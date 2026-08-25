@@ -1,6 +1,6 @@
 import { X509Certificate, createHash, createPublicKey, randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -33,6 +33,18 @@ interface IssuedCertificateMaterial {
   publicKeyFingerprintSha256: string;
   notBefore: string;
   notAfter: string;
+}
+
+export interface PublishedCrlMaterial {
+  crlPem: string;
+  crlDerBase64: string;
+  crlNumber: number;
+  thisUpdate: string;
+  nextUpdate: string;
+  crlFingerprintSha256: string;
+  revokedSerialNumbers: string[];
+  issuerFingerprintSha256: string;
+  signatureVerified: boolean;
 }
 
 export class OpenSslCa {
@@ -69,6 +81,7 @@ export class OpenSslCa {
       const parentCertPath = join(directory, 'parent.cert.pem');
       const configPath = join(directory, 'intermediate.cnf');
       await Promise.all([
+        mkdir(join(directory, 'newcerts'), { recursive: true }),
         writeFile(parentKeyPath, input.parentPrivateKeyPem, 'utf8'),
         writeFile(parentCertPath, input.parentCertificatePem, 'utf8'),
         writeFile(configPath, caConfig(input.commonName, input.pathLengthConstraint), 'utf8'),
@@ -130,6 +143,7 @@ export class OpenSslCa {
     sans: string[];
     extendedKeyUsages: string[];
     serialNumber?: string;
+    crlDistributionPoint?: string;
   }): Promise<IssuedCertificateMaterial> {
     return withTemporaryDirectory(async (directory) => {
       const csrPath = join(directory, 'request.csr.pem');
@@ -142,7 +156,7 @@ export class OpenSslCa {
         writeFile(csrPath, input.csrPem, 'utf8'),
         writeFile(caKeyPath, input.caPrivateKeyPem, 'utf8'),
         writeFile(caCertPath, input.caCertificatePem, 'utf8'),
-        writeFile(extensionPath, leafExtensionConfig(input.sans, input.extendedKeyUsages), 'utf8'),
+        writeFile(extensionPath, leafExtensionConfig(input.sans, input.extendedKeyUsages, input.crlDistributionPoint), 'utf8'),
       ]);
       await runOpenSsl(['req', '-in', csrPath, '-noout', '-verify']);
       await runOpenSsl([
@@ -160,6 +174,78 @@ export class OpenSslCa {
         publicKeyFingerprintSha256: createHash('sha256').update(certificate.publicKey.export({ type: 'spki', format: 'der' })).digest('hex'),
         notBefore: new Date(certificate.validFrom).toISOString(),
         notAfter: new Date(certificate.validTo).toISOString(),
+      };
+    });
+  }
+
+  /** 使用 OpenSSL CA 数据库格式生成并验签 CRL，所有输入均来自控制面撤销账本。 */
+  async publishCrl(input: {
+    caPrivateKeyPem: string;
+    caCertificatePem: string;
+    issuanceRecords: Array<{
+      serialNumber: string;
+      status: string;
+      subjectCommonName?: string;
+      notAfter?: string;
+      revokedAt?: string;
+    }>;
+    crlNumber: number;
+    thisUpdate?: string;
+    nextUpdate?: string;
+    distributionPoint?: string;
+  }): Promise<PublishedCrlMaterial> {
+    return withTemporaryDirectory(async (directory) => {
+      const indexPath = join(directory, 'index.txt');
+      const serialPath = join(directory, 'serial');
+      const crlNumberPath = join(directory, 'crlnumber');
+      const caKeyPath = join(directory, 'ca.key.pem');
+      const caCertPath = join(directory, 'ca.cert.pem');
+      const configPath = join(directory, 'openssl.cnf');
+      const crlPath = join(directory, 'ca.crl.pem');
+      const derPath = join(directory, 'ca.crl.der');
+      const thisUpdate = input.thisUpdate ?? new Date().toISOString();
+      const nextUpdate = input.nextUpdate ?? new Date(Date.now() + 7 * 86400000).toISOString();
+      const records = input.issuanceRecords.filter((record) => ['issued', 'revoked', 'expired'].includes(record.status));
+      const revokedSerialNumbers = records.filter((record) => record.status === 'revoked').map((record) => normalizeSerial(record.serialNumber));
+      await Promise.all([
+        writeFile(caKeyPath, input.caPrivateKeyPem, 'utf8'),
+        writeFile(caCertPath, input.caCertificatePem, 'utf8'),
+        writeFile(indexPath, records.map((record) => openSslIndexLine(record)).join('\n') + (records.length ? '\n' : ''), 'utf8'),
+        writeFile(serialPath, '01\n', 'utf8'),
+        writeFile(crlNumberPath, input.crlNumber.toString(16).toUpperCase().padStart(2, '0') + '\n', 'utf8'),
+        writeFile(configPath, crlConfig(caKeyPath, caCertPath, indexPath, serialPath, crlNumberPath), 'utf8'),
+      ]);
+      await runOpenSsl(['ca', '-batch', '-gencrl', '-config', configPath, '-out', crlPath]);
+      await runOpenSsl(['crl', '-in', crlPath, '-outform', 'DER', '-out', derPath]);
+      const verification = await runOpenSsl(['crl', '-in', crlPath, '-noout', '-verify', '-CAfile', caCertPath]);
+      void verification;
+      const crlPem = await readFile(crlPath, 'utf8');
+      const crlDer = await readFile(derPath);
+      const parsed = await runOpenSsl(['crl', '-in', crlPath, '-noout', '-text']);
+      const numberMatch = parsed.stdout.match(/CRL Number:\s*(?:critical\s*)?(\d+)/i);
+      const actualNumber = numberMatch ? Number(numberMatch[1]) : input.crlNumber;
+      const parsedRevokedSerials = [...parsed.stdout.matchAll(/Serial Number:\s*([0-9a-f:]+)/gi)]
+        .map((match) => normalizeSerial(match[1] ?? ''))
+        .sort();
+      const expectedRevokedSerials = [...revokedSerialNumbers].sort();
+      if (parsedRevokedSerials.length !== expectedRevokedSerials.length
+        || parsedRevokedSerials.some((serial, index) => serial !== expectedRevokedSerials[index])) {
+        throw new AppError('CA_CRL_PUBLICATION_FAILED', 'CRL 撤销序列号与撤销账本不一致', {
+          expected: expectedRevokedSerials,
+          actual: parsedRevokedSerials,
+        });
+      }
+      const issuer = new X509Certificate(input.caCertificatePem);
+      return {
+        crlPem,
+        crlDerBase64: crlDer.toString('base64'),
+        crlNumber: actualNumber,
+        thisUpdate,
+        nextUpdate,
+        crlFingerprintSha256: createHash('sha256').update(crlDer).digest('hex'),
+        revokedSerialNumbers,
+        issuerFingerprintSha256: normalizeFingerprint(issuer.fingerprint256),
+        signatureVerified: true,
       };
     });
   }
@@ -210,10 +296,49 @@ function leafCsrConfig(commonName: string, sans: string[]): string {
   return `[req]\nprompt = no\ndistinguished_name = dn${sanSection}[dn]\nCN = ${escapeConfigValue(commonName)}\n`;
 }
 
-function leafExtensionConfig(sans: string[], extendedKeyUsages: string[]): string {
-  const usages = extendedKeyUsages.length > 0 ? extendedKeyUsages.join(',') : 'serverAuth';
+function leafExtensionConfig(sans: string[], extendedKeyUsages: string[], distributionPoint?: string): string {
+  const usages = extendedKeyUsages.length > 0 ? extendedKeyUsages.map(normalizeExtendedKeyUsage).join(',') : 'serverAuth';
   const san = sans.length > 0 ? `\nsubjectAltName = ${sanExpression(sans)}` : '';
-  return `[leaf_ext]\nbasicConstraints = critical,CA:false\nsubjectKeyIdentifier = hash\nauthorityKeyIdentifier = keyid,issuer\nkeyUsage = critical,digitalSignature,keyEncipherment\nextendedKeyUsage = ${usages}${san}\n`;
+  const cdp = distributionPoint?.trim() ? `\ncrlDistributionPoints = URI:${escapeConfigValue(distributionPoint.trim())}` : '';
+  return `[leaf_ext]\nbasicConstraints = critical,CA:false\nsubjectKeyIdentifier = hash\nauthorityKeyIdentifier = keyid,issuer\nkeyUsage = critical,digitalSignature,keyEncipherment\nextendedKeyUsage = ${usages}${san}${cdp}\n`;
+}
+
+function normalizeExtendedKeyUsage(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  return ({
+    serverauth: 'serverAuth', clientauth: 'clientAuth', codesigning: 'codeSigning',
+    emailprotection: 'emailProtection', timestamping: 'timeStamping', ocspsigning: 'OCSPSigning',
+  } as Record<string, string>)[normalized] ?? value.trim();
+}
+
+function crlConfig(privateKeyPath: string, certificatePath: string, indexPath: string, serialPath: string, crlNumberPath: string): string {
+  return `[ca]\ndefault_ca = CA_default\n[CA_default]\ndatabase = ${escapeConfigValue(indexPath)}\nnew_certs_dir = ${escapeConfigValue(join(indexPath, '..', 'newcerts'))}\nserial = ${escapeConfigValue(serialPath)}\ncrlnumber = ${escapeConfigValue(crlNumberPath)}\nprivate_key = ${escapeConfigValue(privateKeyPath)}\ncertificate = ${escapeConfigValue(certificatePath)}\ndefault_md = sha256\ndefault_crl_days = 7\npolicy = policy_any\n[policy_any]\ncommonName = supplied\n`;
+}
+
+function openSslIndexLine(record: { serialNumber: string; status: string; subjectCommonName?: string; notAfter?: string; revokedAt?: string }): string {
+  const expiry = openSslIndexDate(record.notAfter ?? new Date(Date.now() + 3650 * 86400000).toISOString());
+  const revokedAt = record.status === 'revoked' ? openSslIndexDate(record.revokedAt ?? new Date().toISOString()) : '';
+  const status = record.status === 'revoked' ? 'R' : 'V';
+  const subject = `/CN=${escapeIndexValue(record.subjectCommonName ?? 'unknown')}`;
+  return `${status}\t${expiry}\t${revokedAt}\t${normalizeSerial(record.serialNumber)}\tunknown\t${subject}`;
+}
+
+function openSslIndexDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) throw new AppError('CA_CRL_PUBLICATION_FAILED', 'CRL 时间字段无效');
+  const year = String(date.getUTCFullYear()).slice(-2);
+  const pad = (number: number) => String(number).padStart(2, '0');
+  return `${year}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}Z`;
+}
+
+function normalizeSerial(value: string): string {
+  const serial = value.replace(/^0x/i, '').replace(/[^0-9a-f]/gi, '').toUpperCase();
+  if (!serial) throw new AppError('CA_CRL_PUBLICATION_FAILED', 'CRL 记录缺少有效序列号');
+  return serial.length % 2 === 0 ? serial : `0${serial}`;
+}
+
+function escapeIndexValue(value: string): string {
+  return value.replace(/[\\\t\r\n]/g, ' ').trim().slice(0, 200);
 }
 
 function sanExpression(sans: string[]): string {
