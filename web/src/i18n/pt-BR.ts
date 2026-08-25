@@ -513,7 +513,6 @@ export default {
       MONITORING_BATCH: 'Lote de monitoramento',
       MONITORING_PROBE: 'Sonda de monitoramento',
       CREDENTIAL_HEALTH_CHECK: 'Verificação de validade da credencial',
-      CA_NODE_TASK: 'Tarefa do nó CA',
       ACME_CERTIFICATE_RENEWAL: 'ACME',
       CA_RECORD_SYNC: 'Sincronização de registros CA',
       CERTIFICATE_REVOCATION: 'Revogação do certificado',

@@ -36,8 +36,6 @@ export const internalCaApi = {
   approveRequest: (requestId: string, approvalId: string) => post(`/api/v1/certificate-requests/${encodeURIComponent(requestId)}/approve`, { approvalId }),
   retryRequest: (requestId: string) => post(`/api/v1/certificate-requests/${encodeURIComponent(requestId)}/retry`),
   queryRequest: (requestId: string) => post(`/api/v1/certificate-requests/${encodeURIComponent(requestId)}/query`),
-  listNodes: () => getList('/api/v1/ca-nodes'),
-  createNodeEnrollmentToken: (providerId: string, ttlMinutes = 30) => post('/api/v1/ca-nodes/enrollment-tokens', { providerId, ttlMinutes }),
   listRenewals: () => getList('/api/v1/certificate-renewals'),
   scanRenewals: () => post('/api/v1/certificate-renewals/scan'),
   listRevocations: () => getList('/api/v1/certificate-revocations'),

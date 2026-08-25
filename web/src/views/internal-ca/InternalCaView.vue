@@ -27,18 +27,15 @@ const remediationPreview = ref<InternalCaRecord | null>(null)
 const authorityWizardOpen = ref(false)
 const authorityWizardStep = ref(1)
 const authorityCreationKind = ref<'root' | 'intermediate'>('root')
-const authorityCreationMode = ref<'builtin' | 'managed_node'>('builtin')
+const authorityCreationMode = ref<'builtin'>('builtin')
 const selectedRootId = ref('')
 const authorityWizardForm = ref<HTMLFormElement | null>(null)
 const authoritySubjectAdvancedOpen = ref(false)
 const commonNameCustomized = ref(false)
-const backendEnrollment = ref<InternalCaRecord | null>(null)
-const backendPrepared = ref(false)
 const trustDomainModalOpen = ref(false)
 const requestModalOpen = ref(false)
 const profileModalOpen = ref(false)
 
-const backendDraft = reactive({ id: '', name: '', type: 'gcac_managed_node', deploymentMode: 'managed_node', runtimePlatform: 'linux', availabilityMode: 'single', endpoint: '', authMode: 'enrollment_token', profile: '', template: '', crlUrl: '', ocspUrl: '' })
 const trustDomainDraft = reactive({ name: '', purpose: 'production_tls', isolationLevel: 'standard', isDefault: false })
 const authorityDraft = reactive({ providerId: '', trustDomainId: '', parentCaId: '', name: '', commonName: '', securityDomain: 'production', topologyMode: 'root_with_intermediate', keyBackend: 'secret' })
 const profileDraft = reactive({ name: '', trustDomainId: '', securityDomain: 'production', allowedDnsSuffix: '', maximumValidityDays: 90, renewalWindowDays: 30, requireApproval: true })
@@ -59,9 +56,9 @@ const requestProfileVersions = computed(() => profiles.value.flatMap((item) => {
 }))
 const topologyInput = computed(() => ({
   topologyMode: authorityDraft.topologyMode,
-  deploymentMode: text(selectedBackend.value?.deploymentMode, backendDraft.deploymentMode),
-  runtimePlatform: text(selectedBackend.value?.runtimePlatform, backendDraft.runtimePlatform),
-  availabilityMode: text(selectedBackend.value?.availabilityMode, backendDraft.availabilityMode),
+  deploymentMode: text(selectedBackend.value?.deploymentMode, 'builtin'),
+  runtimePlatform: text(selectedBackend.value?.runtimePlatform, 'embedded'),
+  availabilityMode: text(selectedBackend.value?.availabilityMode, 'single'),
   keyBackend: authorityDraft.keyBackend,
 }))
 
@@ -69,13 +66,7 @@ const wizardStepCount = computed(() => authorityCreationKind.value === 'intermed
 const wizardProgress = computed(() => `${(authorityWizardStep.value / wizardStepCount.value) * 100}%`)
 const builtinBackend = computed(() => providers.value.find((item) => text(item.type) === 'gcac_builtin'))
 const recentRequests = computed(() => requests.value.slice(0, 20))
-const selectedCreationMode = computed(() => {
-  if (authorityCreationKind.value === 'intermediate') {
-    const provider = providers.value.find((item) => text(item.id) === authorityDraft.providerId)
-    if (text(provider?.type) === 'gcac_managed_node') return 'managed_node'
-  }
-  return authorityCreationMode.value === 'managed_node' ? 'managed_node' : 'builtin'
-})
+const selectedCreationMode = computed(() => authorityCreationMode.value)
 const trustDomainColumns = computed<DataTableColumn<InternalCaRecord>[]>(() => [
   { key: 'name', title: t('internalCa.trustDomains.columns.name'), width: '22%' },
   { key: 'purpose', title: t('internalCa.trustDomains.columns.purpose'), width: '18%' },
@@ -185,7 +176,7 @@ async function previewAuthority() {
 async function createAuthority() {
   if (authorityCreationKind.value === 'root') {
     await prepareBackend()
-    if (!backendPrepared.value) return
+    if (!authorityDraft.providerId) return
   }
   if (!authorityPreview.value) await previewAuthority()
   const confirmationToken = text(authorityPreview.value?.confirmationToken)
@@ -200,8 +191,6 @@ async function createAuthority() {
   if (authorityCreationKind.value === 'intermediate') selectedRootId.value = authorityDraft.parentCaId
   else selectedRootId.value = text(rootAuthorities.value.find((item) => !previousRootIds.has(text(item.id)))?.id, selectedRootId.value)
   authorityPreview.value = null
-  backendEnrollment.value = null
-  backendPrepared.value = false
   authorityWizardOpen.value = false
 }
 
@@ -209,16 +198,7 @@ function openAuthorityWizard(kind: 'root' | 'intermediate' = 'root', parent?: In
   authorityCreationKind.value = kind
   authorityWizardStep.value = 1
   authorityPreview.value = null
-  backendEnrollment.value = null
-  backendPrepared.value = false
-  authorityCreationMode.value = kind === 'intermediate' ? selectedCreationMode.value : 'builtin'
-  backendDraft.id = ''
-  backendDraft.name = ''
-  backendDraft.endpoint = ''
-  backendDraft.profile = ''
-  backendDraft.template = ''
-  backendDraft.crlUrl = ''
-  backendDraft.ocspUrl = ''
+  authorityCreationMode.value = 'builtin'
   authorityDraft.parentCaId = ''
   authorityDraft.name = ''
   authorityDraft.commonName = ''
@@ -232,26 +212,10 @@ function openAuthorityWizard(kind: 'root' | 'intermediate' = 'root', parent?: In
   authorityWizardOpen.value = true
 }
 
-function chooseAuthorityMode(mode: 'builtin' | 'managed_node') {
-  const modeChanged = authorityCreationMode.value !== mode
-  authorityCreationMode.value = mode
-  backendPrepared.value = false
-  backendEnrollment.value = null
-  if (modeChanged) {
-    backendDraft.id = ''
-    authorityDraft.providerId = mode === 'builtin' ? text(builtinBackend.value?.id) : ''
-  }
+function chooseAuthorityMode() {
+  authorityCreationMode.value = 'builtin'
+  authorityDraft.providerId = text(builtinBackend.value?.id)
   authorityWizardStep.value = 2
-  if (mode === 'builtin') {
-    authorityDraft.providerId = text(builtinBackend.value?.id)
-    backendDraft.type = 'gcac_builtin'
-    backendDraft.deploymentMode = 'builtin'
-    backendDraft.runtimePlatform = 'embedded'
-    return
-  }
-  backendDraft.type = 'gcac_managed_node'
-  backendDraft.deploymentMode = 'managed_node'
-  backendDraft.runtimePlatform = 'linux'
 }
 
 function applyParentRoot(parent?: InternalCaRecord) {
@@ -261,9 +225,7 @@ function applyParentRoot(parent?: InternalCaRecord) {
   authorityDraft.trustDomainId = text(parent.trustDomainId)
   authorityDraft.securityDomain = text(parent.securityDomain, 'production')
   authorityDraft.topologyMode = 'root_with_intermediate'
-  authorityCreationMode.value = text(providers.value.find((item) => text(item.id) === text(parent.providerId))?.type) === 'gcac_managed_node'
-    ? 'managed_node'
-    : 'builtin'
+  authorityCreationMode.value = 'builtin'
 }
 
 function selectParentRoot(parentId: string) {
@@ -277,7 +239,7 @@ async function advanceAuthorityWizard() {
   if (authorityCreationKind.value === 'root' && authorityWizardStep.value === 2) {
     if (!authorityWizardForm.value?.reportValidity()) return
     await prepareBackend()
-    if (backendPrepared.value) authorityWizardStep.value = 3
+    if (authorityDraft.providerId) authorityWizardStep.value = 3
     return
   }
   if (authorityCreationKind.value === 'root' && authorityWizardStep.value === 3) {
@@ -312,7 +274,6 @@ function authorityWizardStepLabel(step: number): string {
 function backendModeLabel(backend: InternalCaRecord): string {
   const type = text(backend.type)
   if (type === 'gcac_builtin') return t('internalCa.backendTypes.builtin')
-  if (type === 'gcac_managed_node') return t('internalCa.backendTypes.managedNode')
   if (type === 'acme') return t('internalCa.backendTypes.acme')
   return t('internalCa.backendTypes.external')
 }
@@ -321,7 +282,6 @@ function backendCapabilitySummary(backend: InternalCaRecord): string {
   const type = text(backend.type)
   if (type === 'gcac_builtin') return t('internalCa.backendSummary.createAndIssue')
   if (type === 'acme') return t('internalCa.backendSummary.requestPublicCertificates')
-  if (type === 'gcac_managed_node') return t('internalCa.backendSummary.managedNode')
   return t('internalCa.backendSummary.external')
 }
 
@@ -339,7 +299,7 @@ function backendLabel(providerId: unknown): string {
 }
 
 async function prepareBackend() {
-  if (backendPrepared.value || authorityCreationKind.value === 'intermediate') return
+  if (authorityDraft.providerId || authorityCreationKind.value === 'intermediate') return
   actionPending.value = true
   try {
     if (authorityCreationMode.value === 'builtin') {
@@ -349,33 +309,8 @@ async function prepareBackend() {
         authorityDraft.providerId = text(result.data?.id)
         await loadAll()
       }
-      backendPrepared.value = Boolean(authorityDraft.providerId)
       return
     }
-    if (!backendDraft.id) {
-      if (!backendDraft.name.trim()) backendDraft.name = t('internalCa.wizard.managedProviderName')
-      const provider = await internalCaApi.createProvider({
-        name: backendDraft.name,
-        type: 'gcac_managed_node',
-        deploymentMode: 'managed_node',
-        runtimePlatform: backendDraft.runtimePlatform,
-        availabilityMode: backendDraft.availabilityMode,
-        endpoint: backendDraft.endpoint,
-        configuration: {
-          authMode: backendDraft.authMode,
-          profile: backendDraft.profile,
-          template: backendDraft.template,
-          crlUrl: backendDraft.crlUrl,
-          ocspUrl: backendDraft.ocspUrl,
-        },
-      })
-      backendDraft.id = text(provider.data?.id)
-    }
-    authorityDraft.providerId = backendDraft.id
-    if (authorityDraft.providerId && !backendEnrollment.value) {
-      backendEnrollment.value = (await internalCaApi.createNodeEnrollmentToken(authorityDraft.providerId, 30)).data ?? null
-    }
-    backendPrepared.value = Boolean(authorityDraft.providerId) && Boolean(backendEnrollment.value)
     await loadAll()
   } catch {
     error.value = t('internalCa.messages.actionFailed')
@@ -693,20 +628,14 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
         <section v-if="authorityCreationKind === 'root' && authorityWizardStep === 1" class="ca-wizard__panel">
           <header class="ca-wizard__panel-heading"><span>{{ t('internalCa.wizard.entryEyebrow') }}</span><h3>{{ t('internalCa.wizard.entryTitle') }}</h3><p>{{ t('internalCa.wizard.entryDescription') }}</p></header>
           <div class="ca-wizard__entry-grid">
-            <button type="button" class="ca-entry-card ca-entry-card--recommended" @click="chooseAuthorityMode('builtin')"><span class="ca-entry-card__badge">{{ t('internalCa.wizard.recommended') }}</span><span class="ca-entry-card__icon">CA</span><strong>{{ t('internalCa.wizard.builtinTitle') }}</strong><p>{{ t('internalCa.wizard.builtinDescription') }}</p><ul><li>{{ t('internalCa.wizard.builtinFeature1') }}</li><li>{{ t('internalCa.wizard.builtinFeature2') }}</li></ul></button>
-            <button type="button" class="ca-entry-card" @click="chooseAuthorityMode('managed_node')"><span class="ca-entry-card__icon">N</span><strong>{{ t('internalCa.wizard.managedTitle') }}</strong><p>{{ t('internalCa.wizard.managedDescription') }}</p><ul><li>{{ t('internalCa.wizard.managedFeature1') }}</li><li>{{ t('internalCa.wizard.managedFeature2') }}</li></ul></button>
+            <button type="button" class="ca-entry-card ca-entry-card--recommended" @click="chooseAuthorityMode"><span class="ca-entry-card__badge">{{ t('internalCa.wizard.recommended') }}</span><span class="ca-entry-card__icon">CA</span><strong>{{ t('internalCa.wizard.builtinTitle') }}</strong><p>{{ t('internalCa.wizard.builtinDescription') }}</p><ul><li>{{ t('internalCa.wizard.builtinFeature1') }}</li><li>{{ t('internalCa.wizard.builtinFeature2') }}</li></ul></button>
           </div>
         </section>
 
         <form v-else-if="authorityCreationKind === 'root' && authorityWizardStep === 2" ref="authorityWizardForm" class="ca-wizard__panel ca-wizard__form" @submit.prevent="advanceAuthorityWizard">
           <header class="ca-wizard__panel-heading ca-wizard__full"><span>{{ t('internalCa.wizard.backendEyebrow') }}</span><h3>{{ t(`internalCa.wizard.${authorityCreationMode}BackendTitle`) }}</h3><p>{{ t(`internalCa.wizard.${authorityCreationMode}BackendDescription`) }}</p></header>
           <article v-if="authorityCreationMode === 'builtin'" class="ca-wizard__notice ca-wizard__full"><strong>{{ t('internalCa.wizard.builtinAutomaticTitle') }}</strong><p>{{ t('internalCa.wizard.builtinAutomaticDescription') }}</p></article>
-          <template v-else>
-            <label>{{ t('internalCa.fields.backendName') }}<input v-model="backendDraft.name" required /></label>
-            <label>{{ t('internalCa.fields.platform') }}<select v-model="backendDraft.runtimePlatform" required><option value="windows">{{ t('assets.platforms.windows') }}</option><option value="linux">{{ t('assets.platforms.linux') }}</option></select></label>
-            <label>{{ t('internalCa.fields.availabilityMode') }}<select v-model="backendDraft.availabilityMode"><option value="single">{{ t('internalCa.availability.single') }}</option><option value="active_standby">{{ t('internalCa.availability.activeStandby') }}</option><option value="active_active">{{ t('internalCa.availability.activeActive') }}</option></select></label>
-            <article class="ca-wizard__notice ca-wizard__full"><strong>{{ t('designSystem.capability.title') }}</strong><p>{{ t('designSystem.capability.description') }}</p></article>
-          </template>
+          <article class="ca-wizard__notice ca-wizard__full"><strong>{{ t('internalCa.wizard.builtinAutomaticTitle') }}</strong><p>{{ t('internalCa.wizard.builtinAutomaticDescription') }}</p></article>
           <button class="ca-wizard__hidden-submit" tabindex="-1"></button>
         </form>
 
@@ -733,7 +662,6 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
         <section v-else class="ca-wizard__panel ca-wizard__review">
           <header class="ca-wizard__panel-heading"><span>{{ t('internalCa.wizard.reviewEyebrow') }}</span><h3>{{ t('internalCa.wizard.reviewTitle') }}</h3><p>{{ t('internalCa.wizard.reviewDescription') }}</p></header>
           <div class="ca-wizard__review-grid"><span>{{ t('internalCa.fields.entryMode') }}</span><strong>{{ t(`internalCa.wizard.${selectedCreationMode}Title`) }}</strong><span>{{ t('internalCa.fields.authorityType') }}</span><strong>{{ authorityCreationKind === 'root' ? t('internalCa.wizard.rootTitle') : t('internalCa.wizard.intermediateTitle') }}</strong><span>{{ t('internalCa.fields.name') }}</span><strong>{{ authorityDraft.name }}</strong><span>{{ t('internalCa.fields.certificateSubjectCommonName') }}</span><strong>{{ authorityDraft.commonName }}</strong><span>{{ t('internalCa.fields.trustDomain') }}</span><strong>{{ trustDomainName(authorityDraft.trustDomainId) }}</strong></div>
-          <article v-if="selectedCreationMode === 'managed_node' && backendEnrollment" class="ca-wizard__enrollment"><strong>{{ t('internalCa.wizard.enrollmentTitle') }}</strong><p>{{ t('internalCa.wizard.enrollmentDescription') }}</p><code>{{ text(backendEnrollment.token) }}</code><small>{{ t('internalCa.wizard.enrollmentExpiresAt', { time: localTime(backendEnrollment.expiresAt) }) }}</small></article>
           <article class="ca-wizard__risk"><strong>{{ t('internalCa.sections.riskSummary') }}</strong><p>{{ text(authorityPreview?.overallRecommendation) }}</p><ul><li v-for="warning in asRecords(authorityPreview?.warnings)" :key="String(warning)">{{ warning }}</li></ul><p v-if="!asRecords(authorityPreview?.warnings).length">{{ t('internalCa.wizard.noWarnings') }}</p></article>
         </section>
       </div>

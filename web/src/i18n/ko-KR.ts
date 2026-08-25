@@ -513,7 +513,6 @@ export default {
       MONITORING_BATCH: '모니터링 배치',
       MONITORING_PROBE: '모니터링 프로브',
       CREDENTIAL_HEALTH_CHECK: '자격 증명 유효성 검사',
-      CA_NODE_TASK: 'CA 노드 작업',
       ACME_CERTIFICATE_RENEWAL: 'ACME',
       CA_RECORD_SYNC: 'CA 기록 동기화',
       CERTIFICATE_REVOCATION: '인증서 폐기',

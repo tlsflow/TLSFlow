@@ -513,7 +513,6 @@ export default {
       MONITORING_BATCH: '監視バッチ',
       MONITORING_PROBE: '監視プローブ',
       CREDENTIAL_HEALTH_CHECK: '資格情報の有効性チェック',
-      CA_NODE_TASK: 'CAノードタスク',
       ACME_CERTIFICATE_RENEWAL: 'ACME',
       CA_RECORD_SYNC: 'CA記録同期',
       CERTIFICATE_REVOCATION: '証明書失効',
