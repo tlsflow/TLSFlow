@@ -2899,6 +2899,14 @@ export default {
       cards: 'Visualização de cartões',
       list: 'Visualização de tabela',
     },
+    card: {
+      presentation: { cards: 'Cartões', list: 'Tabela' },
+      total: '{count} no total',
+      status: { valid: 'Válido', attention: 'Atenção', unknown: 'Desconhecido' },
+      days: { expired: 'Expirado há {days} dias', expiresToday: 'Expira hoje', notRecorded: 'Não registrado', remaining: '{days} dias restantes' },
+      fields: { certificate: 'Certificado', validity: 'Validade', device: 'Dispositivo' },
+      actions: { add: 'Adicionar', upToDate: 'Atualizado', deployUpdate: 'Implantar atualização' }
+    },
     selection: {
       selectedCount: '{count} / {total} ativos selecionados',
       actions: {

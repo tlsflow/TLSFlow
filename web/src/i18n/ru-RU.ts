@@ -2899,6 +2899,14 @@ export default {
       cards: 'Карточки',
       list: 'Таблица',
     },
+    card: {
+      presentation: { cards: 'Карточки', list: 'Таблица' },
+      total: 'Всего: {count}',
+      status: { valid: 'Действителен', attention: 'Внимание', unknown: 'Неизвестно' },
+      days: { expired: 'Истёк {days} дн. назад', expiresToday: 'Истекает сегодня', notRecorded: 'Не записано', remaining: 'Осталось {days} дн.' },
+      fields: { certificate: 'Сертификат', validity: 'Срок действия', device: 'Устройство' },
+      actions: { add: 'Добавить', upToDate: 'Актуален', deployUpdate: 'Развернуть обновление' }
+    },
     selection: {
       selectedCount: 'Выбрано активов: {count} / {total}',
       actions: {

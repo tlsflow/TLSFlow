@@ -2921,6 +2921,14 @@ export default {
       cards: 'カード表示',
       list: '表形式表示',
     },
+    card: {
+      presentation: { cards: 'カード', list: '表' },
+      total: '{count} 件',
+      status: { valid: '有効', attention: '要対応', unknown: '不明' },
+      days: { expired: '{days} 日前に期限切れ', expiresToday: '本日期限切れ', notRecorded: '未記録', remaining: '{days}日残り' },
+      fields: { certificate: '証明書', validity: '有効期間', device: 'デバイス' },
+      actions: { add: '追加', upToDate: '最新', deployUpdate: '更新をデプロイ' }
+    },
     selection: {
       selectedCount: '{count} / {total} 件を選択中',
       actions: {

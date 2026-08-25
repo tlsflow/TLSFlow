@@ -2155,7 +2155,7 @@ function assetCertificateStatusKey(card: AssetOverviewCard): Exclude<AssetCertif
 }
 
 function assetCertificateStatusLabel(card: AssetOverviewCard): string {
-  return t(`dashboard.certificateState.${assetCertificateStatusKey(card)}`)
+  return t(`assets.card.status.${assetCertificateCardStatusKey(card.certificate.lifecycle)}`)
 }
 
 function assetCertificateStatusTone(card: AssetOverviewCard): StatusTone {
@@ -2298,7 +2298,7 @@ function assetOverviewCertificate(asset: ApiRecord): AssetCardCertificate {
       'certificateVersionId',
     ]) || t('assets.empty.notSet'),
     lifecycle,
-    lifecycleLabel: t(`dashboard.certificateState.${lifecycle}`),
+    lifecycleLabel: t(`assets.card.status.${assetCertificateCardStatusKey(lifecycle)}`),
     remainingLabel: assetCertificateRemainingLabel(lifecycle, countdown),
     tone: assetCertificateLifecycleTone(lifecycle),
   }
@@ -2356,10 +2356,16 @@ function resolveAssetCertificateLifecycle(asset: ApiRecord, expiresAt: string): 
 }
 
 function assetCertificateRemainingLabel(lifecycle: AssetCertificateLifecycle, countdown: ReturnType<typeof getExpiryCountdown>): string {
-  if (!countdown) return t('dashboard.days.notRecorded')
-  if (lifecycle === 'expired') return t('dashboard.days.expired', { days: countdown.days })
-  if (countdown.days === 0) return t('dashboard.days.expiresToday')
-  return t('dashboard.days.remaining', { days: countdown.days })
+  if (!countdown) return t('assets.card.days.notRecorded')
+  if (lifecycle === 'expired') return t('assets.card.days.expired', { days: countdown.days })
+  if (countdown.days === 0) return t('assets.card.days.expiresToday')
+  return t('assets.card.days.remaining', { days: countdown.days })
+}
+
+function assetCertificateCardStatusKey(lifecycle: AssetCertificateLifecycle): 'valid' | 'attention' | 'unknown' {
+  if (lifecycle === 'valid') return 'valid'
+  if (lifecycle === 'unknown') return 'unknown'
+  return 'attention'
 }
 
 function assetCertificateLifecycleTone(lifecycle: AssetCertificateLifecycle): StatusTone {
@@ -3243,7 +3249,7 @@ function managedTargetLabel(target: ApiRecord): string {
                 class="asset-page__presentation-toggle-button"
                 :class="{ 'asset-page__presentation-toggle-button--active': assetPresentation === 'cards' }"
                 :aria-pressed="assetPresentation === 'cards'"
-                :aria-label="t('assets.presentation.cards')"
+                :aria-label="t('assets.card.presentation.cards')"
                 @click="assetPresentation = 'cards'"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h5v5H5V5Zm9 0h5v5h-5V5ZM5 14h5v5H5v-5Zm9 0h5v5h-5v-5Z" /></svg>
@@ -3253,7 +3259,7 @@ function managedTargetLabel(target: ApiRecord): string {
                 class="asset-page__presentation-toggle-button"
                 :class="{ 'asset-page__presentation-toggle-button--active': assetPresentation === 'list' }"
                 :aria-pressed="assetPresentation === 'list'"
-                :aria-label="t('assets.presentation.list')"
+                :aria-label="t('assets.card.presentation.list')"
                 @click="assetPresentation = 'list'"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h2v2H5V6Zm4 0h10v2H9V6ZM5 11h2v2H5v-2Zm4 0h10v2H9v-2ZM5 16h2v2H5v-2Zm4 0h10v2H9v-2Z" /></svg>
@@ -3276,7 +3282,7 @@ function managedTargetLabel(target: ApiRecord): string {
                 :aria-pressed="assetCertificateCategory === 'valid'"
                 @click="assetCertificateCategory = 'valid'"
               >
-                {{ t('dashboard.certificateState.valid') }}
+                {{ t('assets.card.status.valid') }}
               </button>
               <button
                 class="certificate-page__category-tab"
@@ -3285,11 +3291,11 @@ function managedTargetLabel(target: ApiRecord): string {
                 :aria-pressed="assetCertificateCategory === 'updateAvailable'"
                 @click="assetCertificateCategory = 'updateAvailable'"
               >
-                {{ t('dashboard.certificateState.updateAvailable') }}
+                {{ t('assets.card.status.attention') }}
               </button>
             </div>
             <span class="asset-page__workspace-selection">
-              {{ t('businessPage.total', { count: assetOverviewTotal }) }}
+              {{ t('assets.card.total', { count: assetOverviewTotal }) }}
             </span>
             <span v-if="selectedAssetCount > 0" class="asset-page__workspace-selected-count">
               {{ t('assets.selection.selectedCount', { count: selectedAssetCount, total: assetOverviewTotal }) }}
@@ -3330,7 +3336,7 @@ function managedTargetLabel(target: ApiRecord): string {
               {{ t('common.refresh') }}
             </GcButton>
             <GcPermissionButton class="gc-button gc-button--primary" permission="service_asset.manage" @click="onboardingDialogOpen = true">
-              {{ t('assets.userView.addAction') }}
+              {{ t('assets.card.actions.add') }}
             </GcPermissionButton>
           </div>
         </header>
@@ -3416,11 +3422,11 @@ function managedTargetLabel(target: ApiRecord): string {
               <template #body>
                 <dl class="asset-page__card-facts">
                   <div>
-                    <dt>{{ t('assets.fields.currentCertificate') }}</dt>
+                    <dt>{{ t('assets.card.fields.certificate') }}</dt>
                     <dd v-auto-fit-card-fact-text class="asset-page__card-fact-value asset-page__card-certificate-name">{{ card.certificate.name }}</dd>
                   </div>
                   <div>
-                    <dt>{{ t('assets.fields.remainingValidity') }}</dt>
+                    <dt>{{ t('assets.card.fields.validity') }}</dt>
                     <dd v-auto-fit-card-fact-text class="asset-page__card-fact-value asset-page__card-certificate-status">
                       <strong class="asset-page__card-certificate-remaining">{{ card.certificate.remainingLabel }}</strong>
                       <GcStatusTag
@@ -3432,7 +3438,7 @@ function managedTargetLabel(target: ApiRecord): string {
                     </dd>
                   </div>
                   <div>
-                    <dt>{{ t('assets.fields.device') }}</dt>
+                    <dt>{{ t('assets.card.fields.device') }}</dt>
                     <dd v-auto-fit-card-fact-text class="asset-page__card-fact-value asset-page__card-device-name">{{ assetDeviceLabel(card.asset) }}</dd>
                   </div>
                 </dl>
@@ -3448,7 +3454,7 @@ function managedTargetLabel(target: ApiRecord): string {
                   permission="deployment.plan.execute"
                   @click="openDeploymentDialog(assetOverviewCardRow(card))"
                 >
-                  {{ t(assetCertificateNeedsUpdate(card.certificate) ? 'assets.actions.updateCertificate' : 'assets.actions.latestCertificate') }}
+                  {{ t(assetCertificateNeedsUpdate(card.certificate) ? 'assets.card.actions.deployUpdate' : 'assets.card.actions.upToDate') }}
                 </GcPermissionButton>
                 <GcPermissionButton
                   class="asset-page__card-icon-action"

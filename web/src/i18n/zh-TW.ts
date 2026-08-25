@@ -2924,6 +2924,14 @@ export default {
       cards: '卡片檢視',
       list: '表格檢視',
     },
+    card: {
+      presentation: { cards: '卡片', list: '表格' },
+      total: '共 {count} 個',
+      status: { valid: '有效', attention: '需關注', unknown: '未知' },
+      days: { expired: '已過期 {days} 天', expiresToday: '今天到期', notRecorded: '未記錄', remaining: '剩餘 {days} 天' },
+      fields: { certificate: '憑證', validity: '有效期', device: '裝置' },
+      actions: { add: '新增', upToDate: '已是最新', deployUpdate: '部署更新' }
+    },
     selection: {
       selectedCount: '已選取 {count} / {total} 個資產',
       actions: {

@@ -3075,6 +3075,14 @@ export default {
       cards: '卡片视图',
       list: '表格视图'
     },
+    card: {
+      presentation: { cards: '卡片', list: '表格' },
+      total: '共 {count} 个',
+      status: { valid: '有效', attention: '需关注', unknown: '未知' },
+      days: { expired: '已过期 {days} 天', expiresToday: '今天到期', notRecorded: '未记录', remaining: '剩余 {days} 天' },
+      fields: { certificate: '证书', validity: '有效期', device: '设备' },
+      actions: { add: '添加', upToDate: '已是最新', deployUpdate: '部署更新' }
+    },
     selection: {
       selectedCount: '已选中 {count} / {total} 个资产',
       actions: {
