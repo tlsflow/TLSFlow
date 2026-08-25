@@ -194,6 +194,13 @@ export function createAgentInstallMaterials(payload: ApiBody) {
   return postAction(`${AGENTS_PATH}/install-materials`, payload, 'agent_install_materials')
 }
 
+/** 创建 Windows Go Full Agent 安装会话，返回可直接复制到目标主机执行的 PowerShell 命令。 */
+export function createWindowsGoInstallSession(payload: ApiBody = {}): Promise<ApiRecordResult> {
+  return apiClient.post<ApiRecord>(toClientPath(`${AGENTS_PATH}/install-sessions/windows-go`), payload, {
+    idempotencyKey: createIdempotencyKey('windows_go_install_session'),
+  })
+}
+
 export function startDiscovery(payload: ApiBody) {
   return postAction(DISCOVERY_RUNS_PATH, payload, 'asset_discovery')
 }

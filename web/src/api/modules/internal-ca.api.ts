@@ -22,6 +22,7 @@ function remove(path: string) {
 export const internalCaApi = {
   listProviders: () => getList('/api/v1/ca-providers'),
   createProvider: (body: ApiBody) => post('/api/v1/ca-providers', body),
+  updateProvider: (providerId: string, body: ApiBody) => patch(`/api/v1/ca-providers/${encodeURIComponent(providerId)}`, body),
   deleteProvider: (providerId: string) => remove(`/api/v1/ca-providers/${encodeURIComponent(providerId)}`),
   listTrustDomains: () => getList('/api/v1/ca-trust-domains'),
   createTrustDomain: (body: ApiBody) => post('/api/v1/ca-trust-domains', body),
