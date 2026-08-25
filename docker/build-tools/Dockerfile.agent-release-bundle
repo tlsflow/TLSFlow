@@ -8,6 +8,9 @@ FROM ${GO_FULL_IMAGE} AS full-go
 FROM ${GO_COMPAT_IMAGE} AS compatibility-go
 
 FROM ${NODE_IMAGE} AS bundle
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 ARG GO_PROXY=https://proxy.golang.org|https://goproxy.cn|direct
 WORKDIR /src
 COPY --from=full-go /usr/local/go /opt/go-full
