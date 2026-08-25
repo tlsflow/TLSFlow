@@ -9,6 +9,7 @@ import type { SecuritySubject } from '../../../shared/security-types.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import { CredentialsApplicationService } from '../application/credentials.application-service.js';
 import type { CreateCredentialProfileRequestDto, RotateCredentialProfileRequestDto, UpdateCredentialProfileRequestDto } from '../dto/credentials.dto.js';
+import type { CredentialHealthService } from '../health/credential-health.service.js';
 
 const tags = ['Credentials'];
 
@@ -16,6 +17,7 @@ export class CredentialsController {
   constructor(
     private readonly service = new CredentialsApplicationService(),
     private readonly security?: SecurityServices,
+    private readonly health?: CredentialHealthService,
   ) {}
 
   register(router: Router): void {
@@ -37,7 +39,11 @@ export class CredentialsController {
       status: queryString(request, 'status'),
       search: queryString(request, 'search'),
     });
-    return { items, page: 1, pageSize: items.length, total: items.length };
+    const health = this.health
+      ? await Promise.all(items.map(async (item) => [item.id, (await this.health!.getHealth(tenantId(request), item.id)).status] as const))
+      : [];
+    const healthById = new Map(health);
+    return { items: items.map((item) => ({ ...item, ...(healthById.get(item.id) ? { healthStatus: healthById.get(item.id) } : {}) })), page: 1, pageSize: items.length, total: items.length };
   }
 
   private async get(request: HttpRequest) {

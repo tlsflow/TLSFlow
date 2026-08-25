@@ -53,6 +53,8 @@ async function execute(context, hostApi, descriptor) {
     switch (context.capability) {
       case 'device.connection.test':
         return await connectionTest(input, fixture, credential, state, context.signal);
+      case 'credential.health-check':
+        return await credentialHealthCheck(input, fixture, credential, state, context.signal);
       case 'device.discover':
         return await discover(input, fixture, credential, state, context.signal);
       case 'certificate.deploy':
@@ -133,6 +135,13 @@ async function connectionTest(input, fixture, credential, state, signal) {
     sessionEstablished: Boolean(session.sid && session.synotoken),
     requestCount: state.requestCount,
   });
+}
+
+async function credentialHealthCheck(input, fixture, credential, state, signal) {
+  const session = await login(fixture, credential, state, signal);
+  const info = await requestFixture(fixture, state, signal, 'GET', INFO_PATH, { sid: session.sid });
+  assertDsmSuccess(info, state);
+  return { success: true, status: 'SUCCESS', output: { apiVersion: 'gcac.credential-health-result/v1', status: 'VALID', summary: '设备认证成功', evidence: { protocol: PROTOCOL, productVersion: dsmVersion(info.body) } }, warnings: [] };
 }
 
 async function discover(input, fixture, credential, state, signal) {

@@ -17,6 +17,7 @@ const env = {
   GCAC_PLUGIN_RESOURCE_HASH: hash,
 };
 const AUTH_PATH = 'POST /webapi/auth.cgi?api=SYNO.API.Auth&version=7&method=login&session=GCAC&format=sid';
+const INFO_PATH = '/webapi/entry.cgi?api=SYNO.DSM.Info&version=2&method=getinfo';
 const IMPORT_PATH = 'POST /webapi/entry.cgi?api=SYNO.Core.Certificate&version=1&method=import';
 const SERVICE_BINDING_PATH = 'POST /webapi/entry.cgi?api=SYNO.Core.Certificate.Service&version=1&method=set';
 
@@ -43,6 +44,27 @@ test('Synology 缺少固定摘要时工厂失败关闭', () => {
   withEnvironment(env, () => {
     delete process.env.GCAC_PLUGIN_MANIFEST_HASH;
     assert.throws(() => createPluginRunnerExecutor(), /GCAC_PLUGIN_MANIFEST_HASH/);
+  });
+});
+
+test('Synology 凭据健康检测输出标准有效性合同且不泄露凭据', async () => {
+  await withEnvironment(env, async () => {
+    const executor = createPluginRunnerExecutor();
+    const fixture = discoveryFixture();
+    fixture.responses[`GET ${INFO_PATH}`] = ok({ success: true, data: { version: '7.2.2' } });
+    const result = await executor.execute(context(executor, 'credential.health-check', ['secret-grant'], false, {
+      deviceAddress: '192.0.2.50',
+      credential: { username: 'fixture-user', secretRef: 'secret://device/password', grantId: 'secret-grant' },
+      protocolFixture: fixture,
+    }), hostApi);
+    assert.equal(result.status, 'SUCCESS', JSON.stringify(result));
+    assert.deepEqual(result.output, {
+      apiVersion: 'gcac.credential-health-result/v1',
+      status: 'VALID',
+      summary: '设备认证成功',
+      evidence: { protocol: 'DSM', productVersion: '7.2.2' },
+    });
+    assert.doesNotMatch(JSON.stringify(result), /fixture-password|secret-value/);
   });
 });
 

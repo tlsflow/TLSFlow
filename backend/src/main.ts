@@ -22,6 +22,7 @@ import { assertUnifiedTaskWorkerConfiguration } from './modules/tasks/task-enque
 import { createPersistedSecurityServices } from './modules/security/security-services.persistence.js';
 import { auditSecretDecryptability } from './modules/secrets/secret-health-check.js';
 import type { BrowserCredentialSessionController } from './modules/browser-runtime/browser-credential-session.controller.js';
+import type { CredentialHealthService } from './modules/credentials/health/credential-health.service.js';
 
 const entryFilePath = process.argv[1] ? resolve(process.argv[1]) : '';
 const currentFilePath = fileURLToPath(import.meta.url);
@@ -107,6 +108,23 @@ async function startWithPortLock(releasePortLock: () => void): Promise<void> {
     };
     tickTasks();
     setInterval(tickTasks, workerIntervalMs);
+  }
+
+  const credentialHealthService = app.getResource<CredentialHealthService>('credentialHealthService');
+  if (credentialHealthService) {
+    const healthIntervalMs = positiveNumber(process.env.GCAC_CREDENTIAL_HEALTH_INTERVAL_MS, 15 * 60_000);
+    let schedulingHealth = false;
+    const scheduleCredentialHealth = () => {
+      if (schedulingHealth) return;
+      schedulingHealth = true;
+      void credentialHealthService.scheduleDue()
+        .catch((error: unknown) => {
+          structuredLogger.warn('凭据有效性检测调度失败', { error: error instanceof Error ? error.message : String(error) }, { module: 'credential-health' });
+        })
+        .finally(() => { schedulingHealth = false; });
+    };
+    scheduleCredentialHealth();
+    setInterval(scheduleCredentialHealth, healthIntervalMs);
   }
 
   const agentsService = app.getResource<AgentsApplicationService>('agentsService');

@@ -5,7 +5,7 @@
     "name": "f5-bigip-certificate-deploy",
     "displayName": "F5 BIG-IP certificate deployment",
     "category": "certificate",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "platforms": ["appliance"],
     "updateMethods": ["curl"],
     "maintainer": "GCAC"

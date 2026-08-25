@@ -16,6 +16,7 @@ import { buildAutomationTaskProgress } from '../automations/application/automati
 import type { TaskAttempt, TaskExecutionResult, TaskRun } from './task.types.js';
 import { TaskExecutorRegistry } from './task-worker-supervisor.js';
 import type { PluginRefreshResult } from '../plugins/dto/plugin-refresh-result.dto.js';
+import type { CredentialHealthService } from '../credentials/health/credential-health.service.js';
 
 export interface BuiltinPluginCatalogRefresher {
   refresh(tenantId?: string): Promise<PluginRefreshResult>;
@@ -36,6 +37,7 @@ export interface TaskWorkerAdapterDependencies {
   reports?: Pick<ReportExportService, 'executeTask'>;
   agents?: Pick<AgentsApplicationService, 'getRepository' | 'getUpgradeStatus'>;
   pluginCatalog?: BuiltinPluginCatalogRefresher;
+  credentialHealth?: Pick<CredentialHealthService, 'executeTask'>;
 }
 
 /**
@@ -167,6 +169,10 @@ export function createTaskExecutorRegistry(
     return { success: true, detail: result };
   }));
   registry.register('monitoring.probe', unavailableExecutor('监控探测必须由 MONITORING_BATCH 统一批次执行'));
+
+  registry.register('credential.health-check', dependencyExecutor('凭据有效性检测 Worker', dependencies.credentialHealth, async (task) => {
+    return dependencies.credentialHealth!.executeTask(task);
+  }));
 
   registry.register('ca.sync', dependencyExecutor('CA 同步 Worker', dependencies.caSync, async (task) => {
     const syncRunId = requiredPayloadString(task, 'syncRunId');

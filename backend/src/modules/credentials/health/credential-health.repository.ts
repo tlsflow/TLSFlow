@@ -1,0 +1,131 @@
+import type { DatabasePort } from '../../../database/database-port.js';
+import { newId } from '../../../shared/id.js';
+import type { CredentialHealthCheckRecord, CredentialHealthDevice, CredentialHealthState } from './credential-health.types.js';
+
+export class CredentialHealthRepository {
+  constructor(private readonly db: DatabasePort) {}
+
+  async listEligibleDevices(tenantId: string, credentialId: string): Promise<CredentialHealthDevice[]> {
+    const result = await this.db.query<DeviceRow>(`select da.service_asset_id, da.host_id, da.device_family, da.management_port,
+        da.credential_id, da.plugin_version_id, da.plugin_binding_id, da.version,
+        sa.display_name, sa.address
+      from pg_device_assets da
+      join pg_service_assets sa on sa.id=da.service_asset_id and sa.tenant_id=da.tenant_id
+      where da.tenant_id=$1 and da.credential_id=$2 and sa.deleted_at is null
+      order by sa.display_name nulls last, da.service_asset_id`, [tenantId, credentialId]);
+    return result.rows.map((row) => ({
+      id: row.service_asset_id,
+      ...(row.host_id ? { hostId: row.host_id } : {}),
+      displayName: row.display_name ?? row.address,
+      address: row.address,
+      port: Number(row.management_port),
+      deviceFamily: row.device_family,
+      credentialId: row.credential_id,
+      ...(row.plugin_version_id ? { pluginVersionId: row.plugin_version_id } : {}),
+      ...(row.plugin_binding_id ? { pluginBindingId: row.plugin_binding_id } : {}),
+      version: Number(row.version),
+    }));
+  }
+
+  async getState(tenantId: string, credentialId: string): Promise<CredentialHealthState | undefined> {
+    const row = (await this.db.query<StateRow>(`select state.*, (select count(*)::int from pg_device_assets da join pg_service_assets sa on sa.id=da.service_asset_id and sa.tenant_id=da.tenant_id where da.tenant_id=state.tenant_id and da.credential_id=state.credential_id and sa.deleted_at is null) as device_count from credential_health_states state where tenant_id=$1 and credential_id=$2`, [tenantId, credentialId])).rows[0];
+    return row ? toState(row) : undefined;
+  }
+
+  async ensureState(tenantId: string, credentialId: string, profileVersion: number, status: CredentialHealthState['status'], deviceCount: number): Promise<CredentialHealthState> {
+    const now = new Date().toISOString();
+    await this.db.query(`insert into credential_health_states (tenant_id,credential_id,status,profile_version,generation,next_check_at,updated_at)
+      values ($1,$2,$3,$4,0,case when $3 in ('DISABLED','UNUSED') then null else $5 end,$5)
+      on conflict (tenant_id,credential_id) do update set
+        profile_version=excluded.profile_version,
+        status=case
+          when credential_health_states.profile_version <> excluded.profile_version then excluded.status
+          when excluded.status in ('DISABLED','UNUSED') then excluded.status
+          when credential_health_states.status in ('DISABLED','UNUSED') then excluded.status
+          else credential_health_states.status
+        end,
+        generation=case when credential_health_states.profile_version <> excluded.profile_version then credential_health_states.generation + 1 else credential_health_states.generation end,
+        checking_task_id=case when credential_health_states.profile_version <> excluded.profile_version then null else credential_health_states.checking_task_id end,
+        next_check_at=case
+          when excluded.status in ('DISABLED','UNUSED') then null
+          when credential_health_states.profile_version <> excluded.profile_version then excluded.next_check_at
+          else coalesce(credential_health_states.next_check_at, excluded.next_check_at)
+        end,
+        updated_at=excluded.updated_at`, [tenantId, credentialId, status, profileVersion, now]);
+    const state = await this.getState(tenantId, credentialId);
+    if (!state) throw new Error('凭据健康状态写入后无法读取');
+    return { ...state, deviceCount };
+  }
+
+  async startGeneration(tenantId: string, credentialId: string, profileVersion: number, taskId?: string): Promise<number> {
+    const pendingTaskId = taskId ?? `pending:credential-health:${credentialId}`;
+    const result = await this.db.query<{ generation: number }>(`update credential_health_states set generation=generation+1, profile_version=$3, checking_task_id=$4, updated_at=now() where tenant_id=$1 and credential_id=$2 and checking_task_id is null returning generation`, [tenantId, credentialId, profileVersion, pendingTaskId]);
+    if (result.rows[0]) return Number(result.rows[0].generation);
+    const state = await this.getState(tenantId, credentialId);
+    if (state?.profileVersion === profileVersion && state.checkingTaskId) return state.generation;
+    throw new Error('凭据检测代次无法原子推进');
+  }
+
+  async markTask(tenantId: string, credentialId: string, taskId: string | undefined, generation: number): Promise<void> {
+    await this.db.query(`update credential_health_states set checking_task_id=$3, generation=$4, updated_at=now() where tenant_id=$1 and credential_id=$2`, [tenantId, credentialId, taskId ?? null, generation]);
+  }
+
+  async clearCheckingTask(tenantId: string, credentialId: string, generation: number): Promise<void> {
+    await this.db.query(`update credential_health_states set checking_task_id=null, updated_at=now() where tenant_id=$1 and credential_id=$2 and generation=$3`, [tenantId, credentialId, generation]);
+  }
+
+  async saveRecord(record: Omit<CredentialHealthCheckRecord, 'id' | 'createdAt'> & { id?: string }): Promise<CredentialHealthCheckRecord> {
+    const id = record.id ?? newId('cred-health');
+    const createdAt = new Date().toISOString();
+    await this.db.query(`insert into credential_health_check_records
+      (id,tenant_id,credential_id,device_asset_id,task_id,generation,profile_version,result_status,reason_code,reason_summary,checked_at,duration_ms,plugin_version_id,workflow_version_id,secret_version_summary,detail,created_at)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17)
+      on conflict (id) do update set result_status=excluded.result_status,reason_code=excluded.reason_code,reason_summary=excluded.reason_summary,checked_at=excluded.checked_at,duration_ms=excluded.duration_ms,detail=excluded.detail`, [
+      id, record.tenantId, record.credentialId, record.deviceAssetId, record.taskId ?? null, record.generation, record.profileVersion, record.resultStatus,
+      record.reasonCode ?? null, record.reasonSummary ?? null, record.checkedAt, record.durationMs, record.pluginVersionId ?? null, record.workflowVersionId ?? null,
+      record.secretVersionSummary ?? null, JSON.stringify(sanitizeCredentialHealthDetail(record.detail)), createdAt,
+    ]);
+    return { ...record, id, createdAt, detail: sanitizeCredentialHealthDetail(record.detail) };
+  }
+
+  async listRecords(tenantId: string, credentialId: string, deviceAssetId?: string, limit = 100): Promise<CredentialHealthCheckRecord[]> {
+    const rows = (await this.db.query<RecordRow>(`select * from credential_health_check_records where tenant_id=$1 and credential_id=$2 and ($3::text is null or device_asset_id=$3) order by checked_at desc limit $4`, [tenantId, credentialId, deviceAssetId ?? null, Math.min(Math.max(limit, 1), 500)])).rows;
+    return rows.map(toRecord);
+  }
+
+  async finalizeState(tenantId: string, credentialId: string, generation: number, profileVersion: number, status: CredentialHealthState['status'], reasonCode?: string, reasonSummary?: string, failureCount = 0, nextCheckAt?: string): Promise<boolean> {
+    const result = await this.db.query<{ credential_id: string }>(`update credential_health_states set status=$5,profile_version=$4,reason_code=$6,reason_summary=$7,failure_count=$8,checked_at=now(),next_check_at=$9,checking_task_id=null,updated_at=now() where tenant_id=$1 and credential_id=$2 and generation=$3 returning credential_id`, [tenantId, credentialId, generation, profileVersion, status, reasonCode ?? null, reasonSummary ?? null, failureCount, nextCheckAt ?? null]);
+    return result.rows.length > 0;
+  }
+
+  async listDue(tenantId?: string, limit = 100): Promise<Array<{ tenantId: string; credentialId: string; profileVersion: number; generation: number }>> {
+    const rows = (await this.db.query<{ tenant_id: string; credential_id: string; profile_version: number; generation: number }>(`select state.tenant_id,state.credential_id,state.profile_version,state.generation from credential_health_states state join credential_profiles profile on profile.tenant_id=state.tenant_id and profile.id=state.credential_id where profile.status='active' and state.next_check_at is not null and state.next_check_at <= now() ${tenantId ? 'and state.tenant_id=$1' : ''} order by state.next_check_at limit $${tenantId ? 2 : 1}`, tenantId ? [tenantId, limit] : [limit])).rows;
+    return rows.map((row) => ({ tenantId: row.tenant_id, credentialId: row.credential_id, profileVersion: Number(row.profile_version), generation: Number(row.generation) }));
+  }
+
+  async listActiveCredentialRefs(tenantId?: string, limit = 500): Promise<Array<{ tenantId: string; credentialId: string; profileVersion: number }>> {
+    const rows = (await this.db.query<{ tenant_id: string; id: string; version: number }>(`select distinct profile.tenant_id, profile.id, profile.version from credential_profiles profile join pg_device_assets da on da.tenant_id=profile.tenant_id and da.credential_id=profile.id join pg_service_assets sa on sa.tenant_id=da.tenant_id and sa.id=da.service_asset_id and sa.deleted_at is null where profile.status='active' ${tenantId ? 'and profile.tenant_id=$1' : ''} order by profile.tenant_id, profile.id limit $${tenantId ? 2 : 1}`, tenantId ? [tenantId, limit] : [limit])).rows;
+    return rows.map((row) => ({ tenantId: row.tenant_id, credentialId: row.id, profileVersion: Number(row.version) }));
+  }
+}
+
+interface DeviceRow extends Record<string, unknown> { service_asset_id: string; host_id: string | null; device_family: string; management_port: number; credential_id: string; plugin_version_id: string | null; plugin_binding_id: string | null; version: number; display_name: string | null; address: string }
+interface StateRow extends Record<string, unknown> { tenant_id: string; credential_id: string; status: CredentialHealthState['status']; checked_at: string | null; next_check_at: string | null; checking_task_id: string | null; profile_version: number; generation: number; failure_count: number; reason_code: string | null; reason_summary: string | null; updated_at: string; device_count: number }
+interface RecordRow extends Record<string, unknown> { id: string; tenant_id: string; credential_id: string; device_asset_id: string; task_id: string | null; generation: number; profile_version: number; result_status: CredentialHealthCheckRecord['resultStatus']; reason_code: string | null; reason_summary: string | null; checked_at: string; duration_ms: number; plugin_version_id: string | null; workflow_version_id: string | null; secret_version_summary: string | null; detail: Record<string, unknown>; created_at: string }
+function toState(row: StateRow): CredentialHealthState { return { tenantId: row.tenant_id, credentialId: row.credential_id, status: row.status, ...(row.checked_at ? { checkedAt: String(row.checked_at) } : {}), ...(row.next_check_at ? { nextCheckAt: String(row.next_check_at) } : {}), ...(row.checking_task_id ? { checkingTaskId: row.checking_task_id } : {}), profileVersion: Number(row.profile_version), generation: Number(row.generation), failureCount: Number(row.failure_count), ...(row.reason_code ? { reasonCode: row.reason_code } : {}), ...(row.reason_summary ? { reasonSummary: row.reason_summary } : {}), deviceCount: Number(row.device_count ?? 0), updatedAt: String(row.updated_at) }; }
+function toRecord(row: RecordRow): CredentialHealthCheckRecord { return { id: row.id, tenantId: row.tenant_id, credentialId: row.credential_id, deviceAssetId: row.device_asset_id, ...(row.task_id ? { taskId: row.task_id } : {}), generation: Number(row.generation), profileVersion: Number(row.profile_version), resultStatus: row.result_status, ...(row.reason_code ? { reasonCode: row.reason_code } : {}), ...(row.reason_summary ? { reasonSummary: row.reason_summary } : {}), checkedAt: String(row.checked_at), durationMs: Number(row.duration_ms), ...(row.plugin_version_id ? { pluginVersionId: row.plugin_version_id } : {}), ...(row.workflow_version_id ? { workflowVersionId: row.workflow_version_id } : {}), ...(row.secret_version_summary ? { secretVersionSummary: row.secret_version_summary } : {}), detail: sanitizeCredentialHealthDetail(row.detail), createdAt: String(row.created_at) }; }
+export function sanitizeCredentialHealthDetail(value: Record<string, unknown> | undefined): Record<string, unknown> {
+  const sanitized = sanitizeValue(value ?? {});
+  return sanitized && typeof sanitized === 'object' && !Array.isArray(sanitized) ? sanitized as Record<string, unknown> : {};
+}
+
+function sanitizeValue(value: unknown): unknown {
+  const blocked = /secret|password|token|cookie|authorization|responseBody|privateKey/i;
+  if (Array.isArray(value)) return value.map((item) => sanitizeValue(item));
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => !blocked.test(key))
+      .map(([key, item]) => [key, sanitizeValue(item)]),
+  );
+}

@@ -512,6 +512,7 @@ export default {
       DEPLOYMENT_PLAN_REFRESH: 'Atualização do plano de implantação',
       MONITORING_BATCH: 'Lote de monitoramento',
       MONITORING_PROBE: 'Sonda de monitoramento',
+      CREDENTIAL_HEALTH_CHECK: 'Verificação de validade da credencial',
       CA_NODE_TASK: 'Tarefa do nó CA',
       ACME_CERTIFICATE_RENEWAL: 'ACME',
       CA_RECORD_SYNC: 'Sincronização de registros CA',

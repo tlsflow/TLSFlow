@@ -512,6 +512,7 @@ export default {
       DEPLOYMENT_PLAN_REFRESH: '配備計画更新',
       MONITORING_BATCH: '監視バッチ',
       MONITORING_PROBE: '監視プローブ',
+      CREDENTIAL_HEALTH_CHECK: '資格情報の有効性チェック',
       CA_NODE_TASK: 'CAノードタスク',
       ACME_CERTIFICATE_RENEWAL: 'ACME',
       CA_RECORD_SYNC: 'CA記録同期',

@@ -17,6 +17,7 @@ test('F5 Runner 描述固定为只读设备识别能力', () => withEnvironment(
   assert.equal(descriptor.pluginId, 'device.f5.bigip');
   assert.deepEqual(descriptor.capabilities, [
     'device.connection.test',
+    'credential.health-check',
     'device.identity.detect',
     'device.discover',
     'certificate.deploy',
@@ -24,6 +25,7 @@ test('F5 Runner 描述固定为只读设备识别能力', () => withEnvironment(
   ]);
   assert.deepEqual(descriptor.actions.map((item) => item.capability), [
     'device.connection.test',
+    'credential.health-check',
     'device.identity.detect',
     'device.discover',
   ]);
@@ -49,6 +51,12 @@ test('F5 Runner 使用 Basic 用户密码 Grant 完成连接和身份识别', as
     assert.equal(identity.status, 'SUCCESS');
     assert.equal(identity.output.summary.managementAddress, '192.0.2.44');
     assert.equal(identity.output.summary.haState, 'ACTIVE');
+    const health = await executor.execute(context(executor, 'credential.health-check', {
+      deviceAddress: '192.0.2.44',
+      credential: { username: 'admin', secretRef: 'secret://f5/password', grantId: 'grant-f5' },
+      protocolFixture: fixture(),
+    }), hostApi);
+    assert.equal(health.output.credentialHealth.status, 'VALID');
     assert.doesNotMatch(JSON.stringify(identity), /fixture-password|private-key|secret-value/);
   });
 });

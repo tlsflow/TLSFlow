@@ -154,6 +154,7 @@ import {
   TasksApplicationService,
   TasksController,
 } from './modules/tasks/index.js';
+import { CredentialHealthController, CredentialHealthRepository, CredentialHealthService } from './modules/credentials/health/index.js';
 import {
   CloudAccountAssetsApplicationService,
   CloudAccountAssetBindingProvisioner,
@@ -508,6 +509,13 @@ export function createApp(dependencies: AppDependencies = {}): App {
     standardDeviceDiscoveryProjector,
     undefined,
   );
+  const credentialHealthService = new CredentialHealthService(
+    new CredentialHealthRepository(appDb),
+    credentialsService,
+    tasksService,
+    devicesService,
+  );
+  app.setResource('credentialHealthService', credentialHealthService);
   const agentPlanAuthorization = createAgentPlanAuthorizationDependencies(policyAuthorityServices, security, localPolicy)
     ?? localAgentAuthorization?.authorization
     ?? resolveInjectedAgentPlanAuthorization(dependencies.agentPlanAuthorization);
@@ -980,7 +988,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
     secrets: security.secrets,
     certificates: certificateServices.certificates.getRepository(),
   })).register(app.router);
-  new CredentialsController(credentialsService, security).register(app.router);
+  new CredentialsController(credentialsService, security, credentialHealthService).register(app.router);
+  new CredentialHealthController(credentialHealthService, security).register(app.router);
   if (browserCredentialSessionService) {
     const browserCredentialSessionController = new BrowserCredentialSessionController(browserCredentialSessionService, security);
     browserCredentialSessionController.register(app.router);
@@ -1355,6 +1364,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     reports: reportExportService,
     agents: agentsService,
     pluginCatalog: builtinCatalogRefresher,
+    credentialHealth: credentialHealthService,
   }, tasksService.registry.list().map((definition) => definition.executorKey));
   const taskWorkerSupervisor = new TaskWorkerSupervisor(
     tasksService,

@@ -16,6 +16,43 @@ export interface CredentialProfileSummary {
   updatedAt: string
   expiresAt?: string
   metadata?: Record<string, unknown>
+  healthStatus?: CredentialHealthStatus
+}
+
+export type CredentialHealthStatus = 'DISABLED' | 'UNUSED' | 'UNREACHABLE' | 'VALID' | 'ERROR'
+export interface CredentialHealthState {
+  tenantId: string
+  credentialId: string
+  status: CredentialHealthStatus
+  checkedAt?: string
+  nextCheckAt?: string
+  checkingTaskId?: string
+  profileVersion: number
+  generation: number
+  failureCount: number
+  reasonCode?: string
+  reasonSummary?: string
+  deviceCount: number
+  updatedAt: string
+}
+export interface CredentialHealthCheckRecord {
+  id: string
+  tenantId: string
+  credentialId: string
+  deviceAssetId: string
+  taskId?: string
+  generation: number
+  profileVersion: number
+  resultStatus: 'VALID' | 'UNREACHABLE' | 'ERROR'
+  reasonCode?: string
+  reasonSummary?: string
+  checkedAt: string
+  durationMs: number
+  pluginVersionId?: string
+  workflowVersionId?: string
+  secretVersionSummary?: string
+  detail: Record<string, unknown>
+  createdAt: string
 }
 
 export interface CredentialProfileDetail extends CredentialProfileSummary {
@@ -82,6 +119,19 @@ export function getCredential(id: string): Promise<ApiResult<CredentialProfileDe
 
 export function getCredentialUsage(id: string): Promise<ApiResult<CredentialUsage>> {
   return apiClient.get<CredentialUsage>(`${toClientPath('/api/v1/credentials/usage')}?id=${encodeURIComponent(id)}`)
+}
+
+export function getCredentialHealth(id: string): Promise<ApiResult<CredentialHealthState>> {
+  return apiClient.get<CredentialHealthState>(`${toClientPath(`/api/v1/credentials/${encodeURIComponent(id)}/health`)}`)
+}
+
+export function listCredentialHealthChecks(id: string, deviceAssetId?: string): Promise<ApiResult<{ items: CredentialHealthCheckRecord[] }>> {
+  const query = deviceAssetId ? `?deviceAssetId=${encodeURIComponent(deviceAssetId)}` : ''
+  return apiClient.get<{ items: CredentialHealthCheckRecord[] }>(`${toClientPath(`/api/v1/credentials/${encodeURIComponent(id)}/health-checks`)}${query}`)
+}
+
+export function triggerCredentialHealthCheck(id: string, deviceAssetId?: string): Promise<ApiResult<{ taskId: string; health: CredentialHealthState }>> {
+  return apiClient.post<{ taskId: string; health: CredentialHealthState }>(toClientPath(`/api/v1/credentials/${encodeURIComponent(id)}/health-check`), deviceAssetId ? { deviceAssetId } : {}, { idempotencyKey: createIdempotencyKey('credential_health_check') })
 }
 
 export function createCredential(input: CreateCredentialInput): Promise<ApiResult<CredentialProfileDetail>> {

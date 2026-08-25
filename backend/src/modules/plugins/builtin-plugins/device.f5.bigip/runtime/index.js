@@ -14,6 +14,7 @@ const HASH = /^sha256:[a-f0-9]{64}$/;
 const SECRET_REF = /^secret:\/\/[A-Za-z0-9._:/#-]{1,512}$/;
 const IDENTIFICATION_CAPABILITIES = Object.freeze([
   'device.connection.test',
+  'credential.health-check',
   'device.identity.detect',
   'device.discover',
 ]);
@@ -64,6 +65,11 @@ async function execute(context, hostApi, descriptor) {
       managementAddress: readManagementAddress(fixture),
       haState: readFailoverState(fixture),
     });
+  }
+  if (context.capability === 'credential.health-check') {
+    const response = requestHealthResponse(fixture, 'GET', '/mgmt/tm/sys/version');
+    const credentialHealth = { apiVersion: 'gcac.credential-health-result/v1', status: response.statusCode === 200 ? 'VALID' : 'ERROR', ...(response.statusCode === 200 ? {} : { reasonCode: 'PASSWORD_INVALID' }), summary: response.statusCode === 200 ? '设备认证成功' : '设备拒绝凭据认证', evidence: { protocol: PROTOCOL, ...(response.statusCode === 200 ? { productVersion: readVersion(fixture) } : { httpStatus: response.statusCode }) } };
+    return { success: true, status: 'SUCCESS', output: { credentialHealth }, credentialHealth, warnings: [] };
   }
   requestResponse(fixture, 'GET', '/mgmt/tm/sys/version');
   return successResult({ protocol: PROTOCOL, operation: 'device.connection.test', requestCount: 1, productVersion: readVersion(fixture) });
@@ -246,6 +252,15 @@ function requestResponse(fixture, method, path) {
   if (!Number.isInteger(response.statusCode) || response.statusCode < 100 || response.statusCode > 599) fail('F5 Fixture statusCode 无效', 'PLUGIN_PROTOCOL_CONTRACT_INVALID');
   if (!response.body || typeof response.body !== 'object' || Array.isArray(response.body)) fail('F5 Fixture body 必须是对象', 'PLUGIN_PROTOCOL_CONTRACT_INVALID');
   if (response.statusCode < 200 || response.statusCode >= 300) fail('F5 返回 HTTP 错误', 'PLUGIN_PROTOCOL_CONTRACT_INVALID');
+  return response;
+}
+
+function requestHealthResponse(fixture, method, path) {
+  const response = fixture.responses[`${method} ${path}`];
+  if (!response) fail(`F5 Fixture 缺少固定响应：${method} ${path}`, 'PLUGIN_PROTOCOL_CONTRACT_INVALID');
+  if (!Number.isInteger(response.statusCode) || response.statusCode < 100 || response.statusCode > 599) fail('F5 Fixture statusCode 无效', 'PLUGIN_PROTOCOL_CONTRACT_INVALID');
+  if (!response.body || typeof response.body !== 'object' || Array.isArray(response.body)) fail('F5 Fixture body 必须是对象', 'PLUGIN_PROTOCOL_CONTRACT_INVALID');
+  if (![200, 401, 403].includes(response.statusCode)) fail('F5 返回无法分类的认证响应', 'PLUGIN_PROTOCOL_CONTRACT_INVALID');
   return response;
 }
 

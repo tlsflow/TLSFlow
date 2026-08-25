@@ -176,7 +176,7 @@ export class DevicesApplicationService {
     requestId = 'device-action',
     authorization?: WorkflowExecutionAuthorization,
   ) {
-    if (!['device.connection.test', 'device.identity.detect', 'device.discover', 'certificate.discover'].includes(capabilityKey)) {
+    if (!['device.connection.test', 'device.identity.detect', 'device.discover', 'certificate.discover', 'credential.health-check'].includes(capabilityKey)) {
       throw new AppError('VALIDATION_FAILED', '该设备动作必须通过部署计划执行', { capabilityKey });
     }
     const device = await this.get(tenantId, deviceId);
@@ -260,25 +260,28 @@ export class DevicesApplicationService {
     }));
     if (result.status !== 'success') {
       const failedStep = findFailedWorkflowStep(result.stepResults);
-      structuredLogger.error('设备插件能力执行失败', {
-        deviceId: device.id,
-        deviceAssetId: device.extension.deviceAssetId,
-        pluginVersionId: effectivePluginVersionId,
-        pluginBindingId: assignment.pluginBindingId,
-        capabilityKey,
-        workflowRunId: result.id,
-        workflowStatus: result.status,
-        failedStepName: failedStep?.name,
-        failedStepType: failedStep?.type,
-        failedStepStage: failedStep?.stage,
-        errorCode: failedStep?.errorCode,
-        errorMessage: failedStep?.errorMessage,
-      }, {
-        tenantId,
-        module: 'devices',
-        resourceType: 'managedDevice',
-        resourceId: device.id,
-      });
+      // 凭据健康检测属于高频监控；结果进入脱敏检测记录，不能污染普通设备执行日志。
+      if (capabilityKey !== 'credential.health-check') {
+        structuredLogger.error('设备插件能力执行失败', {
+          deviceId: device.id,
+          deviceAssetId: device.extension.deviceAssetId,
+          pluginVersionId: effectivePluginVersionId,
+          pluginBindingId: assignment.pluginBindingId,
+          capabilityKey,
+          workflowRunId: result.id,
+          workflowStatus: result.status,
+          failedStepName: failedStep?.name,
+          failedStepType: failedStep?.type,
+          failedStepStage: failedStep?.stage,
+          errorCode: failedStep?.errorCode,
+          errorMessage: failedStep?.errorMessage,
+        }, {
+          tenantId,
+          module: 'devices',
+          resourceType: 'managedDevice',
+          resourceId: device.id,
+        });
+      }
       throw new AppError('PLUGIN_CAPABILITY_EXECUTION_FAILED', '设备插件能力执行失败', {
         capabilityKey,
         workflowRunId: result.id,

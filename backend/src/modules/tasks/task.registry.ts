@@ -16,6 +16,7 @@ const defaultDefinitions: TaskDefinition[] = [
   ['DEPLOYMENT_PLAN_REFRESH', 'EXECUTION', 'tasks.types.deploymentPlanRefresh', 'deployment.plan.refresh', 'deployment.plan.write'],
   ['MONITORING_BATCH', 'MONITORING', 'tasks.types.monitoringBatch', 'monitoring.batch', 'monitor.dashboard.read'],
   ['MONITORING_PROBE', 'MONITORING', 'tasks.types.monitoringProbe', 'monitoring.probe', 'monitor.target.read'],
+  ['CREDENTIAL_HEALTH_CHECK', 'MONITORING', 'tasks.types.credentialHealthCheck', 'credential.health-check', 'credential.health-check'],
   ['CA_RECORD_SYNC', 'SYSTEM', 'tasks.types.caRecordSync', 'ca.sync', 'ca.operations.read'],
   ['CERTIFICATE_REVOCATION', 'SYSTEM', 'tasks.types.certificateRevocation', 'certificate.revocation', 'certificate.lifecycle'],
   ['CRL_PUBLISH', 'SYSTEM', 'tasks.types.crlPublish', 'ca.crl-publish', 'certificate.lifecycle'],

@@ -511,6 +511,7 @@ export default {
       DEPLOYMENT_PLAN_REFRESH: "部署計畫刷新",
       MONITORING_BATCH: "監控批次",
       MONITORING_PROBE: "監控探測",
+      CREDENTIAL_HEALTH_CHECK: "憑據有效性檢測",
       CA_NODE_TASK: "CA節點任務",
       ACME_CERTIFICATE_RENEWAL: "ACME",
       CA_RECORD_SYNC: "CA記錄同步",

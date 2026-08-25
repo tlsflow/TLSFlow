@@ -530,6 +530,7 @@ export default {
       DEPLOYMENT_PLAN_REFRESH: 'Deployment plan refresh',
       MONITORING_BATCH: 'Monitoring batch',
       MONITORING_PROBE: 'Monitoring probe',
+      CREDENTIAL_HEALTH_CHECK: 'Credential validity check',
       CA_NODE_TASK: 'CA node task',
       ACME_CERTIFICATE_RENEWAL: 'ACME',
       CA_RECORD_SYNC: 'CA record sync',

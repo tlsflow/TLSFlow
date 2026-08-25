@@ -530,6 +530,7 @@ export default {
       DEPLOYMENT_PLAN_REFRESH: '部署计划刷新',
       MONITORING_BATCH: '监控批次',
       MONITORING_PROBE: '监控探测',
+      CREDENTIAL_HEALTH_CHECK: '凭据有效性检测',
       CA_NODE_TASK: 'CA节点任务',
       ACME_CERTIFICATE_RENEWAL: 'ACME',
       CA_RECORD_SYNC: 'CA记录同步',

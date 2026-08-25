@@ -512,6 +512,7 @@ export default {
       DEPLOYMENT_PLAN_REFRESH: 'Обновление плана развёртывания',
       MONITORING_BATCH: 'Пакет мониторинга',
       MONITORING_PROBE: 'Проверка мониторинга',
+      CREDENTIAL_HEALTH_CHECK: 'Проверка действительности учетных данных',
       CA_NODE_TASK: 'Задача узла CA',
       ACME_CERTIFICATE_RENEWAL: 'ACME',
       CA_RECORD_SYNC: 'Синхронизация записей CA',

@@ -508,6 +508,7 @@ export default {
       DEPLOYMENT_PLAN_REFRESH: 'Rafraîchissement du plan de déploiement',
       MONITORING_BATCH: 'Lot de supervision',
       MONITORING_PROBE: 'Sonde de supervision',
+      CREDENTIAL_HEALTH_CHECK: 'Vérification de validité des identifiants',
       CA_NODE_TASK: 'Tâche de nœud CA',
       ACME_CERTIFICATE_RENEWAL: 'ACME',
       CA_RECORD_SYNC: 'Synchronisation des enregistrements CA',

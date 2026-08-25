@@ -10,7 +10,10 @@ import {
   getBrowserCredentialSession,
   getCredential,
   getCredentialUsage,
+  getCredentialHealth,
+  listCredentialHealthChecks,
   listCredentials,
+  triggerCredentialHealthCheck,
   updateCredential,
   updateCredentialStatus,
   type CredentialKind,
@@ -18,6 +21,8 @@ import {
   type CredentialProfileSummary,
   type CredentialSecretValueInput,
   type CredentialUsage,
+  type CredentialHealthState,
+  type CredentialHealthCheckRecord,
   type BrowserCredentialSession,
 } from '@/api/modules/credentials.api'
 import { GcModal, GcPagination, GcPageToolbar, GcSecretInput, GcStatusTag } from '@/design-system/components'
@@ -104,6 +109,13 @@ const deleteOpen = ref(false)
 const editorMode = ref<EditorMode>('create')
 const selected = ref<CredentialProfileDetail | null>(null)
 const usage = ref<CredentialUsage | null>(null)
+const healthModalOpen = ref(false)
+const healthLoading = ref(false)
+const healthTesting = ref(false)
+const healthError = ref('')
+const healthCredential = ref<CredentialProfileSummary | null>(null)
+const healthState = ref<CredentialHealthState | null>(null)
+const healthChecks = ref<CredentialHealthCheckRecord[]>([])
 const form = ref<CredentialFormState>(emptyForm())
 const cloudProviders = ref<CloudProviderDefinition[]>([])
 const cloudProvidersLoading = ref(false)
@@ -679,6 +691,42 @@ async function load(): Promise<void> {
   }
 }
 
+async function openHealth(item: CredentialProfileSummary): Promise<void> {
+  healthCredential.value = item
+  healthModalOpen.value = true
+  healthLoading.value = true
+  healthError.value = ''
+  try {
+    const [stateResult, checksResult] = await Promise.all([getCredentialHealth(item.id), listCredentialHealthChecks(item.id)])
+    healthState.value = stateResult.data ?? null
+    healthChecks.value = checksResult.data?.items ?? []
+  } catch (cause) {
+    healthError.value = cause instanceof Error ? cause.message : t('credentials.health.errors.load')
+  } finally {
+    healthLoading.value = false
+  }
+}
+
+async function runHealthTest(): Promise<void> {
+  if (!healthCredential.value) return
+  healthTesting.value = true
+  healthError.value = ''
+  try {
+    await triggerCredentialHealthCheck(healthCredential.value.id)
+    const [stateResult, checksResult] = await Promise.all([getCredentialHealth(healthCredential.value.id), listCredentialHealthChecks(healthCredential.value.id)])
+    healthState.value = stateResult.data ?? healthState.value
+    healthChecks.value = checksResult.data?.items ?? healthChecks.value
+  } catch (cause) {
+    healthError.value = cause instanceof Error ? cause.message : t('credentials.health.errors.test')
+  } finally {
+    healthTesting.value = false
+  }
+}
+
+function healthStatus(item: CredentialProfileSummary): string {
+  return item.healthStatus ?? (item.status === 'active' ? 'UNUSED' : 'DISABLED')
+}
+
 function openCreate(): void {
   editorMode.value = 'create'
   selected.value = null
@@ -876,11 +924,12 @@ onUnmounted(() => {
               <td>{{ t(`credentials.scopes.${item.scopeType}`) }}</td>
               <td>{{ item.username ?? t('common.notAvailable') }}</td>
               <td>
+                <button class="credential-health-button" type="button" :aria-label="t('credentials.health.openAria', { name: item.name })" @click="openHealth(item)">
+                  <GcStatusTag :status="item.status === 'error' ? 'ERROR' : healthStatus(item)" :label="item.status === 'error' ? t('credentials.health.status.ERROR') : t(`credentials.health.status.${healthStatus(item)}`)" />
+                </button>
                 <div v-if="item.status === 'error'" class="credential-status credential-status--repair" :title="t('credentials.status.errorHint')">
-                  <span>{{ t('credentials.status.errorLabel') }}</span>
                   <small>{{ t('credentials.status.errorSummary') }}</small>
                 </div>
-                <GcStatusTag v-else :status="item.status" />
               </td>
               <td>{{ item.expiresAt ? formatBrowserLocalTime(item.expiresAt, { includeSeconds: false }) : t('credentials.expiry.longTerm') }}</td>
               <td>{{ remainingTime(item.expiresAt) }}</td>
@@ -906,6 +955,34 @@ onUnmounted(() => {
         />
       </footer>
     </section>
+
+    <GcModal v-model:open="healthModalOpen" :title="t('credentials.health.title')" :description="healthCredential?.name" size="xl">
+      <div class="credential-health-modal">
+        <p v-if="healthError" class="credentials-page__error" role="alert">{{ healthError }}</p>
+        <p v-if="healthLoading" class="credentials-list__state">{{ t('common.loading') }}</p>
+        <template v-else-if="healthState">
+          <div class="credential-health-modal__summary">
+            <GcStatusTag :status="healthState.status" :label="t(`credentials.health.status.${healthState.status}`)" />
+            <span>{{ t('credentials.health.deviceCount', { count: healthState.deviceCount }) }}</span>
+            <span v-if="healthState.checkedAt">{{ t('credentials.health.checkedAt', { time: formatMaybeLocalTime(healthState.checkedAt) }) }}</span>
+            <span v-if="healthState.reasonSummary">{{ healthState.reasonSummary }}</span>
+          </div>
+          <div class="credential-health-modal__actions">
+            <button class="gc-button gc-button--primary" type="button" :disabled="healthTesting || healthState.status === 'DISABLED' || healthState.status === 'UNUSED'" @click="runHealthTest">{{ healthTesting ? t('credentials.health.testing') : t('credentials.health.test') }}</button>
+          </div>
+          <p v-if="healthChecks.length === 0" class="credentials-list__state">{{ t('credentials.health.empty') }}</p>
+          <div v-else class="credential-health-modal__records">
+            <div v-for="record in healthChecks" :key="record.id" class="credential-health-record">
+              <div class="credential-health-record__heading">
+                <GcStatusTag :status="record.resultStatus" :label="t(`credentials.health.status.${record.resultStatus}`)" />
+                <span>{{ formatMaybeLocalTime(record.checkedAt) }}</span>
+              </div>
+              <div class="credential-health-record__meta"><span>{{ record.deviceAssetId }}</span><span v-if="record.reasonCode">{{ record.reasonCode }}</span><span v-if="record.reasonSummary">{{ record.reasonSummary }}</span></div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </GcModal>
 
     <GcModal v-model:open="editorOpen" :title="editorTitle" :description="isEditing ? undefined : editorDescription" size="xl">
       <form class="credentials-editor" @submit.prevent="submitEditor">
@@ -1175,6 +1252,16 @@ tbody tr:last-child td { border-bottom: 0; }
 .credentials-list__actions-heading { text-align: right; }
 .credentials-list__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--gc-space-1); }
 .credentials-list__actions .gc-button { min-height: var(--gc-space-8); padding: 0 var(--gc-space-2); font-size: var(--gc-font-size-xs); white-space: nowrap; }
+.credential-health-button { display: inline-flex; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.credential-health-button:focus-visible { outline: var(--gc-border-width-thick) solid var(--gc-color-focus); outline-offset: var(--gc-space-1); border-radius: var(--gc-radius-sm); }
+.credential-health-modal { display: grid; gap: var(--gc-space-4); }
+.credential-health-modal__summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gc-space-3); padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-soft); color: var(--gc-color-text-muted); }
+.credential-health-modal__actions { display: flex; justify-content: flex-end; }
+.credential-health-modal__records { display: grid; gap: var(--gc-space-2); }
+.credential-health-record { display: grid; gap: var(--gc-space-2); padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface); }
+.credential-health-record__heading, .credential-health-record__meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gc-space-2); }
+.credential-health-record__heading { justify-content: space-between; color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); }
+.credential-health-record__meta { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); overflow-wrap: anywhere; }
 .credential-name { display: flex; align-items: center; gap: var(--gc-space-2); min-width: var(--gc-size-card-min); }
 .credential-name__mark { display: grid; flex: 0 0 var(--gc-space-8); width: var(--gc-space-8); height: var(--gc-space-8); place-items: center; border-radius: var(--gc-radius-sm); background: var(--gc-color-primary-soft); color: var(--gc-color-primary-strong); font-size: var(--gc-font-size-xs); font-weight: 800; }
 .credential-name > span:last-child { display: grid; min-width: 0; gap: var(--gc-space-1); }
