@@ -7,11 +7,23 @@ export class CredentialHealthRepository {
 
   async listEligibleDevices(tenantId: string, credentialId: string): Promise<CredentialHealthDevice[]> {
     const result = await this.db.query<DeviceRow>(`select da.service_asset_id, da.host_id, da.device_family, da.management_port,
-        da.credential_id, da.plugin_version_id, da.plugin_binding_id, da.version,
+        coalesce(da.credential_id, (
+          select credential_slot.value->>'credentialId'
+          from jsonb_each(coalesce(binding.input_bindings->'credentials','{}'::jsonb)) as credential_slot
+          where credential_slot.value->>'credentialId'=$2
+          limit 1
+        )) as credential_id,
+        da.plugin_version_id, da.plugin_binding_id, da.version,
         sa.display_name, sa.address
       from pg_device_assets da
       join pg_service_assets sa on sa.id=da.service_asset_id and sa.tenant_id=da.tenant_id
-      where da.tenant_id=$1 and da.credential_id=$2 and sa.deleted_at is null
+      left join unified_plugin_bindings binding on binding.tenant_id=da.tenant_id and binding.id=da.plugin_binding_id
+      where da.tenant_id=$1 and sa.deleted_at is null
+        and (da.credential_id=$2 or exists (
+          select 1
+          from jsonb_each(coalesce(binding.input_bindings->'credentials','{}'::jsonb)) as credential_slot
+          where credential_slot.value->>'credentialId'=$2
+        ))
       order by sa.display_name nulls last, da.service_asset_id`, [tenantId, credentialId]);
     return result.rows.map((row) => ({
       id: row.service_asset_id,
@@ -28,14 +40,23 @@ export class CredentialHealthRepository {
   }
 
   async getState(tenantId: string, credentialId: string): Promise<CredentialHealthState | undefined> {
-    const row = (await this.db.query<StateRow>(`select state.*, (select count(*)::int from pg_device_assets da join pg_service_assets sa on sa.id=da.service_asset_id and sa.tenant_id=da.tenant_id where da.tenant_id=state.tenant_id and da.credential_id=state.credential_id and sa.deleted_at is null) as device_count from credential_health_states state where tenant_id=$1 and credential_id=$2`, [tenantId, credentialId])).rows[0];
+    const row = (await this.db.query<StateRow>(`select state.*, (select count(*)::int
+      from pg_device_assets da
+      join pg_service_assets sa on sa.id=da.service_asset_id and sa.tenant_id=da.tenant_id
+      left join unified_plugin_bindings binding on binding.tenant_id=da.tenant_id and binding.id=da.plugin_binding_id
+      where da.tenant_id=state.tenant_id and sa.deleted_at is null
+        and (da.credential_id=state.credential_id or exists (
+          select 1
+          from jsonb_each(coalesce(binding.input_bindings->'credentials','{}'::jsonb)) as credential_slot
+          where credential_slot.value->>'credentialId'=state.credential_id
+        ))) as device_count
+      from credential_health_states state where tenant_id=$1 and credential_id=$2`, [tenantId, credentialId])).rows[0];
     return row ? toState(row) : undefined;
   }
 
   async ensureState(tenantId: string, credentialId: string, profileVersion: number, status: CredentialHealthState['status'], deviceCount: number): Promise<CredentialHealthState> {
-    const now = new Date().toISOString();
     await this.db.query(`insert into credential_health_states (tenant_id,credential_id,status,profile_version,generation,next_check_at,updated_at)
-      values ($1,$2,$3,$4,0,case when $3 in ('DISABLED','UNUSED') then null else $5 end,$5)
+      values ($1,$2,$3,$4,0,case when $3 in ('DISABLED','UNUSED') then null::timestamptz else now() end,now())
       on conflict (tenant_id,credential_id) do update set
         profile_version=excluded.profile_version,
         status=case
@@ -51,7 +72,7 @@ export class CredentialHealthRepository {
           when credential_health_states.profile_version <> excluded.profile_version then excluded.next_check_at
           else coalesce(credential_health_states.next_check_at, excluded.next_check_at)
         end,
-        updated_at=excluded.updated_at`, [tenantId, credentialId, status, profileVersion, now]);
+        updated_at=excluded.updated_at`, [tenantId, credentialId, status, profileVersion]);
     const state = await this.getState(tenantId, credentialId);
     if (!state) throw new Error('凭据健康状态写入后无法读取');
     return { ...state, deviceCount };
@@ -94,7 +115,7 @@ export class CredentialHealthRepository {
   }
 
   async finalizeState(tenantId: string, credentialId: string, generation: number, profileVersion: number, status: CredentialHealthState['status'], reasonCode?: string, reasonSummary?: string, failureCount = 0, nextCheckAt?: string): Promise<boolean> {
-    const result = await this.db.query<{ credential_id: string }>(`update credential_health_states set status=$5,profile_version=$4,reason_code=$6,reason_summary=$7,failure_count=$8,checked_at=now(),next_check_at=$9,checking_task_id=null,updated_at=now() where tenant_id=$1 and credential_id=$2 and generation=$3 returning credential_id`, [tenantId, credentialId, generation, profileVersion, status, reasonCode ?? null, reasonSummary ?? null, failureCount, nextCheckAt ?? null]);
+    const result = await this.db.query<{ credential_id: string }>(`update credential_health_states set status=$5,profile_version=$4,reason_code=$6,reason_summary=$7,failure_count=$8,checked_at=now(),next_check_at=$9::timestamptz,checking_task_id=null,updated_at=now() where tenant_id=$1 and credential_id=$2 and generation=$3 returning credential_id`, [tenantId, credentialId, generation, profileVersion, status, reasonCode ?? null, reasonSummary ?? null, failureCount, nextCheckAt ?? null]);
     return result.rows.length > 0;
   }
 
@@ -104,7 +125,19 @@ export class CredentialHealthRepository {
   }
 
   async listActiveCredentialRefs(tenantId?: string, limit = 500): Promise<Array<{ tenantId: string; credentialId: string; profileVersion: number }>> {
-    const rows = (await this.db.query<{ tenant_id: string; id: string; version: number }>(`select distinct profile.tenant_id, profile.id, profile.version from credential_profiles profile join pg_device_assets da on da.tenant_id=profile.tenant_id and da.credential_id=profile.id join pg_service_assets sa on sa.tenant_id=da.tenant_id and sa.id=da.service_asset_id and sa.deleted_at is null where profile.status='active' ${tenantId ? 'and profile.tenant_id=$1' : ''} order by profile.tenant_id, profile.id limit $${tenantId ? 2 : 1}`, tenantId ? [tenantId, limit] : [limit])).rows;
+    const rows = (await this.db.query<{ tenant_id: string; id: string; version: number }>(`select distinct profile.tenant_id, profile.id, profile.version
+      from credential_profiles profile
+      join pg_device_assets da on da.tenant_id=profile.tenant_id
+      join pg_service_assets sa on sa.tenant_id=da.tenant_id and sa.id=da.service_asset_id and sa.deleted_at is null
+      left join unified_plugin_bindings binding on binding.tenant_id=da.tenant_id and binding.id=da.plugin_binding_id
+      where profile.status='active'
+        and (da.credential_id=profile.id or exists (
+          select 1
+          from jsonb_each(coalesce(binding.input_bindings->'credentials','{}'::jsonb)) as credential_slot
+          where credential_slot.value->>'credentialId'=profile.id
+        ))
+        ${tenantId ? 'and profile.tenant_id=$1' : ''}
+      order by profile.tenant_id, profile.id limit $${tenantId ? 2 : 1}`, tenantId ? [tenantId, limit] : [limit])).rows;
     return rows.map((row) => ({ tenantId: row.tenant_id, credentialId: row.id, profileVersion: Number(row.version) }));
   }
 }
