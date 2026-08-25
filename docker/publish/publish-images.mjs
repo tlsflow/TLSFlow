@@ -30,7 +30,7 @@ for (const platform of platforms) {
 }
 
 assertDockerLoginIsExternal();
-run(process.execPath, [join(repositoryRoot, 'docker', 'build-tools', 'build-agent-release-bundle.mjs')], repositoryRoot);
+run(process.execPath, [join(repositoryRoot, 'docker', 'build-tools', 'build-agent-release-bundle-docker.mjs')], repositoryRoot);
 
 const targets = architecture === 'small'
   ? [{ name: 'gcac-small', dockerfile: 'docker/build-tools/Dockerfile.small', usesProductEdition: true }]

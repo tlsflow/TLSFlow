@@ -1,5 +1,9 @@
 {
   "node": "22",
+  "agentToolchains": {
+    "full": "golang:1.23-bookworm",
+    "compatibility": "golang:1.20-bullseye"
+  },
   "postgres": "16",
   "nginx": "1.27",
   "pglite": "0.5.1",

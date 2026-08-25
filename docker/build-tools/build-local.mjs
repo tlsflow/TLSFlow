@@ -18,7 +18,7 @@ if (!['small', 'standard', 'all'].includes(architecture)) {
 assertProductEdition(productEdition);
 assertLinuxPlatform(platform);
 
-run(process.execPath, [join(repositoryRoot, 'docker', 'build-tools', 'build-agent-release-bundle.mjs')], repositoryRoot);
+run(process.execPath, [join(repositoryRoot, 'docker', 'build-tools', 'build-agent-release-bundle-docker.mjs')], repositoryRoot);
 
 const targets = options.image
   ? [resolveTarget(options.image)]
