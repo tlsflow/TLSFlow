@@ -307,7 +307,7 @@ describe('DashboardView', () => {
             key: 'deploymentPlans',
             title: '应用资产部署',
             description: '从应用资产选择证书版本并发起部署。',
-            path: '/assets',
+            path: '/applications',
             permission: 'service_asset.read',
           },
         ],

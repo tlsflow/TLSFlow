@@ -34,7 +34,7 @@ function createRouterForGateway() {
   return createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/assets', component: { template: '<div />' } },
+      { path: '/applications', component: { template: '<div />' } },
       { path: '/executions', component: { template: '<div />' } }
     ]
   })

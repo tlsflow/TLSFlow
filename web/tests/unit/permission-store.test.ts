@@ -22,7 +22,7 @@ describe('权限 Store', () => {
     expect(store.visibleMenuItems.map((item) => item.path)).toEqual([
       '/dashboard',
       '/certificates',
-      '/assets',
+      '/applications',
       '/automations',
       '/plugins',
       '/monitors',
@@ -122,11 +122,11 @@ describe('权限 Store', () => {
 
     expect(store.hasPermission('certificate.asset.read')).toBe(true)
     expect(store.hasPermission('service_asset.read')).toBe(true)
-    expect(store.visibleMenuItems.map((item) => item.path)).toEqual(['/dashboard', '/certificates', '/assets'])
+    expect(store.visibleMenuItems.map((item) => item.path)).toEqual(['/dashboard', '/certificates', '/applications'])
     const certificates = store.visibleMenuItems.find((item) => item.path === '/certificates')
     expect(certificates?.children?.map((item) => item.path)).toEqual(['/certificates', '/acme'])
-    const assets = store.visibleMenuItems.find((item) => item.path === '/assets')
-    expect(assets?.children?.map((item) => item.path)).toEqual(['/assets'])
+    const assets = store.visibleMenuItems.find((item) => item.path === '/applications')
+    expect(assets?.children?.map((item) => item.path)).toEqual(['/applications'])
   })
 
   it('兼容历史前端权限名与后端真实动作名映射', () => {

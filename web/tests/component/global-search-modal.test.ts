@@ -75,8 +75,8 @@ describe('GlobalSearchModal', () => {
         { id: 'certificate-asset:1', title: 'api.example.com', summary: 'fingerprint-1', type: 'serverCertificate', category: 'certificates', path: '/certificates', query: { versionsModal: '1', assetId: 'certificate-1' }, keywords: ['api.example.com'] },
         { id: 'certificate-intermediate:1', title: 'Intermediate CA', summary: 'issuer.example.com', type: 'intermediateCertificate', category: 'certificates', path: '/certificates', query: { versionsModal: '1', assetId: 'certificate-1' }, keywords: ['Intermediate CA', 'intermediate-fingerprint'] },
         { id: 'certificate-root:1', title: 'Root CA', summary: 'root.example.com', type: 'rootCertificate', category: 'certificates', path: '/certificates', query: { rootId: 'root-1' }, keywords: ['root-fingerprint'] },
-        { id: 'device:1', title: 'search-device', summary: '10.0.0.10 · nginx', type: 'device', category: 'assets', path: '/assets/devices', query: { detailModal: '1', deviceId: 'device-1' }, keywords: ['search-device'] },
-        { id: 'application:1', title: 'search-app', summary: 'app.example.com · production', type: 'application', category: 'assets', path: '/assets', query: { detailModal: '1', assetId: 'application-1' }, keywords: ['search-app'] },
+        { id: 'device:1', title: 'search-device', summary: '10.0.0.10 · nginx', type: 'device', category: 'assets', path: '/assets', query: { detailModal: '1', deviceId: 'device-1' }, keywords: ['search-device'] },
+        { id: 'application:1', title: 'search-app', summary: 'app.example.com · production', type: 'application', category: 'assets', path: '/applications', query: { detailModal: '1', assetId: 'application-1' }, keywords: ['search-app'] },
         { id: 'plugin:1', title: 'search-plugin', summary: 'v1.2.3 · AGENT_PLAN', type: 'plugin', category: 'plugins', path: '/plugins', query: { detailModal: '1', pluginVersionId: 'plugin-version-1' }, keywords: ['search-plugin'] },
       ]
       const needle = query.toLowerCase()

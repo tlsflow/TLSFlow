@@ -11,7 +11,7 @@ describe('部署计划兼容入口', () => {
       query: { filter: 'legacy' },
       hash: '#deployment',
     })
-    expect(redirect).toEqual({ path: '/assets', query: { filter: 'legacy' }, hash: '#deployment' })
+    expect(redirect).toEqual({ path: '/applications', query: { filter: 'legacy' }, hash: '#deployment' })
   })
 
   it('旧计划和运行详情链接转到执行记录并保留定位参数', () => {

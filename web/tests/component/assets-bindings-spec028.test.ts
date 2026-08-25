@@ -106,7 +106,7 @@ function createBusinessRouter() {
   return createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/assets', component: { template: '<div />' } },
+      { path: '/applications', component: { template: '<div />' } },
       { path: '/bindings', component: { template: '<div />' } },
       { path: '/certificates', component: { template: '<div />' } },
     ],
