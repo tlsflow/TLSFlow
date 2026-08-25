@@ -9,6 +9,7 @@ import type { CloudAccountAssetsApplicationService } from '../../providers/appli
 import { assertHostApiGrant, getHostApiMethod, validateHostApiRequest, validateHostApiResult, type HostApiMethodDefinition } from './protocol/host-api.registry.js';
 import { PluginRunnerHostApiRequestGate, type HostApiRequestAdmission, type HostApiRequestBinding, type HostApiRequestOutcome } from './host-api.request-gate.js';
 import type { PluginRunnerHostApiHandler, PluginRunnerHostCallContext } from './plugin-runner-client.js';
+import type { CookieSessionStore } from '../../executors/curl/cookie-session.js';
 
 export interface PluginRunnerHostApiDependencies {
   security: Pick<SecurityServices, 'audit' | 'grants' | 'secrets'>;
@@ -20,6 +21,7 @@ export interface PluginRunnerHostApiDependencies {
   cloudServices?: Pick<CloudAccountAssetsApplicationService, 'get' | 'list'>;
   /** 生产必须注入不跟随重定向的通用 HTTPS 客户端。 */
   httpClient?: Pick<OutboundHttpClient, 'request'>;
+  cookieSessionStore?: CookieSessionStore;
 }
 
 /**
@@ -319,6 +321,24 @@ async function requestHttp(
   const method = stringValue(input.method, 'method');
   const headers = stringRecordValue(input.headers, 'headers');
   assertHttpHeaders(url, headers);
+  const cookieSessionRef = input.cookieSessionRef === undefined ? undefined : stringValue(input.cookieSessionRef, 'cookieSessionRef');
+  if (cookieSessionRef && !hasGrantAction(grants, 'http.cookie.session')) throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Host API Grant 未覆盖 http.cookie.session');
+  const cookieJar = cookieSessionRef
+    ? dependencies.cookieSessionStore?.getOrCreate({
+        tenantId: context.tenantId,
+        runId: context.executionId,
+        workflowVersionId: context.workflowVersionId,
+        cookieSessionRef,
+    })
+    : undefined;
+  if (cookieSessionRef && !cookieJar) throw new AppError('PLUGIN_HOST_CALL_DENIED', 'CookieSession Host API 未装配');
+  if (cookieSessionRef && Object.keys(headers).some((name) => name.toLowerCase() === 'cookie')) {
+    throw new AppError('PLUGIN_HOST_CALL_DENIED', 'CookieSession 不得与显式 Cookie Header 同时使用');
+  }
+  if (cookieJar) {
+    const cookie = cookieJar.getCookieHeader(url);
+    if (cookie) headers.Cookie = cookie;
+  }
   const body = input.body === undefined
     ? undefined
     : typeof input.body === 'string'
@@ -336,18 +356,53 @@ async function requestHttp(
     maxResponseBytes: definition.maxOutputBytes,
   };
   const response = await dependencies.httpClient.request(request);
-  return { ok: true, data: normalizeHttpResponse(response, definition.maxOutputBytes) };
+  const cookieRedactionValues = cookieJar ? collectCookieHeaderValues(response.setCookie) : [];
+  if (cookieJar && response.setCookie?.length) cookieJar.setCookies(response.setCookie, url);
+  if (cookieJar) cookieRedactionValues.push(...cookieJar.getRedactionValues(url));
+  return { ok: true, data: normalizeHttpResponse(response, definition.maxOutputBytes, cookieRedactionValues) };
 }
 
-function normalizeHttpResponse(response: OutboundHttpResponse, maxResponseBytes: number): Record<string, unknown> {
+function normalizeHttpResponse(response: OutboundHttpResponse, maxResponseBytes: number, cookieRedactionValues: string[] = []): Record<string, unknown> {
   if (!response || !Number.isInteger(response.statusCode) || response.statusCode < 100 || response.statusCode > 599) {
     throw new AppError('PLUGIN_CONTRACT_INVALID', 'HTTP Host API 返回无效状态码');
   }
-  const bodyText = typeof response.bodyText === 'string' ? response.bodyText : '';
+  const bodyText = typeof response.bodyText === 'string' ? maskCookieText(response.bodyText, cookieRedactionValues) : '';
   if (Buffer.byteLength(bodyText, 'utf8') > maxResponseBytes) throw new AppError('PLUGIN_HOST_CALL_DENIED', 'HTTP 响应超过大小上限');
-  const headers = stringRecordValue(response.headers, 'response.headers');
+  const headers = Object.fromEntries(
+    Object.entries(stringRecordValue(response.headers, 'response.headers'))
+      .filter(([key]) => !/^(?:set-)?cookie$/i.test(key)),
+  );
   assertResponseHeaders(headers);
-  return { statusCode: response.statusCode, headers, body: response.body === undefined ? bodyText : response.body, bodyText };
+  const body = response.body === undefined ? bodyText : maskCookieUnknown(response.body, cookieRedactionValues);
+  return { statusCode: response.statusCode, headers, body, bodyText };
+}
+
+function hasGrantAction(grants: Array<{ allowedActions: string[] }>, action: string): boolean {
+  return grants.some((grant) => grant.allowedActions.includes(action));
+}
+
+function collectCookieHeaderValues(headers: readonly string[] | undefined): string[] {
+  return (headers ?? []).flatMap((header) => {
+    const pair = header.split(';', 1)[0]?.trim() ?? '';
+    const separator = pair.indexOf('=');
+    return separator > 0 ? [pair, pair.slice(separator + 1)] : [pair];
+  }).filter(Boolean);
+}
+
+function maskCookieText(value: string, redactionValues: readonly string[]): string {
+  return redactionValues.reduce((result, secret) => secret ? result.split(secret).join('[REDACTED]') : result, value);
+}
+
+function maskCookieUnknown(value: unknown, redactionValues: readonly string[]): unknown {
+  if (typeof value === 'string') return maskCookieText(value, redactionValues);
+  if (Array.isArray(value)) return value.map((item) => maskCookieUnknown(item, redactionValues));
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, child]) => [
+      key,
+      /^(?:set-)?cookie$/i.test(key) ? '[REDACTED]' : maskCookieUnknown(child, redactionValues),
+    ]));
+  }
+  return value;
 }
 
 async function assertRegisteredCloudEndpoint(
@@ -427,6 +482,9 @@ function assertHttpHeaders(urlValue: string, headers: Record<string, string>): v
     const lowerName = name.toLowerCase();
     if (['connection', 'proxy-connection', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade'].includes(lowerName)) {
       throw new AppError('PLUGIN_HOST_CALL_DENIED', 'HTTP 请求包含禁止的 Hop-by-hop 请求头');
+    }
+    if (lowerName === 'cookie' || lowerName === 'set-cookie') {
+      throw new AppError('PLUGIN_HOST_CALL_DENIED', 'HTTP 请求不得手写 Cookie 或 Set-Cookie，必须使用 CookieSession');
     }
     if (lowerName === 'host' && value.toLowerCase() !== url.host.toLowerCase()) {
       throw new AppError('PLUGIN_HOST_CALL_DENIED', 'HTTP Host 请求头必须匹配 URL 主机');

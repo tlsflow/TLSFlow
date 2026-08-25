@@ -18,7 +18,8 @@ export type AgentUpgradeStatus =
   | 'manual_required';
 export type AgentCertificateSigningRequestStatus = 'pending' | 'signed' | 'rejected' | 'superseded';
 export type AgentCertificateStatus = 'active' | 'rotated' | 'revoked' | 'expired';
-export type AgentInstallSessionPlatform = 'windows_go_service' | 'windows_compatibility_service' | 'linux_go_systemd';
+export type AgentInstallSessionPlatform = 'windows_go_service' | 'windows_compatibility_service' | 'windows_adcs_service' | 'linux_go_systemd';
+export type AgentInstallSessionRole = 'full_agent' | 'gateway' | 'adcs_agent';
 
 export interface EnrollmentToken {
   id: string;
@@ -41,6 +42,8 @@ export interface AgentDescriptor {
   agentKey: string;
   machineId?: string;
   hostname: string;
+  /** Windows AD CS 本机 CA 显示名称，用于 issuing backend 的业务命名。 */
+  caName?: string;
   version: string;
   osType: string;
   arch?: string;
@@ -311,7 +314,7 @@ export interface AgentInstallSession {
   agentKey: string;
   controlPlaneUrl: string;
   zone: string;
-  role: 'full_agent' | 'gateway';
+  role: AgentInstallSessionRole;
   startAfterInstall: boolean;
   createdAt: string;
   expiresAt: string;
@@ -323,6 +326,7 @@ export interface AgentInstallSession {
   configDir: string;
   dataDir: string;
   logDir: string;
+  managementPort?: number;
   relayAllowedTargets?: string[];
   relayAllowedPorts?: number[];
 }

@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { createHash } from 'node:crypto';
 import { CurlExecutor } from '../executors/curl/curl.executor.js';
 import type { CurlHttpClientRequest } from '../executors/curl/curl.http-client.js';
+import { CookieSessionStore } from '../executors/curl/cookie-session.js';
 import { ExecutionGrantService } from './execution-grant.service.js';
 import { WorkflowTemplatesApplicationService } from '../workflow-templates/application/workflow-templates.application-service.js';
 import type { WorkflowDslV1 } from '../workflow-templates/dto/workflow-templates.dto.js';
@@ -424,6 +425,43 @@ function readRecord(value: unknown): Record<string, unknown> {
 }
 
 describe('WorkflowExecutorAdapter', () => {
+  it('工作流失败后在 finally 清理当前运行的 CookieSession', async () => {
+    const workflows = new WorkflowTemplatesApplicationService();
+    const created = await workflows.createTemplate({
+      content: {
+        apiVersion: 'gcac.workflow/v1',
+        kind: 'CurlSshWorkflow',
+        metadata: { name: 'cookie-cleanup-test', version: '1.0.0' },
+        inputContract: workflowInputContract(),
+        steps: [{
+          name: 'login',
+          type: 'http',
+          request: { method: 'GET', connectionRef: 'management', url: '/login', cookieSessionRef: 'waf' },
+        }],
+      },
+      changeSummary: 'cookie-cleanup-test',
+    });
+    const published = await workflows.publishVersion(created.version.id);
+    const store = new CookieSessionStore();
+    const curlExecutor = new CurlExecutor({
+      cookieSessionStore: store,
+      httpClient: {
+        async send(_request) {
+          return { statusCode: 401, setCookie: ['sid=must-clear; Path=/'], body: { ok: false } };
+        },
+      },
+    });
+    const executionGrants = {
+      create: async () => ({ id: 'grant-cookie-cleanup' }),
+      validate: async () => undefined,
+      revoke: async () => undefined,
+    } as unknown as ExecutionGrantService;
+    const adapter = new WorkflowExecutorAdapter({ workflows, curlExecutor, executionGrants });
+    const result = await adapter.executeStep({ step: workflowStep(published.id), runType: 'apply', dryRun: false });
+    assert.equal(result.success, false);
+    assert.equal(store.size(), 0);
+  });
+
   it('TLS 例外 Grant 不依赖 approved 状态，仍绑定当前工作流步骤', async () => {
     const grants = new ExecutionGrantService();
     const grantInputs: Array<Record<string, unknown>> = [];

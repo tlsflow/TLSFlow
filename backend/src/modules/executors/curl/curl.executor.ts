@@ -1,9 +1,12 @@
 import { Buffer } from 'node:buffer';
+import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { Executor, StepExecutionInput, StepExecutionResult } from '../../executions/application/executors.js';
 import { NodeCurlHttpClient, type CurlHttpClient } from './curl.http-client.js';
 import type { CurlSecretResolver, CurlSecretResolverContext } from './curl.secret-resolver.js';
+import { CookieSessionStore, type CookieJar } from './cookie-session.js';
+import type { CertificateArtifactStore } from '../../certificates/artifacts/certificate-artifact-store.js';
 
 export interface HttpSecretValue {
   value?: string;
@@ -35,6 +38,8 @@ export interface HttpRequestTemplate {
   formSecretRefs?: Record<string, string>;
   multipart?: Record<string, MultipartValue>;
   bodySecretRef?: string;
+  /** 同一工作流运行内共享的逻辑 Cookie 会话名称。 */
+  cookieSessionRef?: string;
   auth?: HttpAuthConfig;
   timeoutMs?: number;
   maxResponseBytes?: number;
@@ -55,6 +60,9 @@ export interface MultipartValue {
   contentType?: string;
   filename?: string;
   secretRef?: string;
+  /** 只能是 artifact:// 引用或渲染后的受控 PEM 内容，禁止本地路径。 */
+  artifactRef?: string;
+  artifactSha256?: string;
 }
 
 export interface HttpRetryPolicy {
@@ -101,6 +109,7 @@ export interface CurlExecutionRequest {
 export interface HttpResponse {
   statusCode: number;
   headers?: Record<string, string>;
+  setCookie?: string[];
   body?: unknown;
   bodyText?: string;
   bodyJson?: unknown;
@@ -146,6 +155,9 @@ interface PreparedRequest {
     servername?: string;
   };
   redactionValues: string[];
+  artifactLogLines: string[];
+  cookieJar?: CookieJar;
+  cookieSessionRef?: string;
 }
 
 interface AttemptOutcome {
@@ -164,15 +176,19 @@ export interface CurlExecutorOptions {
   secretResolver?: CurlSecretResolver;
   httpClient?: CurlHttpClient;
   executionGrantService?: CurlSecretResolverContext['executionGrantService'];
+  cookieSessionStore?: CookieSessionStore;
+  artifactStore?: Pick<CertificateArtifactStore, 'get'>;
 }
 
 export class CurlExecutor implements Executor {
   readonly type = 'CURL';
   private readonly executed = new Set<string>();
   private readonly httpClient: CurlHttpClient;
+  private readonly cookieSessionStore: CookieSessionStore;
 
   constructor(private readonly options: CurlExecutorOptions = {}) {
     this.httpClient = options.httpClient ?? new NodeCurlHttpClient();
+    this.cookieSessionStore = options.cookieSessionStore ?? new CookieSessionStore();
   }
 
   async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
@@ -196,6 +212,8 @@ export class CurlExecutor implements Executor {
         && (input.step.inputSnapshot.resolvedDeploymentInput as Record<string, unknown>).variables !== undefined
         && ((input.step.inputSnapshot.resolvedDeploymentInput as Record<string, unknown>).variables as Record<string, unknown>).allowInsecureTls === true,
       executionGrantService: this.options.executionGrantService,
+      cookieSessionStore: this.cookieSessionStore,
+      cookieSessionRef: request.template.cookieSessionRef,
     });
     return result.success
       ? { success: true, detail: result as unknown as Record<string, unknown> }
@@ -213,17 +231,22 @@ export class CurlExecutor implements Executor {
   async validateForWorkflow(request: CurlExecutionRequest, context: CurlSecretResolverContext = {}): Promise<void> {
     validateRequest(request, true);
     await validateTlsBypassAuthorization(request, context);
+    await validateCookieSessionAuthorization(request, context);
   }
 
   private async executeWithRuntimeResponse(request: CurlExecutionRequest, forceDryRun: boolean, context: CurlSecretResolverContext): Promise<CurlWorkflowExecutionResult> {
     validateRequest(request);
     await validateTlsBypassAuthorization(request, context);
+    await validateCookieSessionAuthorization(request, context);
     if (this.executed.has(request.idempotencyKey)) {
       throw new AppError('IDEMPOTENCY_CONFLICT', 'CURL 请求幂等键已执行', { idempotencyKey: request.idempotencyKey });
     }
 
     const dryRun = forceDryRun || request.dryRun === true;
-    const prepared = await prepareRequest(request, this.options.secretResolver, context);
+    const prepared = await prepareRequest(request, this.options.secretResolver, {
+      ...context,
+      cookieSessionStore: context.cookieSessionStore ?? this.cookieSessionStore,
+    }, this.options.artifactStore);
     if (dryRun) return { result: baseResult(prepared.rendered, ['request:dry_run'], 0) };
 
     this.executed.add(request.idempotencyKey);
@@ -232,17 +255,23 @@ export class CurlExecutor implements Executor {
 
     for (let attempt = 1; attempt <= retryPolicy.maxAttempts; attempt += 1) {
       const started = Date.now();
+      refreshCookieHeader(prepared);
       const outcome = request.mockResponse
         ? { response: normalizeResponse(request.mockResponse), retryable: shouldRetryStatus(request.mockResponse.statusCode, retryPolicy) }
         : await sendHttpRequest(prepared, this.httpClient);
       const elapsedMs = Date.now() - started;
-      const logs = [`request:${prepared.method}:${maskText(prepared.url, prepared.redactionValues)}:attempt:${attempt}:elapsedMs:${elapsedMs}`];
+      const logs = [
+        ...prepared.artifactLogLines,
+        `request:${prepared.method}:${maskText(prepared.url, prepared.redactionValues)}:attempt:${attempt}:elapsedMs:${elapsedMs}`,
+      ];
 
       if (outcome.response) {
         const runtimeResponse = normalizeResponse(outcome.response);
+        updateCookieJar(prepared, runtimeResponse);
+        refreshCookieHeader(prepared);
         last = buildResponseResult(request, prepared, runtimeResponse, attempt, logs);
         if (last.success || attempt === retryPolicy.maxAttempts || !shouldRetryResult(last, retryPolicy)) {
-          return { result: last, runtimeResponse };
+          return { result: last, runtimeResponse: sanitizeRuntimeResponse(runtimeResponse, prepared.redactionValues) };
         }
       } else {
         last = {
@@ -263,6 +292,10 @@ export class CurlExecutor implements Executor {
 
   getRequiredCapabilities(): string[] {
     return ['curl.request', 'http.tls.verify', 'http.header.secret_ref', 'http.form.secret_ref', 'http.extractor', 'http.assertion', 'http.cookie.session'];
+  }
+
+  clearCookieSessions(scope: { tenantId: string; runId: string; workflowVersionId: string }): void {
+    this.cookieSessionStore.clear(scope);
   }
 
   importCurl(command: string): CurlExecutionRequest {
@@ -322,6 +355,15 @@ function validateRequest(request: CurlExecutionRequest, allowUnresolvedVariables
   if (request.template.headers?.Authorization && !request.template.headerRefs?.Authorization) {
     throw new AppError('VALIDATION_FAILED', 'Authorization 必须通过 headerRefs/SecretRef 提供');
   }
+  if (request.template.cookieSessionRef !== undefined) {
+    if (!/^[A-Za-z][A-Za-z0-9._:-]{0,63}$/.test(request.template.cookieSessionRef)) {
+      throw new AppError('VALIDATION_FAILED', 'cookieSessionRef 格式无效');
+    }
+    const hasExplicitCookie = Object.keys(request.template.headers ?? {}).some((key) => key.toLowerCase() === 'cookie')
+      || Object.keys(request.template.headerRefs ?? {}).some((key) => key.toLowerCase() === 'cookie')
+      || request.template.auth?.type === 'cookie';
+    if (hasExplicitCookie) throw new AppError('VALIDATION_FAILED', 'CookieSession 不得与显式 Cookie Header 或 Cookie 认证同时使用');
+  }
   if (request.template.timeoutMs !== undefined && (request.template.timeoutMs < 1 || request.template.timeoutMs > 60_000)) {
     throw new AppError('VALIDATION_FAILED', 'timeoutMs 必须在 1-60000 之间');
   }
@@ -335,6 +377,9 @@ function validateRequest(request: CurlExecutionRequest, allowUnresolvedVariables
   for (const extractor of request.extractors ?? []) {
     if (!extractor.name.trim()) throw new AppError('VALIDATION_FAILED', 'extractor name 必填');
     if (!extractor.path && !extractor.pattern && !extractor.header && extractor.source !== 'status') throw new AppError('VALIDATION_FAILED', 'extractor 必须提供 path、pattern 或 header');
+    if (extractor.source === 'header' && /^(?:set-cookie|cookie)$/i.test(extractor.header ?? extractor.path ?? '')) {
+      throw new AppError('VALIDATION_FAILED', 'Cookie 和 Set-Cookie 不允许作为工作流输出提取');
+    }
   }
 }
 
@@ -372,6 +417,26 @@ async function validateTlsBypassAuthorization(request: CurlExecutionRequest, con
   }
 }
 
+async function validateCookieSessionAuthorization(request: CurlExecutionRequest, context: CurlSecretResolverContext): Promise<void> {
+  if (!request.template.cookieSessionRef) return;
+  if (!context.executionGrantId || !context.executionGrantService || !context.tenantId || !context.runId || !context.stepId || !context.workflowVersionId) {
+    throw new AppError('AUTH_FORBIDDEN', 'CookieSession 必须绑定当前工作流步骤的 ExecutionGrant', { action: 'http.cookie.session' });
+  }
+  try {
+    await context.executionGrantService.validate({
+      grantId: context.executionGrantId,
+      tenantId: context.tenantId,
+      runId: context.runId,
+      stepId: context.stepId,
+      workflowVersionId: context.workflowVersionId,
+      executorType: '017.CURL_HTTP',
+      action: 'http.cookie.session',
+    });
+  } catch (error) {
+    throw new AppError('AUTH_FORBIDDEN', 'CookieSession ExecutionGrant 无效', { action: 'http.cookie.session', reason: error instanceof Error ? error.message : String(error) });
+  }
+}
+
 function validateAuth(auth: HttpAuthConfig | undefined): void {
   if (!auth || auth.type === 'none') return;
   if (auth.type === 'basic') {
@@ -402,6 +467,7 @@ function renderRequestPreview(request: CurlExecutionRequest): CurlExecutionResul
   if (request.template.auth?.type === 'custom_header') headerNames.add(request.template.auth.headerName);
   if (request.template.auth?.type === 'api_key' && request.template.auth.in !== 'query') headerNames.add(request.template.auth.name);
   if (request.template.auth?.type === 'cookie') headerNames.add('Cookie');
+  if (request.template.cookieSessionRef) headerNames.add('Cookie');
   return {
     method: request.template.method ?? 'GET',
     url: url.toString(),
@@ -417,6 +483,7 @@ async function prepareRequest(
   request: CurlExecutionRequest,
   resolver?: CurlSecretResolver,
   context: CurlSecretResolverContext = {},
+  artifactStore?: Pick<CertificateArtifactStore, 'get'>,
 ): Promise<PreparedRequest> {
   const variables = request.variables ?? {};
   const secrets = request.secrets ?? {};
@@ -432,8 +499,20 @@ async function prepareRequest(
   }
   await applyAuth(request.template.auth, url, headers, secrets, redactionValues, variables, resolver, context);
 
+  const cookieSessionRef = request.template.cookieSessionRef;
+  const cookieJar = cookieSessionRef
+    ? context.cookieSessionStore?.getOrCreate({
+        tenantId: context.tenantId ?? '',
+        runId: context.runId ?? '',
+        workflowVersionId: context.workflowVersionId ?? '',
+        cookieSessionRef,
+      })
+    : undefined;
+  if (cookieSessionRef && !cookieJar) throw new AppError('AUTH_FORBIDDEN', 'CookieSession 缺少当前租户、运行和工作流版本授权上下文');
+
   const bodyType: 'json' | 'form' | 'multipart' | 'raw' | 'none' = request.template.bodyType ?? inferBodyType(request.template);
-  const body = await buildBody(request.template, bodyType, variables, secrets, headers, redactionValues, resolver, context);
+  const artifactLogLines: string[] = [];
+  const body = await buildBody(request.template, bodyType, variables, secrets, headers, redactionValues, resolver, context, artifactStore, artifactLogLines);
   const timeoutMs = request.template.timeoutMs ?? defaultTimeoutMs;
   const usesTls = url.protocol === 'https:';
   const tlsVerify = usesTls && request.template.tls?.verify !== false;
@@ -459,6 +538,9 @@ async function prepareRequest(
     tlsVerify,
     tls,
     redactionValues,
+    artifactLogLines,
+    cookieJar,
+    cookieSessionRef,
   };
 }
 
@@ -580,6 +662,8 @@ async function buildBody(
   redactionValues: string[],
   resolver?: CurlSecretResolver,
   context: CurlSecretResolverContext = {},
+  artifactStore?: Pick<CertificateArtifactStore, 'get'>,
+  artifactLogLines: string[] = [],
 ): Promise<Buffer | undefined> {
   if (bodyType === 'none') return undefined;
   if (template.bodySecretRef) {
@@ -611,6 +695,24 @@ async function buildBody(
       if (part.secretRef) {
         value = secretString(await getSecret(part.secretRef, secrets, resolver, context, `http.multipart.${key}`), ['value', 'token', 'apiKey']);
         redactionValues.push(value);
+      } else if (part.artifactRef !== undefined) {
+        const renderedArtifactRef = renderTemplate(part.artifactRef, variables);
+        if (renderedArtifactRef.startsWith('artifact://')) {
+          if (!artifactStore || !context.tenantId) throw new AppError('AUTH_FORBIDDEN', 'multipart Artifact 读取需要宿主 ArtifactStore 和租户上下文');
+          await validateArtifactAccess(renderedArtifactRef, context);
+          const artifact = await artifactStore.get(renderedArtifactRef, context.tenantId);
+          if (!artifact) throw new AppError('RESOURCE_NOT_FOUND', 'multipart Artifact 不存在或不属于当前租户');
+          value = artifact.content.toString('utf8');
+          verifyArtifactContent(value, artifact.content, part.artifactSha256, key);
+          artifactLogLines.push(buildArtifactLogLine(part.filename ?? key, artifact.content));
+        } else {
+          const content = Buffer.from(renderedArtifactRef, 'utf8');
+          if (!isPemContent(renderedArtifactRef)) throw new AppError('VALIDATION_FAILED', 'multipart artifactRef 只能引用 artifact:// 或 PEM 内容，禁止本地路径');
+          verifyArtifactContent(renderedArtifactRef, content, part.artifactSha256, key);
+          value = renderedArtifactRef;
+          artifactLogLines.push(buildArtifactLogLine(part.filename ?? key, content));
+        }
+        redactionValues.push(value);
       } else if (part.filename) {
         value = String(part.value ?? '');
       } else {
@@ -632,6 +734,52 @@ async function buildBody(
     return Buffer.from(raw, 'utf8');
   }
   return undefined;
+}
+
+const maxMultipartArtifactBytes = 5 * 1024 * 1024;
+
+function verifyArtifactContent(text: string, content: Buffer, expectedSha256: string | undefined, field: string): void {
+  if (content.byteLength > maxMultipartArtifactBytes) throw new AppError('VALIDATION_FAILED', 'multipart Artifact 超过 5 MiB 大小限制', { field });
+  if (!isPemContent(text)) throw new AppError('VALIDATION_FAILED', 'multipart Artifact 不是受控 PEM 内容', { field });
+  if (expectedSha256) {
+    const actual = createSha256(content);
+    const expected = expectedSha256.replace(/^sha256:/i, '').toLowerCase();
+    if (!/^[a-f0-9]{64}$/.test(expected) || actual !== expected) throw new AppError('VALIDATION_FAILED', 'multipart Artifact SHA-256 校验失败', { field });
+  }
+}
+
+function isPemContent(value: string): boolean {
+  return /^\s*-----BEGIN [A-Z0-9 ]+-----/.test(value);
+}
+
+function createSha256(value: Buffer): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+async function validateArtifactAccess(artifactRef: string, context: CurlSecretResolverContext): Promise<void> {
+  if (!context.executionGrantService) return;
+  if (!context.executionGrantId || !context.tenantId || !context.runId || !context.stepId || !context.workflowVersionId) {
+    throw new AppError('AUTH_FORBIDDEN', 'multipart Artifact 必须绑定当前工作流步骤的 ExecutionGrant');
+  }
+  try {
+    await context.executionGrantService.validate({
+      grantId: context.executionGrantId,
+      tenantId: context.tenantId,
+      runId: context.runId,
+      stepId: context.stepId,
+      workflowVersionId: context.workflowVersionId,
+      executorType: '017.CURL_HTTP',
+      artifactRef,
+      action: 'workflow.step.execute',
+    });
+  } catch (error) {
+    throw new AppError('AUTH_FORBIDDEN', 'multipart Artifact ExecutionGrant 无效', { reason: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+function buildArtifactLogLine(filename: string, content: Buffer): string {
+  const safeFilename = filename.replace(/[\r\n]/g, ' ').slice(0, 256);
+  return `multipart:artifact:filename:${safeFilename}:bytes:${content.byteLength}:sha256:${createSha256(content)}`;
 }
 
 async function sendHttpRequest(prepared: PreparedRequest, httpClient: CurlHttpClient): Promise<AttemptOutcome> {
@@ -657,6 +805,61 @@ async function sendHttpRequest(prepared: PreparedRequest, httpClient: CurlHttpCl
   } catch (error) {
     return classifyFetchError(error);
   }
+}
+
+function refreshCookieHeader(prepared: PreparedRequest): void {
+  if (!prepared.cookieJar) return;
+  const value = prepared.cookieJar.getCookieHeader(prepared.url);
+  if (value) prepared.headers.Cookie = value;
+  else deleteHeader(prepared.headers, 'cookie');
+  for (const redactionValue of prepared.cookieJar.getRedactionValues(prepared.url)) {
+    if (redactionValue && !prepared.redactionValues.includes(redactionValue)) prepared.redactionValues.push(redactionValue);
+  }
+}
+
+function updateCookieJar(prepared: PreparedRequest, response: HttpResponse): void {
+  if (!prepared.cookieJar || !response.setCookie || response.setCookie.length === 0) return;
+  for (const header of response.setCookie) {
+    const pair = header.split(';', 1)[0]?.trim() ?? '';
+    const separator = pair.indexOf('=');
+    if (separator > 0) {
+      for (const value of [pair, pair.slice(separator + 1)]) {
+        if (value && !prepared.redactionValues.includes(value)) prepared.redactionValues.push(value);
+      }
+    }
+  }
+  prepared.cookieJar.setCookies(response.setCookie, prepared.url);
+}
+
+function sanitizeRuntimeResponse(response: HttpResponse, redactionValues: string[]): HttpResponse {
+  const headers = Object.fromEntries(Object.entries(response.headers ?? {}).filter(([key]) => key.toLowerCase() !== 'set-cookie' && key.toLowerCase() !== 'cookie'));
+  const bodyText = response.bodyText === undefined ? undefined : maskText(response.bodyText, redactionValues);
+  const bodyJson = response.bodyJson === undefined ? undefined : maskCookieUnknown(response.bodyJson, redactionValues);
+  const body = typeof response.body === 'string'
+    ? maskText(response.body, redactionValues)
+    : response.body === undefined
+      ? undefined
+      : maskCookieUnknown(response.body, redactionValues);
+  return {
+    ...response,
+    headers,
+    setCookie: undefined,
+    ...(bodyText !== undefined ? { bodyText } : {}),
+    ...(bodyJson !== undefined ? { bodyJson } : {}),
+    ...(body !== undefined ? { body } : {}),
+  };
+}
+
+function maskCookieUnknown(value: unknown, redactionValues: string[]): unknown {
+  if (typeof value === 'string') return maskText(value, redactionValues);
+  if (Array.isArray(value)) return value.map((item) => maskCookieUnknown(item, redactionValues));
+  if (isRecord(value)) {
+    return Object.fromEntries(Object.entries(value).map(([key, child]) => [
+      key,
+      /^(?:set-)?cookie$/i.test(key) ? '[REDACTED]' : maskCookieUnknown(child, redactionValues),
+    ]));
+  }
+  return value;
 }
 
 function buildResponseResult(request: CurlExecutionRequest, prepared: PreparedRequest, response: HttpResponse, attempts: number, logs: string[]): CurlExecutionResult {
@@ -759,7 +962,9 @@ function classifyFetchError(error: unknown): AttemptOutcome {
 function normalizeResponse(response: HttpResponse): HttpResponse {
   const bodyText = response.bodyText ?? (typeof response.body === 'string' ? response.body : response.body === undefined ? '' : JSON.stringify(response.body));
   const bodyJson = response.bodyJson ?? (typeof response.body === 'object' ? response.body : tryParseJson(bodyText));
-  return { ...response, headers: response.headers ?? {}, bodyText, bodyJson, body: response.body ?? bodyJson ?? bodyText };
+  const setCookie = response.setCookie
+    ?? (response.headers ? Object.entries(response.headers).find(([key]) => key.toLowerCase() === 'set-cookie')?.[1].split(/\r?\n(?=[^\s])/g) : undefined);
+  return { ...response, headers: response.headers ?? {}, ...(setCookie && setCookie.length > 0 ? { setCookie } : {}), bodyText, bodyJson, body: response.body ?? bodyJson ?? bodyText };
 }
 
 function normalizeRetryPolicy(policy: HttpRetryPolicy | undefined, method: string): Required<HttpRetryPolicy> {
@@ -958,6 +1163,11 @@ function headersToRecord(headers: Headers): Record<string, string> {
 function getHeader(headers: Record<string, string> | undefined, name: string): string | undefined {
   const lower = name.toLowerCase();
   return Object.entries(headers ?? {}).find(([key]) => key.toLowerCase() === lower)?.[1];
+}
+
+function deleteHeader(headers: Record<string, string>, name: string): void {
+  const lower = name.toLowerCase();
+  for (const key of Object.keys(headers)) if (key.toLowerCase() === lower) delete headers[key];
 }
 
 function maskHeaders(headers: Record<string, string>, redactionValues: string[]): Record<string, string> {

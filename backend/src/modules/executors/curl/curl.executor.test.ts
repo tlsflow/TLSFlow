@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { CurlHttpClientRequest } from './curl.http-client.js';
 import { CurlExecutor } from './curl.executor.js';
+import { CookieSessionStore } from './cookie-session.js';
 
 describe('spec017 CURL/HTTP 执行器基础', () => {
   it('dry-run 渲染请求，不访问真实网络，并按响应策略判断结果', async () => {
@@ -422,5 +423,69 @@ describe('spec017 CURL/HTTP 执行器基础', () => {
     });
     assert.equal(timeout.success, false);
     assert.match(timeout.errorCode ?? '', /HTTP_NETWORK_ERROR|HTTP_REQUEST_TIMEOUT/);
+  });
+
+  it('按运行级 CookieSession 复用、更新 Cookie，并从结果中移除 Set-Cookie', async () => {
+    const requests: CurlHttpClientRequest[] = [];
+    let attempt = 0;
+    const store = new CookieSessionStore();
+    const executor = new CurlExecutor({
+      cookieSessionStore: store,
+      httpClient: {
+        async send(request) {
+          requests.push({ ...request, headers: { ...request.headers } });
+          attempt += 1;
+          return attempt === 1
+            ? { statusCode: 200, setCookie: ['sid=first; Path=/'], body: { ok: true } }
+            : attempt === 2
+              ? { statusCode: 200, setCookie: ['sid=second; Path=/', 'old=gone; Max-Age=0; Path=/'], body: { ok: true } }
+              : { statusCode: 200, body: { ok: true } };
+        },
+      },
+    });
+    const context = {
+      tenantId: 'tenant-1', runId: 'run-1', stepId: 'step-1', workflowVersionId: 'wf-1', executionGrantId: 'grant-1',
+      executionGrantService: { validate: async () => undefined },
+    };
+    await executor.execute({ idempotencyKey: 'cookie-1', template: { method: 'POST', url: 'https://waf.example.test/login', cookieSessionRef: 'waf', bodyType: 'none' } }, false, context);
+    const second = await executor.execute({ idempotencyKey: 'cookie-2', template: { method: 'POST', url: 'https://waf.example.test/login-cha', cookieSessionRef: 'waf', bodyType: 'none' } }, false, context);
+    await executor.execute({ idempotencyKey: 'cookie-3', template: { method: 'GET', url: 'https://waf.example.test/probe', cookieSessionRef: 'waf' } }, false, context);
+    assert.equal(requests[0]?.headers.Cookie, undefined);
+    assert.equal(requests[1]?.headers.Cookie, 'sid=first');
+    assert.equal(requests[2]?.headers.Cookie, 'sid=second');
+    assert.equal(JSON.stringify(second).includes('sid=second'), false);
+    await assert.rejects(() => executor.validateForWorkflow({ idempotencyKey: 'cookie-explicit', template: { url: 'https://waf.example.test', cookieSessionRef: 'waf', headers: { Cookie: 'manual=bad' } } }, context), /Cookie/);
+    executor.clearCookieSessions({ tenantId: 'tenant-1', runId: 'run-1', workflowVersionId: 'wf-1' });
+    assert.equal(store.size(), 0);
+  });
+
+  it('multipart 只从 Artifact 引用读取 PEM，校验文件摘要且不读取本地路径', async () => {
+    const certificate = '-----BEGIN CERTIFICATE-----\nfixture\n-----END CERTIFICATE-----\n';
+    const sha256 = (await import('node:crypto')).createHash('sha256').update(certificate).digest('hex');
+    let captured: CurlHttpClientRequest | undefined;
+    const executor = new CurlExecutor({
+      artifactStore: { get: async (ref, tenantId) => ref === 'artifact://cert/server' && tenantId === 'tenant-1' ? {
+        artifactRef: ref,
+        tenantId,
+        content: Buffer.from(certificate),
+        contentType: 'application/x-x509-ca-cert',
+        sha256,
+        createdBy: 'fixture',
+        createdAt: new Date().toISOString(),
+      } : undefined },
+      httpClient: { async send(request) { captured = request; return { statusCode: 200, body: { ok: true } }; } },
+    });
+    const result = await executor.execute({
+      idempotencyKey: 'artifact-multipart',
+      template: { method: 'POST', url: 'https://waf.example.test/upload', bodyType: 'multipart', multipart: {
+        config_file: { artifactRef: 'artifact://cert/server', filename: 'server.crt', contentType: 'application/x-x509-ca-cert', artifactSha256: `sha256:${sha256}` },
+      } },
+    }, false, { tenantId: 'tenant-1', runId: 'run-1', workflowVersionId: 'wf-1' });
+    assert.equal(result.success, true);
+    assert.match(captured?.body?.toString('utf8') ?? '', /server\.crt/);
+    assert.match(captured?.body?.toString('utf8') ?? '', /BEGIN CERTIFICATE/);
+    assert.match(result.logs.join('\n'), new RegExp(`filename:server\\.crt:bytes:${Buffer.byteLength(certificate)}:sha256:${sha256}`));
+    assert.doesNotMatch(result.logs.join('\n'), /BEGIN CERTIFICATE|fixture/);
+    await assert.rejects(() => executor.execute({ idempotencyKey: 'artifact-path', template: { method: 'POST', url: 'https://waf.example.test/upload', bodyType: 'multipart', multipart: { file: { artifactRef: 'C:\\secret\\server.crt', filename: 'server.crt' } } } }, false, { tenantId: 'tenant-1', runId: 'run-2', workflowVersionId: 'wf-1' }), /PEM|本地路径/);
   });
 });

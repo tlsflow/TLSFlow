@@ -15,6 +15,7 @@ import type { AgentTaskEnvelope } from '../schema/agents.schema.js';
 
 const tags = ['Agents'];
 const WINDOWS_COMPATIBILITY_PLATFORMS = new Set(['windows_compatibility_service']);
+const WINDOWS_ADCS_PLATFORMS = new Set(['windows_adcs_service']);
 
 export class AgentsController {
   constructor(
@@ -48,11 +49,13 @@ export class AgentsController {
     router.post('/api/v1/agents/install-sessions', '创建 Agent 一键安装会话', tags, (request) => this.createAgentInstallSession(request));
     router.post('/api/v1/agents/install-sessions/windows-go', '创建 Windows Go Agent 一键安装会话', tags, (request) => this.createPlatformInstallSession(request, 'windows_go'));
     router.post('/api/v1/agents/install-sessions/windows-compatibility', '创建 Windows Compatibility Agent 一键安装会话', tags, (request) => this.createPlatformInstallSession(request, 'windows_compatibility'));
+    router.post('/api/v1/agents/install-sessions/windows-adcs', '创建 Windows AD CS Agent 一键安装会话', tags, (request) => this.createPlatformInstallSession(request, 'windows_adcs'));
     router.post('/api/v1/agents/install-sessions/linux-go', '创建 Linux Go Agent 一键安装会话', tags, (request) => this.createPlatformInstallSession(request, 'linux_go'));
     router.get('/agent-install.ps1', '获取 Windows Agent 短安装入口', tags, (request) => this.getWindowsBootstrap(request));
     router.get('/agent-install', '获取 Linux Go Agent 短安装入口', tags, (request) => this.getLinuxGoBootstrap(request));
     router.get('/api/v1/agents/install/windows/bootstrap.ps1', '获取 Windows Agent bootstrap 脚本', tags, (request) => this.getWindowsBootstrap(request));
     router.get('/api/v1/agents/install/windows-compatibility/bootstrap.ps1', '获取 Windows Compatibility Agent bootstrap 脚本', tags, (request) => this.getWindowsBootstrap(request));
+    router.get('/api/v1/agents/install/windows-adcs/bootstrap.ps1', '获取 Windows AD CS Agent bootstrap 脚本', tags, (request) => this.getWindowsBootstrap(request));
     router.get('/api/v1/agents/install/linux/bootstrap.sh', '获取 Linux Go Agent bootstrap 脚本', tags, (request) => this.getLinuxGoBootstrap(request));
     router.get('/api/v1/agents/install/linux/bundle.tar.gz', '下载 Linux Go Agent 安装包', tags, () => this.getLinuxBundle());
     router.get('/api/v1/agents/install/gateway/bundle.tar.gz', '下载独立 Gateway Agent 安装包', tags, () => this.getGatewayLinuxBundle());
@@ -347,6 +350,7 @@ export class AgentsController {
       agentKey: { type: 'string', required: true },
       machineId: { type: 'string' },
       hostname: { type: 'string', required: true },
+      caName: { type: 'string' },
       version: { type: 'string', required: true },
       osType: { type: 'string', required: true },
       arch: { type: 'string' },
@@ -871,9 +875,9 @@ export function getAgentsRouteContracts(): RouteContract[] {
         properties: {
           platform: {
             type: 'string',
-            enum: ['windows_go', 'windows_compatibility', 'linux_go'],
+            enum: ['windows_go', 'windows_compatibility', 'windows_adcs', 'linux_go'],
           },
-          role: { type: 'string', enum: ['full_agent', 'gateway'] },
+          role: { type: 'string', enum: ['full_agent', 'gateway', 'adcs_agent'] },
           zone: { type: 'string' },
           agentKey: { type: 'string' },
           relayAllowedTargets: { type: 'array', items: { type: 'string' } },
@@ -895,7 +899,7 @@ export function getAgentsRouteContracts(): RouteContract[] {
           sessionId: { type: 'string' },
           platform: {
             type: 'string',
-            enum: ['windows_go_service', 'windows_compatibility_service', 'linux_go_systemd'],
+            enum: ['windows_go_service', 'windows_compatibility_service', 'windows_adcs_service', 'linux_go_systemd'],
           },
           expiresAt: { type: 'string' },
           bootstrapUrl: { type: 'string' },
@@ -909,10 +913,12 @@ export function getAgentsRouteContracts(): RouteContract[] {
           logDir: { type: 'string' },
           agentKey: { type: 'string' },
           zone: { type: 'string' },
-          role: { type: 'string', enum: ['full_agent', 'gateway'] },
+          role: { type: 'string', enum: ['full_agent', 'gateway', 'adcs_agent'] },
           relayAllowedTargets: { type: 'array', items: { type: 'string' } },
           relayAllowedPorts: { type: 'array', items: { type: 'number' } },
           bundleUrl: { type: 'string' },
+          managementPort: { type: 'number' },
+          agentVersion: { type: 'string' },
         },
       },
     },
@@ -951,6 +957,30 @@ export function getAgentsRouteContracts(): RouteContract[] {
         additionalProperties: false,
         properties: {
           role: { type: 'string', enum: ['full_agent'] },
+          zone: { type: 'string' },
+          agentKey: { type: 'string' },
+          serviceName: { type: 'string' },
+          displayName: { type: 'string' },
+          installRoot: { type: 'string' },
+          configDir: { type: 'string' },
+          dataDir: { type: 'string' },
+          logDir: { type: 'string' },
+          startAfterInstall: { type: 'boolean' },
+        },
+      },
+      responseSchema: schema,
+    },
+    {
+      method: 'POST',
+      path: '/api/v1/agents/install-sessions/windows-adcs',
+      operationId: 'createWindowsAdcsInstallSession',
+      summary: '创建 Windows AD CS Agent 一键安装会话',
+      tags,
+      requestSchema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          role: { type: 'string', enum: ['adcs_agent'] },
           zone: { type: 'string' },
           agentKey: { type: 'string' },
           serviceName: { type: 'string' },
@@ -1312,9 +1342,9 @@ function validateAgentInstallSessionBody(input: unknown): CreateAgentInstallSess
     platform: {
       type: 'string',
       required: true,
-      enum: ['windows_go', 'windows_compatibility', 'linux_go'],
+      enum: ['windows_go', 'windows_compatibility', 'windows_adcs', 'linux_go'],
     },
-    role: { type: 'string', enum: ['full_agent', 'gateway'] },
+    role: { type: 'string', enum: ['full_agent', 'gateway', 'adcs_agent'] },
     zone: { type: 'string' },
     agentKey: { type: 'string' },
     serviceName: { type: 'string' },
@@ -1374,9 +1404,55 @@ function normalizeBaseUrl(value: string | undefined): string | undefined {
 
 function renderWindowsBootstrapScript(manifest: unknown): string {
   const platform = manifest && typeof manifest === 'object' ? (manifest as { platform?: unknown }).platform : undefined;
+  if (WINDOWS_ADCS_PLATFORMS.has(String(platform))) {
+    // 此入口固定由 `irm | iex` 执行。BOM 在管道字符串中会被解释为命令名称的一部分，
+    // 不能像落盘脚本那样依赖 BOM 识别 UTF-8。
+    return renderWindowsAdcsBootstrapScript(manifest);
+  }
   const script = WINDOWS_COMPATIBILITY_PLATFORMS.has(String(platform)) ? renderWindowsCompatibilityBootstrapScript(manifest) : renderWindowsGoBootstrapScript(manifest);
   // 旧版 Windows PowerShell 5.1 按脚本头部 BOM 识别 UTF-8；升级器落盘前也可能尚未包含修复。
   return script.charCodeAt(0) === 0xFEFF ? script : `\uFEFF${script}`;
+}
+
+function renderWindowsAdcsBootstrapScript(manifest: unknown): string {
+  const manifestJson = JSON.stringify(manifest, null, 2);
+  return [
+    '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::UTF8',
+    "$ErrorActionPreference = 'Stop'",
+    "$manifest = @'",
+    manifestJson,
+    "'@ | ConvertFrom-Json",
+    '$utf8Bom = New-Object System.Text.UTF8Encoding($true)',
+    "$root = Join-Path $env:TEMP ('gcac-windows-adcs-agent-' + $manifest.sessionId)",
+    'New-Item -ItemType Directory -Force -Path $root | Out-Null',
+    '$agentVersion = [string]$manifest.agentVersion',
+    'Write-Host ("Preparing GCAC Windows AD CS Agent v{0}." -f $agentVersion)',
+    '$existing = Get-Service -Name ([string]$manifest.serviceName) -ErrorAction SilentlyContinue',
+    'if ($null -ne $existing) { if ($existing.Status -ne "Stopped") { Stop-Service -Name ([string]$manifest.serviceName) -Force -ErrorAction Stop; Start-Sleep -Seconds 1 }; & sc.exe delete ([string]$manifest.serviceName) | Out-Null; Start-Sleep -Seconds 1 }',
+    'foreach ($artifact in $manifest.artifacts) {',
+    '  $path = Join-Path $root $artifact.path',
+    '  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path) | Out-Null',
+    '  if ([string]$artifact.encoding -eq "base64") { [IO.File]::WriteAllBytes($path, [Convert]::FromBase64String([string]$artifact.content)) } else { [IO.File]::WriteAllText($path, [string]$artifact.content, $utf8Bom) }',
+    '}',
+    'New-Item -ItemType Directory -Force -Path $manifest.installRoot, $manifest.configDir, $manifest.dataDir, $manifest.logDir | Out-Null',
+    '$agentTarget = Join-Path $manifest.installRoot "gcac-adcs-agent.exe"',
+    'if (-not (Test-Path -LiteralPath (Join-Path $root "gcac-adcs-agent.exe"))) { throw "AD CS Agent executable is missing from the bootstrap payload." }',
+    'Copy-Item -LiteralPath (Join-Path $root "gcac-adcs-agent.exe") -Destination $agentTarget -Force',
+    '$configPath = Join-Path $manifest.configDir "agent.config.json"',
+    '$config = [ordered]@{ schemaVersion="gcac.adcs-agent.windows.v1"; version=$agentVersion; tenantId=[string]$manifest.tenantId; agentKey=[string]$manifest.agentKey; enrollmentToken=[string]$manifest.enrollmentToken; zone=[string]$manifest.zone; controlPlaneUrl=[string]$manifest.controlPlaneUrl; heartbeatIntervalSeconds=10; taskPollIntervalSeconds=5; managementListenAddress="0.0.0.0"; managementPort=[int]$manifest.managementPort; paths=[ordered]@{ windows=[ordered]@{ configPath=$configPath; dataDir=[string]$manifest.dataDir; logDir=[string]$manifest.logDir } }; service=[ordered]@{ name=[string]$manifest.serviceName; displayName=[string]$manifest.displayName } }',
+    '[IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 8), (New-Object Text.UTF8Encoding($false)))',
+    '& netsh.exe advfirewall firewall delete rule name="GCAC Windows AD CS Agent Management TCP 18933" 2>$null | Out-Null',
+    '& netsh.exe advfirewall firewall add rule name="GCAC Windows AD CS Agent Management TCP 18933" dir=in action=allow protocol=TCP localport=18933 program="$agentTarget" profile=any | Out-Null',
+    'if ($LASTEXITCODE -ne 0) { throw "AD CS Agent firewall rule creation failed" }',
+    '$serviceCommand = "`"$agentTarget`" service run --config=`"$configPath`""',
+    'New-Service -Name ([string]$manifest.serviceName) -BinaryPathName $serviceCommand -DisplayName ([string]$manifest.displayName) -StartupType Automatic | Out-Null',
+    '& sc.exe failure ([string]$manifest.serviceName) reset= 86400 actions= restart/5000/restart/15000 | Out-Null',
+    '$metadataPath = Join-Path (Split-Path -Parent $manifest.configDir) "service.install.json"',
+    '$metadata = [ordered]@{ serviceName=$manifest.serviceName; displayName=$manifest.displayName; version=$agentVersion; installRoot=$manifest.installRoot; configPath=$configPath; dataDir=$manifest.dataDir; logDir=$manifest.logDir; binaryPath=$agentTarget; managementPort=18933; productLine="windows-adcs-agent"; installedAt=(Get-Date).ToUniversalTime().ToString("o") }',
+    '[IO.File]::WriteAllText($metadataPath, ($metadata | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding($false)))',
+    'if ($manifest.startAfterInstall) { Start-Service -Name ([string]$manifest.serviceName) }',
+    'Write-Host ("GCAC Windows AD CS Agent v{0} bootstrap completed." -f $agentVersion)',
+  ].join("\r\n");
 }
 
 function renderWindowsGoBootstrapScript(manifest: unknown): string {

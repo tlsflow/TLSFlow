@@ -1,4 +1,5 @@
 import type { SecretService } from '../../secrets/secret.service.js';
+import type { CookieSessionStore } from './cookie-session.js';
 
 export interface CurlSecretResolverContext {
   runId?: string;
@@ -8,6 +9,8 @@ export interface CurlSecretResolverContext {
   planId?: string;
   targetId?: string;
   workflowVersionId?: string;
+  cookieSessionRef?: string;
+  cookieSessionStore?: CookieSessionStore;
   executionGrantId?: string;
   allowInsecureTls?: boolean;
   executionGrantService?: {
@@ -19,6 +22,7 @@ export interface CurlSecretResolverContext {
       stepId: string;
       targetId?: string;
       workflowVersionId?: string;
+      artifactRef?: string;
       executorType: string;
       action?: string;
     }): Promise<unknown>;

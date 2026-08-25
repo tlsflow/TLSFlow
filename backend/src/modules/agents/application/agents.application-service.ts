@@ -12,7 +12,7 @@ import { newId } from '../../../shared/id.js';
 import { isObservationStale, readPositiveSeconds } from '../../../shared/observation-freshness.js';
 import { AgentsDomainService, normalizeFingerprint } from '../domain/agents.domain-service.js';
 import type { AckAgentTaskInput, AgentCapabilityProjection, AgentCapabilitySnapshotInput, AgentCertificateIssueResult, AgentCertificateRotateResult, AgentDetailProjection, AgentHealthProjection, AgentHeartbeatInput, AgentInstallSessionBootstrapProjection, AgentTaskLogAckResult, AgentTaskQueueProjection, AgentUpgradeSuggestionProjection, CheckAgentUpgradeInput, CreateAgentCertificateSigningRequestInput, CreateAgentInstallSessionInput, CreateAgentSessionInput, CreateEnrollmentTokenInput, DeleteAgentInput, DisableAgentInput, DispatchAgentUpgradeInput, EnableAgentInput, EnqueueAgentTaskInput, PublishAgentVersionInput, RegisterAgentInput, RevokeAgentCertificateInput, RotateAgentCertificateInput, SignAgentCertificateInput, SubmitAgentRuntimeLogInput, SubmitAgentTaskLogInput, SubmitAgentTaskLogsInput, SubmitAgentTaskResultInput, SubmitAgentUpgradeResultInput } from '../dto/agents.dto.js';
-import type { AgentHeartbeat, AgentInstallSession, AgentRegistration, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
+import type { AgentHeartbeat, AgentInstallSession, AgentInstallSessionRole, AgentRegistration, AgentTaskEnvelope, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
 import { PgAgentsRepository, type AgentsRepository } from '../repository/agents.repository.js';
 import type { GatewaysRepository } from '../../gateways/repository/gateways.repository.js';
 import { agentV2ContractTypes, validateAgentCapabilityToken, validateAgentExecutionReceipt, validateAgentPlan, validatePolicyAuthorityDecision, type AgentExecutionReceiptV1, type AgentSecurityStatus, type AgentV2ContractType } from '../security/agent-security.contract.js';
@@ -127,7 +127,9 @@ interface AgentInstallSessionManifest {
   configDir: string;
   dataDir: string;
   logDir: string;
-  role: 'full_agent' | 'gateway';
+  role: AgentInstallSessionRole;
+  managementPort: number;
+  agentVersion?: string;
   startAfterInstall: boolean;
   controlPlaneUrl: string;
   agentKey: string;
@@ -214,6 +216,7 @@ export class AgentsApplicationService {
   private readonly offlineTimeoutCounts = new Map<string, number>();
   private readonly activeUpgradeLocks = new Set<string>();
   private readonly localReleaseSync = new Map<string, Promise<void>>();
+  private adcsRegistrationProvisioner?: (input: { tenantId: string; agentId: string; agentKey: string; name: string; pluginVersionId: string }) => Promise<void>;
   constructor(
     private readonly repository: AgentsRepository = new PgAgentsRepository(),
     private readonly domain = new AgentsDomainService(),
@@ -244,6 +247,10 @@ export class AgentsApplicationService {
     this.trustMaterialIssuer = issuer;
   }
 
+  setAdcsRegistrationProvisioner(provisioner?: AgentsApplicationService['adcsRegistrationProvisioner']): void {
+    this.adcsRegistrationProvisioner = provisioner;
+  }
+
   async createEnrollmentToken(tenantId: string, input: CreateEnrollmentTokenInput, requestId: string) {
     const created = this.domain.createEnrollmentToken(tenantId, input, requestId);
     const { token, ...stored } = created;
@@ -255,6 +262,13 @@ export class AgentsApplicationService {
     const descriptor = this.domain.normalizeDescriptor(input);
     const existing = await this.resolveExistingRegistration(tenantId, descriptor.agentKey, descriptor.machineId);
     const role = input.role ?? existing?.role ?? 'full_agent';
+    const normalizedOsType = descriptor.osType.toLowerCase();
+    if (normalizedOsType === 'windows_adcs' && role !== 'adcs_agent') {
+      throw new AppError('VALIDATION_FAILED', 'Windows AD CS Agent 必须使用 adcs_agent 注册角色');
+    }
+    if (role === 'adcs_agent' && normalizedOsType !== 'windows_adcs') {
+      throw new AppError('VALIDATION_FAILED', 'adcs_agent 只能注册到 windows_adcs 平台');
+    }
     const gateway = this.domain.normalizeGatewayOnRegister({ ...input, role }, existing?.gateway);
     let enrollmentTokenId: string | undefined;
     if (input.enrollmentToken) {
@@ -292,6 +306,7 @@ export class AgentsApplicationService {
         lastRequestId: requestId,
       });
       await this.syncGatewayRegistry(tenantId, updated);
+      await this.provisionAdcsRegistration(tenantId, updated);
       return this.withTrustMaterial(updated);
     }
     const registered = await this.repository.upsertRegistration({
@@ -312,7 +327,27 @@ export class AgentsApplicationService {
       version: 1,
     });
     await this.syncGatewayRegistry(tenantId, registered);
+    await this.provisionAdcsRegistration(tenantId, registered);
     return this.withTrustMaterial(registered);
+  }
+
+  private async provisionAdcsRegistration(tenantId: string, agent: AgentRegistration): Promise<void> {
+    if (!this.adcsRegistrationProvisioner || agent.role !== 'adcs_agent' || agent.descriptor.osType.toLowerCase() !== 'windows_adcs') return;
+    try {
+      await this.adcsRegistrationProvisioner({
+        tenantId,
+        agentId: agent.id,
+        agentKey: agent.agentKey,
+        name: agent.descriptor.caName || agent.descriptor.hostname || agent.agentKey,
+        pluginVersionId: '',
+      });
+    } catch (error) {
+      // Provider 自动登记失败不能回滚 Agent 注册；页面加载时的幂等补偿会再次尝试。
+      structuredLogger.warn('AD CS Agent issuing backend provisioning failed', {
+        agentId: agent.id,
+        error: error instanceof Error ? error.message : String(error),
+      }, { module: 'agents', tenantId, resourceType: 'agent', resourceId: agent.id });
+    }
   }
 
   async heartbeat(tenantId: string, input: AgentHeartbeatInput, requestId: string) {
@@ -610,7 +645,7 @@ export class AgentsApplicationService {
 
   async enqueueTask(tenantId: string, input: EnqueueAgentTaskInput, requestId: string, livenessMode: 'full' | 'management' = 'full'): Promise<AgentTaskEnvelope> {
     assertSupportedAgentTaskPayload(input.payload ?? {});
-    await this.requireFullAgentForTask(tenantId, input.agentId);
+    await this.requireTaskAgent(tenantId, input.agentId);
     if (livenessMode === 'management') await this.assertManagementEndpointReachable(tenantId, input.agentId);
     else await this.assertLivenessAllowsExecution(tenantId, input.agentId);
     const existing = await this.repository.findTaskByIdempotencyKey(tenantId, input.agentId, input.idempotencyKey);
@@ -695,12 +730,12 @@ export class AgentsApplicationService {
   }
 
   async findTaskByIdempotencyKey(tenantId: string, agentId: string, idempotencyKey: string): Promise<AgentTaskEnvelope | undefined> {
-    await this.requireFullAgentForTask(tenantId, agentId);
+    await this.requireTaskAgent(tenantId, agentId);
     return this.repository.findTaskByIdempotencyKey(tenantId, agentId, idempotencyKey);
   }
 
   async pullTasks(tenantId: string, agentId: string, limit = 10): Promise<AgentTaskEnvelope[]> {
-    const agent = await this.requireFullAgentForTask(tenantId, agentId);
+    const agent = await this.requireTaskAgent(tenantId, agentId);
     if (agent.status === 'DISABLED') return [];
     if (this.liveness) {
       // Agent 任务是主动向控制面轮询的出站链路，不能因为控制面到 Agent
@@ -714,7 +749,7 @@ export class AgentsApplicationService {
   }
 
   async ackTask(tenantId: string, input: AckAgentTaskInput): Promise<AgentTaskEnvelope> {
-    await this.requireFullAgentForTask(tenantId, input.agentId);
+    await this.requireTaskAgent(tenantId, input.agentId);
     const task = await this.requireTask(tenantId, input.agentId, input.taskId);
     if (task.status === 'queued') {
       const claimed = await this.repository.claimQueuedTask(task.id, input.agentId, input.leaseId, new Date().toISOString());
@@ -736,7 +771,7 @@ export class AgentsApplicationService {
   }
 
   async submitResult(tenantId: string, input: SubmitAgentTaskResultInput): Promise<AgentTaskEnvelope> {
-    await this.requireFullAgentForTask(tenantId, input.agentId);
+    await this.requireTaskAgent(tenantId, input.agentId);
     const task = await this.requireTask(tenantId, input.agentId, input.taskId);
     if (task.leaseId !== input.leaseId)
       throw new AppError('IDEMPOTENCY_CONFLICT', '任务结果 leaseId 不匹配', {
@@ -986,7 +1021,7 @@ export class AgentsApplicationService {
   }
 
   async submitLogs(tenantId: string, input: SubmitAgentTaskLogsInput, requestId: string): Promise<AgentTaskLogAckResult> {
-    await this.requireFullAgentForTask(tenantId, input.agentId);
+    await this.requireTaskAgent(tenantId, input.agentId);
     await this.requireTask(tenantId, input.agentId, input.taskId);
     const previousCursor = await this.repository.getTaskLogCursor(tenantId, input.agentId, input.taskId);
     const previousAck = previousCursor?.lastAckedSequence ?? 0;
@@ -1509,6 +1544,7 @@ export class AgentsApplicationService {
   async createAgentInstallSession(tenantId: string, input: CreateAgentInstallSessionInput, requestId: string, baseUrl: string): Promise<AgentInstallSessionBootstrapProjection> {
     if (input.platform === 'windows_go') await ensureWindowsGoBundleAvailable();
     if (input.platform === 'windows_compatibility') await ensureWindowsCompatibilityBundleAvailable();
+    if (input.platform === 'windows_adcs') await ensureWindowsAdcsBundleAvailable();
     if (input.platform === 'linux_go') buildLinuxAgentBundleTarGz();
     const session = this.domain.createAgentInstallSession(tenantId, input, requestId, baseUrl);
     const { bootstrapToken, enrollmentTokenRecord, ...stored } = session;
@@ -1518,6 +1554,7 @@ export class AgentsApplicationService {
     const route = installRouteForPlatform(stored.platform);
     const bootstrapUrl = `${stored.controlPlaneUrl}${route}?token=${encodedToken}`;
     const installCommand = installCommandForPlatform(stored.platform, bootstrapUrl);
+    const agentVersion = stored.platform === 'windows_adcs_service' ? await readWindowsAdcsAgentVersion() : undefined;
     return {
       sessionId: stored.id,
       platform: stored.platform,
@@ -1531,6 +1568,8 @@ export class AgentsApplicationService {
       configDir: stored.configDir,
       dataDir: stored.dataDir,
       logDir: stored.logDir,
+      managementPort: stored.managementPort ?? managementPortForInstallPlatform(stored.platform),
+      ...(agentVersion ? { agentVersion } : {}),
       agentKey: stored.agentKey,
       zone: stored.zone,
       enrollmentTokenPreview: enrollmentTokenRecord.tokenPreview,
@@ -1564,8 +1603,10 @@ export class AgentsApplicationService {
 
   async buildWindowsInstallManifest(session: AgentInstallSession, baseUrl = session.controlPlaneUrl, bootstrapToken?: string): Promise<AgentInstallSessionManifest> {
     requireInstallPlatform(session.platform, WINDOWS_INSTALL_PLATFORMS, '安装会话不是 Windows 平台');
+    const agentVersion = session.platform === 'windows_adcs_service' ? await readWindowsAdcsAgentVersion() : undefined;
     return {
       ...this.baseInstallManifest(session, baseUrl),
+      ...(agentVersion ? { agentVersion } : {}),
       artifacts: session.role === 'gateway' ? await loadGatewayWindowsAgentArtifacts() : await WINDOWS_ARTIFACT_LOADERS[session.platform](),
       ...(isWindowsGoRuntimeInstallPlatform(session.platform) && this.trustMaterialIssuer
         ? {
@@ -1700,6 +1741,7 @@ export class AgentsApplicationService {
       configDir: session.configDir,
       dataDir: session.dataDir,
       logDir: session.logDir,
+      managementPort: session.managementPort ?? managementPortForInstallPlatform(session.platform),
       role: session.role,
       startAfterInstall: session.startAfterInstall,
       controlPlaneUrl: baseUrl,
@@ -1913,7 +1955,7 @@ export class AgentsApplicationService {
   }
 
   async listTaskQueue(tenantId: string, agentId: string, statuses?: AgentTaskEnvelope['status'][]): Promise<AgentTaskQueueProjection> {
-    await this.requireFullAgentForTask(tenantId, agentId);
+    await this.requireTaskAgent(tenantId, agentId);
     const allTasks = await this.repository.listTasks(tenantId, agentId);
     const tasks = statuses?.length ? allTasks.filter((task) => statuses.includes(task.status)) : allTasks;
     return { agentId, counts: countTasks(allTasks), tasks };
@@ -2039,8 +2081,8 @@ export class AgentsApplicationService {
     };
   }
 
-  /** Gateway 只提供 relay.tcp，不得进入 Agent Task 队列或提交业务结果。 */
-  private async requireFullAgentForTask(tenantId: string, agentId: string) {
+  /** Gateway 只提供 relay.tcp；Full、Compatibility、AD CS Agent 均可进入统一任务队列。 */
+  private async requireTaskAgent(tenantId: string, agentId: string) {
     const agent = await this.requireAgent(tenantId, agentId);
     if (agent.role === 'gateway' || agent.gateway) {
       throw new AppError('AUTH_FORBIDDEN', 'Gateway 仅允许 TCP Relay，不得使用 Agent Task 队列', {
@@ -2550,7 +2592,9 @@ function validateQueuedAgentV2Receipt(task: AgentTaskEnvelope, detail: Record<st
   }
 
   const receipt = validateAgentExecutionReceipt(receiptValue);
-  const expectedReceiptAgentId = readStringValue(readOptionalRecord(authorizationPayload.token)?.agentId) ?? task.agentId;
+  const expectedReceiptAgentId = readStringValue(readOptionalRecord(authorizationPayload.token)?.agentId)
+    ?? readStringValue(authorizationPayload.agentId)
+    ?? task.agentId;
   if (receipt.agentId !== expectedReceiptAgentId || receipt.tenantId !== tenantId) {
     throw new AppError('AUTH_FORBIDDEN', 'AgentExecutionReceiptV1 的 Agent 或租户绑定不一致', {
       reason: 'AGENT_V2_RECEIPT_IDENTITY_DENIED',
@@ -2558,6 +2602,30 @@ function validateQueuedAgentV2Receipt(task: AgentTaskEnvelope, detail: Record<st
       agentId: receipt.agentId,
       tenantId: receipt.tenantId,
     });
+  }
+
+  // Microsoft AD CS Plugin 先在控制面生成 legacy AgentPlan，再由独立 AD CS Agent
+  // 通过统一任务队列执行。该计划没有 Full Agent 的 Token/PolicyDecision 材料，
+  // 但仍必须把 Receipt 绑定到 Authority 指定的 Agent、租户和固定计划摘要。
+  const adcsPlan = readOptionalRecord(authorizationPayload.agentPlan);
+  if (actionType === 'agent.plan.execute'
+    && authorizationPayload.agentRole === 'adcs_agent'
+    && authorizationPayload.agentPlatform === 'windows_adcs'
+    && adcsPlan) {
+    const expectedPlanDigest = readStringValue(adcsPlan.planDigest)?.replace(/^sha256:/u, '');
+    if (receipt.agentId !== task.agentId || receipt.tenantId !== tenantId || receipt.planDigest !== expectedPlanDigest) {
+      throw new AppError('AUTH_FORBIDDEN', 'AD CS Agent Receipt 未绑定任务计划', {
+        reason: 'ADCS_AGENT_RECEIPT_BINDING_DENIED',
+        taskId: task.id,
+      });
+    }
+    if (receipt.status === 'SUCCESS' && !receipt.nonceConsumed) {
+      throw new AppError('AUTH_FORBIDDEN', 'AD CS Agent Receipt 未确认操作已消费', {
+        reason: 'ADCS_AGENT_RECEIPT_NONCE_REQUIRED',
+        taskId: task.id,
+      });
+    }
+    return receipt;
   }
 
   const tokenValue = readOptionalRecord(authorizationPayload.token);
@@ -2666,13 +2734,16 @@ const windowsGoAgentUpdaterAmd64Artifact = path.join(windowsGoAgentRoot, 'dist',
 const windowsGoRuntimeDiscoveryAmd64Artifact = path.join(windowsGoAgentRoot, 'dist', 'plugins', 'windows-runtime-discovery.windows-amd64.exe');
 const windowsCompatibilityAgentRoot = resolveRepositoryAgentRoot('windows-compat-full-agent');
 const windowsCompatibilityReleaseRoot = path.join(windowsCompatibilityAgentRoot, 'dist');
-const WINDOWS_INSTALL_PLATFORMS = ['windows_go_service', 'windows_compatibility_service'] as const;
+const windowsAdcsAgentRoot = resolveRepositoryAgentRoot('windows-adcs-agent');
+const windowsAdcsAgentArtifact = path.join(windowsAdcsAgentRoot, 'dist', 'gcac-adcs-agent.windows-amd64.exe');
+const WINDOWS_INSTALL_PLATFORMS = ['windows_go_service', 'windows_compatibility_service', 'windows_adcs_service'] as const;
 const WINDOWS_GO_INSTALL_PLATFORM = 'windows_go_service' as const;
 const WINDOWS_GO_RUNTIME_INSTALL_PLATFORMS = new Set<AgentInstallSession['platform']>(['windows_go_service', 'windows_compatibility_service']);
 const TRUSTED_AGENT_OS_TYPES = new Set(['linux', 'windows']);
 const WINDOWS_ARTIFACT_LOADERS: Record<(typeof WINDOWS_INSTALL_PLATFORMS)[number], () => Promise<Array<{ path: string; content: string; encoding?: 'utf8' | 'base64' }>>> = {
   windows_go_service: loadWindowsGoAgentArtifacts,
   windows_compatibility_service: loadWindowsCompatibilityAgentArtifacts,
+  windows_adcs_service: loadWindowsAdcsAgentArtifacts,
 };
 
 function isWindowsGoInstallPlatform(platform: AgentInstallSession['platform']): boolean {
@@ -2691,6 +2762,7 @@ function installRouteForPlatform(platform: AgentInstallSession['platform']): str
   const routes: Record<AgentInstallSession['platform'], string> = {
     windows_go_service: '/agent-install.ps1',
     windows_compatibility_service: '/agent-install.ps1',
+    windows_adcs_service: '/api/v1/agents/install/windows-adcs/bootstrap.ps1',
     linux_go_systemd: '/agent-install',
   };
   return routes[platform];
@@ -2700,9 +2772,17 @@ function installCommandForPlatform(platform: AgentInstallSession['platform'], bo
   const commands: Record<AgentInstallSession['platform'], string> = {
     windows_go_service: `irm '${bootstrapUrl}' | iex`,
     windows_compatibility_service: `irm '${bootstrapUrl}' | iex`,
+    windows_adcs_service: `irm '${bootstrapUrl}' | iex`,
     linux_go_systemd: `curl -fsSL '${bootstrapUrl}' | sudo bash`,
   };
   return commands[platform];
+}
+
+function managementPortForInstallPlatform(platform: AgentInstallSession['platform']): number {
+  if (platform === 'windows_go_service') return 18930;
+  if (platform === 'windows_compatibility_service') return 18932;
+  if (platform === 'windows_adcs_service') return 18933;
+  return 18931;
 }
 
 function optionalBundleUrl(session: Pick<AgentInstallSession, 'platform' | 'controlPlaneUrl'>): { bundleUrl?: string } {
@@ -2761,6 +2841,28 @@ async function ensureWindowsCompatibilityBundleAvailable(): Promise<void> {
   }
 }
 
+async function ensureWindowsAdcsBundleAvailable(): Promise<void> {
+  if (!existsSync(windowsAdcsAgentArtifact)) {
+    throw new AppError('RESOURCE_NOT_FOUND', 'Windows AD CS Agent 可执行文件未构建，不能生成一键安装命令');
+  }
+}
+
+async function loadWindowsAdcsAgentArtifacts() {
+  await ensureWindowsAdcsBundleAvailable();
+  const artifacts = await walkWindowsAgentArtifacts(windowsAdcsAgentRoot, [
+    'install-service.ps1',
+    'uninstall-service.ps1',
+    'service-control.ps1',
+    'config/agent.config.template.json',
+  ]);
+  artifacts.push({
+    path: 'gcac-adcs-agent.exe',
+    content: (await readFile(windowsAdcsAgentArtifact)).toString('base64'),
+    encoding: 'base64',
+  });
+  return artifacts.sort((left, right) => left.path.localeCompare(right.path));
+}
+
 async function loadWindowsCompatibilityAgentArtifacts() {
   await ensureWindowsCompatibilityBundleAvailable();
   const artifacts = await walkWindowsAgentArtifacts(windowsCompatibilityReleaseRoot, [
@@ -2815,6 +2917,23 @@ async function readWindowsGoAgentVersion(): Promise<string> {
   const match = source.match(/\bagentVersion\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)"/u);
   if (!match?.[1]) throw new AppError('RESOURCE_NOT_FOUND', '无法从 Windows Go Agent 源码读取版本');
   return match[1];
+}
+
+async function readWindowsAdcsAgentVersion(): Promise<string> {
+  const templatePath = path.join(windowsAdcsAgentRoot, 'config', 'agent.config.template.json');
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(templatePath, 'utf8'));
+  } catch {
+    throw new AppError('RESOURCE_NOT_FOUND', '无法从 Windows AD CS Agent 配置模板读取版本');
+  }
+  const version = parsed && typeof parsed === 'object' && typeof (parsed as { version?: unknown }).version === 'string'
+    ? (parsed as { version: string }).version.trim()
+    : '';
+  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(version)) {
+    throw new AppError('RESOURCE_NOT_FOUND', 'Windows AD CS Agent 配置模板版本无效');
+  }
+  return version;
 }
 
 async function readLinuxGoAgentVersion(): Promise<string> {

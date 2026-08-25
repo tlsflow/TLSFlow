@@ -14,10 +14,21 @@ const RELEASE_REQUIREMENTS = new Map([
   ['linux-go-full', { platform: 'LINUX', requireArchitecture: true }],
 ]);
 const WINDOWS_FULL_AGENT_PLATFORMS = new Set(['windows_go_service', 'windows_compatibility_service']);
+const WINDOWS_ADCS_PLATFORM = 'windows_adcs_service';
 const WINDOWS_COMPATIBILITY_PLATFORM = 'windows_compatibility_service';
-const INSTALL_AGENT_KEY_PREFIX: Record<'windows_go_service' | 'windows_compatibility_service' | 'linux_go_systemd', string> = {
+const WINDOWS_ADCS_PROFILE = {
+  serviceName: 'GCACWindowsAdcsAgent',
+  displayName: 'GCAC Windows AD CS Agent',
+  installRoot: 'C:\\Program Files\\GCAC\\WindowsAdcsAgent',
+  configDir: 'C:\\ProgramData\\GCAC\\WindowsAdcsAgent\\config',
+  dataDir: 'C:\\ProgramData\\GCAC\\WindowsAdcsAgent\\data',
+  logDir: 'C:\\ProgramData\\GCAC\\WindowsAdcsAgent\\logs',
+  managementPort: 18933,
+} as const;
+const INSTALL_AGENT_KEY_PREFIX: Record<'windows_go_service' | 'windows_compatibility_service' | 'windows_adcs_service' | 'linux_go_systemd', string> = {
   windows_go_service: 'windowsgo',
   windows_compatibility_service: 'windowscompat',
+  windows_adcs_service: 'windowsadcs',
   linux_go_systemd: 'linuxgo',
 };
 
@@ -62,6 +73,7 @@ export class AgentsDomainService {
       agentKey,
       machineId: input.machineId?.trim(),
       hostname,
+      caName: input.caName?.trim(),
       version,
       osType,
       arch: input.arch?.trim(),
@@ -179,9 +191,9 @@ export class AgentsDomainService {
   ): AgentInstallSession & { bootstrapToken: string; enrollmentTokenRecord: EnrollmentToken & { token: string } } {
     const platform = normalizeInstallSessionPlatform(input.platform);
     const role = normalizeInstallSessionRole(input.role);
-    if (WINDOWS_FULL_AGENT_PLATFORMS.has(platform) && role !== 'full_agent') {
-      throw new AppError('VALIDATION_FAILED', 'Windows Agent 安装会话只允许 full_agent 角色');
-    }
+    if (WINDOWS_FULL_AGENT_PLATFORMS.has(platform) && role !== 'full_agent') throw new AppError('VALIDATION_FAILED', 'Windows Full/Compatibility Agent 安装会话只允许 full_agent 角色');
+    if (platform === WINDOWS_ADCS_PLATFORM && role !== 'adcs_agent') throw new AppError('VALIDATION_FAILED', 'Windows AD CS Agent 安装会话只允许 adcs_agent 角色');
+    if (platform === 'linux_go_systemd' && role === 'adcs_agent') throw new AppError('VALIDATION_FAILED', 'AD CS Agent 只支持 Windows AD CS 平台');
 
     const relayPolicy = this.normalizeRelayPolicy(role, input.relayAllowedTargets, input.relayAllowedPorts);
 
@@ -196,7 +208,7 @@ export class AgentsDomainService {
     const now = new Date();
     const id = newId('aginst');
     const bootstrapToken = createInstallBootstrapToken();
-    const profile = isWindowsFullAgentPlatform(platform)
+    const profile = isWindowsFullAgentPlatform(platform) || platform === WINDOWS_ADCS_PLATFORM
       ? normalizeWindowsInstallProfile(input, id, platform)
       : normalizeLinuxInstallProfile(input);
     const defaultAgentKey = `${INSTALL_AGENT_KEY_PREFIX[platform]}.${id.toLowerCase()}`;
@@ -225,7 +237,7 @@ export class AgentsDomainService {
    * Gateway 安装必须把目标和端口白名单写入配置；Full Agent 不得借安装接口携带任何 Relay 字段。
    */
   normalizeRelayPolicy(
-    role: 'full_agent' | 'gateway',
+    role: 'full_agent' | 'gateway' | 'adcs_agent',
     targets: string[] | undefined,
     ports: number[] | undefined,
   ): { relayAllowedTargets?: string[]; relayAllowedPorts?: number[] } {
@@ -698,20 +710,25 @@ function normalizeInstallSessionPlatform(value: CreateAgentInstallSessionInput['
   if (value === 'windows_go') return 'windows_go_service';
   if (value === 'windows_compatibility') return 'windows_compatibility_service';
   if (value === 'linux_go') return 'linux_go_systemd';
+  if (value === 'windows_adcs') return 'windows_adcs_service';
   throw new AppError('VALIDATION_FAILED', '不支持的 Agent 安装平台', { platform: value });
 }
 
-function normalizeInstallSessionRole(value: CreateAgentInstallSessionInput['role']): 'full_agent' | 'gateway' {
+function normalizeInstallSessionRole(value: CreateAgentInstallSessionInput['role']): 'full_agent' | 'gateway' | 'adcs_agent' {
   if (!value) return 'full_agent';
-  if (value === 'full_agent' || value === 'gateway') return value;
+  if (value === 'full_agent' || value === 'gateway' || value === 'adcs_agent') return value;
   throw new AppError('VALIDATION_FAILED', '不支持的 Agent 安装角色', { role: value });
 }
 
 function normalizeWindowsInstallProfile(
   input: CreateAgentInstallSessionInput,
   id: string,
-  platform: Extract<AgentInstallSession['platform'], 'windows_go_service' | 'windows_compatibility_service'>,
-): Pick<AgentInstallSession, 'serviceName' | 'displayName' | 'installRoot' | 'configDir' | 'dataDir' | 'logDir'> {
+  platform: Extract<AgentInstallSession['platform'], 'windows_go_service' | 'windows_compatibility_service' | 'windows_adcs_service'>,
+): Pick<AgentInstallSession, 'serviceName' | 'displayName' | 'installRoot' | 'configDir' | 'dataDir' | 'logDir' | 'managementPort'> {
+  if (platform === WINDOWS_ADCS_PLATFORM) {
+    assertFixedWindowsAdcsProfile(input);
+    return WINDOWS_ADCS_PROFILE;
+  }
   const compatibility = platform === WINDOWS_COMPATIBILITY_PLATFORM;
   return {
     serviceName: normalizeServiceName(input.serviceName ?? (compatibility ? 'GCACWindowsCompatibilityAgent' : `gcac-agent-${id.slice(-6).toLowerCase()}`)),
@@ -720,10 +737,26 @@ function normalizeWindowsInstallProfile(
     configDir: normalizeWindowsPath(input.configDir ?? (compatibility ? 'C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\config' : 'C:\\ProgramData\\GCAC\\FullAgentGo\\config'), 'configDir'),
     dataDir: normalizeWindowsPath(input.dataDir ?? (compatibility ? 'C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\data' : 'C:\\ProgramData\\GCAC\\FullAgentGo\\data'), 'dataDir'),
     logDir: normalizeWindowsPath(input.logDir ?? (compatibility ? 'C:\\ProgramData\\GCAC\\WindowsCompatibilityAgent\\logs' : 'C:\\ProgramData\\GCAC\\FullAgentGo\\logs'), 'logDir'),
+    managementPort: compatibility ? 18932 : 18930,
   };
 }
 
-function normalizeLinuxInstallProfile(input: CreateAgentInstallSessionInput): Pick<AgentInstallSession, 'serviceName' | 'displayName' | 'installRoot' | 'configDir' | 'dataDir' | 'logDir'> {
+function assertFixedWindowsAdcsProfile(input: CreateAgentInstallSessionInput): void {
+  const provided = [
+    ['serviceName', input.serviceName, WINDOWS_ADCS_PROFILE.serviceName],
+    ['installRoot', input.installRoot, WINDOWS_ADCS_PROFILE.installRoot],
+    ['configDir', input.configDir, WINDOWS_ADCS_PROFILE.configDir],
+    ['dataDir', input.dataDir, WINDOWS_ADCS_PROFILE.dataDir],
+    ['logDir', input.logDir, WINDOWS_ADCS_PROFILE.logDir],
+  ] as const;
+  for (const [field, value, expected] of provided) {
+    if (value !== undefined && value !== expected) {
+      throw new AppError('VALIDATION_FAILED', `Windows AD CS Agent 的 ${field} 必须使用固定隔离值`, { field, expected });
+    }
+  }
+}
+
+function normalizeLinuxInstallProfile(input: CreateAgentInstallSessionInput): Pick<AgentInstallSession, 'serviceName' | 'displayName' | 'installRoot' | 'configDir' | 'dataDir' | 'logDir' | 'managementPort'> {
   return {
     serviceName: normalizeServiceName(input.serviceName ?? 'gcac-linux-agent'),
     displayName: normalizeOptionalDisplayName(input.displayName) ?? 'GCAC Linux Go Full Agent',
@@ -731,6 +764,7 @@ function normalizeLinuxInstallProfile(input: CreateAgentInstallSessionInput): Pi
     configDir: normalizeUnixPath(input.configDir ?? '/etc/gcac/linux-agent', 'configDir'),
     dataDir: normalizeUnixPath(input.dataDir ?? '/var/lib/gcac/linux-agent', 'dataDir'),
     logDir: normalizeUnixPath(input.logDir ?? '/var/log/gcac/linux-agent', 'logDir'),
+    managementPort: 18931,
   };
 }
 

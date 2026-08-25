@@ -42,9 +42,9 @@ export function createWorkflowStepDispatcher(dependencies: WorkflowStepDispatche
       if (!curlExecutor) return executionCapabilityMissing(executor);
       const request = toCurlExecutionRequest(plan, input.runId, input.step.name, input.attempt, dryRun);
       if (!request) return { success: false, errorCode: 'CURL_REQUEST_REQUIRED', errorMessage: '工作流节点缺少 curlRequest' };
-      let tlsBypassGrantId: string | undefined;
+      let curlGrantId: string | undefined;
       try {
-        tlsBypassGrantId = await authorizeCurlTlsBypass(request, {
+        curlGrantId = await authorizeCurlExecutionGrant(request, {
           runId: input.runId,
           stepName: input.step.name,
           tenantId: input.tenantId,
@@ -58,7 +58,7 @@ export function createWorkflowStepDispatcher(dependencies: WorkflowStepDispatche
           actorId: 'workflow-step-test',
           executionGrantService,
           ...(request.template.tls?.allowInsecure === true ? { allowInsecureTls: true } : {}),
-          ...(tlsBypassGrantId ? { executionGrantId: tlsBypassGrantId } : {}),
+          ...(curlGrantId ? { executionGrantId: curlGrantId } : {}),
         };
         // 工作流的后续步骤可能需要读取当前响应中的敏感提取值（例如登录 JWT）。
         // execute() 返回的是对外脱敏结果，不能再拿它作为下一步的运行时输入。
@@ -93,7 +93,7 @@ export function createWorkflowStepDispatcher(dependencies: WorkflowStepDispatche
       } catch (error) {
         return executorFailure('curl', error, 'CURL_EXECUTION_FAILED');
       } finally {
-        if (tlsBypassGrantId) await executionGrantService?.revoke(tlsBypassGrantId);
+        if (curlGrantId) await executionGrantService?.revoke(curlGrantId);
       }
     }
     if (executor === '015.SSH') {
@@ -148,11 +148,10 @@ export function createWorkflowStepDispatcher(dependencies: WorkflowStepDispatche
 }
 
 /**
- * 只有 DSL 显式声明 tls.allowInsecure 意图、渲染结果 verify=false（设备绑定关闭校验），
- * 并具备租户上下文与 ExecutionGrant 服务时，才签发绑定当前 run/step 的短期 Grant。
+ * TLS 例外或 CookieSession 都必须绑定当前 run/step 的短期 Grant。
  * TLS 例外不再要求调用方提供 approvalId；allowInsecureTls 仍必须由插件输入契约显式绑定。
  */
-async function authorizeCurlTlsBypass(
+async function authorizeCurlExecutionGrant(
   request: CurlExecutionRequest,
   input: {
     runId: string;
@@ -163,8 +162,9 @@ async function authorizeCurlTlsBypass(
   executionGrantService: ExecutionGrantService | undefined,
 ): Promise<string | undefined> {
   const tls = request.template.tls;
-  if (tls?.verify !== false) return undefined;
-  if (tls.allowInsecure !== true) return undefined;
+  const needsTlsGrant = tls?.verify === false && tls.allowInsecure === true;
+  const needsCookieGrant = typeof request.template.cookieSessionRef === 'string';
+  if (!needsTlsGrant && !needsCookieGrant) return undefined;
   if (!input.tenantId || !executionGrantService) return undefined;
   const grant = await executionGrantService.create({
     tenantId: input.tenantId,
@@ -173,7 +173,12 @@ async function authorizeCurlTlsBypass(
     workflowVersionId: input.workflowVersionId,
     executorType: '017.CURL_HTTP',
     allowedSecretRefs: collectReferencesByScheme(request, 'secret://'),
-    allowedActions: ['workflow.step.execute', '017.CURL_HTTP', 'workflow.tls.insecure'],
+    allowedActions: [
+      'workflow.step.execute',
+      '017.CURL_HTTP',
+      ...(needsTlsGrant ? ['workflow.tls.insecure'] : []),
+      ...(needsCookieGrant ? ['http.cookie.session'] : []),
+    ],
     expiresAt: new Date(Date.now() + grantTtlMs).toISOString(),
   });
   return grant.id;

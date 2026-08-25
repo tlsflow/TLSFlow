@@ -179,6 +179,7 @@ function buildAgentPlan(context, input, operation, security, credentialFingerpri
       templateId: identifier(input.templateId, 'templateId'),
       ...(input.authorityId === undefined ? {} : { authorityId: identifier(input.authorityId, 'authorityId') }),
       ...(input.serialNumber === undefined ? {} : { serialNumber: text(input.serialNumber, 'serialNumber').toUpperCase() }),
+      ...(input.providerRequestId === undefined ? {} : { providerRequestId: identifier(input.providerRequestId, 'providerRequestId') }),
       ...(input.reason === undefined ? {} : { reason: revocationReason(input.reason) }),
       ...(typeof input.csrPem === 'string' ? { csrPem: input.csrPem } : {}),
       ...(typeof input.certificateOutputPath === 'string' ? { certificateOutputPath: input.certificateOutputPath } : {}),

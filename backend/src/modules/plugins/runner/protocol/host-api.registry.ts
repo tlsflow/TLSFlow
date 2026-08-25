@@ -126,6 +126,7 @@ const httpRequest = objectSchema({
   method: { enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'] },
   headers: stringMap,
   body: { type: 'string', maxLength: 1024 * 1024 },
+  cookieSessionRef: { type: 'string', pattern: '^[A-Za-z][A-Za-z0-9._:-]{0,63}$' },
 }, ['url', 'method', 'headers']);
 
 export const hostApiRegistry: Readonly<Record<string, HostApiMethodDefinition>> = {

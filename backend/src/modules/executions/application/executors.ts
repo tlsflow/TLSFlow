@@ -2,7 +2,7 @@ import { AppError } from '../../../common/errors/app-error.js';
 import { newId } from '../../../shared/id.js';
 import type { SecretService } from '../../secrets/secret.service.js';
 import { AgentsApplicationService } from '../../agents/application/agents.application-service.js';
-import { CurlExecutor, SSHExecutor, type CurlExecutionRequest, type CurlExecutionResult, type HttpResponse } from '../../executors/index.js';
+import { CurlExecutor, SSHExecutor, CookieSessionStore, type CurlExecutionRequest, type CurlExecutionResult, type HttpResponse } from '../../executors/index.js';
 import { SecretServiceCurlResolver } from '../../executors/curl/curl.secret-resolver.js';
 import { SecretServiceSshResolver } from '../../executors/ssh/ssh.secret-resolver.js';
 import { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
@@ -18,6 +18,7 @@ import { PluginResourceLockService, type PluginResourceLockRecord } from './plug
 import { projectWorkflowBusinessSteps } from './workflow-business-step-projector.js';
 import type { ExecutionGrantService } from '../execution-grant.service.js';
 import { enrichWorkflowCertificateMaterial } from '../../certificates/artifacts/workflow-certificate-material.js';
+import type { CertificateArtifactStore } from '../../certificates/artifacts/certificate-artifact-store.js';
 import { isPluginRunnerWorkflowVersion, isPluginWorkflowResource } from '../../plugins/schema/plugin-workflow.schema.js';
 import {
   createDefaultPluginRunnerExecutionDependencies,
@@ -154,6 +155,8 @@ export interface DefaultExecutorDependencies {
   pluginResourceLocks?: PluginResourceLockService;
   executionGrants?: ExecutionGrantService;
   pluginRunner?: PluginRunnerExecutionDependencies;
+  cookieSessionStore?: CookieSessionStore;
+  artifactStore?: Pick<CertificateArtifactStore, 'get'>;
 }
 
 export class ExecutorRegistry {
@@ -213,10 +216,13 @@ function createDefaultExecutors(dependencies: DefaultExecutorDependencies = {}):
   const curlExecutor = new CurlExecutor({
     ...(dependencies.secrets ? { secretResolver: new SecretServiceCurlResolver(dependencies.secrets) } : {}),
     ...(dependencies.executionGrants ? { executionGrantService: dependencies.executionGrants } : {}),
+    ...(dependencies.cookieSessionStore ? { cookieSessionStore: dependencies.cookieSessionStore } : {}),
+    ...(dependencies.artifactStore ? { artifactStore: dependencies.artifactStore } : {}),
   });
   const pluginRunner = {
     ...(dependencies.pluginRunner ?? createDefaultPluginRunnerExecutionDependencies()),
     ...(dependencies.executionGrants ? { executionGrants: dependencies.executionGrants } : {}),
+    ...(dependencies.cookieSessionStore ? { cookieSessionStore: dependencies.cookieSessionStore } : {}),
   };
   // Runner 只能由 Workflow DSL 的 plugin.action 子步骤调用，不能注册为部署目标执行器。
   const pluginActionExecutor = new PluginRunnerExecutorAdapter(pluginRunner);
@@ -614,6 +620,14 @@ export class WorkflowExecutorAdapter implements Executor {
         detail: { workflowIdentity },
       };
     } finally {
+      if (input.step.tenantId && workflowVersionId && typeof this.curlExecutor.clearCookieSessions === 'function') {
+        // CookieSession 只属于当前运行；无论成功、失败、取消还是异常，都在 finally 销毁。
+        this.curlExecutor.clearCookieSessions({
+          tenantId: input.step.tenantId,
+          runId: input.step.executionRunId,
+          workflowVersionId,
+        });
+      }
       if (resourceLock) {
         await this.resourceLocks.release({
           tenantId: resourceLock.tenantId,
@@ -737,6 +751,9 @@ export class WorkflowExecutorAdapter implements Executor {
       && allowInsecureTls
       ? 'workflow.tls.insecure'
       : undefined;
+    const allowCookieSessionAction = executor === '017.CURL_HTTP' && typeof curlTemplate.cookieSessionRef === 'string'
+      ? 'http.cookie.session'
+      : undefined;
     const childStepId = workflowChildStepId(input.step, executor ?? 'unknown', workflowStepName, attempt);
     const tenantId = requireExecutionTenantId(input.step, 'workflow child grant');
     // dry-run 也签发仅绑定当前 dry_run step 的短期 Grant，使预检能完整验证授权链；
@@ -752,7 +769,7 @@ export class WorkflowExecutorAdapter implements Executor {
           executorType: executor,
           allowedSecretRefs: collectReferencesByScheme(plan, 'secret://'),
           allowedArtifactRefs: collectReferencesByScheme(plan, 'artifact://'),
-          allowedActions: ['workflow.step.execute', executor, ...(allowInsecureAction ? [allowInsecureAction] : [])],
+          allowedActions: ['workflow.step.execute', executor, ...(allowInsecureAction ? [allowInsecureAction] : []), ...(allowCookieSessionAction ? [allowCookieSessionAction] : [])],
           expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
         })
       : undefined;

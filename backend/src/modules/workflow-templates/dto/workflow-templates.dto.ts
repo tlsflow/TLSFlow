@@ -129,6 +129,8 @@ export interface WorkflowHttpRequest {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   url: string;
   connectionRef: string;
+  /** 同一运行内共享的内存 Cookie 会话逻辑名。 */
+  cookieSessionRef?: string;
   query?: Record<string, string | number | boolean>;
   headers?: Record<string, string>;
   headerRefs?: Record<string, string>;
@@ -136,7 +138,7 @@ export interface WorkflowHttpRequest {
   body?: unknown;
   form?: Record<string, string | number | boolean>;
   formCredentialRefs?: Record<string, WorkflowCredentialValue>;
-  multipart?: Record<string, { value?: string | number | boolean; filename?: string; contentType?: string; secretRef?: string }>;
+  multipart?: Record<string, { value?: string | number | boolean; filename?: string; contentType?: string; secretRef?: string; artifactRef?: string; artifactSha256?: string }>;
   auth?:
     | { type: 'none' }
     | { type: 'basic'; username: string; credential: WorkflowCredentialValue }

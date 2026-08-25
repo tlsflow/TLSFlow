@@ -20,6 +20,8 @@ export interface CurlHttpClientRequest {
 export interface CurlHttpClientResponse {
   statusCode: number;
   headers?: Record<string, string>;
+  /** 原始多值 Set-Cookie，禁止用逗号拼接。 */
+  setCookie?: string[];
   body?: unknown;
   bodyText?: string;
   bodyJson?: unknown;
@@ -62,12 +64,14 @@ export class NodeCurlHttpClient implements CurlHttpClient {
         response.on('end', () => {
           const buffer = Buffer.concat(chunks);
           const bodyText = buffer.toString('utf8');
-          const headers = normalizeHeaders(response.headers);
+          const normalized = normalizeHeaders(response.headers);
+          const headers = normalized.headers;
           const contentType = headers['content-type'] ?? '';
           const bodyJson = contentType.includes('json') ? tryParseJson(bodyText) : undefined;
           resolve({
             statusCode: response.statusCode ?? 0,
             headers,
+            ...(normalized.setCookie.length > 0 ? { setCookie: normalized.setCookie } : {}),
             bodyText,
             bodyJson,
             body: bodyJson ?? bodyText,
@@ -86,12 +90,18 @@ export class NodeCurlHttpClient implements CurlHttpClient {
   }
 }
 
-function normalizeHeaders(headers: Record<string, string | string[] | undefined>): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(headers)
-      .filter((entry): entry is [string, string | string[]] => entry[1] !== undefined)
-      .map(([key, value]) => [key, Array.isArray(value) ? value.join(', ') : value]),
-  );
+function normalizeHeaders(headers: Record<string, string | string[] | undefined>): { headers: Record<string, string>; setCookie: string[] } {
+  const rawSetCookie = Object.entries(headers).find(([key]) => key.toLowerCase() === 'set-cookie')?.[1];
+  const setCookie = Array.isArray(rawSetCookie) ? [...rawSetCookie] : rawSetCookie ? [rawSetCookie] : [];
+  return {
+    headers: Object.fromEntries(
+      Object.entries(headers)
+        .filter(([key]) => key.toLowerCase() !== 'set-cookie')
+        .filter((entry): entry is [string, string | string[]] => entry[1] !== undefined)
+        .map(([key, value]) => [key, Array.isArray(value) ? value.join(', ') : value]),
+    ),
+    setCookie,
+  };
 }
 
 function tryParseJson(text: string): unknown {

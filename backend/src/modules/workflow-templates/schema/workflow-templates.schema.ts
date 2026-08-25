@@ -128,11 +128,12 @@ function validateStepByType(step: WorkflowStep, path: string, depth: number): vo
   if (step.type === 'http') {
     rejectUnknown(step as unknown as Record<string, unknown>, httpStepKeys, path);
     if (!isRecord(step.request)) throw validationError(`${path}.request 必须是对象`);
-    rejectUnknown(step.request as unknown as Record<string, unknown>, new Set(['method', 'url', 'connectionRef', 'query', 'headers', 'headerRefs', 'bodyType', 'body', 'form', 'formCredentialRefs', 'multipart', 'auth', 'tls', 'timeoutSeconds', 'maxResponseBytes', 'successStatusCodes', 'failOnNon2xx']), `${path}.request`);
+    rejectUnknown(step.request as unknown as Record<string, unknown>, new Set(['method', 'url', 'connectionRef', 'cookieSessionRef', 'query', 'headers', 'headerRefs', 'bodyType', 'body', 'form', 'formCredentialRefs', 'multipart', 'auth', 'tls', 'timeoutSeconds', 'maxResponseBytes', 'successStatusCodes', 'failOnNon2xx']), `${path}.request`);
     if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(step.request.method)) throw validationError(`${path}.request.method 不支持`);
     if (!isNonEmptyString(step.request.url)) throw validationError(`${path}.request.url 必填`);
     if (isAbsoluteHttpUrl(step.request.url)) throw validationError(`${path}.request.url 必须是相对路径，不能携带协议或 authority`);
     if (!isNonEmptyString(step.request.connectionRef)) throw validationError(`${path}.request.connectionRef 必须是非空字符串`);
+    if (step.request.cookieSessionRef !== undefined && !/^[A-Za-z][A-Za-z0-9._:-]{0,63}$/.test(step.request.cookieSessionRef)) throw validationError(`${path}.request.cookieSessionRef 格式无效`);
     if (step.request.headers !== undefined && !isStringRecord(step.request.headers)) throw validationError(`${path}.request.headers 必须是字符串对象`);
     if (step.request.headerRefs !== undefined && !isSecretRefOrVariableRecord(step.request.headerRefs)) throw validationError(`${path}.request.headerRefs 必须是 SecretRef 或 credential 变量引用对象`);
     if (step.request.query !== undefined && !isPrimitiveRecord(step.request.query)) throw validationError(`${path}.request.query 必须是字符串、数字或布尔对象`);
@@ -274,6 +275,11 @@ function isAbsoluteHttpUrl(value: string): boolean {
   return /^[A-Za-z][A-Za-z0-9+.-]*:/.test(trimmed) || trimmed.startsWith('//');
 }
 
+function isLocalPathLike(value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed.startsWith('\\\\') || /^[A-Za-z]:[\\/]/.test(trimmed) || trimmed.startsWith('/') || trimmed.startsWith('./') || trimmed.startsWith('../');
+}
+
 function validateCommonStep(step: Record<string, unknown>, path: string): void {
   if (step.stage !== undefined && !workflowStages.has(String(step.stage))) throw validationError(`${path}.stage 不支持`);
   if (step.retry !== undefined) {
@@ -305,6 +311,7 @@ function validateExtractor(extractor: WorkflowExtractor, path: string): void {
   if (extractor.type === 'outputPath' && !isNonEmptyString(extractor.path)) throw validationError(`${path}.extract.path 必填`);
   if (extractor.type === 'firstOf' && (!Array.isArray(extractor.paths) || extractor.paths.length === 0 || !extractor.paths.every(isNonEmptyString))) throw validationError(`${path}.extract.paths 必须是非空字符串数组`);
   if (extractor.type === 'header' && !isNonEmptyString(extractor.header)) throw validationError(`${path}.extract.header 必填`);
+  if (extractor.type === 'header' && /^(?:set-cookie|cookie)$/i.test(String(extractor.header))) throw validationError(`${path}.extract.header 不允许提取 Cookie 或 Set-Cookie`);
   if (extractor.type === 'regex' && !isNonEmptyString(extractor.pattern)) throw validationError(`${path}.extract.pattern 必填`);
   if (extractor.type === 'textContains' && !isNonEmptyString(extractor.value)) throw validationError(`${path}.extract.value 必填`);
   if (extractor.type === 'literal' && !Object.prototype.hasOwnProperty.call(extractor, 'value')) throw validationError(`${path}.extract.value 必填`);
@@ -378,11 +385,16 @@ function validateMultipart(value: unknown, path: string): void {
   if (!isRecord(value)) throw validationError(`${path} 必须是对象`);
   for (const [name, part] of Object.entries(value)) {
     if (!isRecord(part)) throw validationError(`${path}.${name} 必须是对象`);
-    rejectUnknown(part, new Set(['value', 'filename', 'contentType', 'secretRef']), `${path}.${name}`);
+    rejectUnknown(part, new Set(['value', 'filename', 'contentType', 'secretRef', 'artifactRef', 'artifactSha256']), `${path}.${name}`);
     if (part.value !== undefined && !isPrimitive(part.value)) throw validationError(`${path}.${name}.value 必须是字符串、数字或布尔值`);
     if (part.filename !== undefined && typeof part.filename !== 'string') throw validationError(`${path}.${name}.filename 必须是字符串`);
     if (part.contentType !== undefined && typeof part.contentType !== 'string') throw validationError(`${path}.${name}.contentType 必须是字符串`);
     if (part.secretRef !== undefined && !isSecretRef(part.secretRef)) throw validationError(`${path}.${name}.secretRef 必须是 SecretRef`);
+    if (part.artifactRef !== undefined && typeof part.artifactRef !== 'string') throw validationError(`${path}.${name}.artifactRef 必须是 Artifact 引用表达式`);
+    if (typeof part.artifactRef === 'string' && /^\s*-----BEGIN [A-Z0-9 ]+-----/.test(part.artifactRef)) throw validationError(`${path}.${name}.artifactRef 不得直接内嵌证书内容，必须引用受控 Artifact`);
+    if (typeof part.artifactRef === 'string' && isLocalPathLike(part.artifactRef)) throw validationError(`${path}.${name}.artifactRef 不得使用本地或 UNC 路径`);
+    if (part.artifactSha256 !== undefined && (!isNonEmptyString(part.artifactSha256) || !/^(?:sha256:)?[a-fA-F0-9]{64}$/.test(part.artifactSha256))) throw validationError(`${path}.${name}.artifactSha256 必须是 SHA-256 摘要`);
+    if (part.artifactRef !== undefined && part.secretRef !== undefined) throw validationError(`${path}.${name} 不得同时使用 secretRef 和 artifactRef`);
   }
 }
 

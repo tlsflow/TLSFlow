@@ -15,7 +15,7 @@ import { ExecutionsApplicationService } from './modules/executions/application/e
 import { ExecutionDetailStreamService } from './modules/executions/application/execution-detail-stream.service.js';
 import { ExecutionResultSyncService } from './modules/executions/application/execution-result-sync.service.js';
 import { createDefaultExecutorRegistryWithDependencies } from './modules/executions/application/executors.js';
-import { CurlExecutor, SSHExecutor, SecretServiceCurlResolver, SecretServiceSshResolver } from './modules/executors/index.js';
+import { CookieSessionStore, CurlExecutor, SSHExecutor, SecretServiceCurlResolver, SecretServiceSshResolver } from './modules/executors/index.js';
 import { DeploymentInputSnapshotsRepository } from './modules/deployment-inputs/repository/deployment-input-snapshots.repository.js';
 import { WorkflowRecoveryLedgerService } from './modules/executions/application/workflow-recovery-ledger.service.js';
 import { PluginResourceLockService } from './modules/executions/application/plugin-resource-lock.service.js';
@@ -380,6 +380,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const pluginRunnerConfig = resolvePluginRunnerConfig(process.env);
   const pluginResourceLockService = new PluginResourceLockService(appDb);
   const pluginArtifactStore = new PgCertificateArtifactStore(appDb);
+  const cookieSessionStore = new CookieSessionStore();
+  app.setResource('cookieSessionStore', cookieSessionStore);
   const workflowRecoveryService = new WorkflowRecoveryLedgerService(appDb);
   const cloudAccountAssetsService = new CloudAccountAssetsApplicationService(appDb);
   const pluginRunnerSupervisor = pluginRunnerConfig
@@ -396,22 +398,20 @@ export function createApp(dependencies: AppDependencies = {}): App {
       requestGate: new PluginRunnerHostApiRequestGate(new PgPluginRunnerHostApiRequestStore(appDb)),
       cloudServices: cloudAccountAssetsService,
       httpClient: new NodeOutboundHttpClient(),
+      cookieSessionStore,
     })
     : undefined;
   const pluginRunnerDependencies: PluginRunnerExecutionDependencies | undefined = dependencies.pluginRunner
-    ?? (pluginRunnerConfig && pluginRunnerSupervisor && pluginRunnerHostApiHandler
+    ? { ...dependencies.pluginRunner, cookieSessionStore }
+    : (pluginRunnerConfig && pluginRunnerSupervisor && pluginRunnerHostApiHandler
       ? {
         runner: pluginRunnerConfig,
         supervisor: pluginRunnerSupervisor,
         hostApiHandler: pluginRunnerHostApiHandler,
         builtinRegistry: builtinPluginRegistry,
+        cookieSessionStore,
       }
       : undefined);
-  internalCaService.setPluginActionDispatcher(new PluginCaActionDispatcher(
-    unifiedPluginsService,
-    security.grants,
-    pluginRunnerDependencies ?? {},
-  ));
   app.setResource('cloudAccountAssetsService', cloudAccountAssetsService);
   const standardDeviceDiscoveryProjector = new StandardDeviceDiscoveryProjector(appDb);
   const pluginFactPipeline = createPluginFactPipeline(
@@ -442,12 +442,27 @@ export function createApp(dependencies: AppDependencies = {}): App {
     tasksService,
     pluginFactPipeline,
   );
+  agentsService.setAdcsRegistrationProvisioner(async (input) => {
+    const plugin = (await unifiedPluginsService.listAccessibleVersions(input.tenantId))
+      .filter((version) => version.pluginId === 'ca.microsoft-adcs' && version.runtime === 'WORKFLOW_DSL' && version.status === 'ENABLED')
+      .sort((left, right) => right.version.localeCompare(left.version, undefined, { numeric: true }))[0];
+    if (!plugin) throw new AppError('RESOURCE_NOT_FOUND', 'Microsoft AD CS 插件未启用，无法登记 AD CS Agent');
+    await internalCaService.ensureAdcsProviderForAgent({ ...input, pluginVersionId: plugin.id });
+  });
+  internalCaService.setPluginActionDispatcher(new PluginCaActionDispatcher(
+    unifiedPluginsService,
+    security.grants,
+    pluginRunnerDependencies ?? {},
+    agentsService,
+  ));
   const capabilitiesService = new CapabilitiesApplicationService(new PgCapabilitiesRepository(appDb));
   // 统一工作流（设备能力执行等）的旧 Curl/SSH 执行器必须由宿主显式注入受控实例：
   // 复用 SecretService 凭据解析与 ExecutionGrant 授权链，不允许 dispatcher 自行创建或静默 fallback。
   const workflowStepCurlExecutor = new CurlExecutor({
     secretResolver: new SecretServiceCurlResolver(security.secrets),
     executionGrantService: security.grants,
+    cookieSessionStore,
+    artifactStore: pluginArtifactStore,
   });
   const workflowStepSshExecutor = new SSHExecutor({
     secretResolver: new SecretServiceSshResolver(security.secrets),
@@ -634,6 +649,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
     pluginResourceLocks: pluginResourceLockService,
     executionGrants: security.grants,
     pluginRunner: pluginRunnerDependencies,
+    cookieSessionStore,
+    artifactStore: pluginArtifactStore,
   });
   if (pluginRunnerSupervisor && pluginRunnerHostApiHandler) {
     app.setResource('pluginRunnerSupervisor', pluginRunnerSupervisor);

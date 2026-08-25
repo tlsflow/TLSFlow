@@ -8371,9 +8371,38 @@
       }
     },
     "/api/v1/ca-providers/:id": {
+      "patch": {
+        "operationId": "updateCaProvider",
+        "summary": "更新 CA Provider",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      },
       "delete": {
         "operationId": "deleteCaProvider",
-        "summary": "删除未绑定的 CA Provider",
+        "summary": "删除或停用 CA Provider 登记",
         "tags": [
           "Internal CA"
         ],
@@ -8792,6 +8821,37 @@
                     "type": "object",
                     "additionalProperties": true
                   }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/certificate-authorities/:id": {
+      "delete": {
+        "operationId": "deleteCertificateAuthority",
+        "summary": "退休证书机构",
+        "tags": [
+          "Internal CA"
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
                 }
               }
             }
@@ -11538,6 +11598,7 @@
                     "enum": [
                       "windows_go",
                       "windows_compatibility",
+                      "windows_adcs",
                       "linux_go"
                     ]
                   },
@@ -11545,7 +11606,8 @@
                     "type": "string",
                     "enum": [
                       "full_agent",
-                      "gateway"
+                      "gateway",
+                      "adcs_agent"
                     ]
                   },
                   "zone": {
@@ -11616,6 +11678,7 @@
                       "enum": [
                         "windows_go_service",
                         "windows_compatibility_service",
+                        "windows_adcs_service",
                         "linux_go_systemd"
                       ]
                     },
@@ -11659,7 +11722,8 @@
                       "type": "string",
                       "enum": [
                         "full_agent",
-                        "gateway"
+                        "gateway",
+                        "adcs_agent"
                       ]
                     },
                     "relayAllowedTargets": {
@@ -11676,6 +11740,9 @@
                     },
                     "bundleUrl": {
                       "type": "string"
+                    },
+                    "managementPort": {
+                      "type": "number"
                     }
                   }
                 }
@@ -11790,6 +11857,83 @@
                     "type": "string",
                     "enum": [
                       "full_agent"
+                    ]
+                  },
+                  "zone": {
+                    "type": "string"
+                  },
+                  "agentKey": {
+                    "type": "string"
+                  },
+                  "serviceName": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "installRoot": {
+                    "type": "string"
+                  },
+                  "configDir": {
+                    "type": "string"
+                  },
+                  "dataDir": {
+                    "type": "string"
+                  },
+                  "logDir": {
+                    "type": "string"
+                  },
+                  "startAfterInstall": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/agents/install-sessions/windows-adcs": {
+      "post": {
+        "operationId": "createWindowsAdcsInstallSession",
+        "summary": "创建 Windows AD CS Agent 一键安装会话",
+        "tags": [
+          "Agents"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "adcs_agent"
                     ]
                   },
                   "zone": {
@@ -23293,5 +23437,5 @@
       "description": "证书绑定生产事实中心"
     }
   ],
-  "x-generatedAt": "2026-08-24T13:09:05.058Z"
+  "x-generatedAt": "2026-08-25T13:11:50.607Z"
 }

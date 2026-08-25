@@ -1,5 +1,5 @@
 import type { AgentStatus, CompatibilityLevel } from '../../../shared/enums/core.enums.js';
-import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentGatewayExtension, AgentHeartbeat, AgentInstallSession, AgentRegistration, AgentRuntimeHealth, AgentRuntimeLogEntry, AgentTaskEnvelope, AgentTaskLogCursor, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
+import type { AgentCapabilitySnapshot, AgentCertificate, AgentCertificateAuthority, AgentCertificateSigningRequest, AgentDescriptor, AgentGatewayExtension, AgentHeartbeat, AgentInstallSession, AgentInstallSessionRole, AgentRegistration, AgentRuntimeHealth, AgentRuntimeLogEntry, AgentTaskEnvelope, AgentTaskLogCursor, AgentTaskLogEntry, AgentUpgradePlan, AgentVersionRelease, EnrollmentToken } from '../schema/agents.schema.js';
 import type { CapabilityDeclaration } from '../../../shared/contracts/capability-contracts.js';
 import type { AgentSecurityStatus } from '../security/agent-security.contract.js';
 
@@ -15,6 +15,7 @@ export interface RegisterAgentInput {
   agentKey: string;
   machineId?: string;
   hostname: string;
+  caName?: string;
   version: string;
   osType: string;
   arch?: string;
@@ -203,8 +204,8 @@ export interface DeleteAgentInput {
 }
 
 export interface CreateAgentInstallSessionInput {
-  platform: 'windows_go' | 'windows_compatibility' | 'linux_go';
-  role?: 'full_agent' | 'gateway';
+  platform: 'windows_go' | 'windows_compatibility' | 'windows_adcs' | 'linux_go';
+  role?: AgentInstallSessionRole;
   zone?: string;
   agentKey?: string;
   serviceName?: string;
@@ -240,7 +241,7 @@ export interface AgentInstallSessionDto extends AgentInstallSession {}
 
 export interface AgentInstallSessionBootstrapProjection {
   sessionId: string;
-  platform: 'windows_go_service' | 'windows_compatibility_service' | 'linux_go_systemd';
+  platform: 'windows_go_service' | 'windows_compatibility_service' | 'windows_adcs_service' | 'linux_go_systemd';
   expiresAt: string;
   bootstrapUrl: string;
   installCommand: string;
@@ -254,7 +255,9 @@ export interface AgentInstallSessionBootstrapProjection {
   agentKey: string;
   zone: string;
   enrollmentTokenPreview: string;
-  role: 'full_agent' | 'gateway';
+  role: AgentInstallSessionRole;
+  managementPort: number;
+  agentVersion?: string;
   relayAllowedTargets?: string[];
   relayAllowedPorts?: number[];
   bundleUrl?: string;

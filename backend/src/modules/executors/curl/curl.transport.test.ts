@@ -113,6 +113,33 @@ describe('spec017 CURL 真实传输闭环', () => {
     }
   });
 
+  it('HTTP 客户端保留多个 Set-Cookie 原始值，不进行逗号拼接', async () => {
+    const server = createHttpsServer({
+      key: PRIVATE_KEY_PEM,
+      cert: CERT_PEM,
+    }, (_req, res) => {
+      res.setHeader('Set-Cookie', ['sid=a=b,c; Path=/', 'prefs=x,y; Path=/']);
+      res.writeHead(204);
+      res.end();
+    });
+
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const port = (server.address() as { port: number }).port;
+    try {
+      const response = await new NodeCurlHttpClient().send({
+        url: `https://127.0.0.1:${port}/cookie`,
+        method: 'GET',
+        headers: {},
+        timeoutMs: 3000,
+        tls: { verify: false },
+      });
+      assert.deepEqual(response.setCookie, ['sid=a=b,c; Path=/', 'prefs=x,y; Path=/']);
+      assert.equal(Object.keys(response.headers ?? {}).some((key) => key.toLowerCase() === 'set-cookie'), false);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
   it('TLS 关闭校验时即使 SNI 与证书主机名不匹配也允许连接', async () => {
     const server = createHttpsServer({
       key: PRIVATE_KEY_PEM,

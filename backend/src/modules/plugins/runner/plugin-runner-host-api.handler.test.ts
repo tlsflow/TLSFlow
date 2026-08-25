@@ -8,6 +8,7 @@ import { PgPluginRunnerHostApiRequestStore, PluginRunnerHostApiRequestGate, type
 import type { PluginRunnerHostCallContext } from './plugin-runner-client.js';
 import { getHostApiMethod } from './protocol/host-api.registry.js';
 import type { PluginRunnerError } from './protocol/protocol.types.js';
+import { CookieSessionStore } from '../../executors/curl/cookie-session.js';
 
 const planDigest = 'b'.repeat(64);
 const allActions = ['cloud.service.get', 'artifact.read', 'secret.resolve', 'crypto.sign', 'crypto.hmac', 'network.http', 'execution.cancel', 'audit.append'];
@@ -152,6 +153,40 @@ test('Cloud Service 非 ACTIVE 或 Host API 装配缺失时失败关闭', async 
     handler({ ...context('http.request', ['network.http']), input: { url: 'https://example.invalid', method: 'GET', headers: {} } }),
     /HTTP Host API 未装配/,
   );
+});
+
+test('Runner http.request 使用运行级 CookieSession 并保留多值 Set-Cookie', async () => {
+  const fixture = createFixture();
+  const store = new CookieSessionStore();
+  const requests: Array<Record<string, unknown>> = [];
+  let call = 0;
+  fixture.dependencies.cookieSessionStore = store;
+  fixture.dependencies.cloudServices = {
+    get: async () => ({ tenantId: 'tenant-1', providerKey: 'test.echo', displayName: 'fixture', scope: { endpoint: 'https://runner.example.invalid' }, status: 'ACTIVE', id: 'caa-1', version: 1, metadata: {} } as never),
+    list: async () => ({ items: [{ tenantId: 'tenant-1', providerKey: 'test.echo', displayName: 'fixture', scope: { endpoint: 'https://runner.example.invalid' }, status: 'ACTIVE', id: 'caa-1', version: 1, metadata: {} }], page: 1, pageSize: 1, total: 1 } as never),
+  };
+  fixture.dependencies.security.grants.validate = async (input) => {
+    fixture.validations.push(input as unknown as Record<string, unknown>);
+    return { id: String(input.grantId), allowedActions: [...allActions, 'http.cookie.session'], allowedArtifactRefs: [] } as never;
+  };
+  fixture.dependencies.httpClient = {
+    request: async (request) => {
+      requests.push(request as unknown as Record<string, unknown>);
+      call += 1;
+      return call === 1
+        ? { statusCode: 200, headers: { 'Set-Cookie': 'sid=first; Path=/' } as Record<string, string>, setCookie: ['sid=first; Path=/', 'prefs=x,y; Path=/'], bodyText: '{"cookie":"sid=first"}', body: { cookie: 'sid=first' } }
+        : { statusCode: 200, headers: {} as Record<string, string>, bodyText: '{}', body: {} };
+    },
+  };
+  const handler = createPluginRunnerHostApiHandler(fixture.dependencies);
+  const input = { url: 'https://runner.example.invalid/login', method: 'POST', headers: {}, cookieSessionRef: 'waf' };
+  const first = await handler({ ...context('http.request', ['network.http']), input });
+  assert.equal(JSON.stringify(first).includes('sid=first'), false);
+  await handler({ ...context('http.request', ['network.http']), input: { ...input, url: 'https://runner.example.invalid/probe' }, requestId: 'runner-cookie-2', idempotencyKey: 'runner-cookie-2' });
+  assert.equal((requests[0]?.headers as Record<string, string>).Cookie, undefined);
+  assert.equal((requests[1]?.headers as Record<string, string>).Cookie, 'sid=first; prefs=x,y');
+  assert.equal(store.size(), 1);
+  assert.equal(JSON.stringify(await handler({ ...context('http.request', ['network.http']), input: { ...input, url: 'https://runner.example.invalid/probe2', cookieSessionRef: 'waf2' }, requestId: 'runner-cookie-3', idempotencyKey: 'runner-cookie-3' })).includes('sid=first'), false);
 });
 
 test('阿里云 Cloud Service 缺少 scope endpoint 时使用 Provider 默认 endpoint', async () => {

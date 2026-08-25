@@ -617,6 +617,28 @@ export class InternalCaApplicationService {
     return binding;
   }
 
+  async ensureAdcsProviderForAgent(input: { tenantId: string; agentId: string; agentKey: string; name: string; pluginVersionId: string }): Promise<void> {
+    const existing = (await this.repository.listProviders(input.tenantId)).find((provider) => provider.type === 'plugin' && provider.configuration.providerKind === 'microsoft_adcs' && provider.configuration.agentId === input.agentId);
+    const configuration = { providerKind: 'microsoft_adcs', profile: 'windows.agent_plan.adcs', agentId: input.agentId, agentKey: input.agentKey, registrationStatus: 'linked', pluginVersionId: input.pluginVersionId };
+    const provider = existing
+      ? await this.updateProvider(input.tenantId, existing.id, { name: input.name, configuration, status: 'active' }, 'system')
+      : await this.createProvider(input.tenantId, { name: input.name, type: 'plugin', deploymentMode: 'external', runtimePlatform: 'windows', availabilityMode: 'single', configuration }, 'system');
+    const bindings = await this.listProviderActionBindings(input.tenantId, provider.id);
+    if (bindings.some((binding) => binding.status !== 'disabled')) return;
+    await this.createProviderActionBinding(input.tenantId, {
+      providerId: provider.id,
+      pluginVersionId: input.pluginVersionId,
+      executionLocation: 'control_plane',
+      approvalMode: 'none',
+      status: 'active',
+      issueAction: { actionId: 'ca.certificate.issue.v1', actionVersion: 'v1' },
+      queryAction: { actionId: 'ca.certificate.query.v1', actionVersion: 'v1' },
+      revokeAction: { actionId: 'ca.certificate.revoke.v1', actionVersion: 'v1' },
+      revocationEvidenceAction: { actionId: 'ca.revocation.evidence.v1', actionVersion: 'v1' },
+      capabilityEvidence: { providerKind: 'microsoft_adcs', agentId: input.agentId, agentKey: input.agentKey },
+    }, 'system');
+  }
+
   listProviderActionBindings(tenantId: string, providerId?: string): Promise<ProviderActionBindingEntity[]> {
     return this.repository.listProviderActionBindings(tenantId, providerId);
   }
@@ -844,6 +866,25 @@ export class InternalCaApplicationService {
 
   async listAuthorities(tenantId: string): Promise<Array<Omit<CertificateAuthorityEntity, 'privateKeySecretRef'>>> {
     return (await this.repository.listAuthorities(tenantId)).map(sanitizeAuthority);
+  }
+
+  async deleteAuthority(tenantId: string, authorityId: string, actorId: string, context?: RequestContext): Promise<{ id: string; deleted: true }> {
+    const authority = await this.requireAuthority(tenantId, authorityId);
+    if (authority.status === 'retired') return { id: authority.id, deleted: true };
+    const activeChildren = (await this.repository.listAuthorities(tenantId)).filter((item) => item.parentCaId === authority.id && item.status !== 'retired');
+    if (activeChildren.length > 0) {
+      throw new AppError('CA_AUTHORITY_IN_USE', '该 CA 仍有活动中的中间 CA，不能删除', {
+        caId: authority.id,
+        childAuthorityIds: activeChildren.map((item) => item.id),
+      });
+    }
+    const now = new Date().toISOString();
+    await this.repository.saveAuthority({ ...authority, status: 'retired', updatedAt: now });
+    await this.audit('internal_ca.authority.deleted', actorId, 'certificate_authority.delete', 'certificate_authority', authority.id, 'critical', context, {
+      softDeleted: true,
+      providerId: authority.providerId,
+    });
+    return { id: authority.id, deleted: true };
   }
 
   async createProfile(tenantId: string, input: CreateProfileInput): Promise<{ profile: CertificateProfileEntity; version: CertificateProfileVersionEntity }> {

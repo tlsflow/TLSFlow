@@ -11,6 +11,7 @@ describe('Workflow Canvas 正式输入契约', () => {
     assert.deepEqual(Object.keys(result.content.inputContract.artifacts), ['serverCert']);
     assert.equal(result.content.steps[0]?.type, 'http');
     assert.equal(result.content.steps[0]?.type === 'http' ? result.content.steps[0].request.connectionRef : undefined, 'management');
+    assert.equal(result.content.steps[0]?.type === 'http' ? result.content.steps[0].request.cookieSessionRef : undefined, 'waf');
     const ssh = result.content.steps.find((step) => step.type === 'ssh');
     const sftp = result.content.steps.find((step) => step.type === 'sftp');
     const scp = result.content.steps.find((step) => step.type === 'scp');
@@ -269,7 +270,7 @@ function canvasFixture() {
       },
     },
     nodes: [
-      { id: 'http_1', type: 'http' as const, config: { method: 'GET', connectionRef: 'management', url: '{{variables.verifyUrl}}', timeoutSeconds: 30 }, ui: { stage: 'prepare' } },
+      { id: 'http_1', type: 'http' as const, config: { method: 'GET', connectionRef: 'management', url: '{{variables.verifyUrl}}', cookieSessionRef: 'waf', timeoutSeconds: 30 }, ui: { stage: 'prepare' } },
       { id: 'ssh_1', type: 'ssh' as const, config: { connectionRef: 'targetSsh', program: 'systemctl', args: ['service-main'], argumentTemplate: 'systemctl.reload', timeoutSeconds: 30 }, ui: { stage: 'backup' } },
       { id: 'sftp_1', type: 'sftp' as const, config: { direction: 'upload', connectionRef: 'targetSsh', remotePath: '/tmp/cert.pem', contentRef: '{{artifacts.serverCert.outputs.certFile.content}}', timeoutSeconds: 30 }, ui: { stage: 'install' } },
       { id: 'scp_1', type: 'scp' as const, config: { direction: 'upload', connectionRef: 'targetSsh', remotePath: '/tmp/key.pem', contentRef: '{{artifacts.serverCert.outputs.keyFile.content}}', timeoutSeconds: 30 }, ui: { stage: 'install' } },

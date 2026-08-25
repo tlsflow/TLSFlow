@@ -5525,9 +5525,28 @@ paths:
         500:
           $ref: "#/components/responses/ErrorResponse"
   /api/v1/ca-providers/:id:
+    patch:
+      operationId: "updateCaProvider"
+      summary: "更新 CA Provider"
+      tags:
+        - "Internal CA"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
     delete:
       operationId: "deleteCaProvider"
-      summary: "删除未绑定的 CA Provider"
+      summary: "删除或停用 CA Provider 登记"
       tags:
         - "Internal CA"
       responses:
@@ -5802,6 +5821,26 @@ paths:
                 items:
                   type: "object"
                   additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-authorities/:id:
+    delete:
+      operationId: "deleteCertificateAuthority"
+      summary: "退休证书机构"
+      tags:
+        - "Internal CA"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
         400:
           $ref: "#/components/responses/ErrorResponse"
         404:
@@ -7588,12 +7627,14 @@ paths:
                   enum:
                     - "windows_go"
                     - "windows_compatibility"
+                    - "windows_adcs"
                     - "linux_go"
                 role:
                   type: "string"
                   enum:
                     - "full_agent"
                     - "gateway"
+                    - "adcs_agent"
                 zone:
                   type: "string"
                 agentKey:
@@ -7642,6 +7683,7 @@ paths:
                     enum:
                       - "windows_go_service"
                       - "windows_compatibility_service"
+                      - "windows_adcs_service"
                       - "linux_go_systemd"
                   expiresAt:
                     type: "string"
@@ -7672,6 +7714,7 @@ paths:
                     enum:
                       - "full_agent"
                       - "gateway"
+                      - "adcs_agent"
                   relayAllowedTargets:
                     type: "array"
                     items:
@@ -7682,6 +7725,8 @@ paths:
                       type: "number"
                   bundleUrl:
                     type: "string"
+                  managementPort:
+                    type: "number"
         400:
           $ref: "#/components/responses/ErrorResponse"
         404:
@@ -7756,6 +7801,56 @@ paths:
                   type: "string"
                   enum:
                     - "full_agent"
+                zone:
+                  type: "string"
+                agentKey:
+                  type: "string"
+                serviceName:
+                  type: "string"
+                displayName:
+                  type: "string"
+                installRoot:
+                  type: "string"
+                configDir:
+                  type: "string"
+                dataDir:
+                  type: "string"
+                logDir:
+                  type: "string"
+                startAfterInstall:
+                  type: "boolean"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/agents/install-sessions/windows-adcs:
+    post:
+      operationId: "createWindowsAdcsInstallSession"
+      summary: "创建 Windows AD CS Agent 一键安装会话"
+      tags:
+        - "Agents"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              additionalProperties: false
+              properties:
+                role:
+                  type: "string"
+                  enum:
+                    - "adcs_agent"
                 zone:
                   type: "string"
                 agentKey:
@@ -15794,4 +15889,4 @@ tags:
   -
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-08-24T13:09:05.058Z"
+x-generatedAt: "2026-08-25T13:11:50.607Z"

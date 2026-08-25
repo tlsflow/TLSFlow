@@ -12,6 +12,7 @@ export interface OutboundHttpRequest {
 export interface OutboundHttpResponse {
   statusCode: number;
   headers: Record<string, string>;
+  setCookie?: string[];
   bodyText: string;
   body: unknown;
 }
@@ -64,10 +65,12 @@ export class NodeOutboundHttpClient implements OutboundHttpClient {
           settled = true;
           const buffer = Buffer.concat(chunks);
           const bodyText = buffer.toString('utf8');
-          const headers = normalizeHeaders(response.headers);
+          const normalized = normalizeHeaders(response.headers);
+          const headers = normalized.headers;
           resolve({
             statusCode: response.statusCode ?? 0,
             headers,
+            ...(normalized.setCookie.length > 0 ? { setCookie: normalized.setCookie } : {}),
             bodyText,
             body: parseJsonBody(bodyText, headers['content-type']),
           });
@@ -82,12 +85,18 @@ export class NodeOutboundHttpClient implements OutboundHttpClient {
   }
 }
 
-function normalizeHeaders(headers: Record<string, string | string[] | undefined>): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(headers)
-      .filter((entry): entry is [string, string | string[]] => entry[1] !== undefined)
-      .map(([key, value]) => [key.toLowerCase(), Array.isArray(value) ? value.join(', ') : value]),
-  );
+function normalizeHeaders(headers: Record<string, string | string[] | undefined>): { headers: Record<string, string>; setCookie: string[] } {
+  const rawSetCookie = Object.entries(headers).find(([key]) => key.toLowerCase() === 'set-cookie')?.[1];
+  const setCookie = Array.isArray(rawSetCookie) ? [...rawSetCookie] : rawSetCookie ? [rawSetCookie] : [];
+  return {
+    headers: Object.fromEntries(
+      Object.entries(headers)
+        .filter(([key]) => key.toLowerCase() !== 'set-cookie')
+        .filter((entry): entry is [string, string | string[]] => entry[1] !== undefined)
+        .map(([key, value]) => [key.toLowerCase(), Array.isArray(value) ? value.join(', ') : value]),
+    ),
+    setCookie,
+  };
 }
 
 function parseJsonBody(bodyText: string, contentType: string | undefined): unknown {

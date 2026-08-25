@@ -72,6 +72,7 @@ export class InternalCaController {
     router.post('/api/v1/ca-trust-domains', '创建 CA 信任域', tags, (request) => this.createTrustDomain(request));
     router.patch('/api/v1/ca-trust-domains/:id', '更新 CA 信任域', tags, (request) => this.updateTrustDomain(request));
     router.get('/api/v1/certificate-authorities', '查询证书机构', tags, (request) => this.listAuthorities(request));
+    router.delete('/api/v1/certificate-authorities/:id', '退休证书机构', tags, (request) => this.deleteAuthority(request));
     router.post('/api/v1/certificate-authorities/preview', '预览 CA 拓扑风险', tags, (request) => this.previewAuthority(request));
     router.post('/api/v1/certificate-authorities', '创建证书机构对象', tags, (request) => this.createAuthority(request));
     router.get('/api/v1/certificate-profiles', '查询证书 Profile', tags, (request) => this.listProfiles(request));
@@ -250,6 +251,11 @@ export class InternalCaController {
   private async listAuthorities(request: HttpRequest) {
     await this.assertAction(request, 'ca.operations.read', 'certificate_authority');
     return this.service.listAuthorities(tenantId(request));
+  }
+
+  private async deleteAuthority(request: HttpRequest) {
+    await this.assertAction(request, 'ca.authority.manage', 'certificate_authority');
+    return this.service.deleteAuthority(tenantId(request), pathId(request), actorId(request), request.context);
   }
 
   private async previewAuthority(request: HttpRequest) {
@@ -861,6 +867,7 @@ export function getInternalCaRouteContracts(): RouteContract[] {
     ['POST', '/api/v1/ca-trust-domains', 'createCaTrustDomain', '创建 CA 信任域', responseSchema],
     ['PATCH', '/api/v1/ca-trust-domains/:id', 'updateCaTrustDomain', '更新 CA 信任域', responseSchema],
     ['GET', '/api/v1/certificate-authorities', 'listCertificateAuthorities', '查询证书机构', arraySchema],
+    ['DELETE', '/api/v1/certificate-authorities/:id', 'deleteCertificateAuthority', '退休证书机构', responseSchema],
     ['POST', '/api/v1/certificate-authorities/preview', 'previewCertificateAuthority', '预览 CA 拓扑风险', responseSchema],
     ['POST', '/api/v1/certificate-authorities', 'createCertificateAuthority', '创建证书机构对象', arraySchema],
     ['GET', '/api/v1/certificate-profiles', 'listCertificateProfiles', '查询证书 Profile', arraySchema],

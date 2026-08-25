@@ -189,6 +189,69 @@ describe('Agent 一键安装会话', () => {
     assertWindowsCompatibilityBootstrapUsesGoArtifacts(script);
   });
 
+  it('Windows AD CS 安装会话使用独立平台、角色、目录、服务、端口和制品', async () => {
+    const app = await createTestApp();
+    const response = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/install-sessions/windows-adcs',
+      headers: requestHeaders('tenant_windows_adcs_install_session', 'req_windows_adcs_install_session', {
+        host: '127.0.0.1:3003',
+        origin: 'http://10.255.0.85:5172',
+      }),
+      body: { zone: 'default', role: 'adcs_agent' },
+    });
+    assert.equal(response.statusCode, 201, JSON.stringify(response.body));
+    const body = response.body as InstallSessionResponse;
+    assert.equal(body.platform, 'windows_adcs_service');
+    assert.equal(body.role, 'adcs_agent');
+    assert.equal(body.agentVersion, '0.1.1');
+    assert.equal(body.serviceName, 'GCACWindowsAdcsAgent');
+    assert.equal(body.installRoot, 'C:\\Program Files\\GCAC\\WindowsAdcsAgent');
+    assert.equal(body.configDir, 'C:\\ProgramData\\GCAC\\WindowsAdcsAgent\\config');
+    assert.equal(body.dataDir, 'C:\\ProgramData\\GCAC\\WindowsAdcsAgent\\data');
+    assert.equal(body.logDir, 'C:\\ProgramData\\GCAC\\WindowsAdcsAgent\\logs');
+    assert.equal(body.managementPort, 18933);
+    const token = new URL(body.bootstrapUrl).searchParams.get('token');
+    assert.ok(token);
+    const bootstrap = await app.inject({
+      method: 'GET',
+      path: `/api/v1/agents/install/windows-adcs/bootstrap.ps1?token=${encodeURIComponent(token)}`,
+      headers: requestHeaders('tenant_windows_adcs_install_session', 'req_windows_adcs_bootstrap', {
+        host: '127.0.0.1:3003',
+        origin: 'http://10.255.0.85:5172',
+      }),
+    });
+    assert.equal(bootstrap.statusCode, 200, JSON.stringify(bootstrap.body));
+    const script = String(bootstrap.body);
+    assert.notEqual(script.charCodeAt(0), 0xFEFF, 'AD CS bootstrap 通过 irm | iex 执行，不能包含 UTF-8 BOM');
+    assert.match(script, /^\[Console\]::OutputEncoding/m);
+    assert.match(script, /gcac-adcs-agent\.exe/);
+    assert.match(script, /GCACWindowsAdcsAgent/);
+    assert.match(script, /GCAC Windows AD CS Agent v\{0\}/);
+    assert.match(script, /18933/);
+    assert.ok(script.indexOf('Stop-Service -Name ([string]$manifest.serviceName)') < script.indexOf('Copy-Item -LiteralPath (Join-Path $root "gcac-adcs-agent.exe")'), 'AD CS bootstrap 必须先停服务再替换 exe');
+    assert.ok(script.indexOf('Copy-Item -LiteralPath (Join-Path $root "gcac-adcs-agent.exe")') < script.indexOf('Start-Service -Name ([string]$manifest.serviceName)'), 'AD CS bootstrap 必须替换 exe 后再启动服务');
+    for (const forbidden of ['windows-go-full-agent', 'GCACWindowsCompatibilityAgent', 'FullAgentGo', 'WindowsCompatibilityAgent', '18930', '18932']) assert.ok(!script.includes(forbidden), `AD CS bootstrap 包含禁止内容: ${forbidden}`);
+    const manifest = readWindowsBootstrapManifest(script);
+    assert.equal(manifest.platform, 'windows_adcs_service');
+    assert.equal(manifest.role, 'adcs_agent');
+    assert.equal(manifest.managementPort, 18933);
+    const artifacts = manifest.artifacts as Array<Record<string, unknown>>;
+    assert.deepEqual(artifacts.map((item) => item.path), ['config/agent.config.template.json', 'gcac-adcs-agent.exe', 'install-service.ps1', 'service-control.ps1', 'uninstall-service.ps1']);
+  });
+
+  it('Windows AD CS 安装会话拒绝覆盖固定服务和目录', async () => {
+    const app = await createTestApp();
+    const response = await app.inject({
+      method: 'POST',
+      path: '/api/v1/agents/install-sessions/windows-adcs',
+      headers: requestHeaders('tenant_windows_adcs_fixed_profile', 'req_windows_adcs_fixed_profile', { host: '127.0.0.1:3003' }),
+      body: { role: 'adcs_agent', serviceName: 'GCACOtherAgent', installRoot: 'C:\\Program Files\\GCAC\\OtherAgent' },
+    });
+    assert.equal(response.statusCode, 400, JSON.stringify(response.body));
+    assert.match(JSON.stringify(response.body), /固定隔离值/u);
+  });
+
   it('Linux 安装会话返回一条短期一次性安装命令', async () => {
     const app = await createTestApp();
     const response = await app.inject({
@@ -306,11 +369,18 @@ describe('Agent 一键安装会话', () => {
 });
 
 interface InstallSessionResponse {
-  platform: 'windows_go_service' | 'windows_compatibility_service' | 'linux_go_systemd';
+  platform: 'windows_go_service' | 'windows_compatibility_service' | 'windows_adcs_service' | 'linux_go_systemd';
   expiresAt: string;
   bootstrapUrl: string;
   installCommand: string;
   serviceName: string;
+  role: string;
+  installRoot: string;
+  configDir: string;
+  dataDir: string;
+  logDir: string;
+  managementPort: number;
+  agentVersion?: string;
   bundleUrl?: string;
 }
 
@@ -368,9 +438,16 @@ function assertWindowsGoBootstrapUsesLatestAmd64Artifact(manifest: Record<string
 
 function assertWindowsCompatibilityBootstrapUsesGoArtifacts(script: string): void {
   const artifacts = new Map<string, string>();
-  const pattern = /\$artifactPath = Join-Path \$root '([^']+)'[\s\S]*?FromBase64String\('([^']+)'\)/gu;
-  for (const match of script.matchAll(pattern)) {
-    artifacts.set(match[1], match[2]);
+  const lines = script.split(/\r?\n/u);
+  for (let index = 0; index < lines.length; index += 1) {
+    const pathMatch = /^\$artifactPath = Join-Path \$root '([^']+)'$/u.exec(lines[index] ?? '');
+    if (!pathMatch) continue;
+    const encodedLine = lines[index + 2] ?? '';
+    const marker = "FromBase64String('";
+    const encodedStart = encodedLine.indexOf(marker);
+    const encodedEnd = encodedStart < 0 ? -1 : encodedLine.indexOf("')", encodedStart + marker.length);
+    assert.ok(encodedStart >= 0 && encodedEnd > encodedStart, `Compatibility Bootstrap 产物缺少 Base64 内容: ${pathMatch[1]}`);
+    artifacts.set(pathMatch[1], encodedLine.slice(encodedStart + marker.length, encodedEnd));
   }
   const expected = [
     ['GCAC.WindowsCompatibilityAgent.exe', '../../../../agents/windows-compat-full-agent/dist/GCAC.WindowsCompatibilityAgent.exe'],

@@ -918,6 +918,7 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
       template: {
         method: step.request.method,
         url: renderedUrl,
+        cookieSessionRef: step.request.cookieSessionRef,
         connection: {
           host: httpConnection.host,
           port: httpConnection.port,

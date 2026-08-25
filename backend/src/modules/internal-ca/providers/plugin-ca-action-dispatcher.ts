@@ -4,6 +4,8 @@ import type { JsonSchema } from '../../../common/validation/json-schema.js';
 import { canonicalize } from '../../../shared/canonical-json.js';
 import { canonicalResourceHash } from '../../../shared/plugin-resource-hash.js';
 import type { ExecutionGrantService } from '../../executions/execution-grant.service.js';
+import type { AgentsApplicationService } from '../../agents/application/agents.application-service.js';
+import type { AgentTaskEnvelope } from '../../agents/schema/agents.schema.js';
 import {
   expandPluginActionGrantActions,
   PluginRunnerExecutorAdapter,
@@ -21,19 +23,32 @@ import type { CaProviderEntity, ProviderActionBindingEntity, ProviderActionRefer
  */
 export class PluginCaActionDispatcher implements CaPluginActionDispatcher {
   private readonly executor: PluginRunnerExecutorAdapter;
+  private readonly agents?: Pick<AgentsApplicationService, 'getAgentExecutionPlatform' | 'enqueueTask' | 'findTaskByIdempotencyKey'>;
 
   constructor(
     private readonly plugins: Pick<UnifiedPluginsApplicationService, 'getVersionForTenant'>,
     private readonly grants: Pick<ExecutionGrantService, 'create' | 'validate'>,
     runnerDependencies: PluginRunnerExecutionDependencies = {},
+    agents?: Pick<AgentsApplicationService, 'getAgentExecutionPlatform' | 'enqueueTask' | 'findTaskByIdempotencyKey'>,
   ) {
     this.executor = new PluginRunnerExecutorAdapter({
       ...runnerDependencies,
       executionGrants: { validate: (input) => this.grants.validate(input) },
     });
+    this.agents = agents;
   }
 
   async execute(input: Parameters<CaPluginActionDispatcher['execute']>[0]): Promise<Record<string, unknown>> {
+    const authorityConfiguration = input.authority?.configuration ?? {};
+    const isMicrosoftAdcs = input.provider.configuration.providerKind === 'microsoft_adcs';
+    // AD CS 的执行目标优先从 Authority 配置读取，Provider 只保存引用和兼容回退值。
+    const configuredAgentId = isMicrosoftAdcs
+      ? stringOr(authorityConfiguration.agentId, stringOr(input.provider.configuration.agentId, ''))
+      : stringOr(input.provider.configuration.agentId, '');
+    if (isMicrosoftAdcs && !configuredAgentId) {
+      throw new AppError('CA_PROVIDER_UNAVAILABLE', 'Microsoft AD CS Agent 尚未安装或关联，请先完成 Agent 安装并关联');
+    }
+    if (isMicrosoftAdcs) await this.assertAdcsAgent(input.provider.tenantId, configuredAgentId);
     const plugin = await this.plugins.getVersionForTenant(input.provider.tenantId, input.binding.pluginVersionId);
     if (plugin.status !== 'ENABLED') {
       throw new AppError('CA_PROVIDER_UNAVAILABLE', '固定 CA 插件版本未启用', {
@@ -46,17 +61,12 @@ export class PluginCaActionDispatcher implements CaPluginActionDispatcher {
     const binding = createActionBinding(plugin, input.provider, input.binding, input.action, action, contract);
     const executionId = `ca-exec-${digest(input.idempotencyKey).slice(0, 24)}`;
     const executionStepId = `ca-step-${digest(`${input.action}:${input.idempotencyKey}`).slice(0, 24)}`;
-    const authorityConfiguration = input.authority?.configuration ?? {};
     const secretRef = stringOr(authorityConfiguration.credentialSecretRef, input.provider.credentialSecretRef ?? '');
-    const isMicrosoftAdcs = input.provider.configuration.providerKind === 'microsoft_adcs';
-    const configuredAgentId = stringOr(input.provider.configuration.agentId, '');
-    if (isMicrosoftAdcs && !configuredAgentId) {
-      throw new AppError('CA_PROVIDER_UNAVAILABLE', 'Microsoft AD CS Agent 尚未安装或关联，请先完成 Agent 安装并关联');
-    }
     const payload = {
       ...structuredClone(input.payload),
       operation: operationForAction(input.action, input.payload),
-      agentId: configuredAgentId || input.provider.id,
+      agentId: isMicrosoftAdcs ? configuredAgentId : configuredAgentId || input.provider.id,
+      ...(isMicrosoftAdcs ? { agentRole: 'adcs_agent', agentPlatform: 'windows_adcs' } : {}),
       templateId: stringOr(authorityConfiguration.templateId, stringOr(input.provider.configuration.templateId, 'default')),
       authorityId: stringOr(input.payload.authorityId, input.provider.id),
       ...(typeof authorityConfiguration.caConfig === 'string' && authorityConfiguration.caConfig.trim()
@@ -102,7 +112,42 @@ export class PluginCaActionDispatcher implements CaPluginActionDispatcher {
       if (result.status === 'UNKNOWN') throw new AppError('CA_PROVIDER_UNAVAILABLE', '外部 CA 写操作结果未知，等待查询恢复', { mayBeUnknown: true, detail: result.detail });
       throw new AppError('CA_PROVIDER_UNAVAILABLE', result.errorMessage ?? '外部 CA 插件动作执行失败', { detail: result.detail });
     }
-    return normalizeActionOutput(input.action, result.output);
+    const normalized = normalizeActionOutput(input.action, result.output);
+    if (!isMicrosoftAdcs || !this.agents) return normalized;
+    const object = firstNormalizedObject(result.output);
+    const plan = readRecord(object?.agentPlan);
+    if (!plan) throw new AppError('CA_PROVIDER_RESULT_INVALID', 'Microsoft AD CS Plugin 未返回可入队的 Agent Plan');
+    const existing = await this.agents.findTaskByIdempotencyKey(input.provider.tenantId, configuredAgentId, input.idempotencyKey);
+    if (existing?.status === 'succeeded') return normalizeAdcsTaskResult(input.action, existing);
+    if (existing?.status === 'failed' || existing?.status === 'rejected') {
+      throw new AppError('CA_PROVIDER_UNAVAILABLE', 'AD CS Agent 任务已失败，请检查 Agent Receipt 和错误日志', { taskId: existing.id, status: existing.status });
+    }
+    const task = existing ?? await this.agents.enqueueTask(input.provider.tenantId, {
+      agentId: configuredAgentId,
+      executionRunId: executionId,
+      executionStepId,
+      idempotencyKey: input.idempotencyKey,
+      payload: {
+        actionType: 'agent.plan.execute',
+        actionSchemaVersion: '1.0',
+        agentId: configuredAgentId,
+        agentRole: 'adcs_agent',
+        agentPlatform: 'windows_adcs',
+        agentPlan: plan,
+      },
+    }, `ca-adcs:${input.action}:${input.idempotencyKey}`);
+    return {
+      ...normalized,
+      detail: `${normalized.detail ?? 'pending-agent-execution'}; taskId=${task.id}`,
+    };
+  }
+
+  private async assertAdcsAgent(tenantId: string, agentId: string): Promise<void> {
+    if (!this.agents) throw new AppError('CA_PROVIDER_UNAVAILABLE', 'AD CS Agent 任务队列未装配，拒绝在控制面执行 AD CS 操作');
+    const platform = await this.agents.getAgentExecutionPlatform(tenantId, agentId);
+    if (platform.role !== 'adcs_agent' || platform.osType.toLowerCase() !== 'windows_adcs') {
+      throw new AppError('CA_PROVIDER_UNAVAILABLE', 'Authority 关联的 Agent 不是 Windows AD CS Agent', { agentId, role: platform.role, osType: platform.osType });
+    }
   }
 }
 
@@ -206,6 +251,18 @@ function withSecurity(payload: Record<string, unknown>, binding: PluginActionBin
 function normalizeActionOutput(action: string, output: Record<string, unknown>): Record<string, unknown> {
   const object = Array.isArray(output.normalizedObjects) && isRecord(output.normalizedObjects[0]) ? output.normalizedObjects[0] : output;
   const status = typeof object.status === 'string' ? object.status : undefined;
+  if (status === 'pending-agent-execution') {
+    const providerRequestId = typeof object.providerRequestId === 'string'
+      ? object.providerRequestId
+      : typeof object.stableKey === 'string'
+        ? object.stableKey
+        : undefined;
+    return {
+      status: 'pending',
+      ...(providerRequestId ? { providerRequestId } : {}),
+      detail: 'pending-agent-execution',
+    };
+  }
   if (action === 'issue' || action === 'query') {
     const providerRequestId = typeof object.providerRequestId === 'string' ? object.providerRequestId : typeof object.stableKey === 'string' ? object.stableKey : undefined;
     if (!providerRequestId) throw new AppError('CA_PROVIDER_RESULT_INVALID', '外部 CA 插件结果缺少 providerRequestId');
@@ -221,7 +278,17 @@ function normalizeActionOutput(action: string, output: Record<string, unknown>):
 }
 
 function operationForAction(action: string, payload: Record<string, unknown>): string {
-  if (typeof payload.operation === 'string' && payload.operation.trim()) return payload.operation;
+  if (typeof payload.operation === 'string' && payload.operation.trim()) {
+    const operation = payload.operation.trim();
+    const aliases: Record<string, string> = {
+      issue: 'ca.certificate.issue',
+      query: 'ca.certificate.query',
+      renew: 'ca.certificate.renew',
+      revoke: 'ca.certificate.revoke',
+      revocation_evidence: 'ca.revocation.evidence',
+    };
+    return aliases[operation] ?? operation;
+  }
   return action === 'issue' ? 'ca.certificate.issue' : action === 'query' ? 'ca.certificate.query' : action === 'revoke' ? 'ca.certificate.revoke' : 'ca.revocation.evidence';
 }
 
@@ -229,3 +296,35 @@ function schemaHash(schema: JsonSchema): string { return `sha256:${createHash('s
 function digest(value: unknown): string { return createHash('sha256').update(typeof value === 'string' ? value : canonicalize(value), 'utf8').digest('hex'); }
 function stringOr(value: unknown, fallback: string): string { return typeof value === 'string' && value.trim() ? value : fallback; }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === 'object' && !Array.isArray(value); }
+
+function readRecord(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? value : undefined;
+}
+
+function firstNormalizedObject(output: Record<string, unknown>): Record<string, unknown> | undefined {
+  return Array.isArray(output.normalizedObjects) && isRecord(output.normalizedObjects[0]) ? output.normalizedObjects[0] : output;
+}
+
+function normalizeAdcsTaskResult(action: 'issue' | 'query' | 'revoke' | 'revocation_evidence', task: AgentTaskEnvelope): Record<string, unknown> {
+  const result = readRecord(task.result);
+  if (result?.success !== true) {
+    throw new AppError('CA_PROVIDER_UNAVAILABLE', 'AD CS Agent 任务结果未确认成功', { taskId: task.id, status: result?.status });
+  }
+  const detail = readRecord(result.detail) ?? {};
+  const operationResults = Array.isArray(detail.operationResults)
+    ? detail.operationResults.filter(isRecord)
+    : [];
+  const operation = operationResults.at(-1) ?? detail;
+  if (action === 'issue' || action === 'query') {
+    if (typeof operation.providerRequestId !== 'string' || typeof operation.status !== 'string') {
+      throw new AppError('CA_PROVIDER_RESULT_INVALID', 'AD CS Agent Receipt 缺少签发结果');
+    }
+    return operation;
+  }
+  if (action === 'revoke') {
+    if (typeof operation.revokedAt !== 'string') throw new AppError('CA_PROVIDER_RESULT_INVALID', 'AD CS Agent Receipt 缺少 revokedAt');
+    return operation;
+  }
+  if (typeof operation.status !== 'string') throw new AppError('CA_PROVIDER_RESULT_INVALID', 'AD CS Agent Receipt 缺少 CRL/撤销证据状态');
+  return operation;
+}
