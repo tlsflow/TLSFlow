@@ -23,6 +23,7 @@ import { createPersistedSecurityServices } from './modules/security/security-ser
 import { auditSecretDecryptability } from './modules/secrets/secret-health-check.js';
 import type { BrowserCredentialSessionController } from './modules/browser-runtime/browser-credential-session.controller.js';
 import type { CredentialHealthService } from './modules/credentials/health/credential-health.service.js';
+import type { CookieSessionStore } from './modules/executors/curl/cookie-session.js';
 
 const entryFilePath = process.argv[1] ? resolve(process.argv[1]) : '';
 const currentFilePath = fileURLToPath(import.meta.url);
@@ -266,6 +267,22 @@ async function startWithPortLock(releasePortLock: () => void): Promise<void> {
   }
 
   const server = app.createNodeServer();
+  const cookieSessionStore = app.getResource<CookieSessionStore>('cookieSessionStore');
+  // Cookie 只存在内存；进程退出前显式清空，覆盖正常退出和可处理终止信号触发的 exit 路径。
+  const clearCookieSessions = () => cookieSessionStore?.clearAll();
+  if (cookieSessionStore) process.once('exit', clearCookieSessions);
+  let terminating = false;
+  const terminate = () => {
+    if (terminating) return;
+    terminating = true;
+    clearCookieSessions();
+    releasePortLock();
+    server.close(() => process.exit(0));
+    const forceExit = setTimeout(() => process.exit(1), 5_000);
+    forceExit.unref();
+  };
+  process.once('SIGTERM', terminate);
+  process.once('SIGINT', terminate);
   const browserCredentialSessionController = app.getResource<BrowserCredentialSessionController>('browserCredentialSessionController');
   if (browserCredentialSessionController) {
     app.registerUpgradeHandler((request, socket, head) => browserCredentialSessionController.handleUpgrade(request, socket, head));

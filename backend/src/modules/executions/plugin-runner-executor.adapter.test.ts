@@ -14,6 +14,7 @@ import {
   type PluginActionBindingV1,
   type PluginActionExecutionInput,
 } from './application/plugin-runner-executor.adapter.js';
+import { CookieSessionStore } from '../executors/curl/cookie-session.js';
 
 const hash = `sha256:${'a'.repeat(64)}`;
 const planDigest = 'b'.repeat(64);
@@ -212,6 +213,61 @@ test('证书部署和回滚 Action 只能由普通 DSL 执行', async () => {
   assert.equal(result.errorCode, 'PLUGIN_RUNNER_SCOPE_FORBIDDEN');
   assert.equal(started, false);
 });
+
+test('Plugin Runner Action 成功、确定性失败和启动异常后都清理当前运行 CookieSession', async () => {
+  const successStore = seededCookieStore();
+  const successAdapter = new PluginRunnerExecutorAdapter({
+    runner: runnerConfig(),
+    builtinRegistry: builtinRegistry(),
+    executionGrants: executionGrants(),
+    cookieSessionStore: successStore,
+    supervisor: {
+      start: async () => ({
+        execute: async (request: PluginRunnerExecutionInput) => successResult(request, { value: 'done' }),
+      } as unknown as PluginRunnerClient),
+    },
+  });
+  assert.equal((await successAdapter.executeAction(actionInput())).success, true);
+  assert.equal(successStore.size(), 0);
+
+  const failureStore = seededCookieStore();
+  const failureAdapter = new PluginRunnerExecutorAdapter({
+    runner: runnerConfig(),
+    builtinRegistry: builtinRegistry(),
+    executionGrants: executionGrants(),
+    cookieSessionStore: failureStore,
+    supervisor: {
+      start: async () => ({
+        execute: async (request: PluginRunnerExecutionInput) => ({
+          ...successResult(request, {}),
+          success: false,
+          status: 'FAILED',
+          error: { code: 'FIXTURE_FAILED', message: 'fixture failed', retryable: false, mayBeUnknown: false, secretRedacted: true },
+        } as PluginRunnerExecuteResult),
+      } as unknown as PluginRunnerClient),
+    },
+  });
+  assert.equal((await failureAdapter.executeAction(actionInput())).success, false);
+  assert.equal(failureStore.size(), 0);
+
+  const exceptionStore = seededCookieStore();
+  const exceptionAdapter = new PluginRunnerExecutorAdapter({
+    runner: runnerConfig(),
+    builtinRegistry: builtinRegistry(),
+    executionGrants: executionGrants(),
+    cookieSessionStore: exceptionStore,
+    supervisor: { start: async () => { throw new Error('runner unavailable'); } },
+  });
+  assert.equal((await exceptionAdapter.executeAction(actionInput())).success, false);
+  assert.equal(exceptionStore.size(), 0);
+});
+
+function seededCookieStore(): CookieSessionStore {
+  const store = new CookieSessionStore();
+  store.getOrCreate({ tenantId: 'tenant-1', runId: 'run-1', workflowVersionId: 'workflow-1', cookieSessionRef: 'waf' })
+    .setCookie('sid=fixture; Path=/', 'https://runner.example.invalid/login');
+  return store;
+}
 
 function actionInput(): PluginActionExecutionInput {
   return {

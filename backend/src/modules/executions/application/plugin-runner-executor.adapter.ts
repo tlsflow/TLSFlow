@@ -16,6 +16,7 @@ import { BuiltinPluginRegistry, type BuiltinPluginRegistryEntry } from '../../pl
 import type { Executor, StepExecutionInput, StepExecutionResult } from './executors.js';
 import type { ExecutionGrantService } from '../execution-grant.service.js';
 import { evaluatePluginCompatibility, type PluginCompatibilityContext } from '../../plugins/capabilities/plugin-compatibility.evaluator.js';
+import type { CookieSessionStore } from '../../executors/curl/cookie-session.js';
 
 export const pluginActionBindingApiVersion = 'gcac.plugin-action-binding/v1' as const;
 export const pluginRunnerExecutorType = 'plugin.action' as const;
@@ -86,6 +87,8 @@ export interface PluginRunnerExecutionDependencies {
   builtinRegistry?: Pick<BuiltinPluginRegistry, 'refresh' | 'get'>;
   hostApiHandler?: PluginRunnerHostApiHandler;
   executionGrants?: Pick<ExecutionGrantService, 'validate'>;
+  /** 中文说明：Runner Action 内的 Host API 请求与普通 CURL 共享同一个运行级内存 Cookie Store。 */
+  cookieSessionStore?: CookieSessionStore;
 }
 
 /**
@@ -168,6 +171,14 @@ export class PluginRunnerExecutorAdapter implements Executor {
   }
 
   async executeAction(input: PluginActionExecutionInput): Promise<PluginActionExecutionResult> {
+    try {
+      return await this.executeActionInternal(input);
+    } finally {
+      this.clearCookieSessions(input);
+    }
+  }
+
+  private async executeActionInternal(input: PluginActionExecutionInput): Promise<PluginActionExecutionResult> {
     if (dslCertificateCapabilities.has(input.binding.capability)) {
       return actionFailure(new AppError(
         'PLUGIN_RUNNER_SCOPE_FORBIDDEN',
@@ -297,6 +308,17 @@ export class PluginRunnerExecutorAdapter implements Executor {
         detail: auditDetail(binding, input, undefined, undefined, undefined, error),
       };
     }
+  }
+
+  private clearCookieSessions(input: PluginActionExecutionInput): void {
+    const binding = input?.binding;
+    if (!binding || typeof binding !== 'object') return;
+    if (typeof binding.tenantId !== 'string' || typeof binding.workflowVersionId !== 'string' || typeof input.executionId !== 'string') return;
+    this.dependencies.cookieSessionStore?.clear({
+      tenantId: binding.tenantId,
+      runId: input.executionId,
+      workflowVersionId: binding.workflowVersionId,
+    });
   }
 }
 
