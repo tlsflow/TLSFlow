@@ -518,7 +518,7 @@ function quickActions(): DashboardQuickAction[] {
   return [
     { key: 'certificates', title: '证书管理', description: '导入、查看和转换证书。', path: '/certificates', permission: 'certificate.asset.read' },
     { key: 'assets', title: '应用资产', description: '维护域名、端口和部署目标。', path: '/applications', permission: 'service_asset.read' },
-    { key: 'agents', title: 'Agent', description: '查看在线状态和任务能力。', path: '/agents', permission: 'agent.read' },
+    { key: 'agents', title: '应用资产', description: '查看 Agent 管理的应用资产及其部署状态。', path: '/agents', permission: 'agent.read' },
     { key: 'gateways', title: '网关', description: '管理隔离区执行入口。', path: '/gateways', permission: 'gateway.read' },
     { key: 'deploymentPlans', title: '应用资产部署', description: '从应用资产选择证书版本并发起部署。', path: '/applications', permission: 'service_asset.read' },
     { key: 'audits', title: '审计日志', description: '追踪操作人与执行结果。', path: '/audits', permission: 'audit.read' },
