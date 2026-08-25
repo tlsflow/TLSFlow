@@ -63,7 +63,7 @@ const quickStartActions = computed<readonly QuickStartAction[]>(() => {
   if (permissionStore.hasPermission('service_asset.manage')) {
     actions.push({
       key: 'deployment',
-      path: '/assets/onboarding',
+      path: '/applications/onboarding',
       label: t('dashboard.quickStart.deployExistingApplication'),
       emphasis: 'primary',
     })

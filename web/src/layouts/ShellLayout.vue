@@ -53,7 +53,7 @@ const USER_MODE_MENU_ITEMS: readonly MenuItem[] = [
   },
   {
     titleKey: 'viewMode.steps.applications',
-    path: '/assets',
+    path: '/applications',
     module: 'asset',
     permission: 'service_asset.read',
     icon: 'stack',

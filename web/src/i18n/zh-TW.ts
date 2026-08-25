@@ -649,7 +649,7 @@ export default {
     assetCenter: "資產中心",
     assetCenterDesc: "統一管理應用資產、設備資產和雲服務資產",
     assetManagement: "應用管理",
-    assets: "應用資產",
+    assets: "應用程式",
     assetsDesc: "域名/IP 維度的應用入口與憑證部署目標",
     devices: "設備",
     agents: "Agent",

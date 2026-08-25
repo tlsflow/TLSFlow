@@ -158,14 +158,14 @@ export const businessRoutes: GcRouteRecord[] = [
       allowInferredPermission: false,
       resourceType: 'service_asset',
       riskLevel: 'high',
-      breadcrumbKeys: ['nav.assets', 'providers.page.title'],
+      breadcrumbKeys: ['nav.assetCenter', 'providers.page.title'],
       keepAlive: true
     }
   },
   {
-    path: '/assets/onboarding',
+    path: '/applications/onboarding',
     name: 'asset.onboarding',
-    redirect: (to) => ({ path: '/assets', query: { ...to.query, onboarding: '1' } }),
+    redirect: (to) => ({ path: '/applications', query: { ...to.query, onboarding: '1' }, hash: to.hash }),
     meta: {
       title: 'Application onboarding',
       titleKey: 'applicationOnboarding.title',
@@ -174,17 +174,17 @@ export const businessRoutes: GcRouteRecord[] = [
       permission: 'service_asset.manage',
       resourceType: 'service_asset',
       riskLevel: 'low',
-      breadcrumbKeys: ['nav.assets', 'applicationOnboarding.title'],
+      breadcrumbKeys: ['nav.assetCenter', 'applicationOnboarding.title'],
       hiddenInMenu: true,
     },
   },
   {
-    path: '/assets',
+    path: '/applications',
     name: 'asset.list',
     component: () => import('@/views/assets/AssetsView.vue'),
     meta: {
-      title: 'Managed applications',
-      titleKey: 'nav.assetManagement',
+      title: 'Applications',
+      titleKey: 'nav.assets',
       heroTitle: true,
       module: 'asset',
       requiresAuth: true,
@@ -221,11 +221,11 @@ export const businessRoutes: GcRouteRecord[] = [
       const runId = typeof query.runId === 'string' ? query.runId : ''
       if (runId) return { path: '/executions', query: { ...query, runId }, hash: to.hash }
       if (planId) return { path: '/executions', query: { ...query, planId }, hash: to.hash }
-      return { path: '/assets', query, hash: to.hash }
+      return { path: '/applications', query, hash: to.hash }
     },
     meta: {
-      title: 'Managed applications',
-      titleKey: 'nav.assetManagement',
+      title: 'Applications',
+      titleKey: 'nav.assets',
       heroTitle: true,
       module: 'asset',
       requiresAuth: true,
@@ -254,11 +254,11 @@ export const businessRoutes: GcRouteRecord[] = [
     }
   },
   {
-    path: '/assets/devices',
+    path: '/assets',
     name: 'asset.device.list',
     component: () => import('@/views/devices/DevicesView.vue'),
     meta: {
-      title: 'Devices',
+      title: 'Assets',
       titleKey: 'devices.page.title',
       heroTitle: true,
       module: 'asset',
@@ -266,16 +266,16 @@ export const businessRoutes: GcRouteRecord[] = [
       permission: 'host.read',
       resourceType: 'host',
       riskLevel: 'medium',
-      breadcrumbKeys: ['nav.assets', 'devices.page.title'],
+      breadcrumbKeys: ['nav.assetCenter', 'devices.page.title'],
       keepAlive: true
     }
   },
   {
     path: '/devices',
     name: 'device.list',
-    component: () => import('@/views/devices/DevicesView.vue'),
+    redirect: (to) => ({ path: '/assets', query: to.query, hash: to.hash }),
     meta: {
-      title: 'Devices',
+      title: 'Assets',
       titleKey: 'devices.page.title',
       heroTitle: true,
       module: 'device',
@@ -290,7 +290,7 @@ export const businessRoutes: GcRouteRecord[] = [
   {
     path: '/agents',
     name: 'agent.list',
-    redirect: (to) => ({ path: '/assets/devices', query: to.query, hash: to.hash }),
+    redirect: (to) => ({ path: '/assets', query: to.query, hash: to.hash }),
     meta: {
       title: 'Agent',
       titleKey: 'nav.agents',

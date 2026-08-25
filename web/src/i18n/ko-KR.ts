@@ -650,7 +650,7 @@ export default {
     assetCenter: 'Asset inventory',
     assetCenterDesc: 'Manage application, device, and cloud service assets',
     assetManagement: '애플리케이션 관리',
-    assets: '응용자산',
+    assets: '애플리케이션',
     assetsDesc: '도메인/IP 차원의 애플리케이션 포털과 인증서 배포 대상',
     devices: '장비',
     agents: 'Agent',

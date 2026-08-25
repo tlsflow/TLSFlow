@@ -264,7 +264,7 @@ const config = computed<BusinessPageConfig>(() => ({
   metrics: [],
   detailFields: [],
   contextLinks: [
-    { label: t('gateways.links.assets'), to: '/assets', queryKey: 'gatewayId', candidates: ['id', 'gatewayId'] },
+    { label: t('gateways.links.assets'), to: '/applications', queryKey: 'gatewayId', candidates: ['id', 'gatewayId'] },
     { label: t('gateways.links.executions'), to: '/executions', queryKey: 'gatewayId', candidates: ['id', 'gatewayId'] },
   ],
   emptyTitle: t('gateways.empty.title'),

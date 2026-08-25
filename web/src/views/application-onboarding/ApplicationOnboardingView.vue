@@ -304,7 +304,7 @@ function openCustomManual(): void {
     emit('customManual')
     return
   }
-  void router.push({ path: '/assets', query: { ...route.query, create: '1' } })
+  void router.push({ path: '/applications', query: { ...route.query, create: '1' } })
 }
 
 function openPluginCenter(): void {

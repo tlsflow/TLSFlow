@@ -201,7 +201,7 @@ export class GlobalSearchApplicationService {
         ),
         type: 'application',
         category: 'assets',
-        path: '/assets',
+        path: '/applications',
         query: { detailModal: '1', assetId: id },
         keywords: values(record, ['address', 'environment', 'status', 'protocol', 'sniName', 'id']),
       });
@@ -222,7 +222,7 @@ export class GlobalSearchApplicationService {
         summary: summaryValues(device.managementAddress, device.productFamily, device.softwareVersion),
         type: 'device',
         category: 'assets',
-        path: '/assets/devices',
+        path: '/assets',
         query: { detailModal: '1', deviceId: device.id },
         keywords: [
           device.displayName,

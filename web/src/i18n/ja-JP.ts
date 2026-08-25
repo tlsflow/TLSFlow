@@ -650,7 +650,7 @@ export default {
     assetCenter: 'Asset inventory',
     assetCenterDesc: 'Manage application, device, and cloud service assets',
     assetManagement: 'アプリケーション管理',
-    assets: 'アプリケーションアセット',
+    assets: 'アプリケーション',
     assetsDesc: 'ドメイン名/IP 単位のアプリケーションエントリと証明書デプロイ先',
     devices: 'デバイス',
     agents: 'Agent',

@@ -668,7 +668,7 @@ export default {
     assetCenter: 'Asset inventory',
     assetCenterDesc: 'Manage applications, devices, and cloud services',
     assetManagement: 'Application management',
-    assets: 'Managed applications',
+    assets: 'Applications',
     assetsDesc: 'Application entry points and certificate deployment targets by domain or IP',
     devices: 'Devices',
     agents: 'Agents',
