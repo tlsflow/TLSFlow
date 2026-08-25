@@ -12,10 +12,20 @@ export class CredentialHealthController {
   register(router: Router): void {
     router.get('/api/v1/credentials/:id/health', '查询凭据有效性状态', ['Credentials'], (request) => this.health(request));
     router.get('/api/v1/credentials/:id/health-checks', '查询凭据有效性检测详情', ['Credentials'], (request) => this.checks(request));
+    router.put('/api/v1/credentials/:id/health-config', '更新凭据有效性检测配置', ['Credentials'], (request) => this.updateConfiguration(request));
     router.post('/api/v1/credentials/:id/health-check', '手动检测凭据有效性', ['Credentials'], (request) => this.manual(request));
   }
   private async health(request: HttpRequest) { const id = pathId(request); await this.authorize(request, 'credential.read', id); return this.service.getHealth(requireTenantId(request), id); }
   private async checks(request: HttpRequest) { const id = pathId(request); await this.authorize(request, 'credential.read', id); return { items: await this.service.listChecks(requireTenantId(request), id, queryString(request, 'deviceAssetId')) }; }
+  private async updateConfiguration(request: HttpRequest) {
+    const id = pathId(request);
+    const subject = await this.authorize(request, 'credential.update', id);
+    const body = validateObject(request.body ?? {}, { enabled: { type: 'boolean', required: true }, selectedDeviceAssetId: { type: 'string' } });
+    return this.service.updateConfiguration(requireTenantId(request), id, subject.id, {
+      enabled: body.enabled === true,
+      ...(typeof body.selectedDeviceAssetId === 'string' && body.selectedDeviceAssetId.trim() ? { selectedDeviceAssetId: body.selectedDeviceAssetId.trim() } : {}),
+    });
+  }
   private async manual(request: HttpRequest) { const id = pathId(request); const subject = await this.authorize(request, 'credential.health-check', id); const body = validateObject(request.body ?? {}, { deviceAssetId: { type: 'string' } }); const result = await this.service.enqueueManual(requireTenantId(request), id, subject.id, typeof body.deviceAssetId === 'string' ? body.deviceAssetId : undefined); return { statusCode: 202, body: { taskId: result.task.id, health: result.health } }; }
   private async authorize(request: HttpRequest, action: string, id: string): Promise<SecuritySubject> { const subject = { id: request.context.actorId ?? 'system_credentials', type: request.context.actorId ? 'user' as const : 'system' as const, scope: { tenantId: requireTenantId(request), tenantScope: request.context.tenantScope } }; await this.security?.rbac.assertCan(subject, action, { type: 'credential', id, scope: subject.scope }, { requestId: request.context.requestId, sourceIp: request.context.ip, actor: subject }); return subject; }
 }

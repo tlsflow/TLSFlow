@@ -22,7 +22,26 @@ export interface CredentialHealthState {
   reasonCode?: CredentialHealthReasonCode | string;
   reasonSummary?: string;
   deviceCount: number;
+  /** 设备在线状态与凭据测试能力的拆分统计，供配置界面解释不可用原因。 */
+  deviceEligibility?: CredentialHealthDeviceEligibility;
+  /** 是否由管理员显式开启周期检测。 */
+  enabled?: boolean;
+  /** 管理员固定选择的检测设备；同一凭据不再隐式遍历全部设备。 */
+  selectedDeviceAssetId?: string;
+  availableDevices?: CredentialHealthDevice[];
+  /** 当前配置指向的设备，即使它已离线也要返回，便于管理员解释状态。 */
+  selectedDevice?: CredentialHealthDevice;
+  configVersion?: number;
   updatedAt: string;
+}
+
+export interface CredentialHealthDeviceEligibility {
+  total: number;
+  online: number;
+  offline: number;
+  unknown: number;
+  onlineWithCredentialTest: number;
+  onlineWithoutCredentialTest: number;
 }
 
 export interface CredentialHealthCheckRecord {
@@ -50,6 +69,10 @@ export interface CredentialHealthEligibility {
   profileVersion: number;
   status: CredentialHealthStatus;
   devices: CredentialHealthDevice[];
+  enabled: boolean;
+  selectedDeviceAssetId?: string;
+  configVersion: number;
+  selectedDevice?: CredentialHealthDevice;
 }
 
 export interface CredentialHealthDevice {
@@ -63,6 +86,11 @@ export interface CredentialHealthDevice {
   pluginVersionId?: string;
   pluginBindingId?: string;
   version: number;
+  /** 设备当前是否在线；仅在线设备可以被选为检测设备。 */
+  online?: boolean;
+  /** 当前插件是否声明并发布 credential.health-check 能力。 */
+  credentialTestSupported?: boolean;
+  livenessStatus?: 'ONLINE' | 'OFFLINE' | 'UNKNOWN';
 }
 
 export interface CredentialHealthAdapterInput {

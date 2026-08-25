@@ -33,7 +33,36 @@ export interface CredentialHealthState {
   reasonCode?: string
   reasonSummary?: string
   deviceCount: number
+  deviceEligibility?: CredentialHealthDeviceEligibility
+  enabled?: boolean
+  selectedDeviceAssetId?: string
+  selectedDevice?: CredentialHealthDevice
+  availableDevices?: CredentialHealthDevice[]
+  configVersion?: number
   updatedAt: string
+}
+export interface CredentialHealthDeviceEligibility {
+  total: number
+  online: number
+  offline: number
+  unknown: number
+  onlineWithCredentialTest: number
+  onlineWithoutCredentialTest: number
+}
+export interface CredentialHealthDevice {
+  id: string
+  hostId?: string
+  displayName: string
+  address: string
+  port: number
+  deviceFamily: string
+  credentialId: string
+  pluginVersionId?: string
+  pluginBindingId?: string
+  version: number
+  online?: boolean
+  credentialTestSupported?: boolean
+  livenessStatus?: 'ONLINE' | 'OFFLINE' | 'UNKNOWN'
 }
 export interface CredentialHealthCheckRecord {
   id: string
@@ -123,6 +152,14 @@ export function getCredentialUsage(id: string): Promise<ApiResult<CredentialUsag
 
 export function getCredentialHealth(id: string): Promise<ApiResult<CredentialHealthState>> {
   return apiClient.get<CredentialHealthState>(`${toClientPath(`/api/v1/credentials/${encodeURIComponent(id)}/health`)}`)
+}
+
+export function updateCredentialHealthConfig(id: string, input: { enabled: boolean; selectedDeviceAssetId?: string }): Promise<ApiResult<CredentialHealthState>> {
+  return apiClient.request<CredentialHealthState>(toClientPath(`/api/v1/credentials/${encodeURIComponent(id)}/health-config`), {
+    method: 'PUT',
+    body: input,
+    idempotencyKey: createIdempotencyKey('credential_health_config'),
+  })
 }
 
 export function listCredentialHealthChecks(id: string, deviceAssetId?: string): Promise<ApiResult<{ items: CredentialHealthCheckRecord[] }>> {

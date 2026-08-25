@@ -1,7 +1,7 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import type { DevicesApplicationService } from '../../devices/application/devices.application-service.js';
 import type { CredentialHealthAdapter, CredentialHealthAdapterInput, CredentialHealthAdapterResult } from './credential-health.types.js';
-import { classifyCredentialHealthError } from './credential-health.types.js';
+import { classifyCredentialHealthError, credentialHealthReasonCodes } from './credential-health.types.js';
 
 export interface CredentialHealthCapabilityExecutor {
   executeCapability(tenantId: string, deviceId: string, capabilityKey: string, actorId?: string, requestId?: string): Promise<unknown>;
@@ -65,6 +65,7 @@ function normalizeHealthOutput(value: Record<string, unknown>): CredentialHealth
   const status = value.status;
   if (status !== 'VALID' && status !== 'ERROR' && status !== 'UNREACHABLE') return { status: 'ERROR', reasonCode: 'CHECK_RESULT_INVALID', summary: '插件检测结果状态无效' };
   const reasonCode = typeof value.reasonCode === 'string' ? value.reasonCode : undefined;
+  if (reasonCode && !credentialHealthReasonCodes.includes(reasonCode as typeof credentialHealthReasonCodes[number])) return { status: 'ERROR', reasonCode: 'CHECK_RESULT_INVALID', summary: '插件返回了不支持的检测原因码' };
   return { status, ...(reasonCode ? { reasonCode } : {}), ...(typeof value.summary === 'string' ? { summary: value.summary.slice(0, 300) } : {}), detail: typeof value.evidence === 'object' && value.evidence ? value.evidence as Record<string, unknown> : {} };
 }
 function readId(value: unknown): string | undefined { return value && typeof value === 'object' && typeof (value as Record<string, unknown>).id === 'string' ? (value as Record<string, unknown>).id as string : undefined; }

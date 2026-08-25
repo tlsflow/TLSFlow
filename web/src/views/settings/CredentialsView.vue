@@ -14,6 +14,7 @@ import {
   listCredentialHealthChecks,
   listCredentials,
   triggerCredentialHealthCheck,
+  updateCredentialHealthConfig,
   updateCredential,
   updateCredentialStatus,
   type CredentialKind,
@@ -21,11 +22,14 @@ import {
   type CredentialProfileSummary,
   type CredentialSecretValueInput,
   type CredentialUsage,
+  type CredentialHealthStatus,
   type CredentialHealthState,
+  type CredentialHealthDevice,
+  type CredentialHealthDeviceEligibility,
   type CredentialHealthCheckRecord,
   type BrowserCredentialSession,
 } from '@/api/modules/credentials.api'
-import { GcModal, GcPagination, GcPageToolbar, GcSecretInput, GcStatusTag } from '@/design-system/components'
+import { GcModal, GcPagination, GcPageToolbar, GcSecretInput, GcStatusTag, type StatusTone } from '@/design-system/components'
 import { getUnifiedPluginUiResources, listPluginCatalog } from '@/api/modules/plugins.api'
 import type { PluginCatalogItem } from '@/api/generated/schemas'
 import { internalCaApi, type InternalCaRecord } from '@/api/modules/internal-ca.api'
@@ -69,6 +73,8 @@ interface CredentialFormState {
   validityHours: DurationInput
   validityMinutes: DurationInput
   browserLoginUrl: string
+  healthEnabled: boolean
+  healthDeviceAssetId: string
 }
 
 interface BrowserOptionItem {
@@ -116,6 +122,9 @@ const healthError = ref('')
 const healthCredential = ref<CredentialProfileSummary | null>(null)
 const healthState = ref<CredentialHealthState | null>(null)
 const healthChecks = ref<CredentialHealthCheckRecord[]>([])
+const editorHealth = ref<CredentialHealthState | null>(null)
+const editorHealthLoading = ref(false)
+const editorHealthError = ref('')
 const form = ref<CredentialFormState>(emptyForm())
 const cloudProviders = ref<CloudProviderDefinition[]>([])
 const cloudProvidersLoading = ref(false)
@@ -161,6 +170,7 @@ const canSubmit = computed(() => {
     && (form.value.scopeType === 'global' || form.value.scopeId.trim()),
   )
   if (!hasRequiredFields || !validityDurationValid.value) return false
+  if (isEditing.value && form.value.healthEnabled && !form.value.healthDeviceAssetId) return false
   if (isDnsProviderCredential.value && !form.value.dnsProviderId.trim()) return false
   if (isCloudProviderCredential.value) {
     if (!cloudProviderReady.value) return false
@@ -230,6 +240,8 @@ function emptyForm(): CredentialFormState {
     validityHours: '',
     validityMinutes: '',
     browserLoginUrl: '',
+    healthEnabled: false,
+    healthDeviceAssetId: '',
   }
 }
 
@@ -531,8 +543,35 @@ function editForm(detail: CredentialProfileDetail): CredentialFormState {
     secondarySecret: '',
     ...expiryToDuration(detail.expiresAt, detail.kind),
     browserLoginUrl: readMetadataString(detail.metadata, 'browserLoginUrl'),
+    healthEnabled: false,
+    healthDeviceAssetId: '',
   }
 }
+
+const editorHealthDevices = computed<CredentialHealthDevice[]>(() => editorHealth.value?.availableDevices ?? [])
+const editorHealthEligibility = computed<CredentialHealthDeviceEligibility>(() => {
+  const summary = editorHealth.value?.deviceEligibility
+  if (summary) return summary
+  const total = editorHealth.value?.deviceCount ?? 0
+  const online = editorHealthDevices.value.length
+  return { total, online, offline: 0, unknown: Math.max(total - online, 0), onlineWithCredentialTest: online, onlineWithoutCredentialTest: 0 }
+})
+/**
+ * 这里按分支使用静态翻译 key，并在脚本层直接生成最终文案。
+ * 不把动态 key 交给模板，避免旧语言包或懒加载状态下把内部标识原样显示给用户。
+ */
+const editorHealthAvailabilityText = computed(() => {
+  const summary = editorHealthEligibility.value
+  const params = { count: summary.total, onlineCount: summary.online }
+  if (summary.total === 0) return t('credentials.health.noAssociatedDevice')
+  if (summary.online === 0) return t('credentials.health.noOnlineDevice', params)
+  if (summary.onlineWithoutCredentialTest === summary.online) return t('credentials.health.onlineNoCredentialTest', params)
+  return t('credentials.health.noAvailableOnlineDevice', params)
+})
+const editorHealthSelectionValid = computed(() => {
+  if (!form.value.healthEnabled) return true
+  return editorHealthDevices.value.some((device) => device.id === form.value.healthDeviceAssetId)
+})
 
 function expiryToDuration(expiresAt: string | undefined, kind: CredentialKind): { validityDays: string; validityHours: string; validityMinutes: string } {
   if (!expiresAt) return { validityDays: '', validityHours: '', validityMinutes: '' }
@@ -723,8 +762,30 @@ async function runHealthTest(): Promise<void> {
   }
 }
 
-function healthStatus(item: CredentialProfileSummary): string {
-  return item.healthStatus ?? (item.status === 'active' ? 'UNUSED' : 'DISABLED')
+type CredentialListStatus = CredentialProfileSummary['status'] | CredentialHealthStatus | 'NORMAL'
+
+function healthStatus(item: CredentialProfileSummary): CredentialListStatus {
+  // 健康检测关闭时，DISABLED 只表示检测配置关闭；凭据本身仍可用，应展示为正常。
+  if (item.status === 'disabled') return 'DISABLED'
+  if (item.status === 'error') return 'ERROR'
+  if (item.healthStatus === 'VALID' || item.healthStatus === 'ERROR' || item.healthStatus === 'UNREACHABLE') return item.healthStatus
+  return 'NORMAL'
+}
+
+function healthStatusTone(item: CredentialProfileSummary): StatusTone {
+  return healthStatusToneForStatus(healthStatus(item))
+}
+
+function healthStatusToneForStatus(status: CredentialListStatus): StatusTone {
+  switch (status) {
+    case 'NORMAL': return 'info'
+    case 'VALID': return 'success'
+    case 'ERROR': return 'danger'
+    case 'UNREACHABLE': return 'warning'
+    case 'UNUSED': return 'muted'
+    case 'DISABLED': return 'muted'
+    default: return 'muted'
+  }
 }
 
 function openCreate(): void {
@@ -736,6 +797,9 @@ function openCreate(): void {
   initialValidityHours.value = ''
   initialValidityMinutes.value = ''
   initialExpiresAt.value = null
+  editorHealth.value = null
+  editorHealthLoading.value = false
+  editorHealthError.value = ''
   error.value = ''
   editorOpen.value = true
 }
@@ -766,8 +830,22 @@ async function openEdit(id: string): Promise<void> {
     initialValidityMinutes.value = String(form.value.validityMinutes ?? '')
     initialExpiresAt.value = selected.value.expiresAt ?? null
     editorOpen.value = true
+    editorHealth.value = null
+    editorHealthError.value = ''
+    editorHealthLoading.value = true
+    try {
+      const healthResult = await getCredentialHealth(id)
+      if (!healthResult.data) throw new Error(t('credentials.health.errors.empty'))
+      editorHealth.value = healthResult.data
+      form.value.healthEnabled = healthResult.data.enabled === true
+      form.value.healthDeviceAssetId = healthResult.data.selectedDeviceAssetId ?? ''
+    } catch (cause) {
+      editorHealthError.value = cause instanceof Error ? cause.message : t('credentials.health.errors.load')
+    } finally {
+      editorHealthLoading.value = false
+    }
   } catch {
-    // 错误已由 loadSelection 统一展示。
+    // 凭据详情加载失败时，错误已由 loadSelection 统一展示。
   }
 }
 
@@ -782,7 +860,7 @@ async function openDelete(id: string): Promise<void> {
 }
 
 async function submitEditor(): Promise<void> {
-  if (!canSubmit.value) return
+  if (!canSubmit.value || !editorHealthSelectionValid.value) return
   saving.value = true
   error.value = ''
   try {
@@ -805,11 +883,19 @@ async function submitEditor(): Promise<void> {
       expiresAt: expiresAtForSubmit(),
     }
     if (isEditing.value && selected.value) {
-      await updateCredential(selected.value.id, {
+      const result = await updateCredential(selected.value.id, {
         ...commonInput,
         expectedVersion: selected.value.version,
         secretValues: Object.keys(secretValues).length > 0 ? secretValues : undefined,
       })
+      selected.value = result.data ?? selected.value
+      // 健康配置读取失败时不覆盖服务端原配置，避免保存普通字段意外停用检测。
+      if (editorHealth.value) {
+        await updateCredentialHealthConfig(selected.value.id, {
+          enabled: form.value.healthEnabled,
+          ...(form.value.healthEnabled ? { selectedDeviceAssetId: form.value.healthDeviceAssetId } : {}),
+        })
+      }
     } else {
       await createCredential({ ...commonInput, kind: form.value.kind, secretValues })
     }
@@ -925,7 +1011,7 @@ onUnmounted(() => {
               <td>{{ item.username ?? t('common.notAvailable') }}</td>
               <td>
                 <button class="credential-health-button" type="button" :aria-label="t('credentials.health.openAria', { name: item.name })" @click="openHealth(item)">
-                  <GcStatusTag :status="item.status === 'error' ? 'ERROR' : healthStatus(item)" :label="item.status === 'error' ? t('credentials.health.status.ERROR') : t(`credentials.health.status.${healthStatus(item)}`)" />
+                  <GcStatusTag :status="healthStatus(item)" :label="t(`credentials.health.status.${healthStatus(item)}`)" :tone="healthStatusTone(item)" />
                 </button>
                 <div v-if="item.status === 'error'" class="credential-status credential-status--repair" :title="t('credentials.status.errorHint')">
                   <small>{{ t('credentials.status.errorSummary') }}</small>
@@ -962,8 +1048,9 @@ onUnmounted(() => {
         <p v-if="healthLoading" class="credentials-list__state">{{ t('common.loading') }}</p>
         <template v-else-if="healthState">
           <div class="credential-health-modal__summary">
-            <GcStatusTag :status="healthState.status" :label="t(`credentials.health.status.${healthState.status}`)" />
+            <GcStatusTag :status="healthState.status" :label="t(`credentials.health.status.${healthState.status}`)" :tone="healthStatusToneForStatus(healthState.status)" />
             <span>{{ t('credentials.health.deviceCount', { count: healthState.deviceCount }) }}</span>
+            <span v-if="healthState.selectedDevice">{{ t('credentials.health.selectedDevice', { name: healthState.selectedDevice.displayName, address: healthState.selectedDevice.address }) }}</span>
             <span v-if="healthState.checkedAt">{{ t('credentials.health.checkedAt', { time: formatMaybeLocalTime(healthState.checkedAt) }) }}</span>
             <span v-if="healthState.reasonSummary">{{ healthState.reasonSummary }}</span>
           </div>
@@ -974,7 +1061,7 @@ onUnmounted(() => {
           <div v-else class="credential-health-modal__records">
             <div v-for="record in healthChecks" :key="record.id" class="credential-health-record">
               <div class="credential-health-record__heading">
-                <GcStatusTag :status="record.resultStatus" :label="t(`credentials.health.status.${record.resultStatus}`)" />
+                <GcStatusTag :status="record.resultStatus" :label="t(`credentials.health.status.${record.resultStatus}`)" :tone="healthStatusToneForStatus(record.resultStatus)" />
                 <span>{{ formatMaybeLocalTime(record.checkedAt) }}</span>
               </div>
               <div class="credential-health-record__meta"><span>{{ record.deviceAssetId }}</span><span v-if="record.reasonCode">{{ record.reasonCode }}</span><span v-if="record.reasonSummary">{{ record.reasonSummary }}</span></div>
@@ -1085,6 +1172,44 @@ onUnmounted(() => {
         </section>
         <section v-else class="credentials-editor__section credentials-editor__section--secret">
           <header><h3>{{ t('credentials.form.secretTitle') }}</h3><p>{{ t('credentials.form.browserSessionDescription') }}</p></header>
+        </section>
+
+        <section v-if="isEditing" class="credentials-editor__section credentials-health-config">
+          <header>
+            <h3>{{ t('credentials.health.configTitle') }}</h3>
+            <p>{{ t('credentials.health.configDescription') }}</p>
+          </header>
+          <label class="credentials-health-config__toggle">
+            <input
+              v-model="form.healthEnabled"
+              type="checkbox"
+              :disabled="editorHealthLoading || Boolean(editorHealthError) || (!form.healthEnabled && editorHealthDevices.length === 0)"
+            >
+            <span>{{ t('credentials.health.enable') }}</span>
+          </label>
+          <p v-if="editorHealthLoading" class="credentials-health-config__notice">{{ t('common.loading') }}</p>
+          <p v-else-if="editorHealthError" class="credentials-page__error" role="alert">{{ editorHealthError }}</p>
+          <p v-else-if="editorHealth && editorHealthDevices.length === 0" class="credentials-page__error" role="alert">
+            {{ editorHealthAvailabilityText }}
+          </p>
+          <div v-if="form.healthEnabled && editorHealth && !editorHealthError" class="credentials-health-config__fields">
+            <label class="credentials-field gc-form-field">
+              <span>{{ t('credentials.health.deviceLabel') }}</span>
+              <span class="credentials-select">
+                <select v-model="form.healthDeviceAssetId" required>
+                  <option value="" disabled>{{ t('credentials.health.devicePlaceholder') }}</option>
+                  <option v-for="device in editorHealthDevices" :key="device.id" :value="device.id">
+                    {{ device.displayName }} · {{ device.address }}
+                  </option>
+                </select>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5" /></svg>
+              </span>
+            </label>
+            <p v-if="editorHealth?.selectedDevice && !editorHealthDevices.some((device) => device.id === editorHealth?.selectedDevice?.id)" class="credentials-health-config__notice">
+              {{ t('credentials.health.selectedDeviceUnavailable', { name: editorHealth.selectedDevice.displayName }) }}
+            </p>
+          </div>
+          <p v-else-if="!editorHealthLoading && !editorHealthError" class="credentials-health-config__notice">{{ t('credentials.health.disabledHint') }}</p>
         </section>
 
         <section v-if="isEditing" class="credentials-editor__section">
@@ -1304,6 +1429,10 @@ tbody tr:last-child td { border-bottom: 0; }
 .credentials-editor { display: grid; gap: var(--gc-space-4); }
 .credentials-editor__section { display: grid; gap: var(--gc-space-4); padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-lg); background: var(--gc-color-surface-raised); }
 .credentials-editor__section--secret { border-color: var(--gc-color-primary-border); background: var(--gc-color-primary-weak); }
+.credentials-health-config__toggle { display: inline-flex; align-items: center; gap: var(--gc-space-2); color: var(--gc-color-text-strong); }
+.credentials-health-config__toggle input { inline-size: var(--gc-space-4); block-size: var(--gc-space-4); accent-color: var(--gc-color-primary); }
+.credentials-health-config__fields { display: grid; gap: var(--gc-space-3); max-inline-size: 42rem; }
+.credentials-health-config__notice { margin: 0; color: var(--gc-color-text-muted); }
 .credentials-editor__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-4); }
 .credentials-editor__field--wide { grid-column: 1 / -1; }
 .credentials-editor__expiry-duration { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-4); }

@@ -31,4 +31,6 @@ test('适配器读取嵌套的标准健康输出并拒绝缺失 apiVersion 的�
   assert.equal((await nested.check(input)).status, 'VALID');
   const missingVersion = new DeviceWorkflowCredentialHealthAdapter({ executeCapability: async () => ({ credentialHealth: { status: 'VALID' } }) });
   assert.equal((await missingVersion.check(input)).reasonCode, 'CHECK_RESULT_INVALID');
+  const unknownReason = new DeviceWorkflowCredentialHealthAdapter({ executeCapability: async () => ({ credentialHealth: { apiVersion: 'gcac.credential-health-result/v1', status: 'ERROR', reasonCode: 'VENDOR_GUESS' } }) });
+  assert.equal((await unknownReason.check(input)).reasonCode, 'CHECK_RESULT_INVALID');
 });

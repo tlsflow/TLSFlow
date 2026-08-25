@@ -11,37 +11,64 @@ import { sanitizeCredentialHealthDetail } from './credential-health.repository.j
 const tenantId = 'tenant-health-test';
 const credentialId = 'credential-health-test';
 
-test('禁用凭据和未使用凭据不会创建检测任务', async () => {
+test('默认关闭、禁用凭据和未使用凭据不会创建检测任务', async () => {
   const tasks = new FakeTasks();
   const disabled = service({ profile: profile('disabled'), tasks });
   await assert.rejects(() => disabled.enqueueManual(tenantId, credentialId, 'user-1'), (error: unknown) => error instanceof AppError && error.errorCode === 'VALIDATION_FAILED');
   const unused = service({ profile: profile('active'), devices: [], tasks });
   await assert.rejects(() => unused.enqueueManual(tenantId, credentialId, 'user-1'), (error: unknown) => error instanceof AppError && error.errorCode === 'VALIDATION_FAILED');
+  const disabledByDefault = service({ profile: profile('active'), tasks });
+  await assert.rejects(() => disabledByDefault.enqueueManual(tenantId, credentialId, 'user-1'), (error: unknown) => error instanceof AppError && error.errorCode === 'VALIDATION_FAILED');
   assert.equal(tasks.enqueued.length, 0);
+});
+
+test('健康配置分别返回设备在线状态和插件凭据测试能力', async () => {
+  const repository = new FakeRepository([{ ...device('device-online-no-capability'), credentialTestSupported: false, online: true }]);
+  const state = await service({ repository }).getHealth(tenantId, credentialId);
+  assert.deepEqual(state.deviceEligibility, {
+    total: 1,
+    online: 1,
+    offline: 0,
+    unknown: 0,
+    onlineWithCredentialTest: 0,
+    onlineWithoutCredentialTest: 1,
+  });
 });
 
 test('重复手动检测复用同一代次任务', async () => {
   const tasks = new FakeTasks();
-  const health = service({ tasks });
+  const repository = new FakeRepository([device('device-1')]);
+  await repository.saveConfiguration({ tenantId, credentialId, profileVersion: 1, enabled: true, selectedDeviceAssetId: 'device-1', updatedBy: 'user-1' });
+  const health = service({ repository, tasks });
   const first = await health.enqueueManual(tenantId, credentialId, 'user-1');
   const second = await health.enqueueManual(tenantId, credentialId, 'user-1');
   assert.equal(first.task.id, second.task.id);
-  assert.equal(first.health.generation, 1);
+  assert.equal(first.health.generation, 2);
   assert.equal(tasks.enqueued.length, 1);
 });
 
 test('Profile 代次迟到任务不会覆盖新版本', async () => {
   const repository = new FakeRepository([device('device-1')]);
   const health = service({ repository, profile: profile('active', 2) });
-  const result = await health.executeTask(task({ credentialId, profileVersion: 1, generation: 1, deviceAssetIds: ['device-1'] }));
+  const result = await health.executeTask(task({ credentialId, profileVersion: 1, generation: 1, configVersion: 1, deviceAssetId: 'device-1' }));
   assert.deepEqual(result, { success: true, detail: { stale: true, credentialId } });
   assert.equal(repository.records.length, 0);
   assert.equal(repository.finalized.length, 0);
 });
 
-test('多设备结果按错误优先级聚合并保存设备证据', async () => {
+test('历史多设备任务载荷会失败关闭并标记过期', async () => {
+  const repository = new FakeRepository([device('device-1')]);
+  await repository.saveConfiguration({ tenantId, credentialId, profileVersion: 1, enabled: true, selectedDeviceAssetId: 'device-1', updatedBy: 'user-1' });
+  const health = service({ repository });
+  const result = await health.executeTask(task({ credentialId, profileVersion: 1, generation: 1, deviceAssetIds: ['device-1'] }));
+  assert.deepEqual(result, { success: true, detail: { stale: true, credentialId, reason: 'LEGACY_TASK_PAYLOAD' } });
+  assert.equal(repository.records.length, 0);
+});
+
+test('只检测配置中选定的设备，不再聚合全部关联设备', async () => {
   const devices = [device('device-valid'), device('device-unreachable'), device('device-error')];
   const repository = new FakeRepository(devices);
+  await repository.saveConfiguration({ tenantId, credentialId, profileVersion: 1, enabled: true, selectedDeviceAssetId: 'device-error', updatedBy: 'user-1' });
   const adapters = new CredentialHealthAdapterRegistry();
   adapters.register({
     capabilityKey: 'credential.health-check',
@@ -52,16 +79,49 @@ test('多设备结果按错误优先级聚合并保存设备证据', async () =>
     },
   });
   const health = service({ repository, adapters });
-  const result = await health.executeTask(task({ credentialId, profileVersion: 1, generation: 1, deviceAssetIds: devices.map((item) => item.id) }));
+  const result = await health.executeTask(task({ credentialId, profileVersion: 1, generation: 1, configVersion: 1, deviceAssetId: 'device-error' }));
   assert.equal(result.success, true);
   assert.equal(repository.finalized[0]?.status, 'ERROR');
-  assert.equal(repository.records.length, 3);
+  assert.equal(repository.records.length, 1);
   assert.equal(repository.records.find((item) => item.deviceAssetId === 'device-error')?.reasonCode, 'PASSWORD_INVALID');
   assert.deepEqual(repository.records.find((item) => item.deviceAssetId === 'device-error')?.detail, { nested: {} });
 });
 
 test('健康检测详情递归脱敏', () => {
   assert.deepEqual(sanitizeCredentialHealthDetail({ httpStatus: 401, password: 'x', nested: { token: 'y', safe: 'ok' }, responseBody: { safe: true }, attempts: [{ cookie: 'z', safe: 'ok' }] }), { httpStatus: 401, nested: { safe: 'ok' }, attempts: [{ safe: 'ok' }] });
+});
+
+test('开启检测时必须选择在线且具备插件能力的设备', async () => {
+  const repository = new FakeRepository([{ ...device('device-offline'), online: false }, { ...device('device-no-capability'), credentialTestSupported: false }, { ...device('device-online'), online: true, credentialTestSupported: true }]);
+  const health = service({ repository });
+  await assert.rejects(() => health.updateConfiguration(tenantId, credentialId, 'user-1', { enabled: true, selectedDeviceAssetId: 'device-offline' }), (error: unknown) => error instanceof AppError && error.errorCode === 'VALIDATION_FAILED');
+  await assert.rejects(() => health.updateConfiguration(tenantId, credentialId, 'user-1', { enabled: true, selectedDeviceAssetId: 'device-no-capability' }), (error: unknown) => error instanceof AppError && error.errorCode === 'VALIDATION_FAILED');
+  const state = await health.updateConfiguration(tenantId, credentialId, 'user-1', { enabled: true, selectedDeviceAssetId: 'device-online' });
+  assert.equal(state.enabled, true);
+  assert.equal(state.selectedDeviceAssetId, 'device-online');
+});
+
+test('选定设备已不可达时直接保存不可达结果，不调用插件认证流程', async () => {
+  const repository = new FakeRepository([{ ...device('device-offline'), online: false, livenessStatus: 'OFFLINE' }]);
+  await repository.saveConfiguration({ tenantId, credentialId, profileVersion: 1, enabled: true, selectedDeviceAssetId: 'device-offline', updatedBy: 'user-1' });
+  const adapters = new CredentialHealthAdapterRegistry();
+  adapters.register({ capabilityKey: 'credential.health-check', async check() { throw new Error('不应调用插件'); } });
+  const result = await service({ repository, adapters }).executeTask(task({ credentialId, profileVersion: 1, generation: 1, configVersion: 1, deviceAssetId: 'device-offline' }));
+  assert.equal(result.success, true);
+  assert.equal(repository.records[0]?.resultStatus, 'UNREACHABLE');
+  assert.equal(repository.finalized[0]?.status, 'UNREACHABLE');
+});
+
+test('检测代次变化后迟到任务不会写入设备记录', async () => {
+  const repository = new FakeRepository([device('device-1')]);
+  await repository.saveConfiguration({ tenantId, credentialId, profileVersion: 1, enabled: true, selectedDeviceAssetId: 'device-1', updatedBy: 'user-1' });
+  repository.state = { ...repository.state!, generation: 2 };
+  const adapters = new CredentialHealthAdapterRegistry();
+  adapters.register({ capabilityKey: 'credential.health-check', async check() { return { status: 'VALID', summary: '认证成功' }; } });
+  const result = await service({ repository, adapters }).executeTask(task({ credentialId, profileVersion: 1, generation: 1, configVersion: 1, deviceAssetId: 'device-1' }));
+  assert.deepEqual(result, { success: true, detail: { stale: true, credentialId, deviceAssetId: 'device-1', reason: 'GENERATION_CHANGED' } });
+  assert.equal(repository.records.length, 0);
+  assert.equal(repository.finalized.length, 0);
 });
 
 function service(options: { repository?: FakeRepository; profile?: CredentialProfileEntity; devices?: CredentialHealthDevice[]; tasks?: FakeTasks; adapters?: CredentialHealthAdapterRegistry } = {}): CredentialHealthService {
@@ -74,7 +134,7 @@ function profile(status: string, version = 1): CredentialProfileEntity {
   return { id: credentialId, tenantId, name: '测试凭据', kind: 'USERNAME_PASSWORD', scopeType: 'global', delivery: {}, secretSlots: {}, metadata: {}, status, version, createdBy: 'test', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as CredentialProfileEntity;
 }
 
-function device(id: string): CredentialHealthDevice { return { id, displayName: id, address: '192.0.2.10', port: 443, deviceFamily: 'fixture', credentialId, version: 1 }; }
+function device(id: string): CredentialHealthDevice { return { id, displayName: id, address: '192.0.2.10', port: 443, deviceFamily: 'fixture', credentialId, version: 1, online: true, credentialTestSupported: true, livenessStatus: 'ONLINE' }; }
 
 function task(payload: Record<string, unknown>): TaskRun {
   return { id: 'task-health-test', tenantId, taskType: 'CREDENTIAL_HEALTH_CHECK', definitionVersion: 1, category: 'MONITORING', status: 'QUEUED', triggerSource: 'test', payload, availableAt: new Date().toISOString(), createdAt: new Date().toISOString() };
@@ -102,8 +162,25 @@ class FakeRepository {
   constructor(private readonly devices: CredentialHealthDevice[]) {}
   async listEligibleDevices(): Promise<CredentialHealthDevice[]> { return this.devices; }
   async getState(): Promise<CredentialHealthState | undefined> { return this.state; }
+  async acquireSchedulerLease(): Promise<boolean> { return true; }
+  async saveConfiguration(input: { tenantId: string; credentialId: string; profileVersion: number; enabled: boolean; selectedDeviceAssetId?: string; updatedBy: string }): Promise<CredentialHealthState> {
+    this.state = {
+      tenantId: input.tenantId,
+      credentialId: input.credentialId,
+      status: input.enabled ? 'UNREACHABLE' : 'DISABLED',
+      profileVersion: input.profileVersion,
+      generation: (this.state?.generation ?? 0) + 1,
+      failureCount: 0,
+      deviceCount: this.devices.length,
+      enabled: input.enabled,
+      ...(input.selectedDeviceAssetId ? { selectedDeviceAssetId: input.selectedDeviceAssetId } : {}),
+      configVersion: (this.state?.configVersion ?? 0) + 1,
+      updatedAt: new Date().toISOString(),
+    };
+    return this.state;
+  }
   async ensureState(_tenant: string, _credential: string, profileVersion: number, status: CredentialHealthState['status'], deviceCount: number): Promise<CredentialHealthState> {
-    if (!this.state) this.state = { tenantId, credentialId, status, profileVersion, generation: 0, failureCount: 0, deviceCount, updatedAt: new Date().toISOString() };
+    if (!this.state) this.state = { tenantId, credentialId, status, profileVersion, generation: 0, failureCount: 0, deviceCount, enabled: false, configVersion: 0, updatedAt: new Date().toISOString() };
     this.state = { ...this.state, profileVersion, deviceCount, status: this.state.status === 'DISABLED' || this.state.status === 'UNUSED' ? status : this.state.status };
     return this.state;
   }
