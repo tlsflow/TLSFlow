@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { DeviceWorkflowCredentialHealthAdapter } from './credential-health.adapter.js';
 import { aggregateCredentialHealth, classifyCredentialHealthError } from './credential-health.types.js';
+import { WorkflowTemplatesApplicationService } from '../../workflow-templates/application/workflow-templates.application-service.js';
 
 test('凭据健康状态按业务优先级聚合', () => {
   assert.equal(aggregateCredentialHealth({ profileStatus: 'disabled', deviceCount: 2, results: [{ resultStatus: 'VALID' }] }), 'DISABLED');
@@ -33,4 +35,27 @@ test('适配器读取嵌套的标准健康输出并拒绝缺失 apiVersion 的�
   assert.equal((await missingVersion.check(input)).reasonCode, 'CHECK_RESULT_INVALID');
   const unknownReason = new DeviceWorkflowCredentialHealthAdapter({ executeCapability: async () => ({ credentialHealth: { apiVersion: 'gcac.credential-health-result/v1', status: 'ERROR', reasonCode: 'VENDOR_GUESS' } }) });
   assert.equal((await unknownReason.check(input)).reasonCode, 'CHECK_RESULT_INVALID');
+});
+
+test('工作流脱敏不会隐藏标准 credentialHealth 结果', async () => {
+  const workflow = JSON.parse(readFileSync(new URL('../../plugins/builtin-plugins/device-chaitin-safeline-waf/workflows/credential-health-check.json', import.meta.url), 'utf8'));
+  const workflows = new WorkflowTemplatesApplicationService();
+  const { version } = await workflows.createTemplate({ content: workflow });
+  const run = await workflows.testRun({
+    templateVersionId: version.id,
+    mode: 'mock',
+    resolvedInput: {
+      apiVersion: 'gcac.resolved-deployment-input/v1',
+      contractVersion: 'gcac.deployment-input/v1',
+      assetContext: { apiVersion: 'gcac.deployment-asset-context/v1', application: { id: 'asset', address: '192.0.2.1', serverName: 'safeline.example.invalid', port: 9443, protocol: 'https' }, deployment: { targets: [], certificateResourceName: 'credential-health-test' } },
+      variables: { allowInsecureTls: true },
+      connections: { management: { transport: 'http', host: '192.0.2.1', port: 9443, credentialSlot: 'credential', tls: { enabled: true, verifyPeer: false, serverName: '' } } },
+      credentials: { credential: { credentialId: 'credential', kind: 'API_KEY', secretRefs: { token: 'secret://credential/token#current' } } },
+      artifacts: {}, provenance: {}, sensitivePaths: [], issues: [], executable: true, resolvedSha256: 'health-result-mask-test',
+    },
+    mockResponses: { authenticate: { statusCode: 200, body: { ok: true } } },
+  });
+  const adapter = new DeviceWorkflowCredentialHealthAdapter({ executeCapability: async () => run });
+  const result = await adapter.check({ tenantId: 'tenant', credentialId: 'credential', profileVersion: 1, generation: 1, device: { id: 'device', displayName: '设备', address: '192.0.2.1', port: 9443, deviceFamily: 'fixture', credentialId: 'credential', version: 1 } });
+  assert.equal(result.status, 'VALID');
 });

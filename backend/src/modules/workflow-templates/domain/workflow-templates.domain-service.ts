@@ -1775,7 +1775,7 @@ function maskUnknown(value: unknown, secretPaths: Set<string>, values: Record<st
   if (Buffer.isBuffer(value)) return `[BINARY ${value.byteLength} bytes]`;
   if (typeof value === 'string') return maskText(value, secretPaths, values);
   if (Array.isArray(value)) return value.map((item) => maskUnknown(item, secretPaths, values));
-  if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, isSensitiveKey(key) ? '[REDACTED]' : maskUnknown(child, secretPaths, values)]));
+  if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, isSensitiveKey(key) && !isStandardHealthResultKey(key) ? '[REDACTED]' : maskUnknown(child, secretPaths, values)]));
   return value;
 }
 
@@ -1790,6 +1790,11 @@ function maskText(text: string, secretPaths: Set<string>, values: Record<string,
 
 function isSensitiveKey(key: string): boolean {
   return /^(content)$/i.test(key) || /(password|token|privateKey|authorization|credential|secret|pfx|jks)/i.test(key);
+}
+
+/** 标准健康结果本身是宿主需要消费的合同，内部证据仍通过递归规则脱敏。 */
+function isStandardHealthResultKey(key: string): boolean {
+  return key === 'credentialHealth' || key === 'healthResult';
 }
 
 function assertionResult(type: string, passed: boolean, message: string): WorkflowStepRunResult['assertions'][number] {
