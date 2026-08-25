@@ -26,15 +26,7 @@ lastVerified: 2026-08-22
 
 ## 2. 构建 Agent 发布包和镜像
 
-先生成 Agent Release Bundle（Agent 发布包）：
-
-```bash
-node docker/build-tools/build-agent-release-bundle.mjs
-```
-
-脚本会生成 Linux/Windows Agent、Windows Compatibility Agent 安装资源、`manifest.json` 和 SHA-256（安全散列）清单。
-
-然后构建镜像：
+`build-local` 会在构建镜像前自动启动 Agent builder 容器，生成 Linux/Windows Agent、Windows Compatibility Agent 安装资源、`manifest.json` 和 SHA-256（安全散列）清单，然后构建镜像：
 
 ```bash
 node docker/build-tools/build-local.mjs --architecture standard
