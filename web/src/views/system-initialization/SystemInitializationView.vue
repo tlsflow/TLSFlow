@@ -426,6 +426,7 @@ function formatError(cause: unknown, fallback: string): string {
     @update:open="handleModalOpen"
   >
     <GcUserFlowWizard
+      class="system-initialization__wizard"
       :steps="steps"
       :active-step="activeStep"
       :title="stageTitle"
@@ -436,10 +437,6 @@ function formatError(cause: unknown, fallback: string): string {
       @select="selectStep"
     >
       <form v-if="activeStep === 'account'" class="system-initialization__form" @submit.prevent="runPrimary">
-        <div class="system-initialization__intro">
-          <h3>{{ t('systemInitialization.account.heading') }}</h3>
-          <p>{{ t('systemInitialization.account.description') }}</p>
-        </div>
         <div class="system-initialization__grid">
           <label><span>{{ t('systemInitialization.account.username') }}</span><input v-model="username" autocomplete="username" required :placeholder="t('systemInitialization.account.usernamePlaceholder')"></label>
           <label><span>{{ t('systemInitialization.account.displayName') }}</span><input v-model="displayName" autocomplete="name" required :placeholder="t('systemInitialization.account.displayNamePlaceholder')"></label>
@@ -470,7 +467,6 @@ function formatError(cause: unknown, fallback: string): string {
         </div>
         <p v-if="licenseConfigured" class="system-initialization__success" role="status">{{ t('systemInitialization.license.configured') }}</p>
         <p v-if="licenseError" class="system-initialization__error" role="alert">{{ licenseError }}</p>
-        <button class="gc-button gc-button--ghost" type="button" @click="skipLicense">{{ t('systemInitialization.license.skip') }}</button>
       </section>
 
       <section v-else-if="activeStep === 'confirm'" class="system-initialization__confirm">
@@ -482,7 +478,6 @@ function formatError(cause: unknown, fallback: string): string {
 
       <section v-else class="system-initialization__complete">
         <div class="system-initialization__complete-mark" aria-hidden="true">✓</div>
-        <h3>{{ t('systemInitialization.complete.heading') }}</h3>
         <p>{{ licenseConfigured ? t('systemInitialization.complete.licenseConfigured') : t('systemInitialization.complete.licenseSkipped') }}</p>
       </section>
     </GcUserFlowWizard>
@@ -680,6 +675,12 @@ function formatError(cause: unknown, fallback: string): string {
   50% { transform: scale(1.035); }
 }
 
+/* 首次设置的步骤条与下方表单区拉开 40px，避免进度菜单和输入项贴在一起。
+   根容器已有 --gc-space-4 的栅格行间距，这里只补足差值。 */
+.system-initialization__wizard :deep(.gc-user-flow-wizard__steps) {
+  margin-bottom: calc(var(--gc-space-10) - var(--gc-space-4));
+}
+
 .system-initialization__form,
 .system-initialization__license,
 .system-initialization__confirm,
@@ -689,14 +690,6 @@ function formatError(cause: unknown, fallback: string): string {
   min-width: 0;
 }
 
-.system-initialization__intro h3,
-.system-initialization__complete h3 {
-  margin: 0;
-  color: var(--gc-color-text-strong);
-  font-size: var(--gc-font-size-lg);
-}
-
-.system-initialization__intro p,
 .system-initialization__license > p,
 .system-initialization__complete p {
   margin: var(--gc-space-2) 0 0;
