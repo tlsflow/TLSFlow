@@ -264,6 +264,82 @@ test('IIS 脱敏计划执行时重新绑定当前 PFX 摘要并覆盖旧授权�
   assert.equal(result.plan.operations[0]?.input.pfxPassword, 'password');
 });
 
+test('回滚执行强制重编译 certificate.rollback 并绑定源签名 checkpoint', async () => {
+  const pluginId = 'web.nginx.linux';
+  const resolvedInput = createResolvedCertificateUpdateInput(pluginId);
+  const deployContract = loadCertificateUpdateContract(pluginId);
+  const deploySnapshot = resolveCertificateUpdateSnapshot(resolvedInput, deployContract, {
+    pluginVersionId: 'plugin-version-nginx-linux',
+    resourceHash: `sha256:${'e'.repeat(64)}`,
+  });
+  const deploy = compileCertificateUpdatePlanTemplate({
+    templateText: loadCertificateUpdateResource(pluginId, 'agent-plans/deploy.json'),
+    snapshot: deploySnapshot,
+    resolvedInput,
+    pluginVersionId: 'plugin-version-nginx-linux',
+    agentId: 'agent-1',
+    tenantId: 'tenant-1',
+  });
+  const sanitizedPlan = structuredClone(deploy.plan) as unknown as Record<string, unknown>;
+  for (const operation of (sanitizedPlan.operations as Array<Record<string, unknown>>)) {
+    delete (operation.input as Record<string, unknown>).contentBase64;
+  }
+  const rollbackActions = ['filesystem.restore', 'command.execute_allowlisted', 'service.reload', 'service.status'];
+  const authority = createAuthority();
+  const compiler = new UnifiedAgentPlanCompilerService({
+    getVersion: async () => ({
+      id: 'plugin-version-nginx-linux', tenantId: 'tenant-1', pluginId,
+      version: '1.0.5', source: 'BUILTIN', runtime: 'WORKFLOW_DSL', scope: 'BOTH',
+      trust: 'OFFICIAL_SIGNED', support: 'OFFICIAL', status: 'ENABLED',
+      manifest: {
+        pluginId,
+        resources: {
+          inputContracts: { 'certificate.rollback': 'contracts/rollback.json' },
+          agentPlans: { 'certificate.rollback': 'agent-plans/rollback.json' },
+        },
+      },
+      resources: {
+        'contracts/rollback.json': loadCertificateUpdateResource(pluginId, 'contracts/rollback.json'),
+        'agent-plans/rollback.json': loadCertificateUpdateResource(pluginId, 'agent-plans/rollback.json'),
+      },
+      resourceSha256: {},
+    })
+  } as never, createDependencies({
+    grants: { validate: async () => ({
+      id: 'grant-1', tenantId: 'tenant-1', runId: 'run-1', stepId: 'step-1', executorType: 'AGENT',
+      allowedActions: rollbackActions, status: 'active', expiresAt: '2026-08-08T00:10:00.000Z',
+      createdAt: '2026-08-08T00:00:00.000Z', updatedAt: '2026-08-08T00:00:00.000Z',
+      allowedSecretRefs: [], allowedArtifactRefs: [],
+    }) },
+    localPolicy: { resolve: async () => ({
+      policyVersion: 'gcac.agent-security/v1', agentId: 'agent-1', authorityKeyIds: ['authority-key-1'],
+      allowedActions: rollbackActions, pathRules: [{ prefix: '/var/lib/gcac', operations: rollbackActions }],
+      serviceRules: ['nginx'], commandRules: [], disabled: false, updatedAt: '2026-08-08T00:00:00.000Z',
+    }) },
+    issueAuthorization: (request) => authority.issueAuthorization(request),
+  }));
+
+  const result = await compiler.compile({
+    tenantId: 'tenant-1', agentId: 'agent-1', executionRunId: 'run-1', executionStepId: 'step-1',
+    pluginVersionId: 'plugin-version-nginx-linux', pluginBindingId: 'binding-nginx-linux', resolvedInput,
+    executionMode: 'ROLLBACK',
+    rollbackContext: { checkpoint: { schemaVersion: 'gcac.linux.signed-checkpoint/v1', targetPath: deploySnapshot.paths[0], signature: 'signed' } },
+    v2Request: {
+      actionType: 'agent.plan.execute',
+      plan: sanitizedPlan,
+      authorization: { ...deploy.authorization, actions: ['certificate.material.validate', 'filesystem.backup', 'filesystem.atomic_replace'] },
+    },
+  });
+
+  assert.equal(result.plan.capability, 'certificate.rollback');
+  assert.equal(result.plan.planId, 'certificate.rollback');
+  assert.equal(result.plan.operations[0]?.operationType, 'filesystem.restore');
+  assert.deepEqual(result.plan.operations[0]?.input.checkpoint, {
+    schemaVersion: 'gcac.linux.signed-checkpoint/v1', targetPath: deploySnapshot.paths[0], signature: 'signed',
+  });
+  assert.deepEqual(result.token.actions, rollbackActions);
+});
+
 function pluginService() {
   return { getVersion: async () => ({
     id: 'plugin-version-1', tenantId: 'tenant-1', pluginId: 'web.nginx', version: '1.0.0', source: 'BUILTIN', runtime: 'WORKFLOW', scope: 'BOTH', trust: 'OFFICIAL_SIGNED', support: 'OFFICIAL',

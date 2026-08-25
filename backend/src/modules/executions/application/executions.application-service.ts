@@ -186,8 +186,23 @@ export class ExecutionsApplicationService {
         const rollbackCertificateSha256 = readString(rollbackContext, 'rollbackCertificateSha256');
         const baseVerification = readRecord(basePayload.certificateVerification);
         const baseWorkflowRequest = readRecord(basePayload.workflowRequest);
+        const rollbackPlan = buildRollbackPlanDraft(basePayload.plan);
+        const baseAuthorization = readRecord(basePayload.executionAuthorization);
+        const rollbackOperations = rollbackPlan && Array.isArray(rollbackPlan.operations) ? rollbackPlan.operations : [];
         sourcePayloadByTargetId.set(targetId, {
           ...basePayload,
+          ...(rollbackPlan ? { plan: rollbackPlan } : {}),
+          ...(baseAuthorization && rollbackPlan
+            ? {
+                executionAuthorization: {
+                  ...baseAuthorization,
+                  actions: [...new Set([
+                    ...readStringArray(baseAuthorization.actions),
+                    ...rollbackOperations.map((operation) => readString(readRecord(operation), 'operationType')),
+                  ].filter((value): value is string => Boolean(value)))],
+                },
+              }
+            : {}),
           ...(baseWorkflowRequest
             ? { workflowRequest: { ...baseWorkflowRequest, executionBranch: 'rollback' } }
             : {}),
@@ -2174,6 +2189,9 @@ function buildRollbackContextFromSourceSteps(sourceRunId: string, sourceSteps: E
   const backupStep = steps.find((step) => step.stepType === 'BACKUP');
   const installDetail = readRecord(installStep?.inputSnapshot?.resultDetail);
   const backupDetail = readRecord(backupStep?.inputSnapshot?.resultDetail);
+  const checkpoint = readCheckpointFromAgentDetail(installDetail)
+    ?? readCheckpointFromAgentDetail(backupDetail)
+    ?? readCheckpointFromAgentDetail(firstDetail);
   return {
     sourceRunId,
     sourceStepId: installStep?.id ?? backupStep?.id,
@@ -2188,10 +2206,34 @@ function buildRollbackContextFromSourceSteps(sourceRunId: string, sourceSteps: E
       ?? readString(readRecord(readRecord(firstDetail?.backupManifest)?.certBackup), 'certificateFingerprintSha256'),
     installedCertificateSha256: readString(installDetail?.installedCertificateSha256)
       ?? readString(firstDetail?.installedCertificateSha256),
-    checkpoint: readRecord(installDetail?.checkpoint)
-      ?? readRecord(backupDetail?.checkpoint)
-      ?? readRecord(firstDetail?.checkpoint),
+    checkpoint,
   };
+}
+
+function readCheckpointFromAgentDetail(detail: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!detail) return undefined;
+  const direct = readRecord(detail.checkpoint);
+  if (direct) return direct;
+  const candidates = Array.isArray(detail.operationResults)
+    ? detail.operationResults
+    : Array.isArray(detail.operations) ? detail.operations : [];
+  for (const item of candidates) {
+    const operation = readRecord(item);
+    const checkpoint = readRecord(operation?.checkpoint);
+    if (checkpoint) return checkpoint;
+  }
+  return undefined;
+}
+
+/** 回滚步骤保留插件和授权身份，但能力必须切换到固定 certificate.rollback。 */
+function buildRollbackPlanDraft(value: unknown): Record<string, unknown> | undefined {
+  const plan = readRecord(value);
+  if (!plan) return undefined;
+  const pluginId = readString(plan, 'pluginId');
+  if (!pluginId || !pluginId.startsWith('web.nginx.') && !pluginId.startsWith('web.apache.') && !pluginId.startsWith('app.tomcat.')) {
+    return undefined;
+  }
+  return { ...plan, planId: 'certificate.rollback', capability: 'certificate.rollback' };
 }
 
 function buildWorkflowStepOutputsFromSourceSteps(

@@ -45,6 +45,19 @@ test('Spec034.1 Resolver 只汇总可用执行位置，不选择所有者驱动'
   assert.equal('executionLocation' in result, false);
 });
 
+test('历史 ManagedTarget 未绑定 Framework 时沿用 Site 的 Framework 关系', async () => {
+  const framework = { id: 'framework_1', frameworkType: 'web.nginx', rawFacts: { serviceName: 'nginx-production' } };
+  const site = { id: 'site_1', frameworkInstanceId: framework.id };
+  const historicalTarget = { ...target, frameworkInstanceId: undefined, siteId: site.id } as ManagedTargetDto;
+  const port = assetsPort(historicalTarget, host, site, framework);
+  const resolver = new ManagedTargetContextResolver(port, { getRegistration: async () => agent() }, { findByHostId: async () => undefined });
+
+  const result = await resolver.resolveTopology('tenant_1', historicalTarget.id);
+
+  assert.equal(result.serviceInstance?.id, framework.id);
+  assert.equal(result.serviceInstance?.rawFacts.serviceName, 'nginx-production');
+});
+
 test('Spec033 Resolver 拒绝跨租户、禁用和关系冲突目标', async () => {
   const empty = new ManagedTargetContextResolver(assetsPort(undefined, undefined), { getRegistration: async () => undefined }, { findByHostId: async () => undefined });
   await assert.rejects(() => empty.resolve('tenant_2', 'target_1'));
@@ -58,12 +71,17 @@ test('Spec033 Resolver 拒绝跨租户、禁用和关系冲突目标', async () 
   });
 });
 
-function assetsPort(managedTarget: ManagedTargetDto | undefined, managedHost: HostDto | undefined): ManagedTargetAssetsPort {
+function assetsPort(
+  managedTarget: ManagedTargetDto | undefined,
+  managedHost: HostDto | undefined,
+  managedSite?: { id: string; frameworkInstanceId: string },
+  framework?: { id: string; frameworkType: string; rawFacts: Record<string, unknown> },
+): ManagedTargetAssetsPort {
   return {
     getManagedTarget: async () => managedTarget,
     getHost: async () => managedHost,
-    getSiteAsset: async () => undefined,
-    getFrameworkInstance: async () => undefined,
+    getSiteAsset: async () => managedSite as never,
+    getFrameworkInstance: async () => framework as never,
   };
 }
 

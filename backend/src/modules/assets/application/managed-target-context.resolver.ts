@@ -51,13 +51,19 @@ export class ManagedTargetContextResolver {
 
     const host = await this.assets.getHost(tenantId, managedTarget.deviceId);
     if (!host) throw targetError('受管目标关联的 Device Root 不存在', 'MANAGED_TARGET_RELATION_INVALID', { managedTargetId, deviceId: managedTarget.deviceId });
-    const [siteAsset, serviceInstance, deviceAsset] = await Promise.all([
+    const [siteAsset, deviceAsset] = await Promise.all([
       managedTarget.siteId ? this.assets.getSiteAsset(tenantId, managedTarget.siteId) : undefined,
-      managedTarget.frameworkInstanceId ? this.assets.getFrameworkInstance(tenantId, managedTarget.frameworkInstanceId) : undefined,
       this.devices.findByHostId(tenantId, managedTarget.deviceId),
     ]);
     if (managedTarget.siteId && !siteAsset) throw targetError('受管目标关联的 Site 不存在', 'MANAGED_TARGET_RELATION_INVALID', { managedTargetId, siteId: managedTarget.siteId });
+    // 历史 ManagedTarget 可能没有保存 frameworkInstanceId，但 Site 仍保留发现时的
+    // Framework 关系。沿用该已持久化关系，避免应用向导丢失 Agent 上报的运行事实。
+    const frameworkInstanceId = managedTarget.frameworkInstanceId ?? siteAsset?.frameworkInstanceId;
+    const serviceInstance = frameworkInstanceId
+      ? await this.assets.getFrameworkInstance(tenantId, frameworkInstanceId)
+      : undefined;
     if (managedTarget.frameworkInstanceId && !serviceInstance) throw targetError('受管目标关联的 FrameworkInstance 不存在', 'MANAGED_TARGET_RELATION_INVALID', { managedTargetId, frameworkInstanceId: managedTarget.frameworkInstanceId });
+    if (siteAsset?.frameworkInstanceId && !serviceInstance) throw targetError('受管目标关联的 Site FrameworkInstance 不存在', 'MANAGED_TARGET_RELATION_INVALID', { managedTargetId, siteId: siteAsset.id, frameworkInstanceId: siteAsset.frameworkInstanceId });
 
     return {
       managedTarget,

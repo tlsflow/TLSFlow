@@ -91,7 +91,7 @@ function assertCertificatePackage(
 ): void {
   const manifest = pluginPackage.manifest as Record<string, unknown>;
   assert.equal(manifest.pluginId, pluginId);
-  assert.equal(manifest.version, pluginId === 'web.iis' ? '1.0.23' : pluginId === 'web.nginx.linux' ? '1.0.5' : pluginId === 'web.nginx.windows' ? '1.0.6' : pluginId === 'web.apache.linux' ? '1.0.4' : pluginId === 'app.tomcat.linux' ? '1.0.3' : pluginId === 'web.apache.windows' ? '1.0.5' : '1.0.4');
+  assert.equal(manifest.version, pluginId === 'web.iis' ? '1.0.23' : pluginId === 'web.nginx.linux' ? '1.0.6' : pluginId === 'web.nginx.windows' ? '1.0.8' : pluginId === 'web.apache.linux' ? '1.0.4' : pluginId === 'app.tomcat.linux' ? '1.0.3' : pluginId === 'web.apache.windows' ? '1.0.5' : '1.0.4');
   assert.deepEqual((manifest.compatibility as { productFamilies?: string[] }).productFamilies, [profile.productFamily]);
   assert.equal(manifest.runtime, 'WORKFLOW_DSL');
   assert.equal(manifest.source, 'BUILTIN');
@@ -126,7 +126,9 @@ function assertCertificatePackage(
     assert.equal(validated.frameworkType, profile.frameworkType);
     assert.equal(validated.platform, profile.platform);
     assert.equal(validated.artifactKind, profile.artifactKind);
-    assert.deepEqual(validated.requiredFacts, ['frameworkType', 'site', 'tls.binding', 'certificateLocation', 'configFingerprint', 'serviceName', 'programPath']);
+    assert.deepEqual(validated.requiredFacts, pluginId === 'web.nginx.windows'
+      ? ['frameworkType', 'site', 'tls.binding', 'certificateLocation', 'configFingerprint', 'programPath']
+      : ['frameworkType', 'site', 'tls.binding', 'certificateLocation', 'configFingerprint', 'serviceName', 'programPath']);
 
     const plan = parseResource(pluginPackage.resources, resources.agentPlans[capability]) as Record<string, unknown>;
     assert.equal(plan.apiVersion, 'gcac.certificate-update-plan/v1');
@@ -144,7 +146,12 @@ function assertCertificatePackage(
     assert.equal(workflow.apiVersion, 'gcac.workflow/v1');
     const steps = Array.isArray(workflow.steps) ? workflow.steps as Array<Record<string, unknown>> : [];
     if (capability === 'certificate.deploy') {
-      if (pluginId !== 'web.iis') assert.deepEqual(steps.map((step) => step.stage), workflowStages);
+      if (pluginId !== 'web.iis') {
+        const expectedStages = pluginId === 'web.nginx.windows'
+          ? workflowStages.filter((stage) => stage !== 'refresh')
+          : workflowStages;
+        assert.deepEqual(steps.map((step) => step.stage), expectedStages);
+      }
       const rollback = Array.isArray(workflow.rollback) ? workflow.rollback as Array<Record<string, unknown>> : [];
       assert.equal(rollback.some((step) => step.name === 'backupLedger' || step.type === 'checkpoint'), false);
       if (profile.artifactKind === 'KEYSTORE') {

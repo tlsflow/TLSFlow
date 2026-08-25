@@ -662,6 +662,67 @@ func TestAtomicWriteFilePreservesDeterministicReplaceFailure(t *testing.T) {
 	}
 }
 
+func TestWindowsFilesystemBackupAndRestoreRequireSignedCheckpoint(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+	signer, err := loadAgentReceiptSigner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(fixture.Root, "nginx.crt")
+	if err := os.WriteFile(target, []byte("old-certificate"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := executeFilesystemBackup(context.Background(), agentPlanAction{
+		OperationID: "backup-nginx", OperationType: "filesystem.backup",
+		Input: map[string]any{"path": target, "ledgerRef": "execution-recovery-ledger"},
+	}, signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint, ok := detail["checkpoint"].(map[string]any)
+	if !ok || checkpoint["signature"] == "" {
+		t.Fatalf("备份必须返回签名 checkpoint: %+v", detail)
+	}
+	if err := os.WriteFile(target, []byte("new-certificate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executeFilesystemRestore(context.Background(), agentPlanAction{
+		OperationID: "restore-nginx", OperationType: "filesystem.restore",
+		Input: map[string]any{"path": target, "checkpoint": checkpoint},
+	}); err != nil {
+		t.Fatalf("签名 checkpoint 恢复失败: %v", err)
+	}
+	content, err := os.ReadFile(target)
+	if err != nil || string(content) != "old-certificate" {
+		t.Fatalf("恢复内容不正确: content=%q err=%v", content, err)
+	}
+	checkpoint["targetPath"] = filepath.Join(fixture.Root, "tampered")
+	if _, err := executeFilesystemRestore(context.Background(), agentPlanAction{
+		OperationID: "restore-nginx-tampered", OperationType: "filesystem.restore",
+		Input: map[string]any{"path": target, "checkpoint": checkpoint},
+	}); err == nil {
+		t.Fatal("篡改 checkpoint 必须被拒绝")
+	}
+	if _, err := executeFilesystemRestore(context.Background(), agentPlanAction{
+		OperationID: "restore-nginx-no-checkpoint", OperationType: "filesystem.restore",
+		Input: map[string]any{"path": target, "ledgerRef": "execution-recovery-ledger"},
+	}); err == nil {
+		t.Fatal("仅传递 ledgerRef 的恢复请求必须被拒绝")
+	}
+	checkpoint["targetPath"] = target
+	checkpoint["sha256"] = strings.Repeat("0", 64)
+	unsigned := cloneMap(checkpoint)
+	delete(unsigned, "keyId")
+	delete(unsigned, "signature")
+	checkpoint["signature"] = base64.RawURLEncoding.EncodeToString(ed25519.Sign(signer.PrivateKey, canonicalJSON(unsigned)))
+	if _, err := executeFilesystemRestore(context.Background(), agentPlanAction{
+		OperationID: "restore-nginx-digest", OperationType: "filesystem.restore",
+		Input: map[string]any{"path": target, "checkpoint": checkpoint},
+	}); err == nil {
+		t.Fatal("备份内容摘要不匹配必须被拒绝")
+	}
+}
+
 func TestV2PlanReportsPerOperationProgress(t *testing.T) {
 	fixture := newWindowsV2TestFixture(t)
 	if err := os.WriteFile(filepath.Join(fixture.Root, "managed.conf"), []byte("old"), 0o600); err != nil {

@@ -32,6 +32,8 @@ import type { DeploymentInputProjectionV1 } from '../../deployment-inputs/dto/de
 import { WorkflowDeploymentInputSaveService } from '../../deployment-inputs/application/workflow-deployment-input-save.service.js';
 import { migrateInputBindingsToContract } from '../../deployment-inputs/application/input-binding-contract-migrator.js';
 import { PgCertificatesRepository } from '../../certificates/repository/certificates.repository.js';
+import { PgBindingsRepository } from '../../bindings/repository/bindings.repository.js';
+import type { CertificateBindingDto } from '../../bindings/dto/bindings.dto.js';
 import { certificateFormats } from '../../certificates/schema/certificates.schema.js';
 import { GCAC_VERSION } from '../../../common/version.js';
 import { ApplicationOnboardingRecipeLoader } from '../../application-onboarding/recipe/application-onboarding-recipe.loader.js';
@@ -133,6 +135,7 @@ export class ManagedTargetPluginQueryService {
       this.assertTargetCapability(context, input.value.capabilityKey ?? 'certificate.deploy');
       const applicationAsset = await services.assets.getServiceAsset(input.tenantId, input.applicationAssetId);
       if (!applicationAsset) throw new AppError('RESOURCE_NOT_FOUND', 'ApplicationAsset 不存在', { applicationAssetId: input.applicationAssetId });
+      const certificateBinding = await findManagedTargetCertificateBinding(services.certificateBindings, input.tenantId, context.managedTarget.id);
       const approvalRequired = applicationAsset.deploymentStrategy?.approvalRequired === true;
 
       const capabilityKey = input.value.capabilityKey ?? 'certificate.deploy';
@@ -251,7 +254,7 @@ export class ManagedTargetPluginQueryService {
           const validation = this.bindingSaves.validate({
             pluginVersionId: plugin.id,
             contract,
-            assetContext: deploymentAssetContextBuilder.build({ applicationAsset, managedTargetContext: context }),
+            assetContext: deploymentAssetContextBuilder.build({ applicationAsset, managedTargetContext: context, certificateBinding }),
             deviceDefault: layers.device,
             targetOverride: layers.target,
             submitted,
@@ -311,7 +314,7 @@ export class ManagedTargetPluginQueryService {
       const validation = this.bindingSaves.validate({
         pluginVersionId: plugin.id,
         contract,
-        assetContext: deploymentAssetContextBuilder.build({ applicationAsset, managedTargetContext: context }),
+        assetContext: deploymentAssetContextBuilder.build({ applicationAsset, managedTargetContext: context, certificateBinding }),
         deviceDefault: layers.device,
         targetOverride: layers.target,
         currentAssetOverride: layers.asset,
@@ -437,6 +440,7 @@ export class ManagedTargetPluginQueryService {
   }): Promise<DeploymentInputProjectionV1> {
     const services = this.createServices(this.db);
     const context = await services.contexts.resolve(input.tenantId, input.managedTargetId);
+    const certificateBinding = await findManagedTargetCertificateBinding(services.certificateBindings, input.tenantId, context.managedTarget.id);
     const capabilityKey = input.capabilityKey ?? 'certificate.deploy';
     this.assertTargetCapability(context, capabilityKey);
     const compatibility = await this.createCompatibilityContext(services.devices, input.tenantId, context, capabilityKey);
@@ -498,6 +502,7 @@ export class ManagedTargetPluginQueryService {
       assetContext: deploymentAssetContextBuilder.build({
         applicationAsset: input.applicationAsset,
         managedTargetContext: context,
+        certificateBinding,
       }),
       deviceDefault: layers.device,
       targetOverride: layers.target,
@@ -654,6 +659,7 @@ export class ManagedTargetPluginQueryService {
       contexts: new ManagedTargetContextResolver(assets, new PgAgentsRepository(db), new PgDeviceAssetsRepository(db)),
       capabilities: new DeploymentCapabilityResolver(bindings, plugins),
       workflowBindings: new WorkflowExecutionBindingsService(new WorkflowExecutionBindingsRepository(db)),
+      certificateBindings: new PgBindingsRepository(assets, db),
     };
   }
 
@@ -684,6 +690,17 @@ export class ManagedTargetPluginQueryService {
     }
     return selected.id;
   }
+}
+
+async function findManagedTargetCertificateBinding(
+  repository: PgBindingsRepository,
+  tenantId: string,
+  managedTargetId: string,
+): Promise<CertificateBindingDto | undefined> {
+  const page = await repository.listCertificateBindings(tenantId, { page: 1, pageSize: 5000, filter: {} });
+  return page.items
+    .filter((binding) => binding.managedTargetId === managedTargetId)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
 }
 
 function hasBindingValues(bindings: InputBindingsV1): boolean {

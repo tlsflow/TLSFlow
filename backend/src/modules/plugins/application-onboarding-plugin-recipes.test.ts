@@ -18,6 +18,13 @@ const expected = {
     framework: 'web.apache',
     format: 'PEM',
   },
+  'web.nginx.windows': {
+    version: '1.0.7',
+    platformKey: 'web.nginx.windows',
+    displayName: 'Windows Nginx站点',
+    framework: 'web.nginx',
+    format: 'PEM',
+  },
   'web.apache.linux': {
     version: '1.0.4',
     platformKey: 'web.apache.linux',
@@ -25,9 +32,16 @@ const expected = {
     framework: 'web.apache',
     format: 'PEM',
   },
+  'web.nginx.linux': {
+    version: '1.0.6',
+    platformKey: 'web.nginx.linux',
+    displayName: 'Linux Nginx站点',
+    framework: 'web.nginx',
+    format: 'PEM',
+  },
 } as const;
 
-test('IIS 与 Windows/Linux Apache 都提供统一应用向导配方', async () => {
+test('IIS 与 Windows/Linux Apache/Nginx 都提供统一应用向导配方', async () => {
   const packages = await new BuiltinUnifiedPluginLoader().loadPackages();
   const loader = new ApplicationOnboardingRecipeLoader();
 
@@ -55,7 +69,9 @@ test('IIS 与 Windows/Linux Apache 都提供统一应用向导配方', async () 
     const zhCn = JSON.parse(plugin.resources[manifest.resources.locales?.['zh-CN'] ?? ''] ?? '{}') as Record<string, unknown>;
     const nameKey = pluginId === 'web.iis'
       ? 'plugin.webIis.name'
-      : pluginId === 'web.apache.windows' ? 'plugin.webApacheWindows.name' : 'plugin.webApacheLinux.name';
+      : pluginId === 'web.apache.windows' ? 'plugin.webApacheWindows.name'
+        : pluginId === 'web.apache.linux' ? 'plugin.webApacheLinux.name'
+          : pluginId === 'web.nginx.windows' ? 'plugin.webNginxWindows.name' : 'plugin.webNginxLinux.name';
     assert.equal(zhCn[nameKey], expectation.displayName);
   }
 });

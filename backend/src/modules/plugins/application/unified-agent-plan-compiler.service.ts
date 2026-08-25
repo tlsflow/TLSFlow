@@ -29,7 +29,7 @@ import { certificateUpdatePluginIds } from '../canonical-plugin-id/canonical-plu
 import { canonicalResourceHash } from '../../../shared/plugin-resource-hash.js';
 import { validateCertificateUpdateInputContract } from '../../deployment-inputs/certificate-update/certificate-update.contract.js';
 import { resolveCertificateUpdateSnapshot, assertCertificateUpdatePlanBinding } from '../../deployment-inputs/certificate-update/certificate-update-input.service.js';
-import { bindCertificateUpdatePlanArtifacts, compileCertificateUpdatePlanTemplate } from '../../deployment-inputs/certificate-update/certificate-update-plan.service.js';
+import { bindCertificateRollbackCheckpoint, bindCertificateUpdatePlanArtifacts, compileCertificateUpdatePlanTemplate } from '../../deployment-inputs/certificate-update/certificate-update-plan.service.js';
 
 export interface AgentV2PlanExecutionEnvelopeV1 {
   actionType: 'agent.plan.validate' | 'agent.plan.execute';
@@ -84,12 +84,13 @@ export class UnifiedAgentPlanCompilerService {
         lifetimeSeconds?: unknown;
       };
     };
+    /** 回滚阶段由源运行结果提供 Agent 已签名 checkpoint。 */
+    rollbackContext?: Record<string, unknown>;
   }): Promise<AgentV2PlanExecutionEnvelopeV1> {
-    // 这些字段由旧调用方传入，但宿主不再从它们推导产品操作或生成计划。
+    // 这些字段由旧调用方传入，但宿主不再从它们推导普通产品操作或生成计划。
     void input.executionRunId;
     void input.executionStepId;
     void input.resolvedInput;
-    void input.executionMode;
     void input.ttlSeconds;
 
     const request = input.v2Request;
@@ -108,14 +109,17 @@ export class UnifiedAgentPlanCompilerService {
 
     let plugin: Awaited<ReturnType<UnifiedPluginsApplicationService['getVersion']>> | undefined;
     let plan: AgentPlanV1;
+    const draftPlan = input.executionMode === 'ROLLBACK'
+      ? forceCertificateRollbackDraft(request.plan)
+      : request.plan;
     try {
-      plan = validateAgentPlan(request.plan);
+      plan = validateAgentPlan(draftPlan);
     } catch (error) {
-      if (!looksLikeSanitizedCertificatePlan(request.plan)) {
+      if (!looksLikeSanitizedCertificatePlan(draftPlan)) {
         failClosed(input, 'Agent v2 Plan 草案不完整或摘要无效', error);
       }
       plugin = await this.getAccessiblePlugin(input);
-      plan = this.rebuildSanitizedCertificatePlan(input, request.plan, plugin, error)
+      plan = this.rebuildSanitizedCertificatePlan(input, draftPlan, plugin, error)
         ?? failClosed(input, 'Agent v2 Plan 草案不完整或摘要无效', error);
     }
 
@@ -148,6 +152,11 @@ export class UnifiedAgentPlanCompilerService {
       // 并用绑定后的完整计划重新计算摘要，确保授权范围覆盖真实写入内容。
       plan = bindCertificateUpdatePlanArtifacts(plan, snapshot, input.resolvedInput);
       assertCertificateUpdatePlanBinding(plan, snapshot);
+      if (input.executionMode === 'ROLLBACK') {
+        const checkpoint = readRecord(input.rollbackContext?.checkpoint);
+        if (!checkpoint) failClosed(input, '证书回滚缺少源运行生成的签名 checkpoint');
+        plan = bindCertificateRollbackCheckpoint(plan, checkpoint);
+      }
       if (actionType === 'agent.plan.execute' && !plan.writeEffect) failClosed(input, 'Apply 计划必须声明 writeEffect=true');
       if (actionType === 'agent.plan.validate' && plan.writeEffect) {
         // dry-run 复用同一份计划结构，但明确把副作用标志切换为 false，
@@ -162,6 +171,9 @@ export class UnifiedAgentPlanCompilerService {
       // 不能继续沿用创建计划时的旧 artifactDigests。摘要必须从当前已验证
       // 的 Plan 重新投影，随后仍由 Policy Authority 对这组范围做最终授权。
       authorization.artifactDigests = collectPlanArtifactDigests(plan);
+      if (input.executionMode === 'ROLLBACK') {
+        authorization.actions = [...new Set(plan.operations.map((operation) => operation.operationType))];
+      }
       if (plan.pluginId === 'web.iis') {
         // IIS 原子操作不携带文件路径；旧执行快照可能仍保存发现阶段的
         // applicationHost.config/appcmd/工作目录，不能把这些事实继续当成本次
@@ -435,6 +447,15 @@ function looksLikeSanitizedCertificatePlan(value: unknown): boolean {
   return Boolean(pluginId && certificateUpdatePluginIds.includes(pluginId as never)
     && capability && ['certificate.deploy', 'certificate.rollback', 'certificate.verify'].includes(capability)
     && operations.some((operation) => readStringValue(readRecord(operation)?.operationType)?.startsWith('certificate.') === true));
+}
+
+/** 回滚运行不能复用 deploy 草案；只替换能力元数据，实际操作从固定 rollback 模板重建。 */
+function forceCertificateRollbackDraft(value: unknown): unknown {
+  const candidate = readRecord(value);
+  if (!candidate) return value;
+  const pluginId = readStringValue(candidate.pluginId);
+  if (!pluginId || !certificateUpdatePluginIds.includes(pluginId as never)) return value;
+  return { ...candidate, capability: 'certificate.rollback', planId: 'certificate.rollback' };
 }
 
 function localPolicyCoversAuthorization(

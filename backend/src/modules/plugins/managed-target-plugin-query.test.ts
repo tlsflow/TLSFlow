@@ -495,7 +495,6 @@ test('真实 Windows Host 的 web.nginx ManagedTarget 可选择 Windows 证书�
         certificatePath: 'D:/runtime/nginx/conf/certs/portal.crt',
         privateKeyPath: 'D:/runtime/nginx/conf/certs/portal.key',
         sourceConfigPath: 'D:/runtime/nginx/conf/nginx.conf',
-        serviceName: 'nginx-production',
         programPath: 'D:/runtime/nginx/nginx.exe',
         configFingerprint: 'a'.repeat(64),
         confidence: 'EXACT',
@@ -525,6 +524,32 @@ test('真实 Windows Host 的 web.nginx ManagedTarget 可选择 Windows 证书�
   assert.ok(windowsPlugin, JSON.stringify(compatible.items));
   assert.equal(windowsPlugin.compatible, true, JSON.stringify(windowsPlugin.reasons));
   assert.deepEqual(windowsPlugin.executionLocations, ['AGENT']);
+
+  // 真实数据库投影回归：目标证书位置缺少 serviceName 时，必须从 Framework rawFacts 回填，
+  // 否则应用资产向导会错误地提示 target.certificateLocation.serviceName 缺失。
+  const projection = await new ManagedTargetPluginQueryService(db).projectApplicationAssetPluginInputs({
+    tenantId,
+    managedTargetId: target.id,
+    pluginVersionId: windowsPlugin.pluginVersionId,
+    certificateFormatId: 'format-existing',
+    applicationAsset: {
+      id: 'draft',
+      address: 'portal.example.test',
+      port: 443,
+      protocol: 'HTTPS',
+      displayName: 'Portal',
+    },
+    inputBindings: {
+      apiVersion: 'gcac.input-bindings/v1',
+      variables: {},
+      connections: {},
+      credentials: {},
+      artifacts: {},
+    },
+  });
+  assert.equal(projection.fixedValues.find((item) => item.slot === 'serviceName')?.value, 'nginx-production');
+  assert.equal(projection.issues.some((issue) => issue.path === 'target.certificateLocation.serviceName'), false);
+
   const linuxPlugin = compatible.items.find((item) => item.pluginId === 'web.nginx.linux');
   assert.ok(linuxPlugin);
   assert.equal(linuxPlugin.compatible, false);

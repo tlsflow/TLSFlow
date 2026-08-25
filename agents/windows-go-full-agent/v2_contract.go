@@ -858,7 +858,7 @@ func executeAgentPlan(ctx context.Context, plan agentPlanV2, token AgentCapabili
 			case "filesystem.read":
 				operationDetail, err = executeFilesystemRead(operationCtx, operation)
 			case "filesystem.backup":
-				operationDetail, err = executeFilesystemBackup(operationCtx, operation)
+				operationDetail, err = executeFilesystemBackup(operationCtx, operation, signer)
 			case "certificate.material.validate":
 				operationDetail, err = executeCertificateMaterialValidate(operationCtx, operation)
 			case "certificate.store.inspect":
@@ -882,7 +882,7 @@ func executeAgentPlan(ctx context.Context, plan agentPlanV2, token AgentCapabili
 			case "filesystem.atomic_replace":
 				err = executeFileReplace(operationCtx, operation)
 			case "filesystem.restore":
-				err = errors.New("filesystem.restore requires a signed checkpoint")
+				operationDetail, err = executeFilesystemRestore(operationCtx, operation)
 			case "service.start", "service.stop", "service.reload":
 				err = executeAllowlistedService(operationCtx, operation)
 			case "service.restart":
@@ -1275,7 +1275,9 @@ func executeFilesystemRead(ctx context.Context, operation agentPlanAction) (map[
 	}}, nil
 }
 
-func executeFilesystemBackup(ctx context.Context, operation agentPlanAction) (map[string]any, error) {
+// executeFilesystemBackup 在 Agent 本机创建固定备份并签发恢复 checkpoint。
+// 回滚只接受该 checkpoint，不能用控制面的 ledgerRef 猜测恢复位置。
+func executeFilesystemBackup(ctx context.Context, operation agentPlanAction, signer agentReceiptSigner) (map[string]any, error) {
 	path := stringValue(operation.Input, "path")
 	if !isSafeWindowsAbsolutePath(path) || stringValue(operation.Input, "ledgerRef") != "execution-recovery-ledger" {
 		return nil, errors.New("filesystem.backup requires an absolute path and recovery ledger")
@@ -1283,26 +1285,166 @@ func executeFilesystemBackup(ctx context.Context, operation agentPlanAction) (ma
 	if err := agentContextError(ctx); err != nil {
 		return nil, err
 	}
-	backupPath := path + ".gcac-backup"
-	source, err := os.Open(path)
+	cleanPath := filepath.Clean(path)
+	backupPath := cleanPath + ".gcac-backup"
+	info, err := os.Lstat(cleanPath)
+	if os.IsNotExist(err) {
+		checkpoint := map[string]any{
+			"schemaVersion": "gcac.windows.signed-checkpoint/v1",
+			"operationId":   operation.OperationID,
+			"targetPath":    cleanPath,
+			"backupPath":    backupPath,
+			"existed":       false,
+			"mode":          0,
+			"sha256":        "",
+		}
+		return signedCheckpointResult(checkpoint, signer)
+	}
 	if err != nil {
 		return nil, err
 	}
-	defer source.Close()
-	backup, err := os.OpenFile(backupPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return nil, errors.New("filesystem.backup refuses symbolic links and non-regular files")
+	}
+	content, err := os.ReadFile(cleanPath)
 	if err != nil {
 		return nil, err
 	}
-	digest := sha256.New()
-	bytesCopied, copyErr := io.Copy(io.MultiWriter(backup, digest), source)
-	closeErr := backup.Close()
-	if copyErr != nil {
-		return nil, unknownOperationError(fmt.Errorf("备份复制已开始但未完成: %w", copyErr))
+	digest := sha256.Sum256(content)
+	if err := atomicWriteFile(backupPath, content, 0o600); err != nil {
+		return nil, unknownOperationError(fmt.Errorf("备份文件已写入但结果不明: %w", err))
 	}
-	if closeErr != nil {
-		return nil, unknownOperationError(fmt.Errorf("备份文件已写入但关闭结果不明: %w", closeErr))
+	if err := agentContextError(ctx); err != nil {
+		return nil, unknownOperationError(fmt.Errorf("备份已写入但操作上下文已取消: %w", err))
 	}
-	return map[string]any{"status": "SUCCEEDED", "backupPath": filepath.Clean(backupPath), "bytesCopied": bytesCopied, "sha256": hex.EncodeToString(digest.Sum(nil))}, nil
+	checkpoint := map[string]any{
+		"schemaVersion": "gcac.windows.signed-checkpoint/v1",
+		"operationId":   operation.OperationID,
+		"targetPath":    cleanPath,
+		"backupPath":    backupPath,
+		"existed":       true,
+		"mode":          int(info.Mode().Perm()),
+		"sha256":        hex.EncodeToString(digest[:]),
+		"bytes":         len(content),
+	}
+	result, err := signedCheckpointResult(checkpoint, signer)
+	if err != nil {
+		return nil, err
+	}
+	result["backupPath"] = backupPath
+	result["bytesCopied"] = len(content)
+	result["sha256"] = hex.EncodeToString(digest[:])
+	return result, nil
+}
+
+func signedCheckpointResult(checkpoint map[string]any, signer agentReceiptSigner) (map[string]any, error) {
+	if strings.TrimSpace(signer.KeyID) == "" || len(signer.PrivateKey) != ed25519.PrivateKeySize {
+		return nil, errors.New("Agent checkpoint 签名器不可用")
+	}
+	signature := base64.RawURLEncoding.EncodeToString(ed25519.Sign(signer.PrivateKey, canonicalJSON(checkpoint)))
+	signed := make(map[string]any, len(checkpoint)+2)
+	for key, value := range checkpoint {
+		signed[key] = value
+	}
+	signed["keyId"] = signer.KeyID
+	signed["signature"] = signature
+	return map[string]any{"status": "SUCCEEDED", "checkpoint": signed}, nil
+}
+
+func executeFilesystemRestore(ctx context.Context, operation agentPlanAction) (map[string]any, error) {
+	path := stringValue(operation.Input, "path")
+	if !isSafeWindowsAbsolutePath(path) {
+		return nil, errors.New("filesystem.restore requires an absolute target path")
+	}
+	checkpoint, ok := operation.Input["checkpoint"].(map[string]any)
+	if !ok {
+		return nil, errors.New("filesystem.restore requires a signed checkpoint")
+	}
+	if err := validateSignedCheckpoint(path, checkpoint); err != nil {
+		return nil, err
+	}
+	if err := agentContextError(ctx); err != nil {
+		return nil, err
+	}
+	cleanPath := filepath.Clean(path)
+	if info, err := os.Lstat(cleanPath); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("filesystem.restore refuses symbolic link targets")
+	}
+	existed, _ := checkpoint["existed"].(bool)
+	if !existed {
+		if err := os.Remove(cleanPath); err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+		return map[string]any{"status": "SUCCEEDED", "restored": true, "existed": false, "targetPath": cleanPath}, nil
+	}
+	backupPath := stringValue(checkpoint, "backupPath")
+	backupInfo, err := os.Lstat(backupPath)
+	if err != nil {
+		return nil, err
+	}
+	if backupInfo.Mode()&os.ModeSymlink != 0 || !backupInfo.Mode().IsRegular() {
+		return nil, errors.New("filesystem.restore refuses symbolic link or non-regular backup")
+	}
+	content, err := os.ReadFile(backupPath)
+	if err != nil {
+		return nil, err
+	}
+	digest := sha256.Sum256(content)
+	actualDigest := hex.EncodeToString(digest[:])
+	if actualDigest != strings.ToLower(stringValue(checkpoint, "sha256")) {
+		return nil, errors.New("filesystem.restore backup digest does not match checkpoint")
+	}
+	if err := atomicWriteFile(cleanPath, content, checkpointMode(checkpoint)); err != nil {
+		return nil, err
+	}
+	return map[string]any{"status": "SUCCEEDED", "restored": true, "existed": true, "targetPath": cleanPath, "restoredSha256": actualDigest}, nil
+}
+
+func validateSignedCheckpoint(path string, checkpoint map[string]any) error {
+	if stringValue(checkpoint, "schemaVersion") != "gcac.windows.signed-checkpoint/v1" {
+		return errors.New("filesystem.restore checkpoint schema is unsupported")
+	}
+	cleanPath := filepath.Clean(path)
+	if stringValue(checkpoint, "targetPath") != cleanPath {
+		return errors.New("filesystem.restore checkpoint target does not match operation path")
+	}
+	keyID := stringValue(checkpoint, "keyId")
+	signature := stringValue(checkpoint, "signature")
+	unsigned := make(map[string]any, len(checkpoint))
+	for key, value := range checkpoint {
+		if key != "keyId" && key != "signature" {
+			unsigned[key] = value
+		}
+	}
+	if err := verifySignedValue(keyID, signature, unsigned, "GCAC_AGENT_RECEIPT_KEYSET_JSON"); err != nil {
+		return fmt.Errorf("filesystem.restore checkpoint signature verification failed: %w", err)
+	}
+	existed, ok := checkpoint["existed"].(bool)
+	if !ok {
+		return errors.New("filesystem.restore checkpoint existed flag is invalid")
+	}
+	if !existed {
+		return nil
+	}
+	backupPath := stringValue(checkpoint, "backupPath")
+	if backupPath != cleanPath+".gcac-backup" || !isSafeWindowsAbsolutePath(backupPath) {
+		return errors.New("filesystem.restore checkpoint backup path is invalid")
+	}
+	if !isSHA256Hex(stringValue(checkpoint, "sha256")) {
+		return errors.New("filesystem.restore checkpoint digest is invalid")
+	}
+	if _, ok := checkpoint["mode"]; !ok {
+		return errors.New("filesystem.restore checkpoint mode is missing")
+	}
+	return nil
+}
+
+func checkpointMode(checkpoint map[string]any) os.FileMode {
+	value, ok := integerValue(checkpoint["mode"])
+	if !ok || value <= 0 {
+		return 0o600
+	}
+	return os.FileMode(value) & os.ModePerm
 }
 
 func executeCertificateMaterialValidate(ctx context.Context, operation agentPlanAction) (map[string]any, error) {

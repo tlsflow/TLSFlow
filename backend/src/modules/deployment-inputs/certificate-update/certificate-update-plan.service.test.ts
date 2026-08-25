@@ -68,7 +68,7 @@ test('六个 Agent Plan 模板都能展开为绑定固定版本和资源摘要�
       'timeoutSeconds',
       'workingDirectory',
     ].sort());
-    assert.deepEqual(result.authorization.allowedServices, [snapshot.serviceName]);
+    assert.deepEqual(result.authorization.allowedServices, snapshot.serviceName ? [snapshot.serviceName] : []);
   assert.deepEqual(result.authorization.artifactDigests, [snapshot.artifactDigest, snapshot.programSha256]);
   const commandRules = result.authorization.commandRules as Array<Record<string, unknown>>;
   assert.equal(commandRules.length, result.plan.operations.filter((operation) => operation.operationType === 'command.execute_allowlisted').length);
@@ -85,6 +85,21 @@ test('六个 Agent Plan 模板都能展开为绑定固定版本和资源摘要�
   });
     assert.equal(result.authorization.lifetimeSeconds, 300);
   }
+});
+
+test('Windows Nginx 非 SCM 计划不生成服务授权或 service.status 操作', () => {
+  const pluginId = 'web.nginx.windows';
+  const snapshot = createCertificateUpdateSnapshot(pluginId, { location: { serviceName: undefined } });
+  const result = compileCertificateUpdatePlanTemplate({
+    templateText: loadCertificateUpdateResource(pluginId, 'agent-plans/deploy.json'),
+    snapshot,
+    pluginVersionId: `${pluginId}-version-1`,
+    agentId: 'agent-1',
+    tenantId: 'tenant-1',
+  });
+
+  assert.deepEqual(result.authorization.allowedServices, []);
+  assert.equal(result.plan.operations.some((operation) => operation.operationType === 'service.status'), false);
 });
 
 test('证书目标内容会同时绑定到备份和替换操作，供 Agent 判断幂等 no-op', () => {

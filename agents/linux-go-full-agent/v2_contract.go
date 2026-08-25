@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -628,6 +629,9 @@ func validateAgentPlan(plan agentPlanV2, token AgentCapabilityTokenV1) error {
 			return errors.New("operation artifact is outside token scope")
 		}
 	}
+	if err := validateLinuxCertificateMaterialPair(plan.Operations); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -1153,11 +1157,15 @@ func executeFilesystemRestore(ctx context.Context, operation agentPlanAction) (m
 	if err != nil {
 		return nil, err
 	}
+	digest := sha256.Sum256(content)
+	actualDigest := hex.EncodeToString(digest[:])
+	if actualDigest != strings.ToLower(v2StringValue(checkpoint, "sha256")) {
+		return nil, errors.New("filesystem.restore backup digest does not match checkpoint")
+	}
 	if err := atomicWriteFile(cleanPath, content, checkpointMode(checkpoint)); err != nil {
 		return nil, err
 	}
-	digest := sha256.Sum256(content)
-	return map[string]any{"status": "SUCCEEDED", "restored": true, "existed": true, "targetPath": cleanPath, "restoredSha256": hex.EncodeToString(digest[:])}, nil
+	return map[string]any{"status": "SUCCEEDED", "restored": true, "existed": true, "targetPath": cleanPath, "restoredSha256": actualDigest}, nil
 }
 
 func validateSignedCheckpoint(path string, checkpoint map[string]any) error {
@@ -1219,65 +1227,148 @@ func executeCertificateMaterialValidate(ctx context.Context, operation agentPlan
 	if err := agentContextError(ctx); err != nil {
 		return nil, err
 	}
-	certificates, privateKeys, err := parseLinuxPEMMaterial(path, content)
+	material, err := parseLinuxPEMMaterialDetails(path, content)
 	if err != nil {
 		return nil, err
 	}
 	digest := sha256.Sum256(content)
-	return map[string]any{
+	detail := map[string]any{
 		"status": "SUCCEEDED", "path": filepath.Clean(path), "storageKind": storageKind,
 		"bytes": len(content), "contentSha256": hex.EncodeToString(digest[:]),
-		"certificateCount": certificates, "privateKeyCount": privateKeys,
-	}, nil
+		"certificateCount": len(material.certificatePublicKeys), "privateKeyCount": len(material.privateKeyPublicKeys),
+	}
+	if len(material.certificatePublicKeys) > 0 {
+		keyDigest := sha256.Sum256(material.certificatePublicKeys[0])
+		detail["certificatePublicKeySha256"] = hex.EncodeToString(keyDigest[:])
+	}
+	if len(material.privateKeyPublicKeys) > 0 {
+		keyDigest := sha256.Sum256(material.privateKeyPublicKeys[0])
+		detail["privateKeyPublicKeySha256"] = hex.EncodeToString(keyDigest[:])
+	}
+	return detail, nil
 }
 
 func parseLinuxPEMMaterial(path string, content []byte) (int, int, error) {
+	details, err := parseLinuxPEMMaterialDetails(path, content)
+	if err != nil {
+		return 0, 0, err
+	}
+	return len(details.certificatePublicKeys), len(details.privateKeyPublicKeys), nil
+}
+
+type linuxPEMMaterialDetails struct {
+	certificatePublicKeys [][]byte
+	privateKeyPublicKeys  [][]byte
+}
+
+func parseLinuxPEMMaterialDetails(path string, content []byte) (linuxPEMMaterialDetails, error) {
 	remaining := content
-	certificateCount, privateKeyCount := 0, 0
+	details := linuxPEMMaterialDetails{}
 	for {
 		block, rest := pem.Decode(remaining)
 		if block == nil {
 			if strings.TrimSpace(string(remaining)) != "" {
-				return 0, 0, errors.New("证书材料包含无法解析的 PEM 数据")
+				return linuxPEMMaterialDetails{}, errors.New("证书材料包含无法解析的 PEM 数据")
 			}
 			break
 		}
 		remaining = rest
 		switch block.Type {
 		case "CERTIFICATE":
-			if _, err := x509.ParseCertificate(block.Bytes); err != nil {
-				return 0, 0, fmt.Errorf("证书 PEM 无法解析: %w", err)
+			certificate, err := x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				return linuxPEMMaterialDetails{}, fmt.Errorf("证书 PEM 无法解析: %w", err)
 			}
-			certificateCount++
+			publicKey, err := marshalLinuxPublicKey(certificate.PublicKey)
+			if err != nil {
+				return linuxPEMMaterialDetails{}, fmt.Errorf("证书公钥无法解析: %w", err)
+			}
+			details.certificatePublicKeys = append(details.certificatePublicKeys, publicKey)
 		case "PRIVATE KEY", "RSA PRIVATE KEY", "EC PRIVATE KEY", "DSA PRIVATE KEY":
-			if err := parseLinuxPrivateKey(block); err != nil {
-				return 0, 0, err
+			privateKey, err := parseLinuxPrivateKey(block)
+			if err != nil {
+				return linuxPEMMaterialDetails{}, err
 			}
-			privateKeyCount++
+			publicKey, err := marshalLinuxPrivatePublicKey(privateKey)
+			if err != nil {
+				return linuxPEMMaterialDetails{}, err
+			}
+			details.privateKeyPublicKeys = append(details.privateKeyPublicKeys, publicKey)
 		default:
-			return 0, 0, fmt.Errorf("不支持的 PEM 块类型: %s", block.Type)
+			return linuxPEMMaterialDetails{}, fmt.Errorf("不支持的 PEM 块类型: %s", block.Type)
 		}
 	}
-	if certificateCount == 0 && privateKeyCount == 0 {
-		return 0, 0, errors.New("证书材料不包含有效 PEM 块")
+	if len(details.certificatePublicKeys) == 0 && len(details.privateKeyPublicKeys) == 0 {
+		return linuxPEMMaterialDetails{}, errors.New("证书材料不包含有效 PEM 块")
 	}
-	if strings.Contains(strings.ToLower(filepath.Base(path)), "key") && privateKeyCount == 0 {
-		return 0, 0, errors.New("私钥路径未包含私钥 PEM")
+	if strings.Contains(strings.ToLower(filepath.Base(path)), "key") && len(details.privateKeyPublicKeys) == 0 {
+		return linuxPEMMaterialDetails{}, errors.New("私钥路径未包含私钥 PEM")
 	}
-	return certificateCount, privateKeyCount, nil
+	return details, nil
 }
 
-func parseLinuxPrivateKey(block *pem.Block) error {
-	if _, err := x509.ParsePKCS8PrivateKey(block.Bytes); err == nil {
+func parseLinuxPrivateKey(block *pem.Block) (crypto.PrivateKey, error) {
+	if key, err := x509.ParsePKCS8PrivateKey(block.Bytes); err == nil {
+		return key, nil
+	}
+	if key, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+		return key, nil
+	}
+	if key, err := x509.ParseECPrivateKey(block.Bytes); err == nil {
+		return key, nil
+	}
+	return nil, errors.New("私钥 PEM 无法解析")
+}
+
+func marshalLinuxPublicKey(publicKey crypto.PublicKey) ([]byte, error) {
+	der, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		return nil, err
+	}
+	return der, nil
+}
+
+func marshalLinuxPrivatePublicKey(privateKey crypto.PrivateKey) ([]byte, error) {
+	publicProvider, ok := privateKey.(interface{ Public() crypto.PublicKey })
+	if !ok {
+		return nil, errors.New("私钥类型不支持公钥匹配校验")
+	}
+	return marshalLinuxPublicKey(publicProvider.Public())
+}
+
+// 证书和私钥分别合法并不代表可以被 Nginx 成对使用。写入前必须证明
+// 计划内的 leaf 证书公钥与私钥公钥一致，避免 reload 后才出现 TLS 握手失败。
+func validateLinuxCertificateMaterialPair(operations []agentPlanAction) error {
+	var certificatePublicKeys [][]byte
+	var privateKeyPublicKeys [][]byte
+	for _, operation := range operations {
+		if operation.OperationType != "certificate.material.validate" {
+			continue
+		}
+		encoded := v2StringValue(operation.Input, "contentBase64")
+		if encoded == "" {
+			continue
+		}
+		content, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			return fmt.Errorf("证书材料 Base64 无法解析: %w", err)
+		}
+		details, err := parseLinuxPEMMaterialDetails(v2StringValue(operation.Input, "path"), content)
+		if err != nil {
+			return err
+		}
+		certificatePublicKeys = append(certificatePublicKeys, details.certificatePublicKeys...)
+		privateKeyPublicKeys = append(privateKeyPublicKeys, details.privateKeyPublicKeys...)
+	}
+	if len(certificatePublicKeys) == 0 || len(privateKeyPublicKeys) == 0 {
 		return nil
 	}
-	if _, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+	// PEM 文件的第一个 CERTIFICATE 块是 leaf；后续块属于证书链，不能拿链证书
+	// 的公钥替代站点证书完成匹配。
+	if bytes.Equal(certificatePublicKeys[0], privateKeyPublicKeys[0]) {
 		return nil
 	}
-	if _, err := x509.ParseECPrivateKey(block.Bytes); err == nil {
-		return nil
-	}
-	return errors.New("私钥 PEM 无法解析")
+	return errors.New("证书与私钥公钥不匹配")
 }
 
 func decodeOperationContent(input map[string]any) ([]byte, error) {

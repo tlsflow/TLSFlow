@@ -15,7 +15,7 @@ export interface CertificateUpdateInputContractV1 {
   platform: CertificateUpdatePlatform;
   artifactKind: CertificateUpdateArtifactKind;
   deploymentInputContract: DeploymentInputContractV1;
-  requiredFacts: readonly ['frameworkType', 'site', 'tls.binding', 'certificateLocation', 'configFingerprint', 'serviceName', 'programPath'];
+  requiredFacts: readonly string[];
 }
 
 const pluginProfiles: Readonly<Record<CertificateUpdatePluginId, Pick<CertificateUpdateInputContractV1, 'frameworkType' | 'platform' | 'artifactKind'>>> = {
@@ -41,13 +41,15 @@ export function validateCertificateUpdateInputContract(input: unknown): Certific
   exact(value.frameworkType, expected.frameworkType, 'frameworkType');
   exact(value.platform, expected.platform, 'platform');
   exact(value.artifactKind, expected.artifactKind, 'artifactKind');
+  const expectedFacts = pluginId === 'web.nginx.windows'
+    ? ['frameworkType', 'site', 'tls.binding', 'certificateLocation', 'configFingerprint', 'programPath']
+    : ['frameworkType', 'site', 'tls.binding', 'certificateLocation', 'configFingerprint', 'serviceName', 'programPath'];
   if (!Array.isArray(value.requiredFacts)
-    || value.requiredFacts.length !== 7
+    || value.requiredFacts.length !== expectedFacts.length
     || value.requiredFacts.some((item) => typeof item !== 'string')) {
-    fail('requiredFacts', '必须完整声明七类 Agent 事实');
+    fail('requiredFacts', `必须完整声明 ${expectedFacts.length} 类 Agent 事实`);
   }
   const requiredFacts = value.requiredFacts as unknown as CertificateUpdateInputContractV1['requiredFacts'];
-  const expectedFacts = ['frameworkType', 'site', 'tls.binding', 'certificateLocation', 'configFingerprint', 'serviceName', 'programPath'];
   if (expectedFacts.some((item, index) => requiredFacts[index] !== item)) fail('requiredFacts', '事实顺序或内容不符合固定合同');
   const deploymentInputContract = value.deploymentInputContract;
   if (!deploymentInputContract) fail('deploymentInputContract', '必须嵌入通用 DeploymentInputContractV1');

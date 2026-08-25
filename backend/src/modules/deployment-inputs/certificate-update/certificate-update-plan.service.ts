@@ -81,7 +81,7 @@ export function compileCertificateUpdatePlanTemplate(input: {
     policyVersion: template.authorization?.policyVersion ?? CERTIFICATE_UPDATE_POLICY_VERSION,
     actions: operationTypes,
     allowedPaths,
-    allowedServices: [input.snapshot.serviceName],
+    allowedServices: input.snapshot.serviceName ? [input.snapshot.serviceName] : [],
     commandRules,
     // 证书材料和配置检查程序都是 Agent 实际执行的不可变输入，两个摘要都必须进入
     // 同一份授权范围；否则输入门禁虽然能生成计划，Agent 仍会拒绝真实程序。
@@ -145,12 +145,43 @@ export function bindCertificateUpdatePlanArtifacts(
   return boundPlan;
 }
 
+/**
+ * 回滚只恢复 Agent 在备份阶段签发的 checkpoint，不应再次要求当前部署 Artifact。
+ * checkpoint 会进入完整计划摘要，随后由 Policy Authority 和 Agent 一起验证。
+ */
+export function bindCertificateRollbackCheckpoint(
+  plan: AgentPlanV1,
+  checkpoint: Record<string, unknown>,
+): AgentPlanV1 {
+  let restoreCount = 0;
+  const operations = plan.operations.map((operation) => {
+    if (operation.operationType !== 'filesystem.restore') return operation;
+    restoreCount += 1;
+    return {
+      ...operation,
+      input: {
+        ...operation.input,
+        checkpoint: structuredClone(checkpoint),
+      },
+    };
+  });
+  if (restoreCount === 0) throw new AppError('VALIDATION_FAILED', '证书回滚计划缺少 filesystem.restore 操作');
+  const boundPlan = { ...plan, operations, planDigest: '' };
+  boundPlan.planDigest = computeAgentPlanDigest(boundPlan);
+  return boundPlan;
+}
+
 function bindCertificateArtifactContent(
   operations: AgentPlanOperationV1[],
   snapshot: CertificateUpdateResolvedSnapshotV1,
   resolvedInput: ResolvedDeploymentInputV1,
   capability: string,
 ): AgentPlanOperationV1[] {
+  const needsArtifact = operations.some((operation) => operation.operationType === 'certificate.material.validate'
+    || operation.operationType === 'filesystem.backup'
+    || operation.operationType === 'filesystem.atomic_replace'
+    || operation.operationType === 'certificate.iis.binding.update');
+  if (!needsArtifact) return operations;
   const artifactName = resolvedInput.assetContext.deployment.certificateResourceName;
   const artifact = resolvedInput.artifacts.certificateArtifact
     ?? (artifactName ? resolvedInput.artifacts[artifactName] : undefined);

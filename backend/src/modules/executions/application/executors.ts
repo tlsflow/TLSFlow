@@ -339,6 +339,7 @@ export class AgentExecutorAdapter implements Executor {
       resolvedInput,
       purpose: trustInstall ? 'certificate_trust' : 'deployment',
       executionMode: input.runType === 'rollback' ? 'ROLLBACK' : input.dryRun ? 'PREFLIGHT' : 'APPLY',
+      rollbackContext: input.runType === 'rollback' ? readRecord(snapshot.rollbackContext) : undefined,
       v2Request: {
         actionType,
         plan: snapshot.plan,

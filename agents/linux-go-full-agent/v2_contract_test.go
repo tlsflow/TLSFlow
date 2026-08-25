@@ -504,6 +504,48 @@ func TestLinuxCertificateMaterialValidateParsesCertificateAndPrivateKey(t *testi
 	}
 }
 
+func TestLinuxCertificateMaterialRejectsMismatchedPrivateKey(t *testing.T) {
+	certificateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: "nginx.test"},
+		NotBefore:    time.Now().Add(-time.Minute),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &certificateKey.PublicKey, certificateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificatePem := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	matchingKeyPem := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: mustMarshalPKCS8(t, certificateKey)})
+	mismatchingKeyPem := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: mustMarshalPKCS8(t, otherKey)})
+	operations := func(keyPem []byte) []agentPlanAction {
+		return []agentPlanAction{
+			{OperationType: "certificate.material.validate", Input: map[string]any{
+				"path": filepath.Join(t.TempDir(), "site.crt"), "contentBase64": base64.StdEncoding.EncodeToString(certificatePem),
+			}},
+			{OperationType: "certificate.material.validate", Input: map[string]any{
+				"path": filepath.Join(t.TempDir(), "site.key"), "contentBase64": base64.StdEncoding.EncodeToString(keyPem),
+			}},
+		}
+	}
+	if err := validateLinuxCertificateMaterialPair(operations(matchingKeyPem)); err != nil {
+		t.Fatalf("匹配的证书和私钥必须通过: %v", err)
+	}
+	if err := validateLinuxCertificateMaterialPair(operations(mismatchingKeyPem)); err == nil {
+		t.Fatal("不匹配的证书和私钥必须在写入前被拒绝")
+	}
+}
+
 func TestLinuxFilesystemBackupAndRestoreRequireSignedCheckpoint(t *testing.T) {
 	fixture := newLinuxV2TestFixture(t)
 	signer, err := loadAgentReceiptSigner()
@@ -537,6 +579,12 @@ func TestLinuxFilesystemBackupAndRestoreRequireSignedCheckpoint(t *testing.T) {
 	content, err := os.ReadFile(target)
 	if err != nil || string(content) != "old-certificate" {
 		t.Fatalf("恢复内容不正确: content=%q err=%v", content, err)
+	}
+	if err := os.WriteFile(target+".gcac-backup", []byte("tampered-backup"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executeFilesystemRestore(context.Background(), restore); err == nil {
+		t.Fatal("篡改备份内容后摘要不匹配必须被拒绝")
 	}
 	checkpoint["targetPath"] = filepath.Join(fixture.Root, "tampered")
 	if _, err := executeFilesystemRestore(context.Background(), restore); err == nil {

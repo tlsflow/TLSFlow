@@ -201,6 +201,69 @@ describe('DeploymentAssetContextBuilder', () => {
     assert.equal(context.target?.certificateLocation?.certificatePath, 'C:/GCAC-Lab/certs/apache.crt.pem');
   });
 
+  it('从同一 Framework 的运行事实补齐历史 Windows Nginx Target 的服务名', () => {
+    const topology = managedTargetContext();
+    topology.host.osType = 'WINDOWS';
+    topology.frameworkType = 'web.nginx';
+    topology.serviceInstance = {
+      ...topology.serviceInstance!,
+      frameworkType: 'web.nginx',
+      rawFacts: {
+        source: 'runtime-effective-config',
+        configPath: 'C:/Nginx/conf/nginx.conf',
+        programPath: 'C:/Nginx/nginx.exe',
+        serviceName: 'NginxProduction',
+        configFingerprint: 'c'.repeat(64),
+      },
+    };
+    topology.managedTarget.metadata = {
+      certificateLocation: {
+        apiVersion: 'gcac.certificate-location/v1',
+        storageKind: 'PEM_FILES',
+        certificatePath: 'C:/Nginx/certs/site.crt',
+        privateKeyPath: 'C:/Nginx/certs/site.key',
+        sourceConfigPath: 'C:/Nginx/conf/nginx.conf',
+        confidence: 'EXACT',
+      },
+    };
+
+    const context = deploymentAssetContextBuilder.build({
+      applicationAsset: applicationAsset(),
+      managedTargetContext: topology,
+    });
+
+    assert.equal(context.target?.certificateLocation?.serviceName, 'NginxProduction');
+    assert.equal(context.target?.certificateLocation?.programPath, 'C:/Nginx/nginx.exe');
+    assert.equal(context.target?.certificateLocation?.configFingerprint, 'c'.repeat(64));
+  });
+
+  it('空字符串服务名不能覆盖 Framework 的有效 Windows Nginx 服务名', () => {
+    const topology = managedTargetContext();
+    topology.frameworkType = 'web.nginx';
+    topology.serviceInstance = {
+      ...topology.serviceInstance!,
+      frameworkType: 'web.nginx',
+      rawFacts: { serviceName: 'NginxProduction' },
+    };
+    topology.managedTarget.metadata = {
+      certificateLocation: {
+        apiVersion: 'gcac.certificate-location/v1',
+        storageKind: 'PEM_FILES',
+        certificatePath: 'C:/Nginx/certs/site.crt',
+        privateKeyPath: 'C:/Nginx/certs/site.key',
+        serviceName: '',
+        confidence: 'EXACT',
+      },
+    };
+
+    const context = deploymentAssetContextBuilder.build({
+      applicationAsset: applicationAsset(),
+      managedTargetContext: topology,
+    });
+
+    assert.equal(context.target?.certificateLocation?.serviceName, 'NginxProduction');
+  });
+
   it('从标准发现的 listener 事实补齐各 Web 框架的配置检查参数', () => {
     const cases = [
       { frameworkType: 'web.apache', args: ['-t', '-d', 'C:/Apache', '-f', 'C:/Apache/conf/httpd.conf'] },

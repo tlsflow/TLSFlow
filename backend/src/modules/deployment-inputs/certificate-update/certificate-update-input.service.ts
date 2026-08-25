@@ -28,7 +28,8 @@ export interface CertificateUpdateResolvedSnapshotV1 {
   storeThumbprint?: string;
   paths: string[];
   sourceConfigPath: string;
-  serviceName: string;
+  /** Windows Nginx 可能由 nginx.exe 直接运行，不一定注册为 SCM 服务。 */
+  serviceName?: string;
   programPath: string;
   programSha256: string;
   workingDirectory: string;
@@ -109,7 +110,11 @@ export function resolveCertificateUpdateSnapshot(
   assertOptionalDigestFact(resolved.variables.configFingerprint, configFingerprint, 'configFingerprint');
   assertOptionalDigestFact(target.metadata.configFingerprint, configFingerprint, 'configFingerprint');
   const sourceConfigPath = requiredPath(location.sourceConfigPath, 'sourceConfigPath');
-  const serviceName = isIisCertificateStore ? (readString(location.serviceName) ?? 'W3SVC') : requiredIdentifier(location.serviceName, 'serviceName');
+  const serviceName = isIisCertificateStore
+    ? (readString(location.serviceName) ?? 'W3SVC')
+    : !contract.requiredFacts.includes('serviceName')
+      ? optionalIdentifier(location.serviceName, 'serviceName')
+      : requiredIdentifier(location.serviceName, 'serviceName');
   const programPath = isIisCertificateStore
     ? (readString(location.programPath) ?? 'C:/Windows/System32/inetsrv/appcmd.exe')
     : requiredPath(location.programPath, 'programPath');
@@ -119,7 +124,7 @@ export function resolveCertificateUpdateSnapshot(
   assertOptionalPath(resolved.variables.chainPath, location.chainPath, 'chainPath', contract.platform);
   assertOptionalPath(resolved.variables.keystorePath, location.keystorePath, 'keystorePath', contract.platform);
   assertOptionalPath(resolved.variables.configPath, location.sourceConfigPath, 'sourceConfigPath', contract.platform);
-  assertOptionalFact(resolved.variables.serviceName, serviceName, 'serviceName');
+  if (serviceName) assertOptionalFact(resolved.variables.serviceName, serviceName, 'serviceName');
   assertOptionalPath(resolved.variables.programPath, programPath, 'programPath', contract.platform);
   const programSha256 = isIisCertificateStore
     ? rawDigest(readString(metadata.programSha256, location.programSha256, '0'.repeat(64)), 'programSha256')
@@ -178,7 +183,7 @@ export function resolveCertificateUpdateSnapshot(
     ...(location.storeThumbprint ? { storeThumbprint: location.storeThumbprint } : {}),
     paths,
     sourceConfigPath,
-    serviceName,
+    ...(serviceName ? { serviceName } : {}),
     programPath,
     programSha256,
     workingDirectory,
@@ -240,8 +245,15 @@ export function assertCertificateUpdatePlanBinding(
     if (!hasIisBinding) fail('PLAN_BINDING', 'IIS 计划缺少固定绑定验证原语');
     return;
   }
-  if (!planPaths.size || !hasFingerprint || !hasArtifact || !hasService) {
-    fail('PLAN_BINDING', '计划未绑定路径、配置指纹、Artifact 和服务事实');
+  // 非 SCM Nginx 快照没有服务名；其他插件在快照解析阶段已强制要求服务事实。
+  const serviceRequired = snapshot.serviceName !== undefined;
+  if (!serviceRequired && plan.operations.some((operation) => operation.operationType.startsWith('service.'))) {
+    fail('PLAN_BINDING', '无服务事实的计划不得包含 service 操作');
+  }
+  if (!planPaths.size || !hasFingerprint || !hasArtifact || (serviceRequired && !hasService)) {
+    fail('PLAN_BINDING', serviceRequired
+      ? '计划未绑定路径、配置指纹、Artifact 和服务事实'
+      : '计划未绑定路径、配置指纹和 Artifact');
   }
   if (plan.capability !== 'certificate.verify' && (!hasProgram || !hasProgramDigest || !hasWorkingDirectory || !hasLedger)) {
     fail('PLAN_BINDING', '变更计划未绑定程序路径、程序摘要、工作目录或执行恢复账本');
@@ -390,6 +402,12 @@ function requiredPath(value: unknown, field: string): string {
 function requiredIdentifier(value: unknown, field: string): string {
   const result = readString(value);
   if (!result || !/^[A-Za-z0-9._:-]{1,256}$/.test(result)) fail('FACT', `${field} 缺失或格式无效`);
+  return result;
+}
+
+function optionalIdentifier(value: unknown, field: string): string | undefined {
+  const result = readString(value);
+  if (result && !/^[A-Za-z0-9._:-]{1,256}$/.test(result)) fail('FACT', `${field} 格式无效`);
   return result;
 }
 

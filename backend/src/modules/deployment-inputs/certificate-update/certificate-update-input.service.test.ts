@@ -32,6 +32,34 @@ test('六个插件都能从同一类 Agent 事实生成不可变快照', () => {
   }
 });
 
+test('Windows Nginx 非 SCM 进程没有 serviceName 仍可生成快照', () => {
+  const pluginId = 'web.nginx.windows';
+  const resolved = createResolvedCertificateUpdateInput(pluginId, { location: { serviceName: undefined } });
+  const snapshot = resolveCertificateUpdateSnapshot(resolved, loadCertificateUpdateContract(pluginId));
+
+  assert.equal(snapshot.serviceName, undefined);
+  assert.doesNotThrow(() => assertCertificateUpdatePlanBinding({
+    pluginId,
+    capability: 'certificate.verify',
+    operations: [{
+      operationType: 'certificate.material.validate',
+      input: {
+        path: snapshot.paths[0],
+        configFingerprint: snapshot.configFingerprint,
+        artifactDigest: snapshot.artifactDigest,
+      },
+    }],
+  }, snapshot));
+  assert.throws(() => assertCertificateUpdatePlanBinding({
+    pluginId,
+    capability: 'certificate.verify',
+    operations: [{
+      operationType: 'service.status',
+      input: { serviceName: 'nginx' },
+    }],
+  }, snapshot), /无服务事实的计划不得包含 service 操作/);
+});
+
 test('六个平台合同优先读取固定 certificateArtifact 槽位，不受通用资源名影响', () => {
   for (const pluginId of certificateUpdatePluginIds) {
     const resolved = createResolvedCertificateUpdateInput(pluginId);

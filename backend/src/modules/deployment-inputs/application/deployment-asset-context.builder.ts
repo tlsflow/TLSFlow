@@ -215,7 +215,7 @@ function mergeSiteRuntimeFacts(metadata: Record<string, unknown>, siteMetadata: 
     ...pickCertificateLocationRuntimeFacts(listener),
     ...pickCertificateLocationRuntimeFacts(siteMetadata),
   };
-  const promoted = Object.fromEntries(Object.entries(siteFacts).filter(([key, value]) => metadata[key] === undefined && value !== undefined));
+  const promoted = Object.fromEntries(Object.entries(siteFacts).filter(([key, value]) => isMissingRuntimeFact(metadata[key]) && value !== undefined));
   return { ...metadata, ...promoted };
 }
 
@@ -235,12 +235,16 @@ function mergeFrameworkRuntimeFacts(
   };
   if (!rawFacts && !currentLocation) return metadata;
   if (currentLocation) {
+    // 历史投影可能把未识别字段写成空字符串；空值不是 Agent 已确认事实，
+    // 不能覆盖 Framework rawFacts 中的有效服务名、程序路径等运行事实。
+    const meaningfulCurrentLocation = omitEmptyRuntimeFacts(currentLocation);
+    const meaningfulFrameworkLocation = omitEmptyRuntimeFacts(frameworkLocation);
     return {
       ...metadata,
       certificateLocation: {
         ...runtimeFacts,
-        ...frameworkLocation,
-        ...currentLocation,
+        ...meaningfulFrameworkLocation,
+        ...meaningfulCurrentLocation,
       },
     };
   }
@@ -278,9 +282,9 @@ function mergeCertificateBindingFacts(
     ...pickCertificateLocationRuntimeFacts(bindingLocation),
   };
   const currentLocation = asRecord(metadata.certificateLocation);
-  const promoted = Object.fromEntries(Object.entries(bindingFacts).filter(([key, value]) => metadata[key] === undefined && value !== undefined));
+  const promoted = Object.fromEntries(Object.entries(bindingFacts).filter(([key, value]) => isMissingRuntimeFact(metadata[key]) && value !== undefined));
   const mergedLocation = Object.keys(bindingFacts).length > 0 || currentLocation
-    ? { ...bindingFacts, ...currentLocation }
+    ? { ...bindingFacts, ...omitEmptyRuntimeFacts(currentLocation) }
     : undefined;
   return {
     ...metadata,
@@ -355,7 +359,7 @@ function mergeManagedTargetListenerFacts(metadata: Record<string, unknown>): Rec
     'configFingerprint',
   ] as const;
   const promoted = Object.fromEntries(runtimeFactKeys.flatMap((key) => (
-    metadata[key] === undefined && listener[key] !== undefined ? [[key, listener[key]]] : []
+    isMissingRuntimeFact(metadata[key]) && listener[key] !== undefined ? [[key, listener[key]]] : []
   )));
   return { ...metadata, ...promoted };
 }
@@ -368,4 +372,13 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 function readNonEmptyString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+}
+
+function isMissingRuntimeFact(value: unknown): boolean {
+  return value === undefined || (typeof value === 'string' && value.trim() === '');
+}
+
+function omitEmptyRuntimeFacts(value: Record<string, unknown> | undefined): Record<string, unknown> {
+  if (!value) return {};
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => !isMissingRuntimeFact(item)));
 }
