@@ -284,6 +284,8 @@ export interface CertificateAuthorityEntity {
   notAfter?: string;
   fingerprintSha256?: string;
   crlDistributionPoint?: string;
+  /** 绑定到具体 CA 的外部 Provider 参数，避免多个 CA 共用 Agent 时互相覆盖。 */
+  configuration?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }

@@ -46,15 +46,23 @@ export class PluginCaActionDispatcher implements CaPluginActionDispatcher {
     const binding = createActionBinding(plugin, input.provider, input.binding, input.action, action, contract);
     const executionId = `ca-exec-${digest(input.idempotencyKey).slice(0, 24)}`;
     const executionStepId = `ca-step-${digest(`${input.action}:${input.idempotencyKey}`).slice(0, 24)}`;
-    const secretRef = input.provider.credentialSecretRef;
+    const authorityConfiguration = input.authority?.configuration ?? {};
+    const secretRef = stringOr(authorityConfiguration.credentialSecretRef, input.provider.credentialSecretRef ?? '');
+    const isMicrosoftAdcs = input.provider.configuration.providerKind === 'microsoft_adcs';
+    const configuredAgentId = stringOr(input.provider.configuration.agentId, '');
+    if (isMicrosoftAdcs && !configuredAgentId) {
+      throw new AppError('CA_PROVIDER_UNAVAILABLE', 'Microsoft AD CS Agent 尚未安装或关联，请先完成 Agent 安装并关联');
+    }
     const payload = {
       ...structuredClone(input.payload),
       operation: operationForAction(input.action, input.payload),
-      agentId: stringOr(input.provider.configuration.agentId, input.provider.id),
-      templateId: stringOr(input.provider.configuration.templateId, 'default'),
+      agentId: configuredAgentId || input.provider.id,
+      templateId: stringOr(authorityConfiguration.templateId, stringOr(input.provider.configuration.templateId, 'default')),
       authorityId: stringOr(input.payload.authorityId, input.provider.id),
-      ...(typeof input.provider.configuration.caConfig === 'string' && input.provider.configuration.caConfig.trim()
-        ? { caConfig: input.provider.configuration.caConfig.trim() }
+      ...(typeof authorityConfiguration.caConfig === 'string' && authorityConfiguration.caConfig.trim()
+        ? { caConfig: authorityConfiguration.caConfig.trim() }
+        : typeof input.provider.configuration.caConfig === 'string' && input.provider.configuration.caConfig.trim()
+          ? { caConfig: input.provider.configuration.caConfig.trim() }
         : {}),
       ...(secretRef ? { secretRef } : {}),
     };

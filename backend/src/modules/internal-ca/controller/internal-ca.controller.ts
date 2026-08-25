@@ -13,6 +13,7 @@ import type {
   AcmeProviderConfigurationInput,
   CreateAuthorityInput,
   CreateCaProviderInput,
+  UpdateCaProviderInput,
   CreateProviderActionBindingInput,
   CreateCaTrustDomainInput,
   CreateCertificateRequestInput,
@@ -57,7 +58,8 @@ export class InternalCaController {
     router.get('/api/v1/public/ca-crl/:tenantId/:caId', '读取公开 CA CRL', tags, (request) => this.getPublicCrl(request));
     router.get('/api/v1/ca-providers', '查询通用 CA Provider', tags, (request) => this.listProviders(request));
     router.post('/api/v1/ca-providers', '创建通用 CA Provider', tags, (request) => this.createProvider(request));
-    router.delete('/api/v1/ca-providers/:id', '删除未绑定的 CA Provider', tags, (request) => this.deleteProvider(request));
+    router.patch('/api/v1/ca-providers/:id', '更新 CA Provider', tags, (request) => this.updateProvider(request));
+    router.delete('/api/v1/ca-providers/:id', '删除或停用 CA Provider 登记', tags, (request) => this.deleteProvider(request));
     router.post('/api/v1/ca-providers/:id/test', '检查 CA Provider 合同状态', tags, (request) => this.testProvider(request));
     router.get('/api/v1/ca-providers/:id/action-bindings', '查询 CA Provider 固定动作绑定', tags, (request) => this.listProviderActionBindings(request));
     router.post('/api/v1/ca-providers/:id/action-bindings', '创建 CA Provider 固定动作绑定', tags, (request) => this.createProviderActionBinding(request));
@@ -138,6 +140,11 @@ export class InternalCaController {
   private async createProvider(request: HttpRequest) {
     await this.assertAction(request, 'ca.provider.manage', 'ca_provider');
     return { statusCode: 201, body: await this.service.createProvider(tenantId(request), objectBody(request) as unknown as CreateCaProviderInput, actorId(request), request.context) };
+  }
+
+  private async updateProvider(request: HttpRequest) {
+    await this.assertAction(request, 'ca.provider.manage', 'ca_provider');
+    return this.service.updateProvider(tenantId(request), pathId(request), objectBody(request) as unknown as UpdateCaProviderInput, actorId(request), request.context);
   }
 
   private async deleteProvider(request: HttpRequest) {
@@ -840,7 +847,8 @@ export function getInternalCaRouteContracts(): RouteContract[] {
     ['GET', '/api/v1/public/ca-crl/:tenantId/:caId', 'getPublicCaCrl', '读取公开 CA CRL', { type: 'string', format: 'binary' }],
     ['GET', '/api/v1/ca-providers', 'listCaProviders', '查询通用 CA Provider', arraySchema],
     ['POST', '/api/v1/ca-providers', 'createCaProvider', '创建通用 CA Provider', responseSchema],
-    ['DELETE', '/api/v1/ca-providers/:id', 'deleteCaProvider', '删除未绑定的 CA Provider', responseSchema],
+    ['PATCH', '/api/v1/ca-providers/:id', 'updateCaProvider', '更新 CA Provider', responseSchema],
+    ['DELETE', '/api/v1/ca-providers/:id', 'deleteCaProvider', '删除或停用 CA Provider 登记', responseSchema],
     ['POST', '/api/v1/ca-providers/:id/test', 'testCaProvider', '检查 CA Provider 合同状态', responseSchema],
     ['GET', '/api/v1/ca-providers/:id/action-bindings', 'listCaProviderActionBindings', '查询 CA Provider 固定动作绑定', arraySchema],
     ['POST', '/api/v1/ca-providers/:id/action-bindings', 'createCaProviderActionBinding', '创建 CA Provider 固定动作绑定', responseSchema],

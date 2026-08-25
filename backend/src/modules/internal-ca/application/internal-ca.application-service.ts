@@ -82,6 +82,17 @@ export interface CreateCaProviderInput {
   configuration?: Record<string, unknown>;
 }
 
+export interface UpdateCaProviderInput {
+  name?: string;
+  deploymentMode?: CaDeploymentMode;
+  runtimePlatform?: CaRuntimePlatform;
+  availabilityMode?: CaAvailabilityMode;
+  endpoint?: string;
+  credentialSecretRef?: string;
+  configuration?: Record<string, unknown>;
+  status?: CaProviderEntity['status'];
+}
+
 export interface CreateProviderActionBindingInput {
   providerId: string;
   pluginVersionId: string;
@@ -147,6 +158,7 @@ export interface CreateAuthorityInput extends PreviewCaInput {
   rootValidityDays?: number;
   intermediateValidityDays?: number;
   crlDistributionPoint?: string;
+  configuration?: Record<string, unknown>;
   confirmationToken: string;
   actorId: string;
 }
@@ -469,8 +481,61 @@ export class InternalCaApplicationService {
     return sanitizeProvider(provider);
   }
 
+  async updateProvider(
+    tenantId: string,
+    providerId: string,
+    input: UpdateCaProviderInput,
+    actorId: string,
+    context?: RequestContext,
+  ): Promise<Omit<CaProviderEntity, 'credentialSecretRef'>> {
+    const current = await this.requireProvider(tenantId, providerId);
+    const updated: CaProviderEntity = {
+      ...current,
+      name: input.name === undefined ? current.name : requiredText(input.name, 'name'),
+      deploymentMode: input.deploymentMode ?? current.deploymentMode,
+      runtimePlatform: input.runtimePlatform ?? current.runtimePlatform,
+      availabilityMode: input.availabilityMode ?? current.availabilityMode,
+      endpoint: input.endpoint === undefined ? current.endpoint : optionalText(input.endpoint),
+      credentialSecretRef: input.credentialSecretRef === undefined ? current.credentialSecretRef : optionalText(input.credentialSecretRef),
+      configuration: input.configuration === undefined
+        ? current.configuration
+        : { ...current.configuration, ...structuredClone(input.configuration) },
+      status: input.status ?? current.status,
+      updatedAt: new Date().toISOString(),
+    };
+    assertProviderCombination(updated);
+    await this.repository.saveProvider(updated);
+    await this.audit('internal_ca.provider.updated', actorId, 'ca_provider.update', 'ca_provider', providerId, 'high', context, {
+      type: updated.type,
+      deploymentMode: updated.deploymentMode,
+      runtimePlatform: updated.runtimePlatform,
+    });
+    return sanitizeProvider(updated);
+  }
+
   async deleteProvider(tenantId: string, providerId: string, actorId: string, context?: RequestContext): Promise<{ id: string; deleted: true }> {
     const provider = await this.requireProvider(tenantId, providerId);
+    // AD CS Provider 通常已经关联一个外部 CA。保留历史证书和审计记录，采用停用登记而不是物理删除。
+    // 这样删除 Agent 不会破坏证书请求、吊销记录和 CA 外键，同时从可用资源列表中移除实例。
+    if (provider.type === 'plugin' && provider.configuration.providerKind === 'microsoft_adcs') {
+      const now = new Date().toISOString();
+      await this.repository.saveProvider({
+        ...provider,
+        status: 'disabled',
+        configuration: { ...provider.configuration, registrationStatus: 'deleted', deletedAt: now },
+        updatedAt: now,
+      });
+      for (const authority of await this.repository.listAuthorities(tenantId)) {
+        if (authority.providerId !== provider.id || authority.status === 'retired') continue;
+        await this.repository.saveAuthority({ ...authority, status: 'retired', updatedAt: now });
+      }
+      await this.audit('internal_ca.provider.deleted', actorId, 'ca_provider.delete', 'ca_provider', provider.id, 'high', context, {
+        type: provider.type,
+        registrationStatus: 'deleted',
+        softDeleted: true,
+      });
+      return { id: provider.id, deleted: true };
+    }
     const deleted = await this.repository.deleteUnboundProvider(tenantId, provider.id);
     if (!deleted) throw new AppError('RESOURCE_VERSION_CONFLICT', 'CA Provider 已被证书机构使用，不能删除');
     await this.audit('internal_ca.provider.deleted', actorId, 'ca_provider.delete', 'ca_provider', provider.id, 'high', context, {});
@@ -665,7 +730,7 @@ export class InternalCaApplicationService {
     }
     if (input.topologyMode === 'root_only' && input.availabilityMode === 'active_active') blockers.push('根 CA 不允许在线多节点部署。');
     if (input.deploymentMode === 'builtin' && input.runtimePlatform !== 'embedded') blockers.push('内置 CA 必须使用 embedded 运行平台。');
-    if (input.deploymentMode === 'external' && input.runtimePlatform !== 'external') blockers.push('插件 CA 必须使用 external 运行平台。');
+    if (input.deploymentMode === 'external' && !['external', 'windows', 'linux'].includes(input.runtimePlatform)) blockers.push('外部 CA 必须使用 external、windows 或 linux 运行平台。');
     const overallRecommendation = blockers.length > 0 ? 'not_recommended' : warnings.length > 0 ? 'acceptable_with_risk' : 'recommended';
     return {
       ...input,
@@ -1084,7 +1149,7 @@ export class InternalCaApplicationService {
     const keyReference = await this.repository.getKeyReference(tenantId, request.keyReferenceId);
     if (!keyReference) throw new AppError('RESOURCE_NOT_FOUND', '证书申请密钥引用不存在');
     const actionBinding = request.providerActionBindingId ? await this.repository.getProviderActionBinding(tenantId, request.providerActionBindingId) : undefined;
-    const result = await adapter.queryIssuance({ provider, providerRequestId: request.providerRequestId, actorId, actionBinding, idempotencyKey: request.idempotencyKey });
+    const result = await adapter.queryIssuance({ authority, provider, providerRequestId: request.providerRequestId, actorId, actionBinding, idempotencyKey: request.idempotencyKey });
     if (result.status !== 'issued') return this.saveNonFinalIssuance(request, result);
     return this.completeIssuedRequest(request, result, provider, authority, keyReference, actorId, context);
   }
@@ -1413,6 +1478,7 @@ export class InternalCaApplicationService {
       securityDomain: requiredText(input.securityDomain, 'securityDomain'),
       status: 'active',
       subjectCommonName: requiredText(input.commonName || input.name, 'commonName'),
+      configuration: structuredClone(input.configuration ?? {}),
       createdAt: now,
       updatedAt: now,
     });
@@ -1879,7 +1945,10 @@ function sanitizeProvider(provider: CaProviderEntity): Omit<CaProviderEntity, 'c
 function sanitizeAuthority(authority: CertificateAuthorityEntity): Omit<CertificateAuthorityEntity, 'privateKeySecretRef'> {
   const { privateKeySecretRef, ...safe } = authority;
   void privateKeySecretRef;
-  return safe;
+  if (!safe.configuration) return safe;
+  const { credentialSecretRef, ...configuration } = safe.configuration;
+  void credentialSecretRef;
+  return { ...safe, configuration };
 }
 
 function requiredText(value: string, field: string): string {

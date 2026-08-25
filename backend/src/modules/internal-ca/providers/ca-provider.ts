@@ -55,7 +55,7 @@ export interface CaProviderAdapter {
   getCapabilities(): CaProviderCapabilities;
   validateConnection(provider: CaProviderEntity): Promise<CaProviderValidationResult>;
   signCsr(command: SignCsrCommand): Promise<CaIssuanceResult>;
-  queryIssuance?(input: { provider: CaProviderEntity; providerRequestId: string; actorId: string; actionBinding?: ProviderActionBindingEntity; idempotencyKey?: string }): Promise<CaIssuanceResult>;
+  queryIssuance?(input: { provider: CaProviderEntity; authority?: CertificateAuthorityEntity; providerRequestId: string; actorId: string; actionBinding?: ProviderActionBindingEntity; idempotencyKey?: string }): Promise<CaIssuanceResult>;
   revoke?(input: { provider: CaProviderEntity; authority: CertificateAuthorityEntity; serialNumber: string; reason: string; actorId: string; actionBinding?: ProviderActionBindingEntity; idempotencyKey?: string }): Promise<{ revokedAt: string }>;
   publishCrl?(input: {
     provider: CaProviderEntity;
@@ -83,6 +83,7 @@ export interface CaPluginActionDispatcher {
     provider: CaProviderEntity;
     binding: ProviderActionBindingEntity;
     action: 'issue' | 'query' | 'revoke' | 'revocation_evidence';
+    authority?: CertificateAuthorityEntity;
     payload: Record<string, unknown>;
     actorId: string;
     idempotencyKey: string;
@@ -133,21 +134,21 @@ export class PluginCaProviderAdapter implements CaProviderAdapter {
     const output = await this.execute('issue', command.provider, binding, command.actorId, command.idempotencyKey, {
       operation: 'issue', csrPem: command.csrPem, sans: command.sans, validityDays: command.validityDays,
       profileRules: command.profileRules, serialNumber: command.serialNumber, subject: command.subject,
-    });
+    }, command.authority);
     return normalizeExternalIssuance(output);
   }
 
-  async queryIssuance(input: { provider: CaProviderEntity; providerRequestId: string; actorId: string; actionBinding?: ProviderActionBindingEntity; idempotencyKey?: string }): Promise<CaIssuanceResult> {
+  async queryIssuance(input: { provider: CaProviderEntity; authority?: CertificateAuthorityEntity; providerRequestId: string; actorId: string; actionBinding?: ProviderActionBindingEntity; idempotencyKey?: string }): Promise<CaIssuanceResult> {
     const binding = input.actionBinding;
     if (!binding?.queryAction) throw new AppError('CA_PROVIDER_ACTION_UNBOUND', '外部 CA 缺少固定查询动作绑定');
-    const output = await this.execute('query', input.provider, binding, input.actorId, input.idempotencyKey ?? `query:${input.providerRequestId}`, { operation: 'query', providerRequestId: input.providerRequestId });
+    const output = await this.execute('query', input.provider, binding, input.actorId, input.idempotencyKey ?? `query:${input.providerRequestId}`, { operation: 'query', providerRequestId: input.providerRequestId }, input.authority);
     return normalizeExternalIssuance(output);
   }
 
   async revoke(input: { provider: CaProviderEntity; authority: CertificateAuthorityEntity; serialNumber: string; reason: string; actorId: string; actionBinding?: ProviderActionBindingEntity; idempotencyKey?: string }): Promise<{ revokedAt: string }> {
     const binding = input.actionBinding;
     if (!binding?.revokeAction) throw new AppError('CA_PROVIDER_ACTION_UNBOUND', '外部 CA 缺少固定吊销动作绑定');
-    const output = await this.execute('revoke', input.provider, binding, input.actorId, input.idempotencyKey ?? `revoke:${input.authority.id}:${input.serialNumber}`, { operation: 'revoke', serialNumber: input.serialNumber, reason: input.reason });
+    const output = await this.execute('revoke', input.provider, binding, input.actorId, input.idempotencyKey ?? `revoke:${input.authority.id}:${input.serialNumber}`, { operation: 'revoke', serialNumber: input.serialNumber, reason: input.reason }, input.authority);
     const revokedAt = typeof output.revokedAt === 'string' ? output.revokedAt : undefined;
     if (!revokedAt) throw new AppError('CA_PROVIDER_RESULT_INVALID', '外部 CA 吊销回执缺少 revokedAt');
     return { revokedAt };
@@ -156,7 +157,7 @@ export class PluginCaProviderAdapter implements CaProviderAdapter {
   async publishCrl(input: Parameters<NonNullable<CaProviderAdapter['publishCrl']>>[0]) {
     const binding = input.actionBinding;
     if (!binding?.revocationEvidenceAction) throw new AppError('CA_PROVIDER_ACTION_UNBOUND', '外部 CA 缺少 CRL/撤销传播查询动作绑定');
-    const output = await this.execute('revocation_evidence', input.provider, binding, input.actorId, `crl:${input.authority.id}:${input.crlNumber}`, { operation: 'revocation_evidence', crlNumber: input.crlNumber });
+    const output = await this.execute('revocation_evidence', input.provider, binding, input.actorId, `crl:${input.authority.id}:${input.crlNumber}`, { operation: 'revocation_evidence', crlNumber: input.crlNumber }, input.authority);
     const crlPem = typeof output.crlPem === 'string' ? output.crlPem : '';
     const status = output.status === 'published' || crlPem ? 'published' : 'failed';
     if (status !== 'published') throw new AppError('CA_CRL_PUBLICATION_FAILED', '外部 CA 未返回可验证 CRL 制品');
@@ -170,9 +171,9 @@ export class PluginCaProviderAdapter implements CaProviderAdapter {
     };
   }
 
-  private async execute(action: 'issue' | 'query' | 'revoke' | 'revocation_evidence', provider: CaProviderEntity, binding: ProviderActionBindingEntity, actorId: string, idempotencyKey: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+  private async execute(action: 'issue' | 'query' | 'revoke' | 'revocation_evidence', provider: CaProviderEntity, binding: ProviderActionBindingEntity, actorId: string, idempotencyKey: string, payload: Record<string, unknown>, authority?: CertificateAuthorityEntity): Promise<Record<string, unknown>> {
     if (!this.dispatcher) throw caPluginRunnerUnavailable(action, provider);
-    return this.dispatcher.execute({ provider, binding, action, payload, actorId, idempotencyKey });
+    return this.dispatcher.execute({ provider, binding, action, payload, authority, actorId, idempotencyKey });
   }
 }
 

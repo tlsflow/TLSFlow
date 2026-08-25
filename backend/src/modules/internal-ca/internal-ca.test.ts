@@ -246,6 +246,65 @@ test('外部 Provider 可先创建，未绑定固定动作时申请被明确拒�
   }
 });
 
+test('Microsoft AD CS Provider 支持更新并可删除登记而不破坏关联 CA 历史', async () => {
+  const { db, service } = await createFixture();
+  try {
+    const tenantId = 'tenant-microsoft-adcs-management';
+    const provider = await service.createProvider(tenantId, {
+      name: 'Windows AD CS Agent 01',
+      type: 'plugin',
+      deploymentMode: 'external',
+      runtimePlatform: 'windows',
+      availabilityMode: 'single',
+      configuration: {
+        providerKind: 'microsoft_adcs',
+        profile: 'windows.agent_plan.adcs',
+        agentId: 'agent-windows-01',
+        caConfig: 'CA-SERVER\\IssuingCA',
+        templateId: 'WebServer',
+      },
+    }, 'user-admin');
+    const updated = await service.updateProvider(tenantId, provider.id, {
+      name: 'Windows AD CS Agent 01 Updated',
+      configuration: { agentId: 'agent-windows-02', templateId: 'ServerAuth' },
+    }, 'user-admin');
+    assert.equal(updated.name, 'Windows AD CS Agent 01 Updated');
+    assert.equal(updated.configuration.agentId, 'agent-windows-02');
+    assert.equal(updated.configuration.templateId, 'ServerAuth');
+
+    const preview = service.previewAuthority({
+      topologyMode: 'external_managed', deploymentMode: 'external', runtimePlatform: 'windows', availabilityMode: 'single', keyBackend: 'device',
+    });
+    const [authority] = await service.createAuthority(tenantId, {
+      providerId: provider.id,
+      name: 'Windows AD CS CA',
+      commonName: 'Windows AD CS CA',
+      securityDomain: 'production',
+      topologyMode: 'external_managed',
+      deploymentMode: 'external',
+      runtimePlatform: 'windows',
+      availabilityMode: 'single',
+      keyBackend: 'device',
+      configuration: { providerKind: 'microsoft_adcs', templateId: 'WebServer' },
+      confirmationToken: preview.confirmationToken,
+      actorId: 'user-admin',
+    });
+    assert.equal(authority?.status, 'active');
+    assert.equal(authority?.configuration?.templateId, 'WebServer');
+    assert.ok(authority?.trustDomainId);
+
+    const deleted = await service.deleteProvider(tenantId, provider.id, 'user-admin');
+    assert.deepEqual(deleted, { id: provider.id, deleted: true });
+    const [savedProvider] = await service.listProviders(tenantId);
+    const [savedAuthority] = await service.listAuthorities(tenantId);
+    assert.equal(savedProvider?.status, 'disabled');
+    assert.equal(savedProvider?.configuration.registrationStatus, 'deleted');
+    assert.equal(savedAuthority?.status, 'retired');
+  } finally {
+    await db.close();
+  }
+});
+
 test('固定 Provider 动作和兼容策略快照在申请创建时冻结', async () => {
   const { db, service } = await createFixture();
   try {
