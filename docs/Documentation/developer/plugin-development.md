@@ -137,7 +137,7 @@ docs/插件开发/<pluginId>/
 
 ### 5.4 发现映射和接入配方
 
-独立设备发现能力必须输出 `gcac.device-discovery/v2`，包含稳定键、真实父子关系、可用能力、ManagedTarget、证书和证书绑定。Nginx、Apache、Tomcat、IIS 的框架、站点、TLS 绑定和证书位置由 Windows/Linux Full Agent 从实际进程、服务、运行参数和有效配置树产生；证书更新插件只消费宿主投影结果，不得建立第二条发现链、猜测默认路径或要求用户填写 Agent 已确认的事实。具体边界见[宿主插件能力接口与调用规范](../../插件开发/20260819-宿主插件能力接口与调用规范.md)。
+独立设备发现能力必须输出 `gcac.device-discovery/v2`，包含稳定键、真实父子关系、可用能力、ManagedTarget、证书和证书绑定。Nginx、Apache、Tomcat、IIS 的框架、站点、TLS 绑定和证书位置由 Windows/Linux Full Agent 从实际进程、服务、运行参数和有效配置树产生；证书更新插件只消费宿主投影结果，不得建立第二条发现链、猜测默认路径或要求用户填写 Agent 已确认的事实。具体边界见[宿主插件能力清单](./host-plugin-capabilities.md)。
 
 应用接入配方使用 `gcac.application-onboarding/v1`，完整字段和校验规则见[宿主插件能力清单](./host-plugin-capabilities.md#应用接入配方-schema)。
 
