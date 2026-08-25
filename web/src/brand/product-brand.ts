@@ -36,9 +36,17 @@ export const productBrand = resolveProductBrand(__PRODUCT_EDITION__)
  */
 export function applyProductBranding<T>(value: T, brand: ProductBrand = productBrand): T {
   if (typeof value === 'string') {
-    return value
+    const protectedTokens: string[] = []
+    const protectedValue = value.replace(/\bGCAC_[A-Z0-9_]+\b|(^|[^A-Za-z0-9_])(gcac\.[A-Za-z0-9_.-]+)/g, (match, prefix = '', protocol = '') => {
+      const token = protocol || match
+      const placeholder = `__TLSFLOW_INTERNAL_${protectedTokens.length}__`
+      protectedTokens.push(token)
+      return protocol ? `${prefix}${placeholder}` : placeholder
+    })
+    const brandedValue = protectedValue
       .replaceAll('GCAC', brand.name)
-      .replaceAll('gcac', brand.slug) as T
+      .replaceAll('gcac', brand.slug)
+    return protectedTokens.reduce((result, token, index) => result.replaceAll(`__TLSFLOW_INTERNAL_${index}__`, token), brandedValue) as T
   }
 
   if (Array.isArray(value)) return value.map((item) => applyProductBranding(item, brand)) as T

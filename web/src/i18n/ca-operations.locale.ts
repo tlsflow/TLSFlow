@@ -14,17 +14,17 @@ export const caOperationsZhCN = {
 } as const
 
 export const caOperationsEnUS = {
-  title: 'CA Operations',
-  actions: { sync: 'Sync current view', syncing: 'Creating sync run…', search: 'Search', manageInternalCa: 'Manage Internal CA' },
-  tree: { title: 'Certificate Authorities', count: '{count} CAs', unassigned: 'Unassigned trust domain' },
-  views: { request: 'Requests', issuance: 'Issued Certificates', revocation: 'Revoked Certificates', template: 'Certificate Templates' },
+  title: 'Certificate authority operations',
+  actions: { sync: 'Sync current view', syncing: 'Creating sync run…', search: 'Search', manageInternalCa: 'Manage internal CA' },
+  tree: { title: 'Certificate authorities', count: '{count} CAs', unassigned: 'Unassigned trust domain' },
+  views: { request: 'Requests', issuance: 'Issued certificates', revocation: 'Revoked certificates', template: 'Certificate templates' },
   columns: { subject: 'Subject', identifier: 'Identifier', template: 'Template', source: 'Source', status: 'Status', observedAt: 'Observed at' },
   sources: { gcac_native: 'GCAC native', external_sync: 'External CA sync', historical_backfill: 'Historical backfill' },
   statuses: { pending: 'Pending', issued: 'Issued', rejected: 'Rejected', revoked: 'Revoked', failed: 'Failed', unknown: 'Unknown', complete: 'Complete', partial: 'Partial', stale: 'Stale', syncing: 'Syncing', queued: 'Queued', running: 'Running', succeeded: 'Succeeded', cancelled: 'Cancelled' },
   freshness: { realtime: 'Real-time', normal: 'Current', delayed: 'Delayed', stale: 'Stale', syncing: 'Syncing', offline: 'Sync failed', unknown: 'Not synchronized' },
   summary: { currentAuthority: 'Current CA', integrity: 'Data integrity', lastSuccessfulSync: 'Last successful sync', latestRun: 'Current view sync' },
   filters: { searchPlaceholder: 'Search subject, serial number, request ID, or template' },
-  messages: { loadTreeFailed: 'Failed to load the CA resource tree. Check permissions and service status.', loadRecordsFailed: 'Failed to load CA operation records.', syncFailed: 'Failed to create a CA sync run. Check Agent availability and permissions.', empty: 'No records exist for the selected CA and view.', noAuthority: 'No accessible certificate authorities', noAuthorityDescription: 'Connect or create a CA and verify that the current account has CA read access.' },
+  messages: { loadTreeFailed: 'Failed to load the CA resource tree. Check permissions and service status.', loadRecordsFailed: 'Failed to load CA operation records.', syncFailed: 'Failed to create a CA sync run. Check agent availability and permissions.', empty: 'No records exist for the selected CA and view.', noAuthority: 'No accessible certificate authorities', noAuthorityDescription: 'Connect or create a CA and verify that the current account has CA read access.' },
   aria: { authorityTree: 'Certificate authority resource tree', objectViews: 'CA operation object views', search: 'Search CA operation records' },
 } as const
 

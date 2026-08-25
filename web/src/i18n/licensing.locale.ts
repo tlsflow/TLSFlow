@@ -84,7 +84,7 @@ export const licensingLocaleMessages = {
           commercial: {
             summary: '适合标准生产环境和按需扩容',
             priceCny: '699 元 / 应用资产',
-            priceUsd: 'USD 99 / application asset',
+            priceUsd: 'USD 99 / managed application',
             features: {
               full: '全功能可用',
               usage: '可用于商业场景',
@@ -193,7 +193,7 @@ export const licensingLocaleMessages = {
         footer: { consult: '採購諮詢', faq: '授權常見問題' },
         cards: {
           community: { summary: '適合評估、自用或輕量場景', price: '免費使用', features: { full: '全功能可用', usage: '僅限非商業用途使用', automation: '包含自動化更新流程', quota: '限制 5 個應用資產', support: '社群 / 郵件支援' } },
-          commercial: { summary: '適合標準生產環境和按需擴容', priceCny: '699 元 / 應用資產', priceUsd: 'USD 99 / application asset', features: { full: '全功能可用', usage: '可用於商業場景', automation: '包含自動化更新流程', approval: '包含流程審批引擎', quota: '依需求購買應用資產', term: '授權不限使用期限', support: '1 年版本升級服務及技術支援' } },
+          commercial: { summary: '適合標準生產環境和按需擴容', priceCny: '699 元 / 應用資產', priceUsd: 'USD 99 / managed application', features: { full: '全功能可用', usage: '可用於商業場景', automation: '包含自動化更新流程', approval: '包含流程審批引擎', quota: '依需求購買應用資產', term: '授權不限使用期限', support: '1 年版本升級服務及技術支援' } },
           enterprise: { summary: '適合私有化、離線和定製合作', price: '聯絡銷售', features: { full: '全功能可用', usage: '可用於商業場景', automation: '包含自動化更新流程', approval: '包含流程審批引擎', quota: '應用資產額度按授權控制', customization: '支援外掛定製與買斷', support: '專屬技術支援' } },
         },
       },
@@ -232,7 +232,7 @@ export const licensingLocaleMessages = {
           pluginExtension: 'Plugin extensions',
         },
       },
-      quotas: { title: 'Quotas', applicationAssets: 'Application assets', managedTargets: 'Application assets', concurrentExecutions: 'Concurrent executions', plugins: 'Plugins', unlimited: 'Unlimited', usedAvailable: '{used} used / {quota} available' },
+      quotas: { title: 'Quotas', applicationAssets: 'Managed applications', managedTargets: 'Managed applications', concurrentExecutions: 'Concurrent executions', plugins: 'Plugins', unlimited: 'Unlimited', usedAvailable: '{used} used / {quota} available' },
       actions: {
         title: 'License files',
         description: 'Export an offline request for the licensing operator, then import the returned license file.',
@@ -252,9 +252,9 @@ export const licensingLocaleMessages = {
         badges: { current: 'Current tier', recommended: 'Recommended' },
         footer: { consult: 'Purchase consultation', faq: 'License FAQ' },
         cards: {
-          community: { summary: 'Best for evaluation, personal use, and light workloads', price: 'Free to use', features: { full: 'All features enabled', usage: 'For non-commercial use only', automation: 'Includes automated update workflows', quota: 'Limited to 5 application assets', support: 'Community and email support' } },
-          commercial: { summary: 'Best for standard production environments and flexible growth', priceCny: 'CNY 699 / application asset', priceUsd: 'USD 99 / application asset', features: { full: 'All features enabled', usage: 'Available for commercial use', automation: 'Includes automated update workflows', approval: 'Includes workflow approval engine', quota: 'Buy application assets as needed', term: 'No license time limit', support: '1 year of version upgrades and technical support' } },
-          enterprise: { summary: 'Best for private deployment, offline environments, and custom delivery', price: 'Contact sales', features: { full: 'All features enabled', usage: 'Available for commercial use', automation: 'Includes automated update workflows', approval: 'Includes workflow approval engine', quota: 'Application asset quota is enforced by the license', customization: 'Plugin customization and buyout support', support: 'Dedicated technical support' } },
+          community: { summary: 'Best for evaluation, personal use, and light workloads', price: 'Free to use', features: { full: 'All features enabled', usage: 'For non-commercial use only', automation: 'Includes automated update workflows', quota: 'Limited to 5 managed applications', support: 'Community and email support' } },
+          commercial: { summary: 'Best for standard production environments and flexible growth', priceCny: 'CNY 699 / managed application', priceUsd: 'USD 99 / managed application', features: { full: 'All features enabled', usage: 'Available for commercial use', automation: 'Includes automated update workflows', approval: 'Includes workflow approval engine', quota: 'Buy managed applications as needed', term: 'No license time limit', support: '1 year of version upgrades and technical support' } },
+          enterprise: { summary: 'Best for private deployment, offline environments, and custom delivery', price: 'Contact sales', features: { full: 'All features enabled', usage: 'Available for commercial use', automation: 'Includes automated update workflows', approval: 'Includes workflow approval engine', quota: 'Managed application quota is enforced by the license', customization: 'Plugin customization and buyout support', support: 'Dedicated technical support' } },
         },
       },
       messages: { loadFailed: 'Failed to load license status.', operationFailed: 'License operation failed.', exported: 'License file exported.', requestExported: 'Activation request exported.', invalidJson: 'Enter valid JSON.', licenseMissing: 'The JSON does not contain a license object.', imported: 'License imported.', importFailed: 'Failed to import license.', licenseTampered: 'License signature verification failed. The file may have been modified. Obtain the license file again.' },
@@ -304,7 +304,7 @@ export const licensingLocaleMessages = {
         footer: { consult: '購入相談', faq: 'ライセンス FAQ' },
         cards: {
           community: { summary: '評価、個人利用、軽量な用途向け', price: '無料で利用可能', features: { full: '全機能を利用可能', usage: '非商用利用に限定', automation: '自動更新ワークフローを含む', quota: 'アプリケーション資産は 5 件まで', support: 'コミュニティ / メールサポート' } },
-          commercial: { summary: '標準的な本番運用と段階的な拡張向け', priceCny: 'CNY 699 / application asset', priceUsd: 'USD 99 / application asset', features: { full: '全機能を利用可能', usage: '商用利用が可能', automation: '自動更新ワークフローを含む', approval: 'ワークフロー承認エンジンを含む', quota: '必要に応じて資産数を追加購入', term: 'ライセンス期間の制限なし', support: '1 年間のバージョンアップと技術サポート' } },
+          commercial: { summary: '標準的な本番運用と段階的な拡張向け', priceCny: 'CNY 699 / managed application', priceUsd: 'USD 99 / managed application', features: { full: '全機能を利用可能', usage: '商用利用が可能', automation: '自動更新ワークフローを含む', approval: 'ワークフロー承認エンジンを含む', quota: '必要に応じて資産数を追加購入', term: 'ライセンス期間の制限なし', support: '1 年間のバージョンアップと技術サポート' } },
           enterprise: { summary: 'プライベート配備、オフライン環境、個別対応向け', price: '営業へお問い合わせ', features: { full: '全機能を利用可能', usage: '商用利用が可能', automation: '自動更新ワークフローを含む', approval: 'ワークフロー承認エンジンを含む', quota: 'アプリケーション資産上限はライセンスで制御', customization: 'プラグインの個別開発と買い切りに対応', support: '専任技術サポート' } },
         },
       },
@@ -355,7 +355,7 @@ export const licensingLocaleMessages = {
         footer: { consult: 'Conseil achat', faq: 'FAQ licence' },
         cards: {
           community: { summary: 'Pour l’évaluation, l’usage personnel et les charges légères', price: 'Utilisation gratuite', features: { full: 'Toutes les fonctionnalités sont disponibles', usage: 'Réservé à un usage non commercial', automation: 'Inclut les workflows de mise à jour automatisés', quota: 'Limité à 5 actifs applicatifs', support: 'Support communauté / e-mail' } },
-          commercial: { summary: 'Pour la production standard et la montée en charge', priceCny: 'CNY 699 / application asset', priceUsd: 'USD 99 / application asset', features: { full: 'Toutes les fonctionnalités sont disponibles', usage: 'Utilisable en contexte commercial', automation: 'Inclut les workflows de mise à jour automatisés', approval: 'Inclut le moteur d’approbation des workflows', quota: 'Achetez des actifs applicatifs selon vos besoins', term: 'Aucune limite de durée de licence', support: '1 an de mises à niveau et de support technique' } },
+          commercial: { summary: 'Pour la production standard et la montée en charge', priceCny: 'CNY 699 / managed application', priceUsd: 'USD 99 / managed application', features: { full: 'Toutes les fonctionnalités sont disponibles', usage: 'Utilisable en contexte commercial', automation: 'Inclut les workflows de mise à jour automatisés', approval: 'Inclut le moteur d’approbation des workflows', quota: 'Achetez des actifs applicatifs selon vos besoins', term: 'Aucune limite de durée de licence', support: '1 an de mises à niveau et de support technique' } },
           enterprise: { summary: 'Pour la privatisation, le hors ligne et la livraison sur mesure', price: 'Contacter le service commercial', features: { full: 'Toutes les fonctionnalités sont disponibles', usage: 'Utilisable en contexte commercial', automation: 'Inclut les workflows de mise à jour automatisés', approval: 'Inclut le moteur d’approbation des workflows', quota: 'Le quota d’actifs applicatifs est contrôlé par la licence', customization: 'Personnalisation plugin et rachat définitif', support: 'Support technique dédié' } },
         },
       },
@@ -406,7 +406,7 @@ export const licensingLocaleMessages = {
         footer: { consult: 'Консультация по покупке', faq: 'FAQ по лицензии' },
         cards: {
           community: { summary: 'Для оценки, личного использования и легких сценариев', price: 'Бесплатное использование', features: { full: 'Доступны все функции', usage: 'Только для некоммерческого использования', automation: 'Включены автоматизированные сценарии обновления', quota: 'До 5 активов приложений', support: 'Поддержка сообщества и по e-mail' } },
-          commercial: { summary: 'Для стандартной продакшен-среды и роста по мере необходимости', priceCny: 'CNY 699 / application asset', priceUsd: 'USD 99 / application asset', features: { full: 'Доступны все функции', usage: 'Можно использовать в коммерческих сценариях', automation: 'Включены автоматизированные сценарии обновления', approval: 'Включен движок согласования процессов', quota: 'Покупайте активы приложений по мере необходимости', term: 'Без ограничения срока действия лицензии', support: '1 год обновлений версии и технической поддержки' } },
+          commercial: { summary: 'Для стандартной продакшен-среды и роста по мере необходимости', priceCny: 'CNY 699 / managed application', priceUsd: 'USD 99 / managed application', features: { full: 'Доступны все функции', usage: 'Можно использовать в коммерческих сценариях', automation: 'Включены автоматизированные сценарии обновления', approval: 'Включен движок согласования процессов', quota: 'Покупайте активы приложений по мере необходимости', term: 'Без ограничения срока действия лицензии', support: '1 год обновлений версии и технической поддержки' } },
           enterprise: { summary: 'Для приватного развёртывания, офлайн-сред и кастомной поставки', price: 'Связаться с отделом продаж', features: { full: 'Доступны все функции', usage: 'Можно использовать в коммерческих сценариях', automation: 'Включены автоматизированные сценарии обновления', approval: 'Включен движок согласования процессов', quota: 'Лимит активов приложений контролируется лицензией', customization: 'Кастомизация плагинов и бессрочный выкуп', support: 'Выделенная техническая поддержка' } },
         },
       },
@@ -457,7 +457,7 @@ export const licensingLocaleMessages = {
         footer: { consult: 'Consulta comercial', faq: 'FAQ da licença' },
         cards: {
           community: { summary: 'Para avaliação, uso pessoal e cenários leves', price: 'Uso gratuito', features: { full: 'Todos os recursos disponíveis', usage: 'Apenas para uso não comercial', automation: 'Inclui fluxos automatizados de atualização', quota: 'Limitado a 5 ativos de aplicações', support: 'Suporte por comunidade e e-mail' } },
-          commercial: { summary: 'Para produção padrão e expansão sob demanda', priceCny: 'CNY 699 / application asset', priceUsd: 'USD 99 / application asset', features: { full: 'Todos os recursos disponíveis', usage: 'Pode ser usado em cenários comerciais', automation: 'Inclui fluxos automatizados de atualização', approval: 'Inclui motor de aprovação de fluxos', quota: 'Compre ativos de aplicações conforme a necessidade', term: 'Sem limite de duração da licença', support: '1 ano de atualizações de versão e suporte técnico' } },
+          commercial: { summary: 'Para produção padrão e expansão sob demanda', priceCny: 'CNY 699 / managed application', priceUsd: 'USD 99 / managed application', features: { full: 'Todos os recursos disponíveis', usage: 'Pode ser usado em cenários comerciais', automation: 'Inclui fluxos automatizados de atualização', approval: 'Inclui motor de aprovação de fluxos', quota: 'Compre ativos de aplicações conforme a necessidade', term: 'Sem limite de duração da licença', support: '1 ano de atualizações de versão e suporte técnico' } },
           enterprise: { summary: 'Para implantação privada, ambientes offline e entrega sob medida', price: 'Fale com vendas', features: { full: 'Todos os recursos disponíveis', usage: 'Pode ser usado em cenários comerciais', automation: 'Inclui fluxos automatizados de atualização', approval: 'Inclui motor de aprovação de fluxos', quota: 'A cota de ativos de aplicações é controlada pela licença', customization: 'Customização de plugins e compra definitiva', support: 'Suporte técnico dedicado' } },
         },
       },
@@ -508,7 +508,7 @@ export const licensingLocaleMessages = {
         footer: { consult: '구매 상담', faq: '라이선스 FAQ' },
         cards: {
           community: { summary: '평가, 개인 사용, 경량 시나리오에 적합', price: '무료 사용', features: { full: '모든 기능 사용 가능', usage: '비상업적 용도에 한해 사용 가능', automation: '자동화 업데이트 워크플로 포함', quota: '애플리케이션 자산 5개까지', support: '커뮤니티 / 이메일 지원' } },
-          commercial: { summary: '표준 운영 환경과 단계적 확장에 적합', priceCny: 'CNY 699 / application asset', priceUsd: 'USD 99 / application asset', features: { full: '모든 기능 사용 가능', usage: '상업적 시나리오에서 사용 가능', automation: '자동화 업데이트 워크플로 포함', approval: '워크플로 승인 엔진 포함', quota: '필요한 만큼 자산 수 확장 구매', term: '라이선스 사용 기간 제한 없음', support: '1년 버전 업그레이드 및 기술 지원' } },
+          commercial: { summary: '표준 운영 환경과 단계적 확장에 적합', priceCny: 'CNY 699 / managed application', priceUsd: 'USD 99 / managed application', features: { full: '모든 기능 사용 가능', usage: '상업적 시나리오에서 사용 가능', automation: '자동화 업데이트 워크플로 포함', approval: '워크플로 승인 엔진 포함', quota: '필요한 만큼 자산 수 확장 구매', term: '라이선스 사용 기간 제한 없음', support: '1년 버전 업그레이드 및 기술 지원' } },
           enterprise: { summary: '프라이빗 배포, 오프라인 환경, 맞춤 협업에 적합', price: '영업팀 문의', features: { full: '모든 기능 사용 가능', usage: '상업적 시나리오에서 사용 가능', automation: '자동화 업데이트 워크플로 포함', approval: '워크플로 승인 엔진 포함', quota: '애플리케이션 자산 한도는 라이선스로 제어', customization: '플러그인 맞춤 개발과 영구 매입 지원', support: '전담 기술 지원' } },
         },
       },

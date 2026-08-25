@@ -28,4 +28,19 @@ describe('产品品牌', () => {
 
     expect(branded).toEqual({ name: 'GCAC', example: 'gcac-cert' })
   })
+
+  it('公开版保留内部环境变量和协议标识', () => {
+    const branded = applyProductBranding({
+      environment: 'GCAC_SECRET_KEK',
+      protocol: 'gcac.internal.v1',
+      userCopy: 'GCAC service'
+    }, resolveProductBrand('public'))
+
+    expect(branded).toEqual({
+      environment: 'GCAC_SECRET_KEK',
+      protocol: 'gcac.internal.v1',
+      userCopy: 'TLSFlow service'
+    })
+    expect(i18n.global.t('systemInitialization.confirm.kekTitle')).toContain('GCAC_SECRET_KEK')
+  })
 })

@@ -15,7 +15,7 @@ export default {
   acme: acmeAutomationEnUS,
   app: {
     brand: 'GCAC',
-    platform: 'Enterprise SSL Certificate Lifecycle Platform',
+    platform: 'Certificate lifecycle management platform',
     defaultBreadcrumb: 'Console',
     dashboard: 'Dashboard',
     versionLabel: 'Version {version}'
@@ -322,7 +322,7 @@ export default {
       },
       capability: {
         targetMissingDetail: 'No deployment target selected.',
-        targetSelectedDetail: 'Deployment target selected. Submit directly; run a dry-run preview manually from asset details when needed.',
+        targetSelectedDetail: 'Deployment target selected. Submit directly; run a dry-run preview manually from managed application details when needed.',
         targetSelection: 'Deployment target selection',
         targetSource: 'Deployment target'
       },
@@ -334,8 +334,8 @@ export default {
         warning: 'Warning {count}'
       },
       empty: {
-        noTargets: 'No application asset targets available',
-        selectTarget: 'Select an application asset deployment target.'
+        noTargets: 'No managed application targets available',
+        selectTarget: 'Select a managed application deployment target.'
       },
       fallback: {
         generatedByApplicationEntry: 'Generated from application entry',
@@ -353,10 +353,10 @@ export default {
         unselectedWorkflow: 'Workflow not selected'
       },
       fields: {
-        applicationTarget: 'Application asset deployment target',
-        artifactConfig: 'Artifact config',
+        applicationTarget: 'Managed application deployment target',
+        artifactConfig: 'Certificate package configuration',
         binding: 'Binding',
-        certificateAsset: 'Certificate asset',
+      certificateAsset: 'Certificate inventory item',
         certificateVariable: 'Certificate variable',
         certificateVersion: 'Certificate version',
         deploymentTarget: 'Deployment target',
@@ -380,7 +380,7 @@ export default {
         readyNext: 'Ready for next step'
       },
       placeholders: {
-        selectTarget: 'Select application asset target',
+        selectTarget: 'Select managed application target',
         targetKeyword: 'Search by domain, site, or binding information'
       },
       plan: {
@@ -389,8 +389,8 @@ export default {
       },
       preview: {
         needCertificate: 'Select certificate material first.',
-        needTarget: 'After selecting certificate material, choose application asset targets.',
-        ready: 'The selected certificate version will be deployed to {count} application asset targets.'
+        needTarget: 'After selecting certificate material, choose managed application targets.',
+        ready: 'The selected certificate version will be deployed to {count} managed application targets.'
       },
       status: {
         checksReturned: 'Precheck results returned. Decide whether to save, submit, or execute.',
@@ -401,7 +401,7 @@ export default {
       },
       steps: {
         certificate: {
-          description: 'Certificate asset and version',
+          description: 'Certificate and version',
           title: 'Select certificate material'
         },
         submit: {
@@ -409,7 +409,7 @@ export default {
           title: 'Precheck and submit'
         },
         target: {
-          description: 'Application asset, site, and binding',
+          description: 'Managed application, site, and binding',
           title: 'Select deployment target'
         }
       },
@@ -461,7 +461,7 @@ export default {
       fields: { target: 'Target host', currentVersion: 'Current version', targetVersion: 'Target version', phase: 'Current phase', planId: 'Upgrade plan', transactionId: 'Upgrade transaction' },
       values: { unknown: 'Unknown' },
       phases: { queued: 'Queued', dispatching: 'Sending authorization', accepted: 'Agent accepted', upgrading: 'Upgrading', status_checking: 'Reading result', succeeded: 'Completed', failed: 'Not completed', rolled_back: 'Rolled back', manual_required: 'Manual action required', unknown: 'Unknown' },
-      summary: { queued: 'The upgrade task is queued.', dispatching: 'Sending the upgrade authorization.', accepted: 'The Agent accepted the upgrade and is waiting for local execution.', upgrading: 'The Agent is downloading, replacing, and checking the new version.', waiting: 'Waiting for the Agent to return the result.', succeeded: 'The Agent upgraded from {currentVersion} to {targetVersion}.', failed: 'The Agent upgrade did not complete.' },
+      summary: { queued: 'The upgrade task is queued.', dispatching: 'Sending the upgrade authorization.', accepted: 'The agent accepted the upgrade and is waiting for local execution.', upgrading: 'The agent is downloading, replacing, and checking the new version.', waiting: 'Waiting for the agent to return the result.', succeeded: 'The agent upgraded from {currentVersion} to {targetVersion}.', failed: 'The agent upgrade did not complete.' },
       events: { created: 'Task created', claimed: 'Task assigned', started: 'Started reading upgrade status', progress: 'Upgrade status updated', waiting_result: 'Waiting for upgrade result', succeeded: 'Upgrade succeeded', failed: 'Upgrade failed', retry_scheduled: 'Waiting for the next status check', cancelled: 'Task cancelled' },
     },
     pluginRefresh: {
@@ -535,7 +535,7 @@ export default {
       CA_RECORD_SYNC: 'CA record sync',
       CERTIFICATE_REVOCATION: 'Certificate revocation',
       CRL_PUBLISH: 'CRL publish',
-      TRUST_DISTRIBUTION: 'Trust distribution',
+      TRUST_DISTRIBUTION: 'Trust-store distribution',
       GATEWAY_DELEGATION: 'Gateway delegation',
       WORKFLOW_RUN: 'Workflow run',
       AUTOMATION_RUN: 'Automation run',
@@ -566,7 +566,7 @@ export default {
   },
   globalSearch: {
     title: 'Global search',
-    description: 'Search certificates, device assets, system settings, and plugins.',
+    description: 'Search certificates, device inventory, system settings, and plugins.',
     inputLabel: 'Search global resources',
     inputPlaceholder: 'Enter a name, domain, fingerprint, or path',
     hint: 'Enter a keyword to start searching.',
@@ -575,7 +575,7 @@ export default {
     },
     categories: {
       certificates: 'Certificates',
-      assets: 'Device assets',
+      assets: 'Device inventory',
       settings: 'System settings',
       plugins: 'Plugins'
     },
@@ -621,7 +621,7 @@ export default {
     license: { description: 'First export an offline activation request file, then import an authorization file or paste its JSON.', createRequest: 'Export offline request file', copyRequest: 'Copy activation request', requestCopied: 'Activation request copied', importFile: 'Import authorization file', activationResponse: 'Authorization file or activation response JSON', activationResponsePlaceholder: 'Import an authorization file or paste its JSON', importResponse: 'Import authorization', configured: 'License configured.', skip: 'Skip and configure later' },
     confirm: { username: 'Admin username', locale: 'Language', theme: 'Theme', kekTitle: 'Keep GCAC_SECRET_KEK safe', kekWarning: 'GCAC_SECRET_KEK is the root key for decrypting runtime security materials. Never put it in code, logs, public documentation, or the browser. Disclosure can create a serious security risk.' },
     complete: { heading: 'System initialization is complete', licenseConfigured: 'The license is configured.', licenseSkipped: 'License setup was skipped and can be completed later from the Licensing page.' },
-    actions: { previous: 'Previous', continue: 'Continue', createAdmin: 'Create Admin and continue', finish: 'Finish initialization', login: 'Go to login' },
+    actions: { previous: 'Previous', continue: 'Continue', createAdmin: 'Create admin and continue', finish: 'Finish initialization', login: 'Go to login' },
     errors: { passwordMismatch: 'The passwords do not match.', missingSession: 'Initialization succeeded but no session was returned.', createFailed: 'Admin creation failed.', licenseFailed: 'License operation failed.', activationRequestMissing: 'No offline activation request was returned.', jsonObjectRequired: 'Enter a valid JSON object.' }
   },
   userMenu: {
@@ -657,19 +657,19 @@ export default {
   nav: {
     dashboard: 'Dashboard',
     dashboardDesc: 'Overview of applications, certificates, agents, gateways, and audit status',
-    certificates: 'Certificate management',
-    certificatesDesc: 'Certificate library, bindings, and expiry status',
-    certificateAssets: 'Certificate assets',
+    certificates: 'Certificate lifecycle',
+    certificatesDesc: 'Certificate inventory, bindings, and expiry status',
+    certificateAssets: 'Certificate inventory',
     certificateAssetsDesc: 'Certificates, private key references, fingerprints, and expiry times',
-    acmeAutomation: 'ACME certificate automation',
+    acmeAutomation: 'ACME issuance and renewal',
     acmeAutomationDesc: 'Issue, renew, and track ACME certificates',
-    certificateFormats: 'Certificate format config',
-    certificateFormatsDesc: 'Define PFX, CER, CRT, PEM, and other format rules for saved certificates',
-    assetCenter: 'Asset Center',
-    assetCenterDesc: 'Manage application, device, and cloud service assets',
-    assetManagement: 'Application Management',
-    assets: 'Application assets',
-    assetsDesc: 'Application entry points and certificate deployment targets by domain/IP',
+    certificateFormats: 'Certificate delivery formats',
+    certificateFormatsDesc: 'Define PFX, CER, CRT, PEM, and other delivery rules for saved certificates',
+    assetCenter: 'Asset inventory',
+    assetCenterDesc: 'Manage applications, devices, and cloud services',
+    assetManagement: 'Application management',
+    assets: 'Managed applications',
+    assetsDesc: 'Application entry points and certificate deployment targets by domain or IP',
     devices: 'Devices',
     agents: 'Agents',
     agentsDesc: 'Online status, heartbeat, and capability set',
@@ -691,15 +691,15 @@ export default {
     pluginsDesc: 'Provider, executor, and sandbox status',
     monitoring: 'Monitoring & audit',
     monitoringDesc: 'Alerts, audit, and certificate status',
-    monitoringAnalysis: 'Monitoring analysis',
-    monitoringAnalysisDesc: 'Analyze monitor targets, probe results, and certificate risks',
+    monitoringAnalysis: 'Monitoring analytics',
+    monitoringAnalysisDesc: 'Analyze monitoring targets, probe results, and certificate risks',
     monitorAlerts: 'Monitor alerts',
     monitorAlertsDesc: 'Expiry, drift, and execution failure events',
     monitorTls: 'TLS deep monitoring',
     monitorTlsDesc: 'Trust paths, protocol suites, compatibility simulation, and protocol details',
     audits: 'Audit logs',
     auditsDesc: 'Operation evidence and compliance exports',
-    logAudit: 'Log audit',
+    logAudit: 'Audit logs',
     logAuditDesc: 'Review audit events and export operation evidence',
     reports: 'Reports',
     reportsDesc: 'Certificate incident windows, risk response, and automation effectiveness',
@@ -711,8 +711,12 @@ export default {
     automationEffectivenessReportDesc: 'Run and target success rates with failure stages',
     settings: 'System settings',
     settingsDesc: 'Tenants, users, permissions, and system configuration',
+    settingsOverview: 'Setting',
     systemSettings: 'System settings',
     systemSettingsDesc: 'System configuration and security metadata',
+    credentials: 'Credential',
+    notifications: 'Notification',
+    licensing: 'Licensing',
     users: 'Users',
     usersDesc: 'Console users, status, and roles',
     roles: 'Roles',
@@ -728,31 +732,31 @@ export default {
     emptyDescription: 'No description',
     common: { notAvailable: 'Not available', allRelated: 'All related targets' },
     formStep: { stepProgress: 'Step {current} of {total}', previous: 'Back', next: 'Next', reviewTitle: 'Configuration summary', reviewText: 'Trigger: {trigger}; execution scope: {scope}; certificate domains: {domains}. The target snapshot is frozen when the run starts.' },
-    scheduleBuilder: { api: 'Trigger through external API', apiHelp: 'An external system calls the automation run API. Target preview and approval rules still apply to every request.', once: 'Run once at a fixed time', onceHelp: 'Choose a browser-local time. The task is not scheduled again after it runs.', recurring: 'Run periodically', scheduleHelp: 'Run on a recurring schedule. Use only when continuous polling is genuinely required.', recurringHelp: 'Run on a recurring schedule. Use only when continuous polling is genuinely required.', recurringWarningTitle: 'Periodic execution is not recommended for certificate updates', recurringWarning: 'Certificate replacement should normally be triggered after certificate issuance or scheduled once at a fixed time. Use periodic execution only for an explicit recurring-check requirement.', certificateVersionCreated: 'Certificate new-version event', certificateVersionCreatedHelp: 'The automation starts after an external source or a manual import creates a new certificate version.', runAt: 'Execution time', frequency: 'Frequency', daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', time: 'Time', weekday: 'Weekday', monthDay: 'Day of month', legacyCustom: 'Keep existing custom schedule', legacyCron: 'Existing Cron (read-only)', weekdays: { 0: 'Sunday', 1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday', 6: 'Saturday' } },
-    form: { existingAssetTitle: 'Update existing application assets only', existingAssetDescription: 'The automation only processes application assets with existing certificate bindings. It does not install certificates for the first time or add deployment targets.', certificateDomains: 'Certificate domains', certificateDomainsPlaceholder: 'Enter certificate domains separated by commas', certificateDomainsHelp: 'Only existing application-asset bindings for these certificate domains are updated.', versionSelection: 'Certificate version to deploy', versionSelectionLatest: 'Automatically use the latest certificate version', versionSelectionSpecific: 'Use specific certificate versions', versionSelectionHelp: 'The version is resolved and frozen when the run starts, so later versions cannot change an active run.', certificateVersionIds: 'Specific certificate versions', certificateVersionIdsPlaceholder: 'Enter certificate version IDs separated by commas', certificateVersionIdsHelp: 'Each version must belong to a certificate selected by the domains above.', versionLoading: 'Loading available certificate versions.', versionLoadFailed: 'Failed to load certificate versions. Try again later.', versionEmpty: 'No selectable certificate versions were found for these domains.', schedule: 'When to update', scheduleHelp: 'Administrators can start it on demand or run it periodically with Cron and a time zone.', execution: 'What happens during a run', executionHelp: 'The system creates a separate update plan for each existing asset binding and reuses DeploymentPlan, approval, and ExecutionRun.', snapshot: 'Freeze the domain, asset, and certificate-version snapshot' },
-    fields: { name: 'Name', description: 'Description', trigger: 'Trigger', eventSources: 'Event sources', eventSourcesHelp: 'Choose which certificate version events can start this automation.', targetScope: 'Update scope', selectedAssets: 'Selected application assets', selectedAssetsHelp: 'Select at least one managed application asset.', certificateTags: 'Certificate tags (comma separated)', certificateTagsHelp: 'Filter the event or polling scope by certificate tags.', targetEnvironments: 'Target environments (comma separated)', targetEnvironmentsHelp: 'Filter by target application environment.', targetOwners: 'Target owners (comma separated)', targetOwnersHelp: 'Filter by target owner.', cron: 'Cron expression', timeZone: 'Time zone', expiresWithinDays: 'Expiry window in days', environments: 'Target environments (comma separated)', certificateIds: 'Specific certificates (optional)', certificateIdsPlaceholder: 'Enter certificate IDs separated by commas', certificateIdsHelp: 'When filled, only these certificates are processed; otherwise expiry and environment rules are used.', expiresWithinDaysHelp: 'Only match certificates expiring within this window.', environmentsHelp: 'Only process certificates in these environments, such as production or staging.', planType: 'Deployment plan type', planTypeHelp: 'A separate DeploymentPlan is created at runtime for each matched certificate target.', planTypeUpdate: 'Update an existing certificate binding', planTypeInstall: 'Install a certificate on the target', planTypeVerifyOnly: 'Verify only, make no certificate change', planMode: 'Run mode', planModeHelp: 'The automation does not bind an existing plan; it creates a new plan at runtime for each target.', planModeCreateAndExecute: 'Create and execute the plan', planModeCreateOnly: 'Create plans only, do not execute yet', maxTargets: 'Maximum targets per run', concurrency: 'Concurrency', failureCount: 'Failure count threshold', requireDryRun: 'Historical Dry Run setting (not an execution gate)', requireApproval: 'Require approval before execution', startedAt: 'Started at', finishedAt: 'Finished at', failureStage: 'Failure stage', parentRun: 'Parent run' },
+    scheduleBuilder: { api: 'Trigger through external API', apiHelp: 'An external system calls the automation run API. Target preview and approval rules still apply to every request.', once: 'Run once at a fixed time', onceHelp: 'Choose a browser-local time. The task is not scheduled again after it runs.', recurring: 'Run periodically', scheduleHelp: 'Run on a recurring schedule. Use only when continuous polling is genuinely required.', recurringHelp: 'Run on a recurring schedule. Use only when continuous polling is genuinely required.', recurringWarningTitle: 'Periodic execution is not recommended for certificate updates', recurringWarning: 'Certificate replacement should normally be triggered after certificate issuance or scheduled once at a fixed time. Use periodic execution only for an explicit recurring-check requirement.', certificateVersionCreated: 'Certificate new-version event', certificateVersionCreatedHelp: 'The automation starts after an external source or a manual import creates a new certificate version.', runAt: 'Execution time', frequency: 'Frequency', daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', time: 'Time', weekday: 'Weekday', monthDay: 'Day of month', legacyCustom: 'Keep existing custom schedule', legacyCron: 'Existing cron (read-only)', weekdays: { 0: 'Sunday', 1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday', 6: 'Saturday' } },
+    form: { existingAssetTitle: 'Update existing managed applications only', existingAssetDescription: 'The automation only processes managed applications with existing certificate bindings. It does not install certificates for the first time or add deployment targets.', certificateDomains: 'Certificate domains', certificateDomainsPlaceholder: 'Enter certificate domains separated by commas', certificateDomainsHelp: 'Only existing managed application bindings for these certificate domains are updated.', versionSelection: 'Certificate version to deploy', versionSelectionLatest: 'Automatically use the latest certificate version', versionSelectionSpecific: 'Use specific certificate versions', versionSelectionHelp: 'The version is resolved and frozen when the run starts, so later versions cannot change an active run.', certificateVersionIds: 'Specific certificate versions', certificateVersionIdsPlaceholder: 'Enter certificate version IDs separated by commas', certificateVersionIdsHelp: 'Each version must belong to a certificate selected by the domains above.', versionLoading: 'Loading available certificate versions.', versionLoadFailed: 'Failed to load certificate versions. Try again later.', versionEmpty: 'No selectable certificate versions were found for these domains.', schedule: 'When to update', scheduleHelp: 'Administrators can start it on demand or run it periodically with Cron and a time zone.', execution: 'What happens during a run', executionHelp: 'The system creates a separate update plan for each existing managed application binding and reuses DeploymentPlan, approval, and ExecutionRun.', snapshot: 'Freeze the domain, managed application, and certificate-version snapshot' },
+    fields: { name: 'Name', description: 'Description', trigger: 'Trigger', eventSources: 'Event sources', eventSourcesHelp: 'Choose which certificate version events can start this automation.', targetScope: 'Update scope', selectedAssets: 'Selected managed applications', selectedAssetsHelp: 'Select at least one managed application.', certificateTags: 'Certificate tags (comma separated)', certificateTagsHelp: 'Filter the event or polling scope by certificate tags.', targetEnvironments: 'Target environments (comma separated)', targetEnvironmentsHelp: 'Filter by target application environment.', targetOwners: 'Target owners (comma separated)', targetOwnersHelp: 'Filter by target owner.', cron: 'Cron expression', timeZone: 'Time zone', expiresWithinDays: 'Expiry window in days', environments: 'Target environments (comma separated)', certificateIds: 'Specific certificates (optional)', certificateIdsPlaceholder: 'Enter certificate IDs separated by commas', certificateIdsHelp: 'When filled, only these certificates are processed; otherwise expiry and environment rules are used.', expiresWithinDaysHelp: 'Only match certificates expiring within this window.', environmentsHelp: 'Only process certificates in these environments, such as production or staging.', planType: 'Deployment plan type', planTypeHelp: 'A separate DeploymentPlan is created at runtime for each matched certificate target.', planTypeUpdate: 'Update an existing certificate binding', planTypeInstall: 'Install a certificate on the target', planTypeVerifyOnly: 'Verify only, make no certificate change', planMode: 'Run mode', planModeHelp: 'The automation does not bind an existing plan; it creates a new plan at runtime for each target.', planModeCreateAndExecute: 'Create and execute the plan', planModeCreateOnly: 'Create plans only, do not execute yet', maxTargets: 'Maximum targets per run', concurrency: 'Concurrency', failureCount: 'Failure count threshold', requireDryRun: 'Historical dry-run setting (not an execution gate)', requireApproval: 'Require approval before execution', startedAt: 'Started at', finishedAt: 'Finished at', failureStage: 'Failure stage', parentRun: 'Parent run' },
     actions: { create: 'Create automation', detail: 'Details', edit: 'Edit', delete: 'Delete', cancel: 'Cancel', save: 'Save', copy: 'Copy', enable: 'Enable', disable: 'Disable', runNow: 'Run now', preview: 'Preview targets', history: 'Run history', confirmRun: 'Confirm run', stop: 'Stop run', retryFailed: 'Retry failed targets', openPlan: 'Open deployment plan', openExecution: 'Open execution run' },
-    manualRun: { title: 'Manual run', description: 'Select a certificate version before running.', versionLabel: 'Certificate version', versionPlaceholder: 'Select a certificate version', help: 'The run will resolve related application assets from the selected version.', empty: 'No certificate versions are available for manual run.', stopOnError: 'Stop on error', dryRun: 'Run optional dry-run preview', start: 'Start run' },
+    manualRun: { title: 'Manual run', description: 'Select a certificate version before running.', versionLabel: 'Certificate version', versionPlaceholder: 'Select a certificate version', help: 'The run will resolve related managed applications from the selected version.', empty: 'No certificate versions are available for manual run.', stopOnError: 'Stop on error', dryRun: 'Run optional dry-run preview', start: 'Start run' },
     columns: { status: 'Status', trigger: 'Trigger', targets: 'Target limit', actions: 'Actions', nextRun: 'Next run', lastRun: 'Last run' },
     triggers: { onDemand: 'On demand', schedule: 'Scheduled' },
     triggerTypes: { on_demand: 'On demand', schedule: 'Scheduled', certificate_version_created: 'Certificate new-version event', retry: 'Failed-target retry' },
     eventSources: { external_source: 'External source', manual_import: 'Manual import' },
-    targetScopes: { allRelatedAssets: 'Update all related application assets', allRelatedAssetsHelp: 'After the event or conditions match, the system resolves every bound and deployable application asset automatically.', selectedAssets: 'Update selected application assets only', selectedAssetsHelp: 'Create and execute DeploymentPlans only for the manually selected application assets.' },
-    assetPicker: { available: 'Available assets', selected: 'Selected assets', add: 'Add', remove: 'Remove', clear: 'Clear selection', emptyAvailable: 'No application assets are available to add.', emptySelected: 'No application assets selected yet.' },
+    targetScopes: { allRelatedAssets: 'Update all related managed applications', allRelatedAssetsHelp: 'After the event or conditions match, the system resolves every bound and deployable managed application automatically.', selectedAssets: 'Update selected managed applications only', selectedAssetsHelp: 'Create and execute DeploymentPlans only for the manually selected managed applications.' },
+    assetPicker: { available: 'Available applications', selected: 'Selected applications', add: 'Add', remove: 'Remove', clear: 'Clear selection', emptyAvailable: 'No managed applications are available to add.', emptySelected: 'No managed applications selected yet.' },
     actionTypes: { create_deployment_plan: 'Create certificate renewal plan', execute_deployment_plan: 'Execute certificate renewal plan', send_notification: 'Send notification' },
     values: { enabled: 'Enabled', disabled: 'Disabled', latest: 'Use the latest version', specific: 'Use specific certificate versions', fixedByEvent: 'Pinned by the certificate new-version event' },
     summaries: { targets: 'Up to {count} targets' },
-    preview: { title: 'Asset impact preview', description: 'Compare the current certificate expiry on each selected application asset with the target certificate expiry.', matched: '{count} matched', executable: '{count} executable', excluded: '{count} excluded', affected: '{count} affected', upgrade: '{count} longer validity', same: '{count} same expiry', skip: '{count} skipped', downgrade: '{count} need attention', version: 'Version {version}', versionUnknown: 'Version unknown', ready: 'Ready', skipUpdate: 'Skip update', expiryLabel: 'Expiry', impact: { upgrade: 'Longer validity', same: 'Same expiry', downgrade: 'Shorter validity risk', missing_current: 'Current certificate missing', unknown: 'Unknown impact' } },
-    detail: { title: 'Automation details', description: 'Review the current automation configuration, triggers, and execution guardrails.', assetCount: '{count} application assets involved', assetsResolvedAtRuntime: 'Target assets are resolved at runtime from certificate domains and bindings.', sections: { summary: 'Summary', execution: 'Execution chain', guardrails: 'Execution guardrails' }, fields: { automationId: 'Automation ID', currentVersion: 'Current configuration version', recordVersion: 'Record version', eventSources: 'Event sources', certificateDomains: 'Certificate domains', versionSelection: 'Certificate version strategy', actionChain: 'Action chain', involvedAssets: 'Involved assets', nextRun: 'Next run', lastRun: 'Last run' } },
+    preview: { title: 'Application impact preview', description: 'Compare the current certificate expiry on each selected managed application with the target certificate expiry.', matched: '{count} matched', executable: '{count} executable', excluded: '{count} excluded', affected: '{count} affected', upgrade: '{count} longer validity', same: '{count} same expiry', skip: '{count} skipped', downgrade: '{count} need attention', version: 'Version {version}', versionUnknown: 'Version unknown', ready: 'Ready', skipUpdate: 'Skip update', expiryLabel: 'Expiry', impact: { upgrade: 'Longer validity', same: 'Same expiry', downgrade: 'Shorter validity risk', missing_current: 'Current certificate missing', unknown: 'Unknown impact' } },
+    detail: { title: 'Automation details', description: 'Review the current automation configuration, triggers, and execution guardrails.', assetCount: '{count} managed applications involved', assetsResolvedAtRuntime: 'Target applications are resolved at runtime from certificate domains and bindings.', sections: { summary: 'Summary', execution: 'Execution chain', guardrails: 'Execution guardrails' }, fields: { automationId: 'Automation ID', currentVersion: 'Current configuration version', recordVersion: 'Record version', eventSources: 'Event sources', certificateDomains: 'Certificate domains', versionSelection: 'Certificate version strategy', actionChain: 'Action chain', involvedAssets: 'Involved applications', nextRun: 'Next run', lastRun: 'Last run' } },
     history: { title: 'Run history', description: 'Review the latest runs for this automation.', summary: '{count} runs', latestTarget: 'Automation: {name}', empty: 'No runs yet.' },
-    exclusions: { permission_denied: 'Target permission denied', missing_version: 'Certificate version missing', version_not_deployable: 'Certificate version is not deployable', binding_not_managed: 'Binding is unmanaged', environment_not_allowed: 'Environment is not allowed', binding_missing: 'Binding is missing', asset_missing_deployment_capability: 'Target asset cannot deploy certificates', certificate_version_downgrade: 'Target certificate version is older than the current asset version', certificate_already_up_to_date: 'The target expiry already matches the current asset certificate, so the update is skipped', filter_not_matched: 'Filter conditions did not match', runtime_context_required: 'Runtime context is required', unknown: 'Unknown exclusion reason' },
-    failureStages: { selection: 'Target selection', plan_creation: 'Plan creation', dry_run: 'Dry Run', approval: 'Approval', execution: 'Execution', verification: 'Verification', rollback: 'Rollback', notification: 'Notification' },
+    exclusions: { permission_denied: 'Target permission denied', missing_version: 'Certificate version missing', version_not_deployable: 'Certificate version is not deployable', binding_not_managed: 'Binding is unmanaged', environment_not_allowed: 'Environment is not allowed', binding_missing: 'Binding is missing', asset_missing_deployment_capability: 'Managed application cannot deploy certificates', certificate_version_downgrade: 'Target certificate version is older than the current managed application version', certificate_already_up_to_date: 'The target expiry already matches the current managed application certificate, so the update is skipped', filter_not_matched: 'Filter conditions did not match', runtime_context_required: 'Runtime context is required', unknown: 'Unknown exclusion reason' },
+    failureStages: { selection: 'Target selection', plan_creation: 'Plan creation', dry_run: 'Dry run', approval: 'Approval', execution: 'Execution', verification: 'Verification', rollback: 'Rollback', notification: 'Notification' },
     progress: { total: 'Total', pending: 'Pending', running: 'Running', waitingApproval: 'Waiting approval', succeeded: 'Succeeded', failed: 'Failed', skipped: 'Skipped', cancelled: 'Cancelled' },
-    editor: { createTitle: 'Create automation', editTitle: 'Edit automation', description: 'Configure when it runs, which certificates it handles, how deployment plans are created, and what happens on failure.', exactVersionFromEvent: 'The certificate new-version event freezes the exact certificate version into the run snapshot, and approval recovery must keep using that exact version.', sections: { basic: 'Basic information', basicHelp: 'Give the automation a recognizable name and explain which certificate changes it handles.', trigger: 'Trigger', triggerHelp: 'Define which fact starts the automation before choosing the execution scope and matching conditions.', targets: 'Which certificates to process', targetsHelp: 'This selects certificate targets, not existing deployment plans; the target snapshot is frozen when the run starts.', execution: 'Execution', executionHelp: 'Decide how the automation updates assets first, then add matching conditions and safety guardrails.', conditions: 'Conditions and safety', conditionsHelp: 'Define matching conditions, target filters, approval, and concurrency guardrails together in this step.', plan: 'Certificate deployment plan', planRelationTitle: 'This does not bind an existing deployment plan', planRelationDescription: 'A deployment plan is created at runtime from the certificate filters above.', planRelationHelp: 'Each matched certificate target gets its own DeploymentPlan, and its plan ID appears in run details.', guardrails: 'Execution safety controls', guardrailsHelp: 'These limits control batch size, prechecks, approval, and when failures stop the run.' }, chain: { createPlan: 'Create a DeploymentPlan for each target', dryRun: 'Run the optional Dry Run preview', approval: 'Wait for approval', executePlan: 'Execute that target DeploymentPlan' } },
+    editor: { createTitle: 'Create automation', editTitle: 'Edit automation', description: 'Configure when it runs, which certificates it handles, how deployment plans are created, and what happens on failure.', exactVersionFromEvent: 'The certificate new-version event freezes the exact certificate version into the run snapshot, and approval recovery must keep using that exact version.', sections: { basic: 'Basic information', basicHelp: 'Give the automation a recognizable name and explain which certificate changes it handles.', trigger: 'Trigger', triggerHelp: 'Define which fact starts the automation before choosing the execution scope and matching conditions.', targets: 'Which certificates to process', targetsHelp: 'This selects certificate targets, not existing deployment plans; the target snapshot is frozen when the run starts.', execution: 'Execution', executionHelp: 'Decide how the automation updates managed applications first, then add matching conditions and safety guardrails.', conditions: 'Conditions and safety', conditionsHelp: 'Define matching conditions, target filters, approval, and concurrency guardrails together in this step.', plan: 'Certificate deployment plan', planRelationTitle: 'This does not bind an existing deployment plan', planRelationDescription: 'A deployment plan is created at runtime from the certificate filters above.', planRelationHelp: 'Each matched certificate target gets its own DeploymentPlan, and its plan ID appears in run details.', guardrails: 'Execution safety controls', guardrailsHelp: 'These limits control batch size, prechecks, approval, and when failures stop the run.' }, chain: { createPlan: 'Create a DeploymentPlan for each target', dryRun: 'Run the optional dry-run preview', approval: 'Wait for approval', executePlan: 'Execute that target DeploymentPlan' } },
     runs: { title: 'Automation run history', description: 'Review run-level status, immutable target snapshots, and failure stages.', progress: '{succeeded}/{total} succeeded' },
     runDetail: { title: 'Automation run details', description: 'Configuration version {version}', noFailure: 'No failure', triggerContext: 'Trigger context', sourceType: 'Source type', certificateVersion: 'Exact certificate version', approvalId: 'Approval ID', deliveryId: 'Delivery ID', excludedReasons: 'Excluded reasons' },
     aria: { preview: 'Automation target preview', runs: 'Automation run list', progress: 'Automation run progress' },
-    errors: { loadFailed: 'Failed to load automations', applicationAssetsLoadFailed: 'Failed to load application assets. Try again later.' }
+    errors: { loadFailed: 'Failed to load automations', applicationAssetsLoadFailed: 'Failed to load managed applications. Try again later.' }
   },
   routes: {
     certificateImport: 'Import certificate',
@@ -831,7 +835,7 @@ export default {
       },
       verifyRecovered: {
         detail: 'Agent-side remote TLS probing failed, but the control plane completed real TLS verification for {remoteTarget} and confirmed the target certificate matches. {originalError}',
-        originalSuffix: 'Original Agent error: {originalError}'
+    originalSuffix: 'Original agent error: {originalError}'
       },
       resultReturned: {
         withTask: '{executor} {mode} returned. Agent taskId={taskId}',
@@ -972,7 +976,7 @@ export default {
       logLabel: 'Log summary',
       runNumber: 'Run {number}',
       planUnknown: 'No deployment plan linked',
-      assetUnknown: 'No asset recorded',
+      assetUnknown: 'No managed application recorded',
       timeUnknown: 'Start time not recorded',
       logRunning: 'Execution is running and detail logs will keep updating.',
       logPending: 'Execution is queued and waiting for scheduling.',
@@ -1048,7 +1052,7 @@ export default {
       disableRisk: 'Disabling a plugin affects provider, template, and executor capabilities.'
     },
     market: {
-      eyebrow: 'DSL Plugin Market',
+      eyebrow: 'DSL plugin market',
       title: 'Discover reusable automation capabilities',
       description: 'Built-in templates ship with the system, while user templates come from data/workflows. Each template can maintain its own logo, semantic version, and capability tags.'
     },
@@ -1153,11 +1157,11 @@ export default {
       createFailed: 'Failed to create a workflow from the plugin'
     },
     agentDeployment: {
-      mount: 'Mount to Agent', mounting: 'Mounting...', selectAgent: 'Select target Agent', type: 'Plugin type', targetAgent: 'Target Agent', mountFailed: 'Failed to mount Agent plugin',
+      mount: 'Mount to agent', mounting: 'Mounting...', selectAgent: 'Select target agent', type: 'Plugin type', targetAgent: 'Target agent', mountFailed: 'Failed to mount agent plugin',
       executionMode: 'Agent execution mode', nativeHandler: 'Native handler', pluginMode: 'Agent plugin', mountedPlugin: 'Mounted plugin', selectMountedPlugin: 'Select a mounted plugin',
-      plugin: 'Deployment plugin', selectPlugin: 'Select a deployment plugin', noCompatiblePlugin: 'No enabled plugin matches the current platform and framework', compatiblePluginHint: 'Only enabled plugins matching the asset platform and framework are shown.',
-      secretRefPlaceholder: 'Enter a SecretRef identifier', artifactBinding: 'Certificate artifact {name}', artifactBindingPlaceholder: 'Example: value=fullchain,key=private', preview: 'Validate plugin settings', previewFailed: 'Failed to validate Agent plugin settings',
-      approveAndEnable: 'Approve and enable', activating: 'Enabling...', activateFailed: 'Failed to approve or enable Agent plugin', disableFailed: 'Failed to disable Agent plugin',
+      plugin: 'Deployment plugin', selectPlugin: 'Select a deployment plugin', noCompatiblePlugin: 'No enabled plugin matches the current platform and framework', compatiblePluginHint: 'Only enabled plugins matching the managed application platform and framework are shown.',
+      secretRefPlaceholder: 'Enter a SecretRef identifier', artifactBinding: 'Certificate delivery format {name}', artifactBindingPlaceholder: 'Example: value=fullchain,key=private', preview: 'Validate plugin settings', previewFailed: 'Failed to validate agent plugin settings',
+      approveAndEnable: 'Approve and enable', activating: 'Enabling...', activateFailed: 'Failed to approve or enable agent plugin', disableFailed: 'Failed to disable agent plugin',
       types: { WORKFLOW_TEMPLATE: 'Workflow template', UNIFIED_PLUGIN: 'Unified capability plugin' }
     },
     changeSummaries: { createWorkflow: 'Create workflow from plugin market template' }
@@ -1203,7 +1207,7 @@ export default {
       reject: 'Reject request',
       rejectRisk: 'A rejected plan cannot execute and must be submitted for approval again.',
       execute: 'Execute deployment',
-      executeRisk: 'Execution modifies target certificate configuration. Completed or failed plans also use this entry for re-execution; execution performs the required synchronous checks, while an optional dry-run preview is available from the asset detail deployment flow.',
+      executeRisk: 'Execution modifies target certificate configuration. Completed or failed plans also use this entry for re-execution; execution performs the required synchronous checks, while an optional dry-run preview is available from the managed application detail deployment flow.',
       cancel: 'Cancel plan',
       cancelRisk: 'Only cancels unfinished deployment plans. Completed deployments are not rolled back.',
       rollback: 'Rollback execution',
@@ -1235,7 +1239,7 @@ export default {
       status: 'Plan status',
       approvalStatus: 'Approval status',
       certificateVersionId: 'Certificate version ID',
-      certificateFormatId: 'Certificate format config ID',
+      certificateFormatId: 'Certificate format configuration ID',
       workflowDslVersion: 'Workflow DSL version',
       currentAssetCertificateExpiresAt: 'Current certificate end time',
       updateNeeded: 'Update needed',
@@ -1299,7 +1303,7 @@ export default {
       workflowPluginVersionId: 'Plugin version ID: {versionId}',
       workflowVersionId: 'Version snapshot ID: {versionId}',
       workflowVersionSelectionPinned: 'Version policy: pinned by the plan',
-      workflowVersionSelectionLatest: 'Version policy: latest published from the application asset',
+      workflowVersionSelectionLatest: 'Version policy: latest published from the managed application',
       workflowIdentityUnavailable: 'Workflow version information is unavailable',
       planIdLine: 'Plan ID {planId}',
       recordKinds: {
@@ -1376,8 +1380,8 @@ export default {
       createReturnedMissingPlanId: 'Deployment plan was created but no planId was returned',
       loadCreateDataFailed: 'Failed to load deployment plan creation data',
       loadRelatedRecordsFailed: 'Failed to load related records',
-      missingApplicationAssetIdForDryRun: 'Application asset ID is missing, so dry-run cannot start.',
-      missingApplicationAssetIdForSave: 'Application asset ID is missing, so the deployment plan cannot be saved.',
+      missingApplicationAssetIdForDryRun: 'Managed application ID is missing, so dry-run cannot start.',
+      missingApplicationAssetIdForSave: 'Managed application ID is missing, so the deployment plan cannot be saved.',
       missingPlanId: 'Deployment plan ID is missing. Empty planId request blocked.',
       missingPlanIdForAction: '{action} is missing deployment plan ID. Empty planId request blocked.',
       missingRunIdRequest: 'Execution batch runId is missing. Empty runId request blocked.',
@@ -1408,7 +1412,7 @@ export default {
       modalTitle: 'Certificate details',
       overviewDescription: 'Shows certificate name, issuer, validity period, fingerprint, and other key details.',
       overviewTitle: 'Certificate overview',
-      projectDetailDescription: 'Shows project certificate asset details and related usages in the current Agent context.',
+      projectDetailDescription: 'Shows project certificate inventory item details and related usages in the current agent context.',
       projectDetailTitle: 'Project certificate details',
       querying: 'Querying...',
       remainingDays: '{days} days remaining',
@@ -1447,7 +1451,7 @@ export default {
     common: {
       defaultAddress: 'Default address',
       no: 'No',
-      noHostHeader: 'No Host Header',
+      noHostHeader: 'No host header',
       noListenAddress: 'No listen address',
       none: 'None',
       notConfigured: 'Not configured',
@@ -1460,28 +1464,28 @@ export default {
     detail: {
       loading: 'Loading details...',
       manualRescan: 'Manual rescan',
-      manualRescanCannotPullTasks: 'This Agent cannot pull tasks, so rescan cannot run',
+      manualRescanCannotPullTasks: 'This agent cannot pull tasks, so rescan cannot run',
       manualRescanCreated: 'Manual rescan task created. Waiting for the Agent to pull it.',
       manualRescanSubmitting: 'Submitting rescan...',
-      manualRescanUnsupportedType: 'This Agent type does not support manual rescan',
+      manualRescanUnsupportedType: 'This agent type does not support manual rescan',
       modalDescription: 'Shows the Agent summary, runtime environment, and IIS site data.',
       modalTitle: 'Agent details',
       nodeEyebrow: 'Agent node',
       tabsAriaLabel: 'Agent detail tabs'
     },
     empty: {
-      description: 'Click Install Agent, choose a platform and version, then generate a one-time install command.',
+      description: 'Click Install agent, choose a platform and version, then generate a one-time install command.',
       noFrameworkSites: 'No {name} sites found',
       noIisSites: 'No IIS sites found',
       noRuntimeLogs: 'No runtime logs',
       noTomcatApps: 'No Tomcat apps found',
       noTomcatConnectors: 'No Tomcat connectors found',
-      title: 'No Agents'
+      title: 'No agents'
     },
     errors: {
-      certificateAssetIncomplete: 'Certificate asset data is incomplete, so details cannot be opened.',
-      certificateAssetNotFound: 'No matching certificate asset was found in this project.',
-      certificateAssetQueryFailed: 'Failed to query certificate asset.',
+      certificateAssetIncomplete: 'Certificate inventory item data is incomplete, so details cannot be opened.',
+      certificateAssetNotFound: 'No matching certificate inventory item was found in this project.',
+      certificateAssetQueryFailed: 'Failed to query certificate inventory item.',
       detailDataMissing: 'The detail API returned no data.',
       generateInstallCommandFailed: 'Failed to generate install command.',
       installCommandMissing: 'The backend did not return an install command.',
@@ -1500,8 +1504,8 @@ export default {
       certificateStore: 'Certificate store',
       certificateSubject: 'Certificate subject',
       certificateThumbprint: 'Certificate thumbprint',
-      configFile: 'Config file',
-      configPath: 'Config path',
+      configFile: 'Configuration file',
+      configPath: 'Configuration path',
       connectorCount: 'Connector count',
       connectorList: 'Connector list',
       domain: 'Domain',
@@ -1558,30 +1562,30 @@ export default {
       expired: 'Expired',
       generateCommand: 'Generate install command',
       generating: 'Generating...',
-      compatibilityInstallUnavailable: 'The one-time installer for Windows Compatibility Agent is not published yet. Do not substitute a Windows Modern Agent command.',
+      compatibilityInstallUnavailable: 'The one-time installer for the Windows compatibility agent is not published yet. Do not substitute a Windows modern agent command.',
       installEntryPending: 'Installer pending',
-      linuxGeneralTitle: 'General Linux Agent',
+      linuxGeneralTitle: 'General Linux agent',
       linuxGroupTitle: 'Linux',
       modalDescription: 'Choose platform and version to generate a one-time install command. The token is valid for 10 minutes and can only be used once.',
-      modalTitle: 'Install Agent',
+      modalTitle: 'Install agent',
       platform: 'Platform',
       platformLinuxDescription: 'For Ubuntu, Debian, CentOS, Rocky, AlmaLinux, and other Linux distributions.',
       platformWindowsDescription: 'For Windows Server and Windows 10/11. Registers as a system service after installation.',
       remainingTime: '{minutes}m {seconds}s',
       remainingValidity: 'Remaining validity',
-      selectedAgent: 'Selected Agent',
-      selectionStepTitle: 'Select Agent type',
+      selectedAgent: 'Selected agent',
+      selectionStepTitle: 'Select agent type',
       singleUseHint: 'Once the bootstrap script requests this token, it expires immediately and cannot be reused.',
       tokenCopied: 'Token copied',
       version: 'Version',
       versionLatest: 'Latest stable',
       windowsCompatibility2008: 'Windows Server 2008 R2 SP1',
       windowsCompatibility2012: 'Windows Server 2012 / 2012 R2',
-      windowsCompatibilityTitle: 'Windows Compatibility Agent',
+      windowsCompatibilityTitle: 'Windows compatibility agent',
       windowsGroupTitle: 'Windows',
       windowsModernDesktop: 'Windows 10/11',
       windowsModernServer: 'Windows Server 2016 and later',
-      windowsModernTitle: 'Windows Modern Agent',
+      windowsModernTitle: 'Windows modern agent',
       zone: 'Zone'
     },
     labels: {
@@ -1611,16 +1615,16 @@ export default {
     },
     metrics: {
       abnormalDescription: 'Offline, failed, or drifted Agents need priority handling.',
-      abnormalTitle: 'Abnormal Agents',
-      totalDescription: 'Number of Agents currently registered with the control plane.',
-      totalTitle: 'Total Agents'
+      abnormalTitle: 'Abnormal agents',
+      totalDescription: 'Number of agents currently registered with the control plane.',
+      totalTitle: 'Total agents'
     },
     page: {
-      description: 'View Agents, generate install commands for different platforms, and inspect details in a dedicated modal.',
-      installAgent: 'Install Agent'
+      description: 'View agents, generate install commands for different platforms, and inspect details in a dedicated modal.',
+      installAgent: 'Install agent'
     },
     sections: {
-      frameworkOverviewDescription: 'Shows {name} installation status, running status, and config location on the host.',
+      frameworkOverviewDescription: 'Shows {name} installation status, running status, and configuration location on the host.',
       frameworkOverviewTitle: '{name} overview',
       frameworkSitesDescription: 'Shows sites, roots, domains, reverse proxy targets, and certificate paths discovered by {name}.',
       frameworkSitesTitle: '{name} sites',
@@ -1632,7 +1636,7 @@ export default {
       iisSitesTitle: 'IIS sites',
       logOverviewDescription: 'Shows the latest capability report time to help judge whether detail data is fresh.',
       logOverviewTitle: 'Log overview',
-      mainInfoDescription: 'Shows Agent identity, role, and latest heartbeat.',
+      mainInfoDescription: 'Shows agent identity, role, and latest heartbeat.',
       mainInfoTitle: 'Main information',
       runtimeDescription: 'Shows runtime system and version information reported by the Agent.',
       runtimeLogsDescription: 'Shows persisted runtime logs for manual rescans, heartbeat anomalies, and capability report interruptions.',
@@ -1640,7 +1644,7 @@ export default {
       runtimeTitle: 'Runtime environment',
       tomcatAppsDescription: 'Shows application paths and deployment directories discovered in Tomcat Host/Context.',
       tomcatAppsTitle: 'Tomcat apps',
-      tomcatConnectorsDescription: 'Shows Tomcat Connector listen address, protocol, TLS switch, and certificate path.',
+      tomcatConnectorsDescription: 'Shows the Tomcat connector listen address, protocol, TLS switch, and certificate path.',
       tomcatConnectorsTitle: 'Tomcat connectors',
       tomcatOverviewDescription: 'Shows Tomcat installation status, running status, and Catalina path on the host.',
       tomcatOverviewTitle: 'Tomcat overview'
@@ -1694,8 +1698,8 @@ export default {
       managedObjects: { title: 'Object health', suffix: 'healthy objects' },
       certificateAttention: { title: 'Certificate attention', suffix: 'to review' }
     },
-    statusPanel: {
-      description: 'Current visible status across certificates, Agents, gateways, and application assets.',
+      statusPanel: {
+      description: 'Current visible status across certificates, Agents, gateways, and managed applications.',
       objects: 'objects'
     },
     recentLog: {
@@ -1703,16 +1707,16 @@ export default {
       live: 'Live'
     },
     aria: {
-      assetHeatmap: 'Application asset status heatmap',
+      assetHeatmap: 'Managed application status heatmap',
       certificateStatusList: 'Certificate status list',
       metrics: 'Core metrics',
       quickActions: 'Primary feature entry points',
-      statusHeatmap: 'Certificate, Agent, gateway, and application asset status',
+      statusHeatmap: 'Certificate, Agent, gateway, and managed application status',
       statusLegend: 'Status legend'
     },
     assets: {
       groupCount: '{summary} · {total} items',
-      title: 'Application asset status',
+      title: 'Managed application status',
       updatedAt: 'Updated at {time}'
     },
     audit: {
@@ -1762,7 +1766,7 @@ export default {
       stable: 'Stable',
       tracked: 'Tracked',
       activeAgents: {
-        title: 'Active Agents',
+        title: 'Active agents',
         description: 'Agents currently online and schedulable.'
       },
       activeGateways: {
@@ -1771,7 +1775,7 @@ export default {
       },
       applications: {
         title: 'Current applications',
-        description: 'Managed application entry assets.'
+        description: 'Managed application entries.'
       },
       expiringCertificates: {
         title: 'Certificates expiring in 15 days',
@@ -1788,7 +1792,7 @@ export default {
     },
     health: {
       title: 'System health',
-      description: 'Summary across certificates, Agents, gateways, and application assets.',
+      description: 'Summary across certificates, Agents, gateways, and managed applications.',
       healthy: 'Healthy',
       attention: 'Attention',
       abnormal: 'Abnormal',
@@ -1811,7 +1815,7 @@ export default {
         description: 'View online status and task capabilities.'
       },
       assets: {
-        title: 'Application assets',
+        title: 'Managed applications',
         description: 'Maintain domains, ports, and deployment targets.'
       },
       audits: {
@@ -1819,7 +1823,7 @@ export default {
         description: 'Trace operators and execution results.'
       },
       certificates: {
-        title: 'Certificate management',
+        title: 'Certificate lifecycle',
         description: 'Import, view, and convert certificates.'
       },
       deploymentPlans: {
@@ -1862,7 +1866,7 @@ export default {
         title: 'Devices'
       },
       applicationAssets: {
-        title: 'Application assets'
+        title: 'Managed applications'
       },
       certificates: {
         title: 'Certificates'
@@ -1886,13 +1890,13 @@ export default {
   },
   gateways: {
     actions: {
-      addGatewayAgent: 'Add Gateway Agent',
+      addGatewayAgent: 'Add gateway agent',
       close: 'Close',
       copied: 'Copied',
       copyEnableCommand: 'Copy enable command',
       copyInstallCommand: 'Copy install command',
       detail: 'Details',
-      enableExistingAgent: 'Enable Gateway on existing Agent',
+      enableExistingAgent: 'Enable the gateway role on an existing agent',
       generateEnableCommand: 'Generate enable command',
       generateInstallCommand: 'Generate install command',
       generating: 'Generating...',
@@ -1910,15 +1914,15 @@ export default {
     detail: {
       abilities: {
         agentTask: {
-          description: 'Forward deployment, check, and other tasks to Agents in this region.',
+          description: 'Forward deployment, check, and other tasks to agents in this region.',
           title: 'Task forwarding'
         },
         directControl: {
-          description: 'Forward controlled operations to Agents in this region without direct control-plane access to internal ports.',
+          description: 'Forward controlled operations to agents in this region without direct control-plane access to internal ports.',
           title: 'Remote control forwarding'
         },
         probe: {
-          description: 'Check whether hosts, websites, or Agents are reachable from this region.',
+          description: 'Check whether hosts, websites, or agents are reachable from this region.',
           title: 'Connectivity check'
         },
         relay: {
@@ -1942,18 +1946,18 @@ export default {
       }
     },
     empty: {
-      description: 'Add a Gateway Agent, or enable the Gateway role on an existing Agent.',
+      description: 'Add a gateway agent, or enable the gateway role on an existing agent.',
       title: 'No gateways'
     },
     errors: {
-      generateEnableCommandFailed: 'Failed to generate Gateway enable command.',
-      generateInstallCommandFailed: 'Failed to generate Gateway Agent install command.',
-      missingEnableCommand: 'The backend did not return a Gateway enable command.',
-      missingInstallCommand: 'The backend did not return a Gateway Agent install command.',
-      relayPolicyRequired: 'Enter at least one Relay target and port.'
+      generateEnableCommandFailed: 'Failed to generate the gateway enable command.',
+      generateInstallCommandFailed: 'Failed to generate the gateway agent install command.',
+      missingEnableCommand: 'The backend did not return a gateway enable command.',
+      missingInstallCommand: 'The backend did not return a gateway agent install command.',
+      relayPolicyRequired: 'Enter at least one relay target and port.'
     },
     fields: {
-      config: 'Config',
+      config: 'Configuration',
       defaultRegion: 'default',
       enableCommand: 'Enable command',
       expiresAt: 'Expires at',
@@ -1969,7 +1973,7 @@ export default {
       unboundAgent: 'Do not bind a specific Agent'
     },
     links: {
-      assets: 'View assets',
+      assets: 'View managed applications',
       executions: 'View execution records'
     },
     modals: {
@@ -1977,22 +1981,22 @@ export default {
         title: 'Gateway details'
       },
       enable: {
-        title: 'Enable Gateway on existing Agent'
+        title: 'Enable the gateway role on an existing agent'
       },
       install: {
-        title: 'Add Gateway Agent'
+        title: 'Add gateway agent'
       }
     },
     page: {
-      description: 'Manage regional routing Gateway Agents.',
+        description: 'Manage regional routing gateway agents.',
       title: 'Gateways'
     },
     platforms: {
       linuxSystemd: {
-        description: 'Install Gateway Agent service on a Linux host'
+        description: 'Install the gateway agent service on a Linux host'
       },
       windowsService: {
-        description: 'Install Gateway Agent service on a Windows host'
+        description: 'Install the gateway agent service on a Windows host'
       }
     },
     resourceName: 'Gateway',
@@ -2014,9 +2018,9 @@ export default {
     actions: {
       secretResolveService: 'Service reads Secret',
       secretResolve: 'Executor reads Secret',
-      secretCreate: 'Create Secret',
-      secretVersionCreate: 'Create Secret version',
-      secretRotate: 'Rotate Secret',
+      secretCreate: 'Create secret',
+      secretVersionCreate: 'Create secret version',
+      secretRotate: 'Rotate secret',
       certificateImport: 'Import certificate',
       certificateFormatUpdate: 'Update certificate artifact',
       certificateFormatDelete: 'Delete certificate artifact',
@@ -2036,15 +2040,15 @@ export default {
       authLogout: 'Logged out',
       authExternalLoginSuccess: 'External identity login succeeded',
       authExternalLoginFailed: 'External identity login failed',
-      secretCreated: 'Created Secret',
-      secretVersionCreated: 'Created Secret version',
-      secretUsed: 'Read Secret',
-      secretRotated: 'Rotated Secret',
+      secretCreated: 'Created secret',
+      secretVersionCreated: 'Created secret version',
+      secretUsed: 'Read secret',
+      secretRotated: 'Rotated secret',
       permissionDenied: 'Permission denied',
       approvalCreated: 'Created approval',
       approvalApproved: 'Approval approved',
       approvalRejected: 'Approval rejected',
-      certificateImported: 'Certificate changed',
+      certificateImported: 'Certificate imported',
       deploymentCreated: 'Created deployment',
       deploymentExecuted: 'Executed deployment',
       deploymentRollbackRequested: 'Requested deployment rollback',
@@ -2059,7 +2063,7 @@ export default {
       secret: 'Secret',
       certificate: 'Certificate',
       certificateVersion: 'Certificate',
-      certificateVersionFormat: 'Certificate artifact',
+      certificateVersionFormat: 'Certificate delivery format',
       deployment: 'Deployment',
       deploymentPlan: 'Deployment plan',
       execution: 'Execution',
@@ -2069,7 +2073,7 @@ export default {
       workflowTemplate: 'Workflow',
       gateway: 'Gateway',
       agent: 'Agent',
-      serviceAsset: 'Application asset',
+      serviceAsset: 'Managed application',
       binding: 'Binding'
     },
     actors: {
@@ -2084,7 +2088,7 @@ export default {
       secretVersion: 'Secret version',
       certificate: 'Certificate',
       certificateVersion: 'Certificate version',
-      certificateVersionFormat: 'Certificate artifact',
+      certificateVersionFormat: 'Certificate delivery format',
       deployment: 'Deployment',
       deploymentPlan: 'Deployment plan',
       execution: 'Execution task',
@@ -2094,7 +2098,7 @@ export default {
       workflowTemplate: 'Workflow template',
       gateway: 'Gateway',
       agent: 'Agent',
-      serviceAsset: 'Application asset',
+      serviceAsset: 'Managed application',
       binding: 'Certificate binding',
       auditLog: 'Audit log'
     },
@@ -2180,7 +2184,7 @@ export default {
     metrics: {
       ariaLabel: 'Audit overview',
       total: {
-        title: 'Total audits',
+        title: 'Total audit events',
         description: 'Traceable operation records in the current filter scope.'
       },
       failed: {
@@ -2193,8 +2197,8 @@ export default {
       }
     },
     list: {
-      ariaLabel: 'Audit log list',
-      title: 'Log list',
+      ariaLabel: 'Audit event list',
+      title: 'Audit event list',
       summary: '{total} total, sorted by newest first.',
       timeNotRecorded: 'Time not recorded'
     },
@@ -2226,21 +2230,21 @@ export default {
     }
   },
   notifications: {
-    title: 'Notification Management',
+    title: 'Notification management',
     description: 'Manage notification channels, routes, templates, silences, and reliable delivery records.',
     tabs: { channels: 'Channels', deliveries: 'Deliveries', rules: 'Rules and templates' },
     sections: { channels: 'Channel records', deliveries: 'Delivery records' },
     channels: { createTitle: 'Create notification channel' },
-    settings: { privateOriginsTitle: 'Private deployment endpoints', privateOriginsDescription: 'Configure private HTTPS Origins that Notification Management may access for WeCom, Feishu, and DingTalk.' },
-    channelTypes: { email: 'Email', wecom: 'WeCom', slack: 'Slack', feishu: 'Feishu', dingtalk: 'DingTalk', telegram: 'Telegram', webhook: 'Generic Webhook' },
+    settings: { privateOriginsTitle: 'Private deployment endpoints', privateOriginsDescription: 'Configure private HTTPS origins that notification management may access for WeCom, Feishu, and DingTalk.' },
+    channelTypes: { email: 'Email', wecom: 'WeCom', slack: 'Slack', feishu: 'Feishu', dingtalk: 'DingTalk', telegram: 'Telegram', webhook: 'Generic webhook' },
     deploymentModes: { public: 'Public cloud', private: 'Private deployment' },
     fields: {
       name: 'Channel name', type: 'Channel type', deploymentMode: 'Deployment mode', smtpHost: 'SMTP host', smtpPort: 'SMTP port', from: 'From address',
       smtpSecurity: 'Connection security', smtpUsername: 'SMTP username', smtpPassword: 'SMTP password', secretValuePlaceholder: 'Enter the secret value',
-      optionalSecretValuePlaceholder: 'Optional; enter the secret value', wecomWebhookUrl: 'WeCom group bot Webhook URL', slackWebhookUrl: 'Slack Incoming Webhook URL',
-      feishuWebhookUrl: 'Feishu custom bot Webhook URL', dingtalkWebhookUrl: 'DingTalk custom bot Webhook URL', feishuSigningSecret: 'Feishu signing secret',
-      dingtalkSigningSecret: 'DingTalk signing secret', telegramBotToken: 'Telegram Bot Token', telegramChatId: 'Telegram Chat ID', telegramMessageThreadId: 'Telegram Topic ID (optional)',
-      webhookUrl: 'Webhook URL', webhookUrlPlaceholder: 'Enter the complete Webhook URL', webhookMethod: 'HTTP method', webhookHeaders: 'Fixed headers (JSON)',
+      optionalSecretValuePlaceholder: 'Optional; enter the secret value', wecomWebhookUrl: 'WeCom group bot webhook URL', slackWebhookUrl: 'Slack incoming webhook URL',
+      feishuWebhookUrl: 'Feishu custom bot webhook URL', dingtalkWebhookUrl: 'DingTalk custom bot webhook URL', feishuSigningSecret: 'Feishu signing secret',
+      dingtalkSigningSecret: 'DingTalk signing secret', telegramBotToken: 'Telegram bot token', telegramChatId: 'Telegram chat ID', telegramMessageThreadId: 'Telegram topic ID (optional)',
+      webhookUrl: 'Webhook URL', webhookUrlPlaceholder: 'Enter the complete webhook URL', webhookMethod: 'HTTP method', webhookHeaders: 'Fixed headers (JSON)',
       webhookHeadersPlaceholder: 'Example: x-source = gcac', signingSecret: 'HMAC-SHA256 signing secret', testTarget: 'Test recipient',
       testTargetPlaceholder: 'Email recipients can be comma-separated', lastSuccess: 'Last success', latency: 'Latency (ms)',
       createdAt: 'Created at', updatedAt: 'Updated at', failureCategory: 'Failure category', channel: 'Notification channel', selectChannel: 'Select a notification channel',
@@ -2256,14 +2260,14 @@ export default {
     summary: { routes: 'Notification routes', templates: 'Notification templates', silences: 'Silence rules', recordCount: '{count} records' },
     empty: { channels: 'No notification channels', deliveries: 'No delivery records', routes: 'No notification routes', templates: 'No notification templates', silences: 'No silence rules' },
     values: { notAvailable: '—' },
-    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'SMTP username', smtpPassword: 'SMTP password', webhookUrl: 'Webhook URL', signingSecret: 'Signing secret', botToken: 'Bot Token' } },
+    secrets: { name: '{channel} - {field}', fields: { smtpUsername: 'SMTP username', smtpPassword: 'SMTP password', webhookUrl: 'Webhook URL', signingSecret: 'Signing secret', botToken: 'Bot token' } },
     messages: {
       loadFailed: 'Failed to load notification management data', operationFailed: 'Notification management operation failed', testUsesChannelTarget: 'This channel will send the test notification to its configured target.',
       secretStoredHint: 'This value is encrypted and will not be shown again after creation.', createSecretFailed: 'Failed to save the encrypted value', invalidHeaders: 'Fixed headers must be a valid JSON object',
-      smtpCredentialsPairRequired: 'SMTP username and password must be provided together', webhookUrlRequired: 'Webhook URL is required', botTokenRequired: 'Telegram Bot Token is required',
-      chatIdRequired: 'Telegram Chat ID is required', feishuWebhookUrlInvalid: 'Enter an official Feishu custom bot Webhook URL', dingtalkWebhookUrlInvalid: 'Enter an official DingTalk custom bot Webhook URL',
-      wecomWebhookUrlInvalid: 'Enter a valid WeCom bot HTTPS Webhook URL', telegramBotTokenInvalid: 'The Telegram Bot Token format is invalid', telegramMessageThreadIdInvalid: 'The Telegram Topic ID must be a positive integer',
-      privateDeploymentAllowlistHint: 'Private endpoints must first be added to the trusted HTTPS Origin list above, otherwise testing and delivery are rejected.', privateOriginInvalid: 'A private endpoint must be an exact HTTPS Origin without a path, query, user information, or fragment.', privateOriginsSecurityHint: 'Enter only the scheme, host, and optional port. Full Webhook URLs, tokens, and signing secrets remain encrypted in the Secret service.', telegramUsesBotApi: 'Telegram notifications use the official Bot API sendMessage method, not the event-receiving Webhook.'
+      smtpCredentialsPairRequired: 'SMTP username and password must be provided together', webhookUrlRequired: 'Webhook URL is required', botTokenRequired: 'Telegram bot token is required',
+      chatIdRequired: 'Telegram chat ID is required', feishuWebhookUrlInvalid: 'Enter an official Feishu custom bot webhook URL', dingtalkWebhookUrlInvalid: 'Enter an official DingTalk custom bot webhook URL',
+      wecomWebhookUrlInvalid: 'Enter a valid WeCom bot HTTPS webhook URL', telegramBotTokenInvalid: 'The Telegram bot token format is invalid', telegramMessageThreadIdInvalid: 'The Telegram topic ID must be a positive integer',
+      privateDeploymentAllowlistHint: 'Private endpoints must first be added to the trusted HTTPS origin list above, otherwise testing and delivery are rejected.', privateOriginInvalid: 'A private endpoint must be an exact HTTPS origin without a path, query, user information, or fragment.', privateOriginsSecurityHint: 'Enter only the scheme, host, and optional port. Full webhook URLs, tokens, and signing secrets remain encrypted in the secret service.', telegramUsesBotApi: 'Telegram notifications use the official Bot API sendMessage method, not the event-receiving webhook.'
     }
   },
   settings: {
@@ -2275,7 +2279,7 @@ export default {
       description: 'Control the tenant-wide Dry-run setting and whether applications without an explicit approval requirement must be approved before certificate deployment.',
       readonly: 'This account has read-only access.',
       fields: {
-        dryRun: { title: 'Enable Dry-run', description: 'Run a read-only precheck before deployment; results are advisory and do not block execution.', aria: 'Enable certificate deployment Dry-run' },
+        dryRun: { title: 'Enable dry-run', description: 'Run a read-only precheck before deployment; results are advisory and do not block execution.', aria: 'Enable certificate deployment dry-run' },
         approval: { title: 'Enable approval flow', description: 'For applications without an explicit approval requirement, this tenant-wide setting controls whether certificate deployments require approval.', aria: 'Enable certificate deployment approval flow' }
       },
       actions: { save: 'Save settings', saving: 'Saving...' },
@@ -2502,7 +2506,7 @@ export default {
         application: 'Application',
         gateway: 'Gateway',
         agent: 'Agent',
-        serviceAsset: 'Application asset',
+        serviceAsset: 'Managed application',
         deploymentPlan: 'Deployment plan',
         workflow: 'Workflow',
         auditLog: 'Log',
@@ -2614,8 +2618,8 @@ export default {
           description: 'Certificate import, version, format, and binding operations'
         },
         asset: {
-          name: 'Asset logs',
-          description: 'Application asset, host, service instance, and site asset operations'
+          name: 'Managed application logs',
+          description: 'Managed application, host, service instance, and site operations'
         },
         gateway: {
           name: 'Gateway logs',
@@ -2779,7 +2783,7 @@ export default {
   },
   bindings: {
     actions: {
-      create: 'New config file',
+      create: 'New configuration file',
       toggleFilters: 'Filter',
       edit: 'Edit',
       delete: 'Delete',
@@ -2789,7 +2793,7 @@ export default {
       confirmSave: 'Save'
     },
     columns: {
-      configName: 'Config name',
+      configName: 'Configuration name',
       targetSummary: 'Target environment',
       displayFormat: 'Content format',
       extension: 'Extension',
@@ -2798,25 +2802,25 @@ export default {
       actions: 'Actions'
     },
     dialog: {
-      createTitle: 'Create certificate format config',
-      editTitle: 'Edit certificate format config',
+      createTitle: 'Create certificate format configuration',
+      editTitle: 'Edit certificate format configuration',
       description: 'Select the system and target platform, apply a built-in template, then adjust each option and define what the single artifact contains.'
     },
     list: {
-      title: 'Certificate format config list',
-      descriptionWithCount: 'Reusable certificate format templates are saved here. {count} currently.'
+      title: 'Certificate format configuration list',
+      descriptionWithCount: '{count} certificate format configurations are available.'
     },
     empty: {
-      text: 'No certificate format configs'
+      text: 'No certificate format configurations'
     },
     fields: {
       contentFormat: 'Content format',
       systemPlatform: 'System platform',
       runtimePlatform: 'Target platform',
-      configName: 'Config name',
+      configName: 'Configuration name',
       backendFormat: 'Backend format',
       outputExtension: 'Output extension',
-      expiresAt: 'Config expiry time (optional)',
+      expiresAt: 'Configuration expiry time (optional)',
       certificateEncoding: 'Certificate encoding',
       certificateContentEncoding: 'Certificate content encoding',
       privateKeyEncoding: 'Private key encoding',
@@ -2824,7 +2828,7 @@ export default {
       includeCertificateChain: 'Include certificate chain',
       includePrivateKey: 'Include private key',
       mainArtifactIncludesChain: 'Main artifact includes certificate chain',
-      generateChainFile: 'Generate extra chain file',
+      generateChainFile: 'Generate additional chain file',
       generatePrivateKeyFile: 'Generate extra private key file',
       exportPassword: 'Export password'
     },
@@ -2846,7 +2850,7 @@ export default {
       },
       basic: {
         title: 'Basic information',
-        description: 'Define the config identity, real content format, and final extension.'
+        description: 'Define the configuration identity, content format, and final extension.'
       },
       encoding: {
         title: 'Encoding',
@@ -2854,7 +2858,7 @@ export default {
       },
       content: {
         title: 'Contents',
-        description: 'Defines what the main artifact contains: public certificate, certificate chain, and private key.'
+        description: 'Defines what the main artifact contains: leaf certificate, certificate chain, and private key.'
       },
       export: {
         title: 'Export options',
@@ -2862,7 +2866,7 @@ export default {
       }
     },
     filters: {
-      keywordPlaceholder: 'Config name / target environment / Alias / content format'
+      keywordPlaceholder: 'Configuration name / target environment / alias / content format'
     },
     placeholders: {
       configName: 'For example: device-compatible single-file PEM',
@@ -2870,18 +2874,18 @@ export default {
     },
     validation: {
       selectPlatformsFirst: 'Select the system platform and target platform first.',
-      configNameRequired: 'Config name is required',
-      passwordRequired: 'PFX/JKS configs require an export password'
+      configNameRequired: 'Configuration name is required',
+      passwordRequired: 'PFX/JKS configurations require an export password'
     },
     errors: {
-      loadFailed: 'Failed to load certificate format configs',
-      saveFailed: 'Failed to save certificate format config',
-      deleteFailed: 'Failed to delete certificate format config',
+      loadFailed: 'Failed to load certificate format configurations',
+      saveFailed: 'Failed to save certificate format configuration',
+      deleteFailed: 'Failed to delete certificate format configuration',
       createExportSecretFailed: 'Failed to create export password Secret',
       withCode: '{message} ({code})'
     },
     fallbacks: {
-      unnamedConfig: 'Unnamed config-{index}',
+      unnamedConfig: 'Unnamed configuration {index}',
       unspecified: 'Unspecified',
       aliasUnset: 'Alias not set'
     },
@@ -2898,14 +2902,14 @@ export default {
       default: 'Default'
     },
     export: {
-      leafCertificate: 'Public certificate',
+      leafCertificate: 'Leaf certificate',
       certificateChain: 'Certificate chain',
       privateKey: 'Private key',
-      extraChainFile: 'Extra chain file',
+      extraChainFile: 'Additional chain file',
       extraPrivateKeyFile: 'Extra private key file'
     },
     secret: {
-      defaultConfigName: 'Certificate format config',
+      defaultConfigName: 'Certificate format configuration',
       exportPasswordName: '{name} export password'
     },
     select: {
@@ -2928,7 +2932,7 @@ export default {
       },
       windowsApache: {
         configName: 'Windows-Apache-PEM standard template',
-        description: 'Apache is usually delivered as a PEM certificate file plus a separate private key, with an extra chain file for operational compatibility.'
+        description: 'Apache is usually delivered as a PEM certificate file plus a separate private key, with an additional chain file for operational compatibility.'
       },
       windowsTomcat: {
         configName: 'Windows-Tomcat-PKCS12 standard template',
@@ -2936,7 +2940,7 @@ export default {
       },
       windowsOther: {
         configName: 'Windows device-compatible single-file PEM template',
-        description: 'For devices that require a single file containing the public certificate, certificate chain, and private key. The extension can be adjusted to .crt/.cer.'
+        description: 'For devices that require a single file containing the leaf certificate, certificate chain, and private key. The extension can be adjusted to .crt or .cer.'
       },
       linuxIis: {
         configName: 'Linux-IIS compatibility template',
@@ -2948,7 +2952,7 @@ export default {
       },
       linuxApache: {
         configName: 'Linux-Apache-PEM standard template',
-        description: 'Apache commonly uses a PEM certificate file plus a separate private key, with an extra chain file for split deployment.'
+        description: 'Apache commonly uses a PEM certificate file plus a separate private key, with an additional chain file for split deployment.'
       },
       linuxTomcat: {
         configName: 'Linux-Tomcat-PKCS12 standard template',
@@ -2963,11 +2967,11 @@ export default {
   deploymentInputs: {
     title: 'Deployment inputs',
     description: 'Configure deployment values from the unified input contract declared by the plugin or workflow.',
-    saveAssetFirst: 'Save the application asset and execution source before editing deployment inputs projected by the backend.',
+    saveAssetFirst: 'Save the managed application and execution source before editing deployment inputs projected by the backend.',
     contractVersion: 'Contract {version}',
     groups: { required: 'Required configuration', advanced: 'Advanced configuration', readonly: 'Read-only and runtime values' },
     actions: { expand: 'Expand advanced configuration', collapse: 'Collapse advanced configuration' },
-    placeholders: { select: 'Select an option', credential: 'Select a credential', artifact: 'Select an artifact format', output: 'Select an output' },
+    placeholders: { select: 'Select an option', credential: 'Select a credential', artifact: 'Select a certificate delivery format', output: 'Select an output' },
     artifacts: { format: 'Artifact format' },
     allowInsecureTls: {
       label: 'Allow skipping TLS certificate verification',
@@ -2977,7 +2981,7 @@ export default {
     runtimeValue: 'Provided by {source} at runtime',
     source: 'Source: {source}',
     sourceKinds: {
-      asset: 'Asset',
+      asset: 'Managed application',
       binding: 'Binding',
       default: 'Default value',
       derived: 'Derived value',
@@ -3010,24 +3014,24 @@ export default {
       list: 'Table view',
     },
     selection: {
-      selectedCount: 'Selected {count} / {total} assets',
+      selectedCount: 'Selected {count} / {total} managed applications',
       actions: {
         bulkDelete: 'Bulk delete',
         bulkUpdateCertificate: 'Bulk update certificate'
       },
-      bulkDeleteRisk: 'This removes the selected application assets and their manual target associations. Discovered frameworks, sites, and managed targets are preserved.',
-      bulkDeleteSuccess: 'Deleted {count} application assets.',
-      bulkDeletePartialSuccess: 'Deleted {succeeded} application assets; {failed} failed.',
-      bulkUpdateDescription: 'Choose and submit a new certificate version for {count} application assets bound to the same certificate domain “{domain}”.',
-      bulkUpdateFailed: 'Certificate update failed; none of the {count} assets were submitted.',
-      bulkUpdateSuccess: 'Certificate update submitted for {count} application assets.',
-      bulkUpdatePartialSuccess: 'Certificate update submitted for {succeeded} application assets; {failed} failed.'
+      bulkDeleteRisk: 'This removes the selected managed applications and their manual target associations. Discovered frameworks, sites, and managed targets are preserved.',
+      bulkDeleteSuccess: 'Deleted {count} managed applications.',
+      bulkDeletePartialSuccess: 'Deleted {succeeded} managed applications; {failed} failed.',
+      bulkUpdateDescription: 'Choose and submit a new certificate version for {count} managed applications bound to the same certificate domain “{domain}”.',
+      bulkUpdateFailed: 'Certificate update failed; none of the {count} managed applications were submitted.',
+      bulkUpdateSuccess: 'Certificate update submitted for {count} managed applications.',
+      bulkUpdatePartialSuccess: 'Certificate update submitted for {succeeded} managed applications; {failed} failed.'
     },
     aria: {
-      selectCard: 'Select asset {name}',
-      detailCard: 'View asset details {name}',
-      editCard: 'Edit asset {name}',
-      deleteCard: 'Delete asset {name}'
+      selectCard: 'Select managed application {name}',
+      detailCard: 'View managed application details {name}',
+      editCard: 'Edit managed application {name}',
+      deleteCard: 'Delete managed application {name}'
     },
     userView: {
       stepLabel: 'Step 2 of 3 · Application',
@@ -3057,22 +3061,22 @@ export default {
         certificateFormat: 'Certificate format'
       }
     },
-    title: 'Application assets',
+    title: 'Managed applications',
     description: 'Manage application entry points by domain or IP, focusing on address, port, protocol, site, and execution targeting.',
-    resourceName: 'Application asset',
-    linkage: { title: 'Plugin and Agent linkage', description: 'Check plugin version, Agent version, and local execution policy.', status: 'Status', agent: 'Agent version', plugin: 'Plugin version', policy: 'Policy match', repair: 'Repair' },
+    resourceName: 'Managed application',
+    linkage: { title: 'Plugin and agent linkage', description: 'Check plugin version, agent version, and local execution policy.', status: 'Status', agent: 'Agent version', plugin: 'Plugin version', policy: 'Policy match', repair: 'Repair' },
     executionModes: {
       label: 'Execution mode',
       plugin: { title: 'Plugin execution', description: 'Use the certificate deployment capability enabled for the managed target.' },
-      workflowOverride: { title: 'Workflow override', description: 'Bypass plugin execution and use a user-owned workflow.', notice: 'Workflow override disables this asset plugin assignment and keeps only the workflow execution binding.' }
+      workflowOverride: { title: 'Workflow override', description: 'Bypass plugin execution and use a user-owned workflow.', notice: 'Workflow override disables this managed application plugin assignment and keeps only the workflow execution binding.' }
     },
     actions: {
-      add: 'Add asset',
+      add: 'Add managed application',
       edit: 'Edit',
       detail: 'Details',
       addVariable: 'Add variable',
       delete: 'Delete',
-      deleteRisk: 'Deleting removes this application asset and its manual target association from the asset list. Discovered frameworks, sites, virtual servers, and managed targets are preserved.',
+      deleteRisk: 'Deleting removes this managed application and its manual target association from the application list. Discovered frameworks, sites, virtual servers, and managed targets are preserved.',
       rollbackFromLatestSnapshot: 'Rollback from latest snapshot',
       rollingBack: 'Rolling back...',
       deployCertificate: 'Deploy certificate',
@@ -3095,7 +3099,7 @@ export default {
       actions: 'Actions'
     },
     fields: {
-      assetId: 'Application asset ID',
+      assetId: 'Managed application ID',
       domain: 'Domain',
       addressType: 'Address type',
       port: 'Port',
@@ -3119,7 +3123,7 @@ export default {
       managedTarget: 'Managed target',
       siteName: 'Site name',
       bindingInformation: 'Binding information',
-      hostHeader: 'Host Header',
+      hostHeader: 'Host header',
       sniName: 'SNI name',
       currentCertificate: 'Current certificate',
       remainingValidity: 'Remaining validity',
@@ -3131,7 +3135,7 @@ export default {
       executionRun: 'Execution run',
       displayName: 'Display name',
       siteInstance: 'Site instance',
-      certificateFormat: 'Certificate artifact format',
+      certificateFormat: 'Certificate delivery format',
       workflow: 'Workflow',
       publishedVersion: 'Published version',
       runner: 'Runner',
@@ -3139,13 +3143,13 @@ export default {
       updatePlugin: 'Certificate update plugin',
       approvalRequired: 'Require approval for certificate deployment'
     },
-    capability: { source: 'Capability source', plugin: 'Plugin version', runtime: 'Runtime', executionLocation: 'Execution location', pendingAssignment: 'Saving will create an application-asset deployment capability assignment.' },
+    capability: { source: 'Capability source', plugin: 'Plugin version', runtime: 'Runtime', executionLocation: 'Execution location', pendingAssignment: 'Saving will create a managed application deployment capability assignment.' },
     links: {
       certificateBindings: 'View certificate bindings',
       executions: 'View execution records'
     },
     empty: {
-      title: 'No application assets',
+      title: 'No managed applications',
       description: 'Waiting for discovery to write ServiceAsset records, or add entry points through backend APIs.',
       noBindingInformation: 'No binding information',
       notSet: 'Not set',
@@ -3155,7 +3159,7 @@ export default {
     },
     detail: {
       title: 'Application details',
-      description: 'Keep asset details, bindings, deployment entry, and snapshots in one modal.',
+      description: 'Keep managed application details, bindings, deployment entry, and snapshots in one modal.',
       tabsAriaLabel: 'Application detail tabs',
       tabs: {
         overview: 'Overview',
@@ -3169,7 +3173,7 @@ export default {
       sections: {
         overview: {
           title: 'Overview',
-          description: 'The application asset is the primary object. Hosts and sites only provide execution targeting information.'
+          description: 'The managed application is the primary object. Hosts and sites only provide execution targeting information.'
         },
         targetBinding: {
           title: 'Target binding',
@@ -3187,21 +3191,21 @@ export default {
     },
     deployment: {
       title: 'Certificate deployment',
-      description: 'Choose a certificate version for this application asset. The system creates a deployment snapshot, runs preflight, submits approval, and executes when authorized.',
+      description: 'Choose a certificate version for this managed application. The system creates a deployment snapshot, runs preflight, submits approval, and executes when authorized.',
       dialogTitle: 'Certificate deployment',
-      dialogDescription: 'This applies only to the current application asset. The deployment plan remains the backend snapshot, approval, and execution boundary.',
-      noCertificateAsset: 'No deployable certificate asset',
+      dialogDescription: 'This applies only to the current managed application. The deployment plan remains the backend snapshot, approval, and execution boundary.',
+      noCertificateAsset: 'No deployable certificate',
       targetLocked: 'Update target locked',
       latestVersionPointer: 'Automatically apply the latest version of the current certificate',
       deployThisVersion: 'Deploy this certificate version',
       loadingRecords: 'Loading deployment records...',
-      emptyRecords: 'This application asset has no deployment records.',
+      emptyRecords: 'This managed application has no deployment records.',
       preflightAvailable: '{count} preflight checks returned',
       preflightUnavailable: 'No preflight run yet',
       rollbackUnavailable: 'No rollback requested',
       fields: { status: 'Deployment status', approval: 'Approval', latestRun: 'Latest run', preflight: 'Preflight', rollback: 'Rollback', updatedAt: 'Updated at' },
       feedback: { preflightRunning: 'Waiting for the preflight run to finish.', pendingApproval: 'Preflight completed. The deployment is awaiting approval.', executionStarted: 'Preflight and approval passed. The deployment run has started.' },
-      errors: { missingApplicationAssetId: 'Application asset ID is required to create a certificate deployment.', loadOptionsFailed: 'Failed to load deployable certificate versions.', createPlanMissingId: 'The deployment snapshot was created without a plan ID.', deployFailed: 'Certificate deployment failed.', preflightFailed: 'The certificate deployment preflight did not pass.', preflightTimeout: 'The certificate deployment preflight timed out.', loadRecordsFailed: 'Failed to load application asset deployment records.' }
+      errors: { missingApplicationAssetId: 'Managed application ID is required to create a certificate deployment.', loadOptionsFailed: 'Failed to load deployable certificate versions.', createPlanMissingId: 'The deployment snapshot was created without a plan ID.', deployFailed: 'Certificate deployment failed.', preflightFailed: 'The certificate deployment preflight did not pass.', preflightTimeout: 'The certificate deployment preflight timed out.', loadRecordsFailed: 'Failed to load managed application deployment records.' }
     },
     compatibilityModes: {
       unified: 'Unified plugin binding',
@@ -3210,32 +3214,32 @@ export default {
     },
     managementModes: {
       agent: 'Agent mode',
-      agentDescription: 'Bind Agent, site instance, and managed target',
+      agentDescription: 'Bind agent, site instance, and managed target',
       workflow: 'Workflow mode',
       workflowDescription: 'Select workflow version and runtime variables'
     },
     loading: {
-      agents: 'Loading Agents...',
+      agents: 'Loading agents...',
       sites: 'Loading sites...',
       managedTargets: 'Loading targets...',
-      certificateFormats: 'Loading format configs...',
+      certificateFormats: 'Loading format configurations...',
       workflows: 'Loading workflows...',
       versions: 'Loading versions...',
-      gateways: 'Loading Gateways...',
+      gateways: 'Loading gateways...',
       credentials: 'Loading credentials...'
     },
     select: {
-      agent: 'Select Agent',
+      agent: 'Select agent',
       siteInstance: 'Select site instance',
       managedTarget: 'Select managed target',
-      certificateFormat: 'Select certificate artifact format',
+      certificateFormat: 'Select certificate delivery format',
       workflow: 'Select workflow',
       publishedVersion: 'Select published version',
-      gateway: 'Select Gateway',
+      gateway: 'Select gateway',
       variablePreset: 'Select preset variable',
       credential: 'Select credential',
       generic: 'Select',
-      artifactFormat: 'Select format config',
+      artifactFormat: 'Select format configuration',
       output: 'Select output',
       optionalOutput: 'Optional',
       updatePluginOptional: 'Optional; keep the currently effective plugin'
@@ -3249,7 +3253,7 @@ export default {
       variableMustBeJsonObject: 'Variable {name} must be a JSON object',
       variableInvalidJson: 'Variable {name} is not valid JSON',
       variableCredentialInvalid: 'Variable {name} must select a valid credential',
-      certificateFormatRequired: 'Certificate variable {name} must select a certificate format config',
+      certificateFormatRequired: 'Certificate variable {name} must select a certificate format configuration',
       certificateOutputRequired: 'Certificate variable {name}.{slot} must select an output',
       certificateOutputMissing: 'Selected output for certificate variable {name}.{slot} does not exist'
     },
@@ -3264,7 +3268,7 @@ export default {
       certificate: 'Certificate'
     },
     wizard: {
-      ariaLabel: 'Application asset creation steps',
+      ariaLabel: 'Managed application creation steps',
       steps: {
         basicEntry: 'Basic entry',
         deploymentMode: 'Deployment mode',
@@ -3282,21 +3286,21 @@ export default {
         basicEntryTitle: 'Basic entry',
         basicEntryDescription: 'Fill in domain, port, protocol, and platform first to define the application entry identity.',
         agentTitle: 'Agent target binding',
-        agentDescription: 'Select Agent, site instance, managed target, and certificate artifact format.',
-        workflowTitle: 'Workflow runtime config',
+        agentDescription: 'Select agent, site instance, managed target, and certificate delivery format.',
+        workflowTitle: 'Workflow runtime configuration',
         workflowDescription: 'Select workflow version, runner, and variables. Certificate variables are injected at runtime.',
         confirmTitle: 'Confirm and save',
-        confirmDescription: 'Review application entry, deployment mode, and runtime parameters before saving the asset.'
+        confirmDescription: 'Review application entry, deployment mode, and runtime parameters before saving the managed application.'
       }
     },
     form: {
-      createTitle: 'Add application asset manually',
-      editTitle: 'Edit application asset',
+        createTitle: 'Add managed application manually',
+        editTitle: 'Edit managed application',
       createDescription: 'Create an application entry and bind target information required for later deployment.',
       editDescription: 'Update the application entry and deployment target binding.',
       createRequestCompleted: 'Create request completed.',
       editRequestCompleted: 'Save request completed.',
-      agentCertificateFormatHint: 'Agent mode uses this certificate artifact format to generate deployment materials.',
+      agentCertificateFormatHint: 'Agent mode uses this certificate delivery format to generate deployment materials.',
       approvalRequiredHint: 'When checked, deployments for this application always require approval; otherwise the tenant-wide deployment setting is used.',
       placeholders: {
         displayName: 'For example: production site entry',
@@ -3319,7 +3323,7 @@ export default {
     },
     workflowTarget: {
       title: 'Workflow target information',
-      description: 'Used for workflow asset display, post-deploy probing, and DSL target variable synchronization.',
+      description: 'Used to display managed applications in workflows, run post-deployment probes, and synchronize DSL target variables.',
       dslSyncHint: 'Synced to DSL target variables',
       advancedTitle: 'Advanced settings',
       advancedDescription: 'Change only when overriding the default listener, request host, or TLS certificate name.',
@@ -3329,7 +3333,7 @@ export default {
       bindingInformationHelp: 'Describes the address, port, and host combination used by the service listener.',
       hostHeaderLabel: 'Request host name',
       hostHeaderHelp: 'Change only when the target service requires a specific HTTP Host header.',
-      sniNameLabel: 'TLS certificate name',
+      sniNameLabel: 'SNI server name',
       sniNameHelp: 'Change only when the TLS handshake name differs from the access host.'
     },
     workflowVersionSelection: {
@@ -3346,15 +3350,15 @@ export default {
       empty: 'No workflow variables.',
       noPublishedVersion: 'Select a published workflow version before configuring variables.',
       certificateAutoInjected: 'The certificate version is selected by the deployment plan and injected automatically at runtime.',
-      certificateDescription: 'The certificate version is selected by the deployment plan. Bind format config and outputs below; {name}.outputs.*.content is injected at runtime.',
+      certificateDescription: 'The certificate version is selected by the deployment plan. Bind format configuration and outputs below; {name}.outputs.*.content is injected at runtime.',
       presets: {
         deviceHost: 'Target host or device address',
         sshUsername: 'SSH user name',
         credential: 'Workflow credential',
-        certificate: 'Certificate artifact',
+        certificate: 'Certificate delivery format',
         targetPlatform: 'Target platform',
         apacheServiceName: 'Apache systemd service name',
-        apacheSiteConfigPath: 'Apache site config path',
+        apacheSiteConfigPath: 'Apache site configuration path',
         certificateFilePath: 'Certificate destination path',
         certificateKeyFilePath: 'Private key destination path',
         backupRoot: 'Certificate backup root',
@@ -3364,14 +3368,14 @@ export default {
     },
     certificateBindings: {
       title: 'Certificate variable bindings',
-      description: 'Select certificate artifact format and outputs for certificate variables in the workflow.',
+      description: 'Select the certificate delivery format and outputs for certificate variables in the workflow.',
       variableCount: '{count} certificate variables',
-      defaultVariableDescription: 'Certificate artifact variable',
-      noArtifactOutputs: 'No selectable outputs for the current format config.'
+      defaultVariableDescription: 'Certificate delivery format variable',
+      noArtifactOutputs: 'No selectable outputs for the current format configuration.'
     },
     certificateOutputs: {
-      publicCertificateWithChain: 'Public certificate + certificate chain',
-      publicCertificate: 'Public certificate',
+      publicCertificateWithChain: 'Leaf certificate + certificate chain',
+      publicCertificate: 'Leaf certificate',
       certificateChain: 'Certificate chain',
       privateKey: 'Private key',
       pemBundle: 'PEM bundle artifact',
@@ -3379,7 +3383,7 @@ export default {
       bundle: 'Bundle'
     },
     certificateFormats: {
-      savedConfigMissingWithId: '{id} (saved config, not returned by current list)',
+      savedConfigMissingWithId: '{id} (saved configuration, not returned by current list)',
       withPrivateKey: 'With private key',
       withoutPrivateKey: 'Without private key'
     },
@@ -3394,11 +3398,11 @@ export default {
       loadWorkflowListFailed: 'Failed to load workflow list',
       loadWorkflowVersionsFailed: 'Failed to load workflow versions',
       loadGatewayListFailed: 'Failed to load gateway list',
-      loadCertificateFormatsFailed: 'Failed to load certificate format configs',
-      loadAssetDetailFailed: 'Failed to load application asset details',
+      loadCertificateFormatsFailed: 'Failed to load certificate format configurations',
+      loadAssetDetailFailed: 'Failed to load managed application details',
       rollbackFailed: 'Failed to start rollback',
       loadTargetsFailed: 'Failed to load sites and managed targets',
-      createAssetFailed: 'Failed to create application asset',
+      createAssetFailed: 'Failed to create managed application',
       pluginFormLoadFailed: 'Failed to load the plugin configuration form',
       pluginBindingCreateFailed: 'Failed to save the plugin binding',
       loadWorkflowCredentialsFailed: 'Failed to load workflow credentials',
@@ -3441,7 +3445,7 @@ export default {
         professional: 'Professional view'
       },
       descriptions: {
-        user: 'Keep only the common flow: import a certificate, attach applications, and set automatic updates.',
+        user: 'Keep only the common flow: import a certificate, associate applications, and set automatic updates.',
         professional: 'Show certificate versions, chain state, and full technical details.'
       }
     },
@@ -3449,7 +3453,7 @@ export default {
       hero: {
         eyebrow: 'Common flow',
         title: 'Handle certificate updates by business flow',
-        description: 'Import or replace the certificate first, then attach applications, and finally configure an automatic update plan. Most daily work does not need low-level technical details.',
+        description: 'Import or replace the certificate first, then associate applications, and finally configure an automatic update plan. Most daily work does not need low-level technical details.',
         primaryAction: 'Import or replace certificate',
         secondaryAction: 'Switch to professional view'
       },
@@ -3470,9 +3474,9 @@ export default {
         },
         import: {
           title: 'Import or replace certificate',
-          description: 'Bring the new certificate material into the system. Application attachment and update plans continue from this certificate.',
+          description: 'Bring the new certificate material into the system. Application associations and update plans continue from this certificate.',
           helperCompleted: '{count} certificate domains are already managed. You can keep replacing or adding certificate versions.',
-          helperEmpty: 'Import the current certificate first. Application attachment and automatic plans depend on this step.',
+          helperEmpty: 'Import the current certificate first. Application associations and automatic plans depend on this step.',
           action: 'Start import'
         },
         applications: {
@@ -3502,7 +3506,7 @@ export default {
         validUntil: 'Expires at: {value}',
         openProfessional: 'Open professional view',
         attentionTitle: 'Handle first',
-        attentionDescription: 'Resolve expired or soon-to-expire certificates first, then finish application attachment and automatic plans.',
+        attentionDescription: 'Resolve expired or soon-to-expire certificates first, then finish application associations and automatic plans.',
         assetAction: 'Open professional details',
         emptyTitle: 'No urgent certificate right now',
         emptyDescription: 'All imported certificates are currently still within their validity period.'
@@ -3512,11 +3516,11 @@ export default {
         subtitle: 'Manage certificates and see which applications use them',
         sections: {
           certificates: {
-            title: 'Certificate management',
+            title: 'Certificate lifecycle',
             help: 'View and manage all certificates, including expiry and status.'
           },
           applications: {
-            title: 'Application attachments',
+            title: 'Connected applications',
             help: 'See where certificates are used and how often they are updated.'
           }
         },
@@ -3556,12 +3560,12 @@ export default {
     },
     detail: {
       backList: 'Back to list',
-      description: 'Shows certificate version details, format artifacts, and related assets.',
+      description: 'Shows certificate version details, delivery formats, and related applications.',
       title: 'Certificate details'
     },
     detailPanel: {
       sources: {
-        agentContext: 'Agent context',
+        agentContext: 'agent context',
         platformBinding: 'Platform binding record'
       },
       usage: {
@@ -3573,8 +3577,8 @@ export default {
           usageSource: 'Source',
           status: 'Status'
         },
-        empty: 'No related assets',
-        toolbar: 'Related assets'
+        empty: 'No connected applications',
+        toolbar: 'Connected applications'
       },
       summary: {
         certificateName: 'Certificate name',
@@ -3658,7 +3662,7 @@ export default {
       tabs: {
         ariaLabel: 'Certificate detail tabs',
         detail: 'Details',
-        usage: 'Related assets'
+        usage: 'Connected applications'
       },
       validity: {
         title: 'Certificate validity',
@@ -3674,10 +3678,10 @@ export default {
         secretRef: 'Secret reference',
         status: 'Status'
       },
-      create: 'Create format config',
+      create: 'Create format configuration',
       createFailed: 'Failed to create format',
       description: 'PEM/DER/PFX/JKS/P7B format configuration entry for certificate {id}.',
-      empty: 'No format configs',
+      empty: 'No format configurations',
       fields: {
         alias: 'Alias (optional)',
         containsPrivateKey: 'Contains private key (PEM)',
@@ -3685,14 +3689,14 @@ export default {
         targetFormat: 'Target format',
         versionId: 'Version ID'
       },
-      hint: 'PFX/JKS must use an existing backend passwordSecretRef. Deployment materials are generated on demand from the certificate version and format config.',
-      loadFailed: 'Failed to load format configs',
+      hint: 'PFX/JKS must use an existing backend passwordSecretRef. Deployment materials are generated on demand from the certificate version and format configuration.',
+      loadFailed: 'Failed to load format configurations',
       optionAvailable: '{label} - available',
       placeholders: {
         alias: 'For example gcac-cert'
       },
-      title: 'Certificate format config',
-      toolbar: 'Format config list',
+      title: 'Certificate format configuration',
+      toolbar: 'Format configuration list',
       unsupported: '{format} cannot be created with the current capability declaration.'
     },
     import: {
@@ -3853,10 +3857,10 @@ export default {
         versionKeyword: 'Name / issuer / subject / version ID'
       },
       columns: {
-        notBefore: 'Start date',
-        notAfter: 'End date',
-        associatedAsset: 'Related asset',
-        sourceType: 'Added by',
+        notBefore: 'Valid from',
+        notAfter: 'Expires on',
+        associatedAsset: 'Connected application',
+        sourceType: 'Source',
         status: 'Status',
         certificateVersionId: 'Certificate version ID'
       },
@@ -3880,22 +3884,22 @@ export default {
         noSupplement: 'No additional information'
       },
       assets: {
-        title: 'Domain list',
-        loadFailed: 'Failed to load domain list',
-        empty: 'No domains',
+        title: 'Certificate identity list',
+        loadFailed: 'Failed to load certificate identities',
+        empty: 'No certificate identities',
         unselectedTitle: 'No domain selected',
         unselectedDescription: 'Select a logical certificate domain on the left first.'
       },
       versions: {
-        title: 'SSL certificate list',
-        titleWithDomain: 'SSL certificates for {domain}',
-        description: 'Shows SSL certificates under the current domain, including certificate name, start date, end date, issuer, and subject.',
-        loadFailed: 'Failed to load SSL certificate list',
-        emptyForDomain: 'No SSL certificates under this domain',
+        title: 'Certificate list',
+        titleWithDomain: 'Certificates for {domain}',
+        description: 'Shows certificates under the current identity, including certificate name, validity, issuer, and subject.',
+        loadFailed: 'Failed to load certificate list',
+        emptyForDomain: 'No certificates under this identity',
         emptyForDomainDescription: 'Use the import certificate button on the right of the filters to add certificate versions for this domain.',
-        empty: 'No SSL certificates',
+        empty: 'No certificates',
         toolbar: 'Certificate version list',
-        currentCount: '{count} currently'
+        currentCount: '{count} certificate versions'
       },
       actions: {
         toggleFilters: 'Filter',
@@ -3914,7 +3918,7 @@ export default {
     },
     trustRoots: {
       title: 'Root certificate management',
-      description: 'View the project root certificate inventory, source observations, and leaf-version relations in a modal without leaving the certificate assets page.',
+      description: 'View the project root certificate inventory, source observations, and leaf-version relations in a modal without leaving the certificate inventory page.',
       actions: {
         open: 'Root certificates',
         refresh: 'Refresh',
@@ -3932,7 +3936,7 @@ export default {
         invalidChainVersions: 'Invalid chains',
         targetRoot: 'Target root fingerprint: {fingerprint}',
         rootFingerprintUnavailable: 'Target root fingerprint is not available yet',
-        relatedAssetCount: '{count} related assets'
+        relatedAssetCount: '{count} related certificate inventory items'
       },
       detail: {
         subtitle: 'Shows the root certificate summary, source observations, and related leaf certificate versions.'
@@ -3944,27 +3948,27 @@ export default {
         issuer: 'Issuer',
         notBefore: 'Valid from',
         notAfter: 'Valid until',
-        relatedAssets: 'Related certificate assets',
+        relatedAssets: 'Related certificate inventory items',
         relatedVersions: 'Related certificate versions'
       },
       sections: {
         observations: 'Source observations',
-        relatedAssets: 'Related certificate assets',
+        relatedAssets: 'Related certificate inventory items',
         versionRelations: 'Leaf certificate relations',
         managedCertificates: 'Managed certificate root status'
       },
       states: {
         loadFailed: 'Failed to load root certificate records',
         detailFailed: 'Failed to load root certificate details',
-        assetLoadFailed: 'Failed to load related certificate assets',
+        assetLoadFailed: 'Failed to load related certificate inventory items',
         emptyTitle: 'No root certificate records',
         emptyDescription: 'The current project does not have any imported root certificates yet.',
         unselectedTitle: 'No root certificate selected',
         unselectedDescription: 'Select a root certificate record from the list on the left first.',
-        rootNotInLibrary: 'This root certificate is not in the library yet. The related assets and statuses below are inferred from managed certificate chains.',
+        rootNotInLibrary: 'This root certificate is not in the library yet. The related certificate inventory items and statuses below are inferred from managed certificate chains.',
         emptyObservations: 'No source observations yet',
         emptyRelations: 'No related leaf certificate versions',
-        emptyAssets: 'No certificate assets are currently related to this root'
+        emptyAssets: 'No certificate inventory items are currently related to this root'
       },
       validationStatus: {
         pending: 'Pending',
@@ -3973,9 +3977,9 @@ export default {
         expired: 'Expired'
       },
       sourceTypes: {
-        control_plane_node: 'Control plane Node Root Store',
+        control_plane_node: 'Control plane node root store',
         openssl: 'Control plane OpenSSL store',
-        windows: 'Control plane Windows Root Store',
+        windows: 'Control plane Windows root store',
         internet: 'Controlled internet source',
         manual: 'Manual import',
         managed_host_inspect: 'Managed host targeted inspect'
@@ -4026,7 +4030,7 @@ export default {
         sshKey: 'SSH private key',
         sshKeyWithUsername: 'SSH private key / {username}',
         apiKey: 'API Key / {name} / {location}',
-        bearerToken: 'Bearer Token'
+        bearerToken: 'Bearer token'
       }
     },
     canvasModel: {
@@ -4044,7 +4048,7 @@ export default {
         },
         sftp: {
           displayName: 'SFTP upload/download',
-          description: 'Upload or download files through a formal SFTP step, suitable for certificate and config installation.'
+          description: 'Upload or download files through a formal SFTP step, suitable for certificate and configuration installation.'
         },
         scp: {
           displayName: 'SCP upload/download',
@@ -4063,15 +4067,15 @@ export default {
           description: 'Use JSONata to convert upstream output into new workflow context variables.'
         },
         foreach: {
-          displayName: 'For Each',
+          displayName: 'For each',
           description: 'Iterate a dynamic collection sequentially and run the same child steps for every item.'
         },
         checkpoint: {
-          displayName: 'Recovery Checkpoint',
+          displayName: 'Recovery checkpoint',
           description: 'Save a verifiable remote-state summary before a device write operation.'
         },
         pluginAction: {
-          displayName: 'Plugin Atomic Action',
+          displayName: 'Plugin atomic action',
           description: 'Invoke one explicitly declared plugin action without taking over workflow order or rollback.'
         },
         wait: {
@@ -4091,8 +4095,8 @@ export default {
         description: 'Description',
         direction: 'Direction',
         expected: 'Expected value',
-        expectedHostKeyFingerprint: 'Host Key fingerprint',
-        hostKeyPolicy: 'Host Key policy',
+        expectedHostKeyFingerprint: 'Host key fingerprint',
+        hostKeyPolicy: 'Host key policy',
         hostRef: 'Host variable',
         inputRef: 'Input variable',
         instruction: 'Approval instruction',
@@ -4273,12 +4277,12 @@ export default {
       },
       credentialHints: {
         savedApiKey: 'Saved API key',
-        savedBearerToken: 'Saved Bearer token',
+        savedBearerToken: 'Saved bearer token',
         savedSshSftp: 'Saved SSH / SFTP credentials',
         savedUsernamePassword: 'Saved username + password'
       },
       credentials: {
-        emptyCreateHint: 'No available credentials. Create one from Credential Management on the list page.',
+        emptyCreateHint: 'No available credentials. Create one from credential management on the list page.',
         loading: 'Loading credentials from backend...'
       },
       dsl: {
@@ -4598,7 +4602,7 @@ export default {
         },
         placeholders: {
           apiKey: 'Enter API Key',
-          bearer: 'Enter Bearer Token',
+      bearer: 'Enter bearer token',
           password: 'Enter login password',
           sshKey: 'Paste PEM private key'
         },
@@ -4634,7 +4638,7 @@ export default {
     empty: {
       actualCertificate: 'No observed TLS certificate yet. HTTPS targets collect certificate information automatically during site probes.',
       description: 'Add a monitor from the top right. The system will probe the site on schedule and collect certificate information.',
-      noAddableAssets: 'No application assets can be added. Adjust existing target probe intervals in the detail view.',
+      noAddableAssets: 'No managed applications can be added. Adjust existing target probe intervals in the detail view.',
       observedCertificateHistory: 'No bound certificate versions yet. The first certificate collected by a site probe will be retained automatically.',
       probeHistory: 'No probe history.',
       riskEvents: 'No related events.',
@@ -4652,7 +4656,7 @@ export default {
       targets: 'Monitor targets'
     },
     labels: {
-      applicationAsset: 'Application asset',
+      applicationAsset: 'Managed application',
       currentTarget: 'Current target',
       probeInterval: 'Probe interval',
       secondsUnit: 'seconds',
@@ -4689,8 +4693,8 @@ export default {
       noSummary: 'No summary',
       notCollected: 'Not collected',
       notSelected: 'Not selected',
-      unknownAsset: 'Unknown asset',
-      removedAsset: '{name} (removed)',
+      unknownAsset: 'Unknown managed application',
+      removedAsset: '{name} (managed application removed)',
       unknownCertificate: 'Unknown certificate',
       unknownIssuer: 'Unknown issuer',
       unnamedEvent: 'Unnamed event'
@@ -4726,30 +4730,30 @@ export default {
     },
     dialog: {
       defaultMetricsHint: 'Availability, latency, certificate information, and certificate history are monitored by default.',
-      description: 'Select a target from application assets. The system will collect availability, latency, certificate information, and certificate history.',
-      loadingAssets: 'Loading assets...',
-      selectAsset: 'Select application asset',
+      description: 'Select a target from managed applications. The system will collect availability, latency, certificate information, and certificate history.',
+      loadingAssets: 'Loading managed applications...',
+      selectAsset: 'Select managed application',
       title: 'Add monitor'
     },
     source: {
       controlPlane: 'Control plane'
     },
     targets: {
-      assetCount: '{count} assets',
+      assetCount: '{count} managed applications',
       lazyLoadHint: '{shown} / {total} loaded, scroll to load more'
     }
   },
   login: {
     visualLabel: 'Product overview',
     brand: 'GCAC',
-    brandSecondary: 'Centralized certificate management platform',
+    brandSecondary: 'Certificate lifecycle management platform',
     headlinePrefix: 'Certificate ',
     headlineHighlight: 'lifecycle',
-    headlineSuffix: ' control center',
-    intro: 'Manage certificate assets, deployment targets, and execution records in one verifiable workflow for import, renewal, rollout, audit, and rollback.',
+    headlineSuffix: ' management console',
+    intro: 'Manage certificate inventory, deployment targets, and execution records in one verifiable workflow for import, renewal, rollout, audit, and rollback.',
     capabilitiesLabel: 'Platform capabilities',
     featureLifecycle: 'Lifecycle management',
-    featureLifecycleDesc: 'Track import, renewal, versions, and expiry warnings across every certificate asset.',
+    featureLifecycleDesc: 'Track import, renewal, versions, and expiry warnings across the certificate inventory.',
     featureAutomation: 'Deployment orchestration',
     featureAutomationDesc: 'Generate auditable deployment plans for Nginx, Tomcat, IIS, and other common environments.',
     featureRollback: 'Safe execution and rollback',
@@ -4877,7 +4881,7 @@ export default {
       }
     },
     columns: {
-      certificateAssetId: 'Certificate asset ID',
+      certificateAssetId: 'Certificate inventory ID',
       certificateVersionId: 'Certificate version ID',
       name: 'Name',
       primaryDomain: 'Primary domain',
@@ -4966,37 +4970,37 @@ export default {
     }
   },
   internalCa: {
-    title: 'Internal CA', description: 'Manage internal certificate authorities, application certificate lifecycle, CA nodes, and certificate reuse risks.',
+    title: 'Internal CA', description: 'Manage internal certificate authorities, the certificate lifecycle for managed applications, CA nodes, and certificate reuse risks.',
     tabs: { trustDomains: 'CA trust domains', authorities: 'Authorities', profiles: 'Profiles', requests: 'Requests', operations: 'Operations', risks: 'Reuse risks' },
     trustDomains: { recordsTitle: 'Trust domain records', columns: { name: 'Name', purpose: 'Purpose', isolationLevel: 'Isolation level', status: 'Status', default: 'Default', createdAt: 'Created at' }, empty: 'No CA trust domains yet.', modalTitle: 'Add CA trust domain', modalDescription: 'Enter the trust domain basics. The unique code is generated automatically.', generatedCodeHint: 'The unique code is generated automatically and does not need to be entered manually.', notDefault: 'Not default' },
-    requests: { recordsTitle: 'Certificate Request Records', columns: { commonName: 'Common Name', applicationAssetId: 'Application Asset ID', updatedAt: 'Updated At', actions: 'Actions' }, empty: 'No certificate requests.', modalTitle: 'New Certificate Request', modalDescription: 'Fill in the certificate request details. It will enter the approval and issuance flow after submission.' },
-    profiles: { recordsTitle: 'Certificate Profile Records', columns: { securityDomain: 'Security Domain', versionCount: 'Version Count' }, empty: 'No certificate profiles.', modalTitle: 'New Certificate Profile', modalDescription: 'Define certificate issuance rules and constraints, including validity period, DNS suffixes, and approval requirements.' },
+    requests: { recordsTitle: 'Certificate request records', columns: { commonName: 'Common name', applicationAssetId: 'Managed application ID', updatedAt: 'Updated at', actions: 'Actions' }, empty: 'No certificate requests.', modalTitle: 'New certificate request', modalDescription: 'Fill in the certificate request details. It will enter the approval and issuance flow after submission.' },
+    profiles: { recordsTitle: 'Certificate profile records', columns: { securityDomain: 'Security domain', versionCount: 'Version count' }, empty: 'No certificate profiles.', modalTitle: 'New certificate profile', modalDescription: 'Define certificate issuance rules and constraints, including validity period, DNS suffixes, and approval requirements.' },
     topology: { rootOnly: 'Root CA only', rootOnlyDescription: 'The root CA performs daily issuance and remains online.', rootOnlyRisk: 'High risk: root key compromise affects the entire trust domain.', intermediate: 'Root CA + intermediate CA', intermediateDescription: 'Keep the root offline and use an intermediate CA for daily issuance.', recommended: 'Recommended: isolate the root key and reduce the issuance blast radius.' },
-    sections: { trustDomain: 'Create CA trust domain', issuingBackends: 'Issuing backends and connections', authorityWizard: 'CA creation wizard', authorityOverview: 'Certificate authority hierarchy', authorityOverviewDescription: 'Each card represents one root trust anchor. Select a card to inspect its issuing hierarchy.', caArchitecture: 'CA hierarchy', riskSummary: 'Security decision summary', profile: 'Create certificate profile', request: 'Create application certificate request', revocation: 'Create revocation task', trust: 'Create trust distribution', remediation: 'Remediation preview' },
-    fields: { name: 'Name', code: 'Code', purpose: 'Purpose', isolationLevel: 'Isolation level', defaultTrustDomain: 'Set as default trust domain', trustDomain: 'CA trust domain', parentAuthority: 'Parent root CA', authorityType: 'Authority type', deploymentMode: 'Deployment mode', platform: 'Runtime platform', backendName: 'Issuing backend name', availabilityMode: 'Availability mode', endpoint: 'Service endpoint', authMode: 'Authentication mode', profile: 'Issuance profile', template: 'Certificate template', crlUrl: 'CRL URL', ocspUrl: 'OCSP URL', issuingBackend: 'Issuing backend', entryMode: 'Creation mode', commonName: 'Common Name', certificateSubjectCommonName: 'Certificate subject Common Name', securityDomain: 'Security domain', topology: 'CA topology', dnsSuffixes: 'Allowed DNS suffixes', validityDays: 'Maximum validity days', renewalDays: 'Renewal window days', requireApproval: 'Require approval before issuance', applicationAssetId: 'Application asset ID', authority: 'Certificate authority', profileVersionId: 'Profile version ID', sans: 'SAN list', custodyMode: 'Key custody mode', certificateVersionId: 'Certificate version ID', reason: 'Revocation reason', targetIds: 'Target ID list' },
-    actions: { refresh: 'Refresh', addTrustDomain: 'Add trust domain', addAuthority: 'Add CA', addIntermediate: 'Add intermediate CA', previous: 'Previous', next: 'Next', createTrustDomain: 'Create trust domain', previewRisk: 'Preview risk', createAuthority: 'Create CA', createProfile: 'Create profile', createRequest: 'Submit request', approve: 'Approve', retry: 'Retry', queryResult: 'Query result', scanRenewals: 'Scan renewals', createRevocation: 'Create revocation', createTrust: 'Create trust distribution', previewRemediation: 'Preview remediation' },
+    sections: { trustDomain: 'Create CA trust domain', issuingBackends: 'Issuing backends and connections', authorityWizard: 'CA creation wizard', authorityOverview: 'Certificate authority hierarchy', authorityOverviewDescription: 'Each card represents one root trust anchor. Select a card to inspect its issuing hierarchy.', caArchitecture: 'CA hierarchy', riskSummary: 'Security decision summary', profile: 'Create certificate profile', request: 'Create managed application certificate request', revocation: 'Create revocation task', trust: 'Create trust-store distribution', remediation: 'Remediation preview' },
+    fields: { name: 'Name', code: 'Code', purpose: 'Purpose', isolationLevel: 'Isolation level', defaultTrustDomain: 'Set as default trust domain', trustDomain: 'CA trust domain', parentAuthority: 'Parent root CA', authorityType: 'Authority type', deploymentMode: 'Deployment mode', platform: 'Runtime platform', backendName: 'Issuing backend name', availabilityMode: 'Availability mode', endpoint: 'Service endpoint', authMode: 'Authentication mode', profile: 'Issuance profile', template: 'Certificate template', crlUrl: 'CRL URL', ocspUrl: 'OCSP URL', issuingBackend: 'Issuing backend', entryMode: 'Creation mode', commonName: 'Common name', certificateSubjectCommonName: 'Certificate subject common name', securityDomain: 'Security domain', topology: 'CA topology', dnsSuffixes: 'Allowed DNS suffixes', validityDays: 'Maximum validity days', renewalDays: 'Renewal window days', requireApproval: 'Require approval before issuance', applicationAssetId: 'Managed application ID', authority: 'Certificate authority', profileVersionId: 'Profile version ID', sans: 'SAN list', custodyMode: 'Key custody mode', certificateVersionId: 'Certificate version ID', reason: 'Revocation reason', targetIds: 'Target ID list' },
+    actions: { refresh: 'Refresh', addTrustDomain: 'Add trust domain', addAuthority: 'Add CA', addIntermediate: 'Add intermediate CA', previous: 'Previous', next: 'Next', createTrustDomain: 'Create trust domain', previewRisk: 'Preview risk', createAuthority: 'Create CA', createProfile: 'Create profile', createRequest: 'Submit request', approve: 'Approve', retry: 'Retry', queryResult: 'Query result', scanRenewals: 'Scan renewals', createRevocation: 'Create revocation', createTrust: 'Create trust-store distribution', previewRemediation: 'Preview remediation' },
     placeholders: { dnsSuffixes: 'example.com, office.example.com', sans: 'oa.example.com, 10.0.0.10' },
-    messages: { loadFailed: 'Failed to load internal CA data.', actionFailed: 'The operation failed. Check input, permissions, and approval status.', noIntermediate: 'This root CA has no intermediate authority yet.', noRootAuthority: 'No root CA configured', noRootAuthorityDescription: 'Add a root CA to establish the first independent trust hierarchy.', trustDomainCreated: 'CA trust domain created.', authorityCreated: 'Certificate authority created.', profileCreated: 'Certificate profile created.', requestCreated: 'Certificate request submitted.', requestApproved: 'Certificate request approved.', requestRetried: 'Certificate issuance retried.', requestQueried: 'Remote issuance result refreshed.', renewalScanned: 'Renewal scan completed.', revocationCreated: 'Revocation task created and awaiting approval.', revocationApproved: 'Certificate revocation approved.', trustCreated: 'Trust distribution created and awaiting approval.', trustApproved: 'Trust distribution approved.' },
-    metrics: { nodes: 'CA nodes', renewals: 'Renewals', revocations: 'Revocations', trust: 'Trust distributions', totalRisks: 'Total risks', critical: 'Critical risks', affectedAssets: 'Affected application assets' },
-    labels: { rootAuthority: 'Root certificate authority', intermediateAuthority: 'Intermediate certificate authority', intermediateCount: '{count} intermediate authorities', expiresAt: 'Expires {time}', defaultTrustDomain: 'Default trust domain', independentTrustDomain: 'Independent root trust boundary', trustDomainCount: '{count} CA trust domains', versionCount: '{count} versions', assetCount: '{count} application assets', requestCount: '{count} independent certificate requests will be created', backendUsageCount: 'Used by {count} certificate authorities', unverifiedCapabilityCount: '{count} capabilities are not verified' },
+    messages: { loadFailed: 'Failed to load internal CA data.', actionFailed: 'The operation failed. Check input, permissions, and approval status.', noIntermediate: 'This root CA has no intermediate authority yet.', noRootAuthority: 'No root CA configured', noRootAuthorityDescription: 'Add a root CA to establish the first independent trust hierarchy.', trustDomainCreated: 'CA trust domain created.', authorityCreated: 'Certificate authority created.', profileCreated: 'Certificate profile created.', requestCreated: 'Certificate request submitted.', requestApproved: 'Certificate request approved.', requestRetried: 'Certificate issuance retried.', requestQueried: 'Remote issuance result refreshed.', renewalScanned: 'Renewal scan completed.', revocationCreated: 'Revocation task created and awaiting approval.', revocationApproved: 'Certificate revocation approved.', trustCreated: 'Trust-store distribution created and awaiting approval.', trustApproved: 'Trust-store distribution approved.' },
+    metrics: { nodes: 'CA nodes', renewals: 'Renewals', revocations: 'Revocations', trust: 'Trust-store distributions', totalRisks: 'Total risks', critical: 'Critical risks', affectedAssets: 'Affected managed applications' },
+    labels: { rootAuthority: 'Root certificate authority', intermediateAuthority: 'Intermediate certificate authority', intermediateCount: '{count} intermediate authorities', expiresAt: 'Expires {time}', defaultTrustDomain: 'Default trust domain', independentTrustDomain: 'Independent root trust boundary', trustDomainCount: '{count} CA trust domains', versionCount: '{count} versions', assetCount: '{count} managed applications', requestCount: '{count} independent certificate requests will be created', backendUsageCount: 'Used by {count} certificate authorities', unverifiedCapabilityCount: '{count} capabilities are not verified' },
     backendTypes: { builtin: 'Built-in backend', acme: 'Public ACME CA', external: 'External backend' },
     backendSummary: { createAndIssue: 'Can create and issue certificates', requestPublicCertificates: 'Can request public certificates', external: 'Requires an external integration', localVerified: 'Local verification passed', remoteVerified: 'Connection verification passed', unverified: 'Not verified' },
-    adcs: { actions: { add: 'Add AD CS Agent', edit: 'Edit', delete: 'Delete' }, modal: { addTitle: 'Add Microsoft AD CS Agent', editTitle: 'Edit Microsoft AD CS Agent', description: 'Maintain the Windows Agent connection used to generate AD CS certificate operation plans.' }, fields: { name: 'Instance name', agentKey: 'Agent Key', caConfig: 'AD CS CA configuration', templateId: 'Certificate template', endpoint: 'AD CS endpoint', secretRef: 'Credential SecretRef', commonName: 'CA display name', securityDomain: 'Security domain', trustDomain: 'Trust domain' }, install: { title: 'Install Windows AD CS Agent', description: 'Generate a one-time PowerShell command, run it on the target Windows server, then associate the registered Agent.', displayName: 'GCAC AD CS Agent - {name}', generate: 'Generate install command', regenerate: 'Regenerate command', copy: 'Copy command', notGenerated: 'No install command has been generated.', expiresAt: 'Command expires at {time}', associated: 'Associated Agent: {agentId}', waitingAssociation: 'The Agent is not associated yet.', associate: 'Detect and associate' }, placeholders: { caConfig: 'CA-SERVER\\IssuingCA', endpoint: 'https://ca-server.example.com', secretRef: 'secret://...' }, options: { createTrustDomain: 'Create a new trust domain automatically' }, defaultTrustDomainName: '{name} trust domain', messages: { created: 'Microsoft AD CS Agent added and linked to CA management.', updated: 'Microsoft AD CS Agent updated.', deleted: 'Microsoft AD CS Agent deleted.', deleteInUse: 'This Agent is linked to a CA and cannot be deleted.', pluginUnavailable: 'The Microsoft AD CS plugin is not enabled. Enable the built-in plugin first.', authorityRegistrationFailed: 'The Agent was saved, but its CA registration failed. Complete the CA registration before issuing certificates.', agentPlanHint: 'The control plane generates a fixed Agent Plan; the Windows Agent performs the local AD CS operation and returns the result.', nameRequired: 'Enter an instance name before generating the install command.', installCommandGenerated: 'The Windows Agent install command was generated.', installCommandCopied: 'The install command was copied.', copyFailed: 'The browser did not allow copying. Copy the command manually.', installCommandFailed: 'Failed to generate the Windows Agent install command.', saveBeforeAssociation: 'Save the AD CS Agent first, then detect and associate it.', agentKeyMissing: 'Generate an install command before associating the Agent.', agentNotFound: 'No registered Agent with this Agent Key was found. Run the command on the target server first.', agentAssociated: 'The registered Windows Agent was associated.', associationFailed: 'Failed to associate the Windows Agent.' } },
+    adcs: { actions: { add: 'Add AD CS agent', edit: 'Edit', delete: 'Delete' }, modal: { addTitle: 'Add Microsoft AD CS agent', editTitle: 'Edit Microsoft AD CS agent', description: 'Maintain the Windows agent connection used to generate AD CS certificate operation plans.' }, fields: { name: 'Instance name', agentKey: 'Agent key', caConfig: 'AD CS CA configuration', templateId: 'Certificate template', endpoint: 'AD CS endpoint', secretRef: 'Credential SecretRef', commonName: 'CA display name', securityDomain: 'Security domain', trustDomain: 'Trust domain' }, install: { title: 'Install Windows AD CS agent', description: 'Generate a one-time PowerShell command, run it on the target Windows server, then associate the registered agent.', displayName: 'GCAC AD CS agent - {name}', generate: 'Generate install command', regenerate: 'Regenerate command', copy: 'Copy command', notGenerated: 'No install command has been generated.', expiresAt: 'Command expires at {time}', associated: 'Associated agent: {agentId}', waitingAssociation: 'The agent is not associated yet.', associate: 'Detect and associate' }, placeholders: { caConfig: 'CA-SERVER\\IssuingCA', endpoint: 'https://ca-server.example.com', secretRef: 'secret://...' }, options: { createTrustDomain: 'Create a new trust domain automatically' }, defaultTrustDomainName: '{name} trust domain', messages: { created: 'Microsoft AD CS agent added and linked to CA management.', updated: 'Microsoft AD CS agent updated.', deleted: 'Microsoft AD CS agent deleted.', deleteInUse: 'This agent is linked to a CA and cannot be deleted.', pluginUnavailable: 'The Microsoft AD CS plugin is not enabled. Enable the built-in plugin first.', authorityRegistrationFailed: 'The agent was saved, but its CA registration failed. Complete the CA registration before issuing certificates.', agentPlanHint: 'The control plane generates a fixed agent plan; the Windows agent performs the local AD CS operation and returns the result.', nameRequired: 'Enter an instance name before generating the install command.', installCommandGenerated: 'The Windows agent install command was generated.', installCommandCopied: 'The install command was copied.', copyFailed: 'The browser did not allow copying. Copy the command manually.', installCommandFailed: 'Failed to generate the Windows agent install command.', saveBeforeAssociation: 'Save the AD CS agent first, then detect and associate it.', agentKeyMissing: 'Generate an install command before associating the agent.', agentNotFound: 'No registered agent with this agent key was found. Run the command on the target server first.', agentAssociated: 'The registered Windows agent was associated.', associationFailed: 'Failed to associate the Windows agent.', autoRegistrationFailed: 'A registered AD CS Agent could not be added to issuing backends.' } },
     availability: { single: 'Single node', activeStandby: 'Active/standby', activeActive: 'Active/active' },
     authModes: { managedSecret: 'Managed credential', clientCertificate: 'Client certificate', none: 'No authentication' },
     isolationLevels: { standard: 'Standard isolation', strict: 'Strict isolation', regulated: 'Regulated isolation' },
     custodyModes: { managedSecret: 'Managed secret', localAgent: 'Local agent', deviceLocal: 'Device local', externalKey: 'External key' },
-    wizard: { title: 'Add certificate authority', description: 'Choose a built-in or maintained external issuance backend, then configure the CA parameters and security boundary.', stepsAria: 'CA creation steps', entryStep: 'Choose mode', backendStep: 'Configure backend', parentStep: 'Choose parent CA', authorityStep: 'Configure CA', reviewStep: 'Review', completed: 'Completed', inProgress: 'In progress', pending: 'Pending', entryEyebrow: 'Step one', entryTitle: 'Who should perform issuance for this CA?', entryDescription: 'Use the GCAC built-in backend or a registered Windows AD CS Agent.', recommended: 'Recommended start', builtinTitle: 'Create CA directly', builtinDescription: 'Use the built-in certificate issuance execution plane in the current GCAC service.', builtinFeature1: 'No additional node deployment', builtinFeature2: 'Fits development and smaller internal environments', externalTitle: 'Connect Microsoft AD CS', externalDescription: 'Register an external AD CS CA through a maintained Windows Agent.', externalFeature1: 'Reuse an installed AD CS Agent', externalFeature2: 'Keep CA parameters on the specific CA record', externalUnavailable: 'Add and register an AD CS Agent in issuing backends first.', backendEyebrow: 'Issuing backend', builtinBackendTitle: 'Use the GCAC built-in backend', builtinBackendDescription: 'The system automatically creates or reuses the tenant built-in execution backend.', externalBackendTitle: 'Use a maintained AD CS Agent', externalBackendDescription: 'Select the Agent Provider that will execute this CA operation locally on Windows.', builtinAutomaticTitle: 'No separate execution backend required', builtinAutomaticDescription: 'GCAC ensures the built-in issuing execution backend exists and binds it when the CA is created.', externalAgentTitle: 'Agent is already maintained', externalAgentDescription: 'This step only selects the registered Agent. The CA name defaults from the selected Microsoft CA.', externalTrustDomainHint: 'A trust domain will be generated automatically for this Microsoft CA.', externalTrustDomainAuto: 'Generated automatically', authorityEyebrow: 'Certificate authority', rootConfigurationTitle: 'Configure root CA', rootConfigurationDescription: 'Define the new root trust boundary, identity, and intermediate CA topology.', intermediateConfigurationTitle: 'Configure intermediate CA', intermediateConfigurationDescription: 'Choose the parent root and configure the authority used for daily issuance.', advancedSubjectTitle: 'Advanced certificate subject settings', commonNameHelp: 'Written to the CA certificate subject for certificate-chain identification. This is not a domain name.', builtinSecurityNote: 'The software key is held by GCAC SecretService and is not equivalent to a non-exportable HSM key.', externalSecurityNote: 'The CA private key and issuance operation remain on the Windows AD CS Agent.', reviewEyebrow: 'Final review', reviewTitle: 'Review the trust boundary and issuance model', reviewDescription: 'Verify the CA identity, trust domain, issuing backend, and CA-specific parameters before creation.', builtinProviderName: 'GCAC built-in issuing backend', rootTitle: 'Root CA', rootDescription: 'Create a new independent root trust anchor, optionally with an initial intermediate CA.', intermediateTitle: 'Intermediate CA', intermediateDescription: 'Add an issuing authority below an existing root CA without creating another trust anchor.', noWarnings: 'No additional topology warnings were detected.' },
-    riskTypes: { certificate_fingerprint_reuse: 'Same certificate reused across assets', public_key_reuse: 'Same public key reused across assets' },
+    wizard: { title: 'Add certificate authority', description: 'Choose a built-in or maintained external issuance backend, then configure the CA parameters and security boundary.', stepsAria: 'CA creation steps', entryStep: 'Choose mode', backendStep: 'Configure backend', parentStep: 'Choose parent CA', authorityStep: 'Configure CA', reviewStep: 'Review', completed: 'Completed', inProgress: 'In progress', pending: 'Pending', entryEyebrow: 'Step one', entryTitle: 'Who should perform issuance for this CA?', entryDescription: 'Use the GCAC built-in backend or a registered Windows AD CS agent.', recommended: 'Recommended start', builtinTitle: 'Create CA directly', builtinDescription: 'Use the built-in certificate issuance execution plane in the current GCAC service.', builtinFeature1: 'No additional node deployment', builtinFeature2: 'Fits development and smaller internal environments', externalTitle: 'Connect Microsoft AD CS', externalDescription: 'Register an external AD CS CA through a maintained Windows agent.', externalFeature1: 'Reuse an installed AD CS agent', externalFeature2: 'Keep CA parameters on the specific CA record', externalUnavailable: 'Add and register an AD CS agent in issuing backends first.', backendEyebrow: 'Issuing backend', builtinBackendTitle: 'Use the GCAC built-in backend', builtinBackendDescription: 'The system automatically creates or reuses the tenant built-in execution backend.', externalBackendTitle: 'Use a maintained AD CS agent', externalBackendDescription: 'Select the agent provider that will execute this CA operation locally on Windows.', builtinAutomaticTitle: 'No separate execution backend required', builtinAutomaticDescription: 'GCAC ensures the built-in issuing execution backend exists and binds it when the CA is created.', externalAgentTitle: 'Agent is already maintained', externalAgentDescription: 'This step only selects the registered agent. The CA name defaults from the selected Microsoft CA.', externalTrustDomainHint: 'A trust domain will be generated automatically for this Microsoft CA.', externalTrustDomainAuto: 'Generated automatically', authorityEyebrow: 'Certificate authority', rootConfigurationTitle: 'Configure root CA', rootConfigurationDescription: 'Define the new root trust boundary, identity, and intermediate CA topology.', intermediateConfigurationTitle: 'Configure intermediate CA', intermediateConfigurationDescription: 'Choose the parent root and configure the authority used for daily issuance.', advancedSubjectTitle: 'Advanced certificate subject settings', commonNameHelp: 'Written to the CA certificate subject for certificate-chain identification. This is not a domain name.', builtinSecurityNote: 'The software key is held by GCAC SecretService and is not equivalent to a non-exportable HSM key.', externalSecurityNote: 'The CA private key and issuance operation remain on the Windows AD CS agent.', reviewEyebrow: 'Final review', reviewTitle: 'Review the trust boundary and issuance model', reviewDescription: 'Verify the CA identity, trust domain, issuing backend, and CA-specific parameters before creation.', builtinProviderName: 'GCAC built-in issuing backend', rootTitle: 'Root CA', rootDescription: 'Create a new independent root trust anchor, optionally with an initial intermediate CA.', intermediateTitle: 'Intermediate CA', intermediateDescription: 'Add an issuing authority below an existing root CA without creating another trust anchor.', noWarnings: 'No additional topology warnings were detected.' },
+    riskTypes: { certificate_fingerprint_reuse: 'Same certificate reused across managed applications', public_key_reuse: 'Same public key reused across managed applications' },
     common: { unknown: 'Unknown' }, aria: { tabs: 'Internal CA navigation' }
   },
   applicationOnboarding: {
-    eyebrow: 'Application onboarding', title: 'Add application asset', description: 'Choose a platform and complete device, site, and certificate setup.', stepsAria: 'Application onboarding steps',
+    eyebrow: 'Application onboarding', title: 'Add managed application', description: 'Choose a platform and complete device, site, and certificate setup.', stepsAria: 'Application onboarding steps',
     steps: { platform: 'Platform', device: 'Device', target: 'Site', certificate: 'Certificate', complete: 'Complete' },
     platforms: { customManual: 'Custom manual setup', manualHint: 'Use the traditional manual flow', pluginHint: 'Fixed flow supplied by the platform plugin', capabilityVersion: 'Onboarding capability', compatibility: 'Supported versions', requiredInformation: 'Required information', inReview: 'Capability validation is in progress', searchLabel: 'Search platforms', searchPlaceholder: 'Search by application name, platform version, or onboarding information', pluginCenterPrompt: "Can't find the application you need?", pluginCenterAction: 'Browse the plugin center' },
     device: { title: 'Connect platform', existing: 'Use existing device', new: 'Add device', deviceId: 'Device ID', selectPlaceholder: 'Select a device', noExisting: 'No healthy device is available for this platform.', existingLoading: 'Loading compatible devices.', refreshExisting: 'Refresh devices', newDescription: 'Open the unified device onboarding wizard, then return here after Agent registration or device onboarding.', newAction: 'Open device onboarding', username: 'Username', password: 'Password', host: 'Address', port: 'Port' },
-    target: { title: 'Choose site', siteName: 'Site name', selectedSite: 'Selected site', accessDomain: 'Access domain', verifyUrl: 'Verification URL', accessDomainPlaceholder: 'e.g. ikuai.jacksonz.cn', verifyUrlPlaceholder: 'e.g. https://ikuai.jacksonz.cn:443', domainHint: 'The management endpoint may be an IP, but the access domain and verification URL must use the same DNS name.', invalidConfiguration: 'Enter a valid DNS access domain and a verification URL on the same host.', listenAddress: 'Listen address', listenPort: 'Listen port', protocol: 'Protocol', selectable: 'Selectable managed target', notSelectable: 'Not selectable', unavailableReason: 'Why it cannot be selected', missingValue: 'Not provided', reasons: { managedTargetInactive: 'This managed target is inactive.', workflowCapabilityMissing: 'This target does not provide the workflow capability required by this platform.', targetEndpointMissing: 'This target is missing a complete listen address, port, or protocol.', unknown: 'This target does not currently meet the selection requirements.' } }, certificate: { title: 'Choose certificate version', asset: 'Certificate asset', version: 'Certificate version', requiredFormat: 'This platform requires a certificate in {formats} format' },
-    complete: { title: 'Onboarding complete', description: 'The application asset and deployment plan are ready.' },
+    target: { title: 'Choose site', siteName: 'Site name', selectedSite: 'Selected site', accessDomain: 'Access domain', verifyUrl: 'Verification URL', accessDomainPlaceholder: 'e.g. ikuai.jacksonz.cn', verifyUrlPlaceholder: 'e.g. https://ikuai.jacksonz.cn:443', domainHint: 'The management endpoint may be an IP, but the access domain and verification URL must use the same DNS name.', invalidConfiguration: 'Enter a valid DNS access domain and a verification URL on the same host.', listenAddress: 'Listen address', listenPort: 'Listen port', protocol: 'Protocol', selectable: 'Selectable managed target', notSelectable: 'Not selectable', unavailableReason: 'Why it cannot be selected', missingValue: 'Not provided', reasons: { managedTargetInactive: 'This managed target is inactive.', workflowCapabilityMissing: 'This target does not provide the workflow capability required by this platform.', targetEndpointMissing: 'This target is missing a complete listen address, port, or protocol.', unknown: 'This target does not currently meet the selection requirements.' } }, certificate: { title: 'Choose certificate version', asset: 'Certificate inventory item', version: 'Certificate version', requiredFormat: 'This platform requires a certificate in {formats} format' },
+    complete: { title: 'Onboarding complete', description: 'The managed application and deployment plan are ready.' },
     actions: { customManual: 'Manual setup', openWizard: 'Use onboarding wizard', previous: 'Previous', continue: 'Continue', refresh: 'Refresh sites', review: 'Review certificate', complete: 'Complete onboarding', cancel: 'Cancel wizard' },
     messages: { requestFailed: 'Onboarding request failed. Check permissions and input.', noPlatforms: 'No business platforms are available.', noSearchResults: 'No matching platforms found.' }
   },

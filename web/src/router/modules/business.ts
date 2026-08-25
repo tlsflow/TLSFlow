@@ -4,22 +4,22 @@ import { licensingRoutes } from '@/edition/licensing'
 export const businessRoutes: GcRouteRecord[] = [
   {
     path: '/reports/incident-window', name: 'reports.incidentWindow', component: () => import('@/views/reports/IncidentWindowReportView.vue'),
-    meta: { title: 'Incident Window Report', titleKey: 'reports.incidentWindow.title', module: 'report', requiresAuth: true, permission: 'report.read', resourceType: 'report', riskLevel: 'medium', breadcrumbKeys: ['nav.reports', 'reports.incidentWindow.title'], keepAlive: true }
+    meta: { title: 'Incident window report', titleKey: 'reports.incidentWindow.title', module: 'report', requiresAuth: true, permission: 'report.read', resourceType: 'report', riskLevel: 'medium', breadcrumbKeys: ['nav.reports', 'reports.incidentWindow.title'], keepAlive: true }
   },
   {
     path: '/reports/risk-response', name: 'reports.riskResponse', component: () => import('@/views/reports/RiskResponseReportView.vue'),
-    meta: { title: 'Risk Response Report', titleKey: 'reports.riskResponse.title', module: 'report', requiresAuth: true, permission: 'report.read', resourceType: 'report', riskLevel: 'medium', breadcrumbKeys: ['nav.reports', 'reports.riskResponse.title'], keepAlive: true }
+    meta: { title: 'Risk response report', titleKey: 'reports.riskResponse.title', module: 'report', requiresAuth: true, permission: 'report.read', resourceType: 'report', riskLevel: 'medium', breadcrumbKeys: ['nav.reports', 'reports.riskResponse.title'], keepAlive: true }
   },
   {
     path: '/reports/automation-effectiveness', name: 'reports.automationEffectiveness', component: () => import('@/views/reports/AutomationEffectivenessReportView.vue'),
-    meta: { title: 'Automation Effectiveness Report', titleKey: 'reports.automationEffectiveness.title', module: 'report', requiresAuth: true, permission: 'report.read', resourceType: 'report', riskLevel: 'medium', breadcrumbKeys: ['nav.reports', 'reports.automationEffectiveness.title'], keepAlive: true }
+    meta: { title: 'Automation effectiveness report', titleKey: 'reports.automationEffectiveness.title', module: 'report', requiresAuth: true, permission: 'report.read', resourceType: 'report', riskLevel: 'medium', breadcrumbKeys: ['nav.reports', 'reports.automationEffectiveness.title'], keepAlive: true }
   },
   {
     path: '/certificates',
     name: 'certificate.list',
     component: () => import('@/views/certificates/CertificatesView.vue'),
     meta: {
-      title: 'Certificate Assets',
+      title: 'Certificate inventory',
       titleKey: 'nav.certificateAssets',
       heroTitle: true,
       module: 'certificate',
@@ -53,7 +53,7 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'caOperations.console',
     component: () => import('@/views/ca-operations/CaOperationsView.vue'),
     meta: {
-      title: 'CA Operations',
+      title: 'CA operations',
       titleKey: 'caOperations.title',
       module: 'certificate',
       requiresAuth: true,
@@ -89,7 +89,7 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'certificate.import',
     component: () => import('@/views/certificates/CertificateImportView.vue'),
     meta: {
-      title: 'Import Certificate',
+      title: 'Import certificate',
       titleKey: 'routes.certificateImport',
       module: 'certificate',
       requiresAuth: true,
@@ -104,7 +104,7 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'certificate.detail',
     component: () => import('@/views/certificates/CertificateDetailView.vue'),
     meta: {
-      title: 'Certificate Detail',
+      title: 'Certificate detail',
       titleKey: 'routes.certificateDetail',
       module: 'certificate',
       requiresAuth: true,
@@ -119,7 +119,7 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'certificate.usages',
     component: () => import('@/views/certificates/CertificateUsagesView.vue'),
     meta: {
-      title: 'Certificate Usages',
+      title: 'Certificate usages',
       titleKey: 'routes.certificateUsages',
       module: 'certificate',
       requiresAuth: true,
@@ -134,7 +134,7 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'certificate.formats',
     component: () => import('@/views/certificates/CertificateFormatsView.vue'),
     meta: {
-      title: 'Certificate Formats',
+      title: 'Certificate formats',
       titleKey: 'routes.certificateFormats',
       module: 'certificate',
       requiresAuth: true,
@@ -149,7 +149,7 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'provider.cloud.list',
     component: () => import('@/views/providers/CloudProvidersView.vue'),
     meta: {
-      title: 'Cloud Providers',
+      title: 'Cloud providers',
       titleKey: 'providers.page.title',
       heroTitle: true,
       module: 'provider',
@@ -183,7 +183,7 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'asset.list',
     component: () => import('@/views/assets/AssetsView.vue'),
     meta: {
-      title: 'Application Assets',
+      title: 'Managed applications',
       titleKey: 'nav.assetManagement',
       heroTitle: true,
       module: 'asset',
@@ -200,7 +200,7 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'binding.list',
     component: () => import('@/views/bindings/BindingsView.vue'),
     meta: {
-      title: 'Certificate Format Config',
+      title: 'Certificate format configuration',
       titleKey: 'nav.certificateFormats',
       heroTitle: true,
       module: 'binding',
@@ -224,7 +224,7 @@ export const businessRoutes: GcRouteRecord[] = [
       return { path: '/assets', query, hash: to.hash }
     },
     meta: {
-      title: 'Application Assets',
+      title: 'Managed applications',
       titleKey: 'nav.assetManagement',
       heroTitle: true,
       module: 'asset',
@@ -258,7 +258,7 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'asset.device.list',
     component: () => import('@/views/devices/DevicesView.vue'),
     meta: {
-      title: 'Assets',
+      title: 'Devices',
       titleKey: 'devices.page.title',
       heroTitle: true,
       module: 'asset',
@@ -375,7 +375,7 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'automation.run.list',
     component: () => import('@/views/automations/AutomationRunsView.vue'),
     meta: {
-      title: 'Automation Runs',
+      title: 'Automation runs',
       titleKey: 'automations.runs.title',
       module: 'automation',
       requiresAuth: true,
@@ -391,7 +391,7 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'automation.run.detail',
     component: () => import('@/views/automations/AutomationRunDetail.vue'),
     meta: {
-      title: 'Automation Run Detail',
+      title: 'Automation run detail',
       titleKey: 'automations.runDetail.title',
       module: 'automation',
       requiresAuth: true,
@@ -406,7 +406,7 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'monitor.list',
     component: () => import('@/views/monitoring/MonitorsView.vue'),
     meta: {
-      title: 'Monitor Alerts',
+      title: 'Monitor alerts',
       titleKey: 'nav.monitoringAnalysis',
       module: 'monitoring',
       requiresAuth: true,
@@ -422,7 +422,7 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'audit.list',
     component: () => import('@/views/audit/AuditsView.vue'),
     meta: {
-      title: 'Audit Logs',
+      title: 'Audit logs',
       titleKey: 'nav.logAudit',
       module: 'audit',
       requiresAuth: true,
@@ -438,7 +438,7 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'settings.overview',
     component: () => import('@/views/settings/SettingsView.vue'),
     meta: {
-      title: 'System Settings',
+      title: 'System settings',
       titleKey: 'nav.systemSettings',
       heroTitle: true,
       module: 'settings',
@@ -492,7 +492,7 @@ export const businessRoutes: GcRouteRecord[] = [
       query: { ...to.query, tlsModal: '1' }
     }),
     meta: {
-      title: 'TLS Deep Monitoring',
+      title: 'TLS deep monitoring',
       titleKey: 'nav.monitorTls',
       module: 'monitoring',
       requiresAuth: true,
@@ -511,7 +511,7 @@ export const businessRoutes: GcRouteRecord[] = [
       query: { ...to.query, tlsModal: '1', tlsTargetId: String(to.params.id ?? '') }
     }),
     meta: {
-      title: 'TLS Deep Detail',
+      title: 'TLS deep detail',
       titleKey: 'monitoring.tls.detailTitle',
       module: 'monitoring',
       requiresAuth: true,
@@ -544,7 +544,7 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'settings.notifications',
     component: () => import('@/views/settings/NotificationsView.vue'),
     meta: {
-      title: 'Notification Center',
+      title: 'Notification center',
       titleKey: 'notifications.title',
       heroTitle: true,
       module: 'settings',
@@ -612,7 +612,7 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'settings.identitySources',
     component: () => import('@/views/settings/IdentitySourcesView.vue'),
     meta: {
-      title: 'Identity Sources',
+      title: 'Identity sources',
       titleKey: 'nav.identitySources',
       heroTitle: true,
       module: 'settings',
@@ -629,7 +629,7 @@ export const businessRoutes: GcRouteRecord[] = [
     name: 'settings.groupRoleMappings',
     component: () => import('@/views/settings/GroupRoleMappingsView.vue'),
     meta: {
-      title: 'Group Role Mappings',
+      title: 'Group role mappings',
       titleKey: 'nav.groupRoleMappings',
       module: 'settings',
       requiresAuth: true,

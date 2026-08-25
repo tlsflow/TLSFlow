@@ -21,5 +21,5 @@ export const licensingRoutes: GcRouteRecord[] = [
 ];
 
 export const licensingMenuItems: MenuItem[] = [
-  { titleKey: 'settings.licensing.title', path: '/settings/licensing', module: 'settings', permission: 'settings.read', descriptionKey: 'settings.licensing.description' }
+  { titleKey: 'nav.licensing', path: '/settings/licensing', module: 'settings', permission: 'settings.read', descriptionKey: 'settings.licensing.description' }
 ];

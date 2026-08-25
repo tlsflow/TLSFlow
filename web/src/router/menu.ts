@@ -84,11 +84,11 @@ export const mainMenuItems: MenuItem[] = [
     descriptionKey: 'nav.settingsDesc',
     activePaths: ['/settings/tenant-architecture', '/settings/version', '/settings/deployment-tasks', '/settings/identity-sources'],
     children: [
-      { titleKey: 'nav.systemSettings', path: '/settings', module: 'settings', permission: 'settings.read', descriptionKey: 'nav.systemSettingsDesc' },
+      { titleKey: 'nav.settingsOverview', path: '/settings', module: 'settings', permission: 'settings.read', descriptionKey: 'nav.systemSettingsDesc' },
       { titleKey: 'nav.users', path: '/settings/users', module: 'settings', permission: 'security.user.read', descriptionKey: 'nav.usersDesc' },
       { titleKey: 'nav.roles', path: '/settings/roles', module: 'settings', permission: 'security.role.read', descriptionKey: 'nav.rolesDesc' },
-      { titleKey: 'credentials.title', path: '/settings/credentials', module: 'settings', permission: 'credential.read', descriptionKey: 'credentials.description' },
-      { titleKey: 'notifications.title', path: '/settings/notifications', module: 'settings', permission: 'notification.channel.read', descriptionKey: 'notifications.description' },
+      { titleKey: 'nav.credentials', path: '/settings/credentials', module: 'settings', permission: 'credential.read', descriptionKey: 'credentials.description' },
+      { titleKey: 'nav.notifications', path: '/settings/notifications', module: 'settings', permission: 'notification.channel.read', descriptionKey: 'notifications.description' },
       ...licensingMenuItems
     ]
   }
