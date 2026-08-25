@@ -1,5 +1,5 @@
 {
-  "plugin.webNginxLinux.name": "Linux Nginx 证书更新",
+  "plugin.webNginxLinux.name": "Linux Nginx站点",
   "plugin.webNginxLinux.description": "固定linux平台与web.nginx框架，只消费 Agent 已确认事实执行证书更新。",
   "plugin.webNginxLinux.section.identity": "目标事实",
   "plugin.webNginxLinux.section.certificate": "证书更新",
@@ -10,5 +10,8 @@
   "plugin.webNginxLinux.field.configFingerprint": "配置指纹",
   "plugin.webNginxLinux.action.deploy": "部署证书",
   "plugin.webNginxLinux.action.verify": "验证证书",
-  "plugin.webNginxLinux.action.rollback": "回滚证书"
+  "plugin.webNginxLinux.action.rollback": "回滚证书",
+  "plugin.webNginxLinux.onboarding.compatibility": "Linux Nginx（版本由 Agent 发现）",
+  "plugin.webNginxLinux.onboarding.requiredHost": "已安装兼容 Agent 的 Linux 主机",
+  "plugin.webNginxLinux.onboarding.requiredTarget": "已发现的 Linux Nginx HTTPS 站点"
 }
