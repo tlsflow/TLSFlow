@@ -1,3 +1,5 @@
+import type { AuditPresentation } from '../../audits/audit-presentation.service.js';
+
 export type DashboardMetricTrend = 'neutral' | 'good' | 'warning' | 'danger';
 
 export interface DashboardMetric {
@@ -62,7 +64,7 @@ export interface DashboardAuditItem {
   riskLevel: string;
   requestId?: string;
   detail?: unknown;
-  summary?: string;
+  presentation: AuditPresentation;
   createdAt: string;
 }
 

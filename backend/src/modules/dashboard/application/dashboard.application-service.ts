@@ -218,7 +218,7 @@ export function buildRecentDashboardAudits(auditLogs: AuditLogEntity[], context:
         riskLevel: presented.riskLevel,
         requestId: presented.requestId,
         detail: presented.detail,
-        summary: presented.summary,
+        presentation: presented.presentation,
         createdAt: presented.createdAt,
       };
     });

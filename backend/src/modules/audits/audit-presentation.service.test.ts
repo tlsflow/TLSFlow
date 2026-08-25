@@ -36,8 +36,11 @@ describe('AuditPresentationService 业务摘要', () => {
       },
     }), emptyAuditPresentationContext());
 
-    assert.equal(result.summary, '系统同步证书申请记录失败：同步源暂不可用。');
-    assert.doesNotMatch(result.summary ?? '', /casync_internal_id|CA_SYNC_SOURCE_UNAVAILABLE/);
+    assert.equal(result.presentation.kind, 'caSyncFailed');
+    assert.deepEqual(result.presentation.params, {
+      objectType: 'request',
+      errorCode: 'CA_SYNC_SOURCE_UNAVAILABLE',
+    });
   });
 
   it('将任务类型翻译为后台任务用途', () => {
@@ -49,8 +52,9 @@ describe('AuditPresentationService 业务摘要', () => {
       detail: { taskType: 'PLUGIN_REFERENCE_REFRESH' },
     }), emptyAuditPresentationContext());
 
-    assert.equal(result.summary, '管理员创建“插件目录刷新任务”。');
-    assert.doesNotMatch(result.summary ?? '', /task_internal_id/);
+    assert.equal(result.presentation.kind, 'taskCreated');
+    assert.equal(result.presentation.params.taskType, 'PLUGIN_REFERENCE_REFRESH');
+    assert.doesNotMatch(JSON.stringify(result.presentation.params), /task_internal_id/);
   });
 
   it('将权限拒绝翻译为缺少权限的业务原因', () => {
@@ -64,8 +68,12 @@ describe('AuditPresentationService 业务摘要', () => {
       detail: { reason: 'no allow policy' },
     }), emptyAuditPresentationContext());
 
-    assert.equal(result.summary, '外部身份用户因没有匹配的允许策略，访问后台任务的“读取任务”操作被拒绝。');
-    assert.doesNotMatch(result.summary ?? '', /external_ids|task_internal_id/);
+    assert.equal(result.presentation.kind, 'permissionDenied');
+    assert.deepEqual(result.presentation.params, {
+      permissionReason: 'no allow policy',
+      permissionAction: 'task.read',
+    });
+    assert.doesNotMatch(JSON.stringify(result.presentation.params), /external_ids|task_internal_id/);
   });
 
   it('将保留的权限拒绝类型明确展示', () => {
@@ -77,7 +85,7 @@ describe('AuditPresentationService 业务摘要', () => {
       detail: { reason: 'explicit business deny' },
     }), emptyAuditPresentationContext());
 
-    assert.match(result.summary ?? '', /业务规则显式拒绝/);
+    assert.equal(result.presentation.params.permissionReason, 'explicit business deny');
   });
 
   it('将 Secret purpose 翻译为凭据用途且不泄露 Secret 引用', () => {
@@ -93,8 +101,9 @@ describe('AuditPresentationService 业务摘要', () => {
       },
     }), emptyAuditPresentationContext());
 
-    assert.equal(result.summary, '身份源服务读取证书部署私钥。');
-    assert.doesNotMatch(result.summary ?? '', /sec_internal_id|secret:\/\//);
+    assert.equal(result.presentation.kind, 'secretUsed');
+    assert.equal(result.presentation.params.purpose, 'certificate.deployment.private_key');
+    assert.doesNotMatch(JSON.stringify(result.presentation.params), /sec_internal_id|secret:\/\//);
   });
 
   it('展示层过滤 Secret、默认权限拒绝和 CA 同步过程，但保留权限阻断与同步失败', async () => {
@@ -162,8 +171,9 @@ describe('AuditPresentationService 业务摘要', () => {
       detail: { sourceType: 'active_directory' },
     }), emptyAuditPresentationContext());
 
-    assert.equal(result.summary, '外部身份用户通过Active Directory身份源登录成功。');
-    assert.doesNotMatch(result.summary ?? '', /external_ids|ids_internal_id/);
+    assert.equal(result.presentation.kind, 'authExternalLoginSuccess');
+    assert.equal(result.presentation.params.sourceType, 'active_directory');
+    assert.doesNotMatch(JSON.stringify(result.presentation.params), /external_ids|ids_internal_id/);
   });
 
   it('优先使用 detail 中的对象名称', () => {
@@ -175,8 +185,9 @@ describe('AuditPresentationService 业务摘要', () => {
       detail: { after: { name: '证书自动部署（aut_internal_id）' } },
     }), emptyAuditPresentationContext());
 
-    assert.match(result.summary ?? '', /证书自动部署/);
-    assert.doesNotMatch(result.summary ?? '', /aut_internal_id/);
+    assert.equal(result.presentation.kind, 'generic');
+    assert.equal(result.presentation.params.resourceName, '证书自动部署');
+    assert.doesNotMatch(JSON.stringify(result.presentation.params), /aut_internal_id/);
   });
 
   it('未知类型仍只显示业务类型，不回退为内部对象 ID', () => {
@@ -187,8 +198,8 @@ describe('AuditPresentationService 业务摘要', () => {
       resourceId: 'future_internal_id',
     }), emptyAuditPresentationContext());
 
-    assert.equal(result.summary, '管理员完成“执行操作”，对象：业务对象。');
-    assert.doesNotMatch(result.summary ?? '', /future_internal_id/);
+    assert.equal(result.presentation.kind, 'generic');
+    assert.deepEqual(result.presentation.params, {});
   });
 
   it('从证书资产和版本数据库关联翻译已删除的证书产物', async () => {
@@ -258,7 +269,8 @@ describe('AuditPresentationService 业务摘要', () => {
     });
 
     const result = presentAuditLog(log, context);
-    assert.equal(result.summary, '管理员完成“删除证书产物”，对象：证书产物 *.example.com v3 / PEM。');
-    assert.doesNotMatch(result.summary ?? '', /certfmt_|certver_/);
+    assert.equal(result.presentation.kind, 'generic');
+    assert.equal(result.presentation.params.resourceName, '*.example.com v3 / PEM');
+    assert.doesNotMatch(JSON.stringify(result.presentation.params), /certfmt_|certver_/);
   });
 });
