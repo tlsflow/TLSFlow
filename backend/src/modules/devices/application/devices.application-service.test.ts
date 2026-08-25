@@ -297,8 +297,15 @@ test('设备插件能力执行缺少统一工作流服务时失败关闭而不�
   );
 });
 
-test('设备详情自动使用同来源最新已启用插件版本', async () => {
-  const previous = devicePluginVersionFixture('plugin-version-previous', '1.0.1', 'RETIRED');
+test('设备详情自动使用 pluginId 当前已启用插件版本而不是历史来源版本', async () => {
+  const previous = {
+    ...devicePluginVersionFixture('plugin-version-previous', '1.0.1', 'RETIRED'),
+    tenantId: 'tenant-1',
+    ownerType: 'TENANT' as const,
+    ownerId: 'tenant-1',
+    source: 'USER' as const,
+    manifest: { ...devicePluginVersionFixture('plugin-version-previous', '1.0.1', 'RETIRED').manifest, source: 'USER' as const },
+  };
   const latest = devicePluginVersionFixture('plugin-version-latest', '1.0.2', 'ENABLED');
   const device = {
     id: 'host-plugin-latest',
@@ -348,8 +355,15 @@ test('设备详情自动使用同来源最新已启用插件版本', async () =>
   assert.deepEqual(result.pluginUi?.capabilities, ['device.connection.test']);
 });
 
-test('设备能力执行使用最新插件工作流并迁移历史 Binding 输入', async () => {
-  const previous = devicePluginVersionFixture('plugin-version-previous-execute', '1.0.1', 'RETIRED');
+test('设备能力执行使用 pluginId 当前插件工作流并迁移历史 Binding 输入', async () => {
+  const previous = {
+    ...devicePluginVersionFixture('plugin-version-previous-execute', '1.0.1', 'RETIRED'),
+    tenantId: 'tenant-1',
+    ownerType: 'TENANT' as const,
+    ownerId: 'tenant-1',
+    source: 'USER' as const,
+    manifest: { ...devicePluginVersionFixture('plugin-version-previous-execute', '1.0.1', 'RETIRED').manifest, source: 'USER' as const },
+  };
   const latest = devicePluginVersionFixture('plugin-version-latest-execute', '1.0.2', 'ENABLED');
   const device = {
     id: 'host-plugin-latest-execute',
@@ -465,6 +479,88 @@ test('设备能力执行使用最新插件工作流并迁移历史 Binding 输�
   assert.equal(workflowPluginVersionId, latest.id);
   assert.equal((capturedBindings?.variables as Record<string, unknown>)?.legacyVariable, undefined);
   assert.equal((capturedBindings?.connections as Record<string, Record<string, unknown>>)?.management?.host, '10.33.5.49');
+});
+
+test('历史设备首次执行凭据健康检测时自动补齐能力指派', async () => {
+  const device = {
+    id: 'host-historical-health',
+    displayName: '历史设备',
+    category: 'NETWORK_APPLIANCE',
+    productFamily: 'device.f5.bigip',
+    managementMethod: 'PLUGIN',
+    extensionType: 'NETWORK_APPLIANCE',
+    applicationAssetCount: 0,
+    capabilities: [],
+    allowedActions: [],
+    health: 'HEALTHY',
+    sourceStatus: 'ONLINE',
+    informationSections: [{ key: 'common', fields: [] }],
+    publicSummary: { osType: 'NETWORK', managementMode: 'PLUGIN', updatedAt: '2026-08-23T00:00:00.000Z' },
+    overview: { deviceId: 'host-historical-health', displayName: '历史设备', deviceType: 'NETWORK_APPLIANCE', managementMode: 'PLUGIN', status: 'HEALTHY', updatedAt: '2026-08-23T00:00:00.000Z' },
+    logs: [],
+    frameworks: [],
+    sites: [],
+    certificates: [],
+    extension: { type: 'PLUGIN', deviceAssetId: 'asset-historical-health', pluginVersionId: 'plugin-version-health', pluginBindingId: 'binding-health' },
+    extensionSummary: {},
+  } as unknown as ManagedDeviceDetailDto;
+  const plugin = devicePluginVersionFixture('plugin-version-health', '1.0.0', 'ENABLED');
+  plugin.manifest = {
+    ...plugin.manifest,
+    capabilities: [
+      { key: 'device.connection.test', contractVersion: 'v1', actionContractId: 'device.connection.test.v1', riskLevel: 'LOW', executionLocations: ['CONTROL_PLANE'] },
+      { key: 'credential.health-check', contractVersion: 'v1', actionContractId: 'credential.health-check.v1', riskLevel: 'LOW', executionLocations: ['CONTROL_PLANE'] },
+    ],
+  };
+  const historicalPlugin = {
+    ...devicePluginVersionFixture('plugin-version-health-old', '0.9.0', 'RETIRED'),
+    tenantId: 'tenant-health',
+    ownerType: 'TENANT' as const,
+    ownerId: 'tenant-health',
+    source: 'USER' as const,
+    manifest: { ...plugin.manifest, version: '0.9.0', source: 'USER' as const },
+  };
+  const repository = { get: async () => device } as unknown as DevicesRepository;
+  const assignments: Array<Record<string, unknown>> = [];
+  const pluginBindings = {
+    resolveAssignment: async () => undefined,
+    getTenantBinding: async () => ({ id: 'binding-health', tenantId: 'tenant-health', pluginVersionId: historicalPlugin.id, mode: 'MANAGED', status: 'ACTIVE', version: 1, inputBindings: { apiVersion: 'gcac.input-bindings/v1', variables: {}, connections: {}, credentials: {}, artifacts: {} }, createdAt: '', updatedAt: '' }),
+    assignCapability: async (_tenantId: string, input: Record<string, unknown>) => {
+      assignments.push(input);
+      return { ...input, id: 'assignment-health', tenantId: 'tenant-health', status: 'ACTIVE', createdAt: '', updatedAt: '' };
+    },
+  } as unknown as PluginBindingsApplicationService;
+  const plugins = {
+    getVersionForTenant: async (_tenantId: string, id: string) => id === historicalPlugin.id ? historicalPlugin : plugin,
+    listAccessibleVersions: async () => [plugin],
+    getVersionWithUiResourcesForTenant: async () => ({ version: plugin, ui: { forms: {}, presentations: {}, locale: { messages: {} } } }),
+  };
+  const db = {
+    query: async (sql: string) => {
+      if (sql.includes('plugin_capability_assignments')) return { rows: [] };
+      if (sql.includes('from pg_service_assets sa')) return { rows: [{
+        id: 'asset-historical-health', tenant_id: 'tenant-health', display_name: '历史设备', address: '10.0.0.1', host_id: device.id,
+        device_family: 'device.f5.bigip', management_port: 443, auth_mode: 'BASIC', tls_verify: true,
+        plugin_version_id: plugin.id, plugin_binding_id: 'binding-health', support_tier: 'SUPPORTED',
+      }] };
+      return { rows: [] };
+    },
+  };
+  const workflowVersion = {
+    id: 'workflow-health', executionMode: 'DSL', content: {
+      apiVersion: 'gcac.workflow/v1', kind: 'CurlSshWorkflow', metadata: { name: 'health' },
+      inputContract: { apiVersion: 'gcac.deployment-input/v1', variables: {}, connections: {}, credentials: {}, artifacts: {} }, steps: [],
+    },
+  };
+  const pluginWorkflows = { require: async () => ({ pluginVersionId: plugin.id, capabilityKey: 'credential.health-check', workflowVersionId: 'workflow-health', workflowTemplateId: 'template-health', workflowResourcePath: 'workflows/credential-health-check.json', workflowContentSha256: 'sha256:health', createdAt: '' }) } as unknown as PluginWorkflowPublisherService;
+  const workflows = { getVersion: async () => workflowVersion, execute: async () => ({ status: 'success', id: 'run-health', stepResults: [] }) } as unknown as WorkflowTemplatesApplicationService;
+  const resolver = { resolve: () => ({ executable: true, variables: {}, connections: {}, credentials: {}, artifacts: {}, sensitivePaths: [], issues: [] }) };
+  const runtimeGuard = { execute: async (_context: unknown, run: () => Promise<unknown>) => run() };
+  await new DevicesApplicationService(repository, undefined, undefined, db as never, plugins as never, undefined, pluginBindings, pluginWorkflows, workflows, runtimeGuard as never, undefined, resolver as never)
+    .executeCapability('tenant-health', device.id, 'credential.health-check');
+  assert.deepEqual(assignments[0], {
+    ownerType: 'DEVICE', ownerId: device.id, capabilityKey: 'credential.health-check', pluginVersionId: historicalPlugin.id, pluginBindingId: 'binding-health', precedence: 'DEVICE_DEFAULT',
+  });
 });
 
 function devicePluginVersionFixture(

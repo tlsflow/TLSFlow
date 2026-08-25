@@ -33,6 +33,7 @@ import { DeploymentAssetContextBuilder } from '../../deployment-inputs/applicati
 import { ProductionDeploymentInputResolverService } from '../../deployment-inputs/application/production-deployment-input-resolver.service.js';
 import { migrateInputBindingsToContract } from '../../deployment-inputs/application/input-binding-contract-migrator.js';
 import type { DeploymentInputContractV1 } from '../../deployment-inputs/dto/deployment-input-contract.dto.js';
+import type { CapabilityAssignmentV1 } from '../../plugins/dto/plugin-bindings.dto.js';
 
 export class DevicesApplicationService {
   constructor(
@@ -111,7 +112,8 @@ export class DevicesApplicationService {
   }
 
   /**
-   * 设备只保存接入时的 Binding；运行期必须解析该 Binding 对应插件来源下当前已启用的最高版本。
+   * 设备只保存接入时的 Binding；运行期按稳定 pluginId 解析当前已启用版本。
+   * 设备的历史来源只用于读取旧 Binding，不能阻止内置当前版本替换用户旧版本。
    * 没有可用新版本时回退到历史版本，保证旧设备仍能查看和执行已有能力。
    */
   private async resolveEffectivePluginVersion(tenantId: string, assignedPluginVersionId: string): Promise<{
@@ -122,22 +124,23 @@ export class DevicesApplicationService {
     const assignedPlugin = await this.unifiedPlugins.getVersionForTenant(tenantId, assignedPluginVersionId);
     let candidates = (await this.unifiedPlugins.listAccessibleVersions(tenantId))
       .filter((version) => version.pluginId === assignedPlugin.pluginId
-        && version.source === assignedPlugin.source
         && version.status === 'ENABLED')
-      .sort((left, right) => compareSemanticVersions(right.version, left.version)
+      .sort((left, right) => Number(right.source === 'BUILTIN') - Number(left.source === 'BUILTIN')
+        || compareSemanticVersions(right.version, left.version)
         || right.updatedAt.localeCompare(left.updatedAt)
         || right.id.localeCompare(left.id));
-    // listAccessibleVersions 为目录展示按 pluginId 去重；若同一 ID 存在内置/用户双来源，
-    // 去重可能隐藏设备原绑定来源，此时回查该来源的完整版本集合。
+    // listAccessibleVersions 为目录展示按 pluginId 去重；若目录实现暂未返回当前项，
+    // 回查租户可见的内置和用户版本集合，仍按同一规则解析。
     if (candidates.length === 0) {
-      const sourceVersions = assignedPlugin.source === 'BUILTIN'
-        ? await this.unifiedPlugins.listBuiltinVersions()
-        : await this.unifiedPlugins.listVersions(tenantId);
-      candidates = sourceVersions
+      const [builtinVersions, tenantVersions] = await Promise.all([
+        this.unifiedPlugins.listBuiltinVersions(),
+        this.unifiedPlugins.listVersions(tenantId),
+      ]);
+      candidates = [...builtinVersions, ...tenantVersions]
         .filter((version) => version.pluginId === assignedPlugin.pluginId
-          && version.source === assignedPlugin.source
           && version.status === 'ENABLED')
-        .sort((left, right) => compareSemanticVersions(right.version, left.version)
+        .sort((left, right) => Number(right.source === 'BUILTIN') - Number(left.source === 'BUILTIN')
+          || compareSemanticVersions(right.version, left.version)
           || right.updatedAt.localeCompare(left.updatedAt)
           || right.id.localeCompare(left.id));
     }
@@ -199,7 +202,12 @@ export class DevicesApplicationService {
       });
     }
     if (device.extension.type !== 'PLUGIN' || !device.extension.pluginBindingId) throw new AppError('CAPABILITY_MISSING', '设备未绑定统一插件');
-    const assignment = await this.pluginBindings.resolveAssignment(tenantId, capabilityKey, { deviceId: device.id });
+    let assignment = await this.pluginBindings.resolveAssignment(tenantId, capabilityKey, { deviceId: device.id });
+    // 健康检测是在已有设备上新增的只读能力。历史设备不会自动拥有新指派，
+    // 但只要当前绑定的插件已经声明该能力，就在首次检测时补齐指派。
+    if (!assignment && capabilityKey === 'credential.health-check') {
+      assignment = await this.provisionHistoricalHealthAssignment(tenantId, device);
+    }
     if (!assignment || assignment.pluginBindingId !== device.extension.pluginBindingId) {
       throw new AppError('CAPABILITY_MISSING', '设备未分配该插件能力', { capabilityKey });
     }
@@ -334,6 +342,36 @@ export class DevicesApplicationService {
       });
       throw error;
     }
+  }
+
+  private async provisionHistoricalHealthAssignment(
+    tenantId: string,
+    device: ManagedDeviceDetailDto,
+  ): Promise<CapabilityAssignmentV1 | undefined> {
+    if (device.extension.type !== 'PLUGIN'
+      || !device.extension.pluginVersionId
+      || !device.extension.pluginBindingId
+      || !this.unifiedPlugins
+      || !this.pluginBindings) return undefined;
+    const { assignedPlugin, currentPlugin } = await this.resolveEffectivePluginVersion(tenantId, device.extension.pluginVersionId);
+    if (!currentPlugin.manifest.capabilities.some((capability) => capability.key === 'credential.health-check')) return undefined;
+    const binding = await this.pluginBindings.getTenantBinding(tenantId, device.extension.pluginBindingId);
+    // 重新发现可能已把设备资产推进到当前版本，而 Binding 仍保留历史版本；此时只要稳定
+    // pluginId 一致即可补齐当前能力指派，不能用历史版本 ID 阻断健康检测。
+    if (binding.pluginVersionId !== assignedPlugin.id) {
+      const bindingPlugin = await this.unifiedPlugins.getVersionForTenant(tenantId, binding.pluginVersionId);
+      if (bindingPlugin.pluginId !== assignedPlugin.pluginId) return undefined;
+    }
+    return this.pluginBindings.assignCapability(tenantId, {
+      ownerType: 'DEVICE',
+      ownerId: device.id,
+      capabilityKey: 'credential.health-check',
+      // Assignment 必须和 Binding 使用同一个版本 ID。运行时随后会按稳定
+      // pluginId 解析当前启用版本，因此历史 Binding 不需要被强行改写。
+      pluginVersionId: binding.pluginVersionId,
+      pluginBindingId: binding.id,
+      precedence: 'DEVICE_DEFAULT',
+    });
   }
 
   private async onboardPluginDevice(tenantId: string, input: CreateManagedDeviceOnboardingDto, actorId: string) {

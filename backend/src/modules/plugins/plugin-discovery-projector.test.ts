@@ -12,7 +12,8 @@ import { PgDevicesRepository } from '../devices/repository/devices.repository.js
 test('标准发现投影事务化、幂等并把缺失对象标记为 STALE', async () => {
   const db = new PgliteDatabase();
   await runMigrations(db, undefined, { appliedBy: 'test', checksum: (content) => createHash('sha256').update(content).digest('hex') });
-  const plugin = await new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(db)).importVersion('tenant-1', {
+  const pluginService = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(db));
+  const plugin = await pluginService.importVersion('tenant-1', {
     manifest: {
       apiVersion: 'gcac.plugin-manifest/v1', kind: 'GcacPlugin', pluginId: 'device.citrix.netscaler-adc', version: '1.0.0',
       displayNameKey: 'plugin.test.name', publisher: 'test', runtime: 'WORKFLOW_DSL', source: 'USER', scope: 'BOTH',
@@ -85,6 +86,43 @@ test('标准发现投影事务化、幂等并把缺失对象标记为 STALE', as
   assert.equal((await db.query<{ status: string }>('select status from pg_site_assets limit 1')).rows[0]?.status, 'STALE');
   assert.equal((await db.query<{ status: string }>('select status from pg_managed_targets limit 1')).rows[0]?.status, 'STALE');
   assert.equal((await db.query<{ discovery_status: string }>("select metadata->>'discoveryStatus' as discovery_status from pg_certificate_bindings limit 1")).rows[0]?.discovery_status, 'STALE');
+});
+
+test('发现内容不变但插件版本变化时仍同步设备版本并记录新快照', async () => {
+  const db = new PgliteDatabase();
+  await runMigrations(db, undefined, { appliedBy: 'test', checksum: (content) => createHash('sha256').update(content).digest('hex') });
+  const pluginService = new UnifiedPluginsApplicationService(new PgUnifiedPluginsRepository(db));
+  const first = await pluginService.importVersion('tenant-version-sync', {
+    manifest: {
+      apiVersion: 'gcac.plugin-manifest/v1', kind: 'GcacPlugin', pluginId: 'device.version-sync', version: '1.0.0',
+      displayNameKey: 'plugin.test.name', publisher: 'test', runtime: 'WORKFLOW_DSL', source: 'USER', scope: 'BOTH',
+      trust: 'UNSIGNED', support: 'SELF_MANAGED', permissions: [],
+      capabilities: [{ key: 'device.discover', contractVersion: 'v1', actionContractId: 'device.discover.v1', riskLevel: 'LOW', executionLocations: ['CONTROL_PLANE'] }],
+      resources: { workflows: { 'device.discover': 'workflows/discover.json' } },
+    },
+    resources: { 'workflows/discover.json': '{}' },
+  });
+  const second = await pluginService.importVersion('tenant-version-sync', {
+    manifest: { ...first.manifest, version: '1.0.1' },
+    resources: first.resources,
+  });
+  await db.query(`insert into pg_hosts (id, tenant_id, hostname, os_type, discovery_source, compatibility_level, management_mode, status)
+    values ('host-version-sync','tenant-version-sync','version-sync.example','NETWORK_DEVICE','MANUAL','L1','AGENTLESS','ACTIVE')`);
+  await db.query(`insert into pg_service_assets (id, tenant_id, address, address_type, port, protocol, display_name, host_id, discovery_source, status, asset_kind)
+    values ('device-version-sync','tenant-version-sync','192.0.2.21','IPV4',443,'HTTPS','Version Sync','host-version-sync','MANUAL','ACTIVE','DEVICE')`);
+  await db.query(`insert into pg_device_assets (service_asset_id, tenant_id, device_family, host_id, plugin_version_id)
+    values ('device-version-sync','tenant-version-sync','MOCK_DEVICE','host-version-sync',$1)`, [first.id]);
+  const discovery = {
+    apiVersion: 'gcac.device-discovery/v2',
+    device: { stableKey: 'device:version-sync', displayName: 'Version Sync', productFamily: 'Mock' },
+    capabilities: [], frameworks: [], sites: [], managedTargets: [], certificates: [], certificateBindings: [], warnings: [],
+  };
+  const projector = new StandardDeviceDiscoveryProjector(db);
+  const baseContext = { tenantId: 'tenant-version-sync', deviceAssetId: 'device-version-sync', hostId: 'host-version-sync', pluginVersionId: first.id };
+  await projector.project(baseContext, discovery);
+  await projector.project({ ...baseContext, pluginVersionId: second.id }, discovery);
+  assert.equal((await db.query<{ plugin_version_id: string }>('select plugin_version_id from pg_device_assets where service_asset_id=$1', ['device-version-sync'])).rows[0]?.plugin_version_id, second.id);
+  assert.equal((await db.query<{ count: string }>('select count(*)::text as count from plugin_discovery_snapshots where device_asset_id=$1', ['device-version-sync'])).rows[0]?.count, '2');
 });
 
 test('设备证书没有指纹时按唯一公开元数据关联项目证书版本', async () => {

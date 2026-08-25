@@ -73,7 +73,12 @@ export class StandardDeviceDiscoveryProjector {
       return await this.db.transaction(async (tx) => {
         await lockProjectionRoot(tx, context);
         const latestSucceeded = await findLatestSucceededSnapshot(tx, context, discoveryProviderKey);
-        if (latestSucceeded?.normalized_sha256 === normalizedSha256) return latestSucceeded.summary;
+        // 发现内容相同也不能跳过版本元数据同步。重新发现可能已经切换到
+        // 当前启用插件，必须让设备资产和审计快照记录本次实际使用的版本。
+        const sameProjectionSource = latestSucceeded
+          && latestSucceeded.plugin_version_id === (context.pluginVersionId ?? null)
+          && latestSucceeded.plugin_binding_id === (context.pluginBindingId ?? null);
+        if (latestSucceeded?.normalized_sha256 === normalizedSha256 && sameProjectionSource) return latestSucceeded.summary;
         summary = await this.previewValidated(tx, context, discovery);
         if (context.deviceAssetId) await tx.query(
           `update pg_device_assets set product_family=$1, product_name=$2, software_version=$3,
@@ -427,13 +432,20 @@ async function insertSnapshot(
   );
 }
 
+interface LatestSucceededSnapshotRow extends Record<string, unknown> {
+  normalized_sha256: string;
+  plugin_version_id: string | null;
+  plugin_binding_id: string | null;
+  summary: StandardDiscoveryProjectionSummary;
+}
+
 async function findLatestSucceededSnapshot(
   db: DatabasePort,
   context: StandardDiscoveryProjectionContext,
   discoveryProviderKey: string,
-): Promise<{ normalized_sha256: string; summary: StandardDiscoveryProjectionSummary } | undefined> {
-  const result = await db.query<{ normalized_sha256: string; summary: StandardDiscoveryProjectionSummary }>(
-    `select normalized_sha256, summary
+): Promise<LatestSucceededSnapshotRow | undefined> {
+  const result = await db.query<LatestSucceededSnapshotRow>(
+    `select normalized_sha256, plugin_version_id, plugin_binding_id, summary
      from plugin_discovery_snapshots
      where tenant_id=$1 and device_id=$2 and discovery_provider_key=$3
        and status='SUCCEEDED'

@@ -626,11 +626,11 @@ function buildDeviceListSql(query: ManagedDeviceListQuery, parameters: unknown[]
         left join lateral (
           select candidate.plugin_version
             from unified_plugin_versions candidate
-           where candidate.tenant_id = plugin_version.tenant_id
-             and candidate.plugin_id = plugin_version.plugin_id
-             and candidate.source = plugin_version.source
+           where candidate.plugin_id = plugin_version.plugin_id
              and candidate.status = 'ENABLED'
-           order by string_to_array(
+             and (candidate.source = 'BUILTIN' or candidate.tenant_id = device.tenant_id)
+           order by (candidate.source = 'BUILTIN') desc,
+                    string_to_array(
                       trim(both '.' from regexp_replace(candidate.plugin_version, '[^0-9.]', '', 'g')),
                       '.'
                     )::int[] desc,

@@ -328,7 +328,7 @@ test('Spec033 统一设备列表聚合 Agent 和 Citrix ADC 且不产生 N+1', a
   assert.equal(result.items.find((item) => item.id === adc.hostId)?.controlVersion, '7.4.2');
 });
 
-test('设备列表显示原插件来源下当前启用版本且保留历史绑定', async () => {
+test('设备列表显示 pluginId 当前启用版本且保留历史绑定', async () => {
   const database = new PgliteDatabase();
   await runMigrations(database, 'src/database/migrations');
   const tenantId = 'tenant_device_plugin_current_version';
@@ -346,7 +346,8 @@ test('设备列表显示原插件来源下当前启用版本且保留历史绑�
     (id,tenant_id,plugin_id,plugin_version,source,runtime,scope,trust,support,manifest,package_sha256,manifest_sha256,resource_sha256,status,permission_approval_status,approved_permissions,validation_report,created_at,updated_at)
     values
       ('plugin-version-old',$1,'fixture.versioned-device','1.0.1','USER','WORKFLOW_DSL','MANAGED','UNSIGNED','SELF_MANAGED','{}','sha256:old','sha256:old','{}','DISABLED','NOT_REQUIRED','[]','{}',now(),now()),
-      ('plugin-version-current',$1,'fixture.versioned-device','1.0.2','USER','WORKFLOW_DSL','MANAGED','UNSIGNED','SELF_MANAGED','{}','sha256:current','sha256:current','{}','ENABLED','NOT_REQUIRED','[]','{}',now(),now())`, [tenantId]);
+      ('plugin-version-current',$1,'fixture.versioned-device','1.0.2','USER','WORKFLOW_DSL','MANAGED','UNSIGNED','SELF_MANAGED','{}','sha256:current','sha256:current','{}','ENABLED','NOT_REQUIRED','[]','{}',now(),now()),
+      ('plugin-version-builtin','SYSTEM','fixture.versioned-device','1.0.3','BUILTIN','WORKFLOW_DSL','MANAGED','OFFICIAL_SIGNED','OFFICIAL','{}','sha256:builtin','sha256:builtin','{}','ENABLED','NOT_REQUIRED','[]','{}',now(),now())`, [tenantId]);
   await database.query(
     'update pg_device_assets set plugin_version_id=$1 where tenant_id=$2 and service_asset_id=$3',
     ['plugin-version-old', tenantId, device.id],
@@ -358,7 +359,7 @@ test('设备列表显示原插件来源下当前启用版本且保留历史绑�
     filter: {},
   });
 
-  assert.equal(result.items[0]?.controlVersion, '1.0.2');
+  assert.equal(result.items[0]?.controlVersion, '1.0.3');
   const binding = await database.query<{ plugin_version_id: string }>(
     'select plugin_version_id from pg_device_assets where tenant_id=$1 and service_asset_id=$2',
     [tenantId, device.id],
@@ -795,6 +796,7 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
   const pluginRoot = resolve('src/modules/plugins/builtin-plugins/citrix-adc');
   const manifest = JSON.parse(await readFile(resolve(pluginRoot, 'manifest.json'), 'utf8')) as {
     resources: Record<string, string | Record<string, string>>;
+    capabilities?: unknown[];
   };
   const workflowResources = manifest.resources.workflows as Record<string, string> | undefined;
   const resourcePaths = flattenResourcePaths(manifest.resources);
@@ -873,7 +875,7 @@ test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', 
   assert.deepEqual(result.binding.inputBindings.connections.management, {
     host: '10.33.5.49', port: 443, tls: { verifyPeer: true },
   });
-  assert.equal(result.assignments.length, 5);
+  assert.equal(result.assignments.length, manifest.capabilities?.length ?? 0);
   assert.deepEqual(executedCapabilities, ['device.connection.test', 'device.identity.detect', 'device.discover']);
   assert.ok('projection' in result.discovery);
   assert.equal(result.discovery.projection?.certificateBindings, 1);
