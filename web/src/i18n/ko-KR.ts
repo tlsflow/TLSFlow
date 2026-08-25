@@ -1973,6 +1973,7 @@ export default {
     },
     actors: {
       user: '사용자',
+      admin: '관리자',
       system: '시스템',
       agent: 'Agent',
       plugin: '플러그인',
@@ -2057,8 +2058,41 @@ export default {
     },
     actorWithId: '{actorType} {actorId}',
     summary: '{actor}{verb}"{title}"대상:{resource}.',
+    summaries: {
+      deployment: '{actor}{verb}"{action}", 배포 계획: {planName}, 자산: {targetNames}.',
+      caSyncStarted: '{actor}이(가) {objectType} 동기화를 시작했습니다.',
+      caSyncCompleted: '{actor}이(가) {objectType} 동기화를 완료했습니다{counts}.',
+      caSyncFailed: '{actor}이(가) {objectType} 동기화에 실패했습니다: {reason}.',
+      permissionDenied: '{actor}의 {resource} "{action}" 작업이 {reason}(으)로 거부되었습니다.',
+      taskCreated: '{actor}이(가) "{taskType}"을(를) 생성했습니다.',
+      secretUsed: '{actor}이(가) {purpose}을(를) 읽었습니다.',
+      authExternalLoginSuccess: '{actor}이(가) {sourceType} ID 원천을 통해 로그인했습니다.',
+      authExternalLoginFailed: '{actor}이(가) {sourceType} ID 원천을 통한 로그인에 실패했습니다.',
+      authLoginSuccess: '{actor}이(가) 로그인에 성공했습니다.',
+      authLoginFailed: '{actor}이(가) 로그인에 실패했습니다: {reason}.',
+      authPasswordChanged: '{actor}이(가) 로그인 암호를 변경했습니다.',
+      authLogout: '{actor}이(가) 로그아웃했습니다.',
+      securityIdentitySourceSynced: '{actor}이(가) {resource}을(를) 동기화했습니다{counts}.',
+      securityIdentitySourceTested: '{actor}이(가) {resource} 연결을 성공적으로 테스트했습니다.',
+      securityUserCreated: '{actor}이(가) 사용자 "{username}"을(를) 생성했습니다.'
+    },
+    deploymentActions: { execute: '배포 실행', dryRun: '배포 계획 시험 실행', rollback: '배포 롤백' },
+    caObjects: { request: '인증서 요청 기록', issuance: '인증서 발급 기록', revocation: '인증서 해지 기록', template: '인증서 템플릿', data: 'CA 데이터' },
+    caSyncErrors: { sourceUnavailable: '동기화 원본을 사용할 수 없습니다', resourceNotFound: '동기화 원본에 객체가 없습니다', unknown: '동기화 원본에서 오류를 반환했습니다' },
+    taskTypes: { certificateDryRun: '인증서 배포 시험 실행 작업', certificateDeploy: '인증서 배포 작업', acmeRenewal: 'ACME 인증서 갱신 작업', agentInstall: 'Agent 설치 작업', agentCapabilityRescan: 'Agent 기능 재검색 작업', pluginReferenceRefresh: '플러그인 카탈로그 새로 고침 작업', automationRun: '자동화 실행 작업', automationTriggerDelivery: '자동화 트리거 전달 작업', monitoring: '인증서 모니터링 작업', backgroundTask: '백그라운드 작업' },
+    secretPurposes: { httpHeader: 'HTTP 헤더 자격 증명', deploymentPrivateKey: '인증서 배포 개인 키', deploymentPassword: '인증서 배포 암호', exportPrivateKey: '인증서 내보내기 개인 키', exportPassword: '인증서 내보내기 암호', sshAuthentication: 'SSH 자격 증명', providerOperation: 'Secret 제공자 자격 증명', ldapBind: 'LDAP 바인드 자격 증명', httpFormPassword: 'HTTP 양식 암호', debugCheck: 'Secret 확인 자격 증명', credential: '자격 증명' },
+    permissionActions: { taskRead: '작업 읽기', auditRead: '감사 로그 읽기', serviceAssetRead: '관리 애플리케이션 읽기', certificateRead: '인증서 읽기', certificateAssetRead: '인증서 자산 읽기', bindingRead: '인증서 바인딩 읽기', pluginVersionRead: '플러그인 버전 읽기', caOperationsRead: 'CA 운영 읽기', approvalDecide: '승인 결정', providerRead: '공급자 읽기', executionRead: '실행 기록 읽기', cloudAssetRead: '클라우드 계정 자산 읽기', managedTargetRead: '관리 대상 읽기', hostRead: '호스트 읽기', resourceAccess: '리소스 접근' },
+    permissionReasons: { noAllowPolicy: '일치하는 허용 정책이 없습니다', noObjectGrant: '일치하는 객체 권한이 없습니다', explicitDeny: '명시적 거부', explicitBusinessDeny: '업무 규칙에 의한 명시적 거부', tenantScopeDenied: '테넌트 범위에서 허용되지 않음', resourceScopeDenied: '리소스 범위에서 허용되지 않음', missing: '필요한 접근 권한이 없습니다' },
+    identitySources: { activeDirectory: 'Active Directory', ldap: 'LDAP', oidc: 'OIDC', saml: 'SAML', external: '외부' },
+    authFailureReasons: { badCredentials: '사용자 이름 또는 암호가 올바르지 않습니다', invalid: '인증 정보가 유효하지 않습니다' },
+    syncCounts: ', {read}개 레코드를 읽고 {upserted}개를 생성 또는 갱신했습니다',
+    identitySyncCounts: ', 총 {total}개 계정, 생성 {created}개, 갱신 {updated}개, 실패 {failed}개',
+    moreTargets: '{names} 외 총 {count}개 자산',
+    listSeparator: ', ',
     fallbacks: {
-      unknown: '알 수 없음'
+      unknown: '알 수 없음',
+      unnamedDeploymentPlan: '이름 없는 배포 계획',
+      noTargetAssets: '기록된 대상 자산 없음'
     }
   },
   audit: {

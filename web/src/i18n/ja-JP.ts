@@ -1999,6 +1999,7 @@ export default {
     },
     actors: {
       user: 'ユーザー',
+      admin: '管理者',
       system: 'システム',
       agent: 'Agent',
       plugin: 'プラグイン',
@@ -2083,9 +2084,38 @@ export default {
     },
     actorWithId: '{actorType} {actorId}',
     summary: '{actor}{verb}“{title}”、オブジェクト：{resource}。',
-    fallbacks: {
-      unknown: '不明'
-    }
+    summaries: {
+      deployment: '{actor}{verb}「{action}」、デプロイ計画：{planName}、資産：{targetNames}。',
+      caSyncStarted: '{actor}が{objectType}の同期を開始しました。',
+      caSyncCompleted: '{actor}が{objectType}の同期を完了しました{counts}。',
+      caSyncFailed: '{actor}が{objectType}の同期に失敗しました：{reason}。',
+      permissionDenied: '{actor}は{reason}のため、{resource}への「{action}」操作を拒否されました。',
+      taskCreated: '{actor}が「{taskType}」を作成しました。',
+      secretUsed: '{actor}が{purpose}を読み取りました。',
+      authExternalLoginSuccess: '{actor}が{sourceType} ID ソース経由でログインしました。',
+      authExternalLoginFailed: '{actor}が{sourceType} ID ソース経由のログインに失敗しました。',
+      authLoginSuccess: '{actor}がログインしました。',
+      authLoginFailed: '{actor}のログインに失敗しました：{reason}。',
+      authPasswordChanged: '{actor}がログインパスワードを変更しました。',
+      authLogout: '{actor}がログアウトしました。',
+      securityIdentitySourceSynced: '{actor}が{resource}を同期しました{counts}。',
+      securityIdentitySourceTested: '{actor}が{resource}の接続テストに成功しました。',
+      securityUserCreated: '{actor}がユーザー「{username}」を作成しました。'
+    },
+    deploymentActions: { execute: 'デプロイを実行', dryRun: 'デプロイ計画を試行', rollback: 'デプロイをロールバック' },
+    caObjects: { request: '証明書申請レコード', issuance: '証明書発行レコード', revocation: '証明書失効レコード', template: '証明書テンプレート', data: 'CA データ' },
+    caSyncErrors: { sourceUnavailable: '同期ソースを利用できません', resourceNotFound: '同期ソースにオブジェクトがありません', unknown: '同期ソースがエラーを返しました' },
+    taskTypes: { certificateDryRun: '証明書デプロイ試行タスク', certificateDeploy: '証明書デプロイタスク', acmeRenewal: 'ACME 証明書更新タスク', agentInstall: 'Agent インストールタスク', agentCapabilityRescan: 'Agent 機能再スキャンタスク', pluginReferenceRefresh: 'プラグインカタログ更新タスク', automationRun: '自動化実行タスク', automationTriggerDelivery: '自動化トリガー配信タスク', monitoring: '証明書監視タスク', backgroundTask: 'バックグラウンドタスク' },
+    secretPurposes: { httpHeader: 'HTTP ヘッダー資格情報', deploymentPrivateKey: '証明書デプロイ秘密鍵', deploymentPassword: '証明書デプロイパスワード', exportPrivateKey: '証明書エクスポート秘密鍵', exportPassword: '証明書エクスポートパスワード', sshAuthentication: 'SSH 資格情報', providerOperation: 'Secret プロバイダー資格情報', ldapBind: 'LDAP バインド資格情報', httpFormPassword: 'HTTP フォームパスワード', debugCheck: 'Secret チェック資格情報', credential: '資格情報' },
+    permissionActions: { taskRead: 'タスクを読む', auditRead: '監査ログを読む', serviceAssetRead: '管理アプリケーションを読む', certificateRead: '証明書を読む', certificateAssetRead: '証明書資産を読む', bindingRead: '証明書バインドを読む', pluginVersionRead: 'プラグインバージョンを読む', caOperationsRead: 'CA 運用を読む', approvalDecide: '承認を決定', providerRead: 'プロバイダーを読む', executionRead: '実行を読む', cloudAssetRead: 'クラウドアカウント資産を読む', managedTargetRead: '管理対象を読む', hostRead: 'ホストを読む', resourceAccess: 'リソースにアクセス' },
+    permissionReasons: { noAllowPolicy: '一致する許可ポリシーがない', noObjectGrant: '一致するオブジェクト権限がない', explicitDeny: '明示的に拒否された', explicitBusinessDeny: '業務ルールで明示的に拒否された', tenantScopeDenied: 'テナント範囲で許可されない', resourceScopeDenied: 'リソース範囲で許可されない', missing: 'アクセス権限が不足している' },
+    identitySources: { activeDirectory: 'Active Directory', ldap: 'LDAP', oidc: 'OIDC', saml: 'SAML', external: '外部' },
+    authFailureReasons: { badCredentials: 'ユーザー名またはパスワードが正しくない', invalid: '認証情報が無効', },
+    syncCounts: '（{read} 件を読み取り、{upserted} 件を作成または更新）',
+    identitySyncCounts: '（合計 {total} アカウント、作成 {created}、更新 {updated}、失敗 {failed}）',
+    moreTargets: '{names} など {count} 個の資産',
+    listSeparator: '、',
+    fallbacks: { unknown: '不明', unnamedDeploymentPlan: '名前なしのデプロイ計画', noTargetAssets: '対象資産の記録なし' }
   },
   audit: {
     page: {

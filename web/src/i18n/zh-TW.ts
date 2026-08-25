@@ -1998,6 +1998,7 @@ export default {
     },
     actors: {
       user: "使用者",
+      admin: "管理員",
       system: "系統",
       agent: "Agent",
       plugin: "外掛",
@@ -2082,8 +2083,41 @@ export default {
     },
     actorWithId: "{actorType} {actorId}",
     summary: "{actor}{verb}“{title}”，物件：{resource}。",
+    summaries: {
+      deployment: "{actor}{verb}“{action}”，部署計畫：{planName}，資產：{targetNames}。",
+      caSyncStarted: "{actor}開始同步{objectType}。",
+      caSyncCompleted: "{actor}完成{objectType}同步{counts}。",
+      caSyncFailed: "{actor}同步{objectType}失敗：{reason}。",
+      permissionDenied: "{actor}因{reason}，存取{resource}的「{action}」操作被拒絕。",
+      taskCreated: "{actor}建立「{taskType}」。",
+      secretUsed: "{actor}讀取{purpose}。",
+      authExternalLoginSuccess: "{actor}透過{sourceType}身分來源登入成功。",
+      authExternalLoginFailed: "{actor}透過{sourceType}身分來源登入失敗。",
+      authLoginSuccess: "{actor}登入成功。",
+      authLoginFailed: "{actor}登入失敗：{reason}。",
+      authPasswordChanged: "{actor}修改了登入密碼。",
+      authLogout: "{actor}登出。",
+      securityIdentitySourceSynced: "{actor}同步{resource}{counts}。",
+      securityIdentitySourceTested: "{actor}測試{resource}連線成功。",
+      securityUserCreated: "{actor}建立使用者「{username}」。"
+    },
+    deploymentActions: { execute: "執行部署", dryRun: "試執行部署計畫", rollback: "復原部署" },
+    caObjects: { request: "憑證申請記錄", issuance: "憑證簽發記錄", revocation: "憑證撤銷記錄", template: "憑證範本", data: "CA 資料" },
+    caSyncErrors: { sourceUnavailable: "同步來源暫時無法使用", resourceNotFound: "同步來源中不存在此物件", unknown: "同步來源回傳錯誤" },
+    taskTypes: { certificateDryRun: "憑證部署試執行工作", certificateDeploy: "憑證部署工作", acmeRenewal: "ACME 憑證續期工作", agentInstall: "Agent 安裝工作", agentCapabilityRescan: "Agent 能力重新掃描工作", pluginReferenceRefresh: "外掛目錄重新整理工作", automationRun: "自動化執行工作", automationTriggerDelivery: "自動化觸發投遞工作", monitoring: "憑證監控工作", backgroundTask: "背景工作" },
+    secretPurposes: { httpHeader: "HTTP 標頭認證資訊", deploymentPrivateKey: "憑證部署私鑰", deploymentPassword: "憑證部署密碼", exportPrivateKey: "憑證匯出私鑰", exportPassword: "憑證匯出密碼", sshAuthentication: "SSH 認證資訊", providerOperation: "Secret 提供者操作認證資訊", ldapBind: "LDAP 綁定認證資訊", httpFormPassword: "HTTP 表單密碼", debugCheck: "Secret 檢查認證資訊", credential: "認證資訊" },
+    permissionActions: { taskRead: "讀取工作", auditRead: "讀取稽核記錄", serviceAssetRead: "讀取受管理應用程式", certificateRead: "讀取憑證", certificateAssetRead: "讀取憑證資產", bindingRead: "讀取憑證繫結", pluginVersionRead: "讀取外掛版本", caOperationsRead: "讀取 CA 維運資料", approvalDecide: "執行核准決策", providerRead: "讀取提供者", executionRead: "讀取執行記錄", cloudAssetRead: "讀取雲端帳戶資產", managedTargetRead: "讀取受管理目標", hostRead: "讀取主機", resourceAccess: "存取資源" },
+    permissionReasons: { noAllowPolicy: "沒有符合的允許原則", noObjectGrant: "沒有符合的物件授權", explicitDeny: "明確拒絕", explicitBusinessDeny: "業務規則明確拒絕", tenantScopeDenied: "租戶範圍不允許", resourceScopeDenied: "物件範圍不允許", missing: "缺少存取權限" },
+    identitySources: { activeDirectory: "Active Directory", ldap: "LDAP", oidc: "OIDC", saml: "SAML", external: "外部" },
+    authFailureReasons: { badCredentials: "使用者名稱或密碼錯誤", invalid: "認證資訊無效" },
+    syncCounts: "，讀取 {read} 筆，新增或更新 {upserted} 筆",
+    identitySyncCounts: "，共 {total} 個帳號，新增 {created} 個，更新 {updated} 個，失敗 {failed} 個",
+    moreTargets: "{names} 等 {count} 個資產",
+    listSeparator: "、",
     fallbacks: {
-      unknown: "未知"
+      unknown: "未知",
+      unnamedDeploymentPlan: "未命名部署計畫",
+      noTargetAssets: "未記錄目標資產"
     }
   },
   audit: {

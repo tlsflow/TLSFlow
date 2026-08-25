@@ -2078,6 +2078,7 @@ export default {
     },
     actors: {
       user: 'User',
+      admin: 'Administrator',
       system: 'System',
       agent: 'Agent',
       plugin: 'Plugin',
@@ -2162,8 +2163,41 @@ export default {
     },
     actorWithId: '{actorType} {actorId}',
     summary: '{actor}{verb}"{title}", resource: {resource}.',
+    summaries: {
+      deployment: '{actor}{verb}"{action}", deployment plan: {planName}, assets: {targetNames}.',
+      caSyncStarted: '{actor} started syncing {objectType}.',
+      caSyncCompleted: '{actor} completed syncing {objectType}{counts}.',
+      caSyncFailed: '{actor} failed to sync {objectType}: {reason}.',
+      permissionDenied: '{actor} was denied the "{action}" operation on {resource} because {reason}.',
+      taskCreated: '{actor} created "{taskType}".',
+      secretUsed: '{actor} read {purpose}.',
+      authExternalLoginSuccess: '{actor} signed in through the {sourceType} identity source.',
+      authExternalLoginFailed: '{actor} failed to sign in through the {sourceType} identity source.',
+      authLoginSuccess: '{actor} signed in successfully.',
+      authLoginFailed: '{actor} failed to sign in: {reason}.',
+      authPasswordChanged: '{actor} changed the sign-in password.',
+      authLogout: '{actor} signed out.',
+      securityIdentitySourceSynced: '{actor} synchronized {resource}{counts}.',
+      securityIdentitySourceTested: '{actor} tested the {resource} connection successfully.',
+      securityUserCreated: '{actor} created user "{username}".'
+    },
+    deploymentActions: { execute: 'execute deployment', dryRun: 'run deployment plan', rollback: 'roll back deployment' },
+    caObjects: { request: 'certificate request records', issuance: 'certificate issuance records', revocation: 'certificate revocation records', template: 'certificate templates', data: 'CA data' },
+    caSyncErrors: { sourceUnavailable: 'the sync source is unavailable', resourceNotFound: 'the object does not exist in the sync source', unknown: 'the sync source returned an error' },
+    taskTypes: { certificateDryRun: 'certificate deployment dry-run task', certificateDeploy: 'certificate deployment task', acmeRenewal: 'ACME certificate renewal task', agentInstall: 'Agent installation task', agentCapabilityRescan: 'Agent capability rescan task', pluginReferenceRefresh: 'plugin catalog refresh task', automationRun: 'automation run task', automationTriggerDelivery: 'automation trigger delivery task', monitoring: 'certificate monitoring task', backgroundTask: 'background task' },
+    secretPurposes: { httpHeader: 'HTTP header credentials', deploymentPrivateKey: 'certificate deployment private key', deploymentPassword: 'certificate deployment password', exportPrivateKey: 'certificate export private key', exportPassword: 'certificate export password', sshAuthentication: 'SSH credentials', providerOperation: 'Secret provider credentials', ldapBind: 'LDAP bind credentials', httpFormPassword: 'HTTP form password', debugCheck: 'Secret check credentials', credential: 'credentials' },
+    permissionActions: { taskRead: 'read tasks', auditRead: 'read audit logs', serviceAssetRead: 'read managed applications', certificateRead: 'read certificates', certificateAssetRead: 'read certificate assets', bindingRead: 'read certificate bindings', pluginVersionRead: 'read plugin versions', caOperationsRead: 'read CA operations', approvalDecide: 'decide approvals', providerRead: 'read providers', executionRead: 'read executions', cloudAssetRead: 'read cloud account assets', managedTargetRead: 'read managed targets', hostRead: 'read hosts', resourceAccess: 'access the resource' },
+    permissionReasons: { noAllowPolicy: 'no matching allow policy', noObjectGrant: 'no matching object grant', explicitDeny: 'an explicit deny', explicitBusinessDeny: 'an explicit business rule deny', tenantScopeDenied: 'the tenant scope does not allow it', resourceScopeDenied: 'the resource scope does not allow it', missing: 'required access was not granted' },
+    identitySources: { activeDirectory: 'Active Directory', ldap: 'LDAP', oidc: 'OIDC', saml: 'SAML', external: 'external' },
+    authFailureReasons: { badCredentials: 'the username or password is incorrect', invalid: 'the authentication information is invalid' },
+    syncCounts: ', read {read} records and created or updated {upserted}',
+    identitySyncCounts: ', {total} accounts total, {created} created, {updated} updated, {failed} failed',
+    moreTargets: '{names} and {count} assets total',
+    listSeparator: ', ',
     fallbacks: {
-      unknown: 'Unknown'
+      unknown: 'Unknown',
+      unnamedDeploymentPlan: 'unnamed deployment plan',
+      noTargetAssets: 'no target assets recorded'
     }
   },
   audit: {

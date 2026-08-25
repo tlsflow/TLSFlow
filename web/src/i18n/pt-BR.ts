@@ -1973,6 +1973,7 @@ export default {
     },
     actors: {
       user: 'Usuário',
+      admin: 'Administrador',
       system: 'Sistema',
       agent: 'Agent',
       plugin: 'Plugin',
@@ -2057,8 +2058,41 @@ export default {
     },
     actorWithId: '{actorType} {actorId}',
     summary: '{actor}{verb}"{title}", objeto: {resource}.',
+    summaries: {
+      deployment: '{actor}{verb}"{action}", plano de implantação: {planName}, ativos: {targetNames}.',
+      caSyncStarted: '{actor} iniciou a sincronização de {objectType}.',
+      caSyncCompleted: '{actor} concluiu a sincronização de {objectType}{counts}.',
+      caSyncFailed: '{actor} falhou ao sincronizar {objectType}: {reason}.',
+      permissionDenied: '{actor} teve a operação "{action}" em {resource} negada porque {reason}.',
+      taskCreated: '{actor} criou "{taskType}".',
+      secretUsed: '{actor} leu {purpose}.',
+      authExternalLoginSuccess: '{actor} entrou pela fonte de identidade {sourceType}.',
+      authExternalLoginFailed: '{actor} não conseguiu entrar pela fonte de identidade {sourceType}.',
+      authLoginSuccess: '{actor} entrou com sucesso.',
+      authLoginFailed: '{actor} não conseguiu entrar: {reason}.',
+      authPasswordChanged: '{actor} alterou a senha de acesso.',
+      authLogout: '{actor} saiu.',
+      securityIdentitySourceSynced: '{actor} sincronizou {resource}{counts}.',
+      securityIdentitySourceTested: '{actor} testou a conexão de {resource} com sucesso.',
+      securityUserCreated: '{actor} criou o usuário "{username}".'
+    },
+    deploymentActions: { execute: 'executar implantação', dryRun: 'simular plano de implantação', rollback: 'reverter implantação' },
+    caObjects: { request: 'registros de solicitação de certificado', issuance: 'registros de emissão de certificado', revocation: 'registros de revogação de certificado', template: 'modelos de certificado', data: 'dados de CA' },
+    caSyncErrors: { sourceUnavailable: 'a fonte de sincronização está indisponível', resourceNotFound: 'o objeto não existe na fonte', unknown: 'a fonte de sincronização retornou um erro' },
+    taskTypes: { certificateDryRun: 'tarefa de simulação de implantação de certificado', certificateDeploy: 'tarefa de implantação de certificado', acmeRenewal: 'tarefa de renovação de certificado ACME', agentInstall: 'tarefa de instalação do Agent', agentCapabilityRescan: 'tarefa de nova verificação de capacidades do Agent', pluginReferenceRefresh: 'tarefa de atualização do catálogo de plugins', automationRun: 'tarefa de execução de automação', automationTriggerDelivery: 'tarefa de entrega de gatilho de automação', monitoring: 'tarefa de monitoramento de certificados', backgroundTask: 'tarefa em segundo plano' },
+    secretPurposes: { httpHeader: 'credenciais de cabeçalho HTTP', deploymentPrivateKey: 'chave privada de implantação de certificado', deploymentPassword: 'senha de implantação de certificado', exportPrivateKey: 'chave privada de exportação de certificado', exportPassword: 'senha de exportação de certificado', sshAuthentication: 'credenciais SSH', providerOperation: 'credenciais do provedor Secret', ldapBind: 'credenciais de vínculo LDAP', httpFormPassword: 'senha de formulário HTTP', debugCheck: 'credenciais de verificação Secret', credential: 'credenciais' },
+    permissionActions: { taskRead: 'ler tarefas', auditRead: 'ler logs de auditoria', serviceAssetRead: 'ler aplicações gerenciadas', certificateRead: 'ler certificados', certificateAssetRead: 'ler ativos de certificados', bindingRead: 'ler vínculos de certificados', pluginVersionRead: 'ler versões de plugins', caOperationsRead: 'ler operações de CA', approvalDecide: 'decidir aprovações', providerRead: 'ler provedores', executionRead: 'ler execuções', cloudAssetRead: 'ler ativos de contas na nuvem', managedTargetRead: 'ler destinos gerenciados', hostRead: 'ler hosts', resourceAccess: 'acessar o recurso' },
+    permissionReasons: { noAllowPolicy: 'não há política de permissão correspondente', noObjectGrant: 'não há concessão de objeto correspondente', explicitDeny: 'uma negação explícita', explicitBusinessDeny: 'uma negação explícita da regra de negócio', tenantScopeDenied: 'o escopo do tenant não permite', resourceScopeDenied: 'o escopo do recurso não permite', missing: 'as permissões necessárias não foram concedidas' },
+    identitySources: { activeDirectory: 'Active Directory', ldap: 'LDAP', oidc: 'OIDC', saml: 'SAML', external: 'externa' },
+    authFailureReasons: { badCredentials: 'o usuário ou a senha estão incorretos', invalid: 'as informações de autenticação são inválidas' },
+    syncCounts: ', {read} registros lidos e {upserted} criados ou atualizados',
+    identitySyncCounts: ', {total} contas no total, {created} criadas, {updated} atualizadas, {failed} com falha',
+    moreTargets: '{names} e {count} ativos no total',
+    listSeparator: ', ',
     fallbacks: {
-      unknown: 'Desconhecido'
+      unknown: 'Desconhecido',
+      unnamedDeploymentPlan: 'plano de implantação sem nome',
+      noTargetAssets: 'nenhum ativo de destino registrado'
     }
   },
   audit: {

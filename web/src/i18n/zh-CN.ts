@@ -2100,6 +2100,7 @@ export default {
     },
     actors: {
       user: '用户',
+      admin: '管理员',
       system: '系统',
       agent: 'Agent',
       plugin: '插件',
@@ -2184,8 +2185,41 @@ export default {
     },
     actorWithId: '{actorType} {actorId}',
     summary: '{actor}{verb}“{title}”，对象：{resource}。',
+    summaries: {
+      deployment: '{actor}{verb}“{action}”，部署计划：{planName}，资产：{targetNames}。',
+      caSyncStarted: '{actor}开始同步{objectType}。',
+      caSyncCompleted: '{actor}完成{objectType}同步{counts}。',
+      caSyncFailed: '{actor}同步{objectType}失败：{reason}。',
+      permissionDenied: '{actor}因{reason}，访问{resource}的“{action}”操作被拒绝。',
+      taskCreated: '{actor}创建“{taskType}”。',
+      secretUsed: '{actor}读取{purpose}。',
+      authExternalLoginSuccess: '{actor}通过{sourceType}身份源登录成功。',
+      authExternalLoginFailed: '{actor}通过{sourceType}身份源登录失败。',
+      authLoginSuccess: '{actor}登录成功。',
+      authLoginFailed: '{actor}登录失败：{reason}。',
+      authPasswordChanged: '{actor}修改了登录密码。',
+      authLogout: '{actor}退出登录。',
+      securityIdentitySourceSynced: '{actor}同步{resource}{counts}。',
+      securityIdentitySourceTested: '{actor}测试{resource}连接成功。',
+      securityUserCreated: '{actor}创建用户“{username}”。'
+    },
+    deploymentActions: { execute: '执行部署', dryRun: '试运行部署计划', rollback: '回滚部署计划' },
+    caObjects: { request: '证书申请记录', issuance: '证书签发记录', revocation: '证书吊销记录', template: '证书模板', data: 'CA 数据' },
+    caSyncErrors: { sourceUnavailable: '同步源暂不可用', resourceNotFound: '同步源中的对象不存在', unknown: '同步源返回错误' },
+    taskTypes: { certificateDryRun: '证书部署试运行任务', certificateDeploy: '证书部署任务', acmeRenewal: 'ACME 证书续期任务', agentInstall: 'Agent 安装任务', agentCapabilityRescan: 'Agent 能力重扫任务', pluginReferenceRefresh: '插件目录刷新任务', automationRun: '自动化执行任务', automationTriggerDelivery: '自动化触发投递任务', monitoring: '证书监控任务', backgroundTask: '后台任务' },
+    secretPurposes: { httpHeader: 'HTTP 请求头凭据', deploymentPrivateKey: '证书部署私钥', deploymentPassword: '证书部署密码', exportPrivateKey: '证书导出私钥', exportPassword: '证书导出密码', sshAuthentication: 'SSH 登录凭据', providerOperation: 'Secret 提供方操作凭据', ldapBind: 'LDAP 绑定凭据', httpFormPassword: 'HTTP 表单密码', debugCheck: 'Secret 检查凭据', credential: '凭据' },
+    permissionActions: { taskRead: '读取任务', auditRead: '读取审计日志', serviceAssetRead: '读取应用资产', certificateRead: '读取证书', certificateAssetRead: '读取证书资产', bindingRead: '读取证书绑定', pluginVersionRead: '读取插件版本', caOperationsRead: '读取 CA 运维数据', approvalDecide: '执行审批决策', providerRead: '读取提供方目录', executionRead: '读取执行记录', cloudAssetRead: '读取云账号资产', managedTargetRead: '读取托管目标', hostRead: '读取主机', resourceAccess: '访问资源' },
+    permissionReasons: { noAllowPolicy: '没有匹配的允许策略', noObjectGrant: '没有匹配的对象授权', explicitDeny: '显式拒绝', explicitBusinessDeny: '业务规则显式拒绝', tenantScopeDenied: '租户范围不允许', resourceScopeDenied: '对象范围不允许', missing: '缺少访问权限' },
+    identitySources: { activeDirectory: 'Active Directory', ldap: 'LDAP', oidc: 'OIDC', saml: 'SAML', external: '外部' },
+    authFailureReasons: { badCredentials: '用户名或密码错误', invalid: '认证信息无效' },
+    syncCounts: '，读取 {read} 条，新增或更新 {upserted} 条',
+    identitySyncCounts: '，共 {total} 个账号，新增 {created} 个，更新 {updated} 个，失败 {failed} 个',
+    moreTargets: '{names} 等 {count} 个资产',
+    listSeparator: '、',
     fallbacks: {
-      unknown: '未知'
+      unknown: '未知',
+      unnamedDeploymentPlan: '未命名部署计划',
+      noTargetAssets: '未记录目标资产'
     }
   },
   audit: {

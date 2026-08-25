@@ -1973,6 +1973,7 @@ export default {
     },
     actors: {
       user: 'Пользователь',
+      admin: 'Администратор',
       system: 'Система',
       agent: 'Agent',
       plugin: 'Плагин',
@@ -2057,8 +2058,41 @@ export default {
     },
     actorWithId: '{actorType} {actorId}',
     summary: '{actor}{verb} "{title}", объект: {resource}.',
+    summaries: {
+      deployment: '{actor}{verb} «{action}», план развертывания: {planName}, активы: {targetNames}.',
+      caSyncStarted: '{actor} начал синхронизацию {objectType}.',
+      caSyncCompleted: '{actor} завершил синхронизацию {objectType}{counts}.',
+      caSyncFailed: '{actor} не смог синхронизировать {objectType}: {reason}.',
+      permissionDenied: '{actor} отказано в операции «{action}» над {resource}, причина: {reason}.',
+      taskCreated: '{actor} создал «{taskType}».',
+      secretUsed: '{actor} прочитал {purpose}.',
+      authExternalLoginSuccess: '{actor} вошел через источник идентификации {sourceType}.',
+      authExternalLoginFailed: '{actor} не смог войти через источник идентификации {sourceType}.',
+      authLoginSuccess: '{actor} успешно вошел.',
+      authLoginFailed: '{actor} не смог войти: {reason}.',
+      authPasswordChanged: '{actor} изменил пароль входа.',
+      authLogout: '{actor} вышел из системы.',
+      securityIdentitySourceSynced: '{actor} синхронизировал {resource}{counts}.',
+      securityIdentitySourceTested: '{actor} успешно проверил соединение {resource}.',
+      securityUserCreated: '{actor} создал пользователя «{username}».'
+    },
+    deploymentActions: { execute: 'выполнить развертывание', dryRun: 'выполнить пробный план', rollback: 'откатить развертывание' },
+    caObjects: { request: 'записи запросов сертификатов', issuance: 'записи выдачи сертификатов', revocation: 'записи отзыва сертификатов', template: 'шаблоны сертификатов', data: 'данные CA' },
+    caSyncErrors: { sourceUnavailable: 'источник синхронизации недоступен', resourceNotFound: 'объект отсутствует в источнике', unknown: 'источник синхронизации вернул ошибку' },
+    taskTypes: { certificateDryRun: 'пробная задача развертывания сертификата', certificateDeploy: 'задача развертывания сертификата', acmeRenewal: 'задача продления сертификата ACME', agentInstall: 'задача установки Agent', agentCapabilityRescan: 'задача повторного сканирования Agent', pluginReferenceRefresh: 'задача обновления каталога плагинов', automationRun: 'задача запуска автоматизации', automationTriggerDelivery: 'задача доставки триггера автоматизации', monitoring: 'задача мониторинга сертификатов', backgroundTask: 'фоновая задача' },
+    secretPurposes: { httpHeader: 'учетные данные HTTP-заголовка', deploymentPrivateKey: 'закрытый ключ развертывания сертификата', deploymentPassword: 'пароль развертывания сертификата', exportPrivateKey: 'закрытый ключ экспорта сертификата', exportPassword: 'пароль экспорта сертификата', sshAuthentication: 'учетные данные SSH', providerOperation: 'учетные данные провайдера Secret', ldapBind: 'учетные данные привязки LDAP', httpFormPassword: 'пароль HTTP-формы', debugCheck: 'учетные данные проверки Secret', credential: 'учетные данные' },
+    permissionActions: { taskRead: 'читать задачи', auditRead: 'читать журналы аудита', serviceAssetRead: 'читать управляемые приложения', certificateRead: 'читать сертификаты', certificateAssetRead: 'читать активы сертификатов', bindingRead: 'читать привязки сертификатов', pluginVersionRead: 'читать версии плагинов', caOperationsRead: 'читать операции CA', approvalDecide: 'принимать решения по согласованиям', providerRead: 'читать провайдеров', executionRead: 'читать выполнения', cloudAssetRead: 'читать активы облачных аккаунтов', managedTargetRead: 'читать управляемые цели', hostRead: 'читать хосты', resourceAccess: 'получить доступ к ресурсу' },
+    permissionReasons: { noAllowPolicy: 'нет подходящей разрешающей политики', noObjectGrant: 'нет подходящего разрешения объекта', explicitDeny: 'явный запрет', explicitBusinessDeny: 'явный запрет бизнес-правилом', tenantScopeDenied: 'область арендатора не разрешает операцию', resourceScopeDenied: 'область ресурса не разрешает операцию', missing: 'не хватает прав доступа' },
+    identitySources: { activeDirectory: 'Active Directory', ldap: 'LDAP', oidc: 'OIDC', saml: 'SAML', external: 'внешний' },
+    authFailureReasons: { badCredentials: 'неверное имя пользователя или пароль', invalid: 'недействительные данные аутентификации' },
+    syncCounts: ', прочитано записей: {read}, создано или обновлено: {upserted}',
+    identitySyncCounts: ', всего аккаунтов: {total}, создано: {created}, обновлено: {updated}, ошибок: {failed}',
+    moreTargets: '{names} и всего активов: {count}',
+    listSeparator: ', ',
     fallbacks: {
-      unknown: 'Неизвестно'
+      unknown: 'Неизвестно',
+      unnamedDeploymentPlan: 'план развертывания без имени',
+      noTargetAssets: 'целевые активы не записаны'
     }
   },
   audit: {

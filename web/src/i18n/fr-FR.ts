@@ -1995,6 +1995,7 @@ export default {
     },
     actors: {
       user: 'User',
+      admin: 'Administrateur',
       system: 'System',
       agent: 'Agent',
       plugin: 'Plugin',
@@ -2079,8 +2080,41 @@ export default {
     },
     actorWithId: '{actorType} {actorId}',
     summary: '{actor}{verb}"{title}", resource: {resource}.',
+    summaries: {
+      deployment: '{actor}{verb} « {action} », plan de déploiement : {planName}, actifs : {targetNames}.',
+      caSyncStarted: '{actor} a commencé la synchronisation de {objectType}.',
+      caSyncCompleted: '{actor} a terminé la synchronisation de {objectType}{counts}.',
+      caSyncFailed: '{actor} a échoué lors de la synchronisation de {objectType} : {reason}.',
+      permissionDenied: 'L’opération « {action} » sur {resource} a été refusée à {actor} car {reason}.',
+      taskCreated: '{actor} a créé « {taskType} ».',
+      secretUsed: '{actor} a lu {purpose}.',
+      authExternalLoginSuccess: '{actor} s’est connecté via la source d’identité {sourceType}.',
+      authExternalLoginFailed: '{actor} n’a pas pu se connecter via la source d’identité {sourceType}.',
+      authLoginSuccess: '{actor} s’est connecté avec succès.',
+      authLoginFailed: '{actor} n’a pas pu se connecter : {reason}.',
+      authPasswordChanged: '{actor} a modifié le mot de passe de connexion.',
+      authLogout: '{actor} s’est déconnecté.',
+      securityIdentitySourceSynced: '{actor} a synchronisé {resource}{counts}.',
+      securityIdentitySourceTested: '{actor} a testé avec succès la connexion de {resource}.',
+      securityUserCreated: '{actor} a créé l’utilisateur « {username} ».'
+    },
+    deploymentActions: { execute: 'exécuter le déploiement', dryRun: 'simuler le plan de déploiement', rollback: 'annuler le déploiement' },
+    caObjects: { request: 'demandes de certificat', issuance: 'émissions de certificat', revocation: 'révocations de certificat', template: 'modèles de certificat', data: 'données CA' },
+    caSyncErrors: { sourceUnavailable: 'la source de synchronisation est indisponible', resourceNotFound: 'l’objet est introuvable dans la source', unknown: 'la source de synchronisation a renvoyé une erreur' },
+    taskTypes: { certificateDryRun: 'tâche de simulation de déploiement', certificateDeploy: 'tâche de déploiement de certificat', acmeRenewal: 'tâche de renouvellement de certificat ACME', agentInstall: 'tâche d’installation d’Agent', agentCapabilityRescan: 'tâche de nouvelle analyse des capacités Agent', pluginReferenceRefresh: 'tâche d’actualisation du catalogue de plugins', automationRun: 'tâche d’exécution automatisée', automationTriggerDelivery: 'tâche de remise du déclencheur automatisé', monitoring: 'tâche de surveillance des certificats', backgroundTask: 'tâche en arrière-plan' },
+    secretPurposes: { httpHeader: 'identifiants d’en-tête HTTP', deploymentPrivateKey: 'clé privée de déploiement de certificat', deploymentPassword: 'mot de passe de déploiement de certificat', exportPrivateKey: 'clé privée d’export de certificat', exportPassword: 'mot de passe d’export de certificat', sshAuthentication: 'identifiants SSH', providerOperation: 'identifiants du fournisseur Secret', ldapBind: 'identifiants de liaison LDAP', httpFormPassword: 'mot de passe de formulaire HTTP', debugCheck: 'identifiants de contrôle Secret', credential: 'identifiants' },
+    permissionActions: { taskRead: 'lire les tâches', auditRead: 'lire les journaux d’audit', serviceAssetRead: 'lire les applications gérées', certificateRead: 'lire les certificats', certificateAssetRead: 'lire les actifs de certificats', bindingRead: 'lire les liaisons de certificats', pluginVersionRead: 'lire les versions de plugins', caOperationsRead: 'lire les opérations CA', approvalDecide: 'décider des approbations', providerRead: 'lire les fournisseurs', executionRead: 'lire les exécutions', cloudAssetRead: 'lire les actifs de comptes cloud', managedTargetRead: 'lire les cibles gérées', hostRead: 'lire les hôtes', resourceAccess: 'accéder à la ressource' },
+    permissionReasons: { noAllowPolicy: 'aucune stratégie d’autorisation correspondante', noObjectGrant: 'aucune autorisation d’objet correspondante', explicitDeny: 'un refus explicite', explicitBusinessDeny: 'un refus explicite de règle métier', tenantScopeDenied: 'la portée du tenant ne l’autorise pas', resourceScopeDenied: 'la portée de la ressource ne l’autorise pas', missing: 'les droits d’accès requis manquent' },
+    identitySources: { activeDirectory: 'Active Directory', ldap: 'LDAP', oidc: 'OIDC', saml: 'SAML', external: 'externe' },
+    authFailureReasons: { badCredentials: 'le nom d’utilisateur ou le mot de passe est incorrect', invalid: 'les informations d’authentification sont invalides' },
+    syncCounts: ', {read} enregistrements lus et {upserted} créés ou mis à jour',
+    identitySyncCounts: ', {total} comptes au total, {created} créés, {updated} mis à jour, {failed} en échec',
+    moreTargets: '{names} et {count} actifs au total',
+    listSeparator: ', ',
     fallbacks: {
-      unknown: 'Unknown'
+      unknown: 'Unknown',
+      unnamedDeploymentPlan: 'plan de déploiement sans nom',
+      noTargetAssets: 'aucun actif cible enregistré'
     }
   },
   audit: {
