@@ -22,9 +22,6 @@ test('生产架构扫描范围必须包含宿主、插件、Runner、资源、Co
     'agents/linux-go-full-agent',
     'agents/windows-go-full-agent',
     'agents/windows-compat-full-agent',
-    'agents/go-ca-node',
-    'agents/windows-go-ca-node',
-    'agents/linux-go-ca-node',
     'agents/windows-adcs-agent',
   ]);
 });
@@ -624,9 +621,6 @@ test('完整扫描根会遍历 Compatibility、legacy 目录、全部 Agent 根�
   createFile('agents/windows-go-full-agent/scripts/guard.cmd', '"command.execute"\r\n');
   createFile('agents/windows-go-full-agent/scripts/guard.bat', '"command.execute"\r\n');
   createFile('agents/windows-compat-full-agent/Guard.go', 'type IisDeploymentHandler struct{}\n');
-  createFile('agents/go-ca-node/main.go', 'package main\nimport "os/exec"\nvar command = exec.Command("openssl", "version")\n');
-  createFile('agents/windows-go-ca-node/scripts/guard.ps1', 'powershell -Command "$COMMAND"\n');
-  createFile('agents/linux-go-ca-node/main.go', 'package main\nimport "os/exec"\nvar command = exec.Command("openssl", "version")\n');
   createFile('agents/windows-adcs-agent/src/Guard.cs', 'class IisDeploymentHandler {}\n');
 
   const findings = scanPluginArchitecture(root, architectureScanRoots);
@@ -645,18 +639,12 @@ test('完整扫描根会遍历 Compatibility、legacy 目录、全部 Agent 根�
     'agents/windows-go-full-agent/scripts/guard.cmd',
     'agents/windows-go-full-agent/scripts/guard.bat',
     'agents/windows-compat-full-agent/Guard.go',
-    'agents/go-ca-node/main.go',
-    'agents/windows-go-ca-node/scripts/guard.ps1',
-    'agents/linux-go-ca-node/main.go',
     'agents/windows-adcs-agent/src/Guard.cs',
   ]) assert.equal(paths.has(path), true, `未扫描文件：${path}`);
   assert.equal(findings.find((finding) => finding.path === 'backend/src/modules/plugins/runner/fixtures/runtime.ts')?.classification, 'PRODUCTION');
   assert.equal(findings.find((finding) => finding.path === 'backend/src/modules/legacy-agents/legacy.ts')?.classification, 'PRODUCTION');
   assert.equal(findings.find((finding) => finding.path === 'compatibility/legacy.json')?.classification, 'PRODUCTION');
-  assert.equal(findings.find((finding) => finding.path === 'agents/go-ca-node/main.go')?.classification, 'PRODUCTION');
   assert.equal(findings.some((finding) => finding.path === 'compatibility/legacy.json' && finding.rule === 'AGENT_LEGACY_CONTRACT'), true);
-  assert.equal(findings.some((finding) => finding.path === 'agents/go-ca-node/main.go' && finding.rule === 'AGENT_OPENSSL_USAGE'), true);
-  assert.equal(findings.some((finding) => finding.path === 'agents/go-ca-node/main.go' && finding.rule === 'AGENT_PROCESS_EXECUTION'), true);
 });
 
 test('生产源码引用不存在的相对模块时必须报告，不能借测试路径放行', () => {
@@ -757,13 +745,6 @@ test('004.5 负 Fixture 覆盖 Agent 旧合同、Shell、产品类名和开发�
     ['AGENT_LEGACY_COMMAND_CONTRACT', 'AGENT_LEGACY_CONTRACT', 'AGENT_PRODUCT_IMPLEMENTATION', 'AGENT_SHELL_EXECUTION', 'DEFAULT_DEVELOPMENT_KEY', 'FORBIDDEN_COMMAND_CONTRACT'].sort(),
   );
 
-  const caNodeFindings = scanPluginArchitectureSource(
-    'agents/go-ca-node/main.go',
-    'package main\nimport "os/exec"\nvar command = exec.Command("openssl", "version")\n',
-  );
-  assert.ok(caNodeFindings.some((finding) => finding.rule === 'AGENT_OPENSSL_USAGE'));
-  assert.ok(caNodeFindings.some((finding) => finding.rule === 'AGENT_PROCESS_EXECUTION'));
-  assert.equal(caNodeFindings.every((finding) => finding.classification === 'PRODUCTION'), true);
 });
 
 test('许可证生产源码不得包含开发信任根或 issuer 私钥', () => {

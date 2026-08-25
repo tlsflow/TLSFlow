@@ -22,9 +22,6 @@ export const architectureScanRoots = Object.freeze([
   'agents/linux-go-full-agent',
   'agents/windows-go-full-agent',
   'agents/windows-compat-full-agent',
-  'agents/go-ca-node',
-  'agents/windows-go-ca-node',
-  'agents/linux-go-ca-node',
   'agents/windows-adcs-agent',
 ]);
 const scanRoots = architectureScanRoots;
@@ -108,9 +105,9 @@ const pluginWorkflowPathPattern = /(?:^|\/)builtin-plugins\/[^/]+\/workflows(?:\
 const userWorkflowPathPattern = /(?:^|\/)data\/workflows(?:\/|$)/;
 const workflowPathPattern = new RegExp(`${builtinWorkflowPathPattern.source}|${pluginWorkflowPathPattern.source}|${userWorkflowPathPattern.source}`);
 const hostWorkflowPathPattern = new RegExp(`${builtinWorkflowPathPattern.source}|${userWorkflowPathPattern.source}`);
-const agentPathPattern = /^agents\/(?:windows-go-full-agent|linux-go-full-agent|windows-compat-full-agent|go-ca-node|windows-go-ca-node|linux-go-ca-node|windows-adcs-agent)(?:\/|$)/;
-const agentCorePathPattern = /^agents\/(?:linux-go-full-agent|go-ca-node|windows-go-ca-node|linux-go-ca-node|windows-adcs-agent)(?:\/|$)|^agents\/(?:windows-go-full-agent|windows-compat-full-agent)\/(?!agent-side-plugins(?:\/|$))/;
-const caNodePathPattern = /^agents\/(?:go-ca-node|windows-go-ca-node|linux-go-ca-node|windows-adcs-agent)(?:\/|$)/;
+const agentPathPattern = /^agents\/(?:windows-go-full-agent|linux-go-full-agent|windows-compat-full-agent|windows-adcs-agent)(?:\/|$)/;
+const agentCorePathPattern = /^agents\/(?:linux-go-full-agent|windows-adcs-agent)(?:\/|$)|^agents\/(?:windows-go-full-agent|windows-compat-full-agent)\/(?!agent-side-plugins(?:\/|$))/;
+const adcsAgentPathPattern = /^agents\/windows-adcs-agent(?:\/|$)/;
 const compatibilityContractPathPattern = /(?:^|\/)(?:compatibility|legacy-agents)(?:\/|$)/;
 const testPathPattern = /(?:^|\/)(?:tests|__tests__)(?:\/|$)|\.(?:test|spec)\.[^.]+$|_test\.go$/;
 const architectureFixturePathPattern = /(?:^|\/)scripts\/architecture\/fixtures(?:\/|$)/;
@@ -132,13 +129,13 @@ const removedPluginRuntimeReferencePattern = /\bAGENT_ATOMIC\b/g;
 const agentPowerShellExecutionPattern = /\b(?:powershell|pwsh)(?:\.exe)?\b[^;\r\n]{0,200}-(?:c|command|encodedcommand|encoded|file)\b|\b(?:Invoke-Expression|iex|Invoke-Command|Invoke-Item|Start-Process|Start-Job|Start-ThreadJob)\b/gi;
 const agentPowerShellCallOperatorPattern = /(?:^|[;&|]\s*)&\s*(?:\$(?:(?:command|cmd|shell|script|payload|exec|download)[A-Za-z0-9_$]*|[A-Za-z_][A-Za-z0-9_$]*(?:command|cmd|shell|script|payload|exec|download)[A-Za-z0-9_$]*)|[.][\\/][^\s;&|]+\.(?:ps1|psm1|cmd|bat)\b)|(?:^|[;&|]\s*)\.\s+(?:[.][\\/]|[A-Za-z]:|\/)[^\s;&|]+\.(?:ps1|psm1|cmd|bat)\b/gi;
 const agentShellExecutionPattern = /["']--shell["']|\b(?:sh|bash|dash|zsh|fish|cmd|cmd\.exe|command\.com)\s+(?:-c|\/c)\b|\b(?:exec\.Command(?:Context)?|ProcessStartInfo)\s*\([^;\r\n]*\b(?:sh|bash|dash|zsh|fish|cmd|cmd\.exe|command\.com|powershell|powershell\.exe|pwsh|pwsh\.exe)\b[^;\r\n]*(?:-c|\/c|-command|-encodedcommand|-file)\b/gi;
-// go-ca-node 已废弃，生产路径不得再保留 OpenSSL 或任何子进程执行旁路。
+// Microsoft ADCS Agent 不得保留 OpenSSL 或任何子进程执行旁路。
 // Agent 只允许固定通用程序；任何把请求字段直接交给进程启动器的写法都必须失败。
 const agentFreeCommandExecutionPattern = /\b(?:exec\.Command(?:Context)?|os\.StartProcess|Process\.Start)\s*\(\s*(?:command|cmd|commandLine|shell|script|payload|request|input|executable|executablePath)\b|\bnew\s+ProcessStartInfo\s*\(\s*(?:command|cmd|commandLine|shell|script|payload|request|input|executable|executablePath)\b/gi;
 const agentInterpreterProcessPattern = /\b(?:exec\.Command(?:Context)?|ProcessStartInfo|Process\.Start)\s*\([^;\r\n]*\b(?:sh|bash|dash|zsh|fish|cmd|cmd\.exe|command\.com|powershell|powershell\.exe|pwsh|pwsh\.exe|python|python3|perl|ruby|node)\b[^;\r\n]*\)/gi;
 const agentActionAliasPattern = /\b(?:RegisterAlias(?:Descriptor)?|registry\s*\.\s*aliases|aliases\s*(?::|\s)\s*map\s*\[\s*string\s*\]\s*string)\b/gi;
-const caNodeOpenSslPattern = /\bopenssl(?:\.exe)?\b/gi;
-const caNodeProcessExecutionPattern = /(?:["'](?:os\/exec|node:child_process|child_process)["']|\b(?:exec\.Command(?:Context)?|os\.StartProcess|syscall\.Exec(?:ve)?|ProcessStartInfo|Process\.Start|child_process\.(?:exec|execFile|fork|spawn)|(?:exec|execFile|spawn)(?:Sync)?)\s*\()/gi;
+const adcsAgentOpenSslPattern = /\bopenssl(?:\.exe)?\b/gi;
+const adcsAgentProcessExecutionPattern = /(?:["'](?:os\/exec|node:child_process|child_process)["']|\b(?:exec\.Command(?:Context)?|os\.StartProcess|syscall\.Exec(?:ve)?|ProcessStartInfo|Process\.Start|child_process\.(?:exec|execFile|fork|spawn)|(?:exec|execFile|spawn)(?:Sync)?)\s*\()/gi;
 const strictAgentDownloadExecutionSinkPattern = /\b(?:Invoke-Expression|iex|Start-Process)\b|\b(?:Process\.Start|ProcessStartInfo|execFile(?:Sync)?|spawn(?:Sync)?|exec(?:Sync)?|exec\.Command(?:Context)?|os\.StartProcess|syscall\.Exec|eval|new\s+Function|vm\.runIn(?:NewContext|ThisContext))\s*\(|\b(?:powershell|pwsh)(?:\.exe)?\b[^\r\n;|]*(?:-(?:c|command|encodedcommand|encoded|file)\b|(?:\$[A-Za-z_]|[.][\\/]|[A-Za-z]:|\/))|\b(?:cmd|cmd\.exe|command\.com)\s+(?:\/c|\/k)\b|\b(?:sh|bash|dash|zsh|fish|python(?:3)?|perl|ruby|node)(?:\.exe)?\s+(?:-c\b|[.][\\/]|[A-Za-z]:|\/|\$[A-Za-z_]|[A-Za-z0-9_.-]+\.(?:sh|py|js))|(?:^|[;&|]\s*)&\s*(?:\$[A-Za-z_][\w$]*|[.][\\/][^\s;&|]+|[A-Za-z]:[^\s;&|]+|\/[^\s;&|]+)|(?:^|[;&|]\s*)\.\s+\$[A-Za-z_][\w$]*|(?:^|[;&|]\s*)\.[\\/][^\s;&|]+|(?:\|\s*)(?:iex|Invoke-Expression|powershell(?:\.exe)?|pwsh(?:\.exe)?|cmd(?:\.exe)?|command\.com|sh|bash|dash|zsh|fish|python(?:3)?|perl|ruby|node)\b/i;
 const agentProductIdentityPattern = /(?:\b(?:product(?:Name|Id|Family)?|product[_-](?:name|id|family)|framework(?:Type|Key)?|framework[_-](?:type|key)|detected(?:Product|Framework)|detected[_-](?:product|framework)|vendor(?:Name|Id)?|vendor[_-](?:name|id)|software(?:Name|Product)?|software[_-](?:name|product))\b\s*(?::=|=|:)\s*["'`][^"'`]*(?:iis|nginx|apache|httpd|tomcat|rabbitmq|citrix|netscaler|sangfor|synology|fortinet|paloalto|aliyun|tencent|huawei|volcengine|openssl|acme|adcs|dns|java[-_. ]?keystore)[^"'`]*["'`]|["'`](?:productName|productId|productFamily|product_name|product_id|product_family|frameworkType|frameworkKey|framework_type|framework_key|detectedProduct|detectedFramework|vendorName|vendorId|softwareName|softwareProduct)["'`]\s*:\s*["'`][^"'`]*(?:iis|nginx|apache|httpd|tomcat|rabbitmq|citrix|netscaler|sangfor|synology|fortinet|paloalto|aliyun|tencent|huawei|volcengine|openssl|acme|adcs|dns|java[-_. ]?keystore)[^"'`]*["'`])/gi;
 const agentProductFactPattern = /["'`][^"'`]*(?:iis|nginx|apache|httpd|tomcat|rabbitmq|citrix|netscaler|sangfor|synology|fortinet|paloalto|aliyun|tencent|huawei|volcengine|openssl|acme|adcs|dns|java[-_. ]?keystore)[._:/-](?:version|config|path|site|product|framework)[^"'`]*["'`]/gi;
@@ -186,7 +183,7 @@ function classifyPath(path) {
 }
 function isAgentPath(path) { return agentPathPattern.test(normalizePath(path)); }
 function isAgentCorePath(path) { return agentCorePathPattern.test(normalizePath(path)); }
-function isCaNodePath(path) { return caNodePathPattern.test(normalizePath(path)); }
+function isAdcsAgentPath(path) { return adcsAgentPathPattern.test(normalizePath(path)); }
 function isBuiltinPluginPath(path) { return pluginPackagePathPattern.test(normalizePath(path)); }
 function isBuiltinWorkflowPath(path) { return builtinWorkflowPathPattern.test(normalizePath(path)); }
 function isWorkflowPath(path) { return workflowPathPattern.test(normalizePath(path)); }
@@ -717,9 +714,9 @@ function scanTextArchitectureRules(path, source) {
     addTextMatches(findings, 'AGENT_PRODUCT_IDENTIFICATION', normalizedPath, source, agentProductFactPattern, 'Agent Core 不得维护第三方产品专用事实键');
   }
 
-  if (isCaNodePath(normalizedPath)) {
-    addTextMatches(findings, 'AGENT_OPENSSL_USAGE', normalizedPath, source, caNodeOpenSslPattern, '已废弃的 go-ca-node 不得使用 OpenSSL 或保留 OpenSSL 执行旁路');
-    addTextMatches(findings, 'AGENT_PROCESS_EXECUTION', normalizedPath, source, caNodeProcessExecutionPattern, '已废弃的 go-ca-node 不得执行任意外部进程，必须通过统一 Plugin Runner/Host API 合同完成');
+  if (isAdcsAgentPath(normalizedPath)) {
+    addTextMatches(findings, 'AGENT_OPENSSL_USAGE', normalizedPath, source, adcsAgentOpenSslPattern, 'Microsoft ADCS Agent 不得使用 OpenSSL 或保留 OpenSSL 执行旁路');
+    addTextMatches(findings, 'AGENT_PROCESS_EXECUTION', normalizedPath, source, adcsAgentProcessExecutionPattern, 'Microsoft ADCS Agent 不得执行任意外部进程，必须通过统一 Plugin Runner/Host API 合同完成');
   }
 
   if (hostPath || pluginPath) {
