@@ -93,6 +93,7 @@ Manifest 能力声明
 | `device.connection.test` | 验证设备地址和凭据是否可连接 | LOW / 只读 | `device.read` | `gcac.connection-test-input/v1` → `gcac.connection-test-result/v1` | 无 | Agent、控制面、Gateway |
 | `device.identity.detect` | 确认设备产品族和软件身份 | LOW / 只读 | `device.read` | `gcac.device-identity-input/v1` → `gcac.device-identity-result/v1` | 无 | Agent、控制面、Gateway |
 | `device.discover` | 发现框架、站点、目标、证书和绑定 | LOW / 只读 | `device.read` | `gcac.device-discovery-input/v1` → `gcac.device-discovery/v2` | DEVICE | Agent、控制面、Gateway |
+| `credential.health-check` | 检测凭据能否认证关联设备并区分认证错误与设备不可达 | LOW / 只读 | `credential.read` | `gcac.credential-health-check-input/v1` → `gcac.credential-health-result/v1` | DEVICE | Agent、控制面、Gateway |
 | `device.logs.read` | 查询设备或插件运行日志 | LOW / 只读 | `device.read` | `gcac.device-logs-query/v1` → `gcac.device-logs-page/v1` | 无 | Agent、控制面、Gateway |
 | `certificate.discover` | 从设备发现证书及其绑定关系 | LOW / 只读 | `certificate.read` | `gcac.certificate-discovery-input/v1` → `gcac.device-discovery/v2` | DEVICE | Agent、控制面、Gateway |
 | `certificate.verify` | 回读目标并确认当前证书 | MEDIUM / 只读 | `certificate.read` | `gcac.certificate-verify-input/v1` → `gcac.certificate-verify-result/v1` | TARGET | Agent、控制面、Gateway |
