@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { PluginCapabilityRegistry } from './capabilities/plugin-capability.registry.js';
 import { PluginConnectionProbeService } from './connections/plugin-connection-probe.service.js';
 import { DeviceDiscoverySchemaService } from './discovery/device-discovery-schema.service.js';
+import { BuiltinUnifiedPluginLoader } from './builtin-plugins/builtin-unified-plugin-loader.js';
 
 test('Capability Registry 拒绝未知能力和伪造风险等级', () => {
   const registry = new PluginCapabilityRegistry();
@@ -25,6 +26,33 @@ test('Capability Registry 拒绝未知能力和伪造风险等级', () => {
     key: 'certificate.deploy', contractVersion: 'v1', actionContractId: 'certificate.deploy.v1',
     riskLevel: 'LOW', executionLocations: ['CONTROL_PLANE'],
   }));
+});
+
+test('Capability Registry 注册 ADCS 查询和撤销证据能力', () => {
+  const registry = new PluginCapabilityRegistry();
+  for (const key of ['ca.certificate.query', 'ca.revocation.evidence']) {
+    const contract = registry.require(key);
+    assert.equal(contract.contractVersion, 'v1');
+    assert.equal(contract.riskLevel, 'MEDIUM');
+    assert.equal(contract.idempotency, 'READ_ONLY');
+    assert.equal(contract.permission, 'ca.operations.read');
+    assert.equal(contract.resourceLock, 'NONE');
+    assert.deepEqual(contract.executionLocations, ['AGENT', 'CONTROL_PLANE', 'GATEWAY']);
+  }
+});
+
+test('ADCS 内置 Manifest 的全部能力均有宿主合同', async () => {
+  const pluginPackage = (await new BuiltinUnifiedPluginLoader().loadPackages())
+    .find((item) => item.manifest && typeof item.manifest === 'object' && !Array.isArray(item.manifest)
+      && (item.manifest as { pluginId?: unknown }).pluginId === 'ca.microsoft-adcs');
+  assert.ok(pluginPackage);
+  const registry = new PluginCapabilityRegistry();
+  const manifest = pluginPackage.manifest as {
+    capabilities: Array<Parameters<PluginCapabilityRegistry['validate']>[0]>;
+  };
+  for (const capability of manifest.capabilities) {
+    assert.doesNotThrow(() => registry.validate(capability));
+  }
 });
 
 test('统一连接探测稳定区分 TLS、认证和产品识别阶段', () => {

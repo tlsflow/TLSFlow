@@ -41,6 +41,8 @@ const contracts: PluginCapabilityContract[] = [
   contract('ca.certificate.issue', 'ca.certificate.issue.v1', 'HIGH', 'IDEMPOTENT_WRITE', 'ca.certificate.manage', 'gcac.ca-certificate-issue-input/v1', 'gcac.ca-certificate-issue-result/v1', 'NONE'),
   contract('ca.certificate.renew', 'ca.certificate.renew.v1', 'HIGH', 'IDEMPOTENT_WRITE', 'ca.certificate.manage', 'gcac.ca-certificate-renew-input/v1', 'gcac.ca-certificate-renew-result/v1', 'NONE'),
   contract('ca.certificate.revoke', 'ca.certificate.revoke.v1', 'HIGH', 'IDEMPOTENT_WRITE', 'ca.certificate.manage', 'gcac.ca-certificate-revoke-input/v1', 'gcac.ca-certificate-revoke-result/v1', 'NONE'),
+  contract('ca.certificate.query', 'ca.certificate.query.v1', 'MEDIUM', 'READ_ONLY', 'ca.operations.read', 'gcac.ca-certificate-query-input/v1', 'gcac.ca-certificate-query-result/v1', 'NONE'),
+  contract('ca.revocation.evidence', 'ca.revocation.evidence.v1', 'MEDIUM', 'READ_ONLY', 'ca.operations.read', 'gcac.ca-revocation-evidence-input/v1', 'gcac.ca-revocation-evidence-result/v1', 'NONE'),
   {
     key: 'credential.acquire',
     contractVersion: 'v1',
