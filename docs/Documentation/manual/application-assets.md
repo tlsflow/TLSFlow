@@ -5,9 +5,7 @@ docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
 locale: zh-CN
-specRefs:
-  - specs/006-应用资产、绑定与受管目标管理
-  - specs/008-证书部署输入与执行编排管理
+specRefs: []
 codeRefs:
   - web/src/views/assets/AssetsView.vue
   - backend/src/modules/assets

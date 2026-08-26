@@ -5,9 +5,7 @@ docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
 locale: zh-CN
-specRefs:
-  - specs/003-证书资产与CA生命周期管理
-  - specs/008-证书部署输入与执行编排管理
+specRefs: []
 codeRefs:
   - web/src/views/bindings/BindingsView.vue
   - backend/src/modules/bindings

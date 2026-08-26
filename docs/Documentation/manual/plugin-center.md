@@ -5,9 +5,7 @@ docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
 locale: zh-CN
-specRefs:
-  - specs/004-统一插件平台与厂商扩展治理
-  - specs/004.5-插件进程隔离与宿主能力边界重构治理
+specRefs: []
 codeRefs:
   - web/src/views/plugins/PluginsView.vue
   - backend/src/modules/plugins

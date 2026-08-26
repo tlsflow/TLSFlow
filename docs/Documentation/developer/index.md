@@ -5,9 +5,7 @@ docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
 locale: zh-CN
-specRefs:
-  - docs/项目规范/20260819-插件开发流程规范.md
-  - docs/项目规范/20260723-工作流模板管理及编写规范.md
+specRefs: []
 codeRefs:
   - backend/src/modules/plugins
   - backend/src/modules/workflow-templates

@@ -5,8 +5,7 @@ docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
 locale: zh-CN
-specRefs:
-  - specs/003-证书资产与CA生命周期管理
+specRefs: []
 codeRefs:
   - web/src/views/ca-operations/CaOperationsView.vue
   - backend/src/modules/internal-ca

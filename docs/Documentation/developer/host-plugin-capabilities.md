@@ -5,10 +5,7 @@ docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
 locale: zh-CN
-specRefs:
-  - docs/项目规范/20260819-插件开发流程规范.md
-  - docs/项目规范/20260815-插件Manifest、Registry与Policy边界规范.md
-  - docs/项目规范/20260723-工作流模板管理及编写规范.md
+specRefs: []
 codeRefs:
   - backend/src/modules/plugins
   - backend/src/modules/plugins/controller/plugins.controller.ts
@@ -215,7 +212,7 @@ Manifest 固定根字段：
 | `locales` | Locale 文案资源 |
 | `discoveryMappings` | 控制面发现映射 |
 | `agentDiscoveryMappings` | Agent 发现映射 |
-| `onboarding` | 应用资产接入配方 |
+| `onboarding` | 应用资产接入配方；云账号使用独立的 `assetKind=CLOUD_ACCOUNT` 接入配方，至少声明 Form、Credential Contract、连接测试、发现和 CloudAccountAsset 提交目标 |
 
 包最多 500 个资源文件、总大小最多 20 MB。资源路径必须是包内相对路径；普通资源禁止 `.js/.mjs/.cjs/.ts/.tsx/.vue/.ps1/.sh/.bat/.cmd/.exe/.dll/.so/.dylib` 等可执行文件，只有固定 `runtime/index.js` 例外。Logo 禁止脚本、动画、外链、`foreignObject` 和外部图片。
 
@@ -331,7 +328,7 @@ Manifest 固定根字段：
 
 浏览器凭据会话接口见 [`credential.acquire` 合同](#credentialacquire-manifest-合同)；它们使用 `credential.create` / `credential.read` RBAC，不属于插件 Runner Host API。
 
-云账号只能绑定 `cloud.service.connection-test` 和 `cloud.service.discover`；证书签发、续期、吊销等能力必须按 CA 能力合同或 Workflow 使用，不能把证书生命周期偷偷挂到云账号识别绑定上。
+云账号只能绑定 `cloud.service.connection-test` 和 `cloud.service.discover`；证书签发、续期、吊销等能力必须按 CA 能力合同或 Workflow 使用，不能把证书生命周期偷偷挂到云账号识别绑定上。云账号从资产中心的“添加资产”或统一服务向导进入，服务端保存独立的 CloudAccountAsset，并按统一状态流完成连接测试和发现；`/providers` 不再作为二级菜单，迁移期旧地址只跳转到统一入口。
 
 ## 10. 应用资产接入会话
 

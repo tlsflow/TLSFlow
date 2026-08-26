@@ -5,9 +5,7 @@ docStatus: in_review
 productVersion: v1.0.0
 sourceLocale: zh-CN
 locale: zh-CN
-specRefs:
-  - docs/项目规范/20260819-插件开发流程规范.md
-  - specs/004.3-内置产品插件、兼容目录与旧Provider退役治理
+specRefs: []
 codeRefs:
   - backend/src/modules/plugins/builtin-plugins/device-nginx-proxy-manager
   - docs/插件开发/nginx-proxy-manager/README.md

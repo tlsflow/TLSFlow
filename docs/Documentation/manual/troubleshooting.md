@@ -5,8 +5,7 @@ docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
 locale: zh-CN
-specRefs:
-  - specs/008-证书部署输入与执行编排管理
+specRefs: []
 codeRefs:
   - backend/src/modules/deployment-plans
   - backend/src/modules/executions

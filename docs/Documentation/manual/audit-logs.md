@@ -5,8 +5,7 @@ docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
 locale: zh-CN
-specRefs:
-  - specs/002-统一安全管理与访问控制
+specRefs: []
 codeRefs:
   - web/src/views/audit/AuditsView.vue
   - backend/src/modules/audits

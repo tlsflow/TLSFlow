@@ -5,10 +5,7 @@ docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
 locale: zh-CN
-specRefs:
-  - docs/项目规范/20260723-工作流模板管理及编写规范.md
-  - specs/007-工作流DSL与模板运行管理
-  - specs/008-证书部署输入与执行编排管理
+specRefs: []
 codeRefs:
   - backend/src/modules/workflow-templates/dto/workflow-templates.dto.ts
   - backend/src/modules/workflow-templates/schema/workflow-templates.schema.ts

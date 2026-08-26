@@ -5,9 +5,7 @@ docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
 locale: zh-CN
-specRefs:
-  - specs/009-运营自动化、监控与系统配置管理
-  - specs/008-证书部署输入与执行编排管理
+specRefs: []
 codeRefs:
   - web/src/views/automations/AutomationsView.vue
   - backend/src/modules/automations

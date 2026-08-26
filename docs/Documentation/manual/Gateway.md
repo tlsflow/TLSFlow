@@ -5,8 +5,7 @@ docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
 locale: zh-CN
-specRefs:
-  - specs/005-受管与非受管设备管理
+specRefs: []
 codeRefs:
   - web/src/views/gateways/GatewaysView.vue
   - backend/src/modules/gateways

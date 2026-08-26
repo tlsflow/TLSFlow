@@ -18,6 +18,19 @@ lastVerified: 2026-08-22
 
 # 标准部署
 
+## 资源建议
+
+标准版适合多企业、多租户和持续后台任务场景。以下建议已考虑监控任务、凭据有效性检测、任务队列、间歇性证书批量更新、PostgreSQL 和 Browser Runtime 的运行开销；不包含镜像构建过程，也不包含宿主机上其他 Docker 服务的消耗：
+
+| 应用资产数 | 建议可用内存 | 建议 CPU | Browser Runtime 会话建议 |
+| ---: | ---: | ---: | ---: |
+| 5 | 4 GiB | 2 vCPU | 1 |
+| 15 | 6 GiB | 2 vCPU | 1-2 |
+| 50 | 10 GiB | 4 vCPU | 2 |
+| 100 | 16 GiB | 4 vCPU | 4 |
+
+宿主机总内存低于 8 GiB 时，除非必须使用 Browser Runtime，否则应选择[单机部署](./single-node-deployment.md)。标准版还需要为 NAS 系统、PostgreSQL 数据库和其他 Docker 服务预留内存；浏览器会话、监控频率、凭据检测频率和证书更新并发越高，应优先使用表格的上档配置。
+
 标准版由四个服务组成：PostgreSQL（关系数据库）保存业务数据，Backend 提供 API，Web 提供控制台，Browser Runtime 提供凭据浏览器会话。Browser Runtime 仅在内网使用，不应直接暴露到公网。
 
 ## 1. 准备变量

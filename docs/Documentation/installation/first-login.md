@@ -5,8 +5,7 @@ docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
 locale: zh-CN
-specRefs:
-  - specs/002-统一安全管理与访问控制
+specRefs: []
 codeRefs:
   - backend/src/modules/security
   - backend/src/config

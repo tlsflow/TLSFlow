@@ -5,9 +5,7 @@ docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
 locale: zh-CN
-specRefs:
-  - specs/002-统一安全管理与访问控制
-  - specs/009-运营自动化、监控与系统配置管理
+specRefs: []
 codeRefs:
   - web/src/router/menu.ts
   - web/src/edition/licensing.ts

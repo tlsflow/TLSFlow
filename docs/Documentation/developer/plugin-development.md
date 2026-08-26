@@ -5,11 +5,7 @@ docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
 locale: zh-CN
-specRefs:
-  - docs/项目规范/20260819-插件开发流程规范.md
-  - docs/项目规范/20260815-插件Manifest、Registry与Policy边界规范.md
-  - specs/004-统一插件平台与厂商扩展治理
-  - specs/004.5-插件进程隔离与宿主能力边界重构治理
+specRefs: []
 codeRefs:
   - backend/src/modules/plugins
   - backend/src/modules/plugins/controller/plugins.controller.ts
@@ -140,6 +136,8 @@ docs/插件开发/<pluginId>/
 独立设备发现能力必须输出 `gcac.device-discovery/v2`，包含稳定键、真实父子关系、可用能力、ManagedTarget、证书和证书绑定。Nginx、Apache、Tomcat、IIS 的框架、站点、TLS 绑定和证书位置由 Windows/Linux Full Agent 从实际进程、服务、运行参数和有效配置树产生；证书更新插件只消费宿主投影结果，不得建立第二条发现链、猜测默认路径或要求用户填写 Agent 已确认的事实。具体边界见[宿主插件能力清单](./host-plugin-capabilities.md)。
 
 应用接入配方使用 `gcac.application-onboarding/v1`，完整字段和校验规则见[宿主插件能力清单](./host-plugin-capabilities.md#应用接入配方-schema)。
+
+云账号不使用应用接入配方。云 Provider 必须声明 `assetKind=CLOUD_ACCOUNT` 的接入配方，提供 Form、Credential Contract、连接测试、发现能力和 CloudAccountAsset 提交目标。用户从资产中心“添加资产”或统一服务向导进入同一接入流程；云账号始终是独立领域对象，发现结果只投影为 Framework/Site，证书部署仍由独立工作流负责。`/providers` 从二级菜单移除，迁移期旧地址只跳转到统一入口。
 
 ## 6. 编写 Workflow 或 Agent Plan
 

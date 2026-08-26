@@ -5,9 +5,7 @@ docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
 locale: zh-CN
-specRefs:
-  - specs/007-工作流DSL与模板运行管理
-  - specs/008-证书部署输入与执行编排管理
+specRefs: []
 codeRefs:
   - web/src/views/workflows/WorkflowTemplatesView.vue
   - backend/src/modules/workflow-templates

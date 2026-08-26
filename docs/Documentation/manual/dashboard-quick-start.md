@@ -5,9 +5,7 @@ docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
 locale: zh-CN
-specRefs:
-  - specs/003-证书资产与CA生命周期管理
-  - specs/006-应用资产、绑定与受管目标管理
+specRefs: []
 codeRefs:
   - web/src/views/dashboard/DashboardView.vue
   - web/src/i18n/zh-CN.ts

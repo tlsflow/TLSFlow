@@ -5,16 +5,7 @@ docStatus: implemented
 productVersion: v1.0.0
 sourceLocale: zh-CN
 locale: zh-CN
-specRefs:
-  - specs/001-平台基础与工程治理
-  - specs/002-统一安全管理与访问控制
-  - specs/003-证书资产与CA生命周期管理
-  - specs/004-统一插件平台与厂商扩展治理
-  - specs/005-受管与非受管设备管理
-  - specs/006-应用资产、绑定与受管目标管理
-  - specs/007-工作流DSL与模板运行管理
-  - specs/008-证书部署输入与执行编排管理
-  - specs/009-运营自动化、监控与系统配置管理
+specRefs: []
 codeRefs:
   - backend/src/app.module.ts
   - backend/src/modules/plugins
