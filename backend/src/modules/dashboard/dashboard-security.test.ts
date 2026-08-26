@@ -2,7 +2,23 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { applyAuthorizationFilter, type PageQuery } from '../../common/pagination/pagination.js';
 import type { AuditLogEntity } from '../../persistence/entities/audit-log.entity.js';
-import { DashboardApplicationService } from './application/dashboard.application-service.js';
+import { countExpiringCertificateDomains, DashboardApplicationService } from './application/dashboard.application-service.js';
+
+test('Dashboard 15 天内到期指标排除已过期版本并按域名去重', () => {
+  const count = countExpiringCertificateDomains([
+    { certificateAssetId: 'asset-a', commonName: 'example.com', notAfter: '2026-08-25T23:00:00.000Z', status: 'active' },
+    { certificateAssetId: 'asset-a', commonName: 'example.com', notAfter: '2026-08-30T00:00:00.000Z', status: 'active' },
+    { certificateAssetId: 'asset-a', commonName: 'example.com', notAfter: '2026-09-01T00:00:00.000Z', status: 'active' },
+    { certificateAssetId: 'asset-b', commonName: 'api.example.com', notAfter: '2026-09-10T00:00:00.000Z', status: 'active' },
+    { certificateAssetId: 'asset-c', commonName: 'outside.example.com', notAfter: '2026-09-12T00:00:00.000Z', status: 'active' },
+  ], [
+    { id: 'asset-a', primaryDomain: 'EXAMPLE.COM' },
+    { id: 'asset-b', primaryDomain: 'api.example.com' },
+    { id: 'asset-c', primaryDomain: 'outside.example.com' },
+  ], '2026-08-26T00:00:00.000Z');
+
+  assert.equal(count, 2);
+});
 
 test('Dashboard 聚合只统计和展示有对象权限的资产', async () => {
   const service = createDashboardService({

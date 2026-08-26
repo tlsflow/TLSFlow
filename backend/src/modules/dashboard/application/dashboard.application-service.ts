@@ -91,10 +91,7 @@ export class DashboardApplicationService {
 
     const activeCertificateVersions = certificateVersions.items.filter((version) => version.status === 'active');
     const validCertificateCount = activeCertificateVersions.filter((version) => isAfter(version.notAfter, generatedAt)).length;
-    const expiringCertificateCount = activeCertificateVersions.filter((version) => {
-      const days = daysUntil(version.notAfter, generatedAt);
-      return days >= 0 && days <= CERTIFICATE_WARNING_DAYS;
-    }).length;
+    const expiringCertificateCount = countExpiringCertificateDomains(activeCertificateVersions, certificateAssets.items, generatedAt);
     const certificateStatuses = buildCertificateStatuses({
       assets: certificateAssets.items,
       versions: certificateVersions.items,
@@ -222,6 +219,24 @@ export function buildRecentDashboardAudits(auditLogs: AuditLogEntity[], context:
         createdAt: presented.createdAt,
       };
     });
+}
+
+export function countExpiringCertificateDomains(
+  versions: ReadonlyArray<Pick<CertificateVersionEntity, 'certificateAssetId' | 'commonName' | 'notAfter' | 'status'>>,
+  assets: ReadonlyArray<Pick<CertificateAssetEntity, 'id' | 'primaryDomain'>>,
+  nowIso: string,
+): number {
+  const domainByAssetId = new Map(assets.map((asset) => [asset.id, normalizeDomain(asset.primaryDomain)]));
+  const expiringDomains = new Set<string>();
+
+  for (const version of versions) {
+    if (version.status !== 'active' || !isAfter(version.notAfter, nowIso)) continue;
+    if (daysUntil(version.notAfter, nowIso) > CERTIFICATE_WARNING_DAYS) continue;
+    const domain = domainByAssetId.get(version.certificateAssetId) || normalizeDomain(version.commonName);
+    if (domain) expiringDomains.add(domain);
+  }
+
+  return expiringDomains.size;
 }
 
 function selectDashboardAuditLogs(logs: AuditLogEntity[]): AuditLogEntity[] {
@@ -507,7 +522,7 @@ function buildMetrics(input: {
   return [
     { key: 'applications', title: '当前应用数量', value: input.applicationCount, description: '已纳管的应用入口资产。', trend: 'neutral' },
     { key: 'validCertificates', title: '活跃证书数量', value: input.validCertificateCount, description: '状态活跃且尚未过期的证书版本。', trend: 'good' },
-    { key: 'expiringCertificates', title: '15 天内到期证书', value: input.expiringCertificateCount, description: '需要安排续期或替换的证书。', trend: input.expiringCertificateCount > 0 ? 'warning' : 'good' },
+    { key: 'expiringCertificates', title: '15 天内到期证书', value: input.expiringCertificateCount, description: '需要安排续期或替换的证书。', trend: input.expiringCertificateCount > 0 ? 'warning' : 'good', targetPath: '/certificates?category=expiringSoon' },
     { key: 'activeAgents', title: '活跃 Agent 数量', value: input.activeAgentCount, description: '当前在线并可调度的 Agent。', trend: 'good' },
     { key: 'activeGateways', title: '活跃网关数量', value: input.activeGatewayCount, description: '当前在线的隔离区网关。', trend: 'good' },
     { key: 'managedBindings', title: '托管绑定数量', value: input.managedBindingCount, description: '已进入托管状态的证书绑定。', trend: 'neutral' },
@@ -646,6 +661,10 @@ function countBindingsByVersionId(bindings: Array<{ certificateVersionId?: strin
 
 function daysUntil(value: unknown, nowIso: string): number {
   return Math.ceil((toTime(value) - toTime(nowIso)) / 86_400_000);
+}
+
+function normalizeDomain(value: string | undefined): string {
+  return String(value ?? '').trim().toLowerCase();
 }
 
 function isAfter(value: unknown, nowIso: string): boolean {

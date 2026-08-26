@@ -144,8 +144,11 @@ export class DashboardReadRepository {
     const result = await this.db.query<{ valid_count: string; expiring_count: string }>(`
       select
         count(*) filter (where version.not_after > ${now}::timestamptz)::text as valid_count,
-        count(*) filter (where version.not_after >= ${now}::timestamptz and version.not_after <= ${warningEnd}::timestamptz)::text as expiring_count
+        count(distinct coalesce(nullif(lower(trim(asset.primary_domain)), ''), nullif(lower(trim(version.common_name)), ''))) filter (where version.not_after > ${now}::timestamptz and version.not_after <= ${warningEnd}::timestamptz)::text as expiring_count
         from pg_certificate_versions version
+        left join pg_certificate_assets asset
+          on asset.id = version.certificate_asset_id
+         and asset.tenant_id = version.tenant_id
        where version.tenant_id = ${tenant}
          and version.status = 'active'
          ${authorizationSql}

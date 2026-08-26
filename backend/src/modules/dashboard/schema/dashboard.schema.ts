@@ -8,6 +8,7 @@ export interface DashboardMetric {
   value: number;
   description: string;
   trend: DashboardMetricTrend;
+  targetPath?: string;
 }
 
 export type DashboardCertificateState = 'valid' | 'expiring' | 'critical' | 'expired' | 'unknown';
