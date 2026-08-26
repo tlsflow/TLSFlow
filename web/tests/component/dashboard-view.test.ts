@@ -162,6 +162,32 @@ describe('DashboardView', () => {
     expect(heatmapBlock.classes()).toContain('dashboard-heatmap__block-wrap--tooltip-open')
   })
 
+  it('15 天内到期指标卡跳转到证书域名筛选列表', async () => {
+    apiMocks.getDashboardOverview.mockResolvedValue({
+      data: {
+        generatedAt: '2026-08-26T08:34:00.000Z',
+        systemResources: { cpuUsage: 37, memoryUsage: 62 },
+        metrics: [{
+          key: 'expiringCertificates',
+          title: '15 天内到期证书',
+          value: 2,
+          description: '需要安排续期或替换的证书。',
+          trend: 'warning',
+          targetPath: '/certificates?category=expiringSoon',
+        }],
+        quickActions: [],
+        statusGroups: [],
+        certificateStatuses: [],
+        recentAudits: [],
+      },
+    })
+
+    const wrapper = mount(DashboardView)
+
+    await vi.waitFor(() => expect(wrapper.find('a.dashboard-metric-card').exists()).toBe(true))
+    expect(wrapper.find('a.dashboard-metric-card').attributes('href')).toBe('/certificates?category=expiringSoon')
+  })
+
   it('不展示没有证书版本 ID 的陈旧证书热力图块', async () => {
     apiMocks.getDashboardOverview.mockResolvedValue({
       data: {

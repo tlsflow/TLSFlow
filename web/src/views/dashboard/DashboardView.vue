@@ -456,7 +456,14 @@ function buildTimestampTrend(values: readonly (string | undefined)[]) {
         </article>
 
         <template v-if="topMetrics.length">
-          <article v-for="metric in topMetrics" :key="metric.key" class="dashboard-metric-card" :class="`dashboard-metric-card--${metricTone(metric.trend)}`">
+          <component
+            :is="metric.targetPath ? RouterLink : 'article'"
+            v-for="metric in topMetrics"
+            :key="metric.key"
+            class="dashboard-metric-card"
+            :class="[`dashboard-metric-card--${metricTone(metric.trend)}`, { 'dashboard-metric-card--interactive': metric.targetPath }]"
+            v-bind="metric.targetPath ? { to: metric.targetPath } : {}"
+          >
             <div class="dashboard-metric-card__topline">
               <span class="dashboard-metric-card__icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24"><path :d="metricIconPath(metric)" /></svg>
@@ -465,7 +472,7 @@ function buildTimestampTrend(values: readonly (string | undefined)[]) {
             </div>
             <span class="dashboard-metric-card__title">{{ metricTitle(metric) }}</span>
             <span class="dashboard-metric-card__description">{{ metricDescription(metric) }}</span>
-          </article>
+          </component>
         </template>
 
         <template v-else-if="loading">
@@ -748,6 +755,22 @@ function buildTimestampTrend(values: readonly (string | undefined)[]) {
   display: grid;
   align-content: space-between;
   gap: var(--gc-space-1);
+}
+
+.dashboard-metric-card--interactive {
+  cursor: pointer;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.dashboard-metric-card--interactive:hover {
+  border-color: var(--gc-color-primary-border-strong);
+  box-shadow: var(--gc-shadow-md);
+  transform: translateY(calc(var(--gc-space-hairline) * -1));
+}
+
+.dashboard-metric-card--interactive:focus-visible {
+  outline: none;
+  box-shadow: var(--gc-shadow-focus);
 }
 
 .dashboard-metric-card__topline {

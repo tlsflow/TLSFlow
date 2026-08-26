@@ -15,6 +15,7 @@ export interface DashboardMetric {
   readonly value: number
   readonly description: string
   readonly trend: DashboardMetricTrend
+  readonly targetPath?: string
 }
 
 export type DashboardCertificateState = 'valid' | 'expiring' | 'critical' | 'expired' | 'unknown'

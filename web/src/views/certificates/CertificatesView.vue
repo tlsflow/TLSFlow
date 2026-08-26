@@ -62,7 +62,7 @@ type CertificateSourceTypeKey = 'manual' | 'internal_ca' | 'enterprise_ca' | 'ex
 type CertificateCardSourceKey = 'manual' | 'acme' | 'unknown'
 type CertificateCategory = 'all' | LifecycleStatusKey
 type AssetPresentation = 'cards' | 'list'
-const EXPIRING_SOON_DAYS = 10
+const EXPIRING_SOON_DAYS = 15
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000
 
 const route = useRoute()
@@ -89,7 +89,7 @@ const assetVersionSummaryMap = ref<Record<string, ApiRecord>>({})
 const selectedAssetId = ref('')
 const selectedRouteAsset = ref<ApiRecord | null>(null)
 const professionalAssetPresentation = ref<AssetPresentation>('cards')
-const certificateCategory = ref<CertificateCategory>('all')
+const certificateCategory = ref<CertificateCategory>(initialQuery.category === 'expiringSoon' ? 'expiringSoon' : 'all')
 const filtersVisible = ref(false)
 const versionFilterKeyword = ref('')
 const versionFilterStatus = ref('')
@@ -117,14 +117,16 @@ const assetDomainGroups = computed(() => {
   assets.value.forEach((record) => {
     const assetId = readId(record)
     const domainName = readAssetName(record)
+    const domainKey = normalizeDomainKey(domainName)
     if (!assetId || !domainName) return
+    if (!domainKey) return
     if ((assetVersionCountMap.value[assetId] ?? 0) <= 0) return
-    const current = groups.get(domainName)
+    const current = groups.get(domainKey)
     if (current) {
       current.push(record)
       return
     }
-    groups.set(domainName, [record])
+    groups.set(domainKey, [record])
   })
   return groups
 })
@@ -135,7 +137,9 @@ const displayedAssets = computed(() =>
 )
 const visibleAssets = computed(() => {
   if (certificateCategory.value === 'all') return displayedAssets.value
-  return displayedAssets.value.filter((record) => readAssetLifecycleStatusKey(record) === certificateCategory.value)
+  return [...assetDomainGroups.value.values()]
+    .filter((records) => records.some((record) => readAssetLifecycleStatusKey(record) === certificateCategory.value))
+    .map((records) => selectRepresentativeAsset(records.filter((record) => readAssetLifecycleStatusKey(record) === certificateCategory.value)) ?? selectRepresentativeAsset(records))
 })
 const selectedAsset = computed(() =>
   displayedAssets.value.find((item) => readId(item) === selectedAssetId.value)
@@ -144,7 +148,7 @@ const selectedAsset = computed(() =>
 const selectedDomainName = computed(() => (selectedAsset.value ? readAssetName(selectedAsset.value) : t('certificates.list.fallbacks.unselectedDomain')))
 const selectedAssetMemberIds = computed(() => {
   if (!selectedAsset.value) return []
-  return (assetDomainGroups.value.get(readAssetName(selectedAsset.value)) ?? [])
+  return (assetDomainGroups.value.get(normalizeDomainKey(readAssetName(selectedAsset.value))) ?? [])
     .map((item) => readId(item))
     .filter(Boolean)
 })
@@ -314,6 +318,10 @@ function readAssetName(record: ApiRecord) {
   return readString(record, ['primaryDomain', 'name', 'commonName'], t('certificates.list.fallbacks.unnamedDomain'))
 }
 
+function normalizeDomainKey(value: string) {
+  return value.trim().toLowerCase()
+}
+
 function readAssetSubtitle(record: ApiRecord) {
   const sourceType = readAssetSourceType(record)
   const sourceTypeLabel = t(`certificates.list.sourceTypes.${sourceType}`)
@@ -411,6 +419,7 @@ function buildCertificateRouteQuery() {
   const keyword = filters.keyword.trim()
   const primaryDomain = filters.primaryDomain.trim()
   const status = filters.status.trim()
+  if (certificateCategory.value !== 'all') query.category = certificateCategory.value
   if (keyword) query.keyword = keyword
   if (primaryDomain) query.primaryDomain = primaryDomain
   if (status) query.status = status
@@ -490,22 +499,26 @@ async function loadAssets() {
 }
 
 async function loadAssetLifecycleStatuses(records: ApiRecord[]) {
+  const loadAllVersions = certificateCategory.value === 'expiringSoon'
   const entries = await Promise.all(records.map(async (record) => {
     const assetId = readId(record)
     if (!assetId) return ['', { lifecycle: 'unknown' as const, total: 0, version: null }] as const
     try {
       const result = await listCertificateVersions({
         page: 1,
-        pageSize: 1,
+        pageSize: loadAllVersions ? 200 : 1,
         sort: 'notAfter:desc',
         filters: {
           certificateAssetId: assetId,
         },
       })
-      const latest = (result.data?.items?.[0] ?? null) as ApiRecord | null
+      const versionItems = (result.data?.items ?? []) as ApiRecord[]
+      const latest = (versionItems[0] ?? null) as ApiRecord | null
       const notAfter = readString(latest, ['notAfter'], '')
       return [assetId, {
-        lifecycle: resolveLifecycleStatusKey(notAfter, readString(latest, ['status', 'state'], 'MANAGED')),
+        lifecycle: loadAllVersions
+          ? resolveLifecycleStatusFromVersions(versionItems)
+          : resolveLifecycleStatusKey(notAfter, readString(latest, ['status', 'state'], 'MANAGED')),
         total: Number(result.data?.total ?? 0),
         version: latest,
       }] as const
@@ -579,6 +592,7 @@ function clearFilters() {
   filters.keyword = ''
   filters.primaryDomain = ''
   filters.status = ''
+  certificateCategory.value = 'all'
   updateFilters()
 }
 
@@ -587,10 +601,13 @@ function toggleFilters() {
 }
 
 function selectCertificateCategory(category: CertificateCategory) {
+  const shouldReloadVersionSummaries = category === 'expiringSoon' && certificateCategory.value !== category
   certificateCategory.value = category
+  syncCertificateRouteQuery()
   if (selectedAssetId.value && !selectedRouteAsset.value && !visibleAssets.value.some((item) => readId(item) === selectedAssetId.value)) {
     selectedAssetId.value = ''
   }
+  if (shouldReloadVersionSummaries) void loadAssets()
 }
 
 function presentationLabel(presentation: AssetPresentation) {
@@ -756,6 +773,20 @@ function resolveLifecycleStatusKey(notAfter: string, status = ''): LifecycleStat
   if (diffMs < 0) return 'expired'
   if (diffMs <= EXPIRING_SOON_DAYS * 24 * 60 * 60 * 1000) return 'expiringSoon'
   return 'valid'
+}
+
+function resolveLifecycleStatusFromVersions(records: ApiRecord[]): LifecycleStatusKey {
+  const statuses = records
+    .filter((record) => !['archived', 'revoked', 'deleted', 'expired'].includes(readString(record, ['status', 'state'], '').trim().toLowerCase()))
+    .map((record) => resolveLifecycleStatusKey(
+      readString(record, ['notAfter'], ''),
+      readString(record, ['status', 'state'], 'MANAGED'),
+    ))
+
+  if (statuses.includes('expiringSoon')) return 'expiringSoon'
+  if (statuses.includes('valid')) return 'valid'
+  if (statuses.includes('expired')) return 'expired'
+  return 'unknown'
 }
 
 function formatLifecycleStatus(status: LifecycleStatusKey) {

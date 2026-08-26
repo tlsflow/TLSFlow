@@ -8,8 +8,10 @@ import { useAppStore } from '@/stores/app.store'
 import { usePermissionStore } from '@/stores/permission.store'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
+const routeState = vi.hoisted(() => ({ query: {} as Record<string, unknown> }))
+
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ query: {} }),
+  useRoute: () => ({ query: routeState.query }),
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
 }))
 
@@ -31,6 +33,7 @@ describe('CertificatesView', () => {
   const realDateNow = Date.now
 
   beforeEach(() => {
+    routeState.query = {}
     setActivePinia(createPinia())
     usePermissionStore().setPermissions(['certificate.asset.read', 'certificate.import', 'certificate.lifecycle'])
     vi.spyOn(Date, 'now').mockImplementation(() => new Date('2026-06-10T00:00:00.000Z').getTime())
@@ -80,6 +83,44 @@ describe('CertificatesView', () => {
     document.querySelector<HTMLButtonElement>(filterToggleSelector)?.click()
     await flushPromises()
     expect(wrapper.find('.certificate-page__toolbar').exists()).toBe(false)
+  })
+
+  it('15 天内到期筛选按域名检查全部版本，并排除已过期域名', async () => {
+    routeState.query = { category: 'expiringSoon' }
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      const target = String(url)
+      if (target.includes('/certificate-assets')) {
+        return new Response(JSON.stringify({
+          data: {
+            items: [
+              { id: 'asset-soon', primaryDomain: 'soon.example.com', sourceType: 'manual' },
+              { id: 'asset-expired', primaryDomain: 'expired.example.com', sourceType: 'manual' },
+            ],
+            page: 1,
+            pageSize: 100,
+            total: 2,
+          },
+        }), { status: 200 })
+      }
+      if (target.includes('/certificate-versions')) {
+        const assetId = new URL(target, 'https://example.test').searchParams.get('filter[certificateAssetId]')
+        const items = assetId === 'asset-soon'
+          ? [
+              { id: 'version-valid', certificateAssetId: assetId, notAfter: '2026-12-17T23:59:59.000Z', status: 'active' },
+              { id: 'version-soon', certificateAssetId: assetId, notAfter: '2026-06-15T23:59:59.000Z', status: 'active' },
+            ]
+          : [{ id: 'version-expired', certificateAssetId: assetId, notAfter: '2026-06-09T23:59:59.000Z', status: 'active' }]
+        return new Response(JSON.stringify({ data: { items, page: 1, pageSize: 200, total: items.length } }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ data: {} }), { status: 200 })
+    }))
+
+    const wrapper = mount(CertificatesView, { attachTo: document.body })
+    await waitFor(() => expect(wrapper.find('.certificate-page__asset-record-trigger').exists()).toBe(true))
+
+    expect(wrapper.find('.certificate-page__category-tab--active').text()).toContain('即将过期')
+    expect(wrapper.text()).toContain('soon.example.com')
+    expect(wrapper.text()).not.toContain('expired.example.com')
   })
 
   it('证书版本表格拆分开始结束日期，并在表头上排序', async () => {
