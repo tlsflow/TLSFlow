@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { GCAC_VERSION } from '../../common/version.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
@@ -118,11 +119,15 @@ test('社区版额度上限为 5，并收敛旧的不限额度存量许可证', 
   assert.equal(status.quotas.managedTargets, 5);
 });
 
-test('生产环境缺少显式许可证信任根时必须失败关闭', async () => {
+test('开发和生产环境都加载内置许可证信任根', async () => {
+  const trustBundle = JSON.parse(readFileSync(new URL('./resources/trust-key-bundle.json', import.meta.url), 'utf8')) as {
+    keys: Array<{ keyId: string; publicKey: string }>;
+  };
+  assert.deepEqual(trustBundle.keys.map((key) => key.keyId), ['gcac-license-release-2026-08']);
+
   await withEnvironment({ NODE_ENV: 'production', GCAC_LICENSE_TRUST_KEYS_JSON: undefined }, async () => {
-    assert.throws(
+    assert.doesNotThrow(
       () => new LicensingApplicationService(new PgliteDatabase(), undefined, { storageKey: Buffer.alloc(32, 31) }),
-      /生产环境缺少 GCAC_LICENSE_TRUST_KEYS_JSON/,
     );
   });
 });
@@ -141,11 +146,10 @@ test('非生产环境缺少显式许可证存储密钥时也必须失败关闭',
   });
 });
 
-test('生产环境显式配置了信任根但缺少许可证存储密钥时仍必须失败关闭', async () => {
-  const keys = createSigningFixture();
+test('生产环境缺少许可证存储密钥时仍必须失败关闭', async () => {
   await withEnvironment({
     NODE_ENV: 'production',
-    GCAC_LICENSE_TRUST_KEYS_JSON: JSON.stringify({ 'key-prod-storage-test': keys.publicKey.toString('base64url') }),
+    GCAC_LICENSE_TRUST_KEYS_JSON: JSON.stringify({ 'key-ignored': 'ignored' }),
     GCAC_LICENSE_STORAGE_KEY: undefined,
     GCAC_SECRET_KEK: undefined,
   }, async () => {
@@ -156,7 +160,7 @@ test('生产环境显式配置了信任根但缺少许可证存储密钥时仍�
   });
 });
 
-test('生产环境只使用显式 Ed25519 信任根验证许可证', async () => {
+test('运行时忽略环境变量，不能替换内置许可证信任根', async () => {
   const keys = createSigningFixture();
   await withEnvironment({
     NODE_ENV: 'production',
@@ -190,28 +194,11 @@ test('生产环境只使用显式 Ed25519 信任根验证许可证', async () =>
       signature: '',
     }, keys.privateKey);
 
-    const imported = await service.importLicense(grant);
-    assert.equal(imported.state, 'active');
-    assert.equal(imported.integrityStatus, 'verified');
+    await assert.rejects(
+      () => service.importLicense(grant),
+      (error: unknown) => error instanceof Error && 'errorCode' in error && error.errorCode === 'LICENSE_INVALID',
+    );
   });
-});
-
-test('生产环境拒绝空对象、非法公钥和默认开发许可证信任根', async () => {
-  const keys = createSigningFixture();
-  const invalidConfigurations = [
-    '{}',
-    JSON.stringify({ 'key-prod-invalid': 'not-a-base64url-key' }),
-    JSON.stringify({ 'builtin-dev-2026-08': keys.publicKey.toString('base64url') }),
-  ];
-
-  for (const configuration of invalidConfigurations) {
-    await withEnvironment({ NODE_ENV: 'production', GCAC_LICENSE_TRUST_KEYS_JSON: configuration }, async () => {
-      assert.throws(
-        () => new LicensingApplicationService(new PgliteDatabase(), undefined, { storageKey: Buffer.alloc(32, 33) }),
-        /GCAC_LICENSE_TRUST_KEYS_JSON|默认开发许可证信任根/,
-      );
-    });
-  }
 });
 
 test('许可证内容被修改后标记为 tampered，并拒绝再次导入', async () => {

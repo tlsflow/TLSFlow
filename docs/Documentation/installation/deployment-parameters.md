@@ -11,7 +11,7 @@ codeRefs:
   - backend/src/config
   - docker/versions.env
 testRefs: []
-lastVerified: 2026-08-22
+lastVerified: 2026-08-26
 ---
 
 # 部署参数
@@ -36,13 +36,12 @@ lastVerified: 2026-08-22
 | `GCAC_TOKEN_SECRET` | 登录令牌签名密钥 |
 | `GCAC_SECRET_KEK` | Secret（敏感值）加密密钥 |
 | `GCAC_CA_CONFIRMATION_SECRET` | CA 高风险操作确认密钥 |
-| `GCAC_LICENSE_TRUST_KEYS_JSON` | 许可证签发根的 Ed25519 公钥映射（Base64URL SPKI）；公开 Docker 用它验证许可证，不能填入签发私钥 |
 | `POSTGRES_PASSWORD` | 标准版 PostgreSQL 密码 |
 | `BROWSER_RUNTIME_SHARED_SECRET` | Backend 与浏览器运行时之间的共享密钥 |
 
 运行时安全材料（信任根、签名私钥、密钥集合和策略包等）由容器首次启动时自动生成，并使用 `GCAC_SECRET_KEK` 加密保存到 `/app/data/runtime/runtime-secrets.enc`。该目录必须持久化：删除它会生成全新的信任根，更换 `GCAC_SECRET_KEK` 会导致服务无法启动。不要在任何文档、日志或工单中粘贴解密后的材料。
 
-许可证管理代码、许可证状态页面、离线激活请求、许可证导入和额度校验属于公开 Docker 的正常功能。许可证签发私钥不属于运行时材料，必须保存在独立的私有签发环境中，不能进入公开仓库、Docker 构建上下文、镜像或容器环境变量。
+许可证管理代码、许可证状态页面、离线激活请求、许可证导入和额度校验属于公开 Docker 的正常功能。当前内置许可证 `keyId` 为 `gcac-license-release-2026-08`，使用 Ed25519 256 位密钥，提供约 128 位安全强度。许可证信任根公钥随 Backend 代码固化，开发和正式发布环境都使用同一内置公钥，部署环境不能通过环境变量覆盖。许可证签发私钥不属于运行时材料，必须保存在独立的私有签发环境中，不能进入公开仓库、Docker 构建上下文、镜像或容器环境变量。
 
 ## 数据库与持久化目录
 

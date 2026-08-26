@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { createHash, createPublicKey, randomBytes } from 'node:crypto';
 import { GCAC_VERSION, compareSemVer } from '../../../common/version.js';
 import { AppError } from '../../../common/errors/app-error.js';
@@ -40,11 +41,6 @@ const CURRENT_REVOCATION_LIST_ID = 'current';
 const CLOCK_ROLLBACK_TOLERANCE_MS = 5 * 60_000;
 const ACTIVATION_REQUEST_TTL_MS = 7 * 86_400_000;
 const DEFAULT_UPGRADE_GRACE_DAYS = 30;
-const LICENSE_TRUST_KEYS_ENV = 'GCAC_LICENSE_TRUST_KEYS_JSON';
-const DEVELOPMENT_LICENSE_KEY_ID_PATTERN = new RegExp(
-  `(?:^|[-_])(?:${['builtin', 'dev'].join('-')}|${['gcac', 'development'].join('-')}|${['default', 'development'].join('-')}|development|${['dev', 'key'].join('-')})(?:[-_]|$)`,
-  'i',
-);
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
 const NONE_PLAN = findPlan('none');
 const NONE_QUOTAS: LicenseQuotas = normalizeLicenseQuotas(NONE_PLAN?.quotas);
@@ -579,48 +575,36 @@ function assertStatusUsable(status: LicenseStatus): void {
 }
 
 function loadTrustKeys(): TrustKeyDirectory {
-  const configured = process.env[LICENSE_TRUST_KEYS_ENV]?.trim();
-  if (!configured) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error(`生产环境缺少 ${LICENSE_TRUST_KEYS_ENV}`);
-    }
-    return new Map();
-  }
-
-  let parsed: unknown;
+  const resourceUrl = new URL('../resources/trust-key-bundle.json', import.meta.url);
   try {
-    parsed = JSON.parse(configured);
-  } catch {
-    throw new Error(`${LICENSE_TRUST_KEYS_ENV} 格式无效`);
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error(`${LICENSE_TRUST_KEYS_ENV} 必须是 keyId 到 Ed25519 公钥的 JSON 对象`);
-  }
-
-  const trustKeys = new Map<string, Buffer>();
-  for (const [keyId, encoded] of Object.entries(parsed as Record<string, unknown>)) {
-    if (!keyId.trim() || typeof encoded !== 'string' || !BASE64URL_PATTERN.test(encoded)) {
-      throw new Error(`${LICENSE_TRUST_KEYS_ENV} 包含无效的许可证信任根`);
-    }
-    if (process.env.NODE_ENV === 'production' && DEVELOPMENT_LICENSE_KEY_ID_PATTERN.test(keyId)) {
-      throw new Error('生产环境禁止使用默认开发许可证信任根');
+    const parsed = JSON.parse(readFileSync(resourceUrl, 'utf8')) as { version?: unknown; keys?: unknown };
+    if (parsed.version !== 1 || !Array.isArray(parsed.keys)) {
+      throw new Error('内置许可证信任根格式无效');
     }
 
-    const publicKey = Buffer.from(encoded, 'base64url');
-    try {
-      const keyObject = createPublicKey({ key: publicKey, format: 'der', type: 'spki' });
-      if (keyObject.asymmetricKeyType !== 'ed25519') {
-        throw new Error('信任根算法不是 Ed25519');
+    const trustKeys = new Map<string, Buffer>();
+    for (const item of parsed.keys) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        throw new Error('内置许可证信任根包含无效条目');
       }
-    } catch {
-      throw new Error(`${LICENSE_TRUST_KEYS_ENV} 包含无效的 Ed25519 公钥`);
+      const { keyId, publicKey } = item as { keyId?: unknown; publicKey?: unknown };
+      if (typeof keyId !== 'string' || !keyId.trim() || typeof publicKey !== 'string' || !BASE64URL_PATTERN.test(publicKey)) {
+        throw new Error('内置许可证信任根包含无效的 keyId 或公钥');
+      }
+
+      const publicKeyDer = Buffer.from(publicKey, 'base64url');
+      const keyObject = createPublicKey({ key: publicKeyDer, format: 'der', type: 'spki' });
+      if (keyObject.asymmetricKeyType !== 'ed25519') {
+        throw new Error('内置许可证信任根算法不是 Ed25519');
+      }
+      if (trustKeys.has(keyId)) throw new Error(`内置许可证信任根 keyId 重复：${keyId}`);
+      trustKeys.set(keyId, publicKeyDer);
     }
-    trustKeys.set(keyId, publicKey);
+    if (trustKeys.size === 0) throw new Error('内置许可证信任根不得为空');
+    return trustKeys;
+  } catch {
+    throw new Error('内置许可证信任根加载失败');
   }
-  if (trustKeys.size === 0) {
-    throw new Error(`${LICENSE_TRUST_KEYS_ENV} 不得为空`);
-  }
-  return trustKeys;
 }
 
 function loadStorageKey(): Buffer {

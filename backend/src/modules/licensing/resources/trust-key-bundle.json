@@ -1,4 +1,9 @@
 {
   "version": 1,
-  "keys": []
+  "keys": [
+    {
+      "keyId": "gcac-license-release-2026-08",
+      "publicKey": "MCowBQYDK2VwAyEAew05HdMNxFTIS2tLDxw6hYWlFQ5wh_Xqie7p762ajbQ"
+    }
+  ]
 }
