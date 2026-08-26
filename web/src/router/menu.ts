@@ -32,7 +32,6 @@ export const mainMenuItems: MenuItem[] = [
     descriptionKey: 'nav.assetCenterDesc',
     children: [
       { titleKey: 'nav.assets', path: '/applications', module: 'asset', permission: 'service_asset.read', descriptionKey: 'nav.assetsDesc' },
-      { titleKey: 'providers.page.title', path: '/providers', module: 'provider', permission: 'cloud_account_asset.read', allowInferredPermission: false, descriptionKey: 'providers.page.description' },
       { titleKey: 'devices.page.title', path: '/assets', module: 'asset', permission: 'host.read', descriptionKey: 'devices.page.description' },
       { titleKey: 'nav.gateways', path: '/gateways', module: 'gateway', permission: 'gateway.read', descriptionKey: 'nav.gatewaysDesc' }
     ]

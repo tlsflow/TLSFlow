@@ -576,6 +576,7 @@ const supportedExecutionResourceKeys = new Set([
   'workflows',
   'inputContracts',
   'actionContracts',
+  'credentialContracts',
   'forms',
   'presentations',
   'locales',

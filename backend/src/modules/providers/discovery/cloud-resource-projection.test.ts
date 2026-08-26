@@ -35,7 +35,7 @@ test('Cloud Resource 投影生成稳定设备、Framework/Site，重复投影保
   const service = new CloudResourceProjectionService();
   const first = service.project(context(), resource);
   const second = service.project(context(), { ...resource, displayName: 'changed display name' });
-  assert.deepEqual(first.device.metadata, {
+  assert.deepEqual(first.device!.metadata, {
     cloudAccountAssetId: 'caa_projection',
     provider: 'cloud.aliyun',
     region: 'cn-hangzhou',
@@ -51,7 +51,7 @@ test('Cloud Resource 投影生成稳定设备、Framework/Site，重复投影保
   assert.deepEqual(service.preview(context(), [resource]), { devices: 1, frameworks: 1, sites: 1 });
 });
 
-test('账号级 CDN 投影只生成一个控制面设备，区域生成 Framework，实例生成 Site', () => {
+test('账号级 CDN 投影不创建伪设备，区域生成 Framework，实例生成 Site', () => {
   const service = new CloudResourceProjectionService();
   const projection = service.projectBatch({
     ...context(),
@@ -68,14 +68,14 @@ test('账号级 CDN 投影只生成一个控制面设备，区域生成 Framewor
       metadata: { cdnRegion: 'global', cdnRegionName: '全球' },
     },
   ]);
-  assert.equal(projection.devices.length, 1);
+  assert.equal(projection.devices.length, 0);
   assert.deepEqual(projection.frameworks.map((item) => [item.frameworkKey, item.displayName]), [
     ['cdn.global', '阿里云 CDN · 全球'],
     ['cdn.mainland', '阿里云 CDN · 中国大陆'],
   ]);
   assert.equal(projection.sites.length, 2);
-  assert.ok(projection.sites.every((site) => site.deviceId === projection.devices[0]?.hostId));
-  assert.deepEqual(service.preview({ ...context(), topology: 'ACCOUNT_FRAMEWORK' }, [resource]), { devices: 1, frameworks: 2, sites: 1 });
+  assert.ok(projection.sites.every((site) => site.deviceId === undefined));
+  assert.deepEqual(service.preview({ ...context(), topology: 'ACCOUNT_FRAMEWORK' }, [resource]), { devices: 0, frameworks: 2, sites: 1 });
 });
 
 test('账号级 CDN 即使没有域名也固定生成中国大陆和全球 Framework', () => {
@@ -85,7 +85,7 @@ test('账号级 CDN 即使没有域名也固定生成中国大陆和全球 Frame
     topology: 'ACCOUNT_FRAMEWORK',
     providerDisplayName: '阿里云 CDN',
   }, []);
-  assert.equal(projection.devices.length, 1);
+  assert.equal(projection.devices.length, 0);
   assert.deepEqual(projection.frameworks.map((item) => [item.frameworkKey, item.displayName, item.versionText]), [
     ['cdn.global', '阿里云 CDN · 全球', '0 resources'],
     ['cdn.mainland', '阿里云 CDN · 中国大陆', '0 resources'],

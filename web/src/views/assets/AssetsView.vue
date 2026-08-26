@@ -45,6 +45,7 @@ import {
 import ApplicationOnboardingModal from '@/views/application-onboarding/ApplicationOnboardingModal.vue'
 import DeviceOnboardingWizard from '@/views/devices/DeviceOnboardingWizard.vue'
 import type { DeviceOnboardingInitialSelection } from '@/views/devices/device-onboarding.model'
+import CloudAccountOnboardingModal from '@/views/providers/CloudAccountOnboardingModal.vue'
 
 type AssetPlatform = 'LINUX' | 'WINDOWS' | 'APPLIANCE'
 type AssetProtocol = 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP' | 'CUSTOM'
@@ -276,6 +277,7 @@ const detailTabs = computed(() => [
 ])
 const createDialogOpen = ref(false)
 const onboardingDialogOpen = ref(false)
+const cloudAccountDialogOpen = ref(false)
 const deviceOnboardingOpen = ref(false)
 const resumeApplicationOnboarding = ref(false)
 const deviceOnboardingInitialSelection = ref<DeviceOnboardingInitialSelection>()
@@ -2951,6 +2953,17 @@ watch(
   },
   { immediate: true },
 )
+watch(
+  () => route.query.cloudAccount,
+  (value) => {
+    if (value !== '1') return
+    cloudAccountDialogOpen.value = true
+    const query = { ...route.query }
+    delete query.cloudAccount
+    void router.replace({ query })
+  },
+  { immediate: true },
+)
 
 watch(
   () => route.query.create,
@@ -3337,6 +3350,9 @@ function managedTargetLabel(target: ApiRecord): string {
             </GcButton>
             <GcPermissionButton class="gc-button gc-button--primary" permission="service_asset.manage" @click="onboardingDialogOpen = true">
               {{ t('assets.card.actions.add') }}
+            </GcPermissionButton>
+            <GcPermissionButton class="gc-button gc-button--secondary" permission="cloud_account_asset.create" @click="cloudAccountDialogOpen = true">
+              {{ t('providers.actions.add') }}
             </GcPermissionButton>
           </div>
         </header>
@@ -4430,6 +4446,7 @@ function managedTargetLabel(target: ApiRecord): string {
       @update:open="setOnboardingDialogOpen"
       @custom-manual="openCustomManualCreateDialog"
       @add-device="openDeviceOnboardingFromApplication"
+      @add-cloud-account="cloudAccountDialogOpen = true"
     />
     <DeviceOnboardingWizard
       :open="deviceOnboardingOpen"
@@ -4437,6 +4454,7 @@ function managedTargetLabel(target: ApiRecord): string {
       @update:open="setDeviceOnboardingOpen"
       @completed="completeDeviceOnboarding"
     />
+    <CloudAccountOnboardingModal v-model:open="cloudAccountDialogOpen" @completed="loadAssetOverviewPage(assetOverviewPage)" />
   </section>
 </template>
 

@@ -69,6 +69,8 @@ export interface UnifiedPluginOnboardingResources {
   applicationAsset?: string;
   /** 同一插件版本可声明多个相互独立的接入配方。 */
   applicationAssets?: Record<string, string>;
+  /** 云账号统一接入配方，供资产中心和统一服务向导共用。 */
+  cloudAccount?: string;
 }
 
 export interface UnifiedPluginLogoResources {
@@ -118,6 +120,7 @@ export interface UnifiedPluginManifestV1 {
     /** 普通 Workflow 与 Agent Plan 共用的不可变输入合同资源。 */
     inputContracts?: Record<string, string>;
     actionContracts?: Record<string, string>;
+    credentialContracts?: Record<string, string>;
     forms?: Record<string, string>;
     presentations?: Record<string, string>;
     locales?: Record<string, string>;

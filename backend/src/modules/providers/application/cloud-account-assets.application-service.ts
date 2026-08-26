@@ -130,9 +130,6 @@ export class CloudAccountAssetsApplicationService {
   async list(tenantId: string): Promise<{ items: CloudAccountAsset[]; page: number; pageSize: number; total: number }> {
     const rows = await this.db.query<CloudAccountAssetRow>(
       `select assets.*,
-              (select count(*)::int from pg_device_assets device
-                join pg_service_assets service on service.id=device.service_asset_id and service.tenant_id=device.tenant_id
-               where device.tenant_id=assets.tenant_id and device.metadata->>'cloudAccountAssetId'=assets.id and service.deleted_at is null) as device_count,
               (select count(*)::int from pg_framework_instances framework
                 where framework.tenant_id=assets.tenant_id and framework.asset_id=assets.id and framework.deleted_at is null) as framework_count,
               (select count(*)::int from pg_site_assets site
@@ -163,9 +160,6 @@ export class CloudAccountAssetsApplicationService {
   async get(tenantId: string, id: string): Promise<CloudAccountAsset> {
     const result = await this.db.query<CloudAccountAssetRow>(
       `select assets.*,
-              (select count(*)::int from pg_device_assets device
-                join pg_service_assets service on service.id=device.service_asset_id and service.tenant_id=device.tenant_id
-               where device.tenant_id=assets.tenant_id and device.metadata->>'cloudAccountAssetId'=assets.id and service.deleted_at is null) as device_count,
               (select count(*)::int from pg_framework_instances framework
                 where framework.tenant_id=assets.tenant_id and framework.asset_id=assets.id and framework.deleted_at is null) as framework_count,
               (select count(*)::int from pg_site_assets site
@@ -271,9 +265,6 @@ export class CloudAccountAssetsApplicationService {
   private async getWithDb(db: DatabasePort, tenantId: string, id: string): Promise<CloudAccountAsset> {
     const result = await db.query<CloudAccountAssetRow>(
       `select assets.*,
-              (select count(*)::int from pg_device_assets device
-                join pg_service_assets service on service.id=device.service_asset_id and service.tenant_id=device.tenant_id
-               where device.tenant_id=assets.tenant_id and device.metadata->>'cloudAccountAssetId'=assets.id and service.deleted_at is null) as device_count,
               (select count(*)::int from pg_framework_instances framework
                 where framework.tenant_id=assets.tenant_id and framework.asset_id=assets.id and framework.deleted_at is null) as framework_count,
               (select count(*)::int from pg_site_assets site
@@ -332,7 +323,6 @@ interface CloudAccountAssetRow extends Record<string, unknown> {
   deleted_at?: string | null;
   version: number;
   framework_count?: number | string | null;
-  device_count?: number | string | null;
   site_count?: number | string | null;
 }
 
@@ -352,7 +342,6 @@ function toAsset(row: CloudAccountAssetRow): CloudAccountAsset {
     updatedAt: row.updated_at,
     ...(row.deleted_at ? { deletedAt: row.deleted_at } : {}),
     version: row.version,
-    ...(numberValue(row.device_count) !== undefined ? { deviceCount: numberValue(row.device_count) } : {}),
     ...(numberValue(row.framework_count) !== undefined ? { frameworkCount: numberValue(row.framework_count) } : {}),
     ...(numberValue(row.site_count) !== undefined ? { siteCount: numberValue(row.site_count) } : {}),
   };

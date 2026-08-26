@@ -147,7 +147,7 @@ export const businessRoutes: GcRouteRecord[] = [
   {
     path: '/providers',
     name: 'provider.cloud.list',
-    component: () => import('@/views/providers/CloudProvidersView.vue'),
+    redirect: (to) => ({ path: '/applications', query: { ...to.query, cloudAccount: '1' }, hash: to.hash }),
     meta: {
       title: 'Cloud providers',
       titleKey: 'providers.page.title',

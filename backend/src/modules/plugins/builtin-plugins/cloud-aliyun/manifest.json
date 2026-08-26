@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "cloud.aliyun",
-  "version": "2.0.18",
+  "version": "2.0.19",
   "displayNameKey": "plugin.cloud.aliyun.name",
   "descriptionKey": "plugin.cloud.aliyun.description",
   "defaultLocale": "zh-CN",
@@ -41,9 +41,11 @@
       "cloud.service.connection-test.v1": "action-contracts/connection-test.json",
       "cloud.service.discover.v1": "action-contracts/discover.json"
     },
-    "forms": { "cloud": "forms/cloud.json" },
+    "credentialContracts": { "cloudAccount": "credential-contracts/cloud-account.json" },
+    "forms": { "cloud": "forms/cloud.json", "cloudAccount": "forms/cloud-account.json" },
     "presentations": { "cloud": "presentations/cloud.json" },
     "discoveryMappings": { "aliyun.cdn": "discovery/aliyun-cdn.json" },
+    "onboarding": { "cloudAccount": "onboarding/cloud-account.json" },
     "locales": { "zh-CN": "locales/zh-CN.json", "en-US": "locales/en-US.json" }
   }
 }

@@ -512,7 +512,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     pluginActionExecutor: cloudPluginActionExecutor,
     executionGrants: security.grants,
   });
-  new ProvidersController(cloudAccountAssetsService, cloudAccountDiscoveryService, security).register(app.router);
+  new ProvidersController(cloudAccountAssetsService, cloudAccountDiscoveryService, security, unifiedPluginsService).register(app.router);
   const pluginWorkflowPublisher = new PluginWorkflowPublisherService(
     workflowTemplatesService,
     new PluginWorkflowBindingsRepository(appDb),

@@ -46,7 +46,7 @@ export interface CloudAccountDiscoveryDependencies {
 
 /**
  * 中文说明：云账号动作的唯一应用入口。这里只允许连接测试和资源发现，
- * 每次执行都从 Provider 目录解析当前最新的已启用插件版本。
+ * 每次执行都从 CloudAccountAsset 的 CapabilityAssignment 读取冻结插件版本。
  */
 export class CloudAccountDiscoveryApplicationService {
   constructor(private readonly dependencies: CloudAccountDiscoveryDependencies) {}
@@ -54,9 +54,6 @@ export class CloudAccountDiscoveryApplicationService {
   async execute(tenantId: string, assetId: string, operation: CloudAccountDiscoveryOperation): Promise<CloudAccountDiscoveryResult> {
     const asset = await this.dependencies.cloudAccounts.get(tenantId, assetId);
     assertActiveAsset(asset);
-    if (asset.providerKey !== 'cloud.aliyun') {
-      throw new AppError('CAPABILITY_MISSING', '当前第一阶段只实现阿里云云服务发现', { providerKey: asset.providerKey });
-    }
     const current = await this.resolveCurrentExecution(tenantId, asset, operation);
     const workflow = await this.dependencies.workflows.getVersion(current.workflowVersionId);
     if (workflow.status !== 'published' || workflow.templateId !== current.workflowTemplateId) {
@@ -81,7 +78,7 @@ export class CloudAccountDiscoveryApplicationService {
     });
     const outputByStep = new Map<string, Record<string, unknown>>();
     const stepName = readSinglePluginActionStep(workflow.content.steps, operation).name;
-    const resolvedInput = buildResolvedInput(asset, credentials, buildAliyunRequest(asset, operation), idempotencyKey);
+    const resolvedInput = buildResolvedInput(asset, credentials, buildCloudRequest(asset, operation), idempotencyKey);
     const run = await this.dependencies.workflows.runWithDispatcher({
       templateVersionId: workflow.id,
       resolvedInput,
@@ -137,50 +134,45 @@ export class CloudAccountDiscoveryApplicationService {
 
   private async resolveCurrentExecution(tenantId: string, asset: CloudAccountAsset, operation: CloudAccountDiscoveryOperation): Promise<{ pluginVersionId: string; workflowTemplateId: string; workflowVersionId: string }> {
     const capabilityKey = operationCapability(operation);
-    const catalog = await this.dependencies.plugins.listCatalog(tenantId, 'zh-CN');
-    const current = catalog.find((item) => item.pluginId === asset.providerKey && item.status === 'ENABLED');
-    if (!current) {
-      throw new AppError('PLUGIN_CAPABILITY_EXECUTION_FAILED', '没有找到当前 Provider 的已启用插件版本', {
-        providerKey: asset.providerKey,
-        operation,
-      });
+    const assignment = (await this.dependencies.db.query<{ plugin_version_id: string }>(
+      `select plugin_version_id from plugin_capability_assignments
+       where tenant_id=$1 and owner_type='CLOUD_ACCOUNT_ASSET' and owner_id=$2 and capability_key=$3 and status='ACTIVE'`,
+      [tenantId, asset.id, capabilityKey],
+    )).rows[0];
+    if (!assignment) throw new AppError('PLUGIN_CAPABILITY_EXECUTION_FAILED', '云账号没有冻结的插件能力指派', { assetId: asset.id, operation });
+    const plugin = await this.dependencies.plugins.getVersionForTenant(tenantId, assignment.plugin_version_id);
+    if (plugin.pluginId !== asset.providerKey || plugin.status !== 'ENABLED' || !plugin.manifest.capabilities.some((capability) => capability.key === capabilityKey)) {
+      throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', '云账号冻结的插件版本不可执行', { pluginVersionId: assignment.plugin_version_id, capabilityKey });
     }
-    if (!current.capabilities.some((capability) => capability.key === capabilityKey)) {
-      throw new AppError('CAPABILITY_MISSING', '当前插件版本没有声明云账号动作能力', {
-        providerKey: asset.providerKey,
-        pluginVersionId: current.pluginVersionId,
-        capabilityKey,
-      });
-    }
-    const binding = await this.dependencies.workflowBindings.find(current.pluginVersionId, capabilityKey, capabilityKey);
-    if (!binding || binding.pluginVersionId !== current.pluginVersionId) {
+    const binding = await this.dependencies.workflowBindings.find(assignment.plugin_version_id, capabilityKey, capabilityKey);
+    if (!binding || binding.pluginVersionId !== assignment.plugin_version_id) {
       throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', '当前插件版本没有对应 WorkflowVersion', {
-        pluginVersionId: current.pluginVersionId,
+        pluginVersionId: assignment.plugin_version_id,
         operation,
       });
     }
     return {
-      pluginVersionId: current.pluginVersionId,
+      pluginVersionId: assignment.plugin_version_id,
       workflowTemplateId: binding.workflowTemplateId,
       workflowVersionId: binding.workflowVersionId,
     };
   }
 
-  private async resolveCredentialSecretRefs(tenantId: string, credentialRef: string): Promise<{ accessKeyId: string; accessKeySecret: string }> {
+  private async resolveCredentialSecretRefs(tenantId: string, credentialRef: string): Promise<Record<string, string>> {
     const credentialId = /^credential:\/\/([^#]+)(?:#.*)?$/.exec(credentialRef.trim())?.[1]?.trim();
-    if (!credentialId) throw new AppError('VALIDATION_FAILED', '阿里云云账号 CredentialRef 格式无效');
+    if (!credentialId) throw new AppError('VALIDATION_FAILED', '云账号 CredentialRef 格式无效');
     const result = await this.dependencies.db.query<{ secret_slots: Record<string, unknown>; status: string; kind: string }>(
       'select secret_slots, status, kind from credential_profiles where tenant_id=$1 and id=$2',
       [tenantId, credentialId],
     );
     const profile = result.rows[0];
     if (!profile || profile.status !== 'active' || profile.kind !== 'CLOUD_PROVIDER') {
-      throw new AppError('VALIDATION_FAILED', '阿里云云账号凭据不存在、未启用或类型不匹配', { credentialId });
+      throw new AppError('VALIDATION_FAILED', '云账号凭据不存在、未启用或类型不匹配', { credentialId });
     }
     const slots = profile.secret_slots ?? {};
-    const accessKeyId = requiredSecretRef(slots.accessKeyId, 'accessKeyId');
-    const accessKeySecret = requiredSecretRef(slots.accessKeySecret, 'accessKeySecret');
-    return { accessKeyId, accessKeySecret };
+    const resolved = Object.fromEntries(Object.entries(slots).map(([name, value]) => [name, requiredSecretRef(value, name)]));
+    if (Object.keys(resolved).length === 0) throw new AppError('VALIDATION_FAILED', '云账号凭据没有可用 SecretRef', { credentialId });
+    return resolved;
   }
 
   private async dispatchPluginAction(input: {
@@ -226,7 +218,7 @@ export class CloudAccountDiscoveryApplicationService {
         idempotencyKey: input.idempotencyKey,
         deadlineAt: new Date(Date.now() + 120_000).toISOString(),
         compatibilityContext: {
-          productFamily: 'cloud.aliyun.cdn',
+          productFamily: input.asset.providerKey,
           managementMethod: 'PLUGIN',
         },
       });
@@ -249,32 +241,18 @@ function assertActiveAsset(asset: CloudAccountAsset): void {
   if (asset.status !== 'ACTIVE') throw new AppError('VALIDATION_FAILED', '云账号资产不是 ACTIVE 状态，拒绝执行云服务动作', { assetId: asset.id, status: asset.status });
 }
 
-function buildAliyunRequest(_asset: CloudAccountAsset, operation: CloudAccountDiscoveryOperation): Record<string, unknown> {
-  const request = {
+function buildCloudRequest(asset: CloudAccountAsset, operation: CloudAccountDiscoveryOperation): Record<string, unknown> {
+  const configured = asset.scope.metadata?.request;
+  if (configured && typeof configured === 'object' && !Array.isArray(configured)) return structuredClone(configured as Record<string, unknown>);
+  return {
     method: 'POST',
     uri: '/',
-    action: 'DescribeUserDomains',
-    apiVersion: '2018-05-10',
+    operation,
     body: {},
-  };
-  if (operation === 'connection-test') return request;
-  return {
-    ...request,
-    requests: [
-      {
-        method: 'POST',
-        uri: '/',
-        endpoint: 'https://cdn.aliyuncs.com',
-        action: 'DescribeUserDomains',
-        apiVersion: '2018-05-10',
-        query: { PageNumber: 1, PageSize: 100 },
-        body: {},
-      },
-    ],
   };
 }
 
-function buildResolvedInput(asset: CloudAccountAsset, credentials: { accessKeyId: string; accessKeySecret: string }, request: Record<string, unknown>, idempotencyKey: string): ResolvedDeploymentInputV1 {
+function buildResolvedInput(asset: CloudAccountAsset, credentials: Record<string, string>, request: Record<string, unknown>, idempotencyKey: string): ResolvedDeploymentInputV1 {
   const assetContext: DeploymentAssetContextV1 = {
     apiVersion: 'gcac.deployment-asset-context/v1',
     application: { id: asset.id, address: `cloud://${asset.id}`, serverName: asset.displayName, port: 443, protocol: 'https' },
@@ -286,8 +264,8 @@ function buildResolvedInput(asset: CloudAccountAsset, credentials: { accessKeyId
     assetContext,
     variables: {
       cloudServiceRef: asset.id,
-      accessKeyIdSecretRef: credentials.accessKeyId,
-      accessKeySecretSecretRef: credentials.accessKeySecret,
+      ...Object.fromEntries(Object.entries(credentials).map(([name, value]) => [`${name}SecretRef`, value])),
+      ...(Object.values(credentials)[0] ? { credentialSecretRef: Object.values(credentials)[0] } : {}),
       request,
       idempotencyKey,
     },
@@ -295,7 +273,7 @@ function buildResolvedInput(asset: CloudAccountAsset, credentials: { accessKeyId
     credentials: {},
     artifacts: {},
     provenance: {},
-    sensitivePaths: ['variables.accessKeyIdSecretRef', 'variables.accessKeySecretSecretRef'],
+    sensitivePaths: Object.keys(credentials).map((name) => `variables.${name}SecretRef`),
     issues: [],
     executable: true,
     resolvedSha256: '0'.repeat(64),
@@ -328,7 +306,7 @@ function collectSecretRefs(value: unknown): string[] {
 }
 
 function requiredSecretRef(value: unknown, name: string): string {
-  if (typeof value !== 'string' || !/^secret:\/\/[A-Za-z0-9._:/#-]{1,512}$/.test(value)) throw new AppError('VALIDATION_FAILED', `阿里云凭据缺少 ${name} SecretRef`);
+  if (typeof value !== 'string' || !/^secret:\/\/[A-Za-z0-9._:/#-]{1,512}$/.test(value)) throw new AppError('VALIDATION_FAILED', `云账号凭据缺少 ${name} SecretRef`);
   return value;
 }
 

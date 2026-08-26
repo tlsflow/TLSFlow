@@ -90,6 +90,7 @@ export function validateUnifiedPluginManifest(input: unknown): UnifiedPluginMani
         ? {}
         : { inputContracts: readStringMap(resources.inputContracts) }),
       actionContracts: readStringMap(resources.actionContracts),
+      credentialContracts: readStringMap(resources.credentialContracts),
       forms: readStringMap(resources.forms),
       presentations: readStringMap(resources.presentations),
       locales: readStringMap(resources.locales),
@@ -254,7 +255,7 @@ function readCapabilityCompatibility(input: unknown, locations: string[], index:
 }
 
 function validateResourceMaps(resources: Record<string, unknown>): void {
-  const resourceKeys = ['logos', 'runtimeEntrypoint', 'agentPlans', 'workflows', 'inputContracts', 'actionContracts', 'forms', 'presentations', 'locales', 'discoveryMappings', 'agentDiscoveryMappings', 'onboarding'];
+  const resourceKeys = ['logos', 'runtimeEntrypoint', 'agentPlans', 'workflows', 'inputContracts', 'actionContracts', 'credentialContracts', 'forms', 'presentations', 'locales', 'discoveryMappings', 'agentDiscoveryMappings', 'onboarding'];
   assertKnownKeys(resources, new Set(resourceKeys), 'resources');
   if (resources.runtimeEntrypoint !== undefined) {
     const runtimeEntrypoint = readResourcePath(resources.runtimeEntrypoint, 'resources.runtimeEntrypoint');
@@ -303,7 +304,7 @@ export function validateLogoResourceContent(path: string, content: string | unde
 
 function validateOnboardingResources(input: unknown): NonNullable<UnifiedPluginManifestV1['resources']['onboarding']> {
   const onboarding = requireRecord(input, 'resources.onboarding');
-  assertKnownKeys(onboarding, new Set(['applicationAsset', 'applicationAssets']), 'resources.onboarding');
+  assertKnownKeys(onboarding, new Set(['applicationAsset', 'applicationAssets', 'cloudAccount']), 'resources.onboarding');
   const result: NonNullable<UnifiedPluginManifestV1['resources']['onboarding']> = {};
   const paths = new Set<string>();
   if (onboarding.applicationAsset !== undefined) {
@@ -319,6 +320,12 @@ function validateOnboardingResources(input: unknown): NonNullable<UnifiedPluginM
       paths.add(normalized);
       return [key, normalized];
     }));
+  }
+  if (onboarding.cloudAccount !== undefined) {
+    const normalized = validateOnboardingResourcePath(onboarding.cloudAccount, 'resources.onboarding.cloudAccount');
+    if (paths.has(normalized)) fail('resources.onboarding.cloudAccount', '接入配方资源路径不能重复');
+    result.cloudAccount = normalized;
+    paths.add(normalized);
   }
   if (paths.size === 0) fail('resources.onboarding', '必须声明至少一个接入配方资源');
   return result;

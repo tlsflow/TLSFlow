@@ -1,0 +1,10 @@
+{
+  "apiVersion": "gcac.credential-contract/v1",
+  "kind": "CloudAccountCredentialContract",
+  "credentialKind": "CLOUD_PROVIDER",
+  "providerKey": "cloud.aliyun",
+  "slots": [
+    { "name": "accessKeyId", "secretType": "api_token", "required": true, "purpose": "阿里云 CDN 公开账号标识" },
+    { "name": "accessKeySecret", "secretType": "api_token", "required": true, "purpose": "阿里云 CDN 签名密钥" }
+  ]
+}

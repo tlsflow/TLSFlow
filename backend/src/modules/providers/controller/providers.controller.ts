@@ -12,14 +12,28 @@ import {
 } from '../../security/security-route-helpers.js';
 import { CloudAccountAssetsApplicationService } from '../application/cloud-account-assets.application-service.js';
 import { CloudAccountDiscoveryApplicationService, type CloudAccountDiscoveryOperation } from '../application/cloud-account-discovery.application-service.js';
+import type { UnifiedPluginsApplicationService } from '../../plugins/application/unified-plugins.application-service.js';
+import { CloudAccountOnboardingRecipeLoader } from '../../plugins/onboarding/cloud-account-onboarding-recipe.loader.js';
 
 const tags = ['Cloud Service'];
+
+function parseResource(content: string | undefined): Record<string, unknown> {
+  if (!content) throw new AppError('VALIDATION_FAILED', '云账号接入资源不存在');
+  try {
+    const value = JSON.parse(content);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('object required');
+    return value as Record<string, unknown>;
+  } catch {
+    throw new AppError('VALIDATION_FAILED', '云账号接入资源不是合法 JSON');
+  }
+}
 
 export class ProvidersController {
   constructor(
     private readonly cloudAccounts: CloudAccountAssetsApplicationService,
     private readonly discovery?: CloudAccountDiscoveryApplicationService,
     private readonly security?: SecurityServices,
+    private readonly plugins?: Pick<UnifiedPluginsApplicationService, 'listCatalog' | 'getVersionForTenant'>,
   ) {}
 
   register(router: Router): void {
@@ -31,6 +45,33 @@ export class ProvidersController {
     router.post('/api/v1/cloud-account-assets/delete', '删除云账号资产', tags, (request) => this.deleteCloudAccount(request));
     router.post('/api/v1/cloud-account-assets/:id/connection-test', '测试云账号连接', tags, (request) => this.runCloudAccountAction(request, 'connection-test'));
     router.post('/api/v1/cloud-account-assets/:id/discover', '发现云账号资源', tags, (request) => this.runCloudAccountAction(request, 'discover'));
+    router.get('/api/v1/cloud-account-onboarding/recipes', '查询云账号接入配方', tags, (request) => this.listCloudAccountOnboardingRecipes(request));
+  }
+
+  private async listCloudAccountOnboardingRecipes(request: HttpRequest) {
+    const security = requireRouteSecurity(request, this.security);
+    await assertRouteAction(security, 'cloud_account_asset.create', 'cloud_account_asset');
+    if (!this.plugins) return { items: [], page: 1, pageSize: 0, total: 0 };
+    const catalog = await this.plugins.listCatalog(security.tenantId, typeof request.query.locale === 'string' ? request.query.locale : 'zh-CN');
+    const loader = new CloudAccountOnboardingRecipeLoader();
+    const items = [];
+    for (const item of catalog.filter((candidate) => candidate.status === 'ENABLED')) {
+      try {
+        const version = await this.plugins.getVersionForTenant(security.tenantId, item.pluginVersionId);
+        const loaded = loader.load(version);
+        items.push({
+          pluginId: loaded.pluginId,
+          pluginVersionId: loaded.pluginVersionId,
+          version: loaded.pluginVersion,
+          recipe: loaded.recipe,
+          form: parseResource(version.resources[loaded.recipe.formResource]),
+          credentialContract: parseResource(version.resources[loaded.recipe.credentialContractResource]),
+        });
+      } catch {
+        // 单个插件资源无效时返回结构化不可用列表，不阻断其他 Provider。
+      }
+    }
+    return { items, page: 1, pageSize: items.length, total: items.length };
   }
 
   private async listCloudAccounts(request: HttpRequest) {
@@ -141,6 +182,7 @@ export function getCloudAccountRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/cloud-account-assets/delete', operationId: 'deleteCloudAccountAsset', summary: '删除云账号资产', tags, responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/cloud-account-assets/:id/connection-test', operationId: 'testCloudAccountConnection', summary: '测试云账号连接', tags, responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'POST', path: '/api/v1/cloud-account-assets/:id/discover', operationId: 'discoverCloudAccountResources', summary: '发现云账号资源', tags, responseSchema: { type: 'object', additionalProperties: true } },
+    { method: 'GET', path: '/api/v1/cloud-account-onboarding/recipes', operationId: 'listCloudAccountOnboardingRecipes', summary: '查询云账号接入配方', tags, responseSchema: { type: 'object', additionalProperties: true } },
   ];
 }
 

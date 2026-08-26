@@ -20,8 +20,7 @@ export interface CloudAccountAsset {
   updatedAt: string;
   deletedAt?: string;
   version: number;
-  /** 中文说明：由投影表统计当前可用区设备、Framework 和 Site 数量，便于云服务列表直接展示拓扑规模。 */
-  deviceCount?: number;
+  /** 中文说明：由投影表统计当前 Framework 和 Site 数量，便于资产中心展示拓扑规模。 */
   frameworkCount?: number;
   siteCount?: number;
 }

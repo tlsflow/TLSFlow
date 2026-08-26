@@ -6,4 +6,7 @@
   "plugin.cloud.aliyun.region": "CDN 地域",
   "plugin.cloud.aliyun.accessKeyId": "AccessKey ID",
   "plugin.cloud.aliyun.accessKeySecret": "AccessKey Secret"
+  ,"plugin.cloud.aliyun.accountSection": "云账号配置"
+  ,"plugin.cloud.aliyun.accountId": "账号标识"
+  ,"plugin.cloud.aliyun.scope": "作用域"
 }

@@ -5,5 +5,8 @@
   "plugin.cloud.aliyun.credential": "Alibaba Cloud account credential",
   "plugin.cloud.aliyun.region": "CDN region",
   "plugin.cloud.aliyun.accessKeyId": "AccessKey ID",
-  "plugin.cloud.aliyun.accessKeySecret": "AccessKey Secret"
+  "plugin.cloud.aliyun.accessKeySecret": "AccessKey Secret",
+  "plugin.cloud.aliyun.accountSection": "Cloud account",
+  "plugin.cloud.aliyun.accountId": "Account identifier",
+  "plugin.cloud.aliyun.scope": "Scope"
 }

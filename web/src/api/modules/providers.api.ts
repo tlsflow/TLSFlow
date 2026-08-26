@@ -2,6 +2,11 @@ import { apiClient, createIdempotencyKey } from '@/api/client'
 import { toClientPath, type ApiBody, type ApiPage, type ApiPageResult, type ApiRecord, type ApiRecordResult } from './common'
 
 const CLOUD_ASSETS_PATH = '/api/v1/cloud-account-assets'
+const CLOUD_ACCOUNT_ONBOARDING_RECIPES_PATH = '/api/v1/cloud-account-onboarding/recipes'
+
+export function listCloudAccountOnboardingRecipes(locale = 'zh-CN'): Promise<ApiRecordResult> {
+  return apiClient.get<ApiRecord>(`${toClientPath(CLOUD_ACCOUNT_ONBOARDING_RECIPES_PATH)}?locale=${encodeURIComponent(locale)}`)
+}
 
 export function listCloudAccountAssets(): Promise<ApiPageResult> {
   return apiClient.get<ApiPage>(toClientPath(CLOUD_ASSETS_PATH))

@@ -235,6 +235,7 @@ test('Provider 厂商旁路全部移除，OpenAPI 暴露固定连接、发现和
     'GET /api/v1/cloud-account-assets',
     'GET /api/v1/cloud-account-assets/:id',
     'GET /api/v1/cloud-account-assets/:id/resources',
+    'GET /api/v1/cloud-account-onboarding/recipes',
     'PATCH /api/v1/cloud-account-assets',
     'POST /api/v1/cloud-account-assets',
     'POST /api/v1/cloud-account-assets/:id/connection-test',

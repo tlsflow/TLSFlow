@@ -22,7 +22,7 @@ export interface CloudResourceProjectionContext {
   pluginId: string;
   pluginVersionId: string;
   provider: string;
-  /** 中文说明：账号级云产品不应把厂商计算可用区伪装成设备。 */
+  /** 中文说明：账号级云产品可按通用拓扑策略选择区域设备或账号级 Framework。 */
   topology?: 'REGION_DEVICE' | 'ACCOUNT_FRAMEWORK';
   providerDisplayName?: string;
   discoveryProviderKey?: string;
@@ -30,7 +30,7 @@ export interface CloudResourceProjectionContext {
 }
 
 export interface CloudResourceProjection {
-  device: {
+  device?: {
     id: string;
     hostId: string;
     tenantId: string;
@@ -46,7 +46,7 @@ export interface CloudResourceProjection {
     id: string;
     tenantId: string;
     assetId: string;
-    deviceId: string;
+    deviceId?: string;
     frameworkType: 'cloud.resource';
     frameworkKey: string;
     discoveryProviderKey: string;
@@ -59,7 +59,7 @@ export interface CloudResourceProjection {
     id: string;
     tenantId: string;
     assetId: string;
-    deviceId: string;
+    deviceId?: string;
     frameworkId: string;
     siteType: 'cloud.resource';
     siteKey: string;
@@ -77,7 +77,7 @@ export interface CloudResourceProjectionSummary {
 }
 
 export interface CloudResourceProjectionBatch {
-  devices: CloudResourceProjection['device'][];
+  devices: NonNullable<CloudResourceProjection['device']>[];
   frameworks: CloudResourceProjection['framework'][];
   sites: CloudResourceProjection['site'][];
 }
@@ -126,8 +126,8 @@ export class CloudResourceProjectionService {
     const device = batch.devices[0];
     const framework = batch.frameworks[0];
     const site = batch.sites[0];
-    if (!device || !framework || !site) throw invalid('Cloud Resource 不能为空');
-    return { device, framework, site };
+    if (!framework || !site) throw invalid('Cloud Resource 不能为空');
+    return { ...(device ? { device } : {}), framework, site };
   }
 
   projectBatch(context: CloudResourceProjectionContext, inputs: readonly unknown[]): CloudResourceProjectionBatch {
@@ -146,7 +146,7 @@ export class CloudResourceProjectionService {
       byRegion.set(resource.region, [...(byRegion.get(resource.region) ?? []), resource]);
     });
     const regions = [...byRegion.keys()].sort();
-    const devices: CloudResourceProjection['device'][] = regions.map((region) => {
+    const devices: NonNullable<CloudResourceProjection['device']>[] = regions.map((region) => {
       const root = stableId(context.cloudAccountAssetId, `cloud.region:${region}`);
       const accountSuffix = stableId(context.cloudAccountAssetId, 'management-address').slice(0, 10);
       const displayName = regionDisplayNames.get(region) ?? (region === 'global' ? '全局控制面' : region);
@@ -234,14 +234,14 @@ export class CloudResourceProjectionService {
     return { devices, frameworks, sites };
   }
 
-  /** 中文说明：云资源发现维护控制面设备及其 Framework/Site，不创建可部署 ManagedTarget。 */
+  /** 中文说明：云资源发现维护 CloudAccountAsset 下的 Framework/Site，不创建可部署 ManagedTarget。 */
   async persist(context: CloudResourceProjectionContext, input: unknown): Promise<CloudResourceProjection> {
     const batch = await this.persistBatch(context, [input]);
     const device = batch.devices[0];
     const framework = batch.frameworks[0];
     const site = batch.sites[0];
-    if (!device || !framework || !site) throw invalid('Cloud Resource 不能为空');
-    return { device, framework, site };
+    if (!framework || !site) throw invalid('Cloud Resource 不能为空');
+    return { ...(device ? { device } : {}), framework, site };
   }
 
   async persistBatch(context: CloudResourceProjectionContext, inputs: readonly unknown[]): Promise<CloudResourceProjectionBatch> {
@@ -301,7 +301,7 @@ export class CloudResourceProjectionService {
         on conflict (id) do update set display_name=excluded.display_name, version_text=excluded.version_text,
           last_discovered_at=excluded.last_discovered_at, status='ACTIVE', raw_facts=excluded.raw_facts,
           device_id=excluded.device_id, asset_id=excluded.asset_id, deleted_at=null, updated_at=excluded.updated_at, version=pg_framework_instances.version+1`, [
-        framework.id, framework.tenantId, framework.deviceId, framework.assetId, framework.discoveryProviderKey,
+        framework.id, framework.tenantId, framework.deviceId ?? null, framework.assetId, framework.discoveryProviderKey,
         framework.frameworkKey, framework.displayName, framework.versionText, framework.frameworkKey,
         framework.frameworkType, framework.discoverySource, now, JSON.stringify(framework.rawFacts),
       ]);
@@ -315,7 +315,7 @@ export class CloudResourceProjectionService {
           site_name=excluded.site_name, last_discovered_at=excluded.last_discovered_at, status='ACTIVE', metadata=excluded.metadata,
           deleted_at=null,
           updated_at=excluded.updated_at, version=pg_site_assets.version+1`, [
-        site.id, site.tenantId, site.frameworkId, site.deviceId, site.assetId, site.discoveryProviderKey,
+        site.id, site.tenantId, site.frameworkId, site.deviceId ?? null, site.assetId, site.discoveryProviderKey,
         site.siteType, site.siteName, site.siteKey, site.discoverySource, now,
         JSON.stringify(site.metadata),
       ]);
@@ -331,16 +331,7 @@ export class CloudResourceProjectionService {
       [tenantId, cloudAccountAssetId],
     );
     if (!owner.rows[0]) throw new AppError('RESOURCE_NOT_FOUND', 'Cloud Resource 投影资产不存在', { cloudAccountAssetId });
-    const [deviceRows, frameworkRows, siteRows] = await Promise.all([
-      this.db.query<Record<string, unknown>>(
-        `select da.service_asset_id as id, da.host_id, sa.display_name, sa.address, da.device_family,
-                da.metadata, sa.status, sa.updated_at
-           from pg_device_assets da
-           join pg_service_assets sa on sa.id=da.service_asset_id and sa.tenant_id=da.tenant_id
-          where da.tenant_id=$1 and da.metadata->>'cloudAccountAssetId'=$2 and sa.deleted_at is null
-          order by sa.display_name, da.service_asset_id`,
-        [tenantId, cloudAccountAssetId],
-      ),
+    const [frameworkRows, siteRows] = await Promise.all([
       this.db.query<Record<string, unknown>>(
         `select id, tenant_id, asset_id, device_id, discovery_provider_key, framework_key, framework_type,
                 display_name, version_text, discovery_source, last_discovered_at, status, raw_facts,
@@ -360,16 +351,7 @@ export class CloudResourceProjectionService {
       ),
     ]);
     return {
-      devices: deviceRows.rows.map((row) => ({
-        id: row.id,
-        hostId: row.host_id,
-        displayName: row.display_name,
-        managementAddress: row.address,
-        deviceFamily: row.device_family,
-        metadata: row.metadata ?? {},
-        status: row.status,
-        updatedAt: row.updated_at,
-      })),
+      devices: [],
       frameworks: frameworkRows.rows.map((row) => ({
         id: row.id,
         tenantId: row.tenant_id,
@@ -411,30 +393,8 @@ function projectAccountFrameworkTopology(
   resources: CloudServiceResourceV1[],
   providerKey: string,
 ): CloudResourceProjectionBatch {
-  const accountSuffix = stableId(context.cloudAccountAssetId, 'management-address').slice(0, 10);
   const root = stableId(context.cloudAccountAssetId, 'cloud.account');
   const providerDisplayName = context.providerDisplayName ?? `${context.provider} CDN`;
-  const device: CloudResourceProjection['device'] = {
-    id: `dev_${root}`,
-    hostId: `hst_${root}`,
-    tenantId: context.tenantId,
-    cloudAccountAssetId: context.cloudAccountAssetId,
-    region: 'account',
-    displayName: providerDisplayName,
-    provider: context.provider,
-    deviceFamily: `${context.provider}.cdn`,
-    managementAddress: `cdn.${context.provider}-${accountSuffix}`,
-    metadata: {
-      cloudAccountAssetId: context.cloudAccountAssetId,
-      provider: context.provider,
-      scope: 'ACCOUNT',
-      region: 'account',
-      deviceCategory: 'CLOUD',
-      livenessMode: 'DISCOVERY',
-      pluginId: context.pluginId,
-      pluginVersionId: context.pluginVersionId,
-    },
-  };
   const byScope = new Map<string, CloudServiceResourceV1[]>([
     ['mainland', []],
     ['global', []],
@@ -464,7 +424,7 @@ function projectAccountFrameworkTopology(
       id: frameworkId,
       tenantId: context.tenantId,
       assetId: context.cloudAccountAssetId,
-      deviceId: device.hostId,
+      deviceId: undefined,
       frameworkType: 'cloud.resource',
       frameworkKey: `cdn.${scope}`,
       discoveryProviderKey: providerKey,
@@ -480,7 +440,7 @@ function projectAccountFrameworkTopology(
         id: `site_${siteRoot}`,
         tenantId: context.tenantId,
         assetId: context.cloudAccountAssetId,
-        deviceId: device.hostId,
+        deviceId: undefined,
         frameworkId,
         siteType: 'cloud.resource',
         siteKey: resource.stableKey,
@@ -496,7 +456,7 @@ function projectAccountFrameworkTopology(
       });
     });
   }
-  return { devices: [device], frameworks, sites };
+  return { devices: [], frameworks, sites };
 }
 
 function textValue(value: unknown): string {
@@ -521,20 +481,6 @@ async function retirePreviousProjection(tx: DatabasePort, context: CloudResource
   await tx.query(
     `update pg_framework_instances set status='RETIRED', deleted_at=$3, updated_at=$3, version=version+1
        where tenant_id=$1 and asset_id=$2 and framework_type='cloud.resource' and deleted_at is null`,
-    [context.tenantId, context.cloudAccountAssetId, now],
-  );
-  await tx.query(
-    `update pg_hosts set status='RETIRED', deleted_at=$3, updated_at=$3, version=version+1
-       where tenant_id=$1 and id in (
-         select sa.host_id from pg_service_assets sa
-          where sa.tenant_id=$1 and sa.asset_kind='DEVICE'
-            and sa.metadata->>'cloudAccountAssetId'=$2 and sa.deleted_at is null
-       ) and deleted_at is null`,
-    [context.tenantId, context.cloudAccountAssetId, now],
-  );
-  await tx.query(
-    `update pg_service_assets set status='RETIRED', deleted_at=$3, updated_at=$3, version=version+1
-       where tenant_id=$1 and asset_kind='DEVICE' and metadata->>'cloudAccountAssetId'=$2 and deleted_at is null`,
     [context.tenantId, context.cloudAccountAssetId, now],
   );
 }
