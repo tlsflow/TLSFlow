@@ -3488,7 +3488,8 @@ export default {
       usage: {
         columns: {
           domainName: 'Домен/цель',
-          agentName: 'Имя Agent',
+          assetName: 'Актив',
+          frameworkName: 'Фреймворк',
           siteName: 'Имя сайта',
           bindingType: 'Тип привязки',
           usageSource: 'Источник',
@@ -3777,6 +3778,7 @@ export default {
         notBefore: 'Дата начала',
         notAfter: 'Дата окончания',
         associatedAsset: 'Связанный актив',
+        applicationCount: 'Приложения',
         sourceType: 'Способ добавления',
         status: 'Статус',
         certificateVersionId: 'ID версии сертификата'

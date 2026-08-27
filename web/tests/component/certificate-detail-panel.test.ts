@@ -42,6 +42,7 @@ describe('CertificateDetailPanel', () => {
               {
                 binding: {
                   id: 'binding-test-jacksonz',
+                  certificateVersionId: 'ver-jacksonz',
                   domainName: 'test.jacksonz.cn',
                   bindingType: 'WINDOWS_CERT_STORE',
                   status: 'DISCOVERED',
@@ -65,6 +66,7 @@ describe('CertificateDetailPanel', () => {
                 serviceAsset: {
                   id: 'service-asset-test-jacksonz',
                   address: 'test.jacksonz.cn',
+                  displayName: '测试应用',
                   port: 443,
                   protocol: 'HTTPS',
                   status: 'ACTIVE',
@@ -81,6 +83,73 @@ describe('CertificateDetailPanel', () => {
                   displayName: 'Win Web 01',
                   agentId: 'agent-jacksonz-01',
                   primaryIp: '10.0.0.12',
+                  status: 'ACTIVE',
+                },
+              },
+              {
+                binding: {
+                  id: 'binding-stale-jacksonz',
+                  domainName: 'stale.jacksonz.cn',
+                  bindingType: 'WINDOWS_CERT_STORE',
+                  status: 'DISCOVERED',
+                },
+                service: {
+                  id: 'service-stale-jacksonz',
+                  displayName: 'stale.jacksonz.cn',
+                  providerType: 'IIS',
+                  status: 'ACTIVE',
+                },
+              },
+              {
+                binding: {
+                  id: 'binding-other-version-jacksonz',
+                  certificateVersionId: 'ver-other-jacksonz',
+                  domainName: 'test.jacksonz.cn',
+                  bindingType: 'WINDOWS_CERT_STORE',
+                  status: 'DISCOVERED',
+                },
+                siteAsset: {
+                  id: 'site-asset-test-jacksonz',
+                  siteName: 'Default Web Site',
+                  hostHeader: 'test.jacksonz.cn',
+                  port: 443,
+                  protocol: 'HTTPS',
+                  agentId: 'agent-jacksonz-01',
+                  status: 'ACTIVE',
+                },
+                serviceAsset: {
+                  id: 'service-asset-other-version-jacksonz',
+                  address: 'test.jacksonz.cn',
+                  port: 443,
+                  protocol: 'HTTPS',
+                  status: 'ACTIVE',
+                },
+                service: {
+                  id: 'service-other-version-jacksonz',
+                  displayName: 'test.jacksonz.cn',
+                  providerType: 'IIS',
+                  status: 'ACTIVE',
+                },
+              },
+              {
+                binding: {
+                  id: 'binding-fallback-jacksonz',
+                  certificateVersionId: 'ver-jacksonz',
+                  domainName: 'fallback.jacksonz.cn',
+                  bindingType: 'WINDOWS_CERT_STORE',
+                  status: 'DISCOVERED',
+                },
+                serviceAsset: {
+                  id: 'service-asset-fallback-jacksonz',
+                  address: 'fallback.jacksonz.cn',
+                  port: 443,
+                  protocol: 'HTTPS',
+                  status: 'ACTIVE',
+                },
+                service: {
+                  id: 'service-fallback-jacksonz',
+                  displayName: 'IIS',
+                  providerType: 'IIS',
                   status: 'ACTIVE',
                 },
               },
@@ -115,12 +184,16 @@ describe('CertificateDetailPanel', () => {
     await usageTab!.trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('test.jacksonz.cn')
+    expect(wrapper.text()).toContain('测试应用')
+    expect(wrapper.text()).toContain('fallback.jacksonz.cn')
     expect(wrapper.text()).toContain('Win Web 01')
+    expect(wrapper.text()).toContain('IIS')
     expect(wrapper.text()).toContain('Default Web Site')
     expect(wrapper.text()).toContain('WINDOWS_CERT_STORE')
     expect(wrapper.text()).toContain('平台绑定记录')
     expect(wrapper.text()).toContain('DISCOVERED')
+    expect(wrapper.text()).not.toContain('stale.jacksonz.cn')
+    expect(wrapper.findAll('tbody tr')).toHaveLength(2)
     expect(wrapper.text()).not.toContain('暂无关联资产')
   })
 })

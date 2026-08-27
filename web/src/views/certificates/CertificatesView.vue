@@ -7,6 +7,7 @@ import { listAutomations } from '@/api/modules/automations.api'
 import {
   deleteCertificateVersion,
   getCertificateAssetDetail,
+  getCertificateVersionUsage,
   listCertificates,
   listCertificateVersions,
 } from '@/api/modules/certificates.api'
@@ -38,7 +39,7 @@ import CertificateTrustRootsModalContent from './CertificateTrustRootsModalConte
 import { readPath, readString, toErrorState, type CertificatePageError } from './certificate-view-utils'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
-interface CertificateVersionRow extends Record<string, string> {
+interface CertificateVersionRow extends Record<string, unknown> {
   readonly id: string
   readonly assetId: string
   readonly certificateName: string
@@ -53,6 +54,7 @@ interface CertificateVersionRow extends Record<string, string> {
   readonly status: string
   readonly lifecycle: string
   readonly lifecycleKey: LifecycleStatusKey
+  readonly applicationCount: number | null
 }
 
 type VersionSortField = 'certificateName' | 'notBefore' | 'notAfter' | 'issuer' | 'subject' | 'status'
@@ -235,6 +237,7 @@ const rawVersionRows = computed<CertificateVersionRow[]>(() =>
       status,
       lifecycle: formatLifecycleStatus(lifecycleKey),
       lifecycleKey,
+      applicationCount: readApplicationCount(record),
     }
   }),
 )
@@ -253,9 +256,9 @@ const versionColumns = computed<DataTableColumn<CertificateVersionRow>[]>(() => 
   { key: 'notAfter', title: t('certificates.list.columns.notAfter'), width: '10%' },
   { key: 'issuer', title: t('certificates.detailPanel.summary.issuer'), width: '16%' },
   { key: 'subject', title: t('certificates.detailPanel.summary.subject'), width: '12%' },
-  { key: 'associatedAsset', title: t('certificates.list.columns.associatedAsset'), width: '12%' },
   { key: 'sourceType', title: t('certificates.list.columns.sourceType'), width: '9%' },
-  { key: 'status', title: t('certificates.list.columns.status'), width: '8%' },
+  { key: 'applicationCount', title: t('certificates.list.columns.applicationCount'), width: '8%' },
+  { key: 'status', title: t('certificates.list.columns.status'), width: '12%' },
   { key: 'id', title: t('certificates.list.columns.certificateVersionId'), width: '12%' },
   { key: 'actions', title: t('agents.columns.actions'), width: 'var(--gc-size-card-min)' },
 ])
@@ -570,8 +573,9 @@ async function loadVersions(assetIds: string[], ownerAssetId: string, requestId:
         merged.set(versionId, item)
       })
     })
+    const enriched = await enrichVersionApplicationCounts([...merged.values()])
     if (!isCurrentVersionRequest(requestId, ownerAssetId)) return
-    versions.value = [...merged.values()]
+    versions.value = enriched
   } catch (cause) {
     if (!isCurrentVersionRequest(requestId, ownerAssetId)) return
     versionsError.value = toErrorState(cause)
@@ -581,6 +585,43 @@ async function loadVersions(assetIds: string[], ownerAssetId: string, requestId:
       versionsLoading.value = false
     }
   }
+}
+
+async function enrichVersionApplicationCounts(records: ApiRecord[]) {
+  return Promise.all(records.map(async (record) => {
+    const versionId = readString(record, ['id', 'certificateVersionId'], '')
+    if (!versionId) return { ...record, applicationCount: null }
+    try {
+      const result = await getCertificateVersionUsage(versionId)
+      const usages = Array.isArray(result.data?.usages)
+        ? result.data.usages.filter((item): item is ApiRecord => Boolean(item) && typeof item === 'object')
+        : []
+      return { ...record, applicationCount: countApplicationUsages(usages) }
+    } catch {
+      return { ...record, applicationCount: null }
+    }
+  }))
+}
+
+function readApplicationCount(record: ApiRecord) {
+  const value = readPath(record, 'applicationCount')
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) return Number(value)
+  return null
+}
+
+function countApplicationUsages(usages: ApiRecord[]) {
+  const applicationKeys = new Set<string>()
+  usages.forEach((usage) => {
+    const serviceAsset = readPath(usage, 'serviceAsset')
+    const serviceAssetRecord = serviceAsset && typeof serviceAsset === 'object' ? serviceAsset as ApiRecord : null
+    const applicationId = readString(serviceAssetRecord, ['id'], '')
+    const deletedAt = readString(serviceAssetRecord, ['deletedAt'], '')
+    // 中文说明：SiteAsset/ManagedTarget 只有扫描事实，不属于应用列表；必须存在有效 ServiceAsset 才计数。
+    if (!applicationId || deletedAt) return
+    applicationKeys.add(applicationId)
+  })
+  return applicationKeys.size
 }
 
 function updateFilters() {
@@ -669,6 +710,9 @@ async function openRouteVersionsDialog(assetId: string) {
         ),
       }
     }
+    const enriched = await enrichVersionApplicationCounts(routeVersions)
+    if (requestId !== versionRequestSequence || selectedAssetId.value !== assetId) return
+    versions.value = enriched
   } catch (cause) {
     if (requestId !== versionRequestSequence || selectedAssetId.value !== assetId) return
     versionsError.value = toErrorState(cause)
@@ -1471,6 +1515,9 @@ async function removeVersion(row: CertificateVersionRow) {
             </template>
             <template #cell-sourceType="{ row }">
               <GcStatusTag :status="row.sourceType" :label="row.sourceTypeLabel" :tone="row.sourceTypeTone" />
+            </template>
+            <template #cell-applicationCount="{ row }">
+              {{ row.applicationCount === null ? t('common.notAvailable') : row.applicationCount }}
             </template>
             <template #cell-id="{ row }">
               <code class="certificate-page__version-id">{{ row.id }}</code>

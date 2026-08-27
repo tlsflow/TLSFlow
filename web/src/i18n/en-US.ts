@@ -3642,7 +3642,8 @@ export default {
       usage: {
         columns: {
           domainName: 'Domain / target',
-          agentName: 'Agent name',
+          assetName: 'Asset',
+          frameworkName: 'Framework',
           siteName: 'Site name',
           bindingType: 'Binding type',
           usageSource: 'Source',
@@ -3918,25 +3919,26 @@ export default {
     },
     list: {
       filters: {
-        keyword: 'Keyword',
+        keyword: 'Search',
         domain: 'Domain',
         status: 'Status'
       },
       placeholders: {
         assetKeyword: 'Domain / SAN / fingerprint',
         primaryDomain: 'example.com',
-        versionKeyword: 'Name / issuer / subject / version ID'
+        versionKeyword: 'Name, issuer, subject, or ID'
       },
       columns: {
         notBefore: 'Valid from',
         notAfter: 'Expires on',
         associatedAsset: 'Connected application',
+        applicationCount: 'Applications',
         sourceType: 'Source',
         status: 'Status',
-        certificateVersionId: 'Certificate version ID'
+        certificateVersionId: 'Version ID'
       },
       sourceTypes: {
-        manual: 'Manual import',
+        manual: 'Manual',
         internal_ca: 'Internal CA',
         enterprise_ca: 'Enterprise CA',
         external_api: 'External API',

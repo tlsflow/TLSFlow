@@ -3551,7 +3551,8 @@ export default {
       usage: {
         columns: {
           domainName: 'Domain / target',
-          agentName: 'Agent name',
+          assetName: 'Actif',
+          frameworkName: 'Framework',
           siteName: 'Site name',
           bindingType: 'Binding type',
           usageSource: 'Source',
@@ -3840,6 +3841,7 @@ export default {
         notBefore: 'Start date',
         notAfter: 'End date',
         associatedAsset: 'Related asset',
+        applicationCount: 'Applications',
         sourceType: 'Added by',
         status: 'Status',
         certificateVersionId: 'Certificate version ID'

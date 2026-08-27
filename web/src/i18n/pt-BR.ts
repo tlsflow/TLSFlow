@@ -3488,7 +3488,8 @@ export default {
       usage: {
         columns: {
           domainName: 'Domínio / destino',
-          agentName: 'Nome do Agent',
+          assetName: 'Ativo',
+          frameworkName: 'Framework',
           siteName: 'Nome do site',
           bindingType: 'Tipo de binding',
           usageSource: 'Origem',
@@ -3777,6 +3778,7 @@ export default {
         notBefore: 'Data inicial',
         notAfter: 'Data final',
         associatedAsset: 'Ativo relacionado',
+        applicationCount: 'Aplicações',
         sourceType: 'Adicionado por',
         status: 'Status',
         certificateVersionId: 'ID da versão do certificado'

@@ -41,7 +41,8 @@ interface CertificateUsageRow extends ApiRecord {
   readonly resourceName: string
   readonly targetName: string
   readonly domainName: string
-  readonly agentName: string
+  readonly assetName: string
+  readonly frameworkName: string
   readonly siteName: string
   readonly bindingType: string
   readonly usageSource: string
@@ -55,11 +56,13 @@ const asset = ref<ApiRecord | null>(null)
 const version = ref<ApiRecord | null>(null)
 const usages = ref<ApiRecord[]>([])
 
-const mergedUsages = computed<CertificateUsageRow[]>(() => {
+const currentVersionUsages = computed<CertificateUsageRow[]>(() => {
   const items = [
     ...(props.contextUsages ?? []).map((item) => normalizeUsageRow(item, detailPanelT('sources.agentContext'))),
     ...usages.value.map((item) => normalizeUsageRow(item, detailPanelT('sources.platformBinding'))),
-  ]
+  ].filter((item) =>
+    hasApplicationServiceAsset(item) && isCurrentVersionUsage(item, props.versionId),
+  )
   const deduped = new Map<string, CertificateUsageRow>()
   for (const item of items) {
     const key = [item.resourceId, item.domainName, item.bindingType, item.usageSource].join('|')
@@ -68,19 +71,14 @@ const mergedUsages = computed<CertificateUsageRow[]>(() => {
   return [...deduped.values()]
 })
 
-const currentVersionUsages = computed<CertificateUsageRow[]>(() =>
-  mergedUsages.value.filter((item) =>
-    isCurrentVersionUsage(item, props.versionId, readVersionFingerprint()),
-  ),
-)
-
 const usageColumns = computed<DataTableColumn<ApiRecord>[]>(() => [
   { key: 'domainName', title: detailPanelT('usage.columns.domainName') },
-  { key: 'agentName', title: detailPanelT('usage.columns.agentName'), width: 'calc(var(--gc-space-10) * 4)' },
-  { key: 'siteName', title: detailPanelT('usage.columns.siteName'), width: 'var(--gc-size-card-min)' },
-  { key: 'bindingType', title: detailPanelT('usage.columns.bindingType'), width: 'calc(var(--gc-space-12) * 3)' },
-  { key: 'usageSource', title: detailPanelT('usage.columns.usageSource'), width: 'calc(var(--gc-space-12) * 3)' },
-  { key: 'status', title: detailPanelT('usage.columns.status'), width: 'calc(var(--gc-space-10) * 3)' },
+  { key: 'assetName', title: detailPanelT('usage.columns.assetName'), width: '12%' },
+  { key: 'frameworkName', title: detailPanelT('usage.columns.frameworkName'), width: '14%' },
+  { key: 'siteName', title: detailPanelT('usage.columns.siteName'), width: '16%' },
+  { key: 'bindingType', title: detailPanelT('usage.columns.bindingType'), width: '14%' },
+  { key: 'usageSource', title: detailPanelT('usage.columns.usageSource'), width: '14%' },
+  { key: 'status', title: detailPanelT('usage.columns.status'), width: '10%' },
 ])
 
 const validityRange = computed(() => ({
@@ -276,7 +274,8 @@ function normalizeUsageRow(record: ApiRecord, fallbackSource: string): Certifica
     || readString(serviceRecord, ['id'], '')
     || readString(hostRecord, ['id'], '')
 
-  const domainName = readString(record, ['domainName', 'targetName', 'assetName', 'resourceName'], '')
+  const domainName = readString(serviceAssetRecord, ['displayName'], '')
+    || readString(record, ['domainName', 'targetName', 'assetName', 'resourceName'], '')
     || readString(bindingRecord, ['domainName', 'domain'], '')
     || readString(serviceAssetRecord, ['address'], '')
     || readString(serviceRecord, ['displayName'], '')
@@ -295,11 +294,16 @@ function normalizeUsageRow(record: ApiRecord, fallbackSource: string): Certifica
     || readString(hostRecord, ['hostname', 'primaryIp'], '')
     || targetName
 
-  const agentName = readString(record, ['agentName'], '')
+  const assetName = readString(record, ['assetName', 'agentName'], '')
     || readString(hostRecord, ['displayName', 'hostname', 'agentId', 'primaryIp'], '')
     || readString(managedTargetRecord, ['agentId'], '')
     || readString(siteAssetRecord, ['agentId'], '')
     || readString(metadataRecord, ['agentName', 'agentId'], '')
+    || detailPanelT('fallbacks.emptyValue')
+
+  const frameworkName = readString(record, ['frameworkName'], '')
+    || readString(serviceRecord, ['providerType', 'frameworkType', 'displayName'], '')
+    || readString(bindingRecord, ['metadata.frameworkName', 'metadata.frameworkType'], '')
     || detailPanelT('fallbacks.emptyValue')
 
   const siteName = readString(record, ['siteName'], '')
@@ -328,7 +332,8 @@ function normalizeUsageRow(record: ApiRecord, fallbackSource: string): Certifica
     resourceName: resourceName || domainName || detailPanelT('fallbacks.unknownResource'),
     targetName: targetName || domainName || detailPanelT('fallbacks.unknownTarget'),
     domainName: domainName || detailPanelT('fallbacks.unknownTarget'),
-    agentName,
+    assetName,
+    frameworkName,
     siteName,
     bindingType,
     usageSource,
@@ -336,31 +341,27 @@ function normalizeUsageRow(record: ApiRecord, fallbackSource: string): Certifica
   }
 }
 
-function isCurrentVersionUsage(record: ApiRecord, versionId: string, versionFingerprint: string) {
+function hasApplicationServiceAsset(record: ApiRecord): boolean {
+  const serviceAsset = readPath(record, 'serviceAsset')
+  if (!serviceAsset || typeof serviceAsset !== 'object') return false
+  const serviceAssetRecord = serviceAsset as ApiRecord
+  const serviceAssetId = readString(serviceAssetRecord, ['id'], '')
+  const deletedAt = readString(serviceAssetRecord, ['deletedAt'], '')
+  const status = readString(serviceAssetRecord, ['status'], '').toUpperCase()
+  return Boolean(serviceAssetId) && !deletedAt && status !== 'DELETED'
+}
+
+function isCurrentVersionUsage(record: ApiRecord, versionId: string) {
   const binding = readPath(record, 'binding')
   const bindingRecord = binding && typeof binding === 'object' ? binding as ApiRecord : null
 
-  const currentVersionId = readString(record, ['certificateVersionId'], '')
-    || readString(bindingRecord, ['certificateVersionId', 'localCertificateVersionId'], '')
-  if (currentVersionId && currentVersionId === versionId) return true
-
-  const observedFingerprint = normalizeSha256(
-    readString(record, ['observedFingerprintSha256'], '')
-    || readString(bindingRecord, ['observedFingerprintSha256'], ''),
-  )
-  if (observedFingerprint) return Boolean(versionFingerprint) && observedFingerprint === versionFingerprint
-
-  // 中文说明：版本 usage 接口本身已经按 versionId 过滤；旧数据没有回传版本标识时仍应展示关联资产。
-  return true
-}
-
-function readVersionFingerprint() {
-  return normalizeSha256(readString(version.value, ['fingerprintSha256'], ''))
-}
-
-function normalizeSha256(value: string) {
-  const normalized = value.trim().toLowerCase()
-  return /^[0-9a-f]{64}$/.test(normalized) ? normalized : ''
+  const relatedVersionIds = [
+    ...['certificateVersionId', 'targetCertificateVersionId', 'localCertificateVersionId'].map((field) => readString(record, [field], '')),
+    ...['certificateVersionId', 'targetCertificateVersionId', 'localCertificateVersionId'].map((field) => readString(bindingRecord, [field], '')),
+  ].filter(Boolean)
+  // 中文说明：版本 usage 接口会为历史指纹匹配记录补充当前版本标识；
+  // 前端只接受明确命中当前版本的记录，禁止用同域名或缺失字段兜底。
+  return relatedVersionIds.includes(versionId)
 }
 
 function roleLabel(role: CertificateChainItem['role']) {
@@ -484,8 +485,11 @@ async function loadDetail() {
           <template #cell-domainName="{ row }">
             {{ readUsageField(row, ['domainName', 'targetName', 'assetName', 'resourceName'], detailPanelT('fallbacks.unknownTarget')) }}
           </template>
-          <template #cell-agentName="{ row }">
-            {{ readUsageField(row, ['agentName'], detailPanelT('fallbacks.emptyValue')) }}
+          <template #cell-assetName="{ row }">
+            {{ readUsageField(row, ['assetName'], detailPanelT('fallbacks.emptyValue')) }}
+          </template>
+          <template #cell-frameworkName="{ row }">
+            {{ readUsageField(row, ['frameworkName'], detailPanelT('fallbacks.emptyValue')) }}
           </template>
           <template #cell-siteName="{ row }">
             {{ readUsageField(row, ['siteName'], detailPanelT('fallbacks.emptyValue')) }}

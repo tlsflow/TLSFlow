@@ -145,6 +145,21 @@ describe('CertificatesView', () => {
       }
 
       if (target.includes('/certificate-versions')) {
+        if (target.includes('/certificate-versions/usage')) {
+          const versionId = new URL(target, 'https://example.test').searchParams.get('id')
+          const usages = versionId === 'certver-expired'
+            ? [
+                { binding: { id: 'binding-expired', certificateVersionId: versionId }, serviceAsset: { id: 'app-expired' } },
+                { binding: { id: 'binding-discovered-only', certificateVersionId: versionId }, siteAsset: { id: 'site-discovered-only' }, managedTarget: { id: 'target-discovered-only' } },
+              ]
+            : versionId === 'certver-soon'
+              ? [
+                  { binding: { id: 'binding-soon-a', certificateVersionId: versionId }, serviceAsset: { id: 'app-soon-a' } },
+                  { binding: { id: 'binding-soon-b', certificateVersionId: versionId }, serviceAsset: { id: 'app-soon-b' } },
+                ]
+              : []
+          return new Response(JSON.stringify({ data: { usages, blockedDeletion: usages.length > 0 } }), { status: 200 })
+        }
         if (target.includes('pageSize=100')) {
           return new Response(JSON.stringify({
             data: {
@@ -152,6 +167,7 @@ describe('CertificatesView', () => {
                 {
                   id: 'certver-expired',
                   certificateAssetId: 'asset-1',
+                  applicationCount: 99,
                   commonName: 'alpha.weichai.com',
                   notBefore: '2025-01-01T00:00:00.000Z',
                   notAfter: '2025-01-02T00:00:00.000Z',
@@ -254,6 +270,7 @@ describe('CertificatesView', () => {
     expect(versionTableFooter?.querySelector('select.gc-pagination__size-select')).not.toBeNull()
 
     const tableText = document.body.textContent ?? ''
+    expect(tableText).toContain('应用数')
     expect(tableText).toContain('开始日期')
     expect(tableText).toContain('结束日期')
     expect(tableText).toContain('添加方式')
@@ -264,6 +281,7 @@ describe('CertificatesView', () => {
     expect(rows[0]?.textContent).toContain('2025-01-01')
     expect(rows[0]?.textContent).toContain('2025-01-02')
     expect(rows[0]?.textContent).toContain('过期')
+    expect(rows[0]?.textContent).toContain('1')
     expect(rows[0]?.textContent).toContain('手动导入')
     expect([...rows[0]!.querySelectorAll('.gc-tag')].map((tag) => [...tag.classList])).toEqual(
       expect.arrayContaining([
@@ -274,6 +292,7 @@ describe('CertificatesView', () => {
     expect(rows[1]?.textContent).toContain('2026-06-01')
     expect(rows[1]?.textContent).toContain(formatBrowserLocalTime('2026-06-15T23:59:59.000Z', { includeTime: false }))
     expect(rows[1]?.textContent).toContain('即将过期')
+    expect(rows[1]?.textContent).toContain('2')
     expect(rows[1]?.textContent).toContain('外部 API')
     expect([...rows[1]!.querySelectorAll('.gc-tag')].map((tag) => [...tag.classList])).toEqual(
       expect.arrayContaining([
@@ -284,6 +303,7 @@ describe('CertificatesView', () => {
     expect(rows[2]?.textContent).toContain('2026-06-10')
     expect(rows[2]?.textContent).toContain(formatBrowserLocalTime('2026-12-17T23:59:59.000Z', { includeTime: false }))
     expect(rows[2]?.textContent).toContain('有效')
+    expect(rows[2]?.textContent).toContain('0')
     expect(rows[2]?.textContent).toContain('外部 API')
     expect([...rows[2]!.querySelectorAll('.gc-tag')].map((tag) => [...tag.classList])).toEqual(
       expect.arrayContaining([

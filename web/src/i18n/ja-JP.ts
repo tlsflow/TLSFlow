@@ -3497,7 +3497,8 @@ export default {
       usage: {
         columns: {
           domainName: 'ドメイン名/ターゲット',
-          agentName: 'Agent名前',
+          assetName: 'アセット',
+          frameworkName: 'フレームワーク',
           siteName: 'サイト名前',
           bindingType: 'バインドタイプ',
           usageSource: 'ソース',
@@ -3786,6 +3787,7 @@ export default {
         notBefore: '開始日付',
         notAfter: '終了日付',
         associatedAsset: '関連アセット',
+        applicationCount: 'アプリケーション数',
         sourceType: '追加方法',
         status: 'ステータス',
         certificateVersionId: '証明書バージョン ID'

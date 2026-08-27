@@ -3475,7 +3475,8 @@ export default {
       usage: {
         columns: {
           domainName: '도메인/대상',
-          agentName: 'Agent이름',
+          assetName: '자산',
+          frameworkName: '프레임워크',
           siteName: '사이트 이름',
           bindingType: '바인딩 형식',
           usageSource: '출처',
@@ -3764,6 +3765,7 @@ export default {
         notBefore: '시작 날짜',
         notAfter: '종료 날짜',
         associatedAsset: '관련 자산',
+        applicationCount: '애플리케이션 수',
         sourceType: '추가 방식',
         status: '상태',
         certificateVersionId: '인증서 버전 ID'

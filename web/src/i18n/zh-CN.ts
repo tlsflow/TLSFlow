@@ -3691,7 +3691,8 @@ export default {
       usage: {
         columns: {
           domainName: '域名/目标',
-          agentName: 'Agent名称',
+          assetName: '资产',
+          frameworkName: '框架',
           siteName: '站点名称',
           bindingType: '绑定类型',
           usageSource: '来源',
@@ -3980,6 +3981,7 @@ export default {
         notBefore: '开始日期',
         notAfter: '结束日期',
         associatedAsset: '关联资产',
+        applicationCount: '应用数',
         sourceType: '添加方式',
         status: '状态',
         certificateVersionId: '证书版本 ID'
