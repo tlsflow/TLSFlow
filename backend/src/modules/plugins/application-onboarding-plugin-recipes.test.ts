@@ -45,9 +45,25 @@ const expected = {
     framework: 'web.nginx',
     format: 'PEM',
   },
+  'app.tomcat.linux': {
+    version: '1.0.6',
+    platformKey: 'app.tomcat.linux',
+    displayName: 'Linux Tomcat 应用',
+    englishDisplayName: 'Linux Tomcat Site',
+    framework: 'app.tomcat',
+    formats: ['PFX', 'JKS'],
+  },
+  'app.tomcat.windows': {
+    version: '1.0.7',
+    platformKey: 'app.tomcat.windows',
+    displayName: 'Windows Tomcat 应用',
+    englishDisplayName: 'Windows Tomcat Site',
+    framework: 'app.tomcat',
+    formats: ['PFX', 'JKS'],
+  },
 } as const;
 
-test('IIS 与 Windows/Linux Apache/Nginx 都提供统一应用向导配方', async () => {
+test('IIS、Windows/Linux Apache/Nginx 与 Tomcat 都提供统一应用向导配方', async () => {
   const packages = await new BuiltinUnifiedPluginLoader().loadPackages();
   const loader = new ApplicationOnboardingRecipeLoader();
 
@@ -67,7 +83,13 @@ test('IIS 与 Windows/Linux Apache/Nginx 都提供统一应用向导配方', asy
     assert.equal(manifest.version, expectation.version);
     assert.equal(recipe.platformKey, expectation.platformKey);
     assert.equal(recipe.targetProjection.frameworkTypes?.[0], expectation.framework);
-    assert.deepEqual(recipe.certificate.acceptedFormats, [expectation.format]);
+    assert.deepEqual(recipe.certificate.acceptedFormats, 'formats' in expectation ? expectation.formats : [expectation.format]);
+    if (pluginId.startsWith('app.tomcat.')) {
+      assert.equal(recipe.deploymentDefaults?.capabilityKey, 'certificate.deploy');
+      assert.deepEqual(recipe.deploymentDefaults?.variables, {});
+      assert.equal(recipe.deploymentDefaults?.certificateFormat, undefined);
+      assert.deepEqual(recipe.certificate.requiredArtifacts, ['keystore']);
+    }
     const onboarding = manifest.resources.onboarding;
     assert.ok(onboarding?.applicationAsset);
     assert.ok(plugin.resources[onboarding.applicationAsset]);
@@ -79,7 +101,9 @@ test('IIS 与 Windows/Linux Apache/Nginx 都提供统一应用向导配方', asy
       ? 'plugin.webIis.name'
       : pluginId === 'web.apache.windows' ? 'plugin.webApacheWindows.name'
         : pluginId === 'web.apache.linux' ? 'plugin.webApacheLinux.name'
-          : pluginId === 'web.nginx.windows' ? 'plugin.webNginxWindows.name' : 'plugin.webNginxLinux.name';
+          : pluginId === 'web.nginx.windows' ? 'plugin.webNginxWindows.name'
+            : pluginId === 'web.nginx.linux' ? 'plugin.webNginxLinux.name'
+              : pluginId === 'app.tomcat.linux' ? 'plugin.appTomcatLinux.name' : 'plugin.appTomcatWindows.name';
     assert.equal(zhCn[nameKey], expectation.displayName);
     for (const locale of hostLocales) {
       const messages = JSON.parse(plugin.resources[manifest.resources.locales?.[locale] ?? ''] ?? '{}') as Record<string, unknown>;
