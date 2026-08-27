@@ -53,7 +53,7 @@ Release Bundle 只从 `agents/windows-compat-full-agent/dist` 读取 Compatibili
 - `windows/arm64/compatibility` 目录；
 - 未经 Go 1.20 构建机确认的生产二进制。
 
-`docker/verify/verify-release-bundle.mjs` 必须验证 Compatibility manifest 的 `runtime=go`、`toolchain=go1.20`、`productLine=windows-compat-full-agent` 和 `architectures=["windows/amd64"]`，并逐文件校验 SHA-256。
+`docker/verify/verify-release-bundle.sh` 必须验证 Compatibility manifest 的 `runtime=go`、`toolchain=go1.20`、`productLine=windows-compat-full-agent` 和 `architectures=["windows/amd64"]`，并逐文件校验 SHA-256。
 
 ## 安装和升级验收
 
