@@ -634,6 +634,9 @@ func validateAgentPlan(plan agentPlanV2, token AgentCapabilityTokenV1) error {
 		if path := stringValue(operation.Input, "path"); path != "" && !pathScopeContains(token.AllowedPaths, path) {
 			return errors.New("operation path is outside token scope")
 		}
+		if configPath := stringValue(operation.Input, "configPath"); configPath != "" && !pathScopeContains(token.AllowedPaths, configPath) {
+			return errors.New("operation configPath is outside token scope")
+		}
 		if service := stringValue(operation.Input, "serviceName"); service != "" && !scopeContains(token.AllowedServices, service) {
 			return errors.New("operation service is outside token scope")
 		}
@@ -705,6 +708,9 @@ func validateAgentPlanOperation(operation agentPlanAction) error {
 	}
 	if operation.OperationType == "certificate.install_issued" {
 		return validateIssuedCertificateInstallInput(operation.Input)
+	}
+	if operation.OperationType == "certificate.material.validate" {
+		return validateWindowsCertificateMaterialInput(operation.Input)
 	}
 	if strings.HasPrefix(operation.OperationType, "ca.") {
 		return validateCertificateAuthorityOperationInput(operation.OperationType, operation.Input)
@@ -1461,14 +1467,51 @@ func executeCertificateMaterialValidate(ctx context.Context, operation agentPlan
 		return nil, err
 	}
 	if storageKind == "KEYSTORE" {
-		if len(content) == 0 {
-			return nil, errors.New("keystore content is empty")
+		if err := validateWindowsCertificateMaterialInput(operation.Input); err != nil {
+			return nil, err
 		}
 	} else if err := validatePemMaterial(path, content); err != nil {
 		return nil, err
 	}
 	digest := sha256.Sum256(content)
-	return map[string]any{"status": "SUCCEEDED", "path": filepath.Clean(path), "storageKind": storageKind, "bytes": len(content), "contentSha256": hex.EncodeToString(digest[:])}, nil
+	detail := map[string]any{"status": "SUCCEEDED", "path": filepath.Clean(path), "storageKind": storageKind, "bytes": len(content), "contentSha256": hex.EncodeToString(digest[:])}
+	if storageKind == "KEYSTORE" {
+		material, err := validateWindowsKeyStoreMaterial(operation.Input, path, content)
+		if err != nil {
+			return nil, err
+		}
+		detail["keystoreType"] = material.Format
+		detail["keyAlias"] = material.Alias
+		detail["aliasVerified"] = material.AliasVerified
+		detail["certificateCount"] = material.CertificateCount
+		detail["hasPrivateKey"] = len(material.PrivateKeyPublicKey) > 0
+		detail["certificateFingerprintSha256"] = material.CertificateFingerprint
+	}
+	return detail, nil
+}
+
+func validateWindowsCertificateMaterialInput(input map[string]any) error {
+	path := stringValue(input, "path")
+	if !isSafeWindowsAbsolutePath(path) {
+		return errors.New("certificate.material.validate KeyStore path is invalid")
+	}
+	if stringValue(input, "storageKind") != "KEYSTORE" {
+		return nil
+	}
+	keystoreType := strings.ToUpper(strings.TrimSpace(stringValue(input, "keystoreType")))
+	if keystoreType != "JKS" && keystoreType != "PKCS12" {
+		return errors.New("certificate.material.validate KeyStore type is invalid")
+	}
+	if strings.TrimSpace(stringValue(input, "keyAlias")) == "" {
+		return errors.New("certificate.material.validate KeyStore alias is required")
+	}
+	if stringValue(input, "keystorePassword") == "" && stringValue(input, "configPath") == "" {
+		return errors.New("certificate.material.validate KeyStore password source is required")
+	}
+	if configPath := stringValue(input, "configPath"); configPath != "" && !isSafeWindowsAbsolutePath(configPath) {
+		return errors.New("certificate.material.validate configPath is invalid")
+	}
+	return nil
 }
 
 func decodeOperationContent(input map[string]any) ([]byte, error) {

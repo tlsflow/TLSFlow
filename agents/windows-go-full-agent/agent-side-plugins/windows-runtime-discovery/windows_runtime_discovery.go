@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
@@ -16,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 
+	keystore "github.com/pavlo-v-chernykh/keystore-go/v4"
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
 )
 
@@ -1071,7 +1073,7 @@ func parseWindowsTomcatServerXML(configPath string, tomcatPath string) ([]window
 						connector.SSLHostConfigPassword,
 						connector.CertificateKeystorePassword,
 					)
-					listener.Certificate = readWindowsPKCS12CertificateSummary(listener.KeystorePath, password)
+					listener.Certificate = readWindowsKeyStoreCertificateSummary(listener.KeystorePath, listener.KeystoreType, password)
 					if listener.Certificate == nil {
 						warnings = append(warnings, windowsDiscoveryWarning{Code: "KEYSTORE_CERTIFICATE_READ_FAILED", Message: "Tomcat KeyStore 公开证书不可读", Path: listener.KeystorePath})
 					}
@@ -1173,7 +1175,7 @@ func finalizeWindowsRuntimeSite(site *windowsRuntimeSite, index int, product str
 			site.Listen[index].Certificate = firstNonNilWindowsCertificate(
 				site.Listen[index].Certificate,
 				readWindowsCertificateSummary(site.Listen[index].CertificatePath),
-				readWindowsPKCS12CertificateSummary(site.Listen[index].KeystorePath, ""),
+				readWindowsKeyStoreCertificateSummary(site.Listen[index].KeystorePath, site.Listen[index].KeystoreType, ""),
 			)
 			site.Listen[index].ConfigFingerprint = site.ConfigFingerprint
 			site.Listen[index].BindingInformation = windowsBindingInformation(site.Name, site.Listen[index])
@@ -1319,6 +1321,66 @@ func readWindowsPKCS12CertificateSummary(path string, password string) *windowsC
 		return nil
 	}
 	certificate := readWindowsPKCS12Certificate(content, password)
+	if certificate == nil {
+		return nil
+	}
+	sum := sha256.Sum256(certificate.Raw)
+	return &windowsCertificateSummary{
+		FingerprintSHA256: hex.EncodeToString(sum[:]),
+		Subject:           certificate.Subject.String(),
+		Issuer:            certificate.Issuer.String(),
+		NotBefore:         certificate.NotBefore.Format("2006-01-02T15:04:05Z07:00"),
+		NotAfter:          certificate.NotAfter.Format("2006-01-02T15:04:05Z07:00"),
+	}
+}
+
+func readWindowsJKSCertificateSummary(path string, password string) *windowsCertificateSummary {
+	if strings.TrimSpace(path) == "" {
+		return nil
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	store := keystore.New()
+	if err := store.Load(bytes.NewReader(content), []byte(password)); err != nil {
+		return nil
+	}
+	for _, alias := range store.Aliases() {
+		if store.IsPrivateKeyEntry(alias) {
+			chain, chainErr := store.GetPrivateKeyEntryCertificateChain(alias)
+			if chainErr == nil && len(chain) > 0 {
+				certificate, parseErr := x509.ParseCertificate(chain[0].Content)
+				if parseErr == nil {
+					return windowsCertificateSummaryFromCertificate(certificate)
+				}
+			}
+		}
+		if store.IsTrustedCertificateEntry(alias) {
+			entry, entryErr := store.GetTrustedCertificateEntry(alias)
+			if entryErr == nil {
+				certificate, parseErr := x509.ParseCertificate(entry.Certificate.Content)
+				if parseErr == nil {
+					return windowsCertificateSummaryFromCertificate(certificate)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func readWindowsKeyStoreCertificateSummary(path string, keystoreType string, password string) *windowsCertificateSummary {
+	normalizedType := strings.ToUpper(strings.TrimSpace(keystoreType))
+	if normalizedType == "" && strings.HasSuffix(strings.ToLower(strings.TrimSpace(path)), ".jks") {
+		normalizedType = "JKS"
+	}
+	if normalizedType == "JKS" {
+		return readWindowsJKSCertificateSummary(path, password)
+	}
+	return readWindowsPKCS12CertificateSummary(path, password)
+}
+
+func windowsCertificateSummaryFromCertificate(certificate *x509.Certificate) *windowsCertificateSummary {
 	if certificate == nil {
 		return nil
 	}
