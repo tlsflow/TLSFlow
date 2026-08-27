@@ -6,6 +6,7 @@ export type AppViewMode = 'user' | 'professional'
 export interface AppPreferences {
   readonly theme: ThemeMode
   readonly locale: SupportedLocale
+  readonly defaultCaId?: string
   readonly version: 1
 }
 
@@ -23,9 +24,11 @@ export function normalizePreferences(value: unknown): AppPreferences {
     return defaultPreferences
   }
   const record = value as Record<string, unknown>
+  const defaultCaId = typeof record.defaultCaId === 'string' && record.defaultCaId.trim() ? record.defaultCaId.trim() : undefined
   return {
     theme: isThemeMode(record.theme) ? record.theme : defaultPreferences.theme,
     locale: normalizeLocale(record.locale),
+    ...(defaultCaId ? { defaultCaId } : {}),
     version: 1
   }
 }

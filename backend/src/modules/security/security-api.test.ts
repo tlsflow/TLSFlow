@@ -755,10 +755,10 @@ describe('安全 API 最小闭环', () => {
       method: 'PUT',
       path: '/api/v1/auth/preferences',
       headers: { authorization: `Bearer ${token}` },
-      body: { theme: 'dark', locale: 'pt-BR' },
+      body: { theme: 'dark', locale: 'pt-BR', defaultCaId: 'ca_default' },
     });
     assert.equal(updated.statusCode, 200);
-    assert.deepEqual(updated.body, { theme: 'dark', locale: 'pt-BR', version: 1 });
+    assert.deepEqual(updated.body, { theme: 'dark', locale: 'pt-BR', defaultCaId: 'ca_default', version: 1 });
 
     const persisted = await app.inject({
       method: 'GET',
@@ -766,7 +766,7 @@ describe('安全 API 最小闭环', () => {
       headers: { authorization: `Bearer ${token}` },
     });
     assert.equal(persisted.statusCode, 200);
-    assert.deepEqual(persisted.body, { theme: 'dark', locale: 'pt-BR', version: 1 });
+    assert.deepEqual(persisted.body, { theme: 'dark', locale: 'pt-BR', defaultCaId: 'ca_default', version: 1 });
 
     const invalid = await app.inject({
       method: 'PUT',

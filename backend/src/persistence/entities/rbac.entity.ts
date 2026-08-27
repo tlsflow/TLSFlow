@@ -6,6 +6,7 @@ export type SupportedLocale = 'zh-CN' | 'zh-TW' | 'en-US' | 'ja-JP' | 'fr-FR' | 
 export interface UserPreferences {
   theme: ThemeMode;
   locale: SupportedLocale;
+  defaultCaId?: string;
   version: 1;
 }
 

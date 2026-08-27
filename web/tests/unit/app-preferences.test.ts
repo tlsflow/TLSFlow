@@ -71,6 +71,41 @@ describe('App 偏好 Store', () => {
     expect(store.preferenceError).toBeNull()
   })
 
+  it('设置默认 CA 会保存偏好并在 Store 中保留', async () => {
+    preferenceApi.updateCurrentUserPreferences.mockResolvedValue({
+      data: { theme: 'light', locale: 'zh-CN', defaultCaId: 'ca_default', version: 1 },
+      requestId: 'req_save_default_ca',
+      timestamp: '2026-07-07T00:00:00.000Z'
+    })
+
+    const store = useAppStore()
+    await store.setDefaultCaId('  ca_default  ')
+
+    expect(store.preferences.defaultCaId).toBe('ca_default')
+    expect(preferenceApi.updateCurrentUserPreferences).toHaveBeenCalledWith({
+      theme: defaultPreferences.theme,
+      locale: defaultPreferences.locale,
+      defaultCaId: 'ca_default'
+    })
+    expect(JSON.parse(localStorage.getItem('gcac.app.preferences') ?? '{}')).toEqual({
+      theme: defaultPreferences.theme,
+      locale: 'zh-CN',
+      defaultCaId: 'ca_default',
+      version: 1
+    })
+  })
+
+  it('默认 CA 保存失败时回滚本地选择', async () => {
+    preferenceApi.updateCurrentUserPreferences.mockRejectedValue(new Error('backend down'))
+
+    const store = useAppStore()
+    const saved = await store.setDefaultCaId('ca_default')
+
+    expect(saved).toBe(false)
+    expect(store.preferences.defaultCaId).toBeUndefined()
+    expect(JSON.parse(localStorage.getItem('gcac.app.preferences') ?? '{}')).not.toHaveProperty('defaultCaId')
+  })
+
   it('后端保存失败时保留当前界面选择并记录错误', async () => {
     preferenceApi.updateCurrentUserPreferences.mockRejectedValue(new Error('backend down'))
 

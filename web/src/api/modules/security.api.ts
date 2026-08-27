@@ -220,6 +220,7 @@ export function getCurrentUserPreferences(): Promise<ApiResult<AppPreferences>> 
 export function updateCurrentUserPreferences(body: {
   theme: ThemeMode
   locale: SupportedLocale
+  defaultCaId?: string
 }): Promise<ApiResult<AppPreferences>> {
   return apiClient.request<AppPreferences>('/v1/auth/preferences', { method: 'PUT', body })
 }

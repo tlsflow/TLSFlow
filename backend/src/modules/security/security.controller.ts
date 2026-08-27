@@ -293,10 +293,16 @@ export class SecurityController {
     const body = validateObject(request.body, {
       theme: { type: 'string', required: true, enum: THEME_MODES },
       locale: { type: 'string', required: true, enum: SUPPORTED_LOCALES },
+      defaultCaId: { type: 'string', required: false },
     });
+    const currentUser = await this.services.rbac.getUser(subject.id);
+    const defaultCaId = body.defaultCaId === undefined
+      ? currentUser?.preferences?.defaultCaId
+      : typeof body.defaultCaId === 'string' ? body.defaultCaId.trim() || undefined : undefined;
     const preferences: UserPreferences = {
       theme: body.theme as ThemeMode,
       locale: body.locale as SupportedLocale,
+      ...(defaultCaId ? { defaultCaId } : {}),
       version: 1,
     };
     const user = await this.services.rbac.updateUserPreferences(subject.id, preferences);
@@ -1775,7 +1781,8 @@ function normalizeUserPreferences(value: unknown): UserPreferences {
   const record = value as Record<string, unknown>;
   const theme = THEME_MODES.includes(record.theme as ThemeMode) ? record.theme as ThemeMode : DEFAULT_USER_PREFERENCES.theme;
   const locale = SUPPORTED_LOCALES.includes(record.locale as SupportedLocale) ? record.locale as SupportedLocale : DEFAULT_USER_PREFERENCES.locale;
-  return { theme, locale, version: 1 };
+  const defaultCaId = typeof record.defaultCaId === 'string' && record.defaultCaId.trim() ? record.defaultCaId.trim() : undefined;
+  return { theme, locale, ...(defaultCaId ? { defaultCaId } : {}), version: 1 };
 }
 
 function serializeTenant(tenant: TenantEntity) {
