@@ -142,7 +142,7 @@ Tomcat KeyStore 插件的密码字段必须声明为可选 Credential：优先�
 
 应用接入配方使用 `gcac.application-onboarding/v1`，完整字段和校验规则见[宿主插件能力清单](./host-plugin-capabilities.md#应用接入配方-schema)。
 
-云账号不使用应用接入配方。云 Provider 必须声明 `assetKind=CLOUD_ACCOUNT` 的接入配方，提供 Form、Credential Contract、连接测试、发现能力、CloudAccountAsset 提交目标和平台卡片业务元数据（能力版本、支持范围、接入前需提供的信息）。用户从资产中心“添加资产”或统一服务向导进入同一接入流程；云账号始终是独立领域对象，发现结果只投影为 Framework/Site，证书部署仍由独立工作流负责。`/providers` 从二级菜单移除，迁移期旧地址只跳转到统一入口。
+云 Provider 必须声明 `assetKind=CLOUD_ACCOUNT` 的接入配方，并接入统一五步 `Platform → Resource → Site → Certificate → Complete`。配方提供 Form、Credential Contract、连接测试、发现能力、CloudAccountAsset 提交目标、目标类型和完成能力声明。Resource 步骤可选择或新建云账号，Site 步骤必须选择真实 SiteAsset，Certificate 步骤必须选择精确版本；发现型 Provider 完成后只能保存“已配置”，证书部署仍由 V1 DSL 负责。两个入口共用同一会话和提交服务，不得实现独立模态框或 Provider CRUD 旁路。
 
 ## 6. 编写 Workflow 或 Agent Plan
 

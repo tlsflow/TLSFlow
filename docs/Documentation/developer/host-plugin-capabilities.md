@@ -212,7 +212,7 @@ Manifest 固定根字段：
 | `locales` | Locale 文案资源 |
 | `discoveryMappings` | 控制面发现映射 |
 | `agentDiscoveryMappings` | Agent 发现映射 |
-| `onboarding` | 应用资产接入配方；云账号使用独立的 `assetKind=CLOUD_ACCOUNT` 接入配方，至少声明 Form、Credential Contract、连接测试、发现、CloudAccountAsset 提交目标和平台卡片业务元数据 |
+| `onboarding` | 统一五步接入配方；云账号声明 `assetKind=CLOUD_ACCOUNT`、资源选择、SiteAsset 目标、证书格式和完成能力，至少提供 Form、Credential Contract、连接测试、发现和 CloudAccountAsset 提交目标 |
 
 包最多 500 个资源文件、总大小最多 20 MB。资源路径必须是包内相对路径；普通资源禁止 `.js/.mjs/.cjs/.ts/.tsx/.vue/.ps1/.sh/.bat/.cmd/.exe/.dll/.so/.dylib` 等可执行文件，只有固定 `runtime/index.js` 例外。Logo 禁止脚本、动画、外链、`foreignObject` 和外部图片。
 
@@ -285,7 +285,7 @@ Manifest 固定根字段：
 
 ## 7. 接入配方和证书制品
 
-应用资产接入配方使用 `gcac.application-onboarding/v1`，由插件声明平台名称、支持状态、设备选择方式、新建设备入口、连接测试、身份识别、发现、目标投影、接受的证书格式、所需制品和提交来源。宿主只执行统一向导，不按厂商名称写分支。
+接入配方使用版本化的 `gcac.application-onboarding` 合同，由插件声明平台名称、资源选择方式、连接测试、发现、目标引用类型、接受的证书格式和完成能力。设备资源使用 `MANAGED_TARGET`，云账号资源使用 `CLOUD_ACCOUNT_ASSET` 并将发现结果绑定为 `SITE_ASSET`；宿主只执行统一五步向导，不按厂商名称写分支。
 
 证书部署输入合同按变量、连接、凭据和 Artifact Slot 分组。证书 Artifact 的标准输出角色包括 `leafPem`、`privateKeyPem`、`orderedChainPem`、`fingerprintSha256`、`pfxBase64` 和 `pfxPassword`。插件声明所需格式和输出角色，宿主负责制品生成、密码、链顺序、指纹和 Grant；插件只负责目标侧上传、切换、刷新和回读。
 
@@ -333,24 +333,24 @@ Tomcat `KEYSTORE` 插件的 `keystorePassword` 是可选 Credential Slot，只�
 
 浏览器凭据会话接口见 [`credential.acquire` 合同](#credentialacquire-manifest-合同)；它们使用 `credential.create` / `credential.read` RBAC，不属于插件 Runner Host API。
 
-云账号只能绑定 `cloud.service.connection-test` 和 `cloud.service.discover`；证书签发、续期、吊销等能力必须按 CA 能力合同或 Workflow 使用，不能把证书生命周期偷偷挂到云账号识别绑定上。云账号从资产中心的“添加资产”或统一服务向导进入，服务端保存独立的 CloudAccountAsset，并按统一状态流完成连接测试和发现；`/providers` 不再作为二级菜单，迁移期旧地址只跳转到统一入口。
+云账号至少绑定 `cloud.service.connection-test` 和 `cloud.service.discover`；证书签发、续期、吊销等能力必须按 CA 能力合同或 V1 DSL Workflow 使用，不能把证书生命周期偷偷挂到云账号识别绑定上。云账号从资产中心的“添加资产”或统一服务向导进入统一五步流程，服务端保存独立的 CloudAccountAsset，并把站点选择保存为真实 SiteAsset；只有声明并通过执行合同的 Provider 才能创建部署计划。`/providers` 不再作为二级菜单，迁移期旧地址只跳转到统一入口。
 
-## 10. 应用资产接入会话
+## 10. 统一五步接入会话
 
-声明 `resources.onboarding` 后，插件可以接入统一应用资产向导。宿主提供以下业务步骤：
+声明 `resources.onboarding` 后，插件可以接入统一五步向导。设备和云账号都使用同一会话；第二步的资源类型、第三步的目标类型和完成能力由配方声明，宿主不按厂商写分支：
 
 1. `GET /api/v1/application-onboarding/platforms`：列出当前租户可用的平台和插件版本。
 2. `POST /api/v1/application-onboarding/sessions`：以 `platformKey` 创建会话，必须带 `X-Idempotency-Key`。
-3. `GET /api/v1/application-onboarding/sessions/:id/devices`：读取可用设备；已有设备直接选择，新设备必须跳转统一设备向导或使用配方声明的 `PLUGIN_MANAGED` 入口。
-4. `POST /api/v1/application-onboarding/sessions/:id/resource-selection`：提交设备选择和表单值，并带 `expectedStateVersion`。
+3. `GET /api/v1/application-onboarding/sessions/:id/resources`：读取可用资源；设备配方返回设备，云账号配方返回 `CloudAccountAsset`。
+4. `POST /api/v1/application-onboarding/sessions/:id/resource-selection`：提交 `ResourceRef(kind,id)` 和表单值，并带 `expectedStateVersion`；新资源必须在当前步骤内由插件标准 Form 创建。
 5. `POST /api/v1/application-onboarding/sessions/:id/test`：执行连接测试。
-6. `POST /api/v1/application-onboarding/sessions/:id/discover`：执行身份识别和发现，得到可选 ManagedTarget。
-7. `POST /api/v1/application-onboarding/sessions/:id/target-selection`：提交 `managedTargetId`、`configFingerprint` 以及可选访问域名和验证地址。
+6. `POST /api/v1/application-onboarding/sessions/:id/discover`：执行身份识别和发现，得到可选目标。
+7. `POST /api/v1/application-onboarding/sessions/:id/target-selection`：提交 `TargetRef(kind,id,fingerprint)` 以及可选访问域名和验证地址；云资源使用 `SITE_ASSET`，设备资源使用 `MANAGED_TARGET`。
 8. `GET /api/v1/application-onboarding/sessions/:id/certificate-options`：读取符合配方格式的证书选项。
 9. `POST /api/v1/application-onboarding/sessions/:id/certificate-selection`：精确提交 `certificateId` 和 `certificateVersionId`，或使用配方允许的最新有效版本。
-10. `POST /api/v1/application-onboarding/sessions/:id/complete`：提交接入，生成部署计划或执行记录。
+10. `POST /api/v1/application-onboarding/sessions/:id/complete`：提交接入，按配方能力生成配置结果或 V1 DSL 部署计划；Discovery-only 不得伪造部署成功。
 
-所有写步骤都必须携带 `expectedStateVersion`，旧版本会被拒绝，防止用户在发现结果过期后误选目标。会话默认 30 分钟过期；提交中和已生成计划的会话不能取消。DIRECT_WORKFLOW 配方还必须同时存在同一插件版本的连接、发现和执行 Workflow，且目标必须是 ACTIVE 并提供真实端点，宿主不会接受绕过发现的地址、账号或密码。
+所有写步骤都必须携带 `expectedStateVersion`，旧版本会被拒绝，防止用户在发现结果过期后误选目标。会话默认 30 分钟过期；提交中和已生成计划的会话不能取消。`DIRECT_WORKFLOW` 配方还必须同时存在同一插件版本的连接、发现和执行 Workflow，且目标必须是 ACTIVE 并提供真实端点；云资源若没有执行能力只能保存“已配置”，宿主不会接受绕过发现的地址、账号或密码。
 
 ### 应用接入配方 Schema
 
