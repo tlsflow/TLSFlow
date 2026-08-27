@@ -80,6 +80,8 @@ export interface BusinessPageConfig {
   readonly primaryAction?: () => Promise<unknown> | unknown
   readonly moduleName: string
   readonly resourceName: string
+  /** 可选的列表标题；未提供时沿用“{resource} list”。 */
+  readonly resourceListLabel?: string
   readonly defaultStatus: string
   readonly defaultRisk: RiskCode
   readonly columns: readonly BusinessPageColumn[]

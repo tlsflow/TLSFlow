@@ -8,6 +8,7 @@ import { deleteManagedDeviceAsset, getManagedDevice, listManagedDevices } from '
 import { checkAgentUpgrade, deleteAgent, dispatchAgentUpgrade } from '@/api/modules/assets.api'
 import { GcButton, GcModal, GcStatusTag } from '@/design-system/components'
 import DeviceOnboardingWizard from './DeviceOnboardingWizard.vue'
+import ApplicationOnboardingModal from '@/views/application-onboarding/ApplicationOnboardingModal.vue'
 import ManagedDeviceDetailModal from './details/ManagedDeviceDetailModal.vue'
 import { readString, type ViewRow } from '@/composables/useBusinessPage'
 
@@ -19,6 +20,7 @@ const filters = ref<Record<string, string>>({
   health: readQueryString('health'),
 })
 const onboardingOpen = ref(false)
+const applicationOnboardingOpen = ref(false)
 const reloadKey = ref(0)
 const deviceDetailModal = ref<{ open: (deviceId: string) => Promise<void> } | null>(null)
 const upgradingAgentId = ref('')
@@ -126,6 +128,16 @@ function closeUpgradeConfirmation(): void {
   upgradeConfirmationError.value = ''
 }
 
+function openCloudAccountInApplicationOnboarding(): void {
+  onboardingOpen.value = false
+  applicationOnboardingOpen.value = true
+}
+
+function completeCloudAccountOnboarding(): void {
+  applicationOnboardingOpen.value = false
+  reloadKey.value += 1
+}
+
 const config = computed<BusinessPageConfig>(() => ({
   title: t('devices.page.title'),
   description: t('devices.page.description'),
@@ -135,6 +147,7 @@ const config = computed<BusinessPageConfig>(() => ({
   primaryAction: () => { onboardingOpen.value = true },
   moduleName: 'devices',
   resourceName: t('devices.page.title'),
+  resourceListLabel: t('devices.page.inventory'),
   defaultStatus: 'UNKNOWN',
   defaultRisk: 'MEDIUM',
   showHeader: false,
@@ -238,7 +251,8 @@ const config = computed<BusinessPageConfig>(() => ({
         </span>
       </template>
     </BusinessResourcePage>
-    <DeviceOnboardingWizard v-model:open="onboardingOpen" @completed="reloadKey += 1" />
+    <DeviceOnboardingWizard v-model:open="onboardingOpen" @completed="reloadKey += 1" @add-cloud-account="openCloudAccountInApplicationOnboarding" />
+    <ApplicationOnboardingModal v-model:open="applicationOnboardingOpen" @cloud-account-completed="completeCloudAccountOnboarding" />
     <ManagedDeviceDetailModal ref="deviceDetailModal" />
     <GcModal
       v-model:open="upgradeConfirmationOpen"

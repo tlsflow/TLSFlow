@@ -56,6 +56,7 @@ const showPrimaryAction = computed(() => Boolean(props.config.primaryAction))
 const showDetailPanel = computed(() => props.config.showDetailPanel === true)
 const showActionPanel = computed(() => props.config.showActionPanel === true)
 const hasFilters = computed(() => Boolean(props.config.filters?.length))
+const resourceListLabel = computed(() => props.config.resourceListLabel ?? t('businessPage.resourceList', { resource: props.config.resourceName }))
 const filtersVisible = ref(false)
 
 watch(
@@ -264,7 +265,7 @@ defineExpose({
       :rows="state.rows.value"
       :loading="state.loading.value"
       :empty-text="config.emptyTitle"
-      :aria-label="t('businessPage.resourceList', { resource: config.resourceName })"
+      :aria-label="resourceListLabel"
       dense
       :fixed="config.tableFixed"
       pagination
@@ -278,7 +279,7 @@ defineExpose({
       <template #toolbar>
         <div class="business-page__toolbar">
           <div class="business-page__toolbar-title">
-            <strong>{{ t('businessPage.resourceList', { resource: config.resourceName }) }}</strong>
+            <strong>{{ resourceListLabel }}</strong>
             <span v-if="!config.showTotalInPagination">{{ t('businessPage.total', { count: state.total.value }) }}</span>
           </div>
           <GcPageToolbar class="business-page__toolbar-actions">
