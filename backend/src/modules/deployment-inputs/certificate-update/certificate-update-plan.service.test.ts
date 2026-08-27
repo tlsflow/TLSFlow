@@ -50,7 +50,7 @@ test('六个 Agent Plan 模板都能展开为绑定固定版本和资源摘要�
       assert.deepEqual(result.authorization.allowedPaths, []);
       continue;
     }
-    if (pluginId === 'app.tomcat.windows') {
+    if (pluginId === 'app.tomcat.windows' || pluginId === 'app.tomcat.linux') {
       assert.equal(configCheck, undefined);
       assert.deepEqual(result.authorization.commandRules, []);
       assert.deepEqual(result.authorization.allowedServices, [snapshot.serviceName]);
@@ -152,6 +152,10 @@ test('六个回滚计划先恢复同一次账本，再按平台刷新服务和�
       assert.equal(result.plan.operations.some((operation) => operation.operationType === 'command.execute_allowlisted'), false);
       assert.equal(next?.operationType, 'service.restart');
     }
+    if (pluginId === 'app.tomcat.linux') {
+      assert.equal(result.plan.operations.some((operation) => operation.operationType === 'command.execute_allowlisted'), false);
+      assert.equal(next?.operationType, 'service.stop');
+    }
   }
 });
 
@@ -179,6 +183,26 @@ test('PEM 路径按文件集合展开，KeyStore 只展开一个整体路径', (
   assert.equal(materialValidation?.input.secretRef, 'secret://certificate/tomcat-password');
 });
 
+test('Windows/Linux Tomcat 原子替换操作绑定目标 KeyStore 上下文', () => {
+  for (const pluginId of ['app.tomcat.windows', 'app.tomcat.linux'] as const) {
+    const snapshot = createCertificateUpdateSnapshot(pluginId);
+    const result = compileCertificateUpdatePlanTemplate({
+      templateText: loadCertificateUpdateResource(pluginId, 'agent-plans/deploy.json'),
+      snapshot,
+      resolvedInput: createResolvedCertificateUpdateInput(pluginId),
+      pluginVersionId: `${pluginId}-version-1`,
+      agentId: 'agent-1',
+      tenantId: 'tenant-1',
+    });
+    const replacement = result.plan.operations.find((operation) => operation.operationType === 'filesystem.atomic_replace');
+    assert.ok(replacement, `${pluginId} 缺少原子替换操作`);
+    assert.equal(replacement.input.keystoreType, snapshot.keystoreType);
+    assert.equal(replacement.input.configPath, snapshot.sourceConfigPath);
+    assert.equal(replacement.input.keyAlias, snapshot.keyAlias);
+    assert.equal(replacement.input.storageKind, 'KEYSTORE');
+  }
+});
+
 test('显式 keystorePassword 只在执行期注入并覆盖 SecretRef', () => {
   const pluginId = 'app.tomcat.linux';
   const snapshot = createCertificateUpdateSnapshot(pluginId);
@@ -203,10 +227,18 @@ test('显式 keystorePassword 只在执行期注入并覆盖 SecretRef', () => {
     tenantId: 'tenant-1',
   });
   // 通过公开绑定函数模拟执行期编译；普通 resolvedInput 仍只包含 SecretRef。
-  const bound = bindCertificateUpdatePlanEphemeralSecrets(explicit.plan, snapshot, { keystorePassword: 'tomcat-current-password' });
+  const bound = bindCertificateUpdatePlanEphemeralSecrets(explicit.plan, snapshot, {
+    keystorePassword: 'tomcat-current-password',
+    sourceKeyStorePassword: 'artifact-default-password',
+  });
   const material = bound.operations.filter((operation) => operation.operationType === 'certificate.material.validate');
+  const replacement = bound.operations.filter((operation) => operation.operationType === 'filesystem.atomic_replace');
   assert.ok(material.length > 0);
   assert.ok(material.every((operation) => operation.input.keystorePassword === 'tomcat-current-password'));
+  assert.ok(material.every((operation) => operation.input.sourceKeyStorePassword === 'artifact-default-password'));
+  assert.ok(replacement.length > 0);
+  assert.ok(replacement.every((operation) => operation.input.keystorePassword === 'tomcat-current-password'));
+  assert.ok(replacement.every((operation) => operation.input.sourceKeyStorePassword === 'artifact-default-password'));
   assert.ok(material.every((operation) => !('secretRef' in operation.input)));
   assert.ok(bound.planDigest.length > 0);
   assert.doesNotThrow(() => validateAgentPlan(bound));

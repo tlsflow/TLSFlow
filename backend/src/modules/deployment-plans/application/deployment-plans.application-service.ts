@@ -2645,6 +2645,7 @@ export class DeploymentPlansApplicationService {
       certificateVersionId,
       certificateFormatId: format.id,
       createdBy: 'system',
+      expiresAt: shortLivedArtifactExpiry(),
       ...(passwordOverride !== undefined ? { passwordOverride } : {}),
     });
     return {
@@ -2659,6 +2660,7 @@ export class DeploymentPlansApplicationService {
       pfxBase64: generated.pfxBase64,
       pfxPassword: generated.pfxPassword,
       jksBase64: generated.jksBase64,
+      sourceKeyStorePassword: generated.sourceKeyStorePassword,
       files: generated.files.map((file) => ({ ...file, name: file.key })),
       expectedFingerprintSha256: version.fingerprintSha256,
       warnings: generated.warnings,
@@ -2789,6 +2791,7 @@ export class DeploymentPlansApplicationService {
         certificateVersionId,
         certificateFormatId: format.id,
         createdBy: 'system',
+        expiresAt: shortLivedArtifactExpiry(),
         ...(passwordOverride !== undefined ? { passwordOverride } : {}),
       });
       const files = generated.files.map((file) => ({ ...file, name: file.key }));
@@ -2810,6 +2813,7 @@ export class DeploymentPlansApplicationService {
         pfxBase64: generated.pfxBase64,
         ...(includePfxPassword ? { pfxPassword: generated.pfxPassword } : {}),
         jksBase64: generated.jksBase64,
+        sourceKeyStorePassword: generated.sourceKeyStorePassword,
         files,
       });
       const outputs: Record<string, unknown> = {};
@@ -4770,4 +4774,11 @@ function assertDeploymentExecutorTypes(
 function containsPluginAction(steps: readonly WorkflowStep[]): boolean {
   return steps.some((step) => step.type === 'plugin.action'
     || step.type === 'foreach' && containsPluginAction(step.foreach.steps));
+}
+
+/** 部署运行材料只在短窗口内可读，避免托管私钥制品长期驻留制品仓。 */
+function shortLivedArtifactExpiry(): string {
+  const configured = Number(process.env.GCAC_CERTIFICATE_ARTIFACT_TTL_SECONDS ?? 300);
+  const ttlSeconds = Number.isFinite(configured) ? Math.min(Math.max(Math.floor(configured), 60), 3600) : 300;
+  return new Date(Date.now() + ttlSeconds * 1000).toISOString();
 }

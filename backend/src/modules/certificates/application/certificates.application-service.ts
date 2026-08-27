@@ -90,6 +90,11 @@ const DEFAULT_FORMAT_CONFIGS: ReadonlyArray<{
   { format: 'jks', containsPrivateKey: true, parameters: { configName: '宿主默认 JKS 容器', extension: 'jks' } },
 ];
 
+function derToPem(der: Buffer): string {
+  const body = der.toString('base64').match(/.{1,64}/g)?.join('\n') ?? '';
+  return `-----BEGIN CERTIFICATE-----\n${body}\n-----END CERTIFICATE-----\n`;
+}
+
 export interface CertificatesApplicationDependencies {
   db?: DatabasePort;
   repository?: CertificatesRepository;
@@ -228,6 +233,18 @@ export class CertificatesApplicationService {
 
   getRepository(): CertificatesRepository {
     return this.repository;
+  }
+
+  /** 读取证书版本的公开 PEM 材料；绝不解析或返回私钥。 */
+  async getPublicVersionMaterial(tenantId: string, certificateVersionId: string): Promise<{ certificatePem: string; certificateChainPem: string }> {
+    const version = await this.repository.getVersion(certificateVersionId, tenantId);
+    if (!version) throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId });
+    const leaf = await this.readArtifact(version.leafStorageRef, tenantId);
+    const chain = await Promise.all(version.chainCertificateRefs.map((ref) => this.readArtifact(ref, tenantId)));
+    return {
+      certificatePem: derToPem(leaf),
+      certificateChainPem: Buffer.concat([leaf, ...chain].map((value) => Buffer.from(derToPem(value)))).toString('utf8'),
+    };
   }
 
   getTrustRoots(): TrustRootsApplicationService {
@@ -765,6 +782,11 @@ export class CertificatesApplicationService {
     pfxBase64?: string;
     pfxPassword?: string;
     jksBase64?: string;
+    /**
+     * KeyStore 源制品密码，仅供部署计划的密封运行材料使用。
+     * 这不是 Tomcat 当前密码，绝不能投影为 Artifact 输出或 API 响应。
+     */
+    sourceKeyStorePassword?: string;
     artifactRef?: string;
     artifactSha256?: string;
     files: CertificateArtifactFileDto[];
@@ -786,6 +808,7 @@ export class CertificatesApplicationService {
     // 引用按格式和内容摘要确定，重复预检只会幂等覆盖同一份制品。
     const artifactSha256 = createHash('sha256').update(generated.content).digest('hex');
     const artifactRef = `artifact://certificate-format/${format.id}/${artifactSha256}`;
+    await this.artifacts.cleanupExpired(input.tenantId);
     await this.artifacts.put({
       tenantId: input.tenantId,
       artifactRef,
@@ -814,6 +837,9 @@ export class CertificatesApplicationService {
       pfxBase64: generated.format === 'pfx' ? generated.content.toString('base64') : undefined,
       pfxPassword: generated.format === 'pfx' ? password?.plainText : undefined,
       jksBase64: generated.format === 'jks' ? generated.content.toString('base64') : undefined,
+      sourceKeyStorePassword: generated.format === 'pfx' || generated.format === 'jks'
+        ? password?.plainText
+        : undefined,
       files: generated.files.map((file) => ({ ...file })),
       artifactRef,
       artifactSha256: `sha256:${artifactSha256}`,

@@ -154,22 +154,29 @@ export function bindCertificateUpdatePlanArtifacts(
 export function bindCertificateUpdatePlanEphemeralSecrets(
   plan: AgentPlanV1,
   snapshot: CertificateUpdateResolvedSnapshotV1,
-  ephemeralSecrets?: { keystorePassword?: string },
+  ephemeralSecrets?: { keystorePassword?: string; sourceKeyStorePassword?: string },
 ): AgentPlanV1 {
   const password = ephemeralSecrets?.keystorePassword;
-  if (snapshot.artifactKind !== 'KEYSTORE' || password === undefined) return plan;
-  if (typeof password !== 'string' || password.length === 0 || password.length > 1024) {
+  const sourcePassword = ephemeralSecrets?.sourceKeyStorePassword;
+  if (snapshot.artifactKind !== 'KEYSTORE' || (password === undefined && sourcePassword === undefined)) return plan;
+  if (password !== undefined && (typeof password !== 'string' || password.length === 0 || password.length > 1024)) {
     throw new AppError('VALIDATION_FAILED', '显式 keystorePassword Credential 为空或超出长度限制');
   }
+  if (sourcePassword !== undefined && (typeof sourcePassword !== 'string' || sourcePassword.length === 0 || sourcePassword.length > 1024)) {
+    throw new AppError('VALIDATION_FAILED', 'KeyStore 源制品密码为空或超出长度限制');
+  }
   const operations = plan.operations.map((operation) => {
-    if (operation.operationType !== 'certificate.material.validate') return operation;
+    if (operation.operationType !== 'certificate.material.validate'
+      && operation.operationType !== 'filesystem.atomic_replace') return operation;
     const { secretRef: _secretRef, ...inputWithoutSecretRef } = operation.input;
     return {
       ...operation,
       input: {
         ...inputWithoutSecretRef,
-        keystorePassword: password,
-        // 显式 Credential 已覆盖自动读取，不能保留可误解为回退来源的 SecretRef。
+        ...(password !== undefined ? { keystorePassword: password } : {}),
+        ...(sourcePassword !== undefined ? { sourceKeyStorePassword: sourcePassword } : {}),
+        // 显式 Credential 已覆盖自动读取，不能保留可误解为回退来源的 SecretRef；
+        // 源制品密码只用于在 Agent 内存中解开平台生成的 PFX/JKS。
         inputSnapshotSha256: snapshot.resolvedInputSha256,
       },
     };

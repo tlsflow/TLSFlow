@@ -367,6 +367,21 @@ export function canonicalJson(value: unknown): string {
   throw new TypeError('Canonical JSON 不支持 undefined 或函数');
 }
 
+/**
+ * 兼容 Linux Agent 0.1.29 及更早版本的 Go 默认 JSON HTML 转义。
+ * 新 Agent Receipt 使用控制面原生 JSON.stringify 语义；该编码只用于
+ * 迁移期验收已经落盘的旧 Receipt，不能用于新摘要或其它安全合同。
+ */
+function legacyGoCanonicalJson(value: unknown): string {
+  return canonicalJson(value).replace(/[<>&\u2028\u2029]/gu, (character) => ({
+    '<': '\\u003c',
+    '>': '\\u003e',
+    '&': '\\u0026',
+    '\u2028': '\\u2028',
+    '\u2029': '\\u2029',
+  }[character] ?? character));
+}
+
 export function sha256Digest(value: unknown): string {
   return createHash('sha256').update(canonicalJson(value), 'utf8').digest('hex');
 }
@@ -395,6 +410,15 @@ export function computeAgentExecutionReceiptDigest(receipt: AgentExecutionReceip
  */
 function computeLegacyAgentExecutionReceiptDigest(receipt: AgentExecutionReceiptV1): string {
   return sha256Digest({ ...receipt, digest: '', signature: '' });
+}
+
+function computeLegacyGoAgentExecutionReceiptDigest(receipt: AgentExecutionReceiptV1): string {
+  const { digest: _digest, signature: _signature, ...payload } = receipt;
+  return createHash('sha256').update(legacyGoCanonicalJson(payload), 'utf8').digest('hex');
+}
+
+function computeLegacyGoEmptyFieldsAgentExecutionReceiptDigest(receipt: AgentExecutionReceiptV1): string {
+  return createHash('sha256').update(legacyGoCanonicalJson({ ...receipt, digest: '', signature: '' }), 'utf8').digest('hex');
 }
 
 export function validateAgentFactEnvelope(input: unknown): AgentFactEnvelopeV1 {
@@ -463,7 +487,7 @@ export function validateAgentExecutionReceipt(input: unknown): AgentExecutionRec
   exactKeys(value, ['receiptVersion', 'operationId', 'planId', 'planDigest', 'agentId', 'tenantId', 'tokenId', 'status', 'startedAt', 'completedAt', 'operationResults', 'nonceConsumed', 'errorCode', 'unknownReason', 'digest', 'agentKeyId', 'signature'], 'AgentExecutionReceiptV1');
   exact(value.receiptVersion, agentSecurityContractVersion, 'receiptVersion'); identifier(value.operationId, 'operationId'); identifier(value.planId, 'planId'); digest(value.planDigest, 'planDigest'); identifier(value.agentId, 'agentId'); identifier(value.tenantId, 'tenantId'); identifier(value.tokenId, 'tokenId'); enumValue(value.status, ['SUCCESS', 'FAILED', 'UNKNOWN', 'CANCELLED'], 'status'); dateTime(value.startedAt, 'startedAt'); dateTime(value.completedAt, 'completedAt');
   if (!Array.isArray(value.operationResults) || value.operationResults.length > maximumPlanOperations) fail('operationResults', '回执结果数量不合法'); value.operationResults.forEach((item, index) => record(item, `operationResults.${index}`));
-  if (typeof value.nonceConsumed !== 'boolean') fail('nonceConsumed', '必须是布尔值'); if (value.status === 'UNKNOWN' && value.unknownReason === undefined) fail('unknownReason', 'UNKNOWN 回执必须说明原因'); if (value.status === 'SUCCESS' && value.errorCode !== undefined) fail('errorCode', 'SUCCESS 回执不能携带错误码'); if (value.errorCode !== undefined) identifier(value.errorCode, 'errorCode'); if (value.unknownReason !== undefined) nonEmptyString(value.unknownReason, 'unknownReason'); if (value.agentKeyId !== undefined) identifier(value.agentKeyId, 'agentKeyId'); if (value.signature !== undefined) nonEmptyString(value.signature, 'signature'); if ((value.agentKeyId === undefined) !== (value.signature === undefined)) fail('signature', 'Agent 回执 agentKeyId 与 signature 必须成对出现'); if (Date.parse(value.completedAt as string) < Date.parse(value.startedAt as string)) fail('completedAt', '完成时间不能早于开始时间'); digest(value.digest, 'digest'); const receipt = value as unknown as AgentExecutionReceiptV1; const currentDigest = computeAgentExecutionReceiptDigest(receipt); const legacyDigest = computeLegacyAgentExecutionReceiptDigest(receipt); if (currentDigest !== value.digest && legacyDigest !== value.digest) fail('digest', '执行回执摘要与合同内容不匹配');
+  if (typeof value.nonceConsumed !== 'boolean') fail('nonceConsumed', '必须是布尔值'); if (value.status === 'UNKNOWN' && value.unknownReason === undefined) fail('unknownReason', 'UNKNOWN 回执必须说明原因'); if (value.status === 'SUCCESS' && value.errorCode !== undefined) fail('errorCode', 'SUCCESS 回执不能携带错误码'); if (value.errorCode !== undefined) identifier(value.errorCode, 'errorCode'); if (value.unknownReason !== undefined) nonEmptyString(value.unknownReason, 'unknownReason'); if (value.agentKeyId !== undefined) identifier(value.agentKeyId, 'agentKeyId'); if (value.signature !== undefined) nonEmptyString(value.signature, 'signature'); if ((value.agentKeyId === undefined) !== (value.signature === undefined)) fail('signature', 'Agent 回执 agentKeyId 与 signature 必须成对出现'); if (Date.parse(value.completedAt as string) < Date.parse(value.startedAt as string)) fail('completedAt', '完成时间不能早于开始时间'); digest(value.digest, 'digest'); const receipt = value as unknown as AgentExecutionReceiptV1; const currentDigest = computeAgentExecutionReceiptDigest(receipt); const legacyDigest = computeLegacyAgentExecutionReceiptDigest(receipt); const legacyGoDigest = computeLegacyGoAgentExecutionReceiptDigest(receipt); const legacyGoEmptyDigest = computeLegacyGoEmptyFieldsAgentExecutionReceiptDigest(receipt); if (currentDigest !== value.digest && legacyDigest !== value.digest && legacyGoDigest !== value.digest && legacyGoEmptyDigest !== value.digest) fail('digest', '执行回执摘要与合同内容不匹配');
   return value as unknown as AgentExecutionReceiptV1;
 }
 
@@ -651,9 +675,10 @@ function validateOperationInput(operationType: AgentOperationType, input: Record
     if (input.storageMode !== undefined) enumValue(input.storageMode, ['file_pem', 'windows_cng'], `${path}.storageMode`);
   }
   if (operationType === 'certificate.install_issued') {
-    exactKeys(input, ['path', 'keyPath', 'targetId', 'localKeyRef', 'certificatePem', 'certificateChainPem', 'expectedPublicKeyFingerprintSha256', 'format', 'alias', 'storageMode'], path);
+    exactKeys(input, ['path', 'keyPath', 'targetId', 'localKeyRef', 'certificatePem', 'certificateChainPem', 'expectedPublicKeyFingerprintSha256', 'format', 'alias', 'storageMode', 'configPath'], path);
     normalizeAbsolutePath(input.path, `${path}.path`);
     normalizeAbsolutePath(input.keyPath, `${path}.keyPath`);
+    if (input.configPath !== undefined) normalizeAbsolutePath(input.configPath, `${path}.configPath`);
     identifier(input.targetId, `${path}.targetId`);
     nonEmptyString(input.localKeyRef, `${path}.localKeyRef`);
     const certificatePem = nonEmptyString(input.certificatePem, `${path}.certificatePem`);
@@ -667,14 +692,22 @@ function validateOperationInput(operationType: AgentOperationType, input: Record
     if (input.storageMode !== undefined) enumValue(input.storageMode, ['file_pem', 'windows_cng'], `${path}.storageMode`);
   }
   if (operationType === 'certificate.iis.binding.update') {
-    exactKeys(input, ['siteName', 'bindingInformation', 'storeName', 'storeLocation', 'pfxBase64', 'pfxPassword', 'expectedFingerprintSha256', 'artifactDigest', 'bindingKey', 'configFingerprint'], path);
+    exactKeys(input, ['siteName', 'bindingInformation', 'storeName', 'storeLocation', 'pfxBase64', 'pfxPassword', 'certificateThumbprint', 'expectedFingerprintSha256', 'artifactDigest', 'bindingKey', 'configFingerprint'], path);
     iisSiteName(input.siteName, `${path}.siteName`);
     nonEmptyString(input.bindingInformation, `${path}.bindingInformation`);
     exact(input.storeName, 'My', `${path}.storeName`);
     exact(input.storeLocation, 'LocalMachine', `${path}.storeLocation`);
-    boundedBase64(input.pfxBase64, `${path}.pfxBase64`, 256 * 1024);
-    const password = nonEmptyString(input.pfxPassword, `${path}.pfxPassword`);
-    if (password.length > 1024) fail(`${path}.pfxPassword`, 'PFX 密码长度超出限制');
+    const hasPfx = input.pfxBase64 !== undefined || input.pfxPassword !== undefined;
+    const hasThumbprint = input.certificateThumbprint !== undefined;
+    if (hasPfx === hasThumbprint) fail(path, 'IIS 绑定更新必须二选一提供 PFX 或已安装证书 Thumbprint');
+    if (hasPfx) {
+      boundedBase64(input.pfxBase64, `${path}.pfxBase64`, 256 * 1024);
+      const password = nonEmptyString(input.pfxPassword, `${path}.pfxPassword`);
+      if (password.length > 1024) fail(`${path}.pfxPassword`, 'PFX 密码长度超出限制');
+    } else {
+      const thumbprint = nonEmptyString(input.certificateThumbprint, `${path}.certificateThumbprint`).replaceAll(':', '').replaceAll(' ', '');
+      if (!/^[a-f0-9]{40}$/i.test(thumbprint)) fail(`${path}.certificateThumbprint`, 'IIS 证书 Thumbprint 无效');
+    }
     digest(input.expectedFingerprintSha256, `${path}.expectedFingerprintSha256`);
     digest(input.artifactDigest, `${path}.artifactDigest`);
     identifier(input.bindingKey, `${path}.bindingKey`);
@@ -731,9 +764,14 @@ function validateOperationsAgainstPolicy(operations: AgentPlanOperationV1[], tok
   for (const operation of operations) {
     if (!token.actions.includes(operation.operationType) || !decision.actions.includes(operation.operationType)) fail(`operations.${operation.operationId}`, 'Token 和 Policy Decision 必须同时授权该动作');
     if (!policy.allowedActions.includes(operation.operationType)) fail(`operations.${operation.operationId}`, '本地策略未授权该动作');
-    const path = typeof operation.input.path === 'string' ? normalizeAbsolutePath(operation.input.path, `operations.${operation.operationId}.input.path`) : undefined;
     const localPrefixes = policy.pathRules.filter((rule) => rule.operations.includes(operation.operationType)).map((rule) => rule.prefix);
-    if (path && (!isPathAllowed(path, token.allowedPaths) || !isPathAllowed(path, decision.allowedPaths) || !isPathAllowed(path, localPrefixes))) fail(`operations.${operation.operationId}.input.path`, '路径必须同时位于 Token、Decision 和本地策略范围');
+    for (const field of ['path', 'keyPath', 'certificatePath', 'configPath', 'csrPath'] as const) {
+      if (typeof operation.input[field] !== 'string') continue;
+      const path = normalizeAbsolutePath(operation.input[field], `operations.${operation.operationId}.input.${field}`);
+      if (!isPathAllowed(path, token.allowedPaths) || !isPathAllowed(path, decision.allowedPaths) || !isPathAllowed(path, localPrefixes)) {
+        fail(`operations.${operation.operationId}.input.${field}`, '路径必须同时位于 Token、Decision 和本地策略范围');
+      }
+    }
     const serviceName = typeof operation.input.serviceName === 'string' ? operation.input.serviceName : undefined;
     if (serviceName && (!token.allowedServices.includes(serviceName) || !decision.allowedServices.includes(serviceName) || !policy.serviceRules.includes(serviceName))) fail(`operations.${operation.operationId}.input.serviceName`, '服务必须同时位于 Token、Decision 和本地策略范围');
     const artifactDigest = typeof operation.input.artifactDigest === 'string' ? operation.input.artifactDigest : undefined;

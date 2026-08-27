@@ -99,6 +99,8 @@ export interface DeploymentArtifactSnapshotDto {
   pfxBase64?: string;
   pfxPassword?: string;
   jksBase64?: string;
+  /** 仅保存在密封运行材料中，用于将源 KeyStore 重封装为目标 Tomcat 当前密码。 */
+  sourceKeyStorePassword?: string;
   expectedFingerprintSha256?: string;
   warnings?: string[];
   files?: Array<{

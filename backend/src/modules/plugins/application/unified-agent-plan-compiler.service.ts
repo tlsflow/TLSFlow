@@ -66,6 +66,7 @@ export class UnifiedAgentPlanCompilerService {
     /** 执行期短生命周期敏感输入，不得持久化到快照、Receipt 或审计。 */
     ephemeralSecrets?: {
       keystorePassword?: string;
+      sourceKeyStorePassword?: string;
     };
     /** 根证书安装使用宿主通用合同，不读取证书部署 Artifact。 */
     purpose?: 'deployment' | 'certificate_trust';
@@ -204,7 +205,8 @@ export class UnifiedAgentPlanCompilerService {
     // 显式 KeyStore 密码已经注入完整计划；该计划不能进入长期授权缓存，
     // 否则明文会随缓存生命周期滞留在宿主内存。每次执行都重新签发并在
     // 调用链结束后释放，仅允许不含执行期密码的计划走缓存。
-    const cacheable = input.ephemeralSecrets?.keystorePassword === undefined;
+    const cacheable = input.ephemeralSecrets?.keystorePassword === undefined
+      && input.ephemeralSecrets?.sourceKeyStorePassword === undefined;
     if (cacheable) {
       const existing = this.authorizationCache.get(cacheKey);
       if (existing) return structuredClone(await existing);
@@ -613,9 +615,11 @@ function assertDraftBindings(
   const planActions = [...new Set(plan.operations.map((operation) => operation.operationType))];
   if (!sameStringArray(planActions, request.actions)) failClosed(input, '授权 actions 未固定为计划操作集合');
   for (const operation of plan.operations) {
-    const path = typeof operation.input.path === 'string' ? operation.input.path : undefined;
-    if (path && !request.allowedPaths.some((prefix) => isPathWithin(path, prefix))) {
-      failClosed(input, '授权 allowedPaths 未覆盖计划路径');
+    for (const field of ['path', 'keyPath', 'certificatePath', 'configPath', 'csrPath'] as const) {
+      const path = typeof operation.input[field] === 'string' ? operation.input[field] : undefined;
+      if (path && !request.allowedPaths.some((prefix) => isPathWithin(path, prefix))) {
+        failClosed(input, `授权 allowedPaths 未覆盖计划 ${field}`);
+      }
     }
     const serviceName = typeof operation.input.serviceName === 'string' ? operation.input.serviceName : undefined;
     if (serviceName && !request.allowedServices.includes(serviceName)) failClosed(input, '授权 allowedServices 未覆盖计划服务');

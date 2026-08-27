@@ -14,6 +14,7 @@ import type { PluginCertificateResultService } from '../../plugins/results/plugi
 import type { AgentSecurityStatus } from '../../agents/security/agent-security.contract.js';
 import { sanitizeExecutionErrorDetails } from './execution-error-details.js';
 import { normalizeAgentV2DryRunDetail } from './agent-v2-dry-run-result.js';
+import type { CertificateLifecycleService } from '../../internal-ca/application/certificate-lifecycle.service.js';
 
 type ContinuationRunner = (input: { runId: string; tenantId: string; actorId: string }) => Promise<unknown>;
 type RollbackRunner = (input: { runId: string; tenantId: string; actorId: string }) => Promise<unknown>;
@@ -22,6 +23,7 @@ export class ExecutionResultSyncService {
   private continuationRunner?: ContinuationRunner;
   private rollbackRunner?: RollbackRunner;
   private monitors?: MonitorsApplicationService;
+  private certificateLifecycle?: CertificateLifecycleService;
 
   constructor(
     private readonly executions: ExecutionsRepository,
@@ -42,6 +44,10 @@ export class ExecutionResultSyncService {
 
   setMonitorsService(monitors: MonitorsApplicationService): void {
     this.monitors = monitors;
+  }
+
+  setCertificateLifecycleService(service?: CertificateLifecycleService): void {
+    this.certificateLifecycle = service;
   }
 
   async probeSuccessfulDeploymentPlanTargets(input: { tenantId?: string; deploymentPlanId: string }): Promise<void> {
@@ -242,6 +248,14 @@ export class ExecutionResultSyncService {
       updatedBy: input.actorId,
     });
     await this.persistUnknownDeploymentState(input.tenantId, run.deploymentPlanId, step.deploymentPlanTargetId, input.actorId, input.errorMessage ?? input.errorCode ?? 'Agent 写操作结果不明');
+    await this.certificateLifecycle?.reconcileDeploymentPlanResult({
+      tenantId: input.tenantId,
+      deploymentPlanId: run.deploymentPlanId,
+      status: 'UNKNOWN',
+      executionStatus: 'UNKNOWN',
+      evidence: { executionRunId: run.id, executionStepId: step.id, reason: input.errorMessage ?? input.errorCode },
+      actorId: input.actorId,
+    });
     this.detailStream?.publishStep(await this.executions.getStepOrThrow(step.id, input.tenantId));
     this.detailStream?.publishRun(await this.executions.getRunOrThrow(run.id, input.tenantId));
   }
@@ -501,6 +515,14 @@ export class ExecutionResultSyncService {
         await this.transitionDeploymentPlan(plan.id, plan.status, 'SUCCESS', actorId, 'execution.success', plan.tenantId);
       }
       await this.probeSuccessfulDeploymentPlanTargets({ tenantId, deploymentPlanId: run.deploymentPlanId });
+      await this.certificateLifecycle?.reconcileDeploymentPlanResult({
+        tenantId: tenantId ?? run.tenantId ?? '',
+        deploymentPlanId: run.deploymentPlanId,
+        status: 'SUCCESS',
+        executionStatus: 'SUCCESS',
+        evidence: deploymentTlsEvidence(steps),
+        actorId,
+      });
       return;
     }
 
@@ -512,6 +534,14 @@ export class ExecutionResultSyncService {
       if (plan.status === 'RUNNING') {
         await this.transitionDeploymentPlan(plan.id, plan.status, successfulTargetIds.length > 0 ? 'PARTIAL_SUCCESS' : 'FAILED', actorId, 'execution.failed', plan.tenantId);
       }
+      await this.certificateLifecycle?.reconcileDeploymentPlanResult({
+        tenantId: tenantId ?? run.tenantId ?? '',
+        deploymentPlanId: run.deploymentPlanId,
+        status: run.status === 'TIMEOUT' ? 'TIMEOUT' : 'FAILED',
+        executionStatus: run.status,
+        evidence: deploymentTlsEvidence(steps),
+        actorId,
+      });
     }
   }
 
@@ -1051,6 +1081,25 @@ function normalizeThumbprint(value: string | undefined): string | undefined {
 
 function readRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function deploymentTlsEvidence(steps: ExecutionStepEntity[]): Record<string, unknown> {
+  const verifyStep = steps
+    .filter((step) => step.stepType === 'VERIFY')
+    .sort((left, right) => right.stepNo - left.stepNo)[0];
+  const detail = readRecord(verifyStep?.inputSnapshot.resultDetail) ?? {};
+  const verification = readRecord(detail.certificateVerification)
+    ?? readRecord(detail.verify)
+    ?? {};
+  const tlsEvidence = readRecord(detail.tlsEvidence);
+  return {
+    verified: detail.verified === true
+      || verification.verified === true
+      || detail.status === 'VERIFIED',
+    ...verification,
+    ...(tlsEvidence ? { tlsEvidence } : {}),
+    ...(verifyStep ? { executionStepId: verifyStep.id } : {}),
+  };
 }
 
 function hasPersistedUnknownResult(step: ExecutionStepEntity): boolean {

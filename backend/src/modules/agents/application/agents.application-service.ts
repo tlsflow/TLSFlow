@@ -217,6 +217,14 @@ export class AgentsApplicationService {
   private readonly activeUpgradeLocks = new Set<string>();
   private readonly localReleaseSync = new Map<string, Promise<void>>();
   private adcsRegistrationProvisioner?: (input: { tenantId: string; agentId: string; agentKey: string; name: string; pluginVersionId: string }) => Promise<void>;
+  private certificateTaskResultHandler?: (input: {
+    task: AgentTaskEnvelope;
+    actionType: AgentV2ContractType;
+    detail: Record<string, unknown>;
+    status: AgentSecurityStatus;
+    errorCode?: string;
+    errorMessage?: string;
+  }) => Promise<void>;
   constructor(
     private readonly repository: AgentsRepository = new PgAgentsRepository(),
     private readonly domain = new AgentsDomainService(),
@@ -249,6 +257,11 @@ export class AgentsApplicationService {
 
   setAdcsRegistrationProvisioner(provisioner?: AgentsApplicationService['adcsRegistrationProvisioner']): void {
     this.adcsRegistrationProvisioner = provisioner;
+  }
+
+  /** 注入证书生命周期回写，Agent 任务仍先按通用队列和 Receipt 合同落账。 */
+  setCertificateTaskResultHandler(handler?: AgentsApplicationService['certificateTaskResultHandler']): void {
+    this.certificateTaskResultHandler = handler;
   }
 
   async createEnrollmentToken(tenantId: string, input: CreateEnrollmentTokenInput, requestId: string) {
@@ -863,6 +876,25 @@ export class AgentsApplicationService {
         detail: sanitizedDetail,
       },
     });
+    if (this.certificateTaskResultHandler && actionType && ['certificate.key.custody', 'certificate.key.custody.v1'].includes(String(task.payload.capability))) {
+      try {
+        await this.certificateTaskResultHandler({
+          task: updated,
+          actionType,
+          detail: sanitizedDetail,
+          status: outcome,
+          ...(errorCode ? { errorCode } : {}),
+          ...(errorMessage ? { errorMessage } : {}),
+        });
+      } catch (error) {
+        // 任务结果已经落账；回写失败必须保留告警，不能让 Agent 因重试而重复执行不可逆操作。
+        structuredLogger.error('证书 Agent 任务结果已落账，但生命周期回写失败', {
+          tenantId: task.tenantId,
+          taskId: task.id,
+          error: error instanceof Error ? error.message : String(error),
+        }, { module: 'agents.certificate-lifecycle' });
+      }
+    }
     if (this.executionResultSync) {
       console.info(
         '[agents.submitResult.sync]',

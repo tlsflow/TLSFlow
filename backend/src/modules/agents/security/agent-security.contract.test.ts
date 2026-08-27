@@ -9,6 +9,7 @@ import {
   agentSecuritySchemas,
   agentV2ContractTypes,
   authorizeAgentPlan,
+  computeAgentExecutionReceiptDigest,
   computeAgentPlanDigest,
   sha256Digest,
   NonceStoreV1,
@@ -27,6 +28,7 @@ import {
   validateTokenRevocationRecord,
   type AgentAuthorizationInput,
   type AgentCapabilityTokenV1,
+  type AgentExecutionReceiptV1,
   type AgentPlanV1,
   type PolicyAuthorityDecisionV1,
   type PolicyAuthorityKeySetV1,
@@ -91,6 +93,35 @@ test('兼容旧 Linux Agent 将空摘要字段纳入回执摘要的已落盘结�
   const legacyPayload = { ...source, digest: '', signature: '' };
   const legacy = { ...source, digest: sha256Digest(legacyPayload) };
   assert.doesNotThrow(() => validateAgentExecutionReceipt(legacy));
+});
+
+test('Receipt 摘要与 Linux Agent 对 XML 特殊字符的规范化保持一致', () => {
+  const receipt = {
+    receiptVersion: 'gcac.agent-security/v1',
+    operationId: 'op-xml',
+    planId: 'plan-xml',
+    planDigest: 'a'.repeat(64),
+    agentId: 'agent-xml',
+    tenantId: 'tenant-xml',
+    tokenId: 'token-xml',
+    status: 'FAILED',
+    startedAt: '2026-08-27T00:00:00.000Z',
+    completedAt: '2026-08-27T00:00:01.000Z',
+    operationResults: [{ operationId: 'config-check', error: '<Connector foo="bar"> & invalid' }],
+    nonceConsumed: true,
+    errorCode: 'AGENT_EXECUTION_FAILED',
+    agentKeyId: 'agent-key',
+    signature: 'placeholder',
+    digest: '',
+  } as unknown as AgentExecutionReceiptV1;
+  assert.equal(
+    computeAgentExecutionReceiptDigest(receipt),
+    'b7b4cef11b60dcca6f21c59c8e1ea9815b8a27bdecad6113b44c1f3374e8ac76',
+  );
+  assert.doesNotThrow(() => validateAgentExecutionReceipt({
+    ...receipt,
+    digest: '8ce30c2c87f4e89e53b13242b49411f02ae6f0c2b4acb0aabe91598f16a282d3',
+  }));
 });
 
 test('Canonical Plugin ID 支持注册表中的连字符 ID', () => {

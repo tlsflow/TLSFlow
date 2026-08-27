@@ -26,6 +26,8 @@ export interface CertificateArtifactStore {
   put(input: PutCertificateArtifactInput): Promise<CertificateArtifactRecord>;
   get(artifactRef: string, tenantId?: string): Promise<CertificateArtifactRecord | undefined>;
   has(artifactRef: string, tenantId?: string): Promise<boolean>;
+  deleteExpired(tenantId?: string): Promise<number>;
+  cleanupExpired(tenantId?: string): Promise<number>;
 }
 
 export class PgCertificateArtifactStore implements CertificateArtifactStore {
@@ -79,6 +81,16 @@ export class PgCertificateArtifactStore implements CertificateArtifactStore {
     );
     const row = result.rows[0];
     if (!row) return undefined;
+    if (row.expires_at !== null && row.expires_at !== undefined) {
+      const expiresAt = Date.parse(String(row.expires_at));
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+        await this.db.query(
+          `delete from pg_certificate_artifacts where tenant_id = $1 and artifact_ref = $2`,
+          [row.tenant_id, row.artifact_ref],
+        );
+        return undefined;
+      }
+    }
     return {
       tenantId: row.tenant_id,
       artifactRef: row.artifact_ref,
@@ -93,6 +105,22 @@ export class PgCertificateArtifactStore implements CertificateArtifactStore {
 
   async has(artifactRef: string, tenantId?: string): Promise<boolean> {
     return Boolean(await this.get(artifactRef, tenantId));
+  }
+
+  async deleteExpired(tenantId?: string): Promise<number> {
+    const result = await this.db.query(
+      `delete from pg_certificate_artifacts
+        where expires_at is not null
+          and expires_at <= now()
+          and ($1::text is null or tenant_id = $1)
+        returning artifact_ref`,
+      [effectiveTenantId(tenantId) ?? null],
+    );
+    return result.rows.length;
+  }
+
+  async cleanupExpired(tenantId?: string): Promise<number> {
+    return this.deleteExpired(tenantId);
   }
 
   private async resolveWriteTenantId(tenantId?: string): Promise<string> {

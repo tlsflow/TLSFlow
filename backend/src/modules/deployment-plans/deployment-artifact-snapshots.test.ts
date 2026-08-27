@@ -46,6 +46,7 @@ test('Tomcat KeyStore 运行材料不携带 PFX 密码', () => {
     containsPrivateKey: true,
     pfxBase64: 'cA==',
     pfxPassword: 'tomcat-current-password',
+    sourceKeyStorePassword: 'artifact-default-password',
     files: [],
     warnings: [],
   }, ['certificateArtifact'], { includePfxPassword: false });
@@ -53,6 +54,7 @@ test('Tomcat KeyStore 运行材料不携带 PFX 密码', () => {
   assert.equal(snapshots.certificateArtifact.outputs.pfxBase64, 'cA==');
   assert.equal('pfxPassword' in snapshots.certificateArtifact.outputs, false);
   assert.equal(JSON.stringify(snapshots).includes('tomcat-current-password'), false);
+  assert.equal(JSON.stringify(snapshots).includes('artifact-default-password'), false);
 });
 
 test('IIS 运行材料仍保留声明的 PFX 密码输出', () => {

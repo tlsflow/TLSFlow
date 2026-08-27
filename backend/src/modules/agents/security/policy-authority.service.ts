@@ -1486,8 +1486,10 @@ function assertCompiledPlanScope(
   artifactDigests: readonly string[],
 ): void {
   for (const operation of plan.operations) {
-    const path = typeof operation.input.path === 'string' ? operation.input.path : undefined;
-    if (path && !isPathWithin(path, allowedPaths)) failClosed('provisioning allowedPaths 未覆盖编译计划路径');
+    for (const field of ['path', 'keyPath', 'certificatePath', 'configPath', 'csrPath'] as const) {
+      const path = typeof operation.input[field] === 'string' ? operation.input[field] : undefined;
+      if (path && !isPathWithin(path, allowedPaths)) failClosed(`provisioning allowedPaths 未覆盖编译计划 ${field}`);
+    }
     const serviceName = typeof operation.input.serviceName === 'string' ? operation.input.serviceName : undefined;
     if (serviceName && !allowedServices.includes(serviceName)) failClosed('provisioning allowedServices 未覆盖编译计划服务');
     const artifactDigest = typeof operation.input.artifactDigest === 'string' ? operation.input.artifactDigest : undefined;
