@@ -617,6 +617,9 @@ func validateAgentPlan(plan agentPlanV2, token AgentCapabilityTokenV1) error {
 		if path := v2StringValue(operation.Input, "path"); path != "" && !pathScopeContains(token.AllowedPaths, path) {
 			return fmt.Errorf("operation path is outside token scope: %s", path)
 		}
+		if configPath := v2StringValue(operation.Input, "configPath"); configPath != "" && !pathScopeContains(token.AllowedPaths, configPath) {
+			return fmt.Errorf("operation configPath is outside token scope: %s", configPath)
+		}
 		if service := v2StringValue(operation.Input, "serviceName"); service != "" && !scopeContains(token.AllowedServices, service) {
 			return fmt.Errorf("operation service is outside token scope: %s", service)
 		}
@@ -676,6 +679,9 @@ func validateAgentPlanOperation(operation agentPlanAction) error {
 	}
 	if operation.OperationType == "certificate.install_issued" {
 		return validateIssuedCertificateInstallInput(operation.Input)
+	}
+	if operation.OperationType == "certificate.material.validate" {
+		return validateLinuxCertificateMaterialInput(operation.Input)
 	}
 	if operation.OperationType == "command.execute_allowlisted" {
 		return validateAllowlistedCommandInput(operation)
@@ -1217,7 +1223,7 @@ func checkpointMode(checkpoint map[string]any) os.FileMode {
 func executeCertificateMaterialValidate(ctx context.Context, operation agentPlanAction) (map[string]any, error) {
 	path := v2StringValue(operation.Input, "path")
 	storageKind := v2StringValue(operation.Input, "storageKind")
-	if path == "" || !filepath.IsAbs(path) || hasParentPathSegment(path) || storageKind != "PEM_FILES" {
+	if path == "" || !filepath.IsAbs(path) || hasParentPathSegment(path) || (storageKind != "PEM_FILES" && storageKind != "KEYSTORE") {
 		return nil, errors.New("certificate.material.validate input is invalid")
 	}
 	content, err := decodeOperationContent(operation.Input)
@@ -1227,25 +1233,67 @@ func executeCertificateMaterialValidate(ctx context.Context, operation agentPlan
 	if err := agentContextError(ctx); err != nil {
 		return nil, err
 	}
-	material, err := parseLinuxPEMMaterialDetails(path, content)
-	if err != nil {
-		return nil, err
-	}
 	digest := sha256.Sum256(content)
 	detail := map[string]any{
 		"status": "SUCCEEDED", "path": filepath.Clean(path), "storageKind": storageKind,
 		"bytes": len(content), "contentSha256": hex.EncodeToString(digest[:]),
-		"certificateCount": len(material.certificatePublicKeys), "privateKeyCount": len(material.privateKeyPublicKeys),
 	}
-	if len(material.certificatePublicKeys) > 0 {
-		keyDigest := sha256.Sum256(material.certificatePublicKeys[0])
-		detail["certificatePublicKeySha256"] = hex.EncodeToString(keyDigest[:])
+	if storageKind == "PEM_FILES" {
+		material, parseErr := parseLinuxPEMMaterialDetails(path, content)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		detail["certificateCount"] = len(material.certificatePublicKeys)
+		detail["privateKeyCount"] = len(material.privateKeyPublicKeys)
+		if len(material.certificatePublicKeys) > 0 {
+			keyDigest := sha256.Sum256(material.certificatePublicKeys[0])
+			detail["certificatePublicKeySha256"] = hex.EncodeToString(keyDigest[:])
+		}
+		if len(material.privateKeyPublicKeys) > 0 {
+			keyDigest := sha256.Sum256(material.privateKeyPublicKeys[0])
+			detail["privateKeyPublicKeySha256"] = hex.EncodeToString(keyDigest[:])
+		}
+		return detail, nil
 	}
-	if len(material.privateKeyPublicKeys) > 0 {
-		keyDigest := sha256.Sum256(material.privateKeyPublicKeys[0])
-		detail["privateKeyPublicKeySha256"] = hex.EncodeToString(keyDigest[:])
+	if err := validateLinuxCertificateMaterialInput(operation.Input); err != nil {
+		return nil, err
 	}
+	material, err := validateLinuxKeyStoreMaterial(operation.Input, path, content)
+	if err != nil {
+		return nil, err
+	}
+	detail["keystoreType"] = material.Format
+	detail["keyAlias"] = material.Alias
+	detail["aliasVerified"] = material.AliasVerified
+	detail["certificateCount"] = material.CertificateCount
+	detail["hasPrivateKey"] = len(material.PrivateKeyPublicKey) > 0
+	detail["certificateFingerprintSha256"] = material.CertificateFingerprint
 	return detail, nil
+}
+
+func validateLinuxCertificateMaterialInput(input map[string]any) error {
+	path := v2StringValue(input, "path")
+	if path == "" || !filepath.IsAbs(path) || hasParentPathSegment(path) {
+		return errors.New("certificate.material.validate KeyStore path is invalid")
+	}
+	storageKind := v2StringValue(input, "storageKind")
+	if storageKind != "KEYSTORE" {
+		return nil
+	}
+	keystoreType := strings.ToUpper(strings.TrimSpace(v2StringValue(input, "keystoreType")))
+	if keystoreType != "JKS" && keystoreType != "PKCS12" {
+		return errors.New("certificate.material.validate KeyStore type is invalid")
+	}
+	if strings.TrimSpace(v2StringValue(input, "keyAlias")) == "" {
+		return errors.New("certificate.material.validate KeyStore alias is required")
+	}
+	if v2StringValue(input, "keystorePassword") == "" && v2StringValue(input, "configPath") == "" {
+		return errors.New("certificate.material.validate KeyStore password source is required")
+	}
+	if configPath := v2StringValue(input, "configPath"); configPath != "" && (!filepath.IsAbs(configPath) || hasParentPathSegment(configPath)) {
+		return errors.New("certificate.material.validate configPath is invalid")
+	}
+	return nil
 }
 
 func parseLinuxPEMMaterial(path string, content []byte) (int, int, error) {
