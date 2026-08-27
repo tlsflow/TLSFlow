@@ -140,6 +140,7 @@ import { BrowserCredentialSessionRepository } from './modules/browser-runtime/br
 import { BrowserCredentialSessionService } from './modules/browser-runtime/browser-credential-session.service.js';
 import { BrowserCredentialSessionController } from './modules/browser-runtime/browser-credential-session.controller.js';
 import {
+  isBrowserRuntimeEnabled,
   resolveDeploymentArchitecture,
   type DeploymentArchitecture,
 } from './config/deployment-architecture.js';
@@ -481,7 +482,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     },
     new PluginWorkflowBindingsRepository(appDb),
   );
-  const browserRuntimeClient = deploymentArchitecture === 'standard'
+  const browserRuntimeClient = deploymentArchitecture === 'standard' && isBrowserRuntimeEnabled()
     ? new BrowserRuntimeClient()
     : undefined;
   const browserCredentialSessionService = browserRuntimeClient
@@ -1846,7 +1847,7 @@ function isLaterPluginRefreshVersion(
 export function getRouteContracts(
   deploymentArchitecture: DeploymentArchitecture = resolveDeploymentArchitecture(),
 ): RouteContract[] {
-  const browserCredentialRouteContracts: RouteContract[] = deploymentArchitecture === 'standard'
+  const browserCredentialRouteContracts: RouteContract[] = deploymentArchitecture === 'standard' && isBrowserRuntimeEnabled()
     ? [
         {
           method: 'POST',

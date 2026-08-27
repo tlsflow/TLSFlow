@@ -15,6 +15,12 @@ describe('部署架构装配', () => {
     assert.throws(() => resolveDeploymentArchitecture('personal'), /只允许 small 或 standard/);
   });
 
+  it('允许通过环境变量关闭标准架构的 Browser Runtime', () => {
+    assert.equal(deploymentFeatures('standard', false).browserRuntime, false);
+    assert.equal(deploymentFeatures('standard', true).browserRuntime, true);
+    assert.equal(deploymentFeatures('small', true).browserRuntime, false);
+  });
+
   it('小型架构不装配 Browser Runtime 服务和接口', async () => {
     const app = await createTestApp('small');
     assert.equal(app.getResource('browserRuntimeClient'), undefined);

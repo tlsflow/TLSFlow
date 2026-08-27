@@ -45,6 +45,9 @@ interface BrowserAction {
 const sessions = new Map<string, SessionRecord>();
 const port = Number(process.env.PORT ?? 8787);
 const sharedSecret = process.env.BROWSER_RUNTIME_SHARED_SECRET;
+if (!sharedSecret?.trim()) {
+  throw new Error('BROWSER_RUNTIME_SHARED_SECRET 未配置，拒绝启动 Browser Runtime');
+}
 const publicBaseUrl = (process.env.BROWSER_RUNTIME_PUBLIC_BASE_URL ?? `http://localhost:${port}`).replace(/\/+$/, '');
 const noVncRoot = resolve(process.env.BROWSER_NOVNC_ROOT ?? '/app/novnc');
 const processLauncher = new SessionProcessLauncher();
