@@ -1,32 +1,39 @@
--- Framework、Site 和 ManagedTarget 都由标准 ServiceAsset 或历史 CloudAccountAsset 所有。
--- 新链路使用 service_asset_id；历史 asset_id 数据保持可读，不再新增旧表外键。
-alter table public.pg_framework_instances
-  add column if not exists service_asset_id text;
+-- 云资源的 FrameworkInstance、SiteAsset 与 ManagedTarget 统一由 CloudAccountAsset 所有。
+-- 旧数据若同时保存了 asset_id 和 device_id，清除伪造的 Device 所有者。
+
+update public.pg_framework_instances
+   set device_id = null,
+       updated_at = now(),
+       version = version + 1
+ where asset_id is not null
+   and device_id is not null;
+
+update public.pg_site_assets
+   set device_id = null,
+       updated_at = now(),
+       version = version + 1
+ where asset_id is not null
+   and device_id is not null;
 
 do $$
 begin
-  if exists (
+  if not exists (
     select 1 from pg_constraint
      where conname = 'pg_framework_instances_asset_id_fkey'
        and conrelid = 'public.pg_framework_instances'::regclass
   ) then
-    alter table public.pg_framework_instances drop constraint pg_framework_instances_asset_id_fkey;
+    alter table public.pg_framework_instances
+      add constraint pg_framework_instances_asset_id_fkey
+      foreign key (asset_id) references public.pg_cloud_account_assets(id);
   end if;
   if not exists (
-     select 1 from pg_constraint
-     where conname = 'pg_framework_instances_service_asset_id_fkey'
-       and conrelid = 'public.pg_framework_instances'::regclass
-  ) then
-    alter table public.pg_framework_instances
-      add constraint pg_framework_instances_service_asset_id_fkey
-      foreign key (service_asset_id) references public.pg_service_assets(id);
-  end if;
-  if exists (
-     select 1 from pg_constraint
+    select 1 from pg_constraint
      where conname = 'pg_site_assets_asset_id_fkey'
        and conrelid = 'public.pg_site_assets'::regclass
   ) then
-    alter table public.pg_site_assets drop constraint pg_site_assets_asset_id_fkey;
+    alter table public.pg_site_assets
+      add constraint pg_site_assets_asset_id_fkey
+      foreign key (asset_id) references public.pg_cloud_account_assets(id);
   end if;
   if exists (
     select 1 from pg_constraint
@@ -40,34 +47,32 @@ begin
      where conname = 'ck_pg_site_assets_asset_owner'
        and conrelid = 'public.pg_site_assets'::regclass
   ) then
-      alter table public.pg_site_assets drop constraint ck_pg_site_assets_asset_owner;
+    alter table public.pg_site_assets drop constraint ck_pg_site_assets_asset_owner;
   end if;
-  if exists (
-     select 1 from pg_constraint
+  if not exists (
+    select 1 from pg_constraint
      where conname = 'ck_pg_framework_instances_exactly_one_owner'
        and conrelid = 'public.pg_framework_instances'::regclass
   ) then
-      alter table public.pg_framework_instances drop constraint ck_pg_framework_instances_exactly_one_owner;
+    alter table public.pg_framework_instances
+      add constraint ck_pg_framework_instances_exactly_one_owner
+      check (num_nonnulls(asset_id, device_id) = 1);
   end if;
-  alter table public.pg_framework_instances
-    add constraint ck_pg_framework_instances_exactly_one_owner
-    check (num_nonnulls(asset_id, service_asset_id, device_id) = 1);
-  if exists (
-     select 1 from pg_constraint
+  if not exists (
+    select 1 from pg_constraint
      where conname = 'ck_pg_site_assets_exactly_one_owner'
        and conrelid = 'public.pg_site_assets'::regclass
   ) then
-      alter table public.pg_site_assets drop constraint ck_pg_site_assets_exactly_one_owner;
+    alter table public.pg_site_assets
+      add constraint ck_pg_site_assets_exactly_one_owner
+      check (num_nonnulls(asset_id, device_id) = 1);
   end if;
-  alter table public.pg_site_assets
-    add constraint ck_pg_site_assets_exactly_one_owner
-    check (num_nonnulls(asset_id, service_asset_id, device_id) = 1);
 end $$;
 
-create index if not exists idx_pg_framework_instances_service_asset_owner
-  on public.pg_framework_instances (tenant_id, service_asset_id, status)
-  where service_asset_id is not null and deleted_at is null;
+create index if not exists idx_pg_framework_instances_cloud_asset
+  on public.pg_framework_instances (tenant_id, asset_id, status)
+  where asset_id is not null and deleted_at is null;
 
-create index if not exists idx_pg_site_assets_service_asset_owner
-  on public.pg_site_assets (tenant_id, service_asset_id, status)
-  where service_asset_id is not null and deleted_at is null;
+create index if not exists idx_pg_site_assets_cloud_asset
+  on public.pg_site_assets (tenant_id, asset_id, status)
+  where asset_id is not null and deleted_at is null;
