@@ -17,6 +17,8 @@ LINUX_SOURCE="$REPOSITORY_ROOT/agents/linux-go-full-agent"
 WINDOWS_GO_SOURCE="$REPOSITORY_ROOT/agents/windows-go-full-agent"
 WINDOWS_COMPATIBILITY_SOURCE="$REPOSITORY_ROOT/agents/windows-compat-full-agent"
 COMPATIBILITY_DIST="$WINDOWS_COMPATIBILITY_SOURCE/dist"
+LINUX_AGENT_VERSION=$(sed -n 's/^VERSION_VALUE="\${VERSION:-\([^"}]*\)}".*/\1/p' "$LINUX_SOURCE/build.sh" | head -n 1)
+WINDOWS_GO_AGENT_VERSION=$(sed -n 's/.*agentVersion[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$WINDOWS_GO_SOURCE/main.go" | head -n 1)
 COMPATIBILITY_ARTIFACTS='
 GCAC.WindowsCompatibilityAgent.exe
 gcac-agent-updater.exe
@@ -132,6 +134,8 @@ case "$OUTPUT_ROOT/" in
 esac
 assert_full_agent_go
 [ -z "$COMPATIBILITY_GO" ] || assert_compatibility_go
+[ -n "$LINUX_AGENT_VERSION" ] || fail '无法从 Linux Go Agent 构建脚本读取版本'
+[ -n "$WINDOWS_GO_AGENT_VERSION" ] || fail '无法从 Windows Go Agent 源码读取版本'
 rm -rf "$OUTPUT_ROOT"
 mkdir -p "$OUTPUT_ROOT"
 
@@ -216,6 +220,10 @@ generated_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
   printf '  "schemaVersion": "gcac.agent-release-bundle/v1",\n'
   printf '  "version": "%s",\n' "$RELEASE_VERSION"
   printf '  "generatedAt": "%s",\n' "$generated_at"
+  printf '  "agentVersions": {\n'
+  printf '    "linux-go-full": "%s",\n' "$LINUX_AGENT_VERSION"
+  printf '    "windows-go-full": "%s"\n' "$WINDOWS_GO_AGENT_VERSION"
+  printf '  },\n'
   printf '  "architectures": ["linux/amd64", "linux/arm64", "windows/amd64", "windows/arm64"],\n'
   printf '  "compatibility": {\n'
   printf '    "runtime": "go",\n'

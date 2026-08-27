@@ -2029,10 +2029,29 @@ export class AgentsApplicationService {
     if (existing) return existing;
     const sync = (async () => {
       if (typeof this.repository.publishVersion !== 'function') return;
-      const localProducts = [
-        { productLine: windowsGoProductLine, platform: 'WINDOWS', version: await readWindowsGoAgentVersion() },
-        { productLine: linuxGoProductLine, platform: 'LINUX', version: await readLinuxGoAgentVersion() },
-      ] as const;
+      const localProducts: Array<{
+        productLine: GoFullProductLine;
+        platform: 'WINDOWS' | 'LINUX';
+        version: string;
+      }> = [];
+      for (const definition of [
+        { productLine: windowsGoProductLine, platform: 'WINDOWS' as const, readVersion: readWindowsGoAgentVersion },
+        { productLine: linuxGoProductLine, platform: 'LINUX' as const, readVersion: readLinuxGoAgentVersion },
+      ]) {
+        try {
+          localProducts.push({
+            productLine: definition.productLine,
+            platform: definition.platform,
+            version: await definition.readVersion(),
+          });
+        } catch (error) {
+          // 中文说明：生产镜像只保证已打包的 Agent 可用，单个平台缺失不能阻断其它平台的升级摘要。
+          structuredLogger.warn('本地 Agent Release 版本读取失败，跳过该平台', {
+            productLine: definition.productLine,
+            errorMessage: error instanceof Error ? error.message : String(error),
+          }, { module: 'agents', tenantId });
+        }
+      }
       for (const product of localProducts) {
         for (const architecture of ['amd64', 'arm64'] as const) {
           const artifactPath = resolveGoFullArtifactPath(product.productLine, architecture);
@@ -2744,16 +2763,37 @@ function sha256(value: string): string {
 
 const currentFilePath = fileURLToPath(import.meta.url);
 const currentDirPath = path.dirname(currentFilePath);
-const windowsGoAgentRoot = resolveRepositoryAgentRoot('windows-go-full-agent');
-const windowsGoAgentAmd64Artifact = path.join(windowsGoAgentRoot, 'dist', 'gcac-agent.windows-amd64.exe');
-const windowsGoAgentArm64Artifact = path.join(windowsGoAgentRoot, 'dist', 'gcac-agent.windows-arm64.exe');
-const linuxGoAgentRoot = resolveRepositoryAgentRoot('linux-go-full-agent');
-const linuxGoAgentAmd64Artifact = path.join(linuxGoAgentRoot, 'gcac-linux-agent');
-const linuxGoAgentArm64Artifact = path.join(linuxGoAgentRoot, 'gcac-linux-agent-arm64');
-const windowsGoAgentUpdaterAmd64Artifact = path.join(windowsGoAgentRoot, 'dist', 'gcac-agent-updater.windows-amd64.exe');
-const windowsGoRuntimeDiscoveryAmd64Artifact = path.join(windowsGoAgentRoot, 'dist', 'plugins', 'windows-runtime-discovery.windows-amd64.exe');
-const windowsCompatibilityAgentRoot = resolveRepositoryAgentRoot('windows-compat-full-agent');
-const windowsCompatibilityReleaseRoot = path.join(windowsCompatibilityAgentRoot, 'dist');
+const configuredAgentReleaseBundleRoot = process.env.GCAC_AGENT_RELEASE_BUNDLE_ROOT?.trim() || undefined;
+const windowsGoAgentRoot = configuredAgentReleaseBundleRoot
+  ? path.join(configuredAgentReleaseBundleRoot, 'windows', 'amd64', 'full-agent')
+  : resolveRepositoryAgentRoot('windows-go-full-agent');
+const windowsGoAgentAmd64Artifact = configuredAgentReleaseBundleRoot
+  ? path.join(configuredAgentReleaseBundleRoot, 'windows', 'amd64', 'full-agent', 'gcac-agent.exe')
+  : path.join(windowsGoAgentRoot, 'dist', 'gcac-agent.windows-amd64.exe');
+const windowsGoAgentArm64Artifact = configuredAgentReleaseBundleRoot
+  ? path.join(configuredAgentReleaseBundleRoot, 'windows', 'arm64', 'full-agent', 'gcac-agent.exe')
+  : path.join(windowsGoAgentRoot, 'dist', 'gcac-agent.windows-arm64.exe');
+const linuxGoAgentRoot = configuredAgentReleaseBundleRoot
+  ? path.join(configuredAgentReleaseBundleRoot, 'linux', 'amd64')
+  : resolveRepositoryAgentRoot('linux-go-full-agent');
+const linuxGoAgentAmd64Artifact = configuredAgentReleaseBundleRoot
+  ? path.join(configuredAgentReleaseBundleRoot, 'linux', 'amd64', 'gcac-linux-agent')
+  : path.join(linuxGoAgentRoot, 'gcac-linux-agent');
+const linuxGoAgentArm64Artifact = configuredAgentReleaseBundleRoot
+  ? path.join(configuredAgentReleaseBundleRoot, 'linux', 'arm64', 'gcac-linux-agent')
+  : path.join(linuxGoAgentRoot, 'gcac-linux-agent-arm64');
+const windowsGoAgentUpdaterAmd64Artifact = configuredAgentReleaseBundleRoot
+  ? path.join(configuredAgentReleaseBundleRoot, 'windows', 'amd64', 'full-agent', 'gcac-agent-updater.exe')
+  : path.join(windowsGoAgentRoot, 'dist', 'gcac-agent-updater.windows-amd64.exe');
+const windowsGoRuntimeDiscoveryAmd64Artifact = configuredAgentReleaseBundleRoot
+  ? path.join(configuredAgentReleaseBundleRoot, 'windows', 'amd64', 'full-agent', 'plugins', 'windows-runtime-discovery.exe')
+  : path.join(windowsGoAgentRoot, 'dist', 'plugins', 'windows-runtime-discovery.windows-amd64.exe');
+const windowsCompatibilityAgentRoot = configuredAgentReleaseBundleRoot
+  ? path.join(configuredAgentReleaseBundleRoot, 'windows', 'amd64', 'compatibility')
+  : resolveRepositoryAgentRoot('windows-compat-full-agent');
+const windowsCompatibilityReleaseRoot = configuredAgentReleaseBundleRoot
+  ? windowsCompatibilityAgentRoot
+  : path.join(windowsCompatibilityAgentRoot, 'dist');
 const windowsAdcsAgentRoot = resolveRepositoryAgentRoot('windows-adcs-agent');
 const windowsAdcsAgentArtifact = path.join(windowsAdcsAgentRoot, 'dist', 'gcac-adcs-agent.windows-amd64.exe');
 const WINDOWS_INSTALL_PLATFORMS = ['windows_go_service', 'windows_compatibility_service', 'windows_adcs_service'] as const;
@@ -2933,10 +2973,15 @@ function resolveRepositoryAgentRoot(agentDirectoryName: string): string {
 }
 
 async function readWindowsGoAgentVersion(): Promise<string> {
-  const source = await readFile(path.join(windowsGoAgentRoot, 'main.go'), 'utf8');
-  const match = source.match(/\bagentVersion\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)"/u);
-  if (!match?.[1]) throw new AppError('RESOURCE_NOT_FOUND', '无法从 Windows Go Agent 源码读取版本');
-  return match[1];
+  const sourcePath = path.join(windowsGoAgentRoot, 'main.go');
+  if (existsSync(sourcePath)) {
+    const source = await readFile(sourcePath, 'utf8');
+    const match = source.match(/\bagentVersion\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)"/u);
+    if (match?.[1]) return match[1];
+  }
+  const bundleVersion = await readAgentReleaseBundleVersion(windowsGoProductLine);
+  if (bundleVersion) return bundleVersion;
+  throw new AppError('RESOURCE_NOT_FOUND', '无法从 Windows Go Agent 发布包读取版本');
 }
 
 async function readWindowsAdcsAgentVersion(): Promise<string> {
@@ -2957,12 +3002,32 @@ async function readWindowsAdcsAgentVersion(): Promise<string> {
 }
 
 async function readLinuxGoAgentVersion(): Promise<string> {
-  const source = await readFile(path.join(linuxGoAgentRoot, 'build.sh'), 'utf8');
-  const match = source.match(/VERSION_VALUE="\$\{VERSION:-([^"}]+)\}"/u);
-  if (!match?.[1] || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(match[1])) {
-    throw new AppError('RESOURCE_NOT_FOUND', '无法从 Linux Go Agent 构建脚本读取版本');
+  const buildScriptPath = path.join(linuxGoAgentRoot, 'build.sh');
+  if (existsSync(buildScriptPath)) {
+    const source = await readFile(buildScriptPath, 'utf8');
+    const match = source.match(/VERSION_VALUE="\$\{VERSION:-([^"}]+)\}"/u);
+    if (match?.[1] && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(match[1])) return match[1];
   }
-  return match[1];
+  const bundleVersion = await readAgentReleaseBundleVersion(linuxGoProductLine);
+  if (bundleVersion) return bundleVersion;
+  throw new AppError('RESOURCE_NOT_FOUND', '无法从 Linux Go Agent 发布包读取版本');
+}
+
+async function readAgentReleaseBundleVersion(productLine: GoFullProductLine): Promise<string | undefined> {
+  if (!configuredAgentReleaseBundleRoot) return undefined;
+  const manifestPath = path.join(configuredAgentReleaseBundleRoot, 'manifest.json');
+  if (!existsSync(manifestPath)) return undefined;
+  try {
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+      agentVersions?: Record<string, unknown>;
+    };
+    const version = manifest.agentVersions?.[productLine];
+    return typeof version === 'string' && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(version)
+      ? version
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function resolveGoFullArtifactPath(productLine: GoFullProductLine, architecture: 'amd64' | 'arm64' | undefined): string | undefined {
