@@ -1,6 +1,6 @@
 {
   "schemaVersion": "gcac.adcs-agent.windows.v1",
-  "version": "0.1.1",
+  "version": "0.1.14",
   "tenantId": "",
   "agentKey": "",
   "enrollmentToken": "",
@@ -8,6 +8,7 @@
   "controlPlaneUrl": "",
   "heartbeatIntervalSeconds": 10,
   "taskPollIntervalSeconds": 5,
+  "observationIntervalSeconds": 5,
   "managementListenAddress": "0.0.0.0",
   "managementPort": 18933,
   "paths": { "windows": { "configPath": "C:\\ProgramData\\GCAC\\WindowsAdcsAgent\\config\\agent.config.json", "dataDir": "C:\\ProgramData\\GCAC\\WindowsAdcsAgent\\data", "logDir": "C:\\ProgramData\\GCAC\\WindowsAdcsAgent\\logs" } },

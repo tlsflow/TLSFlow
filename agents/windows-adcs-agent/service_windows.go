@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -144,10 +145,49 @@ func writeAdcsServiceLog(config *AgentConfig, message string) {
 	}
 	path := filepath.Join(config.Paths.Windows.LogDir, "agent.log")
 	_ = os.MkdirAll(filepath.Dir(path), 0o755)
+	// 先迁移已有的无 BOM 日志，再打开追加句柄；Windows 不能在文件仍
+	// 被打开时删除并替换它。
+	_ = ensureAdcsLogUtf8Bom(path)
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return
 	}
 	defer file.Close()
+	if info, statErr := file.Stat(); statErr == nil && info.Size() == 0 {
+		// Windows PowerShell 5.1 只有看到 UTF-8 BOM 才会按 UTF-8 读取
+		// 无扩展名日志；没有 BOM 时会按系统 ANSI 代码页显示成乱码。
+		_, _ = file.Write([]byte{0xef, 0xbb, 0xbf})
+	}
 	_, _ = fmt.Fprintf(file, "%s\n", message)
+}
+
+func ensureAdcsLogUtf8Bom(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if bytes.HasPrefix(data, []byte{0xef, 0xbb, 0xbf}) {
+		return nil
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(path), "agent-log-*.tmp")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if _, err := temporary.Write(append([]byte{0xef, 0xbb, 0xbf}, data...)); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil {
+		return err
+	}
+	return os.Rename(temporaryPath, path)
 }

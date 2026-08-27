@@ -10,3 +10,5 @@ import (
 func runWindowsService(_ string, _ *AgentConfig) error {
 	return errors.New("Windows AD CS Agent 服务入口只能在 Windows 上运行")
 }
+
+func writeAdcsServiceLog(_ *AgentConfig, _ string) {}

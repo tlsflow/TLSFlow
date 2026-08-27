@@ -9,7 +9,7 @@ param(
   [Parameter(Mandatory=$true)][string]$AgentKey,
   [Parameter(Mandatory=$true)][string]$EnrollmentToken,
   [string]$Zone = 'default',
-  [string]$AgentVersion = '0.1.1',
+  [string]$AgentVersion = '0.1.14',
   [switch]$StartAfterInstall
 )
 $ErrorActionPreference = 'Stop'
@@ -18,7 +18,7 @@ $serviceName = 'GCACWindowsAdcsAgent'; $displayName = 'GCAC Windows AD CS Agent'
 $binaryPath = Join-Path $InstallRoot 'gcac-adcs-agent.exe'; $configPath = Join-Path $ConfigDir 'agent.config.json'
 New-Item -ItemType Directory -Force -Path $InstallRoot,$ConfigDir,$DataDir,$LogDir | Out-Null
 if (-not (Test-Path -LiteralPath $binaryPath)) { throw "AD CS Agent binary is missing: $binaryPath" }
-$config = [ordered]@{ schemaVersion='gcac.adcs-agent.windows.v1'; version=$AgentVersion; tenantId=$TenantId; agentKey=$AgentKey; enrollmentToken=$EnrollmentToken; zone=$Zone; controlPlaneUrl=$ControlPlaneUrl; heartbeatIntervalSeconds=10; taskPollIntervalSeconds=5; managementListenAddress='0.0.0.0'; managementPort=$managementPort; paths=[ordered]@{ windows=[ordered]@{ configPath=$configPath; dataDir=$DataDir; logDir=$LogDir } }; service=[ordered]@{ name=$serviceName; displayName=$displayName } }
+$config = [ordered]@{ schemaVersion='gcac.adcs-agent.windows.v1'; version=$AgentVersion; tenantId=$TenantId; agentKey=$AgentKey; enrollmentToken=$EnrollmentToken; zone=$Zone; controlPlaneUrl=$ControlPlaneUrl; heartbeatIntervalSeconds=10; taskPollIntervalSeconds=5; observationIntervalSeconds=5; managementListenAddress='0.0.0.0'; managementPort=$managementPort; paths=[ordered]@{ windows=[ordered]@{ configPath=$configPath; dataDir=$DataDir; logDir=$LogDir } }; service=[ordered]@{ name=$serviceName; displayName=$displayName } }
 [IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 8), (New-Object Text.UTF8Encoding($false)))
 $existing = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
 if ($null -ne $existing) { if ($existing.Status -ne 'Stopped') { Stop-Service -Name $serviceName -Force }; & sc.exe delete $serviceName | Out-Null; Start-Sleep -Seconds 1 }
