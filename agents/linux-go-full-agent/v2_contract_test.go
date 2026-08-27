@@ -268,6 +268,26 @@ func TestV2RejectsUnallowlistedOperation(t *testing.T) {
 	}
 }
 
+func TestV2RejectsKeyPathOutsideTokenScope(t *testing.T) {
+	fixture := newLinuxV2TestFixture(t)
+	tampered := fixture.Plan
+	tampered.Operations = append([]agentPlanAction(nil), fixture.Plan.Operations...)
+	tampered.Operations[0].Input = map[string]any{
+		"path":          fixture.Plan.Operations[0].Input["path"],
+		"keyPath":       filepath.Join(t.TempDir(), "outside.key.pem"),
+		"contentBase64": base64.StdEncoding.EncodeToString([]byte("v2")),
+	}
+	digest, err := computeAgentPlanDigest(tampered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered.PlanDigest = digest
+	fixture.Token.PlanDigest = digest
+	if err := validateAgentPlan(tampered, fixture.Token); err == nil {
+		t.Fatal("keyPath 不在 Token 路径范围内时必须失败关闭")
+	}
+}
+
 type linuxV2TestFixture struct {
 	Request map[string]any
 	Plan    agentPlanV2
@@ -431,6 +451,59 @@ func TestV2ReceiptRejectsTamperedDigestAndSignature(t *testing.T) {
 	delete(fixture.Request, "receipt")
 	if success, code, _, _ := executeAgentV2(context.Background(), fixture.Request, fixture.Plan.AgentID); !success || code != "" {
 		t.Fatalf("回执动作应只读取本地已签名回执: success=%v code=%s", success, code)
+	}
+}
+
+func TestReceiptCanonicalJSONMatchesControlPlaneForXMLOutput(t *testing.T) {
+	receipt := AgentExecutionReceiptV1{
+		ReceiptVersion: "gcac.agent-security/v1",
+		OperationID:    "op-xml",
+		PlanID:         "plan-xml",
+		PlanDigest:     strings.Repeat("a", 64),
+		AgentID:        "agent-xml",
+		TenantID:       "tenant-xml",
+		TokenID:        "token-xml",
+		Status:         "FAILED",
+		StartedAt:      "2026-08-27T00:00:00.000Z",
+		CompletedAt:    "2026-08-27T00:00:01.000Z",
+		OperationResults: []map[string]any{{
+			"operationId": "config-check",
+			"error":       `<Connector foo="bar"> & invalid`,
+		}},
+		NonceConsumed: true,
+		ErrorCode:     "AGENT_EXECUTION_FAILED",
+		AgentKeyID:    "agent-key",
+	}
+	digest, err := computeAgentExecutionReceiptDigest(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const controlPlaneDigest = "b7b4cef11b60dcca6f21c59c8e1ea9815b8a27bdecad6113b44c1f3374e8ac76"
+	if digest != controlPlaneDigest {
+		t.Fatalf("Receipt 摘要必须与控制面的 JSON.stringify 语义一致: got=%s want=%s", digest, controlPlaneDigest)
+	}
+	legacyDigest, err := computeLegacyGoAgentExecutionReceiptDigest(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacyDigest == digest {
+		t.Fatalf("XML 特殊字符必须能区分旧 Go HTML 转义摘要: digest=%s", digest)
+	}
+
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer := agentReceiptSigner{KeyID: receipt.AgentKeyID, PrivateKey: privateKey}
+	if err := signAgentExecutionReceipt(&receipt, signer); err != nil {
+		t.Fatal(err)
+	}
+	keySet := map[string]string{receipt.AgentKeyID: base64.StdEncoding.EncodeToString(publicKey)}
+	if err := verifySignatureWithKeySetAndCanonicalizer(receipt.AgentKeyID, receipt.Signature, agentReceiptWithoutSignature(receipt), canonicalJSONForReceipt, keySet); err != nil {
+		t.Fatalf("Receipt 使用不转义 HTML 的规范化后必须可验签: %v", err)
+	}
+	if err := verifySignatureWithKeySet(receipt.AgentKeyID, receipt.Signature, agentReceiptWithoutSignature(receipt), keySet); err == nil {
+		t.Fatal("默认 Go HTML 转义规范化不得误验收新的 Receipt 签名")
 	}
 }
 

@@ -614,11 +614,10 @@ func validateAgentPlan(plan agentPlanV2, token AgentCapabilityTokenV1) error {
 		if !containsString(token.Actions, operation.OperationType) {
 			return fmt.Errorf("Token 未授权 Agent 操作: %s", operation.OperationType)
 		}
-		if path := v2StringValue(operation.Input, "path"); path != "" && !pathScopeContains(token.AllowedPaths, path) {
-			return fmt.Errorf("operation path is outside token scope: %s", path)
-		}
-		if configPath := v2StringValue(operation.Input, "configPath"); configPath != "" && !pathScopeContains(token.AllowedPaths, configPath) {
-			return fmt.Errorf("operation configPath is outside token scope: %s", configPath)
+		for _, field := range []string{"path", "keyPath", "certificatePath", "configPath", "csrPath"} {
+			if path := v2StringValue(operation.Input, field); path != "" && !pathScopeContains(token.AllowedPaths, path) {
+				return fmt.Errorf("operation %s is outside token scope: %s", field, path)
+			}
 		}
 		if service := v2StringValue(operation.Input, "serviceName"); service != "" && !scopeContains(token.AllowedServices, service) {
 			return fmt.Errorf("operation service is outside token scope: %s", service)
@@ -936,7 +935,7 @@ func signAgentExecutionReceipt(receipt *AgentExecutionReceiptV1, signer agentRec
 		return err
 	}
 	receipt.Digest = digest
-	receipt.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(signer.PrivateKey, canonicalJSON(agentReceiptWithoutSignature(*receipt))))
+	receipt.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(signer.PrivateKey, canonicalJSONForReceipt(agentReceiptWithoutSignature(*receipt))))
 	return nil
 }
 
@@ -965,10 +964,16 @@ func validateAgentExecutionReceipt(receipt AgentExecutionReceiptV1, token AgentC
 		return errors.New("SUCCESS receipt cannot contain an error code")
 	}
 	expectedDigest, err := computeAgentExecutionReceiptDigest(receipt)
-	if err != nil || expectedDigest != receipt.Digest {
+	legacyGoDigest, legacyErr := computeLegacyGoAgentExecutionReceiptDigest(receipt)
+	legacyGoEmptyDigest, legacyEmptyErr := computeLegacyGoEmptyFieldsAgentExecutionReceiptDigest(receipt)
+	if err != nil || legacyErr != nil || legacyEmptyErr != nil || (expectedDigest != receipt.Digest && legacyGoDigest != receipt.Digest && legacyGoEmptyDigest != receipt.Digest) {
 		return errors.New("receipt digest does not match the complete receipt")
 	}
-	return verifySignedValue(receipt.AgentKeyID, receipt.Signature, agentReceiptWithoutSignature(receipt), "GCAC_AGENT_RECEIPT_KEYSET_JSON")
+	canonicalizer := canonicalJSONForReceipt
+	if expectedDigest != receipt.Digest {
+		canonicalizer = canonicalJSON
+	}
+	return verifySignedValueWithCanonicalizer(receipt.AgentKeyID, receipt.Signature, agentReceiptWithoutSignature(receipt), "GCAC_AGENT_RECEIPT_KEYSET_JSON", canonicalizer)
 }
 
 func loadAndValidateAgentExecutionReceipt(request agentV2Request) (AgentExecutionReceiptV1, error) {
@@ -998,7 +1003,7 @@ func loadAndValidateAgentExecutionReceipt(request agentV2Request) (AgentExecutio
 	if request.Plan.PlanVersion != "" && !planContainsOperation(request.Plan, receipt.OperationID) {
 		return AgentExecutionReceiptV1{}, errors.New("receipt operationId does not belong to the plan")
 	}
-	if request.Receipt != nil && string(canonicalJSON(*request.Receipt)) != string(canonicalJSON(receipt)) {
+	if request.Receipt != nil && string(canonicalJSONForReceipt(*request.Receipt)) != string(canonicalJSONForReceipt(receipt)) {
 		return AgentExecutionReceiptV1{}, errors.New("submitted receipt does not match the persisted Agent receipt")
 	}
 	return receipt, nil
@@ -1233,12 +1238,12 @@ func executeCertificateMaterialValidate(ctx context.Context, operation agentPlan
 	if err := agentContextError(ctx); err != nil {
 		return nil, err
 	}
-	digest := sha256.Sum256(content)
-	detail := map[string]any{
-		"status": "SUCCEEDED", "path": filepath.Clean(path), "storageKind": storageKind,
-		"bytes": len(content), "contentSha256": hex.EncodeToString(digest[:]),
-	}
 	if storageKind == "PEM_FILES" {
+		digest := sha256.Sum256(content)
+		detail := map[string]any{
+			"status": "SUCCEEDED", "path": filepath.Clean(path), "storageKind": storageKind,
+			"bytes": len(content), "contentSha256": hex.EncodeToString(digest[:]),
+		}
 		material, parseErr := parseLinuxPEMMaterialDetails(path, content)
 		if parseErr != nil {
 			return nil, parseErr
@@ -1258,6 +1263,10 @@ func executeCertificateMaterialValidate(ctx context.Context, operation agentPlan
 	if err := validateLinuxCertificateMaterialInput(operation.Input); err != nil {
 		return nil, err
 	}
+	prepared, prepareErr := prepareLinuxKeyStoreContent(operation.Input, content)
+	if prepareErr != nil {
+		return nil, prepareErr
+	}
 	if verifyCurrent, _ := operation.Input["verifyCurrentKeyStorePassword"].(bool); verifyCurrent {
 		keystoreType := strings.ToUpper(strings.TrimSpace(v2StringValue(operation.Input, "keystoreType")))
 		password, passwordErr := resolveLinuxKeyStorePassword(operation.Input)
@@ -1273,9 +1282,24 @@ func executeCertificateMaterialValidate(ctx context.Context, operation agentPlan
 			return nil, err
 		}
 	}
-	material, err := validateLinuxKeyStoreMaterial(operation.Input, path, content)
+	content = prepared
+	targetPassword, passwordErr := resolveLinuxKeyStorePassword(operation.Input)
+	if passwordErr != nil {
+		return nil, passwordErr
+	}
+	material, err := validateLinuxKeyStoreMaterialWithPassword(
+		v2StringValue(operation.Input, "keystoreType"),
+		strings.TrimSpace(v2StringValue(operation.Input, "keyAlias")),
+		targetPassword,
+		content,
+	)
 	if err != nil {
 		return nil, err
+	}
+	digest := sha256.Sum256(content)
+	detail := map[string]any{
+		"status": "SUCCEEDED", "path": filepath.Clean(path), "storageKind": storageKind,
+		"bytes": len(content), "contentSha256": hex.EncodeToString(digest[:]),
 	}
 	detail["keystoreType"] = material.Format
 	detail["keyAlias"] = material.Alias
@@ -1304,6 +1328,12 @@ func validateLinuxCertificateMaterialInput(input map[string]any) error {
 	}
 	if configPath := v2StringValue(input, "configPath"); configPath != "" && (!filepath.IsAbs(configPath) || hasParentPathSegment(configPath)) {
 		return errors.New("certificate.material.validate configPath is invalid")
+	}
+	if sourcePassword, exists := input["sourceKeyStorePassword"]; exists {
+		value, ok := sourcePassword.(string)
+		if !ok || value == "" || len(value) > 1024 {
+			return errors.New("certificate.material.validate KeyStore 源制品密码无效")
+		}
 	}
 	return nil
 }
@@ -1470,10 +1500,54 @@ func executeFileReplace(ctx context.Context, operation agentPlanAction) error {
 	if err != nil || path == "" || !filepath.IsAbs(path) {
 		return errors.New("file.atomic_replace requires an absolute path and base64 content")
 	}
-	if err := atomicWriteFile(path, content, 0o600); err != nil {
+	if v2StringValue(operation.Input, "storageKind") == "KEYSTORE" {
+		content, err = prepareLinuxKeyStoreContent(operation.Input, content)
+		if err != nil {
+			return err
+		}
+	}
+	if err := atomicReplaceFile(path, content); err != nil {
 		return err
 	}
 	return agentContextError(ctx)
+}
+
+// atomicReplaceFile 在临时文件换入目标前保留原目标的属主和权限。
+// KeyStore 通常由 tomcat 等服务账号读取，不能因为 Agent 以 root 写入而变成
+// root:root 0600，否则服务会“启动成功”但 HTTPS Connector 初始化失败。
+func atomicReplaceFile(path string, content []byte) error {
+	metadata, err := readAtomicFileMetadata(path)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".gcac-atomic-*")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := applyAtomicFileMetadata(temporary, metadata); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(content); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return err
+	}
+	return nil
 }
 
 func executeCertificateStoreInstall(ctx context.Context, operation agentPlanAction) error {
@@ -1909,6 +1983,10 @@ func validLinuxServiceName(value string) bool {
 }
 
 func verifySignedValue(keyID, signature string, value any, envName string) error {
+	return verifySignedValueWithCanonicalizer(keyID, signature, value, envName, canonicalJSON)
+}
+
+func verifySignedValueWithCanonicalizer(keyID, signature string, value any, envName string, canonicalizer func(any) []byte) error {
 	if strings.TrimSpace(keyID) == "" || strings.TrimSpace(signature) == "" {
 		return unavailableAgentAuthorizationMaterial("signature and keyId are required")
 	}
@@ -1920,10 +1998,14 @@ func verifySignedValue(keyID, signature string, value any, envName string) error
 	if err := json.Unmarshal([]byte(keySetRaw), &keySet); err != nil {
 		return unavailableAgentAuthorizationMaterial("trusted policy key set is invalid")
 	}
-	return verifySignatureWithKeySet(keyID, signature, value, keySet)
+	return verifySignatureWithKeySetAndCanonicalizer(keyID, signature, value, canonicalizer, keySet)
 }
 
 func verifySignatureWithKeySet(keyID, signature string, value any, keySet map[string]string) error {
+	return verifySignatureWithKeySetAndCanonicalizer(keyID, signature, value, canonicalJSON, keySet)
+}
+
+func verifySignatureWithKeySetAndCanonicalizer(keyID, signature string, value any, canonicalizer func(any) []byte, keySet map[string]string) error {
 	encodedKey, ok := keySet[keyID]
 	if !ok {
 		return unavailableAgentAuthorizationMaterial("trusted policy key is not configured")
@@ -1936,7 +2018,7 @@ func verifySignatureWithKeySet(keyID, signature string, value any, keySet map[st
 	if err != nil {
 		signed, err = base64.StdEncoding.DecodeString(signature)
 	}
-	if err != nil || !ed25519.Verify(ed25519.PublicKey(publicKey), canonicalJSON(value), signed) {
+	if err != nil || !ed25519.Verify(ed25519.PublicKey(publicKey), canonicalizer(value), signed) {
 		return errors.New("signature verification failed")
 	}
 	return nil
@@ -2004,8 +2086,10 @@ func validateAgentPlanLocalPolicy(plan agentPlanV2) error {
 		if len(policy.AllowedActions) > 0 && !containsString(policy.AllowedActions, operation.OperationType) {
 			return errors.New("operation is denied by local policy action scope")
 		}
-		if path := v2StringValue(operation.Input, "path"); path != "" && !pathScopeContains(policy.AllowedPaths, path) {
-			return errors.New("operation path is denied by local policy")
+		for _, field := range []string{"path", "keyPath", "certificatePath", "configPath", "csrPath"} {
+			if path := v2StringValue(operation.Input, field); path != "" && !pathScopeContains(policy.AllowedPaths, path) {
+				return fmt.Errorf("operation %s is denied by local policy", field)
+			}
 		}
 		if service := v2StringValue(operation.Input, "serviceName"); service != "" && !scopeContains(policy.AllowedServices, service) {
 			return errors.New("operation service is denied by local policy")
@@ -2114,6 +2198,28 @@ func canonicalJSON(value any) []byte {
 	return canonical
 }
 
+// canonicalJSONForReceipt 与控制面的 JSON.stringify 语义保持一致。
+// Go encoding/json 默认会把 <、>、& 编码为 \u003c、\u003e、\u0026，
+// 而控制面不会这样做；Receipt 单独使用不转义 HTML 的规范化，避免
+// Tomcat XML 配置检查输出进入 operationResults 后造成跨语言摘要不一致。
+func canonicalJSONForReceipt(value any) []byte {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	var normalized any
+	if err := json.Unmarshal(raw, &normalized); err != nil {
+		return nil
+	}
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(normalized); err != nil {
+		return nil
+	}
+	return bytes.TrimSuffix(buffer.Bytes(), []byte{'\n'})
+}
+
 func computeAgentFactDigest(fact map[string]any) (string, error) {
 	payload := make(map[string]any, len(fact))
 	for key, value := range fact {
@@ -2214,9 +2320,44 @@ func computeAgentExecutionReceiptDigest(receipt AgentExecutionReceiptV1) (string
 	}
 	delete(payload, "digest")
 	delete(payload, "signature")
-	canonical := canonicalJSON(payload)
+	canonical := canonicalJSONForReceipt(payload)
 	if len(canonical) == 0 {
 		return "", errors.New("receipt cannot be canonicalized")
+	}
+	digest := sha256.Sum256(canonical)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+// computeLegacyGoAgentExecutionReceiptDigest 兼容 Linux Agent 0.1.29
+// 使用 Go 默认 HTML 转义生成、但已排除派生字段的 Receipt 摘要。只用于迁移期读取旧账本，
+// 新生成的 Receipt 一律使用 canonicalJSONForReceipt。
+func computeLegacyGoAgentExecutionReceiptDigest(receipt AgentExecutionReceiptV1) (string, error) {
+	raw, err := json.Marshal(receipt)
+	if err != nil {
+		return "", err
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return "", err
+	}
+	delete(payload, "digest")
+	delete(payload, "signature")
+	canonical := canonicalJSON(payload)
+	if len(canonical) == 0 {
+		return "", errors.New("legacy receipt cannot be canonicalized")
+	}
+	digest := sha256.Sum256(canonical)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+// computeLegacyGoEmptyFieldsAgentExecutionReceiptDigest 兼容 0.1.27
+// 及更早版本将空 digest/signature 字段纳入摘要的实现。
+func computeLegacyGoEmptyFieldsAgentExecutionReceiptDigest(receipt AgentExecutionReceiptV1) (string, error) {
+	receipt.Digest = ""
+	receipt.Signature = ""
+	canonical := canonicalJSON(receipt)
+	if len(canonical) == 0 {
+		return "", errors.New("legacy receipt cannot be canonicalized")
 	}
 	digest := sha256.Sum256(canonical)
 	return hex.EncodeToString(digest[:]), nil

@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
+	"maps"
 	"math/big"
 	"os"
 	"os/exec"
@@ -130,6 +131,73 @@ func TestLinuxCertificateMaterialReadsTomcatPasswordFromConfigPath(t *testing.T)
 	}
 }
 
+func TestLinuxPKCS12RepackagesSourcePasswordWithTomcatAlias(t *testing.T) {
+	leaf, privateKey := newLinuxKeyStoreTestCertificate(t, "tomcat.example.test")
+	source := newLinuxTestPKCS12(t, privateKey, leaf, "server", "artifact-password")
+	input := map[string]any{
+		"path":                   filepath.Join(t.TempDir(), "tomcat.p12"),
+		"contentBase64":          base64.StdEncoding.EncodeToString(source),
+		"storageKind":            "KEYSTORE",
+		"keystoreType":           "PKCS12",
+		"keyAlias":               "server",
+		"keystorePassword":       "tomcat-current-password",
+		"sourceKeyStorePassword": "artifact-password",
+	}
+	prepared, err := prepareLinuxKeyStoreContent(input, source)
+	if err != nil {
+		t.Fatalf("P12 源密码与 Tomcat 密码不同时必须可重封装: %v", err)
+	}
+	material, err := validateLinuxKeyStoreMaterialWithPassword("PKCS12", "server", "tomcat-current-password", prepared)
+	if err != nil || !material.AliasVerified {
+		t.Fatalf("重封装后的 P12 必须能用目标密码和 Alias 打开: material=%#v err=%v", material, err)
+	}
+	if _, err := validateLinuxKeyStoreMaterialWithPassword("PKCS12", "server", "artifact-password", prepared); err == nil {
+		t.Fatal("重封装后的 P12 不得继续接受源制品密码")
+	}
+	assertLinuxPKCS12AliasWithKeytool(t, prepared, "tomcat-current-password", "server")
+	previous := newLinuxTestPKCS12(t, privateKey, leaf, "server", "tomcat-current-password")
+	if err := os.WriteFile(input["path"].(string), previous, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := executeFileReplace(context.Background(), agentPlanAction{OperationID: "replace", OperationType: "filesystem.atomic_replace", Input: input}); err != nil {
+		t.Fatalf("P12 原子替换必须重封装并写入: %v", err)
+	}
+	replaced, err := os.ReadFile(input["path"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := validateLinuxKeyStoreMaterialWithPassword("PKCS12", "server", "tomcat-current-password", replaced); err != nil {
+		t.Fatalf("原子替换后的 P12 必须能被 Tomcat 当前密码读取: %v", err)
+	}
+	wrongSource := maps.Clone(input)
+	wrongSource["sourceKeyStorePassword"] = "wrong-source-password"
+	if _, err := prepareLinuxKeyStoreContent(wrongSource, source); err == nil || !strings.Contains(err.Error(), "密码错误或文件损坏") {
+		t.Fatalf("错误源制品密码必须在写前失败: %v", err)
+	}
+}
+
+func assertLinuxPKCS12AliasWithKeytool(t *testing.T, content []byte, password, alias string) {
+	t.Helper()
+	keytool, err := exec.LookPath("keytool")
+	if err != nil {
+		t.Skip("当前环境没有 keytool，跳过 Java KeyStore 兼容性校验")
+	}
+	path := filepath.Join(t.TempDir(), "tomcat.p12")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output, err := exec.Command(keytool, "-list", "-storetype", "PKCS12", "-keystore", path, "-storepass", password, "-alias", alias).CombinedOutput()
+	if err != nil {
+		// macOS 可能只有 /usr/bin/keytool 包装命令而未安装 JRE；这属于
+		// 验证环境缺失，不应把生产实现误报为失败。真正可执行的 keytool
+		// 仍然必须通过下面的兼容性校验。
+		if strings.Contains(string(output), "Unable to locate a Java Runtime") || strings.Contains(string(output), "No Java runtime present") {
+			t.Skip("当前环境没有可用 Java Runtime，跳过 keytool 兼容性校验")
+		}
+		t.Fatalf("JDK keytool 必须能以目标密码和 Alias 打开重封装 P12: %v: %s", err, strings.TrimSpace(string(output)))
+	}
+}
+
 func TestLinuxCertificateMaterialPairSkipsKeyStoreBinary(t *testing.T) {
 	leaf, privateKey := newLinuxKeyStoreTestCertificate(t, "tomcat.example.test")
 	content := newLinuxTestJKS(t, privateKey, leaf, "server", "changeit")
@@ -185,6 +253,9 @@ func TestLinuxTomcatKeyStoreReplacementRollbackAndReceipt(t *testing.T) {
 	if err := os.WriteFile(target, oldStore, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(target, 0o640); err != nil {
+		t.Fatal(err)
+	}
 	fixture.Plan.Operations = []agentPlanAction{
 		{OperationID: "backup-tomcat", OperationType: "filesystem.backup", Stage: "execute", Input: map[string]any{
 			"path": target, "ledgerRef": "execution-recovery-ledger",
@@ -210,6 +281,9 @@ func TestLinuxTomcatKeyStoreReplacementRollbackAndReceipt(t *testing.T) {
 	if err != nil || !bytes.Equal(replaced, newStore) {
 		t.Fatalf("替换后目标 KeyStore 不正确: err=%v", err)
 	}
+	if info, err := os.Stat(target); err != nil || info.Mode().Perm() != 0o640 {
+		t.Fatalf("替换后必须保留目标权限 0640: info=%v err=%v", info, err)
+	}
 	receipt, ok := detail["receipt"].(AgentExecutionReceiptV1)
 	if !ok || receipt.Status != "SUCCESS" || receipt.Digest == "" {
 		t.Fatalf("替换必须生成签名 SUCCESS Receipt: %#v", detail)
@@ -232,6 +306,9 @@ func TestLinuxTomcatKeyStoreReplacementRollbackAndReceipt(t *testing.T) {
 	restored, err := os.ReadFile(target)
 	if err != nil || !bytes.Equal(restored, oldStore) {
 		t.Fatalf("回滚后目标 KeyStore 未恢复: err=%v", err)
+	}
+	if info, err := os.Stat(target); err != nil || info.Mode().Perm() != 0o640 {
+		t.Fatalf("回滚后必须保留目标权限 0640: info=%v err=%v", info, err)
 	}
 }
 

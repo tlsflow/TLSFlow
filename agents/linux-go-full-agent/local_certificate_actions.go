@@ -62,7 +62,7 @@ func executeLocalKeyGenerate(ctx context.Context, plan agentPlanV2, operation ag
 		return nil, err
 	}
 	return map[string]any{
-		"localKeyRef":                linuxLocalKeyRef(plan.AgentID, path, publicKeyFingerprint),
+		"localKeyRef":                linuxLocalKeyRef(plan.AgentID, v2StringValue(operation.Input, "targetId"), path, publicKeyFingerprint),
 		"csrPem":                     string(csrPem),
 		"csrSha256":                  sha256Hex(csrPem),
 		"publicKeyFingerprintSha256": publicKeyFingerprint,
@@ -89,6 +89,12 @@ func validateIssuedCertificateInstallInput(input map[string]any) error {
 	if format := v2StringValue(input, "format"); format != "pem" && format != "pkcs12" && format != "jks" {
 		return errors.New("certificate.install_issued format must be pem, pkcs12 or jks")
 	}
+	if format := v2StringValue(input, "format"); format != "pem" {
+		configPath := v2StringValue(input, "configPath")
+		if configPath == "" || !filepath.IsAbs(configPath) || hasParentPathSegment(configPath) {
+			return errors.New("Linux KeyStore 安装需要安全的 Tomcat configPath，密码只允许从本机配置读取")
+		}
+	}
 	if mode := v2StringValue(input, "storageMode"); mode != "" && mode != "file_pem" {
 		return errors.New("linux certificate.install_issued only supports file_pem storageMode")
 	}
@@ -114,8 +120,14 @@ func executeIssuedCertificateInstall(ctx context.Context, plan agentPlanV2, oper
 	if !strings.EqualFold(publicKeyFingerprint, v2StringValue(operation.Input, "expectedPublicKeyFingerprintSha256")) {
 		return nil, errors.New("certificate public key does not match the local key reference")
 	}
-	if v2StringValue(operation.Input, "localKeyRef") != linuxLocalKeyRef(plan.AgentID, keyPath, publicKeyFingerprint) {
-		return nil, errors.New("certificate localKeyRef does not belong to this Agent key")
+	targetID := v2StringValue(operation.Input, "targetId")
+	localKeyRef := v2StringValue(operation.Input, "localKeyRef")
+	if localKeyRef != linuxLocalKeyRef(plan.AgentID, targetID, keyPath, publicKeyFingerprint) {
+		// 兼容早期 Agent 生成的未绑定 targetId 的句柄。新生成的句柄始终使用
+		// 带目标绑定的格式，旧句柄只允许在同一 Agent 的授权路径范围内继续安装。
+		if localKeyRef != linuxLegacyLocalKeyRef(plan.AgentID, keyPath, publicKeyFingerprint) {
+			return nil, errors.New("certificate localKeyRef does not belong to this Agent key")
+		}
 	}
 	leaf, chain, err := parseLinuxCertificateChain(v2StringValue(operation.Input, "certificatePem"), v2StringValue(operation.Input, "certificateChainPem"))
 	if err != nil {
@@ -136,15 +148,30 @@ func executeIssuedCertificateInstall(ctx context.Context, plan agentPlanV2, oper
 			return nil, err
 		}
 	} else if format == "pkcs12" {
-		content, err := pkcs12.Modern2023.Encode(privateKey, leaf, chain, "changeit")
+		password, err := resolveLinuxKeyStorePassword(operation.Input)
+		if err != nil {
+			return nil, err
+		}
+		// 使用 Tomcat/JDK 广泛支持的 3DES PBE 编码；别名写入器需要
+		// 未加密的私钥袋，Modern2023 的 PBES2 私钥袋无法安全改写。
+		content, err := pkcs12.LegacyDES.WithRand(rand.Reader).Encode(privateKey, leaf, chain, password)
 		if err != nil {
 			return nil, fmt.Errorf("PKCS12 生成失败: %w", err)
+		}
+		alias := firstNonEmptyLinux(v2StringValue(operation.Input, "alias"), "tomcat")
+		content, err = setLinuxPKCS12KeyAlias(content, password, alias)
+		if err != nil {
+			return nil, fmt.Errorf("PKCS12 alias 设置失败: %w", err)
 		}
 		if err := atomicWriteFile(path, content, 0o600); err != nil {
 			return nil, err
 		}
 	} else {
-		content, err := encodeLinuxJks(privateKey, leaf, chain, firstNonEmptyLinux(v2StringValue(operation.Input, "alias"), "tomcat"))
+		password, err := resolveLinuxKeyStorePassword(operation.Input)
+		if err != nil {
+			return nil, err
+		}
+		content, err := encodeLinuxJks(privateKey, leaf, chain, firstNonEmptyLinux(v2StringValue(operation.Input, "alias"), "tomcat"), password)
 		if err != nil {
 			return nil, err
 		}
@@ -298,7 +325,7 @@ func allLinuxCertificates(value string) ([]*x509.Certificate, error) {
 	return certificates, nil
 }
 
-func encodeLinuxJks(key crypto.Signer, leaf *x509.Certificate, chain []*x509.Certificate, alias string) ([]byte, error) {
+func encodeLinuxJks(key crypto.Signer, leaf *x509.Certificate, chain []*x509.Certificate, alias, password string) ([]byte, error) {
 	privateKey, err := x509.MarshalPKCS8PrivateKey(key)
 	if err != nil {
 		return nil, err
@@ -310,11 +337,11 @@ func encodeLinuxJks(key crypto.Signer, leaf *x509.Certificate, chain []*x509.Cer
 	store := keystore.New()
 	if err := store.SetPrivateKeyEntry(alias, keystore.PrivateKeyEntry{
 		CreationTime: time.Now(), PrivateKey: privateKey, CertificateChain: certificateChain,
-	}, []byte("changeit")); err != nil {
+	}, []byte(password)); err != nil {
 		return nil, err
 	}
 	var buffer bytes.Buffer
-	if err := store.Store(&buffer, []byte("changeit")); err != nil {
+	if err := store.Store(&buffer, []byte(password)); err != nil {
 		return nil, err
 	}
 	return buffer.Bytes(), nil
@@ -328,7 +355,11 @@ func linuxPublicKeyFingerprint(publicKey any) (string, error) {
 	return sha256Hex(der), nil
 }
 
-func linuxLocalKeyRef(agentID, path, publicKeyFingerprint string) string {
+func linuxLocalKeyRef(agentID, targetID, path, publicKeyFingerprint string) string {
+	return "local-key:" + sha256Hex([]byte(agentID+"|"+targetID+"|"+filepath.Clean(path)+"|"+strings.ToLower(publicKeyFingerprint)))
+}
+
+func linuxLegacyLocalKeyRef(agentID, path, publicKeyFingerprint string) string {
 	return "local-key:" + sha256Hex([]byte(agentID+"|"+filepath.Clean(path)+"|"+strings.ToLower(publicKeyFingerprint)))
 }
 
