@@ -19,4 +19,11 @@ describe('核心路由基线', () => {
     expect(reportRoutes).toHaveLength(3)
     expect(reportRoutes.every((route) => route.meta?.permission === 'report.read')).toBe(true)
   })
+
+  it('旧 Provider URL 只兼容跳转到统一应用接入向导', () => {
+    const providerRoute = businessRoutes.find((route) => route.path === '/providers')
+    expect(providerRoute?.redirect).toBeTypeOf('function')
+    const redirected = (providerRoute?.redirect as (to: { query: Record<string, unknown>; hash?: string }) => { path: string; query: Record<string, unknown> })({ query: {} })
+    expect(redirected).toMatchObject({ path: '/applications', query: { onboarding: '1' } })
+  })
 })
