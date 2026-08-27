@@ -2957,7 +2957,8 @@ watch(
   () => route.query.cloudAccount,
   (value) => {
     if (value !== '1') return
-    cloudAccountDialogOpen.value = true
+    // 兼容旧链接，但所有新增云账号操作都必须从统一应用接入向导进入。
+    onboardingDialogOpen.value = true
     const query = { ...route.query }
     delete query.cloudAccount
     void router.replace({ query })
@@ -3350,9 +3351,6 @@ function managedTargetLabel(target: ApiRecord): string {
             </GcButton>
             <GcPermissionButton class="gc-button gc-button--primary" permission="service_asset.manage" @click="onboardingDialogOpen = true">
               {{ t('assets.card.actions.add') }}
-            </GcPermissionButton>
-            <GcPermissionButton class="gc-button gc-button--secondary" permission="cloud_account_asset.create" @click="cloudAccountDialogOpen = true">
-              {{ t('providers.actions.add') }}
             </GcPermissionButton>
           </div>
         </header>

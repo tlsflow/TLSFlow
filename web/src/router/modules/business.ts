@@ -147,7 +147,7 @@ export const businessRoutes: GcRouteRecord[] = [
   {
     path: '/providers',
     name: 'provider.cloud.list',
-    redirect: (to) => ({ path: '/applications', query: { ...to.query, cloudAccount: '1' }, hash: to.hash }),
+    redirect: (to) => ({ path: '/applications', query: { ...to.query, onboarding: '1' }, hash: to.hash }),
     meta: {
       title: 'Cloud providers',
       titleKey: 'providers.page.title',
