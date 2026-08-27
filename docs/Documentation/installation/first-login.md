@@ -10,7 +10,7 @@ codeRefs:
   - backend/src/modules/security
   - backend/src/config
 testRefs: []
-lastVerified: 2026-08-22
+lastVerified: 2026-08-26
 ---
 
 # 首次登录
@@ -18,9 +18,9 @@ lastVerified: 2026-08-22
 ## 登录地址
 
 - 标准部署：打开 `http://<主机地址>:<GCAC_PORT>/`，默认端口为 `8085`。
-- 单机部署：打开 `http://<主机地址>:<GCAC_PORT>/`，默认端口为 `8085`。
+- 单机部署：打开 `http://<主机地址>:8085/`；如使用 `docker run -p` 修改了宿主机端口，则访问对应端口。
 
-输入用户名 `admin` 和启动时设置的 `GCAC_INITIAL_ADMIN_PASSWORD`。该密码没有内置默认值，必须由你在启动时设置。
+首次打开控制台时进入系统初始化向导，按页面提示创建管理员用户名和密码。新部署不需要设置 `GCAC_INITIAL_ADMIN_PASSWORD`；该变量仅兼容旧版自动化 seed。
 
 登录成功后，浏览器会保存登录状态，进入控制台首页。
 
@@ -40,9 +40,9 @@ lastVerified: 2026-08-22
 ## 登录失败排查
 
 - 确认访问的是 Web 端口，不是标准版 Backend 的 `3003` 端口。
-- 检查 `GCAC_INITIAL_ADMIN_PASSWORD` 是否与首次初始化时一致；修改环境变量不会自动重置已存在用户密码。
+- 如果仍在使用旧版自动化 seed，检查 `GCAC_INITIAL_ADMIN_PASSWORD` 是否正确；修改环境变量不会自动重置已存在用户密码。
 - 检查 `GCAC_TOKEN_SECRET` 是否在重启前后保持不变，改变它会使现有登录令牌失效。
-- 查看 `docker compose logs backend`，先处理迁移、数据库或必填密钥错误。
-- 如果页面可以打开但 API 请求失败，检查 Web 到 Backend 的代理配置和请求 ID；不要直接把 Backend 端口暴露给公网。
+- standard 查看 `docker compose logs backend`；small 查看 `docker logs tlsflow-small`，先处理迁移、数据库或必填密钥错误。
+- 如果页面可以打开但 API 请求失败，检查 Web 到 Backend 的内部代理配置和请求 ID。
 
 登录令牌（用于保持会话的签名凭证）和 Secret 加密密钥不能写入截图、日志或问题单。

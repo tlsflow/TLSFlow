@@ -148,52 +148,71 @@ CA/B Forum 已于 2025 年 4 月 11 日通过 SC081v3，把公有信任 TLS/SSL 
 | TLS Inspector | 独立 Node.js 服务，用于 TLS 握手和证书状态分析 |
 | Full Agent / CA Node | Go 原生程序，分别承担主机执行和隔离 CA 签发边界 |
 | 扩展运行时 | Manifest、Host API、Runner、Workflow DSL 和兼容目录 |
-| 部署方式 | Docker Compose，支持单机 `small` 和标准 `standard` 两种拓扑 |
+| 部署方式 | standard 使用 Docker Compose；small 使用单容器 `docker run` |
 
 ## 快速体验
 
 ### 前置条件
 
-- Linux 或 macOS 主机；
-- Docker、Docker Compose v2 和 Buildx；
+- Linux、macOS 或 NAS 主机；
+- Docker CLI；standard 另外需要 Docker Compose v2；
 - 能访问目标设备、证书服务及计划接入的外部 API；
-- 一组通过密码管理器或 CI Secret 注入的运行时密钥。
+- 生产环境使用随机且长期保持不变的运行时密钥。
+
+部署预构建镜像不需要 Node.js、Go、Buildx 或源码。
 
 ### 单机评估部署
 
-单机版适合功能评估和小规模环境，使用 PGlite，不包含独立 PostgreSQL 和 Browser Runtime。
+small 适合 50 个应用资产以下的功能评估和小规模环境，使用 PGlite，不包含独立
+PostgreSQL 和 Browser Runtime。只需准备宿主机数据目录，然后执行：
 
 ```bash
-# 在仓库外准备受控环境变量文件，变量名参考 docker/.env.example。
-# 不要把真实密钥提交到仓库；下面的 source 只把它们导出到当前 Shell。
-set -a
-. /path/to/gcac.env
-set +a
-export GCAC_RELEASE_VERSION="$(tr -d '\r\n' < version)"
-
-node docker/build-tools/build-local.mjs --architecture small
-docker compose --env-file docker/versions.env --profile small -f docker/compose.yml up -d
-docker compose --env-file docker/versions.env --profile small -f docker/compose.yml ps
+DATA_ROOT=/path/to/tlsflow-data
+mkdir -p \
+  "$DATA_ROOT/pglite" \
+  "$DATA_ROOT/workflows" \
+  "$DATA_ROOT/runtime" \
+  "$DATA_ROOT/tls-inspector" \
+  "$DATA_ROOT/plugins"
+# 容器默认以 UID/GID 10001:10001 运行；NAS 允许时提前调整目录所有权。
+chown -R 10001:10001 "$DATA_ROOT"
+docker run -d \
+  --name tlsflow-small \
+  --restart unless-stopped \
+  --label com.gcac.deployment.architecture=small \
+  -p 8085:3003 \
+  -e GCAC_TOKEN_SECRET=TLSFlow-Token-K4r8-Np2z-2026 \
+  -e GCAC_SECRET_KEK=TLSFlow-KEK-H7s3-Lx6v-2026 \
+  -v "$DATA_ROOT/pglite:/var/lib/gcac/pglite" \
+  -v "$DATA_ROOT/workflows:/app/data/workflows" \
+  -v "$DATA_ROOT/runtime:/app/data/runtime" \
+  -v "$DATA_ROOT/tls-inspector:/app/data/tls-inspector" \
+  -v "$DATA_ROOT/plugins:/app/data/plugins:ro" \
+  your-dockerhub-namespace/gcac-small:latest
 ```
 
-默认访问地址为 `http://<主机地址>:8085/`。首次启动后按初始化向导创建管理员，不要在生产环境复用示例密钥。
+将 `your-dockerhub-namespace` 替换为实际 Docker Hub 命名空间。
+
+默认访问地址为 `http://<主机地址>:8085/`。首次启动后按初始化向导创建管理员，
+不要在生产环境复用示例密钥。
 
 ### 标准部署
 
-标准版由 PostgreSQL、Backend、Web 和 Browser Runtime 组成，适合正式环境或需要浏览器运行时的场景。
+标准版由 PostgreSQL、Backend、Web 和按需启用的 Browser Runtime 组成，适合正式环境
+和多企业后台任务场景。复制 `docker/.env.example` 为 `docker/.env`，填写
+`GCAC_IMAGE_NAMESPACE`、`GCAC_RELEASE_VERSION`、`POSTGRES_PASSWORD`、
+`GCAC_PUBLIC_BASE_URL`、`GCAC_TOKEN_SECRET` 和 `GCAC_SECRET_KEK`，然后执行：
 
 ```bash
-set -a
-. /path/to/gcac.env
-set +a
-export GCAC_RELEASE_VERSION="$(tr -d '\r\n' < version)"
-
-node docker/build-tools/build-local.mjs --architecture standard
-docker compose --env-file docker/versions.env --profile standard -f docker/compose.yml up -d
-docker compose --env-file docker/versions.env --profile standard -f docker/compose.yml ps
+cd docker
+docker compose pull
+docker compose up -d
+docker compose ps
 ```
 
-标准部署默认 Web 端口为 `8085`，Backend 端口为 `3003`。Browser Runtime 应只在容器内网使用，不应直接暴露到公网。完整变量、备份和首次登录步骤见[安装部署文档](docs/Documentation/installation/)。
+需要 Browser Runtime 时执行 `docker compose --profile browser-runtime up -d`。
+标准部署默认 Web 端口为 `8085`，Backend 只在 Compose 内部网络提供服务。Browser Runtime
+应只在容器内网使用，不应直接暴露到公网。完整变量、备份和首次登录步骤见[安装部署文档](docs/Documentation/installation/)。
 
 ## 项目目录
 
@@ -204,7 +223,7 @@ browser-runtime/  受控浏览器运行时
 tls-inspector/    TLS 握手与证书探测服务
 agents/           Windows/Linux Agent、CA Node 和 Gateway Agent
 docker/           Dockerfile、Compose、镜像和 Agent 发布包构建工具
-data/plugins/     运行期用户插件目录（只读挂载）
+data/              运行期插件、数据库、工作流和运行时数据目录
 docs/             用户手册、开发文档、运维指南和产品资料
 specs/            按领域组织的需求与设计规格
 scripts/          架构检查、兼容性检查、插件治理和公开发布工具
