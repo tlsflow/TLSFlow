@@ -408,7 +408,8 @@ function projectAccountFrameworkTopology(
   const frameworks: CloudResourceProjection['framework'][] = [];
   const sites: CloudResourceProjection['site'][] = [];
   for (const [scope, scopedResources] of [...byScope.entries()].sort(([left], [right]) => left.localeCompare(right))) {
-    const scopeName = textValue(scopedResources[0]?.metadata?.cdnRegionName) || (scope === 'mainland' ? '中国大陆' : '全球');
+    // 中文说明：展示名称由稳定范围键决定，避免历史投影中的“全球”文案继续泄漏到当前界面。
+    const scopeName = scope === 'mainland' ? '中国大陆' : '国际站';
     const frameworkId = `fw_${stableId(context.cloudAccountAssetId, `cloud.account:framework:cdn:${scope}`)}`;
     const frameworkMetadata = {
       cloudAccountAssetId: context.cloudAccountAssetId,

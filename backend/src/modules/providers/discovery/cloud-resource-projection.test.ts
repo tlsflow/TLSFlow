@@ -65,12 +65,12 @@ test('账号级 CDN 投影不创建伪设备，区域生成 Framework，实例�
       resourceId: 'global.example',
       displayName: 'global.example',
       region: 'global',
-      metadata: { cdnRegion: 'global', cdnRegionName: '全球' },
+      metadata: { cdnRegion: 'global', cdnRegionName: '国际站' },
     },
   ]);
   assert.equal(projection.devices.length, 0);
   assert.deepEqual(projection.frameworks.map((item) => [item.frameworkKey, item.displayName]), [
-    ['cdn.global', '阿里云 CDN · 全球'],
+    ['cdn.global', '阿里云 CDN · 国际站'],
     ['cdn.mainland', '阿里云 CDN · 中国大陆'],
   ]);
   assert.equal(projection.sites.length, 2);
@@ -78,7 +78,20 @@ test('账号级 CDN 投影不创建伪设备，区域生成 Framework，实例�
   assert.deepEqual(service.preview({ ...context(), topology: 'ACCOUNT_FRAMEWORK' }, [resource]), { devices: 0, frameworks: 2, sites: 1 });
 });
 
-test('账号级 CDN 即使没有域名也固定生成中国大陆和全球 Framework', () => {
+test('账号级 CDN 投影将历史全球文案规范化为国际站', () => {
+  const projection = new CloudResourceProjectionService().projectBatch({
+    ...context(),
+    topology: 'ACCOUNT_FRAMEWORK',
+    providerDisplayName: '阿里云 CDN',
+  }, [{
+    ...resource,
+    region: 'global',
+    metadata: { cdnRegion: 'global', cdnRegionName: '全球' },
+  }]);
+  assert.equal(projection.frameworks.find((item) => item.frameworkKey === 'cdn.global')?.displayName, '阿里云 CDN · 国际站');
+});
+
+test('账号级 CDN 即使没有域名也固定生成中国大陆和国际站 Framework', () => {
   const service = new CloudResourceProjectionService();
   const projection = service.projectBatch({
     ...context(),
@@ -87,7 +100,7 @@ test('账号级 CDN 即使没有域名也固定生成中国大陆和全球 Frame
   }, []);
   assert.equal(projection.devices.length, 0);
   assert.deepEqual(projection.frameworks.map((item) => [item.frameworkKey, item.displayName, item.versionText]), [
-    ['cdn.global', '阿里云 CDN · 全球', '0 resources'],
+    ['cdn.global', '阿里云 CDN · 国际站', '0 resources'],
     ['cdn.mainland', '阿里云 CDN · 中国大陆', '0 resources'],
   ]);
   assert.equal(projection.sites.length, 0);

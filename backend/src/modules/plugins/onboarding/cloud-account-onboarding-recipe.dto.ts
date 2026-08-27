@@ -2,11 +2,19 @@ import type { UnifiedPluginManifestV1 } from '../dto/unified-plugins.dto.js';
 
 export const cloudAccountOnboardingProtocol = 'gcac.cloud-account-onboarding/v1' as const;
 
+/** 云账号平台卡片使用的统一业务接入说明。 */
+export interface CloudAccountOnboardingPlatformMetadataV1 {
+  capabilityVersion: string;
+  compatibilityKeys: string[];
+  requiredInformationKeys: string[];
+}
+
 export interface CloudAccountOnboardingRecipeV1 {
   protocol: typeof cloudAccountOnboardingProtocol;
   assetKind: 'CLOUD_ACCOUNT';
   providerKey: string;
   display: { nameKey: string; descriptionKey?: string; logoResource?: string };
+  platformMetadata: CloudAccountOnboardingPlatformMetadataV1;
   formResource: string;
   credentialContractResource: string;
   capabilities: { connectionTest: string; discover: string };

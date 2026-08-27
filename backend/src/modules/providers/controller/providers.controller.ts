@@ -14,6 +14,7 @@ import { CloudAccountAssetsApplicationService } from '../application/cloud-accou
 import { CloudAccountDiscoveryApplicationService, type CloudAccountDiscoveryOperation } from '../application/cloud-account-discovery.application-service.js';
 import type { UnifiedPluginsApplicationService } from '../../plugins/application/unified-plugins.application-service.js';
 import { CloudAccountOnboardingRecipeLoader } from '../../plugins/onboarding/cloud-account-onboarding-recipe.loader.js';
+import { PluginLocaleService } from '../../plugins/locales/plugin-locale.service.js';
 
 const tags = ['Cloud Service'];
 
@@ -52,17 +53,36 @@ export class ProvidersController {
     const security = requireRouteSecurity(request, this.security);
     await assertRouteAction(security, 'cloud_account_asset.create', 'cloud_account_asset');
     if (!this.plugins) return { items: [], page: 1, pageSize: 0, total: 0 };
-    const catalog = await this.plugins.listCatalog(security.tenantId, typeof request.query.locale === 'string' ? request.query.locale : 'zh-CN');
+    const locale = typeof request.query.locale === 'string' ? request.query.locale : 'zh-CN';
+    const catalog = await this.plugins.listCatalog(security.tenantId, locale);
     const loader = new CloudAccountOnboardingRecipeLoader();
+    const locales = new PluginLocaleService();
     const items = [];
     for (const item of catalog.filter((candidate) => candidate.status === 'ENABLED')) {
       try {
         const version = await this.plugins.getVersionForTenant(security.tenantId, item.pluginVersionId);
         const loaded = loader.load(version);
+        const localeBundle = locales.validate(version.manifest, version.resources, [
+          loaded.recipe.display.nameKey,
+          ...(loaded.recipe.display.descriptionKey ? [loaded.recipe.display.descriptionKey] : []),
+          ...loaded.recipe.platformMetadata.compatibilityKeys,
+          ...loaded.recipe.platformMetadata.requiredInformationKeys,
+        ]);
+        const resolve = (key: string): string => locales.resolve(localeBundle!, locale, key) ?? key;
         items.push({
           pluginId: loaded.pluginId,
           pluginVersionId: loaded.pluginVersionId,
           version: loaded.pluginVersion,
+          displayName: resolve(loaded.recipe.display.nameKey),
+          ...(loaded.recipe.display.descriptionKey ? { description: resolve(loaded.recipe.display.descriptionKey) } : {}),
+          businessMetadata: {
+            // 与应用资产向导保持一致，展示实际绑定的不可变插件版本，而非配方合同版本。
+            capabilityVersion: loaded.pluginVersion,
+            compatibleVersions: loaded.recipe.platformMetadata.compatibilityKeys.map(resolve),
+            requiredInformation: loaded.recipe.platformMetadata.requiredInformationKeys.map(resolve),
+          },
+          ...(item.logoUrl ? { logoUrl: item.logoUrl } : {}),
+          ...(item.logoSquareUrl ? { logoSquareUrl: item.logoSquareUrl } : {}),
           recipe: loaded.recipe,
           form: parseResource(version.resources[loaded.recipe.formResource]),
           credentialContract: parseResource(version.resources[loaded.recipe.credentialContractResource]),

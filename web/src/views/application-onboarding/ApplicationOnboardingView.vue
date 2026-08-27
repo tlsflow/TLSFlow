@@ -5,12 +5,14 @@ import { type LocationQueryRaw, useRoute, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import {
   DeploymentInputForm,
+  GcPluginForm,
   GcPluginLogo,
   GcSelectionCard,
   type DeploymentArtifactOption,
   type DeploymentCredentialOption,
   type DeploymentInputBindingsV1,
   type DeploymentInputProjectionV1,
+  type PluginFormSchema,
 } from '@/design-system/components'
 import {
   cancelOnboardingSession,
@@ -28,6 +30,8 @@ import {
   testOnboardingConnection
 } from '@/api/modules/application-onboarding.api'
 import { projectApplicationAssetPluginInputs, type ApplicationAssetDeploymentDefaults } from '@/api/modules/deployment-inputs.api'
+import { createCloudAccountAsset, discoverCloudAccountResources, listCloudAccountOnboardingRecipes, testCloudAccountConnection } from '@/api/modules/providers.api'
+import { getUnifiedPluginUiResources } from '@/api/modules/plugins.api'
 import { listCredentials, type CredentialProfileSummary } from '@/api/modules/credentials.api'
 import { listCertificateFormats } from '@/api/modules/certificates.api'
 import { sortDeployableCertificateVersions } from '@/views/deployments/certificate-version-selection'
@@ -38,14 +42,14 @@ import type { DeviceOnboardingInitialSelection } from '@/views/devices/device-on
 import { createInputBindingsV1, readInputBindingsV1 } from '@/views/assets/asset-input-bindings.model'
 
 interface PlatformBusinessMetadata { capabilityVersion: string; compatibleVersions: string[]; requiredInformation: string[] }
-interface Platform { platformKey: string; source: 'PLUGIN' | 'CUSTOM_MANUAL'; pluginVersionId?: string; displayNameKey: string; displayName?: string; logoUrl?: string; logoSquareUrl?: string; businessMetadata?: PlatformBusinessMetadata; deploymentMode?: string; deviceSelection?: 'EXISTING_OR_NEW' | 'EXISTING_ONLY' | 'NONE'; newDeviceOnboarding?: DeviceOnboardingInitialSelection; supportStatus?: string; acceptedCertificateFormats?: string[]; deploymentDefaults?: ApplicationAssetDeploymentDefaults }
+interface Platform { platformKey: string; source: 'PLUGIN' | 'CUSTOM_MANUAL' | 'CLOUD_ACCOUNT'; pluginVersionId?: string; cloudProviderKey?: string; displayNameKey: string; displayName?: string; description?: string; logoUrl?: string; logoSquareUrl?: string; businessMetadata?: PlatformBusinessMetadata; deploymentMode?: string; deviceSelection?: 'EXISTING_OR_NEW' | 'EXISTING_ONLY' | 'NONE'; newDeviceOnboarding?: DeviceOnboardingInitialSelection; supportStatus?: string; acceptedCertificateFormats?: string[]; deploymentDefaults?: ApplicationAssetDeploymentDefaults; cloudAccountRecipe?: Record<string, unknown> }
 interface Session { id: string; platformKey: string; state: string; stateVersion: number; deploymentMode?: string; deviceId?: string | null; targetId?: string | null; certificateId?: string | null; certificateVersionId?: string | null; targets?: Target[]; inputSnapshot?: Record<string, unknown>; lastErrorCode?: string }
 interface TargetEndpoint { host?: string; port?: number; protocol?: string }
 interface Target { managedTargetId: string; displayName: string; targetType: string; endpoint?: TargetEndpoint; configFingerprint: string; selectable: boolean; reasonCode?: string }
 interface DeviceOption { deviceId: string; displayName: string; address?: string; health: string; selectable: boolean }
 interface CertificateOption { id: string; label: string }
 type OnboardingStep = 1 | 2 | 3 | 4 | 5
-type FooterPrimaryAction = 'RESOURCE' | 'TARGET' | 'CERTIFICATE' | 'COMPLETE' | null
+type FooterPrimaryAction = 'RESOURCE' | 'TARGET' | 'CERTIFICATE' | 'COMPLETE' | 'CLOUD_ACCOUNT' | null
 interface OnboardingFooterActions {
   visible: boolean
   showCancel: boolean
@@ -68,6 +72,7 @@ const emit = defineEmits<{
   close: []
   customManual: []
   addDevice: [initialSelection: DeviceOnboardingInitialSelection]
+  cloudAccountCompleted: [assetId: string]
   'update:platformKeyword': [value: string]
   'platform-selection-change': [active: boolean]
   'footer-actions-change': [actions: OnboardingFooterActions]
@@ -87,6 +92,11 @@ const loading = ref(true)
 const deviceListLoading = ref(false)
 const deviceListLoaded = ref(false)
 const submitInFlight = ref(false)
+const cloudAccountSubmitting = ref(false)
+const cloudAccountCompleted = ref(false)
+const cloudAccountDisplayName = ref('')
+const cloudAccountValues = ref<Record<string, unknown>>({})
+const cloudAccountPluginMessages = ref<Record<string, string>>({})
 const error = ref('')
 const deviceMode = ref<'EXISTING_DEVICE' | 'NEW_DEVICE'>('EXISTING_DEVICE')
 const deviceId = ref('')
@@ -106,6 +116,17 @@ const deploymentCredentialItems = ref<CredentialProfileSummary[]>([])
 const deploymentCertificateFormats = ref<Record<string, unknown>[]>([])
 let deploymentInputRequestSequence = 0
 const currentStepOverride = ref<OnboardingStep | null>(null)
+const isCloudAccountPlatform = computed(() => selectedPlatform.value?.source === 'CLOUD_ACCOUNT')
+const cloudAccountForm = computed<PluginFormSchema | null>(() => {
+  const candidate = selectedPlatform.value?.cloudAccountRecipe?.form
+  return isPluginFormSchema(candidate) ? candidate : null
+})
+const cloudAccountCanSubmit = computed(() => Boolean(
+  isCloudAccountPlatform.value
+    && !cloudAccountCompleted.value
+    && cloudAccountDisplayName.value.trim()
+    && requiredPluginFields(cloudAccountForm.value, cloudAccountValues.value).length === 0,
+))
 const supportsNewDevice = computed(() => selectedPlatform.value?.deviceSelection === 'EXISTING_OR_NEW' && Boolean(selectedPlatform.value.newDeviceOnboarding))
 const supportsExistingDevice = computed(() => selectedPlatform.value?.deviceSelection !== 'NONE')
 const canContinueExistingDevice = computed(() => !loading.value && !deviceListLoading.value && !submitInFlight.value && deviceMode.value === 'EXISTING_DEVICE' && Boolean(deviceId.value))
@@ -118,12 +139,16 @@ const step = computed<OnboardingStep>(() => {
 })
 const canGoPrevious = computed(() => step.value > 1 && step.value < 5 && !loading.value && !deviceListLoading.value)
 const footerActions = computed<OnboardingFooterActions>(() => {
-  const activeSession = Boolean(session.value && !['PLAN_CREATED', 'CANCELLED'].includes(session.value.state))
+  const activeSession = Boolean(session.value && !['PLAN_CREATED', 'CANCELLED'].includes(session.value.state)) || (isCloudAccountPlatform.value && !cloudAccountCompleted.value)
   let primaryAction: FooterPrimaryAction = null
   let primaryLabel = ''
   let primaryDisabled = true
 
-  if (step.value === 2 && session.value) {
+  if (isCloudAccountPlatform.value) {
+    primaryAction = cloudAccountCompleted.value ? null : 'CLOUD_ACCOUNT'
+    primaryLabel = t('providers.actions.save')
+    primaryDisabled = loading.value || cloudAccountSubmitting.value || !cloudAccountCanSubmit.value
+  } else if (step.value === 2 && session.value) {
     primaryAction = 'RESOURCE'
     primaryLabel = deviceMode.value === 'NEW_DEVICE'
       ? t('applicationOnboarding.device.newAction')
@@ -282,12 +307,85 @@ watch(footerActions, (actions) => {
 
 async function loadPlatforms(): Promise<void> {
   loading.value = true; error.value = ''
-  try { platforms.value = readArray<Platform>((await listOnboardingPlatforms(locale.value)).data) } catch (cause) { error.value = messageFor(cause) } finally { loading.value = false }
+  try {
+    const [applicationResult, cloudResult] = await Promise.allSettled([
+      listOnboardingPlatforms(locale.value),
+      listCloudAccountOnboardingRecipes(locale.value),
+    ])
+    if (applicationResult.status === 'rejected') throw applicationResult.reason
+    const applicationPlatforms = readArray<Platform>(applicationResult.value.data)
+    const cloudPlatforms = cloudResult.status === 'fulfilled' ? cloudAccountPlatforms(cloudResult.value.data) : []
+    platforms.value = [...applicationPlatforms, ...cloudPlatforms]
+  } catch (cause) { error.value = messageFor(cause) } finally { loading.value = false }
+}
+
+function cloudAccountPlatforms(value: unknown): Platform[] {
+  return readArray<Record<string, unknown>>(value).flatMap((item) => {
+    const recipe = readRecord(item.recipe) ?? {}
+    const display = readRecord(recipe.display) ?? {}
+    const providerKey = String(recipe.providerKey ?? item.pluginId ?? '').trim()
+    if (!providerKey) return []
+    return [{
+      platformKey: `cloud-account:${providerKey}`,
+      source: 'CLOUD_ACCOUNT' as const,
+      cloudProviderKey: providerKey,
+      pluginVersionId: String(item.pluginVersionId ?? '').trim() || undefined,
+      displayNameKey: String(display.nameKey ?? providerKey),
+      displayName: String(item.displayName ?? display.nameKey ?? providerKey),
+      description: String(item.description ?? display.descriptionKey ?? ''),
+      businessMetadata: readBusinessMetadata(item.businessMetadata),
+      logoUrl: typeof item.logoUrl === 'string' ? item.logoUrl : undefined,
+      logoSquareUrl: typeof item.logoSquareUrl === 'string' ? item.logoSquareUrl : undefined,
+      deviceSelection: 'NONE' as const,
+      supportStatus: 'SUPPORTED',
+      cloudAccountRecipe: item,
+    }]
+  })
+}
+
+function readBusinessMetadata(value: unknown): PlatformBusinessMetadata | undefined {
+  const metadata = readRecord(value) ?? {}
+  const capabilityVersion = String(metadata.capabilityVersion ?? '').trim()
+  const compatibleVersions = Array.isArray(metadata.compatibleVersions) ? metadata.compatibleVersions.map(String).filter(Boolean) : []
+  const requiredInformation = Array.isArray(metadata.requiredInformation) ? metadata.requiredInformation.map(String).filter(Boolean) : []
+  return capabilityVersion && compatibleVersions.length > 0 && requiredInformation.length > 0
+    ? { capabilityVersion, compatibleVersions, requiredInformation }
+    : undefined
 }
 
 async function choosePlatform(platform: Platform): Promise<void> {
   if (platform.source === 'CUSTOM_MANUAL') {
     openCustomManual()
+    return
+  }
+  if (platform.source === 'CLOUD_ACCOUNT') {
+    selectedPlatform.value = platform
+    session.value = null
+    currentStepOverride.value = null
+    resetDeviceSelection()
+    resetTargetSelection()
+    resetCloudAccountState()
+    loading.value = true
+    error.value = ''
+    try {
+      const pluginVersionId = platform.pluginVersionId
+      if (pluginVersionId) {
+        const result = await getUnifiedPluginUiResources(pluginVersionId, locale.value)
+        const payload = readRecord(result.data) ?? {}
+        cloudAccountPluginMessages.value = readStringRecord(readRecord(payload.locale)?.messages)
+        const forms = readRecord(payload.forms)
+        const cloudAccountForm = forms?.cloudAccount ?? forms?.cloud
+        if (isPluginFormSchema(cloudAccountForm)) {
+          platform.cloudAccountRecipe = { ...(platform.cloudAccountRecipe ?? {}), form: cloudAccountForm }
+        }
+      }
+      cloudAccountValues.value = defaultPluginFormValues(cloudAccountForm.value)
+    } catch (cause) {
+      error.value = messageFor(cause)
+      cloudAccountValues.value = defaultPluginFormValues(cloudAccountForm.value)
+    } finally {
+      loading.value = false
+    }
     return
   }
   selectedPlatform.value = platform; loading.value = true; error.value = ''
@@ -328,7 +426,46 @@ async function submitResource(): Promise<void> {
   } catch (cause) { error.value = messageFor(cause) } finally { submitInFlight.value = false; loading.value = false }
 }
 
+async function submitCloudAccount(): Promise<void> {
+  const platform = selectedPlatform.value
+  const recipe = platform?.cloudAccountRecipe
+  const providerKey = platform?.cloudProviderKey
+  if (!platform || !recipe || !providerKey || cloudAccountSubmitting.value || !cloudAccountCanSubmit.value) return
+  cloudAccountSubmitting.value = true
+  loading.value = true
+  error.value = ''
+  try {
+    const defaultRequest = readRecord(readRecord(recipe.recipe)?.defaults)?.request
+    const credentialValue = String(cloudAccountValues.value.credentialRef ?? '').trim()
+    const credentialRef = credentialValue.startsWith('credential://') ? credentialValue : `credential://${credentialValue}`
+    const scope = defaultRequest
+      ? { metadata: { request: defaultRequest } }
+      : undefined
+    const created = await createCloudAccountAsset({
+      displayName: cloudAccountDisplayName.value.trim(),
+      providerKey,
+      credentialRef,
+      ...(scope ? { scope } : {}),
+    })
+    const assetId = String(created.data?.id ?? '')
+    if (!assetId) throw new Error(t('providers.messages.createFailed'))
+    await testCloudAccountConnection(assetId)
+    await discoverCloudAccountResources(assetId)
+    cloudAccountCompleted.value = true
+    emit('cloudAccountCompleted', assetId)
+  } catch (cause) {
+    error.value = cause instanceof ApiClientError ? cause.message : cause instanceof Error ? cause.message : t('providers.messages.createFailed')
+  } finally {
+    cloudAccountSubmitting.value = false
+    loading.value = false
+  }
+}
+
 async function runFooterPrimary(): Promise<void> {
+  if (footerActions.value.primaryAction === 'CLOUD_ACCOUNT') {
+    await submitCloudAccount()
+    return
+  }
   if (footerActions.value.primaryAction === 'RESOURCE') {
     await submitResource()
     return
@@ -793,6 +930,13 @@ function resetTargetSelection(): void {
   deploymentInputLoading.value = false
   deploymentInputError.value = ''
 }
+function resetCloudAccountState(): void {
+  cloudAccountSubmitting.value = false
+  cloudAccountCompleted.value = false
+  cloudAccountDisplayName.value = ''
+  cloudAccountValues.value = {}
+  cloudAccountPluginMessages.value = {}
+}
 function resetOnboardingState(): void {
   selectedPlatform.value = null
   session.value = null
@@ -801,6 +945,7 @@ function resetOnboardingState(): void {
   loading.value = false
   deviceListLoading.value = false
   submitInFlight.value = false
+  resetCloudAccountState()
   resetDeviceSelection()
   resetTargetSelection()
 }
@@ -952,6 +1097,30 @@ function isRestartableSessionState(state: string): boolean {
 }
 function readObject<T>(value: unknown): T { const record = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; return (record.data && typeof record.data === 'object' ? record.data : record) as T }
 function readArray<T>(value: unknown): T[] { if (Array.isArray(value)) return value as T[]; const record = value && typeof value === 'object' ? value as Record<string, unknown> : {}; return Array.isArray(record.items) ? record.items as T[] : [] }
+function readStringRecord(value: unknown): Record<string, string> {
+  const record = readRecord(value) ?? {}
+  return Object.fromEntries(Object.entries(record).filter(([, item]) => typeof item === 'string')) as Record<string, string>
+}
+function isPluginFormSchema(value: unknown): value is PluginFormSchema {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value)
+    && (value as Record<string, unknown>).schemaVersion === 'gcac.plugin-form/v1'
+    && Array.isArray((value as Record<string, unknown>).sections))
+}
+function defaultPluginFormValues(schema: PluginFormSchema | null): Record<string, unknown> {
+  return Object.fromEntries((schema?.sections ?? []).flatMap((section) => section.fields)
+    .filter((field) => field.defaultValue !== undefined)
+    .map((field) => [field.key, cloneReactiveValue(field.defaultValue)]))
+}
+function requiredPluginFields(schema: PluginFormSchema | null, values: Record<string, unknown>): string[] {
+  return (schema?.sections ?? []).flatMap((section) => section.fields)
+    .filter((field) => field.required && isMissingPluginValue(values[field.key] ?? field.defaultValue))
+    .map((field) => field.key)
+}
+function isMissingPluginValue(value: unknown): boolean {
+  if (value === undefined || value === null) return true
+  if (typeof value === 'string') return value.trim() === ''
+  return Array.isArray(value) && value.length === 0
+}
 function messageFor(cause: unknown): string { return cause instanceof ApiClientError ? cause.message : t('applicationOnboarding.messages.requestFailed') }
 
 defineExpose({ goPrevious, runFooterPrimary, cancel })
@@ -1026,11 +1195,12 @@ defineExpose({ goPrevious, runFooterPrimary, cancel })
           <span class="platform-card__copy">
             <strong>{{ platformLabel(platform) }}</strong>
             <small v-if="platform.source === 'CUSTOM_MANUAL'">{{ t('applicationOnboarding.platforms.manualHint') }}</small>
-            <span v-else-if="platform.businessMetadata" class="platform-card__metadata">
+            <span v-if="platform.businessMetadata" class="platform-card__metadata">
               <small class="platform-card__metadata-row"><span>{{ t('applicationOnboarding.platforms.capabilityVersion') }}</span><span>{{ platform.businessMetadata.capabilityVersion }}</span></small>
               <small class="platform-card__metadata-row"><span>{{ t('applicationOnboarding.platforms.compatibility') }}</span><span>{{ platform.businessMetadata.compatibleVersions.join(' / ') }}</span></small>
               <small class="platform-card__metadata-row"><span>{{ t('applicationOnboarding.platforms.requiredInformation') }}</span><span>{{ platform.businessMetadata.requiredInformation.join(' / ') }}</span></small>
             </span>
+            <small v-else-if="platform.description">{{ platform.description }}</small>
             <small v-if="platform.supportStatus === 'IN_REVIEW'" class="platform-card__status">{{ t('applicationOnboarding.platforms.inReview') }}</small>
           </span>
         </button>
@@ -1047,7 +1217,40 @@ defineExpose({ goPrevious, runFooterPrimary, cancel })
       </div>
     </section>
     <section v-else class="onboarding-workspace">
-      <section v-if="step === 2" class="onboarding-device-step" aria-labelledby="onboarding-device-title">
+      <section v-if="isCloudAccountPlatform" class="onboarding-panel onboarding-cloud-account-panel" :aria-label="t('providers.aria.accountForm')">
+        <div class="onboarding-panel__header">
+          <div>
+            <h2>{{ t('providers.wizard.panels.assetTitle') }}</h2>
+            <p>{{ t('providers.wizard.panels.assetDescription') }}</p>
+          </div>
+          <GcPluginLogo
+            class="onboarding-cloud-account-panel__logo"
+            :logo-url="selectedPlatform?.logoUrl"
+            :square-logo-url="selectedPlatform?.logoSquareUrl"
+            :fallback-text="selectedPlatform ? platformInitial(selectedPlatform) : '?'"
+            alt=""
+            size="detail"
+          />
+        </div>
+        <p v-if="cloudAccountCompleted" class="onboarding-cloud-account-panel__success" role="status">
+          {{ t('providers.messages.savedAndDiscovered') }}
+        </p>
+        <template v-else>
+          <label class="onboarding-cloud-account-panel__display-name">
+            <span>{{ t('providers.fields.displayName') }}</span>
+            <input v-model="cloudAccountDisplayName" type="text" autocomplete="off" :disabled="loading || cloudAccountSubmitting">
+          </label>
+          <GcPluginForm
+            v-if="cloudAccountForm"
+            v-model="cloudAccountValues"
+            :schema="cloudAccountForm"
+            :plugin-messages="cloudAccountPluginMessages"
+            :readonly="loading || cloudAccountSubmitting"
+          />
+          <p v-else-if="!loading" class="onboarding-empty">{{ t('providers.messages.providerUnavailable') }}</p>
+        </template>
+      </section>
+      <section v-else-if="step === 2" class="onboarding-device-step" aria-labelledby="onboarding-device-title">
         <div class="onboarding-device-step__header">
           <h2 id="onboarding-device-title">{{ t('applicationOnboarding.device.title') }}</h2>
           <button
@@ -1200,6 +1403,12 @@ defineExpose({ goPrevious, runFooterPrimary, cancel })
 .onboarding-page__eyebrow { margin: 0; color: var(--gc-color-primary); font-size: var(--gc-font-size-xs); }
 h1, h2, p { margin: 0; }
 .onboarding-page__header p:last-child { margin-top: var(--gc-space-2); color: var(--gc-color-text-muted); }
+.onboarding-cloud-account-panel { display: grid; gap: var(--gc-space-5); }
+.onboarding-cloud-account-panel__logo { justify-self: end; }
+.onboarding-cloud-account-panel__display-name { display: grid; gap: var(--gc-space-2); }
+.onboarding-cloud-account-panel__display-name input { inline-size: 100%; min-block-size: var(--gc-control-height-md); padding: var(--gc-space-2) var(--gc-space-3); color: var(--gc-color-text); background: var(--gc-color-surface-field); border: var(--gc-border-width) solid var(--gc-color-border); border-radius: var(--gc-radius-control); }
+.onboarding-cloud-account-panel__display-name input:focus { outline: none; border-color: var(--gc-color-primary-border-strong); box-shadow: var(--gc-shadow-focus); }
+.onboarding-cloud-account-panel__success { padding: var(--gc-space-4); color: var(--gc-color-success); background: var(--gc-color-success-bg); border: var(--gc-border-width) solid var(--gc-color-success-border); border-radius: var(--gc-radius-md); }
 .onboarding-steps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--gc-space-2); padding: 0; margin: 0; list-style: none; }
 .onboarding-steps li { min-inline-size: 0; }
 .onboarding-steps__button { display: flex; align-items: center; gap: var(--gc-space-3); inline-size: 100%; min-inline-size: 0; padding: var(--gc-space-3); color: var(--gc-color-text-muted); text-align: left; cursor: not-allowed; background: var(--gc-color-surface-soft); border: var(--gc-space-hairline) solid transparent; border-radius: var(--gc-radius-sm); }
@@ -1223,11 +1432,11 @@ h1, h2, p { margin: 0; }
 .platform-plugin-link:focus-visible { outline: none; border-radius: var(--gc-radius-control); box-shadow: var(--gc-shadow-focus); }
 .platform-plugin-link svg { inline-size: var(--gc-size-icon-sm); block-size: var(--gc-size-icon-sm); fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: var(--gc-border-width-thick); }
 .platform-selection__sr-only { position: absolute; inline-size: var(--gc-space-hairline); block-size: var(--gc-space-hairline); padding: 0; margin: calc(var(--gc-space-hairline) * -1); overflow: hidden; white-space: nowrap; clip-path: inset(50%); border: 0; }
-.platform-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-content: start; min-block-size: 0; max-block-size: min(54vh, calc(100vh - (var(--gc-space-10) * 5))); gap: var(--gc-space-3); padding-inline-end: var(--gc-space-2); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.platform-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: var(--gc-size-application-onboarding-card); align-content: start; min-block-size: 0; max-block-size: min(54vh, calc(100vh - (var(--gc-space-10) * 5))); gap: var(--gc-space-3); padding-inline-end: var(--gc-space-2); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .onboarding-platform-loading { display: flex; align-items: center; justify-content: center; min-block-size: var(--gc-size-card-min); gap: var(--gc-space-2); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); font-weight: var(--gc-font-weight-semibold); }
 .onboarding-platform-loading__spinner { inline-size: var(--gc-space-5); aspect-ratio: 1; border: var(--gc-border-width-thick) solid var(--gc-color-primary-border); border-top-color: var(--gc-color-primary); border-radius: var(--gc-radius-full); animation: application-onboarding-platform-spin 700ms linear infinite; }
 @keyframes application-onboarding-platform-spin { to { transform: rotate(1turn); } }
-.platform-card { display: grid; grid-template-columns: calc(var(--gc-space-4) * 3) minmax(0, 1fr); align-items: start; gap: var(--gc-space-3); min-block-size: var(--gc-size-card-compact); padding: var(--gc-space-3); text-align: left; color: var(--gc-color-text); cursor: pointer; background: var(--gc-color-surface-soft); border: var(--gc-space-hairline) solid var(--gc-color-border); border-radius: var(--gc-radius-card); box-shadow: var(--gc-shadow-sm); transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
+.platform-card { display: grid; grid-template-columns: calc(var(--gc-space-4) * 3) minmax(0, 1fr); align-items: start; gap: var(--gc-space-3); block-size: var(--gc-size-application-onboarding-card); min-block-size: 0; padding: var(--gc-space-3); text-align: left; color: var(--gc-color-text); cursor: pointer; background: var(--gc-color-surface-soft); border: var(--gc-space-hairline) solid var(--gc-color-border); border-radius: var(--gc-radius-card); box-shadow: var(--gc-shadow-sm); transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
 .platform-card:hover:not(:disabled) { background: var(--gc-color-surface); border-color: var(--gc-color-primary-border-strong); box-shadow: var(--gc-shadow-hover); transform: translateY(calc(var(--gc-space-hairline) * -1)); }
 .platform-card:focus-visible { outline: none; box-shadow: var(--gc-shadow-focus); }
 .platform-card:disabled { cursor: not-allowed; opacity: var(--gc-opacity-disabled); }

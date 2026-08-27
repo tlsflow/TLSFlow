@@ -6,7 +6,7 @@ import {
   type CloudAccountOnboardingRecipeValidationContext,
 } from './cloud-account-onboarding-recipe.dto.js';
 
-const keys = new Set(['protocol', 'assetKind', 'providerKey', 'display', 'formResource', 'credentialContractResource', 'capabilities', 'submit', 'projection', 'defaults']);
+const keys = new Set(['protocol', 'assetKind', 'providerKey', 'display', 'platformMetadata', 'formResource', 'credentialContractResource', 'capabilities', 'submit', 'projection', 'defaults']);
 
 export function validateCloudAccountOnboardingRecipe(
   input: unknown,
@@ -20,6 +20,7 @@ export function validateCloudAccountOnboardingRecipe(
   if (context.manifest.pluginId !== providerKey) invalid('recipe.providerKey', '必须与 Manifest pluginId 一致');
   const display = record(value.display, 'recipe.display');
   known(display, new Set(['nameKey', 'descriptionKey', 'logoResource']), 'recipe.display');
+  const platformMetadata = validatePlatformMetadata(value.platformMetadata);
   const formResource = resource(value.formResource, 'recipe.formResource');
   if (!Object.values(context.manifest.resources.forms ?? {}).includes(formResource)) invalid('recipe.formResource', '表单资源未在 Manifest 声明');
   const credentialContractResource = resource(value.credentialContractResource, 'recipe.credentialContractResource');
@@ -48,6 +49,7 @@ export function validateCloudAccountOnboardingRecipe(
       ...(display.descriptionKey === undefined ? {} : { descriptionKey: locale(display.descriptionKey, 'recipe.display.descriptionKey') }),
       ...(display.logoResource === undefined ? {} : { logoResource: resource(display.logoResource, 'recipe.display.logoResource') }),
     },
+    platformMetadata,
     formResource,
     credentialContractResource,
     capabilities: { connectionTest, discover },
@@ -55,6 +57,25 @@ export function validateCloudAccountOnboardingRecipe(
     projection: { apiVersion: 'gcac.cloud-service/v1', resourceMapping: identifier(projection.resourceMapping, 'recipe.projection.resourceMapping') },
     ...(defaults ? { defaults: { ...(defaults.request === undefined ? {} : { request: structuredClone(defaults.request) }) } } : {}),
   };
+}
+
+function validatePlatformMetadata(input: unknown): CloudAccountOnboardingRecipeV1['platformMetadata'] {
+  const value = record(input, 'recipe.platformMetadata');
+  known(value, new Set(['capabilityVersion', 'compatibilityKeys', 'requiredInformationKeys']), 'recipe.platformMetadata');
+  const capabilityVersion = text(value.capabilityVersion, 'recipe.platformMetadata.capabilityVersion');
+  if (!/^[A-Za-z0-9._-]{1,64}$/.test(capabilityVersion)) invalid('recipe.platformMetadata.capabilityVersion', '必须是安全的能力版本标识');
+  const compatibilityKeys = localeKeys(value.compatibilityKeys, 'recipe.platformMetadata.compatibilityKeys');
+  const requiredInformationKeys = localeKeys(value.requiredInformationKeys, 'recipe.platformMetadata.requiredInformationKeys');
+  if (compatibilityKeys.length === 0) invalid('recipe.platformMetadata.compatibilityKeys', '至少声明一项云产品兼容性');
+  if (requiredInformationKeys.length === 0) invalid('recipe.platformMetadata.requiredInformationKeys', '至少声明一项接入前置信息');
+  return { capabilityVersion, compatibilityKeys, requiredInformationKeys };
+}
+
+function localeKeys(input: unknown, path: string): string[] {
+  if (!Array.isArray(input)) invalid(path, '必须是数组');
+  const values = input.map((item, index) => locale(item, `${path}[${index}]`));
+  if (new Set(values).size !== values.length) invalid(path, '不能包含重复 Locale key');
+  return values;
 }
 
 function capability(input: unknown, path: string, declared: UnifiedPluginCapabilityDescriptor[]): string {

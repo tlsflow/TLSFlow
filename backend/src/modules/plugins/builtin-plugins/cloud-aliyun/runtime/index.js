@@ -181,7 +181,7 @@ function normalizeCdnScope(resource, shape) {
   if (/(domestic|mainland|china|中国大陆|中国境内|^cn-)/i.test(normalized)) {
     return { key: 'mainland', name: '中国大陆', source: rawValue ? 'PROVIDER' : 'INFERRED' };
   }
-  return { key: 'global', name: '全球', source: rawValue ? 'PROVIDER_OR_INFERRED' : 'DEFAULT' };
+  return { key: 'global', name: '国际站', source: rawValue ? 'PROVIDER_OR_INFERRED' : 'DEFAULT' };
 }
 
 function firstString(...values) {

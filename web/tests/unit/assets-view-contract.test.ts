@@ -67,7 +67,9 @@ describe('应用资产卡片契约', () => {
 
   it('云账号新增入口只保留统一应用接入向导', () => {
     expect(source).not.toContain('permission="cloud_account_asset.create"')
+    expect(source).not.toContain('CloudAccountOnboardingModal')
     expect(source).toContain('onboardingDialogOpen.value = true')
+    expect(source).toContain('@add-cloud-account="openCloudAccountFromDeviceOnboarding"')
   })
 
   it('资产证书更新使用单页版本选择并在发起后回到任务列表', () => {

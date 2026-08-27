@@ -23,7 +23,12 @@ export class CloudAccountOnboardingRecipeLoader {
     const recipe = validateCloudAccountOnboardingRecipe(parsed, { manifest: source.manifest });
     if (source.resources[recipe.formResource] === undefined) throw invalid('配方引用的表单资源不存在', { path: recipe.formResource });
     const credentialContract = parseCredentialContract(source.resources[recipe.credentialContractResource]);
-    const localeKeys = [recipe.display.nameKey, ...(recipe.display.descriptionKey ? [recipe.display.descriptionKey] : [])];
+    const localeKeys = [
+      recipe.display.nameKey,
+      ...(recipe.display.descriptionKey ? [recipe.display.descriptionKey] : []),
+      ...recipe.platformMetadata.compatibilityKeys,
+      ...recipe.platformMetadata.requiredInformationKeys,
+    ];
     if (!this.locales.validate(source.manifest, source.resources, localeKeys)) throw invalid('插件未提供云账号配方展示 Locale', { displayNameKey: recipe.display.nameKey });
     if (credentialContract.providerKey !== source.pluginId) throw invalid('凭据合同 providerKey 与插件不一致', { providerKey: credentialContract.providerKey });
     return { pluginVersionId: source.id, pluginId: source.pluginId, pluginVersion: source.version, resourcePath, recipeHash, recipe };

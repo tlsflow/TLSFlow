@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { GcModal, GcPluginForm, GcPluginLogo, type PluginFormSchema } from '@/design-system/components'
 import { listDeviceOnboardingPlatforms, onboardManagedDevice } from '@/api/modules/devices.api'
+import { listCloudAccountOnboardingRecipes } from '@/api/modules/providers.api'
 import { getUnifiedPluginUiResources, listPluginCatalog } from '@/api/modules/plugins.api'
 import type { ApiRecord } from '@/api/modules/common'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
@@ -16,7 +17,7 @@ import {
 } from './device-onboarding.model'
 
 const props = defineProps<{ open: boolean; initialSelection?: DeviceOnboardingInitialSelection }>()
-const emit = defineEmits<{ 'update:open': [value: boolean]; completed: [] }>()
+const emit = defineEmits<{ 'update:open': [value: boolean]; completed: []; addCloudAccount: [] }>()
 const { t, locale } = useI18n()
 const platforms = ref<DeviceOnboardingPlatform[]>([])
 const selectedKey = ref('')
@@ -97,10 +98,15 @@ async function loadPlatforms(): Promise<void> {
   platformLoadPromise = (async () => {
     error.value = ''
     try {
-      const [agentResponse, catalogResponse] = await Promise.all([
+      const [agentResult, catalogResult, cloudResult] = await Promise.allSettled([
         listDeviceOnboardingPlatforms(),
         listPluginCatalog({ page: 1, pageSize: 500 }),
+        listCloudAccountOnboardingRecipes(locale.value),
       ])
+      if (agentResult.status === 'rejected') throw agentResult.reason
+      if (catalogResult.status === 'rejected') throw catalogResult.reason
+      const agentResponse = agentResult.value
+      const catalogResponse = catalogResult.value
       const agentPlatforms = [...(agentResponse.data ?? [])]
         .map((item) => normalizeDeviceOnboardingPlatform(item as unknown as DeviceOnboardingPlatform))
       const pluginPlatforms = (catalogResponse.data?.items ?? []).filter(isManagedDevicePlugin).map(toPluginPlatform)
@@ -110,7 +116,9 @@ async function loadPlatforms(): Promise<void> {
         return [platform.key, String(asRecord(messages)[platform.displayNameKey] ?? platform.productFamily)] as const
       }))
       pluginDisplayNames.value = Object.fromEntries(localized)
-      platforms.value = [...agentPlatforms, ...pluginPlatforms]
+      const cloudItems = cloudResult.status === 'fulfilled' ? asRecord(cloudResult.value.data).items : undefined
+      const cloudPlatforms = Array.isArray(cloudItems) ? cloudItems.flatMap((item) => toCloudAccountPlatform(asRecord(item))) : []
+      platforms.value = [...agentPlatforms, ...pluginPlatforms, ...cloudPlatforms]
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : t('devices.errors.platformsLoadFailed')
     }
@@ -132,12 +140,13 @@ function resolveInitialPlatformKey(initialSelection: DeviceOnboardingInitialSele
 }
 
 function platformLabel(platform: DeviceOnboardingPlatform): string {
+  if (platform.displayName) return platform.displayName
   if (platform.pluginVersionId) return pluginDisplayNames.value[platform.key] ?? platform.productFamily
   return t(platform.displayNameKey)
 }
 
 function platformDescription(platform: DeviceOnboardingPlatform): string {
-  return platform.supportDescriptionKey ? t(platform.supportDescriptionKey) : platform.productFamily
+  return platform.description || (platform.supportDescriptionKey ? t(platform.supportDescriptionKey) : platform.productFamily)
 }
 
 function staticPlatformLogoUrl(platform: DeviceOnboardingPlatform): string | undefined {
@@ -194,6 +203,10 @@ async function selectPlatform(platformKey: string) {
   commandCopied.value = false
   error.value = ''
   if (!platform) return
+  if (platform.onboardingKind === 'CLOUD_ACCOUNT') {
+    emit('addCloudAccount')
+    return
+  }
   if (platform.pluginVersionId) {
     pending.value = true
     try {
@@ -240,6 +253,29 @@ function toPluginPlatform(item: ApiRecord): DeviceOnboardingPlatform {
     logoSquareUrl: typeof item.logoSquareUrl === 'string' ? item.logoSquareUrl : undefined,
     pluginVersionId,
     pluginId: String(item.pluginId ?? ''),
+  }
+}
+
+function toCloudAccountPlatform(item: ApiRecord): DeviceOnboardingPlatform {
+  const recipe = asRecord(item.recipe)
+  const display = asRecord(recipe.display)
+  const providerKey = String(recipe.providerKey ?? item.pluginId ?? '').trim()
+  return {
+    key: `cloud-account:${providerKey}`,
+    displayNameKey: String(display.nameKey ?? providerKey),
+    displayName: String(item.displayName ?? display.nameKey ?? providerKey),
+    description: String(item.description ?? display.descriptionKey ?? ''),
+    productFamily: providerKey,
+    managementMethod: 'PLUGIN',
+    onboardingKind: 'CLOUD_ACCOUNT',
+    supportStatus: 'SUPPORTED',
+    formSchema: [],
+    group: 'OTHER',
+    logoUrl: typeof item.logoUrl === 'string' ? item.logoUrl : undefined,
+    logoSquareUrl: typeof item.logoSquareUrl === 'string' ? item.logoSquareUrl : undefined,
+    pluginVersionId: String(item.pluginVersionId ?? '').trim() || undefined,
+    pluginId: String(item.pluginId ?? providerKey),
+    cloudProviderKey: providerKey,
   }
 }
 

@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createPluginRunnerExecutor, normalizeDiscoveryResponse } from './index.js';
 
-const descriptor = { pluginId: 'cloud.aliyun', pluginVersionId: 'cloud.aliyun:2.0.18' };
+const descriptor = { pluginId: 'cloud.aliyun', pluginVersionId: 'cloud.aliyun:2.0.23' };
 
 test('阿里云签名请求使用 RPC 要求的 Timestamp 公共参数', async () => {
   const envKeys = ['GCAC_PLUGIN_VERSION_ID', 'GCAC_PLUGIN_PACKAGE_HASH', 'GCAC_PLUGIN_MANIFEST_HASH', 'GCAC_PLUGIN_RESOURCE_HASH'];
   const previous = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
   Object.assign(process.env, {
-    GCAC_PLUGIN_VERSION_ID: 'cloud.aliyun:2.0.18',
+    GCAC_PLUGIN_VERSION_ID: 'cloud.aliyun:2.0.23',
     GCAC_PLUGIN_PACKAGE_HASH: `sha256:${'1'.repeat(64)}`,
     GCAC_PLUGIN_MANIFEST_HASH: `sha256:${'2'.repeat(64)}`,
     GCAC_PLUGIN_RESOURCE_HASH: `sha256:${'3'.repeat(64)}`,
@@ -17,9 +17,9 @@ test('阿里云签名请求使用 RPC 要求的 Timestamp 公共参数', async (
   try {
     const executor = createPluginRunnerExecutor();
     const result = await executor.execute({
-      pluginVersionId: 'cloud.aliyun:2.0.18',
+      pluginVersionId: 'cloud.aliyun:2.0.23',
       pluginId: 'cloud.aliyun',
-      pluginVersion: '2.0.18',
+      pluginVersion: '2.0.23',
       capability: 'cloud.service.connection-test',
       actionId: 'cloud.service.connection-test.v1',
       actionContractVersion: 'v1',
@@ -99,7 +99,7 @@ test('阿里云 CDN 发现只输出 CDN 域名，不把 ECS 区域转换为资�
   assert.deepEqual(result.map((item) => [item.resourceType, item.resourceId, item.region]), [
     ['cdn.domain', 'global.example', 'global'],
   ]);
-  assert.equal(result[0]?.metadata?.cdnRegionName, '全球');
+  assert.equal(result[0]?.metadata?.cdnRegionName, '国际站');
 });
 
 test('阿里云 CDN 发现解析 DescribeUserDomains 的 Domains.PageData 响应', () => {
@@ -110,5 +110,20 @@ test('阿里云 CDN 发现解析 DescribeUserDomains 的 Domains.PageData 响应
   }, descriptor);
   assert.deepEqual(result.map((item) => [item.resourceId, item.resourceType, item.region]), [
     ['overseas.example', 'cdn.domain', 'global'],
+  ]);
+});
+
+test('同一 DescribeUserDomains 响应可将中国大陆与国际站域名分别归一化', () => {
+  const result = normalizeDiscoveryResponse({
+    Domains: {
+      PageData: [
+        { DomainName: 'mainland.example', Coverage: 'domestic' },
+        { DomainName: 'international.example', Coverage: 'overseas' },
+      ],
+    },
+  }, descriptor);
+  assert.deepEqual(result.map((item) => [item.resourceId, item.region, item.metadata?.cdnRegionName]), [
+    ['mainland.example', 'mainland', '中国大陆'],
+    ['international.example', 'global', '国际站'],
   ]);
 });

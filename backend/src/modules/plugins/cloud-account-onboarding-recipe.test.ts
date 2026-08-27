@@ -19,7 +19,7 @@ test('阿里云插件提供通用 Cloud Account Onboarding 配方和凭据合同
     if (path) resources[path] = readFileSync(join(root, path), 'utf8');
   }
   const loaded = new CloudAccountOnboardingRecipeLoader().load({
-    id: 'cloud.aliyun:2.0.19',
+    id: `cloud.aliyun:${manifest.version}`,
     pluginId: manifest.pluginId,
     version: manifest.version,
     manifest,
@@ -29,6 +29,13 @@ test('阿里云插件提供通用 Cloud Account Onboarding 配方和凭据合同
   assert.equal(loaded.recipe.assetKind, 'CLOUD_ACCOUNT');
   assert.equal(loaded.recipe.providerKey, 'cloud.aliyun');
   assert.equal(loaded.recipe.submit.target, 'CLOUD_ACCOUNT_ASSET');
+  assert.deepEqual(loaded.recipe.platformMetadata, {
+    capabilityVersion: 'v1',
+    compatibilityKeys: ['plugin.cloud.aliyun.onboarding.compatibility'],
+    requiredInformationKeys: ['plugin.cloud.aliyun.onboarding.requiredCredential'],
+  });
+  const form = JSON.parse(resources['forms/cloud-account.json'] ?? '{}') as { sections?: Array<{ fields?: Array<{ key?: string }> }> };
+  assert.deepEqual(form.sections?.flatMap((section) => section.fields ?? []).map((field) => field.key), ['credentialRef']);
 });
 
 test('Cloud Account 配方拒绝未在 Manifest 声明的凭据资源', () => {
@@ -45,6 +52,7 @@ test('Cloud Account 配方拒绝未在 Manifest 声明的凭据资源', () => {
   const badRecipe = JSON.stringify({
     protocol: 'gcac.cloud-account-onboarding/v1', assetKind: 'CLOUD_ACCOUNT', providerKey: 'cloud.example',
     display: { nameKey: 'plugin.cloud.example.name' }, formResource: 'forms/account.json', credentialContractResource: 'credentials/account.json',
+    platformMetadata: { capabilityVersion: 'v1', compatibilityKeys: ['plugin.cloud.example.compatibility'], requiredInformationKeys: ['plugin.cloud.example.required'] },
     capabilities: { connectionTest: 'cloud.service.connection-test', discover: 'cloud.service.discover' }, submit: { target: 'CLOUD_ACCOUNT_ASSET', scopeSchema: 'scope/v1' }, projection: { apiVersion: 'gcac.cloud-service/v1', resourceMapping: 'mapping/v1' },
   });
   assert.throws(() => new CloudAccountOnboardingRecipeLoader().load({

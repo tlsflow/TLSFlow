@@ -7,6 +7,11 @@
     "descriptionKey": "plugin.cloud.aliyun.description",
     "logoResource": "logos/logo-square.svg"
   },
+  "platformMetadata": {
+    "capabilityVersion": "v1",
+    "compatibilityKeys": ["plugin.cloud.aliyun.onboarding.compatibility"],
+    "requiredInformationKeys": ["plugin.cloud.aliyun.onboarding.requiredCredential"]
+  },
   "formResource": "forms/cloud-account.json",
   "credentialContractResource": "credential-contracts/cloud-account.json",
   "capabilities": {

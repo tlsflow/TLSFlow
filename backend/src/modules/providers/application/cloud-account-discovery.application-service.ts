@@ -78,7 +78,7 @@ export class CloudAccountDiscoveryApplicationService {
     });
     const outputByStep = new Map<string, Record<string, unknown>>();
     const stepName = readSinglePluginActionStep(workflow.content.steps, operation).name;
-    const resolvedInput = buildResolvedInput(asset, credentials, buildCloudRequest(asset, operation), idempotencyKey);
+    const resolvedInput = buildResolvedInput(asset, credentials, buildCloudRequest(asset, plugin), idempotencyKey);
     const run = await this.dependencies.workflows.runWithDispatcher({
       templateVersionId: workflow.id,
       resolvedInput,
@@ -90,6 +90,7 @@ export class CloudAccountDiscoveryApplicationService {
       dispatch,
       tenantId,
       asset,
+      pluginManifest: plugin.manifest,
       workflow,
       bindings,
       outputByStep,
@@ -107,7 +108,7 @@ export class CloudAccountDiscoveryApplicationService {
         pluginId: plugin.pluginId,
         pluginVersionId: plugin.id,
         provider: asset.providerKey,
-        providerDisplayName: '阿里云 CDN',
+        providerDisplayName: asset.displayName,
         topology: 'ACCOUNT_FRAMEWORK',
         discoveryProviderKey: `plugin:${asset.providerKey}:discover`,
         discoveredAt: new Date().toISOString(),
@@ -179,6 +180,7 @@ export class CloudAccountDiscoveryApplicationService {
     dispatch: { runId: string; step: WorkflowStep; renderedPlan: unknown; attempt: number; rollback: boolean };
     tenantId: string;
     asset: CloudAccountAsset;
+    pluginManifest: { compatibility?: { productFamilies?: string[] } };
     workflow: { id: string };
     bindings: Record<string, PluginActionBindingV1>;
     outputByStep: Map<string, Record<string, unknown>>;
@@ -218,7 +220,7 @@ export class CloudAccountDiscoveryApplicationService {
         idempotencyKey: input.idempotencyKey,
         deadlineAt: new Date(Date.now() + 120_000).toISOString(),
         compatibilityContext: {
-          productFamily: input.asset.providerKey,
+          productFamily: resolveProductFamily(input.asset, input.pluginManifest),
           managementMethod: 'PLUGIN',
         },
       });
@@ -241,15 +243,44 @@ function assertActiveAsset(asset: CloudAccountAsset): void {
   if (asset.status !== 'ACTIVE') throw new AppError('VALIDATION_FAILED', '云账号资产不是 ACTIVE 状态，拒绝执行云服务动作', { assetId: asset.id, status: asset.status });
 }
 
-function buildCloudRequest(asset: CloudAccountAsset, operation: CloudAccountDiscoveryOperation): Record<string, unknown> {
+function buildCloudRequest(asset: CloudAccountAsset, plugin: { manifest: { resources: Record<string, unknown> }; resources: Record<string, string> }): Record<string, unknown> {
   const configured = asset.scope.metadata?.request;
   if (configured && typeof configured === 'object' && !Array.isArray(configured)) return structuredClone(configured as Record<string, unknown>);
+  const onboardingPath = readStringPath(plugin.manifest.resources, ['onboarding', 'cloudAccount']);
+  if (onboardingPath) {
+    try {
+      const onboarding = JSON.parse(plugin.resources[onboardingPath] ?? '') as { defaults?: { request?: unknown } };
+      if (onboarding.defaults?.request && typeof onboarding.defaults.request === 'object' && !Array.isArray(onboarding.defaults.request)) {
+        return structuredClone(onboarding.defaults.request as Record<string, unknown>);
+      }
+    } catch {
+      // 插件资源校验已在版本装载阶段执行；此处仅在缺少默认请求时回退到最小合同。
+    }
+  }
   return {
     method: 'POST',
     uri: '/',
-    operation,
     body: {},
   };
+}
+
+function readStringPath(value: unknown, path: string[]): string | undefined {
+  let current: unknown = value;
+  for (const key of path) {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return typeof current === 'string' && current.trim() ? current : undefined;
+}
+
+function resolveProductFamily(
+  asset: CloudAccountAsset,
+  manifest: { compatibility?: { productFamilies?: string[] } },
+): string | undefined {
+  const configured = asset.scope.metadata?.productFamily ?? asset.metadata.productFamily;
+  if (typeof configured === 'string' && configured.trim()) return configured.trim();
+  const declared = manifest.compatibility?.productFamilies?.find((value) => typeof value === 'string' && value.trim());
+  return declared?.trim() || asset.providerKey;
 }
 
 function buildResolvedInput(asset: CloudAccountAsset, credentials: Record<string, string>, request: Record<string, unknown>, idempotencyKey: string): ResolvedDeploymentInputV1 {

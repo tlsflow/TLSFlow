@@ -115,7 +115,7 @@ const english = {
     },
     autoDiscovery: {
       title: 'Automatic discovery',
-      description: 'After saving, GCAC tests the connection and discovers available regions and resources. You do not need to enter an endpoint or region.',
+      description: 'After saving, GCAC tests the connection and discovers Mainland China, International site, and other resources. You do not need to enter an endpoint or region.',
     },
   },
   aria: {
@@ -126,7 +126,7 @@ const english = {
     title: 'Cloud service details',
     description: 'Read-only details for the selected cloud service.',
     resourcesTitle: 'Discovered resources',
-    resourcesDescription: 'The account has one CDN control-plane device. Mainland China and Global are frameworks, and each CDN instance is a site.',
+    resourcesDescription: 'The account has one CDN control-plane device. Mainland China and International site are frameworks, and each CDN instance is a site.',
     devices: 'CDN control-plane devices',
     frameworks: 'Frameworks',
     sites: 'Sites',
@@ -166,10 +166,10 @@ export const providersZhCN = {
     state: { active: '进行中', ready: '可保存', incomplete: '待完善', locked: '已锁定' },
     providerCard: { products: '已声明 Framework' },
     summary: { provider: 'Provider', account: '账号', credential: '凭据' },
-    autoDiscovery: { title: '自动发现', description: '保存后 GCAC 会自动测试连接并发现可用区域和资源，无需填写 Endpoint 或区域。' },
+    autoDiscovery: { title: '自动发现', description: '保存后 GCAC 会自动测试连接并发现中国大陆、国际站和其他资源，无需填写 Endpoint 或区域。' },
   },
   aria: { accountForm: '云账号资产表单', operationForm: 'Opaque Provider 操作表单' },
-    detail: { title: '云服务详情', description: '查看选中云服务的只读详情。', resourcesTitle: '已发现资源', resourcesDescription: '账号只有一个 CDN 控制面设备；中国大陆和全球是 Framework，每个 CDN 实例是一个 Site。', devices: 'CDN 控制面设备', frameworks: 'Framework', sites: 'Site', regions: 'CDN 区域', noDevices: 'Provider 没有返回 CDN 控制面设备。', noFrameworks: '暂无 Framework 记录。', noSites: '暂无 Site 记录。', noRegions: 'Provider 没有返回 CDN 区域信息。' },
+    detail: { title: '云服务详情', description: '查看选中云服务的只读详情。', resourcesTitle: '已发现资源', resourcesDescription: '账号只有一个 CDN 控制面设备；中国大陆和国际站是 Framework，每个 CDN 实例是一个 Site。', devices: 'CDN 控制面设备', frameworks: 'Framework', sites: 'Site', regions: 'CDN 区域', noDevices: 'Provider 没有返回 CDN 控制面设备。', noFrameworks: '暂无 Framework 记录。', noSites: '暂无 Site 记录。', noRegions: 'Provider 没有返回 CDN 区域信息。' },
 } as const
 
 export const providersZhTW = providersZhCN

@@ -22,7 +22,7 @@ export interface PluginFormField {
   enabledWhen?: PluginFormCondition
   options?: Array<{ value: string; labelKey: string; disabled?: boolean }>
   optionProviderAction?: string
-  acceptedCredentialKinds?: Array<'PASSWORD' | 'USERNAME_PASSWORD' | 'SSH_KEY' | 'BEARER_TOKEN' | 'API_KEY' | 'CLIENT_CERTIFICATE'>
+  acceptedCredentialKinds?: Array<'PASSWORD' | 'USERNAME_PASSWORD' | 'SSH_KEY' | 'BEARER_TOKEN' | 'API_KEY' | 'CLIENT_CERTIFICATE' | 'CLOUD_PROVIDER'>
   acceptedSecretTypes?: string[]
   acceptedScopes?: string[]
   purpose?: string

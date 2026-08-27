@@ -45,7 +45,6 @@ import {
 import ApplicationOnboardingModal from '@/views/application-onboarding/ApplicationOnboardingModal.vue'
 import DeviceOnboardingWizard from '@/views/devices/DeviceOnboardingWizard.vue'
 import type { DeviceOnboardingInitialSelection } from '@/views/devices/device-onboarding.model'
-import CloudAccountOnboardingModal from '@/views/providers/CloudAccountOnboardingModal.vue'
 
 type AssetPlatform = 'LINUX' | 'WINDOWS' | 'APPLIANCE'
 type AssetProtocol = 'HTTPS' | 'TLS' | 'STARTTLS' | 'HTTP' | 'CUSTOM'
@@ -277,7 +276,6 @@ const detailTabs = computed(() => [
 ])
 const createDialogOpen = ref(false)
 const onboardingDialogOpen = ref(false)
-const cloudAccountDialogOpen = ref(false)
 const deviceOnboardingOpen = ref(false)
 const resumeApplicationOnboarding = ref(false)
 const deviceOnboardingInitialSelection = ref<DeviceOnboardingInitialSelection>()
@@ -1145,6 +1143,16 @@ function setDeviceOnboardingOpen(open: boolean): void {
   resumeApplicationOnboarding.value = false
   deviceOnboardingInitialSelection.value = undefined
   void nextTick().then(() => setOnboardingDialogOpen(true))
+}
+
+function openCloudAccountFromDeviceOnboarding(): void {
+  deviceOnboardingOpen.value = false
+  onboardingDialogOpen.value = true
+}
+
+function completeCloudAccountOnboarding(): void {
+  onboardingDialogOpen.value = false
+  void loadAssetOverviewPage(assetOverviewPage.value)
 }
 
 function completeDeviceOnboarding(): void {
@@ -4444,15 +4452,15 @@ function managedTargetLabel(target: ApiRecord): string {
       @update:open="setOnboardingDialogOpen"
       @custom-manual="openCustomManualCreateDialog"
       @add-device="openDeviceOnboardingFromApplication"
-      @add-cloud-account="cloudAccountDialogOpen = true"
+      @cloud-account-completed="completeCloudAccountOnboarding"
     />
     <DeviceOnboardingWizard
       :open="deviceOnboardingOpen"
       :initial-selection="deviceOnboardingInitialSelection"
       @update:open="setDeviceOnboardingOpen"
       @completed="completeDeviceOnboarding"
+      @add-cloud-account="openCloudAccountFromDeviceOnboarding"
     />
-    <CloudAccountOnboardingModal v-model:open="cloudAccountDialogOpen" @completed="loadAssetOverviewPage(assetOverviewPage)" />
   </section>
 </template>
 

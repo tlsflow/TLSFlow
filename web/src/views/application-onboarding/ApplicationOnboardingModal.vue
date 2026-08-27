@@ -6,7 +6,7 @@ import { GcModal } from '@/design-system/components'
 import type { DeviceOnboardingInitialSelection } from '@/views/devices/device-onboarding.model'
 import ApplicationOnboardingView from './ApplicationOnboardingView.vue'
 
-type FooterPrimaryAction = 'RESOURCE' | 'TARGET' | 'CERTIFICATE' | 'COMPLETE' | null
+type FooterPrimaryAction = 'RESOURCE' | 'TARGET' | 'CERTIFICATE' | 'COMPLETE' | 'CLOUD_ACCOUNT' | null
 interface OnboardingFooterActions {
   visible: boolean
   showCancel: boolean
@@ -42,7 +42,7 @@ const emit = defineEmits<{
   'update:open': [value: boolean]
   customManual: []
   addDevice: [initialSelection: DeviceOnboardingInitialSelection]
-  addCloudAccount: []
+  cloudAccountCompleted: [assetId: string]
 }>()
 
 const { t } = useI18n()
@@ -78,11 +78,6 @@ function openCustomManual(): void {
 
 function openDeviceOnboarding(initialSelection: DeviceOnboardingInitialSelection): void {
   emit('addDevice', initialSelection)
-}
-
-function openCloudAccountOnboarding(): void {
-  modelOpen.value = false
-  emit('addCloudAccount')
 }
 
 function updateFooterActions(actions: OnboardingFooterActions): void {
@@ -123,7 +118,6 @@ async function clearOnboardingRoute(): Promise<void> {
     :description="t('applicationOnboarding.description')"
   >
     <template #header-actions>
-      <button class="gc-button gc-button--secondary" type="button" @click="openCloudAccountOnboarding">{{ t('providers.actions.add') }}</button>
       <label v-if="platformSelectionActive" class="application-onboarding-modal__search">
         <span class="application-onboarding-modal__sr-only">{{ t('applicationOnboarding.platforms.searchLabel') }}</span>
         <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -147,6 +141,7 @@ async function clearOnboardingRoute(): Promise<void> {
       @close="modelOpen = false"
       @custom-manual="openCustomManual"
       @add-device="openDeviceOnboarding"
+      @cloud-account-completed="emit('cloudAccountCompleted', $event)"
       @platform-selection-change="updatePlatformSelection"
       @footer-actions-change="updateFooterActions"
     />

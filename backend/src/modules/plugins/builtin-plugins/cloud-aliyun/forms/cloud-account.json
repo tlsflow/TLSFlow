@@ -6,9 +6,7 @@
       "id": "account",
       "titleKey": "plugin.cloud.aliyun.accountSection",
       "fields": [
-        { "key": "accountId", "type": "text", "labelKey": "plugin.cloud.aliyun.accountId", "required": false },
-        { "key": "scope", "type": "key_value", "labelKey": "plugin.cloud.aliyun.scope", "required": false },
-        { "key": "credentialRef", "type": "credential_ref", "labelKey": "plugin.cloud.aliyun.credential", "required": true, "acceptedCredentialKinds": ["API_KEY"], "purpose": "cloud-account" }
+        { "key": "credentialRef", "type": "credential_ref", "labelKey": "plugin.cloud.aliyun.credential", "required": true, "acceptedCredentialKinds": ["CLOUD_PROVIDER"], "purpose": "cloud-account" }
       ]
     }
   ]
