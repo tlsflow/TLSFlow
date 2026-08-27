@@ -107,7 +107,9 @@ async function loadPlatforms(): Promise<void> {
       const catalogResponse = catalogResult.value
       const agentPlatforms = [...(agentResponse.data ?? [])]
         .map((item) => normalizeDeviceOnboardingPlatform(item as unknown as DeviceOnboardingPlatform))
-      const pluginPlatforms = (catalogResponse.data?.items ?? []).filter(isManagedDevicePlugin).map(toPluginPlatform)
+      // /assets 的“添加资产”入口复用本向导。设备插件和云资源插件都由插件能力声明是否可接入，
+      // 不在前端写厂商特判，也不再增加单独的云账号按钮或模态框。
+      const pluginPlatforms = (catalogResponse.data?.items ?? []).filter(isOnboardingPlugin).map(toPluginPlatform)
       const localized = await Promise.all(pluginPlatforms.map(async (platform) => {
         const response = await getUnifiedPluginUiResources(platform.pluginVersionId ?? '', locale.value)
         const messages = asRecord(asRecord(response.data).locale).messages
@@ -204,7 +206,9 @@ async function selectPlatform(platformKey: string) {
     try {
       const response = await getUnifiedPluginUiResources(platform.pluginVersionId, locale.value)
       const payload = asRecord(response.data)
-      pluginForm.value = asRecord(payload.forms).device as PluginFormSchema | undefined ?? null
+      pluginForm.value = asRecord(payload.forms).device as PluginFormSchema | undefined
+        ?? asRecord(payload.forms).cloud as PluginFormSchema | undefined
+        ?? null
       pluginMessages.value = asRecord(asRecord(payload.locale).messages) as Record<string, string>
       values.value = defaultFormValues(pluginForm.value)
     } catch (cause) {
@@ -222,12 +226,13 @@ async function selectPlatform(platformKey: string) {
   step.value = 2
 }
 
-function isManagedDevicePlugin(item: ApiRecord): boolean {
+function isOnboardingPlugin(item: ApiRecord): boolean {
   if (item.catalogType !== 'UNIFIED_PLUGIN' || item.status !== 'ENABLED' || item.runtime !== 'WORKFLOW_DSL') return false
   if (item.scope !== 'MANAGED' && item.scope !== 'BOTH') return false
   const capabilities = Array.isArray(item.capabilities) ? item.capabilities : []
   const keys = new Set(capabilities.map((capability) => String(asRecord(capability).key ?? '')))
-  return keys.has('device.connection.test') && keys.has('device.discover')
+  return (keys.has('device.connection.test') && keys.has('device.discover'))
+    || (keys.has('cloud.service.connection-test') && keys.has('cloud.service.discover'))
 }
 
 function toPluginPlatform(item: ApiRecord): DeviceOnboardingPlatform {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { defineComponent } from 'vue'
+import { computed, defineComponent } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { i18n } from '@/i18n'
 
@@ -11,8 +11,12 @@ const pluginMocks = vi.hoisted(() => ({
   getUnifiedPluginUiResources: vi.fn(),
   listPluginCatalog: vi.fn(),
 }))
+const credentialMocks = vi.hoisted(() => ({
+  listCredentials: vi.fn(),
+}))
 vi.mock('@/api/modules/devices.api', () => deviceMocks)
 vi.mock('@/api/modules/plugins.api', () => pluginMocks)
+vi.mock('@/api/modules/credentials.api', () => credentialMocks)
 
 import DeviceOnboardingWizard from '@/views/devices/DeviceOnboardingWizard.vue'
 
@@ -23,7 +27,11 @@ function response(data: unknown) {
 const GcPluginFormStub = defineComponent({
   name: 'GcPluginForm',
   props: { schema: { type: Object, required: true } },
-  template: '<div class="plugin-form">{{ schema.sections.length }}</div>',
+  setup(props) {
+    const fields = computed(() => props.schema.sections.flatMap((section: { fields?: unknown[] }) => section.fields ?? []))
+    return { fields }
+  },
+  template: '<div class="plugin-form"><span v-for="field in fields" :key="field.key" :data-field="field.key">{{ field.key }}</span></div>',
 })
 
 describe('DeviceOnboardingWizard', () => {
@@ -32,6 +40,7 @@ describe('DeviceOnboardingWizard', () => {
     document.body.innerHTML = ''
     pluginMocks.listPluginCatalog.mockResolvedValue(response({ items: [] }))
     pluginMocks.getUnifiedPluginUiResources.mockResolvedValue(response({ forms: {}, locale: { messages: {} } }))
+    credentialMocks.listCredentials.mockResolvedValue(response({ items: [] }))
   })
 
   afterEach(() => {
@@ -167,6 +176,44 @@ describe('DeviceOnboardingWizard', () => {
     await flushPromises()
     expect(pluginMocks.getUnifiedPluginUiResources).toHaveBeenCalledWith('plugin-version-citrix', expect.any(String))
     expect(wrapper.find('.plugin-form').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('云服务插件复用同一资产接入入口并加载凭据引用表单', async () => {
+    deviceMocks.listDeviceOnboardingPlatforms.mockResolvedValue(response([]))
+    pluginMocks.listPluginCatalog.mockResolvedValue(response({
+      items: [{
+        id: 'plugin-version-aliyun',
+        pluginVersionId: 'plugin-version-aliyun',
+        pluginId: 'cloud.aliyun',
+        displayNameKey: 'plugin.cloud.aliyun.name',
+        catalogType: 'UNIFIED_PLUGIN',
+        status: 'ENABLED',
+        runtime: 'WORKFLOW_DSL',
+        scope: 'BOTH',
+        capabilities: [{ key: 'cloud.service.connection-test' }, { key: 'cloud.service.discover' }],
+      }],
+    }))
+    pluginMocks.getUnifiedPluginUiResources.mockResolvedValue(response({
+      forms: { cloud: { sections: [{ fields: [{ key: 'displayName' }, { key: 'credentialId', type: 'credential_ref', required: true }] }] } },
+      locale: { messages: { 'plugin.cloud.aliyun.name': '阿里云 CDN' } },
+    }))
+
+    const wrapper = mount(DeviceOnboardingWizard, {
+      props: { open: true },
+      global: { plugins: [i18n], stubs: { Teleport: true, GcPluginForm: GcPluginFormStub } },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.device-wizard__platform').text()).toContain('阿里云 CDN')
+    await wrapper.find('.device-wizard__platform').trigger('click')
+    await flushPromises()
+    expect(pluginMocks.getUnifiedPluginUiResources).toHaveBeenLastCalledWith('plugin-version-aliyun', expect.any(String))
+    expect(wrapper.findAll('.plugin-form [data-field]')).toHaveLength(2)
+    expect(wrapper.find('[data-field="displayName"]').exists()).toBe(true)
+    expect(wrapper.find('[data-field="credentialId"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('Add cloud account')
+    expect(wrapper.text()).not.toContain('添加云账号')
     wrapper.unmount()
   })
 

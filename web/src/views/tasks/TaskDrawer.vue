@@ -37,7 +37,6 @@ const MONITORING_TASK_TYPES: ReadonlySet<string> = new Set([
   'MONITORING_PROBE',
 ])
 const SYSTEM_TASK_TYPES: ReadonlySet<string> = new Set([
-  'CA_RECORD_SYNC',
   'CERTIFICATE_REVOCATION',
   'CRL_PUBLISH',
   'TRUST_DISTRIBUTION',

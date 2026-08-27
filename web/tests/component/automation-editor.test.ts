@@ -49,6 +49,7 @@ describe('AutomationEditor', () => {
     expect(wrapper.get('.automation-editor__steps li').classes()).toContain('is-active')
     expect(wrapper.text()).toContain('ACME 自动续期')
     expect(wrapper.text()).not.toContain('外部来源')
+    expect(wrapper.text()).not.toContain('证书通过手工导入或 ACME 自动续期产生新版本后，由平台事件触发自动化。')
 
     await wrapper.get('[data-testid="automation-next"]').trigger('click')
     await vi.waitFor(() => expect(wrapper.findAll('[data-testid="automation-certificate-domain-option"]')).toHaveLength(1))
@@ -108,6 +109,95 @@ describe('AutomationEditor', () => {
     expect(wrapper.find('[data-testid="automation-trigger"] option[value="once"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="automation-trigger"] option[value="schedule"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="automation-trigger"] option[value="api"]').exists()).toBe(true)
+  })
+
+  it('选择外部 API 触发时显示 API Key 状态和安全提示', async () => {
+    const wrapper = mount(AutomationEditor, { global: { plugins: [i18n] } })
+
+    await wrapper.get('[data-testid="automation-trigger"]').setValue('api')
+
+    const keyPanel = wrapper.get('[data-testid="automation-external-api-key"]')
+    expect(keyPanel.text()).toContain('外部 API Key')
+    expect(keyPanel.text()).toContain('保存并启用后生成')
+    expect(keyPanel.text()).not.toContain('当前页面未持有完整 Key，请点击“刷新 Key”生成新的 Key。')
+    expect(keyPanel.text()).not.toContain('当前页面会持续显示完整 Key，可随时复制；刷新后旧 Key 会立即失效。')
+    expect(keyPanel.text()).not.toContain('刷新后旧 Key 会立即失效。')
+    expect(keyPanel.find('.automation-editor__api-mode > span').exists()).toBe(false)
+    expect(keyPanel.find('.automation-editor__api-key-value label > span').exists()).toBe(false)
+    expect((keyPanel.get('[data-testid="automation-external-api-key-value"]').element as HTMLInputElement).value).toBe('*'.repeat(29))
+    await keyPanel.get('[data-testid="automation-external-api-manual"]').trigger('click')
+    const manual = document.body.querySelector('[data-testid="automation-external-api-manual-modal"]')
+    expect(manual?.textContent).toContain('启动自动化')
+    expect(manual?.textContent).toContain('查看当前应用兼容性')
+    expect(manual?.textContent).toContain('查看可用证书版本列表')
+    expect(manual?.textContent).toContain('/api/v1/automation-external/AUTOMATION_ID/run')
+    expect(manual?.textContent).toContain('/api/v1/automation-external/AUTOMATION_ID/preview')
+    expect(manual?.textContent).toContain('/api/v1/automation-external/AUTOMATION_ID/certificate-versions')
+    expect(manual?.textContent).toContain('certificateVersionId')
+  })
+
+  it('已启用 API 自动化显示完整 Key，并支持复制和刷新', async () => {
+    const writeText = vi.fn(async () => undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const wrapper = mount(AutomationEditor, {
+      props: {
+        automation: {
+          id: 'automation-api',
+          name: 'API 证书更新',
+          status: 'active',
+          currentVersion: 1,
+          version: 1,
+          configuration: {
+            trigger: { type: 'api' },
+            externalApi: { executionMode: 'direct' },
+            filters: [{ field: 'event.domains', operator: 'contains_any', value: ['example.com'] }],
+            targetResolver: { type: 'certificate_version_targets' },
+            actions: [],
+            guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 1, requirePreview: true, requireDryRun: false, requireApproval: false },
+          },
+        },
+        externalApiKey: 'ak_test_key_1234567890',
+      },
+      global: { plugins: [i18n] },
+    })
+
+    expect((wrapper.get('[data-testid="automation-external-api-key-value"]').element as HTMLInputElement).value).toBe('ak_test_key_1234567890')
+    expect(wrapper.get('[data-testid="automation-external-api-key-copy"]').classes()).toContain('gc-button--icon')
+    expect(wrapper.get('[data-testid="automation-external-api-key-copy"]').find('svg').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="automation-external-api-key-copy"]').attributes('aria-label')).toBe('复制 API Key')
+    expect(wrapper.get('[data-testid="automation-external-api-key-rotate"]').classes()).toContain('gc-button--icon')
+    expect(wrapper.get('[data-testid="automation-external-api-key-rotate"]').find('svg').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="automation-external-api-key-rotate"]').attributes('aria-label')).toBe('刷新 API Key')
+    await wrapper.get('[data-testid="automation-external-api-key-copy"]').trigger('click')
+    expect(writeText).toHaveBeenCalledWith('ak_test_key_1234567890')
+    expect(wrapper.get('[data-testid="automation-external-api-key-copy"]').attributes('title')).toBe('已复制')
+    expect((wrapper.get('[data-testid="automation-external-api-key-value"]').element as HTMLInputElement).value).toBe('ak_test_key_1234567890')
+
+    await wrapper.get('[data-testid="automation-external-api-key-rotate"]').trigger('click')
+    expect(wrapper.emitted('rotateExternalApiKey')).toHaveLength(1)
+  })
+
+  it('浏览器剪贴板 API 失败时仍可通过兼容复制方式复制 Key', async () => {
+    const originalClipboard = navigator.clipboard
+    const originalExecCommand = document.execCommand
+    const writeText = vi.fn(async () => { throw new Error('clipboard denied') })
+    const execCommand = vi.fn(() => true)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    Object.defineProperty(document, 'execCommand', { configurable: true, value: execCommand })
+    const wrapper = mount(AutomationEditor, {
+      props: { externalApiKey: 'ak_fallback_key_1234567890' },
+      global: { plugins: [i18n] },
+    })
+
+    await wrapper.get('[data-testid="automation-trigger"]').setValue('api')
+    await wrapper.get('[data-testid="automation-external-api-key-copy"]').trigger('click')
+
+    expect(writeText).toHaveBeenCalledWith('ak_fallback_key_1234567890')
+    expect(execCommand).toHaveBeenCalledWith('copy')
+    expect(wrapper.get('[data-testid="automation-external-api-key-copy"]').attributes('title')).toBe('已复制')
+
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: originalClipboard })
+    Object.defineProperty(document, 'execCommand', { configurable: true, value: originalExecCommand })
   })
 
   it('编辑已有周期触发器时保留真实配置', async () => {
@@ -184,8 +274,19 @@ describe('AutomationEditor', () => {
     expect(payload.trigger.runAt).toMatch(/Z$/)
   })
 
-  it('按需兼容触发器仍保留 on_demand 类型', async () => {
+  it('按需执行与外部 API 触发使用不同配置窗口', async () => {
     const wrapper = mount(AutomationEditor, { global: { plugins: [i18n] } })
+    await wrapper.get('[data-testid="automation-trigger"]').setValue('on_demand')
+    expect(wrapper.get('[data-testid="automation-on-demand-summary"]').text()).toContain('按需执行')
+    expect(wrapper.get('[data-testid="automation-on-demand-summary"]').text()).toContain('仅通过平台内的立即执行操作启动')
+    expect(wrapper.find('[data-testid="automation-external-execution-mode"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="automation-external-api-key"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="automation-trigger"]').setValue('api')
+    expect(wrapper.find('[data-testid="automation-on-demand-summary"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="automation-external-execution-mode"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="automation-external-api-key"]').exists()).toBe(true)
+
     await wrapper.get('[data-testid="automation-trigger"]').setValue('on_demand')
     await wrapper.get('[data-testid="automation-next"]').trigger('click')
     await wrapper.get('[data-testid="automation-next"]').trigger('click')

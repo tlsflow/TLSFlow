@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  createCloudAccountAsset,
   deleteCloudAccountAsset,
   listCloudAccountAssets,
   updateCloudAccountAsset,
@@ -17,10 +16,9 @@ function mockResponse(): void {
 describe('云服务 API modules', () => {
   afterEach(() => vi.restoreAllMocks())
 
-  it('云账号 CRUD 只访问资源接口，不暴露旧 Provider Action', async () => {
+  it('云账号读取和维护只访问资源接口，不暴露旧 Provider Action', async () => {
     mockResponse()
     await listCloudAccountAssets()
-    await createCloudAccountAsset({ displayName: '阿里云生产账号', providerKey: 'cloud.aliyun' })
     await updateCloudAccountAsset({ id: 'asset-1', displayName: '阿里云生产账号' })
     await deleteCloudAccountAsset('asset-1')
 
@@ -29,12 +27,10 @@ describe('云服务 API modules', () => {
     expect(urls).toEqual([
       '/api/v1/cloud-account-assets',
       '/api/v1/cloud-account-assets',
-      '/api/v1/cloud-account-assets',
       '/api/v1/cloud-account-assets/delete',
     ])
     expect(calls.map((call) => (call[1] as RequestInit | undefined)?.method ?? 'GET')).toEqual([
       'GET',
-      'POST',
       'PATCH',
       'POST',
     ])
