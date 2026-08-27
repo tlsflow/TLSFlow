@@ -1,0 +1,17 @@
+{
+  "plugin.appTomcatWindows.name": "Сайт Tomcat Windows",
+  "plugin.appTomcatWindows.description": "Развертывание, проверка и откат сертификатов KeyStore для приложений Tomcat Windows на основе фактов, подтвержденных Agent.",
+  "plugin.appTomcatWindows.section.identity": "Факты цели",
+  "plugin.appTomcatWindows.section.certificate": "Обновление сертификата",
+  "plugin.appTomcatWindows.field.platform": "Платформа",
+  "plugin.appTomcatWindows.field.framework": "Фреймворк",
+  "plugin.appTomcatWindows.field.path": "Расположение сертификата",
+  "plugin.appTomcatWindows.field.service": "Служба",
+  "plugin.appTomcatWindows.field.configFingerprint": "Отпечаток конфигурации",
+  "plugin.appTomcatWindows.action.deploy": "Развернуть сертификат",
+  "plugin.appTomcatWindows.action.verify": "Проверить сертификат",
+  "plugin.appTomcatWindows.action.rollback": "Откатить сертификат",
+  "plugin.appTomcatWindows.onboarding.compatibility": "Tomcat Windows (версия определяется Agent, поддерживается KeyStore JKS/PKCS12)",
+  "plugin.appTomcatWindows.onboarding.requiredHost": "Хост Windows с установленным совместимым Agent",
+  "plugin.appTomcatWindows.onboarding.requiredTarget": "Обнаруженный сайт HTTPS Tomcat Windows"
+}

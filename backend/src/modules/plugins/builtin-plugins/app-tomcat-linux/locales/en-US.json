@@ -1,0 +1,17 @@
+{
+  "plugin.appTomcatLinux.name": "Linux Tomcat Site",
+  "plugin.appTomcatLinux.description": "Manage Linux Tomcat applications by deploying, verifying, and rolling back KeyStore certificates using facts confirmed by the Agent.",
+  "plugin.appTomcatLinux.section.identity": "Target facts",
+  "plugin.appTomcatLinux.section.certificate": "Certificate update",
+  "plugin.appTomcatLinux.field.platform": "Platform",
+  "plugin.appTomcatLinux.field.framework": "Framework",
+  "plugin.appTomcatLinux.field.path": "Certificate location",
+  "plugin.appTomcatLinux.field.service": "Service",
+  "plugin.appTomcatLinux.field.configFingerprint": "Configuration fingerprint",
+  "plugin.appTomcatLinux.action.deploy": "Deploy certificate",
+  "plugin.appTomcatLinux.action.verify": "Verify certificate",
+  "plugin.appTomcatLinux.action.rollback": "Roll back certificate",
+  "plugin.appTomcatLinux.onboarding.compatibility": "Linux Tomcat (version discovered by the Agent; JKS/PKCS12 KeyStore supported)",
+  "plugin.appTomcatLinux.onboarding.requiredHost": "Linux host with a compatible Agent installed",
+  "plugin.appTomcatLinux.onboarding.requiredTarget": "Discovered Linux Tomcat HTTPS site"
+}

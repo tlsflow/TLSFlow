@@ -1,0 +1,17 @@
+{
+  "plugin.appTomcatLinux.name": "Linux Tomcat 사이트",
+  "plugin.appTomcatLinux.description": "Agent가 확인한 사실을 바탕으로 Linux Tomcat 애플리케이션의 KeyStore 인증서를 배포하고 검증 및 롤백합니다.",
+  "plugin.appTomcatLinux.section.identity": "대상 정보",
+  "plugin.appTomcatLinux.section.certificate": "인증서 업데이트",
+  "plugin.appTomcatLinux.field.platform": "플랫폼",
+  "plugin.appTomcatLinux.field.framework": "프레임워크",
+  "plugin.appTomcatLinux.field.path": "인증서 위치",
+  "plugin.appTomcatLinux.field.service": "서비스",
+  "plugin.appTomcatLinux.field.configFingerprint": "구성 지문",
+  "plugin.appTomcatLinux.action.deploy": "인증서 배포",
+  "plugin.appTomcatLinux.action.verify": "인증서 검증",
+  "plugin.appTomcatLinux.action.rollback": "인증서 롤백",
+  "plugin.appTomcatLinux.onboarding.compatibility": "Linux Tomcat(버전은 Agent가 검색하며 JKS/PKCS12 KeyStore 지원)",
+  "plugin.appTomcatLinux.onboarding.requiredHost": "호환 Agent가 설치된 Linux 호스트",
+  "plugin.appTomcatLinux.onboarding.requiredTarget": "검색된 Linux Tomcat HTTPS 사이트"
+}

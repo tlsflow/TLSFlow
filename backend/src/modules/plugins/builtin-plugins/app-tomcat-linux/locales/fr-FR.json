@@ -1,0 +1,17 @@
+{
+  "plugin.appTomcatLinux.name": "Site Tomcat Linux",
+  "plugin.appTomcatLinux.description": "Déployez, vérifiez et restaurez les certificats KeyStore des applications Tomcat Linux à partir des faits confirmés par l Agent.",
+  "plugin.appTomcatLinux.section.identity": "Faits de la cible",
+  "plugin.appTomcatLinux.section.certificate": "Mise à jour du certificat",
+  "plugin.appTomcatLinux.field.platform": "Plateforme",
+  "plugin.appTomcatLinux.field.framework": "Framework",
+  "plugin.appTomcatLinux.field.path": "Emplacement du certificat",
+  "plugin.appTomcatLinux.field.service": "Service",
+  "plugin.appTomcatLinux.field.configFingerprint": "Empreinte de configuration",
+  "plugin.appTomcatLinux.action.deploy": "Déployer le certificat",
+  "plugin.appTomcatLinux.action.verify": "Vérifier le certificat",
+  "plugin.appTomcatLinux.action.rollback": "Restaurer le certificat",
+  "plugin.appTomcatLinux.onboarding.compatibility": "Tomcat Linux (version découverte par l Agent, KeyStore JKS/PKCS12 pris en charge)",
+  "plugin.appTomcatLinux.onboarding.requiredHost": "Hôte Linux avec un Agent compatible installé",
+  "plugin.appTomcatLinux.onboarding.requiredTarget": "Site HTTPS Tomcat Linux découvert"
+}

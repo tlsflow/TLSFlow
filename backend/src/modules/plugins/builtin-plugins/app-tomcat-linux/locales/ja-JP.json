@@ -1,0 +1,17 @@
+{
+  "plugin.appTomcatLinux.name": "Linux Tomcat サイト",
+  "plugin.appTomcatLinux.description": "Agent が確認した事実に基づき、Linux Tomcat アプリケーションの KeyStore 証明書をデプロイ、検証、ロールバックします。",
+  "plugin.appTomcatLinux.section.identity": "ターゲットの事実",
+  "plugin.appTomcatLinux.section.certificate": "証明書の更新",
+  "plugin.appTomcatLinux.field.platform": "プラットフォーム",
+  "plugin.appTomcatLinux.field.framework": "フレームワーク",
+  "plugin.appTomcatLinux.field.path": "証明書の場所",
+  "plugin.appTomcatLinux.field.service": "サービス",
+  "plugin.appTomcatLinux.field.configFingerprint": "構成フィンガープリント",
+  "plugin.appTomcatLinux.action.deploy": "証明書をデプロイ",
+  "plugin.appTomcatLinux.action.verify": "証明書を検証",
+  "plugin.appTomcatLinux.action.rollback": "証明書をロールバック",
+  "plugin.appTomcatLinux.onboarding.compatibility": "Linux Tomcat（バージョンは Agent が検出、JKS/PKCS12 KeyStore 対応）",
+  "plugin.appTomcatLinux.onboarding.requiredHost": "互換性のある Agent がインストールされた Linux ホスト",
+  "plugin.appTomcatLinux.onboarding.requiredTarget": "検出された Linux Tomcat HTTPS サイト"
+}

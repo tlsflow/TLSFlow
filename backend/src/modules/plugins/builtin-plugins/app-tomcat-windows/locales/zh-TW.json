@@ -1,0 +1,17 @@
+{
+  "plugin.appTomcatWindows.name": "Windows Tomcat 應用程式",
+  "plugin.appTomcatWindows.description": "面向 Windows Tomcat 應用程式，根據 Agent 已確認的事實執行 KeyStore 憑證部署、驗證與復原。",
+  "plugin.appTomcatWindows.section.identity": "目標事實",
+  "plugin.appTomcatWindows.section.certificate": "憑證更新",
+  "plugin.appTomcatWindows.field.platform": "平台",
+  "plugin.appTomcatWindows.field.framework": "框架",
+  "plugin.appTomcatWindows.field.path": "憑證位置",
+  "plugin.appTomcatWindows.field.service": "服務",
+  "plugin.appTomcatWindows.field.configFingerprint": "設定指紋",
+  "plugin.appTomcatWindows.action.deploy": "部署憑證",
+  "plugin.appTomcatWindows.action.verify": "驗證憑證",
+  "plugin.appTomcatWindows.action.rollback": "復原憑證",
+  "plugin.appTomcatWindows.onboarding.compatibility": "Windows Tomcat（版本由 Agent 探索，支援 JKS/PKCS12 KeyStore）",
+  "plugin.appTomcatWindows.onboarding.requiredHost": "已安裝相容 Agent 的 Windows 主機",
+  "plugin.appTomcatWindows.onboarding.requiredTarget": "已探索的 Windows Tomcat HTTPS 網站"
+}

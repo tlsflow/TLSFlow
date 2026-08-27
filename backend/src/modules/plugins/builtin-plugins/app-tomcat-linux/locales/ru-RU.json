@@ -1,0 +1,17 @@
+{
+  "plugin.appTomcatLinux.name": "Сайт Tomcat Linux",
+  "plugin.appTomcatLinux.description": "Развертывание, проверка и откат сертификатов KeyStore для приложений Tomcat Linux на основе фактов, подтвержденных Agent.",
+  "plugin.appTomcatLinux.section.identity": "Факты цели",
+  "plugin.appTomcatLinux.section.certificate": "Обновление сертификата",
+  "plugin.appTomcatLinux.field.platform": "Платформа",
+  "plugin.appTomcatLinux.field.framework": "Фреймворк",
+  "plugin.appTomcatLinux.field.path": "Расположение сертификата",
+  "plugin.appTomcatLinux.field.service": "Служба",
+  "plugin.appTomcatLinux.field.configFingerprint": "Отпечаток конфигурации",
+  "plugin.appTomcatLinux.action.deploy": "Развернуть сертификат",
+  "plugin.appTomcatLinux.action.verify": "Проверить сертификат",
+  "plugin.appTomcatLinux.action.rollback": "Откатить сертификат",
+  "plugin.appTomcatLinux.onboarding.compatibility": "Tomcat Linux (версия определяется Agent, поддерживается KeyStore JKS/PKCS12)",
+  "plugin.appTomcatLinux.onboarding.requiredHost": "Хост Linux с установленным совместимым Agent",
+  "plugin.appTomcatLinux.onboarding.requiredTarget": "Обнаруженный сайт HTTPS Tomcat Linux"
+}

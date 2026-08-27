@@ -1,0 +1,17 @@
+{
+  "plugin.appTomcatWindows.name": "Site Tomcat Windows",
+  "plugin.appTomcatWindows.description": "Implante, verifique e reverta certificados KeyStore de aplicações Tomcat Windows usando fatos confirmados pelo Agent.",
+  "plugin.appTomcatWindows.section.identity": "Fatos do destino",
+  "plugin.appTomcatWindows.section.certificate": "Atualização do certificado",
+  "plugin.appTomcatWindows.field.platform": "Plataforma",
+  "plugin.appTomcatWindows.field.framework": "Framework",
+  "plugin.appTomcatWindows.field.path": "Local do certificado",
+  "plugin.appTomcatWindows.field.service": "Serviço",
+  "plugin.appTomcatWindows.field.configFingerprint": "Impressão digital da configuração",
+  "plugin.appTomcatWindows.action.deploy": "Implantar certificado",
+  "plugin.appTomcatWindows.action.verify": "Verificar certificado",
+  "plugin.appTomcatWindows.action.rollback": "Reverter certificado",
+  "plugin.appTomcatWindows.onboarding.compatibility": "Tomcat Windows (versão descoberta pelo Agent, KeyStore JKS/PKCS12 compatível)",
+  "plugin.appTomcatWindows.onboarding.requiredHost": "Host Windows com um Agent compatível instalado",
+  "plugin.appTomcatWindows.onboarding.requiredTarget": "Site HTTPS Tomcat Windows descoberto"
+}

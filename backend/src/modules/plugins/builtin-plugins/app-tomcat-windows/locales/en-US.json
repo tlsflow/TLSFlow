@@ -1,0 +1,17 @@
+{
+  "plugin.appTomcatWindows.name": "Windows Tomcat Site",
+  "plugin.appTomcatWindows.description": "Manage Windows Tomcat applications by deploying, verifying, and rolling back KeyStore certificates using facts confirmed by the Agent.",
+  "plugin.appTomcatWindows.section.identity": "Target facts",
+  "plugin.appTomcatWindows.section.certificate": "Certificate update",
+  "plugin.appTomcatWindows.field.platform": "Platform",
+  "plugin.appTomcatWindows.field.framework": "Framework",
+  "plugin.appTomcatWindows.field.path": "Certificate location",
+  "plugin.appTomcatWindows.field.service": "Service",
+  "plugin.appTomcatWindows.field.configFingerprint": "Configuration fingerprint",
+  "plugin.appTomcatWindows.action.deploy": "Deploy certificate",
+  "plugin.appTomcatWindows.action.verify": "Verify certificate",
+  "plugin.appTomcatWindows.action.rollback": "Roll back certificate",
+  "plugin.appTomcatWindows.onboarding.compatibility": "Windows Tomcat (version discovered by the Agent; JKS/PKCS12 KeyStore supported)",
+  "plugin.appTomcatWindows.onboarding.requiredHost": "Windows host with a compatible Agent installed",
+  "plugin.appTomcatWindows.onboarding.requiredTarget": "Discovered Windows Tomcat HTTPS site"
+}

@@ -1,6 +1,6 @@
 {
-  "plugin.appTomcatWindows.name": "Windows Tomcat 证书更新",
-  "plugin.appTomcatWindows.description": "固定windows平台与app.tomcat框架，只消费 Agent 已确认事实执行证书更新。",
+  "plugin.appTomcatWindows.name": "Windows Tomcat 应用",
+  "plugin.appTomcatWindows.description": "面向 Windows Tomcat 应用，基于 Agent 已确认事实执行 KeyStore 证书部署、验证和回滚。",
   "plugin.appTomcatWindows.section.identity": "目标事实",
   "plugin.appTomcatWindows.section.certificate": "证书更新",
   "plugin.appTomcatWindows.field.platform": "平台",
@@ -10,5 +10,8 @@
   "plugin.appTomcatWindows.field.configFingerprint": "配置指纹",
   "plugin.appTomcatWindows.action.deploy": "部署证书",
   "plugin.appTomcatWindows.action.verify": "验证证书",
-  "plugin.appTomcatWindows.action.rollback": "回滚证书"
+  "plugin.appTomcatWindows.action.rollback": "回滚证书",
+  "plugin.appTomcatWindows.onboarding.compatibility": "Windows Tomcat（版本由 Agent 发现，支持 JKS/PKCS12 KeyStore）",
+  "plugin.appTomcatWindows.onboarding.requiredHost": "已安装兼容 Agent 的 Windows 主机",
+  "plugin.appTomcatWindows.onboarding.requiredTarget": "已发现的 Windows Tomcat HTTPS 站点"
 }

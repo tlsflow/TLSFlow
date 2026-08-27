@@ -1,0 +1,17 @@
+{
+  "plugin.appTomcatLinux.name": "Linux Tomcat 應用程式",
+  "plugin.appTomcatLinux.description": "面向 Linux Tomcat 應用程式，根據 Agent 已確認的事實執行 KeyStore 憑證部署、驗證與復原。",
+  "plugin.appTomcatLinux.section.identity": "目標事實",
+  "plugin.appTomcatLinux.section.certificate": "憑證更新",
+  "plugin.appTomcatLinux.field.platform": "平台",
+  "plugin.appTomcatLinux.field.framework": "框架",
+  "plugin.appTomcatLinux.field.path": "憑證位置",
+  "plugin.appTomcatLinux.field.service": "服務",
+  "plugin.appTomcatLinux.field.configFingerprint": "設定指紋",
+  "plugin.appTomcatLinux.action.deploy": "部署憑證",
+  "plugin.appTomcatLinux.action.verify": "驗證憑證",
+  "plugin.appTomcatLinux.action.rollback": "復原憑證",
+  "plugin.appTomcatLinux.onboarding.compatibility": "Linux Tomcat（版本由 Agent 探索，支援 JKS/PKCS12 KeyStore）",
+  "plugin.appTomcatLinux.onboarding.requiredHost": "已安裝相容 Agent 的 Linux 主機",
+  "plugin.appTomcatLinux.onboarding.requiredTarget": "已探索的 Linux Tomcat HTTPS 網站"
+}

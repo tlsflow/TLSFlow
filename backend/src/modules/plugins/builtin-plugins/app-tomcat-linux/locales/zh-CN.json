@@ -1,6 +1,6 @@
 {
-  "plugin.appTomcatLinux.name": "Linux Tomcat 证书更新",
-  "plugin.appTomcatLinux.description": "固定linux平台与app.tomcat框架，只消费 Agent 已确认事实执行证书更新。",
+  "plugin.appTomcatLinux.name": "Linux Tomcat 应用",
+  "plugin.appTomcatLinux.description": "面向 Linux Tomcat 应用，基于 Agent 已确认事实执行 KeyStore 证书部署、验证和回滚。",
   "plugin.appTomcatLinux.section.identity": "目标事实",
   "plugin.appTomcatLinux.section.certificate": "证书更新",
   "plugin.appTomcatLinux.field.platform": "平台",
@@ -10,5 +10,8 @@
   "plugin.appTomcatLinux.field.configFingerprint": "配置指纹",
   "plugin.appTomcatLinux.action.deploy": "部署证书",
   "plugin.appTomcatLinux.action.verify": "验证证书",
-  "plugin.appTomcatLinux.action.rollback": "回滚证书"
+  "plugin.appTomcatLinux.action.rollback": "回滚证书",
+  "plugin.appTomcatLinux.onboarding.compatibility": "Linux Tomcat（版本由 Agent 发现，支持 JKS/PKCS12 KeyStore）",
+  "plugin.appTomcatLinux.onboarding.requiredHost": "已安装兼容 Agent 的 Linux 主机",
+  "plugin.appTomcatLinux.onboarding.requiredTarget": "已发现的 Linux Tomcat HTTPS 站点"
 }

@@ -1,0 +1,17 @@
+{
+  "plugin.appTomcatLinux.name": "Site Tomcat Linux",
+  "plugin.appTomcatLinux.description": "Implante, verifique e reverta certificados KeyStore de aplicações Tomcat Linux usando fatos confirmados pelo Agent.",
+  "plugin.appTomcatLinux.section.identity": "Fatos do destino",
+  "plugin.appTomcatLinux.section.certificate": "Atualização do certificado",
+  "plugin.appTomcatLinux.field.platform": "Plataforma",
+  "plugin.appTomcatLinux.field.framework": "Framework",
+  "plugin.appTomcatLinux.field.path": "Local do certificado",
+  "plugin.appTomcatLinux.field.service": "Serviço",
+  "plugin.appTomcatLinux.field.configFingerprint": "Impressão digital da configuração",
+  "plugin.appTomcatLinux.action.deploy": "Implantar certificado",
+  "plugin.appTomcatLinux.action.verify": "Verificar certificado",
+  "plugin.appTomcatLinux.action.rollback": "Reverter certificado",
+  "plugin.appTomcatLinux.onboarding.compatibility": "Tomcat Linux (versão descoberta pelo Agent, KeyStore JKS/PKCS12 compatível)",
+  "plugin.appTomcatLinux.onboarding.requiredHost": "Host Linux com um Agent compatível instalado",
+  "plugin.appTomcatLinux.onboarding.requiredTarget": "Site HTTPS Tomcat Linux descoberto"
+}

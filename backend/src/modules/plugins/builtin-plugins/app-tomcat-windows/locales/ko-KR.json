@@ -1,0 +1,17 @@
+{
+  "plugin.appTomcatWindows.name": "Windows Tomcat 사이트",
+  "plugin.appTomcatWindows.description": "Agent가 확인한 사실을 바탕으로 Windows Tomcat 애플리케이션의 KeyStore 인증서를 배포하고 검증 및 롤백합니다.",
+  "plugin.appTomcatWindows.section.identity": "대상 정보",
+  "plugin.appTomcatWindows.section.certificate": "인증서 업데이트",
+  "plugin.appTomcatWindows.field.platform": "플랫폼",
+  "plugin.appTomcatWindows.field.framework": "프레임워크",
+  "plugin.appTomcatWindows.field.path": "인증서 위치",
+  "plugin.appTomcatWindows.field.service": "서비스",
+  "plugin.appTomcatWindows.field.configFingerprint": "구성 지문",
+  "plugin.appTomcatWindows.action.deploy": "인증서 배포",
+  "plugin.appTomcatWindows.action.verify": "인증서 검증",
+  "plugin.appTomcatWindows.action.rollback": "인증서 롤백",
+  "plugin.appTomcatWindows.onboarding.compatibility": "Windows Tomcat(버전은 Agent가 검색하며 JKS/PKCS12 KeyStore 지원)",
+  "plugin.appTomcatWindows.onboarding.requiredHost": "호환 Agent가 설치된 Windows 호스트",
+  "plugin.appTomcatWindows.onboarding.requiredTarget": "검색된 Windows Tomcat HTTPS 사이트"
+}

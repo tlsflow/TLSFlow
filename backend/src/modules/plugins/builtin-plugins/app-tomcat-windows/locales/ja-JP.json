@@ -1,0 +1,17 @@
+{
+  "plugin.appTomcatWindows.name": "Windows Tomcat サイト",
+  "plugin.appTomcatWindows.description": "Agent が確認した事実に基づき、Windows Tomcat アプリケーションの KeyStore 証明書をデプロイ、検証、ロールバックします。",
+  "plugin.appTomcatWindows.section.identity": "ターゲットの事実",
+  "plugin.appTomcatWindows.section.certificate": "証明書の更新",
+  "plugin.appTomcatWindows.field.platform": "プラットフォーム",
+  "plugin.appTomcatWindows.field.framework": "フレームワーク",
+  "plugin.appTomcatWindows.field.path": "証明書の場所",
+  "plugin.appTomcatWindows.field.service": "サービス",
+  "plugin.appTomcatWindows.field.configFingerprint": "構成フィンガープリント",
+  "plugin.appTomcatWindows.action.deploy": "証明書をデプロイ",
+  "plugin.appTomcatWindows.action.verify": "証明書を検証",
+  "plugin.appTomcatWindows.action.rollback": "証明書をロールバック",
+  "plugin.appTomcatWindows.onboarding.compatibility": "Windows Tomcat（バージョンは Agent が検出、JKS/PKCS12 KeyStore 対応）",
+  "plugin.appTomcatWindows.onboarding.requiredHost": "互換性のある Agent がインストールされた Windows ホスト",
+  "plugin.appTomcatWindows.onboarding.requiredTarget": "検出された Windows Tomcat HTTPS サイト"
+}
