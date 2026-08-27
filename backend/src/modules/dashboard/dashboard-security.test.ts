@@ -39,6 +39,11 @@ test('Dashboard 聚合只统计和展示有对象权限的资产', async () => {
   assert.equal(metricValue(overview.metrics, 'activeAgents'), 1);
   assert.equal(metricValue(overview.metrics, 'activeGateways'), 1);
   assert.equal(metricValue(overview.metrics, 'managedBindings'), 1);
+  assert.equal(metricTargetPath(overview.metrics, 'applications'), '/applications');
+  assert.equal(metricTargetPath(overview.metrics, 'validCertificates'), '/certificates?category=valid');
+  assert.equal(metricTargetPath(overview.metrics, 'expiringCertificates'), '/certificates?category=expiringSoon');
+  assert.equal(metricTargetPath(overview.metrics, 'activeAgents'), '/agents?managementMethod=AGENT&health=HEALTHY');
+  assert.equal(metricTargetPath(overview.metrics, 'activeGateways'), '/gateways?status=online');
   assert.deepEqual(overview.certificateStatuses.map((item) => item.certificateAssetId), ['certificate-visible']);
   assert.equal(overview.certificateStatuses[0]?.certificateVersionId, 'certificate-version-visible');
   assert.equal(overview.certificateStatuses[0]?.notAfter, '2026-12-01T00:00:00.000Z');
@@ -197,6 +202,10 @@ function authorizedPage<T extends object>(items: T[], query: PageQuery) {
 
 function metricValue(metrics: Array<{ key: string; value: number }>, key: string): number {
   return metrics.find((metric) => metric.key === key)?.value ?? -1;
+}
+
+function metricTargetPath(metrics: Array<{ key: string; targetPath?: string }>, key: string): string {
+  return metrics.find((metric) => metric.key === key)?.targetPath ?? '';
 }
 
 function statusBlockIds(overview: { statusGroups: Array<{ key: string; blocks: Array<{ id: string }> }> }, key: string): string[] {

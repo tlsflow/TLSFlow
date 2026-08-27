@@ -520,11 +520,11 @@ function buildMetrics(input: {
   managedBindingCount: number;
 }): DashboardMetric[] {
   return [
-    { key: 'applications', title: '当前应用数量', value: input.applicationCount, description: '已纳管的应用入口资产。', trend: 'neutral' },
-    { key: 'validCertificates', title: '活跃证书数量', value: input.validCertificateCount, description: '状态活跃且尚未过期的证书版本。', trend: 'good' },
+    { key: 'applications', title: '当前应用数量', value: input.applicationCount, description: '已纳管的应用入口资产。', trend: 'neutral', targetPath: '/applications' },
+    { key: 'validCertificates', title: '活跃证书数量', value: input.validCertificateCount, description: '状态活跃且尚未过期的证书版本。', trend: 'good', targetPath: '/certificates?category=valid' },
     { key: 'expiringCertificates', title: '15 天内到期证书', value: input.expiringCertificateCount, description: '需要安排续期或替换的证书。', trend: input.expiringCertificateCount > 0 ? 'warning' : 'good', targetPath: '/certificates?category=expiringSoon' },
-    { key: 'activeAgents', title: '活跃 Agent 数量', value: input.activeAgentCount, description: '当前在线并可调度的 Agent。', trend: 'good' },
-    { key: 'activeGateways', title: '活跃网关数量', value: input.activeGatewayCount, description: '当前在线的隔离区网关。', trend: 'good' },
+    { key: 'activeAgents', title: '活跃 Agent 数量', value: input.activeAgentCount, description: '当前在线并可调度的 Agent。', trend: 'good', targetPath: '/agents?managementMethod=AGENT&health=HEALTHY' },
+    { key: 'activeGateways', title: '活跃网关数量', value: input.activeGatewayCount, description: '当前在线的隔离区网关。', trend: 'good', targetPath: '/gateways?status=online' },
     { key: 'managedBindings', title: '托管绑定数量', value: input.managedBindingCount, description: '已进入托管状态的证书绑定。', trend: 'neutral' },
   ];
 }
