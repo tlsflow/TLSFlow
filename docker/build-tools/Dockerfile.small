@@ -45,11 +45,11 @@ ENV NODE_ENV=production \
     GCAC_AGENT_RELEASE_BUNDLE_ROOT=/opt/gcac/agent-release-bundle \
     GCAC_LEGO_PATH=/usr/local/bin/lego
 
-COPY docker/build-tools/versions.json docker/build-tools/install-lego.mjs /tmp/
+COPY docker/build-tools/versions.json docker/build-tools/install-lego.sh /tmp/
 RUN apt-get update \
   && apt-get install -y --no-install-recommends dumb-init ca-certificates curl tar openssl openjdk-17-jre-headless \
-  && TARGETARCH="$TARGETARCH" node /tmp/install-lego.mjs /tmp/versions.json \
-  && rm -f /tmp/lego.tar.gz /tmp/install-lego.mjs /tmp/versions.json \
+  && TARGETARCH="$TARGETARCH" sh /tmp/install-lego.sh /tmp/versions.json \
+  && rm -f /tmp/lego.tar.gz /tmp/install-lego.sh /tmp/versions.json \
   && rm -rf /var/lib/apt/lists/* \
   && useradd --create-home --uid 10001 --shell /usr/sbin/nologin gcac \
   && mkdir -p /var/lib/gcac/pglite /app/data/workflows /app/data/runtime /app/data/tls-inspector /app/data/plugins /app/src/database/migrations \
@@ -65,20 +65,21 @@ COPY --from=backend-build /src/backend/dist ./dist
 RUN test -f dist/modules/workflow-templates/domain/jsonata-transform.worker.js
 COPY --from=backend-build /src/scripts ./scripts
 COPY tls-inspector /opt/gcac/tls-inspector
-COPY docker/runtime/start-gcac-with-tls-inspector.mjs /usr/local/bin/start-gcac-with-tls-inspector.mjs
+COPY docker/runtime/start-gcac-with-tls-inspector.sh /usr/local/bin/start-gcac-with-tls-inspector.sh
+RUN chmod 0755 /usr/local/bin/start-gcac-with-tls-inspector.sh
 COPY --from=backend-build --chown=gcac:gcac /src/backend/src/database/migrations ./src/database/migrations
 COPY --from=backend-build /src/backend/src/modules/plugins/builtin-plugins ./src/modules/plugins/builtin-plugins
 COPY --from=backend-build /src/backend/src/modules/workflow-templates/builtin-workflows ./src/modules/workflow-templates/builtin-workflows
 COPY --from=web-build /src/web/dist ./web
 COPY build/agent-release-bundle/ /opt/gcac/agent-release-bundle/
 
-COPY docker/verify/verify-release-bundle.mjs ./docker/verify/verify-release-bundle.mjs
-COPY docker/verify/scan-small-image-content.mjs ./docker/verify/scan-small-image-content.mjs
+COPY docker/verify/verify-release-bundle.sh ./docker/verify/verify-release-bundle.sh
+COPY docker/verify/scan-small-image-content.sh ./docker/verify/scan-small-image-content.sh
 RUN test -f /opt/gcac/agent-release-bundle/manifest.json \
   && test -f /opt/gcac/agent-release-bundle/linux/amd64/gcac-linux-agent \
   && test -f /opt/gcac/agent-release-bundle/linux/arm64/gcac-linux-agent \
-  && node /app/docker/verify/verify-release-bundle.mjs \
-  && node /app/docker/verify/scan-small-image-content.mjs /app /opt/gcac
+  && sh /app/docker/verify/verify-release-bundle.sh \
+  && sh /app/docker/verify/scan-small-image-content.sh /app /opt/gcac
 
 USER gcac
 ENV TLS_INSPECTOR_HOST=127.0.0.1 \
@@ -87,4 +88,4 @@ ENV TLS_INSPECTOR_HOST=127.0.0.1 \
     GCAC_TLS_INSPECTOR_URL=http://127.0.0.1:8788
 EXPOSE 3003 8788
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "/usr/local/bin/start-gcac-with-tls-inspector.mjs"]
+CMD ["/usr/local/bin/start-gcac-with-tls-inspector.sh"]
