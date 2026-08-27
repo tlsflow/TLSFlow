@@ -162,19 +162,18 @@ describe('DashboardView', () => {
     expect(heatmapBlock.classes()).toContain('dashboard-heatmap__block-wrap--tooltip-open')
   })
 
-  it('15 天内到期指标卡跳转到证书域名筛选列表', async () => {
+  it('五个核心指标卡都跳转到对应列表并携带过滤条件', async () => {
     apiMocks.getDashboardOverview.mockResolvedValue({
       data: {
         generatedAt: '2026-08-26T08:34:00.000Z',
         systemResources: { cpuUsage: 37, memoryUsage: 62 },
-        metrics: [{
-          key: 'expiringCertificates',
-          title: '15 天内到期证书',
-          value: 2,
-          description: '需要安排续期或替换的证书。',
-          trend: 'warning',
-          targetPath: '/certificates?category=expiringSoon',
-        }],
+        metrics: [
+          { key: 'applications', title: '当前应用数量', value: 13, description: '已纳管的应用入口资产。', trend: 'neutral', targetPath: '/applications' },
+          { key: 'validCertificates', title: '活跃证书数量', value: 9, description: '状态活跃且尚未过期的证书版本。', trend: 'good', targetPath: '/certificates?category=valid' },
+          { key: 'expiringCertificates', title: '15 天内到期证书', value: 1, description: '需要安排续期或替换的证书。', trend: 'warning', targetPath: '/certificates?category=expiringSoon' },
+          { key: 'activeAgents', title: '活跃 Agent 数量', value: 7, description: '当前在线并可调度的 Agent。', trend: 'good', targetPath: '/agents?managementMethod=AGENT&health=HEALTHY' },
+          { key: 'activeGateways', title: '活跃网关数量', value: 1, description: '当前在线的隔离区网关。', trend: 'good', targetPath: '/gateways?status=online' },
+        ],
         quickActions: [],
         statusGroups: [],
         certificateStatuses: [],
@@ -184,8 +183,14 @@ describe('DashboardView', () => {
 
     const wrapper = mount(DashboardView)
 
-    await vi.waitFor(() => expect(wrapper.find('a.dashboard-metric-card').exists()).toBe(true))
-    expect(wrapper.find('a.dashboard-metric-card').attributes('href')).toBe('/certificates?category=expiringSoon')
+    await vi.waitFor(() => expect(wrapper.findAll('a.dashboard-metric-card')).toHaveLength(5))
+    expect(wrapper.findAll('a.dashboard-metric-card').map((card) => card.attributes('href'))).toEqual([
+      '/certificates?category=valid',
+      '/certificates?category=expiringSoon',
+      '/applications',
+      '/agents?managementMethod=AGENT&health=HEALTHY',
+      '/gateways?status=online',
+    ])
   })
 
   it('不展示没有证书版本 ID 的陈旧证书热力图块', async () => {

@@ -85,6 +85,18 @@ describe('CertificatesView', () => {
     expect(wrapper.find('.certificate-page__toolbar').exists()).toBe(false)
   })
 
+  it('有效证书指标卡进入页面时应用正常分类', async () => {
+    routeState.query = { category: 'valid' }
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      data: { items: [], page: 1, pageSize: 20, total: 0 },
+    }), { status: 200 })))
+
+    const wrapper = mount(CertificatesView, { attachTo: document.body })
+    await waitFor(() => {
+      expect(wrapper.find('.certificate-page__category-tab--active').text()).toContain('有效')
+    })
+  })
+
   it('15 天内到期筛选按域名检查全部版本，并排除已过期域名', async () => {
     routeState.query = { category: 'expiringSoon' }
     vi.stubGlobal('fetch', vi.fn(async (url) => {

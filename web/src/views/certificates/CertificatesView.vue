@@ -91,7 +91,11 @@ const assetVersionSummaryMap = ref<Record<string, ApiRecord>>({})
 const selectedAssetId = ref('')
 const selectedRouteAsset = ref<ApiRecord | null>(null)
 const professionalAssetPresentation = ref<AssetPresentation>('cards')
-const certificateCategory = ref<CertificateCategory>(initialQuery.category === 'expiringSoon' ? 'expiringSoon' : 'all')
+const certificateCategory = ref<CertificateCategory>(
+  initialQuery.category === 'valid' || initialQuery.category === 'expiringSoon'
+    ? initialQuery.category
+    : 'all',
+)
 const filtersVisible = ref(false)
 const versionFilterKeyword = ref('')
 const versionFilterStatus = ref('')
