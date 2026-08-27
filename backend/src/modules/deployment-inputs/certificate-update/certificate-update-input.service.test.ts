@@ -209,6 +209,21 @@ test('Tomcat JKS 只接受 JKS 整体 Artifact，并固定 password SecretRef', 
   assert.deepEqual(snapshot.secretRefs, ['secret://certificate/tomcat-password']);
 });
 
+test('Tomcat 未绑定显式密码 Credential 时保留空 SecretRef，交由 Agent 按 configPath 自动读取', () => {
+  const resolved = createResolvedCertificateUpdateInput('app.tomcat.linux', { secretRefs: {} });
+  delete resolved.credentials.keystorePassword;
+  resolved.sensitivePaths = [];
+
+  const snapshot = resolveCertificateUpdateSnapshot(
+    resolved,
+    loadCertificateUpdateContract('app.tomcat.linux'),
+  );
+
+  assert.deepEqual(snapshot.secretRefs, []);
+  assert.equal(snapshot.keyAlias, 'server');
+  assert.equal(JSON.stringify(snapshot).includes('tomcat-password'), false);
+});
+
 test('Tomcat 输入合同拒绝把密码放进 Artifact 输出', () => {
   const contract = loadCertificateUpdateContract('app.tomcat.linux');
   const outputs = contract.deploymentInputContract.artifacts.certificateArtifact!.artifactContract!.outputs;

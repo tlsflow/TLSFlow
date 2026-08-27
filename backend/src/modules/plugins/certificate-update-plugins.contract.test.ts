@@ -91,7 +91,7 @@ function assertCertificatePackage(
 ): void {
   const manifest = pluginPackage.manifest as Record<string, unknown>;
   assert.equal(manifest.pluginId, pluginId);
-  assert.equal(manifest.version, pluginId === 'web.iis' ? '1.0.23' : pluginId === 'web.nginx.linux' ? '1.0.7' : pluginId === 'web.nginx.windows' ? '1.0.9' : pluginId === 'web.apache.linux' ? '1.0.5' : pluginId === 'app.tomcat.linux' ? '1.0.4' : pluginId === 'web.apache.windows' ? '1.0.6' : '1.0.5');
+  assert.equal(manifest.version, pluginId === 'web.iis' ? '1.0.23' : pluginId === 'web.nginx.linux' ? '1.0.7' : pluginId === 'web.nginx.windows' ? '1.0.9' : pluginId === 'web.apache.linux' ? '1.0.5' : pluginId === 'app.tomcat.linux' ? '1.0.5' : pluginId === 'web.apache.windows' ? '1.0.6' : '1.0.6');
   assert.deepEqual((manifest.compatibility as { productFamilies?: string[] }).productFamilies, [profile.productFamily]);
   assert.equal(manifest.runtime, 'WORKFLOW_DSL');
   assert.equal(manifest.source, 'BUILTIN');
@@ -204,6 +204,10 @@ function assertCertificatePackage(
   if (profile.artifactKind === 'KEYSTORE') {
     assert.equal((deployPlan.operations as Array<Record<string, unknown>>).filter((operation) => operation.expandPathRef === 'paths').length >= 3, true);
     assert.equal(JSON.stringify(deployPlan).includes('secretRefs.0'), true);
+    const materialValidation = (deployPlan.operations as Array<Record<string, unknown>>)
+      .filter((operation) => operation.operationType === 'certificate.material.validate');
+    assert.ok(materialValidation.length > 0);
+    assert.ok(materialValidation.every((operation) => (operation.input as Record<string, unknown>).verifyCurrentKeyStorePassword === true));
   } else if (profile.artifactKind !== 'WINDOWS_CERTIFICATE_STORE') {
     assert.equal((deployPlan.operations as Array<Record<string, unknown>>).some((operation) => operation.expandPathRef === 'paths'), true);
   }

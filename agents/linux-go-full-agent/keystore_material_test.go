@@ -50,6 +50,16 @@ func TestLinuxCertificateMaterialValidatesJKSAndPKCS12(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("JKS 自动发现唯一私钥 Alias", func(t *testing.T) {
+		result, err := executeLinuxKeyStoreMaterialValidation(t, "JKS", jks, "", "changeit", "")
+		if err != nil {
+			t.Fatalf("省略 Alias 时应自动发现唯一私钥条目: %v", err)
+		}
+		if result["keyAlias"] != "server" {
+			t.Fatalf("自动发现的 Alias 不正确: %#v", result)
+		}
+	})
 }
 
 func TestLinuxCertificateMaterialRejectsInvalidKeyStoreInputs(t *testing.T) {
@@ -110,6 +120,58 @@ func TestLinuxCertificateMaterialReadsTomcatPasswordFromConfigPath(t *testing.T)
 	}
 	if result["aliasVerified"] != true {
 		t.Fatalf("从配置读取密码时仍必须完成 Alias/条目校验: %#v", result)
+	}
+	_, err = executeLinuxKeyStoreMaterialValidation(t, "JKS", jks, "server", "wrong-explicit-password", configPath)
+	if err == nil || !strings.Contains(err.Error(), "密码错误或文件损坏") {
+		t.Fatalf("显式密码错误时必须优先失败，不能回退到配置自动读取: %v", err)
+	}
+	if strings.Contains(err.Error(), "wrong-explicit-password") || strings.Contains(err.Error(), "changeit") {
+		t.Fatalf("显式密码失败信息不得泄露密码: %v", err)
+	}
+}
+
+func TestLinuxCertificateMaterialPairSkipsKeyStoreBinary(t *testing.T) {
+	leaf, privateKey := newLinuxKeyStoreTestCertificate(t, "tomcat.example.test")
+	content := newLinuxTestJKS(t, privateKey, leaf, "server", "changeit")
+	operations := []agentPlanAction{{
+		OperationType: "certificate.material.validate",
+		Input: map[string]any{
+			"storageKind":   "KEYSTORE",
+			"contentBase64": base64.StdEncoding.EncodeToString(content),
+			"path":          filepath.Join(t.TempDir(), "tomcat.jks"),
+		},
+	}}
+	if err := validateLinuxCertificateMaterialPair(operations); err != nil {
+		t.Fatalf("KEYSTORE 二进制不应进入 PEM 成对校验: %v", err)
+	}
+}
+
+func TestLinuxCertificateMaterialRejectsPasswordDifferentFromCurrentKeyStore(t *testing.T) {
+	leaf, privateKey := newLinuxKeyStoreTestCertificate(t, "tomcat.example.test")
+	currentStore := newLinuxTestJKS(t, privateKey, leaf, "server", "current-password")
+	newLeaf, newPrivateKey := newLinuxKeyStoreTestCertificate(t, "tomcat-new.example.test")
+	newStore := newLinuxTestJKS(t, newPrivateKey, newLeaf, "server", "new-password")
+	target := filepath.Join(t.TempDir(), "tomcat.jks")
+	if err := os.WriteFile(target, currentStore, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	input := map[string]any{
+		"path":                          target,
+		"contentBase64":                 base64.StdEncoding.EncodeToString(newStore),
+		"storageKind":                   "KEYSTORE",
+		"keystoreType":                  "JKS",
+		"keyAlias":                      "server",
+		"keystorePassword":              "new-password",
+		"verifyCurrentKeyStorePassword": true,
+	}
+	_, err := executeCertificateMaterialValidate(context.Background(), agentPlanAction{
+		OperationID: "validate", OperationType: "certificate.material.validate", Stage: "prepare", Input: input,
+	})
+	if err == nil || !strings.Contains(err.Error(), "当前 KeyStore 密码或格式校验失败") {
+		t.Fatalf("目标 KeyStore 当前密码不一致时必须失败关闭: %v", err)
+	}
+	if strings.Contains(err.Error(), "current-password") || strings.Contains(err.Error(), "new-password") {
+		t.Fatalf("密码不应出现在错误信息中: %v", err)
 	}
 }
 

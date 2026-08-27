@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { computeAgentPlanDigest, validateAgentPlan } from '../../agents/security/agent-security.contract.js';
-import { compileCertificateUpdatePlanTemplate } from './certificate-update-plan.service.js';
+import { bindCertificateUpdatePlanEphemeralSecrets, compileCertificateUpdatePlanTemplate } from './certificate-update-plan.service.js';
 import {
   certificateUpdatePluginIds,
   createResolvedCertificateUpdateInput,
@@ -167,6 +167,39 @@ test('PEM 路径按文件集合展开，KeyStore 只展开一个整体路径', (
   assert.equal(materialValidation?.input.keystoreType, 'PKCS12');
   assert.equal(materialValidation?.input.keyAlias, 'server');
   assert.equal(materialValidation?.input.secretRef, 'secret://certificate/tomcat-password');
+});
+
+test('显式 keystorePassword 只在执行期注入并覆盖 SecretRef', () => {
+  const pluginId = 'app.tomcat.linux';
+  const snapshot = createCertificateUpdateSnapshot(pluginId);
+  const result = compileCertificateUpdatePlanTemplate({
+    templateText: loadCertificateUpdateResource(pluginId, 'agent-plans/deploy.json'),
+    snapshot,
+    resolvedInput: createResolvedCertificateUpdateInput(pluginId),
+    pluginVersionId: `${pluginId}-version-1`,
+    agentId: 'agent-1',
+    tenantId: 'tenant-1',
+  });
+  const withPassword = result.plan;
+  const injected = withPassword.operations.filter((operation) => operation.operationType === 'certificate.material.validate');
+  assert.ok(injected.every((operation) => operation.input.keystorePassword === undefined));
+
+  const explicit = compileCertificateUpdatePlanTemplate({
+    templateText: loadCertificateUpdateResource(pluginId, 'agent-plans/deploy.json'),
+    snapshot,
+    resolvedInput: createResolvedCertificateUpdateInput(pluginId),
+    pluginVersionId: `${pluginId}-version-1`,
+    agentId: 'agent-1',
+    tenantId: 'tenant-1',
+  });
+  // 通过公开绑定函数模拟执行期编译；普通 resolvedInput 仍只包含 SecretRef。
+  const bound = bindCertificateUpdatePlanEphemeralSecrets(explicit.plan, snapshot, { keystorePassword: 'tomcat-current-password' });
+  const material = bound.operations.filter((operation) => operation.operationType === 'certificate.material.validate');
+  assert.ok(material.length > 0);
+  assert.ok(material.every((operation) => operation.input.keystorePassword === 'tomcat-current-password'));
+  assert.ok(material.every((operation) => !('secretRef' in operation.input)));
+  assert.ok(bound.planDigest.length > 0);
+  assert.doesNotThrow(() => validateAgentPlan(bound));
 });
 
 test('证书 Artifact 内容按固定路径槽位进入校验和原子替换操作', () => {

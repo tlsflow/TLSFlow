@@ -37,3 +37,35 @@ test('没有插件合同槽位时保留历史 certificateArtifact 兼容键', ()
 
   assert.deepEqual(Object.keys(snapshots), ['certificateArtifact']);
 });
+
+test('Tomcat KeyStore 运行材料不携带 PFX 密码', () => {
+  const snapshots = artifactSnapshotsFromDeploymentArtifact({
+    certificateVersionId: 'certver_test',
+    certificateFormatId: 'certfmt_test',
+    format: 'pfx',
+    containsPrivateKey: true,
+    pfxBase64: 'cA==',
+    pfxPassword: 'tomcat-current-password',
+    files: [],
+    warnings: [],
+  }, ['certificateArtifact'], { includePfxPassword: false });
+
+  assert.equal(snapshots.certificateArtifact.outputs.pfxBase64, 'cA==');
+  assert.equal('pfxPassword' in snapshots.certificateArtifact.outputs, false);
+  assert.equal(JSON.stringify(snapshots).includes('tomcat-current-password'), false);
+});
+
+test('IIS 运行材料仍保留声明的 PFX 密码输出', () => {
+  const snapshots = artifactSnapshotsFromDeploymentArtifact({
+    certificateVersionId: 'certver_test',
+    certificateFormatId: 'certfmt_test',
+    format: 'pfx',
+    containsPrivateKey: true,
+    pfxBase64: 'cA==',
+    pfxPassword: 'iis-pfx-password',
+    files: [],
+    warnings: [],
+  }, ['certificateArtifact'], { includePfxPassword: true });
+
+  assert.equal(snapshots.certificateArtifact.outputs.pfxPassword, 'iis-pfx-password');
+});

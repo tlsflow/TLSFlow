@@ -49,6 +49,16 @@ func TestWindowsCertificateMaterialValidatesJKSAndPKCS12(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("JKS 自动发现唯一私钥 Alias", func(t *testing.T) {
+		result, err := executeWindowsKeyStoreMaterialValidation(t, "JKS", jks, "", "changeit", "")
+		if err != nil {
+			t.Fatalf("省略 Alias 时应自动发现唯一私钥条目: %v", err)
+		}
+		if result["keyAlias"] != "server" {
+			t.Fatalf("自动发现的 Alias 不正确: %#v", result)
+		}
+	})
 }
 
 func TestWindowsCertificateMaterialRejectsInvalidKeyStoreInputs(t *testing.T) {
@@ -109,6 +119,42 @@ func TestWindowsCertificateMaterialReadsTomcatPasswordFromConfigPath(t *testing.
 	}
 	if result["aliasVerified"] != true {
 		t.Fatalf("从配置读取密码时仍必须完成 Alias/条目校验: %#v", result)
+	}
+	_, err = executeWindowsKeyStoreMaterialValidation(t, "JKS", jks, "server", "wrong-explicit-password", configPath)
+	if err == nil || !strings.Contains(err.Error(), "密码错误或文件损坏") {
+		t.Fatalf("显式密码错误时必须优先失败，不能回退到配置自动读取: %v", err)
+	}
+	if strings.Contains(err.Error(), "wrong-explicit-password") || strings.Contains(err.Error(), "changeit") {
+		t.Fatalf("显式密码失败信息不得泄露密码: %v", err)
+	}
+}
+
+func TestWindowsCertificateMaterialRejectsPasswordDifferentFromCurrentKeyStore(t *testing.T) {
+	leaf, privateKey := newWindowsKeyStoreTestCertificate(t, "tomcat.example.test")
+	currentStore := newWindowsTestJKS(t, privateKey, leaf, "server", "current-password")
+	newLeaf, newPrivateKey := newWindowsKeyStoreTestCertificate(t, "tomcat-new.example.test")
+	newStore := newWindowsTestJKS(t, newPrivateKey, newLeaf, "server", "new-password")
+	target := filepath.Join(t.TempDir(), "tomcat.jks")
+	if err := os.WriteFile(target, currentStore, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	input := map[string]any{
+		"path":                          target,
+		"contentBase64":                 base64.StdEncoding.EncodeToString(newStore),
+		"storageKind":                   "KEYSTORE",
+		"keystoreType":                  "JKS",
+		"keyAlias":                      "server",
+		"keystorePassword":              "new-password",
+		"verifyCurrentKeyStorePassword": true,
+	}
+	_, err := executeCertificateMaterialValidate(context.Background(), agentPlanAction{
+		OperationID: "validate", OperationType: "certificate.material.validate", Stage: "prepare", Input: input,
+	})
+	if err == nil || !strings.Contains(err.Error(), "当前 KeyStore 密码或格式校验失败") {
+		t.Fatalf("目标 KeyStore 当前密码不一致时必须失败关闭: %v", err)
+	}
+	if strings.Contains(err.Error(), "current-password") || strings.Contains(err.Error(), "new-password") {
+		t.Fatalf("密码不应出现在错误信息中: %v", err)
 	}
 }
 

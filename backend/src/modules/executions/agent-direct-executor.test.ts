@@ -49,6 +49,42 @@ test('AgentExecutorAdapter 将完整 Agent v2 授权材料接线到 plan.execute
   assert.deepEqual(enqueuedPayload?.policyDecision, materials.policyDecision);
 });
 
+test('AgentExecutorAdapter 将显式 keystorePassword 作为执行期敏感输入传给编译器', async () => {
+  const materials = v2Materials();
+  let compilerInput: Record<string, unknown> | undefined;
+  const agents = agentsProbe(async (_tenantId, input) => createTaskEnvelope('task_ephemeral_password_fixture', input.payload ?? {}));
+  const compiler = {
+    compile: async (input: Record<string, unknown>) => {
+      compilerInput = input;
+      return { actionType: 'agent.plan.execute' as const, actionSchemaVersion: '1.0' as const, ...materials };
+    },
+  };
+  const credentials = {
+    resolveSecretValue: async (tenantId: string, credentialId: string) => {
+      assert.equal(tenantId, 'tenant_v2_fixture');
+      assert.equal(credentialId, 'credential-keystore');
+      return 'tomcat-current-password';
+    },
+  };
+  const resolved = resolvedDeploymentInput();
+  resolved.credentials = {
+    keystorePassword: {
+      credentialId: 'credential-keystore',
+      kind: 'PASSWORD',
+      secretRefs: { password: 'secret://password/keystore' },
+    },
+  };
+  const result = await new AgentExecutorAdapter(agents, undefined, compiler as never, credentials as never).executeStep(createStep({
+    ...v2RequestSnapshot(materials),
+    resolvedDeploymentInput: resolved,
+    actionType: 'agent.plan.execute',
+  }));
+
+  assert.equal(result.success, true);
+  assert.deepEqual(compilerInput?.ephemeralSecrets, { keystorePassword: 'tomcat-current-password' });
+  assert.equal(JSON.stringify(resolved).includes('tomcat-current-password'), false);
+});
+
 test('AgentExecutorAdapter 向 Linux 和 Windows Full Agent 发送 provisioning 材料，Gateway 不接收', async () => {
   const materials = v2Materials();
   const localPolicyMaterial = { materialVersion: 'gcac.policy-authority-provisioning/v1', agentId: materials.plan.agentId };

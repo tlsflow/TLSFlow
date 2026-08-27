@@ -50,6 +50,27 @@ test('Agent v2 编译通过窄注入端口真实签发并一次性绑定 Token �
   assert.deepEqual(second, first);
 });
 
+test('显式 KeyStore 密码计划不进入长期授权缓存', async () => {
+  const plan = createPlan();
+  let issueCount = 0;
+  const authority = createAuthority();
+  const compiler = new UnifiedAgentPlanCompilerService(pluginService(), createDependencies({
+    issueAuthorization: (request) => {
+      issueCount += 1;
+      return authority.issueAuthorization(request);
+    },
+  }));
+  const input = {
+    ...compileInput(plan),
+    ephemeralSecrets: { keystorePassword: 'tomcat-current-password' },
+  };
+
+  await compiler.compile(input);
+  await compiler.compile(input);
+
+  assert.equal(issueCount, 2);
+});
+
 test('统一编译链自动调用 provisioning 并传递完整已编译 Plan', async () => {
   const plan = createPlan();
   const authority = createAuthority();

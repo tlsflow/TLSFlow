@@ -113,3 +113,23 @@ test('BROWSER_SESSION 凭据允许先创建空输出合同，等待浏览器获�
     },
   });
 });
+
+test('PASSWORD 凭据只允许 password Secret Slot 且不要求用户名', () => {
+  const domain = new CredentialsDomainService();
+  const entity = domain.normalizeCreate('tenant-password', 'user-password', {
+    name: 'Tomcat KeyStore 密码',
+    kind: 'PASSWORD',
+    scopeType: 'global',
+    secretSlots: { password: 'secret://password/tomcat-keystore#current' },
+  }, { id: 'cred-password-1', now: '2026-08-26T00:00:00.000Z' });
+
+  assert.equal(entity.kind, 'PASSWORD');
+  assert.equal(entity.username, undefined);
+  assert.deepEqual(entity.secretSlots, { password: 'secret://password/tomcat-keystore#current' });
+  assert.throws(() => domain.normalizeCreate('tenant-password', 'user-password', {
+    name: '错误槽位',
+    kind: 'PASSWORD',
+    scopeType: 'global',
+    secretSlots: { token: 'secret://api_token/tomcat-keystore#current' },
+  }, { id: 'cred-password-2', now: '2026-08-26T00:00:00.000Z' }));
+});
