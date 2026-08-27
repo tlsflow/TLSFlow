@@ -1,5 +1,5 @@
 {
-  "protocol": "gcac.cloud-account-onboarding/v1",
+  "protocol": "gcac.cloud-account-onboarding/v2",
   "assetKind": "CLOUD_ACCOUNT",
   "providerKey": "cloud.aliyun",
   "display": {
@@ -12,7 +12,6 @@
     "compatibilityKeys": ["plugin.cloud.aliyun.onboarding.compatibility"],
     "requiredInformationKeys": ["plugin.cloud.aliyun.onboarding.requiredCredential"]
   },
-  "formResource": "forms/cloud-account.json",
   "credentialContractResource": "credential-contracts/cloud-account.json",
   "capabilities": {
     "connectionTest": "cloud.service.connection-test",

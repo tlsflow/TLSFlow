@@ -84,7 +84,6 @@ export class ProvidersController {
           ...(item.logoUrl ? { logoUrl: item.logoUrl } : {}),
           ...(item.logoSquareUrl ? { logoSquareUrl: item.logoSquareUrl } : {}),
           recipe: loaded.recipe,
-          form: parseResource(version.resources[loaded.recipe.formResource]),
           credentialContract: parseResource(version.resources[loaded.recipe.credentialContractResource]),
         });
       } catch {

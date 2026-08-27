@@ -2,27 +2,25 @@ import { AppError } from '../../../common/errors/app-error.js';
 import type { UnifiedPluginCapabilityDescriptor, UnifiedPluginManifestV1 } from '../dto/unified-plugins.dto.js';
 import {
   cloudAccountOnboardingProtocol,
-  type CloudAccountOnboardingRecipeV1,
+  type CloudAccountOnboardingRecipeV2,
   type CloudAccountOnboardingRecipeValidationContext,
 } from './cloud-account-onboarding-recipe.dto.js';
 
-const keys = new Set(['protocol', 'assetKind', 'providerKey', 'display', 'platformMetadata', 'formResource', 'credentialContractResource', 'capabilities', 'submit', 'projection', 'defaults']);
+const keys = new Set(['protocol', 'assetKind', 'providerKey', 'display', 'platformMetadata', 'credentialContractResource', 'capabilities', 'submit', 'projection', 'defaults']);
 
 export function validateCloudAccountOnboardingRecipe(
   input: unknown,
   context: CloudAccountOnboardingRecipeValidationContext,
-): CloudAccountOnboardingRecipeV1 {
+): CloudAccountOnboardingRecipeV2 {
   const value = record(input, 'recipe');
   known(value, keys, 'recipe');
-  if (value.protocol !== cloudAccountOnboardingProtocol) invalid('recipe.protocol', '仅支持 gcac.cloud-account-onboarding/v1');
+  if (value.protocol !== cloudAccountOnboardingProtocol) invalid('recipe.protocol', '仅支持 gcac.cloud-account-onboarding/v2');
   if (value.assetKind !== 'CLOUD_ACCOUNT') invalid('recipe.assetKind', '必须是 CLOUD_ACCOUNT');
   const providerKey = identifier(value.providerKey, 'recipe.providerKey');
   if (context.manifest.pluginId !== providerKey) invalid('recipe.providerKey', '必须与 Manifest pluginId 一致');
   const display = record(value.display, 'recipe.display');
   known(display, new Set(['nameKey', 'descriptionKey', 'logoResource']), 'recipe.display');
   const platformMetadata = validatePlatformMetadata(value.platformMetadata);
-  const formResource = resource(value.formResource, 'recipe.formResource');
-  if (!Object.values(context.manifest.resources.forms ?? {}).includes(formResource)) invalid('recipe.formResource', '表单资源未在 Manifest 声明');
   const credentialContractResource = resource(value.credentialContractResource, 'recipe.credentialContractResource');
   if (!Object.values(context.manifest.resources.credentialContracts ?? {}).includes(credentialContractResource)) invalid('recipe.credentialContractResource', '凭据合同资源未在 Manifest 声明');
   const capabilities = record(value.capabilities, 'recipe.capabilities');
@@ -50,7 +48,6 @@ export function validateCloudAccountOnboardingRecipe(
       ...(display.logoResource === undefined ? {} : { logoResource: resource(display.logoResource, 'recipe.display.logoResource') }),
     },
     platformMetadata,
-    formResource,
     credentialContractResource,
     capabilities: { connectionTest, discover },
     submit: { target: 'CLOUD_ACCOUNT_ASSET', scopeSchema: identifier(submit.scopeSchema, 'recipe.submit.scopeSchema') },
@@ -59,7 +56,7 @@ export function validateCloudAccountOnboardingRecipe(
   };
 }
 
-function validatePlatformMetadata(input: unknown): CloudAccountOnboardingRecipeV1['platformMetadata'] {
+function validatePlatformMetadata(input: unknown): CloudAccountOnboardingRecipeV2['platformMetadata'] {
   const value = record(input, 'recipe.platformMetadata');
   known(value, new Set(['capabilityVersion', 'compatibilityKeys', 'requiredInformationKeys']), 'recipe.platformMetadata');
   const capabilityVersion = text(value.capabilityVersion, 'recipe.platformMetadata.capabilityVersion');

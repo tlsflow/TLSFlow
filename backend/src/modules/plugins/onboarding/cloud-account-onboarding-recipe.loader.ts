@@ -3,7 +3,7 @@ import { AppError } from '../../../common/errors/app-error.js';
 import type { UnifiedPluginVersionRecord } from '../dto/unified-plugins.dto.js';
 import { PluginLocaleService } from '../locales/plugin-locale.service.js';
 import { validateCloudAccountOnboardingRecipe } from './cloud-account-onboarding-recipe.schema.js';
-import type { LoadedCloudAccountOnboardingRecipe, CloudAccountOnboardingRecipeV1 } from './cloud-account-onboarding-recipe.dto.js';
+import type { LoadedCloudAccountOnboardingRecipe, CloudAccountOnboardingRecipeV2 } from './cloud-account-onboarding-recipe.dto.js';
 
 export type CloudAccountOnboardingRecipeSource = Pick<UnifiedPluginVersionRecord, 'id' | 'pluginId' | 'version' | 'manifest' | 'resources'> & { status?: UnifiedPluginVersionRecord['status']; resourceSha256?: Record<string, string> };
 
@@ -21,7 +21,6 @@ export class CloudAccountOnboardingRecipeLoader {
     let parsed: unknown;
     try { parsed = JSON.parse(content); } catch { throw invalid('配方资源不是合法 JSON', { resourcePath }); }
     const recipe = validateCloudAccountOnboardingRecipe(parsed, { manifest: source.manifest });
-    if (source.resources[recipe.formResource] === undefined) throw invalid('配方引用的表单资源不存在', { path: recipe.formResource });
     const credentialContract = parseCredentialContract(source.resources[recipe.credentialContractResource]);
     const localeKeys = [
       recipe.display.nameKey,
@@ -59,4 +58,4 @@ function parseCredentialContract(content: string | undefined): { providerKey: st
   return { providerKey: record.providerKey.trim(), slots };
 }
 
-export type { CloudAccountOnboardingRecipeV1 };
+export type { CloudAccountOnboardingRecipeV2 };

@@ -34,8 +34,6 @@ test('阿里云插件提供通用 Cloud Account Onboarding 配方和凭据合同
     compatibilityKeys: ['plugin.cloud.aliyun.onboarding.compatibility'],
     requiredInformationKeys: ['plugin.cloud.aliyun.onboarding.requiredCredential'],
   });
-  const form = JSON.parse(resources['forms/cloud-account.json'] ?? '{}') as { sections?: Array<{ fields?: Array<{ key?: string }> }> };
-  assert.deepEqual(form.sections?.flatMap((section) => section.fields ?? []).map((field) => field.key), ['credentialRef']);
 });
 
 test('Cloud Account 配方拒绝未在 Manifest 声明的凭据资源', () => {
@@ -50,8 +48,8 @@ test('Cloud Account 配方拒绝未在 Manifest 声明的凭据资源', () => {
     resources: { workflows: { connection: 'workflows/connection.json' }, forms: { account: 'forms/account.json' }, onboarding: { cloudAccount: 'onboarding/cloud-account.json' } },
   });
   const badRecipe = JSON.stringify({
-    protocol: 'gcac.cloud-account-onboarding/v1', assetKind: 'CLOUD_ACCOUNT', providerKey: 'cloud.example',
-    display: { nameKey: 'plugin.cloud.example.name' }, formResource: 'forms/account.json', credentialContractResource: 'credentials/account.json',
+    protocol: 'gcac.cloud-account-onboarding/v2', assetKind: 'CLOUD_ACCOUNT', providerKey: 'cloud.example',
+    display: { nameKey: 'plugin.cloud.example.name' }, credentialContractResource: 'credentials/account.json',
     platformMetadata: { capabilityVersion: 'v1', compatibilityKeys: ['plugin.cloud.example.compatibility'], requiredInformationKeys: ['plugin.cloud.example.required'] },
     capabilities: { connectionTest: 'cloud.service.connection-test', discover: 'cloud.service.discover' }, submit: { target: 'CLOUD_ACCOUNT_ASSET', scopeSchema: 'scope/v1' }, projection: { apiVersion: 'gcac.cloud-service/v1', resourceMapping: 'mapping/v1' },
   });

@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createPluginRunnerExecutor, normalizeDiscoveryResponse } from './index.js';
 
-const descriptor = { pluginId: 'cloud.aliyun', pluginVersionId: 'cloud.aliyun:2.0.23' };
+const descriptor = { pluginId: 'cloud.aliyun', pluginVersionId: 'cloud.aliyun:2.0.24' };
 
 test('阿里云签名请求使用 RPC 要求的 Timestamp 公共参数', async () => {
   const envKeys = ['GCAC_PLUGIN_VERSION_ID', 'GCAC_PLUGIN_PACKAGE_HASH', 'GCAC_PLUGIN_MANIFEST_HASH', 'GCAC_PLUGIN_RESOURCE_HASH'];
   const previous = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
   Object.assign(process.env, {
-    GCAC_PLUGIN_VERSION_ID: 'cloud.aliyun:2.0.23',
+    GCAC_PLUGIN_VERSION_ID: 'cloud.aliyun:2.0.24',
     GCAC_PLUGIN_PACKAGE_HASH: `sha256:${'1'.repeat(64)}`,
     GCAC_PLUGIN_MANIFEST_HASH: `sha256:${'2'.repeat(64)}`,
     GCAC_PLUGIN_RESOURCE_HASH: `sha256:${'3'.repeat(64)}`,
@@ -17,9 +17,9 @@ test('阿里云签名请求使用 RPC 要求的 Timestamp 公共参数', async (
   try {
     const executor = createPluginRunnerExecutor();
     const result = await executor.execute({
-      pluginVersionId: 'cloud.aliyun:2.0.23',
+      pluginVersionId: 'cloud.aliyun:2.0.24',
       pluginId: 'cloud.aliyun',
-      pluginVersion: '2.0.23',
+      pluginVersion: '2.0.24',
       capability: 'cloud.service.connection-test',
       actionId: 'cloud.service.connection-test.v1',
       actionContractVersion: 'v1',
