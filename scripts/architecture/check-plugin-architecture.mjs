@@ -149,6 +149,7 @@ const directAgentConsumerPattern = /\b(?:AgentDirectClient|agentDirectClient|dir
 const registeredHostApiMethods = new Set([
   'artifact.grant.read',
   'secret.grant.resolve',
+  'crypto.hmac',
   'cloudService.get',
   'http.request',
   'execution.progress',
