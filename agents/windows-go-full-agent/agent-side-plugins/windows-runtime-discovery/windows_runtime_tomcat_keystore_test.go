@@ -103,6 +103,54 @@ func TestParseWindowsTomcatServerXMLUsesJKSParser(t *testing.T) {
 	}
 }
 
+func TestParseWindowsTomcatServerXMLSupportsLegacyConnectorKeystoreBinding(t *testing.T) {
+	root := t.TempDir()
+	confDir := filepath.Join(root, "conf")
+	if err := os.MkdirAll(confDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	certificate, privateKey := newWindowsRuntimeTomcatCertificate(t)
+	store := keystore.New()
+	privateKeyBytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetPrivateKeyEntry("server", keystore.PrivateKeyEntry{
+		CreationTime: time.Now(),
+		PrivateKey:   privateKeyBytes,
+		CertificateChain: []keystore.Certificate{{
+			Type: "X509", Content: certificate.Raw,
+		}},
+	}, []byte("changeit")); err != nil {
+		t.Fatal(err)
+	}
+	var encoded bytes.Buffer
+	if err := store.Store(&encoded, []byte("changeit")); err != nil {
+		t.Fatal(err)
+	}
+	keystorePath := filepath.Join(confDir, "server.jks")
+	if err := os.WriteFile(keystorePath, encoded.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(confDir, "server.xml")
+	config := `<Server><Service><Connector port="8445" protocol="org.apache.coyote.http11.Http11NioProtocol" SSLEnabled="true" keystoreFile="conf/server.jks" keystoreType="JKS" keystorePass="changeit" keyAlias="server"/><Engine><Host name="tomcat.test.local"/></Engine></Service></Server>`
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	listeners, hosts, _, warnings := parseWindowsTomcatServerXML(configPath, root)
+	if len(listeners) != 1 || len(hosts) != 1 {
+		t.Fatalf("Tomcat 旧式 Connector 监听器或 Host 未发现: listeners=%#v hosts=%#v warnings=%#v", listeners, hosts, warnings)
+	}
+	listener := listeners[0]
+	if listener.Protocol != "HTTPS" || listener.KeystorePath != keystorePath || listener.KeystoreType != "JKS" || listener.KeyAlias != "server" || listener.Certificate == nil {
+		t.Fatalf("Tomcat 旧式 Connector 未形成完整证书事实: listener=%#v warnings=%#v", listener, warnings)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("有效 Tomcat 旧式 Connector 不应产生解析告警: %#v", warnings)
+	}
+}
+
 func newWindowsRuntimeTomcatCertificate(t *testing.T) (*x509.Certificate, *rsa.PrivateKey) {
 	t.Helper()
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)

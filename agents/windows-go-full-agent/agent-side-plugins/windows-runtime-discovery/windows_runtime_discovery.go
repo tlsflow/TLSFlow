@@ -1046,9 +1046,9 @@ func parseWindowsTomcatServerXML(configPath string, tomcatPath string) ([]window
 					CertificatePath:      resolveWindowsRuntimePath(tomcatPath, "", firstNonEmpty(certificate.CertificateFile, connector.CertificateFile)),
 					CertificateKeyPath:   resolveWindowsRuntimePath(tomcatPath, "", firstNonEmpty(certificate.CertificateKeyFile, connector.CertificateKeyFile)),
 					CertificateChainPath: resolveWindowsRuntimePath(tomcatPath, "", firstNonEmpty(certificate.CertificateChainFile, connector.CertificateChainFile)),
-					KeystorePath:         resolveWindowsRuntimePath(tomcatPath, "", firstNonEmpty(certificate.CertificateKeystoreFile, connector.CertificateKeystoreFile)),
-					KeystoreType:         firstNonEmpty(certificate.CertificateKeystoreType, sslHost.CertificateKeystoreType, connector.CertificateKeystoreType),
-					KeyAlias:             firstNonEmpty(certificate.CertificateKeyAlias, connector.CertificateKeyAlias),
+					KeystorePath:         resolveWindowsRuntimePath(tomcatPath, "", firstNonEmpty(certificate.CertificateKeystoreFile, certificate.KeystoreFile, connector.CertificateKeystoreFile, connector.KeystoreFile)),
+					KeystoreType:         firstNonEmpty(certificate.CertificateKeystoreType, certificate.KeystoreType, sslHost.CertificateKeystoreType, sslHost.KeystoreType, connector.CertificateKeystoreType, connector.KeystoreType),
+					KeyAlias:             firstNonEmpty(certificate.CertificateKeyAlias, certificate.KeyAlias, connector.CertificateKeyAlias, connector.KeyAlias),
 					ConfigFingerprint:    fingerprint,
 				}
 				if listener.KeystoreType == "" && listener.KeystorePath != "" {
@@ -1123,9 +1123,12 @@ type windowsTomcatConnector struct {
 	CertificateKeyFile          string                       `xml:"certificateKeyFile,attr"`
 	CertificateChainFile        string                       `xml:"certificateChainFile,attr"`
 	CertificateKeystoreFile     string                       `xml:"certificateKeystoreFile,attr"`
+	KeystoreFile                string                       `xml:"keystoreFile,attr"`
 	CertificateKeystoreType     string                       `xml:"certificateKeystoreType,attr"`
+	KeystoreType                string                       `xml:"keystoreType,attr"`
 	CertificateKeystorePassword string                       `xml:"keystorePass,attr"`
 	CertificateKeyAlias         string                       `xml:"certificateKeyAlias,attr"`
+	KeyAlias                    string                       `xml:"keyAlias,attr"`
 	SSLHostConfigPassword       string                       `xml:"certificateKeystorePassword,attr"`
 	SSLHostConfigs              []windowsTomcatSSLHostConfig `xml:"SSLHostConfig"`
 }
@@ -1134,6 +1137,8 @@ type windowsTomcatSSLHostConfig struct {
 	HostName                    string                     `xml:"hostName,attr"`
 	CertificateKeystoreFile     string                     `xml:"certificateKeystoreFile,attr"`
 	CertificateKeystoreType     string                     `xml:"certificateKeystoreType,attr"`
+	KeystoreFile                string                     `xml:"keystoreFile,attr"`
+	KeystoreType                string                     `xml:"keystoreType,attr"`
 	CertificateKeystorePassword string                     `xml:"certificateKeystorePassword,attr"`
 	KeystorePass                string                     `xml:"keystorePass,attr"`
 	Certificates                []windowsTomcatCertificate `xml:"Certificate"`
@@ -1144,15 +1149,18 @@ type windowsTomcatCertificate struct {
 	CertificateKeyFile          string `xml:"certificateKeyFile,attr"`
 	CertificateChainFile        string `xml:"certificateChainFile,attr"`
 	CertificateKeystoreFile     string `xml:"certificateKeystoreFile,attr"`
+	KeystoreFile                string `xml:"keystoreFile,attr"`
 	CertificateKeystoreType     string `xml:"certificateKeystoreType,attr"`
+	KeystoreType                string `xml:"keystoreType,attr"`
 	CertificateKeystorePassword string `xml:"certificateKeystorePassword,attr"`
 	KeystorePass                string `xml:"keystorePass,attr"`
 	CertificateKeyAlias         string `xml:"certificateKeyAlias,attr"`
+	KeyAlias                    string `xml:"keyAlias,attr"`
 	Type                        string `xml:"type,attr"`
 }
 
 func windowsTomcatProtocol(connector windowsTomcatConnector) string {
-	if strings.EqualFold(connector.SSLEnabled, "true") || strings.EqualFold(connector.Scheme, "https") || strings.EqualFold(connector.Secure, "true") || connector.Port == 443 || connector.Port == 8443 || len(connector.SSLHostConfigs) > 0 {
+	if strings.EqualFold(connector.SSLEnabled, "true") || strings.EqualFold(connector.Scheme, "https") || strings.EqualFold(connector.Secure, "true") || strings.Contains(strings.ToLower(connector.Protocol), "https") || connector.Port == 443 || connector.Port == 8443 || len(connector.SSLHostConfigs) > 0 {
 		return "HTTPS"
 	}
 	return "HTTP"
