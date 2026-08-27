@@ -1,8 +1,140 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { applyAuthorizationFilter, type PageQuery } from '../../common/pagination/pagination.js';
+import { runMigrations } from '../../database/migration-runner.js';
+import { PgliteDatabase } from '../../database/pglite-database.js';
+import type { AgentRegistration } from '../agents/schema/agents.schema.js';
+import type { ManagedDeviceSummaryDto } from '../devices/dto/devices.dto.js';
 import type { AuditLogEntity } from '../../persistence/entities/audit-log.entity.js';
-import { countExpiringCertificateDomains, DashboardApplicationService } from './application/dashboard.application-service.js';
+import { countExpiringCertificateDomains, DashboardApplicationService, deduplicateDashboardAgents } from './application/dashboard.application-service.js';
+import { DashboardReadRepository } from './repository/dashboard-read.repository.js';
+
+test('Dashboard Agent 状态过滤历史注册记录，只保留同一主机角色的最新记录', () => {
+  const latest = dashboardAgent('agent-current', 'ONLINE', '2026-08-26T19:57:00.000Z', 'jackson-mgt');
+  const historical = dashboardAgent('agent-history', 'OFFLINE', '2026-08-26T16:51:00.000Z', 'jackson-mgt');
+  const adcs = dashboardAgent('agent-adcs', 'OFFLINE', '2026-08-26T19:58:00.000Z', 'jackson-mgt', 'adcs_agent');
+
+  assert.deepEqual(
+    deduplicateDashboardAgents([historical, adcs, latest]).map((agent) => agent.id),
+    ['agent-adcs', 'agent-current'],
+  );
+});
+
+test('Dashboard 读模型在 SQL 层过滤历史 Agent，并让在线计数与状态块一致', async () => {
+  const database = new PgliteDatabase();
+  try {
+    await runMigrations(database, 'src/database/migrations');
+    const tenantId = 'tenant-dashboard-read-model';
+    const registrations = [
+      dashboardAgent('agent-history', 'OFFLINE', '2026-08-26T16:51:00.000Z', 'jackson-mgt'),
+      dashboardAgent('agent-current', 'ONLINE', '2026-08-26T19:57:00.000Z', 'jackson-mgt'),
+      dashboardAgent('agent-other', 'ONLINE', '2026-08-26T19:58:00.000Z', 'other-host'),
+    ];
+    for (const registration of registrations) {
+      registration.tenantId = tenantId;
+      await database.query(
+        `insert into pg_documents (namespace, document_id, payload, updated_at)
+         values ($1, $2, $3::jsonb, $4::timestamptz)`,
+        ['agents:registrations', registration.id, JSON.stringify(registration), registration.updatedAt],
+      );
+    }
+    const unrestricted = { unrestricted: true, empty: false, objectIds: [], dynamicConditions: [] };
+    const model = await new DashboardReadRepository(database).load({
+      tenantId,
+      nowIso: '2026-08-26T20:00:00.000Z',
+      authorizations: {
+        applicationAssets: unrestricted,
+        certificateAssets: unrestricted,
+        certificateVersions: unrestricted,
+        bindings: unrestricted,
+        agents: unrestricted,
+        gateways: unrestricted,
+      },
+      includeAudits: false,
+    });
+
+    assert.deepEqual(model.agents.map((agent) => agent.id).sort(), ['agent-current', 'agent-other']);
+    assert.equal(model.activeAgentCount, 2);
+
+    const restrictedModel = await new DashboardReadRepository(database).load({
+      tenantId,
+      nowIso: '2026-08-26T20:00:00.000Z',
+      authorizations: {
+        applicationAssets: unrestricted,
+        certificateAssets: unrestricted,
+        certificateVersions: unrestricted,
+        bindings: unrestricted,
+        agents: { unrestricted: false, empty: false, objectIds: ['agent-current'], dynamicConditions: [] },
+        gateways: unrestricted,
+      },
+      includeAudits: false,
+    });
+    assert.deepEqual(restrictedModel.agents.map((agent) => agent.id), ['agent-current']);
+    assert.equal(restrictedModel.activeAgentCount, 1);
+  } finally {
+    await database.close();
+  }
+});
+
+test('Dashboard 读模型不会在对象权限过滤前截断审计候选', async () => {
+  const database = new PgliteDatabase();
+  try {
+    await runMigrations(database, 'src/database/migrations');
+    const tenantId = 'tenant-dashboard-audit-candidates';
+    const now = Date.parse('2026-08-26T20:00:00.000Z');
+    const noisyLogs = Array.from({ length: 80 }, (_, index) => ({
+      id: `audit-unknown-${index}`,
+      eventType: 'task.created',
+      resourceType: 'task',
+      resourceId: `task-${index}`,
+      updatedAt: new Date(now - index * 1000).toISOString(),
+    }));
+    const visibleLog = {
+      id: 'audit-visible-login',
+      eventType: 'auth.login.success',
+      resourceType: 'authSession',
+      actorType: 'user',
+      actorId: 'user_admin',
+      action: 'auth.login',
+      result: 'success',
+      riskLevel: 'low',
+      createdAt: new Date(now - 120_000).toISOString(),
+      updatedAt: new Date(now - 120_000).toISOString(),
+    };
+    for (const log of [...noisyLogs, visibleLog]) {
+      await database.query(
+        `insert into pg_documents (namespace, document_id, payload, updated_at)
+         values ($1, $2, $3::jsonb, $4::timestamptz)`,
+        [
+          'security.audit_logs',
+          log.id,
+          JSON.stringify({ ...log, tenantId }),
+          log.updatedAt,
+        ],
+      );
+    }
+
+    const unrestricted = { unrestricted: true, empty: false, objectIds: [], dynamicConditions: [] };
+    const model = await new DashboardReadRepository(database).load({
+      tenantId,
+      nowIso: new Date(now).toISOString(),
+      authorizations: {
+        applicationAssets: unrestricted,
+        certificateAssets: unrestricted,
+        certificateVersions: unrestricted,
+        bindings: unrestricted,
+        agents: unrestricted,
+        gateways: unrestricted,
+      },
+      includeAudits: true,
+    });
+
+    assert.equal(model.auditCandidates.length, 81);
+    assert.equal(model.auditCandidates.some((item) => item.id === visibleLog.id), true);
+  } finally {
+    await database.close();
+  }
+});
 
 test('Dashboard 15 天内到期指标排除已过期版本并按域名去重', () => {
   const count = countExpiringCertificateDomains([
@@ -27,6 +159,7 @@ test('Dashboard 聚合只统计和展示有对象权限的资产', async () => {
     certificate_version: ['certificate-version-visible', 'certificate-version-visible-recent'],
     certificate_binding: ['binding-visible'],
     agent: ['agent-visible'],
+    host: ['device-visible'],
     gateway: ['gateway-visible'],
   });
 
@@ -47,14 +180,17 @@ test('Dashboard 聚合只统计和展示有对象权限的资产', async () => {
   assert.deepEqual(overview.certificateStatuses.map((item) => item.certificateAssetId), ['certificate-visible']);
   assert.equal(overview.certificateStatuses[0]?.certificateVersionId, 'certificate-version-visible');
   assert.equal(overview.certificateStatuses[0]?.notAfter, '2026-12-01T00:00:00.000Z');
+  assert.deepEqual(statusBlockIds(overview, 'certificates'), ['certificate-visible']);
+  assert.deepEqual(statusBlockIds(overview, 'assets'), ['device-visible']);
+  assert.deepEqual(statusBlockIds(overview, 'gateways'), ['gateway-visible']);
   assert.deepEqual(statusBlockIds(overview, 'applicationAssets'), ['application-visible']);
   const applicationBlock = overview.statusGroups.find((group) => group.key === 'applicationAssets')?.blocks[0];
   assert.equal(applicationBlock?.details?.type, 'applicationAsset');
   if (applicationBlock?.details?.type === 'applicationAsset') {
     assert.ok((applicationBlock.details.certificateDaysRemaining ?? 0) > 0);
   }
-  assert.deepEqual(statusBlockIds(overview, 'agents'), ['agent-visible']);
-  assert.deepEqual(statusBlockIds(overview, 'gateways'), ['gateway-visible']);
+  assert.equal(overview.statusGroups.length, 4);
+  assert.deepEqual(overview.statusGroups.map((group) => group.key), ['certificates', 'assets', 'gateways', 'applicationAssets']);
 });
 
 test('Dashboard 不展示没有活跃版本的证书资产', async () => {
@@ -164,6 +300,10 @@ function createDashboardService(
     agent('agent-visible', 'ONLINE'),
     agent('agent-hidden', 'OFFLINE'),
   ];
+  const devices = [
+    managedDevice('device-visible', 'HEALTHY'),
+    managedDevice('device-hidden', 'UNREACHABLE'),
+  ];
   const gateways = [
     gateway('gateway-visible', 'online'),
     gateway('gateway-hidden', 'offline'),
@@ -182,6 +322,14 @@ function createDashboardService(
     },
     agents: {
       listRegistrations: async (_tenantId: string, query: PageQuery) => authorizedPage(agents, query),
+    },
+    devices: {
+      list: async (_tenantId: string, query: { authorizedHostIds?: string[]; pageSize?: number }) => {
+        const visible = query.authorizedHostIds
+          ? devices.filter((item) => query.authorizedHostIds?.includes(item.id))
+          : devices;
+        return { page: 1, pageSize: query.pageSize ?? visible.length, total: visible.length, items: visible };
+      },
     },
     gateways: {
       listGateways: async (_tenantId: string, query: PageQuery) => authorizedPage(gateways, query),
@@ -283,6 +431,49 @@ function agent(id: string, status: string) {
     status,
     updatedAt: '2026-08-07T00:00:00.000Z',
   };
+}
+
+function managedDevice(id: string, health: ManagedDeviceSummaryDto['health']): ManagedDeviceSummaryDto {
+  return {
+    id,
+    displayName: id,
+    category: 'SERVER',
+    productFamily: 'Windows',
+    managementMethod: 'AGENT',
+    managementAddress: `${id}.example.test`,
+    livenessStatus: health === 'HEALTHY' ? 'ONLINE' : 'OFFLINE',
+    healthStatus: health,
+    health,
+    sourceStatus: health,
+    softwareVersion: '1.0.0',
+    controlVersion: '1.0.0',
+    lastContactAt: '2026-08-07T00:00:00.000Z',
+    applicationAssetCount: 0,
+    capabilities: [],
+    extensionType: 'AGENT',
+    agentId: id,
+    agentRole: 'full_agent',
+  };
+}
+
+function dashboardAgent(id: string, status: string, updatedAt: string, hostname: string, role?: string) {
+  return {
+    id,
+    tenantId: 'tenant-1',
+    agentKey: `${id}-key`,
+    descriptor: {
+      agentKey: `${id}-key`,
+      hostname,
+      version: '1.0.0',
+      osType: 'WINDOWS',
+      labels: [],
+    },
+    role,
+    status,
+    registeredAt: updatedAt,
+    updatedAt,
+    version: 1,
+  } as AgentRegistration;
 }
 
 function gateway(id: string, status: string) {

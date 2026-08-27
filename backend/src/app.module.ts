@@ -1386,6 +1386,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   new AutomationsController(automationsService, security, automationCoordinator).register(app.router);
   new DashboardController(new DashboardApplicationService({
     assets: assetsService,
+    devices: devicesService,
     certificates: certificateServices.certificates.getRepository(),
     bindings: bindingsService.getRepository(),
     agents: agentsService.getRepository(),

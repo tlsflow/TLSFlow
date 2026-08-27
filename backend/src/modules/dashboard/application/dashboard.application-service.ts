@@ -16,9 +16,13 @@ import type { SecretService } from '../../secrets/secret.service.js';
 import type { DashboardCertificateState, DashboardCertificateStatusItem, DashboardMetric, DashboardOverview, DashboardQuickAction, DashboardStatusBlock, DashboardStatusGroup, DashboardStatusTone } from '../schema/dashboard.schema.js';
 import { readDashboardSystemResources } from '../system-resources.js';
 import type { DashboardReadRepository } from '../repository/dashboard-read.repository.js';
+import type { AgentRegistration } from '../../agents/schema/agents.schema.js';
+import type { DevicesApplicationService } from '../../devices/application/devices.application-service.js';
+import type { ManagedDevicePageDto, ManagedDeviceSummaryDto } from '../../devices/dto/devices.dto.js';
 
 export interface DashboardApplicationDependencies {
   assets: Pick<AssetsApplicationService, 'listServiceAssets'>;
+  devices?: Pick<DevicesApplicationService, 'list'>;
   certificates: CertificatesRepository;
   bindings: BindingsRepository;
   agents: AgentsRepository;
@@ -39,19 +43,22 @@ export class DashboardApplicationService {
   async getOverview(input: { tenantId: string; subject: SecuritySubject }): Promise<DashboardOverview> {
     const generatedAt = new Date().toISOString();
     const canReadAudit = await this.dependencies.canReadAudit(input.subject, input.tenantId);
-    const [applicationAuthorization, certificateAuthorization, certificateVersionAuthorization, bindingAuthorization, agentAuthorization, gatewayAuthorization] = await Promise.all([
+    const [applicationAuthorization, certificateAuthorization, certificateVersionAuthorization, bindingAuthorization, agentAuthorization, gatewayAuthorization, deviceAuthorization] = await Promise.all([
       this.dependencies.objectPermissions.buildAuthorizedQuery(input.subject, 'service_asset', 'read'),
       this.dependencies.objectPermissions.buildAuthorizedQuery(input.subject, 'certificate_asset', 'read'),
       this.dependencies.objectPermissions.buildAuthorizedQuery(input.subject, 'certificate_version', 'read'),
       this.dependencies.objectPermissions.buildAuthorizedQuery(input.subject, 'certificate_binding', 'read'),
       this.dependencies.objectPermissions.buildAuthorizedQuery(input.subject, 'agent', 'read'),
       this.dependencies.objectPermissions.buildAuthorizedQuery(input.subject, 'gateway', 'read'),
+      this.dependencies.objectPermissions.buildAuthorizedQuery(input.subject, 'host', 'read'),
     ]);
+    const dashboardAssetsPromise = this.loadDashboardAssets(input.tenantId, deviceAuthorization);
     if (this.dependencies.readRepository) {
       return this.getOverviewFromReadModel({
         input,
         generatedAt,
         canReadAudit,
+        dashboardAssets: await dashboardAssetsPromise,
         authorizations: {
           applicationAssets: applicationAuthorization,
           certificateAssets: certificateAuthorization,
@@ -72,6 +79,7 @@ export class DashboardApplicationService {
       gatewayZones,
       gatewayReachability,
       auditLogs,
+      dashboardAssets,
     ] = await Promise.all([
       this.dependencies.assets.listServiceAssets(input.tenantId, allRowsQuery('updatedAt:desc', applicationAuthorization)),
       this.dependencies.certificates.listAssets(allRowsQuery('updatedAt:desc', certificateAuthorization), input.tenantId),
@@ -84,10 +92,13 @@ export class DashboardApplicationService {
       canReadAudit
         ? this.dependencies.audit.query({ resourceScope: { tenantId: input.tenantId } })
         : Promise.resolve([]),
+      dashboardAssetsPromise,
     ]);
+    const visibleAuditLogs = auditLogs.filter(shouldShowOnDashboardAudits);
     const authorizedAuditLogs = canReadAudit
-      ? await filterDashboardAuditLogs(this.dependencies.objectPermissions, input.subject, auditLogs)
+      ? await filterDashboardAuditLogs(this.dependencies.objectPermissions, input.subject, visibleAuditLogs)
       : [];
+    const visibleAgents = deduplicateDashboardAgents(agents.items);
 
     const activeCertificateVersions = certificateVersions.items.filter((version) => version.status === 'active');
     const validCertificateCount = activeCertificateVersions.filter((version) => isAfter(version.notAfter, generatedAt)).length;
@@ -115,7 +126,7 @@ export class DashboardApplicationService {
         applicationCount: applicationAssets.total,
         validCertificateCount,
         expiringCertificateCount,
-        activeAgentCount: agents.items.filter((agent) => agent.status === 'ONLINE').length,
+        activeAgentCount: visibleAgents.filter((agent) => agent.status === 'ONLINE').length,
         activeGatewayCount: gateways.items.filter((gateway) => gateway.status === 'online').length,
         managedBindingCount: bindings.items.filter((binding) => binding.status === 'MANAGED').length,
       }),
@@ -124,7 +135,8 @@ export class DashboardApplicationService {
       statusGroups: buildStatusGroups({
         applicationAssets: applicationAssets.items,
         certificateStatuses,
-        agents: agents.items,
+        assets: dashboardAssets.items,
+        assetsTotal: dashboardAssets.total,
         gateways: gateways.items,
         gatewayZones,
         gatewayReachability,
@@ -142,6 +154,7 @@ export class DashboardApplicationService {
     input: { tenantId: string; subject: SecuritySubject };
     generatedAt: string;
     canReadAudit: boolean;
+    dashboardAssets: ManagedDevicePageDto;
     authorizations: Parameters<DashboardReadRepository['load']>[0]['authorizations'];
   }): Promise<DashboardOverview> {
     await this.dependencies.gateways.ensureSchema();
@@ -151,9 +164,11 @@ export class DashboardApplicationService {
       authorizations: input.authorizations,
       includeAudits: input.canReadAudit,
     });
+    const visibleAuditLogs = model.auditCandidates.filter(shouldShowOnDashboardAudits);
     const authorizedAuditLogs = input.canReadAudit
-      ? await filterDashboardAuditLogs(this.dependencies.objectPermissions, input.input.subject, model.auditCandidates)
+      ? await filterDashboardAuditLogs(this.dependencies.objectPermissions, input.input.subject, visibleAuditLogs)
       : [];
+    const visibleAgents = deduplicateDashboardAgents(model.agents);
     const certificateStatuses = buildCertificateStatuses({
       assets: model.certificateAssets,
       versions: model.certificateVersions,
@@ -177,7 +192,7 @@ export class DashboardApplicationService {
         applicationCount: model.applicationCount,
         validCertificateCount: model.validCertificateCount,
         expiringCertificateCount: model.expiringCertificateCount,
-        activeAgentCount: model.activeAgentCount,
+        activeAgentCount: visibleAgents.filter((agent) => agent.status === 'ONLINE').length,
         activeGatewayCount: model.activeGatewayCount,
         managedBindingCount: model.managedBindingCount,
       }),
@@ -186,7 +201,8 @@ export class DashboardApplicationService {
       statusGroups: buildStatusGroups({
         applicationAssets: model.applicationAssets,
         certificateStatuses,
-        agents: model.agents,
+        assets: input.dashboardAssets.items,
+        assetsTotal: input.dashboardAssets.total,
         gateways: model.gateways,
         gatewayZones: model.gatewayZones,
         gatewayReachability: model.gatewayReachability,
@@ -195,6 +211,40 @@ export class DashboardApplicationService {
       recentAudits: buildRecentDashboardAudits(authorizedAuditLogs, auditContext),
     };
   }
+
+  private async loadDashboardAssets(tenantId: string, authorization: { unrestricted?: boolean; objectIds?: string[] }): Promise<ManagedDevicePageDto> {
+    if (!this.dependencies.devices) return { page: 1, pageSize: 80, total: 0, items: [] };
+    const authorizedHostIds = authorization.unrestricted ? undefined : authorization.objectIds ?? [];
+    return this.dependencies.devices.list(tenantId, {
+      page: 1,
+      pageSize: 80,
+      filter: {},
+      ...(authorizedHostIds ? { authorizedHostIds } : {}),
+    });
+  }
+}
+
+/**
+ * 注册记录是可变实体，但旧 Agent ID 可能因重装或重新注册而遗留。
+ * 仪表盘只展示每个主机身份最后更新的一条记录，并按角色隔离同机的独立 Agent。
+ */
+export function deduplicateDashboardAgents(items: AgentRegistration[]): AgentRegistration[] {
+  const winners = new Map<string, AgentRegistration>();
+  for (const item of items) {
+    const key = dashboardAgentIdentityKey(item);
+    const current = winners.get(key);
+    if (!current || item.updatedAt.localeCompare(current.updatedAt) > 0) winners.set(key, item);
+  }
+  return [...winners.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+}
+
+function dashboardAgentIdentityKey(item: AgentRegistration): string {
+  const role = item.role?.trim().toLowerCase() || 'full_agent';
+  const machineId = item.descriptor.machineId?.trim();
+  if (machineId) return `${role}:machine:${machineId}`;
+  const hostname = item.descriptor.hostname?.trim().toLowerCase();
+  if (hostname) return `${role}:host:${hostname}`;
+  return `agent:${item.agentKey}`;
 }
 
 export function buildRecentDashboardAudits(auditLogs: AuditLogEntity[], context: AuditPresentationContext = emptyAuditPresentationContext()): DashboardOverview['recentAudits'] {
@@ -400,7 +450,8 @@ function dashboardAuditObjectType(resourceType: string): string | undefined {
 function buildStatusGroups(input: {
   applicationAssets: Array<{ id: string; displayName?: string; address: string; port: number; protocol: string; platform?: string; status: string; updatedAt?: string; lastDiscoveredAt?: string; currentCertificate?: { notAfter?: string } }>;
   certificateStatuses: DashboardCertificateStatusItem[];
-  agents: Array<{ id: string; descriptor: { hostname: string; version: string; managementEndpoint?: string }; status: string; updatedAt: string }>;
+  assets: ManagedDeviceSummaryDto[];
+  assetsTotal?: number;
   gateways: Array<{ id: string; agentId: string; zoneIds: string[]; status: string; updatedAt: string; lastHeartbeatAt?: string }>;
   gatewayZones: Array<{ id: string; name: string }>;
   gatewayReachability: Array<{ gatewayId: string; latencyMs?: number; checkedAt: string }>;
@@ -415,24 +466,6 @@ function buildStatusGroups(input: {
     details: { type: 'certificate', name: item.name, issuer: item.issuer, notBefore: item.notBefore, notAfter: item.notAfter, daysRemaining: item.daysRemaining },
     updatedAt: item.updatedAt,
     targetPath: `/certificates?certificateAssetId=${encodeURIComponent(item.certificateAssetId)}`,
-  }));
-
-  const agentBlocks = input.agents.map((agent): DashboardStatusBlock => ({
-    id: agent.id,
-    label: agent.descriptor.hostname || agent.id,
-    status: agent.status,
-    tone: agentTone(agent.status),
-    detail: `Agent ${agent.id}`,
-    details: {
-      type: 'device',
-      name: agent.descriptor.hostname || agent.id,
-      connectionStatus: agent.status,
-      version: agent.descriptor.version,
-      managementAddress: agent.descriptor.managementEndpoint,
-      lastCommunicationAt: isoOrUndefined(agent.updatedAt),
-    },
-    updatedAt: isoOrUndefined(agent.updatedAt),
-    targetPath: `/agents?agentId=${encodeURIComponent(agent.id)}`,
   }));
 
   const zoneNameById = new Map(input.gatewayZones.map((zone) => [zone.id, zone.name]));
@@ -478,22 +511,61 @@ function buildStatusGroups(input: {
     targetPath: `/applications?serviceAssetId=${encodeURIComponent(asset.id)}`,
   }));
 
+  const dashboardAssetBlocks = input.assets.map(toDashboardAssetBlock);
+
   return [
     makeStatusGroup('certificates', '证书', certificateBlocks),
-    makeStatusGroup('agents', 'Agent', agentBlocks),
+    makeStatusGroup('assets', '资产', dashboardAssetBlocks, input.assetsTotal),
     makeStatusGroup('gateways', '网关', gatewayBlocks),
     makeStatusGroup('applicationAssets', '应用资产', assetBlocks),
   ];
 }
 
-function makeStatusGroup(key: string, title: string, blocks: DashboardStatusBlock[]): DashboardStatusGroup {
+function toDashboardAssetBlock(asset: ManagedDeviceSummaryDto): DashboardStatusBlock {
+  const status = dashboardAssetStatus(asset.health);
+  return {
+    id: asset.id,
+    label: asset.displayName || asset.id,
+    status,
+    tone: dashboardAssetTone(asset.health),
+    detail: asset.productFamily || asset.managementMethod,
+    details: {
+      type: 'device',
+      name: asset.displayName || asset.id,
+      connectionStatus: asset.livenessStatus ?? status,
+      version: asset.controlVersion ?? asset.softwareVersion,
+      managementAddress: asset.managementAddress,
+      lastCommunicationAt: asset.lastContactAt,
+    },
+    updatedAt: asset.lastContactAt,
+    targetPath: `/assets?deviceId=${encodeURIComponent(asset.id)}&detailModal=1`,
+  };
+}
+
+function dashboardAssetStatus(health: ManagedDeviceSummaryDto['health']): string {
+  if (health === 'HEALTHY') return 'ACTIVE';
+  if (health === 'DEGRADED') return 'STALE';
+  if (health === 'UNREACHABLE') return 'UNREACHABLE';
+  if (health === 'DISABLED') return 'DISABLED';
+  return 'UNKNOWN';
+}
+
+function dashboardAssetTone(health: ManagedDeviceSummaryDto['health']): DashboardStatusTone {
+  if (health === 'HEALTHY') return 'ok';
+  if (health === 'DEGRADED') return 'warning';
+  if (health === 'UNREACHABLE') return 'error';
+  if (health === 'DISABLED') return 'disabled';
+  return 'unknown';
+}
+
+function makeStatusGroup(key: string, title: string, blocks: DashboardStatusBlock[], total = blocks.length): DashboardStatusGroup {
   const sorted = blocks.slice().sort(compareStatusBlock);
   const abnormalCount = sorted.filter((block) => block.tone === 'warning' || block.tone === 'error' || block.tone === 'unknown').length;
   return {
     key,
     title,
     summary: abnormalCount > 0 ? `${abnormalCount} 个需要关注` : '全部正常',
-    total: blocks.length,
+    total,
     blocks: sorted.slice(0, 80),
   };
 }
@@ -533,7 +605,7 @@ function quickActions(): DashboardQuickAction[] {
   return [
     { key: 'certificates', title: '证书管理', description: '导入、查看和转换证书。', path: '/certificates', permission: 'certificate.asset.read' },
     { key: 'assets', title: '应用资产', description: '维护域名、端口和部署目标。', path: '/applications', permission: 'service_asset.read' },
-    { key: 'agents', title: '应用资产', description: '查看 Agent 管理的应用资产及其部署状态。', path: '/agents', permission: 'agent.read' },
+    { key: 'agents', title: 'Agent', description: '查看 Agent 状态和任务能力。', path: '/agents', permission: 'agent.read' },
     { key: 'gateways', title: '网关', description: '管理隔离区执行入口。', path: '/gateways', permission: 'gateway.read' },
     { key: 'deploymentPlans', title: '应用资产部署', description: '从应用资产选择证书版本并发起部署。', path: '/applications', permission: 'service_asset.read' },
     { key: 'audits', title: '审计日志', description: '追踪操作人与执行结果。', path: '/audits', permission: 'audit.read' },
@@ -603,14 +675,6 @@ function certificateTone(state: DashboardCertificateState): DashboardStatusTone 
   if (state === 'valid') return 'ok';
   if (state === 'expiring') return 'warning';
   if (state === 'critical' || state === 'expired') return 'error';
-  return 'unknown';
-}
-
-function agentTone(status: string): DashboardStatusTone {
-  if (status === 'ONLINE') return 'ok';
-  if (status === 'UPGRADING') return 'warning';
-  if (status === 'DISABLED') return 'disabled';
-  if (status === 'OFFLINE') return 'error';
   return 'unknown';
 }
 

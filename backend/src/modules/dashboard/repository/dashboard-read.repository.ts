@@ -49,7 +49,20 @@ export interface DashboardApplicationAsset {
 
 const STATUS_LIMIT = 80;
 const CERTIFICATE_STATUS_LIMIT = 12;
-const AUDIT_CANDIDATE_LIMIT = 64;
+const DASHBOARD_AGENT_IDENTITY_SQL = `coalesce(
+  case
+    when nullif(trim(payload #>> '{descriptor,machineId}'), '') is not null
+    then lower(coalesce(nullif(trim(payload->>'role'), ''), 'full_agent'))
+      || ':machine:' || trim(payload #>> '{descriptor,machineId}')
+  end,
+  case
+    when nullif(trim(payload #>> '{descriptor,hostname}'), '') is not null
+    then lower(coalesce(nullif(trim(payload->>'role'), ''), 'full_agent'))
+      || ':' || lower(trim(payload #>> '{descriptor,hostname}'))
+  end,
+  nullif(trim(payload->>'agentKey'), ''),
+  document_id
+)`;
 
 /**
  * 仪表盘是读模型，不应借用页面列表接口：列表接口会补全详情投影并把全量数据搬到
@@ -180,14 +193,29 @@ export class DashboardReadRepository {
     const authorizationSql = query.authorization(authorization, 'agent', {
       tenantId: "agent.payload->>'tenantId'",
       zoneId: "agent.payload->>'zone'",
+      id: 'agent.document_id',
     });
     const result = await this.db.query<{ count: string }>(`
+      with visible_agents as (
+        select agent.document_id, agent.payload, agent.updated_at
+          from pg_documents agent
+         where agent.namespace = 'agents:registrations'
+           and agent.payload->>'tenantId' = ${tenant}
+           ${authorizationSql}
+      ), current_agents as (
+        select payload,
+               row_number() over (
+                 partition by ${DASHBOARD_AGENT_IDENTITY_SQL}
+                 order by coalesce(nullif(payload->>'updatedAt', ''), '') desc,
+                          updated_at desc,
+                          document_id desc
+               ) as dashboard_row_no
+          from visible_agents
+      )
       select count(*)::text as count
-        from pg_documents agent
-       where agent.namespace = 'agents:registrations'
-         and agent.payload->>'tenantId' = ${tenant}
-         and agent.payload->>'status' = 'ONLINE'
-         ${authorizationSql}
+        from current_agents
+       where dashboard_row_no = 1
+         and payload->>'status' = 'ONLINE'
     `, query.params);
     return { count: numberValue(result.rows[0]?.count) };
   }
@@ -357,13 +385,28 @@ export class DashboardReadRepository {
     const authorizationSql = query.authorization(authorization, 'agent', {
       tenantId: "agent.payload->>'tenantId'",
       zoneId: "agent.payload->>'zone'",
+      id: 'agent.document_id',
     });
     const result = await this.db.query<DocumentRow>(`
-      select agent.document_id, agent.payload
-        from pg_documents agent
-       where agent.namespace = 'agents:registrations'
-         and agent.payload->>'tenantId' = ${tenant}
-         ${authorizationSql}
+      with visible_agents as (
+        select agent.document_id, agent.payload, agent.updated_at
+          from pg_documents agent
+         where agent.namespace = 'agents:registrations'
+           and agent.payload->>'tenantId' = ${tenant}
+           ${authorizationSql}
+      ), current_agents as (
+        select document_id, payload, updated_at,
+               row_number() over (
+                 partition by ${DASHBOARD_AGENT_IDENTITY_SQL}
+                 order by coalesce(nullif(payload->>'updatedAt', ''), '') desc,
+                          updated_at desc,
+                          document_id desc
+               ) as dashboard_row_no
+          from visible_agents
+      )
+      select document_id, payload
+        from current_agents agent
+       where agent.dashboard_row_no = 1
        order by
          case agent.payload->>'status'
            when 'OFFLINE' then 0
@@ -458,8 +501,7 @@ export class DashboardReadRepository {
            and audit.payload->>'eventType' <> 'ca.operations.sync.failed'
          )
        order by audit.updated_at desc
-       limit $2
-    `, [tenantId, AUDIT_CANDIDATE_LIMIT]);
+    `, [tenantId]);
     return result.rows.map((row) => ({ ...asRecord(row.payload), id: row.document_id }) as AuditLogEntity);
   }
 }
@@ -475,11 +517,11 @@ class SqlQuery {
   authorization(
     authorization: PageAuthorizationFilter,
     alias: string,
-    fields: { tenantId: string; environment?: string; zoneId?: string; tags?: string },
+    fields: { tenantId: string; id?: string; environment?: string; zoneId?: string; tags?: string },
   ): string {
     if (authorization.unrestricted) return '';
     const allowed = [
-      this.idCondition(alias, authorization.objectIds),
+      this.idCondition(alias, authorization.objectIds, fields.id),
       ...authorization.dynamicConditions?.map((condition) => this.dynamicCondition(condition, fields)) ?? [],
     ].filter((value): value is string => Boolean(value));
     if (authorization.empty || allowed.length === 0) return 'and false';
@@ -488,16 +530,16 @@ class SqlQuery {
       return 'and false';
     }
     const denied = [
-      this.idCondition(alias, authorization.deniedObjectIds),
+      this.idCondition(alias, authorization.deniedObjectIds, fields.id),
       ...authorization.deniedDynamicConditions?.map((condition) => this.dynamicCondition(condition, fields)) ?? [],
     ].filter((value): value is string => Boolean(value));
     const allowedSql = `and (${allowed.join(' or ')})`;
     return denied.length ? `${allowedSql} and not (${denied.join(' or ')})` : allowedSql;
   }
 
-  private idCondition(alias: string, ids: readonly string[] | undefined): string | undefined {
+  private idCondition(alias: string, ids: readonly string[] | undefined, idField?: string): string | undefined {
     if (!ids?.length) return undefined;
-    return `${alias}.id = any(${this.param(ids)}::text[])`;
+    return `${idField ?? `${alias}.id`} = any(${this.param(ids)}::text[])`;
   }
 
   private dynamicCondition(condition: Record<string, unknown>, fields: { tenantId: string; environment?: string; zoneId?: string; tags?: string }): string {
