@@ -200,10 +200,12 @@ const stepLabels = computed(() => [
   t('applicationOnboarding.steps.platform'), t('applicationOnboarding.steps.device'), t('applicationOnboarding.steps.target'), t('applicationOnboarding.steps.certificate'), t('applicationOnboarding.steps.complete')
 ])
 const hasPlatformKeyword = computed(() => platformSearchKeyword.value.trim().length > 0)
+// 平台卡片按当前语言的显示名称升序排列，同名时用平台标识保证顺序稳定。
+const sortedPlatforms = computed(() => [...platforms.value].sort(comparePlatformsByName))
 const filteredPlatforms = computed(() => {
   const keyword = platformSearchKeyword.value.trim().toLocaleLowerCase(locale.value)
-  if (!keyword) return platforms.value
-  return platforms.value.filter((platform) => {
+  if (!keyword) return sortedPlatforms.value
+  return sortedPlatforms.value.filter((platform) => {
     const metadata = platform.businessMetadata
     const searchableValues = [
       platformLabel(platform),
@@ -864,6 +866,13 @@ function writePath(target: Record<string, unknown>, path: string, value: unknown
 function platformLabel(platform: Platform): string {
   return platform.displayName || t(platform.displayNameKey)
 }
+function comparePlatformsByName(left: Platform, right: Platform): number {
+  const leftIsManual = left.source === 'CUSTOM_MANUAL'
+  const rightIsManual = right.source === 'CUSTOM_MANUAL'
+  if (leftIsManual !== rightIsManual) return leftIsManual ? -1 : 1
+  const nameOrder = platformLabel(left).trim().localeCompare(platformLabel(right).trim(), locale.value, { sensitivity: 'base' })
+  return nameOrder || left.platformKey.localeCompare(right.platformKey, locale.value, { sensitivity: 'base' })
+}
 function platformInitial(platform: Platform): string {
   return platform.source === 'CUSTOM_MANUAL' ? '+' : platformLabel(platform).trim().slice(0, 1).toLocaleUpperCase()
 }
@@ -1437,7 +1446,7 @@ h1, h2, p { margin: 0; }
 .onboarding-platform-loading__spinner { inline-size: var(--gc-space-5); aspect-ratio: 1; border: var(--gc-border-width-thick) solid var(--gc-color-primary-border); border-top-color: var(--gc-color-primary); border-radius: var(--gc-radius-full); animation: application-onboarding-platform-spin 700ms linear infinite; }
 @keyframes application-onboarding-platform-spin { to { transform: rotate(1turn); } }
 .platform-card { display: grid; grid-template-columns: calc(var(--gc-space-4) * 3) minmax(0, 1fr); align-items: start; gap: var(--gc-space-3); block-size: var(--gc-size-application-onboarding-card); min-block-size: 0; padding: var(--gc-space-3); text-align: left; color: var(--gc-color-text); cursor: pointer; background: var(--gc-color-surface-soft); border: var(--gc-space-hairline) solid var(--gc-color-border); border-radius: var(--gc-radius-card); box-shadow: var(--gc-shadow-sm); transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
-.platform-card:hover:not(:disabled) { background: var(--gc-color-surface); border-color: var(--gc-color-primary-border-strong); box-shadow: var(--gc-shadow-hover); transform: translateY(calc(var(--gc-space-hairline) * -1)); }
+.platform-card:hover:not(:disabled) { background: var(--gc-color-surface); border-color: var(--gc-color-primary-border-strong); box-shadow: var(--gc-shadow-hover); }
 .platform-card:focus-visible { outline: none; box-shadow: var(--gc-shadow-focus); }
 .platform-card:disabled { cursor: not-allowed; opacity: var(--gc-opacity-disabled); }
 .platform-card--review { background: var(--gc-color-surface); }

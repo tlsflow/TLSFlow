@@ -191,6 +191,21 @@ describe('ApplicationOnboardingView', () => {
     expect(wrapper.find('.platform-card').exists()).toBe(true)
   })
 
+  it('平台卡片按显示名称升序排列，不依赖接口返回顺序', async () => {
+    onboardingMocks.listOnboardingPlatforms.mockResolvedValue(response({
+      items: [
+        { platformKey: 'web.iis', source: 'PLUGIN', displayName: 'IIS', displayNameKey: 'applicationOnboarding.platforms.iis', supportStatus: 'SUPPORTED' },
+        { platformKey: 'citrix.adc', source: 'PLUGIN', displayName: 'Citrix ADC', displayNameKey: 'applicationOnboarding.platforms.citrixAdc', supportStatus: 'SUPPORTED' },
+        { platformKey: 'custom.manual', source: 'CUSTOM_MANUAL', displayName: 'Custom manual setup', displayNameKey: 'applicationOnboarding.platforms.customManual', supportStatus: 'SUPPORTED' },
+      ],
+    }))
+
+    const wrapper = mount(ApplicationOnboardingView, { global: { plugins: [i18n] } })
+    await flushPromises()
+
+    expect(wrapper.findAll('.platform-card').map((card) => card.find('strong').text())).toEqual(['Custom manual setup', 'Citrix ADC', 'IIS'])
+  })
+
   it('搜索平台时按平台名称过滤，并可从底部入口打开插件中心', async () => {
     onboardingMocks.listOnboardingPlatforms.mockResolvedValue(response({
       items: [
