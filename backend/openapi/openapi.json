@@ -13726,7 +13726,7 @@
     "/api/v1/plugin-catalog/refresh-builtins": {
       "post": {
         "operationId": "refreshBuiltinPluginCatalog",
-        "summary": "刷新内置插件注册表",
+        "summary": "刷新插件目录",
         "tags": [
           "Plugins"
         ],

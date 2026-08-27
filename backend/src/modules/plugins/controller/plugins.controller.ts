@@ -53,7 +53,7 @@ export class PluginsController {
 
   register(router: Router): void {
     router.get('/api/v1/plugin-catalog', '查询统一插件目录', tags, (request) => this.listCatalog(request));
-    router.post('/api/v1/plugin-catalog/refresh-builtins', '刷新内置插件注册表', tags, (request) => this.refreshBuiltinCatalog(request));
+    router.post('/api/v1/plugin-catalog/refresh-builtins', '刷新插件目录', tags, (request) => this.refreshBuiltinCatalog(request));
     router.get('/api/v1/plugin-versions', '查询统一插件版本', tags, (request) => this.listUnifiedPluginVersions(request));
     router.get('/api/v1/plugin-version-groups', '查询插件版本分组', tags, (request) => this.listPluginVersionGroups(request));
     router.get('/api/v1/plugin-version-management/:pluginVersionId', '查询插件版本管理详情', tags, (request) => this.getPluginVersionManagementDetail(request));
@@ -712,7 +712,7 @@ function readOwnerType(value: object): 'SYSTEM' | 'TENANT' | undefined {
 export function getPluginsRouteContracts(): RouteContract[] {
   return [
     { method: 'GET', path: '/api/v1/plugin-catalog', operationId: 'listPluginCatalog', summary: '查询统一插件目录', tags, responseSchema: pageSchema(pluginCatalogItemSchema()) },
-    { method: 'POST', path: '/api/v1/plugin-catalog/refresh-builtins', operationId: 'refreshBuiltinPluginCatalog', summary: '刷新内置插件注册表', tags, responseSchema: refreshCatalogSchema() },
+    { method: 'POST', path: '/api/v1/plugin-catalog/refresh-builtins', operationId: 'refreshBuiltinPluginCatalog', summary: '刷新插件目录', tags, responseSchema: refreshCatalogSchema() },
     { method: 'GET', path: '/api/v1/plugin-versions', operationId: 'listUnifiedPluginVersions', summary: '查询统一插件版本', tags, responseSchema: pageSchema(pluginVersionRecordSchema()) },
     { method: 'GET', path: '/api/v1/plugin-version-groups', operationId: 'listPluginVersionGroups', summary: '查询插件版本分组', tags, responseSchema: { type: 'array', items: pluginVersionGroupSchema() } },
     { method: 'GET', path: '/api/v1/plugin-version-management/:pluginVersionId', operationId: 'getPluginVersionManagementDetail', summary: '查询插件版本管理详情', tags, responseSchema: pluginVersionManagementDetailSchema() },

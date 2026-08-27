@@ -139,7 +139,7 @@ test('统一插件导入路由会为 Workflow DSL 发布派生绑定', async () 
   assert.equal(publishedPluginVersionId, imported.id);
 });
 
-test('刷新内置插件注册表路由调用运行期扫描服务', async () => {
+test('刷新插件目录路由调用运行期扫描服务', async () => {
   const service = new UnifiedPluginsApplicationService(memoryRepository([]));
   let refreshCount = 0;
   const app = new App();

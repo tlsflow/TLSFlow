@@ -309,7 +309,7 @@ Tomcat `KEYSTORE` 插件的 `keystorePassword` 是可选 Credential Slot，只�
 | 接口 | 用途 |
 | --- | --- |
 | `GET /api/v1/plugin-catalog` | 查询可见插件目录 |
-| `POST /api/v1/plugin-catalog/refresh-builtins` | 刷新内置插件目录 |
+| `POST /api/v1/plugin-catalog/refresh-builtins` | 刷新插件目录（内置包并导入当前租户用户插件） |
 | `GET /api/v1/plugin-versions`、`GET /api/v1/plugin-version-groups` | 查询版本和版本分组 |
 | `GET /api/v1/plugin-version-management/:pluginVersionId` | 查看导入、权限和状态详情 |
 | `POST /api/v1/plugin-packages/import` | 导入 Manifest 和资源 |
