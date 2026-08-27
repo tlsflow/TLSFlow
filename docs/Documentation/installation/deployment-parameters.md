@@ -82,14 +82,16 @@ small 只要求 `GCAC_TOKEN_SECRET` 和 `GCAC_SECRET_KEK` 两个应用密钥。P
 
 | 参数 | 作用 |
 | --- | --- |
-| `BROWSER_RUNTIME_ENABLED` | 是否在标准架构装配 Browser Runtime；默认 `false` |
+| `BROWSER_RUNTIME_ENABLED` | Docker Compose 是否拉取并启动 Browser Runtime 镜像；默认 `false`，不会传给 Backend |
 | `BROWSER_RUNTIME_URL` | Backend 访问浏览器运行时的内网地址，标准版默认 `http://browser-runtime:8787` |
 | `BROWSER_RUNTIME_SHARED_SECRET` | Backend 与浏览器运行时之间的共享密钥；启用时必填 |
 | `BROWSER_RUNTIME_PUBLIC_BASE_URL` | 外部反向代理承载 `/vnc/` 时的公开基础地址；不需要时留空 |
 | `BROWSER_RUNTIME_MAX_SESSIONS` | 浏览器会话最大并发数，Compose 默认 `4` |
 
-默认启动标准版时不包含 `browser-runtime` 服务。启用时设置
-`BROWSER_RUNTIME_ENABLED=true`，并在 Compose 命令中同时追加 `--profile browser-runtime`。
+默认启动标准版时不包含 `browser-runtime` 服务。将
+`BROWSER_RUNTIME_ENABLED=true` 后，模板中的 `COMPOSE_PROFILES` 会自动选择
+Browser Runtime Profile；不需要额外追加命令参数。若部署工具覆盖了
+`COMPOSE_PROFILES`，请确保其中包含 `browser-runtime`。
 
 ## 常用可选参数
 

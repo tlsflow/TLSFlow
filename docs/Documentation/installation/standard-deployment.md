@@ -40,8 +40,9 @@ lastVerified: 2026-08-26
 - `POSTGRES_PASSWORD`、`GCAC_TOKEN_SECRET` 和 `GCAC_SECRET_KEK`。
 
 新部署不需要 `GCAC_INITIAL_ADMIN_PASSWORD`；服务启动后通过 Web 初始化向导创建管理员。
-如果启用 Browser Runtime，再设置 `BROWSER_RUNTIME_ENABLED=true` 和
-`BROWSER_RUNTIME_SHARED_SECRET`。
+默认不拉取或启动 Browser Runtime。需要浏览器登录凭据时，将
+`BROWSER_RUNTIME_ENABLED=true`，保留模板中的 `COMPOSE_PROFILES=${BROWSER_RUNTIME_ENABLED}`，
+并填写 `BROWSER_RUNTIME_SHARED_SECRET`。该开关只由 Docker Compose 使用，不会传给 Backend。
 
 ## 2. 拉取并启动镜像
 
@@ -51,10 +52,10 @@ lastVerified: 2026-08-26
 cd docker
 docker compose pull
 docker compose up -d
-
-# 需要浏览器登录凭据时，再追加 Browser Runtime profile：
-docker compose --profile browser-runtime up -d
 ```
+
+当 `BROWSER_RUNTIME_ENABLED=true` 时，`docker compose pull` 和
+`docker compose up -d` 会自动包含 Browser Runtime；保持默认 `false` 时不会下载或启动该镜像。
 
 Web 默认访问端口为 `8085`；Backend 只加入 Compose 内部网络，不发布宿主机端口。
 Compose 文件不包含 small 服务，也不包含源码构建配置。
