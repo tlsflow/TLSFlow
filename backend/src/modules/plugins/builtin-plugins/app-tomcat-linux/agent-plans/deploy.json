@@ -20,6 +20,9 @@
         "keystoreType": {
           "$ref": "keystoreType"
         },
+        "configPath": {
+          "$ref": "sourceConfigPath"
+        },
         "keyAlias": {
           "$ref": "keyAlias"
         },
@@ -121,6 +124,9 @@
         "storageKind": "KEYSTORE",
         "keystoreType": {
           "$ref": "keystoreType"
+        },
+        "configPath": {
+          "$ref": "sourceConfigPath"
         },
         "keyAlias": {
           "$ref": "keyAlias"
