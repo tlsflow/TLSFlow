@@ -207,6 +207,58 @@ func TestV2AllowsOnlyBoundedControlPlaneClockSkew(t *testing.T) {
 	}
 }
 
+func TestIISBindingUpdateAcceptsInstalledCNGCertificateThumbprint(t *testing.T) {
+	base := map[string]any{
+		"siteName":                  "Default Web Site",
+		"bindingInformation":        "*:443:iis.example.test",
+		"storeName":                 "My",
+		"storeLocation":             "LocalMachine",
+		"expectedFingerprintSha256": strings.Repeat("a", 64),
+		"artifactDigest":            strings.Repeat("b", 64),
+		"bindingKey":                "target-iis",
+		"configFingerprint":         strings.Repeat("c", 64),
+	}
+	cng := cloneMap(base)
+	cng["certificateThumbprint"] = strings.Repeat("d", 40)
+	if err := validateIISBindingOperationInput("certificate.iis.binding.update", cng); err != nil {
+		t.Fatalf("已安装 CNG 证书的 Thumbprint 绑定应通过校验: %v", err)
+	}
+	pfx := cloneMap(base)
+	pfx["pfxBase64"] = "AA=="
+	pfx["pfxPassword"] = "secret"
+	if err := validateIISBindingOperationInput("certificate.iis.binding.update", pfx); err != nil {
+		t.Fatalf("既有 PFX 绑定兼容路径不应回归: %v", err)
+	}
+	invalid := cloneMap(base)
+	invalid["certificateThumbprint"] = strings.Repeat("d", 40)
+	invalid["pfxBase64"] = "AA=="
+	invalid["pfxPassword"] = "secret"
+	if err := validateIISBindingOperationInput("certificate.iis.binding.update", invalid); err == nil {
+		t.Fatal("IIS 绑定更新不得同时携带 PFX 和 Thumbprint")
+	}
+}
+
+func TestWindowsCngCertificateInstallRequiresPemFormat(t *testing.T) {
+	base := map[string]any{
+		"path":                               filepath.Join(t.TempDir(), "certificate.pem"),
+		"keyPath":                            filepath.Join(t.TempDir(), "request.csr"),
+		"targetId":                           "target-iis",
+		"localKeyRef":                        "local-key:" + strings.Repeat("a", 64),
+		"certificatePem":                     "-----BEGIN CERTIFICATE-----\npublic\n-----END CERTIFICATE-----",
+		"certificateChainPem":                "-----BEGIN CERTIFICATE-----\nchain\n-----END CERTIFICATE-----",
+		"expectedPublicKeyFingerprintSha256": strings.Repeat("b", 64),
+		"format":                             "pkcs12",
+		"storageMode":                        "windows_cng",
+	}
+	if err := validateIssuedCertificateInstallInput(base); err == nil {
+		t.Fatal("Windows CNG 不能接受 PKCS12 格式，必须在合同校验阶段拒绝")
+	}
+	base["format"] = "pem"
+	if err := validateIssuedCertificateInstallInput(base); err != nil {
+		t.Fatalf("Windows CNG PEM 输入应通过格式校验: %v", err)
+	}
+}
+
 func TestV2RejectsMissingOrMismatchedRuntimeAgentID(t *testing.T) {
 	fixture := newWindowsV2TestFixture(t)
 	for _, runtimeAgentID := range []string{"", "agent-other"} {
@@ -381,6 +433,26 @@ func TestV2RejectsUnallowlistedOperation(t *testing.T) {
 	}, AgentCapabilityTokenV1{TokenVersion: agentSecurityContract, TokenID: "token-1", AgentID: "agent-1", TenantID: "tenant-1", PluginID: "web.generic", PluginVersionID: "plugin-version-1", Capability: "filesystem.read", PlanDigest: "digest-1", AllowedPaths: []string{`C:\GCAC\example.conf`}})
 	if err == nil {
 		t.Fatal("free command operation must be rejected")
+	}
+}
+
+func TestV2RejectsKeyPathOutsideTokenScope(t *testing.T) {
+	fixture := newWindowsV2TestFixture(t)
+	tampered := fixture.Plan
+	tampered.Operations = append([]agentPlanAction(nil), fixture.Plan.Operations...)
+	tampered.Operations[0].Input = map[string]any{
+		"path":          fixture.Plan.Operations[0].Input["path"],
+		"keyPath":       filepath.Join(t.TempDir(), "outside.key.pem"),
+		"contentBase64": base64.StdEncoding.EncodeToString([]byte("v2")),
+	}
+	digest, err := computeAgentPlanDigest(tampered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered.PlanDigest = digest
+	fixture.Token.PlanDigest = digest
+	if err := validateAgentPlan(tampered, fixture.Token); err == nil {
+		t.Fatal("keyPath 不在 Token 路径范围内时必须失败关闭")
 	}
 }
 

@@ -49,7 +49,7 @@ func executeLocalKeyGenerate(ctx context.Context, plan agentPlanV2, operation ag
 	path := filepath.Clean(v2StringValue(operation.Input, "path"))
 	sans, _ := stringArrayValue(operation.Input, "sans")
 	if v2StringValue(operation.Input, "storageMode") == "windows_cng" {
-		return createWindowsCngCsr(ctx, plan, path, v2StringValue(operation.Input, "commonName"), sans, v2StringValue(operation.Input, "algorithm"))
+		return createWindowsCngCsr(ctx, plan, v2StringValue(operation.Input, "targetId"), path, v2StringValue(operation.Input, "commonName"), sans, v2StringValue(operation.Input, "algorithm"))
 	}
 	privateKey, alreadyCurrent, err := loadOrGenerateWindowsFileKey(path, v2StringValue(operation.Input, "algorithm"), operation.Input)
 	if err != nil {
@@ -60,7 +60,7 @@ func executeLocalKeyGenerate(ctx context.Context, plan agentPlanV2, operation ag
 		return nil, err
 	}
 	return map[string]any{
-		"localKeyRef":                windowsLocalKeyRef(plan.AgentID, "file_pem", path, publicKeyFingerprint),
+		"localKeyRef":                windowsLocalKeyRef(plan.AgentID, v2StringValue(operation.Input, "targetId"), "file_pem", path, publicKeyFingerprint),
 		"csrPem":                     string(csrPem),
 		"csrSha256":                  windowsSha256Hex(csrPem),
 		"publicKeyFingerprintSha256": publicKeyFingerprint,
@@ -91,6 +91,17 @@ func validateIssuedCertificateInstallInput(input map[string]any) error {
 	if mode := v2StringValue(input, "storageMode"); mode != "" && mode != "file_pem" && mode != "windows_cng" {
 		return errors.New("certificate.install_issued storageMode is invalid")
 	}
+	storageMode := v2StringValue(input, "storageMode")
+	format := v2StringValue(input, "format")
+	if storageMode == "windows_cng" && format != "pem" {
+		return errors.New("windows_cng certificate.install_issued only supports PEM certificate material")
+	}
+	if storageMode != "windows_cng" && format == "pkcs12" {
+		configPath := v2StringValue(input, "configPath")
+		if v2StringValue(input, "keystorePassword") == "" && (configPath == "" || !isSafeWindowsAbsolutePath(configPath)) {
+			return errors.New("Windows Tomcat PKCS12 安装需要安全的 configPath，密码只允许从本机配置读取")
+		}
+	}
 	return nil
 }
 
@@ -119,9 +130,12 @@ func executeIssuedCertificateInstall(ctx context.Context, plan agentPlanV2, oper
 	if err != nil {
 		return nil, err
 	}
-	localKeyRef := windowsLocalKeyRef(plan.AgentID, "file_pem", keyPath, publicKeyFingerprint)
-	if v2StringValue(operation.Input, "localKeyRef") != localKeyRef {
-		return nil, errors.New("certificate localKeyRef does not belong to this Agent key")
+	localKeyRef := v2StringValue(operation.Input, "localKeyRef")
+	if localKeyRef != windowsLocalKeyRef(plan.AgentID, v2StringValue(operation.Input, "targetId"), "file_pem", keyPath, publicKeyFingerprint) {
+		// 兼容早期 Agent 生成的未绑定 targetId 的句柄；新生成的句柄始终绑定目标。
+		if localKeyRef != windowsLegacyLocalKeyRef(plan.AgentID, "file_pem", keyPath, publicKeyFingerprint) {
+			return nil, errors.New("certificate localKeyRef does not belong to this Agent key")
+		}
 	}
 	format := v2StringValue(operation.Input, "format")
 	if format == "jks" {
@@ -132,9 +146,19 @@ func executeIssuedCertificateInstall(ctx context.Context, plan agentPlanV2, oper
 			return nil, err
 		}
 	} else {
-		content, err := pkcs12.Modern2023.Encode(privateKey, leaf, chain, "changeit")
+		password, err := resolveWindowsKeyStorePassword(operation.Input)
+		if err != nil {
+			return nil, err
+		}
+		// 使用 Tomcat/JDK 广泛支持的 3DES PBE 编码；别名写入器需要
+		// 未加密的私钥袋，Modern2023 的 PBES2 私钥袋无法安全改写。
+		content, err := pkcs12.LegacyDES.WithRand(rand.Reader).Encode(privateKey, leaf, chain, password)
 		if err != nil {
 			return nil, fmt.Errorf("PKCS12 生成失败: %w", err)
+		}
+		content, err = setWindowsPKCS12KeyAlias(content, password, firstNonEmpty(v2StringValue(operation.Input, "alias"), "tomcat"))
+		if err != nil {
+			return nil, fmt.Errorf("PKCS12 alias 设置失败: %w", err)
 		}
 		if err := atomicWriteFile(path, content, 0o600); err != nil {
 			return nil, err
@@ -151,7 +175,7 @@ func executeIssuedCertificateInstall(ctx context.Context, plan agentPlanV2, oper
 	}, agentContextError(ctx)
 }
 
-func createWindowsCngCsr(ctx context.Context, plan agentPlanV2, csrPath, commonName string, sans []string, algorithm string) (map[string]any, error) {
+func createWindowsCngCsr(ctx context.Context, plan agentPlanV2, targetID, csrPath, commonName string, sans []string, algorithm string) (map[string]any, error) {
 	if err := os.MkdirAll(filepath.Dir(csrPath), 0o700); err != nil {
 		return nil, err
 	}
@@ -164,7 +188,7 @@ func createWindowsCngCsr(ctx context.Context, plan agentPlanV2, csrPath, commonN
 		if fingerprintErr != nil {
 			return nil, fingerprintErr
 		}
-		return windowsCngCsrResult(plan.AgentID, csrPath, content, fingerprint, true), nil
+		return windowsCngCsrResult(plan.AgentID, targetID, csrPath, content, fingerprint, true), nil
 	}
 	infPath := csrPath + ".inf"
 	inf := windowsCertreqInf(commonName, sans, algorithm)
@@ -188,12 +212,12 @@ func createWindowsCngCsr(ctx context.Context, plan agentPlanV2, csrPath, commonN
 	if err != nil {
 		return nil, err
 	}
-	return windowsCngCsrResult(plan.AgentID, csrPath, content, fingerprint, false), nil
+	return windowsCngCsrResult(plan.AgentID, targetID, csrPath, content, fingerprint, false), nil
 }
 
-func windowsCngCsrResult(agentID, csrPath string, csrPem []byte, fingerprint string, alreadyCurrent bool) map[string]any {
+func windowsCngCsrResult(agentID, targetID, csrPath string, csrPem []byte, fingerprint string, alreadyCurrent bool) map[string]any {
 	return map[string]any{
-		"localKeyRef":                windowsLocalKeyRef(agentID, "windows_cng", csrPath, fingerprint),
+		"localKeyRef":                windowsLocalKeyRef(agentID, targetID, "windows_cng", csrPath, fingerprint),
 		"csrPem":                     string(csrPem),
 		"csrSha256":                  windowsSha256Hex(csrPem),
 		"publicKeyFingerprintSha256": fingerprint,
@@ -210,8 +234,11 @@ func installWindowsCngCertificate(ctx context.Context, plan agentPlanV2, operati
 	if v2StringValue(operation.Input, "format") != "pem" {
 		return nil, errors.New("windows_cng certificate installation only accepts PEM certificate material")
 	}
-	if v2StringValue(operation.Input, "localKeyRef") != windowsLocalKeyRef(plan.AgentID, "windows_cng", csrPath, fingerprint) {
-		return nil, errors.New("certificate localKeyRef does not belong to this Agent CNG key")
+	localKeyRef := v2StringValue(operation.Input, "localKeyRef")
+	if localKeyRef != windowsLocalKeyRef(plan.AgentID, v2StringValue(operation.Input, "targetId"), "windows_cng", csrPath, fingerprint) {
+		if localKeyRef != windowsLegacyLocalKeyRef(plan.AgentID, "windows_cng", csrPath, fingerprint) {
+			return nil, errors.New("certificate localKeyRef does not belong to this Agent CNG key")
+		}
 	}
 	if err := atomicWriteFile(certificatePath, []byte(windowsAppendPemChain(v2StringValue(operation.Input, "certificatePem"), v2StringValue(operation.Input, "certificateChainPem"))), 0o600); err != nil {
 		return nil, err
@@ -404,7 +431,11 @@ func windowsPublicKeyFingerprint(publicKey any) (string, error) {
 	return windowsSha256Hex(der), nil
 }
 
-func windowsLocalKeyRef(agentID, storageMode, path, fingerprint string) string {
+func windowsLocalKeyRef(agentID, targetID, storageMode, path, fingerprint string) string {
+	return "local-key:" + windowsSha256Hex([]byte(agentID+"|"+targetID+"|"+storageMode+"|"+filepath.Clean(path)+"|"+strings.ToLower(fingerprint)))
+}
+
+func windowsLegacyLocalKeyRef(agentID, storageMode, path, fingerprint string) string {
 	return "local-key:" + windowsSha256Hex([]byte(agentID+"|"+storageMode+"|"+filepath.Clean(path)+"|"+strings.ToLower(fingerprint)))
 }
 

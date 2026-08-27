@@ -254,7 +254,13 @@ func validateUpgradeEnvelope(config *AgentConfig, agentID string, envelope agent
 	}
 	release := envelope.Release
 	profile := windowsGoRuntimeProfile
-	if release.ProductLine != profile.productLine || release.Platform != profile.platform || release.Architecture == "" || release.Architecture != currentWindowsArchitecture() {
+	architectureMismatch := release.Architecture == "" || release.Architecture != currentWindowsArchitecture()
+	// macOS/Linux 只执行协议测试和交叉编译，主机架构不能代表目标 Windows
+	// 架构。开发环境允许两个受支持的 Windows 架构，正式 Windows 运行时仍严格匹配。
+	if runtime.GOOS != "windows" && (release.Architecture == "amd64" || release.Architecture == "arm64") {
+		architectureMismatch = false
+	}
+	if release.ProductLine != profile.productLine || release.Platform != profile.platform || architectureMismatch {
 		return errors.New("升级发布物与 Windows Go Agent 运行基线不匹配")
 	}
 	if !agentSemVerRegexp.MatchString(release.Version) || release.Version == agentVersion {

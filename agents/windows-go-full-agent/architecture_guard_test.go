@@ -47,7 +47,7 @@ func TestArchitectureGuardScansProductionGoSources(t *testing.T) {
 }
 
 func TestMatureWindowsIISScannerUsesBindingInsteadOfPortProbe(t *testing.T) {
-	content, err := os.ReadFile("windows_runtime_iis.go")
+	content, err := os.ReadFile(filepath.Join("agent-side-plugins", "windows-runtime-discovery", "windows_runtime_iis.go"))
 	if err != nil {
 		t.Fatalf("读取 IIS 成熟扫描器源码失败: %v", err)
 	}

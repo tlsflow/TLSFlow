@@ -10,6 +10,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
+	"maps"
 	"math/big"
 	"os"
 	"os/exec"
@@ -126,6 +127,73 @@ func TestWindowsCertificateMaterialReadsTomcatPasswordFromConfigPath(t *testing.
 	}
 	if strings.Contains(err.Error(), "wrong-explicit-password") || strings.Contains(err.Error(), "changeit") {
 		t.Fatalf("显式密码失败信息不得泄露密码: %v", err)
+	}
+}
+
+func TestWindowsPKCS12RepackagesSourcePasswordWithTomcatAlias(t *testing.T) {
+	leaf, privateKey := newWindowsKeyStoreTestCertificate(t, "tomcat.example.test")
+	source := newWindowsTestPKCS12(t, privateKey, leaf, "artifact-password")
+	input := map[string]any{
+		"path":                   filepath.Join(t.TempDir(), "tomcat.p12"),
+		"contentBase64":          base64.StdEncoding.EncodeToString(source),
+		"storageKind":            "KEYSTORE",
+		"keystoreType":           "PKCS12",
+		"keyAlias":               "server",
+		"keystorePassword":       "tomcat-current-password",
+		"sourceKeyStorePassword": "artifact-password",
+	}
+	prepared, err := prepareWindowsKeyStoreContent(input, source)
+	if err != nil {
+		t.Fatalf("P12 源密码与 Tomcat 密码不同时必须可重封装: %v", err)
+	}
+	material, err := validateWindowsKeyStoreMaterialWithPassword("PKCS12", "server", "tomcat-current-password", prepared)
+	if err != nil || !material.AliasVerified {
+		t.Fatalf("重封装后的 P12 必须能用目标密码和 Alias 打开: material=%#v err=%v", material, err)
+	}
+	if _, err := validateWindowsKeyStoreMaterialWithPassword("PKCS12", "server", "artifact-password", prepared); err == nil {
+		t.Fatal("重封装后的 P12 不得继续接受源制品密码")
+	}
+	assertWindowsPKCS12AliasWithKeytool(t, prepared, "tomcat-current-password", "server")
+	previous := newWindowsTestPKCS12(t, privateKey, leaf, "tomcat-current-password")
+	if err := os.WriteFile(input["path"].(string), previous, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := executeFileReplace(context.Background(), agentPlanAction{OperationID: "replace", OperationType: "filesystem.atomic_replace", Input: input}); err != nil {
+		t.Fatalf("P12 原子替换必须重封装并写入: %v", err)
+	}
+	replaced, err := os.ReadFile(input["path"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := validateWindowsKeyStoreMaterialWithPassword("PKCS12", "server", "tomcat-current-password", replaced); err != nil {
+		t.Fatalf("原子替换后的 P12 必须能被 Tomcat 当前密码读取: %v", err)
+	}
+	wrongSource := maps.Clone(input)
+	wrongSource["sourceKeyStorePassword"] = "wrong-source-password"
+	if _, err := prepareWindowsKeyStoreContent(wrongSource, source); err == nil || !strings.Contains(err.Error(), "密码错误或文件损坏") {
+		t.Fatalf("错误源制品密码必须在写前失败: %v", err)
+	}
+}
+
+func assertWindowsPKCS12AliasWithKeytool(t *testing.T, content []byte, password, alias string) {
+	t.Helper()
+	keytool, err := exec.LookPath("keytool")
+	if err != nil {
+		t.Skip("当前环境没有 keytool，跳过 Java KeyStore 兼容性校验")
+	}
+	path := filepath.Join(t.TempDir(), "tomcat.p12")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output, err := exec.Command(keytool, "-list", "-storetype", "PKCS12", "-keystore", path, "-storepass", password, "-alias", alias).CombinedOutput()
+	if err != nil {
+		// macOS 可能只有 /usr/bin/keytool 包装命令而未安装 JRE；这属于
+		// 验证环境缺失，不应把生产实现误报为失败。真正可执行的 keytool
+		// 仍然必须通过下面的兼容性校验。
+		if strings.Contains(string(output), "Unable to locate a Java Runtime") || strings.Contains(string(output), "No Java runtime present") {
+			t.Skip("当前环境没有可用 Java Runtime，跳过 keytool 兼容性校验")
+		}
+		t.Fatalf("JDK keytool 必须能以目标密码和 Alias 打开重封装 P12: %v: %s", err, strings.TrimSpace(string(output)))
 	}
 }
 

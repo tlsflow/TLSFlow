@@ -151,6 +151,102 @@ func TestParseWindowsTomcatServerXMLSupportsLegacyConnectorKeystoreBinding(t *te
 	}
 }
 
+func TestMatureTomcatInventoryProjectsLegacyKeystoreCertificateBinding(t *testing.T) {
+	root := t.TempDir()
+	confDir := filepath.Join(root, "conf")
+	if err := os.MkdirAll(confDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	certificate, privateKey := newWindowsRuntimeTomcatCertificate(t)
+	store := keystore.New()
+	privateKeyBytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetPrivateKeyEntry("server", keystore.PrivateKeyEntry{
+		CreationTime: time.Now(),
+		PrivateKey:   privateKeyBytes,
+		CertificateChain: []keystore.Certificate{{
+			Type: "X509", Content: certificate.Raw,
+		}},
+	}, []byte("changeit")); err != nil {
+		t.Fatal(err)
+	}
+	var encoded bytes.Buffer
+	if err := store.Store(&encoded, []byte("changeit")); err != nil {
+		t.Fatal(err)
+	}
+	keystorePath := filepath.Join(confDir, "server.jks")
+	if err := os.WriteFile(keystorePath, encoded.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(confDir, "server.xml")
+	config := `<Server><Service><Connector port="8445" protocol="org.apache.coyote.http11.Http11NioProtocol" SSLEnabled="true" keystoreFile="conf/server.jks" keystoreType="JKS" keystorePass="changeit" keyAlias="server"/><Engine><Host name="tomcat.test.local"/></Engine></Service></Server>`
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	programPath := filepath.Join(root, "java.exe")
+	if err := os.WriteFile(programPath, []byte("java"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	connectors, hosts, fingerprint, warnings := parseWindowsTomcatServerXML(configPath, root)
+	if len(connectors) != 1 || len(hosts) != 1 || len(warnings) != 0 {
+		t.Fatalf("Tomcat 解析结果不完整: connectors=%#v hosts=%#v warnings=%#v", connectors, hosts, warnings)
+	}
+	detail := windowsTomcatDetail{
+		Installed:         true,
+		Version:           "9.0.100",
+		JavaPath:          programPath,
+		TomcatPath:        root,
+		ConfigPath:        configPath,
+		Connectors:        connectors,
+		Hosts:             hosts,
+		ConfigFingerprint: fingerprint,
+	}
+	inventory := map[string]any{
+		"frameworks":       []map[string]any{},
+		"sites":            []map[string]any{},
+		"certificateFiles": []map[string]any{},
+		"configFiles":      []map[string]any{},
+		"warnings":         []map[string]any{},
+	}
+	appendWindowsMatureRuntimeDetailWithService(
+		inventory,
+		"app.tomcat",
+		"Tomcat",
+		detail.Installed,
+		detail.Version,
+		detail.JavaPath,
+		"Tomcat9",
+		detail.ConfigPath,
+		detail.ConfigFingerprint,
+		detail.TomcatPath,
+		windowsTomcatSite(detail),
+		nil,
+	)
+
+	sites := inventory["sites"].([]map[string]any)
+	if len(sites) != 1 {
+		t.Fatalf("Tomcat 站点未进入 web.inventory: %#v", sites)
+	}
+	listeners := sites[0]["metadata"].(map[string]any)["listeners"].([]map[string]any)
+	if len(listeners) != 1 {
+		t.Fatalf("Tomcat HTTPS 监听器未进入 web.inventory: %#v", sites[0])
+	}
+	listener := listeners[0]
+	if listener["protocol"] != "HTTPS" || listener["keystorePath"] != normalizeWindowsRuntimeInventoryPath(keystorePath) || listener["keystoreType"] != "JKS" || listener["keyAlias"] != "server" {
+		t.Fatalf("Tomcat 监听器 KeyStore 事实投影错误: %#v", listener)
+	}
+	certificates := inventory["certificateFiles"].([]map[string]any)
+	if len(certificates) != 1 {
+		t.Fatalf("Tomcat 证书未进入 certificateFiles: %#v", certificates)
+	}
+	if certificates[0]["path"] != normalizeWindowsRuntimeInventoryPath(keystorePath) || certificates[0]["subject"] != certificate.Subject.String() {
+		t.Fatalf("Tomcat 证书库存事实错误: %#v", certificates[0])
+	}
+}
+
 func newWindowsRuntimeTomcatCertificate(t *testing.T) (*x509.Certificate, *rsa.PrivateKey) {
 	t.Helper()
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)

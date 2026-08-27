@@ -631,11 +631,10 @@ func validateAgentPlan(plan agentPlanV2, token AgentCapabilityTokenV1) error {
 		if !v2ContainsString(token.Actions, operation.OperationType) {
 			return fmt.Errorf("Token 未授权 Agent 操作: %s", operation.OperationType)
 		}
-		if path := stringValue(operation.Input, "path"); path != "" && !pathScopeContains(token.AllowedPaths, path) {
-			return errors.New("operation path is outside token scope")
-		}
-		if configPath := stringValue(operation.Input, "configPath"); configPath != "" && !pathScopeContains(token.AllowedPaths, configPath) {
-			return errors.New("operation configPath is outside token scope")
+		for _, field := range []string{"path", "keyPath", "certificatePath", "configPath", "csrPath"} {
+			if path := stringValue(operation.Input, field); path != "" && !pathScopeContains(token.AllowedPaths, path) {
+				return fmt.Errorf("operation %s is outside token scope", field)
+			}
 		}
 		if service := stringValue(operation.Input, "serviceName"); service != "" && !scopeContains(token.AllowedServices, service) {
 			return errors.New("operation service is outside token scope")
@@ -814,6 +813,9 @@ func commandExecutionError(message string, err error) error {
 }
 
 func operationResultUnknown(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
 	var operationErr *agentOperationError
 	return errors.As(err, &operationErr) && operationErr.unknown
 }
@@ -1295,16 +1297,7 @@ func executeFilesystemBackup(ctx context.Context, operation agentPlanAction, sig
 	backupPath := cleanPath + ".gcac-backup"
 	info, err := os.Lstat(cleanPath)
 	if os.IsNotExist(err) {
-		checkpoint := map[string]any{
-			"schemaVersion": "gcac.windows.signed-checkpoint/v1",
-			"operationId":   operation.OperationID,
-			"targetPath":    cleanPath,
-			"backupPath":    backupPath,
-			"existed":       false,
-			"mode":          0,
-			"sha256":        "",
-		}
-		return signedCheckpointResult(checkpoint, signer)
+		return nil, fmt.Errorf("filesystem.backup source does not exist: %w", err)
 	}
 	if err != nil {
 		return nil, err
@@ -1470,6 +1463,10 @@ func executeCertificateMaterialValidate(ctx context.Context, operation agentPlan
 		if err := validateWindowsCertificateMaterialInput(operation.Input); err != nil {
 			return nil, err
 		}
+		prepared, prepareErr := prepareWindowsKeyStoreContent(operation.Input, content)
+		if prepareErr != nil {
+			return nil, prepareErr
+		}
 		if verifyCurrent, _ := operation.Input["verifyCurrentKeyStorePassword"].(bool); verifyCurrent {
 			keystoreType := strings.ToUpper(strings.TrimSpace(stringValue(operation.Input, "keystoreType")))
 			password, passwordErr := resolveWindowsKeyStorePassword(operation.Input)
@@ -1485,6 +1482,7 @@ func executeCertificateMaterialValidate(ctx context.Context, operation agentPlan
 				return nil, err
 			}
 		}
+		content = prepared
 	} else if err := validatePemMaterial(path, content); err != nil {
 		return nil, err
 	}
@@ -1522,6 +1520,12 @@ func validateWindowsCertificateMaterialInput(input map[string]any) error {
 	}
 	if configPath := stringValue(input, "configPath"); configPath != "" && !isSafeWindowsAbsolutePath(configPath) {
 		return errors.New("certificate.material.validate configPath is invalid")
+	}
+	if sourcePassword, exists := input["sourceKeyStorePassword"]; exists {
+		value, ok := sourcePassword.(string)
+		if !ok || value == "" || len(value) > 1024 {
+			return errors.New("certificate.material.validate KeyStore 源制品密码无效")
+		}
 	}
 	return nil
 }
@@ -1613,6 +1617,12 @@ func executeFileReplace(ctx context.Context, operation agentPlanAction) error {
 	content, err := decodeOperationContent(operation.Input)
 	if err != nil || path == "" || !isSafeWindowsAbsolutePath(path) {
 		return errors.New("filesystem.atomic_replace requires an absolute path and base64 content")
+	}
+	if stringValue(operation.Input, "storageKind") == "KEYSTORE" {
+		content, err = prepareWindowsKeyStoreContent(operation.Input, content)
+		if err != nil {
+			return err
+		}
 	}
 	if err := atomicWriteFile(path, content, 0o600); err != nil {
 		return err
@@ -1710,15 +1720,21 @@ func validateIISBindingOperationInput(operationType string, input map[string]any
 	}
 	switch operationType {
 	case "certificate.iis.binding.update":
-		if len(input) != 10 {
-			return errors.New("IIS binding update input contains unsupported fields")
+		hasPFX := stringValue(input, "pfxBase64") != "" || stringValue(input, "pfxPassword") != ""
+		hasThumbprint := stringValue(input, "certificateThumbprint") != ""
+		if hasPFX == hasThumbprint {
+			return errors.New("IIS binding update requires exactly one of PFX or certificateThumbprint")
 		}
-		pfx, err := base64.StdEncoding.DecodeString(stringValue(input, "pfxBase64"))
-		if err != nil || len(pfx) == 0 || len(pfx) > 256*1024 {
-			return errors.New("IIS binding update pfxBase64 is invalid")
-		}
-		if stringValue(input, "pfxPassword") == "" || len(stringValue(input, "pfxPassword")) > 1024 {
-			return errors.New("IIS binding update pfxPassword is invalid")
+		if hasPFX {
+			pfx, err := base64.StdEncoding.DecodeString(stringValue(input, "pfxBase64"))
+			if err != nil || len(pfx) == 0 || len(pfx) > 256*1024 {
+				return errors.New("IIS binding update pfxBase64 is invalid")
+			}
+			if stringValue(input, "pfxPassword") == "" || len(stringValue(input, "pfxPassword")) > 1024 {
+				return errors.New("IIS binding update pfxPassword is invalid")
+			}
+		} else if !isSHA1Hex(stringValue(input, "certificateThumbprint")) {
+			return errors.New("IIS binding update certificateThumbprint is invalid")
 		}
 		if !isSHA256Hex(stringValue(input, "expectedFingerprintSha256")) || !isSHA256Hex(stringValue(input, "artifactDigest")) {
 			return errors.New("IIS binding update fingerprint is invalid")
@@ -1754,7 +1770,7 @@ func executeIISBindingOperation(ctx context.Context, operation agentPlanAction, 
 		return nil, err
 	}
 	var pfxPath string
-	if action == "update" {
+	if action == "update" && stringValue(operation.Input, "certificateThumbprint") == "" {
 		content, err := base64.StdEncoding.DecodeString(stringValue(operation.Input, "pfxBase64"))
 		if err != nil {
 			return nil, errors.New("IIS PFX 内容解码失败")
@@ -1786,6 +1802,7 @@ func executeIISBindingOperation(ctx context.Context, operation agentPlanAction, 
 		"GCAC_IIS_PREVIOUS_THUMBPRINT="+strings.ReplaceAll(strings.ReplaceAll(stringValue(operation.Input, "previousThumbprint"), ":", ""), " ", ""),
 		"GCAC_IIS_PFX_PATH="+pfxPath,
 		"GCAC_IIS_PFX_PASSWORD="+stringValue(operation.Input, "pfxPassword"),
+		"GCAC_IIS_CERTIFICATE_THUMBPRINT="+strings.ReplaceAll(strings.ReplaceAll(stringValue(operation.Input, "certificateThumbprint"), ":", ""), " ", ""),
 	)
 	command := exec.CommandContext(ctx, windowsPowerShellPath, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", windowsIISBindingOperationScript)
 	command.Dir = windowsSystem32Directory
@@ -1831,11 +1848,17 @@ function Get-Certificate([byte[]] $hash, [string] $storeName) {
 $previous = Get-Certificate $binding.CertificateHash $binding.CertificateStoreName
 $action = $env:GCAC_IIS_ACTION
 if ($action -eq 'update') {
-  $securePassword = ConvertTo-SecureString $env:GCAC_IIS_PFX_PASSWORD -AsPlainText -Force
-  $imported = Import-PfxCertificate -FilePath $env:GCAC_IIS_PFX_PATH -Password $securePassword -CertStoreLocation 'Cert:\LocalMachine\My' -Exportable
-  $certificate = $imported | Where-Object { $_.HasPrivateKey } | Select-Object -First 1
-  if ($null -eq $certificate) { $certificate = $imported | Select-Object -First 1 }
-  if ($null -eq $certificate) { throw 'PFX did not contain a certificate' }
+  if ($env:GCAC_IIS_CERTIFICATE_THUMBPRINT) {
+    $thumbprint = ($env:GCAC_IIS_CERTIFICATE_THUMBPRINT -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
+    $certificate = Get-Item -LiteralPath ('Cert:\LocalMachine\My\' + $thumbprint) -ErrorAction Stop
+    if ($null -eq $certificate -or !$certificate.HasPrivateKey) { throw 'IIS binding certificate with private key was not found in the certificate store' }
+  } else {
+    $securePassword = ConvertTo-SecureString $env:GCAC_IIS_PFX_PASSWORD -AsPlainText -Force
+    $imported = Import-PfxCertificate -FilePath $env:GCAC_IIS_PFX_PATH -Password $securePassword -CertStoreLocation 'Cert:\LocalMachine\My' -Exportable
+    $certificate = $imported | Where-Object { $_.HasPrivateKey } | Select-Object -First 1
+    if ($null -eq $certificate) { $certificate = $imported | Select-Object -First 1 }
+    if ($null -eq $certificate) { throw 'PFX did not contain a certificate' }
+  }
   $actualSha256 = Get-Sha256 $certificate
   if ($actualSha256 -ne $env:GCAC_IIS_EXPECTED_SHA256.ToLowerInvariant()) { throw 'PFX certificate fingerprint does not match expected fingerprint' }
   $binding.CertificateHash = $certificate.GetCertHash()
@@ -2688,8 +2711,10 @@ func validateAgentPlanLocalPolicy(plan agentPlanV2) error {
 		return unavailableAgentAuthorizationMaterial("local agent policy is invalid")
 	}
 	for _, operation := range plan.Operations {
-		if path := stringValue(operation.Input, "path"); path != "" && !pathScopeContains(policy.AllowedPaths, path) {
-			return errors.New("operation path is denied by local policy")
+		for _, field := range []string{"path", "keyPath", "certificatePath", "configPath", "csrPath"} {
+			if path := stringValue(operation.Input, field); path != "" && !pathScopeContains(policy.AllowedPaths, path) {
+				return fmt.Errorf("operation %s is denied by local policy", field)
+			}
 		}
 		if service := stringValue(operation.Input, "serviceName"); service != "" && !scopeContains(policy.AllowedServices, service) {
 			return errors.New("operation service is denied by local policy")
