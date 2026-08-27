@@ -8098,6 +8098,56 @@
         }
       }
     },
+    "/api/v1/certificate-version-formats/download": {
+      "post": {
+        "operationId": "downloadCertificateVersionFormatArtifact",
+        "summary": "下载证书格式导出产物",
+        "tags": [
+          "Certificates"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "artifactRef"
+                ],
+                "properties": {
+                  "artifactRef": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/api/v1/certificate-sources/mock-sync": {
       "post": {
         "operationId": "mockSyncCertificateSource",

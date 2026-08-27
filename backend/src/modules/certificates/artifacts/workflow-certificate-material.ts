@@ -96,7 +96,8 @@ function joinCertificateChain(leafPem: string | undefined, orderedChainPem: stri
 }
 
 function readIntermediateChainFromFullchain(files: WorkflowCertificateFile[]): string | undefined {
-  const fullchain = readPemFile(files, 'fullchain', 'public_certificate');
+  const fullchain = readPemFile(files, 'fullchain', 'public_certificate')
+    ?? joinCertificateChain(readPemFile(files, 'public', 'public_certificate'), readPemFile(files, 'chain', 'certificate_chain') ?? readPemFile(files, 'chain-file', 'certificate_chain') ?? '');
   if (!fullchain) return undefined;
   const certificates = splitCertificates(fullchain);
   if (certificates.length <= 1) return undefined;
@@ -104,7 +105,8 @@ function readIntermediateChainFromFullchain(files: WorkflowCertificateFile[]): s
 }
 
 function readLeafFromFullchain(files: WorkflowCertificateFile[]): string | undefined {
-  const fullchain = readPemFile(files, 'fullchain', 'public_certificate');
+  const fullchain = readPemFile(files, 'fullchain', 'public_certificate')
+    ?? joinCertificateChain(readPemFile(files, 'public', 'public_certificate'), readPemFile(files, 'chain', 'certificate_chain') ?? readPemFile(files, 'chain-file', 'certificate_chain') ?? '');
   if (!fullchain) return undefined;
   return splitCertificates(fullchain)[0];
 }

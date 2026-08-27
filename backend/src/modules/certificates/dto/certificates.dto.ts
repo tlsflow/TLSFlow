@@ -66,6 +66,7 @@ export interface CertificateVersionFormatDto {
 
 export interface CertificateArtifactFileDto {
   key: string;
+  fileName?: string;
   role: 'public_certificate' | 'private_key' | 'certificate_chain' | 'bundle' | string;
   format: string;
   content?: string;
@@ -181,6 +182,11 @@ export interface CreateCertificateVersionFormatInput {
   parameters?: Record<string, unknown>;
   createdBy: string;
   expiresAt?: string;
+}
+
+/** 中文说明：按已有交付配置生成指定证书版本的导出产物，避免重复创建配置记录。 */
+export interface ExportCertificateVersionFormatInput extends CreateCertificateVersionFormatInput {
+  certificateFormatId?: string;
 }
 
 export interface UpdateCertificateVersionFormatInput {

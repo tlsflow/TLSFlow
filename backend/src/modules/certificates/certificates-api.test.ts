@@ -115,6 +115,20 @@ describe('证书资产 API', () => {
     });
     assert.equal((await artifacts.get('artifact://certificate-tenant-isolation-test', 'tenant_a'))?.content.toString(), 'tenant-a');
     assert.equal((await artifacts.get('artifact://certificate-tenant-isolation-test', 'tenant_b'))?.content.toString(), 'tenant-b');
+    await artifacts.put({
+      tenantId: 'tenant_a',
+      artifactRef: 'artifact://certificate-format/tenant-a/export',
+      content: Buffer.from('tenant-a-export'),
+      contentType: 'application/octet-stream',
+      createdBy: 'user_cert_tenant_a',
+    });
+    const crossDownload = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-version-formats/download',
+      headers: tenantB,
+      body: { artifactRef: 'artifact://certificate-format/tenant-a/export' },
+    });
+    assert.equal(crossDownload.statusCode, 404, '证书格式产物下载必须按租户隔离');
   });
 
   it('外部来源证书资产允许手动导入新版本', async () => {
@@ -816,6 +830,13 @@ describe('证书资产 API', () => {
         headers: headers('user_export_real'),
         body: {
           certificateVersionId: versionId,
+    const downloadOperation = paths['/api/v1/certificate-version-formats/download']?.post;
+    assert.ok(downloadOperation, '证书格式产物下载路由必须存在');
+    assert.deepEqual(
+      downloadOperation.requestBody?.content?.['application/json']?.schema?.required,
+      ['artifactRef'],
+      '证书格式产物下载必须声明 artifactRef 为必填请求字段',
+    );
           format: item.format,
           containsPrivateKey: item.containsPrivateKey,
           passwordSecretRef: item.passwordSecretRef,
@@ -920,7 +941,7 @@ describe('证书资产 API', () => {
     assert.equal((mismatchedKeyAssets.body as any).total, 0, 'P7B 私钥不匹配时不得写入半成品');
   });
 
-  it('PEM 格式部署产物提供不含私钥的 fullchain 输出项', () => {
+  it('PEM 多内容导出按内容生成 ZIP 文件，不附带无关 bundle 或 fullchain', () => {
     const generated = new CertificateFormatExporter().generate('pem', {
       version: {} as any,
       leafDer: Buffer.from('leaf-certificate-der'),
@@ -934,10 +955,44 @@ describe('证书资产 API', () => {
     });
 
     const files = new Map(generated.files.map((file) => [file.key, file]));
-    assert.deepEqual([...files.keys()].sort(), ['bundle', 'chain', 'fullchain', 'private', 'public']);
-    assert.equal(files.get('fullchain')?.role, 'public_certificate');
-    assert.match(files.get('fullchain')?.content ?? '', /BEGIN CERTIFICATE/);
-    assert.equal((files.get('fullchain')?.content ?? '').includes('BEGIN PRIVATE KEY'), false);
+    assert.deepEqual([...files.keys()].sort(), ['chain', 'private', 'public']);
+    assert.equal(files.get('public')?.fileName, 'leaf.pem');
+    assert.equal(files.get('chain')?.fileName, 'chain.pem');
+    assert.equal(files.get('private')?.fileName, 'private-key.pem');
+    assert.equal(generated.contentType, 'application/zip');
+    assert.equal(generated.content.subarray(0, 4).toString('hex'), '504b0304');
+    assert.match(files.get('chain')?.content ?? '', /BEGIN CERTIFICATE/);
+    assert.equal((files.get('chain')?.content ?? '').includes('BEGIN PRIVATE KEY'), false);
+  });
+
+  it('PEM 导出严格保留每个 Contents 对应的文件', () => {
+    const generated = new CertificateFormatExporter().generate('pem', {
+      version: {} as any,
+      leafDer: Buffer.from('leaf-certificate-der'),
+      chainDer: [Buffer.from('intermediate-certificate-der')],
+      privateKeyPem: '-----BEGIN PRIVATE KEY-----\nmock\n-----END PRIVATE KEY-----',
+      parameters: {
+        includeLeafCertificate: true,
+        includeCertificateChain: true,
+        includePrivateKey: true,
+        generateChainFile: true,
+        generatePrivateKeyFile: true,
+      },
+    });
+
+    assert.deepEqual(generated.files.map((file) => file.key), ['public', 'chain', 'chain-file', 'private', 'private-key-file']);
+    assert.deepEqual(generated.files.map((file) => file.fileName), [
+      'leaf.pem',
+      'chain.pem',
+      'chain-file.pem',
+      'private-key.pem',
+      'private-key-file.pem',
+    ]);
+    assert.equal(generated.contentType, 'application/zip');
+    const zipContent = generated.content.toString('utf8');
+    for (const fileName of ['leaf.pem', 'chain.pem', 'chain-file.pem', 'private-key.pem', 'private-key-file.pem']) {
+      assert.ok(zipContent.includes(fileName), `ZIP 应包含 ${fileName}`);
+    }
   });
 
   it('OpenAPI 导入请求体不得把 privateKeyPem 声明成响应或可日志化字段', async () => {
@@ -955,6 +1010,9 @@ describe('证书资产 API', () => {
   });
 });
 
+      if (item.format === 'pem') {
+        assert.equal(artifact!.contentType, 'application/zip', 'PEM 多内容导出必须返回 ZIP');
+      }
 async function createAuthorizedApp(actorId: string, exposeArtifacts = false) {
   const security = createSecurityServices();
   security.rbac.createPolicy({
@@ -1003,6 +1061,141 @@ async function createAuthorizedMigratedApp(actorId: string) {
 }
 
 async function createMigratedApp(actorId?: string, tenantId = 'tenant_1') {
+
+    const reusableFormat = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-version-formats',
+      headers: headers('user_export_real'),
+      body: {
+        format: 'pem',
+        containsPrivateKey: false,
+        parameters: { configName: '可复用导出配置', extension: 'pem', includeLeafCertificate: true },
+      },
+    });
+    assert.equal(reusableFormat.statusCode, 201, JSON.stringify(reusableFormat.body));
+    const beforeReusableExport = await app.inject({ method: 'GET', path: '/api/v1/certificate-version-formats', headers: headers('user_export_real') });
+    const generatedFromExisting = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-version-formats/export',
+      headers: headers('user_export_real'),
+      body: {
+        certificateFormatId: (reusableFormat.body as any).id,
+        certificateVersionId: versionId,
+        format: 'pem',
+      },
+    });
+    assert.equal(generatedFromExisting.statusCode, 201, JSON.stringify(generatedFromExisting.body));
+    assert.equal((generatedFromExisting.body as any).id, (reusableFormat.body as any).id, '按已有配置导出不得新建格式记录');
+    const afterReusableExport = await app.inject({ method: 'GET', path: '/api/v1/certificate-version-formats', headers: headers('user_export_real') });
+    assert.equal((afterReusableExport.body as any).total, (beforeReusableExport.body as any).total, '重复导出不得增加配置数量');
+
+    const generatedArtifact = await artifacts.get((generatedFromExisting.body as any).artifactRef, 'tenant_1');
+    assert.ok(generatedArtifact);
+    const downloaded = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-version-formats/download',
+      headers: headers('user_export_real'),
+      body: { artifactRef: (generatedFromExisting.body as any).artifactRef },
+    });
+    assert.equal(downloaded.statusCode, 200, JSON.stringify(downloaded.body));
+    assert.equal(downloaded.headers['content-type'], 'application/x-pem-file');
+    assert.equal(downloaded.headers['content-length'], String(generatedArtifact!.content.length));
+    assert.equal(downloaded.headers['x-artifact-sha256'], generatedArtifact!.sha256);
+    assert.ok(Buffer.isBuffer(downloaded.body));
+    assert.deepEqual(downloaded.body, generatedArtifact!.content);
+
+    const reusablePfx = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-version-formats',
+      headers: headers('user_export_real'),
+      body: {
+        format: 'pfx',
+        containsPrivateKey: true,
+        passwordSecretRef: password,
+        parameters: { configName: '可复用 PFX 配置', extension: 'pfx', alias: 'gcac-override' },
+      },
+    });
+    assert.equal(reusablePfx.statusCode, 201, JSON.stringify(reusablePfx.body));
+    const overridePassword = (await security.secrets.create({
+      tenantId: 'tenant_1',
+      name: '本次导出密码',
+      type: 'pfx_password',
+      scopeType: 'global',
+      plainText: 'override-export-password',
+      createdBy: 'user_export_real',
+    })).secretRef;
+    const overrideExport = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-version-formats/export',
+      headers: headers('user_export_real'),
+      body: {
+        certificateFormatId: (reusablePfx.body as any).id,
+        certificateVersionId: versionId,
+        format: 'pfx',
+        containsPrivateKey: true,
+        passwordSecretRef: overridePassword,
+      },
+    });
+    assert.equal(overrideExport.statusCode, 201, JSON.stringify(overrideExport.body));
+    const overrideArtifact = await artifacts.get((overrideExport.body as any).artifactRef, 'tenant_1');
+    assert.ok(overrideArtifact);
+    const overrideDecoded = new PfxCodec().decode({
+      pfxBase64: overrideArtifact!.content.toString('base64'),
+      pfxPassword: 'override-export-password',
+    });
+    assertContainerContent(overrideDecoded.certificatePem ?? '', overrideDecoded.privateKeyPem, expectedCertificates, expectedFingerprints, 'PFX override');
+    assert.throws(
+      () => new PfxCodec().decode({ pfxBase64: overrideArtifact!.content.toString('base64'), pfxPassword: 'export-password-123' }),
+      '本次导出密码应覆盖配置默认密码',
+    );
+
+    const reusableJks = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-version-formats',
+      headers: headers('user_export_real'),
+      body: {
+        format: 'jks',
+        containsPrivateKey: true,
+        passwordSecretRef: password,
+        parameters: { configName: '可复用 JKS 配置', extension: 'jks', alias: 'gcac-override' },
+      },
+    });
+    assert.equal(reusableJks.statusCode, 201, JSON.stringify(reusableJks.body));
+    const jksOverrideExport = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-version-formats/export',
+      headers: headers('user_export_real'),
+      body: {
+        certificateFormatId: (reusableJks.body as any).id,
+        certificateVersionId: versionId,
+        format: 'jks',
+        containsPrivateKey: true,
+        passwordSecretRef: overridePassword,
+      },
+    });
+    assert.equal(jksOverrideExport.statusCode, 201, JSON.stringify(jksOverrideExport.body));
+    const jksOverrideArtifact = await artifacts.get((jksOverrideExport.body as any).artifactRef, 'tenant_1');
+    assert.ok(jksOverrideArtifact);
+    const jksOverrideDecoded = parseJksKeystore(jksOverrideArtifact!.content, 'override-export-password', 'gcac-override');
+    assert.deepEqual(
+      jksOverrideDecoded.certificateDers.map(certificateFingerprint),
+      expectedCertificates.map((certificate) => certificateFingerprint(certificate)),
+      'JKS 本次导出必须保留完整证书链',
+    );
+    assertPrivateKeyMatchesLeaf(jksOverrideDecoded.privateKeyPem, expectedCertificates[0]!);
+    assert.throws(
+      () => parseJksKeystore(jksOverrideArtifact!.content, 'export-password-123', 'gcac-override'),
+      'JKS 本次导出密码应覆盖配置默认密码',
+    );
+
+    const invalidNamespace = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-version-formats/download',
+      headers: headers('user_export_real'),
+      body: { artifactRef: 'artifact://other-namespace/export' },
+    });
+    assert.ok([400, 422].includes(invalidNamespace.statusCode));
+
   const db = new PgliteDatabase();
   await runMigrations(db);
   if (!actorId) return createApp({ db, corePersistence: { mode: 'memory' } });

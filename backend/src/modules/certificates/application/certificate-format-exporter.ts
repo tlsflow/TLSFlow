@@ -12,6 +12,7 @@ export interface CertificateExportMaterial {
   leafDer: Buffer;
   chainDer: Buffer[];
   privateKeyPem?: string;
+  containsPrivateKey?: boolean;
   password?: string;
   parameters?: Record<string, unknown>;
 }
@@ -30,6 +31,7 @@ export interface GeneratedCertificateFormatArtifact {
 
 export interface GeneratedCertificateArtifactFile {
   key: string;
+  fileName?: string;
   role: 'public_certificate' | 'private_key' | 'certificate_chain' | 'bundle' | string;
   format: string;
   content?: string;
@@ -70,69 +72,76 @@ export class CertificateFormatExporter {
   private generatePem(input: CertificateExportMaterial): GeneratedCertificateFormatArtifact {
     const includeLeafCertificate = input.parameters?.includeLeafCertificate !== false;
     const includeCertificateChain = Boolean(input.parameters?.includeCertificateChain);
-    const includePrivateKey = Boolean(input.parameters?.includePrivateKey);
+    const includePrivateKey = input.parameters?.includePrivateKey === undefined
+      ? Boolean(input.containsPrivateKey)
+      : Boolean(input.parameters.includePrivateKey);
     const generateChainFile = Boolean(input.parameters?.generateChainFile);
     const generatePrivateKeyFile = Boolean(input.parameters?.generatePrivateKeyFile);
     const leafPem = toPem(input.leafDer);
     const chainPem = input.chainDer.map(toPem).join('\n');
     const privateKeyPem = input.privateKeyPem?.trimEnd();
-    const blocks: string[] = [];
-
-    if (includeLeafCertificate) blocks.push(leafPem);
-    if (includeCertificateChain && chainPem) blocks.push(chainPem);
-    if (includePrivateKey && privateKeyPem) blocks.push(privateKeyPem);
-    const bundle = `${blocks.join('\n')}\n`;
     const files: GeneratedCertificateArtifactFile[] = [];
     if (includeLeafCertificate) {
       files.push({
         key: 'public',
+        fileName: 'leaf.pem',
         role: 'public_certificate',
         format: 'pem',
         content: `${leafPem}\n`,
         contentEncoding: 'utf8',
       });
     }
-    if ((includeCertificateChain || generateChainFile) && chainPem) {
-      if (includeLeafCertificate) {
-        files.push({
-          key: 'fullchain',
-          role: 'public_certificate',
-          format: 'pem',
-          content: `${leafPem}\n${chainPem}\n`,
-          contentEncoding: 'utf8',
-        });
-      }
+    if (includeCertificateChain && chainPem) {
       files.push({
         key: 'chain',
+        fileName: 'chain.pem',
         role: 'certificate_chain',
         format: 'pem',
         content: `${chainPem}\n`,
         contentEncoding: 'utf8',
       });
     }
-    if ((includePrivateKey || generatePrivateKeyFile) && privateKeyPem) {
+    if (generateChainFile && chainPem) {
+      files.push({
+        key: 'chain-file',
+        fileName: 'chain-file.pem',
+        role: 'certificate_chain',
+        format: 'pem',
+        content: `${chainPem}\n`,
+        contentEncoding: 'utf8',
+      });
+    }
+    if (includePrivateKey && privateKeyPem) {
       files.push({
         key: 'private',
+        fileName: 'private-key.pem',
         role: 'private_key',
         format: 'pem',
         content: `${privateKeyPem}\n`,
         contentEncoding: 'utf8',
       });
     }
-    if (blocks.length > 0) {
+    if (generatePrivateKeyFile && privateKeyPem) {
       files.push({
-        key: 'bundle',
-        role: 'bundle',
+        key: 'private-key-file',
+        fileName: 'private-key-file.pem',
+        role: 'private_key',
         format: 'pem',
-        content: bundle,
+        content: `${privateKeyPem}\n`,
         contentEncoding: 'utf8',
       });
     }
+    if (files.length === 0) {
+      throw new AppError('VALIDATION_FAILED', 'PEM 导出至少需要选择一项证书内容', { format: 'pem' });
+    }
+    const content = files.length === 1
+      ? decodeArtifactFileContent(files[0]!)
+      : buildZipArchive(files);
 
     return {
       format: 'pem',
-      content: Buffer.from(bundle, 'utf8'),
-      contentType: 'application/x-pem-file',
+      content,
+      contentType: files.length === 1 ? 'application/x-pem-file' : 'application/zip',
       warnings: [],
       files,
     };
@@ -268,6 +277,88 @@ export class CertificateFormatExporter {
 function toPem(der: Buffer): string {
   const body = der.toString('base64').match(/.{1,64}/g)?.join('\n') ?? '';
   return `-----BEGIN CERTIFICATE-----\n${body}\n-----END CERTIFICATE-----`;
+}
+
+function decodeArtifactFileContent(file: GeneratedCertificateArtifactFile): Buffer {
+  if (file.contentEncoding === 'base64' && file.contentBase64) {
+    return Buffer.from(file.contentBase64, 'base64');
+  }
+  return Buffer.from(file.content ?? '', 'utf8');
+}
+
+/** 中文说明：使用 ZIP 的 Store 模式打包，避免引入额外依赖并保持证书文件字节不变。 */
+function buildZipArchive(files: GeneratedCertificateArtifactFile[]): Buffer {
+  const entries = files.map((file) => {
+    const fileName = sanitizeZipFileName(file.fileName ?? `${file.key}.${file.format}`);
+    return { fileName, name: Buffer.from(fileName, 'utf8'), content: decodeArtifactFileContent(file) };
+  });
+  const localParts: Buffer[] = [];
+  const centralParts: Buffer[] = [];
+  let offset = 0;
+  for (const entry of entries) {
+    const crc = crc32(entry.content);
+    const localHeader = Buffer.alloc(30);
+    localHeader.writeUInt32LE(0x04034b50, 0);
+    localHeader.writeUInt16LE(20, 4);
+    localHeader.writeUInt16LE(0, 6);
+    localHeader.writeUInt16LE(0, 8);
+    localHeader.writeUInt16LE(0, 10);
+    localHeader.writeUInt16LE(0, 12);
+    localHeader.writeUInt32LE(crc, 14);
+    localHeader.writeUInt32LE(entry.content.length, 18);
+    localHeader.writeUInt32LE(entry.content.length, 22);
+    localHeader.writeUInt16LE(entry.name.length, 26);
+    localHeader.writeUInt16LE(0, 28);
+    localParts.push(localHeader, entry.name, entry.content);
+
+    const centralHeader = Buffer.alloc(46);
+    centralHeader.writeUInt32LE(0x02014b50, 0);
+    centralHeader.writeUInt16LE(20, 4);
+    centralHeader.writeUInt16LE(20, 6);
+    centralHeader.writeUInt16LE(0, 8);
+    centralHeader.writeUInt16LE(0, 10);
+    centralHeader.writeUInt16LE(0, 12);
+    centralHeader.writeUInt16LE(0, 14);
+    centralHeader.writeUInt32LE(crc, 16);
+    centralHeader.writeUInt32LE(entry.content.length, 20);
+    centralHeader.writeUInt32LE(entry.content.length, 24);
+    centralHeader.writeUInt16LE(entry.name.length, 28);
+    centralHeader.writeUInt16LE(0, 30);
+    centralHeader.writeUInt16LE(0, 32);
+    centralHeader.writeUInt16LE(0, 34);
+    centralHeader.writeUInt16LE(0, 36);
+    centralHeader.writeUInt32LE(0, 38);
+    centralHeader.writeUInt32LE(offset, 42);
+    centralParts.push(centralHeader, entry.name);
+    offset += localHeader.length + entry.name.length + entry.content.length;
+  }
+  const centralDirectory = Buffer.concat(centralParts);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(0, 4);
+  end.writeUInt16LE(0, 6);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(centralDirectory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  end.writeUInt16LE(0, 20);
+  return Buffer.concat([...localParts, centralDirectory, end]);
+}
+
+function sanitizeZipFileName(value: string): string {
+  const normalized = value.replaceAll('\\', '/').replace(/^\/+/, '').replace(/\.\.\//g, '');
+  return normalized || 'certificate.pem';
+}
+
+function crc32(content: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of content) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
 }
 
 function readAlias(parameters: Record<string, unknown> | undefined): string | undefined {
