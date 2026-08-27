@@ -19,7 +19,7 @@ testRefs:
   - backend/src/modules/plugins/plugin-workflow-publisher.test.ts
   - backend/src/modules/plugins/plugin-form-and-presentation.test.ts
   - backend/src/modules/plugins/plugins-security.test.ts
-lastVerified: 2026-08-24
+lastVerified: 2026-08-26
 ---
 
 # 插件开发
@@ -121,6 +121,11 @@ docs/插件开发/<pluginId>/
 
 表单、展示和 Manifest 文案全部使用 Locale key。只要包含表单或展示，就必须提供 Locale。Logo 必须是两个 SVG：横向 `viewBox="0 0 72 48"`，方形 `viewBox="0 0 72 72"`；不能使用脚本、外链图片、动画或 `foreignObject`。
 
+Tomcat KeyStore 插件的密码字段必须声明为可选 Credential：优先使用 `PASSWORD`，兼容旧的
+`USERNAME_PASSWORD`；未绑定时由 Agent 从目标配置自动读取，显式值错误或无法读取时都必须失败关闭。
+密码不能写入发现事实、普通快照、Receipt、审计或日志；部署前还必须确认生成产物与目标现有 KeyStore
+使用同一密码。
+
 ### 5.2 表单
 
 设备和云账号优先复用标准字段。敏感信息使用 `credential_ref` 或 `secret_ref`，并声明允许的凭据种类、Secret 类型、作用域和目的。不要把密码设计成普通文本字段，也不要把 Token 放进默认值或占位符。
@@ -137,7 +142,7 @@ docs/插件开发/<pluginId>/
 
 应用接入配方使用 `gcac.application-onboarding/v1`，完整字段和校验规则见[宿主插件能力清单](./host-plugin-capabilities.md#应用接入配方-schema)。
 
-云账号不使用应用接入配方。云 Provider 必须声明 `assetKind=CLOUD_ACCOUNT` 的接入配方，提供 Form、Credential Contract、连接测试、发现能力和 CloudAccountAsset 提交目标。用户从资产中心“添加资产”或统一服务向导进入同一接入流程；云账号始终是独立领域对象，发现结果只投影为 Framework/Site，证书部署仍由独立工作流负责。`/providers` 从二级菜单移除，迁移期旧地址只跳转到统一入口。
+云账号不使用应用接入配方。云 Provider 必须声明 `assetKind=CLOUD_ACCOUNT` 的接入配方，提供 Form、Credential Contract、连接测试、发现能力、CloudAccountAsset 提交目标和平台卡片业务元数据（能力版本、支持范围、接入前需提供的信息）。用户从资产中心“添加资产”或统一服务向导进入同一接入流程；云账号始终是独立领域对象，发现结果只投影为 Framework/Site，证书部署仍由独立工作流负责。`/providers` 从二级菜单移除，迁移期旧地址只跳转到统一入口。
 
 ## 6. 编写 Workflow 或 Agent Plan
 

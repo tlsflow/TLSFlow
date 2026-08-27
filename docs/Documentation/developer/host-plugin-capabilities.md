@@ -43,7 +43,7 @@ testRefs:
   - backend/src/modules/application-onboarding/recipe/application-onboarding-recipe.test.ts
   - backend/src/modules/application-onboarding/controller/application-onboarding.controller.test.ts
   - backend/src/modules/agents/security/agent-security.contract.test.ts
-lastVerified: 2026-08-24
+lastVerified: 2026-08-26
 ---
 
 # 宿主插件能力清单
@@ -212,7 +212,7 @@ Manifest 固定根字段：
 | `locales` | Locale 文案资源 |
 | `discoveryMappings` | 控制面发现映射 |
 | `agentDiscoveryMappings` | Agent 发现映射 |
-| `onboarding` | 应用资产接入配方；云账号使用独立的 `assetKind=CLOUD_ACCOUNT` 接入配方，至少声明 Form、Credential Contract、连接测试、发现和 CloudAccountAsset 提交目标 |
+| `onboarding` | 应用资产接入配方；云账号使用独立的 `assetKind=CLOUD_ACCOUNT` 接入配方，至少声明 Form、Credential Contract、连接测试、发现、CloudAccountAsset 提交目标和平台卡片业务元数据 |
 
 包最多 500 个资源文件、总大小最多 20 MB。资源路径必须是包内相对路径；普通资源禁止 `.js/.mjs/.cjs/.ts/.tsx/.vue/.ps1/.sh/.bat/.cmd/.exe/.dll/.so/.dylib` 等可执行文件，只有固定 `runtime/index.js` 例外。Logo 禁止脚本、动画、外链、`foreignObject` 和外部图片。
 
@@ -288,6 +288,11 @@ Manifest 固定根字段：
 应用资产接入配方使用 `gcac.application-onboarding/v1`，由插件声明平台名称、支持状态、设备选择方式、新建设备入口、连接测试、身份识别、发现、目标投影、接受的证书格式、所需制品和提交来源。宿主只执行统一向导，不按厂商名称写分支。
 
 证书部署输入合同按变量、连接、凭据和 Artifact Slot 分组。证书 Artifact 的标准输出角色包括 `leafPem`、`privateKeyPem`、`orderedChainPem`、`fingerprintSha256`、`pfxBase64` 和 `pfxPassword`。插件声明所需格式和输出角色，宿主负责制品生成、密码、链顺序、指纹和 Grant；插件只负责目标侧上传、切换、刷新和回读。
+
+Tomcat `KEYSTORE` 插件的 `keystorePassword` 是可选 Credential Slot，只允许 `PASSWORD` 或兼容的
+`USERNAME_PASSWORD`。密码优先级固定为“显式 Credential → Agent 从授权的 `configPath` 自动读取 → 失败关闭”；
+显式 Credential 解析失败不得回退。Tomcat 运行材料不输出 `pfxPassword`，Agent 在写入前必须用同一密码打开
+目标现有 KeyStore 和待写入 Artifact，确保产物密码与 Tomcat 当前配置一致。
 
 ## 8. 明确不开放的能力
 
@@ -697,7 +702,9 @@ Artifact 是宿主生成并授权的不可变制品，不是插件自己拼接�
 }
 ```
 
-私钥、PFX 密码、Secret 和 Token 不能写入 Plan、Receipt、普通变量、Manifest、Binding 或日志；Runner 读取 Artifact 必须拥有 `artifact.read` Grant，读取 Secret 必须拥有用途明确的 `secret.resolve` Grant。
+私钥、PFX 密码、Secret 和 Token 不能写入 Plan、Receipt、普通变量、Manifest、Binding 或日志；Tomcat 的
+`keystorePassword` 只在执行期短暂注入，不进入发现事实或普通快照。Runner 读取 Artifact 必须拥有
+`artifact.read` Grant，读取 Secret 必须拥有用途明确的 `secret.resolve` Grant。
 
 ## 13. 完整 JSON Schema 与权威源码索引
 
