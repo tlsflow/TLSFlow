@@ -34,6 +34,7 @@ function createRouterForGateway() {
   return createRouter({
     history: createMemoryHistory(),
     routes: [
+      { path: '/gateways', component: { template: '<div />' } },
       { path: '/applications', component: { template: '<div />' } },
       { path: '/executions', component: { template: '<div />' } }
     ]
@@ -144,6 +145,23 @@ describe('GatewaysView', () => {
     expect(document.body.textContent).toContain('远程控制转发')
     expect(document.body.textContent).toContain('dmz-gateway')
     expect(document.body.textContent).toContain('DMZ')
+  })
+
+  it('从仪表盘进入时将在线状态带入网关列表请求', async () => {
+    const router = createRouterForGateway()
+    await router.push('/gateways?status=online')
+    await router.isReady()
+
+    mount(GatewaysView, {
+      global: {
+        plugins: [router]
+      }
+    })
+    await flushPromises()
+
+    expect(apiMocks.listGateways).toHaveBeenCalledWith(expect.objectContaining({
+      filters: { status: 'online' },
+    }))
   })
 
   it('探测网关可达性走后端 API，不伪造 dryRun 语义', async () => {

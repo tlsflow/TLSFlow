@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
 import {
@@ -49,6 +49,10 @@ const installTargets = ref('')
 const installPorts = ref('')
 const installSession = ref<InstallMaterialSession | null>(null)
 const { t } = useI18n()
+const route = useRoute?.() ?? { query: {} as Record<string, string | string[] | undefined> }
+const gatewayFilters = ref<Record<string, string>>({
+  status: typeof route.query.status === 'string' ? route.query.status : '',
+})
 
 const platformOptions = computed<Array<{ value: GatewayPlatform; label: string; description: string }>>(() => [
   { value: 'linux_go', label: t(gatewayPlatformProfiles.linux_go.labelKey), description: t('gateways.platforms.linuxSystemd.description') },
@@ -267,9 +271,23 @@ const config = computed<BusinessPageConfig>(() => ({
     { label: t('gateways.links.assets'), to: '/applications', queryKey: 'gatewayId', candidates: ['id', 'gatewayId'] },
     { label: t('gateways.links.executions'), to: '/executions', queryKey: 'gatewayId', candidates: ['id', 'gatewayId'] },
   ],
+  filters: [{
+    key: 'status',
+    label: t('gateways.columns.status'),
+    type: 'select',
+    options: [
+      { label: t('gateways.status.online'), value: 'online' },
+      { label: t('gateways.status.offline'), value: 'offline' },
+      { label: t('gateways.status.disabled'), value: 'disabled' },
+      { label: t('gateways.status.revoked'), value: 'revoked' },
+      { label: t('gateways.status.upgrading'), value: 'upgrading' },
+    ],
+  }],
+  filterValues: gatewayFilters.value,
+  onFiltersChange: (next) => { gatewayFilters.value = next },
   emptyTitle: t('gateways.empty.title'),
   emptyDescription: t('gateways.empty.description'),
-  load: (query) => listGateways({ ...query, sort: 'updatedAt:desc' }),
+  load: (query) => listGateways({ ...query, sort: 'updatedAt:desc', filters: gatewayFilters.value }),
   actions: [],
   rowActions: [
     {

@@ -13,7 +13,11 @@ import { readString, type ViewRow } from '@/composables/useBusinessPage'
 
 const { t } = useI18n()
 const route = useRoute?.() ?? { query: {} as Record<string, string | string[] | undefined> }
-const filters = ref<Record<string, string>>({})
+const filters = ref<Record<string, string>>({
+  category: readQueryString('category'),
+  managementMethod: readQueryString('managementMethod'),
+  health: readQueryString('health'),
+})
 const onboardingOpen = ref(false)
 const reloadKey = ref(0)
 const deviceDetailModal = ref<{ open: (deviceId: string) => Promise<void> } | null>(null)
@@ -31,6 +35,11 @@ const upgradeConfirmation = ref<{
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function readQueryString(key: string): string {
+  const value = route.query[key]
+  return typeof value === 'string' ? value : ''
 }
 
 async function loadDevices(query: { page: number; pageSize: number }) {
