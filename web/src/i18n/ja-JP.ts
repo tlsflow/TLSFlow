@@ -545,7 +545,10 @@ export default {
     currentGroupNavigation: '現在のグループナビゲーション',
     backDashboard: 'ダッシュボードへ戻る',
     sidebarCollapse: 'サイドバーを折りたたむ',
-    sidebarExpand: 'サイドバーを展開'
+    sidebarExpand: 'サイドバーを展開',
+    authorizationWarning: '有効な製品ライセンスがありません。製品ライセンスページで設定してください。',
+    authorizationWarningAction: 'ライセンス設定を開く',
+    authorizationWarningClose: 'ライセンス警告を閉じる'
   },
   globalSearch: {
     title: 'グローバル検索',

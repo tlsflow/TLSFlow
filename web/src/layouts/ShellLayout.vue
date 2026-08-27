@@ -5,6 +5,7 @@ import { useRoute, RouterLink, RouterView } from 'vue-router'
 import { useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import { changeCurrentUserPassword } from '@/api/modules/security.api'
+import { getLicensingStatus, type LicenseStatus } from '@/api/modules/licensing.api'
 import { GcExecutionDetailModal, GcModal } from '@/design-system/components'
 import { productBrand } from '@/brand/product-brand'
 import { localeLabels, supportedLocales, type SupportedLocale } from '@/i18n'
@@ -112,6 +113,8 @@ const passwordError = ref('')
 const passwordSuccess = ref('')
 const globalExecutionModalOpen = ref(false)
 const globalExecutionRow = ref<ViewRow | null>(null)
+const licensingStatus = ref<LicenseStatus | null>(null)
+const authorizationWarningDismissed = ref(false)
 const passwordForm = reactive({
   currentPassword: '',
   newPassword: '',
@@ -124,6 +127,12 @@ const currentThemeLabel = computed(() => appStore.theme === 'dark' ? t('preferen
 const currentLocaleLabel = computed(() => localeLabels[appStore.locale])
 const switchableTenants = computed(() => tenantStore.switchableTenants)
 const tenantSwitcherVisible = computed(() => tenantStore.hasTenantSwitcher)
+const hasValidLicense = computed(() => {
+  const status = licensingStatus.value
+  if (!status || status.integrityStatus !== 'verified' || !status.versionCompatible) return false
+  return status.state === 'active' || status.state === 'upgrade_grace' || status.state === 'grace'
+})
+const showAuthorizationWarning = computed(() => Boolean(licensingStatus.value) && !hasValidLicense.value && !authorizationWarningDismissed.value)
 let disposeTaskActivity: (() => void) | undefined
 let disposeTaskRealtime: (() => void) | undefined
 let toastSequence = 0
@@ -134,6 +143,19 @@ let sidebarCollapsedBeforeModal = false
 const toastTimers = new Map<number, number>()
 const executionTaskSuccessToastIds = new Set<string>()
 let disposeOpenDeploymentExecution: (() => void) | undefined
+
+async function loadLicensingStatus(): Promise<void> {
+  try {
+    const response = await getLicensingStatus()
+    if (response.data) licensingStatus.value = response.data
+  } catch {
+    // 中文说明：授权状态读取失败时不误报无授权，避免网络抖动遮挡整个工作台。
+  }
+}
+
+function closeAuthorizationWarning(): void {
+  authorizationWarningDismissed.value = true
+}
 
 const globalExecutionDetail = useExecutionDetail(globalExecutionRow, { t })
 
@@ -229,7 +251,11 @@ watch(mobileNavOpen, (opened) => {
   void nextTick(() => mobileNavCloseButton.value?.focus())
 })
 
-watch(() => route.path, () => closeMobileNav(false))
+watch(() => route.fullPath, () => {
+  closeMobileNav(false)
+  authorizationWarningDismissed.value = false
+  void loadLicensingStatus()
+})
 
 function iconPath(icon?: string): string {
   const paths: Record<string, string> = {
@@ -448,6 +474,7 @@ watch(activeChildren, (children) => {
 })
 
 onMounted(() => {
+  void loadLicensingStatus()
   if (typeof window.matchMedia === 'function') {
     mobileViewportQuery = window.matchMedia('(max-width: 60rem)')
     mobileViewportQuery.addEventListener('change', updateMobileViewport)
@@ -855,6 +882,23 @@ function removeToastNotice(id: number): void {
         </div>
       </header>
 
+      <div v-if="showAuthorizationWarning" class="gc-shell__authorization-warning" role="alert">
+        <span class="gc-shell__authorization-warning-icon" aria-hidden="true">!</span>
+        <span class="gc-shell__authorization-warning-message">{{ t('shell.authorizationWarning') }}</span>
+        <RouterLink class="gc-shell__authorization-warning-action" to="/settings/licensing">
+          {{ t('shell.authorizationWarningAction') }}
+        </RouterLink>
+        <button
+          class="gc-shell__authorization-warning-close"
+          type="button"
+          :aria-label="t('shell.authorizationWarningClose')"
+          :title="t('shell.authorizationWarningClose')"
+          @click="closeAuthorizationWarning"
+        >
+          <span aria-hidden="true">×</span>
+        </button>
+      </div>
+
     <main
       class="gc-shell__content gc-workbench__content"
       :class="{
@@ -986,6 +1030,92 @@ function removeToastNotice(id: number): void {
 
 .gc-workbench__content--dashboard {
   padding: 0;
+}
+
+.gc-shell__authorization-warning {
+  display: flex;
+  align-items: center;
+  gap: var(--gc-space-3);
+  width: 100%;
+  min-height: var(--gc-control-height-md);
+  padding: var(--gc-space-3) var(--gc-space-8);
+  color: var(--gc-color-text-inverse);
+  background: var(--gc-color-danger);
+  box-shadow: var(--gc-shadow-sm);
+}
+
+.gc-shell__authorization-warning-icon {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: var(--gc-space-6);
+  height: var(--gc-space-6);
+  border: var(--gc-border-width-default) solid currentColor;
+  border-radius: var(--gc-radius-full);
+  font-weight: var(--gc-font-weight-semibold);
+  line-height: 1;
+}
+
+.gc-shell__authorization-warning-message {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--gc-font-size-body);
+  font-weight: var(--gc-font-weight-semibold);
+}
+
+.gc-shell__authorization-warning-action {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-height: var(--gc-control-height-sm);
+  padding: 0 var(--gc-space-3);
+  border: var(--gc-border-width-default) solid currentColor;
+  border-radius: var(--gc-radius-control);
+  color: inherit;
+  font-size: var(--gc-font-size-sm);
+  font-weight: var(--gc-font-weight-semibold);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.gc-shell__authorization-warning-action:hover,
+.gc-shell__authorization-warning-action:focus-visible {
+  background: var(--gc-color-danger-border);
+}
+
+.gc-shell__authorization-warning-close {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: var(--gc-size-icon-button);
+  height: var(--gc-size-icon-button);
+  border: var(--gc-border-width-default) solid transparent;
+  border-radius: var(--gc-radius-control);
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  font-size: var(--gc-font-size-heading-xs);
+}
+
+.gc-shell__authorization-warning-close:hover,
+.gc-shell__authorization-warning-close:focus-visible {
+  border-color: currentColor;
+  background: var(--gc-color-danger-border);
+}
+
+@media (max-width: 60rem) {
+  .gc-shell__authorization-warning {
+    flex-wrap: wrap;
+    padding-inline: var(--gc-space-4);
+  }
+
+  .gc-shell__authorization-warning-message {
+    flex-basis: calc(100% - var(--gc-space-9));
+  }
+
+  .gc-shell__authorization-warning-action {
+    margin-left: calc(var(--gc-space-6) + var(--gc-space-3));
+  }
 }
 
 @media (max-width: 60rem) {

@@ -545,7 +545,10 @@ export default {
     currentGroupNavigation: 'Навигация текущей группы',
     backDashboard: 'Вернуться на панель мониторинга',
     sidebarCollapse: 'Свернуть боковую панель',
-    sidebarExpand: 'Развернуть боковую панель'
+    sidebarExpand: 'Развернуть боковую панель',
+    authorizationWarning: 'Действующая лицензия продукта не обнаружена. Откройте страницу лицензирования продукта для настройки.',
+    authorizationWarningAction: 'Открыть лицензирование',
+    authorizationWarningClose: 'Закрыть предупреждение о лицензии'
   },
   globalSearch: {
     title: 'Глобальный поиск',

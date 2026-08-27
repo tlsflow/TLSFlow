@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { defineComponent, h, nextTick, onMounted } from 'vue'
@@ -9,6 +9,13 @@ import { useAuthStore } from '@/stores/auth.store'
 import { usePermissionStore } from '@/stores/permission.store'
 import { useTenantStore } from '@/stores/tenant.store'
 import { TENANT_CONTEXT_CHANGED_EVENT } from '@/stores/tenant-context.events'
+import { getLicensingStatus } from '@/api/modules/licensing.api'
+
+vi.mock('@/api/modules/licensing.api', () => ({
+  getLicensingStatus: vi.fn(),
+}))
+
+const mockedGetLicensingStatus = vi.mocked(getLicensingStatus)
 
 function createTestRouter(dashboardComponent: object = { template: '<div />' }) {
   return createRouter({
@@ -29,6 +36,24 @@ function createTestRouter(dashboardComponent: object = { template: '<div />' }) 
 
 describe('ShellLayout', () => {
   beforeEach(() => {
+    mockedGetLicensingStatus.mockResolvedValue({
+      data: {
+        state: 'none',
+        integrityStatus: 'not_configured',
+        installationId: 'installation-1',
+        installationPublicKey: 'public-key',
+        deviceId: 'device-1',
+        productCode: 'gcac',
+        currentVersion: '1.0.0',
+        features: [],
+        quotas: { applicationAssets: null, managedTargets: null, concurrentExecutions: null, plugins: null },
+        versionCompatible: true,
+        lastClockAt: '2026-01-01T00:00:00.000Z',
+        clockRollbackDetected: false,
+      },
+      requestId: 'request-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+    })
     setActivePinia(createPinia())
     useAuthStore().setSession({
       user: {
@@ -90,6 +115,29 @@ describe('ShellLayout', () => {
     expect(wrapper.find('#gc-shell-hero-leading').exists()).toBe(false)
     expect(wrapper.find('#gc-shell-hero-actions').exists()).toBe(false)
     expect(wrapper.find('[data-test="page-content"]').exists()).toBe(true)
+  })
+
+  it('无授权时显示警告，关闭后切换页面会重新显示', async () => {
+    const router = createTestRouter()
+    await router.push('/dashboard')
+    await router.isReady()
+
+    const wrapper = mount(ShellLayout, {
+      global: {
+        plugins: [router, i18n],
+        stubs: { RouterLink: false, RouterView: { template: '<div />' } },
+      },
+    })
+
+    await flushPromises()
+    expect(wrapper.find('.gc-shell__authorization-warning').exists()).toBe(true)
+    expect(wrapper.get('.gc-shell__authorization-warning-action').attributes('href')).toBe('/settings/licensing')
+    await wrapper.get('.gc-shell__authorization-warning-close').trigger('click')
+    expect(wrapper.find('.gc-shell__authorization-warning').exists()).toBe(false)
+
+    await router.push('/certificates')
+    await nextTick()
+    expect(wrapper.find('.gc-shell__authorization-warning').exists()).toBe(true)
   })
 
   it('保留 activePaths 对子路由的定位能力', async () => {

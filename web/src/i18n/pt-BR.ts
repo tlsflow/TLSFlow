@@ -545,7 +545,10 @@ export default {
     currentGroupNavigation: 'Navegação do grupo atual',
     backDashboard: 'Voltar ao painel',
     sidebarCollapse: 'Recolher barra lateral',
-    sidebarExpand: 'Expandir barra lateral'
+    sidebarExpand: 'Expandir barra lateral',
+    authorizationWarning: 'Nenhuma licença de produto válida foi detectada. Abra a página de licenciamento do produto para configurá-la.',
+    authorizationWarningAction: 'Abrir licenciamento',
+    authorizationWarningClose: 'Fechar aviso de licenciamento'
   },
   globalSearch: {
     title: 'Pesquisa global',

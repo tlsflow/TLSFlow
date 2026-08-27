@@ -563,7 +563,10 @@ export default {
     currentGroupNavigation: 'Current group navigation',
     backDashboard: 'Back to dashboard',
     sidebarCollapse: 'Collapse sidebar',
-    sidebarExpand: 'Expand sidebar'
+    sidebarExpand: 'Expand sidebar',
+    authorizationWarning: 'No valid product license was detected. Open the Product Licensing page to configure one.',
+    authorizationWarningAction: 'Open licensing',
+    authorizationWarningClose: 'Close licensing warning'
   },
   globalSearch: {
     title: 'Global search',

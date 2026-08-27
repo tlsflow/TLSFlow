@@ -563,7 +563,10 @@ export default {
     currentGroupNavigation: '当前分组导航',
     backDashboard: '返回仪表盘',
     sidebarCollapse: '收起侧边栏',
-    sidebarExpand: '展开侧边栏'
+    sidebarExpand: '展开侧边栏',
+    authorizationWarning: '未检测到有效产品授权，请前往产品授权页面完成配置。',
+    authorizationWarningAction: '前往授权页面',
+    authorizationWarningClose: '关闭无授权警告'
   },
   globalSearch: {
     title: '全局搜索',

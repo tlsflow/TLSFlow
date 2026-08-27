@@ -544,7 +544,10 @@ export default {
     currentGroupNavigation: "目前分群組導航",
     backDashboard: "返回儀表板",
     sidebarCollapse: "收合側邊欄",
-    sidebarExpand: "展開側邊欄"
+    sidebarExpand: "展開側邊欄",
+    authorizationWarning: "未偵測到有效產品授權，請前往產品授權頁面完成設定。",
+    authorizationWarningAction: "前往授權頁面",
+    authorizationWarningClose: "關閉無授權警告"
   },
   globalSearch: {
     title: "全域搜尋",

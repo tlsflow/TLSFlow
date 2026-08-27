@@ -541,7 +541,10 @@ export default {
     currentGroupNavigation: 'Current group navigation',
     backDashboard: 'Back to dashboard',
     sidebarCollapse: 'Réduire la barre latérale',
-    sidebarExpand: 'Développer la barre latérale'
+    sidebarExpand: 'Développer la barre latérale',
+    authorizationWarning: 'Aucune licence produit valide n’a été détectée. Ouvrez la page Licences produit pour la configurer.',
+    authorizationWarningAction: 'Ouvrir les licences',
+    authorizationWarningClose: 'Fermer l’avertissement de licence'
   },
   globalSearch: {
     title: 'Recherche globale',

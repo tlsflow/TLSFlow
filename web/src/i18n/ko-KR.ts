@@ -545,7 +545,10 @@ export default {
     currentGroupNavigation: '현재 그룹 탐색',
     backDashboard: '대시보드로 돌아가기',
     sidebarCollapse: '사이드바 접기',
-    sidebarExpand: '사이드바 펼치기'
+    sidebarExpand: '사이드바 펼치기',
+    authorizationWarning: '유효한 제품 라이선스가 없습니다. 제품 라이선스 페이지에서 설정하세요.',
+    authorizationWarningAction: '라이선스 설정 열기',
+    authorizationWarningClose: '라이선스 경고 닫기'
   },
   globalSearch: {
     title: '전역 검색',
