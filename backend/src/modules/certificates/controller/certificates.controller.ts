@@ -375,9 +375,9 @@ export class CertificatesController {
     await this.assertCan(subject, 'certificate.format.create', 'certificate_version_format', request);
     return {
       statusCode: 201,
-        certificateFormatId: body.certificateFormatId === undefined ? undefined : String(body.certificateFormatId),
       body: await this.services.certificates.exportFormatArtifact({
         certificateVersionId: body.certificateVersionId === undefined ? undefined : String(body.certificateVersionId),
+        certificateFormatId: body.certificateFormatId === undefined ? undefined : String(body.certificateFormatId),
         format: body.format as any,
         containsPrivateKey: body.containsPrivateKey === undefined ? undefined : Boolean(body.containsPrivateKey),
         passwordSecretRef: body.passwordSecretRef === undefined ? undefined : String(body.passwordSecretRef),
@@ -387,6 +387,8 @@ export class CertificatesController {
         tenantId,
       }, this.securityContext(request, subject)),
     };
+  }
+
   private async downloadFormatArtifact(request: HttpRequest) {
     const body = validateObject(request.body, {
       artifactRef: { type: 'string', required: true },
@@ -407,12 +409,10 @@ export class CertificatesController {
     };
   }
 
-  }
-
   private readFormatExportBody(request: HttpRequest): Record<string, unknown> {
-      certificateFormatId: { type: 'string' },
     return validateObject(request.body, {
       certificateVersionId: { type: 'string' },
+      certificateFormatId: { type: 'string' },
       format: { type: 'string', required: true, enum: certificateFormats },
       containsPrivateKey: { type: 'boolean' },
       passwordSecretRef: { type: 'string' },
@@ -729,6 +729,8 @@ const importCertificateVersionRequestSchema = {
     name: { type: 'string' },
     tags: { type: 'array', items: { type: 'string' } },
   },
+};
+
 const downloadCertificateVersionFormatArtifactRequestSchema = {
   type: 'object',
   additionalProperties: false,
@@ -736,8 +738,6 @@ const downloadCertificateVersionFormatArtifactRequestSchema = {
   properties: {
     artifactRef: { type: 'string' },
   },
-};
-
 };
 
 export function getCertificateRouteContracts(): RouteContract[] {
@@ -760,9 +760,9 @@ export function getCertificateRouteContracts(): RouteContract[] {
     { method: 'DELETE', path: '/api/v1/certificate-versions/delete', operationId: 'deleteCertificateVersion', summary: '删除证书版本', tags: ['Certificates'], responseSchema: certificateVersionSchema },
     { method: 'POST', path: '/api/v1/certificate-versions/validate-import', operationId: 'validateImportCertificateVersion', summary: 'Validate certificate import material', tags: ['Certificates'], requestSchema: importCertificateVersionRequestSchema, responseSchema: { type: 'object', additionalProperties: true } },
     { method: 'GET', path: '/api/v1/certificate-version-formats', operationId: 'listCertificateVersionFormats', summary: '查询证书格式产物列表', tags: ['Certificates'], responseSchema: pageSchema },
-    { method: 'POST', path: '/api/v1/certificate-version-formats/download', operationId: 'downloadCertificateVersionFormatArtifact', summary: '下载证书格式导出产物', tags: ['Certificates'], requestSchema: downloadCertificateVersionFormatArtifactRequestSchema, responseContentType: 'application/octet-stream', responseSchema: { type: 'string', format: 'binary' } },
     { method: 'POST', path: '/api/v1/certificate-version-formats/export-plan', operationId: 'planCertificateVersionFormatExport', summary: '规划证书格式导出', tags: ['Certificates'], responseSchema: certificateVersionFormatSchema },
     { method: 'POST', path: '/api/v1/certificate-version-formats/export', operationId: 'exportCertificateVersionFormatArtifact', summary: '生成证书格式导出产物', tags: ['Certificates'], responseSchema: certificateVersionFormatSchema },
+    { method: 'POST', path: '/api/v1/certificate-version-formats/download', operationId: 'downloadCertificateVersionFormatArtifact', summary: '下载证书格式导出产物', tags: ['Certificates'], requestSchema: downloadCertificateVersionFormatArtifactRequestSchema, responseContentType: 'application/octet-stream', responseSchema: { type: 'string', format: 'binary' } },
     { method: 'POST', path: '/api/v1/certificate-version-formats', operationId: 'createCertificateVersionFormat', summary: '创建证书格式产物记录', tags: ['Certificates'], responseSchema: certificateVersionFormatSchema },
     { method: 'PATCH', path: '/api/v1/certificate-version-formats', operationId: 'updateCertificateVersionFormat', summary: '更新证书格式产物记录', tags: ['Certificates'], responseSchema: certificateVersionFormatSchema },
     { method: 'POST', path: '/api/v1/certificate-version-formats/delete', operationId: 'deleteCertificateVersionFormat', summary: '删除证书格式产物记录', tags: ['Certificates'], responseSchema: certificateVersionFormatSchema },

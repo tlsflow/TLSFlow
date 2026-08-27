@@ -22,27 +22,6 @@ function audit(input: Partial<AuditLogEntity>): AuditLogEntity {
 }
 
 describe('AuditPresentationService 业务摘要', () => {
-  it('将 CA 同步失败翻译为对象类型和业务错误', () => {
-    const result = presentAuditLog(audit({
-      eventType: 'ca.operations.sync.failed',
-      action: 'ca.operations.sync',
-      resourceType: 'caSyncRun',
-      resourceId: 'casync_internal_id',
-      actorId: 'system_ca_auto_sync',
-      result: 'failure',
-      detail: {
-        objectType: 'request',
-        errorCode: 'CA_SYNC_SOURCE_UNAVAILABLE',
-      },
-    }), emptyAuditPresentationContext());
-
-    assert.equal(result.presentation.kind, 'caSyncFailed');
-    assert.deepEqual(result.presentation.params, {
-      objectType: 'request',
-      errorCode: 'CA_SYNC_SOURCE_UNAVAILABLE',
-    });
-  });
-
   it('将任务类型翻译为后台任务用途', () => {
     const result = presentAuditLog(audit({
       eventType: 'task.created',
@@ -106,7 +85,7 @@ describe('AuditPresentationService 业务摘要', () => {
     assert.doesNotMatch(JSON.stringify(result.presentation.params), /sec_internal_id|secret:\/\//);
   });
 
-  it('展示层过滤 Secret、默认权限拒绝和 CA 同步过程，但保留权限阻断与同步失败', async () => {
+  it('展示层过滤 Secret 和默认权限拒绝，但保留显式权限阻断', async () => {
     const service = new AuditPresentationService({
       deploymentPlans: { getPlan: async () => undefined, listTargetsByPlan: async () => [] } as never,
       assets: { listServiceAssets: async () => ({ items: [], page: 1, pageSize: 1000, total: 0 }) } as never,
@@ -137,20 +116,6 @@ describe('AuditPresentationService 业务摘要', () => {
         detail: { reason: 'explicit deny' },
       }),
       audit({
-        id: 'aud_ca_started',
-        eventType: 'ca.operations.sync.started',
-        action: 'ca.operations.sync',
-        resourceType: 'caSyncRun',
-        result: 'success',
-      }),
-      audit({
-        id: 'aud_ca_failed',
-        eventType: 'ca.operations.sync.failed',
-        action: 'ca.operations.sync',
-        resourceType: 'caSyncRun',
-        result: 'failure',
-      }),
-      audit({
         id: 'aud_visible',
         eventType: 'task.created',
         action: 'task.create',
@@ -158,7 +123,7 @@ describe('AuditPresentationService 业务摘要', () => {
       }),
     ]);
 
-    assert.deepEqual(visible.map((item) => item.id), ['aud_permission_explicit', 'aud_ca_failed', 'aud_visible']);
+    assert.deepEqual(visible.map((item) => item.id), ['aud_permission_explicit', 'aud_visible']);
   });
 
   it('将外部登录翻译为身份源登录', () => {

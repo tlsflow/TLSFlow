@@ -72,7 +72,7 @@ export class AuthService {
     return new PgDocumentRepository<AuthBrowserSessionEntity>(AuthService.defaultDb, 'security.auth_browser_sessions');
   }
 
-  private readonly seedReady: Promise<void>;
+  private seedReady?: Promise<void>;
 
   constructor(
     private readonly rbac: RBACService,
@@ -84,15 +84,18 @@ export class AuthService {
     private readonly tenantContext?: TenantContextService,
   ) {
     // 生产环境首个管理员必须由初始化向导创建；旧的固定 admin 仅保留给测试和显式兼容开关。
-    this.seedReady = this.shouldSeedLegacyAdmin() ? this.seedDefaultAdmin() : Promise.resolve();
+    // 延迟到认证或显式就绪检查时播种，避免同步 createApp() 留下后台数据库写入。
   }
 
   async ensureReady(): Promise<void> {
+    if (!this.seedReady) {
+      this.seedReady = this.shouldSeedLegacyAdmin() ? this.seedDefaultAdmin() : Promise.resolve();
+    }
     await this.seedReady;
   }
 
   async login(input: { username: string; password: string }, context: RequestContext): Promise<AuthSessionResponse> {
-    await this.seedReady;
+    await this.ensureReady();
     const user = await this.rbac.findUserByUsername(input.username);
     const credential = user ? await this.credentials.get(user.id) : undefined;
     if (!user || !credential || !this.verifyPassword(input.password, credential)) {
@@ -145,7 +148,7 @@ export class AuthService {
   }
 
   async createBrowserSession(userId: string, context: RequestContext): Promise<AuthCookieSession> {
-    await this.seedReady;
+    await this.ensureReady();
     const user = await this.rbac.getUser(userId);
     if (!user || user.status !== 'active') {
       throw new AppError('AUTH_UNAUTHENTICATED', '\u5f53\u524d\u767b\u5f55\u72b6\u6001\u65e0\u6548');
@@ -179,7 +182,7 @@ export class AuthService {
   }
 
   async createUserWithPassword(input: Omit<UserEntity, 'createdAt' | 'updatedAt'> & { password: string }): Promise<UserEntity> {
-    await this.seedReady;
+    await this.ensureReady();
     const user = await this.rbac.createUser(input);
     await this.credentials.upsert(this.hashPassword(user.id, input.password));
     return user;
@@ -192,7 +195,7 @@ export class AuthService {
     locale: SupportedLocale;
     theme: ThemeMode;
   }): Promise<UserEntity> {
-    await this.seedReady;
+    await this.ensureReady();
     const users = await this.rbac.listUsers();
     if (users.length > 0) {
       throw new AppError('RESOURCE_ALREADY_EXISTS', '系统已经存在用户，不能重复创建首个管理员');
@@ -228,7 +231,7 @@ export class AuthService {
   }
 
   async changePassword(input: { userId: string; currentPassword: string; newPassword: string }, context: RequestContext): Promise<{ success: true }> {
-    await this.seedReady;
+    await this.ensureReady();
     if (input.newPassword.length < 8) {
       throw new AppError('VALIDATION_FAILED', '新密码长度不能少于 8 位', { field: 'newPassword' });
     }
@@ -256,7 +259,7 @@ export class AuthService {
   }
 
   async currentSession(userId: string): Promise<AuthSessionResponse> {
-    await this.seedReady;
+    await this.ensureReady();
     const user = await this.rbac.getUser(userId);
     if (!user || user.status !== 'active') {
       throw new AppError('AUTH_UNAUTHENTICATED', '\u5f53\u524d\u767b\u5f55\u72b6\u6001\u65e0\u6548');

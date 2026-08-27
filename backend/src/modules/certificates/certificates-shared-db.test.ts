@@ -92,6 +92,20 @@ describe('证书模块共享数据库回归', () => {
     );
   });
 
+  it('过期证书 Artifact 读取失败并清理残留记录', async () => {
+    const db = new PgliteDatabase();
+    await runMigrations(db);
+    const artifacts = new PgCertificateArtifactStore(db);
+    await artifacts.put({
+      tenantId: 'tenant-artifact-expiry', artifactRef: 'artifact://certificate-format/expired/test',
+      content: Buffer.from('expired'), contentType: 'application/octet-stream', createdBy: 'test',
+      expiresAt: new Date(Date.now() - 1000).toISOString(),
+    });
+    assert.equal(await artifacts.get('artifact://certificate-format/expired/test', 'tenant-artifact-expiry'), undefined);
+    assert.equal(Number((await db.query<{ count: string }>('select count(*)::text as count from pg_certificate_artifacts where tenant_id = $1', ['tenant-artifact-expiry'])).rows[0]?.count), 0);
+    await db.close();
+  });
+
   it('不同证书域名导入后应保留为独立资产和版本', async () => {
     const db = new PgliteDatabase();
     await runMigrations(db);

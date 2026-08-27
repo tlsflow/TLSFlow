@@ -12,9 +12,6 @@ import { isSuppressedAudit } from './audit-event-types.js';
 export type AuditPresentationKind =
   | 'generic'
   | 'deployment'
-  | 'caSyncStarted'
-  | 'caSyncCompleted'
-  | 'caSyncFailed'
   | 'permissionDenied'
   | 'taskCreated'
   | 'secretUsed'
@@ -162,23 +159,6 @@ export function buildAuditPresentation(log: AuditLogEntity, context: AuditPresen
           : 'execute';
       return { kind: 'deployment', params };
     }
-  }
-  if (log.eventType.startsWith('ca.operations.sync.')) {
-    params.objectType = readDetailString(log.detail, 'objectType') ?? '';
-    const readCount = readDetailNumber(log.detail, 'readCount');
-    const upsertedCount = readDetailNumber(log.detail, 'upsertedCount');
-    if (readCount !== undefined) params.readCount = readCount;
-    if (upsertedCount !== undefined) params.upsertedCount = upsertedCount;
-    const errorCode = readDetailString(log.detail, 'errorCode');
-    if (errorCode) params.errorCode = errorCode;
-    return {
-      kind: log.eventType.endsWith('.started')
-        ? 'caSyncStarted'
-        : log.eventType.endsWith('.completed')
-          ? 'caSyncCompleted'
-          : 'caSyncFailed',
-      params,
-    };
   }
   if (log.eventType === 'permission.denied') {
     const reason = readDetailString(log.detail, 'reason');

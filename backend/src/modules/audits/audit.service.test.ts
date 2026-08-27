@@ -108,7 +108,7 @@ describe('AuditService 审计权限过滤', () => {
     assert.equal(tenantAItems[0]?.tenantId, 'tenant_a');
   });
 
-  it('查询时过滤 Secret、默认权限拒绝和 CA 同步过程，但保留真实阻断与同步失败', async () => {
+  it('查询时过滤 Secret 和默认权限拒绝，但保留显式权限阻断', async () => {
     const db = new PgliteDatabase();
     try {
       const logs = new PgDocumentRepository<AuditLogEntity>(db, 'security.audit_logs');
@@ -171,36 +171,6 @@ describe('AuditService 审计权限过滤', () => {
       });
       await logs.create({
         ...base,
-        id: 'aud_ca_started',
-        eventType: 'ca.operations.sync.started',
-        action: 'ca.operations.sync',
-        resourceType: 'caSyncRun',
-        resourceId: 'casync_started',
-        result: 'success',
-        detail: { status: 'queued' },
-      });
-      await logs.create({
-        ...base,
-        id: 'aud_ca_completed',
-        eventType: 'ca.operations.sync.completed',
-        action: 'ca.operations.sync',
-        resourceType: 'caSyncRun',
-        resourceId: 'casync_completed',
-        result: 'success',
-        detail: { status: 'succeeded' },
-      });
-      await logs.create({
-        ...base,
-        id: 'aud_ca_failed',
-        eventType: 'ca.operations.sync.failed',
-        action: 'ca.operations.sync',
-        resourceType: 'caSyncRun',
-        resourceId: 'casync_failed',
-        result: 'failure',
-        detail: { errorCode: 'CA_SYNC_SOURCE_UNAVAILABLE' },
-      });
-      await logs.create({
-        ...base,
         id: 'aud_task',
         eventType: 'task.created',
         action: 'task.create',
@@ -212,7 +182,6 @@ describe('AuditService 审计权限过滤', () => {
 
       const visible = await audit.query();
       assert.deepEqual(visible.map((item) => item.id).sort(), [
-        'aud_ca_failed',
         'aud_permission_explicit',
         'aud_permission_tenant',
         'aud_task',
@@ -222,7 +191,7 @@ describe('AuditService 审计权限过滤', () => {
     }
   });
 
-  it('写入时只抑制默认拒绝和同步过程，保留显式拒绝与同步失败', async () => {
+  it('写入时只抑制默认拒绝，保留显式拒绝', async () => {
     const db = new PgliteDatabase();
     try {
       const logs = new PgDocumentRepository<AuditLogEntity>(db, 'security.audit_logs');
@@ -241,13 +210,10 @@ describe('AuditService 审计权限过滤', () => {
       await audit.write({ ...base, eventType: 'secret.used', result: 'success', resourceType: 'secret', action: 'secret.resolve.service', detail: { purpose: 'http.header' } });
       await audit.write({ ...base, eventType: 'permission.denied', detail: { reason: 'no allow policy' } });
       await audit.write({ ...base, eventType: 'permission.denied', resourceId: 'task_explicit', detail: { reason: 'explicit deny' } });
-      await audit.write({ ...base, eventType: 'ca.operations.sync.started', action: 'ca.operations.sync', resourceType: 'caSyncRun', resourceId: 'casync_started', result: 'success' });
-      await audit.write({ ...base, eventType: 'ca.operations.sync.failed', action: 'ca.operations.sync', resourceType: 'caSyncRun', resourceId: 'casync_failed', result: 'failure', detail: { errorCode: 'CA_SYNC_SOURCE_UNAVAILABLE' } });
-
       const persisted = await logs.list();
-      assert.deepEqual(persisted.map((item) => item.resourceId).sort(), ['casync_failed', 'task_explicit']);
+      assert.deepEqual(persisted.map((item) => item.resourceId).sort(), ['task_explicit']);
       const visible = await audit.query({ tenantId: 'tenant_write_test' });
-      assert.deepEqual(visible.map((item) => item.resourceId).sort(), ['casync_failed', 'task_explicit']);
+      assert.deepEqual(visible.map((item) => item.resourceId).sort(), ['task_explicit']);
     } finally {
       await db.close();
     }

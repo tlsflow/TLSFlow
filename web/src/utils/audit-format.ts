@@ -18,12 +18,9 @@ export interface AuditPresentation {
 }
 
 export function isSuppressedAudit(item: Pick<AuditDisplayItem, 'eventType' | 'resourceType' | 'detail'>): boolean {
-  const isCaSyncFailure = item.eventType === 'ca.operations.sync.failed'
   const permissionReason = readDetailString(item.detail, 'reason')
   return item.eventType === 'secret.used'
     || (item.eventType === 'permission.denied' && (permissionReason === 'no allow policy' || permissionReason === 'no object grant'))
-    || (item.eventType.startsWith('ca.operations.sync.') && !isCaSyncFailure)
-    || (item.resourceType === 'caSyncRun' && !isCaSyncFailure)
 }
 
 function readDetailString(detail: unknown, key: string): string | undefined {
@@ -109,7 +106,6 @@ const auditTypeLabelKeys: Record<string, string> = {
   service_asset: 'auditFormat.types.serviceAsset',
   binding: 'auditFormat.types.binding',
   task: 'auditFormat.types.execution',
-  caSyncRun: 'auditFormat.types.certificate',
   authSession: 'auditFormat.types.auth',
   authUser: 'auditFormat.types.auth',
   credential: 'auditFormat.types.secret',
@@ -180,7 +176,6 @@ const auditResourceLabelKeys: Record<string, string> = {
   binding: 'auditFormat.resources.binding',
   auditLog: 'auditFormat.resources.auditLog',
   task: 'auditFormat.resources.execution',
-  caSyncRun: 'auditFormat.resources.certificate',
   authSession: 'auditFormat.resources.auditLog',
   authUser: 'auditFormat.resources.auditLog',
   credential: 'auditFormat.resources.secret',
@@ -270,7 +265,7 @@ const tokenLabelKeys: Record<string, string> = {
 export function auditReadableTitle(item: AuditDisplayItem, t: Translate = defaultT): string {
   const key = auditActionTitleKeys[item.action] ?? auditEventTitleKeys[item.eventType]
   if (key) return t(key)
-  if (item.eventType.startsWith('ca.operations.sync.') || item.eventType.startsWith('internal_ca.')) return t('auditFormat.types.certificate')
+  if (item.eventType.startsWith('internal_ca.')) return t('auditFormat.types.certificate')
   if (item.eventType.startsWith('security.')) return t('auditFormat.types.security')
   if (item.eventType.startsWith('automation.')) return t('auditFormat.types.workflowTemplate')
   if (item.eventType.startsWith('task.')) return t('auditFormat.types.execution')
@@ -329,20 +324,6 @@ function localizedAuditPresentation(item: AuditDisplayItem, presentation: AuditP
         targetNames: formatTargetNames(t, params),
       })
     }
-    case 'caSyncStarted':
-      return t('auditFormat.summaries.caSyncStarted', { actor, objectType: translateCaObjectType(t, params.objectType) })
-    case 'caSyncCompleted':
-      return t('auditFormat.summaries.caSyncCompleted', {
-        actor,
-        objectType: translateCaObjectType(t, params.objectType),
-        counts: formatSyncCounts(t, params),
-      })
-    case 'caSyncFailed':
-      return t('auditFormat.summaries.caSyncFailed', {
-        actor,
-        objectType: translateCaObjectType(t, params.objectType),
-        reason: translateCaSyncError(t, params.errorCode),
-      })
     case 'permissionDenied':
       return t('auditFormat.summaries.permissionDenied', {
         actor,
@@ -409,13 +390,6 @@ function formatTargetNames(t: Translate, params: Record<string, unknown>): strin
     : visible
 }
 
-function formatSyncCounts(t: Translate, params: Record<string, unknown>): string {
-  const readCount = numberParam(params.readCount)
-  const upsertedCount = numberParam(params.upsertedCount)
-  if (readCount === undefined && upsertedCount === undefined) return ''
-  return t('auditFormat.syncCounts', { read: readCount ?? 0, upserted: upsertedCount ?? 0 })
-}
-
 function formatIdentitySyncCounts(t: Translate, params: Record<string, unknown>): string {
   const total = numberParam(params.total)
   if (total === undefined) return ''
@@ -425,22 +399,6 @@ function formatIdentitySyncCounts(t: Translate, params: Record<string, unknown>)
     updated: numberParam(params.updated) ?? 0,
     failed: numberParam(params.failed) ?? 0,
   })
-}
-
-function translateCaObjectType(t: Translate, value: unknown): string {
-  return translateCode(t, value, {
-    request: 'auditFormat.caObjects.request',
-    issuance: 'auditFormat.caObjects.issuance',
-    revocation: 'auditFormat.caObjects.revocation',
-    template: 'auditFormat.caObjects.template',
-  }, 'auditFormat.caObjects.data')
-}
-
-function translateCaSyncError(t: Translate, value: unknown): string {
-  return translateCode(t, value, {
-    CA_SYNC_SOURCE_UNAVAILABLE: 'auditFormat.caSyncErrors.sourceUnavailable',
-    RESOURCE_NOT_FOUND: 'auditFormat.caSyncErrors.resourceNotFound',
-  }, 'auditFormat.caSyncErrors.unknown')
 }
 
 function translateTaskType(t: Translate, value: unknown): string {

@@ -43,9 +43,6 @@ export const AUDIT_EVENT_TYPES = {
   CERTIFICATE_IMPORTED: 'certificate.imported',
   CA_OPERATIONS_RECORD_READ: 'ca.operations.record.read',
   CA_OPERATIONS_EXPORTED: 'ca.operations.exported',
-  CA_OPERATIONS_SYNC_STARTED: 'ca.operations.sync.started',
-  CA_OPERATIONS_SYNC_COMPLETED: 'ca.operations.sync.completed',
-  CA_OPERATIONS_SYNC_FAILED: 'ca.operations.sync.failed',
   CA_TEMPLATE_MAPPING_CREATED: 'ca.template.mapping.created',
   CA_TEMPLATE_MAPPING_UPDATED: 'ca.template.mapping.updated',
   CA_REQUEST_APPROVED: 'ca.request.approved',
@@ -67,13 +64,14 @@ export const AUDIT_EVENT_TYPES = {
   AUTOMATION_EXECUTED: 'automation.executed',
   AUTOMATION_STOPPED: 'automation.stopped',
   AUTOMATION_RETRIED: 'automation.retried',
+  AUTOMATION_EXTERNAL_API_KEY_ROTATED: 'automation.external_api_key.rotated',
 } as const;
 
 export type AuditEventType = (typeof AUDIT_EVENT_TYPES)[keyof typeof AUDIT_EVENT_TYPES];
 
 /**
  * 这些事件是高频执行细节或默认拒绝噪声，不进入长期审计列表。
- * CA 同步失败和有明确策略阻断原因的权限拒绝必须保留，便于定位真实故障。
+ * 有明确策略阻断原因的权限拒绝必须保留，便于定位真实故障。
  */
 export function isSuppressedAudit(input: {
   eventType?: unknown;
@@ -81,11 +79,9 @@ export function isSuppressedAudit(input: {
   detail?: unknown;
 }): boolean {
   const eventType = typeof input.eventType === 'string' ? input.eventType : '';
-  const isCaSyncFailure = eventType === AUDIT_EVENT_TYPES.CA_OPERATIONS_SYNC_FAILED;
   return eventType === AUDIT_EVENT_TYPES.SECRET_USED
     || isSuppressedPermissionDeniedAudit(input)
-    || (eventType.startsWith('ca.operations.sync.') && !isCaSyncFailure)
-    || (input.resourceType === 'caSyncRun' && !isCaSyncFailure);
+    ;
 }
 
 /** 默认拒绝表示没有命中任何允许策略，通常是列表探测产生的重复噪声。 */
@@ -131,5 +127,6 @@ export const HIGH_RISK_AUDIT_EVENTS = new Set<string>([
   AUDIT_EVENT_TYPES.DEPLOYMENT_ROLLBACK_REQUESTED,
   AUDIT_EVENT_TYPES.PLUGIN_INSTALLED,
   AUDIT_EVENT_TYPES.PLUGIN_PERMISSION_DENIED,
+  AUDIT_EVENT_TYPES.AUTOMATION_EXTERNAL_API_KEY_ROTATED,
   AUDIT_EVENT_TYPES.WORKFLOW_TEMPLATE_EXECUTED,
 ]);

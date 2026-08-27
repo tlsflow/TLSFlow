@@ -492,14 +492,6 @@ export class DashboardReadRepository {
            audit.payload->>'eventType' = 'permission.denied'
            and audit.payload->'detail'->>'reason' in ('no allow policy', 'no object grant')
          )
-         and not (
-           audit.payload->>'eventType' like 'ca.operations.sync.%'
-           and audit.payload->>'eventType' <> 'ca.operations.sync.failed'
-         )
-         and not (
-           audit.payload->>'resourceType' = 'caSyncRun'
-           and audit.payload->>'eventType' <> 'ca.operations.sync.failed'
-         )
        order by audit.updated_at desc
     `, [tenantId]);
     return result.rows.map((row) => ({ ...asRecord(row.payload), id: row.document_id }) as AuditLogEntity);

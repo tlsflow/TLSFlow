@@ -209,14 +209,6 @@ function appendSuppressedAuditCondition(conditions: string[]): void {
       payload->>'eventType' = 'permission.denied'
       and payload->'detail'->>'reason' in ('no allow policy', 'no object grant')
     )
-    or (
-      payload->>'eventType' like 'ca.operations.sync.%'
-      and payload->>'eventType' <> 'ca.operations.sync.failed'
-    )
-    or (
-      payload->>'resourceType' = 'caSyncRun'
-      and payload->>'eventType' <> 'ca.operations.sync.failed'
-    )
   )`);
 }
 

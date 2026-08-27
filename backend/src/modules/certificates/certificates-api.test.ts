@@ -812,6 +812,13 @@ describe('证书资产 API', () => {
     assert.ok(paths['/api/v1/certificate-version-formats']);
     assert.ok(paths['/api/v1/certificate-version-formats/export-plan']);
     assert.ok(paths['/api/v1/certificate-version-formats/export']);
+    const downloadOperation = paths['/api/v1/certificate-version-formats/download']?.post;
+    assert.ok(downloadOperation, '证书格式产物下载路由必须存在');
+    assert.deepEqual(
+      downloadOperation.requestBody?.content?.['application/json']?.schema?.required,
+      ['artifactRef'],
+      '证书格式产物下载必须声明 artifactRef 为必填请求字段',
+    );
     assert.ok(paths['/api/v1/certificate-sources/mock-sync']);
   });
 
@@ -937,13 +944,6 @@ describe('证书资产 API', () => {
         headers: headers('user_export_real'),
         body: {
           certificateVersionId: versionId,
-    const downloadOperation = paths['/api/v1/certificate-version-formats/download']?.post;
-    assert.ok(downloadOperation, '证书格式产物下载路由必须存在');
-    assert.deepEqual(
-      downloadOperation.requestBody?.content?.['application/json']?.schema?.required,
-      ['artifactRef'],
-      '证书格式产物下载必须声明 artifactRef 为必填请求字段',
-    );
           format: item.format,
           containsPrivateKey: item.containsPrivateKey,
           passwordSecretRef: item.passwordSecretRef,
@@ -958,6 +958,9 @@ describe('证书资产 API', () => {
       assert.ok(artifact!.content.length > 0, `${item.format} artifact 不能是空文件`);
       assert.equal(JSON.stringify(body).includes('export-password-123'), false);
       assert.equal(JSON.stringify(body).includes('BEGIN PRIVATE KEY'), false);
+      if (item.format === 'pem') {
+        assert.equal(artifact!.contentType, 'application/zip', 'PEM 多内容导出必须返回 ZIP');
+      }
       if (item.format === 'pfx') {
         const pfx = forge.pkcs12.pkcs12FromAsn1(
           forge.asn1.fromDer(artifact!.content.toString('binary'), true),
@@ -1006,168 +1009,6 @@ describe('证书资产 API', () => {
         p7bContent ??= artifact!.content;
       }
     }
-    assert.ok(p7bContent, 'P7B 导出必须产生可供导入验证的制品');
-    const { app: p7bImportApp } = await createAuthorizedApp('user_p7b_import');
-    const p7bImported = await p7bImportApp.inject({
-      method: 'POST',
-      path: '/api/v1/certificate-versions/import',
-      headers: headers('user_p7b_import'),
-      body: {
-        declaredFormat: 'p7b',
-        p7bBase64: p7bContent.toString('base64'),
-        privateKeyPem: chain.privateKeyPem,
-      },
-    });
-    assert.equal(p7bImported.statusCode, 201, `P7B 加上匹配私钥应由宿主导入：${JSON.stringify(p7bImported.body)}`);
-    assert.equal((p7bImported.body as any).diagnostics.sourceFormat, 'p7b');
-
-    const { app: missingKeyApp } = await createAuthorizedApp('user_p7b_missing_key');
-    const missingKey = await missingKeyApp.inject({
-      method: 'POST',
-      path: '/api/v1/certificate-versions/import',
-      headers: headers('user_p7b_missing_key'),
-      body: { declaredFormat: 'p7b', p7bBase64: p7bContent.toString('base64') },
-    });
-    assert.equal(missingKey.statusCode, 201, JSON.stringify(missingKey.body));
-    assert.equal((missingKey.body as any).version.hasPrivateKey, false);
-    assert.equal((missingKey.body as any).version.deployable, false, 'P7B 仅证书导入只能形成不可部署版本');
-
-    const { app: mismatchedKeyApp } = await createAuthorizedApp('user_p7b_mismatched_key');
-    const mismatchedKey = await mismatchedKeyApp.inject({
-      method: 'POST',
-      path: '/api/v1/certificate-versions/import',
-      headers: headers('user_p7b_mismatched_key'),
-      body: {
-        declaredFormat: 'p7b',
-        p7bBase64: p7bContent.toString('base64'),
-        privateKeyPem: createCertificateTestFixture('alternate').privateKeyPem,
-      },
-    });
-    assert.ok([400, 422].includes(mismatchedKey.statusCode), JSON.stringify(mismatchedKey.body));
-    const mismatchedKeyAssets = await mismatchedKeyApp.inject({ method: 'GET', path: '/api/v1/certificate-assets', headers: headers('user_p7b_mismatched_key') });
-    assert.equal((mismatchedKeyAssets.body as any).total, 0, 'P7B 私钥不匹配时不得写入半成品');
-  });
-
-  it('PEM 多内容导出按内容生成 ZIP 文件，不附带无关 bundle 或 fullchain', () => {
-    const generated = new CertificateFormatExporter().generate('pem', {
-      version: {} as any,
-      leafDer: Buffer.from('leaf-certificate-der'),
-      chainDer: [Buffer.from('intermediate-certificate-der'), Buffer.from('root-certificate-der')],
-      privateKeyPem: '-----BEGIN PRIVATE KEY-----\nmock\n-----END PRIVATE KEY-----',
-      parameters: {
-        includeLeafCertificate: true,
-        includeCertificateChain: true,
-        includePrivateKey: true,
-      },
-    });
-
-    const files = new Map(generated.files.map((file) => [file.key, file]));
-    assert.deepEqual([...files.keys()].sort(), ['chain', 'private', 'public']);
-    assert.equal(files.get('public')?.fileName, 'leaf.pem');
-    assert.equal(files.get('chain')?.fileName, 'chain.pem');
-    assert.equal(files.get('private')?.fileName, 'private-key.pem');
-    assert.equal(generated.contentType, 'application/zip');
-    assert.equal(generated.content.subarray(0, 4).toString('hex'), '504b0304');
-    assert.match(files.get('chain')?.content ?? '', /BEGIN CERTIFICATE/);
-    assert.equal((files.get('chain')?.content ?? '').includes('BEGIN PRIVATE KEY'), false);
-  });
-
-  it('PEM 导出严格保留每个 Contents 对应的文件', () => {
-    const generated = new CertificateFormatExporter().generate('pem', {
-      version: {} as any,
-      leafDer: Buffer.from('leaf-certificate-der'),
-      chainDer: [Buffer.from('intermediate-certificate-der')],
-      privateKeyPem: '-----BEGIN PRIVATE KEY-----\nmock\n-----END PRIVATE KEY-----',
-      parameters: {
-        includeLeafCertificate: true,
-        includeCertificateChain: true,
-        includePrivateKey: true,
-        generateChainFile: true,
-        generatePrivateKeyFile: true,
-      },
-    });
-
-    assert.deepEqual(generated.files.map((file) => file.key), ['public', 'chain', 'chain-file', 'private', 'private-key-file']);
-    assert.deepEqual(generated.files.map((file) => file.fileName), [
-      'leaf.pem',
-      'chain.pem',
-      'chain-file.pem',
-      'private-key.pem',
-      'private-key-file.pem',
-    ]);
-    assert.equal(generated.contentType, 'application/zip');
-    const zipContent = generated.content.toString('utf8');
-    for (const fileName of ['leaf.pem', 'chain.pem', 'chain-file.pem', 'private-key.pem', 'private-key-file.pem']) {
-      assert.ok(zipContent.includes(fileName), `ZIP 应包含 ${fileName}`);
-    }
-  });
-
-  it('OpenAPI 导入请求体不得把 privateKeyPem 声明成响应或可日志化字段', async () => {
-    const { app } = await createAuthorizedApp('user_openapi_redaction');
-    const response = await app.inject({ method: 'GET', path: '/api/v1/openapi.json', headers: headers('user_openapi_redaction') });
-    assert.equal(response.statusCode, 200);
-    const importOperation = (response.body as any).paths['/api/v1/certificate-versions/import'].post;
-    assert.ok(importOperation.requestBody, '导入接口必须声明 requestBody，不能用 additionalProperties 糊弄');
-    const operationJson = JSON.stringify(importOperation);
-    assert.equal(operationJson.includes('"privateKeyPem"'), true);
-    assert.equal(operationJson.includes('"writeOnly":true'), true);
-    assert.equal(operationJson.includes('"x-sensitive":true'), true);
-    assert.equal(JSON.stringify(importOperation.responses ?? {}).includes('privateKeyPem'), false);
-    assert.equal(JSON.stringify(importOperation.responses ?? {}).includes('privateKeySecretRef'), false);
-  });
-});
-
-      if (item.format === 'pem') {
-        assert.equal(artifact!.contentType, 'application/zip', 'PEM 多内容导出必须返回 ZIP');
-      }
-async function createAuthorizedApp(actorId: string, exposeArtifacts = false) {
-  const security = createSecurityServices();
-  security.rbac.createPolicy({
-    subjectType: 'user',
-    subjectId: actorId,
-    effect: 'allow',
-    actions: ['*'],
-    resourceTypes: ['*'],
-    scope: { tenantId: 'tenant_1' },
-  });
-  for (const action of ['certificate.read', 'certificate.create', 'certificate.import', 'certificate.format.create', 'certificate.lifecycle']) {
-    security.rbac.createPolicy({
-      subjectType: 'user',
-      subjectId: actorId,
-      effect: 'allow',
-      actions: [action],
-      resourceTypes: ['certificate_asset', 'certificate_version', 'certificate_version_format'],
-      scope: { tenantId: 'tenant_1' },
-    });
-  }
-  const db = new PgliteDatabase();
-  await runMigrations(db);
-  if (!exposeArtifacts) return { app: configureTestAuth(createApp({ db, corePersistence: { mode: 'memory' }, security })), security, artifacts: undefined as unknown as PgCertificateArtifactStore };
-  const artifacts = new PgCertificateArtifactStore(db);
-  const certificates = new CertificatesApplicationService({ db, secrets: security.secrets, audit: security.audit, artifacts });
-  return { app: configureTestAuth(createApp({ db, corePersistence: { mode: 'memory' }, security, certificates: { certificates } })), security, artifacts };
-}
-
-async function createAuthorizedMigratedApp(actorId: string) {
-  const security = createSecurityServices();
-  for (const action of ['certificate.read', 'certificate.create', 'certificate.import', 'certificate.format.create', 'certificate.lifecycle']) {
-    security.rbac.createPolicy({
-      subjectType: 'user',
-      subjectId: actorId,
-      effect: 'allow',
-      actions: [action],
-      resourceTypes: ['certificate_asset', 'certificate_version', 'certificate_version_format'],
-      scope: { tenantId: 'tenant_1' },
-    });
-  }
-  const db = new PgliteDatabase();
-  await runMigrations(db);
-  const artifacts = new PgCertificateArtifactStore(db);
-  const certificates = new CertificatesApplicationService({ db, secrets: security.secrets, audit: security.audit, artifacts });
-  return { app: configureTestAuth(createApp({ db, corePersistence: { mode: 'memory' }, security, certificates: { certificates } })), security, artifacts };
-}
-
-async function createMigratedApp(actorId?: string, tenantId = 'tenant_1') {
 
     const reusableFormat = await app.inject({
       method: 'POST',
@@ -1303,6 +1144,165 @@ async function createMigratedApp(actorId?: string, tenantId = 'tenant_1') {
     });
     assert.ok([400, 422].includes(invalidNamespace.statusCode));
 
+    assert.ok(p7bContent, 'P7B 导出必须产生可供导入验证的制品');
+    const { app: p7bImportApp } = await createAuthorizedApp('user_p7b_import');
+    const p7bImported = await p7bImportApp.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers: headers('user_p7b_import'),
+      body: {
+        declaredFormat: 'p7b',
+        p7bBase64: p7bContent.toString('base64'),
+        privateKeyPem: chain.privateKeyPem,
+      },
+    });
+    assert.equal(p7bImported.statusCode, 201, `P7B 加上匹配私钥应由宿主导入：${JSON.stringify(p7bImported.body)}`);
+    assert.equal((p7bImported.body as any).diagnostics.sourceFormat, 'p7b');
+
+    const { app: missingKeyApp } = await createAuthorizedApp('user_p7b_missing_key');
+    const missingKey = await missingKeyApp.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers: headers('user_p7b_missing_key'),
+      body: { declaredFormat: 'p7b', p7bBase64: p7bContent.toString('base64') },
+    });
+    assert.equal(missingKey.statusCode, 201, JSON.stringify(missingKey.body));
+    assert.equal((missingKey.body as any).version.hasPrivateKey, false);
+    assert.equal((missingKey.body as any).version.deployable, false, 'P7B 仅证书导入只能形成不可部署版本');
+
+    const { app: mismatchedKeyApp } = await createAuthorizedApp('user_p7b_mismatched_key');
+    const mismatchedKey = await mismatchedKeyApp.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers: headers('user_p7b_mismatched_key'),
+      body: {
+        declaredFormat: 'p7b',
+        p7bBase64: p7bContent.toString('base64'),
+        privateKeyPem: createCertificateTestFixture('alternate').privateKeyPem,
+      },
+    });
+    assert.ok([400, 422].includes(mismatchedKey.statusCode), JSON.stringify(mismatchedKey.body));
+    const mismatchedKeyAssets = await mismatchedKeyApp.inject({ method: 'GET', path: '/api/v1/certificate-assets', headers: headers('user_p7b_mismatched_key') });
+    assert.equal((mismatchedKeyAssets.body as any).total, 0, 'P7B 私钥不匹配时不得写入半成品');
+  });
+
+  it('PEM 多内容导出按内容生成 ZIP 文件，不附带无关 bundle 或 fullchain', () => {
+    const generated = new CertificateFormatExporter().generate('pem', {
+      version: {} as any,
+      leafDer: Buffer.from('leaf-certificate-der'),
+      chainDer: [Buffer.from('intermediate-certificate-der'), Buffer.from('root-certificate-der')],
+      privateKeyPem: '-----BEGIN PRIVATE KEY-----\nmock\n-----END PRIVATE KEY-----',
+      parameters: {
+        includeLeafCertificate: true,
+        includeCertificateChain: true,
+        includePrivateKey: true,
+      },
+    });
+
+    const files = new Map(generated.files.map((file) => [file.key, file]));
+    assert.deepEqual([...files.keys()].sort(), ['chain', 'private', 'public']);
+    assert.equal(files.get('public')?.fileName, 'leaf.pem');
+    assert.equal(files.get('chain')?.fileName, 'chain.pem');
+    assert.equal(files.get('private')?.fileName, 'private-key.pem');
+    assert.equal(generated.contentType, 'application/zip');
+    assert.equal(generated.content.subarray(0, 4).toString('hex'), '504b0304');
+    assert.match(files.get('chain')?.content ?? '', /BEGIN CERTIFICATE/);
+    assert.equal((files.get('chain')?.content ?? '').includes('BEGIN PRIVATE KEY'), false);
+  });
+
+  it('PEM 导出严格保留每个 Contents 对应的文件', () => {
+    const generated = new CertificateFormatExporter().generate('pem', {
+      version: {} as any,
+      leafDer: Buffer.from('leaf-certificate-der'),
+      chainDer: [Buffer.from('intermediate-certificate-der')],
+      privateKeyPem: '-----BEGIN PRIVATE KEY-----\nmock\n-----END PRIVATE KEY-----',
+      parameters: {
+        includeLeafCertificate: true,
+        includeCertificateChain: true,
+        includePrivateKey: true,
+        generateChainFile: true,
+        generatePrivateKeyFile: true,
+      },
+    });
+
+    assert.deepEqual(generated.files.map((file) => file.key), ['public', 'chain', 'chain-file', 'private', 'private-key-file']);
+    assert.deepEqual(generated.files.map((file) => file.fileName), [
+      'leaf.pem',
+      'chain.pem',
+      'chain-file.pem',
+      'private-key.pem',
+      'private-key-file.pem',
+    ]);
+    assert.equal(generated.contentType, 'application/zip');
+    const zipContent = generated.content.toString('utf8');
+    for (const fileName of ['leaf.pem', 'chain.pem', 'chain-file.pem', 'private-key.pem', 'private-key-file.pem']) {
+      assert.ok(zipContent.includes(fileName), `ZIP 应包含 ${fileName}`);
+    }
+  });
+
+  it('OpenAPI 导入请求体不得把 privateKeyPem 声明成响应或可日志化字段', async () => {
+    const { app } = await createAuthorizedApp('user_openapi_redaction');
+    const response = await app.inject({ method: 'GET', path: '/api/v1/openapi.json', headers: headers('user_openapi_redaction') });
+    assert.equal(response.statusCode, 200);
+    const importOperation = (response.body as any).paths['/api/v1/certificate-versions/import'].post;
+    assert.ok(importOperation.requestBody, '导入接口必须声明 requestBody，不能用 additionalProperties 糊弄');
+    const operationJson = JSON.stringify(importOperation);
+    assert.equal(operationJson.includes('"privateKeyPem"'), true);
+    assert.equal(operationJson.includes('"writeOnly":true'), true);
+    assert.equal(operationJson.includes('"x-sensitive":true'), true);
+    assert.equal(JSON.stringify(importOperation.responses ?? {}).includes('privateKeyPem'), false);
+    assert.equal(JSON.stringify(importOperation.responses ?? {}).includes('privateKeySecretRef'), false);
+  });
+});
+
+async function createAuthorizedApp(actorId: string, exposeArtifacts = false) {
+  const security = createSecurityServices();
+  security.rbac.createPolicy({
+    subjectType: 'user',
+    subjectId: actorId,
+    effect: 'allow',
+    actions: ['*'],
+    resourceTypes: ['*'],
+    scope: { tenantId: 'tenant_1' },
+  });
+  for (const action of ['certificate.read', 'certificate.create', 'certificate.import', 'certificate.format.create', 'certificate.lifecycle']) {
+    security.rbac.createPolicy({
+      subjectType: 'user',
+      subjectId: actorId,
+      effect: 'allow',
+      actions: [action],
+      resourceTypes: ['certificate_asset', 'certificate_version', 'certificate_version_format'],
+      scope: { tenantId: 'tenant_1' },
+    });
+  }
+  const db = new PgliteDatabase();
+  await runMigrations(db);
+  if (!exposeArtifacts) return { app: configureTestAuth(createApp({ db, corePersistence: { mode: 'memory' }, security })), security, artifacts: undefined as unknown as PgCertificateArtifactStore };
+  const artifacts = new PgCertificateArtifactStore(db);
+  const certificates = new CertificatesApplicationService({ db, secrets: security.secrets, audit: security.audit, artifacts });
+  return { app: configureTestAuth(createApp({ db, corePersistence: { mode: 'memory' }, security, certificates: { certificates } })), security, artifacts };
+}
+
+async function createAuthorizedMigratedApp(actorId: string) {
+  const security = createSecurityServices();
+  for (const action of ['certificate.read', 'certificate.create', 'certificate.import', 'certificate.format.create', 'certificate.lifecycle']) {
+    security.rbac.createPolicy({
+      subjectType: 'user',
+      subjectId: actorId,
+      effect: 'allow',
+      actions: [action],
+      resourceTypes: ['certificate_asset', 'certificate_version', 'certificate_version_format'],
+      scope: { tenantId: 'tenant_1' },
+    });
+  }
+  const db = new PgliteDatabase();
+  await runMigrations(db);
+  const artifacts = new PgCertificateArtifactStore(db);
+  const certificates = new CertificatesApplicationService({ db, secrets: security.secrets, audit: security.audit, artifacts });
+  return { app: configureTestAuth(createApp({ db, corePersistence: { mode: 'memory' }, security, certificates: { certificates } })), security, artifacts };
+}
+
+async function createMigratedApp(actorId?: string, tenantId = 'tenant_1') {
   const db = new PgliteDatabase();
   await runMigrations(db);
   if (!actorId) return createApp({ db, corePersistence: { mode: 'memory' } });

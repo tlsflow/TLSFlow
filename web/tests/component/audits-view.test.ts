@@ -192,7 +192,7 @@ describe('AuditsView', () => {
     expect(items[1]).toContain('用户登录')
   })
 
-  it('防御性隐藏 Secret、默认权限拒绝和 CA 同步过程，但保留权限阻断与同步失败', async () => {
+  it('防御性隐藏 Secret 和默认权限拒绝，但保留权限阻断与其他失败', async () => {
     apiMocks.listAudits.mockResolvedValue({
       data: {
         items: [
@@ -232,29 +232,19 @@ describe('AuditsView', () => {
             createdAt: '2026-08-18T01:30:00.000Z',
           },
           {
-            id: 'ca-sync-started',
-            eventType: 'ca.operations.sync.started',
+            id: 'agent-observation-failed',
+            eventType: 'agent.observation.failed',
             actorType: 'system',
-            actorId: 'system_ca_auto_sync',
-            action: 'ca.operations.sync',
-            resourceType: 'caSyncRun',
-            result: 'success',
-            createdAt: '2026-08-18T01:15:00.000Z',
-          },
-          {
-            id: 'ca-sync-failed',
-            eventType: 'ca.operations.sync.failed',
-            actorType: 'system',
-            actorId: 'system_ca_auto_sync',
-            action: 'ca.operations.sync',
-            resourceType: 'caSyncRun',
+            actorId: 'agent-observation',
+            action: 'agent.observe',
+            resourceType: 'agent',
             result: 'failure',
             createdAt: '2026-08-18T01:00:00.000Z',
           },
         ],
         page: 1,
         pageSize: 50,
-        total: 3,
+        total: 4,
       },
       requestId: 'req_audits',
       timestamp: '2026-08-18T03:00:00.000Z',
