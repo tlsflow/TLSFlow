@@ -12,6 +12,19 @@ import ApplicationOnboardingModal from '@/views/application-onboarding/Applicati
 import ManagedDeviceDetailModal from './details/ManagedDeviceDetailModal.vue'
 import { readString, type ViewRow } from '@/composables/useBusinessPage'
 
+const PRODUCT_FAMILY_LABEL_KEYS: Readonly<Record<string, string>> = {
+  'agent_host': 'devices.products.agentHost',
+  'windows_compatibility': 'devices.products.windowsCompatibility',
+  'device.chaitin-safeline-waf': 'devices.products.chaitinSafelineWaf',
+  'device.f5.bigip': 'devices.products.f5BigIp',
+  'device.synology-dsm': 'devices.products.synologyDsm',
+  'device.nginx-proxy-manager': 'devices.products.nginxProxyManager',
+  'citrix.netscaler-adc': 'devices.products.citrixAdc',
+  'device.citrix.netscaler-adc': 'devices.products.citrixAdc',
+  'cloud.aliyun': 'devices.products.aliyunCdn',
+  'cloud.aliyun.cdn': 'devices.products.aliyunCdn',
+}
+
 const { t } = useI18n()
 const route = useRoute?.() ?? { query: {} as Record<string, string | string[] | undefined> }
 const filters = ref<Record<string, string>>({
@@ -164,14 +177,42 @@ const config = computed<BusinessPageConfig>(() => ({
       candidates: ['category'],
       format: (record) => {
         const category = String(record.category ?? '').toUpperCase()
-        if (category === 'NETWORK_APPLIANCE') return t('devices.categories.appliance')
-        if (category === 'CLOUD') return t('devices.categories.cloud')
-        return readString(record, ['category'])
+        const categoryKeys: Readonly<Record<string, string>> = {
+          SERVER: 'devices.categories.server',
+          NETWORK_APPLIANCE: 'devices.categories.networkAppliance',
+          SECURITY_APPLIANCE: 'devices.categories.securityAppliance',
+          CLOUD: 'devices.categories.cloud',
+          APPLIANCE: 'devices.categories.appliance',
+        }
+        const labelKey = categoryKeys[category]
+        return labelKey ? t(labelKey) : readString(record, ['category'])
       },
       width: '8%',
     },
-    { key: 'productFamily', title: t('devices.columns.productFamily'), candidates: ['productFamily'], width: '11%' },
-    { key: 'managementMethod', title: t('devices.columns.managementMethod'), candidates: ['managementMethod'], width: '10%' },
+    {
+      key: 'productFamily',
+      title: t('devices.columns.productFamily'),
+      candidates: ['productFamily'],
+      format: (record) => {
+        const productFamily = readString(record, ['productFamily'])
+        const labelKey = PRODUCT_FAMILY_LABEL_KEYS[productFamily.trim().toLowerCase()]
+        return labelKey ? t(labelKey) : productFamily
+      },
+      width: '11%',
+    },
+    {
+      key: 'managementMethod',
+      title: t('devices.columns.managementMethod'),
+      candidates: ['managementMethod'],
+      format: (record) => {
+        const managementMethod = String(record.managementMethod ?? '').toUpperCase()
+        if (managementMethod === 'AGENT') return t('devices.managementMethods.agent')
+        if (managementMethod === 'PLUGIN') return t('devices.managementMethods.plugin')
+        if (managementMethod === 'API' || managementMethod === 'REST_API') return t('devices.managementMethods.api')
+        return readString(record, ['managementMethod'])
+      },
+      width: '10%',
+    },
     { key: 'managementAddress', title: t('devices.columns.managementAddress'), candidates: ['managementAddress'], width: '13%' },
     { key: 'status', title: t('devices.columns.liveness'), candidates: ['livenessStatus', 'health', 'sourceStatus'], kind: 'status', width: '8%' },
     { key: 'deviceVersion', title: t('devices.columns.deviceVersion'), candidates: ['softwareVersion'], width: '20ch', truncate: true },
@@ -193,6 +234,7 @@ const config = computed<BusinessPageConfig>(() => ({
     { key: 'managementMethod', label: t('devices.filters.managementMethod'), type: 'select', options: [
       { label: t('devices.managementMethods.agent'), value: 'AGENT' },
       { label: t('devices.managementMethods.api'), value: 'API' },
+      { label: t('devices.managementMethods.plugin'), value: 'PLUGIN' },
     ] },
     { key: 'health', label: t('devices.filters.health'), type: 'select', options: [
       { label: t('devices.health.healthy'), value: 'HEALTHY' },
