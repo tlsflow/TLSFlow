@@ -59,7 +59,7 @@ describe('DeploymentAssetContextBuilder', () => {
     const resolved = createResolvedCertificateUpdateInput('web.apache.windows');
     const sourceTarget = resolved.assetContext.target!;
     const topology = managedTargetContext();
-    topology.host.osType = 'WINDOWS';
+    topology.host!.osType = 'WINDOWS';
     topology.frameworkType = 'web.apache';
     topology.serviceInstance = {
       ...topology.serviceInstance!,
@@ -203,7 +203,7 @@ describe('DeploymentAssetContextBuilder', () => {
 
   it('从同一 Framework 的运行事实补齐历史 Windows Nginx Target 的服务名', () => {
     const topology = managedTargetContext();
-    topology.host.osType = 'WINDOWS';
+    topology.host!.osType = 'WINDOWS';
     topology.frameworkType = 'web.nginx';
     topology.serviceInstance = {
       ...topology.serviceInstance!,
@@ -305,7 +305,7 @@ describe('DeploymentAssetContextBuilder', () => {
 
   it('从历史嵌套 IIS 位置的 listener 事实补齐服务名和配置指纹', () => {
     const topology = managedTargetContext();
-    topology.host.osType = 'WINDOWS';
+    topology.host!.osType = 'WINDOWS';
     topology.frameworkType = 'web.iis';
     topology.serviceInstance = {
       ...topology.serviceInstance!,
@@ -342,7 +342,7 @@ describe('DeploymentAssetContextBuilder', () => {
 
   it('从 Site metadata 补齐旧 IIS Target 的配置指纹并使用固定 IIS 服务默认值', () => {
     const topology = managedTargetContext();
-    topology.host.osType = 'WINDOWS';
+    topology.host!.osType = 'WINDOWS';
     topology.frameworkType = 'web.iis';
     topology.serviceInstance = {
       ...topology.serviceInstance!,
@@ -384,7 +384,7 @@ describe('DeploymentAssetContextBuilder', () => {
 
   it('从历史 CertificateBinding 补齐 IIS 位置和本地配置指纹', () => {
     const topology = managedTargetContext();
-    topology.host.osType = 'WINDOWS';
+    topology.host!.osType = 'WINDOWS';
     topology.frameworkType = 'web.iis';
     topology.serviceInstance = { ...topology.serviceInstance!, frameworkType: 'web.iis', rawFacts: {} };
     topology.managedTarget.metadata = {
@@ -424,7 +424,7 @@ describe('DeploymentAssetContextBuilder', () => {
 
   it('CertificateBinding 不能覆盖 Agent 已确认的 IIS 事实', () => {
     const topology = managedTargetContext();
-    topology.host.osType = 'WINDOWS';
+    topology.host!.osType = 'WINDOWS';
     topology.frameworkType = 'web.iis';
     topology.serviceInstance = { ...topology.serviceInstance!, frameworkType: 'web.iis', rawFacts: {} };
     topology.managedTarget.metadata = {
@@ -458,7 +458,7 @@ describe('DeploymentAssetContextBuilder', () => {
 
   it('CertificateBinding 没有真实本地配置指纹时不伪造 configFingerprint', () => {
     const topology = managedTargetContext();
-    topology.host.osType = 'WINDOWS';
+    topology.host!.osType = 'WINDOWS';
     topology.frameworkType = 'web.iis';
     topology.serviceInstance = { ...topology.serviceInstance!, frameworkType: 'web.iis', rawFacts: {} };
     topology.managedTarget.metadata = {

@@ -189,16 +189,18 @@ test('Runner http.request 使用运行级 CookieSession 并保留多值 Set-Cook
   assert.equal(JSON.stringify(await handler({ ...context('http.request', ['network.http']), input: { ...input, url: 'https://runner.example.invalid/probe2', cookieSessionRef: 'waf2' }, requestId: 'runner-cookie-3', idempotencyKey: 'runner-cookie-3' })).includes('sid=first'), false);
 });
 
-test('阿里云 Cloud Service 缺少 scope endpoint 时使用 Provider 默认 endpoint', async () => {
+test('Cloud Service 缺少 scope endpoint 时使用资产声明的通用端点集合', async () => {
   const fixture = createFixture();
   fixture.dependencies.cloudServices = {
     get: async () => ({
       tenantId: 'tenant-1', providerKey: 'cloud.aliyun', displayName: '阿里云',
-      scope: {}, status: 'ACTIVE', id: 'caa-aliyun', version: 1, metadata: {},
+      scope: {}, status: 'ACTIVE', id: 'caa-aliyun', version: 1,
+      metadata: { serviceEndpoints: ['https://cdn.aliyuncs.com', 'https://ecs.aliyuncs.com'] },
     } as never),
     list: async () => ({ items: [{
       tenantId: 'tenant-1', providerKey: 'cloud.aliyun', displayName: '阿里云',
-      scope: {}, status: 'ACTIVE', id: 'caa-aliyun', version: 1, metadata: {},
+      scope: {}, status: 'ACTIVE', id: 'caa-aliyun', version: 1,
+      metadata: { serviceEndpoints: ['https://cdn.aliyuncs.com', 'https://ecs.aliyuncs.com'] },
     }], page: 1, pageSize: 1, total: 1 } as never),
   };
   fixture.dependencies.httpClient = { request: async () => ({ statusCode: 200, headers: {}, bodyText: '{}', body: {} }) };

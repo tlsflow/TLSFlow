@@ -10,6 +10,7 @@ export interface ValidateDeploymentInputBindingSaveRequest {
   pluginVersionId: string;
   contract: DeploymentInputContractV1;
   assetContext: DeploymentAssetContextV1;
+  resourceOwnerDefault?: VersionedInputBindingLayerV1;
   deviceDefault?: VersionedInputBindingLayerV1;
   targetOverride?: VersionedInputBindingLayerV1;
   currentAssetOverride?: VersionedInputBindingLayerV1;
@@ -43,6 +44,7 @@ export class DeploymentInputBindingSaveService {
       contract: request.contract,
       assetContext: request.assetContext,
       bindingLayers: {
+        resourceOwnerDefault: request.resourceOwnerDefault,
         deviceDefault: request.deviceDefault,
         targetOverride: request.targetOverride,
         assetOverride: { pluginVersionId: request.pluginVersionId, inputBindings: assetOverride },

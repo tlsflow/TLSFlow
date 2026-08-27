@@ -80,7 +80,7 @@ export class DeploymentAssetContextBuilder {
     return validateDeploymentAssetContextV1({
       apiVersion: DEPLOYMENT_ASSET_CONTEXT_API_VERSION,
       application,
-      host: topology ? {
+      host: topology?.host ? {
         id: topology.host.id,
         hostname: topology.host.hostname,
         primaryIp: topology.host.primaryIp,

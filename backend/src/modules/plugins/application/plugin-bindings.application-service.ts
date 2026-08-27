@@ -60,7 +60,7 @@ export class PluginBindingsApplicationService {
 
   async createBinding(tenantId: string, input: CreatePluginBindingInput): Promise<PluginBindingV1> {
     if (input.mode === 'MANAGED' && !hasManagedContextOwner(input.managedContext)) {
-      throw new AppError('VALIDATION_FAILED', 'Managed Binding 必须提供 hostId 或 cloudAccountAssetId');
+      throw new AppError('VALIDATION_FAILED', 'Managed Binding 必须提供 hostId 或标准 assetId 所有者');
     }
     if (input.mode === 'STANDALONE' && input.managedContext) throw new AppError('VALIDATION_FAILED', 'Standalone Binding 不能保存 managedContext');
     assertManagedContext(input.managedContext);
@@ -84,6 +84,13 @@ export class PluginBindingsApplicationService {
       throw new AppError('VALIDATION_FAILED', '云账号 Capability Assignment 必须绑定同一 CloudAccountAsset', {
         ownerId: input.ownerId,
         cloudAccountAssetId: binding.managedContext?.cloudAccountAssetId,
+      });
+    }
+    if (input.ownerType === 'APPLICATION_ASSET' && binding.managedContext?.assetId
+      && binding.managedContext.assetId !== input.ownerId) {
+      throw new AppError('VALIDATION_FAILED', '标准资产 Capability Assignment 必须绑定同一 ServiceAsset', {
+        ownerId: input.ownerId,
+        assetId: binding.managedContext.assetId,
       });
     }
     const now = new Date().toISOString();
@@ -111,16 +118,19 @@ export class PluginBindingsApplicationService {
 
 function assertManagedContext(context: PluginBindingV1['managedContext'] | undefined): void {
   if (!context) return;
-  const unknownFields = Object.keys(context).filter((key) => key !== 'hostId' && key !== 'managedTargetId' && key !== 'cloudAccountAssetId');
+  const unknownFields = Object.keys(context).filter((key) => key !== 'hostId' && key !== 'managedTargetId' && key !== 'assetId' && key !== 'cloudAccountAssetId');
   if (unknownFields.length > 0) {
-    throw new AppError('VALIDATION_FAILED', 'Managed Binding 只允许保存 Host、ManagedTarget 或 CloudAccountAsset 身份', { unknownFields });
+    throw new AppError('VALIDATION_FAILED', 'Managed Binding 只允许保存 Host、ManagedTarget 或 CloudAccountAsset 身份，也支持标准 ServiceAsset', { unknownFields });
   }
   if (!hasManagedContextOwner(context)) throw new AppError('VALIDATION_FAILED', 'Managed Binding 必须包含一个所有者上下文');
-  if (context.cloudAccountAssetId && (context.hostId || context.managedTargetId)) {
-    throw new AppError('VALIDATION_FAILED', 'CloudAccountAsset Binding 不能同时携带 Host 或 ManagedTarget');
+  if (context.cloudAccountAssetId && context.hostId) {
+    throw new AppError('VALIDATION_FAILED', 'CloudAccountAsset Binding 不能同时携带 Host');
+  }
+  if (context.assetId && (context.hostId || context.cloudAccountAssetId)) {
+    throw new AppError('VALIDATION_FAILED', '标准 ServiceAsset Binding 不能同时携带其他所有者');
   }
 }
 
 function hasManagedContextOwner(context: PluginBindingV1['managedContext'] | undefined): boolean {
-  return Boolean(context?.hostId || context?.cloudAccountAssetId);
+  return Boolean(context?.hostId || context?.assetId || context?.cloudAccountAssetId);
 }

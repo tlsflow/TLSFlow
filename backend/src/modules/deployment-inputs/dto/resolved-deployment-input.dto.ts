@@ -47,7 +47,7 @@ export interface DeploymentInputIssueV1 {
   severity: 'ERROR' | 'WARNING';
   slot?: string;
   path?: string;
-  bindingLayer?: 'DEVICE' | 'MANAGED_TARGET' | 'APPLICATION_ASSET' | 'EXECUTION';
+  bindingLayer?: 'RESOURCE_OWNER' | 'DEVICE' | 'MANAGED_TARGET' | 'APPLICATION_ASSET' | 'EXECUTION';
   messageKey: string;
   params?: Record<string, string | number>;
 }

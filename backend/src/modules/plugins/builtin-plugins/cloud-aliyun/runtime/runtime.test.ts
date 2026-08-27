@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createPluginRunnerExecutor, normalizeDiscoveryResponse } from './index.js';
 
-const descriptor = { pluginId: 'cloud.aliyun', pluginVersionId: 'cloud.aliyun:2.0.24' };
+const descriptor = { pluginId: 'cloud.aliyun', pluginVersionId: 'cloud.aliyun:2.0.26' };
 
 test('阿里云签名请求使用 RPC 要求的 Timestamp 公共参数', async () => {
   const envKeys = ['GCAC_PLUGIN_VERSION_ID', 'GCAC_PLUGIN_PACKAGE_HASH', 'GCAC_PLUGIN_MANIFEST_HASH', 'GCAC_PLUGIN_RESOURCE_HASH'];
   const previous = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
   Object.assign(process.env, {
-    GCAC_PLUGIN_VERSION_ID: 'cloud.aliyun:2.0.24',
+    GCAC_PLUGIN_VERSION_ID: 'cloud.aliyun:2.0.26',
     GCAC_PLUGIN_PACKAGE_HASH: `sha256:${'1'.repeat(64)}`,
     GCAC_PLUGIN_MANIFEST_HASH: `sha256:${'2'.repeat(64)}`,
     GCAC_PLUGIN_RESOURCE_HASH: `sha256:${'3'.repeat(64)}`,
@@ -17,9 +17,9 @@ test('阿里云签名请求使用 RPC 要求的 Timestamp 公共参数', async (
   try {
     const executor = createPluginRunnerExecutor();
     const result = await executor.execute({
-      pluginVersionId: 'cloud.aliyun:2.0.24',
+      pluginVersionId: 'cloud.aliyun:2.0.26',
       pluginId: 'cloud.aliyun',
-      pluginVersion: '2.0.24',
+      pluginVersion: '2.0.26',
       capability: 'cloud.service.connection-test',
       actionId: 'cloud.service.connection-test.v1',
       actionContractVersion: 'v1',
@@ -91,6 +91,39 @@ test('归一化资源格式优先于厂商响应格式并保留非敏感元数�
   assert.equal(result[0]?.region, 'mainland');
 });
 
+test('标准资源声明的证书端点字段会原样保留，供宿主投影 ManagedTarget', () => {
+  const result = normalizeDiscoveryResponse({
+    resources: [{
+      id: 'fixture-endpoint',
+      type: 'cdn.edge',
+      region: 'global',
+      displayName: 'edge.example',
+      targetType: 'cloud.aliyun.cdn.certificate',
+      targetKey: 'edge.example',
+      bindingKey: 'edge-certificate',
+      supportedCapabilities: ['certificate.deploy'],
+      executionLocations: ['CONTROL_PLANE'],
+    }],
+  }, descriptor);
+  assert.deepEqual(result[0], {
+    apiVersion: 'gcac.cloud-service/v1',
+    kind: 'CloudServiceResource',
+    stableKey: 'cloud.aliyun:cdn.edge:fixture-endpoint',
+    pluginId: 'cloud.aliyun',
+    pluginVersionId: 'cloud.aliyun:2.0.26',
+    provider: 'cloud.aliyun',
+    resourceId: 'fixture-endpoint',
+    resourceType: 'cdn.edge',
+    region: 'global',
+    displayName: 'edge.example',
+    targetType: 'cloud.aliyun.cdn.certificate',
+    targetKey: 'edge.example',
+    bindingKey: 'edge-certificate',
+    supportedCapabilities: ['certificate.deploy'],
+    executionLocations: ['CONTROL_PLANE'],
+  });
+});
+
 test('阿里云 CDN 发现只输出 CDN 域名，不把 ECS 区域转换为资源', () => {
   const result = normalizeDiscoveryResponse([
     { Regions: { Region: [{ RegionId: 'cn-hangzhou', LocalName: '华东1（杭州）', RegionEndpoint: 'ecs.cn-hangzhou.aliyuncs.com' }] } },
@@ -126,4 +159,14 @@ test('同一 DescribeUserDomains 响应可将中国大陆与国际站域名分�
     ['mainland.example', 'mainland', '中国大陆'],
     ['international.example', 'global', '国际站'],
   ]);
+});
+
+test('CDN 域名未声明证书更换端点时不伪造 ManagedTarget', () => {
+  const result = normalizeDiscoveryResponse({
+    Domains: {
+      Domain: [{ DomainName: 'certificate.example', Coverage: 'domestic', DomainStatus: 'online' }],
+    },
+  }, descriptor);
+  const endpoints = result[0]?.metadata?.certificateEndpoints;
+  assert.equal(endpoints, undefined);
 });

@@ -14,6 +14,11 @@ export interface CloudAliyunDiscoveryResource {
   resourceType: string;
   region: string;
   displayName?: string;
+  targetType?: string;
+  targetKey?: string;
+  bindingKey?: string;
+  supportedCapabilities?: string[];
+  executionLocations?: Array<'CONTROL_PLANE' | 'GATEWAY'>;
   metadata?: Record<string, unknown>;
 }
 

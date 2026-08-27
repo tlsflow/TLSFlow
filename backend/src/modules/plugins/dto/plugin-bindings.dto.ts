@@ -9,6 +9,9 @@ export interface PluginBindingV1 {
   managedContext?: {
     hostId?: string;
     managedTargetId?: string;
+    /** 标准 ServiceAsset 所有者；设备仍使用 hostId。 */
+    assetId?: string;
+    /** @deprecated 仅供历史云账号 Binding 读取，新的插件资产不得使用。 */
     cloudAccountAssetId?: string;
   };
   status: 'ACTIVE' | 'DISABLED' | 'MIGRATING' | 'ERROR';

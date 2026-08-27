@@ -35,6 +35,12 @@ import { migrateInputBindingsToContract } from '../../deployment-inputs/applicat
 import type { DeploymentInputContractV1 } from '../../deployment-inputs/dto/deployment-input-contract.dto.js';
 import type { CapabilityAssignmentV1 } from '../../plugins/dto/plugin-bindings.dto.js';
 
+/** 中文说明：所有非设备插件资源通过此端口接入，宿主不按厂商写分支。 */
+export interface PluginResourceOnboardingPort {
+  supports: (plugin: UnifiedPluginVersionRecord) => boolean;
+  onboard: (tenantId: string, plugin: UnifiedPluginVersionRecord, values: Record<string, unknown>, actorId: string) => Promise<Record<string, unknown>>;
+}
+
 export class DevicesApplicationService {
   constructor(
     private readonly repository: DevicesRepository = new PgDevicesRepository(),
@@ -49,6 +55,7 @@ export class DevicesApplicationService {
     private readonly runtimeGuard: PluginRuntimeGuardService = pluginRuntimeGuard,
     private readonly discoveryProjector?: StandardDeviceDiscoveryProjector,
     private readonly deploymentInputResolver = new ProductionDeploymentInputResolverService(),
+    private readonly pluginResourceOnboarding?: PluginResourceOnboardingPort,
   ) {}
 
   async list(tenantId: string, query: ManagedDeviceListQuery): Promise<ManagedDevicePageDto> {
@@ -385,6 +392,16 @@ export class DevicesApplicationService {
       throw new AppError('VALIDATION_FAILED', '插件不支持受控设备模式', { pluginVersionId, runtime: plugin.runtime, scope: plugin.scope });
     }
     const capabilityKeys = plugin.manifest.capabilities.map((item) => item.key);
+    if (this.pluginResourceOnboarding?.supports(plugin)) {
+      const resources = this.packageResources.validate(plugin.manifest, plugin.resources);
+      const form = asPluginForm(resources.forms.cloud ?? resources.forms.device);
+      if (!form || !['MANAGED', 'BOTH'].includes(form.mode)) {
+        throw new AppError('VALIDATION_FAILED', '插件缺少 Managed 资源表单', { pluginVersionId });
+      }
+      validatePluginResourceForm(form, input.formValues ?? {});
+      // 资源插件返回值由调用方按 onboardingKind 解释；这里保持既有设备接入方法的公开推断类型兼容。
+      return await this.pluginResourceOnboarding.onboard(tenantId, plugin, input.formValues ?? {}, actorId) as never;
+    }
     if (!capabilityKeys.includes('device.connection.test') || !capabilityKeys.includes('device.discover')) {
       throw new AppError('CAPABILITY_MISSING', '设备插件必须声明连接测试和发现能力', { pluginVersionId });
     }
@@ -522,6 +539,15 @@ function asPluginForm(resource: PluginPackageFormResource | undefined): PluginFo
   return resource && 'schemaVersion' in resource && resource.schemaVersion === 'gcac.plugin-form/v1'
     ? resource
     : undefined;
+}
+
+function validatePluginResourceForm(form: PluginFormSchemaV1, values: Record<string, unknown>): void {
+  for (const field of form.sections.flatMap((section) => section.fields)) {
+    const value = values[field.key] ?? field.defaultValue;
+    if (field.required && isEmpty(value)) {
+      throw new AppError('VALIDATION_FAILED', '插件资源表单必填字段不能为空', { field: field.key });
+    }
+  }
 }
 
 function resolveAgentInstallPlatform(handlerKey: string | undefined): 'windows_go' | 'windows_compatibility' | 'linux_go' {

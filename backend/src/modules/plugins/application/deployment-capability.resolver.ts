@@ -28,7 +28,10 @@ export class DeploymentCapabilityResolver {
   async resolve(input: {
     tenantId: string;
     capabilityKey: string;
-    hostId: string;
+    /** 设备目标的 Host；云目标不提供该字段。 */
+    hostId?: string;
+    /** 云目标所有者；与 hostId 二选一。 */
+    cloudAccountAssetId?: string;
     managedTargetId: string;
     applicationAssetId?: string;
     executionLocations: Array<'AGENT' | 'CONTROL_PLANE' | 'GATEWAY'>;
@@ -36,6 +39,7 @@ export class DeploymentCapabilityResolver {
   }): Promise<ResolvedDeploymentCapability> {
     const candidates = await this.bindings.listAssignmentCandidates(input.tenantId, input.capabilityKey, {
       deviceId: input.hostId,
+      cloudAccountAssetId: input.cloudAccountAssetId,
       managedTargetId: input.managedTargetId,
       applicationAssetId: input.applicationAssetId,
     });
@@ -46,7 +50,7 @@ export class DeploymentCapabilityResolver {
         rejected.push({ assignmentId: assignment.id, pluginBindingId: binding.id, reason: '绑定状态或插件版本不一致' });
         continue;
       }
-      if (!isBindingInTargetContext(binding, input.hostId, input.managedTargetId)) {
+      if (!isBindingInTargetContext(binding, input)) {
         rejected.push({ assignmentId: assignment.id, pluginBindingId: binding.id, reason: '绑定上下文不属于当前受管目标' });
         continue;
       }
@@ -89,6 +93,7 @@ export class DeploymentCapabilityResolver {
       throw new AppError('CAPABILITY_MISSING', '受管目标没有可用的插件能力指派', {
         capabilityKey: input.capabilityKey,
         hostId: input.hostId,
+        cloudAccountAssetId: input.cloudAccountAssetId,
         managedTargetId: input.managedTargetId,
         applicationAssetId: input.applicationAssetId,
       });
@@ -96,6 +101,7 @@ export class DeploymentCapabilityResolver {
     throw new AppError('CAPABILITY_MISSING', '受管目标没有上下文匹配的插件能力指派', {
       capabilityKey: input.capabilityKey,
       hostId: input.hostId,
+      cloudAccountAssetId: input.cloudAccountAssetId,
       managedTargetId: input.managedTargetId,
       applicationAssetId: input.applicationAssetId,
       rejected,
@@ -103,8 +109,15 @@ export class DeploymentCapabilityResolver {
   }
 }
 
-function isBindingInTargetContext(binding: PluginBindingV1, hostId: string, managedTargetId: string): boolean {
+function isBindingInTargetContext(
+  binding: PluginBindingV1,
+  input: { hostId?: string; cloudAccountAssetId?: string; managedTargetId: string },
+): boolean {
   if (binding.mode !== 'MANAGED') return false;
-  if (binding.managedContext?.hostId !== hostId) return false;
-  return !binding.managedContext.managedTargetId || binding.managedContext.managedTargetId === managedTargetId;
+  const context = binding.managedContext;
+  if (!context) return false;
+  if (input.hostId && context.hostId !== input.hostId) return false;
+  if (input.cloudAccountAssetId && context.cloudAccountAssetId !== input.cloudAccountAssetId) return false;
+  if (!input.hostId && !input.cloudAccountAssetId) return false;
+  return !context.managedTargetId || context.managedTargetId === input.managedTargetId;
 }

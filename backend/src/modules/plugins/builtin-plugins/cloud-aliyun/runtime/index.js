@@ -144,6 +144,13 @@ export function normalizeDiscoveryResources(resources, descriptor) {
         ...(resource.metadata ?? {}),
         ...(cdnScope ? { cdnRegion: cdnScope.key, cdnRegionName: cdnScope.name, cdnRegionSource: cdnScope.source } : {}),
       });
+    const certificateEndpoints = resourceType === 'cdn.domain'
+      ? declaredCertificateEndpoints(resource, shape, resourceId, metadata)
+      : undefined;
+    const normalizedMetadata = certificateEndpoints && certificateEndpoints.length > 0
+      ? { ...metadata, certificateEndpoints }
+      : metadata;
+    const explicitTarget = readExplicitTarget(resource, resourceId, resourceType);
     return {
       apiVersion: 'gcac.cloud-service/v1',
       kind: 'CloudServiceResource',
@@ -155,9 +162,44 @@ export function normalizeDiscoveryResources(resources, descriptor) {
       resourceType,
       region,
       ...(typeof displayName === 'string' && displayName.trim() ? { displayName: displayName.trim() } : {}),
-      ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+      ...(explicitTarget ? explicitTarget : {}),
+      ...(Object.keys(normalizedMetadata).length > 0 ? { metadata: normalizedMetadata } : {}),
     };
   });
+}
+
+function declaredCertificateEndpoints(resource, shape, resourceId, metadata) {
+  const declared = metadata.certificateEndpoints;
+  if (Array.isArray(declared) && declared.length > 0) return declared;
+  if (resource.targetType !== undefined || resource.targetKey !== undefined) {
+    return [{
+      endpointKey: resource.bindingKey ?? resource.targetKey,
+      targetType: resource.targetType,
+      targetKey: resource.targetKey,
+      ...(resource.bindingKey !== undefined ? { bindingKey: resource.bindingKey } : {}),
+      supportedCapabilities: resource.supportedCapabilities ?? ['cloud.service.discover'],
+      executionLocations: resource.executionLocations ?? ['CONTROL_PLANE'],
+    }];
+  }
+  // 发现结果没有明确证书更换端点时，只投影 Framework/Site，禁止凭空制造 ManagedTarget。
+  return [];
+}
+
+function readExplicitTarget(resource, resourceId, resourceType) {
+  if (resource.targetType === undefined && resource.targetKey === undefined && resource.bindingKey === undefined
+    && resource.supportedCapabilities === undefined && resource.executionLocations === undefined) return undefined;
+  if (resource.targetType === undefined || resource.targetKey === undefined) {
+    // CDN 资源的顶层端点会进入 certificateEndpoints；不把不完整字段继续传播到标准资源。
+    if (resourceType === 'cdn.domain') return undefined;
+    throw new Error(`resources.${resourceId} 的 targetType 和 targetKey 必须同时声明`);
+  }
+  return {
+    targetType: resource.targetType,
+    targetKey: resource.targetKey,
+    ...(resource.bindingKey !== undefined ? { bindingKey: resource.bindingKey } : {}),
+    ...(resource.supportedCapabilities !== undefined ? { supportedCapabilities: resource.supportedCapabilities } : {}),
+    ...(resource.executionLocations !== undefined ? { executionLocations: resource.executionLocations } : {}),
+  };
 }
 
 function aliyunDomainItems(body) {

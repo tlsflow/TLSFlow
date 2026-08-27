@@ -150,7 +150,8 @@ export interface FrameworkInstanceDto {
   tenantId: string;
   assetId?: string;
   assetOwner?: AssetOwnerDto;
-  deviceId: string;
+  /** 设备宿主；云资产宿主不设置该字段。 */
+  deviceId?: string;
   frameworkType: string;
   frameworkKey: string;
   discoveryProviderKey: string;
@@ -167,7 +168,9 @@ export interface FrameworkInstanceDto {
 }
 
 export interface CreateFrameworkInstanceDto {
-  deviceId: string;
+  /** 设备宿主和云资产宿主必须且只能提供一个。 */
+  deviceId?: string;
+  assetId?: string;
   frameworkType: string;
   frameworkKey: string;
   discoveryProviderKey: string;
@@ -179,9 +182,7 @@ export interface CreateFrameworkInstanceDto {
   rawFacts?: Record<string, unknown>;
 }
 
-export type UpdateFrameworkInstanceDto = Partial<Omit<CreateFrameworkInstanceDto, 'deviceId'>> & {
-  deviceId?: string;
-};
+export type UpdateFrameworkInstanceDto = Partial<CreateFrameworkInstanceDto>;
 
 export interface ServiceAssetDto {
   id: string;
@@ -266,7 +267,11 @@ export interface CreateServiceAssetDto {
   tags?: string[];
   metadata?: Record<string, unknown>;
   deploymentStrategy?: DeploymentStrategyDto;
-  targetBinding?: CreateApplicationAssetTargetDto;
+  /**
+   * 创建 ServiceAsset 时的目标绑定输入。applicationAssetId 由宿主根据新建资产 ID 自动补入，
+   * 调用方不得提前伪造该字段。
+   */
+  targetBinding?: CreateServiceAssetTargetBindingDto;
   siteAssetId?: string;
 }
 
@@ -309,7 +314,8 @@ export interface SiteAssetDto {
   serviceAssetId?: string;
   assetOwner?: AssetOwnerDto;
   frameworkInstanceId: string;
-  deviceId: string;
+  /** 设备宿主；云资产宿主不设置该字段。 */
+  deviceId?: string;
   discoveryProviderKey: string;
   siteType: SiteAssetType;
   siteName: string;
@@ -333,7 +339,9 @@ export interface SiteAssetDto {
 
 export interface CreateSiteAssetDto {
   frameworkInstanceId: string;
-  deviceId: string;
+  /** 默认继承 FrameworkInstance 所有者；显式提供时必须匹配。 */
+  deviceId?: string;
+  assetId?: string;
   /** 可选的应用 ServiceAsset 关联，扫描站点本身不能自动创建应用。 */
   serviceAssetId?: string;
   discoveryProviderKey: string;
@@ -438,6 +446,8 @@ export interface CreateApplicationAssetTargetDto {
   status?: ApplicationAssetTargetStatus;
   metadata?: Record<string, unknown>;
 }
+
+export type CreateServiceAssetTargetBindingDto = Omit<CreateApplicationAssetTargetDto, 'applicationAssetId'>;
 
 export type UpdateApplicationAssetTargetDto = Partial<CreateApplicationAssetTargetDto>;
 

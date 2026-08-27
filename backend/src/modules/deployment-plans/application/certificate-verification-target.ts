@@ -13,7 +13,7 @@ export function buildCertificateVerificationTarget(input: CertificateVerificatio
   const verifyUrl = normalizeVerifyUrl(input.applicationAsset.verifyUrl);
   const endpoint = verifyUrl ? parseVerifyUrl(verifyUrl) : undefined;
   const connectHost = endpoint?.host
-    ?? usableEndpointHost(input.managedTargetContext?.host.primaryIp)
+    ?? usableEndpointHost(input.managedTargetContext?.host?.primaryIp)
     ?? usableEndpointHost(input.applicationAsset.address);
   const configuredServerName = nonEmptyString(input.applicationAsset.sniName);
   const accessDomain = nonEmptyString(input.applicationAsset.address);

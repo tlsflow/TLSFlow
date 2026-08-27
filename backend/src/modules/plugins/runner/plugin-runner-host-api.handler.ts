@@ -6,6 +6,7 @@ import type { CertificateArtifactStore } from '../../certificates/artifacts/cert
 import type { ExecutionsRepository } from '../../executions/repository/executions.repository.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import type { CloudAccountAssetsApplicationService } from '../../providers/application/cloud-account-assets.application-service.js';
+import type { AssetsApplicationService } from '../../assets/application/assets.application-service.js';
 import { assertHostApiGrant, getHostApiMethod, validateHostApiRequest, validateHostApiResult, type HostApiMethodDefinition } from './protocol/host-api.registry.js';
 import { PluginRunnerHostApiRequestGate, type HostApiRequestAdmission, type HostApiRequestBinding, type HostApiRequestOutcome } from './host-api.request-gate.js';
 import type { PluginRunnerHostApiHandler, PluginRunnerHostCallContext } from './plugin-runner-client.js';
@@ -19,6 +20,8 @@ export interface PluginRunnerHostApiDependencies {
   requestGate?: PluginRunnerHostApiRequestGate;
   /** 生产必须注入租户隔离的 Cloud Service 查询端口。 */
   cloudServices?: Pick<CloudAccountAssetsApplicationService, 'get' | 'list'>;
+  /** 标准插件资产查询端口；新云资源链路优先使用该端口。 */
+  serviceAssets?: Pick<AssetsApplicationService, 'getServiceAsset' | 'listServiceAssets'>;
   /** 生产必须注入不跟随重定向的通用 HTTPS 客户端。 */
   httpClient?: Pick<OutboundHttpClient, 'request'>;
   cookieSessionStore?: CookieSessionStore;
@@ -278,25 +281,31 @@ async function readCloudService(
   context: PluginRunnerHostCallContext,
   input: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  if (!dependencies.cloudServices) throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Cloud Service Host API 未装配');
   const cloudServiceRef = stringValue(input.cloudServiceRef, 'cloudServiceRef');
-  const service = await dependencies.cloudServices.get(context.tenantId, cloudServiceRef);
-  if (service.tenantId !== context.tenantId || service.status !== 'ACTIVE' || service.providerKey !== context.pluginId) {
+  const standard = await dependencies.serviceAssets?.getServiceAsset(context.tenantId, cloudServiceRef);
+  const legacy = !standard ? await dependencies.cloudServices?.get(context.tenantId, cloudServiceRef) : undefined;
+  const service = standard ?? legacy;
+  if (!service || service.tenantId !== context.tenantId || service.status !== 'ACTIVE'
+    || ('providerKey' in service ? service.providerKey : service.metadata.pluginId) !== context.pluginId) {
     throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Cloud Service 不属于当前插件、当前租户或不是 ACTIVE 标准对象', { cloudServiceRef });
   }
   const endpoint = resolveCloudServiceEndpoint(service);
   if (endpoint !== undefined) assertHttpsUrl(endpoint, 'Cloud Service endpoint');
+  const providerKey = 'providerKey' in service ? service.providerKey : String(service.metadata.pluginId ?? context.pluginId);
+  const displayName = 'displayName' in service ? service.displayName : service.displayName ?? providerKey;
+  const metadata = service.metadata ?? {};
+  const scope = 'scope' in service ? service.scope : { metadata };
   return {
     ok: true,
     data: {
       apiVersion: 'gcac.cloud-service/v1',
       kind: 'CloudService',
       cloudServiceRef: service.id,
-      providerKey: service.providerKey,
-      displayName: service.displayName,
-      ...(service.accountId ? { accountId: service.accountId } : {}),
-      scope: { ...service.scope, ...(endpoint ? { endpoint } : {}) },
-      metadata: service.metadata,
+      providerKey,
+      displayName,
+      ...('accountId' in service && service.accountId ? { accountId: service.accountId } : {}),
+      scope: { ...scope, ...(endpoint ? { endpoint } : {}) },
+      metadata,
       status: service.status,
       version: service.version,
     },
@@ -412,10 +421,13 @@ async function assertRegisteredCloudEndpoint(
   grants: Array<{ id: string; allowedActions: string[] }>,
 ): Promise<void> {
   const requestOrigin = new URL(urlValue).origin;
-  if (!dependencies.cloudServices) throw new AppError('PLUGIN_HOST_CALL_DENIED', 'Cloud Service Host API 未装配');
-  const services = await dependencies.cloudServices.list(context.tenantId);
-  const allowed = services.items.some((service) => {
-    if (service.tenantId !== context.tenantId || service.status !== 'ACTIVE' || service.providerKey !== context.pluginId) return false;
+  const standardServices = dependencies.serviceAssets
+    ? (await dependencies.serviceAssets.listServiceAssets(context.tenantId, { page: 1, pageSize: 500, filter: {}, sort: undefined })).items
+    : [];
+  const legacyServices = dependencies.cloudServices ? (await dependencies.cloudServices.list(context.tenantId)).items : [];
+  const allowed = [...standardServices, ...legacyServices].some((service) => {
+    const providerKey = 'providerKey' in service ? service.providerKey : service.metadata.pluginId;
+    if (service.tenantId !== context.tenantId || service.status !== 'ACTIVE' || providerKey !== context.pluginId) return false;
     return resolveCloudServiceEndpoints(service).some((endpoint) => {
       try {
         return new URL(endpoint).origin === requestOrigin;
@@ -431,19 +443,20 @@ async function assertRegisteredCloudEndpoint(
 
 /** 中文说明：云账号创建不要求用户手填厂商公共 API 地址；缺省地址由 Provider
  * 标准定义统一补齐，HTTP 出口登记与 cloudService.get 使用同一解析结果。 */
-function resolveCloudServiceEndpoint(service: { providerKey: string; scope: { endpoint?: string } }): string | undefined {
-  if (typeof service.scope.endpoint === 'string' && service.scope.endpoint.trim() !== '') return service.scope.endpoint;
-  if (service.providerKey === 'cloud.aliyun') return 'https://cdn.aliyuncs.com';
-  return undefined;
+function resolveCloudServiceEndpoint(service: { providerKey?: string; scope?: { endpoint?: string }; metadata?: Record<string, unknown> }): string | undefined {
+  if (typeof service.scope?.endpoint === 'string' && service.scope.endpoint.trim() !== '') return service.scope.endpoint;
+  const endpoints = resolveCloudServiceEndpoints(service);
+  return endpoints[0];
 }
 
 /** 中文说明：HTTP 出口必须登记完整的 Provider 标准端点集合；账号未自定义端点时，
  * 阿里云云账号同时允许 CDN 与 ECS 只读 API，避免发现可用区域时被误判为未绑定服务。 */
-function resolveCloudServiceEndpoints(service: { providerKey: string; scope: { endpoint?: string } }): string[] {
-  if (typeof service.scope.endpoint === 'string' && service.scope.endpoint.trim() !== '') return [service.scope.endpoint];
-  if (service.providerKey === 'cloud.aliyun') return ['https://cdn.aliyuncs.com', 'https://ecs.aliyuncs.com'];
-  const endpoint = resolveCloudServiceEndpoint(service);
-  return endpoint ? [endpoint] : [];
+function resolveCloudServiceEndpoints(service: { providerKey?: string; scope?: { endpoint?: string }; metadata?: Record<string, unknown> }): string[] {
+  if (typeof service.scope?.endpoint === 'string' && service.scope.endpoint.trim() !== '') return [service.scope.endpoint];
+  const declared = service.metadata?.serviceEndpoints;
+  if (Array.isArray(declared)) return declared.filter((value): value is string => typeof value === 'string' && value.trim() !== '').map((value) => value.trim());
+  const endpoint = service.metadata?.endpoint;
+  return typeof endpoint === 'string' && endpoint.trim() !== '' ? [endpoint.trim()] : [];
 }
 
 

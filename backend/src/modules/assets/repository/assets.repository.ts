@@ -61,7 +61,7 @@ export interface AssetsRepository {
   listFrameworkInstances(tenantId: string, query: PageQuery): Promise<PageResult<FrameworkInstanceDto>>;
   getFrameworkInstance(tenantId: string, serviceInstanceId: string): Promise<FrameworkInstanceDto | undefined>;
   getFrameworkInstanceIncludingDeleted(tenantId: string, serviceInstanceId: string): Promise<FrameworkInstanceDto | undefined>;
-  findFrameworkInstanceByIdentity(tenantId: string, input: { deviceId: string; discoveryProviderKey: string; frameworkKey: string }): Promise<FrameworkInstanceDto | undefined>;
+  findFrameworkInstanceByIdentity(tenantId: string, input: { deviceId?: string; assetId?: string; discoveryProviderKey: string; frameworkKey: string }): Promise<FrameworkInstanceDto | undefined>;
   createServiceAsset(tenantId: string, input: CreateServiceAssetDto): Promise<ServiceAssetDto>;
   updateServiceAsset(tenantId: string, serviceAssetId: string, input: UpdateServiceAssetDto): Promise<ServiceAssetDto>;
   deleteServiceAsset(tenantId: string, serviceAssetId: string): Promise<ServiceAssetDto>;
@@ -232,6 +232,10 @@ export class PgAssetsRepository implements AssetsRepository {
     };
   }
 
+  private async cloudAccountAssetExists(tenantId: string, assetId: string): Promise<boolean> {
+    return Boolean(await this.getCloudAccountAsset(tenantId, assetId));
+  }
+
   async findHostByHostname(tenantId: string, hostname: string): Promise<HostDto | undefined> {
     const normalized = hostname.trim().toLowerCase();
     const result = await this.db.query<HostRow>(`select * from pg_hosts where tenant_id = $1 and deleted_at is null and lower(hostname) = $2 limit 1`, [tenantId, normalized]);
@@ -239,14 +243,19 @@ export class PgAssetsRepository implements AssetsRepository {
   }
 
   async createFrameworkInstance(tenantId: string, input: CreateFrameworkInstanceDto): Promise<FrameworkInstanceDto> {
-    if (!await this.getHost(tenantId, input.deviceId)) {
+    assertExactlyOneOwner(input.deviceId, input.assetId, 'FrameworkInstance');
+    if (input.deviceId && !await this.getHost(tenantId, input.deviceId)) {
       throw new AppError('RESOURCE_NOT_FOUND', 'Device Root 不存在', { deviceId: input.deviceId });
+    }
+    if (input.assetId && !await this.cloudAccountAssetExists(tenantId, input.assetId)) {
+      throw new AppError('RESOURCE_NOT_FOUND', 'CloudAccountAsset 不存在', { assetId: input.assetId });
     }
     const now = nowIso();
     const serviceInstance: FrameworkInstanceDto = {
       id: newId('svc'),
       tenantId,
-      deviceId: input.deviceId,
+      ...(input.deviceId ? { deviceId: input.deviceId } : {}),
+      ...(input.assetId ? { assetId: input.assetId, assetOwner: { kind: 'CLOUD_ACCOUNT' as const, id: input.assetId } } : input.deviceId ? { assetOwner: { kind: 'HOST' as const, id: input.deviceId } } : {}),
       frameworkType: input.frameworkType,
       frameworkKey: input.frameworkKey,
       discoveryProviderKey: input.discoveryProviderKey,
@@ -260,8 +269,8 @@ export class PgAssetsRepository implements AssetsRepository {
       updatedAt: now,
       version: 1,
     };
-    await this.db.query(`insert into pg_framework_instances (id, tenant_id, device_id, framework_type, framework_key, discovery_provider_key, display_name, version_text, discovery_source, last_discovered_at, status, raw_facts, created_at, updated_at, version) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::timestamptz,$11,$12::jsonb,$13::timestamptz,$14::timestamptz,$15)`, [
-      serviceInstance.id, tenantId, serviceInstance.deviceId, serviceInstance.frameworkType, serviceInstance.frameworkKey, serviceInstance.discoveryProviderKey, serviceInstance.displayName, serviceInstance.frameworkVersion ?? null, serviceInstance.discoverySource, serviceInstance.lastDiscoveredAt ?? null, serviceInstance.status, JSON.stringify(serviceInstance.rawFacts), serviceInstance.createdAt, serviceInstance.updatedAt, serviceInstance.version,
+    await this.db.query(`insert into pg_framework_instances (id, tenant_id, device_id, asset_id, framework_type, framework_key, discovery_provider_key, display_name, version_text, discovery_source, last_discovered_at, status, raw_facts, created_at, updated_at, version) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::timestamptz,$12,$13::jsonb,$14::timestamptz,$15::timestamptz,$16)`, [
+      serviceInstance.id, tenantId, serviceInstance.deviceId ?? null, serviceInstance.assetId ?? null, serviceInstance.frameworkType, serviceInstance.frameworkKey, serviceInstance.discoveryProviderKey, serviceInstance.displayName, serviceInstance.frameworkVersion ?? null, serviceInstance.discoverySource, serviceInstance.lastDiscoveredAt ?? null, serviceInstance.status, JSON.stringify(serviceInstance.rawFacts), serviceInstance.createdAt, serviceInstance.updatedAt, serviceInstance.version,
     ]);
     return serviceInstance;
   }
@@ -269,12 +278,20 @@ export class PgAssetsRepository implements AssetsRepository {
   async updateFrameworkInstance(tenantId: string, serviceInstanceId: string, input: UpdateFrameworkInstanceDto): Promise<FrameworkInstanceDto> {
     const current = await this.getFrameworkInstance(tenantId, serviceInstanceId);
     if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'FrameworkInstance 不存在', { frameworkInstanceId: serviceInstanceId });
-    if (input.deviceId && !await this.getHost(tenantId, input.deviceId)) throw new AppError('RESOURCE_NOT_FOUND', 'Device Root 不存在', { deviceId: input.deviceId });
-    const updated = touch({ ...current, ...input, deviceId: input.deviceId ?? current.deviceId });
-    await this.db.query(`update pg_framework_instances set device_id=$2, framework_type=$3, framework_key=$4, discovery_provider_key=$5, display_name=$6, version_text=$7, discovery_source=$8, last_discovered_at=$9::timestamptz, status=$10, raw_facts=$11::jsonb, updated_at=$12::timestamptz, version=$13 where id=$1`, [
-      updated.id, updated.deviceId, updated.frameworkType, updated.frameworkKey, updated.discoveryProviderKey, updated.displayName, updated.frameworkVersion ?? null, updated.discoverySource, updated.lastDiscoveredAt ?? null, updated.status, JSON.stringify(updated.rawFacts), updated.updatedAt, updated.version,
+    const nextDeviceId = input.deviceId !== undefined || input.assetId !== undefined ? input.deviceId : current.deviceId;
+    const nextAssetId = input.deviceId !== undefined || input.assetId !== undefined ? input.assetId : current.assetId;
+    assertExactlyOneOwner(nextDeviceId, nextAssetId, 'FrameworkInstance');
+    if (nextDeviceId && !await this.getHost(tenantId, nextDeviceId)) throw new AppError('RESOURCE_NOT_FOUND', 'Device Root 不存在', { deviceId: nextDeviceId });
+    if (nextAssetId && !await this.cloudAccountAssetExists(tenantId, nextAssetId)) throw new AppError('RESOURCE_NOT_FOUND', 'CloudAccountAsset 不存在', { assetId: nextAssetId });
+    const updated = touch({ ...current, ...input, deviceId: nextDeviceId || undefined, assetId: nextAssetId || undefined });
+    const normalized = {
+      ...updated,
+      ...(nextAssetId ? { assetOwner: { kind: 'CLOUD_ACCOUNT' as const, id: nextAssetId } } : { assetOwner: { kind: 'HOST' as const, id: nextDeviceId as string } }),
+    };
+    await this.db.query(`update pg_framework_instances set device_id=$2, asset_id=$3, framework_type=$4, framework_key=$5, discovery_provider_key=$6, display_name=$7, version_text=$8, discovery_source=$9, last_discovered_at=$10::timestamptz, status=$11, raw_facts=$12::jsonb, updated_at=$13::timestamptz, version=$14 where id=$1`, [
+      normalized.id, normalized.deviceId ?? null, normalized.assetId ?? null, normalized.frameworkType, normalized.frameworkKey, normalized.discoveryProviderKey, normalized.displayName, normalized.frameworkVersion ?? null, normalized.discoverySource, normalized.lastDiscoveredAt ?? null, normalized.status, JSON.stringify(normalized.rawFacts), normalized.updatedAt, normalized.version,
     ]);
-    return updated;
+    return normalized;
   }
 
   async deleteFrameworkInstance(tenantId: string, serviceInstanceId: string): Promise<FrameworkInstanceDto> {
@@ -300,8 +317,9 @@ export class PgAssetsRepository implements AssetsRepository {
     return row ? toServiceInstance(row) : undefined;
   }
 
-  async findFrameworkInstanceByIdentity(tenantId: string, input: { deviceId: string; discoveryProviderKey: string; frameworkKey: string }): Promise<FrameworkInstanceDto | undefined> {
-    const row = (await this.db.query<ServiceInstanceRow>(`select * from pg_framework_instances where tenant_id=$1 and device_id=$2 and discovery_provider_key=$3 and framework_key=$4 and deleted_at is null limit 1`, [tenantId, input.deviceId, input.discoveryProviderKey, input.frameworkKey])).rows[0];
+  async findFrameworkInstanceByIdentity(tenantId: string, input: { deviceId?: string; assetId?: string; discoveryProviderKey: string; frameworkKey: string }): Promise<FrameworkInstanceDto | undefined> {
+    const owner = ownerPredicate(input.deviceId, input.assetId, 'device_id', 'asset_id');
+    const row = (await this.db.query<ServiceInstanceRow>(`select * from pg_framework_instances where tenant_id=$1 and ${owner.sql} and discovery_provider_key=$${owner.next} and framework_key=$${owner.next + 1} and deleted_at is null limit 1`, [tenantId, owner.value, input.discoveryProviderKey, input.frameworkKey])).rows[0];
     return row ? toServiceInstance(row) : undefined;
   }
 
@@ -506,8 +524,9 @@ export class PgAssetsRepository implements AssetsRepository {
   async createSiteAsset(tenantId: string, input: CreateSiteAssetDto): Promise<SiteAssetDto> {
     const framework = await this.getFrameworkInstance(tenantId, input.frameworkInstanceId);
     if (!framework) throw new AppError('RESOURCE_NOT_FOUND', 'FrameworkInstance 不存在', { frameworkInstanceId: input.frameworkInstanceId });
-    if (framework.deviceId !== input.deviceId) throw new AppError('VALIDATION_FAILED', 'Site 与 FrameworkInstance 必须属于同一 Device Root', { deviceId: input.deviceId, frameworkDeviceId: framework.deviceId });
-    if (!await this.getHost(tenantId, input.deviceId)) throw new AppError('RESOURCE_NOT_FOUND', 'Device Root 不存在', { deviceId: input.deviceId });
+    const owner = resolveChildOwner(framework, input.deviceId, input.assetId, 'SiteAsset');
+    if (owner.deviceId && !await this.getHost(tenantId, owner.deviceId)) throw new AppError('RESOURCE_NOT_FOUND', 'Device Root 不存在', { deviceId: owner.deviceId });
+    if (owner.assetId && !await this.cloudAccountAssetExists(tenantId, owner.assetId)) throw new AppError('RESOURCE_NOT_FOUND', 'CloudAccountAsset 不存在', { assetId: owner.assetId });
     const duplicate = await this.findSiteAssetByIdentity(tenantId, input);
     if (duplicate) throw new AppError('RESOURCE_ALREADY_EXISTS', 'SiteAsset 已存在', { siteAssetId: duplicate.id, siteKey: input.siteKey });
     const serviceAsset = input.serviceAssetId ? await this.getServiceAsset(tenantId, input.serviceAssetId) : undefined;
@@ -523,8 +542,9 @@ export class PgAssetsRepository implements AssetsRepository {
       id: newId('sit'),
       tenantId,
       serviceAssetId: serviceAsset?.id,
+      ...(owner.assetId ? { assetId: owner.assetId, assetOwner: { kind: 'CLOUD_ACCOUNT' as const, id: owner.assetId } } : {}),
       frameworkInstanceId: input.frameworkInstanceId,
-      deviceId: input.deviceId,
+      ...(owner.deviceId ? { deviceId: owner.deviceId, assetOwner: { kind: 'HOST' as const, id: owner.deviceId } } : {}),
       discoveryProviderKey: input.discoveryProviderKey,
       siteType: input.siteType,
       siteName: input.siteName,
@@ -545,15 +565,15 @@ export class PgAssetsRepository implements AssetsRepository {
       version: 1,
     };
     await this.db.query(`insert into pg_site_assets (
-      id, tenant_id, framework_instance_id, service_asset_id, device_id, discovery_provider_key, site_type, site_name, site_key,
+      id, tenant_id, framework_instance_id, service_asset_id, device_id, asset_id, discovery_provider_key, site_type, site_name, site_key,
       binding_information, host_header, listen_ip, port, protocol, config_path, runtime_status, discovery_source, last_discovered_at,
       status, metadata, created_at, updated_at, version
     ) values (
-      $1,$2,$3,$4,$5,$6,$7,$8,$9,
-      $10,$11,$12,$13,$14,$15,$16,$17,$18::timestamptz,
-      $19,$20::jsonb,$21::timestamptz,$22::timestamptz,$23
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+      $11,$12,$13,$14,$15,$16,$17,$18,$19::timestamptz,
+      $20,$21::jsonb,$22::timestamptz,$23::timestamptz,$24
     )`, [
-      siteAsset.id, tenantId, siteAsset.frameworkInstanceId, siteAsset.serviceAssetId ?? null, siteAsset.deviceId, siteAsset.discoveryProviderKey, siteAsset.siteType, siteAsset.siteName, siteAsset.siteKey,
+      siteAsset.id, tenantId, siteAsset.frameworkInstanceId, siteAsset.serviceAssetId ?? null, siteAsset.deviceId ?? null, siteAsset.assetId ?? null, siteAsset.discoveryProviderKey, siteAsset.siteType, siteAsset.siteName, siteAsset.siteKey,
       siteAsset.bindingInformation ?? null, siteAsset.hostHeader ?? null, siteAsset.listenIp ?? null, siteAsset.port ?? null, siteAsset.protocol ?? null, siteAsset.configPath ?? null, siteAsset.runtimeStatus ?? null, siteAsset.discoverySource, siteAsset.lastDiscoveredAt ?? null,
       siteAsset.status, JSON.stringify(siteAsset.metadata), siteAsset.createdAt, siteAsset.updatedAt, siteAsset.version,
     ]);
@@ -564,11 +584,13 @@ export class PgAssetsRepository implements AssetsRepository {
     const current = await this.getSiteAsset(tenantId, siteAssetId);
     if (!current) throw new AppError('RESOURCE_NOT_FOUND', 'SiteAsset 不存在', { siteAssetId });
     const nextFrameworkInstanceId = input.frameworkInstanceId ?? current.frameworkInstanceId;
-    const nextDeviceId = input.deviceId ?? current.deviceId;
+    const nextDeviceId = input.deviceId !== undefined || input.assetId !== undefined ? input.deviceId : current.deviceId;
     const framework = await this.getFrameworkInstance(tenantId, nextFrameworkInstanceId);
     if (!framework) throw new AppError('RESOURCE_NOT_FOUND', 'FrameworkInstance 不存在', { frameworkInstanceId: nextFrameworkInstanceId });
-    if (framework.deviceId !== nextDeviceId) throw new AppError('VALIDATION_FAILED', 'Site 与 FrameworkInstance 必须属于同一 Device Root', { deviceId: nextDeviceId, frameworkDeviceId: framework.deviceId });
-    if (!await this.getHost(tenantId, nextDeviceId)) throw new AppError('RESOURCE_NOT_FOUND', 'Device Root 不存在', { deviceId: nextDeviceId });
+    const nextAssetId = input.deviceId !== undefined || input.assetId !== undefined ? input.assetId : current.assetId;
+    const owner = resolveChildOwner(framework, nextDeviceId, nextAssetId, 'SiteAsset');
+    if (owner.deviceId && !await this.getHost(tenantId, owner.deviceId)) throw new AppError('RESOURCE_NOT_FOUND', 'Device Root 不存在', { deviceId: owner.deviceId });
+    if (owner.assetId && !await this.cloudAccountAssetExists(tenantId, owner.assetId)) throw new AppError('RESOURCE_NOT_FOUND', 'CloudAccountAsset 不存在', { assetId: owner.assetId });
     const nextSiteKey = input.siteKey ?? current.siteKey;
     const duplicate = await this.findSiteAssetByIdentity(tenantId, { frameworkInstanceId: nextFrameworkInstanceId, siteKey: nextSiteKey });
     if (duplicate && duplicate.id !== current.id) throw new AppError('RESOURCE_ALREADY_EXISTS', 'SiteAsset 已存在', { siteAssetId: duplicate.id, siteKey: nextSiteKey });
@@ -581,9 +603,9 @@ export class PgAssetsRepository implements AssetsRepository {
         serviceInstanceId: nextFrameworkInstanceId,
       });
     }
-    const updated = touch({ ...current, ...input, metadata: input.metadata ?? current.metadata });
-    await this.db.query(`update pg_site_assets set framework_instance_id=$2, service_asset_id=$3, device_id=$4, discovery_provider_key=$5, site_type=$6, site_name=$7, site_key=$8, binding_information=$9, host_header=$10, listen_ip=$11, port=$12, protocol=$13, config_path=$14, runtime_status=$15, discovery_source=$16, last_discovered_at=$17::timestamptz, status=$18, metadata=$19::jsonb, updated_at=$20::timestamptz, version=$21 where id=$1`, [
-      updated.id, updated.frameworkInstanceId, updated.serviceAssetId ?? null, updated.deviceId, updated.discoveryProviderKey, updated.siteType, updated.siteName, updated.siteKey, updated.bindingInformation ?? null, updated.hostHeader ?? null, updated.listenIp ?? null, updated.port ?? null, updated.protocol ?? null, updated.configPath ?? null, updated.runtimeStatus ?? null, updated.discoverySource, updated.lastDiscoveredAt ?? null, updated.status, JSON.stringify(updated.metadata), updated.updatedAt, updated.version,
+    const updated = touch({ ...current, ...input, deviceId: owner.deviceId, assetId: owner.assetId, metadata: input.metadata ?? current.metadata });
+    await this.db.query(`update pg_site_assets set framework_instance_id=$2, service_asset_id=$3, device_id=$4, asset_id=$5, discovery_provider_key=$6, site_type=$7, site_name=$8, site_key=$9, binding_information=$10, host_header=$11, listen_ip=$12, port=$13, protocol=$14, config_path=$15, runtime_status=$16, discovery_source=$17, last_discovered_at=$18::timestamptz, status=$19, metadata=$20::jsonb, updated_at=$21::timestamptz, version=$22 where id=$1`, [
+      updated.id, updated.frameworkInstanceId, updated.serviceAssetId ?? null, updated.deviceId ?? null, updated.assetId ?? null, updated.discoveryProviderKey, updated.siteType, updated.siteName, updated.siteKey, updated.bindingInformation ?? null, updated.hostHeader ?? null, updated.listenIp ?? null, updated.port ?? null, updated.protocol ?? null, updated.configPath ?? null, updated.runtimeStatus ?? null, updated.discoverySource, updated.lastDiscoveredAt ?? null, updated.status, JSON.stringify(updated.metadata), updated.updatedAt, updated.version,
     ]);
     return updated;
   }
@@ -1420,7 +1442,7 @@ function toServiceInstance(row: ServiceInstanceRow): FrameworkInstanceDto {
     tenantId: row.tenant_id,
     ...(row.asset_id ? { assetId: row.asset_id } : {}),
     ...(row.asset_id ? { assetOwner: { kind: 'CLOUD_ACCOUNT', id: row.asset_id } } : row.device_id ? { assetOwner: { kind: 'HOST', id: row.device_id } } : {}),
-    deviceId: row.device_id ?? row.asset_id ?? '',
+    ...(row.device_id ? { deviceId: row.device_id } : {}),
     frameworkType: row.framework_type,
     frameworkKey: row.framework_key,
     discoveryProviderKey: row.discovery_provider_key,
@@ -1495,7 +1517,7 @@ function toSiteAsset(row: SiteAssetRow): SiteAssetDto {
     ...(row.service_asset_id ? { serviceAssetId: row.service_asset_id } : {}),
     ...(row.asset_id ? { assetOwner: { kind: 'CLOUD_ACCOUNT', id: row.asset_id } } : row.device_id ? { assetOwner: { kind: 'HOST', id: row.device_id } } : {}),
     frameworkInstanceId: row.framework_instance_id,
-    deviceId: row.device_id ?? row.asset_id ?? '',
+    ...(row.device_id ? { deviceId: row.device_id } : {}),
     discoveryProviderKey: row.discovery_provider_key,
     siteType: row.site_type,
     siteName: row.site_name,
@@ -1639,6 +1661,48 @@ function asExecutionLocations(value: unknown): ManagedTargetDto['executionLocati
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function assertExactlyOneOwner(deviceId: string | undefined, assetId: string | undefined, resourceName: string): void {
+  if ((deviceId ? 1 : 0) + (assetId ? 1 : 0) !== 1) {
+    throw new AppError('VALIDATION_FAILED', `${resourceName} 必须且只能绑定 Device 或 CloudAccountAsset`, {
+      code: `${resourceName.toUpperCase()}_OWNER_CONFLICT`,
+    });
+  }
+}
+
+function ownerPredicate(
+  deviceId: string | undefined,
+  assetId: string | undefined,
+  deviceColumn: string,
+  assetColumn: string,
+): { sql: string; value: string; next: number } {
+  assertExactlyOneOwner(deviceId, assetId, 'FrameworkInstance');
+  return assetId
+    ? { sql: `${assetColumn}=$2`, value: assetId, next: 3 }
+    : { sql: `${deviceColumn}=$2`, value: deviceId as string, next: 3 };
+}
+
+function resolveChildOwner(
+  framework: Pick<FrameworkInstanceDto, 'deviceId' | 'assetId'>,
+  requestedDeviceId: string | undefined,
+  requestedAssetId: string | undefined,
+  resourceName: string,
+): { deviceId?: string; assetId?: string } {
+  const explicitOwner = requestedDeviceId !== undefined || requestedAssetId !== undefined;
+  const deviceId = explicitOwner ? requestedDeviceId : framework.deviceId;
+  const assetId = explicitOwner ? requestedAssetId : framework.assetId;
+  assertExactlyOneOwner(deviceId, assetId, resourceName);
+  if (deviceId !== framework.deviceId || assetId !== framework.assetId) {
+    throw new AppError('VALIDATION_FAILED', `${resourceName} 与 FrameworkInstance 必须属于同一资源所有者`, {
+      code: `${resourceName.toUpperCase()}_OWNER_MISMATCH`,
+      frameworkDeviceId: framework.deviceId,
+      frameworkAssetId: framework.assetId,
+      deviceId,
+      assetId,
+    });
+  }
+  return { ...(deviceId ? { deviceId } : {}), ...(assetId ? { assetId } : {}) };
 }
 
 function touch<T extends { updatedAt: string; version: number }>(item: T): T {

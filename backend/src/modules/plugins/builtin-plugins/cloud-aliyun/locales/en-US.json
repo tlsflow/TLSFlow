@@ -8,5 +8,7 @@
   "plugin.cloud.aliyun.accessKeySecret": "AccessKey Secret",
   "plugin.cloud.aliyun.accountSection": "Cloud account",
   "plugin.cloud.aliyun.onboarding.compatibility": "Alibaba Cloud CDN domain services",
-  "plugin.cloud.aliyun.onboarding.requiredCredential": "A saved Alibaba Cloud account credential"
+  "plugin.cloud.aliyun.onboarding.requiredCredential": "A saved Alibaba Cloud account credential",
+  "plugin.cloud.aliyun.resourceSection": "Resource connection",
+  "plugin.cloud.aliyun.displayName": "Asset name"
 }

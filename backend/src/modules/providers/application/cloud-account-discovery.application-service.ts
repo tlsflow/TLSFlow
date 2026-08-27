@@ -11,6 +11,8 @@ import type { WorkflowTemplatesApplicationService } from '../../workflow-templat
 import type { UnifiedPluginsApplicationService } from '../../plugins/application/unified-plugins.application-service.js';
 import type { PluginWorkflowBindingsRepositoryPort } from '../../plugins/repository/plugin-workflow-bindings.repository.js';
 import type { CloudAccountAsset } from '../dto/providers.dto.js';
+import type { ServiceAssetDto } from '../../assets/dto/assets.dto.js';
+import type { AssetsApplicationService } from '../../assets/application/assets.application-service.js';
 import { CloudAccountAssetsApplicationService } from './cloud-account-assets.application-service.js';
 import { CloudResourceProjectionService, type CloudResourceProjectionBatch, type PersistedCloudResourceProjectionBatch } from '../discovery/cloud-resource-projection.js';
 
@@ -29,6 +31,7 @@ export interface CloudAccountDiscoveryResult {
     devices: number;
     frameworks: number;
     sites: number;
+    managedTargets: number;
   };
   completedAt: string;
 }
@@ -36,12 +39,25 @@ export interface CloudAccountDiscoveryResult {
 export interface CloudAccountDiscoveryDependencies {
   db: DatabasePort;
   cloudAccounts: Pick<CloudAccountAssetsApplicationService, 'get'>;
+  /** 标准插件资源通过 pg_service_assets 执行动作；旧 cloudAccounts 仅供兼容 API。 */
+  serviceAssets?: Pick<AssetsApplicationService, 'getServiceAsset'>;
   plugins: Pick<UnifiedPluginsApplicationService, 'listCatalog' | 'getVersionForTenant'>;
   workflows: Pick<WorkflowTemplatesApplicationService, 'getVersion' | 'runWithDispatcher'>;
   workflowBindings: PluginWorkflowBindingsRepositoryPort;
   projection: CloudResourceProjectionService;
   pluginActionExecutor: Pick<PluginRunnerExecutorAdapter, 'executeAction'>;
   executionGrants: Pick<ExecutionGrantService, 'create' | 'revoke'>;
+}
+
+interface DiscoveryAsset {
+  id: string;
+  tenantId: string;
+  providerKey: string;
+  displayName: string;
+  credentialRef: string;
+  metadata: Record<string, unknown>;
+  scope?: { metadata?: Record<string, unknown> };
+  status: string;
 }
 
 /**
@@ -53,8 +69,24 @@ export class CloudAccountDiscoveryApplicationService {
 
   async execute(tenantId: string, assetId: string, operation: CloudAccountDiscoveryOperation): Promise<CloudAccountDiscoveryResult> {
     const asset = await this.dependencies.cloudAccounts.get(tenantId, assetId);
+    return this.executeForAsset(tenantId, toDiscoveryAsset(asset), operation, 'CLOUD_ACCOUNT_ASSET');
+  }
+
+  /** 标准插件资源执行入口，所有云 Provider 共用，不读取 CloudAccountAsset 表。 */
+  async executeServiceAsset(tenantId: string, serviceAssetId: string, operation: CloudAccountDiscoveryOperation): Promise<CloudAccountDiscoveryResult> {
+    const asset = await this.dependencies.serviceAssets?.getServiceAsset(tenantId, serviceAssetId);
+    if (!asset) throw new AppError('RESOURCE_NOT_FOUND', '标准 ServiceAsset 不存在', { serviceAssetId });
+    return this.executeForAsset(tenantId, toDiscoveryAsset(asset), operation, 'APPLICATION_ASSET');
+  }
+
+  private async executeForAsset(
+    tenantId: string,
+    asset: DiscoveryAsset,
+    operation: CloudAccountDiscoveryOperation,
+    ownerType: 'CLOUD_ACCOUNT_ASSET' | 'APPLICATION_ASSET',
+  ): Promise<CloudAccountDiscoveryResult> {
     assertActiveAsset(asset);
-    const current = await this.resolveCurrentExecution(tenantId, asset, operation);
+    const current = await this.resolveCurrentExecution(tenantId, asset, operation, ownerType);
     const workflow = await this.dependencies.workflows.getVersion(current.workflowVersionId);
     if (workflow.status !== 'published' || workflow.templateId !== current.workflowTemplateId) {
       throw new AppError('PLUGIN_RUNNER_VERSION_MISMATCH', '当前云服务插件的 WorkflowVersion 不可执行', { workflowVersionId: current.workflowVersionId });
@@ -104,7 +136,7 @@ export class CloudAccountDiscoveryApplicationService {
     if (operation === 'discover') {
       projection = await this.dependencies.projection.persistBatch({
         tenantId,
-        cloudAccountAssetId: asset.id,
+        ...(ownerType === 'APPLICATION_ASSET' ? { serviceAssetId: asset.id } : { cloudAccountAssetId: asset.id }),
         pluginId: plugin.pluginId,
         pluginVersionId: plugin.id,
         provider: asset.providerKey,
@@ -123,22 +155,35 @@ export class CloudAccountDiscoveryApplicationService {
       workflowVersionId: workflow.id,
       signatureVerified: output.signatureVerified === true,
       resources,
-      ...(projection ? { projection: { devices: projection.devices.length, frameworks: projection.frameworks.length, sites: projection.sites.length } } : {}),
+      ...(projection ? {
+        projection: {
+          devices: projection.devices.length,
+          frameworks: projection.frameworks.length,
+          sites: projection.sites.length,
+          managedTargets: projection.managedTargets.length,
+        },
+      } : {}),
       completedAt: new Date().toISOString(),
     };
   }
 
   async listResources(tenantId: string, assetId: string): Promise<PersistedCloudResourceProjectionBatch> {
     await this.dependencies.cloudAccounts.get(tenantId, assetId);
-    return this.dependencies.projection.listForAsset(tenantId, assetId);
+    return this.dependencies.projection.listForAsset(tenantId, assetId, 'CLOUD_ACCOUNT_ASSET');
   }
 
-  private async resolveCurrentExecution(tenantId: string, asset: CloudAccountAsset, operation: CloudAccountDiscoveryOperation): Promise<{ pluginVersionId: string; workflowTemplateId: string; workflowVersionId: string }> {
+  async listServiceAssetResources(tenantId: string, serviceAssetId: string): Promise<PersistedCloudResourceProjectionBatch> {
+    const asset = await this.dependencies.serviceAssets?.getServiceAsset(tenantId, serviceAssetId);
+    if (!asset) throw new AppError('RESOURCE_NOT_FOUND', '标准 ServiceAsset 不存在', { serviceAssetId });
+    return this.dependencies.projection.listForAsset(tenantId, serviceAssetId, 'SERVICE_ASSET');
+  }
+
+  private async resolveCurrentExecution(tenantId: string, asset: DiscoveryAsset, operation: CloudAccountDiscoveryOperation, ownerType: 'CLOUD_ACCOUNT_ASSET' | 'APPLICATION_ASSET'): Promise<{ pluginVersionId: string; workflowTemplateId: string; workflowVersionId: string }> {
     const capabilityKey = operationCapability(operation);
     const assignment = (await this.dependencies.db.query<{ plugin_version_id: string }>(
       `select plugin_version_id from plugin_capability_assignments
-       where tenant_id=$1 and owner_type='CLOUD_ACCOUNT_ASSET' and owner_id=$2 and capability_key=$3 and status='ACTIVE'`,
-      [tenantId, asset.id, capabilityKey],
+       where tenant_id=$1 and owner_type=$2 and owner_id=$3 and capability_key=$4 and status='ACTIVE'`,
+      [tenantId, ownerType, asset.id, capabilityKey],
     )).rows[0];
     if (!assignment) throw new AppError('PLUGIN_CAPABILITY_EXECUTION_FAILED', '云账号没有冻结的插件能力指派', { assetId: asset.id, operation });
     const plugin = await this.dependencies.plugins.getVersionForTenant(tenantId, assignment.plugin_version_id);
@@ -179,7 +224,7 @@ export class CloudAccountDiscoveryApplicationService {
   private async dispatchPluginAction(input: {
     dispatch: { runId: string; step: WorkflowStep; renderedPlan: unknown; attempt: number; rollback: boolean };
     tenantId: string;
-    asset: CloudAccountAsset;
+    asset: DiscoveryAsset;
     pluginManifest: { compatibility?: { productFamilies?: string[] } };
     workflow: { id: string };
     bindings: Record<string, PluginActionBindingV1>;
@@ -239,12 +284,12 @@ function operationCapability(operation: CloudAccountDiscoveryOperation): string 
   return operation === 'connection-test' ? 'cloud.service.connection-test' : 'cloud.service.discover';
 }
 
-function assertActiveAsset(asset: CloudAccountAsset): void {
+function assertActiveAsset(asset: DiscoveryAsset): void {
   if (asset.status !== 'ACTIVE') throw new AppError('VALIDATION_FAILED', '云账号资产不是 ACTIVE 状态，拒绝执行云服务动作', { assetId: asset.id, status: asset.status });
 }
 
-function buildCloudRequest(asset: CloudAccountAsset, plugin: { manifest: { resources: Record<string, unknown> }; resources: Record<string, string> }): Record<string, unknown> {
-  const configured = asset.scope.metadata?.request;
+function buildCloudRequest(asset: DiscoveryAsset, plugin: { manifest: { resources: Record<string, unknown> }; resources: Record<string, string> }): Record<string, unknown> {
+  const configured = asset.scope?.metadata?.request ?? asset.metadata.request;
   if (configured && typeof configured === 'object' && !Array.isArray(configured)) return structuredClone(configured as Record<string, unknown>);
   const onboardingPath = readStringPath(plugin.manifest.resources, ['onboarding', 'cloudAccount']);
   if (onboardingPath) {
@@ -274,16 +319,16 @@ function readStringPath(value: unknown, path: string[]): string | undefined {
 }
 
 function resolveProductFamily(
-  asset: CloudAccountAsset,
+  asset: DiscoveryAsset,
   manifest: { compatibility?: { productFamilies?: string[] } },
 ): string | undefined {
-  const configured = asset.scope.metadata?.productFamily ?? asset.metadata.productFamily;
+  const configured = asset.scope?.metadata?.productFamily ?? asset.metadata.productFamily;
   if (typeof configured === 'string' && configured.trim()) return configured.trim();
   const declared = manifest.compatibility?.productFamilies?.find((value) => typeof value === 'string' && value.trim());
   return declared?.trim() || asset.providerKey;
 }
 
-function buildResolvedInput(asset: CloudAccountAsset, credentials: Record<string, string>, request: Record<string, unknown>, idempotencyKey: string): ResolvedDeploymentInputV1 {
+function buildResolvedInput(asset: DiscoveryAsset, credentials: Record<string, string>, request: Record<string, unknown>, idempotencyKey: string): ResolvedDeploymentInputV1 {
   const assetContext: DeploymentAssetContextV1 = {
     apiVersion: 'gcac.deployment-asset-context/v1',
     application: { id: asset.id, address: `cloud://${asset.id}`, serverName: asset.displayName, port: 443, protocol: 'https' },
@@ -351,4 +396,33 @@ function asRecord(value: unknown): Record<string, any> {
 
 function randomToken(): string {
   return Math.random().toString(36).slice(2, 10);
+}
+
+function toDiscoveryAsset(asset: CloudAccountAsset | ServiceAssetDto): DiscoveryAsset {
+  if ('assetKind' in asset) {
+    return {
+      id: asset.id,
+      tenantId: asset.tenantId,
+      providerKey: asset.providerKey,
+      displayName: asset.displayName,
+      credentialRef: asset.credentialRef,
+      metadata: asset.metadata,
+      scope: asset.scope,
+      status: asset.status,
+    };
+  }
+  const credentialRef = typeof asset.metadata.credentialRef === 'string' ? asset.metadata.credentialRef : '';
+  const pluginId = typeof asset.metadata.pluginId === 'string' ? asset.metadata.pluginId : '';
+  if (!pluginId || !credentialRef) {
+    throw new AppError('VALIDATION_FAILED', '标准 ServiceAsset 缺少插件或凭据引用', { serviceAssetId: asset.id });
+  }
+  return {
+    id: asset.id,
+    tenantId: asset.tenantId,
+    providerKey: pluginId,
+    displayName: asset.displayName ?? pluginId,
+    credentialRef,
+    metadata: asset.metadata,
+    status: asset.status,
+  };
 }

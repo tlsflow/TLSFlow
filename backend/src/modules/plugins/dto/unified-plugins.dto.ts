@@ -109,6 +109,8 @@ export interface UnifiedPluginManifestV1 {
     managementMethods?: Array<'AGENT' | 'PLUGIN' | 'MANUAL'>;
     executionLocations?: UnifiedPluginExecutionLocation[];
     artifactContracts?: string[];
+    /** Provider 通过插件声明的控制面地址，宿主不按厂商写死 endpoint。 */
+    serviceEndpoints?: string[];
   };
   resources: {
     /** 插件包自有 Logo 资源，不允许指向宿主静态目录或外部 URL。 */

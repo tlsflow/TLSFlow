@@ -5,6 +5,7 @@ import { AppError } from '../../common/errors/app-error.js';
 import type { AgentRegistration } from '../agents/schema/agents.schema.js';
 import type { DeviceAssetDto } from '../device-assets/dto/device-assets.dto.js';
 import type { HostDto, ManagedTargetDto } from './dto/assets.dto.js';
+import type { CloudAccountAsset } from '../providers/dto/providers.dto.js';
 import { ManagedTargetContextResolver, type ManagedTargetAssetsPort } from './application/managed-target-context.resolver.js';
 
 const now = '2026-07-22T00:00:00.000Z';
@@ -17,7 +18,7 @@ test('Spec033 Resolver 从目标 ID 解析 Agent 完整上下文', async () => {
   assert.equal('driverKind' in result, false);
   assert.equal('executionLocation' in result, false);
   assert.deepEqual(result.availableExecutionLocations, ['AGENT']);
-  assert.equal(result.host.id, 'host_1');
+  assert.equal(result.host!.id, 'host_1');
 });
 
 test('Spec033 Resolver 从目标 ID 解析统一插件设备上下文', async () => {
@@ -43,6 +44,33 @@ test('Spec034.1 Resolver 只汇总可用执行位置，不选择所有者驱动'
   assert.deepEqual(result.availableExecutionLocations, ['AGENT', 'GATEWAY', 'CONTROL_PLANE']);
   assert.equal('driverKind' in result, false);
   assert.equal('executionLocation' in result, false);
+});
+
+test('Spec034.2 云 ManagedTarget 由 CloudAccountAsset 所有并使用控制面执行位置', async () => {
+  const cloudTarget = {
+    ...target,
+    deviceId: undefined,
+    assetId: 'caa_1',
+    executionLocations: ['CONTROL_PLANE'],
+    discoveryProviderKey: 'cloud.aliyun:discover',
+    targetType: 'cloud.cdn.domain',
+  } as ManagedTargetDto;
+  const account = {
+    id: 'caa_1', tenantId: 'tenant_1', assetKind: 'cloud.account', providerKey: 'cloud.aliyun',
+    displayName: '阿里云账号', credentialRef: 'credential://aliyun', scope: {}, status: 'ACTIVE',
+    metadata: {}, createdAt: now, updatedAt: now, version: 1,
+  } as CloudAccountAsset;
+  const port: ManagedTargetAssetsPort = {
+    getManagedTarget: async () => cloudTarget,
+    getHost: async () => undefined,
+    getCloudAccountAsset: async () => account,
+    getSiteAsset: async () => undefined,
+    getFrameworkInstance: async () => undefined,
+  };
+  const result = await new ManagedTargetContextResolver(port, { getRegistration: async () => undefined }, { findByHostId: async () => undefined }).resolve('tenant_1', cloudTarget.id);
+  assert.equal(result.host, undefined);
+  assert.equal(result.cloudAccountAsset?.id, 'caa_1');
+  assert.deepEqual(result.availableExecutionLocations, ['CONTROL_PLANE']);
 });
 
 test('历史 ManagedTarget 未绑定 Framework 时沿用 Site 的 Framework 关系', async () => {
@@ -76,10 +104,12 @@ function assetsPort(
   managedHost: HostDto | undefined,
   managedSite?: { id: string; frameworkInstanceId: string },
   framework?: { id: string; frameworkType: string; rawFacts: Record<string, unknown> },
+  cloudAccountAsset?: CloudAccountAsset,
 ): ManagedTargetAssetsPort {
   return {
     getManagedTarget: async () => managedTarget,
     getHost: async () => managedHost,
+    getCloudAccountAsset: async () => cloudAccountAsset,
     getSiteAsset: async () => managedSite as never,
     getFrameworkInstance: async () => framework as never,
   };

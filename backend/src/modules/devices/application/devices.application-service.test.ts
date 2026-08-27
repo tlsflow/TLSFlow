@@ -32,6 +32,91 @@ test('应用接入向导保留 Manifest 声明的全部兼容产品族', () => {
   assert.deepEqual(resolvePluginDeviceFamilies(plugin), ['WINDOWS_SERVER', 'LINUX_SERVER']);
 });
 
+test('云资源插件复用标准设备接入入口但不创建设备资产', async () => {
+  const plugin = {
+    id: 'plugin-version-cloud',
+    tenantId: 'SYSTEM',
+    pluginId: 'cloud.test',
+    version: '1.0.0',
+    source: 'BUILTIN',
+    runtime: 'WORKFLOW_DSL',
+    scope: 'MANAGED',
+    status: 'ENABLED',
+    manifest: {
+      capabilities: [
+        { key: 'cloud.service.connection-test' },
+        { key: 'cloud.service.discover' },
+      ],
+      resources: { forms: { cloud: 'forms/cloud.json' } },
+    },
+    resources: { 'forms/cloud.json': '{}' },
+  } as unknown as UnifiedPluginVersionRecord;
+  const resourceOnboardingCalls: Array<Record<string, unknown>> = [];
+  const resourceOnboarding = {
+    supports: (candidate: UnifiedPluginVersionRecord) => candidate.pluginId === 'cloud.test',
+    onboard: async (tenantId: string, candidate: UnifiedPluginVersionRecord, values: Record<string, unknown>, actorId: string) => {
+      resourceOnboardingCalls.push({ tenantId, pluginId: candidate.pluginId, values, actorId });
+      return {
+        onboardingKind: 'PLUGIN_MANAGED',
+        resourceType: 'ASSET',
+        resourceId: 'cloud-asset-1',
+        assetId: 'cloud-asset-1',
+      };
+    },
+  };
+  const packageResources = {
+    validate: () => ({
+      forms: {
+        cloud: {
+          schemaVersion: 'gcac.plugin-form/v1',
+          mode: 'MANAGED',
+          sections: [{ id: 'resource', titleKey: 'test.resource', fields: [
+            { key: 'displayName', type: 'text', labelKey: 'test.displayName', required: true },
+            { key: 'credentialId', type: 'credential_ref', labelKey: 'test.credential', required: true },
+          ] }],
+        },
+      },
+      presentations: {},
+    }),
+  };
+  const db = {
+    query: async (sql: string) => {
+      if (sql.includes('pg_device_assets')) throw new Error('云资源接入不应访问 pg_device_assets');
+      return { rows: [] };
+    },
+    transaction: async () => { throw new Error('云资源接入不应开启设备事务'); },
+  };
+  const service = new DevicesApplicationService(
+    { get: async () => undefined } as unknown as DevicesRepository,
+    undefined,
+    undefined,
+    db as never,
+    { getVersion: async () => plugin } as never,
+    packageResources as never,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    resourceOnboarding,
+  );
+
+  const result = await service.onboard('tenant-cloud', {
+    platformKey: 'plugin',
+    pluginVersionId: plugin.id,
+    formValues: { displayName: '阿里云 CDN', credentialId: 'cred-1' },
+  }, 'user-cloud', 'request-cloud');
+
+  assert.equal((result as unknown as { assetId: string }).assetId, 'cloud-asset-1');
+  assert.deepEqual(resourceOnboardingCalls, [{
+    tenantId: 'tenant-cloud',
+    pluginId: 'cloud.test',
+    values: { displayName: '阿里云 CDN', credentialId: 'cred-1' },
+    actorId: 'user-cloud',
+  }]);
+});
+
 test('统一设备发现动作会进入 Agent 标准发现流程', async () => {
   const device = {
     id: 'host-1',

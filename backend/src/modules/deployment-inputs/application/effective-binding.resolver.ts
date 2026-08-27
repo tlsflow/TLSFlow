@@ -19,6 +19,8 @@ export interface VersionedInputBindingLayerV1 {
 
 export interface ResolveEffectiveBindingRequest {
   contract: DeploymentInputContractV1;
+  /** 设备或 CloudAccountAsset 等目标所有者的默认绑定。 */
+  resourceOwnerDefault?: VersionedInputBindingLayerV1;
   deviceDefault?: VersionedInputBindingLayerV1;
   targetOverride?: VersionedInputBindingLayerV1;
   assetOverride?: VersionedInputBindingLayerV1;
@@ -42,7 +44,8 @@ interface NamedLayer {
   value: VersionedInputBindingLayerV1;
 }
 
-const PERSISTENT_LAYERS: Array<{ layer: PersistentBindingLayer; key: 'deviceDefault' | 'targetOverride' | 'assetOverride' }> = [
+const PERSISTENT_LAYERS: Array<{ layer: PersistentBindingLayer; key: 'resourceOwnerDefault' | 'deviceDefault' | 'targetOverride' | 'assetOverride' }> = [
+  { layer: 'RESOURCE_OWNER', key: 'resourceOwnerDefault' },
   { layer: 'DEVICE', key: 'deviceDefault' },
   { layer: 'MANAGED_TARGET', key: 'targetOverride' },
   { layer: 'APPLICATION_ASSET', key: 'assetOverride' },

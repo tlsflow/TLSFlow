@@ -212,6 +212,12 @@ export class AssetsApplicationService {
     return { ...result, items: await this.hydrateCurrentCertificateProjection(tenantId, hydrated) };
   }
 
+  /** 中文说明：插件执行和标准资产页面共用的单资产读取门面。 */
+  async getServiceAsset(tenantId: string, serviceAssetId: string): Promise<ServiceAssetDto | undefined> {
+    const asset = await this.repository.getServiceAsset(tenantId, serviceAssetId);
+    return asset ? this.hydrateServiceAssetStrategy(tenantId, asset) : undefined;
+  }
+
   async getServiceAssetDetail(tenantId: string, serviceAssetId: string) {
     const detail = await this.repository.getServiceAssetDetail(tenantId, serviceAssetId);
     if (!detail) return detail;
@@ -461,6 +467,11 @@ export class AssetsApplicationService {
         result.actions.push({ kind: 'service_asset', action: 'conflict', identityKey, reason: 'service instance not found for service asset creation' });
         continue;
       }
+      // 旧的通用发现快照是设备发现协议，只处理 Device 所有的 Framework；云资源由 Provider 投影直接写入。
+      if (!serviceInstance.deviceId) {
+        result.actions.push({ kind: 'service_asset', action: 'conflict', identityKey, reason: 'cloud-owned framework must be projected by provider' });
+        continue;
+      }
       if (!current) {
         if (!apply) {
           result.actions.push({ kind: 'service_asset', action: 'create', identityKey, reason: 'service asset can be created' });
@@ -492,6 +503,10 @@ export class AssetsApplicationService {
       const serviceInstance = await this.repository.getFrameworkInstance(tenantId, resolvedServiceId);
       if (!serviceInstance) {
         result.actions.push({ kind: 'site_asset', action: 'conflict', identityKey: siteAssetIdentityKey(siteAsset), reason: 'service instance not found for site asset creation' });
+        continue;
+      }
+      if (!serviceInstance.deviceId) {
+        result.actions.push({ kind: 'site_asset', action: 'conflict', identityKey: siteAssetIdentityKey(siteAsset), reason: 'cloud-owned framework must be projected by provider' });
         continue;
       }
       const resolvedServiceAssetId = await resolveDiscoveredSiteServiceAssetId(siteAsset, serviceAssetIds, tenantId, this.repository);
@@ -1250,7 +1265,7 @@ function serviceAssetToCreateDto(serviceAsset: NormalizedDiscoveredServiceAssetD
 function siteAssetToCreateDto(
   siteAsset: NormalizedDiscoveredSiteAssetDto,
   frameworkInstanceId: string,
-  deviceId: string,
+  deviceId: string | undefined,
   discoveryProviderKey: string,
   source: CreateDiscoverySnapshotDto['source'],
   serviceAssetId?: string,

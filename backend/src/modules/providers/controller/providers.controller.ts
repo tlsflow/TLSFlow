@@ -70,6 +70,8 @@ export class ProvidersController {
         ]);
         const resolve = (key: string): string => locales.resolve(localeBundle!, locale, key) ?? key;
         items.push({
+          assetKind: loaded.recipe.assetKind,
+          providerKey: loaded.recipe.providerKey,
           pluginId: loaded.pluginId,
           pluginVersionId: loaded.pluginVersionId,
           version: loaded.pluginVersion,

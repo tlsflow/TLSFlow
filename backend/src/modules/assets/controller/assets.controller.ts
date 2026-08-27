@@ -479,7 +479,8 @@ export class AssetsController {
   private async createSiteAsset(request: HttpRequest) {
     const body = validateObject(request.body, {
       frameworkInstanceId: { type: 'string', required: true },
-      deviceId: { type: 'string', required: true },
+      deviceId: { type: 'string' },
+      assetId: { type: 'string' },
       serviceAssetId: { type: 'string' },
       discoveryProviderKey: { type: 'string', required: true },
       siteType: { type: 'string', required: true },
@@ -624,7 +625,8 @@ export class AssetsController {
 
   private async createManagedTarget(request: HttpRequest) {
     const body = validateObject(request.body, {
-      deviceId: { type: 'string', required: true },
+      deviceId: { type: 'string' },
+      assetId: { type: 'string' },
       serviceAssetId: { type: 'string' },
       frameworkInstanceId: { type: 'string' },
       siteId: { type: 'string' },
@@ -670,6 +672,7 @@ export class AssetsController {
     const body = validateObject(request.body, {
       id: { type: 'string', required: true },
       deviceId: { type: 'string' },
+      assetId: { type: 'string' },
       serviceAssetId: { type: 'string' },
       frameworkInstanceId: { type: 'string' },
       siteId: { type: 'string' },
@@ -923,8 +926,24 @@ export function getAssetsRouteContracts(): RouteContract[] {
     { method: 'POST', path: '/api/v1/application-asset-targets/delete', operationId: 'deleteApplicationAssetTarget', summary: '软删除 ApplicationAssetTarget', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/application-targets/delete', operationId: 'deleteApplicationTarget', summary: '删除 ApplicationTarget', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/site-assets', operationId: 'listSiteAssets', summary: '查询 SiteAsset 列表', tags, responseSchema: pageSchema() },
-    { method: 'POST', path: '/api/v1/site-assets', operationId: 'createSiteAsset', summary: '创建 SiteAsset', tags, responseSchema: objectSchema() },
-    { method: 'PATCH', path: '/api/v1/site-assets', operationId: 'updateSiteAsset', summary: '更新 SiteAsset', tags, responseSchema: objectSchema() },
+    {
+      method: 'POST',
+      path: '/api/v1/site-assets',
+      operationId: 'createSiteAsset',
+      summary: '创建 SiteAsset',
+      tags,
+      requestSchema: siteAssetCreateRequestSchema(),
+      responseSchema: siteAssetSchema(),
+    },
+    {
+      method: 'PATCH',
+      path: '/api/v1/site-assets',
+      operationId: 'updateSiteAsset',
+      summary: '更新 SiteAsset',
+      tags,
+      requestSchema: siteAssetUpdateRequestSchema(),
+      responseSchema: siteAssetSchema(),
+    },
     { method: 'POST', path: '/api/v1/site-assets/delete', operationId: 'deleteSiteAsset', summary: '软删除 SiteAsset', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/service-endpoints', operationId: 'listServiceEndpoints', summary: '查询 ServiceEndpoint 列表', tags, responseSchema: pageSchema() },
     { method: 'POST', path: '/api/v1/service-endpoints', operationId: 'createServiceEndpoint', summary: '创建 ServiceEndpoint', tags, responseSchema: objectSchema() },
@@ -958,5 +977,79 @@ function pageSchema() {
       pageSize: { type: 'number' },
       total: { type: 'number' },
     },
+  };
+}
+
+function siteAssetSchema() {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id', 'tenantId', 'frameworkInstanceId', 'discoveryProviderKey', 'siteType', 'siteName', 'siteKey', 'discoverySource', 'status', 'metadata', 'createdAt', 'updatedAt', 'version'],
+    properties: {
+      id: { type: 'string' },
+      tenantId: { type: 'string' },
+      assetId: { type: 'string' },
+      serviceAssetId: { type: 'string' },
+      frameworkInstanceId: { type: 'string' },
+      deviceId: { type: 'string' },
+      discoveryProviderKey: { type: 'string' },
+      siteType: { type: 'string' },
+      siteName: { type: 'string' },
+      siteKey: { type: 'string' },
+      bindingInformation: { type: 'string' },
+      hostHeader: { type: 'string' },
+      listenIp: { type: 'string' },
+      port: { type: 'number' },
+      protocol: { type: 'string' },
+      // Tomcat 等 KeyStore 部署需要读取目标服务的本机配置密码；这里只返回路径，绝不返回密码。
+      configPath: { type: 'string', description: '目标服务配置文件路径；仅用于 Agent 在目标机读取本机密码，不承载密码本身。' },
+      runtimeStatus: { type: 'string' },
+      discoverySource: { type: 'string' },
+      lastDiscoveredAt: { type: 'string' },
+      status: { type: 'string' },
+      metadata: { type: 'object', additionalProperties: true },
+      createdAt: { type: 'string' },
+      updatedAt: { type: 'string' },
+      deletedAt: { type: 'string' },
+      version: { type: 'number' },
+    },
+  };
+}
+
+function siteAssetCreateRequestSchema() {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    required: ['frameworkInstanceId', 'discoveryProviderKey', 'siteType', 'siteName', 'siteKey'],
+    properties: {
+      frameworkInstanceId: { type: 'string' },
+      deviceId: { type: 'string' },
+      assetId: { type: 'string' },
+      serviceAssetId: { type: 'string' },
+      discoveryProviderKey: { type: 'string' },
+      siteType: { type: 'string' },
+      siteName: { type: 'string' },
+      siteKey: { type: 'string' },
+      bindingInformation: { type: 'string' },
+      hostHeader: { type: 'string' },
+      listenIp: { type: 'string' },
+      port: { type: 'number' },
+      protocol: { type: 'string' },
+      configPath: { type: 'string', description: '目标服务配置文件路径；仅用于 Agent 在目标机读取本机密码，不承载密码本身。' },
+      runtimeStatus: { type: 'string' },
+      discoverySource: { type: 'string' },
+      lastDiscoveredAt: { type: 'string', format: 'date-time' },
+      status: { type: 'string' },
+      metadata: { type: 'object', additionalProperties: true },
+    },
+  };
+}
+
+function siteAssetUpdateRequestSchema() {
+  const schema = siteAssetCreateRequestSchema();
+  return {
+    ...schema,
+    required: ['id'],
+    properties: { id: { type: 'string' }, ...schema.properties },
   };
 }

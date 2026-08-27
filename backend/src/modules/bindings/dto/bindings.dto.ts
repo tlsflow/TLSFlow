@@ -165,7 +165,7 @@ export interface CertificateBindingUsageDto {
   siteAsset?: {
     id: string;
     serviceAssetId?: string;
-    deviceId: string;
+    deviceId?: string;
     frameworkInstanceId: string;
     discoveryProviderKey: string;
     siteName: string;
@@ -179,7 +179,7 @@ export interface CertificateBindingUsageDto {
   managedTarget?: {
     id: string;
     serviceAssetId?: string;
-    deviceId: string;
+    deviceId?: string;
     frameworkInstanceId?: string;
     siteId?: string;
     discoveryProviderKey: string;

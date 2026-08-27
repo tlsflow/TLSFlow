@@ -47,6 +47,30 @@ test('DeploymentCapabilityResolver 固定 Assignment、Binding、Runtime 和执�
   assert.equal(resolved.executionLocation, 'CONTROL_PLANE');
 });
 
+test('DeploymentCapabilityResolver 支持没有 Host 的 CloudAccountAsset ManagedTarget', async () => {
+  const cloudAssignment = { ...assignment, ownerType: 'MANAGED_TARGET', ownerId: 'cloud-target-1' } as const;
+  const cloudBinding = {
+    ...binding,
+    id: 'cloud-binding-1',
+    managedContext: { cloudAccountAssetId: 'cloud-account-1', managedTargetId: 'cloud-target-1' },
+  } as const;
+  const bindings = {
+    listAssignmentCandidates: async () => [cloudAssignment],
+    getTenantBinding: async () => cloudBinding,
+  } as unknown as PluginBindingsApplicationService;
+  const resolved = await new DeploymentCapabilityResolver(bindings, { getVersion: async () => plugin(['CONTROL_PLANE']) }).resolve({
+    tenantId: 'tenant-1',
+    capabilityKey: 'certificate.deploy',
+    cloudAccountAssetId: 'cloud-account-1',
+    managedTargetId: 'cloud-target-1',
+    executionLocations: ['CONTROL_PLANE'],
+    compatibility: { targetType: 'cloud.cdn.domain', managementMethod: 'PLUGIN' },
+  });
+  assert.equal(resolved.binding.managedContext?.cloudAccountAssetId, 'cloud-account-1');
+  assert.equal(resolved.binding.managedContext?.hostId, undefined);
+  assert.equal(resolved.executionLocation, 'CONTROL_PLANE');
+});
+
 test('DeploymentCapabilityResolver 允许当前租户解析 SYSTEM 内置插件版本', async () => {
   const builtin = plugin();
   builtin.tenantId = 'SYSTEM';

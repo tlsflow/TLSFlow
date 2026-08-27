@@ -19,6 +19,14 @@ const resource = {
   metadata: { domain: 'example.com' },
 } as const;
 
+const resourceWithCertificateEndpoint = {
+  ...resource,
+  targetType: 'cloud.aliyun.cdn.certificate',
+  targetKey: 'example.com',
+  supportedCapabilities: ['cloud.resource.discover', 'certificate.deploy'],
+  executionLocations: ['CONTROL_PLANE'],
+} as const;
+
 function context(tenantId = 'tenant-projection', assetId = 'caa_projection') {
   return {
     tenantId,
@@ -31,24 +39,41 @@ function context(tenantId = 'tenant-projection', assetId = 'caa_projection') {
   } as const;
 }
 
-test('Cloud Resource 投影生成稳定设备、Framework/Site，重复投影保持相同 ID', () => {
+test('普通 Cloud Resource 只生成 Framework/Site，不默认伪造 ManagedTarget', () => {
   const service = new CloudResourceProjectionService();
   const first = service.project(context(), resource);
   const second = service.project(context(), { ...resource, displayName: 'changed display name' });
-  assert.deepEqual(first.device!.metadata, {
-    cloudAccountAssetId: 'caa_projection',
-    provider: 'cloud.aliyun',
-    region: 'cn-hangzhou',
-    regionDisplayName: 'cn-hangzhou',
-    scope: 'REGION',
-    deviceCategory: 'CLOUD',
-    livenessMode: 'DISCOVERY',
-    pluginId: 'cloud.aliyun',
-    pluginVersionId: 'cloud.aliyun:2.0.1',
-  });
+  assert.equal(first.device, undefined);
+  assert.equal(first.managedTarget, undefined);
   assert.equal(first.framework.id, second.framework.id);
   assert.equal(first.site.id, second.site.id);
-  assert.deepEqual(service.preview(context(), [resource]), { devices: 1, frameworks: 1, sites: 1 });
+  assert.deepEqual(service.preview(context(), [resource]), { devices: 0, frameworks: 1, sites: 1, managedTargets: 0 });
+});
+
+test('插件显式声明证书更换端点时才生成 ManagedTarget，且端点参与稳定 ID', () => {
+  const service = new CloudResourceProjectionService();
+  const first = service.project(context(), resourceWithCertificateEndpoint);
+  const second = service.project(context(), {
+    ...resourceWithCertificateEndpoint,
+    metadata: {
+      ...resourceWithCertificateEndpoint.metadata,
+      certificateEndpoints: [{
+        endpointKey: 'certificate-api',
+        targetType: 'cloud.aliyun.cdn.certificate',
+        targetKey: 'example.com',
+        supportedCapabilities: ['certificate.deploy'],
+        executionLocations: ['CONTROL_PLANE'],
+      }],
+    },
+    targetType: undefined,
+    targetKey: undefined,
+    supportedCapabilities: undefined,
+    executionLocations: undefined,
+  });
+  assert.equal(first.managedTarget?.targetType, 'cloud.aliyun.cdn.certificate');
+  assert.equal(first.managedTarget?.targetKey, 'example.com');
+  assert.notEqual(first.managedTarget?.id, second.managedTarget?.id);
+  assert.equal(second.managedTarget?.metadata.certificateEndpointKey, 'certificate-api');
 });
 
 test('账号级 CDN 投影不创建伪设备，区域生成 Framework，实例生成 Site', () => {
@@ -75,7 +100,7 @@ test('账号级 CDN 投影不创建伪设备，区域生成 Framework，实例�
   ]);
   assert.equal(projection.sites.length, 2);
   assert.ok(projection.sites.every((site) => site.deviceId === undefined));
-  assert.deepEqual(service.preview({ ...context(), topology: 'ACCOUNT_FRAMEWORK' }, [resource]), { devices: 0, frameworks: 2, sites: 1 });
+  assert.deepEqual(service.preview({ ...context(), topology: 'ACCOUNT_FRAMEWORK' }, [resource]), { devices: 0, frameworks: 2, sites: 1, managedTargets: 0 });
 });
 
 test('账号级 CDN 投影将历史全球文案规范化为国际站', () => {
@@ -127,7 +152,7 @@ test('Cloud Resource provenance、stableKey 和跨租户资产边界失败关闭
   await db.close();
 });
 
-test('同一云产品跨可用区投影为多个设备，每个设备拥有自己的 Framework 和 Site', () => {
+test('同一云产品跨区域投影为多个 ManagedTarget，每个目标拥有自己的 Framework 和 Site', () => {
   const service = new CloudResourceProjectionService();
   const second = {
     ...resource,
@@ -137,15 +162,16 @@ test('同一云产品跨可用区投影为多个设备，每个设备拥有自�
     displayName: 'example.cn',
   };
   const projection = service.projectBatch(context(), [resource, second]);
-  assert.equal(projection.devices.length, 2);
+  assert.equal(projection.devices.length, 0);
   assert.equal(projection.frameworks.length, 2);
   assert.equal(projection.sites.length, 2);
   assert.notEqual(projection.frameworks[0]?.id, projection.frameworks[1]?.id);
   assert.notEqual(projection.sites[0]?.frameworkId, projection.sites[1]?.frameworkId);
-  assert.deepEqual(service.preview(context(), [resource, second]), { devices: 2, frameworks: 2, sites: 2 });
+  assert.equal(projection.managedTargets.length, 0);
+  assert.deepEqual(service.preview(context(), [resource, second]), { devices: 0, frameworks: 2, sites: 2, managedTargets: 0 });
 });
 
-test('区域资源只生成可用区设备，不把区域本身伪装成 Framework 或 Site', async () => {
+test('区域资源不伪装成设备、Framework、Site 或 ManagedTarget', async () => {
   const service = new CloudResourceProjectionService();
   const regions = Array.from({ length: 32 }, (_, index) => `cn-test-${String(index).padStart(2, '0')}`);
   const resources = regions.map((region) => ({
@@ -156,9 +182,10 @@ test('区域资源只生成可用区设备，不把区域本身伪装成 Framewo
     region,
   }));
   const projection = service.projectBatch(context(), resources);
-  assert.equal(projection.devices.length, 32);
+  assert.equal(projection.devices.length, 0);
   assert.equal(projection.frameworks.length, 0);
   assert.equal(projection.sites.length, 0);
+  assert.equal(projection.managedTargets.length, 0);
 
   const db = new PgliteDatabase();
   await runMigrations(db);
@@ -170,12 +197,12 @@ test('区域资源只生成可用区设备，不把区域本身伪装成 Framewo
     credentialRef: 'credential://projection-regions',
   });
   const persisted = await new CloudResourceProjectionService(db).persistBatch({ ...context('tenant-projection', asset.id) }, resources);
-  assert.equal(persisted.devices.length, 32);
-  const deviceCount = await db.query<{ count: number }>(
-    `select count(*) as count from pg_device_assets where tenant_id=$1 and metadata->>'cloudAccountAssetId'=$2`,
+  assert.equal(persisted.devices.length, 0);
+  const targetCount = await db.query<{ count: number }>(
+    `select count(*) as count from pg_managed_targets where tenant_id=$1 and asset_id=$2 and deleted_at is null`,
     ['tenant-projection', asset.id],
   );
-  assert.equal(Number(deviceCount.rows[0]?.count), 32);
+  assert.equal(Number(targetCount.rows[0]?.count), 0);
   await db.close();
 });
 
@@ -190,8 +217,8 @@ test('Projection persist 在真实迁移上按稳定 ID 幂等合并并保持 As
     credentialRef: 'credential://projection',
   });
   const service = new CloudResourceProjectionService(db);
-  const first = await service.persist({ ...context('tenant-projection', asset.id) }, resource);
-  const second = await service.persist({ ...context('tenant-projection', asset.id) }, { ...resource, displayName: '更新后的域名' });
+  const first = await service.persist({ ...context('tenant-projection', asset.id) }, resourceWithCertificateEndpoint);
+  const second = await service.persist({ ...context('tenant-projection', asset.id) }, { ...resourceWithCertificateEndpoint, displayName: '更新后的域名' });
   assert.equal(first.framework.id, second.framework.id);
   const counts = await db.query<{ framework_count: number; site_count: number; target_count: number }>(
     `select
@@ -200,7 +227,7 @@ test('Projection persist 在真实迁移上按稳定 ID 幂等合并并保持 As
        (select count(*) from pg_managed_targets where asset_id=$3 and deleted_at is null) as target_count`,
     [first.framework.id, first.site.id, asset.id],
   );
-  assert.deepEqual(counts.rows[0], { framework_count: 1, site_count: 1, target_count: 0 });
+  assert.deepEqual(counts.rows[0], { framework_count: 1, site_count: 1, target_count: 1 });
   const listed = await service.listForAsset('tenant-projection', asset.id);
   assert.equal(listed.frameworks.length, 1);
   assert.equal(listed.sites.length, 1);
@@ -219,7 +246,7 @@ test('Projection persist 在真实迁移上按稳定 ID 幂等合并并保持 As
   await db.close();
 });
 
-test('Projection batch persist 重复发现保持单 Framework、多 Site 且不创建 ManagedTarget', async () => {
+test('Projection batch persist 重复发现保持单 Framework、多 Site 和 ManagedTarget', async () => {
   const db = new PgliteDatabase();
   await runMigrations(db);
   const assets = new CloudAccountAssetsApplicationService(db);
@@ -235,9 +262,14 @@ test('Projection batch persist 重复发现保持单 Framework、多 Site 且不
     resourceId: 'resource-2',
     displayName: 'example.cn',
   };
+  const secondWithEndpoint = {
+    ...resourceWithCertificateEndpoint,
+    ...second,
+    targetKey: 'example.cn',
+  };
   const service = new CloudResourceProjectionService(db);
-  const first = await service.persistBatch({ ...context('tenant-projection', asset.id) }, [resource, second]);
-  await service.persistBatch({ ...context('tenant-projection', asset.id) }, [resource, second]);
+  const first = await service.persistBatch({ ...context('tenant-projection', asset.id) }, [resourceWithCertificateEndpoint, secondWithEndpoint]);
+  await service.persistBatch({ ...context('tenant-projection', asset.id) }, [resourceWithCertificateEndpoint, secondWithEndpoint]);
   const counts = await db.query<{ framework_count: number; site_count: number; target_count: number }>(
     `select
        (select count(*) from pg_framework_instances where asset_id=$1 and deleted_at is null) as framework_count,
@@ -245,21 +277,15 @@ test('Projection batch persist 重复发现保持单 Framework、多 Site 且不
        (select count(*) from pg_managed_targets where asset_id=$1 and deleted_at is null) as target_count`,
     [asset.id],
   );
-  assert.deepEqual(counts.rows[0], { framework_count: 1, site_count: 2, target_count: 0 });
-  assert.equal(first.devices.length, 1);
+  assert.deepEqual(counts.rows[0], { framework_count: 1, site_count: 2, target_count: 2 });
+  assert.equal(first.devices.length, 0);
+  assert.equal(first.managedTargets.length, 2);
   assert.equal(first.frameworks[0]?.id, first.sites[0]?.frameworkId);
-  const deviceTopology = await db.query<{ device_id: string; framework_device_id: string; site_device_id: string }>(
-    `select device.id as device_id, framework.device_id as framework_device_id, site.device_id as site_device_id
-       from pg_hosts device
-       join pg_framework_instances framework on framework.device_id=device.id and framework.deleted_at is null
-       join pg_site_assets site on site.device_id=device.id and site.framework_instance_id=framework.id and site.deleted_at is null
-      where device.id=$1`,
-    [first.devices[0]?.hostId],
+  const targetTopology = await db.query<{ asset_id: string; site_id: string; framework_instance_id: string }>(
+    `select asset_id, site_id, framework_instance_id from pg_managed_targets where asset_id=$1 and deleted_at is null order by target_key`,
+    [asset.id],
   );
-  assert.deepEqual(deviceTopology.rows[0], {
-    device_id: first.devices[0]?.hostId,
-    framework_device_id: first.devices[0]?.hostId,
-    site_device_id: first.devices[0]?.hostId,
-  });
+  assert.equal(targetTopology.rows.length, 2);
+  assert.ok(targetTopology.rows.every((row) => row.asset_id === asset.id && row.site_id && row.framework_instance_id));
   await db.close();
 });

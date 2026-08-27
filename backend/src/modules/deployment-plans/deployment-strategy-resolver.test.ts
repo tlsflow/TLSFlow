@@ -168,7 +168,7 @@ describe('DeploymentStrategyResolver', () => {
       (error) => {
         assert.ok(error instanceof AppError);
         assert.equal(error.errorCode, 'VALIDATION_FAILED');
-        assert.equal((error.details as { code?: string }).code, 'WORKFLOW_RUNNER_UNAVAILABLE');
+        assert.equal((error.details as { code?: string }).code, 'GATEWAY_RELAY_ONLY');
         return true;
       },
     );

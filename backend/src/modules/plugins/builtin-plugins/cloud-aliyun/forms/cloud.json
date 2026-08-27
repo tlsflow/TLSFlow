@@ -1,16 +1,28 @@
 {
-  "apiVersion": "gcac.plugin-form/v1",
-  "pluginId": "cloud.aliyun",
-  "fields": [
-    { "key": "cloudServiceRef", "type": "objectRef", "required": true, "labelKey": "plugin.cloud.aliyun.cloudService" },
-    { "key": "credential.secretRef", "type": "secretRef", "required": true, "labelKey": "plugin.cloud.aliyun.credential" },
-    { "key": "region", "type": "string", "required": true, "labelKey": "plugin.cloud.aliyun.region" }
-  ],
-  "credentialContract": {
-    "kind": "CLOUD_PROVIDER",
-    "slots": [
-      { "name": "accessKeyId", "secretType": "api_token", "required": true, "labelKey": "plugin.cloud.aliyun.accessKeyId" },
-      { "name": "accessKeySecret", "secretType": "api_token", "required": true, "labelKey": "plugin.cloud.aliyun.accessKeySecret" }
-    ]
-  }
+  "schemaVersion": "gcac.plugin-form/v1",
+  "mode": "BOTH",
+  "sections": [
+    {
+      "id": "resource",
+      "titleKey": "plugin.cloud.aliyun.resourceSection",
+      "fields": [
+        {
+          "key": "displayName",
+          "type": "text",
+          "labelKey": "plugin.cloud.aliyun.displayName",
+          "required": true,
+          "validation": { "minLength": 1, "maxLength": 128 }
+        },
+        {
+          "key": "credentialId",
+          "type": "credential_ref",
+          "labelKey": "plugin.cloud.aliyun.credential",
+          "required": true,
+          "acceptedCredentialKinds": ["CLOUD_PROVIDER"],
+          "purpose": "cloud-service-onboarding",
+          "sensitive": true
+        }
+      ]
+    }
+  ]
 }

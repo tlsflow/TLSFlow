@@ -7,6 +7,7 @@ export const applicationOnboardingRecipeProtocol = applicationOnboardingProtocol
 
 export type ApplicationOnboardingDeploymentMode = 'MANAGED_TARGET' | 'DIRECT_WORKFLOW';
 export type ApplicationOnboardingDeviceSelection = 'EXISTING_OR_NEW' | 'EXISTING_ONLY' | 'NONE';
+/** 资源所有者类型。ASSET 是宿主统一资产抽象，不绑定云厂商名称。 */
 export type ApplicationOnboardingExecutionSource = 'PLUGIN' | 'WORKFLOW';
 
 /**

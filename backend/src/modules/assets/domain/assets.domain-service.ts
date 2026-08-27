@@ -115,8 +115,12 @@ export class AssetsDomainService {
     return normalized;
   }
 
-  normalizeServiceInstance(input: CreateFrameworkInstanceDto): Required<Pick<CreateFrameworkInstanceDto, 'deviceId' | 'frameworkType' | 'frameworkKey' | 'discoveryProviderKey' | 'displayName' | 'discoverySource' | 'status' | 'rawFacts'>> & CreateFrameworkInstanceDto {
-    const deviceId = normalizeRequiredString(input.deviceId, 'deviceId');
+  normalizeServiceInstance(input: CreateFrameworkInstanceDto): CreateFrameworkInstanceDto {
+    const deviceId = normalizeOptionalString(input.deviceId);
+    const assetId = normalizeOptionalString(input.assetId);
+    if ((deviceId ? 1 : 0) + (assetId ? 1 : 0) !== 1) {
+      throw new AppError('VALIDATION_FAILED', 'FrameworkInstance 必须且只能绑定 Device 或 CloudAccountAsset', { code: 'FRAMEWORK_OWNER_CONFLICT' });
+    }
     const frameworkType = normalizeNamespaceValue(input.frameworkType, 'frameworkType');
     const frameworkKey = normalizeRequiredString(input.frameworkKey, 'frameworkKey');
     const discoveryProviderKey = normalizeRequiredString(input.discoveryProviderKey, 'discoveryProviderKey');
@@ -126,7 +130,8 @@ export class AssetsDomainService {
 
     return {
       ...input,
-      deviceId,
+      ...(deviceId ? { deviceId } : { deviceId: undefined }),
+      ...(assetId ? { assetId } : { assetId: undefined }),
       frameworkType,
       frameworkKey,
       discoveryProviderKey,
@@ -140,7 +145,11 @@ export class AssetsDomainService {
 
   normalizeServiceInstancePatch(input: UpdateFrameworkInstanceDto): UpdateFrameworkInstanceDto {
     const normalized: UpdateFrameworkInstanceDto = { ...input };
-    if (input.deviceId !== undefined) normalized.deviceId = normalizeRequiredString(input.deviceId, 'deviceId');
+    if (input.deviceId !== undefined) normalized.deviceId = normalizeOptionalString(input.deviceId);
+    if (input.assetId !== undefined) normalized.assetId = normalizeOptionalString(input.assetId);
+    if (input.deviceId !== undefined && input.assetId !== undefined && input.deviceId && input.assetId) {
+      throw new AppError('VALIDATION_FAILED', 'FrameworkInstance 不能同时绑定 Device 和 CloudAccountAsset', { code: 'FRAMEWORK_OWNER_CONFLICT' });
+    }
     if (input.frameworkType !== undefined) normalized.frameworkType = normalizeNamespaceValue(input.frameworkType, 'frameworkType');
     if (input.frameworkKey !== undefined) normalized.frameworkKey = normalizeRequiredString(input.frameworkKey, 'frameworkKey');
     if (input.discoveryProviderKey !== undefined) normalized.discoveryProviderKey = normalizeRequiredString(input.discoveryProviderKey, 'discoveryProviderKey');
@@ -274,11 +283,17 @@ export class AssetsDomainService {
     return normalized;
   }
 
-  normalizeSiteAsset(input: CreateSiteAssetDto): Required<Pick<CreateSiteAssetDto, 'frameworkInstanceId' | 'deviceId' | 'discoveryProviderKey' | 'siteType' | 'siteName' | 'siteKey' | 'discoverySource' | 'status' | 'metadata'>> & CreateSiteAssetDto {
+  normalizeSiteAsset(input: CreateSiteAssetDto): CreateSiteAssetDto {
+    const deviceId = normalizeOptionalString(input.deviceId);
+    const assetId = normalizeOptionalString(input.assetId);
+    if (deviceId && assetId) {
+      throw new AppError('VALIDATION_FAILED', 'SiteAsset 不能同时绑定 Device 和 CloudAccountAsset', { code: 'SITE_OWNER_CONFLICT' });
+    }
     return {
       ...input,
       frameworkInstanceId: normalizeRequiredString(input.frameworkInstanceId, 'frameworkInstanceId'),
-      deviceId: normalizeRequiredString(input.deviceId, 'deviceId'),
+      ...(deviceId ? { deviceId } : { deviceId: undefined }),
+      ...(assetId ? { assetId } : { assetId: undefined }),
       serviceAssetId: normalizeOptionalString(input.serviceAssetId),
       discoveryProviderKey: normalizeRequiredString(input.discoveryProviderKey, 'discoveryProviderKey'),
       siteType: normalizeNamespaceValue(input.siteType, 'siteType'),
@@ -301,7 +316,11 @@ export class AssetsDomainService {
   normalizeSiteAssetPatch(input: UpdateSiteAssetDto): UpdateSiteAssetDto {
     const normalized: UpdateSiteAssetDto = { ...input };
     if (input.frameworkInstanceId !== undefined) normalized.frameworkInstanceId = normalizeRequiredString(input.frameworkInstanceId, 'frameworkInstanceId');
-    if (input.deviceId !== undefined) normalized.deviceId = normalizeRequiredString(input.deviceId, 'deviceId');
+    if (input.deviceId !== undefined) normalized.deviceId = normalizeOptionalString(input.deviceId);
+    if (input.assetId !== undefined) normalized.assetId = normalizeOptionalString(input.assetId);
+    if (input.deviceId !== undefined && input.assetId !== undefined && input.deviceId && input.assetId) {
+      throw new AppError('VALIDATION_FAILED', 'SiteAsset 不能同时绑定 Device 和 CloudAccountAsset', { code: 'SITE_OWNER_CONFLICT' });
+    }
     if (input.serviceAssetId !== undefined) normalized.serviceAssetId = normalizeOptionalString(input.serviceAssetId);
     if (input.discoveryProviderKey !== undefined) normalized.discoveryProviderKey = normalizeRequiredString(input.discoveryProviderKey, 'discoveryProviderKey');
     if (input.siteType !== undefined) normalized.siteType = normalizeNamespaceValue(input.siteType, 'siteType');

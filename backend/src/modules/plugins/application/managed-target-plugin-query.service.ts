@@ -78,7 +78,7 @@ export class ManagedTargetPluginQueryService {
     const compatibility = await this.createCompatibilityContext(services.devices, input.tenantId, context, input.capabilityKey);
     const resolved = await services.capabilities.resolve({
       ...input,
-      hostId: context.host.id,
+      ...managedTargetCapabilityOwnerRefs(context),
       executionLocations: context.availableExecutionLocations,
       compatibility,
     });
@@ -233,7 +233,7 @@ export class ManagedTargetPluginQueryService {
         const inherited = await services.capabilities.resolve({
           tenantId: input.tenantId,
           capabilityKey,
-          hostId: context.host.id,
+          ...managedTargetCapabilityOwnerRefs(context),
           managedTargetId: context.managedTarget.id,
           executionLocations: context.availableExecutionLocations,
           compatibility,
@@ -251,7 +251,7 @@ export class ManagedTargetPluginQueryService {
         if (certificateFormatId) {
           const artifacts = buildPluginCertificateArtifactBindings(plugin, capabilityKey, certificateFormatId);
           const candidates = await services.bindings.listAssignmentCandidates(input.tenantId, capabilityKey, {
-            deviceId: context.host.id,
+            ...managedTargetOwnerRefs(context),
             managedTargetId: context.managedTarget.id,
           });
           const contract = this.contractLoader.fromPlugin(plugin, capabilityKey);
@@ -262,6 +262,7 @@ export class ManagedTargetPluginQueryService {
             pluginVersionId: plugin.id,
             contract,
             assetContext: deploymentAssetContextBuilder.build({ applicationAsset, managedTargetContext: context, certificateBinding }),
+            resourceOwnerDefault: layers.owner,
             deviceDefault: layers.device,
             targetOverride: layers.target,
             submitted,
@@ -271,7 +272,7 @@ export class ManagedTargetPluginQueryService {
             pluginVersionId: inherited.pluginVersionId,
             mode: 'MANAGED',
             inputBindings: validation.assetOverride,
-            managedContext: { hostId: context.host.id, managedTargetId: context.managedTarget.id },
+            managedContext: managedTargetBindingContext(context),
           });
           await services.bindings.assignCapability(input.tenantId, {
             ownerType: 'APPLICATION_ASSET',
@@ -285,7 +286,7 @@ export class ManagedTargetPluginQueryService {
         const resolved = await services.capabilities.resolve({
           tenantId: input.tenantId,
           capabilityKey,
-          hostId: context.host.id,
+          ...managedTargetCapabilityOwnerRefs(context),
           managedTargetId: context.managedTarget.id,
           applicationAssetId: input.applicationAssetId,
           executionLocations: context.availableExecutionLocations,
@@ -316,7 +317,7 @@ export class ManagedTargetPluginQueryService {
           ? buildPluginCertificateArtifactBindings(plugin, capabilityKey, certificateFormatId)
           : {};
       const candidates = await services.bindings.listAssignmentCandidates(input.tenantId, capabilityKey, {
-        deviceId: context.host.id,
+        ...managedTargetOwnerRefs(context),
         managedTargetId: context.managedTarget.id,
         applicationAssetId: input.applicationAssetId,
       });
@@ -325,6 +326,7 @@ export class ManagedTargetPluginQueryService {
         pluginVersionId: plugin.id,
         contract,
         assetContext: deploymentAssetContextBuilder.build({ applicationAsset, managedTargetContext: context, certificateBinding }),
+        resourceOwnerDefault: layers.owner,
         deviceDefault: layers.device,
         targetOverride: layers.target,
         currentAssetOverride: layers.asset,
@@ -359,7 +361,7 @@ export class ManagedTargetPluginQueryService {
       const resolved = await services.capabilities.resolve({
         tenantId: input.tenantId,
         capabilityKey,
-        hostId: context.host.id,
+        ...managedTargetCapabilityOwnerRefs(context),
         managedTargetId: context.managedTarget.id,
         applicationAssetId: input.applicationAssetId,
         executionLocations: context.availableExecutionLocations,
@@ -460,7 +462,7 @@ export class ManagedTargetPluginQueryService {
       : await services.capabilities.resolve({
         tenantId: input.tenantId,
         capabilityKey,
-        hostId: context.host.id,
+        ...managedTargetCapabilityOwnerRefs(context),
         managedTargetId: context.managedTarget.id,
         applicationAssetId,
         executionLocations: context.availableExecutionLocations,
@@ -505,7 +507,7 @@ export class ManagedTargetPluginQueryService {
         ? buildPluginCertificateArtifactBindings(plugin, capabilityKey, preparedCertificateFormatId)
         : {};
     const candidates = await services.bindings.listAssignmentCandidates(input.tenantId, capabilityKey, {
-      deviceId: context.host.id,
+      ...managedTargetOwnerRefs(context),
       managedTargetId: context.managedTarget.id,
       ...(applicationAssetId ? { applicationAssetId } : {}),
     });
@@ -518,6 +520,7 @@ export class ManagedTargetPluginQueryService {
         managedTargetContext: context,
         certificateBinding,
       }),
+      resourceOwnerDefault: layers.owner,
       deviceDefault: layers.device,
       targetOverride: layers.target,
       currentAssetOverride: layers.asset,
@@ -536,7 +539,7 @@ export class ManagedTargetPluginQueryService {
     context: ResolvedManagedTargetContext,
     input: NonNullable<SaveManagedTargetPluginOverrideInput['pluginOverride']>,
   ): Promise<PluginBindingV1> {
-    const managedContext = { hostId: context.host.id, managedTargetId: context.managedTarget.id };
+    const managedContext = managedTargetBindingContext(context);
     if (input.pluginBindingId) {
       const current = await bindings.getTenantBinding(tenantId, input.pluginBindingId);
       if (current.pluginVersionId !== input.pluginVersionId) {
@@ -573,7 +576,7 @@ export class ManagedTargetPluginQueryService {
     pluginVersionId?: string,
     contract?: DeploymentInputContractV1,
   ) {
-    const layers: { device?: { pluginVersionId: string; inputBindings: InputBindingsV1 }; target?: { pluginVersionId: string; inputBindings: InputBindingsV1 }; asset?: { pluginVersionId: string; inputBindings: InputBindingsV1 } } = {};
+    const layers: { owner?: { pluginVersionId: string; inputBindings: InputBindingsV1 }; device?: { pluginVersionId: string; inputBindings: InputBindingsV1 }; target?: { pluginVersionId: string; inputBindings: InputBindingsV1 }; asset?: { pluginVersionId: string; inputBindings: InputBindingsV1 } } = {};
     for (const assignment of assignments) {
       const binding = await bindings.getTenantBinding(tenantId, assignment.pluginBindingId);
       const shouldMigrate = Boolean(
@@ -590,7 +593,8 @@ export class ManagedTargetPluginQueryService {
           ? migrateInputBindingsToContract(contract!, binding.inputBindings)
           : binding.inputBindings,
       };
-      if (assignment.ownerType === 'DEVICE') layers.device = layer;
+      if (assignment.ownerType === 'CLOUD_ACCOUNT_ASSET') layers.owner = layer;
+      else if (assignment.ownerType === 'DEVICE') layers.device = layer;
       else if (assignment.ownerType === 'MANAGED_TARGET') layers.target = layer;
       else layers.asset = layer;
     }
@@ -635,14 +639,15 @@ export class ManagedTargetPluginQueryService {
     capabilityKey: string,
   ): Promise<Omit<PluginCompatibilityContext, 'executionLocation'>> {
     this.assertTargetCapability(context, capabilityKey);
-    const device = await devices.get(tenantId, context.host.id);
+    const device = context.host ? await devices.get(tenantId, context.host.id) : undefined;
     return {
       productFamily: context.deviceAsset?.deviceFamily
-        ?? canonicalProductFamilyForOsType(context.host.osType)
+        ?? context.cloudAccountAsset?.providerKey
+        ?? (context.host ? canonicalProductFamilyForOsType(context.host.osType) : undefined)
         ?? device?.productFamily,
       frameworkType: context.frameworkType,
       targetType: context.managedTarget.targetType,
-      managementMethod: normalizeManagementMethod(device?.managementMethod ?? context.host.managementMode),
+      managementMethod: context.cloudAccountAsset ? 'PLUGIN' : normalizeManagementMethod(device?.managementMethod ?? context.host?.managementMode),
       artifactContract: this.capabilityRegistry.require(capabilityKey).actionContractId,
       productVersion: context.deviceAsset?.softwareVersion ?? device?.softwareVersion,
       hostVersion: GCAC_VERSION,
@@ -875,6 +880,7 @@ function summarizeCapability(resolved: ResolvedDeploymentCapability) {
     binding: {
       pluginBindingId: resolved.binding.id,
       hostId: resolved.binding.managedContext?.hostId,
+      cloudAccountAssetId: resolved.binding.managedContext?.cloudAccountAssetId,
       managedTargetId: resolved.binding.managedContext?.managedTargetId,
       status: resolved.binding.status,
       version: resolved.binding.version,
@@ -892,6 +898,33 @@ function normalizeManagementMethod(value: string | undefined): 'AGENT' | 'PLUGIN
   if (normalized?.includes('AGENT')) return 'AGENT';
   if (normalized?.includes('PLUGIN') || normalized?.includes('API')) return 'PLUGIN';
   return 'MANUAL';
+}
+
+function managedTargetCapabilityOwnerRefs(context: ResolvedManagedTargetContext): { hostId?: string; cloudAccountAssetId?: string } {
+  if (context.cloudAccountAsset) return { cloudAccountAssetId: context.cloudAccountAsset.id };
+  if (context.host) return { hostId: context.host.id };
+  throw new AppError('VALIDATION_FAILED', '受管目标没有可解析的资源所有者', {
+    code: 'MANAGED_TARGET_OWNER_UNAVAILABLE',
+    managedTargetId: context.managedTarget.id,
+  });
+}
+
+function managedTargetOwnerRefs(context: ResolvedManagedTargetContext): { deviceId?: string; cloudAccountAssetId?: string } {
+  if (context.cloudAccountAsset) return { cloudAccountAssetId: context.cloudAccountAsset.id };
+  if (context.host) return { deviceId: context.host.id };
+  throw new AppError('VALIDATION_FAILED', '受管目标没有可解析的资源所有者', {
+    code: 'MANAGED_TARGET_OWNER_UNAVAILABLE',
+    managedTargetId: context.managedTarget.id,
+  });
+}
+
+function managedTargetBindingContext(context: ResolvedManagedTargetContext): NonNullable<PluginBindingV1['managedContext']> {
+  if (context.cloudAccountAsset) return { cloudAccountAssetId: context.cloudAccountAsset.id, managedTargetId: context.managedTarget.id };
+  if (context.host) return { hostId: context.host.id, managedTargetId: context.managedTarget.id };
+  throw new AppError('VALIDATION_FAILED', '受管目标没有可解析的资源所有者', {
+    code: 'MANAGED_TARGET_OWNER_UNAVAILABLE',
+    managedTargetId: context.managedTarget.id,
+  });
 }
 
 function readStringValue(value: unknown): string | undefined {

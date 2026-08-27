@@ -6,6 +6,7 @@ import { runMigrations } from '../../database/migration-runner.js';
 import { AssetsDomainService } from './domain/assets.domain-service.js';
 import { PgAssetsRepository } from './repository/assets.repository.js';
 import { PgDeviceAssetsRepository } from '../device-assets/repository/device-assets.repository.js';
+import { CloudAccountAssetsApplicationService } from '../providers/application/cloud-account-assets.application-service.js';
 
 test('Spec033 Device Root 可以统一承载 ManagedTarget 和 ApplicationAssetTarget', async () => {
   const database = new PgliteDatabase();
@@ -88,4 +89,65 @@ test('Spec033 受管目标只接受 Device Root 和显式能力', () => {
   const normalized = domain.normalizeManagedTarget({ ...base, deviceId: 'host_spec033' });
   assert.equal(normalized.deviceId, 'host_spec033');
   assert.deepEqual(normalized.supportedCapabilities, ['certificate.deploy']);
+});
+
+test('Spec034 云资源 Framework、Site 和 ManagedTarget 共享 CloudAccountAsset 所有者', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const assets = new PgAssetsRepository(database);
+  const cloudAccounts = new CloudAccountAssetsApplicationService(database);
+  const tenantId = 'tenant_spec034_cloud_owner';
+  const account = await cloudAccounts.create(tenantId, {
+    displayName: '云 CDN 账号',
+    providerKey: 'cloud.example',
+    credentialRef: 'credential://cloud-example',
+  });
+
+  const framework = await assets.createFrameworkInstance(tenantId, {
+    assetId: account.id,
+    frameworkType: 'cloud.cdn',
+    frameworkKey: 'cdn.global',
+    discoveryProviderKey: 'cloud.example:discover',
+    displayName: '云 CDN · 国际站',
+    discoverySource: 'PROVIDER',
+  });
+  const site = await assets.createSiteAsset(tenantId, {
+    frameworkInstanceId: framework.id,
+    discoveryProviderKey: 'cloud.example:discover',
+    siteType: 'cloud.cdn.domain',
+    siteName: 'example.com',
+    siteKey: 'cloud.example:cdn.domain:example.com',
+    metadata: { region: 'global' },
+    discoverySource: 'PROVIDER',
+  });
+  const managedTarget = await assets.createManagedTarget(tenantId, {
+    assetId: account.id,
+    frameworkInstanceId: framework.id,
+    siteId: site.id,
+    discoveryProviderKey: 'cloud.example:discover',
+    targetType: 'cloud.cdn.domain',
+    targetKey: 'example.com',
+    supportedCapabilities: ['cloud.resource.discover'],
+    executionLocations: ['CONTROL_PLANE'],
+  });
+
+  assert.equal(framework.assetId, account.id);
+  assert.equal(framework.deviceId, undefined);
+  assert.equal(site.assetId, account.id);
+  assert.equal(site.deviceId, undefined);
+  assert.equal(managedTarget.assetId, account.id);
+  assert.equal(managedTarget.deviceId, undefined);
+  await assert.rejects(
+    () => assets.createSiteAsset(tenantId, {
+      frameworkInstanceId: framework.id,
+      deviceId: 'host_should_not_be_mixed',
+      discoveryProviderKey: 'cloud.example:discover',
+      siteType: 'cloud.cdn.domain',
+      siteName: 'invalid.example.com',
+      siteKey: 'cloud.example:cdn.domain:invalid.example.com',
+      discoverySource: 'PROVIDER',
+    }),
+    /同一资源所有者|Device Root 不存在/,
+  );
+  await database.close();
 });

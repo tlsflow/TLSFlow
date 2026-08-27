@@ -8,5 +8,7 @@
   "plugin.cloud.aliyun.accessKeySecret": "AccessKey Secret",
   "plugin.cloud.aliyun.onboarding.compatibility": "阿里云 CDN 域名服务",
   "plugin.cloud.aliyun.onboarding.requiredCredential": "已保存的阿里云账号凭据",
-  "plugin.cloud.aliyun.accountSection": "云账号配置"
+  "plugin.cloud.aliyun.accountSection": "云账号配置",
+  "plugin.cloud.aliyun.resourceSection": "资源接入",
+  "plugin.cloud.aliyun.displayName": "资产名称"
 }

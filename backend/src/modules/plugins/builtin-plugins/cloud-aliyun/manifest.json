@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "cloud.aliyun",
-  "version": "2.0.24",
+  "version": "2.0.26",
   "displayNameKey": "plugin.cloud.aliyun.name",
   "descriptionKey": "plugin.cloud.aliyun.description",
   "defaultLocale": "zh-CN",
@@ -24,6 +24,7 @@
   ],
   "compatibility": {
     "productFamilies": ["cloud.aliyun.cdn"],
+    "serviceEndpoints": ["https://cdn.aliyuncs.com"],
     "managementMethods": ["PLUGIN"],
     "executionLocations": ["CONTROL_PLANE"]
   },

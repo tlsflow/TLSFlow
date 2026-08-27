@@ -792,7 +792,10 @@ export class DeploymentPlansApplicationService {
     }
     const bindingTarget = await this.assets.getApplicationAssetTargetByApplicationAssetId(input.tenantId, input.applicationAssetId);
     if (!bindingTarget) {
-      throw new AppError('RESOURCE_NOT_FOUND', 'ApplicationAssetTarget 不存在', { applicationAssetId: input.applicationAssetId });
+      throw new AppError('VALIDATION_FAILED', '当前资产没有可部署的受管目标', {
+        code: 'CERTIFICATE_DEPLOYMENT_TARGET_REQUIRED',
+        applicationAssetId: input.applicationAssetId,
+      });
     }
     const applicationAssetDetail = await this.assets.getServiceAssetDetail(input.tenantId, input.applicationAssetId);
     const selectionMode = input.selectionMode ?? (input.targetCertificateVersionId ? 'EXPLICIT' : 'LATEST_AUTO');
@@ -1078,12 +1081,12 @@ export class DeploymentPlansApplicationService {
     const capability = await this.deploymentCapabilityResolver.resolve({
       tenantId,
       capabilityKey: 'certificate.deploy',
-      hostId: context.host.id,
+      ...managedTargetCapabilityOwnerRefs(context),
       managedTargetId: context.managedTarget.id,
       applicationAssetId: asset.id,
       executionLocations: context.availableExecutionLocations,
       compatibility: {
-        productFamily: context.deviceAsset?.deviceFamily ?? canonicalProductFamilyForOsType(context.host.osType),
+        productFamily: context.deviceAsset?.deviceFamily ?? (context.host ? canonicalProductFamilyForOsType(context.host.osType) : context.cloudAccountAsset?.providerKey),
         frameworkType: context.frameworkType,
         targetType: context.managedTarget.targetType,
         managementMethod: context.agent ? 'AGENT' : context.deviceAsset ? 'PLUGIN' : 'MANUAL',
@@ -1207,7 +1210,7 @@ export class DeploymentPlansApplicationService {
   ) {
     if (!this.pluginBindings) throw new AppError('SYSTEM_INTERNAL_ERROR', 'PluginBinding 服务未接入');
     const assignments = await this.pluginBindings.listAssignmentCandidates(tenantId, capability.assignment.capabilityKey, {
-      deviceId: context.host.id,
+      ...managedTargetOwnerRefs(context),
       managedTargetId: context.managedTarget.id,
       applicationAssetId,
     });
@@ -1221,6 +1224,7 @@ export class DeploymentPlansApplicationService {
         ? migrateInputBindingsToContract(contract, binding.inputBindings)
         : binding.inputBindings;
       const layer = { pluginVersionId: capability.pluginVersionId, inputBindings };
+      if (assignment.ownerType === 'CLOUD_ACCOUNT_ASSET') layers.resourceOwnerDefault = layer;
       if (assignment.ownerType === 'DEVICE') layers.deviceDefault = layer;
       if (assignment.ownerType === 'MANAGED_TARGET') layers.targetOverride = layer;
       if (assignment.ownerType === 'APPLICATION_ASSET') layers.assetOverride = layer;
@@ -1311,11 +1315,12 @@ export class DeploymentPlansApplicationService {
     const plugin = await this.unifiedPlugins.getVersion(pluginVersionId);
     const contract = new DeploymentInputContractLoader().fromPlugin(plugin, capabilityKey);
     const assignments = await this.pluginBindings.listAssignmentCandidates(tenantId, capabilityKey, {
-      deviceId: context.host.id,
+      ...managedTargetOwnerRefs(context),
       managedTargetId: context.managedTarget.id,
       applicationAssetId,
     });
     const bindingLayers: {
+      resourceOwnerDefault?: { pluginVersionId: string; inputBindings: InputBindingsV1 };
       deviceDefault?: { pluginVersionId: string; inputBindings: InputBindingsV1 };
       targetOverride?: { pluginVersionId: string; inputBindings: InputBindingsV1 };
       assetOverride?: { pluginVersionId: string; inputBindings: InputBindingsV1 };
@@ -1330,7 +1335,8 @@ export class DeploymentPlansApplicationService {
         ? migrateInputBindingsToContract(contract, candidate.inputBindings)
         : candidate.inputBindings;
       const layer = { pluginVersionId, inputBindings };
-      if (assignment.ownerType === 'DEVICE') bindingLayers.deviceDefault = layer;
+      if (assignment.ownerType === 'CLOUD_ACCOUNT_ASSET') bindingLayers.resourceOwnerDefault = layer;
+      else if (assignment.ownerType === 'DEVICE') bindingLayers.deviceDefault = layer;
       else if (assignment.ownerType === 'MANAGED_TARGET') bindingLayers.targetOverride = layer;
       else if (assignment.ownerType === 'APPLICATION_ASSET') bindingLayers.assetOverride = layer;
       if (assignment.ownerType === ownerType && assignment.pluginBindingId === pluginBindingId) {
@@ -2513,7 +2519,7 @@ export class DeploymentPlansApplicationService {
     const managedTargetId = resolveRuntimeManagedTargetId(target);
     if (!managedTargetId || !this.managedTargetContextResolver) return undefined;
     const context = await this.managedTargetContextResolver.resolve(tenantId, managedTargetId);
-    return context.agent?.id ?? context.host.agentId;
+    return context.agent?.id ?? context.host?.agentId;
   }
 
   private async readTargetDeploymentInputRuntimeSnapshot(
@@ -2754,7 +2760,7 @@ export class DeploymentPlansApplicationService {
   ): Promise<string | undefined> {
     if (!context || !this.pluginBindings) return undefined;
     const assignments = await this.pluginBindings.listAssignmentCandidates(tenantId, 'certificate.deploy', {
-      deviceId: context.host.id,
+      ...managedTargetOwnerRefs(context),
       managedTargetId: context.managedTarget.id,
       applicationAssetId,
     });
@@ -2767,6 +2773,7 @@ export class DeploymentPlansApplicationService {
     }
     const credentialId = layers.get('APPLICATION_ASSET')
       ?? layers.get('MANAGED_TARGET')
+      ?? layers.get('CLOUD_ACCOUNT_ASSET')
       ?? layers.get('DEVICE');
     return credentialId ? this.resolveKeystorePasswordCredential(tenantId, credentialId) : undefined;
   }
@@ -4410,8 +4417,31 @@ function readWorkflowVersionSelection(value: unknown): 'FIXED' | undefined {
   return value === 'FIXED' ? 'FIXED' : undefined;
 }
 
+function managedTargetCapabilityOwnerRefs(
+  context: Awaited<ReturnType<ManagedTargetContextResolver['resolve']>>,
+): { hostId?: string; cloudAccountAssetId?: string } {
+  if (context.cloudAccountAsset) return { cloudAccountAssetId: context.cloudAccountAsset.id };
+  if (context.host) return { hostId: context.host.id };
+  throw new AppError('VALIDATION_FAILED', '受管目标没有可解析的资源所有者', {
+    code: 'MANAGED_TARGET_OWNER_UNAVAILABLE',
+    managedTargetId: context.managedTarget.id,
+  });
+}
+
+function managedTargetOwnerRefs(
+  context: Awaited<ReturnType<ManagedTargetContextResolver['resolve']>>,
+): { deviceId?: string; cloudAccountAssetId?: string } {
+  if (context.cloudAccountAsset) return { cloudAccountAssetId: context.cloudAccountAsset.id };
+  if (context.host) return { deviceId: context.host.id };
+  throw new AppError('VALIDATION_FAILED', '受管目标没有可解析的资源所有者', {
+    code: 'MANAGED_TARGET_OWNER_UNAVAILABLE',
+    managedTargetId: context.managedTarget.id,
+  });
+}
+
 function collectBindingCredentials(
   layers: {
+    resourceOwnerDefault?: { pluginVersionId: string; inputBindings: InputBindingsV1 };
     deviceDefault?: { pluginVersionId: string; inputBindings: InputBindingsV1 };
     targetOverride?: { pluginVersionId: string; inputBindings: InputBindingsV1 };
     assetOverride?: { pluginVersionId: string; inputBindings: InputBindingsV1 };

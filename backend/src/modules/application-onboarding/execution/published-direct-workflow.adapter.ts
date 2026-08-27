@@ -51,7 +51,8 @@ export class PublishedDirectWorkflowOnboardingAdapter {
       .filter(({ target, endpoint }) => target.status === 'ACTIVE'
         && target.supportedCapabilities.includes(executionCapability)
         && Boolean(endpoint.host && endpoint.port && endpoint.protocol))
-      .map(({ target }) => target.deviceId));
+      .map(({ target }) => target.deviceId)
+      .filter((value): value is string => Boolean(value)));
   }
 
   async validateDevice(tenantId: string, deviceId: string, recipe: LoadedApplicationOnboardingRecipe): Promise<void> {
@@ -147,7 +148,7 @@ export class PublishedDirectWorkflowOnboardingAdapter {
       const [framework, site, host] = await Promise.all([
         target.frameworkInstanceId ? this.assets.getFrameworkInstance(tenantId, target.frameworkInstanceId) : undefined,
         target.siteId ? this.assets.getSiteAsset(tenantId, target.siteId) : undefined,
-        this.assets.getHost(tenantId, target.deviceId),
+          target.deviceId ? this.assets.getHost(tenantId, target.deviceId) : undefined,
       ]);
       const endpoint = {
         host: site?.hostHeader ?? site?.listenIp ?? host?.hostname,
