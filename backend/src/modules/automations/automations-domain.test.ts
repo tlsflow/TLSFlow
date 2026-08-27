@@ -24,6 +24,23 @@ test('拒绝非法 Cron、时区、动作和护栏', () => {
   assert.throws(() => domain.validateConfiguration({ ...configuration(), actions: [{ type: 'send_notification', position: 2, config: { templateKey: 'x', eventKey: 'x' } }] }));
 });
 
+test('外部 API 触发器必须预设证书域名', () => {
+  const domain = new AutomationsDomainService();
+  const apiConfiguration: AutomationConfigurationDto = {
+    ...configuration(),
+    trigger: { type: 'api' },
+    externalApi: { executionMode: 'direct' },
+  };
+  assert.throws(
+    () => domain.validateConfiguration(apiConfiguration),
+    (error: unknown) => error instanceof Error && error.message.includes('必须预设至少一个证书域名'),
+  );
+  assert.doesNotThrow(() => domain.validateConfiguration({
+    ...apiConfiguration,
+    filters: [{ field: 'event.domains', operator: 'contains_any', value: ['example.com'] }],
+  }));
+});
+
 test('配置摘要与键顺序无关，版本实体保持输入快照', () => {
   const domain = new AutomationsDomainService();
   const source = configuration();

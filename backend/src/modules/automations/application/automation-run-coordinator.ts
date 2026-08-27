@@ -105,7 +105,9 @@ export class AutomationRunCoordinator {
               run,
               target: (await this.repository.getRunTarget(target.id, tenantId))!,
               action,
-              requireApproval: version.guardrails.requireApproval && !approvalGranted,
+              requireApproval: run.triggerContext?.externalExecutionMode === 'direct'
+                ? false
+                : version.guardrails.requireApproval && !approvalGranted,
               approvalId: approvalGranted ? run.approvalId : undefined,
             });
             terminal = result.status;

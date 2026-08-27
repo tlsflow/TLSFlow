@@ -3,7 +3,7 @@ import { AppError } from '../../../common/errors/app-error.js';
 import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
 import { AutomationsDomainService } from '../domain/automations.domain-service.js';
 import { nextAutomationRunAt } from '../domain/automation-schedule.js';
-import type { AutomationConfigurationDto, AutomationPreviewDto, AutomationPreviewTargetDto, AutomationRunDto, AutomationRunExecutionOptionsDto, AutomationStatus, AutomationTriggerContextDto, CreateAutomationInput, UpdateAutomationInput } from '../dto/automations.dto.js';
+import type { AutomationConfigurationDto, AutomationExternalExecutionMode, AutomationPreviewDto, AutomationPreviewTargetDto, AutomationRunDto, AutomationRunExecutionOptionsDto, AutomationStatus, AutomationTriggerContextDto, CreateAutomationInput, UpdateAutomationInput } from '../dto/automations.dto.js';
 import { AutomationsRepository } from '../repository/automations.repository.js';
 import type { AutomationEntity, AutomationVersionEntity } from '../schema/automations.schema.js';
 import { AutomationFilterEvaluator } from './automation-filter-evaluator.js';
@@ -97,6 +97,7 @@ export class AutomationsApplicationService {
       executionOptions?: AutomationRunExecutionOptionsDto;
       allowCertificateDowngrade?: boolean;
       confirmCertificateDowngrade?: boolean;
+      externalExecutionMode?: AutomationExternalExecutionMode;
     } = {},
   ): Promise<AutomationRunDto> {
     const existing = await this.repository.findRunByIdempotencyKey(tenantId, idempotencyKey);
@@ -126,15 +127,25 @@ export class AutomationsApplicationService {
     if (executableDowngradeCount > 0 && !options.confirmCertificateDowngrade) {
       throw new AppError('VALIDATION_FAILED', '证书有效期降级必须二次确认', { executableDowngradeCount });
     }
+    const externalExecutionMode = options.externalExecutionMode;
+    const executionVersion = externalExecutionMode
+      ? {
+        ...version,
+        approvalStage: externalExecutionMode === 'approval' ? version.approvalStage : undefined,
+        guardrails: { ...version.guardrails, requireApproval: externalExecutionMode === 'approval' },
+      }
+      : version;
     const run = await this.persistRunFromTargets({
       tenantId,
       actorId,
       automation,
-      version,
+      version: executionVersion,
       triggerType: options.triggerType ?? 'on_demand',
       scheduledAt: options.scheduledAt,
       idempotencyKey,
-      triggerContext: options.triggerContext,
+      triggerContext: options.triggerContext
+        ? { ...options.triggerContext, ...(externalExecutionMode ? { externalExecutionMode } : {}) }
+        : (externalExecutionMode ? { externalExecutionMode } : undefined),
       executionOptions: options.executionOptions,
       items: preview,
     });
@@ -295,6 +306,7 @@ export class AutomationsApplicationService {
   private configurationFromInput(input: CreateAutomationInput): AutomationConfigurationDto {
     return {
       trigger: structuredClone(input.trigger),
+      externalApi: structuredClone(input.externalApi),
       filters: structuredClone(input.filters ?? []),
       targetResolver: structuredClone(input.targetResolver),
       approvalStage: structuredClone(input.approvalStage),
@@ -306,6 +318,7 @@ export class AutomationsApplicationService {
   private configurationFromVersion(version: AutomationVersionEntity): AutomationConfigurationDto {
     return {
       trigger: structuredClone(version.trigger),
+      externalApi: structuredClone(version.externalApi),
       filters: structuredClone(version.filters ?? []),
       targetResolver: structuredClone(version.targetResolver),
       approvalStage: structuredClone(version.approvalStage),

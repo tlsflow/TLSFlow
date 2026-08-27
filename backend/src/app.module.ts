@@ -1483,7 +1483,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     ),
     new WorkflowExecutionBindingsService(new WorkflowExecutionBindingsRepository(appDb)),
   ).register(app.router);
-  new AutomationsController(automationsService, security, automationCoordinator, automationExternalApi).register(app.router);
+  new AutomationsController(automationsService, security, automationCoordinator, automationExternalApi, certificateServices.certificates).register(app.router);
   new DashboardController(new DashboardApplicationService({
     assets: assetsService,
     devices: devicesService,

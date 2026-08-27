@@ -7,14 +7,23 @@ import type { SecuritySubject } from '../../../shared/security-types.js';
 import { AUDIT_EVENT_TYPES } from '../../audits/audit-event-types.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import { AutomationsApplicationService } from '../application/automations.application-service.js';
+import { AutomationExternalApiService } from '../application/automation-external-api.service.js';
+import type { AutomationExternalApiKeyEntity } from '../schema/automations.schema.js';
 import type { AutomationRunCoordinator } from '../application/automation-run-coordinator.js';
 import type { CreateAutomationInput, UpdateAutomationInput } from '../dto/automations.dto.js';
 import { automationPublicSchema } from '../schema/automations.schema.js';
+import type { CertificatesApplicationService } from '../../certificates/application/certificates.application-service.js';
 
 const tags = ['Automations'];
 
 export class AutomationsController {
-  constructor(private readonly service = new AutomationsApplicationService(), private readonly security?: SecurityServices, private readonly coordinator?: AutomationRunCoordinator) {}
+  constructor(
+    private readonly service = new AutomationsApplicationService(),
+    private readonly security?: SecurityServices,
+    private readonly coordinator?: AutomationRunCoordinator,
+    private readonly externalApi?: AutomationExternalApiService,
+    private readonly certificates?: CertificatesApplicationService,
+  ) {}
 
   register(router: Router): void {
     router.get('/api/v1/automations', '列出自动化', tags, (request) => this.list(request));
@@ -24,9 +33,13 @@ export class AutomationsController {
     router.post('/api/v1/automations/:id/actions/copy', '复制自动化', tags, (request) => this.copy(request));
     router.post('/api/v1/automations/:id/actions/enable', '启用自动化', tags, (request) => this.changeStatus(request, 'enable'));
     router.post('/api/v1/automations/:id/actions/disable', '停用自动化', tags, (request) => this.changeStatus(request, 'disable'));
+    router.post('/api/v1/automations/:id/actions/rotate-external-api-key', '刷新自动化外部 API Key', tags, (request) => this.rotateExternalApiKey(request));
     router.delete('/api/v1/automations/:id', '删除自动化', tags, (request) => this.remove(request));
     router.post('/api/v1/automations/:id/preview', '预览自动化目标', tags, (request) => this.preview(request));
     router.post('/api/v1/automations/:id/runs', '按需执行自动化', tags, (request) => this.createRun(request));
+    router.post('/api/v1/automation-external/:id/preview', '外部 API 预览自动化目标', tags, (request) => this.externalPreview(request));
+    router.post('/api/v1/automation-external/:id/run', '外部 API 执行自动化', tags, (request) => this.externalRun(request));
+    router.get('/api/v1/automation-external/:id/certificate-versions', '外部 API 查询可用证书版本', tags, (request) => this.externalCertificateVersions(request));
     router.get('/api/v1/automation-runs', '列出自动化运行', tags, (request) => this.listRuns(request));
     router.get('/api/v1/automation-runs/:id', '获取自动化运行', tags, (request) => this.getRun(request));
     router.get('/api/v1/automation-runs/:id/targets', '列出自动化运行目标', tags, (request) => this.listRunTargets(request));
@@ -58,6 +71,93 @@ export class AutomationsController {
     });
     await this.audit(request, subject, AUDIT_EVENT_TYPES.AUTOMATION_EXECUTED, 'automation.execute', run.id, undefined, run);
     return { statusCode: 201, body: run };
+  }
+
+  private async externalPreview(request: HttpRequest) {
+    const { key, automation } = await this.externalContext(request);
+    const body = request.body as { certificateVersionId?: string; page?: number; pageSize?: number } | undefined;
+    const certificateVersionId = body?.certificateVersionId?.trim();
+    if (!certificateVersionId) throw new AppError('VALIDATION_FAILED', '外部 API 预览必须提供 certificateVersionId');
+    return this.service.preview(
+      key.tenantId,
+      `external:${key.id}`,
+      automation.id,
+      body?.page,
+      body?.pageSize,
+      this.externalTriggerContext(automation, certificateVersionId),
+    );
+  }
+
+  private async externalRun(request: HttpRequest) {
+    const { key, automation, configuration } = await this.externalContext(request);
+    const body = request.body as {
+      certificateVersionId?: string;
+      idempotencyKey?: string;
+      allowCertificateDowngrade?: boolean;
+      confirmCertificateDowngrade?: boolean;
+      executionOptions?: { stopOnError?: boolean; dryRun?: boolean };
+    } | undefined;
+    const certificateVersionId = body?.certificateVersionId?.trim();
+    const suppliedIdempotencyKey = body?.idempotencyKey?.trim() || readHeader(request.headers, 'idempotency-key');
+    if (!certificateVersionId || !suppliedIdempotencyKey) {
+      throw new AppError('VALIDATION_FAILED', '外部 API 执行必须提供 certificateVersionId 和幂等键');
+    }
+    // 外部幂等键按自动化隔离，避免同一租户不同自动化之间意外复用运行结果。
+    const idempotencyKey = `external:${automation.id}:${suppliedIdempotencyKey}`;
+    const executionMode = configuration.externalApi?.executionMode
+      ?? (configuration.guardrails.requireApproval ? 'approval' : 'direct');
+    const run = await this.service.createOnDemandRun(
+      key.tenantId,
+      `external:${key.id}`,
+      automation.id,
+      idempotencyKey,
+      automation.version,
+      {
+        triggerContext: this.externalTriggerContext(automation, certificateVersionId),
+        executionOptions: body?.executionOptions,
+        allowCertificateDowngrade: body?.allowCertificateDowngrade,
+        confirmCertificateDowngrade: body?.confirmCertificateDowngrade,
+        externalExecutionMode: executionMode,
+      },
+    );
+    return { statusCode: 201, body: run };
+  }
+
+  private async externalCertificateVersions(request: HttpRequest) {
+    const { key, automation } = await this.externalContext(request);
+    if (!this.certificates) throw new Error('certificate service is not configured for automation external API');
+
+    const domains = [...new Set(configuredExternalDomains(automation.configuration.filters))];
+    const pages = await Promise.all(domains.map((domain) => this.certificates!.listVersions({
+      page: 1,
+      pageSize: 1000,
+      sort: { field: 'createdAt', direction: 'desc' },
+      filter: { primaryDomain: domain, status: 'active' },
+    }, key.tenantId)));
+    const versions = [...new Map(
+      pages.flatMap((page) => page.items)
+        .filter((version) => version.deployable)
+        .map((version) => [version.id, version]),
+    ).values()];
+
+    return {
+      items: versions.map((version) => ({
+        id: version.id,
+        certificateAssetId: version.certificateAssetId,
+        versionNo: version.versionNo,
+        commonName: version.commonName,
+        sans: version.sans,
+        notBefore: version.notBefore,
+        notAfter: version.notAfter,
+        fingerprintSha256: version.fingerprintSha256,
+        sourceType: version.sourceType,
+        activationState: version.activationState,
+        status: version.status,
+        deployable: version.deployable,
+        createdAt: version.createdAt,
+      })),
+      total: versions.length,
+    };
   }
 
   private async list(request: HttpRequest) {
@@ -122,6 +222,9 @@ export class AutomationsController {
     await this.assertCan(subject, 'automation.update', request, id);
     const before = await this.service.get(this.tenantId(request), id);
     const updated = await this.service.update(this.tenantId(request), subject.id, id, request.body as UpdateAutomationInput);
+    if (this.externalApi && before.configuration.trigger.type === 'api' && updated.configuration.trigger.type !== 'api') {
+      await this.externalApi.revoke(this.tenantId(request), id);
+    }
     await this.audit(request, subject, AUDIT_EVENT_TYPES.AUTOMATION_UPDATED, 'automation.update', id, before, updated);
     return updated;
   }
@@ -144,8 +247,79 @@ export class AutomationsController {
     const updated = action === 'enable'
       ? await this.service.enable(this.tenantId(request), id, expectedVersion)
       : await this.service.disable(this.tenantId(request), id, expectedVersion);
+    let response: unknown = updated;
+    if (action === 'enable') {
+      const current = await this.service.get(this.tenantId(request), id);
+      if (current.configuration.trigger.type === 'api') {
+        if (!this.externalApi) throw new Error('automation external API service is not configured');
+        const executionMode = current.configuration.externalApi?.executionMode
+          ?? (current.configuration.guardrails.requireApproval ? 'approval' : 'direct');
+        const issued = await this.externalApi.issue({ tenantId: this.tenantId(request), automationId: id, createdBy: subject.id, executionMode });
+        response = { ...updated, externalApiKey: issued.key, externalApiKeyPrefix: issued.keyPrefix, externalApiExecutionMode: issued.executionMode };
+      }
+    } else if (this.externalApi) {
+      await this.externalApi.revoke(this.tenantId(request), id);
+    }
+    // 明文 Key 只返回给启用请求，绝不能写入审计详情。
     await this.audit(request, subject, action === 'enable' ? AUDIT_EVENT_TYPES.AUTOMATION_ENABLED : AUDIT_EVENT_TYPES.AUTOMATION_DISABLED, 'automation.update', id, before, updated);
-    return updated;
+    return response;
+  }
+
+  private async rotateExternalApiKey(request: HttpRequest) {
+    const id = pathId(request);
+    const subject = this.subject(request);
+    await this.assertCan(subject, 'automation.update', request, id);
+    if (!this.externalApi) throw new Error('automation external API service is not configured');
+
+    const automation = await this.service.get(this.tenantId(request), id);
+    if (automation.status !== 'active') throw new AppError('VALIDATION_FAILED', '只有已启用的自动化才能刷新外部 API Key');
+    if (automation.configuration.trigger.type !== 'api') throw new AppError('VALIDATION_FAILED', '只有 API 触发的自动化才能刷新外部 API Key');
+
+    const executionMode = automation.configuration.externalApi?.executionMode
+      ?? (automation.configuration.guardrails.requireApproval ? 'approval' : 'direct');
+    const issued = await this.externalApi.issue({
+      tenantId: this.tenantId(request),
+      automationId: id,
+      createdBy: subject.id,
+      executionMode,
+    });
+    await this.audit(
+      request,
+      subject,
+      AUDIT_EVENT_TYPES.AUTOMATION_EXTERNAL_API_KEY_ROTATED,
+      'automation.update',
+      id,
+      undefined,
+      { keyPrefix: issued.keyPrefix, executionMode: issued.executionMode },
+    );
+    return {
+      statusCode: 200,
+      body: {
+        ...automation,
+        externalApiKey: issued.key,
+        externalApiKeyPrefix: issued.keyPrefix,
+        externalApiExecutionMode: issued.executionMode,
+      },
+    };
+  }
+
+  private async externalContext(request: HttpRequest): Promise<{ key: AutomationExternalApiKeyEntity; automation: Awaited<ReturnType<AutomationsApplicationService['get']>>; configuration: Awaited<ReturnType<AutomationsApplicationService['get']>>['configuration'] }> {
+    if (!this.externalApi) throw new Error('automation external API service is not configured');
+    const key = await this.externalApi.authenticate(readHeader(request.headers, 'x-automation-api-key'));
+    const id = externalPathId(request);
+    if (key.automationId !== id) throw new AppError('AUTH_UNAUTHENTICATED', '自动化 API Key 与目标不匹配');
+    const automation = await this.service.get(key.tenantId, id);
+    if (automation.status !== 'active') throw new AppError('AUTH_FORBIDDEN', '自动化未启用');
+    if (automation.configuration.trigger.type !== 'api') throw new AppError('VALIDATION_FAILED', '当前自动化未配置为外部 API 触发');
+    if (configuredExternalDomains(automation.configuration.filters).length === 0) {
+      throw new AppError('VALIDATION_FAILED', '外部 API 触发器必须预设至少一个证书域名');
+    }
+    return { key, automation, configuration: automation.configuration };
+  }
+
+  private externalTriggerContext(automation: Awaited<ReturnType<AutomationsApplicationService['get']>>, certificateVersionId: string) {
+    const domains = configuredExternalDomains(automation.configuration.filters);
+    return { certificateVersionId, ...(domains?.length ? { domains: [...new Set(domains)] } : {}), sourceType: 'external_api' };
   }
 
   private async remove(request: HttpRequest) {
@@ -155,6 +329,7 @@ export class AutomationsController {
     const before = await this.service.get(this.tenantId(request), id);
     const expectedVersion = Number((request.body as { expectedVersion?: number })?.expectedVersion ?? request.query.expectedVersion);
     const deleted = await this.service.delete(this.tenantId(request), id, expectedVersion);
+    if (this.externalApi) await this.externalApi.revoke(this.tenantId(request), id);
     await this.audit(request, subject, AUDIT_EVENT_TYPES.AUTOMATION_DELETED, 'automation.delete', id, before, deleted);
     return deleted;
   }
@@ -201,9 +376,13 @@ export function getAutomationRouteContracts(): RouteContract[] {
     ['POST', '/api/v1/automations/:id/actions/copy', 'copyAutomation', '复制自动化'],
     ['POST', '/api/v1/automations/:id/actions/enable', 'enableAutomation', '启用自动化'],
     ['POST', '/api/v1/automations/:id/actions/disable', 'disableAutomation', '停用自动化'],
+    ['POST', '/api/v1/automations/:id/actions/rotate-external-api-key', 'rotateAutomationExternalApiKey', '刷新自动化外部 API Key'],
     ['DELETE', '/api/v1/automations/:id', 'deleteAutomation', '删除自动化'],
     ['POST', '/api/v1/automations/:id/preview', 'previewAutomation', '预览自动化目标'],
     ['POST', '/api/v1/automations/:id/runs', 'createAutomationRun', '按需执行自动化'],
+    ['POST', '/api/v1/automation-external/:id/preview', 'previewAutomationExternal', '外部 API 预览自动化目标'],
+    ['POST', '/api/v1/automation-external/:id/run', 'runAutomationExternal', '外部 API 执行自动化'],
+    ['GET', '/api/v1/automation-external/:id/certificate-versions', 'listAutomationExternalCertificateVersions', '外部 API 查询可用证书版本'],
     ['GET', '/api/v1/automation-runs', 'listAutomationRuns', '列出自动化运行'],
     ['GET', '/api/v1/automation-runs/:id', 'getAutomationRun', '获取自动化运行'],
     ['GET', '/api/v1/automation-runs/:id/targets', 'listAutomationRunTargets', '列出自动化运行目标'],
@@ -219,3 +398,22 @@ function runPathId(request: HttpRequest): string {
 }
 
 function singleQuery(value: string | string[] | undefined): string | undefined { return Array.isArray(value) ? value[0] : value; }
+
+function externalPathId(request: HttpRequest): string {
+  const id = request.path.match(/^\/api\/v1\/automation-external\/([^/]+)/)?.[1];
+  if (!id) throw new AppError('VALIDATION_FAILED', '缺少自动化 ID');
+  return decodeURIComponent(id);
+}
+
+function readHeader(headers: Record<string, string | string[] | undefined>, name: string): string | undefined {
+  const value = headers[name.toLowerCase()] ?? headers[name];
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function configuredExternalDomains(filters: Awaited<ReturnType<AutomationsApplicationService['get']>>['configuration']['filters']): string[] {
+  return (filters ?? [])
+    .filter((filter) => filter.field === 'event.domains')
+    .flatMap((filter) => Array.isArray(filter.value) ? filter.value : [filter.value])
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .map((value) => value.trim().toLowerCase().replace(/\.$/u, ''));
+}

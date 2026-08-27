@@ -48,6 +48,7 @@ function mapVersion(row: AutomationRow): AutomationVersionEntity {
     automationId: String(row.automation_id),
     version: Number(row.version),
     trigger: json(row.trigger_config),
+    externalApi: json(row.external_api, undefined),
     filters: json(row.filters, []),
     targetResolver: json(row.target_resolver) as AutomationVersionEntity['targetResolver'],
     approvalStage: json(row.approval_stage, undefined),
@@ -219,9 +220,9 @@ export class AutomationsRepository {
 
   async createVersion(entity: AutomationVersionEntity): Promise<AutomationVersionEntity> {
     await this.db.query(`insert into automation_versions
-      (id, tenant_id, automation_id, version, trigger_config, filters, target_resolver, approval_stage, actions, guardrails, checksum, created_by, created_at)
-      values ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12,$13)`,
-    [entity.id, entity.tenantId, entity.automationId, entity.version, JSON.stringify(entity.trigger), JSON.stringify(entity.filters ?? []),
+      (id, tenant_id, automation_id, version, trigger_config, external_api, filters, target_resolver, approval_stage, actions, guardrails, checksum, created_by, created_at)
+      values ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb,$12,$13,$14)`,
+    [entity.id, entity.tenantId, entity.automationId, entity.version, JSON.stringify(entity.trigger), JSON.stringify(entity.externalApi ?? null), JSON.stringify(entity.filters ?? []),
       JSON.stringify(entity.targetResolver), JSON.stringify(entity.approvalStage ?? null),
       JSON.stringify(entity.actions), JSON.stringify(entity.guardrails), entity.checksum, entity.createdBy, entity.createdAt]);
     return structuredClone(entity);

@@ -39,6 +39,16 @@ export interface AutomationVersionEntity extends IdentifiedEntity, AutomationCon
   createdAt: string;
 }
 
+export interface AutomationExternalApiKeyEntity extends IdentifiedEntity {
+  tenantId: string;
+  automationId: string;
+  keyPrefix: string;
+  keyHash: string;
+  createdBy: string;
+  createdAt: string;
+  revokedAt?: string;
+}
+
 export interface AutomationRunEntity extends IdentifiedEntity {
   tenantId: string;
   automationId: string;

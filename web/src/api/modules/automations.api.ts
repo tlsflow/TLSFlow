@@ -3,9 +3,11 @@ import { toClientPath } from './common'
 
 export type AutomationStatus = 'draft' | 'active' | 'disabled' | 'deleted'
 export type AutomationRunStatus = 'queued' | 'running' | 'waiting_approval' | 'succeeded' | 'partially_succeeded' | 'failed' | 'needs_attention' | 'stopped' | 'cancelled'
+export type AutomationExternalExecutionMode = 'direct' | 'approval'
 
 export interface AutomationConfiguration {
   trigger: { type: 'api' } | { type: 'once'; runAt: string } | { type: 'on_demand' } | { type: 'schedule'; cron: string; timeZone: string; startsAt?: string; endsAt?: string } | { type: 'certificate_version_created'; sources?: Array<'external_source' | 'manual_import' | 'acme_issue'> }
+  externalApi?: { executionMode: AutomationExternalExecutionMode }
   filters?: Array<{ field: string; operator: 'eq' | 'neq' | 'in' | 'contains_any' | 'contains_all'; value?: unknown }>
   targetResolver: { type: 'certificate_version_targets'; assetIds?: string[] }
   approvalStage?: { type: 'run'; mode?: 'before_actions'; operationType?: string; riskLevel?: 'low' | 'medium' | 'high' | 'critical'; expiresInHours?: number }
@@ -45,6 +47,12 @@ export interface AutomationRecord {
   nextRunAt?: string
   lastRunAt?: string
   configuration: AutomationConfiguration
+}
+
+export type AutomationActionResponse = AutomationRecord & {
+  externalApiKey?: string
+  externalApiKeyPrefix?: string
+  externalApiExecutionMode?: AutomationExternalExecutionMode
 }
 
 export interface AutomationRunRecord {
@@ -125,8 +133,16 @@ export async function updateAutomation(id: string, payload: { expectedVersion: n
   return requireData((await apiClient.request<AutomationRecord>(toClientPath(`${basePath}/${id}`), { method: 'PATCH', body: payload, idempotencyKey: createIdempotencyKey('automation_update') })).data)
 }
 
-export async function automationAction(id: string, action: 'copy' | 'enable' | 'disable', expectedVersion?: number): Promise<AutomationRecord> {
-  return requireData((await apiClient.post<AutomationRecord>(toClientPath(`${basePath}/${id}/actions/${action}`), expectedVersion === undefined ? {} : { expectedVersion }, { idempotencyKey: createIdempotencyKey(`automation_${action}`) })).data)
+export async function automationAction(id: string, action: 'copy' | 'enable' | 'disable', expectedVersion?: number): Promise<AutomationActionResponse> {
+  return requireData((await apiClient.post<AutomationActionResponse>(toClientPath(`${basePath}/${id}/actions/${action}`), expectedVersion === undefined ? {} : { expectedVersion }, { idempotencyKey: createIdempotencyKey(`automation_${action}`) })).data)
+}
+
+export async function rotateAutomationExternalApiKey(id: string): Promise<AutomationActionResponse> {
+  return requireData((await apiClient.post<AutomationActionResponse>(
+    toClientPath(`${basePath}/${id}/actions/rotate-external-api-key`),
+    {},
+    { idempotencyKey: createIdempotencyKey('automation_rotate_external_api_key') },
+  )).data)
 }
 
 export async function deleteAutomation(id: string, expectedVersion: number): Promise<AutomationRecord> {
@@ -151,6 +167,24 @@ export async function runAutomation(id: string, expectedVersion: number, options
     ...(options.allowCertificateDowngrade ? { allowCertificateDowngrade: true } : {}),
     ...(options.confirmCertificateDowngrade ? { confirmCertificateDowngrade: true } : {}),
   })).data)
+}
+
+export async function previewExternalAutomation(id: string, apiKey: string, certificateVersionId: string, options: { page?: number; pageSize?: number } = {}): Promise<AutomationPreviewRecord> {
+  return requireData((await apiClient.post<AutomationPreviewRecord>(toClientPath(`/api/v1/automation-external/${id}/preview`), {
+    certificateVersionId,
+    page: options.page ?? 1,
+    pageSize: options.pageSize ?? 200,
+  }, { headers: { 'X-Automation-API-Key': apiKey } })).data)
+}
+
+export async function runExternalAutomation(id: string, apiKey: string, certificateVersionId: string, idempotencyKey: string, options: { executionOptions?: AutomationRunExecutionOptions; allowCertificateDowngrade?: boolean; confirmCertificateDowngrade?: boolean } = {}): Promise<AutomationRunRecord> {
+  return requireData((await apiClient.post<AutomationRunRecord>(toClientPath(`/api/v1/automation-external/${id}/run`), {
+    certificateVersionId,
+    idempotencyKey,
+    ...(options.executionOptions ? { executionOptions: options.executionOptions } : {}),
+    ...(options.allowCertificateDowngrade ? { allowCertificateDowngrade: true } : {}),
+    ...(options.confirmCertificateDowngrade ? { confirmCertificateDowngrade: true } : {}),
+  }, { headers: { 'X-Automation-API-Key': apiKey } })).data)
 }
 
 export async function listAutomationRuns(automationId?: string): Promise<AutomationRunRecord[]> {

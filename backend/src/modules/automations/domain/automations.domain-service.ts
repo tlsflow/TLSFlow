@@ -56,6 +56,23 @@ export class AutomationsDomainService {
   }
 
   validateConfiguration(configuration: AutomationConfigurationDto): void {
+    if (configuration.externalApi) {
+      if (configuration.trigger.type !== 'api') {
+        throw new AppError('VALIDATION_FAILED', 'externalApi 配置只允许用于 API 触发器');
+      }
+      if (!['direct', 'approval'].includes(configuration.externalApi.executionMode)) {
+        throw new AppError('VALIDATION_FAILED', '外部 API 执行模式无效');
+      }
+    }
+    if (configuration.trigger.type === 'api') {
+      const domains = configuration.filters
+        ?.filter((filter) => filter.field === 'event.domains')
+        .flatMap((filter) => Array.isArray(filter.value) ? filter.value : [filter.value])
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+      if (!domains?.length) {
+        throw new AppError('VALIDATION_FAILED', '外部 API 触发器必须预设至少一个证书域名');
+      }
+    }
     if (configuration.trigger.type === 'once') {
       validateRunAt(configuration.trigger.runAt);
     }

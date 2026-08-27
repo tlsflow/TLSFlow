@@ -1,4 +1,5 @@
 export * from './application/automation-approval-orchestrator.js';
+export * from './application/automation-external-api.service.js';
 export * from './application/automation-action-registry.js';
 export * from './application/automation-event-delivery.service.js';
 export * from './application/automation-executor-registry.js';
@@ -18,4 +19,5 @@ export * from './controller/automations.controller.js';
 export * from './domain/automations.domain-service.js';
 export * from './dto/automations.dto.js';
 export * from './repository/automations.repository.js';
+export * from './repository/automation-external-api-key.repository.js';
 export * from './schema/automations.schema.js';

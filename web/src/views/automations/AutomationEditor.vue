@@ -5,14 +5,26 @@ import { listAssets } from '@/api/modules/assets.api'
 import type { AutomationConfiguration, AutomationRecord } from '@/api/modules/automations.api'
 import { listCertificates } from '@/api/modules/certificates.api'
 import type { ApiRecord } from '@/api/modules/common'
-import { GcButton, GcProgressBar, GcSelectionCard } from '@/design-system/components'
+import { GcButton, GcModal, GcProgressBar, GcSelectionCard } from '@/design-system/components'
 import { toUtcIsoTimestamp } from '@/utils/browser-local-time'
+import { copyTextToClipboard } from '@/utils/clipboard'
 
-const props = defineProps<{ automation?: AutomationRecord | null }>()
-const emit = defineEmits<{ save: [payload: AutomationConfiguration & { name: string; description?: string }]; cancel: [] }>()
+const props = defineProps<{
+  automation?: AutomationRecord | null
+  /** 明文 Key 只在当前页面内存中传递，后端不会在自动化配置中返回。 */
+  externalApiKey?: string
+  externalApiKeyPrefix?: string
+  externalApiKeyLoading?: boolean
+}>()
+const emit = defineEmits<{
+  save: [payload: AutomationConfiguration & { name: string; description?: string }]
+  cancel: []
+  rotateExternalApiKey: []
+}>()
 const { t } = useI18n()
 
 type EditorTriggerType = 'api' | 'once' | 'schedule' | 'on_demand' | 'certificate_version_created'
+type ExternalExecutionMode = 'direct' | 'approval'
 type RecurrenceType = 'daily' | 'weekly' | 'monthly' | 'custom'
 type CertificateEventSource = 'manual_import' | 'acme_issue'
 type TargetScopeMode = 'all_related_assets' | 'selected_assets'
@@ -35,6 +47,7 @@ const form = reactive({
   certificateDomains: [] as string[],
   concurrency: 5,
   requireApproval: true,
+  externalExecutionMode: 'approval' as ExternalExecutionMode,
   failureCount: 3,
 })
 
@@ -65,12 +78,29 @@ const currentStepTitle = computed(() => {
   return t('automations.editor.sections.guardrails')
 })
 const triggerHelpKey = computed(() => {
-  if (form.triggerType === 'certificate_version_created') return 'automations.scheduleBuilder.certificateVersionCreatedHelp'
   if (form.triggerType === 'schedule') return 'automations.scheduleBuilder.recurringHelp'
   if (form.triggerType === 'once') return 'automations.scheduleBuilder.onceHelp'
-  return 'automations.scheduleBuilder.apiHelp'
+  return 'automations.scheduleBuilder.onceHelp'
 })
 const domains = computed(() => form.certificateDomains.map((item) => normalizeDomain(item)).filter(Boolean))
+const canRotateExternalApiKey = computed(() => (
+  Boolean(props.automation?.id)
+  && props.automation?.status === 'active'
+  && props.automation.configuration.trigger.type === 'api'
+))
+const externalApiKeyStatusKey = computed(() => (
+  props.externalApiKey
+    ? 'automations.externalApi.keyStatusActive'
+    : canRotateExternalApiKey.value
+      ? 'automations.externalApi.keyStatusUnavailable'
+      : 'automations.externalApi.keyStatusPending'
+))
+const externalApiKeyDisplay = computed(() => {
+  if (props.externalApiKey) return props.externalApiKey
+  return '*****************************'
+})
+const externalApiKeyCopied = ref(false)
+const apiManualOpen = ref(false)
 const selectedAssetsSummary = computed(() => {
   if (form.targetScopeMode === 'all_related_assets') return t('automations.targetScopes.allRelatedAssets')
   if (form.selectedAssetIds.length === 0) return t('automations.fields.selectedAssetsHelp')
@@ -122,6 +152,7 @@ const triggerReady = computed(() => {
   return form.certificateSources.length > 0
 })
 const executionReady = computed(() => {
+  if (form.triggerType === 'api' && domains.value.length === 0) return false
   if (form.targetScopeMode === 'selected_assets') {
     if (form.selectedAssetIds.length === 0) return false
     if (!applicationAssetsLoaded.value || applicationAssetsLoadFailed.value) return false
@@ -171,6 +202,8 @@ watch(() => props.automation, (automation) => {
     certificateDomains: eventDomains.map(normalizeDomain),
     concurrency: automation.configuration.guardrails.concurrencyLimit,
     requireApproval: automation.configuration.guardrails.requireApproval,
+    externalExecutionMode: automation.configuration.externalApi?.executionMode
+      ?? (automation.configuration.guardrails.requireApproval ? 'approval' : 'direct'),
     failureCount: automation.configuration.guardrails.failureCountThreshold ?? 3,
   })
   reconcileSelectedAssetIds()
@@ -179,6 +212,10 @@ watch(() => props.automation, (automation) => {
 
   currentStep.value = 1
 }, { immediate: true })
+
+watch(() => props.externalApiKey, () => {
+  externalApiKeyCopied.value = false
+})
 
 watch(() => form.targetScopeMode, (mode) => {
   if (mode !== 'selected_assets') {
@@ -214,6 +251,7 @@ function resetForm() {
     certificateDomains: [],
     concurrency: 5,
     requireApproval: true,
+    externalExecutionMode: 'approval',
     failureCount: 3,
   })
   currentStep.value = 1
@@ -429,7 +467,10 @@ function buildTargetResolver(): NonNullable<AutomationConfiguration['targetResol
 
 function buildFilters(): NonNullable<AutomationConfiguration['filters']> {
   const filters: NonNullable<AutomationConfiguration['filters']> = []
-  if (!isEventTrigger.value) return filters
+  if (!isEventTrigger.value) {
+    if (form.triggerType === 'api' && domains.value.length) filters.push({ field: 'event.domains', operator: 'contains_any', value: [...domains.value] })
+    return filters
+  }
   if (form.certificateSources.length) filters.push({ field: 'event.sourceType', operator: 'in', value: [...form.certificateSources] })
   if (domains.value.length) filters.push({ field: 'event.domains', operator: 'contains_any', value: [...domains.value] })
   return filters
@@ -482,6 +523,11 @@ function clearSelectedAssets() {
   selectedAssetSelection.value = []
 }
 
+async function copyExternalApiKey(): Promise<void> {
+  if (!props.externalApiKey) return
+  externalApiKeyCopied.value = await copyTextToClipboard(props.externalApiKey)
+}
+
 function goToStep(step: 1 | 2 | 3) {
   if (step === 1) {
     currentStep.value = 1
@@ -510,9 +556,12 @@ function submit() {
     name: form.name.trim() || generatedAutomationName.value,
     description: form.description.trim() || undefined,
     trigger: buildTrigger(),
+    ...(form.triggerType === 'api' ? { externalApi: { executionMode: form.externalExecutionMode } } : {}),
     filters: buildFilters(),
     targetResolver,
-    approvalStage: form.requireApproval ? { type: 'run', mode: 'before_actions', operationType: 'automation.run.approve', riskLevel: 'high' } : undefined,
+    approvalStage: (form.triggerType === 'api' ? form.externalExecutionMode === 'approval' : form.requireApproval)
+      ? { type: 'run', mode: 'before_actions', operationType: 'automation.run.approve', riskLevel: 'high' }
+      : undefined,
     actions: [
       {
         type: 'create_deployment_plan',
@@ -539,7 +588,7 @@ function submit() {
       concurrencyLimit: form.concurrency,
       requirePreview: true,
       requireDryRun: false,
-      requireApproval: form.requireApproval,
+      requireApproval: form.triggerType === 'api' ? form.externalExecutionMode === 'approval' : form.requireApproval,
       failureCountThreshold: form.failureCount,
     },
   })
@@ -594,7 +643,7 @@ function submit() {
             <option value="schedule">{{ t('automations.scheduleBuilder.recurring') }}</option>
             <option value="on_demand">{{ t('automations.triggers.onDemand') }}</option>
           </select>
-          <small>{{ t(triggerHelpKey) }}</small>
+          <small v-if="form.triggerType === 'once' || form.triggerType === 'schedule'">{{ t(triggerHelpKey) }}</small>
         </label>
 
         <label v-if="form.triggerType === 'once'">
@@ -656,15 +705,84 @@ function submit() {
               </label>
             </div>
           </div>
+        </template>
+
+        <template v-else-if="form.triggerType === 'api'">
           <div class="automation-editor__summary automation-editor__field--full">
-            <strong>{{ t('automations.scheduleBuilder.certificateVersionCreated') }}</strong>
-            <p>{{ t('automations.scheduleBuilder.certificateVersionCreatedHelp') }}</p>
+            <strong>{{ t('automations.scheduleBuilder.api') }}</strong>
+            <label class="automation-editor__api-mode">
+              <select
+                v-model="form.externalExecutionMode"
+                data-testid="automation-external-execution-mode"
+                :aria-label="t('automations.externalApi.executionModeAria')"
+              >
+                <option value="direct">{{ t('automations.externalApi.direct') }}</option>
+                <option value="approval">{{ t('automations.externalApi.approval') }}</option>
+              </select>
+            </label>
+            <div class="automation-editor__api-key" data-testid="automation-external-api-key">
+              <div class="automation-editor__api-key-header">
+                <strong>{{ t('automations.externalApi.keyTitle') }}</strong>
+                <span>{{ t(externalApiKeyStatusKey) }}</span>
+              </div>
+              <div class="automation-editor__api-key-value">
+                <label>
+                  <input
+                    :value="externalApiKeyDisplay"
+                    data-testid="automation-external-api-key-value"
+                    :aria-label="t('automations.externalApi.keyValueAria')"
+                    readonly
+                    spellcheck="false"
+                    autocomplete="off"
+                  />
+                </label>
+                <div class="automation-editor__api-key-actions">
+                  <GcButton
+                    variant="icon"
+                    data-testid="automation-external-api-key-copy"
+                    :disabled="!externalApiKey"
+                    :ariaLabel="externalApiKeyCopied ? t('automations.externalApi.copied') : t('automations.externalApi.copyAria')"
+                    :title="externalApiKeyCopied ? t('automations.externalApi.copied') : t('automations.externalApi.copyAria')"
+                    @click="copyExternalApiKey"
+                  >
+                    <svg v-if="externalApiKeyCopied" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="m5 12 4.5 4.5L19 7" />
+                    </svg>
+                    <svg v-else viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M8.5 8.5h9A2.5 2.5 0 0 1 20 11v8a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 6 19v-8a2.5 2.5 0 0 1 2.5-2.5Z" />
+                      <path d="M16 8.5V5a2.5 2.5 0 0 0-2.5-2.5h-9A2.5 2.5 0 0 0 2 5v8A2.5 2.5 0 0 0 4.5 15H6" />
+                    </svg>
+                  </GcButton>
+                  <GcButton
+                    variant="icon"
+                    data-testid="automation-external-api-key-rotate"
+                    :loading="externalApiKeyLoading"
+                    :disabled="!canRotateExternalApiKey"
+                    :ariaLabel="t('automations.externalApi.rotateAria')"
+                    :title="t('automations.externalApi.rotateAria')"
+                    @click="emit('rotateExternalApiKey')"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M20 11a8 8 0 1 0 1 4" />
+                      <path d="M20 5v6h-6" />
+                    </svg>
+                  </GcButton>
+                </div>
+              </div>
+              <GcButton
+                variant="secondary"
+                data-testid="automation-external-api-manual"
+                @click="apiManualOpen = true"
+              >
+                {{ t('automations.externalApi.apiManualButton') }}
+              </GcButton>
+            </div>
           </div>
         </template>
 
-        <div v-else class="automation-editor__summary automation-editor__field--full">
-          <strong>{{ t('automations.scheduleBuilder.api') }}</strong>
-          <p>{{ t('automations.scheduleBuilder.apiHelp') }}</p>
+        <div v-else-if="form.triggerType === 'on_demand'" class="automation-editor__summary automation-editor__field--full" data-testid="automation-on-demand-summary">
+          <strong>{{ t('automations.triggers.onDemand') }}</strong>
+          <p>{{ t('automations.triggers.onDemandDescription') }}</p>
         </div>
       </div>
     </section>
@@ -843,7 +961,7 @@ function submit() {
           <input v-model.number="form.failureCount" type="number" min="1" />
         </label>
 
-        <label class="automation-editor__check">
+        <label v-if="form.triggerType !== 'api'" class="automation-editor__check">
           <input v-model="form.requireApproval" type="checkbox" />
           <span>{{ t('automations.fields.requireApproval') }}</span>
         </label>
@@ -873,6 +991,58 @@ function submit() {
       </div>
     </footer>
   </form>
+
+  <GcModal
+    v-model:open="apiManualOpen"
+    :title="t('automations.externalApi.apiManualTitle')"
+    :description="t('automations.externalApi.apiManualDescription')"
+    size="xxl"
+    width="var(--gc-size-modal-wide)"
+    dialog-class="automation-api-manual-modal"
+  >
+    <section class="automation-api-manual" data-testid="automation-external-api-manual-modal">
+      <article class="automation-api-manual__item">
+        <header>
+          <span>1</span>
+          <div>
+            <h3>{{ t('automations.externalApi.apiManualRunTitle') }}</h3>
+            <p>{{ t('automations.externalApi.apiManualRunDescription') }}</p>
+          </div>
+        </header>
+        <code class="automation-api-manual__endpoint">POST /api/v1/automation-external/:automationId/run</code>
+        <p class="automation-api-manual__parameter">{{ t('automations.externalApi.apiManualCertificateVersion') }}</p>
+        <pre><code>{{ t('automations.externalApi.apiManualRunCurl') }}</code></pre>
+      </article>
+
+      <article class="automation-api-manual__item">
+        <header>
+          <span>2</span>
+          <div>
+            <h3>{{ t('automations.externalApi.apiManualPreviewTitle') }}</h3>
+            <p>{{ t('automations.externalApi.apiManualPreviewDescription') }}</p>
+          </div>
+        </header>
+        <code class="automation-api-manual__endpoint">POST /api/v1/automation-external/:automationId/preview</code>
+        <p class="automation-api-manual__parameter">{{ t('automations.externalApi.apiManualCertificateVersion') }}</p>
+        <pre><code>{{ t('automations.externalApi.apiManualPreviewCurl') }}</code></pre>
+      </article>
+
+      <article class="automation-api-manual__item">
+        <header>
+          <span>3</span>
+          <div>
+            <h3>{{ t('automations.externalApi.apiManualVersionsTitle') }}</h3>
+            <p>{{ t('automations.externalApi.apiManualVersionsDescription') }}</p>
+          </div>
+        </header>
+        <code class="automation-api-manual__endpoint">GET /api/v1/automation-external/:automationId/certificate-versions</code>
+        <pre><code>{{ t('automations.externalApi.apiManualVersionsCurl') }}</code></pre>
+      </article>
+    </section>
+    <template #actions>
+      <GcButton @click="apiManualOpen = false">{{ t('common.close') }}</GcButton>
+    </template>
+  </GcModal>
 </template>
 
 <style scoped>
@@ -917,6 +1087,24 @@ function submit() {
 .automation-editor__domain-option input { width: auto; }
 .automation-editor__summary, .automation-editor__review { display: grid; gap: var(--gc-space-2); padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-info-border); border-radius: var(--gc-radius-md); background: var(--gc-color-info-soft); }
 .automation-editor__summary--compact { padding: var(--gc-space-2) var(--gc-space-3); }
+.automation-editor__api-key { display: grid; gap: var(--gc-space-1); padding-top: var(--gc-space-2); border-top: var(--gc-border-width-default) solid var(--gc-color-info-border); }
+.automation-editor__api-key-header { display: flex; align-items: baseline; justify-content: space-between; gap: var(--gc-space-2); color: var(--gc-color-text); }
+.automation-editor__api-key-header span { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); }
+.automation-editor__api-key-value { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: var(--gc-space-2); }
+.automation-editor__api-key-value label { min-width: 0; }
+.automation-editor__api-key-actions { display: flex; flex-wrap: wrap; gap: var(--gc-space-2); }
+.automation-editor__api-key-actions .gc-button { white-space: nowrap; }
+.automation-editor__api-key-actions .gc-button--icon svg { width: var(--gc-font-size-md); height: var(--gc-font-size-md); fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.automation-editor__api-key > .gc-button { justify-self: start; }
+.automation-api-manual { display: grid; gap: var(--gc-space-3); }
+.automation-api-manual__item { display: grid; gap: var(--gc-space-2); padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-border-subtle); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-panel); }
+.automation-api-manual__item > header { display: flex; align-items: flex-start; gap: var(--gc-space-3); }
+.automation-api-manual__item > header > span { display: grid; place-items: center; flex: 0 0 var(--gc-space-6); width: var(--gc-space-6); height: var(--gc-space-6); border-radius: var(--gc-radius-full); background: var(--gc-color-primary); color: var(--gc-color-text-inverse); font-weight: var(--gc-font-weight-semibold); }
+.automation-api-manual__item h3 { margin: 0; color: var(--gc-color-text-strong); font-size: var(--gc-font-size-md); }
+.automation-api-manual__item p { margin: var(--gc-space-1) 0 0; }
+.automation-api-manual__endpoint { display: block; overflow-x: auto; padding: var(--gc-space-2) var(--gc-space-3); border-radius: var(--gc-radius-sm); background: var(--gc-color-surface-raised); color: var(--gc-color-text); white-space: nowrap; }
+.automation-api-manual__parameter { color: var(--gc-color-text-muted); }
+.automation-api-manual__item pre { margin: 0; overflow-x: auto; padding: var(--gc-space-3); border-radius: var(--gc-radius-sm); background: var(--gc-color-surface-inverse); color: var(--gc-color-text-inverse); font-family: var(--gc-font-family-mono); font-size: var(--gc-font-size-sm); line-height: var(--gc-line-height-relaxed); white-space: pre-wrap; }
 .automation-editor__warning { display: grid; gap: var(--gc-space-2); padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-warning-border); border-radius: var(--gc-radius-md); background: var(--gc-color-warning-soft); color: var(--gc-color-text); }
 .automation-editor__chain { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-2); margin: 0; padding: 0; list-style: none; }
 .automation-editor__chain li { display: flex; align-items: center; gap: var(--gc-space-2); padding: var(--gc-space-2); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-solid); color: var(--gc-color-text); }
@@ -945,7 +1133,8 @@ function submit() {
   .automation-editor__grid,
   .automation-editor__chain,
   .automation-editor__scope-grid,
-  .automation-editor__checkbox-grid {
+  .automation-editor__checkbox-grid,
+  .automation-editor__api-key-value {
     grid-template-columns: 1fr;
   }
 

@@ -8,6 +8,11 @@ export type AutomationActionType = 'create_deployment_plan' | 'execute_deploymen
 export type AutomationTriggerDeliveryStatus = 'pending' | 'matched' | 'waiting_approval' | 'run_created' | 'skipped' | 'failed';
 export type AutomationFilterOperator = 'eq' | 'neq' | 'in' | 'contains_any' | 'contains_all';
 export type AutomationApprovalStageType = 'run';
+export type AutomationExternalExecutionMode = 'direct' | 'approval';
+
+export interface AutomationExternalApiConfigurationDto {
+  executionMode: AutomationExternalExecutionMode;
+}
 
 export interface AutomationRunExecutionOptionsDto {
   stopOnError?: boolean;
@@ -86,6 +91,7 @@ export interface AutomationApprovalStageDto {
 
 export interface AutomationConfigurationDto {
   trigger: AutomationTriggerDto;
+  externalApi?: AutomationExternalApiConfigurationDto;
   filters?: AutomationFilterClauseDto[];
   targetResolver: AutomationTargetResolverDto;
   approvalStage?: AutomationApprovalStageDto;
@@ -243,6 +249,8 @@ export interface AutomationTriggerContextDto {
   executableCount?: number;
   excludedCount?: number;
   excludedReasons?: Record<string, number>;
+  /** 外部 API 调用的执行模式，用于在异步执行时保留审批策略。 */
+  externalExecutionMode?: AutomationExternalExecutionMode;
 }
 
 export interface AutomationTriggerDeliveryDto {

@@ -29,6 +29,7 @@ export class AutomationVersionCompiler {
     const approvalStage = configuration.approvalStage ?? defaultApprovalStage(configuration.guardrails.requireApproval);
     const normalized: AutomationConfigurationDto = {
       trigger: structuredClone(configuration.trigger),
+      externalApi: structuredClone(configuration.externalApi),
       filters: structuredClone(configuration.filters ?? []),
       targetResolver: structuredClone(configuration.targetResolver),
       approvalStage: structuredClone(approvalStage),

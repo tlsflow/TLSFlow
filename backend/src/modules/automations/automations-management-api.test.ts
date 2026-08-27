@@ -5,8 +5,10 @@ import type { HttpRequest } from '../../common/http/http-types.js';
 import { PgliteDatabase } from '../../database/pglite-database.js';
 import { createSecurityServices } from '../security/security.controller.js';
 import { AutomationsApplicationService } from './application/automations.application-service.js';
+import { AutomationExternalApiService } from './application/automation-external-api.service.js';
 import { applyAutomationMigrations } from './automation-test-migrations.js';
 import { AutomationsController } from './controller/automations.controller.js';
+import { AutomationExternalApiKeyRepository } from './repository/automation-external-api-key.repository.js';
 import { AutomationsRepository } from './repository/automations.repository.js';
 
 async function setup() {
@@ -23,9 +25,10 @@ async function setup() {
   }
   await security.rbac.createPolicy({ subjectType: 'user', subjectId: 'user_admin', actions: ['automation.*'], resourceTypes: ['automation'], scope: { tenantId: 'tenant_1' }, effect: 'allow' });
   const service = new AutomationsApplicationService(new AutomationsRepository(db), undefined, () => new Date('2026-07-21T00:00:00.000Z'));
+  const externalApi = new AutomationExternalApiService(new AutomationExternalApiKeyRepository(db), () => new Date('2026-07-21T00:00:00.000Z'));
   const router = new Router();
-  new AutomationsController(service, security).register(router);
-  return { router, security };
+  new AutomationsController(service, security, undefined, externalApi).register(router);
+  return { router, security, externalApi };
 }
 
 function request(method: string, path: string, body?: unknown, actorId = 'user_admin'): HttpRequest {
@@ -68,4 +71,32 @@ test('一次性自动化启用时写入固定执行时间，过期时间被拒�
   const expiredBody = { ...createBody, name: '过期一次性证书更新', trigger: { type: 'once' as const, runAt: '2026-07-20T01:00:00.000Z' } };
   const expired = await router.match('POST', '/api/v1/automations')!.handler(request('POST', '/api/v1/automations', expiredBody)) as { body: { id: string; version: number } };
   await assert.rejects(() => router.match('POST', `/api/v1/automations/${expired.body.id}/actions/enable`)!.handler(request('POST', `/api/v1/automations/${expired.body.id}/actions/enable`, { expectedVersion: expired.body.version })) as Promise<unknown>);
+});
+
+test('已启用 API 自动化可以刷新 Key，旧 Key 立即失效且审计不含明文', async () => {
+  const { router, security, externalApi } = await setup();
+  const apiBody = {
+    ...createBody,
+    name: '外部 API 证书更新',
+    trigger: { type: 'api' as const },
+    externalApi: { executionMode: 'direct' as const },
+    filters: [{ field: 'event.domains', operator: 'contains_any' as const, value: ['example.com'] }],
+    guardrails: { ...createBody.guardrails, requireApproval: false },
+  };
+  const created = await router.match('POST', '/api/v1/automations')!.handler(request('POST', '/api/v1/automations', apiBody)) as { body: { id: string; version: number } };
+  const enabled = await router.match('POST', `/api/v1/automations/${created.body.id}/actions/enable`)!.handler(request('POST', `/api/v1/automations/${created.body.id}/actions/enable`, { expectedVersion: created.body.version })) as { externalApiKey: string };
+  const firstKey = enabled.externalApiKey;
+  assert.match(firstKey, /^ak_/);
+
+  const rotated = await router.match('POST', `/api/v1/automations/${created.body.id}/actions/rotate-external-api-key`)!.handler(request('POST', `/api/v1/automations/${created.body.id}/actions/rotate-external-api-key`)) as { body: { externalApiKey: string; externalApiKeyPrefix: string } };
+  assert.notEqual(rotated.body.externalApiKey, firstKey);
+  assert.equal(rotated.body.externalApiKeyPrefix, rotated.body.externalApiKey.slice(0, 11));
+  await assert.rejects(() => externalApi.authenticate(firstKey));
+  assert.equal((await externalApi.authenticate(rotated.body.externalApiKey)).automationId, created.body.id);
+
+  const events = await security.audit.query({ resourceType: 'automation', resourceId: created.body.id });
+  const rotation = events.find((event) => event.eventType === 'automation.external_api_key.rotated');
+  assert.ok(rotation);
+  assert.equal(JSON.stringify(rotation).includes(firstKey), false);
+  assert.equal(JSON.stringify(rotation).includes(rotated.body.externalApiKey), false);
 });

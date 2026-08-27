@@ -13,6 +13,7 @@ import {
   listAutomations,
   previewAutomation,
   runAutomation,
+  rotateAutomationExternalApiKey,
   updateAutomation,
   type AutomationConfiguration,
   type AutomationRecord,
@@ -25,6 +26,7 @@ import { listTasks, type TaskRun } from '@/api/modules/tasks.api'
 import { readString, type ViewRow } from '@/composables/useBusinessPage'
 import { GcButton, GcCard, GcEmptyState, GcModal, GcStatusTag } from '@/design-system/components'
 import { formatMaybeLocalTime } from '@/utils/browser-local-time'
+import { copyTextToClipboard } from '@/utils/clipboard'
 import { translateDynamic } from '@/i18n/translate'
 import BusinessResourcePage from '@/views/BusinessResourcePage.vue'
 import type { BusinessPageConfig } from '@/views/business-page.types'
@@ -56,6 +58,13 @@ const manualRunError = ref('')
 const manualRunStopOnError = ref(false)
 const manualDowngradeConfirmOpen = ref(false)
 const manualRunDowngradeConfirmed = ref(false)
+const externalKeyOpen = ref(false)
+const externalKey = ref('')
+const externalKeyPrefix = ref('')
+const externalKeyAutomationId = ref('')
+const externalKeyMode = ref<'direct' | 'approval'>('direct')
+const externalKeyCopied = ref(false)
+const externalKeyRotating = ref(false)
 const applicationAssets = ref<ApiRecord[]>([])
 const applicationAssetsLoaded = ref(false)
 let applicationAssetsRequest: Promise<void> | null = null
@@ -136,7 +145,15 @@ const pageConfig = computed<BusinessPageConfig>(() => ({
       hidden: (row) => automationFromRow(row).status === 'active' || automationFromRow(row).status === 'deleted',
       run: async (row) => {
         const automation = automationFromRow(row)
-        await automationAction(automation.id, 'enable', automation.version)
+        const result = await automationAction(automation.id, 'enable', automation.version)
+        if (result.externalApiKey) {
+          externalKey.value = result.externalApiKey
+          externalKeyPrefix.value = result.externalApiKeyPrefix ?? result.externalApiKey.slice(0, 11)
+          externalKeyAutomationId.value = automation.id
+          externalKeyMode.value = result.externalApiExecutionMode ?? 'direct'
+          externalKeyCopied.value = false
+          externalKeyOpen.value = true
+        }
       },
     },
     {
@@ -147,6 +164,7 @@ const pageConfig = computed<BusinessPageConfig>(() => ({
       run: async (row) => {
         const automation = automationFromRow(row)
         await automationAction(automation.id, 'disable', automation.version)
+        clearExternalKey(automation.id)
       },
     },
     {
@@ -176,6 +194,7 @@ const pageConfig = computed<BusinessPageConfig>(() => ({
       run: async (row) => {
         const automation = automationFromRow(row)
         await deleteAutomation(automation.id, automation.version)
+        clearExternalKey(automation.id)
       },
     },
   ],
@@ -228,6 +247,45 @@ async function refreshList() {
   await pageRef.value?.reload()
 }
 
+async function copyExternalKey() {
+  if (!externalKey.value) return
+  externalKeyCopied.value = await copyTextToClipboard(externalKey.value)
+}
+
+const editorExternalApiKey = computed(() => (
+  editing.value?.id && editing.value.id === externalKeyAutomationId.value ? externalKey.value : ''
+))
+const editorExternalApiKeyPrefix = computed(() => (
+  editing.value?.id && editing.value.id === externalKeyAutomationId.value ? externalKeyPrefix.value : ''
+))
+
+function clearExternalKey(automationId: string): void {
+  if (externalKeyAutomationId.value !== automationId) return
+  externalKey.value = ''
+  externalKeyPrefix.value = ''
+  externalKeyAutomationId.value = ''
+  externalKeyCopied.value = false
+  externalKeyOpen.value = false
+}
+
+async function rotateEditorExternalApiKey(): Promise<void> {
+  const automationId = editing.value?.id
+  if (!automationId || externalKeyRotating.value) return
+  externalKeyRotating.value = true
+  try {
+    const result = await rotateAutomationExternalApiKey(automationId)
+    if (result.externalApiKey) {
+      externalKey.value = result.externalApiKey
+      externalKeyPrefix.value = result.externalApiKeyPrefix ?? result.externalApiKey.slice(0, 11)
+      externalKeyAutomationId.value = automationId
+      externalKeyMode.value = result.externalApiExecutionMode ?? externalKeyMode.value
+      externalKeyCopied.value = false
+    }
+  } finally {
+    externalKeyRotating.value = false
+  }
+}
+
 function openCreate() {
   editing.value = null
   editorOpen.value = true
@@ -243,6 +301,9 @@ async function save(payload: AutomationConfiguration & { name: string; descripti
     })
   } else {
     await createAutomation(payload)
+  }
+  if (payload.trigger.type !== 'api' && editing.value?.id === externalKeyAutomationId.value) {
+    clearExternalKey(editing.value.id)
   }
   editorOpen.value = false
   await refreshList()
@@ -957,16 +1018,89 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
       :title="editing ? t('automations.editor.editTitle') : t('automations.editor.createTitle')"
       size="xxl"
       width="var(--gc-size-modal-wide)"
+      dialog-class="automation-editor-modal"
     >
-      <AutomationEditor :automation="editing" @save="save" @cancel="editorOpen = false" />
+      <AutomationEditor
+        :automation="editing"
+        :external-api-key="editorExternalApiKey"
+        :external-api-key-prefix="editorExternalApiKeyPrefix"
+        :external-api-key-loading="externalKeyRotating"
+        @save="save"
+        @cancel="editorOpen = false"
+        @rotate-external-api-key="rotateEditorExternalApiKey"
+      />
+    </GcModal>
+
+    <GcModal
+      v-model:open="externalKeyOpen"
+      :title="t('automations.externalApi.keyTitle')"
+      :description="t('automations.externalApi.keyDescription')"
+      size="lg"
+      dialog-class="automation-external-key-modal"
+    >
+      <section class="automation-external-key">
+        <p>{{ t('automations.externalApi.keyNotice') }}</p>
+        <code>{{ externalKey }}</code>
+        <p>{{ t('automations.externalApi.mode', { mode: t(`automations.externalApi.${externalKeyMode}`) }) }}</p>
+      </section>
+      <template #actions>
+        <GcButton @click="externalKeyOpen = false">{{ t('common.close') }}</GcButton>
+        <GcButton
+          variant="icon"
+          :ariaLabel="externalKeyCopied ? t('automations.externalApi.copied') : t('automations.externalApi.copyAria')"
+          :title="externalKeyCopied ? t('automations.externalApi.copied') : t('automations.externalApi.copyAria')"
+          :disabled="!externalKey"
+          data-testid="automation-external-api-key-modal-copy"
+          @click="copyExternalKey"
+        >
+          <svg v-if="externalKeyCopied" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="m5 12 4.5 4.5L19 7" />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M8.5 8.5h9A2.5 2.5 0 0 1 20 11v8a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 6 19v-8a2.5 2.5 0 0 1 2.5-2.5Z" />
+            <path d="M16 8.5V5a2.5 2.5 0 0 0-2.5-2.5h-9A2.5 2.5 0 0 0 2 5v8A2.5 2.5 0 0 0 4.5 15H6" />
+          </svg>
+        </GcButton>
+      </template>
     </GcModal>
   </section>
 </template>
 
 <style scoped>
+:global(.automation-editor-modal .gc-modal__header),
+:global(.automation-editor-modal .gc-modal__body),
+:global(.automation-editor-modal .gc-modal__actions) {
+  padding: var(--gc-space-6);
+}
+
 .automations-page {
   display: grid;
   gap: var(--gc-space-4);
+}
+
+.automation-external-key {
+  display: grid;
+  gap: var(--gc-space-3);
+}
+
+.automation-external-key code {
+  display: block;
+  padding: var(--gc-space-3);
+  overflow-wrap: anywhere;
+  border: var(--gc-border-width-default) solid var(--gc-color-border-soft);
+  border-radius: var(--gc-radius-sm);
+  background: var(--gc-color-surface-muted);
+  color: var(--gc-color-text-strong);
+}
+
+:global(.automation-external-key-modal .gc-button--icon svg) {
+  width: var(--gc-font-size-md);
+  height: var(--gc-font-size-md);
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
 }
 
 .automation-detail,

@@ -1,3 +1,4 @@
+import { AppError } from '../../../common/errors/app-error.js';
 import type { PageQuery } from '../../../common/pagination/pagination.js';
 import type { ServiceAssetDetailDto } from '../../assets/dto/assets.dto.js';
 import type { AssetsRepository } from '../../assets/repository/assets.repository.js';
@@ -53,6 +54,16 @@ export class CertificateVersionTargetResolver implements AutomationTargetResolve
         executable: false,
         excludedReason: 'missing_version',
       }];
+    }
+    if (input.triggerContext?.sourceType === 'external_api' && input.triggerContext.domains?.length) {
+      const configuredDomains = new Set(input.triggerContext.domains.map(normalizeDomain));
+      if (!configuredDomains.has(normalizeDomain(asset.primaryDomain))) {
+        throw new AppError('VALIDATION_FAILED', '证书版本不属于自动化预设域名', {
+          certificateVersionId,
+          primaryDomain: asset.primaryDomain,
+          configuredDomains: [...configuredDomains],
+        });
+      }
     }
 
     const requestedSelectedAssetIds = input.resolver.type === 'certificate_version_targets'
@@ -265,6 +276,10 @@ export class CertificateVersionTargetResolver implements AutomationTargetResolve
     }
     return dedupeTargets(targets);
   }
+}
+
+function normalizeDomain(value: string): string {
+  return value.trim().toLowerCase().replace(/\.$/u, '');
 }
 
 function dedupeTargets(items: AutomationPreviewTargetDto[]): AutomationPreviewTargetDto[] {
