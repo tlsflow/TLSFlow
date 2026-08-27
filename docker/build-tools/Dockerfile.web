@@ -4,6 +4,13 @@ ARG NODE_IMAGE=node:22-bookworm-slim
 ARG WEB_IMAGE=nginx:1.27-alpine
 ARG VITE_PRODUCT_EDITION=public
 
+FROM ${NODE_IMAGE} AS docs-build
+WORKDIR /src/docs
+COPY docs/Documentation/package.json docs/Documentation/package-lock.json ./
+RUN npm ci
+COPY docs/Documentation ./
+RUN npm run docs:check && npm run docs:build
+
 FROM ${NODE_IMAGE} AS build
 ARG VITE_PRODUCT_EDITION
 ENV VITE_PRODUCT_EDITION=${VITE_PRODUCT_EDITION}
@@ -12,7 +19,7 @@ COPY web/package.json web/package-lock.json ./
 COPY version /src/version
 RUN npm ci
 COPY web ./
-COPY docs/Documentation/.vitepress/dist ./public/docs
+COPY --from=docs-build /src/docs/.vitepress/dist ./public/docs
 RUN npm run build
 
 FROM ${WEB_IMAGE}

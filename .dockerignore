@@ -9,11 +9,9 @@ browser-runtime/coverage
 data/*
 docs/*
 !docs/Documentation/
-docs/Documentation/*
-!docs/Documentation/.vitepress/
-docs/Documentation/.vitepress/*
-!docs/Documentation/.vitepress/dist/
-!docs/Documentation/.vitepress/dist/**
+!docs/Documentation/**
+docs/Documentation/**/node_modules
+docs/Documentation/**/dist
 web/public/docs
 output
 tmp

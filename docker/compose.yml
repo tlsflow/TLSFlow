@@ -1,85 +1,16 @@
 name: gcac
 
 services:
-  small:
-    profiles: ["small"]
-    build:
-      context: ..
-      dockerfile: docker/build-tools/Dockerfile.small
-      args:
-        VITE_PRODUCT_EDITION: ${VITE_PRODUCT_EDITION:-public}
-    image: gcac-small:${GCAC_RELEASE_VERSION:?请从仓库根目录 version 文件设置 GCAC_RELEASE_VERSION}
-    environment:
-      GCAC_DEPLOYMENT_ARCHITECTURE: small
-      GCAC_PERSISTENCE_BACKEND: pglite
-      GCAC_PGLITE_DATA_DIR: /var/lib/gcac/pglite
-      GCAC_TOKEN_SECRET: ${GCAC_TOKEN_SECRET:?请设置 GCAC_TOKEN_SECRET}
-      # 新部署通过初始化向导创建 Admin；旧自动化只有显式打开兼容开关才会使用该密码。
-      GCAC_INITIAL_ADMIN_PASSWORD: ${GCAC_INITIAL_ADMIN_PASSWORD:-}
-      GCAC_ENABLE_LEGACY_ADMIN_SEED: ${GCAC_ENABLE_LEGACY_ADMIN_SEED:-false}
-      GCAC_SECRET_KEK: ${GCAC_SECRET_KEK:?请设置 GCAC_SECRET_KEK}
-      GCAC_CA_CONFIRMATION_SECRET: ${GCAC_CA_CONFIRMATION_SECRET:?请设置 GCAC_CA_CONFIRMATION_SECRET}
-      GCAC_MIGRATIONS_DIR: /app/src/database/migrations
-      GCAC_WEB_ROOT: /app/web
-      GCAC_WORKFLOW_DATA_DIR: /app/data/workflows
-      GCAC_RUNTIME_SECRETS_FILE: /app/data/runtime/runtime-secrets.enc
-      GCAC_POLICY_AUTHORITY_STATE_FILE: /app/data/runtime/policy-authority-state.json
-      GCAC_AGENT_RELEASE_BUNDLE_ROOT: /opt/gcac/agent-release-bundle
-      GCAC_PLUGIN_RUNNER_EXECUTABLE_PATH: /usr/local/bin/node
-      GCAC_PLUGIN_RUNNER_WORKING_DIRECTORY: /app
-      GCAC_PLUGIN_RUNNER_ARGS_JSON: '["/app/dist/modules/plugins/runner/runner-server.js"]'
-      GCAC_PLUGIN_RUNNER_VERSION: gcac-plugin-runner-v1
-      GCAC_PLUGIN_SDK_VERSION: gcac-plugin-sdk-v1
-      GCAC_POLICY_AUTHORITY_EXECUTABLE_PATH: /usr/local/bin/node
-      GCAC_POLICY_AUTHORITY_WORKING_DIRECTORY: /app
-      GCAC_POLICY_AUTHORITY_ARGS_JSON: '["/app/dist/modules/agents/security/policy-authority-process.js"]'
-      GCAC_POLICY_AUTHORITY_PROCESS_ROLE: host
-      # 兼容已有受控部署：完整旧材料可选注入，首启会立即加密迁移；公开模板不提供这些值。
-      GCAC_POLICY_AUTHORITY_ROOT_KEY_ID: ${GCAC_POLICY_AUTHORITY_ROOT_KEY_ID:-}
-      GCAC_POLICY_AUTHORITY_ID: ${GCAC_POLICY_AUTHORITY_ID:-}
-      GCAC_POLICY_AUTHORITY_ROOT_PUBLIC_KEY_PEM: ${GCAC_POLICY_AUTHORITY_ROOT_PUBLIC_KEY_PEM:-}
-      GCAC_POLICY_AUTHORITY_ROOT_FINGERPRINT_SHA256: ${GCAC_POLICY_AUTHORITY_ROOT_FINGERPRINT_SHA256:-}
-      GCAC_POLICY_AUTHORITY_BOOTSTRAP_JSON: ${GCAC_POLICY_AUTHORITY_BOOTSTRAP_JSON:-}
-      GCAC_POLICY_AUTHORITY_KEYSET_JSON: ${GCAC_POLICY_AUTHORITY_KEYSET_JSON:-}
-      GCAC_POLICY_AUTHORITY_SIGNING_KEYS_FILE: /app/data/runtime/policy-authority-signing-keys.json
-      GCAC_POLICY_AUTHORITY_POLICY_BUNDLE_JSON: ${GCAC_POLICY_AUTHORITY_POLICY_BUNDLE_JSON:-}
-      GCAC_AGENT_LOCAL_POLICY_ROOT_KEY_ID: ${GCAC_AGENT_LOCAL_POLICY_ROOT_KEY_ID:-}
-      GCAC_AGENT_LOCAL_POLICY_ROOT_PUBLIC_KEY_PEM: ${GCAC_AGENT_LOCAL_POLICY_ROOT_PUBLIC_KEY_PEM:-}
-      GCAC_AGENT_LOCAL_POLICY_ROOT_FINGERPRINT_SHA256: ${GCAC_AGENT_LOCAL_POLICY_ROOT_FINGERPRINT_SHA256:-}
-      GCAC_AGENT_LOCAL_POLICY_BUNDLE_JSON: ${GCAC_AGENT_LOCAL_POLICY_BUNDLE_JSON:-}
-    user: "10001:10001"
-    read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,size=256m
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
-    pids_limit: 512
-    mem_limit: 2g
-    cpus: 2
-    ports:
-      - "${GCAC_PORT:-8085}:3003"
-    volumes:
-      - gcac_small_pglite:/var/lib/gcac/pglite
-      - gcac_small_workflows:/app/data/workflows
-      - gcac_small_runtime:/app/data/runtime
-      - gcac_small_tls_inspector:/app/data/tls-inspector
-      - ../data/plugins:/app/data/plugins:ro
-    restart: unless-stopped
-
   db:
-    profiles: ["standard"]
-    build:
-      context: ..
-      dockerfile: docker/build-tools/Dockerfile.db
-    image: gcac-db:${GCAC_RELEASE_VERSION:?请从仓库根目录 version 文件设置 GCAC_RELEASE_VERSION}
+    labels:
+      com.gcac.deployment.architecture: standard
+    image: ${GCAC_IMAGE_NAMESPACE:?请设置 Docker Hub 命名空间}/gcac-db:${GCAC_RELEASE_VERSION:-latest}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-gcac}
       POSTGRES_USER: ${POSTGRES_USER:-gcac}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请设置 POSTGRES_PASSWORD}
     volumes:
-      - gcac_postgres:/var/lib/postgresql/data
+      - ${GCAC_DATA_ROOT:-./data}/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
@@ -88,11 +19,9 @@ services:
     restart: unless-stopped
 
   backend:
-    profiles: ["standard"]
-    build:
-      context: ..
-      dockerfile: docker/build-tools/Dockerfile.backend
-    image: gcac-backend:${GCAC_RELEASE_VERSION:?请从仓库根目录 version 文件设置 GCAC_RELEASE_VERSION}
+    labels:
+      com.gcac.deployment.architecture: standard
+    image: ${GCAC_IMAGE_NAMESPACE:?请设置 Docker Hub 命名空间}/gcac-backend:${GCAC_RELEASE_VERSION:-latest}
     environment:
       GCAC_DEPLOYMENT_ARCHITECTURE: standard
       GCAC_PERSISTENCE_BACKEND: postgres
@@ -101,12 +30,14 @@ services:
       GCAC_DATABASE_NAME: ${POSTGRES_DB:-gcac}
       GCAC_DATABASE_USER: ${POSTGRES_USER:-gcac}
       GCAC_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?请设置 POSTGRES_PASSWORD}
+      GCAC_PUBLIC_BASE_URL: ${GCAC_PUBLIC_BASE_URL:?请设置 GCAC_PUBLIC_BASE_URL}
       GCAC_TOKEN_SECRET: ${GCAC_TOKEN_SECRET:?请设置 GCAC_TOKEN_SECRET}
       # 新部署通过初始化向导创建 Admin；旧自动化只有显式打开兼容开关才会使用该密码。
       GCAC_INITIAL_ADMIN_PASSWORD: ${GCAC_INITIAL_ADMIN_PASSWORD:-}
       GCAC_ENABLE_LEGACY_ADMIN_SEED: ${GCAC_ENABLE_LEGACY_ADMIN_SEED:-false}
       GCAC_SECRET_KEK: ${GCAC_SECRET_KEK:?请设置 GCAC_SECRET_KEK}
-      GCAC_CA_CONFIRMATION_SECRET: ${GCAC_CA_CONFIRMATION_SECRET:?请设置 GCAC_CA_CONFIRMATION_SECRET}
+      # 可选；未配置时 CA 高风险操作失败关闭，但不阻止服务启动。
+      GCAC_CA_CONFIRMATION_SECRET: ${GCAC_CA_CONFIRMATION_SECRET:-}
       GCAC_MIGRATIONS_DIR: /app/src/database/migrations
       GCAC_WORKFLOW_DATA_DIR: /app/data/workflows
       GCAC_RUNTIME_SECRETS_FILE: /app/data/runtime/runtime-secrets.enc
@@ -134,8 +65,9 @@ services:
       GCAC_AGENT_LOCAL_POLICY_ROOT_PUBLIC_KEY_PEM: ${GCAC_AGENT_LOCAL_POLICY_ROOT_PUBLIC_KEY_PEM:-}
       GCAC_AGENT_LOCAL_POLICY_ROOT_FINGERPRINT_SHA256: ${GCAC_AGENT_LOCAL_POLICY_ROOT_FINGERPRINT_SHA256:-}
       GCAC_AGENT_LOCAL_POLICY_BUNDLE_JSON: ${GCAC_AGENT_LOCAL_POLICY_BUNDLE_JSON:-}
-      BROWSER_RUNTIME_URL: http://browser-runtime:8787
-      BROWSER_RUNTIME_SHARED_SECRET: ${BROWSER_RUNTIME_SHARED_SECRET:?请设置浏览器 Runtime 密钥}
+      BROWSER_RUNTIME_ENABLED: ${BROWSER_RUNTIME_ENABLED:-false}
+      BROWSER_RUNTIME_URL: ${BROWSER_RUNTIME_URL:-http://browser-runtime:8787}
+      BROWSER_RUNTIME_SHARED_SECRET: ${BROWSER_RUNTIME_SHARED_SECRET:-}
       BROWSER_RUNTIME_PUBLIC_BASE_URL: ${BROWSER_RUNTIME_PUBLIC_BASE_URL:-}
       BROWSER_RUNTIME_MAX_SESSIONS: ${BROWSER_RUNTIME_MAX_SESSIONS:-4}
     user: "10001:10001"
@@ -153,42 +85,32 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      browser-runtime:
-        condition: service_started
-    ports:
-      - "${GCAC_BACKEND_PORT:-3003}:3003"
     volumes:
-      - gcac_standard_workflows:/app/data/workflows
-      - gcac_standard_runtime:/app/data/runtime
-      - gcac_standard_tls_inspector:/app/data/tls-inspector
-      - ../data/plugins:/app/data/plugins:ro
+      - ${GCAC_DATA_ROOT:-./data}/workflows:/app/data/workflows
+      - ${GCAC_DATA_ROOT:-./data}/runtime:/app/data/runtime
+      - ${GCAC_DATA_ROOT:-./data}/tls-inspector:/app/data/tls-inspector
+      - ${GCAC_DATA_ROOT:-./data}/plugins:/app/data/plugins:ro
     restart: unless-stopped
 
   web:
-    profiles: ["standard"]
-    build:
-      context: ..
-      dockerfile: docker/build-tools/Dockerfile.web
-      args:
-        VITE_PRODUCT_EDITION: ${VITE_PRODUCT_EDITION:-public}
-    image: gcac-web:${GCAC_RELEASE_VERSION:?请从仓库根目录 version 文件设置 GCAC_RELEASE_VERSION}
+    labels:
+      com.gcac.deployment.architecture: standard
+    image: ${GCAC_IMAGE_NAMESPACE:?请设置 Docker Hub 命名空间}/gcac-web:${GCAC_RELEASE_VERSION:-latest}
     depends_on:
       backend:
-        condition: service_started
-      browser-runtime:
         condition: service_started
     ports:
       - "${GCAC_PORT:-8085}:80"
     restart: unless-stopped
 
   browser-runtime:
-    profiles: ["standard"]
-    build:
-      context: ..
-      dockerfile: docker/build-tools/Dockerfile.browser-runtime
-    image: gcac-browser-runtime:${GCAC_RELEASE_VERSION:?请从仓库根目录 version 文件设置 GCAC_RELEASE_VERSION}
+    # 默认不随 standard 启动；需要时显式追加 --profile browser-runtime。
+    profiles: ["browser-runtime"]
+    labels:
+      com.gcac.deployment.architecture: standard
+    image: ${GCAC_IMAGE_NAMESPACE:?请设置 Docker Hub 命名空间}/gcac-browser-runtime:${GCAC_RELEASE_VERSION:-latest}
     environment:
-      BROWSER_RUNTIME_SHARED_SECRET: ${BROWSER_RUNTIME_SHARED_SECRET:?请设置浏览器 Runtime 密钥}
+      BROWSER_RUNTIME_SHARED_SECRET: ${BROWSER_RUNTIME_SHARED_SECRET:-}
       BROWSER_RUNTIME_PUBLIC_BASE_URL: ${BROWSER_RUNTIME_PUBLIC_BASE_URL:-}
       BROWSER_SESSION_ROOT: /run/gcac-browser-sessions
       BROWSER_SESSION_SCRIPT: /app/container/start-session.sh
@@ -208,13 +130,3 @@ services:
     expose:
       - "8787"
     restart: unless-stopped
-
-volumes:
-  gcac_small_pglite:
-  gcac_small_workflows:
-  gcac_postgres:
-  gcac_standard_workflows:
-  gcac_small_runtime:
-  gcac_standard_runtime:
-  gcac_small_tls_inspector:
-  gcac_standard_tls_inspector:
