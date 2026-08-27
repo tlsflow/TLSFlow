@@ -719,16 +719,16 @@ export default {
     automationEffectivenessReportDesc: 'Run and target success rates with failure stages',
     settings: 'System settings',
     settingsDesc: 'Tenants, users, permissions, and system configuration',
-    settingsOverview: 'Setting',
+    settingsOverview: 'Settings',
     systemSettings: 'System settings',
     systemSettingsDesc: 'System configuration and security metadata',
     credentials: 'Credential',
     notifications: 'Notification',
     licensing: 'Licensing',
     users: 'Users',
-    usersDesc: 'Console users, status, and roles',
+    usersDesc: 'User accounts, status, and roles',
     roles: 'Roles',
-    rolesDesc: 'Roles, authorization object scopes, and member assignments',
+    rolesDesc: 'Roles, authorization scopes, and member assignments',
     identitySources: 'Identity sources',
     identitySourcesDesc: 'AD/LDAP service configuration',
     groupRoleMappings: 'Group role mappings'
@@ -2273,7 +2273,7 @@ export default {
   },
   notifications: {
     title: 'Notification management',
-    description: 'Manage notification channels, routes, templates, silences, and reliable delivery records.',
+    description: 'Manage notification channels, routes, templates, silences, and delivery records.',
     tabs: { channels: 'Channels', deliveries: 'Deliveries', rules: 'Rules and templates' },
     sections: { channels: 'Channel records', deliveries: 'Delivery records' },
     channels: { createTitle: 'Create notification channel' },
@@ -2314,11 +2314,11 @@ export default {
   },
   settings: {
     ...(licensingLocaleMessages['en-US'] ?? {}),
-    securityLabel: 'System settings entry',
+    securityLabel: 'System settings',
     deploymentTasks: {
       eyebrow: 'Deployment tasks',
       title: 'Deployment task parameters',
-      description: 'Control the tenant-wide Dry-run setting and whether applications without an explicit approval requirement must be approved before certificate deployment.',
+      description: 'Control the tenant-wide dry-run setting and whether applications without an explicit approval requirement need approval before certificate deployment.',
       readonly: 'This account has read-only access.',
       fields: {
         dryRun: { title: 'Enable dry-run', description: 'Run a read-only precheck before deployment; results are advisory and do not block execution.', aria: 'Enable certificate deployment dry-run' },
@@ -4644,7 +4644,7 @@ export default {
         },
         addTitle: 'Add credential',
         count: '{count} item(s)',
-        description: 'Create reusable login and API credentials for workflows in one place. The frontend only selects and reuses them, without requiring manual internal reference strings.',
+        description: 'Manage the login and API credentials used by workflows and reuse them in the canvas and nodes.',
         empty: 'No backend credential records. After creation, they can be selected directly in variables, SSH nodes, and HTTP nodes.',
         loading: 'Loading credential metadata from backend...',
         registeredTitle: 'Registered credentials',
@@ -5078,7 +5078,7 @@ export default {
     messages: { requestFailed: 'Onboarding request failed. Check permissions and input.', noPlatforms: 'No business platforms are available.', noSearchResults: 'No matching platforms found.' }
   },
   tenantArchitecture: {
-    nav: 'Group architecture', eyebrow: 'Multi-tenant governance', title: 'Group architecture', description: 'Manage group, subsidiary, and administrator relationships.',
+    nav: 'Group architecture', eyebrow: 'Multi-tenant governance', title: 'Group architecture', description: 'Manage groups, subsidiaries, and their administrators.',
     mode: { aria: 'Group architecture mode', label: 'Group architecture mode', hierarchical: 'Enabled', single: 'Disabled', updated: 'Last updated: {time}' },
     actions: { checking: 'Checking', preflight: 'Run preflight', enabling: 'Enabling', enable: 'Enable group architecture', rollingBack: 'Rolling back', rollback: 'Disable group architecture', suspend: 'Suspend', resume: 'Resume', revokeAdministrator: 'Revoke administrator' },
     preflight: { title: 'Enablement preflight', summary: 'Blockers: {blockers}', passed: { title: 'Satisfied', summary: '{count} checks passed' }, blocked: { title: 'Action required', summary: '{count} blockers', description: 'Resolve the following issues before running preflight again.' } },

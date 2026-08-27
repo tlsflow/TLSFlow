@@ -203,7 +203,7 @@ export const licensingLocaleMessages = {
   'en-US': {
     licensing: {
       title: 'Product licensing',
-      description: 'View this installation license, export an offline activation request, and import license files.',
+      description: 'View the license status for this installation, export an offline activation request, and import license files.',
       summary: { title: 'License status', unconfigured: 'License not configured', userName: 'User name: {userName}', userNameUnset: '-' },
       info: { title: 'License information', description: 'Current version, validity, and version range details.' },
       validity: { perpetual: 'Perpetual' },
