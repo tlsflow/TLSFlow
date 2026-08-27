@@ -1,13 +1,13 @@
 # syntax=docker/dockerfile:1.7
 
-ARG NODE_IMAGE=node:22-bookworm-slim
+ARG BUILD_IMAGE=debian:bookworm-slim
 ARG GO_FULL_IMAGE=golang:1.23-bookworm
 ARG GO_COMPAT_IMAGE=golang:1.20-bullseye
 
 FROM ${GO_FULL_IMAGE} AS full-go
 FROM ${GO_COMPAT_IMAGE} AS compatibility-go
 
-FROM ${NODE_IMAGE} AS bundle
+FROM ${BUILD_IMAGE} AS bundle
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates \
   && rm -rf /var/lib/apt/lists/*
@@ -17,14 +17,15 @@ COPY --from=full-go /usr/local/go /opt/go-full
 COPY --from=compatibility-go /usr/local/go /opt/go-compat
 COPY version ./version
 COPY agents ./agents
-COPY docker/build-tools/build-agent-release-bundle.mjs ./docker/build-tools/build-agent-release-bundle.mjs
-COPY docker/verify/verify-release-bundle.mjs ./docker/verify/verify-release-bundle.mjs
+COPY docker/build-tools/build-agent-release-bundle.sh ./docker/build-tools/build-agent-release-bundle.sh
+COPY docker/verify/verify-release-bundle.sh ./docker/verify/verify-release-bundle.sh
 ENV GCAC_AGENT_BUNDLE_IN_DOCKER=true \
     GCAC_FULL_GO=/opt/go-full/bin/go \
     GCAC_COMPAT_GO=/opt/go-compat/bin/go \
     GOPROXY=${GO_PROXY}
-RUN node docker/build-tools/build-agent-release-bundle.mjs
-RUN node docker/verify/verify-release-bundle.mjs /src/build/agent-release-bundle
+RUN chmod +x docker/build-tools/build-agent-release-bundle.sh docker/verify/verify-release-bundle.sh \
+  && sh docker/build-tools/build-agent-release-bundle.sh
+RUN sh docker/verify/verify-release-bundle.sh /src/build/agent-release-bundle
 
 FROM scratch
 COPY --from=bundle /src/build/agent-release-bundle/ /
