@@ -200,6 +200,7 @@ function tenantId(request: HttpRequest): string {
 function resolveInstallPublicBaseUrl(request: HttpRequest): string {
   const candidates = [
     process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL,
+    process.env.GCAC_PUBLIC_BASE_URL,
     singleHeader(request, 'x-public-base-url'),
     singleHeader(request, 'origin'),
     originFromReferer(singleHeader(request, 'referer')),

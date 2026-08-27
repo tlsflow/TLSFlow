@@ -335,6 +335,37 @@ describe('Agent 一键安装会话', () => {
     }
   });
 
+  it('统一公共基地址未配置专用安装地址时仍用于生成安装命令', async () => {
+    const previousInstallBase = process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL;
+    const previousPublicBase = process.env.GCAC_PUBLIC_BASE_URL;
+    delete process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL;
+    process.env.GCAC_PUBLIC_BASE_URL = 'https://gcac.control.example';
+    try {
+      const app = await createTestApp();
+      const response = await app.inject({
+        method: 'POST',
+        path: '/api/v1/agents/install-sessions/linux-go',
+        headers: requestHeaders('tenant_install_public_base', 'req_install_public_base', {
+          host: 'attacker.invalid',
+          origin: 'https://attacker.invalid',
+          'x-forwarded-host': 'attacker.invalid',
+          'x-forwarded-proto': 'https',
+        }),
+        body: { zone: 'default' },
+      });
+
+      assert.equal(response.statusCode, 201, JSON.stringify(response.body));
+      const body = response.body as InstallSessionResponse;
+      assert.match(body.installCommand, /https:\/\/gcac\.control\.example\/agent-install\?token=/);
+      assert.doesNotMatch(body.installCommand, /attacker\.invalid/);
+    } finally {
+      if (previousInstallBase === undefined) delete process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL;
+      else process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL = previousInstallBase;
+      if (previousPublicBase === undefined) delete process.env.GCAC_PUBLIC_BASE_URL;
+      else process.env.GCAC_PUBLIC_BASE_URL = previousPublicBase;
+    }
+  });
+
   it('安装材料接口仍不接受地址字段或查询参数', async () => {
     const app = await createTestApp();
     const query = await app.inject({

@@ -1361,7 +1361,7 @@ function validateAgentInstallSessionBody(input: unknown): CreateAgentInstallSess
 }
 
 function resolveInstallPublicBaseUrl(request: HttpRequest): string {
-  const candidates = [process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL, singleHeader(request, 'x-public-base-url'), singleHeader(request, 'origin'), originFromReferer(singleHeader(request, 'referer')), inferredRequestOrigin(request)];
+  const candidates = [process.env.GCAC_AGENT_INSTALL_PUBLIC_BASE_URL, process.env.GCAC_PUBLIC_BASE_URL, singleHeader(request, 'x-public-base-url'), singleHeader(request, 'origin'), originFromReferer(singleHeader(request, 'referer')), inferredRequestOrigin(request)];
   for (const candidate of candidates) {
     const normalized = normalizeBaseUrl(candidate);
     if (normalized) return normalized;
