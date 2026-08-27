@@ -118,17 +118,6 @@ function executeCaPort(context, input, operation, security, credential) {
       status: 'pending-agent-execution',
     });
   }
-  if (operation === 'ca.certificate.list') {
-    return successResult('list', {
-      kind: 'CertificateOperationBatch',
-      apiVersion: 'gcac.ca-object/v1',
-      pluginId: PLUGIN_ID,
-      pluginVersionId: context.pluginVersionId,
-      objectType: enumValue(input.objectType, ['request', 'issuance', 'revocation'], 'objectType'),
-      agentPlan: plan,
-      status: 'pending-agent-execution',
-    });
-  }
   if (operation === 'ca.revocation.evidence') {
     return successResult('revocation-evidence', {
       kind: 'RevocationEvidenceQuery',
@@ -193,7 +182,6 @@ function buildAgentPlan(context, input, operation, security, credentialFingerpri
       ...(input.providerRequestId === undefined ? {} : { providerRequestId: identifier(input.providerRequestId, 'providerRequestId') }),
       ...(input.objectType === undefined ? {} : { objectType: enumValue(input.objectType, ['request', 'issuance', 'revocation'], 'objectType') }),
       ...(input.cursor === undefined ? {} : { cursor: identifier(input.cursor, 'cursor') }),
-      ...(input.changedAfter === undefined ? {} : { changedAfter: text(input.changedAfter, 'changedAfter') }),
       ...(input.limit === undefined ? {} : { limit: integerRange(input.limit, 1, 500, 'limit') }),
       ...(input.reason === undefined ? {} : { reason: revocationReason(input.reason) }),
       ...(typeof input.csrPem === 'string' ? { csrPem: input.csrPem } : {}),
@@ -256,7 +244,7 @@ function validateSecurity(input, context, descriptor) {
 }
 
 function assertWorkflow(input, capability, operation) {
-  const expected = operation === 'operation.recover' ? RECOVERY_WORKFLOW : capability === 'ca.certificate.renew' ? 'ca.certificate.renew' : capability === 'ca.certificate.revoke' ? 'ca.certificate.revoke' : capability === 'ca.certificate.query' ? 'ca.certificate.query' : capability === 'ca.certificate.list' ? 'ca.certificate.list' : capability === 'ca.revocation.evidence' ? 'ca.revocation.evidence' : 'ca.certificate.issue';
+  const expected = operation === 'operation.recover' ? RECOVERY_WORKFLOW : capability === 'ca.certificate.renew' ? 'ca.certificate.renew' : capability === 'ca.certificate.revoke' ? 'ca.certificate.revoke' : capability === 'ca.certificate.query' ? 'ca.certificate.query' : capability === 'ca.revocation.evidence' ? 'ca.revocation.evidence' : 'ca.certificate.issue';
   if (text(input.workflowKey, 'workflowKey') !== expected) throw failure('ADCS_WORKFLOW_BINDING_INVALID', 'ADCS Workflow 绑定不匹配', false, false);
   if (text(input.workflowVersion, 'workflowVersion') !== WORKFLOW_VERSION) throw failure('ADCS_WORKFLOW_VERSION_INVALID', 'ADCS WorkflowVersion 未固定到首版', false, false);
 }

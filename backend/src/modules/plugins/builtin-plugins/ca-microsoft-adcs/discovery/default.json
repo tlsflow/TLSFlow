@@ -2,7 +2,7 @@
   "apiVersion": "gcac.ca-discovery/v1",
   "kind": "CaDiscovery",
   "authority": { "stableKey": "ca:microsoft-adcs", "displayNameKey": "plugin.ca.microsoftAdcs.name", "profile": "windows.agent_plan.adcs" },
-  "capabilities": ["ca.certificate.issue", "ca.certificate.renew", "ca.certificate.revoke", "ca.certificate.list"],
+  "capabilities": ["ca.certificate.issue", "ca.certificate.renew", "ca.certificate.revoke"],
   "executionLocations": ["CONTROL_PLANE", "AGENT"],
   "warnings": []
 }
