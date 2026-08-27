@@ -912,6 +912,14 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
     const promotedHeaders = promoteSecretHeaders(renderedHeaders, step.request.headerRefs);
     const renderedHeaderRefs = renderUnknown(promotedHeaders.headerRefs, context.values, mode === 'render_only') as Record<string, string> | undefined;
     const runtimeHeaderRefs = materializeRuntimeHeaderRefs(renderedHeaderRefs, step.name);
+    // 连接契约的 transport 只有 http/ssh；HTTP 连接的实际协议由
+    // tls.enabled 或 allowedProtocols 给出。未提供快照扩展时默认明文，
+    // 避免把旧的 HTTP 资产错误升级为 HTTPS。
+    const tlsEnabled = httpConnection.tls?.enabled
+      ?? (httpConnection.allowedProtocols?.includes('https') === true
+        && httpConnection.allowedProtocols?.includes('http') !== true);
+    const allowedProtocols = httpConnection.allowedProtocols
+      ?? (tlsEnabled ? ['https'] : ['http']);
     const curlRequest = {
       idempotencyKey: `workflow:${step.name}`,
       dryRun: mode !== 'real_test',
@@ -922,8 +930,8 @@ function adaptStep(step: WorkflowStep, context: RuntimeContext, mode: WorkflowRu
         connection: {
           host: httpConnection.host,
           port: httpConnection.port,
-          tlsEnabled: httpConnection.tls?.enabled !== false,
-          allowedProtocols: [...(httpConnection.allowedProtocols ?? ['https'])],
+          tlsEnabled,
+          allowedProtocols: [...allowedProtocols],
         },
         query: renderUnknown(step.request.query, context.values, mode === 'render_only'),
         headers: promotedHeaders.headers,
