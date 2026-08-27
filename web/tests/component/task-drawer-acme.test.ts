@@ -53,8 +53,12 @@ const ButtonStub = defineComponent({
 
 const StatusTagStub = defineComponent({
   inheritAttrs: false,
-  setup(_, { attrs }) {
-    return () => h('span', { ...attrs }, String(attrs.label ?? ''))
+  props: {
+    label: { type: String, default: '' },
+    tone: { type: String, default: '' },
+  },
+  setup(props) {
+    return () => h('span', { class: props.tone ? `gc-tag--${props.tone}` : undefined }, props.label)
   },
 })
 
@@ -281,6 +285,132 @@ describe('TaskDrawer ACME 任务展示', () => {
     const groups = wrapper.findAll('.task-drawer__group')
     expect(groups).toHaveLength(2)
     expect(groups[1]?.findAll('.task-drawer__item')).toHaveLength(10)
+    wrapper.unmount()
+  })
+
+  it('自动化任务列表优先显示实时 progress 中的成功和失败数量', async () => {
+    const task = {
+      id: 'task-automation-1',
+      tenantId: 'tenant-1',
+      taskType: 'AUTOMATION_RUN',
+      definitionVersion: 1,
+      category: 'EXECUTION' as const,
+      status: 'WAITING_RESULT' as const,
+      requestedBy: 'user_admin',
+      triggerSource: 'automation.manual',
+      payload: { runId: 'run-automation-1' },
+      resourceSummary: {
+        totalTargets: 5,
+        succeededTargets: 0,
+        failedTargets: 0,
+      },
+      progress: {
+        totalTargets: 5,
+        succeededTargets: 4,
+        failedTargets: 1,
+        runningTargets: 0,
+      },
+      createdAt: '2026-08-27T04:55:00.000Z',
+    }
+    const activity = {
+      activeTasks: [task],
+      recentTasks: [],
+      activeCount: 1,
+      hasActive: true,
+      connected: true,
+    }
+    taskEventMocks.currentTaskActivity.mockReturnValue(activity)
+    taskEventMocks.subscribeTaskActivity.mockImplementation((listener) => {
+      listener(activity)
+      return () => undefined
+    })
+
+    const wrapper = mount(TaskDrawer, {
+      props: { open: true },
+      global: {
+        stubs: {
+          GcButton: ButtonStub,
+          GcEmptyState: SlotStub,
+          GcModal: SlotStub,
+          GcProgressBar: SlotStub,
+          GcStatusTag: StatusTagStub,
+          GcTabs: SlotStub,
+        },
+      },
+    })
+
+    await flushAsyncWork()
+
+    const item = wrapper.get('.task-drawer__item')
+    expect(item.text()).toContain('总数 5')
+    expect(item.text()).toContain('成功 4')
+    expect(item.text()).toContain('失败 1')
+    expect(item.text()).toContain('4/5')
+    expect(item.find('.gc-tag--warning').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('最近完成按最后状态更新时间排序，并在同一时间将自动化父任务置于子任务前', async () => {
+    const automationTask = {
+      id: 'task-automation-parent',
+      tenantId: 'tenant-1',
+      taskType: 'AUTOMATION_RUN',
+      definitionVersion: 1,
+      category: 'EXECUTION' as const,
+      status: 'SUCCEEDED' as const,
+      requestedBy: 'user_admin',
+      triggerSource: 'automation.manual',
+      payload: { displayName: '证书自动化' },
+      resourceSummary: { totalTargets: 1, succeededTargets: 1, failedTargets: 0 },
+      createdAt: '2026-08-27T04:00:00.000Z',
+      finishedAt: '2026-08-27T06:05:00.000Z',
+    }
+    const childTask = {
+      id: 'task-deployment-child',
+      tenantId: 'tenant-1',
+      taskType: 'CERTIFICATE_DEPLOY',
+      definitionVersion: 1,
+      category: 'EXECUTION' as const,
+      status: 'SUCCEEDED' as const,
+      requestedBy: 'user_admin',
+      triggerSource: 'automation.manual',
+      payload: { displayName: '证书部署 · app-1' },
+      createdAt: '2026-08-27T06:00:00.000Z',
+      finishedAt: '2026-08-27T06:05:00.000Z',
+    }
+    const activity = {
+      activeTasks: [],
+      recentTasks: [childTask, automationTask],
+      activeCount: 0,
+      hasActive: false,
+      connected: true,
+    }
+    taskEventMocks.currentTaskActivity.mockReturnValue(activity)
+    taskEventMocks.subscribeTaskActivity.mockImplementation((listener) => {
+      listener(activity)
+      return () => undefined
+    })
+
+    const wrapper = mount(TaskDrawer, {
+      props: { open: true },
+      global: {
+        stubs: {
+          GcButton: ButtonStub,
+          GcEmptyState: SlotStub,
+          GcModal: SlotStub,
+          GcProgressBar: SlotStub,
+          GcStatusTag: StatusTagStub,
+          GcTabs: SlotStub,
+        },
+      },
+    })
+
+    await flushAsyncWork()
+
+    const titles = wrapper.findAll('.task-drawer__item-title')
+    expect(titles).toHaveLength(2)
+    expect(titles[0]?.text()).toContain('证书自动化')
+    expect(titles[1]?.text()).toContain('证书部署 · app-1')
     wrapper.unmount()
   })
 

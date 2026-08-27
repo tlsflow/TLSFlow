@@ -74,4 +74,20 @@ describe('自动化运行页面', () => {
     expect(success.text()).toContain('当前还没有运行记录。')
     expect(success.find('.run-detail__progress').exists()).toBe(true)
   })
+
+  it('存在失败目标时将历史成功状态呈现为部分成功警告', async () => {
+    apiMocks.listAutomationRuns.mockResolvedValueOnce([{
+      id: 'run-partial',
+      automationNameSnapshot: '证书自动化',
+      automationVersion: 2,
+      triggerType: 'on_demand',
+      status: 'succeeded',
+      targetSummary: { total: 5, succeeded: 4, failed: 1 },
+      createdAt: '2026-08-27T06:00:00.000Z',
+    }])
+    const wrapper = mount(AutomationRunsView, { global: { plugins: [i18n] } })
+    await flushPromises()
+    expect(wrapper.find('.gc-tag--warning').exists()).toBe(true)
+    expect(wrapper.text()).toContain('部分成功')
+  })
 })

@@ -634,6 +634,13 @@ function statusTone(status: TaskStatus): 'success' | 'warning' | 'danger' | 'inf
   return 'muted'
 }
 
+function taskStatusTone(task: TaskRun): 'success' | 'warning' | 'danger' | 'info' | 'muted' {
+  // 自动化任务的统一状态可能已经收敛为 SUCCEEDED，但目标中仍存在失败项。
+  // 这表示“部分成功”，必须保留警告色，不能伪装成全量成功。
+  if (isAutomationTask(task) && automationTaskMetric(task, 'failed') > 0 && !['FAILED', 'CANCELLED'].includes(task.status)) return 'warning'
+  return statusTone(task.status)
+}
+
 function localTime(value?: string): string {
   return value ? formatBrowserLocalTime(value, { includeSeconds: false }) || value : t('common.notAvailable')
 }
@@ -968,6 +975,9 @@ function taskTriggerSourceLabel(task: TaskRun): string {
 
 function taskStatusLabel(task: TaskRun): string {
   if (isPendingApprovalTask(task)) return t('tasks.status.WAITING_APPROVAL')
+  if (isAutomationTask(task) && task.status === 'SUCCEEDED' && automationTaskMetric(task, 'failed') > 0) {
+    return t('designSystem.status.PARTIAL_SUCCESS')
+  }
   return translateDynamic(t, te, 'tasks.status', task.status)
 }
 
@@ -1242,6 +1252,57 @@ function taskProgressPercent(task: TaskRun): number {
   return 0
 }
 
+interface AutomationTaskMetrics {
+  total: number
+  succeeded: number
+  failed: number
+  completed: number
+}
+
+function automationTaskMetric(task: TaskRun, key: 'total' | 'succeeded' | 'failed' | 'running'): number {
+  const keys: Record<typeof key, readonly string[]> = {
+    total: ['totalTargets', 'total'],
+    succeeded: ['succeededTargets', 'succeeded'],
+    failed: ['failedTargets', 'failed'],
+    running: ['runningTargets', 'running'],
+  }
+  return firstFiniteNumber(
+    recordNumberByKeys(task.progress, keys[key]),
+    recordNumberByKeys(task.resourceSummary, keys[key]),
+    recordNumberByKeys(task.payload, keys[key]),
+  ) ?? 0
+}
+
+function automationTaskMetrics(task: TaskRun): AutomationTaskMetrics {
+  const total = automationTaskMetric(task, 'total')
+  const succeeded = automationTaskMetric(task, 'succeeded')
+  const failed = automationTaskMetric(task, 'failed')
+  return {
+    total,
+    succeeded,
+    failed,
+    completed: Math.min(total, succeeded + failed),
+  }
+}
+
+function automationRunMetric(key: 'total' | 'succeeded' | 'failed' | 'running'): number {
+  const value = automationRun.value?.targetSummary?.[key]
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.floor(value))
+  return detailTask.value ? automationTaskMetric(detailTask.value, key) : 0
+}
+
+function automationRunProgressText(): string {
+  return t('automations.runs.progress', {
+    succeeded: automationRunMetric('succeeded'),
+    total: automationRunMetric('total'),
+  })
+}
+
+function automationFailureStageLabel(stage?: string): string {
+  if (!stage) return t('automations.runDetail.noFailure')
+  return translateDynamic(t, te, 'automations.failureStages', stage)
+}
+
 function taskAutomationRunId(task: TaskRun): string | undefined {
   return firstNonEmptyString(
     stringFromRecord(task.payload, 'runId'),
@@ -1367,10 +1428,25 @@ function returnToTaskList(): void {
 
 function sortTasks(tasks: readonly TaskRun[]): TaskRun[] {
   return [...tasks].sort((left, right) => {
-    const createdCompare = Date.parse(right.createdAt) - Date.parse(left.createdAt)
-    if (createdCompare !== 0) return createdCompare
+    // 中文说明：最近完成队列按任务最后一次状态变为终态的时间排序。
+    // 历史数据可能缺少 finishedAt，因此按 startedAt、createdAt 逐级回退。
+    const statusTimeCompare = taskStatusTimestamp(right) - taskStatusTimestamp(left)
+    if (statusTimeCompare !== 0) return statusTimeCompare
+    // 中文说明：父自动化与子任务在同一时刻完成时，父任务固定排在前面，
+    // 用户先看到批量操作的整体结果，再查看单个资产的执行结果。
+    const automationPriorityCompare = Number(right.taskType === 'AUTOMATION_RUN') - Number(left.taskType === 'AUTOMATION_RUN')
+    if (automationPriorityCompare !== 0) return automationPriorityCompare
     return right.id.localeCompare(left.id)
   })
+}
+
+function taskStatusTimestamp(task: Pick<TaskRun, 'finishedAt' | 'startedAt' | 'createdAt'>): number {
+  for (const value of [task.finishedAt, task.startedAt, task.createdAt]) {
+    if (!value) continue
+    const timestamp = Date.parse(value)
+    if (Number.isFinite(timestamp)) return timestamp
+  }
+  return 0
 }
 
 function sameTaskList(left: readonly TaskRun[], right: readonly TaskRun[]): boolean {
@@ -1675,7 +1751,7 @@ function recordString(record: InternalCaRecord, key: string): string {
             <GcStatusTag
               :status="detailTask?.status ?? 'UNKNOWN'"
               :label="detailTask ? taskStatusLabel(detailTask) : undefined"
-              :tone="statusTone(detailTask?.status ?? 'QUEUED')"
+              :tone="detailTask ? taskStatusTone(detailTask) : statusTone('QUEUED')"
             />
           </div>
           <div v-if="detailTask && (canForceCancel(detailTask) || taskNeedsApproval(detailTask))" class="task-drawer__detail-actions">
@@ -1848,7 +1924,7 @@ function recordString(record: InternalCaRecord, key: string): string {
                 </li>
               </ol>
             </section>
-            <section v-else-if="detailTask?.taskType !== 'AGENT_UPDATE'" class="task-drawer__section">
+            <section v-else-if="detailTask?.taskType !== 'AGENT_UPDATE' && detailTask?.taskType !== 'AUTOMATION_RUN'" class="task-drawer__section">
               <h4>{{ t('tasks.sections.timeline') }}</h4>
               <ol class="task-drawer__timeline">
                 <li v-for="event in visibleDetailEvents" :key="String(event.id)">
@@ -1858,19 +1934,50 @@ function recordString(record: InternalCaRecord, key: string): string {
                 </li>
               </ol>
             </section>
-            <section v-if="detailTask && isAutomationTask(detailTask) && automationRun" class="task-drawer__section">
+            <dl v-if="detailTask && isAutomationTask(detailTask)" class="task-drawer__facts task-drawer__automation-facts">
+              <div><dt>{{ t('tasks.fields.requestedBy') }}</dt><dd>{{ detailTask.requestedBy || t('tasks.values.system') }}</dd></div>
+              <div><dt>{{ t('tasks.fields.triggerSource') }}</dt><dd>{{ taskTriggerSourceLabel(detailTask) }}</dd></div>
+              <div><dt>{{ t('tasks.fields.createdAt') }}</dt><dd>{{ localTime(detailTask.createdAt) }}</dd></div>
+              <div><dt>{{ t('tasks.fields.startedAt') }}</dt><dd>{{ localTime(detailTask.startedAt) }}</dd></div>
+              <div><dt>{{ t('tasks.fields.finishedAt') }}</dt><dd>{{ localTime(detailTask.finishedAt) }}</dd></div>
+            </dl>
+            <section v-if="detailTask && isAutomationTask(detailTask) && automationRun" class="task-drawer__section task-drawer__automation-detail">
               <h4>{{ t('tasks.typeLabels.AUTOMATION_RUN') }}</h4>
               <div class="task-drawer__automation-overview">
-                <p class="task-drawer__item-summary">{{ taskStatusSummary(detailTask) }}</p>
+                <p class="task-drawer__item-summary">
+                  {{ taskStatusLabel(detailTask) }} · {{ automationRunProgressText() }}
+                </p>
                 <GcProgressBar
                   class="task-drawer__item-progress"
                   :value="taskProgressPercent(detailTask)"
-                  :tone="statusTone(detailTask.status)"
+                  :tone="taskStatusTone(detailTask)"
                   captionInside
                   :ariaLabel="taskStatusSummary(detailTask)"
                 >
                   <span class="task-drawer__item-progress-text">{{ taskProgressPercent(detailTask) }}%</span>
                 </GcProgressBar>
+                <dl class="task-drawer__automation-metrics">
+                  <div>
+                    <dt>{{ t('automations.progress.total') }}</dt>
+                    <dd>{{ automationRunMetric('total') }}</dd>
+                  </div>
+                  <div>
+                    <dt>{{ t('automations.progress.succeeded') }}</dt>
+                    <dd class="task-drawer__automation-metric--success">{{ automationRunMetric('succeeded') }}</dd>
+                  </div>
+                  <div>
+                    <dt>{{ t('automations.progress.failed') }}</dt>
+                    <dd :class="{ 'task-drawer__automation-metric--danger': automationRunMetric('failed') > 0 }">{{ automationRunMetric('failed') }}</dd>
+                  </div>
+                  <div>
+                    <dt>{{ t('automations.progress.running') }}</dt>
+                    <dd>{{ automationRunMetric('running') }}</dd>
+                  </div>
+                  <div>
+                    <dt>{{ t('automations.runs.progress', { succeeded: automationRunMetric('succeeded'), total: automationRunMetric('total') }) }}</dt>
+                    <dd>{{ automationRunProgressText() }}</dd>
+                  </div>
+                </dl>
                 <div v-if="taskNeedsApproval(detailTask)" class="task-drawer__automation-actions">
                   <GcButton variant="primary" :loading="taskApprovalPending" @click="decideDetailTaskApproval('approved')">
                     {{ t('deploymentPlans.actions.approve') }}
@@ -1881,23 +1988,69 @@ function recordString(record: InternalCaRecord, key: string): string {
                   <span v-if="taskApprovalPending" class="task-drawer__item-meta">{{ t('deploymentPlans.approval.processing') }}</span>
                 </div>
                 <p v-if="taskApprovalError" class="gc-form-error">{{ taskApprovalError }}</p>
+                <p v-if="detailTask.lastErrorMessage" class="task-drawer__automation-error">{{ detailTask.lastErrorMessage }}</p>
               </div>
               <GcEmptyState v-if="automationTargets.length === 0" class="task-drawer__empty task-drawer__empty--section" :title="t('tasks.values.empty')" />
               <div v-for="target in automationTargets" :key="target.id" class="task-drawer__record">
                 <div class="task-drawer__record-header">
-                  <strong>{{ target.targetSnapshot.assetName || target.targetSnapshot.certificateName }}</strong>
+                  <div class="task-drawer__automation-target-title">
+                    <strong>{{ target.targetSnapshot.assetName || target.targetSnapshot.certificateName }}</strong>
+                    <span>{{ target.targetSnapshot.certificateName }} · {{ target.targetSnapshot.environment || t('common.notAvailable') }}</span>
+                  </div>
                   <GcStatusTag :status="target.status" />
                 </div>
-                <span>{{ target.targetSnapshot.certificateName }} · {{ target.targetSnapshot.environment || t('common.notAvailable') }}</span>
-                <span>{{ automationActionLabel(target.currentAction) }}</span>
-                <p v-if="target.errorMessage">{{ target.errorCode }} · {{ target.errorMessage }}</p>
+                <dl class="task-drawer__automation-target-facts">
+                  <div>
+                    <dt>{{ t('automations.detail.fields.actionChain') }}</dt>
+                    <dd>{{ automationActionLabel(target.currentAction) }}</dd>
+                  </div>
+                  <div v-if="target.failureStage">
+                    <dt>{{ t('automations.fields.failureStage') }}</dt>
+                    <dd>{{ automationFailureStageLabel(target.failureStage) }}</dd>
+                  </div>
+                </dl>
+                <p v-if="target.errorMessage" class="task-drawer__automation-target-error">{{ target.errorMessage }}</p>
+                <details v-if="target.errorCode" class="task-drawer__automation-target-technical">
+                  <summary>{{ t('tasks.pluginRefresh.actions.showTechnicalDetails') }}</summary>
+                  <code>{{ target.errorCode }}</code>
+                </details>
                 <div class="task-drawer__record-actions">
                   <GcButton v-if="target.deploymentPlanId" @click="router.push(`/executions?planId=${target.deploymentPlanId}`)">{{ t('automations.actions.openPlan') }}</GcButton>
                   <GcButton v-if="target.executionRunId" @click="router.push(`/executions?runId=${target.executionRunId}`)">{{ t('automations.actions.openExecution') }}</GcButton>
                 </div>
               </div>
+              <details class="task-drawer__technical-details">
+                <summary>{{ t('tasks.pluginRefresh.actions.showTechnicalDetails') }}</summary>
+                <section class="task-drawer__automation-technical-section">
+                  <h5>{{ t('tasks.sections.timeline') }}</h5>
+                  <ol class="task-drawer__timeline">
+                    <li v-for="event in visibleDetailEvents" :key="String(event.id)">
+                      <strong>{{ recordValue(event, 'eventType') }}</strong>
+                      <time>{{ localTime(recordValue(event, 'createdAt')) }}</time>
+                      <span>{{ recordValue(event, 'eventData') }}</span>
+                    </li>
+                  </ol>
+                </section>
+                <section class="task-drawer__automation-technical-section">
+                  <h5>{{ t('tasks.sections.attempts') }}</h5>
+                  <div v-for="attempt in detail.attempts" :key="String(attempt.id)" class="task-drawer__record">
+                    <strong>#{{ recordValue(attempt, 'attemptNo') }} · {{ recordValue(attempt, 'status') }}</strong>
+                    <span>{{ recordValue(attempt, 'workerId') }}</span>
+                    <time>{{ localTime(recordValue(attempt, 'startedAt')) }}</time>
+                    <p v-if="attempt.errorSummary">{{ attempt.errorSummary }}</p>
+                  </div>
+                </section>
+                <section class="task-drawer__automation-technical-section">
+                  <h5>{{ t('tasks.sections.logs') }}</h5>
+                  <pre class="task-drawer__json">{{ JSON.stringify(detail.events, null, 2) || t('tasks.values.empty') }}</pre>
+                </section>
+                <section class="task-drawer__automation-technical-section">
+                  <h5>{{ t('tasks.sections.audit') }}</h5>
+                  <pre class="task-drawer__json">{{ JSON.stringify(detail.auditEvents, null, 2) || t('tasks.values.empty') }}</pre>
+                </section>
+              </details>
             </section>
-            <section v-if="detailTask?.taskType !== 'ACME_CERTIFICATE_RENEWAL'" class="task-drawer__section">
+            <section v-if="detailTask?.taskType !== 'ACME_CERTIFICATE_RENEWAL' && detailTask?.taskType !== 'AUTOMATION_RUN'" class="task-drawer__section">
               <h4>{{ t('tasks.sections.attempts') }}</h4>
               <div v-for="attempt in detail.attempts" :key="String(attempt.id)" class="task-drawer__record">
                 <strong>#{{ recordValue(attempt, 'attemptNo') }} · {{ recordValue(attempt, 'status') }}</strong>
@@ -1906,25 +2059,25 @@ function recordString(record: InternalCaRecord, key: string): string {
                 <p v-if="attempt.errorSummary">{{ attempt.errorSummary }}</p>
               </div>
             </section>
-            <section v-if="detailTask?.category !== 'MONITORING'" class="task-drawer__section">
+            <section v-if="detailTask?.category !== 'MONITORING' && detailTask?.taskType !== 'AUTOMATION_RUN'" class="task-drawer__section">
               <h4>{{ t('tasks.sections.logs') }}</h4>
               <details class="task-drawer__raw-logs">
                 <summary>{{ t('tasks.actions.viewRawLogs') }}</summary>
                 <pre class="task-drawer__json">{{ JSON.stringify(detail.events, null, 2) || t('tasks.values.empty') }}</pre>
               </details>
             </section>
-            <section class="task-drawer__section">
+            <section v-if="detailTask?.taskType !== 'AUTOMATION_RUN'" class="task-drawer__section">
               <h4>{{ t('tasks.sections.children') }}</h4>
               <GcEmptyState v-if="detail.childTasks.length === 0" class="task-drawer__empty task-drawer__empty--section" :title="t('tasks.values.empty')" />
               <div v-for="child in detail.childTasks" :key="child.id" class="task-drawer__record">
                 <strong>{{ child.taskType }}</strong><span>{{ child.id }}</span><GcStatusTag :status="child.status" :label="taskStatusLabel(child)" :tone="statusTone(child.status)" />
               </div>
             </section>
-            <section class="task-drawer__section">
+            <section v-if="detailTask?.taskType !== 'AUTOMATION_RUN'" class="task-drawer__section">
               <h4>{{ t('tasks.sections.errors') }}</h4>
               <p>{{ detailTask?.lastErrorCode || t('tasks.values.none') }} · {{ detailTask?.lastErrorMessage || t('tasks.values.none') }}</p>
             </section>
-            <section class="task-drawer__section">
+            <section v-if="detailTask?.taskType !== 'AUTOMATION_RUN'" class="task-drawer__section">
               <h4>{{ t('tasks.sections.audit') }}</h4>
               <pre class="task-drawer__json">{{ JSON.stringify(detail.auditEvents, null, 2) || t('tasks.values.empty') }}</pre>
             </section>
@@ -1960,6 +2113,12 @@ function recordString(record: InternalCaRecord, key: string): string {
                           <strong class="task-drawer__item-title">{{ taskDisplayTitle(task) }}</strong>
                         </span>
                         <span v-if="!shouldRenderTaskProgress(task)" class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
+                        <span v-if="isAutomationTask(task)" class="task-drawer__automation-item-stats">
+                          <span>{{ t('automations.progress.total') }} {{ automationTaskMetrics(task).total }}</span>
+                          <span class="task-drawer__automation-item-stat--success">{{ t('automations.progress.succeeded') }} {{ automationTaskMetrics(task).succeeded }}</span>
+                          <span :class="{ 'task-drawer__automation-item-stat--danger': automationTaskMetrics(task).failed > 0 }">{{ t('automations.progress.failed') }} {{ automationTaskMetrics(task).failed }}</span>
+                          <span>{{ t('automations.runs.progress', { succeeded: automationTaskMetrics(task).succeeded, total: automationTaskMetrics(task).total }) }}</span>
+                        </span>
                         <span class="task-drawer__item-meta-row">
                           <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
                         </span>
@@ -1967,7 +2126,7 @@ function recordString(record: InternalCaRecord, key: string): string {
                           v-if="shouldRenderTaskProgress(task)"
                           class="task-drawer__item-progress"
                           :value="taskProgressPercent(task)"
-                          :tone="statusTone(task.status)"
+                          :tone="taskStatusTone(task)"
                           captionInside
                           :ariaLabel="taskStatusSummary(task)"
                         >
@@ -1976,7 +2135,7 @@ function recordString(record: InternalCaRecord, key: string): string {
                       </span>
                     </GcButton>
                     <span class="task-drawer__item-controls">
-                      <GcStatusTag :status="task.status" :label="taskStatusLabel(task)" :tone="statusTone(task.status)" />
+                      <GcStatusTag :status="task.status" :label="taskStatusLabel(task)" :tone="taskStatusTone(task)" />
                       <GcButton
                         v-if="canForceCancel(task)"
                         variant="icon"
@@ -2007,6 +2166,12 @@ function recordString(record: InternalCaRecord, key: string): string {
                           <strong class="task-drawer__item-title">{{ taskDisplayTitle(task) }}</strong>
                         </span>
                         <span v-if="!shouldRenderTaskProgress(task)" class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
+                        <span v-if="isAutomationTask(task)" class="task-drawer__automation-item-stats">
+                          <span>{{ t('automations.progress.total') }} {{ automationTaskMetrics(task).total }}</span>
+                          <span class="task-drawer__automation-item-stat--success">{{ t('automations.progress.succeeded') }} {{ automationTaskMetrics(task).succeeded }}</span>
+                          <span :class="{ 'task-drawer__automation-item-stat--danger': automationTaskMetrics(task).failed > 0 }">{{ t('automations.progress.failed') }} {{ automationTaskMetrics(task).failed }}</span>
+                          <span>{{ t('automations.runs.progress', { succeeded: automationTaskMetrics(task).succeeded, total: automationTaskMetrics(task).total }) }}</span>
+                        </span>
                         <span class="task-drawer__item-meta-row">
                           <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
                         </span>
@@ -2014,7 +2179,7 @@ function recordString(record: InternalCaRecord, key: string): string {
                           v-if="shouldRenderTaskProgress(task)"
                           class="task-drawer__item-progress"
                           :value="taskProgressPercent(task)"
-                          :tone="statusTone(task.status)"
+                          :tone="taskStatusTone(task)"
                           captionInside
                           :ariaLabel="taskStatusSummary(task)"
                         >
@@ -2023,7 +2188,7 @@ function recordString(record: InternalCaRecord, key: string): string {
                       </span>
                     </GcButton>
                     <span class="task-drawer__item-controls">
-                      <GcStatusTag :status="task.status" :label="taskStatusLabel(task)" :tone="statusTone(task.status)" />
+                      <GcStatusTag :status="task.status" :label="taskStatusLabel(task)" :tone="taskStatusTone(task)" />
                     </span>
                   </div>
                 </div>
@@ -2065,6 +2230,12 @@ function recordString(record: InternalCaRecord, key: string): string {
                   <strong class="task-drawer__item-title">{{ taskDisplayTitle(task) }}</strong>
                 </span>
                 <span v-if="!shouldRenderTaskProgress(task)" class="task-drawer__item-summary">{{ taskStatusSummary(task) }}</span>
+                <span v-if="isAutomationTask(task)" class="task-drawer__automation-item-stats">
+                  <span>{{ t('automations.progress.total') }} {{ automationTaskMetrics(task).total }}</span>
+                  <span class="task-drawer__automation-item-stat--success">{{ t('automations.progress.succeeded') }} {{ automationTaskMetrics(task).succeeded }}</span>
+                  <span :class="{ 'task-drawer__automation-item-stat--danger': automationTaskMetrics(task).failed > 0 }">{{ t('automations.progress.failed') }} {{ automationTaskMetrics(task).failed }}</span>
+                  <span>{{ t('automations.runs.progress', { succeeded: automationTaskMetrics(task).succeeded, total: automationTaskMetrics(task).total }) }}</span>
+                </span>
                 <span class="task-drawer__item-meta-row">
                   <small class="task-drawer__item-meta">{{ task.requestedBy || t('tasks.values.system') }} · {{ localTime(task.createdAt) }}</small>
                 </span>
@@ -2072,7 +2243,7 @@ function recordString(record: InternalCaRecord, key: string): string {
                   v-if="shouldRenderTaskProgress(task)"
                   class="task-drawer__item-progress"
                   :value="taskProgressPercent(task)"
-                  :tone="statusTone(task.status)"
+                  :tone="taskStatusTone(task)"
                   captionInside
                   :ariaLabel="taskStatusSummary(task)"
                 >
@@ -2081,7 +2252,7 @@ function recordString(record: InternalCaRecord, key: string): string {
               </span>
             </GcButton>
             <span class="task-drawer__item-controls">
-              <GcStatusTag :status="task.status" :label="taskStatusLabel(task)" :tone="statusTone(task.status)" />
+              <GcStatusTag :status="task.status" :label="taskStatusLabel(task)" :tone="taskStatusTone(task)" />
               <GcButton
                 v-if="canForceCancel(task)"
                 variant="icon"
@@ -2847,6 +3018,25 @@ function recordString(record: InternalCaRecord, key: string): string {
   color: var(--gc-color-text);
 }
 
+.task-drawer__automation-item-stats {
+  display: flex;
+  align-items: center;
+  gap: var(--gc-space-2);
+  min-width: 0;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  flex-wrap: wrap;
+}
+
+.task-drawer__automation-item-stat--success {
+  color: var(--gc-color-success);
+}
+
+.task-drawer__automation-item-stat--danger,
+.task-drawer__automation-metric--danger {
+  color: var(--gc-color-danger);
+}
+
 .task-drawer__item-meta-row {
   display: flex;
   align-items: center;
@@ -3322,6 +3512,106 @@ function recordString(record: InternalCaRecord, key: string): string {
   background: var(--gc-color-surface-field);
 }
 
+.task-drawer__automation-detail {
+  gap: var(--gc-space-3);
+}
+
+.task-drawer__automation-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--gc-space-2);
+  margin: 0;
+}
+
+.task-drawer__automation-metrics > div {
+  display: grid;
+  gap: var(--gc-space-1);
+  min-width: 0;
+  padding: var(--gc-space-2);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-sm);
+  background: var(--gc-color-surface-subtle);
+}
+
+.task-drawer__automation-metrics dt,
+.task-drawer__automation-metrics dd,
+.task-drawer__automation-target-facts dt,
+.task-drawer__automation-target-facts dd {
+  margin: 0;
+}
+
+.task-drawer__automation-metrics dt,
+.task-drawer__automation-target-facts dt {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
+.task-drawer__automation-metrics dd {
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-body);
+  font-weight: var(--gc-font-weight-semibold);
+}
+
+.task-drawer__automation-metric--success {
+  color: var(--gc-color-success) !important;
+}
+
+.task-drawer__automation-error,
+.task-drawer__automation-target-error {
+  margin: 0;
+  color: var(--gc-color-danger);
+  font-size: var(--gc-font-size-xs);
+  overflow-wrap: anywhere;
+}
+
+.task-drawer__automation-target-title {
+  display: grid;
+  gap: var(--gc-space-1);
+  min-width: 0;
+}
+
+.task-drawer__automation-target-title span,
+.task-drawer__automation-target-facts dd {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
+.task-drawer__automation-target-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gc-space-2);
+  margin: 0;
+}
+
+.task-drawer__automation-target-technical {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
+.task-drawer__automation-target-technical summary,
+.task-drawer__technical-details summary {
+  width: fit-content;
+  color: var(--gc-color-primary);
+  cursor: pointer;
+}
+
+.task-drawer__automation-target-technical code {
+  display: block;
+  margin-top: var(--gc-space-1);
+  overflow-wrap: anywhere;
+}
+
+.task-drawer__automation-technical-section {
+  display: grid;
+  gap: var(--gc-space-2);
+}
+
+.task-drawer__automation-technical-section h5 {
+  margin: 0;
+  color: var(--gc-color-text-strong);
+  font-size: var(--gc-font-size-sm);
+}
+
 .task-drawer__automation-actions,
 .task-drawer__record-actions,
 .task-drawer__record-header {
@@ -3373,6 +3663,14 @@ function recordString(record: InternalCaRecord, key: string): string {
 
   .task-drawer__plugin-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .task-drawer__automation-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .task-drawer__automation-target-facts {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .task-popover {

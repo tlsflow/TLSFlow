@@ -14,6 +14,11 @@ const items = ref<AutomationRunRecord[]>([])
 const loading = ref(false)
 const error = ref('')
 
+function runStatus(run: AutomationRunRecord): string {
+  // 兼容历史数据：即使运行级状态仍是 succeeded，只要存在失败目标也必须按部分成功展示。
+  return run.status === 'succeeded' && (run.targetSummary.failed || 0) > 0 ? 'partially_succeeded' : run.status
+}
+
 async function loadRuns() {
   loading.value = true
   error.value = ''
@@ -54,15 +59,20 @@ onMounted(() => { void loadRuns() })
           <span role="columnheader">{{ t('automations.fields.name') }}</span>
           <span role="columnheader">{{ t('automations.columns.trigger') }}</span>
           <span role="columnheader">{{ t('automations.columns.status') }}</span>
-          <span role="columnheader">{{ t('automations.runs.progress', { succeeded: 0, total: 0 }) }}</span>
+          <span role="columnheader">{{ t('automations.progress.total') }} / {{ t('automations.progress.succeeded') }} / {{ t('automations.progress.failed') }}</span>
           <span role="columnheader">{{ t('automations.fields.failureStage') }}</span>
           <span role="columnheader">{{ t('automations.fields.startedAt') }}</span>
         </div>
         <button v-for="run in items" :key="run.id" class="runs-table__row" type="button" role="row" @click="router.push(`/automation-runs/${run.id}`)">
           <span class="runs-table__name" role="cell">{{ run.automationNameSnapshot }}</span>
           <span role="cell">{{ translateDynamic(t, te, 'automations.triggerTypes', run.triggerType) }}</span>
-          <span role="cell"><GcStatusTag :status="run.status" /></span>
-          <span role="cell">{{ t('automations.runs.progress', { succeeded: run.targetSummary.succeeded || 0, total: run.targetSummary.total || 0 }) }}</span>
+          <span role="cell"><GcStatusTag :status="runStatus(run)" /></span>
+          <span role="cell" class="runs-table__progress">
+            <span>{{ t('automations.progress.total') }} {{ run.targetSummary.total || 0 }}</span>
+            <span class="runs-table__progress-success">{{ t('automations.progress.succeeded') }} {{ run.targetSummary.succeeded || 0 }}</span>
+            <span :class="{ 'runs-table__progress-failure': (run.targetSummary.failed || 0) > 0 }">{{ t('automations.progress.failed') }} {{ run.targetSummary.failed || 0 }}</span>
+            <strong>{{ t('automations.runs.progress', { succeeded: run.targetSummary.succeeded || 0, total: run.targetSummary.total || 0 }) }}</strong>
+          </span>
           <span role="cell">{{ run.failureStage ? translateDynamic(t, te, 'automations.failureStages', run.failureStage) : t('automations.common.notAvailable') }}</span>
           <time role="cell">{{ formatMaybeLocalTime(run.createdAt, t('automations.common.notAvailable')) }}</time>
         </button>
@@ -149,6 +159,28 @@ onMounted(() => { void loadRuns() })
 .runs-table__row:focus-visible {
   outline: none;
   box-shadow: var(--gc-shadow-focus);
+}
+
+.runs-table__progress {
+  display: flex;
+  align-items: center;
+  gap: var(--gc-space-2);
+  min-width: 0;
+  flex-wrap: wrap;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
+.runs-table__progress-success {
+  color: var(--gc-color-success);
+}
+
+.runs-table__progress-failure {
+  color: var(--gc-color-danger);
+}
+
+.runs-table__progress strong {
+  color: var(--gc-color-text-strong);
 }
 
 .runs-table__row > * {

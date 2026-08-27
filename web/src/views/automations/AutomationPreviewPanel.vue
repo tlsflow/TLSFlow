@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { GcButton, GcCard, GcEmptyState, GcStatusTag } from '@/design-system/components'
+import { GcButton, GcEmptyState, GcStatusTag } from '@/design-system/components'
 import type { AutomationPreviewRecord } from '@/api/modules/automations.api'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 withDefaults(defineProps<{ preview: AutomationPreviewRecord | null; loading?: boolean; showConfirm?: boolean }>(), {
@@ -58,28 +58,58 @@ function rowStatusTone(item: AutomationPreviewRecord['items'][number]): 'success
   if (item.target.certificateVersionImpact) return impactTone(item.target.certificateVersionImpact)
   return item.executable ? 'success' : 'warning'
 }
+
+function targetName(item: AutomationPreviewRecord['items'][number]): string {
+  return item.target.assetName || item.target.assetId || item.target.certificateName
+}
+
+function targetLabel(item: AutomationPreviewRecord['items'][number]): string {
+  return item.target.assetName || item.target.assetId
+    ? t('automations.preview.applicationAsset')
+    : t('automations.preview.certificate')
+}
+
+function targetReference(item: AutomationPreviewRecord['items'][number]): string {
+  const references: string[] = []
+  if (item.target.assetName && item.target.certificateName !== item.target.assetName) {
+    references.push(`${t('automations.preview.certificate')}：${item.target.certificateName}`)
+  }
+  if (item.target.assetId) references.push(`${t('automations.preview.applicationAssetId')}：${item.target.assetId}`)
+  if (item.target.bindingId) references.push(`${t('automations.preview.bindingId')}：${item.target.bindingId}`)
+  return references.join(' · ')
+}
+
+function hasMissingCurrentCertificate(preview: AutomationPreviewRecord): boolean {
+  return preview.items.some((item) => item.target.certificateVersionImpact === 'missing_current')
+}
 </script>
 
 <template>
   <section class="preview-panel" :aria-label="t('automations.aria.preview')">
     <p v-if="loading" class="preview-panel__hint">{{ t('common.loading') }}</p>
     <template v-else-if="preview">
+      <div class="preview-panel__explanation">
+        <p>{{ t('automations.preview.explanation') }}</p>
+        <p v-if="hasMissingCurrentCertificate(preview)">{{ t('automations.preview.missingCurrentExplanation') }}</p>
+      </div>
       <div v-if="preview.versionImpactSummary" class="preview-panel__metrics preview-panel__metrics--impact">
-        <GcCard as="div" class="preview-panel__metric"><strong>{{ t('automations.preview.affected', { count: preview.versionImpactSummary.total }) }}</strong></GcCard>
-        <GcCard as="div" class="preview-panel__metric"><strong>{{ t('automations.preview.executable', { count: previewExecutableCount(preview) }) }}</strong></GcCard>
-        <GcCard as="div" class="preview-panel__metric"><strong>{{ t('automations.preview.skip', { count: previewSkipCount(preview) }) }}</strong></GcCard>
-        <GcCard as="div" class="preview-panel__metric"><strong>{{ t('automations.preview.downgrade', { count: previewAttentionCount(preview) }) }}</strong></GcCard>
+        <div class="preview-panel__metric"><strong>{{ t('automations.preview.affected', { count: preview.versionImpactSummary.total }) }}</strong></div>
+        <div class="preview-panel__metric"><strong>{{ t('automations.preview.executable', { count: previewExecutableCount(preview) }) }}</strong></div>
+        <div class="preview-panel__metric"><strong>{{ t('automations.preview.skip', { count: previewSkipCount(preview) }) }}</strong></div>
+        <div class="preview-panel__metric"><strong>{{ t('automations.preview.downgrade', { count: previewAttentionCount(preview) }) }}</strong></div>
       </div>
       <div v-else class="preview-panel__metrics">
-        <GcCard as="div" class="preview-panel__metric"><strong>{{ t('automations.preview.matched', { count: preview.totalMatched }) }}</strong></GcCard>
-        <GcCard as="div" class="preview-panel__metric"><strong>{{ t('automations.preview.executable', { count: previewExecutableCount(preview) }) }}</strong></GcCard>
-        <GcCard as="div" class="preview-panel__metric"><strong>{{ t('automations.preview.excluded', { count: preview.excludedCount }) }}</strong></GcCard>
+        <div class="preview-panel__metric"><strong>{{ t('automations.preview.matched', { count: preview.totalMatched }) }}</strong></div>
+        <div class="preview-panel__metric"><strong>{{ t('automations.preview.executable', { count: previewExecutableCount(preview) }) }}</strong></div>
+        <div class="preview-panel__metric"><strong>{{ t('automations.preview.excluded', { count: preview.excludedCount }) }}</strong></div>
       </div>
-      <ul>
+      <ul class="preview-panel__items">
         <li v-for="item in preview.items" :key="item.target.bindingId || item.target.assetId || item.target.certificateVersionId || item.target.certificateName" class="preview-panel__item">
-          <GcCard as="article" class="preview-panel__item-card">
+          <article class="preview-panel__item-card">
             <div class="preview-panel__cell preview-panel__cell--primary">
-              <strong>{{ item.target.assetName || item.target.certificateName }}</strong>
+              <span class="preview-panel__field-tag">{{ targetLabel(item) }}</span>
+              <strong>{{ targetName(item) }}</strong>
+              <small v-if="targetReference(item)">{{ targetReference(item) }}</small>
             </div>
             <template v-if="item.target.certificateVersionImpact">
               <div class="preview-panel__cell">
@@ -93,7 +123,7 @@ function rowStatusTone(item: AutomationPreviewRecord['items'][number]): 'success
             <div v-else class="preview-panel__cell preview-panel__cell--status">
               <GcStatusTag :status="item.executable ? 'ready' : (item.excludedReason || 'unknown')" :label="item.executable ? t('automations.preview.ready') : exclusionLabel(item.excludedReason)" :tone="item.executable ? 'success' : 'warning'" />
             </div>
-          </GcCard>
+          </article>
         </li>
       </ul>
       <GcButton v-if="showConfirm" variant="primary" :disabled="previewExecutableCount(preview) === 0" @click="emit('confirm')">{{ t('automations.actions.confirmRun') }}</GcButton>
@@ -103,16 +133,20 @@ function rowStatusTone(item: AutomationPreviewRecord['items'][number]): 'success
 </template>
 
 <style scoped>
-.preview-panel { display: grid; gap: var(--gc-space-4); }
+.preview-panel { display: grid; gap: var(--gc-space-3); }
 .preview-panel__hint { margin: 0; color: var(--gc-color-text-muted); font-size: var(--gc-font-size-sm); }
-.preview-panel__metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-3); }
+.preview-panel__explanation { display: grid; gap: var(--gc-space-1); padding: var(--gc-space-2) var(--gc-space-3); border-left: var(--gc-space-1) solid var(--gc-color-info-border); background: var(--gc-color-info-bg); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); line-height: var(--gc-line-height-relaxed); }
+.preview-panel__explanation p { margin: 0; }
+.preview-panel__metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-2); }
 .preview-panel__metrics--impact { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.preview-panel__metric :deep(.gc-pro-card__body) { display: grid; }
-.preview-panel__metric :deep(strong) { color: var(--gc-color-text-strong); font-size: var(--gc-font-size-md); }
-.preview-panel ul { display: grid; gap: var(--gc-space-2); margin: 0; padding: 0; list-style: none; }
-.preview-panel__item-card :deep(.gc-pro-card__body) { display: grid; grid-template-columns: 1.2fr 1fr 0.8fr; gap: var(--gc-space-3); align-items: center; }
+.preview-panel__metric { display: flex; align-items: baseline; justify-content: space-between; gap: var(--gc-space-2); padding: var(--gc-space-2) var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-border-muted); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-panel); }
+.preview-panel__metric span { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); }
+.preview-panel__metric strong { color: var(--gc-color-text-strong); font-size: var(--gc-font-size-md); }
+.preview-panel__items { display: grid; gap: var(--gc-space-1); margin: 0; padding: 0; list-style: none; }
+.preview-panel__item-card { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(10rem, 1fr) minmax(8rem, auto); gap: var(--gc-space-3); align-items: center; padding: var(--gc-space-2) var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-border-muted); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-panel); }
 .preview-panel__cell { display: grid; gap: var(--gc-space-1); min-width: 0; }
-.preview-panel__cell--primary strong { margin: 0; color: var(--gc-color-text); font-size: var(--gc-font-size-md); overflow-wrap: anywhere; }
+.preview-panel__cell--primary strong { margin: 0; color: var(--gc-color-text); font-size: var(--gc-font-size-sm); overflow-wrap: anywhere; }
+.preview-panel__cell--primary small { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); overflow-wrap: anywhere; }
 .preview-panel__cell--status { justify-items: start; }
 .preview-panel__field-tag {
   display: inline-flex;
@@ -130,7 +164,7 @@ function rowStatusTone(item: AutomationPreviewRecord['items'][number]): 'success
 @media (max-width: 45rem) {
   .preview-panel__metrics,
   .preview-panel__metrics--impact,
-  .preview-panel__item-card :deep(.gc-pro-card__body) {
+  .preview-panel__item-card {
     grid-template-columns: minmax(0, 1fr);
   }
 }

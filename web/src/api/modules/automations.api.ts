@@ -5,7 +5,7 @@ export type AutomationStatus = 'draft' | 'active' | 'disabled' | 'deleted'
 export type AutomationRunStatus = 'queued' | 'running' | 'waiting_approval' | 'succeeded' | 'partially_succeeded' | 'failed' | 'needs_attention' | 'stopped' | 'cancelled'
 
 export interface AutomationConfiguration {
-  trigger: { type: 'api' } | { type: 'once'; runAt: string } | { type: 'on_demand' } | { type: 'schedule'; cron: string; timeZone: string; startsAt?: string; endsAt?: string } | { type: 'certificate_version_created'; sources?: Array<'external_source' | 'manual_import'> }
+  trigger: { type: 'api' } | { type: 'once'; runAt: string } | { type: 'on_demand' } | { type: 'schedule'; cron: string; timeZone: string; startsAt?: string; endsAt?: string } | { type: 'certificate_version_created'; sources?: Array<'external_source' | 'manual_import' | 'acme_issue'> }
   filters?: Array<{ field: string; operator: 'eq' | 'neq' | 'in' | 'contains_any' | 'contains_all'; value?: unknown }>
   targetResolver: { type: 'certificate_version_targets'; assetIds?: string[] }
   approvalStage?: { type: 'run'; mode?: 'before_actions'; operationType?: string; riskLevel?: 'low' | 'medium' | 'high' | 'critical'; expiresInHours?: number }
@@ -133,16 +133,23 @@ export async function deleteAutomation(id: string, expectedVersion: number): Pro
   return requireData((await apiClient.request<AutomationRecord>(toClientPath(`${basePath}/${id}`), { method: 'DELETE', body: { expectedVersion }, idempotencyKey: createIdempotencyKey('automation_delete') })).data)
 }
 
-export async function previewAutomation(id: string, payload: { page?: number; pageSize?: number; triggerContext?: AutomationTriggerContext } = {}): Promise<AutomationPreviewRecord> {
-  return requireData((await apiClient.post<AutomationPreviewRecord>(toClientPath(`${basePath}/${id}/preview`), { page: payload.page ?? 1, pageSize: payload.pageSize ?? 200, ...(payload.triggerContext ? { triggerContext: payload.triggerContext } : {}) })).data)
+export async function previewAutomation(id: string, payload: { page?: number; pageSize?: number; allowCertificateDowngrade?: boolean; triggerContext?: AutomationTriggerContext } = {}): Promise<AutomationPreviewRecord> {
+  return requireData((await apiClient.post<AutomationPreviewRecord>(toClientPath(`${basePath}/${id}/preview`), {
+    page: payload.page ?? 1,
+    pageSize: payload.pageSize ?? 200,
+    ...(payload.allowCertificateDowngrade ? { allowCertificateDowngrade: true } : {}),
+    ...(payload.triggerContext ? { triggerContext: payload.triggerContext } : {}),
+  })).data)
 }
 
-export async function runAutomation(id: string, expectedVersion: number, options: { triggerContext?: AutomationTriggerContext; executionOptions?: AutomationRunExecutionOptions } = {}): Promise<AutomationRunRecord> {
+export async function runAutomation(id: string, expectedVersion: number, options: { triggerContext?: AutomationTriggerContext; executionOptions?: AutomationRunExecutionOptions; allowCertificateDowngrade?: boolean; confirmCertificateDowngrade?: boolean } = {}): Promise<AutomationRunRecord> {
   return requireData((await apiClient.post<AutomationRunRecord>(toClientPath(`${basePath}/${id}/runs`), {
     expectedVersion,
     idempotencyKey: createIdempotencyKey('automation_run'),
     ...(options.triggerContext ? { triggerContext: options.triggerContext } : {}),
     ...(options.executionOptions ? { executionOptions: options.executionOptions } : {}),
+    ...(options.allowCertificateDowngrade ? { allowCertificateDowngrade: true } : {}),
+    ...(options.confirmCertificateDowngrade ? { confirmCertificateDowngrade: true } : {}),
   })).data)
 }
 

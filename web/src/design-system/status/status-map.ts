@@ -20,6 +20,7 @@ export const statusDictionary = {
   RUNNING: { labelKey: 'designSystem.status.RUNNING', tone: 'info' },
   SUCCESS: { labelKey: 'designSystem.status.SUCCESS', tone: 'success' },
   PARTIAL_SUCCESS: { labelKey: 'designSystem.status.PARTIAL_SUCCESS', tone: 'warning' },
+  PARTIALLY_SUCCEEDED: { labelKey: 'designSystem.status.PARTIAL_SUCCESS', tone: 'warning' },
   FAILED: { labelKey: 'designSystem.status.FAILED', tone: 'danger' },
   CANCELLED: { labelKey: 'designSystem.status.CANCELLED', tone: 'muted' },
   ROLLED_BACK: { labelKey: 'designSystem.status.ROLLED_BACK', tone: 'warning' },

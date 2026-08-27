@@ -21,6 +21,11 @@ const retrying = ref(false)
 const runId = computed(() => String(route.params.id))
 const DEPLOYMENT_EXECUTION_TASK_TYPES = new Set(['CERTIFICATE_DRY_RUN', 'CERTIFICATE_DEPLOY', 'CERTIFICATE_ROLLBACK'])
 
+function runStatus(record: AutomationRunRecord): string {
+  // 兼容历史数据：存在失败目标时，运行状态必须呈现为部分成功警告。
+  return record.status === 'succeeded' && (record.targetSummary.failed || 0) > 0 ? 'partially_succeeded' : record.status
+}
+
 async function load() {
   loading.value = true
   error.value = ''
@@ -194,7 +199,7 @@ onMounted(() => { void load() })
 
     <section class="run-detail__hero" :aria-label="t('automations.aria.progress')">
       <div class="run-detail__hero-head">
-        <GcStatusTag :status="run.status" />
+        <GcStatusTag :status="runStatus(run)" />
         <strong>{{ run.targetSummary.succeeded || 0 }}/{{ run.targetSummary.total || 0 }}</strong>
       </div>
       <div class="run-detail__progress" :style="{ '--automation-progress': `${runProgressPercent(run)}%` }">

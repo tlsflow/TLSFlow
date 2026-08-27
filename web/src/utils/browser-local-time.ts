@@ -82,6 +82,12 @@ export function formatBrowserLocalTime(value: unknown, options: LocalTimeOptions
   return `${year}-${month}-${day} ${hour}:${minute}:${second}`
 }
 
+/** 将表单中的本地日期时间转换为后端协议使用的 UTC ISO 时间戳。 */
+export function toUtcIsoTimestamp(value: string | Date): string {
+  const date = value instanceof Date ? value : new Date(value)
+  return date.toISOString()
+}
+
 export function getExpiryCountdown(value: unknown, now = new Date()): ExpiryCountdown | null {
   const expiry = parseDateValue(value)
   const nowTime = now.getTime()

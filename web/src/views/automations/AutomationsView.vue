@@ -54,6 +54,8 @@ const manualRunPreviewError = ref('')
 const manualRunSubmitting = ref(false)
 const manualRunError = ref('')
 const manualRunStopOnError = ref(false)
+const manualDowngradeConfirmOpen = ref(false)
+const manualRunDowngradeConfirmed = ref(false)
 const applicationAssets = ref<ApiRecord[]>([])
 const applicationAssetsLoaded = ref(false)
 let applicationAssetsRequest: Promise<void> | null = null
@@ -312,7 +314,8 @@ function historyTaskSummary(task: TaskRun): string {
 }
 
 async function runNow(item: AutomationRecord) {
-  if (item.configuration.trigger.type === 'certificate_version_created') {
+  // 中文说明：当前唯一的目标解析器需要运行时确定证书版本；所有立即执行都必须先经过选择和预览。
+  if (item.configuration.targetResolver.type === 'certificate_version_targets') {
     await openManualRun(item)
     return
   }
@@ -330,6 +333,8 @@ async function openManualRun(item: AutomationRecord) {
   manualRunPreviewLoading.value = false
   manualRunError.value = ''
   manualRunStopOnError.value = false
+  manualDowngradeConfirmOpen.value = false
+  manualRunDowngradeConfirmed.value = false
   manualRunOpen.value = true
   manualRunLoading.value = true
   try {
@@ -365,7 +370,10 @@ async function loadManualRunPreview() {
       certificateAssetId: selectedVersion ? readString(selectedVersion, ['certificateAssetId'], '') : undefined,
       sourceType: selectedVersion ? readString(selectedVersion, ['sourceType'], '') : undefined,
     }
-    const preview = await previewAutomation(automation.id, { triggerContext })
+    const preview = await previewAutomation(automation.id, {
+      triggerContext,
+      allowCertificateDowngrade: true,
+    })
     if (manualRunAutomation.value?.id !== previewAutomationId || manualRunVersionId.value !== previewVersionId) return
     manualRunPreview.value = preview
   } catch (error) {
@@ -376,10 +384,20 @@ async function loadManualRunPreview() {
   }
 }
 
-async function submitManualRun() {
+function requestManualRun() {
   const automation = manualRunAutomation.value
   if (!automation || !manualRunVersionId.value || manualRunSubmitting.value) return
   if (!manualRunPreview.value || manualRunExecutableCount.value === 0) return
+  if (manualRunDowngradeCount.value > 0 && !manualRunDowngradeConfirmed.value) {
+    manualDowngradeConfirmOpen.value = true
+    return
+  }
+  void executeManualRun()
+}
+
+async function executeManualRun() {
+  const automation = manualRunAutomation.value
+  if (!automation || !manualRunVersionId.value || manualRunSubmitting.value || !manualRunPreview.value || manualRunExecutableCount.value === 0) return
   manualRunSubmitting.value = true
   manualRunError.value = ''
   try {
@@ -393,6 +411,8 @@ async function submitManualRun() {
       executionOptions: {
         stopOnError: manualRunStopOnError.value,
       },
+      allowCertificateDowngrade: manualRunDowngradeCount.value > 0,
+      confirmCertificateDowngrade: manualRunDowngradeConfirmed.value,
     })
     manualRunOpen.value = false
     await refreshList()
@@ -402,6 +422,13 @@ async function submitManualRun() {
   } finally {
     manualRunSubmitting.value = false
   }
+}
+
+async function confirmManualRunDowngrade() {
+  if (manualRunSubmitting.value) return
+  manualDowngradeConfirmOpen.value = false
+  manualRunDowngradeConfirmed.value = true
+  await executeManualRun()
 }
 
 function manualRunVersionKey(version: ApiRecord): string {
@@ -421,8 +448,17 @@ const manualRunExecutableCount = computed(() => {
   return Math.max(preview.executableCount ?? 0, preview.items.filter((item) => item.executable).length)
 })
 
+const manualRunDowngradeItems = computed(() => (
+  manualRunPreview.value?.items.filter((item) => (
+    item.executable && item.target.certificateVersionImpact === 'downgrade'
+  )) ?? []
+))
+
+const manualRunDowngradeCount = computed(() => manualRunDowngradeItems.value.length)
+
 watch(manualRunVersionId, () => {
   if (!manualRunOpen.value) return
+  manualRunDowngradeConfirmed.value = false
   if (!manualRunVersionId.value) {
     manualRunPreview.value = null
     manualRunPreviewError.value = ''
@@ -525,7 +561,10 @@ function eventSourceSummary(item: AutomationRecord): string {
   if (item.configuration.trigger.type !== 'certificate_version_created') return t('automations.common.notAvailable')
   const sources = item.configuration.trigger.sources ?? []
   if (sources.length === 0) return t('automations.common.notAvailable')
-  return sources.map((source) => translateDynamic(t, te, 'automations.eventSources', source)).join(' / ')
+  return sources
+    .map((source) => source === 'external_source' ? 'acme_issue' : source)
+    .map((source) => translateDynamic(t, te, 'automations.eventSources', source))
+    .join(' / ')
 }
 
 function versionSelectionSummary(item: AutomationRecord): string {
@@ -835,6 +874,7 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
       :description="t('automations.manualRun.description')"
       size="xl"
       width="var(--gc-size-modal-wide)"
+      @update:open="(open) => { if (!open) manualDowngradeConfirmOpen = false }"
     >
       <section class="gc-form-panel automation-manual-run">
         <label class="gc-form-field automation-manual-run__field">
@@ -875,9 +915,39 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
           variant="primary"
           :loading="manualRunSubmitting"
           :disabled="manualRunLoading || manualRunPreviewLoading || manualRunSubmitting || !manualRunVersionId || !manualRunPreview || manualRunExecutableCount === 0"
-          @click="submitManualRun"
+          @click="requestManualRun"
         >
           {{ t('automations.manualRun.start') }}
+        </GcButton>
+      </template>
+    </GcModal>
+
+    <GcModal
+      v-model:open="manualDowngradeConfirmOpen"
+      size="lg"
+      :title="t('automations.manualRun.downgradeConfirmTitle')"
+      :description="t('automations.manualRun.downgradeConfirmDescription', { count: manualRunDowngradeCount })"
+      :busy="manualRunSubmitting"
+    >
+      <section class="automation-manual-run__downgrade-confirmation">
+        <p class="automation-manual-run__downgrade-warning">{{ t('automations.manualRun.downgradeNotice') }}</p>
+        <ul class="automation-manual-run__downgrade-list">
+          <li v-for="item in manualRunDowngradeItems" :key="item.target.bindingId || item.target.assetId || item.target.certificateVersionId || item.target.certificateName">
+            <strong>{{ item.target.assetName || item.target.assetId || item.target.certificateName }}</strong>
+            <span>
+              {{ formatMaybeLocalTime(item.target.currentCertificateNotAfter, t('automations.common.notAvailable')) }}
+              →
+              {{ formatMaybeLocalTime(item.target.targetCertificateNotAfter, t('automations.common.notAvailable')) }}
+            </span>
+          </li>
+        </ul>
+      </section>
+      <template #actions>
+        <GcButton variant="secondary" :disabled="manualRunSubmitting" @click="manualDowngradeConfirmOpen = false">
+          {{ t('common.cancel') }}
+        </GcButton>
+        <GcButton variant="primary" :loading="manualRunSubmitting" @click="confirmManualRunDowngrade">
+          {{ t('automations.manualRun.downgradeConfirmAction') }}
         </GcButton>
       </template>
     </GcModal>
@@ -1130,6 +1200,51 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
 
 .automation-manual-run__message {
   margin: 0;
+}
+
+.automation-manual-run__downgrade-confirmation {
+  display: grid;
+  gap: var(--gc-space-3);
+}
+
+.automation-manual-run__downgrade-warning {
+  margin: 0;
+  padding: var(--gc-space-2) var(--gc-space-3);
+  border-left: var(--gc-space-1) solid var(--gc-color-danger-border);
+  background: var(--gc-color-danger-bg);
+  color: var(--gc-color-danger);
+}
+
+.automation-manual-run__downgrade-list {
+  display: grid;
+  gap: var(--gc-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.automation-manual-run__downgrade-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-2) var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
+  border-radius: var(--gc-radius-md);
+  background: var(--gc-color-surface-panel);
+}
+
+.automation-manual-run__downgrade-list span {
+  color: var(--gc-color-danger);
+  white-space: nowrap;
+}
+
+@media (max-width: 45rem) {
+  .automation-manual-run__downgrade-list li {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--gc-space-1);
+  }
 }
 
 @media (max-width: 60rem) {

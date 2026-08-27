@@ -352,16 +352,24 @@ function isTrackedRecentTask(task: TaskRun): boolean {
 
 function sortTasks(tasks: readonly TaskRun[]): TaskRun[] {
   return [...tasks].sort((left, right) => {
-    const finishedCompare = compareTime(right.createdAt, left.createdAt)
-    if (finishedCompare !== 0) return finishedCompare
+    // 中文说明：实时流与任务抽屉必须使用同一套“最后状态更新时间”排序，
+    // 否则首帧和增量事件会把自动化父任务重新排到子任务后面。
+    const statusTimeCompare = taskStatusTimestamp(right) - taskStatusTimestamp(left)
+    if (statusTimeCompare !== 0) return statusTimeCompare
+    // 中文说明：同一完成时间下，自动化父任务优先于证书部署等子任务。
+    const automationPriorityCompare = Number(isAutomationTask(right)) - Number(isAutomationTask(left))
+    if (automationPriorityCompare !== 0) return automationPriorityCompare
     return right.id.localeCompare(left.id)
   })
 }
 
-function compareTime(left?: string, right?: string): number {
-  const leftValue = left ? Date.parse(left) : 0
-  const rightValue = right ? Date.parse(right) : 0
-  return leftValue - rightValue
+function taskStatusTimestamp(task: Pick<TaskRun, 'finishedAt' | 'startedAt' | 'createdAt'>): number {
+  for (const value of [task.finishedAt, task.startedAt, task.createdAt]) {
+    if (!value) continue
+    const timestamp = Date.parse(value)
+    if (Number.isFinite(timestamp)) return timestamp
+  }
+  return 0
 }
 
 function firstString(...values: unknown[]): string | undefined {

@@ -6,19 +6,30 @@ import type { AutomationConfiguration, AutomationRecord } from '@/api/modules/au
 import { listCertificates } from '@/api/modules/certificates.api'
 import type { ApiRecord } from '@/api/modules/common'
 import { GcButton, GcProgressBar, GcSelectionCard } from '@/design-system/components'
+import { toUtcIsoTimestamp } from '@/utils/browser-local-time'
 
 const props = defineProps<{ automation?: AutomationRecord | null }>()
 const emit = defineEmits<{ save: [payload: AutomationConfiguration & { name: string; description?: string }]; cancel: [] }>()
 const { t } = useI18n()
 
-type EditorTriggerType = 'on_demand'
+type EditorTriggerType = 'api' | 'once' | 'schedule' | 'on_demand' | 'certificate_version_created'
+type RecurrenceType = 'daily' | 'weekly' | 'monthly' | 'custom'
+type CertificateEventSource = 'manual_import' | 'acme_issue'
 type TargetScopeMode = 'all_related_assets' | 'selected_assets'
 const AUTOMATION_MAX_TARGETS_PER_RUN = 5000
 
 const form = reactive({
   name: '',
   description: '',
-  triggerType: 'on_demand' as EditorTriggerType,
+  triggerType: 'certificate_version_created' as EditorTriggerType,
+  onceRunAt: defaultOnceRunAt(),
+  recurrence: 'daily' as RecurrenceType,
+  recurrenceTime: '02:00',
+  weeklyDay: 1,
+  monthlyDay: 1,
+  cron: '0 2 * * *',
+  timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  certificateSources: ['acme_issue', 'manual_import'] as CertificateEventSource[],
   targetScopeMode: 'all_related_assets' as TargetScopeMode,
   selectedAssetIds: [] as string[],
   certificateDomains: [] as string[],
@@ -39,6 +50,7 @@ const applicationAssets = ref<ApiRecord[]>([])
 const applicationAssetOptions = ref<Array<{ value: string; label: string }>>([])
 const applicationAssetsLoading = ref(false)
 const applicationAssetsLoadFailed = ref(false)
+const applicationAssetsLoaded = ref(false)
 let applicationAssetsRequest: Promise<void> | null = null
 const availableAssetSelection = ref<string[]>([])
 const selectedAssetSelection = ref<string[]>([])
@@ -46,10 +58,17 @@ const selectedAssetSelection = ref<string[]>([])
 const CERTIFICATE_ASSET_PAGE_SIZE = 200
 const APPLICATION_ASSET_PAGE_SIZE = 200
 
+const isEventTrigger = computed(() => form.triggerType === 'certificate_version_created')
 const currentStepTitle = computed(() => {
   if (currentStep.value === 1) return t('automations.fields.trigger')
   if (currentStep.value === 2) return t('automations.editor.sections.execution')
   return t('automations.editor.sections.guardrails')
+})
+const triggerHelpKey = computed(() => {
+  if (form.triggerType === 'certificate_version_created') return 'automations.scheduleBuilder.certificateVersionCreatedHelp'
+  if (form.triggerType === 'schedule') return 'automations.scheduleBuilder.recurringHelp'
+  if (form.triggerType === 'once') return 'automations.scheduleBuilder.onceHelp'
+  return 'automations.scheduleBuilder.apiHelp'
 })
 const domains = computed(() => form.certificateDomains.map((item) => normalizeDomain(item)).filter(Boolean))
 const selectedAssetsSummary = computed(() => {
@@ -69,7 +88,16 @@ const availableApplicationAssetOptions = computed(() => (
 ))
 const selectedDomainSummary = computed(() => domains.value.length ? domains.value.join(', ') : t('automations.common.allRelated'))
 const generatedAutomationName = computed(() => {
-  const segments = [selectedDomainSummary.value, t('automations.triggers.onDemand')]
+  const triggerLabelKey = form.triggerType === 'certificate_version_created'
+    ? 'automations.scheduleBuilder.certificateVersionCreated'
+    : form.triggerType === 'schedule'
+      ? 'automations.scheduleBuilder.recurring'
+      : form.triggerType === 'once'
+        ? 'automations.scheduleBuilder.once'
+        : form.triggerType === 'on_demand'
+          ? 'automations.triggers.onDemand'
+          : 'automations.scheduleBuilder.api'
+  const segments = [selectedDomainSummary.value, t(triggerLabelKey)]
   if (form.targetScopeMode === 'selected_assets') segments.push(t('automations.targetScopes.selectedAssets'))
   return segments.join(' · ')
 })
@@ -85,9 +113,19 @@ const filteredApplicationAssetOptions = computed(() => {
   if (matchedAssetIds.size === 0) return applicationAssetOptions.value
   return applicationAssetOptions.value.filter((option) => matchedAssetIds.has(option.value))
 })
-const triggerReady = computed(() => form.triggerType === 'on_demand')
+const triggerReady = computed(() => {
+  if (form.triggerType === 'api' || form.triggerType === 'on_demand') return true
+  if (form.triggerType === 'once') return Boolean(form.onceRunAt && new Date(form.onceRunAt).getTime() > Date.now())
+  if (form.triggerType === 'schedule') {
+    return Boolean(form.timeZone.trim() && (form.recurrence === 'custom' ? form.cron.trim() : form.recurrenceTime))
+  }
+  return form.certificateSources.length > 0
+})
 const executionReady = computed(() => {
-  if (form.targetScopeMode === 'selected_assets' && form.selectedAssetIds.length === 0) return false
+  if (form.targetScopeMode === 'selected_assets') {
+    if (form.selectedAssetIds.length === 0) return false
+    if (!applicationAssetsLoaded.value || applicationAssetsLoadFailed.value) return false
+  }
   return true
 })
 const valid = computed(() => {
@@ -110,16 +148,24 @@ watch(() => props.automation, (automation) => {
   const trigger = automation.configuration.trigger
   const resolver = automation.configuration.targetResolver
   const filters = automation.configuration.filters ?? []
-  const selectedAssetIds = readStringArray(
-    filters.find((item) => item.field === 'target.assetId')?.value,
-    resolver.assetIds ?? [],
-  )
+  const selectedAssetIds = Array.isArray(resolver.assetIds)
+    ? readStringArray(resolver.assetIds)
+    : readStringArray(filters.find((item) => item.field === 'target.assetId')?.value)
   const eventDomains = readStringArray(filters.find((item) => item.field === 'event.domains')?.value)
+  const eventSources = readStringArray(filters.find((item) => item.field === 'event.sourceType')?.value)
+    .map((source) => source === 'external_source' ? 'acme_issue' : source)
+    .filter((source): source is CertificateEventSource => source === 'manual_import' || source === 'acme_issue')
 
   Object.assign(form, {
     name: automation.name,
     description: automation.description ?? '',
-    triggerType: 'on_demand',
+    triggerType: trigger.type,
+    onceRunAt: trigger.type === 'once' ? toLocalDateTimeInput(trigger.runAt) : defaultOnceRunAt(),
+    cron: trigger.type === 'schedule' ? trigger.cron : '0 2 * * *',
+    timeZone: trigger.type === 'schedule' ? trigger.timeZone : Intl.DateTimeFormat().resolvedOptions().timeZone,
+    certificateSources: trigger.type === 'certificate_version_created'
+      ? normalizeCertificateEventSources(trigger.sources ?? (eventSources.length ? eventSources : ['acme_issue', 'manual_import']))
+      : ['acme_issue', 'manual_import'],
     targetScopeMode: selectedAssetIds.length > 0 ? 'selected_assets' : 'all_related_assets',
     selectedAssetIds,
     certificateDomains: eventDomains.map(normalizeDomain),
@@ -127,6 +173,9 @@ watch(() => props.automation, (automation) => {
     requireApproval: automation.configuration.guardrails.requireApproval,
     failureCount: automation.configuration.guardrails.failureCountThreshold ?? 3,
   })
+  reconcileSelectedAssetIds()
+
+  if (trigger.type === 'schedule') applyCronToForm(trigger.cron)
 
   currentStep.value = 1
 }, { immediate: true })
@@ -151,7 +200,15 @@ function resetForm() {
   Object.assign(form, {
     name: '',
     description: '',
-    triggerType: 'on_demand',
+    triggerType: 'certificate_version_created',
+    onceRunAt: defaultOnceRunAt(),
+    recurrence: 'daily',
+    recurrenceTime: '02:00',
+    weeklyDay: 1,
+    monthlyDay: 1,
+    cron: '0 2 * * *',
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    certificateSources: ['acme_issue', 'manual_import'],
     targetScopeMode: 'all_related_assets',
     selectedAssetIds: [],
     certificateDomains: [],
@@ -232,9 +289,12 @@ function loadApplicationAssets(): Promise<void> {
         })
         .filter((item): item is { value: string; label: string } => Boolean(item))
         .sort((left, right) => left.label.localeCompare(right.label))
+      applicationAssetsLoaded.value = true
+      reconcileSelectedAssetIds()
     } catch {
       applicationAssets.value = []
       applicationAssetOptions.value = []
+      applicationAssetsLoaded.value = false
       applicationAssetsLoadFailed.value = true
     } finally {
       applicationAssetsLoading.value = false
@@ -270,6 +330,12 @@ function readStringArray(value: unknown, fallback: string[] = []): string[] {
   return value.map((item) => typeof item === 'string' || typeof item === 'number' ? String(item) : '').filter(Boolean)
 }
 
+function reconcileSelectedAssetIds(): void {
+  if (!applicationAssetsLoaded.value) return
+  const availableIds = new Set(applicationAssetOptions.value.map((option) => option.value))
+  form.selectedAssetIds = [...new Set(form.selectedAssetIds.filter((id) => availableIds.has(id)))]
+}
+
 function assetMatchesSelectedDomains(asset: ApiRecord, selectedDomainSet: Set<string>): boolean {
   const candidates = new Set<string>()
   const pushCandidate = (value: unknown) => {
@@ -301,7 +367,56 @@ function normalizeDomain(domain: string): string {
   return domain.trim().toLowerCase().replace(/\.$/, '')
 }
 
-function buildTrigger(): AutomationConfiguration['trigger'] { return { type: 'on_demand' } }
+function defaultOnceRunAt(): string {
+  return toLocalDateTimeInput(new Date(Date.now() + 60 * 60 * 1000))
+}
+
+function toLocalDateTimeInput(value: string | Date): string {
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const pad = (part: number) => String(part).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function applyCronToForm(cron: string): void {
+  const [minute, hour, dayOfMonth, month, dayOfWeek] = cron.trim().split(/\s+/)
+  const minuteNumber = Number(minute)
+  const hourNumber = Number(hour)
+  if (!Number.isInteger(minuteNumber) || !Number.isInteger(hourNumber)) {
+    form.recurrence = 'custom'
+    return
+  }
+  form.recurrenceTime = `${String(hourNumber).padStart(2, '0')}:${String(minuteNumber).padStart(2, '0')}`
+  if (dayOfMonth === '*' && month === '*' && dayOfWeek === '*') form.recurrence = 'daily'
+  else if (dayOfMonth === '*' && month === '*' && /^\d$/.test(dayOfWeek ?? '')) {
+    form.recurrence = 'weekly'
+    form.weeklyDay = Number(dayOfWeek)
+  } else if (/^\d{1,2}$/.test(dayOfMonth ?? '') && month === '*' && dayOfWeek === '*') {
+    form.recurrence = 'monthly'
+    form.monthlyDay = Number(dayOfMonth)
+  } else form.recurrence = 'custom'
+}
+
+function buildCron(): string {
+  if (form.recurrence === 'custom') return form.cron.trim()
+  const [hour, minute] = form.recurrenceTime.split(':').map(Number)
+  if (form.recurrence === 'weekly') return `${minute} ${hour} * * ${form.weeklyDay}`
+  if (form.recurrence === 'monthly') return `${minute} ${hour} ${form.monthlyDay} * *`
+  return `${minute} ${hour} * * *`
+}
+
+function normalizeCertificateEventSources(sources: string[]): CertificateEventSource[] {
+  return [...new Set(sources.map((source) => source === 'external_source' ? 'acme_issue' : source)
+    .filter((source): source is CertificateEventSource => source === 'manual_import' || source === 'acme_issue'))]
+}
+
+function buildTrigger(): AutomationConfiguration['trigger'] {
+  if (form.triggerType === 'once') return { type: 'once', runAt: toUtcIsoTimestamp(form.onceRunAt) }
+  if (form.triggerType === 'schedule') return { type: 'schedule', cron: buildCron(), timeZone: form.timeZone.trim() }
+  if (form.triggerType === 'certificate_version_created') return { type: 'certificate_version_created', sources: [...form.certificateSources] }
+  if (form.triggerType === 'on_demand') return { type: 'on_demand' }
+  return { type: 'api' }
+}
 
 function buildTargetResolver(): NonNullable<AutomationConfiguration['targetResolver']> {
   return {
@@ -314,8 +429,16 @@ function buildTargetResolver(): NonNullable<AutomationConfiguration['targetResol
 
 function buildFilters(): NonNullable<AutomationConfiguration['filters']> {
   const filters: NonNullable<AutomationConfiguration['filters']> = []
+  if (!isEventTrigger.value) return filters
+  if (form.certificateSources.length) filters.push({ field: 'event.sourceType', operator: 'in', value: [...form.certificateSources] })
   if (domains.value.length) filters.push({ field: 'event.domains', operator: 'contains_any', value: [...domains.value] })
   return filters
+}
+
+function toggleCertificateSource(source: CertificateEventSource): void {
+  form.certificateSources = form.certificateSources.includes(source)
+    ? form.certificateSources.filter((item) => item !== source)
+    : [...form.certificateSources, source]
 }
 
 function toggleDomain(domain: string) {
@@ -391,7 +514,25 @@ function submit() {
     targetResolver,
     approvalStage: form.requireApproval ? { type: 'run', mode: 'before_actions', operationType: 'automation.run.approve', riskLevel: 'high' } : undefined,
     actions: [
-      { type: 'send_notification', position: 1, config: { templateKey: 'automation.execution', eventKey: 'automation.execution', events: ['started', 'completed', 'failed', 'waiting_approval'] } },
+      {
+        type: 'create_deployment_plan',
+        position: 1,
+        config: { planType: 'UPDATE', selectionMode: 'EXPLICIT' },
+      },
+      {
+        type: 'execute_deployment_plan',
+        position: 2,
+        config: { source: 'created_by_previous_action' },
+      },
+      {
+        type: 'send_notification',
+        position: 3,
+        config: {
+          templateKey: 'automation.execution',
+          eventKey: 'automation.execution',
+          events: ['started', 'completed', 'failed', 'waiting_approval'],
+        },
+      },
     ],
     guardrails: {
       maxTargetsPerRun: AUTOMATION_MAX_TARGETS_PER_RUN,
@@ -443,18 +584,88 @@ function submit() {
     </header>
 
     <section v-if="currentStep === 1" class="automation-editor__panel">
-      <header>
-        <h4>{{ t('automations.fields.trigger') }}</h4>
-        <p>{{ t('automations.editor.sections.triggerHelp') }}</p>
-      </header>
       <div class="automation-editor__grid">
         <label class="automation-editor__field--full">
           <span>{{ t('automations.fields.trigger') }}</span>
           <select v-model="form.triggerType" data-testid="automation-trigger">
+            <option value="certificate_version_created">{{ t('automations.scheduleBuilder.certificateVersionCreated') }}</option>
+            <option value="api">{{ t('automations.scheduleBuilder.api') }}</option>
+            <option value="once">{{ t('automations.scheduleBuilder.once') }}</option>
+            <option value="schedule">{{ t('automations.scheduleBuilder.recurring') }}</option>
             <option value="on_demand">{{ t('automations.triggers.onDemand') }}</option>
           </select>
-          <small>{{ t('automations.scheduleBuilder.apiHelp') }}</small>
+          <small>{{ t(triggerHelpKey) }}</small>
         </label>
+
+        <label v-if="form.triggerType === 'once'">
+          <span>{{ t('automations.scheduleBuilder.runAt') }}</span>
+          <input v-model="form.onceRunAt" data-testid="automation-once-run-at" type="datetime-local" />
+        </label>
+
+        <template v-else-if="form.triggerType === 'schedule'">
+          <div class="automation-editor__warning automation-editor__field--full">
+            <strong>{{ t('automations.scheduleBuilder.recurringWarningTitle') }}</strong>
+            <p>{{ t('automations.scheduleBuilder.recurringWarning') }}</p>
+          </div>
+          <label>
+            <span>{{ t('automations.scheduleBuilder.frequency') }}</span>
+            <select v-model="form.recurrence" data-testid="automation-recurrence">
+              <option value="daily">{{ t('automations.scheduleBuilder.daily') }}</option>
+              <option value="weekly">{{ t('automations.scheduleBuilder.weekly') }}</option>
+              <option value="monthly">{{ t('automations.scheduleBuilder.monthly') }}</option>
+              <option v-if="form.recurrence === 'custom'" value="custom">{{ t('automations.scheduleBuilder.legacyCustom') }}</option>
+            </select>
+          </label>
+          <label v-if="form.recurrence !== 'custom'">
+            <span>{{ t('automations.scheduleBuilder.time') }}</span>
+            <input v-model="form.recurrenceTime" data-testid="automation-recurrence-time" type="time" />
+          </label>
+          <label v-if="form.recurrence === 'weekly'">
+            <span>{{ t('automations.scheduleBuilder.weekday') }}</span>
+            <select v-model.number="form.weeklyDay" data-testid="automation-weekday">
+              <option v-for="day in 7" :key="day - 1" :value="day - 1">{{ t(`automations.scheduleBuilder.weekdays.${day - 1}`) }}</option>
+            </select>
+          </label>
+          <label v-if="form.recurrence === 'monthly'">
+            <span>{{ t('automations.scheduleBuilder.monthDay') }}</span>
+            <select v-model.number="form.monthlyDay" data-testid="automation-monthday">
+              <option v-for="day in 28" :key="day" :value="day">{{ day }}</option>
+            </select>
+          </label>
+          <label v-if="form.recurrence === 'custom'">
+            <span>{{ t('automations.scheduleBuilder.legacyCron') }}</span>
+            <input :value="form.cron" readonly />
+          </label>
+          <label>
+            <span>{{ t('automations.fields.timeZone') }}</span>
+            <input v-model="form.timeZone" readonly />
+          </label>
+        </template>
+
+        <template v-else-if="form.triggerType === 'certificate_version_created'">
+          <div class="automation-editor__field automation-editor__field--full">
+            <span>{{ t('automations.fields.eventSources') }}</span>
+            <div class="automation-editor__checkbox-grid">
+              <label class="automation-editor__check">
+                <input type="checkbox" :checked="form.certificateSources.includes('acme_issue')" @change="toggleCertificateSource('acme_issue')" />
+                <span>{{ t('automations.eventSources.acme_issue') }}</span>
+              </label>
+              <label class="automation-editor__check">
+                <input type="checkbox" :checked="form.certificateSources.includes('manual_import')" @change="toggleCertificateSource('manual_import')" />
+                <span>{{ t('automations.eventSources.manual_import') }}</span>
+              </label>
+            </div>
+          </div>
+          <div class="automation-editor__summary automation-editor__field--full">
+            <strong>{{ t('automations.scheduleBuilder.certificateVersionCreated') }}</strong>
+            <p>{{ t('automations.scheduleBuilder.certificateVersionCreatedHelp') }}</p>
+          </div>
+        </template>
+
+        <div v-else class="automation-editor__summary automation-editor__field--full">
+          <strong>{{ t('automations.scheduleBuilder.api') }}</strong>
+          <p>{{ t('automations.scheduleBuilder.apiHelp') }}</p>
+        </div>
       </div>
     </section>
 
@@ -601,6 +812,8 @@ function submit() {
       <div class="automation-editor__summary automation-editor__summary--compact">
         <strong>{{ t('designSystem.capability.title') }}</strong>
         <p>{{ t('designSystem.capability.description') }}</p>
+        <span>{{ t('automations.editor.chain.createPlan') }}</span>
+        <span>{{ t('automations.editor.chain.executePlan') }}</span>
         <span>{{ t('automations.actionTypes.send_notification') }}</span>
       </div>
     </section>
@@ -644,7 +857,7 @@ function submit() {
       <div class="automation-editor__review">
         <strong>{{ t('automations.formStep.reviewTitle') }}</strong>
         <p>{{ t('automations.formStep.reviewText', {
-          trigger: t('automations.triggers.onDemand'),
+          trigger: t(form.triggerType === 'certificate_version_created' ? 'automations.scheduleBuilder.certificateVersionCreated' : form.triggerType === 'schedule' ? 'automations.scheduleBuilder.recurring' : form.triggerType === 'once' ? 'automations.scheduleBuilder.once' : form.triggerType === 'on_demand' ? 'automations.triggers.onDemand' : 'automations.scheduleBuilder.api'),
           scope: selectedAssetsSummary,
           domains: selectedDomainSummary,
         }) }}</p>

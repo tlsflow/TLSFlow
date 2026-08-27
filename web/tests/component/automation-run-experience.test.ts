@@ -117,12 +117,52 @@ describe('Spec 030 预览和运行体验', () => {
     expect(wrapper.text()).toContain('跳过更新 1 项')
     expect(wrapper.text()).toContain('需关注 0 项')
     expect(wrapper.text()).toContain('生产 Nginx')
+    expect(wrapper.findAll('.preview-panel__item-card')).toHaveLength(2)
     expect(wrapper.text()).toContain('有效期')
     expect(wrapper.text()).toContain('2026-08-01 → 2026-11-04')
+    expect(wrapper.text()).toContain('证书：example.com')
+    expect(wrapper.text()).toContain('应用资产 ID：asset-a')
+    expect(wrapper.text()).toContain('绑定 ID：binding-upgrade')
     expect(wrapper.text()).toContain('跳过更新')
     expect(wrapper.text()).not.toContain('版本 4')
     expect(wrapper.text()).not.toContain('匹配 2 项')
     expect(wrapper.get('button').attributes('disabled')).toBeUndefined()
+  })
+
+  it('解释缺少当前证书并阻止无法确认安全性的目标执行', () => {
+    const wrapper = mount(AutomationPreviewPanel, {
+      props: {
+        preview: {
+          previewId: 'preview-missing-current',
+          totalMatched: 1,
+          executableCount: 0,
+          excludedCount: 1,
+          excludedReasons: { binding_missing: 1 },
+          versionImpactSummary: { total: 1, upgrade: 0, same: 0, downgrade: 0, missingCurrent: 1 },
+          items: [
+            {
+              target: {
+                bindingId: 'binding-missing-current',
+                assetId: 'asset-jacksonz',
+                assetName: 'Jacksonz 网关',
+                certificateName: '*.jacksonz.cn',
+                targetCertificateNotAfter: '2026-10-30T00:00:00.000Z',
+                certificateVersionImpact: 'missing_current',
+              },
+              executable: false,
+              excludedReason: 'binding_missing',
+            },
+          ],
+        },
+      },
+      global: { plugins: [i18n] },
+    })
+
+    expect(wrapper.findAll('.preview-panel__item-card')).toHaveLength(1)
+    expect(wrapper.text()).toContain('暂无 → 2026-10-30')
+    expect(wrapper.text()).toContain('缺少当前证书')
+    expect(wrapper.text()).toContain('系统没有读取到该应用当前绑定证书的有效期')
+    expect(wrapper.get('button').attributes('disabled')).toBeDefined()
   })
 
   it('即使后端 executableCount 为 0，只要存在可执行目标也允许执行', async () => {
