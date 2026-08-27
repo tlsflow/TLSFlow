@@ -151,6 +151,7 @@ export const businessRoutes: GcRouteRecord[] = [
     meta: {
       title: 'Cloud providers',
       titleKey: 'providers.page.title',
+      hiddenInMenu: true,
       heroTitle: true,
       module: 'provider',
       requiresAuth: true,

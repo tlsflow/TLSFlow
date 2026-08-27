@@ -1145,16 +1145,6 @@ function setDeviceOnboardingOpen(open: boolean): void {
   void nextTick().then(() => setOnboardingDialogOpen(true))
 }
 
-function openCloudAccountFromDeviceOnboarding(): void {
-  deviceOnboardingOpen.value = false
-  onboardingDialogOpen.value = true
-}
-
-function completeCloudAccountOnboarding(): void {
-  onboardingDialogOpen.value = false
-  void loadAssetOverviewPage(assetOverviewPage.value)
-}
-
 function completeDeviceOnboarding(): void {
   void loadAssetOverviewPage(assetOverviewPage.value)
   if (resumeApplicationOnboarding.value) setDeviceOnboardingOpen(false)
@@ -2962,19 +2952,6 @@ watch(
   { immediate: true },
 )
 watch(
-  () => route.query.cloudAccount,
-  (value) => {
-    if (value !== '1') return
-    // 兼容旧链接，但所有新增云账号操作都必须从统一应用接入向导进入。
-    onboardingDialogOpen.value = true
-    const query = { ...route.query }
-    delete query.cloudAccount
-    void router.replace({ query })
-  },
-  { immediate: true },
-)
-
-watch(
   () => route.query.create,
   (value) => {
     if (value !== '1' || createDialogOpen.value) return
@@ -4452,14 +4429,12 @@ function managedTargetLabel(target: ApiRecord): string {
       @update:open="setOnboardingDialogOpen"
       @custom-manual="openCustomManualCreateDialog"
       @add-device="openDeviceOnboardingFromApplication"
-      @cloud-account-completed="completeCloudAccountOnboarding"
     />
     <DeviceOnboardingWizard
       :open="deviceOnboardingOpen"
       :initial-selection="deviceOnboardingInitialSelection"
       @update:open="setDeviceOnboardingOpen"
       @completed="completeDeviceOnboarding"
-      @add-cloud-account="openCloudAccountFromDeviceOnboarding"
     />
   </section>
 </template>

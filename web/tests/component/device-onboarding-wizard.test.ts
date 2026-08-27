@@ -11,13 +11,8 @@ const pluginMocks = vi.hoisted(() => ({
   getUnifiedPluginUiResources: vi.fn(),
   listPluginCatalog: vi.fn(),
 }))
-const providerMocks = vi.hoisted(() => ({
-  listCloudAccountOnboardingRecipes: vi.fn(),
-}))
-
 vi.mock('@/api/modules/devices.api', () => deviceMocks)
 vi.mock('@/api/modules/plugins.api', () => pluginMocks)
-vi.mock('@/api/modules/providers.api', () => providerMocks)
 
 import DeviceOnboardingWizard from '@/views/devices/DeviceOnboardingWizard.vue'
 
@@ -37,7 +32,6 @@ describe('DeviceOnboardingWizard', () => {
     document.body.innerHTML = ''
     pluginMocks.listPluginCatalog.mockResolvedValue(response({ items: [] }))
     pluginMocks.getUnifiedPluginUiResources.mockResolvedValue(response({ forms: {}, locale: { messages: {} } }))
-    providerMocks.listCloudAccountOnboardingRecipes.mockResolvedValue(response({ items: [] }))
   })
 
   afterEach(() => {
@@ -176,25 +170,4 @@ describe('DeviceOnboardingWizard', () => {
     wrapper.unmount()
   })
 
-  it('在其他平台中展示云账号插件并转发统一配置入口', async () => {
-    deviceMocks.listDeviceOnboardingPlatforms.mockResolvedValue(response([]))
-    providerMocks.listCloudAccountOnboardingRecipes.mockResolvedValue(response({ items: [{
-      pluginId: 'cloud.aliyun',
-      pluginVersionId: 'cloud.aliyun:2.0.23',
-      displayName: '阿里云 CDN',
-      description: '阿里云 CDN 控制面插件',
-      recipe: { providerKey: 'cloud.aliyun', display: { nameKey: 'plugin.cloud.aliyun.name' } },
-    }] }))
-
-    const wrapper = mount(DeviceOnboardingWizard, {
-      props: { open: true },
-      global: { plugins: [i18n], stubs: { Teleport: true, GcPluginForm: GcPluginFormStub } },
-    })
-    await flushPromises()
-    const cloudCard = wrapper.findAll('.device-wizard__platform').find((button) => button.text().includes('阿里云 CDN'))
-    expect(cloudCard).toBeDefined()
-    await cloudCard!.trigger('click')
-    expect(wrapper.emitted('addCloudAccount')).toHaveLength(1)
-    wrapper.unmount()
-  })
 })

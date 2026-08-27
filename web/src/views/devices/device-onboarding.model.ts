@@ -17,7 +17,7 @@ export interface DeviceOnboardingPlatform {
   readonly productFamily: string
   readonly managementMethod: string
   readonly group?: 'AGENT' | 'OTHER'
-  readonly onboardingKind: 'AGENT_INSTALL' | 'API_CONNECTION' | 'CLOUD_ACCOUNT'
+  readonly onboardingKind: 'AGENT_INSTALL' | 'API_CONNECTION'
   readonly supportStatus: 'SUPPORTED' | 'PREVIEW' | 'UNSUPPORTED'
   readonly formSchema: readonly DeviceOnboardingField[]
   readonly logoUrl?: string
@@ -26,11 +26,10 @@ export interface DeviceOnboardingPlatform {
   readonly pluginId?: string
   readonly displayName?: string
   readonly description?: string
-  readonly cloudProviderKey?: string
 }
 
 export interface DeviceOnboardingResultView {
-  readonly onboardingKind: 'AGENT_INSTALL' | 'API_CONNECTION' | 'CLOUD_ACCOUNT' | 'PLUGIN_MANAGED'
+  readonly onboardingKind: 'AGENT_INSTALL' | 'API_CONNECTION' | 'PLUGIN_MANAGED'
   readonly installCommand: string
   readonly expiresAt: string
   readonly connectionSucceeded: boolean

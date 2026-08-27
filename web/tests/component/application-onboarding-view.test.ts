@@ -28,15 +28,6 @@ const credentialMocks = vi.hoisted(() => ({
 const certificateFormatMocks = vi.hoisted(() => ({
   listCertificateFormats: vi.fn(),
 }))
-const providerMocks = vi.hoisted(() => ({
-  listCloudAccountOnboardingRecipes: vi.fn(),
-  createCloudAccountAsset: vi.fn(),
-  testCloudAccountConnection: vi.fn(),
-  discoverCloudAccountResources: vi.fn(),
-}))
-const pluginMocks = vi.hoisted(() => ({
-  getUnifiedPluginUiResources: vi.fn(),
-}))
 const routerMocks = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }))
 const routeMock = vi.hoisted(() => ({ query: {} as Record<string, string> }))
 
@@ -44,8 +35,6 @@ vi.mock('@/api/modules/application-onboarding.api', () => onboardingMocks)
 vi.mock('@/api/modules/deployment-inputs.api', () => deploymentInputMocks)
 vi.mock('@/api/modules/credentials.api', () => credentialMocks)
 vi.mock('@/api/modules/certificates.api', () => certificateFormatMocks)
-vi.mock('@/api/modules/providers.api', () => providerMocks)
-vi.mock('@/api/modules/plugins.api', () => pluginMocks)
 vi.mock('vue-router', () => ({ useRoute: () => routeMock, useRouter: () => routerMocks }))
 
 import ApplicationOnboardingView from '@/views/application-onboarding/ApplicationOnboardingView.vue'
@@ -95,75 +84,6 @@ describe('ApplicationOnboardingView', () => {
     }))
     credentialMocks.listCredentials.mockResolvedValue(response({ items: [] }))
     certificateFormatMocks.listCertificateFormats.mockResolvedValue(response({ items: [] }))
-    providerMocks.listCloudAccountOnboardingRecipes.mockResolvedValue(response({ items: [] }))
-    pluginMocks.getUnifiedPluginUiResources.mockResolvedValue(response({ forms: {}, locale: { messages: {} } }))
-  })
-
-  it('按云账号配方展示标准接入文案并在当前向导内加载标准表单', async () => {
-    providerMocks.listCloudAccountOnboardingRecipes.mockResolvedValue(response({ items: [{
-      pluginId: 'cloud.aliyun',
-      pluginVersionId: 'cloud.aliyun:2.0.23',
-      displayName: '阿里云 CDN',
-      description: '阿里云 CDN 控制面插件',
-      businessMetadata: {
-        capabilityVersion: 'v1',
-        compatibleVersions: ['阿里云 CDN 域名服务'],
-        requiredInformation: ['已保存的阿里云账号凭据'],
-      },
-      recipe: { providerKey: 'cloud.aliyun', display: { nameKey: 'plugin.cloud.aliyun.name' }, defaults: { request: { method: 'POST', uri: '/' } } },
-      form: { schemaVersion: 'gcac.plugin-form/v1', mode: 'BOTH', sections: [{ id: 'account', titleKey: 'plugin.cloud.aliyun.accountSection', fields: [{ key: 'credentialRef', type: 'credential_ref', labelKey: 'plugin.cloud.aliyun.credential', required: true, acceptedCredentialKinds: ['CLOUD_PROVIDER'] }] }] },
-    }] }))
-    pluginMocks.getUnifiedPluginUiResources.mockResolvedValue(response({
-      forms: {},
-      locale: { messages: { 'plugin.cloud.aliyun.accountSection': '阿里云账号', 'plugin.cloud.aliyun.credential': '阿里云凭据' } },
-    }))
-
-    const wrapper = mount(ApplicationOnboardingView, { global: { plugins: [i18n] } })
-    await flushPromises()
-    expect(wrapper.text()).toContain('阿里云 CDN')
-    expect(wrapper.text()).toContain('接入能力版本')
-    expect(wrapper.text()).toContain('阿里云 CDN 域名服务')
-    expect(wrapper.text()).toContain('已保存的阿里云账号凭据')
-    await wrapper.find('.platform-card').trigger('click')
-    await flushPromises()
-    expect(wrapper.emitted('addCloudAccount')).toBeUndefined()
-    expect(wrapper.find('.onboarding-cloud-account-panel').exists()).toBe(true)
-    expect(wrapper.find('.gc-plugin-form').exists()).toBe(true)
-    expect(wrapper.text()).toContain('阿里云凭据')
-  })
-
-  it('云账号标准表单提交只发送显示名称、凭据和配方默认请求', async () => {
-    providerMocks.listCloudAccountOnboardingRecipes.mockResolvedValue(response({ items: [{
-      pluginId: 'cloud.aliyun',
-      pluginVersionId: 'cloud.aliyun:2.0.23',
-      displayName: '阿里云 CDN',
-      recipe: { providerKey: 'cloud.aliyun', defaults: { request: { method: 'POST', uri: '/', action: 'DescribeUserDomains' } }, display: { nameKey: 'plugin.cloud.aliyun.name' } },
-      form: { schemaVersion: 'gcac.plugin-form/v1', mode: 'BOTH', sections: [{ id: 'account', titleKey: 'plugin.cloud.aliyun.accountSection', fields: [{ key: 'credentialRef', type: 'credential_ref', labelKey: 'plugin.cloud.aliyun.credential', required: true, acceptedCredentialKinds: ['CLOUD_PROVIDER'] }] }] },
-    }] }))
-    credentialMocks.listCredentials.mockResolvedValue(response({ items: [{ id: 'cred-cloud', name: 'Cloud provider credential', kind: 'CLOUD_PROVIDER', status: 'active' }] }))
-    pluginMocks.getUnifiedPluginUiResources.mockResolvedValue(response({ forms: {}, locale: { messages: { 'plugin.cloud.aliyun.accountSection': '阿里云账号', 'plugin.cloud.aliyun.credential': '阿里云凭据' } } }))
-    providerMocks.createCloudAccountAsset.mockResolvedValue(response({ id: 'cloud-asset-1' }))
-    providerMocks.testCloudAccountConnection.mockResolvedValue(response({ status: 'SUCCEEDED' }))
-    providerMocks.discoverCloudAccountResources.mockResolvedValue(response({ status: 'SUCCEEDED' }))
-
-    const wrapper = mount(ApplicationOnboardingView, { global: { plugins: [i18n] } })
-    await flushPromises()
-    await wrapper.find('.platform-card').trigger('click')
-    await flushPromises()
-    await wrapper.get('.onboarding-cloud-account-panel__display-name input').setValue('生产 CDN')
-    await wrapper.get('.gc-plugin-form select').setValue('cred-cloud')
-    await wrapper.vm.runFooterPrimary()
-    await flushPromises()
-
-    expect(providerMocks.createCloudAccountAsset).toHaveBeenCalledWith({
-      displayName: '生产 CDN',
-      providerKey: 'cloud.aliyun',
-      credentialRef: 'credential://cred-cloud',
-      scope: { metadata: { request: { method: 'POST', uri: '/', action: 'DescribeUserDomains' } } },
-    })
-    expect(providerMocks.testCloudAccountConnection).toHaveBeenCalledWith('cloud-asset-1')
-    expect(providerMocks.discoverCloudAccountResources).toHaveBeenCalledWith('cloud-asset-1')
-    expect(wrapper.emitted('cloudAccountCompleted')).toEqual([['cloud-asset-1']])
   })
 
   it('平台列表加载期间显示稳定的加载状态', async () => {

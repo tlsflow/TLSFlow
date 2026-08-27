@@ -6,7 +6,7 @@ import { GcModal } from '@/design-system/components'
 import type { DeviceOnboardingInitialSelection } from '@/views/devices/device-onboarding.model'
 import ApplicationOnboardingView from './ApplicationOnboardingView.vue'
 
-type FooterPrimaryAction = 'RESOURCE' | 'TARGET' | 'CERTIFICATE' | 'COMPLETE' | 'CLOUD_ACCOUNT' | null
+type FooterPrimaryAction = 'RESOURCE' | 'TARGET' | 'CERTIFICATE' | 'COMPLETE' | null
 interface OnboardingFooterActions {
   visible: boolean
   showCancel: boolean
@@ -42,7 +42,6 @@ const emit = defineEmits<{
   'update:open': [value: boolean]
   customManual: []
   addDevice: [initialSelection: DeviceOnboardingInitialSelection]
-  cloudAccountCompleted: [assetId: string]
 }>()
 
 const { t } = useI18n()
@@ -141,7 +140,6 @@ async function clearOnboardingRoute(): Promise<void> {
       @close="modelOpen = false"
       @custom-manual="openCustomManual"
       @add-device="openDeviceOnboarding"
-      @cloud-account-completed="emit('cloudAccountCompleted', $event)"
       @platform-selection-change="updatePlatformSelection"
       @footer-actions-change="updateFooterActions"
     />
