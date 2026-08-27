@@ -48,6 +48,7 @@ const authorities = computed(() => [
   ...tree.value.unassignedAuthorities,
 ])
 const selectedAuthority = computed(() => authorities.value.find((authority) => authority.id === selectedCaId.value))
+const syncSupported = computed(() => selectedAuthority.value?.views.some((view) => view.objectType === selectedView.value) ?? false)
 const rows = computed<OperationRow[]>(() => records.value.map((record) => ({
   recordKey: record.recordKey,
   subject: displayText(record, ['subjectCommonName', 'commonName', 'name']),
@@ -214,7 +215,7 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
         <button class="gc-button" type="button" @click="internalCaModalOpen = true">
           {{ t('caOperations.actions.manageInternalCa') }}
         </button>
-        <button class="gc-button gc-button--primary" type="button" :disabled="!selectedAuthority || syncing" @click="startSync">
+        <button class="gc-button gc-button--primary" type="button" :disabled="!selectedAuthority || !syncSupported || syncing" @click="startSync">
           {{ syncing ? t('caOperations.actions.syncing') : t('caOperations.actions.sync') }}
         </button>
       </template>

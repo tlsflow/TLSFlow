@@ -82,7 +82,7 @@ export interface CaPluginActionDispatcher {
   execute(input: {
     provider: CaProviderEntity;
     binding: ProviderActionBindingEntity;
-    action: 'issue' | 'query' | 'revoke' | 'revocation_evidence';
+    action: 'issue' | 'list' | 'query' | 'revoke' | 'revocation_evidence';
     authority?: CertificateAuthorityEntity;
     payload: Record<string, unknown>;
     actorId: string;

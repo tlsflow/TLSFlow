@@ -1,7 +1,7 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "ca-microsoft-adcs-renew", "version": "1.0.10" },
+  "metadata": { "name": "ca-microsoft-adcs-renew", "version": "1.0.11" },
   "inputContract": { "apiVersion": "gcac.deployment-input/v1", "variables": { "operation": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" }, "sourceCertificateId": { "type": "string", "required": true, "configurationMode": "required", "source": { "kind": "binding" }, "lifecycle": "pre_execution", "bindingPolicy": "required_binding" }, "idempotencyKey": { "type": "string", "required": true, "configurationMode": "runtime", "source": { "kind": "system", "key": "execution.idempotencyKey" }, "lifecycle": "pre_execution", "bindingPolicy": "fixed" } }, "connections": {}, "credentials": {}, "artifacts": {} },
   "steps": [{ "name": "adcs-renew", "type": "plugin.action", "stage": "install", "pluginId": "ca.microsoft-adcs", "capability": "ca.certificate.renew", "actionId": "ca.certificate.renew.v1", "actionContractVersion": "v1", "input": { "operation": "{{variables.operation}}", "sourceCertificateId": "{{variables.sourceCertificateId}}" }, "inputSchemaSha256": "sha256:948cc2b095b056dc6f202c0bf83398ef48368b69e21bdd15b47f256bb01a9ebc", "outputSchemaSha256": "sha256:82ef96cebaf5fbe16269fd18b0240d78f5b9b90a4155a17eb797115b09148ecf", "timeoutSeconds": 120, "writeEffect": true, "idempotencyKeyRef": "{{variables.idempotencyKey}}" }]
 }

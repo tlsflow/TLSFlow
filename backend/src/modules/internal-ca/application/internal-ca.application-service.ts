@@ -34,6 +34,7 @@ import type {
   CaOperationsTreeDto,
 } from '../dto/ca-operations.dto.js';
 import { CaOperationsAdapterRegistry } from '../providers/ca-operations.js';
+import { PluginCaOperationsAdapter } from '../providers/plugin-ca-operations-adapter.js';
 import {
   caProviderTypes,
   type CaAvailabilityMode,
@@ -98,6 +99,7 @@ export interface CreateProviderActionBindingInput {
   pluginVersionId: string;
   executionLocation: ProviderActionExecutionLocation;
   issueAction: ProviderActionBindingEntity['issueAction'];
+  listAction?: ProviderActionBindingEntity['listAction'];
   queryAction?: ProviderActionBindingEntity['queryAction'];
   revokeAction?: ProviderActionBindingEntity['revokeAction'];
   revocationEvidenceAction?: ProviderActionBindingEntity['revocationEvidenceAction'];
@@ -198,7 +200,9 @@ export class InternalCaApplicationService {
   private readonly openssl: OpenSslCa;
   private readonly operationsQuery: CaOperationsQueryService;
   private readonly syncCoordinator: CaSyncCoordinator;
+  private readonly operationsAdapters: CaOperationsAdapterRegistry;
   private readonly certificatePolicies: CertificatePolicyService;
+  private adcsProviderReconciler?: (tenantId: string) => Promise<void>;
 
   constructor(private readonly dependencies: {
     db: DatabasePort;
@@ -214,9 +218,9 @@ export class InternalCaApplicationService {
     this.repository = dependencies.repository ?? new InternalCaRepository(dependencies.db);
     this.providers = dependencies.providers ?? createDefaultCaProviderRegistry(dependencies.secrets);
     this.openssl = dependencies.openssl ?? new OpenSslCa();
-    const operationsAdapters = dependencies.operationsAdapters ?? new CaOperationsAdapterRegistry();
-    this.operationsQuery = new CaOperationsQueryService(dependencies.db, operationsAdapters, undefined, this.repository);
-    this.syncCoordinator = new CaSyncCoordinator(dependencies.db, operationsAdapters, dependencies.audit, undefined, this.repository);
+    this.operationsAdapters = dependencies.operationsAdapters ?? new CaOperationsAdapterRegistry();
+    this.operationsQuery = new CaOperationsQueryService(dependencies.db, this.operationsAdapters, undefined, this.repository);
+    this.syncCoordinator = new CaSyncCoordinator(dependencies.db, this.operationsAdapters, dependencies.audit, undefined, this.repository);
     this.certificatePolicies = new CertificatePolicyService(this.repository);
   }
 
@@ -227,6 +231,14 @@ export class InternalCaApplicationService {
   /** 在完整 Runner 资源装配后注入外部 CA 动作执行器。 */
   setPluginActionDispatcher(dispatcher: import('../providers/ca-provider.js').CaPluginActionDispatcher): void {
     this.providers.register('plugin', new PluginCaProviderAdapter(dispatcher));
+    this.operationsAdapters.register('plugin', new PluginCaOperationsAdapter(
+      dispatcher,
+      { getActiveProviderActionBinding: (tenantId, providerId) => this.repository.getActiveProviderActionBinding(tenantId, providerId) },
+    ));
+  }
+
+  setAdcsProviderReconciler(reconciler?: (tenantId: string) => Promise<void>): void {
+    this.adcsProviderReconciler = reconciler;
   }
 
   listCaOperationsRecords(tenantId: string, query: CaOperationsRecordQueryDto): Promise<CaOperationRecordPageDto> {
@@ -257,6 +269,7 @@ export class InternalCaApplicationService {
   }
 
   async listProviders(tenantId: string): Promise<Array<Omit<CaProviderEntity, 'credentialSecretRef'>>> {
+    await this.adcsProviderReconciler?.(tenantId);
     const providers = await this.repository.listProviders(tenantId);
     return Promise.all(providers.map(async (provider) => sanitizeProvider({
       ...provider,
@@ -602,6 +615,7 @@ export class InternalCaApplicationService {
       pluginVersionId: requiredText(input.pluginVersionId, 'pluginVersionId'),
       executionLocation: input.executionLocation,
       issueAction: normalizeProviderAction(input.issueAction, 'issueAction'),
+      listAction: input.listAction ? normalizeProviderAction(input.listAction, 'listAction') : undefined,
       queryAction: input.queryAction ? normalizeProviderAction(input.queryAction, 'queryAction') : undefined,
       revokeAction: input.revokeAction ? normalizeProviderAction(input.revokeAction, 'revokeAction') : undefined,
       revocationEvidenceAction: input.revocationEvidenceAction ? normalizeProviderAction(input.revocationEvidenceAction, 'revocationEvidenceAction') : undefined,
@@ -624,7 +638,18 @@ export class InternalCaApplicationService {
       ? await this.updateProvider(input.tenantId, existing.id, { name: input.name, configuration, status: 'active' }, 'system')
       : await this.createProvider(input.tenantId, { name: input.name, type: 'plugin', deploymentMode: 'external', runtimePlatform: 'windows', availabilityMode: 'single', configuration }, 'system');
     const bindings = await this.listProviderActionBindings(input.tenantId, provider.id);
-    if (bindings.some((binding) => binding.status !== 'disabled')) return;
+    const activeBinding = bindings.find((binding) => binding.status !== 'disabled');
+    if (activeBinding) {
+      // 旧版本绑定没有历史列表动作；补齐同一固定 PluginVersion，避免重新安装 Agent 才能同步。
+      if (!activeBinding.listAction) {
+        await this.repository.saveProviderActionBinding({
+          ...activeBinding,
+          listAction: { actionId: 'ca.certificate.list.v1', actionVersion: 'v1' },
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      return;
+    }
     await this.createProviderActionBinding(input.tenantId, {
       providerId: provider.id,
       pluginVersionId: input.pluginVersionId,
@@ -632,6 +657,7 @@ export class InternalCaApplicationService {
       approvalMode: 'none',
       status: 'active',
       issueAction: { actionId: 'ca.certificate.issue.v1', actionVersion: 'v1' },
+      listAction: { actionId: 'ca.certificate.list.v1', actionVersion: 'v1' },
       queryAction: { actionId: 'ca.certificate.query.v1', actionVersion: 'v1' },
       revokeAction: { actionId: 'ca.certificate.revoke.v1', actionVersion: 'v1' },
       revocationEvidenceAction: { actionId: 'ca.revocation.evidence.v1', actionVersion: 'v1' },
@@ -772,6 +798,19 @@ export class InternalCaApplicationService {
     const provider = await this.requireProvider(tenantId, input.providerId);
     if (provider.deploymentMode !== input.deploymentMode || provider.runtimePlatform !== input.runtimePlatform) {
       throw new AppError('CA_TOPOLOGY_INVALID', 'CA 创建参数与 Provider 部署模式不一致');
+    }
+    const existingAuthorities = isMicrosoftAdcsProvider(provider) ? await this.repository.listAuthorities(tenantId) : [];
+    const adcsAuthorityReuse = resolveAdcsAuthorityReuse(input, provider, existingAuthorities);
+    if (adcsAuthorityReuse.error) {
+      throw adcsAuthorityReuse.error;
+    }
+    if (adcsAuthorityReuse.authority) {
+      await this.audit('internal_ca.authority.reused', input.actorId, 'certificate_authority.create', 'certificate_authority', adcsAuthorityReuse.authority.id, 'high', context, {
+        providerId: provider.id,
+        reused: true,
+        identity: adcsAuthorityReuse.identity,
+      });
+      return [sanitizeAuthority(adcsAuthorityReuse.authority)];
     }
     const trustDomain = input.trustDomainId
       ? await this.requireUsableTrustDomain(tenantId, input.trustDomainId)
@@ -2000,6 +2039,49 @@ function requiredText(value: string, field: string): string {
 
 function optionalText(value?: string): string | undefined {
   return value?.trim() || undefined;
+}
+
+function resolveAdcsAuthorityReuse(
+  input: CreateAuthorityInput,
+  provider: CaProviderEntity,
+  authorities: CertificateAuthorityEntity[],
+): { authority?: CertificateAuthorityEntity; identity?: string; error?: AppError } {
+  if (!isMicrosoftAdcsProvider(provider)) return {};
+  const active = authorities.filter((authority) => (
+    authority.providerId === provider.id
+    && authority.topologyMode === 'external_managed'
+    && authority.status === 'active'
+  ));
+  if (active.length === 0) return {};
+
+  const identity = adcsAuthorityIdentity(input.configuration, provider.configuration);
+  if (identity) {
+    const authority = active.find((item) => adcsAuthorityIdentity(item.configuration, provider.configuration) === identity);
+    return authority ? { authority, identity } : {};
+  }
+  if (active.length === 1) {
+    return { authority: active[0], identity: adcsAuthorityIdentity(active[0].configuration, provider.configuration) };
+  }
+  return {
+    error: new AppError('CA_TOPOLOGY_INVALID', 'Microsoft AD CS Provider 已关联多个活动 CA，请填写唯一的 caConfig 后再创建', {
+      providerId: provider.id,
+      existingAuthorityIds: active.map((authority) => authority.id),
+    }),
+  };
+}
+
+function isMicrosoftAdcsProvider(provider: CaProviderEntity): boolean {
+  return provider.type === 'plugin' && textValue(provider.configuration.providerKind)?.toLowerCase() === 'microsoft_adcs';
+}
+
+function adcsAuthorityIdentity(
+  authorityConfiguration: Record<string, unknown> | undefined,
+  providerConfiguration: Record<string, unknown>,
+): string | undefined {
+  const authorityValue = authorityConfiguration?.caConfig;
+  const providerValue = providerConfiguration.caConfig;
+  const value = textValue(authorityValue) ?? textValue(providerValue);
+  return value?.toLowerCase();
 }
 
 function textValue(value: unknown): string | undefined {

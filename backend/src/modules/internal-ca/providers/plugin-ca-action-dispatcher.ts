@@ -161,9 +161,11 @@ interface ActionContract {
   hostPermissions: string[];
 }
 
-function selectAction(binding: ProviderActionBindingEntity, action: 'issue' | 'query' | 'revoke' | 'revocation_evidence'): ProviderActionReference {
+function selectAction(binding: ProviderActionBindingEntity, action: 'issue' | 'list' | 'query' | 'revoke' | 'revocation_evidence'): ProviderActionReference {
   const reference = action === 'issue'
     ? binding.issueAction
+    : action === 'list'
+      ? binding.listAction
     : action === 'query'
       ? binding.queryAction
       : action === 'revoke'
@@ -197,7 +199,7 @@ function createActionBinding(
   plugin: UnifiedPluginVersionRecord,
   provider: CaProviderEntity,
   providerBinding: ProviderActionBindingEntity,
-  action: 'issue' | 'query' | 'revoke' | 'revocation_evidence',
+  action: 'issue' | 'list' | 'query' | 'revoke' | 'revocation_evidence',
   reference: ProviderActionReference,
   contract: ActionContract,
 ): PluginActionBindingV1 {
@@ -263,6 +265,12 @@ function normalizeActionOutput(action: string, output: Record<string, unknown>):
       detail: 'pending-agent-execution',
     };
   }
+  if (action === 'list') {
+    if (!Array.isArray(object.records) || typeof object.complete !== 'boolean') {
+      throw new AppError('CA_PROVIDER_RESULT_INVALID', '外部 CA 历史查询结果缺少 records 或 complete');
+    }
+    return object;
+  }
   if (action === 'issue' || action === 'query') {
     const providerRequestId = typeof object.providerRequestId === 'string' ? object.providerRequestId : typeof object.stableKey === 'string' ? object.stableKey : undefined;
     if (!providerRequestId) throw new AppError('CA_PROVIDER_RESULT_INVALID', '外部 CA 插件结果缺少 providerRequestId');
@@ -282,6 +290,7 @@ function operationForAction(action: string, payload: Record<string, unknown>): s
     const operation = payload.operation.trim();
     const aliases: Record<string, string> = {
       issue: 'ca.certificate.issue',
+      list: 'ca.certificate.list',
       query: 'ca.certificate.query',
       renew: 'ca.certificate.renew',
       revoke: 'ca.certificate.revoke',
@@ -289,7 +298,7 @@ function operationForAction(action: string, payload: Record<string, unknown>): s
     };
     return aliases[operation] ?? operation;
   }
-  return action === 'issue' ? 'ca.certificate.issue' : action === 'query' ? 'ca.certificate.query' : action === 'revoke' ? 'ca.certificate.revoke' : 'ca.revocation.evidence';
+  return action === 'issue' ? 'ca.certificate.issue' : action === 'list' ? 'ca.certificate.list' : action === 'query' ? 'ca.certificate.query' : action === 'revoke' ? 'ca.certificate.revoke' : 'ca.revocation.evidence';
 }
 
 function schemaHash(schema: JsonSchema): string { return `sha256:${createHash('sha256').update(canonicalize(schema), 'utf8').digest('hex')}`; }
@@ -305,7 +314,7 @@ function firstNormalizedObject(output: Record<string, unknown>): Record<string, 
   return Array.isArray(output.normalizedObjects) && isRecord(output.normalizedObjects[0]) ? output.normalizedObjects[0] : output;
 }
 
-function normalizeAdcsTaskResult(action: 'issue' | 'query' | 'revoke' | 'revocation_evidence', task: AgentTaskEnvelope): Record<string, unknown> {
+function normalizeAdcsTaskResult(action: 'issue' | 'list' | 'query' | 'revoke' | 'revocation_evidence', task: AgentTaskEnvelope): Record<string, unknown> {
   const result = readRecord(task.result);
   if (result?.success !== true) {
     throw new AppError('CA_PROVIDER_UNAVAILABLE', 'AD CS Agent 任务结果未确认成功', { taskId: task.id, status: result?.status });
@@ -315,6 +324,12 @@ function normalizeAdcsTaskResult(action: 'issue' | 'query' | 'revoke' | 'revocat
     ? detail.operationResults.filter(isRecord)
     : [];
   const operation = operationResults.at(-1) ?? detail;
+  if (action === 'list') {
+    if (!Array.isArray(operation.records) || typeof operation.complete !== 'boolean') {
+      throw new AppError('CA_PROVIDER_RESULT_INVALID', 'AD CS Agent Receipt 缺少历史记录批次');
+    }
+    return operation;
+  }
   if (action === 'issue' || action === 'query') {
     if (typeof operation.providerRequestId !== 'string' || typeof operation.status !== 'string') {
       throw new AppError('CA_PROVIDER_RESULT_INVALID', 'AD CS Agent Receipt 缺少签发结果');

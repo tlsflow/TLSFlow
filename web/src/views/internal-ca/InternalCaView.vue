@@ -4,7 +4,6 @@ import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import { internalCaApi, type InternalCaRecord } from '@/api/modules/internal-ca.api'
 import { createWindowsAdcsInstallSession, listAgents } from '@/api/modules/assets.api'
-import { listUnifiedPluginVersions } from '@/api/modules/plugins.api'
 import { GcDataTable, GcModal, GcPageHeader, GcStatusTag } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
@@ -23,7 +22,6 @@ const renewals = ref<InternalCaRecord[]>([])
 const revocations = ref<InternalCaRecord[]>([])
 const trustDistributions = ref<InternalCaRecord[]>([])
 const reuseRisks = ref<InternalCaRecord[]>([])
-const registeredAdcsAgents = ref<InternalCaRecord[]>([])
 const riskOverview = ref<InternalCaRecord>({})
 const authorityPreview = ref<InternalCaRecord | null>(null)
 const remediationPreview = ref<InternalCaRecord | null>(null)
@@ -116,14 +114,11 @@ async function loadAll() {
   loading.value = true
   error.value = ''
   try {
-    const [providerResult, trustDomainResult, authorityResult, profileResult, requestResult, renewalResult, revocationResult, trustResult, riskResult, overviewResult, agentResult] = await Promise.all([
+    const [providerResult, trustDomainResult, authorityResult, profileResult, requestResult, renewalResult, revocationResult, trustResult, riskResult, overviewResult] = await Promise.all([
       internalCaApi.listProviders(), internalCaApi.listTrustDomains(), internalCaApi.listAuthorities(), internalCaApi.listProfiles(), internalCaApi.listRequests(),
       internalCaApi.listRenewals(), internalCaApi.listRevocations(), internalCaApi.listTrustDistributions(), internalCaApi.listReuseRisks(), internalCaApi.reuseRiskOverview(),
-      listAgents({ page: 1, pageSize: 100 }),
     ])
     providers.value = providerResult.data ?? []
-    registeredAdcsAgents.value = (agentResult.data?.items ?? []).filter((item) => text(item.role) === 'adcs_agent' && text(asRecord(item.descriptor).osType) === 'windows_adcs')
-    await autoRegisterAdcsAgents()
     trustDomains.value = trustDomainResult.data ?? []
     authorities.value = authorityResult.data ?? []
     profiles.value = profileResult.data ?? []
@@ -148,46 +143,6 @@ async function loadAll() {
     error.value = t('internalCa.messages.loadFailed')
   } finally {
     loading.value = false
-  }
-}
-
-async function autoRegisterAdcsAgents(): Promise<void> {
-  const unregistered = registeredAdcsAgents.value.filter((agent) => !providers.value.some((provider) => {
-    if (!isAdcsProvider(provider) || text(provider.status, 'active') !== 'active') return false
-    const configuration = asRecord(provider.configuration)
-    return text(configuration.agentId) === text(agent.id)
-  }))
-  if (!unregistered.length) return
-  const pluginResult = await listUnifiedPluginVersions()
-  const plugin = ((pluginResult.data?.items ?? []) as unknown as Array<Record<string, unknown>>)
-    .filter((item) => text(item.pluginId) === 'ca.microsoft-adcs' && text(item.runtime) === 'WORKFLOW_DSL' && text(item.status) === 'ENABLED')
-    .sort((left, right) => text(right.version).localeCompare(text(left.version), undefined, { numeric: true }))[0]
-  if (!plugin) return
-  for (const agent of unregistered) {
-    const agentId = text(agent.id)
-    const agentKey = text(agent.agentKey)
-    if (!agentId || !agentKey) continue
-    let providerId = ''
-    try {
-      const created = await internalCaApi.createProvider({
-        name: text(asRecord(agent.descriptor).caName, text(asRecord(agent.descriptor).hostname, agentKey)), type: 'plugin', deploymentMode: 'external', runtimePlatform: 'windows', availabilityMode: 'single',
-        configuration: { providerKind: 'microsoft_adcs', profile: 'windows.agent_plan.adcs', agentId, agentKey, registrationStatus: 'linked', pluginVersionId: text(plugin.id) },
-      })
-      providerId = text(created.data?.id)
-      if (!providerId) continue
-      await internalCaApi.createProviderActionBinding(providerId, {
-        pluginVersionId: text(plugin.id), executionLocation: 'control_plane', approvalMode: 'none', status: 'active',
-        issueAction: { actionId: 'ca.certificate.issue.v1', actionVersion: 'v1' },
-        queryAction: { actionId: 'ca.certificate.query.v1', actionVersion: 'v1' },
-        revokeAction: { actionId: 'ca.certificate.revoke.v1', actionVersion: 'v1' },
-        revocationEvidenceAction: { actionId: 'ca.revocation.evidence.v1', actionVersion: 'v1' },
-        capabilityEvidence: { providerKind: 'microsoft_adcs', agentId, agentKey },
-      })
-      providers.value.push(created.data ?? {})
-    } catch (caught) {
-      if (providerId) await internalCaApi.deleteProvider(providerId).catch(() => undefined)
-      error.value = caught instanceof ApiClientError ? caught.message : t('internalCa.adcs.messages.autoRegistrationFailed')
-    }
   }
 }
 

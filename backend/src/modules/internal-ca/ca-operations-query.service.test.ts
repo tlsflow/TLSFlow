@@ -4,6 +4,7 @@ import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { CaOperationsQueryService } from './application/ca-operations-query.service.js';
+import { CaOperationsAdapterRegistry } from './providers/ca-operations.js';
 import { CaOperationsRepository } from './repository/ca-operations.repository.js';
 import { InternalCaRepository } from './repository/internal-ca.repository.js';
 
@@ -86,6 +87,50 @@ test('统一运营查询合并原生与外部事实，使用稳定游标且拒�
     () => service.records(tenantId, { caId, view: 'issuance', sort: 'serialNumber:asc', limit: 50 }),
     (error: unknown) => error instanceof AppError && error.errorCode === 'CA_OPERATIONS_QUERY_INVALID',
   );
+});
+
+test('没有运营适配器的 plugin CA 仍可读取已持久化的历史记录', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const repository = new InternalCaRepository(database);
+  const provider = await repository.saveProvider({
+    id: 'provider-plugin', tenantId, name: 'Plugin CA', type: 'plugin', deploymentMode: 'external', runtimePlatform: 'windows', availabilityMode: 'single',
+    capabilities: {
+      discoverHierarchy: false, createRoot: false, createIntermediate: false, signCsr: true, queryIssuance: true,
+      revokeCertificate: true, publishCrl: false, ocsp: false, listProfiles: false, deviceLocalCsr: false,
+      hardwareBackedKey: false, highAvailability: false,
+    }, status: 'active', configuration: { providerKind: 'microsoft_adcs' }, createdAt: '2026-07-24T12:00:00.000Z', updatedAt: '2026-07-24T12:00:00.000Z',
+  });
+  const authority = await repository.saveAuthority({
+    id: 'ca-plugin', tenantId, name: 'Plugin CA', role: 'root', topologyMode: 'external_managed', providerId: provider.id,
+    securityDomain: 'test', status: 'active', subjectCommonName: 'Plugin CA',
+    createdAt: '2026-07-24T12:00:00.000Z', updatedAt: '2026-07-24T12:00:00.000Z',
+  });
+  await new CaOperationsRepository(database).upsertExternalObservation({
+    id: 'plugin-request-1', tenantId, providerId: provider.id, caId: authority.id, objectType: 'request', externalObjectId: 'request:1',
+    normalizedStatus: 'pending', subjectCommonName: 'plugin.example.test', rawSummary: { source: 'persisted' },
+    observedAt: '2026-07-24T12:01:00.000Z', firstObservedAt: '2026-07-24T12:01:00.000Z',
+    createdAt: '2026-07-24T12:01:00.000Z', updatedAt: '2026-07-24T12:01:00.000Z',
+  });
+
+  const adapters = new CaOperationsAdapterRegistry().register('plugin', {
+    getOperationsCapabilities: () => ({
+      listRequests: false, listIssuedCertificates: false, listRevokedCertificates: false, listTemplates: false,
+      synchronizeHistory: false, approvePendingRequest: false, denyPendingRequest: false, publishCrl: false,
+    }),
+    async listOperationRecords() { return { records: [], complete: true }; },
+  });
+  const service = new CaOperationsQueryService(database, adapters, undefined, repository);
+  const page = await service.records(tenantId, { caId: authority.id, view: 'request', limit: 50 });
+  assert.equal(page.total, 1);
+  assert.equal(page.items[0]?.recordKey, 'external:plugin-request-1');
+  await assert.rejects(
+    () => service.records(tenantId, { caId: authority.id, view: 'issuance', limit: 50 }),
+    (error: unknown) => error instanceof AppError && error.errorCode === 'CA_OPERATIONS_VIEW_UNSUPPORTED',
+  );
+
+  const tree = await service.tree(tenantId, async () => true);
+  assert.deepEqual(tree.unassignedAuthorities[0]?.views, [{ objectType: 'request', count: 1 }]);
 });
 
 test('资源树只返回通过同一读取范围校验的 CA', async () => {

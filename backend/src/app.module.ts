@@ -445,12 +445,49 @@ export function createApp(dependencies: AppDependencies = {}): App {
     tasksService,
     pluginFactPipeline,
   );
-  agentsService.setAdcsRegistrationProvisioner(async (input) => {
-    const plugin = (await unifiedPluginsService.listAccessibleVersions(input.tenantId))
+  const resolveAdcsPluginVersion = async (tenantId: string) => (await unifiedPluginsService.listAccessibleVersions(tenantId))
       .filter((version) => version.pluginId === 'ca.microsoft-adcs' && version.runtime === 'WORKFLOW_DSL' && version.status === 'ENABLED')
       .sort((left, right) => right.version.localeCompare(left.version, undefined, { numeric: true }))[0];
+  agentsService.setAdcsRegistrationProvisioner(async (input) => {
+    const plugin = await resolveAdcsPluginVersion(input.tenantId);
     if (!plugin) throw new AppError('RESOURCE_NOT_FOUND', 'Microsoft AD CS 插件未启用，无法登记 AD CS Agent');
     await internalCaService.ensureAdcsProviderForAgent({ ...input, pluginVersionId: plugin.id });
+  });
+  const adcsProviderReconciliationPromises = new Map<string, Promise<void>>();
+  internalCaService.setAdcsProviderReconciler((tenantId) => {
+    const existing = adcsProviderReconciliationPromises.get(tenantId);
+    if (existing) return existing;
+    const reconciliation = (async () => {
+      const plugin = await resolveAdcsPluginVersion(tenantId);
+      if (!plugin) return;
+      for (const agent of await agentsService.listAdcsAgents(tenantId)) {
+        try {
+          await internalCaService.ensureAdcsProviderForAgent({
+            tenantId,
+            agentId: agent.id,
+            agentKey: agent.agentKey,
+            name: agent.descriptor.caName || agent.descriptor.hostname || agent.agentKey,
+            pluginVersionId: plugin.id,
+          });
+        } catch (error) {
+          structuredLogger.warn('已注册 AD CS Agent 的 issuing backend 补偿登记失败', {
+            agentId: agent.id,
+            error: error instanceof Error ? error.message : String(error),
+          }, { module: 'internal-ca', tenantId, resourceType: 'agent', resourceId: agent.id });
+        }
+      }
+    })().catch((error) => {
+      structuredLogger.warn('AD CS issuing backend 补偿扫描失败', {
+        error: error instanceof Error ? error.message : String(error),
+      }, { module: 'internal-ca', tenantId, resourceType: 'ca_provider' });
+    });
+    adcsProviderReconciliationPromises.set(tenantId, reconciliation);
+    void reconciliation.finally(() => {
+      if (adcsProviderReconciliationPromises.get(tenantId) === reconciliation) {
+        adcsProviderReconciliationPromises.delete(tenantId);
+      }
+    });
+    return reconciliation;
   });
   internalCaService.setPluginActionDispatcher(new PluginCaActionDispatcher(
     unifiedPluginsService,

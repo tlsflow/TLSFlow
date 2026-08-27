@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
@@ -17,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -325,7 +327,7 @@ func discoverCaName(ctx context.Context) string {
 }
 
 func adcsCapabilities() []string {
-	return []string{"ca.microsoft-adcs", "ca.microsoft-adcs.status", "ca.certificate.issue", "ca.certificate.renew", "ca.certificate.query", "ca.certificate.revoke", "ca.revocation.evidence", "ca.crl.status", "ca.crl.publish"}
+	return []string{"ca.microsoft-adcs", "ca.microsoft-adcs.status", "ca.certificate.issue", "ca.certificate.renew", "ca.certificate.query", "ca.certificate.list", "ca.certificate.revoke", "ca.revocation.evidence", "ca.crl.status", "ca.crl.publish"}
 }
 
 func reportCapabilities(ctx context.Context, client *http.Client, config *AgentConfig, reg *registration) error {
@@ -520,6 +522,8 @@ func executeAdcsOperation(ctx context.Context, operationType string, input map[s
 		return adcsSubmit(ctx, input, caConfig)
 	case "query", "ca.certificate.query", "ca.certificate.query.v1":
 		return adcsRetrieve(ctx, input, caConfig)
+	case "list", "ca.certificate.list", "ca.certificate.list.v1":
+		return adcsList(ctx, input, caConfig)
 	case "revoke", "ca.certificate.revoke", "ca.certificate.revoke.v1":
 		return adcsRevoke(ctx, input, caConfig)
 	case "revocation_evidence", "ca.revocation.evidence", "ca.revocation.evidence.v1":
@@ -530,6 +534,191 @@ func executeAdcsOperation(ctx context.Context, operationType string, input map[s
 		return adcsCrl(ctx, operationType, input, caConfig)
 	default:
 		return nil, fmt.Errorf("AD CS Agent 不支持操作：%s", operationType)
+	}
+}
+
+// adcsList 使用 certutil 的固定列集合读取 CA 数据库，返回公开摘要和请求号游标。
+// 不读取私钥、凭据或证书内容；limit+1 行用于判断是否还有下一页。
+func adcsList(ctx context.Context, input map[string]any, caConfig string) (map[string]any, error) {
+	objectType := stringValue(input, "objectType")
+	if objectType != "request" && objectType != "issuance" && objectType != "revocation" {
+		return nil, errors.New("AD CS list requires request, issuance or revocation objectType")
+	}
+	limit := intValue(input, "limit")
+	if limit < 1 || limit > 500 {
+		return nil, errors.New("AD CS list limit must be between 1 and 500")
+	}
+	args := []string{"-view"}
+	if caConfig != "" {
+		args = append(args, "-config", caConfig)
+	}
+	if cursor := stringValue(input, "cursor"); cursor != "" {
+		if _, err := strconv.Atoi(cursor); err != nil {
+			return nil, errors.New("AD CS list cursor must be a numeric RequestID")
+		}
+		args = append(args, "-restrict", "RequestID>="+cursor)
+	}
+	args = append(args, "-out", "Request.RequestID,Request.Disposition,Request.RequesterName,Request.SubmittedWhen,Request.ResolvedWhen,Request.RevokedWhen,Request.CommonName,CertificateTemplate,SerialNumber,NotBefore,NotAfter", "csv")
+	output, err := runCommand(ctx, "certutil.exe", args...)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := parseAdcsViewCsv(output)
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].requestID < rows[j].requestID })
+	filtered := rows[:0]
+	for _, row := range rows {
+		if objectType == "issuance" && row.normalizedStatus != "issued" {
+			continue
+		}
+		if objectType == "revocation" && row.normalizedStatus != "revoked" {
+			continue
+		}
+		filtered = append(filtered, row)
+	}
+	rows = filtered
+	complete := len(rows) <= limit
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	records := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		records = append(records, row.observation())
+	}
+	result := map[string]any{"records": records, "complete": complete, "caConfig": caConfig}
+	if !complete && len(rows) > 0 {
+		result["nextCursor"] = strconv.FormatInt(rows[len(rows)-1].requestID+1, 10)
+	}
+	for _, row := range rows {
+		if row.submittedWhen != "" {
+			result["sourceWatermark"] = row.submittedWhen
+		}
+	}
+	return result, nil
+}
+
+type adcsViewRow struct {
+	requestID        int64
+	disposition      string
+	normalizedStatus string
+	commonName       string
+	template         string
+	serialNumber     string
+	notBefore        string
+	notAfter         string
+	submittedWhen    string
+	revokedWhen      string
+	requester        string
+}
+
+func (row adcsViewRow) observation() map[string]any {
+	observation := map[string]any{
+		"externalObjectId":   fmt.Sprintf("request:%d", row.requestID),
+		"normalizedStatus":   row.normalizedStatus,
+		"sourceStatus":       row.disposition,
+		"sourceRevision":     strconv.FormatInt(row.requestID, 10),
+		"subjectCommonName":  row.commonName,
+		"templateExternalId": row.template,
+		"requestedByDisplay": row.requester,
+		"submittedAt":        row.submittedWhen,
+		"issuedAt":           "",
+		"revokedAt":          row.revokedWhen,
+		"notBefore":          row.notBefore,
+		"notAfter":           row.notAfter,
+		"rawSummary": map[string]any{
+			"requestId": row.requestID, "disposition": row.disposition,
+			"commonName": row.commonName, "template": row.template,
+			"serialNumber": row.serialNumber, "requester": row.requester,
+		},
+	}
+	if row.serialNumber != "" {
+		observation["serialNumber"] = row.serialNumber
+	}
+	return observation
+}
+
+func parseAdcsViewCsv(output string) ([]adcsViewRow, error) {
+	reader := csv.NewReader(strings.NewReader(strings.TrimPrefix(output, "\ufeff")))
+	reader.FieldsPerRecord = -1
+	rows, err := reader.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("解析 AD CS certutil CSV 失败：%w", err)
+	}
+	if len(rows) < 2 {
+		return []adcsViewRow{}, nil
+	}
+	header := make([]string, len(rows[0]))
+	for i, value := range rows[0] {
+		header[i] = strings.ToLower(strings.TrimSpace(value))
+	}
+	index := func(name string) int {
+		for i, value := range header {
+			if value == strings.ToLower(name) {
+				return i
+			}
+		}
+		return -1
+	}
+	requestIDIndex := index("Request.RequestID")
+	if requestIDIndex < 0 {
+		requestIDIndex = index("RequestID")
+	}
+	if requestIDIndex < 0 {
+		return nil, errors.New("AD CS certutil CSV 缺少 RequestID 列")
+	}
+	value := func(row []string, name string) string {
+		i := index(name)
+		if i < 0 || i >= len(row) {
+			return ""
+		}
+		return strings.TrimSpace(row[i])
+	}
+	parsed := make([]adcsViewRow, 0, len(rows)-1)
+	for _, record := range rows[1:] {
+		requestIDText := value(record, "Request.RequestID")
+		if requestIDText == "" {
+			requestIDText = value(record, "RequestID")
+		}
+		requestID, parseErr := strconv.ParseInt(requestIDText, 10, 64)
+		if parseErr != nil || requestID < 1 {
+			continue
+		}
+		disposition := value(record, "Request.Disposition")
+		if disposition == "" {
+			disposition = value(record, "Disposition")
+		}
+		revokedWhen := value(record, "RevokedWhen")
+		if revokedWhen == "" {
+			revokedWhen = value(record, "Request.RevokedWhen")
+		}
+		parsed = append(parsed, adcsViewRow{
+			requestID: requestID, disposition: disposition, normalizedStatus: normalizeAdcsDisposition(disposition, revokedWhen),
+			commonName: value(record, "Request.CommonName"), template: value(record, "CertificateTemplate"),
+			serialNumber: value(record, "SerialNumber"), notBefore: value(record, "NotBefore"), notAfter: value(record, "NotAfter"),
+			submittedWhen: value(record, "Request.SubmittedWhen"), revokedWhen: revokedWhen, requester: value(record, "Request.RequesterName"),
+		})
+	}
+	return parsed, nil
+}
+
+func normalizeAdcsDisposition(disposition, revokedWhen string) string {
+	if revokedWhen != "" {
+		return "revoked"
+	}
+	value := strings.ToLower(strings.TrimSpace(disposition))
+	switch value {
+	case "20", "issued", "issued certificate":
+		return "issued"
+	case "9", "pending", "pending request":
+		return "pending"
+	case "11", "denied", "rejected":
+		return "rejected"
+	case "failed", "error":
+		return "failed"
+	default:
+		return "unknown"
 	}
 }
 
@@ -808,6 +997,22 @@ func tempPath(pattern string) (string, error) {
 func stringValue(input map[string]any, key string) string {
 	value, _ := input[key].(string)
 	return strings.TrimSpace(value)
+}
+
+func intValue(input map[string]any, key string) int {
+	switch value := input[key].(type) {
+	case int:
+		return value
+	case int64:
+		return int(value)
+	case float64:
+		return int(value)
+	case string:
+		parsed, _ := strconv.Atoi(strings.TrimSpace(value))
+		return parsed
+	default:
+		return 0
+	}
 }
 func parseRequestID(output string) string {
 	lower := strings.ToLower(output)

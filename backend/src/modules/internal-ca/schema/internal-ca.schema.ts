@@ -251,6 +251,8 @@ export interface ProviderActionBindingEntity {
   pluginVersionId: string;
   executionLocation: ProviderActionExecutionLocation;
   issueAction: ProviderActionReference;
+  /** 外部 CA 历史运营记录列表动作。首期仅 Microsoft AD CS 使用。 */
+  listAction?: ProviderActionReference;
   queryAction?: ProviderActionReference;
   revokeAction?: ProviderActionReference;
   revocationEvidenceAction?: ProviderActionReference;

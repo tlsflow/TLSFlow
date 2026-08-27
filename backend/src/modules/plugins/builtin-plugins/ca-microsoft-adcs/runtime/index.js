@@ -118,6 +118,17 @@ function executeCaPort(context, input, operation, security, credential) {
       status: 'pending-agent-execution',
     });
   }
+  if (operation === 'ca.certificate.list') {
+    return successResult('list', {
+      kind: 'CertificateOperationBatch',
+      apiVersion: 'gcac.ca-object/v1',
+      pluginId: PLUGIN_ID,
+      pluginVersionId: context.pluginVersionId,
+      objectType: enumValue(input.objectType, ['request', 'issuance', 'revocation'], 'objectType'),
+      agentPlan: plan,
+      status: 'pending-agent-execution',
+    });
+  }
   if (operation === 'ca.revocation.evidence') {
     return successResult('revocation-evidence', {
       kind: 'RevocationEvidenceQuery',
@@ -180,6 +191,10 @@ function buildAgentPlan(context, input, operation, security, credentialFingerpri
       ...(input.authorityId === undefined ? {} : { authorityId: identifier(input.authorityId, 'authorityId') }),
       ...(input.serialNumber === undefined ? {} : { serialNumber: text(input.serialNumber, 'serialNumber').toUpperCase() }),
       ...(input.providerRequestId === undefined ? {} : { providerRequestId: identifier(input.providerRequestId, 'providerRequestId') }),
+      ...(input.objectType === undefined ? {} : { objectType: enumValue(input.objectType, ['request', 'issuance', 'revocation'], 'objectType') }),
+      ...(input.cursor === undefined ? {} : { cursor: identifier(input.cursor, 'cursor') }),
+      ...(input.changedAfter === undefined ? {} : { changedAfter: text(input.changedAfter, 'changedAfter') }),
+      ...(input.limit === undefined ? {} : { limit: integerRange(input.limit, 1, 500, 'limit') }),
       ...(input.reason === undefined ? {} : { reason: revocationReason(input.reason) }),
       ...(typeof input.csrPem === 'string' ? { csrPem: input.csrPem } : {}),
       ...(typeof input.certificateOutputPath === 'string' ? { certificateOutputPath: input.certificateOutputPath } : {}),
@@ -241,7 +256,7 @@ function validateSecurity(input, context, descriptor) {
 }
 
 function assertWorkflow(input, capability, operation) {
-  const expected = operation === 'operation.recover' ? RECOVERY_WORKFLOW : capability === 'ca.certificate.renew' ? 'ca.certificate.renew' : capability === 'ca.certificate.revoke' ? 'ca.certificate.revoke' : capability === 'ca.certificate.query' ? 'ca.certificate.query' : capability === 'ca.revocation.evidence' ? 'ca.revocation.evidence' : 'ca.certificate.issue';
+  const expected = operation === 'operation.recover' ? RECOVERY_WORKFLOW : capability === 'ca.certificate.renew' ? 'ca.certificate.renew' : capability === 'ca.certificate.revoke' ? 'ca.certificate.revoke' : capability === 'ca.certificate.query' ? 'ca.certificate.query' : capability === 'ca.certificate.list' ? 'ca.certificate.list' : capability === 'ca.revocation.evidence' ? 'ca.revocation.evidence' : 'ca.certificate.issue';
   if (text(input.workflowKey, 'workflowKey') !== expected) throw failure('ADCS_WORKFLOW_BINDING_INVALID', 'ADCS Workflow 绑定不匹配', false, false);
   if (text(input.workflowVersion, 'workflowVersion') !== WORKFLOW_VERSION) throw failure('ADCS_WORKFLOW_VERSION_INVALID', 'ADCS WorkflowVersion 未固定到首版', false, false);
 }
@@ -330,6 +345,7 @@ function identifier(value, name) { const result = text(value, name); if (!/^[A-Z
 function profile(value) { const result = text(value, 'profile'); if (result !== 'windows.agent_plan.adcs') throw failure('ADCS_PROFILE_UNSUPPORTED', 'ADCS 只接受固定 Windows Agent Plan Profile', false, false); return result; }
 function revocationReason(value) { return enumValue(value, ['unspecified', 'keyCompromise', 'caCompromise', 'affiliationChanged', 'superseded', 'cessationOfOperation'], 'reason'); }
 function enumValue(value, values, name) { if (typeof value !== 'string' || !values.includes(value)) throw failure('PLUGIN_CONTRACT_INVALID', `${name} 不在固定集合中`, false, false); return value; }
+function integerRange(value, minimum, maximum, name) { if (!Number.isInteger(value) || value < minimum || value > maximum) throw failure('PLUGIN_CONTRACT_INVALID', `${name} 不在固定范围内`, false, false); return value; }
 function dnsNames(value) { if (!Array.isArray(value) || value.length === 0 || value.length > 100) throw failure('ADCS_SAN_INVALID', 'sans 必须是非空数组', false, false); return value.map((item) => { const result = text(item, 'sans').toLowerCase(); if (!/^(?:\*\.)?[A-Za-z0-9](?:[A-Za-z0-9.-]{0,253}[A-Za-z0-9])?$/.test(result)) throw failure('ADCS_SAN_INVALID', 'SAN 不是合法 DNS 名称', false, false); return result; }); }
 function hash(value) { return createHash('sha256').update(value).digest('hex'); }
 function digest(value) { return `sha256:${hash(canonicalJson(value))}`; }

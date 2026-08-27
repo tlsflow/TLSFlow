@@ -4,9 +4,10 @@ import { PgliteDatabase } from '../../database/pglite-database.js';
 import { runMigrations } from '../../database/migration-runner.js';
 import { createCertificateServices } from '../certificates/index.js';
 import { createSecurityServices } from '../security/security.controller.js';
-import { createApp } from '../../app.module.js';
+import { createApp, createAppAsync } from '../../app.module.js';
 import { InternalCaApplicationService } from './application/internal-ca.application-service.js';
 import { getInternalCaRouteContracts } from './controller/internal-ca.controller.js';
+import type { AgentsApplicationService } from '../agents/application/agents.application-service.js';
 
 const previousSecretKek = process.env.GCAC_SECRET_KEK;
 const previousCaConfirmationSecret = process.env.GCAC_CA_CONFIRMATION_SECRET;
@@ -300,6 +301,58 @@ test('Microsoft AD CS Provider 支持更新并可删除登记而不破坏关联 
     assert.equal(savedProvider?.status, 'disabled');
     assert.equal(savedProvider?.configuration.registrationStatus, 'deleted');
     assert.equal(savedAuthority?.status, 'retired');
+  } finally {
+    await db.close();
+  }
+});
+
+test('同机 AD CS Agent 保持独立注册，并在查询 Provider 时补偿登记', async () => {
+  const db = new PgliteDatabase();
+  await runMigrations(db, 'src/database/migrations');
+  const app = await createAppAsync({ db, corePersistence: { mode: 'memory' } });
+  const agents = app.getResource('agentsService') as AgentsApplicationService;
+  const service = app.getResource('internalCaService') as InternalCaApplicationService;
+  const tenantId = 'tenant-adcs-provider-reconcile';
+  try {
+    const fullAgent = await agents.register(tenantId, {
+      agentKey: 'full-agent-same-host',
+      machineId: 'same-host-machine',
+      hostname: 'same-host',
+      version: '1.0.0',
+      osType: 'WINDOWS',
+      role: 'full_agent',
+      ipAddress: '10.0.0.10',
+    }, 'request_full_same_host');
+    const adcsAgent = await agents.register(tenantId, {
+      agentKey: 'adcs-agent-same-host',
+      machineId: 'same-host-machine',
+      hostname: 'same-host',
+      version: '1.0.0',
+      osType: 'WINDOWS_ADCS',
+      role: 'adcs_agent',
+      ipAddress: '10.0.0.10',
+      caName: 'SAME-HOST-CA',
+    }, 'request_adcs_same_host');
+
+    assert.notEqual(adcsAgent.id, fullAgent.id);
+    assert.equal((await agents.getAgentDetail(tenantId, fullAgent.id)).agent.role, 'full_agent');
+    assert.equal((await agents.getAgentDetail(tenantId, adcsAgent.id)).agent.role, 'adcs_agent');
+
+    const initialProvider = (await service.listProviders(tenantId))
+      .find((provider) => provider.configuration.providerKind === 'microsoft_adcs');
+    assert.equal(initialProvider?.configuration.agentId, adcsAgent.id);
+    assert.ok(initialProvider);
+
+    assert.equal(await service.getRepository().deleteUnboundProvider(tenantId, initialProvider.id), true);
+    assert.equal((await service.getRepository().listProviders(tenantId)).some((provider) => provider.id === initialProvider.id), false);
+
+    const reconciledProvider = (await service.listProviders(tenantId))
+      .find((provider) => provider.configuration.providerKind === 'microsoft_adcs');
+    assert.ok(reconciledProvider);
+    assert.equal(reconciledProvider?.configuration.agentId, adcsAgent.id);
+    assert.equal(reconciledProvider?.status, 'active');
+    const bindings = await service.listProviderActionBindings(tenantId, reconciledProvider!.id);
+    assert.equal(bindings[0]?.listAction?.actionId, 'ca.certificate.list.v1');
   } finally {
     await db.close();
   }

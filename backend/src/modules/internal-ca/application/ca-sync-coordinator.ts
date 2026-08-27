@@ -143,17 +143,18 @@ export class CaSyncCoordinator {
   }
 
   private async failRun(run: CaSyncRunEntity, error: unknown, now: Date): Promise<CaSyncRunEntity> {
-    const attemptCount = (run.attemptCount ?? 0) + 1;
-    const terminal = attemptCount >= maxAttempts || isPermanentSyncError(error);
+    const pending = isPendingSyncError(error);
+    const attemptCount = pending ? 0 : (run.attemptCount ?? 0) + 1;
+    const terminal = !pending && (attemptCount >= maxAttempts || isPermanentSyncError(error));
     const nowIso = now.toISOString();
     const updated: CaSyncRunEntity = {
       ...run,
       status: terminal ? (run.upsertedCount > 0 ? 'partial' : 'failed') : 'queued',
       attemptCount,
-      nextAttemptAt: terminal ? undefined : new Date(now.getTime() + retryDelayMs(attemptCount)).toISOString(),
+      nextAttemptAt: terminal ? undefined : new Date(now.getTime() + (pending ? 5_000 : retryDelayMs(attemptCount))).toISOString(),
       errorCode: error instanceof AppError ? error.errorCode : 'CA_SYNC_SOURCE_UNAVAILABLE',
       errorMessage: String(error instanceof Error ? error.message : error).slice(0, 1024),
-      failedCount: run.failedCount + 1,
+      failedCount: pending ? run.failedCount : run.failedCount + 1,
       leaseOwner: undefined,
       leaseExpiresAt: undefined,
       completedAt: terminal ? nowIso : undefined,
@@ -187,6 +188,11 @@ function retryDelayMs(attemptCount: number): number {
 
 function isPermanentSyncError(error: unknown): boolean {
   return error instanceof AppError && ['CA_SYNC_CURSOR_INVALID', 'CA_SYNC_BATCH_TOO_LARGE', 'CA_OPERATIONS_QUERY_INVALID'].includes(error.errorCode);
+}
+
+function isPendingSyncError(error: unknown): boolean {
+  return error instanceof AppError && error.errorCode === 'CA_SYNC_SOURCE_UNAVAILABLE'
+    && Boolean((error.details as { pending?: unknown } | undefined)?.pending);
 }
 
 function syncActor(run: CaSyncRunEntity): SecuritySubject {

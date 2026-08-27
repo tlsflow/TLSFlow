@@ -43,7 +43,8 @@ export class CaOperationsQueryService {
       const provider = providerById.get(authority.providerId);
       if (!provider) continue;
       const counts = await this.queryRepository.countByObjectType(tenantId, authority.id);
-      const views = supportedViews(provider.type, this.adapters).map((objectType) => ({ objectType, count: counts[objectType] }));
+      const views = operationViews(provider.type, this.adapters, counts)
+        .map((objectType) => ({ objectType, count: counts[objectType] }));
       visibleAuthorities.push({
         id: authority.id, name: authority.name, providerId: provider.id, providerName: provider.name,
         providerType: provider.type, status: authority.status, views,
@@ -64,8 +65,12 @@ export class CaOperationsQueryService {
     if (!authority) throw new AppError('RESOURCE_NOT_FOUND', '证书机构不存在', { caId: normalized.caId });
     const provider = await this.internalRepository.getProvider(tenantId, authority.providerId);
     if (!provider) throw new AppError('RESOURCE_NOT_FOUND', '证书机构 Provider 不存在', { caId: normalized.caId });
-    if (!supportedViews(provider.type, this.adapters).includes(normalized.view)) {
-      throw new AppError('CA_OPERATIONS_VIEW_UNSUPPORTED', '当前 CA 不支持此运营视图', { caId: normalized.caId, view: normalized.view });
+    // 运营适配器能力只控制外部同步；已有原生/历史事实始终保留只读查询入口。
+    if (this.adapters?.has(provider.type) && !supportedViews(provider.type, this.adapters).includes(normalized.view)) {
+      const counts = await this.queryRepository.countByObjectType(tenantId, normalized.caId);
+      if (counts[normalized.view] === 0) {
+        throw new AppError('CA_OPERATIONS_VIEW_UNSUPPORTED', '当前 CA 不支持此运营视图', { caId: normalized.caId, view: normalized.view });
+      }
     }
     const syncState = await this.queryRepository.latestSyncState(tenantId, normalized.caId, normalized.view);
     const integrity = resolveIntegrity(syncState.status);
@@ -129,6 +134,16 @@ function supportedViews(providerType: string, adapters?: CaOperationsAdapterRegi
         : objectType === 'revocation' ? capabilities.listRevokedCertificates
           : capabilities.listTemplates
   ));
+}
+
+function operationViews(
+  providerType: string,
+  adapters: CaOperationsAdapterRegistry | undefined,
+  counts: Record<CaOperationObjectType, number>,
+): CaOperationObjectType[] {
+  const supported = new Set(supportedViews(providerType, adapters));
+  // 适配器暂不可用时，保留已有事实对应的只读视图，避免历史数据被 UI 隐藏。
+  return caOperationObjectTypes.filter((objectType) => supported.has(objectType) || counts[objectType] > 0);
 }
 
 function resolveIntegrity(status?: string): CaOperationIntegrity {

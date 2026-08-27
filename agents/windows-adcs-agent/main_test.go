@@ -53,8 +53,21 @@ func TestRegisterUsesAdcsRoleAndCapabilities(t *testing.T) {
 	if tenantHeader != "tenant-adcs" || agentTokenHeader != "enrollment-adcs" {
 		t.Fatalf("机器请求身份头错误：tenant=%q agent=%q", tenantHeader, agentTokenHeader)
 	}
-	if !contains(request.Capabilities, "ca.microsoft-adcs.status") || !contains(request.Capabilities, "ca.certificate.issue") || !contains(request.Capabilities, "ca.certificate.revoke") || !contains(request.Capabilities, "ca.crl.publish") {
+	if !contains(request.Capabilities, "ca.microsoft-adcs.status") || !contains(request.Capabilities, "ca.certificate.issue") || !contains(request.Capabilities, "ca.certificate.list") || !contains(request.Capabilities, "ca.certificate.revoke") || !contains(request.Capabilities, "ca.crl.publish") {
 		t.Fatalf("AD CS 能力缺失：%v", request.Capabilities)
+	}
+}
+
+func TestParseAdcsViewCsvAndNormalizeStatus(t *testing.T) {
+	rows, err := parseAdcsViewCsv("RequestID,Disposition,Request.CommonName,CertificateTemplate,SerialNumber,NotBefore,NotAfter,Request.SubmittedWhen,RevokedWhen,RequesterName\n1,20,issued.example,WebServer,ABC,2026-01-01,2027-01-01,2026-01-01,,CONTOSO\\alice\n2,9,pending.example,WebServer,,,,2026-01-02,,CONTOSO\\bob\n3,20,revoked.example,WebServer,DEF,2026-01-03,2027-01-03,2026-01-03,2026-02-01,CONTOSO\\carol\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 3 || rows[0].normalizedStatus != "issued" || rows[1].normalizedStatus != "pending" || rows[2].normalizedStatus != "revoked" {
+		t.Fatalf("AD CS CSV 状态解析错误：%+v", rows)
+	}
+	if got := rows[0].observation()["externalObjectId"]; got != "request:1" {
+		t.Fatalf("稳定外部对象 ID 错误：%v", got)
 	}
 }
 
