@@ -1823,19 +1823,19 @@ export default {
         description: 'View Agent-managed assets and their deployment status.'
       },
       assets: {
-        title: 'Managed applications',
+        title: 'Applications',
         description: 'Maintain domains, ports, and deployment targets.'
       },
       audits: {
-        title: 'Audit logs',
+        title: 'Audits',
         description: 'Trace operators and execution results.'
       },
       certificates: {
-        title: 'Certificate lifecycle',
+        title: 'Certificates',
         description: 'Import, view, and convert certificates.'
       },
       deploymentPlans: {
-        title: 'Deployment plans',
+        title: 'Deployments',
         description: 'Create and execute certificate update plans.'
       },
       gateways: {
