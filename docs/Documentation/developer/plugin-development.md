@@ -126,9 +126,9 @@ Tomcat KeyStore 插件的密码字段必须声明为可选 Credential：优先�
 密码不能写入发现事实、普通快照、Receipt、审计或日志；部署前还必须确认生成产物与目标现有 KeyStore
 使用同一密码。
 
-### 5.2 表单
+### 5.2 设备表单与凭据
 
-设备和云账号优先复用标准字段。敏感信息使用 `credential_ref` 或 `secret_ref`，并声明允许的凭据种类、Secret 类型、作用域和目的。不要把密码设计成普通文本字段，也不要把 Token 放进默认值或占位符。
+设备优先复用标准字段。云账号接入不提供 Provider 专用表单，资源创建由统一向导的通用资源状态承载。敏感信息使用 `credential_ref` 或 `secret_ref`，并声明允许的凭据种类、Secret 类型、作用域和目的。不要把密码设计成普通文本字段，也不要把 Token 放进默认值或占位符。
 
 表单的动态选项只能调用低风险只读能力；条件显示和条件启用必须形成无环依赖。标准字段目录可以通过 `GET /api/v1/plugin-form/standard-fields` 查询。
 
@@ -142,7 +142,7 @@ Tomcat KeyStore 插件的密码字段必须声明为可选 Credential：优先�
 
 应用接入配方使用 `gcac.application-onboarding/v1`，完整字段和校验规则见[宿主插件能力清单](./host-plugin-capabilities.md#应用接入配方-schema)。
 
-云 Provider 必须声明 `assetKind=CLOUD_ACCOUNT` 的接入配方，并接入统一五步 `Platform → Resource → Site → Certificate → Complete`。配方提供 Form、Credential Contract、连接测试、发现能力、CloudAccountAsset 提交目标、目标类型和完成能力声明。Resource 步骤可选择或新建云账号，Site 步骤必须选择真实 SiteAsset，Certificate 步骤必须选择精确版本；发现型 Provider 完成后只能保存“已配置”，证书部署仍由 V1 DSL 负责。两个入口共用同一会话和提交服务，不得实现独立模态框或 Provider CRUD 旁路。
+云 Provider 必须声明 `assetKind=CLOUD_ACCOUNT` 的接入配方，并接入统一五步 `Platform → Resource → Site → Certificate → Complete`。配方提供资源选择/创建方式、Credential Contract、连接测试、发现能力、CloudAccountAsset 提交目标、目标类型和完成能力声明，不提供账号专用表单。Resource 步骤可选择或在通用资源状态中新建云账号，设备资源仍按标准设备接入流程处理；Site 步骤必须选择真实 SiteAsset，Certificate 步骤必须选择精确版本。发现型 Provider 完成后只能保存“已配置”，证书部署仍由 V1 DSL 负责。两个入口共用同一会话和提交服务，不得实现独立模态框或 Provider CRUD 旁路。
 
 ## 6. 编写 Workflow 或 Agent Plan
 

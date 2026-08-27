@@ -10,7 +10,6 @@ codeRefs:
   - web/src/views/assets/AssetsView.vue
   - web/src/views/application-onboarding/ApplicationOnboardingModal.vue
   - web/src/views/application-onboarding/ApplicationOnboardingView.vue
-  - web/src/design-system/components/GcPluginForm.vue
   - backend/src/modules/providers
 testRefs: []
 lastVerified: 2026-08-26
@@ -18,12 +17,12 @@ lastVerified: 2026-08-26
 
 # 云账号接入
 
-云账号是平台连接云服务的独立 `CloudAccountAsset`。用户从资产中心“添加资产”或统一服务向导进入同一套五步接入流程：`Platform → Resource → Site → Certificate → Complete`。第二步选择已有云账号或在当前内容区用插件标准表单新建账号，第三步选择发现得到的真实站点，第四步选择证书资产和精确版本；不能通过独立账号模态框完成。访问密钥等敏感内容应先在“系统设置 → 凭据”中建立。
+云账号是平台连接云服务的独立 `CloudAccountAsset`。用户从资产中心“添加资产”或统一服务向导进入同一套五步接入流程：`Platform → Resource → Site → Certificate → Complete`。第二步选择已有云账号或在通用资源状态中新建账号，第三步选择发现得到的真实站点，第四步选择证书资产和精确版本；不能通过 Provider 专用表单或独立账号模态框完成。访问密钥等敏感内容应先在“系统设置 → 凭据”中建立。
 
 ## 添加云账号
 
 1. 进入“资产中心”点击“添加资产”，或从统一服务向导选择云服务插件。
-2. 在 Resource 步骤选择已有 `CloudAccountAsset`，或在当前步骤展开插件标准表单新建一条账号资产。
+2. 在 Resource 步骤选择已有 `CloudAccountAsset`，或在当前步骤使用通用资源状态新建一条账号资产；新建只提交显示名称和 CredentialRef。
 3. 选择凭据档案并测试连接；连接未成功不能进入下一步。
 4. 在 Site 步骤运行发现，选择真实的域名/资源。阿里云 CDN 按中国大陆和国际站 Framework 分组展示。
 5. 在 Certificate 步骤选择证书资产和精确证书版本。

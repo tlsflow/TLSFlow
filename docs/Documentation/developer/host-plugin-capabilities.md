@@ -207,12 +207,12 @@ Manifest 固定根字段：
 | `workflows` | 能力对应的 Workflow DSL |
 | `inputContracts` | 变量、连接、凭据和 Artifact 输入合同 |
 | `actionContracts` | Action 的输入输出和行为合同 |
-| `forms` | 设备、云账号或高级配置表单 |
+| `forms` | 设备或高级配置表单；云账号接入不使用 Provider 专用表单 |
 | `presentations` | 设备、应用、证书绑定或云资源展示 |
 | `locales` | Locale 文案资源 |
 | `discoveryMappings` | 控制面发现映射 |
 | `agentDiscoveryMappings` | Agent 发现映射 |
-| `onboarding` | 统一五步接入配方；云账号声明 `assetKind=CLOUD_ACCOUNT`、资源选择、SiteAsset 目标、证书格式和完成能力，至少提供 Form、Credential Contract、连接测试、发现和 CloudAccountAsset 提交目标 |
+| `onboarding` | 统一五步接入配方；云账号声明 `assetKind=CLOUD_ACCOUNT`、资源选择/创建、SiteAsset 目标、证书格式和完成能力，提供 Credential Contract、连接测试、发现和 CloudAccountAsset 提交目标，不提供账号专用表单 |
 
 包最多 500 个资源文件、总大小最多 20 MB。资源路径必须是包内相对路径；普通资源禁止 `.js/.mjs/.cjs/.ts/.tsx/.vue/.ps1/.sh/.bat/.cmd/.exe/.dll/.so/.dylib` 等可执行文件，只有固定 `runtime/index.js` 例外。Logo 禁止脚本、动画、外链、`foreignObject` 和外部图片。
 
@@ -285,7 +285,7 @@ Manifest 固定根字段：
 
 ## 7. 接入配方和证书制品
 
-接入配方使用版本化的 `gcac.application-onboarding` 合同，由插件声明平台名称、资源选择方式、连接测试、发现、目标引用类型、接受的证书格式和完成能力。设备资源使用 `MANAGED_TARGET`，云账号资源使用 `CLOUD_ACCOUNT_ASSET` 并将发现结果绑定为 `SITE_ASSET`；宿主只执行统一五步向导，不按厂商名称写分支。
+接入配方使用版本化的 `gcac.application-onboarding` 合同，由插件声明平台名称、资源选择/创建方式、连接测试、发现、目标引用类型、接受的证书格式和完成能力。设备资源使用 `MANAGED_TARGET`，云账号资源使用 `CLOUD_ACCOUNT_ASSET` 并将发现结果绑定为 `SITE_ASSET`；云账号创建由通用资源状态收集显示名称和 CredentialRef，不渲染 Provider 专用账号表单。宿主只执行统一五步向导，不按厂商名称写分支。
 
 证书部署输入合同按变量、连接、凭据和 Artifact Slot 分组。证书 Artifact 的标准输出角色包括 `leafPem`、`privateKeyPem`、`orderedChainPem`、`fingerprintSha256`、`pfxBase64` 和 `pfxPassword`。插件声明所需格式和输出角色，宿主负责制品生成、密码、链顺序、指纹和 Grant；插件只负责目标侧上传、切换、刷新和回读。
 
@@ -342,7 +342,7 @@ Tomcat `KEYSTORE` 插件的 `keystorePassword` 是可选 Credential Slot，只�
 1. `GET /api/v1/application-onboarding/platforms`：列出当前租户可用的平台和插件版本。
 2. `POST /api/v1/application-onboarding/sessions`：以 `platformKey` 创建会话，必须带 `X-Idempotency-Key`。
 3. `GET /api/v1/application-onboarding/sessions/:id/resources`：读取可用资源；设备配方返回设备，云账号配方返回 `CloudAccountAsset`。
-4. `POST /api/v1/application-onboarding/sessions/:id/resource-selection`：提交 `ResourceRef(kind,id)` 和表单值，并带 `expectedStateVersion`；新资源必须在当前步骤内由插件标准 Form 创建。
+4. `POST /api/v1/application-onboarding/sessions/:id/resource-selection`：提交 `ResourceRef(kind,id)` 和通用资源字段，并带 `expectedStateVersion`；设备新资源进入标准设备接入，云账号新资源进入通用云资源创建状态。
 5. `POST /api/v1/application-onboarding/sessions/:id/test`：执行连接测试。
 6. `POST /api/v1/application-onboarding/sessions/:id/discover`：执行身份识别和发现，得到可选目标。
 7. `POST /api/v1/application-onboarding/sessions/:id/target-selection`：提交 `TargetRef(kind,id,fingerprint)` 以及可选访问域名和验证地址；云资源使用 `SITE_ASSET`，设备资源使用 `MANAGED_TARGET`。

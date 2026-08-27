@@ -19,7 +19,7 @@ lastVerified: 2026-08-22
 
 > 【截图占位：资产中心首页，显示应用资产、设备、Gateway 和“添加资产”动作】
 
-云服务资产从资产中心的“添加资产”或统一服务向导进入，两者使用同一五步流程 `Platform → Resource → Site → Certificate → Complete`；云账号仍是独立资产对象，第二步可选择或新建 `CloudAccountAsset`，第三步选择发现得到的真实 SiteAsset，第四步选择证书版本。`/providers` 不再作为二级菜单，迁移期间旧地址只跳转到统一入口。
+云服务资产从资产中心的“添加资产”或统一服务向导进入，两者使用同一五步流程 `Platform → Resource → Site → Certificate → Complete`；云账号仍是独立资产对象，第二步可选择或在通用资源状态中新建 `CloudAccountAsset`，第三步选择发现得到的真实 SiteAsset，第四步选择证书版本。`/providers` 不再作为二级菜单，迁移期间旧地址只跳转到统一入口。
 
 开始部署前，建议按“添加云服务资产（如需要）→ 设备 → 发现 → 应用资产”的顺序准备。
 
@@ -35,7 +35,7 @@ lastVerified: 2026-08-22
 ## 推荐准备顺序
 
 1. Platform：选择已启用的 Provider 插件。
-2. Resource：选择或新建云账号、设备等真实资源，并完成连接测试。
+2. Resource：选择或按对应的标准资源流程新建云账号、设备等真实资源，并完成连接测试；云账号不使用 Provider 专用账号表单。
 3. Site：运行发现并选择真实站点资源。
 4. Certificate：选择证书资产和精确版本。
 5. Complete：提交应用关系；部署能力不足时只保存“已配置”状态，不伪造部署计划。
