@@ -2,12 +2,15 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { caOperationsApi, normalizeCaSyncRuns, type CaOperationObjectType, type CaOperationRecord, type CaOperationsTree, type CaOperationsTreeAuthority, type CaSyncRun } from '@/api/modules/ca-operations.api'
-import { GcDataTable, GcEmptyState, GcModal, GcPageHeader, GcPageToolbar, GcStatusTag, type StatusTone } from '@/design-system/components'
+import { ApiClientError } from '@/api/client'
+import { caOperationsApi, type CaOperationObjectType, type CaOperationRecord, type CaOperationsTree, type CaOperationsTreeAuthority } from '@/api/modules/ca-operations.api'
+import { GcDataTable, GcEmptyState, GcModal, GcPageToolbar, GcStatusTag, type StatusTone } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { translateDynamic } from '@/i18n/translate'
+import { useAppStore } from '@/stores/app.store'
 import InternalCaView from '@/views/internal-ca/InternalCaView.vue'
+import { subscribeCaOperationsRealtime, type CaOperationsRealtimeMessage } from './ca-operations-realtime'
 
 interface OperationRow extends Record<string, unknown> {
   recordKey: string
@@ -21,6 +24,7 @@ interface OperationRow extends Record<string, unknown> {
 
 const objectTypes: CaOperationObjectType[] = ['request', 'issuance', 'revocation', 'template']
 const { t, te } = useI18n()
+const appStore = useAppStore()
 const route = useRoute()
 const router = useRouter()
 const tree = ref<CaOperationsTree>({ trustDomains: [], unassignedAuthorities: [] })
@@ -28,16 +32,16 @@ const selectedCaId = ref('')
 const selectedView = ref<CaOperationObjectType>('request')
 const query = ref('')
 const records = ref<CaOperationRecord[]>([])
-const syncRuns = ref<CaSyncRun[]>([])
 const integrity = ref('complete')
-const lastSuccessfulSyncAt = ref('')
 const loadingTree = ref(false)
 const loadingRecords = ref(false)
-const syncing = ref(false)
+const defaultCaSaving = ref(false)
 const errorKey = ref('')
+const errorMessage = ref('')
 const internalCaModalOpen = ref(false)
-const currentTime = ref(Date.now())
-let freshnessTimer: ReturnType<typeof setInterval> | undefined
+let recordsRequestInFlight = false
+let treeRequestInFlight = false
+let disposeCaRealtime: (() => void) | undefined
 
 function caOperationsLabel(namespace: string, value: unknown): string {
   return translateDynamic(t, te, `caOperations.${namespace}`, value)
@@ -48,7 +52,8 @@ const authorities = computed(() => [
   ...tree.value.unassignedAuthorities,
 ])
 const selectedAuthority = computed(() => authorities.value.find((authority) => authority.id === selectedCaId.value))
-const syncSupported = computed(() => selectedAuthority.value?.views.some((view) => view.objectType === selectedView.value) ?? false)
+const defaultCaId = computed(() => appStore.preferences.defaultCaId ?? '')
+const selectedCaIsDefault = computed(() => Boolean(selectedCaId.value) && selectedCaId.value === defaultCaId.value)
 const rows = computed<OperationRow[]>(() => records.value.map((record) => ({
   recordKey: record.recordKey,
   subject: displayText(record, ['subjectCommonName', 'commonName', 'name']),
@@ -66,57 +71,58 @@ const columns = computed<DataTableColumn<OperationRow>[]>(() => [
   { key: 'status', title: t('caOperations.columns.status') },
   { key: 'observedAt', title: t('caOperations.columns.observedAt') },
 ])
-const latestSyncRun = computed(() => syncRuns.value.find((run) => run.objectType === selectedView.value))
-const freshness = computed(() => {
-  if (['queued', 'running'].includes(latestSyncRun.value?.status ?? '')) return 'syncing'
-  if (latestSyncRun.value?.status === 'failed') return 'offline'
-  if (!lastSuccessfulSyncAt.value) return 'unknown'
-  const ageMs = currentTime.value - Date.parse(lastSuccessfulSyncAt.value)
-  if (ageMs <= 30_000) return 'realtime'
-  if (ageMs <= 120_000) return 'normal'
-  if (ageMs <= 600_000) return 'delayed'
-  return 'stale'
-})
-
 onMounted(() => {
-  freshnessTimer = setInterval(() => {
-    currentTime.value = Date.now()
-  }, 10_000)
+  disposeCaRealtime = subscribeCaOperationsRealtime(handleCaRealtime)
   void loadTree()
 })
 onBeforeUnmount(() => {
-  if (freshnessTimer) clearInterval(freshnessTimer)
+  disposeCaRealtime?.()
 })
 watch([selectedCaId, selectedView], async ([caId]) => {
   if (!caId) return
   await updateRoute()
-  await Promise.all([loadRecords(), loadSyncRuns()])
+  await loadRecords()
 })
 
-async function loadTree() {
-  loadingTree.value = true
+async function loadTree(options: { silent?: boolean } = {}) {
+  if (treeRequestInFlight) return
+  treeRequestInFlight = true
+  const showLoading = options.silent !== true
+  if (showLoading) loadingTree.value = true
   errorKey.value = ''
+  errorMessage.value = ''
   try {
+    const currentCaId = selectedCaId.value
     tree.value = (await caOperationsApi.tree()).data ?? { trustDomains: [], unassignedAuthorities: [] }
     const routeCaId = typeof route.query.caId === 'string' ? route.query.caId : ''
     const routeView = typeof route.query.view === 'string' && objectTypes.includes(route.query.view as CaOperationObjectType)
       ? route.query.view as CaOperationObjectType
       : 'request'
     selectedView.value = routeView
-    selectedCaId.value = authorities.value.some((authority) => authority.id === routeCaId)
-      ? routeCaId
-      : authorities.value[0]?.id ?? ''
-  } catch {
-    errorKey.value = 'caOperations.messages.loadTreeFailed'
+    const preferredCaId = appStore.preferences.defaultCaId
+    selectedCaId.value = options.silent === true && authorities.value.some((authority) => authority.id === currentCaId)
+      ? currentCaId
+      : authorities.value.some((authority) => authority.id === routeCaId)
+        ? routeCaId
+        : authorities.value.some((authority) => authority.id === preferredCaId)
+          ? preferredCaId ?? ''
+          : authorities.value[0]?.id ?? ''
+  } catch (caught) {
+    setApiError(caught, 'caOperations.messages.loadTreeFailed')
   } finally {
-    loadingTree.value = false
+    treeRequestInFlight = false
+    if (showLoading) loadingTree.value = false
   }
 }
 
-async function loadRecords() {
+async function loadRecords(options: { silent?: boolean } = {}) {
   if (!selectedCaId.value) return
-  loadingRecords.value = true
+  if (recordsRequestInFlight) return
+  recordsRequestInFlight = true
+  const showLoading = options.silent !== true
+  if (showLoading) loadingRecords.value = true
   errorKey.value = ''
+  errorMessage.value = ''
   try {
     const result = (await caOperationsApi.records({
       caId: selectedCaId.value,
@@ -126,41 +132,55 @@ async function loadRecords() {
     })).data
     records.value = result?.items ?? []
     integrity.value = result?.integrity ?? 'complete'
-    lastSuccessfulSyncAt.value = result?.lastSuccessfulSyncAt ?? ''
-  } catch {
-    errorKey.value = 'caOperations.messages.loadRecordsFailed'
+  } catch (caught) {
+    setApiError(caught, 'caOperations.messages.loadRecordsFailed')
   } finally {
-    loadingRecords.value = false
+    recordsRequestInFlight = false
+    if (showLoading) loadingRecords.value = false
   }
 }
 
-async function loadSyncRuns() {
+function handleCaRealtime(message: CaOperationsRealtimeMessage): void {
+  void loadTree({ silent: true })
+  if (message.type === 'snapshot' || message.caId === selectedCaId.value) {
+    void loadRecords({ silent: true })
+  }
+}
+
+async function refreshRecords() {
   if (!selectedCaId.value) return
+  errorKey.value = ''
+  errorMessage.value = ''
   try {
-    syncRuns.value = normalizeCaSyncRuns((await caOperationsApi.syncRuns(selectedCaId.value)).data)
-  } catch {
-    syncRuns.value = []
+    await loadRecords()
+  } catch (caught) {
+    setApiError(caught, 'caOperations.messages.loadRecordsFailed')
   }
 }
 
-async function startSync() {
-  const authority = selectedAuthority.value
-  if (!authority || syncing.value) return
-  syncing.value = true
+async function saveDefaultCa(): Promise<void> {
+  if (!selectedCaId.value || selectedCaIsDefault.value || defaultCaSaving.value) return
+  defaultCaSaving.value = true
   errorKey.value = ''
+  errorMessage.value = ''
   try {
-    await caOperationsApi.createSyncRuns({
-      providerId: authority.providerId,
-      caId: authority.id,
-      objectTypes: [selectedView.value],
-      mode: 'incremental',
-    })
-    await loadSyncRuns()
-  } catch {
-    errorKey.value = 'caOperations.messages.syncFailed'
+    const saved = await appStore.setDefaultCaId(selectedCaId.value)
+    if (!saved) errorMessage.value = appStore.preferenceError || t('caOperations.messages.saveDefaultFailed')
+  } catch (caught) {
+    setApiError(caught, 'caOperations.messages.saveDefaultFailed')
   } finally {
-    syncing.value = false
+    defaultCaSaving.value = false
   }
+}
+
+function setApiError(caught: unknown, fallbackKey: string): void {
+  if (caught instanceof ApiClientError) {
+    errorKey.value = ''
+    errorMessage.value = caught.message
+    return
+  }
+  errorKey.value = fallbackKey
+  errorMessage.value = ''
 }
 
 async function updateRoute() {
@@ -181,12 +201,7 @@ function statusTone(status: string): StatusTone {
   if (['issued', 'complete', 'succeeded', 'realtime', 'normal'].includes(status)) return 'success'
   if (['pending', 'partial', 'stale', 'delayed', 'queued'].includes(status)) return 'warning'
   if (['rejected', 'revoked', 'failed', 'offline'].includes(status)) return 'danger'
-  if (['syncing', 'running'].includes(status)) return 'info'
   return 'muted'
-}
-
-function selectAuthority(authority: CaOperationsTreeAuthority) {
-  selectedCaId.value = authority.id
 }
 
 function viewCount(authority: CaOperationsTreeAuthority | undefined, objectType: CaOperationObjectType): number {
@@ -205,61 +220,48 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
 
 <template>
   <section class="gc-page ca-operations">
-    <GcPageHeader :title="t('caOperations.title')" />
-
     <GcPageToolbar class="ca-operations__hero-actions">
       <template #actions>
-        <button class="gc-button" type="button" :disabled="loadingTree" @click="loadTree">{{ t('common.refresh') }}</button>
+        <select
+          v-model="selectedCaId"
+          class="ca-operations__authority-select"
+          :disabled="loadingTree || authorities.length === 0"
+          :aria-label="t('caOperations.aria.authoritySelect')"
+        >
+          <option v-if="authorities.length === 0" value="" disabled>{{ t('caOperations.messages.noAuthority') }}</option>
+          <optgroup v-for="domain in tree.trustDomains" :key="domain.id" :label="domain.name">
+            <option v-for="authority in domain.authorities" :key="authority.id" :value="authority.id">
+              {{ authority.name }} · {{ authority.providerName }}
+            </option>
+          </optgroup>
+          <optgroup v-if="tree.unassignedAuthorities.length" :label="t('caOperations.tree.unassigned')">
+            <option v-for="authority in tree.unassignedAuthorities" :key="authority.id" :value="authority.id">
+              {{ authority.name }} · {{ authority.providerName }}
+            </option>
+          </optgroup>
+        </select>
+        <button
+          class="gc-button"
+          type="button"
+          :disabled="!selectedAuthority || selectedCaIsDefault || defaultCaSaving"
+          @click="saveDefaultCa"
+        >
+          {{ selectedCaIsDefault ? t('caOperations.actions.defaultCaSelected') : defaultCaSaving ? t('caOperations.actions.settingDefaultCa') : t('caOperations.actions.setDefaultCa') }}
+        </button>
       </template>
       <template #primary>
         <button class="gc-button" type="button" @click="internalCaModalOpen = true">
           {{ t('caOperations.actions.manageInternalCa') }}
         </button>
-        <button class="gc-button gc-button--primary" type="button" :disabled="!selectedAuthority || !syncSupported || syncing" @click="startSync">
-          {{ syncing ? t('caOperations.actions.syncing') : t('caOperations.actions.sync') }}
+        <button class="gc-button gc-button--primary" type="button" :disabled="!selectedAuthority || loadingRecords" @click="refreshRecords">
+          {{ t('common.refresh') }}
         </button>
       </template>
     </GcPageToolbar>
 
-    <p v-if="errorKey" class="ca-operations__error" role="alert">{{ t(errorKey) }}</p>
-    <p v-if="loadingTree" class="ca-operations__loading" role="status">{{ t('common.loading') }}</p>
+    <p v-if="errorKey || errorMessage" class="ca-operations__error" role="alert">{{ errorMessage || t(errorKey) }}</p>
 
     <div v-if="authorities.length" class="ca-operations__layout">
-      <aside class="gc-card ca-operations__tree" :aria-label="t('caOperations.aria.authorityTree')">
-        <header>
-          <strong>{{ t('caOperations.tree.title') }}</strong>
-          <span>{{ t('caOperations.tree.count', { count: authorities.length }) }}</span>
-        </header>
-        <section v-for="domain in tree.trustDomains" :key="domain.id" class="ca-operations__tree-group">
-          <h2>{{ domain.name }}</h2>
-          <button
-            v-for="authority in domain.authorities"
-            :key="authority.id"
-            class="ca-operations__authority"
-            :class="{ 'ca-operations__authority--active': selectedCaId === authority.id }"
-            type="button"
-            @click="selectAuthority(authority)"
-          >
-            <span>{{ authority.name }}</span>
-            <small>{{ authority.providerName }}</small>
-          </button>
-        </section>
-        <section v-if="tree.unassignedAuthorities.length" class="ca-operations__tree-group">
-          <h2>{{ t('caOperations.tree.unassigned') }}</h2>
-          <button
-            v-for="authority in tree.unassignedAuthorities"
-            :key="authority.id"
-            class="ca-operations__authority"
-            :class="{ 'ca-operations__authority--active': selectedCaId === authority.id }"
-            type="button"
-            @click="selectAuthority(authority)"
-          >
-            <span>{{ authority.name }}</span>
-            <small>{{ authority.providerName }}</small>
-          </button>
-        </section>
-      </aside>
-
       <section class="ca-operations__content">
         <div class="gc-card ca-operations__summary">
           <div>
@@ -270,16 +272,6 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
           <div>
             <span>{{ t('caOperations.summary.integrity') }}</span>
             <GcStatusTag :status="integrity" :label="statusLabel(integrity)" :tone="statusTone(integrity)" />
-          </div>
-          <div>
-            <span>{{ t('caOperations.summary.lastSuccessfulSync') }}</span>
-            <strong>{{ lastSuccessfulSyncAt ? formatBrowserLocalTime(lastSuccessfulSyncAt, { includeSeconds: false }) : t('common.notAvailable') }}</strong>
-            <GcStatusTag :status="freshness" :label="caOperationsLabel('freshness', freshness)" :tone="statusTone(freshness)" />
-          </div>
-          <div>
-            <span>{{ t('caOperations.summary.latestRun') }}</span>
-            <GcStatusTag v-if="latestSyncRun" :status="latestSyncRun.status" :label="statusLabel(latestSyncRun.status)" :tone="statusTone(latestSyncRun.status)" />
-            <strong v-else>{{ t('common.notAvailable') }}</strong>
           </div>
         </div>
 
@@ -298,7 +290,7 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
 
         <GcDataTable :columns="columns" :rows="rows" :loading="loadingRecords" row-key="recordKey" :empty-text="t('caOperations.messages.empty')" dense pagination>
           <template #toolbar>
-            <form class="ca-operations__toolbar" @submit.prevent="loadRecords">
+            <form class="ca-operations__toolbar" @submit.prevent="loadRecords()">
               <input v-model="query" class="ca-operations__search" :placeholder="t('caOperations.filters.searchPlaceholder')" :aria-label="t('caOperations.aria.search')" />
               <button class="gc-button" type="submit">{{ t('caOperations.actions.search') }}</button>
             </form>
@@ -321,8 +313,27 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
   gap: var(--gc-space-5);
 }
 
-.ca-operations__error,
-.ca-operations__loading {
+.ca-operations__authority-select {
+  width: min(100%, var(--gc-size-sidebar));
+  max-width: 100%;
+  min-height: var(--gc-control-height-md);
+  padding: 0 var(--gc-space-3);
+  color: var(--gc-color-text);
+  background: var(--gc-color-surface-field);
+  border: var(--gc-border-width-default) solid var(--gc-color-border);
+  border-radius: var(--gc-radius-control);
+  font: inherit;
+  font-size: var(--gc-font-size-sm);
+}
+
+.ca-operations__authority-select:focus {
+  outline: none;
+  border-color: var(--gc-color-primary-border-strong);
+  background: var(--gc-color-surface-field-focus);
+  box-shadow: var(--gc-shadow-focus);
+}
+
+.ca-operations__error {
   margin: 0;
   border: var(--gc-border-width-default) solid var(--gc-color-danger-border);
   border-radius: var(--gc-radius-md);
@@ -333,98 +344,8 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
   line-height: var(--gc-line-height-relaxed);
 }
 
-.ca-operations__loading {
-  border-color: var(--gc-color-info-border);
-  color: var(--gc-color-info);
-  background: var(--gc-color-info-soft);
-}
-
 .ca-operations__layout {
-  display: grid;
-  grid-template-columns: minmax(var(--gc-size-card-min), var(--gc-size-sidebar)) minmax(0, 1fr);
-  gap: var(--gc-space-5);
-  align-items: start;
-}
-
-.ca-operations__tree {
-  position: sticky;
-  top: var(--gc-space-4);
-  display: grid;
-  gap: var(--gc-space-3);
-  align-content: start;
-  padding: var(--gc-space-4);
-}
-
-.ca-operations__tree header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: var(--gc-space-3);
-  padding: 0 0 var(--gc-space-3);
-  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
-}
-
-.ca-operations__tree header strong {
-  color: var(--gc-color-text);
-  font-size: var(--gc-font-size-md);
-  font-weight: 650;
-}
-
-.ca-operations__tree header span {
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-  line-height: var(--gc-line-height-relaxed);
-}
-
-.ca-operations__tree-group {
-  display: grid;
-  gap: var(--gc-space-2);
-}
-
-.ca-operations__tree-group h2 {
-  margin: 0;
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-  font-weight: 600;
-}
-
-.ca-operations__authority {
-  display: grid;
-  gap: var(--gc-space-1);
-  width: 100%;
-  padding: var(--gc-space-3);
-  text-align: left;
-  color: var(--gc-color-text);
-  background: var(--gc-color-surface-soft);
-  border: var(--gc-border-width-default) solid transparent;
-  border-radius: var(--gc-radius-control);
-  cursor: pointer;
-  transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
-}
-
-.ca-operations__authority:hover {
-  border-color: var(--gc-color-border-soft);
-  background: var(--gc-color-surface-muted);
-  box-shadow: var(--gc-shadow-hover);
-}
-
-.ca-operations__authority--active {
-  border-color: var(--gc-color-primary-border);
-  box-shadow: var(--gc-shadow-focus);
-  background: var(--gc-color-surface-selected);
-}
-
-.ca-operations__authority span {
-  color: var(--gc-color-text);
-  font-size: var(--gc-font-size-sm);
-  font-weight: 650;
-  overflow-wrap: anywhere;
-}
-
-.ca-operations__authority small {
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-  overflow-wrap: anywhere;
+  display: block;
 }
 
 .ca-operations__content {
@@ -436,7 +357,7 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
 
 .ca-operations__summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(var(--gc-size-card-min), 1fr));
+  grid-template-columns: repeat(2, minmax(var(--gc-size-card-min), 1fr));
   gap: var(--gc-space-3);
   padding: var(--gc-space-4);
   border-color: var(--gc-color-border-soft);
@@ -545,8 +466,6 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
 }
 
 @media (max-width: 56rem) {
-  .ca-operations__layout { grid-template-columns: 1fr; }
-  .ca-operations__tree { position: static; }
   .ca-operations__summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 

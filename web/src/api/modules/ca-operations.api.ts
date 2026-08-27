@@ -1,9 +1,9 @@
-import { apiClient, createIdempotencyKey } from '@/api/client'
+import { apiClient } from '@/api/client'
 import { toClientPath } from './common'
 
 export type CaOperationObjectType = 'request' | 'issuance' | 'revocation' | 'template'
 export type CaOperationStatus = 'pending' | 'issued' | 'rejected' | 'revoked' | 'failed' | 'unknown'
-export type CaOperationIntegrity = 'complete' | 'partial' | 'stale' | 'syncing' | 'failed'
+export type CaOperationIntegrity = 'complete' | 'partial' | 'stale' | 'failed'
 
 export interface CaOperationsTreeView {
   objectType: CaOperationObjectType
@@ -50,31 +50,7 @@ export interface CaOperationRecordPage {
   nextCursor?: string
   total: number
   integrity: CaOperationIntegrity
-  lastSuccessfulSyncAt?: string
 }
-
-export interface CaSyncRun {
-  id: string
-  providerId: string
-  caId: string
-  objectType: CaOperationObjectType
-  mode: 'incremental' | 'full'
-  status: 'queued' | 'running' | 'succeeded' | 'partial' | 'failed' | 'cancelled'
-  readCount: number
-  upsertedCount: number
-  failedCount: number
-  errorCode?: string
-  errorMessage?: string
-  createdAt: string
-  updatedAt: string
-  completedAt?: string
-}
-
-export interface CaSyncRunsResponse {
-  items: CaSyncRun[]
-}
-
-export type CaSyncRunsPayload = CaSyncRun[] | CaSyncRunsResponse
 
 export interface ListCaOperationRecordsQuery {
   caId: string
@@ -83,10 +59,6 @@ export interface ListCaOperationRecordsQuery {
   query?: string
   cursor?: string
   limit?: number
-}
-
-export function normalizeCaSyncRuns(payload: CaSyncRunsPayload | undefined): CaSyncRun[] {
-  return Array.isArray(payload) ? payload : payload?.items ?? []
 }
 
 function queryPath(path: string, query: Record<string, string | number | string[] | undefined>): string {
@@ -106,7 +78,4 @@ export const caOperationsApi = {
     caId: query.caId, view: query.view, status: query.status, query: query.query, cursor: query.cursor, limit: query.limit,
   })),
   record: (recordKey: string) => apiClient.get<CaOperationRecord>(toClientPath(`/api/v1/ca-operations/records/${encodeURIComponent(recordKey)}`)),
-  createSyncRuns: (body: { providerId: string; caId: string; objectTypes: CaOperationObjectType[]; mode: 'incremental' | 'full'; confirmed?: boolean }) =>
-    apiClient.post<CaSyncRun[]>(toClientPath('/api/v1/ca-operations/sync-runs'), body, { idempotencyKey: createIdempotencyKey('ca_operations_sync') }),
-  syncRuns: (caId?: string) => apiClient.get<CaSyncRunsPayload>(queryPath('/api/v1/ca-operations/sync-runs', { caId })),
 }

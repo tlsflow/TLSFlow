@@ -39,7 +39,6 @@ describe('CA 管理导航与国际化', () => {
       expect(locale.internalCa.riskTypes.public_key_reuse).toBeTruthy()
       expect(locale.caOperations.title).toBeTruthy()
       expect(locale.caOperations.views.request).toBeTruthy()
-      expect(locale.caOperations.actions.sync).toBeTruthy()
       expect(locale.caOperations.actions.manageInternalCa).toBeTruthy()
       expect(locale.caOperations.messages.noAuthority).toBeTruthy()
     }
