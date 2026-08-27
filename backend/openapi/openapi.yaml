@@ -7759,6 +7759,8 @@ paths:
                     type: "string"
                   managementPort:
                     type: "number"
+                  agentVersion:
+                    type: "string"
         400:
           $ref: "#/components/responses/ErrorResponse"
         404:

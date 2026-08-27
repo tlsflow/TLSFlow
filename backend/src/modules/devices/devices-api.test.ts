@@ -120,6 +120,132 @@ test('Agent 注册自动创建设备主记录并兼容 Windows Server 2008 R2', 
   assert.equal(hosts.rows[0]?.primary_ip, '10.33.2.18');
 });
 
+test('Windows AD CS Agent 与 Full Agent 同机注册时不接管 Host 且可修复历史污染', async () => {
+  const database = new PgliteDatabase();
+  await runMigrations(database, 'src/database/migrations');
+  const agents = new AgentsApplicationService(new PgAgentsRepository(database));
+  const tenantId = 'tenant_windows_adcs_host_boundary';
+
+  const fullAgent = await agents.register(tenantId, {
+    agentKey: 'windows-full-jackson-mgt',
+    machineId: 'windows-full-jackson-machine',
+    hostname: 'jackson-mgt',
+    version: '0.1.2',
+    osType: 'WINDOWS',
+    osVersion: 'Windows Server 2022',
+    arch: 'amd64',
+    ipAddress: '10.255.0.78',
+    role: 'full_agent',
+  }, 'request_windows_full_jackson_register');
+
+  const adcsAgent = await agents.register(tenantId, {
+    agentKey: 'windows-adcs-jackson-mgt',
+    machineId: 'windows-full-jackson-machine',
+    hostname: 'jackson-mgt',
+    version: '0.1.1',
+    osType: 'WINDOWS_ADCS',
+    osVersion: 'Windows Server 2022',
+    arch: 'amd64',
+    ipAddress: '10.255.0.78',
+    role: 'adcs_agent',
+    caName: 'JACKSON-CA',
+  }, 'request_windows_adcs_jackson_register');
+
+  assert.notEqual(adcsAgent.id, fullAgent.id);
+  assert.equal((await agents.getAgentDetail(tenantId, fullAgent.id)).agent.role, 'full_agent');
+  assert.equal((await agents.getAgentDetail(tenantId, adcsAgent.id)).agent.role, 'adcs_agent');
+
+  const hostsAfterRegistration = await database.query<{ id: string; agent_id: string; os_type: string; os_version: string }>(
+    `select id, agent_id, os_type, os_version
+       from pg_hosts
+      where tenant_id = $1
+        and deleted_at is null`,
+    [tenantId],
+  );
+  assert.equal(hostsAfterRegistration.rows.length, 1);
+  assert.equal(hostsAfterRegistration.rows[0]?.agent_id, fullAgent.id);
+  assert.equal(hostsAfterRegistration.rows[0]?.os_type, 'WINDOWS');
+  assert.equal(hostsAfterRegistration.rows[0]?.os_version, 'Windows Server 2022');
+
+  const devicesAfterRegistration = await new PgDevicesRepository(database).list(tenantId, {
+    page: 1,
+    pageSize: 20,
+    filter: {},
+    sort: { field: 'displayName', direction: 'asc' },
+  });
+  assert.equal(devicesAfterRegistration.total, 1);
+  assert.equal(devicesAfterRegistration.items[0]?.displayName, 'jackson-mgt');
+  assert.equal(devicesAfterRegistration.items[0]?.productFamily, 'Windows Server');
+  assert.equal(devicesAfterRegistration.items[0]?.managementMethod, 'AGENT');
+  assert.equal(devicesAfterRegistration.items[0]?.managementAddress, '10.255.0.78');
+
+  // 模拟旧版本曾经把同一 Host 改成 AD CS Agent 的结果，验证心跳路径不会再触碰 Host。
+  await database.query(
+    `update pg_hosts
+        set agent_id = $2,
+            os_type = 'WINDOWS_ADCS',
+            os_name = 'WINDOWS_ADCS',
+            os_version = '0.1.1',
+            updated_at = now(),
+            version = version + 1
+      where tenant_id = $1
+        and agent_id = $3
+        and deleted_at is null`,
+    [tenantId, adcsAgent.id, fullAgent.id],
+  );
+  const pollutedHostBeforeHeartbeat = await database.query<{ agent_id: string; os_type: string; os_version: string; version: number }>(
+    `select agent_id, os_type, os_version, version
+       from pg_hosts
+      where tenant_id = $1
+        and deleted_at is null`,
+    [tenantId],
+  );
+  await agents.heartbeat(tenantId, {
+    agentId: adcsAgent.id,
+    version: '0.1.1',
+    status: 'ONLINE',
+  }, 'request_windows_adcs_jackson_heartbeat');
+
+  const pollutedHostAfterHeartbeat = await database.query<{ agent_id: string; os_type: string; os_version: string; version: number }>(
+    `select agent_id, os_type, os_version, version
+       from pg_hosts
+      where tenant_id = $1
+        and deleted_at is null`,
+    [tenantId],
+  );
+  assert.deepEqual(pollutedHostAfterHeartbeat.rows, pollutedHostBeforeHeartbeat.rows);
+
+  const repairMigration = await readFile(
+    resolve('src/database/migrations/20260826110000_repair_adcs_agent_host_associations.sql'),
+    'utf8',
+  );
+  await database.exec(repairMigration);
+
+  const repairedHost = await database.query<{ agent_id: string; os_type: string; os_version: string; status: string }>(
+    `select agent_id, os_type, os_version, status
+       from pg_hosts
+      where tenant_id = $1
+        and deleted_at is null`,
+    [tenantId],
+  );
+  assert.equal(repairedHost.rows.length, 1);
+  assert.equal(repairedHost.rows[0]?.agent_id, fullAgent.id);
+  assert.equal(repairedHost.rows[0]?.os_type, 'WINDOWS');
+  assert.equal(repairedHost.rows[0]?.os_version, 'Windows Server 2022');
+  assert.equal(repairedHost.rows[0]?.status, 'INACTIVE');
+
+  await agents.deleteAgent(tenantId, { agentId: adcsAgent.id, actorId: 'test' });
+  const hostsAfterAdcsDeletion = await database.query<{ agent_id: string; deleted_at: string | null }>(
+    `select agent_id, deleted_at
+       from pg_hosts
+      where tenant_id = $1`,
+    [tenantId],
+  );
+  assert.equal(hostsAfterAdcsDeletion.rows.length, 1);
+  assert.equal(hostsAfterAdcsDeletion.rows[0]?.agent_id, fullAgent.id);
+  assert.equal(hostsAfterAdcsDeletion.rows[0]?.deleted_at, null);
+});
+
 test('Linux Agent 接受带连字符的能力键且设备详情不再从能力快照猜测站点', async () => {
   const database = new PgliteDatabase();
   await runMigrations(database, 'src/database/migrations');

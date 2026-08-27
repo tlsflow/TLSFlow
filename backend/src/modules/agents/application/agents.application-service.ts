@@ -260,7 +260,8 @@ export class AgentsApplicationService {
 
   async register(tenantId: string, input: RegisterAgentInput, requestId: string) {
     const descriptor = this.domain.normalizeDescriptor(input);
-    const existing = await this.resolveExistingRegistration(tenantId, descriptor.agentKey, descriptor.machineId);
+    const isolateAdcsRegistration = input.role === 'adcs_agent' || descriptor.osType.toLowerCase() === 'windows_adcs';
+    const existing = await this.resolveExistingRegistration(tenantId, descriptor.agentKey, descriptor.machineId, isolateAdcsRegistration);
     const role = input.role ?? existing?.role ?? 'full_agent';
     const normalizedOsType = descriptor.osType.toLowerCase();
     if (normalizedOsType === 'windows_adcs' && role !== 'adcs_agent') {
@@ -1834,6 +1835,15 @@ export class AgentsApplicationService {
     });
   }
 
+  /**
+   * AD CS Agent 与主机 Agent 是两个独立身份，不能使用列表去重结果作为关联来源。
+   * 这里直接读取注册记录，确保同一机器上的 AD CS Agent 不会因 machineId 相同而被遗漏。
+   */
+  async listAdcsAgents(tenantId: string): Promise<AgentRegistration[]> {
+    return (await this.repository.listAllRegistrations())
+      .filter((agent) => agent.tenantId === tenantId && isAdcsAgentRegistration(agent));
+  }
+
   async evaluateOfflineAgents(
     options: {
       offlineTimeoutSeconds?: number;
@@ -2099,11 +2109,17 @@ export class AgentsApplicationService {
     return task;
   }
 
-  private async resolveExistingRegistration(tenantId: string, agentKey: string, machineId?: string) {
+  private async resolveExistingRegistration(tenantId: string, agentKey: string, machineId?: string, isolateAdcsRegistration = false) {
     const byAgentKey = await this.repository.findByAgentKey(tenantId, agentKey);
-    if (byAgentKey) return byAgentKey;
-    if (!machineId) return undefined;
-    return this.repository.findByMachineId(tenantId, machineId);
+    if (byAgentKey) {
+      // AD CS Agent 只能重注册已有的 AD CS 身份；不能用相同 Agent Key 接管 Full Agent。
+      if (isolateAdcsRegistration === isAdcsAgentRegistration(byAgentKey)) return byAgentKey;
+      return undefined;
+    }
+    if (isolateAdcsRegistration || !machineId) return undefined;
+    const byMachineId = await this.repository.findByMachineId(tenantId, machineId);
+    // 普通 Agent 也不能反向接管已经登记的 AD CS Agent。
+    return byMachineId && !isAdcsAgentRegistration(byMachineId) ? byMachineId : undefined;
   }
 
   private deduplicateRegistrations(items: AgentRegistration[]): AgentRegistration[] {
@@ -2553,6 +2569,10 @@ function readRecord(value: unknown): Record<string, unknown> {
 
 function readStringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function isAdcsAgentRegistration(agent: AgentRegistration): boolean {
+  return agent.role === 'adcs_agent' || agent.descriptor.osType.toLowerCase() === 'windows_adcs';
 }
 
 const AGENT_MACHINE_ROUTES = new Set(['POST /api/v1/agents/register', 'POST /api/v1/agents/sessions', 'POST /api/v1/agents/certificate-requests', 'POST /api/v1/agents/certificates/rotate', 'POST /api/v1/agents/heartbeat', 'POST /api/v1/agents/capabilities', 'GET /api/v1/agents/tasks/pull', 'POST /api/v1/agents/tasks/ack', 'POST /api/v1/agents/tasks/logs', 'POST /api/v1/agents/runtime-logs', 'POST /api/v1/agents/tasks/log-batches', 'POST /api/v1/agents/tasks/result', 'POST /api/v1/agents/upgrades/check', 'POST /api/v1/agents/upgrades/result', 'POST /api/v1/gateways/probe', 'POST /api/v1/gateways/status']);

@@ -69,6 +69,7 @@ export const apiContractMetadata: ApiContractMetadata = {
     "/api/v1/agents/install-materials",
     "/api/v1/agents/install-sessions",
     "/api/v1/agents/install-sessions/linux-go",
+    "/api/v1/agents/install-sessions/windows-adcs",
     "/api/v1/agents/install-sessions/windows-compatibility",
     "/api/v1/agents/install-sessions/windows-go",
     "/api/v1/agents/register",

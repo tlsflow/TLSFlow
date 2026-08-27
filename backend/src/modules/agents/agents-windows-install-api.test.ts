@@ -42,7 +42,7 @@ describe('Agent 一键安装会话', () => {
     });
     assert.equal(bootstrap.statusCode, 200, JSON.stringify(bootstrap.body));
     const script = String(bootstrap.body);
-    assert.equal(script.charCodeAt(0), 0xFEFF, 'Windows bootstrap 必须以 UTF-8 BOM 开头');
+    assert.notEqual(script.charCodeAt(0), 0xFEFF, 'Windows bootstrap 通过 irm | iex 执行，不能包含 UTF-8 BOM');
     assert.match(script, /gcac-agent\.exe/);
     assert.match(script, /register-once/);
     assert.match(script, /Agent registration or initial capability report failed/);
@@ -166,7 +166,7 @@ describe('Agent 一键安装会话', () => {
     });
     assert.equal(bootstrap.statusCode, 200, JSON.stringify(bootstrap.body));
     const script = String(bootstrap.body);
-    assert.equal(script.charCodeAt(0), 0xFEFF, 'Windows Compatibility bootstrap 必须以 UTF-8 BOM 开头');
+    assert.notEqual(script.charCodeAt(0), 0xFEFF, 'Windows Compatibility bootstrap 通过 irm | iex 执行，不能包含 UTF-8 BOM');
     assert.match(script, /GCAC\.WindowsCompatibilityAgent\.exe/);
     assert.doesNotMatch(script, /GCAC\.WindowsCompatibilityAgent\.exe\.config/);
     assert.match(script, /plugins\/windows-runtime-discovery\.exe/);
@@ -231,6 +231,8 @@ describe('Agent 一键安装会话', () => {
     assert.match(script, /18933/);
     assert.ok(script.indexOf('Stop-Service -Name ([string]$manifest.serviceName)') < script.indexOf('Copy-Item -LiteralPath (Join-Path $root "gcac-adcs-agent.exe")'), 'AD CS bootstrap 必须先停服务再替换 exe');
     assert.ok(script.indexOf('Copy-Item -LiteralPath (Join-Path $root "gcac-adcs-agent.exe")') < script.indexOf('Start-Service -Name ([string]$manifest.serviceName)'), 'AD CS bootstrap 必须替换 exe 后再启动服务');
+    assert.match(script, /register-once --config=\$configPath/);
+    assert.ok(script.indexOf('if ($manifest.startAfterInstall) { & $agentTarget register-once --config=$configPath') < script.lastIndexOf('New-Service -Name'), 'AD CS bootstrap 必须在创建服务前确认控制面注册成功');
     for (const forbidden of ['windows-go-full-agent', 'GCACWindowsCompatibilityAgent', 'FullAgentGo', 'WindowsCompatibilityAgent', '18930', '18932']) assert.ok(!script.includes(forbidden), `AD CS bootstrap 包含禁止内容: ${forbidden}`);
     const manifest = readWindowsBootstrapManifest(script);
     assert.equal(manifest.platform, 'windows_adcs_service');

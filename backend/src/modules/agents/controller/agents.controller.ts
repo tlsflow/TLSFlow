@@ -1410,8 +1410,8 @@ function renderWindowsBootstrapScript(manifest: unknown): string {
     return renderWindowsAdcsBootstrapScript(manifest);
   }
   const script = WINDOWS_COMPATIBILITY_PLATFORMS.has(String(platform)) ? renderWindowsCompatibilityBootstrapScript(manifest) : renderWindowsGoBootstrapScript(manifest);
-  // 旧版 Windows PowerShell 5.1 按脚本头部 BOM 识别 UTF-8；升级器落盘前也可能尚未包含修复。
-  return script.charCodeAt(0) === 0xFEFF ? script : `\uFEFF${script}`;
+  // 此入口固定由 `irm | iex` 执行。BOM 会被 Invoke-Expression 当成命令名称的一部分。
+  return script.charCodeAt(0) === 0xFEFF ? script.slice(1) : script;
 }
 
 function renderWindowsAdcsBootstrapScript(manifest: unknown): string {
@@ -1444,6 +1444,7 @@ function renderWindowsAdcsBootstrapScript(manifest: unknown): string {
     '& netsh.exe advfirewall firewall delete rule name="GCAC Windows AD CS Agent Management TCP 18933" 2>$null | Out-Null',
     '& netsh.exe advfirewall firewall add rule name="GCAC Windows AD CS Agent Management TCP 18933" dir=in action=allow protocol=TCP localport=18933 program="$agentTarget" profile=any | Out-Null',
     'if ($LASTEXITCODE -ne 0) { throw "AD CS Agent firewall rule creation failed" }',
+    'if ($manifest.startAfterInstall) { & $agentTarget register-once --config=$configPath; if ($LASTEXITCODE -ne 0) { throw "AD CS Agent registration failed. Check the control plane URL, enrollment token, and agent log." } }',
     '$serviceCommand = "`"$agentTarget`" service run --config=`"$configPath`""',
     'New-Service -Name ([string]$manifest.serviceName) -BinaryPathName $serviceCommand -DisplayName ([string]$manifest.displayName) -StartupType Automatic | Out-Null',
     '& sc.exe failure ([string]$manifest.serviceName) reset= 86400 actions= restart/5000/restart/15000 | Out-Null',

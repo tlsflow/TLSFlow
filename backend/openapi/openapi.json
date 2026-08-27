@@ -11793,6 +11793,9 @@
                     },
                     "managementPort": {
                       "type": "number"
+                    },
+                    "agentVersion": {
+                      "type": "string"
                     }
                   }
                 }

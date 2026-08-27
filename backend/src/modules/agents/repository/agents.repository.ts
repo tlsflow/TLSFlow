@@ -219,7 +219,7 @@ export class PgAgentsRepository implements AgentsRepository {
   async upsertRegistration(agent: AgentRegistration): Promise<AgentRegistration> {
     await this.db.transaction(async (tx) => {
       await upsertDocument(tx, 'agents:registrations', agent);
-      await syncAgentHost(tx, agent);
+      if (!isAdcsAgent(agent)) await syncAgentHost(tx, agent);
     });
     return structuredClone(agent);
   }
@@ -238,12 +238,14 @@ export class PgAgentsRepository implements AgentsRepository {
         ['agents:registrations', agentId],
       );
       if (current) {
-        await tx.query(
-          `update pg_hosts
-           set status = 'DELETED', deleted_at = now(), updated_at = now(), version = version + 1
-           where tenant_id = $1 and agent_id = $2 and deleted_at is null`,
-          [current.tenantId, agentId],
-        );
+        if (!isAdcsAgent(current)) {
+          await tx.query(
+            `update pg_hosts
+             set status = 'DELETED', deleted_at = now(), updated_at = now(), version = version + 1
+             where tenant_id = $1 and agent_id = $2 and deleted_at is null`,
+            [current.tenantId, agentId],
+          );
+        }
       }
     });
   }
@@ -972,6 +974,10 @@ async function upsertDocument<T extends IdentifiedEntity>(db: DatabasePort, name
      do update set payload = excluded.payload, updated_at = excluded.updated_at`,
     [namespace, entity.id, JSON.stringify(entity)],
   );
+}
+
+function isAdcsAgent(agent: AgentRegistration): boolean {
+  return agent.role === 'adcs_agent' || agent.descriptor.osType.toLowerCase() === 'windows_adcs';
 }
 
 async function syncAgentHost(db: DatabasePort, agent: AgentRegistration): Promise<void> {
