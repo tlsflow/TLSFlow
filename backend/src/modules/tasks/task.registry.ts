@@ -9,6 +9,9 @@ const defaultDefinitions: TaskDefinition[] = [
   ['CERTIFICATE_ROLLBACK', 'EXECUTION', 'tasks.types.certificateRollback', 'certificate.rollback', 'execution.rollback'],
   ['AGENT_INSTALL', 'EXECUTION', 'tasks.types.agentInstall', 'agent.install', 'agent.write'],
   ['AGENT_UPDATE', 'EXECUTION', 'tasks.types.agentUpdate', 'agent.update', 'agent.write'],
+  // 外置 CA Node 已退役，但保留任务类型以便历史队列可以被识别并失败关闭，
+  // 避免旧任务因类型不存在而卡在不可解释的状态。
+  ['CA_NODE_TASK', 'SYSTEM', 'tasks.types.caNodeTask', 'ca.node-task', 'ca.operations.read'],
   ['ACME_CERTIFICATE_ISSUE', 'SYSTEM', 'tasks.types.acmeCertificateIssue', 'acme.issue', 'ca.request.retry'],
   ['ACME_CERTIFICATE_RENEWAL', 'SYSTEM', 'tasks.types.acmeCertificateRenewal', 'acme.renewal', 'ca.request.retry'],
   ['PLUGIN_REFERENCE_REFRESH', 'EXECUTION', 'tasks.types.pluginReferenceRefresh', 'plugin.reference-refresh', 'plugin.manage'],
@@ -16,7 +19,6 @@ const defaultDefinitions: TaskDefinition[] = [
   ['MONITORING_BATCH', 'MONITORING', 'tasks.types.monitoringBatch', 'monitoring.batch', 'monitor.dashboard.read'],
   ['MONITORING_PROBE', 'MONITORING', 'tasks.types.monitoringProbe', 'monitoring.probe', 'monitor.target.read'],
   ['CREDENTIAL_HEALTH_CHECK', 'MONITORING', 'tasks.types.credentialHealthCheck', 'credential.health-check', 'credential.health-check'],
-  ['CA_RECORD_SYNC', 'SYSTEM', 'tasks.types.caRecordSync', 'ca.sync', 'ca.operations.read'],
   ['CERTIFICATE_REVOCATION', 'SYSTEM', 'tasks.types.certificateRevocation', 'certificate.revocation', 'certificate.lifecycle'],
   ['CRL_PUBLISH', 'SYSTEM', 'tasks.types.crlPublish', 'ca.crl-publish', 'certificate.lifecycle'],
   ['TRUST_DISTRIBUTION', 'SYSTEM', 'tasks.types.trustDistribution', 'certificate.trust-distribution', 'certificate.lifecycle'],

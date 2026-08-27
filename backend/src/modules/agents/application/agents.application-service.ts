@@ -216,7 +216,7 @@ export class AgentsApplicationService {
   private readonly offlineTimeoutCounts = new Map<string, number>();
   private readonly activeUpgradeLocks = new Set<string>();
   private readonly localReleaseSync = new Map<string, Promise<void>>();
-  private adcsRegistrationProvisioner?: (input: { tenantId: string; agentId: string; agentKey: string; name: string; pluginVersionId: string }) => Promise<void>;
+  private adcsRegistrationProvisioner?: (input: { tenantId: string; agentId: string; agentKey: string; name: string; caConfig?: string; pluginVersionId: string }) => Promise<void>;
   private certificateTaskResultHandler?: (input: {
     task: AgentTaskEnvelope;
     actionType: AgentV2ContractType;
@@ -353,6 +353,7 @@ export class AgentsApplicationService {
         agentId: agent.id,
         agentKey: agent.agentKey,
         name: agent.descriptor.caName || agent.descriptor.hostname || agent.agentKey,
+        caConfig: agent.descriptor.caConfig,
         pluginVersionId: '',
       });
     } catch (error) {
@@ -620,7 +621,14 @@ export class AgentsApplicationService {
 
     for (const agent of await this.repository.listAllRegistrations()) {
       if (tenantId && agent.tenantId !== tenantId) continue;
-      const snapshot = await this.repository.getLatestFullWebInventorySnapshot(agent.tenantId, agent.id);
+      // 旧测试替身和第三方仓储实现可能尚未提供完整 Web 快照接口。
+      // 正式 Pg 仓储始终优先使用完整 Web 快照；兼容回退只用于保持旧实现可运行。
+      const fullSnapshotReader = (this.repository as AgentsRepository & {
+        getLatestFullWebInventorySnapshot?: AgentsRepository['getLatestFullWebInventorySnapshot'];
+      }).getLatestFullWebInventorySnapshot;
+      const snapshot = fullSnapshotReader
+        ? await fullSnapshotReader.call(this.repository, agent.tenantId, agent.id)
+        : await this.repository.getLatestCapabilitySnapshot(agent.tenantId, agent.id);
       if (!snapshot) {
         summary.skipped += 1;
         continue;
@@ -2142,6 +2150,82 @@ export class AgentsApplicationService {
     };
   }
 
+  /** 主动 CA 观测入口使用的最小 Agent 身份投影。 */
+  async getAdcsAgentIdentity(tenantId: string, agentId: string): Promise<{
+    id: string;
+    agentKey: string;
+    role?: string;
+    status: string;
+    descriptor: { osType: string; hostname: string; caName?: string; caConfig?: string };
+  }> {
+    const agent = await this.requireAgent(tenantId, agentId);
+    return {
+      id: agent.id,
+      agentKey: agent.agentKey,
+      role: agent.role,
+      status: agent.status,
+      descriptor: {
+        osType: agent.descriptor.osType,
+        hostname: agent.descriptor.hostname,
+        caName: agent.descriptor.caName,
+        caConfig: agent.descriptor.caConfig,
+      },
+    };
+  }
+
+  /** 返回 CA 页面需要的 Agent 实际运行态；版本以最近一次心跳为准。 */
+  async getAdcsAgentRuntimeStatus(tenantId: string, agentId: string): Promise<{
+    id: string;
+    agentKey: string;
+    version: string;
+    versionSource: 'heartbeat' | 'registration';
+    registeredVersion?: string;
+    status: 'ONLINE' | 'OFFLINE' | 'UNKNOWN';
+    heartbeatAt?: string;
+    managementEndpoint?: string;
+    observation?: import('../schema/agents.schema.js').AgentRuntimeHealth['observation'];
+  }> {
+    const agent = await this.requireAgent(tenantId, agentId);
+    const [heartbeat, liveness] = await Promise.all([
+      this.repository.getLatestHeartbeat(tenantId, agent.id),
+      this.liveness?.project(tenantId, 'AGENT', agent.id, ['HEARTBEAT']),
+    ]);
+    const status = liveness?.livenessStatus
+      ?? (agent.status === 'ONLINE' ? 'ONLINE' : agent.status === 'OFFLINE' ? 'OFFLINE' : 'UNKNOWN');
+    const registeredVersion = agent.descriptor.version?.trim() || undefined;
+    const heartbeatVersion = heartbeat?.version?.trim() || undefined;
+    return {
+      id: agent.id,
+      agentKey: agent.agentKey,
+      version: heartbeatVersion ?? registeredVersion ?? 'unknown',
+      versionSource: heartbeatVersion ? 'heartbeat' : 'registration',
+      ...(registeredVersion ? { registeredVersion } : {}),
+      status,
+      ...(heartbeat?.receivedAt ? { heartbeatAt: heartbeat.receivedAt } : {}),
+      ...(agent.descriptor.managementEndpoint ? { managementEndpoint: agent.descriptor.managementEndpoint } : {}),
+      ...(heartbeat?.runtimeHealth?.observation ? { observation: heartbeat.runtimeHealth.observation } : {}),
+    };
+  }
+
+  /** 通过 Agent 管理端点执行一次真实 AD CS 扫描，不创建旧式同步任务。 */
+  async refreshAdcsObservations(tenantId: string, agentId: string, force = false): Promise<Record<string, unknown>> {
+    const agent = await this.requireAgent(tenantId, agentId);
+    if (agent.role !== 'adcs_agent' || agent.descriptor.osType.toLowerCase() !== 'windows_adcs') {
+      throw new AppError('EXECUTION_TARGET_UNAVAILABLE', '当前 Agent 不是 Windows AD CS Agent', {
+        agentId,
+        reason: 'AGENT_PLATFORM_MISMATCH',
+      });
+    }
+    const result = await this.agentManagementClient.refreshAdcsObservations(agent, force);
+    return {
+      ...result,
+      agentId: agent.id,
+      agentKey: agent.agentKey,
+      agentVersion: result.agentVersion ?? agent.descriptor.version,
+      triggeredAt: new Date().toISOString(),
+    };
+  }
+
   /** Gateway 只提供 relay.tcp；Full、Compatibility、AD CS Agent 均可进入统一任务队列。 */
   private async requireTaskAgent(tenantId: string, agentId: string) {
     const agent = await this.requireAgent(tenantId, agentId);
@@ -2176,7 +2260,10 @@ export class AgentsApplicationService {
   private deduplicateRegistrations(items: AgentRegistration[]): AgentRegistration[] {
     const winners = new Map<string, AgentRegistration>();
     for (const item of items) {
-      const dedupeKey = item.descriptor.machineId?.trim() || item.agentKey;
+      // Full Agent 与 Windows AD CS Agent 是同一主机上的两个独立身份，
+      // 不能因为 machineId 相同而在 Agent 列表中互相覆盖。
+      const identityKind = isAdcsAgentRegistration(item) ? 'adcs' : 'standard';
+      const dedupeKey = `${identityKind}:${item.descriptor.machineId?.trim() || item.agentKey}`;
       const current = winners.get(dedupeKey);
       if (!current || item.updatedAt.localeCompare(current.updatedAt) > 0) {
         winners.set(dedupeKey, item);
@@ -2626,7 +2713,7 @@ function isAdcsAgentRegistration(agent: AgentRegistration): boolean {
   return agent.role === 'adcs_agent' || agent.descriptor.osType.toLowerCase() === 'windows_adcs';
 }
 
-const AGENT_MACHINE_ROUTES = new Set(['POST /api/v1/agents/register', 'POST /api/v1/agents/sessions', 'POST /api/v1/agents/certificate-requests', 'POST /api/v1/agents/certificates/rotate', 'POST /api/v1/agents/heartbeat', 'POST /api/v1/agents/capabilities', 'GET /api/v1/agents/tasks/pull', 'POST /api/v1/agents/tasks/ack', 'POST /api/v1/agents/tasks/logs', 'POST /api/v1/agents/runtime-logs', 'POST /api/v1/agents/tasks/log-batches', 'POST /api/v1/agents/tasks/result', 'POST /api/v1/agents/upgrades/check', 'POST /api/v1/agents/upgrades/result', 'POST /api/v1/gateways/probe', 'POST /api/v1/gateways/status']);
+const AGENT_MACHINE_ROUTES = new Set(['POST /api/v1/agents/register', 'POST /api/v1/agents/sessions', 'POST /api/v1/agents/certificate-requests', 'POST /api/v1/agents/certificates/rotate', 'POST /api/v1/agents/heartbeat', 'POST /api/v1/agents/capabilities', 'POST /api/v1/agents/ca-observations', 'GET /api/v1/agents/tasks/pull', 'POST /api/v1/agents/tasks/ack', 'POST /api/v1/agents/tasks/logs', 'POST /api/v1/agents/runtime-logs', 'POST /api/v1/agents/tasks/log-batches', 'POST /api/v1/agents/tasks/result', 'POST /api/v1/agents/upgrades/check', 'POST /api/v1/agents/upgrades/result', 'POST /api/v1/gateways/probe', 'POST /api/v1/gateways/status']);
 
 function isAgentMachineRoute(method: string, path: string): boolean {
   return AGENT_MACHINE_ROUTES.has(`${method.toUpperCase()} ${path}`);

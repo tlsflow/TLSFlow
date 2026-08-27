@@ -213,6 +213,8 @@ export class InternalCaRepository {
           and ca_id = $2
           and publication_status = 'published'
           and coalesce(payload->>'crlDerBase64', '') <> ''
+          and coalesce(payload->'verification'->>'signatureVerified', 'false') = 'true'
+          and coalesce(payload->'verification'->>'serialsVerified', 'false') = 'true'
         order by crl_number desc
         limit 1`,
       [tenantId, caId],

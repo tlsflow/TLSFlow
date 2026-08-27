@@ -1,5 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
+import { structuredLogger } from '../../../common/logging/structured-logger.js';
 import type { DatabasePort } from '../../../database/database-port.js';
 import { newId } from '../../../shared/id.js';
 import type { RequestContext, SecuritySubject } from '../../../shared/security-types.js';
@@ -24,17 +25,21 @@ import {
 } from '../providers/acme-provider-profiles.js';
 import { OpenSslCa } from '../providers/openssl-ca.js';
 import { InternalCaRepository } from '../repository/internal-ca.repository.js';
+import { CaOperationsRepository } from '../repository/ca-operations.repository.js';
 import { CertificatePolicyService, normalizeCertificatePolicyRules } from './certificate-policy.service.js';
 import { CaOperationsQueryService } from './ca-operations-query.service.js';
-import { CaSyncCoordinator, type CreateCaSyncRunsInput } from './ca-sync-coordinator.js';
+import type { CaOperationsRealtimePublisher } from './ca-operations-realtime.js';
 import type {
+  AgentCaObservationBatchDto,
+  AgentCaObservationIngestResult,
+  CaAgentRuntimeProjection,
   CaOperationRecordDetailDto,
   CaOperationRecordPageDto,
   CaOperationsRecordQueryDto,
+  CaOperationsTreeAuthorityDto,
   CaOperationsTreeDto,
 } from '../dto/ca-operations.dto.js';
-import { CaOperationsAdapterRegistry } from '../providers/ca-operations.js';
-import { PluginCaOperationsAdapter } from '../providers/plugin-ca-operations-adapter.js';
+import { allSameAdcsAuthorityIdentity, sameAdcsAuthorityIdentity } from './adcs-authority-identity.js';
 import {
   caProviderTypes,
   type CaAvailabilityMode,
@@ -46,7 +51,7 @@ import {
   type CaProviderType,
   type CaRiskPreview,
   type CaRuntimePlatform,
-  type CaSyncRunEntity,
+  type ExternalCaObservationEntity,
   type CaTopologyMode,
   type CaTrustDomainEntity,
   type CaTrustDomainIsolationLevel,
@@ -55,6 +60,7 @@ import {
   type CertificatePolicyEntity,
   type CertificatePolicyRules,
   type CertificatePolicyVersionEntity,
+  type EffectiveCertificatePolicySnapshot,
   type CertificateProfileEntity,
   type CertificateProfileRules,
   type CertificateProfileVersionEntity,
@@ -99,7 +105,6 @@ export interface CreateProviderActionBindingInput {
   pluginVersionId: string;
   executionLocation: ProviderActionExecutionLocation;
   issueAction: ProviderActionBindingEntity['issueAction'];
-  listAction?: ProviderActionBindingEntity['listAction'];
   queryAction?: ProviderActionBindingEntity['queryAction'];
   revokeAction?: ProviderActionBindingEntity['revokeAction'];
   revocationEvidenceAction?: ProviderActionBindingEntity['revocationEvidenceAction'];
@@ -194,15 +199,63 @@ export interface CreateCertificateRequestInput {
   actorId: string;
 }
 
+/** 签发完成后生命周期编排返回的脱敏部署结果。 */
+export interface IssuedCertificateLifecycleResult {
+  deploymentPlanId?: string;
+  deploymentPlanStatus?: string;
+  deploymentPlanCertificateVersionId?: string;
+  deploymentWarnings?: string[];
+}
+
 export class InternalCaApplicationService {
   private readonly repository: InternalCaRepository;
   private readonly providers: CaProviderRegistry;
   private readonly openssl: OpenSslCa;
   private readonly operationsQuery: CaOperationsQueryService;
-  private readonly syncCoordinator: CaSyncCoordinator;
-  private readonly operationsAdapters: CaOperationsAdapterRegistry;
+  private readonly operationsRepository: CaOperationsRepository;
   private readonly certificatePolicies: CertificatePolicyService;
   private adcsProviderReconciler?: (tenantId: string) => Promise<void>;
+  private caOperationsRealtimePublisher?: CaOperationsRealtimePublisher;
+  private adcsAgentResolver?: (tenantId: string, agentId: string) => Promise<{
+    id: string;
+    agentKey: string;
+    role?: string;
+    status?: string;
+    descriptor: { osType: string; hostname: string; caName?: string; caConfig?: string };
+  }>;
+  private adcsAgentRuntimeResolver?: (tenantId: string, agentId: string) => Promise<{
+    id: string;
+    agentKey: string;
+    version: string;
+    versionSource: 'heartbeat' | 'registration';
+    registeredVersion?: string;
+    status: 'ONLINE' | 'OFFLINE' | 'UNKNOWN';
+    heartbeatAt?: string;
+    managementEndpoint?: string;
+    observation?: {
+      lastRunAt?: string;
+      completedAt?: string;
+      status?: string;
+      forced?: boolean;
+      parserVersion?: string;
+      scannedRecords?: number;
+      submittedRecords?: number;
+      sentRecords?: number;
+      acceptedRecords?: number;
+      failedBatches?: number;
+      insertedRecords?: number;
+      updatedRecords?: number;
+      duplicateRecords?: number;
+      rejectedRecords?: number;
+      pendingBatches?: number;
+      statusCounts?: Record<string, number>;
+      warnings?: string[];
+    };
+  }>;
+  private adcsObservationRefresher?: (tenantId: string, agentId: string, force?: boolean) => Promise<Record<string, unknown>>;
+  private readonly adcsProviderEnsurePromises = new Map<string, Promise<void>>();
+  private localAgentIssuedHandler?: (input: { tenantId: string; request: CertificateRequestEntity; actorId: string; context?: RequestContext }) => Promise<void>;
+  private managedSecretIssuedHandler?: (input: { tenantId: string; request: CertificateRequestEntity; actorId: string; context?: RequestContext }) => Promise<IssuedCertificateLifecycleResult | void>;
 
   constructor(private readonly dependencies: {
     db: DatabasePort;
@@ -213,14 +266,12 @@ export class InternalCaApplicationService {
     repository?: InternalCaRepository;
     providers?: CaProviderRegistry;
     openssl?: OpenSslCa;
-    operationsAdapters?: CaOperationsAdapterRegistry;
   }) {
     this.repository = dependencies.repository ?? new InternalCaRepository(dependencies.db);
     this.providers = dependencies.providers ?? createDefaultCaProviderRegistry(dependencies.secrets);
     this.openssl = dependencies.openssl ?? new OpenSslCa();
-    this.operationsAdapters = dependencies.operationsAdapters ?? new CaOperationsAdapterRegistry();
-    this.operationsQuery = new CaOperationsQueryService(dependencies.db, this.operationsAdapters, undefined, this.repository);
-    this.syncCoordinator = new CaSyncCoordinator(dependencies.db, this.operationsAdapters, dependencies.audit, undefined, this.repository);
+    this.operationsRepository = new CaOperationsRepository(dependencies.db);
+    this.operationsQuery = new CaOperationsQueryService(dependencies.db, undefined, this.repository);
     this.certificatePolicies = new CertificatePolicyService(this.repository);
   }
 
@@ -228,53 +279,378 @@ export class InternalCaApplicationService {
     return this.repository;
   }
 
+  /** 注入本机持钥证书签发后的安装任务编排，避免 CA 与 Agent 模块形成构造循环。 */
+  setLocalAgentIssuedHandler(handler?: InternalCaApplicationService['localAgentIssuedHandler']): void {
+    this.localAgentIssuedHandler = handler;
+  }
+
+  /** 注入托管密钥签发后的部署计划编排；失败不回滚 CA 已签发事实。 */
+  setManagedSecretIssuedHandler(handler?: InternalCaApplicationService['managedSecretIssuedHandler']): void {
+    this.managedSecretIssuedHandler = handler;
+  }
+
   /** 在完整 Runner 资源装配后注入外部 CA 动作执行器。 */
   setPluginActionDispatcher(dispatcher: import('../providers/ca-provider.js').CaPluginActionDispatcher): void {
     this.providers.register('plugin', new PluginCaProviderAdapter(dispatcher));
-    this.operationsAdapters.register('plugin', new PluginCaOperationsAdapter(
-      dispatcher,
-      { getActiveProviderActionBinding: (tenantId, providerId) => this.repository.getActiveProviderActionBinding(tenantId, providerId) },
-    ));
   }
 
   setAdcsProviderReconciler(reconciler?: (tenantId: string) => Promise<void>): void {
     this.adcsProviderReconciler = reconciler;
   }
 
-  listCaOperationsRecords(tenantId: string, query: CaOperationsRecordQueryDto): Promise<CaOperationRecordPageDto> {
-    return this.operationsQuery.records(tenantId, query);
+  /** 注入 Agent 身份解析器，主动观测入口只接受已注册的 Windows AD CS Agent。 */
+  setAdcsAgentResolver(resolver?: InternalCaApplicationService['adcsAgentResolver']): void {
+    this.adcsAgentResolver = resolver;
   }
 
-  listCaOperationsTree(
+  setAdcsAgentRuntimeResolver(resolver?: InternalCaApplicationService['adcsAgentRuntimeResolver']): void {
+    this.adcsAgentRuntimeResolver = resolver;
+  }
+
+  setAdcsObservationRefresher(refresher?: InternalCaApplicationService['adcsObservationRefresher']): void {
+    this.adcsObservationRefresher = refresher;
+  }
+
+  /** 注入 CA 运营实时事件发布器；事件只做数据失效通知，不携带敏感记录内容。 */
+  setCaOperationsRealtimePublisher(publisher?: CaOperationsRealtimePublisher): void {
+    this.caOperationsRealtimePublisher = publisher;
+  }
+
+  /**
+   * 接收 Agent 主动上报的 CA 记录。
+   *
+   * 这里不创建后台同步任务，也不调用插件。Agent 已在本机完成采集和去重，
+   * 控制面只负责校验身份、解析 Authority 并以现有唯一键幂等写入观测表。
+   */
+  async ingestAdcsObservations(
+    tenantId: string,
+    input: AgentCaObservationBatchDto,
+  ): Promise<AgentCaObservationIngestResult> {
+    const agent = await this.adcsAgentResolver?.(tenantId, input.agentId);
+    if (!agent) {
+      throw new AppError('CA_OBSERVATION_SOURCE_UNAVAILABLE', '主动上报的 Agent 不存在或未完成注册', {
+        reason: 'AGENT_NOT_REGISTERED', agentId: input.agentId,
+      });
+    }
+    if (agent.role !== 'adcs_agent' || agent.descriptor.osType.toLowerCase() !== 'windows_adcs') {
+      throw new AppError('CA_OBSERVATION_SOURCE_UNAVAILABLE', '主动上报来源不是 Windows AD CS Agent', {
+        reason: 'AGENT_PLATFORM_MISMATCH', agentId: input.agentId,
+      });
+    }
+    if (agent.status === 'DISABLED' || agent.status === 'REVOKED') {
+      throw new AppError('AUTH_FORBIDDEN', 'Windows AD CS Agent 已被禁用或撤销', {
+        reason: 'AGENT_DISABLED', agentId: input.agentId,
+      });
+    }
+    const authority = await this.resolveAdcsObservationAuthority(tenantId, agent, input);
+    const provider = await this.repository.getProvider(tenantId, authority.providerId);
+    if (!provider || provider.type !== 'plugin') {
+      throw new AppError('CA_OBSERVATION_SOURCE_UNAVAILABLE', '主动上报的 CA Provider 不可用', {
+        reason: 'PROVIDER_NOT_FOUND', caId: authority.id, providerId: authority.providerId,
+      });
+    }
+    const observedAt = normalizeObservationTime(input.observedAt);
+    let accepted = 0;
+    let inserted = 0;
+    let updated = 0;
+    let duplicates = 0;
+    let rejected = 0;
+    const changedObjectTypes = new Set<string>();
+    const rejections: Array<{ index: number; reason: string }> = [];
+    for (const [index, record] of input.records.entries()) {
+      try {
+        const normalized = normalizeAgentObservation(record);
+        if (!normalized) {
+          rejected += 1;
+          rejections.push({ index, reason: 'INVALID_RECORD' });
+          continue;
+        }
+        const existing = await this.operationsRepository.getExternalObservation(
+          tenantId, provider.id, authority.id, normalized.objectType, normalized.externalObjectId,
+        );
+        const entity: ExternalCaObservationEntity = {
+          id: existing?.id ?? newId('caobs'),
+          tenantId,
+          providerId: provider.id,
+          caId: authority.id,
+          ...normalized,
+          observedAt,
+          firstObservedAt: existing?.firstObservedAt ?? observedAt,
+          createdAt: existing?.createdAt ?? observedAt,
+          updatedAt: observedAt,
+        };
+        const stored = await this.operationsRepository.upsertExternalObservation(entity);
+        const observationApplied = !existing || stored.observedAt === entity.observedAt;
+        accepted += 1;
+        if (existing) {
+          if (sameExternalObservation(existing, stored)) duplicates += 1;
+          else if (stored.observedAt === entity.observedAt) {
+            updated += 1;
+            changedObjectTypes.add(normalized.objectType);
+          }
+          else duplicates += 1;
+        } else {
+          inserted += 1;
+          changedObjectTypes.add(normalized.objectType);
+        }
+        if (observationApplied && ['request', 'issuance', 'revocation'].includes(normalized.objectType)) {
+          const staleObjectTypes = normalized.normalizedStatus === 'issued'
+            ? ['revocation'] as const
+            : normalized.normalizedStatus === 'revoked'
+              ? ['issuance'] as const
+              : ['issuance', 'revocation'] as const;
+          const removed = await this.operationsRepository.deleteExternalObservations(
+            tenantId,
+            provider.id,
+            authority.id,
+            normalized.externalObjectId,
+            entity.observedAt,
+            [...staleObjectTypes],
+          );
+          if (removed > 0) {
+            for (const objectType of staleObjectTypes) changedObjectTypes.add(objectType);
+          }
+        }
+      } catch (error) {
+        rejected += 1;
+        rejections.push({ index, reason: error instanceof Error ? error.message.slice(0, 256) : 'RECORD_PERSIST_FAILED' });
+      }
+    }
+    if (changedObjectTypes.size > 0) {
+      this.caOperationsRealtimePublisher?.publishChanged({
+        tenantId,
+        providerId: provider.id,
+        caId: authority.id,
+        objectTypes: [...changedObjectTypes],
+      });
+    }
+    structuredLogger.info('AD CS Agent 观测批次已接收', {
+      agentId: agent.id,
+      caId: authority.id,
+      providerId: provider.id,
+      sequence: input.sequence,
+      submittedRecords: input.records.length,
+      accepted,
+      inserted,
+      updated,
+      duplicates,
+      rejected,
+      rejections,
+      sourceCaName: input.caName,
+      sourceCaConfig: input.caConfig,
+      changedObjectTypes: [...changedObjectTypes],
+    }, {
+      module: 'internal-ca',
+      resourceType: 'agent',
+      resourceId: agent.id,
+      tenantId,
+    });
+    return {
+      accepted, inserted, updated, duplicates, rejected,
+      ...(rejections.length ? { rejections } : {}),
+      agentId: agent.id, caId: authority.id, providerId: provider.id, observedAt,
+    };
+  }
+
+  private async resolveAdcsObservationAuthority(
+    tenantId: string,
+    agent: NonNullable<Awaited<ReturnType<NonNullable<InternalCaApplicationService['adcsAgentResolver']>>>>,
+    input: AgentCaObservationBatchDto,
+  ): Promise<CertificateAuthorityEntity> {
+    const authorities = (await this.repository.listAuthorities(tenantId)).filter((item) => item.status !== 'retired');
+    const providers = await this.repository.listProviders(tenantId);
+    const providerById = new Map(providers.map((provider) => [provider.id, provider]));
+    const agentCandidates = authorities.filter((authority) => {
+      if (authority.topologyMode !== 'external_managed') return false;
+      const provider = providerById.get(authority.providerId);
+      if (!isMicrosoftAdcsProvider(provider)) return false;
+      const authorityConfig = authority.configuration ?? {};
+      const providerConfig = provider?.configuration ?? {};
+      return authorityConfig.agentId === agent.id
+        || providerConfig.agentId === agent.id
+        || authorityConfig.agentKey === agent.agentKey
+        || providerConfig.agentKey === agent.agentKey;
+    });
+    const name = (input.caName ?? agent.descriptor.caName ?? '').trim().toLowerCase();
+    const caConfig = (input.caConfig ?? agent.descriptor.caConfig ?? '').trim().toLowerCase();
+    const providerByAuthority = new Map(providers.map((provider) => [provider.id, provider]));
+    const named = (name || caConfig)
+      ? authorities.filter((authority) => isMicrosoftAdcsProvider(providerByAuthority.get(authority.providerId))
+        && ((name && authority.name.trim().toLowerCase() === name)
+        || (caConfig && (
+          String(authority.configuration?.caConfig ?? '').trim().toLowerCase() === caConfig
+          || String(providerByAuthority.get(authority.providerId)?.configuration?.caConfig ?? '').trim().toLowerCase() === caConfig
+        ))))
+      : [];
+    let candidates = agentCandidates.length ? agentCandidates : named;
+    // Agent 可能曾经被绑定到多个历史 Authority。先用本次上报的 CA 身份缩小范围，
+    // 避免同一 Agent 下存在多个不同 CA 时把记录写入错误的 Authority。
+    if (agentCandidates.length && (name || caConfig)) {
+      const narrowed = agentCandidates.filter((authority) => {
+        const authorityName = authority.name.trim().toLowerCase();
+        const authorityConfigValue = String(authority.configuration?.caConfig ?? '').trim().toLowerCase();
+        const providerConfigValue = String(providerByAuthority.get(authority.providerId)?.configuration?.caConfig ?? '').trim().toLowerCase();
+        return (name && authorityName === name)
+          || (caConfig && (authorityConfigValue === caConfig || providerConfigValue === caConfig));
+      });
+      if (narrowed.length) candidates = narrowed;
+    }
+    if (candidates.length === 1) return candidates[0]!;
+    if (candidates.length > 1) {
+      // 同名/同 caConfig 的重复登记代表同一个外部 CA。按已有事实数量选主记录，
+      // 没有历史事实时再按最近更新时间选择新登记，保证删除后重建无需人工迁移。
+      if (allSameAdcsAuthorityIdentity(candidates, providerByAuthority)) {
+        const counts = await Promise.all(candidates.map(async (candidate) => ({
+          candidate,
+          count: await this.operationsRepository.countExternalObservations(tenantId, candidate.id),
+        })));
+        counts.sort((left, right) => right.count - left.count
+          || (right.candidate.status === 'active' ? 1 : 0) - (left.candidate.status === 'active' ? 1 : 0)
+          || right.candidate.updatedAt.localeCompare(left.candidate.updatedAt)
+          || left.candidate.id.localeCompare(right.candidate.id));
+        return counts[0]!.candidate;
+      }
+      throw new AppError('CA_OBSERVATION_SOURCE_UNAVAILABLE', '主动上报匹配到多个同名 CA，请保留唯一的 Agent 关联', {
+        reason: 'CA_AUTHORITY_AMBIGUOUS', agentId: agent.id, caName: input.caName,
+        caIds: candidates.map((item) => item.id),
+      });
+    }
+    throw new AppError('CA_OBSERVATION_SOURCE_UNAVAILABLE', '主动上报的 CA 尚未关联到 Authority', {
+      reason: 'CA_AUTHORITY_NOT_FOUND', agentId: agent.id, caName: input.caName,
+    });
+  }
+
+  listCaOperationsRecords(tenantId: string, query: CaOperationsRecordQueryDto): Promise<CaOperationRecordPageDto> {
+    return this.reconcileAndListCaOperationsRecords(tenantId, query);
+  }
+
+  async listCaOperationsTree(
     tenantId: string,
     canRead: (authority: CertificateAuthorityEntity) => Promise<boolean>,
   ): Promise<CaOperationsTreeDto> {
-    return this.operationsQuery.tree(tenantId, canRead);
+    await this.adcsProviderReconciler?.(tenantId);
+    const tree = await this.operationsQuery.tree(tenantId, canRead);
+    return this.enrichOperationsTreeWithAgentRuntime(tenantId, tree);
   }
 
-  getCaOperationsRecord(tenantId: string, recordKey: string): Promise<CaOperationRecordDetailDto> {
+  async getCaOperationsRecord(tenantId: string, recordKey: string): Promise<CaOperationRecordDetailDto> {
+    await this.adcsProviderReconciler?.(tenantId);
     return this.operationsQuery.record(tenantId, recordKey);
   }
 
-  createCaSyncRuns(input: CreateCaSyncRunsInput): Promise<CaSyncRunEntity[]> {
-    return this.syncCoordinator.createRuns(input);
-  }
-
-  listCaSyncRuns(tenantId: string, caId?: string): Promise<CaSyncRunEntity[]> {
-    return this.syncCoordinator.listRuns(tenantId, caId);
-  }
-
-  processNextCaSyncBatch(tenantId: string, runId: string, workerId: string, now?: Date): Promise<CaSyncRunEntity> {
-    return this.syncCoordinator.processNextBatch(tenantId, runId, workerId, now);
+  private async reconcileAndListCaOperationsRecords(tenantId: string, query: CaOperationsRecordQueryDto): Promise<CaOperationRecordPageDto> {
+    await this.adcsProviderReconciler?.(tenantId);
+    return this.operationsQuery.records(tenantId, query);
   }
 
   async listProviders(tenantId: string): Promise<Array<Omit<CaProviderEntity, 'credentialSecretRef'>>> {
     await this.adcsProviderReconciler?.(tenantId);
     const providers = await this.repository.listProviders(tenantId);
-    return Promise.all(providers.map(async (provider) => sanitizeProvider({
-      ...provider,
-      capabilityRecords: await this.listCapabilityRecords(tenantId, 'provider', provider.id),
+    return Promise.all(providers.map(async (provider) => {
+      const runtime = await this.adcsProviderRuntime(tenantId, provider);
+      return sanitizeProvider({
+        ...provider,
+        capabilityRecords: await this.listCapabilityRecords(tenantId, 'provider', provider.id),
+        ...(runtime ? { runtime } : {}),
+      });
+    }));
+  }
+
+  async refreshAdcsObservations(tenantId: string, caId: string, force = false): Promise<Record<string, unknown>> {
+    const authority = await this.repository.getAuthority(tenantId, caId);
+    if (!authority) throw new AppError('RESOURCE_NOT_FOUND', '证书机构不存在', { caId });
+    const provider = await this.repository.getProvider(tenantId, authority.providerId);
+    if (!provider || !isMicrosoftAdcsProvider(provider)) {
+      throw new AppError('CA_OBSERVATION_SOURCE_UNAVAILABLE', '当前 CA 不是可主动扫描的 Windows AD CS CA', {
+        caId,
+        providerId: authority.providerId,
+      });
+    }
+    const agentId = textValue(provider.configuration.agentId) ?? textValue(authority.configuration?.agentId);
+    if (!agentId) {
+      throw new AppError('CA_OBSERVATION_SOURCE_UNAVAILABLE', '当前 CA 尚未关联 AD CS Agent', {
+        caId,
+        providerId: provider.id,
+        reason: 'AGENT_ASSOCIATION_MISSING',
+      });
+    }
+    if (!this.adcsObservationRefresher) {
+      throw new AppError('CA_OBSERVATION_SOURCE_UNAVAILABLE', 'AD CS Agent 刷新入口未配置', {
+        caId,
+        agentId,
+        reason: 'AGENT_REFRESH_UNAVAILABLE',
+      });
+    }
+    return {
+      ...(await this.adcsObservationRefresher(tenantId, agentId, force)),
+      caId,
+      providerId: provider.id,
+      agentId,
+    };
+  }
+
+  private async enrichOperationsTreeWithAgentRuntime(tenantId: string, tree: CaOperationsTreeDto): Promise<CaOperationsTreeDto> {
+    const [providers, authorities] = await Promise.all([
+      this.repository.listProviders(tenantId),
+      this.repository.listAuthorities(tenantId),
+    ]);
+    const providerById = new Map(providers.map((provider) => [provider.id, provider]));
+    const authorityById = new Map(authorities.map((authority) => [authority.id, authority]));
+    const enrich = async (authority: CaOperationsTreeAuthorityDto): Promise<CaOperationsTreeAuthorityDto> => {
+      const provider = providerById.get(authority.providerId);
+      if (!provider || !isMicrosoftAdcsProvider(provider)) return authority;
+      const runtime = await this.adcsProviderRuntime(tenantId, provider, authority.id, textValue(authorityById.get(authority.id)?.configuration?.agentId));
+      return runtime ? { ...authority, agent: runtime } : authority;
+    };
+    const trustDomains = await Promise.all(tree.trustDomains.map(async (domain) => ({
+      ...domain,
+      authorities: await Promise.all(domain.authorities.map(enrich)),
     })));
+    return {
+      trustDomains,
+      unassignedAuthorities: await Promise.all(tree.unassignedAuthorities.map(enrich)),
+    };
+  }
+
+  private async adcsProviderRuntime(tenantId: string, provider: CaProviderEntity, caId?: string, agentIdOverride?: string): Promise<CaAgentRuntimeProjection | undefined> {
+    if (!isMicrosoftAdcsProvider(provider) || !this.adcsAgentRuntimeResolver) return undefined;
+    const agentId = agentIdOverride ?? textValue(provider.configuration.agentId);
+    if (!agentId) return undefined;
+    const [agent, observation] = await Promise.all([
+      this.adcsAgentRuntimeResolver(tenantId, agentId).catch(() => undefined),
+      this.operationsRepository.getExternalObservationSummary(tenantId, provider.id, caId),
+    ]);
+    if (!agent) return undefined;
+    const health = agent.observation;
+    return {
+      agentId: agent.id,
+      agentKey: agent.agentKey,
+      version: agent.version,
+      versionSource: agent.versionSource,
+      ...(agent.registeredVersion ? { registeredVersion: agent.registeredVersion } : {}),
+      status: agent.status,
+      ...(agent.heartbeatAt ? { heartbeatAt: agent.heartbeatAt } : {}),
+      ...(agent.managementEndpoint ? { managementEndpoint: agent.managementEndpoint } : {}),
+      ...(observation.lastObservedAt ? { lastObservationAt: observation.lastObservedAt } : {}),
+      ...(health?.lastRunAt ? { lastObservationAt: health.lastRunAt } : {}),
+      ...(health?.completedAt && !health?.lastRunAt ? { lastObservationAt: health.completedAt } : {}),
+      ...(health?.status ? { observationStatus: health.status } : {}),
+      ...(health?.parserVersion ? { parserVersion: health.parserVersion } : {}),
+      ...(health?.forced !== undefined ? { forced: health.forced } : {}),
+      ...(health?.scannedRecords !== undefined ? { scannedRecords: health.scannedRecords } : {}),
+      ...(health?.submittedRecords !== undefined ? { submittedRecords: health.submittedRecords } : {}),
+      ...(health?.sentRecords !== undefined ? { sentRecords: health.sentRecords } : {}),
+      ...(health?.acceptedRecords !== undefined ? { acceptedRecords: health.acceptedRecords } : {}),
+      ...(health?.failedBatches !== undefined ? { failedBatches: health.failedBatches } : {}),
+      ...(health?.insertedRecords !== undefined ? { insertedRecords: health.insertedRecords } : {}),
+      ...(health?.updatedRecords !== undefined ? { updatedRecords: health.updatedRecords } : {}),
+      ...(health?.duplicateRecords !== undefined ? { duplicateRecords: health.duplicateRecords } : {}),
+      ...(health?.rejectedRecords !== undefined ? { rejectedRecords: health.rejectedRecords } : {}),
+      ...(health?.pendingBatches !== undefined ? { pendingBatches: health.pendingBatches } : {}),
+      ...(health?.statusCounts ? { statusCounts: health.statusCounts } : {}),
+      ...(health?.warnings?.length ? { warnings: health.warnings.slice(0, 8) } : {}),
+      storedRecords: observation.storedRecords,
+    };
   }
 
   /**
@@ -530,7 +906,7 @@ export class InternalCaApplicationService {
     const provider = await this.requireProvider(tenantId, providerId);
     // AD CS Provider 通常已经关联一个外部 CA。保留历史证书和审计记录，采用停用登记而不是物理删除。
     // 这样删除 Agent 不会破坏证书请求、吊销记录和 CA 外键，同时从可用资源列表中移除实例。
-    if (provider.type === 'plugin' && provider.configuration.providerKind === 'microsoft_adcs') {
+    if (isMicrosoftAdcsProvider(provider)) {
       const now = new Date().toISOString();
       await this.repository.saveProvider({
         ...provider,
@@ -615,7 +991,6 @@ export class InternalCaApplicationService {
       pluginVersionId: requiredText(input.pluginVersionId, 'pluginVersionId'),
       executionLocation: input.executionLocation,
       issueAction: normalizeProviderAction(input.issueAction, 'issueAction'),
-      listAction: input.listAction ? normalizeProviderAction(input.listAction, 'listAction') : undefined,
       queryAction: input.queryAction ? normalizeProviderAction(input.queryAction, 'queryAction') : undefined,
       revokeAction: input.revokeAction ? normalizeProviderAction(input.revokeAction, 'revokeAction') : undefined,
       revocationEvidenceAction: input.revocationEvidenceAction ? normalizeProviderAction(input.revocationEvidenceAction, 'revocationEvidenceAction') : undefined,
@@ -631,38 +1006,178 @@ export class InternalCaApplicationService {
     return binding;
   }
 
-  async ensureAdcsProviderForAgent(input: { tenantId: string; agentId: string; agentKey: string; name: string; pluginVersionId: string }): Promise<void> {
-    const existing = (await this.repository.listProviders(input.tenantId)).find((provider) => provider.type === 'plugin' && provider.configuration.providerKind === 'microsoft_adcs' && provider.configuration.agentId === input.agentId);
-    const configuration = { providerKind: 'microsoft_adcs', profile: 'windows.agent_plan.adcs', agentId: input.agentId, agentKey: input.agentKey, registrationStatus: 'linked', pluginVersionId: input.pluginVersionId };
-    const provider = existing
-      ? await this.updateProvider(input.tenantId, existing.id, { name: input.name, configuration, status: 'active' }, 'system')
-      : await this.createProvider(input.tenantId, { name: input.name, type: 'plugin', deploymentMode: 'external', runtimePlatform: 'windows', availabilityMode: 'single', configuration }, 'system');
+  async ensureAdcsProviderForAgent(input: { tenantId: string; agentId: string; agentKey: string; name: string; caConfig?: string; pluginVersionId: string }): Promise<void> {
+    const normalizedName = requiredText(input.name, 'name').toLowerCase();
+    // 同一租户内不同历史 Agent 可能上报不同名称（主机名/真实 CA 名称）。
+    // 按名称加锁会让它们同时改写同一个 Provider，最终撞上名称唯一索引；
+    // Provider 补偿是低频控制面操作，按租户串行最简单也最可靠。
+    const lockKey = input.tenantId;
+    const previous = this.adcsProviderEnsurePromises.get(lockKey);
+    const current = (previous ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(() => this.ensureAdcsProviderForAgentInternal({ ...input, name: input.name.trim(), caConfig: textValue(input.caConfig), pluginVersionId: requiredText(input.pluginVersionId, 'pluginVersionId') }));
+    this.adcsProviderEnsurePromises.set(lockKey, current);
+    try {
+      await current;
+    } finally {
+      if (this.adcsProviderEnsurePromises.get(lockKey) === current) {
+        this.adcsProviderEnsurePromises.delete(lockKey);
+      }
+    }
+  }
+
+  private async ensureAdcsProviderForAgentInternal(input: { tenantId: string; agentId: string; agentKey: string; name: string; caConfig?: string; pluginVersionId: string }): Promise<void> {
+    const providers = await this.repository.listProviders(input.tenantId);
+    const normalizedName = input.name.trim().toLowerCase();
+    // Agent 重装后 agentId 会变化，但 agentKey、CA 名称或旧版 Profile 仍然代表同一外部登记。
+    // 旧 Provider 即使缺少 providerKind，也必须被自动接管，不能再次触发同名唯一约束。
+    const isCandidate = (provider: CaProviderEntity) => isAdcsProviderCandidate(provider, input, normalizedName);
+    const authorityProviderIds = new Set(
+      (await this.repository.listAuthorities(input.tenantId))
+        .filter((authority) => authority.topologyMode === 'external_managed'
+          && authority.name.trim().toLowerCase() === normalizedName)
+        .map((authority) => authority.providerId),
+    );
+    // 先按租户内唯一名称定位，再按 Agent 身份回退。
+    // 不能把任意一个 AD CS Provider 当作候选，否则多个历史 Provider
+    // 存在时会把旧记录改名为当前名称并撞上唯一索引。
+    // 租户内 Provider 名称本身就是唯一键。旧版本可能没有任何 AD CS 标记，
+    // 但只要是 plugin 且名称与 Agent 上报的 CA 名称一致，就必须复用该行。
+    // 否则补偿会再次 INSERT 同名 Provider，直接触发 uq_pg_ca_providers_tenant_name。
+    let existing = providers.find((provider) => provider.type === 'plugin' && provider.name.trim().toLowerCase() === normalizedName)
+      ?? providers.find((provider) => isCandidate(provider) && provider.name.trim().toLowerCase() === normalizedName)
+      // 早期 AD CS Agent 以主机名创建 Provider，但 Authority 已保存真实 CA 名称。
+      // 优先沿 Authority 反查旧 Provider，避免重装后把同一个 CA 拆成两条记录。
+      ?? providers.find((provider) => provider.type === 'plugin' && authorityProviderIds.has(provider.id))
+      ?? providers.find((provider) => isCandidate(provider) && textValue(provider.configuration.agentKey) === input.agentKey)
+      ?? providers.find((provider) => isCandidate(provider) && textValue(provider.configuration.agentId) === input.agentId);
+    if (!existing) {
+      const candidates = providers.filter(isCandidate);
+      // 只有租户内唯一的 AD CS Provider 才允许在名称变化时回退复用；
+      // 多条历史记录必须保留，不能猜测它们对应哪一个外部 CA。
+      if (candidates.length === 1 && !providers.some((provider) => provider.name.trim().toLowerCase() === normalizedName)) {
+        existing = candidates[0];
+      }
+    }
+    const configuration = {
+      ...(existing?.configuration ?? {}),
+      providerKind: 'microsoft_adcs',
+      profile: 'windows.agent_plan.adcs',
+      agentId: input.agentId,
+      agentKey: input.agentKey,
+      ...(input.caConfig ? { caConfig: input.caConfig } : {}),
+      registrationStatus: 'linked',
+      pluginVersionId: input.pluginVersionId,
+    };
+    let provider: Omit<CaProviderEntity, 'credentialSecretRef'>;
+    if (existing) {
+      // 只有当真实 CA 名称尚未占用且该旧记录能由 Authority/唯一候选证明时才迁移名称。
+      // 多条历史 Provider 场景保留原名称，避免在并发补偿期间猜错对象或撞唯一索引。
+      const nameTaken = providers.some((candidate) => candidate.id !== existing!.id
+        && candidate.name.trim().toLowerCase() === normalizedName);
+      const renameLegacyName = !nameTaken && existing.name.trim().toLowerCase() !== normalizedName
+        && (authorityProviderIds.has(existing.id) || providers.filter(isCandidate).length === 1);
+      provider = await this.updateProvider(input.tenantId, existing.id, {
+        name: renameLegacyName ? input.name : existing.name,
+        configuration,
+        status: 'active',
+      }, 'system');
+    } else {
+      try {
+        provider = await this.createProvider(input.tenantId, {
+          name: input.name,
+          type: 'plugin',
+          deploymentMode: 'external',
+          runtimePlatform: 'windows',
+          availabilityMode: 'single',
+          configuration,
+        }, 'system');
+      } catch (error) {
+        // 多个 Agent 注册请求并发时，另一个请求可能刚插入同名 Provider。
+        // 重新读取并复用它，保持补偿登记幂等。
+        if (!isUniqueConstraintError(error)) throw error;
+        const refreshedProviders = await this.repository.listProviders(input.tenantId);
+        existing = refreshedProviders.find((candidate) => candidate.type === 'plugin' && candidate.name.trim().toLowerCase() === normalizedName)
+          ?? refreshedProviders.find((candidate) => isCandidate(candidate) && candidate.name.trim().toLowerCase() === normalizedName)
+          ?? refreshedProviders.find((candidate) => isCandidate(candidate) && textValue(candidate.configuration.agentKey) === input.agentKey);
+        if (!existing) throw error;
+        const targetOwner = refreshedProviders.find((candidate) => candidate.name.trim().toLowerCase() === normalizedName);
+        const stableName = targetOwner && targetOwner.id !== existing.id ? existing.name : input.name;
+        provider = await this.updateProvider(input.tenantId, existing.id, { name: stableName, configuration, status: 'active' }, 'system');
+      }
+    }
     const bindings = await this.listProviderActionBindings(input.tenantId, provider.id);
     const activeBinding = bindings.find((binding) => binding.status !== 'disabled');
     if (activeBinding) {
-      // 旧版本绑定没有历史列表动作；补齐同一固定 PluginVersion，避免重新安装 Agent 才能同步。
-      if (!activeBinding.listAction) {
+      // Agent 重装或插件升级后，旧绑定可能仍指向已禁用的 PluginVersion。
+      // 绑定是运行时唯一入口，必须在 Agent 补偿登记时切到当前启用版本。
+      const capabilityEvidence = {
+        ...(activeBinding.capabilityEvidence ?? {}),
+        providerKind: 'microsoft_adcs',
+        agentId: input.agentId,
+        agentKey: input.agentKey,
+      };
+      if (
+        activeBinding.pluginVersionId !== input.pluginVersionId
+        || JSON.stringify(activeBinding.capabilityEvidence ?? {}) !== JSON.stringify(capabilityEvidence)
+      ) {
         await this.repository.saveProviderActionBinding({
           ...activeBinding,
-          listAction: { actionId: 'ca.certificate.list.v1', actionVersion: 'v1' },
+          pluginVersionId: input.pluginVersionId,
+          capabilityEvidence,
           updatedAt: new Date().toISOString(),
         });
       }
-      return;
+    } else {
+      await this.createProviderActionBinding(input.tenantId, {
+        providerId: provider.id,
+        pluginVersionId: input.pluginVersionId,
+        executionLocation: 'control_plane',
+        approvalMode: 'none',
+        status: 'active',
+        issueAction: { actionId: 'ca.certificate.issue.v1', actionVersion: 'v1' },
+        queryAction: { actionId: 'ca.certificate.query.v1', actionVersion: 'v1' },
+        revokeAction: { actionId: 'ca.certificate.revoke.v1', actionVersion: 'v1' },
+        revocationEvidenceAction: { actionId: 'ca.revocation.evidence.v1', actionVersion: 'v1' },
+        capabilityEvidence: { providerKind: 'microsoft_adcs', agentId: input.agentId, agentKey: input.agentKey },
+      }, 'system');
     }
-    await this.createProviderActionBinding(input.tenantId, {
-      providerId: provider.id,
-      pluginVersionId: input.pluginVersionId,
-      executionLocation: 'control_plane',
-      approvalMode: 'none',
-      status: 'active',
-      issueAction: { actionId: 'ca.certificate.issue.v1', actionVersion: 'v1' },
-      listAction: { actionId: 'ca.certificate.list.v1', actionVersion: 'v1' },
-      queryAction: { actionId: 'ca.certificate.query.v1', actionVersion: 'v1' },
-      revokeAction: { actionId: 'ca.certificate.revoke.v1', actionVersion: 'v1' },
-      revocationEvidenceAction: { actionId: 'ca.revocation.evidence.v1', actionVersion: 'v1' },
-      capabilityEvidence: { providerKind: 'microsoft_adcs', agentId: input.agentId, agentKey: input.agentKey },
-    }, 'system');
+    await this.deduplicateAdcsProviderBindings(input.tenantId, provider.id);
+    await this.reconcileAdcsAuthorityBindings(input, provider.id);
+  }
+
+  /** 多个控制面实例可能同时为同一 Provider 补偿绑定，最终只保留一个活动入口。 */
+  private async deduplicateAdcsProviderBindings(tenantId: string, providerId: string): Promise<void> {
+    const bindings = (await this.listProviderActionBindings(tenantId, providerId))
+      .filter((binding) => binding.status !== 'disabled')
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.id.localeCompare(left.id));
+    for (const binding of bindings.slice(1)) {
+      await this.repository.saveProviderActionBinding({
+        ...binding,
+        status: 'disabled',
+        updatedAt: new Date().toISOString(),
+      });
+    }
+  }
+
+  private async reconcileAdcsAuthorityBindings(
+    input: { tenantId: string; agentId: string; agentKey: string; caConfig?: string; pluginVersionId: string },
+    providerId: string,
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    for (const authority of await this.repository.listAuthorities(input.tenantId)) {
+      if (authority.providerId !== providerId) continue;
+      const configuration = {
+        ...authority.configuration,
+        providerKind: 'microsoft_adcs',
+        agentId: input.agentId,
+        agentKey: input.agentKey,
+        ...(input.caConfig ? { caConfig: input.caConfig } : {}),
+        pluginVersionId: input.pluginVersionId,
+      };
+      if (JSON.stringify(configuration) === JSON.stringify(authority.configuration)) continue;
+      await this.repository.saveAuthority({ ...authority, configuration, updatedAt: now });
+    }
   }
 
   listProviderActionBindings(tenantId: string, providerId?: string): Promise<ProviderActionBindingEntity[]> {
@@ -805,12 +1320,28 @@ export class InternalCaApplicationService {
       throw adcsAuthorityReuse.error;
     }
     if (adcsAuthorityReuse.authority) {
-      await this.audit('internal_ca.authority.reused', input.actorId, 'certificate_authority.create', 'certificate_authority', adcsAuthorityReuse.authority.id, 'high', context, {
+      // 旧登记可能只有主机名，新登记才携带 certutil 的稳定 caConfig。
+      // 复用原 Authority 时把新身份补回去，后续 Agent 上报和资源树都能使用同一条记录。
+      const inputCaConfig = textValue(input.configuration?.caConfig);
+      const mergedConfiguration = inputCaConfig && !textValue(adcsAuthorityReuse.authority.configuration?.caConfig)
+        ? { ...adcsAuthorityReuse.authority.configuration, caConfig: inputCaConfig }
+        : adcsAuthorityReuse.authority.configuration;
+      const needsConfigurationUpdate = JSON.stringify(mergedConfiguration) !== JSON.stringify(adcsAuthorityReuse.authority.configuration);
+      const authority = adcsAuthorityReuse.authority.status === 'retired' || needsConfigurationUpdate
+        ? await this.repository.saveAuthority({
+            ...adcsAuthorityReuse.authority,
+            ...(needsConfigurationUpdate ? { configuration: mergedConfiguration } : {}),
+            ...(adcsAuthorityReuse.authority.status === 'retired' ? { status: 'active' as const } : {}),
+            updatedAt: new Date().toISOString(),
+          })
+        : adcsAuthorityReuse.authority;
+      await this.audit('internal_ca.authority.reused', input.actorId, 'certificate_authority.create', 'certificate_authority', authority.id, 'high', context, {
         providerId: provider.id,
         reused: true,
+        restored: adcsAuthorityReuse.authority.status === 'retired',
         identity: adcsAuthorityReuse.identity,
       });
-      return [sanitizeAuthority(adcsAuthorityReuse.authority)];
+      return [sanitizeAuthority(authority)];
     }
     const trustDomain = input.trustDomainId
       ? await this.requireUsableTrustDomain(tenantId, input.trustDomainId)
@@ -1102,6 +1633,11 @@ export class InternalCaApplicationService {
     ].join('|')).digest('hex');
     const existing = await this.repository.getRequestByIdempotencyKey(tenantId, idempotencyKey);
     if (existing) return existing;
+    // 本机持钥申请先落一条 pending_key 事实，再由 Agent v2 返回 CSR。此时
+    // 不创建任何私钥材料；占位 KeyReference 仅用于维持现有外键和幂等模型。
+    if (input.custodyMode === 'local_agent' && !input.csrPem) {
+      return this.createPendingLocalAgentRequest(tenantId, input, authority, profileVersion, policySnapshot, idempotencyKey, context);
+    }
     const keyMaterial = await this.prepareKeyMaterial(tenantId, input, profileVersion.rules, context);
     const now = new Date().toISOString();
     const requestId = newId('certreq');
@@ -1150,8 +1686,251 @@ export class InternalCaApplicationService {
     return this.issueRequest(tenantId, request.id, input.actorId, context);
   }
 
+  /** 创建等待 Agent 生成本机密钥/CSR 的证书申请。 */
+  private async createPendingLocalAgentRequest(
+    tenantId: string,
+    input: CreateCertificateRequestInput,
+    authority: CertificateAuthorityEntity,
+    profileVersion: CertificateProfileVersionEntity,
+    policySnapshot: EffectiveCertificatePolicySnapshot,
+    idempotencyKey: string,
+    context?: RequestContext,
+  ): Promise<CertificateRequestEntity> {
+    const now = new Date().toISOString();
+    const keyReference = await this.repository.saveKeyReference({
+      id: newId('keyref'),
+      tenantId,
+      ownerType: 'application_certificate',
+      ownerId: requiredText(input.applicationAssetId, 'applicationAssetId'),
+      custodyMode: 'local_agent',
+      backendType: input.keyBackend ?? 'file',
+      publicKeyFingerprintSha256: '0'.repeat(64),
+      exportability: input.exportability ?? 'unknown',
+      protectionLevel: 'software_controlled',
+      status: 'retiring',
+      evidence: { pending: true, privateKeyTransported: false },
+      createdAt: now,
+      updatedAt: now,
+    });
+    const request: CertificateRequestEntity = {
+      id: newId('certreq'),
+      tenantId,
+      applicationAssetId: requiredText(input.applicationAssetId, 'applicationAssetId'),
+      caId: authority.id,
+      trustDomainId: authority.trustDomainId,
+      profileVersionId: profileVersion.id,
+      certificatePolicyVersionId: policySnapshot.policyVersionId,
+      providerActionBindingId: policySnapshot.providerActionBindingId,
+      effectivePolicySnapshot: policySnapshot,
+      keyReferenceId: keyReference.id,
+      csrPem: '',
+      csrSha256: createHash('sha256').update('', 'utf8').digest('hex'),
+      publicKeyFingerprintSha256: '0'.repeat(64),
+      idempotencyKey,
+      status: 'pending_key',
+      requestedBy: input.actorId,
+      deferIssuance: false,
+      subjectCommonName: requiredText(input.commonName, 'commonName'),
+      sans: normalizeCertificateNames(input.sans),
+      requestedValidityDays: policySnapshot.effectiveValidityDays,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.repository.saveRequest(request);
+    await this.audit('internal_ca.request.created', input.actorId, 'certificate_request.create', 'certificate_request', request.id, 'high', context, {
+      applicationAssetId: request.applicationAssetId,
+      caId: request.caId,
+      keyCustodyMode: 'local_agent',
+      status: request.status,
+    });
+    return request;
+  }
+
+  /**
+   * 接收 Agent v2 key.generate_csr 成功回执，更新占位 KeyReference 和申请。
+   * CSR 会再次由控制面解析，避免信任 Agent 回执中的可伪造指纹。
+   */
+  async completeLocalAgentCsr(
+    tenantId: string,
+    requestId: string,
+    input: {
+      localKeyRef: string;
+      csrPem: string;
+      csrSha256?: string;
+      publicKeyFingerprintSha256?: string;
+      keyBackend?: KeyBackendType;
+      exportability?: KeyExportability;
+      protectionLevel?: KeyReferenceEntity['protectionLevel'];
+      evidence?: Record<string, unknown>;
+      agentContext?: CertificateRequestEntity['agentContext'];
+    },
+    actorId: string,
+    context?: RequestContext,
+  ): Promise<CertificateRequestEntity> {
+    const request = await this.requireRequest(tenantId, requestId);
+    if (!['pending_key', 'pending_csr'].includes(request.status)) {
+      return request;
+    }
+    const localKeyRef = requiredText(input.localKeyRef, 'localKeyRef');
+    if (!/^local-key:[a-f0-9]{64}$/i.test(localKeyRef)) {
+      throw new AppError('VALIDATION_FAILED', 'Agent 返回的 localKeyRef 必须是不透明的本机密钥句柄');
+    }
+    if (!input.agentContext) {
+      throw new AppError('TENANT_SCOPE_DENIED', 'Agent CSR 回执缺少已绑定的目标上下文');
+    }
+    if (input.agentContext.agentId !== actorId) {
+      throw new AppError('TENANT_SCOPE_DENIED', 'Agent CSR 回执与执行 Agent 不一致', {
+        expectedAgentId: input.agentContext.agentId,
+        actualAgentId: actorId,
+      });
+    }
+    if (!request.agentContext || !sameAgentContext(request.agentContext, input.agentContext)) {
+      throw new AppError('TENANT_SCOPE_DENIED', 'Agent CSR 回执与证书申请绑定的目标上下文不一致', {
+        requestId: request.id,
+        agentId: actorId,
+      });
+    }
+    const keyReference = await this.repository.getKeyReference(tenantId, request.keyReferenceId);
+    if (!keyReference) throw new AppError('RESOURCE_NOT_FOUND', '证书申请占位密钥引用不存在');
+    if (keyReference.custodyMode !== 'local_agent') {
+      throw new AppError('RESOURCE_VERSION_CONFLICT', '证书申请的密钥托管模式不是本机 Agent');
+    }
+    const parsed = await this.openssl.parseCsr(requiredText(input.csrPem, 'csrPem'));
+    if (input.csrSha256 && input.csrSha256.toLowerCase() !== parsed.csrSha256.toLowerCase()) {
+      throw new AppError('CSR_SIGNATURE_INVALID', 'Agent 返回的 CSR 摘要不匹配');
+    }
+    if (input.publicKeyFingerprintSha256 && input.publicKeyFingerprintSha256.toLowerCase() !== parsed.publicKeyFingerprintSha256.toLowerCase()) {
+      throw new AppError('PUBLIC_KEY_MISMATCH', 'Agent 返回的 CSR 公钥指纹不匹配');
+    }
+    if (!parsed.subject.toLowerCase().includes(request.subjectCommonName.toLowerCase())) {
+      throw new AppError('VALIDATION_FAILED', 'Agent 返回的 CSR 主体与证书申请不一致');
+    }
+    const updatedKey = await this.repository.saveKeyReference({
+      ...keyReference,
+      opaqueReference: localKeyRef,
+      backendType: input.keyBackend ?? keyReference.backendType,
+      publicKeyFingerprintSha256: parsed.publicKeyFingerprintSha256,
+      exportability: input.exportability ?? keyReference.exportability,
+      protectionLevel: input.protectionLevel ?? keyReference.protectionLevel,
+      status: 'active',
+      evidence: { ...keyReference.evidence, ...structuredClone(input.evidence ?? {}), privateKeyTransported: false },
+      updatedAt: new Date().toISOString(),
+    });
+    const requiresApproval = request.effectivePolicySnapshot?.requiresApproval === true;
+    let next = await this.repository.saveRequest({
+      ...request,
+      keyReferenceId: updatedKey.id,
+      csrPem: parsed.csrPem,
+      csrSha256: parsed.csrSha256,
+      publicKeyFingerprintSha256: parsed.publicKeyFingerprintSha256,
+      agentContext: input.agentContext,
+      status: requiresApproval ? 'pending_approval' : 'approved',
+      updatedAt: new Date().toISOString(),
+    });
+    if (requiresApproval && this.dependencies.approvals) {
+      const approval = await this.dependencies.approvals.create({
+        operationType: 'certificate_request.issue',
+        resourceRefs: [{ type: 'certificate_request', id: request.id }],
+        riskLevel: 'high',
+        parameters: { requestId: request.id, applicationAssetId: request.applicationAssetId, caId: request.caId, publicKeyFingerprintSha256: parsed.publicKeyFingerprintSha256 },
+        requestedBy: actorId,
+      }, context);
+      next = await this.repository.saveRequest({ ...next, approvalId: approval.id, updatedAt: new Date().toISOString() });
+      return next;
+    }
+    return this.issueRequest(tenantId, next.id, actorId, context);
+  }
+
+  async markLocalAgentCertificateInstall(
+    tenantId: string,
+    requestId: string,
+    outcome: 'SUCCESS' | 'FAILED' | 'UNKNOWN',
+    input: { detail?: Record<string, unknown>; errorCode?: string; errorMessage?: string } = {},
+  ): Promise<CertificateRequestEntity> {
+    const request = await this.requireRequest(tenantId, requestId);
+    const deploymentEvidence = summarizeAgentCertificateEvidence(input.detail, input.errorCode, input.errorMessage);
+    if (outcome === 'SUCCESS') {
+      const installEvidence = readAgentInstallEvidence(input.detail);
+      const key = await this.repository.getKeyReference(tenantId, request.keyReferenceId);
+      const version = request.certificateVersionId
+        ? await this.dependencies.certificates.getRepository().getVersion(request.certificateVersionId, tenantId)
+        : undefined;
+      const expectedKeyRef = key?.opaqueReference;
+      const expectedPublicKey = version?.publicKeyFingerprintSha256 ?? key?.publicKeyFingerprintSha256;
+      const evidenceValid = Boolean(
+        installEvidence
+        && installEvidence.privateKeyTransported === false
+        && expectedKeyRef
+        && installEvidence.localKeyRef === expectedKeyRef
+        && installEvidence.publicKeyFingerprintSha256
+        && expectedPublicKey
+        && installEvidence.publicKeyFingerprintSha256.toLowerCase() === expectedPublicKey.toLowerCase()
+        && installEvidence.certificateFingerprintSha256
+        && (!version || installEvidence.certificateFingerprintSha256.toLowerCase() === version.fingerprintSha256.toLowerCase()),
+      );
+      if (!evidenceValid) {
+        return this.repository.saveRequest({
+          ...request,
+          status: 'deploy_failed',
+          failureCode: 'AGENT_RECEIPT_INVALID',
+          failureMessage: 'Agent 证书安装回执缺少或不匹配公开证据，未激活证书',
+          ...(deploymentEvidence ? { deploymentEvidence } : {}),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      return this.repository.saveRequest({
+        ...request,
+        status: 'active',
+        ...(deploymentEvidence ? { deploymentEvidence } : {}),
+        failureCode: undefined,
+        failureMessage: undefined,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    return this.repository.saveRequest({
+      ...request,
+      status: outcome === 'UNKNOWN' ? 'deploy_failed' : 'deploy_failed',
+      failureCode: input.errorCode ?? (outcome === 'UNKNOWN' ? 'AGENT_EXECUTION_UNKNOWN' : 'AGENT_EXECUTION_FAILED'),
+      failureMessage: input.errorMessage ?? (outcome === 'UNKNOWN' ? 'Agent 写操作结果不明，禁止自动重试或回退' : 'Agent 证书安装失败'),
+      ...(deploymentEvidence ? { deploymentEvidence } : {}),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  async markLocalAgentCsrFailure(
+    tenantId: string,
+    requestId: string,
+    outcome: 'FAILED' | 'UNKNOWN',
+    errorMessage?: string,
+  ): Promise<CertificateRequestEntity> {
+    const request = await this.requireRequest(tenantId, requestId);
+    if (!['pending_key', 'pending_csr'].includes(request.status)) return request;
+    return this.repository.saveRequest({
+      ...request,
+      status: 'pending_csr',
+      failureCode: outcome === 'UNKNOWN' ? 'AGENT_EXECUTION_UNKNOWN' : 'AGENT_EXECUTION_FAILED',
+      failureMessage: errorMessage,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
   async listRequests(tenantId: string): Promise<CertificateRequestEntity[]> {
-    return this.repository.listRequests(tenantId);
+    const requests = await this.repository.listRequests(tenantId);
+    return Promise.all(requests.map(async (request) => {
+      const key = await this.repository.getKeyReference(tenantId, request.keyReferenceId);
+      if (!key) return request;
+      return {
+        ...request,
+        // 仅返回公开密钥治理摘要；SecretRef、密钥材料和托管密文永不进入列表响应。
+        keyReferenceSummary: {
+          custodyMode: key.custodyMode,
+          backendType: key.backendType,
+          exportability: key.exportability,
+          protectionLevel: key.protectionLevel,
+          publicKeyFingerprintSha256: key.publicKeyFingerprintSha256,
+        },
+      };
+    }));
   }
 
   getRequestByIdempotencyKey(tenantId: string, idempotencyKey: string): Promise<CertificateRequestEntity | undefined> {
@@ -1177,7 +1956,17 @@ export class InternalCaApplicationService {
 
   async issueRequest(tenantId: string, requestId: string, actorId: string, context?: RequestContext): Promise<CertificateRequestEntity> {
     const request = await this.requireRequest(tenantId, requestId);
-    if (['issued', 'deploying', 'active'].includes(request.status)) return request;
+    if (['issued', 'deploying', 'active'].includes(request.status)) {
+      // 已签发但部署计划曾因缺少目标/Workflow 而阻断时，显式重试入口仍应
+      // 能恢复部署编排；已存在计划则直接返回，保证同一申请不产生第二份计划。
+      if (!request.deploymentPlanId && this.managedSecretIssuedHandler) {
+        const keyReference = await this.repository.getKeyReference(tenantId, request.keyReferenceId);
+        if (keyReference?.custodyMode === 'managed_secret') {
+          return this.handleIssuedLifecycle({ tenantId, request, keyCustodyMode: keyReference.custodyMode, actorId, context });
+        }
+      }
+      return request;
+    }
     if (!['approved', 'issue_failed'].includes(request.status)) throw new AppError('RESOURCE_VERSION_CONFLICT', '证书申请尚未批准', { status: request.status });
     const authority = await this.requireAuthority(tenantId, request.caId);
     const provider = await this.requireProvider(tenantId, authority.providerId);
@@ -1205,7 +1994,8 @@ export class InternalCaApplicationService {
         actionBinding,
       });
       if (issued.status !== 'issued') return this.saveNonFinalIssuance(request, issued);
-      return this.completeIssuedRequest(request, issued, provider, authority, keyReference, actorId, context);
+      const completed = await this.completeIssuedRequest(request, issued, provider, authority, keyReference, actorId, context);
+      return this.handleIssuedLifecycle({ tenantId, request: completed, keyCustodyMode: keyReference.custodyMode, actorId, context });
     } catch (error) {
       if (ledgerRecord && ledgerRecord.status !== 'issued') await this.repository.saveIssuanceRecord({ ...ledgerRecord, status: 'failed', updatedAt: new Date().toISOString() });
       await this.repository.saveRequest({
@@ -1231,7 +2021,40 @@ export class InternalCaApplicationService {
     const actionBinding = request.providerActionBindingId ? await this.repository.getProviderActionBinding(tenantId, request.providerActionBindingId) : undefined;
     const result = await adapter.queryIssuance({ authority, provider, providerRequestId: request.providerRequestId, actorId, actionBinding, idempotencyKey: request.idempotencyKey });
     if (result.status !== 'issued') return this.saveNonFinalIssuance(request, result);
-    return this.completeIssuedRequest(request, result, provider, authority, keyReference, actorId, context);
+    const completed = await this.completeIssuedRequest(request, result, provider, authority, keyReference, actorId, context);
+    return this.handleIssuedLifecycle({ tenantId, request: completed, keyCustodyMode: keyReference.custodyMode, actorId, context });
+  }
+
+  private async handleIssuedLifecycle(input: {
+    tenantId: string;
+    request: CertificateRequestEntity;
+    keyCustodyMode: KeyReferenceEntity['custodyMode'];
+    actorId: string;
+    context?: RequestContext;
+  }): Promise<CertificateRequestEntity> {
+    const handler = input.keyCustodyMode === 'local_agent'
+      ? this.localAgentIssuedHandler
+      : input.keyCustodyMode === 'managed_secret'
+        ? this.managedSecretIssuedHandler
+        : undefined;
+    if (!handler) return input.request;
+    try {
+      const result = await handler({ tenantId: input.tenantId, request: input.request, actorId: input.actorId, context: input.context });
+      if (!result) return input.request;
+      return this.repository.saveRequest({ ...input.request, ...result, updatedAt: new Date().toISOString() });
+    } catch (error) {
+      // 证书已由 CA 签发；部署编排失败不能回滚签发事实或伪装成 issue_failed。
+      return this.repository.saveRequest({
+        ...input.request,
+        failureCode: input.keyCustodyMode === 'local_agent' ? 'AGENT_INSTALL_TASK_ENQUEUE_FAILED' : 'MANAGED_DEPLOYMENT_PLAN_CREATE_FAILED',
+        failureMessage: redactLifecycleError(error),
+        ...(input.keyCustodyMode === 'managed_secret' ? {
+          deploymentPlanStatus: 'failed',
+          deploymentWarnings: [redactLifecycleError(error)],
+        } : {}),
+        updatedAt: new Date().toISOString(),
+      });
+    }
   }
 
   async importAcmeCertificate(
@@ -1325,6 +2148,13 @@ export class InternalCaApplicationService {
     const version = await this.dependencies.certificates.getRepository().getVersion(certificateVersionId, tenantId);
     if (!version?.issuingCaId) throw new AppError('RESOURCE_NOT_FOUND', '证书版本没有可用的签发 CA', { certificateVersionId });
     const authority = await this.requireAuthority(tenantId, version.issuingCaId);
+    const normalizedReason = requiredText(reason, 'reason');
+    const existing = (await this.repository.listRevocations(tenantId)).find((item) => (
+      item.certificateVersionId === certificateVersionId
+      && item.reason === normalizedReason
+      && !['failed'].includes(item.status)
+    ));
+    if (existing) return existing;
     const now = new Date().toISOString();
     const policy = await this.certificatePolicies.ensureDefault(tenantId, actorId);
     const requiresApproval = policy.version.rules.strictEnforcement && policy.version.rules.revocationApprovalRequired;
@@ -1332,12 +2162,12 @@ export class InternalCaApplicationService {
       operationType: 'certificate.revoke',
       resourceRefs: [{ type: 'certificate_version', id: certificateVersionId }],
       riskLevel: 'critical',
-      parameters: { certificateVersionId, caId: authority.id, serialNumber: version.serialNumber, reason },
+      parameters: { certificateVersionId, caId: authority.id, serialNumber: version.serialNumber, reason: normalizedReason },
       requestedBy: actorId,
     }, context) : undefined;
     const created = await this.repository.saveRevocation({
       id: newId('revoke'), tenantId, certificateVersionId, caId: authority.id, trustDomainId: authority.trustDomainId,
-      reason: requiredText(reason, 'reason'), status: requiresApproval ? 'pending_approval' : 'approved', requestedBy: actorId, approvalId: approval?.id,
+      reason: normalizedReason, status: requiresApproval ? 'pending_approval' : 'approved', requestedBy: actorId, approvalId: approval?.id,
       warnings: [], createdAt: now, updatedAt: now,
     });
     return requiresApproval ? created : this.executeRevocation(created, version.serialNumber, actorId, context);
@@ -1374,8 +2204,21 @@ export class InternalCaApplicationService {
         actorId,
         actionBinding,
       });
+      const materialThisUpdate = Date.parse(material.thisUpdate);
+      const materialNextUpdate = Date.parse(material.nextUpdate);
+      if (!Number.isFinite(materialThisUpdate) || !Number.isFinite(materialNextUpdate) || materialNextUpdate <= materialThisUpdate) {
+        throw new AppError('CA_CRL_PUBLICATION_FAILED', 'CA 返回的 CRL 有效窗口无效', {
+          thisUpdate: material.thisUpdate,
+          nextUpdate: material.nextUpdate,
+        });
+      }
+      if (material.signatureVerified !== true || !material.crlDerBase64.trim() || !material.crlPem.trim()) {
+        throw new AppError('CA_CRL_PUBLICATION_FAILED', 'CA 返回的 CRL 缺少可验证签名制品');
+      }
       return this.repository.saveCrlPublication({
-        id: newId('crlpub'), tenantId, caId, crlNumber: material.crlNumber, thisUpdate, nextUpdate,
+        id: newId('crlpub'), tenantId, caId, crlNumber: material.crlNumber,
+        thisUpdate: new Date(materialThisUpdate).toISOString(),
+        nextUpdate: new Date(materialNextUpdate).toISOString(),
         distributionPoint: authority.crlDistributionPoint, crlPem: material.crlPem, crlDerBase64: material.crlDerBase64,
         crlFingerprintSha256: material.crlFingerprintSha256, revokedSerialNumbers: material.revokedSerialNumbers,
         publicationStatus: 'published', verification: {
@@ -1908,6 +2751,34 @@ export class InternalCaApplicationService {
   }
 }
 
+function readAgentInstallEvidence(detail?: Record<string, unknown>): {
+  localKeyRef?: string;
+  publicKeyFingerprintSha256?: string;
+  certificateFingerprintSha256?: string;
+  privateKeyTransported?: boolean;
+} | undefined {
+  if (!detail) return undefined;
+  const candidates: unknown[] = [detail];
+  if (Array.isArray(detail.operationResults)) candidates.push(...detail.operationResults);
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
+    const value = candidate as Record<string, unknown>;
+    if (value.operationType !== undefined && value.operationType !== 'certificate.install_issued') continue;
+    // Agent v2 通常把证据放在 operationResults 子项中。顶层 detail
+    // 只有聚合字段时不能提前返回空证据，否则会掩盖真实安装回执。
+    const hasEvidence = ['localKeyRef', 'publicKeyFingerprintSha256', 'certificateFingerprintSha256', 'privateKeyTransported']
+      .some((field) => Object.prototype.hasOwnProperty.call(value, field));
+    if (!hasEvidence && Array.isArray(value.operationResults)) continue;
+    return {
+      ...(typeof value.localKeyRef === 'string' ? { localKeyRef: value.localKeyRef } : {}),
+      ...(typeof value.publicKeyFingerprintSha256 === 'string' ? { publicKeyFingerprintSha256: value.publicKeyFingerprintSha256 } : {}),
+      ...(typeof value.certificateFingerprintSha256 === 'string' ? { certificateFingerprintSha256: value.certificateFingerprintSha256 } : {}),
+      ...(typeof value.privateKeyTransported === 'boolean' ? { privateKeyTransported: value.privateKeyTransported } : {}),
+    };
+  }
+  return undefined;
+}
+
 function assertProviderCombination(provider: CaProviderEntity): void {
   if (provider.deploymentMode === 'builtin' && provider.type !== 'gcac_builtin') throw new AppError('CA_TOPOLOGY_INVALID', '内置部署必须使用 gcac_builtin Provider');
   if (provider.deploymentMode === 'external' && provider.type === 'gcac_builtin') throw new AppError('CA_TOPOLOGY_INVALID', '外部部署不能使用 GCAC 内置 Provider');
@@ -2016,6 +2887,13 @@ function verifyConfirmation(payload: string, token: string): boolean {
   return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
+function redactLifecycleError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message
+    .replace(/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/gi, '[REDACTED_PRIVATE_KEY]')
+    .replace(/(?:password|passphrase|secret|token)\s*[:=]\s*[^,;\s]+/gi, '$1=[REDACTED]');
+}
+
 function sanitizeProvider(provider: CaProviderEntity): Omit<CaProviderEntity, 'credentialSecretRef'> {
   const { credentialSecretRef, ...safe } = provider;
   void credentialSecretRef;
@@ -2047,31 +2925,85 @@ function resolveAdcsAuthorityReuse(
   authorities: CertificateAuthorityEntity[],
 ): { authority?: CertificateAuthorityEntity; identity?: string; error?: AppError } {
   if (!isMicrosoftAdcsProvider(provider)) return {};
-  const active = authorities.filter((authority) => (
+  const related = authorities.filter((authority) => (
     authority.providerId === provider.id
     && authority.topologyMode === 'external_managed'
-    && authority.status === 'active'
   ));
-  if (active.length === 0) return {};
+  if (related.length === 0) return {};
 
   const identity = adcsAuthorityIdentity(input.configuration, provider.configuration);
   if (identity) {
-    const authority = active.find((item) => adcsAuthorityIdentity(item.configuration, provider.configuration) === identity);
-    return authority ? { authority, identity } : {};
+    const matching = related.filter((item) => (
+      ['active', 'retired'].includes(item.status)
+      && adcsAuthorityIdentity(item.configuration, provider.configuration) === identity
+    ));
+    // 已存在活动记录时保持原记录幂等；只有没有活动记录时才恢复退休记录，避免制造两个活动 CA。
+    const authority = matching.find((item) => item.status === 'active')
+      ?? matching.find((item) => item.status === 'retired');
+    if (authority) return { authority, identity };
+    // 历史版本可能只保存了 CA 名称，没有稳定 caConfig。若当前 Provider
+    // 只有一条无身份登记，补上 caConfig 并复用它，避免删除后重建产生第二条 CA。
+    const inputAgentId = textValue(input.configuration?.agentId) ?? textValue(provider.configuration.agentId);
+    const inputAgentKey = textValue(input.configuration?.agentKey) ?? textValue(provider.configuration.agentKey);
+    const unqualified = related.filter((item) => {
+      if (!['active', 'retired'].includes(item.status) || adcsAuthorityIdentity(item.configuration, provider.configuration)) return false;
+      const itemAgentId = textValue(item.configuration?.agentId);
+      const itemAgentKey = textValue(item.configuration?.agentKey);
+      // 没有任何 Agent 身份时无法证明两个无 caConfig 记录是同一 CA，
+      // 必须保留原有“显式 caConfig 才能创建第二条”的行为。
+      if (!inputAgentId && !inputAgentKey) return false;
+      return (!itemAgentId || itemAgentId === inputAgentId)
+        && (!itemAgentKey || itemAgentKey === inputAgentKey);
+    });
+    if (unqualified.length === 1) return { authority: unqualified[0], identity };
+    if (unqualified.length > 1) {
+      return {
+        error: new AppError('CA_TOPOLOGY_INVALID', 'Microsoft AD CS Provider 存在多个未标识的历史 CA，无法安全自动归并', {
+          providerId: provider.id,
+          existingAuthorityIds: unqualified.map((item) => item.id),
+          caConfig: identity,
+        }),
+      };
+    }
+    return {};
   }
-  if (active.length === 1) {
-    return { authority: active[0], identity: adcsAuthorityIdentity(active[0].configuration, provider.configuration) };
+  if (related.length === 1 && ['active', 'retired'].includes(related[0]!.status)) {
+    return { authority: related[0], identity: adcsAuthorityIdentity(related[0].configuration, provider.configuration) };
   }
   return {
-    error: new AppError('CA_TOPOLOGY_INVALID', 'Microsoft AD CS Provider 已关联多个活动 CA，请填写唯一的 caConfig 后再创建', {
+    error: new AppError('CA_TOPOLOGY_INVALID', 'Microsoft AD CS Provider 已关联多个历史或活动 CA，请填写唯一的 caConfig 后再创建', {
       providerId: provider.id,
-      existingAuthorityIds: active.map((authority) => authority.id),
+      existingAuthorityIds: related.map((authority) => authority.id),
     }),
   };
 }
 
-function isMicrosoftAdcsProvider(provider: CaProviderEntity): boolean {
-  return provider.type === 'plugin' && textValue(provider.configuration.providerKind)?.toLowerCase() === 'microsoft_adcs';
+function isMicrosoftAdcsProvider(provider?: CaProviderEntity): boolean {
+  if (!provider || provider.type !== 'plugin') return false;
+  return normalizeAdcsProviderKind(provider.configuration.providerKind) === 'microsoft_adcs'
+    || textValue(provider.configuration.profile)?.toLowerCase() === 'windows.agent_plan.adcs'
+    || provider.runtimePlatform === 'windows';
+}
+
+function isAdcsProviderCandidate(
+  provider: CaProviderEntity,
+  input: { agentId: string; agentKey: string },
+  normalizedName: string,
+): boolean {
+  if (provider.type !== 'plugin') return false;
+  const configuration = provider.configuration ?? {};
+  if (normalizeAdcsProviderKind(configuration.providerKind) === 'microsoft_adcs') return true;
+  if (textValue(configuration.profile)?.toLowerCase() === 'windows.agent_plan.adcs') return true;
+  if (textValue(configuration.agentId) === input.agentId || textValue(configuration.agentKey) === input.agentKey) return true;
+  // 旧版本手工创建的 Provider 可能只有名称、外部 Windows 平台和插件类型。
+  // 名称是租户内唯一键，命中后自动迁移为 AD CS Provider。
+  return provider.deploymentMode === 'external'
+    && provider.runtimePlatform === 'windows'
+    && provider.name.trim().toLowerCase() === normalizedName;
+}
+
+function normalizeAdcsProviderKind(value: unknown): string | undefined {
+  return textValue(value)?.toLowerCase().replaceAll('-', '_');
 }
 
 function adcsAuthorityIdentity(
@@ -2082,6 +3014,24 @@ function adcsAuthorityIdentity(
   const providerValue = providerConfiguration.caConfig;
   const value = textValue(authorityValue) ?? textValue(providerValue);
   return value?.toLowerCase();
+}
+
+function sameExternalObservation(left: ExternalCaObservationEntity, right: ExternalCaObservationEntity): boolean {
+  return left.externalParentId === right.externalParentId
+    && left.normalizedStatus === right.normalizedStatus
+    && left.sourceStatus === right.sourceStatus
+    && left.sourceRevision === right.sourceRevision
+    && left.subjectCommonName === right.subjectCommonName
+    && left.serialNumber === right.serialNumber
+    && left.templateExternalId === right.templateExternalId
+    && left.requestedByDisplay === right.requestedByDisplay
+    && left.submittedAt === right.submittedAt
+    && left.issuedAt === right.issuedAt
+    && left.revokedAt === right.revokedAt
+    && left.notBefore === right.notBefore
+    && left.notAfter === right.notAfter
+    && JSON.stringify(left.rawSummary) === JSON.stringify(right.rawSummary)
+    && left.observedAt === right.observedAt;
 }
 
 function textValue(value: unknown): string | undefined {
@@ -2119,6 +3069,59 @@ function uniqueStrings(values: string[]): string[] {
 
 function normalizeCertificateNames(values: string[]): string[] {
   return uniqueStrings(values.map((value) => value.replace(/\.$/, '')));
+}
+
+/** 只保留 Agent 证书安装的公开回执摘要，避免把 PEM、凭据或完整载荷写入申请事实。 */
+function summarizeAgentCertificateEvidence(
+  detail: Record<string, unknown> | undefined,
+  errorCode?: string,
+  errorMessage?: string,
+): Record<string, unknown> | undefined {
+  if (!detail && !errorCode && !errorMessage) return undefined;
+  const evidence: Record<string, unknown> = {};
+  for (const key of [
+    'executionStatus',
+    'certificateFingerprintSha256',
+    'publicKeyFingerprintSha256',
+    'storagePath',
+    'keyStoragePath',
+    'certificateThumbprint',
+    'storeName',
+    'storeLocation',
+    'format',
+    'privateKeyTransported',
+  ]) {
+    const value = detail?.[key];
+    if (typeof value === 'string' || typeof value === 'boolean' || typeof value === 'number') evidence[key] = value;
+  }
+  const receipt = detail?.receipt;
+  if (receipt && typeof receipt === 'object' && !Array.isArray(receipt)) {
+    const source = receipt as Record<string, unknown>;
+    const summary: Record<string, unknown> = {};
+    for (const key of ['operationId', 'planId', 'planDigest', 'digest', 'agentId', 'tenantId', 'status', 'completedAt', 'agentKeyId']) {
+      const value = source[key];
+      if (typeof value === 'string') summary[key] = value;
+    }
+    if (Object.keys(summary).length > 0) evidence.receipt = summary;
+  }
+  if (errorCode) evidence.errorCode = errorCode;
+  if (errorMessage) evidence.errorMessage = redactLifecycleError(errorMessage);
+  return Object.keys(evidence).length > 0 ? evidence : undefined;
+}
+
+function sameAgentContext(
+  left: NonNullable<CertificateRequestEntity['agentContext']>,
+  right: NonNullable<CertificateRequestEntity['agentContext']>,
+): boolean {
+  return left.agentId === right.agentId
+    && left.targetId === right.targetId
+    && left.keyPath === right.keyPath
+    && left.certificatePath === right.certificatePath
+    && left.format === right.format
+    && left.storageMode === right.storageMode
+    && left.alias === right.alias
+    && left.pluginId === right.pluginId
+    && left.pluginVersionId === right.pluginVersionId;
 }
 
 function normalizeExportability(backend: KeyBackendType, requested?: KeyExportability): KeyExportability {
@@ -2204,4 +3207,42 @@ function csvCell(value: string): string {
 
 function isIp(value: string): boolean {
   return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(value) || value.includes(':');
+}
+
+function normalizeObservationTime(value?: string): string {
+  if (!value) return new Date().toISOString();
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) throw new AppError('VALIDATION_FAILED', 'AD CS 观测时间无效');
+  return new Date(parsed).toISOString();
+}
+
+function normalizeAgentObservation(input: AgentCaObservationBatchDto['records'][number]): Omit<ExternalCaObservationEntity, 'id' | 'tenantId' | 'providerId' | 'caId' | 'observedAt' | 'firstObservedAt' | 'createdAt' | 'updatedAt'> | undefined {
+  const objectTypes = new Set(['request', 'issuance', 'revocation', 'template']);
+  const statuses = new Set(['pending', 'issued', 'rejected', 'revoked', 'failed', 'unknown']);
+  const objectType = input.objectType;
+  const externalObjectId = String(input.externalObjectId ?? '').trim();
+  if (!objectTypes.has(objectType) || !externalObjectId || externalObjectId.length > 512 || !statuses.has(input.normalizedStatus)) return undefined;
+  const iso = (value?: string) => value && !Number.isNaN(Date.parse(value)) ? new Date(Date.parse(value)).toISOString() : undefined;
+  const rawSummary: Record<string, string | number | boolean | null> = {};
+  for (const [key, value] of Object.entries(input.rawSummary ?? {})) {
+    if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') rawSummary[key] = value;
+  }
+  return {
+    objectType,
+    externalObjectId,
+    externalParentId: input.externalParentId?.trim() || undefined,
+    normalizedStatus: input.normalizedStatus,
+    sourceStatus: input.sourceStatus?.trim() || undefined,
+    sourceRevision: input.sourceRevision?.trim() || undefined,
+    subjectCommonName: input.subjectCommonName?.trim() || undefined,
+    serialNumber: input.serialNumber?.trim() || undefined,
+    templateExternalId: input.templateExternalId?.trim() || undefined,
+    requestedByDisplay: input.requestedByDisplay?.trim() || undefined,
+    submittedAt: iso(input.submittedAt),
+    issuedAt: iso(input.issuedAt),
+    revokedAt: iso(input.revokedAt),
+    notBefore: iso(input.notBefore),
+    notAfter: iso(input.notAfter),
+    rawSummary,
+  };
 }

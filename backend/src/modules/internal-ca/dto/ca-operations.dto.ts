@@ -1,8 +1,44 @@
-import type {
-  CaOperationsCapabilities,
-  ExternalCaObservationInput,
-} from '../providers/ca-operations.js';
 import type { CaOperationNormalizedStatus, CaOperationObjectType } from '../schema/internal-ca.schema.js';
+
+/** Windows AD CS Agent 主动推送的本地 CA 观测批次。 */
+export interface AgentCaObservationBatchDto {
+  agentId: string;
+  caName?: string;
+  caConfig?: string;
+  observedAt?: string;
+  sequence?: number;
+  records: Array<{
+    objectType: CaOperationObjectType;
+    externalObjectId: string;
+    externalParentId?: string;
+    normalizedStatus: CaOperationNormalizedStatus;
+    sourceStatus?: string;
+    sourceRevision?: string;
+    subjectCommonName?: string;
+    serialNumber?: string;
+    templateExternalId?: string;
+    requestedByDisplay?: string;
+    submittedAt?: string;
+    issuedAt?: string;
+    revokedAt?: string;
+    notBefore?: string;
+    notAfter?: string;
+    rawSummary?: Record<string, unknown>;
+  }>;
+}
+
+export interface AgentCaObservationIngestResult {
+  accepted: number;
+  inserted: number;
+  updated: number;
+  duplicates: number;
+  rejected: number;
+  rejections?: Array<{ index: number; reason: string }>;
+  agentId: string;
+  caId: string;
+  providerId: string;
+  observedAt: string;
+}
 
 export interface CaOperationsRecordQueryDto {
   caId: string;
@@ -17,13 +53,22 @@ export interface CaOperationsRecordQueryDto {
   limit?: number;
 }
 
-export interface CaOperationsProviderCapabilityDto {
-  providerId: string;
-  capabilities: CaOperationsCapabilities;
-  capabilityState: 'declared' | 'discovered' | 'verified' | 'unavailable';
-}
-
-export interface CaOperationsExternalRecordDto extends ExternalCaObservationInput {
+export interface CaOperationsExternalRecordDto {
+  externalObjectId: string;
+  externalParentId?: string;
+  normalizedStatus: CaOperationNormalizedStatus;
+  sourceStatus?: string;
+  sourceRevision?: string;
+  subjectCommonName?: string;
+  serialNumber?: string;
+  templateExternalId?: string;
+  requestedByDisplay?: string;
+  submittedAt?: string;
+  issuedAt?: string;
+  revokedAt?: string;
+  notBefore?: string;
+  notAfter?: string;
+  rawSummary: Record<string, string | number | boolean | null>;
   providerId: string;
   caId: string;
   objectType: CaOperationObjectType;
@@ -31,7 +76,7 @@ export interface CaOperationsExternalRecordDto extends ExternalCaObservationInpu
 }
 
 export type CaOperationRecordSource = 'gcac_native' | 'external_sync' | 'historical_backfill';
-export type CaOperationIntegrity = 'complete' | 'partial' | 'stale' | 'syncing' | 'failed';
+export type CaOperationIntegrity = 'complete' | 'partial' | 'stale' | 'failed';
 
 export interface CaOperationRecordDto {
   recordKey: string;
@@ -53,7 +98,6 @@ export interface CaOperationRecordPageDto {
   nextCursor?: string;
   total: number;
   integrity: CaOperationIntegrity;
-  lastSuccessfulSyncAt?: string;
 }
 
 export interface CaOperationRecordDetailDto extends CaOperationRecordDto {
@@ -73,6 +117,36 @@ export interface CaOperationsTreeAuthorityDto {
   providerType: string;
   status: string;
   views: CaOperationsTreeViewDto[];
+  agent?: CaAgentRuntimeProjection;
+}
+
+export interface CaAgentRuntimeProjection {
+  agentId: string;
+  agentKey: string;
+  version: string;
+  /** 实际生效版本的来源：最近一次心跳，或只有注册记录可用。 */
+  versionSource: 'heartbeat' | 'registration';
+  registeredVersion?: string;
+  status: 'ONLINE' | 'OFFLINE' | 'UNKNOWN';
+  heartbeatAt?: string;
+  managementEndpoint?: string;
+  lastObservationAt?: string;
+  observationStatus?: string;
+  parserVersion?: string;
+  forced?: boolean;
+  scannedRecords?: number;
+  submittedRecords?: number;
+  sentRecords?: number;
+  acceptedRecords?: number;
+  failedBatches?: number;
+  insertedRecords?: number;
+  updatedRecords?: number;
+  duplicateRecords?: number;
+  rejectedRecords?: number;
+  pendingBatches?: number;
+  statusCounts?: Record<string, number>;
+  warnings?: string[];
+  storedRecords: number;
 }
 
 export interface CaOperationsTreeTrustDomainDto {
@@ -85,14 +159,6 @@ export interface CaOperationsTreeTrustDomainDto {
 export interface CaOperationsTreeDto {
   trustDomains: CaOperationsTreeTrustDomainDto[];
   unassignedAuthorities: CaOperationsTreeAuthorityDto[];
-}
-
-export interface CreateCaSyncRunsDto {
-  providerId: string;
-  caId: string;
-  objectTypes: CaOperationObjectType[];
-  mode: 'incremental' | 'full';
-  confirmed?: boolean;
 }
 
 export const caOperationsOpenApiSchemas = {

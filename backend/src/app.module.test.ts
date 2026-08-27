@@ -11,6 +11,7 @@ import {
   discoveredTargetFingerprint,
   initializeBuiltinPlugins,
   mapDiscoveredSiteToOnboardingTarget,
+  selectPreferredAdcsAgents,
 } from './app.module.js';
 import type { PluginRefreshVersionSnapshot } from './modules/plugins/dto/plugin-refresh-result.dto.js';
 import type { UnifiedPluginVersionRecord } from './modules/plugins/dto/unified-plugins.dto.js';
@@ -29,6 +30,7 @@ import { createSecurityServices } from './modules/security/security.controller.j
 import type { WorkflowTemplatesApplicationService } from './modules/workflow-templates/application/workflow-templates.application-service.js';
 import type { WorkflowDslV1 } from './modules/workflow-templates/dto/workflow-templates.dto.js';
 import type { DevicesApplicationService } from './modules/devices/application/devices.application-service.js';
+import type { AgentRegistration } from './modules/agents/schema/agents.schema.js';
 
 test('插件刷新结果按版本和启用状态生成前后变化', () => {
   const before: PluginRefreshVersionSnapshot[] = [
@@ -45,6 +47,90 @@ test('插件刷新结果按版本和启用状态生成前后变化', () => {
     { pluginId: 'web.apache', before: before[1], changeType: 'REMOVED' },
     { pluginId: 'web.nginx', before: before[0], after: after[0], changeType: 'UPDATED' },
   ]);
+});
+
+test('AD CS Provider 补偿只选择同一 CA 的在线新 Agent', () => {
+  const agent = (id: string, status: AgentRegistration['status'], updatedAt: string): AgentRegistration => ({
+    id,
+    tenantId: 'tenant-adcs-preference',
+    agentKey: id,
+    descriptor: {
+      agentKey: id,
+      hostname: 'ca-host',
+      caName: 'Jackson-DC-CA',
+      version: '0.1.1',
+      osType: 'WINDOWS_ADCS',
+      labels: ['adcs_agent'],
+    },
+    role: 'adcs_agent',
+    status,
+    registeredAt: updatedAt,
+    updatedAt,
+    version: 1,
+  });
+  const selected = selectPreferredAdcsAgents([
+    agent('old-offline', 'OFFLINE', '2026-08-20T00:00:00.000Z'),
+    agent('new-online', 'ONLINE', '2026-08-26T00:00:00.000Z'),
+  ], new Map([['old-offline', 'OFFLINE'], ['new-online', 'ONLINE']]));
+  assert.deepEqual(selected.map((item) => item.id), ['new-online']);
+});
+
+test('AD CS Provider 补偿不把无心跳的历史 ONLINE Agent 当作在线目标', () => {
+  const agent = (id: string, updatedAt: string): AgentRegistration => ({
+    id,
+    tenantId: 'tenant-adcs-stale-online',
+    agentKey: id,
+    descriptor: {
+      agentKey: id,
+      hostname: 'ca-host',
+      caName: 'Jackson-DC-CA',
+      version: '0.1.1',
+      osType: 'WINDOWS_ADCS',
+      labels: ['adcs_agent'],
+    },
+    role: 'adcs_agent',
+    status: 'ONLINE',
+    registeredAt: updatedAt,
+    updatedAt,
+    version: 1,
+  });
+  const selected = selectPreferredAdcsAgents([
+    agent('old-stale-online', '2026-08-20T00:00:00.000Z'),
+    agent('new-online', '2026-08-26T00:00:00.000Z'),
+  ], new Map([
+    ['old-stale-online', 'OFFLINE'],
+    ['new-online', 'ONLINE'],
+  ]));
+  assert.deepEqual(selected.map((item) => item.id), ['new-online']);
+});
+
+test('AD CS Agent 暂时读不到 CA 名称时仍按同一主机归并历史注册', () => {
+  const agent = (id: string, caName: string | undefined, status: AgentRegistration['status']): AgentRegistration => ({
+    id,
+    tenantId: 'tenant-adcs-hostname-fallback',
+    agentKey: id,
+    descriptor: {
+      agentKey: id,
+      hostname: 'ca-host',
+      ...(caName ? { caName } : {}),
+      version: '0.1.1',
+      osType: 'WINDOWS_ADCS',
+      labels: ['adcs_agent'],
+    },
+    role: 'adcs_agent',
+    status,
+    registeredAt: '2026-08-26T00:00:00.000Z',
+    updatedAt: '2026-08-26T00:00:00.000Z',
+    version: 1,
+  });
+  const selected = selectPreferredAdcsAgents([
+    agent('old-without-ca-name', undefined, 'OFFLINE'),
+    agent('new-with-ca-name', 'Jackson-DC-CA', 'ONLINE'),
+  ], new Map([
+    ['old-without-ca-name', 'OFFLINE'],
+    ['new-with-ca-name', 'ONLINE'],
+  ]));
+  assert.deepEqual(selected.map((item) => item.id), ['new-with-ca-name']);
 });
 
 test('插件刷新变化从多版本历史快照中选择最高语义版本', () => {
@@ -137,10 +223,7 @@ test('主装配移除 ACME HTTP-01 和旧 Provider 资源，同时保留通用 C
   assert.ok(app.getResource('taskWorkerSupervisor'));
   assert.ok(app.getResource('cloudAccountAssetsService'));
   assert.ok(app.getResource('internalCaService'));
-  assert.ok(app.getResource('caSyncWorker'));
-  assert.ok(app.getResource('caAutoSyncScheduler'));
   const taskExecutorRegistry = app.getResource<TaskExecutorRegistry>('taskExecutorRegistry');
-  assert.ok(taskExecutorRegistry?.keys().includes('ca.sync'));
   assert.ok(taskExecutorRegistry?.keys().includes('ca.node-task'));
   assert.ok(app.router.match('GET', '/api/v1/ca-operations/tree'));
   assert.ok(app.router.match('GET', '/api/v1/ca-providers'));

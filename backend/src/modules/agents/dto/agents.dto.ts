@@ -16,6 +16,7 @@ export interface RegisterAgentInput {
   machineId?: string;
   hostname: string;
   caName?: string;
+  caConfig?: string;
   version: string;
   osType: string;
   arch?: string;

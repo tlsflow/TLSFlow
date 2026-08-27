@@ -43,8 +43,6 @@ export type CaIssuanceStatus = 'reserved' | 'issued' | 'revoked' | 'expired' | '
 export type CaIssuanceRecordOrigin = 'native' | 'historical_backfill' | 'external';
 export type CaOperationObjectType = 'request' | 'issuance' | 'revocation' | 'template';
 export type CaOperationNormalizedStatus = 'pending' | 'issued' | 'rejected' | 'revoked' | 'failed' | 'unknown';
-export type CaSyncMode = 'incremental' | 'full';
-export type CaSyncRunStatus = 'queued' | 'running' | 'succeeded' | 'partial' | 'failed' | 'cancelled';
 export type CaTemplateMappingStatus = 'active' | 'stale' | 'invalid' | 'disabled';
 
 export interface CaProviderCapabilities {
@@ -155,35 +153,6 @@ export interface ExternalCaObservationEntity {
   updatedAt: string;
 }
 
-export interface CaSyncRunEntity {
-  id: string;
-  tenantId: string;
-  providerId: string;
-  caId: string;
-  objectType: CaOperationObjectType;
-  mode: CaSyncMode;
-  status: CaSyncRunStatus;
-  cursorBefore?: string;
-  cursorAfter?: string;
-  changedAfter?: string;
-  sourceWatermark?: string;
-  readCount: number;
-  upsertedCount: number;
-  skippedCount: number;
-  failedCount: number;
-  attemptCount?: number;
-  nextAttemptAt?: string;
-  errorCode?: string;
-  errorMessage?: string;
-  leaseOwner?: string;
-  leaseExpiresAt?: string;
-  requestedBy: string;
-  startedAt?: string;
-  completedAt?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface CaTemplateMappingEntity {
   id: string;
   tenantId: string;
@@ -251,8 +220,6 @@ export interface ProviderActionBindingEntity {
   pluginVersionId: string;
   executionLocation: ProviderActionExecutionLocation;
   issueAction: ProviderActionReference;
-  /** 外部 CA 历史运营记录列表动作。首期仅 Microsoft AD CS 使用。 */
-  listAction?: ProviderActionReference;
   queryAction?: ProviderActionReference;
   revokeAction?: ProviderActionReference;
   revocationEvidenceAction?: ProviderActionReference;
@@ -412,9 +379,38 @@ export interface CertificateRequestEntity {
   certificateVersionId?: string;
   failureCode?: string;
   failureMessage?: string;
+  /** Agent 安装/部署回执的脱敏摘要；不保存证书、私钥或凭据明文。 */
+  deploymentEvidence?: Record<string, unknown>;
+  /** 签发后的自动部署结果；仅保存计划引用和脱敏状态，不保存证书/私钥材料。 */
+  deploymentPlanId?: string;
+  deploymentPlanStatus?: string;
+  deploymentPlanCertificateVersionId?: string;
+  deploymentWarnings?: string[];
   subjectCommonName: string;
   sans: string[];
   requestedValidityDays: number;
+  /** 本机持钥任务的非敏感目标上下文，用于签发后生成安装任务。 */
+  agentContext?: {
+    agentId: string;
+    targetId: string;
+    keyPath: string;
+    certificatePath: string;
+    /** Tomcat 配置文件绝对路径；密码留在 Agent 本机解析。 */
+    configPath?: string;
+    storageMode?: 'file_pem' | 'windows_cng';
+    format: 'pem' | 'pkcs12' | 'jks';
+    alias?: string;
+    pluginId?: string;
+    pluginVersionId?: string;
+  };
+  /** 列表接口返回的密钥公开摘要，禁止包含 SecretRef 或私钥材料。 */
+  keyReferenceSummary?: {
+    custodyMode: KeyCustodyMode;
+    backendType: KeyBackendType;
+    exportability: KeyExportability;
+    protectionLevel: KeyReferenceEntity['protectionLevel'];
+    publicKeyFingerprintSha256?: string;
+  };
   createdAt: string;
   updatedAt: string;
 }

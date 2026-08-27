@@ -2,7 +2,7 @@ import { X509Certificate, createHash, createPublicKey, randomBytes } from 'node:
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { AppError } from '../../../common/errors/app-error.js';
 
@@ -203,13 +203,12 @@ export class OpenSslCa {
       const configPath = join(directory, 'openssl.cnf');
       const crlPath = join(directory, 'ca.crl.pem');
       const derPath = join(directory, 'ca.crl.der');
-      const thisUpdate = input.thisUpdate ?? new Date().toISOString();
-      const nextUpdate = input.nextUpdate ?? new Date(Date.now() + 7 * 86400000).toISOString();
       const records = input.issuanceRecords.filter((record) => ['issued', 'revoked', 'expired'].includes(record.status));
       const revokedSerialNumbers = records.filter((record) => record.status === 'revoked').map((record) => normalizeSerial(record.serialNumber));
       await Promise.all([
         writeFile(caKeyPath, input.caPrivateKeyPem, 'utf8'),
         writeFile(caCertPath, input.caCertificatePem, 'utf8'),
+        mkdir(join(directory, 'newcerts'), { recursive: true }),
         writeFile(indexPath, records.map((record) => openSslIndexLine(record)).join('\n') + (records.length ? '\n' : ''), 'utf8'),
         writeFile(serialPath, '01\n', 'utf8'),
         writeFile(crlNumberPath, input.crlNumber.toString(16).toUpperCase().padStart(2, '0') + '\n', 'utf8'),
@@ -222,6 +221,15 @@ export class OpenSslCa {
       const crlPem = await readFile(crlPath, 'utf8');
       const crlDer = await readFile(derPath);
       const parsed = await runOpenSsl(['crl', '-in', crlPath, '-noout', '-text']);
+      const issuerOutput = await runOpenSsl(['crl', '-in', crlPath, '-noout', '-issuer']);
+      // 控制面展示的有效窗口必须来自最终 DER/PEM 制品，而不是请求开始时的本地时钟。
+      // OpenSSL 的文本输出使用 GMT，解析后统一保存为 UTC ISO 字符串。
+      const validity = await runOpenSsl(['crl', '-in', crlPath, '-noout', '-lastupdate', '-nextupdate']);
+      const actualThisUpdate = parseOpenSslCrlDate(validity.stdout, 'lastUpdate');
+      const actualNextUpdate = parseOpenSslCrlDate(validity.stdout, 'nextUpdate');
+      if (Date.parse(actualNextUpdate) <= Date.parse(actualThisUpdate)) {
+        throw new AppError('CA_CRL_PUBLICATION_FAILED', 'OpenSSL 生成的 CRL 有效窗口无效');
+      }
       const numberMatch = parsed.stdout.match(/CRL Number:\s*(?:critical\s*)?(\d+)/i);
       const actualNumber = numberMatch ? Number(numberMatch[1]) : input.crlNumber;
       const parsedRevokedSerials = [...parsed.stdout.matchAll(/Serial Number:\s*([0-9a-f:]+)/gi)]
@@ -236,12 +244,25 @@ export class OpenSslCa {
         });
       }
       const issuer = new X509Certificate(input.caCertificatePem);
+      const crlIssuer = parseOpenSslCrlIssuer(issuerOutput.stdout);
+      if (normalizeDistinguishedName(crlIssuer) !== normalizeDistinguishedName(issuer.subject)) {
+        throw new AppError('CA_CRL_PUBLICATION_FAILED', 'CRL Issuer 与签发 CA 不一致', {
+          expectedIssuer: issuer.subject,
+          actualIssuer: crlIssuer,
+        });
+      }
+      if (actualNumber !== input.crlNumber) {
+        throw new AppError('CA_CRL_PUBLICATION_FAILED', 'OpenSSL 生成的 CRL Number 与分配值不一致', {
+          expected: input.crlNumber,
+          actual: actualNumber,
+        });
+      }
       return {
         crlPem,
         crlDerBase64: crlDer.toString('base64'),
         crlNumber: actualNumber,
-        thisUpdate,
-        nextUpdate,
+        thisUpdate: actualThisUpdate,
+        nextUpdate: actualNextUpdate,
         crlFingerprintSha256: createHash('sha256').update(crlDer).digest('hex'),
         revokedSerialNumbers,
         issuerFingerprintSha256: normalizeFingerprint(issuer.fingerprint256),
@@ -249,6 +270,27 @@ export class OpenSslCa {
       };
     });
   }
+}
+
+function parseOpenSslCrlIssuer(output: string): string {
+  const value = output.match(/^issuer\s*=\s*(.+)$/im)?.[1]?.trim();
+  if (!value) throw new AppError('CA_CRL_PUBLICATION_FAILED', 'CRL 缺少 Issuer 字段');
+  return value;
+}
+
+function normalizeDistinguishedName(value: string): string {
+  return value
+    .replace(/[\s/]+/g, '')
+    .replace(/=/g, '=')
+    .toLowerCase();
+}
+
+function parseOpenSslCrlDate(output: string, field: 'lastUpdate' | 'nextUpdate'): string {
+  const raw = output.match(new RegExp(`^${field}=(.+)$`, 'im'))?.[1]?.trim();
+  if (!raw) throw new AppError('CA_CRL_PUBLICATION_FAILED', `OpenSSL CRL 缺少 ${field} 时间字段`);
+  const timestamp = Date.parse(raw);
+  if (!Number.isFinite(timestamp)) throw new AppError('CA_CRL_PUBLICATION_FAILED', `OpenSSL CRL ${field} 时间字段无效`);
+  return new Date(timestamp).toISOString();
 }
 
 async function withTemporaryDirectory<T>(work: (directory: string) => Promise<T>): Promise<T> {
@@ -312,7 +354,7 @@ function normalizeExtendedKeyUsage(value: string): string {
 }
 
 function crlConfig(privateKeyPath: string, certificatePath: string, indexPath: string, serialPath: string, crlNumberPath: string): string {
-  return `[ca]\ndefault_ca = CA_default\n[CA_default]\ndatabase = ${escapeConfigValue(indexPath)}\nnew_certs_dir = ${escapeConfigValue(join(indexPath, '..', 'newcerts'))}\nserial = ${escapeConfigValue(serialPath)}\ncrlnumber = ${escapeConfigValue(crlNumberPath)}\nprivate_key = ${escapeConfigValue(privateKeyPath)}\ncertificate = ${escapeConfigValue(certificatePath)}\ndefault_md = sha256\ndefault_crl_days = 7\npolicy = policy_any\n[policy_any]\ncommonName = supplied\n`;
+  return `[ca]\ndefault_ca = CA_default\n[CA_default]\ndatabase = ${escapeConfigValue(indexPath)}\nnew_certs_dir = ${escapeConfigValue(join(dirname(indexPath), 'newcerts'))}\nserial = ${escapeConfigValue(serialPath)}\ncrlnumber = ${escapeConfigValue(crlNumberPath)}\nprivate_key = ${escapeConfigValue(privateKeyPath)}\ncertificate = ${escapeConfigValue(certificatePath)}\ndefault_md = sha256\ndefault_crl_days = 7\npolicy = policy_any\n[policy_any]\ncommonName = supplied\n`;
 }
 
 function openSslIndexLine(record: { serialNumber: string; status: string; subjectCommonName?: string; notAfter?: string; revokedAt?: string }): string {

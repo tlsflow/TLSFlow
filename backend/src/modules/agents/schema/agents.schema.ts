@@ -44,6 +44,8 @@ export interface AgentDescriptor {
   hostname: string;
   /** Windows AD CS 本机 CA 显示名称，用于 issuing backend 的业务命名。 */
   caName?: string;
+  /** certutil 使用的 Server\\CAName 配置标识。 */
+  caConfig?: string;
   version: string;
   osType: string;
   arch?: string;
@@ -205,6 +207,28 @@ export interface AgentTaskLogEntry {
 export interface AgentRuntimeHealth {
   modelVersion: string;
   status: 'healthy' | 'degraded' | 'failed' | 'unknown';
+  observation?: {
+    parserVersion?: string;
+    forced?: boolean;
+    lastRunAt?: string;
+    completedAt?: string;
+    status?: 'running' | 'success' | 'failed';
+    scannedRecords?: number;
+    changedRecords?: number;
+    queuedRecords?: number;
+    submittedRecords?: number;
+    sentRecords?: number;
+    failedBatches?: number;
+    acceptedRecords?: number;
+    insertedRecords?: number;
+    updatedRecords?: number;
+    duplicateRecords?: number;
+    rejectedRecords?: number;
+    pendingBatches?: number;
+    statusCounts?: Record<string, number>;
+    warnings?: string[];
+    error?: string;
+  };
   pendingResultCount?: number;
   recoverableTaskCount?: number;
   lastRecoveryAt?: string;

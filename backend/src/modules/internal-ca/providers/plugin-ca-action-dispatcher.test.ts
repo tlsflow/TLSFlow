@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import type { JsonSchema } from '../../../common/validation/json-schema.js';
 import { PluginCaActionDispatcher } from './plugin-ca-action-dispatcher.js';
+import type { UnifiedPluginVersionRecord } from '../../plugins/dto/unified-plugins.dto.js';
 
 describe('Microsoft AD CS Agent 调度', () => {
   it('issue 使用 Authority 配置的 Agent ID，而不是 Provider ID', async () => {
@@ -72,17 +74,75 @@ describe('Microsoft AD CS Agent 调度', () => {
       (error: unknown) => error instanceof Error && error.message.includes('Microsoft AD CS Agent 尚未安装或关联'),
     );
   });
+
+  it('固定版本停用时自动切换到同一插件的启用版本', async () => {
+    const { dispatcher, captured } = createDispatcher({
+      agentPlan: true,
+      pluginStatus: 'DISABLED',
+      replacementPlugin: { id: 'plugin-version-2', pluginId: 'ca.microsoft-adcs', version: '2.0.0', status: 'ENABLED' },
+    });
+    await dispatcher.execute({
+      provider: provider(),
+      binding: binding(),
+      action: 'issue',
+      authority: { configuration: { agentId: 'agent-authority-1' } } as never,
+      payload: { csrPem: 'csr' },
+      actorId: 'actor-1',
+      idempotencyKey: 'idempotency-plugin-upgrade',
+    });
+    assert.equal(captured.bindingPluginVersionId, 'plugin-version-2');
+  });
+
+  it('不会跨插件静默替换固定版本', async () => {
+    const { dispatcher } = createDispatcher({
+      pluginStatus: 'DISABLED',
+      replacementPlugin: { id: 'other-plugin-version', pluginId: 'ca.other', version: '1.0.0', status: 'ENABLED' },
+    });
+    await assert.rejects(
+      dispatcher.execute({
+        provider: provider(),
+        binding: binding(),
+        action: 'issue',
+        authority: { configuration: { agentId: 'agent-authority-1' } } as never,
+        payload: { csrPem: 'csr' },
+        actorId: 'actor-1',
+        idempotencyKey: 'idempotency-cross-plugin',
+      }),
+      (error: unknown) => error instanceof Error && error.message.includes('没有可用的同插件版本'),
+    );
+  });
+
+  it('没有同插件启用版本时保留明确不可用错误', async () => {
+    const { dispatcher } = createDispatcher({ pluginStatus: 'DISABLED', accessibleVersions: [] });
+    await assert.rejects(
+      dispatcher.execute({
+        provider: provider(),
+        binding: binding(),
+        action: 'issue',
+        authority: { configuration: { agentId: 'agent-authority-1' } } as never,
+        payload: { csrPem: 'csr' },
+        actorId: 'actor-1',
+        idempotencyKey: 'idempotency-no-plugin-replacement',
+      }),
+      (error: unknown) => error instanceof Error && error.message.includes('没有可用的同插件版本'),
+    );
+  });
+
 });
 
 function createDispatcher(options: {
   agentPlan?: boolean;
   agentPlatform?: { osType: string; role: string };
+  pluginStatus?: UnifiedPluginVersionRecord['status'];
+  replacementPlugin?: { id: string; pluginId: string; version: string; status: UnifiedPluginVersionRecord['status'] };
+  accessibleVersions?: UnifiedPluginVersionRecord[];
+  contractInputSchema?: JsonSchema;
 } = {}) {
   const contract = {
     actionId: 'ca.issue',
     capability: 'ca.certificate.issue',
     actionContractVersion: 'v1',
-    inputSchema: { type: 'object', additionalProperties: true },
+    inputSchema: options.contractInputSchema ?? { type: 'object', additionalProperties: true },
     outputSchema: { type: 'object', additionalProperties: true },
     writeEffect: true,
     hostPermissions: [],
@@ -91,7 +151,7 @@ function createDispatcher(options: {
     id: 'plugin-version-1',
     pluginId: 'ca.microsoft-adcs',
     version: '1.0.0',
-    status: 'ENABLED',
+    status: options.pluginStatus ?? 'ENABLED',
     packageSha256: 'package-sha',
     manifestSha256: 'manifest-sha',
     resourceSha256: { 'contracts/issue.json': 'resource-sha' },
@@ -100,9 +160,15 @@ function createDispatcher(options: {
       capabilities: [{ key: contract.capability }],
       resources: { actionContracts: { 'ca.issue': 'contracts/issue.json' } },
     },
-  } as never;
+  } as const;
+  const replacementPlugin = options.replacementPlugin
+    ? { ...plugin, ...options.replacementPlugin }
+    : undefined;
+  const accessibleVersions: UnifiedPluginVersionRecord[] = options.accessibleVersions
+    ?? ([plugin, ...(replacementPlugin ? [replacementPlugin] : [])] as unknown as UnifiedPluginVersionRecord[]);
   const captured: {
     input: Record<string, unknown>;
+    bindingPluginVersionId?: string;
     agentLookup?: string;
     enqueued?: { agentId: string; payload: Record<string, unknown> };
   } = { input: {} };
@@ -118,13 +184,21 @@ function createDispatcher(options: {
     },
   };
   const dispatcher = new PluginCaActionDispatcher(
-    { getVersionForTenant: async () => plugin },
+    {
+      getVersionForTenant: async (_tenantId, pluginVersionId) => {
+        const record = [plugin, ...(replacementPlugin ? [replacementPlugin] : [])].find((item) => item.id === pluginVersionId);
+        if (!record) throw new Error(`plugin version not found: ${pluginVersionId}`);
+        return record as never;
+      },
+      listAccessibleVersions: async () => accessibleVersions,
+    },
     { create: async () => ({ id: 'grant-1' }), validate: async () => undefined } as never,
     {},
     agents as never,
   );
-  (dispatcher as unknown as { executor: { executeAction: (input: { input: Record<string, unknown> }) => Promise<unknown> } }).executor.executeAction = async (input) => {
+  (dispatcher as unknown as { executor: { executeAction: (input: { input: Record<string, unknown>; binding?: { pluginVersionId?: string } }) => Promise<unknown> } }).executor.executeAction = async (input) => {
     captured.input = input.input;
+    captured.bindingPluginVersionId = input.binding?.pluginVersionId;
     return {
       success: true,
       status: 'SUCCESS',

@@ -55,7 +55,7 @@ test('幂等记录迁移缺失时任务控制面在启动前失败', async () =>
 
     await assert.rejects(
       service.initialize(),
-      /idempotency_records.*20260816000400_idempotency_records/,
+      /idempotency_records.*20260823000000_unified_current_baseline\.sql/,
     );
     assert.equal(service.getLifecycle().status, 'FAILED');
   } finally {

@@ -25,11 +25,12 @@ import { CredentialsApplicationService, CredentialsController, CredentialsReposi
 import { RuntimeCredentialResolver } from './modules/credentials/application/runtime-credential-resolver.js';
 import { createPersistedSecurityServices } from './modules/security/security-services.persistence.js';
 import { AssetsApplicationService } from './modules/assets/application/assets.application-service.js';
+import { PluginResourceOnboardingApplicationService } from './modules/assets/application/plugin-resource-onboarding.application-service.js';
 import { ApplicationAssetExecutionService } from './modules/assets/application/application-asset-execution.service.js';
 import { AssetsController, getAssetsRouteContracts } from './modules/assets/controller/assets.controller.js';
 import { PgAssetsRepository } from './modules/assets/repository/assets.repository.js';
 import { DeviceAssetsApplicationService, DeviceAssetsController, getDeviceAssetRouteContracts, PgDeviceAssetsRepository, SecurityServicesDeviceAssetPort } from './modules/device-assets/index.js';
-import { DevicesApplicationService, DevicesController, getDeviceRouteContracts, PgDevicesRepository, resolvePluginDeviceFamilies } from './modules/devices/index.js';
+import { DevicesApplicationService, DevicesController, getDeviceRouteContracts, PgDevicesRepository, resolvePluginDeviceFamilies, type PluginResourceOnboardingPort } from './modules/devices/index.js';
 import { BindingsApplicationService } from './modules/bindings/application/bindings.application-service.js';
 import { BindingsController, getBindingsRouteContracts } from './modules/bindings/controller/bindings.controller.js';
 import { PgBindingsRepository } from './modules/bindings/repository/bindings.repository.js';
@@ -44,13 +45,12 @@ import {
   AcmeRenewalScheduler,
   AcmeRenewalWorker,
   AcmeRepository,
-  CaAutoSyncScheduler,
-  CaOperationsRepository,
-  CaSyncWorker,
+  CaOperationsRealtimeStreamService,
   getInternalCaRouteContracts,
   Http01ChallengeAdapter,
   InternalCaApplicationService,
   InternalCaController,
+  AgentKeyCustodyAdapter,
   LegoDnsIssuer,
   PostgresHttp01Responder,
 } from './modules/internal-ca/index.js';
@@ -80,6 +80,7 @@ import { DashboardReadRepository } from './modules/dashboard/repository/dashboar
 import { getReportRouteContracts, PgReportDataPort, ReportExportService, ReportScopeResolver, ReportsApplicationService, ReportsController, ReportsRepository } from './modules/reports/index.js';
 import { AgentsApplicationService, AgentsController, getAgentsRouteContracts } from './modules/agents/index.js';
 import type { AgentTrustMaterialIssuer } from './modules/agents/application/agents.application-service.js';
+import type { AgentRegistration } from './modules/agents/schema/agents.schema.js';
 import { PgAgentsRepository } from './modules/agents/repository/agents.repository.js';
 import { AgentPlanPolicyProvisioningServiceV1 } from './modules/agents/security/policy-authority-provisioning.service.js';
 import {
@@ -94,6 +95,7 @@ import {
 import { createGatewayPersistenceRepositories, GatewaysApplicationService, GatewaysController, getGatewayRouteContracts, type GatewayPersistenceOptions } from './modules/gateways/index.js';
 import { PluginPromotionService, PluginsController, getPluginsRouteContracts } from './modules/plugins/index.js';
 import { PluginWorkflowPublisherService } from './modules/plugins/application/plugin-workflow-publisher.service.js';
+import { PluginPackageResourcesService } from './modules/plugins/application/plugin-package-resources.service.js';
 import { PluginWorkflowBindingsRepository } from './modules/plugins/repository/plugin-workflow-bindings.repository.js';
 import { UnifiedAgentPlanCompilerService } from './modules/plugins/application/unified-agent-plan-compiler.service.js';
 import { PluginFactPipelineService } from './modules/plugins/application/plugin-fact-pipeline.service.js';
@@ -133,7 +135,7 @@ import {
 } from './persistence/core-persistence.js';
 import { PgDocumentRepository } from './persistence/repositories/pg-document-repository.js';
 import { createDeploymentPersistenceRepositories, type DeploymentPersistenceOptions } from './persistence/repositories/deployment-persistence-factory.js';
-import { AutomationsApplicationService, AutomationApprovalOrchestrator, AutomationConfiguredActionExecutor, AutomationDeploymentActionService, AutomationEventDeliveryService, AutomationFilterEvaluator, AutomationNotificationActionService, AutomationRunCoordinator, AutomationScheduler, AutomationTargetResolverRegistry, AutomationTriggerRegistry, AutomationsController, AutomationsRepository, CertificateVersionTargetResolver, DeferredCertificateVersionEventPublisher, DeploymentPlansAutomationAdapter, DeferredNotificationPort, getAutomationRouteContracts, AllowAllAutomationTargetAccess } from './modules/automations/index.js';
+import { AutomationsApplicationService, AutomationApprovalOrchestrator, AutomationConfiguredActionExecutor, AutomationDeploymentActionService, AutomationEventDeliveryService, AutomationExternalApiKeyRepository, AutomationExternalApiService, AutomationFilterEvaluator, AutomationNotificationActionService, AutomationRunCoordinator, AutomationScheduler, AutomationTargetResolverRegistry, AutomationTriggerRegistry, AutomationsController, AutomationsRepository, CertificateVersionTargetResolver, DeferredCertificateVersionEventPublisher, DeploymentPlansAutomationAdapter, DeferredNotificationPort, getAutomationRouteContracts, AllowAllAutomationTargetAccess } from './modules/automations/index.js';
 import { buildAutomationTaskResourceSummary } from './modules/automations/application/automation-task-progress.js';
 import { getEditionLicensingRouteContracts, registerEditionLicensing } from './edition/licensing.js';
 import { BrowserRuntimeClient } from './modules/browser-runtime/browser-runtime.client.js';
@@ -242,6 +244,8 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const tasksService = new TasksApplicationService(new TaskRepository(appDb), security.audit, undefined, taskRealtimeStream);
   app.setResource('tasksService', tasksService);
   app.setResource('taskRealtimeStream', taskRealtimeStream);
+  const caOperationsRealtimeStream = new CaOperationsRealtimeStreamService();
+  app.setResource('caOperationsRealtimeStream', caOperationsRealtimeStream);
   const credentialsRepository = new CredentialsRepository(appDb);
   const credentialsService = new CredentialsApplicationService(
     credentialsRepository,
@@ -261,6 +265,11 @@ export function createApp(dependencies: AppDependencies = {}): App {
     versionEvents: certificateVersionEventPublisher,
   });
   const managedTargetPluginQuery = new ManagedTargetPluginQueryService(appDb);
+  const managedTargetContextResolver = new ManagedTargetContextResolver(
+    new PgAssetsRepository(appDb),
+    new PgAgentsRepository(appDb),
+    new PgDeviceAssetsRepository(appDb),
+  );
   const internalCaService = new InternalCaApplicationService({
     db: appDb,
     secrets: security.secrets,
@@ -268,6 +277,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     audit: security.audit,
     approvals: security.approvals,
   });
+  internalCaService.setCaOperationsRealtimePublisher(caOperationsRealtimeStream);
   const certificateLifecycleService = new CertificateLifecycleService({
     internalCa: internalCaService,
     certificates: certificateServices.certificates,
@@ -400,6 +410,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
       executions: executionPersistence.executions,
       requestGate: new PluginRunnerHostApiRequestGate(new PgPluginRunnerHostApiRequestStore(appDb)),
       cloudServices: cloudAccountAssetsService,
+      serviceAssets: assetsService,
       httpClient: new NodeOutboundHttpClient(),
       cookieSessionStore,
     })
@@ -453,6 +464,9 @@ export function createApp(dependencies: AppDependencies = {}): App {
     if (!plugin) throw new AppError('RESOURCE_NOT_FOUND', 'Microsoft AD CS 插件未启用，无法登记 AD CS Agent');
     await internalCaService.ensureAdcsProviderForAgent({ ...input, pluginVersionId: plugin.id });
   });
+  internalCaService.setAdcsAgentResolver((tenantId, agentId) => agentsService.getAdcsAgentIdentity(tenantId, agentId));
+  internalCaService.setAdcsAgentRuntimeResolver((tenantId, agentId) => agentsService.getAdcsAgentRuntimeStatus(tenantId, agentId));
+  internalCaService.setAdcsObservationRefresher((tenantId, agentId, force) => agentsService.refreshAdcsObservations(tenantId, agentId, force));
   const adcsProviderReconciliationPromises = new Map<string, Promise<void>>();
   internalCaService.setAdcsProviderReconciler((tenantId) => {
     const existing = adcsProviderReconciliationPromises.get(tenantId);
@@ -460,13 +474,20 @@ export function createApp(dependencies: AppDependencies = {}): App {
     const reconciliation = (async () => {
       const plugin = await resolveAdcsPluginVersion(tenantId);
       if (!plugin) return;
-      for (const agent of await agentsService.listAdcsAgents(tenantId)) {
+      const agents = await agentsService.listAdcsAgents(tenantId);
+      const livenessByAgentId = new Map<string, 'ONLINE' | 'OFFLINE' | 'UNKNOWN'>();
+      await Promise.all(agents.map(async (agent) => {
+        const projection = await livenessService.project(tenantId, 'AGENT', agent.id, ['HEARTBEAT']);
+        livenessByAgentId.set(agent.id, projection.livenessStatus);
+      }));
+      for (const agent of selectPreferredAdcsAgents(agents, livenessByAgentId)) {
         try {
           await internalCaService.ensureAdcsProviderForAgent({
             tenantId,
             agentId: agent.id,
             agentKey: agent.agentKey,
             name: agent.descriptor.caName || agent.descriptor.hostname || agent.agentKey,
+            caConfig: agent.descriptor.caConfig,
             pluginVersionId: plugin.id,
           });
         } catch (error) {
@@ -545,6 +566,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const cloudAccountDiscoveryService = new CloudAccountDiscoveryApplicationService({
     db: appDb,
     cloudAccounts: cloudAccountAssetsService,
+    serviceAssets: assetsService,
     plugins: unifiedPluginsService,
     workflows: workflowTemplatesService,
     workflowBindings: new PluginWorkflowBindingsRepository(appDb),
@@ -562,6 +584,12 @@ export function createApp(dependencies: AppDependencies = {}): App {
     assetsService.getRepository(),
     pluginWorkflowPublisher,
   );
+  const pluginResourceOnboarding: PluginResourceOnboardingPort = new PluginResourceOnboardingApplicationService(
+    assetsService,
+    pluginBindingsService,
+    cloudAccountDiscoveryService,
+    new PluginPackageResourcesService(),
+  );
   const devicesService = dependencies.devices ?? new DevicesApplicationService(
     new PgDevicesRepository(appDb),
     undefined,
@@ -575,6 +603,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     undefined,
     standardDeviceDiscoveryProjector,
     undefined,
+    pluginResourceOnboarding,
   );
   const credentialHealthService = new CredentialHealthService(
     new CredentialHealthRepository(appDb),
@@ -588,6 +617,103 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const agentPlanAuthorization = createAgentPlanAuthorizationDependencies(policyAuthorityServices, security, localPolicy)
     ?? localAgentAuthorization?.authorization
     ?? resolveInjectedAgentPlanAuthorization(dependencies.agentPlanAuthorization);
+  if (agentPlanAuthorization) {
+    const agentKeyCustody = new AgentKeyCustodyAdapter({
+      agents: agentsService,
+      authorization: agentPlanAuthorization,
+      resolvePluginAnchor: async (input) => {
+        const target = await managedTargetContextResolver.resolve(input.tenantId, input.targetId);
+        if (!target.agent || target.agent.id !== input.agentId) {
+          throw new AppError('TENANT_SCOPE_DENIED', '本机持钥任务的 Agent 不属于目标当前管理连接', {
+            targetId: input.targetId,
+            expectedAgentId: target.agent?.id,
+            actualAgentId: input.agentId,
+          });
+        }
+        const effective = await managedTargetPluginQuery.getEffectiveCapability({
+          tenantId: input.tenantId,
+          managedTargetId: input.targetId,
+          capabilityKey: 'certificate.deploy',
+        });
+        if (effective.executionLocation !== 'AGENT') {
+          throw new AppError('AGENT_AUTHORIZATION_UNAVAILABLE', '目标生效证书能力没有 Agent 执行位置', {
+            targetId: input.targetId,
+            executionLocation: effective.executionLocation,
+            fallback: false,
+          });
+        }
+        if (input.pluginId && input.pluginVersionId
+          && (effective.plugin.pluginId !== input.pluginId || effective.plugin.pluginVersionId !== input.pluginVersionId)) {
+          throw new AppError('RESOURCE_VERSION_CONFLICT', '请求插件版本不是目标当前生效证书能力', {
+            targetId: input.targetId,
+            requestedPluginId: input.pluginId,
+            requestedPluginVersionId: input.pluginVersionId,
+            effectivePluginId: effective.plugin.pluginId,
+            effectivePluginVersionId: effective.plugin.pluginVersionId,
+          });
+        }
+        return { pluginId: effective.plugin.pluginId, pluginVersionId: effective.plugin.pluginVersionId };
+      },
+    });
+    certificateLifecycleService.setAgentKeyCustody(agentKeyCustody);
+  }
+  internalCaService.setLocalAgentIssuedHandler((input) => certificateLifecycleService.enqueueIssuedCertificateInstall(input).then(() => undefined));
+  internalCaService.setManagedSecretIssuedHandler((input) => certificateLifecycleService.enqueueManagedCertificateDeployment(input));
+  agentsService.setCertificateTaskResultHandler(async ({ task, actionType, detail, status, errorCode, errorMessage }) => {
+    if (actionType !== 'agent.plan.execute') return;
+    const requestId = typeof task.payload.certificateRequestId === 'string' ? task.payload.certificateRequestId : undefined;
+    const operation = typeof task.payload.operation === 'string' ? task.payload.operation : undefined;
+    if (!requestId || !operation) return;
+    if (operation === 'certificate.install_issued') {
+      await internalCaService.markLocalAgentCertificateInstall(
+        task.tenantId,
+        requestId,
+        status === 'SUCCESS' ? 'SUCCESS' : status === 'UNKNOWN' ? 'UNKNOWN' : 'FAILED',
+        { detail, errorCode, errorMessage },
+      );
+      return;
+    }
+    if (operation !== 'key.generate_csr') return;
+    if (status !== 'SUCCESS') {
+      await internalCaService.markLocalAgentCsrFailure(
+        task.tenantId,
+        requestId,
+        status === 'UNKNOWN' ? 'UNKNOWN' : 'FAILED',
+        errorMessage ?? (typeof detail.errorMessage === 'string' ? detail.errorMessage : undefined),
+      );
+      return;
+    }
+    const operationResults = Array.isArray(detail.operationResults) ? detail.operationResults : [];
+    const result = operationResults.find((item) => item && typeof item === 'object' && (item as Record<string, unknown>).operationType === 'key.generate_csr') as Record<string, unknown> | undefined;
+    if (!result || typeof result.localKeyRef !== 'string' || typeof result.csrPem !== 'string' || result.privateKeyTransported !== false) {
+      await internalCaService.markLocalAgentCsrFailure(task.tenantId, requestId, 'FAILED', 'Agent CSR 回执缺少必要公开字段');
+      return;
+    }
+    const plan = task.payload.plan && typeof task.payload.plan === 'object' ? task.payload.plan as Record<string, unknown> : {};
+    const agentContext = {
+      agentId: task.agentId,
+      targetId: typeof task.payload.targetId === 'string' ? task.payload.targetId : task.agentId,
+      keyPath: typeof task.payload.keyPath === 'string' ? task.payload.keyPath : '',
+      certificatePath: typeof task.payload.certificatePath === 'string' ? task.payload.certificatePath : '',
+      ...(typeof task.payload.configPath === 'string' ? { configPath: task.payload.configPath } : {}),
+      format: (task.payload.format === 'pkcs12' || task.payload.format === 'jks' ? task.payload.format : 'pem') as 'pem' | 'pkcs12' | 'jks',
+      ...(task.payload.storageMode === 'file_pem' || task.payload.storageMode === 'windows_cng' ? { storageMode: task.payload.storageMode as 'file_pem' | 'windows_cng' } : {}),
+      ...(typeof task.payload.alias === 'string' ? { alias: task.payload.alias } : {}),
+      ...(typeof plan.pluginId === 'string' ? { pluginId: plan.pluginId } : {}),
+      ...(typeof plan.pluginVersionId === 'string' ? { pluginVersionId: plan.pluginVersionId } : {}),
+    };
+    await internalCaService.completeLocalAgentCsr(task.tenantId, requestId, {
+      localKeyRef: result.localKeyRef,
+      csrPem: result.csrPem,
+      csrSha256: typeof result.csrSha256 === 'string' ? result.csrSha256 : undefined,
+      publicKeyFingerprintSha256: typeof result.publicKeyFingerprintSha256 === 'string' ? result.publicKeyFingerprintSha256 : undefined,
+      keyBackend: result.keyBackend === 'cng' ? 'cng' : result.keyBackend === 'device' ? 'device' : 'file',
+      exportability: result.exportability === 'non_exportable' || result.exportability === 'unknown' ? result.exportability : 'exportable',
+      protectionLevel: result.protectionLevel === 'hardware_backed' || result.protectionLevel === 'os_protected' ? result.protectionLevel : 'software_controlled',
+      evidence: { privateKeyTransported: result.privateKeyTransported === false, keyStoragePath: result.keyStoragePath },
+      agentContext,
+    }, task.agentId);
+  });
   const policyProvisioning = agentPlanAuthorization?.policyAuthority.provisionAgentPlan && agentPlanAuthorization.localPolicy
     ? new AgentPlanPolicyProvisioningServiceV1(agentPlanAuthorization.policyAuthority, agentPlanAuthorization.localPolicy)
     : undefined;
@@ -605,7 +731,11 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const trustMaterialIssuer = localAgentAuthorization?.trustMaterialIssuer
     ?? resolveProductionAgentTrustMaterialIssuer(policyAuthorityServices, process.env);
   agentsService.setTrustMaterialIssuer(trustMaterialIssuer);
-  if (discoveryRequestFactory) app.setResource('agentDiscoveryRequestFactory', discoveryRequestFactory);
+  if (discoveryRequestFactory) {
+    // 保留旧资源名，兼容仍通过 TaskFactory 命名查找发现入口的宿主与插件。
+    app.setResource('agentDiscoveryRequestFactory', discoveryRequestFactory);
+    app.setResource('agentDiscoveryTaskFactory', discoveryRequestFactory);
+  }
   if (localAgentAuthorization) app.setResource('localAgentAuthorization', localAgentAuthorization);
   app.setResource('agentsService', agentsService);
   app.setResource('livenessService', livenessService);
@@ -630,41 +760,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   app.setResource('globalSearchService', globalSearchService);
   app.setResource('internalCaService', internalCaService);
   app.setResource('certificateLifecycleService', certificateLifecycleService);
-  app.setResource('acmeRepository', acmeRepository);
   app.setResource('acmeRenewalScheduler', acmeRenewalScheduler);
-  app.setResource('caSyncWorker', new CaSyncWorker(
-    new CaOperationsRepository(appDb),
-    internalCaService,
-    `ca-sync-worker-${process.pid}`,
-    ({ run, error }) => {
-      structuredLogger.warn('CA sync run failed', {
-        error: error instanceof Error ? error.message : String(error),
-        status: run.status,
-      }, {
-        module: 'ca-sync-worker',
-        tenantId: run.tenantId,
-        resourceType: 'caSyncRun',
-        resourceId: run.id,
-      });
-    },
-  ));
-  app.setResource('caAutoSyncScheduler', new CaAutoSyncScheduler(
-    new CaOperationsRepository(appDb),
-    internalCaService,
-    ({ target, error }) => {
-      structuredLogger.warn('CA automatic sync scheduling failed', {
-        error: error instanceof Error ? error.message : String(error),
-        objectType: target.objectType,
-      }, {
-        module: 'ca-auto-sync-scheduler',
-        tenantId: target.tenantId,
-        resourceType: 'certificateAuthority',
-        resourceId: target.caId,
-      });
-    },
-    tasksService,
-  ));
-
   app.setAuthTokenResolver((authorization, cookie) => security.auth.parseRequestIdentity(authorization, cookie));
   app.setAgentTokenResolver((token, request) => agentsService.parseAgentRequestIdentity(token, request));
   new SystemInitializationController(systemInitialization).register(app.router);
@@ -741,6 +837,9 @@ export function createApp(dependencies: AppDependencies = {}): App {
     tasks: tasksService,
     tenantHierarchy: security.tenantHierarchy,
     }), undefined, security);
+  // 生命周期服务在创建部署计划后才接入，避免构造阶段出现部署模块循环依赖。
+  certificateLifecycleService.setDeploymentPlans(deploymentPlans.getApplicationService());
+  executionResultSync.setCertificateLifecycleService(certificateLifecycleService);
   deploymentPlans.register(app.router);
   new DeploymentInputProjectionController(deploymentPlans.getApplicationService()).register(app.router);
   /**
@@ -782,7 +881,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
           target.siteId
             ? assetsService.getRepository().getSiteAsset(tenantId, target.siteId)
             : undefined,
-          assetsService.getRepository().getHost(tenantId, target.deviceId),
+          target.deviceId ? assetsService.getRepository().getHost(tenantId, target.deviceId) : undefined,
         ]);
         const configFingerprint = configFingerprintFromManagedTargetMetadata(target.metadata);
         if (!framework || !frameworkTypes.some((frameworkType) => frameworkType === framework.frameworkType) || !configFingerprint) return undefined;
@@ -1133,6 +1232,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     automationApprovalOrchestrator,
   );
   const automationScheduler = new AutomationScheduler(automationsRepository, automationsService, automationCoordinator, undefined, undefined);
+  const automationExternalApi = new AutomationExternalApiService(new AutomationExternalApiKeyRepository(appDb));
   security.approvals.setDecisionListener(async (approval) => {
     if (approval.operationType === 'deployment.execute') {
       const planRef = approval.resourceRefs.find((ref) => ref.type === 'deploymentPlan');
@@ -1383,7 +1483,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
     ),
     new WorkflowExecutionBindingsService(new WorkflowExecutionBindingsRepository(appDb)),
   ).register(app.router);
-  new AutomationsController(automationsService, security, automationCoordinator).register(app.router);
+  new AutomationsController(automationsService, security, automationCoordinator, automationExternalApi).register(app.router);
   new DashboardController(new DashboardApplicationService({
     assets: assetsService,
     devices: devicesService,
@@ -1428,7 +1528,6 @@ export function createApp(dependencies: AppDependencies = {}): App {
     acmeJobs: acmeRepository,
     executions: executionsService,
     executionRegistry: executorRegistry,
-    caSync: app.getResource<CaSyncWorker>('caSyncWorker'),
     automation: automationScheduler,
     automationRuns: automationsService,
     automationEvents: automationEventDelivery,
@@ -1456,6 +1555,47 @@ export function createApp(dependencies: AppDependencies = {}): App {
   }));
 
   return app;
+}
+
+/**
+ * 同一 CA 可能因 Agent 重装留下多条注册记录。
+ * Provider 是单执行目标，补偿时只能选择一个当前最可靠的 Agent，
+ * 否则遍历顺序会把在线 Provider 最后覆盖成离线旧 Agent。
+ */
+export function selectPreferredAdcsAgents(
+  agents: AgentRegistration[],
+  livenessByAgentId: ReadonlyMap<string, 'ONLINE' | 'OFFLINE' | 'UNKNOWN'> = new Map(),
+): AgentRegistration[] {
+  const groups = new Map<string, AgentRegistration[]>();
+  for (const agent of agents) {
+    // AD CS Agent 注册时可能因 LocalSystem 权限暂时读不到 CA DisplayName，
+    // 随后又会上报真实 caName。Windows 主机上的 AD CS 服务只有一个本机 CA，
+    // 因此优先按稳定 hostname 归并，避免同一 CA 被拆成两个补偿组。
+    const name = (agent.descriptor.hostname || agent.descriptor.caName || agent.agentKey).trim().toLowerCase();
+    const group = groups.get(name) ?? [];
+    group.push(agent);
+    groups.set(name, group);
+  }
+  return [...groups.values()].map((group) => group.sort((left, right) => {
+    const rank = (agent: AgentRegistration): number => {
+      if (agent.status === 'DISABLED' || Boolean(agent.revokedAt) || agent.certificateRevoked) return 0;
+      const liveness = livenessByAgentId.get(agent.id);
+      // 有心跳投影时，投影是当前事实；注册记录上的 ONLINE 只是历史状态，
+      // 不能覆盖已经确认的 OFFLINE。没有投影时才退回注册状态。
+      if (liveness === 'ONLINE') return 3;
+      if (liveness === 'UNKNOWN') return agent.status === 'ONLINE' ? 2 : 1;
+      return 1;
+    };
+    const rankDifference = rank(right) - rank(left);
+    if (rankDifference !== 0) return rankDifference;
+    const updatedDifference = Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
+    if (Number.isFinite(updatedDifference) && updatedDifference !== 0) return updatedDifference;
+    return right.id.localeCompare(left.id);
+  })[0]!).filter(Boolean);
+}
+
+function textValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
 /**

@@ -2,13 +2,14 @@ import { AppError } from '../../../common/errors/app-error.js';
 import type { HttpRequest } from '../../../common/http/http-types.js';
 import type { Router } from '../../../common/http/router.js';
 import { requireTenantId } from '../../../common/http/tenant-context.js';
+import { validateObject } from '../../../common/validation/schema-validation.js';
 import type { RouteContract } from '../../../common/openapi/route-contract.js';
 import type { SecuritySubject } from '../../../shared/security-types.js';
 import { SecurityError } from '../../../shared/security-error.js';
 import type { SecurityServices } from '../../security/security.controller.js';
 import { enqueueTaskBestEffort, type TaskEnqueuer } from '../../tasks/task-enqueue.js';
 import type { CaOperationsPermissionAction } from '../ca-operations.security.js';
-import type { CaOperationsRecordQueryDto, CreateCaSyncRunsDto } from '../dto/ca-operations.dto.js';
+import type { AgentCaObservationBatchDto, CaOperationsRecordQueryDto } from '../dto/ca-operations.dto.js';
 import type {
   AcmeProviderConfigurationInput,
   CreateAuthorityInput,
@@ -66,8 +67,8 @@ export class InternalCaController {
     router.get('/api/v1/ca-operations/tree', '查询 CA 运营资源树', tags, (request) => this.listOperationsTree(request));
     router.get('/api/v1/ca-operations/records', '查询 CA 运营记录', tags, (request) => this.listOperationRecords(request));
     router.get('/api/v1/ca-operations/records/:recordKey', '查询 CA 运营记录详情', tags, (request) => this.getOperationRecord(request));
-    router.post('/api/v1/ca-operations/sync-runs', '创建 CA 历史同步运行', tags, (request) => this.createSyncRuns(request));
-    router.get('/api/v1/ca-operations/sync-runs', '查询 CA 历史同步运行', tags, (request) => this.listSyncRuns(request));
+    router.post('/api/v1/ca-operations/refresh', '立即触发 AD CS Agent 观测并刷新 CA 记录', tags, (request) => this.refreshOperations(request));
+    router.post('/api/v1/agents/ca-observations', '接收 AD CS Agent 主动观测', tags, (request) => this.ingestAgentObservations(request));
     router.get('/api/v1/ca-trust-domains', '查询 CA 信任域', tags, (request) => this.listTrustDomains(request));
     router.post('/api/v1/ca-trust-domains', '创建 CA 信任域', tags, (request) => this.createTrustDomain(request));
     router.patch('/api/v1/ca-trust-domains/:id', '更新 CA 信任域', tags, (request) => this.updateTrustDomain(request));
@@ -82,6 +83,7 @@ export class InternalCaController {
     router.post('/api/v1/certificate-policies/:id/versions', '创建证书策略版本', tags, (request) => this.createCertificatePolicyVersion(request));
     router.get('/api/v1/certificate-requests', '查询证书申请', tags, (request) => this.listRequests(request));
     router.post('/api/v1/certificate-requests', '创建证书申请对象', tags, (request) => this.createRequest(request));
+    router.post('/api/v1/certificate-requests/:id/generate-local-csr', '请求 Agent 生成本机 CSR', tags, (request) => this.generateLocalCsr(request));
     router.post('/api/v1/certificate-requests/:id/approve', '审批证书申请', tags, (request) => this.approveRequest(request));
     router.post('/api/v1/certificate-requests/:id/retry', '请求插件重试签发', tags, (request) => this.issueRequest(request));
     router.post('/api/v1/certificate-requests/:id/query', '查询插件签发结果', tags, (request) => this.queryRequest(request));
@@ -201,36 +203,29 @@ export class InternalCaController {
     return record;
   }
 
-  private async createSyncRuns(request: HttpRequest) {
-    const rawBody = objectBody(request);
-    const body = rawBody as unknown as CreateCaSyncRunsDto;
-    await this.assertAction(request, body.mode === 'full' ? 'ca.operations.sync.full' : 'ca.operations.sync', 'certificate_authority');
-    const runs = await this.service.createCaSyncRuns({
-      tenantId: tenantId(request), providerId: requiredString(rawBody, 'providerId'), caId: requiredString(rawBody, 'caId'),
-      objectTypes: body.objectTypes, mode: body.mode, actor: subjectFromRequest(request), context: request.context,
+  private async refreshOperations(request: HttpRequest) {
+    await this.assertAction(request, 'ca.operations.read', 'caOperation');
+    const body = validateObject(request.body, {
+      caId: { type: 'string', required: true },
+      force: { type: 'boolean' },
     });
-    for (const run of runs) {
-      enqueueTaskBestEffort(this.tasks, {
-        tenantId: run.tenantId,
-        taskType: 'CA_RECORD_SYNC',
-        requestedBy: run.requestedBy,
-        triggerSource: 'ca.sync.manual',
-        idempotencyKey: `ca-record-sync:${run.id}`,
-        payload: { syncRunId: run.id },
-        resourceRefs: [
-          { resourceType: 'caSyncRun', resourceId: run.id },
-          { resourceType: 'certificateAuthority', resourceId: run.caId },
-        ],
-      });
-    }
-    return { statusCode: 202, body: runs };
+    await this.assertAuthorityRead(request, String(body.caId));
+    return this.service.refreshAdcsObservations(tenantId(request), String(body.caId), body.force === true);
   }
 
-  private async listSyncRuns(request: HttpRequest) {
-    await this.assertAction(request, 'ca.operations.read', 'caOperation');
-    const caId = optionalQuery(request, 'caId');
-    if (caId) await this.assertAuthorityRead(request, caId);
-    return { items: await this.service.listCaSyncRuns(tenantId(request), caId) };
+  private async ingestAgentObservations(request: HttpRequest) {
+    const body = validateObject(request.body, {
+      agentId: { type: 'string', required: true },
+      caName: { type: 'string' },
+      caConfig: { type: 'string' },
+      observedAt: { type: 'string' },
+      sequence: { type: 'number' },
+      records: { type: 'array', required: true },
+    }) as unknown as AgentCaObservationBatchDto;
+    if (request.context.actorType !== 'AGENT') {
+      throw new AppError('AUTH_FORBIDDEN', '该接口仅允许 AD CS Agent 调用');
+    }
+    return this.service.ingestAdcsObservations(tenantId(request), body);
   }
 
   private async listTrustDomains(request: HttpRequest) {
@@ -304,6 +299,31 @@ export class InternalCaController {
     await this.assertAction(request, 'ca.request.retry', 'certificate_request');
     const body = objectBody(request);
     return { statusCode: 201, body: await this.service.createCertificateRequest(tenantId(request), { ...body, actorId: actorId(request) } as unknown as CreateCertificateRequestInput, request.context) };
+  }
+
+  private async generateLocalCsr(request: HttpRequest) {
+    await this.assertAction(request, 'ca.request.retry', 'certificate_request');
+    const body = objectBody(request);
+    const result = await this.requireLifecycle().generateLocalCsr({
+      tenantId: tenantId(request),
+      certificateRequestId: pathId(request),
+      agentId: requiredString(body, 'agentId'),
+      targetId: requiredString(body, 'targetId'),
+      commonName: requiredString(body, 'commonName'),
+      sans: Array.isArray(body.sans) ? body.sans.filter((item): item is string => typeof item === 'string') : [],
+      keyPath: requiredString(body, 'keyPath'),
+      certificatePath: requiredString(body, 'certificatePath'),
+      ...(typeof body.configPath === 'string' ? { configPath: body.configPath } : {}),
+      algorithm: body.algorithm === 'ec' ? 'ec' : 'rsa',
+      ...(typeof body.rsaBits === 'number' ? { rsaBits: body.rsaBits } : {}),
+      ...(body.storageMode === 'file_pem' || body.storageMode === 'windows_cng' ? { storageMode: body.storageMode } : {}),
+      format: body.format === 'pkcs12' || body.format === 'jks' ? body.format : 'pem',
+      ...(typeof body.alias === 'string' ? { alias: body.alias } : {}),
+      idempotencyKey: requiredString(body, 'idempotencyKey'),
+      ...(typeof body.pluginId === 'string' ? { pluginId: body.pluginId } : {}),
+      ...(typeof body.pluginVersionId === 'string' ? { pluginVersionId: body.pluginVersionId } : {}),
+    });
+    return { statusCode: 202, body: result };
   }
 
   private async approveRequest(request: HttpRequest) {
@@ -861,8 +881,7 @@ export function getInternalCaRouteContracts(): RouteContract[] {
     ['GET', '/api/v1/ca-operations/tree', 'listCaOperationsTree', '查询 CA 运营资源树', responseSchema],
     ['GET', '/api/v1/ca-operations/records', 'listCaOperationRecords', '查询 CA 运营记录', responseSchema],
     ['GET', '/api/v1/ca-operations/records/:recordKey', 'getCaOperationRecord', '查询 CA 运营记录详情', responseSchema],
-    ['POST', '/api/v1/ca-operations/sync-runs', 'createCaSyncRuns', '创建 CA 历史同步运行', responseSchema],
-    ['GET', '/api/v1/ca-operations/sync-runs', 'listCaSyncRuns', '查询 CA 历史同步运行', responseSchema],
+    ['POST', '/api/v1/ca-operations/refresh', 'refreshCaOperations', '立即触发 AD CS Agent 观测并刷新 CA 记录', responseSchema],
     ['GET', '/api/v1/ca-trust-domains', 'listCaTrustDomains', '查询 CA 信任域', arraySchema],
     ['POST', '/api/v1/ca-trust-domains', 'createCaTrustDomain', '创建 CA 信任域', responseSchema],
     ['PATCH', '/api/v1/ca-trust-domains/:id', 'updateCaTrustDomain', '更新 CA 信任域', responseSchema],
@@ -877,6 +896,7 @@ export function getInternalCaRouteContracts(): RouteContract[] {
     ['POST', '/api/v1/certificate-policies/:id/versions', 'createCertificatePolicyVersion', '创建证书策略版本', responseSchema],
     ['GET', '/api/v1/certificate-requests', 'listCertificateRequests', '查询证书申请', arraySchema],
     ['POST', '/api/v1/certificate-requests', 'createCertificateRequest', '创建证书申请对象', responseSchema],
+    ['POST', '/api/v1/certificate-requests/:id/generate-local-csr', 'generateLocalCsr', '请求 Agent 生成本机 CSR', responseSchema],
     ['POST', '/api/v1/certificate-requests/:id/approve', 'approveCertificateRequest', '审批证书申请', responseSchema],
     ['POST', '/api/v1/certificate-requests/:id/retry', 'retryCertificateRequest', '请求插件重试签发', responseSchema],
     ['POST', '/api/v1/certificate-requests/:id/query', 'queryCertificateRequest', '查询插件签发结果', responseSchema],
@@ -982,7 +1002,7 @@ function optionalQuery(request: HttpRequest, key: string): string | undefined {
 
 function pathId(request: HttpRequest): string {
   const segments = request.path.split('/').filter(Boolean);
-  const actionIndex = segments.findIndex((segment) => ['test', 'versions', 'approve', 'retry', 'activate', 'result', 'complete', 'remediation-preview', 'reconcile', 'finalize', 'renew', 'cancel', 'crl', 'install-action', 'tls-verify'].includes(segment));
+  const actionIndex = segments.findIndex((segment) => ['test', 'versions', 'approve', 'retry', 'activate', 'result', 'complete', 'remediation-preview', 'reconcile', 'finalize', 'renew', 'cancel', 'crl', 'install-action', 'tls-verify', 'generate-local-csr'].includes(segment));
   const value = actionIndex > 0 ? segments[actionIndex - 1] : segments.at(-1);
   if (!value) throw new AppError('VALIDATION_FAILED', '路径缺少资源 ID');
   return value;

@@ -74,6 +74,7 @@ export class AgentsDomainService {
       machineId: input.machineId?.trim(),
       hostname,
       caName: input.caName?.trim(),
+      caConfig: input.caConfig?.trim(),
       version,
       osType,
       arch: input.arch?.trim(),

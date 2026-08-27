@@ -185,12 +185,29 @@ export class AgentCapabilityDiscoveryProjector {
 const FULL_WEB_DISCOVERY_SCOPE = 'FULL_WEB_DISCOVERY';
 
 function fullWebInventoryValue(capabilities: AgentCapabilitySnapshot['capabilities']): Record<string, any> | undefined {
+  let hasLegacyWebDetail = false;
   for (const capability of capabilities) {
+    if (capability.capabilityKey === 'windows.iis.detail'
+      || capability.capabilityKey === 'windows.apache.detail'
+      || capability.capabilityKey === 'linux.nginx.detail'
+      || capability.capabilityKey === 'linux.apache.detail'
+      || capability.capabilityKey === 'linux.tomcat.detail'
+      || capability.capabilityKey === 'web.iis.detail'
+      || capability.capabilityKey === 'web.nginx.detail'
+      || capability.capabilityKey === 'web.apache.detail'
+      || capability.capabilityKey === 'app.tomcat.detail') {
+      hasLegacyWebDetail = true;
+      continue;
+    }
     if (capability.capabilityKey !== 'web.inventory') continue;
     const value = asRecord(capability.value);
     if (value?.scope === FULL_WEB_DISCOVERY_SCOPE) return value;
   }
-  return undefined;
+  // 旧版 Agent 只会上报框架详情，没有统一 web.inventory。这里只创建通用
+  // device.generic 占位，绝不从旧字段推断站点、绑定或证书，等待新版完整事实替换。
+  return hasLegacyWebDetail
+    ? { scope: FULL_WEB_DISCOVERY_SCOPE, configFiles: [], legacyAgentWebDetail: true }
+    : undefined;
 }
 
 function emptyProjectionSummary(): StandardDiscoveryProjectionSummary {
@@ -226,6 +243,14 @@ function projectWebFacts(
   } else {
     // 兼容尚未升级的其他 Agent；它们没有权威站点事实时才使用宿主通用解析入口。
     projectGenericWebInventory(inventory, primaryAddress, frameworks, sites, managedTargets, frameworkSeen, siteByKey, targetByKey, certificates, certificateBindings, certificateByReference);
+    if (inventory.legacyAgentWebDetail === true && frameworks.length === 0) {
+      frameworks.push({
+        stableKey: 'framework:device.generic',
+        frameworkType: 'device.generic',
+        displayName: 'device.generic',
+        metadata: { source: 'legacy-agent-web-detail' },
+      });
+    }
   }
   return { frameworks, sites, managedTargets, certificates, certificateBindings };
 }

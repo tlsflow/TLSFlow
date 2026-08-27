@@ -6,7 +6,6 @@ import type { AutomationsApplicationService } from '../automations/application/a
 import type { ExecutorRegistry } from '../executions/application/executors.js';
 import type { ExecutionsApplicationService } from '../executions/application/executions.application-service.js';
 import type { AcmeRenewalWorker } from '../internal-ca/application/acme-renewal-worker.js';
-import type { CaSyncWorker } from '../internal-ca/application/ca-sync-worker.js';
 import type { AcmeRepository } from '../internal-ca/repository/acme.repository.js';
 import type { MonitorsApplicationService } from '../monitors/application/monitors.application-service.js';
 import type { NotificationWorker } from '../notifications/application/notification-worker.js';
@@ -26,7 +25,6 @@ export interface TaskWorkerAdapterDependencies {
   acmeJobs?: Pick<AcmeRepository, 'getRenewalJob'>;
   executions?: Pick<ExecutionsApplicationService, 'runDispatchedExecution'>;
   executionRegistry?: ExecutorRegistry;
-  caSync?: Pick<CaSyncWorker, 'runRun'>;
   automation?: Pick<AutomationScheduler, 'runRun'>;
   automationRuns?: Pick<AutomationsApplicationService, 'getRun' | 'listRunTargets' | 'listRunActionResults'>;
   automationEvents?: Pick<AutomationEventDeliveryService, 'processDelivery'>;
@@ -145,6 +143,10 @@ export function createTaskExecutorRegistry(
     return executeAgentEnrollmentTask(task, attempt, dependencies, 'update');
   });
 
+  // CA Node 运行时已移除。保留稳定 executor key 作为历史任务兼容桩，
+  // 明确失败关闭而不是让旧任务因执行器缺失反复重试或伪造成功。
+  registry.register('ca.node-task', unavailableExecutor('外置 CA Node 任务已退役，无法执行'));
+
   registry.register('plugin.reference-refresh', dependencyExecutor('插件引用刷新', dependencies.pluginCatalog, async (task) => {
     const result = await dependencies.pluginCatalog!.refresh(task.tenantId);
     return { success: true, detail: result as unknown as Record<string, unknown> };
@@ -165,27 +167,6 @@ export function createTaskExecutorRegistry(
 
   registry.register('credential.health-check', dependencyExecutor('凭据有效性检测 Worker', dependencies.credentialHealth, async (task) => {
     return dependencies.credentialHealth!.executeTask(task);
-  }));
-
-  registry.register('ca.sync', dependencyExecutor('CA 同步 Worker', dependencies.caSync, async (task) => {
-    const syncRunId = requiredPayloadString(task, 'syncRunId');
-    const result = await dependencies.caSync!.runRun(task.tenantId, syncRunId);
-    if (result.status === 'queued' || result.status === 'running') {
-      return {
-        success: false,
-        defer: true,
-        errorCode: 'CA_SYNC_PENDING',
-        errorMessage: 'CA 同步尚未完成，等待下一批次',
-        detail: { syncRunId, status: result.status },
-      };
-    }
-    if (result.status === 'succeeded') return { success: true, detail: { syncRunId, status: result.status } };
-    return {
-      success: false,
-      errorCode: result.errorCode ?? 'CA_SYNC_FAILED',
-      errorMessage: result.errorMessage ?? `CA 同步以 ${result.status} 结束`,
-      detail: { syncRunId, status: result.status },
-    };
   }));
 
   registry.register('automation.trigger-delivery', dependencyExecutor('Automation Trigger Delivery Worker', dependencies.automationEvents, async (task) => {
@@ -226,19 +207,11 @@ export function createTaskExecutorRegistry(
     if (!current || ['queued', 'running', 'waiting_approval'].includes(current.status)) {
       return {
         success: false,
-        defer: true,
+        waitingStatus: 'WAITING_RESULT',
         errorCode: 'AUTOMATION_RUN_PENDING',
         errorMessage: '自动化运行仍未进入终态',
         detail,
         retryAfterSeconds: 5,
-      };
-    }
-    if (['failed', 'needs_attention', 'stopped'].includes(current.status)) {
-      return {
-        success: false,
-        errorCode: current.failureCode ?? 'AUTOMATION_RUN_FAILED',
-        errorMessage: current.failureMessage ?? `自动化运行以 ${current.status} 结束`,
-        detail,
       };
     }
     return { success: true, detail };

@@ -204,7 +204,7 @@ describe('Agent 一键安装会话', () => {
     const body = response.body as InstallSessionResponse;
     assert.equal(body.platform, 'windows_adcs_service');
     assert.equal(body.role, 'adcs_agent');
-    assert.equal(body.agentVersion, '0.1.1');
+    assert.equal(body.agentVersion, '0.1.14');
     assert.equal(body.serviceName, 'GCACWindowsAdcsAgent');
     assert.equal(body.installRoot, 'C:\\Program Files\\GCAC\\WindowsAdcsAgent');
     assert.equal(body.configDir, 'C:\\ProgramData\\GCAC\\WindowsAdcsAgent\\config');

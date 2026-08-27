@@ -4,8 +4,6 @@ import type { RequestContext, ResourceDescriptor, RiskLevel, SecuritySubject } f
 
 export const caOperationsPermissionActions = [
   'ca.operations.read',
-  'ca.operations.sync',
-  'ca.operations.sync.full',
   'ca.request.approve',
   'ca.request.retry',
   'ca.certificate.revoke',
@@ -97,9 +95,6 @@ export async function writeCaOperationsAudit(
 export type CaOperationsAuditEventType =
   | typeof AUDIT_EVENT_TYPES.CA_OPERATIONS_RECORD_READ
   | typeof AUDIT_EVENT_TYPES.CA_OPERATIONS_EXPORTED
-  | typeof AUDIT_EVENT_TYPES.CA_OPERATIONS_SYNC_STARTED
-  | typeof AUDIT_EVENT_TYPES.CA_OPERATIONS_SYNC_COMPLETED
-  | typeof AUDIT_EVENT_TYPES.CA_OPERATIONS_SYNC_FAILED
   | typeof AUDIT_EVENT_TYPES.CA_TEMPLATE_MAPPING_CREATED
   | typeof AUDIT_EVENT_TYPES.CA_TEMPLATE_MAPPING_UPDATED
   | typeof AUDIT_EVENT_TYPES.CA_REQUEST_APPROVED

@@ -11,7 +11,7 @@ import {
 
 test('CA 运营权限动作与通用证书导入权限隔离', () => {
   assert.deepEqual(caOperationsPermissionActions, [
-    'ca.operations.read', 'ca.operations.sync', 'ca.operations.sync.full', 'ca.request.approve',
+    'ca.operations.read', 'ca.request.approve',
     'ca.request.retry', 'ca.certificate.revoke', 'ca.crl.publish', 'ca.template.mapping.read',
     'ca.template.mapping.manage', 'ca.provider.manage', 'ca.authority.manage',
   ]);
@@ -45,15 +45,15 @@ test('CA 高风险审计必须携带范围且要求审计失败关闭', async ()
       written = input as unknown as Record<string, unknown>;
     },
   }, {
-    eventType: AUDIT_EVENT_TYPES.CA_OPERATIONS_SYNC_STARTED,
-    actor: { id: 'user-1', type: 'user' }, action: 'ca.operations.sync.full', result: 'success', riskLevel: 'high',
-    scope: { tenantId: 'tenant-1', caId: 'ca-1', providerId: 'provider-1', resourceType: 'caSyncRun', resourceId: 'sync-1' },
-    detail: { cursor: 'opaque' },
+    eventType: AUDIT_EVENT_TYPES.CA_OPERATIONS_RECORD_READ,
+    actor: { id: 'user-1', type: 'user' }, action: 'ca.operations.read', result: 'success', riskLevel: 'high',
+    scope: { tenantId: 'tenant-1', caId: 'ca-1', providerId: 'provider-1', resourceType: 'caOperation', resourceId: 'request:1' },
+    detail: { objectType: 'request' },
   });
   assert.deepEqual(written, {
-    eventType: 'ca.operations.sync.started', actorType: 'user', actorId: 'user-1', action: 'ca.operations.sync.full',
-    resourceType: 'caSyncRun', resourceId: 'sync-1', result: 'success', riskLevel: 'high',
-    detail: { tenantId: 'tenant-1', trustDomainId: undefined, caId: 'ca-1', providerId: 'provider-1', cursor: 'opaque' },
+    eventType: 'ca.operations.record.read', actorType: 'user', actorId: 'user-1', action: 'ca.operations.read',
+    resourceType: 'caOperation', resourceId: 'request:1', result: 'success', riskLevel: 'high',
+    detail: { tenantId: 'tenant-1', trustDomainId: undefined, caId: 'ca-1', providerId: 'provider-1', objectType: 'request' },
     context: undefined, failClosed: true,
   });
 });

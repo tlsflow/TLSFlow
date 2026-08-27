@@ -9,6 +9,41 @@ import type { AgentsApplicationService } from './application/agents.application-
 import { createSecurityServices, type SecurityServices } from '../security/security.controller.js';
 
 describe('Agent direct control api', () => {
+  it('同一主机上的 Full Agent 与 Windows AD CS Agent 在列表中保持两个独立身份', async () => {
+    const database = new PgliteDatabase();
+    await runMigrations(database, 'src/database/migrations');
+    const app = createApp({ db: database });
+    const agentsService = app.getResource('agentsService') as AgentsApplicationService;
+    const tenantId = 'tenant_agent_list_separate_roles';
+    try {
+      await agentsService.register(tenantId, {
+        agentKey: 'full-agent-same-host-list',
+        machineId: 'same-host-list',
+        hostname: 'same-host-list',
+        version: '1.0.0',
+        osType: 'WINDOWS',
+        role: 'full_agent',
+      }, 'req_full_same_host_list');
+      await agentsService.register(tenantId, {
+        agentKey: 'adcs-agent-same-host-list',
+        machineId: 'same-host-list',
+        hostname: 'same-host-list',
+        version: '1.0.0',
+        osType: 'WINDOWS_ADCS',
+        role: 'adcs_agent',
+        caName: 'same-host-list-ca',
+      }, 'req_adcs_same_host_list');
+
+      const page = await agentsService.listAgents(tenantId, { page: 1, pageSize: 20, filter: {} });
+      assert.deepEqual(
+        page.items.map((agent) => agent.role).sort(),
+        ['adcs_agent', 'full_agent'],
+      );
+    } finally {
+      await database.close();
+    }
+  });
+
   it('管理 TCP 探测失败不阻断 Agent 主动轮询任务', async () => {
     const database = new PgliteDatabase();
     await runMigrations(database, 'src/database/migrations');
@@ -285,6 +320,79 @@ describe('Agent direct control api', () => {
       headers: machineHeaders,
     });
     assert.equal(humanRoute.statusCode, 401);
+  });
+
+  it('Windows AD CS Agent 的注册、能力和心跳请求按机器协议正确解析', async () => {
+    const database = new PgliteDatabase();
+    await runMigrations(database, 'src/database/migrations');
+    const app = createApp({ db: database });
+    const agentsService = app.getResource('agentsService') as AgentsApplicationService;
+    const tenantId = 'tenant_agent_adcs_http_contract';
+    const token = await agentsService.createEnrollmentToken(tenantId, {
+      allowedRoles: ['adcs_agent'],
+      allowedZones: ['default'],
+      maxUses: 1,
+      ttlSeconds: 60,
+      createdBy: 'test',
+    }, 'req_create_adcs_http_token');
+    const headers = { 'x-agent-token': token.token, 'x-tenant-id': 'tenant_attacker' };
+    try {
+      const register = await app.inject({
+        method: 'POST',
+        path: '/api/v1/agents/register',
+        headers,
+        body: {
+          agentKey: 'adcs-http-agent',
+          hostname: 'ADCS-SERVER',
+          caName: 'Jackson-DC-CA',
+          version: '0.1.1',
+          osType: 'WINDOWS_ADCS',
+          role: 'adcs_agent',
+          zone: 'default',
+          capabilities: ['ca.microsoft-adcs', 'ca.certificate.query'],
+          enrollmentToken: token.token,
+        },
+      });
+      assert.equal(register.statusCode, 201, JSON.stringify(register.body));
+      const registered = register.body as { id: string; tenantId: string; role?: string; descriptor?: { osType?: string; caName?: string } };
+      assert.equal(registered.tenantId, tenantId);
+      assert.equal(registered.role, 'adcs_agent');
+      assert.equal(registered.descriptor?.osType, 'WINDOWS_ADCS');
+      assert.equal(registered.descriptor?.caName, 'Jackson-DC-CA');
+
+      const capabilities = await app.inject({
+        method: 'POST',
+        path: '/api/v1/agents/capabilities',
+        headers,
+        body: {
+          agentId: registered.id,
+          compatibilityLevel: 'native',
+          capabilities: [{ capabilityKey: 'ca.certificate.query', value: true, confidence: 1 }],
+        },
+      });
+      assert.equal(capabilities.statusCode, 201, JSON.stringify(capabilities.body));
+
+      const heartbeat = await app.inject({
+        method: 'POST',
+        path: '/api/v1/agents/heartbeat',
+        headers,
+        body: {
+          agentId: registered.id,
+          version: '0.1.1',
+          status: 'ONLINE',
+          taskSummary: { running: 0, queued: 0 },
+          runtimeHealth: { modelVersion: 'gcac-adcs-agent/v1', status: 'healthy' },
+        },
+      });
+      assert.equal(heartbeat.statusCode, 200, JSON.stringify(heartbeat.body));
+      const detail = await agentsService.getAgentDetail(tenantId, registered.id);
+      assert.equal(detail.agent.status, 'ONLINE');
+      assert.equal(detail.latestHeartbeat?.status, 'ONLINE');
+      assert.equal(detail.latestHeartbeat?.runtimeHealth?.modelVersion, 'gcac-adcs-agent/v1');
+      assert.equal(detail.health.lastHeartbeatAt !== undefined, true);
+    } finally {
+      await database.close();
+    }
   });
 
   it('Agent 离线时健康状态必须覆盖历史健康心跳', async () => {

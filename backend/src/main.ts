@@ -12,8 +12,8 @@ import type { AgentsApplicationService } from './modules/agents/application/agen
 import type { LivenessApplicationService } from './modules/liveness/application/liveness.application-service.js';
 import type { MonitorsApplicationService } from './modules/monitors/application/monitors.application-service.js';
 import type { AutomationScheduler } from './modules/automations/application/automation-scheduler.js';
-import type { CaAutoSyncScheduler } from './modules/internal-ca/application/ca-auto-sync-scheduler.js';
 import type { AcmeRenewalScheduler } from './modules/internal-ca/application/acme-renewal-scheduler.js';
+import { CaOperationsRealtimeGateway, type CaOperationsRealtimeStreamService } from './modules/internal-ca/application/ca-operations-realtime.js';
 import type { SecurityServices } from './modules/security/security.controller.js';
 import { TaskRealtimeGateway, type TaskRealtimeStreamService } from './modules/tasks/task-realtime-stream.js';
 import type { TasksApplicationService } from './modules/tasks/task.application-service.js';
@@ -219,29 +219,6 @@ async function startWithPortLock(releasePortLock: () => void): Promise<void> {
     setInterval(tick, automationIntervalMs);
   }
 
-  // CA 同步批次由统一任务 Worker 消费；这里只负责按周期创建到期的同步任务。
-  const caAutoSyncScheduler = app.getResource<CaAutoSyncScheduler>('caAutoSyncScheduler');
-  if (caAutoSyncScheduler) {
-    const schedulerIntervalMs = positiveNumber(process.env.CA_AUTO_SYNC_SCHEDULER_INTERVAL_MS, 5_000);
-    const maxTargetsPerTick = positiveNumber(process.env.CA_AUTO_SYNC_SCHEDULER_MAX_TARGETS_PER_TICK, 8);
-    let schedulingCaSync = false;
-    const tick = () => {
-      if (schedulingCaSync) return;
-      schedulingCaSync = true;
-      void caAutoSyncScheduler.runOnce(maxTargetsPerTick)
-        .catch((error: unknown) => {
-          structuredLogger.warn('CA automatic sync scheduler failed', {
-            error: error instanceof Error ? error.message : String(error),
-          }, { module: 'ca-auto-sync-scheduler' });
-        })
-        .finally(() => {
-          schedulingCaSync = false;
-        });
-    };
-    tick();
-    setInterval(tick, schedulerIntervalMs);
-  }
-
   // ACME 策略既负责到期续签，也负责补偿“申请已落库但续签任务未落库”的首次签发。
   // 调度器只创建任务；实际签发由统一任务 Worker 串行执行。
   const acmeRenewalScheduler = app.getResource<AcmeRenewalScheduler>('acmeRenewalScheduler');
@@ -293,6 +270,11 @@ async function startWithPortLock(releasePortLock: () => void): Promise<void> {
   if (taskRealtimeStream && tasksService && securityServices) {
     const taskRealtimeGateway = new TaskRealtimeGateway(taskRealtimeStream, tasksService, securityServices);
     app.registerUpgradeHandler((request, socket, head) => taskRealtimeGateway.handleUpgrade(request, socket, head));
+  }
+  const caOperationsRealtimeStream = app.getResource<CaOperationsRealtimeStreamService>('caOperationsRealtimeStream');
+  if (caOperationsRealtimeStream && securityServices) {
+    const caOperationsRealtimeGateway = new CaOperationsRealtimeGateway(caOperationsRealtimeStream, securityServices);
+    app.registerUpgradeHandler((request, socket, head) => caOperationsRealtimeGateway.handleUpgrade(request, socket, head));
   }
   server.once('error', (error: unknown) => {
     releasePortLock();

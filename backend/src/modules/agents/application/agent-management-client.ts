@@ -41,6 +41,12 @@ export interface AgentManagementResponse {
   [key: string]: unknown;
 }
 
+export interface AgentObservationRefreshResponse extends AgentManagementResponse {
+  agentVersion?: string;
+  lastRun?: Record<string, unknown>;
+  pendingBatches?: number;
+}
+
 export interface AgentUpgradeStatusResponse {
   schemaVersion?: string;
   planId?: string;
@@ -110,6 +116,19 @@ export class AgentManagementClient {
       });
     }
     return body as AgentUpgradeStatusResponse;
+  }
+
+  async refreshAdcsObservations(agent: AgentRegistration, force = false): Promise<AgentObservationRefreshResponse> {
+    const path = force ? '/api/v1/control/observations/scan?force=true' : '/api/v1/control/observations/scan';
+    const body = await this.request(agent, path, 'POST');
+    if (body.status === 'failed' || body.success === false) {
+      throw new AppError('EXECUTION_TARGET_UNAVAILABLE', body.errorMessage || 'Agent AD CS 观测刷新失败', {
+        agentId: agent.id,
+        errorCode: body.errorCode ?? 'AGENT_OBSERVATION_REFRESH_FAILED',
+        detail: body,
+      });
+    }
+    return body as AgentObservationRefreshResponse;
   }
 
   private async request(agent: AgentRegistration, path: string, method: 'GET' | 'POST', payload?: unknown): Promise<AgentManagementResponse> {
