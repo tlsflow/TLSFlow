@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { PgliteDatabase } from './pglite-database.js';
@@ -16,7 +16,13 @@ describe('数据库端口和迁移执行器', { concurrency: false }, () => {
       appliedBy: 'test',
       checksum: (content) => createHash('sha256').update(content).digest('hex'),
     });
-    assert.deepEqual(applied.map((migration) => migration.version), ['20260823000000']);
+    const migrationFiles = (await readdir(new URL('./migrations/', import.meta.url)))
+      .filter((file) => file.endsWith('.sql'))
+      .sort();
+    assert.deepEqual(
+      applied.map((migration) => migration.version),
+      migrationFiles.map((file) => file.split('_', 1)[0]),
+    );
 
     const tableCount = await scalar<number>(db, `
       select count(*)::int as count

@@ -13,10 +13,16 @@ const healthMigrationFile = '20260824000000_credential_health_check.sql';
 const caLifecycleMigrationFile = '20260824100000_ca_lifecycle_policy_and_provider_bindings.sql';
 const caCrlMigrationFile = '20260824110000_builtin_ca_crl_publications.sql';
 const certificateRotationMigrationFile = '20260824120000_certificate_rotations.sql';
+const credentialHealthSelectionMigrationFile = '20260824130000_credential_health_selection.sql';
+const cloudManagedTargetOwnerMigrationFile = '20260826000000_cloud_resource_managed_target_owner.sql';
+const passwordCredentialMigrationFile = '20260826100000_password_credential.sql';
+const repairAdcsAgentHostAssociationsMigrationFile = '20260826110000_repair_adcs_agent_host_associations.sql';
+const cloudFrameworkSiteOwnerMigrationFile = '20260826120000_cloud_resource_framework_site_owner.sql';
+const automationExternalApiMigrationFile = '20260827120000_automation_external_api.sql';
 
 test('活动迁移目录包含统一 baseline、凭据健康和 CA 生命周期递增迁移，空 PGlite 可直接建立当前结构', async () => {
   const files = (await readdir(activeMigrationDirectory)).filter((file) => file.endsWith('.sql')).sort();
-  assert.deepEqual(files, [baselineFile, healthMigrationFile, caLifecycleMigrationFile, caCrlMigrationFile, certificateRotationMigrationFile]);
+  assert.deepEqual(files, [baselineFile, healthMigrationFile, caLifecycleMigrationFile, caCrlMigrationFile, certificateRotationMigrationFile, credentialHealthSelectionMigrationFile, cloudManagedTargetOwnerMigrationFile, passwordCredentialMigrationFile, repairAdcsAgentHostAssociationsMigrationFile, cloudFrameworkSiteOwnerMigrationFile, automationExternalApiMigrationFile]);
 
   const db = new PgliteDatabase();
   try {
@@ -29,6 +35,12 @@ test('活动迁移目录包含统一 baseline、凭据健康和 CA 生命周期�
         { version: '20260824100000', status: 'APPLIED' },
         { version: '20260824110000', status: 'APPLIED' },
         { version: '20260824120000', status: 'APPLIED' },
+        { version: '20260824130000', status: 'APPLIED' },
+        { version: '20260826000000', status: 'APPLIED' },
+        { version: '20260826100000', status: 'APPLIED' },
+        { version: '20260826110000', status: 'APPLIED' },
+        { version: '20260826120000', status: 'APPLIED' },
+        { version: '20260827120000', status: 'APPLIED' },
       ],
     );
     const requiredTables = (await db.query<{ table_name: string }>(
@@ -37,7 +49,7 @@ test('活动迁移目录包含统一 baseline、凭据健康和 CA 生命周期�
           and table_name = any($1::text[])
         order by table_name`,
         [['tenants', 'tenant_memberships', 'system_initialization_state', 'pg_documents', 'job_queue', 'credential_health_states', 'credential_health_check_records', 'pg_ca_provider_action_bindings', 'pg_certificate_policies', 'pg_certificate_policy_versions', 'pg_ca_crl_states', 'pg_ca_crl_publications', 'pg_certificate_rotations']],
-    )).rows.map((row) => row.table_name);
+      )).rows.map((row) => row.table_name);
     assert.deepEqual(requiredTables, ['credential_health_check_records', 'credential_health_states', 'job_queue', 'pg_ca_crl_publications', 'pg_ca_crl_states', 'pg_ca_provider_action_bindings', 'pg_certificate_policies', 'pg_certificate_policy_versions', 'pg_certificate_rotations', 'pg_documents', 'system_initialization_state', 'tenant_memberships', 'tenants']);
     assert.equal((await db.query('select status from system_initialization_state where id = \'singleton\'')).rows[0]?.status, 'PENDING');
   } finally {

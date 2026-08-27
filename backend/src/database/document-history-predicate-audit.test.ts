@@ -1,20 +1,25 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
 test('高基数文档仓储禁止回退到无界 predicate 列表', () => {
+  const readSource = (relativePath: string): string => {
+    const compiledUrl = new URL(`../${relativePath.replace(/\.ts$/, '.js')}`, import.meta.url);
+    if (existsSync(compiledUrl)) return readFileSync(compiledUrl, 'utf8');
+    return readFileSync(new URL(`../../src/${relativePath}`, import.meta.url), 'utf8');
+  };
   const highRiskSources = [
-    new URL('../modules/agents/repository/agents.repository.ts', import.meta.url),
-    new URL('../modules/devices/repository/devices.repository.ts', import.meta.url),
-    new URL('../modules/executions/repository/executions.repository.ts', import.meta.url),
-    new URL('../modules/deployment-plans/repository/deployment-plans.repository.ts', import.meta.url),
+    'modules/agents/repository/agents.repository.ts',
+    'modules/devices/repository/devices.repository.ts',
+    'modules/executions/repository/executions.repository.ts',
+    'modules/deployment-plans/repository/deployment-plans.repository.ts',
   ];
-  for (const sourceUrl of highRiskSources) {
-    const source = readFileSync(sourceUrl, 'utf8');
-    assert.doesNotMatch(source, /\.list\(\s*(?:async\s*)?\(/, sourceUrl.pathname);
+  for (const relativePath of highRiskSources) {
+    const source = readSource(relativePath);
+    assert.doesNotMatch(source, /\.list\(\s*(?:async\s*)?\(/, relativePath);
   }
 
-  const gatewaySource = readFileSync(new URL('../modules/gateway-agents/gateway-target-history.service.ts', import.meta.url), 'utf8');
+  const gatewaySource = readSource('modules/gateway-agents/gateway-target-history.service.ts');
   const pgRepositorySource = gatewaySource.slice(
     gatewaySource.indexOf('export class PgGatewayTargetHistoryRepository'),
     gatewaySource.indexOf('export class RepositoryGatewayTargetHistoryRepository'),

@@ -2926,6 +2926,61 @@ paths:
       summary: "创建 SiteAsset"
       tags:
         - "Assets"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              additionalProperties: false
+              required:
+                - "frameworkInstanceId"
+                - "discoveryProviderKey"
+                - "siteType"
+                - "siteName"
+                - "siteKey"
+              properties:
+                frameworkInstanceId:
+                  type: "string"
+                deviceId:
+                  type: "string"
+                assetId:
+                  type: "string"
+                serviceAssetId:
+                  type: "string"
+                discoveryProviderKey:
+                  type: "string"
+                siteType:
+                  type: "string"
+                siteName:
+                  type: "string"
+                siteKey:
+                  type: "string"
+                bindingInformation:
+                  type: "string"
+                hostHeader:
+                  type: "string"
+                listenIp:
+                  type: "string"
+                port:
+                  type: "number"
+                protocol:
+                  type: "string"
+                configPath:
+                  type: "string"
+                  description: "目标服务配置文件路径；仅用于 Agent 在目标机读取本机密码，不承载密码本身。"
+                runtimeStatus:
+                  type: "string"
+                discoverySource:
+                  type: "string"
+                lastDiscoveredAt:
+                  type: "string"
+                  format: "date-time"
+                status:
+                  type: "string"
+                metadata:
+                  type: "object"
+                  additionalProperties: true
       responses:
         200:
           description: "成功"
@@ -2933,7 +2988,74 @@ paths:
             application/json:
               schema:
                 type: "object"
-                additionalProperties: true
+                additionalProperties: false
+                required:
+                  - "id"
+                  - "tenantId"
+                  - "frameworkInstanceId"
+                  - "discoveryProviderKey"
+                  - "siteType"
+                  - "siteName"
+                  - "siteKey"
+                  - "discoverySource"
+                  - "status"
+                  - "metadata"
+                  - "createdAt"
+                  - "updatedAt"
+                  - "version"
+                properties:
+                  id:
+                    type: "string"
+                  tenantId:
+                    type: "string"
+                  assetId:
+                    type: "string"
+                  serviceAssetId:
+                    type: "string"
+                  frameworkInstanceId:
+                    type: "string"
+                  deviceId:
+                    type: "string"
+                  discoveryProviderKey:
+                    type: "string"
+                  siteType:
+                    type: "string"
+                  siteName:
+                    type: "string"
+                  siteKey:
+                    type: "string"
+                  bindingInformation:
+                    type: "string"
+                  hostHeader:
+                    type: "string"
+                  listenIp:
+                    type: "string"
+                  port:
+                    type: "number"
+                  protocol:
+                    type: "string"
+                  configPath:
+                    type: "string"
+                    description: "目标服务配置文件路径；仅用于 Agent 在目标机读取本机密码，不承载密码本身。"
+                  runtimeStatus:
+                    type: "string"
+                  discoverySource:
+                    type: "string"
+                  lastDiscoveredAt:
+                    type: "string"
+                  status:
+                    type: "string"
+                  metadata:
+                    type: "object"
+                    additionalProperties: true
+                  createdAt:
+                    type: "string"
+                  updatedAt:
+                    type: "string"
+                  deletedAt:
+                    type: "string"
+                  version:
+                    type: "number"
         400:
           $ref: "#/components/responses/ErrorResponse"
         404:
@@ -2945,6 +3067,59 @@ paths:
       summary: "更新 SiteAsset"
       tags:
         - "Assets"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: "object"
+              additionalProperties: false
+              required:
+                - "id"
+              properties:
+                id:
+                  type: "string"
+                frameworkInstanceId:
+                  type: "string"
+                deviceId:
+                  type: "string"
+                assetId:
+                  type: "string"
+                serviceAssetId:
+                  type: "string"
+                discoveryProviderKey:
+                  type: "string"
+                siteType:
+                  type: "string"
+                siteName:
+                  type: "string"
+                siteKey:
+                  type: "string"
+                bindingInformation:
+                  type: "string"
+                hostHeader:
+                  type: "string"
+                listenIp:
+                  type: "string"
+                port:
+                  type: "number"
+                protocol:
+                  type: "string"
+                configPath:
+                  type: "string"
+                  description: "目标服务配置文件路径；仅用于 Agent 在目标机读取本机密码，不承载密码本身。"
+                runtimeStatus:
+                  type: "string"
+                discoverySource:
+                  type: "string"
+                lastDiscoveredAt:
+                  type: "string"
+                  format: "date-time"
+                status:
+                  type: "string"
+                metadata:
+                  type: "object"
+                  additionalProperties: true
       responses:
         200:
           description: "成功"
@@ -2952,7 +3127,74 @@ paths:
             application/json:
               schema:
                 type: "object"
-                additionalProperties: true
+                additionalProperties: false
+                required:
+                  - "id"
+                  - "tenantId"
+                  - "frameworkInstanceId"
+                  - "discoveryProviderKey"
+                  - "siteType"
+                  - "siteName"
+                  - "siteKey"
+                  - "discoverySource"
+                  - "status"
+                  - "metadata"
+                  - "createdAt"
+                  - "updatedAt"
+                  - "version"
+                properties:
+                  id:
+                    type: "string"
+                  tenantId:
+                    type: "string"
+                  assetId:
+                    type: "string"
+                  serviceAssetId:
+                    type: "string"
+                  frameworkInstanceId:
+                    type: "string"
+                  deviceId:
+                    type: "string"
+                  discoveryProviderKey:
+                    type: "string"
+                  siteType:
+                    type: "string"
+                  siteName:
+                    type: "string"
+                  siteKey:
+                    type: "string"
+                  bindingInformation:
+                    type: "string"
+                  hostHeader:
+                    type: "string"
+                  listenIp:
+                    type: "string"
+                  port:
+                    type: "number"
+                  protocol:
+                    type: "string"
+                  configPath:
+                    type: "string"
+                    description: "目标服务配置文件路径；仅用于 Agent 在目标机读取本机密码，不承载密码本身。"
+                  runtimeStatus:
+                    type: "string"
+                  discoverySource:
+                    type: "string"
+                  lastDiscoveredAt:
+                    type: "string"
+                  status:
+                    type: "string"
+                  metadata:
+                    type: "object"
+                    additionalProperties: true
+                  createdAt:
+                    type: "string"
+                  updatedAt:
+                    type: "string"
+                  deletedAt:
+                    type: "string"
+                  version:
+                    type: "number"
         400:
           $ref: "#/components/responses/ErrorResponse"
         404:
@@ -3779,6 +4021,26 @@ paths:
     post:
       operationId: "discoverCloudAccountResources"
       summary: "发现云账号资源"
+      tags:
+        - "Cloud Service"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/cloud-account-onboarding/recipes:
+    get:
+      operationId: "listCloudAccountOnboardingRecipes"
+      summary: "查询云账号接入配方"
       tags:
         - "Cloud Service"
       responses:
@@ -5327,26 +5589,6 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
-  /api/v1/certificate-version-formats/delete:
-    post:
-      operationId: "deleteCertificateVersionFormat"
-      summary: "删除证书格式产物记录"
-      tags:
-        - "Certificates"
-      responses:
-        200:
-          description: "成功"
-          content:
-            application/json:
-              schema:
-                type: "object"
-                additionalProperties: true
-        400:
-          $ref: "#/components/responses/ErrorResponse"
-        404:
-          $ref: "#/components/responses/ErrorResponse"
-        500:
-          $ref: "#/components/responses/ErrorResponse"
   /api/v1/certificate-version-formats/download:
     post:
       operationId: "downloadCertificateVersionFormatArtifact"
@@ -5373,6 +5615,26 @@ paths:
               schema:
                 type: "string"
                 format: "binary"
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-version-formats/delete:
+    post:
+      operationId: "deleteCertificateVersionFormat"
+      summary: "删除证书格式产物记录"
+      tags:
+        - "Certificates"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
         400:
           $ref: "#/components/responses/ErrorResponse"
         404:
@@ -5716,29 +5978,10 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
-  /api/v1/ca-operations/sync-runs:
+  /api/v1/ca-operations/refresh:
     post:
-      operationId: "createCaSyncRuns"
-      summary: "创建 CA 历史同步运行"
-      tags:
-        - "Internal CA"
-      responses:
-        200:
-          description: "成功"
-          content:
-            application/json:
-              schema:
-                type: "object"
-                additionalProperties: true
-        400:
-          $ref: "#/components/responses/ErrorResponse"
-        404:
-          $ref: "#/components/responses/ErrorResponse"
-        500:
-          $ref: "#/components/responses/ErrorResponse"
-    get:
-      operationId: "listCaSyncRuns"
-      summary: "查询 CA 历史同步运行"
+      operationId: "refreshCaOperations"
+      summary: "立即触发 AD CS Agent 观测并刷新 CA 记录"
       tags:
         - "Internal CA"
       responses:
@@ -6027,6 +6270,26 @@ paths:
     post:
       operationId: "createCertificateRequest"
       summary: "创建证书申请对象"
+      tags:
+        - "Internal CA"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/certificate-requests/:id/generate-local-csr:
+    post:
+      operationId: "generateLocalCsr"
+      summary: "请求 Agent 生成本机 CSR"
       tags:
         - "Internal CA"
       responses:
@@ -8319,6 +8582,26 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/agents/ca-observations:
+    post:
+      operationId: "ingestAgentCaObservations"
+      summary: "接收 AD CS Agent 主动观测"
+      tags:
+        - "Agents"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/agents/tasks/pull:
     get:
       operationId: "pullAgentTasks"
@@ -9410,6 +9693,10 @@ paths:
                                   type: "object"
                                   additionalProperties:
                                     type: "string"
+                                credentialContracts:
+                                  type: "object"
+                                  additionalProperties:
+                                    type: "string"
                                 forms:
                                   type: "object"
                                   additionalProperties:
@@ -9863,6 +10150,10 @@ paths:
                             type: "object"
                             additionalProperties:
                               type: "string"
+                          credentialContracts:
+                            type: "object"
+                            additionalProperties:
+                              type: "string"
                           forms:
                             type: "object"
                             additionalProperties:
@@ -10095,6 +10386,10 @@ paths:
                           additionalProperties:
                             type: "string"
                         actionContracts:
+                          type: "object"
+                          additionalProperties:
+                            type: "string"
+                        credentialContracts:
                           type: "object"
                           additionalProperties:
                             type: "string"
@@ -10362,6 +10657,10 @@ paths:
                             additionalProperties:
                               type: "string"
                           actionContracts:
+                            type: "object"
+                            additionalProperties:
+                              type: "string"
+                          credentialContracts:
                             type: "object"
                             additionalProperties:
                               type: "string"
@@ -10723,6 +11022,10 @@ paths:
                             type: "object"
                             additionalProperties:
                               type: "string"
+                          credentialContracts:
+                            type: "object"
+                            additionalProperties:
+                              type: "string"
                           forms:
                             type: "object"
                             additionalProperties:
@@ -11077,6 +11380,10 @@ paths:
                             additionalProperties:
                               type: "string"
                           actionContracts:
+                            type: "object"
+                            additionalProperties:
+                              type: "string"
+                          credentialContracts:
                             type: "object"
                             additionalProperties:
                               type: "string"
@@ -11437,6 +11744,10 @@ paths:
                             type: "object"
                             additionalProperties:
                               type: "string"
+                          credentialContracts:
+                            type: "object"
+                            additionalProperties:
+                              type: "string"
                           forms:
                             type: "object"
                             additionalProperties:
@@ -11791,6 +12102,10 @@ paths:
                             additionalProperties:
                               type: "string"
                           actionContracts:
+                            type: "object"
+                            additionalProperties:
+                              type: "string"
+                          credentialContracts:
                             type: "object"
                             additionalProperties:
                               type: "string"
@@ -14346,6 +14661,26 @@ paths:
           $ref: "#/components/responses/ErrorResponse"
         500:
           $ref: "#/components/responses/ErrorResponse"
+  /api/v1/automations/:id/actions/rotate-external-api-key:
+    post:
+      operationId: "rotateAutomationExternalApiKey"
+      summary: "刷新自动化外部 API Key"
+      tags:
+        - "Automations"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
   /api/v1/automations/:id/preview:
     post:
       operationId: "previewAutomation"
@@ -14370,6 +14705,46 @@ paths:
     post:
       operationId: "createAutomationRun"
       summary: "按需执行自动化"
+      tags:
+        - "Automations"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/automation-external/:id/preview:
+    post:
+      operationId: "previewAutomationExternal"
+      summary: "外部 API 预览自动化目标"
+      tags:
+        - "Automations"
+      responses:
+        200:
+          description: "成功"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: true
+        400:
+          $ref: "#/components/responses/ErrorResponse"
+        404:
+          $ref: "#/components/responses/ErrorResponse"
+        500:
+          $ref: "#/components/responses/ErrorResponse"
+  /api/v1/automation-external/:id/run:
+    post:
+      operationId: "runAutomationExternal"
+      summary: "外部 API 执行自动化"
       tags:
         - "Automations"
       responses:
@@ -15923,4 +16298,4 @@ tags:
   -
     name: "Bindings"
     description: "证书绑定生产事实中心"
-x-generatedAt: "2026-08-25T13:11:50.607Z"
+x-generatedAt: "2026-08-27T13:07:34.915Z"

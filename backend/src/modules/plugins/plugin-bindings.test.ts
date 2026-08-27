@@ -16,8 +16,10 @@ test('Managed 与 Standalone Binding 使用同一数据模型并保护上下文�
   await insertCanonicalPluginVersion(db, 'version-1', 'tenant-1');
   const service = new PluginBindingsApplicationService(new PluginBindingsRepository(db));
   const managed = await service.createBinding('tenant-1', { pluginVersionId: 'version-1', mode: 'MANAGED', inputBindings: inputBindings({}, { auth: { credentialId: 'cred-1' } }), managedContext: { hostId: 'host-1', managedTargetId: 'target-1' } });
+  const cloudManaged = await service.createBinding('tenant-1', { pluginVersionId: 'version-1', mode: 'MANAGED', inputBindings: inputBindings(), managedContext: { cloudAccountAssetId: 'cloud-account-1', managedTargetId: 'cloud-target-1' } });
   const standalone = await service.createBinding('tenant-1', { pluginVersionId: 'version-1', mode: 'STANDALONE', inputBindings: inputBindings({}, {}, { management: { host: '10.0.0.1' } }) });
   assert.equal(managed.mode, 'MANAGED');
+  assert.equal(cloudManaged.managedContext?.cloudAccountAssetId, 'cloud-account-1');
   assert.equal(standalone.mode, 'STANDALONE');
   await assert.rejects(() => service.createBinding('tenant-1', { pluginVersionId: 'version-1', mode: 'MANAGED', inputBindings: inputBindings() }), /hostId/);
   await assert.rejects(() => service.createBinding('tenant-1', {

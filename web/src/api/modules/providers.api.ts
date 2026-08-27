@@ -11,12 +11,6 @@ export function getCloudAccountAsset(id: string): Promise<ApiRecordResult> {
   return apiClient.get<ApiRecord>(toClientPath(`${CLOUD_ASSETS_PATH}/${encodeURIComponent(id)}`))
 }
 
-export function createCloudAccountAsset(payload: ApiBody): Promise<ApiRecordResult> {
-  return apiClient.post<ApiRecord>(toClientPath(CLOUD_ASSETS_PATH), payload, {
-    idempotencyKey: createIdempotencyKey('cloud_account_asset_create')
-  })
-}
-
 export function updateCloudAccountAsset(payload: ApiBody): Promise<ApiRecordResult> {
   return apiClient.request<ApiRecord>(toClientPath(CLOUD_ASSETS_PATH), {
     method: 'PATCH',
@@ -28,18 +22,6 @@ export function updateCloudAccountAsset(payload: ApiBody): Promise<ApiRecordResu
 export function deleteCloudAccountAsset(id: string): Promise<ApiRecordResult> {
   return apiClient.post<ApiRecord>(toClientPath(`${CLOUD_ASSETS_PATH}/delete`), { id }, {
     idempotencyKey: createIdempotencyKey('cloud_account_asset_delete')
-  })
-}
-
-export function testCloudAccountConnection(id: string): Promise<ApiRecordResult> {
-  return apiClient.post<ApiRecord>(toClientPath(`${CLOUD_ASSETS_PATH}/${encodeURIComponent(id)}/connection-test`), {}, {
-    idempotencyKey: createIdempotencyKey('cloud_account_asset_connection_test'),
-  })
-}
-
-export function discoverCloudAccountResources(id: string): Promise<ApiRecordResult> {
-  return apiClient.post<ApiRecord>(toClientPath(`${CLOUD_ASSETS_PATH}/${encodeURIComponent(id)}/discover`), {}, {
-    idempotencyKey: createIdempotencyKey('cloud_account_asset_discover'),
   })
 }
 
