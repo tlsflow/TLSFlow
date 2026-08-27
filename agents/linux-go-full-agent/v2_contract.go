@@ -1258,6 +1258,21 @@ func executeCertificateMaterialValidate(ctx context.Context, operation agentPlan
 	if err := validateLinuxCertificateMaterialInput(operation.Input); err != nil {
 		return nil, err
 	}
+	if verifyCurrent, _ := operation.Input["verifyCurrentKeyStorePassword"].(bool); verifyCurrent {
+		keystoreType := strings.ToUpper(strings.TrimSpace(v2StringValue(operation.Input, "keystoreType")))
+		password, passwordErr := resolveLinuxKeyStorePassword(operation.Input)
+		if passwordErr != nil {
+			return nil, passwordErr
+		}
+		if err := validateLinuxCurrentKeyStore(
+			path,
+			keystoreType,
+			password,
+			strings.TrimSpace(v2StringValue(operation.Input, "keyAlias")),
+		); err != nil {
+			return nil, err
+		}
+	}
 	material, err := validateLinuxKeyStoreMaterial(operation.Input, path, content)
 	if err != nil {
 		return nil, err
@@ -1283,9 +1298,6 @@ func validateLinuxCertificateMaterialInput(input map[string]any) error {
 	keystoreType := strings.ToUpper(strings.TrimSpace(v2StringValue(input, "keystoreType")))
 	if keystoreType != "JKS" && keystoreType != "PKCS12" {
 		return errors.New("certificate.material.validate KeyStore type is invalid")
-	}
-	if strings.TrimSpace(v2StringValue(input, "keyAlias")) == "" {
-		return errors.New("certificate.material.validate KeyStore alias is required")
 	}
 	if v2StringValue(input, "keystorePassword") == "" && v2StringValue(input, "configPath") == "" {
 		return errors.New("certificate.material.validate KeyStore password source is required")
@@ -1391,6 +1403,12 @@ func validateLinuxCertificateMaterialPair(operations []agentPlanAction) error {
 	var privateKeyPublicKeys [][]byte
 	for _, operation := range operations {
 		if operation.OperationType != "certificate.material.validate" {
+			continue
+		}
+		// KeyStore 是已经由 validateLinuxKeyStoreMaterial 按 JKS/PKCS12
+		// 独立解析的二进制容器，不能重复走 PEM 文件集合的成对校验。
+		storageKind := v2StringValue(operation.Input, "storageKind")
+		if storageKind != "" && storageKind != "PEM_FILES" {
 			continue
 		}
 		encoded := v2StringValue(operation.Input, "contentBase64")

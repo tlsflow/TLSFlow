@@ -23,6 +23,7 @@
         "configPath": {
           "$ref": "sourceConfigPath"
         },
+        "verifyCurrentKeyStorePassword": true,
         "keyAlias": {
           "$ref": "keyAlias"
         },

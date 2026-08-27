@@ -220,6 +220,16 @@ func appendLinuxSite(state *linuxWebDiscoveryState, runtime linuxWebRuntime, sit
 			}
 			if protocol, _ := listener["protocol"].(string); strings.EqualFold(protocol, "HTTPS") {
 				appendLinuxListenerCertificate(state, listener)
+				if _, ok := listener["keyAlias"].(string); !ok {
+					if alias, discovered, ambiguous := discoverLinuxKeyStoreAlias(
+						stringFromMap(listener, "keystorePath"),
+						stringSlice(listener["keystorePasswords"]),
+					); discovered {
+						listener["keyAlias"] = alias
+					} else if ambiguous {
+						listener["keyAliasDiscovery"] = "AMBIGUOUS"
+					}
+				}
 			}
 			delete(listener, "keystorePasswords")
 		}

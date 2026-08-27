@@ -32,9 +32,6 @@ func validateWindowsKeyStoreMaterial(input map[string]any, path string, content 
 		return windowsKeyStoreMaterialDetails{}, errors.New("KeyStore 类型必须是 JKS 或 PKCS12")
 	}
 	alias := strings.TrimSpace(stringValue(input, "keyAlias"))
-	if alias == "" {
-		return windowsKeyStoreMaterialDetails{}, errors.New("KeyStore 必须提供 keyAlias")
-	}
 	password, err := resolveWindowsKeyStorePassword(input)
 	if err != nil {
 		return windowsKeyStoreMaterialDetails{}, err
@@ -67,10 +64,47 @@ func resolveWindowsKeyStorePassword(input map[string]any) (string, error) {
 	return passwords[0], nil
 }
 
+// validateWindowsCurrentKeyStore 确认目标 Tomcat 当前 KeyStore 与本次使用的密码、Alias
+// 一致，防止用新密码生成的容器替换后无法被现有 Tomcat 配置打开。
+func validateWindowsCurrentKeyStore(path, keystoreType, password, alias string) error {
+	current, err := os.ReadFile(path)
+	if err != nil {
+		return errors.New("目标 Tomcat 当前 KeyStore 不可读，无法确认密码")
+	}
+	switch strings.ToUpper(strings.TrimSpace(keystoreType)) {
+	case "JKS":
+		if _, err := parseWindowsJKSKeyStore(current, password, alias); err != nil {
+			return errors.New("目标 Tomcat 当前 KeyStore 密码或格式校验失败")
+		}
+	case "PKCS12":
+		if _, err := parseWindowsPKCS12KeyStore(current, password, alias); err != nil {
+			return errors.New("目标 Tomcat 当前 KeyStore 密码或格式校验失败")
+		}
+	default:
+		return errors.New("目标 Tomcat 当前 KeyStore 类型不受支持")
+	}
+	return nil
+}
+
 func parseWindowsJKSKeyStore(content []byte, password, alias string) (windowsKeyStoreMaterialDetails, error) {
 	store := keystore.New()
 	if err := store.Load(bytes.NewReader(content), []byte(password)); err != nil {
 		return windowsKeyStoreMaterialDetails{}, errors.New("JKS 解析失败：密码错误或文件损坏")
+	}
+	if alias == "" {
+		privateAliases := make([]string, 0, 1)
+		for _, candidate := range store.Aliases() {
+			if store.IsPrivateKeyEntry(candidate) {
+				privateAliases = append(privateAliases, candidate)
+			}
+		}
+		if len(privateAliases) == 0 {
+			return windowsKeyStoreMaterialDetails{}, errors.New("JKS 不包含私钥条目，无法自动发现 alias")
+		}
+		if len(privateAliases) > 1 {
+			return windowsKeyStoreMaterialDetails{}, errors.New("JKS 包含多个私钥条目，无法自动确定 alias")
+		}
+		alias = privateAliases[0]
 	}
 	if !store.IsPrivateKeyEntry(alias) {
 		for _, candidate := range store.Aliases() {
@@ -149,6 +183,9 @@ func parseWindowsPKCS12KeyStore(content []byte, password, alias string) (windows
 			}
 		}
 		if len(friendlyNames) > 0 {
+			if alias == "" && len(friendlyNames) == 1 {
+				alias = friendlyNames[0]
+			}
 			for _, name := range friendlyNames {
 				if strings.EqualFold(name, alias) {
 					aliasVerified = true

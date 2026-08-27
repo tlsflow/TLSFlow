@@ -1064,15 +1064,24 @@ func parseWindowsTomcatServerXML(configPath string, tomcatPath string) ([]window
 						warnings = append(warnings, windowsDiscoveryWarning{Code: "CERTIFICATE_READ_FAILED", Message: "Tomcat PEM 证书不可读或格式无效", Path: listener.CertificatePath})
 					}
 				}
+				password := firstNonEmpty(
+					certificate.CertificateKeystorePassword,
+					certificate.KeystorePass,
+					sslHost.CertificateKeystorePassword,
+					sslHost.KeystorePass,
+					connector.SSLHostConfigPassword,
+					connector.CertificateKeystorePassword,
+				)
+				if listener.Protocol == "HTTPS" && listener.KeystorePath != "" {
+					if listener.KeyAlias == "" {
+						if alias, discovered, ambiguous := discoverWindowsKeyStoreAlias(listener.KeystorePath, listener.KeystoreType, password); discovered {
+							listener.KeyAlias = alias
+						} else if ambiguous {
+							warnings = append(warnings, windowsDiscoveryWarning{Code: "KEYSTORE_ALIAS_AMBIGUOUS", Message: "Tomcat KeyStore 包含多个私钥条目，无法自动确定 Alias", Path: listener.KeystorePath})
+						}
+					}
+				}
 				if listener.Protocol == "HTTPS" && listener.Certificate == nil && listener.KeystorePath != "" {
-					password := firstNonEmpty(
-						certificate.CertificateKeystorePassword,
-						certificate.KeystorePass,
-						sslHost.CertificateKeystorePassword,
-						sslHost.KeystorePass,
-						connector.SSLHostConfigPassword,
-						connector.CertificateKeystorePassword,
-					)
 					listener.Certificate = readWindowsKeyStoreCertificateSummary(listener.KeystorePath, listener.KeystoreType, password)
 					if listener.Certificate == nil {
 						warnings = append(warnings, windowsDiscoveryWarning{Code: "KEYSTORE_CERTIFICATE_READ_FAILED", Message: "Tomcat KeyStore 公开证书不可读", Path: listener.KeystorePath})
@@ -1367,6 +1376,61 @@ func readWindowsJKSCertificateSummary(path string, password string) *windowsCert
 		}
 	}
 	return nil
+}
+
+// discoverWindowsKeyStoreAlias 只返回唯一可确认的私钥 Alias，密码不会进入发现结果。
+func discoverWindowsKeyStoreAlias(path string, keystoreType string, password string) (string, bool, bool) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", false, false
+	}
+	normalizedType := strings.ToUpper(strings.TrimSpace(keystoreType))
+	if normalizedType == "" && strings.HasSuffix(strings.ToLower(strings.TrimSpace(path)), ".jks") {
+		normalizedType = "JKS"
+	}
+	if normalizedType == "JKS" {
+		store := keystore.New()
+		if err := store.Load(bytes.NewReader(content), []byte(password)); err != nil {
+			return "", false, false
+		}
+		aliases := make([]string, 0, 1)
+		for _, alias := range store.Aliases() {
+			if store.IsPrivateKeyEntry(alias) {
+				aliases = append(aliases, alias)
+			}
+		}
+		if len(aliases) == 1 {
+			return aliases[0], true, false
+		}
+		return "", false, len(aliases) > 1
+	}
+	blocks, err := pkcs12.ToPEM(content, password)
+	if err != nil {
+		return "", false, false
+	}
+	names := make([]string, 0, 1)
+	for _, block := range blocks {
+		if block == nil {
+			continue
+		}
+		name := strings.TrimSpace(block.Headers["friendlyName"])
+		if name != "" && !containsString(names, name) {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 1 {
+		return names[0], true, false
+	}
+	return "", false, len(names) > 1
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func readWindowsKeyStoreCertificateSummary(path string, keystoreType string, password string) *windowsCertificateSummary {

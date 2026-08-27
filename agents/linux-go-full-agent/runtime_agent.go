@@ -1748,6 +1748,63 @@ func readJKSOrPKCS12Certificate(path string, content []byte, password string) ma
 	return certificateMetadata(path, certificate.Raw)
 }
 
+// discoverLinuxKeyStoreAlias 只返回可确定的私钥 Alias；密码仅在当前调用栈中使用。
+func discoverLinuxKeyStoreAlias(path string, passwords []string) (string, bool, bool) {
+	if strings.TrimSpace(path) == "" {
+		return "", false, false
+	}
+	resolvedPath, err := filepath.EvalSymlinks(path)
+	if err != nil || !isAllowedWebDiscoveryPath(resolvedPath) {
+		return "", false, false
+	}
+	content, err := os.ReadFile(resolvedPath)
+	if err != nil {
+		return "", false, false
+	}
+	for _, password := range append([]string{""}, passwords...) {
+		store := keystore.New()
+		if err := store.Load(bytes.NewReader(content), []byte(password)); err != nil {
+			continue
+		}
+		aliases := make([]string, 0, 1)
+		for _, alias := range store.Aliases() {
+			if store.IsPrivateKeyEntry(alias) {
+				aliases = append(aliases, alias)
+			}
+		}
+		if len(aliases) == 1 {
+			return aliases[0], true, false
+		}
+		if len(aliases) > 1 {
+			return "", false, true
+		}
+	}
+	// PKCS12 的 friendlyName 是唯一可公开上报的 Alias 线索；没有它时保持未知。
+	for _, password := range append([]string{""}, passwords...) {
+		blocks, err := pkcs12.ToPEM(content, password)
+		if err != nil {
+			continue
+		}
+		names := make([]string, 0, 1)
+		for _, block := range blocks {
+			if block == nil {
+				continue
+			}
+			name := strings.TrimSpace(block.Headers["friendlyName"])
+			if name != "" && !containsString(names, name) {
+				names = append(names, name)
+			}
+		}
+		if len(names) == 1 {
+			return names[0], true, false
+		}
+		if len(names) > 1 {
+			return "", false, true
+		}
+	}
+	return "", false, false
+}
+
 func webKeystorePasswords(content string) []string {
 	passwords := make([]string, 0, 2)
 	for _, key := range []string{"certificateKeystorePassword", "keystorePass", "keystorePassword"} {

@@ -1470,6 +1470,21 @@ func executeCertificateMaterialValidate(ctx context.Context, operation agentPlan
 		if err := validateWindowsCertificateMaterialInput(operation.Input); err != nil {
 			return nil, err
 		}
+		if verifyCurrent, _ := operation.Input["verifyCurrentKeyStorePassword"].(bool); verifyCurrent {
+			keystoreType := strings.ToUpper(strings.TrimSpace(stringValue(operation.Input, "keystoreType")))
+			password, passwordErr := resolveWindowsKeyStorePassword(operation.Input)
+			if passwordErr != nil {
+				return nil, passwordErr
+			}
+			if err := validateWindowsCurrentKeyStore(
+				path,
+				keystoreType,
+				password,
+				strings.TrimSpace(stringValue(operation.Input, "keyAlias")),
+			); err != nil {
+				return nil, err
+			}
+		}
 	} else if err := validatePemMaterial(path, content); err != nil {
 		return nil, err
 	}
@@ -1501,9 +1516,6 @@ func validateWindowsCertificateMaterialInput(input map[string]any) error {
 	keystoreType := strings.ToUpper(strings.TrimSpace(stringValue(input, "keystoreType")))
 	if keystoreType != "JKS" && keystoreType != "PKCS12" {
 		return errors.New("certificate.material.validate KeyStore type is invalid")
-	}
-	if strings.TrimSpace(stringValue(input, "keyAlias")) == "" {
-		return errors.New("certificate.material.validate KeyStore alias is required")
 	}
 	if stringValue(input, "keystorePassword") == "" && stringValue(input, "configPath") == "" {
 		return errors.New("certificate.material.validate KeyStore password source is required")
