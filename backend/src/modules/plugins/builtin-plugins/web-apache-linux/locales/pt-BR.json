@@ -1,0 +1,17 @@
+{
+  "plugin.webApacheLinux.name": "Site Apache Linux",
+  "plugin.webApacheLinux.description": "Implante, verifique e reverta certificados PEM de sites Apache Linux usando fatos confirmados pelo Agent.",
+  "plugin.webApacheLinux.section.identity": "Fatos do destino",
+  "plugin.webApacheLinux.section.certificate": "Atualização do certificado",
+  "plugin.webApacheLinux.field.platform": "Plataforma",
+  "plugin.webApacheLinux.field.framework": "Framework",
+  "plugin.webApacheLinux.field.path": "Local do certificado",
+  "plugin.webApacheLinux.field.service": "Serviço",
+  "plugin.webApacheLinux.field.configFingerprint": "Impressão digital da configuração",
+  "plugin.webApacheLinux.action.deploy": "Implantar certificado",
+  "plugin.webApacheLinux.action.verify": "Verificar certificado",
+  "plugin.webApacheLinux.action.rollback": "Reverter certificado",
+  "plugin.webApacheLinux.onboarding.compatibility": "Apache HTTP Server Linux (versão descoberta pelo Agent)",
+  "plugin.webApacheLinux.onboarding.requiredHost": "Host Linux com um Agent compatível instalado",
+  "plugin.webApacheLinux.onboarding.requiredTarget": "Site HTTPS Apache Linux descoberto"
+}

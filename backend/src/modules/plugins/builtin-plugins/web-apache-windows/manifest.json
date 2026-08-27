@@ -2,7 +2,7 @@
   "apiVersion": "gcac.plugin-manifest/v1",
   "kind": "GcacPlugin",
   "pluginId": "web.apache.windows",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "displayNameKey": "plugin.webApacheWindows.name",
   "descriptionKey": "plugin.webApacheWindows.description",
   "defaultLocale": "zh-CN",
@@ -87,7 +87,14 @@
       "certificate.rollback": "agent-plans/rollback.json"
     },
     "locales": {
-      "zh-CN": "locales/zh-CN.json"
+      "zh-CN": "locales/zh-CN.json",
+      "zh-TW": "locales/zh-TW.json",
+      "en-US": "locales/en-US.json",
+      "ja-JP": "locales/ja-JP.json",
+      "ko-KR": "locales/ko-KR.json",
+      "fr-FR": "locales/fr-FR.json",
+      "ru-RU": "locales/ru-RU.json",
+      "pt-BR": "locales/pt-BR.json"
     },
     "presentations": {
       "application": "presentations/application.json",

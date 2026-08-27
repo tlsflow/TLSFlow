@@ -1,0 +1,17 @@
+{
+  "plugin.webNginxWindows.name": "Сайт Nginx Windows",
+  "plugin.webNginxWindows.description": "Использует фиксированные платформу Windows и фреймворк web.nginx для обновления сертификатов на основе фактов, подтвержденных Agent.",
+  "plugin.webNginxWindows.section.identity": "Факты цели",
+  "plugin.webNginxWindows.section.certificate": "Обновление сертификата",
+  "plugin.webNginxWindows.field.platform": "Платформа",
+  "plugin.webNginxWindows.field.framework": "Фреймворк",
+  "plugin.webNginxWindows.field.path": "Расположение сертификата",
+  "plugin.webNginxWindows.field.service": "Служба",
+  "plugin.webNginxWindows.field.configFingerprint": "Отпечаток конфигурации",
+  "plugin.webNginxWindows.action.deploy": "Развернуть сертификат",
+  "plugin.webNginxWindows.action.verify": "Проверить сертификат",
+  "plugin.webNginxWindows.action.rollback": "Откатить сертификат",
+  "plugin.webNginxWindows.onboarding.compatibility": "Nginx Windows (версия определяется Agent)",
+  "plugin.webNginxWindows.onboarding.requiredHost": "Хост Windows с установленным совместимым Agent",
+  "plugin.webNginxWindows.onboarding.requiredTarget": "Обнаруженный сайт HTTPS Nginx Windows"
+}

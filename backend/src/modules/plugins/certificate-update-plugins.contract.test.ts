@@ -91,7 +91,7 @@ function assertCertificatePackage(
 ): void {
   const manifest = pluginPackage.manifest as Record<string, unknown>;
   assert.equal(manifest.pluginId, pluginId);
-  assert.equal(manifest.version, pluginId === 'web.iis' ? '1.0.23' : pluginId === 'web.nginx.linux' ? '1.0.6' : pluginId === 'web.nginx.windows' ? '1.0.8' : pluginId === 'web.apache.linux' ? '1.0.4' : pluginId === 'app.tomcat.linux' ? '1.0.3' : pluginId === 'web.apache.windows' ? '1.0.5' : '1.0.4');
+  assert.equal(manifest.version, pluginId === 'web.iis' ? '1.0.23' : pluginId === 'web.nginx.linux' ? '1.0.7' : pluginId === 'web.nginx.windows' ? '1.0.9' : pluginId === 'web.apache.linux' ? '1.0.5' : pluginId === 'app.tomcat.linux' ? '1.0.3' : pluginId === 'web.apache.windows' ? '1.0.6' : '1.0.4');
   assert.deepEqual((manifest.compatibility as { productFamilies?: string[] }).productFamilies, [profile.productFamily]);
   assert.equal(manifest.runtime, 'WORKFLOW_DSL');
   assert.equal(manifest.source, 'BUILTIN');

@@ -1,0 +1,17 @@
+{
+  "plugin.webNginxLinux.name": "Linux Nginx 사이트",
+  "plugin.webNginxLinux.description": "고정된 Linux 플랫폼과 web.nginx 프레임워크를 사용하여 Agent가 확인한 사실로 인증서를 업데이트합니다.",
+  "plugin.webNginxLinux.section.identity": "대상 정보",
+  "plugin.webNginxLinux.section.certificate": "인증서 업데이트",
+  "plugin.webNginxLinux.field.platform": "플랫폼",
+  "plugin.webNginxLinux.field.framework": "프레임워크",
+  "plugin.webNginxLinux.field.path": "인증서 위치",
+  "plugin.webNginxLinux.field.service": "서비스",
+  "plugin.webNginxLinux.field.configFingerprint": "구성 지문",
+  "plugin.webNginxLinux.action.deploy": "인증서 배포",
+  "plugin.webNginxLinux.action.verify": "인증서 검증",
+  "plugin.webNginxLinux.action.rollback": "인증서 롤백",
+  "plugin.webNginxLinux.onboarding.compatibility": "Linux Nginx(버전은 Agent가 검색)",
+  "plugin.webNginxLinux.onboarding.requiredHost": "호환 Agent가 설치된 Linux 호스트",
+  "plugin.webNginxLinux.onboarding.requiredTarget": "검색된 Linux Nginx HTTPS 사이트"
+}

@@ -1,0 +1,17 @@
+{
+  "plugin.webNginxWindows.name": "Windows Nginx 사이트",
+  "plugin.webNginxWindows.description": "고정된 Windows 플랫폼과 web.nginx 프레임워크를 사용하여 Agent가 확인한 사실로 인증서를 업데이트합니다.",
+  "plugin.webNginxWindows.section.identity": "대상 정보",
+  "plugin.webNginxWindows.section.certificate": "인증서 업데이트",
+  "plugin.webNginxWindows.field.platform": "플랫폼",
+  "plugin.webNginxWindows.field.framework": "프레임워크",
+  "plugin.webNginxWindows.field.path": "인증서 위치",
+  "plugin.webNginxWindows.field.service": "서비스",
+  "plugin.webNginxWindows.field.configFingerprint": "구성 지문",
+  "plugin.webNginxWindows.action.deploy": "인증서 배포",
+  "plugin.webNginxWindows.action.verify": "인증서 검증",
+  "plugin.webNginxWindows.action.rollback": "인증서 롤백",
+  "plugin.webNginxWindows.onboarding.compatibility": "Windows Nginx(버전은 Agent가 검색)",
+  "plugin.webNginxWindows.onboarding.requiredHost": "호환 Agent가 설치된 Windows 호스트",
+  "plugin.webNginxWindows.onboarding.requiredTarget": "검색된 Windows Nginx HTTPS 사이트"
+}

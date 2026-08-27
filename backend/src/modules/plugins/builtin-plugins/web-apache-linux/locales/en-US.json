@@ -1,0 +1,17 @@
+{
+  "plugin.webApacheLinux.name": "Linux Apache Site",
+  "plugin.webApacheLinux.description": "Manage Linux Apache sites by deploying, verifying, and rolling back PEM certificates using facts confirmed by the Agent.",
+  "plugin.webApacheLinux.section.identity": "Target facts",
+  "plugin.webApacheLinux.section.certificate": "Certificate update",
+  "plugin.webApacheLinux.field.platform": "Platform",
+  "plugin.webApacheLinux.field.framework": "Framework",
+  "plugin.webApacheLinux.field.path": "Certificate location",
+  "plugin.webApacheLinux.field.service": "Service",
+  "plugin.webApacheLinux.field.configFingerprint": "Configuration fingerprint",
+  "plugin.webApacheLinux.action.deploy": "Deploy certificate",
+  "plugin.webApacheLinux.action.verify": "Verify certificate",
+  "plugin.webApacheLinux.action.rollback": "Roll back certificate",
+  "plugin.webApacheLinux.onboarding.compatibility": "Linux Apache HTTP Server (version discovered by Agent)",
+  "plugin.webApacheLinux.onboarding.requiredHost": "Linux host with a compatible Agent installed",
+  "plugin.webApacheLinux.onboarding.requiredTarget": "Discovered Linux Apache HTTPS site"
+}

@@ -1,0 +1,17 @@
+{
+  "plugin.webNginxLinux.name": "Сайт Nginx Linux",
+  "plugin.webNginxLinux.description": "Использует фиксированные платформу Linux и фреймворк web.nginx для обновления сертификатов на основе фактов, подтвержденных Agent.",
+  "plugin.webNginxLinux.section.identity": "Факты цели",
+  "plugin.webNginxLinux.section.certificate": "Обновление сертификата",
+  "plugin.webNginxLinux.field.platform": "Платформа",
+  "plugin.webNginxLinux.field.framework": "Фреймворк",
+  "plugin.webNginxLinux.field.path": "Расположение сертификата",
+  "plugin.webNginxLinux.field.service": "Служба",
+  "plugin.webNginxLinux.field.configFingerprint": "Отпечаток конфигурации",
+  "plugin.webNginxLinux.action.deploy": "Развернуть сертификат",
+  "plugin.webNginxLinux.action.verify": "Проверить сертификат",
+  "plugin.webNginxLinux.action.rollback": "Откатить сертификат",
+  "plugin.webNginxLinux.onboarding.compatibility": "Nginx Linux (версия определяется Agent)",
+  "plugin.webNginxLinux.onboarding.requiredHost": "Хост Linux с установленным совместимым Agent",
+  "plugin.webNginxLinux.onboarding.requiredTarget": "Обнаруженный сайт HTTPS Nginx Linux"
+}

@@ -1,0 +1,17 @@
+{
+  "plugin.webApacheWindows.name": "Windows Apache サイト",
+  "plugin.webApacheWindows.description": "Agent が確認した事実に基づき、Windows Apache サイトの PEM 証明書をデプロイ、検証、ロールバックします。",
+  "plugin.webApacheWindows.section.identity": "ターゲットの事実",
+  "plugin.webApacheWindows.section.certificate": "証明書の更新",
+  "plugin.webApacheWindows.field.platform": "プラットフォーム",
+  "plugin.webApacheWindows.field.framework": "フレームワーク",
+  "plugin.webApacheWindows.field.path": "証明書の場所",
+  "plugin.webApacheWindows.field.service": "サービス",
+  "plugin.webApacheWindows.field.configFingerprint": "構成フィンガープリント",
+  "plugin.webApacheWindows.action.deploy": "証明書をデプロイ",
+  "plugin.webApacheWindows.action.verify": "証明書を検証",
+  "plugin.webApacheWindows.action.rollback": "証明書をロールバック",
+  "plugin.webApacheWindows.onboarding.compatibility": "Windows Apache HTTP Server（バージョンは Agent が検出）",
+  "plugin.webApacheWindows.onboarding.requiredHost": "互換性のある Agent がインストールされた Windows ホスト",
+  "plugin.webApacheWindows.onboarding.requiredTarget": "検出された Windows Apache HTTPS サイト"
+}

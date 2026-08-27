@@ -1,0 +1,17 @@
+{
+  "plugin.webApacheWindows.name": "Windows Apache 사이트",
+  "plugin.webApacheWindows.description": "Agent가 확인한 사실을 바탕으로 Windows Apache 사이트의 PEM 인증서를 배포하고 검증 및 롤백합니다.",
+  "plugin.webApacheWindows.section.identity": "대상 정보",
+  "plugin.webApacheWindows.section.certificate": "인증서 업데이트",
+  "plugin.webApacheWindows.field.platform": "플랫폼",
+  "plugin.webApacheWindows.field.framework": "프레임워크",
+  "plugin.webApacheWindows.field.path": "인증서 위치",
+  "plugin.webApacheWindows.field.service": "서비스",
+  "plugin.webApacheWindows.field.configFingerprint": "구성 지문",
+  "plugin.webApacheWindows.action.deploy": "인증서 배포",
+  "plugin.webApacheWindows.action.verify": "인증서 검증",
+  "plugin.webApacheWindows.action.rollback": "인증서 롤백",
+  "plugin.webApacheWindows.onboarding.compatibility": "Windows Apache HTTP Server(버전은 Agent가 검색)",
+  "plugin.webApacheWindows.onboarding.requiredHost": "호환 Agent가 설치된 Windows 호스트",
+  "plugin.webApacheWindows.onboarding.requiredTarget": "검색된 Windows Apache HTTPS 사이트"
+}

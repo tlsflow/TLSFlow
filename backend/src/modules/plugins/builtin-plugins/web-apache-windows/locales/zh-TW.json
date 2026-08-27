@@ -1,0 +1,17 @@
+{
+  "plugin.webApacheWindows.name": "Windows Apache 網站",
+  "plugin.webApacheWindows.description": "面向 Windows Apache 網站，使用 Agent 已確認的事實執行 PEM 憑證部署、驗證與復原。",
+  "plugin.webApacheWindows.section.identity": "目標事實",
+  "plugin.webApacheWindows.section.certificate": "憑證更新",
+  "plugin.webApacheWindows.field.platform": "平台",
+  "plugin.webApacheWindows.field.framework": "框架",
+  "plugin.webApacheWindows.field.path": "憑證位置",
+  "plugin.webApacheWindows.field.service": "服務",
+  "plugin.webApacheWindows.field.configFingerprint": "設定指紋",
+  "plugin.webApacheWindows.action.deploy": "部署憑證",
+  "plugin.webApacheWindows.action.verify": "驗證憑證",
+  "plugin.webApacheWindows.action.rollback": "復原憑證",
+  "plugin.webApacheWindows.onboarding.compatibility": "Windows Apache HTTP Server（版本由 Agent 探索）",
+  "plugin.webApacheWindows.onboarding.requiredHost": "已安裝相容 Agent 的 Windows 主機",
+  "plugin.webApacheWindows.onboarding.requiredTarget": "已探索的 Windows Apache HTTPS 網站"
+}

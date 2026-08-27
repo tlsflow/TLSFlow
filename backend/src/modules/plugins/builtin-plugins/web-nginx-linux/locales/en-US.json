@@ -1,0 +1,17 @@
+{
+  "plugin.webNginxLinux.name": "Linux Nginx Site",
+  "plugin.webNginxLinux.description": "Use the fixed Linux platform and web.nginx framework to update certificates from facts confirmed by the Agent.",
+  "plugin.webNginxLinux.section.identity": "Target facts",
+  "plugin.webNginxLinux.section.certificate": "Certificate update",
+  "plugin.webNginxLinux.field.platform": "Platform",
+  "plugin.webNginxLinux.field.framework": "Framework",
+  "plugin.webNginxLinux.field.path": "Certificate location",
+  "plugin.webNginxLinux.field.service": "Service",
+  "plugin.webNginxLinux.field.configFingerprint": "Configuration fingerprint",
+  "plugin.webNginxLinux.action.deploy": "Deploy certificate",
+  "plugin.webNginxLinux.action.verify": "Verify certificate",
+  "plugin.webNginxLinux.action.rollback": "Roll back certificate",
+  "plugin.webNginxLinux.onboarding.compatibility": "Linux Nginx (version discovered by Agent)",
+  "plugin.webNginxLinux.onboarding.requiredHost": "Linux host with a compatible Agent installed",
+  "plugin.webNginxLinux.onboarding.requiredTarget": "Discovered Linux Nginx HTTPS site"
+}

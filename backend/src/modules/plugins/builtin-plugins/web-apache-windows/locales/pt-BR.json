@@ -1,0 +1,17 @@
+{
+  "plugin.webApacheWindows.name": "Site Apache Windows",
+  "plugin.webApacheWindows.description": "Implante, verifique e reverta certificados PEM de sites Apache Windows usando fatos confirmados pelo Agent.",
+  "plugin.webApacheWindows.section.identity": "Fatos do destino",
+  "plugin.webApacheWindows.section.certificate": "Atualização do certificado",
+  "plugin.webApacheWindows.field.platform": "Plataforma",
+  "plugin.webApacheWindows.field.framework": "Framework",
+  "plugin.webApacheWindows.field.path": "Local do certificado",
+  "plugin.webApacheWindows.field.service": "Serviço",
+  "plugin.webApacheWindows.field.configFingerprint": "Impressão digital da configuração",
+  "plugin.webApacheWindows.action.deploy": "Implantar certificado",
+  "plugin.webApacheWindows.action.verify": "Verificar certificado",
+  "plugin.webApacheWindows.action.rollback": "Reverter certificado",
+  "plugin.webApacheWindows.onboarding.compatibility": "Apache HTTP Server Windows (versão descoberta pelo Agent)",
+  "plugin.webApacheWindows.onboarding.requiredHost": "Host Windows com um Agent compatível instalado",
+  "plugin.webApacheWindows.onboarding.requiredTarget": "Site HTTPS Apache Windows descoberto"
+}

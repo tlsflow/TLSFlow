@@ -1,0 +1,17 @@
+{
+  "plugin.webApacheLinux.name": "Сайт Apache Linux",
+  "plugin.webApacheLinux.description": "Развертывание, проверка и откат сертификатов PEM для сайтов Apache Linux на основе фактов, подтвержденных Agent.",
+  "plugin.webApacheLinux.section.identity": "Факты цели",
+  "plugin.webApacheLinux.section.certificate": "Обновление сертификата",
+  "plugin.webApacheLinux.field.platform": "Платформа",
+  "plugin.webApacheLinux.field.framework": "Фреймворк",
+  "plugin.webApacheLinux.field.path": "Расположение сертификата",
+  "plugin.webApacheLinux.field.service": "Служба",
+  "plugin.webApacheLinux.field.configFingerprint": "Отпечаток конфигурации",
+  "plugin.webApacheLinux.action.deploy": "Развернуть сертификат",
+  "plugin.webApacheLinux.action.verify": "Проверить сертификат",
+  "plugin.webApacheLinux.action.rollback": "Откатить сертификат",
+  "plugin.webApacheLinux.onboarding.compatibility": "Linux Apache HTTP Server (версия определяется Agent)",
+  "plugin.webApacheLinux.onboarding.requiredHost": "Хост Linux с установленным совместимым Agent",
+  "plugin.webApacheLinux.onboarding.requiredTarget": "Обнаруженный сайт HTTPS Apache Linux"
+}

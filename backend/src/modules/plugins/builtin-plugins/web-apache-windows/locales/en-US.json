@@ -1,0 +1,17 @@
+{
+  "plugin.webApacheWindows.name": "Windows Apache Site",
+  "plugin.webApacheWindows.description": "Manage Windows Apache sites by deploying, verifying, and rolling back PEM certificates using facts confirmed by the Agent.",
+  "plugin.webApacheWindows.section.identity": "Target facts",
+  "plugin.webApacheWindows.section.certificate": "Certificate update",
+  "plugin.webApacheWindows.field.platform": "Platform",
+  "plugin.webApacheWindows.field.framework": "Framework",
+  "plugin.webApacheWindows.field.path": "Certificate location",
+  "plugin.webApacheWindows.field.service": "Service",
+  "plugin.webApacheWindows.field.configFingerprint": "Configuration fingerprint",
+  "plugin.webApacheWindows.action.deploy": "Deploy certificate",
+  "plugin.webApacheWindows.action.verify": "Verify certificate",
+  "plugin.webApacheWindows.action.rollback": "Roll back certificate",
+  "plugin.webApacheWindows.onboarding.compatibility": "Windows Apache HTTP Server (version discovered by Agent)",
+  "plugin.webApacheWindows.onboarding.requiredHost": "Windows host with a compatible Agent installed",
+  "plugin.webApacheWindows.onboarding.requiredTarget": "Discovered Windows Apache HTTPS site"
+}

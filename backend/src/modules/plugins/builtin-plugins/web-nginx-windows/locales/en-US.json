@@ -1,0 +1,17 @@
+{
+  "plugin.webNginxWindows.name": "Windows Nginx Site",
+  "plugin.webNginxWindows.description": "Use the fixed Windows platform and web.nginx framework to update certificates from facts confirmed by the Agent.",
+  "plugin.webNginxWindows.section.identity": "Target facts",
+  "plugin.webNginxWindows.section.certificate": "Certificate update",
+  "plugin.webNginxWindows.field.platform": "Platform",
+  "plugin.webNginxWindows.field.framework": "Framework",
+  "plugin.webNginxWindows.field.path": "Certificate location",
+  "plugin.webNginxWindows.field.service": "Service",
+  "plugin.webNginxWindows.field.configFingerprint": "Configuration fingerprint",
+  "plugin.webNginxWindows.action.deploy": "Deploy certificate",
+  "plugin.webNginxWindows.action.verify": "Verify certificate",
+  "plugin.webNginxWindows.action.rollback": "Roll back certificate",
+  "plugin.webNginxWindows.onboarding.compatibility": "Windows Nginx (version discovered by Agent)",
+  "plugin.webNginxWindows.onboarding.requiredHost": "Windows host with a compatible Agent installed",
+  "plugin.webNginxWindows.onboarding.requiredTarget": "Discovered Windows Nginx HTTPS site"
+}

@@ -1,0 +1,17 @@
+{
+  "plugin.webApacheWindows.name": "Сайт Apache Windows",
+  "plugin.webApacheWindows.description": "Развертывание, проверка и откат сертификатов PEM для сайтов Apache Windows на основе фактов, подтвержденных Agent.",
+  "plugin.webApacheWindows.section.identity": "Факты цели",
+  "plugin.webApacheWindows.section.certificate": "Обновление сертификата",
+  "plugin.webApacheWindows.field.platform": "Платформа",
+  "plugin.webApacheWindows.field.framework": "Фреймворк",
+  "plugin.webApacheWindows.field.path": "Расположение сертификата",
+  "plugin.webApacheWindows.field.service": "Служба",
+  "plugin.webApacheWindows.field.configFingerprint": "Отпечаток конфигурации",
+  "plugin.webApacheWindows.action.deploy": "Развернуть сертификат",
+  "plugin.webApacheWindows.action.verify": "Проверить сертификат",
+  "plugin.webApacheWindows.action.rollback": "Откатить сертификат",
+  "plugin.webApacheWindows.onboarding.compatibility": "Windows Apache HTTP Server (версия определяется Agent)",
+  "plugin.webApacheWindows.onboarding.requiredHost": "Хост Windows с установленным совместимым Agent",
+  "plugin.webApacheWindows.onboarding.requiredTarget": "Обнаруженный сайт HTTPS Apache Windows"
+}

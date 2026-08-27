@@ -1,0 +1,17 @@
+{
+  "plugin.webNginxLinux.name": "Linux Nginx サイト",
+  "plugin.webNginxLinux.description": "固定の Linux プラットフォームと web.nginx フレームワークを使用し、Agent が確認した事実から証明書を更新します。",
+  "plugin.webNginxLinux.section.identity": "ターゲットの事実",
+  "plugin.webNginxLinux.section.certificate": "証明書の更新",
+  "plugin.webNginxLinux.field.platform": "プラットフォーム",
+  "plugin.webNginxLinux.field.framework": "フレームワーク",
+  "plugin.webNginxLinux.field.path": "証明書の場所",
+  "plugin.webNginxLinux.field.service": "サービス",
+  "plugin.webNginxLinux.field.configFingerprint": "構成フィンガープリント",
+  "plugin.webNginxLinux.action.deploy": "証明書をデプロイ",
+  "plugin.webNginxLinux.action.verify": "証明書を検証",
+  "plugin.webNginxLinux.action.rollback": "証明書をロールバック",
+  "plugin.webNginxLinux.onboarding.compatibility": "Linux Nginx（バージョンは Agent が検出）",
+  "plugin.webNginxLinux.onboarding.requiredHost": "互換性のある Agent がインストールされた Linux ホスト",
+  "plugin.webNginxLinux.onboarding.requiredTarget": "検出された Linux Nginx HTTPS サイト"
+}

@@ -1,0 +1,17 @@
+{
+  "plugin.webNginxWindows.name": "Windows Nginx サイト",
+  "plugin.webNginxWindows.description": "固定の Windows プラットフォームと web.nginx フレームワークを使用し、Agent が確認した事実から証明書を更新します。",
+  "plugin.webNginxWindows.section.identity": "ターゲットの事実",
+  "plugin.webNginxWindows.section.certificate": "証明書の更新",
+  "plugin.webNginxWindows.field.platform": "プラットフォーム",
+  "plugin.webNginxWindows.field.framework": "フレームワーク",
+  "plugin.webNginxWindows.field.path": "証明書の場所",
+  "plugin.webNginxWindows.field.service": "サービス",
+  "plugin.webNginxWindows.field.configFingerprint": "構成フィンガープリント",
+  "plugin.webNginxWindows.action.deploy": "証明書をデプロイ",
+  "plugin.webNginxWindows.action.verify": "証明書を検証",
+  "plugin.webNginxWindows.action.rollback": "証明書をロールバック",
+  "plugin.webNginxWindows.onboarding.compatibility": "Windows Nginx（バージョンは Agent が検出）",
+  "plugin.webNginxWindows.onboarding.requiredHost": "互換性のある Agent がインストールされた Windows ホスト",
+  "plugin.webNginxWindows.onboarding.requiredTarget": "検出された Windows Nginx HTTPS サイト"
+}

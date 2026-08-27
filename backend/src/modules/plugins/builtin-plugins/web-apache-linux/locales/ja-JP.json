@@ -1,0 +1,17 @@
+{
+  "plugin.webApacheLinux.name": "Linux Apache サイト",
+  "plugin.webApacheLinux.description": "Agent が確認した事実に基づき、Linux Apache サイトの PEM 証明書をデプロイ、検証、ロールバックします。",
+  "plugin.webApacheLinux.section.identity": "ターゲットの事実",
+  "plugin.webApacheLinux.section.certificate": "証明書の更新",
+  "plugin.webApacheLinux.field.platform": "プラットフォーム",
+  "plugin.webApacheLinux.field.framework": "フレームワーク",
+  "plugin.webApacheLinux.field.path": "証明書の場所",
+  "plugin.webApacheLinux.field.service": "サービス",
+  "plugin.webApacheLinux.field.configFingerprint": "構成フィンガープリント",
+  "plugin.webApacheLinux.action.deploy": "証明書をデプロイ",
+  "plugin.webApacheLinux.action.verify": "証明書を検証",
+  "plugin.webApacheLinux.action.rollback": "証明書をロールバック",
+  "plugin.webApacheLinux.onboarding.compatibility": "Linux Apache HTTP Server（バージョンは Agent が検出）",
+  "plugin.webApacheLinux.onboarding.requiredHost": "互換性のある Agent がインストールされた Linux ホスト",
+  "plugin.webApacheLinux.onboarding.requiredTarget": "検出された Linux Apache HTTPS サイト"
+}

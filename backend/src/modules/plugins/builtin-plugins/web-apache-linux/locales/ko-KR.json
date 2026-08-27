@@ -1,0 +1,17 @@
+{
+  "plugin.webApacheLinux.name": "Linux Apache 사이트",
+  "plugin.webApacheLinux.description": "Agent가 확인한 사실을 바탕으로 Linux Apache 사이트의 PEM 인증서를 배포하고 검증 및 롤백합니다.",
+  "plugin.webApacheLinux.section.identity": "대상 정보",
+  "plugin.webApacheLinux.section.certificate": "인증서 업데이트",
+  "plugin.webApacheLinux.field.platform": "플랫폼",
+  "plugin.webApacheLinux.field.framework": "프레임워크",
+  "plugin.webApacheLinux.field.path": "인증서 위치",
+  "plugin.webApacheLinux.field.service": "서비스",
+  "plugin.webApacheLinux.field.configFingerprint": "구성 지문",
+  "plugin.webApacheLinux.action.deploy": "인증서 배포",
+  "plugin.webApacheLinux.action.verify": "인증서 검증",
+  "plugin.webApacheLinux.action.rollback": "인증서 롤백",
+  "plugin.webApacheLinux.onboarding.compatibility": "Linux Apache HTTP Server(버전은 Agent가 검색)",
+  "plugin.webApacheLinux.onboarding.requiredHost": "호환 Agent가 설치된 Linux 호스트",
+  "plugin.webApacheLinux.onboarding.requiredTarget": "검색된 Linux Apache HTTPS 사이트"
+}

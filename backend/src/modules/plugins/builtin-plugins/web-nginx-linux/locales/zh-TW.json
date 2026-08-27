@@ -1,0 +1,17 @@
+{
+  "plugin.webNginxLinux.name": "Linux Nginx 網站",
+  "plugin.webNginxLinux.description": "固定 Linux 平台與 web.nginx 框架，僅使用 Agent 已確認的事實執行憑證更新。",
+  "plugin.webNginxLinux.section.identity": "目標事實",
+  "plugin.webNginxLinux.section.certificate": "憑證更新",
+  "plugin.webNginxLinux.field.platform": "平台",
+  "plugin.webNginxLinux.field.framework": "框架",
+  "plugin.webNginxLinux.field.path": "憑證位置",
+  "plugin.webNginxLinux.field.service": "服務",
+  "plugin.webNginxLinux.field.configFingerprint": "設定指紋",
+  "plugin.webNginxLinux.action.deploy": "部署憑證",
+  "plugin.webNginxLinux.action.verify": "驗證憑證",
+  "plugin.webNginxLinux.action.rollback": "復原憑證",
+  "plugin.webNginxLinux.onboarding.compatibility": "Linux Nginx（版本由 Agent 探索）",
+  "plugin.webNginxLinux.onboarding.requiredHost": "已安裝相容 Agent 的 Linux 主機",
+  "plugin.webNginxLinux.onboarding.requiredTarget": "已探索的 Linux Nginx HTTPS 網站"
+}
