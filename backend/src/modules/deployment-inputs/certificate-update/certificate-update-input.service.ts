@@ -236,6 +236,9 @@ export function assertCertificateUpdatePlanBinding(
   }
   for (const path of planPaths) if (!paths.has(path)) fail('PLAN_PATH', '计划包含不在输入快照中的路径');
   const hasLedger = plan.operations.some((operation) => operation.input.ledgerRef === 'execution-recovery-ledger');
+  const hasConfigCheckCommand = plan.operations.some(
+    (operation) => operation.operationType === 'command.execute_allowlisted',
+  );
   const isIisCertificateStore = snapshot.artifactKind === 'WINDOWS_CERTIFICATE_STORE';
   if (isIisCertificateStore) {
     const hasIisUpdate = plan.operations.some((operation) => operation.operationType === 'certificate.iis.binding.update');
@@ -254,8 +257,15 @@ export function assertCertificateUpdatePlanBinding(
       ? '计划未绑定路径、配置指纹、Artifact 和服务事实'
       : '计划未绑定路径、配置指纹和 Artifact');
   }
-  if (plan.capability !== 'certificate.verify' && (!hasProgram || !hasProgramDigest || !hasWorkingDirectory || !hasLedger)) {
-    fail('PLAN_BINDING', '变更计划未绑定程序路径、程序摘要、工作目录或执行恢复账本');
+  if (plan.capability !== 'certificate.verify' && !hasLedger) {
+    fail('PLAN_BINDING', '变更计划未绑定执行恢复账本');
+  }
+  if (
+    plan.capability !== 'certificate.verify'
+    && hasConfigCheckCommand
+    && (!hasProgram || !hasProgramDigest || !hasWorkingDirectory)
+  ) {
+    fail('PLAN_BINDING', '配置检查计划未绑定程序路径、程序摘要或工作目录');
   }
 }
 

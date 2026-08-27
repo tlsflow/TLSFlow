@@ -351,7 +351,7 @@ test('计划绑定只接受快照路径、指纹、Artifact、服务和配置检
         ? { ...operation, input: { ...operation.input, workingDirectory: 'relative/runtime' } }
         : operation),
     }, snapshot),
-    /程序路径、程序摘要、工作目录/,
+    /配置检查计划未绑定程序路径、程序摘要或工作目录/,
   );
   assert.throws(
     () => assertCertificateUpdatePlanBinding({
@@ -362,6 +362,86 @@ test('计划绑定只接受快照路径、指纹、Artifact、服务和配置检
       ],
     }, snapshot),
     /计划包含不在输入快照中的路径/,
+  );
+});
+
+test('不包含配置检查命令的 Tomcat 变更计划不要求程序事实，但仍必须绑定恢复账本', () => {
+  const snapshot = resolveCertificateUpdateSnapshot(
+    createResolvedCertificateUpdateInput('app.tomcat.windows'),
+    loadCertificateUpdateContract('app.tomcat.windows'),
+  );
+  const basePlan = {
+    pluginId: snapshot.pluginId,
+    capability: 'certificate.deploy',
+    operations: [
+      {
+        operationType: 'certificate.material.validate',
+        input: {
+          path: snapshot.paths[0],
+          configFingerprint: snapshot.configFingerprint,
+          artifactDigest: snapshot.artifactDigest,
+        },
+      },
+      {
+        operationType: 'filesystem.atomic_replace',
+        input: {
+          path: snapshot.paths[0],
+          configFingerprint: snapshot.configFingerprint,
+          artifactDigest: snapshot.artifactDigest,
+          ledgerRef: 'execution-recovery-ledger',
+        },
+      },
+      {
+        operationType: 'service.restart',
+        input: { serviceName: snapshot.serviceName },
+      },
+    ],
+  };
+  assert.doesNotThrow(() => assertCertificateUpdatePlanBinding(basePlan, snapshot));
+  assert.throws(
+    () => assertCertificateUpdatePlanBinding({
+      ...basePlan,
+      operations: basePlan.operations.map((operation) => operation.operationType === 'filesystem.atomic_replace'
+        ? { ...operation, input: { ...operation.input, ledgerRef: undefined } }
+        : operation),
+    }, snapshot),
+    /变更计划未绑定执行恢复账本/,
+  );
+});
+
+test('包含配置检查命令的变更计划仍必须绑定程序路径、摘要和工作目录', () => {
+  const snapshot = resolveCertificateUpdateSnapshot(
+    createResolvedCertificateUpdateInput('web.apache.windows'),
+    loadCertificateUpdateContract('web.apache.windows'),
+  );
+  assert.throws(
+    () => assertCertificateUpdatePlanBinding({
+      pluginId: snapshot.pluginId,
+      capability: 'certificate.deploy',
+      operations: [
+        {
+          operationType: 'filesystem.atomic_replace',
+          input: {
+            path: snapshot.paths[0],
+            configFingerprint: snapshot.configFingerprint,
+            artifactDigest: snapshot.artifactDigest,
+            ledgerRef: 'execution-recovery-ledger',
+          },
+        },
+        {
+          operationType: 'command.execute_allowlisted',
+          input: {
+            executablePath: snapshot.programPath,
+            executableSha256: snapshot.programSha256,
+          },
+        },
+        {
+          operationType: 'service.reload',
+          input: { serviceName: snapshot.serviceName },
+        },
+      ],
+    }, snapshot),
+    /配置检查计划未绑定程序路径、程序摘要或工作目录/,
   );
 });
 
