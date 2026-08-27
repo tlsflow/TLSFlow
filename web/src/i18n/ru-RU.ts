@@ -479,7 +479,7 @@ export default {
       fields: { taskId: 'ID задачи' },
       values: { unavailable: 'Нет данных', noVersions: 'Версии плагинов не возвращены', triggerSource: 'Обновление каталога плагинов' },
       summary: { succeeded: 'Обновление завершено: обновлено версий плагинов — {versions}, синхронизировано узлов — {projected}.', failed: 'Не удалось обновить каталог плагинов.', cancelled: 'Обновление каталога плагинов отменено.', retryWaiting: 'Позже будет выполнена автоматическая повторная попытка.', waitingResult: 'Ожидание результата обновления каталога.', awaitingConfirmation: 'Результат обновления требует подтверждения.', cancelling: 'Отмена обновления каталога.', queued: 'Обновление добавлено в очередь.', running: 'Каталог плагинов обновляется.' },
-      events: { created: 'Задача создана и ожидает обработки.', claimed: 'Задача назначена фоновой обработке.', started: 'Начато чтение встроенного каталога плагинов.', progress: 'Подготовка версий и синхронизация узлов.', retryScheduled: 'Обработка не завершена, назначена автоматическая повторная попытка.', waitingResult: 'Ожидание результатов узлов.', awaitingConfirmation: 'Результат обновления ожидает подтверждения.', cancelRequested: 'Получен запрос на отмену.', expired: 'Время задачи истекло.', cancelled: 'Задача обновления отменена.', succeeded: 'Обновление завершено: версий — {versions}, узлов — {projected}.', failed: 'Ошибка обновления: {reason}' },
+      events: { created: 'Задача создана и ожидает обработки.', claimed: 'Задача назначена фоновой обработке.', started: 'Начато чтение каталога плагинов.', progress: 'Подготовка версий и синхронизация узлов.', retryScheduled: 'Обработка не завершена, назначена автоматическая повторная попытка.', waitingResult: 'Ожидание результатов узлов.', awaitingConfirmation: 'Результат обновления ожидает подтверждения.', cancelRequested: 'Получен запрос на отмену.', expired: 'Время задачи истекло.', cancelled: 'Задача обновления отменена.', succeeded: 'Обновление завершено: версий — {versions}, узлов — {projected}.', failed: 'Ошибка обновления: {reason}' },
       versionStatus: { added: 'Добавлена', enabled: 'Включена', disabled: 'Отключена', other: 'Другой статус' }
     },
     approval: {
@@ -492,7 +492,7 @@ export default {
       timelineTitle: 'Хронология статуса',
       timeline: { created: 'Согласование отправлено', createdDescription: 'Задача создана и ожидает обработки согласующим.', approved: 'Согласование выдано', approvedDescription: 'Согласующий разрешил продолжить операцию.', rejected: 'Согласование отклонено', rejectedDescription: 'Согласующий отклонил эту операцию.', forceEnded: 'Задача завершена принудительно', forceEndedDescription: 'Оператор принудительно завершил эту задачу.', pending: 'Согласование выполняется', pendingDescription: 'Система ожидает результата согласования.' }
     },
-    relatedNames: { builtinCatalog: 'Встроенный каталог плагинов', deploymentPlan: 'План развёртывания', acmeRenewal: 'ACME Provider ({provider}) - продление сертификата {certificate}' },
+    relatedNames: { pluginCatalog: 'Каталог плагинов', deploymentPlan: 'План развёртывания', acmeRenewal: 'ACME Provider ({provider}) - продление сертификата {certificate}' },
     acmeHistory: {
       queued: { title: 'Ожидание продления', description: 'Система ожидает обработки этого продления сертификата.' },
       running: { title: 'Продление выполняется', description: 'Система запрашивает продление у центра сертификации.' },

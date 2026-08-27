@@ -352,6 +352,8 @@ describe('TaskDrawer ACME 任务展示', () => {
 
     expect(taskApiMocks.getTask).toHaveBeenCalledWith(task.id)
     expect(wrapper.find('.task-drawer__plugin-summary').exists()).toBe(true)
+    expect(wrapper.text()).toContain('插件引用刷新 · 插件目录')
+    expect(wrapper.text()).not.toContain('插件引用刷新 · 内置插件目录')
     expect(wrapper.text()).toContain('已完成刷新，共更新 3 个插件版本，并同步 3 个运行节点。')
     expect(wrapper.text()).toContain('目录版本')
     expect(wrapper.text()).toContain('web-nginx · 1.5.0')

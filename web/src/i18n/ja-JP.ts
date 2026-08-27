@@ -479,7 +479,7 @@ export default {
       fields: { taskId: 'タスク ID' },
       values: { unavailable: '未取得', noVersions: 'プラグインバージョンは返されませんでした', triggerSource: 'プラグインカタログ更新' },
       summary: { succeeded: '更新完了：{versions} 件のプラグインバージョンを更新し、{projected} 台の実行ノードへ同期しました。', failed: 'プラグインカタログの更新に失敗しました。', cancelled: 'プラグインカタログの更新をキャンセルしました。', retryWaiting: '後で自動的に再試行します。', waitingResult: '更新結果を待っています。', awaitingConfirmation: '更新結果の確認が必要です。', cancelling: '更新をキャンセルしています。', queued: '更新をキューに追加しました。', running: 'プラグインカタログを更新しています。' },
-      events: { created: '更新タスクを作成しました。処理を待っています。', claimed: 'バックグラウンド処理へ割り当てました。', started: '組み込みプラグインカタログの読み取りを開始しました。', progress: 'バージョンを整理し、実行ノードへ同期しています。', retryScheduled: '処理が完了せず、自動再試行を予約しました。', waitingResult: '実行ノードの結果を待っています。', awaitingConfirmation: '更新結果を確認してください。', cancelRequested: 'キャンセル要求を受け付けました。', expired: 'タスクがタイムアウトしました。', cancelled: '更新タスクをキャンセルしました。', succeeded: '更新完了：{versions} 件、{projected} 台のノードを同期しました。', failed: '更新失敗：{reason}' },
+      events: { created: '更新タスクを作成しました。処理を待っています。', claimed: 'バックグラウンド処理へ割り当てました。', started: 'プラグインカタログの読み取りを開始しました。', progress: 'バージョンを整理し、実行ノードへ同期しています。', retryScheduled: '処理が完了せず、自動再試行を予約しました。', waitingResult: '実行ノードの結果を待っています。', awaitingConfirmation: '更新結果を確認してください。', cancelRequested: 'キャンセル要求を受け付けました。', expired: 'タスクがタイムアウトしました。', cancelled: '更新タスクをキャンセルしました。', succeeded: '更新完了：{versions} 件、{projected} 台のノードを同期しました。', failed: '更新失敗：{reason}' },
       versionStatus: { added: '追加', enabled: '有効', disabled: '無効', other: 'その他' }
     },
     approval: {
@@ -492,7 +492,7 @@ export default {
       timelineTitle: '状態のタイムライン',
       timeline: { created: '承認を申請', createdDescription: 'タスクが作成され、承認者の処理を待っています。', approved: '承認済み', approvedDescription: '承認者が操作の続行を許可しました。', rejected: '承認を拒否', rejectedDescription: '承認者がこの操作を拒否しました。', forceEnded: 'タスクを強制終了', forceEndedDescription: 'オペレーターがこのタスクを強制終了しました。', pending: '承認処理中', pendingDescription: 'システムが承認結果を待っています。' }
     },
-    relatedNames: { builtinCatalog: '組み込みプラグインカタログ', deploymentPlan: '配備計画', acmeRenewal: 'ACME Provider（{provider}）- {certificate} 証明書更新' },
+    relatedNames: { pluginCatalog: 'プラグインカタログ', deploymentPlan: '配備計画', acmeRenewal: 'ACME Provider（{provider}）- {certificate} 証明書更新' },
     acmeHistory: {
       queued: { title: '更新待ち', description: 'システムはこの証明書更新の処理を待機しています。' },
       running: { title: '更新中', description: 'システムは認証局に更新を要求しています。' },

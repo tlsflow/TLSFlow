@@ -479,7 +479,7 @@ export default {
       fields: { taskId: '작업 ID' },
       values: { unavailable: '없음', noVersions: '반환된 플러그인 버전이 없습니다', triggerSource: '플러그인 카탈로그 새로 고침' },
       summary: { succeeded: '새로 고침 완료: 플러그인 버전 {versions}개를 갱신하고 실행 노드 {projected}개에 동기화했습니다.', failed: '플러그인 카탈로그 새로 고침에 실패했습니다.', cancelled: '플러그인 카탈로그 새로 고침이 취소되었습니다.', retryWaiting: '나중에 자동으로 다시 시도합니다.', waitingResult: '새로 고침 결과를 기다리는 중입니다.', awaitingConfirmation: '새로 고침 결과 확인이 필요합니다.', cancelling: '새로 고침을 취소하는 중입니다.', queued: '새로 고침이 대기열에 추가되었습니다.', running: '플러그인 카탈로그를 새로 고치는 중입니다.' },
-      events: { created: '새로 고침 작업이 생성되어 처리를 기다리고 있습니다.', claimed: '백그라운드 처리기에 작업을 할당했습니다.', started: '내장 플러그인 카탈로그 읽기를 시작했습니다.', progress: '플러그인 버전을 정리하고 실행 노드에 동기화하는 중입니다.', retryScheduled: '처리가 완료되지 않아 자동 재시도를 예약했습니다.', waitingResult: '실행 노드 결과를 기다리는 중입니다.', awaitingConfirmation: '새로 고침 결과를 확인해야 합니다.', cancelRequested: '취소 요청을 받았습니다.', expired: '작업 시간이 초과되었습니다.', cancelled: '새로 고침 작업이 취소되었습니다.', succeeded: '새로 고침 완료: 버전 {versions}개, 노드 {projected}개를 동기화했습니다.', failed: '새로 고침 실패: {reason}' },
+      events: { created: '새로 고침 작업이 생성되어 처리를 기다리고 있습니다.', claimed: '백그라운드 처리기에 작업을 할당했습니다.', started: '플러그인 카탈로그 읽기를 시작했습니다.', progress: '플러그인 버전을 정리하고 실행 노드에 동기화하는 중입니다.', retryScheduled: '처리가 완료되지 않아 자동 재시도를 예약했습니다.', waitingResult: '실행 노드 결과를 기다리는 중입니다.', awaitingConfirmation: '새로 고침 결과를 확인해야 합니다.', cancelRequested: '취소 요청을 받았습니다.', expired: '작업 시간이 초과되었습니다.', cancelled: '새로 고침 작업이 취소되었습니다.', succeeded: '새로 고침 완료: 버전 {versions}개, 노드 {projected}개를 동기화했습니다.', failed: '새로 고침 실패: {reason}' },
       versionStatus: { added: '추가됨', enabled: '활성', disabled: '비활성', other: '기타 상태' }
     },
     approval: {
@@ -492,7 +492,7 @@ export default {
       timelineTitle: '상태 타임라인',
       timeline: { created: '승인 요청됨', createdDescription: '작업이 생성되었으며 승인자의 처리를 기다립니다.', approved: '승인됨', approvedDescription: '승인자가 작업을 계속하도록 허용했습니다.', rejected: '승인 거부됨', rejectedDescription: '승인자가 이 작업을 거부했습니다.', forceEnded: '작업 강제 종료됨', forceEndedDescription: '운영자가 이 작업을 강제 종료했습니다.', pending: '승인 처리 중', pendingDescription: '시스템이 승인 결과를 기다리고 있습니다.' }
     },
-    relatedNames: { builtinCatalog: '내장 플러그인 카탈로그', deploymentPlan: '배포 계획', acmeRenewal: 'ACME Provider({provider}) - {certificate} 인증서 갱신' },
+    relatedNames: { pluginCatalog: '플러그인 카탈로그', deploymentPlan: '배포 계획', acmeRenewal: 'ACME Provider({provider}) - {certificate} 인증서 갱신' },
     acmeHistory: {
       queued: { title: '갱신 대기 중', description: '시스템이 이 인증서 갱신을 처리할 때까지 대기 중입니다.' },
       running: { title: '인증서 갱신 중', description: '시스템이 인증 기관에 갱신을 요청하고 있습니다.' },

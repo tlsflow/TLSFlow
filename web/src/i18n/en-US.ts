@@ -487,7 +487,7 @@ export default {
       events: {
         created: 'The refresh task was created and is waiting to be processed.',
         claimed: 'The task was assigned to a background processor.',
-        started: 'Started reading the built-in plugin catalog.',
+        started: 'Started reading the plugin catalog.',
         progress: 'Preparing plugin versions and synchronizing runtime nodes.',
         retryScheduled: 'Processing did not finish; an automatic retry was scheduled.',
         waitingResult: 'Waiting for runtime nodes to return their results.',
@@ -510,7 +510,7 @@ export default {
       timelineTitle: 'Status timeline',
       timeline: { created: 'Approval submitted', createdDescription: 'The task was created and is waiting for an approver.', approved: 'Approval granted', approvedDescription: 'The approver allowed the operation to continue.', rejected: 'Approval rejected', rejectedDescription: 'The approver rejected this operation.', forceEnded: 'Task force-stopped', forceEndedDescription: 'An operator force-stopped this task.', pending: 'Approval in progress', pendingDescription: 'The system is waiting for the approval result.' }
     },
-    relatedNames: { builtinCatalog: 'Built-in plugin catalog', deploymentPlan: 'Deployment plan', acmeRenewal: 'ACME Provider ({provider}) - {certificate} certificate renewal' },
+    relatedNames: { pluginCatalog: 'Plugin catalog', deploymentPlan: 'Deployment plan', acmeRenewal: 'ACME Provider ({provider}) - {certificate} certificate renewal' },
     acmeHistory: {
       queued: { title: 'Waiting for renewal', description: 'The system is waiting to process this certificate renewal.' },
       running: { title: 'Renewing certificate', description: 'The system is requesting renewal from the certificate authority.' },

@@ -487,7 +487,7 @@ export default {
       events: {
         created: '已创建刷新任务，等待系统处理。',
         claimed: '任务已分配给后台处理器。',
-        started: '开始读取内置插件目录。',
+        started: '开始读取插件目录。',
         progress: '正在整理插件版本并同步运行节点。',
         retryScheduled: '本次处理未完成，系统已安排自动重试。',
         waitingResult: '正在等待运行节点返回结果。',
@@ -510,7 +510,7 @@ export default {
       timelineTitle: '状态时间线',
       timeline: { created: '已提交审批', createdDescription: '任务已创建，等待审批人处理。', approved: '审批已通过', approvedDescription: '审批人已允许继续执行。', rejected: '审批已拒绝', rejectedDescription: '审批人已拒绝本次操作。', forceEnded: '任务已强制结束', forceEndedDescription: '操作员已强制结束该任务。', pending: '审批处理中', pendingDescription: '系统正在等待审批结果。' }
     },
-    relatedNames: { builtinCatalog: '内置插件目录', deploymentPlan: '部署计划', acmeRenewal: '{certificate}（{provider}）证书续签' },
+    relatedNames: { pluginCatalog: '插件目录', deploymentPlan: '部署计划', acmeRenewal: '{certificate}（{provider}）证书续签' },
     acmeHistory: {
       queued: { title: '等待续签', description: '系统正在等待处理此证书续签。' },
       running: { title: '正在续签', description: '系统正在向证书机构请求续签。' },

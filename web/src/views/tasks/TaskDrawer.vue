@@ -1446,7 +1446,7 @@ function recordStringByKeys(record: Record<string, unknown> | undefined, keys: r
 
 function normalizeTaskRelatedName(value?: string): string | undefined {
   if (!value) return undefined
-  if (value === 'builtin-catalog') return t('tasks.relatedNames.builtinCatalog')
+  if (value === 'builtin-catalog' || value === 'plugin-catalog') return t('tasks.relatedNames.pluginCatalog')
   return value
 }
 

@@ -478,7 +478,7 @@ export default {
       fields: { taskId: "任務編號" },
       values: { unavailable: "暫無", noVersions: "本次沒有返回外掛版本", triggerSource: "外掛目錄刷新" },
       summary: { succeeded: "刷新完成，共更新 {versions} 個外掛版本，並同步 {projected} 個執行節點。", failed: "外掛目錄刷新失敗。", cancelled: "外掛目錄刷新已取消。", retryWaiting: "外掛目錄刷新將稍後自動重試。", waitingResult: "正在等待外掛目錄刷新結果。", awaitingConfirmation: "外掛目錄刷新結果待確認。", cancelling: "正在取消外掛目錄刷新。", queued: "外掛目錄刷新已排隊。", running: "正在刷新外掛目錄。" },
-      events: { created: "已建立刷新任務，等待系統處理。", claimed: "任務已分配給背景處理器。", started: "開始讀取內建外掛目錄。", progress: "正在整理外掛版本並同步執行節點。", retryScheduled: "本次處理未完成，系統已安排自動重試。", waitingResult: "正在等待執行節點返回結果。", awaitingConfirmation: "刷新結果已產生，等待確認。", cancelRequested: "已收到取消請求。", expired: "任務已逾時。", cancelled: "刷新任務已取消。", succeeded: "刷新完成：{versions} 個外掛版本，已同步 {projected} 個執行節點。", failed: "刷新失敗：{reason}" },
+      events: { created: "已建立刷新任務，等待系統處理。", claimed: "任務已分配給背景處理器。", started: "開始讀取外掛目錄。", progress: "正在整理外掛版本並同步執行節點。", retryScheduled: "本次處理未完成，系統已安排自動重試。", waitingResult: "正在等待執行節點返回結果。", awaitingConfirmation: "刷新結果已產生，等待確認。", cancelRequested: "已收到取消請求。", expired: "任務已逾時。", cancelled: "刷新任務已取消。", succeeded: "刷新完成：{versions} 個外掛版本，已同步 {projected} 個執行節點。", failed: "刷新失敗：{reason}" },
       versionStatus: { added: "新增", enabled: "已啟用", disabled: "未啟用", other: "其他狀態" }
     },
     approval: {
@@ -491,7 +491,7 @@ export default {
       timelineTitle: "狀態時間線",
       timeline: { created: "已提交審批", createdDescription: "任務已建立，等待審批人處理。", approved: "審批已核准", approvedDescription: "審批人已允許繼續執行。", rejected: "審批已拒絕", rejectedDescription: "審批人已拒絕本次操作。", forceEnded: "任務已強制結束", forceEndedDescription: "操作員已強制結束此任務。", pending: "審批處理中", pendingDescription: "系統正在等待審批結果。" }
     },
-    relatedNames: { builtinCatalog: "內建外掛目錄", deploymentPlan: "部署計畫", acmeRenewal: "ACME Provider（{provider}）— {certificate} 憑證續期" },
+    relatedNames: { pluginCatalog: "外掛目錄", deploymentPlan: "部署計畫", acmeRenewal: "ACME Provider（{provider}）— {certificate} 憑證續期" },
     acmeHistory: {
       queued: { title: "等待續期", description: "系統正在等待處理此憑證續期。" },
       running: { title: "正在續期", description: "系統正在向憑證機構請求續期。" },
