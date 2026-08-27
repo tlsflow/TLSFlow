@@ -146,7 +146,7 @@ const now = ref(Date.now())
 let remainingTimer: ReturnType<typeof setInterval> | undefined
 let browserPollTimer: number | undefined
 
-const kinds: CredentialKind[] = ['USERNAME_PASSWORD', 'SSH_KEY', 'BEARER_TOKEN', 'API_KEY', 'CLIENT_CERTIFICATE', 'DNS_PROVIDER', 'CLOUD_PROVIDER', 'BROWSER_SESSION']
+const kinds: CredentialKind[] = ['PASSWORD', 'USERNAME_PASSWORD', 'SSH_KEY', 'BEARER_TOKEN', 'API_KEY', 'CLIENT_CERTIFICATE', 'DNS_PROVIDER', 'CLOUD_PROVIDER', 'BROWSER_SESSION']
 const scopes: CredentialProfileSummary['scopeType'][] = ['global', 'team', 'zone', 'host', 'plugin']
 const isEditing = computed(() => editorMode.value === 'edit')
 const requiresUsername = computed(() => requiresUsernameFor(form.value.kind))
@@ -656,7 +656,7 @@ function buildSecretValues(
     return values
   }
   if (primary) {
-    const slot = kind === 'USERNAME_PASSWORD'
+    const slot = kind === 'PASSWORD' || kind === 'USERNAME_PASSWORD'
       ? 'password'
       : kind === 'SSH_KEY'
         ? 'privateKey'

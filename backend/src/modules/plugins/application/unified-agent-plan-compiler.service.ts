@@ -29,7 +29,7 @@ import { certificateUpdatePluginIds } from '../canonical-plugin-id/canonical-plu
 import { canonicalResourceHash } from '../../../shared/plugin-resource-hash.js';
 import { validateCertificateUpdateInputContract } from '../../deployment-inputs/certificate-update/certificate-update.contract.js';
 import { resolveCertificateUpdateSnapshot, assertCertificateUpdatePlanBinding } from '../../deployment-inputs/certificate-update/certificate-update-input.service.js';
-import { bindCertificateRollbackCheckpoint, bindCertificateUpdatePlanArtifacts, compileCertificateUpdatePlanTemplate } from '../../deployment-inputs/certificate-update/certificate-update-plan.service.js';
+import { bindCertificateRollbackCheckpoint, bindCertificateUpdatePlanArtifacts, bindCertificateUpdatePlanEphemeralSecrets, compileCertificateUpdatePlanTemplate } from '../../deployment-inputs/certificate-update/certificate-update-plan.service.js';
 
 export interface AgentV2PlanExecutionEnvelopeV1 {
   actionType: 'agent.plan.validate' | 'agent.plan.execute';
@@ -63,6 +63,10 @@ export class UnifiedAgentPlanCompilerService {
     pluginVersionId: string;
     pluginBindingId: string;
     resolvedInput?: ResolvedDeploymentInputV1;
+    /** 执行期短生命周期敏感输入，不得持久化到快照、Receipt 或审计。 */
+    ephemeralSecrets?: {
+      keystorePassword?: string;
+    };
     /** 根证书安装使用宿主通用合同，不读取证书部署 Artifact。 */
     purpose?: 'deployment' | 'certificate_trust';
     executionMode?: 'APPLY' | 'PREFLIGHT' | 'ROLLBACK';
@@ -151,6 +155,7 @@ export class UnifiedAgentPlanCompilerService {
       // 历史草案可能只保存了 Artifact 摘要；执行前重新从密封输入绑定实际字节，
       // 并用绑定后的完整计划重新计算摘要，确保授权范围覆盖真实写入内容。
       plan = bindCertificateUpdatePlanArtifacts(plan, snapshot, input.resolvedInput);
+      plan = bindCertificateUpdatePlanEphemeralSecrets(plan, snapshot, input.ephemeralSecrets);
       assertCertificateUpdatePlanBinding(plan, snapshot);
       if (input.executionMode === 'ROLLBACK') {
         const checkpoint = readRecord(input.rollbackContext?.checkpoint);
@@ -196,10 +201,17 @@ export class UnifiedAgentPlanCompilerService {
       planDigest: plan.planDigest,
       authorization,
     });
-    const existing = this.authorizationCache.get(cacheKey);
-    if (existing) return structuredClone(await existing);
+    // 显式 KeyStore 密码已经注入完整计划；该计划不能进入长期授权缓存，
+    // 否则明文会随缓存生命周期滞留在宿主内存。每次执行都重新签发并在
+    // 调用链结束后释放，仅允许不含执行期密码的计划走缓存。
+    const cacheable = input.ephemeralSecrets?.keystorePassword === undefined;
+    if (cacheable) {
+      const existing = this.authorizationCache.get(cacheKey);
+      if (existing) return structuredClone(await existing);
+    }
 
     const pending = this.issueAndBind(input, actionType, plan, authorization);
+    if (!cacheable) return structuredClone(await pending);
     this.authorizationCache.set(cacheKey, pending);
     try {
       return structuredClone(await pending);

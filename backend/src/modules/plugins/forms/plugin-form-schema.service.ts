@@ -42,7 +42,7 @@ export class PluginFormSchemaService {
     const sensitive = item.sensitive === undefined ? standard?.sensitive ?? false : booleanValue(item.sensitive, `${path}.sensitive`);
     if (standard?.sensitive && sensitive !== true) fail(`${path}.sensitive`, '标准 Secret 字段不能取消敏感标记', { standardField });
     if (type === 'password') fail(`${path}.type`, '插件不能直接接收明文密码，请使用 secret_ref');
-    const acceptedCredentialKinds = optionalEnumArray(item.acceptedCredentialKinds, ['USERNAME_PASSWORD', 'SSH_KEY', 'BEARER_TOKEN', 'API_KEY', 'CLIENT_CERTIFICATE'] as const, `${path}.acceptedCredentialKinds`);
+    const acceptedCredentialKinds = optionalEnumArray(item.acceptedCredentialKinds, ['PASSWORD', 'USERNAME_PASSWORD', 'SSH_KEY', 'BEARER_TOKEN', 'API_KEY', 'CLIENT_CERTIFICATE'] as const, `${path}.acceptedCredentialKinds`);
     const acceptedSecretTypes = optionalEnumArray(item.acceptedSecretTypes, ['password', 'api_token', 'ssh_key', 'private_key', 'certificate_private_key', 'ca_certificate'] as const, `${path}.acceptedSecretTypes`);
     const acceptedScopes = optionalEnumArray(item.acceptedScopes, ['global', 'team', 'zone', 'host', 'plugin'] as const, `${path}.acceptedScopes`);
     const purpose = optionalText(item.purpose, `${path}.purpose`);

@@ -68,6 +68,15 @@ export function validateCertificateUpdateInputContract(input: unknown): Certific
     if (credentialSlots.length !== 1 || credentialSlots[0] !== 'keystorePassword') {
       fail('deploymentInputContract.credentials', 'KeyStore 插件只能声明 keystorePassword 凭据槽位');
     }
+    const keystorePassword = normalizedDeploymentInputContract.credentials.keystorePassword;
+    if (!keystorePassword
+      || keystorePassword.required !== false
+      || keystorePassword.configurationMode !== 'advanced'
+      || keystorePassword.lifecycle !== 'pre_execution'
+      || !keystorePassword.allowedKinds.includes('PASSWORD')
+      || !keystorePassword.allowedKinds.includes('USERNAME_PASSWORD')) {
+      fail('deploymentInputContract.credentials.keystorePassword', 'KeyStore 密码必须是可选的 PASSWORD/USERNAME_PASSWORD 高级凭据');
+    }
     const artifactOutputs = normalizedDeploymentInputContract.artifacts.certificateArtifact?.artifactContract.outputs;
     if (!artifactOutputs?.pfxBase64 || !artifactOutputs.jksBase64) {
       fail('deploymentInputContract.artifacts', 'KeyStore Artifact 必须同时声明可选的 PKCS12/JKS Base64 输出');

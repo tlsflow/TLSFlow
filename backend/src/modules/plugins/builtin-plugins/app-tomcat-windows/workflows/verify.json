@@ -10,7 +10,7 @@
       "certificate",
       "verify"
     ],
-    "version": "1.0.5",
+    "version": "1.0.6",
     "platforms": [
       "windows"
     ],
@@ -47,7 +47,7 @@
       },
       "keyAlias": {
         "type": "string",
-        "required": true,
+        "required": false,
         "configurationMode": "required",
         "source": {
           "kind": "asset",
@@ -105,10 +105,11 @@
     "credentials": {
       "keystorePassword": {
         "allowedKinds": [
+          "PASSWORD",
           "USERNAME_PASSWORD"
         ],
-        "required": true,
-        "configurationMode": "required",
+        "required": false,
+        "configurationMode": "advanced",
         "lifecycle": "pre_execution"
       }
     },

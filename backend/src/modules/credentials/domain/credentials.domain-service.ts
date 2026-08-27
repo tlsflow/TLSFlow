@@ -28,6 +28,9 @@ export interface CloudCredentialContract {
 }
 
 const SLOT_RULES: Record<CredentialKind, Record<string, CredentialSlotRule>> = {
+  PASSWORD: {
+    password: { required: true, allowedTypes: ['password'] },
+  },
   USERNAME_PASSWORD: {
     password: { required: true, allowedTypes: ['password'] },
   },

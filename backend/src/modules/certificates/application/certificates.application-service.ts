@@ -753,6 +753,8 @@ export class CertificatesApplicationService {
     certificateFormatId: string;
     createdBy: string;
     expiresAt?: string;
+    /** 仅由部署编排在显式 keystorePassword Credential 已解析时提供，禁止持久化。 */
+    passwordOverride?: string;
   }, context?: RequestContext): Promise<{
     certificateVersionId: string;
     certificateFormatId: string;
@@ -776,7 +778,7 @@ export class CertificatesApplicationService {
     if (!version) {
       throw new AppError('RESOURCE_NOT_FOUND', '证书版本不存在', { certificateVersionId: input.certificateVersionId });
     }
-    const { generated, warnings, privateKey, password, pemNeedsSeparatePrivateKey } = await this.buildGeneratedFormatArtifact(format, version, input.createdBy, input.expiresAt, context, input.tenantId);
+    const { generated, warnings, privateKey, password, pemNeedsSeparatePrivateKey } = await this.buildGeneratedFormatArtifact(format, version, input.createdBy, input.expiresAt, context, input.tenantId, input.passwordOverride);
     const generatedCertificatePem = generated.format === 'pem'
       ? readGeneratedBundlePem(generated.files)
       : undefined;
@@ -797,10 +799,6 @@ export class CertificatesApplicationService {
       certificateFormatId: format.id,
       format: format.format,
       containsPrivateKey: format.containsPrivateKey,
-      passwordSecretRef: format.passwordSecretRef,
-      passwordLength: password?.plainText?.length,
-      passwordUtf8Sha256: generated.debug?.passwordUtf8Sha256,
-      passwordUtf8Length: generated.debug?.passwordUtf8Length,
       artifactSha256,
       artifactSize: generated.content.length,
       warnings: generated.warnings,
@@ -944,6 +942,7 @@ export class CertificatesApplicationService {
     expiresAt: string | undefined,
     context?: RequestContext,
     tenantId?: string,
+    passwordOverride?: string,
   ): Promise<{
     generated: GeneratedCertificateFormatArtifact;
     warnings: string[];
@@ -960,15 +959,17 @@ export class CertificatesApplicationService {
       createdBy: actorId,
       expiresAt,
     };
-    const warnings = this.validateFormatExportRequest(request, version);
+    const warnings = this.validateFormatExportRequest(request, version, passwordOverride !== undefined);
     const pemNeedsSeparatePrivateKey = format.format === 'pem'
       && (readBooleanParameter(format.parameters, 'includePrivateKey') || readBooleanParameter(format.parameters, 'generatePrivateKeyFile'));
     const privateKey = (format.containsPrivateKey || pemNeedsSeparatePrivateKey)
       ? await this.resolveSecret(version.privateKeySecretRef, version.tenantId, 'certificate_private_key', 'certificate.deployment.private_key', actorId, context)
       : undefined;
-    const password = format.passwordSecretRef
-      ? await this.resolveSecret(format.passwordSecretRef, version.tenantId, 'pfx_password', 'certificate.deployment.password', actorId, context)
-      : undefined;
+    const password = passwordOverride !== undefined
+      ? { plainText: passwordOverride }
+      : format.passwordSecretRef
+        ? await this.resolveSecret(format.passwordSecretRef, version.tenantId, 'pfx_password', 'certificate.deployment.password', actorId, context)
+        : undefined;
     const generated = this.exporter.generate(format.format, {
       version,
       leafDer: await this.readArtifact(version.leafStorageRef, tenantId ?? version.tenantId),
@@ -989,7 +990,7 @@ export class CertificatesApplicationService {
     parameters?: Record<string, unknown>;
     createdBy: string;
     expiresAt?: string;
-  }, version: CertificateVersionEntity): string[] {
+  }, version: CertificateVersionEntity, passwordOverrideProvided = false): string[] {
     const warnings: string[] = [];
     if (!certificateFormats.includes(input.format)) {
       throw new AppError('CERT_EXPORT_FORMAT_INVALID', '证书格式不合法', { format: input.format });
@@ -1003,7 +1004,7 @@ export class CertificatesApplicationService {
     if (input.containsPrivateKey && !version.privateKeySecretRef) {
       throw new AppError('VALIDATION_FAILED', '证书版本没有私钥 SecretRef，不能导出包含私钥的格式', { certificateVersionId: input.certificateVersionId });
     }
-    if ((input.format === 'pfx' || input.format === 'jks') && !input.passwordSecretRef) {
+    if ((input.format === 'pfx' || input.format === 'jks') && !input.passwordSecretRef && !passwordOverrideProvided) {
       throw new AppError('VALIDATION_FAILED', 'PFX/JKS 导出必须提供 passwordSecretRef', { format: input.format });
     }
     this.assertPasswordSecretRef(input.format, input.passwordSecretRef);

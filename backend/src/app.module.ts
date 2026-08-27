@@ -22,6 +22,7 @@ import { PluginResourceLockService } from './modules/executions/application/plug
 import { ExecutionsController, getExecutionRouteContracts } from './modules/executions/controller/executions.controller.js';
 import { createSecurityServices, getSecurityRouteContracts, SecurityController, type SecurityServices } from './modules/security/security.controller.js';
 import { CredentialsApplicationService, CredentialsController, CredentialsRepository } from './modules/credentials/index.js';
+import { RuntimeCredentialResolver } from './modules/credentials/application/runtime-credential-resolver.js';
 import { createPersistedSecurityServices } from './modules/security/security-services.persistence.js';
 import { AssetsApplicationService } from './modules/assets/application/assets.application-service.js';
 import { ApplicationAssetExecutionService } from './modules/assets/application/application-asset-execution.service.js';
@@ -241,8 +242,9 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const tasksService = new TasksApplicationService(new TaskRepository(appDb), security.audit, undefined, taskRealtimeStream);
   app.setResource('tasksService', tasksService);
   app.setResource('taskRealtimeStream', taskRealtimeStream);
+  const credentialsRepository = new CredentialsRepository(appDb);
   const credentialsService = new CredentialsApplicationService(
-    new CredentialsRepository(appDb),
+    credentialsRepository,
     undefined,
     appDb,
     security.secrets,
@@ -644,6 +646,7 @@ export function createApp(dependencies: AppDependencies = {}): App {
   const executorRegistry = createDefaultExecutorRegistryWithDependencies({
     agents: agentsService,
     secrets: security.secrets,
+    credentials: new RuntimeCredentialResolver(credentialsRepository, security.secrets),
     workflows: workflowTemplatesService,
     agentPlanCompiler,
     workflowRecovery: workflowRecoveryService,

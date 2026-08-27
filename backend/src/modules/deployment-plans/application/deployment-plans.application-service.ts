@@ -818,8 +818,16 @@ export class DeploymentPlansApplicationService {
       input.applicationAssetId,
       targetContext.managedTarget.id,
     );
-    const certificateFormatId = input.certificateFormatId
+    const configuredCertificateFormatId = input.certificateFormatId
       ?? (deploymentStrategy?.type === 'MANAGED_TARGET' ? deploymentStrategy.managedTarget?.certificateFormatId : undefined);
+    const targetLocation = readCertificateLocation(
+      targetContext.managedTarget.metadata,
+      targetContext.managedTarget.updatedAt,
+    );
+    const certificateFormatId = configuredCertificateFormatId
+      ?? (targetLocation?.storageKind === 'KEYSTORE'
+        ? await this.resolveAutomaticCertificateFormatId(input.tenantId, targetLocation.keystoreType)
+        : undefined);
     const executionMode = deploymentStrategy?.type === 'MANAGED_TARGET' ? deploymentStrategy.managedTarget?.executionMode ?? 'PLUGIN' : 'PLUGIN';
     if (!certificateVersionId) {
       throw new AppError('VALIDATION_FAILED', '证书部署计划必须指定证书版本');
@@ -833,8 +841,13 @@ export class DeploymentPlansApplicationService {
         input.certificateAssetId,
       )
       : certificateVersionId;
+    const compilePasswordOverride = await this.resolveManagedTargetKeystorePasswordOverride(
+      input.tenantId,
+      managedTargetContext,
+      applicationAsset.id,
+    );
     const compileArtifact = certificateFormatId && compileCertificateVersionId
-      ? await this.resolveDeploymentArtifact(compileCertificateVersionId, certificateFormatId, input.tenantId)
+      ? await this.resolveDeploymentArtifact(compileCertificateVersionId, certificateFormatId, input.tenantId, compilePasswordOverride)
       : undefined;
     const resolvedStrategy = executionMode === 'WORKFLOW_OVERRIDE'
       ? await this.compileWorkflowExecutionBinding(input.tenantId, strategyAsset, deploymentStrategy?.managedTarget?.workflowExecutionBindingId, 'WORKFLOW_OVERRIDE', bindingTarget, managedTargetContext, readyBinding)
@@ -1175,7 +1188,9 @@ export class DeploymentPlansApplicationService {
       bindingLayers,
       credentialSnapshots: await this.snapshotCredentials(tenantId, collectBindingCredentials(bindingLayers)),
       artifactSnapshots: artifact
-        ? artifactSnapshotsFromDeploymentArtifact(artifact, Object.keys(contract.artifacts))
+        ? artifactSnapshotsFromDeploymentArtifact(artifact, Object.keys(contract.artifacts), {
+          includePfxPassword: contractIncludesArtifactOutput(contract, 'pfxPassword'),
+        })
         : undefined,
     };
     if (phase === 'configure') return this.deploymentInputResolver.resolveProjectionResult(request);
@@ -1345,7 +1360,9 @@ export class DeploymentPlansApplicationService {
       assetContext: deploymentAssetContextBuilder.build({ applicationAsset, managedTargetContext: context, certificateBinding }),
       bindingLayers,
       credentialSnapshots: await this.snapshotCredentials(tenantId, collectBindingCredentials(bindingLayers)),
-      artifactSnapshots: artifactSnapshotsFromDeploymentArtifact(artifact, Object.keys(contract.artifacts)),
+      artifactSnapshots: artifactSnapshotsFromDeploymentArtifact(artifact, Object.keys(contract.artifacts), {
+        includePfxPassword: contractIncludesArtifactOutput(contract, 'pfxPassword'),
+      }),
     };
     const projection = this.deploymentInputResolver.resolveProjectionResult(request);
     const resolvedInput = phase === 'configure' ? projection.resolvedInput : this.deploymentInputResolver.resolve(request);
@@ -1377,7 +1394,9 @@ export class DeploymentPlansApplicationService {
       },
       credentialSnapshots: await this.snapshotCredentials(tenantId, binding.inputBindings.credentials),
       artifactSnapshots: artifact
-        ? artifactSnapshotsFromDeploymentArtifact(artifact, Object.keys(contract.artifacts))
+        ? artifactSnapshotsFromDeploymentArtifact(artifact, Object.keys(contract.artifacts), {
+          includePfxPassword: contractIncludesArtifactOutput(contract, 'pfxPassword'),
+        })
         : undefined,
     };
     const projection = this.deploymentInputResolver.resolveProjectionResult(request);
@@ -1976,7 +1995,10 @@ export class DeploymentPlansApplicationService {
         contract: structuredClone(contract),
         effectiveBinding: structuredClone(effectiveBinding),
         resolvedDeploymentInput: structuredClone(resolvedInput),
-        deploymentArtifact: structuredClone(artifact) as unknown as Record<string, unknown>,
+        deploymentArtifact: sanitizeDeploymentArtifactForRuntimeSnapshot(
+          artifact,
+          contractIncludesArtifactOutput(contract, 'pfxPassword'),
+        ),
         ...(compatibilitySnapshot ? { compatibility: compatibilitySnapshot } : {}),
       };
       target.strategyPayload = {
@@ -2346,7 +2368,10 @@ export class DeploymentPlansApplicationService {
       contract: structuredClone(material.contract),
       effectiveBinding: structuredClone(material.effectiveBinding),
       resolvedDeploymentInput: structuredClone(material.resolvedInput),
-      deploymentArtifact: structuredClone(artifact) as unknown as Record<string, unknown>,
+      deploymentArtifact: sanitizeDeploymentArtifactForRuntimeSnapshot(
+        artifact,
+        contractIncludesArtifactOutput(material.contract, 'pfxPassword'),
+      ),
     };
   }
 
@@ -2561,6 +2586,14 @@ export class DeploymentPlansApplicationService {
     const agentBinding = agentBindingId && this.pluginBindings
       ? await this.pluginBindings.getTenantBinding(resolvedTenantId, agentBindingId)
       : undefined;
+    const explicitPasswordCredentialId = resolveKeystorePasswordCredentialId(
+      readRecord(agentBinding?.inputBindings)?.credentials,
+      readRecord(workflowExecutionBinding?.inputBindings)?.credentials,
+      readRecord(readRecord(strategyPayload.workflowRequest)?.inputBindings)?.credentials,
+    );
+    const passwordOverride = explicitPasswordCredentialId
+      ? await this.resolveKeystorePasswordCredential(resolvedTenantId, explicitPasswordCredentialId)
+      : undefined;
     const artifactBindings = Object.keys(agentBinding?.inputBindings.artifacts ?? {}).length > 0
       ? agentBinding!.inputBindings.artifacts
       : Object.keys(workflowExecutionBinding?.inputBindings.artifacts ?? {}).length > 0
@@ -2571,10 +2604,13 @@ export class DeploymentPlansApplicationService {
         certificateVersionId,
         artifactBindings as Record<string, WorkflowCertificateArtifactBinding>,
         resolvedTenantId,
+        passwordOverride,
       );
     }
+    const resolvedFormatId = certificateFormatId
+      ?? await this.resolveAutomaticCertificateFormatIdForTarget(target, resolvedTenantId);
     if (!target.certificateBindingId) {
-      return this.resolveDeploymentArtifact(certificateVersionId, certificateFormatId, resolvedTenantId);
+      return this.resolveDeploymentArtifact(certificateVersionId, resolvedFormatId, resolvedTenantId, passwordOverride);
     }
     const binding = await this.tryGetBinding(resolvedTenantId, target.certificateBindingId);
     if (!binding) {
@@ -2584,13 +2620,14 @@ export class DeploymentPlansApplicationService {
         tenantId: resolvedTenantId,
       });
     }
-    return this.resolveDeploymentArtifact(certificateVersionId, certificateFormatId, resolvedTenantId);
+    return this.resolveDeploymentArtifact(certificateVersionId, resolvedFormatId, resolvedTenantId, passwordOverride);
   }
 
   private async resolveDeploymentArtifact(
     certificateVersionId: string,
     certificateFormatId?: string,
     tenantId?: string,
+    passwordOverride?: string,
   ): Promise<DeploymentArtifactSnapshotDto> {
     const version = await this.certificates.getVersion(certificateVersionId, tenantId);
     if (!version) {
@@ -2608,6 +2645,7 @@ export class DeploymentPlansApplicationService {
       certificateVersionId,
       certificateFormatId: format.id,
       createdBy: 'system',
+      ...(passwordOverride !== undefined ? { passwordOverride } : {}),
     });
     return {
       certificateVersionId,
@@ -2646,10 +2684,96 @@ export class DeploymentPlansApplicationService {
     });
   }
 
+  private async resolveAutomaticCertificateFormatId(
+    tenantId: string,
+    keystoreType?: string,
+  ): Promise<string> {
+    const normalizedType = keystoreType?.trim().toUpperCase();
+    const selector = normalizedType === 'JKS'
+      ? { format: 'jks', configName: '宿主默认 JKS 容器' }
+      : normalizedType === 'PKCS12'
+        ? { format: 'pfx', configName: '宿主默认 PFX 容器' }
+        : undefined;
+    if (!selector) {
+      throw new AppError('VALIDATION_FAILED', 'Tomcat KeyStore 类型缺失或不受支持，无法自动绑定证书产物', {
+        code: 'TOMCAT_KEYSTORE_TYPE_REQUIRED',
+        keystoreType,
+      });
+    }
+    const page = await this.certificates.listFormats({ page: 1, pageSize: 5000, filter: {} }, tenantId);
+    const global = await this.certificates.listFormats({ page: 1, pageSize: 5000, filter: {} });
+    const selected = [...page.items, ...global.items].find((item) => !item.certificateVersionId
+      && item.format === selector.format
+      && item.parameters?.configName === selector.configName);
+    if (!selected) {
+      throw new AppError('RESOURCE_NOT_FOUND', '宿主默认 Tomcat 证书产物配置不存在', {
+        code: 'TOMCAT_DEFAULT_CERTIFICATE_FORMAT_NOT_FOUND',
+        ...selector,
+      });
+    }
+    return selected.id;
+  }
+
+  private async resolveAutomaticCertificateFormatIdForTarget(
+    target: DeploymentPlanTargetEntity,
+    tenantId: string,
+  ): Promise<string> {
+    const binding = target.certificateBindingId ? await this.tryGetBinding(tenantId, target.certificateBindingId) : undefined;
+    let keystoreType: string | undefined = binding?.keystoreType;
+    if (!keystoreType && target.executionTargetId) {
+      const managedTarget = await this.assets.getManagedTarget(tenantId, target.executionTargetId);
+      const location = managedTarget
+        ? readCertificateLocation(managedTarget.metadata, managedTarget.updatedAt)
+        : undefined;
+      keystoreType = location?.keystoreType;
+    }
+    if (!keystoreType) {
+      throw new AppError('VALIDATION_FAILED', 'Tomcat 目标缺少 KeyStore 类型，无法自动绑定证书产物', {
+        code: 'TOMCAT_KEYSTORE_TYPE_REQUIRED',
+        deploymentPlanTargetId: target.id,
+      });
+    }
+    return this.resolveAutomaticCertificateFormatId(tenantId, keystoreType);
+  }
+
+  private async resolveKeystorePasswordCredential(tenantId: string, credentialId: string): Promise<string> {
+    if (!this.credentials) {
+      throw new AppError('SYSTEM_INTERNAL_ERROR', '显式 keystorePassword Credential 无法解析', {
+        code: 'KEYSTORE_PASSWORD_CREDENTIAL_RESOLVER_MISSING',
+      });
+    }
+    return this.credentials.resolveSecretValue(tenantId, credentialId);
+  }
+
+  private async resolveManagedTargetKeystorePasswordOverride(
+    tenantId: string,
+    context: Awaited<ReturnType<ManagedTargetContextResolver['resolve']>> | undefined,
+    applicationAssetId: string,
+  ): Promise<string | undefined> {
+    if (!context || !this.pluginBindings) return undefined;
+    const assignments = await this.pluginBindings.listAssignmentCandidates(tenantId, 'certificate.deploy', {
+      deviceId: context.host.id,
+      managedTargetId: context.managedTarget.id,
+      applicationAssetId,
+    });
+    const layers = new Map<string, string>();
+    for (const assignment of assignments) {
+      const binding = await this.pluginBindings.getTenantBinding(tenantId, assignment.pluginBindingId);
+      if (binding.status !== 'ACTIVE') continue;
+      const credentialId = binding.inputBindings.credentials.keystorePassword?.credentialId;
+      if (credentialId) layers.set(assignment.ownerType, credentialId);
+    }
+    const credentialId = layers.get('APPLICATION_ASSET')
+      ?? layers.get('MANAGED_TARGET')
+      ?? layers.get('DEVICE');
+    return credentialId ? this.resolveKeystorePasswordCredential(tenantId, credentialId) : undefined;
+  }
+
   private async resolveWorkflowDeploymentArtifact(
     certificateVersionId: string,
     bindings: Record<string, WorkflowCertificateArtifactBinding>,
     tenantId?: string,
+    passwordOverride?: string,
   ): Promise<DeploymentArtifactSnapshotDto> {
     const version = await this.certificates.getVersion(certificateVersionId, tenantId);
     if (!version) {
@@ -2665,8 +2789,10 @@ export class DeploymentPlansApplicationService {
         certificateVersionId,
         certificateFormatId: format.id,
         createdBy: 'system',
+        ...(passwordOverride !== undefined ? { passwordOverride } : {}),
       });
       const files = generated.files.map((file) => ({ ...file, name: file.key }));
+      const includePfxPassword = Object.values(binding.outputBindings).includes('pfxPassword');
       const baseMaterial = enrichWorkflowCertificateMaterial({
         certificateVersionId,
         certificateFormatId: generated.certificateFormatId,
@@ -2682,7 +2808,7 @@ export class DeploymentPlansApplicationService {
         privateKeyPem: generated.privateKeyPem,
         pfx: generated.pfxBase64,
         pfxBase64: generated.pfxBase64,
-        pfxPassword: generated.pfxPassword,
+        ...(includePfxPassword ? { pfxPassword: generated.pfxPassword } : {}),
         jksBase64: generated.jksBase64,
         files,
       });
@@ -2719,7 +2845,7 @@ export class DeploymentPlansApplicationService {
         certificatePem: generated.certificatePem,
         privateKeyPem: generated.privateKeyPem,
         pfxBase64: generated.pfxBase64,
-        pfxPassword: generated.pfxPassword,
+        ...(includePfxPassword ? { pfxPassword: generated.pfxPassword } : {}),
         jksBase64: generated.jksBase64,
         files,
         expectedFingerprintSha256: version.fingerprintSha256,
@@ -4358,17 +4484,27 @@ function readStringMap(value: unknown): Record<string, string> | undefined {
 export function artifactSnapshotsFromDeploymentArtifact(
   artifact: DeploymentArtifactSnapshotDto,
   artifactSlots: readonly string[] = [],
+  options: { includePfxPassword?: boolean } = {},
 ): Record<string, ResolvedArtifactV1> {
+  const includePfxPassword = options.includePfxPassword ?? true;
   const workflowMaterials = Object.entries(artifact.workflowCertificateMaterials ?? {});
   if (workflowMaterials.length > 0) {
-    return Object.fromEntries(workflowMaterials.map(([slot, material]) => [slot, {
-      ...material,
-      artifactId: `${artifact.certificateVersionId}:${artifact.certificateFormatId}`,
-      certificateVersionId: artifact.certificateVersionId,
-      certificateFormatId: artifact.certificateFormatId,
-      format: artifact.format,
-      outputs: readRecord(material.outputs) ?? {},
-    }]));
+    return Object.fromEntries(workflowMaterials.map(([slot, material]) => {
+      const sanitizedMaterial = structuredClone(material);
+      if (!includePfxPassword) {
+        delete sanitizedMaterial.pfxPassword;
+        const outputs = readRecord(sanitizedMaterial.outputs);
+        if (outputs) delete outputs.pfxPassword;
+      }
+      return [slot, {
+        ...sanitizedMaterial,
+        artifactId: `${artifact.certificateVersionId}:${artifact.certificateFormatId}`,
+        certificateVersionId: artifact.certificateVersionId,
+        certificateFormatId: artifact.certificateFormatId,
+        format: artifact.format,
+        outputs: readRecord(sanitizedMaterial.outputs) ?? {},
+      }];
+    }));
   }
 
   // 直接证书产物也要进入固定 certificateArtifact 槽位；否则普通六插件
@@ -4378,16 +4514,17 @@ export function artifactSnapshotsFromDeploymentArtifact(
     files: artifact.files ?? [],
   });
   const outputs: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries({
+  const outputsToSnapshot: Record<string, unknown> = {
     leafPem: enriched.leafPem,
     certificatePem: enriched.certificatePem,
     privateKeyPem: enriched.privateKeyPem,
     orderedChainPem: enriched.orderedChainPem,
     fingerprintSha256: enriched.fingerprintSha256,
     pfxBase64: artifact.pfxBase64,
-    pfxPassword: artifact.pfxPassword,
     jksBase64: artifact.jksBase64,
-  })) {
+  };
+  if (includePfxPassword) outputsToSnapshot.pfxPassword = artifact.pfxPassword;
+  for (const [key, value] of Object.entries(outputsToSnapshot)) {
     if (value !== undefined) outputs[key] = value;
   }
   if (artifact.files?.length) outputs.files = structuredClone(artifact.files);
@@ -4404,6 +4541,33 @@ export function artifactSnapshotsFromDeploymentArtifact(
   // 没有合同上下文时保留历史 certificateArtifact 槽位，兼容旧版六类证书插件。
   const slots = artifactSlots.length > 0 ? artifactSlots : ['certificateArtifact'];
   return Object.fromEntries(slots.map((slot) => [slot, structuredClone(snapshot)]));
+}
+
+function contractIncludesArtifactOutput(contract: DeploymentInputContractV1, outputName: string): boolean {
+  return Object.values(contract.artifacts).some((slot) => {
+    const output = slot.artifactContract.outputs[outputName];
+    return Boolean(output);
+  });
+}
+
+function sanitizeDeploymentArtifactForRuntimeSnapshot(
+  artifact: DeploymentArtifactSnapshotDto,
+  includePfxPassword: boolean,
+): Record<string, unknown> {
+  const sanitized = structuredClone(artifact) as unknown as Record<string, unknown>;
+  if (includePfxPassword) return sanitized;
+  delete sanitized.pfxPassword;
+  const materials = readRecord(sanitized.workflowCertificateMaterials);
+  if (materials) {
+    for (const value of Object.values(materials)) {
+      const material = readRecord(value);
+      if (!material) continue;
+      delete material.pfxPassword;
+      const outputs = readRecord(material.outputs);
+      if (outputs) delete outputs.pfxPassword;
+    }
+  }
+  return sanitized;
 }
 
 function readDeploymentArtifactRuntimeSnapshot(
@@ -4439,6 +4603,16 @@ function readCredentialBindings(value: unknown): Record<string, { credentialId: 
     if (!credentialId) throw new AppError('VALIDATION_FAILED', '工作流凭据绑定缺少 credentialId', { slot });
     return [slot, { credentialId }];
   }));
+}
+
+function resolveKeystorePasswordCredentialId(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    const credentials = readRecord(value);
+    const binding = readRecord(credentials?.keystorePassword);
+    const credentialId = readOptionalString(binding?.credentialId);
+    if (credentialId) return credentialId;
+  }
+  return undefined;
 }
 
 function readObjectArray(value: unknown): Record<string, unknown>[] {

@@ -1,6 +1,7 @@
 import type { SecretScopeType } from '../../shared/security-types.js';
 
 export const CREDENTIAL_KINDS = [
+  'PASSWORD',
   'USERNAME_PASSWORD',
   'SSH_KEY',
   'BEARER_TOKEN',

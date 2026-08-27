@@ -1,6 +1,7 @@
 import { AppError } from '../../../common/errors/app-error.js';
 import { newId } from '../../../shared/id.js';
 import type { SecretService } from '../../secrets/secret.service.js';
+import type { RuntimeCredentialResolver } from '../../credentials/application/runtime-credential-resolver.js';
 import { AgentsApplicationService } from '../../agents/application/agents.application-service.js';
 import { CurlExecutor, SSHExecutor, CookieSessionStore, type CurlExecutionRequest, type CurlExecutionResult, type HttpResponse } from '../../executors/index.js';
 import { SecretServiceCurlResolver } from '../../executors/curl/curl.secret-resolver.js';
@@ -149,6 +150,7 @@ export interface ExecutorRegistryOptions {
 export interface DefaultExecutorDependencies {
   agents?: AgentsApplicationService;
   secrets?: SecretService;
+  credentials?: RuntimeCredentialResolver;
   workflows?: WorkflowTemplatesApplicationService;
   agentPlanCompiler?: UnifiedAgentPlanCompilerService;
   workflowRecovery?: WorkflowRecoveryLedgerService;
@@ -228,7 +230,7 @@ function createDefaultExecutors(dependencies: DefaultExecutorDependencies = {}):
   const pluginActionExecutor = new PluginRunnerExecutorAdapter(pluginRunner);
   // Agent v2 只有在控制面同时提供 Agent 服务和统一 Plan 编译器时才注册；依赖缺失时保持未注册并失败关闭。
   const agentExecutor = dependencies.agents && dependencies.agentPlanCompiler
-    ? [new AgentExecutorAdapter(dependencies.agents, undefined, dependencies.agentPlanCompiler)]
+    ? [new AgentExecutorAdapter(dependencies.agents, undefined, dependencies.agentPlanCompiler, dependencies.credentials)]
     : [];
   return [
     ...agentExecutor,
@@ -259,6 +261,7 @@ export class AgentExecutorAdapter implements Executor {
     private readonly agents = new AgentsApplicationService(),
     private readonly actionDispatch = new AgentActionDispatchRegistry(),
     private readonly agentPlanCompiler?: UnifiedAgentPlanCompilerService,
+    private readonly credentials?: RuntimeCredentialResolver,
   ) {}
 
   async executeStep(input: StepExecutionInput): Promise<StepExecutionResult> {
@@ -335,14 +338,19 @@ export class AgentExecutorAdapter implements Executor {
     const trustInstall = isCertificateTrustInstallPlan(snapshot.plan);
     const resolvedInput = trustInstall ? undefined : readResolvedDeploymentInputV1(snapshot.resolvedDeploymentInput);
     if (!trustInstall && !resolvedInput) return { error: { success: false, errorCode: 'VALIDATION_FAILED', errorMessage: 'Agent 执行缺少统一部署输入快照' } };
+    const tenantId = requireExecutionTenantId(input.step, 'agent plan compile');
+    const ephemeralSecrets = trustInstall || !resolvedInput
+      ? undefined
+      : await this.resolveEphemeralSecrets(tenantId, resolvedInput);
     const plan = await this.agentPlanCompiler.compile({
-      tenantId: requireExecutionTenantId(input.step, 'agent plan compile'),
+      tenantId,
       agentId,
       executionRunId: input.step.executionRunId,
       executionStepId: input.step.id,
       pluginVersionId,
       pluginBindingId,
       resolvedInput,
+      ...(ephemeralSecrets ? { ephemeralSecrets } : {}),
       purpose: trustInstall ? 'certificate_trust' : 'deployment',
       executionMode: input.runType === 'rollback' ? 'ROLLBACK' : input.dryRun ? 'PREFLIGHT' : 'APPLY',
       rollbackContext: input.runType === 'rollback' ? readRecord(snapshot.rollbackContext) : undefined,
@@ -355,7 +363,6 @@ export class AgentExecutorAdapter implements Executor {
     if (plan.actionType !== actionType) {
       return { error: { success: false, errorCode: 'AGENT_V2_ACTION_MODE_MISMATCH', errorMessage: 'Agent v2 编译结果与执行模式不匹配' } };
     }
-    const tenantId = requireExecutionTenantId(input.step, 'agent v2 task queue');
     const includeProvisionedLocalPolicy = await shouldDeliverProvisionedLocalPolicy(this.agents, tenantId, agentId);
     return { payload: buildAgentV2ControlPayload({
       actionType: plan.actionType,
@@ -367,6 +374,24 @@ export class AgentExecutorAdapter implements Executor {
         ? { localPolicyMaterial: plan.localPolicyMaterial }
         : {}),
     }, input, { includeProvisionedLocalPolicy }) };
+  }
+
+  private async resolveEphemeralSecrets(
+    tenantId: string,
+    resolvedInput: NonNullable<ReturnType<typeof readResolvedDeploymentInputV1>>,
+  ): Promise<{ keystorePassword?: string } | undefined> {
+    const credential = readRecord(resolvedInput.credentials.keystorePassword);
+    if (!credential) return undefined;
+    const credentialId = stringFromSnapshot(credential.credentialId);
+    if (!credentialId) {
+      throw new AppError('VALIDATION_FAILED', '显式 keystorePassword Credential 缺少 credentialId');
+    }
+    if (!this.credentials) {
+      throw new AppError('SYSTEM_INTERNAL_ERROR', '显式 keystorePassword Credential 无法解析');
+    }
+    return {
+      keystorePassword: await this.credentials.resolveSecretValue(tenantId, credentialId),
+    };
   }
 }
 

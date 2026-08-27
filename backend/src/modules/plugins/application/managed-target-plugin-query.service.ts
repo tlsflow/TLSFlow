@@ -37,6 +37,7 @@ import type { CertificateBindingDto } from '../../bindings/dto/bindings.dto.js';
 import { certificateFormats } from '../../certificates/schema/certificates.schema.js';
 import { GCAC_VERSION } from '../../../common/version.js';
 import { ApplicationOnboardingRecipeLoader } from '../../application-onboarding/recipe/application-onboarding-recipe.loader.js';
+import { readCertificateLocation } from '../../deployment-inputs/dto/certificate-location.dto.js';
 
 type ExecutionLocation = 'AGENT' | 'CONTROL_PLANE' | 'GATEWAY';
 
@@ -165,6 +166,9 @@ export class ManagedTargetPluginQueryService {
         ?? (applicationAsset.deploymentStrategy?.type === 'MANAGED_TARGET'
           ? applicationAsset.deploymentStrategy.managedTarget?.certificateFormatId
           : undefined);
+      if (!certificateFormatId && hasKeyStoreOutput(overrideContract)) {
+        certificateFormatId = await this.resolveKeyStoreCertificateFormatId(input.tenantId, certificateBinding, context);
+      }
       const currentTarget = await services.assets.getApplicationAssetTargetByApplicationAssetId(input.tenantId, input.applicationAssetId);
       if (input.value.expectedTargetVersion !== undefined && currentTarget?.version !== input.value.expectedTargetVersion) {
         throw new AppError('RESOURCE_VERSION_CONFLICT', 'ApplicationAssetTarget 版本冲突', {
@@ -241,6 +245,9 @@ export class ManagedTargetPluginQueryService {
         if ((inheritedUsesFixedPkcs12 || !certificateFormatId) && inheritedDefaults?.certificateFormat) {
           certificateFormatId = await this.resolveCertificateFormatId(input.tenantId, inheritedDefaults.certificateFormat);
         }
+        if (!certificateFormatId && hasKeyStoreOutput(inheritedContract)) {
+          certificateFormatId = await this.resolveKeyStoreCertificateFormatId(input.tenantId, certificateBinding, context);
+        }
         if (certificateFormatId) {
           const artifacts = buildPluginCertificateArtifactBindings(plugin, capabilityKey, certificateFormatId);
           const candidates = await services.bindings.listAssignmentCandidates(input.tenantId, capabilityKey, {
@@ -297,6 +304,9 @@ export class ManagedTargetPluginQueryService {
         ...(certificateFormatId ? { certificateFormatId } : {}),
       };
       certificateFormatId = preparedInput.certificateFormatId ?? certificateFormatId;
+      if (!certificateFormatId && hasKeyStoreOutput(contract)) {
+        certificateFormatId = await this.resolveKeyStoreCertificateFormatId(input.tenantId, certificateBinding, context);
+      }
       const fixedArtifactFormat = hasRequiredPkcs12Output(contract);
       const artifacts = fixedArtifactFormat && certificateFormatId
         ? buildPluginCertificateArtifactBindings(plugin, capabilityKey, certificateFormatId)
@@ -483,12 +493,16 @@ export class ManagedTargetPluginQueryService {
         inputBindings: requestedInputBindings,
         ...(input.certificateFormatId?.trim() ? { certificateFormatId: input.certificateFormatId.trim() } : {}),
       };
-    const artifacts = fixedArtifactFormat && preparedInput.certificateFormatId
-      ? buildPluginCertificateArtifactBindings(plugin, capabilityKey, preparedInput.certificateFormatId)
+    let preparedCertificateFormatId = preparedInput.certificateFormatId;
+    if (!preparedCertificateFormatId && hasKeyStoreOutput(contract)) {
+      preparedCertificateFormatId = await this.resolveKeyStoreCertificateFormatId(input.tenantId, certificateBinding, context);
+    }
+    const artifacts = fixedArtifactFormat && preparedCertificateFormatId
+      ? buildPluginCertificateArtifactBindings(plugin, capabilityKey, preparedCertificateFormatId)
       : Object.keys(preparedInput.inputBindings.artifacts).length > 0
       ? preparedInput.inputBindings.artifacts
-      : preparedInput.certificateFormatId
-        ? buildPluginCertificateArtifactBindings(plugin, capabilityKey, preparedInput.certificateFormatId)
+      : preparedCertificateFormatId
+        ? buildPluginCertificateArtifactBindings(plugin, capabilityKey, preparedCertificateFormatId)
         : {};
     const candidates = await services.bindings.listAssignmentCandidates(input.tenantId, capabilityKey, {
       deviceId: context.host.id,
@@ -690,6 +704,28 @@ export class ManagedTargetPluginQueryService {
     }
     return selected.id;
   }
+
+  private async resolveKeyStoreCertificateFormatId(
+    tenantId: string,
+    certificateBinding: CertificateBindingDto | undefined,
+    context: ResolvedManagedTargetContext,
+  ): Promise<string> {
+    const location = readCertificateLocation(context.managedTarget.metadata, context.managedTarget.updatedAt);
+    const keystoreType = certificateBinding?.keystoreType ?? location?.keystoreType;
+    const normalizedType = keystoreType?.trim().toUpperCase();
+    const selector = normalizedType === 'JKS'
+      ? { format: 'jks', configName: '宿主默认 JKS 容器' }
+      : normalizedType === 'PKCS12'
+        ? { format: 'pfx', configName: '宿主默认 PFX 容器' }
+        : undefined;
+    if (!selector) {
+      throw new AppError('VALIDATION_FAILED', 'Tomcat KeyStore 类型缺失或不受支持，无法自动绑定证书产物', {
+        code: 'TOMCAT_KEYSTORE_TYPE_REQUIRED',
+        keystoreType,
+      });
+    }
+    return this.resolveCertificateFormatId(tenantId, selector);
+  }
 }
 
 async function findManagedTargetCertificateBinding(
@@ -713,6 +749,12 @@ function hasBindingValues(bindings: InputBindingsV1): boolean {
 function hasRequiredPkcs12Output(contract: DeploymentInputContractV1): boolean {
   return Object.values(contract.artifacts).some((definition) => Object.values(definition.artifactContract?.outputs ?? {})
     .some((output) => output.required !== false && String(output.role ?? '').trim().toLowerCase() === 'pkcs12_bundle'));
+}
+
+function hasKeyStoreOutput(contract: DeploymentInputContractV1 | undefined): boolean {
+  if (!contract) return false;
+  return Object.values(contract.artifacts).some((definition) => Object.values(definition.artifactContract?.outputs ?? {})
+    .some((output) => String(output.role ?? '').trim().toLowerCase() === 'keystore'));
 }
 
 function mergeInputBindings(target: InputBindingsV1, patch?: InputBindingsV1): void {

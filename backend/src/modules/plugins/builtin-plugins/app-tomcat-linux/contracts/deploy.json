@@ -44,7 +44,7 @@
       },
       "keyAlias": {
         "type": "string",
-        "required": true,
+        "required": false,
         "configurationMode": "required",
         "source": {
           "kind": "asset",
@@ -102,10 +102,11 @@
     "credentials": {
       "keystorePassword": {
         "allowedKinds": [
+          "PASSWORD",
           "USERNAME_PASSWORD"
         ],
-        "required": true,
-        "configurationMode": "required",
+        "required": false,
+        "configurationMode": "advanced",
         "lifecycle": "pre_execution"
       }
     },

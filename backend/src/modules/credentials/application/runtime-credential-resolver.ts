@@ -49,6 +49,34 @@ export class RuntimeCredentialResolver {
     };
   }
 
+  /**
+   * 仅供部署前产物生成的短生命周期调用。明文不会进入 Credential 快照、
+   * 发现事实、日志或持久化对象；调用方不得缓存返回值。
+   */
+  async resolveSecretValue(
+    tenantId: string,
+    credentialId: string,
+    slot = 'password',
+  ): Promise<string> {
+    if (!this.secrets) throw new AppError('CAPABILITY_MISSING', 'Credential Secret 服务未注册');
+    const profile = await this.repository.get(tenantId, credentialId);
+    if (!profile) throw new AppError('RESOURCE_NOT_FOUND', 'CredentialProfile 不存在', { credentialId });
+    if (profile.status !== 'active') throw new AppError('VALIDATION_FAILED', 'CredentialProfile 当前不可用于执行', { credentialId, status: profile.status });
+    if (profile.kind !== 'PASSWORD' && profile.kind !== 'USERNAME_PASSWORD') {
+      throw new AppError('VALIDATION_FAILED', 'Tomcat KeyStore 密码 Credential 类型不受支持', { credentialId, kind: profile.kind });
+    }
+    const secretRef = profile.secretSlots[slot];
+    if (!secretRef) throw new AppError('VALIDATION_FAILED', 'Credential 缺少 password Secret Slot', { credentialId, slot });
+    const resolved = await this.secrets.resolveForService({
+      secretRef,
+      tenantId,
+      expectedType: 'password',
+      purpose: 'certificate.deployment.keystore_password',
+      actorId: 'system',
+    });
+    return resolved.plainText;
+  }
+
   async resolveBindingsForPlan(
     tenantId: string,
     bindings: Record<string, { credentialId: string }>,

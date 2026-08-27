@@ -31,7 +31,7 @@ export interface PluginFormFieldV1 {
   enabledWhen?: PluginFormConditionV1;
   options?: PluginFormOptionV1[];
   optionProviderAction?: string;
-  acceptedCredentialKinds?: Array<'USERNAME_PASSWORD' | 'SSH_KEY' | 'BEARER_TOKEN' | 'API_KEY' | 'CLIENT_CERTIFICATE'>;
+  acceptedCredentialKinds?: Array<'PASSWORD' | 'USERNAME_PASSWORD' | 'SSH_KEY' | 'BEARER_TOKEN' | 'API_KEY' | 'CLIENT_CERTIFICATE'>;
   acceptedSecretTypes?: Array<'password' | 'api_token' | 'ssh_key' | 'private_key' | 'certificate_private_key' | 'ca_certificate'>;
   acceptedScopes?: Array<'global' | 'team' | 'zone' | 'host' | 'plugin'>;
   purpose?: string;

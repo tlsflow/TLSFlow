@@ -142,8 +142,8 @@ export function resolveCertificateUpdateSnapshot(
     ? location.keystoreType
     : undefined;
   const keyAlias = contract.artifactKind === 'KEYSTORE' ? location.keyAlias : undefined;
-  if (contract.artifactKind === 'KEYSTORE' && (!keystoreType || !['JKS', 'PKCS12'].includes(keystoreType) || !keyAlias)) {
-    fail('KEYSTORE', 'KeyStore 类型、Alias 或 SecretRef 缺失');
+  if (contract.artifactKind === 'KEYSTORE' && (!keystoreType || !['JKS', 'PKCS12'].includes(keystoreType))) {
+    fail('KEYSTORE', 'KeyStore 类型缺失或不受支持');
   }
   const artifactDigest = resolveArtifactDigest(resolved, contract.artifactKind, keystoreType);
   const expectedFingerprintSha256 = contract.artifactKind === 'WINDOWS_CERTIFICATE_STORE'
@@ -164,7 +164,6 @@ export function resolveCertificateUpdateSnapshot(
     )
     : undefined;
   const secretRefs = resolveSecretRefs(resolved.credentials, contract);
-  if (contract.artifactKind === 'KEYSTORE' && secretRefs.length === 0) fail('KEYSTORE', 'KeyStore 类型、Alias 或 SecretRef 缺失');
   return {
     apiVersion: 'gcac.certificate-update-snapshot/v1',
     pluginId: contract.pluginId,
@@ -368,13 +367,16 @@ function resolveSecretRefs(
     return [];
   }
 
+  if (actualSlots.length === 0) return [];
   if (actualSlots.length !== 1 || actualSlots[0] !== 'keystorePassword') fail('SECRET', 'KeyStore 只允许 keystorePassword 凭据槽位');
   const credential = credentials.keystorePassword;
   if (!credential || typeof credential !== 'object' || Array.isArray(credential) || typeof credential.credentialId !== 'string' || credential.credentialId.trim() === '') {
     fail('SECRET', 'KeyStore 凭据快照缺少 credentialId');
   }
   const credentialKind = credential.kind;
-  if (credentialKind !== undefined && credentialKind !== 'USERNAME_PASSWORD') fail('SECRET', 'KeyStore 凭据类型必须是 USERNAME_PASSWORD');
+  if (credentialKind !== undefined && credentialKind !== 'PASSWORD' && credentialKind !== 'USERNAME_PASSWORD') {
+    fail('SECRET', 'KeyStore 凭据类型必须是 PASSWORD 或 USERNAME_PASSWORD');
+  }
   const refs = credential.secretRefs;
   if (!refs || typeof refs !== 'object' || Array.isArray(refs)) fail('SECRET', 'KeyStore 凭据缺少 SecretRef 映射');
   const entries = Object.entries(refs);

@@ -146,6 +146,40 @@ export function bindCertificateUpdatePlanArtifacts(
 }
 
 /**
+ * 把显式 Credential 的 KeyStore 密码注入当前执行内存中的计划。
+ * 密码只存在于本次编译和入队载荷的短生命周期，不写入 resolvedInput、
+ * 普通快照、Receipt 或审计字段。未提供时保留 configPath，让 Agent
+ * 按目标 Tomcat 配置自动读取；显式值一旦存在，Agent 不得回退。
+ */
+export function bindCertificateUpdatePlanEphemeralSecrets(
+  plan: AgentPlanV1,
+  snapshot: CertificateUpdateResolvedSnapshotV1,
+  ephemeralSecrets?: { keystorePassword?: string },
+): AgentPlanV1 {
+  const password = ephemeralSecrets?.keystorePassword;
+  if (snapshot.artifactKind !== 'KEYSTORE' || password === undefined) return plan;
+  if (typeof password !== 'string' || password.length === 0 || password.length > 1024) {
+    throw new AppError('VALIDATION_FAILED', '显式 keystorePassword Credential 为空或超出长度限制');
+  }
+  const operations = plan.operations.map((operation) => {
+    if (operation.operationType !== 'certificate.material.validate') return operation;
+    const { secretRef: _secretRef, ...inputWithoutSecretRef } = operation.input;
+    return {
+      ...operation,
+      input: {
+        ...inputWithoutSecretRef,
+        keystorePassword: password,
+        // 显式 Credential 已覆盖自动读取，不能保留可误解为回退来源的 SecretRef。
+        inputSnapshotSha256: snapshot.resolvedInputSha256,
+      },
+    };
+  });
+  const boundPlan = { ...plan, operations, planDigest: '' };
+  boundPlan.planDigest = computeAgentPlanDigest(boundPlan);
+  return boundPlan;
+}
+
+/**
  * 回滚只恢复 Agent 在备份阶段签发的 checkpoint，不应再次要求当前部署 Artifact。
  * checkpoint 会进入完整计划摘要，随后由 Policy Authority 和 Agent 一起验证。
  */
@@ -342,9 +376,24 @@ function replaceRefs(value: unknown, snapshot: CertificateUpdateResolvedSnapshot
   const record = value as Record<string, unknown>;
   if (typeof record.$ref === 'string') {
     const ref = record.$ref === 'paths.current' && pathIndex !== undefined ? `paths.${pathIndex}` : record.$ref;
+    // keystorePassword 是可选凭据。没有显式 Credential 时不把空 SecretRef
+    // 写入计划，Agent 将按 configPath 自动读取目标 Tomcat 当前密码。
+    if ((ref.startsWith('secretRefs.') || ref === 'keyAlias') && readOptionalPath(snapshot, ref) === undefined) return undefined;
     return readPath(snapshot, ref);
   }
-  return Object.fromEntries(Object.entries(record).map(([key, item]) => [key, replaceRefs(item, snapshot, pathIndex)]));
+  return Object.fromEntries(Object.entries(record)
+    .map(([key, item]) => [key, replaceRefs(item, snapshot, pathIndex)] as const)
+    .filter(([, item]) => item !== undefined));
+}
+
+function readOptionalPath(snapshot: CertificateUpdateResolvedSnapshotV1, path: string): unknown {
+  const segments = path.replaceAll('[', '.').replaceAll(']', '').split('.').filter(Boolean);
+  let current: unknown = snapshot;
+  for (const segment of segments) {
+    if (current === null || current === undefined || typeof current !== 'object') return undefined;
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
 }
 
 function readPath(snapshot: CertificateUpdateResolvedSnapshotV1, path: string): unknown {
