@@ -113,7 +113,7 @@ export interface DeploymentConnectionDefinitionV1 {
 }
 
 export interface DeploymentCredentialSlotV1 {
-  readonly allowedKinds: readonly ('USERNAME_PASSWORD' | 'SSH_KEY' | 'BEARER_TOKEN' | 'API_KEY' | 'CLIENT_CERTIFICATE')[]
+  readonly allowedKinds: readonly ('PASSWORD' | 'USERNAME_PASSWORD' | 'SSH_KEY' | 'BEARER_TOKEN' | 'API_KEY' | 'CLIENT_CERTIFICATE')[]
   readonly required: boolean
   readonly configurationMode: Exclude<WorkflowConfigurationMode, 'runtime'>
   readonly lifecycle: Exclude<WorkflowVariableLifecycle, 'step_output'>
