@@ -2818,6 +2818,10 @@ export class DeploymentPlansApplicationService {
         const virtualOutput = resolveStandardCertificateOutput(baseMaterial, outputKey);
         const output = resolveBoundCertificateOutput(baseMaterial, slotName, file, virtualOutput);
         if (output === undefined) {
+          // Tomcat KeyStore 合同同时声明可选的 PKCS12/JKS 输出，但一次生成只会
+          // 产生当前选定格式。另一种格式不存在是正常情况；当前格式自身缺失
+          // 仍必须继续失败，并交给统一 Artifact 合同校验阻断部署。
+          if (isUnavailableAlternateKeystoreOutput(outputKey, generated.format)) continue;
           throw new AppError('VALIDATION_FAILED', '证书产物输出项不存在', {
             certificateVersionId,
             certificateFormatId: binding.certificateFormatId,
@@ -4250,6 +4254,13 @@ export function resolveBoundCertificateOutput(
     return structuredClone(material[slotName]);
   }
   return file ?? virtualOutput;
+}
+
+export function isUnavailableAlternateKeystoreOutput(outputKey: string, generatedFormat: string): boolean {
+  const format = generatedFormat.trim().toLowerCase();
+  if (outputKey === 'pfxBase64') return format !== 'pfx' && format !== 'pkcs12';
+  if (outputKey === 'jksBase64') return format !== 'jks';
+  return false;
 }
 
 /**

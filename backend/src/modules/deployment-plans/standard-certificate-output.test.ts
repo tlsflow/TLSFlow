@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveBoundCertificateOutput, resolveStandardCertificateOutput } from './application/deployment-plans.application-service.js';
+import {
+  isUnavailableAlternateKeystoreOutput,
+  resolveBoundCertificateOutput,
+  resolveStandardCertificateOutput,
+} from './application/deployment-plans.application-service.js';
 
 test('标准证书输出解析器同时支持 PEM、PFX、JKS 和密码', () => {
   const material = {
@@ -51,4 +55,12 @@ test('标准证书槽输出原始值，自定义文件槽保留文件对象', ()
   assert.deepEqual(resolveBoundCertificateOutput(material, 'orderedIntermediates', file, virtualOutput), intermediates);
   assert.equal(resolveBoundCertificateOutput(material, 'orderedIntermediates', file, virtualOutput) === intermediates, false);
   assert.equal(resolveBoundCertificateOutput(material, 'certFile', file, virtualOutput), file);
+});
+
+test('Tomcat 单格式产物只跳过另一种可选 KeyStore 输出', () => {
+  assert.equal(isUnavailableAlternateKeystoreOutput('jksBase64', 'pfx'), true);
+  assert.equal(isUnavailableAlternateKeystoreOutput('pfxBase64', 'JKS'), true);
+  assert.equal(isUnavailableAlternateKeystoreOutput('pfxBase64', 'pkcs12'), false);
+  assert.equal(isUnavailableAlternateKeystoreOutput('jksBase64', 'jks'), false);
+  assert.equal(isUnavailableAlternateKeystoreOutput('privateKeyPem', 'pfx'), false);
 });
