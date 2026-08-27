@@ -362,7 +362,8 @@ export interface ManagedTargetDto {
   /** 已添加到应用列表的 ServiceAsset；仅存在该字段时才属于应用。 */
   serviceAssetId?: string;
   assetOwner?: AssetOwnerDto;
-  deviceId: string;
+  /** 设备目标的宿主；云目标不绑定 Device。 */
+  deviceId?: string;
   frameworkInstanceId?: string;
   siteId?: string;
   discoveryProviderKey: string;
@@ -488,7 +489,9 @@ export interface CreateManagedTargetSnapshotDto {
 }
 
 export interface CreateManagedTargetDto {
-  deviceId: string;
+  /** 设备目标或云资产目标的所有者，必须且只能提供一个。 */
+  deviceId?: string;
+  assetId?: string;
   /** 可选的应用 ServiceAsset 关联。 */
   serviceAssetId?: string;
   frameworkInstanceId?: string;

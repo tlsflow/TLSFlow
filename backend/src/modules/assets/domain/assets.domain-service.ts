@@ -321,10 +321,15 @@ export class AssetsDomainService {
     return normalized;
   }
 
-  normalizeManagedTarget(input: CreateManagedTargetDto): Required<Pick<CreateManagedTargetDto, 'deviceId' | 'discoveryProviderKey' | 'targetType' | 'targetKey' | 'supportedCapabilities' | 'executionLocations' | 'status' | 'metadata'>> & CreateManagedTargetDto {
+  normalizeManagedTarget(input: CreateManagedTargetDto): CreateManagedTargetDto {
+    const deviceId = normalizeOptionalString(input.deviceId);
+    const assetId = normalizeOptionalString(input.assetId);
+    if (!deviceId && !assetId) throw new AppError('VALIDATION_FAILED', 'ManagedTarget 必须绑定 Device 或 CloudAccountAsset', { code: 'MANAGED_TARGET_OWNER_REQUIRED' });
+    if (deviceId && assetId) throw new AppError('VALIDATION_FAILED', 'ManagedTarget 不能同时绑定 Device 和 CloudAccountAsset', { code: 'MANAGED_TARGET_OWNER_CONFLICT' });
     return {
       ...input,
-      deviceId: normalizeRequiredString(input.deviceId, 'deviceId'),
+      ...(deviceId ? { deviceId } : { deviceId: undefined }),
+      ...(assetId ? { assetId } : { assetId: undefined }),
       serviceAssetId: normalizeOptionalString(input.serviceAssetId),
       frameworkInstanceId: normalizeOptionalString(input.frameworkInstanceId),
       siteId: normalizeOptionalString(input.siteId),
@@ -342,7 +347,8 @@ export class AssetsDomainService {
 
   normalizeManagedTargetPatch(input: UpdateManagedTargetDto): UpdateManagedTargetDto {
     const normalized: UpdateManagedTargetDto = { ...input };
-    if (input.deviceId !== undefined) normalized.deviceId = normalizeRequiredString(input.deviceId, 'deviceId');
+    if (input.deviceId !== undefined) normalized.deviceId = normalizeOptionalString(input.deviceId);
+    if (input.assetId !== undefined) normalized.assetId = normalizeOptionalString(input.assetId);
     if (input.serviceAssetId !== undefined) normalized.serviceAssetId = normalizeOptionalString(input.serviceAssetId);
     if (input.frameworkInstanceId !== undefined) normalized.frameworkInstanceId = normalizeOptionalString(input.frameworkInstanceId);
     if (input.siteId !== undefined) normalized.siteId = normalizeOptionalString(input.siteId);

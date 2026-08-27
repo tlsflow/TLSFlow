@@ -192,7 +192,8 @@ export class AssetsController {
 
   private async createFrameworkInstance(request: HttpRequest) {
     const body = validateObject(request.body, {
-      deviceId: { type: 'string', required: true },
+      deviceId: { type: 'string' },
+      assetId: { type: 'string' },
       frameworkType: { type: 'string', required: true },
       frameworkKey: { type: 'string', required: true },
       discoveryProviderKey: { type: 'string', required: true },
@@ -225,6 +226,7 @@ export class AssetsController {
     const body = validateObject(request.body, {
       id: { type: 'string', required: true },
       deviceId: { type: 'string' },
+      assetId: { type: 'string' },
       frameworkType: { type: 'string' },
       frameworkKey: { type: 'string' },
       discoveryProviderKey: { type: 'string' },

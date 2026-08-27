@@ -13,6 +13,12 @@ export interface CloudServiceResourceV1 {
   resourceType: string;
   region: string;
   displayName?: string;
+  /** 中文说明：插件可为资源声明证书管理目标的类型、绑定键和执行能力。 */
+  targetType?: string;
+  targetKey?: string;
+  bindingKey?: string;
+  supportedCapabilities?: string[];
+  executionLocations?: Array<'CONTROL_PLANE' | 'GATEWAY'>;
   metadata?: Record<string, unknown>;
 }
 
@@ -68,24 +74,43 @@ export interface CloudResourceProjection {
     discoverySource: 'PROVIDER';
     metadata: Record<string, unknown>;
   };
+  managedTarget: {
+    id: string;
+    tenantId: string;
+    assetId: string;
+    frameworkInstanceId?: string;
+    siteId?: string;
+    discoveryProviderKey: string;
+    targetType: string;
+    targetKey: string;
+    bindingKey?: string;
+    supportedCapabilities: string[];
+    executionLocations: Array<'CONTROL_PLANE' | 'GATEWAY'>;
+    lastSeenAt?: string;
+    status: 'ACTIVE';
+    metadata: Record<string, unknown>;
+  };
 }
 
 export interface CloudResourceProjectionSummary {
   devices: number;
   frameworks: number;
   sites: number;
+  managedTargets: number;
 }
 
 export interface CloudResourceProjectionBatch {
   devices: NonNullable<CloudResourceProjection['device']>[];
   frameworks: CloudResourceProjection['framework'][];
   sites: CloudResourceProjection['site'][];
+  managedTargets: CloudResourceProjection['managedTarget'][];
 }
 
 export interface PersistedCloudResourceProjectionBatch {
   devices: Array<Record<string, unknown>>;
   frameworks: Array<Record<string, unknown>>;
   sites: Array<Record<string, unknown>>;
+  managedTargets: Array<Record<string, unknown>>;
 }
 
 export class CloudResourceProjectionService {
@@ -104,6 +129,11 @@ export class CloudResourceProjectionService {
       resourceType: identifier(input.resourceType, 'resourceType'),
       region: identifier(input.region, 'region'),
       ...(input.displayName === undefined ? {} : { displayName: text(input.displayName, 'displayName') }),
+      ...(input.targetType === undefined ? {} : { targetType: identifier(input.targetType, 'targetType') }),
+      ...(input.targetKey === undefined ? {} : { targetKey: identifier(input.targetKey, 'targetKey') }),
+      ...(input.bindingKey === undefined ? {} : { bindingKey: identifier(input.bindingKey, 'bindingKey') }),
+      ...(input.supportedCapabilities === undefined ? {} : { supportedCapabilities: stringArray(input.supportedCapabilities, 'supportedCapabilities') }),
+      ...(input.executionLocations === undefined ? {} : { executionLocations: executionLocations(input.executionLocations, 'executionLocations') }),
       ...(input.metadata === undefined ? {} : { metadata: record(input.metadata, 'metadata') }),
     };
     if (result.stableKey !== `${result.pluginId}:${result.resourceType}:${result.resourceId}`) {
@@ -118,6 +148,7 @@ export class CloudResourceProjectionService {
       devices: projections.devices.length,
       frameworks: projections.frameworks.length,
       sites: projections.sites.length,
+      managedTargets: projections.managedTargets.length,
     };
   }
 
@@ -126,8 +157,9 @@ export class CloudResourceProjectionService {
     const device = batch.devices[0];
     const framework = batch.frameworks[0];
     const site = batch.sites[0];
-    if (!framework || !site) throw invalid('Cloud Resource 不能为空');
-    return { ...(device ? { device } : {}), framework, site };
+    const managedTarget = batch.managedTargets[0];
+    if (!framework || !site || !managedTarget) throw invalid('Cloud Resource 不能为空');
+    return { ...(device ? { device } : {}), framework, site, managedTarget };
   }
 
   projectBatch(context: CloudResourceProjectionContext, inputs: readonly unknown[]): CloudResourceProjectionBatch {
@@ -146,49 +178,25 @@ export class CloudResourceProjectionService {
       byRegion.set(resource.region, [...(byRegion.get(resource.region) ?? []), resource]);
     });
     const regions = [...byRegion.keys()].sort();
-    const devices: NonNullable<CloudResourceProjection['device']>[] = regions.map((region) => {
-      const root = stableId(context.cloudAccountAssetId, `cloud.region:${region}`);
-      const accountSuffix = stableId(context.cloudAccountAssetId, 'management-address').slice(0, 10);
-      const displayName = regionDisplayNames.get(region) ?? (region === 'global' ? '全局控制面' : region);
-      return {
-        id: `dev_${root}`,
-        hostId: `hst_${root}`,
-        tenantId: context.tenantId,
-        cloudAccountAssetId: context.cloudAccountAssetId,
-        region,
-        displayName,
-        provider: context.provider,
-        deviceFamily: `${context.provider}.region`,
-        managementAddress: `${region}.${context.provider}-${accountSuffix}`,
-        metadata: {
-          cloudAccountAssetId: context.cloudAccountAssetId,
-          provider: context.provider,
-          region,
-          regionDisplayName: displayName,
-          scope: region === 'global' ? 'GLOBAL' : 'REGION',
-          deviceCategory: 'CLOUD',
-          livenessMode: 'DISCOVERY',
-          pluginId: context.pluginId,
-          pluginVersionId: context.pluginVersionId,
-        },
-      };
-    });
+    // 中文说明：云账号不是设备。区域仅用于 Framework 分组，不生成合成 Host/Device。
+    const devices: NonNullable<CloudResourceProjection['device']>[] = [];
     const frameworks: CloudResourceProjection['framework'][] = [];
     const sites: CloudResourceProjection['site'][] = [];
-    for (const device of devices) {
+    const managedTargets: CloudResourceProjection['managedTarget'][] = [];
+    for (const region of regions) {
       const typedByFramework = new Map<string, CloudServiceResourceV1[]>();
-      (byRegion.get(device.region) ?? [])
+      (byRegion.get(region) ?? [])
         .filter((resource) => resource.resourceType !== 'cloud.region')
         .forEach((resource) => typedByFramework.set(resource.resourceType, [...(typedByFramework.get(resource.resourceType) ?? []), resource]));
       for (const [resourceType, typedResources] of typedByFramework) {
         const frameworkKey = resourceType === 'cdn.domain' ? 'cdn' : resourceType;
-        const frameworkId = `fw_${stableId(context.cloudAccountAssetId, `cloud.region:${device.region}:framework:${frameworkKey}`)}`;
+        const frameworkId = `fw_${stableId(context.cloudAccountAssetId, `cloud.region:${region}:framework:${frameworkKey}`)}`;
         const frameworkMetadata = {
           cloudAccountAssetId: context.cloudAccountAssetId,
           pluginId: context.pluginId,
           pluginVersionId: context.pluginVersionId,
           provider: context.provider,
-          region: device.region,
+          region,
           resourceType,
           resourceCount: typedResources.length,
         };
@@ -196,7 +204,7 @@ export class CloudResourceProjectionService {
           id: frameworkId,
           tenantId: context.tenantId,
           assetId: context.cloudAccountAssetId,
-          deviceId: device.hostId,
+          deviceId: undefined,
           frameworkType: 'cloud.resource',
           frameworkKey,
           discoveryProviderKey: providerKey,
@@ -215,11 +223,12 @@ export class CloudResourceProjectionService {
             resourceId: resource.resourceId,
             stableKey: resource.stableKey,
           };
+          const siteId = `site_${root}`;
           sites.push({
-            id: `site_${root}`,
+            id: siteId,
             tenantId: context.tenantId,
             assetId: context.cloudAccountAssetId,
-            deviceId: device.hostId,
+            deviceId: undefined,
             frameworkId,
             siteType: 'cloud.resource',
             siteKey: resource.stableKey,
@@ -228,10 +237,31 @@ export class CloudResourceProjectionService {
             discoverySource: 'PROVIDER',
             metadata,
           });
+          managedTargets.push({
+            id: `mtg_${root}`,
+            tenantId: context.tenantId,
+            assetId: context.cloudAccountAssetId,
+            frameworkInstanceId: frameworkId,
+            siteId,
+            discoveryProviderKey: providerKey,
+            targetType: resource.targetType ?? `cloud.${resource.resourceType}`,
+            targetKey: resource.targetKey ?? resource.resourceId,
+            ...(resource.bindingKey ? { bindingKey: resource.bindingKey } : {}),
+            supportedCapabilities: resource.supportedCapabilities ?? ['cloud.resource.discover'],
+            executionLocations: resource.executionLocations ?? ['CONTROL_PLANE'],
+            lastSeenAt: context.discoveredAt,
+            status: 'ACTIVE',
+            metadata: {
+              ...metadata,
+              cloudResourceStableKey: resource.stableKey,
+              cloudResourceId: resource.resourceId,
+              cloudResourceType: resource.resourceType,
+            },
+          });
         });
       }
     }
-    return { devices, frameworks, sites };
+    return { devices, frameworks, sites, managedTargets };
   }
 
   /** 中文说明：云资源发现维护 CloudAccountAsset 下的 Framework/Site，不创建可部署 ManagedTarget。 */
@@ -240,8 +270,9 @@ export class CloudResourceProjectionService {
     const device = batch.devices[0];
     const framework = batch.frameworks[0];
     const site = batch.sites[0];
-    if (!framework || !site) throw invalid('Cloud Resource 不能为空');
-    return { ...(device ? { device } : {}), framework, site };
+    const managedTarget = batch.managedTargets[0];
+    if (!framework || !site || !managedTarget) throw invalid('Cloud Resource 不能为空');
+    return { ...(device ? { device } : {}), framework, site, managedTarget };
   }
 
   async persistBatch(context: CloudResourceProjectionContext, inputs: readonly unknown[]): Promise<CloudResourceProjectionBatch> {
@@ -318,7 +349,26 @@ export class CloudResourceProjectionService {
         site.id, site.tenantId, site.frameworkId, site.deviceId ?? null, site.assetId, site.discoveryProviderKey,
         site.siteType, site.siteName, site.siteKey, site.discoverySource, now,
         JSON.stringify(site.metadata),
-      ]);
+        ]);
+      }
+      for (const target of projection.managedTargets) {
+        await tx.query(`insert into pg_managed_targets
+          (id, tenant_id, asset_id, device_id, framework_instance_id, site_id, discovery_provider_key,
+           target_type, target_key, binding_key, supported_capabilities, execution_locations,
+           last_seen_at, status, metadata, created_at, updated_at, version)
+          values ($1,$2,$3,null,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12::timestamptz,'ACTIVE',$13::jsonb,$12::timestamptz,$12::timestamptz,1)
+          on conflict (id) do update set asset_id=excluded.asset_id, device_id=null,
+            framework_instance_id=excluded.framework_instance_id, site_id=excluded.site_id,
+            discovery_provider_key=excluded.discovery_provider_key, target_type=excluded.target_type,
+            target_key=excluded.target_key, binding_key=excluded.binding_key,
+            supported_capabilities=excluded.supported_capabilities, execution_locations=excluded.execution_locations,
+            last_seen_at=excluded.last_seen_at, status='ACTIVE', metadata=excluded.metadata,
+            deleted_at=null, updated_at=excluded.updated_at, version=pg_managed_targets.version+1`, [
+          target.id, target.tenantId, target.assetId, target.frameworkInstanceId ?? null, target.siteId ?? null,
+          target.discoveryProviderKey, target.targetType, target.targetKey, target.bindingKey ?? null,
+          JSON.stringify(target.supportedCapabilities), JSON.stringify(target.executionLocations), now,
+          JSON.stringify(target.metadata),
+        ]);
       }
     });
     return projection;
@@ -331,7 +381,7 @@ export class CloudResourceProjectionService {
       [tenantId, cloudAccountAssetId],
     );
     if (!owner.rows[0]) throw new AppError('RESOURCE_NOT_FOUND', 'Cloud Resource 投影资产不存在', { cloudAccountAssetId });
-    const [frameworkRows, siteRows] = await Promise.all([
+    const [frameworkRows, siteRows, managedTargetRows] = await Promise.all([
       this.db.query<Record<string, unknown>>(
         `select id, tenant_id, asset_id, device_id, discovery_provider_key, framework_key, framework_type,
                 display_name, version_text, discovery_source, last_discovered_at, status, raw_facts,
@@ -339,6 +389,15 @@ export class CloudResourceProjectionService {
            from pg_framework_instances
           where tenant_id=$1 and asset_id=$2 and deleted_at is null
           order by display_name, id`,
+        [tenantId, cloudAccountAssetId],
+      ),
+      this.db.query<Record<string, unknown>>(
+        `select id, tenant_id, asset_id, framework_instance_id, site_id, discovery_provider_key,
+                target_type, target_key, binding_key, supported_capabilities, execution_locations,
+                last_seen_at, status, metadata
+           from pg_managed_targets
+          where tenant_id=$1 and asset_id=$2 and deleted_at is null
+          order by target_key, id`,
         [tenantId, cloudAccountAssetId],
       ),
       this.db.query<Record<string, unknown>>(
@@ -383,6 +442,22 @@ export class CloudResourceProjectionService {
         status: row.status,
         metadata: row.metadata ?? {},
       })),
+      managedTargets: managedTargetRows.rows.map((row) => ({
+        id: row.id,
+        tenantId: row.tenant_id,
+        assetId: row.asset_id,
+        frameworkInstanceId: row.framework_instance_id ?? undefined,
+        siteId: row.site_id ?? undefined,
+        discoveryProviderKey: row.discovery_provider_key,
+        targetType: row.target_type,
+        targetKey: row.target_key,
+        bindingKey: row.binding_key ?? undefined,
+        supportedCapabilities: readStringArray(row.supported_capabilities),
+        executionLocations: readExecutionLocations(row.execution_locations),
+        lastSeenAt: row.last_seen_at ?? undefined,
+        status: row.status,
+        metadata: row.metadata ?? {},
+      })),
     };
   }
 }
@@ -407,6 +482,7 @@ function projectAccountFrameworkTopology(
     });
   const frameworks: CloudResourceProjection['framework'][] = [];
   const sites: CloudResourceProjection['site'][] = [];
+  const managedTargets: CloudResourceProjection['managedTarget'][] = [];
   for (const [scope, scopedResources] of [...byScope.entries()].sort(([left], [right]) => left.localeCompare(right))) {
     // 中文说明：展示名称由稳定范围键决定，避免历史投影中的“全球”文案继续泄漏到当前界面。
     const scopeName = scope === 'mainland' ? '中国大陆' : '国际站';
@@ -437,8 +513,9 @@ function projectAccountFrameworkTopology(
     scopedResources.forEach((resource) => {
       const siteRoot = stableId(context.cloudAccountAssetId, resource.stableKey);
       const siteName = resource.displayName ?? `${resource.resourceType}/${resource.resourceId}`;
+      const siteId = `site_${siteRoot}`;
       sites.push({
-        id: `site_${siteRoot}`,
+        id: siteId,
         tenantId: context.tenantId,
         assetId: context.cloudAccountAssetId,
         deviceId: undefined,
@@ -455,9 +532,31 @@ function projectAccountFrameworkTopology(
           stableKey: resource.stableKey,
         },
       });
+      managedTargets.push({
+        id: `mtg_${siteRoot}`,
+        tenantId: context.tenantId,
+        assetId: context.cloudAccountAssetId,
+        frameworkInstanceId: frameworkId,
+        siteId,
+        discoveryProviderKey: providerKey,
+        targetType: resource.targetType ?? `cloud.${resource.resourceType}`,
+        targetKey: resource.targetKey ?? resource.resourceId,
+        ...(resource.bindingKey ? { bindingKey: resource.bindingKey } : {}),
+        supportedCapabilities: resource.supportedCapabilities ?? ['cloud.resource.discover'],
+        executionLocations: resource.executionLocations ?? ['CONTROL_PLANE'],
+        lastSeenAt: context.discoveredAt,
+        status: 'ACTIVE',
+        metadata: {
+          ...frameworkMetadata,
+          ...(resource.metadata ?? {}),
+          resourceId: resource.resourceId,
+          resourceType: resource.resourceType,
+          cloudResourceStableKey: resource.stableKey,
+        },
+      });
     });
   }
-  return { devices: [], frameworks, sites };
+  return { devices: [], frameworks, sites, managedTargets };
 }
 
 function textValue(value: unknown): string {
@@ -484,6 +583,32 @@ async function retirePreviousProjection(tx: DatabasePort, context: CloudResource
        where tenant_id=$1 and asset_id=$2 and framework_type='cloud.resource' and deleted_at is null`,
     [context.tenantId, context.cloudAccountAssetId, now],
   );
+  await tx.query(
+    `update pg_managed_targets set status='DELETED', deleted_at=$3, updated_at=$3, version=version+1
+       where tenant_id=$1 and asset_id=$2 and deleted_at is null`,
+    [context.tenantId, context.cloudAccountAssetId, now],
+  );
+}
+
+function stringArray(value: unknown, path: string): string[] {
+  if (!Array.isArray(value) || value.length === 0 || value.some((item) => typeof item !== 'string' || item.trim() === '')) {
+    throw invalid(`${path} 必须是非空字符串数组`);
+  }
+  return value.map((item) => String(item).trim());
+}
+
+function executionLocations(value: unknown, path: string): Array<'CONTROL_PLANE' | 'GATEWAY'> {
+  const values = stringArray(value, path);
+  if (values.some((item) => item !== 'CONTROL_PLANE' && item !== 'GATEWAY')) throw invalid(`${path} 包含不支持的执行位置`);
+  return values as Array<'CONTROL_PLANE' | 'GATEWAY'>;
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function readExecutionLocations(value: unknown): Array<'CONTROL_PLANE' | 'GATEWAY'> {
+  return readStringArray(value).filter((item): item is 'CONTROL_PLANE' | 'GATEWAY' => item === 'CONTROL_PLANE' || item === 'GATEWAY');
 }
 
 function assertResourceProvenance(resource: CloudServiceResourceV1, context: CloudResourceProjectionContext): void {
