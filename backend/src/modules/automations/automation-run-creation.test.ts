@@ -36,6 +36,62 @@ test('按需运行固化版本和目标快照，并由幂等键复用同一运�
   assert.equal((await repository.getRun(first.id, 'tenant_1'))?.automationNameSnapshot, '批量更新');
 });
 
+test('按需运行的证书有效期降级必须经过二次确认', async () => {
+  const db = new PgliteDatabase();
+  await applyAutomationMigrations(db);
+  const repository = new AutomationsRepository(db);
+  const now = '2026-08-27T00:00:00.000Z';
+  await repository.createAutomation({ id: 'aut_downgrade', tenantId: 'tenant_1', name: '降级更新', status: 'active', currentVersion: 1, createdBy: 'u1', createdAt: now, updatedAt: now, version: 1 });
+  await repository.createVersion({
+    id: 'autv_downgrade',
+    tenantId: 'tenant_1',
+    automationId: 'aut_downgrade',
+    version: 1,
+    trigger: { type: 'on_demand' },
+    targetResolver: { type: 'certificate_version_targets' },
+    actions: [{ type: 'send_notification', position: 1, config: { templateKey: 'result', eventKey: 'done' } }],
+    guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 2, requirePreview: true, requireDryRun: false, requireApproval: false },
+    checksum: 'g'.repeat(64),
+    createdBy: 'u1',
+    createdAt: now,
+  });
+  const resolverRegistry = new AutomationTargetResolverRegistry();
+  resolverRegistry.register({
+    type: 'certificate_version_targets',
+    validate: () => undefined,
+    resolve: async (input) => [{
+      target: {
+        certificateId: 'cert-1',
+        certificateName: 'example.com',
+        certificateVersionId: 'target',
+        currentCertificateNotAfter: '2026-11-04T00:00:00.000Z',
+        targetCertificateNotAfter: '2026-10-30T00:00:00.000Z',
+        certificateVersionImpact: 'downgrade',
+        bindingId: 'binding-1',
+        assetId: 'asset-1',
+        assetName: '应用资产 1',
+        tags: [],
+      },
+      executable: input.allowCertificateDowngrade === true,
+      ...(input.allowCertificateDowngrade ? {} : { excludedReason: 'certificate_version_downgrade' as const }),
+    }],
+  });
+  const service = new AutomationsApplicationService(repository, undefined, () => new Date(now), { resolverRegistry });
+
+  await assert.rejects(
+    () => service.createOnDemandRun('tenant_1', 'u1', 'aut_downgrade', 'downgrade-without-confirmation', 1, { allowCertificateDowngrade: true }),
+    (error: unknown) => error instanceof AppError
+      && error.errorCode === 'VALIDATION_FAILED'
+      && error.message.includes('必须二次确认'),
+  );
+
+  const run = await service.createOnDemandRun('tenant_1', 'u1', 'aut_downgrade', 'downgrade-confirmed', 1, {
+    allowCertificateDowngrade: true,
+    confirmCertificateDowngrade: true,
+  });
+  assert.equal(run.targetSummary.total, 1);
+});
+
 test('证书新版本事件自动化手动执行时缺少证书版本会被拒绝', async () => {
   const db = new PgliteDatabase();
   await applyAutomationMigrations(db);

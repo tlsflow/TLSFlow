@@ -50,7 +50,15 @@ export class AutomationsApplicationService {
   listRunActionResults(tenantId: string, runId: string) { return this.repository.listActionResults(runId, tenantId); }
   listDeliveries(tenantId: string, automationId?: string) { return this.repository.listDeliveries(tenantId, automationId); }
 
-  async preview(tenantId: string, actorId: string, id: string, page?: number, pageSize?: number, triggerContext?: AutomationTriggerContextDto): Promise<AutomationPreviewDto> {
+  async preview(
+    tenantId: string,
+    actorId: string,
+    id: string,
+    page?: number,
+    pageSize?: number,
+    triggerContext?: AutomationTriggerContextDto,
+    options: { allowCertificateDowngrade?: boolean } = {},
+  ): Promise<AutomationPreviewDto> {
     const automation = await this.repository.getAutomationOrThrow(id, tenantId);
     const version = await this.repository.getVersion(id, automation.currentVersion, tenantId);
     if (!version) throw new Error(`automation version missing: ${id}@${automation.currentVersion}`);
@@ -58,6 +66,7 @@ export class AutomationsApplicationService {
       tenantId,
       actorId,
       triggerContext,
+      allowCertificateDowngrade: options.allowCertificateDowngrade === true,
       guardrails: version.guardrails,
       resolver: this.effectiveResolver(version.targetResolver, version.filters ?? []),
       filters: version.filters ?? [],
@@ -75,7 +84,21 @@ export class AutomationsApplicationService {
     });
   }
 
-  async createOnDemandRun(tenantId: string, actorId: string, id: string, idempotencyKey: string, expectedVersion: number, options: { triggerType?: 'on_demand' | 'schedule'; scheduledAt?: string; triggerContext?: AutomationTriggerContextDto; executionOptions?: AutomationRunExecutionOptionsDto } = {}): Promise<AutomationRunDto> {
+  async createOnDemandRun(
+    tenantId: string,
+    actorId: string,
+    id: string,
+    idempotencyKey: string,
+    expectedVersion: number,
+    options: {
+      triggerType?: 'on_demand' | 'schedule';
+      scheduledAt?: string;
+      triggerContext?: AutomationTriggerContextDto;
+      executionOptions?: AutomationRunExecutionOptionsDto;
+      allowCertificateDowngrade?: boolean;
+      confirmCertificateDowngrade?: boolean;
+    } = {},
+  ): Promise<AutomationRunDto> {
     const existing = await this.repository.findRunByIdempotencyKey(tenantId, idempotencyKey);
     if (existing) return existing;
     const automation = await this.repository.getAutomationOrThrow(id, tenantId);
@@ -85,14 +108,24 @@ export class AutomationsApplicationService {
     if (version.trigger.type === 'certificate_version_created' && !options.triggerContext?.certificateVersionId) {
       throw new AppError('VALIDATION_FAILED', '证书新版本事件自动化手动执行时必须选择证书版本');
     }
+    const isManualRun = (options.triggerType ?? 'on_demand') === 'on_demand';
+    const allowCertificateDowngrade = isManualRun && options.allowCertificateDowngrade === true;
     const preview = await this.resolveTargets({
       tenantId,
       actorId,
       triggerContext: options.triggerContext,
+      allowCertificateDowngrade,
       guardrails: version.guardrails,
       resolver,
       filters: version.filters ?? [],
     });
+    const executableDowngradeCount = preview.filter((item) => item.executable && item.target.certificateVersionImpact === 'downgrade').length;
+    if (!isManualRun && executableDowngradeCount > 0) {
+      throw new AppError('VALIDATION_FAILED', '自动触发不允许降低证书有效期', { executableDowngradeCount });
+    }
+    if (executableDowngradeCount > 0 && !options.confirmCertificateDowngrade) {
+      throw new AppError('VALIDATION_FAILED', '证书有效期降级必须二次确认', { executableDowngradeCount });
+    }
     const run = await this.persistRunFromTargets({
       tenantId,
       actorId,

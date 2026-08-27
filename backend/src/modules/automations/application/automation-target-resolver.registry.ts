@@ -5,6 +5,11 @@ export interface AutomationTargetResolverInput {
   tenantId: string;
   actorId: string;
   triggerContext?: AutomationTriggerContextDto;
+  /**
+   * 仅手动运行允许把证书有效期降级目标交给执行器。
+   * 自动事件和定时任务必须保持默认值，避免绕过安全门禁。
+   */
+  allowCertificateDowngrade?: boolean;
   guardrails: AutomationGuardrailsDto;
   resolver: AutomationTargetResolverDto;
   page?: number;

@@ -64,6 +64,9 @@ export class AutomationRunCoordinator {
 
   async execute(runId: string, tenantId: string): Promise<AutomationRunDto> {
     let run = await this.requireRun(runId, tenantId);
+    // 中文说明：终态运行是不可变结果。统一任务因租约竞争、重启或补偿再次触发时，
+    // 只能读取并返回该结果，不能先把已完成的运行改回 running。
+    if (['succeeded', 'partially_succeeded', 'failed', 'needs_attention', 'stopped', 'cancelled'].includes(run.status)) return run;
     let approvalGranted = run.status !== 'waiting_approval' && Boolean(run.approvalId);
     if (run.status === 'waiting_approval' && this.approvals) {
       const approval = await this.approvals.synchronizeRun(run.id, tenantId);

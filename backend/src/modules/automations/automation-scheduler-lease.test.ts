@@ -46,3 +46,22 @@ test('自动化等待审批时释放运行租约，批准后可立即重新获�
   assert.equal(await scheduler.runRun('run_approval', 'tenant_approval'), true);
   assert.equal(await repository.acquireSchedulerLease('automation-run:tenant_approval:run_approval', 'worker_after_approval', new Date(Date.now() + 60_000)), true);
 });
+
+test('自动化协调完成后释放运行租约，后续轮询不会被旧租约阻塞', async () => {
+  const db = new PgliteDatabase();
+  await applyAutomationMigrations(db);
+  const repository = new AutomationsRepository(db);
+  const now = new Date(Date.now() + 60_000).toISOString();
+  await repository.createAutomation({ id: 'automation_running', tenantId: 'tenant_running', name: 'A', status: 'draft', currentVersion: 1, createdBy: 'user_1', createdAt: now, updatedAt: now, version: 1 });
+  await repository.createRun({ id: 'run_running', tenantId: 'tenant_running', automationId: 'automation_running', automationVersion: 1, automationNameSnapshot: 'A', triggerType: 'on_demand', idempotencyKey: 'running-key', status: 'queued', targetSummary: { total: 0, pending: 0, running: 0, waitingApproval: 0, succeeded: 0, failed: 0, skipped: 0, cancelled: 0 }, actionTypes: [], environmentSnapshots: [], createdBy: 'user_1', createdAt: now });
+  const scheduler = new AutomationScheduler(
+    repository,
+    { createOnDemandRun: async () => { throw new Error('不应创建定时运行'); } } as never,
+    { execute: async () => ({ status: 'running' as const }) },
+    'worker_running',
+    { now: () => new Date(now) },
+  );
+
+  assert.equal(await scheduler.runRun('run_running', 'tenant_running'), true);
+  assert.equal(await repository.acquireSchedulerLease('automation-run:tenant_running:run_running', 'worker_after_running', new Date(Date.now() + 60_000)), true);
+});

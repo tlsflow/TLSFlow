@@ -228,6 +228,51 @@ test('自动化运行等待审批时使用相对退避，不生成应用侧绝�
   assert.equal(result.errorCode, 'AUTOMATION_RUN_LEASE_UNAVAILABLE');
 });
 
+test('自动化运行已进入部分成功终态时直接收敛，不再次进入统一任务重试', async () => {
+  let coordinatorCalls = 0;
+  const registry = createTaskExecutorRegistry({
+    automation: {
+      runRun: async () => {
+        coordinatorCalls += 1;
+        return true;
+      },
+    } as never,
+    automationRuns: {
+      getRun: async () => ({
+        id: 'automation-run-partial',
+        tenantId: 'tenant-task-adapter',
+        automationId: 'automation-1',
+        automationNameSnapshot: '部分成功自动化',
+        triggerType: 'on_demand',
+        status: 'partially_succeeded',
+        targetSummary: {
+          total: 5,
+          pending: 0,
+          running: 0,
+          waitingApproval: 0,
+          succeeded: 4,
+          failed: 1,
+          skipped: 0,
+          cancelled: 0,
+        },
+      }),
+      listRunTargets: async () => [],
+      listRunActionResults: async () => [],
+    } as never,
+  });
+
+  const result = await registry.get('automation.run')(
+    task('AUTOMATION_RUN', { runId: 'automation-run-partial' }),
+    attempt,
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(result.retryable, undefined);
+  assert.equal(coordinatorCalls, 1);
+  assert.equal((result.detail as { succeededTargets?: number }).succeededTargets, 4);
+  assert.equal((result.detail as { failedTargets?: number }).failedTargets, 1);
+});
+
 test('Supervisor 只执行当前 Claim 的任务并返回执行器结果', async () => {
   const taskRun = task('WORKFLOW_RUN', { workflowRunId: 'workflow-1' });
   const registry = new TaskExecutorRegistry()

@@ -19,7 +19,8 @@ export type AutomationTriggerDto =
   | { type: 'once'; runAt: string }
   | { type: 'schedule'; cron: string; timeZone: string; startsAt?: string; endsAt?: string }
   | { type: 'on_demand' }
-  | { type: 'certificate_version_created'; sources?: Array<'external_source' | 'manual_import'> };
+  // external_source 是历史配置别名，当前实际来源统一为手工导入或 ACME 自动续期。
+  | { type: 'certificate_version_created'; sources?: Array<'external_source' | 'manual_import' | 'acme_issue'> };
 
 export interface AutomationFilterClauseDto {
   field: string;

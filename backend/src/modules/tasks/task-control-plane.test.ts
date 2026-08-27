@@ -303,6 +303,31 @@ test('外部异步任务使用 defer 时不会伪造成功或提前进入终态'
   assert.equal(first?.finishedAt, undefined);
 });
 
+test('defer 失败不能绕过任务定义的最大尝试次数', async () => {
+  const { service } = await createFixture();
+  const task = await service.enqueue({
+    tenantId: 'tenant-task-defer-limit',
+    taskType: 'REPORT_EXPORT',
+    triggerSource: 'test',
+  });
+  const execute = async () => ({
+    success: false,
+    defer: true,
+    retryAfterSeconds: 0,
+    errorCode: 'TEMPORARY',
+    errorMessage: '临时失败',
+  });
+
+  const first = await service.runNext('worker-defer-limit', execute, task.tenantId);
+  const second = await service.runNext('worker-defer-limit', execute, task.tenantId);
+  const third = await service.runNext('worker-defer-limit', execute, task.tenantId);
+
+  assert.equal(first?.status, 'RETRY_WAITING');
+  assert.equal(second?.status, 'RETRY_WAITING');
+  assert.equal(third?.status, 'FAILED');
+  assert.equal(third?.lastErrorCode, 'TEMPORARY');
+});
+
 test('等待外部结果的任务可再次领取以主动读取控制面状态，不消耗失败重试', async () => {
   const { repository, service } = await createFixture();
   const task = await service.enqueue({

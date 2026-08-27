@@ -53,7 +53,10 @@ export class AutomationFilterEvaluator {
     for (const filter of filters) {
       const accessor = this.accessors.get(filter.field)!;
       const actual = accessor(context);
-      const matched = this.match(actual, filter.operator, filter.value);
+      const expected = filter.field === 'event.sourceType'
+        ? normalizeEventSourceFilterValue(filter.value)
+        : filter.value;
+      const matched = this.match(actual, filter.operator, expected);
       if (!matched) return { matched: false, failedField: filter.field };
     }
     return { matched: true };
@@ -71,7 +74,7 @@ export class AutomationFilterEvaluator {
   private registerDefaults(): void {
     this
       .register('event.eventType', (context) => context.event?.eventType)
-      .register('event.sourceType', (context) => context.event?.sourceType)
+      .register('event.sourceType', (context) => normalizeEventSourceType(context.event?.sourceType))
       .register('event.certificateAssetId', (context) => context.event?.certificateAssetId)
       .register('event.certificateVersionId', (context) => context.event?.certificateVersionId)
       .register('event.domains', (context) => context.event?.domains ?? [])
@@ -84,4 +87,12 @@ export class AutomationFilterEvaluator {
       .register('target.ownerId', (context) => context.target?.ownerId)
       .register('target.tags', (context) => context.target?.tags ?? []);
   }
+}
+
+function normalizeEventSourceType(sourceType: unknown): unknown {
+  return sourceType === 'external_source' ? 'acme_issue' : sourceType;
+}
+
+function normalizeEventSourceFilterValue(value: unknown): unknown {
+  return Array.isArray(value) ? value.map(normalizeEventSourceType) : normalizeEventSourceType(value);
 }

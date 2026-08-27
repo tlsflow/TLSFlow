@@ -57,7 +57,7 @@ test('证书新版本事件会创建投递并落成自动化运行', async () =>
     eventId: 'evt_1',
     certificateAssetId: 'cert_asset_1',
     certificateVersionId: 'cert_ver_1',
-    sourceType: 'external_source',
+    sourceType: 'acme_issue',
     domains: ['example.com'],
     tags: ['prod'],
     occurredAt: now,

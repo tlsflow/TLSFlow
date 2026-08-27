@@ -83,6 +83,63 @@ test('证书事件解析器按明确选择的应用资产计算版本影响', as
   assert.equal(items[0]?.target.targetCertificateNotAfter, '2026-12-01T00:00:00.000Z');
 });
 
+test('证书事件解析器仅在显式允许时将有效期降级目标标为可执行', async () => {
+  const versions = new Map([
+    ['target', { id: 'target', certificateAssetId: 'certificate-target', name: 'example.com', versionNo: 4, notAfter: '2026-10-30T00:00:00.000Z', deployable: true }],
+    ['current', { id: 'current', certificateAssetId: 'certificate-target', versionNo: 5, notAfter: '2026-11-04T00:00:00.000Z', deployable: true }],
+  ]);
+  const resolver = new CertificateVersionTargetResolver(
+    {
+      getVersion: async (id: string) => versions.get(id),
+      getVersionByFingerprint: async () => undefined,
+      getAsset: async () => ({ id: 'certificate-target', name: 'example.com', tags: [] }),
+    } as never,
+    {
+      listCertificateBindings: async () => ({
+        page: 1,
+        pageSize: 5000,
+        total: 1,
+        items: [{ id: 'binding-a', serviceAssetId: 'asset-a', status: 'MANAGED', certificateVersionId: 'current', deletedAt: undefined }],
+      }),
+    } as never,
+    {
+      getServiceAssetDetail: async (_tenantId: string, id: string) => ({
+        id,
+        address: 'app.example.com',
+        port: 443,
+        protocol: 'HTTPS',
+        discoverySource: 'MANUAL',
+        status: 'ACTIVE',
+        tags: [],
+        metadata: {},
+        createdAt: '2026-08-01T00:00:00.000Z',
+        updatedAt: '2026-08-01T00:00:00.000Z',
+        version: 1,
+        targetBindingDetail: { certificateBindings: [] },
+        targetSnapshots: [],
+      }),
+      getServiceAsset: async (_tenantId: string, id: string) => ({ id, displayName: id, environment: 'production' }),
+      getHost: async () => undefined,
+    } as never,
+    { canReadTarget: async () => true },
+  );
+  const input = {
+    tenantId: 'tenant-1',
+    actorId: 'user-1',
+    triggerContext: { certificateVersionId: 'target', certificateAssetId: 'certificate-target' },
+    resolver: { type: 'certificate_version_targets' as const, assetIds: ['asset-a'] },
+    guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 2, requirePreview: true, requireDryRun: false, requireApproval: false },
+  };
+
+  const automaticItems = await resolver.resolve(input);
+  assert.equal(automaticItems[0]?.executable, false);
+  assert.equal(automaticItems[0]?.excludedReason, 'certificate_version_downgrade');
+
+  const manualItems = await resolver.resolve({ ...input, allowCertificateDowngrade: true });
+  assert.equal(manualItems[0]?.executable, true);
+  assert.equal(manualItems[0]?.excludedReason, undefined);
+});
+
 test('证书事件解析器复用应用资产当前证书信息，而不是只依赖绑定版本字段', async () => {
   const bindings = [
     { id: 'binding-a', serviceAssetId: 'asset-a', status: 'MANAGED', certificateVersionId: undefined, targetCertificateVersionId: undefined, deletedAt: undefined },
@@ -304,4 +361,94 @@ test('证书事件解析器按应用资产去重，重复绑定不会重复展�
   assert.deepEqual(items.map((item) => item.target.assetId), ['asset-a', 'asset-b']);
   assert.equal(items[0]?.target.certificateVersionImpact, 'upgrade');
   assert.equal(items[1]?.excludedReason, 'certificate_already_up_to_date');
+});
+
+test('证书事件解析器忽略已删除应用资产的历史选择 ID', async () => {
+  const versions = new Map([
+    ['target', { id: 'target', certificateAssetId: 'certificate-target', name: 'example.com', versionNo: 4, notAfter: '2026-11-04T00:00:00.000Z', deployable: true }],
+  ]);
+  const resolver = new CertificateVersionTargetResolver(
+    {
+      getVersion: async (id: string) => versions.get(id),
+      getVersionByFingerprint: async () => undefined,
+      getAsset: async () => ({ id: 'certificate-target', name: 'example.com', tags: [] }),
+    } as never,
+    {
+      listCertificateBindings: async () => ({ page: 1, pageSize: 5000, total: 0, items: [] }),
+    } as never,
+    {
+      getServiceAssetDetail: async () => undefined,
+      getServiceAsset: async (_tenantId: string, id: string) => id === 'asset-active'
+        ? { id, displayName: '当前应用', environment: 'production' }
+        : undefined,
+      getHost: async () => undefined,
+    } as never,
+    { canReadTarget: async () => true },
+  );
+
+  const items = await resolver.resolve({
+    tenantId: 'tenant-1',
+    actorId: 'user-1',
+    triggerContext: { certificateVersionId: 'target', certificateAssetId: 'certificate-target', sourceType: 'manual_import' },
+    resolver: { type: 'certificate_version_targets', assetIds: ['asset-active', 'asset-deleted'] },
+    guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 2, requirePreview: true, requireDryRun: true, requireApproval: true },
+  });
+
+  assert.equal(items.length, 1);
+  assert.equal(items[0]?.target.assetId, 'asset-active');
+  assert.equal(items[0]?.excludedReason, 'binding_missing');
+});
+
+test('证书事件解析器忽略已删除资产残留的 ManagedTarget 关联', async () => {
+  const versions = new Map([
+    ['target', { id: 'target', certificateAssetId: 'certificate-target', name: 'example.com', versionNo: 4, notAfter: '2026-11-04T00:00:00.000Z', deployable: true }],
+  ]);
+  const resolver = new CertificateVersionTargetResolver(
+    {
+      getVersion: async (id: string) => versions.get(id),
+      getVersionByFingerprint: async () => undefined,
+      getAsset: async () => ({ id: 'certificate-target', name: 'example.com', tags: [] }),
+    } as never,
+    {
+      listCertificateBindings: async () => ({
+        page: 1,
+        pageSize: 5000,
+        total: 1,
+        items: [{
+          id: 'binding-deleted',
+          managedTargetId: 'managed-deleted',
+          status: 'MANAGED',
+          certificateVersionId: undefined,
+          targetCertificateVersionId: undefined,
+          deletedAt: undefined,
+        }],
+      }),
+    } as never,
+    {
+      getApplicationAssetTargetByApplicationAssetId: async () => ({
+        id: 'target-deleted',
+        applicationAssetId: 'asset-deleted',
+        managedTargetId: 'managed-deleted',
+        status: 'ACTIVE',
+        metadata: {},
+        createdAt: '2026-08-01T00:00:00.000Z',
+        updatedAt: '2026-08-01T00:00:00.000Z',
+        version: 1,
+      }),
+      getServiceAssetDetail: async () => undefined,
+      getServiceAsset: async () => undefined,
+      getHost: async () => undefined,
+    } as never,
+    { canReadTarget: async () => true },
+  );
+
+  const items = await resolver.resolve({
+    tenantId: 'tenant-1',
+    actorId: 'user-1',
+    triggerContext: { certificateVersionId: 'target', certificateAssetId: 'certificate-target', sourceType: 'manual_import' },
+    resolver: { type: 'certificate_version_targets', assetIds: ['asset-deleted'] },
+    guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 2, requirePreview: true, requireDryRun: true, requireApproval: true },
+  });
+
+  assert.equal(items.length, 0);
 });

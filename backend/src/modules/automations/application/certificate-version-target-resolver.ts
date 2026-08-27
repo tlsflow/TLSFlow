@@ -55,9 +55,15 @@ export class CertificateVersionTargetResolver implements AutomationTargetResolve
       }];
     }
 
-    const selectedAssetIds = input.resolver.type === 'certificate_version_targets'
+    const requestedSelectedAssetIds = input.resolver.type === 'certificate_version_targets'
       ? [...new Set(input.resolver.assetIds ?? [])]
       : [];
+    const hasExplicitSelection = requestedSelectedAssetIds.length > 0;
+    const selectedAssetIds: string[] = [];
+    for (const assetId of requestedSelectedAssetIds) {
+      // 先确认应用资产仍在当前清单中，再建立 ManagedTarget 关联，避免残留关联把已删除资产带回影响分析。
+      if (await this.assets.getServiceAsset(input.tenantId, assetId)) selectedAssetIds.push(assetId);
+    }
     const selectedManagedTargetIds = new Map<string, string>();
     for (const assetId of selectedAssetIds) {
       const target = await this.assets.getApplicationAssetTargetByApplicationAssetId?.(input.tenantId, assetId);
@@ -67,7 +73,7 @@ export class CertificateVersionTargetResolver implements AutomationTargetResolve
     const bindings = (await this.bindings.listCertificateBindings(input.tenantId, { page: 1, pageSize: 5000, filter: {} } as PageQuery)).items
       .filter((binding) => {
         if (binding.deletedAt) return false;
-        if (selectedAssetIds.length === 0) return true;
+        if (!hasExplicitSelection) return true;
         if (binding.serviceAssetId && selectedAssetIds.includes(binding.serviceAssetId)) return true;
         if (binding.managedTargetId && selectedManagedTargetIds.has(binding.managedTargetId)) return true;
         return false;
@@ -80,10 +86,12 @@ export class CertificateVersionTargetResolver implements AutomationTargetResolve
       if (selectedAssetId) bindingAssetIds.add(selectedAssetId);
     }
 
-    if (selectedAssetIds.length > 0) {
+    if (hasExplicitSelection) {
       for (const assetId of selectedAssetIds.filter((id) => !bindingAssetIds.has(id))) {
         const serviceAsset = await this.assets.getServiceAssetDetail(input.tenantId, assetId)
           ?? await this.assets.getServiceAsset(input.tenantId, assetId);
+        // 已删除或不存在的应用资产不再属于当前清单，不能把历史 ID 伪装成新的缺少绑定目标。
+        if (!serviceAsset) continue;
         const currentCertificateState = await resolveCurrentCertificateState({
           detail: serviceAsset,
           certificates: this.certificates,
@@ -155,7 +163,7 @@ export class CertificateVersionTargetResolver implements AutomationTargetResolve
         else if (binding.status !== 'MANAGED') excludedReason = 'binding_not_managed';
         else if (!serviceAsset) excludedReason = 'asset_missing_deployment_capability';
         else if (input.guardrails.allowedEnvironments?.length && (!serviceAsset.environment || !input.guardrails.allowedEnvironments.includes(serviceAsset.environment))) excludedReason = 'environment_not_allowed';
-        else if (certificateVersionImpact === 'downgrade') excludedReason = 'certificate_version_downgrade';
+        else if (certificateVersionImpact === 'downgrade' && !input.allowCertificateDowngrade) excludedReason = 'certificate_version_downgrade';
         targets.push({
           target,
           executable: !excludedReason,
@@ -204,7 +212,7 @@ export class CertificateVersionTargetResolver implements AutomationTargetResolve
         else if (binding.status !== 'MANAGED') excludedReason = 'binding_not_managed';
         else if (!serviceAsset) excludedReason = 'asset_missing_deployment_capability';
         else if (input.guardrails.allowedEnvironments?.length && (!serviceAsset.environment || !input.guardrails.allowedEnvironments.includes(serviceAsset.environment))) excludedReason = 'environment_not_allowed';
-        else if (certificateVersionImpact === 'downgrade') excludedReason = 'certificate_version_downgrade';
+        else if (certificateVersionImpact === 'downgrade' && !input.allowCertificateDowngrade) excludedReason = 'certificate_version_downgrade';
         targets.push({
           target,
           executable: !excludedReason,
@@ -212,7 +220,7 @@ export class CertificateVersionTargetResolver implements AutomationTargetResolve
         });
         continue;
       }
-      if (selectedAssetIds.length === 0 && bindingVersion.certificateAssetId !== asset.id) continue;
+      if (!hasExplicitSelection && bindingVersion.certificateAssetId !== asset.id) continue;
 
       const resolvedAssetId = binding.serviceAssetId ?? (binding.managedTargetId ? selectedManagedTargetIds.get(binding.managedTargetId) : undefined);
       const serviceAsset = resolvedAssetId
@@ -252,7 +260,7 @@ export class CertificateVersionTargetResolver implements AutomationTargetResolve
       else if (binding.status !== 'MANAGED') excludedReason = 'binding_not_managed';
       else if (!serviceAsset) excludedReason = 'asset_missing_deployment_capability';
       else if (input.guardrails.allowedEnvironments?.length && (!serviceAsset.environment || !input.guardrails.allowedEnvironments.includes(serviceAsset.environment))) excludedReason = 'environment_not_allowed';
-      else if (certificateVersionImpact === 'downgrade') excludedReason = 'certificate_version_downgrade';
+      else if (certificateVersionImpact === 'downgrade' && !input.allowCertificateDowngrade) excludedReason = 'certificate_version_downgrade';
       targets.push({ target, executable: !excludedReason, excludedReason });
     }
     return dedupeTargets(targets);

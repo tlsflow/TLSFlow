@@ -82,12 +82,16 @@ export class AutomationTriggerRegistry {
         type: 'certificate_version_created',
         isEventTrigger: true,
         validate: (trigger: Extract<AutomationTriggerDto, { type: 'certificate_version_created' }>) => {
-          const invalid = (trigger.sources ?? []).find((item) => !['external_source', 'manual_import'].includes(item));
+          const invalid = (trigger.sources ?? []).find((item) => !['external_source', 'manual_import', 'acme_issue'].includes(item));
           if (invalid) throw new AppError('VALIDATION_FAILED', '证书事件来源不受支持', { source: invalid });
         },
         matchesContext: (trigger: Extract<AutomationTriggerDto, { type: 'certificate_version_created' }>, context) => {
           if (context.eventType && context.eventType !== 'certificate.version.created') return false;
-          if (trigger.sources?.length && context.sourceType) return trigger.sources.includes(context.sourceType as 'external_source' | 'manual_import');
+          if (trigger.sources?.length && context.sourceType) {
+            const source = normalizeCertificateEventSource(context.sourceType);
+            if (!source) return false;
+            return trigger.sources.some((item) => normalizeCertificateEventSource(item) === source);
+          }
           return true;
         },
         buildDeliveryKey: (_trigger, context) => {
@@ -98,4 +102,10 @@ export class AutomationTriggerRegistry {
         },
       });
   }
+}
+
+function normalizeCertificateEventSource(source: string): 'manual_import' | 'acme_issue' | undefined {
+  if (source === 'external_source') return 'acme_issue';
+  if (source === 'manual_import' || source === 'acme_issue') return source;
+  return undefined;
 }

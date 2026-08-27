@@ -201,6 +201,18 @@ export function createTaskExecutorRegistry(
     const targets = current ? await dependencies.automationRuns?.listRunTargets(task.tenantId, runId) : [];
     const actionResults = current ? await dependencies.automationRuns?.listRunActionResults(task.tenantId, runId) : [];
     const detail = current ? buildAutomationTaskProgress({ run: current, targets, actionResults }) : { runId };
+    if (current && ['succeeded', 'partially_succeeded'].includes(current.status)) {
+      return { success: true, detail };
+    }
+    if (current && ['failed', 'needs_attention', 'stopped', 'cancelled'].includes(current.status)) {
+      return {
+        success: false,
+        retryable: false,
+        errorCode: current.failureCode ?? 'AUTOMATION_RUN_FAILED',
+        errorMessage: current.failureMessage ?? `自动化运行以 ${current.status} 结束`,
+        detail,
+      };
+    }
     if (!executed) {
       return {
         success: false,

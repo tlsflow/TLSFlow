@@ -52,12 +52,15 @@ export class AutomationScheduler {
     const leasedUntil = new Date(this.clock.now().getTime() + 300_000);
     const leaseKey = `automation-run:${tenantId}:${runId}`;
     if (!await this.repository.acquireSchedulerLease(leaseKey, this.ownerId, leasedUntil)) return false;
-    const result = await this.executor.execute(runId, tenantId);
-    if (isWaitingForApproval(result)) {
-      // 中文说明：等待审批不是长时间执行，必须释放运行租约，让批准后的任务立即重新进入同步流程。
+    try {
+      await this.executor.execute(runId, tenantId);
+      // 中文说明：租约只保护一次协调过程。协调结束后无论是等待审批、等待远端结果
+      // 还是已进入终态，都必须释放租约；否则后续轮询会被自己留下的五分钟租约挡住。
+      // 目标动作本身通过幂等键、计划状态和动作结果防止重复执行。
+      return true;
+    } finally {
       await this.repository.releaseSchedulerLease(leaseKey, this.ownerId);
     }
-    return true;
   }
 
   async scan(tenantId: string): Promise<string[]> {
@@ -78,8 +81,4 @@ export class AutomationScheduler {
     }
     return created;
   }
-}
-
-function isWaitingForApproval(value: unknown): boolean {
-  return Boolean(value && typeof value === 'object' && (value as { status?: unknown }).status === 'waiting_approval');
 }

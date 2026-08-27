@@ -336,8 +336,11 @@ export class TasksApplicationService {
         this.realtime?.publishTask(finished);
         return finished;
       }
+      // 中文说明：defer 只是“稍后再处理”的时间策略，不得绕过任务定义的最大尝试次数。
+      // 真正需要长期轮询外部结果的执行器必须返回 waitingStatus=WAITING_RESULT；
+      // 普通失败（包括自动化租约竞争）一律遵守 maxAttempts，避免任务无限重试。
       const shouldRetry = result.retryable !== false
-        && (result.defer === true || attempt.attemptNo < definition.retryPolicy.maxAttempts);
+        && attempt.attemptNo < definition.retryPolicy.maxAttempts;
       const nextAttemptAt = shouldRetry && result.nextAttemptAt ? result.nextAttemptAt : undefined;
       const retryAfterSeconds = shouldRetry && !nextAttemptAt
         ? result.retryAfterSeconds
