@@ -5,13 +5,13 @@ export interface DeploymentFeatures {
 }
 
 /**
- * Browser Runtime 默认保持开启以兼容未提供新开关的既有部署。
- * 模板显式设置为 false，用户需要浏览器会话时再打开它。
+ * Backend 在标准架构中始终装配 Browser Runtime 能力。
+ * Runtime 容器是否拉取和启动由 Docker Compose 控制，不读取 Backend 环境变量。
+ *
+ * 参数保留用于测试和显式能力裁剪，不作为生产部署开关。
  */
-export function isBrowserRuntimeEnabled(
-  value: string | undefined = process.env.BROWSER_RUNTIME_ENABLED,
-): boolean {
-  return value?.trim().toLowerCase() !== 'false';
+export function isBrowserRuntimeEnabled(value?: string): boolean {
+  return value === undefined || value.trim().toLowerCase() !== 'false';
 }
 
 export function resolveDeploymentArchitecture(

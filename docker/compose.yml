@@ -38,6 +38,8 @@ services:
       GCAC_SECRET_KEK: ${GCAC_SECRET_KEK:?请设置 GCAC_SECRET_KEK}
       # 可选；未配置时 CA 高风险操作失败关闭，但不阻止服务启动。
       GCAC_CA_CONFIRMATION_SECRET: ${GCAC_CA_CONFIRMATION_SECRET:-}
+      # 可选；默认禁止审批发起人自行批准。
+      GCAC_APPROVAL_ALLOW_SELF_APPROVAL: ${GCAC_APPROVAL_ALLOW_SELF_APPROVAL:-false}
       GCAC_MIGRATIONS_DIR: /app/src/database/migrations
       GCAC_WORKFLOW_DATA_DIR: /app/data/workflows
       GCAC_RUNTIME_SECRETS_FILE: /app/data/runtime/runtime-secrets.enc
@@ -65,7 +67,6 @@ services:
       GCAC_AGENT_LOCAL_POLICY_ROOT_PUBLIC_KEY_PEM: ${GCAC_AGENT_LOCAL_POLICY_ROOT_PUBLIC_KEY_PEM:-}
       GCAC_AGENT_LOCAL_POLICY_ROOT_FINGERPRINT_SHA256: ${GCAC_AGENT_LOCAL_POLICY_ROOT_FINGERPRINT_SHA256:-}
       GCAC_AGENT_LOCAL_POLICY_BUNDLE_JSON: ${GCAC_AGENT_LOCAL_POLICY_BUNDLE_JSON:-}
-      BROWSER_RUNTIME_ENABLED: ${BROWSER_RUNTIME_ENABLED:-false}
       BROWSER_RUNTIME_URL: ${BROWSER_RUNTIME_URL:-http://browser-runtime:8787}
       BROWSER_RUNTIME_SHARED_SECRET: ${BROWSER_RUNTIME_SHARED_SECRET:-}
       BROWSER_RUNTIME_PUBLIC_BASE_URL: ${BROWSER_RUNTIME_PUBLIC_BASE_URL:-}
@@ -104,8 +105,9 @@ services:
     restart: unless-stopped
 
   browser-runtime:
-    # 默认不随 standard 启动；需要时显式追加 --profile browser-runtime。
-    profiles: ["browser-runtime"]
+    # BROWSER_RUNTIME_ENABLED 通过 COMPOSE_PROFILES 自动映射到 true Profile。
+    # 同时保留 browser-runtime Profile，兼容手动执行 --profile browser-runtime。
+    profiles: ["true", "browser-runtime"]
     labels:
       com.gcac.deployment.architecture: standard
     image: ${GCAC_IMAGE_NAMESPACE:?请设置 Docker Hub 命名空间}/gcac-browser-runtime:${GCAC_RELEASE_VERSION:-latest}
