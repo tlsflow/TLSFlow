@@ -57,39 +57,18 @@
         "artifactDigest": {
           "$ref": "artifactDigest"
         },
-        "storageKind": "KEYSTORE"
+        "storageKind": "KEYSTORE",
+        "keystoreType": {
+          "$ref": "keystoreType"
+        },
+        "configPath": {
+          "$ref": "sourceConfigPath"
+        },
+        "keyAlias": {
+          "$ref": "keyAlias"
+        }
       },
       "expandPathRef": "paths"
-    },
-    {
-      "operationId": "config-check",
-      "operationType": "command.execute_allowlisted",
-      "stage": "execute",
-      "input": {
-        "executablePath": {
-          "$ref": "programPath"
-        },
-        "executableSha256": {
-          "$ref": "programSha256"
-        },
-        "args": {
-          "$ref": "configCheckArgs"
-        },
-        "argumentTemplate": {
-          "$ref": "configCheckArgsTemplate"
-        },
-        "environmentAllowlist": [],
-        "workingDirectory": {
-          "$ref": "workingDirectory"
-        },
-        "networkScopes": [],
-        "childProcessPolicy": "deny",
-        "timeoutSeconds": 60,
-        "outputLimitBytes": 65536,
-        "artifactDigest": {
-          "$ref": "artifactDigest"
-        }
-      }
     },
     {
       "operationId": "stop-service",

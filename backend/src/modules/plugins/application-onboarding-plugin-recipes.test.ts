@@ -46,7 +46,7 @@ const expected = {
     format: 'PEM',
   },
   'app.tomcat.linux': {
-    version: '1.0.6',
+    version: '1.0.8',
     platformKey: 'app.tomcat.linux',
     displayName: 'Linux Tomcat 应用',
     englishDisplayName: 'Linux Tomcat Site',
@@ -54,7 +54,7 @@ const expected = {
     formats: ['PFX', 'JKS'],
   },
   'app.tomcat.windows': {
-    version: '1.0.8',
+    version: '1.0.9',
     platformKey: 'app.tomcat.windows',
     displayName: 'Windows Tomcat 应用',
     englishDisplayName: 'Windows Tomcat Site',

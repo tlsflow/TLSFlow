@@ -57,7 +57,16 @@
         "artifactDigest": {
           "$ref": "artifactDigest"
         },
-        "storageKind": "KEYSTORE"
+        "storageKind": "KEYSTORE",
+        "keystoreType": {
+          "$ref": "keystoreType"
+        },
+        "configPath": {
+          "$ref": "sourceConfigPath"
+        },
+        "keyAlias": {
+          "$ref": "keyAlias"
+        }
       },
       "expandPathRef": "paths"
     },

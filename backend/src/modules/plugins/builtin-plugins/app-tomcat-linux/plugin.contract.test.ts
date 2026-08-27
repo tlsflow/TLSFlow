@@ -9,7 +9,7 @@ import {
 
 const pluginId = 'app.tomcat.linux' as const;
 
-test(`${pluginId} 以单一 KeyStore 文件执行 restart`, () => {
+test(`${pluginId} 以单一 KeyStore 文件执行停止/启动`, () => {
   const contract = loadCertificateUpdateContract(pluginId);
   const snapshot = createCertificateUpdateSnapshot(pluginId);
   const plan = compileCertificateUpdatePlanTemplate({
@@ -26,6 +26,16 @@ test(`${pluginId} 以单一 KeyStore 文件执行 restart`, () => {
   assert.equal(plan.operations.some((operation) => operation.operationType === 'service.stop'), true);
   assert.equal(plan.operations.some((operation) => operation.operationType === 'service.start'), true);
   assert.equal(plan.operations.some((operation) => operation.operationType === 'service.reload'), false);
+  assert.equal(plan.operations.some((operation) => operation.operationType === 'command.execute_allowlisted'), false);
+  assert.deepEqual(plan.operations.map((operation) => operation.operationId), [
+    'validate-material-1',
+    'backup-target-1',
+    'atomic-replace-1',
+    'stop-service',
+    'start-service',
+    'verify-material-1',
+    'verify-service',
+  ]);
   assert.deepEqual(snapshot.paths, ['/opt/gcac/tomcat/conf/confirmed.keystore']);
   assert.equal(snapshot.keystoreType, 'PKCS12');
   assert.equal(snapshot.keyAlias, 'server');
