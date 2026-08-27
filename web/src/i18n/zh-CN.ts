@@ -2845,8 +2845,10 @@ export default {
   bindings: {
     defaults: certificateFormatDefaultsZhCN,
     actions: {
-      create: '新建配置文件',
+      create: '新建交付配置',
       toggleFilters: '筛选',
+      export: '导出',
+      exporting: '导出中...',
       edit: '编辑',
       delete: '删除',
       deleting: '删除中...',
@@ -2855,43 +2857,60 @@ export default {
       confirmSave: '确认保存'
     },
     columns: {
-      configName: '配置文件名称',
+      configName: '交付配置',
       targetSummary: '目标环境',
       displayFormat: '内容格式',
       extension: '扩展名',
       encodingSummary: '编码',
-      exportSummary: '包含内容 / 导出选项',
+      exportSummary: '包含内容',
       actions: '操作'
     },
     dialog: {
-      createTitle: '新建证书格式配置',
-      editTitle: '编辑证书格式配置',
-      description: '选择系统平台与目标平台后，可套用内置模板并逐项调整导出内容。'
+      createTitle: '新建交付配置',
+      editTitle: '编辑交付配置',
+      description: '选择系统平台与目标平台后，可套用内置模板并定义证书交付内容。'
+    },
+    exportModal: {
+      title: '导出证书产物',
+      description: '选择证书版本，按此交付格式生成并下载文件。',
+      certificateVersion: '证书版本',
+      loadingVersions: '正在加载证书版本...',
+      versionRequired: '请选择证书版本',
+      loadVersionsFailed: '证书版本加载失败',
+      artifactUnavailable: '服务端未返回可下载的证书产物',
+      exportFailed: '证书产物导出失败',
+      passwordRequired: 'PFX/JKS 导出必须输入密码',
+      passwordPlaceholder: '请输入本次导出的密码',
+      passwordHint: '仅用于本次导出，不会修改交付配置。',
+      confirm: '生成并下载',
+      unnamedCertificate: '未命名证书',
+      versionLabel: 'v{version}',
+      expiresOn: '到期 {date}'
     },
     list: {
-      title: '证书格式配置列表',
-      descriptionWithCount: '可复用的证书格式模板。当前 {count} 条'
+      title: '证书交付配置',
+      descriptionWithCount: '当前有 {count} 个可复用的交付配置'
     },
     empty: {
-      text: '暂无证书格式配置'
+      text: '暂无交付配置'
     },
     fields: {
       contentFormat: '内容格式',
       systemPlatform: '系统平台',
       runtimePlatform: '目标平台',
-      configName: '配置文件名称',
+      configName: '交付配置',
       backendFormat: '底层格式',
-      outputExtension: '输出扩展名',
-      expiresAt: '配置失效时间（可选）',
+      outputExtension: '文件扩展名',
+      expiresAt: '交付配置失效时间（可选）',
       certificateEncoding: '证书编码',
       certificateContentEncoding: '证书内容编码',
       privateKeyEncoding: '私钥编码',
-      includeLeafCertificate: '包含公钥证书',
+      includeLeafCertificate: '包含终端证书',
       includeCertificateChain: '包含证书链',
       includePrivateKey: '包含私钥',
-      mainArtifactIncludesChain: '主产物包含证书链',
-      generateChainFile: '额外生成证书链文件',
-      generatePrivateKeyFile: '额外生成私钥文件',
+      mainArtifactIncludesChain: '主文件包含证书链',
+      generateChainFile: '生成证书链文件',
+      generatePrivateKeyFile: '生成私钥文件',
       exportPassword: '导出密码'
     },
     formats: {
@@ -2912,7 +2931,7 @@ export default {
       },
       basic: {
         title: '基础信息',
-        description: '先定义配置文件身份、真实内容格式，以及最终扩展名。'
+        description: '定义交付配置、内容格式和文件扩展名。'
       },
       encoding: {
         title: '编码选择',
@@ -2920,15 +2939,15 @@ export default {
       },
       content: {
         title: '包含内容',
-        description: '定义主产物文件中包含的内容：公钥、证书链、私钥。'
+        description: '选择主文件中包含的证书、证书链和私钥。'
       },
       export: {
         title: '导出选项',
-        description: '定义是否额外生成链文件、私钥文件，以及容器专属密码选项。'
+        description: '选择额外的证书链文件、私钥文件和容器密码选项。'
       }
     },
     filters: {
-      keywordPlaceholder: '配置名称 / 目标环境 / Alias / 内容格式'
+      keywordPlaceholder: '交付配置 / 目标 / Alias / 格式'
     },
     placeholders: {
       configName: '例如：设备兼容单文件PEM',
@@ -2936,18 +2955,18 @@ export default {
     },
     validation: {
       selectPlatformsFirst: '请先选择系统平台和目标平台。',
-      configNameRequired: '必须填写配置文件名称',
-      passwordRequired: 'PFX/JKS 配置必须填写导出密码'
+      configNameRequired: '必须填写交付配置名称',
+      passwordRequired: 'PFX/JKS 交付配置必须填写导出密码'
     },
     errors: {
-      loadFailed: '证书格式配置加载失败',
-      saveFailed: '保存证书格式配置失败',
-      deleteFailed: '删除证书格式配置失败',
+      loadFailed: '交付配置加载失败',
+      saveFailed: '保存交付配置失败',
+      deleteFailed: '删除交付配置失败',
       createExportSecretFailed: '创建导出密码 Secret 失败',
       withCode: '{message}（{code}）'
     },
     fallbacks: {
-      unnamedConfig: '未命名配置-{index}',
+      unnamedConfig: '未命名交付配置-{index}',
       unspecified: '未指定',
       aliasUnset: '未设置 Alias'
     },
@@ -2964,14 +2983,14 @@ export default {
       default: '默认'
     },
     export: {
-      leafCertificate: '公钥',
+      leafCertificate: '终端证书',
       certificateChain: '证书链',
       privateKey: '私钥',
       extraChainFile: '额外链文件',
       extraPrivateKeyFile: '额外私钥文件'
     },
     secret: {
-      defaultConfigName: '证书格式配置',
+      defaultConfigName: '证书交付配置',
       exportPasswordName: '{name} 导出密码'
     },
     select: {

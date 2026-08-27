@@ -2742,6 +2742,8 @@ export default {
     actions: {
       create: 'New configuration file',
       toggleFilters: 'Filtrer',
+      export: 'Export',
+      exporting: 'Exporting...',
       edit: 'Edit',
       delete: 'Delete',
       deleting: 'Deleting...',
@@ -2762,6 +2764,23 @@ export default {
       createTitle: 'Create certificate format configuration',
       editTitle: 'Edit certificate format configuration',
       description: 'Select the system and target platform, apply a built-in template, then adjust each option and define what the single artifact contains.'
+    },
+    exportModal: {
+      title: 'Export certificate artifact',
+      description: 'Choose a certificate version to generate and download this delivery profile.',
+      certificateVersion: 'Certificate version',
+      loadingVersions: 'Loading certificate versions...',
+      versionRequired: 'Select a certificate version',
+      loadVersionsFailed: 'Failed to load certificate versions',
+      artifactUnavailable: 'The service returned no downloadable certificate artifact',
+      exportFailed: 'Certificate artifact export failed',
+      passwordRequired: 'Enter a password to export PFX/JKS',
+      passwordPlaceholder: 'Enter a password for this export',
+      passwordHint: 'Used only for this export. The delivery profile is unchanged.',
+      confirm: 'Generate and download',
+      unnamedCertificate: 'Unnamed certificate',
+      versionLabel: 'v{version}',
+      expiresOn: 'Expires {date}'
     },
     list: {
       title: 'Certificate format configuration list',

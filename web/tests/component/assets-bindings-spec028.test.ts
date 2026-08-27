@@ -38,7 +38,11 @@ const assetMocks = vi.hoisted(() => ({
 
 const certificateMocks = vi.hoisted(() => ({
   listCertificateFormats: vi.fn(),
+  listCertificateVersions: vi.fn(),
+  listCertificates: vi.fn(),
   createCertificateFormat: vi.fn(),
+  exportCertificateFormatArtifact: vi.fn(),
+  downloadCertificateFormatArtifact: vi.fn(),
   updateCertificateFormat: vi.fn(),
   deleteCertificateFormat: vi.fn(),
 }))
@@ -55,6 +59,7 @@ const gatewayMocks = vi.hoisted(() => ({
 
 const securityMocks = vi.hoisted(() => ({
   listSecrets: vi.fn(),
+  createSecret: vi.fn(),
 }))
 
 const credentialMocks = vi.hoisted(() => ({
@@ -250,6 +255,7 @@ describe('资产与证书产物视图', () => {
       { id: 'gateway-1', name: 'gw-east', status: 'online' },
     ]))
     securityMocks.listSecrets.mockResolvedValue(okPage([]))
+    securityMocks.createSecret.mockResolvedValue(okRecord({ id: 'secret-export-1', secretRef: 'secret://pfx_password/export-1#current' }))
     credentialMocks.listCredentials.mockResolvedValue(okPage([]))
     credentialMocks.getCredential.mockResolvedValue(okRecord())
     deviceMocks.listManagedDevices.mockResolvedValue(okPage([
@@ -294,7 +300,15 @@ describe('资产与证书产物视图', () => {
         },
       },
     ]))
+    certificateMocks.listCertificateVersions.mockResolvedValue(okPage([
+      { id: 'certver-1', certificateAssetId: 'certasset-1', versionNo: 3, commonName: 'www.example.com', notAfter: '2027-06-23T10:00:00.000Z', status: 'active' },
+    ]))
+    certificateMocks.listCertificates.mockResolvedValue(okPage([
+      { id: 'certasset-1', name: 'www.example.com', primaryDomain: 'www.example.com' },
+    ]))
     certificateMocks.createCertificateFormat.mockResolvedValue(okRecord({ id: 'certfmt-2' }, 'req_format_create'))
+    certificateMocks.exportCertificateFormatArtifact.mockResolvedValue(okRecord({ artifactRef: 'artifact://certificate-format/certfmt-1/test' }, 'req_format_export'))
+    certificateMocks.downloadCertificateFormatArtifact.mockResolvedValue(new Response(Buffer.from('certificate'), { status: 200, headers: { 'content-type': 'application/x-pem-file' } }))
     certificateMocks.updateCertificateFormat.mockResolvedValue(okRecord({ id: 'certfmt-1' }, 'req_format_update'))
     certificateMocks.deleteCertificateFormat.mockResolvedValue(okRecord({ id: 'certfmt-1' }, 'req_format_delete'))
   })
@@ -1608,14 +1622,96 @@ describe('资产与证书产物视图', () => {
     }))
     expect(wrapper.text()).toContain('Windows-设备兼容单文件PEM模板')
     expect(wrapper.text()).toContain('PEM 单文件 Bundle')
-    expect(wrapper.text()).toContain('公钥 · 证书链 · 私钥')
+    expect(wrapper.text()).toContain('终端证书 · 证书链 · 私钥')
   })
 
-  it('可以创建设备兼容单文件 PEM Bundle 并选择公钥、证书链、私钥', async () => {
+  it('可为交付配置选择证书版本并导出对应格式', async () => {
+    const createObjectUrl = vi.fn(() => 'blob:test')
+    const revokeObjectUrl = vi.fn()
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectUrl })
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectUrl })
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
+
     const wrapper = mountBusinessView(BindingsView)
     await flushPromises()
 
-    const createButton = wrapper.findAll('button').find((button) => button.text() === '新建配置文件')
+    const exportButton = wrapper.findAll('button').find((button) => button.text() === '导出')
+    expect(exportButton).toBeTruthy()
+    await exportButton!.trigger('click')
+    await flushPromises()
+
+    expect(certificateMocks.listCertificateVersions).toHaveBeenCalledWith(expect.objectContaining({ page: 1, pageSize: 200 }))
+    expect(certificateMocks.listCertificates).toHaveBeenCalledWith(expect.objectContaining({ page: 1, pageSize: 200 }))
+    const versionSelect = wrapper.findAll('select').find((select) => select.find('option[value="certver-1"]').exists())
+    expect(versionSelect).toBeTruthy()
+    await versionSelect!.setValue('certver-1')
+    const confirmButton = wrapper.findAll('button').find((button) => button.text() === '生成并下载')
+    expect(confirmButton).toBeTruthy()
+    await confirmButton!.trigger('click')
+    await flushPromises()
+
+    expect(certificateMocks.exportCertificateFormatArtifact).toHaveBeenCalledWith(expect.objectContaining({
+      certificateFormatId: 'certfmt-1',
+      certificateVersionId: 'certver-1',
+      format: 'pem',
+    }))
+    expect(certificateMocks.downloadCertificateFormatArtifact).toHaveBeenCalledWith('artifact://certificate-format/certfmt-1/test')
+    expect(createObjectUrl).toHaveBeenCalled()
+    expect(anchorClick).toHaveBeenCalled()
+    anchorClick.mockRestore()
+  })
+
+  it('导出 PFX 时必须输入本次密码并使用临时 SecretRef', async () => {
+    certificateMocks.listCertificateFormats.mockResolvedValue(okPage([
+      {
+        id: 'certfmt-pfx',
+        format: 'pfx',
+        containsPrivateKey: true,
+        parameters: {
+          configName: 'Windows PFX',
+          outputPreset: 'pfx',
+          extension: 'pfx',
+          includePrivateKey: true,
+        },
+      },
+    ]))
+    certificateMocks.exportCertificateFormatArtifact.mockResolvedValue(okRecord({ artifactRef: 'artifact://certificate-format/certfmt-pfx/test' }, 'req_pfx_export'))
+    certificateMocks.downloadCertificateFormatArtifact.mockResolvedValue(new Response(Buffer.from('pfx'), { status: 200, headers: { 'content-type': 'application/x-pkcs12' } }))
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
+
+    const wrapper = mountBusinessView(BindingsView)
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === '导出')!.trigger('click')
+    await flushPromises()
+    await wrapper.findAll('select').find((select) => select.find('option[value="certver-1"]').exists())!.setValue('certver-1')
+
+    const confirmButton = wrapper.findAll('button').find((button) => button.text() === '生成并下载')!
+    await confirmButton.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('PFX/JKS 导出必须输入密码')
+    expect(certificateMocks.exportCertificateFormatArtifact).not.toHaveBeenCalled()
+
+    const passwordInput = wrapper.find('input[type="password"]')
+    expect(passwordInput.exists()).toBe(true)
+    await passwordInput.setValue('export-password')
+    await confirmButton.trigger('click')
+    await flushPromises()
+    expect(securityMocks.createSecret).toHaveBeenCalledWith(expect.objectContaining({ plainText: 'export-password', type: 'pfx_password' }))
+    expect(certificateMocks.exportCertificateFormatArtifact).toHaveBeenCalledWith(expect.objectContaining({
+      certificateFormatId: 'certfmt-pfx',
+      passwordSecretRef: 'secret://pfx_password/export-1#current',
+    }))
+    expect(anchorClick).toHaveBeenCalled()
+    const downloadedAnchor = anchorClick.mock.instances.at(-1) as HTMLAnchorElement | undefined
+    expect(downloadedAnchor?.download).toBe('windows-pfx.pfx')
+    anchorClick.mockRestore()
+  })
+
+  it('可以创建设备兼容单文件 PEM Bundle 并选择终端证书、证书链、私钥', async () => {
+    const wrapper = mountBusinessView(BindingsView)
+    await flushPromises()
+
+    const createButton = wrapper.findAll('button').find((button) => button.text() === '新建交付配置')
     expect(createButton).toBeTruthy()
     await createButton!.trigger('click')
     await flushPromises()
@@ -1674,7 +1770,7 @@ describe('资产与证书产物视图', () => {
     const wrapper = mountBusinessView(BindingsView)
     await flushPromises()
 
-    const createButton = wrapper.findAll('button').find((button) => button.text() === '新建配置文件')
+    const createButton = wrapper.findAll('button').find((button) => button.text() === '新建交付配置')
     expect(createButton).toBeTruthy()
     await createButton!.trigger('click')
     await flushPromises()
@@ -1704,7 +1800,7 @@ describe('资产与证书产物视图', () => {
     const wrapper = mountBusinessView(BindingsView)
     await flushPromises()
 
-    const createButton = wrapper.findAll('button').find((button) => button.text() === '新建配置文件')
+    const createButton = wrapper.findAll('button').find((button) => button.text() === '新建交付配置')
     expect(createButton).toBeTruthy()
     await createButton!.trigger('click')
     await flushPromises()
@@ -1723,7 +1819,7 @@ describe('资产与证书产物视图', () => {
     const wrapper = mountBusinessView(BindingsView)
     await flushPromises()
 
-    const createButton = wrapper.findAll('button').find((button) => button.text() === '新建配置文件')
+    const createButton = wrapper.findAll('button').find((button) => button.text() === '新建交付配置')
     expect(createButton).toBeTruthy()
     await createButton!.trigger('click')
     await flushPromises()
@@ -1782,7 +1878,7 @@ describe('资产与证书产物视图', () => {
     const wrapper = mountBusinessView(BindingsView)
     await flushPromises()
 
-    expect(wrapper.text()).not.toContain('新建配置文件')
+    expect(wrapper.text()).not.toContain('新建交付配置')
     expect(wrapper.text()).not.toContain('编辑')
     expect(wrapper.text()).not.toContain('删除')
   })

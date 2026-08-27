@@ -2823,8 +2823,10 @@ export default {
   bindings: {
     defaults: certificateFormatDefaultsEnUS,
     actions: {
-      create: 'New configuration file',
+      create: 'Create profile',
       toggleFilters: 'Filter',
+      export: 'Export',
+      exporting: 'Exporting...',
       edit: 'Edit',
       delete: 'Delete',
       deleting: 'Deleting...',
@@ -2833,43 +2835,60 @@ export default {
       confirmSave: 'Save'
     },
     columns: {
-      configName: 'Configuration name',
+      configName: 'Delivery profile',
       targetSummary: 'Target environment',
       displayFormat: 'Content format',
       extension: 'Extension',
       encodingSummary: 'Encoding',
-      exportSummary: 'Contents / export options',
+      exportSummary: 'Contents',
       actions: 'Actions'
     },
     dialog: {
-      createTitle: 'Create certificate format configuration',
-      editTitle: 'Edit certificate format configuration',
-      description: 'Select the system and target platform, apply a built-in template, then adjust each option and define what the single artifact contains.'
+      createTitle: 'Create profile',
+      editTitle: 'Edit profile',
+      description: 'Select the system and target platform, apply a built-in template, then define the certificate delivery contents.'
+    },
+    exportModal: {
+      title: 'Export certificate artifact',
+      description: 'Choose a certificate version to generate and download this delivery profile.',
+      certificateVersion: 'Certificate version',
+      loadingVersions: 'Loading certificate versions...',
+      versionRequired: 'Select a certificate version',
+      loadVersionsFailed: 'Failed to load certificate versions',
+      artifactUnavailable: 'The service returned no downloadable certificate artifact',
+      exportFailed: 'Certificate artifact export failed',
+      passwordRequired: 'Enter a password to export PFX/JKS',
+      passwordPlaceholder: 'Enter a password for this export',
+      passwordHint: 'Used only for this export. The delivery profile is unchanged.',
+      confirm: 'Generate and download',
+      unnamedCertificate: 'Unnamed certificate',
+      versionLabel: 'v{version}',
+      expiresOn: 'Expires {date}'
     },
     list: {
-      title: 'Certificate format configuration list',
-      descriptionWithCount: '{count} certificate format configurations are available.'
+      title: 'Certificate delivery profiles',
+      descriptionWithCount: '{count} delivery profiles available.'
     },
     empty: {
-      text: 'No certificate format configurations'
+      text: 'No delivery profiles'
     },
     fields: {
       contentFormat: 'Content format',
       systemPlatform: 'System platform',
       runtimePlatform: 'Target platform',
-      configName: 'Configuration name',
+      configName: 'Delivery profile',
       backendFormat: 'Backend format',
-      outputExtension: 'Output extension',
-      expiresAt: 'Configuration expiry time (optional)',
+      outputExtension: 'File extension',
+      expiresAt: 'Profile expiration (optional)',
       certificateEncoding: 'Certificate encoding',
       certificateContentEncoding: 'Certificate content encoding',
       privateKeyEncoding: 'Private key encoding',
       includeLeafCertificate: 'Include leaf certificate',
       includeCertificateChain: 'Include certificate chain',
       includePrivateKey: 'Include private key',
-      mainArtifactIncludesChain: 'Main artifact includes certificate chain',
-      generateChainFile: 'Generate additional chain file',
-      generatePrivateKeyFile: 'Generate extra private key file',
+      mainArtifactIncludesChain: 'Include chain in main file',
+      generateChainFile: 'Generate chain file',
+      generatePrivateKeyFile: 'Generate private key file',
       exportPassword: 'Export password'
     },
     formats: {
@@ -2890,7 +2909,7 @@ export default {
       },
       basic: {
         title: 'Basic information',
-        description: 'Define the configuration identity, content format, and final extension.'
+        description: 'Define the delivery profile, content format, and file extension.'
       },
       encoding: {
         title: 'Encoding',
@@ -2898,15 +2917,15 @@ export default {
       },
       content: {
         title: 'Contents',
-        description: 'Defines what the main artifact contains: leaf certificate, certificate chain, and private key.'
+        description: 'Choose the certificate, chain, and private key included in the main file.'
       },
       export: {
         title: 'Export options',
-        description: 'Define whether to generate extra chain/private-key files and container password options.'
+        description: 'Choose extra chain or private-key files and container password options.'
       }
     },
     filters: {
-      keywordPlaceholder: 'Configuration name / target environment / alias / content format'
+      keywordPlaceholder: 'Profile / target / alias / format'
     },
     placeholders: {
       configName: 'For example: device-compatible single-file PEM',
@@ -2914,18 +2933,18 @@ export default {
     },
     validation: {
       selectPlatformsFirst: 'Select the system platform and target platform first.',
-      configNameRequired: 'Configuration name is required',
-      passwordRequired: 'PFX/JKS configurations require an export password'
+      configNameRequired: 'Profile name is required',
+      passwordRequired: 'PFX/JKS profiles require an export password'
     },
     errors: {
-      loadFailed: 'Failed to load certificate format configurations',
-      saveFailed: 'Failed to save certificate format configuration',
-      deleteFailed: 'Failed to delete certificate format configuration',
+      loadFailed: 'Failed to load delivery profiles',
+      saveFailed: 'Failed to save delivery profile',
+      deleteFailed: 'Failed to delete delivery profile',
       createExportSecretFailed: 'Failed to create export password Secret',
       withCode: '{message} ({code})'
     },
     fallbacks: {
-      unnamedConfig: 'Unnamed configuration {index}',
+      unnamedConfig: 'Unnamed profile {index}',
       unspecified: 'Unspecified',
       aliasUnset: 'Alias not set'
     },
@@ -2945,11 +2964,11 @@ export default {
       leafCertificate: 'Leaf certificate',
       certificateChain: 'Certificate chain',
       privateKey: 'Private key',
-      extraChainFile: 'Additional chain file',
-      extraPrivateKeyFile: 'Extra private key file'
+      extraChainFile: 'Chain file',
+      extraPrivateKeyFile: 'Private-key file'
     },
     secret: {
-      defaultConfigName: 'Certificate format configuration',
+      defaultConfigName: 'Certificate delivery profile',
       exportPasswordName: '{name} export password'
     },
     select: {

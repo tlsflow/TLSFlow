@@ -92,6 +92,19 @@ export function updateCertificateFormat(payload: ApiBody) {
   })
 }
 
+export function exportCertificateFormatArtifact(payload: ApiBody): Promise<ApiRecordResult> {
+  return apiClient.post<ApiRecord>(toClientPath('/api/v1/certificate-version-formats/export'), payload, {
+    idempotencyKey: createIdempotencyKey('certificate_format_export'),
+  })
+}
+
+export function downloadCertificateFormatArtifact(artifactRef: string): Promise<Response> {
+  return apiClient.download(toClientPath('/api/v1/certificate-version-formats/download'), {
+    method: 'POST',
+    body: { artifactRef },
+  })
+}
+
 export function deleteCertificateFormat(id: string) {
   return postAction(`${CERTIFICATE_FORMATS_PATH}/delete`, { id }, 'certificate_format_delete')
 }

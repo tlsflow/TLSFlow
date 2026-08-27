@@ -2704,6 +2704,8 @@ export default {
     actions: {
       create: "新增設定檔案",
       toggleFilters: "篩選",
+      export: "匯出",
+      exporting: "匯出中...",
       edit: "編輯",
       delete: "刪除",
       deleting: "刪除中...",
@@ -2724,6 +2726,23 @@ export default {
       createTitle: "新增憑證格式設定",
       editTitle: "編輯憑證格式設定",
       description: "選擇系統平台與目標平台後，可套用內建模板並逐項調整匯出內容。"
+    },
+    exportModal: {
+      title: "匯出憑證產物",
+      description: "選擇憑證版本，依此交付格式產生並下載檔案。",
+      certificateVersion: "憑證版本",
+      loadingVersions: "正在載入憑證版本...",
+      versionRequired: "請選擇憑證版本",
+      loadVersionsFailed: "憑證版本載入失敗",
+      artifactUnavailable: "服務端未回傳可下載的憑證產物",
+      exportFailed: "憑證產物匯出失敗",
+      passwordRequired: "匯出 PFX/JKS 必須輸入密碼",
+      passwordPlaceholder: "請輸入此次匯出的密碼",
+      passwordHint: "僅用於此次匯出，不會修改交付設定。",
+      confirm: "產生並下載",
+      unnamedCertificate: "未命名憑證",
+      versionLabel: "v{version}",
+      expiresOn: "到期 {date}"
     },
     list: {
       title: "憑證格式設定列表",

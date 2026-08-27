@@ -2679,6 +2679,8 @@ export default {
     actions: {
       create: '새 프로필',
       toggleFilters: '필터',
+      export: '내보내기',
+      exporting: '내보내는 중...',
       edit: '편집',
       delete: '삭제',
       deleting: '삭제하는 중...',
@@ -2699,6 +2701,23 @@ export default {
       createTitle: '새 인증서 형식 설정입니다',
       editTitle: '인증서 형식 설정을 편집합니다',
       description: '시스템 플랫폼과 대상 플랫폼을 선택한 후, 내장된 템플릿을 적용하고 내보내기 내용을 항목별로 조정한다.'
+    },
+    exportModal: {
+      title: '인증서 아티팩트 내보내기',
+      description: '인증서 버전을 선택하여 이 배포 프로필을 생성하고 다운로드합니다.',
+      certificateVersion: '인증서 버전',
+      loadingVersions: '인증서 버전을 불러오는 중...',
+      versionRequired: '인증서 버전을 선택하세요',
+      loadVersionsFailed: '인증서 버전을 불러오지 못했습니다',
+      artifactUnavailable: '다운로드할 인증서 아티팩트가 반환되지 않았습니다',
+      exportFailed: '인증서 아티팩트를 내보내지 못했습니다',
+      passwordRequired: 'PFX/JKS를 내보내려면 비밀번호를 입력하세요',
+      passwordPlaceholder: '이번 내보내기에 사용할 비밀번호 입력',
+      passwordHint: '이번 내보내기에만 사용되며 배포 프로필은 변경되지 않습니다.',
+      confirm: '생성 및 다운로드',
+      unnamedCertificate: '이름 없는 인증서',
+      versionLabel: 'v{version}',
+      expiresOn: '{date} 만료'
     },
     list: {
       title: '인증서 형식 설정 목록입니다',

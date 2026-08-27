@@ -6,7 +6,11 @@ import { createSecret } from '@/api/modules/security.api'
 import {
   createCertificateFormat,
   deleteCertificateFormat,
+  downloadCertificateFormatArtifact,
+  exportCertificateFormatArtifact,
   listCertificateFormats,
+  listCertificateVersions,
+  listCertificates,
   updateCertificateFormat,
 } from '@/api/modules/certificates.api'
 import type { ApiRecord } from '@/api/modules/common'
@@ -20,6 +24,7 @@ import {
 } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import { localizeCertificateFormatName } from '@/utils/certificate-format-localization'
+import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
 type PresetFormat = 'pfx' | 'pem_bundle' | 'pem_cert' | 'pem_key' | 'cer' | 'crt' | 'jks' | 'p7b' | 'custom'
 type BackendFormat = 'pem' | 'pfx' | 'jks' | 'p7b' | 'der'
@@ -130,9 +135,12 @@ const FORMAT_OPTION_DEFINITIONS: Array<{ value: PresetFormat; labelKey: string }
 const loading = ref(false)
 const submitLoading = ref(false)
 const deleteLoadingId = ref('')
+const exportLoadingId = ref('')
 const dialogOpen = ref(false)
+const exportDialogOpen = ref(false)
 const error = ref('')
 const actionError = ref('')
+const exportError = ref('')
 const requestId = ref('')
 const templateMessageKey = ref('')
 const editMode = ref<'create' | 'edit'>('create')
@@ -142,6 +150,12 @@ const filters = reactive({
   format: '',
 })
 const filtersVisible = ref(false)
+const exportVersionsLoading = ref(false)
+const exportVersionId = ref('')
+const exportVersions = ref<ApiRecord[]>([])
+const exportAssets = ref<ApiRecord[]>([])
+const exportTargetRow = ref<FormatRow | null>(null)
+const exportPassword = ref('')
 const draft = reactive(createEmptyDraft())
 
 const resolvedBackendFormat = computed(() => resolveBackendFormat(draft))
@@ -155,6 +169,10 @@ const showsPublicEncoding = computed(() => !isContainerFormat.value && !isPrivat
 const showsPrivateEncoding = computed(() => !isContainerFormat.value && (isPemBundleFormat.value || isPrivateKeyOnlyFormat.value || draft.presetFormat === 'custom'))
 const showsContentSelection = computed(() => !isContainerFormat.value)
 const showsPasswordSecret = computed(() => isContainerFormat.value)
+const exportTargetRequiresPassword = computed(() => {
+  const format = String(exportTargetRow.value?.raw.format ?? '').toLowerCase()
+  return format === 'pfx' || format === 'jks'
+})
 const formatOptions = computed(() => FORMAT_OPTION_DEFINITIONS.map((item) => ({ ...item, label: t(item.labelKey) })))
 const selectedTemplate = computed(() => {
   if (!draft.systemPlatform) return null
@@ -207,13 +225,13 @@ const rows = computed<FormatRow[]>(() => {
 })
 
 const columns = computed<DataTableColumn<FormatRow>[]>(() => [
-  { key: 'configName', title: t('bindings.columns.configName'), width: '22%' },
-  { key: 'targetSummary', title: t('bindings.columns.targetSummary'), width: '16%' },
-  { key: 'displayFormat', title: t('bindings.columns.displayFormat'), width: '14%' },
-  { key: 'extension', title: t('bindings.columns.extension'), width: '10%' },
-  { key: 'encodingSummary', title: t('bindings.columns.encodingSummary'), width: '14%' },
-  { key: 'exportSummary', title: t('bindings.columns.exportSummary'), width: '22%' },
-  { key: 'actions', title: t('bindings.columns.actions'), width: '12%' },
+  { key: 'configName', title: t('bindings.columns.configName'), width: '19%' },
+  { key: 'targetSummary', title: t('bindings.columns.targetSummary'), width: '13%' },
+  { key: 'displayFormat', title: t('bindings.columns.displayFormat'), width: '13%' },
+  { key: 'extension', title: t('bindings.columns.extension'), width: '8%' },
+  { key: 'encodingSummary', title: t('bindings.columns.encodingSummary'), width: '12%' },
+  { key: 'exportSummary', title: t('bindings.columns.exportSummary'), width: '13%' },
+  { key: 'actions', title: t('bindings.columns.actions'), width: '22%' },
 ])
 
 onMounted(loadFormats)
@@ -387,6 +405,123 @@ async function removeRow(row: FormatRow) {
   } finally {
     deleteLoadingId.value = ''
   }
+}
+
+async function openExportDialog(row: FormatRow): Promise<void> {
+  exportTargetRow.value = row
+  exportVersionId.value = ''
+  exportPassword.value = ''
+  exportError.value = ''
+  exportDialogOpen.value = true
+  await loadExportVersions()
+}
+
+async function loadExportVersions(): Promise<void> {
+  exportVersionsLoading.value = true
+  exportError.value = ''
+  try {
+    const [versionsResult, assetsResult] = await Promise.all([
+      listCertificateVersions({ page: 1, pageSize: 200, sort: 'notAfter:desc' }),
+      listCertificates({ page: 1, pageSize: 200, sort: 'updatedAt:desc' }),
+    ])
+    exportVersions.value = (versionsResult.data?.items ?? []).filter((item) => readString(item, ['status'], '') !== 'deleted')
+    exportAssets.value = [...(assetsResult.data?.items ?? [])]
+  } catch (cause) {
+    exportVersions.value = []
+    exportAssets.value = []
+    exportError.value = toErrorMessage(cause, t('bindings.exportModal.loadVersionsFailed'))
+  } finally {
+    exportVersionsLoading.value = false
+  }
+}
+
+async function exportRow(row: FormatRow): Promise<void> {
+  const certificateVersionId = exportVersionId.value.trim()
+  if (!certificateVersionId) {
+    exportError.value = t('bindings.exportModal.versionRequired')
+    return
+  }
+  if (exportTargetRequiresPassword.value && !exportPassword.value.trim()) {
+    exportError.value = t('bindings.exportModal.passwordRequired')
+    return
+  }
+
+  exportLoadingId.value = row.id
+  exportError.value = ''
+  try {
+    const parameters = readRecord(row.raw.parameters)
+    const passwordSecretRef = exportTargetRequiresPassword.value
+      ? await createExportPasswordSecret(row)
+      : ''
+    const result = await exportCertificateFormatArtifact({
+      certificateFormatId: row.id,
+      certificateVersionId,
+      format: String(row.raw.format ?? 'pem'),
+      containsPrivateKey: Boolean(row.raw.containsPrivateKey || parameters.includePrivateKey),
+      ...(passwordSecretRef ? { passwordSecretRef } : {}),
+      ...(Object.keys(parameters).length > 0 ? { parameters } : {}),
+      ...(readString(row.raw, ['expiresAt']) ? { expiresAt: readString(row.raw, ['expiresAt']) } : {}),
+    })
+    const artifactRef = readString((result.data ?? {}) as ApiRecord, ['artifactRef'])
+    if (!artifactRef) throw new Error(t('bindings.exportModal.artifactUnavailable'))
+    const response = await downloadCertificateFormatArtifact(artifactRef)
+    const blob = await response.blob()
+    const isZip = response.headers.get('content-type')?.toLowerCase().includes('zip') ?? false
+    downloadBlob(blob, buildExportFileName(row, certificateVersionId, isZip))
+    exportDialogOpen.value = false
+  } catch (cause) {
+    exportError.value = toErrorMessage(cause, t('bindings.exportModal.exportFailed'))
+  } finally {
+    exportLoadingId.value = ''
+  }
+}
+
+async function createExportPasswordSecret(row: FormatRow): Promise<string> {
+  const secret = await createSecret({
+    name: t('bindings.secret.exportPasswordName', { name: row.configName }),
+    type: 'pfx_password',
+    scopeType: 'global',
+    plainText: exportPassword.value.trim(),
+  })
+  const secretRef = String(secret.data?.secretRef ?? '')
+  if (!secretRef) {
+    throw new Error(t('bindings.errors.createExportSecretFailed'))
+  }
+  return secretRef
+}
+
+function buildExportFileName(row: FormatRow, certificateVersionId: string, isZip = false): string {
+  if (isZip) {
+    const stem = toSlug(row.configName || 'certificate')
+    const suffix = stem === 'certificate-format-config' ? toSlug(certificateVersionId) : ''
+    return `${[stem, suffix].filter(Boolean).join('-')}.zip`
+  }
+  const extension = String(readRecord(row.raw.parameters).extension ?? row.extension).replace(/^\./, '') || 'bin'
+  const stem = toSlug(row.configName || 'certificate')
+  const suffix = stem === 'certificate-format-config' ? toSlug(certificateVersionId) : ''
+  return `${[stem, suffix].filter(Boolean).join('-')}.${extension}`
+}
+
+function downloadBlob(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = fileName
+  anchor.click()
+  anchor.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
+function exportVersionLabel(version: ApiRecord): string {
+  const assetId = readString(version, ['certificateAssetId'])
+  const asset = exportAssets.value.find((item) => readString(item, ['id']) === assetId)
+  const certificateName = readString(asset ?? version, ['primaryDomain', 'name', 'commonName', 'subject.commonName'], t('bindings.exportModal.unnamedCertificate'))
+  const rawVersionNo = version.versionNo
+  const versionNo = typeof rawVersionNo === 'number' ? String(rawVersionNo) : readString(version, ['versionNo'], '')
+  const notAfter = formatBrowserLocalTime(readString(version, ['notAfter']), { includeTime: false })
+  return [certificateName, versionNo ? t('bindings.exportModal.versionLabel', { version: versionNo }) : '', notAfter ? t('bindings.exportModal.expiresOn', { date: notAfter }) : '']
+    .filter(Boolean)
+    .join(' · ')
 }
 
 async function resolvePasswordSecretRef(): Promise<string> {
@@ -682,6 +817,13 @@ function toErrorMessage(cause: unknown, fallback: string) {
 
       <template #cell-actions="{ row }">
         <div class="artifact-page__actions-cell">
+          <GcPermissionButton
+            permission="certificate.format.create"
+            :disabled="Boolean(exportLoadingId)"
+            @click="openExportDialog(row as FormatRow)"
+          >
+            {{ exportLoadingId === String(row.id) ? t('bindings.actions.exporting') : t('bindings.actions.export') }}
+          </GcPermissionButton>
           <GcPermissionButton permission="certificate.format.create" @click="openEditDialog(row as FormatRow)">
             {{ t('bindings.actions.edit') }}
           </GcPermissionButton>
@@ -865,6 +1007,49 @@ function toErrorMessage(cause: unknown, fallback: string) {
         </button>
       </template>
     </GcModal>
+
+    <GcModal
+      v-model:open="exportDialogOpen"
+      :title="t('bindings.exportModal.title')"
+      :description="t('bindings.exportModal.description')"
+      size="md"
+    >
+      <section class="artifact-export">
+        <div v-if="exportTargetRow" class="artifact-export__target">
+          <strong>{{ exportTargetRow.configName }}</strong>
+          <span>{{ exportTargetRow.displayFormat }} · .{{ exportTargetRow.extension }}</span>
+        </div>
+        <label class="artifact-form__field">
+          <span>{{ t('bindings.exportModal.certificateVersion') }}</span>
+          <select v-model="exportVersionId" :disabled="exportVersionsLoading">
+            <option value="">{{ exportVersionsLoading ? t('bindings.exportModal.loadingVersions') : t('bindings.select.placeholder') }}</option>
+            <option v-for="version in exportVersions" :key="readString(version, ['id', 'certificateVersionId'])" :value="readString(version, ['id', 'certificateVersionId'])">
+              {{ exportVersionLabel(version) }}
+            </option>
+          </select>
+        </label>
+        <label v-if="exportTargetRequiresPassword" class="artifact-form__field">
+          <span>{{ t('bindings.fields.exportPassword') }}</span>
+          <input
+            v-model="exportPassword"
+            type="password"
+            autocomplete="new-password"
+            :placeholder="t('bindings.exportModal.passwordPlaceholder')"
+          />
+          <small class="artifact-export__hint">{{ t('bindings.exportModal.passwordHint') }}</small>
+        </label>
+        <p v-if="exportError" class="artifact-form__error" role="alert">{{ exportError }}</p>
+      </section>
+
+      <template #actions>
+        <button class="gc-button" type="button" :disabled="Boolean(exportLoadingId)" @click="exportDialogOpen = false">
+          {{ t('designSystem.confirm.cancel') }}
+        </button>
+        <button class="gc-button gc-button--primary" type="button" :disabled="Boolean(exportLoadingId) || exportVersionsLoading" @click="exportTargetRow && exportRow(exportTargetRow)">
+          {{ exportLoadingId ? t('bindings.actions.exporting') : t('bindings.exportModal.confirm') }}
+        </button>
+      </template>
+    </GcModal>
   </section>
 </template>
 
@@ -955,7 +1140,15 @@ function toErrorMessage(cause: unknown, fallback: string) {
 .artifact-page__actions-cell {
   display: flex;
   gap: var(--gc-space-2);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  align-items: center;
+  min-width: 18rem;
+  white-space: nowrap;
+}
+
+.artifact-page__actions-cell :deep(.gc-button) {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .artifact-form {
@@ -1085,6 +1278,30 @@ function toErrorMessage(cause: unknown, fallback: string) {
 .artifact-export {
   display: grid;
   gap: var(--gc-space-4);
+}
+
+.artifact-export__target {
+  display: grid;
+  gap: var(--gc-space-1);
+  padding: var(--gc-space-3);
+  border: var(--gc-border-width-default) solid var(--gc-color-primary-border);
+  border-radius: var(--gc-radius-control);
+  background: var(--gc-color-primary-soft);
+}
+
+.artifact-export__target strong {
+  color: var(--gc-color-text-strong);
+}
+
+.artifact-export__target span {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+}
+
+.artifact-export__hint {
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-xs);
+  font-weight: 500;
 }
 
 @media (max-width: 56rem) {

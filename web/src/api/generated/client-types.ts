@@ -198,6 +198,7 @@ export const apiContractMetadata: ApiContractMetadata = {
     "/api/v1/certificate-trust-roots/import",
     "/api/v1/certificate-version-formats",
     "/api/v1/certificate-version-formats/delete",
+    "/api/v1/certificate-version-formats/download",
     "/api/v1/certificate-version-formats/export",
     "/api/v1/certificate-version-formats/export-plan",
     "/api/v1/certificate-versions",

@@ -2701,6 +2701,8 @@ export default {
     actions: {
       create: '新建設定ファイル',
       toggleFilters: '絞り込み',
+      export: 'エクスポート',
+      exporting: 'エクスポート中...',
       edit: '編集',
       delete: '削除',
       deleting: '削除中...',
@@ -2721,6 +2723,23 @@ export default {
       createTitle: '新建証明書形式設定',
       editTitle: '編集証明書形式設定',
       description: '選択システムプラットフォームとターゲットプラットフォーム後、可適用組み込みテンプレートかつ項目ごとに調整エクスポート内容。'
+    },
+    exportModal: {
+      title: '証明書成果物をエクスポート',
+      description: '証明書バージョンを選択し、この配布プロファイルを生成してダウンロードします。',
+      certificateVersion: '証明書バージョン',
+      loadingVersions: '証明書バージョンを読み込み中...',
+      versionRequired: '証明書バージョンを選択してください',
+      loadVersionsFailed: '証明書バージョンの読み込みに失敗しました',
+      artifactUnavailable: 'ダウンロード可能な証明書成果物が返されませんでした',
+      exportFailed: '証明書成果物のエクスポートに失敗しました',
+      passwordRequired: 'PFX/JKS のエクスポートにはパスワードが必要です',
+      passwordPlaceholder: '今回のエクスポート用パスワードを入力',
+      passwordHint: '今回のエクスポートにのみ使用し、配布プロファイルは変更しません。',
+      confirm: '生成してダウンロード',
+      unnamedCertificate: '名前なし証明書',
+      versionLabel: 'v{version}',
+      expiresOn: '{date} に期限切れ'
     },
     list: {
       title: '証明書形式設定一覧',

@@ -2679,6 +2679,8 @@ export default {
     actions: {
       create: 'Criar configuração',
       toggleFilters: 'Filtrar',
+      export: 'Exportar',
+      exporting: 'Exportando...',
       edit: 'Editar',
       delete: 'Excluir',
       deleting: 'Excluindo...',
@@ -2699,6 +2701,23 @@ export default {
       createTitle: 'Criar configuração de formato de certificado',
       editTitle: 'Editar configuração de formato de certificado',
       description: 'Selecione a plataforma do sistema e a plataforma de destino; depois aplique um modelo integrado e ajuste item a item o conteúdo exportado.'
+    },
+    exportModal: {
+      title: 'Exportar artefato do certificado',
+      description: 'Escolha uma versão do certificado para gerar e baixar este perfil de entrega.',
+      certificateVersion: 'Versão do certificado',
+      loadingVersions: 'Carregando versões do certificado...',
+      versionRequired: 'Selecione uma versão do certificado',
+      loadVersionsFailed: 'Falha ao carregar versões do certificado',
+      artifactUnavailable: 'O serviço não retornou um artefato de certificado para download',
+      exportFailed: 'Falha ao exportar o artefato do certificado',
+      passwordRequired: 'Informe uma senha para exportar PFX/JKS',
+      passwordPlaceholder: 'Informe a senha desta exportação',
+      passwordHint: 'Usada somente nesta exportação. O perfil de entrega não será alterado.',
+      confirm: 'Gerar e baixar',
+      unnamedCertificate: 'Certificado sem nome',
+      versionLabel: 'v{version}',
+      expiresOn: 'Expira em {date}'
     },
     list: {
       title: 'Lista de configurações de formato de certificado',
