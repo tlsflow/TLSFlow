@@ -49,9 +49,13 @@ export class PgBindingsRepository implements BindingsRepository {
       }
     }
 
+    // 中文说明：SiteAsset/ManagedTarget 是扫描得到的运行时事实，不能因为创建绑定而自动晋升为 Application。
+    // 但同地址的应用 ServiceAsset 已存在时必须继续复用，避免历史应用绑定在重新发现后丢失关联。
     const serviceAsset = input.serviceAssetId
       ? await this.assets.getServiceAsset(tenantId, input.serviceAssetId)
-      : await this.resolveOrCreateServiceAsset(tenantId, input, serviceInstance.deviceId, endpoint);
+      : input.siteAssetId || input.managedTargetId
+        ? await resolveExistingServiceAsset(this.assets, tenantId, input, serviceInstance.deviceId, endpoint)
+        : await this.resolveOrCreateServiceAsset(tenantId, input, serviceInstance.deviceId, endpoint);
     if (input.serviceAssetId && !serviceAsset) {
       throw new AppError('RESOURCE_NOT_FOUND', 'ServiceAsset 不存在', { serviceAssetId: input.serviceAssetId });
     }
@@ -158,23 +162,39 @@ export class PgBindingsRepository implements BindingsRepository {
     const domains = uniqueNormalizedDomains(query.domains ?? []);
     const rows = (await this.db.query<CertificateBindingRow>(`select * from pg_certificate_bindings where tenant_id = $1 and deleted_at is null`, [tenantId])).rows.map(toBinding);
     const bindings = rows.filter((binding) => {
-      if (query.certificateVersionId && (binding.certificateVersionId === query.certificateVersionId || binding.targetCertificateVersionId === query.certificateVersionId || binding.localCertificateVersionId === query.certificateVersionId)) return true;
+      if (query.certificateVersionId) {
+        const relatedVersionIds = [
+          binding.certificateVersionId,
+          binding.targetCertificateVersionId,
+          binding.localCertificateVersionId,
+        ].filter(Boolean);
+        if (relatedVersionIds.length > 0) {
+          // 中文说明：绑定已有明确版本关系时，禁止用指纹或域名把其他版本带入。
+          return relatedVersionIds.includes(query.certificateVersionId);
+        }
+        // 中文说明：旧绑定没有版本 ID 时，才允许用证书指纹恢复精确关联。
+        return fingerprint !== undefined && [
+          binding.observedFingerprintSha256,
+          binding.desiredFingerprintSha256,
+          binding.targetFingerprintSha256,
+          binding.localConfigFingerprint,
+          binding.remoteEndpointFingerprint,
+          binding.unmanagedCertificateFingerprint,
+        ].includes(fingerprint);
+      }
       if (fingerprint !== undefined && [binding.observedFingerprintSha256, binding.desiredFingerprintSha256, binding.targetFingerprintSha256, binding.localConfigFingerprint, binding.remoteEndpointFingerprint, binding.unmanagedCertificateFingerprint].includes(fingerprint)) return true;
       if (domains.length > 0 && matchesBindingDomain(binding, domains)) return true;
       return false;
     });
     const result: CertificateBindingUsageDto[] = [];
     for (const binding of bindings) {
-      const serviceAsset = binding.serviceAssetId ? await this.assets.getServiceAssetIncludingDeleted(tenantId, binding.serviceAssetId) : undefined;
       const service = await this.assets.getFrameworkInstanceIncludingDeleted(tenantId, binding.serviceInstanceId);
       const host = binding.hostId ? await this.assets.getHostIncludingDeleted(tenantId, binding.hostId) : undefined;
       const siteAsset = binding.siteAssetId ? await this.assets.getSiteAssetIncludingDeleted(tenantId, binding.siteAssetId) : undefined;
       const managedTarget = binding.managedTargetId ? await this.assets.getManagedTargetIncludingDeleted(tenantId, binding.managedTargetId) : undefined;
-      result.push({
+      const serviceAssets = await this.resolveUsageServiceAssets(tenantId, binding, siteAsset, managedTarget);
+      const baseUsage = {
         binding,
-        serviceAsset: serviceAsset === undefined
-          ? undefined
-          : { id: serviceAsset.id, address: serviceAsset.address, port: serviceAsset.port, protocol: serviceAsset.protocol, status: serviceAsset.status, deletedAt: serviceAsset.deletedAt },
         service: service === undefined
           ? undefined
           : { id: service.id, displayName: service.displayName, providerType: service.frameworkType, status: service.status, deletedAt: service.deletedAt },
@@ -193,6 +213,7 @@ export class PgBindingsRepository implements BindingsRepository {
           ? undefined
           : {
             id: siteAsset.id,
+            serviceAssetId: siteAsset.serviceAssetId,
             deviceId: siteAsset.deviceId,
             frameworkInstanceId: siteAsset.frameworkInstanceId,
             discoveryProviderKey: siteAsset.discoveryProviderKey,
@@ -208,6 +229,7 @@ export class PgBindingsRepository implements BindingsRepository {
           ? undefined
           : {
             id: managedTarget.id,
+            serviceAssetId: managedTarget.serviceAssetId,
             deviceId: managedTarget.deviceId,
             frameworkInstanceId: managedTarget.frameworkInstanceId,
             siteId: managedTarget.siteId,
@@ -217,9 +239,54 @@ export class PgBindingsRepository implements BindingsRepository {
             status: managedTarget.status,
             deletedAt: managedTarget.deletedAt,
           },
-      });
+      };
+      if (serviceAssets.length === 0) {
+        result.push(baseUsage);
+        continue;
+      }
+      for (const serviceAsset of serviceAssets) {
+        result.push({
+          ...baseUsage,
+          serviceAsset: {
+            id: serviceAsset.id,
+            address: serviceAsset.address,
+            displayName: serviceAsset.displayName,
+            port: serviceAsset.port,
+            protocol: serviceAsset.protocol,
+            status: serviceAsset.status,
+            deletedAt: serviceAsset.deletedAt,
+          },
+        });
+      }
     }
     return result;
+  }
+
+  private async resolveUsageServiceAssets(
+    tenantId: string,
+    binding: CertificateBindingDto,
+    siteAsset: Awaited<ReturnType<AssetsRepository['getSiteAssetIncludingDeleted']>>,
+    managedTarget: Awaited<ReturnType<AssetsRepository['getManagedTargetIncludingDeleted']>>,
+  ): Promise<NonNullable<Awaited<ReturnType<AssetsRepository['getServiceAsset']>>>[]> {
+    const ids = new Set<string>();
+    const candidates = [
+      binding.serviceAssetId,
+      siteAsset?.serviceAssetId,
+      managedTarget?.serviceAssetId,
+    ].filter((id): id is string => Boolean(id));
+    const applicationTargets = managedTarget?.id && this.assets.listApplicationAssetTargetsByManagedTargetId
+      ? await this.assets.listApplicationAssetTargetsByManagedTargetId(tenantId, managedTarget.id)
+      : [];
+    candidates.push(...applicationTargets.map((target) => target.applicationAssetId));
+
+    const serviceAssets: NonNullable<Awaited<ReturnType<AssetsRepository['getServiceAsset']>>>[] = [];
+    for (const candidate of candidates) {
+      if (ids.has(candidate)) continue;
+      ids.add(candidate);
+      const serviceAsset = await this.assets.getServiceAsset(tenantId, candidate);
+      if (serviceAsset) serviceAssets.push(serviceAsset);
+    }
+    return serviceAssets;
   }
 
   async getCertificateBinding(tenantId: string, bindingId: string): Promise<CertificateBindingDto | undefined> {

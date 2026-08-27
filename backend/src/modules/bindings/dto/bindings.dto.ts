@@ -140,6 +140,7 @@ export interface CertificateBindingUsageDto {
   serviceAsset?: {
     id: string;
     address: string;
+    displayName?: string;
     port: number;
     protocol: string;
     status: string;
@@ -163,6 +164,7 @@ export interface CertificateBindingUsageDto {
   };
   siteAsset?: {
     id: string;
+    serviceAssetId?: string;
     deviceId: string;
     frameworkInstanceId: string;
     discoveryProviderKey: string;
@@ -176,6 +178,7 @@ export interface CertificateBindingUsageDto {
   };
   managedTarget?: {
     id: string;
+    serviceAssetId?: string;
     deviceId: string;
     frameworkInstanceId?: string;
     siteId?: string;

@@ -279,6 +279,7 @@ export class AssetsDomainService {
       ...input,
       frameworkInstanceId: normalizeRequiredString(input.frameworkInstanceId, 'frameworkInstanceId'),
       deviceId: normalizeRequiredString(input.deviceId, 'deviceId'),
+      serviceAssetId: normalizeOptionalString(input.serviceAssetId),
       discoveryProviderKey: normalizeRequiredString(input.discoveryProviderKey, 'discoveryProviderKey'),
       siteType: normalizeNamespaceValue(input.siteType, 'siteType'),
       siteName: normalizeRequiredString(input.siteName, 'siteName'),
@@ -301,6 +302,7 @@ export class AssetsDomainService {
     const normalized: UpdateSiteAssetDto = { ...input };
     if (input.frameworkInstanceId !== undefined) normalized.frameworkInstanceId = normalizeRequiredString(input.frameworkInstanceId, 'frameworkInstanceId');
     if (input.deviceId !== undefined) normalized.deviceId = normalizeRequiredString(input.deviceId, 'deviceId');
+    if (input.serviceAssetId !== undefined) normalized.serviceAssetId = normalizeOptionalString(input.serviceAssetId);
     if (input.discoveryProviderKey !== undefined) normalized.discoveryProviderKey = normalizeRequiredString(input.discoveryProviderKey, 'discoveryProviderKey');
     if (input.siteType !== undefined) normalized.siteType = normalizeNamespaceValue(input.siteType, 'siteType');
     if (input.siteName !== undefined) normalized.siteName = normalizeRequiredString(input.siteName, 'siteName');
@@ -323,6 +325,7 @@ export class AssetsDomainService {
     return {
       ...input,
       deviceId: normalizeRequiredString(input.deviceId, 'deviceId'),
+      serviceAssetId: normalizeOptionalString(input.serviceAssetId),
       frameworkInstanceId: normalizeOptionalString(input.frameworkInstanceId),
       siteId: normalizeOptionalString(input.siteId),
       discoveryProviderKey: normalizeRequiredString(input.discoveryProviderKey, 'discoveryProviderKey'),
@@ -340,6 +343,7 @@ export class AssetsDomainService {
   normalizeManagedTargetPatch(input: UpdateManagedTargetDto): UpdateManagedTargetDto {
     const normalized: UpdateManagedTargetDto = { ...input };
     if (input.deviceId !== undefined) normalized.deviceId = normalizeRequiredString(input.deviceId, 'deviceId');
+    if (input.serviceAssetId !== undefined) normalized.serviceAssetId = normalizeOptionalString(input.serviceAssetId);
     if (input.frameworkInstanceId !== undefined) normalized.frameworkInstanceId = normalizeOptionalString(input.frameworkInstanceId);
     if (input.siteId !== undefined) normalized.siteId = normalizeOptionalString(input.siteId);
     if (input.discoveryProviderKey !== undefined) normalized.discoveryProviderKey = normalizeRequiredString(input.discoveryProviderKey, 'discoveryProviderKey');

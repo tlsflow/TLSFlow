@@ -598,7 +598,7 @@ describe('证书资产 API', () => {
     assert.equal((versionUsage.body as any).blockedDeletion, false);
   });
 
-  it('证书版本 usage 支持按域名匹配真实绑定，即使绑定未直接挂到 certificateVersionId', async () => {
+  it('证书版本 usage 只返回明确关联当前版本的真实绑定', async () => {
     const app = await createMigratedApp('user_usage_domain_match', 'tenant_usage_domain_match');
     const tenantHeaders = headersForTenant('user_usage_domain_match', 'tenant_usage_domain_match');
     const certificateFixture = createCertificateTestFixture();
@@ -613,7 +613,20 @@ describe('证书资产 API', () => {
       },
     });
     assert.equal(imported.statusCode, 201, JSON.stringify(imported.body));
+    const assetId = (imported.body as any).asset.id as string;
     const versionId = (imported.body as any).version.id as string;
+    const otherImported = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-versions/import',
+      headers: tenantHeaders,
+      body: {
+        certificateAssetId: assetId,
+        certificatePem: createCertificateTestFixture('alternate').pem,
+        privateKeyPem: createCertificateTestFixture('alternate').privateKeyPem,
+      },
+    });
+    assert.equal(otherImported.statusCode, 201, JSON.stringify(otherImported.body));
+    const otherVersionId = (otherImported.body as any).version.id as string;
 
     const host = (await app.inject({
       method: 'POST',
@@ -629,16 +642,18 @@ describe('证书资产 API', () => {
       body: { deviceId: host.id, displayName: 'IIS on jacksonz', frameworkType: 'web.iis', rawFacts: { configPath: 'IIS:\\Sites'  }, frameworkKey: 'iis', discoveryProviderKey: 'manual:test' },
     })).body as { id: string };
 
-    const siteAsset = (await app.inject({
+    const siteAssetResponse = await app.inject({
       method: 'POST',
       path: '/api/v1/site-assets',
       headers: tenantHeaders,
       body: {
-        serviceInstanceId: service.id,
+        frameworkInstanceId: service.id,
+        deviceId: host.id,
+        discoveryProviderKey: 'manual:test',
         hostId: host.id,
         agentId: 'agent-jacksonz-01',
         providerType: 'IIS',
-        siteType: 'WEB_SITE',
+        siteType: 'web.site',
         siteName: 'Default Web Site',
         siteKey: 'agent-jacksonz-01:iis:default web site:https/*:443:test.jacksonz.cn',
         bindingInformation: 'https/*:443:test.jacksonz.cn',
@@ -647,7 +662,9 @@ describe('证书资产 API', () => {
         protocol: 'HTTPS',
         status: 'ACTIVE',
       },
-    })).body as { id: string };
+    });
+    assert.equal(siteAssetResponse.statusCode, 201, JSON.stringify(siteAssetResponse.body));
+    const siteAsset = siteAssetResponse.body as { id: string };
 
     const binding = await app.inject({
       method: 'POST',
@@ -677,18 +694,108 @@ describe('证书资产 API', () => {
     assert.equal(usage.statusCode, 200);
     const body = usage.body as {
       usages: Array<{
-        binding?: { domainName?: string };
+        binding?: { domainName?: string; certificateVersionId?: string };
         serviceAsset?: { address?: string };
         service?: { displayName?: string };
         host?: { hostname?: string; agentId?: string };
       }>;
       blockedDeletion: boolean;
     };
-    assert.equal(body.blockedDeletion, true);
-    assert.ok(body.usages.some((item) => item.binding?.domainName === 'leaf.example.test'));
-    assert.ok(body.usages.some((item) => item.serviceAsset?.address === 'leaf.example.test'));
-    assert.ok(body.usages.some((item) => item.service?.displayName === 'IIS on jacksonz'));
-    assert.ok(body.usages.some((item) => item.host?.agentId === 'agent-jacksonz-01'));
+    assert.equal(body.blockedDeletion, false);
+    assert.equal(body.usages.length, 0);
+
+    const originalBindingId = (binding.body as any).id as string;
+    const otherVersionBinding = await app.inject({
+      method: 'PATCH',
+      path: '/api/v1/certificate-bindings',
+      headers: tenantHeaders,
+      body: { id: originalBindingId, certificateVersionId: otherVersionId },
+    });
+    assert.equal(otherVersionBinding.statusCode, 200, JSON.stringify(otherVersionBinding.body));
+    const otherVersionUsage = await app.inject({
+      method: 'GET',
+      path: `/api/v1/certificate-versions/usage?id=${versionId}`,
+      headers: tenantHeaders,
+    });
+    assert.equal((otherVersionUsage.body as typeof body).usages.length, 0, '同域名但关联其他版本的应用不得混入当前版本');
+
+    const exactBinding = await app.inject({
+      method: 'PATCH',
+      path: '/api/v1/certificate-bindings',
+      headers: tenantHeaders,
+      body: { id: originalBindingId, certificateVersionId: versionId },
+    });
+    assert.equal(exactBinding.statusCode, 200, JSON.stringify(exactBinding.body));
+
+    const exactUsage = await app.inject({
+      method: 'GET',
+      path: `/api/v1/certificate-versions/usage?id=${versionId}`,
+      headers: tenantHeaders,
+    });
+    const exactBody = exactUsage.body as typeof body;
+    assert.equal(exactBody.blockedDeletion, true);
+    assert.ok(exactBody.usages.some((item) => item.binding?.certificateVersionId === versionId));
+    assert.ok(exactBody.usages.every((item) => item.serviceAsset === undefined));
+  });
+
+  it('扫描站点绑定不会自动创建应用 ServiceAsset', async () => {
+    const app = await createMigratedApp('user_usage_site_only', 'tenant_usage_site_only');
+    const tenantHeaders = headersForTenant('user_usage_site_only', 'tenant_usage_site_only');
+
+    const host = (await app.inject({
+      method: 'POST',
+      path: '/api/v1/hosts',
+      headers: tenantHeaders,
+      body: { hostname: 'scan-only-host', primaryIp: '10.0.0.21', osType: 'LINUX' },
+    })).body as { id: string };
+    const service = (await app.inject({
+      method: 'POST',
+      path: '/api/v1/framework-instances',
+      headers: tenantHeaders,
+      body: {
+        deviceId: host.id,
+        displayName: 'Scanned Nginx',
+        frameworkType: 'web.nginx',
+        frameworkKey: 'nginx',
+        discoveryProviderKey: 'agent:scan-only',
+      },
+    })).body as { id: string };
+    const site = (await app.inject({
+      method: 'POST',
+      path: '/api/v1/site-assets',
+      headers: tenantHeaders,
+      body: {
+        frameworkInstanceId: service.id,
+        deviceId: host.id,
+        discoveryProviderKey: 'agent:scan-only',
+        siteType: 'web.site',
+        siteName: 'Scanned site',
+        siteKey: 'scan-only:443:site',
+        hostHeader: 'scan-only.example.test',
+        port: 443,
+        protocol: 'HTTPS',
+        status: 'ACTIVE',
+      },
+    })).body as { id: string };
+
+    const binding = await app.inject({
+      method: 'POST',
+      path: '/api/v1/certificate-bindings',
+      headers: tenantHeaders,
+      body: {
+        serviceInstanceId: service.id,
+        siteAssetId: site.id,
+        domainName: 'scan-only.example.test',
+        port: 443,
+        protocol: 'HTTPS',
+        bindingType: 'FILE_PATH',
+        certPath: '/etc/nginx/certs/scan-only.pem',
+        verifyMethod: 'TLS_CONNECT',
+        status: 'DISCOVERED',
+      },
+    });
+    assert.equal(binding.statusCode, 201, JSON.stringify(binding.body));
+    assert.equal((binding.body as { serviceAssetId?: string }).serviceAssetId, undefined);
   });
 
   it('OpenAPI 包含新增证书 API', async () => {

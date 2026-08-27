@@ -478,6 +478,7 @@ export class AssetsController {
     const body = validateObject(request.body, {
       frameworkInstanceId: { type: 'string', required: true },
       deviceId: { type: 'string', required: true },
+      serviceAssetId: { type: 'string' },
       discoveryProviderKey: { type: 'string', required: true },
       siteType: { type: 'string', required: true },
       siteName: { type: 'string', required: true },
@@ -517,6 +518,7 @@ export class AssetsController {
       id: { type: 'string', required: true },
       frameworkInstanceId: { type: 'string' },
       deviceId: { type: 'string' },
+      serviceAssetId: { type: 'string' },
       discoveryProviderKey: { type: 'string' },
       siteType: { type: 'string' },
       siteName: { type: 'string' },
@@ -621,6 +623,7 @@ export class AssetsController {
   private async createManagedTarget(request: HttpRequest) {
     const body = validateObject(request.body, {
       deviceId: { type: 'string', required: true },
+      serviceAssetId: { type: 'string' },
       frameworkInstanceId: { type: 'string' },
       siteId: { type: 'string' },
       discoveryProviderKey: { type: 'string', required: true },
@@ -665,6 +668,7 @@ export class AssetsController {
     const body = validateObject(request.body, {
       id: { type: 'string', required: true },
       deviceId: { type: 'string' },
+      serviceAssetId: { type: 'string' },
       frameworkInstanceId: { type: 'string' },
       siteId: { type: 'string' },
       discoveryProviderKey: { type: 'string' },

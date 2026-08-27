@@ -186,13 +186,18 @@ export class CertificatesController {
     }
     const usageQuery = {
       certificateVersionId: version.id,
+      // 中文说明：兼容只保存证书指纹、尚未回填 certificateVersionId 的历史绑定；
+      // 具体匹配规则由绑定仓储保证“明确版本 ID 优先，指纹仅作无版本 ID 的回退”。
       fingerprintSha256: version.fingerprintSha256,
-      domains: collectCertificateDomains(version),
     };
-    return this.services.certificates.getUsage(
-      usageQuery,
-      await this.findUsages(request, usageQuery),
+    const usages = await this.findUsages(request, usageQuery);
+    // 中文说明：usage 查询已经按当前证书版本完成精确匹配。
+    // 对没有回填 certificateVersionId 的历史绑定补充本次命中的版本标识，
+    // 让前端可以严格区分同域名的不同证书版本，而不依赖域名猜测。
+    const scopedUsages = usages.map((usage) =>
+      isRecord(usage) ? { ...usage, certificateVersionId: version.id } : usage,
     );
+    return this.services.certificates.getUsage(usageQuery, scopedUsages);
   }
 
   private async getVersionFormats(request: HttpRequest) {
@@ -786,4 +791,8 @@ function readTrustRootId(request: HttpRequest): string {
     throw new AppError('VALIDATION_FAILED', 'id 不能为空', { field: 'id' });
   }
   return id;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }

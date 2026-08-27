@@ -505,7 +505,7 @@ export class AssetsApplicationService {
           result.actions.push({ kind: 'site_asset', action: 'create', identityKey, reason: 'site asset can be created' });
           continue;
         }
-        const created = await this.createSiteAsset(tenantId, siteAssetToCreateDto(siteAsset, resolvedServiceId, serviceInstance.deviceId, serviceInstance.discoveryProviderKey, snapshot.source));
+        const created = await this.createSiteAsset(tenantId, siteAssetToCreateDto(siteAsset, resolvedServiceId, serviceInstance.deviceId, serviceInstance.discoveryProviderKey, snapshot.source, resolvedServiceAssetId));
         siteAssetIds.set(identityKey, created.id);
         if (siteAsset.siteAssetRef) siteAssetIds.set(siteAsset.siteAssetRef, created.id);
         result.businessTableMutated = true;
@@ -520,6 +520,7 @@ export class AssetsApplicationService {
         toRecord(current),
         {
           ...toRecord(siteAsset),
+          ...(resolvedServiceAssetId ? { serviceAssetId: resolvedServiceAssetId } : {}),
           frameworkInstanceId: resolvedServiceId,
           deviceId: serviceInstance.deviceId,
           discoveryProviderKey: serviceInstance.discoveryProviderKey,
@@ -1252,11 +1253,13 @@ function siteAssetToCreateDto(
   deviceId: string,
   discoveryProviderKey: string,
   source: CreateDiscoverySnapshotDto['source'],
+  serviceAssetId?: string,
 ): CreateSiteAssetDto {
   const identityKey = siteAssetIdentityKey(siteAsset);
   return {
     frameworkInstanceId,
     deviceId,
+    serviceAssetId,
     discoveryProviderKey,
     siteType: siteAsset.siteType ?? 'CUSTOM',
     siteName: siteAsset.siteName,
