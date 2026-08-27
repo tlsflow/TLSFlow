@@ -85,6 +85,78 @@ test('AgentExecutorAdapter 将显式 keystorePassword 作为执行期敏感输�
   assert.equal(JSON.stringify(resolved).includes('tomcat-current-password'), false);
 });
 
+test('AgentExecutorAdapter 仅从密封部署制品读取 KeyStore 源密码', async () => {
+  const materials = v2Materials();
+  let compilerInput: Record<string, unknown> | undefined;
+  const agents = agentsProbe(async (_tenantId, input) => createTaskEnvelope('task_source_password_fixture', input.payload ?? {}));
+  const compiler = {
+    compile: async (input: Record<string, unknown>) => {
+      compilerInput = input;
+      return { actionType: 'agent.plan.execute' as const, actionSchemaVersion: '1.0' as const, ...materials };
+    },
+  };
+  const sourcePassword = 'artifact-default-password';
+  const result = await new AgentExecutorAdapter(agents, undefined, compiler as never).executeStep(createStep({
+    ...v2RequestSnapshot(materials),
+    deploymentArtifact: { sourceKeyStorePassword: sourcePassword },
+    actionType: 'agent.plan.execute',
+  }));
+
+  assert.equal(result.success, true);
+  assert.deepEqual(compilerInput?.ephemeralSecrets, { sourceKeyStorePassword: sourcePassword });
+  assert.equal(JSON.stringify(compilerInput?.resolvedInput).includes(sourcePassword), false);
+});
+
+test('AgentExecutorAdapter 从工作流证书材料读取嵌套 KeyStore 源密码', async () => {
+  const materials = v2Materials();
+  let compilerInput: Record<string, unknown> | undefined;
+  const agents = agentsProbe(async (_tenantId, input) => createTaskEnvelope('task_nested_source_password_fixture', input.payload ?? {}));
+  const compiler = {
+    compile: async (input: Record<string, unknown>) => {
+      compilerInput = input;
+      return { actionType: 'agent.plan.execute' as const, actionSchemaVersion: '1.0' as const, ...materials };
+    },
+  };
+  const sourcePassword = 'workflow-artifact-password';
+  const result = await new AgentExecutorAdapter(agents, undefined, compiler as never).executeStep(createStep({
+    ...v2RequestSnapshot(materials),
+    deploymentArtifact: {
+      certificateVersionId: 'certificate-version-fixture',
+      workflowCertificateMaterials: {
+        certificate: { sourceKeyStorePassword: sourcePassword },
+      },
+    },
+    actionType: 'agent.plan.execute',
+  }));
+
+  assert.equal(result.success, true);
+  assert.deepEqual(compilerInput?.ephemeralSecrets, { sourceKeyStorePassword: sourcePassword });
+});
+
+test('AgentExecutorAdapter 拒绝工作流证书材料中的不一致 KeyStore 源密码', async () => {
+  let enqueueCount = 0;
+  const agents = agentsProbe(async (_tenantId, input) => {
+    enqueueCount += 1;
+    return createTaskEnvelope('task_conflicting_source_password_fixture', input.payload ?? {});
+  });
+  await assert.rejects(
+    new AgentExecutorAdapter(agents, undefined, {
+      compile: async () => ({ ...v2Materials(), actionType: 'agent.plan.execute' as const, actionSchemaVersion: '1.0' as const }),
+    } as never).executeStep(createStep({
+      ...v2RequestSnapshot(v2Materials()),
+      deploymentArtifact: {
+        workflowCertificateMaterials: {
+          certificate: { sourceKeyStorePassword: 'first-password' },
+          chain: { sourceKeyStorePassword: 'second-password' },
+        },
+      },
+      actionType: 'agent.plan.execute',
+    })),
+    (error: unknown) => error instanceof AppError && error.errorCode === 'VALIDATION_FAILED',
+  );
+  assert.equal(enqueueCount, 0);
+});
+
 test('AgentExecutorAdapter 向 Linux 和 Windows Full Agent 发送 provisioning 材料，Gateway 不接收', async () => {
   const materials = v2Materials();
   const localPolicyMaterial = { materialVersion: 'gcac.policy-authority-provisioning/v1', agentId: materials.plan.agentId };

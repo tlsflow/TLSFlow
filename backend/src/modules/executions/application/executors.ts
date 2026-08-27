@@ -341,7 +341,11 @@ export class AgentExecutorAdapter implements Executor {
     const tenantId = requireExecutionTenantId(input.step, 'agent plan compile');
     const ephemeralSecrets = trustInstall || !resolvedInput
       ? undefined
-      : await this.resolveEphemeralSecrets(tenantId, resolvedInput);
+      : await this.resolveEphemeralSecrets(
+        tenantId,
+        resolvedInput,
+        readRecord(snapshot.deploymentArtifact) ?? readRecord(snapshot.artifact),
+      );
     const plan = await this.agentPlanCompiler.compile({
       tenantId,
       agentId,
@@ -379,20 +383,59 @@ export class AgentExecutorAdapter implements Executor {
   private async resolveEphemeralSecrets(
     tenantId: string,
     resolvedInput: NonNullable<ReturnType<typeof readResolvedDeploymentInputV1>>,
-  ): Promise<{ keystorePassword?: string } | undefined> {
+    deploymentArtifact?: Record<string, unknown>,
+  ): Promise<{ keystorePassword?: string; sourceKeyStorePassword?: string } | undefined> {
     const credential = readRecord(resolvedInput.credentials.keystorePassword);
-    if (!credential) return undefined;
-    const credentialId = stringFromSnapshot(credential.credentialId);
-    if (!credentialId) {
-      throw new AppError('VALIDATION_FAILED', '显式 keystorePassword Credential 缺少 credentialId');
+    let keystorePassword: string | undefined;
+    if (credential) {
+      const credentialId = stringFromSnapshot(credential.credentialId);
+      if (!credentialId) {
+        throw new AppError('VALIDATION_FAILED', '显式 keystorePassword Credential 缺少 credentialId');
+      }
+      if (!this.credentials) {
+        throw new AppError('SYSTEM_INTERNAL_ERROR', '显式 keystorePassword Credential 无法解析');
+      }
+      keystorePassword = await this.credentials.resolveSecretValue(tenantId, credentialId);
     }
-    if (!this.credentials) {
-      throw new AppError('SYSTEM_INTERNAL_ERROR', '显式 keystorePassword Credential 无法解析');
-    }
+    const sourceKeyStorePassword = resolveSourceKeyStorePassword(deploymentArtifact);
+    if (!keystorePassword && !sourceKeyStorePassword) return undefined;
+    // 显式 Credential 已用于生成该制品时，两个密码相同，不重复进入计划。
     return {
-      keystorePassword: await this.credentials.resolveSecretValue(tenantId, credentialId),
+      ...(keystorePassword ? { keystorePassword } : {}),
+      ...(sourceKeyStorePassword && sourceKeyStorePassword !== keystorePassword
+        ? { sourceKeyStorePassword }
+        : {}),
     };
   }
+}
+
+/**
+ * 工作流向导可能为同一次部署生成多个证书材料。普通产物把源密码放在
+ * deploymentArtifact.sourceKeyStorePassword，工作流产物则放在每个
+ * workflowCertificateMaterials.<变量>.sourceKeyStorePassword。两种布局都
+ * 必须进入同一次 Agent 编译；多个材料若使用不同源密码则拒绝执行，避免
+ * 只用其中一个密码导致部分材料在 Agent 上以错误密码解析。
+ */
+function resolveSourceKeyStorePassword(deploymentArtifact?: Record<string, unknown>): string | undefined {
+  if (!deploymentArtifact) return undefined;
+  const candidates: string[] = [];
+  const topLevel = stringFromSnapshot(deploymentArtifact.sourceKeyStorePassword);
+  if (topLevel) candidates.push(topLevel);
+  const materials = readRecord(deploymentArtifact.workflowCertificateMaterials);
+  if (materials) {
+    for (const material of Object.values(materials)) {
+      const sourcePassword = stringFromSnapshot(readRecord(material)?.sourceKeyStorePassword);
+      if (sourcePassword) candidates.push(sourcePassword);
+    }
+  }
+  const uniquePasswords = [...new Set(candidates)];
+  if (uniquePasswords.length > 1) {
+    throw new AppError('VALIDATION_FAILED', '密封部署制品包含不一致的 KeyStore 源密码，无法安全执行', {
+      code: 'KEYSTORE_SOURCE_PASSWORD_CONFLICT',
+      materialCount: uniquePasswords.length,
+    });
+  }
+  return uniquePasswords[0];
 }
 
 function isCertificateTrustInstallPlan(value: unknown): boolean {
