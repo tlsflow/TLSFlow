@@ -1612,16 +1612,16 @@ export default {
     statusPanel: { description: 'Текущее видимое состояние сертификатов, Agent, шлюзов и активов приложений.', objects: 'объектов' },
     recentLog: { title: 'Последние журналы', live: 'Онлайн' },
     aria: {
-      assetHeatmap: 'Тепловая карта состояния активов приложений',
+      assetHeatmap: 'Тепловая карта состояния активов',
       certificateStatusList: 'Список статусов сертификатов',
       metrics: 'Ключевые метрики',
       quickActions: 'Основные функциональные входы',
-      statusHeatmap: 'Состояние сертификатов, Agent, шлюзов и активов приложений',
+      statusHeatmap: 'Состояние активов',
       statusLegend: 'Легенда статусов'
     },
     assets: {
       groupCount: '{summary} · {total} шт.',
-      title: 'Состояние активов приложений',
+      title: 'Состояние активов',
       updatedAt: 'Обновлено {time}'
     },
     audit: {
@@ -1765,6 +1765,9 @@ export default {
       }
     },
     statusGroups: {
+      assets: {
+        title: 'Активы'
+      },
       agents: {
         title: 'Устройства'
       },

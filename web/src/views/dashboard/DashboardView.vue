@@ -335,6 +335,10 @@ function statusBlockStatus(block: DashboardStatusBlock): string {
   return normalized ? dashboardText(`dashboard.statusBlock.status.${normalized}`, block.status) : block.status
 }
 
+function statusBlockKey(group: DashboardStatusGroup, block: DashboardStatusBlock): string {
+  return `${group.key}:${block.details?.type ?? 'status'}:${block.id}`
+}
+
 function blockTitle(group: DashboardStatusGroup, block: DashboardStatusBlock): string {
   return [
     block.label,
@@ -385,6 +389,9 @@ function normalizeDashboardStatus(value: string): string {
     DISABLED: 'disabled',
     OFFLINE: 'offline',
     ONLINE: 'online',
+    STALE: 'stale',
+    UNKNOWN: 'unknown',
+    UNREACHABLE: 'unreachable',
     active: 'active',
     disabled: 'disabled',
     offline: 'offline',
@@ -549,9 +556,9 @@ function buildTimestampTrend(values: readonly (string | undefined)[]) {
             </header>
             <p class="dashboard-status-group__summary">{{ statusGroupSummary(group) }}</p>
             <div v-if="group.blocks.length" class="dashboard-heatmap__blocks">
-              <span v-for="block in group.blocks" :key="block.id" class="dashboard-heatmap__block-wrap" :class="{ 'dashboard-heatmap__block-wrap--tooltip-open': activeTooltip?.id === block.id }" @mouseenter="activeTooltip = block" @mouseleave="activeTooltip = null" @focusin="activeTooltip = block" @focusout="activeTooltip = null">
+              <span v-for="block in group.blocks" :key="statusBlockKey(group, block)" class="dashboard-heatmap__block-wrap" :class="{ 'dashboard-heatmap__block-wrap--tooltip-open': activeTooltip === block }" @mouseenter="activeTooltip = block" @mouseleave="activeTooltip = null" @focusin="activeTooltip = block" @focusout="activeTooltip = null">
                 <component :is="block.targetPath ? RouterLink : 'span'" class="dashboard-heatmap__block" :class="`dashboard-heatmap__block--${block.tone}`" :to="block.targetPath || undefined" :tabindex="block.targetPath ? undefined : 0" :aria-label="blockTitle(group, block)" />
-                <span v-if="activeTooltip?.id === block.id" class="dashboard-heatmap__tooltip" role="tooltip">
+                <span v-if="activeTooltip === block" class="dashboard-heatmap__tooltip" role="tooltip">
                   <strong>{{ block.label }}</strong>
                   <span v-for="row in statusDetailRows(block.details)" :key="row.label" class="dashboard-heatmap__tooltip-row">
                     <b>{{ row.label }}</b>{{ row.value }}

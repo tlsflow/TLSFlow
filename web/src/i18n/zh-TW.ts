@@ -1637,16 +1637,16 @@ export default {
     statusPanel: { description: "憑證、Agent、閘道和應用資產的目前可見狀態。", objects: "物件" },
     recentLog: { title: "最近記錄", live: "即時" },
     aria: {
-      assetHeatmap: "應用資產狀態熱力圖",
+      assetHeatmap: "資產狀態熱力圖",
       certificateStatusList: "憑證狀態列表",
       metrics: "核心指標",
       quickActions: "主要功能入口",
-      statusHeatmap: "憑證、Agent、閘道和應用資產狀態",
+      statusHeatmap: "資產狀態",
       statusLegend: "狀態圖例"
     },
     assets: {
       groupCount: "{summary} · {total} 個",
-      title: "應用資產狀態",
+      title: "資產狀態",
       updatedAt: "更新於 {time}"
     },
     audit: {
@@ -1790,6 +1790,9 @@ export default {
       }
     },
     statusGroups: {
+      assets: {
+        title: "資產"
+      },
       agents: {
         title: "裝置"
       },

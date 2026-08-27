@@ -1737,16 +1737,16 @@ export default {
       live: '实时'
     },
     aria: {
-      assetHeatmap: '应用资产状态热力图',
+      assetHeatmap: '资产状态热力图',
       certificateStatusList: '证书状态列表',
       metrics: '核心指标',
       quickActions: '主要功能入口',
-      statusHeatmap: '证书、Agent、网关和应用资产状态',
+      statusHeatmap: '资产状态',
       statusLegend: '状态图例'
     },
     assets: {
       groupCount: '{summary} · {total} 个',
-      title: '应用资产状态',
+      title: '资产状态',
       updatedAt: '更新于 {time}'
     },
     audit: {
@@ -1841,8 +1841,8 @@ export default {
     },
     quickActions: {
       agents: {
-        title: '应用资产',
-        description: '查看 Agent 管理的应用资产及其部署状态。'
+        title: 'Agent',
+        description: '查看 Agent 状态和任务能力。'
       },
       assets: {
         title: '应用资产',
@@ -1892,6 +1892,9 @@ export default {
       }
     },
     statusGroups: {
+      assets: {
+        title: '资产'
+      },
       agents: {
         title: '设备'
       },

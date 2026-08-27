@@ -1612,16 +1612,16 @@ export default {
     statusPanel: { description: 'Status atual visível de certificados, Agents, gateways e ativos de aplicação.', objects: 'objetos' },
     recentLog: { title: 'Logs recentes', live: 'Ao vivo' },
     aria: {
-      assetHeatmap: 'Mapa de calor de status dos ativos de aplicação',
+      assetHeatmap: 'Mapa de calor de status dos ativos',
       certificateStatusList: 'Lista de status dos certificados',
       metrics: 'Indicadores principais',
       quickActions: 'Entradas principais de funcionalidades',
-      statusHeatmap: 'Status de certificados, Agents, gateways e ativos de aplicação',
+      statusHeatmap: 'Status dos ativos',
       statusLegend: 'Legenda de status'
     },
     assets: {
       groupCount: '{summary} · {total} itens',
-      title: 'Status dos ativos de aplicação',
+      title: 'Status dos ativos',
       updatedAt: 'Atualizado em {time}'
     },
     audit: {
@@ -1765,6 +1765,9 @@ export default {
       }
     },
     statusGroups: {
+      assets: {
+        title: 'Ativos'
+      },
       agents: {
         title: 'Dispositivos'
       },

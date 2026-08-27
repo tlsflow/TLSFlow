@@ -1638,16 +1638,16 @@ export default {
     statusPanel: { description: '証明書、Agent、ゲートウェイ、アプリ資産の現在の表示状態。', objects: 'オブジェクト' },
     recentLog: { title: '最近のログ', live: 'ライブ' },
     aria: {
-      assetHeatmap: 'アプリケーションアセットステータス热力图',
+      assetHeatmap: '資産ステータスのヒートマップ',
       certificateStatusList: '証明書ステータス一覧',
       metrics: '核心指標',
       quickActions: '主要機能への導線',
-      statusHeatmap: '証明書、Agent、ゲートウェイとアプリケーションアセットステータス',
+      statusHeatmap: '資産ステータス',
       statusLegend: 'ステータス图例'
     },
     assets: {
       groupCount: '{summary} · {total} 個',
-      title: 'アプリケーションアセットステータス',
+      title: '資産ステータス',
       updatedAt: '更新于 {time}'
     },
     audit: {
@@ -1791,6 +1791,9 @@ export default {
       }
     },
     statusGroups: {
+      assets: {
+        title: 'アセット'
+      },
       agents: {
         title: 'デバイス'
       },

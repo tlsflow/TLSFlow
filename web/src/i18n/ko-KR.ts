@@ -1612,16 +1612,16 @@ export default {
     statusPanel: { description: '인증서, Agent, 게이트웨이 및 애플리케이션 자산의 현재 표시 상태.', objects: '객체' },
     recentLog: { title: '최근 로그', live: '실시간' },
     aria: {
-      assetHeatmap: '응용자산상태 열력그래프',
+      assetHeatmap: '자산 상태 히트맵',
       certificateStatusList: '인증서 상태 목록',
       metrics: '핵심 지표',
       quickActions: '주요 기능 액세스',
-      statusHeatmap: '인증서, Agent, 게이트웨이 및 애플리케이션 자산 상태',
+      statusHeatmap: '자산 상태',
       statusLegend: '상태범례'
     },
     assets: {
       groupCount: '{summary} · {total} 개',
-      title: '애플리케이션 자산 상태',
+      title: '자산 상태',
       updatedAt: '{time}에 업데이트'
     },
     audit: {
@@ -1765,6 +1765,9 @@ export default {
       }
     },
     statusGroups: {
+      assets: {
+        title: '자산'
+      },
       agents: {
         title: '장치'
       },

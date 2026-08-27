@@ -1634,16 +1634,16 @@ export default {
     statusPanel: { description: 'État visible actuel des certificats, Agents, passerelles et actifs applicatifs.', objects: 'objets' },
     recentLog: { title: 'Journaux récents', live: 'En direct' },
     aria: {
-      assetHeatmap: 'Managed application status heatmap',
+      assetHeatmap: 'Carte thermique de l’état des actifs',
       certificateStatusList: 'Certificate status list',
       metrics: 'Core metrics',
       quickActions: 'Primary feature entry points',
-      statusHeatmap: 'Certificate, Agent, gateway, and managed application status',
+      statusHeatmap: 'État des actifs',
       statusLegend: 'Status legend'
     },
     assets: {
       groupCount: '{summary} · {total} items',
-      title: 'Managed application status',
+      title: 'État des actifs',
       updatedAt: 'Updated at {time}'
     },
     audit: {
@@ -1787,6 +1787,9 @@ export default {
       }
     },
     statusGroups: {
+      assets: {
+        title: 'Actifs'
+      },
       agents: {
         title: 'Appareils'
       },

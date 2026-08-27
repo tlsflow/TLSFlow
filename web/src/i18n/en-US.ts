@@ -1436,7 +1436,7 @@ export default {
     // 兼容旧版本证书卡片的翻译 key，避免已缓存 bundle 在升级后产生缺失告警。
     statusBlock: {
       tooltip: {
-        name: 'Name', issuer: 'Issuer', startTime: 'Start time', endTime: 'End time', daysRemaining: 'Days remaining', connectionStatus: 'Connection status', version: 'Version', managementAddress: 'Management address', lastCommunicationTime: 'Last communication', platform: 'Platform', protocolPort: 'Protocol and port', certificateDaysRemaining: 'Certificate days remaining', region: 'Region', latency: 'Latency'
+        name: 'Name', issuer: 'Issuer', startTime: 'Starts', endTime: 'Expires', daysRemaining: 'Days left', connectionStatus: 'Status', version: 'Version', managementAddress: 'Mgmt endpoint', lastCommunicationTime: 'Last seen', platform: 'Platform', protocolPort: 'Endpoint', certificateDaysRemaining: 'Cert. days left', region: 'Region', latency: 'Latency'
       },
       detail: {
         certificateRemaining: '{name}, {days}'
@@ -1707,7 +1707,7 @@ export default {
       certificateAttention: { title: 'Certificate attention', suffix: 'to review' }
     },
       statusPanel: {
-      description: 'Current visible status across certificates, Agents, gateways, and managed applications.',
+      description: 'Current status across all assets.',
       objects: 'objects'
     },
     recentLog: {
@@ -1715,17 +1715,17 @@ export default {
       live: 'Live'
     },
     aria: {
-      assetHeatmap: 'Managed application status heatmap',
+      assetHeatmap: 'Asset status heatmap',
       certificateStatusList: 'Certificate status list',
       metrics: 'Core metrics',
       quickActions: 'Primary feature entry points',
-      statusHeatmap: 'Certificate, Agent, gateway, and managed application status',
+      statusHeatmap: 'Asset status',
       statusLegend: 'Status legend'
     },
     assets: {
       groupCount: '{summary} · {total} items',
-      title: 'Managed application status',
-      updatedAt: 'Updated at {time}'
+      title: 'Asset status',
+      updatedAt: 'Last updated {time}'
     },
     audit: {
       description: 'Prioritizes failures, denials, high-risk events, and key business changes.',
@@ -1819,8 +1819,8 @@ export default {
     },
     quickActions: {
       agents: {
-        title: 'Assets',
-        description: 'View Agent-managed assets and their deployment status.'
+        title: 'Agents',
+        description: 'View agent-managed assets and deployment status.'
       },
       assets: {
         title: 'Applications',
@@ -1845,7 +1845,7 @@ export default {
     },
     statusBlock: {
       tooltip: {
-        name: 'Name', issuer: 'Issuer', startTime: 'Start time', endTime: 'End time', daysRemaining: 'Days remaining', connectionStatus: 'Connection status', version: 'Version', managementAddress: 'Management address', lastCommunicationTime: 'Last communication', platform: 'Platform', protocolPort: 'Protocol and port', certificateDaysRemaining: 'Certificate days remaining', region: 'Region', latency: 'Latency'
+        name: 'Name', issuer: 'Issuer', startTime: 'Starts', endTime: 'Expires', daysRemaining: 'Days left', connectionStatus: 'Status', version: 'Version', managementAddress: 'Mgmt endpoint', lastCommunicationTime: 'Last seen', platform: 'Platform', protocolPort: 'Endpoint', certificateDaysRemaining: 'Cert. days left', region: 'Region', latency: 'Latency'
       },
       detail: {
         certificateRemaining: '{name}, {days}'
@@ -1870,8 +1870,11 @@ export default {
       }
     },
     statusGroups: {
+      assets: {
+        title: 'Assets'
+      },
       agents: {
-        title: 'Devices'
+        title: 'Agents'
       },
       applicationAssets: {
         title: 'Managed applications'

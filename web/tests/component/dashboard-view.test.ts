@@ -162,6 +162,30 @@ describe('DashboardView', () => {
     expect(heatmapBlock.classes()).toContain('dashboard-heatmap__block-wrap--tooltip-open')
   })
 
+  it('资产栏替换 Agent 栏但保留证书、网关和应用资产栏', async () => {
+    apiMocks.getDashboardOverview.mockResolvedValue({
+      data: {
+        generatedAt: '2026-08-26T08:34:00.000Z',
+        systemResources: { cpuUsage: null, memoryUsage: 62 },
+        metrics: [],
+        quickActions: [],
+        statusGroups: [
+          { key: 'certificates', title: '证书', summary: '全部正常', total: 1, blocks: [{ id: 'cert-1', label: 'example.com', status: '正常', tone: 'ok' }] },
+          { key: 'assets', title: '资产', summary: '全部正常', total: 1, blocks: [{ id: 'device-1', label: 'server-1', status: 'ACTIVE', tone: 'ok', details: { type: 'device', name: 'server-1', connectionStatus: 'ONLINE' } }] },
+          { key: 'gateways', title: '网关', summary: '全部正常', total: 1, blocks: [{ id: 'gateway-1', label: 'gateway-1', status: 'online', tone: 'ok' }] },
+          { key: 'applicationAssets', title: '应用资产', summary: '全部正常', total: 1, blocks: [{ id: 'application-1', label: 'app.example.com', status: 'ACTIVE', tone: 'ok' }] },
+        ],
+        certificateStatuses: [],
+        recentAudits: [],
+      },
+    })
+
+    const wrapper = mount(DashboardView)
+    await vi.waitFor(() => expect(wrapper.findAll('.dashboard-status-group')).toHaveLength(4))
+    expect(wrapper.find('.dashboard-panel--asset-heatmap h2').text()).toBe('资产状态')
+    expect(wrapper.findAll('.dashboard-status-group__total').map((item) => item.text())).toEqual(['1', '1', '1', '1'])
+  })
+
   it('五个核心指标卡都跳转到对应列表并携带过滤条件', async () => {
     apiMocks.getDashboardOverview.mockResolvedValue({
       data: {
@@ -301,8 +325,8 @@ describe('DashboardView', () => {
             blocks: [{ id: 'cert-1', label: 'api.example.com', status: '正常', tone: 'ok' }],
           },
           {
-            key: 'agents',
-            title: 'Agent',
+            key: 'assets',
+            title: '资产',
             summary: '全部正常',
             total: 0,
             blocks: [],
