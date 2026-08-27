@@ -50,6 +50,12 @@ test('六个 Agent Plan 模板都能展开为绑定固定版本和资源摘要�
       assert.deepEqual(result.authorization.allowedPaths, []);
       continue;
     }
+    if (pluginId === 'app.tomcat.windows') {
+      assert.equal(configCheck, undefined);
+      assert.deepEqual(result.authorization.commandRules, []);
+      assert.deepEqual(result.authorization.allowedServices, [snapshot.serviceName]);
+      continue;
+    }
     assert.equal(configCheck?.input.executablePath, snapshot.programPath);
     assert.equal(configCheck?.input.executableSha256, snapshot.programSha256);
     assert.deepEqual(configCheck?.input.args, snapshot.configCheckArgs);
@@ -121,7 +127,7 @@ test('证书目标内容会同时绑定到备份和替换操作，供 Agent 判�
   assert.ok(replacements.every((operation) => typeof operation.input.contentBase64 === 'string' && operation.input.contentBase64.length > 0));
 });
 
-test('六个回滚计划先恢复同一次账本，再检查配置、刷新服务和验证状态', () => {
+test('六个回滚计划先恢复同一次账本，再按平台刷新服务和验证状态', () => {
   for (const pluginId of certificateUpdatePluginIds) {
     const result = compileCertificateUpdatePlanTemplate({
       templateText: loadCertificateUpdateResource(pluginId, 'agent-plans/rollback.json'),
@@ -142,6 +148,10 @@ test('六个回滚计划先恢复同一次账本，再检查配置、刷新服�
     assert.equal(restore?.input.ledgerRef, 'execution-recovery-ledger');
     assert.deepEqual(next?.dependsOn, [restore?.operationId]);
     assert.equal(new Set(result.plan.operations.map((operation) => operation.idempotencyKey)).size, result.plan.operations.length);
+    if (pluginId === 'app.tomcat.windows') {
+      assert.equal(result.plan.operations.some((operation) => operation.operationType === 'command.execute_allowlisted'), false);
+      assert.equal(next?.operationType, 'service.restart');
+    }
   }
 });
 

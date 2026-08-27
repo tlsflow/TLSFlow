@@ -54,7 +54,7 @@ const expected = {
     formats: ['PFX', 'JKS'],
   },
   'app.tomcat.windows': {
-    version: '1.0.7',
+    version: '1.0.8',
     platformKey: 'app.tomcat.windows',
     displayName: 'Windows Tomcat 应用',
     englishDisplayName: 'Windows Tomcat Site',
