@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
-import { caOperationsApi, type CaOperationObjectType, type CaOperationRecord, type CaOperationsTree, type CaOperationsTreeAuthority } from '@/api/modules/ca-operations.api'
+import { caOperationsApi, type CaOperationObjectType, type CaOperationRecord, type CaOperationsTree, type CaOperationsTreeAuthority, type CaAgentObservationRunSummary } from '@/api/modules/ca-operations.api'
 import { GcDataTable, GcEmptyState, GcModal, GcPageToolbar, GcStatusTag, type StatusTone } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
@@ -32,15 +32,19 @@ const selectedCaId = ref('')
 const selectedView = ref<CaOperationObjectType>('request')
 const query = ref('')
 const records = ref<CaOperationRecord[]>([])
-const integrity = ref('complete')
 const loadingTree = ref(false)
 const loadingRecords = ref(false)
 const defaultCaSaving = ref(false)
+const agentRefreshBusy = ref(false)
 const errorKey = ref('')
 const errorMessage = ref('')
 const internalCaModalOpen = ref(false)
+const caStatusModalOpen = ref(false)
 let recordsRequestInFlight = false
+let pendingSilentRecordsRefresh = false
 let treeRequestInFlight = false
+let silentRefreshTimer: number | undefined
+let pendingRealtimeRecordsRefresh = false
 let disposeCaRealtime: (() => void) | undefined
 
 function caOperationsLabel(namespace: string, value: unknown): string {
@@ -54,6 +58,13 @@ const authorities = computed(() => [
 const selectedAuthority = computed(() => authorities.value.find((authority) => authority.id === selectedCaId.value))
 const defaultCaId = computed(() => appStore.preferences.defaultCaId ?? '')
 const selectedCaIsDefault = computed(() => Boolean(selectedCaId.value) && selectedCaId.value === defaultCaId.value)
+const selectedAgent = computed(() => selectedAuthority.value?.agent)
+const caStatus = computed(() => selectedAuthority.value?.providerType === 'plugin'
+  ? selectedAgent.value?.status
+  : selectedAuthority.value?.status)
+const caStatusTone = computed<StatusTone>(() => selectedAuthority.value?.providerType === 'plugin'
+  ? agentStatusTone(selectedAgent.value?.status)
+  : authorityStatusTone(selectedAuthority.value?.status))
 const rows = computed<OperationRow[]>(() => records.value.map((record) => ({
   recordKey: record.recordKey,
   subject: displayText(record, ['subjectCommonName', 'commonName', 'name']),
@@ -77,6 +88,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   disposeCaRealtime?.()
+  if (silentRefreshTimer !== undefined) window.clearTimeout(silentRefreshTimer)
 })
 watch([selectedCaId, selectedView], async ([caId]) => {
   if (!caId) return
@@ -117,7 +129,10 @@ async function loadTree(options: { silent?: boolean } = {}) {
 
 async function loadRecords(options: { silent?: boolean } = {}) {
   if (!selectedCaId.value) return
-  if (recordsRequestInFlight) return
+  if (recordsRequestInFlight) {
+    if (options.silent === true) pendingSilentRecordsRefresh = true
+    return
+  }
   recordsRequestInFlight = true
   const showLoading = options.silent !== true
   if (showLoading) loadingRecords.value = true
@@ -131,20 +146,34 @@ async function loadRecords(options: { silent?: boolean } = {}) {
       limit: 100,
     })).data
     records.value = result?.items ?? []
-    integrity.value = result?.integrity ?? 'complete'
   } catch (caught) {
     setApiError(caught, 'caOperations.messages.loadRecordsFailed')
   } finally {
     recordsRequestInFlight = false
     if (showLoading) loadingRecords.value = false
+    if (pendingSilentRecordsRefresh && selectedCaId.value) {
+      pendingSilentRecordsRefresh = false
+      void loadRecords({ silent: true })
+    }
   }
 }
 
 function handleCaRealtime(message: CaOperationsRealtimeMessage): void {
-  void loadTree({ silent: true })
-  if (message.type === 'snapshot' || message.caId === selectedCaId.value) {
-    void loadRecords({ silent: true })
-  }
+  pendingRealtimeRecordsRefresh = pendingRealtimeRecordsRefresh
+    || message.type === 'snapshot'
+    || message.caId === selectedCaId.value
+  if (silentRefreshTimer !== undefined) return
+  silentRefreshTimer = window.setTimeout(() => {
+    silentRefreshTimer = undefined
+    const refreshRecords = pendingRealtimeRecordsRefresh
+    pendingRealtimeRecordsRefresh = false
+    void refreshFromRealtime(refreshRecords)
+  }, 80)
+}
+
+async function refreshFromRealtime(refreshRecords: boolean): Promise<void> {
+  await loadTree({ silent: true })
+  if (refreshRecords) await loadRecords({ silent: true })
 }
 
 async function refreshRecords() {
@@ -155,6 +184,56 @@ async function refreshRecords() {
     await loadRecords()
   } catch (caught) {
     setApiError(caught, 'caOperations.messages.loadRecordsFailed')
+  }
+}
+
+async function refreshAgentAndRecords(): Promise<void> {
+  if (!selectedCaId.value || agentRefreshBusy.value) return
+  if (!selectedAgent.value?.agentId) {
+    await refreshRecords()
+    return
+  }
+  agentRefreshBusy.value = true
+  errorKey.value = ''
+  errorMessage.value = ''
+  try {
+    const result = (await caOperationsApi.refresh(selectedCaId.value, false)).data
+    await loadTree({ silent: true })
+    await loadRecords({ silent: true })
+    const summary = result?.lastRun
+    window.dispatchEvent(new CustomEvent('gcac:toast', {
+      detail: {
+        message: summary
+          ? t('caOperations.messages.refreshAgentSucceededWithStats', observationStatsParams(summary))
+          : t('caOperations.messages.refreshAgentSucceeded'),
+        tone: 'success',
+      },
+    }))
+  } catch (caught) {
+    setApiError(caught, 'caOperations.messages.refreshAgentFailed')
+  } finally {
+    agentRefreshBusy.value = false
+  }
+}
+
+function observationStatsParams(summary: CaAgentObservationRunSummary): Record<string, number> {
+  return {
+    scanned: summary.scannedRecords ?? 0,
+    sent: summary.sentRecords ?? summary.submittedRecords ?? 0,
+    accepted: summary.acceptedRecords ?? 0,
+    inserted: summary.insertedRecords ?? 0,
+    duplicates: summary.duplicateRecords ?? 0,
+    rejected: summary.rejectedRecords ?? 0,
+    failed: summary.failedBatches ?? 0,
+    pending: summary.pendingBatches ?? 0,
+  }
+}
+
+function observationStatusCountParams(statusCounts: Record<string, number> | undefined): Record<string, number> {
+  return {
+    request: statusCounts?.request ?? statusCounts?.requests ?? 0,
+    issuance: statusCounts?.issuance ?? statusCounts?.issued ?? 0,
+    revocation: statusCounts?.revocation ?? statusCounts?.revoked ?? 0,
   }
 }
 
@@ -208,6 +287,38 @@ function viewCount(authority: CaOperationsTreeAuthority | undefined, objectType:
   return authority?.views.find((view) => view.objectType === objectType)?.count ?? 0
 }
 
+function agentStatusLabel(status: string | undefined): string {
+  if (status === 'ONLINE') return t('caOperations.summary.working')
+  if (status === 'OFFLINE') return t('caOperations.summary.offline')
+  return t('caOperations.summary.unknown')
+}
+
+function agentStatusTone(status: string | undefined): StatusTone {
+  if (status === 'ONLINE') return 'success'
+  if (status === 'OFFLINE') return 'danger'
+  return 'muted'
+}
+
+function authorityStatusTone(status: string | undefined): StatusTone {
+  if (status === 'active') return 'success'
+  if (status === 'degraded' || status === 'retiring') return 'warning'
+  if (status === 'disabled' || status === 'compromised' || status === 'deleted' || status === 'retired') return 'danger'
+  return 'muted'
+}
+
+function authorityStatusLabel(status: string | undefined): string {
+  if (selectedAuthority.value?.providerType === 'plugin') return agentStatusLabel(selectedAgent.value?.status)
+  if (status === 'active') return t('caOperations.summary.active')
+  if (status === 'degraded') return t('caOperations.summary.degraded')
+  if (status === 'retiring') return t('caOperations.summary.retiring')
+  if (status === 'disabled') return t('caOperations.summary.disabled')
+  return t('caOperations.summary.unknown')
+}
+
+function caStatusLabel(): string {
+  return authorityStatusLabel(caStatus.value)
+}
+
 function displayText(record: CaOperationRecord, candidates: string[]): string {
   for (const candidate of candidates) {
     const value = record.display[candidate]
@@ -241,6 +352,16 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
           </optgroup>
         </select>
         <button
+          class="gc-button ca-operations__status-button"
+          type="button"
+          :disabled="!selectedAuthority"
+          :aria-label="t('caOperations.aria.caStatus')"
+          @click="caStatusModalOpen = true"
+        >
+          <span class="ca-operations__status-dot" :class="`ca-operations__status-dot--${caStatusTone}`" aria-hidden="true" />
+          {{ t('caOperations.actions.caStatus') }}
+        </button>
+        <button
           class="gc-button"
           type="button"
           :disabled="!selectedAuthority || selectedCaIsDefault || defaultCaSaving"
@@ -253,8 +374,8 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
         <button class="gc-button" type="button" @click="internalCaModalOpen = true">
           {{ t('caOperations.actions.manageInternalCa') }}
         </button>
-        <button class="gc-button gc-button--primary" type="button" :disabled="!selectedAuthority || loadingRecords" @click="refreshRecords">
-          {{ t('common.refresh') }}
+        <button class="gc-button gc-button--primary" type="button" :disabled="!selectedAuthority || loadingRecords || agentRefreshBusy" @click="refreshAgentAndRecords">
+          {{ agentRefreshBusy ? t('caOperations.actions.refreshingAgent') : selectedAgent ? t('caOperations.actions.refreshAgent') : t('common.refresh') }}
         </button>
       </template>
     </GcPageToolbar>
@@ -263,18 +384,6 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
 
     <div v-if="authorities.length" class="ca-operations__layout">
       <section class="ca-operations__content">
-        <div class="gc-card ca-operations__summary">
-          <div>
-            <span>{{ t('caOperations.summary.currentAuthority') }}</span>
-            <strong>{{ selectedAuthority?.name }}</strong>
-            <small>{{ selectedAuthority?.providerName }} · {{ selectedAuthority?.providerType }}</small>
-          </div>
-          <div>
-            <span>{{ t('caOperations.summary.integrity') }}</span>
-            <GcStatusTag :status="integrity" :label="statusLabel(integrity)" :tone="statusTone(integrity)" />
-          </div>
-        </div>
-
         <nav class="ca-operations__views" :aria-label="t('caOperations.aria.objectViews')">
           <button
             v-for="objectType in objectTypes"
@@ -304,6 +413,41 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
 
     <GcModal v-model:open="internalCaModalOpen" size="xxl" :title="t('caOperations.actions.manageInternalCa')" :description="t('internalCa.description')">
       <InternalCaView embedded />
+    </GcModal>
+
+    <GcModal v-model:open="caStatusModalOpen" size="lg" :title="t('caOperations.modals.caStatusTitle')" :description="t('caOperations.modals.caStatusDescription')">
+      <div class="ca-operations__agent-details">
+        <div class="ca-operations__agent-details-summary">
+          <span>{{ t('caOperations.summary.agentStatus') }}</span>
+          <GcStatusTag :status="String(caStatus ?? 'UNKNOWN')" :label="caStatusLabel()" :tone="caStatusTone" />
+        </div>
+        <template v-if="selectedAuthority?.providerType === 'plugin' && selectedAgent">
+          <div class="ca-operations__agent-details-grid">
+            <div>
+              <span>{{ t('caOperations.summary.agentVersion') }}</span>
+              <strong>{{ selectedAgent.version || t('caOperations.summary.unknown') }}</strong>
+              <small>{{ t('caOperations.summary.agentVersionSource') }}: {{ selectedAgent.versionSource === 'heartbeat' ? t('caOperations.summary.versionFromHeartbeat') : t('caOperations.summary.versionFromRegistration') }}</small>
+              <small v-if="selectedAgent.registeredVersion && selectedAgent.versionSource === 'heartbeat' && selectedAgent.registeredVersion !== selectedAgent.version">{{ t('caOperations.summary.registeredVersion') }}: {{ selectedAgent.registeredVersion }}</small>
+            </div>
+            <div>
+              <span>{{ t('caOperations.summary.storedRecords') }}</span>
+              <strong>{{ selectedAgent.storedRecords }}</strong>
+              <small>{{ t('caOperations.summary.observationStatus') }}: {{ selectedAgent.observationStatus || t('caOperations.summary.unknown') }}</small>
+            </div>
+          </div>
+          <div class="ca-operations__agent-details-list">
+            <small>{{ t('caOperations.summary.agentId') }}: {{ selectedAgent.agentId }}</small>
+            <small>{{ t('caOperations.summary.agentKey') }}: {{ selectedAgent.agentKey }}</small>
+            <small v-if="selectedAgent.parserVersion">{{ t('caOperations.summary.parserVersion') }}: {{ selectedAgent.parserVersion }}</small>
+            <small v-if="selectedAgent.statusCounts">{{ t('caOperations.summary.statusCounts', observationStatusCountParams(selectedAgent.statusCounts)) }}</small>
+            <small>{{ t('caOperations.summary.heartbeatAt') }}: {{ selectedAgent.heartbeatAt ? (formatBrowserLocalTime(selectedAgent.heartbeatAt, { includeSeconds: true }) || t('common.notAvailable')) : t('common.notAvailable') }}</small>
+            <small>{{ t('caOperations.summary.observationAt') }}: {{ selectedAgent.lastObservationAt ? (formatBrowserLocalTime(selectedAgent.lastObservationAt, { includeSeconds: true }) || t('common.notAvailable')) : t('common.notAvailable') }}</small>
+            <small v-if="selectedAgent.scannedRecords !== undefined">{{ t('caOperations.summary.observationStats', { scanned: selectedAgent.scannedRecords ?? 0, sent: selectedAgent.sentRecords ?? selectedAgent.submittedRecords ?? 0, accepted: selectedAgent.acceptedRecords ?? 0, inserted: selectedAgent.insertedRecords ?? 0, duplicates: selectedAgent.duplicateRecords ?? 0, rejected: selectedAgent.rejectedRecords ?? 0, failed: selectedAgent.failedBatches ?? 0, pending: selectedAgent.pendingBatches ?? 0 }) }}</small>
+            <small v-for="warning in selectedAgent.warnings ?? []" :key="warning" class="ca-operations__agent-warning">{{ t('caOperations.summary.observationWarnings') }}: {{ warning }}</small>
+          </div>
+        </template>
+        <p v-else class="ca-operations__agent-empty">{{ selectedAuthority?.providerType === 'plugin' ? t('caOperations.summary.noAgent') : t('caOperations.modals.nativeCaStatus') }}</p>
+      </div>
     </GcModal>
   </section>
 </template>
@@ -355,38 +499,93 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
   align-content: start;
 }
 
-.ca-operations__summary {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(var(--gc-size-card-min), 1fr));
-  gap: var(--gc-space-3);
-  padding: var(--gc-space-4);
-  border-color: var(--gc-color-border-soft);
-  background: var(--gc-color-surface-glass);
-  box-shadow: var(--gc-shadow-sm);
+.ca-operations__agent-warning {
+  color: var(--gc-color-warning) !important;
 }
 
-.ca-operations__summary > div {
+.ca-operations__status-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gc-space-2);
+}
+
+.ca-operations__status-dot {
+  width: var(--gc-space-2);
+  height: var(--gc-space-2);
+  flex: 0 0 auto;
+  border-radius: var(--gc-radius-full);
+  background: var(--gc-color-muted);
+  box-shadow: 0 0 0 var(--gc-border-width-default) color-mix(in srgb, var(--gc-color-muted) 20%, transparent);
+}
+
+.ca-operations__status-dot--success {
+  background: var(--gc-color-success);
+  box-shadow: 0 0 0 var(--gc-border-width-default) var(--gc-color-success-soft);
+}
+
+.ca-operations__status-dot--warning {
+  background: var(--gc-color-warning);
+  box-shadow: 0 0 0 var(--gc-border-width-default) var(--gc-color-warning-soft);
+}
+
+.ca-operations__status-dot--danger {
+  background: var(--gc-color-danger);
+  box-shadow: 0 0 0 var(--gc-border-width-default) var(--gc-color-danger-soft);
+}
+
+.ca-operations__status-dot--info {
+  background: var(--gc-color-info);
+  box-shadow: 0 0 0 var(--gc-border-width-default) var(--gc-color-info-soft);
+}
+
+.ca-operations__agent-details {
+  display: grid;
+  gap: var(--gc-space-4);
+}
+
+.ca-operations__agent-details-summary,
+.ca-operations__agent-details-grid > div {
   display: grid;
   gap: var(--gc-space-1);
-  min-width: 0;
 }
 
-.ca-operations__summary span {
+.ca-operations__agent-details-summary {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: var(--gc-space-3);
+  padding-bottom: var(--gc-space-3);
+  border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
+}
+
+.ca-operations__agent-details-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gc-space-4);
+}
+
+.ca-operations__agent-details span,
+.ca-operations__agent-details small {
   color: var(--gc-color-text-muted);
   font-size: var(--gc-font-size-xs);
-  font-weight: 600;
 }
 
-.ca-operations__summary small {
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-}
-
-.ca-operations__summary strong {
+.ca-operations__agent-details strong {
   color: var(--gc-color-text);
   font-size: var(--gc-font-size-sm);
-  font-weight: 650;
   overflow-wrap: anywhere;
+}
+
+.ca-operations__agent-details-list {
+  display: grid;
+  gap: var(--gc-space-2);
+  padding-top: var(--gc-space-3);
+  border-top: var(--gc-border-width-default) solid var(--gc-color-border-subtle);
+}
+
+.ca-operations__agent-empty {
+  margin: 0;
+  color: var(--gc-color-text-muted);
+  font-size: var(--gc-font-size-sm);
 }
 
 .ca-operations__views {
@@ -465,12 +664,8 @@ function displayText(record: CaOperationRecord, candidates: string[]): string {
   padding: var(--gc-space-3) var(--gc-space-4);
 }
 
-@media (max-width: 56rem) {
-  .ca-operations__summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-
 @media (max-width: 40rem) {
-  .ca-operations__summary { grid-template-columns: 1fr; }
   .ca-operations__toolbar { flex-direction: column; }
+  .ca-operations__agent-details-grid { grid-template-columns: 1fr; }
 }
 </style>

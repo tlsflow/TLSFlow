@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ApiClientError } from '@/api/client'
 import { internalCaApi, type InternalCaRecord } from '@/api/modules/internal-ca.api'
 import { createWindowsAdcsInstallSession, listAgents } from '@/api/modules/assets.api'
-import { GcDataTable, GcModal, GcPageHeader, GcStatusTag } from '@/design-system/components'
+import { GcDataTable, GcModal, GcPageHeader, GcStatusTag, type StatusTone } from '@/design-system/components'
 import type { DataTableColumn } from '@/design-system/components/GcDataTable.vue'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 
@@ -22,6 +22,10 @@ const renewals = ref<InternalCaRecord[]>([])
 const revocations = ref<InternalCaRecord[]>([])
 const trustDistributions = ref<InternalCaRecord[]>([])
 const reuseRisks = ref<InternalCaRecord[]>([])
+const providerActionBindings = ref<InternalCaRecord[]>([])
+const certificatePolicies = ref<InternalCaRecord[]>([])
+const certificateRotations = ref<InternalCaRecord[]>([])
+const crlPublications = ref<InternalCaRecord[]>([])
 const riskOverview = ref<InternalCaRecord>({})
 const authorityPreview = ref<InternalCaRecord | null>(null)
 const remediationPreview = ref<InternalCaRecord | null>(null)
@@ -42,11 +46,15 @@ const adcsModalOpen = ref(false)
 const adcsEditingProviderId = ref('')
 const adcsInstallBusy = ref(false)
 const adcsAssociationBusy = ref(false)
+const adcsRefreshBusy = ref('')
 
 const trustDomainDraft = reactive({ name: '', purpose: 'production_tls', isolationLevel: 'standard', isDefault: false })
 const authorityDraft = reactive({ providerId: '', trustDomainId: '', parentCaId: '', name: '', commonName: '', securityDomain: 'production', topologyMode: 'root_with_intermediate', keyBackend: 'secret' })
 const profileDraft = reactive({ name: '', trustDomainId: '', securityDomain: 'production', allowedDnsSuffix: '', maximumValidityDays: 90, renewalWindowDays: 30, requireApproval: true })
-const requestDraft = reactive({ applicationAssetId: '', trustDomainId: '', caId: '', profileVersionId: '', commonName: '', sans: '', custodyMode: 'managed_secret' })
+const requestDraft = reactive({
+  applicationAssetId: '', trustDomainId: '', caId: '', profileVersionId: '', commonName: '', sans: '', custodyMode: 'managed_secret',
+  agentId: '', targetId: '', keyPath: '', certificatePath: '', configPath: '', format: 'pem', alias: '', storageMode: 'file_pem',
+})
 const revocationDraft = reactive({ certificateVersionId: '', reason: 'keyCompromise' })
 const trustDraft = reactive({ caId: '', targetIds: '', platform: 'linux' })
 const adcsDraft = reactive({
@@ -91,11 +99,13 @@ const trustDomainColumns = computed<DataTableColumn<InternalCaRecord>[]>(() => [
   { key: 'createdAt', title: t('internalCa.trustDomains.columns.createdAt') },
 ])
 const requestColumns = computed<DataTableColumn<InternalCaRecord>[]>(() => [
-  { key: 'subjectCommonName', title: t('internalCa.requests.columns.commonName'), width: '24%' },
-  { key: 'applicationAssetId', title: t('internalCa.requests.columns.applicationAssetId'), width: '24%' },
-  { key: 'status', title: t('internalCa.trustDomains.columns.status'), width: '16%' },
-  { key: 'updatedAt', title: t('internalCa.requests.columns.updatedAt'), width: '20%' },
-  { key: 'actions', title: t('internalCa.requests.columns.actions'), width: '16%' },
+  { key: 'subjectCommonName', title: t('internalCa.requests.columns.commonName'), width: '16%' },
+  { key: 'applicationAssetId', title: t('internalCa.requests.columns.applicationAssetId'), width: '15%' },
+  { key: 'keyReference', title: t('internalCa.requests.columns.keyReference'), width: '18%' },
+  { key: 'certificate', title: t('internalCa.requests.columns.certificate'), width: '19%' },
+  { key: 'status', title: t('internalCa.trustDomains.columns.status'), width: '11%' },
+  { key: 'updatedAt', title: t('internalCa.requests.columns.updatedAt'), width: '9%' },
+  { key: 'actions', title: t('internalCa.requests.columns.actions'), width: '12%' },
 ])
 const profileColumns = computed<DataTableColumn<InternalCaRecord>[]>(() => [
   { key: 'name', title: t('internalCa.trustDomains.columns.name'), width: '28%' },
@@ -110,13 +120,19 @@ watch(() => authorityDraft.name, (name) => {
   if (!commonNameCustomized.value) authorityDraft.commonName = name
 })
 
+watch(() => requestDraft.storageMode, (storageMode) => {
+  // Windows CNG 只能通过 PEM 证书回复导入，避免在表单中生成必然失败的组合。
+  if (storageMode === 'windows_cng' && requestDraft.format !== 'pem') requestDraft.format = 'pem'
+})
+
 async function loadAll() {
   loading.value = true
   error.value = ''
   try {
-    const [providerResult, trustDomainResult, authorityResult, profileResult, requestResult, renewalResult, revocationResult, trustResult, riskResult, overviewResult] = await Promise.all([
+    const [providerResult, trustDomainResult, authorityResult, profileResult, requestResult, renewalResult, revocationResult, trustResult, riskResult, overviewResult, policyResult, rotationResult, crlResult] = await Promise.all([
       internalCaApi.listProviders(), internalCaApi.listTrustDomains(), internalCaApi.listAuthorities(), internalCaApi.listProfiles(), internalCaApi.listRequests(),
       internalCaApi.listRenewals(), internalCaApi.listRevocations(), internalCaApi.listTrustDistributions(), internalCaApi.listReuseRisks(), internalCaApi.reuseRiskOverview(),
+      internalCaApi.listCertificatePolicies(), internalCaApi.listCertificateRotations(), internalCaApi.listCrlPublications(),
     ])
     providers.value = providerResult.data ?? []
     trustDomains.value = trustDomainResult.data ?? []
@@ -128,6 +144,17 @@ async function loadAll() {
     trustDistributions.value = trustResult.data ?? []
     reuseRisks.value = riskResult.data ?? []
     riskOverview.value = overviewResult.data ?? {}
+    certificatePolicies.value = policyResult.data ?? []
+    certificateRotations.value = rotationResult.data ?? []
+    crlPublications.value = crlResult.data ?? []
+    const bindingResults = await Promise.allSettled(
+      providers.value.map((provider) => internalCaApi.listProviderActionBindings(text(provider.id))),
+    )
+    providerActionBindings.value = bindingResults.flatMap((result, index) => {
+      if (result.status !== 'fulfilled') return []
+      const providerId = text(providers.value[index]?.id)
+      return (result.value.data ?? []).map((binding) => ({ ...binding, providerId }))
+    })
     authorityDraft.providerId ||= text(builtinBackend.value?.id)
     const defaultTrustDomainId = text(trustDomains.value.find((item) => item.isDefault === true)?.id ?? trustDomains.value[0]?.id)
     authorityDraft.trustDomainId ||= defaultTrustDomainId
@@ -350,6 +377,51 @@ function backendVerificationSummary(backend: InternalCaRecord): string {
   return t('internalCa.backendSummary.remoteVerified')
 }
 
+function adcsRuntimeOf(backend: InternalCaRecord): InternalCaRecord {
+  return asRecord(backend.runtime)
+}
+
+function adcsStatusLabel(status: unknown): string {
+  const value = text(status)
+  if (value === 'ONLINE') return t('internalCa.backendSummary.statusOnline')
+  if (value === 'OFFLINE') return t('internalCa.backendSummary.statusOffline')
+  return t('internalCa.backendSummary.statusUnknown')
+}
+
+function adcsStatusTone(status: unknown): StatusTone {
+  const value = text(status)
+  if (value === 'ONLINE') return 'success'
+  if (value === 'OFFLINE') return 'danger'
+  return 'muted'
+}
+
+function adcsAuthorityId(backend: InternalCaRecord): string {
+  return text(activeAuthorities.value.find((authority) => text(authority.providerId) === text(backend.id))?.id)
+}
+
+async function refreshAdcsProvider(backend: InternalCaRecord): Promise<void> {
+  const providerId = text(backend.id)
+  const caId = adcsAuthorityId(backend)
+  if (!providerId || !caId || adcsRefreshBusy.value) return
+  adcsRefreshBusy.value = providerId
+  error.value = ''
+  try {
+    const result = await internalCaApi.refreshAdcsObservations(caId)
+    await loadAll()
+    const lastRun = asRecord(asRecord(result.data).lastRun)
+    window.dispatchEvent(new CustomEvent('gcac:toast', {
+      detail: {
+        message: t('internalCa.backendSummary.refreshSucceeded', { count: number(lastRun.insertedRecords ?? adcsRuntimeOf(backend).storedRecords) }),
+        tone: 'success',
+      },
+    }))
+  } catch (caught) {
+    error.value = caught instanceof ApiClientError ? caught.message : t('internalCa.backendSummary.refreshFailed')
+  } finally {
+    adcsRefreshBusy.value = ''
+  }
+}
+
 function backendLabel(providerId: unknown): string {
   const backend = providers.value.find((item) => text(item.id) === text(providerId))
   return backend ? backendModeLabel(backend) : t('common.notAvailable')
@@ -399,9 +471,35 @@ async function createProfile() {
 }
 
 async function createRequest() {
-  const ok = await runAction(() => internalCaApi.createRequest({
-    ...requestDraft, sans: splitList(requestDraft.sans), requestedValidityDays: 90,
-  }), 'internalCa.messages.requestCreated')
+  const ok = await runAction(async () => {
+    const result = await internalCaApi.createRequest({
+      applicationAssetId: requestDraft.applicationAssetId,
+      trustDomainId: requestDraft.trustDomainId,
+      caId: requestDraft.caId,
+      profileVersionId: requestDraft.profileVersionId,
+      commonName: requestDraft.commonName,
+      sans: splitList(requestDraft.sans),
+      custodyMode: requestDraft.custodyMode,
+      requestedValidityDays: 90,
+    })
+    if (requestDraft.custodyMode !== 'local_agent') return result
+    const requestId = text(result.data?.id)
+    if (!requestId) throw new Error(t('internalCa.requests.localAgentRequestIdMissing'))
+    await internalCaApi.generateLocalCsr(requestId, {
+      agentId: requestDraft.agentId,
+      targetId: requestDraft.targetId,
+      commonName: requestDraft.commonName,
+      sans: splitList(requestDraft.sans),
+      keyPath: requestDraft.keyPath,
+      certificatePath: requestDraft.certificatePath,
+      ...(requestDraft.configPath.trim() ? { configPath: requestDraft.configPath } : {}),
+      format: requestDraft.format,
+      ...(requestDraft.alias.trim() ? { alias: requestDraft.alias } : {}),
+      storageMode: requestDraft.storageMode,
+      idempotencyKey: `certificate-request:${requestId}:key-generate`,
+    })
+    return result
+  }, 'internalCa.messages.requestCreated')
   if (ok) requestModalOpen.value = false
 }
 
@@ -413,6 +511,11 @@ async function createTrustDistribution() {
   await runAction(() => internalCaApi.createTrustDistribution({
     caId: trustDraft.caId, targetScope: { targetIds: splitList(trustDraft.targetIds), platform: trustDraft.platform },
   }), 'internalCa.messages.trustCreated')
+}
+
+async function publishCrl(caId: string): Promise<void> {
+  if (!caId) return
+  await runAction(() => internalCaApi.publishCrl(caId), 'internalCa.operations.crlPublished')
 }
 
 function openAdcsModal(provider?: InternalCaRecord) {
@@ -585,6 +688,35 @@ function asRecords(value: unknown): InternalCaRecord[] { return Array.isArray(va
 function asRecord(value: unknown): InternalCaRecord { return value && typeof value === 'object' && !Array.isArray(value) ? value as InternalCaRecord : {} }
 function localTime(value: unknown): string { return formatBrowserLocalTime(value) || t('internalCa.common.unknown') }
 function trustDomainName(value: unknown): string { return text(trustDomains.value.find((item) => text(item.id) === text(value))?.name, t('internalCa.common.unknown')) }
+function evidenceOf(rotation: InternalCaRecord): InternalCaRecord { return asRecord(rotation.evidence) }
+function providerName(providerId: unknown): string { return text(providers.value.find((item) => text(item.id) === text(providerId))?.name, t('internalCa.common.unknown')) }
+function keySummaryOf(request: InternalCaRecord): InternalCaRecord { return asRecord(request.keyReferenceSummary) }
+function custodyLabel(value: unknown): string {
+  const key = text(value)
+  if (key === 'local_agent') return t('internalCa.custodyModes.localAgent')
+  if (key === 'managed_secret') return t('internalCa.custodyModes.managedSecret')
+  if (key === 'device_local') return t('internalCa.custodyModes.deviceLocal')
+  if (key === 'external_key') return t('internalCa.custodyModes.externalKey')
+  return t('internalCa.common.unknown')
+}
+function protectionLabel(value: unknown): string {
+  const key = text(value)
+  if (key === 'hardware_backed') return t('internalCa.protectionLevels.hardwareBacked')
+  if (key === 'os_protected') return t('internalCa.protectionLevels.osProtected')
+  if (key === 'software_controlled') return t('internalCa.protectionLevels.softwareControlled')
+  return t('internalCa.common.unknown')
+}
+function shortDigest(value: unknown): string {
+  const digest = text(value)
+  return digest.length > 16 ? `${digest.slice(0, 8)}...${digest.slice(-8)}` : digest || t('internalCa.common.unknown')
+}
+function requestDeploymentSummary(request: InternalCaRecord): string {
+  const status = text(request.deploymentPlanStatus)
+  if (status) return status
+  if (text(request.status) === 'active') return t('internalCa.requests.deploymentActive')
+  if (text(request.status) === 'deploy_failed') return t('internalCa.requests.deploymentBlocked')
+  return t('internalCa.requests.deploymentPending')
+}
 </script>
 
 <template>
@@ -675,7 +807,22 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
               <small>{{ t('internalCa.labels.backendUsageCount', { count: activeAuthorities.filter((item) => text(item.providerId) === text(backend.id)).length }) }}</small>
               <small>{{ backendCapabilitySummary(backend) }}</small>
               <small>{{ backendVerificationSummary(backend) }}</small>
+              <div v-if="isAdcsProvider(backend)" class="backend-summary__runtime">
+                <template v-if="adcsRuntimeOf(backend).agentId">
+                  <span><strong>{{ t('internalCa.backendSummary.agentVersion') }}:</strong> {{ text(adcsRuntimeOf(backend).version, t('internalCa.common.unknown')) }}</span>
+                  <span><strong>{{ t('internalCa.backendSummary.agentVersionSource') }}:</strong> {{ text(adcsRuntimeOf(backend).versionSource) === 'heartbeat' ? t('internalCa.backendSummary.versionFromHeartbeat') : t('internalCa.backendSummary.versionFromRegistration') }}</span>
+                  <span v-if="text(adcsRuntimeOf(backend).registeredVersion) && text(adcsRuntimeOf(backend).versionSource) === 'heartbeat' && text(adcsRuntimeOf(backend).registeredVersion) !== text(adcsRuntimeOf(backend).version)"><strong>{{ t('internalCa.backendSummary.registeredVersion') }}:</strong> {{ text(adcsRuntimeOf(backend).registeredVersion) }}</span>
+                  <span><strong>{{ t('internalCa.backendSummary.agentKey') }}:</strong> <code>{{ text(adcsRuntimeOf(backend).agentKey, t('internalCa.common.unknown')) }}</code></span>
+                  <span><strong>{{ t('internalCa.backendSummary.agentStatus') }}:</strong> <GcStatusTag :status="text(adcsRuntimeOf(backend).status)" :label="adcsStatusLabel(adcsRuntimeOf(backend).status)" :tone="adcsStatusTone(adcsRuntimeOf(backend).status)" /></span>
+                  <span><strong>{{ t('internalCa.backendSummary.heartbeatAt') }}:</strong> {{ adcsRuntimeOf(backend).heartbeatAt ? localTime(adcsRuntimeOf(backend).heartbeatAt) : t('internalCa.backendSummary.observationNever') }}</span>
+                  <span><strong>{{ t('internalCa.backendSummary.observationAt') }}:</strong> {{ adcsRuntimeOf(backend).lastObservationAt ? localTime(adcsRuntimeOf(backend).lastObservationAt) : t('internalCa.backendSummary.observationNever') }}</span>
+                  <span><strong>{{ t('internalCa.backendSummary.storedRecords') }}:</strong> {{ number(adcsRuntimeOf(backend).storedRecords) }}</span>
+                  <span v-if="adcsRuntimeOf(backend).scannedRecords !== undefined"><strong>{{ t('internalCa.backendSummary.observationStats', { scanned: number(adcsRuntimeOf(backend).scannedRecords), submitted: number(adcsRuntimeOf(backend).submittedRecords), inserted: number(adcsRuntimeOf(backend).insertedRecords) }) }}</strong></span>
+                </template>
+                <span v-else>{{ t('internalCa.backendSummary.noAgent') }}</span>
+              </div>
               <div v-if="isAdcsProvider(backend)" class="backend-summary__actions">
+                <button class="gc-button gc-button--sm gc-button--primary" type="button" :disabled="adcsRefreshBusy !== '' || !adcsAuthorityId(backend)" @click="refreshAdcsProvider(backend)">{{ adcsRefreshBusy === text(backend.id) ? t('internalCa.backendSummary.refreshing') : t('internalCa.backendSummary.refresh') }}</button>
                 <button class="gc-button gc-button--sm" type="button" @click="openAdcsModal(backend)">{{ t('internalCa.adcs.actions.edit') }}</button>
                 <button class="gc-button gc-button--sm gc-button--danger" type="button" @click="deleteAdcsProvider(backend)">{{ t('internalCa.adcs.actions.delete') }}</button>
               </div>
@@ -760,6 +907,22 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
           <template #cell-subjectCommonName="{ row }">
             <div class="trust-domain-page__cell-main">
               <strong>{{ text(row.subjectCommonName) }}</strong>
+              <small>{{ t('internalCa.requests.policyVersion', { id: shortDigest(row.certificatePolicyVersionId) }) }}</small>
+            </div>
+          </template>
+          <template #cell-keyReference="{ row }">
+            <div class="trust-domain-page__cell-main">
+              <strong>{{ custodyLabel(keySummaryOf(row).custodyMode) }}</strong>
+              <small>{{ protectionLabel(keySummaryOf(row).protectionLevel) }} · {{ text(keySummaryOf(row).backendType, t('internalCa.common.unknown')) }}</small>
+              <small>SPKI {{ shortDigest(keySummaryOf(row).publicKeyFingerprintSha256 || row.publicKeyFingerprintSha256) }}</small>
+            </div>
+          </template>
+          <template #cell-certificate="{ row }">
+            <div class="trust-domain-page__cell-main">
+              <strong>{{ t('internalCa.requests.certificateVersion', { id: shortDigest(row.certificateVersionId) }) }}</strong>
+              <small>{{ t('internalCa.requests.deployment', { status: requestDeploymentSummary(row) }) }}</small>
+              <small v-if="row.deploymentPlanId">{{ t('internalCa.requests.deploymentPlan', { id: shortDigest(row.deploymentPlanId) }) }}</small>
+              <small v-if="row.failureCode" class="lifecycle-warning">{{ text(row.failureCode) }}{{ row.failureMessage ? `: ${text(row.failureMessage)}` : '' }}</small>
             </div>
           </template>
           <template #cell-status="{ row }"><GcStatusTag :status="text(row.status)" /></template>
@@ -772,6 +935,69 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
             </div>
           </template>
         </GcDataTable>
+      </div>
+    </details>
+
+    <!-- Section: 生命周期运维 -->
+    <details class="ca-section gc-card" open>
+      <summary class="ca-section__header">
+        <span class="ca-section__title">{{ t('internalCa.operations.title') }}</span>
+      </summary>
+      <div class="ca-section__body lifecycle-operations">
+        <section class="ca-subsection">
+          <header class="ca-subsection__header"><span>{{ t('internalCa.operations.policiesTitle') }}</span><span>{{ t('businessPage.total', { count: certificatePolicies.length }) }}</span></header>
+          <div v-if="certificatePolicies.length" class="lifecycle-list">
+            <article v-for="policy in certificatePolicies" :key="text(policy.id)" class="lifecycle-row">
+              <div><strong>{{ text(policy.name, t('internalCa.common.unknown')) }}</strong><small>{{ t('internalCa.operations.policyVersion', { version: text(asRecord(policy.version).id, t('internalCa.common.unknown')) }) }}</small></div>
+              <GcStatusTag :status="text(policy.status, 'unknown')" />
+              <small>{{ t('internalCa.operations.policyApproval', { required: asRecord(policy.rules).requireApproval === true ? t('common.yes') : t('common.no') }) }}</small>
+            </article>
+          </div>
+          <p v-else class="lifecycle-empty">{{ t('internalCa.operations.emptyPolicies') }}</p>
+        </section>
+
+        <section class="ca-subsection">
+          <header class="ca-subsection__header"><span>{{ t('internalCa.operations.bindingsTitle') }}</span><span>{{ t('businessPage.total', { count: providerActionBindings.length }) }}</span></header>
+          <div v-if="providerActionBindings.length" class="lifecycle-list">
+            <article v-for="binding in providerActionBindings" :key="text(binding.id)" class="lifecycle-row">
+              <div><strong>{{ providerName(binding.providerId) }}</strong><small>{{ text(binding.pluginVersionId, t('internalCa.common.unknown')) }}</small></div>
+              <GcStatusTag :status="text(binding.status, 'unknown')" />
+              <small>{{ text(binding.executionLocation, t('internalCa.common.unknown')) }} · {{ text(asRecord(binding.issueAction).actionId, t('internalCa.common.unknown')) }}</small>
+            </article>
+          </div>
+          <p v-else class="lifecycle-empty">{{ t('internalCa.operations.emptyBindings') }}</p>
+        </section>
+
+        <section class="ca-subsection">
+          <header class="ca-subsection__header"><span>{{ t('internalCa.operations.rotationsTitle') }}</span><span>{{ t('businessPage.total', { count: certificateRotations.length }) }}</span></header>
+          <div v-if="certificateRotations.length" class="lifecycle-list">
+            <article v-for="rotation in certificateRotations" :key="text(rotation.id)" class="lifecycle-row lifecycle-row--rotation">
+              <div><strong>{{ text(rotation.applicationAssetId, t('internalCa.common.unknown')) }}</strong><small>{{ text(rotation.id, t('internalCa.common.unknown')) }}</small></div>
+              <GcStatusTag :status="text(rotation.status, 'unknown')" />
+              <small>{{ t('internalCa.operations.plan', { id: text(evidenceOf(rotation).deploymentPlanId, t('internalCa.common.unknown')) }) }}</small>
+              <small>{{ t('internalCa.operations.targetVersion', { id: text(rotation.targetCertificateVersionId, t('internalCa.common.unknown')) }) }}</small>
+              <small>{{ t('internalCa.operations.tlsStatus', { status: text(evidenceOf(rotation).tlsVerification, t('internalCa.operations.tlsPending')) }) }}</small>
+              <span v-if="evidenceOf(rotation).rollbackRequired === true" class="lifecycle-warning">{{ t('internalCa.operations.rollbackRequired') }}</span>
+            </article>
+          </div>
+          <p v-else class="lifecycle-empty">{{ t('internalCa.operations.emptyRotations') }}</p>
+        </section>
+
+        <section class="ca-subsection">
+          <header class="ca-subsection__header"><span>{{ t('internalCa.operations.crlTitle') }}</span><span>{{ t('businessPage.total', { count: crlPublications.length }) }}</span></header>
+          <div v-if="crlPublications.length" class="lifecycle-list">
+            <article v-for="publication in crlPublications" :key="text(publication.id)" class="lifecycle-row">
+              <div><strong>{{ text(publication.caId, t('internalCa.common.unknown')) }}</strong><small>{{ t('internalCa.operations.crlNumber', { number: text(publication.crlNumber, t('internalCa.common.unknown')) }) }}</small></div>
+              <GcStatusTag :status="text(publication.publicationStatus, 'unknown')" />
+              <small>{{ localTime(publication.thisUpdate) }}</small>
+              <button class="gc-button gc-button--sm" type="button" :disabled="actionPending" @click="publishCrl(text(publication.caId))">{{ t('internalCa.operations.publishCrl') }}</button>
+            </article>
+          </div>
+          <p v-else class="lifecycle-empty">{{ t('internalCa.operations.emptyCrl') }}</p>
+          <div v-if="!crlPublications.length && authorities.length" class="button-row">
+            <button v-for="authority in authorities" :key="text(authority.id)" class="gc-button gc-button--sm" type="button" :disabled="actionPending" @click="publishCrl(text(authority.id))">{{ t('internalCa.operations.publishCrlFor', { name: text(authority.name, t('internalCa.common.unknown')) }) }}</button>
+          </div>
+        </section>
       </div>
     </details>
 
@@ -799,6 +1025,17 @@ function trustDomainName(value: unknown): string { return text(trustDomains.valu
         <label>{{ t('internalCa.fields.commonName') }}<input v-model="requestDraft.commonName" required /></label>
         <label>{{ t('internalCa.fields.sans') }}<input v-model="requestDraft.sans" :placeholder="t('internalCa.placeholders.sans')" /></label>
         <label>{{ t('internalCa.fields.custodyMode') }}<select v-model="requestDraft.custodyMode"><option value="managed_secret">{{ t('internalCa.custodyModes.managedSecret') }}</option><option value="local_agent">{{ t('internalCa.custodyModes.localAgent') }}</option><option value="device_local">{{ t('internalCa.custodyModes.deviceLocal') }}</option><option value="external_key">{{ t('internalCa.custodyModes.externalKey') }}</option></select></label>
+        <template v-if="requestDraft.custodyMode === 'local_agent'">
+          <p class="trust-domain-form__hint">{{ t('internalCa.requests.localAgentHint') }}</p>
+          <label>{{ t('internalCa.requests.agentId') }}<input v-model="requestDraft.agentId" required /></label>
+          <label>{{ t('internalCa.requests.targetId') }}<input v-model="requestDraft.targetId" required /></label>
+          <label>{{ t('internalCa.requests.keyPath') }}<input v-model="requestDraft.keyPath" required /></label>
+          <label>{{ t('internalCa.requests.certificatePath') }}<input v-model="requestDraft.certificatePath" required /></label>
+          <label>{{ t('internalCa.requests.format') }}<select v-model="requestDraft.format"><option value="pem">PEM</option><option value="pkcs12">PKCS#12</option><option value="jks">JKS</option></select></label>
+          <label v-if="requestDraft.format !== 'pem'">{{ t('internalCa.requests.configPath') }}<input v-model="requestDraft.configPath" :required="requestDraft.format !== 'pem'" /></label>
+          <label v-if="requestDraft.format !== 'pem'">{{ t('internalCa.requests.alias') }}<input v-model="requestDraft.alias" /></label>
+          <label>{{ t('internalCa.requests.storageMode') }}<select v-model="requestDraft.storageMode"><option value="file_pem">{{ t('internalCa.requests.storageFile') }}</option><option value="windows_cng">{{ t('internalCa.requests.storageCng') }}</option></select></label>
+        </template>
         <p v-if="error" class="notice notice--danger">{{ error }}</p>
       </form>
       <template #actions>
@@ -994,6 +1231,10 @@ pre { overflow: auto; padding: var(--gc-space-3); color: var(--gc-color-text); b
 .backend-summary div { display: grid; gap: var(--gc-space-1); }
 .backend-summary span, .backend-summary small { color: var(--gc-color-text-muted); }
 .backend-summary__actions { display: flex !important; gap: var(--gc-space-2); align-items: center; justify-content: flex-end; }
+.backend-summary__runtime { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: var(--gc-space-2) var(--gc-space-4); padding: var(--gc-space-2) 0 0; border-top: var(--gc-border-width-default) solid var(--gc-color-border-subtle); color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); }
+.backend-summary__runtime span { display: inline-flex; align-items: center; gap: var(--gc-space-1); }
+.backend-summary__runtime strong { color: var(--gc-color-text); font-weight: 600; }
+.backend-summary__runtime code { font-family: var(--gc-font-family-mono); overflow-wrap: anywhere; }
 .adcs-provider-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gc-space-4); }
 .adcs-provider-form__full { grid-column: 1 / -1; }
 .ca-wizard { display: grid; gap: var(--gc-space-5); }
@@ -1057,6 +1298,15 @@ pre { overflow: auto; padding: var(--gc-space-3); color: var(--gc-color-text); b
 .ca-subsection__header:hover { background: var(--gc-color-surface-hover); }
 .ca-subsection__actions { display: flex; align-items: center; gap: var(--gc-space-2); flex: 0 0 auto; }
 .ca-subsection__body { display: grid; gap: var(--gc-space-4); padding-top: var(--gc-space-3); }
+.lifecycle-operations { gap: var(--gc-space-4); }
+.lifecycle-list { display: grid; gap: var(--gc-space-2); }
+.lifecycle-row { display: grid; grid-template-columns: minmax(0, 1.4fr) auto minmax(0, 1fr); align-items: center; gap: var(--gc-space-3); padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-border); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-field); }
+.lifecycle-row > div { display: grid; gap: var(--gc-space-1); min-width: 0; }
+.lifecycle-row strong, .lifecycle-row small { overflow-wrap: anywhere; }
+.lifecycle-row small { color: var(--gc-color-text-muted); }
+.lifecycle-row--rotation { grid-template-columns: minmax(0, 1.2fr) auto repeat(3, minmax(0, 1fr)) auto; }
+.lifecycle-warning { color: var(--gc-color-danger); font-size: var(--gc-font-size-sm); font-weight: var(--gc-font-weight-semibold); }
+.lifecycle-empty { margin: 0; color: var(--gc-color-text-muted); }
 @media (max-width: 48rem) {
   .authority-toolbar, .ca-architecture__header, .ca-section__header { align-items: stretch; flex-direction: column; }
   .ca-section__actions { justify-content: flex-start; }
@@ -1069,5 +1319,7 @@ pre { overflow: auto; padding: var(--gc-space-3); color: var(--gc-color-text); b
   .root-ca-card__delete { justify-self: end; }
   .adcs-provider-form { grid-template-columns: 1fr; }
   .adcs-provider-form__full { grid-column: auto; }
+  .lifecycle-row, .lifecycle-row--rotation { grid-template-columns: minmax(0, 1fr) auto; }
+  .lifecycle-row > small, .lifecycle-row > .lifecycle-warning { grid-column: 1 / -1; }
 }
 </style>

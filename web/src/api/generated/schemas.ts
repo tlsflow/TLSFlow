@@ -130,6 +130,7 @@ export type PluginVersionRecord = {
   readonly "workflows"?: Record<string, string>
   readonly "inputContracts"?: Record<string, string>
   readonly "actionContracts"?: Record<string, string>
+  readonly "credentialContracts"?: Record<string, string>
   readonly "forms"?: Record<string, string>
   readonly "presentations"?: Record<string, string>
   readonly "locales"?: Record<string, string>
