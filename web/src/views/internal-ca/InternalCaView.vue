@@ -50,7 +50,7 @@ const adcsRefreshBusy = ref('')
 
 const trustDomainDraft = reactive({ name: '', purpose: 'production_tls', isolationLevel: 'standard', isDefault: false })
 const authorityDraft = reactive({ providerId: '', trustDomainId: '', parentCaId: '', name: '', commonName: '', securityDomain: 'production', topologyMode: 'root_with_intermediate', keyBackend: 'secret' })
-const profileDraft = reactive({ name: '', trustDomainId: '', securityDomain: 'production', allowedDnsSuffix: '', maximumValidityDays: 90, renewalWindowDays: 30, requireApproval: true })
+const profileDraft = reactive({ name: '', domainPatterns: '', maximumValidityDays: 90, renewalWindowDays: 30, requireApproval: true })
 const requestDraft = reactive({
   applicationAssetId: '', trustDomainId: '', caId: '', profileVersionId: '', commonName: '', sans: '', custodyMode: 'managed_secret',
   agentId: '', targetId: '', keyPath: '', certificatePath: '', configPath: '', format: 'pem', alias: '', storageMode: 'file_pem',
@@ -158,7 +158,6 @@ async function loadAll() {
     authorityDraft.providerId ||= text(builtinBackend.value?.id)
     const defaultTrustDomainId = text(trustDomains.value.find((item) => item.isDefault === true)?.id ?? trustDomains.value[0]?.id)
     authorityDraft.trustDomainId ||= defaultTrustDomainId
-    profileDraft.trustDomainId ||= defaultTrustDomainId
     requestDraft.trustDomainId ||= defaultTrustDomainId
     if (!requestAuthorities.value.some((item) => text(item.id) === requestDraft.caId)) {
       requestDraft.caId = text(requestAuthorities.value.find((item) => text(item.role) === 'intermediate')?.id ?? requestAuthorities.value[0]?.id)
@@ -443,16 +442,37 @@ function isEligibleParentRoot(root: InternalCaRecord): boolean {
 }
 
 async function createProfile() {
+  const domains = splitList(profileDraft.domainPatterns)
   const ok = await runAction(() => internalCaApi.createProfile({
     name: profileDraft.name,
-    trustDomainId: profileDraft.trustDomainId,
-    securityDomain: profileDraft.securityDomain,
+    // Profile 是可复用的通用规则；CA、信任域及执行后端在证书机构关联时确定。
+    securityDomain: '*',
+    purpose: 'https_server',
+    providerType: 'internal_ca',
+    domainPatterns: domains,
+    targetCapabilities: [],
+    isDefault: false,
+    priority: 100,
     rules: {
-      allowedDnsSuffixes: splitList(profileDraft.allowedDnsSuffix), maximumValidityDays: profileDraft.maximumValidityDays,
+      // 一个域名范围同时控制 Profile 匹配和签发时允许的 DNS 后缀。
+      allowedDnsSuffixes: domains,
+      maximumValidityDays: profileDraft.maximumValidityDays,
       renewalWindowDays: profileDraft.renewalWindowDays, rotateKeyOnRenewal: true, requireApproval: profileDraft.requireApproval,
     },
   }), 'internalCa.messages.profileCreated')
   if (ok) profileModalOpen.value = false
+}
+
+function openProfileModal() {
+  Object.assign(profileDraft, {
+    name: '',
+    domainPatterns: '',
+    maximumValidityDays: 90,
+    renewalWindowDays: 30,
+    requireApproval: true,
+  })
+  error.value = ''
+  profileModalOpen.value = true
 }
 
 async function createRequest() {
@@ -836,7 +856,7 @@ function requestDeploymentSummary(request: InternalCaRecord): string {
       <summary class="ca-section__header">
         <span class="ca-section__title">{{ t('internalCa.tabs.profiles') }}</span>
         <span class="ca-section__actions" @click.stop>
-          <button class="gc-button gc-button--primary" type="button" @click="profileModalOpen = true">{{ t('internalCa.actions.createProfile') }}</button>
+          <button class="gc-button gc-button--primary" type="button" @click="openProfileModal">{{ t('internalCa.actions.createProfile') }}</button>
         </span>
       </summary>
       <div class="ca-section__body">
@@ -1018,9 +1038,8 @@ function requestDeploymentSummary(request: InternalCaRecord): string {
     <GcModal v-model:open="profileModalOpen" size="lg" :title="t('internalCa.profiles.modalTitle')" :description="t('internalCa.profiles.modalDescription')">
       <form id="profile-form" class="trust-domain-form" @submit.prevent="createProfile">
         <label>{{ t('internalCa.fields.name') }}<input v-model="profileDraft.name" required /></label>
-        <label>{{ t('internalCa.fields.trustDomain') }}<select v-model="profileDraft.trustDomainId" required><option v-for="item in trustDomains" :key="text(item.id)" :value="text(item.id)">{{ text(item.name) }}</option></select></label>
-        <label>{{ t('internalCa.fields.securityDomain') }}<input v-model="profileDraft.securityDomain" /></label>
-        <label>{{ t('internalCa.fields.dnsSuffixes') }}<input v-model="profileDraft.allowedDnsSuffix" :placeholder="t('internalCa.placeholders.dnsSuffixes')" /></label>
+        <label>{{ t('internalCa.profiles.applicableDomains') }}<input v-model="profileDraft.domainPatterns" :placeholder="t('internalCa.profiles.applicableDomainsPlaceholder')" /></label>
+        <p class="trust-domain-form__hint">{{ t('internalCa.profiles.applicableDomainsHint') }}</p>
         <label>{{ t('internalCa.fields.validityDays') }}<input v-model.number="profileDraft.maximumValidityDays" type="number" min="1" /></label>
         <label>{{ t('internalCa.fields.renewalDays') }}<input v-model.number="profileDraft.renewalWindowDays" type="number" min="1" /></label>
         <label class="check"><input v-model="profileDraft.requireApproval" type="checkbox" />{{ t('internalCa.fields.requireApproval') }}</label>
