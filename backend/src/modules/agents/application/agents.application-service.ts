@@ -279,9 +279,19 @@ export class AgentsApplicationService {
   }
 
   async register(tenantId: string, input: RegisterAgentInput, requestId: string) {
-    const descriptor = this.domain.normalizeDescriptor(input);
+    let descriptor = this.domain.normalizeDescriptor(input);
     const isolateAdcsRegistration = input.role === 'adcs_agent' || descriptor.osType.toLowerCase() === 'windows_adcs';
     const existing = await this.resolveExistingRegistration(tenantId, descriptor.agentKey, descriptor.machineId, isolateAdcsRegistration);
+    // Windows AD CS Agent 在启动阶段不能为了补全 CA 身份而阻塞心跳。
+    // 安装器未提供 caConfig 时，保留同一 Agent 已经验证过的 CA 身份，空上报
+    // 不得把有效绑定清空；显式提供的新值仍可正常更新。
+    if (isolateAdcsRegistration && existing) {
+      descriptor = {
+        ...descriptor,
+        caName: descriptor.caName || existing.descriptor.caName,
+        caConfig: descriptor.caConfig || existing.descriptor.caConfig,
+      };
+    }
     const role = input.role ?? existing?.role ?? 'full_agent';
     const normalizedOsType = descriptor.osType.toLowerCase();
     if (normalizedOsType === 'windows_adcs' && role !== 'adcs_agent') {
@@ -1827,7 +1837,9 @@ export class AgentsApplicationService {
       role: session.role,
       platformFamily: session.platformFamily,
       startAfterInstall: session.startAfterInstall,
-      controlPlaneUrl: baseUrl,
+      // 安装入口可能经由前端开发端口（5172）暴露；Agent 的注册、心跳和
+      // 任务接口必须直连控制面端口，不能把前端代理地址写入配置。
+      controlPlaneUrl: resolveAgentControlPlaneUrl(baseUrl),
       agentKey: session.agentKey,
       tenantId: session.tenantId,
       enrollmentToken: session.enrollmentToken,
@@ -2464,6 +2476,24 @@ export class AgentsApplicationService {
     const allLogs = await this.repository.listAgentTaskLogs(tenantId, agentId);
     return buildRecentTaskRuntimeLogs(tasks, allLogs);
   }
+}
+
+function resolveAgentControlPlaneUrl(value: string): string {
+  const configured = process.env.GCAC_AGENT_CONTROL_PLANE_URL?.trim();
+  const candidate = configured || value;
+  let parsed: URL;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    return candidate;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return candidate;
+  // 本地开发环境的 5172 是 Vite 入口，后端控制面默认监听 PORT（通常为
+  // 3003）。生产环境或显式控制面地址保持原值，避免改变真实部署拓扑。
+  if (!configured && process.env.NODE_ENV !== 'production' && parsed.port === '5172') {
+    parsed.port = process.env.PORT?.trim() || '3003';
+  }
+  return parsed.origin.replace(/\/+$/u, '');
 }
 
 function buildRecentTaskRuntimeLogs(tasks: AgentTaskEnvelope[], logs: AgentTaskLogEntry[]): AgentDetailProjection['recentTaskLogs'] {

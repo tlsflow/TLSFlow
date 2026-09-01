@@ -204,7 +204,7 @@ describe('Agent 一键安装会话', () => {
     const body = response.body as InstallSessionResponse;
     assert.equal(body.platform, 'windows_adcs_service');
     assert.equal(body.role, 'adcs_agent');
-    assert.equal(body.agentVersion, '0.1.14');
+    assert.equal(body.agentVersion, '0.1.27');
     assert.equal(body.serviceName, 'GCACWindowsAdcsAgent');
     assert.equal(body.installRoot, 'C:\\Program Files\\GCAC\\WindowsAdcsAgent');
     assert.equal(body.configDir, 'C:\\ProgramData\\GCAC\\WindowsAdcsAgent\\config');
@@ -224,6 +224,7 @@ describe('Agent 一键安装会话', () => {
     assert.equal(bootstrap.statusCode, 200, JSON.stringify(bootstrap.body));
     const script = String(bootstrap.body);
     assert.notEqual(script.charCodeAt(0), 0xFEFF, 'AD CS bootstrap 通过 irm | iex 执行，不能包含 UTF-8 BOM');
+    assert.match(script, /"controlPlaneUrl":\s*"http:\/\/10\.255\.0\.85:3003"/u, 'Agent 配置必须直连控制面端口');
     assert.match(script, /^\[Console\]::OutputEncoding/m);
     assert.match(script, /gcac-adcs-agent\.exe/);
     assert.match(script, /GCACWindowsAdcsAgent/);

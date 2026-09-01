@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	defaultAgentVersion      = "0.1.20"
+	defaultAgentVersion      = "0.1.27"
 	defaultConfigPath        = `C:\ProgramData\GCAC\WindowsAdcsAgent\config\agent.config.json`
 	defaultConfigDir         = `C:\ProgramData\GCAC\WindowsAdcsAgent\config`
 	defaultDataDir           = `C:\ProgramData\GCAC\WindowsAdcsAgent\data`
@@ -48,6 +48,10 @@ const (
 )
 
 var agentVersion = defaultAgentVersion
+
+// foregroundDebug 只由前台 run --debug 设置，用于现场诊断；服务模式默认关闭。
+var foregroundDebug bool
+var foregroundDebugConfig *AgentConfig
 
 // AgentConfig 只包含 AD CS Agent 自己的配置空间，不能解析其它 Agent 的目录或服务信息。
 type AgentConfig struct {
@@ -166,7 +170,7 @@ func main() {
 
 func runCLI(args []string) error {
 	if len(args) == 0 {
-		return errors.New("用法：gcac-adcs-agent.exe [run|service run|register-once|self-check] --config=...")
+		return errors.New("用法：gcac-adcs-agent.exe [run|service run|register-once|self-check|version] --config=... [--debug]")
 	}
 	command := args[0]
 	serviceMode := false
@@ -180,13 +184,30 @@ func runCLI(args []string) error {
 	}
 	fs := flag.NewFlagSet("gcac-adcs-agent", flag.ContinueOnError)
 	configPath := fs.String("config", defaultConfigPath, "配置文件路径")
+	debugOutput := fs.Bool("debug", false, "前台运行时输出任务和外部命令诊断信息")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
+	}
+	foregroundDebug = *debugOutput
+	if foregroundDebug {
+		// 这条输出位于配置读取之前，用来区分“未运行新制品”和“配置/控制面阶段失败”。
+		message := fmt.Sprintf("AD CS Agent 调试：cli_start version=%s command=%s", agentVersion, command)
+		fmt.Fprintln(os.Stderr, message)
+		// PowerShell 5.1 对长驻原生进程的 2>&1 可能不会实时显示合并流，
+		// 因此最早标记必须同时落盘，现场可用 Get-Content -Wait 读取。
+		earlyConfig := &AgentConfig{}
+		earlyConfig.Paths.Windows.LogDir = defaultLogDir
+		writeAdcsServiceLog(earlyConfig, message)
+	}
+	if command == "version" {
+		fmt.Fprintln(os.Stdout, agentVersion)
+		return nil
 	}
 	config, err := loadConfig(*configPath)
 	if err != nil {
 		return err
 	}
+	foregroundDebugConfig = config
 	switch command {
 	case "self-check":
 		return validateConfig(config)
@@ -281,15 +302,29 @@ func runAgent(config *AgentConfig) error {
 }
 
 func runAgentContext(ctx context.Context, config *AgentConfig) error {
+	debugCommand(config, "agent_start", map[string]any{
+		"controlPlane": config.ControlPlane,
+		"caConfig":     config.CaConfig,
+	})
 	client := &http.Client{Timeout: 60 * time.Second}
+	debugCommand(config, "register_start", map[string]any{
+		"route":        "/api/v1/agents/register",
+		"controlPlane": config.ControlPlane,
+	})
 	reg, err := registerAgent(ctx, client, config)
 	if err != nil {
+		debugCommand(config, "register_failed", map[string]any{"error": err.Error()})
 		return err
 	}
+	debugCommand(config, "register_finished", map[string]any{"agentId": reg.AgentID})
+	debugCommand(config, "capabilities_start", map[string]any{"agentId": reg.AgentID, "route": "/api/v1/agents/capabilities"})
 	if err := reportCapabilities(ctx, client, config, reg); err != nil {
+		debugCommand(config, "capabilities_failed", map[string]any{"agentId": reg.AgentID, "error": err.Error()})
 		// 能力投影失败不应阻断本机 CA 观测。记录推送有独立的鉴权、解析和
 		// 失败队列，控制面恢复后能力快照也会在下一次重启或补偿时更新。
 		logAdcsAgentError(config, fmt.Sprintf("AD CS Agent 能力上报失败，将继续运行观测循环：%v", err))
+	} else {
+		debugCommand(config, "capabilities_finished", map[string]any{"agentId": reg.AgentID})
 	}
 	writeAdcsServiceLog(config, fmt.Sprintf("AD CS Agent 已注册：agentId=%s caConfig=%s", reg.AgentID, reg.CaConfig))
 	var state counters
@@ -346,17 +381,18 @@ func runAgentContext(ctx context.Context, config *AgentConfig) error {
 }
 
 func logAdcsAgentError(config *AgentConfig, message string) {
-	fmt.Fprintln(os.Stderr, message)
 	writeAdcsServiceLog(config, message)
+	// 前台 run --debug 的唯一价值是让现场立即看到失败阶段；不能在这条
+	// 路径吞掉 stderr。服务模式没有附加控制台，保留写入统一日志即可。
+	fmt.Fprintln(os.Stderr, message)
 }
 
 func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig) (*registration, error) {
 	hostname, _ := os.Hostname()
-	caName, discoveredCaConfig := discoverCaIdentity(ctx)
 	caConfig := strings.TrimSpace(config.CaConfig)
-	if caConfig == "" {
-		caConfig = discoveredCaConfig
-	}
+	caName := ""
+	// 注册与心跳路径不得同步探测 CA。certutil 在 CA 服务异常时可能无期限
+	// 阻塞；已有 Agent 的 CA 身份由控制面保留，首次安装可在后续观测中补全。
 	if caConfig == "" && caName != "" && hostname != "" {
 		caConfig = hostname + `\` + caName
 	}
@@ -377,44 +413,8 @@ func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig
 	return &registration{AgentID: response.ID, CaName: caName, CaConfig: caConfig}, nil
 }
 
-// discoverCaIdentity 从本机 AD CS 读取稳定的 server\CAName 身份。非 Windows
-// 环境返回空值，这样交叉编译和协议测试不需要伪造 certutil.exe。
-func discoverCaIdentity(ctx context.Context) (string, string) {
-	if runtime.GOOS != "windows" {
-		return "", ""
-	}
-	if output, err := runCommand(ctx, "certutil.exe", "-getconfig"); err == nil {
-		if caConfig := parseCaConfigOutput(output); caConfig != "" {
-			parts := strings.SplitN(caConfig, `\`, 2)
-			if len(parts) == 2 {
-				return strings.TrimSpace(parts[1]), caConfig
-			}
-		}
-	}
-	for _, registryName := range []string{"DisplayName", "CommonName"} {
-		output, err := runCommand(ctx, "certutil.exe", "-getreg", "CA\\"+registryName)
-		if err != nil {
-			continue
-		}
-		if value := parseRegistryValue(output); value != "" {
-			return value, ""
-		}
-	}
-	return "", ""
-}
-
-func parseRegistryValue(output string) string {
-	for _, line := range strings.Split(output, "\n") {
-		if _, value, ok := strings.Cut(line, "="); ok {
-			value = strings.Trim(strings.TrimSpace(value), "\"'")
-			if value != "" {
-				return value
-			}
-		}
-	}
-	return ""
-}
-
+// parseCaConfigOutput 保留为 certutil 输出的纯解析函数，供后续观测或配置
+// 修复流程复用；注册与首次心跳路径不得调用外部 certutil 来获得该输出。
 func parseCaConfigOutput(output string) string {
 	for _, line := range strings.Split(output, "\n") {
 		value := strings.Trim(strings.TrimSpace(line), "\"' ,")
@@ -1813,13 +1813,32 @@ func executePlan(ctx context.Context, payload map[string]any, agentID string) (b
 		result["operationId"] = op["operationId"]
 		results = append(results, result)
 	}
-	last := map[string]any{}
-	if len(results) > 0 {
-		last, _ = results[len(results)-1].(map[string]any)
+	// 先复制操作结果再构造 Receipt。不能把 receipt 写回 results 中的最后一项，
+	// 否则 results -> 最后一项 -> operationResults -> results 形成循环引用，
+	// fmt/json 在计算摘要时会无限递归并导致 Agent 栈溢出。
+	receiptResults := cloneAdcsOperationResults(results)
+	receipt := buildAgentReceiptWithStatus(payload, plan, operations, receiptResults, agentID, startedAt, "SUCCESS", "", "")
+	return true, "", "", map[string]any{
+		"planId":           planIdentifier(plan),
+		"operationResults": results,
+		"receipt":          receipt,
 	}
-	last["operationResults"] = results
-	last["receipt"] = buildAgentReceiptWithStatus(payload, plan, operations, results, agentID, startedAt, "SUCCESS", "", "")
-	return true, "", "", last
+}
+
+func cloneAdcsOperationResults(results []any) []any {
+	cloned := make([]any, 0, len(results))
+	for _, result := range results {
+		if object, ok := result.(map[string]any); ok {
+			copyObject := make(map[string]any, len(object))
+			for key, value := range object {
+				copyObject[key] = value
+			}
+			cloned = append(cloned, copyObject)
+			continue
+		}
+		cloned = append(cloned, result)
+	}
+	return cloned
 }
 
 // validateAdcsPlan 是 AD CS Agent 与控制面的最小执行边界。AD CS Agent
@@ -1966,7 +1985,9 @@ func buildAgentReceipt(payload, plan map[string]any, operations []map[string]any
 }
 
 func buildAgentReceiptWithStatus(payload, plan map[string]any, operations []map[string]any, results []any, agentID, startedAt, status, errorCode, unknownReason string) map[string]any {
-	operationID := "adcs-operation-" + sha256Text(fmt.Sprintf("%v", results))[:16]
+	// operationResults 可能包含引用自身的业务对象，禁止用 fmt 深度遍历它来
+	// 生成 ID；使用计划和执行时间即可得到确定且无递归风险的回退 ID。
+	operationID := "adcs-operation-" + sha256Text(planIdentifier(plan) + "|" + agentID + "|" + startedAt)[:16]
 	if len(operations) > 0 {
 		if value, ok := operations[0]["operationId"].(string); ok && strings.TrimSpace(value) != "" {
 			operationID = value
@@ -2586,7 +2607,7 @@ func adcsSubmit(ctx context.Context, input map[string]any, caConfig string) (map
 	}
 	result := map[string]any{"providerRequestId": requestID, "requestId": requestID, "caConfig": caConfig}
 	if certificate, readErr := os.ReadFile(certificatePath); readErr == nil && len(certificate) > 0 {
-		material, materialErr := certificateMaterial(certificate)
+		material, materialErr := certificateMaterialWithChain(ctx, certificate, caConfig)
 		if materialErr != nil {
 			return nil, fmt.Errorf("解析 AD CS 证书结果失败：%w", materialErr)
 		}
@@ -2622,7 +2643,7 @@ func adcsRetrieve(ctx context.Context, input map[string]any, caConfig string) (m
 	}
 	result := map[string]any{"providerRequestId": requestID, "caConfig": caConfig}
 	if certificate, readErr := os.ReadFile(certificatePath); readErr == nil && len(certificate) > 0 {
-		material, materialErr := certificateMaterial(certificate)
+		material, materialErr := certificateMaterialWithChain(ctx, certificate, caConfig)
 		if materialErr != nil {
 			return nil, fmt.Errorf("解析 AD CS 查询证书失败：%w", materialErr)
 		}
@@ -2820,12 +2841,30 @@ func doJSON(ctx context.Context, client *http.Client, config *AgentConfig, metho
 		// enrollmentToken 只用于注册业务校验，不能替代机器请求头。
 		request.Header.Set("x-agent-token", strings.TrimSpace(config.EnrollmentToken))
 	}
+	startedAt := time.Now()
+	debugCommand(config, "http_start", map[string]any{
+		"method": method,
+		"route":  route,
+	})
 	response, err := client.Do(request)
 	if err != nil {
+		debugCommand(config, "http_failed", map[string]any{
+			"method":     method,
+			"route":      route,
+			"durationMs": time.Since(startedAt).Milliseconds(),
+			"error":      err.Error(),
+		})
 		return err
 	}
 	defer response.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(response.Body, 4<<20))
+	debugCommand(config, "http_finished", map[string]any{
+		"method":     method,
+		"route":      route,
+		"statusCode": response.StatusCode,
+		"durationMs": time.Since(startedAt).Milliseconds(),
+		"body":       truncate(string(data), 1024),
+	})
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return fmt.Errorf("控制面返回 HTTP %d：%s", response.StatusCode, truncate(string(data), 1024))
 	}
@@ -2844,29 +2883,29 @@ func runCommand(ctx context.Context, command string, args ...string) (string, er
 	defer os.Remove(outputPath)
 	defer outputFile.Close()
 
-	cmd := exec.Command(command, args...)
-	// 使用真实文件承接输出，避免 Windows 子进程继承 Go 管道后，父进程
-	// 被 taskkill 终止但 cmd.Wait 仍等待管道关闭，任务永远卡在 execute_start。
+	startedAt := time.Now()
+	debugCommand(foregroundDebugConfig, "command_start", map[string]any{
+		"command": command,
+		"args":    redactDebugArgs(args),
+	})
+	// 输出已落到独立文件，CommandContext 可直接负责进程生命周期。此前
+	// 手工 Wait goroutine 加 taskkill 进程树清理在现场导致服务随超时退出。
+	// 这里仅终止当前 certreq/certutil 进程，外部写操作语义由 UNKNOWN 收口。
+	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Stdout = outputFile
 	cmd.Stderr = outputFile
-	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("%s 执行失败：%w", command, err)
+	if startErr := cmd.Start(); startErr != nil {
+		debugCommand(foregroundDebugConfig, "command_start_failed", map[string]any{
+			"command": command,
+			"error":   startErr.Error(),
+		})
+		return "", fmt.Errorf("%s 执行失败：%w", command, startErr)
 	}
-	waitResult := make(chan error, 1)
-	go func() { waitResult <- cmd.Wait() }()
-	var waitErr error
-	select {
-	case waitErr = <-waitResult:
-	case <-ctx.Done():
-		// Windows certreq 可能创建子进程；先终止整个进程树，再给 Wait
-		// 一个有限宽限期，绝不让单个 CA 命令阻塞 Agent 任务循环。
-		terminateCommandProcess(cmd.Process)
-		select {
-		case waitErr = <-waitResult:
-		case <-time.After(5 * time.Second):
-			return "", adcsUnknownOperationError(fmt.Errorf("%s 执行超时且进程未退出：%w", command, ctx.Err()))
-		}
-	}
+	debugCommand(foregroundDebugConfig, "command_started", map[string]any{
+		"command": command,
+		"pid":     cmd.Process.Pid,
+	})
+	waitErr := cmd.Wait()
 	if closeErr := outputFile.Close(); closeErr != nil && waitErr == nil {
 		return "", fmt.Errorf("读取 %s 输出失败：%w", command, closeErr)
 	}
@@ -2875,8 +2914,18 @@ func runCommand(ctx context.Context, command string, args ...string) (string, er
 		return "", fmt.Errorf("读取 %s 输出失败：%w", command, readErr)
 	}
 	decodedOutput := decodeWindowsCommandOutput(output)
+	debugCommand(foregroundDebugConfig, "command_finished", map[string]any{
+		"command":    command,
+		"pid":        cmd.Process.Pid,
+		"durationMs": time.Since(startedAt).Milliseconds(),
+		"error":      errorText(waitErr),
+		"output":     truncate(decodedOutput, 4096),
+	})
 	if waitErr != nil {
 		wrapped := fmt.Errorf("%s 执行失败：%w：%s", command, waitErr, truncate(decodedOutput, 2048))
+		if ctx.Err() != nil {
+			return "", adcsUnknownOperationError(fmt.Errorf("%s 执行超时，结果可能已在 CA 生效：%w", command, ctx.Err()))
+		}
 		// 命令未启动时没有修改 CA 状态，可以安全按 FAILED 处理；进程
 		// 已启动、超时或被中断时，写操作的外部结果可能已经生效，只能标记 UNKNOWN。
 		var startErr *exec.Error
@@ -2888,6 +2937,72 @@ func runCommand(ctx context.Context, command string, args ...string) (string, er
 	}
 	return decodedOutput, nil
 }
+
+// debugCommand 只在前台诊断模式写控制台和统一日志，不携带控制面令牌、Receipt 或私钥正文。
+func debugCommand(config *AgentConfig, event string, fields map[string]any) {
+	if !foregroundDebug {
+		return
+	}
+	entry := map[string]any{"event": event, "occurredAt": time.Now().UTC().Format(time.RFC3339Nano)}
+	for key, value := range fields {
+		if key == "output" {
+			value = redactDebugText(fmt.Sprint(value))
+		}
+		entry[key] = value
+	}
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return
+	}
+	message := "AD CS Agent 调试：" + string(data)
+	writeAdcsServiceLog(config, message)
+	// 标准错误在 PowerShell 5.1 的长驻原生进程重定向中可能延迟显示；
+	// 标准输出和文件日志同时写入，确保前台诊断能看到注册卡在哪一步。
+	fmt.Fprintln(os.Stdout, message)
+	_ = os.Stdout.Sync()
+}
+
+func redactDebugText(value string) string {
+	for {
+		begin := strings.Index(value, "-----BEGIN ")
+		if begin < 0 {
+			return value
+		}
+		endMarker := "-----END "
+		relativeEnd := strings.Index(value[begin+len("-----BEGIN "):], endMarker)
+		if relativeEnd < 0 {
+			return value[:begin] + "<redacted-pem>"
+		}
+		endMarkerStart := begin + len("-----BEGIN ") + relativeEnd
+		endMarkerLength := strings.Index(value[endMarkerStart+len(endMarker):], "-----")
+		if endMarkerLength < 0 {
+			return value[:begin] + "<redacted-pem>"
+		}
+		end := endMarkerStart + len(endMarker) + endMarkerLength + len("-----")
+		value = value[:begin] + "<redacted-pem>" + value[end:]
+	}
+}
+
+func errorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return truncate(err.Error(), 1024)
+}
+
+func redactDebugArgs(args []string) []string {
+	result := make([]string, len(args))
+	for index, arg := range args {
+		lower := strings.ToLower(arg)
+		if strings.Contains(lower, "token") || strings.Contains(lower, "secret") || strings.Contains(lower, "password") || strings.Contains(lower, "privatekey") {
+			result[index] = "<redacted>"
+			continue
+		}
+		result[index] = truncate(arg, 512)
+	}
+	return result
+}
+
 func writeTempFile(pattern string, content []byte) (string, error) {
 	file, err := os.CreateTemp("", pattern)
 	if err != nil {
@@ -3021,6 +3136,66 @@ func certificateMaterial(value []byte) (map[string]any, error) {
 		"notBefore":                  certificate.NotBefore.UTC().Format(time.RFC3339),
 		"notAfter":                   certificate.NotAfter.UTC().Format(time.RFC3339),
 	}, nil
+}
+
+// certificateMaterialWithChain 将 certreq 返回的叶子证书和 CA 公证书组合成
+// 后端可验证的链。AD CS 的 certreq 默认只把叶子证书写入输出文件，直接把
+// 叶子重复放入 certificateChainPem 会导致后端拒绝导入。
+func certificateMaterialWithChain(ctx context.Context, value []byte, caConfig string) (map[string]any, error) {
+	material, err := certificateMaterial(value)
+	if err != nil {
+		return nil, err
+	}
+	chainPath, pathErr := tempPath("gcac-adcs-ca-*.cer")
+	if pathErr != nil {
+		material["certificateChainError"] = pathErr.Error()
+		return material, nil
+	}
+	defer os.Remove(chainPath)
+	args := []string{"-ca.cert"}
+	if caConfig != "" {
+		args = append(args, "-config", caConfig)
+	}
+	args = append(args, chainPath)
+	if _, commandErr := runAdcsCertutilCommand(ctx, args...); commandErr != nil {
+		material["certificateChainError"] = truncate(commandErr.Error(), 512)
+		return material, nil
+	}
+	caCertificate, readErr := os.ReadFile(chainPath)
+	if readErr != nil || len(caCertificate) == 0 {
+		material["certificateChainError"] = "certutil -ca.cert 未生成 CA 证书文件"
+		return material, nil
+	}
+	leafPem, _ := material["certificatePem"].(string)
+	material["certificateChainPem"] = appendCertificateChainPem(leafPem, certificateText(caCertificate))
+	return material, nil
+}
+
+// appendCertificateChainPem 只拼接证书 PEM，并按 DER 内容去重，避免 CA
+// 命令返回叶子或重复条目时破坏后端的链遍历。
+func appendCertificateChainPem(leafPem, issuerPem string) string {
+	result := strings.TrimSpace(leafPem)
+	seen := map[string]struct{}{}
+	if block, _ := pem.Decode([]byte(leafPem)); block != nil && block.Type == "CERTIFICATE" {
+		seen[string(block.Bytes)] = struct{}{}
+	}
+	rest := []byte(issuerPem)
+	for len(rest) > 0 {
+		block, next := pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		rest = next
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		if _, exists := seen[string(block.Bytes)]; exists {
+			continue
+		}
+		seen[string(block.Bytes)] = struct{}{}
+		result += "\n" + string(pem.EncodeToMemory(block))
+	}
+	return strings.TrimSpace(result)
 }
 
 func certificateText(value []byte) string {

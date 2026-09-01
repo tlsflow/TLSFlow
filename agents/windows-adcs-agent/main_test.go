@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -29,6 +30,17 @@ func TestRunCommandTimeoutDoesNotBlock(t *testing.T) {
 	}
 	if elapsed := time.Since(startedAt); elapsed > 2*time.Second {
 		t.Fatalf("外部命令超时后仍阻塞过久：%s", elapsed)
+	}
+}
+
+func TestRedactDebugTextRemovesPEMBlocks(t *testing.T) {
+	input := "before\n-----BEGIN CERTIFICATE-----\nsecret\n-----END CERTIFICATE-----\nafter"
+	output := redactDebugText(input)
+	if strings.Contains(output, "secret") || strings.Contains(output, "BEGIN CERTIFICATE") || strings.Contains(output, "END CERTIFICATE") {
+		t.Fatalf("诊断输出未完整脱敏 PEM：%q", output)
+	}
+	if !strings.Contains(output, "<redacted-pem>") {
+		t.Fatalf("诊断输出缺少脱敏占位符：%q", output)
 	}
 }
 
@@ -263,7 +275,7 @@ func TestRegisterUsesAdcsRoleAndCapabilities(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":"agent-adcs-1"}`))
 	}))
 	defer server.Close()
-	_, err := registerAgent(context.Background(), server.Client(), &AgentConfig{SchemaVersion: "gcac.adcs-agent.windows.v1", TenantID: "tenant-adcs", AgentKey: "adcs.test", EnrollmentToken: "enrollment-adcs", ControlPlane: server.URL, ManagementPort: 18933, ManagementListenAddress: "127.0.0.1", Service: struct {
+	_, err := registerAgent(context.Background(), server.Client(), &AgentConfig{SchemaVersion: "gcac.adcs-agent.windows.v1", TenantID: "tenant-adcs", AgentKey: "adcs.test", EnrollmentToken: "enrollment-adcs", ControlPlane: server.URL, CaConfig: "ADCS-SERVER\\Test-CA", ManagementPort: 18933, ManagementListenAddress: "127.0.0.1", Service: struct {
 		Name        string `json:"name"`
 		DisplayName string `json:"displayName"`
 	}{Name: "GCACWindowsAdcsAgent"}})
@@ -272,6 +284,9 @@ func TestRegisterUsesAdcsRoleAndCapabilities(t *testing.T) {
 	}
 	if request.Role != "adcs_agent" || request.OSType != "windows_adcs" {
 		t.Fatalf("注册身份错误：%+v", request)
+	}
+	if request.CaConfig != "ADCS-SERVER\\Test-CA" || request.CaName != "Test-CA" {
+		t.Fatalf("配置中的 CA 身份未直接用于注册：%+v", request)
 	}
 	if tenantHeader != "tenant-adcs" || agentTokenHeader != "enrollment-adcs" {
 		t.Fatalf("机器请求身份头错误：tenant=%q agent=%q", tenantHeader, agentTokenHeader)
@@ -657,6 +672,43 @@ func TestAdcsReceiptDigestExcludesDigestField(t *testing.T) {
 	delete(receipt, "digest")
 	if digest != sha256JSON(receipt) {
 		t.Fatalf("Receipt 摘要不得包含自身 digest 字段")
+	}
+}
+
+func TestAdcsReceiptClonesOperationResultsBeforeDetailMutation(t *testing.T) {
+	plan := map[string]any{
+		"planId":     "plan-adcs-cycle",
+		"planDigest": strings.Repeat("c", 64),
+		"tenantId":   "tenant-adcs",
+		"tokenId":    "token-adcs",
+	}
+	results := []any{map[string]any{"operationType": "ca.certificate.issue", "status": "SUCCESS"}}
+	receipt := buildAgentReceiptWithStatus(map[string]any{}, plan, nil, cloneAdcsOperationResults(results), "agent-adcs", "2026-08-25T00:00:00Z", "SUCCESS", "", "")
+	// 模拟执行详情随后把 operationResults/Receipt 写入返回对象；Receipt 自身
+	// 必须仍然可以独立 JSON 序列化，不能间接引用这个返回对象形成循环。
+	detail := map[string]any{"operationResults": results, "receipt": receipt}
+	if _, err := json.Marshal(detail); err != nil {
+		t.Fatalf("Receipt 结果不得形成循环引用：%v", err)
+	}
+}
+
+func TestAppendCertificateChainPemAddsIssuerOnce(t *testing.T) {
+	leaf := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("leaf-cert")}))
+	issuer := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("issuer-cert")}))
+	merged := appendCertificateChainPem(leaf, issuer+issuer)
+	count := 0
+	for rest := []byte(merged); len(rest) > 0; {
+		block, next := pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		rest = next
+		if block.Type == "CERTIFICATE" {
+			count++
+		}
+	}
+	if count != 2 || !strings.Contains(merged, "aXNzdWVyLWNlcnQ=") {
+		t.Fatalf("证书链必须包含叶子和唯一签发者：%d %s", count, merged)
 	}
 }
 

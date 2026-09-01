@@ -44,6 +44,28 @@ describe('Agent direct control api', () => {
     }
   });
 
+  it('Windows AD CS Agent 重启时的空 CA 身份不会清空已验证绑定', async () => {
+    const database = new PgliteDatabase();
+    await runMigrations(database, 'src/database/migrations');
+    const app = createApp({ db: database });
+    const agentsService = app.getResource('agentsService') as AgentsApplicationService;
+    const tenantId = 'tenant_agent_adcs_preserve_ca_identity';
+    try {
+      const initial = await agentsService.register(tenantId, {
+        agentKey: 'adcs-preserve-ca-identity', hostname: 'adcs-host', version: '0.1.22', osType: 'WINDOWS_ADCS', role: 'adcs_agent',
+        caName: 'Jackson-CA', caConfig: 'adcs-host\\Jackson-CA',
+      }, 'req_adcs_initial_ca_identity');
+      const restarted = await agentsService.register(tenantId, {
+        agentKey: 'adcs-preserve-ca-identity', hostname: 'adcs-host', version: '0.1.23', osType: 'WINDOWS_ADCS', role: 'adcs_agent',
+      }, 'req_adcs_restart_without_ca_identity');
+      assert.equal(restarted.id, initial.id);
+      assert.equal(restarted.descriptor.caName, 'Jackson-CA');
+      assert.equal(restarted.descriptor.caConfig, 'adcs-host\\Jackson-CA');
+    } finally {
+      await database.close();
+    }
+  });
+
   it('管理 TCP 探测失败不阻断 Agent 主动轮询任务', async () => {
     const database = new PgliteDatabase();
     await runMigrations(database, 'src/database/migrations');

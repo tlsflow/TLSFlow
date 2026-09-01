@@ -146,6 +146,9 @@ func writeAdcsServiceLog(config *AgentConfig, message string) {
 	if config == nil {
 		return
 	}
+	if foregroundDebug {
+		fmt.Fprintln(os.Stderr, message)
+	}
 	path := filepath.Join(config.Paths.Windows.LogDir, "agent.log")
 	_ = os.MkdirAll(filepath.Dir(path), 0o755)
 	// 先迁移已有的无 BOM 日志，再打开追加句柄；Windows 不能在文件仍
