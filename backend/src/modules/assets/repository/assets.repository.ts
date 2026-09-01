@@ -490,11 +490,16 @@ export class PgAssetsRepository implements AssetsRepository {
     if (!target) return asset;
 
     const managedTarget = await this.getManagedTargetIncludingDeleted(tenantId, target.managedTargetId);
-    const [host, siteAsset, frameworkFromTarget] = await Promise.all([
-      managedTarget?.deviceId ? this.getHostIncludingDeleted(tenantId, managedTarget.deviceId) : Promise.resolve(undefined),
-      managedTarget?.siteId ? this.getSiteAssetIncludingDeleted(tenantId, managedTarget.siteId) : Promise.resolve(undefined),
-      managedTarget?.frameworkInstanceId ? this.getFrameworkInstanceIncludingDeleted(tenantId, managedTarget.frameworkInstanceId) : Promise.resolve(undefined),
-    ]);
+    // 中文说明：编辑详情也可能由事务客户端调用，保持查询顺序，避免同一 Client 并发执行。
+    const host = managedTarget?.deviceId
+      ? await this.getHostIncludingDeleted(tenantId, managedTarget.deviceId)
+      : undefined;
+    const siteAsset = managedTarget?.siteId
+      ? await this.getSiteAssetIncludingDeleted(tenantId, managedTarget.siteId)
+      : undefined;
+    const frameworkFromTarget = managedTarget?.frameworkInstanceId
+      ? await this.getFrameworkInstanceIncludingDeleted(tenantId, managedTarget.frameworkInstanceId)
+      : undefined;
     // 历史 ManagedTarget 可能没有回填 framework_instance_id，使用站点关联值兼容旧数据。
     const frameworkInstance = frameworkFromTarget
       ?? (siteAsset?.frameworkInstanceId
