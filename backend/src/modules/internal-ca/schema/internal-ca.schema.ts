@@ -376,6 +376,8 @@ export interface EffectiveCertificatePolicySnapshot {
   rules: CertificatePolicyRules;
   effectiveValidityDays: number;
   requiresApproval: boolean;
+  /** 应用专属重新申请/自动续期由统一任务直接签发，不创建人工审批单。 */
+  approvalBypassed?: boolean;
   warnings: string[];
 }
 

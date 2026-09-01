@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { AppError } from '../../../common/errors/app-error.js';
 import type { JsonSchema } from '../../../common/validation/json-schema.js';
 import { canonicalize } from '../../../shared/canonical-json.js';
@@ -53,14 +53,24 @@ export class PluginCaActionDispatcher implements CaPluginActionDispatcher {
     const action = selectAction(input.binding, input.action);
     const contract = readActionContract(plugin, action.actionId);
     const binding = createActionBinding(plugin, input.provider, input.binding, input.action, action, contract);
-    const executionId = `ca-exec-${digest(input.idempotencyKey).slice(0, 24)}`;
-    const executionStepId = `ca-step-${digest(`${input.action}:${input.idempotencyKey}`).slice(0, 24)}`;
+    // 外部 CA 的业务幂等键必须稳定，但每次控制面执行都必须拥有新的执行实例。
+    // 否则重试会复用旧 executionId/stepId；新 Grant 被计入 Host API 请求摘要后，
+    // 同一账本键就会被错误判定为“不同请求摘要”。
+    const executionNonce = randomUUID().replaceAll('-', '');
+    const executionId = `ca-exec-${executionNonce}`;
+    const executionStepId = `ca-step-${executionNonce}`;
+    // Runtime 的操作账本绑定 Runner 执行键；Agent/微软 CA 仍使用原业务幂等键。
+    // 两者混用会让合法重试携带新 Grant 时触发固定 Runtime 的摘要冲突。
+    const runnerIdempotencyKey = `${input.idempotencyKey}:attempt:${executionNonce}`;
     const secretRef = stringOr(authorityConfiguration.credentialSecretRef, input.provider.credentialSecretRef ?? '');
+    const operation = operationForAction(input.action, input.payload);
     // JSON Schema 只描述 JSON 值；可选字段不能以 JavaScript `undefined`
     // 进入校验，否则“字段不存在”和“字段值类型错误”会被错误地区分。
     const payload = omitUndefined({
       ...structuredClone(input.payload),
-      operation: operationForAction(input.action, input.payload),
+      operation,
+      workflowKey: operation,
+      workflowVersion: '1.0.0',
       agentId: isMicrosoftAdcs ? configuredAgentId : configuredAgentId || input.provider.id,
       ...(isMicrosoftAdcs ? { agentRole: 'adcs_agent', agentPlatform: 'windows_adcs' } : {}),
       templateId: stringOr(authorityConfiguration.templateId, stringOr(input.provider.configuration.templateId, 'default')),
@@ -101,18 +111,33 @@ export class PluginCaActionDispatcher implements CaPluginActionDispatcher {
       executionStepId,
       input: withSecurity(payload, binding, grant.id, planDigest),
       grantRefs: [grant.id],
-      idempotencyKey: input.idempotencyKey,
+      idempotencyKey: runnerIdempotencyKey,
       deadlineAt: new Date(Date.now() + 120_000).toISOString(),
+      // CA Provider 动作的目标上下文不来自应用资产；这里明确声明证书请求/证书
+      // 和证书机构产品族，避免 Manifest 的终端兼容性规则因缺少上下文被误判。
+      compatibilityContext: {
+        productFamily: 'certificate-authority',
+        frameworkType: 'windows.agent_plan.adcs',
+        targetType: input.action === 'revoke' || input.action === 'revocation_evidence' ? 'certificate' : 'certificate-request',
+      },
     });
     if (!result.success) {
       if (result.status === 'UNKNOWN') throw new AppError('CA_PROVIDER_UNAVAILABLE', '外部 CA 写操作结果未知，等待查询恢复', { mayBeUnknown: true, detail: result.detail });
       throw new AppError('CA_PROVIDER_UNAVAILABLE', result.errorMessage ?? '外部 CA 插件动作执行失败', { detail: result.detail });
     }
-    const normalized = normalizeActionOutput(input.action, result.output);
+    const normalized = normalizeActionOutput(
+      input.action,
+      result.output,
+      input.action === 'issue' ? `certificate-request:${digest(input.idempotencyKey)}` : undefined,
+    );
     if (!isMicrosoftAdcs || !this.agents) return normalized;
     const object = firstNormalizedObject(result.output);
-    const plan = readRecord(object?.agentPlan);
-    if (!plan) throw new AppError('CA_PROVIDER_RESULT_INVALID', 'Microsoft AD CS Plugin 未返回可入队的 Agent Plan');
+    const plan = readAgentPlan(result.output, object);
+    if (!plan) throw new AppError('CA_PROVIDER_RESULT_INVALID', 'Microsoft AD CS Plugin 未返回可入队的 Agent Plan', {
+      outputKeys: Object.keys(result.output),
+      normalizedObjectKeys: object ? Object.keys(object) : [],
+      runnerDetail: result.detail,
+    });
     const existing = await this.agents.findTaskByIdempotencyKey(input.provider.tenantId, configuredAgentId, input.idempotencyKey);
     if (existing?.status === 'succeeded') return normalizeAdcsTaskResult(input.action, existing);
     if (existing?.status === 'failed' || existing?.status === 'rejected') {
@@ -268,12 +293,16 @@ function withSecurity(payload: Record<string, unknown>, binding: PluginActionBin
     grantRef: grantId,
     fixedDigests: { packageHash: binding.packageHash, resourceHash: binding.resourceHash, manifestHash: binding.manifestHash },
   };
-  const input = { ...payload, security };
-  security.operationDigest = digest({ capability: binding.capability, input });
-  return input;
+  // 先计算没有 operationDigest 的快照。若把 undefined 键算入摘要，Runner
+  // JSON 序列化时会丢弃该键，控制面与插件两端就会得到不同摘要。
+  const input = { ...payload, security: { ...security } };
+  // AD CS Runtime 使用 Object.keys(...).sort()，这里必须复刻其 UTF-16
+  // 默认排序；通用 canonicalize 使用 localeCompare，不能混用。
+  security.operationDigest = `sha256:${digestAdcsOperation({ capability: binding.capability, input })}`;
+  return { ...payload, security };
 }
 
-function normalizeActionOutput(action: string, output: Record<string, unknown>): Record<string, unknown> {
+function normalizeActionOutput(action: string, output: Record<string, unknown>, fallbackProviderRequestId?: string): Record<string, unknown> {
   const object = Array.isArray(output.normalizedObjects) && isRecord(output.normalizedObjects[0]) ? output.normalizedObjects[0] : output;
   const status = typeof object.status === 'string' ? object.status : undefined;
   if (status === 'pending-agent-execution') {
@@ -281,7 +310,7 @@ function normalizeActionOutput(action: string, output: Record<string, unknown>):
       ? object.providerRequestId
       : typeof object.stableKey === 'string'
         ? object.stableKey
-        : undefined;
+        : fallbackProviderRequestId;
     return {
       status: 'pending',
       ...(providerRequestId ? { providerRequestId } : {}),
@@ -289,7 +318,11 @@ function normalizeActionOutput(action: string, output: Record<string, unknown>):
     };
   }
   if (action === 'issue' || action === 'query') {
-    const providerRequestId = typeof object.providerRequestId === 'string' ? object.providerRequestId : typeof object.stableKey === 'string' ? object.stableKey : undefined;
+    const providerRequestId = typeof object.providerRequestId === 'string'
+      ? object.providerRequestId
+      : typeof object.stableKey === 'string'
+        ? object.stableKey
+        : fallbackProviderRequestId;
     if (!providerRequestId) throw new AppError('CA_PROVIDER_RESULT_INVALID', '外部 CA 插件结果缺少 providerRequestId');
     if (status === 'issued' && typeof object.certificatePem === 'string') return object;
     return { status: status === 'unknown' ? 'unknown' : 'pending', providerRequestId, detail: status ?? 'pending-agent-execution' };
@@ -319,6 +352,15 @@ function operationForAction(action: string, payload: Record<string, unknown>): s
 
 function schemaHash(schema: JsonSchema): string { return `sha256:${createHash('sha256').update(canonicalize(schema), 'utf8').digest('hex')}`; }
 function digest(value: unknown): string { return createHash('sha256').update(typeof value === 'string' ? value : canonicalize(value), 'utf8').digest('hex'); }
+function digestAdcsOperation(value: unknown): string {
+  return createHash('sha256').update(canonicalizeAdcs(value), 'utf8').digest('hex');
+}
+function canonicalizeAdcs(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalizeAdcs(item)).join(',')}]`;
+  const entries = Object.keys(value as Record<string, unknown>).sort();
+  return `{${entries.map((key) => `${JSON.stringify(key)}:${canonicalizeAdcs((value as Record<string, unknown>)[key])}`).join(',')}}`;
+}
 function stringOr(value: unknown, fallback: string): string { return typeof value === 'string' && value.trim() ? value : fallback; }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === 'object' && !Array.isArray(value); }
 
@@ -332,6 +374,20 @@ function readRecord(value: unknown): Record<string, unknown> | undefined {
 
 function firstNormalizedObject(output: Record<string, unknown>): Record<string, unknown> | undefined {
   return Array.isArray(output.normalizedObjects) && isRecord(output.normalizedObjects[0]) ? output.normalizedObjects[0] : output;
+}
+
+/** 兼容 Runner 标准结果的 data 包装，只接受具备计划摘要和动作列表的对象。 */
+function readAgentPlan(output: Record<string, unknown>, object?: Record<string, unknown>): Record<string, unknown> | undefined {
+  const visit = (value: unknown, depth: number): Record<string, unknown> | undefined => {
+    if (depth > 4 || !isRecord(value)) return undefined;
+    if (typeof value.planDigest === 'string' && Array.isArray(value.actions)) return value;
+    for (const child of Object.values(value)) {
+      const found = visit(child, depth + 1);
+      if (found) return found;
+    }
+    return undefined;
+  };
+  return visit(object, 0) ?? visit(output, 0);
 }
 
 function normalizeAdcsTaskResult(action: 'issue' | 'query' | 'revoke' | 'revocation_evidence', task: AgentTaskEnvelope): Record<string, unknown> {

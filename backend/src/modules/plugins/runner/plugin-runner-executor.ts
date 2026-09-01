@@ -58,6 +58,8 @@ export interface PluginRunnerExecutorResult {
   success: boolean;
   status: PluginExecutionStatus;
   output: Record<string, unknown>;
+  /** 兼容早期内置 Runtime 顶层返回的 normalizedObjects。 */
+  normalizedObjects?: unknown[];
   externalReceipt?: Record<string, unknown>;
   warnings?: PluginRunnerWarning[];
   error?: PluginRunnerError;
@@ -161,7 +163,9 @@ function isHash(value: unknown): value is string {
 export function executorResultForMessage(message: PluginRunnerExecute, result: PluginRunnerExecutorResult): PluginRunnerExecutorResult {
   const normalized = {
     ...result,
-    output: result.output ?? {},
+    // AD CS 1.0.14 等不可变 Runtime 使用顶层 normalizedObjects；统一协议
+    // 对外只暴露 output，因此在宿主边界完成一次无损归一化。
+    output: result.output ?? (Array.isArray(result.normalizedObjects) ? { normalizedObjects: result.normalizedObjects } : {}),
     warnings: result.warnings ?? [],
     ...(result.externalReceipt ? { externalReceipt: result.externalReceipt } : {}),
     ...(result.error ? { error: result.error } : {}),

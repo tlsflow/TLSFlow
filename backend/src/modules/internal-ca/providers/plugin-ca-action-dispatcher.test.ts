@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { describe, it } from 'node:test';
 import type { JsonSchema } from '../../../common/validation/json-schema.js';
 import { PluginCaActionDispatcher } from './plugin-ca-action-dispatcher.js';
@@ -21,6 +22,24 @@ describe('Microsoft AD CS Agent 调度', () => {
     assert.equal(captured.input.agentPlatform, 'windows_adcs');
     assert.equal(captured.input.operation, 'ca.certificate.issue');
     assert.notEqual(captured.input.agentId, 'provider-1');
+  });
+
+  it('operationDigest 与 ADCS Runtime 的默认键排序一致', async () => {
+    const { dispatcher, captured } = createDispatcher({ agentPlan: true });
+    await dispatcher.execute({
+      provider: provider(),
+      binding: binding(),
+      action: 'issue',
+      authority: { configuration: { agentId: 'agent-authority-1' } } as never,
+      payload: { allowWildcard: false, csrPem: 'csr' },
+      actorId: 'actor-1',
+      idempotencyKey: 'idempotency-digest-order',
+    });
+    const security = captured.input.security as Record<string, unknown>;
+    const snapshot = structuredClone(captured.input);
+    delete (snapshot.security as Record<string, unknown>).operationDigest;
+    const expected = `sha256:${createHash('sha256').update(runtimeCanonicalJson({ capability: 'ca.certificate.issue', input: snapshot }), 'utf8').digest('hex')}`;
+    assert.equal(security.operationDigest, expected);
   });
 
   it('Microsoft AD CS Plan 只入队到 Authority 关联的 AD CS Agent', async () => {
@@ -224,4 +243,11 @@ function binding() {
     executionLocation: 'control_plane',
     issueAction: { actionId: 'ca.issue', actionVersion: 'v1' },
   } as never;
+}
+
+function runtimeCanonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(runtimeCanonicalJson).join(',')}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${runtimeCanonicalJson(record[key])}`).join(',')}}`;
 }

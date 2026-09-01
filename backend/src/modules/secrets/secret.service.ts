@@ -53,6 +53,8 @@ export interface ResolveSecretInput {
   capability?: string;
   planDigest?: string;
   purpose: string;
+  /** Grant 动作与审计用途分离，避免用途扩展名绕过或误拒绝权限校验。 */
+  grantAction?: string;
   actorId: string;
   context?: RequestContext;
   /** Plugin Runner 同一执行内可能需要多次签名，不能把执行级 Grant 首次解析后立即消费。 */
@@ -286,7 +288,7 @@ export class SecretService {
       capability: input.capability,
       planDigest: input.planDigest,
       secretRef: input.secretRef,
-      action: input.purpose,
+      action: input.grantAction ?? input.purpose,
       markUsed: input.markUsed ?? true,
     });
 

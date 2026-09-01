@@ -575,8 +575,11 @@ async function resolveSecret(
     pluginId: context.pluginId,
     capability: context.capability,
     planDigest: context.planDigest,
+    grantAction: 'secret.resolve',
     actorId: context.pluginId,
     context: { tenantId: context.tenantId },
+    // purpose 仅用于 Secret 使用审计；Grant 校验必须使用 Host API 注册权限，
+    // 否则诸如 adcs.ca.certificate.issue.credential 这类用途会被误当作动作。
     markUsed: false,
   });
   let publicKeyJwk: Record<string, unknown> | undefined;
@@ -591,6 +594,9 @@ async function resolveSecret(
       secretRef: resolved.secretRef,
       versionId: resolved.versionId,
       fingerprint: resolved.fingerprint,
+      // SecretService 的历史 fingerprint 仅用于短展示；AD CS Agent 需要
+      // 可复算的完整 SHA-256 凭据摘要，且绝不返回明文。
+      credentialFingerprint: `sha256:${createHash('sha256').update(resolved.plainText, 'utf8').digest('hex')}`,
       value: '[REDACTED]',
       ...(publicKeyJwk ? {
         publicKeyJwk,
@@ -623,6 +629,7 @@ async function signCrypto(
     pluginId: context.pluginId,
     capability: context.capability,
     planDigest: context.planDigest,
+    grantAction: 'crypto.sign',
     actorId: context.pluginId,
     context: { tenantId: context.tenantId },
     markUsed: false,
@@ -675,8 +682,8 @@ async function hmacCrypto(
     markUsed: false,
   } as const;
   const [key, publicValue] = await Promise.all([
-    dependencies.security.secrets.resolveForExecution({ ...common, secretRef, purpose: 'crypto.hmac' }),
-    dependencies.security.secrets.resolveForExecution({ ...common, secretRef: publicValueRef, purpose: 'crypto.hmac.public-identifier' }),
+    dependencies.security.secrets.resolveForExecution({ ...common, secretRef, purpose: 'crypto.hmac', grantAction: 'crypto.hmac' }),
+    dependencies.security.secrets.resolveForExecution({ ...common, secretRef: publicValueRef, purpose: 'crypto.hmac.public-identifier', grantAction: 'crypto.hmac' }),
   ]);
   const algorithm = hmacAlgorithm(hashAlgorithm);
   const resolvedData = data.split(publicValuePlaceholder).join(publicValue.plainText);

@@ -23,6 +23,7 @@ test('允许的 Host API 只通过 Action Grant、持久化端口和审计调用
   const secret = await handler({ ...context('secret.grant.resolve', ['secret.resolve']), input: { grantId: 'grant-1', secretRef: 'secret://api_token/secret-1#current', purpose: 'secret.resolve' } });
   assert.equal(JSON.stringify(secret).includes('plain-text-must-not-leak'), false);
   assert.equal((secret.data as Record<string, unknown>).value, '[REDACTED]');
+  assert.match(String((secret.data as Record<string, unknown>).credentialFingerprint), /^sha256:[a-f0-9]{64}$/);
 
   const hmac = await handler({
     ...context('crypto.hmac', ['crypto.hmac']),

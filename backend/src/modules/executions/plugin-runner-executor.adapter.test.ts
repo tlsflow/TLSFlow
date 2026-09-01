@@ -140,6 +140,23 @@ test('Action 输出不符合冻结 Schema 时当前 DSL 步骤失败', async () 
   assert.equal(result.errorCode, 'PLUGIN_CONTRACT_INVALID');
 });
 
+test('兼容旧 Runtime 的单对象 normalizedObjects 包装并继续使用冻结 Schema 校验', async () => {
+  const adapter = new PluginRunnerExecutorAdapter({
+    runner: runnerConfig(),
+    builtinRegistry: builtinRegistry(),
+    executionGrants: executionGrants(),
+    supervisor: {
+      start: async () => ({
+        execute: async (request: PluginRunnerExecutionInput) => successResult(request, { normalizedObjects: [{ value: 'done' }] }),
+      } as unknown as PluginRunnerClient),
+    },
+  });
+
+  const result = await adapter.executeAction(actionInput());
+  assert.equal(result.success, true);
+  assert.deepEqual(result.output, { normalizedObjects: [{ value: 'done' }] });
+});
+
 test('只有写入结果明确未知时才进入 UNKNOWN', async () => {
   const adapter = new PluginRunnerExecutorAdapter({
     runner: runnerConfig(),

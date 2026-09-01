@@ -273,7 +273,7 @@ export class PluginRunnerExecutorAdapter implements Executor {
       const result = await client.execute(request);
       if (result.success && result.status === 'SUCCESS') {
         try {
-          assertJsonSchema(result.output, binding.outputSchema, 'plugin.action 输出');
+          assertPluginOutputSchema(result.output, binding.outputSchema);
         } catch (error) {
           return actionFailure(new AppError('PLUGIN_CONTRACT_INVALID', 'plugin.action 输出不符合冻结 Schema', {
             cause: error instanceof AppError ? error.errorCode : 'SCHEMA_VALIDATION_FAILED',
@@ -544,6 +544,26 @@ function errorCode(error: unknown, fallback: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * 兼容 1.0.14 及更早内置 Runtime 的顶层 normalizedObjects 返回格式。
+ * 只有包装对象本身校验失败、且唯一标准对象完整通过同一冻结 Schema 时才允许解包；
+ * 这不会放宽 Schema，也不会把空数组或多个对象当作单个 Action 输出。
+ */
+function assertPluginOutputSchema(output: Record<string, unknown>, schema: JsonSchema): void {
+  try {
+    assertJsonSchema(output, schema, 'plugin.action 输出');
+    return;
+  } catch (outerError) {
+    const objects = output.normalizedObjects;
+    if (!Array.isArray(objects) || objects.length !== 1 || !isRecord(objects[0])) throw outerError;
+    assertJsonSchema(objects[0], schema, 'plugin.action normalizedObjects[0] 输出');
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function requiredRecord(value: unknown, name: string): Record<string, unknown> {
