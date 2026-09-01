@@ -51,7 +51,7 @@ test('Synology 凭据健康检测输出标准有效性合同且不泄露凭据',
   await withEnvironment(env, async () => {
     const executor = createPluginRunnerExecutor();
     const fixture = discoveryFixture();
-    fixture.responses[`GET ${INFO_PATH}`] = ok({ success: true, data: { version: '7.2.2' } });
+    fixture.responses[`GET ${INFO_PATH}`] = ok({ success: true, data: { version: '69058', systemVersion: '7.2.2' } });
     const result = await executor.execute(context(executor, 'credential.health-check', ['secret-grant'], false, {
       deviceAddress: '192.0.2.50',
       credential: { username: 'fixture-user', secretRef: 'secret://device/password', grantId: 'secret-grant' },
@@ -62,7 +62,7 @@ test('Synology 凭据健康检测输出标准有效性合同且不泄露凭据',
       apiVersion: 'gcac.credential-health-result/v1',
       status: 'VALID',
       summary: '设备认证成功',
-      evidence: { protocol: 'DSM', productVersion: '7.2.2' },
+      evidence: { protocol: 'DSM', productVersion: '7.2.2', productBuild: '69058' },
     });
     assert.doesNotMatch(JSON.stringify(result), /fixture-password|secret-value/);
   });
@@ -106,6 +106,10 @@ test('Synology 真实 Runner 子进程执行 DSM discovery Fixture 并输出标�
     assert.equal(result.status, 'SUCCESS', JSON.stringify(result));
     assert.equal(result.output.normalizedObjects[0].apiVersion, 'gcac.device-discovery/v2');
     assert.equal(result.output.normalizedObjects[0].device.productFamily, 'device.synology-dsm');
+    assert.equal(result.output.normalizedObjects[0].device.softwareVersion, '7.2.1');
+    assert.equal(result.output.normalizedObjects[0].device.softwareBuild, '69057');
+    assert.equal(result.output.normalizedObjects[0].device.metadata.version, '7.2.1');
+    assert.equal(result.output.normalizedObjects[0].device.metadata.build, '69057');
     assert.deepEqual(result.output.normalizedObjects[0].sites.map((site) => site.displayName), ['Default']);
     assert.deepEqual(result.output.normalizedObjects[0].managedTargets.map((target) => target.targetKey), ['Default']);
     assert.equal(result.output.normalizedObjects[0].certificateBindings.length, 1);
@@ -328,6 +332,7 @@ function discoveryFixture() {
     apiVersion: 'gcac.device-fixture/v1', protocol: 'DSM', device: { managementAddress: '192.0.2.50' },
     responses: {
       'POST /webapi/auth.cgi?api=SYNO.API.Auth&version=7&method=login&session=GCAC&format=sid': ok({ success: true, data: { sid: 'fixture-session', synotoken: 'fixture-token' } }),
+      [`GET ${INFO_PATH}`]: ok({ success: true, data: { version: '69057', systemVersion: '7.2.1' } }),
       'GET /webapi/entry.cgi?api=SYNO.Core.Certificate.CRT&version=1&method=list': ok({ success: true, data: { certificates: [{ id: 'cert-old', desc: 'DSM Fixture Certificate', is_default: true, services: [{ display_name: 'DSM Desktop Service', service: 'default' }], sha256Fingerprint: 'a'.repeat(64), subject: { common_name: 'dsm.example.invalid' }, issuer: { common_name: 'Fixture Issuer' }, valid_from: '2026-01-01T00:00:00Z', valid_till: '2027-01-01T00:00:00Z' }] } }),
     },
   };

@@ -1,7 +1,7 @@
 {
   "apiVersion": "gcac.workflow/v1",
   "kind": "CurlSshWorkflow",
-  "metadata": { "name": "synology-dsm-certificate-deploy", "displayName": "Synology DSM certificate deployment", "category": "certificate", "version": "2.0.11", "platforms": ["appliance"], "updateMethods": ["curl"], "maintainer": "GCAC" },
+  "metadata": { "name": "synology-dsm-certificate-deploy", "displayName": "Synology DSM certificate deployment", "category": "certificate", "version": "2.0.20", "platforms": ["appliance"], "updateMethods": ["curl"], "maintainer": "GCAC" },
   "inputContract": {
     "apiVersion": "gcac.deployment-input/v1",
     "variables": {

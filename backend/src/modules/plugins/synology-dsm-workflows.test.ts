@@ -5,6 +5,7 @@ import jsonata from 'jsonata';
 
 const packageRoot = new URL('./builtin-plugins/device-synology-dsm/', import.meta.url);
 const sidExpression = '{{steps.authenticate.extracted.sid}}';
+const manifest = JSON.parse(readFileSync(new URL('./builtin-plugins/device-synology-dsm/manifest.json', import.meta.url), 'utf8')) as Record<string, any>;
 
 function readWorkflow(name: string): Record<string, any> {
   return JSON.parse(readFileSync(new URL(`workflows/${name}.json`, packageRoot), 'utf8')) as Record<string, any>;
@@ -18,7 +19,7 @@ test('Synology 证书部署和回滚工作流先登录 DSM 再调用证书 API',
 
   for (const [name, certificateSteps] of cases) {
     const workflow = readWorkflow(name);
-    assert.equal(workflow.metadata?.version, '2.0.10');
+    assert.equal(workflow.metadata?.version, manifest.version);
     const steps = workflow.steps as Array<Record<string, any>>;
     assert.equal(steps[0]?.name, 'authenticate');
     assert.equal(steps[0]?.request?.form?.api, 'SYNO.API.Auth');
@@ -56,9 +57,9 @@ test('Synology 证书 Artifact 使用宿主标准输出键', () => {
 });
 
 test('Synology 应用接入配方声明统一向导所需的部署默认值', async () => {
-  const manifest = JSON.parse(readFileSync(new URL('./builtin-plugins/device-synology-dsm/manifest.json', import.meta.url), 'utf8')) as Record<string, any>;
+  const manifestFile = JSON.parse(readFileSync(new URL('./builtin-plugins/device-synology-dsm/manifest.json', import.meta.url), 'utf8')) as Record<string, any>;
   const recipe = JSON.parse(readFileSync(new URL('./builtin-plugins/device-synology-dsm/onboarding/application-asset.json', import.meta.url), 'utf8')) as Record<string, any>;
-  assert.equal(manifest.version, '2.0.10');
+  assert.equal(manifestFile.version, manifest.version);
   assert.deepEqual(recipe.deploymentDefaults, {
     capabilityKey: 'certificate.deploy',
     variables: { allowInsecureTls: true },
@@ -97,12 +98,14 @@ test('Synology TLS 校验开关同时满足连接校验和宿主 TLS 例外授�
 test('Synology 发现只投影 Synology 框架、Default 站点和默认服务证书绑定', async () => {
   const discover = readWorkflow('discover');
   const steps = discover.steps as Array<Record<string, any>>;
-  assert.deepEqual(steps.map((item) => item.name), ['authenticate', 'readCertificates', 'projectDiscovery']);
+  assert.deepEqual(steps.map((item) => item.name), ['authenticate', 'readDsmInfo', 'readCertificates', 'normalizeDsmVersion', 'projectDiscovery']);
   assert.equal(steps.some((item) => String(item.request?.url ?? '').includes('SYNO.Core.Network.Interface')), false);
-  assert.equal(steps.some((item) => String(item.request?.url ?? '').includes('SYNO.DSM.Info')), false);
+  assert.equal(steps.some((item) => String(item.request?.url ?? '').includes('SYNO.DSM.Info')), true);
   const expression = steps.find((item) => item.name === 'projectDiscovery')?.transform?.outputs?.discovery?.expression;
   const result = await jsonata(expression).evaluate({
     address: '10.255.0.77',
+    dsmVersion: '7.2.1',
+    dsmBuild: '69057',
     certificates: {
       data: {
         certificates: [
@@ -123,13 +126,31 @@ test('Synology 发现只投影 Synology 框架、Default 站点和默认服务�
   assert.equal(result.certificates[0].notBefore, '2026-01-01');
   assert.equal(result.certificates[0].notAfter, '2027-01-01');
   assert.equal(result.certificates[0].metadata.certkey, 'DSM Fixture Certificate');
+  assert.equal(result.device.softwareVersion, '7.2.1');
+  assert.equal(result.device.softwareBuild, '69057');
+  assert.equal(result.device.metadata.version, '7.2.1');
+  assert.equal(result.device.metadata.build, '69057');
   assert.deepEqual(result.warnings, []);
 });
 
-test('Synology DSM 信息读取使用设备声明的 getinfo 方法', () => {
+test('Synology DSM 信息读取使用 getinfo 并兼容版本与 Build 字段布局', async () => {
   const workflow = readWorkflow('connection-test');
   const info = (workflow.steps as Array<Record<string, any>>).find((item) => item.name === 'readDsmInfo');
+  const normalize = (workflow.steps as Array<Record<string, any>>).find((item) => item.name === 'normalizeDsmVersion');
   assert.match(info?.request?.url ?? '', /api=SYNO\.DSM\.Info&version=2&method=getinfo/);
+  assert.deepEqual(info?.extract, [{ name: 'dsmInfoResponse', type: 'outputPath', path: '$.body' }]);
+  assert.ok(normalize?.type === 'transform');
+  const expression = normalize?.transform?.outputs?.productVersion?.expression;
+  const buildExpression = normalize?.transform?.outputs?.productBuild?.expression;
+  for (const response of [
+    { data: { systemVersion: '7.2.1', version: '69057' } },
+    { data: { version: '7.2.1-69057' } },
+    { data: { 'SYNO.DSM.Info': { version: 'DSM 7.2.1-69057' } } },
+    { data: { productVersion: '7.2.1', build: '69057' } },
+  ]) {
+    assert.equal(await jsonata(expression).evaluate({ response }), '7.2.1');
+    assert.equal(await jsonata(buildExpression).evaluate({ response }), '69057');
+  }
 });
 
 test('Synology 接入表单将 HTTPS 协议和证书错误例外拆成两个独立选项', () => {

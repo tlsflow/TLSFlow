@@ -128,10 +128,12 @@ async function connectionTest(input, fixture, credential, state, signal) {
   const session = await login(fixture, credential, state, signal);
   const info = await requestFixture(fixture, state, signal, 'GET', INFO_PATH, { sid: session.sid });
   assertDsmSuccess(info, state);
+  const dsm = dsmInfoFacts(info.body);
   return successResult({
     protocol: PROTOCOL,
     managementAddress: requiredAddress(input.deviceAddress),
-    productVersion: dsmVersion(info.body),
+    productVersion: dsm.version,
+    ...(dsm.build ? { productBuild: dsm.build } : {}),
     sessionEstablished: Boolean(session.sid && session.synotoken),
     requestCount: state.requestCount,
   });
@@ -141,14 +143,17 @@ async function credentialHealthCheck(input, fixture, credential, state, signal) 
   const session = await login(fixture, credential, state, signal);
   const info = await requestFixture(fixture, state, signal, 'GET', INFO_PATH, { sid: session.sid });
   assertDsmSuccess(info, state);
-  return { success: true, status: 'SUCCESS', output: { apiVersion: 'gcac.credential-health-result/v1', status: 'VALID', summary: '设备认证成功', evidence: { protocol: PROTOCOL, productVersion: dsmVersion(info.body) } }, warnings: [] };
+  const dsm = dsmInfoFacts(info.body);
+  return { success: true, status: 'SUCCESS', output: { apiVersion: 'gcac.credential-health-result/v1', status: 'VALID', summary: '设备认证成功', evidence: { protocol: PROTOCOL, productVersion: dsm.version, ...(dsm.build ? { productBuild: dsm.build } : {}) } }, warnings: [] };
 }
 
 async function discover(input, fixture, credential, state, signal) {
   const session = await login(fixture, credential, state, signal);
+  const info = await requestFixture(fixture, state, signal, 'GET', INFO_PATH, { sid: session.sid });
+  assertDsmSuccess(info, state);
   const certificates = await requestFixture(fixture, state, signal, 'GET', CERTIFICATE_PATH, { sid: session.sid });
   assertDsmSuccess(certificates, state);
-  const discovery = toDiscovery(input, certificates.body);
+  const discovery = toDiscovery(input, certificates.body, dsmInfoFacts(info.body));
   return successResult({ protocol: PROTOCOL, requestCount: state.requestCount, sessionEstablished: true }, [discovery]);
 }
 
@@ -327,7 +332,7 @@ function assertDsmSuccess(response, state) {
   }
 }
 
-function toDiscovery(input, certificatesBody) {
+function toDiscovery(input, certificatesBody, dsm) {
   const address = requiredAddress(input.deviceAddress);
   const certificates = array(certificatesBody.data?.certificates ?? [], 'DSM certificates');
   const frameworkStableKey = 'framework:synology-dsm';
@@ -389,7 +394,9 @@ function toDiscovery(input, certificatesBody) {
       displayName: optionalText(input.displayName) ?? address,
       productFamily: PLUGIN_ID,
       managementAddress: address,
-      metadata: { managementProtocol: 'DSM Web API', defaultServiceKey: 'default' },
+      softwareVersion: dsm.version,
+      ...(dsm.build ? { softwareBuild: dsm.build } : {}),
+      metadata: { managementProtocol: 'DSM Web API', defaultServiceKey: 'default', version: dsm.version, ...(dsm.build ? { build: dsm.build } : {}) },
     },
     capabilities: CAPABILITIES.map((key) => ({ key, available: true })),
     frameworks,
@@ -600,8 +607,18 @@ function array(value, name) {
   return value;
 }
 
-function dsmVersion(body) {
-  return stringValue(body.data?.version ?? body.data?.systemVersion ?? body.data?.['SYNO.DSM.Info']?.version, 'DSM version');
+function dsmInfoFacts(body) {
+  const data = body?.data ?? {};
+  const nested = data?.['SYNO.DSM.Info'] ?? {};
+  const versionSource = data.systemVersion ?? data.productVersion ?? nested.systemVersion ?? nested.productVersion ?? data.version ?? nested.version;
+  const versionText = stringValue(versionSource, 'DSM version');
+  const versionMatch = versionText.match(/\b(\d+\.\d+(?:\.\d+)?)\b/);
+  if (!versionMatch) fail('DSM version 缺失或格式无效', 'PLUGIN_PROTOCOL_CONTRACT_INVALID');
+  const buildSource = data.build ?? data.buildVersion ?? nested.build ?? nested.buildVersion;
+  const buildText = typeof buildSource === 'string' && buildSource.trim() ? buildSource.trim() : undefined;
+  const versionBuildText = typeof data.version === 'string' ? data.version.trim() : typeof nested.version === 'string' ? nested.version.trim() : undefined;
+  const buildMatch = (buildText ?? versionBuildText ?? versionText)?.match(/(?:^|[-\s])([0-9]{4,})(?=$|[\s)]|[-])/);
+  return { version: versionMatch[1], build: buildMatch?.[1] };
 }
 
 function redactCertificate(value) {
