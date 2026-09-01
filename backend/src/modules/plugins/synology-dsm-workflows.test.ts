@@ -101,6 +101,8 @@ test('Synology 发现只投影 Synology 框架、Default 站点和默认服务�
   assert.deepEqual(steps.map((item) => item.name), ['authenticate', 'readDsmInfo', 'readCertificates', 'normalizeDsmVersion', 'projectDiscovery']);
   assert.equal(steps.some((item) => String(item.request?.url ?? '').includes('SYNO.Core.Network.Interface')), false);
   assert.equal(steps.some((item) => String(item.request?.url ?? '').includes('SYNO.DSM.Info')), true);
+  assert.deepEqual(steps.find((item) => item.name === 'readDsmInfo')?.extract, [{ name: 'dsmInfoData', type: 'jsonPath', path: '$.data' }]);
+  assert.deepEqual(steps.find((item) => item.name === 'readCertificates')?.extract, [{ name: 'certificates', type: 'jsonPath', path: '$.data.certificates' }]);
   const expression = steps.find((item) => item.name === 'projectDiscovery')?.transform?.outputs?.discovery?.expression;
   const result = await jsonata(expression).evaluate({
     address: '10.255.0.77',
@@ -138,13 +140,14 @@ test('Synology DSM 信息读取使用 getinfo 并兼容版本与 Build 字段布
   const info = (workflow.steps as Array<Record<string, any>>).find((item) => item.name === 'readDsmInfo');
   const normalize = (workflow.steps as Array<Record<string, any>>).find((item) => item.name === 'normalizeDsmVersion');
   assert.match(info?.request?.url ?? '', /api=SYNO\.DSM\.Info&version=2&method=getinfo/);
-  assert.deepEqual(info?.extract, [{ name: 'dsmInfoResponse', type: 'outputPath', path: '$.body' }]);
+  assert.deepEqual(info?.extract, [{ name: 'dsmInfoData', type: 'jsonPath', path: '$.data' }]);
   assert.ok(normalize?.type === 'transform');
   const expression = normalize?.transform?.outputs?.productVersion?.expression;
   const buildExpression = normalize?.transform?.outputs?.productBuild?.expression;
   for (const response of [
     { data: { systemVersion: '7.2.1', version: '69057' } },
     { data: { version: '7.2.1-69057' } },
+    { data: { version: '69057', version_string: 'DSM 7.2.1-69057 Update 5' } },
     { data: { 'SYNO.DSM.Info': { version: 'DSM 7.2.1-69057' } } },
     { data: { productVersion: '7.2.1', build: '69057' } },
   ]) {

@@ -68,6 +68,22 @@ test('Synology 凭据健康检测输出标准有效性合同且不泄露凭据',
   });
 });
 
+test('Synology Runner 从 version_string 拆分 DSM 软件版本和 Build', async () => {
+  await withEnvironment(env, async () => {
+    const executor = createPluginRunnerExecutor();
+    const fixture = discoveryFixture();
+    fixture.responses[`GET ${INFO_PATH}`] = ok({ success: true, data: { version: '69057', version_string: 'DSM 7.2.1-69057 Update 5' } });
+    const result = await executor.execute(context(executor, 'device.discover', ['secret-grant'], false, {
+      deviceAddress: '192.0.2.50',
+      credential: { username: 'fixture-user', secretRef: 'secret://device/password', grantId: 'secret-grant' },
+      protocolFixture: fixture,
+    }), hostApi);
+    assert.equal(result.status, 'SUCCESS', JSON.stringify(result));
+    assert.equal(result.output.normalizedObjects[0].device.softwareVersion, '7.2.1');
+    assert.equal(result.output.normalizedObjects[0].device.softwareBuild, '69057');
+  });
+});
+
 test('Synology 真实 Runner 子进程执行 DSM discovery Fixture 并输出标准发现对象', async () => {
   const client = new PluginRunnerClient({
     pluginVersionId: env.GCAC_PLUGIN_VERSION_ID,

@@ -610,13 +610,18 @@ function array(value, name) {
 function dsmInfoFacts(body) {
   const data = body?.data ?? {};
   const nested = data?.['SYNO.DSM.Info'] ?? {};
-  const versionSource = data.systemVersion ?? data.productVersion ?? nested.systemVersion ?? nested.productVersion ?? data.version ?? nested.version;
+  const versionSource = data.systemVersion ?? data.productVersion ?? data.versionString ?? data.version_string ?? data.dsmVersion
+    ?? nested.systemVersion ?? nested.productVersion ?? nested.versionString ?? nested.version_string ?? nested.dsmVersion ?? nested.version ?? data.version;
   const versionText = stringValue(versionSource, 'DSM version');
   const versionMatch = versionText.match(/\b(\d+\.\d+(?:\.\d+)?)\b/);
   if (!versionMatch) fail('DSM version 缺失或格式无效', 'PLUGIN_PROTOCOL_CONTRACT_INVALID');
   const buildSource = data.build ?? data.buildVersion ?? nested.build ?? nested.buildVersion;
   const buildText = typeof buildSource === 'string' && buildSource.trim() ? buildSource.trim() : undefined;
-  const versionBuildText = typeof data.version === 'string' ? data.version.trim() : typeof nested.version === 'string' ? nested.version.trim() : undefined;
+  const versionBuildText = typeof data.versionString === 'string' ? data.versionString.trim()
+    : typeof data.version_string === 'string' ? data.version_string.trim()
+      : typeof nested.versionString === 'string' ? nested.versionString.trim()
+        : typeof nested.version_string === 'string' ? nested.version_string.trim()
+          : typeof data.version === 'string' ? data.version.trim() : typeof nested.version === 'string' ? nested.version.trim() : undefined;
   const buildMatch = (buildText ?? versionBuildText ?? versionText)?.match(/(?:^|[-\s])([0-9]{4,})(?=$|[\s)]|[-])/);
   return { version: versionMatch[1], build: buildMatch?.[1] };
 }
