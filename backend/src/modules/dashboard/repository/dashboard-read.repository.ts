@@ -4,6 +4,8 @@ import type { AuditLogEntity } from '../../../persistence/entities/audit-log.ent
 import type { AgentRegistration } from '../../agents/schema/agents.schema.js';
 import type { CertificateBindingDto } from '../../bindings/dto/bindings.dto.js';
 import type { CertificateAssetEntity, CertificateVersionEntity } from '../../certificates/schema/certificates.schema.js';
+import { mapAgentHealth, mapNetworkDeviceHealth } from '../../devices/domain/managed-device-projection.js';
+import type { ManagedDeviceSummaryDto } from '../../devices/dto/devices.dto.js';
 import type { GatewayDto, GatewayReachabilityDto, GatewayZoneDto } from '../../gateways/dto/gateways.dto.js';
 
 export interface DashboardReadAuthorizations {
@@ -13,6 +15,7 @@ export interface DashboardReadAuthorizations {
   readonly bindings: PageAuthorizationFilter;
   readonly agents: PageAuthorizationFilter;
   readonly gateways: PageAuthorizationFilter;
+  readonly managedDevices: PageAuthorizationFilter;
 }
 
 export interface DashboardReadModel {
@@ -31,7 +34,13 @@ export interface DashboardReadModel {
   readonly gateways: GatewayDto[];
   readonly gatewayZones: GatewayZoneDto[];
   readonly gatewayReachability: GatewayReachabilityDto[];
+  readonly managedDevices: DashboardManagedDevicePage;
   readonly auditCandidates: AuditLogEntity[];
+}
+
+export interface DashboardManagedDevicePage {
+  readonly total: number;
+  readonly items: ManagedDeviceSummaryDto[];
 }
 
 export interface DashboardApplicationAsset {
@@ -89,6 +98,7 @@ export class DashboardReadRepository {
       bindingCountsByVersionId,
       agents,
       gateways,
+      managedDevices,
       auditCandidates,
     ] = await Promise.all([
       this.loadApplicationSummary(input.tenantId, input.authorizations.applicationAssets),
@@ -102,6 +112,7 @@ export class DashboardReadRepository {
       this.loadBindingCounts(input.tenantId, input.authorizations.bindings),
       this.loadAgents(input.tenantId, input.authorizations.agents),
       this.loadGateways(input.tenantId, input.authorizations.gateways),
+      this.loadManagedDevices(input.tenantId, input.nowIso, input.authorizations.managedDevices),
       input.includeAudits ? this.loadAuditCandidates(input.tenantId) : Promise.resolve([]),
     ]);
     const [gatewayZones, gatewayReachability] = await Promise.all([
@@ -125,6 +136,7 @@ export class DashboardReadRepository {
       gateways,
       gatewayZones,
       gatewayReachability,
+      managedDevices,
       auditCandidates,
     };
   }
@@ -481,6 +493,113 @@ export class DashboardReadRepository {
     } as GatewayReachabilityDto));
   }
 
+  /**
+   * 仪表盘只需要设备状态块的摘要字段，不能调用设备列表页的完整投影。
+   * 后者会扫描版本、升级、能力快照和站点计数，记录增长后会拖慢仪表盘首屏。
+   */
+  private async loadManagedDevices(
+    tenantId: string,
+    nowIso: string,
+    authorization: PageAuthorizationFilter,
+  ): Promise<DashboardManagedDevicePage> {
+    const query = new SqlQuery();
+    const tenant = query.param(tenantId);
+    const limit = query.param(STATUS_LIMIT);
+    const authorizationSql = query.authorization(authorization, 'host', {
+      tenantId: 'host.tenant_id',
+      id: 'host.id',
+      environment: 'host.environment',
+      zoneId: 'host.zone_id',
+      tags: 'host.tags',
+    });
+    const result = await this.db.query<DashboardManagedDeviceRow>(`
+      with visible_hosts as (
+        select host.id, host.tenant_id, host.display_name, host.hostname, host.primary_ip,
+               host.os_type, host.os_name, host.os_version, host.management_mode,
+               host.status as host_status, host.last_discovered_at, host.agent_id
+          from pg_hosts host
+         where host.tenant_id = ${tenant}
+           and host.deleted_at is null
+           and (
+             host.agent_id is not null
+             or exists (
+               select 1
+                 from pg_device_assets device
+                where device.tenant_id = host.tenant_id
+                  and device.host_id = host.id
+             )
+           )
+           ${authorizationSql}
+      ), projected as (
+        select host.*,
+               agent.payload as agent_payload,
+               heartbeat.received_at as agent_last_heartbeat_at,
+               device.device_family, device.product_name, device.product_family,
+               device.software_version as device_software_version,
+               device.software_build as device_software_build,
+               device.support_tier, device.last_discovered_at as device_last_discovered_at,
+               device.last_error_code, device.metadata as device_metadata,
+               service.address as device_address,
+               plugin.plugin_version as device_control_version,
+               liveness.status as liveness_signal_status
+          from visible_hosts host
+          left join pg_documents agent
+            on agent.namespace = 'agents:registrations'
+           and agent.document_id = host.agent_id
+           and agent.payload->>'tenantId' = host.tenant_id
+          left join lateral (
+            select heartbeat.payload->>'receivedAt' as received_at
+              from pg_documents heartbeat
+             where heartbeat.namespace = 'agents:heartbeats'
+               and heartbeat.payload->>'tenantId' = host.tenant_id
+               and heartbeat.payload->>'agentId' = host.agent_id
+             order by heartbeat.payload->>'receivedAt' desc
+             limit 1
+          ) heartbeat on host.agent_id is not null
+          left join lateral (
+            select device.*
+              from pg_device_assets device
+             where device.tenant_id = host.tenant_id
+               and device.host_id = host.id
+             order by device.updated_at desc, device.service_asset_id desc
+             limit 1
+          ) device on true
+          left join pg_service_assets service
+            on service.tenant_id = device.tenant_id
+           and service.id = device.service_asset_id
+           and service.deleted_at is null
+          left join unified_plugin_versions plugin on plugin.id = device.plugin_version_id
+          left join pg_device_liveness_signals liveness
+            on liveness.tenant_id = host.tenant_id
+           and liveness.resource_type = case when host.agent_id is not null then 'AGENT' else 'DEVICE' end
+           and liveness.resource_id = coalesce(host.agent_id, host.id)
+           and liveness.signal_type = case when host.agent_id is not null then 'HEARTBEAT' else 'MANAGEMENT_TCP' end
+      ), ranked as (
+        select projected.*,
+               count(*) over()::int as total_count,
+               case
+                 when agent_id is not null and liveness_signal_status = 'FAILED' then 0
+                 when agent_id is null and (liveness_signal_status = 'FAILED' or last_error_code is not null) then 0
+                 when upper(host_status) in ('OFFLINE', 'UNREACHABLE', 'ERROR') then 0
+                 when upper(host_status) in ('UPGRADING', 'DEGRADED', 'STALE') then 1
+                 when liveness_signal_status is null or liveness_signal_status = 'UNKNOWN' then 2
+                 else 4
+               end as dashboard_health_rank
+          from projected
+      )
+      select *
+        from ranked
+       order by dashboard_health_rank,
+                coalesce(agent_last_heartbeat_at, device_last_discovered_at::text, last_discovered_at::text) desc nulls last,
+                id
+       limit ${limit}
+    `, query.params);
+    return {
+      total: numberValue(result.rows[0]?.total_count),
+      items: result.rows.map((row) => toDashboardManagedDevice(row, nowIso)),
+    };
+  }
+
   private async loadAuditCandidates(tenantId: string): Promise<AuditLogEntity[]> {
     const result = await this.db.query<DocumentRow>(`
       select audit.document_id, audit.payload
@@ -601,6 +720,34 @@ type DocumentRow = { document_id: string; payload: unknown };
 type GatewayRow = { id: string; tenant_id: string; agent_id: string; zone_ids: unknown; status: string; last_heartbeat_at?: string | Date | null; updated_at: string | Date };
 type GatewayZoneRow = { id: string; tenant_id: string; name: string };
 type GatewayReachabilityRow = { gateway_id: string; latency_ms?: number | null; checked_at: string | Date };
+type DashboardManagedDeviceRow = {
+  id: string;
+  display_name?: string | null;
+  hostname?: string | null;
+  primary_ip?: string | null;
+  os_type: string;
+  os_name?: string | null;
+  os_version?: string | null;
+  management_mode: string;
+  host_status: string;
+  last_discovered_at?: string | Date | null;
+  agent_id?: string | null;
+  agent_payload?: unknown;
+  agent_last_heartbeat_at?: string | Date | null;
+  device_family?: string | null;
+  product_name?: string | null;
+  product_family?: string | null;
+  device_software_version?: string | null;
+  device_software_build?: string | null;
+  support_tier?: string | null;
+  device_last_discovered_at?: string | Date | null;
+  last_error_code?: string | null;
+  device_metadata?: unknown;
+  device_address?: string | null;
+  device_control_version?: string | null;
+  liveness_signal_status?: string | null;
+  total_count?: string | number | null;
+};
 
 function toApplicationAsset(row: ApplicationAssetRow): DashboardApplicationAsset {
   return {
@@ -688,6 +835,84 @@ function toGateway(row: GatewayRow): GatewayDto {
   } as GatewayDto;
 }
 
+function toDashboardManagedDevice(row: DashboardManagedDeviceRow, nowIso: string): ManagedDeviceSummaryDto {
+  const agentPayload = asRecord(row.agent_payload);
+  const descriptor = asRecord(agentPayload.descriptor);
+  const isAgent = Boolean(row.agent_id);
+  const isCloudService = String(asRecord(row.device_metadata).deviceCategory ?? '').toUpperCase() === 'CLOUD'
+    || String(asRecord(row.device_metadata).livenessMode ?? '').toUpperCase() === 'DISCOVERY'
+    || row.device_family?.toLowerCase().startsWith('cloud.') === true;
+  const sourceStatus = isAgent
+    ? optionalString(agentPayload.status) ?? row.host_status
+    : row.last_error_code
+      ? 'ERROR'
+      : row.device_last_discovered_at
+        ? 'DISCOVERED'
+        : row.host_status;
+  const lastContactAt = isAgent
+    ? optionalIsoText(row.agent_last_heartbeat_at) ?? optionalString(asRecord(agentPayload.gateway).lastHeartbeatAt)
+    : optionalIsoText(row.device_last_discovered_at) ?? optionalIsoText(row.last_discovered_at);
+  const livenessStatus = isCloudService
+    ? undefined
+    : dashboardLivenessStatus(row.liveness_signal_status);
+  const baseHealth = isAgent
+    ? mapAgentHealth(sourceStatus, lastContactAt, new Date(nowIso))
+    : mapNetworkDeviceHealth(
+      row.host_status,
+      optionalString(row.last_error_code),
+      optionalString(row.support_tier),
+      optionalIsoText(row.device_last_discovered_at),
+      new Date(nowIso),
+    );
+  const health = livenessStatus === 'OFFLINE'
+    ? 'UNREACHABLE'
+    : livenessStatus === 'ONLINE' && baseHealth === 'UNKNOWN'
+      ? 'HEALTHY'
+      : baseHealth;
+  const osType = (optionalString(descriptor.osType) ?? row.os_type).toUpperCase();
+
+  return {
+    id: row.id,
+    displayName: optionalString(row.display_name) ?? optionalString(row.hostname) ?? optionalString(row.primary_ip) ?? row.id,
+    category: isAgent ? 'SERVER' : isCloudService ? 'CLOUD' : 'NETWORK_APPLIANCE',
+    productFamily: isAgent
+      ? osType === 'WINDOWS'
+        ? 'Windows Server'
+        : osType === 'LINUX'
+          ? 'Linux Server'
+          : optionalString(row.os_name) ?? osType
+      : optionalString(row.product_family) ?? optionalString(row.product_name) ?? optionalString(row.device_family) ?? 'Unknown',
+    managementMethod: isAgent ? row.management_mode : 'PLUGIN',
+    managementAddress: isAgent
+      ? optionalString(row.primary_ip) ?? optionalString(row.hostname)
+      : optionalString(row.device_address) ?? optionalString(row.primary_ip) ?? optionalString(row.hostname),
+    livenessStatus,
+    healthStatus: health,
+    health,
+    sourceStatus,
+    softwareVersion: isAgent
+      ? optionalString(descriptor.osVersion) ?? optionalString(row.os_version) ?? optionalString(row.os_name)
+      : joinVersion(row.device_software_version, row.device_software_build),
+    controlVersion: isAgent ? optionalString(descriptor.version) : optionalString(row.device_control_version),
+    lastContactAt,
+    applicationAssetCount: 0,
+    capabilities: [],
+    extensionType: isAgent ? 'AGENT' : 'NETWORK_APPLIANCE',
+    agentId: isAgent ? row.agent_id ?? undefined : undefined,
+    agentRole: isAgent ? optionalString(agentPayload.role) : undefined,
+  };
+}
+
+function dashboardLivenessStatus(status: string | null | undefined): ManagedDeviceSummaryDto['livenessStatus'] {
+  if (status === 'FAILED') return 'OFFLINE';
+  if (!status || status === 'UNKNOWN') return 'UNKNOWN';
+  return 'ONLINE';
+}
+
+function joinVersion(version: string | null | undefined, build: string | null | undefined): string | undefined {
+  return [optionalString(version), optionalString(build)].filter((value): value is string => Boolean(value)).join(' ') || undefined;
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -703,6 +928,10 @@ function stringValue(value: unknown): string {
 function optionalString(value: unknown): string | undefined {
   const result = stringValue(value);
   return result || undefined;
+}
+
+function optionalIsoText(value: unknown): string | undefined {
+  return value ? isoText(value) : undefined;
 }
 
 function numberValue(value: unknown): number {

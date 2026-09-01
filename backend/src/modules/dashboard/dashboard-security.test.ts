@@ -49,6 +49,7 @@ test('Dashboard 读模型在 SQL 层过滤历史 Agent，并让在线计数与�
         bindings: unrestricted,
         agents: unrestricted,
         gateways: unrestricted,
+        managedDevices: unrestricted,
       },
       includeAudits: false,
     });
@@ -66,6 +67,7 @@ test('Dashboard 读模型在 SQL 层过滤历史 Agent，并让在线计数与�
         bindings: unrestricted,
         agents: { unrestricted: false, empty: false, objectIds: ['agent-current'], dynamicConditions: [] },
         gateways: unrestricted,
+        managedDevices: unrestricted,
       },
       includeAudits: false,
     });
@@ -125,12 +127,82 @@ test('Dashboard 读模型不会在对象权限过滤前截断审计候选', asyn
         bindings: unrestricted,
         agents: unrestricted,
         gateways: unrestricted,
+        managedDevices: unrestricted,
       },
       includeAudits: true,
     });
 
     assert.equal(model.auditCandidates.length, 81);
     assert.equal(model.auditCandidates.some((item) => item.id === visibleLog.id), true);
+  } finally {
+    await database.close();
+  }
+});
+
+test('Dashboard 读模型以轻量主机摘要加载设备状态块并执行对象授权', async () => {
+  const database = new PgliteDatabase();
+  try {
+    await runMigrations(database, 'src/database/migrations');
+    const tenantId = 'tenant-dashboard-managed-devices';
+    const nowIso = '2026-08-26T20:00:00.000Z';
+    await database.query(
+      `insert into pg_hosts (
+         id, tenant_id, display_name, hostname, primary_ip, os_type, os_name, os_version,
+         discovery_source, agent_id, compatibility_level, management_mode, status
+       ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+      ['host-dashboard-visible', tenantId, 'Dashboard Agent', 'dashboard-host', '10.0.0.20', 'WINDOWS', 'Windows Server', '2022', 'AGENT', 'agent-dashboard-visible', 'FULL', 'AGENT', 'ONLINE'],
+    );
+    await database.query(
+      `insert into pg_documents (namespace, document_id, payload, updated_at)
+       values ($1, $2, $3::jsonb, $4::timestamptz)`,
+      ['agents:registrations', 'agent-dashboard-visible', JSON.stringify({
+        tenantId,
+        status: 'ONLINE',
+        role: 'full_agent',
+        descriptor: { osType: 'WINDOWS', version: '1.2.3' },
+      }), nowIso],
+    );
+    await database.query(
+      `insert into pg_documents (namespace, document_id, payload, updated_at)
+       values ($1, $2, $3::jsonb, $4::timestamptz)`,
+      ['agents:heartbeats', 'heartbeat-dashboard-visible', JSON.stringify({
+        tenantId,
+        agentId: 'agent-dashboard-visible',
+        receivedAt: nowIso,
+      }), nowIso],
+    );
+
+    const unrestricted = { unrestricted: true, empty: false, objectIds: [], dynamicConditions: [] };
+    const baseAuthorizations = {
+      applicationAssets: unrestricted,
+      certificateAssets: unrestricted,
+      certificateVersions: unrestricted,
+      bindings: unrestricted,
+      agents: unrestricted,
+      gateways: unrestricted,
+    };
+    const repository = new DashboardReadRepository(database);
+    const model = await repository.load({
+      tenantId,
+      nowIso,
+      authorizations: { ...baseAuthorizations, managedDevices: unrestricted },
+      includeAudits: false,
+    });
+    assert.equal(model.managedDevices.total, 1);
+    assert.deepEqual(model.managedDevices.items.map((item) => item.id), ['host-dashboard-visible']);
+    assert.equal(model.managedDevices.items[0]?.health, 'HEALTHY');
+
+    const restrictedModel = await repository.load({
+      tenantId,
+      nowIso,
+      authorizations: {
+        ...baseAuthorizations,
+        managedDevices: { unrestricted: false, empty: true, objectIds: [], dynamicConditions: [] },
+      },
+      includeAudits: false,
+    });
+    assert.equal(restrictedModel.managedDevices.total, 0);
+    assert.deepEqual(restrictedModel.managedDevices.items, []);
   } finally {
     await database.close();
   }
@@ -193,7 +265,7 @@ test('Dashboard 聚合只统计和展示有对象权限的资产', async () => {
   assert.deepEqual(overview.statusGroups.map((group) => group.key), ['certificates', 'assets', 'gateways', 'applicationAssets']);
 });
 
-test('Dashboard 读模型分支使用设备分页生成资产状态块', async () => {
+test('Dashboard 读模型分支直接使用设备状态摘要生成资产状态块', async () => {
   const service = createDashboardService({ host: ['device-visible'] }, [], true, {
     applicationCount: 0,
     validCertificateCount: 0,
@@ -210,6 +282,10 @@ test('Dashboard 读模型分支使用设备分页生成资产状态块', async (
     gateways: [],
     gatewayZones: [],
     gatewayReachability: [],
+    managedDevices: {
+      total: 1,
+      items: [managedDevice('device-visible', 'HEALTHY')],
+    },
     auditCandidates: [],
   });
 
@@ -354,6 +430,7 @@ function createDashboardService(
     },
     devices: {
       list: async (_tenantId: string, query: { authorizedHostIds?: string[]; pageSize?: number }) => {
+        if (readModel) throw new Error('仪表盘读模型不应调用设备列表投影');
         const visible = query.authorizedHostIds
           ? devices.filter((item) => query.authorizedHostIds?.includes(item.id))
           : devices;

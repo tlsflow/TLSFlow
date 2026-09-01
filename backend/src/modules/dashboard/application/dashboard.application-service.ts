@@ -61,16 +61,12 @@ export class DashboardApplicationService {
       canReadAuditPromise,
       authorizationsPromise,
     ]);
-    // 设备状态块仍由设备投影负责生成；读模型只聚合其余仪表盘数据。
-    // 在授权解析完成后立即启动，和读模型查询并行执行，避免首屏额外串行等待。
-    const dashboardAssetsPromise = this.loadDashboardAssets(input.tenantId, deviceAuthorization);
     if (this.dependencies.readRepository) {
       return this.getOverviewFromReadModel({
         input,
         generatedAt,
         canReadAudit,
         gatewaySchemaPromise,
-        dashboardAssetsPromise,
         authorizations: {
           applicationAssets: applicationAuthorization,
           certificateAssets: certificateAuthorization,
@@ -78,9 +74,11 @@ export class DashboardApplicationService {
           bindings: bindingAuthorization,
           agents: agentAuthorization,
           gateways: gatewayAuthorization,
+          managedDevices: deviceAuthorization,
         },
       });
     }
+    const dashboardAssetsPromise = this.loadDashboardAssets(input.tenantId, deviceAuthorization);
     const [
       applicationAssets,
       certificateAssets,
@@ -183,19 +181,15 @@ export class DashboardApplicationService {
     generatedAt: string;
     canReadAudit: boolean;
     gatewaySchemaPromise?: Promise<void>;
-    dashboardAssetsPromise: Promise<ManagedDevicePageDto>;
     authorizations: Parameters<DashboardReadRepository['load']>[0]['authorizations'];
   }): Promise<DashboardOverview> {
     await input.gatewaySchemaPromise;
-    const [model, dashboardAssets] = await Promise.all([
-      this.dependencies.readRepository!.load({
-        tenantId: input.input.tenantId,
-        nowIso: input.generatedAt,
-        authorizations: input.authorizations,
-        includeAudits: input.canReadAudit,
-      }),
-      input.dashboardAssetsPromise,
-    ]);
+    const model = await this.dependencies.readRepository!.load({
+      tenantId: input.input.tenantId,
+      nowIso: input.generatedAt,
+      authorizations: input.authorizations,
+      includeAudits: input.canReadAudit,
+    });
     const visibleAuditLogs = model.auditCandidates.filter(shouldShowOnDashboardAudits);
     const authorizedAuditLogs = input.canReadAudit
       ? await filterDashboardAuditLogs(this.dependencies.objectPermissions, input.input.subject, visibleAuditLogs, {
@@ -248,8 +242,8 @@ export class DashboardApplicationService {
       statusGroups: buildStatusGroups({
         applicationAssets: model.applicationAssets,
         certificateStatuses,
-        assets: dashboardAssets.items,
-        assetsTotal: dashboardAssets.total,
+        assets: model.managedDevices.items,
+        assetsTotal: model.managedDevices.total,
         gateways: model.gateways,
         gatewayZones: model.gatewayZones,
         gatewayReachability: model.gatewayReachability,
