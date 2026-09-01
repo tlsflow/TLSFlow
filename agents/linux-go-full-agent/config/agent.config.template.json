@@ -3,6 +3,7 @@
   "tenantId": "CHANGE_ME_TENANT_ID",
   "agentKey": "",
   "zone": "default",
+  "platformFamily": "linux",
   "controlPlaneUrl": "https://gcac.example.invalid",
   "heartbeatIntervalSeconds": 10,
   "taskPollIntervalSeconds": 60,

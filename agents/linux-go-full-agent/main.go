@@ -38,6 +38,7 @@ type AgentConfig struct {
 	AgentKey                   string            `json:"agentKey"`
 	EnrollmentToken            string            `json:"enrollmentToken"`
 	Zone                       string            `json:"zone"`
+	PlatformFamily             string            `json:"platformFamily,omitempty"`
 	ControlPlane               string            `json:"controlPlaneUrl"`
 	Heartbeat                  int               `json:"heartbeatIntervalSeconds"`
 	TaskPollIntervalSeconds    int               `json:"taskPollIntervalSeconds"`
@@ -239,6 +240,7 @@ func handleServiceInfo(args []string) error {
 			"linuxDistribution": identity.LinuxDistribution,
 			"osVersion":         identity.OSVersion,
 			"zone":              config.Zone,
+			"platformFamily":    config.PlatformFamily,
 		},
 		"systemd": map[string]any{
 			"available":     fileExists("/run/systemd/system") || lookPath("systemctl"),

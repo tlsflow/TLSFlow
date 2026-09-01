@@ -1139,6 +1139,10 @@ func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig
 		return nil, fmt.Errorf("读取主机名失败: %w", err)
 	}
 
+	labels := []string{"linux-go", "systemd"}
+	if family := linuxPlatformFamilyLabel(config.PlatformFamily); family != "" {
+		labels = append(labels, "platform-family:"+family)
+	}
 	request := registerRequest{
 		AgentKey:           config.AgentKey,
 		MachineID:          identity.MachineID,
@@ -1150,7 +1154,7 @@ func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig
 		ManagementEndpoint: managementEndpointForIdentity(identity, config),
 		LinuxDistribution:  identity.LinuxDistribution,
 		OSVersion:          identity.OSVersion,
-		Labels:             []string{"linux-go", "systemd"},
+		Labels:             labels,
 		EnrollmentToken:    strings.TrimSpace(config.EnrollmentToken),
 		Zone:               strings.TrimSpace(config.Zone),
 	}
@@ -1168,6 +1172,16 @@ func registerAgent(ctx context.Context, client *http.Client, config *AgentConfig
 		}
 	}
 	return &runtimeState{AgentID: response.ID, Hostname: hostname, Version: agentVersion}, nil
+}
+
+// 只把受支持的系列写入注册标签，未知值按无标签处理，避免配置元数据影响注册流程。
+func linuxPlatformFamilyLabel(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "red-hat", "debian-ubuntu", "kylin", "uos":
+		return strings.TrimSpace(strings.ToLower(value))
+	default:
+		return ""
+	}
 }
 
 func postHeartbeat(ctx context.Context, client *http.Client, config *AgentConfig, state *runtimeState, counters *runtimeCounters, status *runtimeStatusSnapshot) error {

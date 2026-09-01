@@ -2,6 +2,10 @@
 
 Linux Go Agent 是通用执行节点，只采集原始主机事实并执行经过授权的通用计划。它不识别第三方产品，不解析产品配置，也不提供自由命令入口。
 
+## Linux 平台系列标识
+
+Red Hat、Debian/Ubuntu、麒麟和统信 OS 在控制面使用同一个 Linux Go Agent、同一个 bundle 和同一套安装流程。安装会话可携带 `platformFamily`（`red-hat`、`debian-ubuntu`、`kylin` 或 `uos`），该值只写入 `agent.config.json` 并转换为 `platform-family:*` 注册标签；复制命令末尾的 `os=*` 注释也会显示该系列。它不参与能力判断、任务路由、权限校验或执行分支，因此不会改变 Agent 功能。
+
 ## 长期合同
 
 Agent 只注册以下四个动作：
