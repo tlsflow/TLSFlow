@@ -215,7 +215,7 @@ const config = computed<BusinessPageConfig>(() => ({
     { key: 'status', title: t('assets.inventory.columns.status'), candidates: ['livenessStatus', 'health', 'sourceStatus'], kind: 'status', width: '8%' },
     { key: 'deviceVersion', title: t('assets.inventory.columns.version'), candidates: ['softwareVersion'], width: '12%', truncate: true },
     { key: 'controlVersion', title: t('assets.inventory.columns.controlVersion'), candidates: ['controlVersion'], width: '10%' },
-    { key: 'applicationAssetCount', title: t('assets.inventory.columns.sites'), candidates: ['applicationAssetCount'], kind: 'count', width: '5%' },
+    { key: 'siteCount', title: t('assets.inventory.columns.sites'), candidates: ['siteCount', 'applicationAssetCount'], kind: 'count', width: '5%' },
     { key: 'actions', title: t('assets.inventory.columns.actions'), candidates: [], width: '12%' },
   ],
   metrics: [

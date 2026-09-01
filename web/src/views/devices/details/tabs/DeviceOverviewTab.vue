@@ -7,6 +7,16 @@ import type { DeviceDetailField, DeviceDetailSection } from '../device-detail.mo
 defineProps<{ sections: readonly DeviceDetailSection[] }>()
 const { t } = useI18n()
 
+function sectionTitle(key: string): string {
+  return key === 'cloudService' ? t('devices.cloudService.sectionTitle') : t(`devices.unifiedDetail.sections.${key}`)
+}
+
+function fieldTitle(sectionKey: string, fieldKey: string): string {
+  return sectionKey === 'cloudService'
+    ? t(`devices.cloudService.fields.${fieldKey}`)
+    : t(`devices.unifiedDetail.fields.${fieldKey}`)
+}
+
 function displayValue(field: DeviceDetailField): string {
   if (field.value === null || field.value === '') return t('devices.unifiedDetail.values.empty')
   if (field.valueType === 'DATETIME') return formatBrowserLocalTime(field.value) || t('devices.unifiedDetail.values.empty')
@@ -24,11 +34,11 @@ function displayField(field: DeviceDetailField): string {
   <div class="agent-detail-modal__sections">
     <section v-for="section in sections" :key="section.key" class="agent-detail-modal__section">
       <header class="agent-detail-modal__section-head">
-        <h3>{{ t(`devices.unifiedDetail.sections.${section.key}`) }}</h3>
+        <h3>{{ sectionTitle(section.key) }}</h3>
       </header>
       <dl class="agent-detail-modal__grid">
         <div v-for="field in section.fields" :key="field.key" class="agent-detail-modal__item">
-          <dt>{{ t(`devices.unifiedDetail.fields.${field.key}`) }}</dt>
+          <dt>{{ fieldTitle(section.key, field.key) }}</dt>
           <dd>
             <GcStatusTag v-if="field.valueType === 'STATUS'" :status="String(field.value ?? 'UNKNOWN')" />
             <template v-else>

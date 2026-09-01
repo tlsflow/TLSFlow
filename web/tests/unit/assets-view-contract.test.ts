@@ -115,6 +115,15 @@ describe('应用资产卡片契约', () => {
     expect(source).toContain('pluginId,')
     expect(source).not.toContain('pluginOverride: {\n        pluginVersionId,')
   })
+
+  it('云服务详情与编辑委托统一资产模态框，普通应用保留原流程', () => {
+    expect(source).toContain('UnifiedAssetDetailModal')
+    expect(source).toContain('UnifiedAssetEditModal')
+    expect(source).toContain("rootType: 'SERVICE_ASSET'")
+    expect(source).toContain('isCloudServiceAsset(row.raw ?? {})')
+    expect(source).toContain('ref="unifiedAssetDetailModal"')
+    expect(source).toContain('ref="unifiedAssetEditModal"')
+  })
 })
 
 describe('统一资产中心入口契约', () => {

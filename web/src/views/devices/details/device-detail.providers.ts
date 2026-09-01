@@ -56,12 +56,17 @@ function buildFrameworkTabs(frameworks: readonly DeviceFrameworkView[]): DeviceD
   return frameworks.map((framework, index) => ({
     key: `framework:${framework.id}`,
     labelKey: 'devices.unifiedDetail.tabs.frameworks',
-    label: framework.name,
+    label: frameworkTabLabel(framework),
     order: 200 + index,
     component: DeviceSitesTab,
     isVisible: () => true,
     buildProps: context => ({ sites: context.sites.filter(site => site.frameworkInstanceId === framework.id) }),
   }))
+}
+
+function frameworkTabLabel(framework: DeviceFrameworkView): string {
+  const scopeName = framework.metadata.scopeName
+  return typeof scopeName === 'string' && scopeName.trim() ? scopeName.trim() : framework.name
 }
 
 function buildSiteTabs(context: DeviceDetailContext): DeviceDetailTabDescriptor[] {

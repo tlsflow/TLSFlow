@@ -1,4 +1,5 @@
 import type {
+  DeviceBoundCertificateView,
   DeviceCertificateView,
   DeviceDetailAdapter,
   DeviceDetailContext,
@@ -40,12 +41,17 @@ export const genericDeviceDetailAdapter: DeviceDetailAdapter = {
 
 export function buildGenericContext(detail: Readonly<Record<string, unknown>>): DeviceDetailContext {
   const informationSections = readList(detail.informationSections).map(readSection).filter(isDefined)
+  const certificates = readList(detail.certificates).map(readCertificate).filter(isDefined)
+  const sites = readList(detail.sites)
+    .map(readSite)
+    .filter(isDefined)
+    .map(site => hydrateSiteBindingCertificates(site, certificates))
   return {
     detail,
     overviewSections: informationSections,
     frameworks: readList(detail.frameworks).map(readFramework).filter(isDefined),
-    sites: readList(detail.sites).map(readSite).filter(isDefined),
-    certificates: readList(detail.certificates).map(readCertificate).filter(isDefined),
+    sites,
+    certificates,
     logs: readList(detail.logs).map(readLog).filter(isDefined),
     resourceCounts: readResourceCounts(detail.resourceCounts),
     permissions: new Set(readList(detail.allowedActions).map(String)),
@@ -151,7 +157,9 @@ function readBinding(value: unknown): DeviceSiteBindingView | undefined {
   const bindingKey = readString(record.bindingKey)
   if (!id || !bindingKey) return undefined
   const replacement = readRecord(record.replacement)
-  const certificate = readCertificate(record.certificate)
+  // 中文说明：旧版云投影可能只保留 metadata.remoteCertificate，没有生成标准 certificate 节点。
+  // 先在适配层恢复证书事实，随后由 buildGenericContext 关联项目证书库版本。
+  const certificate = readCertificate(record.certificate) ?? readCloudCertificate(readRecord(record.metadata))
   return {
     id,
     bindingKey,
@@ -160,12 +168,79 @@ function readBinding(value: unknown): DeviceSiteBindingView | undefined {
     status: readString(record.status) || 'UNKNOWN',
     certificate,
     deploymentTarget: readRecord(record.deploymentTarget),
+    metadata: readRecord(record.metadata),
     replacement: {
       allowed: replacement.allowed === true,
       managedTargetId: readString(replacement.managedTargetId) || undefined,
       reasonCode: readString(replacement.reasonCode) || undefined,
     },
   }
+}
+
+function readCloudCertificate(metadata: Readonly<Record<string, unknown>>): DeviceBoundCertificateView | undefined {
+  const nested = readRecord(metadata.certificate ?? metadata.remoteCertificate)
+  const pick = (...keys: string[]) => keys
+    .map(key => nested[key] ?? metadata[key])
+    .map(value => readString(value))
+    .find(value => value.length > 0)
+  const name = pick('name', 'certificateName', 'providerCertificateName', 'certName', 'CertificateName')
+  const domain = pick('subject', 'Subject', 'certDomainName', 'domainName', 'domain', 'address')
+  const issuer = pick('issuer', 'Issuer', 'certOrg')
+  const notBefore = pick('notBefore', 'NotBefore', 'certStartTime')
+  const notAfter = pick('notAfter', 'NotAfter', 'certExpireTime')
+  const fingerprintSha256 = pick('fingerprintSha256', 'sha256Fingerprint', 'FingerprintSha256', 'Fingerprint')
+  const providerId = pick('providerCertificateId', 'certId', 'CertId', 'certificateId', 'CertificateId')
+  if (!name && !domain && !issuer && !notBefore && !notAfter && !fingerprintSha256 && !providerId) return undefined
+  const subject = domain ? (domain.startsWith('CN=') ? domain : `CN=${domain}`) : undefined
+  return {
+    name,
+    subject,
+    issuer,
+    notBefore,
+    notAfter,
+    fingerprintSha256,
+    status: pick('status', 'remoteCertificateStatus', 'serverCertificateStatus') || undefined,
+  }
+}
+
+function hydrateSiteBindingCertificates(site: DeviceSiteView, certificates: readonly DeviceCertificateView[]): DeviceSiteView {
+  return {
+    ...site,
+    bindings: site.bindings.map(binding => {
+      if (!binding.certificate) return binding
+      const matched = certificates.find(candidate => certificatesMatch(binding.certificate!, candidate))
+      if (!matched) return binding
+      return {
+        ...binding,
+        certificate: {
+          ...binding.certificate,
+          id: matched.id,
+          certificateAssetId: binding.certificate.certificateAssetId || matched.certificateAssetId,
+          certificateVersionId: binding.certificate.certificateVersionId || matched.certificateVersionId,
+        },
+      }
+    }),
+  }
+}
+
+function certificatesMatch(left: DeviceBoundCertificateView, right: DeviceCertificateView): boolean {
+  const leftFingerprint = normalizeFingerprint(left.fingerprintSha256)
+  const rightFingerprint = normalizeFingerprint(right.fingerprintSha256)
+  if (leftFingerprint && rightFingerprint) return leftFingerprint === rightFingerprint
+  const leftName = certificateName(left)
+  const rightName = certificateName(right)
+  if (!leftName || !rightName || leftName !== rightName) return false
+  return !left.notAfter || !right.notAfter || Date.parse(left.notAfter) === Date.parse(right.notAfter)
+}
+
+function certificateName(certificate: DeviceBoundCertificateView): string {
+  // 中文说明：云厂商证书名称通常是内部资源名，证书库应按 CN/SAN 身份匹配。
+  const value = certificate.subject || certificate.name || ''
+  return value.replace(/^CN=/i, '').trim().toLowerCase()
+}
+
+function normalizeFingerprint(value?: string): string {
+  return String(value ?? '').replace(/[^0-9a-f]/gi, '').toLowerCase()
 }
 
 function readCertificate(value: unknown): DeviceCertificateView | undefined {
