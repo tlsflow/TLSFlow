@@ -210,6 +210,8 @@ export interface DeviceOnboardingPlatformDescriptor {
   formSchema: DeviceOnboardingFieldDescriptor[];
   handlerKey?: string;
   installCommandProfile?: 'WINDOWS_POWERSHELL_2';
+  /** Linux 系列差异化标签，仅写入安装材料，不改变 Agent 执行能力。 */
+  platformFamily?: 'red-hat' | 'debian-ubuntu' | 'kylin' | 'uos';
 }
 
 export interface CreateManagedDeviceOnboardingDto {

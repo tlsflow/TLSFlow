@@ -165,6 +165,7 @@ export class DevicesApplicationService {
       const installPlatform = resolveAgentInstallPlatform(platform.handlerKey);
       const installSession = await this.agents.createAgentInstallSession(tenantId, {
         platform: installPlatform,
+        ...(platform.platformFamily ? { platformFamily: platform.platformFamily } : {}),
         role: 'full_agent',
       }, requestId, installBaseUrl ?? 'http://localhost');
       return {

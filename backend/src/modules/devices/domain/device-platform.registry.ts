@@ -6,10 +6,10 @@ const platforms: DeviceOnboardingPlatformDescriptor[] = [
   descriptor('windows-server-2008-r2', 'devices.platforms.windowsServer2008R2', 'Windows Server', 'AGENT_COMPATIBILITY', 'AGENT', 'AGENT_INSTALL', 'SUPPORTED', agentFields, 'WINDOWS_COMPATIBILITY', 'WINDOWS_POWERSHELL_2'),
   descriptor('windows-server-2012-r2', 'devices.platforms.windowsServer2012R2', 'Windows Server', 'AGENT_COMPATIBILITY', 'AGENT', 'AGENT_INSTALL', 'SUPPORTED', agentFields, 'WINDOWS_COMPATIBILITY'),
   descriptor('windows-server-2016-plus', 'devices.platforms.windowsServer2016Plus', 'Windows Server', 'AGENT', 'AGENT', 'AGENT_INSTALL', 'SUPPORTED', agentFields, 'WINDOWS_GO'),
-  descriptor('linux-red-hat', 'devices.platforms.linuxRedHat', 'Linux Server', 'AGENT', 'AGENT', 'AGENT_INSTALL', 'SUPPORTED', agentFields, 'LINUX_GO', undefined, 'devices.platforms.linuxRedHatDescription'),
-  descriptor('linux-debian-ubuntu', 'devices.platforms.linuxDebianUbuntu', 'Linux Server', 'AGENT', 'AGENT', 'AGENT_INSTALL', 'SUPPORTED', agentFields, 'LINUX_GO', undefined, 'devices.platforms.linuxDebianUbuntuDescription'),
-  descriptor('linux-kylin', 'devices.platforms.linuxKylin', 'Linux Server', 'AGENT', 'AGENT', 'AGENT_INSTALL', 'SUPPORTED', agentFields, 'LINUX_GO', undefined, 'devices.platforms.linuxKylinDescription'),
-  descriptor('linux-uos', 'devices.platforms.linuxUos', 'Linux Server', 'AGENT', 'AGENT', 'AGENT_INSTALL', 'SUPPORTED', agentFields, 'LINUX_GO', undefined, 'devices.platforms.linuxUosDescription'),
+  descriptor('linux-red-hat', 'devices.platforms.linuxRedHat', 'Linux Server', 'AGENT', 'AGENT', 'AGENT_INSTALL', 'SUPPORTED', agentFields, 'LINUX_GO', undefined, 'devices.platforms.linuxRedHatDescription', 'red-hat'),
+  descriptor('linux-debian-ubuntu', 'devices.platforms.linuxDebianUbuntu', 'Linux Server', 'AGENT', 'AGENT', 'AGENT_INSTALL', 'SUPPORTED', agentFields, 'LINUX_GO', undefined, 'devices.platforms.linuxDebianUbuntuDescription', 'debian-ubuntu'),
+  descriptor('linux-kylin', 'devices.platforms.linuxKylin', 'Linux Server', 'AGENT', 'AGENT', 'AGENT_INSTALL', 'SUPPORTED', agentFields, 'LINUX_GO', undefined, 'devices.platforms.linuxKylinDescription', 'kylin'),
+  descriptor('linux-uos', 'devices.platforms.linuxUos', 'Linux Server', 'AGENT', 'AGENT', 'AGENT_INSTALL', 'SUPPORTED', agentFields, 'LINUX_GO', undefined, 'devices.platforms.linuxUosDescription', 'uos'),
 ];
 
 const legacyPlatformAliases: Readonly<Record<string, string>> = {
@@ -46,6 +46,7 @@ function descriptor(
   handlerKey?: string,
   installCommandProfile?: DeviceOnboardingPlatformDescriptor['installCommandProfile'],
   supportDescriptionKey?: string,
+  platformFamily?: DeviceOnboardingPlatformDescriptor['platformFamily'],
 ): DeviceOnboardingPlatformDescriptor {
   return {
     key,
@@ -59,5 +60,6 @@ function descriptor(
     formSchema: [...formSchema],
     handlerKey,
     installCommandProfile,
+    platformFamily,
   };
 }

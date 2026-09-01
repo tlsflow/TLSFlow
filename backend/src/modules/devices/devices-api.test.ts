@@ -864,30 +864,37 @@ test('Spec033 平台 Registry 按 Agent 分组提供 Windows 与 Linux 发行版
     'devices.platforms.linuxRedHatDescription', 'devices.platforms.linuxDebianUbuntuDescription',
     'devices.platforms.linuxKylinDescription', 'devices.platforms.linuxUosDescription',
   ]);
+  assert.deepEqual(platforms.filter((item) => item.key.startsWith('linux-')).map((item) => item.platformFamily), [
+    'red-hat', 'debian-ubuntu', 'kylin', 'uos',
+  ]);
   assert.equal(registry.requireSupported('windows').key, 'windows-server-2016-plus');
   assert.equal(registry.requireSupported('windows-compatibility').key, 'windows-server-2012-r2');
   assert.equal(registry.requireSupported('linux').key, 'linux-red-hat');
 });
 
 test('Spec033 统一添加生成 Agent 一键安装会话', async () => {
+  let linuxPlatformFamily: string | undefined;
   const agents = {
-    createAgentInstallSession: async (_tenantId: string, input: { platform: string }, _requestId: string, baseUrl: string) => ({
-      sessionId: 'aginst_devices_test',
-      platform: input.platform === 'windows_go' ? 'windows_go_service' : 'linux_go_systemd',
-      expiresAt: '2099-01-01T00:00:00.000Z',
-      bootstrapUrl: `${baseUrl}/agent-install.ps1?token=12345678`,
-      installCommand: `irm '${baseUrl}/agent-install.ps1?token=12345678' | iex`,
-      bootstrapTokenPreview: '12345678',
-      serviceName: 'GCACAgent',
-      displayName: 'GCAC Agent',
-      installRoot: 'C:\\Program Files\\GCAC',
-      configDir: 'C:\\ProgramData\\GCAC\\config',
-      dataDir: 'C:\\ProgramData\\GCAC\\data',
-      logDir: 'C:\\ProgramData\\GCAC\\logs',
-      agentKey: 'windows-go-agent',
-      zone: 'default',
-      enrollmentTokenPreview: 'enroll_redacted',
-    }),
+    createAgentInstallSession: async (_tenantId: string, input: { platform: string; platformFamily?: string }, _requestId: string, baseUrl: string) => {
+      linuxPlatformFamily = input.platformFamily;
+      return ({
+        sessionId: 'aginst_devices_test',
+        platform: input.platform === 'windows_go' ? 'windows_go_service' : 'linux_go_systemd',
+        expiresAt: '2099-01-01T00:00:00.000Z',
+        bootstrapUrl: `${baseUrl}/agent-install.ps1?token=12345678`,
+        installCommand: `irm '${baseUrl}/agent-install.ps1?token=12345678' | iex`,
+        bootstrapTokenPreview: '12345678',
+        serviceName: 'GCACAgent',
+        displayName: 'GCAC Agent',
+        installRoot: 'C:\\Program Files\\GCAC',
+        configDir: 'C:\\ProgramData\\GCAC\\config',
+        dataDir: 'C:\\ProgramData\\GCAC\\data',
+        logDir: 'C:\\ProgramData\\GCAC\\logs',
+        agentKey: 'windows-go-agent',
+        zone: 'default',
+        enrollmentTokenPreview: 'enroll_redacted',
+      });
+    },
   } as unknown as AgentsApplicationService;
   const service = new DevicesApplicationService(new PgDevicesRepository(new PgliteDatabase()), undefined, agents);
   const windows = await service.onboard('tenant-onboarding', {
@@ -912,6 +919,12 @@ test('Spec033 统一添加生成 Agent 一键安装会话', async () => {
   if (windows2008.onboardingKind !== 'AGENT_INSTALL') assert.fail('应返回 Agent 安装会话');
   assert.match(windows2008.installSession.installCommand, /^powershell\.exe -NoProfile -ExecutionPolicy Bypass -Command "\(New-Object System\.Net\.WebClient\)\.DownloadFile\('https:\/\/gcac\.example\.test\/agent-install\.ps1\?token=12345678', \(Join-Path \(\[System\.IO\.Path\]::GetTempPath\(\)\) 'gcac-agent-install\.ps1'\)\); & \(Join-Path \(\[System\.IO\.Path\]::GetTempPath\(\)\) 'gcac-agent-install\.ps1'\)"$/);
   assert.doesNotMatch(windows2008.installSession.installCommand, /DownloadString|\biex\b/);
+
+  const linuxKylin = await service.onboard('tenant-onboarding', {
+    platformKey: 'linux-kylin',
+  }, 'user-onboarding', 'request-onboarding-kylin', 'https://gcac.example.test');
+  if (linuxKylin.onboardingKind !== 'AGENT_INSTALL') assert.fail('应返回 Linux Agent 安装会话');
+  assert.equal(linuxPlatformFamily, 'kylin');
 });
 
 test('Spec033 统一插件设备接入原子创建设备绑定和能力分配', async () => {
