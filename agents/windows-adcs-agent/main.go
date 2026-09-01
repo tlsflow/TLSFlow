@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -31,7 +32,7 @@ import (
 )
 
 const (
-	defaultAgentVersion      = "0.1.14"
+	defaultAgentVersion      = "0.1.20"
 	defaultConfigPath        = `C:\ProgramData\GCAC\WindowsAdcsAgent\config\agent.config.json`
 	defaultConfigDir         = `C:\ProgramData\GCAC\WindowsAdcsAgent\config`
 	defaultDataDir           = `C:\ProgramData\GCAC\WindowsAdcsAgent\data`
@@ -43,6 +44,7 @@ const (
 	observationStateVersion  = 5
 	observationParserVersion = "adcs-observation-20260827-v6"
 	adcsCommandTimeout       = 45 * time.Second
+	adcsTaskExecutionTimeout = 75 * time.Second
 )
 
 var agentVersion = defaultAgentVersion
@@ -139,6 +141,7 @@ type submitResultRequest struct {
 	TaskID       string         `json:"taskId"`
 	LeaseID      string         `json:"leaseId"`
 	Success      bool           `json:"success"`
+	Status       string         `json:"status"`
 	ErrorCode    string         `json:"errorCode,omitempty"`
 	ErrorMessage string         `json:"errorMessage,omitempty"`
 	Detail       map[string]any `json:"detail,omitempty"`
@@ -1398,22 +1401,72 @@ func pullAndProcessTasks(ctx context.Context, client *http.Client, config *Agent
 		return err
 	}
 	for _, task := range tasks {
+		logAdcsTaskEvent(config, "pulled", task.ID, nil)
 		if err := processTask(ctx, client, config, reg, state, task); err != nil {
-			fmt.Fprintf(os.Stderr, "AD CS Agent 任务 %s 失败：%v\n", task.ID, err)
+			// 服务模式下 stderr 不会进入 agent.log；任务失败必须复用统一
+			// 错误记录路径，否则 Receipt 持久化或结果回传失败只能靠远端猜测。
+			logAdcsAgentError(config, fmt.Sprintf("AD CS Agent 任务 %s 失败：%v", task.ID, err))
 		}
 	}
 	return nil
 }
 
-func processTask(ctx context.Context, client *http.Client, config *AgentConfig, reg *registration, state *counters, task agentTaskEnvelope) error {
+func processTask(ctx context.Context, client *http.Client, config *AgentConfig, reg *registration, state *counters, task agentTaskEnvelope) (err error) {
 	leaseID := fmt.Sprintf("adcs-%s-%d", task.ID, time.Now().UnixNano())
+	acked := false
+	resultSubmitted := false
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			panicMessage := fmt.Sprintf("AD CS Agent 任务执行异常：%v", recovered)
+			logAdcsTaskEvent(config, "panic", task.ID, map[string]any{"error": panicMessage})
+			logAdcsAgentError(config, fmt.Sprintf("%s\n%s", panicMessage, truncate(string(debug.Stack()), 4096)))
+			if !acked || resultSubmitted {
+				err = errors.New(panicMessage)
+				return
+			}
+
+			detail := map[string]any{"executionStatus": "UNKNOWN", "operationResults": []any{}}
+			if plan, ok := adcsPlanFromPayload(task.Payload); ok {
+				operations := adcsOperationsFromPlan(plan)
+				receipt := buildAgentReceiptWithStatus(task.Payload, plan, operations, nil, reg.AgentID, time.Now().UTC().Format(time.RFC3339Nano), "UNKNOWN", "ADCS_AGENT_PANIC", panicMessage)
+				if persistErr := persistAdcsReceipt(config, task.ID, receipt); persistErr != nil {
+					logAdcsTaskEvent(config, "panic_receipt_persist_failed", task.ID, map[string]any{"error": persistErr.Error()})
+					err = fmt.Errorf("%s；UNKNOWN Receipt 持久化失败：%w", panicMessage, persistErr)
+					return
+				}
+				detail["planId"] = planIdentifier(plan)
+				detail["receipt"] = receipt
+				detail["receiptPersisted"] = true
+			}
+			recoveryResult := submitResultRequest{
+				AgentID: reg.AgentID, TaskID: task.ID, LeaseID: leaseID,
+				Success: false, Status: "UNKNOWN", ErrorCode: "ADCS_AGENT_PANIC",
+				ErrorMessage: "AD CS 写操作结果不明，禁止自动重试或重复提交", Detail: detail,
+			}
+			recoveryCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			submitErr := doJSON(recoveryCtx, client, config, http.MethodPost, "/api/v1/agents/tasks/result", recoveryResult, nil)
+			cancel()
+			if submitErr != nil {
+				logAdcsTaskEvent(config, "panic_result_submit_failed", task.ID, map[string]any{"error": submitErr.Error()})
+				err = fmt.Errorf("%s；UNKNOWN 结果回传失败：%w", panicMessage, submitErr)
+				return
+			}
+			resultSubmitted = true
+			logAdcsTaskEvent(config, "panic_result_submitted", task.ID, map[string]any{"status": "UNKNOWN"})
+			err = errors.New(panicMessage)
+		}
+	}()
+	logAdcsTaskEvent(config, "ack_start", task.ID, nil)
 	var ack agentTaskEnvelope
 	if err := doJSON(ctx, client, config, http.MethodPost, "/api/v1/agents/tasks/ack", ackTaskRequest{AgentID: reg.AgentID, TaskID: task.ID, LeaseID: leaseID}, &ack); err != nil {
+		logAdcsTaskEvent(config, "ack_failed", task.ID, map[string]any{"error": err.Error()})
 		return err
 	}
 	if ack.LeaseID != "" {
 		leaseID = ack.LeaseID
 	}
+	acked = true
+	logAdcsTaskEvent(config, "acked", task.ID, nil)
 	state.mu.Lock()
 	state.running++
 	state.mu.Unlock()
@@ -1423,8 +1476,14 @@ func processTask(ctx context.Context, client *http.Client, config *AgentConfig, 
 		// 结果提交失败后的重试只重传已落盘 Receipt，绝不重放 certreq/certutil。
 		success, code, message, detail = resultFromAdcsReceipt(receipt)
 		detail["receiptReplayed"] = true
+		logAdcsTaskEvent(config, "receipt_replay", task.ID, map[string]any{"status": strings.ToUpper(stringValue(receipt, "status"))})
 	} else {
-		success, code, message, detail = executePlan(ctx, task.Payload, reg.AgentID)
+		logAdcsTaskEvent(config, "execute_start", task.ID, nil)
+		success, code, message, detail = executePlanWithTimeout(ctx, task.Payload, reg.AgentID)
+		if detail == nil {
+			detail = map[string]any{}
+		}
+		logAdcsTaskEvent(config, "execute_finished", task.ID, map[string]any{"success": success, "errorCode": code, "hasReceipt": detail["receipt"] != nil})
 		if receipt, ok := detail["receipt"].(map[string]any); ok {
 			// Receipt 必须在提交控制面之前落盘。控制面短暂不可达时，Agent
 			// 仍保留同一任务的失败/未知事实，后续恢复不得重新执行写操作。
@@ -1434,8 +1493,102 @@ func processTask(ctx context.Context, client *http.Client, config *AgentConfig, 
 			detail["receiptPersisted"] = true
 		}
 	}
-	result := submitResultRequest{AgentID: reg.AgentID, TaskID: task.ID, LeaseID: leaseID, Success: success, ErrorCode: code, ErrorMessage: message, Detail: detail}
-	return doJSON(ctx, client, config, http.MethodPost, "/api/v1/agents/tasks/result", result, nil)
+	result := submitResultRequest{AgentID: reg.AgentID, TaskID: task.ID, LeaseID: leaseID, Success: success, Status: agentResultStatus(success, code, detail), ErrorCode: code, ErrorMessage: message, Detail: detail}
+	logAdcsTaskEvent(config, "result_submit_start", task.ID, map[string]any{"success": success, "errorCode": code})
+	if err := doJSON(ctx, client, config, http.MethodPost, "/api/v1/agents/tasks/result", result, nil); err != nil {
+		logAdcsTaskEvent(config, "result_submit_failed", task.ID, map[string]any{"error": err.Error()})
+		return err
+	}
+	resultSubmitted = true
+	logAdcsTaskEvent(config, "result_submitted", task.ID, map[string]any{"success": success})
+	return nil
+}
+
+func agentResultStatus(success bool, errorCode string, detail map[string]any) string {
+	if receipt, ok := detail["receipt"].(map[string]any); ok {
+		status := strings.ToUpper(strings.TrimSpace(stringValue(receipt, "status")))
+		if status == "SUCCESS" || status == "FAILED" || status == "UNKNOWN" || status == "CANCELLED" {
+			return status
+		}
+	}
+	if success {
+		return "SUCCESS"
+	}
+	if errorCode == "ADCS_OPERATION_UNKNOWN" || errorCode == "ADCS_AGENT_PANIC" {
+		return "UNKNOWN"
+	}
+	return "FAILED"
+}
+
+type executePlanResult struct {
+	success bool
+	code    string
+	message string
+	detail  map[string]any
+}
+
+// executePlanWithTimeout 覆盖操作函数之外的解析、证书读取和回执组装路径。
+// 任意内部等待超过上限都只能回传 UNKNOWN，不能让任务永久停留在 acked。
+func executePlanWithTimeout(ctx context.Context, payload map[string]any, agentID string) (bool, string, string, map[string]any) {
+	executeCtx, cancel := context.WithTimeout(ctx, adcsTaskExecutionTimeout)
+	defer cancel()
+	resultCh := make(chan executePlanResult, 1)
+	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				resultCh <- unknownExecutionResult(payload, agentID, "ADCS_AGENT_PANIC", fmt.Sprintf("AD CS Agent 执行异常：%v", recovered))
+			}
+		}()
+		success, code, message, detail := executePlan(executeCtx, payload, agentID)
+		resultCh <- executePlanResult{success: success, code: code, message: message, detail: detail}
+	}()
+	select {
+	case result := <-resultCh:
+		return result.success, result.code, result.message, result.detail
+	case <-executeCtx.Done():
+		result := unknownExecutionResult(payload, agentID, "ADCS_OPERATION_UNKNOWN", "AD CS Agent 任务执行超过硬超时，结果可能已在 CA 生效")
+		return result.success, result.code, result.message, result.detail
+	}
+}
+
+func unknownExecutionResult(payload map[string]any, agentID, code, reason string) executePlanResult {
+	plan, ok := adcsPlanFromPayload(payload)
+	detail := map[string]any{}
+	if ok {
+		operations := adcsOperationsFromPlan(plan)
+		receipt := buildAgentReceiptWithStatus(payload, plan, operations, nil, agentID, time.Now().UTC().Format(time.RFC3339Nano), "UNKNOWN", code, reason)
+		detail["planId"] = planIdentifier(plan)
+		detail["operations"] = []any{}
+		detail["operationResults"] = []any{}
+		detail["executionStatus"] = "UNKNOWN"
+		detail["receipt"] = receipt
+	}
+	return executePlanResult{success: false, code: code, message: "AD CS 写操作结果不明，禁止自动重试或重复提交", detail: detail}
+}
+
+// logAdcsTaskEvent 只记录任务阶段和布尔结果，不记录计划、凭据、证书或 Receipt 正文。
+// 这样现场只需返回目标任务的事件行，就能判断卡在拉取、执行还是结果回传。
+func logAdcsTaskEvent(config *AgentConfig, event, taskID string, fields map[string]any) {
+	if strings.TrimSpace(taskID) == "" {
+		return
+	}
+	entry := map[string]any{
+		"event":      event,
+		"taskId":     taskID,
+		"occurredAt": time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	for key, value := range fields {
+		if key == "error" {
+			entry[key] = truncate(fmt.Sprint(value), 512)
+			continue
+		}
+		entry[key] = value
+	}
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return
+	}
+	writeAdcsServiceLog(config, "AD CS Agent 任务事件："+string(data))
 }
 
 func persistAdcsReceipt(config *AgentConfig, taskID string, receipt map[string]any) error {
@@ -1866,20 +2019,25 @@ func planIdentifier(plan map[string]any) string {
 }
 
 func executeAdcsOperation(ctx context.Context, operationType string, input map[string]any) (map[string]any, error) {
+	// 所有外部 certreq/certutil/sc 命令都必须拥有独立的硬超时。
+	// 如果 CA、RPC 或网络异常，不能让任务处理循环永久阻塞并停止心跳；
+	// 写操作超时仍由 runCommand 标记为 UNKNOWN，禁止控制面安全地重复提交。
+	commandCtx, cancel := context.WithTimeout(ctx, adcsCommandTimeout)
+	defer cancel()
 	caConfig := stringValue(input, "caConfig")
 	switch operationType {
 	case "issue", "ca.certificate.issue", "ca.certificate.issue.v1", "renew", "ca.certificate.renew", "ca.certificate.renew.v1":
-		return adcsSubmit(ctx, input, caConfig)
+		return adcsSubmit(commandCtx, input, caConfig)
 	case "query", "ca.certificate.query", "ca.certificate.query.v1":
-		return adcsRetrieve(ctx, input, caConfig)
+		return adcsRetrieve(commandCtx, input, caConfig)
 	case "revoke", "ca.certificate.revoke", "ca.certificate.revoke.v1":
-		return adcsRevoke(ctx, input, caConfig)
+		return adcsRevoke(commandCtx, input, caConfig)
 	case "revocation_evidence", "ca.revocation.evidence", "ca.revocation.evidence.v1":
-		return adcsEvidence(ctx, input)
+		return adcsEvidence(commandCtx, input)
 	case "status", "ca.status", "ca.microsoft-adcs.status":
-		return adcsStatus(ctx, caConfig)
+		return adcsStatus(commandCtx, caConfig)
 	case "crl.status", "crl.publish", "ca.crl.status", "ca.crl.publish":
-		return adcsCrl(ctx, operationType, input, caConfig)
+		return adcsCrl(commandCtx, operationType, input, caConfig)
 	default:
 		return nil, fmt.Errorf("AD CS Agent 不支持操作：%s", operationType)
 	}
@@ -2678,15 +2836,52 @@ func doJSON(ctx context.Context, client *http.Client, config *AgentConfig, metho
 }
 
 func runCommand(ctx context.Context, command string, args ...string) (string, error) {
-	output, err := exec.CommandContext(ctx, command, args...).CombinedOutput()
-	decodedOutput := decodeWindowsCommandOutput(output)
+	outputFile, err := os.CreateTemp("", "gcac-adcs-command-*.log")
 	if err != nil {
-		wrapped := fmt.Errorf("%s 执行失败：%w：%s", command, err, truncate(decodedOutput, 2048))
+		return "", fmt.Errorf("创建 %s 输出文件失败：%w", command, err)
+	}
+	outputPath := outputFile.Name()
+	defer os.Remove(outputPath)
+	defer outputFile.Close()
+
+	cmd := exec.Command(command, args...)
+	// 使用真实文件承接输出，避免 Windows 子进程继承 Go 管道后，父进程
+	// 被 taskkill 终止但 cmd.Wait 仍等待管道关闭，任务永远卡在 execute_start。
+	cmd.Stdout = outputFile
+	cmd.Stderr = outputFile
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("%s 执行失败：%w", command, err)
+	}
+	waitResult := make(chan error, 1)
+	go func() { waitResult <- cmd.Wait() }()
+	var waitErr error
+	select {
+	case waitErr = <-waitResult:
+	case <-ctx.Done():
+		// Windows certreq 可能创建子进程；先终止整个进程树，再给 Wait
+		// 一个有限宽限期，绝不让单个 CA 命令阻塞 Agent 任务循环。
+		terminateCommandProcess(cmd.Process)
+		select {
+		case waitErr = <-waitResult:
+		case <-time.After(5 * time.Second):
+			return "", adcsUnknownOperationError(fmt.Errorf("%s 执行超时且进程未退出：%w", command, ctx.Err()))
+		}
+	}
+	if closeErr := outputFile.Close(); closeErr != nil && waitErr == nil {
+		return "", fmt.Errorf("读取 %s 输出失败：%w", command, closeErr)
+	}
+	output, readErr := os.ReadFile(outputPath)
+	if readErr != nil {
+		return "", fmt.Errorf("读取 %s 输出失败：%w", command, readErr)
+	}
+	decodedOutput := decodeWindowsCommandOutput(output)
+	if waitErr != nil {
+		wrapped := fmt.Errorf("%s 执行失败：%w：%s", command, waitErr, truncate(decodedOutput, 2048))
 		// 命令未启动时没有修改 CA 状态，可以安全按 FAILED 处理；进程
 		// 已启动、超时或被中断时，写操作的外部结果可能已经生效，只能标记 UNKNOWN。
 		var startErr *exec.Error
 		var pathErr *os.PathError
-		if errors.As(err, &startErr) || errors.As(err, &pathErr) {
+		if errors.As(waitErr, &startErr) || errors.As(waitErr, &pathErr) {
 			return "", wrapped
 		}
 		return "", adcsUnknownOperationError(wrapped)
@@ -2717,6 +2912,12 @@ func tempPath(pattern string) (string, error) {
 	}
 	name := file.Name()
 	if err := file.Close(); err != nil {
+		_ = os.Remove(name)
+		return "", err
+	}
+	// certreq.exe 会把已存在的目标文件视为交互式覆盖确认，服务进程
+	// 无法回答该提示。这里只保留随机生成的路径，执行前删除占位文件。
+	if err := os.Remove(name); err != nil {
 		return "", err
 	}
 	return name, nil

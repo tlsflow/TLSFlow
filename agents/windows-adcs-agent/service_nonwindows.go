@@ -4,6 +4,7 @@ package main
 
 import (
 	"errors"
+	"os"
 )
 
 // 非 Windows 构建只用于本地测试和 Windows 交叉编译检查，不能伪装成本机服务运行。
@@ -12,3 +13,9 @@ func runWindowsService(_ string, _ *AgentConfig) error {
 }
 
 func writeAdcsServiceLog(_ *AgentConfig, _ string) {}
+
+func terminateCommandProcess(process *os.Process) {
+	if process != nil {
+		_ = process.Kill()
+	}
+}

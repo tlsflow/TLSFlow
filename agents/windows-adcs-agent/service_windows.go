@@ -8,8 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -159,6 +162,20 @@ func writeAdcsServiceLog(config *AgentConfig, message string) {
 		_, _ = file.Write([]byte{0xef, 0xbb, 0xbf})
 	}
 	_, _ = fmt.Fprintf(file, "%s\n", message)
+}
+
+func terminateCommandProcess(process *os.Process) {
+	if process == nil {
+		return
+	}
+	// taskkill /T 同时结束 certreq 派生的子进程，避免输出管道仍被子进程
+	// 持有而导致 Go Wait 在 deadline 后继续阻塞。失败时再退回父进程 Kill。
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := exec.CommandContext(ctx, "taskkill.exe", "/PID", strconv.Itoa(process.Pid), "/T", "/F").Run(); err == nil {
+		return
+	}
+	_ = process.Kill()
 }
 
 func ensureAdcsLogUtf8Bom(path string) error {

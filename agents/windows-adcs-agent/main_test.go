@@ -9,10 +9,28 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf16"
 )
+
+func TestRunCommandTimeoutDoesNotBlock(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows 使用 taskkill 终止进程树，由现场构建验证")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	startedAt := time.Now()
+	_, err := runCommand(ctx, "sh", "-c", "sleep 2")
+	if err == nil {
+		t.Fatal("外部命令超时必须返回错误")
+	}
+	if elapsed := time.Since(startedAt); elapsed > 2*time.Second {
+		t.Fatalf("外部命令超时后仍阻塞过久：%s", elapsed)
+	}
+}
 
 func TestAdcsConfigIsolated(t *testing.T) {
 	config := &AgentConfig{SchemaVersion: "gcac.adcs-agent.windows.v1", AgentKey: "adcs.test", ControlPlane: "https://control.invalid", ManagementPort: 18933, Service: struct {

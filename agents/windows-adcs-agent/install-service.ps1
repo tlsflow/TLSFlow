@@ -9,7 +9,7 @@ param(
   [Parameter(Mandatory=$true)][string]$AgentKey,
   [Parameter(Mandatory=$true)][string]$EnrollmentToken,
   [string]$Zone = 'default',
-  [string]$AgentVersion = '0.1.14',
+  [string]$AgentVersion = '0.1.20',
   [switch]$StartAfterInstall
 )
 $ErrorActionPreference = 'Stop'

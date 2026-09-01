@@ -1,6 +1,6 @@
 {
   "schemaVersion": "gcac.adcs-agent.windows.v1",
-  "version": "0.1.14",
+  "version": "0.1.20",
   "tenantId": "",
   "agentKey": "",
   "enrollmentToken": "",

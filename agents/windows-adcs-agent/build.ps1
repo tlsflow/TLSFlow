@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$version = if ($env:VERSION) { $env:VERSION } else { '0.1.14' }
+$version = if ($env:VERSION) { $env:VERSION } else { '0.1.20' }
 New-Item -ItemType Directory -Force -Path (Join-Path $scriptDir 'dist') | Out-Null
 $env:GOOS = 'windows'; $env:GOARCH = 'amd64'; $env:CGO_ENABLED = '0'
 go build -trimpath -ldflags "-s -w -X main.agentVersion=$version" -o (Join-Path $scriptDir 'dist/gcac-adcs-agent.windows-amd64.exe') $scriptDir
