@@ -1699,19 +1699,19 @@ export default {
         description: 'Agent가 관리하는 자산과 배포 상태를 확인합니다.'
       },
       assets: {
-        title: '응용자산',
+        title: '애플리케이션',
         description: '도메인, 포트, 배포 대상을 관리합니다.'
       },
       audits: {
-        title: '감사 로그',
+        title: '로그',
         description: '작업자와 실행 결과를 추적하다.'
       },
       certificates: {
-        title: '인증서 관리',
+        title: '인증서',
         description: '가져오기, 보기 및 인증서 변환.'
       },
       deploymentPlans: {
-        title: '계획을 배포하다.',
+        title: '자동화',
         description: '인증서 갱신 스케줄을 만들고 실행합니다.'
       },
       gateways: {

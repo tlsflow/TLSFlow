@@ -1820,23 +1820,23 @@ export default {
     },
     quickActions: {
       agents: {
-        title: 'Agent',
+        title: '资产',
         description: '查看 Agent 状态和任务能力。'
       },
       assets: {
-        title: '应用资产',
+        title: '应用',
         description: '维护域名、端口和部署目标。'
       },
       audits: {
-        title: '审计日志',
+        title: '日志',
         description: '追踪操作人与执行结果。'
       },
       certificates: {
-        title: '证书管理',
+        title: '证书',
         description: '导入、查看和转换证书。'
       },
       deploymentPlans: {
-        title: '部署计划',
+        title: '自动化',
         description: '创建和执行证书更新计划。'
       },
       gateways: {

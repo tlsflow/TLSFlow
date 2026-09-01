@@ -1721,19 +1721,19 @@ export default {
         description: 'Afficher les actifs gérés par les Agents et leur état de déploiement.'
       },
       assets: {
-        title: 'Managed applications',
+        title: 'Applications',
         description: 'Maintain domains, ports, and deployment targets.'
       },
       audits: {
-        title: 'Audit logs',
+        title: 'Journaux',
         description: 'Trace operators and execution results.'
       },
       certificates: {
-        title: 'Certificate management',
+        title: 'Certificats',
         description: 'Import, view, and convert certificates.'
       },
       deploymentPlans: {
-        title: 'Deployment plans',
+        title: 'Automatisation',
         description: 'Create and execute certificate update plans.'
       },
       gateways: {

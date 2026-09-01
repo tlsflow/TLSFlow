@@ -1699,19 +1699,19 @@ export default {
         description: 'Veja os ativos gerenciados pelo Agent e o status de implantação.'
       },
       assets: {
-        title: 'Ativos de aplicação',
+        title: 'Aplicativos',
         description: 'Mantenha domínios, portas e alvos de implantação.'
       },
       audits: {
-        title: 'Logs de auditoria',
+        title: 'Logs',
         description: 'Rastreie operadores e resultados de execução.'
       },
       certificates: {
-        title: 'Gestão de certificados',
+        title: 'Certificados',
         description: 'Importe, veja e converta certificados.'
       },
       deploymentPlans: {
-        title: 'Planos de implantação',
+        title: 'Automações',
         description: 'Crie e execute planos de atualização de certificados.'
       },
       gateways: {

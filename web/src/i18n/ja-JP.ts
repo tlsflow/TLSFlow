@@ -1725,19 +1725,19 @@ export default {
         description: 'Agent が管理するアセットとデプロイ状態を確認します。'
       },
       assets: {
-        title: 'アプリケーションアセット',
+        title: 'アプリケーション',
         description: '維護ドメイン名、ポートとデプロイターゲット。'
       },
       audits: {
-        title: '監査ログ',
+        title: 'ログ',
         description: '追踪操作人と実行結果。'
       },
       certificates: {
-        title: '証明書管理',
+        title: '証明書',
         description: 'インポート、表示と转换証明書。'
       },
       deploymentPlans: {
-        title: 'デプロイプラン',
+        title: '自動化',
         description: '作成と実行証明書更新プラン。'
       },
       gateways: {

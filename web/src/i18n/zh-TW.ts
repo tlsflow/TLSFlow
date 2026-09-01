@@ -1724,19 +1724,19 @@ export default {
         description: "檢視 Agent 管理的資產及其部署狀態。"
       },
       assets: {
-        title: "應用資產",
+        title: "應用",
         description: "維護域名、埠和部署目標。"
       },
       audits: {
-        title: "審計記錄",
+        title: "日誌",
         description: "追蹤操作人與執行結果。"
       },
       certificates: {
-        title: "憑證管理",
+        title: "憑證",
         description: "匯入、檢視和轉換憑證。"
       },
       deploymentPlans: {
-        title: "部署計畫",
+        title: "自動化",
         description: "建立和執行憑證更新計畫。"
       },
       gateways: {

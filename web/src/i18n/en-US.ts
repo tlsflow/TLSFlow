@@ -1798,7 +1798,7 @@ export default {
     },
     quickActions: {
       agents: {
-        title: 'Agents',
+        title: 'Assets',
         description: 'View agent-managed assets and deployment status.'
       },
       assets: {
@@ -1806,7 +1806,7 @@ export default {
         description: 'Manage domains, ports, and deployment targets.'
       },
       audits: {
-        title: 'Audits',
+        title: 'Logs',
         description: 'Review operator actions and execution results.'
       },
       certificates: {
@@ -1814,7 +1814,7 @@ export default {
         description: 'Manage certificates.'
       },
       deploymentPlans: {
-        title: 'Deployments',
+        title: 'Automation',
         description: 'Create and execute certificate deployment plans.'
       },
       gateways: {
