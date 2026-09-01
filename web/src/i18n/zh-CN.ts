@@ -2191,7 +2191,7 @@ export default {
       securityUserCreated: '{actor}创建用户“{username}”。'
     },
     deploymentActions: { execute: '执行部署', dryRun: '试运行部署计划', rollback: '回滚部署计划' },
-    taskTypes: { certificateDryRun: '证书部署试运行任务', certificateDeploy: '证书部署任务', acmeRenewal: 'ACME 证书续期任务', agentInstall: 'Agent 安装任务', agentCapabilityRescan: 'Agent 能力重扫任务', pluginReferenceRefresh: '插件目录刷新任务', automationRun: '自动化执行任务', automationTriggerDelivery: '自动化触发投递任务', monitoring: '证书监控任务', backgroundTask: '后台任务' },
+    taskTypes: { certificateDryRun: '证书部署试运行任务', certificateDeploy: '证书部署任务', applicationCertificateDeploy: '应用专属证书部署任务', certificateIssue: '证书签发任务', acmeCertificateIssue: 'ACME 证书签发任务', acmeRenewal: 'ACME 证书续期任务', agentInstall: 'Agent 安装任务', agentCapabilityRescan: 'Agent 能力重扫任务', pluginReferenceRefresh: '插件目录刷新任务', automationRun: '自动化执行任务', automationTriggerDelivery: '自动化触发投递任务', monitoring: '证书监控任务', backgroundTask: '后台任务' },
     secretPurposes: { httpHeader: 'HTTP 请求头凭据', deploymentPrivateKey: '证书部署私钥', deploymentPassword: '证书部署密码', exportPrivateKey: '证书导出私钥', exportPassword: '证书导出密码', sshAuthentication: 'SSH 登录凭据', providerOperation: 'Secret 提供方操作凭据', ldapBind: 'LDAP 绑定凭据', httpFormPassword: 'HTTP 表单密码', debugCheck: 'Secret 检查凭据', credential: '凭据' },
     permissionActions: { taskRead: '读取任务', auditRead: '读取审计日志', serviceAssetRead: '读取应用资产', certificateRead: '读取证书', certificateAssetRead: '读取证书资产', bindingRead: '读取证书绑定', pluginVersionRead: '读取插件版本', caOperationsRead: '读取 CA 运维数据', approvalDecide: '执行审批决策', providerRead: '读取提供方目录', executionRead: '读取执行记录', cloudAssetRead: '读取云账号资产', managedTargetRead: '读取托管目标', hostRead: '读取主机', resourceAccess: '访问资源' },
     permissionReasons: { noAllowPolicy: '没有匹配的允许策略', noObjectGrant: '没有匹配的对象授权', explicitDeny: '显式拒绝', explicitBusinessDeny: '业务规则显式拒绝', tenantScopeDenied: '租户范围不允许', resourceScopeDenied: '对象范围不允许', missing: '缺少访问权限' },
@@ -3322,7 +3322,7 @@ export default {
         missingApplicationAssetId: '缺少应用资产 ID，无法创建证书部署。',
         missingCertificateVersion: '当前证书供应策略没有可部署的证书版本。',
         loadOptionsFailed: '加载可部署证书版本失败。',
-        createPlanMissingId: '创建部署快照后未返回计划 ID。',
+        createPlanMissingId: '创建部署快照后未返回计划 ID。', createTaskMissingId: '创建专属证书部署任务后未返回任务 ID。',
         deployFailed: '证书部署操作失败。',
         preflightFailed: '证书部署预检未通过。',
         preflightTimeout: '证书部署预检等待超时。',

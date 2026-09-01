@@ -84,6 +84,13 @@ export function previewApplicationCertificateSupplyPolicy(applicationAssetId: st
   return apiClient.post<ApiRecord>(toClientPath(`${APPLICATION_CERTIFICATE_SUPPLY_POLICY_PATH}/${encodeURIComponent(applicationAssetId)}/certificate-supply-policy/preview`), payload)
 }
 
+/** 创建专属证书部署父任务；签发与标准部署由后端统一编排。 */
+export function enqueueApplicationCertificateDeployment(applicationAssetId: string, reapply = false): Promise<ApiRecordResult> {
+  return apiClient.post<ApiRecord>(toClientPath(`${APPLICATION_CERTIFICATE_SUPPLY_POLICY_PATH}/${encodeURIComponent(applicationAssetId)}/certificate-supply-policy/deploy`), { reapply }, {
+    idempotencyKey: createIdempotencyKey('application_certificate_deployment'),
+  })
+}
+
 export function repairApplicationAssetLinkage(applicationAssetId: string): Promise<ApiRecordResult> {
   return apiClient.post<ApiRecord>(toClientPath(`${APPLICATIONS_PATH}/${encodeURIComponent(applicationAssetId)}/linkage-repair`), {}, {
     idempotencyKey: createIdempotencyKey('application_asset_linkage_repair'),

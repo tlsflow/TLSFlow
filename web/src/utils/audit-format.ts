@@ -405,6 +405,9 @@ function translateTaskType(t: Translate, value: unknown): string {
   return translateCode(t, value, {
     CERTIFICATE_DRY_RUN: 'auditFormat.taskTypes.certificateDryRun',
     CERTIFICATE_DEPLOY: 'auditFormat.taskTypes.certificateDeploy',
+    APPLICATION_CERTIFICATE_DEPLOY: 'auditFormat.taskTypes.applicationCertificateDeploy',
+    CERTIFICATE_ISSUE: 'auditFormat.taskTypes.certificateIssue',
+    ACME_CERTIFICATE_ISSUE: 'auditFormat.taskTypes.acmeCertificateIssue',
     ACME_CERTIFICATE_RENEWAL: 'auditFormat.taskTypes.acmeRenewal',
     AGENT_INSTALL: 'auditFormat.taskTypes.agentInstall',
     AGENT_CAPABILITY_RESCAN: 'auditFormat.taskTypes.agentCapabilityRescan',

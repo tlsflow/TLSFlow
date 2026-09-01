@@ -3,7 +3,7 @@ import { computed, nextTick, reactive, ref, watch, type Directive } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
-import { createServiceAsset, deleteServiceAsset, getApplicationEditDetail, getApplicationDetail, getApplicationAssetLinkageStatus, getApplicationCertificateSupplyPolicy, getManagedTargetEffectiveCapability, listApplications, listManagedTargets, listManagedTargetCompatiblePlugins, listManagedTargetSnapshots, listFrameworkInstances, listSiteAssets, previewApplicationCertificateSupplyPolicy, repairApplicationAssetLinkage, saveApplicationAssetManagedTarget, saveApplicationAssetStandaloneWorkflow, saveApplicationCertificateSupplyPolicy, updateServiceAsset } from '@/api/modules/assets.api'
+import { createServiceAsset, deleteServiceAsset, enqueueApplicationCertificateDeployment, getApplicationEditDetail, getApplicationDetail, getApplicationAssetLinkageStatus, getApplicationCertificateSupplyPolicy, getManagedTargetEffectiveCapability, listApplications, listManagedTargets, listManagedTargetCompatiblePlugins, listManagedTargetSnapshots, listFrameworkInstances, listSiteAssets, previewApplicationCertificateSupplyPolicy, repairApplicationAssetLinkage, saveApplicationAssetManagedTarget, saveApplicationAssetStandaloneWorkflow, saveApplicationCertificateSupplyPolicy, updateServiceAsset } from '@/api/modules/assets.api'
 import { rollbackExecution } from '@/api/modules/executions.api'
 import { listGateways } from '@/api/modules/gateways.api'
 import { getWorkflowExecutionBinding, listWorkflowTemplates, listWorkflowTemplateVersions } from '@/api/modules/workflow-templates.api'
@@ -76,6 +76,7 @@ interface CertificateSupplyDraft {
   providerType: ApplicationCertificateProviderType
   providerId: string
   certificateAuthorityId: string
+  certificateProfileVersionId: string
   acmeProviderProfileId: string
   dnsProviderId: string
   credentialRef: string
@@ -469,6 +470,7 @@ const certificateSupplyDraft = reactive<CertificateSupplyDraft>({
   providerType: 'internal_ca',
   providerId: '',
   certificateAuthorityId: '',
+  certificateProfileVersionId: '',
   acmeProviderProfileId: '',
   dnsProviderId: '',
   credentialRef: '',
@@ -508,6 +510,22 @@ const certificateSupplyAuthorities = computed(() => {
     String(authority.status ?? '').toLowerCase() === 'active'
     && internalProviderIds.has(String(authority.providerId ?? ''))
   ))
+})
+const certificateSupplyProfileOptions = computed(() => {
+  const authorityId = certificateSupplyDraft.certificateAuthorityId
+  const providerId = certificateSupplyDraft.providerId
+  const profiles = certificateSupplyProviders.value.profiles ?? []
+  return profiles.flatMap((profile) => {
+    if (String(profile.status ?? 'active') !== 'active') return []
+    if (authorityId && String(profile.certificateAuthorityId ?? '') !== authorityId) return []
+    if (providerId && String(profile.providerId ?? '') !== providerId) return []
+    const versions = Array.isArray(profile.versions) ? profile.versions : []
+    return versions.map((version) => ({
+      id: String(version.id ?? ''),
+      label: `${String(profile.name ?? profile.id)} v${String(version.versionNo ?? '')}`,
+      isCurrent: Number(version.versionNo) === Number(profile.currentVersion),
+    })).filter((item) => item.id)
+  }).sort((left, right) => Number(right.isCurrent) - Number(left.isCurrent) || left.label.localeCompare(right.label))
 })
 const certificateSupplyCredentialOptions = computed(() => {
   const providerId = certificateSupplyDraft.dnsProviderId
@@ -1250,7 +1268,7 @@ async function runCertificateDeployment(
   selection: CertificateDeploymentSelection,
   settings: { dryRunEnabled: boolean },
   showPreflight: boolean,
-): Promise<'STARTED' | 'PENDING'> {
+): Promise<'STARTED' | 'PENDING' | 'DEDICATED'> {
   if (!applicationAssetId) {
     throw new Error(t('assets.deployment.errors.missingApplicationAssetId'))
   }
@@ -1261,34 +1279,20 @@ async function runCertificateDeployment(
     : ((await getApplicationCertificateSupplyPolicy(applicationAssetId)).data ?? {}) as CertificateSupplyData
   const supplyVersion = supplyData?.currentVersion ?? null
   const supplyMode = String(supplyVersion?.supplyMode ?? '').toLowerCase()
-  if (supplyMode === 'dedicated' && selection.reapply) {
-    const current = supplyVersion
-    const payload: Record<string, unknown> = {
-      supplyMode: 'dedicated',
-      status: 'provisioning',
-      autoRenew: current?.autoRenew !== false,
-      renewalWindowDays: Number(current?.renewalWindowDays ?? 30),
-      rotateKeyOnRenewal: current?.rotateKeyOnRenewal !== false,
-    }
-    for (const field of ['providerType', 'providerId', 'certificateAuthorityId', 'acmeProviderProfileId', 'dnsProviderId', 'credentialRef']) {
-      const value = current?.[field]
-      if (value !== undefined && value !== null && String(value).trim()) payload[field] = String(value)
-    }
-    const refreshed = await saveApplicationCertificateSupplyPolicy(applicationAssetId, payload)
-    const refreshedData = (refreshed.data ?? {}) as CertificateSupplyData
-    if (applicationAssetId === selectedApplicationAssetId.value) deploymentCertificateSupplyData.value = refreshedData
-    const refreshedVersion = refreshedData.currentVersion ?? {}
-    certificateAssetId = firstAssetText(refreshedVersion, ['certificateAssetId', 'certificateId'])
-    certificateVersionId = firstAssetText(refreshedVersion, ['certificateVersionId'])
-    if (!certificateVersionId) {
-      deploymentInfo.value = t('assets.deployment.dedicated.issuancePending')
-      return 'PENDING'
-    }
+  if (supplyMode === 'dedicated') {
+    const queued = await enqueueApplicationCertificateDeployment(applicationAssetId, selection.reapply === true)
+    if (!queued.data?.id) throw new Error(t('assets.deployment.errors.createTaskMissingId'))
+    return 'DEDICATED'
   }
   if (!certificateVersionId) {
     throw new Error(t('assets.deployment.errors.missingCertificateVersion'))
   }
-  const created = await createDeploymentPlanFromApplicationAsset({
+  const existingPlans = await listDeploymentPlansByApplicationAsset(applicationAssetId)
+  const existingPlan = (existingPlans.data?.items ?? []).find((item: ApiRecord) =>
+    firstAssetText(item, ['certificateVersionId']) === certificateVersionId
+    && !['CANCELLED', 'DELETED'].includes(String(item.status ?? '').toUpperCase()),
+  )
+  const created = existingPlan ? { data: existingPlan } : await createDeploymentPlanFromApplicationAsset({
     applicationAssetId,
     certificateAssetId,
     selectionMode: selection.selectionMode,
@@ -1325,11 +1329,16 @@ async function deployCertificateVersion(selection: CertificateDeploymentSelectio
       : [selectedApplicationAssetId.value]
     const failures: Array<{ id: string; message: string }> = []
     let startedCount = 0
+    let dedicatedQueued = false
 
     for (const applicationAssetId of targetAssetIds) {
       try {
         const result = await runCertificateDeployment(applicationAssetId, selection, settings, !isBulk)
         if (result === 'STARTED') startedCount += 1
+        if (result === 'DEDICATED') {
+          startedCount += 1
+          dedicatedQueued = true
+        }
       } catch (cause) {
         if (deploymentErrorIssues.value.length === 0) {
           deploymentErrorIssues.value = extractDeploymentInputIssues(cause)
@@ -1347,9 +1356,9 @@ async function deployCertificateVersion(selection: CertificateDeploymentSelectio
         deploymentError.value = failures[0]?.message ?? t('assets.deployment.errors.deployFailed')
         return
       }
-      await loadDeploymentRecords(selectedApplicationAssetId.value)
       deploymentDialogOpen.value = false
       notifyDeploymentStarted()
+      if (!dedicatedQueued) await loadDeploymentRecords(selectedApplicationAssetId.value)
       return
     }
 
@@ -1453,6 +1462,7 @@ function resetCertificateSupplyDraft(): void {
   certificateSupplyDraft.providerType = 'internal_ca'
   certificateSupplyDraft.providerId = ''
   certificateSupplyDraft.certificateAuthorityId = ''
+  certificateSupplyDraft.certificateProfileVersionId = ''
   certificateSupplyDraft.acmeProviderProfileId = ''
   certificateSupplyDraft.dnsProviderId = ''
   certificateSupplyDraft.credentialRef = ''
@@ -1476,6 +1486,7 @@ function applyCertificateSupplyData(data: CertificateSupplyData): void {
   certificateSupplyDraft.providerType = String(version.providerType ?? 'internal_ca') === 'acme' ? 'acme' : 'internal_ca'
   certificateSupplyDraft.providerId = String(version.providerId ?? '')
   certificateSupplyDraft.certificateAuthorityId = String(version.certificateAuthorityId ?? '')
+  certificateSupplyDraft.certificateProfileVersionId = String(version.certificateProfileVersionId ?? '')
   certificateSupplyDraft.acmeProviderProfileId = String(version.acmeProviderProfileId ?? '')
   certificateSupplyDraft.dnsProviderId = String(version.dnsProviderId ?? '')
   certificateSupplyDraft.credentialRef = String(version.credentialRef ?? '')
@@ -1499,10 +1510,20 @@ function certificateSupplyPayload(): Record<string, unknown> {
   payload.providerType = certificateSupplyDraft.providerType
   if (certificateSupplyDraft.providerId) payload.providerId = certificateSupplyDraft.providerId
   if (certificateSupplyDraft.certificateAuthorityId) payload.certificateAuthorityId = certificateSupplyDraft.certificateAuthorityId
+  if (certificateSupplyDraft.providerType === 'internal_ca' && certificateSupplyDraft.certificateProfileVersionId) payload.certificateProfileVersionId = certificateSupplyDraft.certificateProfileVersionId
   if (certificateSupplyDraft.acmeProviderProfileId) payload.acmeProviderProfileId = certificateSupplyDraft.acmeProviderProfileId
   if (certificateSupplyDraft.dnsProviderId) payload.dnsProviderId = certificateSupplyDraft.dnsProviderId
   if (certificateSupplyDraft.credentialRef.trim()) payload.credentialRef = certificateSupplyDraft.credentialRef.trim()
   return payload
+}
+
+function selectInternalCaAuthority(authorityId: string): void {
+  const authority = certificateSupplyAuthorities.value.find((item) => String(item.id ?? '') === authorityId)
+  if (authority?.providerId) certificateSupplyDraft.providerId = String(authority.providerId)
+  const current = certificateSupplyProfileOptions.value.find((item) => item.isCurrent)
+  if (!certificateSupplyDraft.certificateProfileVersionId || !certificateSupplyProfileOptions.value.some((item) => item.id === certificateSupplyDraft.certificateProfileVersionId)) {
+    certificateSupplyDraft.certificateProfileVersionId = current?.id ?? certificateSupplyProfileOptions.value[0]?.id ?? ''
+  }
 }
 
 function selectCertificateSupplyCandidate(certificateAssetId: string): void {
@@ -4650,9 +4671,16 @@ function managedTargetLabel(target: ApiRecord): string {
             </label>
             <label v-if="certificateSupplyDraft.providerType === 'internal_ca'" class="asset-form__field">
               <span>{{ t('assets.certificateSupply.ca') }}</span>
-              <select v-model="certificateSupplyDraft.certificateAuthorityId">
+              <select v-model="certificateSupplyDraft.certificateAuthorityId" @change="selectInternalCaAuthority(certificateSupplyDraft.certificateAuthorityId)">
                 <option value="">{{ t('assets.certificateSupply.selectCa') }}</option>
                 <option v-for="authority in certificateSupplyAuthorities" :key="String(authority.id)" :value="String(authority.id)">{{ String(authority.name ?? authority.id) }}</option>
+              </select>
+            </label>
+            <label v-if="certificateSupplyDraft.providerType === 'internal_ca'" class="asset-form__field">
+              <span>{{ t('assets.certificateSupply.profile') }}</span>
+              <select v-model="certificateSupplyDraft.certificateProfileVersionId">
+                <option value="">{{ t('assets.certificateSupply.selectProfile') }}</option>
+                <option v-for="profile in certificateSupplyProfileOptions" :key="profile.id" :value="profile.id">{{ profile.label }}</option>
               </select>
             </label>
             <div v-if="certificateSupplyDraft.providerType === 'acme'" class="asset-form__field">
@@ -4867,7 +4895,8 @@ function managedTargetLabel(target: ApiRecord): string {
             </div>
             <div v-else class="asset-form__grid">
               <label class="asset-form__field"><span>{{ t('assets.certificateSupply.provider') }}</span><select v-model="certificateSupplyDraft.providerType"><option value="internal_ca">{{ t('assets.certificateSupply.internalCa') }}</option><option value="acme">{{ t('assets.certificateSupply.acme') }}</option></select></label>
-              <label v-if="certificateSupplyDraft.providerType === 'internal_ca'" class="asset-form__field"><span>{{ t('assets.certificateSupply.ca') }}</span><select v-model="certificateSupplyDraft.certificateAuthorityId"><option value="">{{ t('assets.certificateSupply.selectCa') }}</option><option v-for="authority in certificateSupplyAuthorities" :key="String(authority.id)" :value="String(authority.id)">{{ String(authority.name ?? authority.id) }}</option></select></label>
+              <label v-if="certificateSupplyDraft.providerType === 'internal_ca'" class="asset-form__field"><span>{{ t('assets.certificateSupply.ca') }}</span><select v-model="certificateSupplyDraft.certificateAuthorityId" @change="selectInternalCaAuthority(certificateSupplyDraft.certificateAuthorityId)"><option value="">{{ t('assets.certificateSupply.selectCa') }}</option><option v-for="authority in certificateSupplyAuthorities" :key="String(authority.id)" :value="String(authority.id)">{{ String(authority.name ?? authority.id) }}</option></select></label>
+              <label v-if="certificateSupplyDraft.providerType === 'internal_ca'" class="asset-form__field"><span>{{ t('assets.certificateSupply.profile') }}</span><select v-model="certificateSupplyDraft.certificateProfileVersionId"><option value="">{{ t('assets.certificateSupply.selectProfile') }}</option><option v-for="profile in certificateSupplyProfileOptions" :key="profile.id" :value="profile.id">{{ profile.label }}</option></select></label>
               <label v-if="certificateSupplyDraft.providerType === 'acme'" class="asset-form__field"><span>{{ t('assets.certificateSupply.acmeProvider') }}</span><select v-model="certificateSupplyDraft.providerId"><option value="">{{ t('assets.certificateSupply.selectProvider') }}</option><option v-for="provider in certificateSupplyProviders.acme ?? []" :key="String(provider.id)" :value="String(provider.id)">{{ String(provider.name ?? provider.id) }}</option></select></label>
               <label v-if="certificateSupplyDraft.providerType === 'acme'" class="asset-form__field"><span>{{ t('assets.certificateSupply.dnsProvider') }}</span><select v-model="certificateSupplyDraft.dnsProviderId"><option value="">{{ t('assets.certificateSupply.selectDnsProvider') }}</option><option v-for="provider in certificateSupplyProviders.dns ?? []" :key="String(provider.id)" :value="String(provider.id)">{{ String(provider.name ?? provider.id) }}</option></select></label>
               <GcCredentialSelect

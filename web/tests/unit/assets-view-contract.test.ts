@@ -91,6 +91,10 @@ describe('应用资产卡片契约', () => {
     expect(source).toContain("'deploymentPlans.feedback.executeTaskStarted'")
   })
 
+  it('专属证书重新申请保留内部 CA 的证书模板版本', () => {
+    expect(source).toContain("'certificateAuthorityId', 'certificateProfileVersionId', 'acmeProviderProfileId'")
+  })
+
   it('编辑入口先打开模态框，再异步加载轻量详情', () => {
     expect(source).toContain('createDialogOpen.value = true\n  editInitializationLoading.value = true')
     expect(source).toContain("getApplicationEditDetail(editingServiceAssetId.value)")
