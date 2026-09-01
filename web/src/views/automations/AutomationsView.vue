@@ -631,10 +631,6 @@ function versionSelectionSummary(item: AutomationRecord): string {
     : t('automations.common.notAvailable')
 }
 
-function booleanSummary(value: boolean): string {
-  return value ? t('automations.values.enabled') : t('automations.values.disabled')
-}
-
 function detailDateValue(field: 'createdAt' | 'updatedAt'): string {
   if (!detailRow.value) return t('automations.common.notAvailable')
   return formatMaybeLocalTime(readString(detailRow.value.raw, [field], ''), t('automations.common.notAvailable'))
@@ -798,8 +794,6 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
                 <dd>{{ detailRecord.configuration.guardrails.failureCountThreshold ?? t('automations.common.notAvailable') }}</dd>
               </div>
               <div>
-                <dt>{{ t('automations.fields.requireApproval') }}</dt>
-                <dd>{{ booleanSummary(detailRecord.configuration.guardrails.requireApproval) }}</dd>
               </div>
               <div v-if="detailRecord.configuration.trigger.type === 'schedule'">
                 <dt>{{ t('automations.scheduleBuilder.legacyCron') }}</dt>

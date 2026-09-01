@@ -188,7 +188,6 @@ interface AssetListRow extends Record<string, unknown> {
 interface AssetDraft {
   managementMode: AssetManagementMode
   managedExecutionMode: ManagedExecutionMode
-  approvalRequired: boolean
   deviceId: string
   frameworkInstanceId: string
   address: string
@@ -405,7 +404,6 @@ const assetPlatformOptions: ReadonlyArray<{ value: AssetPlatform; labelKey: stri
 const assetDraft = reactive<AssetDraft>({
   managementMode: 'MANAGED_TARGET',
   managedExecutionMode: 'PLUGIN',
-  approvalRequired: false,
   deviceId: '',
   frameworkInstanceId: '',
   address: '',
@@ -1019,7 +1017,7 @@ async function runCertificateDeployment(
   selection: CertificateDeploymentSelection,
   settings: { dryRunEnabled: boolean },
   showPreflight: boolean,
-): Promise<'PENDING_APPROVAL' | 'STARTED'> {
+): Promise<'STARTED'> {
   if (!applicationAssetId || !selection.certificateVersionId) {
     throw new Error(t('assets.deployment.errors.missingApplicationAssetId'))
   }
@@ -1041,10 +1039,7 @@ async function runCertificateDeployment(
     deploymentDryRunChecks.value = []
   }
 
-  const submitted = await submitDeploymentPlan(planId)
-  const submittedPlan = submitted.data ?? {}
-  const status = String(submittedPlan.status ?? '')
-  if (status === 'PENDING_APPROVAL') return 'PENDING_APPROVAL'
+  await submitDeploymentPlan(planId)
   await executeDeploymentPlan(planId)
   return 'STARTED'
 }
@@ -1055,20 +1050,18 @@ async function deployCertificateVersion(selection: CertificateDeploymentSelectio
   deploymentErrorIssues.value = []
   try {
     const settingsResult = await getDeploymentTaskSettings()
-    const settings = settingsResult.data?.deploymentTasks ?? { dryRunEnabled: false, approvalEnabled: true }
+    const settings = settingsResult.data?.deploymentTasks ?? { dryRunEnabled: false }
     const isBulk = bulkCertificateUpdateMode.value
     const targetAssetIds = isBulk
       ? [...bulkCertificateUpdateAssetIds.value]
       : [selectedApplicationAssetId.value]
     const failures: Array<{ id: string; message: string }> = []
-    let pendingApprovalCount = 0
     let startedCount = 0
 
     for (const applicationAssetId of targetAssetIds) {
       try {
-        const status = await runCertificateDeployment(applicationAssetId, selection, settings, !isBulk)
-        if (status === 'PENDING_APPROVAL') pendingApprovalCount += 1
-        else startedCount += 1
+        await runCertificateDeployment(applicationAssetId, selection, settings, !isBulk)
+        startedCount += 1
       } catch (cause) {
         if (deploymentErrorIssues.value.length === 0) {
           deploymentErrorIssues.value = extractDeploymentInputIssues(cause)
@@ -1087,11 +1080,11 @@ async function deployCertificateVersion(selection: CertificateDeploymentSelectio
       }
       await loadDeploymentRecords(selectedApplicationAssetId.value)
       deploymentDialogOpen.value = false
-      notifyDeploymentStarted(pendingApprovalCount > 0 ? 'warning' : 'success')
+      notifyDeploymentStarted('success')
       return
     }
 
-    const succeededCount = pendingApprovalCount + startedCount
+    const succeededCount = startedCount
     if (succeededCount === 0) {
       deploymentError.value = t('assets.selection.bulkUpdateFailed', { count: failures.length })
       return
@@ -1103,7 +1096,7 @@ async function deployCertificateVersion(selection: CertificateDeploymentSelectio
     const successMessage = failures.length > 0
       ? t('assets.selection.bulkUpdatePartialSuccess', { succeeded: succeededCount, failed: failures.length })
       : t('assets.selection.bulkUpdateSuccess', { count: succeededCount })
-    notifySelectionMessage(successMessage, failures.length > 0 ? 'warning' : (pendingApprovalCount > 0 ? 'warning' : 'success'))
+    notifySelectionMessage(successMessage, failures.length > 0 ? 'warning' : 'success')
   } catch (cause) {
     deploymentErrorIssues.value = extractDeploymentInputIssues(cause)
     deploymentError.value = cause instanceof Error ? cause.message : t('assets.deployment.errors.deployFailed')
@@ -1175,10 +1168,6 @@ function deploymentRecordRunStatus(record: ApiRecord): string {
 function deploymentRecordRunType(record: ApiRecord): string {
   const run = readNested(record, ['latestRun'])
   return String(readNested(run, ['type']) ?? '')
-}
-
-function deploymentRecordApprovalStatus(record: ApiRecord): string {
-  return String(record.approvalStatus ?? readNested(record, ['approval', 'status']) ?? 'NOT_REQUIRED')
 }
 
 function deploymentRecordPreflightCheckCount(record: ApiRecord): number {
@@ -1399,7 +1388,6 @@ async function openEditDialog(row: ViewRow) {
   const managedTargetStrategy = readRecord(readNested(deploymentStrategy, ['managedTarget']))
   assetDraft.managementMode = resolveDeploymentStrategyMode(deploymentStrategy)
   assetDraft.managedExecutionMode = String(managedTargetStrategy?.executionMode ?? 'PLUGIN') as ManagedExecutionMode
-  assetDraft.approvalRequired = readNested(deploymentStrategy, ['approvalRequired']) === true
   const workflowExecutionBindingId = String(
     readNested(deploymentStrategy, ['workflow', 'workflowExecutionBindingId'])
       ?? readNested(managedTargetStrategy, ['workflowExecutionBindingId'])
@@ -2145,7 +2133,6 @@ function resetDraft() {
   assetWizardStep.value = 1
   assetDraft.managementMode = 'MANAGED_TARGET'
   assetDraft.managedExecutionMode = 'PLUGIN'
-  assetDraft.approvalRequired = false
   assetDraft.deviceId = ''
   assetDraft.frameworkInstanceId = ''
   assetDraft.address = ''
@@ -2662,7 +2649,8 @@ function buildDeploymentStrategyPayload(workflowTarget?: WorkflowTargetInfo): Re
     const workflowVersionId = String(selectedWorkflowVersion.value?.id ?? assetDraft.workflowVersionId).trim()
     return {
       type: 'WORKFLOW',
-      approvalRequired: assetDraft.approvalRequired,
+      // 外部企业授权已取代部署计划内部审批；字段仅为兼容旧后端结构，始终关闭。
+      approvalRequired: false,
       workflow: {
         pluginBindingId: pluginBindingId.value || undefined,
         pluginVersionId: identity.pluginVersionId || undefined,
@@ -2680,7 +2668,8 @@ function buildDeploymentStrategyPayload(workflowTarget?: WorkflowTargetInfo): Re
 
   return {
     ...buildManagedTargetDeploymentStrategy(assetDraft.managedTargetId, assetDraft.agentCertificateFormatId),
-    approvalRequired: assetDraft.approvalRequired,
+    // 外部企业授权已取代部署计划内部审批；字段仅为兼容旧后端结构，始终关闭。
+    approvalRequired: false,
   }
 }
 
@@ -4040,10 +4029,6 @@ function managedTargetLabel(target: ApiRecord): string {
                     <GcStatusTag :status="String(record.status ?? 'UNKNOWN')" />
                   </div>
                   <div>
-                    <span>{{ t('assets.deployment.fields.approval') }}</span>
-                    <GcStatusTag :status="deploymentRecordApprovalStatus(record)" />
-                  </div>
-                  <div>
                     <span>{{ t('assets.deployment.fields.latestRun') }}</span>
                     <strong>{{ deploymentRecordRunType(record) || t('common.notAvailable') }} / {{ deploymentRecordRunStatus(record) }}</strong>
                   </div>
@@ -4199,18 +4184,6 @@ function managedTargetLabel(target: ApiRecord): string {
             </select>
           </label>
         </div>
-        <label class="asset-form__approval-option">
-          <input
-            v-model="assetDraft.approvalRequired"
-            type="checkbox"
-            :aria-label="t('assets.fields.approvalRequired')"
-          />
-          <span>
-            <strong>{{ t('assets.fields.approvalRequired') }}</strong>
-            <small>{{ t('assets.form.approvalRequiredHint') }}</small>
-          </span>
-        </label>
-
         <section class="asset-certificate-supply" :aria-label="t('assets.certificateSupply.title')">
           <header class="asset-certificate-supply__header">
             <div>
@@ -4472,17 +4445,6 @@ function managedTargetLabel(target: ApiRecord): string {
               <input v-model="assetDraft.tagsText" placeholder="core, public, ssl" autocomplete="off" />
             </label>
           </div>
-          <label class="asset-form__approval-option">
-            <input
-              v-model="assetDraft.approvalRequired"
-              type="checkbox"
-              :aria-label="t('assets.fields.approvalRequired')"
-            />
-            <span>
-              <strong>{{ t('assets.fields.approvalRequired') }}</strong>
-              <small>{{ t('assets.form.approvalRequiredHint') }}</small>
-            </span>
-          </label>
           <section class="asset-certificate-supply" :aria-label="t('assets.certificateSupply.title')">
             <header class="asset-certificate-supply__header">
               <div><h4>{{ t('assets.certificateSupply.title') }}</h4><p>{{ t('assets.certificateSupply.description') }}</p></div>
@@ -5869,29 +5831,6 @@ function managedTargetLabel(target: ApiRecord): string {
   font-family: var(--gc-font-family-mono);
   line-height: 1.45;
 }
-.asset-form__approval-option {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--gc-space-3);
-  grid-column: 1 / -1;
-  padding: var(--gc-space-3);
-  border: var(--gc-border-width-default) solid var(--gc-color-border);
-  border-radius: var(--gc-radius-card);
-  background: var(--gc-color-surface-muted);
-  color: var(--gc-color-text);
-  cursor: pointer;
-}
-.asset-form__approval-option input {
-  width: auto;
-  flex: 0 0 auto;
-  margin-top: var(--gc-space-1);
-  padding: 0;
-  accent-color: var(--gc-color-primary);
-}
-.asset-form__approval-option span {
-  display: grid;
-  gap: var(--gc-space-1);
-}
 .asset-certificate-supply {
   display: grid;
   gap: var(--gc-space-3);
@@ -5930,16 +5869,6 @@ function managedTargetLabel(target: ApiRecord): string {
 .asset-certificate-supply__facts > div { display: grid; gap: var(--gc-space-1); min-width: 0; }
 .asset-certificate-supply__facts span { color: var(--gc-color-text-muted); font-size: var(--gc-font-size-xs); }
 .asset-certificate-supply__facts strong { overflow-wrap: anywhere; color: var(--gc-color-text); font-size: var(--gc-font-size-sm); }
-.asset-form__approval-option strong {
-  color: var(--gc-color-text);
-  font-size: var(--gc-font-size-sm);
-}
-.asset-form__approval-option small {
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-  font-weight: 650;
-  line-height: 1.45;
-}
 .asset-form__readonly {
   display: flex;
   align-items: center;
