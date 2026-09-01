@@ -13,7 +13,6 @@ const errorMessage = ref('')
 const successMessage = ref('')
 const settings = reactive({
   dryRunEnabled: false,
-  approvalEnabled: true,
 })
 
 async function loadSettings(): Promise<void> {
@@ -23,7 +22,6 @@ async function loadSettings(): Promise<void> {
     const result = await getDeploymentTaskSettings()
     if (result.data?.deploymentTasks) {
       settings.dryRunEnabled = result.data.deploymentTasks.dryRunEnabled
-      settings.approvalEnabled = result.data.deploymentTasks.approvalEnabled
     }
   } catch (cause) {
     errorMessage.value = cause instanceof Error ? cause.message : t('settings.deploymentTasks.errors.loadFailed')
@@ -41,7 +39,6 @@ async function saveSettings(): Promise<void> {
     const result = await updateDeploymentTaskSettings({ ...settings })
     if (result.data?.deploymentTasks) {
       settings.dryRunEnabled = result.data.deploymentTasks.dryRunEnabled
-      settings.approvalEnabled = result.data.deploymentTasks.approvalEnabled
     }
     successMessage.value = t('settings.deploymentTasks.messages.saved')
   } catch (cause) {
@@ -79,19 +76,6 @@ onMounted(() => { void loadSettings() })
           type="checkbox"
           role="switch"
           :aria-label="t('settings.deploymentTasks.fields.dryRun.aria')"
-          :disabled="!canWrite || loading || saving"
-        />
-      </label>
-      <label class="deployment-task-settings__option">
-        <span class="deployment-task-settings__copy">
-          <strong>{{ t('settings.deploymentTasks.fields.approval.title') }}</strong>
-          <small>{{ t('settings.deploymentTasks.fields.approval.description') }}</small>
-        </span>
-        <input
-          v-model="settings.approvalEnabled"
-          type="checkbox"
-          role="switch"
-          :aria-label="t('settings.deploymentTasks.fields.approval.aria')"
           :disabled="!canWrite || loading || saving"
         />
       </label>

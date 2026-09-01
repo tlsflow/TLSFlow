@@ -1080,7 +1080,7 @@ async function deployCertificateVersion(selection: CertificateDeploymentSelectio
       }
       await loadDeploymentRecords(selectedApplicationAssetId.value)
       deploymentDialogOpen.value = false
-      notifyDeploymentStarted('success')
+      notifyDeploymentStarted()
       return
     }
 
@@ -1122,13 +1122,11 @@ function deploymentInputIssuePath(issue: DeploymentInputIssueDetail): string {
   return issue.path?.trim() || issue.slot?.trim() || t('deploymentPlans.common.notProvided')
 }
 
-function notifyDeploymentStarted(tone: 'success' | 'warning'): void {
+function notifyDeploymentStarted(): void {
   window.dispatchEvent(new CustomEvent('gcac:toast', {
     detail: {
-      message: t(tone === 'warning'
-        ? 'deploymentPlans.feedback.executeTaskPendingApproval'
-        : 'deploymentPlans.feedback.executeTaskStarted'),
-      tone,
+      message: t('deploymentPlans.feedback.executeTaskStarted'),
+      tone: 'success',
     },
   }))
 }

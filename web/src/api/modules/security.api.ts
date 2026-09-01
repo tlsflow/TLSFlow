@@ -126,7 +126,7 @@ export function getDeploymentTaskSettings(): Promise<ApiResult<DeploymentTaskSet
   return apiClient.get('/v1/settings/deployment-tasks')
 }
 
-export function updateDeploymentTaskSettings(body: DeploymentTaskSettings): Promise<ApiResult<DeploymentTaskSettingsResponse>> {
+export function updateDeploymentTaskSettings(body: Pick<DeploymentTaskSettings, 'dryRunEnabled'>): Promise<ApiResult<DeploymentTaskSettingsResponse>> {
   return apiClient.request('/v1/settings/deployment-tasks', { method: 'PATCH', body })
 }
 

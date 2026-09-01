@@ -56,7 +56,7 @@ export function createDeploymentPlanUiActions(t: I18nTranslate = defaultT): read
     permission: 'deployment.plan.write',
     danger: false,
     riskText: t('deploymentPlans.actions.dryRunRisk'),
-    visibleWhen: ['DRAFT', 'DRY_RUN_FAILED', 'PENDING_APPROVAL', 'READY', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLED_BACK', 'ROLLBACK_FAILED'],
+    visibleWhen: ['DRAFT', 'DRY_RUN_FAILED', 'READY', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLED_BACK', 'ROLLBACK_FAILED'],
     run: (row) => dryRunDeploymentPlan({ planId: requirePlanId(row) }),
   },
   {
@@ -75,7 +75,7 @@ export function createDeploymentPlanUiActions(t: I18nTranslate = defaultT): read
     danger: true,
     confirmText: 'EXECUTE',
     riskText: t('deploymentPlans.actions.executeRisk'),
-    visibleWhen: ['PENDING_APPROVAL', 'APPROVED', 'READY', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLED_BACK', 'ROLLBACK_FAILED'],
+    visibleWhen: ['READY', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLED_BACK', 'ROLLBACK_FAILED'],
     run: (row) => executeDeploymentPlan(requirePlanId(row), isFinishedPlan(row) ? { reason: 'deployment-plan-reexecute' } : {}),
   },
   {
@@ -84,7 +84,7 @@ export function createDeploymentPlanUiActions(t: I18nTranslate = defaultT): read
     permission: 'deployment.plan.write',
     confirmText: 'CANCEL',
     riskText: t('deploymentPlans.actions.cancelRisk'),
-    visibleWhen: ['DRAFT', 'DRY_RUN_PASSED', 'PENDING_APPROVAL', 'APPROVED', 'READY', 'RUNNING'],
+    visibleWhen: ['DRAFT', 'DRY_RUN_PASSED', 'READY', 'RUNNING'],
     run: (row) => cancelDeploymentPlan(requirePlanId(row)),
   },
   {
@@ -105,7 +105,7 @@ export function createDeploymentPlanUiActions(t: I18nTranslate = defaultT): read
     danger: true,
     confirmText: 'DELETE',
     riskText: t('deploymentPlans.actions.deleteRisk'),
-    visibleWhen: ['DRAFT', 'DRY_RUN_PASSED', 'DRY_RUN_FAILED', 'PENDING_APPROVAL', 'APPROVED', 'READY', 'RUNNING', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'CANCELLED', 'CANCELED', 'ROLLED_BACK', 'ROLLBACK_FAILED'],
+    visibleWhen: ['DRAFT', 'DRY_RUN_PASSED', 'DRY_RUN_FAILED', 'READY', 'RUNNING', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'CANCELLED', 'CANCELED', 'ROLLED_BACK', 'ROLLBACK_FAILED'],
     run: (row) => deleteDraftDeploymentPlan(requirePlanId(row)),
   },
   ]
@@ -135,10 +135,7 @@ export function createDeploymentPlansPageConfig(t: I18nTranslate = defaultT): Bu
     { key: 'scheduledAt', title: t('deploymentPlans.columns.scheduledAt'), candidates: ['scheduledAt', 'createdAt'], kind: 'date' },
     { key: 'actions', title: t('deploymentPlans.columns.actions'), candidates: [] },
   ],
-  metrics: [
-    { title: t('deploymentPlans.metrics.total.title'), description: t('deploymentPlans.metrics.total.description'), status: 'PENDING_APPROVAL', risk: 'HIGH', kind: 'total' },
-    { title: t('deploymentPlans.metrics.risky.title'), description: t('deploymentPlans.metrics.risky.description'), status: 'PENDING_APPROVAL', risk: 'CRITICAL' },
-  ],
+  metrics: [],
   detailFields: [
     { label: t('deploymentPlans.fields.planId'), candidates: ['id', 'planId'] },
     { label: t('deploymentPlans.fields.name'), candidates: ['name', 'title', 'planName'] },
