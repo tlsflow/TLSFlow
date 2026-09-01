@@ -1016,7 +1016,9 @@ export class DeploymentPlansApplicationService {
           workflowId: binding.workflowTemplateId,
           pluginVersionId: executionIdentity.chain.pluginVersionId,
           capabilityKey: binding.capabilityKey,
-          workflowVersionSelection: 'CURRENT',
+          // 配置侧是 CURRENT；这里已经把当前版本物化成本次计划的不可变快照，
+          // 因此快照必须记为 FIXED，后续执行和回放只读这份精确版本。
+          workflowVersionSelection: 'FIXED',
           workflowVersionId,
           runner: binding.runner,
           gatewayId: binding.gatewayId,
@@ -1046,7 +1048,9 @@ export class DeploymentPlansApplicationService {
           pluginVersionId: executionIdentity.chain.pluginVersionId,
           capabilityKey: executionSource.binding.capabilityKey,
           workflowTemplateId: executionSource.binding.workflowTemplateId,
-          workflowVersionSelection: executionSource.binding.workflowVersionSelection,
+          // 绑定配置恒为 CURRENT；执行快照必须固化为 FIXED，否则执行链路的
+          // 固定快照校验会把刚创建的计划判成非法快照。
+          workflowVersionSelection: 'FIXED',
           workflowVersionId: executionSource.workflowVersionId,
           runner: executionSource.binding.runner,
           gatewayId: executionSource.binding.gatewayId,

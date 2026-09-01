@@ -153,11 +153,12 @@ test('旧 FIXED 输入会被转换为 CURRENT，非法策略仍失败关闭', as
 test('启用新插件版本后，同一稳定绑定解析新版本并保留历史绑定不变', async () => {
   const fixture = await createFixture();
   const created = await fixture.target.create(fixture.base);
+  // 同一 pluginId 在 ENABLED 状态下唯一，必须先退休旧当前版本再启用新版本。
+  await fixture.db.query("update unified_plugin_versions set status='RETIRED' where id=$1", [fixture.pluginVersionId]);
   await fixture.db.query(`insert into unified_plugin_versions
     (id,tenant_id,plugin_id,plugin_version,source,runtime,scope,trust,support,manifest,package_sha256,manifest_sha256,resource_sha256,status,permission_approval_status,approved_permissions,validation_report,created_at,updated_at)
     select 'plugin-version-workflow-binding-v2',tenant_id,plugin_id,'2.0.0',source,runtime,scope,trust,support,manifest,package_sha256,manifest_sha256,resource_sha256,'ENABLED',permission_approval_status,approved_permissions,validation_report,now(),now()
       from unified_plugin_versions where id=$1`, [fixture.pluginVersionId]);
-  await fixture.db.query("update unified_plugin_versions set status='RETIRED' where id=$1", [fixture.pluginVersionId]);
   await fixture.db.query(`insert into unified_plugin_workflow_bindings
     (plugin_version_id,owner_type,owner_id,capability_key,workflow_key,workflow_resource_path,workflow_template_id,workflow_version_id,workflow_content_sha256,created_at)
     select 'plugin-version-workflow-binding-v2',owner_type,owner_id,capability_key,workflow_key,workflow_resource_path,workflow_template_id,workflow_version_id,workflow_content_sha256,now()

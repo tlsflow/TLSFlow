@@ -59,7 +59,11 @@ test('非受管资产只保存 WorkflowExecutionBinding 且拒绝插件 Assignme
   const saved=await service.saveStandaloneWorkflowExecution(tenantId,asset.id,{workflowExecution:{...chain,tenantId,workflowVersionSelection:'FIXED',runner:'CONTROL_PLANE',inputBindings:workflowInputBindings}});
   assert.equal(saved.asset.deploymentStrategy?.type,'WORKFLOW'); assert.equal(saved.asset.deploymentStrategy?.workflow?.workflowExecutionBindingId,saved.workflowExecutionBinding.id);
   assert.equal(saved.asset.deploymentStrategy?.approvalRequired, true);
-  assert.equal(saved.workflowExecutionBinding.pluginVersionId, chain.pluginVersionId);
+  // 配置只保存稳定身份：pluginVersionId / workflowVersionId 不再作为配置主键写入。
+  assert.equal(saved.workflowExecutionBinding.pluginId, 'fixture.standalone');
+  assert.equal(saved.workflowExecutionBinding.pluginVersionId, undefined);
+  assert.equal(saved.workflowExecutionBinding.workflowVersionId, undefined);
+  assert.equal(saved.workflowExecutionBinding.workflowVersionSelection, 'CURRENT');
   assert.equal(saved.workflowExecutionBinding.capabilityKey, chain.capabilityKey);
   assert.equal(Number((await db.query<{count:string|number}>(`select count(*) from unified_plugin_bindings where tenant_id=$1`,[tenantId])).rows[0]?.count),0);
   await db.query(`insert into plugin_capability_assignments (id,tenant_id,owner_type,owner_id,capability_key,plugin_version_id,plugin_binding_id,precedence,status,created_at,updated_at) values ('assignment_conflict',$1,'APPLICATION_ASSET',$2,'certificate.deploy','plugin_version','plugin_binding','ASSET_OVERRIDE','ACTIVE',now(),now())`,[tenantId,asset.id]).catch(()=>undefined);

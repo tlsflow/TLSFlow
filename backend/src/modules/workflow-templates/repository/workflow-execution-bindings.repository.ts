@@ -62,6 +62,21 @@ export class WorkflowExecutionBindingsRepository {
     return row?.plugin_id;
   }
 
+  /**
+   * 仅用于「当前发布链缺失」的诊断分流：区分「插件存在但未启用」和「插件/能力/工作流映射根本不存在」。
+   * 这里绝不是当前版本选择器，返回值不得用于决定本次执行使用哪个版本。
+   */
+  async findPluginDiagnosis(tenantId: string, pluginId: string): Promise<{ status: string; runtime: string } | undefined> {
+    return (await this.db.query<{ status: string; runtime: string }>(`
+      select status, runtime from unified_plugin_versions
+       where plugin_id=$2 and (tenant_id=$1 or source='BUILTIN')
+       order by case when status='ENABLED' then 0 else 1 end,
+                case when tenant_id=$1 then 0 else 1 end,
+                updated_at desc, id desc
+       limit 1
+    `, [tenantId, pluginId])).rows[0];
+  }
+
   async findCurrentWorkflowChain(input: Pick<WorkflowExecutionBinding, 'tenantId' | 'pluginId' | 'capabilityKey' | 'workflowKey' | 'workflowTemplateId'>): Promise<WorkflowExecutionBindingChain | undefined> {
     const row = (await this.db.query<WorkflowExecutionBindingChainRow>(`
       select

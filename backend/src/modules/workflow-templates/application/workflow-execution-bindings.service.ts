@@ -17,9 +17,7 @@ export class WorkflowExecutionBindingsService {
   }
   async getExecutionIdentity(tenantId: string, id: string): Promise<{ binding: Awaited<ReturnType<WorkflowExecutionBindingsRepository['find']>> extends infer T ? Exclude<T, undefined> : never; chain: WorkflowExecutionBindingChain }> {
     const binding = await this.get(tenantId, id);
-    const chain = await this.repository.findCurrentWorkflowChain(binding);
-    if (!chain) throw new AppError('VALIDATION_FAILED', '工作流执行绑定缺少当前发布链', { code: 'WORKFLOW_EXECUTION_BINDING_CURRENT_CHAIN_MISSING', bindingId: id, pluginId: binding.pluginId });
-    assertCurrentWorkflowChain(binding, chain);
+    const chain = await requireCurrentWorkflowChain(this.repository, binding);
     return { binding, chain };
   }
   async update(tenantId:string,id:string,input:UpdateWorkflowExecutionBindingInput) {
@@ -73,8 +71,31 @@ async function validate(repository: WorkflowExecutionBindingsRepository, input: 
     workflowKey: input.workflowKey,
     workflowTemplateId: input.workflowTemplateId,
   };
+  await requireCurrentWorkflowChain(repository, identity);
+}
+
+/**
+ * 当前发布链缺失时先分流插件自身状态，避免把「插件未启用/运行时不符」误报为「映射不存在」。
+ * 只有确实找不到插件、能力或工作流映射时，才返回 CURRENT_CHAIN_MISSING。
+ */
+async function requireCurrentWorkflowChain(
+  repository: WorkflowExecutionBindingsRepository,
+  identity: Pick<WorkflowExecutionBinding, 'tenantId' | 'pluginId' | 'capabilityKey' | 'workflowKey' | 'workflowTemplateId'>,
+): Promise<WorkflowExecutionBindingChain> {
   const chain = await repository.findCurrentWorkflowChain(identity);
+  if (!chain) {
+    const diagnosis = await repository.findPluginDiagnosis(identity.tenantId, identity.pluginId);
+    if (diagnosis && (diagnosis.status !== 'ENABLED' || diagnosis.runtime !== 'WORKFLOW_DSL')) {
+      throw new AppError('VALIDATION_FAILED', '工作流执行绑定只能引用已启用的 Workflow DSL PluginVersion', {
+        code: 'WORKFLOW_EXECUTION_BINDING_PLUGIN_UNAVAILABLE',
+        pluginId: identity.pluginId,
+        status: diagnosis.status,
+        runtime: diagnosis.runtime,
+      });
+    }
+  }
   assertCurrentWorkflowChain(identity, chain);
+  return chain;
 }
 
 function normalizeInputBindingInput<T extends CreateWorkflowExecutionBindingInput>(input: T): T {

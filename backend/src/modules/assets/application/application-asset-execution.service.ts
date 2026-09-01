@@ -30,12 +30,16 @@ export class ApplicationAssetExecutionService {
       if (assignments.rows.length) throw new AppError('EXECUTION_SOURCE_CONFLICT', '非受管工作流资产不得存在 ACTIVE CapabilityAssignment', { assignmentIds: assignments.rows.map((item) => item.id) });
       const { bindingId, expectedVersion, ...bindingInput } = input.workflowExecution;
       if (bindingInput.tenantId !== tenantId) throw new AppError('VALIDATION_FAILED', 'WorkflowExecutionBinding tenantId 不匹配');
-      const bindings = new WorkflowExecutionBindingsService(new WorkflowExecutionBindingsRepository(tx));
+      const bindingsRepository = new WorkflowExecutionBindingsRepository(tx);
+      const bindings = new WorkflowExecutionBindingsService(bindingsRepository);
       const currentBinding = bindingId ? await bindings.get(tenantId, bindingId) : undefined;
       if (currentBinding && expectedVersion !== undefined && currentBinding.version !== expectedVersion) {
         throw new AppError('RESOURCE_VERSION_CONFLICT', '工作流执行绑定版本冲突', { id: currentBinding.id, expectedVersion, actualVersion: currentBinding.version });
       }
-      if (currentBinding && isSameWorkflowExecutionBinding(currentBinding, bindingInput)) {
+      // 历史请求可能只带 pluginVersionId；按同一规则解析稳定身份后再比较，避免误判成有变化。
+      const inputPluginId = bindingInput.pluginId?.trim()
+        || await bindingsRepository.resolvePluginId(tenantId, bindingInput.pluginVersionId);
+      if (currentBinding && isSameWorkflowExecutionBinding(currentBinding, bindingInput, inputPluginId)) {
         const updated = await assets.updateServiceAsset(tenantId, applicationAssetId, {
           deploymentStrategy: { type: 'WORKFLOW', approvalRequired, workflow: { workflowExecutionBindingId: currentBinding.id } },
         });
@@ -57,22 +61,33 @@ export class ApplicationAssetExecutionService {
   }
 }
 
+/**
+ * 幂等判断只比较稳定身份和输入绑定。配置侧已经不保存 pluginVersionId、workflowVersionId
+ * 和 FIXED 策略，如果继续把它们纳入比较，任何一次保存都会被判成「有变化」并空转 +1 版本。
+ */
 function isSameWorkflowExecutionBinding(
   current: Awaited<ReturnType<WorkflowExecutionBindingsService['get']>>,
   input: CreateWorkflowExecutionBindingInput,
+  inputPluginId: string | undefined,
 ): boolean {
-  return stableSerialize({
-    tenantId: current.tenantId,
-    pluginVersionId: current.pluginVersionId,
-    capabilityKey: current.capabilityKey,
-    workflowKey: current.workflowKey,
-    workflowTemplateId: current.workflowTemplateId,
-    workflowVersionSelection: current.workflowVersionSelection,
-    workflowVersionId: current.workflowVersionId,
-    runner: current.runner,
-    gatewayId: current.gatewayId,
-    inputBindings: current.inputBindings,
-  }) === stableSerialize(input);
+  return stableSerialize(stableWorkflowExecutionIdentity(current, current.pluginId))
+    === stableSerialize(stableWorkflowExecutionIdentity(input, inputPluginId));
+}
+
+function stableWorkflowExecutionIdentity(
+  value: CreateWorkflowExecutionBindingInput,
+  pluginId: string | undefined,
+): Record<string, unknown> {
+  return {
+    tenantId: value.tenantId,
+    pluginId: pluginId ?? '',
+    capabilityKey: value.capabilityKey,
+    workflowKey: value.workflowKey,
+    workflowTemplateId: value.workflowTemplateId,
+    runner: value.runner,
+    gatewayId: value.gatewayId ?? undefined,
+    inputBindings: value.inputBindings,
+  };
 }
 
 function stableSerialize(value: unknown): string {
