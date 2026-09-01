@@ -99,7 +99,7 @@ function runProgressPercent(record: AutomationRunRecord | null): number {
     + Number(record.targetSummary.skipped ?? 0)
     + Number(record.targetSummary.cancelled ?? 0)
   if (completed >= total) return 100
-  return Math.max(record.status === 'waiting_approval' ? 15 : 5, Math.round((completed / total) * 100))
+  return Math.max(5, Math.round((completed / total) * 100))
 }
 
 function taskTypeLabel(task: TaskRun): string {
@@ -208,7 +208,7 @@ onMounted(() => { void load() })
     </section>
 
     <section class="run-detail__summary" :aria-label="t('automations.aria.progress')">
-      <div v-for="key in ['total', 'pending', 'running', 'waitingApproval', 'succeeded', 'failed', 'skipped', 'cancelled']" :key="key">
+      <div v-for="key in ['total', 'pending', 'running', 'succeeded', 'failed', 'skipped', 'cancelled']" :key="key">
         <span>{{ t(`automations.progress.${key}`) }}</span>
         <strong>{{ run.targetSummary[key] || 0 }}</strong>
       </div>
@@ -221,7 +221,6 @@ onMounted(() => { void load() })
       <div><dt>{{ t('automations.fields.parentRun') }}</dt><dd>{{ run.parentRunId || t('automations.common.notAvailable') }}</dd></div>
       <div><dt>{{ t('automations.runDetail.sourceType') }}</dt><dd>{{ run.triggerContext?.sourceType || t('automations.common.notAvailable') }}</dd></div>
       <div><dt>{{ t('automations.runDetail.certificateVersion') }}</dt><dd>{{ run.triggerContext?.certificateVersionId || t('automations.common.notAvailable') }}</dd></div>
-      <div><dt>{{ t('automations.runDetail.approvalId') }}</dt><dd>{{ run.approvalId || t('automations.common.notAvailable') }}</dd></div>
       <div><dt>{{ t('automations.runDetail.deliveryId') }}</dt><dd>{{ run.deliveryId || t('automations.common.notAvailable') }}</dd></div>
     </dl>
 

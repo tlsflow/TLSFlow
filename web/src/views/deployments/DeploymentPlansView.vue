@@ -4,7 +4,6 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { ApiClientError } from '@/api/client'
 import { getAssetDetail, listAssets, listManagedTargets } from '@/api/modules/assets.api'
-import { decideApproval } from '@/api/modules/audits.api'
 import type { ApiRecord } from '@/api/modules/common'
 import { listCertificates, listCertificateFormats, listCertificateVersions } from '@/api/modules/certificates.api'
 import { useExecutionDetail } from '@/composables/useExecutionDetail'
@@ -115,12 +114,6 @@ const wizardInitialPlan = ref<DeploymentWizardInitialPlan | null>(null)
 const errorMessage = ref('')
 const errorIssues = ref<DeploymentInputIssueDetail[]>([])
 const infoMessage = ref('')
-const approvalHint = ref('')
-const approvalFeedback = ref('')
-const approvalModalOpen = ref(false)
-const approvalPlanRow = ref<ViewRow | null>(null)
-const approvalPending = ref(false)
-const approvalError = ref('')
 const dryRunRequestId = ref('')
 const submitRequestId = ref('')
 const dryRunRunRow = ref<ViewRow | null>(null)
@@ -196,15 +189,6 @@ const pageConfig = computed<BusinessPageConfig>(() => {
       },
     })),
     rowActions: [
-      {
-        label: t('deploymentPlans.actions.review'),
-        permission: 'approval.decide',
-        reloadAfterRun: false,
-        hidden: (row: ViewRow) => String(row.status) !== 'PENDING_APPROVAL' || !readString(row.raw, ['approvalId', 'approval.id', 'approval.approvalId']),
-        run: async (row: ViewRow) => {
-          openApprovalModal(row)
-        },
-      },
       {
         label: t('deploymentPlans.actions.detail'),
         permission: 'deployment.plan.read',
@@ -532,55 +516,11 @@ function resetMessages() {
   errorMessage.value = ''
   errorIssues.value = []
   infoMessage.value = ''
-  approvalHint.value = ''
-  approvalFeedback.value = ''
-  approvalError.value = ''
   dryRunRequestId.value = ''
   submitRequestId.value = ''
   dryRunChecks.value = []
   dryRunActionError.value = ''
   executionStarting.value = false
-}
-
-function openApprovalModal(row: ViewRow) {
-  approvalPlanRow.value = row
-  approvalFeedback.value = ''
-  approvalError.value = ''
-  approvalModalOpen.value = true
-}
-
-function closeApprovalModal(force = false) {
-  if (approvalPending.value && !force) return
-  approvalModalOpen.value = false
-  approvalPlanRow.value = null
-  approvalError.value = ''
-}
-
-async function decideApprovalFromModal(decision: 'approved' | 'rejected') {
-  if (approvalPending.value || !approvalPlanRow.value) return
-  const row = approvalPlanRow.value
-  const approvalId = readString(row.raw, ['approvalId', 'approval.id', 'approval.approvalId'])
-  if (!approvalId) {
-    approvalError.value = t('deploymentPlans.approval.missingApprovalId')
-    return
-  }
-
-  approvalPending.value = true
-  approvalError.value = ''
-  try {
-    await decideApproval({ approvalId, decision })
-    const planId = readString(row.raw, ['id', 'planId'], row.id)
-    const feedback = decision === 'approved'
-      ? messageWithOptionalPlanId('deploymentPlans.feedback.approvalApprovedWithPlanId', 'deploymentPlans.feedback.approvalApproved', planId)
-      : messageWithOptionalPlanId('deploymentPlans.feedback.approvalRejectedWithPlanId', 'deploymentPlans.feedback.approvalRejected', planId)
-    closeApprovalModal(true)
-    await pageRef.value?.reload()
-    approvalFeedback.value = feedback
-  } catch (cause) {
-    approvalError.value = toErrorMessage(cause, t('deploymentPlans.approval.decisionFailed'))
-  } finally {
-    approvalPending.value = false
-  }
 }
 
 async function closeExecutionDetailModal(options: { reload?: boolean } = {}) {
@@ -1481,7 +1421,6 @@ async function fetchAllPages(
         <p>{{ t('deploymentPlans.errors.inputIssuesHint') }}</p>
       </section>
     </section>
-    <p v-if="approvalFeedback" class="deployment-plans-page__info deployment-plans-page__approval-feedback">{{ approvalFeedback }}</p>
     <template v-if="isUserViewMode">
       <GcUserFlowWizard
         :steps="userFlowSteps"
@@ -1593,7 +1532,6 @@ async function fetchAllPages(
         :initial-plan="wizardInitialPlan"
         :dry-run-request-id="dryRunRequestId"
         :submit-request-id="submitRequestId"
-        :approval-hint="approvalHint"
         :dry-run-checks="dryRunChecks"
         :simple="isUserViewMode"
         @save="handleSave"
@@ -1631,65 +1569,6 @@ async function fetchAllPages(
     </Teleport>
 
     <GcModal
-      :open="approvalModalOpen"
-      :title="t('deploymentPlans.approval.title')"
-      :description="t('deploymentPlans.approval.description')"
-      size="lg"
-      @update:open="(value) => value ? (approvalModalOpen = true) : closeApprovalModal()"
-    >
-      <section v-if="approvalPlanRow" class="deployment-plan-approval">
-        <p v-if="approvalError" class="deployment-plans-page__error">{{ approvalError }}</p>
-        <dl class="deployment-plan-approval__facts">
-          <div>
-            <dt>{{ t('deploymentPlans.fields.name') }}</dt>
-            <dd>{{ readString(approvalPlanRow.raw, ['name', 'title', 'planName'], approvalPlanRow.id) }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('deploymentPlans.fields.planId') }}</dt>
-            <dd>{{ readString(approvalPlanRow.raw, ['id', 'planId'], approvalPlanRow.id) }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('deploymentPlans.fields.approvalId') }}</dt>
-            <dd>{{ readString(approvalPlanRow.raw, ['approvalId', 'approval.id', 'approval.approvalId']) }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('deploymentPlans.fields.approvalStatus') }}</dt>
-            <dd>{{ readString(approvalPlanRow.raw, ['approval.status', 'approvalStatus'], t('deploymentPlans.common.notProvided')) }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('deploymentPlans.approval.requestedBy') }}</dt>
-            <dd>{{ readString(approvalPlanRow.raw, ['approval.requestedBy', 'requestedBy', 'createdBy'], t('deploymentPlans.common.notProvided')) }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('deploymentPlans.approval.riskLevel') }}</dt>
-            <dd>{{ readString(approvalPlanRow.raw, ['approval.riskLevel', 'riskLevel', 'risk'], t('deploymentPlans.common.notProvided')) }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('deploymentPlans.fields.snapshotHash') }}</dt>
-            <dd>{{ readString(approvalPlanRow.raw, ['snapshotHash', 'snapshot.hash'], t('deploymentPlans.common.notProvided')) }}</dd>
-          </div>
-          <div class="deployment-plan-approval__fact--wide">
-            <dt>{{ t('deploymentPlans.fields.targetSummary') }}</dt>
-            <dd>{{ readString(approvalPlanRow.raw, ['targetSummary', 'targets.0.certificateBindingId', 'targets.0.executionTargetId'], t('deploymentPlans.common.notProvided')) }}</dd>
-          </div>
-        </dl>
-        <p class="deployment-plan-approval__hint">{{ t('deploymentPlans.approval.decisionHint') }}</p>
-      </section>
-
-      <template #actions>
-        <button class="gc-button" type="button" :disabled="approvalPending" @click="closeApprovalModal()">
-          {{ t('deploymentPlans.common.close') }}
-        </button>
-        <button class="gc-button gc-button--danger" type="button" :disabled="approvalPending" @click="decideApprovalFromModal('rejected')">
-          {{ approvalPending ? t('deploymentPlans.approval.processing') : t('deploymentPlans.actions.reject') }}
-        </button>
-        <button class="gc-button gc-button--primary" type="button" :disabled="approvalPending" @click="decideApprovalFromModal('approved')">
-          {{ approvalPending ? t('deploymentPlans.approval.processing') : t('deploymentPlans.actions.approve') }}
-        </button>
-      </template>
-    </GcModal>
-
-    <GcModal
       v-model:open="detailModalOpen"
       :title="detailPlanRow ? t('deploymentPlans.detail.titleWithName', { name: readString(detailPlanRow.raw, ['name', 'title', 'planName'], detailPlanRow.id) }) : t('deploymentPlans.detail.title')"
       :description="t('deploymentPlans.detail.description')"
@@ -1722,7 +1601,6 @@ async function fetchAllPages(
           <dl class="deployment-plan-detail__facts">
             <div><dt>{{ t('deploymentPlans.fields.planId') }}</dt><dd>{{ readString(detailPlanRow.raw, ['id', 'planId']) }}</dd></div>
             <div><dt>{{ t('deploymentPlans.fields.status') }}</dt><dd>{{ readString(detailPlanRow.raw, ['status', 'state']) }}</dd></div>
-            <div><dt>{{ t('deploymentPlans.fields.approvalStatus') }}</dt><dd>{{ readString(detailPlanRow.raw, ['approval.status', 'approvalStatus']) }}</dd></div>
             <div><dt>{{ t('deploymentPlans.fields.certificateVersionId') }}</dt><dd>{{ readString(detailPlanRow.raw, ['certificateVersionId']) }}</dd></div>
             <div><dt>{{ t('deploymentPlans.fields.certificateFormatId') }}</dt><dd>{{ readString(detailPlanRow.raw, ['certificateFormatId']) }}</dd></div>
             <div><dt>{{ t('deploymentPlans.fields.targetSummary') }}</dt><dd>{{ readString(detailPlanRow.raw, ['targetSummary', 'targets.0.certificateBindingId', 'targets.0.executionTargetId']) }}</dd></div>
@@ -2067,52 +1945,6 @@ async function fetchAllPages(
   }
 }
 
-.deployment-plan-approval {
-  display: grid;
-  gap: var(--gc-space-4);
-}
-
-.deployment-plan-approval__facts {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--gc-space-3);
-  margin: 0;
-}
-
-.deployment-plan-approval__facts div {
-  display: grid;
-  gap: var(--gc-space-1);
-  min-width: 0;
-  padding: var(--gc-space-3);
-  border: var(--gc-border-width-default) solid var(--gc-color-border-muted);
-  border-radius: var(--gc-radius-md);
-  background: var(--gc-color-surface-hover);
-}
-
-.deployment-plan-approval__facts dt {
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-  font-weight: 800;
-}
-
-.deployment-plan-approval__facts dd {
-  margin: 0;
-  color: var(--gc-color-text);
-  font-size: var(--gc-font-size-sm);
-  font-weight: 750;
-  overflow-wrap: anywhere;
-}
-
-.deployment-plan-approval__fact--wide {
-  grid-column: 1 / -1;
-}
-
-.deployment-plan-approval__hint {
-  margin: 0;
-  color: var(--gc-color-text-muted);
-  line-height: 1.6;
-}
-
 .deployment-plan-detail {
   display: grid;
   gap: var(--gc-space-3);
@@ -2389,14 +2221,6 @@ async function fetchAllPages(
 }
 
 @media (max-width: 56.25rem) {
-  .deployment-plan-approval__facts {
-    grid-template-columns: 1fr;
-  }
-
-  .deployment-plan-approval__fact--wide {
-    grid-column: auto;
-  }
-
   .deployment-plan-detail__hero {
     display: grid;
     grid-template-columns: 1fr;

@@ -62,7 +62,6 @@ const externalKeyOpen = ref(false)
 const externalKey = ref('')
 const externalKeyPrefix = ref('')
 const externalKeyAutomationId = ref('')
-const externalKeyMode = ref<'direct' | 'approval'>('direct')
 const externalKeyCopied = ref(false)
 const externalKeyRotating = ref(false)
 const applicationAssets = ref<ApiRecord[]>([])
@@ -150,7 +149,6 @@ const pageConfig = computed<BusinessPageConfig>(() => ({
           externalKey.value = result.externalApiKey
           externalKeyPrefix.value = result.externalApiKeyPrefix ?? result.externalApiKey.slice(0, 11)
           externalKeyAutomationId.value = automation.id
-          externalKeyMode.value = result.externalApiExecutionMode ?? 'direct'
           externalKeyCopied.value = false
           externalKeyOpen.value = true
         }
@@ -278,7 +276,6 @@ async function rotateEditorExternalApiKey(): Promise<void> {
       externalKey.value = result.externalApiKey
       externalKeyPrefix.value = result.externalApiKeyPrefix ?? result.externalApiKey.slice(0, 11)
       externalKeyAutomationId.value = automationId
-      externalKeyMode.value = result.externalApiExecutionMode ?? externalKeyMode.value
       externalKeyCopied.value = false
     }
   } finally {
@@ -885,7 +882,6 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
             </div>
             <div class="automation-history__ids">
               <span>{{ run.id }}</span>
-              <span>{{ run.approvalId || t('automations.common.notAvailable') }}</span>
             </div>
             <section v-if="historyDetails[run.id]" class="automation-history__targets">
               <header class="automation-history__targets-header">
@@ -1041,7 +1037,6 @@ async function loadAllApplicationAssets(): Promise<ApiRecord[]> {
       <section class="automation-external-key">
         <p>{{ t('automations.externalApi.keyNotice') }}</p>
         <code>{{ externalKey }}</code>
-        <p>{{ t('automations.externalApi.mode', { mode: t(`automations.externalApi.${externalKeyMode}`) }) }}</p>
       </section>
       <template #actions>
         <GcButton @click="externalKeyOpen = false">{{ t('common.close') }}</GcButton>

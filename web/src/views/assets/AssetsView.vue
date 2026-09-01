@@ -3567,7 +3567,7 @@ function managedTargetLabel(target: ApiRecord): string {
             <GcButton variant="secondary" :loading="assetOverviewLoading" @click="loadAssetOverviewPage(assetOverviewPage)">
               {{ t('common.refresh') }}
             </GcButton>
-            <GcPermissionButton class="gc-button gc-button--primary" permission="service_asset.manage" @click="openStandardAssetOnboarding">
+            <GcPermissionButton class="gc-button gc-button--primary" permission="service_asset.manage" @click="onboardingDialogOpen = true">
               {{ t('assets.card.actions.add') }}
             </GcPermissionButton>
           </div>

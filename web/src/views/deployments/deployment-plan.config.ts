@@ -77,15 +77,6 @@ export function createDeploymentPlanUiActions(t: I18nTranslate = defaultT): read
     riskText: t('deploymentPlans.actions.executeRisk'),
     visibleWhen: ['PENDING_APPROVAL', 'APPROVED', 'READY', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'ROLLED_BACK', 'ROLLBACK_FAILED'],
     run: (row) => executeDeploymentPlan(requirePlanId(row), isFinishedPlan(row) ? { reason: 'deployment-plan-reexecute' } : {}),
-    disabledReason: (row) => {
-      if (!isFinishedPlan(row) && !canExecute(row)) {
-        const approvalStatus = stringFromCandidates(row.raw, ['approvalStatus', 'approval.status'])
-        if (approvalStatus === 'PENDING') return t('deploymentPlans.disabled.approvalPending')
-        if (approvalStatus === 'REJECTED') return t('deploymentPlans.disabled.approvalRejected')
-        return t('deploymentPlans.disabled.missingApproval')
-      }
-      return ''
-    },
   },
   {
     key: 'cancel',
@@ -132,8 +123,8 @@ export function createDeploymentPlansPageConfig(t: I18nTranslate = defaultT): Bu
   primaryActionLabel: t('deploymentPlans.actions.create'),
   moduleName: 'deployment-plans',
   resourceName: t('deploymentPlans.resourceName'),
-  defaultStatus: 'PENDING_APPROVAL',
-  defaultRisk: 'HIGH',
+  defaultStatus: 'DRAFT',
+  defaultRisk: 'MEDIUM',
   showDetailPanel: true,
   showActionPanel: true,
   columns: [
@@ -152,14 +143,12 @@ export function createDeploymentPlansPageConfig(t: I18nTranslate = defaultT): Bu
     { label: t('deploymentPlans.fields.planId'), candidates: ['id', 'planId'] },
     { label: t('deploymentPlans.fields.name'), candidates: ['name', 'title', 'planName'] },
     { label: t('deploymentPlans.fields.status'), candidates: ['status', 'state'] },
-    { label: t('deploymentPlans.fields.approvalStatus'), candidates: ['approval.status', 'approvalStatus'] },
     { label: t('deploymentPlans.fields.certificateVersionId'), candidates: ['certificateVersionId'] },
     { label: t('deploymentPlans.fields.certificateFormatId'), candidates: ['certificateFormatId', 'deploymentStrategy.managedTarget.certificateFormatId', 'metadata.deploymentStrategy.managedTarget.certificateFormatId'] },
     { label: t('deploymentPlans.fields.currentAssetCertificateExpiresAt'), candidates: ['currentAssetCertificate.expiresAt', 'currentAssetCertificateExpiresAt', 'currentAssetCertificateNotAfter'] },
     { label: t('deploymentPlans.fields.updateNeeded'), candidates: ['updateNeeded'] },
     { label: t('deploymentPlans.fields.targetSummary'), candidates: ['targetSummary', 'targets.0.certificateBindingId', 'targets.0.executionTargetId'] },
     { label: t('deploymentPlans.fields.latestRun'), candidates: ['latestRunId', 'latestRun.id', 'runs.0.id', 'executionRuns.0.id'] },
-    { label: t('deploymentPlans.fields.approvalId'), candidates: ['approvalId', 'approval.id', 'approval.approvalId'] },
     { label: t('deploymentPlans.fields.snapshotHash'), candidates: ['snapshotHash', 'snapshot.hash', 'dryRun.snapshotHash'] },
     { label: t('deploymentPlans.fields.failureReason'), candidates: ['failureReason', 'error.message', 'latestRun.failureReason'] },
     { label: t('deploymentPlans.fields.createdAt'), candidates: ['createdAt'] },
@@ -229,12 +218,6 @@ function requireLatestRunId(row: ViewRow): string {
   const runId = latestRunId(row)
   if (!runId) throw new Error(defaultT('deploymentPlans.errors.missingRunIdRequest'))
   return runId
-}
-
-function canExecute(row: ViewRow): boolean {
-  if (String(row.status) === 'APPROVED') return true
-  const approvalStatus = stringFromCandidates(row.raw, ['approvalStatus', 'approval.status'])
-  return approvalStatus === 'NOT_REQUIRED' || approvalStatus === 'APPROVED'
 }
 
 function isFinishedPlan(row: ViewRow): boolean {

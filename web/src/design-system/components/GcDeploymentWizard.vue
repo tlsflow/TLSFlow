@@ -18,7 +18,6 @@ const props = withDefaults(defineProps<{
   loading?: boolean
   dryRunRequestId?: string
   submitRequestId?: string
-  approvalHint?: string
   initialCertificateId?: string | null
   initialPlan?: DeploymentWizardInitialPlan | null
   dryRunChecks?: readonly ApiRecord[]
@@ -31,7 +30,6 @@ const props = withDefaults(defineProps<{
   loading: false,
   dryRunRequestId: '',
   submitRequestId: '',
-  approvalHint: '',
   initialCertificateId: null,
   initialPlan: null,
   dryRunChecks: () => [],
@@ -229,7 +227,6 @@ const dryRunCheckSummary = computed(() => props.dryRunChecks.reduce<{
 
 const hasDryRunChecks = computed(() => props.dryRunChecks.length > 0)
 const latestStatusText = computed(() => {
-  if (props.approvalHint) return props.approvalHint
   if (hasDryRunChecks.value) return t('designSystem.deploymentWizard.status.checksReturned')
   if (props.dryRunRequestId) return t('designSystem.deploymentWizard.status.dryRunStarted')
   if (props.submitRequestId) return t('designSystem.deploymentWizard.status.submitted')

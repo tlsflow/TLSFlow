@@ -3,7 +3,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { getAutomationRun, listAutomationRunTargets, type AutomationRunRecord, type AutomationRunTargetRecord } from '@/api/modules/automations.api'
-import { decideApproval } from '@/api/modules/audits.api'
 import { getCertificateAssetDetail } from '@/api/modules/certificates.api'
 import { GcButton, GcEmptyState, GcModal, GcProgressBar, GcStatusTag, GcTabs } from '@/design-system/components'
 import { listDeploymentPlans } from '@/api/modules/deployments.api'
@@ -11,7 +10,7 @@ import { internalCaApi, type InternalCaRecord } from '@/api/modules/internal-ca.
 import { forceCancelTask, getTask, listMonitoringProbes, listTasks, type TaskCategory, type TaskDetail, type TaskRun, type TaskStatus } from '@/api/modules/tasks.api'
 import { formatBrowserLocalTime } from '@/utils/browser-local-time'
 import { translateDynamic } from '@/i18n/translate'
-import { currentTaskActivity, dispatchOpenDeploymentExecution, isDeploymentApprovalTask, isDeploymentExecutionTask as isRealDeploymentExecutionTask, isExecutionTask, isPendingApprovalTask, isQuickTask, RECENT_TASK_LIMIT, subscribeTaskActivity, subscribeTaskRealtime, type DeploymentExecutionMode, type DeploymentExecutionOpenDetail, type TaskActivityState, type TaskRealtimeMessage } from './task-events'
+import { currentTaskActivity, dispatchOpenDeploymentExecution, isDeploymentExecutionTask as isRealDeploymentExecutionTask, isExecutionTask, isQuickTask, RECENT_TASK_LIMIT, subscribeTaskActivity, subscribeTaskRealtime, type DeploymentExecutionMode, type DeploymentExecutionOpenDetail, type TaskActivityState, type TaskRealtimeMessage } from './task-events'
 import { buildAcmeTaskAttemptHistory, type AcmeTaskAttemptState } from './acme-task-history'
 
 const props = defineProps<{ open: boolean }>()
@@ -105,14 +104,6 @@ interface PluginRefreshTimelineItem {
   readonly tone: 'success' | 'warning' | 'danger' | 'info' | 'muted'
 }
 
-interface ApprovalTimelineItem {
-  readonly id: string
-  readonly label: string
-  readonly description: string
-  readonly createdAt: string
-  readonly tone: 'success' | 'warning' | 'danger' | 'info' | 'muted'
-}
-
 const detailLoading = ref(false)
 const detailError = ref('')
 const quickLoading = ref(false)
@@ -126,13 +117,6 @@ const detail = ref<TaskDetail | null>(null)
 const monitoringProbes = ref<readonly Record<string, unknown>[]>([])
 const automationRun = ref<(AutomationRunRecord & { actionResults: unknown[] }) | null>(null)
 const automationTargets = ref<AutomationRunTargetRecord[]>([])
-const taskApprovalPending = ref(false)
-const taskApprovalError = ref('')
-const approvalModalOpen = ref(false)
-const approvalTask = ref<TaskRun | null>(null)
-const approvalDetail = ref<TaskDetail | null>(null)
-const approvalLoading = ref(false)
-const approvalLoadError = ref('')
 const forceCancelLoading = ref(false)
 const forceCancelError = ref('')
 const forceCancelConfirmOpen = ref(false)
@@ -178,25 +162,6 @@ const visibleDetailEvents = computed(() => {
 const pluginRefreshResult = computed(() => buildPluginRefreshResult(detail.value?.events ?? []))
 const pluginRefreshEnabledCount = computed(() => pluginRefreshResult.value.versions.filter((version) => version.status?.toUpperCase() === 'ENABLED').length)
 const pluginRefreshTimeline = computed(() => buildPluginRefreshTimeline(detail.value?.events ?? [], detailTask.value))
-const approvalTimeline = computed<ApprovalTimelineItem[]>(() => {
-  const task = approvalTask.value
-  if (!task) return []
-  const events = (approvalDetail.value?.events ?? []).filter((event) => {
-    const eventType = String(event.eventType ?? event.type ?? '').toUpperCase()
-    return ['CREATED', 'PROGRESS', 'SUCCEEDED', 'FAILED', 'CANCEL_REQUESTED', 'CANCELLED', 'AWAITING_CONFIRMATION', 'WAITING_RESULT'].includes(eventType)
-  })
-  if (events.length === 0) {
-    return [{
-      id: `${task.id}:created`,
-      label: t('tasks.approval.timeline.created'),
-      description: t('tasks.approval.timeline.createdDescription'),
-      createdAt: task.createdAt,
-      tone: 'warning',
-    }]
-  }
-  return events.map((event, index) => approvalTimelineItem(event, index))
-})
-
 watch(() => props.open, (open) => {
   if (open) {
     window.addEventListener('keydown', handleKeydown)
@@ -223,15 +188,6 @@ watch(allTasksCategory, () => {
     return
   }
   void loadAllTasks(true)
-})
-watch(approvalModalOpen, (open) => {
-  if (!open) {
-    approvalTask.value = null
-    approvalDetail.value = null
-    approvalLoading.value = false
-    approvalLoadError.value = ''
-    resetAutomationDetail()
-  }
 })
 watch(forceCancelConfirmOpen, (open) => {
   if (open || forceCancelLoading.value) return
@@ -444,10 +400,6 @@ function handleAllTasksScroll(event: Event): void {
 
 async function openTask(task: TaskRun): Promise<void> {
   forceCancelError.value = ''
-  if (taskNeedsApproval(task)) {
-    await openApprovalTask(task)
-    return
-  }
   const executionOpenDetail = deploymentExecutionOpenDetail(task)
   if (executionOpenDetail) {
     detail.value = null
@@ -476,33 +428,6 @@ async function openTask(task: TaskRun): Promise<void> {
   }
 }
 
-async function openApprovalTask(task: TaskRun): Promise<void> {
-  forceCancelError.value = ''
-  detail.value = null
-  monitoringProbes.value = []
-  resetAutomationDetail()
-  approvalTask.value = task
-  approvalDetail.value = null
-  approvalModalOpen.value = true
-  allTasksModalOpen.value = false
-  emit('close')
-  approvalLoading.value = true
-  approvalLoadError.value = ''
-  try {
-    const taskResult = await getTask(task.id)
-    approvalDetail.value = taskResult.data ?? null
-    const loadedTask = approvalDetail.value?.task
-    if (loadedTask) approvalTask.value = loadedTask
-    if (approvalTask.value && isAutomationTask(approvalTask.value)) {
-      await loadAutomationTaskDetail(approvalTask.value)
-    }
-  } catch (cause) {
-    approvalLoadError.value = cause instanceof Error ? cause.message : t('tasks.messages.detailFailed')
-  } finally {
-    approvalLoading.value = false
-  }
-}
-
 async function refreshTaskDetail(taskId: string): Promise<TaskDetail | null> {
   const result = await getTask(taskId)
   detail.value = result.data ?? null
@@ -524,16 +449,6 @@ function closeDetail(): void {
   monitoringProbes.value = []
   resetAutomationDetail()
   forceCancelError.value = ''
-}
-
-function closeApprovalModal(): void {
-  approvalModalOpen.value = false
-  approvalTask.value = null
-  approvalDetail.value = null
-  approvalLoading.value = false
-  approvalLoadError.value = ''
-  forceCancelError.value = ''
-  resetAutomationDetail()
 }
 
 function submitQuickSearch(): void {
@@ -572,7 +487,6 @@ function applyRealtimeTaskChange(task: TaskRun): void {
   if (detailTask.value?.id === task.id && detail.value) {
     detail.value = { ...detail.value, task }
   }
-  if (approvalTask.value?.id === task.id) approvalTask.value = task
   if (forceCancelTarget.value?.id === task.id) {
     forceCancelTarget.value = task
     if (!canForceCancel(task) && !forceCancelLoading.value) forceCancelConfirmOpen.value = false
@@ -977,7 +891,6 @@ function taskTriggerSourceLabel(task: TaskRun): string {
 }
 
 function taskStatusLabel(task: TaskRun): string {
-  if (isPendingApprovalTask(task)) return t('tasks.status.WAITING_APPROVAL')
   if (isAutomationTask(task) && task.status === 'SUCCEEDED' && automationTaskMetric(task, 'failed') > 0) {
     return t('designSystem.status.PARTIAL_SUCCESS')
   }
@@ -985,14 +898,13 @@ function taskStatusLabel(task: TaskRun): string {
 }
 
 function taskTypeLabel(task: TaskRun): string {
-  if (isDeploymentApprovalTask(task)) return t('tasks.typeLabels.DEPLOYMENT_APPROVAL')
   const key = `tasks.typeLabels.${task.taskType}`
   const label = t(key)
   return label === key ? t('tasks.typeLabels.OTHER') : label
 }
 
 function taskRelatedName(task: TaskRun): string {
-  const isDeploymentTask = isDeploymentExecutionTask(task) || isDeploymentApprovalTask(task)
+  const isDeploymentTask = isDeploymentExecutionTask(task)
   if (task.taskType === 'ACME_CERTIFICATE_RENEWAL') {
     const presentation = acmeRenewalTaskPresentations.value[task.id]
     return presentation
@@ -1018,79 +930,6 @@ function taskDisplayTitle(task: TaskRun): string {
   const action = taskTypeLabel(task)
   const name = taskRelatedName(task)
   return `${action} · ${name === action ? task.id : name}`
-}
-
-function approvalOperationLabel(task: TaskRun): string {
-  if (isDeploymentApprovalTask(task)) return t('tasks.approval.content.deployment')
-  if (isAutomationTask(task)) return t('tasks.approval.content.automation')
-  return taskTypeLabel(task)
-}
-
-function approvalDecisionLabel(task: TaskRun): string {
-  const decision = firstNonEmptyString(
-    stringFromRecord(task.progress, 'approvalStatus'),
-    stringFromRecord(task.resourceSummary, 'approvalStatus'),
-  )?.toLowerCase()
-  if (decision === 'approved') return t('tasks.approval.values.approved')
-  if (decision === 'rejected') return t('tasks.approval.values.rejected')
-  return t('tasks.approval.values.pending')
-}
-
-function approvalContentSummary(task: TaskRun): string {
-  return firstNonEmptyString(
-    stringFromRecord(task.resourceSummary, 'summary'),
-    stringFromRecord(task.progress, 'summary'),
-    stringFromRecord(task.resourceSummary, 'displayName'),
-  ) ?? t('tasks.approval.content.defaultSummary')
-}
-
-function approvalTimelineItem(event: Record<string, unknown>, index: number): ApprovalTimelineItem {
-  const eventType = String(event.eventType ?? event.type ?? '').toUpperCase()
-  const eventData = approvalEventData(event)
-  const decision = firstNonEmptyString(
-    stringFromRecord(eventData, 'decision'),
-    stringFromRecord(eventData, 'approvalStatus'),
-  )?.toLowerCase()
-  const forceEnded = eventData?.force === true
-  const approved = decision === 'approved' || (eventType === 'SUCCEEDED' && !forceEnded)
-  const rejected = decision === 'rejected' || (eventType === 'FAILED' && !forceEnded)
-  const label = forceEnded
-    ? t('tasks.approval.timeline.forceEnded')
-    : approved
-      ? t('tasks.approval.timeline.approved')
-      : rejected
-        ? t('tasks.approval.timeline.rejected')
-        : eventType === 'CREATED'
-          ? t('tasks.approval.timeline.created')
-          : t('tasks.approval.timeline.pending')
-  const description = forceEnded
-    ? t('tasks.approval.timeline.forceEndedDescription')
-    : approved
-      ? t('tasks.approval.timeline.approvedDescription')
-      : rejected
-        ? t('tasks.approval.timeline.rejectedDescription')
-        : eventType === 'CREATED'
-          ? t('tasks.approval.timeline.createdDescription')
-          : t('tasks.approval.timeline.pendingDescription')
-  return {
-    id: String(event.id ?? `${eventType || 'event'}-${index + 1}`),
-    label,
-    description,
-    createdAt: firstNonEmptyString(stringFromRecord(event, 'createdAt'), stringFromRecord(event, 'timestamp')) ?? approvalTask.value?.createdAt ?? '',
-    tone: forceEnded || rejected ? 'danger' : approved ? 'success' : eventType === 'CREATED' ? 'warning' : 'info',
-  }
-}
-
-function approvalEventData(event: Record<string, unknown>): Record<string, unknown> | undefined {
-  const value = event.eventData
-  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
-  if (typeof value !== 'string' || !value.trim()) return undefined
-  try {
-    const parsed: unknown = JSON.parse(value)
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined
-  } catch {
-    return undefined
-  }
 }
 
 function taskResultSummary(task: TaskRun): string {
@@ -1314,18 +1153,6 @@ function taskAutomationRunId(task: TaskRun): string | undefined {
   )
 }
 
-function taskApprovalId(task: TaskRun): string | undefined {
-  return firstNonEmptyString(
-    stringFromRecord(task.progress, 'approvalId'),
-    stringFromRecord(task.resourceSummary, 'approvalId'),
-    stringFromRecord(task.payload, 'approvalId'),
-  )
-}
-
-function taskNeedsApproval(task: TaskRun | null | undefined): boolean {
-  return Boolean(task && taskApprovalId(task) && isPendingApprovalTask(task))
-}
-
 function canForceCancel(task: TaskRun | null | undefined): boolean {
   return Boolean(task && ['QUEUED', 'RUNNING', 'RETRY_WAITING', 'WAITING_RESULT', 'AWAITING_CONFIRMATION', 'CANCELLING'].includes(task.status))
 }
@@ -1347,10 +1174,7 @@ function closeForceCancelConfirm(force = false): void {
 async function confirmForceEndTask(): Promise<void> {
   const task = forceCancelTarget.value
   if (!task || forceCancelLoading.value) return
-  const returnToListAfterCancel = Boolean(
-    (approvalModalOpen.value && approvalTask.value?.id === task.id)
-      || (detail.value?.task.id === task.id),
-  )
+  const returnToListAfterCancel = detail.value?.task.id === task.id
   forceCancelLoading.value = true
   forceCancelError.value = ''
   try {
@@ -1360,10 +1184,6 @@ async function confirmForceEndTask(): Promise<void> {
       applyRealtimeTaskChange(updated)
       applyLocalTaskChange(updated)
       if (detail.value?.task.id === updated.id) detail.value = { ...detail.value, task: updated }
-      if (approvalTask.value?.id === updated.id) {
-        approvalTask.value = updated
-        if (updated.status === 'CANCELLED') closeApprovalModal()
-      }
       closeForceCancelConfirm(true)
       if (returnToListAfterCancel) returnToTaskList()
     }
@@ -1384,8 +1204,6 @@ function automationActionLabel(actionType?: string): string {
 function resetAutomationDetail(): void {
   automationRun.value = null
   automationTargets.value = []
-  taskApprovalPending.value = false
-  taskApprovalError.value = ''
 }
 
 async function loadAutomationTaskDetail(task: TaskRun): Promise<void> {
@@ -1399,29 +1217,8 @@ async function loadAutomationTaskDetail(task: TaskRun): Promise<void> {
   automationTargets.value = targetRecords
 }
 
-async function decideDetailTaskApproval(decision: 'approved' | 'rejected'): Promise<void> {
-  const task = detailTask.value ?? approvalTask.value
-  if (!task) return
-  const approvalId = taskApprovalId(task)
-  if (!approvalId) {
-    taskApprovalError.value = t('deploymentPlans.approval.missingApprovalId')
-    return
-  }
-  taskApprovalPending.value = true
-  taskApprovalError.value = ''
-  try {
-    await decideApproval({ approvalId, decision })
-    returnToTaskList()
-  } catch (cause) {
-    taskApprovalError.value = cause instanceof Error ? cause.message : t('deploymentPlans.approval.decisionFailed')
-  } finally {
-    taskApprovalPending.value = false
-  }
-}
-
 function returnToTaskList(): void {
   closeDetail()
-  closeApprovalModal()
   forceCancelConfirmOpen.value = false
   forceCancelTarget.value = null
   forceCancelError.value = ''
@@ -1757,13 +1554,7 @@ function recordString(record: InternalCaRecord, key: string): string {
               :tone="detailTask ? taskStatusTone(detailTask) : statusTone('QUEUED')"
             />
           </div>
-          <div v-if="detailTask && (canForceCancel(detailTask) || taskNeedsApproval(detailTask))" class="task-drawer__detail-actions">
-            <GcButton v-if="taskNeedsApproval(detailTask)" variant="primary" :loading="taskApprovalPending" @click="decideDetailTaskApproval('approved')">
-              {{ t('deploymentPlans.actions.approve') }}
-            </GcButton>
-            <GcButton v-if="taskNeedsApproval(detailTask)" :loading="taskApprovalPending" @click="decideDetailTaskApproval('rejected')">
-              {{ t('deploymentPlans.actions.reject') }}
-            </GcButton>
+          <div v-if="detailTask && canForceCancel(detailTask)" class="task-drawer__detail-actions">
             <GcButton v-if="canForceCancel(detailTask)" class="gc-button--danger" :loading="forceCancelLoading" @click="requestForceEndTask(detailTask)">
               {{ t('tasks.actions.forceCancel') }}
             </GcButton>
@@ -1981,16 +1772,6 @@ function recordString(record: InternalCaRecord, key: string): string {
                     <dd>{{ automationRunProgressText() }}</dd>
                   </div>
                 </dl>
-                <div v-if="taskNeedsApproval(detailTask)" class="task-drawer__automation-actions">
-                  <GcButton variant="primary" :loading="taskApprovalPending" @click="decideDetailTaskApproval('approved')">
-                    {{ t('deploymentPlans.actions.approve') }}
-                  </GcButton>
-                  <GcButton :loading="taskApprovalPending" @click="decideDetailTaskApproval('rejected')">
-                    {{ t('deploymentPlans.actions.reject') }}
-                  </GcButton>
-                  <span v-if="taskApprovalPending" class="task-drawer__item-meta">{{ t('deploymentPlans.approval.processing') }}</span>
-                </div>
-                <p v-if="taskApprovalError" class="gc-form-error">{{ taskApprovalError }}</p>
                 <p v-if="detailTask.lastErrorMessage" class="task-drawer__automation-error">{{ detailTask.lastErrorMessage }}</p>
               </div>
               <GcEmptyState v-if="automationTargets.length === 0" class="task-drawer__empty task-drawer__empty--section" :title="t('tasks.values.empty')" />
@@ -2295,107 +2076,6 @@ function recordString(record: InternalCaRecord, key: string): string {
       </GcButton>
     </template>
   </GcModal>
-  <GcModal
-    v-model:open="approvalModalOpen"
-    size="lg"
-    :title="t('tasks.approval.title')"
-    :description="t('tasks.approval.description')"
-  >
-    <div class="task-drawer__approval-view">
-      <div v-if="approvalLoading" class="task-drawer__loading">{{ t('common.loading') }}</div>
-      <p v-else-if="approvalLoadError" class="gc-form-error">{{ approvalLoadError }}</p>
-      <template v-else-if="approvalTask">
-        <header class="task-drawer__approval-header">
-          <div>
-            <small class="task-drawer__item-type">{{ taskTypeLabel(approvalTask) }}</small>
-            <h3>{{ taskDisplayTitle(approvalTask) }}</h3>
-            <p>{{ approvalOperationLabel(approvalTask) }} · {{ taskApprovalId(approvalTask) || t('common.notAvailable') }}</p>
-          </div>
-          <GcStatusTag :status="approvalTask.status" :label="taskStatusLabel(approvalTask)" :tone="statusTone(approvalTask.status)" />
-        </header>
-        <section class="task-drawer__approval-content">
-          <h4>{{ t('tasks.approval.contentTitle') }}</h4>
-          <dl class="task-drawer__approval-summary">
-            <div class="task-drawer__record">
-              <dt>{{ t('tasks.approval.fields.operation') }}</dt>
-              <dd>{{ approvalOperationLabel(approvalTask) }}</dd>
-            </div>
-            <div class="task-drawer__record">
-              <dt>{{ t('tasks.approval.fields.target') }}</dt>
-              <dd>{{ taskRelatedName(approvalTask) }}</dd>
-            </div>
-            <div class="task-drawer__record">
-              <dt>{{ t('tasks.approval.fields.approvalId') }}</dt>
-              <dd>{{ taskApprovalId(approvalTask) || t('common.notAvailable') }}</dd>
-            </div>
-            <div class="task-drawer__record">
-              <dt>{{ t('tasks.approval.fields.requestedBy') }}</dt>
-              <dd>{{ approvalTask.requestedBy || t('tasks.values.system') }}</dd>
-            </div>
-            <div class="task-drawer__record">
-              <dt>{{ t('tasks.approval.fields.riskLevel') }}</dt>
-              <dd>{{ recordValue(approvalTask.resourceSummary || {}, 'riskLevel') }}</dd>
-            </div>
-            <div class="task-drawer__record">
-              <dt>{{ t('tasks.approval.fields.createdAt') }}</dt>
-              <dd>{{ localTime(approvalTask.createdAt) }}</dd>
-            </div>
-            <div class="task-drawer__record">
-              <dt>{{ t('tasks.approval.fields.decision') }}</dt>
-              <dd>{{ approvalDecisionLabel(approvalTask) }}</dd>
-            </div>
-            <div class="task-drawer__record">
-              <dt>{{ t('tasks.approval.fields.summary') }}</dt>
-              <dd>{{ approvalContentSummary(approvalTask) }}</dd>
-            </div>
-          </dl>
-          <p class="task-drawer__approval-summary-copy">{{ approvalContentSummary(approvalTask) }}</p>
-        </section>
-        <section class="task-drawer__approval-timeline">
-          <h4>{{ t('tasks.approval.timelineTitle') }}</h4>
-          <ol>
-            <li v-for="item in approvalTimeline" :key="item.id" :data-tone="item.tone">
-              <span class="task-drawer__approval-timeline-dot" aria-hidden="true" />
-              <div>
-                <div class="task-drawer__approval-timeline-head">
-                  <strong>{{ item.label }}</strong>
-                  <time>{{ localTime(item.createdAt) }}</time>
-                </div>
-                <p>{{ item.description }}</p>
-              </div>
-            </li>
-          </ol>
-        </section>
-        <section v-if="automationRun || automationTargets.length > 0" class="task-drawer__section">
-          <h4>{{ t('automations.editor.sections.targets') }}</h4>
-          <GcEmptyState v-if="automationTargets.length === 0" class="task-drawer__empty task-drawer__empty--section" :title="t('tasks.values.empty')" />
-          <div v-for="target in automationTargets" :key="target.id" class="task-drawer__record task-drawer__approval-target">
-            <div class="task-drawer__record-header">
-              <strong>{{ target.targetSnapshot.assetName || target.targetSnapshot.certificateName || t('common.notAvailable') }}</strong>
-              <GcStatusTag :status="target.status" />
-            </div>
-            <span>{{ target.targetSnapshot.certificateName || t('common.notAvailable') }}</span>
-            <span>{{ target.targetSnapshot.environment || t('common.notAvailable') }}</span>
-          </div>
-        </section>
-        <p v-if="taskApprovalError" class="gc-form-error">{{ taskApprovalError }}</p>
-        <footer class="task-drawer__approval-actions">
-          <span>{{ t('deploymentPlans.approval.decisionHint') }}</span>
-          <div>
-            <GcButton v-if="taskNeedsApproval(approvalTask)" variant="primary" :loading="taskApprovalPending" @click="decideDetailTaskApproval('approved')">
-              {{ t('deploymentPlans.actions.approve') }}
-            </GcButton>
-            <GcButton v-if="taskNeedsApproval(approvalTask)" :loading="taskApprovalPending" @click="decideDetailTaskApproval('rejected')">
-              {{ t('deploymentPlans.actions.reject') }}
-            </GcButton>
-            <GcButton v-if="canForceCancel(approvalTask)" class="gc-button--danger" :loading="forceCancelLoading" @click="requestForceEndTask(approvalTask)">
-              {{ t('tasks.actions.forceCancel') }}
-            </GcButton>
-          </div>
-        </footer>
-      </template>
-    </div>
-  </GcModal>
 </template>
 
 <style scoped>
@@ -2498,194 +2178,12 @@ function recordString(record: InternalCaRecord, key: string): string {
   overflow: auto;
 }
 
-.task-drawer__approval-view {
-  display: flex;
-  flex-direction: column;
-  gap: var(--gc-space-5);
-  min-height: 0;
-  overflow: auto;
-}
-
-.task-drawer__approval-header,
 .task-drawer__detail-actions,
-.task-drawer__approval-actions,
 .task-drawer__record-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--gc-space-4);
-}
-
-.task-drawer__approval-header h3,
-.task-drawer__approval-header p {
-  margin: 0;
-}
-
-.task-drawer__approval-header h3 {
-  margin-top: var(--gc-space-1);
-  color: var(--gc-color-text-strong);
-  font-size: var(--gc-font-size-xl);
-}
-
-.task-drawer__approval-header p,
-.task-drawer__approval-actions > span {
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-sm);
-}
-
-.task-drawer__approval-summary {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--gc-space-3);
-}
-
-.task-drawer__approval-summary .task-drawer__record {
-  gap: var(--gc-space-1);
-}
-
-.task-drawer__approval-content,
-.task-drawer__approval-timeline {
-  display: grid;
-  gap: var(--gc-space-2);
-}
-
-.task-drawer__approval-content h4,
-.task-drawer__approval-timeline h4 {
-  margin: 0;
-}
-
-.task-drawer__approval-content .task-drawer__record {
-  min-width: 0;
-  padding: var(--gc-space-3);
-  border: var(--gc-border-width-default) solid var(--gc-color-border);
-  border-radius: var(--gc-radius-md);
-  background: var(--gc-color-surface-field);
-}
-
-.task-drawer__approval-content dt,
-.task-drawer__approval-content dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.task-drawer__approval-content dt {
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-}
-
-.task-drawer__approval-content dd {
-  margin-top: var(--gc-space-1);
-  color: var(--gc-color-text-strong);
-  font-size: var(--gc-font-size-sm);
-  font-weight: var(--gc-font-weight-semibold);
-}
-
-.task-drawer__approval-summary-copy {
-  margin: 0;
-  padding: var(--gc-space-3);
-  border-left: calc(var(--gc-space-1) - var(--gc-space-hairline)) solid var(--gc-color-primary-border);
-  color: var(--gc-color-text-muted);
-  background: var(--gc-color-surface-subtle);
-  font-size: var(--gc-font-size-sm);
-  line-height: var(--gc-line-height-relaxed);
-  overflow-wrap: anywhere;
-}
-
-.task-drawer__approval-timeline > ol {
-  display: grid;
-  gap: var(--gc-space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.task-drawer__approval-timeline > ol > li {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: var(--gc-space-3);
-  align-items: flex-start;
-  padding: var(--gc-space-3);
-  border: var(--gc-border-width-default) solid var(--gc-color-border);
-  border-radius: var(--gc-radius-md);
-  background: var(--gc-color-surface-field);
-}
-
-.task-drawer__approval-timeline-dot {
-  width: var(--gc-space-3);
-  height: var(--gc-space-3);
-  margin-top: var(--gc-space-1);
-  border-radius: var(--gc-radius-full);
-  background: var(--gc-color-info);
-  box-shadow: 0 0 0 var(--gc-space-1) var(--gc-color-info-soft);
-}
-
-.task-drawer__approval-timeline li[data-tone='success'] .task-drawer__approval-timeline-dot {
-  background: var(--gc-color-success);
-  box-shadow: 0 0 0 var(--gc-space-1) var(--gc-color-success-soft);
-}
-
-.task-drawer__approval-timeline li[data-tone='danger'] .task-drawer__approval-timeline-dot {
-  background: var(--gc-color-danger);
-  box-shadow: 0 0 0 var(--gc-space-1) var(--gc-color-danger-soft);
-}
-
-.task-drawer__approval-timeline li[data-tone='warning'] .task-drawer__approval-timeline-dot {
-  background: var(--gc-color-warning);
-  box-shadow: 0 0 0 var(--gc-space-1) var(--gc-color-warning-soft);
-}
-
-.task-drawer__approval-timeline-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--gc-space-3);
-}
-
-.task-drawer__approval-timeline-head time,
-.task-drawer__approval-timeline li p {
-  margin: 0;
-  color: var(--gc-color-text-muted);
-  font-size: var(--gc-font-size-xs);
-}
-
-.task-drawer__approval-timeline li p {
-  margin-top: var(--gc-space-1);
-  line-height: var(--gc-line-height-relaxed);
-}
-
-.task-drawer__approval-target {
-  gap: var(--gc-space-2);
-}
-
-.task-drawer__approval-actions {
-  align-items: center;
-  padding-top: var(--gc-space-3);
-  border-top: var(--gc-border-width-default) solid var(--gc-color-border);
-}
-
-.task-drawer__approval-actions > div {
-  display: flex;
-  gap: var(--gc-space-2);
-  flex: 0 0 auto;
-}
-
-@media (max-width: 42rem) {
-  .task-drawer__approval-summary {
-    grid-template-columns: 1fr;
-  }
-
-  .task-drawer__approval-actions {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .task-drawer__approval-actions > div {
-    width: 100%;
-  }
-
-  .task-drawer__approval-actions button {
-    flex: 1 1 0;
-  }
 }
 
 .task-drawer__toolbar {

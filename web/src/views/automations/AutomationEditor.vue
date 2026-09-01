@@ -24,7 +24,7 @@ const emit = defineEmits<{
 const { t } = useI18n()
 
 type EditorTriggerType = 'api' | 'once' | 'schedule' | 'on_demand' | 'certificate_version_created'
-type ExternalExecutionMode = 'direct' | 'approval'
+type ExternalExecutionMode = 'direct'
 type RecurrenceType = 'daily' | 'weekly' | 'monthly' | 'custom'
 type CertificateEventSource = 'manual_import' | 'acme_issue'
 type TargetScopeMode = 'all_related_assets' | 'selected_assets'
@@ -46,8 +46,7 @@ const form = reactive({
   selectedAssetIds: [] as string[],
   certificateDomains: [] as string[],
   concurrency: 5,
-  requireApproval: true,
-  externalExecutionMode: 'approval' as ExternalExecutionMode,
+  externalExecutionMode: 'direct' as ExternalExecutionMode,
   failureCount: 3,
 })
 
@@ -235,9 +234,7 @@ watch(() => props.automation, (automation) => {
     selectedAssetIds,
     certificateDomains: eventDomains.map(normalizeDomain),
     concurrency: automation.configuration.guardrails.concurrencyLimit,
-    requireApproval: automation.configuration.guardrails.requireApproval,
-    externalExecutionMode: automation.configuration.externalApi?.executionMode
-      ?? (automation.configuration.guardrails.requireApproval ? 'approval' : 'direct'),
+    externalExecutionMode: 'direct',
     failureCount: automation.configuration.guardrails.failureCountThreshold ?? 3,
   })
   reconcileSelectedAssetIds()
@@ -284,8 +281,7 @@ function resetForm() {
     selectedAssetIds: [],
     certificateDomains: [],
     concurrency: 5,
-    requireApproval: true,
-    externalExecutionMode: 'approval',
+    externalExecutionMode: 'direct',
     failureCount: 3,
   })
   currentStep.value = 1
@@ -601,12 +597,9 @@ function submit() {
     name: form.name.trim() || generatedAutomationName.value,
     description: form.description.trim() || undefined,
     trigger: buildTrigger(),
-    ...(form.triggerType === 'api' ? { externalApi: { executionMode: form.externalExecutionMode } } : {}),
+    ...(form.triggerType === 'api' ? { externalApi: { executionMode: 'direct' as const } } : {}),
     filters: buildFilters(),
     targetResolver,
-    approvalStage: (form.triggerType === 'api' ? form.externalExecutionMode === 'approval' : form.requireApproval)
-      ? { type: 'run', mode: 'before_actions', operationType: 'automation.run.approve', riskLevel: 'high' }
-      : undefined,
     actions: [
       {
         type: 'create_deployment_plan',
@@ -624,7 +617,7 @@ function submit() {
         config: {
           templateKey: 'automation.execution',
           eventKey: 'automation.execution',
-          events: ['started', 'completed', 'failed', 'waiting_approval'],
+          events: ['started', 'completed', 'failed'],
         },
       },
     ],
@@ -633,7 +626,7 @@ function submit() {
       concurrencyLimit: form.concurrency,
       requirePreview: true,
       requireDryRun: false,
-      requireApproval: form.triggerType === 'api' ? form.externalExecutionMode === 'approval' : form.requireApproval,
+      requireApproval: false,
       failureCountThreshold: form.failureCount,
     },
   })
@@ -755,16 +748,6 @@ function submit() {
         <template v-else-if="form.triggerType === 'api'">
           <div class="automation-editor__summary automation-editor__field--full">
             <strong>{{ t('automations.scheduleBuilder.api') }}</strong>
-            <label class="automation-editor__api-mode">
-              <select
-                v-model="form.externalExecutionMode"
-                data-testid="automation-external-execution-mode"
-                :aria-label="t('automations.externalApi.executionModeAria')"
-              >
-                <option value="direct">{{ t('automations.externalApi.direct') }}</option>
-                <option value="approval">{{ t('automations.externalApi.approval') }}</option>
-              </select>
-            </label>
             <div class="automation-editor__api-key" data-testid="automation-external-api-key">
               <div class="automation-editor__api-key-header">
                 <strong>{{ t('automations.externalApi.keyTitle') }}</strong>
@@ -1004,11 +987,6 @@ function submit() {
         <label>
           <span>{{ t('automations.fields.failureCount') }}</span>
           <input v-model.number="form.failureCount" type="number" min="1" />
-        </label>
-
-        <label v-if="form.triggerType !== 'api'" class="automation-editor__check">
-          <input v-model="form.requireApproval" type="checkbox" />
-          <span>{{ t('automations.fields.requireApproval') }}</span>
         </label>
 
         <label class="automation-editor__field--full" data-testid="automation-description-field">
