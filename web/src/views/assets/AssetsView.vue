@@ -7,9 +7,9 @@ import type { BusinessPageConfig } from '@/views/business-page.types'
 import { deleteManagedDeviceAsset, getManagedDevice, listManagedDevices } from '@/api/modules/devices.api'
 import { checkAgentUpgrade, deleteAgent, dispatchAgentUpgrade, listCloudServiceAssets } from '@/api/modules/assets.api'
 import { GcButton, GcModal, GcStatusTag } from '@/design-system/components'
-import DeviceOnboardingWizard from './DeviceOnboardingWizard.vue'
-import DeviceAssetEditModal from './DeviceAssetEditModal.vue'
-import ManagedDeviceDetailModal from './details/ManagedDeviceDetailModal.vue'
+import DeviceOnboardingWizard from '@/views/devices/DeviceOnboardingWizard.vue'
+import DeviceAssetEditModal from '@/views/devices/DeviceAssetEditModal.vue'
+import ManagedDeviceDetailModal from '@/views/devices/details/ManagedDeviceDetailModal.vue'
 import { readString, type ViewRow } from '@/composables/useBusinessPage'
 
 const PRODUCT_FAMILY_LABEL_KEYS: Readonly<Record<string, string>> = {

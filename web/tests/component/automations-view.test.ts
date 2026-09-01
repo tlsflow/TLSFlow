@@ -7,7 +7,7 @@ import AutomationsView from '@/views/automations/AutomationsView.vue'
 import { previewAutomation, runAutomation } from '@/api/modules/automations.api'
 
 vi.mock('@/api/modules/assets.api', () => ({
-  listAssets: vi.fn(async () => ({
+  listApplications: vi.fn(async () => ({
     data: {
       items: [],
       total: 0,

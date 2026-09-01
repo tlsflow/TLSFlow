@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { i18n } from '@/i18n'
 
-const assetMocks = vi.hoisted(() => ({ listAssets: vi.fn() }))
+const assetMocks = vi.hoisted(() => ({ listApplications: vi.fn() }))
 const bindingMocks = vi.hoisted(() => ({ listBindings: vi.fn() }))
 const certificateMocks = vi.hoisted(() => ({ listCertificates: vi.fn(), listCertificateVersions: vi.fn() }))
 const monitorMocks = vi.hoisted(() => ({
@@ -37,7 +37,7 @@ function page(items: readonly Record<string, unknown>[]) {
 
 describe('MonitorsView', () => {
   it('展示目标分栏并支持状态筛选和清空', async () => {
-    assetMocks.listAssets.mockResolvedValue(page([
+    assetMocks.listApplications.mockResolvedValue(page([
       { id: 'asset-1', displayName: 'a.example.com', address: 'https://a.example.com:443' },
     ]))
     bindingMocks.listBindings.mockResolvedValue(page([]))

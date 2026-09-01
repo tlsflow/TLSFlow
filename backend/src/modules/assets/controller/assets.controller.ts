@@ -983,6 +983,8 @@ export function getAssetsRouteContracts(): RouteContract[] {
     { method: 'PATCH', path: '/api/v1/service-assets/:id/deployment-strategy', operationId: 'updateServiceAssetDeploymentStrategyById', summary: '按 ID 更新 ServiceAsset 证书部署策略', tags, responseSchema: objectSchema() },
     { method: 'PATCH', path: '/api/v1/service-assets/deployment-strategy', operationId: 'updateServiceAssetDeploymentStrategy', summary: '更新 ServiceAsset 证书部署策略', tags, responseSchema: objectSchema() },
     { method: 'PUT', path: '/api/v1/application-assets/:applicationAssetId/standalone-workflow', operationId: 'saveStandaloneWorkflowExecution', summary: '保存非受管工作流执行配置', tags, responseSchema: objectSchema() },
+    { method: 'GET', path: '/api/v1/application-assets/:applicationAssetId/execution-compatibility', operationId: 'getApplicationExecutionCompatibility', summary: '读取应用执行兼容性', tags, responseSchema: objectSchema() },
+    { method: 'POST', path: '/api/v1/application-assets/:applicationAssetId/execution-compatibility/recheck', operationId: 'recheckApplicationExecutionCompatibility', summary: '重新检查应用执行兼容性', tags, responseSchema: objectSchema() },
     { method: 'POST', path: '/api/v1/service-assets/delete', operationId: 'deleteServiceAsset', summary: '软删除 ServiceAsset', tags, responseSchema: objectSchema() },
     { method: 'GET', path: '/api/v1/application-asset-targets', operationId: 'listApplicationAssetTargets', summary: '查询 ApplicationAssetTarget 列表', tags, responseSchema: pageSchema() },
     { method: 'GET', path: '/api/v1/application-targets', operationId: 'listApplicationTargets', summary: '查询 ApplicationTarget 列表', tags, responseSchema: pageSchema() },

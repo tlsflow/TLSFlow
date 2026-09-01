@@ -9,7 +9,7 @@ const apiMocks = vi.hoisted(() => ({
   listExecutions: vi.fn(),
   recoverExecution: vi.fn(),
   listDeploymentPlans: vi.fn(),
-  listAssets: vi.fn(),
+  listApplications: vi.fn(),
   reloadDetail: vi.fn(),
 }))
 
@@ -29,7 +29,7 @@ vi.mock('@/api/modules/deployments.api', () => ({
 }))
 
 vi.mock('@/api/modules/assets.api', () => ({
-  listAssets: apiMocks.listAssets,
+  listApplications: apiMocks.listApplications,
 }))
 
 vi.mock('@/composables/useExecutionDetail', () => ({
@@ -49,7 +49,7 @@ describe('ExecutionsView', () => {
     apiMocks.listExecutions.mockReset()
     apiMocks.recoverExecution.mockReset()
     apiMocks.listDeploymentPlans.mockReset()
-    apiMocks.listAssets.mockReset()
+    apiMocks.listApplications.mockReset()
     apiMocks.reloadDetail.mockReset()
     routeQuery.value = {}
 
@@ -68,7 +68,7 @@ describe('ExecutionsView', () => {
       },
       requestId: 'req-plans',
     })
-    apiMocks.listAssets.mockResolvedValue({
+    apiMocks.listApplications.mockResolvedValue({
       data: {
         items: [
           {

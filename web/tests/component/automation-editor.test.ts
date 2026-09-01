@@ -2,11 +2,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { i18n } from '@/i18n'
 import AutomationEditor from '@/views/automations/AutomationEditor.vue'
-import { listAssets } from '@/api/modules/assets.api'
+import { listApplications } from '@/api/modules/assets.api'
 import { listCertificates } from '@/api/modules/certificates.api'
 
 vi.mock('@/api/modules/assets.api', () => ({
-  listAssets: vi.fn(async () => ({
+  listApplications: vi.fn(async () => ({
     data: {
       items: [
         {
@@ -56,7 +56,7 @@ describe('AutomationEditor', () => {
     expect(wrapper.text()).not.toContain('先确定这条自动化会如何更新资产，再决定额外条件和安全控制。')
     await wrapper.get('[data-testid="automation-certificate-domain-option"]').setValue(true)
     await wrapper.get('[data-testid="automation-scope-selected-assets"]').trigger('click')
-    await vi.waitFor(() => expect(vi.mocked(listAssets)).toHaveBeenCalled())
+    await vi.waitFor(() => expect(vi.mocked(listApplications)).toHaveBeenCalled())
     expect(wrapper.findAll('[data-testid="automation-available-asset-option"]')).toHaveLength(2)
     await wrapper.findAll('[data-testid="automation-available-asset-option"]')[0]?.setValue(true)
     await wrapper.findAll('[data-testid="automation-available-asset-option"]')[1]?.setValue(true)
@@ -340,7 +340,7 @@ describe('AutomationEditor', () => {
   })
 
   it('编辑时只保留当前应用资产清单，保存覆盖历史残留 ID', async () => {
-    vi.mocked(listAssets).mockResolvedValueOnce({
+    vi.mocked(listApplications).mockResolvedValueOnce({
       data: {
         items: [
           { id: 'asset-a', displayName: '生产应用', environment: 'production' },
