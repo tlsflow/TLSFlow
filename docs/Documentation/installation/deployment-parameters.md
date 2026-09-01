@@ -105,7 +105,7 @@ Browser Runtime Profile；不需要额外追加命令参数。若部署工具覆
 | `BROWSER_RUNTIME_MAX_SESSIONS` | `4` | 浏览器会话上限 |
 | `VITE_PRODUCT_EDITION` | `public` | 仅源码构建时使用，不属于运行时部署参数 |
 
-系统还读取 Agent 离线判断、设备存活探测、监控、自动化、CA 同步、ACME 续签和任务 Worker（后台任务进程）的间隔/并发变量，例如 `AGENT_OFFLINE_TIMEOUT_SECONDS`、`DEVICE_LIVENESS_PROBE_INTERVAL_MS`、`MONITOR_PROBE_SCHEDULER_INTERVAL_MS`、`AUTOMATION_SCHEDULER_INTERVAL_MS` 和 `GCAC_TASK_WORKER_INTERVAL_MS`。这些变量只用于容量调优，不是新功能开关；没有明确容量证据时保持默认值。
+系统还读取 Agent 离线判断、设备存活探测、监控、自动化、CA 同步、ACME 续签和任务 Worker（后台任务进程）的间隔/并发变量，例如 `AGENT_OFFLINE_TIMEOUT_SECONDS`、`DEVICE_LIVENESS_PROBE_INTERVAL_MS`、`MONITOR_PROBE_SCHEDULER_INTERVAL_MS`、`AUTOMATION_SCHEDULER_INTERVAL_MS` 和 `GCAC_TASK_WORKER_INTERVAL_MS`。Agent 终态任务自动清理可通过 `AGENT_TASK_CLEANUP_INTERVAL_MS`、`AGENT_TASK_CLEANUP_BATCH_SIZE`、`AGENT_TASK_DETERMINISTIC_RETENTION_SECONDS` 和 `AGENT_TASK_UNKNOWN_RETENTION_SECONDS` 调整；默认分别为 60 秒、100 条、1 小时和 24 小时。清理只删除 `succeeded`、`failed`、`rejected` 终态任务及其任务日志/游标，不触碰 `queued`、`leased`、`acked` 活动任务。上述变量只用于容量调优和保留期调整，不是新功能开关；没有明确容量证据时保持默认值。
 
 ## 明确不用于生产的变量
 
