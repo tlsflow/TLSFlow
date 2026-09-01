@@ -672,7 +672,9 @@ export class AssetsController {
     const subject = this.subjectFromRequest(request);
     await this.assertCanAsync(subject, 'application.update', 'service_asset', request, String(body.applicationAssetId));
     const enriched = await this.enrichApplicationAssetTargetInput(tenantId(request), body);
-    return { statusCode: 201, body: await this.service.getRepository().createApplicationAssetTarget(tenantId(request), enriched as any) };
+    const created = await this.service.getRepository().createApplicationAssetTarget(tenantId(request), enriched as any);
+    await this.executionCompatibility?.recheckApplication(tenantId(request), created.applicationAssetId);
+    return { statusCode: 201, body: created };
   }
 
   private async updateApplicationAssetTarget(request: HttpRequest) {
@@ -682,14 +684,18 @@ export class AssetsController {
     await this.assertCanAsync(subject, 'application.update', 'service_asset', request, id);
     const { id: _id, ...patch } = body;
     void _id;
-    return { statusCode: 200, body: await this.service.getRepository().updateApplicationAssetTarget(tenantId(request), id, patch as any) };
+    const updated = await this.service.getRepository().updateApplicationAssetTarget(tenantId(request), id, patch as any);
+    await this.executionCompatibility?.recheckApplication(tenantId(request), updated.applicationAssetId);
+    return { statusCode: 200, body: updated };
   }
 
   private async deleteApplicationAssetTarget(request: HttpRequest) {
     const body = validateObject(request.body, { id: { type: 'string', required: true } });
     const subject = this.subjectFromRequest(request);
     await this.assertCanAsync(subject, 'application.update', 'service_asset', request, String(body.id));
-    return { statusCode: 200, body: await this.service.getRepository().deleteApplicationAssetTarget(tenantId(request), String(body.id)) };
+    const deleted = await this.service.getRepository().deleteApplicationAssetTarget(tenantId(request), String(body.id));
+    await this.executionCompatibility?.recheckApplication(tenantId(request), deleted.applicationAssetId);
+    return { statusCode: 200, body: deleted };
   }
 
   private readApplicationAssetTargetBody(request: HttpRequest, creating: boolean): Record<string, unknown> {

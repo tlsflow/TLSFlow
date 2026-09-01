@@ -120,6 +120,27 @@ export class ApplicationExecutionCompatibilityService {
     return [];
   }
 
+  /** 重检引用某个 ManagedTarget 的应用，只按目标关联反查，不扫描租户全部应用。 */
+  async recheckManagedTarget(tenantId: string, managedTargetId: string): Promise<ApplicationExecutionCompatibility[]> {
+    const rows = (await this.db.query<{ application_asset_id: string }>(`
+      select distinct asset.id as application_asset_id
+        from pg_service_assets asset
+        left join pg_application_asset_targets target
+          on target.tenant_id=asset.tenant_id
+         and target.application_asset_id=asset.id
+         and target.managed_target_id=$2
+       where asset.tenant_id=$1
+         and asset.deleted_at is null
+         and (
+           target.id is not null
+           or asset.metadata->'deploymentStrategy'->'managedTarget'->>'managedTargetId'=$2
+         )
+    `, [tenantId, managedTargetId])).rows;
+    const results: ApplicationExecutionCompatibility[] = [];
+    for (const row of rows) results.push(...await this.recheckApplication(tenantId, row.application_asset_id));
+    return results;
+  }
+
   async recheckPlugin(tenantId: string, pluginId: string): Promise<ApplicationExecutionCompatibility[]> {
     // 来源判定必须复用当前解析规则；租户自有版本覆盖同 ID 的 BUILTIN 版本时，
     // 只能重检当前租户，不能误把用户插件当成全局内置插件。
@@ -160,6 +181,33 @@ export class ApplicationExecutionCompatibilityService {
       pluginResults.push(...checked);
     }
     return [...workflowResults, ...pluginResults];
+  }
+
+  /**
+   * 按插件关联反查租户后再重检，禁止为了一个插件扫描租户内全部应用。
+   * 关联来源只取应用/服务资产的直接 Assignment 和 WorkflowExecutionBinding。
+   */
+  async recheckPluginForAssociatedTenants(pluginId: string, tenantId?: string): Promise<ApplicationExecutionCompatibility[]> {
+    const tenantIds = tenantId
+      ? [tenantId]
+      : (await this.db.query<{ tenant_id: string }>(`
+          select distinct tenant_id from (
+            select tenant_id
+              from plugin_capability_assignments
+             where plugin_id=$1
+               and owner_type in ('APPLICATION_ASSET','SERVICE_ASSET')
+            union
+            select tenant_id
+              from workflow_execution_bindings
+             where plugin_id=$1
+          ) associated
+          order by tenant_id
+        `, [pluginId])).rows.map((row) => row.tenant_id);
+    const results: ApplicationExecutionCompatibility[] = [];
+    for (const currentTenantId of tenantIds) {
+      results.push(...await this.recheckPlugin(currentTenantId, pluginId));
+    }
+    return results;
   }
 
   async recheckWorkflowTemplate(tenantId: string, workflowTemplateId: string): Promise<ApplicationExecutionCompatibility[]> {

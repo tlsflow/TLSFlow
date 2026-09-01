@@ -162,6 +162,7 @@ export class PluginsController {
     });
     const imported = await this.unifiedPlugins.importVersion(security.tenantId, body as unknown as ImportUnifiedPluginVersionInput);
     if (imported.runtime === 'WORKFLOW_DSL') await this.pluginWorkflowPublisher?.publishPlugin(imported);
+    await this.recheckPluginCompatibility(security.tenantId, imported.pluginId);
     return {
       statusCode: 201,
       body: withPluginVersionIdentity(imported),
@@ -188,7 +189,7 @@ export class PluginsController {
     const body = validateObject(request.body, { pluginVersionId: { type: 'string', required: true } });
     const version = await this.requirePluginVersion(security, String(body.pluginVersionId), 'control');
     const enabled = await this.unifiedPlugins.enableVersion(version.id);
-    await this.executionCompatibility?.recheckPlugin(security.tenantId, enabled.pluginId);
+    await this.recheckPluginCompatibility(security.tenantId, enabled.pluginId);
     return withPluginVersionIdentity(enabled);
   }
 
@@ -197,7 +198,9 @@ export class PluginsController {
     await assertRouteAction(security, 'plugin.manage', 'plugin');
     const body = validateObject(request.body, { pluginVersionId: { type: 'string', required: true } });
     const version = await this.requirePluginVersion(security, String(body.pluginVersionId), 'control');
-    return this.unifiedPlugins.disableVersion(version.id).then(withPluginVersionIdentity);
+    const disabled = await this.unifiedPlugins.disableVersion(version.id);
+    await this.recheckPluginCompatibility(security.tenantId, disabled.pluginId);
+    return withPluginVersionIdentity(disabled);
   }
 
   private async retireUnifiedPluginVersion(request: HttpRequest) {
@@ -205,7 +208,9 @@ export class PluginsController {
     await assertRouteAction(security, 'plugin.manage', 'plugin');
     const body = validateObject(request.body, { pluginVersionId: { type: 'string', required: true } });
     const version = await this.requirePluginVersion(security, String(body.pluginVersionId), 'control');
-    return this.unifiedPlugins.retireVersion(version.id).then(withPluginVersionIdentity);
+    const retired = await this.unifiedPlugins.retireVersion(version.id);
+    await this.recheckPluginCompatibility(security.tenantId, retired.pluginId);
+    return withPluginVersionIdentity(retired);
   }
 
   private async getUnifiedPluginUpgradeDiff(request: HttpRequest) {
@@ -255,12 +260,14 @@ export class PluginsController {
       pluginVersionId: { type: 'string', required: true }, mode: { type: 'string', required: true },
       inputBindings: { type: 'object', required: true }, managedContext: { type: 'object' },
     });
-    await this.requirePluginVersion(security, String(body.pluginVersionId), 'read');
-    return this.pluginBindings.createBinding(security.tenantId, {
+    const version = await this.requirePluginVersion(security, String(body.pluginVersionId), 'read');
+    const binding = await this.pluginBindings.createBinding(security.tenantId, {
       pluginVersionId: String(body.pluginVersionId), mode: body.mode as 'MANAGED' | 'STANDALONE',
       inputBindings: body.inputBindings as never,
       managedContext: body.managedContext as never,
     });
+    await this.recheckPluginCompatibility(security.tenantId, version.pluginId);
+    return binding;
   }
 
   private async createCloudAccountCapabilityBinding(request: HttpRequest) {
@@ -311,6 +318,7 @@ export class PluginsController {
       pluginBindingId: binding.id,
       precedence: 'ASSET_OVERRIDE',
     });
+    await this.recheckPluginCompatibility(security.tenantId, version.pluginId);
     return { binding, assignment };
   }
 
@@ -341,8 +349,10 @@ export class PluginsController {
       objectId: binding.id,
       tenantId: binding.tenantId,
     });
-    await this.requirePluginVersion(security, binding.pluginVersionId, 'read');
-    return this.pluginBindings.updateBinding(security.tenantId, String(body.bindingId), body as never);
+    const version = await this.requirePluginVersion(security, binding.pluginVersionId, 'read');
+    const updated = await this.pluginBindings.updateBinding(security.tenantId, String(body.bindingId), body as never);
+    await this.recheckPluginCompatibility(security.tenantId, version.pluginId);
+    return updated;
   }
 
   private async assignPluginCapability(request: HttpRequest) {
@@ -358,9 +368,11 @@ export class PluginsController {
       objectId: binding.id,
       tenantId: binding.tenantId,
     });
-    await this.requirePluginVersion(security, String(body.pluginVersionId), 'read');
+    const version = await this.requirePluginVersion(security, String(body.pluginVersionId), 'read');
     await this.assertObjectReadForOwner(security, String(body.ownerType), String(body.ownerId));
-    return this.pluginBindings.assignCapability(security.tenantId, body as never);
+    const assignment = await this.pluginBindings.assignCapability(security.tenantId, body as never);
+    await this.recheckPluginCompatibility(security.tenantId, version.pluginId);
+    return assignment;
   }
 
   private async resolvePluginCapability(request: HttpRequest) {
@@ -430,7 +442,10 @@ export class PluginsController {
     const body = validateObject(request.body, { promotionId: { type: 'string', required: true } });
     const record = await this.requirePromotions().get(security.tenantId, String(body.promotionId));
     await this.assertPromotionObjects(security, record);
-    return this.requirePromotions().confirm(security.tenantId, record.id);
+    const source = await this.pluginBindings.getTenantBinding(security.tenantId, record.sourcePluginBindingId);
+    const confirmed = await this.requirePromotions().confirm(security.tenantId, record.id);
+    if (source.pluginId) await this.recheckPluginCompatibility(security.tenantId, source.pluginId);
+    return confirmed;
   }
 
   private async revokePromotion(request: HttpRequest) {
@@ -439,7 +454,10 @@ export class PluginsController {
     const body = validateObject(request.body, { promotionId: { type: 'string', required: true } });
     const record = await this.requirePromotions().get(security.tenantId, String(body.promotionId));
     await this.assertPromotionObjects(security, record);
-    return this.requirePromotions().revoke(security.tenantId, record.id);
+    const source = await this.pluginBindings.getTenantBinding(security.tenantId, record.sourcePluginBindingId);
+    const revoked = await this.requirePromotions().revoke(security.tenantId, record.id);
+    if (source.pluginId) await this.recheckPluginCompatibility(security.tenantId, source.pluginId);
+    return revoked;
   }
 
   private async getPromotion(request: HttpRequest) {
@@ -703,6 +721,11 @@ export class PluginsController {
   private requirePromotions(): PluginPromotionService {
     if (!this.promotions) throw new Error('PluginPromotionService 未配置');
     return this.promotions;
+  }
+
+  private async recheckPluginCompatibility(tenantId: string, pluginId: string | undefined): Promise<void> {
+    if (!this.executionCompatibility || !pluginId?.trim()) return;
+    await this.executionCompatibility.recheckPluginForAssociatedTenants(tenantId, pluginId.trim());
   }
 
 }

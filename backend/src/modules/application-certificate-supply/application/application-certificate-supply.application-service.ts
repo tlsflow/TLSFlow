@@ -467,6 +467,12 @@ export class ApplicationCertificateSupplyApplicationService {
       status: provider.status,
       ...(provider.capabilities ? { capabilities: provider.capabilities as unknown as Record<string, unknown> } : {}),
     }));
+    const providerById = new Map(rawProviders.map((provider) => [provider.id, provider]));
+    // 供应策略的内部 CA 选择只允许当前可用的非 ACME Provider（内置 CA、微软 AD CS 等）。
+    const availableAuthorities = authorities.filter((authority) => {
+      const provider = providerById.get(authority.providerId);
+      return authority.status === 'active' && provider?.status === 'active' && provider.type !== 'acme';
+    });
     const dns = listAcmeDnsProviders().map((item) => ({ id: item.id, name: item.name, requiresSecretRef: true as const }));
     return {
       payload: {
@@ -474,7 +480,7 @@ export class ApplicationCertificateSupplyApplicationService {
         acme: providers.filter((provider) => provider.type === 'acme'),
         dns,
         acmeProviderProfiles: acmeProviderProfiles.map((profile) => ({ id: profile.key, name: profile.displayName, version: profile.version })),
-        authorities: authorities.map((item) => ({ id: item.id, name: item.name, providerId: item.providerId, status: item.status })),
+        authorities: availableAuthorities.map((item) => ({ id: item.id, name: item.name, providerId: item.providerId, status: item.status })),
         profiles: profileEntries.map((entry) => ({
           id: entry.profile.id,
           name: entry.profile.name,
@@ -482,7 +488,7 @@ export class ApplicationCertificateSupplyApplicationService {
           versions: entry.versions.map((version) => ({ id: version.id, versionNo: version.versionNo })),
         })),
       },
-      authorities,
+      authorities: availableAuthorities,
       profiles: profileEntries,
     };
   }
