@@ -7,22 +7,22 @@ sourceLocale: zh-CN
 locale: zh-CN
 specRefs: []
 codeRefs:
-  - web/src/views/assets/AssetsView.vue
+  - web/src/views/applications/ApplicationsView.vue
   - backend/src/modules/assets
   - backend/src/modules/application-onboarding
 testRefs: []
 lastVerified: 2026-08-22
 ---
 
-# 应用资产
+# 应用
 
-应用资产代表一项需要保护或更新证书的业务。它把业务名称、访问地址、负责人、证书版本和执行目标放在一起，后续部署都从这里开始。
+应用是需要保护或更新证书的业务端点。它把业务名称、访问地址、负责人、证书版本和执行目标放在一起，后续部署都从这里开始。页面入口固定为 `/applications`，后端入口固定为 `/api/v1/applications`。
 
 > 【截图占位：应用资产列表，显示应用名称、环境、证书状态、目标数量和操作按钮】
 
 ## 新建应用资产
 
-1. 进入“资产中心 → 应用资产”，点击“新增”或“应用接入”。
+1. 进入“资产中心 → 应用”，点击“新增”或“应用接入”。
 2. 填写应用名称、访问域名或 IP、环境（如生产/测试）和负责人。
 3. 选择已完成连接测试和发现的设备、站点或目标。没有目标时先去“设备”接入并发现。
 4. 选择证书资产和具体版本，再选择目标系统需要的证书格式。

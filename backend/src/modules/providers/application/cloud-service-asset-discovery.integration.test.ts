@@ -130,8 +130,8 @@ test('标准 ServiceAsset 云资源接入会投影 Framework、Site 和真实 Ma
     [tenantId],
   );
   assert.deepEqual(assignments.rows, [
-    { owner_type: 'APPLICATION_ASSET', owner_id: result.assetId, capability_key: 'cloud.service.connection-test' },
-    { owner_type: 'APPLICATION_ASSET', owner_id: result.assetId, capability_key: 'cloud.service.discover' },
+    { owner_type: 'SERVICE_ASSET', owner_id: result.assetId, capability_key: 'cloud.service.connection-test' },
+    { owner_type: 'SERVICE_ASSET', owner_id: result.assetId, capability_key: 'cloud.service.discover' },
   ]);
 
   const persisted = await projection.listForAsset(tenantId, result.assetId as string, 'SERVICE_ASSET');

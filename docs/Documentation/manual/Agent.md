@@ -7,7 +7,7 @@ sourceLocale: zh-CN
 locale: zh-CN
 specRefs: []
 codeRefs:
-  - web/src/views/devices/DevicesView.vue
+  - web/src/views/assets/AssetsView.vue
   - backend/src/modules/agents
   - backend/src/modules/devices
 testRefs: []
@@ -20,7 +20,7 @@ Agent 是安装在目标主机上的管理程序。它负责保持在线、上�
 
 ## 接入主机
 
-1. 打开“资产中心 → 设备”，点击“新增”。
+1. 打开“资产中心 → 资产”，点击“新增”。
 2. 选择目标主机的操作系统和 Agent 接入方式。
 3. 按向导生成安装或注册材料，在目标主机完成安装。
 4. 回到设备页面等待状态显示“在线”，并确认最近心跳时间持续更新。

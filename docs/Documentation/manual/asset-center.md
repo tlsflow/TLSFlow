@@ -9,7 +9,7 @@ specRefs: []
 codeRefs:
   - web/src/router/menu.ts
   - web/src/router/modules/business.ts
-  - web/src/views/devices/DevicesView.vue
+  - web/src/views/assets/AssetsView.vue
   - backend/src/modules/assets/controller/assets.controller.ts
 testRefs: []
 lastVerified: 2026-08-28
@@ -17,13 +17,13 @@ lastVerified: 2026-08-28
 
 # 资产中心
 
-资产中心用于管理统一资产、设备和 Gateway（网络转发入口）。应用资产和云服务资产都从“添加资产”进入各自的现行接入链路，不增加云服务独立二级菜单。云服务资产本身是 `ServiceAsset(assetKind=CLOUD_SERVICE)`，不是设备或 Host。
+资产中心用于管理统一资产和 Gateway（网络转发入口）。`/applications` 是应用入口，`/assets` 是设备、Agent 关联资产和云服务实例的统一资产入口；不再提供 `/devices` 历史路由。云服务资产本身是 `ServiceAsset(assetKind=CLOUD_SERVICE)`，其可执行资源统一抽象为 `ManagedTarget`，不是设备或 Host。
 
 > 【截图占位：资产中心首页，显示应用资产、设备、Gateway 和“添加资产”动作】
 
 阿里云 CDN 从资产中心的“添加资产”进入，复用 `DeviceOnboardingWizard.vue` 和 `POST /api/v1/devices/onboarding`；后端识别云服务能力后创建 `ServiceAsset(CLOUD_SERVICE)`，再执行连接测试和发现。它不使用应用资产的五步会话，不选择证书或创建部署计划。`/providers` 不再作为二级菜单，但旧 CloudAccount API 仍保留兼容实现。
 
-需要云资源发现时，先在同一“添加资产”入口完成云服务接入；证书部署准备仍只针对设备和应用资产。
+需要云资源发现时，先在 `/assets` 的“添加资产”入口完成云服务接入；证书部署准备针对应用选择明确的 `ManagedTarget`。
 
 ## 四类资源如何区分
 

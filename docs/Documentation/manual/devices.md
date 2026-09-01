@@ -7,22 +7,22 @@ sourceLocale: zh-CN
 locale: zh-CN
 specRefs: []
 codeRefs:
-  - web/src/views/devices/DevicesView.vue
+  - web/src/views/assets/AssetsView.vue
   - backend/src/modules/devices
   - backend/src/modules/agents
 testRefs: []
 lastVerified: 2026-08-22
 ---
 
-# 设备
+# 设备资产
 
-设备代表证书最终要访问的主机、网络设备或服务。设备可以通过 Agent 管理，也可以通过地址和凭据直接连接。只有连接测试和发现都成功后，应用向导才会提供可部署目标。
+设备资产是统一资产的一类，代表证书最终要访问的主机或网络设备；Agent 是设备的管理通道，云服务实例也在统一资产页面中展示，但不伪装为设备。页面入口固定为 `/assets`。
 
 > 【截图占位：设备列表，标出设备名称、管理方式、地址、健康状态、版本和操作按钮】
 
 ## 新增并发现设备
 
-1. 进入“资产中心 → 设备”，点击“新增”。
+1. 进入“资产中心 → 资产”，点击“新增”。
 2. 在向导中选择接入平台和管理方式：安装 Agent，或使用页面提供的直接连接方式。
 3. 按页面提示填写设备名称、管理地址、端口、TLS 设置和已保存的凭据。
 4. 提交向导，等待设备记录创建完成；Agent 接入方式会显示安装或注册材料。

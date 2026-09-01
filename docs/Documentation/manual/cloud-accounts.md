@@ -8,8 +8,7 @@ locale: zh-CN
 specRefs: []
 codeRefs:
   - web/src/views/assets/AssetsView.vue
-  - web/src/views/application-onboarding/ApplicationOnboardingModal.vue
-  - web/src/views/application-onboarding/ApplicationOnboardingView.vue
+  - web/src/views/devices/DeviceOnboardingWizard.vue
   - backend/src/modules/providers
 testRefs: []
 lastVerified: 2026-08-26
@@ -17,14 +16,14 @@ lastVerified: 2026-08-26
 
 # 云服务资产接入
 
-云服务以统一资产中心中的 `ServiceAsset(assetKind=CLOUD_SERVICE)` 作为根对象。用户从资产中心“添加资产”复用 `DeviceOnboardingWizard.vue`，选择插件声明的表单后提交到 `POST /api/v1/devices/onboarding`，由后端完成连接测试和资源发现；不进入证书选择、部署或回滚阶段。访问密钥等敏感内容应先在“系统设置 → 凭据”中建立。
+云服务实例明确属于统一资产，根对象是 `ServiceAsset(assetKind=CLOUD_SERVICE)`，其可执行资源抽象为标准 `ManagedTarget`，不属于设备或 Host。用户从 `/assets` 的“添加资产”复用 `DeviceOnboardingWizard.vue`，选择插件声明的表单后提交到 `POST /api/v1/devices/onboarding`，由后端完成连接测试和资源发现；不进入证书选择、部署或回滚阶段。访问密钥等敏感内容应先在“系统设置 → 凭据”中建立。
 
 ## 添加云服务资产
 
 1. 进入“资产中心”点击“添加资产”，在平台列表中选择云服务插件。
 2. 填写显示名称和插件凭据字段；凭据只保存 CredentialRef。
 3. 提交后由兼容设备接入 API 转入云服务接入服务，创建 `ServiceAsset(assetKind=CLOUD_SERVICE)` 并执行连接测试和资源发现。
-4. 发现结果写入该 ServiceAsset 所有的 `FrameworkInstance` 和 `SiteAsset`。阿里云 CDN 按中国大陆和国际站 Framework 分组展示；Framework 名称仅显示覆盖范围，不显示账号或资产名称。
+4. 发现结果写入该 ServiceAsset 所有的 `FrameworkInstance`、`SiteAsset` 和资源明确声明的 `ManagedTarget`。阿里云 CDN 按中国大陆和国际站 Framework 分组展示；Framework 名称仅显示覆盖范围，不显示账号或资产名称。
 5. 发现完成后资产中心即可查看结果；本流程不选择证书、不创建部署计划。
 
 > 【截图占位：统一云服务资产向导，标出 Provider 选择、显示名称、凭据档案、下一步和保存按钮】
