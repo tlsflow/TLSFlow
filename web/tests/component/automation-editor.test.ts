@@ -136,6 +136,48 @@ describe('AutomationEditor', () => {
     expect(manual?.textContent).toContain('certificateVersionId')
   })
 
+  it('API 手册显示当前自动化 ID，并复制已嵌入 ID 的终端命令', async () => {
+    const writeText = vi.fn(async () => undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const wrapper = mount(AutomationEditor, {
+      props: {
+        automation: {
+          id: 'automation-api-123',
+          name: 'API 证书更新',
+          status: 'active',
+          currentVersion: 1,
+          version: 1,
+          configuration: {
+            trigger: { type: 'api' },
+            externalApi: { executionMode: 'direct' },
+            filters: [{ field: 'event.domains', operator: 'contains_any', value: ['example.com'] }],
+            targetResolver: { type: 'certificate_version_targets' },
+            actions: [],
+            guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 1, requirePreview: true, requireDryRun: false, requireApproval: false },
+          },
+        },
+      },
+      global: { plugins: [i18n] },
+    })
+
+    await wrapper.get('[data-testid="automation-external-api-manual"]').trigger('click')
+    const manual = [...document.body.querySelectorAll<HTMLElement>('[data-testid="automation-external-api-manual-modal"]')].at(-1)
+    if (!manual) throw new Error('API 手册模态框未打开')
+    expect(manual.querySelector('[data-testid="automation-external-api-manual-automation-id"]')?.textContent).toContain('automation-api-123')
+    const runCommand = manual.querySelector('[data-testid="automation-external-api-manual-copy-run"]') as HTMLButtonElement
+    const runTerminal = manual.querySelector('.automation-api-manual__terminal code')?.textContent ?? ''
+    expect(runTerminal).toContain('/api/v1/automation-external/automation-api-123/run')
+    expect(runTerminal).toContain('REPLACE_WITH_API_KEY')
+    expect(runTerminal).not.toContain('AUTOMATION_ID')
+    expect(runTerminal).not.toContain('ak_xxx')
+    expect(runCommand.classList.contains('gc-button--icon')).toBe(true)
+    expect(runCommand.getAttribute('title')).toBe('复制 CURL 命令')
+
+    runCommand.click()
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringContaining('/api/v1/automation-external/automation-api-123/run')))
+    await vi.waitFor(() => expect(runCommand.getAttribute('title')).toBe('已复制'))
+  })
+
   it('已启用 API 自动化显示完整 Key，并支持复制和刷新', async () => {
     const writeText = vi.fn(async () => undefined)
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })

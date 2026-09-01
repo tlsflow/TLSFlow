@@ -149,7 +149,12 @@ export class AutomationsApplicationService {
       executionOptions: options.executionOptions,
       items: preview,
     });
-    this.enqueueRunTask(run, actorId, options.triggerType === 'schedule' ? 'automation.scheduler' : 'automation.manual');
+    const triggerSource = options.triggerContext?.sourceType === 'external_api'
+      ? 'automation.external_api'
+      : options.externalExecutionMode === undefined
+      ? (options.triggerType === 'schedule' ? 'automation.scheduler' : 'automation.manual')
+      : 'automation.manual';
+    this.enqueueRunTask(run, actorId, triggerSource);
     return run;
   }
 

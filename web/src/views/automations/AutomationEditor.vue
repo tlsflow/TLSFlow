@@ -101,6 +101,40 @@ const externalApiKeyDisplay = computed(() => {
 })
 const externalApiKeyCopied = ref(false)
 const apiManualOpen = ref(false)
+const apiManualCopied = ref<string | null>(null)
+const apiManualAutomationId = computed(() => props.automation?.id ?? 'AUTOMATION_ID')
+const apiManualBaseUrl = computed(() => {
+  const configuredBaseUrl = String(import.meta.env.VITE_API_BASE_URL ?? '').trim()
+  if (/^https?:\/\//iu.test(configuredBaseUrl)) return configuredBaseUrl.replace(/\/api\/?$/iu, '')
+  if (typeof window !== 'undefined' && window.location.origin) return window.location.origin
+  return 'https://gcac.example.com'
+})
+const apiManualItems = computed(() => [
+  {
+    id: 'run',
+    titleKey: 'automations.externalApi.apiManualRunTitle',
+    descriptionKey: 'automations.externalApi.apiManualRunDescription',
+    endpoint: `/api/v1/automation-external/${apiManualAutomationId.value}/run`,
+    parameter: true,
+    command: renderApiManualCommand('automations.externalApi.apiManualRunCurl'),
+  },
+  {
+    id: 'preview',
+    titleKey: 'automations.externalApi.apiManualPreviewTitle',
+    descriptionKey: 'automations.externalApi.apiManualPreviewDescription',
+    endpoint: `/api/v1/automation-external/${apiManualAutomationId.value}/preview`,
+    parameter: true,
+    command: renderApiManualCommand('automations.externalApi.apiManualPreviewCurl'),
+  },
+  {
+    id: 'versions',
+    titleKey: 'automations.externalApi.apiManualVersionsTitle',
+    descriptionKey: 'automations.externalApi.apiManualVersionsDescription',
+    endpoint: `/api/v1/automation-external/${apiManualAutomationId.value}/certificate-versions`,
+    parameter: false,
+    command: renderApiManualCommand('automations.externalApi.apiManualVersionsCurl'),
+  },
+])
 const selectedAssetsSummary = computed(() => {
   if (form.targetScopeMode === 'all_related_assets') return t('automations.targetScopes.allRelatedAssets')
   if (form.selectedAssetIds.length === 0) return t('automations.fields.selectedAssetsHelp')
@@ -526,6 +560,17 @@ function clearSelectedAssets() {
 async function copyExternalApiKey(): Promise<void> {
   if (!props.externalApiKey) return
   externalApiKeyCopied.value = await copyTextToClipboard(props.externalApiKey)
+}
+
+function renderApiManualCommand(key: string): string {
+  return t(key)
+    .replaceAll('https://gcac.example.com', apiManualBaseUrl.value)
+    .replaceAll('AUTOMATION_ID', apiManualAutomationId.value)
+    .replaceAll('ak_xxx', 'REPLACE_WITH_API_KEY')
+}
+
+async function copyApiManualCommand(id: string, command: string): Promise<void> {
+  if (await copyTextToClipboard(command)) apiManualCopied.value = id
 }
 
 function goToStep(step: 1 | 2 | 3) {
@@ -1001,42 +1046,43 @@ function submit() {
     dialog-class="automation-api-manual-modal"
   >
     <section class="automation-api-manual" data-testid="automation-external-api-manual-modal">
-      <article class="automation-api-manual__item">
-        <header>
-          <span>1</span>
-          <div>
-            <h3>{{ t('automations.externalApi.apiManualRunTitle') }}</h3>
-            <p>{{ t('automations.externalApi.apiManualRunDescription') }}</p>
-          </div>
-        </header>
-        <code class="automation-api-manual__endpoint">POST /api/v1/automation-external/:automationId/run</code>
-        <p class="automation-api-manual__parameter">{{ t('automations.externalApi.apiManualCertificateVersion') }}</p>
-        <pre><code>{{ t('automations.externalApi.apiManualRunCurl') }}</code></pre>
-      </article>
+      <div class="automation-api-manual__identity" data-testid="automation-external-api-manual-automation-id">
+        <span>{{ t('automations.externalApi.apiManualAutomationId') }}</span>
+        <code>{{ apiManualAutomationId }}</code>
+        <small v-if="!props.automation?.id">{{ t('automations.externalApi.apiManualAutomationIdUnavailable') }}</small>
+      </div>
 
-      <article class="automation-api-manual__item">
+      <article v-for="(item, index) in apiManualItems" :key="item.id" class="automation-api-manual__item">
         <header>
-          <span>2</span>
+          <span>{{ index + 1 }}</span>
           <div>
-            <h3>{{ t('automations.externalApi.apiManualPreviewTitle') }}</h3>
-            <p>{{ t('automations.externalApi.apiManualPreviewDescription') }}</p>
+            <h3>{{ t(item.titleKey) }}</h3>
+            <p>{{ t(item.descriptionKey) }}</p>
           </div>
         </header>
-        <code class="automation-api-manual__endpoint">POST /api/v1/automation-external/:automationId/preview</code>
-        <p class="automation-api-manual__parameter">{{ t('automations.externalApi.apiManualCertificateVersion') }}</p>
-        <pre><code>{{ t('automations.externalApi.apiManualPreviewCurl') }}</code></pre>
-      </article>
-
-      <article class="automation-api-manual__item">
-        <header>
-          <span>3</span>
-          <div>
-            <h3>{{ t('automations.externalApi.apiManualVersionsTitle') }}</h3>
-            <p>{{ t('automations.externalApi.apiManualVersionsDescription') }}</p>
+        <code class="automation-api-manual__endpoint">{{ item.endpoint }}</code>
+        <p v-if="item.parameter" class="automation-api-manual__parameter">{{ t('automations.externalApi.apiManualCertificateVersion') }}</p>
+        <div class="automation-api-manual__terminal">
+          <div class="automation-api-manual__terminal-header">
+            <span>curl</span>
+            <GcButton
+              variant="icon"
+              :ariaLabel="apiManualCopied === item.id ? t('automations.externalApi.copied') : t('automations.externalApi.copyCurlAria')"
+              :title="apiManualCopied === item.id ? t('automations.externalApi.copied') : t('automations.externalApi.copyCurlAria')"
+              :data-testid="`automation-external-api-manual-copy-${item.id}`"
+              @click="copyApiManualCommand(item.id, item.command)"
+            >
+              <svg v-if="apiManualCopied === item.id" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="m5 12 4.5 4.5L19 7" />
+              </svg>
+              <svg v-else viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M8.5 8.5h9A2.5 2.5 0 0 1 20 11v8a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 6 19v-8a2.5 2.5 0 0 1 2.5-2.5Z" />
+                <path d="M16 8.5V5a2.5 2.5 0 0 0-2.5-2.5h-9A2.5 2.5 0 0 0 2 5v8A2.5 2.5 0 0 0 4.5 15H6" />
+              </svg>
+            </GcButton>
           </div>
-        </header>
-        <code class="automation-api-manual__endpoint">GET /api/v1/automation-external/:automationId/certificate-versions</code>
-        <pre><code>{{ t('automations.externalApi.apiManualVersionsCurl') }}</code></pre>
+          <pre><code>{{ item.command }}</code></pre>
+        </div>
       </article>
     </section>
     <template #actions>
@@ -1096,7 +1142,14 @@ function submit() {
 .automation-editor__api-key-actions .gc-button { white-space: nowrap; }
 .automation-editor__api-key-actions .gc-button--icon svg { width: var(--gc-font-size-md); height: var(--gc-font-size-md); fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
 .automation-editor__api-key > .gc-button { justify-self: start; }
+:global(.automation-api-manual-modal .gc-modal__header),
+:global(.automation-api-manual-modal .gc-modal__body),
+:global(.automation-api-manual-modal .gc-modal__actions) { padding: var(--gc-space-6); }
 .automation-api-manual { display: grid; gap: var(--gc-space-3); }
+.automation-api-manual__identity { display: flex; align-items: center; flex-wrap: wrap; gap: var(--gc-space-2); padding: var(--gc-space-3); border: var(--gc-border-width-default) solid var(--gc-color-primary-border); border-radius: var(--gc-radius-md); background: var(--gc-color-primary-soft); color: var(--gc-color-text); }
+.automation-api-manual__identity > span { font-weight: var(--gc-font-weight-semibold); }
+.automation-api-manual__identity > code { min-width: 0; overflow-wrap: anywhere; color: var(--gc-color-primary); font-family: var(--gc-font-family-mono); }
+.automation-api-manual__identity > small { color: var(--gc-color-text-muted); }
 .automation-api-manual__item { display: grid; gap: var(--gc-space-2); padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-border-subtle); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-panel); }
 .automation-api-manual__item > header { display: flex; align-items: flex-start; gap: var(--gc-space-3); }
 .automation-api-manual__item > header > span { display: grid; place-items: center; flex: 0 0 var(--gc-space-6); width: var(--gc-space-6); height: var(--gc-space-6); border-radius: var(--gc-radius-full); background: var(--gc-color-primary); color: var(--gc-color-text-inverse); font-weight: var(--gc-font-weight-semibold); }
@@ -1104,7 +1157,12 @@ function submit() {
 .automation-api-manual__item p { margin: var(--gc-space-1) 0 0; }
 .automation-api-manual__endpoint { display: block; overflow-x: auto; padding: var(--gc-space-2) var(--gc-space-3); border-radius: var(--gc-radius-sm); background: var(--gc-color-surface-raised); color: var(--gc-color-text); white-space: nowrap; }
 .automation-api-manual__parameter { color: var(--gc-color-text-muted); }
-.automation-api-manual__item pre { margin: 0; overflow-x: auto; padding: var(--gc-space-3); border-radius: var(--gc-radius-sm); background: var(--gc-color-surface-inverse); color: var(--gc-color-text-inverse); font-family: var(--gc-font-family-mono); font-size: var(--gc-font-size-sm); line-height: var(--gc-line-height-relaxed); white-space: pre-wrap; }
+.automation-api-manual__terminal { overflow: hidden; border: var(--gc-border-width-default) solid var(--gc-color-border-strong); border-radius: var(--gc-radius-md); background: var(--gc-color-code-bg); box-shadow: var(--gc-shadow-sm); }
+.automation-api-manual__terminal-header { display: flex; align-items: center; justify-content: space-between; min-height: var(--gc-control-height-xs); padding: 0 var(--gc-space-2) 0 var(--gc-space-3); border-bottom: var(--gc-border-width-default) solid var(--gc-color-border-strong); color: var(--gc-color-text-inverse); font-family: var(--gc-font-family-mono); font-size: var(--gc-font-size-xs); }
+:global(.automation-api-manual-modal .automation-api-manual__terminal-header .gc-button--icon) { width: var(--gc-control-height-xs); min-width: var(--gc-control-height-xs); min-height: var(--gc-control-height-xs); border-color: transparent; border-radius: var(--gc-radius-sm); color: var(--gc-color-text-inverse); background: transparent; box-shadow: none; }
+:global(.automation-api-manual-modal .automation-api-manual__terminal-header .gc-button--icon:hover:not(:disabled)) { border-color: var(--gc-color-primary); color: var(--gc-color-text-inverse); background: var(--gc-color-primary); box-shadow: none; }
+:global(.automation-api-manual-modal .automation-api-manual__terminal-header .gc-button--icon svg) { width: var(--gc-font-size-md); height: var(--gc-font-size-md); fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.automation-api-manual__terminal pre { margin: 0; max-height: calc(var(--gc-space-10) * 5); overflow: auto; padding: var(--gc-space-3); color: var(--gc-color-text-inverse); font-family: var(--gc-font-family-mono); font-size: var(--gc-font-size-sm); line-height: var(--gc-line-height-relaxed); white-space: pre-wrap; }
 .automation-editor__warning { display: grid; gap: var(--gc-space-2); padding: var(--gc-space-4); border: var(--gc-border-width-default) solid var(--gc-color-warning-border); border-radius: var(--gc-radius-md); background: var(--gc-color-warning-soft); color: var(--gc-color-text); }
 .automation-editor__chain { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gc-space-2); margin: 0; padding: 0; list-style: none; }
 .automation-editor__chain li { display: flex; align-items: center; gap: var(--gc-space-2); padding: var(--gc-space-2); border-radius: var(--gc-radius-md); background: var(--gc-color-surface-solid); color: var(--gc-color-text); }

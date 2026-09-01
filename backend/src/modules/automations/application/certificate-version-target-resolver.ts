@@ -5,6 +5,7 @@ import type { AssetsRepository } from '../../assets/repository/assets.repository
 import type { BindingsRepository } from '../../bindings/repository/bindings.repository.js';
 import type { CertificateBindingDto } from '../../bindings/dto/bindings.dto.js';
 import type { CertificatesRepository } from '../../certificates/repository/certificates.repository.js';
+import type { CertificateVersionEntity } from '../../certificates/schema/certificates.schema.js';
 import type { AutomationPreviewTargetDto } from '../dto/automations.dto.js';
 import type { AutomationTargetAccessPort, AutomationTargetResolver, AutomationTargetResolverInput } from './automation-target-resolver.registry.js';
 
@@ -21,15 +22,21 @@ export class CertificateVersionTargetResolver implements AutomationTargetResolve
   validate(): void {}
 
   async resolve(input: AutomationTargetResolverInput): Promise<AutomationPreviewTargetDto[]> {
-    const certificateVersionId = input.triggerContext?.certificateVersionId;
-    if (!certificateVersionId) return [];
-    const version = await this.certificates.getVersion(certificateVersionId, input.tenantId);
+    const certificateVersionReference = input.triggerContext?.certificateVersionId;
+    if (!certificateVersionReference) return [];
+    // 外部 API 兼容接收证书版本号（例如 5），但内部事件仍严格使用版本 ID。
+    const version = await resolveCertificateVersion({
+      certificates: this.certificates,
+      reference: certificateVersionReference,
+      tenantId: input.tenantId,
+      domains: input.triggerContext?.sourceType === 'external_api' ? input.triggerContext.domains : undefined,
+    });
     if (!version) {
       return [{
         target: {
           certificateId: input.triggerContext?.certificateAssetId ?? 'missing_certificate_asset',
           certificateName: 'missing_certificate_version',
-          certificateVersionId,
+          certificateVersionId: certificateVersionReference,
           eventId: input.triggerContext?.eventId,
           eventType: input.triggerContext?.eventType,
           sourceType: input.triggerContext?.sourceType,
@@ -59,7 +66,7 @@ export class CertificateVersionTargetResolver implements AutomationTargetResolve
       const configuredDomains = new Set(input.triggerContext.domains.map(normalizeDomain));
       if (!configuredDomains.has(normalizeDomain(asset.primaryDomain))) {
         throw new AppError('VALIDATION_FAILED', '证书版本不属于自动化预设域名', {
-          certificateVersionId,
+          certificateVersionId: version.id,
           primaryDomain: asset.primaryDomain,
           configuredDomains: [...configuredDomains],
         });
@@ -280,6 +287,41 @@ export class CertificateVersionTargetResolver implements AutomationTargetResolve
 
 function normalizeDomain(value: string): string {
   return value.trim().toLowerCase().replace(/\.$/u, '');
+}
+
+async function resolveCertificateVersion(input: {
+  certificates: CertificatesRepository;
+  reference: string;
+  tenantId: string;
+  domains?: string[];
+}): Promise<CertificateVersionEntity | undefined> {
+  const versionById = await input.certificates.getVersion(input.reference, input.tenantId);
+  if (versionById || !isVersionNumberReference(input.reference) || !input.domains?.length) return versionById;
+
+  const versionNo = Number(input.reference);
+  const candidates = new Map<string, CertificateVersionEntity>();
+  for (const domain of new Set(input.domains.map(normalizeDomain).filter(Boolean))) {
+    const page = await input.certificates.listVersions({
+      page: 1,
+      pageSize: 1000,
+      sort: { field: 'createdAt', direction: 'desc' },
+      filter: { primaryDomain: domain, status: 'active' },
+    }, input.tenantId);
+    for (const candidate of page.items) {
+      if (candidate.versionNo === versionNo) candidates.set(candidate.id, candidate);
+    }
+  }
+
+  if (candidates.size <= 1) return candidates.values().next().value;
+  throw new AppError('VALIDATION_FAILED', '证书版本号在自动化预设域名范围内不唯一，请传入真实 certificateVersionId', {
+    certificateVersionNo: versionNo,
+    configuredDomains: [...new Set(input.domains.map(normalizeDomain).filter(Boolean))],
+    candidateVersionIds: [...candidates.keys()],
+  });
+}
+
+function isVersionNumberReference(value: string): boolean {
+  return /^[1-9]\d*$/u.test(value) && Number.isSafeInteger(Number(value));
 }
 
 function dedupeTargets(items: AutomationPreviewTargetDto[]): AutomationPreviewTargetDto[] {

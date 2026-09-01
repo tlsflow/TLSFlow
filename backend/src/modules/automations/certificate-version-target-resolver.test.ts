@@ -452,3 +452,60 @@ test('证书事件解析器忽略已删除资产残留的 ManagedTarget 关联',
 
   assert.equal(items.length, 0);
 });
+
+test('外部 API 传入证书版本号时解析为真实版本并返回应用资产明细', async () => {
+  const targetVersion = {
+    id: 'certificate-version-5',
+    certificateAssetId: 'certificate-target',
+    versionNo: 5,
+    notAfter: '2026-10-25T00:00:00.000Z',
+    deployable: true,
+  };
+  const currentVersion = {
+    id: 'certificate-version-4',
+    certificateAssetId: 'certificate-target',
+    versionNo: 4,
+    notAfter: '2026-09-25T00:00:00.000Z',
+    deployable: true,
+  };
+  const resolver = new CertificateVersionTargetResolver(
+    {
+      getVersion: async (id: string) => id === targetVersion.id ? targetVersion : id === currentVersion.id ? currentVersion : undefined,
+      listVersions: async () => ({ page: 1, pageSize: 1000, total: 1, items: [targetVersion] }),
+      getVersionByFingerprint: async () => undefined,
+      getAsset: async () => ({ id: 'certificate-target', name: '*.example.com', primaryDomain: 'example.com', tags: [] }),
+    } as never,
+    {
+      listCertificateBindings: async () => ({
+        page: 1,
+        pageSize: 5000,
+        total: 1,
+        items: [{ id: 'binding-1', serviceAssetId: 'asset-1', status: 'MANAGED', certificateVersionId: currentVersion.id, deletedAt: undefined }],
+      }),
+    } as never,
+    {
+      getServiceAssetDetail: async () => undefined,
+      getServiceAsset: async () => ({ id: 'asset-1', displayName: 'app.example.com', environment: 'production' }),
+      getHost: async () => undefined,
+    } as never,
+    { canReadTarget: async () => true },
+  );
+
+  const items = await resolver.resolve({
+    tenantId: 'tenant-1',
+    actorId: 'external:api-key',
+    triggerContext: { certificateVersionId: '5', sourceType: 'external_api', domains: ['example.com'] },
+    resolver: { type: 'certificate_version_targets' },
+    guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 2, requirePreview: true, requireDryRun: false, requireApproval: false },
+  });
+
+  assert.equal(items.length, 1);
+  assert.equal(items[0]?.executable, true);
+  assert.equal(items[0]?.target.certificateVersionId, targetVersion.id);
+  assert.equal(items[0]?.target.assetId, 'asset-1');
+  assert.equal(items[0]?.target.assetName, 'app.example.com');
+  assert.equal(items[0]?.target.bindingId, 'binding-1');
+  assert.equal(items[0]?.target.currentCertificateNotAfter, currentVersion.notAfter);
+  assert.equal(items[0]?.target.targetCertificateNotAfter, targetVersion.notAfter);
+  assert.equal(items[0]?.target.certificateVersionImpact, 'upgrade');
+});

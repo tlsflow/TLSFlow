@@ -969,6 +969,10 @@ function pluginRefreshFailureMessage(failure: Record<string, unknown>): string {
 
 function taskTriggerSourceLabel(task: TaskRun): string {
   if (task.taskType === 'PLUGIN_REFERENCE_REFRESH') return t('tasks.pluginRefresh.values.triggerSource')
+  if (
+    task.triggerSource === 'automation.external_api'
+    || (isAutomationTask(task) && automationRun.value?.triggerContext?.sourceType === 'external_api')
+  ) return t('tasks.values.externalApi')
   return task.triggerSource
 }
 
@@ -1862,7 +1866,7 @@ function recordString(record: InternalCaRecord, key: string): string {
           <template v-else>
             <dl class="task-drawer__facts">
               <div><dt>{{ t('tasks.fields.requestedBy') }}</dt><dd>{{ detailTask?.requestedBy || t('tasks.values.system') }}</dd></div>
-              <div><dt>{{ t('tasks.fields.triggerSource') }}</dt><dd>{{ detailTask?.triggerSource }}</dd></div>
+              <div><dt>{{ t('tasks.fields.triggerSource') }}</dt><dd>{{ detailTask ? taskTriggerSourceLabel(detailTask) : '' }}</dd></div>
               <div><dt>{{ t('tasks.fields.createdAt') }}</dt><dd>{{ localTime(detailTask?.createdAt) }}</dd></div>
               <div><dt>{{ t('tasks.fields.startedAt') }}</dt><dd>{{ localTime(detailTask?.startedAt) }}</dd></div>
               <div><dt>{{ t('tasks.fields.finishedAt') }}</dt><dd>{{ localTime(detailTask?.finishedAt) }}</dd></div>

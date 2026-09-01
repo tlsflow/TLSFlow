@@ -92,6 +92,50 @@ test('按需运行的证书有效期降级必须经过二次确认', async () =>
   assert.equal(run.targetSummary.total, 1);
 });
 
+test('通过外部 API 创建的统一任务记录独立触发来源', async () => {
+  const db = new PgliteDatabase();
+  await applyAutomationMigrations(db);
+  const repository = new AutomationsRepository(db);
+  const now = '2026-08-27T00:00:00.000Z';
+  await repository.createAutomation({ id: 'aut_external_source', tenantId: 'tenant_1', name: '外部 API 自动化', status: 'active', currentVersion: 1, createdBy: 'u1', createdAt: now, updatedAt: now, version: 1 });
+  await repository.createVersion({
+    id: 'autv_external_source',
+    tenantId: 'tenant_1',
+    automationId: 'aut_external_source',
+    version: 1,
+    trigger: { type: 'api' },
+    externalApi: { executionMode: 'direct' },
+    targetResolver: { type: 'certificate_version_targets' },
+    actions: [{ type: 'send_notification', position: 1, config: { templateKey: 'result', eventKey: 'done' } }],
+    guardrails: { maxTargetsPerRun: 10, concurrencyLimit: 2, requirePreview: true, requireDryRun: false, requireApproval: false },
+    checksum: 'h'.repeat(64),
+    createdBy: 'u1',
+    createdAt: now,
+  });
+  const resolverRegistry = new AutomationTargetResolverRegistry();
+  resolverRegistry.register({
+    type: 'certificate_version_targets',
+    validate: () => undefined,
+    resolve: async () => [{
+      target: { certificateId: 'cert-1', certificateName: 'example.com', certificateVersionId: 'cert-version-1', assetId: 'asset-1', assetName: 'app.example.com', tags: [] },
+      executable: true,
+    }],
+  });
+  const enqueuedTasks: Array<{ triggerSource: string }> = [];
+  const tasks = {
+    enqueue: async (input: { triggerSource: string }) => {
+      enqueuedTasks.push(input);
+      return { id: 'task-external-source' } as never;
+    },
+  };
+  const service = new AutomationsApplicationService(repository, undefined, () => new Date(now), { resolverRegistry, tasks });
+  await service.createOnDemandRun('tenant_1', 'external:api-key', 'aut_external_source', 'external-source-key', 1, {
+    triggerContext: { certificateVersionId: 'cert-version-1', sourceType: 'external_api' },
+    externalExecutionMode: 'direct',
+  });
+  assert.equal(enqueuedTasks[0]?.triggerSource, 'automation.external_api');
+});
+
 test('证书新版本事件自动化手动执行时缺少证书版本会被拒绝', async () => {
   const db = new PgliteDatabase();
   await applyAutomationMigrations(db);

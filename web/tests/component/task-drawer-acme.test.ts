@@ -10,6 +10,10 @@ const taskApiMocks = vi.hoisted(() => ({
   listMonitoringProbes: vi.fn(),
   listTasks: vi.fn(),
 }))
+const automationApiMocks = vi.hoisted(() => ({
+  getAutomationRun: vi.fn(),
+  listAutomationRunTargets: vi.fn(),
+}))
 const taskEventMocks = vi.hoisted(() => ({
   RECENT_TASK_LIMIT: 10,
   currentTaskActivity: vi.fn(),
@@ -32,7 +36,7 @@ const certificateApiMocks = vi.hoisted(() => ({ getCertificateAssetDetail: vi.fn
 vi.mock('vue-router', () => ({ useRouter: () => routerMocks }))
 vi.mock('@/api/modules/tasks.api', () => taskApiMocks)
 vi.mock('@/api/modules/audits.api', () => ({ decideApproval: vi.fn() }))
-vi.mock('@/api/modules/automations.api', () => ({ getAutomationRun: vi.fn(), listAutomationRunTargets: vi.fn() }))
+vi.mock('@/api/modules/automations.api', () => automationApiMocks)
 vi.mock('@/api/modules/certificates.api', () => certificateApiMocks)
 vi.mock('@/api/modules/deployments.api', () => ({ listDeploymentPlans: vi.fn() }))
 vi.mock('@/api/modules/internal-ca.api', () => ({ internalCaApi: acmeApiMocks }))
@@ -347,6 +351,75 @@ describe('TaskDrawer ACME 任务展示', () => {
     expect(item.text()).toContain('失败 1')
     expect(item.text()).toContain('4/5')
     expect(item.find('.gc-tag--warning').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('历史外部 API 自动化任务详情按运行上下文显示外部 API 触发来源', async () => {
+    const task = {
+      id: 'task-automation-external-api',
+      tenantId: 'tenant-1',
+      taskType: 'AUTOMATION_RUN',
+      definitionVersion: 1,
+      category: 'EXECUTION' as const,
+      status: 'SUCCEEDED' as const,
+      requestedBy: 'external:aek_1',
+      triggerSource: 'automation.manual',
+      payload: { runId: 'run-external-api' },
+      resourceSummary: { displayName: '外部 API 证书自动化', totalTargets: 1, succeededTargets: 1, failedTargets: 0 },
+      progress: { totalTargets: 1, succeededTargets: 1, failedTargets: 0 },
+      createdAt: '2026-08-27T04:55:00.000Z',
+      finishedAt: '2026-08-27T04:56:00.000Z',
+    }
+    const activity = {
+      activeTasks: [],
+      recentTasks: [task],
+      activeCount: 0,
+      hasActive: false,
+      connected: true,
+    }
+    taskEventMocks.currentTaskActivity.mockReturnValue(activity)
+    taskEventMocks.subscribeTaskActivity.mockImplementation((listener) => {
+      listener(activity)
+      return () => undefined
+    })
+    taskApiMocks.getTask.mockResolvedValue({
+      data: { task, attempts: [], events: [], childTasks: [], resourceRefs: [], auditEvents: [] },
+    })
+    automationApiMocks.getAutomationRun.mockResolvedValue({
+      id: 'run-external-api',
+      automationId: 'aut_external_api',
+      automationNameSnapshot: '外部 API 证书自动化',
+      automationVersion: 1,
+      triggerType: 'on_demand',
+      triggerContext: { sourceType: 'external_api' },
+      status: 'succeeded',
+      targetSummary: { total: 1, succeeded: 1, failed: 0, running: 0 },
+      actionResults: [],
+    })
+    automationApiMocks.listAutomationRunTargets.mockResolvedValue([])
+
+    const wrapper = mount(TaskDrawer, {
+      props: { open: true },
+      global: {
+        stubs: {
+          GcButton: ButtonStub,
+          GcEmptyState: SlotStub,
+          GcModal: SlotStub,
+          GcProgressBar: SlotStub,
+          GcStatusTag: StatusTagStub,
+          GcTabs: SlotStub,
+        },
+      },
+    })
+
+    await flushAsyncWork()
+    await wrapper.get('.task-drawer__item-open').trigger('click')
+    await flushAsyncWork()
+
+    const genericSourceFacts = wrapper.findAll('.task-drawer__facts:not(.task-drawer__automation-facts) dd')
+    expect(genericSourceFacts[1]?.text()).toBe('外部 API')
+    const sourceFacts = wrapper.findAll('.task-drawer__automation-facts dd')
+    expect(sourceFacts[1]?.text()).toBe('外部 API')
     wrapper.unmount()
   })
 
